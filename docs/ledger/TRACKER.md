@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-30T06:45:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-08-30T07:00:07Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6077](https://github.com/openova-io/openova/issues/6077) | Job re-run on a collapsed scanner identity row 422s and fails invisibly: syft-sb | Other |
 | [#6079](https://github.com/openova-io/openova/issues/6079) | mothership GitOps loop dead: containerd's ghcr pull carries a credential GHCR de | Other |
 | [#6081](https://github.com/openova-io/openova/issues/6081) | Per-Org console: the install wizard's Organization list is empty because the dir | Other |
 | [#6082](https://github.com/openova-io/openova/issues/6082) | Cutover can never start on hw293: a repaired defect latched the record failed, a | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6645](https://github.com/openova-io/openova/issues/6645) | cutover step-01 wedge on hw305: #6490 secondary-region gitea-mirror push fails ' | Other |
 | [#6695](https://github.com/openova-io/openova/issues/6695) | dashboard(treemap): converged Sovereign defaults to real resource/health map, no | Other |
 | [#6697](https://github.com/openova-io/openova/issues/6697) | console: index.html served without Cache-Control — rolled deploys invisible un | Other |
+| [#6703](https://github.com/openova-io/openova/issues/6703) | epic: unified Jobs/Resources surface (chips + list + dependency-DAG + CronJob sc | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-30T06:50 | [#6704](https://github.com/openova-io/openova/pull/6704) | #6695 | fix(treemap): tiles lead with component name, not 'Install'  |
 | 2026-08-26T18:15 | [#6702](https://github.com/openova-io/openova/pull/6702) | #6695 | feat(jobs): distinct Kind-chip colour per engine, grouped by |
 | 2026-08-26T14:06 | [#6701](https://github.com/openova-io/openova/pull/6701) | #6695 | fix(jobs): Kind column badge shows real engine name (re-cut) |
 | 2026-08-26T13:52 | [#6700](https://github.com/openova-io/openova/pull/6700) | #4 | feat(jobs): real engine names in /jobs Kind filter + treemap |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-24T04:30 | [#6673](https://github.com/openova-io/openova/pull/6673) | docs(uat): fix ledger table overflow — table-layout:fixed +  |  |
 | 2026-08-24T04:02 | [#6672](https://github.com/openova-io/openova/pull/6672) | #800 | docs(uat): row 14 ⏳→✅ — shared-pg reuse LIVE, multiple consu |
 | 2026-08-24T03:48 | [#6671](https://github.com/openova-io/openova/pull/6671) | #3376 | docs(uat): row 93 ⏳→✅ — 2nd-org funnel generality (walkstran |
-| 2026-08-24T02:39 | [#6670](https://github.com/openova-io/openova/pull/6670) | #4439 | docs(uat): record hw305 diagnostics in the 4 ⏳ rows (14/93/1 |
 
 ---
 
