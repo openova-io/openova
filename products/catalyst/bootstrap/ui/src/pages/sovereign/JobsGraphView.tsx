@@ -48,10 +48,13 @@ interface JobsGraphViewProps {
   disableStream?: boolean
 }
 
-/** Fold groups at containment depth ≥ 2 by default, so the orchestration
- *  units (bootstrap-kit, cutover, provisioner, …) render as gathered
- *  bubbles with child-count badges rather than exploding every leaf. */
-const DEFAULT_FOLD_DEPTH = 2
+/** Default = UNFOLDED (founder call): every group is expanded so the FULL
+ *  dependency mesh is drawn — all 236 helm→helm `spec.dependsOn` edges plus
+ *  the 6 helm→cutover edges that are otherwise collapsed inside a "112 jobs"
+ *  bubble. Folding a group becomes a manual action (double-click / the
+ *  disclosure badge) to simplify on demand. `'all'` → defaultFolded returns
+ *  the empty set (nothing folded). */
+const DEFAULT_FOLD_DEPTH: number | 'all' = 'all'
 
 const GROUP_NODE_ACTIONS: readonly FlowOrganicAction[] = [
   { id: 'fold', label: 'Fold' },
