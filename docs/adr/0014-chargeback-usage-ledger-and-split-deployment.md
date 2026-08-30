@@ -122,12 +122,24 @@ single source the controller renders from (today: three copies — `seed.go`, `p
 `isolationForPlan`). Rendering extends to `requests.storage`, `count/*`, a Burstable split for
 Flexi, per-plan egress annotations, and an Org-keyed gateway limiter.
 
-### D8 — Access to standalone tenants = per-tenant read-only IAM agency
+### D8 — Access to standalone tenants = per-tenant read-only IAM user (AK/SK), agency only if the operator publishes token exchange
 
-One OpenOva account; the tenant (or National Cloud centrally, for accounts it administers)
-creates an agency trusting it with `Tenant Guest` + ReadOnly for ECS/EVS/EIP/ELB/NAT/OBS/RDS/DCS/CES/CTS,
-all regions, 1-year validity. Onboarding = account name + agency name + project ids in the
-chargeback UI. Revocation = the tenant deletes the agency.
+*(Amended 2026-08-30 15:1x after probing: `POST /v3/auth/tokens` — password **and** `assume_role`
+agency exchange — and `/v3.0/OS-CREDENTIAL/securitytokens` are all `404 APIGW.0101` on the tenant
+gateway; our own provider path has always been AK/SK request signing with no token API and no
+agency — the earlier "`agency_domain_name` is in our HCS provider config" claim referred to the
+Crossplane `provider-huaweicloud` credentials schema, not to anything we run. Agencies therefore
+cannot be assumed from outside the platform as designed.)*
+
+The proven path is the one we already run against our own tenant: the tenant (or the operator
+centrally, for accounts it administers) creates a **dedicated read-only IAM user** in its account
+— policies `Tenant Guest` + ReadOnly for ECS/EVS/EIP/ELB/NAT/OBS/RDS/DCS/CES/CTS, all regions —
+and hands its **AK/SK** to the chargeback service, which stores it encrypted (OpenBao), signs every
+request with `SDK-HMAC-SHA256` exactly as `internal/providers/huawei/sigv3.go` does today, and
+supports rotation. Onboarding = account name + project ids + AK/SK in the chargeback UI (or an
+operator-side bulk import). Revocation = the tenant deletes the IAM user or rotates the key.
+If the operator later publishes the IAM token-exchange API (or an internal IAM host exists), the
+agency variant becomes a drop-in credential type with no other change.
 
 ### D9 — UI model: one account tree, two lenses — unified from day one (recorded 2026-08-30 after the founder's UI question)
 
@@ -229,9 +241,26 @@ price book) as an API; the D9 UI is one client of it. An operator may run the wh
 embed the engine behind its own portal. This is the hedge that keeps the operator-central profile
 from becoming a bespoke product.
 
-**Unknowns to verify with the operator, not to design around:** (1) does the operator's portal
-expose an IdP for federation; (2) can the cloud IAM be used for verify-only login from outside
-(option (b) is testable on our own tenant today). Until answered, (c) is the default.
+**Operator of record.** The `operator-central` profile is **operated by the cloud operator itself**
+(National Cloud staff in the operator role, on its own infrastructure — its Sovereign or bare CCE);
+OpenOva-hosted operation of the same profile (OpenOva staff in the operator role) is a commercial
+option, not a different profile.
+
+**Per-tenant data partitioning (mechanism, not intent):** every table carries `account_id`;
+Postgres row-level-security policies keyed on the session's account scope every query; statements
+and exports are stored under a per-account prefix; the audit log is per account; delete/export
+is an account-scoped job. The operator lens reads across accounts through an explicit
+operator-role policy, never by bypassing RLS.
+
+**Identity options — probed 2026-08-30 15:1x on the tenant gateway and portal:** (a) the portal
+(`console.kom4dc…`) redirects `/.well-known/openid-configuration`, `/saml/metadata`, `/realms`,
+`OS-FEDERATION` to its SPA — **no discoverable IdP**; (b) `POST /v3/auth/tokens` (password) is
+`404 APIGW.0101` — **verify-only login against the cloud IAM is not available from outside**.
+Therefore **(c) is the default and, today, the only path:** account-linking — the read-only IAM
+user's AK/SK the tenant hands over (D8) is proof of account ownership (the service verifies it by
+one signed `ecs` list call and reads the `domain_id`/project from the response), bound to an email
+PIN identity. (a)/(b) remain questions for the operator; if either is published, it becomes an
+additional credential/identity type with no other change.
 
 ## Alternatives rejected
 
