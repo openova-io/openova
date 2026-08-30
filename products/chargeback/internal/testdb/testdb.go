@@ -6,6 +6,7 @@ package testdb
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"testing"
 	"time"
@@ -29,13 +30,29 @@ func Open(t *testing.T) *store.Store {
 	if err != nil {
 		t.Fatalf("open %s: %v", EnvVar, err)
 	}
-	t.Cleanup(func() { db.Close() })
 	st := store.New(db)
 	if err := st.Migrate(ctx); err != nil {
+		db.Close()
 		t.Fatalf("migrate: %v", err)
 	}
-	if _, err := db.ExecContext(ctx, `TRUNCATE TABLE audit_log, sessions, pins, invites, rated_lines, statements, usage_records, resource_inventory, cost_sources, credentials, customer_users, customers, price_items, price_books RESTART IDENTITY CASCADE`); err != nil {
+	// Wipe before the test (a previous run may have died mid-way) and again
+	// after it, so a shared database never keeps test customers, sources or
+	// credentials around for a later run of the service against it.
+	wipe(t, db)
+	t.Cleanup(func() {
+		wipe(t, db)
+		db.Close()
+	})
+	return st
+}
+
+const wipeSQL = `TRUNCATE TABLE audit_log, sessions, pins, invites, rated_lines, statements, usage_records, resource_inventory, cost_sources, credentials, customer_users, customers, price_items, price_books RESTART IDENTITY CASCADE`
+
+func wipe(t *testing.T, db *sql.DB) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if _, err := db.ExecContext(ctx, wipeSQL); err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
-	return st
 }

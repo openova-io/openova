@@ -99,8 +99,19 @@ Hourly: `ces` `cpu_util` per ECS → `ecs.cpu_util`.
 Verification (activation): one signed `GET ecs /v1/{pid}/cloudservers/detail?limit=1`.
 `2xx` ⇒ verified; `401`/`403` ⇒ failed with the gateway error code
 (`APIGW.0301`, `EPS.0003`, …) in `last_error`; `404 APIGW.0101` ⇒ failed, API not
-published. Per-source exponential backoff (≤ 6h) on collection failure; counters
-and gauges at `GET /metrics`.
+published.
+
+**Per-source isolation.** Every tick walks the collectable sources one by one,
+each step recover-guarded: one source's failure (gateway error, store error,
+even a panic) marks only that source — `last_error` set, per-source exponential
+backoff (≤ 6h) — and the loop continues with the next source. The tick result is
+`ok` when every source succeeded and `partial` otherwise
+(`chargeback_collect_ticks_total{step,result}`); per-source outcomes are counted
+in `chargeback_collect_sources_total{step,result="ok|error|skipped"}`. A
+credential that cannot be decrypted with the current `APP_ENCRYPTION_KEY` flips
+its source to `failed` immediately and is **not retried every tick** — the
+source rejoins collection only after a new credential is entered via
+`POST /sources/{id}/credential`.
 
 ## API (`/api/v1`, JSON, cookie `cb_session` HttpOnly SameSite=Lax)
 

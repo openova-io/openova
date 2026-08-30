@@ -374,7 +374,9 @@ func TestIntegrationCollectorFailureNeverStoresOrLogsSecret(t *testing.T) {
 	gw.rejectAll = true
 	gw.mu.Unlock()
 	col.Now = func() time.Time { return time.Date(2026, 8, 31, 12, 0, 0, 0, time.UTC) }
-	col.CollectAll(ctx)
+	if res := col.CollectAll(ctx); res.Result != "partial" || res.Failed != 1 || res.Sources != 1 {
+		t.Fatalf("tick result = %+v", res)
+	}
 	got, _ := st.GetSource(ctx, store.OperatorScope, src.ID)
 	if got.LastError == nil || !strings.Contains(*got.LastError, "APIGW.0301") {
 		t.Fatalf("last_error = %v", got.LastError)
@@ -391,8 +393,11 @@ func TestIntegrationCollectorFailureNeverStoresOrLogsSecret(t *testing.T) {
 	if !col.inBackoff(src.ID) {
 		t.Fatal("failed source not in backoff")
 	}
-	if col.Metrics.Get("chargeback_collect_runs_total", map[string]string{"result": "error"}) != 1 {
+	if col.Metrics.Get("chargeback_collect_sources_total", map[string]string{"step": "collect", "result": "error"}) != 1 {
 		t.Fatal("error counter not incremented")
+	}
+	if col.Metrics.Get("chargeback_collect_ticks_total", map[string]string{"step": "collect", "result": "partial"}) != 1 {
+		t.Fatal("tick not recorded as partial")
 	}
 	// While in backoff the source is skipped entirely.
 	before := gw.calls["ecs"]

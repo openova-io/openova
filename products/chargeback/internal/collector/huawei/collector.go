@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,11 +26,46 @@ const (
 	attrCreated     = "created"
 )
 
+// Repository is the persistence the collector needs; *store.Store implements
+// it, and tests substitute an in-memory fake.
+type Repository interface {
+	ListVerifiedSources(ctx context.Context) ([]store.CostSource, error)
+	GetCredentialSecret(ctx context.Context, id string) (accessKey string, secretEnc []byte, err error)
+	SetSourceError(ctx context.Context, sourceID, lastError string) error
+	SetSourceFailed(ctx context.Context, sourceID, lastError string) error
+	SetSourceCollected(ctx context.Context, sourceID string, at time.Time) error
+	CustomerStartDate(ctx context.Context, id string) (time.Time, error)
+	UpsertInventory(ctx context.Context, sourceID string, items []store.InventoryUpsert) (map[string]json.RawMessage, error)
+	SetInventoryAttrs(ctx context.Context, sourceID, resourceID string, attrs any) error
+	MarkInventoryDeleted(ctx context.Context, sourceID string, kinds []string, seenIDs []string, at time.Time) (int64, error)
+	ListInventory(ctx context.Context, sourceID string) ([]store.InventoryItem, error)
+	GetInventoryItem(ctx context.Context, sourceID, resourceID string) (store.InventoryItem, error)
+	SetInventoryBounds(ctx context.Context, sourceID, resourceID string, firstSeen, deletedAt *time.Time) error
+	UpsertUsage(ctx context.Context, recs []store.UsageRecord) (int, error)
+	DeleteUsageInRange(ctx context.Context, sourceID, resourceID string, from, to time.Time) (int64, error)
+}
+
+var _ Repository = (*store.Store)(nil)
+
+// ErrCredentialUndecryptable means the stored secret cannot be opened with
+// the current APP_ENCRYPTION_KEY. The source is flipped to failed and left
+// alone until a new credential is entered (POST /sources/{id}/credential).
+var ErrCredentialUndecryptable = errors.New("credential cannot be decrypted with the current APP_ENCRYPTION_KEY; re-enter it via POST /sources/{id}/credential")
+
+// TickResult summarises one pass over all collectable sources.
+type TickResult struct {
+	Sources int              // sources considered this tick
+	Skipped int              // sources skipped because they are in backoff
+	Failed  int              // sources that errored (isolated; the tick continued)
+	Errors  map[string]error // source id → error
+	Result  string           // "ok" when nothing failed, "partial" otherwise
+}
+
 // Collector runs the per-source collection loops: inventory snapshot +
 // usage emission every CollectInterval, the CTS change-log poll every
 // CTSInterval, and the CES utilisation sample every CESInterval.
 type Collector struct {
-	Store           *store.Store
+	Store           Repository
 	Client          *Client
 	Keys            *crypto.Keyring
 	Metrics         *metrics.Registry
@@ -92,30 +128,10 @@ func (c *Collector) Run(ctx context.Context) {
 }
 
 // CollectAll runs one inventory+usage pass over every collectable source.
-func (c *Collector) CollectAll(ctx context.Context) {
-	sources, err := c.Store.ListVerifiedSources(ctx)
-	if err != nil {
-		slog.Error("collector: list sources", "error", err)
-		return
-	}
-	for _, src := range sources {
-		if ctx.Err() != nil {
-			return
-		}
-		if c.inBackoff(src.ID) {
-			continue
-		}
-		now := c.now()
-		if err := c.CollectSource(ctx, src, now); err != nil {
-			c.fail(src.ID, now)
-			_ = c.Store.SetSourceError(ctx, src.ID, err.Error())
-			c.metricsReg().Inc("chargeback_collect_runs_total", "Collection passes by result", map[string]string{"result": "error"}, 1)
-			slog.Warn("collector: source failed", "source", src.ID, "project", src.ProjectID, "error", err)
-			continue
-		}
-		c.succeed(src.ID)
-		c.metricsReg().Inc("chargeback_collect_runs_total", "Collection passes by result", map[string]string{"result": "ok"}, 1)
-	}
+// Each source is isolated: one failure marks that source only and the tick
+// continues; the result is "partial" when any source failed.
+func (c *Collector) CollectAll(ctx context.Context) TickResult {
+	return c.forEachSource(ctx, "collect", c.CollectSource)
 }
 
 func (c *Collector) inBackoff(id string) bool {
@@ -165,9 +181,82 @@ func (c *Collector) credentials(ctx context.Context, src store.CostSource) (Cred
 	}
 	sk, err := c.Keys.Open(enc)
 	if err != nil {
-		return Credentials{}, errors.New("credential cannot be decrypted with the current APP_ENCRYPTION_KEY")
+		return Credentials{}, ErrCredentialUndecryptable
 	}
 	return Credentials{AccessKey: ak, SecretKey: string(sk), ProjectID: src.ProjectID}, nil
+}
+
+// guarded runs one per-source step, converting a panic into an error so a
+// single source can never take the tick (or the process) down with it.
+func guarded(step string, src store.CostSource, fn func() error) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("collector: panic isolated", "step", step, "source", src.ID, "project", src.ProjectID, "panic", r, "stack", string(debug.Stack()))
+			err = fmt.Errorf("panic in %s: %v", step, r)
+		}
+	}()
+	return fn()
+}
+
+// handleSourceError records one source's failure without touching the
+// others: an undecryptable credential flips the source to failed so it is
+// not retried every tick; any other error keeps the source verified, stores
+// last_error and applies per-source backoff.
+func (c *Collector) handleSourceError(ctx context.Context, step string, src store.CostSource, err error, now time.Time) {
+	c.metricsReg().Inc("chargeback_collect_sources_total", "Per-source collection steps by result", map[string]string{"step": step, "result": "error"}, 1)
+	if errors.Is(err, ErrCredentialUndecryptable) {
+		if serr := c.Store.SetSourceFailed(ctx, src.ID, err.Error()); serr != nil {
+			slog.Error("collector: record credential failure", "source", src.ID, "error", serr)
+		}
+		c.succeed(src.ID) // nothing to back off: the source is no longer collectable
+		slog.Warn("collector: source disabled until its credential is re-entered", "step", step, "source", src.ID, "project", src.ProjectID, "error", err)
+		return
+	}
+	c.fail(src.ID, now)
+	if serr := c.Store.SetSourceError(ctx, src.ID, err.Error()); serr != nil {
+		slog.Error("collector: record source error", "source", src.ID, "error", serr)
+	}
+	slog.Warn("collector: source step failed; continuing with the next source", "step", step, "source", src.ID, "project", src.ProjectID, "error", err)
+}
+
+// forEachSource applies one guarded step to every collectable source and
+// returns the tick summary. A failing source is isolated: it is marked, the
+// loop moves on, and the tick result is "partial".
+func (c *Collector) forEachSource(ctx context.Context, step string, fn func(context.Context, store.CostSource, time.Time) error) TickResult {
+	res := TickResult{Errors: map[string]error{}, Result: "ok"}
+	sources, err := c.Store.ListVerifiedSources(ctx)
+	if err != nil {
+		slog.Error("collector: list sources", "step", step, "error", err)
+		res.Result = "partial"
+		res.Errors[""] = err
+		return res
+	}
+	for _, src := range sources {
+		if ctx.Err() != nil {
+			return res
+		}
+		res.Sources++
+		if c.inBackoff(src.ID) {
+			res.Skipped++
+			c.metricsReg().Inc("chargeback_collect_sources_total", "Per-source collection steps by result", map[string]string{"step": step, "result": "skipped"}, 1)
+			continue
+		}
+		now := c.now()
+		if err := guarded(step, src, func() error { return fn(ctx, src, now) }); err != nil {
+			res.Failed++
+			res.Errors[src.ID] = err
+			c.handleSourceError(ctx, step, src, err, now)
+			continue
+		}
+		c.succeed(src.ID)
+		c.metricsReg().Inc("chargeback_collect_sources_total", "Per-source collection steps by result", map[string]string{"step": step, "result": "ok"}, 1)
+	}
+	if res.Failed > 0 {
+		res.Result = "partial"
+	}
+	c.metricsReg().Inc("chargeback_collect_ticks_total", "Collection ticks by result (ok = every source succeeded, partial = at least one source failed)", map[string]string{"step": step, "result": res.Result}, 1)
+	slog.Info("collector: tick complete", "step", step, "sources", res.Sources, "skipped", res.Skipped, "failed", res.Failed, "result", res.Result)
+	return res
 }
 
 // CollectSource snapshots the inventory of one source and emits usage for
@@ -426,24 +515,10 @@ func (c *Collector) emitUsage(ctx context.Context, src store.CostSource, from, t
 	return written, flush()
 }
 
-// PollCTSAll runs the change-log poll over every collectable source.
-func (c *Collector) PollCTSAll(ctx context.Context) {
-	sources, err := c.Store.ListVerifiedSources(ctx)
-	if err != nil {
-		slog.Error("collector: list sources for cts", "error", err)
-		return
-	}
-	for _, src := range sources {
-		if ctx.Err() != nil {
-			return
-		}
-		if c.inBackoff(src.ID) {
-			continue
-		}
-		if err := c.PollCTS(ctx, src, c.now()); err != nil {
-			slog.Warn("collector: cts poll failed", "source", src.ID, "error", err)
-		}
-	}
+// PollCTSAll runs the change-log poll over every collectable source, each
+// one isolated like CollectAll.
+func (c *Collector) PollCTSAll(ctx context.Context) TickResult {
+	return c.forEachSource(ctx, "cts", c.PollCTS)
 }
 
 // PollCTS fetches lifecycle traces since the last poll and corrects the
@@ -565,24 +640,10 @@ func (c *Collector) applyEvent(ctx context.Context, src store.CostSource, ev Eve
 	return true, nil
 }
 
-// SampleCESAll samples CPU utilisation for every live ECS of every source.
-func (c *Collector) SampleCESAll(ctx context.Context) {
-	sources, err := c.Store.ListVerifiedSources(ctx)
-	if err != nil {
-		slog.Error("collector: list sources for ces", "error", err)
-		return
-	}
-	for _, src := range sources {
-		if ctx.Err() != nil {
-			return
-		}
-		if c.inBackoff(src.ID) {
-			continue
-		}
-		if err := c.SampleCES(ctx, src, c.now()); err != nil {
-			slog.Warn("collector: ces sample failed", "source", src.ID, "error", err)
-		}
-	}
+// SampleCESAll samples CPU utilisation for every live ECS of every source,
+// each one isolated like CollectAll.
+func (c *Collector) SampleCESAll(ctx context.Context) TickResult {
+	return c.forEachSource(ctx, "ces", c.SampleCES)
 }
 
 // SampleCES writes informational ecs.cpu_util records for the last two hours
