@@ -276,6 +276,21 @@ Operator (any Sovereign operator; National Cloud)
 The reverse direction is also allowed (an Organization adds an external cloud project as a
 second source) — the tree is symmetric because the Organization is the root of identity.
 
+#### D9a — Decision → user-visible surface, per profile (2026-08-31)
+
+| Decision | `sovereign` profile surface | `operator-central` profile surface |
+|---|---|---|
+| D2 app-internal `Customer` | Customers pages; synced Organization rows marked `source: adapter` | Customers pages (all rows native) |
+| D2a entity × mode | Customers list = the tree's top level; Org rows only where the adapter syncs | Customers list without Org rows |
+| D2b duplication / source-of-truth | Statements pages per customer; statement **export** for a dual-registered buyer | statement export to the buyer's own Sovereign instance (import as cost basis) |
+| D3/D3a collectors + modes | Customer detail → **Sources** tab (`collecting` flag, last collected, last error) + **Usage** views (by SKU / resource / day) | same |
+| D4/D5 standalone + placements | app at `chargeback.<sovereign-fqdn>`; sidebar entry via `Blueprint.spec.consoleUI` and the Settings → Menu mapping (PR #6724) | white-label domain, or the operator's own portal against the API (no UI) |
+| D6 seam with billing | not a chargeback screen — rated lines appear as debits on the Organization's existing credit balance | absent |
+| D7 enforcement | not a chargeback screen — plan limits live in the Organization consoles | absent |
+| D8/D8a intake | Customers → New · Import · Invite; public **Activate** page | same, self-service emphasised |
+| D9 tree + lenses | operator lens = every customer; account-owner lens = own subtree (PIN session scope) | same |
+| D10 profile | profile shown on `/auth/me` + adapter pages present | adapter pages absent |
+
 ### D10 — Deployment profiles: `sovereign` and `operator-central` (recorded 2026-08-30 after the founder's discomfort with the central National Cloud instance)
 
 D5's third placement ("central instance … bare Kubernetes + OIDC") under-specified a genuinely
