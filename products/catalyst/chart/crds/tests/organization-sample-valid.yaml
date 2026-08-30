@@ -14,6 +14,19 @@ spec:
   billingMode: real
   sovereignRef: omantel.omani.works
   defaultEnvironmentType: prod
+  # #6723 lane D — GitOps-declared external cost sources synced into the
+  # chargeback application (ADR-0014 D2); credentialRef names a Secret in
+  # the Org's host namespace, plaintext never on the CR.
+  costSources:
+    - kind: huawei-project
+      region: me-east-215
+      projectId: 0abc123def4567890abc123def456789
+      credentialRef:
+        name: acme-huawei-readonly-aksk
+        key: aksk
+    - kind: huawei-project
+      region: me-east-215
+      projectId: 1cba321fed6543210cba321fed654321
   owners:
     - email: ceo@acme.com
       role: owner
