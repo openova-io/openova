@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-30T09:15:02Z` |
+| Last refreshed | `2026-08-30T09:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-30T09:24 | [#6708](https://github.com/openova-io/openova/pull/6708) | #6703 | fix(sovereign-ui): /jobs reuses the canonical DAG + one shar |
 | 2026-08-30T07:48 | [#6706](https://github.com/openova-io/openova/pull/6706) | #6703 | feat(sovereign-ui): /jobs per-kind chips + List⇄Graph toggle |
 | 2026-08-30T07:48 | [#6705](https://github.com/openova-io/openova/pull/6705) | #6703 | feat(k8scache): watch batch/v1 CronJob + Job (P3 schedule-ti |
 | 2026-08-30T06:50 | [#6704](https://github.com/openova-io/openova/pull/6704) | #6695 | fix(treemap): tiles lead with component name, not 'Install'  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-24T05:53 | [#6676](https://github.com/openova-io/openova/pull/6676) | docs(uat): kill the ledger table's horizontal scroll (break  |  |
 | 2026-08-24T05:20 | [#6675](https://github.com/openova-io/openova/pull/6675) | #4439 | docs(uat): row 235 — refine ❌ root cause (region-B global-se |
 | 2026-08-24T05:03 | [#6674](https://github.com/openova-io/openova/pull/6674) | docs(uat): fix ledger table overflow properly (remove <style |  |
-| 2026-08-24T04:30 | [#6673](https://github.com/openova-io/openova/pull/6673) | docs(uat): fix ledger table overflow — table-layout:fixed +  |  |
 
 ---
 
