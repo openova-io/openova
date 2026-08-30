@@ -90,19 +90,38 @@ export function JobsGraphView({
   )
 
   // Component-first labels + kind-filter. Groups are always kept (they hold
-  // the tree together); leaves are dropped when their kind's chip is hidden.
+  // A leaf is kept when its kind's chip is visible. A GROUP is kept ONLY if
+  // it still has at least one visible descendant — so filtering to "OpenTofu"
+  // hides the Bootstrap (install) bubble entirely, instead of leaving an
+  // install-filled group on the canvas. This is what makes the chip filter
+  // actually show "only the added kinds".
   const jobs = useMemo<Job[]>(() => {
-    return adapter.jobs
-      .filter((j) => {
-        if (j.type === 'group') return true
-        if (!visibleKinds) return true
-        return visibleKinds.has(flowJobKind(j))
-      })
-      .map((j) => ({
-        ...j,
-        displayName: componentLabel(j.displayName ?? j.jobName),
-        jobName: componentLabel(j.jobName),
-      }))
+    const all = adapter.jobs
+    const relabel = (j: Job): Job => ({
+      ...j,
+      displayName: componentLabel(j.displayName ?? j.jobName),
+      jobName: componentLabel(j.jobName),
+    })
+    if (!visibleKinds) return all.map(relabel)
+
+    const byId = new Map(all.map((j) => [j.id, j]))
+    const keep = new Set<string>()
+    // 1. visible leaves
+    for (const j of all) {
+      if (j.type === 'group') continue
+      if (visibleKinds.has(flowJobKind(j))) keep.add(j.id)
+    }
+    // 2. every ancestor group of a kept leaf stays (walk parentId up)
+    for (const leafId of [...keep]) {
+      let pid = byId.get(leafId)?.parentId
+      const seen = new Set<string>()
+      while (pid && !seen.has(pid)) {
+        seen.add(pid)
+        keep.add(pid)
+        pid = byId.get(pid)?.parentId
+      }
+    }
+    return all.filter((j) => keep.has(j.id)).map(relabel)
   }, [adapter.jobs, visibleKinds])
 
   // Fold state — re-seed on topology (group-set) change, keep manual folds

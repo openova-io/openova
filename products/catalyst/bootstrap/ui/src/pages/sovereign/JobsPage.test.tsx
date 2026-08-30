@@ -143,9 +143,8 @@ describe('JobsPage — table view (NOT accordion)', () => {
     ])
     // And the redundant Kind filter dropdown is gone from the table toolbar.
     expect(screen.queryByTestId('jobs-filter-kind')).toBeNull()
-    // The kind IS surfaced — via the chip strip (active kind = lifecycle →
-    // the real engine label "OpenTofu", per JOB_ENGINE_LABELS.lifecycle).
-    expect(screen.getByTestId('jobs-kind-chips')).toBeTruthy()
+    // The kind IS surfaced — via the list-view kind dropdown (single-select).
+    expect(screen.getByTestId('jobs-kind-dropdown')).toBeTruthy()
   })
 
   it('does NOT render any legacy accordion testids', async () => {
