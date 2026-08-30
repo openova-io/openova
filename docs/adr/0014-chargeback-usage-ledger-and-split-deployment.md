@@ -63,6 +63,26 @@ Model delta = **one optional field**: `Organization.spec.costSources[] = {cloudP
 - migration ⇒ the same Organization gains Environments; identity, history, statements continuous.
 - isolation, RBAC, directory, showback, sign-in ⇒ existing Organization machinery. Nothing new.
 
+#### D2a — Per-mode entity matrix (2026-08-31)
+
+Modes: **M1** = standard Sovereign (any customer instance) · **M2** = OpenOva-operated central chargeback instance (our own National Cloud tenant, PoC) · **M3** = National-Cloud-operated central instance for all its customers.
+
+| Entity / field | M1 | M2 | M3 |
+|---|---|---|---|
+| Sovereign | present | present | present |
+| Organization (`kind: customer`) | present | present | present |
+| `Organization.spec.costSources[]` | field present, **empty** | non-empty for cloud-only Organizations | non-empty for most Organizations |
+| `platform` Organization (case 3) | present | present, carries our tenant's cloud footprint | present, carries O's Sovereign footprint |
+| Environment / Application | present | present or ∅ per Organization | ∅ for cloud-only Organizations |
+| User (PIN sign-in) | present | present | present |
+| **Tenant** | **not an entity → Organization** | **not an entity → Organization** | **not an entity → Organization** |
+| `BillingAccount` | absent | absent | absent |
+| platform collector | on | on | on (idle for cloud-only Organizations) |
+| cloud collector | off (no costSources) | on | on |
+| enforcement (plan quota) | on | on for Organizations with workloads | on for Organizations with workloads |
+| operator of record | sovereign-admin | OpenOva | National Cloud |
+| code / chart | one | one | one |
+
 ### D3 — Three cases, two collectors, one money layer
 
 | Case | Collected via | Attributed via | Enforced? |
