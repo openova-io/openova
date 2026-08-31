@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-31T02:00:05Z` |
+| Last refreshed | `2026-08-31T02:15:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-31T02:06 | [#6738](https://github.com/openova-io/openova/pull/6738) | #6723 | docs(architecture): cross-reference bp-chargeback (ADR-0014) |
 | 2026-08-31T01:51 | [#6737](https://github.com/openova-io/openova/pull/6737) | #6723 | docs(sessions): bp-chargeback pre-Sovereign UI walk evidence |
 | 2026-08-30T22:04 | [#6733](https://github.com/openova-io/openova/pull/6733) | #6723 | feat(chargeback): OpenOva adapter — Organization sync, platf |
 | 2026-08-30T21:41 | [#6732](https://github.com/openova-io/openova/pull/6732) | #6726 | feat(chargeback): catalog-seed entry for bp-chargeback + umb |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-30T07:48 | [#6705](https://github.com/openova-io/openova/pull/6705) | #6703 | feat(k8scache): watch batch/v1 CronJob + Job (P3 schedule-ti |
 | 2026-08-30T06:50 | [#6704](https://github.com/openova-io/openova/pull/6704) | #6695 | fix(treemap): tiles lead with component name, not 'Install'  |
 | 2026-08-26T18:15 | [#6702](https://github.com/openova-io/openova/pull/6702) | #6695 | feat(jobs): distinct Kind-chip colour per engine, grouped by |
-| 2026-08-26T14:06 | [#6701](https://github.com/openova-io/openova/pull/6701) | #6695 | fix(jobs): Kind column badge shows real engine name (re-cut) |
 
 ---
 
