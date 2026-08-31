@@ -1,0 +1,12 @@
+statement_id,customer,period_start,period_end,currency,status,source_id,sku,unit,quantity,unit_price,amount,resource_count
+9858d63b-0a3e-4cc7-936d-c04d123cf93b,OpenOva (own National Cloud tenant),2026-08-01,2026-08-31,OMR,draft,d0b3b15e-eac8-41b1-b8e7-93d327a62714,ecs.m7n.2xlarge.8,instance-hour,1835.272430,0.29983790,550.284231,10
+9858d63b-0a3e-4cc7-936d-c04d123cf93b,OpenOva (own National Cloud tenant),2026-08-01,2026-08-31,OMR,draft,d0b3b15e-eac8-41b1-b8e7-93d327a62714,ecs.m7n.xlarge.8,instance-hour,367.138320,0.15213927,55.856156,2
+9858d63b-0a3e-4cc7-936d-c04d123cf93b,OpenOva (own National Cloud tenant),2026-08-01,2026-08-31,OMR,draft,d0b3b15e-eac8-41b1-b8e7-93d327a62714,ecs.s7n.2xlarge.2,instance-hour,721.698882,0.14621575,105.523743,1
+9858d63b-0a3e-4cc7-936d-c04d123cf93b,OpenOva (own National Cloud tenant),2026-08-01,2026-08-31,OMR,draft,d0b3b15e-eac8-41b1-b8e7-93d327a62714,eip,hour,2373.745208,0.02853881,67.743863,10
+9858d63b-0a3e-4cc7-936d-c04d123cf93b,OpenOva (own National Cloud tenant),2026-08-01,2026-08-31,OMR,draft,d0b3b15e-eac8-41b1-b8e7-93d327a62714,eip.bandwidth_mbps,mbps-hour,420904.791032,0.01716667,7225.533649,10
+9858d63b-0a3e-4cc7-936d-c04d123cf93b,OpenOva (own National Cloud tenant),2026-08-01,2026-08-31,OMR,draft,d0b3b15e-eac8-41b1-b8e7-93d327a62714,elb,hour,367.144430,0.01923059,7.060404,2
+9858d63b-0a3e-4cc7-936d-c04d123cf93b,OpenOva (own National Cloud tenant),2026-08-01,2026-08-31,OMR,draft,d0b3b15e-eac8-41b1-b8e7-93d327a62714,evs.ssd.gb,gb-hour,670355.649791,0.00022831,153.048898,112
+9858d63b-0a3e-4cc7-936d-c04d123cf93b,OpenOva (own National Cloud tenant),2026-08-01,2026-08-31,OMR,draft,d0b3b15e-eac8-41b1-b8e7-93d327a62714,nat.1,hour,367.145264,0.11322489,41.569982,2
+9858d63b-0a3e-4cc7-936d-c04d123cf93b,OpenOva (own National Cloud tenant),2026-08-01,2026-08-31,OMR,draft,,subtotal,,,,8206.620926,
+9858d63b-0a3e-4cc7-936d-c04d123cf93b,OpenOva (own National Cloud tenant),2026-08-01,2026-08-31,OMR,draft,,tax,,0.0500,,410.331046,
+9858d63b-0a3e-4cc7-936d-c04d123cf93b,OpenOva (own National Cloud tenant),2026-08-01,2026-08-31,OMR,draft,,total,,,,8616.951972,
