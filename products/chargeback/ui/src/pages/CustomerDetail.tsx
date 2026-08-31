@@ -20,7 +20,12 @@ export function CustomerDetail() {
 
   const load = useCallback(async () => {
     try {
-      setC(await api.get<Customer>(`/customers/${id}`))
+      const [cust, src] = await Promise.all([
+        api.get<Customer>(`/customers/${id}`),
+        api.get<unknown>(`/customers/${id}/sources`).catch(() => null),
+      ])
+      if (src !== null) cust.sources = asList<CostSource>(src, 'sources')
+      setC(cust)
       setError('')
     } catch (e) {
       setError(errorText(e))
