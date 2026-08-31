@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-31T07:15:03Z` |
+| Last refreshed | `2026-08-31T07:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-31T07:23 | [#6748](https://github.com/openova-io/openova/pull/6748) | #6747 | fix(jobs): prune childless phase-container nodes from the gr |
 | 2026-08-31T06:24 | [#6746](https://github.com/openova-io/openova/pull/6746) | #6723 | docs(chargeback): per-chart DESIGN.md (composable structure, |
 | 2026-08-31T06:12 | [#6745](https://github.com/openova-io/openova/pull/6745) | #6744 | fix(jobs): list counts from authoritative backend list, not  |
 | 2026-08-31T05:50 | [#6743](https://github.com/openova-io/openova/pull/6743) | #6742 | fix(jobs): graph honours finite-jobs scope — drop open-ended |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-30T13:50 | [#6714](https://github.com/openova-io/openova/pull/6714) | #6713 | docs(adr): ADR-0014 D3a — collection modes (event-driven vs  |
 | 2026-08-30T13:17 | [#6713](https://github.com/openova-io/openova/pull/6713) | #6711 | docs(adr): ADR-0014 chargeback — usage ledger primitive + bp |
 | 2026-08-30T13:17 | [#6712](https://github.com/openova-io/openova/pull/6712) | docs(sessions): chargeback capture — extended billing/meteri |  |
-| 2026-08-30T10:45 | [#6711](https://github.com/openova-io/openova/pull/6711) | docs(sessions): chargeback requirements capture (Track 1 + N |  |
 
 ---
 
