@@ -22,11 +22,11 @@ type: application
 # Image = ghcr.io/openova-io/chargeback:<appVersion>
 # (build-chargeback.yaml; plain image repo per the #4706 chart-repo-collision
 # lesson — never the bp-chargeback chart OCI repo).
-version: 0.1.1
+version: 0.1.2
 # appVersion is the default image tag (chargeback.image in _helpers.tpl);
 # build-chargeback.yaml derives the pushed tag from this field so the two
 # can never drift.
-appVersion: 0.1.1
+appVersion: 0.1.2
 keywords:
   - chargeback
   - showback

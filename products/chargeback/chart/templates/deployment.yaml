@@ -41,7 +41,7 @@ spec:
     spec:
       serviceAccountName: {{ include "chargeback.serviceAccountName" . }}
       # Phase 0 reads nothing from the Kubernetes API — no token mount.
-      automountServiceAccountToken: false
+      automountServiceAccountToken: {{ .Values.adapter.enabled }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -137,6 +137,22 @@ spec:
               value: {{ .Values.config.ctsPollInterval | quote }}
             - name: PROFILE
               value: {{ .Values.config.profile | quote }}
+            {{- if .Values.adapter.enabled }}
+            - name: ADAPTER_ENABLED
+              value: "true"
+            {{- if .Values.adapter.billingHook.url }}
+            - name: BILLING_HOOK_URL
+              value: {{ .Values.adapter.billingHook.url | quote }}
+            {{- end }}
+            {{- with .Values.adapter.billingHook.tokenSecret }}
+            - name: BILLING_HOOK_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . }}
+                  key: BILLING_HOOK_TOKEN
+                  optional: true
+            {{- end }}
+            {{- end }}
           {{- with .Values.smtp.existingSecret }}
           envFrom:
             # SMTP_HOST/PORT/USER/PASS/FROM (spec §6) — optional so the
