@@ -263,14 +263,24 @@ spec:
   so the secondary's reads/writes cross the mesh to region-A — never to its own
   local pre-flip singleton DB.
   */ -}}
-  {{- $meshSvc := and (eq (include "bp-postgres.meshGlobalServices" .) "true") (eq (include "bp-postgres.side" .) "primary") }}
+  {{- /* #6753 — NOT demoted. The CNPG-managed `-mesh`/`-mesh-rw` here carry REAL
+       LOCAL backends (this named `<instance>` primary), correct only while THIS
+       region holds the writable primary. Once DEMOTED the named cluster is a
+       read-only standby of region-B (or absent mid-re-clone), so a managed
+       `-mesh-rw` off it would point consumer WRITES at a non-writable endpoint
+       AND vanish with the Cluster during the rejoin re-clone (the hw305 crash:
+       region-A grafana/powerdns NXDOMAIN on shared-pg-b-mesh-rw). In the demoted
+       shape the primary-side STUB (primary-demoted-mesh-service.yaml) publishes
+       these names instead, selecting the promoted `<instance>-replica` so they
+       route cross-mesh to region-B's writable survivor. Switchback (demoted→
+       false) hands the names back to CNPG here with no consumer host change. */ -}}
+  {{- $meshSvc := and (eq (include "bp-postgres.meshGlobalServices" .) "true") (eq (include "bp-postgres.side" .) "primary") (not $demoted) }}
   {{- /* #6149 — managed.roles is a WRITE reconcile (CREATE/ALTER ROLE). In the
        demoted rejoin shape this Cluster is a read-only standby of region-B, so
        CNPG can never satisfy the declaration and would report it pending
-       forever; the roles themselves arrive with the basebackup. The mesh
-       Services stay — they are the names the switchback needs to keep
-       resolving. Mirrors bp-cnpg-pair's demoted primary (no managed roles at
-       all, managed.services unconditional). */ -}}
+       forever; the roles themselves arrive with the basebackup. (#6753: the
+       mesh Service names keep resolving in the demoted shape too — via the
+       primary-demoted stub above, not this managed block.) */ -}}
   {{- $mgdRoles := and .Values.databases (not $demoted) }}
   {{- if or $mgdRoles $meshSvc }}
   managed:

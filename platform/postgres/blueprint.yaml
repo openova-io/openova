@@ -51,7 +51,12 @@ spec:
   #   admission CNP — the region-B keycloak → region-A shared-pg primary cross-mesh
   #   DROP that 500'd ~50% of per-app SSO /auth on hw304 (the singleton mirror of
   #   #4846's active-hot-standby carve-out; identity-based, gated on sharedConsumers).
-  version: 0.2.24
+  # 0.2.25 — #6753 (Refs #6149 #3629 #4460): the consumer `-mesh`/`-mesh-rw` global
+  #   aliases FOLLOW a #6149 automatic DR promotion (they select the promoted
+  #   `<instance>-replica`, not the demoted `<instance>`), so region-A grafana/
+  #   powerdns resolve `-mesh-rw` to region-B's writable survivor instead of
+  #   NXDOMAIN-crashlooping (measured hw305). Steady render byte-identical.
+  version: 0.2.25
   card:
     title: PostgreSQL
     summary: |

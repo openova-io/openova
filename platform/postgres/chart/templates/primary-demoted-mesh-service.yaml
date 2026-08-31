@@ -1,0 +1,97 @@
+{{- /*
+Primary-side DEMOTED stub for the ClusterMesh-global consumer aliases
+`<instance>-mesh` (read) + `<instance>-mesh-rw` (write) — #6753.
+
+WHY THIS EXISTS (measured live, hw305 dep b2b00ce4, 2026-08-31)
+--------------------------------------------------------------
+The #6149 AUTOMATIC DR path does not switch the pair in place; it PROMOTES the
+separate `<instance>-replica` Cluster in region B (topology.promoted=true) and
+DEMOTES the named `<instance>` Cluster in region A (topology.demoted=true). On
+the demoted side cluster.yaml then either renders `<instance>` as a read-only
+standby of region-B or — during the rejoin re-clone — deletes it entirely, so
+CNPG's managed `<instance>-mesh` / `<instance>-mesh-rw` Services (declared under
+the primary Cluster's managed.services) DISAPPEAR from region A. The consumer
+apps (grafana / powerdns / powerdns-admin) are baked to `<instance>-mesh-rw`
+UNCONDITIONALLY at cloud-init, so their DB host stops resolving and they
+CrashLoopBackOff — even though a healthy promoted primary is serving in region B.
+On hw305 shared-pg-b's region-A grafana + powerdns-admin sat at 2000+ restarts
+with `could not translate host name "shared-pg-b-mesh-rw..." ... Name does not
+resolve`, while region-B's promoted shared-pg-b-replica-1 was writable and
+reachable via the (working) reverse alias shared-pg-b-replica-mesh.
+
+WHAT THIS STUB DOES
+-------------------
+It is the DEMOTED-side analogue of replica-mesh-service.yaml (which owns these
+names on the pre-flip / replica side) and of peer-mesh-service.yaml (which owns
+the reverse `-replica-mesh` name on the primary side): a passive, zero-backend
+DNS anchor so the consumer host keeps resolving in region A independent of the
+demoted Cluster's lifecycle, and — the point — its selector names the PROMOTED
+`<instance>-replica` (bp-postgres.consumerAliasCluster), which has ZERO Pods on
+cluster-A, so Cilium's local-affinity routing falls through the mesh to region
+B's writable survivor. cluster.yaml's `$meshSvc` gate is `not $demoted`, so the
+managed aliases are suppressed here and this stub owns the names alone — no
+"refusing to reconcile service, not owned by the cluster" collision.
+
+Rendered ONLY on the demoted primary half (bp-postgres.primaryDemoted =
+side=primary AND topology.demoted) and only when the multi-region
+meshGlobalServices signal is on. Switchback (demoted→false) stops this file and
+hands the names back to CNPG's managed Services in cluster.yaml — the consumer
+host `<instance>-mesh-rw` never changes across the whole promote/failback/
+switchback cycle. A singleton or a steady (non-demoted) primary renders nothing
+here (byte-identical to pre-0.2.25).
+*/ -}}
+{{- if and (ne (toString .Values.enabled) "false") (eq (include "bp-postgres.meshGlobalServices" .) "true") (eq (include "bp-postgres.primaryDemoted" .) "true") }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "bp-postgres.replicationServiceName" . }}
+  namespace: {{ include "bp-postgres.namespace" . }}
+  labels:
+    {{- include "bp-postgres.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+    catalyst.openova.io/role: replication-source
+  annotations:
+    # Same global/affinity annotations as the promoted side's managed alias so
+    # Cilium merges the two into one global service; zero local backends here.
+    service.cilium.io/global: "true"
+    service.cilium.io/affinity: {{ .Values.topology.clusterMesh.affinity | quote }}
+    catalyst.openova.io/blueprint: bp-postgres
+spec:
+  type: ClusterIP
+  selector:
+    # #6753 — the PROMOTED cluster (`<instance>-replica`). No such Pods on the
+    # demoted cluster-A, so every connection routes across the mesh to region-B.
+    cnpg.io/cluster: {{ include "bp-postgres.consumerAliasCluster" . }}
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "bp-postgres.writeServiceName" . }}
+  namespace: {{ include "bp-postgres.namespace" . }}
+  labels:
+    {{- include "bp-postgres.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+    catalyst.openova.io/role: write-endpoint
+  annotations:
+    service.cilium.io/global: "true"
+    service.cilium.io/affinity: {{ .Values.topology.clusterMesh.affinity | quote }}
+    catalyst.openova.io/blueprint: bp-postgres
+spec:
+  type: ClusterIP
+  selector:
+    # #6753 — the PROMOTED cluster's PRIMARY instance (region-B's writable
+    # survivor). Zero backends on cluster-A → consumer WRITES to
+    # `<instance>-mesh-rw` cross the mesh to the current writable primary.
+    cnpg.io/cluster: {{ include "bp-postgres.consumerAliasCluster" . }}
+    cnpg.io/instanceRole: primary
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+      protocol: TCP
+{{- end }}

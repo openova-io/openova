@@ -466,6 +466,54 @@ host needs no change on failover.
 {{- end -}}
 
 {{/*
+Is the pair CURRENTLY failed over to region-B? (#6753)
+
+The #6149 AUTOMATIC DR path does NOT switch the pair in place — it PROMOTES the
+SEPARATE `<instance>-replica` Cluster (region B, topology.promoted=true) and
+DEMOTES the named `<instance>` Cluster (region A, topology.demoted=true). So the
+writable primary moves to a Cluster with a DIFFERENT `cnpg.io/cluster` label,
+and any alias hard-bound to `cnpg.io/cluster: <instance>` stops resolving to it.
+
+TRUE when the local half reports the failed-over role for its side:
+  - side=primary  : topology.demoted  (bp-postgres.primaryDemoted — already
+                    side-scoped: it is false unless side=primary AND demoted)
+  - side=replica  : topology.promoted (only meaningful on the replica half; the
+                    primary half never carries `promoted`)
+The two flags are driven together by the DR actors (region A demoted ⇔ region B
+promoted), so this helper — evaluated independently on each cluster — returns the
+SAME answer on both. Default (neither set) → false → steady state, and every
+alias selector below is byte-identical to pre-0.2.25.
+*/}}
+{{- define "bp-postgres.pairFailedOver" -}}
+{{- $topology := .Values.topology | default dict -}}
+{{- $demotedPrimary := eq (include "bp-postgres.primaryDemoted" .) "true" -}}
+{{- $promotedReplica := and (ne (include "bp-postgres.side" .) "primary") (ne (toString (dig "promoted" false $topology)) "false") -}}
+{{- if or $demotedPrimary $promotedReplica -}}true{{- end -}}
+{{- end -}}
+
+{{/*
+The CNPG Cluster whose primary CURRENTLY holds the writable endpoint the
+consumer `-mesh`/`-mesh-rw` aliases must select (#6753).
+
+Steady state → the named `<instance>` primary (region A). After a #6149 promote →
+the promoted `<instance>-replica` (region B). Selecting THIS cluster on both
+sides is what makes the ClusterMesh-global `-mesh-rw` follow the promotion: the
+promoted region contributes REAL local backends (its `<instance>-replica` primary
+Pod), and the demoted region contributes a zero-backend same-named stub so the
+name still resolves and traffic crosses the mesh to the writable region.
+
+Mirrors the reverse `-replica-mesh` alias, which already tracks promotion via
+CNPG's `selectorType: rw` on the replica Cluster (peerReplicationServiceName).
+*/}}
+{{- define "bp-postgres.consumerAliasCluster" -}}
+{{- if eq (include "bp-postgres.pairFailedOver" .) "true" -}}
+{{- include "bp-postgres.replicaName" . -}}
+{{- else -}}
+{{- include "bp-postgres.instanceName" . -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Sanitise an arbitrary string into an RFC 1123 DNS-subdomain-safe name
 fragment so it can be used in a k8s resource name. PostgreSQL identifiers
 (role/database names) legally contain underscores (e.g. `openova_flow`),

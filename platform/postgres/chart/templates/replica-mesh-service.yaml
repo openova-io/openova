@@ -61,9 +61,13 @@ metadata:
 spec:
   type: ClusterIP
   selector:
-    # CNPG `-r` selector shape for the PRIMARY Cluster — matches zero Pods
-    # on the replica cluster by construction.
-    cnpg.io/cluster: {{ include "bp-postgres.instanceName" . }}
+    # #6753 — selects the cluster that CURRENTLY holds the writable primary:
+    # `<instance>` in steady state (zero Pods here → cross-mesh to region-A),
+    # or the promoted `<instance>-replica` after a #6149 promote (this IS the
+    # local promoted cluster on the replica side → REAL local backends, so the
+    # ClusterMesh-global `-mesh` alias actually has endpoints again). Byte-
+    # identical to `<instance>` whenever the pair is not failed over.
+    cnpg.io/cluster: {{ include "bp-postgres.consumerAliasCluster" . }}
   ports:
     - name: postgres
       port: 5432
@@ -96,9 +100,13 @@ metadata:
 spec:
   type: ClusterIP
   selector:
-    # CNPG `-rw` selector shape (primary instance of the PRIMARY Cluster) —
-    # matches zero Pods on the replica cluster by construction.
-    cnpg.io/cluster: {{ include "bp-postgres.instanceName" . }}
+    # #6753 — `-rw` selector (primary instance) of the cluster that CURRENTLY
+    # holds the writable primary. Steady state → `<instance>` (zero Pods here →
+    # cross-mesh to region-A). After a #6149 promote → the LOCAL promoted
+    # `<instance>-replica`'s primary Pod (REAL backends), so consumer WRITES to
+    # `<instance>-mesh-rw` reach region-B's writable survivor instead of dead-
+    # ending on the demoted named cluster. Byte-identical when not failed over.
+    cnpg.io/cluster: {{ include "bp-postgres.consumerAliasCluster" . }}
     cnpg.io/instanceRole: primary
   ports:
     - name: postgres
