@@ -146,6 +146,21 @@ serviceAccount:
   create: true
   name: ""
 
+# ── OpenOva adapter (ADR-0014 D5, lane D) ───────────────────────────────
+# When enabled the binary syncs Organizations as customers and runs the
+# in-cluster platform collector, so it needs a read-only ClusterRole and a
+# mounted ServiceAccount token. Default OFF: the standalone/operator-central
+# profiles never touch the cluster. `Decide()` still gates at runtime.
+adapter:
+  enabled: false
+  # ADAPTER_ENABLED env override (empty = follow profile + in-cluster).
+  billingHook:
+    # BILLING_HOOK_URL — post issued real-billing statement totals to the
+    # catalyst billing service (D6). Empty = hook off.
+    url: ""
+    # Name of a Secret with key BILLING_HOOK_TOKEN. Empty = no hook auth.
+    tokenSecret: ""
+
 # requests == limits (Guaranteed QoS, 1:1 ratio) — REQUIRED for a per-Org
 # install under the plan-limits LimitRange (#4362/#4553).
 resources:

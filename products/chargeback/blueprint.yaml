@@ -13,7 +13,7 @@ spec:
   # Secret + post-install sync Job) + create-if-absent APP_ENCRYPTION_KEY
   # Job. Lockstep with products/chargeback/chart/Chart.yaml 0.1.0 +
   # bootstrap-kit slot 13f pin + the catalog-seed (blueprints.yaml) entry.
-  version: 0.1.1
+  version: 0.1.2
   card:
     title: Chargeback
     summary: Usage ledger, rating and monthly statements for your Organizations and external cloud projects — collect allocation-hours, rate them against a price book, issue statements.

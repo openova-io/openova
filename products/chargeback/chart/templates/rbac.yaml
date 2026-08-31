@@ -1,0 +1,40 @@
+{{- /*
+Read-only cluster RBAC for the OpenOva adapter (ADR-0014 D5, lane D). Rendered
+ONLY when .Values.adapter.enabled, so the standalone and operator-central
+profiles keep the zero-RBAC ServiceAccount. Scope is exactly the adapter's
+documented needs (products/chargeback/README.md RBAC table): the cluster-scoped
+Organization CRs and the pods/PVCs/namespaces the platform collector groups by
+the openova.io/organization label. The credential Secrets named by
+costSources[].credentialRef are granted separately by per-Organization Roles the
+org-gitops emitter writes on the named Secret (resourceNames get), never here.
+*/ -}}
+{{- if and .Values.adapter.enabled .Values.serviceAccount.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "chargeback.fullname" . }}-adapter
+  labels:
+    {{- include "chargeback.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["orgs.openova.io"]
+    resources: ["organizations"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["namespaces", "pods", "persistentvolumeclaims"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "chargeback.fullname" . }}-adapter
+  labels:
+    {{- include "chargeback.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "chargeback.fullname" . }}-adapter
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "chargeback.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
