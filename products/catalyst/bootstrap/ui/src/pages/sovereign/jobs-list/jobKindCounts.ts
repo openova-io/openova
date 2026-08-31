@@ -41,3 +41,19 @@ export function deriveJobKindCounts(jobs: readonly Job[]): Record<JobKind, numbe
   }
   return counts
 }
+
+/**
+ * Every kind mapped to `null` — the "not counted yet" state. A `null` count
+ * renders as an em-dash "—" in the dropdown / chip strip, NOT as "(0)".
+ *
+ * Used while the authoritative backend list is still loading: the counts must
+ * NEVER be derived from the reducer first-paint (the SSE active-tail), which
+ * during a cutover shows re-running OpenTofu and no completed installs — i.e.
+ * "OpenTofu (64) / HelmRelease (0)". Showing "—" until the real list lands is
+ * honest ("loading"); showing the reducer's tally is a wrong number.
+ */
+export function nullJobKindCounts(): Record<JobKind, null> {
+  const counts = {} as Record<JobKind, null>
+  for (const k of ALL_JOB_KINDS) counts[k] = null
+  return counts
+}
