@@ -846,6 +846,53 @@ func (h *Handler) jobsStore() *jobs.Store {
 	return h.jobs
 }
 
+// jobsStoreHasRows reports whether the per-deployment jobs.Store already holds
+// at least one row for depID (#6749). A WARM store means the /jobs read can be
+// served immediately and refreshed in the background; a COLD store (fresh
+// process/Pod, or a test's TempDir store) still seeds synchronously so the
+// first read returns a populated page. The read is a cheap local index lookup —
+// the same one ListJobs performs a few lines later.
+func (h *Handler) jobsStoreHasRows(depID string) bool {
+	if h.jobs == nil {
+		return false
+	}
+	existing, err := h.jobs.ListJobs(depID)
+	return err == nil && len(existing) > 0
+}
+
+// kickJobsSeedAsync refreshes the deployment's jobs.Store in the BACKGROUND so
+// the /jobs read path never blocks on the seed's multi-region live-cluster
+// LISTs (#6749). At most one refresh runs per deployment at a time
+// (singleflight via h.jobsSeedInFlight, the same LoadOrStore guard
+// clusterMeshLoopActive uses): a burst of 5s-interval polls collapses into one
+// in-flight scan instead of stacking N slow ones. The goroutine uses a bounded
+// background context — NOT the request ctx, which is cancelled the moment the
+// response is written — so a wedged region can never leak the goroutine
+// forever. Both seeds are idempotent (monotonic UpsertJob merges), so serving
+// slightly-stale rows and catching up on the next poll is correct.
+func (h *Handler) kickJobsSeedAsync(dep *Deployment) {
+	if dep == nil {
+		return
+	}
+	if _, busy := h.jobsSeedInFlight.LoadOrStore(dep.ID, struct{}{}); busy {
+		return // a refresh is already running for this deployment
+	}
+	go func() {
+		defer h.jobsSeedInFlight.Delete(dep.ID)
+		ctx, cancel := context.WithTimeout(context.Background(), jobsSeedRefreshTimeout)
+		defer cancel()
+		h.chrootSeedJobsStoreIfEmpty(ctx, dep)
+		h.motherSeedInClusterReconcilers(ctx, dep)
+	}()
+}
+
+// jobsSeedRefreshTimeout bounds a single background jobs-store refresh so a
+// region whose apiserver is unreachable during a cutover cannot pin the
+// goroutine (and its singleflight slot) open indefinitely. Generous relative to
+// a healthy multi-region scan (~1s) but far below the old synchronous
+// worst-case (73-98s) the caller no longer waits on at all.
+const jobsSeedRefreshTimeout = 2 * time.Minute
+
 // fullInventoryRequested reports whether the caller asked for the FULL
 // platform inventory (?inventory=full) instead of the default #3996
 // finite-work view. The Dashboard treemap (#4731) sets it so a converged
@@ -944,18 +991,36 @@ func (h *Handler) ListJobs(w http.ResponseWriter, r *http.Request) {
 		if !h.checkOwnership(w, r, dep) {
 			return
 		}
-		// Chroot lazy seed — populates the per-deployment jobs.Store
-		// from a one-shot live HelmRelease list when running on the
-		// Sovereign cluster itself. Mother behaviour unchanged.
-		h.chrootSeedJobsStoreIfEmpty(r.Context(), dep)
-		// Mother-side in-cluster reconciler ingestion (#3896). During
-		// phase1-watching the mothership watches HelmReleases (install-*
-		// leaves) but never surfaces the raw in-cluster Jobs/CronJobs/
-		// Kustomizations/reconciler Deployments — the most useful rows to
-		// watch while a fresh prov converges. No-op on the chroot (the
-		// path above already covers it) and when the deployment's
-		// kubeconfig isn't reachable yet.
-		h.motherSeedInClusterReconcilers(r.Context(), dep)
+		// Store-first read (#6749). The seed below re-projects the whole
+		// platform from LIVE clusters — chrootSeedJobsStoreIfEmpty's four
+		// UNCONDITIONAL legs (secondary regions, per-Org app installs,
+		// reconciler observations, cutover activity) each do a cluster LIST,
+		// and motherSeedInClusterReconcilers adds more — running them on the
+		// request path made every /jobs call block 73-98s on a converged
+		// Sovereign whose cutover was churning a region. The per-deployment
+		// jobs.Store is durable and already holds the rows, so:
+		//   • WARM store (has rows for this dep — every converged case) →
+		//     serve what we have NOW and refresh in the background. The 5s
+		//     poll picks up the refreshed rows; the read never blocks.
+		//   • COLD store (no rows yet — a fresh process/Pod, or a test's
+		//     TempDir store) → seed SYNCHRONOUSLY this once so the first read
+		//     returns a populated page instead of an empty one.
+		if h.jobsStoreHasRows(depID) {
+			h.kickJobsSeedAsync(dep)
+		} else {
+			// Chroot lazy seed — populates the per-deployment jobs.Store
+			// from a one-shot live HelmRelease list when running on the
+			// Sovereign cluster itself. Mother behaviour unchanged.
+			h.chrootSeedJobsStoreIfEmpty(r.Context(), dep)
+			// Mother-side in-cluster reconciler ingestion (#3896). During
+			// phase1-watching the mothership watches HelmReleases (install-*
+			// leaves) but never surfaces the raw in-cluster Jobs/CronJobs/
+			// Kustomizations/reconciler Deployments — the most useful rows to
+			// watch while a fresh prov converges. No-op on the chroot (the
+			// path above already covers it) and when the deployment's
+			// kubeconfig isn't reachable yet.
+			h.motherSeedInClusterReconcilers(r.Context(), dep)
+		}
 	}
 	out, err := st.ListJobs(depID)
 	if err != nil {
@@ -1039,10 +1104,16 @@ func (h *Handler) GetJob(w http.ResponseWriter, r *http.Request) {
 		if !h.checkOwnership(w, r, dep) {
 			return
 		}
-		// Chroot lazy seed — same path as ListJobs, ensures GetJob
-		// returns the rich record on first hit even if ListJobs was
-		// never called.
-		h.chrootSeedJobsStoreIfEmpty(r.Context(), dep)
+		// Chroot lazy seed — same store-first rule as ListJobs (#6749). A
+		// deep-link normally arrives after the list already warmed the store,
+		// so the common case refreshes in the background and never blocks;
+		// only a genuinely cold store (first hit, ListJobs never called) seeds
+		// synchronously so the rich record is present on that first read.
+		if h.jobsStoreHasRows(depID) {
+			h.kickJobsSeedAsync(dep)
+		} else {
+			h.chrootSeedJobsStoreIfEmpty(r.Context(), dep)
+		}
 	}
 	job, execs, err := st.GetJob(depID, jobID)
 	if err != nil {
