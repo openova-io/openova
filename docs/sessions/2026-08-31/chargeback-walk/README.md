@@ -24,3 +24,19 @@ Defects found live, both actioned:
 
 Open validation item (unchanged): first-tick backfill semantics vs CTS timestamps — quantities
 imply backfill from resource creation; to be pinned during the hw306 walk.
+
+## Second pass (image 0.1.1, same walk data)
+
+| Step | Evidence |
+|---|---|
+| Overview with live totals | `cb-walk-05-overview-live.png` |
+| Customers list with the active row | `cb-walk-06-customers-list.png` |
+| Audit trail: `customer.create → source.create → credential.rotate{verified} → customer.activate{via: source verification} → source.verify`, secret-free | `cb-walk-07-audit-activation.png` |
+| Sources tab BEFORE the fix (0.1.0 — always "No cost sources" despite the persisted, verified source) | `cb-walk-08-sources-before-fix.png` |
+| Sources tab AFTER the fix (0.1.1 — full row: verified, last-collected, Verify/Rotate/Delete) | `cb-walk-09-sources-after-fix.png` |
+
+Publish incident closed en route: the 0.1.1 chart publish first failed because the chart's own
+render-contract test asserted a hardcoded `0.1.0` image literal; fixed by deriving the expected
+tag from `Chart.yaml appVersion` (#6739). Image `chargeback:0.1.1` and chart `bp-chargeback:0.1.1`
+are both on GHCR (kit slot 13f and the catalog seed pins resolve again).
+
