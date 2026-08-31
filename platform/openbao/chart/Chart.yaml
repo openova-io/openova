@@ -256,7 +256,7 @@ name: bp-openbao
 #   The landing page now calls auth/token/lookup-self BEFORE trusting a
 #   cached token; a non-200 clears it and falls through to a fresh OIDC
 #   round-trip instead of dead-ending on a silent 403.
-version: 1.2.67
+version: 1.2.68
 # 1.2.51 (#3888, Refs #3847): prov-time openbao KV-seed mechanism — the
 # auth-bootstrap Job reads a one-shot cloud-init `openbao-bootstrap-seed`
 # Secret + writes its keys into KV at secret/<prefix>/* with the still-valid

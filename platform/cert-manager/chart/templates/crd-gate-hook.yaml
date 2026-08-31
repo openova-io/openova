@@ -66,7 +66,7 @@ Pairs with:
 {{- /* Fix #158: bitnamilegacy/kubectl (Bitnami deleted versioned tags
        from docker.io/bitnami/kubectl 2025-08; bitnamilegacy is the
        deprecation-fallback path with bash/sh intact). */ -}}
-{{- $image := $gate.image | default "bitnamilegacy/kubectl:1.30.7" -}}
+{{- $image := $gate.image | default "alpine/k8s:1.31.4" -}}
 {{- $pullPolicy := $gate.imagePullPolicy | default "IfNotPresent" -}}
 apiVersion: batch/v1
 kind: Job

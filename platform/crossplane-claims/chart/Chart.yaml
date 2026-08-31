@@ -30,7 +30,7 @@ name: bp-crossplane-claims
 # Claim region (placement/labels) is untouched; a real non-mimic region
 # passes through unchanged. New module output hw_api_region feeds the
 # hermetic CI evaluation (scripts/check-adoption-endpoint-region.sh).
-version: 1.3.4
+version: 1.3.5
 description: |
   Catalyst Crossplane XRDs + Compositions Blueprint. Carries ONLY the
   apiextensions.crossplane.io/v1 CompositeResourceDefinition and

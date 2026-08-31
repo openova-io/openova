@@ -468,5 +468,5 @@ webhookGate:
   # docker.io→proxy-dockerhub mirror AND fails the `harbor-proxy-pull` Enforce
   # glob `*/proxy-*/*` (the glob matches the image STRING as written, pre-mirror-
   # rewrite). Matches the cnpg webhookGate (#3257) + cert-manager idiom exactly.
-  image: "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.30.7"
+  image: "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4"
   imagePullPolicy: IfNotPresent

@@ -92,7 +92,7 @@ META-AUDIT 1 catalog.
        kyverno can't block its own uninstall. Tracked as a follow-up. */ -}}
 {{- $timeout := $gate.timeoutSeconds | default 2400 -}}
 {{- $interval := $gate.intervalSeconds | default 2 -}}
-{{- $image := $gate.image | default "bitnamilegacy/kubectl:1.30.7" -}}
+{{- $image := $gate.image | default "alpine/k8s:1.31.4" -}}
 {{- $pullPolicy := $gate.imagePullPolicy | default "IfNotPresent" -}}
 apiVersion: batch/v1
 kind: Job

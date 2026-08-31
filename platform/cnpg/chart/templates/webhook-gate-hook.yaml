@@ -86,7 +86,7 @@ Kyverno policy, wedging the whole Org cascade (#4220).
        the openssl-less bitnamilegacy/kubectl:1.30.7 to the 1.31.4 ref already
        used by webhookCertBootstrap / the reasserter. The CA assertion degrades
        gracefully (warns, falls back to non-empty) if openssl is absent. */ -}}
-{{- $image := $gate.image | default "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.31.4" -}}
+{{- $image := $gate.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" -}}
 {{- $pullPolicy := $gate.imagePullPolicy | default "IfNotPresent" -}}
 apiVersion: batch/v1
 kind: Job

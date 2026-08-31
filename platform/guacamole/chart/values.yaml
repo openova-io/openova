@@ -213,14 +213,13 @@ guacamole:
     # ephemeral; flip OFF on Sovereigns with long-lived recording data
     # (operator should snapshot first then re-enable for the upgrade).
     allowMigration: true
-    # Image used by the migration hook. The canonical kubectl image
-    # surface across OpenOva Sovereigns is docker.io/bitnamilegacy/kubectl
-    # (the same one bp-keycloak's realm-config-cli post-deploy Job
-    # pulls). Bitnami's 2025-08 secure-images cutover deleted all
-    # versioned tags from docker.io/bitnami/kubectl (only :latest +
-    # sha256-named tags remain) — bitnamilegacy is the deprecation-
-    # fallback path which retains versioned tags AND bash/sh
-    # (rancher/kubectl is distroless, would break inline shell). Operator
+    # Image used by the migration hook. The canonical kubectl-toolbox image
+    # surface across OpenOva Sovereigns is docker.io/alpine/k8s (bash + kubectl
+    # + jq + curl; the same one the cutover + cnpg-pair charts use). 2026-08
+    # (Refs #6755): repinned off bitnamilegacy/kubectl — Bitnami purged its
+    # versioned tags upstream (only :latest / 1.33.x / sha256-* remain, so the
+    # 1.29-1.31 pins 404'd). alpine/k8s keeps bash/sh (rancher/kubectl is
+    # distroless, would break inline shell). Operator
     # overrides for non-Hetzner Sovereigns by re-mirroring through
     # their own registry (per docs/INVIOLABLE-PRINCIPLES.md #4a — every
     # image traceable to a known-good SHA).
@@ -229,7 +228,7 @@ guacamole:
     # Fix #163 (2026-05-11, MIRROR-EVERYTHING): explicit
     # harbor.openova.io/proxy-dockerhub prefix per CLAUDE.md inviolable
     # rule.
-    migrationImage: harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.30.7
+    migrationImage: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4
   # ── SSO mode (#5358) ───────────────────────────────────────────
   # How the operator's Keycloak identity reaches Guacamole.
   #

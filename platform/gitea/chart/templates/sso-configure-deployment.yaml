@@ -298,7 +298,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: configure
-          image: harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.30.7
+          image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4
           imagePullPolicy: IfNotPresent
           command: ["/bin/bash"]
           args: ["/etc/gitea-sso/reconcile.sh"]

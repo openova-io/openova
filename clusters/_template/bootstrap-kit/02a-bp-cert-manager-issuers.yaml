@@ -76,7 +76,7 @@ spec:
       chart: bp-cert-manager-issuers
       # 1.0.0 (issue #3734): initial release. Splits the two Catalyst
       # ClusterIssuers out of bp-cert-manager.
-      version: 1.0.0
+      version: 1.0.1
       sourceRef:
         kind: HelmRepository
         name: bp-cert-manager-issuers

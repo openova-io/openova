@@ -34,7 +34,7 @@ the target SC name (evs-ssd) and the blueprint labels differ.
 {{- end -}}
 {{- $timeout := 300 -}}
 {{- $interval := 3 -}}
-{{- $image := "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.30.7" -}}
+{{- $image := "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" -}}
 apiVersion: batch/v1
 kind: Job
 metadata:

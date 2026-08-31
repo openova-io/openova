@@ -102,7 +102,7 @@ crdGate:
   # deprecation-fallback path with bash/sh preserved (rancher/kubectl is
   # distroless and would break the hook's bash-c shell script). 1.30.7 is
   # the newest 1.30.x in bitnamilegacy.
-  image: harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.30.7
+  image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4
   imagePullPolicy: IfNotPresent
   # CPU/memory requests + limits on the gate Job container so the
   # bp-kyverno-policies 05-resource-requests + 06-resource-limits

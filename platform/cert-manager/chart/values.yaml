@@ -168,7 +168,7 @@ crdGate:
   # harbor.openova.io/proxy-dockerhub, but explicit references defeat
   # upstream-deletion blast radius AND satisfy the Kyverno
   # `harbor-proxy-pull` ClusterPolicy.
-  image: harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.30.7
+  image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4
   imagePullPolicy: IfNotPresent
 
 # NOTE (#3734): the `certManager.issuers.*` block that used to live here was

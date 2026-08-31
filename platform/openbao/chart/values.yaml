@@ -572,7 +572,7 @@ snapshotReplication:
     # convergence is untouched.
     credentialsSeeder:
       # Image with kubectl — proxied through Harbor (kyverno image-origin rule).
-      image: harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.29.3
+      image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4
       # Source: bp-seaweedfs's native S3 admin Secret in its host namespace
       # `seaweedfs` (#4325 de-vcluster — no more rtz vCluster / syncer mangling).
       sourceNamespace: seaweedfs

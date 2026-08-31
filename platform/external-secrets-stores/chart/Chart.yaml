@@ -70,7 +70,7 @@ name: bp-external-secrets-stores
 #   bootstrap-kit Kustomization stalled on the Failed HR — freezing the roll of
 #   every newer bootstrap-kit pin. Same landmine as bp-cnpg #4226 / bp-openbao
 #   #3374. Refs #4409.
-version: 1.0.9
+version: 1.0.10
 description: |
   Catalyst-curated Blueprint chart for the default ESO ClusterSecretStore(s)
   that wire each Sovereign's bp-external-secrets controller to its bp-openbao

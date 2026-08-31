@@ -45,7 +45,7 @@ clean across re-installs.
 {{- end -}}
 {{- $timeout := 300 -}}
 {{- $interval := 3 -}}
-{{- $image := "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.30.7" -}}
+{{- $image := "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" -}}
 apiVersion: batch/v1
 kind: Job
 metadata:

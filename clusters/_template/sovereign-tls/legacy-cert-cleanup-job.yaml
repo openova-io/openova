@@ -121,7 +121,7 @@ spec:
           # Pinned via Harbor proxy-cache. See CLAUDE.md mirror-everything
           # rule + values.yaml:252 in self-sovereign-cutover for the
           # Bitnami→alpine/k8s decision history.
-          image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.1
+          image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4
           imagePullPolicy: IfNotPresent
           command: ["/bin/sh", "-c"]
           args:

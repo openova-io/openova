@@ -163,5 +163,5 @@ webhookGate:
   tlsSecretName: external-secrets-webhook
   timeoutSeconds: 1200
   intervalSeconds: 2
-  image: bitnamilegacy/kubectl:1.30.7
+  image: alpine/k8s:1.31.4
   imagePullPolicy: IfNotPresent

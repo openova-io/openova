@@ -30,7 +30,7 @@ global:
   # rule. Operator override still works — entire `repository` is one
   # configurable string.
   kubectlImage:
-    repository: harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl
+    repository: harbor.openova.io/proxy-dockerhub/alpine/k8s
     tag: "1.31.4"
 
 catalystBlueprint:

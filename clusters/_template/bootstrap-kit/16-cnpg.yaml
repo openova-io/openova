@@ -116,7 +116,7 @@ spec:
       #         reasserter Job BackoffLimitExceeded — /bin/sh (dash) rejected
       #         `set -o pipefail`; switched to /bin/bash. Both halves end the
       #         recurring caBundle re-hijack for good.
-      version: 1.0.14
+      version: 1.0.15
       sourceRef:
         kind: HelmRepository
         name: bp-cnpg

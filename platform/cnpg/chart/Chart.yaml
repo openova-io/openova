@@ -101,7 +101,7 @@ name: bp-cnpg
 #       4635277cae4ffed9). FIX: switch both to `command: ["/bin/bash", ...]`
 #       (the image carries /bin/bash + /usr/bin/openssl; webhook-gate-hook.yaml
 #       already uses bash). Refs #4322 #4143 #4201 #4326.
-version: 1.0.14
+version: 1.0.15
 description: |
   Catalyst-curated Blueprint umbrella chart for CloudNativePG. Depends on
   the upstream `cloudnative-pg` chart as a Helm subchart so

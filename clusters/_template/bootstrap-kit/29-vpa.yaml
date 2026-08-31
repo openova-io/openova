@@ -58,7 +58,7 @@ spec:
       # 1.0.4: controller + CRDs-hook images via Sovereign-local Harbor
       # proxy + hook resources (#5017 — kyverno denied the step-08-rolled
       # pods on hw242).
-      version: 1.0.4
+      version: 1.0.5
       sourceRef:
         kind: HelmRepository
         name: bp-vpa

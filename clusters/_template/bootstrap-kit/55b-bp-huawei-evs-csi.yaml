@@ -197,7 +197,7 @@ spec:
       # pod restart (live hw237 step-08). Now all images host-swap through the same
       # seam. This HR is already in the step-07 imageRegistryPivot.additionalHRs
       # set, so no cutover-side change is needed.
-      version: 1.0.9
+      version: 1.0.10
       sourceRef:
         kind: HelmRepository
         name: bp-huawei-evs-csi
