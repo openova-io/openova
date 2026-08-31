@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-31T04:45:02Z` |
+| Last refreshed | `2026-08-31T05:00:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-31T04:54 | [#6741](https://github.com/openova-io/openova/pull/6741) | #6723 | feat(chargeback): adapter chart RBAC + env wiring (lane D fo |
 | 2026-08-31T02:46 | [#6740](https://github.com/openova-io/openova/pull/6740) | #6736 | docs(sessions): chargeback walk second pass — Overview/Custo |
 | 2026-08-31T02:41 | [#6739](https://github.com/openova-io/openova/pull/6739) | #6736 | fix(chargeback): render-contract test uses appVersion, not a |
 | 2026-08-31T02:06 | [#6738](https://github.com/openova-io/openova/pull/6738) | #6723 | docs(architecture): cross-reference bp-chargeback (ADR-0014) |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-30T10:56 | [#6710](https://github.com/openova-io/openova/pull/6710) | #6703 | fix(sovereign-ui): /jobs graph = the openova-flow dependency |
 | 2026-08-30T10:09 | [#6709](https://github.com/openova-io/openova/pull/6709) | #6703 | feat(sovereign-ui): consolidated CronJob schedule timeline + |
 | 2026-08-30T09:24 | [#6708](https://github.com/openova-io/openova/pull/6708) | #6703 | fix(sovereign-ui): /jobs reuses the canonical DAG + one shar |
-| 2026-08-30T07:48 | [#6706](https://github.com/openova-io/openova/pull/6706) | #6703 | feat(sovereign-ui): /jobs per-kind chips + List⇄Graph toggle |
 
 ---
 
