@@ -26,6 +26,13 @@
 
 set -euo pipefail
 
+
+# The expected image tag is the chart appVersion — never a hardcoded literal
+# (the 0.1.1 publish died on a stale 0.1.0 literal here).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+version="$(awk '/^appVersion:/{gsub(/"/,"",$2); print $2}' "$SCRIPT_DIR/../Chart.yaml")"
+[ -n "$version" ] || { echo "FAIL: could not read appVersion from Chart.yaml"; exit 1; }
+
 chart_dir="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
 helm="${HELM_BIN:-helm}"
 FQDN=hw305.omani.works
@@ -43,7 +50,7 @@ def="$(render)"
 has "$def" 'kind: Deployment' "defaults: no Deployment rendered"
 has "$def" 'replicas: 2' "defaults: replicas is not 2"
 has "$def" 'maxUnavailable: 1' "defaults: rollout strategy lacks integer maxUnavailable (#6079)"
-has "$def" 'image: ghcr.io/openova-io/chargeback:0.1.0' "defaults: image is not ghcr.io/openova-io/chargeback:<appVersion>"
+has "$def" "image: ghcr.io/openova-io/chargeback:${version}" "defaults: image is not ghcr.io/openova-io/chargeback:<appVersion>"
 has "$def" 'name: ghcr-pull' "defaults: imagePullSecrets ghcr-pull missing (#4111)"
 has "$def" 'runAsNonRoot: true' "defaults: runAsNonRoot missing"
 has "$def" 'runAsUser: 65532' "defaults: numeric runAsUser 65532 missing (#5114)"
@@ -130,7 +137,7 @@ has "$sov" 'app.kubernetes.io/managed-by: flux' "hook resources lack managed-by=
 
 # ── 7. cutover image pivot ────────────────────────────────────────────────
 piv="$(render --set global.imageRegistry=registry.$FQDN)"
-has "$piv" "image: registry.$FQDN/openova-io/chargeback:0.1.0" "pivot: global.imageRegistry not honored for the app image"
+has "$piv" "image: registry.$FQDN/openova-io/chargeback:${version}" "pivot: global.imageRegistry not honored for the app image"
 has "$piv" "registry.$FQDN/proxy-dockerhub/curlimages/curl" "pivot: global.imageRegistry not honored for the hook/gate image"
 
 echo "PASS: bp-chargeback render contract (defaults + sovereign + per-Org + fail-closed + CNP + CNPG + pivot)"
