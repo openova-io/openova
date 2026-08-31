@@ -73,7 +73,7 @@ overridable.
 {{- /* Fix #158: bitnamilegacy/kubectl (Bitnami deleted versioned tags
        from docker.io/bitnami/kubectl 2025-08; bitnamilegacy is the
        deprecation-fallback path). */ -}}
-{{- $image := default "bitnamilegacy/kubectl:1.31.4" (index $cfg "image") -}}
+{{- $image := default "alpine/k8s:1.31.4" (index $cfg "image") -}}
 ---
 apiVersion: v1
 kind: ServiceAccount

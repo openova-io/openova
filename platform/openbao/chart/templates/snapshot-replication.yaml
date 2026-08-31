@@ -106,8 +106,8 @@ objects). The primary vs secondary CronJob is selected by
 {{- $secretKeyKey := $credSecret.secretKeyKey | default "admin_secret_access_key" -}}
 {{- /* #3629: credential-seeder source (host-synced rtz-vCluster Secret). */ -}}
 {{- $seeder := $s3.credentialsSeeder | default dict -}}
-{{- $seederImage := $seeder.image | default "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.29.3" -}}
-{{- if $registry }}{{- $seederImage = printf "%s/%s" $registry ($seeder.image | default "bitnamilegacy/kubectl:1.29.3") -}}{{- end -}}
+{{- $seederImage := $seeder.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" -}}
+{{- if $registry }}{{- $seederImage = printf "%s/%s" $registry ($seeder.image | default "alpine/k8s:1.31.4") -}}{{- end -}}
 {{- $seederSrcNs := $seeder.sourceNamespace | default "seaweedfs" -}}
 {{- $seederSrcName := $seeder.sourceName | default "seaweedfs-s3-secret" -}}
 {{- $seederWait := $seeder.waitIterations | default 900 -}}

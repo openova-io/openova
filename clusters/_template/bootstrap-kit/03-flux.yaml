@@ -81,7 +81,7 @@ spec:
       # harbor.openova.io/proxy-ghcr/fluxcd/*; paired with the postRenderers
       # RollingUpdate patch below that closes the source-controller Recreate
       # serving-gap (Ready 26→7 regression on hw157).
-      version: 1.2.7
+      version: 1.2.8
       sourceRef:
         kind: HelmRepository
         name: bp-flux

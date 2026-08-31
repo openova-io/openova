@@ -34,7 +34,7 @@ type: application
 # defence-in-depth — bounds the same VPA-webhook hang in NON-kube-system
 # namespaces (cnpg initdb, keycloak, tenant vclusters) that the kube-system
 # exemption does not cover.
-version: 1.0.4
+version: 1.0.5
 appVersion: "1.5.0"
 keywords: [catalyst, blueprint, vpa, autoscaling, vertical-pod-autoscaler, right-sizing]
 maintainers:

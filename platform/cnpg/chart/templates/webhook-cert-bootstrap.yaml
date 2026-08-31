@@ -135,7 +135,7 @@ spec:
       serviceAccountName: cnpg-webhook-cert-wait
       containers:
         - name: wait
-          image: {{ .Values.webhookCertBootstrap.kubectlImage | default "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.31.4" }}
+          image: {{ .Values.webhookCertBootstrap.kubectlImage | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" }}
           command:
             - sh
             - -c

@@ -113,7 +113,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: guard
-          image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.1
+          image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4
           imagePullPolicy: IfNotPresent
           command: ["/bin/sh", "-c"]
           args:

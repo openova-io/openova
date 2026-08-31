@@ -112,7 +112,7 @@ name: bp-huawei-evs-csi
 # set (#4885/#4892), so the HR's global.imageRegistry is already patched at
 # cutover — this chart-templating change alone completes the fix. Lockstep:
 # 55b-bp-huawei-evs-csi.yaml pin + blueprint.yaml → 1.0.9. Refs #4973 #3379.
-version: 1.0.9
+version: 1.0.10
 description: |
   Catalyst-curated Blueprint for the open-source huaweicloud-csi-driver EVS
   block-storage plugin (evs.csi.huaweicloud.com). Provides the durable

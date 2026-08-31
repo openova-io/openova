@@ -60,7 +60,7 @@ apply regardless; the negative weight only orders it relative to its own RBAC.
 {{- if .Values.catalystStorageClasses }}
 {{-   $desired = ((index .Values.catalystStorageClasses 0).reclaimPolicy | default "Retain") -}}
 {{- end -}}
-{{- $image := "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.30.7" -}}
+{{- $image := "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" -}}
 apiVersion: batch/v1
 kind: Job
 metadata:

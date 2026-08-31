@@ -31,7 +31,7 @@ name: bp-cert-manager
 # downstream Blueprints that apply Certificate CRs immediately. Mirrors the
 # bp-external-secrets ↔ bp-external-secrets-stores and bp-crossplane ↔
 # bp-crossplane-claims CRD-ordering splits.
-version: 1.2.6
+version: 1.2.7
 description: |
   Catalyst-curated Blueprint umbrella chart for cert-manager. Depends on the
   upstream `cert-manager` chart (Jetstack) as a Helm subchart so

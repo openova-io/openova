@@ -10,7 +10,7 @@ spec:
   # 1.0.14 (G65 #4322): lockstep — (A) per-Org operator RBAC can no longer patch
   # the cluster webhook singleton (subchart rbac.create=false + minimal
   # replacement RBAC), (B) reasserter Job /bin/sh→/bin/bash (#4326 fix).
-  version: 1.0.14
+  version: 1.0.15
   card:
     title: CloudNativePG
     summary: |

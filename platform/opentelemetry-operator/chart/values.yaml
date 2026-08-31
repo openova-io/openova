@@ -47,7 +47,7 @@ defaultInstrumentation:
 # install/upgrade of this chart. Same MIRROR-EVERYTHING pattern as
 # platform/flux (Fix #163).
 webhookGate:
-  image: "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.30.7"
+  image: "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4"
 
 # ─── Upstream subchart values (subchart key: opentelemetry-operator) ──
 opentelemetry-operator:

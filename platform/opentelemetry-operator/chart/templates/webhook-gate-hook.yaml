@@ -85,7 +85,7 @@ mysterious chart misconfiguration.
        once CRDs propagate (typically 30-90s, with safety margin). */}}
 {{- $timeout := $gate.timeoutSeconds | default 300 -}}
 {{- $interval := $gate.intervalSeconds | default 2 -}}
-{{- $image := $gate.image | default "bitnamilegacy/kubectl:1.30.7" -}}
+{{- $image := $gate.image | default "alpine/k8s:1.31.4" -}}
 {{- $pullPolicy := $gate.imagePullPolicy | default "IfNotPresent" -}}
 apiVersion: batch/v1
 kind: Job

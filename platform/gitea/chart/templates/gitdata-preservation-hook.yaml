@@ -207,7 +207,7 @@ spec:
           # Enforce policy (admits `*/proxy-*/*` or `*/openova-io/*`) ADMITS this
           # pre-upgrade hook Job — a bare docker.io ref is DENIED at admission and
           # rollback-loops the gitea HR. Inline default mirrors values.yaml.
-          image: {{ .Values.gitDataMigration.image | default "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.30.7" | quote }}
+          image: {{ .Values.gitDataMigration.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" | quote }}
           imagePullPolicy: IfNotPresent
           volumeMounts:
             - name: tmp

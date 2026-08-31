@@ -122,7 +122,7 @@ spec:
       #   policy (post-#4325).
       # 1.0.9: Catalyst-owned MinIO Deployment strategy Recreate — RWO
       # single-replica roll deadlock under cutover step-08 (#5022).
-      version: 1.0.9
+      version: 1.0.10
       sourceRef:
         kind: HelmRepository
         name: bp-mimir

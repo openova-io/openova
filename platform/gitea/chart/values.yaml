@@ -652,4 +652,4 @@ gitDataMigration:
   # ADMITS the pre-upgrade hook Job. A bare docker.io ref is DENIED at admission,
   # which fails the pre-upgrade gate and rollback-loops the whole gitea HR.
   # Identical proxy ref to sso-configure-deployment.yaml / database-secret-sync-job.yaml.
-  image: harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.30.7
+  image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4

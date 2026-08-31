@@ -176,19 +176,19 @@ vertical-pod-autoscaler:
   # pre-install/pre-upgrade hook Job, not helm crds/ handling.
   crds:
     enabled: true
-    # The CRDs hook Job image + resources (#5017): the raw
-    # docker.io/bitnamilegacy/kubectl default is denied by kyverno
-    # harbor-proxy-pull, and a resource-less hook pod is denied by the
-    # resource-requests policy (Enforce) — either one fails every
+    # The CRDs hook Job image + resources (#5017): a raw docker.io default
+    # is denied by kyverno harbor-proxy-pull, and a resource-less hook pod is
+    # denied by the resource-requests policy (Enforce) — either one fails every
     # install/upgrade of this chart on a policy-enforcing Sovereign.
-    # Tag pinned to 1.30.7 — the tag mirrored on live Sovereigns
-    # (upstream default 1.29.3 is not, and cannot pull through under the
-    # cutover deny-egress hold). Same MIRROR-EVERYTHING pattern as
+    # Repo/tag: alpine/k8s:1.31.4 — the platform-standard kubectl toolbox
+    # (bash+kubectl+jq+curl), mirrored + prewarmed on live Sovereigns. 2026-08
+    # (Refs #6755): repinned off bitnamilegacy/kubectl:1.30.7, whose versioned
+    # tags Bitnami purged upstream. Same MIRROR-EVERYTHING pattern as
     # platform/flux (Fix #163).
     image:
       registry: harbor.openova.io
-      repository: proxy-dockerhub/bitnamilegacy/kubectl
-      tag: "1.30.7"
+      repository: proxy-dockerhub/alpine/k8s
+      tag: "1.31.4"
     resources:
       requests:
         cpu: 50m

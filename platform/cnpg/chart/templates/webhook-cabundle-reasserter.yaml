@@ -71,7 +71,7 @@ CronJob (same escape as the webhook-gate + cert-wait Jobs, #4226).
 {{- $caSecret := $ca.caSecretName | default "cnpg-ca-secret" -}}
 {{- $mutName := $ca.mutatingWebhookName | default "cnpg-mutating-webhook-configuration" -}}
 {{- $valName := $ca.validatingWebhookName | default "cnpg-validating-webhook-configuration" -}}
-{{- $image := $ca.image | default "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.31.4" -}}
+{{- $image := $ca.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" -}}
 {{- $pullPolicy := $ca.imagePullPolicy | default "IfNotPresent" -}}
 {{- $schedule := $ca.cronSchedule | default "*/10 * * * *" -}}
 {{- $bootstrapTimeout := $ca.bootstrapTimeoutSeconds | default 300 -}}

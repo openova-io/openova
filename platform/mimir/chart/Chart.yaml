@@ -34,7 +34,7 @@ type: application
 # every container satisfies the cluster-wide Kyverno `resource-requests`
 # Enforce policy. Post-#4325 this chart installs into the native host namespace
 # (not a vCluster) where the policy applies.
-version: 1.0.9
+version: 1.0.10
 appVersion: "3.0.4"
 keywords: [catalyst, blueprint, mimir, observability, metrics, prometheus]
 maintainers:

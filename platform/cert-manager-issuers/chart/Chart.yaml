@@ -37,7 +37,7 @@ name: bp-cert-manager-issuers
 #
 # Keeps zero upstream subchart deps — the chart is pure Catalyst templates
 # applying CRs against the cert-manager-registered ClusterIssuer CRD.
-version: 1.0.0
+version: 1.0.1
 description: |
   Catalyst-curated Blueprint chart for the default Let's Encrypt
   ClusterIssuer CR(s) (letsencrypt-dns01-prod, letsencrypt-http01-prod).

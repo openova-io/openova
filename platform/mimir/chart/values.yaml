@@ -409,5 +409,5 @@ webhookGate:
   # proxy so the pre-upgrade hook Job satisfies the host-ns `harbor-proxy-pull`
   # Enforce policy (it covers Jobs too). Canonical proxied path used across the
   # repo (cert-manager / cnpg / external-secrets-stores).
-  image: "harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.30.7"
+  image: "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4"
   imagePullPolicy: IfNotPresent

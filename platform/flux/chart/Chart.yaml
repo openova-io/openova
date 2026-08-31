@@ -59,7 +59,7 @@ name: bp-flux
 # bp-external-secrets (#3533). NOTE: the flux2 SUBCHART pin (2.14.1) + cloud-init's
 # v2.4.0 install.yaml are UNCHANGED — the catastrophic version-pin invariant
 # (tests/version-pin-replay.sh) is untouched.
-version: 1.2.7
+version: 1.2.8
 description: |
   Catalyst-curated Blueprint umbrella chart for Flux. Depends on the
   upstream `flux2` chart (fluxcd-community) as a Helm subchart so
