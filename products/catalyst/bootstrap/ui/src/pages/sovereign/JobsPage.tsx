@@ -74,14 +74,14 @@ import {
   JOB_KINDS,
   type JobChipKind,
 } from './jobs-list/jobKinds'
-import { deriveJobKindCounts } from './jobs-list/jobKindCounts'
+import { deriveJobKindCounts, nullJobKindCounts } from './jobs-list/jobKindCounts'
 import { resolveApplications } from './applicationCatalog'
 import { useDeploymentEvents } from './useDeploymentEvents'
 import { deriveJobs } from './jobs'
 import { adaptDerivedJobsToFlat } from './jobsAdapter'
 import { useLiveJobsBackfill } from './useLiveJobsBackfill'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
-import type { Job } from '@/lib/jobs.types'
+import type { Job, JobKind } from '@/lib/jobs.types'
 import { jobKind } from '@/lib/jobs.types'
 import { HandoverRedirectBanner } from './HandoverRedirectBanner'
 import { HANDOVER_REDIRECT_BANNER_CSS } from './HandoverRedirectBanner.css'
@@ -178,6 +178,16 @@ export function JobsPage({
 
   const liveBackfillActive = liveJobs.length > 0
 
+  // On the Sovereign the backend /jobs list is authoritative and returns
+  // fast, so show the loading spinner until IT lands rather than the reducer
+  // first-paint — whose cutover-time active-tail (re-running tofu, no finished
+  // installs) reads as "0 objects" with wrong counts. In mothership monitor
+  // mode keep the reducer waterfall paint (no local backend list yet during a
+  // fresh prov).
+  const showJobsLoading =
+    (isSovereignMode ? liveJobs.length === 0 : flatJobs.length === 0) &&
+    jobsLoading
+
   // Gap D — auto-redirect to the Sovereign Console after handover.
   const handoverURL = handoverReady?.handoverURL ?? ''
   const handoverActive =
@@ -246,9 +256,16 @@ export function JobsPage({
     [navigate, deploymentId],
   )
 
-  // Per-kind count map behind the chip badges — derived from the SAME
-  // flat list the table/graph render (production path, not a literal).
-  const kindCounts = useMemo(() => deriveJobKindCounts(flatJobs), [flatJobs])
+  // Per-kind count map behind the chip badges — derived from the
+  // AUTHORITATIVE backend list ONLY, never the reducer first-paint. Until the
+  // backend list lands every count is null → "—" (loading). Deriving from the
+  // reducer tail is what produced the wrong "OpenTofu (64) / HelmRelease (0)"
+  // badges during a cutover (the tail shows re-running tofu, no finished
+  // installs). "—" is honest; a reducer tally is a wrong number.
+  const kindCounts = useMemo<Record<JobKind, number | null>>(
+    () => (liveBackfillActive ? deriveJobKindCounts(liveJobs) : nullJobKindCounts()),
+    [liveJobs, liveBackfillActive],
+  )
 
   // List view shows exactly one kind at a time (the /cloud contract).
   // `jobKind()` reads the backend-stamped kind, never a name prefix.
@@ -393,7 +410,7 @@ export function JobsPage({
 
       <div id="jobs-page-content" className="mt-4" data-testid="sov-jobs-list" data-view={activeView}>
         {activeView === 'list' ? (
-          flatJobs.length === 0 && jobsLoading ? (
+          showJobsLoading ? (
             <div className="jobs-loading" data-testid="jobs-loading" role="status" aria-live="polite">
               <span className="jobs-loading-spin" aria-hidden />
               <span>Loading jobs…</span>

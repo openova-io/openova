@@ -12,7 +12,7 @@
 
 import { describe, it, expect } from 'vitest'
 import type { Job, JobKind, JobType } from '@/lib/jobs.types'
-import { deriveJobKindCounts } from './jobKindCounts'
+import { deriveJobKindCounts, nullJobKindCounts } from './jobKindCounts'
 
 function job(id: string, opts: Partial<Job> = {}): Job {
   return {
@@ -84,5 +84,26 @@ describe('deriveJobKindCounts', () => {
     ] as JobKind[]) {
       expect(counts[k]).toBe(0)
     }
+  })
+})
+
+describe('nullJobKindCounts (loading state)', () => {
+  const ALL: JobKind[] = [
+    'install', 'reconcile', 'step', 'mutation',
+    'cron', 'task', 'reconciler', 'lifecycle', 'group',
+  ]
+
+  it('maps every JobKind to null (renders "—", not "(0)")', () => {
+    const counts = nullJobKindCounts()
+    for (const k of ALL) expect(counts[k]).toBeNull()
+  })
+
+  it('is DISTINCT from the all-zero map — null ("loading") is not 0 ("none")', () => {
+    const loading = nullJobKindCounts()
+    const empty = deriveJobKindCounts([])
+    // the whole point: while the backend list loads we must NOT show 0,
+    // which reads as "there are none", nor a reducer tally.
+    expect(loading.install).toBeNull()
+    expect(empty.install).toBe(0)
   })
 })
