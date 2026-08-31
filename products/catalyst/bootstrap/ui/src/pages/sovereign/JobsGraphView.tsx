@@ -33,8 +33,9 @@ import {
   descendantCountByGroup,
   flowStreamToOrganic,
 } from '@/lib/flowStreamToOrganic'
-import { flowJobKind, type GraphKind } from '@/lib/flowJobKind'
+import { type GraphKind } from '@/lib/flowJobKind'
 import { addPhaseBarrierDeps } from '@/lib/phaseBarriers'
+import { selectGraphJobs } from '@/lib/graphJobFilter'
 import { FlowCanvasOrganic, type FlowOrganicAction } from './FlowCanvasOrganic'
 
 interface JobsGraphViewProps {
@@ -107,39 +108,20 @@ export function JobsGraphView({
     [adapter.jobs],
   )
 
-  // Component-first labels + kind-filter. Groups are always kept (they hold
-  // A leaf is kept when its kind's chip is visible. A GROUP is kept ONLY if
-  // it still has at least one visible descendant — so filtering to "OpenTofu"
-  // hides the Bootstrap (install) bubble entirely, instead of leaving an
-  // install-filled group on the canvas. This is what makes the chip filter
-  // actually show "only the added kinds".
+  // Finite-scope + chip filter, then component-first labels.
+  // `selectGraphJobs` (a) drops the open-ended reconcilers the /jobs LIST
+  // also excludes (jobs.FilterFiniteJobs) — the flow stream carries the full
+  // DAG incl. ~22 reconcile-* nodes that have no chip, so leaving them in made
+  // the graph ignore the chip selection and kept showing them after "remove
+  // all chips"; and (b) keeps a group only if it still has a kept leaf
+  // descendant. Relabel strips the leading verb so nodes read by component.
   const jobs = useMemo<Job[]>(() => {
-    const all = barrieredJobs
     const relabel = (j: Job): Job => ({
       ...j,
       displayName: componentLabel(j.displayName ?? j.jobName),
       jobName: componentLabel(j.jobName),
     })
-    if (!visibleKinds) return all.map(relabel)
-
-    const byId = new Map(all.map((j) => [j.id, j]))
-    const keep = new Set<string>()
-    // 1. visible leaves
-    for (const j of all) {
-      if (j.type === 'group') continue
-      if (visibleKinds.has(flowJobKind(j))) keep.add(j.id)
-    }
-    // 2. every ancestor group of a kept leaf stays (walk parentId up)
-    for (const leafId of [...keep]) {
-      let pid = byId.get(leafId)?.parentId
-      const seen = new Set<string>()
-      while (pid && !seen.has(pid)) {
-        seen.add(pid)
-        keep.add(pid)
-        pid = byId.get(pid)?.parentId
-      }
-    }
-    return all.filter((j) => keep.has(j.id)).map(relabel)
+    return selectGraphJobs(barrieredJobs, visibleKinds).map(relabel)
   }, [barrieredJobs, visibleKinds])
 
   // Fold state — re-seed on topology (group-set) change, keep manual folds
