@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-31T10:45:06Z` |
+| Last refreshed | `2026-08-31T11:00:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-31T10:58 | [#6757](https://github.com/openova-io/openova/pull/6757) | #6755 | fix(charts): repin bitnamilegacy/kubectl -> alpine/k8s:1.31. |
 | 2026-08-31T10:34 | [#6752](https://github.com/openova-io/openova/pull/6752) | #4086 | docs(runbooks): §7.5 — provider/role-gated suspended HRs bla |
 | 2026-08-31T09:05 | [#6750](https://github.com/openova-io/openova/pull/6750) | #6749 | fix(jobs): serve jobs.Store first, refresh seed in backgroun |
 | 2026-08-31T07:23 | [#6748](https://github.com/openova-io/openova/pull/6748) | #6747 | fix(jobs): prune childless phase-container nodes from the gr |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-30T15:40 | [#6717](https://github.com/openova-io/openova/pull/6717) | #6703 | fix(sovereign-ui): /jobs list→dropdown, graph chips truly fi |
 | 2026-08-30T14:27 | [#6716](https://github.com/openova-io/openova/pull/6716) | #6713 | docs(adr): ADR-0014 D10 — operator-central profile (own-acco |
 | 2026-08-30T14:06 | [#6715](https://github.com/openova-io/openova/pull/6715) | #6713 | docs(adr): ADR-0014 D9 — chargeback UI model (one account tr |
-| 2026-08-30T13:50 | [#6714](https://github.com/openova-io/openova/pull/6714) | #6713 | docs(adr): ADR-0014 D3a — collection modes (event-driven vs  |
 
 ---
 
