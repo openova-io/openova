@@ -94,6 +94,19 @@ export function JobsGraphView({
     [stream.nodes, stream.relationships, store.regions],
   )
 
+  // Childless phase containers: a flow node whose family is 'group' but which
+  // is NOT a `contains` parent (an empty "Reconcilers" / "Handover" / "Apps"
+  // phase) is typed as a leaf by the adapter. Collect their ids so
+  // selectGraphJobs can drop them — else they render as stray, often "Failed",
+  // nodes with no chip to filter them.
+  const emptyContainerIds = useMemo(() => {
+    const s = new Set<string>()
+    for (const [id, h] of adapter.hints) {
+      if (h.familyId === 'group' && !adapter.groupIds.has(id)) s.add(id)
+    }
+    return s
+  }, [adapter.hints, adapter.groupIds])
+
   // Phase-barrier edges (#6727): the stream's finish-to-start edges are
   // almost entirely SAME-type (236 helm→helm spec.dependsOn, cutover
   // step→step, tofu→tofu). The coupling BETWEEN engine types lives only in
@@ -121,8 +134,10 @@ export function JobsGraphView({
       displayName: componentLabel(j.displayName ?? j.jobName),
       jobName: componentLabel(j.jobName),
     })
-    return selectGraphJobs(barrieredJobs, visibleKinds).map(relabel)
-  }, [barrieredJobs, visibleKinds])
+    return selectGraphJobs(barrieredJobs, visibleKinds, emptyContainerIds).map(
+      relabel,
+    )
+  }, [barrieredJobs, visibleKinds, emptyContainerIds])
 
   // Fold state — re-seed on topology (group-set) change, keep manual folds
   // across status ticks (React-sanctioned adjust-state-during-render).

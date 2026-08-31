@@ -93,4 +93,20 @@ describe('selectGraphJobs', () => {
     selectGraphJobs(g, new Set<GraphKind>(['install']))
     expect(JSON.stringify(g)).toBe(snap)
   })
+
+  it('drops a childless phase-container passed in containerIds (empty "Reconcilers"/"Handover"/"Apps")', () => {
+    // an empty phase container the adapter typed as a leaf (no childIds); its
+    // id would flowJobKind → task, so without containerIds it would render.
+    const withContainer: Job[] = [
+      ...graph(),
+      job({ id: 'reconcilers', type: 'install' }), // childless container leaf
+    ]
+    const containerIds = new Set<string>(['reconcilers'])
+    const withoutFlag = selectGraphJobs(withContainer, undefined)
+    const withFlag = selectGraphJobs(withContainer, undefined, containerIds)
+    expect(withoutFlag.map((j) => j.id)).toContain('reconcilers') // renders today
+    expect(withFlag.map((j) => j.id)).not.toContain('reconcilers') // dropped
+    // real finite leaves are unaffected
+    expect(withFlag.map((j) => j.id)).toContain('install-flux')
+  })
 })
