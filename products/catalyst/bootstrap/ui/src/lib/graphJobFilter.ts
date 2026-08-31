@@ -59,6 +59,7 @@ export const OPEN_ENDED_GRAPH_KINDS: ReadonlySet<GraphKind> = new Set<GraphKind>
 export function selectGraphJobs(
   jobs: readonly Job[],
   visibleKinds: ReadonlySet<GraphKind> | undefined,
+  containerIds?: ReadonlySet<string>,
 ): Job[] {
   const byId = new Map<string, Job>()
   for (const j of jobs) byId.set(j.id, j)
@@ -67,6 +68,12 @@ export function selectGraphJobs(
   // 1. finite, chip-visible leaves
   for (const j of jobs) {
     if (j.type === 'group') continue
+    // A childless phase-container (family 'group' but no `contains` children,
+    // e.g. an empty "Reconcilers" / "Handover" / "Apps" phase) is typed as a
+    // leaf by the adapter; it is not a job the operator filters by and has no
+    // chip — drop it so it doesn't render as a stray (often "Failed") node
+    // with no way to control it.
+    if (containerIds?.has(j.id)) continue
     const kind = flowJobKind(j)
     if (OPEN_ENDED_GRAPH_KINDS.has(kind)) continue
     if (visibleKinds && !visibleKinds.has(kind)) continue
