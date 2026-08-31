@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-31T07:00:04Z` |
+| Last refreshed | `2026-08-31T07:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6085](https://github.com/openova-io/openova/issues/6085) | Reconciliation tab never offers Resume: suspended read is stale after its own ac | Other |
 | [#6087](https://github.com/openova-io/openova/issues/6087) | catalyst-pin IdP dials catalyst-api over the Sovereign's own public EIP, so the  | Other |
 | [#6090](https://github.com/openova-io/openova/issues/6090) | The Keycloak account console hangs forever on 'Loading the Account Console' inst | Other |
 | [#6091](https://github.com/openova-io/openova/issues/6091) | converged-late census counts tenant HelmReleases: a customer app install can vet | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6727](https://github.com/openova-io/openova/issues/6727) | feat(jobs): map phase-gating deps in the /jobs DAG so no job floats | Other |
 | [#6742](https://github.com/openova-io/openova/issues/6742) | fix(jobs): graph shows open-ended reconcilers the finite list excludes → chip  | Other |
 | [#6744](https://github.com/openova-io/openova/issues/6744) | fix(jobs): list badges show reducer first-paint counts ("OpenTofu 64 / HelmRelea | Other |
+| [#6747](https://github.com/openova-io/openova/issues/6747) | fix(jobs): prune childless phase-container nodes from the graph (stray "Reconcil | Other |
 
 ---
 
