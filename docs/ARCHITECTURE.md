@@ -187,6 +187,7 @@ openova/
 │   ├── fabric/             # Data & Integration
 │   ├── relay/              # Communication
 │   ├── agenity/            # bp-agenity — per-Org Agenity workspace (Pillar 4)
+│   ├── chargeback/         # bp-chargeback — standalone chargeback application (ADR-0014)
 │   └── openova-mcp/        # bp-openova-mcp — RBAC-scoped OpenOva MCP server (Pillar 4)
 ├── clusters/
 │   └── _template/          # Canonical bootstrap-kit slots 01..48 (§6)
@@ -302,6 +303,7 @@ Every Catalyst control-plane component carries an open-source license that allow
 | `bp-relay` | Communication — stalwart, livekit, stunner, matrix, guacamole |
 | `bp-agenity` | Per-Org **Agenity** workspace (Pillar 4) — auto-attaches `bp-openova-mcp` with full org knowledge |
 | `bp-openova-mcp` | RBAC-scoped OpenOva MCP server with mutating tools (e.g. `create_application`) — Pillar 4 |
+| `bp-chargeback` | Standalone chargeback application ([ADR-0014](adr/0014-chargeback-usage-ledger-and-split-deployment.md)): app-internal `Customer` model, usage ledger, Huawei cloud collector, rating + statements, own UI; OpenOva is one adapter (Organization sync + platform collector); sidebar entry via `Blueprint.spec.consoleUI`; profiles `sovereign` / `operator-central` |
 | `bp-self-sovereign-cutover` | 8-tether pivot — see §5.6 |
 
 **Specter (AIOps agents) and Exodus (migration program) are NOT composite Blueprints** — both are deliverable services, and neither appears in the table above. This corrects a long-standing contradiction (#6114): this line previously called Specter "a composite Blueprint typically installed in corporate Sovereigns", while [`README.md`](../README.md) §"What's in this repo" and [`STATUS.md`](STATUS.md) §1 both said the opposite. The code decides, and it is unambiguous: there is no `products/specter/` directory (zero paths in the tree match `specter`), no chart, no `blueprint.yaml`, no `bp-specter` OCI artifact, and no catalog-seed entry. `bp-specter` is in fact *unpublishable* as things stand — `.github/workflows/blueprint-release.yaml` enumerates release candidates by scanning for `(platform|products)/<name>/(chart/|blueprint.yaml)`, so a name with no such directory can never produce an artifact. `specter` used to survive as a **wizard catalog component id** (`products/catalyst/bootstrap/ui/src/pages/wizard/steps/componentGroups.ts`), carried by the catalog-integrity gate in an explicit `KNOWN_UNBUILT` debt allowlist. That card was **removed** under UAT row **W5** / [#6183](https://github.com/openova-io/openova/issues/6183): it installed nothing, yet its `familyRequires: ['cortex']` cascaded nine real CORTEX components into any deployment that ticked it. `KNOWN_UNBUILT` is now empty and the gate's assertion is bidirectional, so re-adding a component that resolves to no Blueprint fails CI. Building a real `bp-specter` — which would restore the card — is tracked separately at [#6318](https://github.com/openova-io/openova/issues/6318); an empty `products/specter/` directory created only to satisfy the resolver would be scaffold theater ([`PRINCIPLES.md`](PRINCIPLES.md) §Anti-pattern-catalog), not a fix.
