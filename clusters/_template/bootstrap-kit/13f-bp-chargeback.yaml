@@ -85,7 +85,7 @@ spec:
       # Secret + post-install sync Job) + create-if-absent
       # APP_ENCRYPTION_KEY Job. Lockstep: products/chargeback/chart/
       # Chart.yaml + blueprint.yaml + catalog-seed (blueprints.yaml).
-      version: 0.1.0
+      version: 0.1.1
       sourceRef:
         kind: HelmRepository
         name: bp-chargeback

@@ -6286,7 +6286,7 @@ metadata:
 spec:
   # 0.1.0 — lockstep with products/chargeback/chart/Chart.yaml (appVersion
   # 0.1.0): first release, EPIC #6723 lane B.
-  version: "0.1.0"
+  version: 0.1.1
   visibility: listed
   card:
     title: "Chargeback"
@@ -6308,7 +6308,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-chargeback
-    version: 0.1.0
+    version: 0.1.1
   topology:
     supported:
       - singleton
