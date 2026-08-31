@@ -4040,7 +4040,7 @@ name: bp-catalyst-platform
 #   reconcile the field; orgapi mirrors it so typed client Updates round-trip
 #   it instead of erasing it (#4471 lesson class). CRD-only rendered-surface
 #   change; Flux CreateReplace flows it to live Sovereigns.
-version: 1.4.1592
+version: 1.4.1593
 # 1.4.1481 — #6293: catalog-seed advances bp-self-sovereign-cutover
 #   0.1.186 -> 0.1.187, the release that stops step-06 from patching five
 #   HelmRepositories it does not own and then grading itself on whether they
@@ -4227,7 +4227,7 @@ version: 1.4.1592
 # scripts/check-chart-version-forward.sh (#5743) fails unless the two match —
 # main was carrying a pre-existing 1.4.1330/1.4.1329 split, so this bump heals
 # it in the same commit, exactly as the documented self-heal contract does.
-appVersion: 1.4.1592
+appVersion: 1.4.1593
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
 # Adds the OpenTofu module at infra/providers/huawei/ (VPC + Subnet +
