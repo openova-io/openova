@@ -1493,7 +1493,7 @@ spec:
       #   registration the rail now renders Agenity from, mappable per Sovereign
       #   from Settings → Menu). Umbrella tracks its sub-charts per Inviolable
       #   Principle #13.
-      version: 1.4.1591
+      version: 1.4.1592
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
