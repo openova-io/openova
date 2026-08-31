@@ -1677,6 +1677,7 @@ Common failure modes + first-look diagnostics, condensed from 18 documented inci
 | Admin UI shows every app card as "INSTALLED" even when underlying HelmReleases reconciling | Admin UI read `deployment.status` instead of live helmwatch SSE — fix `64d7de97` | Confirm `catalyst-ui` image at or after `64d7de97` |
 | `Certificate/wildcard` reports `too many certificates already issued for "<sovereign-fqdn>"` | Let's Encrypt rate limit: 5 per registered domain per week | Switch ClusterIssuer to `letsencrypt-staging`; wait for rate-limit expiry; switch back |
 | Phase 1 watch banner: `0 HelmReleases in 15m0s` | Flux on new Sovereign isn't materialising bootstrap-kit | Walk §2.8 playbook (GitRepository, Kustomization, controller logs, manual reconcile) |
+| `kubectl get hr` shows N bp-* HRs with **blank READY/STATUS and no conditions** on a Huawei Sovereign (e.g. `bp-hcloud-ccm`, `bp-cluster-autoscaler-hcloud`, `bp-velero`, `bp-catalyst-secondary-edge`) | Provider/role-gated HRs are `spec.suspend: true`; Flux never writes a Ready condition on a suspended HR — this is BY DESIGN, not a stuck install | **Do not investigate.** Confirm with `kubectl get hr -n flux-system <name> -o jsonpath='{.spec.suspend}'` → `true`. See §7.5 for the full per-provider list + the suspended-vs-stuck distinction |
 
 ### 7.4 Failure decision tree
 
@@ -1712,6 +1713,54 @@ flowchart TD
   Q9 -- "ACME rate limit" --> C17[7.3 — LE 5/week]
   Q9 -- "Yes" --> Done([Sovereign live — Day-1])
 ```
+
+### 7.5 Expected-suspended bootstrap-kit HRs — blank READY is BY DESIGN, not a failure
+
+`kubectl get hr -n flux-system` on a live Sovereign shows a handful of bp-* HelmReleases
+with **empty READY/STATUS columns**. Flux does not reconcile a `spec.suspend: true` HR, so
+it never writes a `Ready` condition — the row renders blank, which looks identical to a
+genuinely-stuck install in that one column. This is the trap. It has been re-flagged as
+"4 stuck HRs" on multiple Huawei walks (#4086, #5600, #6751); the end-state below is
+**correct** and needs no action.
+
+Two independent gates put HRs into this state:
+
+- **Provider gate** — `spec.suspend: ${HCLOUD_HR_SUSPEND:=false}` (Hetzner-only components)
+  and `${HUAWEI_HR_SUSPEND:=true}` (Huawei-only components). The substitutions are set in
+  `infra/providers/_shared/cloudinit-control-plane.tftpl` (Huawei block:
+  `HCLOUD_HR_SUSPEND="true"`, `HUAWEI_HR_SUSPEND="false"`; Hetzner block: the inverse) and
+  threaded via the bootstrap-kit Kustomization `postBuild.substitute`.
+- **Region-role gate** — `${SECONDARY_EDGE_SUSPEND:=true}` / `${SECONDARY_HR_SUSPEND}`,
+  keyed on `sovereign_region_role`. The secondary-edge HR un-suspends **only** on the
+  secondary CP of a 2-region Sovereign; on the primary CP and on every single-region prov
+  it stays suspended.
+
+| HR (slot) | Suspended on | Active counterpart |
+|---|---|---|
+| `bp-hcloud-ccm` (55) | Huawei (`HCLOUD_HR_SUSPEND=true`) | Huawei's built-in kom4dc CCM |
+| `bp-cluster-autoscaler-hcloud` (50) | Huawei | none yet (HCS-native autoscaler is a Wave-6 follow-up) |
+| `bp-velero` (34) | Huawei | `bp-velero-hcs` (34a) — Ready, backs up to Huawei OBS. Pair invariant: exactly one of 34 / 34a reconciles |
+| `bp-velero-hcs` (34a) | Hetzner (`HUAWEI_HR_SUSPEND=true`) | `bp-velero` (34) |
+| `bp-catalyst-secondary-edge` (13e) | primary CP + all single-region provs | the slot-13 umbrella serves the routes locally on the primary |
+
+**Suspended-vs-stuck, and suspended-from-birth vs manually-suspended** — check the
+conditions, not just the READY column:
+
+- `spec.suspend: true` **and zero status conditions** → gated OFF from birth (the table
+  above). Benign.
+- `spec.suspend: true` **but `Ready=True` present** (e.g. `reason: UpgradeSucceeded`) →
+  installed successfully, then **manually** suspended. This is the "suspend the umbrella,
+  hand-roll the `catalyst-api` image" workflow — the workload keeps Running because
+  suspending an HR does not delete its objects. Operational, not a gating fault.
+- `spec.suspend: false` and `Ready=False` for 10+ min → a genuinely stuck install; triage
+  via §7.3.
+
+The platform's own health surfaces already special-case suspended HRs (they do **not**
+false-flag): `helmwatch.processEvent` coerces a suspended HR to `StateInstalled` so the
+Phase-1 watch never blocks on it; `region_health.go` drops the two hcloud components from
+the Huawei census (defense-in-depth, #4086/#5600); and `scripts/sovereign-dod-verify.sh`
+excludes suspended HRs from its Ready=False tally. Only raw `kubectl get hr` renders them
+blank, which is unavoidable native Flux behavior.
 
 ---
 
