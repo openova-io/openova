@@ -299,17 +299,71 @@ data:
               exit 1
             fi
             cd upstream.git
+            {{- /*
+             #6754 — force-push the FULL upstream mirror, with CORRUPT-TARGET
+             recovery. A target repo left with an empty/truncated git-receive-pack
+             advertisement by prior partial pushes (live hw305 region-B: a 35-byte
+             advertisement over ~556MB of orphaned objects, 8 days of failed pushes)
+             can NEVER recover via force-push — git aborts against the empty
+             advertisement BEFORE sending, surfacing only the generic "Could not
+             read from remote repository" (the #6490 pkt-line 3 EOF class). It is
+             NOT a size/ref-count limit: the identical mirror pushes to a FRESH repo
+             with exit 0. So: push; if the push fails OR the default branch is absent
+             afterwards, DELETE+RECREATE the repo clean (the admin-scoped
+             catalyst-gitea-token can) and push once more against the fresh target.
+
+             Explicit refspecs from the UPSTREAM clone only — never mirror mode — so
+             a HEALTHY repo's sovereign-local refs catalog-sovereign / org-tenants
+             are never sent nor pruned (#5011). A DELETE+RECREATE is only ever
+             reached when the repo is ALREADY corrupt (those refs already unusable);
+             it resets them, and catalyst-api's catalog-seed + the org-controller
+             re-establish catalog-sovereign / org-tenants on their next reconcile.
+            */}}
             echo "[gitea-mirror] pushing upstream branches + tags (explicit refspecs, never prunes sovereign-local refs) to ${redacted_url}"
-            push_err=$(git push --force "${local_url}" 'refs/heads/*:refs/heads/*' 'refs/tags/*:refs/tags/*' 2>&1) || {
-              echo "[gitea-mirror] FATAL: git push to local Gitea failed" >&2
-              {{- /*
-               Surface git stderr WITHOUT the embedded credential — git
-               redacts URLs in error messages by default but be defensive.
-              */}}
-              printf '%s\n' "${push_err}" | sed -E "s,${GITEA_PAT}+,REDACTED,g" >&2
-              exit 1
+            push_mirror() {
+              git push --force "${local_url}" 'refs/heads/*:refs/heads/*' 'refs/tags/*:refs/tags/*' 2>&1
             }
-            echo "[gitea-mirror] pushed all upstream branches + tags successfully (sovereign-local refs untouched)"
+            default_present() {
+              git ls-remote --heads "${local_url}" 2>/dev/null | grep -q "refs/heads/${UPSTREAM_BRANCH}"
+            }
+            recreate_repo() {
+              echo "[gitea-mirror] DELETE + RECREATE a clean ${GITEA_ORG}/${GITEA_REPO} (prior partial-push corruption; #6754). catalog-sovereign/org-tenants re-seed on the next catalyst-api / org-controller reconcile." >&2
+              curl -fsS -o /dev/null --max-time 60 -X DELETE \
+                -H "Authorization: token ${GITEA_PAT}" \
+                "${api_url}/repos/${GITEA_ORG}/${GITEA_REPO}" 2>/dev/null || true
+              sleep 2
+              _re_payload=$(printf '{"name":"%s","auto_init":false,"private":false,"description":"Self-hosted clone of %s (post-cutover, standalone)"}' \
+                "${GITEA_REPO}" "${UPSTREAM_REPO_URL}")
+              curl -fsS -o /dev/null --max-time 60 -X POST \
+                -H "Authorization: token ${GITEA_PAT}" -H "Content-Type: application/json" \
+                -d "${_re_payload}" \
+                "${api_url}/orgs/${GITEA_ORG}/repos" 2>/dev/null || true
+              for _rr in 1 2 3 4 5 6; do
+                if curl -fsS -o /dev/null --max-time 60 \
+                    -H "Authorization: token ${GITEA_PAT}" -H "Accept: application/json" \
+                    "${api_url}/repos/${GITEA_ORG}/${GITEA_REPO}" 2>/dev/null; then return 0; fi
+                sleep 2
+              done
+              echo "[gitea-mirror] FATAL: ${GITEA_ORG}/${GITEA_REPO} not visible after DELETE+RECREATE" >&2
+              return 1
+            }
+            push_ok=""
+            if push_err=$(push_mirror) && default_present; then
+              push_ok=1
+            else
+              echo "[gitea-mirror] initial push failed or default branch absent — target likely corrupt from prior partial pushes; recreating clean and retrying (#6754)" >&2
+              printf '%s\n' "${push_err:-}" | sed -E "s,${GITEA_PAT}+,REDACTED,g" >&2 || true
+              recreate_repo || exit 1
+              if push_err=$(push_mirror) && default_present; then
+                push_ok=1
+              fi
+            fi
+            if [ -z "${push_ok}" ]; then
+              echo "[gitea-mirror] FATAL: git push to local Gitea still failed after DELETE+RECREATE" >&2
+              printf '%s\n' "${push_err:-}" | sed -E "s,${GITEA_PAT}+,REDACTED,g" >&2 || true
+              exit 1
+            fi
+            echo "[gitea-mirror] pushed all upstream branches + tags successfully (sovereign-local refs untouched on the healthy path)"
 
             {{- /*
              4. Verify by reading back the default branch SHA and
@@ -362,6 +416,23 @@ data:
               kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" create configmap cutover-secondary-mirror-script \
                 --from-file=secondary-mirror.sh=/secondary-mirror/secondary-mirror.sh \
                 --dry-run=client -o yaml | kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" apply -f -
+              {{- /*
+               #6754 — distribute the region-A catalyst-gitea-token PAT (already in
+               ${GITEA_PAT}) into this secondary's gitea namespace so its mirror Job
+               authenticates with a credential valid in the SHARED gitea DB. The two
+               regions share one database (region-B -> shared-pg-mesh-rw -> region-A's
+               shared-pg primary), so region-B's own per-region admin password can
+               never match the single gitea_admin row; the PAT is a row in the shared
+               access_token table and authenticates identically from either region.
+               Written via --from-file (never argv) so the token never appears in a
+               process listing; the temp file is removed immediately after.
+              */}}
+              umask 077
+              printf '%s' "${GITEA_PAT}" > /tmp/sec-pat-token
+              kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" create secret generic {{ .Values.secondaryRegions.giteaPatSecretName }} \
+                --from-file=token=/tmp/sec-pat-token \
+                --dry-run=client -o yaml | kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" apply -f -
+              rm -f /tmp/sec-pat-token
               kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" delete job "${jobname}" --ignore-not-found=true >/dev/null 2>&1 || true
               sed "s/__REGION__/${region}/g" /secondary-mirror/secondary-mirror-job.yaml >/tmp/secjob.yaml
               kubectl --kubeconfig "${skc}" apply -f /tmp/secjob.yaml

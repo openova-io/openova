@@ -3424,3 +3424,14 @@ secondaryRegions:
   mirrorJobWaitSeconds: 2100
   # Poll cadence (seconds) for the mirror-Job wait loop above.
   mirrorJobPollSeconds: 10
+  # #6754 — the Secret name, in EACH secondary region's gitea namespace, that
+  # region-A's step-01/step-11 leg distributes the `catalyst-gitea-token` PAT into
+  # (key `token`). The secondary-mirror Job reads it via a secretKeyRef and
+  # authenticates ALL its gitea operations (org/repo create + git push/ls-remote)
+  # with it. WHY a distributed PAT and NOT the region-local admin password: the two
+  # regions share ONE gitea database (region-B -> shared-pg-mesh-rw -> region-A's
+  # shared-pg primary), so bp-gitea's per-region-independent gitea-admin-secret can
+  # never match the single shared gitea_admin row (live hw305: region-A pw md5
+  # 269f65..., region-B 85639d..., region-B BasicAuth 401'd). The PAT is a row in
+  # the SHARED access_token table and authenticates identically from either region.
+  giteaPatSecretName: "cutover-gitea-mirror-pat"

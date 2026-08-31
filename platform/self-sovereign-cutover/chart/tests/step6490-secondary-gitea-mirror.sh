@@ -50,7 +50,7 @@ for tok in \
   'SECONDARY_INCLUSTER_GITEA_URL' \
   'SECONDARY_GITEA_NAMESPACE' \
   'secondary-gitea-mirror' \
-  'git-auth-secondary'; do
+  'cutover-gitea-mirror-pat'; do
   if grep -qF "${tok}" "${TMP}/off.yaml"; then
     fail "OFF render contains '${tok}' — the leg is not fully gated (single-region NOT a no-op)"
   else
@@ -85,6 +85,17 @@ if git -C "${REPO_ROOT}" rev-parse --verify --quiet origin/main >/dev/null 2>&1;
     #      accommodating the intended fix, which cutover-contract Case 96 verifies.
     #      The regex keys on GITEA_PASSWORD / --mirror so it never touches step-01's
     #      PAT-authed refspec push.
+    #   3. the #6754 PRIMARY (step-01) push mechanism — origin/main force-pushes
+    #      once; this branch wraps it in a corrupt-target DELETE+RECREATE recovery
+    #      (push_mirror / default_present / recreate_repo). That push renders in
+    #      single-region too, so it is NOT part of the secondaryRegions leg. Both
+    #      forms sit between the SAME `pushing upstream branches + tags (explicit …`
+    #      and `pushed all upstream branches + tags successfully` echoes, so a range
+    #      delete collapses BOTH to nothing — keeping this check able to catch any
+    #      OTHER single-region drift while accommodating the intended fix (which the
+    #      cutover-contract Case 96/97 and this suite's harness verify). The end
+    #      pattern is anchored on the shared prefix so the branch's "… on the
+    #      healthy path" suffix still matches.
     norm() {
       sed -E \
         -e 's#bp-self-sovereign-cutover-[0-9]+\.[0-9]+\.[0-9]+#bp-self-sovereign-cutover-VERSION#g' \
@@ -92,6 +103,7 @@ if git -C "${REPO_ROOT}" rev-parse --verify --quiet origin/main >/dev/null 2>&1;
         -e 's#^ *push_url="\$\{GITEA_INTERNAL_URL\}/\$\{GITEA_ORG\}/\$\{GITEA_REPO\}\.git"$#                  MIRROR_URL_DEF#' \
         -e 's#git -c http\.extraHeader="Authorization: Basic \$\{basic_auth\}" push --mirror#git push --mirror#' \
         -e 's#push --mirror --force "\$\{(local_url|push_url)\}"#push --mirror --force "MIRROR_URL"#' \
+        -e '/\[gitea-mirror\] pushing upstream branches \+ tags \(explicit/,/\[gitea-mirror\] pushed all upstream branches \+ tags successfully/d' \
         "$1"
     }
     norm "${TMP}/main.yaml" >"${TMP}/main.norm"
@@ -130,11 +142,17 @@ if grep -qF 'sec_url_chain="${SECONDARY_INCLUSTER_GITEA_URL:-}"' "${TMP}/step05.
 else
   fail "step-05 secondary chain does not use SECONDARY_INCLUSTER_GITEA_URL"
 fi
-if grep -qF 'git-auth-secondary.yaml' "${TMP}/step05.sh" \
-   && grep -qF 'get secret "${GITEA_ADMIN_SECRET_NAME}"' "${TMP}/step05.sh"; then
-  pass "step-05 wires region-B's OWN gitea-admin-secret into its Flux secretRef (not region-A's PAT)"
+# #6754 — the secondary Flux secretRef carries the SAME region-A catalyst-gitea-token
+# PAT (built into /tmp/git-auth-secret.yaml) the region-A leg uses, NOT region-B's
+# own gitea-admin-secret. Both regions share one gitea DB (shared-pg-mesh-rw), so a
+# per-region admin password can never match the single shared gitea_admin row while
+# the PAT (shared access_token table) authenticates from either region.
+if grep -qF 'apply -f /tmp/git-auth-secret.yaml' "${TMP}/step05.sh" \
+   && ! grep -qF 'git-auth-secondary' "${TMP}/step05.sh" \
+   && ! grep -qF 'get secret "${GITEA_ADMIN_SECRET_NAME}"' "${TMP}/step05.sh"; then
+  pass "step-05 wires the region-A catalyst-gitea-token PAT secret into the secondary Flux secretRef, never region-B's own gitea-admin-secret (#6754)"
 else
-  fail "step-05 does not read the secondary's own gitea-admin-secret for the pivot credential"
+  fail "step-05 secondary leg still reads region-B's own gitea-admin-secret — it cannot authenticate the shared gitea DB (#6754)"
 fi
 bash -n "${TMP}/step05.sh" && pass "step-05 script parses (bash -n)" || fail "step-05 script has a syntax error"
 
@@ -172,19 +190,38 @@ if grep -qF 'app.kubernetes.io/managed-by: flux' "${TMP}/secjob.yaml"; then
 else
   fail "secondary mirror Job lacks app.kubernetes.io/managed-by: flux — ns gitea's kyverno flux-managed ClusterPolicy DENIES step-01's set -e apply and the cutover halts (#6493)"
 fi
-# #6645 push-auth parity with the PRIMARY: the git push + ls-remote authenticate
-# with a freshly MINTED region-local PAT (token_auth header), NOT the admin
-# password (basic_auth). Gitea's git-over-HTTP BasicAuth refuses an account
-# password when an external login source (openova-sso OAuth2) is configured, so
-# the pre-#6645 basic_auth-password push FATALed ("Could not read from remote
-# repository") on the secondary even though the curl API accepted the same
-# password. The push URL still carries NO credentials (#6490 safety preserved).
-if grep -qF 'users/${GITEA_USERNAME}/tokens' "${TMP}/secmirror.sh" \
-   && grep -qF 'GITEA_PAT=$(printf' "${TMP}/secmirror.sh" \
-   && grep -qF '"sha1":' "${TMP}/secmirror.sh"; then
-  pass "secondary-mirror.sh mints a region-local PAT via the admin BasicAuth API and captures its sha1 (#6645)"
+# #6754 push-auth: the git push + ls-remote authenticate with the region-A
+# catalyst-gitea-token PAT (token_auth header), read from the DISTRIBUTED secret
+# via env GITEA_PAT — NOT the region-local admin password (basic_auth) and NOT an
+# in-region mint (the #6645 mint itself needed the drifting admin password). Both
+# regions share one gitea DB (shared-pg-mesh-rw), so the PAT — a row in the shared
+# access_token table — authenticates from either region, while a per-region admin
+# password can never match the single shared gitea_admin row (live hw305: 401).
+if grep -qF 'if [ -z "${GITEA_PAT:-}" ]; then' "${TMP}/secmirror.sh" \
+   && grep -qF 'Authorization: token ${GITEA_PAT}' "${TMP}/secmirror.sh"; then
+  pass "secondary-mirror.sh sources GITEA_PAT from the distributed catalyst-gitea-token secret and token-auths the API (#6754)"
 else
-  fail "secondary-mirror.sh does not mint a region-local PAT for the push (#6645)"
+  fail "secondary-mirror.sh does not read the distributed PAT from env / token-auth the API (#6754)"
+fi
+# anti-regression (non-vacuous — TRUE on the #6645 in-region-mint script): the
+# secondary must NOT mint a PAT via the admin BasicAuth API (that path depended on
+# the region-local admin password matching the shared gitea_admin row, which it
+# cannot — the #6754 auth root cause).
+if grep -qF 'users/${GITEA_USERNAME}/tokens' "${TMP}/secmirror.sh"; then
+  fail "secondary-mirror.sh still mints a region-local PAT via admin BasicAuth — that credential cannot match the shared gitea_admin row (#6754 regression)"
+else
+  pass "secondary-mirror.sh does not mint in-region — it uses the region-A distributed PAT valid in the shared DB (#6754)"
+fi
+# #6754 corrupt-target recovery (the real BUG-2 fix): on a push failure /
+# default-branch-absent the leg DELETE+RECREATEs the repo clean and retries. A
+# target left corrupt by prior partial pushes (empty receive-pack advertisement)
+# can never recover via force-push; a fresh repo always accepts the full push.
+if grep -qF 'recreate_repo' "${TMP}/secmirror.sh" \
+   && grep -qF -- '-X DELETE' "${TMP}/secmirror.sh" \
+   && grep -qF 'default_present' "${TMP}/secmirror.sh"; then
+  pass "secondary-mirror.sh recovers a corrupt/partial target via DELETE+RECREATE + push-retry (#6754)"
+else
+  fail "secondary-mirror.sh lacks the corrupt-target DELETE+RECREATE recovery (#6754)"
 fi
 if grep -qF 'token_auth=$(printf' "${TMP}/secmirror.sh" \
    && grep -qF '${GITEA_USERNAME}:${GITEA_PAT}' "${TMP}/secmirror.sh"; then
@@ -246,6 +283,9 @@ awk '/#6490 secondary-region mirror leg/,/secondary mirror is a no-op/' "${TMP}/
   echo 'SECONDARY_GITEA_NAMESPACE=gitea'
   echo 'MIRROR_JOB_WAIT_SECONDS=5'
   echo 'MIRROR_JOB_POLL_SECONDS=1'
+  # #6754 — the leg now distributes the region-A catalyst-gitea-token PAT into each
+  # secondary's gitea ns; the sliced body reads ${GITEA_PAT} under set -u.
+  echo 'GITEA_PAT=testpat0000'
   sed -e "s#/secondary-kubeconfigs/#${TMP}/skc/#g" -e "s#/secondary-mirror/#${TMP}/smir/#g" "${TMP}/leg.body"
   echo 'fi'
 } >"${TMP}/leg.sh"

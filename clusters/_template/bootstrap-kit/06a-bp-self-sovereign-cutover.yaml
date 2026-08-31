@@ -1100,7 +1100,16 @@ spec:
       #   password but Gitea's git-over-HTTP refuses a password under an external
       #   login source, so the header-authed PASSWORD push FATALed "Could not read
       #   from remote repository" and wedged the cutover at step-01.
-      version: 0.1.199
+      # 0.1.200 (#6754, Refs #6645 #6490): two durable 2-region fixes (live hw305).
+      #   (auth) both regions share ONE gitea DB (region-B -> shared-pg-mesh-rw ->
+      #   region-A's shared-pg primary), so bp-gitea's per-region-independent
+      #   gitea-admin-secret can never match the single shared gitea_admin row and
+      #   the #6645 in-region mint 401'd; the secondary-mirror + step-05 legs now use
+      #   the region-A catalyst-gitea-token PAT (shared access_token table).
+      #   (push) a target left corrupt by prior partial pushes (empty receive-pack
+      #   advertisement) can never recover via force-push -> DELETE+RECREATE clean
+      #   then push, on both the secondary and primary legs.
+      version: 0.1.200
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

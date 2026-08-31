@@ -5484,7 +5484,7 @@ fi
 grep -q 'names a HEALTHY HelmRelease' "$TMP/c95/out.txt" || { echo "FAIL: CONTROL — the platform stale-override rejection lost its class name (#5391/#6273)" >&2; exit 1; }
 echo "  PASS (#6273: BOTH Phase A0 passes partition by ownership — the HelmRelease pass and the override-free wl_pending pass each WARN-and-proceed on Organization namespaces with every offender named, its TERMINAL tag intact and the re-install cost stated; platform offenders stay FATAL, named and classified, are counted alone in the headline, and the VACUITY CONTROL proves that FATAL flips to a warning when the one discriminating input flips; leak controls: identical workloads in harbor still fatal, unlabelled namespaces still fatal, stale override on a platform release still rejected)"
 
-echo "[cutover-contract] Case 96: the region-local gitea-mirror git push/ls-remote authenticate with an Authorization header, NEVER URL-injected credentials; and the SECONDARY-region push presents a freshly MINTED PAT (not the admin password), which Gitea git-over-HTTP requires under an external login source (#6645, Refs #6490 #3379, UAT row 166)"
+echo "[cutover-contract] Case 96: the region-local gitea-mirror git push/ls-remote authenticate with an Authorization header, NEVER URL-injected credentials; the SECONDARY-region leg presents the region-A catalyst-gitea-token PAT distributed into the region (valid in the SHARED gitea DB — NOT an in-region mint, NOT the per-region admin password that cannot match the single shared gitea_admin row) and recovers a corrupt/partial target via DELETE+RECREATE (#6754, Refs #6645 #6490 #3379, UAT row 166)"
 # Live hw301 region-B (me-east-215-b-1): the secondary-mirror's curl API calls
 # (base64 Authorization: Basic header) SUCCEEDED — "org already present", "repo
 # already present" — while `git push` FATALed "Could not read from remote
@@ -5510,8 +5510,22 @@ fi
 if ! grep -qF 'git -c http.extraHeader="Authorization: Basic ${token_auth}" ls-remote --heads "${push_url}"' "$F"; then
   echo "FAIL: secondary-mirror ls-remote does not carry the MINTED-PAT Authorization: Basic http.extraHeader (#6645)" >&2; c96_fail=1
 fi
-if ! grep -qF 'users/${GITEA_USERNAME}/tokens' "$F"; then
-  echo "FAIL: secondary-mirror does not mint a region-local PAT via /api/v1/users/.../tokens for the push (#6645)" >&2; c96_fail=1
+# #6754 — the secondary no longer MINTS a PAT in-region (that mint itself needed
+# the drifting region-local admin password). It authenticates with the region-A
+# catalyst-gitea-token PAT distributed into the region (env GITEA_PAT), valid in
+# the SHARED gitea DB (region-B -> shared-pg-mesh-rw -> region-A's shared-pg
+# primary). So the in-region mint must be ABSENT and GITEA_PAT must be env-sourced.
+if grep -qF 'users/${GITEA_USERNAME}/tokens' "$F"; then
+  echo "FAIL: secondary-mirror still mints a region-local PAT via admin BasicAuth — that credential cannot match the shared gitea_admin row (#6754 regression)" >&2; c96_fail=1
+fi
+if ! grep -qF 'if [ -z "${GITEA_PAT:-}" ]; then' "$F"; then
+  echo "FAIL: secondary-mirror does not read the region-A distributed PAT from env GITEA_PAT (#6754)" >&2; c96_fail=1
+fi
+# #6754 BUG-2 — corrupt-target recovery: a repo left with an empty receive-pack
+# advertisement by prior partial pushes can never recover via force-push; the leg
+# must DELETE+RECREATE it clean and retry.
+if ! grep -qF 'recreate_repo' "$F" || ! grep -qF -- '-X DELETE' "$F"; then
+  echo "FAIL: secondary-mirror lacks the corrupt-target DELETE+RECREATE recovery (#6754 BUG-2)" >&2; c96_fail=1
 fi
 if ! grep -qF 'push_url="${GITEA_INTERNAL_URL}/${GITEA_ORG}/${GITEA_REPO}.git"' "$F"; then
   echo "FAIL: secondary-mirror push_url is not the credential-free remote URL (#6490)" >&2; c96_fail=1
@@ -5537,7 +5551,7 @@ if grep -qF '${GITEA_USERNAME}:${GITEA_PASSWORD}@' "$G"; then
   echo "FAIL: mirror-resync still URL-injects the admin password — breaks on a URL-special-char password (#6490 regression)" >&2; c96_fail=1
 fi
 if [ "$c96_fail" -ne 0 ]; then exit 1; fi
-echo "  PASS (#6645: the SECONDARY-region mirror mints a region-local PAT and git-auths the push/ls-remote WITH IT — Gitea git-over-HTTP requires a token, not the admin password, under an external login source — against a credential-free remote URL; the PRIMARY resync keeps its admin-BasicAuth header [region-A works]; zero admin-password URL-injection survives on either site)"
+echo "  PASS (#6754: the SECONDARY-region mirror git-auths the push/ls-remote with the region-A catalyst-gitea-token PAT distributed into the region — valid in the shared gitea DB, no in-region mint, no per-region admin password — against a credential-free remote URL, and DELETE+RECREATEs a corrupt/partial target before retrying; the PRIMARY resync keeps its admin-BasicAuth header [region-A works]; zero admin-password URL-injection survives on either site)"
 
 echo "[cutover-contract] Case 97: Step-01 gitea-mirror activeDeadlineSeconds must cover the ~470MB monorepo clone+push over a throttled link (#6511, Refs #6508 #3379, UAT row 166)"
 # hw302 live (2026-08-20): step-01 bare-clones the openova monorepo — now ~470 MB

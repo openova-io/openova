@@ -10,29 +10,55 @@ cannot span them — CoreDNS answers `gitea-http.gitea.svc` straight from the
 LOCAL EndpointSlice — so from region-A the name can only ever resolve to
 region-A's own Gitea. The only way to populate a secondary's OWN in-cluster
 Gitea is to run the clone+push INSIDE that region. step-01/step-11 stamp this
-script as a batch/v1 Job through the secondary's kubeconfig; the Job reads that
-region's OWN gitea-admin-secret (bp-gitea reflects it into the release
-namespace) and pushes to its OWN gitea-http.
+script as a batch/v1 Job through the secondary's kubeconfig; the Job pushes to
+its OWN gitea-http.
 
-The script is INTENTIONALLY the union of step-01's org/repo-create + bare-clone
-+ explicit-refspec force-push (never mirror mode, which would prune the
-sovereign-local refs #5011) and the #6488 large-clone robustness, plus a
-closing `git ls-remote` self-verify — the #6490 ordering gate: this region's
+Auth (#6754 — supersedes the #6645 in-region mint): ALL gitea operations here
+authenticate with the `catalyst-gitea-token` PAT that region-A distributes into
+this region's gitea namespace (secondaryRegions.giteaPatSecretName), consumed by
+the Job via a secretKeyRef and surfaced as GITEA_PAT.
+
+WHY the PAT and NOT the region-local admin password (the #6754 auth root cause).
+In an active-hot-standby Sovereign BOTH regions' gitea share ONE logical database:
+region-B's gitea connects to `shared-pg-mesh-rw.shared-data.svc`, a Cilium
+ClusterMesh read-write Service that routes to region-A's shared-pg PRIMARY. There
+is exactly one `gitea_admin` row and one `access_token` table across both regions.
+But bp-gitea mints `gitea-admin-secret` INDEPENDENTLY per region (randAlphaNum,
+preserved only by a region-local lookup + region-local mirrorNamespaces), so the
+two regions' gitea init containers fight over the single shared `user` row and the
+live admin password is whichever region (re)started last — it necessarily diverges
+from at least the OTHER region's `gitea-admin-secret` (live hw305 dep
+b2b00ce4c833badf: region-A pw md5 269f65…, region-B 85639d…; region-B's BasicAuth
+401'd). A per-region admin password can therefore NEVER be relied on. The
+`catalyst-gitea-token` PAT, by contrast, is a row in the SHARED `access_token`
+table (minted at bootstrap by bp-catalyst-platform in region-A, scopes ["all"] →
+admin) and authenticates identically from either region — a direct sha1 lookup,
+immune to which region's gitea restarted last, and (unlike a password) accepted by
+Gitea's git-over-HTTP even with the openova-sso external login source configured.
+This is the same PAT the primary leg (#3584) and steps 10/11 (#5262) already use;
+the secondary now uses it too instead of the fragile in-region admin-BasicAuth +
+PAT-mint.
+
+Push (#6754 — corrupt/partial-target recovery, the true BUG-2 fix). A target repo
+left by prior partial pushes with an empty/truncated git-receive-pack ref
+advertisement (live hw305 region-B: 35-byte advertisement — service header + flush,
+NO refs, NO capabilities — over ~556 MiB of orphaned objects, the residue of 8
+days of failed pushes) can NEVER recover via force-push: git aborts against the
+empty advertisement BEFORE sending anything, surfacing only the generic
+`fatal: Could not read from remote repository` (the "#6490 pkt-line 3 EOF" class).
+It is NOT a size / memory / ref-count limit — the identical 2,436-branch / 511 MiB
+mirror pushes to a FRESH repo with exit 0. So the durable fix is to make the push
+IDEMPOTENT against a corrupt target: push; if the push fails OR the default branch
+is absent afterwards, DELETE + RECREATE the repo clean (the admin-scoped PAT can),
+then push once more against the fresh target. The old "repo already present
+(idempotent re-run); refreshing content" path was the trap — it trusts a
+partially-populated repo that force-push can never repair.
+
+The script keeps step-01's org/repo-create + bare-clone (never mirror mode, which
+would prune the sovereign-local refs #5011) + the #6488 large-clone robustness, and
+a closing `git ls-remote` self-verify — the #6490 ordering gate: this region's
 Gitea must serve a COMPLETE ref advertisement before step-05 pivots its Flux
 GitRepository at it.
-
-Auth (#6645): the /api/v1 calls (org/repo create, PAT mint, repo-meta readback)
-use BasicAuth with the secondary's OWN gitea-admin-secret (username + password
-env, from a secretKeyRef the stamping Job wires) — the proven-working API path.
-But the git-over-HTTP push/ls-remote authenticate with a freshly MINTED PAT, not
-that password: Gitea's git-HTTP BasicAuth refuses an account password when an
-external login source (bp-gitea's openova-sso OAuth2) is configured, even though
-the API accepts it — the exact region-B discriminator (API OK, push "Could not
-read from remote repository"). A secondary runs no bp-catalyst-platform, so the
-`catalyst-gitea-token` PAT step-01 uses on the primary does not exist here; we
-mint one in-region via the admin BasicAuth API and use it for the push, mirroring
-the primary's PAT-authed push. curl calls carry --max-time so a converging login
-source cannot hang the step.
 
 RENDER-GATED: emitted only when secondaryRegions.mirrorToSecondaryGitea is true,
 so a single-region Sovereign renders byte-identical (this whole object absent).
@@ -53,6 +79,16 @@ data:
     export HOME=/tmp
     echo "[secondary-mirror] region-local mirror of ${UPSTREAM_REPO_URL} -> ${GITEA_INTERNAL_URL}/${GITEA_ORG}/${GITEA_REPO}.git"
 
+    # #6754 — the shared-DB PAT is the ONLY credential this leg uses. region-A
+    # distributes catalyst-gitea-token into this region's gitea ns; a secretKeyRef
+    # surfaces it as GITEA_PAT. Empty => region-A's distribution did not land;
+    # fail loud rather than fall back to the admin password that cannot match the
+    # shared gitea_admin row.
+    if [ -z "${GITEA_PAT:-}" ]; then
+      echo "[secondary-mirror] FATAL: GITEA_PAT is empty — region-A did not distribute the catalyst-gitea-token PAT into this region's gitea namespace (${GITEA_PAT_SECRET_NAME:-cutover-gitea-mirror-pat}); refusing to authenticate with the region-local admin password (it cannot match the shared gitea_admin row, #6754)" >&2
+      exit 1
+    fi
+
     gitea_host="$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -E 's|^https?://||' | cut -d: -f1 | cut -d/ -f1)"
     if [ -n "${gitea_host}" ]; then
       dns_ready="false"
@@ -67,96 +103,88 @@ data:
     fi
 
     api_url="${GITEA_INTERNAL_URL}/api/v1"
-    # BasicAuth header, base64 of user:pass — never echoed. --max-time bounds a
-    # converging login source so it fails fast instead of hanging the step.
-    basic_auth=$(printf '%s' "${GITEA_USERNAME}:${GITEA_PASSWORD}" | base64 -w0 2>/dev/null || printf '%s' "${GITEA_USERNAME}:${GITEA_PASSWORD}" | base64 | tr -d '\n')
+    # #6754 — token auth for the /api/v1 calls (a direct sha1 lookup in the shared
+    # access_token table). --max-time bounds a converging login source so it fails
+    # fast instead of hanging the step. The PAT is never echoed.
+
+    # create_repo — idempotent create of a REGULAR (non-mirror) repo.
+    create_repo() {
+      _cr_payload=$(printf '{"name":"%s","auto_init":false,"private":false,"description":"Secondary-region self-hosted clone of %s (#6490)"}' \
+        "${GITEA_REPO}" "${UPSTREAM_REPO_URL}")
+      curl -fsS -o /dev/null --max-time 60 -X POST \
+        -H "Authorization: token ${GITEA_PAT}" -H "Content-Type: application/json" \
+        -d "${_cr_payload}" \
+        "${api_url}/orgs/${GITEA_ORG}/repos" 2>/dev/null || true
+    }
+    repo_visible() {
+      curl -fsS -o /dev/null --max-time 60 \
+        -H "Authorization: token ${GITEA_PAT}" -H "Accept: application/json" \
+        "${api_url}/repos/${GITEA_ORG}/${GITEA_REPO}" 2>/dev/null
+    }
+    # recreate_repo — #6754 corruption recovery: DELETE + CREATE a clean empty repo.
+    # A target with a broken/empty receive-pack advertisement can never accept a
+    # force-push; a fresh repo always can. The admin-scoped catalyst-gitea-token
+    # can delete. Also repairs a stray pull-mirror (read-only) target in one step.
+    recreate_repo() {
+      echo "[secondary-mirror] DELETE + RECREATE a clean ${GITEA_ORG}/${GITEA_REPO} (prior partial-push corruption / pull-mirror; #6754)"
+      curl -fsS -o /dev/null --max-time 60 -X DELETE \
+        -H "Authorization: token ${GITEA_PAT}" \
+        "${api_url}/repos/${GITEA_ORG}/${GITEA_REPO}" 2>/dev/null || true
+      sleep 2
+      create_repo
+      for _rr in 1 2 3 4 5 6; do
+        if repo_visible; then return 0; fi
+        sleep 2
+      done
+      echo "[secondary-mirror] FATAL: ${GITEA_ORG}/${GITEA_REPO} not visible after DELETE+RECREATE" >&2
+      return 1
+    }
 
     # 1. ensure the org exists (idempotent).
     if curl -fsS -o /dev/null --max-time 60 \
-        -H "Authorization: Basic ${basic_auth}" -H "Accept: application/json" \
+        -H "Authorization: token ${GITEA_PAT}" -H "Accept: application/json" \
         "${api_url}/orgs/${GITEA_ORG}" 2>/dev/null; then
       echo "[secondary-mirror] org already present"
     else
       echo "[secondary-mirror] creating org ${GITEA_ORG}"
       curl -fsS -o /dev/null --max-time 60 -X POST \
-        -H "Authorization: Basic ${basic_auth}" -H "Content-Type: application/json" \
+        -H "Authorization: token ${GITEA_PAT}" -H "Content-Type: application/json" \
         -d "{\"username\":\"${GITEA_ORG}\",\"visibility\":\"public\"}" \
         "${api_url}/orgs" 2>/dev/null || true
     fi
 
-    # 2. ensure the repo exists as a REGULAR (non-mirror) repo (idempotent).
-    if curl -fsS -o /dev/null --max-time 60 \
-        -H "Authorization: Basic ${basic_auth}" -H "Accept: application/json" \
-        "${api_url}/repos/${GITEA_ORG}/${GITEA_REPO}" 2>/dev/null; then
-      echo "[secondary-mirror] repo already present (idempotent re-run); refreshing content"
+    # 2. ensure the repo exists as a REGULAR (non-mirror) repo (idempotent). If a
+    #    stray PULL-MIRROR was seeded here it is read-only and force-push cannot
+    #    land — recreate it clean rather than trusting it (#6754, supersedes the
+    #    #6645 mirror=true FATAL).
+    if repo_visible; then
+      repo_meta=$(curl -fsS --max-time 60 \
+          -H "Authorization: token ${GITEA_PAT}" -H "Accept: application/json" \
+          "${api_url}/repos/${GITEA_ORG}/${GITEA_REPO}" 2>/dev/null || echo "{}")
+      if printf '%s' "${repo_meta}" | grep -q '"mirror":true'; then
+        echo "[secondary-mirror] ${GITEA_ORG}/${GITEA_REPO} is a read-only pull-mirror — recreating as a regular repo"
+        recreate_repo || exit 1
+      else
+        echo "[secondary-mirror] repo already present (idempotent re-run); a corrupt/partial one is recovered by the push step below"
+      fi
     else
       echo "[secondary-mirror] creating empty repo ${GITEA_ORG}/${GITEA_REPO}"
-      create_payload=$(printf '{"name":"%s","auto_init":false,"private":false,"description":"Secondary-region self-hosted clone of %s (#6490)"}' \
-        "${GITEA_REPO}" "${UPSTREAM_REPO_URL}")
-      curl -fsS -o /dev/null --max-time 60 -X POST \
-        -H "Authorization: Basic ${basic_auth}" -H "Content-Type: application/json" \
-        -d "${create_payload}" \
-        "${api_url}/orgs/${GITEA_ORG}/repos" 2>&1 || true
-      if ! curl -fsS -o /dev/null --max-time 60 \
-          -H "Authorization: Basic ${basic_auth}" -H "Accept: application/json" \
-          "${api_url}/repos/${GITEA_ORG}/${GITEA_REPO}" 2>/dev/null; then
+      create_repo
+      if ! repo_visible; then
         echo "[secondary-mirror] FATAL: repo create failed — not visible after POST" >&2
         exit 1
       fi
     fi
 
-    # 2b. #6645 — mirror=false guard. A Gitea PULL-MIRROR repo is READ-ONLY: the
-    #     force-push below is rejected and git surfaces only the opaque
-    #     "Could not read from remote repository". Gitea 1.22 cannot convert a
-    #     pull-mirror to a standalone repo via API (same constraint step-01/PR
-    #     #1029 designed around on the primary), so we FATAL naming the exact
-    #     cause instead of failing opaquely inside the push. The create path
-    #     above makes a REGULAR repo (auto_init:false, never /repos/migrate), so
-    #     this only fires if something else seeded a pull-mirror in this region.
-    repo_meta=$(curl -fsS --max-time 60 \
-        -H "Authorization: Basic ${basic_auth}" -H "Accept: application/json" \
-        "${api_url}/repos/${GITEA_ORG}/${GITEA_REPO}" 2>/dev/null || echo "{}")
-    if printf '%s' "${repo_meta}" | grep -q '"mirror":true'; then
-      echo "[secondary-mirror] FATAL: ${GITEA_ORG}/${GITEA_REPO} is a Gitea PULL-MIRROR (read-only) in this region — the region-local force-push cannot land (#6645). A pull-mirror cannot be converted to standalone via the Gitea API; recreate it as a regular (non-mirror) repo before re-triggering." >&2
-      exit 1
-    fi
-
-    # 3. #6645 — mint a fresh region-local PAT and authenticate the git-over-HTTP
-    #    push/ls-remote WITH IT, exactly as the PRIMARY (region-A) mirror does
-    #    (01-gitea-mirror-job.yaml uses the bootstrap-minted catalyst-gitea-token
-    #    PAT). WHY NOT the admin password: Gitea's git-over-HTTP BasicAuth REFUSES
-    #    an account password when an external login source (bp-gitea's openova-sso
-    #    OAuth2) is configured — it demands a token — EVEN THOUGH the /api/v1 calls
-    #    above accept that same password. That is the exact region-B discriminator
-    #    (#6645, hw305 dep b2b00ce4c833badf): the curl API BasicAuth succeeds
-    #    ("repo already present") while the header-authed push FATALs with
-    #    "Could not read from remote repository". The earlier http.extraHeader
-    #    BasicAuth-password variant (#6490) only dodged a URL-special-char parse
-    #    bug — it still presents a PASSWORD, so it does not clear this rejection.
-    #    A secondary runs no bp-catalyst-platform, so the primary's
-    #    catalyst-gitea-token PAT does not exist here; we MINT one via the admin
-    #    BasicAuth API (the proven-working path) and use it — a PAT is accepted as
-    #    the git-HTTP password under any username. Delete-then-create keeps it
-    #    idempotent: a token's sha1 is only returned at creation.
-    pat_name="cutover-secondary-mirror"
-    curl -fsS -o /dev/null --max-time 60 -X DELETE \
-      -H "Authorization: Basic ${basic_auth}" \
-      "${api_url}/users/${GITEA_USERNAME}/tokens/${pat_name}" 2>/dev/null || true
-    mint_resp=$(curl -fsS --max-time 60 -X POST \
-      -H "Authorization: Basic ${basic_auth}" -H "Content-Type: application/json" \
-      -d "{\"name\":\"${pat_name}\",\"scopes\":[\"write:repository\",\"read:repository\"]}" \
-      "${api_url}/users/${GITEA_USERNAME}/tokens" 2>/dev/null || echo "")
-    GITEA_PAT=$(printf '%s' "${mint_resp}" | sed -n 's/.*"sha1":"\([0-9a-fA-F]*\)".*/\1/p')
-    if [ -z "${GITEA_PAT}" ]; then
-      echo "[secondary-mirror] FATAL: could not mint a region-local Gitea PAT (POST ${api_url}/users/${GITEA_USERNAME}/tokens returned no sha1) — git-over-HTTP will not accept the admin password when an external login source is configured (#6645)" >&2
-      exit 1
-    fi
-    # token BasicAuth header (user:PAT) — THIS is what git-over-HTTP accepts. The
-    # push URL still carries NO credentials (the #6490 URL-special-char safety).
+    # 3. token BasicAuth header (user:PAT) — THIS is what git-over-HTTP accepts
+    #    (a PAT is honoured as the git-HTTP password under any username even when
+    #    the openova-sso external login source is configured, unlike a plain
+    #    account password). The push URL still carries NO credentials (the #6490
+    #    URL-special-char safety).
     token_auth=$(printf '%s' "${GITEA_USERNAME}:${GITEA_PAT}" | base64 -w0 2>/dev/null || printf '%s' "${GITEA_USERNAME}:${GITEA_PAT}" | base64 | tr -d '\n')
 
-    # 4. bare-clone upstream and force-push explicit refspecs (never mirror mode
-    #    #5011) with the #6488 large-clone robustness.
+    # 4. bare-clone upstream (never mirror mode #5011) with the #6488 large-clone
+    #    robustness.
     git config --global user.name "self-sovereign-cutover-secondary"
     git config --global user.email "cutover@${gitea_host}"
     git config --global advice.detachedHead false
@@ -183,20 +211,46 @@ data:
       exit 1
     fi
     cd upstream.git
-    echo "[secondary-mirror] pushing upstream branches + tags to the region-local Gitea"
-    push_err=$(git -c http.extraHeader="Authorization: Basic ${token_auth}" push --force "${push_url}" 'refs/heads/*:refs/heads/*' 'refs/tags/*:refs/tags/*' 2>&1) || {
-      echo "[secondary-mirror] FATAL: git push to the region-local Gitea failed" >&2
-      printf '%s\n' "${push_err}" | sed -E "s,${GITEA_PAT}+,REDACTED,g;s,${GITEA_PASSWORD}+,REDACTED,g" >&2
-      exit 1
+
+    # 5. #6754 — force-push the FULL upstream mirror, with corrupt-target recovery.
+    #    push_mirror force-pushes every branch + tag with the token header (never a
+    #    URL-embedded credential — #6490 URL-special-char safety). If the push fails
+    #    OR the default branch is absent afterwards, the target is corrupt from
+    #    prior partial pushes and can never recover in place → DELETE+RECREATE it
+    #    clean and push once more against the fresh repo.
+    push_mirror() {
+      git -c http.extraHeader="Authorization: Basic ${token_auth}" push --force "${push_url}" \
+        'refs/heads/*:refs/heads/*' 'refs/tags/*:refs/tags/*' 2>&1
     }
+    default_present() {
+      git -c http.extraHeader="Authorization: Basic ${token_auth}" ls-remote --heads "${push_url}" 2>/dev/null \
+        | grep -q "refs/heads/${UPSTREAM_BRANCH}"
+    }
+    echo "[secondary-mirror] pushing upstream branches + tags to the region-local Gitea"
+    push_ok=""
+    if push_err=$(push_mirror) && default_present; then
+      push_ok=1
+    else
+      echo "[secondary-mirror] initial push failed or default branch absent — target likely corrupt from prior partial pushes; recreating clean and retrying (#6754)" >&2
+      printf '%s\n' "${push_err:-}" | sed -E "s,${GITEA_PAT}+,REDACTED,g" >&2 || true
+      recreate_repo || exit 1
+      if push_err=$(push_mirror) && default_present; then
+        push_ok=1
+      fi
+    fi
+    if [ -z "${push_ok}" ]; then
+      echo "[secondary-mirror] FATAL: git push to the region-local Gitea still failed after DELETE+RECREATE — the region-local Gitea cannot serve ${GITEA_ORG}/${GITEA_REPO} and step-05 would pivot its Flux at an empty source (#6490/#6754)" >&2
+      printf '%s\n' "${push_err:-}" | sed -E "s,${GITEA_PAT}+,REDACTED,g" >&2 || true
+      exit 1
+    fi
     echo "[secondary-mirror] pushed all upstream branches + tags"
 
-    # 5. ls-remote self-verify — the #6490 ordering gate. The region's Gitea must
+    # 6. ls-remote self-verify — the #6490 ordering gate. The region's Gitea must
     #    serve a COMPLETE ref advertisement (the class that truncated at pkt-line
     #    3 cross-region); prove it locally before step-05 pivots Flux at it.
     if ! git -c http.extraHeader="Authorization: Basic ${token_auth}" ls-remote --heads "${push_url}" >/tmp/.lsr 2>/tmp/.lsr.err; then
       echo "[secondary-mirror] FATAL: git ls-remote of the pushed repo failed — its ref advertisement is not servable (the pkt-line 3 EOF class, #6490)" >&2
-      sed -E "s,${GITEA_PAT}+,REDACTED,g;s,${GITEA_PASSWORD}+,REDACTED,g" /tmp/.lsr.err >&2 || true
+      sed -E "s,${GITEA_PAT}+,REDACTED,g" /tmp/.lsr.err >&2 || true
       exit 1
     fi
     if ! grep -q "refs/heads/${UPSTREAM_BRANCH}" /tmp/.lsr; then
@@ -214,8 +268,10 @@ data:
    copy both steps reuse.
 
    It runs in secondaryRegions.secondaryGiteaNamespace with the `default` SA (no
-   Kubernetes API calls) and reads that region's OWN gitea-admin-secret via
-   secretKeyRef (resolved in the Job's own namespace = the gitea namespace).
+   Kubernetes API calls) and reads the region-A-distributed catalyst-gitea-token
+   PAT via a secretKeyRef (resolved in the Job's own namespace = the gitea
+   namespace); no cross-namespace secretKeyRef, no dependency on the drifting
+   region-local admin password (#6754).
   */}}
   secondary-mirror-job.yaml: |
     apiVersion: batch/v1
@@ -271,16 +327,28 @@ data:
                   value: {{ .Values.gitea.org | quote }}
                 - name: GITEA_REPO
                   value: {{ .Values.gitea.repo | quote }}
+                {{- /*
+                #6754 — the git username the PAT authenticates under (a literal,
+                gitea_admin; a PAT is accepted under any username). No secretKeyRef
+                to the region-local gitea-admin-secret any more — its password
+                cannot match the shared gitea_admin row.
+                */}}
                 - name: GITEA_USERNAME
+                  value: {{ .Values.gitRepositorySecretRef.username | quote }}
+                {{- /*
+                #6754 — the shared-DB PAT region-A distributes into this region's
+                gitea namespace (secondaryRegions.giteaPatSecretName). Optional so
+                a mis-timed run surfaces a clear GITEA_PAT-empty FATAL rather than
+                CreateContainerConfigError.
+                */}}
+                - name: GITEA_PAT_SECRET_NAME
+                  value: {{ .Values.secondaryRegions.giteaPatSecretName | quote }}
+                - name: GITEA_PAT
                   valueFrom:
                     secretKeyRef:
-                      name: {{ .Values.gitea.adminSecretRef.name | quote }}
-                      key: {{ .Values.gitea.adminSecretRef.usernameKey | quote }}
-                - name: GITEA_PASSWORD
-                  valueFrom:
-                    secretKeyRef:
-                      name: {{ .Values.gitea.adminSecretRef.name | quote }}
-                      key: {{ .Values.gitea.adminSecretRef.passwordKey | quote }}
+                      name: {{ .Values.secondaryRegions.giteaPatSecretName | quote }}
+                      key: token
+                      optional: true
               volumeMounts:
                 - name: secondary-mirror
                   mountPath: /secondary-mirror

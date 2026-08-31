@@ -160,21 +160,17 @@ data:
            step-01/step-11). Pivot the secondary's GitRepository at that
            in-cluster gitea-http Service — the SAME URL region-A uses — instead of
            the cross-region external door that truncates the large ref
-           advertisement at pkt-line 3. The secondary's Gitea has its OWN
-           per-install-random admin password, so the Flux secretRef must carry
-           THAT region's credential (region-A's PAT never authenticates it);
-           read it from the secondary's gitea namespace via its kubeconfig.
+           advertisement at pkt-line 3.
+           #6754 — the Flux secretRef carries the SAME `catalyst-gitea-token` PAT
+           the region-A leg uses (built into /tmp/git-auth-secret.yaml below). Both
+           regions share ONE gitea database (region-B -> shared-pg-mesh-rw ->
+           region-A's shared-pg primary), so the PAT — a row in the shared
+           access_token table — authenticates the secondary's in-cluster Gitea,
+           whereas the secondary's own per-region admin password can never match the
+           single shared gitea_admin row. No region-B gitea-admin-secret read.
           */}}
           - name: SECONDARY_INCLUSTER_GITEA_URL
             value: {{ printf "%s/%s/%s" .Values.sovereign.giteaInternalURL .Values.gitea.org .Values.gitea.repo | quote }}
-          - name: SECONDARY_GITEA_NAMESPACE
-            value: {{ .Values.secondaryRegions.secondaryGiteaNamespace | quote }}
-          - name: GITEA_ADMIN_SECRET_NAME
-            value: {{ .Values.gitea.adminSecretRef.name | quote }}
-          - name: GITEA_ADMIN_USERNAME_KEY
-            value: {{ .Values.gitea.adminSecretRef.usernameKey | quote }}
-          - name: GITEA_ADMIN_PASSWORD_KEY
-            value: {{ .Values.gitea.adminSecretRef.passwordKey | quote }}
           {{- end }}
         command: ["/bin/sh", "-c"]
         args:
@@ -354,40 +350,20 @@ data:
 
               {{- if .Values.secondaryRegions.mirrorToSecondaryGitea }}
               {{- /*
-               1. #6490 — the in-cluster target is this region's OWN Gitea, whose
-               admin password is an independent per-install random (bp-gitea
-               admin-secret randAlphaNum), so region-A's PAT (a DB row on
-               region-A's Gitea) does NOT authenticate it. Build the Flux
-               basic-auth Secret from THIS region's gitea-admin-secret, read from
-               its gitea namespace via its kubeconfig. Same /tmp-file + `kubectl
-               apply` hygiene as the region-A leg — the password stays in a shell
-               var + an ephemeral file, never in argv.
+               1. #6754 — the in-cluster target is this region's OWN Gitea, but both
+               regions share ONE gitea database (region-B -> shared-pg-mesh-rw ->
+               region-A's shared-pg PRIMARY), so region-B's own per-region admin
+               password can NEVER match the single shared gitea_admin row (the #6754
+               root cause; live hw305 region-B BasicAuth 401'd). The
+               `catalyst-gitea-token` PAT, by contrast, is a row in the SHARED
+               access_token table and authenticates from EITHER region — so wire the
+               SAME PAT basic-auth Secret the region-A leg already built into
+               /tmp/git-auth-secret.yaml (keys username/password, password=the PAT),
+               applied into this secondary's flux-system via its kubeconfig. No
+               region-B gitea-admin-secret read — it cannot authenticate even its own
+               gitea — identical credential to the non-#6490 external-door leg below.
               */}}
-              sec_git_user=$(kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" get secret "${GITEA_ADMIN_SECRET_NAME}" -o "jsonpath={.data.${GITEA_ADMIN_USERNAME_KEY}}" 2>/dev/null | base64 -d 2>/dev/null || true)
-              sec_git_pass=$(kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" get secret "${GITEA_ADMIN_SECRET_NAME}" -o "jsonpath={.data.${GITEA_ADMIN_PASSWORD_KEY}}" 2>/dev/null | base64 -d 2>/dev/null || true)
-              if [ -z "${sec_git_pass}" ]; then
-                echo "[flux-gitrepository-patch] FATAL: #6490 secondary region ${region}: could not read ${SECONDARY_GITEA_NAMESPACE}/${GITEA_ADMIN_SECRET_NAME} via its kubeconfig — cannot wire a credential valid for this region's OWN in-cluster Gitea; pivoting an authenticated source with no credential would 401 every reconcile (#6490)" >&2
-                kubectl -n "${CUTOVER_NAMESPACE}" patch configmap "${STATUS_CONFIGMAP}" --type=merge \
-                  -p "{\"data\":{\"step.flux-gitrepository-patch.region.${region}.result\":\"failed\",\"step.flux-gitrepository-patch.region.${region}.finishedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"step.flux-gitrepository-patch.region.${region}.lastError\":\"secondary gitea-admin-secret unreadable\"}}" || true
-                exit 1
-              fi
-              cat >/tmp/git-auth-secondary.yaml <<EOF
-            apiVersion: v1
-            kind: Secret
-            metadata:
-              name: ${GIT_AUTH_SECRET_NAME}
-              namespace: ${GITREPO_NAMESPACE}
-              labels:
-                app.kubernetes.io/managed-by: self-sovereign-cutover
-                app.kubernetes.io/component: cutover-gitrepository-auth
-              annotations:
-                catalyst.openova.io/mirrored-from: ${SECONDARY_GITEA_NAMESPACE}/${GITEA_ADMIN_SECRET_NAME}
-            type: Opaque
-            stringData:
-              username: ${sec_git_user}
-              password: ${sec_git_pass}
-            EOF
-              kubectl --kubeconfig "${skc}" apply -f /tmp/git-auth-secondary.yaml
+              kubectl --kubeconfig "${skc}" apply -f /tmp/git-auth-secret.yaml
               {{- else }}
               {{- /*
                1. Basic-auth Secret in the secondary's flux-system (same PAT

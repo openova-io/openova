@@ -184,6 +184,17 @@ spec:
                   value: {{ .Values.secondaryRegions.mirrorJobWaitSeconds | quote }}
                 - name: MIRROR_JOB_POLL_SECONDS
                   value: {{ .Values.secondaryRegions.mirrorJobPollSeconds | quote }}
+                {{- /* #6754 — PAT source for the secondary distribution: the shared
+                   secondary-mirror Job now authenticates with the region-A
+                   catalyst-gitea-token PAT (valid in the shared gitea DB) instead of
+                   the region-local admin password that cannot match the shared
+                   gitea_admin row. */}}
+                - name: PAT_SOURCE_NAMESPACE
+                  value: {{ .Values.gitRepositorySecretRef.patSourceNamespace | quote }}
+                - name: PAT_SOURCE_SECRET_NAME
+                  value: {{ .Values.gitRepositorySecretRef.patSourceSecretName | quote }}
+                - name: PAT_SOURCE_KEY
+                  value: {{ .Values.gitRepositorySecretRef.patSourceKey | quote }}
                 {{- end }}
               command: ["/bin/sh", "-c"]
               args:
@@ -268,6 +279,15 @@ spec:
                    /secondary-kubeconfigs is optional; empty => no-op.
                   */}}
                   echo "[mirror-resync] #6490 secondary-region resync leg"
+                  {{- /*
+                   #6754 — read the region-A catalyst-gitea-token PAT once, to
+                   (re)distribute into each secondary's gitea ns below. It is a row
+                   in the SHARED gitea access_token table (region-B -> shared-pg-mesh-rw
+                   -> region-A's shared-pg primary), so it authenticates from either
+                   region — unlike the per-region admin password, which can never
+                   match the single shared gitea_admin row.
+                  */}}
+                  SEC_GITEA_PAT=$(kubectl -n "${PAT_SOURCE_NAMESPACE}" get secret "${PAT_SOURCE_SECRET_NAME}" -o "jsonpath={.data.${PAT_SOURCE_KEY}}" 2>/dev/null | base64 -d 2>/dev/null || true)
                   sec_any="false"
                   for skc in /secondary-kubeconfigs/*.yaml; do
                     [ -e "${skc}" ] || continue
@@ -278,6 +298,18 @@ spec:
                     kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" create configmap cutover-secondary-mirror-script \
                       --from-file=secondary-mirror.sh=/secondary-mirror/secondary-mirror.sh \
                       --dry-run=client -o yaml | kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" apply -f -
+                    {{- /* #6754 — (re)distribute the shared-DB PAT into this secondary's gitea ns
+                       (--from-file, never argv). */}}
+                    if [ -n "${SEC_GITEA_PAT}" ]; then
+                      umask 077
+                      printf '%s' "${SEC_GITEA_PAT}" > /tmp/sec-pat-token
+                      kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" create secret generic {{ .Values.secondaryRegions.giteaPatSecretName }} \
+                        --from-file=token=/tmp/sec-pat-token \
+                        --dry-run=client -o yaml | kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" apply -f -
+                      rm -f /tmp/sec-pat-token
+                    else
+                      echo "[mirror-resync] #6754 WARN: catalyst-gitea-token PAT unreadable in ${PAT_SOURCE_NAMESPACE}/${PAT_SOURCE_SECRET_NAME}; reusing any PAT step-01 already distributed to region ${region}" >&2
+                    fi
                     kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" delete job "${jobname}" --ignore-not-found=true >/dev/null 2>&1 || true
                     sed "s/__REGION__/${region}/g" /secondary-mirror/secondary-mirror-job.yaml >/tmp/secjob.yaml
                     kubectl --kubeconfig "${skc}" apply -f /tmp/secjob.yaml

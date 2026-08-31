@@ -4202,7 +4202,33 @@ name: bp-self-sovereign-cutover
 #   URL-special-char parse; a password is still refused for git-HTTP. Fix mints a
 #   PAT via the admin BasicAuth API (proven working) and uses it for the push,
 #   plus a mirror=false guard. Catalog + bootstrap-kit slot 06a move to 0.1.199.
-version: 0.1.199
+# 0.1.200 (#6754, Refs #6645 #6490 #5262 #3379) — two durable 2-region cutover
+#   fixes, both confirmed live on hw305 (dep b2b00ce4c833badf, region-B
+#   me-east-215-b-1):
+#   (BUG 1, auth) The two regions share ONE gitea database (region-B's gitea →
+#   `shared-pg-mesh-rw.shared-data.svc`, a Cilium ClusterMesh RW Service routing to
+#   region-A's shared-pg PRIMARY), so there is exactly one `gitea_admin` row and
+#   one access_token table across both regions. But bp-gitea mints `gitea-admin-
+#   secret` INDEPENDENTLY per region (verified: region-A pw md5 269f65…, region-B
+#   85639d…), so the two regions' gitea inits fight over the single shared user row
+#   and the live admin password diverges from at least the other region's secret →
+#   the #6645 in-region mint (which authenticated via that admin password) 401'd.
+#   Fix: the secondary-mirror leg + step-05's secondary Flux secretRef now
+#   authenticate with the `catalyst-gitea-token` PAT (scopes ["all"]) that region-A
+#   distributes into each secondary's gitea ns — a row in the SHARED access_token
+#   table, valid from either region, immune to which region restarted last. The
+#   fragile in-region admin-BasicAuth + PAT-mint is removed.
+#   (BUG 2, push) A target repo left by prior partial pushes with an empty/truncated
+#   git-receive-pack advertisement (hw305 region-B: 35 bytes over ~556MB of orphaned
+#   objects, 8 days of failed pushes) can NEVER recover via force-push — git aborts
+#   before sending, surfacing only "Could not read from remote repository" (the
+#   #6490 pkt-line 3 EOF class). It is NOT a size/ref-count limit (the same
+#   2,436-branch / 511 MiB mirror pushes to a FRESH repo, exit 0). Fix: both the
+#   secondary-mirror leg and the primary 01-gitea-mirror-job push, then — on a push
+#   failure OR default-branch-absent — DELETE+RECREATE the repo clean (the
+#   admin-scoped PAT can) and push once more against the fresh target. Catalog +
+#   bootstrap-kit slot 06a move to 0.1.200.
+version: 0.1.200
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

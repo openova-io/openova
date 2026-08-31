@@ -4040,7 +4040,16 @@ name: bp-catalyst-platform
 #   reconcile the field; orgapi mirrors it so typed client Updates round-trip
 #   it instead of erasing it (#4471 lesson class). CRD-only rendered-surface
 #   change; Flux CreateReplace flows it to live Sovereigns.
-version: 1.4.1595
+# 1.4.1597 — lockstep for bp-self-sovereign-cutover 0.1.200 (#6754, Refs #6645
+#   #6490): the catalog-seed advances the bp-self-sovereign-cutover pin to 0.1.200,
+#   so the umbrella that carries the seed template must re-publish (Inviolable
+#   Principle #13 + the #5734 umbrella-republish gate). 0.1.200 lands two durable
+#   2-region cutover fixes (live hw305): (auth) the secondary-mirror + step-05 legs
+#   authenticate with the region-A catalyst-gitea-token PAT — both regions share
+#   ONE gitea DB (shared-pg-mesh-rw), so a per-region admin password can never match
+#   the single shared gitea_admin row; (push) a corrupt/partial mirror target
+#   (empty receive-pack advertisement) is recovered via DELETE+RECREATE + retry.
+version: 1.4.1597
 # 1.4.1481 — #6293: catalog-seed advances bp-self-sovereign-cutover
 #   0.1.186 -> 0.1.187, the release that stops step-06 from patching five
 #   HelmRepositories it does not own and then grading itself on whether they
@@ -4227,7 +4236,7 @@ version: 1.4.1595
 # scripts/check-chart-version-forward.sh (#5743) fails unless the two match —
 # main was carrying a pre-existing 1.4.1330/1.4.1329 split, so this bump heals
 # it in the same commit, exactly as the documented self-heal contract does.
-appVersion: 1.4.1595
+appVersion: 1.4.1597
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
 # Adds the OpenTofu module at infra/providers/huawei/ (VPC + Subnet +

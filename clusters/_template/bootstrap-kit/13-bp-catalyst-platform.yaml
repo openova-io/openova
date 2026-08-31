@@ -1493,7 +1493,13 @@ spec:
       #   registration the rail now renders Agenity from, mappable per Sovereign
       #   from Settings → Menu). Umbrella tracks its sub-charts per Inviolable
       #   Principle #13.
-      version: 1.4.1595
+      # 1.4.1597 — lockstep for bp-self-sovereign-cutover 0.1.200 (#6754, Refs #6645
+      #   #6490): the SECONDARY-region gitea-mirror + step-05 legs authenticate with
+      #   the region-A catalyst-gitea-token PAT (both regions share one gitea DB, so
+      #   the per-region admin password can never match the shared gitea_admin row),
+      #   and DELETE+RECREATE a corrupt/partial mirror target before retrying.
+      #   Umbrella tracks its sub-charts per Inviolable Principle #13.
+      version: 1.4.1597
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
