@@ -74,6 +74,19 @@ type Handler struct {
 	// competing loops against the same chroot. map[string]struct{}.
 	secondaryKubeconfigDeliveryActive sync.Map
 
+	// jobsSeedInFlight guards the BACKGROUND jobs.Store refresh (#6749). The
+	// /jobs read path used to run chrootSeedJobsStoreIfEmpty +
+	// motherSeedInClusterReconcilers SYNCHRONOUSLY on every call; those seeds do
+	// multi-region live-cluster LISTs (secondary regions, per-Org app installs,
+	// reconciler observations, cutover activity) that hang tens of seconds each
+	// while a cutover churns a region — measured 73-98s PER /jobs call on a
+	// converged Sovereign. kickJobsSeedAsync now runs that refresh in a
+	// goroutine, LoadOrStore-ing the dep ID on entry and Deleting it on return
+	// (same pattern as clusterMeshLoopActive), so a burst of /jobs polls
+	// coalesces into one in-flight refresh instead of stacking N slow scans.
+	// map[string]struct{}.
+	jobsSeedInFlight sync.Map
+
 	// secondaryKubeconfigDeliveryInterval (#6015) — cadence of the
 	// level-triggered secondary-kubeconfig delivery loop. Zero falls back to
 	// secondaryKubeconfigDeliveryIntervalDefault. Tests inject a sub-second
