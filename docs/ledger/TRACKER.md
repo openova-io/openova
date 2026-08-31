@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-31T05:45:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-08-31T06:00:06Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6084](https://github.com/openova-io/openova/issues/6084) | Silent re-auth on a per-Org console targets auth.<orgslug>.<parent>, which the g | Other |
 | [#6085](https://github.com/openova-io/openova/issues/6085) | Reconciliation tab never offers Resume: suspended read is stale after its own ac | Other |
 | [#6087](https://github.com/openova-io/openova/issues/6087) | catalyst-pin IdP dials catalyst-api over the Sovereign's own public EIP, so the  | Other |
 | [#6090](https://github.com/openova-io/openova/issues/6090) | The Keycloak account console hangs forever on 'Loading the Account Console' inst | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6723](https://github.com/openova-io/openova/issues/6723) | EPIC: bp-chargeback — standalone chargeback application + console menu mapping | Other |
 | [#6727](https://github.com/openova-io/openova/issues/6727) | feat(jobs): map phase-gating deps in the /jobs DAG so no job floats | Other |
 | [#6742](https://github.com/openova-io/openova/issues/6742) | fix(jobs): graph shows open-ended reconcilers the finite list excludes → chip  | Other |
+| [#6744](https://github.com/openova-io/openova/issues/6744) | fix(jobs): list badges show reducer first-paint counts ("OpenTofu 64 / HelmRelea | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-31T05:50 | [#6743](https://github.com/openova-io/openova/pull/6743) | #6742 | fix(jobs): graph honours finite-jobs scope — drop open-ended |
 | 2026-08-31T04:54 | [#6741](https://github.com/openova-io/openova/pull/6741) | #6723 | feat(chargeback): adapter chart RBAC + env wiring (lane D fo |
 | 2026-08-31T02:46 | [#6740](https://github.com/openova-io/openova/pull/6740) | #6736 | docs(sessions): chargeback walk second pass — Overview/Custo |
 | 2026-08-31T02:41 | [#6739](https://github.com/openova-io/openova/pull/6739) | #6736 | fix(chargeback): render-contract test uses appVersion, not a |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-30T10:45 | [#6711](https://github.com/openova-io/openova/pull/6711) | docs(sessions): chargeback requirements capture (Track 1 + N |  |
 | 2026-08-30T10:56 | [#6710](https://github.com/openova-io/openova/pull/6710) | #6703 | fix(sovereign-ui): /jobs graph = the openova-flow dependency |
 | 2026-08-30T10:09 | [#6709](https://github.com/openova-io/openova/pull/6709) | #6703 | feat(sovereign-ui): consolidated CronJob schedule timeline + |
-| 2026-08-30T09:24 | [#6708](https://github.com/openova-io/openova/pull/6708) | #6703 | fix(sovereign-ui): /jobs reuses the canonical DAG + one shar |
 
 ---
 
