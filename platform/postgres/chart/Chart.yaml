@@ -1,5 +1,41 @@
 apiVersion: v2
 name: bp-postgres
+# 0.2.25 — #6753 (Refs #6149 #3629 #4460): the consumer `-mesh`/`-mesh-rw` global
+#   aliases now FOLLOW a #6149 AUTOMATIC DR promotion. The automatic path does not
+#   switch the pair in place — it PROMOTES the SEPARATE `<instance>-replica` Cluster
+#   (region B, topology.promoted) and DEMOTES the named `<instance>` Cluster (region
+#   A, topology.demoted). But the consumer write/read aliases were hard-bound to
+#   `cnpg.io/cluster: <instance>` on BOTH sides (cluster.yaml managed.services on the
+#   primary side, replica-mesh-service.yaml stubs on the replica side), so after a
+#   promote the ClusterMesh-global `<instance>-mesh-rw` had ZERO backends mesh-wide
+#   AND vanished from region A entirely when the demoted named Cluster was deleted
+#   for the rejoin re-clone. Measured live on hw305 (dep b2b00ce4, 2026-08-31):
+#   shared-pg-b region-A `grafana` + `powerdns-admin` CrashLoopBackOff (2000+
+#   restarts) on `could not translate host name "shared-pg-b-mesh-rw..." ... Name
+#   does not resolve`, while region-B's promoted shared-pg-b-replica-1 was writable
+#   and reachable via the (working, promotion-tracking) reverse alias
+#   `shared-pg-b-replica-mesh`. The design's own promise — "the consumer host needs
+#   no change on failover" (writeServiceName helper) — held only for an in-place
+#   bp-continuum switchover, never for the #6149 automatic promoter/failback.
+#     - _helpers.tpl: `bp-postgres.pairFailedOver` (side=primary demoted OR
+#       side=replica promoted) + `bp-postgres.consumerAliasCluster` (the cluster
+#       whose primary currently holds the writable endpoint — `<instance>` steady,
+#       `<instance>-replica` failed over).
+#     - replica-mesh-service.yaml: the `-mesh`/`-mesh-rw` stub selectors now name
+#       consumerAliasCluster, so a PROMOTED replica contributes REAL local backends.
+#     - cluster.yaml: `$meshSvc` gated additionally on `not $demoted`, so the demoted
+#       primary no longer CNPG-manages `-mesh`/`-mesh-rw` off the local read-only
+#       standby (which would send writes nowhere and vanish during the re-clone).
+#     - templates/primary-demoted-mesh-service.yaml (NEW): the demoted primary's
+#       zero-backend `-mesh`/`-mesh-rw` stubs selecting `<instance>-replica`, so
+#       region-A consumers resolve the host and route cross-mesh to region B — the
+#       primary-side analogue of replica-mesh-service.yaml + peer-mesh-service.yaml.
+#   Steady (non-failed-over) primary AND replica renders are byte-identical; a
+#   singleton renders nothing here. LIVE recovery verifies on the next 2-region G12
+#   walk (region-A consumers resolve `-mesh-rw` to the promoted region-B primary
+#   through the whole promote/failback/switchback cycle with no host change).
+#   tests/postgres-render.sh Case 21j added. Lockstep: 16a/16c/16d HR pins +
+#   blueprint.yaml + catalog-seed → 0.2.25.
 # 0.2.24 — #6627 (Refs #4846 #6106): SINGLETON cross-region shared-consumer
 #   admission. networkpolicy-singleton-operator-probe.yaml (#4442) opened `:5432`
 #   to consumers via a k8s-NetworkPolicy `namespaceSelector:{}`, which a
@@ -432,8 +468,8 @@ name: bp-postgres
 #   honoured — sprig's `default` swallows boolean false). Primary render is
 #   byte-identical. Lockstep slot pins 16a/16c/16d → 0.2.20.
 #   tests/postgres-render.sh Case 21 added.
-version: 0.2.24
-appVersion: 0.2.24
+version: 0.2.25
+appVersion: 0.2.25
 description: |
   Catalyst-authored data-instance Blueprint for a shareable, reusable
   PostgreSQL engine. Each install of bp-postgres = ONE

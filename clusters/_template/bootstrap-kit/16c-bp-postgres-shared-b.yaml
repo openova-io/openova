@@ -120,7 +120,15 @@ spec:
       #   region-B keycloak reaching this region-A primary over ClusterMesh was
       #   DROPPED → JDBC acquisition timeout → ~50% of per-app SSO /auth 500 (hw304).
       #   Adds the singleton mirror of #4846's identity CNP. Lockstep 16a/16c/16d.
-      version: 0.2.24
+      # 0.2.25 (#6753, Refs #6149 #3629 #4460): the consumer `-mesh`/`-mesh-rw`
+      #   global aliases FOLLOW a #6149 automatic DR promotion. After the region-B
+      #   dr-promoter promotes shared-pg-b-replica and region A is demoted, these
+      #   aliases now select the promoted `shared-pg-b-replica` (not the demoted
+      #   `shared-pg-b`), so THIS slot's region-A consumers — grafana, powerdns,
+      #   powerdns-admin — resolve `shared-pg-b-mesh-rw` to region B's writable
+      #   survivor instead of NXDOMAIN-crashlooping (measured live hw305: 2000+
+      #   restarts). Steady render byte-identical. Lockstep 16a/16c/16d.
+      version: 0.2.25
       sourceRef:
         kind: HelmRepository
         name: bp-postgres

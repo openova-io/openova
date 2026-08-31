@@ -1767,6 +1767,124 @@ grep -q 'name: shared-pg-mesh-rw' "$TMP/failback-demoted.yaml" \
   || fail "#6149 the demoted shape dropped the -mesh-rw consumer alias"
 echo "  PASS (rejoin: replica.enabled + pg_basebackup off -replica-mesh, no sslRootCert, no sync fence, no managed roles, no Database CRs, mesh aliases intact)"
 
+# ── Case 21j: #6753 — the consumer -mesh/-mesh-rw aliases FOLLOW a #6149 promote ─
+#
+# The #6149 automatic path does NOT switch the pair in place; it PROMOTES the
+# SEPARATE `<instance>-replica` Cluster (region B) and DEMOTES the named
+# `<instance>` Cluster (region A). The consumer aliases `<instance>-mesh`/
+# `-mesh-rw` were hard-bound to `cnpg.io/cluster: <instance>` on BOTH sides
+# (cluster.yaml managed.services on the primary side; replica-mesh-service.yaml
+# stubs on the replica side), so after a promote the global service had ZERO
+# backends mesh-wide AND vanished from region A entirely when the demoted named
+# Cluster was deleted for the rejoin re-clone. Live on hw305 (dep b2b00ce4,
+# 2026-08-31): shared-pg-b region-A grafana + powerdns-admin CrashLoopBackOff
+# (2000+ restarts) on `could not translate host name "shared-pg-b-mesh-rw..."`,
+# while region-B's promoted shared-pg-b-replica-1 was writable and reachable via
+# the (working, promotion-tracking) reverse alias shared-pg-b-replica-mesh.
+#
+# The fix makes these two aliases track the promotion exactly as -replica-mesh
+# already does: their selector names bp-postgres.consumerAliasCluster —
+# `<instance>` in steady state, `<instance>-replica` once failed over — so the
+# promoted region contributes REAL backends and the demoted region a zero-backend
+# stub that routes cross-mesh to it. STRUCTURAL parse (not a token grep): the
+# selector's cnpg.io/cluster value is the whole point.
+echo "[render] Case 21j: #6753 consumer -mesh/-mesh-rw follow a #6149 promote (demoted stub -> replica; steady byte-identical)"
+
+# The promoted REPLICA half (region B): the local promoted <instance>-replica.
+helm template shared-pg . -f "$TMP/failback.values.yaml" --set topology.side=replica --set topology.promoted=true \
+  --namespace shared-data --api-versions postgresql.cnpg.io/v1 > "$TMP/failback-promoted.yaml" 2>&1 || fail "#6753 promoted-replica render errored"
+
+# demoted-primary = $TMP/failback-demoted.yaml (Case 21c), steady-primary =
+# $TMP/failback.yaml (Case 21a), steady-replica = $TMP/failback-replica.yaml (Case 21b).
+python3 - \
+  "$TMP/failback-demoted.yaml" \
+  "$TMP/failback-promoted.yaml" \
+  "$TMP/failback.yaml" \
+  "$TMP/failback-replica.yaml" <<'PY' || { echo "FAIL: #6753 consumer-alias-follows-promotion assertions failed." >&2; exit 1; }
+import sys, yaml
+demoted, promoted, steady_pri, steady_rep = sys.argv[1:5]
+
+def load(p):
+    return [d for d in yaml.safe_load_all(open(p)) if isinstance(d, dict)]
+
+def svc_selector_cluster(docs, name):
+    """cnpg.io/cluster on the STANDALONE Service `name` (None if the object is
+    absent). Only kind: Service — never a managed.services.additional template
+    nested in a Cluster CR."""
+    for d in docs:
+        if d.get("kind") == "Service" and (d.get("metadata") or {}).get("name") == name:
+            return ((d.get("spec") or {}).get("selector") or {}).get("cnpg.io/cluster")
+    return None
+
+def standalone_svc_count(docs, name):
+    return sum(1 for d in docs
+               if d.get("kind") == "Service" and (d.get("metadata") or {}).get("name") == name)
+
+def managed_alias_names(docs):
+    """Every managed.services.additional Service name across all Cluster CRs."""
+    out = []
+    for d in docs:
+        if d.get("kind") != "Cluster":
+            continue
+        add = (((d.get("spec") or {}).get("managed") or {}).get("services") or {}).get("additional") or []
+        for a in add:
+            nm = (((a or {}).get("serviceTemplate") or {}).get("metadata") or {}).get("name")
+            if nm:
+                out.append(nm)
+    return out
+
+fails = []
+
+# (1) DEMOTED primary: -mesh/-mesh-rw are STANDALONE stubs selecting the promoted
+#     replica cluster, and the demoted Cluster CR carries NO managed alias for
+#     them (a managed -mesh-rw off the local read-only standby would send writes
+#     nowhere and collide with the stub).
+dd = load(demoted)
+for nm in ("shared-pg-mesh", "shared-pg-mesh-rw"):
+    n = standalone_svc_count(dd, nm)
+    if n != 1:
+        fails.append(f"demoted: expected exactly 1 standalone Service {nm}, got {n}")
+    sel = svc_selector_cluster(dd, nm)
+    if sel != "shared-pg-replica":
+        fails.append(f"demoted: {nm} selector cnpg.io/cluster={sel!r}, expected 'shared-pg-replica' "
+                     f"(the promoted region-B cluster — it must NOT stay pinned to the demoted 'shared-pg')")
+mgd = managed_alias_names(dd)
+for nm in ("shared-pg-mesh", "shared-pg-mesh-rw"):
+    if nm in mgd:
+        fails.append(f"demoted: {nm} is still a managed.services.additional alias off the demoted Cluster "
+                     f"(must be suppressed — it would point consumer writes at the local read-only standby)")
+
+# (2) PROMOTED replica (region B): the stub selects the LOCAL promoted replica
+#     cluster's primary → REAL backends, so the global -mesh-rw is actually backed.
+pd = load(promoted)
+if svc_selector_cluster(pd, "shared-pg-mesh-rw") != "shared-pg-replica":
+    fails.append("promoted-replica: -mesh-rw stub does not select 'shared-pg-replica' (the local promoted "
+                 "primary) — the global write alias would have ZERO backends mesh-wide")
+if svc_selector_cluster(pd, "shared-pg-mesh") != "shared-pg-replica":
+    fails.append("promoted-replica: -mesh read stub does not select 'shared-pg-replica'")
+
+# (3) REGRESSION LOCK — steady state is byte-identical (selects the named cluster).
+sr = load(steady_rep)
+if svc_selector_cluster(sr, "shared-pg-mesh-rw") != "shared-pg":
+    fails.append("steady replica (promoted absent): -mesh-rw stub selector drifted off 'shared-pg' — "
+                 "the non-failed-over render MUST be byte-identical to pre-0.2.25")
+sp = load(steady_pri)
+# steady primary: the demoted stub must NOT render; the alias is managed (real
+# local backends off the named primary), not a standalone stub.
+if standalone_svc_count(sp, "shared-pg-mesh-rw") != 0:
+    fails.append("steady primary (demoted absent): a STANDALONE shared-pg-mesh-rw stub rendered — the "
+                 "primary-demoted stub must fire ONLY when topology.demoted is set")
+if "shared-pg-mesh-rw" not in managed_alias_names(sp):
+    fails.append("steady primary: the CNPG-managed -mesh-rw alias (real local backends) disappeared")
+
+if fails:
+    for f in fails:
+        sys.stderr.write("  FAIL #6753: " + f + "\n")
+    sys.exit(1)
+print("  PASS (demoted primary -> stub selects shared-pg-replica, managed alias suppressed; "
+      "promoted replica -> real local backends; steady primary+replica byte-identical)")
+PY
+
 echo "[render] Case 21d: #6149 dr-failback absent for replica / async / singleton"
 if grep -q 'role: dr-failback' "$TMP/failback-replica.yaml"; then
   fail "#6149 side=replica must render ZERO dr-failback resources (the actor belongs on cluster-A, the half being rejoined)"; fi

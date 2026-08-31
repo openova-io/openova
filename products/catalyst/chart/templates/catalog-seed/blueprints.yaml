@@ -5822,7 +5822,12 @@ spec:
   # CNP — region-B keycloak → region-A shared-pg primary was DROPPED cross-mesh (the
   # singleton netpol's k8s namespaceSelector:{} can't match a remote identity),
   # 500'ing ~50% of per-app SSO /auth on hw304; adds the singleton mirror of #4846.
-  version: "0.2.24"
+  # 0.2.25 (#6753, Refs #6149 #3629 #4460): the consumer `-mesh`/`-mesh-rw` global
+  # aliases FOLLOW a #6149 automatic DR promotion (select the promoted
+  # `<instance>-replica`, not the demoted `<instance>`), so region-A grafana/powerdns
+  # resolve `-mesh-rw` to region B's writable survivor instead of NXDOMAIN-crashlooping
+  # post-promote (hw305). Steady render byte-identical.
+  version: "0.2.25"
   visibility: listed
   # Shareability + Contexts (#3370) — seeded verbatim from
   # platform/postgres/blueprint.yaml (lockstep-guarded). One instance
@@ -5953,7 +5958,11 @@ spec:
     # 0.2.24 (#6627, Refs #4846 #6106): SINGLETON cross-region shared-consumer
     # admission CNP — region-B keycloak → region-A shared-pg primary DROPPED
     # cross-mesh, 500'ing ~50% of per-app SSO /auth on hw304 (singleton mirror of #4846).
-    version: "0.2.24"
+    # 0.2.25 (#6753, Refs #6149 #3629 #4460): consumer `-mesh`/`-mesh-rw` aliases
+    # follow a #6149 automatic DR promotion (select the promoted `<instance>-replica`)
+    # so region-A grafana/powerdns resolve `-mesh-rw` to region B's writable survivor
+    # instead of NXDOMAIN-crashlooping post-promote (hw305). Steady render byte-identical.
+    version: "0.2.25"
   # Seeded verbatim from platform/postgres/blueprint.yaml spec.topology.
   # singleton = single-instance Cluster; active-hot-standby = sync
   # replication across regions (ADR-0004 Pillar-3 zero-tx-loss) via the
