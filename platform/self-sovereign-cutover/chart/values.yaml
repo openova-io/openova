@@ -156,6 +156,16 @@ upstream:
 gitea:
   org: "openova"
   repo: "openova"
+  # #6754 — remaining-branch push batch size. The mirror pushes the default
+  # branch first (it carries the bulk pack in one ref-command), then tags, then
+  # the remaining upstream branches in bounded batches of this many refspecs. A
+  # single git-receive-pack of all ~2,436 upstream branch refs plus the ~511 MiB
+  # pack dies after the ref advertisement (the "pkt-line 3 EOF" class, #6490);
+  # splitting the branch refs into bounded batches keeps each receive-pack small
+  # (near-empty packs, since every object already shipped under the default
+  # branch) and durable against upstream branch re-accumulation. Applies to BOTH
+  # the primary (01-gitea-mirror-job) and the secondary-region mirror script.
+  pushBatchBranches: 200
   # Shape of the admin secret created by bp-gitea's templates.
   # Keys: username, password, token (optional). Job uses BasicAuth
   # username:password against /api/v1 + git push.
@@ -3414,6 +3424,15 @@ secondaryRegions:
   # gitea namespace also lets it reach the same-namespace gitea-http Service past
   # bp-plane-isolation's default-deny and mount gitea-admin-secret natively.
   secondaryGiteaNamespace: "gitea"
+  # #6754 — name of the Secret region-A COPIES the shared catalyst-gitea-token
+  # PAT into, in each secondary's secondaryGiteaNamespace, so the in-region
+  # mirror Job can secretKeyRef it locally (cross-namespace/cross-region
+  # secretKeyRef is impossible). Same distribution shape as secondaryGhcrSecretName
+  # (#6764). The PAT is minted in region-A at bootstrap and lives in the SHARED
+  # cross-region access_token table (bp-cnpg-pair active-hot-standby), so it
+  # authenticates this region's own in-cluster Gitea too — unlike the per-region
+  # gitea-admin-secret, whose password drifts across the one shared user row.
+  secondaryGiteaPatSecretName: "cutover-secondary-gitea-pat"
   # activeDeadlineSeconds for the per-secondary mirror Job stamped into each
   # secondary region by step-01 / step-11 — must exceed a ~472MB bare clone over
   # throttled egress (mirrors stepTimeouts.giteaMirrorSeconds intent).
