@@ -21,7 +21,16 @@ spec:
           serviceAccountName: axon-token-refresh
           containers:
             - name: refresh
-              image: bitnami/kubectl:1.30
+              # #6755: repinned off bitnami/kubectl:1.30 — Bitnami's 2025-08
+              # secure-images cutover purged the versioned semver tags from
+              # docker.io/bitnami/kubectl (only :latest + sha256-* remain), so
+              # :1.30 now ImagePullBackOffs. alpine/k8s:1.31.4 is the platform-
+              # standard kubectl toolbox (bash + kubectl + curl + jq) and is the
+              # right image here because this Job sets its own command:[/bin/sh]
+              # and needs curl (line below) — rancher/kubectl is distroless with
+              # no curl/shell. Bare docker.io ref matches this chart's own image
+              # convention (ghcr.io + valkey/valkey:8-alpine are unproxied too).
+              image: alpine/k8s:1.31.4
               command:
                 - /bin/sh
                 - -c

@@ -2,8 +2,10 @@ apiVersion: v2
 name: axon
 description: OpenAI-compatible API gateway backed by Claude Agent SDK
 type: application
-version: 0.1.1
-appVersion: "0.1.0"
+# 0.1.2 (#6755): repin the token-refresh CronJob image bitnami/kubectl:1.30 ->
+# alpine/k8s:1.31.4 (Bitnami purged docker.io/bitnami/kubectl versioned tags).
+version: 0.1.2
+appVersion: "0.1.1"
 
 # Opt out of the hollow-chart guard (Blueprint-Release workflow / issue #181):
 # this chart legitimately ships only Catalyst-authored resources
