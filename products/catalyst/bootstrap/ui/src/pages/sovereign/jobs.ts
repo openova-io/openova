@@ -39,8 +39,14 @@ import {
 import type { ApplicationDescriptor } from './applicationCatalog'
 import { STATUS_KIND_BADGE_CLASSES } from '@/shared/lib/statusColors'
 
-/** UI rendering bucket — same vocabulary as core/console JobsPage.svelte. */
-export type JobUiStatus = 'pending' | 'running' | 'succeeded' | 'failed'
+/** UI rendering bucket — same vocabulary as core/console JobsPage.svelte,
+ *  plus `dormant` for an installed-but-suspended (spec.suspend=true) reconciler
+ *  so a parked job (e.g. the tethered cutover chart) renders Dormant on the
+ *  Jobs surfaces, never Pending. `deriveJobs` never produces it (its sources
+ *  are ApplicationStatus/PhaseStatus); it flows in only from a backend
+ *  `Job.status === 'dormant'` (jobs.types.ts) the detail/timeline surfaces
+ *  render via {@link statusBadge}. */
+export type JobUiStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'dormant'
 
 /** Ordered step inside a Job's expanded panel. */
 export interface JobStep {
@@ -267,6 +273,8 @@ export function statusBadge(status: JobUiStatus): JobBadge {
     case 'succeeded': return { text: 'Succeeded', classes: STATUS_KIND_BADGE_CLASSES.success }
     case 'running':   return { text: 'Running',   classes: STATUS_KIND_BADGE_CLASSES['in-progress'] }
     case 'failed':    return { text: 'Failed',    classes: STATUS_KIND_BADGE_CLASSES.failed }
+    // Suspended/parked — grey + dashed (dormant token), distinct from pending.
+    case 'dormant':   return { text: 'Dormant',   classes: STATUS_KIND_BADGE_CLASSES.dormant }
     case 'pending':
     default:          return { text: 'Pending',   classes: STATUS_KIND_BADGE_CLASSES.pending }
   }

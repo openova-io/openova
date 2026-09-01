@@ -44,6 +44,7 @@ type ReconcilerObservation struct {
 	Namespace         string
 	Status            string // helmwatch state vocab OR health vocab
 	Health            bool   // true ⇒ Status is a health-axis value
+	Suspended         bool   // spec.suspend=true ⇒ leaf renders StatusDormant (wins over Status)
 	Message           string
 	ObservedAt        time.Time
 	OwnerInstallChart string // non-empty ⇒ attach as Execution under install-<chart>
@@ -160,6 +161,16 @@ func (b *Bridge) onReconcilerObservationLocked(o ReconcilerObservation) (jobsWri
 	} else {
 		status = jobStatusFromHelmState(o.Status)
 	}
+	// Suspension WINS over every other state (mirrors reconciliation_dag.go's
+	// reconStateForComponent and the /jobs install-leaf dormant rule): a
+	// suspended (spec.suspend=true) Kustomization/CronJob is PARKED, so it
+	// renders Dormant on the treemap — never Pending, its last run, or a
+	// health tone. Dormant is not terminal-or-running, so the reconcile/task
+	// branches leave it Job-only; the cron branch's run-headline re-resolution
+	// is skipped for it below so a historical run cannot revert the headline.
+	if o.Suspended {
+		status = StatusDormant
+	}
 
 	at := o.ObservedAt
 	if at.IsZero() {
@@ -214,7 +225,16 @@ func (b *Bridge) onReconcilerObservationLocked(o ReconcilerObservation) (jobsWri
 		// StartExecution stamps running on each allocation, so whichever run
 		// happens to be processed LAST leaves the headline. resolveRunHeadline
 		// applies the same verdict rules the producer uses, order-independently.
-		if st, ok := resolveRunHeadline(o.Executions); ok {
+		//
+		// EXCEPT when the CronJob is suspended: it is PARKED (Dormant) and that
+		// wins over any historical run. seedCronExecutionsLocked above left the
+		// last-processed run's status on the headline, so re-assert Dormant
+		// here rather than resolving from the runs.
+		if o.Suspended {
+			if err := writeLeaf(StatusDormant); err != nil {
+				return jobsWritten, execsSeeded, err
+			}
+		} else if st, ok := resolveRunHeadline(o.Executions); ok {
 			if err := writeLeaf(st); err != nil {
 				return jobsWritten, execsSeeded, err
 			}

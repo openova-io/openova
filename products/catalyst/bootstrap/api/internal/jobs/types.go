@@ -63,6 +63,20 @@ const (
 	StatusRunning   = "running"
 	StatusSucceeded = "succeeded"
 	StatusFailed    = "failed"
+	// StatusDormant — an INSTALLED-but-INTENTIONALLY-SUSPENDED reconciler
+	// (spec.suspend=true on a HelmRelease / Kustomization / CronJob). It is
+	// NOT one of the helmwatch State* values: a suspended HelmRelease reports
+	// StateInstalled (Wave 5.103 #2447, so Phase-1 readiness never blocks on
+	// it), which would otherwise render the leaf green-Succeeded, and a
+	// suspended reconciler defaults to Pending — either way MASKING the
+	// suspension. The bridges map spec.suspend onto this status so a parked
+	// component renders DORMANT (grey, dashed) on the dashboard treemap,
+	// never Pending or Succeeded — mirroring reconciliation_dag.go's
+	// "suspension wins over every other state" precedence onto the
+	// /jobs→treemap seed path. The FE's statusColors.statusKindOf maps it to
+	// the `dormant` StatusKind, which the treemap routes into its existing
+	// Dormant progress bucket.
+	StatusDormant = "dormant"
 )
 
 // Log levels — the helmwatch bridge maps Helm condition severity onto

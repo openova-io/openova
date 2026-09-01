@@ -61,6 +61,9 @@ export const STATUS_PRIORITY: Record<JobStatus, number> = {
   failed:    3,
   // A healthy recurring reconciler is steady-state — sinks like succeeded.
   healthy:   2,
+  // A dormant (suspended/parked) reconciler is steady-state too — it needs
+  // no operator attention, so it sinks with succeeded rather than surfacing.
+  dormant:   2,
 }
 
 /**
@@ -908,6 +911,9 @@ const STATUS_TONE: Record<JobStatus, { label: string }> = {
   healthy:   { label: 'Healthy' },
   degraded:  { label: 'Degraded' },
   failing:   { label: 'Failing' },
+  // Suspended/parked reconciler — labelled distinctly so it never reads as
+  // Pending (queued) or Succeeded (green).
+  dormant:   { label: 'Dormant' },
 }
 
 interface ChipProps {

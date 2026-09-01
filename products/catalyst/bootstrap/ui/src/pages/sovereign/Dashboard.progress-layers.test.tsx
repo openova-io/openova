@@ -300,6 +300,44 @@ describe('buildJobsTreemapData — dormant cutover collapse (#4731 complaint #3)
   })
 })
 
+/* ── Unit: a SUSPENDED (dormant) HelmRelease leaf, not just cutover ── */
+
+describe('buildJobsTreemapData — suspended HelmRelease renders Dormant, not Pending', () => {
+  // The backend bridges stamp a suspended (spec.suspend=true) HelmRelease
+  // install leaf with status `dormant` (it reports installed, which would
+  // otherwise map to Succeeded/green). This is DISTINCT from the cutover-step
+  // collapse: a lone suspended HR leaf carries status `dormant` directly and
+  // must land in the Dormant bucket — never Pending (the old mislabel) and
+  // never Done.
+  it('a suspended install HR leaf lands in Dormant, never Pending or Done', () => {
+    const jobs = [
+      ...fullInventoryJobs(),
+      // A suspended (parked) HelmRelease, e.g. bp-self-sovereign-cutover
+      // installed-but-dormant, or an operator-suspended app.
+      J({
+        id: `${DEP}:install-self-sovereign-cutover`,
+        jobName: 'install-self-sovereign-cutover',
+        kind: 'install',
+        appId: 'bp-self-sovereign-cutover',
+        parentId: `${DEP}:bootstrap-kit`,
+        status: 'dormant' as JobStatus,
+      }),
+    ]
+    const data = buildJobsTreemapData(jobs, PROVISIONING_DEFAULT_LAYERS)
+
+    // The leaf is in the Dormant bucket…
+    const dormant = bucketByName(data.items, 'Dormant')
+    expect(dormant?.statusKind).toBe('dormant')
+    const leaf = leafByJobId(dormant?.children ?? [], `${DEP}:install-self-sovereign-cutover`)
+    expect(leaf).toBeTruthy()
+    expect(leaf?.statusKind).toBe('dormant')
+
+    // …and NOT in Pending (the old mislabel) nor Done.
+    expect(leafByJobId(bucketByName(data.items, 'Pending')?.children ?? [], `${DEP}:install-self-sovereign-cutover`)).toBeUndefined()
+    expect(leafByJobId(bucketByName(data.items, 'Done')?.children ?? [], `${DEP}:install-self-sovereign-cutover`)).toBeUndefined()
+  })
+})
+
 /* ── Upfront full expected inventory (founder: "see all at once") ──── */
 
 describe('buildJobsTreemapData — upfront expected inventory from t=0', () => {

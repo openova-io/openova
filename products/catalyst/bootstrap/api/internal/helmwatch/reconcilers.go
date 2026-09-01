@@ -213,6 +213,16 @@ type ReconcilerObservation struct {
 	// Health — true when Status is a HEALTH-axis value (reconciler kind);
 	// the bridge then writes a HEALTH-axis leaf rather than a one-shot one.
 	Health bool
+	// Suspended — true when spec.suspend is set on the observed object (a
+	// Flux Kustomization or a CronJob). A suspended reconciler is INSTALLED
+	// but PARKED; without this flag it would render Pending (Kustomization
+	// default) or by its last run (CronJob), masking the suspension. The
+	// bridge maps it to StatusDormant so it renders Dormant on the treemap —
+	// the same "suspension wins over every other state" precedence the
+	// Reconciliation DAG applies (reconciliation_dag.go). Zero value (false)
+	// for kinds with no spec.suspend field (reconciler Deployments, batch
+	// Jobs), which keeps their wire shape unchanged.
+	Suspended bool
 	// Message — a short human line (Ready condition message, or the
 	// last-run summary for a CronJob). Becomes the seed LogLine.
 	Message string
@@ -266,6 +276,7 @@ func ListReconcilerObservations(ctx context.Context, dyn dynamic.Interface) ([]R
 		for i := range list.Items {
 			u := &list.Items[i]
 			conds, _ := extractConditions(u)
+			suspended, okSusp, _ := unstructured.NestedBool(u.Object, "spec", "suspend")
 			out = append(out, ReconcilerObservation{
 				Kind:       ReconcilerKindReconcile,
 				Name:       u.GetName(),
@@ -273,6 +284,7 @@ func ListReconcilerObservations(ctx context.Context, dyn dynamic.Interface) ([]R
 				Status:     statusFromReadyCondition(conds),
 				Message:    messageFromReadyCondition(conds),
 				ObservedAt: readyTransitionTime(conds),
+				Suspended:  okSusp && suspended,
 			})
 		}
 	}
@@ -328,6 +340,7 @@ func ListReconcilerObservations(ctx context.Context, dyn dynamic.Interface) ([]R
 				}
 				continue
 			}
+			cronSuspended, okCronSusp, _ := unstructured.NestedBool(u.Object, "spec", "suspend")
 			obs := ReconcilerObservation{
 				Kind:      ReconcilerKindCron,
 				Name:      u.GetName(),
@@ -336,6 +349,10 @@ func ListReconcilerObservations(ctx context.Context, dyn dynamic.Interface) ([]R
 				// with no completed run yet is honestly "pending".
 				Status:  ObsStatusPending,
 				Message: "no run observed yet",
+				// spec.suspend=true ⇒ Dormant (parked), never Pending or the
+				// last run's status. The bridge honours this over the run
+				// refinement below.
+				Suspended: okCronSusp && cronSuspended,
 			}
 			key := u.GetNamespace() + "/" + u.GetName()
 			out = append(out, obs)
