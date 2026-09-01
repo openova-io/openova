@@ -4053,7 +4053,11 @@ name: bp-catalyst-platform
 #   bump because this chart's qa-fixtures repin the kubectl toolbox image
 #   bitnamilegacy/kubectl:1.29.3 -> alpine/k8s:1.31.4 (rendered surface changed).
 #   slot-13 pin bumped in lockstep below (main was already at 1.4.1617).
-version: 1.4.1618
+# 1.4.1619 — #6754: catalog-seed advances bp-self-sovereign-cutover 0.1.200 ->
+#   0.1.201 (the 2-region step-01 secondary-mirror shared-PAT + batched-push fix),
+#   so the umbrella rendered surface changed. Taken as current-main+1 (it races a
+#   deploy-bot); slot-13 pin bumped in lockstep above.
+version: 1.4.1619
 # 1.4.1481 — #6293: catalog-seed advances bp-self-sovereign-cutover
 #   0.1.186 -> 0.1.187, the release that stops step-06 from patching five
 #   HelmRepositories it does not own and then grading itself on whether they

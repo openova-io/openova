@@ -184,6 +184,22 @@ spec:
                   value: {{ .Values.secondaryRegions.mirrorJobWaitSeconds | quote }}
                 - name: MIRROR_JOB_POLL_SECONDS
                   value: {{ .Values.secondaryRegions.mirrorJobPollSeconds | quote }}
+                {{- /*
+                 #6754 — the shared secondary-mirror Job manifest reads its git
+                 credential via secretKeyRef from the catalyst-gitea-token PAT
+                 region-A copies into each secondary's gitea namespace. This resync
+                 leg must distribute that PAT too (the Job runs with the `default`
+                 SA and cannot read it cross-region). Read the source PAT here and
+                 copy it before stamping the in-region Job.
+                */}}
+                - name: PAT_SOURCE_NAMESPACE
+                  value: {{ .Values.gitRepositorySecretRef.patSourceNamespace | quote }}
+                - name: PAT_SOURCE_SECRET_NAME
+                  value: {{ .Values.gitRepositorySecretRef.patSourceSecretName | quote }}
+                - name: PAT_SOURCE_KEY
+                  value: {{ .Values.gitRepositorySecretRef.patSourceKey | quote }}
+                - name: SECONDARY_GITEA_PAT_SECRET
+                  value: {{ .Values.secondaryRegions.secondaryGiteaPatSecretName | quote }}
                 {{- end }}
               command: ["/bin/sh", "-c"]
               args:
@@ -268,9 +284,27 @@ spec:
                    /secondary-kubeconfigs is optional; empty => no-op.
                   */}}
                   echo "[mirror-resync] #6490 secondary-region resync leg"
+                  {{- /*
+                   #6754 — read the shared catalyst-gitea-token PAT once (the git
+                   credential the secondary-mirror Job authenticates with). Empty
+                   is fatal here for the same reason step-01 fail-loud's: the resync
+                   Job cannot mirror with no usable credential.
+                  */}}
+                  resync_pat=""
+                  for i in $(seq 1 30); do
+                    resync_pat=$(kubectl -n "${PAT_SOURCE_NAMESPACE}" get secret "${PAT_SOURCE_SECRET_NAME}" \
+                      -o "jsonpath={.data.${PAT_SOURCE_KEY}}" 2>/dev/null | base64 -d 2>/dev/null || true)
+                    [ -n "${resync_pat}" ] && break
+                    sleep 5
+                  done
+                  if [ -z "${resync_pat}" ]; then
+                    echo "[mirror-resync] #6754: catalyst-gitea-token PAT empty in ${PAT_SOURCE_NAMESPACE}/${PAT_SOURCE_SECRET_NAME} — skipping secondary resync this fire" >&2
+                    resync_pat=""
+                  fi
                   sec_any="false"
                   for skc in /secondary-kubeconfigs/*.yaml; do
                     [ -e "${skc}" ] || continue
+                    [ -n "${resync_pat}" ] || continue
                     sec_any="true"
                     region=$(basename "${skc}" .yaml)
                     jobname=$(printf 'cutover-gitea-mirror-secondary-%s' "${region}" | cut -c1-63)
@@ -278,6 +312,27 @@ spec:
                     kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" create configmap cutover-secondary-mirror-script \
                       --from-file=secondary-mirror.sh=/secondary-mirror/secondary-mirror.sh \
                       --dry-run=client -o yaml | kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" apply -f -
+                    {{- /*
+                     #6754 — copy the shared PAT into this secondary's gitea
+                     namespace so the in-region Job secretKeyRef's it (same
+                     /tmp-file + kubectl apply hygiene as step-01's leg).
+                    */}}
+                    cat >/tmp/sec-gitea-pat.yaml <<EOF
+                  apiVersion: v1
+                  kind: Secret
+                  metadata:
+                    name: ${SECONDARY_GITEA_PAT_SECRET}
+                    namespace: ${SECONDARY_GITEA_NAMESPACE}
+                    labels:
+                      app.kubernetes.io/managed-by: self-sovereign-cutover
+                      app.kubernetes.io/component: secondary-gitea-mirror-pat
+                    annotations:
+                      catalyst.openova.io/mirrored-from: ${PAT_SOURCE_NAMESPACE}/${PAT_SOURCE_SECRET_NAME}
+                  type: Opaque
+                  stringData:
+                    token: ${resync_pat}
+                  EOF
+                    kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" apply -f /tmp/sec-gitea-pat.yaml
                     kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" delete job "${jobname}" --ignore-not-found=true >/dev/null 2>&1 || true
                     sed "s/__REGION__/${region}/g" /secondary-mirror/secondary-mirror-job.yaml >/tmp/secjob.yaml
                     kubectl --kubeconfig "${skc}" apply -f /tmp/secjob.yaml

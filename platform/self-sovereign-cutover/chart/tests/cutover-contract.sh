@@ -2244,48 +2244,64 @@ if ! awk '/^kind: ClusterRole$/,/^---$/' "$TMP/render.yaml" | grep -A3 'resource
 fi
 echo "  PASS (Step-07 Phase 4 comprehensive pod-spec sweep: containers+initContainers, shared resolver, presence-gated, reversible annotation, default enabled; RBAC wired)"
 
-echo "[cutover-contract] Case 46: Step-01 gitea-mirror pushes EXPLICIT refspecs (refs/heads/* + refs/tags/*) — never mirror mode, never prunes sovereign-local branches (#5011, Refs #3379 #4991)"
+echo "[cutover-contract] Case 46: Step-01 gitea-mirror force-pushes the default branch FIRST, then tags, then remaining branches in bounded batches — never mirror mode, never prunes sovereign-local branches (#6754, Refs #5011 #6490 #3379 #4991)"
 # hw242 live (dep f05b0718dac62fe9, 2026-07-12): step-01's mirror-mode force-push
 # made the local Gitea openova/openova EXACTLY match a fresh bare clone of GitHub,
 # DELETING the sovereign-LOCAL branches catalog-sovereign (catalyst-api catalog
 # seed) + org-tenants (org-controller per-Org GitOps tree) — both exist ONLY in
 # the local Gitea — so the flux GitRepositories openova-catalog-sovereign +
 # openova-org-tenants flipped ready=False ("couldn't find remote ref") mid-cutover.
-# The durable contract: the push must enumerate the refs the mirror OWNS
-# (upstream branches + tags, force so re-runs stay idempotent) and must NEVER run
-# in mirror mode, which prunes refs it did not create. Slice step-01's CM (same
-# pattern as Case 45's step-07 slice — from the CM name to the next step's order
-# label).
+# hw305 live (#6754): a single git-receive-pack of all ~2,436 upstream branch refs
+# plus the ~511 MiB pack then DIED after the ref advertisement ("pkt-line 3 EOF"),
+# so the whole-repo-in-one-push had to be split. The durable contract now: push
+# the default branch FIRST (fatal; carries the bulk pack in one ref-command), then
+# tags (fatal), then the remaining branches in bounded best-effort batches — still
+# explicit refspecs (never --mirror, which prunes refs it did not create), so
+# sovereign-local refs survive. Slice step-01's CM (same pattern as Case 45's
+# step-07 slice — from the CM name to the next step's order label).
 awk '/cutover-step-01-gitea-mirror/{c=1} c{print} c&&/cutover-order: "2"/{exit}' "$TMP/render.yaml" > "$TMP/step01_mirror.txt"
 [ -s "$TMP/step01_mirror.txt" ] || cp "$TMP/render.yaml" "$TMP/step01_mirror.txt"
-# (1) the push uses the explicit refspec pair — updates/creates every
-# GitHub-derived branch + tag, deletes nothing.
+# (1) the push is an explicit-refspec force-push — updates/creates refs, deletes none.
 if ! grep -qF "git push --force" "$TMP/step01_mirror.txt"; then
   echo "FAIL: Step-01 missing the explicit-refspec force-push (git push --force) (#5011)" >&2
   exit 1
 fi
-if ! grep -qF "'refs/heads/*:refs/heads/*'" "$TMP/step01_mirror.txt"; then
-  echo "FAIL: Step-01 push missing the refs/heads/*:refs/heads/* refspec — upstream branches would not sync (#5011)" >&2
+# (2) #6754 — the DEFAULT branch pushes FIRST, on its own ref-command (the bulk
+# pack in the survivable 1-ref shape). This is the assertion that FAILS on the old
+# whole-repo-in-one-push template and PASSES on the batched one.
+if ! grep -qF 'push --force "${local_url}" "refs/heads/${default_branch}:refs/heads/${default_branch}"' "$TMP/step01_mirror.txt"; then
+  echo "FAIL: Step-01 does not force-push the default branch first on its own ref-command — the whole-repo-in-one-push dies after the ref advertisement on the ~2,436-branch monorepo (#6754)" >&2
   exit 1
 fi
+# (3) tags push explicitly (their own ref-command).
 if ! grep -qF "'refs/tags/*:refs/tags/*'" "$TMP/step01_mirror.txt"; then
   echo "FAIL: Step-01 push missing the refs/tags/*:refs/tags/* refspec — upstream tags would not sync (#5011)" >&2
   exit 1
 fi
-# (2) mirror mode is BANNED in step-01: --mirror makes the remote exactly match
+# (4) #6754 — the REMAINING branches push in bounded batches: enumerate refs/heads
+# via for-each-ref and push per-ref refspecs. The old single 'refs/heads/*:
+# refs/heads/*' glob (all heads in one receive-pack) must be GONE.
+if ! grep -qF 'git for-each-ref --format=' "$TMP/step01_mirror.txt"; then
+  echo "FAIL: Step-01 does not enumerate remaining branches via for-each-ref for the bounded batched push (#6754)" >&2
+  exit 1
+fi
+if grep -qF "'refs/heads/*:refs/heads/*'" "$TMP/step01_mirror.txt"; then
+  echo "FAIL: Step-01 still pushes every head in one 'refs/heads/*:refs/heads/*' receive-pack — that is exactly the whole-repo push that dies after the ref advertisement (#6754)" >&2
+  exit 1
+fi
+# (5) mirror mode is BANNED in step-01: --mirror makes the remote exactly match
 # the clone and DELETES refs absent upstream (the hw242 prune). Zero occurrences
 # allowed in the step-01 script — flag, comments, anywhere.
 if grep -qF -- '--mirror' "$TMP/step01_mirror.txt"; then
   echo "FAIL: Step-01 contains '--mirror' — mirror mode prunes sovereign-local branches (catalog-sovereign, org-tenants) (#5011)" >&2
   exit 1
 fi
-# (3) both refspecs ride the SAME push invocation as --force (idempotent re-runs
-# after an upstream history rewrite) — not a separate non-force push.
-if ! grep -E 'git push --force .*refs/heads/\*:refs/heads/\*.*refs/tags/\*:refs/tags/\*' "$TMP/step01_mirror.txt" >/dev/null; then
-  echo "FAIL: Step-01 explicit refspecs must ride the single 'git push --force' invocation (#5011)" >&2
+# (6) no branch-DELETE refspec may survive — the batched push only ever ADDS refs.
+if grep -qE 'git push[^|]*--delete|git push[^|]*--prune' "$TMP/step01_mirror.txt"; then
+  echo "FAIL: Step-01 push deletes/prunes refs — the batched mirror must only update/create upstream refs, never remove sovereign-local ones (#6754, Refs #5011)" >&2
   exit 1
 fi
-echo "  PASS (Step-01 pushes refs/heads/* + refs/tags/* explicitly with --force; mirror mode absent — sovereign-local branches survive)"
+echo "  PASS (Step-01 force-pushes the default branch first, then tags, then remaining branches via for-each-ref in bounded batches; the whole-repo 'refs/heads/*' glob and mirror mode are absent — sovereign-local branches survive and the ~2,436-branch push cannot die in one receive-pack)"
 
 echo "[cutover-contract] Case 47: Step-08 deny-egress CCNP allows the IaaS provider API CIDRs — egressTest.allowProviderCIDRs threads into PROVIDER_API_CIDRS + the CCNP writer's toCIDR loop (#5017 keystone, Refs #4596 #3379)"
 # hw242 live (2026-07-12): the deny-egress hold omitted the Huawei kom4dc API
@@ -5484,42 +5500,64 @@ fi
 grep -q 'names a HEALTHY HelmRelease' "$TMP/c95/out.txt" || { echo "FAIL: CONTROL — the platform stale-override rejection lost its class name (#5391/#6273)" >&2; exit 1; }
 echo "  PASS (#6273: BOTH Phase A0 passes partition by ownership — the HelmRelease pass and the override-free wl_pending pass each WARN-and-proceed on Organization namespaces with every offender named, its TERMINAL tag intact and the re-install cost stated; platform offenders stay FATAL, named and classified, are counted alone in the headline, and the VACUITY CONTROL proves that FATAL flips to a warning when the one discriminating input flips; leak controls: identical workloads in harbor still fatal, unlabelled namespaces still fatal, stale override on a platform release still rejected)"
 
-echo "[cutover-contract] Case 96: the region-local gitea-mirror git push/ls-remote authenticate with an Authorization header, NEVER URL-injected credentials; and the SECONDARY-region push presents a freshly MINTED PAT (not the admin password), which Gitea git-over-HTTP requires under an external login source (#6645, Refs #6490 #3379, UAT row 166)"
+echo "[cutover-contract] Case 96: the region-local gitea-mirror git push/ls-remote authenticate with an Authorization header, NEVER URL-injected credentials; and the SECONDARY-region push presents the SHARED catalyst-gitea-token PAT (never the admin password, never an in-region mint) (#6754, Refs #6645 #6490 #3379, UAT row 166)"
 # Live hw301 region-B (me-east-215-b-1): the secondary-mirror's curl API calls
 # (base64 Authorization: Basic header) SUCCEEDED — "org already present", "repo
 # already present" — while `git push` FATALed "Could not read from remote
-# repository". The #6490 pass moved the push OFF URL-injection onto the SAME
-# admin-password http.extraHeader the API uses. But hw305 region-B (dep
-# b2b00ce4c833badf) then showed that is still insufficient: Gitea's git-over-HTTP
-# BasicAuth REFUSES an account password when an external login source (bp-gitea's
-# openova-sso OAuth2) is configured, even though /api/v1 accepts that same
-# password — so the header-authed PASSWORD push still FATALed the same way. The
-# durable #6645 fix mirrors the PRIMARY step-01 push-auth: mint a region-local
-# PAT via the admin BasicAuth API (the proven-working path) and git-auth the
-# push/ls-remote WITH THE PAT (token_auth header) against a credential-free
-# remote URL. The PRIMARY resync push (part b) keeps the admin-BasicAuth header —
-# region-A works and the resync is a separate, post-cutover, default-severed site.
+# repository". The #6490 pass moved the push OFF URL-injection; #6645 then minted
+# a region-local PAT via the admin BasicAuth API. But hw305 region-B (dep
+# b2b00ce4c833badf) proved BOTH admin-password paths unsound on a 2-region
+# Sovereign: the two regions share ONE gitea DB (region-B dials shared-pg-mesh-rw
+# -> region-A's primary, bp-cnpg-pair active-hot-standby), so the single
+# gitea_admin row's password is whichever region restarted last and diverges from
+# region-B's per-region gitea-admin-secret — the admin BasicAuth 401s and the mint
+# (which itself needs admin BasicAuth) cannot even run. The durable #6754 fix:
+# unify ALL secondary auth on the SHARED catalyst-gitea-token PAT (present in the
+# one shared access_token table, so valid from region-B — a token is a direct sha1
+# lookup, immune to which region restarted last), copied in by region-A. The
+# PRIMARY resync push (part b) keeps the admin-BasicAuth header — region-A works
+# and the resync is a separate, post-cutover, default-severed site.
 c96_fail=0
 # (a) the SECONDARY-region mirror ConfigMap (render-gated on mirrorToSecondaryGitea).
 helm template smoke-secmirror . --set secondaryRegions.mirrorToSecondaryGitea=true \
   --show-only templates/secondary-mirror-script-configmap.yaml > "$TMP/r_6490_secondary.yaml"
 F="$TMP/r_6490_secondary.yaml"
+# #6754 — the push/ls-remote git-auth with the SHARED PAT (token_auth header built
+# from user:PAT, where GITEA_PAT is the distributed catalyst-gitea-token). These
+# lines are unchanged in SHAPE from #6645 (token_auth header) but the PAT source
+# changed from an in-region mint to the distributed shared PAT (asserted below).
 if ! grep -qF 'git -c http.extraHeader="Authorization: Basic ${token_auth}" push --force "${push_url}"' "$F"; then
-  echo "FAIL: secondary-mirror push does not carry the MINTED-PAT Authorization: Basic http.extraHeader (#6645)" >&2; c96_fail=1
+  echo "FAIL: secondary-mirror push does not carry the shared-PAT Authorization: Basic http.extraHeader (#6754)" >&2; c96_fail=1
 fi
 if ! grep -qF 'git -c http.extraHeader="Authorization: Basic ${token_auth}" ls-remote --heads "${push_url}"' "$F"; then
-  echo "FAIL: secondary-mirror ls-remote does not carry the MINTED-PAT Authorization: Basic http.extraHeader (#6645)" >&2; c96_fail=1
+  echo "FAIL: secondary-mirror ls-remote does not carry the shared-PAT Authorization: Basic http.extraHeader (#6754)" >&2; c96_fail=1
 fi
-if ! grep -qF 'users/${GITEA_USERNAME}/tokens' "$F"; then
-  echo "FAIL: secondary-mirror does not mint a region-local PAT via /api/v1/users/.../tokens for the push (#6645)" >&2; c96_fail=1
+if ! grep -qF 'token_auth=$(printf' "$F" || ! grep -qF '${GITEA_USERNAME}:${GITEA_PAT}' "$F"; then
+  echo "FAIL: secondary-mirror does not build the token_auth header from user:PAT (#6754)" >&2; c96_fail=1
+fi
+# #6754 — the /api/v1 calls (org/repo create, mirror=false guard) send
+# Authorization: token with the SHARED PAT — never admin BasicAuth.
+if ! grep -qF 'Authorization: token ${GITEA_PAT}' "$F"; then
+  echo "FAIL: secondary-mirror /api/v1 calls do not authenticate with the shared catalyst-gitea-token PAT (Authorization: token) (#6754)" >&2; c96_fail=1
 fi
 if ! grep -qF 'push_url="${GITEA_INTERNAL_URL}/${GITEA_ORG}/${GITEA_REPO}.git"' "$F"; then
   echo "FAIL: secondary-mirror push_url is not the credential-free remote URL (#6490)" >&2; c96_fail=1
 fi
-# anti-regression (non-vacuous — TRUE on the pre-#6645 basic_auth-password push):
-# the push/ls-remote must NOT git-auth with the admin-password header.
-if grep -qE 'http\.extraHeader="Authorization: Basic \$\{basic_auth\}" (push|ls-remote)' "$F"; then
-  echo "FAIL: secondary-mirror still git-auths with the admin password (basic_auth) — Gitea git-HTTP refuses a password under an external login source (#6645 regression)" >&2; c96_fail=1
+# #6754 anti-regression (non-vacuous — TRUE on the #6645 template, FALSE now):
+# the secondary MUST NOT mint a region-local PAT — the mint needs admin BasicAuth,
+# which drifts across the shared cross-region DB.
+if grep -qF 'users/${GITEA_USERNAME}/tokens' "$F"; then
+  echo "FAIL: secondary-mirror still mints a region-local PAT via /api/v1/users/.../tokens — the mint needs admin BasicAuth, which 401s against the shared cross-region gitea DB (#6754)" >&2; c96_fail=1
+fi
+# #6754 anti-regression (non-vacuous — TRUE on the #6490/#6645 templates):
+# no admin-password BasicAuth (basic_auth) may survive anywhere in the script.
+if grep -qF 'basic_auth' "$F"; then
+  echo "FAIL: secondary-mirror still references the admin-password BasicAuth (basic_auth) — the admin password drifts across the shared cross-region DB and 401s (#6754)" >&2; c96_fail=1
+fi
+# #6754 — the shared PAT arrives via secretKeyRef from the Secret region-A copies
+# in (secondaryGiteaPatSecretName), NOT a gitea-admin-secret read.
+if ! grep -qF 'cutover-secondary-gitea-pat' "$F"; then
+  echo "FAIL: secondary-mirror Job does not secretKeyRef the distributed catalyst-gitea-token PAT (secondaryGiteaPatSecretName) (#6754)" >&2; c96_fail=1
 fi
 # anti-regression (non-vacuous — TRUE on the pre-#6490 URL-injection script, FALSE now):
 # no credential-in-URL injection may survive anywhere in the script.
@@ -5537,7 +5575,7 @@ if grep -qF '${GITEA_USERNAME}:${GITEA_PASSWORD}@' "$G"; then
   echo "FAIL: mirror-resync still URL-injects the admin password — breaks on a URL-special-char password (#6490 regression)" >&2; c96_fail=1
 fi
 if [ "$c96_fail" -ne 0 ]; then exit 1; fi
-echo "  PASS (#6645: the SECONDARY-region mirror mints a region-local PAT and git-auths the push/ls-remote WITH IT — Gitea git-over-HTTP requires a token, not the admin password, under an external login source — against a credential-free remote URL; the PRIMARY resync keeps its admin-BasicAuth header [region-A works]; zero admin-password URL-injection survives on either site)"
+echo "  PASS (#6754: the SECONDARY-region mirror git-auths every /api/v1 call + the push/ls-remote with the SHARED catalyst-gitea-token PAT (secretKeyRef'd from the Secret region-A copies in) against a credential-free remote URL — never the admin password and never an in-region mint, both of which drift/401 across the one shared cross-region gitea DB; the PRIMARY resync keeps its admin-BasicAuth header [region-A works]; zero admin-password URL-injection survives on either site)"
 
 echo "[cutover-contract] Case 97: Step-01 gitea-mirror activeDeadlineSeconds must cover the ~470MB monorepo clone+push over a throttled link (#6511, Refs #6508 #3379, UAT row 166)"
 # hw302 live (2026-08-20): step-01 bare-clones the openova monorepo — now ~470 MB

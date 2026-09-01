@@ -50,7 +50,8 @@ for tok in \
   'SECONDARY_INCLUSTER_GITEA_URL' \
   'SECONDARY_GITEA_NAMESPACE' \
   'secondary-gitea-mirror' \
-  'git-auth-secondary'; do
+  'sec-gitea-pat.yaml' \
+  'cutover-secondary-gitea-pat'; do
   if grep -qF "${tok}" "${TMP}/off.yaml"; then
     fail "OFF render contains '${tok}' — the leg is not fully gated (single-region NOT a no-op)"
   else
@@ -85,14 +86,29 @@ if git -C "${REPO_ROOT}" rev-parse --verify --quiet origin/main >/dev/null 2>&1;
     #      accommodating the intended fix, which cutover-contract Case 96 verifies.
     #      The regex keys on GITEA_PASSWORD / --mirror so it never touches step-01's
     #      PAT-authed refspec push.
+    #   3. the #6754 step-01 primary push rewrite (batched default-branch-first).
+    #      That push ALWAYS renders (single-region too), so it is NOT part of the
+    #      secondaryRegions leg either; the awk collapses the whole push region
+    #      (between the two step-01 push echoes) to one marker on BOTH trees, and
+    #      the three new always-rendered lines it introduces (the PUSH_BATCH_BRANCHES
+    #      env pair + the two script-local assignments) are stripped, so this check
+    #      still catches any OTHER single-region drift while accommodating the
+    #      intended batched-push change, which Case 46 verifies.
     norm() {
-      sed -E \
+      awk '
+        /\[gitea-mirror\] pushing upstream/ {print "GITEA_PUSH_CANON"; _skip=1; next}
+        _skip==1 && /\[gitea-mirror\] pushed all upstream/ {_skip=0; next}
+        _skip==1 {next}
+        {print}
+      ' "$1" | sed -E \
         -e 's#bp-self-sovereign-cutover-[0-9]+\.[0-9]+\.[0-9]+#bp-self-sovereign-cutover-VERSION#g' \
+        -e '/- name: PUSH_BATCH_BRANCHES/{N;d}' \
+        -e '/^ *default_branch="\$\{UPSTREAM_BRANCH\}"$/d' \
+        -e '/^ *batch_size="\$\{PUSH_BATCH_BRANCHES\}"$/d' \
         -e 's#^ *local_url=.*GITEA_PASSWORD.*$#                  MIRROR_URL_DEF#' \
         -e 's#^ *push_url="\$\{GITEA_INTERNAL_URL\}/\$\{GITEA_ORG\}/\$\{GITEA_REPO\}\.git"$#                  MIRROR_URL_DEF#' \
         -e 's#git -c http\.extraHeader="Authorization: Basic \$\{basic_auth\}" push --mirror#git push --mirror#' \
-        -e 's#push --mirror --force "\$\{(local_url|push_url)\}"#push --mirror --force "MIRROR_URL"#' \
-        "$1"
+        -e 's#push --mirror --force "\$\{(local_url|push_url)\}"#push --mirror --force "MIRROR_URL"#'
     }
     norm "${TMP}/main.yaml" >"${TMP}/main.norm"
     norm "${TMP}/off.yaml"  >"${TMP}/off.norm"
@@ -130,11 +146,20 @@ if grep -qF 'sec_url_chain="${SECONDARY_INCLUSTER_GITEA_URL:-}"' "${TMP}/step05.
 else
   fail "step-05 secondary chain does not use SECONDARY_INCLUSTER_GITEA_URL"
 fi
-if grep -qF 'git-auth-secondary.yaml' "${TMP}/step05.sh" \
-   && grep -qF 'get secret "${GITEA_ADMIN_SECRET_NAME}"' "${TMP}/step05.sh"; then
-  pass "step-05 wires region-B's OWN gitea-admin-secret into its Flux secretRef (not region-A's PAT)"
+# #6754 — step-05's SECONDARY leg wires the SHARED catalyst-gitea-token PAT (the
+# same /tmp/git-auth-secret.yaml region-A built) into the secondary's Flux
+# secretRef, NOT the per-region gitea-admin-secret (whose password drifts across
+# the one shared cross-region gitea DB). This assertion FAILS on the old template
+# (which read gitea-admin-secret) and PASSES on the PAT-unified one.
+if grep -qF 'kubectl --kubeconfig "${skc}" apply -f /tmp/git-auth-secret.yaml' "${TMP}/step05.sh"; then
+  pass "step-05 wires the SHARED catalyst-gitea-token PAT into the secondary Flux secretRef (#6754)"
 else
-  fail "step-05 does not read the secondary's own gitea-admin-secret for the pivot credential"
+  fail "step-05 does not apply the PAT basic-auth Secret (/tmp/git-auth-secret.yaml) to the secondary (#6754)"
+fi
+if grep -qF 'git-auth-secondary' "${TMP}/step05.sh" || grep -qF 'GITEA_ADMIN_SECRET_NAME' "${TMP}/step05.sh"; then
+  fail "step-05 still reads the secondary's own gitea-admin-secret — its password drifts across the shared cross-region DB and 401s (#6754 regression)"
+else
+  pass "step-05 no longer reads the per-region gitea-admin-secret for the secondary pivot credential (#6754)"
 fi
 bash -n "${TMP}/step05.sh" && pass "step-05 script parses (bash -n)" || fail "step-05 script has a syntax error"
 
@@ -172,42 +197,74 @@ if grep -qF 'app.kubernetes.io/managed-by: flux' "${TMP}/secjob.yaml"; then
 else
   fail "secondary mirror Job lacks app.kubernetes.io/managed-by: flux — ns gitea's kyverno flux-managed ClusterPolicy DENIES step-01's set -e apply and the cutover halts (#6493)"
 fi
-# #6645 push-auth parity with the PRIMARY: the git push + ls-remote authenticate
-# with a freshly MINTED region-local PAT (token_auth header), NOT the admin
-# password (basic_auth). Gitea's git-over-HTTP BasicAuth refuses an account
-# password when an external login source (openova-sso OAuth2) is configured, so
-# the pre-#6645 basic_auth-password push FATALed ("Could not read from remote
-# repository") on the secondary even though the curl API accepted the same
-# password. The push URL still carries NO credentials (#6490 safety preserved).
-if grep -qF 'users/${GITEA_USERNAME}/tokens' "${TMP}/secmirror.sh" \
-   && grep -qF 'GITEA_PAT=$(printf' "${TMP}/secmirror.sh" \
-   && grep -qF '"sha1":' "${TMP}/secmirror.sh"; then
-  pass "secondary-mirror.sh mints a region-local PAT via the admin BasicAuth API and captures its sha1 (#6645)"
+# #6754 BUG 1 — the secondary authenticates ALL gitea calls with the SHARED
+# catalyst-gitea-token PAT: /api/v1 via Authorization: token, git-over-HTTP via a
+# user:PAT token_auth header. The PAT arrives via secretKeyRef (GITEA_PAT) from
+# the Secret region-A copies in; there is NO admin-BasicAuth and NO in-region mint
+# (the two regions share ONE gitea DB, so the admin password drifts and the mint —
+# which itself needs admin BasicAuth — cannot run). hw305 region-B (dep
+# b2b00ce4c833badf) proved both admin-password paths 401 on a 2-region Sovereign.
+if grep -qF 'Authorization: token ${GITEA_PAT}' "${TMP}/secmirror.sh"; then
+  pass "secondary-mirror.sh /api/v1 calls authenticate with the shared catalyst-gitea-token PAT (Authorization: token) (#6754)"
 else
-  fail "secondary-mirror.sh does not mint a region-local PAT for the push (#6645)"
+  fail "secondary-mirror.sh does not authenticate the /api/v1 calls with the shared PAT (#6754)"
 fi
 if grep -qF 'token_auth=$(printf' "${TMP}/secmirror.sh" \
    && grep -qF '${GITEA_USERNAME}:${GITEA_PAT}' "${TMP}/secmirror.sh"; then
-  pass "secondary-mirror.sh builds the token_auth header from user:PAT (#6645)"
+  pass "secondary-mirror.sh builds the token_auth header from user:PAT (#6754)"
 else
-  fail "secondary-mirror.sh does not build a user:PAT BasicAuth header (#6645)"
+  fail "secondary-mirror.sh does not build a user:PAT git-HTTP header (#6754)"
 fi
-if grep -qF 'http.extraHeader="Authorization: Basic ${token_auth}" push --force' "${TMP}/secmirror.sh"; then
-  pass "secondary-mirror.sh force-pushes via the MINTED-PAT http.extraHeader (#6645 push-auth parity)"
+# the Job reads GITEA_PAT via secretKeyRef from the distributed PAT Secret, and
+# GITEA_USERNAME is the plain gitRepositorySecretRef.username (no admin-secret).
+if grep -qF 'cutover-secondary-gitea-pat' "${TMP}/secjob.yaml" \
+   && grep -qF 'key: token' "${TMP}/secjob.yaml"; then
+  pass "secondary mirror Job secretKeyRef's the distributed catalyst-gitea-token PAT (#6754)"
 else
-  fail "secondary-mirror.sh does not PAT-authenticate the force-push (#6645)"
+  fail "secondary mirror Job does not secretKeyRef the distributed PAT (#6754)"
+fi
+if grep -qF 'value: "gitea_admin"' "${TMP}/secjob.yaml" \
+   && ! grep -qF 'GITEA_PASSWORD' "${TMP}/secjob.yaml"; then
+  pass "secondary mirror Job sets a plain GITEA_USERNAME and reads NO gitea-admin password (#6754)"
+else
+  fail "secondary mirror Job still reads a gitea-admin password or lacks the plain username (#6754)"
+fi
+# #6754 anti-regression (non-vacuous — TRUE on the #6645 template, FALSE now):
+# the secondary MUST NOT mint a region-local PAT, and MUST NOT reference basic_auth.
+if grep -qF 'users/${GITEA_USERNAME}/tokens' "${TMP}/secmirror.sh"; then
+  fail "secondary-mirror.sh still mints a region-local PAT — the mint needs admin BasicAuth, which 401s against the shared cross-region DB (#6754 regression)"
+else
+  pass "secondary-mirror.sh does not mint a region-local PAT (#6754)"
+fi
+if grep -qF 'basic_auth' "${TMP}/secmirror.sh"; then
+  fail "secondary-mirror.sh still references the admin-password BasicAuth (basic_auth) — it drifts across the shared cross-region DB (#6754 regression)"
+else
+  pass "secondary-mirror.sh git-auths with the shared PAT, never the admin password (#6754)"
+fi
+# #6754 BUG 2 — batched, default-branch-first force-push: default branch FIRST on
+# its own ref-command, tags, then remaining branches enumerated via for-each-ref
+# in bounded batches. A single receive-pack of all ~2,436 branch refs dies after
+# the ref advertisement (pkt-line 3 EOF). These FAIL on the old single-push script.
+if grep -qF 'push --force "${push_url}" "refs/heads/${default_branch}:refs/heads/${default_branch}"' "${TMP}/secmirror.sh"; then
+  pass "secondary-mirror.sh force-pushes the default branch first on its own ref-command (#6754)"
+else
+  fail "secondary-mirror.sh does not push the default branch first — the whole-repo push dies after the ref advertisement (#6754)"
+fi
+if grep -qF 'git for-each-ref --format=' "${TMP}/secmirror.sh" \
+   && grep -qF 'push --force "${push_url}" ${batch}' "${TMP}/secmirror.sh"; then
+  pass "secondary-mirror.sh pushes the remaining branches in bounded for-each-ref batches (#6754)"
+else
+  fail "secondary-mirror.sh does not batch the remaining-branch push (#6754)"
+fi
+if grep -qF "'refs/heads/*:refs/heads/*'" "${TMP}/secmirror.sh"; then
+  fail "secondary-mirror.sh still pushes every head in one 'refs/heads/*:refs/heads/*' receive-pack — the whole-repo push that dies (#6754)"
+else
+  pass "secondary-mirror.sh no longer pushes every head in one receive-pack (#6754)"
 fi
 if grep -qF 'http.extraHeader="Authorization: Basic ${token_auth}" ls-remote --heads' "${TMP}/secmirror.sh"; then
-  pass "secondary-mirror.sh ls-remote self-verifies via the minted-PAT header (the #6490 ordering gate, #6645 auth)"
+  pass "secondary-mirror.sh ls-remote self-verifies via the shared-PAT header (the #6490 ordering gate, #6754 auth)"
 else
-  fail "secondary-mirror.sh lacks the PAT-authed git ls-remote success gate (#6645)"
-fi
-# anti-regression (non-vacuous — TRUE on the pre-#6645 basic_auth-password push):
-# the git push/ls-remote must NOT authenticate with the admin-password header.
-if grep -qE 'http\.extraHeader="Authorization: Basic \$\{basic_auth\}" (push|ls-remote)' "${TMP}/secmirror.sh"; then
-  fail "secondary-mirror.sh still git-auths with the admin password (basic_auth) — Gitea git-HTTP refuses a password under an external login source (#6645 regression)"
-else
-  pass "secondary-mirror.sh git-auths with the minted PAT, never the admin password (#6645)"
+  fail "secondary-mirror.sh lacks the PAT-authed git ls-remote success gate (#6754)"
 fi
 # #6645 mirror=false guard — a pull-mirror repo is read-only; the push cannot land.
 if grep -qF '"mirror":true' "${TMP}/secmirror.sh"; then
@@ -240,12 +297,38 @@ for d in docs:
         ps=yaml.safe_load(d['data']['podSpec'])
         open(sys.argv[2],'w').write(ps['containers'][0]['args'][0]); break
 PY
+# #6754 BUG 2 — the PRIMARY step-01 push is batched default-branch-first too (same
+# ~2,436-branch / pkt-line-3-EOF exposure as the secondary). Assert it here on the
+# extracted step-01 script (Case 46 in cutover-contract.sh guards the same shape);
+# these FAIL on the old single 'refs/heads/*' push and PASS on the batched one.
+if grep -qF 'push --force "${local_url}" "refs/heads/${default_branch}:refs/heads/${default_branch}"' "${TMP}/step01.sh"; then
+  pass "step-01 primary push sends the default branch first on its own ref-command (#6754)"
+else
+  fail "step-01 primary push does not push the default branch first (#6754)"
+fi
+if grep -qF 'git for-each-ref --format=' "${TMP}/step01.sh" \
+   && grep -qF 'push --force "${local_url}" ${batch}' "${TMP}/step01.sh"; then
+  pass "step-01 primary push batches the remaining branches via for-each-ref (#6754)"
+else
+  fail "step-01 primary push does not batch the remaining branches (#6754)"
+fi
+if grep -qF "'refs/heads/*:refs/heads/*'" "${TMP}/step01.sh"; then
+  fail "step-01 primary push still sends every head in one 'refs/heads/*:refs/heads/*' receive-pack — the whole-repo push that dies (#6754)"
+else
+  pass "step-01 primary push no longer sends every head in one receive-pack (#6754)"
+fi
 # Extract just the #6490 leg (leg-start echo .. the no-op echo) and close the if.
 awk '/#6490 secondary-region mirror leg/,/secondary mirror is a no-op/' "${TMP}/step01.sh" >"${TMP}/leg.body"
 { echo 'set -eu'
   echo 'SECONDARY_GITEA_NAMESPACE=gitea'
   echo 'MIRROR_JOB_WAIT_SECONDS=5'
   echo 'MIRROR_JOB_POLL_SECONDS=1'
+  # #6754 — the leg now distributes the shared PAT into each secondary before
+  # stamping the Job; the harness must set the same env the render env-block does.
+  echo 'SECONDARY_GITEA_PAT_SECRET=cutover-secondary-gitea-pat'
+  echo 'PAT_SOURCE_NAMESPACE=catalyst-system'
+  echo 'PAT_SOURCE_SECRET_NAME=catalyst-gitea-token'
+  echo 'GITEA_PAT=testpat'
   sed -e "s#/secondary-kubeconfigs/#${TMP}/skc/#g" -e "s#/secondary-mirror/#${TMP}/smir/#g" "${TMP}/leg.body"
   echo 'fi'
 } >"${TMP}/leg.sh"

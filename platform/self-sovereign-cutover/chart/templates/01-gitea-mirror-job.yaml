@@ -60,6 +60,14 @@ data:
           - name: MIRROR_INTERVAL
             value: {{ .Values.upstream.mirrorInterval | quote }}
           {{- /*
+           #6754 BUG 2 — remaining-branch push batch size (default 200). The
+           default branch + tags push fatal; the rest of the upstream branches
+           push in bounded best-effort batches of this many refspecs so no single
+           git-receive-pack carries all ~2,436 refs at once.
+          */}}
+          - name: PUSH_BATCH_BRANCHES
+            value: {{ .Values.gitea.pushBatchBranches | quote }}
+          {{- /*
            #3584 — Gitea git-push username. A Gitea PAT is accepted as the
            HTTP git password under ANY existing username; we use the admin
            login (`gitea_admin`) for auditability. The git push embeds
@@ -98,6 +106,15 @@ data:
             value: {{ .Values.secondaryRegions.mirrorJobWaitSeconds | quote }}
           - name: MIRROR_JOB_POLL_SECONDS
             value: {{ .Values.secondaryRegions.mirrorJobPollSeconds | quote }}
+          {{- /*
+           #6754 BUG 1 — the Secret name region-A copies the shared
+           catalyst-gitea-token PAT (${GITEA_PAT}, read above) into, in each
+           secondary's gitea namespace, so the in-region mirror Job can
+           secretKeyRef it locally. Same distribution shape as the #6764
+           secondary-ghcr copy.
+          */}}
+          - name: SECONDARY_GITEA_PAT_SECRET
+            value: {{ .Values.secondaryRegions.secondaryGiteaPatSecretName | quote }}
           {{- end }}
         command: ["/bin/sh", "-c"]
         args:
@@ -299,17 +316,62 @@ data:
               exit 1
             fi
             cd upstream.git
-            echo "[gitea-mirror] pushing upstream branches + tags (explicit refspecs, never prunes sovereign-local refs) to ${redacted_url}"
-            push_err=$(git push --force "${local_url}" 'refs/heads/*:refs/heads/*' 'refs/tags/*:refs/tags/*' 2>&1) || {
-              echo "[gitea-mirror] FATAL: git push to local Gitea failed" >&2
-              {{- /*
-               Surface git stderr WITHOUT the embedded credential — git
-               redacts URLs in error messages by default but be defensive.
-              */}}
+            {{- /*
+             #6754 BUG 2 — batched, default-branch-first force-push. The upstream
+             monorepo has accumulated ~2,436 branches; a single git-receive-pack
+             of all of them plus the ~511 MiB pack dies AFTER the ref
+             advertisement ("pkt-line 3 EOF" class, #6490) — the server logs the
+             GET .../info/refs?service=git-receive-pack 200 with no subsequent
+             POST. Ship the default branch FIRST (fatal — it carries the bulk pack
+             in ONE ref-command, the shape a 1-ref push proved survivable), then
+             tags (fatal), then the remaining branches in bounded best-effort
+             batches (near-empty packs, since every object already shipped under
+             the default branch). Durable against branch re-accumulation — no
+             reliance on branch cleanup. Still explicit refspecs, never --mirror
+             (#5011), so sovereign-local refs (catalog-sovereign, org-tenants) are
+             never pruned. Credential redaction on stderr is unchanged.
+            */}}
+            default_branch="${UPSTREAM_BRANCH}"
+            batch_size="${PUSH_BATCH_BRANCHES}"
+            echo "[gitea-mirror] pushing upstream default branch (${default_branch}), tags, then remaining branches in bounded batches of ${batch_size} to ${redacted_url}"
+            push_err=$(git push --force "${local_url}" "refs/heads/${default_branch}:refs/heads/${default_branch}" 2>&1) || {
+              echo "[gitea-mirror] FATAL: git push of the default branch (${default_branch}) to local Gitea failed" >&2
               printf '%s\n' "${push_err}" | sed -E "s,${GITEA_PAT}+,REDACTED,g" >&2
               exit 1
             }
-            echo "[gitea-mirror] pushed all upstream branches + tags successfully (sovereign-local refs untouched)"
+            push_err=$(git push --force "${local_url}" 'refs/tags/*:refs/tags/*' 2>&1) || {
+              echo "[gitea-mirror] FATAL: git push of tags to local Gitea failed" >&2
+              printf '%s\n' "${push_err}" | sed -E "s,${GITEA_PAT}+,REDACTED,g" >&2
+              exit 1
+            }
+            batch=""
+            n=0
+            extra=0
+            skipped_batches=0
+            for ref in $(git for-each-ref --format='%(refname)' refs/heads/); do
+              if [ "${ref}" = "refs/heads/${default_branch}" ]; then continue; fi
+              batch="${batch} ${ref}:${ref}"
+              n=$((n + 1))
+              if [ "${n}" -ge "${batch_size}" ]; then
+                if git push --force "${local_url}" ${batch} >/dev/null 2>&1; then
+                  extra=$((extra + n))
+                else
+                  skipped_batches=$((skipped_batches + 1))
+                  echo "[gitea-mirror] a ${n}-branch batch did not fully land (best-effort; default branch + tags already pushed)"
+                fi
+                batch=""
+                n=0
+              fi
+            done
+            if [ "${n}" -gt 0 ]; then
+              if git push --force "${local_url}" ${batch} >/dev/null 2>&1; then
+                extra=$((extra + n))
+              else
+                skipped_batches=$((skipped_batches + 1))
+                echo "[gitea-mirror] the final ${n}-branch batch did not fully land (best-effort; default branch + tags already pushed)"
+              fi
+            fi
+            echo "[gitea-mirror] pushed all upstream refs (default branch + tags fatal, ${extra} more branch(es) best-effort in ${batch_size}-ref batches, ${skipped_batches} batch(es) deferred; sovereign-local refs untouched)"
 
             {{- /*
              4. Verify by reading back the default branch SHA and
@@ -362,6 +424,32 @@ data:
               kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" create configmap cutover-secondary-mirror-script \
                 --from-file=secondary-mirror.sh=/secondary-mirror/secondary-mirror.sh \
                 --dry-run=client -o yaml | kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" apply -f -
+              {{- /*
+               #6754 BUG 1 — copy the shared catalyst-gitea-token PAT (read into
+               ${GITEA_PAT} above) into this secondary's gitea namespace so the
+               in-region mirror Job can secretKeyRef it (cross-region secretKeyRef
+               is impossible). Same /tmp-file + kubectl apply hygiene the step-05
+               / step-06 secondary secret copies use — the PAT rides stringData in
+               an ephemeral file, never argv. The PAT is valid in this region
+               because both regions share ONE access_token table (bp-cnpg-pair);
+               it sidesteps the per-region admin-password drift entirely.
+              */}}
+              cat >/tmp/sec-gitea-pat.yaml <<EOF
+            apiVersion: v1
+            kind: Secret
+            metadata:
+              name: ${SECONDARY_GITEA_PAT_SECRET}
+              namespace: ${SECONDARY_GITEA_NAMESPACE}
+              labels:
+                app.kubernetes.io/managed-by: self-sovereign-cutover
+                app.kubernetes.io/component: secondary-gitea-mirror-pat
+              annotations:
+                catalyst.openova.io/mirrored-from: ${PAT_SOURCE_NAMESPACE}/${PAT_SOURCE_SECRET_NAME}
+            type: Opaque
+            stringData:
+              token: ${GITEA_PAT}
+            EOF
+              kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" apply -f /tmp/sec-gitea-pat.yaml
               kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" delete job "${jobname}" --ignore-not-found=true >/dev/null 2>&1 || true
               sed "s/__REGION__/${region}/g" /secondary-mirror/secondary-mirror-job.yaml >/tmp/secjob.yaml
               kubectl --kubeconfig "${skc}" apply -f /tmp/secjob.yaml

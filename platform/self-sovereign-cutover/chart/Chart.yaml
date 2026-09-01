@@ -4212,7 +4212,21 @@ name: bp-self-sovereign-cutover
 #   secondary's OWN local Harbor + self-verifies. Render-gated
 #   (secondaryRegions.prewarmSecondaryHarbor, default false) → single-region
 #   byte-identical. Catalog + bootstrap-kit slot 06a move to 0.1.200.
-version: 0.1.200
+# 0.1.201 (#6754): 2-region cutover no longer wedges at step-01. BUG 1 — the two
+#   regions share ONE gitea DB (region-B dials shared-pg-mesh-rw → region-A's
+#   primary, bp-cnpg-pair active-hot-standby), so the per-region gitea-admin-secret
+#   password diverges from the single shared user row and region-B's admin
+#   BasicAuth (and the #6645 in-region PAT mint that needs it) 401s. All secondary
+#   gitea auth — the secondary-mirror leg and step-05's secondary Flux secretRef —
+#   now rides the SHARED catalyst-gitea-token PAT (present in the one shared
+#   access_token table, so valid from region-B), copied region→region the same way
+#   the #6764 secondary-ghcr cred is; the primary leg (#3584) + steps 10/11 (#5262)
+#   already used it. BUG 2 — the ~2,436-branch monorepo push no longer dies after
+#   the ref advertisement: both the primary (01-gitea-mirror) and the secondary
+#   mirror push the default branch first (fatal, the bulk pack in one ref-command),
+#   then tags (fatal), then the remaining branches in bounded best-effort batches
+#   (gitea.pushBatchBranches). Catalog + bootstrap-kit slot 06a move to 0.1.201.
+version: 0.1.201
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

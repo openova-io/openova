@@ -1100,7 +1100,12 @@ spec:
       #   password but Gitea's git-over-HTTP refuses a password under an external
       #   login source, so the header-authed PASSWORD push FATALed "Could not read
       #   from remote repository" and wedged the cutover at step-01.
-      version: 0.1.200
+      # 0.1.201 (#6754): the shared cross-region gitea DB means the per-region admin
+      #   password (and the #6645 mint that needs it) 401s from region-B, so all
+      #   secondary gitea auth now rides the shared catalyst-gitea-token PAT; and the
+      #   ~2,436-branch monorepo push is batched default-branch-first so it cannot
+      #   die after the ref advertisement on either the primary or secondary leg.
+      version: 0.1.201
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
