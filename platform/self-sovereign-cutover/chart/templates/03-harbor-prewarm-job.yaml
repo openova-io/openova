@@ -3224,6 +3224,172 @@ data:
       echo "[harbor-prewarm] Phase B failure rate exceeds 25% — failing step"
       exit 1
     fi
+
+    {{- if .Values.secondaryRegions.prewarmSecondaryHarbor }}
+    {{- /*
+     ── #6764: prewarm EACH secondary region's OWN in-cluster Harbor ──
+     The Phase A/A2 pushes above populated region-A's Harbor only. A 2-region
+     Sovereign runs bp-harbor in BOTH regions, so region-B has its OWN empty
+     local Harbor; step-06 then FATALs (#5359 STILL-UPSTREAM bp-vpa) when it
+     pivots region-B's HelmRepositories at a registry that never stocked the
+     openova-io charts. Direct mirror of the #6490 gitea secondary leg, one
+     layer up: for each secondary region we (1) install a region-local
+     coredns-custom pin (registry.<fqdn> -> THAT region's gateway ClusterIP) so
+     the in-region push targets its OWN Harbor, (2) copy that region's OWN
+     ghcr-pull dockerconfig into the harbor ns so the in-region Job can
+     secretKeyRef it locally (cross-namespace secretKeyRef is forbidden), (3)
+     enumerate that region's OWN openova-io images + charts, (4) distribute the
+     shared cutover-secondary-harbor-prewarm-script + the enumerated lists into a
+     region-local ConfigMap, and (5) stamp the Helm-rendered prewarm Job (only
+     __REGION__ sed-substituted) that skopeo-pushes them into THAT region's local
+     Harbor + self-verifies via its /v2 API. The Job lands in the harbor
+     namespace with the default SA because the cutover chart is
+     SECONDARY_HR_SUSPEND'd on a secondary (no runner SA there) and the Job makes
+     no Kubernetes API calls — all API-scoped prep runs HERE through the region
+     admin kubeconfig, exactly as steps 05/06 already reach region-B.
+     /secondary-kubeconfigs is the optional cutover-secondary-kubeconfigs mount;
+     empty (single-region) makes this whole block a runtime no-op.
+    */}}
+    echo "[harbor-prewarm] #6764 secondary-region Harbor prewarm leg (prewarmSecondaryHarbor=true)"
+    sec_any="false"
+    for skc in /secondary-kubeconfigs/*.yaml; do
+      [ -e "${skc}" ] || continue
+      sec_any="true"
+      region=$(basename "${skc}" .yaml)
+      jobname=$(printf 'cutover-harbor-prewarm-secondary-%s' "${region}" | cut -c1-63)
+      echo "[harbor-prewarm] #6764 secondary region ${region}: prewarming its OWN local Harbor (ns ${SECONDARY_HARBOR_NAMESPACE})"
+
+      {{- /*
+       (1) region-local CoreDNS pin — registry.<fqdn> -> THIS region's gateway
+       ClusterIP (the #5007 `.server` block, never `.override`). Read the
+       ClusterIP + patch coredns-custom through the region admin kubeconfig; the
+       in-region Job's readiness probe blocks until CoreDNS serves it.
+      */}}
+      case "${LOCAL_REGISTRY_PIN_ENABLED:-true}" in
+        true|True|TRUE|1|yes)
+          _sec_cip=""
+          for _sec_pa in 1 2 3 4 5; do
+            _sec_c=$(kubectl --kubeconfig "${skc}" get svc "${GATEWAY_LB_SVC_NAME}" -n "${GATEWAY_LB_SVC_NAMESPACE}" -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)
+            case "${_sec_c}" in ""|None) : ;; *) _sec_cip="${_sec_c}"; break ;; esac
+            echo "[harbor-prewarm] #6764 secondary region ${region}: gateway Service ${GATEWAY_LB_SVC_NAMESPACE}/${GATEWAY_LB_SVC_NAME} ClusterIP not resolved yet (attempt ${_sec_pa}/5); retry in 3s"
+            sleep 3
+          done
+          if [ -z "${_sec_cip}" ]; then
+            echo "[harbor-prewarm] FATAL: #6764 secondary region ${region}: could not resolve the cilium-gateway Service ClusterIP (${GATEWAY_LB_SVC_NAMESPACE}/${GATEWAY_LB_SVC_NAME}). Refusing to push over the flaky public DNS path (#5007)." >&2
+            exit 1
+          fi
+          _sec_block=$(printf '%s {\n    hosts {\n        %s %s\n        fallthrough\n    }\n    forward . /etc/resolv.conf\n}\n' "${HARBOR_HOST}" "${_sec_cip}" "${HARBOR_HOST}")
+          _sec_patch=$(jq -cn --arg k "cutover-registry-pin.server" --arg v "${_sec_block}" '{data: {($k): $v}}')
+          if kubectl --kubeconfig "${skc}" patch configmap coredns-custom -n kube-system --type merge -p "${_sec_patch}" >/dev/null 2>&1; then :;
+          elif kubectl --kubeconfig "${skc}" create configmap coredns-custom -n kube-system --from-literal="cutover-registry-pin.server=${_sec_block}" >/dev/null 2>&1; then :;
+          elif kubectl --kubeconfig "${skc}" patch configmap coredns-custom -n kube-system --type merge -p "${_sec_patch}" >/dev/null 2>&1; then :;
+          else
+            echo "[harbor-prewarm] FATAL: #6764 secondary region ${region}: could not install the coredns-custom ${HARBOR_HOST} -> ${_sec_cip} override (patch+create both failed)." >&2
+            exit 1
+          fi
+          echo "[harbor-prewarm] #6764 secondary region ${region}: coredns-custom pins ${HARBOR_HOST} -> ${_sec_cip}"
+          ;;
+        *) echo "[harbor-prewarm] #6764 secondary region ${region}: CoreDNS pin DISABLED (LOCAL_REGISTRY_PIN_ENABLED=${LOCAL_REGISTRY_PIN_ENABLED:-}) — relying on this region's public DNS for ${HARBOR_HOST}" ;;
+      esac
+
+      {{- /*
+       (2) copy THIS region's OWN ghcr dockerconfig into the harbor ns so the
+       in-region Job can secretKeyRef it (cross-namespace secretKeyRef forbidden).
+       Strip server-managed metadata; keep .type + .data.
+      */}}
+      if ! kubectl --kubeconfig "${skc}" -n "${SECONDARY_GHCR_SOURCE_NAMESPACE}" get secret "${SECONDARY_GHCR_SOURCE_SECRET}" -o json 2>/dev/null \
+        | jq --arg n "${SECONDARY_GHCR_DEST_SECRET}" --arg ns "${SECONDARY_HARBOR_NAMESPACE}" \
+            'del(.metadata.resourceVersion,.metadata.uid,.metadata.creationTimestamp,.metadata.ownerReferences,.metadata.annotations,.metadata.labels,.metadata.managedFields,.status) | .metadata.name=$n | .metadata.namespace=$ns' \
+        | kubectl --kubeconfig "${skc}" -n "${SECONDARY_HARBOR_NAMESPACE}" apply -f - >/dev/null 2>&1; then
+        echo "[harbor-prewarm] FATAL: #6764 secondary region ${region}: could not copy ${SECONDARY_GHCR_SOURCE_NAMESPACE}/${SECONDARY_GHCR_SOURCE_SECRET} into ${SECONDARY_HARBOR_NAMESPACE}/${SECONDARY_GHCR_DEST_SECRET} — the region-local push cannot authenticate to ghcr.io." >&2
+        exit 1
+      fi
+
+      {{- /*
+       (3) enumerate THIS region's OWN openova-io images (running Pods ∪ declared
+       workload templates — the same union the primary Phase A builds) + charts
+       (static names ∪ live openova-io HelmRepositories, deployed∪desired
+       versions — the primary Phase A2 pivot-set + tuple logic).
+      */}}
+      sec_img="/tmp/sec-${region}-images.list"
+      sec_run=$(kubectl --kubeconfig "${skc}" get pods -A -o json 2>/dev/null | jq -r '.items[].spec | (.containers // [])[].image, (.initContainers // [])[].image, (.ephemeralContainers // [])[].image' 2>/dev/null || true)
+      sec_decl=$(kubectl --kubeconfig "${skc}" get deployments,statefulsets,daemonsets -A -o json 2>/dev/null | jq -r '.items[].spec.template.spec | (.containers // [])[].image, (.initContainers // [])[].image' 2>/dev/null || true)
+      sec_cj=$(kubectl --kubeconfig "${skc}" get cronjobs -A -o json 2>/dev/null | jq -r '.items[].spec.jobTemplate.spec.template.spec | (.containers // [])[].image, (.initContainers // [])[].image' 2>/dev/null || true)
+      sec_jb=$(kubectl --kubeconfig "${skc}" get jobs -A -o json 2>/dev/null | jq -r '.items[].spec.template.spec | (.containers // [])[].image, (.initContainers // [])[].image' 2>/dev/null || true)
+      printf '%s\n%s\n%s\n%s\n' "${sec_run}" "${sec_decl}" "${sec_cj}" "${sec_jb}" | grep -E '^ghcr\.io/openova-io/' | sort -u > "${sec_img}" || true
+
+      sec_pivot="/tmp/sec-${region}-pivot.txt"
+      : > "${sec_pivot}"
+      while IFS= read -r _pn; do
+        _pn=$(printf '%s' "${_pn}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+        [ -z "${_pn}" ] && continue
+        printf '%s\n' "${_pn}" >> "${sec_pivot}"
+      done < /chart-mirror/chart-mirror-names.txt
+      _sec_upmatch=$(printf '%s' "${UPSTREAM_PREFIX}" | sed -e 's,/$,,')
+      kubectl --kubeconfig "${skc}" get helmrepositories.source.toolkit.fluxcd.io -A -o json 2>/dev/null \
+        | jq -r --arg p "${_sec_upmatch}" '.items[] | select((.spec.url // "") | startswith($p)) | .metadata.name' 2>/dev/null | sort -u >> "${sec_pivot}" || true
+      sort -u "${sec_pivot}" -o "${sec_pivot}"
+      sed -i '/^[[:space:]]*$/d' "${sec_pivot}" 2>/dev/null || true
+
+      sec_tuples="/tmp/sec-${region}-tuples.tsv"
+      kubectl --kubeconfig "${skc}" get helmreleases -A -o json 2>/dev/null | jq -r '.items[]
+        | .spec.chart.spec as $cs
+        | select($cs.chart != null and $cs.sourceRef != null)
+        | ( [ (.status.history[0].chartVersion), $cs.version ] | map(select(. != null and . != "")) | unique ) as $vers
+        | ( $vers[] )
+        | . as $v
+        | [ $cs.chart, $v, ($cs.sourceRef.kind // ""), ($cs.sourceRef.name // "") ] | @tsv' 2>/dev/null | sort -u > "${sec_tuples}" || true
+      sec_charts="/tmp/sec-${region}-charts.list"
+      : > "${sec_charts}"
+      while IFS="$(printf '\t')" read -r _cc _cv _ck _cn; do
+        [ -z "${_cc}" ] && continue
+        [ "${_ck}" = "HelmRepository" ] || continue
+        grep -Fxq "${_cn}" "${sec_pivot}" || continue
+        [ -z "${_cv}" ] && continue
+        case "${_cv}" in *[\<\>~^\|\ ]*|*'*'*) continue ;; esac
+        printf '%s\t%s\n' "${_cc}" "${_cv}" >> "${sec_charts}"
+      done < "${sec_tuples}"
+      sort -u "${sec_charts}" -o "${sec_charts}"
+      _sec_imgn=$(grep -c . "${sec_img}" || true)
+      _sec_chartn=$(grep -c . "${sec_charts}" || true)
+      echo "[harbor-prewarm] #6764 secondary region ${region}: enumerated ${_sec_imgn} openova-io image(s) + ${_sec_chartn} chart(s)"
+
+      {{- /*
+       (4) distribute the shared script + the enumerated lists into a
+       region-local ConfigMap, then (re)create the Job (delete a prior attempt
+       first — a Job pod template is immutable). Only __REGION__ is substituted.
+      */}}
+      kubectl --kubeconfig "${skc}" -n "${SECONDARY_HARBOR_NAMESPACE}" create configmap cutover-secondary-harbor-prewarm \
+        --from-file=secondary-harbor-prewarm.sh=/secondary-harbor-prewarm/secondary-harbor-prewarm.sh \
+        --from-file=images.list="${sec_img}" \
+        --from-file=charts.list="${sec_charts}" \
+        --dry-run=client -o yaml | kubectl --kubeconfig "${skc}" -n "${SECONDARY_HARBOR_NAMESPACE}" apply -f -
+      kubectl --kubeconfig "${skc}" -n "${SECONDARY_HARBOR_NAMESPACE}" delete job "${jobname}" --ignore-not-found=true >/dev/null 2>&1 || true
+      sed "s/__REGION__/${region}/g" /secondary-harbor-prewarm/secondary-harbor-prewarm-job.yaml >/tmp/sec-harbor-job.yaml
+      kubectl --kubeconfig "${skc}" apply -f /tmp/sec-harbor-job.yaml
+
+      {{- /* (5) wait bounded, fail-loud with logs — verbatim shape of the #6490 step-01 secondary wait. */}}
+      echo "[harbor-prewarm] #6764 secondary region ${region}: waiting up to ${HARBOR_PREWARM_JOB_WAIT_SECONDS}s for ${jobname}"
+      sec_deadline=$(( $(date +%s) + ${HARBOR_PREWARM_JOB_WAIT_SECONDS} ))
+      sec_done=""
+      while [ "$(date +%s)" -lt "${sec_deadline}" ]; do
+        sec_ok=$(kubectl --kubeconfig "${skc}" -n "${SECONDARY_HARBOR_NAMESPACE}" get job "${jobname}" -o jsonpath='{.status.succeeded}' 2>/dev/null || echo "")
+        sec_fail=$(kubectl --kubeconfig "${skc}" -n "${SECONDARY_HARBOR_NAMESPACE}" get job "${jobname}" -o jsonpath='{.status.failed}' 2>/dev/null || echo "")
+        if [ "${sec_ok}" = "1" ]; then sec_done="ok"; break; fi
+        if [ -n "${sec_fail}" ] && [ "${sec_fail}" -ge 3 ] 2>/dev/null; then sec_done="fail"; break; fi
+        sleep "${HARBOR_PREWARM_JOB_POLL_SECONDS}"
+      done
+      if [ "${sec_done}" != "ok" ]; then
+        echo "[harbor-prewarm] FATAL: #6764 secondary region ${region} Harbor-prewarm Job ${jobname} did not succeed within ${HARBOR_PREWARM_JOB_WAIT_SECONDS}s — its local Harbor lacks the openova-io images/charts and step-06 would strip ghcr.io leaving this region's HelmRepositories to 404 (#5359 STILL-UPSTREAM class)" >&2
+        kubectl --kubeconfig "${skc}" -n "${SECONDARY_HARBOR_NAMESPACE}" logs "job/${jobname}" --tail=60 2>/dev/null || true
+        exit 1
+      fi
+      echo "[harbor-prewarm] #6764 secondary region ${region}: Harbor-prewarm Job ${jobname} SUCCEEDED (region-local Harbor serves the openova-io project)"
+    done
+    if [ "${sec_any}" != "true" ]; then
+      echo "[harbor-prewarm] #6764: no secondary-region kubeconfigs mounted — single-region Sovereign, secondary Harbor prewarm is a no-op"
+    fi
+    {{- end }}
   podSpec: |
     serviceAccountName: {{ include "bp-self-sovereign-cutover.serviceAccountName" . }}
     restartPolicy: Never
@@ -3581,6 +3747,27 @@ data:
             value: {{ .Values.prewarm.catalogCharts.blueprintResource | quote }}
           - name: CATALOG_BLUEPRINT_RESOURCE_FALLBACK
             value: {{ .Values.prewarm.catalogCharts.blueprintResourceFallback | quote }}
+          {{- if .Values.secondaryRegions.prewarmSecondaryHarbor }}
+          {{- /*
+           #6764 — inputs for the secondary-region Harbor prewarm leg. HARBOR_HOST,
+           LOCAL_REGISTRY_PIN_ENABLED, GATEWAY_LB_SVC_* and UPSTREAM_PREFIX are
+           already in this env (the leg reuses them); these tell it WHERE in each
+           secondary to prep+stamp and HOW LONG to wait. Rendered ONLY when the
+           flag is set so single-region provs stay byte-identical.
+          */}}
+          - name: SECONDARY_HARBOR_NAMESPACE
+            value: {{ .Values.secondaryRegions.secondaryHarborNamespace | quote }}
+          - name: SECONDARY_GHCR_SOURCE_NAMESPACE
+            value: {{ .Values.harbor.ghcrSecretRef.namespace | quote }}
+          - name: SECONDARY_GHCR_SOURCE_SECRET
+            value: {{ .Values.harbor.ghcrSecretRef.name | quote }}
+          - name: SECONDARY_GHCR_DEST_SECRET
+            value: {{ .Values.secondaryRegions.secondaryGhcrSecretName | quote }}
+          - name: HARBOR_PREWARM_JOB_WAIT_SECONDS
+            value: {{ .Values.secondaryRegions.prewarmJobWaitSeconds | quote }}
+          - name: HARBOR_PREWARM_JOB_POLL_SECONDS
+            value: {{ .Values.secondaryRegions.prewarmJobPollSeconds | quote }}
+          {{- end }}
         volumeMounts:
           - name: prewarm
             mountPath: /work
@@ -3601,6 +3788,22 @@ data:
             mountPath: /tmp
           - name: step-script
             mountPath: /step-script
+          {{- if .Values.secondaryRegions.prewarmSecondaryHarbor }}
+          {{- /*
+           #6764 — optional secondary-region kubeconfigs (the cutover-secondary-
+           kubeconfigs Secret catalyst-api materialises at run start; empty on a
+           single-region Sovereign so the leg no-ops) + the shared secondary
+           prewarm script this leg distributes into each secondary's Harbor ns.
+           Rendered ONLY when the flag is set so single-region provs stay
+           byte-identical.
+          */}}
+          - name: secondary-kubeconfigs
+            mountPath: /secondary-kubeconfigs
+            readOnly: true
+          - name: secondary-harbor-prewarm
+            mountPath: /secondary-harbor-prewarm
+            readOnly: true
+          {{- end }}
         command: ["/bin/sh", "/step-script/run.sh"]
         resources:
           {{- /*
@@ -3665,3 +3868,13 @@ data:
           items:
             - key: run.sh
               path: run.sh
+      {{- if .Values.secondaryRegions.prewarmSecondaryHarbor }}
+      - name: secondary-kubeconfigs
+        secret:
+          secretName: {{ .Values.secondaryRegions.kubeconfigSecretName }}
+          optional: true
+      - name: secondary-harbor-prewarm
+        configMap:
+          name: cutover-secondary-harbor-prewarm-script
+          defaultMode: 0755
+      {{- end }}

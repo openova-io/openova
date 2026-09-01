@@ -1100,7 +1100,7 @@ spec:
       #   password but Gitea's git-over-HTTP refuses a password under an external
       #   login source, so the header-authed PASSWORD push FATALed "Could not read
       #   from remote repository" and wedged the cutover at step-01.
-      version: 0.1.199
+      version: 0.1.200
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
