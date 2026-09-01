@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-31T11:24:47.094Z",
+  "generatedAt": "2026-09-01T13:39:04.160Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -4631,7 +4631,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.2.5",
+      "version": "1.2.6",
       "section": "pts-3-5-storage-and-data",
       "depends": [
         "bp-cert-manager"
