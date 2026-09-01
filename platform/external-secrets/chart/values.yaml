@@ -163,5 +163,15 @@ webhookGate:
   tlsSecretName: external-secrets-webhook
   timeoutSeconds: 1200
   intervalSeconds: 2
-  image: alpine/k8s:1.31.4
+  # #6760 — route the webhook-gate hook image through the Sovereign-local Harbor
+  # pull-through proxy. A BARE `alpine/k8s:1.31.4` (docker.io) is (a) DENIED by
+  # the kyverno `harbor-proxy-pull` Enforce ClusterPolicy (admits only
+  # `*/proxy-*/*` or `*/openova-io/*`) so the post-upgrade hook Job pod is never
+  # admitted → the hook never completes → `helm upgrade` fails its post-upgrade
+  # hook → Flux rolls the release back; and (b) subject to the Docker Hub
+  # anonymous pull throttle / the kom4dc NAT-blocklist DNS stalls this very chart
+  # already proxies its ESO component images around (#3532). Same proxied ref
+  # mimir's webhook-gate and vpa's CRD hook use; alpine/k8s is the right toolbox
+  # here because this hook sets `command: [/bin/bash,-c]` (it needs a shell).
+  image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4
   imagePullPolicy: IfNotPresent

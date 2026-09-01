@@ -45,7 +45,9 @@ DETECTOR, never a cluster-wedging fatal.
 {{- $secretName := $gate.tlsSecretName | default "external-secrets-webhook" -}}
 {{- $timeout := $gate.timeoutSeconds | default 600 -}}
 {{- $interval := $gate.intervalSeconds | default 2 -}}
-{{- $image := $gate.image | default "alpine/k8s:1.31.4" -}}
+{{- /* #6760 — default MUST be the Harbor-proxied ref (kyverno harbor-proxy-pull
+       Enforce denies a bare docker.io image, wedging the post-upgrade hook). */ -}}
+{{- $image := $gate.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" -}}
 {{- $pullPolicy := $gate.imagePullPolicy | default "IfNotPresent" -}}
 apiVersion: batch/v1
 kind: Job

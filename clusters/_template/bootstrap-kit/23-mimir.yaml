@@ -122,7 +122,9 @@ spec:
       #   policy (post-#4325).
       # 1.0.9: Catalyst-owned MinIO Deployment strategy Recreate — RWO
       # single-replica roll deadlock under cutover step-08 (#5022).
-      version: 1.0.10
+      # 1.0.11 (#6760): make-buckets Job -> post-install/post-upgrade Helm hook
+      # so `helm upgrade` recreates the immutable Job instead of patch-failing.
+      version: 1.0.11
       sourceRef:
         kind: HelmRepository
         name: bp-mimir

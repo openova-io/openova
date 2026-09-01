@@ -9,7 +9,7 @@ spec:
   # cilium CNI-bootstrap Pod creates during a cilium roll.
   # 1.0.3 (Refs #3374/#3375): + --webhook-timeout-seconds=2 caps the same hang
   # in non-kube-system namespaces (cnpg initdb / keycloak / tenant vclusters).
-  version: 1.0.5
+  version: 1.0.6
   card:
     title: Vertical Pod Autoscaler
     family: guardian

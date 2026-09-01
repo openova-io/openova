@@ -739,6 +739,22 @@ metadata:
   labels:
     {{- include "bp-mimir.labels" . | nindent 4 }}
     app.kubernetes.io/component: minio-make-bucket
+  # #6760 — render the bucket-init Job as a post-install/post-upgrade Helm hook
+  # so `helm upgrade` DELETES+recreates it instead of trying to patch it. A Job's
+  # `spec.template`/`spec.selector` are immutable, so any upgrade that changed the
+  # rendered pod (image tag, resources, the initialize script) failed with
+  # `cannot patch "mimir-make-minio-buckets" with kind Job` and Flux rolled the
+  # release back. `before-hook-creation` clears the prior Job before the next run;
+  # `hook-succeeded` reaps it once the buckets exist. This mirrors the bundled
+  # minio subchart's own makeBucketJob, which ships as a post-install,post-upgrade
+  # hook — post-* (not pre-*) is required because the Job depends on the
+  # Catalyst-owned MinIO Deployment + Service + Secret + ConfigMap (all regular,
+  # non-hook resources) already being applied; a pre-install hook would deadlock a
+  # fresh install. hook-weight orders it after the webhook-gate/minio renders.
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 spec:
   backoffLimit: 6
   template:
