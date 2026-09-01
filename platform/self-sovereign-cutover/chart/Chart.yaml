@@ -4202,7 +4202,17 @@ name: bp-self-sovereign-cutover
 #   URL-special-char parse; a password is still refused for git-HTTP. Fix mints a
 #   PAT via the admin BasicAuth API (proven working) and uses it for the push,
 #   plus a mirror=false guard. Catalog + bootstrap-kit slot 06a move to 0.1.199.
-version: 0.1.199
+# 0.1.200 (#6764): step-03 harbor-prewarm gains a SECONDARY-region leg. A 2-region
+#   Sovereign runs bp-harbor in BOTH regions, so region-B has its OWN empty local
+#   Harbor; the primary prewarm (Phase A/A2) filled region-A only, so step-06
+#   FATALed (#5359 STILL-UPSTREAM bp-vpa) pivoting region-B's HelmRepositories at
+#   a registry that never stocked the openova-io charts. Mirrors the #6490 gitea
+#   secondary leg: after the primary prewarm, step-03 iterates the secondary
+#   kubeconfigs and stamps an in-region skopeo-push Job that populates each
+#   secondary's OWN local Harbor + self-verifies. Render-gated
+#   (secondaryRegions.prewarmSecondaryHarbor, default false) → single-region
+#   byte-identical. Catalog + bootstrap-kit slot 06a move to 0.1.200.
+version: 0.1.200
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

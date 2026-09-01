@@ -1,0 +1,367 @@
+{{- /*
+#6764 — the SECONDARY-region Harbor-prewarm script, carried as a ConfigMap so
+the region-A step-03 (harbor-prewarm) leg can copy it verbatim into each
+secondary region and run it there as a Job. Direct mirror of the #6490
+cutover-secondary-mirror-script (gitea) pattern, one layer up: gitea populates
+each region's OWN in-cluster Gitea; this populates each region's OWN in-cluster
+Harbor.
+
+WHY a Job in the secondary, not a cross-region push. A 2-region Sovereign
+installs bp-harbor in BOTH regions, so region-B runs its OWN empty local
+Harbor. registry.<fqdn> can only ever push to ONE region's Harbor at a time
+(the CoreDNS pin resolves it to the region-LOCAL gateway ClusterIP), and the
+in-cluster harbor-core Service is HEADLESS/region-local — so the only way to
+populate a secondary's OWN Harbor is to run the skopeo push INSIDE that region.
+Without this, the primary prewarm fills region-A only and step-06 correctly
+FATALs (#5359 STILL-UPSTREAM bp-vpa) when it pivots region-B's HelmRepositories
+at a registry that never stocked the openova-io charts.
+
+WHAT runs WHERE. The in-region Job (below) makes NO Kubernetes API calls — it
+reads its OWN harbor-admin Secret (bp-harbor renders one per region) + the
+region-A-copied ghcr dockerconfig via secretKeyRef in its own namespace, then
+does pure network I/O: skopeo-copy every openova-io image + chart from ghcr.io
+into THIS region's local Harbor (registry.<fqdn>/openova-io/…, the same host-
+drop convention step-06/07 pivot to), and a closing /v2-API self-verify — the
+#6490 ordering gate, one layer up: every openova-io chart must resolve durably
+in this region's Harbor before step-05/06 pivot its Flux at it. The API-scoped
+prep a secondary's `default` SA cannot do — install the region-local CoreDNS
+pin, copy the ghcr cred, enumerate this region's openova-io images+charts — is
+done by the region-A step-03 leg through that region's admin kubeconfig
+(cutover-secondary-kubeconfigs), exactly as steps 05/06 already reach region-B.
+
+The push DEST is the PUBLIC host (registry.<fqdn>) for the SAME reason the
+primary uses it (#5051 round 2): Harbor's bearer-token realm is hard-https on
+the echoed request host and no in-cluster :80 Service completes the token flow.
+The region-A leg installs a region-local coredns-custom pin so registry.<fqdn>
+resolves to THIS region's gateway ClusterIP; the readiness probe below blocks
+until CoreDNS serves it. dest-tls-verify=false drives skopeo's http fallback so
+trust is the cluster network, not a public CA (identical to Phase A).
+
+RENDER-GATED: emitted only when secondaryRegions.prewarmSecondaryHarbor is true,
+so a single-region Sovereign renders byte-identical (this whole object absent).
+*/ -}}
+{{- if .Values.secondaryRegions.prewarmSecondaryHarbor }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cutover-secondary-harbor-prewarm-script
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-self-sovereign-cutover.labels" . | nindent 4 }}
+    app.kubernetes.io/component: secondary-harbor-prewarm-script
+data:
+  secondary-harbor-prewarm.sh: |
+    #!/bin/sh
+    set -eu
+    export HOME=/tmp
+    : "${HARBOR_USERNAME:=admin}"
+    HARBOR_HOST=$(printf '%s' "${HARBOR_PUBLIC_URL}" | sed -e 's,^https\?://,,' -e 's,/$,,')
+    up_chart_prefix=$(printf '%s' "${UPSTREAM_PREFIX}" | sed -e 's,^oci://,,' -e 's,/$,,')
+    : "${PREWARM_DEST_TLS_VERIFY:=false}"
+    : "${PREWARM_SKOPEO_TIMEOUT:=1200s}"
+    : "${PREWARM_COPY_ATTEMPTS:=3}"
+    : "${PREWARM_PARALLELISM:=6}"
+    echo "[secondary-harbor-prewarm] region-local openova-io mirror -> ${HARBOR_HOST}/openova-io (internal ${HARBOR_INTERNAL_URL})"
+
+    {{- /* skopeo install — same static-binary route + apk fallback the primary Phase A uses (#2618). */}}
+    if ! command -v jq >/dev/null 2>&1; then apk add --no-cache jq >/dev/null 2>&1 || true; fi
+    if ! command -v jq >/dev/null 2>&1; then echo "[secondary-harbor-prewarm] FATAL: jq missing + apk install failed" >&2; exit 1; fi
+    if ! command -v skopeo >/dev/null 2>&1; then
+      apk add --no-cache skopeo >/dev/null 2>&1 || true
+    fi
+    if ! command -v skopeo >/dev/null 2>&1; then
+      SKOPEO_URL="https://github.com/lework/skopeo-binary/releases/download/v1.15.2/skopeo-linux-amd64"
+      for i in 1 2 3; do
+        if curl -fsSL --max-time 600 --retry 3 --retry-delay 5 -C - "${SKOPEO_URL}" -o /tmp/skopeo 2>&1 \
+          && chmod +x /tmp/skopeo && /tmp/skopeo --version >/dev/null 2>&1; then
+          export PATH="/tmp:${PATH}"; break
+        fi
+        echo "[secondary-harbor-prewarm] skopeo download attempt ${i}/3 failed; retry in 5s"; sleep 5
+      done
+      if [ ! -x /tmp/skopeo ] || ! /tmp/skopeo --version >/dev/null 2>&1; then rm -f /tmp/skopeo; fi
+      if ! command -v skopeo >/dev/null 2>&1; then echo "[secondary-harbor-prewarm] FATAL: skopeo unavailable via static download AND apk" >&2; exit 1; fi
+    fi
+    echo "[secondary-harbor-prewarm] skopeo: $(skopeo --version)"
+
+    {{- /* GHCR PAT from the region-A-copied dockerconfig (same parse as primary Phase A, #2618-followup). */}}
+    if [ "${GHCR_DOCKERCONFIG:0:1}" = "{" ]; then
+      dc_decoded="${GHCR_DOCKERCONFIG}"
+    else
+      dc_decoded=$(printf '%s' "${GHCR_DOCKERCONFIG}" | base64 -d 2>/dev/null || printf '%s' "${GHCR_DOCKERCONFIG}")
+    fi
+    ghcr_auth_b64=$(printf '%s' "${dc_decoded}" | jq -r '.auths["ghcr.io"].auth // empty')
+    if [ -z "${ghcr_auth_b64}" ]; then
+      echo "[secondary-harbor-prewarm] FATAL: no ghcr.io auth entry in the copied dockerconfig — the region-A leg's ghcr-secret copy did not carry a ghcr.io credential" >&2
+      exit 1
+    fi
+    ghcr_user=$(printf '%s' "${ghcr_auth_b64}" | base64 -d | awk -F: '{print $1}')
+    ghcr_pat=$(printf '%s' "${ghcr_auth_b64}" | base64 -d | cut -d: -f2-)
+    echo "[secondary-harbor-prewarm] ghcr.io auth: user=${ghcr_user} (len=${#ghcr_pat})"
+
+    {{- /*
+     Public-dest readiness probe — registry.<fqdn> resolves to THIS region's
+     gateway ClusterIP via the coredns-custom pin the region-A leg installed
+     before stamping this Job; block until CoreDNS serves it (#5007).
+    */}}
+    echo "[secondary-harbor-prewarm] readiness probe: https://${HARBOR_HOST}/v2/ (want 401/200)"
+    _pr_ok=0
+    for _pr_i in $(seq 1 40); do
+      _pr_code=$(curl -sk -o /dev/null -w '%{http_code}' -m 10 "https://${HARBOR_HOST}/v2/" 2>/dev/null)
+      if [ "${_pr_code}" = "401" ] || [ "${_pr_code}" = "200" ]; then _pr_ok=1; echo "[secondary-harbor-prewarm] public dest ready (HTTP ${_pr_code}, probe ${_pr_i})"; break; fi
+      echo "[secondary-harbor-prewarm] public dest not ready (HTTP ${_pr_code:-none}, probe ${_pr_i}/40) — CoreDNS pin/gateway still settling; retry in 15s"
+      sleep 15
+    done
+    if [ "${_pr_ok}" != "1" ]; then
+      echo "[secondary-harbor-prewarm] FATAL: https://${HARBOR_HOST}/v2/ never became ready after 40 probes (10 min) — this region's coredns-custom pin did not take OR its gateway is not serving Harbor. Cannot push." >&2
+      exit 1
+    fi
+
+    {{- /* #4955 — collapse a tag-and-digest ref to digest-only before skopeo. */}}
+    normalize_ref() {
+      _nr="$1"
+      case "${_nr}" in
+        *@*)
+          _nr_digest="${_nr##*@}"
+          _nr_name="${_nr%@*}"
+          case "${_nr_name##*/}" in
+            *:*) _nr_name="${_nr_name%:*}" ;;
+          esac
+          printf '%s@%s' "${_nr_name}" "${_nr_digest}"
+          ;;
+        *) printf '%s' "${_nr}" ;;
+      esac
+    }
+
+    {{- /*
+     Build ONE work list (src<TAB>dst<TAB>slug) from the two lists the region-A
+     leg enumerated + mounted. Images: ghcr.io/openova-io/<rest> -> host-drop
+     ${HARBOR_HOST}/<rest> (the SAME pivoted-ref path the resolver's openova-io
+     host-drop produces). Charts: ghcr.io/openova-io/<chart>:<ver> ->
+     ${HARBOR_HOST}/openova-io/<chart>:<ver> (Phase A2 dest).
+    */}}
+    work=/tmp/.sec-work.tsv
+    : > "${work}"
+    if [ -f /work/images.list ]; then
+      while IFS= read -r _img; do
+        _img=$(printf '%s' "${_img}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+        [ -z "${_img}" ] && continue
+        case "${_img}" in ghcr.io/openova-io/*) : ;; *) continue ;; esac
+        _nimg=$(normalize_ref "${_img}")
+        _rest="${_nimg#ghcr.io/}"
+        _slug=$(printf 'img_%s' "${_rest}" | tr -c 'A-Za-z0-9._-' '_')
+        printf 'docker://%s\tdocker://%s/%s\t%s\n' "${_nimg}" "${HARBOR_HOST}" "${_rest}" "${_slug}" >> "${work}"
+      done < /work/images.list
+    fi
+    if [ -f /work/charts.list ]; then
+      while IFS="$(printf '\t')" read -r _cc _cv; do
+        [ -z "${_cc}" ] && continue
+        [ -z "${_cv}" ] && continue
+        _slug=$(printf 'chart_%s_%s' "${_cc}" "${_cv}" | tr -c 'A-Za-z0-9._-' '_')
+        printf 'docker://%s/%s:%s\tdocker://%s/openova-io/%s:%s\t%s\n' "${up_chart_prefix}" "${_cc}" "${_cv}" "${HARBOR_HOST}" "${_cc}" "${_cv}" "${_slug}" >> "${work}"
+      done < /work/charts.list
+    fi
+    total=$(grep -c . "${work}" || true)
+    echo "[secondary-harbor-prewarm] ${total} openova-io artifact(s) to mirror into this region's Harbor (parallelism=${PREWARM_PARALLELISM})"
+
+    {{- /*
+     Per-artifact copy worker + bounded parallel fan-out — same sentinel /
+     outer-retry / real-exit-status discipline as the primary Phase A copy_one
+     (#3379 keystone catches: --insecure-policy, captured rc, outer retry).
+    */}}
+    cpdir=/tmp/sec-copies
+    rm -rf "${cpdir}"; mkdir -p "${cpdir}"
+    copy_one() {
+      _s="$1"; _d="$2"; _slug="$3"; _a=0
+      while : ; do
+        _a=$((_a+1))
+        if skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" copy \
+          --insecure-policy \
+          --retry-times 3 \
+          --src-creds="${ghcr_user}:${ghcr_pat}" \
+          --dest-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
+          --src-tls-verify=true \
+          --dest-tls-verify="${PREWARM_DEST_TLS_VERIFY}" \
+          "${_s}" "${_d}" >"${cpdir}/${_slug}.log" 2>&1; then
+          printf '%s -> %s' "${_s}" "${_d}" >"${cpdir}/${_slug}.ok"
+          return 0
+        fi
+        _rc=$?
+        if [ "${_a}" -ge "${PREWARM_COPY_ATTEMPTS}" ]; then
+          printf '%s -> %s exit=%s attempts=%s' "${_s}" "${_d}" "${_rc}" "${_a}" >"${cpdir}/${_slug}.fail"
+          return 0
+        fi
+        echo "[secondary-harbor-prewarm] copy attempt ${_a} failed (rc=${_rc}); retry in $((_a*5))s" >>"${cpdir}/${_slug}.log"
+        sleep "$((_a*5))"
+      done
+    }
+    pids=""; allpids=""
+    while IFS="$(printf '\t')" read -r _s _d _slug; do
+      [ -z "${_slug}" ] && continue
+      echo "[secondary-harbor-prewarm] queue ${_s} -> ${_d}"
+      copy_one "${_s}" "${_d}" "${_slug}" &
+      _np=$!
+      pids="${pids} ${_np}"; allpids="${allpids} ${_np}"
+      while : ; do
+        _live=0; _keep=""
+        for _p in ${pids}; do
+          if kill -0 "${_p}" 2>/dev/null; then _live=$((_live+1)); _keep="${_keep} ${_p}"; fi
+        done
+        pids="${_keep}"
+        [ "${_live}" -lt "${PREWARM_PARALLELISM}" ] && break
+        sleep 2
+      done
+    done < "${work}"
+    for _p in ${allpids}; do wait "${_p}" 2>/dev/null || true; done
+
+    push_ok=0; push_fail=0
+    for f in "${cpdir}"/*.ok; do
+      [ -e "${f}" ] || continue
+      _slug=$(basename "${f}" .ok)
+      sed 's/^/  /' "${cpdir}/${_slug}.log" 2>/dev/null || true
+      push_ok=$((push_ok+1))
+      echo "[secondary-harbor-prewarm] OK $(cat "${f}")"
+    done
+    for f in "${cpdir}"/*.fail; do
+      [ -e "${f}" ] || continue
+      _slug=$(basename "${f}" .fail)
+      sed 's/^/  /' "${cpdir}/${_slug}.log" 2>/dev/null || true
+      push_fail=$((push_fail+1))
+      echo "[secondary-harbor-prewarm] FAIL $(cat "${f}")"
+    done
+    echo "[secondary-harbor-prewarm] copy complete: push_ok=${push_ok} push_fail=${push_fail}"
+    if [ "${push_fail}" -gt 0 ]; then
+      echo "[secondary-harbor-prewarm] FATAL: ${push_fail} openova-io artifact(s) failed to mirror into this region's local Harbor (named above) — step-06 cannot strip ghcr.io safely: this region's HelmRepositories would pivot at an incomplete registry and (re)pulls would 404 (#6764 / #5359 STILL-UPSTREAM class)." >&2
+      exit 1
+    fi
+
+    {{- /*
+     Self-verify — the #6490 ordering gate, one layer up. skopeo returning 0 is
+     not proof the artifact is DURABLY served (a pull-through can persist a bare
+     manifest, #5030); so HEAD every openova-io chart against THIS region's own
+     Harbor /v2 API (basic auth, in-cluster Service, literal-slash repo — the
+     Phase B probe shape) and refuse to let the region-A leg record success
+     until every one resolves. This is exactly what step-06 needs before it
+     pivots this region's HelmRepositories at the local registry.
+    */}}
+    if [ -f /work/charts.list ]; then
+      base="${HARBOR_INTERNAL_URL}/v2"
+      miss=0; ver=0
+      while IFS="$(printf '\t')" read -r _cc _cv; do
+        [ -z "${_cc}" ] && continue
+        [ -z "${_cv}" ] && continue
+        ver=$((ver+1))
+        code=$(curl -sk -o /dev/null -w '%{http_code}' -m 30 \
+          -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
+          -H "Accept: application/vnd.oci.image.manifest.v1+json,application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json" \
+          -I "${base}/openova-io/${_cc}/manifests/${_cv}")
+        case "${code}" in
+          200) : ;;
+          *) echo "[secondary-harbor-prewarm] self-verify MISS openova-io/${_cc}:${_cv} (HTTP ${code})"; miss=$((miss+1)) ;;
+        esac
+      done < /work/charts.list
+      if [ "${miss}" -gt 0 ]; then
+        echo "[secondary-harbor-prewarm] FATAL: ${miss}/${ver} openova-io chart(s) are NOT durably served by this region's Harbor /v2 API — refusing to let step-06 pivot this region's HelmRepositories at an incomplete registry (#6764)." >&2
+        exit 1
+      fi
+      echo "[secondary-harbor-prewarm] self-verify OK — ${ver} openova-io chart(s) durably served in this region; step-06 may pivot its HelmRepositories here"
+    fi
+    echo "[secondary-harbor-prewarm] step complete for this region"
+  {{- /*
+   The per-secondary prewarm Job manifest, Helm-rendered so every static value
+   is baked at chart-render time and the ONLY runtime substitution is the region
+   key (__REGION__, replaced by a plain `sed` in the step-03 region-A leg) —
+   same authored-once discipline as the #6490 secondary-mirror-job.yaml.
+
+   Runs in secondaryRegions.secondaryHarborNamespace with the `default` SA (no
+   Kubernetes API calls) and reads that region's OWN harbor-admin Secret + the
+   region-A-copied ghcr dockerconfig via secretKeyRef (resolved in the Job's own
+   namespace = the harbor namespace). The script + the enumerated image/chart
+   lists come from the region-local ConfigMap `cutover-secondary-harbor-prewarm`
+   the region-A leg creates (--from-file) before applying this Job.
+  */}}
+  secondary-harbor-prewarm-job.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: cutover-harbor-prewarm-secondary-__REGION__
+      namespace: {{ .Values.secondaryRegions.secondaryHarborNamespace | quote }}
+      labels:
+        {{- /*
+        #6493 (mirrored) — ns harbor (UNLIKE ns catalyst) is matched by the
+        cluster kyverno ClusterPolicy flux-managed: the policy matches kind Job
+        and excludes ns catalyst only, so this in-region Job must carry the
+        accepted app.kubernetes.io/managed-by: flux label (truthful — it is part
+        of the flux-delivered bp-self-sovereign-cutover HelmRelease) or its apply
+        via the region admin kubeconfig is DENIED at admission and the cutover
+        halts. The label sits on the Job metadata ONLY — the policy matches kind
+        Job, not the Pod — so the pod-template labels below omit it.
+        */}}
+        app.kubernetes.io/managed-by: flux
+        app.kubernetes.io/part-of: self-sovereign-cutover
+        app.kubernetes.io/component: secondary-harbor-prewarm
+        catalyst.openova.io/secondary-region: "__REGION__"
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: {{ .Values.secondaryRegions.prewarmJobTimeoutSeconds }}
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/part-of: self-sovereign-cutover
+            app.kubernetes.io/component: secondary-harbor-prewarm
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: secondary-harbor-prewarm
+              image: {{ include "bp-self-sovereign-cutover.image" (dict "repository" .Values.images.kubectl.repository "tag" .Values.images.kubectl.tag "cutoverPhase" "pre" "Values" .Values) }}
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/sh", "/work/secondary-harbor-prewarm.sh"]
+              env:
+                - name: HOME
+                  value: /tmp
+                - name: HARBOR_PUBLIC_URL
+                  value: {{ .Values.sovereign.harborPublicURL | quote }}
+                - name: HARBOR_INTERNAL_URL
+                  value: {{ .Values.sovereign.harborInternalURL | quote }}
+                - name: UPSTREAM_PREFIX
+                  value: {{ .Values.helmRepositories.upstreamPrefix | quote }}
+                - name: PREWARM_DEST_TLS_VERIFY
+                  value: {{ .Values.prewarm.destTLSVerify | default false | quote }}
+                - name: PREWARM_SKOPEO_TIMEOUT
+                  value: {{ .Values.prewarm.skopeoCommandTimeout | default "1200s" | quote }}
+                - name: HARBOR_USERNAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.harbor.adminSecretRef.name | quote }}
+                      key: {{ .Values.harbor.adminSecretRef.usernameKey | quote }}
+                      optional: true
+                - name: HARBOR_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.harbor.adminSecretRef.name | quote }}
+                      key: {{ .Values.harbor.adminSecretRef.passwordKey | quote }}
+                - name: GHCR_DOCKERCONFIG
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.secondaryRegions.secondaryGhcrSecretName | quote }}
+                      key: ".dockerconfigjson"
+              volumeMounts:
+                - name: work
+                  mountPath: /work
+                  readOnly: true
+              resources:
+                requests: { cpu: 100m, memory: 512Mi }
+                limits:   { memory: 2Gi }
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 1000
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: false
+                capabilities:
+                  drop: ["ALL"]
+          volumes:
+            - name: work
+              configMap:
+                name: cutover-secondary-harbor-prewarm
+                defaultMode: 0755
+{{- end }}
