@@ -1499,7 +1499,7 @@ spec:
       #   advanced (1.4.1595-1.4.1599 all landed while this branch's checks ran) —
       #   forward of main's 1.4.1599. Umbrella tracks its sub-charts per Inviolable
       #   Principle #13.
-      version: 1.4.1606
+      version: 1.4.1607
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
