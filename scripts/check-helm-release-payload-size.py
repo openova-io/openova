@@ -145,6 +145,19 @@ def read_package(tgz: str) -> tuple[dict, dict, list, list]:
             # Strip the leading "<chartname>/" the package adds.
             rel = member.name.split("/", 1)[1] if "/" in member.name else member.name
             data = tf.extractfile(member).read()
+            # Subchart dependency SOURCE (charts/<dep>/...) is NOT stored in the
+            # deployed release Secret. Verified on live hw305 releases for BOTH
+            # kyverno and gitea: each release's chart.dependencies == [] and
+            # chart.files carries only the PARENT chart's own files — the subchart
+            # contributes solely through the rendered manifest (counted below).
+            # `helm package`, however, expands the subchart .tgz into the package
+            # tree, so counting charts/ here over-models the real Secret by ~3.3x
+            # for a CRD-heavy subchart (kyverno: 261% modelled vs 78% live/stored).
+            # Skip subchart source so the model matches what actually lands in
+            # sh.helm.release.v1.*; the subchart's real workload still counts as
+            # part of release.manifest.
+            if rel.startswith("charts/"):
+                continue
             if rel == "Chart.yaml":
                 # Stored as a PARSED Metadata struct, never as bytes — which is
                 # why Chart.yaml comments cost nothing in the release Secret
