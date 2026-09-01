@@ -3424,3 +3424,49 @@ secondaryRegions:
   mirrorJobWaitSeconds: 2100
   # Poll cadence (seconds) for the mirror-Job wait loop above.
   mirrorJobPollSeconds: 10
+  # #6764 — SECONDARY-region Harbor prewarm. A 2-region Sovereign runs bp-harbor
+  # in BOTH regions, so region-B has its OWN empty local Harbor; step-03's
+  # PRIMARY prewarm (Phase A/A2) populates region-A's Harbor only, so step-06
+  # FATALs (#5359 STILL-UPSTREAM bp-vpa) when it pivots region-B's
+  # HelmRepositories at a registry that never stocked the openova-io charts.
+  # This leg mirrors the #6490 secondary-gitea-mirror pattern one layer up:
+  # step-03, after the primary prewarm, iterates the mounted secondary
+  # kubeconfigs and — for each region — installs a region-local coredns-custom
+  # pin (registry.<fqdn> -> that region's OWN gateway ClusterIP), copies that
+  # region's ghcr-pull cred into the harbor ns, enumerates that region's OWN
+  # openova-io images+charts, and stamps an in-region Job that skopeo-pushes them
+  # into that region's OWN local Harbor + self-verifies via its /v2 API before
+  # step-06 may pivot.
+  #
+  # RENDER-GATED (default false, mirroring mirrorToSecondaryGitea) so a single-
+  # region Sovereign renders BYTE-IDENTICAL and every new block is a complete
+  # no-op. The per-Sovereign overlay flips it true on a multi-region topology
+  # (the same SOVEREIGN_ENABLE_CNPG_PAIR signal cnpg-pair / harbor / the gitea
+  # leg use). Belt-and-suspenders: even when true, the whole leg is ALSO
+  # runtime-gated on a non-empty /secondary-kubeconfigs mount, so a single-region
+  # Sovereign that set the flag still no-ops.
+  prewarmSecondaryHarbor: false
+  # Namespace, IN each secondary region, that runs bp-harbor and therefore holds
+  # that region's OWN harbor-admin Secret. The per-secondary prewarm Job is
+  # stamped HERE (like secondaryGiteaNamespace for gitea) — bp-harbor runs in
+  # every region while the cutover chart is SECONDARY_HR_SUSPEND'd, so the Job
+  # reads harbor-admin natively in this namespace and makes NO cluster-API calls.
+  secondaryHarborNamespace: "harbor"
+  # Name of the ghcr dockerconfig Secret the region-A leg COPIES from each
+  # secondary's ghcr source (harbor.ghcrSecretRef, flux-system/ghcr-pull) into
+  # secondaryHarborNamespace so the in-region Job can secretKeyRef it locally
+  # (cross-namespace secretKeyRef is forbidden). Its .dockerconfigjson carries
+  # the ghcr.io PAT skopeo pulls the private openova-io artifacts with.
+  secondaryGhcrSecretName: "cutover-secondary-ghcr"
+  # activeDeadlineSeconds for the per-secondary Harbor-prewarm Job stamped into
+  # each secondary region. openova-io image+chart mirroring over throttled egress
+  # is heavier than a git clone, so this is larger than mirrorJobTimeoutSeconds;
+  # still well under the region-A step deadline (stepTimeouts.harborPrewarmSeconds
+  # 9600s).
+  prewarmJobTimeoutSeconds: 5400
+  # Bounded wall-clock (seconds) the region-A leg polls for the per-secondary
+  # Harbor-prewarm Job to reach Succeeded before failing loud. Must exceed
+  # prewarmJobTimeoutSeconds plus scheduling/pull margin.
+  prewarmJobWaitSeconds: 5700
+  # Poll cadence (seconds) for the Harbor-prewarm-Job wait loop above.
+  prewarmJobPollSeconds: 15
