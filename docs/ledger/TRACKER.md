@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-01T15:30:07Z` |
+| Last refreshed | `2026-09-01T15:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -308,6 +308,7 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-09-01T15:22 | [#6770](https://github.com/openova-io/openova/pull/6770) | #5359 | feat(cutover): step-03 secondary-region Harbor prewarm for 2 |
+| 2026-09-01T15:41 | [#6769](https://github.com/openova-io/openova/pull/6769) | #6757 | fix(charts): repin remaining bitnamilegacy/* kubectl images  |
 | 2026-09-01T14:20 | [#6768](https://github.com/openova-io/openova/pull/6768) | #6755 | fix(bp-mimir/bp-vpa/bp-external-secrets): #6760 make chart b |
 | 2026-09-01T14:13 | [#6767](https://github.com/openova-io/openova/pull/6767) | #2447 | fix(dashboard): suspended HelmReleases render as Dormant not |
 | 2026-09-01T14:30 | [#6766](https://github.com/openova-io/openova/pull/6766) | #6765 | fix(seaweedfs): explicit volume maxVolumes — auto under-size |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-30T21:22 | [#6726](https://github.com/openova-io/openova/pull/6726) | #6723 | feat(chargeback): UI, chart, blueprint, catalog seed, kit sl |
 | 2026-08-30T19:22 | [#6725](https://github.com/openova-io/openova/pull/6725) | #6723 | feat(chargeback): standalone chargeback service — customers, |
 | 2026-08-30T19:22 | [#6724](https://github.com/openova-io/openova/pull/6724) | #6723 | feat(console): admin-mappable sidebar — per-Sovereign overri |
-| 2026-08-30T16:58 | [#6722](https://github.com/openova-io/openova/pull/6722) | #6721 | docs(adr): ADR-0014 D2b account-duplication matrix + D11 con |
 
 ---
 
