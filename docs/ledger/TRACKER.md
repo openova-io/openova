@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-01T17:00:08Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Last refreshed | `2026-09-01T17:15:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-01T17:11 | [#6772](https://github.com/openova-io/openova/pull/6772) | #6764 | test(cutover): render test for #6764 secondary-region Harbor |
 | 2026-09-01T16:58 | [#6771](https://github.com/openova-io/openova/pull/6771) | #6490 | fix(cutover): step-01 secondary mirror — unify secondary git |
 | 2026-09-01T15:22 | [#6770](https://github.com/openova-io/openova/pull/6770) | #5359 | feat(cutover): step-03 secondary-region Harbor prewarm for 2 |
 | 2026-09-01T15:41 | [#6769](https://github.com/openova-io/openova/pull/6769) | #6757 | fix(charts): repin remaining bitnamilegacy/* kubectl images  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-30T19:38 | [#6729](https://github.com/openova-io/openova/pull/6729) | #6723 | docs(adr): ADR-0014 D8a — customer intake tables (create / i |
 | 2026-08-30T20:05 | [#6728](https://github.com/openova-io/openova/pull/6728) | #6727 | feat(jobs): map phase-gating deps in the /jobs DAG via phase |
 | 2026-08-30T21:22 | [#6726](https://github.com/openova-io/openova/pull/6726) | #6723 | feat(chargeback): UI, chart, blueprint, catalog seed, kit sl |
-| 2026-08-30T19:22 | [#6725](https://github.com/openova-io/openova/pull/6725) | #6723 | feat(chargeback): standalone chargeback service — customers, |
 
 ---
 
