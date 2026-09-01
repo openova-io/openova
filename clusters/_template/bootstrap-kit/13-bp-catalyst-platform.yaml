@@ -1502,7 +1502,7 @@ spec:
       # 1.4.1608 — #6755: lockstep with the umbrella Chart.yaml bump (qa-fixtures
       #   repin bitnamilegacy/kubectl:1.29.3 -> alpine/k8s:1.31.4). Pin bumped to
       #   match so check-bootstrap-kit-pin-sync.sh --changed-only stays green.
-      version: 1.4.1608
+      version: 1.4.1613
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
