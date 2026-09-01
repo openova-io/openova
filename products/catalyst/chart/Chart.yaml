@@ -683,7 +683,7 @@ name: bp-catalyst-platform
 #
 # 1.4.228 — #1099 EPIC-4 Slice R4 follow-up (2026-05-20): wire the
 # resource-detail page's k8s SSE subscription to include the `event`
-# kind so the EventsPanel widget (already shipped in 1.4.1615) actually
+# kind so the EventsPanel widget (already shipped in 1.4.1616.1) actually
 # receives data. Pre-fix the cloud-list ResourceDetailRoute relied on
 # the default `GRAPH_K8S_KINDS` list which intentionally omits
 # events.k8s.io/v1 Events (to keep the CloudPage canvas snapshot
@@ -1521,15 +1521,15 @@ name: bp-catalyst-platform
 # under parentZones=[omani.works,omani.homes] + sovereignFQDN=
 # t28.omani.works (was 2 under origin/main).
 #
-# 1.4.1615 — Wave 16 collector. Bumps chart version so the next Blueprint
+# 1.4.1616.1 — Wave 16 collector. Bumps chart version so the next Blueprint
 # Release republishes the OCI artifact with every chart-template change
-# that landed since the 1.4.1615 publish (commit 0ad78790). The 1.4.1615
+# that landed since the 1.4.1616.1 publish (commit 0ad78790). The 1.4.1616.1
 # OCI bytes pre-date these template additions; without this republish,
-# Sovereigns sourcing bootstrap-kit 1.4.1615 download an artifact missing
+# Sovereigns sourcing bootstrap-kit 1.4.1616.1 download an artifact missing
 # the new templates → tenant HTTPRoute / Cilium per-zone listeners /
 # bp-newapi attestation gate never reach the chroot.
 #
-# Baked in 1.4.1615:
+# Baked in 1.4.1616.1:
 # - #1644 organization-controller renders per-tenant HTTPRoute so
 #   <slug>.<parentDomain> serves the tenant's installed product
 #   (was falling through to the marketplace tenant-wildcard route).
@@ -1571,7 +1571,7 @@ name: bp-catalyst-platform
 #     shape).
 #
 # Pairs with bootstrap-kit/13-bp-catalyst-platform.yaml pin
-# 1.4.1615→1.4.1615 in this same PR so the next fresh prov pulls
+# 1.4.1616.1→1.4.1616.1 in this same PR so the next fresh prov pulls
 # the republished artifact.
 #
 # 1.4.153 (D17 Wave-1 Family A — /cloud?view=list&kind=<X> no longer
@@ -2660,7 +2660,7 @@ name: bp-catalyst-platform
 # Fix #154 (HR-timeout audit). Those bumped the HelmRelease
 # install.timeout. This bumps the chart-INTERNAL wait loop budget
 # inside the pre-install hook Job, which is a different seam.
-# 1.4.1615 (TBD-C18b, 2026-05-18): stop clobbering the cutover-minted
+# 1.4.1616.1 (TBD-C18b, 2026-05-18): stop clobbering the cutover-minted
 # Gitea API token. Pre-fix, templates/org-services/provisioning-github-
 # token.yaml unconditionally mirrored gitea-admin-secret.password into
 # Secret sme/provisioning-github-token.GITHUB_TOKEN on every reconcile,
@@ -4040,20 +4040,20 @@ name: bp-catalyst-platform
 #   reconcile the field; orgapi mirrors it so typed client Updates round-trip
 #   it instead of erasing it (#4471 lesson class). CRD-only rendered-surface
 #   change; Flux CreateReplace flows it to live Sovereigns.
-# 1.4.1615 — #6753: lockstep-bump for the bp-postgres 0.2.24 -> 0.2.25 catalog-seed
+# 1.4.1616.1 — #6753: lockstep-bump for the bp-postgres 0.2.24 -> 0.2.25 catalog-seed
 #   card + source.version pin (consumer -mesh/-mesh-rw aliases follow a #6149 DR
 #   promotion). The seed lives inside this chart, so its rendered surface changed
 #   and the umbrella + slot-13 pin must bump or the edit resolves to an
 #   already-published artifact and never reaches a cluster. (Rebase note: the
 #   umbrella auto-increments on every merge, so this pin has been re-taken repeatedly
 #   as main advanced — 1.4.1595/1.4.1596 (#6757) / 1.4.1597 (#6758) / 1.4.1598 /
-#   1.4.1599 all landed while this branch's checks ran, so re-taken at 1.4.1615,
+#   1.4.1599 all landed while this branch's checks ran, so re-taken at 1.4.1616.1,
 #   forward of main's 1.4.1599.)
-# 1.4.1615 — #6755: catalog-seed renders .Chart.Version, so the umbrella must
+# 1.4.1616.1 — #6755: catalog-seed renders .Chart.Version, so the umbrella must
 #   bump because this chart's qa-fixtures repin the kubectl toolbox image
 #   bitnamilegacy/kubectl:1.29.3 -> alpine/k8s:1.31.4 (rendered surface changed).
-#   slot-13 pin bumped in lockstep below (main was already at 1.4.1615).
-version: 1.4.1615
+#   slot-13 pin bumped in lockstep below (main was already at 1.4.1616.1).
+version: 1.4.1616.1
 # 1.4.1481 — #6293: catalog-seed advances bp-self-sovereign-cutover
 #   0.1.186 -> 0.1.187, the release that stops step-06 from patching five
 #   HelmRepositories it does not own and then grading itself on whether they
@@ -4240,7 +4240,7 @@ version: 1.4.1615
 # scripts/check-chart-version-forward.sh (#5743) fails unless the two match —
 # main was carrying a pre-existing 1.4.1330/1.4.1329 split, so this bump heals
 # it in the same commit, exactly as the documented self-heal contract does.
-appVersion: 1.4.1615
+appVersion: 1.4.1616.1
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
 # Adds the OpenTofu module at infra/providers/huawei/ (VPC + Subnet +
@@ -4535,7 +4535,7 @@ appVersion: 1.4.1615
 # needed for a static string. optional=true preserves Catalyst-Zero
 # behaviour (no Gitea, no cutover; env stays empty; handler returns 503
 # as intended).
-# 1.4.1615 — fix(catalog): seed 13 published Blueprints on Sovereign
+# 1.4.1616.1 — fix(catalog): seed 13 published Blueprints on Sovereign
 # handover (WBS row TBD-E8, C4-015). Adds templates/catalog-seed/
 # rendering an always-on baseline of 13 Blueprint CRs (bp-wordpress-
 # tenant, bp-cnpg, bp-keycloak, bp-grafana, bp-prometheus, bp-loki,
