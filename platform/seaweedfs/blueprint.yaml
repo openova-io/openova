@@ -5,7 +5,7 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-3-5-storage-and-data
 spec:
-  version: 1.2.5  # lockstep with chart/Chart.yaml (#3971 comment-only reword for the zero-local-path land guard)
+  version: 1.2.6  # lockstep with chart/Chart.yaml (#3971 comment-only reword for the zero-local-path land guard)
   card:
     title: SeaweedFS
     family: foundation

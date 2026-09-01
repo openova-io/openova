@@ -44,7 +44,7 @@ type: application
 #   land-time zero-local-path guard (scripts/check-no-local-path.sh) sees the
 #   ban marker on the same line that names `rancher.io/local-path`. Rendered
 #   output is byte-identical to 1.2.4.
-version: 1.2.5
+version: 1.2.6
 appVersion: "4.22"
 keywords: [catalyst, blueprint, seaweedfs, s3, object-storage, storage]
 maintainers:

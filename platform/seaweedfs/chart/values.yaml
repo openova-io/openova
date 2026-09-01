@@ -158,7 +158,13 @@ seaweedfs:
         type: "persistentVolumeClaim"
         size: "100Gi"
         storageClass: ""
-        maxVolumes: 0
+        # #6765 — `-max 0` (auto) under-sized to just 2 volumes on the 100Gi
+        # data dir (30GB volumeSizeLimit → auto stopped at 2), so the master
+        # hit "Not enough data nodes found / 0 free" and EVERY seaweedfs-S3
+        # write (openbao raft snapshots + all object storage) failed with
+        # "AssignVolume: DeadlineExceeded". An explicit ceiling lets the master
+        # grow volumes as data arrives (still disk-capped by minFreeSpacePercent).
+        maxVolumes: 10
     # logs.type=emptyDir (#3579) — see master.logs note; baseline
     # PodSecurity in the host rtz ns forbids hostPath.
     logs:

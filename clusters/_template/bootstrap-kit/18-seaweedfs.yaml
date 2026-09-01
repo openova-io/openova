@@ -89,7 +89,7 @@ spec:
       # 1.2.5 — #3971: comment-only reword in storageclass.yaml so the
       #   land-time zero-local-path guard sees the ban marker on the line
       #   naming rancher.io/local-path. Rendered output identical to 1.2.4.
-      version: 1.2.5
+      version: 1.2.6
       sourceRef:
         kind: HelmRepository
         name: bp-seaweedfs
