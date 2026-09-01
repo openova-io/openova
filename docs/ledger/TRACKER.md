@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-01T14:30:06Z` |
+| Last refreshed | `2026-09-01T15:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -309,6 +309,7 @@ flowchart LR
 |---|---|---|---|
 | 2026-09-01T14:20 | [#6768](https://github.com/openova-io/openova/pull/6768) | #6755 | fix(bp-mimir/bp-vpa/bp-external-secrets): #6760 make chart b |
 | 2026-09-01T14:13 | [#6767](https://github.com/openova-io/openova/pull/6767) | #2447 | fix(dashboard): suspended HelmReleases render as Dormant not |
+| 2026-09-01T14:30 | [#6766](https://github.com/openova-io/openova/pull/6766) | #6765 | fix(seaweedfs): explicit volume maxVolumes — auto under-size |
 | 2026-09-01T08:48 | [#6763](https://github.com/openova-io/openova/pull/6763) | #6004 | fix(#6004): payload gate over-counts subchart source that th |
 | 2026-09-01T06:42 | [#6762](https://github.com/openova-io/openova/pull/6762) | #6004 | fix(gitea): .helmignore build-only files to clear the #6004  |
 | 2026-08-31T10:58 | [#6757](https://github.com/openova-io/openova/pull/6757) | #6755 | fix(charts): repin bitnamilegacy/kubectl -> alpine/k8s:1.31. |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-30T19:22 | [#6724](https://github.com/openova-io/openova/pull/6724) | #6723 | feat(console): admin-mappable sidebar — per-Sovereign overri |
 | 2026-08-30T16:58 | [#6722](https://github.com/openova-io/openova/pull/6722) | #6721 | docs(adr): ADR-0014 D2b account-duplication matrix + D11 con |
 | 2026-08-30T16:37 | [#6721](https://github.com/openova-io/openova/pull/6721) | #6720 | docs(adr): ADR-0014 D2 — standalone chargeback app with app- |
-| 2026-08-30T16:26 | [#6720](https://github.com/openova-io/openova/pull/6720) | #6719 | docs(adr): ADR-0014 D2a — per-mode entity matrix (Tenant = O |
 
 ---
 
