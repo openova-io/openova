@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-01T08:45:02Z` |
+| Last refreshed | `2026-09-01T09:00:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-01T08:48 | [#6763](https://github.com/openova-io/openova/pull/6763) | #6004 | fix(#6004): payload gate over-counts subchart source that th |
 | 2026-09-01T06:42 | [#6762](https://github.com/openova-io/openova/pull/6762) | #6004 | fix(gitea): .helmignore build-only files to clear the #6004  |
 | 2026-08-31T10:58 | [#6757](https://github.com/openova-io/openova/pull/6757) | #6755 | fix(charts): repin bitnamilegacy/kubectl -> alpine/k8s:1.31. |
 | 2026-08-31T11:33 | [#6756](https://github.com/openova-io/openova/pull/6756) | #6149 | fix(bp-postgres): consumer -mesh/-mesh-rw aliases follow a # |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-30T16:26 | [#6720](https://github.com/openova-io/openova/pull/6720) | #6719 | docs(adr): ADR-0014 D2a — per-mode entity matrix (Tenant = O |
 | 2026-08-30T16:10 | [#6719](https://github.com/openova-io/openova/pull/6719) | #6718 | docs(adr): ADR-0014 D2 — billed party = Organization; drop B |
 | 2026-08-30T14:39 | [#6718](https://github.com/openova-io/openova/pull/6718) | #6716 | docs(adr): ADR-0014 D8/D10 — read-only IAM user + AK/SK per  |
-| 2026-08-30T15:40 | [#6717](https://github.com/openova-io/openova/pull/6717) | #6703 | fix(sovereign-ui): /jobs list→dropdown, graph chips truly fi |
 
 ---
 
