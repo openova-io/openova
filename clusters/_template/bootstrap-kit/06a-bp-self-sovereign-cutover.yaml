@@ -1281,6 +1281,10 @@ spec:
     # values.yaml secondaryRegions.mirrorToSecondaryGitea.
     secondaryRegions:
       mirrorToSecondaryGitea: ${SOVEREIGN_ENABLE_CNPG_PAIR:=false}
+      # #6764: each secondary region runs its OWN local Harbor; populate it
+      # in-region so step-06 can pivot region-B off ghcr. Same 2-region gate
+      # (SOVEREIGN_ENABLE_CNPG_PAIR) as the gitea mirror above; single-region no-op.
+      prewarmSecondaryHarbor: ${SOVEREIGN_ENABLE_CNPG_PAIR:=false}
     # #5640 (Refs #5265) — POST-CUTOVER artifact delivery. Made explicit here
     # rather than left to the chart default so the posture of every fresh prov
     # is readable in the slot the operator actually reviews.
