@@ -103,7 +103,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: seed
-          image: harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.29.3
+          image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4
           # #4658: declare resources.requests — the cluster-wide resource-requests
           # Kyverno policy is Enforce and denies any container without them. Without
           # this the Job is admitted only by install-timing luck and gets DENIED on
