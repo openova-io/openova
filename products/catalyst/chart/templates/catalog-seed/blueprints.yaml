@@ -2213,7 +2213,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.10"
+  version: "1.0.11"
   visibility: listed
   card:
     title: "Mimir"
@@ -2232,7 +2232,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-mimir
-    version: "1.0.10"
+    version: "1.0.11"
   topology:
     supported:
     - active-passive
@@ -2734,7 +2734,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-seaweedfs
-    version: "1.2.5"
+    version: "1.2.6"
   topology:
     supported:
     - singleton
@@ -4157,7 +4157,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.1.5"
+  version: "1.1.6"
   visibility: unlisted
   card:
     title: "External Secrets Operator"
@@ -4174,7 +4174,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-external-secrets
-    version: "1.1.5"
+    version: "1.1.6"
   topology:
     supported:
       - singleton
@@ -5380,7 +5380,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.5"
+  version: "1.0.6"
   visibility: unlisted
   card:
     title: "Vertical Pod Autoscaler"
@@ -5397,7 +5397,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-vpa
-    version: "1.0.5"
+    version: "1.0.6"
   topology:
     supported:
       - singleton

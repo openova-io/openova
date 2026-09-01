@@ -68,6 +68,8 @@ const STATUS_FILL: Record<JobUiStatus, string> = {
   running: 'var(--color-accent)',
   failed: 'var(--color-danger)',
   pending: 'var(--color-text-dim)',
+  // Dormant (suspended/parked) — the dimmer dormant grey, distinct from pending.
+  dormant: 'var(--color-text-dimmer)',
 }
 
 const ROW_HEIGHT = 32

@@ -1,6 +1,12 @@
 apiVersion: v2
 name: bp-external-secrets
-version: 1.1.5
+# 1.1.6 (#6760): route the post-upgrade webhook-gate hook image through the
+# Harbor pull-through proxy (harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4).
+# The bare docker.io `alpine/k8s:1.31.4` is denied by the kyverno
+# harbor-proxy-pull Enforce policy (and races the Docker Hub pull throttle), so
+# the post-upgrade hook Job never ran → `helm upgrade` failed its post-upgrade
+# hook → Flux rolled the 1.1.4->1.1.5 bump back on hw305.
+version: 1.1.6
 description: |
   Catalyst-curated Blueprint umbrella chart for External Secrets Operator
   (ESO) — controller-only as of 1.1.0. Depends on the upstream

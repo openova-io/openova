@@ -53,6 +53,9 @@ const STATUS_COLOR: Record<JobStatus, string> = {
   healthy: '#86EFAC',
   degraded: '#FDE68A',
   failing: '#FCA5A5',
+  // Dormant (suspended/parked) — a dimmer grey than pending so a parked
+  // tether reads distinct from queued work.
+  dormant: 'rgba(255,255,255,0.22)',
 }
 
 const STATUS_LABEL: Record<JobStatus, string> = {
@@ -63,6 +66,7 @@ const STATUS_LABEL: Record<JobStatus, string> = {
   healthy: 'healthy',
   degraded: 'degraded',
   failing: 'failing',
+  dormant: 'dormant',
 }
 
 export function FlowLogFeed({ job, lines, live, collapsed }: FlowLogFeedProps) {

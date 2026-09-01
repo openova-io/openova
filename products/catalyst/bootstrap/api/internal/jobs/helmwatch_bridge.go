@@ -291,6 +291,15 @@ type InformerSeed struct {
 	// Translated to JobName form (install-<comp>) before being written
 	// to the Job record so the Flow view's edge graph renders.
 	DependsOn []string
+	// Suspended — true when spec.suspend is set on the HelmRelease
+	// (helmwatch.ComponentSnapshot.Suspended). A suspended HR reports
+	// State=installed (Wave 5.103 #2447), so without this flag the seed
+	// would render the leaf green-Succeeded and hide the suspension. When
+	// set, SeedJobsFromInformerList stamps the leaf StatusDormant instead —
+	// so a parked/tethered HR (e.g. bp-self-sovereign-cutover before the
+	// operator triggers cutover) renders Dormant on the treemap, never
+	// Succeeded or Pending.
+	Suspended bool
 }
 
 // SeedJobsFromInformerList takes a snapshot of the helmwatch informer's
@@ -345,6 +354,15 @@ func (b *Bridge) SeedJobsFromInformerList(seeds []InformerSeed) (jobsWritten, ex
 		// Status=succeeded Job, exactly as if a transition had been
 		// emitted.
 		nextStatus := jobStatusFromHelmState(s.State)
+		// Suspension WINS over every other lifecycle state (mirrors
+		// reconciliation_dag.go's reconStateForComponent). A HelmRelease with
+		// spec.suspend=true reports State=installed (Wave 5.103 #2447) which
+		// would map to Succeeded — masking the suspension as a healthy green
+		// leaf. Stamp it Dormant instead so a parked/tethered HR renders grey-
+		// dashed on the treemap, never Succeeded or Pending.
+		if s.Suspended {
+			nextStatus = StatusDormant
+		}
 		// Multi-region: a secondary region's component arrives as
 		// "<region>:<chart>" (e.g. "me-east-215-b-1:cilium") so the
 		// AppID stays globally-unique across clusters. Stamp the
@@ -390,7 +408,13 @@ func (b *Bridge) SeedJobsFromInformerList(seeds []InformerSeed) (jobsWritten, ex
 		// leave an empty NDJSON file and confuse the GitLab-CI viewer.
 		// The next transition fires through OnHelmReleaseEvent which
 		// allocates the Execution at the pending → non-pending edge.
-		if s.State == HelmStatePending {
+		//
+		// A suspended (Dormant) HR is likewise Job-only: its underlying
+		// State is `installed` (terminal), so the Execution-seeding branch
+		// below would allocate a run and FinishExecution-stamp the leaf back
+		// to Succeeded — clobbering the Dormant headline. Skip it: a parked
+		// HR is not running anything worth a synthetic Execution.
+		if s.State == HelmStatePending || s.Suspended {
 			continue
 		}
 

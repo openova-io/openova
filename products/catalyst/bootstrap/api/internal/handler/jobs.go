@@ -828,6 +828,7 @@ func reconcilerObsToBridge(in []helmwatch.ReconcilerObservation) []jobs.Reconcil
 			Namespace:         o.Namespace,
 			Status:            o.Status,
 			Health:            o.Health,
+			Suspended:         o.Suspended,
 			Message:           o.Message,
 			ObservedAt:        o.ObservedAt,
 			OwnerInstallChart: o.OwnerInstallChart,

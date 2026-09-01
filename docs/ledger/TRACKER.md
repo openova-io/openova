@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-01T13:00:05Z` |
+| Last refreshed | `2026-09-01T14:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6111](https://github.com/openova-io/openova/issues/6111) | UAT adjudication: three clauses assert objects the platform does not have (Conti | Other |
-| [#6114](https://github.com/openova-io/openova/issues/6114) | UAT ❌ residue on hw293: 61 rows in 8 root-cause clusters — 30 behind one dea | Other |
 | [#6122](https://github.com/openova-io/openova/issues/6122) | UAT row 213: cross-Org get_application answers not-found, not 403 — #5522 move | Other |
 | [#6131](https://github.com/openova-io/openova/issues/6131) | Cutover execution tree still has no root: the true first step gitea-mirror keeps | Other |
 | [#6135](https://github.com/openova-io/openova/issues/6135) | The Organization create door accepts a declared isolation it never honours: 202  | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#6759](https://github.com/openova-io/openova/issues/6759) | fix(bp-newapi): admin-promote CronJob pins nonexistent cloudnative-pg/postgresql | Other |
 | [#6760](https://github.com/openova-io/openova/issues/6760) | fix(bp-mimir/bp-vpa/bp-external-secrets): #6757 chart bumps fail to UPGRADE live | Other |
 | [#6761](https://github.com/openova-io/openova/issues/6761) | gitea chart over the #6004 payload ceiling (91.86%) — blocks publishing 1.2.50 | Other |
+| [#6764](https://github.com/openova-io/openova/issues/6764) | 2-region cutover cannot complete: secondary region runs its own EMPTY Harbor ins | Other |
+| [#6765](https://github.com/openova-io/openova/issues/6765) | seaweedfs volume auto-max under-sizes to 2 → S3 writes fail (openbao snapshots | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-01T14:13 | [#6767](https://github.com/openova-io/openova/pull/6767) | #2447 | fix(dashboard): suspended HelmReleases render as Dormant not |
 | 2026-09-01T08:48 | [#6763](https://github.com/openova-io/openova/pull/6763) | #6004 | fix(#6004): payload gate over-counts subchart source that th |
 | 2026-09-01T06:42 | [#6762](https://github.com/openova-io/openova/pull/6762) | #6004 | fix(gitea): .helmignore build-only files to clear the #6004  |
 | 2026-08-31T10:58 | [#6757](https://github.com/openova-io/openova/pull/6757) | #6755 | fix(charts): repin bitnamilegacy/kubectl -> alpine/k8s:1.31. |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-30T16:37 | [#6721](https://github.com/openova-io/openova/pull/6721) | #6720 | docs(adr): ADR-0014 D2 — standalone chargeback app with app- |
 | 2026-08-30T16:26 | [#6720](https://github.com/openova-io/openova/pull/6720) | #6719 | docs(adr): ADR-0014 D2a — per-mode entity matrix (Tenant = O |
 | 2026-08-30T16:10 | [#6719](https://github.com/openova-io/openova/pull/6719) | #6718 | docs(adr): ADR-0014 D2 — billed party = Organization; drop B |
-| 2026-08-30T14:39 | [#6718](https://github.com/openova-io/openova/pull/6718) | #6716 | docs(adr): ADR-0014 D8/D10 — read-only IAM user + AK/SK per  |
 
 ---
 

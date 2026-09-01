@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-01T13:39:04.160Z",
+  "generatedAt": "2026-09-01T14:22:52.438Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -1337,7 +1337,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.1.5",
+      "version": "1.1.6",
       "section": "pts-3-3-security-and-policy",
       "depends": [
         "bp-openbao",
@@ -3147,7 +3147,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.0.10",
+      "version": "1.0.11",
       "section": "pts-3-observability",
       "depends": [],
       "shareable": false,
@@ -5764,7 +5764,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.0.5",
+      "version": "1.0.6",
       "section": "pts-3-3-security-and-policy",
       "depends": [],
       "shareable": false,

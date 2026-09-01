@@ -210,6 +210,12 @@ func snapshotsToSeedsForRegion(snap []helmwatch.ComponentSnapshot, region string
 			Message:    s.Message,
 			ObservedAt: s.LastTransitionAt,
 			DependsOn:  regionDeps,
+			// Carry the suspension through to the bridge so a suspended
+			// (spec.suspend=true) HR renders Dormant, not Succeeded — the
+			// snapshot forces State=installed for suspended HRs (#2447), so
+			// this flag is the only signal the seed retains. #5485 / dormant
+			// treemap.
+			Suspended: s.Suspended,
 		})
 	}
 	return out
