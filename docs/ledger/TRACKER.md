@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-01T06:30:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-09-01T06:45:05Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6109](https://github.com/openova-io/openova/issues/6109) | openova-mcp masks the authoritative /whoami verdict behind a stale 'signature is | Other |
 | [#6111](https://github.com/openova-io/openova/issues/6111) | UAT adjudication: three clauses assert objects the platform does not have (Conti | Other |
 | [#6114](https://github.com/openova-io/openova/issues/6114) | UAT ❌ residue on hw293: 61 rows in 8 root-cause clusters — 30 behind one dea | Other |
 | [#6122](https://github.com/openova-io/openova/issues/6122) | UAT row 213: cross-Org get_application answers not-found, not 403 — #5522 move | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6755](https://github.com/openova-io/openova/issues/6755) | Repin broken bitnamilegacy/kubectl + alpine/k8s:1.31.1 images across platform ch | Other |
 | [#6759](https://github.com/openova-io/openova/issues/6759) | fix(bp-newapi): admin-promote CronJob pins nonexistent cloudnative-pg/postgresql | Other |
 | [#6760](https://github.com/openova-io/openova/issues/6760) | fix(bp-mimir/bp-vpa/bp-external-secrets): #6757 chart bumps fail to UPGRADE live | Other |
+| [#6761](https://github.com/openova-io/openova/issues/6761) | gitea chart over the #6004 payload ceiling (91.86%) — blocks publishing 1.2.50 | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-01T06:42 | [#6762](https://github.com/openova-io/openova/pull/6762) | #6004 | fix(gitea): .helmignore build-only files to clear the #6004  |
 | 2026-08-31T10:58 | [#6757](https://github.com/openova-io/openova/pull/6757) | #6755 | fix(charts): repin bitnamilegacy/kubectl -> alpine/k8s:1.31. |
 | 2026-08-31T11:33 | [#6756](https://github.com/openova-io/openova/pull/6756) | #6149 | fix(bp-postgres): consumer -mesh/-mesh-rw aliases follow a # |
 | 2026-08-31T10:34 | [#6752](https://github.com/openova-io/openova/pull/6752) | #4086 | docs(runbooks): §7.5 — provider/role-gated suspended HRs bla |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-30T16:10 | [#6719](https://github.com/openova-io/openova/pull/6719) | #6718 | docs(adr): ADR-0014 D2 — billed party = Organization; drop B |
 | 2026-08-30T14:39 | [#6718](https://github.com/openova-io/openova/pull/6718) | #6716 | docs(adr): ADR-0014 D8/D10 — read-only IAM user + AK/SK per  |
 | 2026-08-30T15:40 | [#6717](https://github.com/openova-io/openova/pull/6717) | #6703 | fix(sovereign-ui): /jobs list→dropdown, graph chips truly fi |
-| 2026-08-30T14:27 | [#6716](https://github.com/openova-io/openova/pull/6716) | #6713 | docs(adr): ADR-0014 D10 — operator-central profile (own-acco |
 
 ---
 
