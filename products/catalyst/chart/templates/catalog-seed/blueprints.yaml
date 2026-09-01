@@ -2715,7 +2715,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.2.5"
+  version: "1.2.6"
   visibility: unlisted
   card:
     title: "SeaweedFS"
