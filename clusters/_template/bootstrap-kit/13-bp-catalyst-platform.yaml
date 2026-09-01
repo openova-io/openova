@@ -576,10 +576,10 @@ spec:
       #   Resources/Logs tab namespace+label fix (HR.spec.target-
       #   Namespace + chart-name label) + "Bootstrap blueprint"
       #   chip for bp-* (founder bug #4, C4-003/004/005/007/013).
-      # 1.4.1616.1 (Wave 16 collector, 2026-05-18): republishes the chart
+      # 1.4.1617 (Wave 16 collector, 2026-05-18): republishes the chart
       # OCI artifact so it actually contains every chart-template change
-      # merged after the 1.4.1616.1 publish (commit 0ad78790). Without the
-      # republish, bootstrap-kit pin 1.4.1616.1 pulls an artifact missing
+      # merged after the 1.4.1617 publish (commit 0ad78790). Without the
+      # republish, bootstrap-kit pin 1.4.1617 pulls an artifact missing
       # the new templates and Sovereigns boot with stale chart bytes.
       # Baked: #1644 tenantPublic HTTPRoute reconciler + #1650
       # tenantPublic setter on product-install + #1640 Cilium Gateway
@@ -589,7 +589,7 @@ spec:
       # values.yaml sovereign.{enableHotStandby,primaryRegion,
       # replicaRegion} defaults). See Chart.yaml header comment for
       # the full change list.
-      # 1.4.1616.1 (TBD-E8 / C4-015, 2026-05-18): seed 13 baseline Blueprint
+      # 1.4.1617 (TBD-E8 / C4-015, 2026-05-18): seed 13 baseline Blueprint
       # CRs unconditionally so `/api/v1/catalog` returns a non-empty
       # items[] from handover-time. Pre-fix every fresh Sovereign had
       # empty catalog because (a) self-sovereign-cutover step-01 only
@@ -601,7 +601,7 @@ spec:
       # bp-prometheus, bp-loki, bp-redis, bp-clickhouse, bp-opensearch,
       # bp-temporal, bp-n8n, bp-langfuse, bp-llm-gateway) which the
       # chained catalog client surfaces via in-cluster LIST fallback.
-      # 1.4.1616.1 (TBD-C18b, 2026-05-18): stop clobbering the cutover-minted
+      # 1.4.1617 (TBD-C18b, 2026-05-18): stop clobbering the cutover-minted
       # Gitea API token. templates/org-services/provisioning-github-
       # token.yaml gains a lookup-persistence guard — if the destination
       # Secret carries annotation `catalyst.openova.io/token-source:
@@ -1493,16 +1493,16 @@ spec:
       #   registration the rail now renders Agenity from, mappable per Sovereign
       #   from Settings → Menu). Umbrella tracks its sub-charts per Inviolable
       #   Principle #13.
-      # 1.4.1616.1 — #6753: lockstep for the bp-postgres 0.2.24 -> 0.2.25 catalog-seed
+      # 1.4.1617 — #6753: lockstep for the bp-postgres 0.2.24 -> 0.2.25 catalog-seed
       #   pin (consumer -mesh/-mesh-rw aliases follow a #6149 DR promotion). The
       #   umbrella auto-increments on every merge, so this pin was re-taken as main
       #   advanced (1.4.1595-1.4.1599 all landed while this branch's checks ran) —
       #   forward of main's 1.4.1599. Umbrella tracks its sub-charts per Inviolable
       #   Principle #13.
-      # 1.4.1616.1 — #6755: lockstep with the umbrella Chart.yaml bump (qa-fixtures
+      # 1.4.1617 — #6755: lockstep with the umbrella Chart.yaml bump (qa-fixtures
       #   repin bitnamilegacy/kubectl:1.29.3 -> alpine/k8s:1.31.4). Pin bumped to
       #   match so check-bootstrap-kit-pin-sync.sh --changed-only stays green.
-      version: 1.4.1616.1
+      version: 1.4.1617
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
