@@ -34,7 +34,13 @@ type: application
 # every container satisfies the cluster-wide Kyverno `resource-requests`
 # Enforce policy. Post-#4325 this chart installs into the native host namespace
 # (not a vCluster) where the policy applies.
-version: 1.0.10
+# 1.0.11 (#6760): render the Catalyst-owned `mimir-make-minio-buckets` Job as a
+# post-install/post-upgrade Helm hook (before-hook-creation,hook-succeeded) so
+# `helm upgrade` DELETES+recreates it instead of failing `cannot patch
+# "mimir-make-minio-buckets" with kind Job` on the immutable Job spec (which
+# rolled the 1.0.9→1.0.10 upgrade back on hw305). post-* (not pre-*) preserves
+# the dependency on the regular MinIO Deployment/Service/Secret/ConfigMap.
+version: 1.0.11
 appVersion: "3.0.4"
 keywords: [catalyst, blueprint, mimir, observability, metrics, prometheus]
 maintainers:

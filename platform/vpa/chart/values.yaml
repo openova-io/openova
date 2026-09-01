@@ -180,15 +180,32 @@ vertical-pod-autoscaler:
     # is denied by kyverno harbor-proxy-pull, and a resource-less hook pod is
     # denied by the resource-requests policy (Enforce) — either one fails every
     # install/upgrade of this chart on a policy-enforcing Sovereign.
-    # Repo/tag: alpine/k8s:1.31.4 — the platform-standard kubectl toolbox
-    # (bash+kubectl+jq+curl), mirrored + prewarmed on live Sovereigns. 2026-08
-    # (Refs #6755): repinned off bitnamilegacy/kubectl:1.30.7, whose versioned
-    # tags Bitnami purged upstream. Same MIRROR-EVERYTHING pattern as
-    # platform/flux (Fix #163).
+    #
+    # #6760 — this image MUST have `kubectl` as its ENTRYPOINT. The upstream
+    # cowboysysop CRD hook Job (templates/crds/job.yaml) sets only
+    # `args: [apply, --filename=/config/<crd>.yaml]` with NO `command:` — it
+    # relies entirely on the image entrypoint being kubectl. #6755 blanket-
+    # repinned this off bitnamilegacy/kubectl to `alpine/k8s:1.31.4`, which is a
+    # shell-first toolbox (registry inspect: Entrypoint=None, Cmd=[/bin/sh]) —
+    # so the args became an attempt to exec a binary literally named `apply` and
+    # every pre-upgrade hook pod died `runc create failed: unable to start
+    # container process: exec: "apply": executable file not found` (StartError,
+    # not an image pull), failing the upgrade → Flux rollback. alpine/k8s is
+    # correct for the webhook-gate hooks that DO set `command: [/bin/bash,-c]`
+    # (mimir/cnpg/cert-manager/kyverno) but wrong for this args-only Job.
+    #
+    # rancher/kubectl (registry inspect: Entrypoint=[/bin/kubectl]) is the
+    # canonical distroless drop-in-kubectl image built for exactly this
+    # args-only Job pattern → `/bin/kubectl apply --filename=...`. Distroless is
+    # fine here because this Job runs NO shell. It keeps stable `v<version>`
+    # tags on Docker Hub (not subject to Bitnami's bitnamilegacy tag purge that
+    # motivated #6755), routed through proxy-dockerhub so the kyverno
+    # harbor-proxy-pull Enforce glob (`*/proxy-*/*`) still admits it — same
+    # `proxy-dockerhub/<vendor>/<image>` shape alpine/k8s already used.
     image:
       registry: harbor.openova.io
-      repository: proxy-dockerhub/alpine/k8s
-      tag: "1.31.4"
+      repository: proxy-dockerhub/rancher/kubectl
+      tag: "v1.31.4"
     resources:
       requests:
         cpu: 50m

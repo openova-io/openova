@@ -34,7 +34,16 @@ type: application
 # defence-in-depth — bounds the same VPA-webhook hang in NON-kube-system
 # namespaces (cnpg initdb, keycloak, tenant vclusters) that the kube-system
 # exemption does not cover.
-version: 1.0.5
+# 1.0.5 (#6755): CRDs hook Job image repinned bitnamilegacy/kubectl ->
+# alpine/k8s:1.31.4 (blanket) — which BROKE the upgrade: the upstream cowboysysop
+# CRD hook Job is args-only (`apply --filename=...`) with no command and relies
+# on the image ENTRYPOINT being kubectl; alpine/k8s has Entrypoint=None so the
+# pre-upgrade hook pod died `runc create ... exec: "apply": not found`.
+# 1.0.6 (#6760): repin crds.image to rancher/kubectl:v1.31.4 (Entrypoint
+# [/bin/kubectl], distroless — no shell needed for this args-only Job), routed
+# through proxy-dockerhub. Restores a kubectl entrypoint without returning to
+# the purge-prone bitnamilegacy tags #6755 moved off.
+version: 1.0.6
 appVersion: "1.5.0"
 keywords: [catalyst, blueprint, vpa, autoscaling, vertical-pod-autoscaler, right-sizing]
 maintainers:

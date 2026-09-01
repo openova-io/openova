@@ -58,7 +58,10 @@ spec:
       # 1.0.4: controller + CRDs-hook images via Sovereign-local Harbor
       # proxy + hook resources (#5017 — kyverno denied the step-08-rolled
       # pods on hw242).
-      version: 1.0.5
+      # 1.0.6 (#6760): CRDs-hook image -> rancher/kubectl:v1.31.4 (kubectl
+      # entrypoint) — alpine/k8s from #6755 had no entrypoint so the args-only
+      # `apply` hook pod died runc StartError, rolling the upgrade back.
+      version: 1.0.6
       sourceRef:
         kind: HelmRepository
         name: bp-vpa
