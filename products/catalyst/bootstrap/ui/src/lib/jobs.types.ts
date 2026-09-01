@@ -37,6 +37,16 @@ export type JobStatus =
   | 'healthy'
   | 'degraded'
   | 'failing'
+  // `dormant` — an INSTALLED-but-INTENTIONALLY-SUSPENDED reconciler
+  // (spec.suspend=true on a HelmRelease / Kustomization / CronJob). It is
+  // PARKED, not queued: the backend bridges stamp it (over the underlying
+  // installed/pending state) so the dashboard treemap routes it into its
+  // Dormant progress bucket — grey + dashed, never masquerading as a green
+  // Succeeded leaf (a suspended HR reports installed) or a Pending one. The
+  // FE's statusColors.statusKindOf maps it to the `dormant` StatusKind. Off
+  // the one-shot and HEALTH axes both — it is neither retryable nor a health
+  // tone.
+  | 'dormant'
 
 /**
  * `'install'` — a leaf Job: one HelmRelease watch attempt, one Day-2

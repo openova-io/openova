@@ -136,6 +136,18 @@ const STATUS_TONE: Record<JobStatus, StatusTone> = {
     arrow: 'var(--bubble-arrow-failed)',
     label: 'Failing',
   },
+  // Dormant (suspended/parked) — reuse the pending (grey) bubble tokens with
+  // its own label; a parked reconciler is grey like pending but is not queued
+  // work, so the label carries the distinction on the canvas.
+  dormant: {
+    fill: 'var(--bubble-fill-pending)',
+    ring: 'var(--bubble-ring-pending)',
+    glyph: 'var(--bubble-glyph-pending)',
+    glow: 'var(--bubble-glow-pending)',
+    edge: 'var(--bubble-edge-pending)',
+    arrow: 'var(--bubble-arrow-pending)',
+    label: 'Dormant',
+  },
 }
 
 /** SVG `<marker>` elements cannot read CSS variables directly inside
@@ -154,6 +166,8 @@ const ARROW_FALLBACK: Record<JobStatus, string> = {
   healthy:   '#16A34A',
   degraded:  '#94A3B8',
   failing:   '#B91C1C',
+  // Dormant (suspended/parked) — a dimmer grey than pending's #94A3B8.
+  dormant:   '#64748B',
 }
 
 /** Issue #669 — bubble sizing decoupled from canvas size.
