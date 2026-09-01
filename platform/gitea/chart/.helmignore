@@ -1,0 +1,31 @@
+# Patterns to exclude from the packaged chart (and thus from the
+# sh.helm.release.v1.* Secret payload — the 1 MiB ceiling, #6004).
+#
+# Everything below is BUILD/CI-only: CI runs it from the working tree
+# (the "Run chart integration tests" step reads chart/tests/*.sh directly),
+# so packaging it is pure payload with zero runtime value. Verified no
+# template reads any of these via .Files.Get/Glob/Lines.
+
+# CI integration tests + their fixtures/helpers
+tests/
+ci/
+fixtures/
+*.sh
+*_test.py
+*.test.yaml
+
+# Authoring docs — not needed at install time
+DESIGN.md
+README.md
+*.md
+
+# VCS / editor / OS cruft
+.git/
+.gitignore
+.github/
+.vscode/
+.idea/
+*.swp
+*.bak
+*.tmp
+.DS_Store
