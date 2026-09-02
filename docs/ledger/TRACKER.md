@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-02T18:30:05Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-09-02T18:45:06Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-02T18:41 | [#6821](https://github.com/openova-io/openova/pull/6821) | #6814 | test(handler): stop a detached goroutine's late writes from  |
+| 2026-09-02T18:39 | [#6820](https://github.com/openova-io/openova/pull/6820) | #6803 | fix(bp-chargeback): the Blueprint's own egress policy droppe |
 | 2026-09-02T18:00 | [#6818](https://github.com/openova-io/openova/pull/6818) | #6814 | test(jobs): fix the #6749 async-seed test's double close and |
 | 2026-09-02T17:42 | [#6817](https://github.com/openova-io/openova/pull/6817) | #6802 | fix(console): a failed dashboard tile must say WHEN it faile |
 | 2026-09-02T17:24 | [#6816](https://github.com/openova-io/openova/pull/6816) | #6805 | docs(ledger): open the hw307 partition in PATH-TO-100 (Refs  |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-09-02T09:34 | [#6780](https://github.com/openova-io/openova/pull/6780) | #6324 | fix(provisioning): newapi funnel pin 1.4.155 + run pin-parit |
 | 2026-09-02T07:32 | [#6779](https://github.com/openova-io/openova/pull/6779) | #6778 | docs(sessions): hw306 train manifest v1 (Refs #6778) |
 | 2026-09-02T05:23 | [#6777](https://github.com/openova-io/openova/pull/6777) | docs(uat): re-confirm row 205 live on hw305 (/fleet/applicat |  |
-| 2026-09-02T00:56 | [#6775](https://github.com/openova-io/openova/pull/6775) | #6759 | fix(bp-newapi): repin admin-promote CNPG image :16.4 → :16 ( |
-| 2026-09-01T23:32 | [#6774](https://github.com/openova-io/openova/pull/6774) | docs(uat): re-confirm row 194 live on hw305 (recon surface l |  |
 
 ---
 
