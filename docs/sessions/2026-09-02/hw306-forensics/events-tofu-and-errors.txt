@@ -1,0 +1,624 @@
+# hw306 e68e79721ecbde62 — tofu-phase + error events (filtered from 3724 events; full copy in the session scratchpad)
+2026-09-02T09:01:07 [tofu-init] HCS VPC quota: used 1 / 5, requesting 2
+2026-09-02T09:01:07 [tofu-init] Initialising OpenTofu working directory
+2026-09-02T09:01:12 [tofu] Initializing the backend...
+2026-09-02T09:01:12 [tofu] Initializing provider plugins...
+2026-09-02T09:01:12 [tofu] - Finding huaweicloud/huaweicloud versions matching "~> 1.65"...
+2026-09-02T09:01:14 [tofu] - Finding hashicorp/aws versions matching "~> 5.0"...
+2026-09-02T09:01:14 [tofu] - Finding hashicorp/time versions matching "~> 0.10"...
+2026-09-02T09:01:15 [tofu] - Installing huaweicloud/huaweicloud v1.98.0 to the shared cache directory...
+2026-09-02T09:01:23 [tofu] - Installed huaweicloud/huaweicloud v1.98.0. Signature validation was skipped due to the registry not containing GPG keys for this provider
+2026-09-02T09:01:23 [tofu] - Using huaweicloud/huaweicloud v1.98.0 from the shared cache directory
+2026-09-02T09:01:24 [tofu] - Installing hashicorp/aws v5.100.0 to the shared cache directory...
+2026-09-02T09:02:06 [tofu] - Installed hashicorp/aws v5.100.0 (signed, key ID 0C0AF313E5FD9F80)
+2026-09-02T09:02:06 [tofu] - Using hashicorp/aws v5.100.0 from the shared cache directory
+2026-09-02T09:02:07 [tofu] - Installing hashicorp/time v0.14.1 to the shared cache directory...
+2026-09-02T09:02:09 [tofu] - Installed hashicorp/time v0.14.1 (signed, key ID 0C0AF313E5FD9F80)
+2026-09-02T09:02:09 [tofu] - Using hashicorp/time v0.14.1 from the shared cache directory
+2026-09-02T09:02:09 [tofu] Providers are signed by their developers.
+2026-09-02T09:02:09 [tofu] If you'd like to know more about provider signing, you can read about it here:
+2026-09-02T09:02:09 [tofu] https://opentofu.org/docs/cli/plugins/signing/
+2026-09-02T09:02:09 [tofu] OpenTofu has created a lock file .terraform.lock.hcl to record the provider
+2026-09-02T09:02:09 [tofu] selections it made above. Include this file in your version control repository
+2026-09-02T09:02:09 [tofu] so that OpenTofu can guarantee to make the same selections by default when
+2026-09-02T09:02:09 [tofu] you run "tofu init" in the future.
+2026-09-02T09:02:09 [tofu] OpenTofu has been successfully initialized!
+2026-09-02T09:02:09 [tofu-plan] Planning Hetzner resources (network, firewall, server, LB, DNS)
+2026-09-02T09:02:34 [tofu] OpenTofu used the selected providers to generate the following execution
+2026-09-02T09:02:34 [tofu] plan. Resource actions are indicated with the following symbols:
+2026-09-02T09:02:34 [tofu] + create
+2026-09-02T09:02:34 [tofu] OpenTofu will perform the following actions:
+2026-09-02T09:02:34 [tofu] # huaweicloud_compute_instance.control_plane[0] will be created
+2026-09-02T09:02:34 [tofu] + resource "huaweicloud_compute_instance" "control_plane" {
+2026-09-02T09:02:34 [tofu] + access_ip_v4              = (known after apply)
+2026-09-02T09:02:34 [tofu] + access_ip_v6              = (known after apply)
+2026-09-02T09:02:34 [tofu] + agency_name               = (known after apply)
+2026-09-02T09:02:34 [tofu] + agent_list                = (known after apply)
+2026-09-02T09:02:34 [tofu] + availability_zone         = "me-east-215a"
+2026-09-02T09:02:34 [tofu] + charging_mode             = (known after apply)
+2026-09-02T09:02:34 [tofu] + created_at                = (known after apply)
+2026-09-02T09:02:34 [tofu] + delete_eip_on_termination = true
+2026-09-02T09:02:34 [tofu] + description               = (known after apply)
+2026-09-02T09:02:34 [tofu] + eip_id                    = (known after apply)
+2026-09-02T09:02:34 [tofu] + enterprise_project_id     = (known after apply)
+2026-09-02T09:02:34 [tofu] + expired_time              = (known after apply)
+2026-09-02T09:02:34 [tofu] + flavor_id                 = "m7n.xlarge.8"
+2026-09-02T09:02:34 [tofu] + flavor_name               = (known after apply)
+2026-09-02T09:02:34 [tofu] + hostname                  = (known after apply)
+2026-09-02T09:02:34 [tofu] + id                        = (known after apply)
+2026-09-02T09:02:34 [tofu] + image_id                  = "ec509d3b-e2c5-40b8-987b-ce9623d67a88"
+2026-09-02T09:02:34 [tofu] + image_name                = (known after apply)
+2026-09-02T09:02:34 [tofu] + key_pair                  = "catalyst-hw306-omani-works-e68e7972-key"
+2026-09-02T09:02:34 [tofu] + name                      = "catalyst-hw306-omani-works-e68e7972-me-east-215-a-cp1-8a0bc8"
+2026-09-02T09:02:34 [tofu] + power_action              = (known after apply)
+2026-09-02T09:02:34 [tofu] + public_ip                 = (known after apply)
+2026-09-02T09:02:34 [tofu] + region                    = (known after apply)
+2026-09-02T09:02:34 [tofu] + security_group_ids        = (known after apply)
+2026-09-02T09:02:34 [tofu] + security_groups           = [
+2026-09-02T09:02:34 [tofu] + "catalyst-hw306-omani-works-e68e7972-me-east-215-a-sg",
+2026-09-02T09:02:34 [tofu] ]
+2026-09-02T09:02:34 [tofu] + spot_duration_count       = (known after apply)
+2026-09-02T09:02:34 [tofu] + status                    = (known after apply)
+2026-09-02T09:02:34 [tofu] + stop_before_destroy       = false
+2026-09-02T09:02:34 [tofu] + system_disk_id            = (known after apply)
+2026-09-02T09:02:34 [tofu] + system_disk_iops          = (known after apply)
+2026-09-02T09:02:34 [tofu] + system_disk_kms_key_id    = (known after apply)
+2026-09-02T09:02:34 [tofu] + system_disk_size          = 40
+2026-09-02T09:02:34 [tofu] + system_disk_throughput    = (known after apply)
+2026-09-02T09:02:34 [tofu] + system_disk_type          = "SSD"
+2026-09-02T09:02:34 [tofu] + tags                      = (known after apply)
+2026-09-02T09:02:34 [tofu] + updated_at                = (known after apply)
+2026-09-02T09:02:34 [tofu] + user_data                 = (sensitive value)
+2026-09-02T09:02:34 [tofu] + volume_attached           = (known after apply)
+2026-09-02T09:02:34 [tofu] + enclave_options (known after apply)
+2026-09-02T09:02:34 [tofu] + network {
+2026-09-02T09:02:34 [tofu] + access_network    = false
+2026-09-02T09:02:34 [tofu] + fixed_ip_v4       = (known after apply)
+2026-09-02T09:02:34 [tofu] + fixed_ip_v6       = (known after apply)
+2026-09-02T09:02:34 [tofu] + mac               = (known after apply)
+2026-09-02T09:02:34 [tofu] + port              = (known after apply)
+2026-09-02T09:02:34 [tofu] + source_dest_check = false
+2026-09-02T09:02:34 [tofu] + uuid              = (known after apply)
+2026-09-02T09:02:34 [tofu] }
+2026-09-02T09:02:34 [tofu] }
+2026-09-02T09:02:34 [tofu] # huaweicloud_compute_instance.control_plane[1] will be created
+2026-09-02T09:02:34 [tofu] + resource "huaweicloud_compute_instance" "control_plane" {
+2026-09-02T09:02:34 [tofu] + access_ip_v4              = (known after apply)
+2026-09-02T09:02:34 [tofu] + access_ip_v6              = (known after apply)
+2026-09-02T09:02:34 [tofu] + agency_name               = (known after apply)
+2026-09-02T09:02:34 [tofu] + agent_list                = (known after apply)
+2026-09-02T09:02:34 [tofu] + availability_zone         = "me-east-215a"
+2026-09-02T09:02:34 [tofu] + charging_mode             = (known after apply)
+2026-09-02T09:02:34 [tofu] + created_at                = (known after apply)
+2026-09-02T09:02:34 [tofu] + delete_eip_on_termination = true
+2026-09-02T09:02:34 [tofu] + description               = (known after apply)
+2026-09-02T09:02:34 [tofu] + eip_id                    = (known after apply)
+2026-09-02T09:02:34 [tofu] + enterprise_project_id     = (known after apply)
+2026-09-02T09:02:34 [tofu] + expired_time              = (known after apply)
+2026-09-02T09:02:34 [tofu] + flavor_id                 = "m7n.xlarge.8"
+2026-09-02T09:02:34 [tofu] + flavor_name               = (known after apply)
+2026-09-02T09:02:34 [tofu] + hostname                  = (known after apply)
+2026-09-02T09:02:34 [tofu] + id                        = (known after apply)
+2026-09-02T09:02:34 [tofu] + image_id                  = "ec509d3b-e2c5-40b8-987b-ce9623d67a88"
+2026-09-02T09:02:34 [tofu] + image_name                = (known after apply)
+2026-09-02T09:02:34 [tofu] + key_pair                  = "catalyst-hw306-omani-works-e68e7972-key"
+2026-09-02T09:02:34 [tofu] + name                      = "catalyst-hw306-omani-works-e68e7972-me-east-215-b-cp1-381e9b"
+2026-09-02T09:02:34 [tofu] + power_action              = (known after apply)
+2026-09-02T09:02:34 [tofu] + public_ip                 = (known after apply)
+2026-09-02T09:02:34 [tofu] + region                    = (known after apply)
+2026-09-02T09:02:34 [tofu] + security_group_ids        = (known after apply)
+2026-09-02T09:02:34 [tofu] + security_groups           = [
+2026-09-02T09:02:34 [tofu] + "catalyst-hw306-omani-works-e68e7972-me-east-215-b-sg",
+2026-09-02T09:02:34 [tofu] ]
+2026-09-02T09:02:34 [tofu] + spot_duration_count       = (known after apply)
+2026-09-02T09:02:34 [tofu] + status                    = (known after apply)
+2026-09-02T09:02:34 [tofu] + stop_before_destroy       = false
+2026-09-02T09:02:34 [tofu] + system_disk_id            = (known after apply)
+2026-09-02T09:02:34 [tofu] + system_disk_iops          = (known after apply)
+2026-09-02T09:02:34 [tofu] + system_disk_kms_key_id    = (known after apply)
+2026-09-02T09:02:34 [tofu] + system_disk_size          = 40
+2026-09-02T09:02:34 [tofu] + system_disk_throughput    = (known after apply)
+2026-09-02T09:02:34 [tofu] + system_disk_type          = "SSD"
+2026-09-02T09:02:34 [tofu] + tags                      = (known after apply)
+2026-09-02T09:02:34 [tofu] + updated_at                = (known after apply)
+2026-09-02T09:02:34 [tofu] + user_data                 = (sensitive value)
+2026-09-02T09:02:34 [tofu] + volume_attached           = (known after apply)
+2026-09-02T09:02:34 [tofu] + enclave_options (known after apply)
+2026-09-02T09:02:34 [tofu] + network {
+2026-09-02T09:02:34 [tofu] + access_network    = false
+2026-09-02T09:02:34 [tofu] + fixed_ip_v4       = (known after apply)
+2026-09-02T09:02:34 [tofu] + fixed_ip_v6       = (known after apply)
+2026-09-02T09:02:34 [tofu] + mac               = (known after apply)
+2026-09-02T09:02:34 [tofu] + port              = (known after apply)
+2026-09-02T09:02:34 [tofu] + source_dest_check = false
+2026-09-02T09:02:34 [tofu] + uuid              = (known after apply)
+2026-09-02T09:02:34 [tofu] }
+2026-09-02T09:02:34 [tofu] }
+2026-09-02T09:02:34 [tofu] # huaweicloud_compute_instance.worker["me-east-215-a-0"] will be created
+2026-09-02T09:02:34 [tofu] + resource "huaweicloud_compute_instance" "worker" {
+2026-09-02T09:02:34 [tofu] + access_ip_v4              = (known after apply)
+2026-09-02T09:02:34 [tofu] + access_ip_v6              = (known after apply)
+2026-09-02T09:02:34 [tofu] + agency_name               = (known after apply)
+2026-09-02T09:02:34 [tofu] + agent_list                = (known after apply)
+2026-09-02T09:02:34 [tofu] + availability_zone         = "me-east-215a"
+2026-09-02T09:02:34 [tofu] + charging_mode             = (known after apply)
+2026-09-02T09:02:34 [tofu] + created_at                = (known after apply)
+2026-09-02T09:02:34 [tofu] + delete_eip_on_termination = true
+2026-09-02T09:02:34 [tofu] + description               = (known after apply)
+2026-09-02T09:02:34 [tofu] + enterprise_project_id     = (known after apply)
+2026-09-02T09:02:34 [tofu] + expired_time              = (known after apply)
+2026-09-02T09:02:34 [tofu] + flavor_id                 = "m7n.2xlarge.8"
+2026-09-02T09:02:34 [tofu] + flavor_name               = (known after apply)
+2026-09-02T09:02:34 [tofu] + hostname                  = (known after apply)
+2026-09-02T09:02:34 [tofu] + id                        = (known after apply)
+2026-09-02T09:02:34 [tofu] + image_id                  = "ec509d3b-e2c5-40b8-987b-ce9623d67a88"
+2026-09-02T09:02:34 [tofu] + image_name                = (known after apply)
+2026-09-02T09:02:34 [tofu] + key_pair                  = "catalyst-hw306-omani-works-e68e7972-key"
+2026-09-02T09:02:34 [tofu] + name                      = "catalyst-hw306-omani-works-e68e7972-me-east-215-a-w688f6c"
+2026-09-02T09:02:34 [tofu] + power_action              = (known after apply)
+2026-09-02T09:02:34 [tofu] + public_ip                 = (known after apply)
+2026-09-02T09:02:34 [tofu] + region                    = (known after apply)
+2026-09-02T09:02:34 [tofu] + security_group_ids        = (known after apply)
+2026-09-02T09:02:34 [tofu] + security_groups           = [
+2026-09-02T09:02:34 [tofu] + "catalyst-hw306-omani-works-e68e7972-me-east-215-a-sg",
+2026-09-02T09:02:34 [tofu] ]
+2026-09-02T09:02:34 [tofu] + spot_duration_count       = (known after apply)
+2026-09-02T09:02:34 [tofu] + status                    = (known after apply)
+2026-09-02T09:02:34 [tofu] + stop_before_destroy       = false
+2026-09-02T09:02:34 [tofu] + system_disk_id            = (known after apply)
+2026-09-02T09:02:34 [tofu] + system_disk_iops          = (known after apply)
+2026-09-02T09:02:34 [tofu] + system_disk_kms_key_id    = (known after apply)
+2026-09-02T09:02:34 [tofu] + system_disk_size          = 40
+2026-09-02T09:02:34 [tofu] + system_disk_throughput    = (known after apply)
+2026-09-02T09:02:34 [tofu] + system_disk_type          = "SSD"
+2026-09-02T09:02:34 [tofu] + tags                      = (known after apply)
+2026-09-02T09:02:34 [tofu] + updated_at                = (known after apply)
+2026-09-02T09:02:34 [tofu] + user_data                 = (sensitive value)
+2026-09-02T09:02:34 [tofu] + volume_attached           = (known after apply)
+2026-09-02T09:02:34 [tofu] + enclave_options (known after apply)
+2026-09-02T09:02:34 [tofu] + network {
+2026-09-02T09:02:34 [tofu] + access_network    = false
+2026-09-02T09:02:34 [tofu] + fixed_ip_v4       = (known after apply)
+2026-09-02T09:02:34 [tofu] + fixed_ip_v6       = (known after apply)
+2026-09-02T09:02:34 [tofu] + mac               = (known after apply)
+2026-09-02T09:02:34 [tofu] + port              = (known after apply)
+2026-09-02T09:02:34 [tofu] + source_dest_check = false
+2026-09-02T09:02:34 [tofu] + uuid              = (known after apply)
+2026-09-02T09:02:34 [tofu] }
+2026-09-02T09:02:34 [tofu] }
+2026-09-02T09:02:34 [tofu] # huaweicloud_compute_instance.worker["me-east-215-a-1"] will be created
+2026-09-02T09:02:34 [tofu] + resource "huaweicloud_compute_instance" "worker" {
+2026-09-02T09:02:34 [tofu] + access_ip_v4              = (known after apply)
+2026-09-02T09:02:34 [tofu] + access_ip_v6              = (known after apply)
+2026-09-02T09:02:34 [tofu] + agency_name               = (known after apply)
+2026-09-02T09:02:34 [tofu] + agent_list                = (known after apply)
+2026-09-02T09:02:34 [tofu] + availability_zone         = "me-east-215a"
+2026-09-02T09:02:34 [tofu] + charging_mode             = (known after apply)
+2026-09-02T09:02:34 [tofu] + created_at                = (known after apply)
+2026-09-02T09:02:34 [tofu] + delete_eip_on_termination = true
+2026-09-02T09:02:34 [tofu] + description               = (known after apply)
+2026-09-02T09:02:34 [tofu] + enterprise_project_id     = (known after apply)
+2026-09-02T09:02:34 [tofu] + expired_time              = (known after apply)
+2026-09-02T09:02:34 [tofu] + flavor_id                 = "m7n.2xlarge.8"
+2026-09-02T09:02:34 [tofu] + flavor_name               = (known after apply)
+2026-09-02T09:02:34 [tofu] + hostname                  = (known after apply)
+2026-09-02T09:02:34 [tofu] + id                        = (known after apply)
+2026-09-02T09:02:34 [tofu] + image_id                  = "ec509d3b-e2c5-40b8-987b-ce9623d67a88"
+2026-09-02T09:02:34 [tofu] + image_name                = (known after apply)
+2026-09-02T09:02:34 [tofu] + key_pair                  = "catalyst-hw306-omani-works-e68e7972-key"
+2026-09-02T09:02:34 [tofu] + name                      = "catalyst-hw306-omani-works-e68e7972-me-east-215-a-wdbf8a5"
+2026-09-02T09:02:34 [tofu] + power_action              = (known after apply)
+2026-09-02T09:02:34 [tofu] + public_ip                 = (known after apply)
+2026-09-02T09:02:34 [tofu] + region                    = (known after apply)
+2026-09-02T09:02:34 [tofu] + security_group_ids        = (known after apply)
+2026-09-02T09:02:34 [tofu] + security_groups           = [
+2026-09-02T09:02:34 [tofu] + "catalyst-hw306-omani-works-e68e7972-me-east-215-a-sg",
+2026-09-02T09:02:34 [tofu] ]
+2026-09-02T09:02:34 [tofu] + spot_duration_count       = (known after apply)
+2026-09-02T09:02:34 [tofu] + status                    = (known after apply)
+2026-09-02T09:02:34 [tofu] + stop_before_destroy       = false
+2026-09-02T09:02:34 [tofu] + system_disk_id            = (known after apply)
+2026-09-02T09:02:34 [tofu] + system_disk_iops          = (known after apply)
+2026-09-02T09:02:34 [tofu] + system_disk_kms_key_id    = (known after apply)
+2026-09-02T09:02:34 [tofu] + system_disk_size          = 40
+2026-09-02T09:02:34 [tofu] + system_disk_throughput    = (known after apply)
+2026-09-02T09:02:34 [tofu] + system_disk_type          = "SSD"
+2026-09-02T09:02:34 [tofu] + tags                      = (known after apply)
+2026-09-02T09:02:34 [tofu] + updated_at                = (known after apply)
+2026-09-02T09:02:34 [tofu] + user_data                 = (sensitive value)
+2026-09-02T09:02:34 [tofu] + volume_attached           = (known after apply)
+2026-09-02T09:02:34 [tofu] + enclave_options (known after apply)
+2026-09-02T09:02:34 [tofu] + network {
+2026-09-02T09:02:34 [tofu] + access_network    = false
+2026-09-02T09:02:34 [tofu] + fixed_ip_v4       = (known after apply)
+2026-09-02T09:02:34 [tofu] + fixed_ip_v6       = (known after apply)
+2026-09-02T09:02:34 [tofu] + mac               = (known after apply)
+2026-09-02T09:02:34 [tofu] + port              = (known after apply)
+2026-09-02T09:02:34 [tofu] + source_dest_check = false
+2026-09-02T09:02:34 [tofu] + uuid              = (known after apply)
+2026-09-02T09:02:34 [tofu] }
+2026-09-02T09:02:34 [tofu] }
+2026-09-02T09:02:34 [tofu] # huaweicloud_compute_instance.worker["me-east-215-a-2"] will be created
+2026-09-02T09:02:34 [tofu] + resource "huaweicloud_compute_instance" "worker" {
+2026-09-02T09:02:34 [tofu] + access_ip_v4              = (known after apply)
+2026-09-02T09:02:34 [tofu] + access_ip_v6              = (known after apply)
+2026-09-02T09:02:34 [tofu] + agency_name               = (known after apply)
+2026-09-02T09:02:34 [tofu] + agent_list                = (known after apply)
+2026-09-02T09:02:34 [tofu] + availability_zone         = "me-east-215a"
+2026-09-02T09:02:34 [tofu] + charging_mode             = (known after apply)
+2026-09-02T09:02:34 [tofu] + created_at                = (known after apply)
+2026-09-02T09:02:34 [tofu] + delete_eip_on_termination = true
+2026-09-02T09:02:34 [tofu] + description               = (known after apply)
+2026-09-02T09:02:34 [tofu] + enterprise_project_id     = (known after apply)
+2026-09-02T09:02:34 [tofu] + expired_time              = (known after apply)
+2026-09-02T09:02:34 [tofu] + flavor_id                 = "m7n.2xlarge.8"
+2026-09-02T09:02:34 [tofu] + flavor_name               = (known after apply)
+2026-09-02T09:02:34 [tofu] + hostname                  = (known after apply)
+2026-09-02T09:02:34 [tofu] + id                        = (known after apply)
+2026-09-02T09:02:34 [tofu] + image_id                  = "ec509d3b-e2c5-40b8-987b-ce9623d67a88"
+2026-09-02T09:02:34 [tofu] + image_name                = (known after apply)
+2026-09-02T09:02:34 [tofu] + key_pair                  = "catalyst-hw306-omani-works-e68e7972-key"
+2026-09-02T09:02:34 [tofu] + name                      = "catalyst-hw306-omani-works-e68e7972-me-east-215-a-w9b1e70"
+2026-09-02T09:02:34 [tofu] + power_action              = (known after apply)
+2026-09-02T09:02:34 [tofu] + public_ip                 = (known after apply)
+2026-09-02T09:02:34 [tofu] + region                    = (known after apply)
+2026-09-02T09:02:34 [tofu] + security_group_ids        = (known after apply)
+2026-09-02T09:02:34 [tofu] + security_groups           = [
+2026-09-02T09:02:34 [tofu] + "catalyst-hw306-omani-works-e68e7972-me-east-215-a-sg",
+2026-09-02T09:02:34 [tofu] ]
+2026-09-02T09:02:34 [tofu] + spot_duration_count       = (known after apply)
+2026-09-02T09:02:34 [tofu] + status                    = (known after apply)
+2026-09-02T09:02:34 [tofu] + stop_before_destroy       = false
+2026-09-02T09:02:34 [tofu] + system_disk_id            = (known after apply)
+2026-09-02T09:02:34 [tofu] + system_disk_iops          = (known after apply)
+2026-09-02T09:02:34 [tofu] + system_disk_kms_key_id    = (known after apply)
+2026-09-02T09:02:34 [tofu] + system_disk_size          = 40
+2026-09-02T09:02:34 [tofu] + system_disk_throughput    = (known after apply)
+2026-09-02T09:02:34 [tofu] + system_disk_type          = "SSD"
+2026-09-02T09:02:34 [tofu] + tags                      = (known after apply)
+2026-09-02T09:02:34 [tofu] + updated_at                = (known after apply)
+2026-09-02T09:02:34 [tofu] + user_data                 = (sensitive value)
+2026-09-02T09:02:34 [tofu] + volume_attached           = (known after apply)
+2026-09-02T09:02:34 [tofu] + enclave_options (known after apply)
+2026-09-02T09:02:34 [tofu] + network {
+2026-09-02T09:02:58 [tofu] huaweicloud_vpc_eip.cp["me-east-215-b"]: Creating...
+2026-09-02T09:02:58 [tofu] huaweicloud_obs_bucket.main: Creating...
+2026-09-02T09:03:08 [tofu] huaweicloud_obs_bucket.main: Creation complete after 10s [id=catalyst-hw306-omani-works-e68e7972]
+2026-09-02T09:03:08 [tofu] huaweicloud_vpc_eip.cp["me-east-215-a"]: Creating...
+2026-09-02T09:03:09 [tofu] huaweicloud_vpc_eip.cp["me-east-215-b"]: Creation complete after 12s [id=cb3108c5-d446-4570-9173-d36f2526d896]
+2026-09-02T09:03:09 [tofu] huaweicloud_vpc_eip.elb_console[0]: Creating...
+2026-09-02T09:03:16 [tofu] huaweicloud_vpc_eip.cp["me-east-215-a"]: Creation complete after 8s [id=30d4a9e3-9bc9-45d6-bc0d-23e433b320cf]
+2026-09-02T09:03:16 [tofu] huaweicloud_kps_keypair.main: Creating...
+2026-09-02T09:03:17 [tofu] huaweicloud_vpc_eip.elb_console[0]: Creation complete after 8s [id=005d6193-b067-41e4-b5a1-bef9b71f71fe]
+2026-09-02T09:03:17 [tofu] huaweicloud_networking_secgroup.region["me-east-215-b"]: Creating...
+2026-09-02T09:03:19 [tofu] huaweicloud_kps_keypair.main: Creation complete after 3s [id=catalyst-hw306-omani-works-e68e7972-key]
+2026-09-02T09:03:19 [tofu] huaweicloud_networking_secgroup.region["me-east-215-a"]: Creating...
+2026-09-02T09:03:20 [tofu] huaweicloud_networking_secgroup.region["me-east-215-b"]: Creation complete after 2s [id=ecbd129c-0f93-4a38-96bd-ad4d66f1a934]
+2026-09-02T09:03:20 [tofu] huaweicloud_vpc.region["me-east-215-b"]: Creating...
+2026-09-02T09:03:21 [tofu] huaweicloud_networking_secgroup.region["me-east-215-a"]: Creation complete after 2s [id=3b76995d-8a37-4dbe-aa67-0114b1b6fb72]
+2026-09-02T09:03:21 [tofu] huaweicloud_vpc_eip.nat["me-east-215-b"]: Creating...
+2026-09-02T09:03:28 [tofu] huaweicloud_vpc.region["me-east-215-b"]: Creation complete after 8s [id=24b3f930-3fe2-4699-8b3d-bd4fb23d60dd]
+2026-09-02T09:03:28 [tofu] huaweicloud_vpc.region["me-east-215-a"]: Creating...
+2026-09-02T09:03:29 [tofu] huaweicloud_vpc_eip.nat["me-east-215-b"]: Creation complete after 8s [id=e72512da-80a3-4fd4-8fe9-781c5878c092]
+2026-09-02T09:03:29 [tofu] huaweicloud_vpc_eip.elb_primary: Creating...
+2026-09-02T09:03:37 [tofu] huaweicloud_vpc.region["me-east-215-a"]: Creation complete after 9s [id=ba4fc282-86be-4be1-bab3-d5668feddf51]
+2026-09-02T09:03:37 [tofu] huaweicloud_vpc_eip.nat["me-east-215-a"]: Creating...
+2026-09-02T09:03:37 [tofu] huaweicloud_vpc_eip.elb_primary: Creation complete after 9s [id=dc0823ad-d6de-4e17-bf0e-e1a945fef198]
+2026-09-02T09:03:38 [tofu] huaweicloud_networking_secgroup_rule.ingress_cilium_health["me-east-215-a|10.43.0.0/16"]: Creating...
+2026-09-02T09:03:39 [tofu] huaweicloud_networking_secgroup_rule.ingress_cilium_health["me-east-215-a|10.43.0.0/16"]: Creation complete after 2s [id=01559572-f49f-4d19-8ab1-17ebfb50a695]
+2026-09-02T09:03:39 [tofu] huaweicloud_networking_secgroup_rule.ingress_cilium_wireguard["me-east-215-a"]: Creating...
+2026-09-02T09:03:41 [tofu] huaweicloud_networking_secgroup_rule.ingress_cilium_wireguard["me-east-215-a"]: Creation complete after 2s [id=fdf071fe-3101-45db-972f-1c61504a6a46]
+2026-09-02T09:03:41 [tofu] huaweicloud_networking_secgroup_rule.ingress_cilium_health["me-east-215-b|10.42.0.0/16"]: Creating...
+2026-09-02T09:03:43 [tofu] huaweicloud_networking_secgroup_rule.ingress_cilium_health["me-east-215-b|10.42.0.0/16"]: Creation complete after 1s [id=093cbcd0-865b-4b0e-8bb9-3599ccf1aa89]
+2026-09-02T09:03:43 [tofu] huaweicloud_networking_secgroup_rule.ingress_cilium_health["me-east-215-a|10.42.1.0/24"]: Creating...
+2026-09-02T09:03:44 [tofu] huaweicloud_vpc_eip.nat["me-east-215-a"]: Creation complete after 7s [id=9cb01aa0-5d1a-4182-888b-fc84873efb18]
+2026-09-02T09:03:44 [tofu] huaweicloud_networking_secgroup_rule.ingress_cilium_health["me-east-215-b|10.43.0.0/16"]: Creating...
+2026-09-02T09:03:44 [tofu] huaweicloud_networking_secgroup_rule.ingress_cilium_health["me-east-215-a|10.42.1.0/24"]: Creation complete after 2s [id=80fbfe8c-c0a1-4d0b-98b4-8b3d754c5752]
+2026-09-02T09:03:44 [tofu] huaweicloud_networking_secgroup_rule.ingress_cilium_health["me-east-215-a|10.52.1.0/24"]: Creating...
+2026-09-02T09:03:46 [tofu] huaweicloud_networking_secgroup_rule.ingress_cilium_health["me-east-215-b|10.43.0.0/16"]: Creation complete after 2s [id=54cde439-0f63-4ddd-9c93-398b8fecd7f4]
+2026-09-02T09:03:46 [tofu] huaweicloud_networking_secgroup_rule.ingress_cilium_health["me-east-215-b|10.52.1.0/24"]: Creating...
+2026-09-02T09:03:46 [tofu] huaweicloud_networking_secgroup_rule.ingress_cilium_health["me-east-215-a|10.52.1.0/24"]: Creation complete after 2s [id=34661915-3ac9-4af8-aa6f-87bfd98dedc7]
+2026-09-02T09:03:46 [tofu] huaweicloud_networking_secgroup_rule.ingress_cilium_health["me-east-215-a|10.42.0.0/16"]: Creating...
+2026-09-02T09:03:48 [tofu] huaweicloud_networking_secgroup_rule.ingress_cilium_health["me-east-215-b|10.52.1.0/24"]: Creation complete after 1s [id=f9be60f5-f714-4b76-bfd3-a4f6ae04b492]
+2026-09-02T09:03:48 [tofu] huaweicloud_networking_secgroup_rule.ingress_cilium_health["me-east-215-b|10.42.1.0/24"]: Creating...
+2026-09-02T09:03:48 [tofu] huaweicloud_networking_secgroup_rule.ingress_cilium_health["me-east-215-a|10.42.0.0/16"]: Creation complete after 1s [id=7dfa6dd7-44fc-428a-95c3-27c3cd130f62]
+2026-09-02T09:03:48 [tofu] huaweicloud_networking_secgroup_rule.ingress_8080["me-east-215-b"]: Creating...
+2026-09-02T09:03:49 [tofu] huaweicloud_networking_secgroup_rule.ingress_cilium_health["me-east-215-b|10.42.1.0/24"]: Creation complete after 1s [id=996e634b-e315-4669-9edf-ee9dca063fd1]
+2026-09-02T09:03:49 [tofu] huaweicloud_networking_secgroup_rule.ingress_cilium_wireguard["me-east-215-b"]: Creating...
+2026-09-02T09:03:50 [tofu] huaweicloud_networking_secgroup_rule.ingress_8080["me-east-215-b"]: Creation complete after 2s [id=9af26f1f-1faa-4d96-9fe2-ab7d3008dc6b]
+2026-09-02T09:03:50 [tofu] huaweicloud_networking_secgroup_rule.ingress_8080["me-east-215-a"]: Creating...
+2026-09-02T09:03:50 [tofu] huaweicloud_networking_secgroup_rule.ingress_cilium_wireguard["me-east-215-b"]: Creation complete after 1s [id=5fd32604-71e7-490d-9a62-0e27341b88d3]
+2026-09-02T09:03:51 [tofu] huaweicloud_networking_secgroup_rule.ingress_443["me-east-215-b"]: Creating...
+2026-09-02T09:03:51 [tofu] huaweicloud_networking_secgroup_rule.ingress_8080["me-east-215-a"]: Creation complete after 2s [id=b71b77b6-86dc-4a3d-ae14-232f9cbe51a4]
+2026-09-02T09:03:51 [tofu] huaweicloud_networking_secgroup_rule.ingress_cilium_vxlan["me-east-215-b"]: Creating...
+2026-09-02T09:03:52 [tofu] huaweicloud_networking_secgroup_rule.ingress_443["me-east-215-b"]: Creation complete after 1s [id=628e3de4-5cc7-4873-bc11-c09729a0a5a0]
+2026-09-02T09:03:52 [tofu] huaweicloud_networking_secgroup_rule.ingress_443["me-east-215-a"]: Creating...
+2026-09-02T09:03:53 [tofu] huaweicloud_networking_secgroup_rule.ingress_cilium_vxlan["me-east-215-b"]: Creation complete after 1s [id=a911fa81-8a2d-4091-bdc6-5a5c51a2933e]
+2026-09-02T09:03:53 [tofu] huaweicloud_networking_secgroup_rule.ingress_cilium_geneve["me-east-215-a"]: Creating...
+2026-09-02T09:03:53 [tofu] huaweicloud_networking_secgroup_rule.ingress_443["me-east-215-a"]: Creation complete after 1s [id=6f57eca2-5437-43ae-beda-baf269dc2263]
+2026-09-02T09:03:53 [tofu] huaweicloud_networking_secgroup_rule.ingress_cilium_vxlan["me-east-215-a"]: Creating...
+2026-09-02T09:03:54 [tofu] huaweicloud_networking_secgroup_rule.ingress_cilium_vxlan["me-east-215-a"]: Creation complete after 2s [id=b48ecc74-9469-4bc1-980f-648a758b69bb]
+2026-09-02T09:03:54 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_udp["me-east-215-b|10.43.0.0/16"]: Creating...
+2026-09-02T09:03:54 [tofu] huaweicloud_networking_secgroup_rule.ingress_cilium_geneve["me-east-215-a"]: Creation complete after 2s [id=2109e89f-1b30-4a8f-b938-a5e4edbc0c48]
+2026-09-02T09:03:54 [tofu] huaweicloud_networking_secgroup_rule.ingress_cilium_geneve["me-east-215-b"]: Creating...
+2026-09-02T09:03:55 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_udp["me-east-215-b|10.43.0.0/16"]: Creation complete after 1s [id=093f9ecf-59b4-41cc-b74a-df984c6944c6]
+2026-09-02T09:03:55 [tofu] huaweicloud_networking_secgroup_rule.ingress_clustermesh_proxy["me-east-215-a"]: Creating...
+2026-09-02T09:03:56 [tofu] huaweicloud_networking_secgroup_rule.ingress_cilium_geneve["me-east-215-b"]: Creation complete after 2s [id=3d290826-868b-4718-9264-f7effc9826e4]
+2026-09-02T09:03:56 [tofu] huaweicloud_networking_secgroup_rule.ingress_clustermesh_proxy["me-east-215-b"]: Creating...
+2026-09-02T09:03:57 [tofu] huaweicloud_networking_secgroup_rule.ingress_clustermesh_proxy["me-east-215-a"]: Creation complete after 2s [id=930875ae-7070-4ecf-8acf-b9daf98ae552]
+2026-09-02T09:03:57 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_udp["me-east-215-a|10.43.0.0/16"]: Creating...
+2026-09-02T09:03:58 [tofu] huaweicloud_networking_secgroup_rule.ingress_clustermesh_proxy["me-east-215-b"]: Creation complete after 1s [id=a53a70ba-d1c6-4a3f-b8d6-79107bbe1978]
+2026-09-02T09:03:58 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_udp["me-east-215-a|10.42.0.0/16"]: Creating...
+2026-09-02T09:03:58 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_udp["me-east-215-a|10.43.0.0/16"]: Creation complete after 1s [id=8d4734b5-4b2f-45f0-acb8-25b41f200a8e]
+2026-09-02T09:03:58 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_udp["me-east-215-b|10.42.0.0/16"]: Creating...
+2026-09-02T09:03:59 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_udp["me-east-215-a|10.42.0.0/16"]: Creation complete after 2s [id=4ca24570-f8ea-46f0-948f-23fe500373c0]
+2026-09-02T09:04:00 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_udp["me-east-215-b|10.42.1.0/24"]: Creating...
+2026-09-02T09:04:00 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_udp["me-east-215-b|10.42.0.0/16"]: Creation complete after 1s [id=29fbd4e4-5bbb-4c59-af70-f68f464ab1f5]
+2026-09-02T09:04:00 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_udp["me-east-215-a|10.52.1.0/24"]: Creating...
+2026-09-02T09:04:01 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_udp["me-east-215-a|10.52.1.0/24"]: Creation complete after 2s [id=39b6a5e8-fc63-45ba-b5e4-42d70a3bc5b3]
+2026-09-02T09:04:01 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_udp["me-east-215-a|10.42.1.0/24"]: Creating...
+2026-09-02T09:04:01 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_udp["me-east-215-b|10.42.1.0/24"]: Creation complete after 2s [id=8d2355b5-14ec-41b8-9c89-324b70a44d5c]
+2026-09-02T09:04:01 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_udp["me-east-215-b|10.52.1.0/24"]: Creating...
+2026-09-02T09:04:03 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_udp["me-east-215-a|10.42.1.0/24"]: Creation complete after 1s [id=8088d26d-d075-4c8a-b288-163a4971a0d0]
+2026-09-02T09:04:03 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_tcp["me-east-215-b|10.43.0.0/16"]: Creating...
+2026-09-02T09:04:03 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_udp["me-east-215-b|10.52.1.0/24"]: Creation complete after 2s [id=9b23913c-08d9-40f9-abbe-972ebee20b16]
+2026-09-02T09:04:04 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_icmp["me-east-215-b|10.52.1.0/24"]: Creating...
+2026-09-02T09:04:04 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_tcp["me-east-215-b|10.43.0.0/16"]: Creation complete after 2s [id=f51d2b14-45ab-4734-89c9-627fe53dd672]
+2026-09-02T09:04:04 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_tcp["me-east-215-b|10.42.0.0/16"]: Creating...
+2026-09-02T09:04:06 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_icmp["me-east-215-b|10.52.1.0/24"]: Creation complete after 2s [id=eb6bf228-5ad1-4a5a-93b4-a9aabd0cdca0]
+2026-09-02T09:04:06 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_tcp["me-east-215-a|10.43.0.0/16"]: Creating...
+2026-09-02T09:04:06 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_tcp["me-east-215-b|10.42.0.0/16"]: Creation complete after 1s [id=0ef6b189-0328-45c6-a254-6364af0c799a]
+2026-09-02T09:04:06 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_tcp["me-east-215-a|10.42.1.0/24"]: Creating...
+2026-09-02T09:04:07 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_tcp["me-east-215-a|10.42.1.0/24"]: Creation complete after 2s [id=511d3318-aa06-4acd-84e1-e70e2709e4ba]
+2026-09-02T09:04:07 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_tcp["me-east-215-b|10.52.1.0/24"]: Creating...
+2026-09-02T09:04:07 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_tcp["me-east-215-a|10.43.0.0/16"]: Creation complete after 2s [id=30f36532-e74c-4508-9fd7-bfdf7da42500]
+2026-09-02T09:04:07 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_tcp["me-east-215-a|10.42.0.0/16"]: Creating...
+2026-09-02T09:04:08 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_tcp["me-east-215-b|10.52.1.0/24"]: Creation complete after 1s [id=4d6983d7-a33f-4763-8bc7-0205d204ed31]
+2026-09-02T09:04:08 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_tcp["me-east-215-a|10.52.1.0/24"]: Creating...
+2026-09-02T09:04:09 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_tcp["me-east-215-a|10.42.0.0/16"]: Creation complete after 2s [id=d0fce994-0729-4309-ad57-94465ae0d358]
+2026-09-02T09:04:09 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_tcp["me-east-215-b|10.42.1.0/24"]: Creating...
+2026-09-02T09:04:10 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_tcp["me-east-215-a|10.52.1.0/24"]: Creation complete after 1s [id=38611741-e635-4b66-ba16-601c34ffcdfd]
+2026-09-02T09:04:10 [tofu] huaweicloud_networking_secgroup_rule.ingress_80["me-east-215-b"]: Creating...
+2026-09-02T09:04:11 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_tcp["me-east-215-b|10.42.1.0/24"]: Creation complete after 1s [id=b496ade3-a4de-4505-bf06-195fc9814eb2]
+2026-09-02T09:04:11 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_icmp["me-east-215-a|10.52.1.0/24"]: Creating...
+2026-09-02T09:04:11 [tofu] huaweicloud_networking_secgroup_rule.ingress_80["me-east-215-b"]: Creation complete after 2s [id=2a7972d9-b55b-4ec0-96c9-f58199e6b402]
+2026-09-02T09:04:11 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_icmp["me-east-215-a|10.43.0.0/16"]: Creating...
+2026-09-02T09:04:13 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_icmp["me-east-215-a|10.52.1.0/24"]: Creation complete after 2s [id=4437ada0-b8f6-45b9-966b-19eaf44e9279]
+2026-09-02T09:04:13 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_icmp["me-east-215-a|10.43.0.0/16"]: Creation complete after 1s [id=464ab9af-e8dd-4ada-8238-e88f80cbfd5a]
+2026-09-02T09:04:13 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_icmp["me-east-215-a|10.42.1.0/24"]: Creating...
+2026-09-02T09:04:13 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_icmp["me-east-215-b|10.43.0.0/16"]: Creating...
+2026-09-02T09:04:14 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_icmp["me-east-215-a|10.42.1.0/24"]: Creation complete after 1s [id=69317a02-2e3d-46e7-9501-a466cdbfde6e]
+2026-09-02T09:04:14 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_icmp["me-east-215-b|10.42.0.0/16"]: Creating...
+2026-09-02T09:04:14 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_icmp["me-east-215-b|10.43.0.0/16"]: Creation complete after 2s [id=ae44aba8-ef13-476a-a5e9-b4393d247c53]
+2026-09-02T09:04:14 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_icmp["me-east-215-a|10.42.0.0/16"]: Creating...
+2026-09-02T09:04:15 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_icmp["me-east-215-b|10.42.0.0/16"]: Creation complete after 2s [id=f03dae11-ec29-4892-b54d-0767874c4f2e]
+2026-09-02T09:04:15 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_icmp["me-east-215-b|10.42.1.0/24"]: Creating...
+2026-09-02T09:04:16 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_icmp["me-east-215-a|10.42.0.0/16"]: Creation complete after 1s [id=badf678a-5660-45d3-94b3-823fd7c29b36]
+2026-09-02T09:04:16 [tofu] huaweicloud_networking_secgroup_rule.ingress_clustermesh_2379["me-east-215-b"]: Creating...
+2026-09-02T09:04:16 [tofu] huaweicloud_networking_secgroup_rule.ingress_pod_cidr_icmp["me-east-215-b|10.42.1.0/24"]: Creation complete after 1s [id=f644679e-62af-4f33-a784-81b2a7006442]
+2026-09-02T09:04:16 [tofu] huaweicloud_networking_secgroup_rule.ingress_80["me-east-215-a"]: Creating...
+2026-09-02T09:04:18 [tofu] huaweicloud_networking_secgroup_rule.ingress_80["me-east-215-a"]: Creation complete after 1s [id=daf59d57-0835-4018-8832-c7a67c92b7ab]
+2026-09-02T09:04:18 [tofu] huaweicloud_networking_secgroup_rule.ingress_clustermesh_2379["me-east-215-b"]: Creation complete after 1s [id=4b66f56f-8b3f-45c5-bf22-e54ab21cb1a3]
+2026-09-02T09:04:18 [tofu] huaweicloud_networking_secgroup_rule.ingress_6443["me-east-215-a"]: Creating...
+2026-09-02T09:04:18 [tofu] huaweicloud_networking_secgroup_rule.ingress_clustermesh_2379["me-east-215-a"]: Creating...
+2026-09-02T09:04:19 [tofu] huaweicloud_networking_secgroup_rule.ingress_6443["me-east-215-a"]: Creation complete after 2s [id=3e77d40b-c39a-44cd-be1f-ce74b1dbea06]
+2026-09-02T09:04:19 [tofu] huaweicloud_networking_secgroup_rule.ingress_icmp["me-east-215-b"]: Creating...
+2026-09-02T09:04:19 [tofu] huaweicloud_networking_secgroup_rule.ingress_clustermesh_2379["me-east-215-a"]: Creation complete after 2s [id=6552f995-cc4f-4d47-accd-d0d0d567c5f1]
+2026-09-02T09:04:19 [tofu] huaweicloud_networking_secgroup_rule.ingress_6443["me-east-215-b"]: Creating...
+2026-09-02T09:04:20 [tofu] huaweicloud_networking_secgroup_rule.ingress_icmp["me-east-215-b"]: Creation complete after 1s [id=ee188534-dc4b-45b7-a92f-7e9c8a97b86f]
+2026-09-02T09:04:20 [tofu] huaweicloud_networking_secgroup_rule.ingress_wireguard["me-east-215-b"]: Creating...
+2026-09-02T09:04:21 [tofu] huaweicloud_networking_secgroup_rule.ingress_6443["me-east-215-b"]: Creation complete after 1s [id=3b035a3d-8a39-477d-9e6a-d96c587e92af]
+2026-09-02T09:04:21 [tofu] huaweicloud_networking_secgroup_rule.ingress_icmp["me-east-215-a"]: Creating...
+2026-09-02T09:04:22 [tofu] huaweicloud_networking_secgroup_rule.ingress_wireguard["me-east-215-b"]: Creation complete after 1s [id=c3d98849-0cc0-4e49-9838-0a507dd22c0d]
+2026-09-02T09:04:22 [tofu] huaweicloud_vpc_subnet.region["me-east-215-b"]: Creating...
+2026-09-02T09:04:22 [tofu] huaweicloud_networking_secgroup_rule.ingress_icmp["me-east-215-a"]: Creation complete after 2s [id=2463948e-f9bb-4e2e-8b47-4604320621f4]
+2026-09-02T09:04:22 [tofu] huaweicloud_networking_secgroup_rule.ingress_wireguard["me-east-215-a"]: Creating...
+2026-09-02T09:04:24 [tofu] huaweicloud_networking_secgroup_rule.ingress_wireguard["me-east-215-a"]: Creation complete after 1s [id=8736ea16-4fc0-454c-a295-3d3b12412a27]
+2026-09-02T09:04:24 [tofu] huaweicloud_vpc_peering_connection.mesh["me-east-215-a--me-east-215-b"]: Creating...
+2026-09-02T09:04:29 [tofu] huaweicloud_vpc_subnet.region["me-east-215-b"]: Creation complete after 8s [id=2d32440a-51c5-47ad-936f-9eb155712ec7]
+2026-09-02T09:04:29 [tofu] huaweicloud_vpc_subnet.region["me-east-215-a"]: Creating...
+2026-09-02T09:04:30 [tofu] huaweicloud_vpc_peering_connection.mesh["me-east-215-a--me-east-215-b"]: Creation complete after 7s [id=ad1ac271-ff6f-4021-b911-c4715774d4d7]
+2026-09-02T09:04:30 [tofu] huaweicloud_networking_secgroup_rule.ingress_8443["me-east-215-b"]: Creating...
+2026-09-02T09:04:32 [tofu] huaweicloud_networking_secgroup_rule.ingress_8443["me-east-215-b"]: Creation complete after 1s [id=abe3eec1-375c-4030-901b-54d2403dd8ab]
+2026-09-02T09:04:32 [tofu] huaweicloud_networking_secgroup_rule.ingress_8443["me-east-215-a"]: Creating...
+2026-09-02T09:04:33 [tofu] huaweicloud_networking_secgroup_rule.ingress_8443["me-east-215-a"]: Creation complete after 2s [id=e737f91e-5c64-4128-af4b-38ec6bba4d33]
+2026-09-02T09:04:33 [tofu] time_sleep.nat_eip_propagation["me-east-215-b"]: Creating...
+2026-09-02T09:04:37 [tofu] huaweicloud_vpc_subnet.region["me-east-215-a"]: Creation complete after 8s [id=253e2035-7bbe-4795-afe2-46d8e0458209]
+2026-09-02T09:04:37 [tofu] huaweicloud_vpc_route.mesh_pod_b_to_a["me-east-215-a--me-east-215-b"]: Creating...
+2026-09-02T09:04:39 [tofu] huaweicloud_vpc_route.mesh_pod_b_to_a["me-east-215-a--me-east-215-b"]: Creation complete after 2s [id=0179307a-720c-41d2-9870-088ec7a71d6a/10.42.0.0/16]
+2026-09-02T09:04:39 [tofu] time_sleep.nat_eip_propagation["me-east-215-a"]: Creating...
+2026-09-02T09:04:48 [tofu] time_sleep.nat_eip_propagation["me-east-215-b"]: Creation complete after 15s [id=2026-09-02T09:04:48Z]
+2026-09-02T09:04:48 [tofu] huaweicloud_vpc_route.mesh_a_to_b["me-east-215-a--me-east-215-b"]: Creating...
+2026-09-02T09:04:50 [tofu] huaweicloud_vpc_route.mesh_a_to_b["me-east-215-a--me-east-215-b"]: Creation complete after 2s [id=a3aa3827-3e94-4163-99e9-dbce7f3ddfc5/10.52.0.0/16]
+2026-09-02T09:04:50 [tofu] huaweicloud_vpc_route.mesh_pod_a_to_b["me-east-215-a--me-east-215-b"]: Creating...
+2026-09-02T09:04:52 [tofu] huaweicloud_vpc_route.mesh_pod_a_to_b["me-east-215-a--me-east-215-b"]: Creation complete after 2s [id=a3aa3827-3e94-4163-99e9-dbce7f3ddfc5/10.43.0.0/16]
+2026-09-02T09:04:52 [tofu] huaweicloud_vpc_route.mesh_b_to_a["me-east-215-a--me-east-215-b"]: Creating...
+2026-09-02T09:04:53 [tofu] huaweicloud_elb_loadbalancer.primary: Creating...
+2026-09-02T09:04:54 [tofu] time_sleep.nat_eip_propagation["me-east-215-a"]: Creation complete after 15s [id=2026-09-02T09:04:54Z]
+2026-09-02T09:04:54 [tofu] huaweicloud_compute_instance.control_plane[1]: Creating...
+2026-09-02T09:04:57 [tofu] huaweicloud_elb_loadbalancer.primary: Creation complete after 4s [id=5351f817-921a-4a30-8004-7e649eee0420]
+2026-09-02T09:04:57 [tofu] huaweicloud_compute_instance.control_plane[0]: Creating...
+2026-09-02T09:05:41 [tofu] huaweicloud_compute_instance.control_plane[1]: Creation complete after 46s [id=fbc005f9-bd88-4307-8569-8986caa00fe1]
+2026-09-02T09:05:41 [tofu] huaweicloud_nat_gateway.region["me-east-215-a"]: Creating...
+2026-09-02T09:05:45 [tofu] huaweicloud_compute_instance.control_plane[0]: Creation complete after 48s [id=f295330a-9c8e-46d4-8a75-824d5f209973]
+2026-09-02T09:05:45 [tofu] huaweicloud_nat_gateway.region["me-east-215-b"]: Creating...
+2026-09-02T09:05:49 [tofu] huaweicloud_nat_gateway.region["me-east-215-a"]: Creation complete after 9s [id=76deb3f6-1bd7-4813-9154-65a981204360]
+2026-09-02T09:05:49 [tofu] huaweicloud_elb_loadbalancer.console[0]: Creating...
+2026-09-02T09:05:52 [tofu] huaweicloud_elb_loadbalancer.console[0]: Creation complete after 3s [id=e27b65f6-db90-48e0-ae9f-a92878131030]
+2026-09-02T09:05:53 [tofu] huaweicloud_elb_pool.https: Creating...
+2026-09-02T09:05:53 [tofu] huaweicloud_nat_gateway.region["me-east-215-b"]: Creation complete after 7s [id=112c800d-c780-401c-a5cd-8cbfe3932045]
+2026-09-02T09:05:53 [tofu] huaweicloud_elb_pool.http: Creating...
+2026-09-02T09:05:54 [tofu] huaweicloud_elb_pool.https: Creation complete after 2s [id=a802cd7d-033a-40b7-a1c2-c017ebd71d3b]
+2026-09-02T09:05:54 [tofu] huaweicloud_elb_pool.console_http[0]: Creating...
+2026-09-02T09:05:54 [tofu] huaweicloud_elb_pool.http: Creation complete after 2s [id=8455fd4a-da45-47c2-a8c6-4fded16ef066]
+2026-09-02T09:05:54 [tofu] huaweicloud_elb_pool.console_https[0]: Creating...
+2026-09-02T09:05:55 [tofu] huaweicloud_elb_pool.console_http[0]: Creation complete after 1s [id=cb6dfe38-6cb5-4b4e-a11e-565bcb7a2e05]
+2026-09-02T09:05:56 [tofu] huaweicloud_nat_snat_rule.region["me-east-215-b"]: Creating...
+2026-09-02T09:05:56 [tofu] huaweicloud_elb_pool.console_https[0]: Creation complete after 1s [id=b95a28a9-56ee-4d27-a822-3ce9036f7235]
+2026-09-02T09:05:56 [tofu] huaweicloud_elb_listener.https: Creating...
+2026-09-02T09:06:01 [tofu] huaweicloud_nat_snat_rule.region["me-east-215-b"]: Creation complete after 5s [id=759dd413-fa24-48ad-88cf-228d5e7eda24]
+2026-09-02T09:06:01 [tofu] huaweicloud_nat_snat_rule.region["me-east-215-a"]: Creating...
+2026-09-02T09:06:06 [tofu] huaweicloud_nat_snat_rule.region["me-east-215-a"]: Creation complete after 5s [id=75e3f75b-fe61-44de-b36d-da01fa8dcdf3]
+2026-09-02T09:06:06 [tofu] huaweicloud_elb_monitor.https: Creating...
+2026-09-02T09:06:07 [tofu] huaweicloud_elb_monitor.https: Creation complete after 1s [id=813ff258-7564-4bd5-8587-3c309ae03852]
+2026-09-02T09:06:07 [tofu] huaweicloud_elb_listener.http: Creating...
+2026-09-02T09:06:08 [tofu] huaweicloud_elb_listener.https: Creation complete after 13s [id=e5a017df-1b55-457f-a1a7-2584ec5d7a5d]
+2026-09-02T09:06:08 [tofu] huaweicloud_elb_monitor.http: Creating...
+2026-09-02T09:06:09 [tofu] huaweicloud_elb_monitor.http: Creation complete after 1s [id=ad315301-1772-400a-9f18-1a1b06f4cf14]
+2026-09-02T09:06:09 [tofu] huaweicloud_elb_monitor.console_http[0]: Creating...
+2026-09-02T09:06:11 [tofu] huaweicloud_elb_monitor.console_http[0]: Creation complete after 1s [id=17620220-eec7-4252-a59c-b620ba7614ec]
+2026-09-02T09:06:11 [tofu] huaweicloud_elb_listener.console_http[0]: Creating...
+2026-09-02T09:06:19 [tofu] huaweicloud_elb_listener.http: Creation complete after 13s [id=6567d9a7-156a-4248-b0dc-aa1ec7304550]
+2026-09-02T09:06:20 [tofu] huaweicloud_compute_instance.worker["me-east-215-b-2"]: Creating...
+2026-09-02T09:06:23 [tofu] huaweicloud_elb_listener.console_http[0]: Creation complete after 13s [id=d60e9913-065b-4c54-82d9-d556078bf459]
+2026-09-02T09:06:23 [tofu] huaweicloud_compute_instance.worker["me-east-215-b-1"]: Creating...
+2026-09-02T09:06:58 [tofu] huaweicloud_compute_instance.worker["me-east-215-b-2"]: Creation complete after 38s [id=e2b5eb76-3e01-4af3-aafa-4cff2885961d]
+2026-09-02T09:06:58 [tofu] huaweicloud_compute_instance.worker["me-east-215-a-2"]: Creating...
+2026-09-02T09:07:06 [tofu] huaweicloud_compute_instance.worker["me-east-215-b-1"]: Creation complete after 42s [id=47cd216e-5036-4227-84c5-a81826ce4696]
+2026-09-02T09:07:06 [tofu] huaweicloud_compute_instance.worker["me-east-215-a-0"]: Creating...
+2026-09-02T09:07:38 [tofu] huaweicloud_compute_instance.worker["me-east-215-a-2"]: Creation complete after 39s [id=af17c23b-af1b-4560-b658-aad9ac2c5795]
+2026-09-02T09:07:38 [tofu] huaweicloud_compute_instance.worker["me-east-215-a-3"]: Creating...
+2026-09-02T09:07:51 [tofu] huaweicloud_compute_instance.worker["me-east-215-a-0"]: Creation complete after 45s [id=833999f3-4fb6-46f6-aa38-10ac45375091]
+2026-09-02T09:07:51 [tofu] huaweicloud_compute_instance.worker["me-east-215-a-1"]: Creating...
+2026-09-02T09:08:22 [tofu] huaweicloud_compute_instance.worker["me-east-215-a-3"]: Creation complete after 45s [id=d92b36a0-89ec-428d-94f5-720ffad580e8]
+2026-09-02T09:08:23 [tofu] huaweicloud_compute_instance.worker["me-east-215-b-0"]: Creating...
+2026-09-02T09:08:30 [tofu] huaweicloud_compute_instance.worker["me-east-215-a-1"]: Creation complete after 39s [id=7b14dd57-ccb3-4914-b81c-53da04c40ded]
+2026-09-02T09:08:30 [tofu] huaweicloud_compute_instance.worker["me-east-215-b-3"]: Creating...
+2026-09-02T09:09:02 [tofu] huaweicloud_compute_instance.worker["me-east-215-b-0"]: Creation complete after 39s [id=fb66eb4e-706a-47b2-839d-4e39676943ff]
+2026-09-02T09:09:02 [tofu] huaweicloud_compute_instance.worker["me-east-215-a-4"]: Creating...
+2026-09-02T09:09:11 [tofu] huaweicloud_compute_instance.worker["me-east-215-b-3"]: Creation complete after 41s [id=f3ab6f96-ea41-46ed-8c5b-35ab625b0b4c]
+2026-09-02T09:09:11 [tofu] huaweicloud_compute_instance.worker["me-east-215-b-4"]: Creating...
+2026-09-02T09:09:42 [tofu] huaweicloud_compute_instance.worker["me-east-215-a-4"]: Creation complete after 39s [id=0e509d3e-ce37-4a73-9765-a8e269266eb1]
+2026-09-02T09:09:42 [tofu] huaweicloud_elb_listener.console_https[0]: Creating...
+2026-09-02T09:09:55 [tofu] huaweicloud_elb_listener.console_https[0]: Creation complete after 13s [id=1185ff61-0db9-4ce2-a532-15ae1d23e6db]
+2026-09-02T09:09:55 [tofu] huaweicloud_elb_monitor.console_https[0]: Creating...
+2026-09-02T09:09:55 [tofu] huaweicloud_compute_instance.worker["me-east-215-b-4"]: Creation complete after 44s [id=2886f01b-241a-4291-b365-0fa4baea6262]
+2026-09-02T09:09:55 [tofu] huaweicloud_elb_member.http[1]: Creating...
+2026-09-02T09:09:55 [tofu] huaweicloud_elb_monitor.console_https[0]: Creation complete after 1s [id=4ca772d8-5a9f-4e53-9f6d-796df686759c]
+2026-09-02T09:09:55 [tofu] huaweicloud_elb_member.http[9]: Creating...
+2026-09-02T09:09:57 [tofu] huaweicloud_elb_member.http[9]: Creation complete after 1s [id=02835888-b853-4352-a026-a3c1659bc994]
+2026-09-02T09:09:57 [tofu] huaweicloud_elb_member.http[5]: Creating...
+2026-09-02T09:09:57 [tofu] huaweicloud_elb_member.http[1]: Creation complete after 2s [id=db4bd872-56a5-47d1-8bd4-8789735f0870]
+2026-09-02T09:09:57 [tofu] huaweicloud_elb_member.http[10]: Creating...
+2026-09-02T09:09:58 [tofu] huaweicloud_elb_member.http[5]: Creation complete after 1s [id=e800ebfa-ef3d-42f2-b3d8-113217ef8df4]
+2026-09-02T09:09:58 [tofu] huaweicloud_elb_member.http[4]: Creating...
+2026-09-02T09:09:59 [tofu] huaweicloud_elb_member.http[10]: Creation complete after 1s [id=03a85a5d-b75d-48b0-b973-7ebce1e87c0a]
+2026-09-02T09:09:59 [tofu] huaweicloud_elb_member.http[3]: Creating...
+2026-09-02T09:09:59 [tofu] huaweicloud_elb_member.http[4]: Creation complete after 2s [id=50006689-f7c1-4c07-8b96-1229665dd0f1]
+2026-09-02T09:09:59 [tofu] huaweicloud_elb_member.http[11]: Creating...
+2026-09-02T09:10:00 [tofu] huaweicloud_elb_member.http[11]: Creation complete after 1s [id=5e8e5bb1-06fb-497f-adc1-b53eb5e355a6]
+2026-09-02T09:10:00 [tofu] huaweicloud_elb_member.http[0]: Creating...
+2026-09-02T09:10:01 [tofu] huaweicloud_elb_member.http[3]: Creation complete after 2s [id=8ecc16f4-8828-42c4-baa4-ad3b35aa92d5]
+2026-09-02T09:10:01 [tofu] huaweicloud_elb_member.http[2]: Creating...
+2026-09-02T09:10:01 [tofu] huaweicloud_elb_member.http[0]: Creation complete after 1s [id=8d9e645b-00cc-40ea-8a14-b029cf9ac5da]
+2026-09-02T09:10:01 [tofu] huaweicloud_elb_member.http[6]: Creating...
+2026-09-02T09:10:02 [tofu] huaweicloud_elb_member.http[2]: Creation complete after 2s [id=fb96ea3b-043e-4dd8-abb0-4104c7378bcf]
+2026-09-02T09:10:03 [tofu] huaweicloud_elb_member.http[6]: Creation complete after 2s [id=1ffc84c3-4168-4693-85f6-e36cb7a03275]
+2026-09-02T09:10:03 [tofu] huaweicloud_elb_member.http[7]: Creating...
+2026-09-02T09:10:03 [tofu] huaweicloud_elb_member.http[8]: Creating...
+2026-09-02T09:10:05 [tofu] huaweicloud_elb_member.http[8]: Creation complete after 1s [id=306d6e2b-8608-4652-a04c-a3b76f71822e]
+2026-09-02T09:10:05 [tofu] huaweicloud_elb_member.https[11]: Creating...
+2026-09-02T09:10:05 [tofu] huaweicloud_elb_member.http[7]: Creation complete after 2s [id=4e03b66c-0e07-4775-8395-1d7e905aa79c]
+2026-09-02T09:10:05 [tofu] huaweicloud_elb_member.https[1]: Creating...
+2026-09-02T09:10:06 [tofu] huaweicloud_elb_member.https[11]: Creation complete after 2s [id=3df6d0d8-6a66-42e8-8eb7-06029ff62ef9]
+2026-09-02T09:10:06 [tofu] huaweicloud_elb_member.https[2]: Creating...
+2026-09-02T09:10:07 [tofu] huaweicloud_elb_member.https[1]: Creation complete after 2s [id=47cc061e-dc15-4acf-9835-f417542253b2]
+2026-09-02T09:10:07 [tofu] huaweicloud_elb_member.https[4]: Creating...
+2026-09-02T09:10:08 [tofu] huaweicloud_elb_member.https[2]: Creation complete after 1s [id=92da88ef-1246-4684-bb6c-54e13072dba6]
+2026-09-02T09:10:08 [tofu] huaweicloud_elb_member.https[0]: Creating...
+2026-09-02T09:10:09 [tofu] huaweicloud_elb_member.https[4]: Creation complete after 1s [id=761137f5-be53-41ff-8ed4-43af80a68e3a]
+2026-09-02T09:10:09 [tofu] huaweicloud_elb_member.https[10]: Creating...
+2026-09-02T09:10:10 [tofu] huaweicloud_elb_member.https[0]: Creation complete after 1s [id=a2de1198-8648-4064-a8f3-1efd31c0992f]
+2026-09-02T09:10:10 [tofu] huaweicloud_elb_member.https[5]: Creating...
+2026-09-02T09:10:10 [tofu] huaweicloud_elb_member.https[10]: Creation complete after 2s [id=3c7ef33b-07c8-49d8-9bdd-bbeaca8d7ede]
+2026-09-02T09:10:10 [tofu] huaweicloud_elb_member.https[3]: Creating...
+2026-09-02T09:10:11 [tofu] huaweicloud_elb_member.https[5]: Creation complete after 2s [id=466b24bd-06c1-475b-a9b2-be11e86c7070]
+2026-09-02T09:10:11 [tofu] huaweicloud_elb_member.https[7]: Creating...
+2026-09-02T09:10:12 [tofu] huaweicloud_elb_member.https[3]: Creation complete after 2s [id=74c19a85-717f-4bbe-8741-3f3da7486b93]
+2026-09-02T09:10:13 [tofu] huaweicloud_elb_member.https[8]: Creating...
+2026-09-02T09:10:13 [tofu] huaweicloud_elb_member.https[7]: Creation complete after 1s [id=9ff7e61c-d104-4aee-972e-de3ce658373a]
+2026-09-02T09:10:13 [tofu] huaweicloud_elb_member.https[6]: Creating...
+2026-09-02T09:10:14 [tofu] huaweicloud_elb_member.https[8]: Creation complete after 2s [id=d79f6074-27b7-4112-ae3e-cc9801ac812d]
+2026-09-02T09:10:14 [tofu] huaweicloud_elb_member.https[9]: Creating...
+2026-09-02T09:10:14 [tofu] huaweicloud_elb_member.https[6]: Creation complete after 2s [id=6774f449-f6cc-4396-beb0-d831fdc0438b]
+2026-09-02T09:10:14 [tofu] huaweicloud_elb_member.console_https[7]: Creating...
+2026-09-02T09:10:16 [tofu] huaweicloud_elb_member.https[9]: Creation complete after 1s [id=a8ea7979-5034-40ad-b869-cab89a42960d]
+2026-09-02T09:10:16 [tofu] huaweicloud_elb_member.console_https[7]: Creation complete after 1s [id=bfb47568-d72b-41ab-9747-07bfe4563715]
+2026-09-02T09:10:16 [tofu] huaweicloud_elb_member.console_http[6]: Creating...
+2026-09-02T09:10:16 [tofu] huaweicloud_elb_member.console_https[10]: Creating...
+2026-09-02T09:10:18 [tofu] huaweicloud_elb_member.console_https[10]: Creation complete after 2s [id=50bbe344-31ed-46ba-a305-5ce076feedca]
+2026-09-02T09:10:18 [tofu] huaweicloud_elb_member.console_https[4]: Creating...
+2026-09-02T09:10:18 [tofu] huaweicloud_elb_member.console_http[6]: Creation complete after 2s [id=b876cf7a-ff5e-4ac6-b527-b2e2058de092]
+2026-09-02T09:10:18 [tofu] huaweicloud_elb_member.console_https[9]: Creating...
+2026-09-02T09:10:19 [tofu] huaweicloud_elb_member.console_https[4]: Creation complete after 2s [id=3d5f6316-109c-444c-97fb-7a5d164de293]
+2026-09-02T09:10:19 [tofu] huaweicloud_elb_member.console_https[5]: Creating...
+2026-09-02T09:10:19 [tofu] huaweicloud_elb_member.console_https[9]: Creation complete after 2s [id=da12deda-6a6e-4b76-aa66-41c7dabef663]
+2026-09-02T09:10:19 [tofu] huaweicloud_elb_member.console_https[2]: Creating...
+2026-09-02T09:10:21 [tofu] huaweicloud_elb_member.console_https[5]: Creation complete after 1s [id=706e0dd9-8950-42b2-b8a5-1628b39b8c75]
+2026-09-02T09:10:21 [tofu] huaweicloud_elb_member.console_https[6]: Creating...
+2026-09-02T09:10:21 [tofu] huaweicloud_elb_member.console_https[2]: Creation complete after 1s [id=b6c6ae05-c4f5-4a83-915b-d5b9a3e729f5]
+2026-09-02T09:10:21 [tofu] huaweicloud_elb_member.console_https[0]: Creating...
+2026-09-02T09:10:22 [tofu] huaweicloud_elb_member.console_https[6]: Creation complete after 2s [id=0576c149-4f68-4287-8b51-bb8a7a5589f4]
+2026-09-02T09:10:22 [tofu] huaweicloud_elb_member.console_https[11]: Creating...
+2026-09-02T09:10:23 [tofu] huaweicloud_elb_member.console_https[0]: Creation complete after 2s [id=fc6d5622-b7db-4d28-a545-9428bb89a6f5]
+2026-09-02T09:10:23 [tofu] huaweicloud_elb_member.console_https[3]: Creating...
+2026-09-02T09:10:24 [tofu] huaweicloud_elb_member.console_https[11]: Creation complete after 1s [id=48e8b851-0d71-408d-9d70-388a8fd52d52]
+2026-09-02T09:10:24 [tofu] huaweicloud_elb_member.console_https[1]: Creating...
+2026-09-02T09:10:24 [tofu] huaweicloud_elb_member.console_https[3]: Creation complete after 2s [id=a94ec41a-2c8e-4dfc-ba2e-2c79e1771214]
+2026-09-02T09:10:24 [tofu] huaweicloud_elb_member.console_https[8]: Creating...
+2026-09-02T09:10:26 [tofu] huaweicloud_elb_member.console_https[1]: Creation complete after 2s [id=b404960e-208c-4a0e-8b92-d3091cc250c7]
+2026-09-02T09:10:26 [tofu] huaweicloud_elb_member.console_https[8]: Creation complete after 1s [id=0a7ddc2e-ae15-4642-be50-397684ea350f]
+2026-09-02T09:10:26 [tofu] huaweicloud_elb_member.console_http[8]: Creating...
+2026-09-02T09:10:26 [tofu] huaweicloud_elb_member.console_http[11]: Creating...
+2026-09-02T09:10:27 [tofu] huaweicloud_elb_member.console_http[8]: Creation complete after 2s [id=f9c18b7b-91a8-496d-9c63-0870ac82ce16]
+2026-09-02T09:10:27 [tofu] huaweicloud_elb_member.console_http[9]: Creating...
+2026-09-02T09:10:27 [tofu] huaweicloud_elb_member.console_http[11]: Creation complete after 2s [id=0f727452-c248-4d9c-af5f-34661f59e1c9]
+2026-09-02T09:10:27 [tofu] huaweicloud_elb_member.console_http[0]: Creating...
+2026-09-02T09:10:29 [tofu] huaweicloud_elb_member.console_http[0]: Creation complete after 1s [id=a670aadd-63c7-416a-85e0-3f807a2e9910]
+2026-09-02T09:10:29 [tofu] huaweicloud_elb_member.console_http[3]: Creating...
+2026-09-02T09:10:29 [tofu] huaweicloud_elb_member.console_http[9]: Creation complete after 2s [id=129a1d99-14db-4ccc-bfca-fb7945b65995]
+2026-09-02T09:10:29 [tofu] huaweicloud_elb_member.console_http[5]: Creating...
+2026-09-02T09:10:30 [tofu] huaweicloud_elb_member.console_http[3]: Creation complete after 2s [id=13047fad-f53b-42d2-b63a-e9dfb29cb465]
+2026-09-02T09:10:30 [tofu] huaweicloud_elb_member.console_http[7]: Creating...
+2026-09-02T09:10:31 [tofu] huaweicloud_elb_member.console_http[5]: Creation complete after 2s [id=365b8d06-2c5b-47c1-ac5d-a7a48c4b5c74]
+2026-09-02T09:10:31 [tofu] huaweicloud_elb_member.console_http[4]: Creating...
+2026-09-02T09:10:32 [tofu] huaweicloud_elb_member.console_http[7]: Creation complete after 2s [id=84649b96-9c2e-4d48-97f9-40a7c1ab86e5]
+2026-09-02T09:10:32 [tofu] huaweicloud_elb_member.console_http[2]: Creating...
+2026-09-02T09:10:33 [tofu] huaweicloud_elb_member.console_http[4]: Creation complete after 1s [id=00e4b51a-c1aa-4a90-be7a-ee23b2b7a16d]
+2026-09-02T09:10:33 [tofu] huaweicloud_elb_member.console_http[10]: Creating...
+2026-09-02T09:10:34 [tofu] huaweicloud_elb_member.console_http[2]: Creation complete after 1s [id=2585b469-d5e7-4738-b81c-58dd5da5f371]
+2026-09-02T09:10:34 [tofu] huaweicloud_elb_member.console_http[1]: Creating...
+2026-09-02T09:10:34 [tofu] huaweicloud_elb_member.console_http[10]: Creation complete after 2s [id=4cf557fe-c5bd-425a-8664-d1922869f6f0]
+2026-09-02T09:10:36 [tofu] huaweicloud_elb_member.console_http[1]: Creation complete after 2s [id=581ec991-df35-4f02-8e3e-089f70546bb7]
+2026-09-02T09:10:36 [tofu] Warning: Value for undeclared variable
+2026-09-02T09:10:36 [tofu] The root module does not declare a variable named "worker_count" but a value
+2026-09-02T09:10:36 [tofu] was found in file "tofu.auto.tfvars.json". If you meant to use this value,
+2026-09-02T09:10:36 [tofu] add a "variable" block to the configuration.
+2026-09-02T09:10:36 [tofu] To silence these warnings, use TF_VAR_... environment variables to provide
+2026-09-02T09:10:36 [tofu] certain "global" settings to all configurations in your organization. To
+2026-09-02T09:10:36 [tofu] reduce the verbosity of these warnings, use the -compact-warnings option.
+2026-09-02T09:10:36 [tofu] Warning: Value for undeclared variable
+2026-09-02T09:10:36 [tofu] The root module does not declare a variable named "dynadot_secret" but a
+2026-09-02T09:10:36 [tofu] value was found in file "tofu.auto.tfvars.json". If you meant to use this
+2026-09-02T09:10:36 [tofu] value, add a "variable" block to the configuration.
+2026-09-02T09:10:36 [tofu] To silence these warnings, use TF_VAR_... environment variables to provide
+2026-09-02T09:10:36 [tofu] certain "global" settings to all configurations in your organization. To
+2026-09-02T09:10:36 [tofu] reduce the verbosity of these warnings, use the -compact-warnings option.
+2026-09-02T09:10:36 [tofu] Warning: Values for undeclared variables
+2026-09-02T09:10:36 [tofu] In addition to the other similar warnings shown, 20 other variable(s) defined
+2026-09-02T09:10:36 [tofu] without being declared.
+2026-09-02T09:10:36 [tofu] Error: error creating VPC route: Bad request with: [PUT https://vpc.me-east-215.kom4dc.nationalcloud.om/v1/f27698137bdc4b00ad509cf27f1e5547/routetables/0179307a-720c-41d2-9870-088ec7a71d6a], request_id: 706d90e4995a4bf43829135f5ec8a4ff, error message: {"code":"VPC.2812","message":"The destination of route to add is exist already."}
+2026-09-02T09:10:36 [tofu] with huaweicloud_vpc_route.mesh_b_to_a["me-east-215-a--me-east-215-b"],
+2026-09-02T09:10:36 [tofu] on main.tf line 244, in resource "huaweicloud_vpc_route" "mesh_b_to_a":
+2026-09-02T09:10:36 [tofu] 244: resource "huaweicloud_vpc_route" "mesh_b_to_a" {
+2026-09-02T09:15:05 [component-log] {"level":"error","ts":"2026-09-02T09:15:05.547Z","msg":"failed to wait for object to sync in-cache after patching","controller":"helmrelease","controllerGroup":"helm.toolkit.fluxcd.io","controllerKind":"HelmRelease","HelmRelease":{"name":"bp-mimir","namespace":"flux-system"},"namespace":"flux-system","name":"bp-mimir","reconcileID":"4e9de727-befb-4c69-b22e-b1d934b108cd","error":"context deadline exceeded"}
+2026-09-02T09:15:16 [component-log] {"level":"error","ts":"2026-09-02T09:15:05.671Z","msg":"failed to wait for object to sync in-cache after patching","controller":"helmrelease","controllerGroup":"helm.toolkit.fluxcd.io","controllerKind":"HelmRelease","HelmRelease":{"name":"bp-external-secrets","namespace":"flux-system"},"namespace":"flux-system","name":"bp-external-secrets","reconcileID":"871ae2c0-7450-4d0e-9ba2-850b8ec519c9","error":"context deadline exceeded"}
+2026-09-02T09:15:17 [component-log] {"level":"error","ts":"2026-09-02T09:15:05.899Z","msg":"failed to wait for object to sync in-cache after patching","controller":"helmrelease","controllerGroup":"helm.toolkit.fluxcd.io","controllerKind":"HelmRelease","HelmRelease":{"name":"bp-opentelemetry-operator","namespace":"flux-system"},"namespace":"flux-system","name":"bp-opentelemetry-operator","reconcileID":"acea79c3-9992-4eb9-b241-2ea6b19f1744","error":"context deadline exceeded"}
+2026-09-02T09:15:17 [component-log] {"level":"error","ts":"2026-09-02T09:15:06.279Z","msg":"failed to wait for object to sync in-cache after patching","controller":"helmrelease","controllerGroup":"helm.toolkit.fluxcd.io","controllerKind":"HelmRelease","HelmRelease":{"name":"bp-kyverno","namespace":"flux-system"},"namespace":"flux-system","name":"bp-kyverno","reconcileID":"1aa967b5-dbae-4a3d-be54-99575be1e71c","error":"context deadline exceeded"}
+2026-09-02T09:15:51 [component-log] {"level":"info","ts":"2026-09-02T09:15:51.441Z","msg":"release is in a failed state","controller":"helmrelease","controllerGroup":"helm.toolkit.fluxcd.io","controllerKind":"HelmRelease","HelmRelease":{"name":"bp-external-secrets","namespace":"flux-system"},"namespace":"flux-system","name":"bp-external-secrets","reconcileID":"0be4d107-dbc3-4e8e-a3fa-10bc860f153d"}
+2026-09-02T09:15:51 [component] Helm upgrade failed for release external-secrets-system/external-secrets with chart bp-external-secrets@1.1.6: post-upgrade hooks failed: 1 error occurred:
+	* job external-secrets-webhook-gate failed: BackoffLimitExceeded
+2026-09-02T09:19:13 [component-log] {"level":"error","ts":"2026-09-02T09:19:13.045Z","msg":"failed to wait for object to sync in-cache after patching","controller":"helmrelease","controllerGroup":"helm.toolkit.fluxcd.io","controllerKind":"HelmRelease","HelmRelease":{"name":"bp-mimir","namespace":"flux-system"},"namespace":"flux-system","name":"bp-mimir","reconcileID":"0e855584-42b1-4b0f-9cff-eda24e915a44","error":"context deadline exceeded"}
+2026-09-02T09:19:18 [component-log] {"level":"error","ts":"2026-09-02T09:19:13.079Z","msg":"failed to wait for object to sync in-cache after patching","controller":"helmrelease","controllerGroup":"helm.toolkit.fluxcd.io","controllerKind":"HelmRelease","HelmRelease":{"name":"bp-opentelemetry-operator","namespace":"flux-system"},"namespace":"flux-system","name":"bp-opentelemetry-operator","reconcileID":"2c41992c-3c6e-4a69-8354-e9df5c30db2b","error":"context deadline exceeded"}
+2026-09-02T09:19:18 [component-log] {"level":"error","ts":"2026-09-02T09:19:13.120Z","msg":"failed to wait for object to sync in-cache after patching","controller":"helmrelease","controllerGroup":"helm.toolkit.fluxcd.io","controllerKind":"HelmRelease","HelmRelease":{"name":"bp-external-secrets","namespace":"flux-system"},"namespace":"flux-system","name":"bp-external-secrets","reconcileID":"190f8224-37fa-4799-bdf1-91047ffb048e","error":"context deadline exceeded"}
+2026-09-02T09:19:18 [component-log] {"level":"error","ts":"2026-09-02T09:19:13.463Z","msg":"failed to wait for object to sync in-cache after patching","controller":"helmrelease","controllerGroup":"helm.toolkit.fluxcd.io","controllerKind":"HelmRelease","HelmRelease":{"name":"bp-kyverno","namespace":"flux-system"},"namespace":"flux-system","name":"bp-kyverno","reconcileID":"73f9dbe8-6858-4b93-b4ff-b7ce53cc634c","error":"context deadline exceeded"}

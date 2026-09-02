@@ -169,6 +169,15 @@ Grouped by pillar; each maps to the UAT rows it should flip on hw306. *(v1 = orc
 - **Protect-list promoted**: RUNBOOKS §0.1 production row → hw306 (this commit).
 - Watch: Monitor on `GET /deployments/e68e79721ecbde62` every 2 min (status / phase1Substate / regions[].hrReady / error); baseline expectation 51–105 min to `ready`; the #6485 60-min stability watch runs before `reset-uat.py hw306`.
 
+
+### 9.3 hw306 FAILED at tofu apply — root cause, forensics, wipe (2026-09-02, UTC)
+
+- **09:10:36Z FAILED** (`finishedAt 09:10:39Z`, 9.5 min after the fire): `tofu apply … huaweicloud_vpc_route.mesh_b_to_a["me-east-215-a--me-east-215-b"] (main.tf:244) → VPC.2812 "The destination of route to add is exist already"` on route table `0179307a…` where `mesh_pod_b_to_a` had created `10.42.0.0/16` two lines earlier. Both clusters were already alive when the apply died (region-A 32/66 HRs, region-B 26/66) — the failure is in the peering routes, not in cloud-init or the kit.
+- **Root cause (#6786)**: `cidr_base = 32 + (sha256(deployment_id)[0:2] % 215)` → for `e68e79721ecbde62` = **42**, so region-A's node VPC = `10.42.0.0/16` = region-A's fixed pod CIDR (#3504); the VPC-peering route duplicates the pod-CIDR route. Live inventory confirmed `…-me-east-215-a-vpc 10.42.0.0/16`, `…-b-vpc 10.52.0.0/16`. 8 of 206 bases collide (3.9 % per fire); hw305/hw302/hw300 drew 66/47/126. **Not a regression, not a wipe remnant** (post-wipe inventory was bastion-only; the fire path is byte-identical to main).
+- **Forensics captured before the wipe** (RUNBOOKS §0.6): `hw306-forensics/cloudinit-log.txt` (24.7 KB), `events-tofu-and-errors.txt` (filtered from 3724 events), `deployment-record-failed.json`.
+- **Fix in flight**: collision-proof `cidr_base` + guard script (fixer PR for #6786); because `infra/providers/` ships inside the catalyst-api image, the mothership must be hand-rolled to the rebuilt tag (merge → catalyst-build → `kubectl set image`) and settle ≥5 min before **fire 2 of 2 today (hw307)**.
+- **Wipe of hw306** via `POST …/deployments/e68e79721ecbde62/wipe` `{}` issued ~09:33Z (result appended below).
+
 - **Merge freeze declared**: from the wipe POST until `cutoverComplete=true` on hw306, no merges touching `core/**`, `products/catalyst/bootstrap/**`, `products/catalyst/chart/**`, `infra/providers/**` (catalyst-api/ui re-tag + umbrella bump), and no bootstrap-kit pin bumps after cutover step-01 freezes the mirror. Chart-only fixes that must reach hw306 (0.1.202) merge **after `ready`, before the cutover start**. Open PRs on the hold list: #6758 #6689 #6480 #6474 #6473 #6470 #6365 #6322 #6320 #6178 #6176 #6174 #6168.
 
 
