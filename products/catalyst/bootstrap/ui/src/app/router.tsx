@@ -64,6 +64,7 @@ import { ProvisionPage } from '@/pages/provision/ProvisionPage'
 import { AppsPage } from '@/pages/sovereign/AppsPage'
 import { CatalogPage } from '@/pages/sovereign/CatalogPage'
 import { AppDetail } from '@/pages/sovereign/AppDetail'
+import { AppConsoleRoute } from '@/pages/sovereign/AppConsoleRoute'
 import { CatalogDetail } from '@/pages/sovereign/CatalogDetail'
 import { InstallPage } from '@/pages/sovereign/InstallPage'
 import { JobsPage } from '@/pages/sovereign/JobsPage'
@@ -1611,6 +1612,26 @@ const consoleAppDetailTabRoute = createRoute({
   component: AppDetail,
 })
 
+// #6805 — the route a Blueprint declares in `spec.consoleUI.sidebarRoute`.
+// products/agenity/blueprint.yaml registers `/apps/bp-agenity/dashboard` and
+// products/chargeback/blueprint.yaml `/apps/bp-chargeback/dashboard`, but the
+// router served nothing under `/apps/` — only `/apps` (the grid) and the
+// singular `/app/$componentId[/$tab]`. Both sidebar entries therefore landed
+// on Not Found (reported live on hw307, 2026-09-02). AppConsoleRoute resolves
+// the application's front door (silent-SSO launch-url, then externalURL) and
+// navigates there; `$view` is accepted and ignored so any view segment a
+// future Blueprint declares still opens the app rather than 404ing.
+const consoleAppConsoleRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/apps/$appId',
+  component: AppConsoleRoute,
+})
+const consoleAppConsoleViewRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/apps/$appId/$view',
+  component: AppConsoleRoute,
+})
+
 // EPIC-2 Slice I (#1097) — live install flow.
 //
 // Two sibling URL trees per the same pattern as compliance dashboards
@@ -2465,6 +2486,8 @@ const routeTree = rootRoute.addChildren([
     consoleAppsRoute,
     consoleAppDetailRoute,
     consoleAppDetailTabRoute,
+    consoleAppConsoleRoute,
+    consoleAppConsoleViewRoute,
     // #3601 — static /catalog index BEFORE /catalog/$blueprintName so the
     // literal segment wins on a bare /catalog visit.
     consoleCatalogRoute,
