@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-02T07:30:04Z` |
+| Last refreshed | `2026-09-02T07:45:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-02T07:32 | [#6779](https://github.com/openova-io/openova/pull/6779) | #6778 | docs(sessions): hw306 train manifest v1 (Refs #6778) |
 | 2026-09-02T05:23 | [#6777](https://github.com/openova-io/openova/pull/6777) | docs(uat): re-confirm row 205 live on hw305 (/fleet/applicat |  |
 | 2026-09-02T00:56 | [#6775](https://github.com/openova-io/openova/pull/6775) | #6759 | fix(bp-newapi): repin admin-promote CNPG image :16.4 → :16 ( |
 | 2026-09-01T23:32 | [#6774](https://github.com/openova-io/openova/pull/6774) | docs(uat): re-confirm row 194 live on hw305 (recon surface l |  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-30T22:04 | [#6733](https://github.com/openova-io/openova/pull/6733) | #6723 | feat(chargeback): OpenOva adapter — Organization sync, platf |
 | 2026-08-30T21:41 | [#6732](https://github.com/openova-io/openova/pull/6732) | #6726 | feat(chargeback): catalog-seed entry for bp-chargeback + umb |
 | 2026-08-30T21:23 | [#6731](https://github.com/openova-io/openova/pull/6731) | #6725 | docs(status): billing row is stale ('Designed. No code.') —  |
-| 2026-08-30T19:57 | [#6730](https://github.com/openova-io/openova/pull/6730) | #6723 | docs(adr): ADR-0014 D9a decision→UI-surface map per profile  |
 
 ---
 
