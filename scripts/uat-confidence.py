@@ -88,6 +88,23 @@ import os
 import re
 import sys
 
+# The ledger is an HTML <table>: every row is `<tr id="row-ID">` with five
+# <td>s — id/epic/ticket · screenshot · VERDICT<br><sub>ENV-DATE</sub> · test
+# case · evidence. The guards read that shape through
+# scripts/uat_html_compat.to_pipe, which unfolds each <tr> back into the
+# seven-field markdown pipe row this module was written against and passes a
+# legacy pipe ledger through untouched. This module reads through the SAME
+# adapter rather than growing a third parser.
+#
+# Until it did (measured 2026-09-02 on main), --observe matched 0 of the 286
+# rows and refused with "no row in the ledger is attributable to hw305" while
+# the header said hw305 and 250 rows were stamped with it. The only hw305 rows
+# in the observation log had been appended by hand, so the carry-forward loop
+# that uat-drift-guard.py and check-walk-respects-scheduler.sh consent from had
+# nothing to consent from.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from uat_html_compat import to_pipe  # noqa: E402
+
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 UAT = os.path.join(REPO, "docs", "ledger", "UAT.md")
 OBS = os.path.join(REPO, "docs", "ledger", "uat-observations.csv")
@@ -127,27 +144,60 @@ CONF_MAX = (ALPHA + 1.0 / (1.0 - DECAY)) / (ALPHA + BETA + 1.0 / (1.0 - DECAY))
 BOX_FLOOR = [0.0] + [round(CONF_MAX * f, 4) for f in (0.62, 0.79, 0.90, 0.97)]
 
 
-def parse_ledger(text):
-    """{row_id: '✅'|'❌'|'☐'} from a UAT.md body.
+# A ledger row's ID in every shape the ledger uses: numeric, R#, G#, W#, M#.
+# The same match as ROW_ID in scripts/uat-drift-guard.py and verdicts() in
+# scripts/check-walk-respects-scheduler.sh; a count that sees only the numeric
+# rows is short by the lettered ones (43 of 286 on 2026-09-02).
+ROW = re.compile(r"^\|\s*(R?\d+|[GWM]\d+)\s*\|")
 
-    The cell split must match scripts/test_uat_table_shape.py exactly: evidence
-    prose legitimately contains escaped pipes, and a bare split("|") is a
-    DIFFERENT parser that lands its offsets in the wrong column.
+# Cell separator that respects markdown-escaped pipes. The split must match
+# scripts/test_uat_table_shape.py exactly: evidence prose legitimately contains
+# escaped pipes, and a bare split("|") is a DIFFERENT parser that lands its
+# offsets in the wrong column.
+ESC_PIPE = re.compile(r"(?<!\\)\|")
+
+# Verdict glyphs — the set scripts/uat-tally.py names. After to_pipe a Result
+# cell is normally the bare glyph (the <sub>env-date</sub> under it becomes the
+# env field), but the verdict is the FIRST glyph in the cell, never the sentence
+# a walker may write after it.
+STATUS_GLYPHS = ("✅", "❌", "⚠️", "◑", "☐", "⛔", "⏳")
+
+# Field offsets in the unfolded seven-field row after the escaped-pipe split
+# (f[0] is the empty string before the leading pipe):
+#   | id | epic | tickets | clause | env-stamp | verdict | evidence |
+F_ID, F_ENV, F_VERDICT, F_EVIDENCE = 1, 5, 6, 7
+
+
+def ledger_rows(text):
+    """Yield (row_id, fields) for every data row of a UAT.md body, HTML or markdown.
+
+    `to_pipe` is a no-op on a legacy pipe ledger, so both shapes reach the
+    same regex and the same split — one parser, two inputs.
     """
-    out = {}
-    for line in text.split("\n"):
-        if re.match(r"^\|\s*(R?\d+|[GWM]\d+)\s*\|", line):
-            f = re.split(r"(?<!\\)\|", line.rstrip())
+    for line in to_pipe(text).split("\n"):
+        if ROW.match(line):
+            f = ESC_PIPE.split(line.rstrip())
             if len(f) >= 8:
-                out[f[1].strip()] = f[6].strip()
-    return out
+                yield f[F_ID].strip(), f
+
+
+def verdict_of(cell):
+    """The verdict of a Result cell: the first STATUS glyph in it, else its text."""
+    cell = cell.strip()
+    hits = [(cell.index(g), g) for g in STATUS_GLYPHS if g in cell]
+    return min(hits)[1] if hits else cell
+
+
+def parse_ledger(text):
+    """{row_id: '✅'|'❌'|'⏳'|…} from a UAT.md body, in either table shape."""
+    return {rid: verdict_of(f[F_VERDICT]) for rid, f in ledger_rows(text)}
 
 
 ENV_TOKEN = re.compile(r"\b(hw\d{2,3}|kom4dc|t\d{2}|mothership)\b")
 
 
 def ledger_envs(text):
-    """{row_id: set(environments named in its evidence)} from a UAT.md body.
+    """{row_id: set(environments named in its stamp or evidence)} from a UAT.md body.
 
     This is what decides whether a verdict may be recorded as an observation of
     the CURRENT environment. A row stamped `hw293-2026-08-10T23:26Z …` is a
@@ -159,13 +209,16 @@ def ledger_envs(text):
     Evidence on main carries no such marker, so the guard passed all 286 rows
     through and the scheduler concluded every row had just been walked — 0 due
     with 76 failing. Assert on the environment, never on a word about it.
+
+    The environment is read from the Result cell — the `<sub>hw305-…</sub>`
+    stamp under the glyph, which to_pipe unfolds into the env field — AND from
+    the evidence cell. A carried row keeps its PREDECESSOR's stamp under the
+    demoted glyph (scripts/reset-uat.py flips only the glyph), so reading the
+    stamp attributes it to the machine it was measured on, never to this one.
     """
     out = {}
-    for line in text.split("\n"):
-        if re.match(r"^\|\s*(R?\d+|[GWM]\d+)\s*\|", line):
-            f = re.split(r"(?<!\\)\|", line.rstrip())
-            if len(f) >= 8:
-                out[f[1].strip()] = set(ENV_TOKEN.findall(f[7]))
+    for rid, f in ledger_rows(text):
+        out[rid] = set(ENV_TOKEN.findall(" ".join(f[F_ENV:F_EVIDENCE + 1])))
     return out
 
 
@@ -177,6 +230,31 @@ def observable_here(row_envs, current_env):
     and the failure mode there is under-recording rather than fabrication.
     """
     return (not row_envs) or (current_env in row_envs)
+
+
+# Ledger verdict -> observation status. Anything not listed (⚠️ partial, ⏳
+# carried, ⛔ blocked, N/A) is NOTRUN: no evidence either way, streak broken.
+STATUS_MAP = {"✅": "PASS", "❌": "FAIL", "☐": "NOTRUN"}
+
+
+def plan_observations(body, env, cycle):
+    """(rows, foreign): what --observe appends for `env`, and the row ids it refuses.
+
+    Split out of main() so the self-test can exercise the whole --observe
+    decision — parse, attribute, map — against a fixture without touching the
+    real log. `rows` are ready for append_obs; `foreign` are the rows whose
+    evidence names only other machines.
+    """
+    led = parse_ledger(body)
+    envs = ledger_envs(body)
+    rows, foreign = [], []
+    for rid, v in sorted(led.items()):
+        if not observable_here(envs.get(rid, set()), env):
+            foreign.append(rid)
+            continue
+        rows.append({"cycle_ts": cycle, "env": env, "row_id": rid,
+                     "status": STATUS_MAP.get(v, "NOTRUN")})
+    return rows, foreign
 
 
 def load_obs(obs_path=None):
@@ -487,6 +565,119 @@ def _test_walk_list():
     return bad
 
 
+def _test_html_ledger():
+    """Both table shapes must parse, and --observe must decide the same on each.
+
+    Written after the real failure: the ledger became an HTML <table> and this
+    module kept matching markdown pipe rows, so `--observe --env hw305` found 0
+    of 286 rows and refused — while the header said hw305 and 250 rows were
+    stamped with it. The fixture is the live five-column shape (id/epic/ticket ·
+    screenshot · verdict+<sub>env</sub> · clause · evidence) with every row-id
+    family the ledger uses and the zero-width breaks the generator writes into
+    evidence prose, so the parse is exercised on what main actually holds.
+    """
+    bad = 0
+
+    def td_id(rid):
+        return (f'<td><strong>{rid}</strong><br><sub>sso · '
+                f'<a href="https://github.com/openova-io/openova/issues/1">#1</a></sub></td>')
+
+    def td_shot(env, rid):
+        return (f'<td><a href="screenshots/{env}-row{rid}.png" title="click to enlarge">'
+                f'<img src="screenshots/{env}-row{rid}.png" width="150"></a>'
+                f'<br><sub>{env}‑2026‑08‑25</sub></td>')
+
+    def tr(rid, verdict, stamp, clause, evidence, shot=None):
+        shot_td = td_shot(shot, rid) if shot else "<td><sub>—</sub></td>"
+        return (f'<tr id="row-{rid}">{td_id(rid)}{shot_td}'
+                f'<td>{verdict}<br><sub>{stamp}</sub></td>'
+                f'<td>{clause}</td><td>{evidence}</td></tr>')
+
+    html = "\n".join([
+        "# UAT — Sovereign acceptance walk on `hw305.omantel.biz`", "", "<table>",
+        "<tr><th>#</th><th>📷</th><th>Result</th><th>Test case</th><th>Evidence</th></tr>",
+        tr("12", "✅", "hw305-2026-08-25", "signup lands signed-in.",
+           "hw305-​2026-​08-​25 ✅ LIVE WALK — lands on /dashboard. Screenshot.",
+           shot="hw305"),
+        tr("G2", "❌", "hw305-2026-08-26", "the app backend answers.",
+           "hw305-2026-08-26 ❌ 502 from the backend.", shot="hw305"),
+        tr("W1", "✅", "hw302-2026-08-20", "wizard step 1 has no pre-fill.",
+           "hw302-2026-08-20 ✅ region-A LIVE READ.", shot="hw302"),
+        tr("R3", "⏳", "—", "the two copies agree.",
+           "PASS — proven by comparing the two copies"),           # no env anywhere
+        tr("M1", "✅", "repo-2026-08-11", "the guard refuses the mutant.",
+           "hw305-2026-08-25 ✅ CI run on the fixture; repo evidence."),  # env in evidence only
+        "</table>",
+    ])
+
+    # VACUITY, first: the fixture must be genuinely HTML. If a pipe row had
+    # crept in, the legacy path would parse it and the case below would prove
+    # nothing about the HTML shape. This is also exactly the reading the module
+    # had before the fix — zero rows — so it doubles as the defect reproduction.
+    if any(ROW.match(ln) for ln in html.split("\n")):
+        print("  FAIL  VACUITY: the HTML fixture contains a markdown pipe row"); bad = 1
+    else:
+        print("  PASS  VACUITY — the fixture has no pipe row; the legacy parser sees 0 of it")
+
+    want_v = {"12": "✅", "G2": "❌", "W1": "✅", "R3": "⏳", "M1": "✅"}
+    led = parse_ledger(html)
+    if led != want_v:
+        print(f"  FAIL  HTML verdicts: got {led}"); bad = 1
+    else:
+        print("  PASS  HTML rows parse — numeric, G#, W#, R#, M# ids, verdict from the Result cell")
+
+    want_e = {"12": {"hw305"}, "G2": {"hw305"}, "W1": {"hw302"}, "R3": set(), "M1": {"hw305"}}
+    envs = ledger_envs(html)
+    if envs != want_e:
+        print(f"  FAIL  HTML envs: got {envs}"); bad = 1
+    else:
+        print("  PASS  HTML envs — read from the <sub> stamp AND the evidence cell "
+              "(zero-width breaks stripped)")
+
+    # THE --observe decision on this env: hw305-stamped rows and the unattributed
+    # row are recorded; the hw302-only row is refused as another machine's.
+    rows, foreign = plan_observations(html, "hw305", "c0")
+    got = {r["row_id"]: r["status"] for r in rows}
+    want = {"12": "PASS", "G2": "FAIL", "M1": "PASS", "R3": "NOTRUN"}
+    if got != want or foreign != ["W1"]:
+        print(f"  FAIL  --observe hw305: recorded {got}, skipped {foreign}"); bad = 1
+    else:
+        print("  PASS  --observe hw305 records the hw305 + unattributed rows, skips the hw302-only row")
+
+    # CONTROL: the same ledger observed for hw302 must flip the decision, or
+    # the planner is admitting everything and the case above is vacuous.
+    rows2, foreign2 = plan_observations(html, "hw302", "c0")
+    got2 = {r["row_id"] for r in rows2}
+    if got2 != {"W1", "R3"} or foreign2 != ["12", "G2", "M1"]:
+        print(f"  FAIL  CONTROL --observe hw302: recorded {sorted(got2)}, skipped {foreign2}"); bad = 1
+    else:
+        print("  PASS  CONTROL — observed for hw302 the split inverts (W1 + R3 in, the hw305 rows out)")
+
+    # LEGACY PARITY: the same five rows in the markdown pipe shape must yield
+    # the same verdicts and environments — one parser, two inputs.
+    pipe = "\n".join([
+        "| # | Epic | T | Test | Walk | Result | Evidence |",
+        "|---|---|---|---|---|---|---|",
+        "| 12 | sso | [#1](https://x/1) | signup lands signed-in. | hw305-2026-08-25 | ✅ | hw305-2026-08-25 ✅ LIVE WALK — lands on /dashboard. |",
+        "| G2 | sso | [#1](https://x/1) | the app backend answers. | hw305-2026-08-26 | ❌ | hw305-2026-08-26 ❌ 502 from the backend. |",
+        "| W1 | sso | [#1](https://x/1) | wizard step 1 has no pre-fill. | hw302-2026-08-20 | ✅ | hw302-2026-08-20 ✅ region-A LIVE READ. |",
+        "| R3 | sso | [#1](https://x/1) | the two copies agree. | — | ⏳ | PASS — proven by comparing the two copies |",
+        "| M1 | sso | [#1](https://x/1) | the guard refuses the mutant. | repo-2026-08-11 | ✅ | hw305-2026-08-25 ✅ CI run on the fixture. |",
+    ])
+    if parse_ledger(pipe) != want_v or ledger_envs(pipe) != want_e:
+        print(f"  FAIL  legacy pipe rows diverge: {parse_ledger(pipe)} / {ledger_envs(pipe)}"); bad = 1
+    else:
+        print("  PASS  legacy pipe rows parse to the same verdicts and envs as the HTML rows")
+
+    # The verdict is the first glyph in the cell, not the whole sentence: a
+    # walker's annotation after the glyph must not turn a PASS into NOTRUN.
+    if verdict_of("✅ (re-walk, was ❌)") != "✅" or verdict_of("N/A") != "N/A":
+        print("  FAIL  verdict_of did not take the first glyph"); bad = 1
+    else:
+        print("  PASS  verdict is the FIRST glyph in the Result cell; a glyph-less cell keeps its text")
+    return bad
+
+
 def self_test():
     """Prove the scorer discriminates. A scorer that cannot fail is decoration."""
     ci = {f"c{i}": i for i in range(12)}
@@ -576,6 +767,9 @@ def self_test():
     # is what decides which observations reach it at all, so it is tested here
     # rather than in a separate command nobody runs.
     bad += _test_attribution()
+    # The ledger is an HTML <table>; a parser that only sees pipe rows records
+    # nothing and the scheduler starves. Both shapes are pinned here.
+    bad += _test_html_ledger()
     # The walk-list selector is now consumed by scripts/uat-drift-guard.py, so
     # its two directions are pinned here rather than only at its call site.
     bad += _test_walk_list()
@@ -618,16 +812,7 @@ def main():
             print("--observe needs --env and --cycle", file=sys.stderr)
             return 2
         body = open(UAT, encoding="utf-8").read()
-        led = parse_ledger(body)
-        envs = ledger_envs(body)
-        m = {"✅": "PASS", "❌": "FAIL", "☐": "NOTRUN"}
-        rows, foreign = [], []
-        for rid, v in sorted(led.items()):
-            if not observable_here(envs.get(rid, set()), a.env):
-                foreign.append(rid)
-                continue
-            rows.append({"cycle_ts": a.cycle, "env": a.env, "row_id": rid,
-                         "status": m.get(v, "NOTRUN")})
+        rows, foreign = plan_observations(body, a.env, a.cycle)
         if foreign:
             print(f"skipped {len(foreign)} row(s) whose evidence belongs to another "
                   f"environment — a verdict from a different machine is not an "
