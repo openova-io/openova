@@ -1508,7 +1508,7 @@ spec:
       # 1.4.1624 — #6140 / #6778: lockstep with the umbrella Chart.yaml bump (catalog-seed
       #   advances bp-harbor 1.2.47 -> 1.2.49, the rendered surface changed). Pin bumped
       #   to match so check-bootstrap-kit-pin-sync.sh stays green.
-      version: 1.4.1626
+      version: 1.4.1628
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
