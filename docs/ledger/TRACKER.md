@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-02T09:30:07Z` |
+| Last refreshed | `2026-09-02T09:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,9 +307,12 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-02T09:41 | [#6789](https://github.com/openova-io/openova/pull/6789) | #6786 | fix(infra/huawei): keep the hashed node-VPC CIDR off the k3s |
 | 2026-09-02T09:27 | [#6788](https://github.com/openova-io/openova/pull/6788) | #6786 | docs(sessions): hw306 failed at tofu apply — forensics + roo |
+| 2026-09-02T09:34 | [#6785](https://github.com/openova-io/openova/pull/6785) | #6781 | fix(uat-tooling): read the HTML ledger in uat-tally and the  |
 | 2026-09-02T09:05 | [#6784](https://github.com/openova-io/openova/pull/6784) | #6778 | docs: hw306 FIRED — wipe, pre-flight and fire evidence; prot |
 | 2026-09-02T09:23 | [#6781](https://github.com/openova-io/openova/pull/6781) | #6778 | fix(uat): uat-confidence.py reads the HTML-table ledger; rec |
+| 2026-09-02T09:34 | [#6780](https://github.com/openova-io/openova/pull/6780) | #6324 | fix(provisioning): newapi funnel pin 1.4.155 + run pin-parit |
 | 2026-09-02T07:32 | [#6779](https://github.com/openova-io/openova/pull/6779) | #6778 | docs(sessions): hw306 train manifest v1 (Refs #6778) |
 | 2026-09-02T05:23 | [#6777](https://github.com/openova-io/openova/pull/6777) | docs(uat): re-confirm row 205 live on hw305 (/fleet/applicat |  |
 | 2026-09-02T00:56 | [#6775](https://github.com/openova-io/openova/pull/6775) | #6759 | fix(bp-newapi): repin admin-promote CNPG image :16.4 → :16 ( |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-08-31T04:54 | [#6741](https://github.com/openova-io/openova/pull/6741) | #6723 | feat(chargeback): adapter chart RBAC + env wiring (lane D fo |
 | 2026-08-31T02:46 | [#6740](https://github.com/openova-io/openova/pull/6740) | #6736 | docs(sessions): chargeback walk second pass — Overview/Custo |
 | 2026-08-31T02:41 | [#6739](https://github.com/openova-io/openova/pull/6739) | #6736 | fix(chargeback): render-contract test uses appVersion, not a |
-| 2026-08-31T02:06 | [#6738](https://github.com/openova-io/openova/pull/6738) | #6723 | docs(architecture): cross-reference bp-chargeback (ADR-0014) |
-| 2026-08-31T01:51 | [#6737](https://github.com/openova-io/openova/pull/6737) | #6723 | docs(sessions): bp-chargeback pre-Sovereign UI walk evidence |
-| 2026-08-31T02:22 | [#6736](https://github.com/openova-io/openova/pull/6736) | #6723 | fix(chargeback): Sources tab fetches /sources with envelope  |
 
 ---
 
