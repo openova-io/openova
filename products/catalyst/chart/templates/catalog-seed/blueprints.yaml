@@ -361,7 +361,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-cnpg
-    version: "1.0.15"
+    version: "1.0.16"
   # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): lockstep with
   # platform/cnpg/blueprint.yaml. Operator pattern: each region runs its
   # own controller (singleton everywhere); HA happens at the per-Cluster

@@ -342,7 +342,32 @@ else
         # helm version, which beats depending on the runner's pin.
         mkdir -p "${chart}/charts"
         depout=""; deprc=0
-        depout="$(timeout "${DEP_TIMEOUT}" helm dependency update "${chart}" 2>&1)" || deprc=$?
+        # Retry the fetch. The failure this recovers is not a chart defect: helm
+        # downloads the index of an UNMANAGED dependency repository into its
+        # cache, and when that download does not land the next step reports
+        #   Error: no cached repository for helm-manager-<sha> found
+        #          (try 'helm repo update')
+        # which the guard then reads as "this chart does not render offline" and
+        # fails the PR with the ABSOLUTELY-FORBIDDEN NodePort banner. Measured
+        # 2026-09-02 on PR #6806 (a UI-only change) and on main: one chart,
+        # platform/cnpg/chart, pulling https://cloudnative-pg.github.io/charts.
+        # A red gate nobody believes is worse than no gate, so a transient must
+        # cost a retry rather than a false accusation. Three bounded attempts
+        # with a short backoff; a chart that genuinely cannot fetch still fails,
+        # with every attempt's output kept.
+        for attempt in 1 2 3; do
+          deprc=0
+          depout="$(timeout "${DEP_TIMEOUT}" helm dependency update "${chart}" 2>&1)" || deprc=$?
+          if [ "${deprc}" -eq 0 ]; then break; fi
+          if [ "${attempt}" -lt 3 ]; then
+            echo "NOTE: ${chart} dependency fetch attempt ${attempt} failed (rc=${deprc}) — retrying" >&2
+            printf '%s\n' "${depout}" | tail -2 | sed 's/^/      /' >&2
+            # An unmanaged-repo index miss is exactly what `helm repo update`
+            # repairs; it is a no-op when no repositories are configured.
+            timeout "${DEP_TIMEOUT}" helm repo update >/dev/null 2>&1 || true
+            sleep 5
+          fi
+        done
         if [ "${deprc}" -eq 0 ]; then
           rendered="$(timeout "${HELM_TIMEOUT}" helm template "$(basename "${chart}")" "${chart}" 2>/dev/null || true)"
           if [ -n "${rendered}" ]; then
@@ -351,7 +376,7 @@ else
             echo "NOTE: ${chart} fetched its dependencies but still does not render." >&2
           fi
         else
-          echo "NOTE: ${chart} dependency fetch failed (rc=${deprc}, timeout=${DEP_TIMEOUT}):" >&2
+          echo "NOTE: ${chart} dependency fetch failed after 3 attempts (rc=${deprc}, timeout=${DEP_TIMEOUT}):" >&2
           printf '%s\n' "${depout}" | tail -5 | sed 's/^/      /' >&2
         fi
       fi
