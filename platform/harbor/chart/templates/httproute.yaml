@@ -150,10 +150,30 @@ metadata:
   labels:
     {{- include "bp-harbor.labels" . | nindent 4 }}
 spec:
+  {{- /* #6140 / #6778 (hw305 live, 2026-09-02): this block used to read
+     `.Values.gateway.{name,namespace,sectionName}` — three keys that DO NOT
+     EXIST in values.yaml (the real ones are `.Values.gateway.parentRef.*`;
+     `.Values.gateway.name` is the MAIN route's metadata.name, not a Gateway).
+     Two of the three fell through to the right default. The third did not:
+     `sectionName | default "https"` pinned a listener name that exists ONLY
+     on a single-zone Sovereign. Every Org-pool Sovereign declares more than
+     one parentZone, so sovereign-tls-vars names the HTTPS listener
+     `https-<zone-dashed>` (e.g. `https-omantel-biz`) and the pin matched
+     NOTHING: the route attached to zero listeners, Gateway API reported
+     `Accepted=False NoMatchingParent`, and harbor.<fqdn> answered the
+     bare-envoy 404 this route exists to remove (hw305: harbor.<fqdn> 404,
+     registry.<fqdn> 200). values.yaml already carries the warning on
+     `gateway.parentRef.sectionName` ("pinning sectionName: https breaks
+     NoMatchingListener", PR #1888 / #1902); this route was not reading it.
+     It now uses the IDENTICAL parentRef block as the main route above, so a
+     sectionName is emitted only when a sovereign-admin sets one. Guarded by
+     tests/httproute-render.sh Case 7. */}}
   parentRefs:
-    - name: {{ .Values.gateway.name | default "cilium-gateway" }}
-      namespace: {{ .Values.gateway.namespace | default "kube-system" }}
-      sectionName: {{ .Values.gateway.sectionName | default "https" | quote }}
+    - name: {{ .Values.gateway.parentRef.name | default "cilium-gateway" | quote }}
+      namespace: {{ .Values.gateway.parentRef.namespace | default "kube-system" | quote }}
+      {{- with .Values.gateway.parentRef.sectionName }}
+      sectionName: {{ . | quote }}
+      {{- end }}
   hostnames:
     - {{ $aliasHost | quote }}
   rules:

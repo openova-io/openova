@@ -230,7 +230,12 @@ spec:
       # camelCase; the s3 overlay above now sets the correct lowercase key).
       # 1.2.45: #5406 — ONE session/queue/cache store per Sovereign. See the
       # crossRegion block in `values:` below for the full wiring + rationale.
-      version: 1.2.47
+      # 1.2.49: #6140 / #6778 — the harbor.${SOVEREIGN_FQDN} alias-redirect HTTPRoute
+      # no longer pins sectionName "https" (a listener name that exists only on
+      # single-zone Sovereigns; Org-pool Sovereigns name it https-<zone-dashed>).
+      # It parents the wildcard listener by hostname like every other route.
+      # hw305 live: harbor.<fqdn> 404 (Accepted=False NoMatchingParent) → fixed.
+      version: 1.2.49
       sourceRef:
         kind: HelmRepository
         name: bp-harbor
