@@ -94,14 +94,36 @@ if git -C "${REPO_ROOT}" rev-parse --verify --quiet origin/main >/dev/null 2>&1;
     #      env pair + the two script-local assignments) are stripped, so this check
     #      still catches any OTHER single-region drift while accommodating the
     #      intended batched-push change, which Case 46 verifies.
+    #   4. the #5596 step-06 Phase-2 factoring. The bootstrap-kit rewrite
+    #      (url sed + inject_trust_ref + Phase-2.5) moved from the inline args
+    #      into the ALWAYS-rendered ConfigMap key kit-rewrite.sh, which region-A
+    #      sources via a new /kit-rewrite mount, and helmRepositoryPatchesSeconds
+    #      moved 2400 -> 3600 for the secondary leg's wait. None of that is the
+    #      secondaryRegions leg; the awk drops the kit-rewrite.sh key, collapses
+    #      the Phase-2 region (target_dir= .. its last line: the Phase-2.5 SKIP
+    #      `fi` on origin/main, the rewrite_kit_tree call here) to one marker on
+    #      BOTH trees, and the mount/volume + deadline are canonicalised.
+    #      step5596-secondary-durable-rewrite.sh verifies the factoring itself.
     norm() {
       awk '
+        /^  kit-rewrite\.sh: \|$/ {_kk=1; next}
+        _kk==1 && /# ---- end rewrite_kit_tree ----$/ {_kk=0; next}
+        _kk==1 {next}
+        /target_dir="clusters\/_template\/bootstrap-kit"$/ && _kr==0 {print "KIT_REWRITE_CANON"; _kr=1; next}
+        _kr==1 && /rewrite_kit_tree "\$\{target_dir\}"$/ {_kr=2; next}
+        _kr==1 && /Phase-2\.5 SKIP: \$\{catalyst_yaml\} not present in local mirror/ {_kr=3; next}
+        _kr==3 {_kr=2; next}
+        _kr==1 {next}
+        /^          - name: kit-rewrite-script$/ {_km=3}
+        /^      - name: kit-rewrite-script$/ {_km=6}
+        _km>0 {_km--; next}
         /\[gitea-mirror\] pushing upstream/ {print "GITEA_PUSH_CANON"; _skip=1; next}
         _skip==1 && /\[gitea-mirror\] pushed all upstream/ {_skip=0; next}
         _skip==1 {next}
         {print}
       ' "$1" | sed -E \
         -e 's#bp-self-sovereign-cutover-[0-9]+\.[0-9]+\.[0-9]+#bp-self-sovereign-cutover-VERSION#g' \
+        -e 's#^( *activeDeadlineSeconds: )(2400|3600)$#\1STEP06_DEADLINE#' \
         -e '/- name: PUSH_BATCH_BRANCHES/{N;d}' \
         -e '/^ *default_branch="\$\{UPSTREAM_BRANCH\}"$/d' \
         -e '/^ *batch_size="\$\{PUSH_BATCH_BRANCHES\}"$/d' \

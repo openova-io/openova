@@ -1105,7 +1105,13 @@ spec:
       #   secondary gitea auth now rides the shared catalyst-gitea-token PAT; and the
       #   ~2,436-branch monorepo push is batched default-branch-first so it cannot
       #   die after the ref advertisement on either the primary or secondary leg.
-      version: 0.1.201
+      # 0.1.202 (#5596, Refs #5359): step-06's secondary-region pivot is DURABLE —
+      #   an in-region Job pushes the same bootstrap-kit rewrite into each
+      #   secondary's OWN Gitea (the source its Flux actually consumes since #6490)
+      #   and the region's GitRepository is converged onto it before the live
+      #   patch + #5596 assert. hw305 looped FATAL at step 6/11 for 10 days on
+      #   exactly this (63/65 region-B HelmRepositories reverting to ghcr).
+      version: 0.1.202
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
