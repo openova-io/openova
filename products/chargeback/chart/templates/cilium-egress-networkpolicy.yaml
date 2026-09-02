@@ -8,6 +8,14 @@ Egress for the chargeback outbound legs (mirrors bp-openova-mcp / bp-agenity
     Cluster in this namespace (:5432), the catalyst-api adapter seam (:8080,
     lane D) and any in-cluster HTTPS hop. remote-node covers a multi-region
     Sovereign where the CNPG primary may sit on the other region's node.
+  - `kube-apiserver` — the DSN-sync Job reads its source Secret and PATCHes the
+    DSN Secret through `kubernetes.default.svc`. That is NOT covered by
+    host/remote-node on :443 (#6819): the Service port DNATs to the node's
+    :6443 and Cilium enforces the POST-DNAT port, so the packet is dropped and
+    curl times out (exit 28) rather than being refused. Measured on hw307
+    2026-09-02 — the sync CrashLooped and the app never left Init:0/1 — with
+    the CNPG pod in the same namespace as the control: it is not selected by
+    this policy and its apiserver traffic ran uninterrupted for hours.
 
 🛑 DNS IS LOAD-BEARING: a CiliumNetworkPolicy with ANY egress rule flips the
 pod to default-deny egress — without the explicit :53 allow to kube-dns the
@@ -50,6 +58,25 @@ spec:
             - port: {{ . | quote }}
               protocol: TCP
             {{- end }}
+    # #6819 — the apiserver, as its OWN rule. Two things make this necessary
+    # rather than an extra entity on the rule above:
+    #   • `kube-apiserver` is the entity that still matches after the Service
+    #     port DNATs (:443 → the node's :6443); host/remote-node on :443 does
+    #     not, and the packet is DROPPED, so curl times out (exit 28) instead
+    #     of being refused;
+    #   • toPorts applies to the whole rule, so folding the entity into the
+    #     block above would clamp it to 443/8080/5432 — re-introducing the same
+    #     defect one line lower.
+    # Both ports are named: :443 for the in-cluster Service and :6443 for the
+    # post-DNAT endpoint, so the rule holds whichever port Cilium enforces on.
+    - toEntities:
+        - kube-apiserver
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+            - port: "6443"
+              protocol: TCP
     # DNS — LOAD-BEARING (see header).
     - toEndpoints:
         - matchLabels:
