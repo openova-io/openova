@@ -295,6 +295,11 @@ const (
 	// exhausted remediation budget and returns without acting. `flux reconcile
 	// helmrelease --force` stamps exactly this pair.
 	fluxReconcileForceAtAnnotation = "reconcile.fluxcd.io/forceAt"
+	// fluxReconcileResetAtAnnotation — the token that CLEARS a HelmRelease's
+	// install/upgrade failure counters. forceAt makes helm-controller act on an
+	// unchanged release; resetAt is what lets it act again after the retry limit
+	// was reached (Stalled=True, RetriesExceeded). #6795.
+	fluxReconcileResetAtAnnotation = "reconcile.fluxcd.io/resetAt"
 
 	// clusterMeshPeerClusterMeshNamesSubstituteKey (#4846, Refs #4656 #4275)
 	// carries the Cilium ClusterMesh cluster.name(s) of the OTHER region(s)
