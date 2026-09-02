@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-02T17:30:08Z` |
+| Last refreshed | `2026-09-02T17:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-02T17:42 | [#6817](https://github.com/openova-io/openova/pull/6817) | #6802 | fix(console): a failed dashboard tile must say WHEN it faile |
 | 2026-09-02T17:24 | [#6816](https://github.com/openova-io/openova/pull/6816) | #6805 | docs(ledger): open the hw307 partition in PATH-TO-100 (Refs  |
 | 2026-09-02T16:54 | [#6813](https://github.com/openova-io/openova/pull/6813) | #6811 | docs(ledger): record the hw307 walk observations (Refs #6778 |
 | 2026-09-02T16:41 | [#6812](https://github.com/openova-io/openova/pull/6812) | #6810 | docs(sessions): hw307 post-ready evidence — stability watch, |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-02T00:56 | [#6775](https://github.com/openova-io/openova/pull/6775) | #6759 | fix(bp-newapi): repin admin-promote CNPG image :16.4 → :16 ( |
 | 2026-09-01T23:32 | [#6774](https://github.com/openova-io/openova/pull/6774) | docs(uat): re-confirm row 194 live on hw305 (recon surface l |  |
 | 2026-09-01T17:11 | [#6772](https://github.com/openova-io/openova/pull/6772) | #6764 | test(cutover): render test for #6764 secondary-region Harbor |
-| 2026-09-01T16:58 | [#6771](https://github.com/openova-io/openova/pull/6771) | #6490 | fix(cutover): step-01 secondary mirror — unify secondary git |
 
 ---
 
