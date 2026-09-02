@@ -34,6 +34,8 @@ on:
       - 'clusters/_template/bootstrap-kit/**'
       - 'infra/providers/**'
       - 'scripts/check-freshprov-image-registry.sh'
+      - 'scripts/check-mothership-proxy-image-path.sh'
+      - 'infra/providers/huawei/main.tf'
       - '.github/workflows/check-freshprov-image-registry.yaml'
   pull_request:
     paths:
@@ -42,6 +44,8 @@ on:
       - 'clusters/_template/bootstrap-kit/**'
       - 'infra/providers/**'
       - 'scripts/check-freshprov-image-registry.sh'
+      - 'scripts/check-mothership-proxy-image-path.sh'
+      - 'infra/providers/huawei/main.tf'
       - '.github/workflows/check-freshprov-image-registry.yaml'
   workflow_dispatch:
 
@@ -63,6 +67,16 @@ jobs:
 
       - name: Negative-control self-test (deterministic)
         run: bash scripts/check-freshprov-image-registry.sh --self-test
+
+      - name: Image-path probe self-test (prov pre-flight check 7, #6778)
+        # scripts/check-mothership-proxy-image-path.sh is the pre-fire gate that
+        # walks tag -> index -> linux/amd64 child -> config blob for every image
+        # a fresh Sovereign pulls. Its --self-test is network-free (a local
+        # fixture registry + the registries.yaml parse), and it asserts the one
+        # thing the old pre-flight could not see: an index that answers 200 over
+        # a child that 404s must FAIL. A self-test nobody runs rots, so it runs
+        # here, on every change to either script.
+        run: bash scripts/check-mothership-proxy-image-path.sh --self-test
 
       - name: Add upstream subchart repos (best-effort — Phase 2 render deps)
         # Phase 2 renders subchart-wrapping bootstrap charts to catch

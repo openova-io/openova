@@ -9,7 +9,8 @@
 #
 # Requires: COOK (catalyst_session cookie) OR BEARER (owner RS256 JWT) for the
 # deployments check, + HW_TFVARS (path to tofu.auto.tfvars.json with Huawei
-# AK/SK).
+# AK/SK and harbor_robot_token — check 7 walks every Phase-1 image through the
+# mothership proxy with it, #6778).
 #
 # 🛑 ONE ENVIRONMENT AT A TIME (founder, 2026-07-15, #5111): "You are allowed
 # to create 1 environment at a time and that is the exact definition of flight
@@ -317,8 +318,36 @@ read -r inflight stale_q <<<"${ci5:-}"
 # 6. fresh bucket (caller asserts uniqueness)
 pass "6. bucket: ${BUCKET} (caller must confirm it is fresh/unused)"
 
-# 7. flags echoed for confirmation
-echo "  ℹ 7. qaTestEnabled=${QATEST} (false=PROD certs/browsable) · fireCutoverOnHandover=${FIRECUT} (true=auto-cutover, zero-touch)"
+# 7. Phase-1 image path through the mothership proxy (#6778, #6795 — the
+#    hw306/hw307 double burn, 2026-09-02). The 2026-09-01 registry blob-store
+#    wipe left Harbor's proxy-cache MANIFEST rows in place, so every surface a
+#    pre-flight could cheaply ask — /api/v2.0/health, the bastion :5000/:5002
+#    `/v2/` pings, even `GET …/manifests/16` (the cached OCI index) — answered
+#    200 while the linux/amd64 CHILD manifest behind it was 404. Two fresh
+#    Sovereigns were fired into that: every shared-pg-*-initdb Pod in
+#    ImagePullBackOff (`failed to copy: httpReadSeeker`), Phase 1 timed out at
+#    2 h 40 min, keycloak and all of SSO never installed. A health endpoint
+#    cannot fail on a damaged cache entry; only the kubelet's own walk can.
+#    scripts/check-mothership-proxy-image-path.sh builds the image set FROM
+#    THE REPO (rendered bootstrap-kit charts + CNPG values + cloud-init
+#    Phase-0 pulls) and walks tag -> index -> amd64 child -> config blob for
+#    every one of them with the robot pull token from HW_TFVARS. Read-only.
+#    Fix for a FAIL: purge the damaged proxy-cache entry as Harbor ADMIN (the
+#    robot gets 401 on delete) so the next pull re-fetches upstream.
+if [ -n "${HW_TFVARS:-}" ] && [ -s "${HW_TFVARS}" ]; then
+  ip7_out="$(HW_TFVARS="$HW_TFVARS" bash "$(dirname "$0")/check-mothership-proxy-image-path.sh" 2>&1)"; ip7_rc=$?
+  ip7_line="$(printf '%s\n' "$ip7_out" | grep -E '^IMAGE-PATH ' | tail -1)"
+  ip7_info="$(printf '%s\n' "$ip7_out" | grep -E '^  (ℹ|⚠) ' | tr '\n' ' ')"
+  if [ "$ip7_rc" -eq 0 ] && [ -n "$ip7_line" ]; then
+    pass "7. ${ip7_line} ${ip7_info}"
+  else
+    bad "7. ${ip7_line:-check-mothership-proxy-image-path.sh exit ${ip7_rc} with no IMAGE-PATH summary} — a fresh Sovereign WILL ImagePullBackOff on these (hw306/hw307, #6778). Purge the damaged proxy-cache entries as Harbor admin, re-run, and fire only on IMAGE-PATH PASS. ${ip7_info}"
+    printf '%s\n' "$ip7_out" | grep -E '^FAIL ' | head -10 | sed 's/^/       /'
+  fi
+else bad "7. HW_TFVARS unset — cannot walk the Phase-1 image path through the mothership proxy (needs harbor_robot_token; #6778)"; fi
+
+# 8. flags echoed for confirmation
+echo "  ℹ 8. qaTestEnabled=${QATEST} (false=PROD certs/browsable) · fireCutoverOnHandover=${FIRECUT} (true=auto-cutover, zero-touch)"
 [ "$QATEST" = "false" ] && [ "$FIRECUT" = "true" ] && pass "   → North-Star combo: browsable PROD cert + AUTONOMOUS cutover" || echo "  ⚠ not the North-Star combo (false/true) — confirm this is intentional"
 
 echo "═══════════════════════════════════"

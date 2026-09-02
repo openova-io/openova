@@ -479,7 +479,14 @@ spec:
           type: RuntimeDefault
       containers:
         - name: configure
-          image: harbor.openova.io/proxy-dockerhub/alpine:3.20
+          # `library/` is REQUIRED on a Docker Hub official image: Harbor's
+          # proxy-cache stores blobs under the wire path (`library/alpine`),
+          # so the short form serves the manifest and its child but 404s the
+          # CONFIG BLOB — the pull then dies mid-walk with no fallback. Caught
+          # live 2026-09-02 by scripts/check-mothership-proxy-image-path.sh
+          # (prov pre-flight check 7, #6778): index 200 / child 200 / config 404
+          # on `proxy-dockerhub/alpine`, 200+206 on `proxy-dockerhub/library/alpine`.
+          image: harbor.openova.io/proxy-dockerhub/library/alpine:3.20
           imagePullPolicy: IfNotPresent
           command: ["/bin/sh"]
           args: ["/etc/openbao-sso/reconcile.sh"]

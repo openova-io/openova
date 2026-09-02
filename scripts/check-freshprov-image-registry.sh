@@ -77,6 +77,12 @@
 #   scripts/check-freshprov-image-registry.sh              # Phase 1 + best-effort Phase 2
 #   RENDER_SWEEP=0 scripts/check-freshprov-image-registry.sh  # Phase 1 only
 #   scripts/check-freshprov-image-registry.sh --self-test  # negative-control unit test
+#   scripts/check-freshprov-image-registry.sh --list-images  # emit the rendered
+#       Phase-1 install-image set (one ref per line, sorted, on stdout; every
+#       resolved bootstrap-kit chart is rendered, flat charts included) — the
+#       single renderer scripts/check-mothership-proxy-image-path.sh (prov
+#       pre-flight check 7, #6778) builds its probe list from. Diagnostics go
+#       to stderr; exit 2 when the render yields zero refs.
 # Exit: 0 = clean, 1 = a hostage image ref reappeared, 2 = usage/setup error.
 
 set -euo pipefail
@@ -196,8 +202,64 @@ fi
 ROOT="${ROOT:-.}"
 cd "${ROOT}"
 
+# --list-images: render-and-emit mode (see usage). Everything diagnostic goes
+# to stderr so stdout is exactly the image set.
+LIST_MODE=0
+[ "${1:-}" = "--list-images" ] && LIST_MODE=1
+
 EXIT=0
 fail() { echo "FAIL: $1" >&2; EXIT=1; }
+
+# render_chart <dir> — `helm dependency build` (only when Chart.yaml declares
+# dependencies AND nothing is vendored under charts/ — neither a *.tgz nor an
+# unpacked subchart dir such as bp-seaweedfs's) + `helm template` at default
+# values. Rendered manifests on stdout; empty output = the chart did not render.
+# Reports ok | depfail | empty through RENDER_STATUS_FILE so callers can say WHY
+# a chart contributed nothing — "renders empty at default values" (a master
+# gate, the common case) is not the same finding as "its subcharts would not
+# build". The status travels through a FILE, not a variable: render_chart is
+# called inside a command substitution, and that subshell discards any
+# assignment — which left the caller's WARN unable to fire at all.
+RENDER_STATUS_FILE="${RENDER_STATUS_FILE:-$(mktemp)}"
+render_status() { cat "$RENDER_STATUS_FILE" 2>/dev/null; }
+render_chart() {
+  local dir="$1" out
+  printf 'ok' > "$RENDER_STATUS_FILE"
+  if grep -q '^dependencies:' "$dir/Chart.yaml" 2>/dev/null \
+     && ! ls "$dir"/charts/*.tgz >/dev/null 2>&1 && ! ls "$dir"/charts/*/Chart.yaml >/dev/null 2>&1; then
+    if ! ( cd "$dir" && timeout "${DEP_TIMEOUT:-120s}" helm dependency build >/dev/null 2>&1 ); then
+      printf 'depfail' > "$RENDER_STATUS_FILE"; return 0
+    fi
+  fi
+  out="$( (cd "$dir" && timeout "${RENDER_TIMEOUT:-45s}" helm template guard . 2>/dev/null) || true )"
+  [ -n "$out" ] || printf 'empty' > "$RENDER_STATUS_FILE"
+  printf '%s' "$out"
+}
+
+# extract_install_images — stdin: rendered manifests; stdout: every INSTALL
+# image ref, sorted unique. Hook-aware: images that appear ONLY in helm
+# delete/rollback hook resources never run during a fresh-prov install, so they
+# are dropped (e.g. sigstore policy-controller's cgr.dev leases-cleanup
+# post-delete hook). `imageName:` is the CNPG Cluster CR's image field — the
+# exact key the shared-pg/per-app postgres pulls come from (#6778), so it is
+# read alongside `image:`.
+extract_install_images() {
+  awk '
+    BEGIN{ img="" }
+    /^---/{
+      if (doc!="" && !(doc ~ /helm\.sh\/hook"?:[[:space:]]*"?(pre-delete|post-delete|pre-rollback|post-rollback)/)) print docimgs;
+      doc=""; docimgs=""
+    }
+    { doc=doc "\n" $0 }
+    /^[[:space:]]*-?[[:space:]]*(image|imageName):[[:space:]]*/{
+      line=$0; sub(/^[[:space:]]*-?[[:space:]]*(image|imageName):[[:space:]]*"?/,"",line); sub(/["[:space:]].*$/,"",line);
+      if (line!="") docimgs=docimgs line "\n"
+    }
+    END{
+      if (doc!="" && !(doc ~ /helm\.sh\/hook"?:[[:space:]]*"?(pre-delete|post-delete|pre-rollback|post-rollback)/)) print docimgs
+    }
+  ' | sed '/^$/d' | sort -u
+}
 
 # ─── Enumerate the fresh-prov bootstrap-kit chart set (dynamic) ───────────
 BK_DIR="clusters/_template/bootstrap-kit"
@@ -216,7 +278,32 @@ for name in "${CHART_NAMES[@]}"; do
   if [ -n "$dir" ]; then CHART_DIR["$name"]="$dir"; else UNRESOLVED+=("$name"); fi
 done
 [ "${#UNRESOLVED[@]}" -gt 0 ] && echo "WARN: could not resolve a chart dir for: ${UNRESOLVED[*]}" >&2
-echo "Fresh-prov bootstrap-kit chart set: ${#CHART_DIR[@]} charts resolved."
+echo "Fresh-prov bootstrap-kit chart set: ${#CHART_DIR[@]} charts resolved." >&2
+
+# ─── --list-images — render EVERY resolved chart and emit the image set ────
+if [ "$LIST_MODE" = "1" ]; then
+  if ! command -v helm >/dev/null 2>&1; then echo "FATAL: helm not on PATH — cannot render the image set." >&2; exit 2; fi
+  LIST_EMPTY=(); LIST_DEPFAIL=(); LIST_RENDERED=0
+  LIST_TMP="$(mktemp)"; trap 'rm -f "$LIST_TMP" "$RENDER_STATUS_FILE"' EXIT
+  for name in "${!CHART_DIR[@]}"; do
+    dir="${CHART_DIR[$name]}"
+    rendered="$(render_chart "$dir")"
+    case "$(render_status)" in
+      depfail) LIST_DEPFAIL+=("$name"); continue ;;
+      empty)   LIST_EMPTY+=("$name"); continue ;;
+    esac
+    LIST_RENDERED=$((LIST_RENDERED+1))
+    printf '%s\n' "$rendered" | extract_install_images >> "$LIST_TMP"
+  done
+  echo "Rendered ${LIST_RENDERED}/${#CHART_DIR[@]} bootstrap-kit chart(s) for the image set." >&2
+  [ "${#LIST_EMPTY[@]}" -gt 0 ] && echo "NOTE: ${#LIST_EMPTY[@]} chart(s) render EMPTY at default values (a master gate — no images to contribute): ${LIST_EMPTY[*]}" >&2
+  [ "${#LIST_DEPFAIL[@]}" -gt 0 ] && echo "WARN: ${#LIST_DEPFAIL[@]} chart(s) could not build subchart deps — their images are NOT in the set: ${LIST_DEPFAIL[*]}" >&2
+  sort -u "$LIST_TMP"
+  n="$(sort -u "$LIST_TMP" | sed '/^$/d' | wc -l)"
+  echo "Emitted ${n} unique install image ref(s)." >&2
+  [ "$n" -gt 0 ] || { echo "FATAL: zero image refs rendered — a list that is empty is not a clean list." >&2; exit 2; }
+  exit 0
+fi
 
 # ─── Phase 1 — static source scan (authoritative, network-free) ───────────
 echo ""
@@ -249,46 +336,21 @@ if [ "${RENDER_SWEEP:-1}" = "0" ]; then
 elif ! command -v helm >/dev/null 2>&1; then
   echo "WARN: helm not on PATH — skipping the render phase (Phase 1 covers sources)."
 else
-  DEP_TIMEOUT="${DEP_TIMEOUT:-120s}"; RENDER_TIMEOUT="${RENDER_TIMEOUT:-45s}"
   SKIPPED=(); RENDERED=0
   for name in "${!CHART_DIR[@]}"; do
     dir="${CHART_DIR[$name]}"
     grep -q '^dependencies:' "$dir/Chart.yaml" 2>/dev/null || continue
-    if ! ls "$dir"/charts/*.tgz >/dev/null 2>&1; then
-      if ! ( cd "$dir" && timeout "$DEP_TIMEOUT" helm dependency build >/dev/null 2>&1 ); then
-        SKIPPED+=("$name (dep-build failed)"); continue
-      fi
-    fi
-    rendered="$( (cd "$dir" && timeout "$RENDER_TIMEOUT" helm template guard . 2>/dev/null) || true )"
-    if [ -z "$rendered" ]; then SKIPPED+=("$name (render failed/empty)"); continue; fi
+    rendered="$(render_chart "$dir")"
+    if [ -z "$rendered" ]; then SKIPPED+=("$name ($(render_status))"); continue; fi
     RENDERED=$((RENDERED+1))
-    # Hook-aware: drop images that appear ONLY in helm delete/rollback hook
-    # resources — those never run during a fresh-prov INSTALL, so they are not
-    # a Phase-1 pull (e.g. sigstore policy-controller's cgr.dev leases-cleanup
-    # post-delete hook). Split into per-doc chunks; skip a doc whose
-    # `helm.sh/hook` is a delete/rollback phase.
+    # Hook-aware extraction (delete/rollback hook images dropped) — shared
+    # with --list-images via extract_install_images.
     while IFS= read -r ref; do
       [ -n "$ref" ] || continue
       if ref_is_hostage "$ref"; then
         fail "chart ${name} (${dir}) RENDERS install image '${ref}' on a host the fresh-prov node mirror has no working Harbor proxy for — Phase-1 pulls it DIRECT (the hw279 crossplane class, #5281). Route it through an EXISTING proxy (e.g. harbor.openova.io/proxy-dockerhub/... ) or add a documented allowlist entry."
       fi
-    done < <(
-      printf '%s\n' "$rendered" | awk '
-        BEGIN{ img="" }
-        /^---/{
-          if (doc!="" && !(doc ~ /helm\.sh\/hook"?:[[:space:]]*"?(pre-delete|post-delete|pre-rollback|post-rollback)/)) print docimgs;
-          doc=""; docimgs=""
-        }
-        { doc=doc "\n" $0 }
-        /^[[:space:]]*-?[[:space:]]*image:[[:space:]]*/{
-          line=$0; sub(/^[[:space:]]*-?[[:space:]]*image:[[:space:]]*"?/,"",line); sub(/["[:space:]].*$/,"",line);
-          if (line!="") docimgs=docimgs line "\n"
-        }
-        END{
-          if (doc!="" && !(doc ~ /helm\.sh\/hook"?:[[:space:]]*"?(pre-delete|post-delete|pre-rollback|post-rollback)/)) print docimgs
-        }
-      ' | sort -u
-    )
+    done < <(printf '%s\n' "$rendered" | extract_install_images)
   done
   echo "Rendered ${RENDERED} subchart-wrapping bootstrap chart(s)."
   [ "${#SKIPPED[@]}" -gt 0 ] && echo "WARN: render-skipped (Phase 1 still covers their own sources): ${SKIPPED[*]}" >&2
