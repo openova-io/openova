@@ -57,6 +57,7 @@ import {
   type TreemapItem,
 } from '@/lib/treemap.types'
 import type { ApplicationDescriptor } from './applicationCatalog'
+import { formatRelative } from './JobsTable'
 
 /** Default layer stack — [progress, kind] UNCONDITIONALLY (#4731 amend).
  *  Both the converging and the converged Sovereign default to this stack;
@@ -172,6 +173,11 @@ interface LeafInfo {
   /** 1 for a real leaf; the collapsed step count for the dormant aggregate
    *  (keeps the parked tether proportionally visible under uniform size). */
   count: number
+  /** When this leaf reached its terminal state. Carried so a FAILED tile can
+   *  say WHEN it failed (#6802): the job store updates a row in place, so a
+   *  red tile during a recovery is usually "failed at 13:05" rather than
+   *  "failing right now", and the operator could not tell the two apart. */
+  finishedAt?: string | null
 }
 
 /** Walk parentId links to a leaf's TOPMOST group ancestor (null when
@@ -301,6 +307,7 @@ export function buildJobsTreemapData(
       appId: leaf.appId,
       region: leaf.region,
       count: 1,
+      finishedAt: leaf.finishedAt ?? leaf.startedAt,
     }
   }
 
@@ -381,7 +388,25 @@ export function buildJobsTreemapData(
     }
   }
 
+  /**
+   * Sub-label for a tile in a non-good state (#6802). A failed tile with no
+   * time reads as "failing right now" whatever the truth is, and next to the
+   * record's READY badge that pair reads as a contradiction — the founder
+   * called it a scam on hw307, where 19 tiles were red at 13:0x and green by
+   * 15:2x with nothing on the page marking the difference.
+   *
+   * Measured before writing this: the store holds ONE row per job and updates
+   * it in place (186 rows, zero (jobName, region) duplicates on hw307), so
+   * there is no superseded-attempt history to mark — only a missing timestamp.
+   */
+  function failedLabel(statusLabel: string, when: string | null | undefined): string {
+    if (!when) return statusLabel
+    const { display } = formatRelative(when)
+    return display === '—' ? statusLabel : `${statusLabel} · ${display}`
+  }
+
   function leafItem(leaf: LeafInfo): TreemapItem {
+    const needsTime = leaf.statusKind === 'failed' || leaf.statusKind === 'warning'
     return {
       id: leaf.jobId,
       name: treemapLeafName(leaf),
@@ -389,7 +414,9 @@ export function buildJobsTreemapData(
       percentage: null,
       size_value: leaf.count,
       statusKind: leaf.statusKind,
-      statusLabel: leaf.statusLabel,
+      statusLabel: needsTime
+        ? failedLabel(leaf.statusLabel, leaf.finishedAt)
+        : leaf.statusLabel,
       jobId: leaf.jobId,
     }
   }
@@ -418,13 +445,28 @@ export function buildJobsTreemapData(
     return sorted.map(({ key, leaves: bucketLeaves }) => {
       const children = fold(bucketLeaves, depth + 1)
       const totalCount = bucketLeaves.reduce((n, l) => n + l.count, 0)
+      const statusKind = aggregateStatusKinds(bucketLeaves.map((l) => l.statusKind))
+      // An aggregate carried NO statusLabel, so Dashboard.tsx fell through to
+      // `— %` on it (percentage is null for every job tile). On a red tile that
+      // is the least useful thing the cell could say. A failed aggregate now
+      // states how many of its leaves failed and when the most recent one did.
+      const failedLeaves = bucketLeaves.filter((l) => l.statusKind === 'failed')
+      const latestFailure = failedLeaves
+        .map((l) => l.finishedAt)
+        .filter((t): t is string => !!t)
+        .sort()
+        .pop()
       return {
         id: key.id,
         name: key.name,
         count: totalCount,
         percentage: null,
         size_value: totalCount,
-        statusKind: aggregateStatusKinds(bucketLeaves.map((l) => l.statusKind)),
+        statusKind,
+        statusLabel:
+          statusKind === 'failed' && failedLeaves.length > 0
+            ? failedLabel(`${failedLeaves.length} failed`, latestFailure)
+            : undefined,
         children,
       }
     })
