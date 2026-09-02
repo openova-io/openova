@@ -1,6 +1,6 @@
 # UAT — Sovereign acceptance walk on `hw307.omani.works` (walked from 2026-09-02)
 
-**Tally (286 rows):** ✅ 109 · ❌ 12 · ⚠️ 11 · ⏳ 155
+**Tally (286 rows):** ✅ 109 · ❌ 12 · ⚠️ 10 · ⏳ 155
 
 > **One acceptance case per row, walked on the env in the title.** Result: `✅` pass · `❌` fail · `⚠️` partial · `☐` open · `⏳` carried/due · `⛔` blocked. Test-case + Evidence show the gist (full walk history in git); `#NNNN` = issue; 📷 opens the screenshot (also collected in the gallery below the table).
 
