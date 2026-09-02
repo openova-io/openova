@@ -1,0 +1,95 @@
+apiVersion: v1
+data:
+  currentStep: helmrepository-patches
+  currentStepIndex: "5"
+  cutoverComplete: "false"
+  cutoverFinishedAt: ""
+  cutoverLastAttemptStartedAt: "2026-09-02T07:19:16Z"
+  cutoverStartedAt: "2026-08-23T11:48:29Z"
+  dragonflyUpstream: local
+  failedStep: ""
+  lastError: ""
+  node.catalyst-hw305-omantel-biz-b2b00ce4-me-east-215-a-cp1-1f9a7b.registriesYaml: v2
+  node.catalyst-hw305-omantel-biz-b2b00ce4-me-east-215-a-w0ce6fe.registriesYaml: v2
+  node.catalyst-hw305-omantel-biz-b2b00ce4-me-east-215-a-w578550.registriesYaml: v2
+  node.catalyst-hw305-omantel-biz-b2b00ce4-me-east-215-a-wa0e3af.registriesYaml: v2
+  node.catalyst-hw305-omantel-biz-b2b00ce4-me-east-215-a-wac25af.registriesYaml: v2
+  node.catalyst-hw305-omantel-biz-b2b00ce4-me-east-215-a-wf9bd87.registriesYaml: v2
+  progressPercent: "45"
+  registriesYamlActive: v2
+  settledRollOverrides: ""
+  settledRollOverridesAt: ""
+  step.catalyst-api-env-patch.finishedAt: ""
+  step.catalyst-api-env-patch.jobName: ""
+  step.catalyst-api-env-patch.result: ""
+  step.catalyst-api-env-patch.startedAt: ""
+  step.crossplane-provider-pivot.finishedAt: ""
+  step.crossplane-provider-pivot.jobName: ""
+  step.crossplane-provider-pivot.result: ""
+  step.crossplane-provider-pivot.startedAt: ""
+  step.egress-block-test.finishedAt: ""
+  step.egress-block-test.jobName: ""
+  step.egress-block-test.result: ""
+  step.egress-block-test.startedAt: ""
+  step.flux-gitrepository-patch.finishedAt: "2026-09-01T11:53:03Z"
+  step.flux-gitrepository-patch.jobName: cutover-flux-gitrepository-patch-1788256996
+  step.flux-gitrepository-patch.region.me-east-215-b-1.finishedAt: "2026-09-01T11:53:00Z"
+  step.flux-gitrepository-patch.region.me-east-215-b-1.giteaURL: http://gitea-http.gitea.svc.cluster.local:3000/openova/openova
+  step.flux-gitrepository-patch.region.me-east-215-b-1.result: success
+  step.flux-gitrepository-patch.result: success
+  step.flux-gitrepository-patch.startedAt: "2026-09-01T11:52:28Z"
+  step.gitea-mirror.finishedAt: "2026-09-01T10:05:34Z"
+  step.gitea-mirror.jobName: cutover-gitea-mirror-1788256996
+  step.gitea-mirror.result: success
+  step.gitea-mirror.startedAt: "2026-09-01T10:03:17Z"
+  step.gitea-token-mint.finishedAt: ""
+  step.gitea-token-mint.jobName: ""
+  step.gitea-token-mint.result: ""
+  step.gitea-token-mint.startedAt: ""
+  step.harbor-prewarm.finishedAt: "2026-09-01T11:52:12Z"
+  step.harbor-prewarm.jobName: cutover-harbor-prewarm-1788256996
+  step.harbor-prewarm.result: success
+  step.harbor-prewarm.startedAt: "2026-09-01T10:05:40Z"
+  step.harbor-projects.finishedAt: "2026-09-01T10:05:40Z"
+  step.harbor-projects.jobName: cutover-harbor-projects-1788256996
+  step.harbor-projects.result: success
+  step.harbor-projects.startedAt: "2026-09-01T10:05:35Z"
+  step.helmrepository-patches.finishedAt: ""
+  step.helmrepository-patches.jobName: cutover-helmrepository-patches-1788333556
+  step.helmrepository-patches.region.me-east-215-b-1.finishedAt: "2026-09-02T07:23:01Z"
+  step.helmrepository-patches.region.me-east-215-b-1.lastError: pivot not durable
+    — see Job log
+  step.helmrepository-patches.region.me-east-215-b-1.result: failed
+  step.helmrepository-patches.result: running
+  step.helmrepository-patches.startedAt: "2026-09-02T07:19:18Z"
+  step.registry-pivot.finishedAt: "2026-09-01T11:52:27Z"
+  step.registry-pivot.jobName: registry-pivot
+  step.registry-pivot.result: success
+  step.registry-pivot.startedAt: "2026-09-01T11:52:12Z"
+  step.vcluster-registry-pivot.finishedAt: ""
+  step.vcluster-registry-pivot.jobName: ""
+  step.vcluster-registry-pivot.result: ""
+  step.vcluster-registry-pivot.startedAt: ""
+  totalSteps: "11"
+kind: ConfigMap
+metadata:
+  annotations:
+    helm.sh/resource-policy: keep
+    meta.helm.sh/release-name: self-sovereign-cutover
+    meta.helm.sh/release-namespace: catalyst
+  creationTimestamp: "2026-08-23T10:47:14Z"
+  labels:
+    app.kubernetes.io/component: cutover-status
+    app.kubernetes.io/instance: self-sovereign-cutover
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: bp-self-sovereign-cutover
+    app.kubernetes.io/part-of: self-sovereign-cutover
+    catalyst.openova.io/blueprint: bp-self-sovereign-cutover
+    catalyst.openova.io/sovereign-fqdn: hw305.omantel.biz
+    helm.sh/chart: bp-self-sovereign-cutover-0.1.197
+    helm.toolkit.fluxcd.io/name: bp-self-sovereign-cutover
+    helm.toolkit.fluxcd.io/namespace: flux-system
+  name: self-sovereign-cutover-status
+  namespace: catalyst
+  resourceVersion: "18391538"
+  uid: fe70df00-f7a5-4e7f-b808-1e316e5ff7cb

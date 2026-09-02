@@ -1,0 +1,235 @@
+[helmrepository-patches] upstream=oci://ghcr.io/openova-io -> local=oci://registry.hw305.omantel.biz/openova-io (harbor_host=registry.hw305.omantel.biz)
+[helmrepository-patches] Phase -1: waiting for Gateway kube-system/cilium-gateway Programmed=True (timeout 1800s)
+[helmrepository-patches] Phase -1 OK: Programmed=False but https://registry.hw305.omantel.biz/v2/ answers TLS (HTTP 401) — hostNetwork gateway serves without an assigned address (#4708)
+[helmrepository-patches] Phase-0 skip: ghcr-pull already carries auth for registry.hw305.omantel.biz (strip deferred to Phase 3)
+[helmrepository-patches] Phase-0.5: building source-controller trust Secret from kube-system/sovereign-wildcard-tls-hw305-omantel-biz
+[helmrepository-patches] Phase-0.5: sovereign-wildcard-tls-hw305-omantel-biz has no ca.crt; falling back to tls.crt as the trust bundle
+[helmrepository-patches] Phase-0.5 OK: flux-system/cutover-harbor-ca carries the in-cluster Harbor CA — pivoted HelmRepositories will reference it via certSecretRef
+[helmrepository-patches] Phase-1 input: 62 HelmRepository name(s) (curated ∪ live-upstream)
+[helmrepository-patches] SKIP bp-alloy (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-catalyst-platform (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-cert-manager (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-cert-manager-issuers (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-cert-manager-powerdns-webhook (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-cilium (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-cluster-autoscaler-hcloud (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-cnpg (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-cnpg-pair (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-continuum (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-coraza (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-crossplane (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-crossplane-claims (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-external-dns (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-external-secrets (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-external-secrets-stores (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-falco (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-flux (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-gateway-api (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-gitea (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-grafana (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-guacamole (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-harbor (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-hcloud-ccm (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-hcloud-csi (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-huawei-evs-csi (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-k8s-ws-proxy (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-keycloak (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-kyverno (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-kyverno-policies (not found)
+[helmrepository-patches] SKIP bp-loki (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-mimir (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-nats-jetstream (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-network-policies (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-newapi (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-oidc-gate (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-openbao (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-openova-flow-emitter (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-openova-flow-server (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-opentelemetry (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-opentelemetry-operator (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-plane-isolation (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-postgres (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-powerdns (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-powerdns-admin (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-reflector (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-reloader (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-sandbox (not found)
+[helmrepository-patches] SKIP bp-sealed-secrets (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-seaweedfs (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-sigstore (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-sso-bridge (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-syft-grype (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-tempo (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-trivy (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-valkey (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-vcluster-helmrepo (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-velero (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-velero-hcs (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-vllm (already pivoted or non-default URL)
+[helmrepository-patches] SKIP bp-vpa (already pivoted or non-default URL)
+[helmrepository-patches] SKIP openova-catalog (already pivoted or non-default URL)
+[helmrepository-patches] live-K8s ok=0 skip=62 fail=0
+[helmrepository-patches] Phase-1.5 read-back OK: zero region-A HelmRepositories on oci://ghcr.io/openova-io in flux-system (tolerated: bp-newapi,bp-self-sovereign-cutover)
+[helmrepository-patches] Phase-1.6 skip: bp-catalyst-platform already has catalog.helmRepository.url=oci://registry.hw305.omantel.biz/openova-io
+[helmrepository-patches] re-asserting gitea admin password (drift-heal, Refs #3379 #4885)
+[helmrepository-patches] gitea admin password re-asserted on pod gitea-76bc5c87bc-xtsxf
+[helmrepository-patches] demirror PATCH OK — repo is now standalone
+[helmrepository-patches] cloning http://gitea-http.gitea.svc.cluster.local:3000/openova/openova.git
+[helmrepository-patches] sed edited 0 bootstrap-kit file(s)
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/01-cilium.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/01a-gateway-api.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/02-cert-manager.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/02a-bp-cert-manager-issuers.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/03-flux.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/04-crossplane.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/05-sealed-secrets.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/05a-reflector.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/06-bp-dragonfly.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/06a-bp-self-sovereign-cutover.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/07-nats-jetstream.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/08-openbao.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/09-keycloak.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/10-gitea.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/11-powerdns.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/11a-bp-powerdns-admin.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/12-external-dns.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/12a-bp-sovereign-tls-vars.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/13b-bp-sso-bridge.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/13c-bp-oidc-gate.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/13d-bp-openova-mcp.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/13e-bp-catalyst-secondary-edge-routes.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/13f-bp-chargeback.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/14-crossplane-claims.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/15-external-secrets.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/15a-external-secrets-stores.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/16-cnpg.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/16a-bp-postgres-shared.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/16b-bp-cnpg-pair.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/17-valkey.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/18-seaweedfs.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/19-harbor.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/19c-opentelemetry-operator.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/20-opentelemetry.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/21-alloy.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/22-loki.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/23-mimir.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/24-tempo.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/25-grafana.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/26-network-policies.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/26b-bp-plane-isolation.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/27-kyverno.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/28-reloader.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/29-vpa.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/30-trivy.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/31-falco.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/32-sigstore.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/33-syft-grype.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/34-velero.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/34a-bp-velero-hcs.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/35-coraza.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/39-bp-vllm.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/49-bp-cert-manager-powerdns-webhook.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/50-cluster-autoscaler.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/51-bp-k8s-ws-proxy.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/52-bp-guacamole.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/55-bp-hcloud-ccm.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/55a-bp-hcloud-csi.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/55b-bp-huawei-evs-csi.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/56-bp-openova-flow-server.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/57-bp-openova-flow-emitter.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/60-bp-vcluster-helmrepo.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/62-bp-continuum.yaml
+[helmrepository-patches] trust-injected certSecretRef -> clusters/_template/bootstrap-kit/80-newapi.yaml
+[helmrepository-patches] Phase-2 trust: injected certSecretRef=cutover-harbor-ca into 65 pivoted HelmRepository YAML(s)
+[helmrepository-patches] Phase-2.5 WARN: sed rewrite of existing block failed; Phase-1.6 K8s patch remains durable for one upgrade cycle
+[helmrepository-patches] Phase-2c SKIP [primary]: loft HR is already type=oci (oci://registry.hw305.omantel.biz/openova-io) — idempotent re-run / operator overlay (#5650)
+[helmrepository-patches] Phase-2c SKIP [me-east-215-b-1]: loft HR is already type=oci (oci://registry.hw305.omantel.biz/openova-io) — idempotent re-run / operator overlay (#5650)
+[helmrepository-patches] Phase-2c: no region needs the loft pivot (absent or already local) — nothing to do (#5650)
+[helmrepository-patches] git diff empty after sed — nothing to commit (continuing to Phase 3)
+[helmrepository-patches] Phase-2b: org-tenants source already pivoted (0 file-visit(s), no diff) — nothing to push
+[helmrepository-patches] Phase-2d: 4 live Organization slug(s) (Organization CRs ∪ catalyst-tenant-* Flux sources)
+[helmrepository-patches] Phase-2d agwalk305: already pivoted (0 file-visit(s), no diff) — nothing to push
+[helmrepository-patches] Phase-2d freewalk305: already pivoted (0 file-visit(s), no diff) — nothing to push
+[helmrepository-patches] Phase-2d hw305-omantel-biz: already pivoted (0 file-visit(s), no diff) — nothing to push
+[helmrepository-patches] Phase-2d walkstrangertwo: already pivoted (0 file-visit(s), no diff) — nothing to push
+[helmrepository-patches] Phase-2d: orgs=4 with-repo=4 pushed=0 already-pivoted=4 no-repo=0
+[helmrepository-patches] Phase-2d Stage-1 OK: zero per-Org HelmRepositories on oci://ghcr.io/openova-io across 4 Org(s)
+[helmrepository-patches] Phase-2d Stage-2: poked 8 per-Org Kustomization(s) with reconcile token 1788333660; the pivot must survive their re-apply
+[helmrepository-patches] Phase-2d agwalk305: Kustomization catalyst-tenant-agwalk305-apps handled reconcile token 1788333660 — its re-apply has run and the pivot is still standing
+[helmrepository-patches] Phase-2d freewalk305: Kustomization catalyst-tenant-freewalk305-apps handled reconcile token 1788333660 — its re-apply has run and the pivot is still standing
+[helmrepository-patches] Phase-2d hw305-omantel-biz: Kustomization catalyst-tenant-hw305-omantel-biz-apps handled reconcile token 1788333660 — its re-apply has run and the pivot is still standing
+[helmrepository-patches] Phase-2d walkstrangertwo: Kustomization catalyst-tenant-walkstrangertwo-apps handled reconcile token 1788333660 — its re-apply has run and the pivot is still standing
+[helmrepository-patches] Phase-2d DURABLE: 4 Org(s) clean across 2 sample(s) spanning their own re-apply (tolerated: bp-newapi,bp-self-sovereign-cutover)
+[helmrepository-patches] #5359 secondary me-east-215-b-1: ghcr-pull auth synced from region-A
+[helmrepository-patches] #5359 secondary regions to pivot: 1
+[helmrepository-patches] #5359 secondary region me-east-215-b-1: pivoting its HelmRepositories oci://ghcr.io/openova-io -> oci://registry.hw305.omantel.biz/openova-io
+[helmrepository-patches] #5359 secondary me-east-215-b-1: trust Secret cutover-harbor-ca synced
+[helmrepository-patches] #5359 secondary me-east-215-b-1: pivot ok=65 skip=0 fail=0
+[helmrepository-patches] #5596 secondary me-east-215-b-1: poked 1 HR-owning Kustomization(s) + flux-system/openova with reconcile token 1788333681; the pivot must survive their re-apply
+[helmrepository-patches] FATAL: #5596 secondary me-east-215-b-1: 63 HelmRepository(ies) on oci://ghcr.io/openova-io after the pivot — region me-east-215-b-1 would resolve those charts from the public upstream on its next reconcile; refusing to record success. GitRepository flux-system/openova Ready=False revision=main@sha1:25eba1a580e8b4f0c9e41ac2f2dfd88faeb115ce (failed to checkout and determine revision: unable to list remote for 'http://gitea-http.gitea.svc.cluster.local:3000/openova/openova': authentication required)
+  STILL-UPSTREAM bp-alloy=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-catalyst-edge-routes=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-catalyst-platform=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-cert-manager=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-cert-manager-issuers=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-cert-manager-powerdns-webhook=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-chargeback=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-cilium=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-cluster-autoscaler-hcloud=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-cnpg=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-cnpg-pair=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-continuum=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-coraza=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-crossplane=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-crossplane-claims=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-dragonfly=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-external-dns=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-external-secrets=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-external-secrets-stores=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-falco=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-flux=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-gateway-api=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-gitea=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-grafana=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-guacamole=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-harbor=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-hcloud-ccm=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-hcloud-csi=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-huawei-evs-csi=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-k8s-ws-proxy=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-keycloak=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-kyverno=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-loki=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-mimir=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-nats-jetstream=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-network-policies=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-oidc-gate=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-openbao=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-openova-flow-emitter=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-openova-flow-server=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-openova-mcp=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-opentelemetry=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-opentelemetry-operator=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-plane-isolation=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-postgres=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-powerdns=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-powerdns-admin=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-reflector=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-reloader=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-sealed-secrets=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-seaweedfs=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-sigstore=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-sovereign-tls-vars=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-sso-bridge=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-syft-grype=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-tempo=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-trivy=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-valkey=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-vcluster-helmrepo=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-velero=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-velero-hcs=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-vllm=oci://ghcr.io/openova-io
+  STILL-UPSTREAM bp-vpa=oci://ghcr.io/openova-io
+configmap/self-sovereign-cutover-status patched
+[helmrepository-patches] FATAL: #5359 secondary-region HelmRepository pivot failed — region-B is still chart-tethered to the public upstream; refusing to succeed
