@@ -56,7 +56,14 @@ spec:
   #   `<instance>-replica`, not the demoted `<instance>`), so region-A grafana/
   #   powerdns resolve `-mesh-rw` to region-B's writable survivor instead of
   #   NXDOMAIN-crashlooping (measured hw305). Steady render byte-identical.
-  version: 0.2.25
+  # 0.2.26 — #6796 (Refs #4460 #6627 #6753 #5224): the PRE-FLIP secondary
+  #   `-mesh`/`-mesh-rw` stub selected the LOCAL #4460 placeholder singleton (its
+  #   selector equals CNPG's own `-rw` selector, and the placeholder's primary Pod
+  #   satisfies it), so with `affinity: local` region-B writes landed on the
+  #   throwaway DB → keycloak 28P01 (hw307). In that window the stub selector now
+  #   carries a term no Pod carries → zero local backends by construction → cross-
+  #   mesh to region A. Every other render byte-identical.
+  version: 0.2.26
   card:
     title: PostgreSQL
     summary: |

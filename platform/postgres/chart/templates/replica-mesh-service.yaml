@@ -41,6 +41,30 @@ keyed off the data instance (`<instance>`) instead of `<fullname>-primary`.
    cross-mesh to region-A's primary the moment the mesh peers, NOT to region-B's
    own pre-flip singleton DB. Post-flip (renderReplicaHalf=true) the render is
    byte-identical to the prior gate. */ -}}
+{{- /* #6796 — the stub is zero-backend ONLY if its selector matches no local Pod,
+   and in the PRE-FLIP window it did not: the selector below is byte-identical to
+   CNPG's own `-rw` selector (`cnpg.io/cluster: <instance>` + `instanceRole:
+   primary`), and the #4460 placeholder singleton `<instance>` Cluster on this
+   very cluster carries exactly those Pod labels. So suppressing the managed
+   alias changed NOTHING about the endpoint set — the stub selected the
+   placeholder's primary Pod, `affinity: local` preferred it, and every
+   secondary-region write landed on the throwaway DB whose managed roles were
+   reconciled off Secrets #5224 deliberately never mints there. Measured live on
+   hw307 (dep 9a1f230f, 2026-09-02): region-B `shared-pg-mesh-rw` endpoints =
+   10.43.6.197 (the local placeholder shared-pg-1), keycloak-0 CrashLoopBackOff on
+   `FATAL: password authentication failed for user "keycloak"` while region A
+   was Ready off the same reflected Secret.
+
+   In the pre-flip window (bp-postgres.preFlipSecondary) the selector therefore
+   carries one extra term no Pod ever carries, `catalyst.openova.io/mesh-backends:
+   remote-only`, making the local endpoint set empty BY CONSTRUCTION so Cilium's
+   local-affinity routing falls through the mesh to region A. This is the same
+   "zero Pods by construction" idiom peer-mesh-service.yaml already relies on,
+   stated explicitly instead of by coincidence of names. Post-flip the placeholder
+   is gone and the #6753 consumerAliasCluster selector is unchanged: steady
+   (`<instance>`, zero local Pods) and promoted (`<instance>-replica`, REAL local
+   backends) renders are byte-identical to 0.2.25. */ -}}
+{{- $preFlip := eq (include "bp-postgres.preFlipSecondary" .) "true" }}
 {{- if and (ne (toString .Values.enabled) "false") (eq (include "bp-postgres.meshGlobalServices" .) "true") (ne (include "bp-postgres.side" .) "primary") }}
 apiVersion: v1
 kind: Service
@@ -68,6 +92,13 @@ spec:
     # ClusterMesh-global `-mesh` alias actually has endpoints again). Byte-
     # identical to `<instance>` whenever the pair is not failed over.
     cnpg.io/cluster: {{ include "bp-postgres.consumerAliasCluster" . }}
+    {{- if $preFlip }}
+    # #6796 — pre-flip window: the local #4460 placeholder `<instance>` Cluster
+    # carries this very cnpg.io/cluster label, so without this term the "stub"
+    # selects its Pods and shadows region A. No Pod carries it → zero local
+    # backends → cross-mesh.
+    catalyst.openova.io/mesh-backends: remote-only
+    {{- end }}
   ports:
     - name: postgres
       port: 5432
@@ -108,6 +139,13 @@ spec:
     # ending on the demoted named cluster. Byte-identical when not failed over.
     cnpg.io/cluster: {{ include "bp-postgres.consumerAliasCluster" . }}
     cnpg.io/instanceRole: primary
+    {{- if $preFlip }}
+    # #6796 — pre-flip window: this is CNPG's own `-rw` selector, and the local
+    # #4460 placeholder's primary Pod satisfies it (hw307: region-B mesh-rw →
+    # 10.43.6.197, the throwaway DB → keycloak 28P01). The extra term no Pod
+    # carries empties the local endpoint set so writes cross the mesh.
+    catalyst.openova.io/mesh-backends: remote-only
+    {{- end }}
   ports:
     - name: postgres
       port: 5432

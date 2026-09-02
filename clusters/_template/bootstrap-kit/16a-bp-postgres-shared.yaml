@@ -204,7 +204,17 @@ spec:
       #   with no host change (measured live hw305 on the shared-pg-b sibling: the
       #   old pin NXDOMAIN-crashlooped region-A grafana/powerdns). Steady render
       #   byte-identical. Lockstep 16a/16c/16d.
-      version: 0.2.25
+      # 0.2.26 (#6796, Refs #4460 #6627 #6753 #5224): the PRE-FLIP secondary
+      #   `shared-pg-mesh`/`-mesh-rw` stub selected region B's OWN #4460 placeholder
+      #   singleton (its selector equals CNPG's `-rw` selector and the placeholder's
+      #   primary Pod satisfies it), so with `affinity: local` THIS slot's region-B
+      #   keycloak/gitea/harbor wrote to the throwaway DB and keycloak-0
+      #   CrashLooped on 28P01 (hw307 live: B's mesh-rw endpoints = 10.43.6.197, the
+      #   local shared-pg-1). In that window the stub now carries a selector term
+      #   no Pod carries → zero local backends by construction → the baked
+      #   `shared-pg-mesh-rw` host crosses the mesh to region A's shared-pg as
+      #   designed. Every other render byte-identical. Lockstep 16a/16c/16d.
+      version: 0.2.26
       sourceRef:
         kind: HelmRepository
         name: bp-postgres

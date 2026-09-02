@@ -5827,7 +5827,12 @@ spec:
   # `<instance>-replica`, not the demoted `<instance>`), so region-A grafana/powerdns
   # resolve `-mesh-rw` to region B's writable survivor instead of NXDOMAIN-crashlooping
   # post-promote (hw305). Steady render byte-identical.
-  version: "0.2.25"
+  # 0.2.26 (#6796, Refs #4460 #6627 #6753 #5224): the PRE-FLIP secondary `-mesh`/
+  # `-mesh-rw` stub selected the LOCAL #4460 placeholder singleton (selector equals
+  # CNPG's `-rw` selector), so `affinity: local` sent region-B writes to the throwaway
+  # DB → keycloak 28P01 (hw307). The stub now carries a selector term no Pod carries in
+  # that window → zero local backends by construction. Every other render byte-identical.
+  version: "0.2.26"
   visibility: listed
   # Shareability + Contexts (#3370) — seeded verbatim from
   # platform/postgres/blueprint.yaml (lockstep-guarded). One instance
@@ -5962,7 +5967,10 @@ spec:
     # follow a #6149 automatic DR promotion (select the promoted `<instance>-replica`)
     # so region-A grafana/powerdns resolve `-mesh-rw` to region B's writable survivor
     # instead of NXDOMAIN-crashlooping post-promote (hw305). Steady render byte-identical.
-    version: "0.2.25"
+    # 0.2.26 (#6796, Refs #4460 #6627 #6753 #5224): pre-flip secondary `-mesh`/`-mesh-rw`
+    # stub no longer selects the local #4460 placeholder singleton (region-B keycloak
+    # 28P01 on hw307) — zero local backends by construction in that window.
+    version: "0.2.26"
   # Seeded verbatim from platform/postgres/blueprint.yaml spec.topology.
   # singleton = single-instance Cluster; active-hot-standby = sync
   # replication across regions (ADR-0004 Pillar-3 zero-tx-loss) via the

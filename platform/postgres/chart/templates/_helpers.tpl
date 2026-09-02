@@ -83,6 +83,22 @@ replica side renders ONLY the follower Cluster + its mesh stub + netpol.
 {{- end -}}
 
 {{/*
+The #4460 PRE-FLIP SECONDARY window (#6796): side=replica/secondary while the
+cnpg-pair flip (crossRegion / active-hot-standby) has NOT landed on this region.
+
+This is the exact complement of renderReplicaHalf on the secondary side: the
+region is already stamped `secondary` from cloud-init, but $ahs is still false,
+so cluster.yaml renders the THROWAWAY placeholder singleton `<instance>` Cluster
+here (deliberate — #4460, #6016, #6114) and replica-cluster.yaml renders nothing
+yet. Every template that must treat "a local Cluster named `<instance>` exists on
+the secondary" differently from the post-flip shape keys off this helper. Named
+once so the predicate is not re-derived in prose at each use site.
+*/}}
+{{- define "bp-postgres.preFlipSecondary" -}}
+{{- if and (eq (include "bp-postgres.side" .) "replica") (not (include "bp-postgres.activeHotStandby" .)) -}}true{{- end -}}
+{{- end -}}
+
+{{/*
 Region-B automatic DR promotion — active? (chart 0.2.18, #5623)
 
 The shared-pg data instances render the EXACT bp-cnpg-pair split-side replica

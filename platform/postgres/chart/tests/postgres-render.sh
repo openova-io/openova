@@ -2057,3 +2057,115 @@ for absent in "$TMP/failback-replica.yaml" "$TMP/failback-singleton.yaml" "$TMP/
     fail "#6148 the write-guard leaked into a render with no dr-failback ($absent)"; fi
 done
 echo "  PASS (#6148 ingressDeny on 5432 · purely subtractive · failback Pod and replication exempt · endpoint-identity not CIDR · armed at detection, swept on every abort · non-fatal · RBAC bounded · absent with the chain)"
+
+# ── Case 4i: #6796 — the PRE-FLIP secondary stub must select ZERO local Pods ──────
+#
+# Case 4d pins that the pre-flip secondary renders the -mesh/-mesh-rw STUBS and
+# not the managed aliases. It never asked whether the stub's selector can be
+# satisfied by a Pod that exists on that same cluster — and it can: the selector
+# (`cnpg.io/cluster: <instance>` + `cnpg.io/instanceRole: primary`) is CNPG's own
+# `-rw` selector, and the #4460 placeholder singleton `<instance>` Cluster that
+# cluster.yaml renders on the secondary in this exact window has a primary Pod
+# carrying exactly those labels. Measured live on hw307 (dep 9a1f230f, 2026-09-02):
+# region-B `shared-pg-mesh-rw` endpoints = 10.43.6.197 (the local placeholder
+# shared-pg-1), `affinity: local` preferred it, and keycloak-0 CrashLooped on
+# `FATAL: password authentication failed for user "keycloak"` — the placeholder's
+# roles were reconciled off Secrets #5224 never mints there. The guard tested a
+# surface that cannot fail.
+#
+# Contract: in the pre-flip window (bp-postgres.preFlipSecondary) the stub's
+# selector must NOT be satisfiable by the placeholder primary's Pod label set.
+# Structural check with a CONTROL that shares the suspect property: the same
+# checker applied to the #6753 PROMOTED replica render (where the stub MUST
+# select the local promoted primary) has to report a match, or the "no match"
+# verdict above proves nothing. Renders reused: preflip-secondary/-primary (4d),
+# ahs-replica (4b, post-flip steady), failback-promoted (21j).
+echo "[render] Case 4i: #6796 pre-flip SECONDARY -mesh/-mesh-rw stubs select ZERO local Pods (placeholder primary label set must NOT satisfy the selector; promoted render as control)"
+python3 - \
+  "$TMP/preflip-secondary.yaml" \
+  "$TMP/preflip-primary.yaml" \
+  "$TMP/ahs-replica.yaml" \
+  "$TMP/failback-promoted.yaml" <<'PY' || { echo "FAIL: #6796 pre-flip stub selector assertions failed." >&2; exit 1; }
+import sys, yaml
+preflip_sec, preflip_pri, steady_rep, promoted = sys.argv[1:5]
+TERM = "catalyst.openova.io/mesh-backends"
+
+def load(p):
+    return [d for d in yaml.safe_load_all(open(p)) if isinstance(d, dict)]
+
+def svc(docs, name):
+    for d in docs:
+        if d.get("kind") == "Service" and (d.get("metadata") or {}).get("name") == name:
+            return d
+    return None
+
+def selector(s):
+    return ((s or {}).get("spec") or {}).get("selector") or {}
+
+def cnpg_primary_pod_labels(cluster):
+    """The label set CNPG (1.29, live on hw307) stamps on a Cluster's PRIMARY
+    instance Pod — what a Service selector on that cluster is evaluated against."""
+    return {"cnpg.io/cluster": cluster, "cnpg.io/instanceRole": "primary",
+            "cnpg.io/podRole": "instance", "cnpg.io/instanceName": cluster + "-1"}
+
+def matches(sel, labels):
+    return bool(sel) and all(labels.get(k) == v for k, v in sel.items())
+
+fails = []
+
+# (0) VACUITY — the fixture really is the window: the pre-flip secondary renders
+#     exactly the placeholder singleton Cluster `shared-pg` (and no -replica).
+sd = load(preflip_sec)
+names = [d["metadata"]["name"] for d in sd if d.get("kind") == "Cluster"]
+if names != ["shared-pg"]:
+    fails.append(f"VACUOUS: expected exactly the placeholder Cluster ['shared-pg'] on the pre-flip secondary, got {names}")
+
+# (1) THE FIX — neither stub selector is satisfiable by the placeholder primary Pod.
+for nm in ("shared-pg-mesh", "shared-pg-mesh-rw"):
+    s = svc(sd, nm)
+    if s is None:
+        fails.append(f"pre-flip secondary: Service {nm} absent"); continue
+    sel = selector(s)
+    if not sel:
+        fails.append(f"pre-flip secondary: {nm} has NO selector — the proven idiom is a selector that matches zero Pods, not a selector-less Service")
+    if matches(sel, cnpg_primary_pod_labels("shared-pg")):
+        fails.append(f"pre-flip secondary: {nm} selector {sel} MATCHES the local placeholder primary Pod — a local backend shadows region A (hw307 keycloak 28P01)")
+    if sel.get("cnpg.io/cluster") != "shared-pg":
+        fails.append(f"pre-flip secondary: {nm} selector cnpg.io/cluster={sel.get('cnpg.io/cluster')!r}, expected 'shared-pg' (the term is ADDED, the #6753 alias cluster is unchanged)")
+    ann = (s.get("metadata") or {}).get("annotations") or {}
+    if ann.get("service.cilium.io/global") != "true" or ann.get("service.cilium.io/affinity") != "local":
+        fails.append(f"pre-flip secondary: {nm} lost its ClusterMesh global/affinity annotations: {ann}")
+rw = selector(svc(sd, "shared-pg-mesh-rw"))
+if rw.get("cnpg.io/instanceRole") != "primary":
+    fails.append("pre-flip secondary: -mesh-rw stub dropped the primary-role selector term (Case 4d/#3629 contract)")
+
+# (2) CONTROL — the checker must be able to say MATCH: the #6753 promoted replica's
+#     stub selects the LOCAL promoted `shared-pg-replica` primary (real backends).
+pd = load(promoted)
+psel = selector(svc(pd, "shared-pg-mesh-rw"))
+if not matches(psel, cnpg_primary_pod_labels("shared-pg-replica")):
+    fails.append(f"CONTROL FAILED: promoted replica -mesh-rw selector {psel} does not match the promoted shared-pg-replica primary Pod — either #6753 regressed or the checker is blind (then assertion (1) proves nothing)")
+if TERM in psel or TERM in selector(svc(pd, "shared-pg-mesh")):
+    fails.append("promoted replica: the pre-flip-only term leaked into the post-flip promoted render (would empty the REAL local backends #6753 restored)")
+
+# (3) REGRESSION LOCKS — byte-identical outside the window.
+sr = load(steady_rep)
+for nm in ("shared-pg-mesh", "shared-pg-mesh-rw"):
+    sel = selector(svc(sr, nm))
+    if TERM in sel:
+        fails.append(f"post-flip steady replica: {nm} carries the pre-flip-only term — the post-flip render must be byte-identical to 0.2.25")
+    if sel.get("cnpg.io/cluster") != "shared-pg":
+        fails.append(f"post-flip steady replica: {nm} selector drifted off 'shared-pg' ({sel})")
+pp = load(preflip_pri)
+for d in pp:
+    if d.get("kind") == "Service" and TERM in selector(d):
+        fails.append(f"pre-flip PRIMARY: Service {d['metadata']['name']} carries the secondary-only term")
+if any(d.get("kind") == "Service" and (d.get("metadata") or {}).get("name") == "shared-pg-mesh-rw" for d in pp):
+    fails.append("pre-flip PRIMARY: a STANDALONE shared-pg-mesh-rw stub rendered — on the primary the alias is CNPG-managed with real local backends")
+
+if fails:
+    for f in fails:
+        sys.stderr.write("  FAIL #6796: " + f + "\n")
+    sys.exit(1)
+print("  PASS (pre-flip secondary stubs unsatisfiable by the placeholder primary Pod; promoted control MATCHES; primary + post-flip steady byte-identical)")
+PY
