@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-02T19:45:05Z` |
+| Last refreshed | `2026-09-02T20:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -315,6 +315,7 @@ flowchart LR
 | 2026-09-02T18:00 | [#6818](https://github.com/openova-io/openova/pull/6818) | #6814 | test(jobs): fix the #6749 async-seed test's double close and |
 | 2026-09-02T17:42 | [#6817](https://github.com/openova-io/openova/pull/6817) | #6802 | fix(console): a failed dashboard tile must say WHEN it faile |
 | 2026-09-02T17:24 | [#6816](https://github.com/openova-io/openova/pull/6816) | #6805 | docs(ledger): open the hw307 partition in PATH-TO-100 (Refs  |
+| 2026-09-02T19:53 | [#6814](https://github.com/openova-io/openova/pull/6814) | #5281 | fix(preflight): gate the fire on the Phase-1 image path, wal |
 | 2026-09-02T16:54 | [#6813](https://github.com/openova-io/openova/pull/6813) | #6811 | docs(ledger): record the hw307 walk observations (Refs #6778 |
 | 2026-09-02T16:41 | [#6812](https://github.com/openova-io/openova/pull/6812) | #6810 | docs(sessions): hw307 post-ready evidence — stability watch, |
 | 2026-09-02T16:41 | [#6811](https://github.com/openova-io/openova/pull/6811) | #6778 | docs(uat): seven scheduler-due rows walked live on hw307 (Re |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-02T09:47 | [#6787](https://github.com/openova-io/openova/pull/6787) | #1888 | fix(bp-harbor): alias-redirect HTTPRoute must not pin sectio |
 | 2026-09-02T09:34 | [#6785](https://github.com/openova-io/openova/pull/6785) | #6781 | fix(uat-tooling): read the HTML ledger in uat-tally and the  |
 | 2026-09-02T09:05 | [#6784](https://github.com/openova-io/openova/pull/6784) | #6778 | docs: hw306 FIRED — wipe, pre-flight and fire evidence; prot |
-| 2026-09-02T09:23 | [#6781](https://github.com/openova-io/openova/pull/6781) | #6778 | fix(uat): uat-confidence.py reads the HTML-table ledger; rec |
 
 ---
 
