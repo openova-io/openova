@@ -1,5 +1,47 @@
 apiVersion: v2
 name: bp-postgres
+# 0.2.26 — #6796 (Refs #4460 #6627 #6753 #5224): the PRE-FLIP secondary `-mesh`/
+#   `-mesh-rw` stub selected the LOCAL #4460 placeholder singleton. #4460 (0.2.8)
+#   suppressed the CNPG-managed aliases on the secondary "precisely so this
+#   zero-backend stub owns the names ... NOT region-B's own pre-flip singleton DB"
+#   — but the stub's selector (`cnpg.io/cluster: <instance>` + `instanceRole:
+#   primary`) is byte-identical to CNPG's own `-rw` selector, and in the pre-flip
+#   window cluster.yaml renders the throwaway placeholder `<instance>` Cluster on
+#   that very cluster, whose primary Pod carries exactly those labels. The
+#   suppression therefore changed nothing about the endpoint set: with
+#   `affinity: local` every secondary-region write landed on the placeholder,
+#   whose managed roles were reconciled off Secrets #5224 deliberately never mints
+#   there. Measured live on hw307 (dep 9a1f230f320d7ff9, 2026-09-02, read-only):
+#   region B in the pre-flip window (crossRegion=false, side=secondary, peers=[]),
+#   `shared-pg-mesh-rw` endpoints = 10.43.6.197 (local placeholder shared-pg-1;
+#   -b/-c siblings identical), region-A's = 10.42.5.232; region-B keycloak-0
+#   CrashLoopBackOff 14x on `FATAL: password authentication failed for user
+#   "keycloak"` while region A was Ready off the SAME reflected Secret (no
+#   `shared-pg-keycloak` role Secret exists on B). hw305 region B showed the same
+#   shape (2026-08-24). Case 4d pinned the stub's presence and the managed alias's
+#   absence, never the selector against the placeholder's Pod labels — the guard
+#   tested a surface that cannot fail.
+#     - _helpers.tpl: `bp-postgres.preFlipSecondary` (side=replica AND NOT
+#       activeHotStandby — the exact window in which cluster.yaml renders the
+#       placeholder on the secondary), named once instead of re-derived in prose.
+#     - replica-mesh-service.yaml: in that window BOTH stub selectors carry one
+#       extra term no Pod ever carries (`catalyst.openova.io/mesh-backends:
+#       remote-only`), so the local endpoint set is empty BY CONSTRUCTION and
+#       Cilium's local-affinity routing falls through the mesh to region A — the
+#       "zero Pods by construction" idiom peer-mesh-service.yaml already uses,
+#       stated explicitly. Post-flip steady / promoted (#6753 consumerAliasCluster),
+#       demoted, primary and singleton renders are byte-identical to 0.2.25.
+#   NOT done here (alternatives, filed on #6796): not rendering the placeholder at
+#   all on the secondary (a design change #6016/#6114 build on, and B's
+#   SOVEREIGN_SME_PG_HOST is baked to the local `-c-rw`); flipping `affinity`
+#   (`local` is right for region A, and a `remote` hint on B falls back to the
+#   placeholder whenever the mesh is not yet peered); reflecting the role password
+#   into the placeholder (B's keycloak would run Liquibase on a DB the flip
+#   deletes). tests/postgres-render.sh Case 4i added: the pre-flip stub selectors
+#   must NOT be satisfiable by the placeholder primary's Pod label set, with the
+#   #6753 promoted render as the positive control (same checker must MATCH there)
+#   and the primary / post-flip steady renders pinned byte-identical. Lockstep:
+#   16a/16c/16d HR pins + blueprint.yaml + catalog-seed → 0.2.26.
 # 0.2.25 — #6753 (Refs #6149 #3629 #4460): the consumer `-mesh`/`-mesh-rw` global
 #   aliases now FOLLOW a #6149 AUTOMATIC DR promotion. The automatic path does not
 #   switch the pair in place — it PROMOTES the SEPARATE `<instance>-replica` Cluster
@@ -468,8 +510,8 @@ name: bp-postgres
 #   honoured — sprig's `default` swallows boolean false). Primary render is
 #   byte-identical. Lockstep slot pins 16a/16c/16d → 0.2.20.
 #   tests/postgres-render.sh Case 21 added.
-version: 0.2.25
-appVersion: 0.2.25
+version: 0.2.26
+appVersion: 0.2.26
 description: |
   Catalyst-authored data-instance Blueprint for a shareable, reusable
   PostgreSQL engine. Each install of bp-postgres = ONE

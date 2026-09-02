@@ -116,7 +116,15 @@ spec:
       #   survivor instead of NXDOMAIN-crashlooping post-promote (the shared-pg-b
       #   sibling hit this live on hw305). Steady render byte-identical. Lockstep
       #   16a/16c/16d.
-      version: 0.2.25
+      # 0.2.26 (#6796, Refs #4460 #6627 #6753 #5224): the PRE-FLIP secondary
+      #   `shared-pg-c-mesh`/`-mesh-rw` stub selected region B's OWN #4460
+      #   placeholder singleton (hw307 live: B's shared-pg-c-mesh-rw endpoints =
+      #   10.43.4.227, the local shared-pg-c-1), so `affinity: local` sent THIS
+      #   slot's region-B consumers to the throwaway DB. In that window the stub
+      #   now carries a selector term no Pod carries → zero local backends by
+      #   construction → cross-mesh to region A. Every other render byte-identical.
+      #   Lockstep 16a/16c/16d.
+      version: 0.2.26
       sourceRef:
         kind: HelmRepository
         name: bp-postgres
