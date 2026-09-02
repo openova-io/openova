@@ -2783,7 +2783,11 @@ stepTimeouts:
   # watchJobToCompletion), taking the MAX of it and the global default.
   # Event-driven: a fast run (gateway already Programmed, HRs reconcile
   # in seconds) returns immediately and never waits out the ceiling.
-  helmRepositoryPatchesSeconds: 2400
+  # Raised 2400 -> 3600 by #5596 (0.1.202): the secondary-region durable rewrite
+  # adds up to secondaryRegions.pivotJobWaitSeconds + gitRepositoryReadySeconds
+  # per secondary (1380s) before the existing per-region assert; still
+  # event-driven, a healthy 2-region run finishes in minutes.
+  helmRepositoryPatchesSeconds: 3600
   # Step 06 Phase-3a (strip-before-pivot fix, Refs #3379 #3526). After the
   # Phase-1 URL pivot + Phase-2 durable Gitea push, Step-06 waits up to
   # this long for EVERY HelmRepository now pointing at local Harbor to
@@ -3443,6 +3447,26 @@ secondaryRegions:
   mirrorJobWaitSeconds: 2100
   # Poll cadence (seconds) for the mirror-Job wait loop above.
   mirrorJobPollSeconds: 10
+  # #5596 — step-06 SECONDARY-region DURABLE rewrite. Since #6490 each secondary's
+  # Flux consumes its OWN in-cluster Gitea (filled from upstream by step-01), which
+  # step-06's Phase-2 push (region-A's Gitea only) never reaches, so the region's
+  # bootstrap-kit Kustomization re-applied the 65 literal ghcr URLs on every
+  # reconcile and the #5596 assert FATALed each attempt (hw305, 10 days). Before
+  # the live patch loop step-06 now stamps an in-region Job (ns
+  # secondaryGiteaNamespace, default SA, the shared PAT via secondaryGiteaPatSecretName)
+  # that applies the same kit-rewrite.sh to that region's own clone, pushes it, and
+  # self-verifies the sha; region-A then converges the region's GitRepository onto
+  # that sha (gitRepositoryReadySeconds) and only then runs the durable assert.
+  # Render-gated on mirrorToSecondaryGitea like the mirror leg.
+  #
+  # activeDeadlineSeconds for the in-region pivot Job: a --depth 1 clone of main
+  # from the region-local Gitea + a ~65-file rewrite + one push; generous.
+  pivotJobTimeoutSeconds: 900
+  # Bounded wall-clock the region-A leg polls for that Job; must exceed
+  # pivotJobTimeoutSeconds plus scheduling/pull margin.
+  pivotJobWaitSeconds: 1080
+  # Poll cadence (seconds) for the pivot-Job wait loop.
+  pivotJobPollSeconds: 10
   # #6764 — SECONDARY-region Harbor prewarm. A 2-region Sovereign runs bp-harbor
   # in BOTH regions, so region-B has its OWN empty local Harbor; step-03's
   # PRIMARY prewarm (Phase A/A2) populates region-A's Harbor only, so step-06

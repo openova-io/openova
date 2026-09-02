@@ -39,10 +39,14 @@ patches.region.<key>.*` on the status ConfigMap. After Phase-3b's
 readiness-gated strip lands on region-A, the (now-stripped) auth bytes
 are re-synced to every secondary so region-B sheds the mothership creds
 under the SAME proven-pullable gate — never before it (the hw139
-strip-before-proof lesson applies per-region). Durability is shared:
-the secondaries consume the SAME local Gitea tree Phase 2 pushed (their
-GitRepository was pivoted by step-05's #5359 leg), so their bootstrap-
-kit reconcile re-asserts the pivoted URLs instead of reverting them.
+strip-before-proof lesson applies per-region). Durability is PER REGION
+(#5596, 0.1.202): since #6490 each secondary's Flux consumes its OWN
+in-cluster Gitea (mirrored from upstream by step-01), which the Phase-2
+push never reaches — hw305 measured 63/65 HRs reverting on every attempt
+for 10 days. So before the live patch loop the leg stamps an in-region
+Job that applies the same kit-rewrite.sh to that region's own clone and
+pushes it (secondary-pivot-script-configmap.yaml), converges the region's
+GitRepository onto that sha, and only then runs the #5596 durable assert.
 Region-B chart PULLS go through the Sovereign's own public registry
 door (registry.<fqdn> via the region-A gateway — the same EIP the
 ClusterMesh control-plane already proves reachable cross-region).
@@ -998,6 +1002,157 @@ data:
     fi
     # ---- end Phase 2c (#5650) ----
 
+  {{- /*
+   #5596 — the ONE bootstrap-kit transform (upstream url -> local Harbor,
+   certSecretRef injection, Phase-2.5 openova-catalog override). Region-A
+   step-06 `.`-sources it from /kit-rewrite and calls rewrite_kit_tree on its
+   Gitea clone; the SAME bytes are distributed into every secondary region and
+   run there by the in-region pivot Job (secondary-pivot-script-configmap.yaml)
+   against that region's OWN Gitea — one copy, never two (#5646). Reads
+   UPSTREAM_PREFIX / local_prefix / trust_secret from the calling shell and adds
+   to its ${edited}. inject_trust_ref keeps its `#` markers: chart/tests/
+   step06-{org-tenants,perorg-tenant}-source.sh awk-slice it out of the render
+   and execute these bytes.
+  */}}
+  kit-rewrite.sh: |
+    # ---- inject_trust_ref (#3379 #6293) ----
+    inject_trust_ref() {
+      awk -v ref="${trust_secret}" -v lp="${local_prefix}" '
+          {{- /*
+           Match a pivoted `url:` line (local Harbor prefix). Capture
+           its leading whitespace so the injected block aligns with the
+           sibling keys (type/interval/url/secretRef) under spec:.
+          */}}
+          {
+            line=$0
+            if (match(line, /^[[:space:]]*url:[[:space:]]*/)) {
+              val=line; sub(/^[[:space:]]*url:[[:space:]]*/, "", val)
+              {{- /*
+               Only the local-Harbor url lines (this file may also
+               carry an unrelated url: e.g. a GitRepository) — gate on
+               the value starting with the local prefix.
+              */}}
+              if (index(val, lp) == 1) {
+                indent=line; sub(/url:.*/, "", indent)
+                print line
+                print indent "certSecretRef:"
+                print indent "  name: " ref
+                injected_here=1
+                next
+              }
+            }
+            {{- /*
+             Drop a pre-existing certSecretRef block that immediately
+             follows our just-printed url (avoids a duplicate on
+             re-run). A line at the url indent starting `certSecretRef:`
+             right after an injection is the stale one.
+            */}}
+            if (injected_here==1 && match(line, /^[[:space:]]*certSecretRef:[[:space:]]*$/)) {
+              injected_here=2   # swallow this line + its `name:` child
+              next
+            }
+            if (injected_here==2 && match(line, /^[[:space:]]*name:[[:space:]]*/)) {
+              injected_here=0   # swallow the child name line
+              next
+            }
+            injected_here=0
+            print line
+          }
+        ' "$1" > "$1.trust" && mv "$1.trust" "$1"
+    }
+    # ---- end inject_trust_ref ----
+    # ---- rewrite_kit_tree (#5596) ----
+    rewrite_kit_tree() {
+      kr_dir="$1"
+      for f in $(grep -lE "^[[:space:]]*url:[[:space:]]*${UPSTREAM_PREFIX}[[:space:]]*$" "${kr_dir}"/*.yaml 2>/dev/null || true); do
+        sed -i -E "s,^([[:space:]]*url:[[:space:]]*)${UPSTREAM_PREFIX}([[:space:]]*)$,\1${local_prefix}\2," "${f}"
+        edited=$((edited+1))
+        echo "[helmrepository-patches] edited ${f}"
+      done
+      echo "[helmrepository-patches] sed edited ${edited} bootstrap-kit file(s)"
+      {{- /*
+       Phase-2.5 (TBD-C19): the openova-catalog HelmRepository is rendered by
+       the catalyst-platform chart, so its durable URL lives under
+       13-bp-catalyst-platform.yaml spec.values.catalog.helmRepository.url
+       (`catalog:` at 4 spaces, `helmRepository:` at 6, `url:` at 8). Existing
+       block -> rewrite the url (an awk state machine: the range-sed it
+       replaces WARNed on every hw305 re-run, #5596); no block -> inject it
+       above the 4-space `sovereign:` key (chart >= 1.4.117, PR #1569).
+       Runs BEFORE the trust injection so the injected url line is trust-
+       annotated in the same pass and a re-run is a byte-for-byte no-op
+       (step5596-secondary-durable-rewrite.sh proves the idempotency).
+      */}}
+      catalyst_yaml="${kr_dir}/13-bp-catalyst-platform.yaml"
+      if [ -f "${catalyst_yaml}" ]; then
+        if grep -qE '^[[:space:]]{4}catalog:[[:space:]]*$' "${catalyst_yaml}" \
+           && grep -A 3 -E '^[[:space:]]{4}catalog:[[:space:]]*$' "${catalyst_yaml}" \
+              | grep -qE '^[[:space:]]{6}helmRepository:[[:space:]]*$'; then
+          if awk -v prefix="${local_prefix}" '
+                { match($0, /^ */); ind=RLENGTH }
+                ind==4 && $0 ~ /^ *catalog:[ \t]*$/ { inblk=1; print; next }
+                inblk && ind<=4 && $0 ~ /^ *[A-Za-z]/ { inblk=0 }
+                inblk && ind==8 && $0 ~ /^ *url:/ { print "        url: " prefix; done=1; next }
+                { print }
+                END { exit(done ? 0 : 1) }
+              ' "${catalyst_yaml}" > "${catalyst_yaml}.new" 2>/tmp/.p25.err && mv "${catalyst_yaml}.new" "${catalyst_yaml}"; then
+            echo "[helmrepository-patches] Phase-2.5 OK: rewrote existing catalog.helmRepository.url in ${catalyst_yaml} -> ${local_prefix}"
+            edited=$((edited+1))
+          else
+            echo "[helmrepository-patches] Phase-2.5 WARN: rewrite of the existing catalog block failed ($(tr '\n' ' ' </tmp/.p25.err 2>/dev/null)); Phase-1.6 K8s patch remains durable for one upgrade cycle"
+            rm -f "${catalyst_yaml}.new"
+          fi
+        else
+          if grep -qE '^[[:space:]]{4}sovereign:[[:space:]]*$' "${catalyst_yaml}"; then
+            awk -v prefix="${local_prefix}" '
+              /^[[:space:]]{4}sovereign:[[:space:]]*$/ && !done {
+                print "    # ─── openova-catalog HelmRepository URL (TBD-C19, 2026-05-18) ──"
+                print "    # Pivoted by self-sovereign-cutover step-06 phase-2.5 from"
+                print "    # oci://ghcr.io/openova-io → local Harbor mirror so the"
+                print "    # catalyst-platform chart re-renders openova-catalog HR with"
+                print "    # the post-cutover URL on every reconcile. Bootstrap-kit"
+                print "    # Kustomization preserves this override across reconciles —"
+                print "    # without it Step-08 catches `openova-catalog` regressing"
+                print "    # back to ghcr.io ~1 min after Phase-1 patch."
+                print "    catalog:"
+                print "      helmRepository:"
+                print "        url: " prefix
+                done = 1
+              }
+              { print }
+            ' "${catalyst_yaml}" > "${catalyst_yaml}.new" && mv "${catalyst_yaml}.new" "${catalyst_yaml}"
+            echo "[helmrepository-patches] Phase-2.5 OK: injected catalog.helmRepository.url block into ${catalyst_yaml}"
+            edited=$((edited+1))
+          else
+            echo "[helmrepository-patches] Phase-2.5 WARN: ${catalyst_yaml} has no spec.values.sovereign anchor (chart older than 1.4.117?) — Phase-1.6 K8s patch remains durable for one upgrade cycle"
+          fi
+        fi
+      else
+        echo "[helmrepository-patches] Phase-2.5 SKIP: ${catalyst_yaml} not present in local mirror"
+      fi
+      {{- /*
+       Phase-2 trust durability (Refs #3379): certSecretRef into every pivoted
+       HelmRepository spec so the kit Kustomization keeps the source-controller
+       trust ref (Flux OCI HelmRepository has no insecureSkipVerify). Only when
+       Phase-0.5 built a trust Secret. Idempotent via inject_trust_ref.
+      */}}
+      if [ -n "${trust_secret}" ]; then
+        trust_edited=0
+        trust_list=/tmp/cutover-trust-targets.txt
+        : > "${trust_list}"
+        grep -lE "^[[:space:]]*url:[[:space:]]*${local_prefix}([[:space:]]*|/.*)$" "${kr_dir}"/*.yaml 2>/dev/null >> "${trust_list}" || true
+        for f in $(awk 'NF' "${trust_list}" | sort -u); do
+          inject_trust_ref "${f}"
+          trust_edited=$((trust_edited+1))
+          echo "[helmrepository-patches] trust-injected certSecretRef -> ${f}"
+        done
+        if [ "${trust_edited}" -gt 0 ]; then
+          edited=$((edited+trust_edited))
+          echo "[helmrepository-patches] Phase-2 trust: injected certSecretRef=${trust_secret} into ${trust_edited} pivoted HelmRepository YAML(s)"
+        fi
+      fi
+    }
+    # ---- end rewrite_kit_tree ----
+
   podSpec: |
     serviceAccountName: {{ include "bp-self-sovereign-cutover.serviceAccountName" . }}
     restartPolicy: Never
@@ -1331,6 +1486,25 @@ data:
             value: {{ .Values.helmRepositories.vclusterLoftPivot.localProject | quote }}
           - name: VCL_LOFT_PULL_ATTEMPTS
             value: {{ .Values.helmRepositories.vclusterLoftPivot.pullAttempts | quote }}
+          {{- if .Values.secondaryRegions.mirrorToSecondaryGitea }}
+          {{- /* #5596 — inputs for the in-region durable rewrite (durable_rewrite_secondary in args). */}}
+          - name: SECONDARY_GITEA_NAMESPACE
+            value: {{ .Values.secondaryRegions.secondaryGiteaNamespace | quote }}
+          - name: SECONDARY_GITEA_PAT_SECRET
+            value: {{ .Values.secondaryRegions.secondaryGiteaPatSecretName | quote }}
+          - name: PAT_SOURCE_NAMESPACE
+            value: {{ .Values.gitRepositorySecretRef.patSourceNamespace | quote }}
+          - name: PAT_SOURCE_SECRET_NAME
+            value: {{ .Values.gitRepositorySecretRef.patSourceSecretName | quote }}
+          - name: PAT_SOURCE_KEY
+            value: {{ .Values.gitRepositorySecretRef.patSourceKey | quote }}
+          - name: PIVOT_JOB_WAIT_SECONDS
+            value: {{ .Values.secondaryRegions.pivotJobWaitSeconds | quote }}
+          - name: PIVOT_JOB_POLL_SECONDS
+            value: {{ .Values.secondaryRegions.pivotJobPollSeconds | quote }}
+          - name: SECONDARY_GITREPO_READY_SECONDS
+            value: {{ .Values.secondaryRegions.gitRepositoryReadySeconds | quote }}
+          {{- end }}
         volumeMounts:
           - name: helmrepository-list
             mountPath: /work
@@ -1350,6 +1524,15 @@ data:
           - name: phase2c-script
             mountPath: /phase2c
             readOnly: true
+          {{- /* #5596 — the shared bootstrap-kit transform, `.`-sourced by Phase 2 and distributed into every secondary. */}}
+          - name: kit-rewrite-script
+            mountPath: /kit-rewrite
+            readOnly: true
+          {{- if .Values.secondaryRegions.mirrorToSecondaryGitea }}
+          - name: secondary-pivot
+            mountPath: /secondary-pivot
+            readOnly: true
+          {{- end }}
           - name: tmp
             mountPath: /tmp
           {{- /*
@@ -2213,9 +2396,13 @@ data:
             cd repo
 
             {{- /*
-             Find every HelmRepository YAML that declares the upstream
-             URL under clusters/_template/bootstrap-kit/. Rewrite to
-             the local Harbor prefix in-place.
+             Phase 2 — the bootstrap-kit rewrite (upstream url -> local Harbor,
+             certSecretRef injection, Phase-2.5 openova-catalog override) lives
+             in /kit-rewrite/kit-rewrite.sh (#5596): the SAME bytes the in-region
+             secondary Job applies to each secondary's OWN Gitea clone — one
+             copy, never two (#5646). Sourced (not sh) so ${edited},
+             ${local_prefix}, ${trust_secret} and inject_trust_ref() are in this
+             shell for Phase 2b/2c/2d.
             */}}
             target_dir="clusters/_template/bootstrap-kit"
             if [ ! -d "${target_dir}" ]; then
@@ -2223,235 +2410,8 @@ data:
               exit 1
             fi
             edited=0
-            for f in $(grep -lE "^[[:space:]]*url:[[:space:]]*${UPSTREAM_PREFIX}[[:space:]]*$" "${target_dir}"/*.yaml 2>/dev/null || true); do
-              sed -i -E "s,^([[:space:]]*url:[[:space:]]*)${UPSTREAM_PREFIX}([[:space:]]*)$,\1${local_prefix}\2," "${f}"
-              edited=$((edited+1))
-              echo "[helmrepository-patches] edited ${f}"
-            done
-            echo "[helmrepository-patches] sed edited ${edited} bootstrap-kit file(s)"
-
-            {{- /*
-             ---- Phase 2b: MOVED to /phase2b/phase2b.sh (#6293) ----
-
-             #4885 put the org-tenants rewrite HERE, inside the working tree of
-             a clone this same block opens with `--branch main`. It could never
-             match a file. The catalyst-api org-tenant pipeline
-             (organization_gitops.go writeParentTenantsIndex) pushes
-             clusters/<fqdn>/org-tenants/helmrepositories.yaml to `HEAD:org-tenants`
-             — a DEDICATED branch (TBD-C18e; products/catalyst/chart/templates/
-             org-services/org-repo-gitrepository.yaml `ref.branch: org-tenants`),
-             precisely so the step-01 mirror's force-push of main cannot clobber
-             per-Org overlays. `main` therefore has no clusters/<fqdn>/org-tenants
-             tree at all, and this repo proves it: `find clusters -type d -name
-             org-tenants` returns nothing.
-
-             So the loop's `grep -rl … | grep '/org-tenants/'` returned empty on
-             every Sovereign that ever ran it, printed "sed edited 0 org-tenant
-             HelmRepository file(s)", and read as a clean no-op. Underneath, the
-             org-tenants Kustomization (1m interval, prune=true, sourceRef
-             openova-org-tenants) kept re-applying the ghcr URLs over Phase-1's
-             live patch — the five offenders #5436's read-back FATALs on
-             (bp-agenity / bp-keycloak / bp-openclaw / bp-stalwart-tenant /
-             bp-wordpress-tenant; bp-newapi is the sixth, tolerated via
-             readbackExcludeNames).
-
-             A second defect sat behind it: even with a match, the commit below
-             stages `git add "${target_dir}"` = clusters/_template/bootstrap-kit
-             ONLY, and pushes `origin main`. Tenant edits would have been counted
-             into ${edited}, logged as edited, then dropped unstaged — the
-             "git diff empty after sed" path, which reads as success.
-
-             The rewrite now runs against its OWN branch in its own clone, with
-             its own add/commit/push, sourced after the main-branch push below.
-            */}}
-
-            {{- /*
-             Phase-2 trust durability (Refs #3379): inject `certSecretRef:`
-             into every HelmRepository spec whose url was just pivoted to the
-             local Harbor, at the SAME indent as the `url:` line, so the
-             bootstrap-kit Kustomization reconcile keeps the source-controller
-             trust ref instead of reverting Phase-1's live certSecretRef patch
-             (~1 min later) and re-x509-failing every pivoted pull. Idempotent:
-             if a certSecretRef referencing trust_secret already sits in the
-             same HelmRepository spec we leave it; awk only injects when the
-             pivoted url line has no matching certSecretRef immediately after.
-             Only runs when a trust secret was actually built (Phase-0.5).
-            */}}
-            {{- /*
-             #6293 — the injector is a FUNCTION defined UNCONDITIONALLY, not an
-             inline awk inside the trust_secret branch, because phase2b.sh needs
-             the identical transform on the org-tenants branch. A pasted second
-             copy is the #5646 shape: the two drift and only one gets fixed.
-             `.`-sourced phase2b.sh runs in THIS shell, so it just calls this.
-             The two markers are `#` comments on purpose — chart/tests/
-             step06-org-tenants-source.sh awk-slices this region out of the
-             RENDERED manifest so it exercises these bytes, not a copy.
-            */}}
-            # ---- inject_trust_ref (#3379 #6293) ----
-            inject_trust_ref() {
-              awk -v ref="${trust_secret}" -v lp="${local_prefix}" '
-                  {{- /*
-                   Match a pivoted `url:` line (local Harbor prefix). Capture
-                   its leading whitespace so the injected block aligns with the
-                   sibling keys (type/interval/url/secretRef) under spec:.
-                  */}}
-                  {
-                    line=$0
-                    if (match(line, /^[[:space:]]*url:[[:space:]]*/)) {
-                      val=line; sub(/^[[:space:]]*url:[[:space:]]*/, "", val)
-                      {{- /*
-                       Only the local-Harbor url lines (this file may also
-                       carry an unrelated url: e.g. a GitRepository) — gate on
-                       the value starting with the local prefix.
-                      */}}
-                      if (index(val, lp) == 1) {
-                        indent=line; sub(/url:.*/, "", indent)
-                        print line
-                        print indent "certSecretRef:"
-                        print indent "  name: " ref
-                        injected_here=1
-                        next
-                      }
-                    }
-                    {{- /*
-                     Drop a pre-existing certSecretRef block that immediately
-                     follows our just-printed url (avoids a duplicate on
-                     re-run). A line at the url indent starting `certSecretRef:`
-                     right after an injection is the stale one.
-                    */}}
-                    if (injected_here==1 && match(line, /^[[:space:]]*certSecretRef:[[:space:]]*$/)) {
-                      injected_here=2   # swallow this line + its `name:` child
-                      next
-                    }
-                    if (injected_here==2 && match(line, /^[[:space:]]*name:[[:space:]]*/)) {
-                      injected_here=0   # swallow the child name line
-                      next
-                    }
-                    injected_here=0
-                    print line
-                  }
-                ' "$1" > "$1.trust" && mv "$1.trust" "$1"
-            }
-            # ---- end inject_trust_ref ----
-
-            if [ -n "${trust_secret}" ]; then
-              trust_edited=0
-              {{- /*
-               Collected into a temp file (avoids an unindented continuation
-               line inside this YAML block scalar).
-
-               #6293: the second collector line — a `grep -rl … clusters | grep
-               '/org-tenants/'` added by #4885 — is REMOVED, not relocated by
-               accident. This clone is `--branch main`; the org-tenants tree
-               lives on the `org-tenants` branch, so it matched nothing here.
-               The tenant HelmRepositories get their certSecretRef from this
-               same injector, called inside phase2b.sh in a clone that actually
-               holds them.
-              */}}
-              trust_list=/tmp/cutover-trust-targets.txt
-              : > "${trust_list}"
-              grep -lE "^[[:space:]]*url:[[:space:]]*${local_prefix}([[:space:]]*|/.*)$" "${target_dir}"/*.yaml 2>/dev/null >> "${trust_list}" || true
-              for f in $(awk 'NF' "${trust_list}" | sort -u); do
-                inject_trust_ref "${f}"
-                trust_edited=$((trust_edited+1))
-                echo "[helmrepository-patches] trust-injected certSecretRef -> ${f}"
-              done
-              if [ "${trust_edited}" -gt 0 ]; then
-                edited=$((edited+trust_edited))
-                echo "[helmrepository-patches] Phase-2 trust: injected certSecretRef=${trust_secret} into ${trust_edited} pivoted HelmRepository YAML(s)"
-              fi
-            fi
-
-            {{- /*
-             Phase-2.5 (TBD-C19, 2026-05-18): inject openova-catalog URL
-             override into 13-bp-catalyst-platform.yaml's
-             `spec.values.sovereign:` block. Why this seam: the
-             openova-catalog HelmRepository is rendered by the catalyst-
-             platform Helm chart (see Phase-1.6 above) so the durable URL
-             lives in the parent HelmRelease's spec.values rather than as
-             its own `url:` line in bootstrap-kit. Without this injection
-             the bootstrap-kit Kustomization reconciles the HelmRelease
-             YAML from Gitea every minute and reverts Phase-1.6's live
-             patch — chart re-render then puts openova-catalog HR back
-             at oci://ghcr.io/openova-io and Step-08 catches it.
-
-             Idempotency: if the file already declares
-             `catalog.helmRepository.url:` under spec.values, replace
-             the URL value with the current local prefix (handles
-             re-runs with a different harbor host). Otherwise inject the
-             full 3-line block above the existing `sovereign:` key
-             (every chart >= 1.4.117 ships that key under spec.values
-             — the catalyst-platform values.yaml `sovereign:` block was
-             added in PR #1569 for D22 settings identity fields).
-            */}}
-            catalyst_yaml="${target_dir}/13-bp-catalyst-platform.yaml"
-            if [ -f "${catalyst_yaml}" ]; then
-              {{- /*
-               The catalyst-platform HelmRelease has:
-                 spec:
-                   values:
-                     sovereign:   <-- 4 spaces
-                       orgEmail:  <-- 6 spaces
-               So a `catalog:` block under spec.values lives at 4
-               spaces, `helmRepository:` at 6, `url:` at 8.
-              */}}
-              if grep -qE '^[[:space:]]{4}catalog:[[:space:]]*$' "${catalyst_yaml}" \
-                 && grep -A 3 -E '^[[:space:]]{4}catalog:[[:space:]]*$' "${catalyst_yaml}" \
-                    | grep -qE '^[[:space:]]{6}helmRepository:[[:space:]]*$'; then
-                {{- /*
-                 Existing block — rewrite the url: value at 8-space
-                 indent within the catalog: block boundary.
-                */}}
-                if sed -i -E "/^[[:space:]]{4}catalog:[[:space:]]*\$/,/^[[:space:]]{0,4}[a-zA-Z]/{s,^([[:space:]]{8}url:[[:space:]]*).*\$,\1${local_prefix}," "${catalyst_yaml}" 2>/dev/null; then
-                  echo "[helmrepository-patches] Phase-2.5 OK: rewrote existing catalog.helmRepository.url in ${catalyst_yaml} -> ${local_prefix}"
-                  edited=$((edited+1))
-                else
-                  echo "[helmrepository-patches] Phase-2.5 WARN: sed rewrite of existing block failed; Phase-1.6 K8s patch remains durable for one upgrade cycle"
-                fi
-              else
-                {{- /*
-                 No existing block — inject above the `sovereign:` key
-                 under spec.values. The catalyst-platform HR layout
-                 (PR #1569 +) has:
-                   spec:
-                     values:
-                       global: {...}
-                       ingress: {...}
-                       parentZones: ...
-                       wildcardCert: {...}
-                       sovereign:        <-- inject before this line
-                 The `sovereign:` key sits at 4-space indent (under
-                 spec.values which is 2-space). Match the 4-space form
-                 specifically to avoid the unrelated
-                 `catalyst.openova.io/sovereign:` label at 4-space.
-                */}}
-                if grep -qE '^[[:space:]]{4}sovereign:[[:space:]]*$' "${catalyst_yaml}"; then
-                  awk -v prefix="${local_prefix}" '
-                    /^[[:space:]]{4}sovereign:[[:space:]]*$/ && !done {
-                      print "    # ─── openova-catalog HelmRepository URL (TBD-C19, 2026-05-18) ──"
-                      print "    # Pivoted by self-sovereign-cutover step-06 phase-2.5 from"
-                      print "    # oci://ghcr.io/openova-io → local Harbor mirror so the"
-                      print "    # catalyst-platform chart re-renders openova-catalog HR with"
-                      print "    # the post-cutover URL on every reconcile. Bootstrap-kit"
-                      print "    # Kustomization preserves this override across reconciles —"
-                      print "    # without it Step-08 catches `openova-catalog` regressing"
-                      print "    # back to ghcr.io ~1 min after Phase-1 patch."
-                      print "    catalog:"
-                      print "      helmRepository:"
-                      print "        url: " prefix
-                      done = 1
-                    }
-                    { print }
-                  ' "${catalyst_yaml}" > "${catalyst_yaml}.new" && mv "${catalyst_yaml}.new" "${catalyst_yaml}"
-                  echo "[helmrepository-patches] Phase-2.5 OK: injected catalog.helmRepository.url block into ${catalyst_yaml}"
-                  edited=$((edited+1))
-                else
-                  echo "[helmrepository-patches] Phase-2.5 WARN: ${catalyst_yaml} has no spec.values.sovereign anchor (chart older than 1.4.117?) — Phase-1.6 K8s patch remains durable for one upgrade cycle"
-                fi
-              fi
-            else
-              echo "[helmrepository-patches] Phase-2.5 SKIP: ${catalyst_yaml} not present in local mirror"
-            fi
+            . /kit-rewrite/kit-rewrite.sh
+            rewrite_kit_tree "${target_dir}"
 
             {{- /*
              Phase 2c (#5650) — the vcluster loft chart-source pivot, sourced
@@ -2765,6 +2725,110 @@ data:
               return 1
             }
 
+            {{- if .Values.secondaryRegions.mirrorToSecondaryGitea }}
+            {{- /*
+             #5596 — DURABLE rewrite IN the secondary. Since #6490 a secondary's
+             Flux consumes its OWN in-cluster Gitea, which step-01 fills from
+             upstream GitHub; the Phase-2 push above reaches region-A's Gitea
+             only, so the secondary's kit Kustomization re-applied 63/65 ghcr
+             URLs on every hw305 attempt for 10 days. This stamps an in-region
+             Job (default SA, ns gitea, shared PAT via secretKeyRef — #6754)
+             that applies kit-rewrite.sh to that region's OWN clone and pushes,
+             then forces the region's GitRepository onto that exact sha —
+             BEFORE the live patch loop and the durable assert, so the actor
+             that would revert the pivot re-applies the pivoted tree instead.
+             The pushed sha is read from the Job log; if unreadable the gate
+             falls back to token-handled + Ready=True (every revision carries
+             the `@` the fallback pattern matches).
+            */}}
+            durable_rewrite_secondary() {
+              dr_kc="$1"; dr_region="$2"
+              dr_job=$(printf 'cutover-helmrepo-pivot-secondary-%s' "${dr_region}" | cut -c1-63)
+              echo "[helmrepository-patches] #5596 secondary ${dr_region}: durable rewrite — stamping in-region Job ${dr_job} (ns ${SECONDARY_GITEA_NAMESPACE}) against its OWN Gitea"
+              dr_pat=$(kubectl -n "${PAT_SOURCE_NAMESPACE}" get secret "${PAT_SOURCE_SECRET_NAME}" -o json 2>/dev/null \
+                | jq -r --arg k "${PAT_SOURCE_KEY}" '.data[$k] // empty' | base64 -d 2>/dev/null || true)
+              if [ -z "${dr_pat}" ]; then
+                echo "[helmrepository-patches] FATAL: #5596 secondary ${dr_region}: ${PAT_SOURCE_NAMESPACE}/${PAT_SOURCE_SECRET_NAME}.${PAT_SOURCE_KEY} is empty — no credential can push the pivot into this region's Gitea (#6754)" >&2
+                return 1
+              fi
+              cat >/tmp/sec-gitea-pat.yaml <<EOF
+            apiVersion: v1
+            kind: Secret
+            metadata:
+              name: ${SECONDARY_GITEA_PAT_SECRET}
+              namespace: ${SECONDARY_GITEA_NAMESPACE}
+              labels:
+                app.kubernetes.io/managed-by: self-sovereign-cutover
+                app.kubernetes.io/component: secondary-gitea-mirror-pat
+              annotations:
+                catalyst.openova.io/mirrored-from: ${PAT_SOURCE_NAMESPACE}/${PAT_SOURCE_SECRET_NAME}
+            type: Opaque
+            stringData:
+              token: ${dr_pat}
+            EOF
+              if ! kubectl --kubeconfig "${dr_kc}" -n "${SECONDARY_GITEA_NAMESPACE}" apply -f /tmp/sec-gitea-pat.yaml >/dev/null; then
+                echo "[helmrepository-patches] FATAL: #5596 secondary ${dr_region}: could not copy the shared PAT into ${SECONDARY_GITEA_NAMESPACE}/${SECONDARY_GITEA_PAT_SECRET}" >&2
+                rm -f /tmp/sec-gitea-pat.yaml
+                return 1
+              fi
+              rm -f /tmp/sec-gitea-pat.yaml
+              if ! kubectl --kubeconfig "${dr_kc}" -n "${SECONDARY_GITEA_NAMESPACE}" create configmap cutover-secondary-pivot-script \
+                  --from-file=secondary-pivot.sh=/secondary-pivot/secondary-pivot.sh \
+                  --from-file=kit-rewrite.sh=/kit-rewrite/kit-rewrite.sh \
+                  --dry-run=client -o yaml | kubectl --kubeconfig "${dr_kc}" -n "${SECONDARY_GITEA_NAMESPACE}" apply -f - >/dev/null; then
+                echo "[helmrepository-patches] FATAL: #5596 secondary ${dr_region}: could not distribute cutover-secondary-pivot-script into ns ${SECONDARY_GITEA_NAMESPACE}" >&2
+                return 1
+              fi
+              kubectl --kubeconfig "${dr_kc}" -n "${SECONDARY_GITEA_NAMESPACE}" delete job "${dr_job}" --ignore-not-found=true >/dev/null 2>&1 || true
+              sed -e "s/__REGION__/${dr_region}/g" -e "s,__LOCAL_PREFIX__,${local_prefix},g" -e "s,__TRUST_SECRET__,${trust_secret},g" \
+                /secondary-pivot/secondary-pivot-job.yaml >/tmp/sec-pivot-job.yaml
+              if ! kubectl --kubeconfig "${dr_kc}" apply -f /tmp/sec-pivot-job.yaml >/dev/null; then
+                echo "[helmrepository-patches] FATAL: #5596 secondary ${dr_region}: apply of the in-region Job ${dr_job} was refused (kyverno flux-managed? #6493)" >&2
+                return 1
+              fi
+              dr_deadline=$(( $(date +%s) + ${PIVOT_JOB_WAIT_SECONDS} ))
+              dr_done=""
+              while [ "$(date +%s)" -lt "${dr_deadline}" ]; do
+                dr_ok=$(kubectl --kubeconfig "${dr_kc}" -n "${SECONDARY_GITEA_NAMESPACE}" get job "${dr_job}" -o jsonpath='{.status.succeeded}' 2>/dev/null || echo "")
+                dr_fail=$(kubectl --kubeconfig "${dr_kc}" -n "${SECONDARY_GITEA_NAMESPACE}" get job "${dr_job}" -o jsonpath='{.status.failed}' 2>/dev/null || echo "")
+                if [ "${dr_ok}" = "1" ]; then dr_done="ok"; break; fi
+                if [ -n "${dr_fail}" ] && [ "${dr_fail}" -ge 3 ] 2>/dev/null; then dr_done="fail"; break; fi
+                sleep "${PIVOT_JOB_POLL_SECONDS}"
+              done
+              if [ "${dr_done}" != "ok" ]; then
+                echo "[helmrepository-patches] FATAL: #5596 secondary ${dr_region}: in-region Job ${dr_job} did not succeed within ${PIVOT_JOB_WAIT_SECONDS}s — this region's durable source still carries ${UPSTREAM_PREFIX}" >&2
+                kubectl --kubeconfig "${dr_kc}" -n "${SECONDARY_GITEA_NAMESPACE}" logs "job/${dr_job}" --tail=40 2>/dev/null || true
+                return 1
+              fi
+              dr_sha=$(kubectl --kubeconfig "${dr_kc}" -n "${SECONDARY_GITEA_NAMESPACE}" logs "job/${dr_job}" 2>/dev/null \
+                | sed -n 's/^\[secondary-pivot\] main-sha=\([0-9a-f]*\).*/\1/p' | tail -1)
+              echo "[helmrepository-patches] #5596 secondary ${dr_region}: in-region Job ${dr_job} SUCCEEDED — its Gitea main is ${dr_sha:-<sha not read from the Job log>}; converging ${GITOPS_REPO_NAMESPACE}/${GITOPS_REPO_NAME} onto it"
+              dr_token=$(date +%s)
+              kubectl --kubeconfig "${dr_kc}" annotate --overwrite gitrepository "${GITOPS_REPO_NAME}" \
+                -n "${GITOPS_REPO_NAMESPACE}" "reconcile.fluxcd.io/requestedAt=${dr_token}" >/dev/null 2>&1 || true
+              dr_deadline=$(( $(date +%s) + ${SECONDARY_GITREPO_READY_SECONDS} ))
+              while : ; do
+                dr_h=$(kubectl --kubeconfig "${dr_kc}" get gitrepository "${GITOPS_REPO_NAME}" -n "${GITOPS_REPO_NAMESPACE}" \
+                  -o jsonpath='{.status.lastHandledReconcileAt}' 2>/dev/null || echo "")
+                dr_ready=$(kubectl --kubeconfig "${dr_kc}" get gitrepository "${GITOPS_REPO_NAME}" -n "${GITOPS_REPO_NAMESPACE}" \
+                  -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
+                dr_rev=$(kubectl --kubeconfig "${dr_kc}" get gitrepository "${GITOPS_REPO_NAME}" -n "${GITOPS_REPO_NAMESPACE}" \
+                  -o jsonpath='{.status.artifact.revision}' 2>/dev/null || echo "")
+                if [ "${dr_h}" = "${dr_token}" ] && [ "${dr_ready}" = "True" ]; then
+                  case "${dr_rev}" in
+                    *"${dr_sha:-@}"*)
+                      echo "[helmrepository-patches] #5596 secondary ${dr_region}: GitRepository handled token ${dr_token} Ready=True at ${dr_rev} — the durable source now carries the pivot"
+                      return 0 ;;
+                  esac
+                fi
+                if [ "$(date +%s)" -ge "${dr_deadline}" ]; then break; fi
+                sleep 10
+              done
+              echo "[helmrepository-patches] FATAL: #5596 secondary ${dr_region}: GitRepository did not converge on the pivoted revision${dr_sha:+ ${dr_sha}} within ${SECONDARY_GITREPO_READY_SECONDS}s — $(secondary_source_diagnosis "${dr_kc}"). Its Kustomization would re-apply ${UPSTREAM_PREFIX}; refusing to continue" >&2
+              return 1
+            }
+            {{- end }}
+
             pivot_secondary_regions() {
               pv_regions=0
               for pv_probe in /secondary-kubeconfigs/*.yaml; do
@@ -2802,6 +2866,15 @@ data:
                     echo "[helmrepository-patches] #5359 WARN secondary ${pv_region}: trust Secret sync failed — pivoting WITHOUT certSecretRef durability there"
                   fi
                 fi
+
+                {{- if .Values.secondaryRegions.mirrorToSecondaryGitea }}
+                {{- /* #5596 — the durable source FIRST; a live patch over an unpivoted source is exactly the hw305 loop. */}}
+                if ! durable_rewrite_secondary "${pv_kc}" "${pv_region}"; then
+                  kubectl -n "${CUTOVER_NAMESPACE}" patch configmap "${STATUS_CONFIGMAP}" --type=merge \
+                    -p "{\"data\":{\"step.helmrepository-patches.region.${pv_region}.result\":\"failed\",\"step.helmrepository-patches.region.${pv_region}.finishedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"step.helmrepository-patches.region.${pv_region}.lastError\":\"durable source rewrite failed — see the in-region Job log (#5596)\"}}" || true
+                  return 1
+                fi
+                {{- end }}
 
                 {{- /*
                  Enumerate the secondary's LIVE HR set (drift-proof — its own
@@ -3521,6 +3594,18 @@ data:
           items:
             - key: phase2c.sh
               path: phase2c.sh
+      - name: kit-rewrite-script
+        configMap:
+          name: cutover-step-06-helmrepository-patches
+          items:
+            - key: kit-rewrite.sh
+              path: kit-rewrite.sh
+      {{- if .Values.secondaryRegions.mirrorToSecondaryGitea }}
+      - name: secondary-pivot
+        configMap:
+          name: cutover-secondary-pivot-script
+          defaultMode: 0755
+      {{- end }}
       - name: tmp
         emptyDir: {}
       {{- /*

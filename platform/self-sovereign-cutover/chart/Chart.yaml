@@ -4226,7 +4226,34 @@ name: bp-self-sovereign-cutover
 #   mirror push the default branch first (fatal, the bulk pack in one ref-command),
 #   then tags (fatal), then the remaining branches in bounded best-effort batches
 #   (gitea.pushBatchBranches). Catalog + bootstrap-kit slot 06a move to 0.1.201.
-version: 0.1.201
+# 0.1.202 (#5596, Refs #5359 #6754 #6778): step-06's SECONDARY-region pivot is now
+#   DURABLE on a 2-region Sovereign. hw305 (dep b2b00ce4c833badf, 0.1.199) looped
+#   FATAL every ~16 min for 10 days: `#5359 secondary me-east-215-b-1: pivot ok=65`
+#   → `#5596 … poked 1 HR-owning Kustomization(s) + flux-system/openova` → `FATAL:
+#   #5596 … 63 HelmRepository(ies) on oci://ghcr.io/openova-io after the pivot`.
+#   Root cause: since #6490 (0.1.193) region-B's Flux consumes region-B's OWN
+#   in-cluster Gitea, which the step-01 secondary mirror fills from UPSTREAM
+#   GitHub; step-06 Phase 2 pushed the bootstrap-kit rewrite (ghcr → local Harbor
+#   + certSecretRef) to region-A's Gitea only, so region-B's kit Kustomization
+#   re-applied the 65 literal ghcr URLs on every reconcile and the live patch
+#   could never survive. Region-A only held because its own kit Kustomization is
+#   suspended. FIX: the Phase-2 transform is factored into ONE ConfigMap key,
+#   kit-rewrite.sh (region-A `.`-sources it — behaviour unchanged), and, before
+#   the live patch loop, the secondary leg distributes it into each secondary's
+#   gitea namespace with a new secondary-pivot.sh and stamps an in-region Job
+#   (default SA, kyverno flux-managed escape, shared PAT via secretKeyRef —
+#   #6754) that clones that region's OWN openova/openova main, applies the same
+#   rewrite, pushes, and self-verifies the sha; region-A then converges the
+#   region's GitRepository onto that sha (token handled + Ready=True + revision
+#   carries the sha) and only then runs the live patch + the existing #5596
+#   durable assert. Render-gated on secondaryRegions.mirrorToSecondaryGitea:
+#   single-region renders none of it. Also: the Phase-2.5 existing-catalog-block
+#   rewrite is an awk state machine now (the range-sed WARNed on every hw305
+#   re-run; harmless, root cause never measured) and surfaces its stderr.
+#   stepTimeouts.helmRepositoryPatchesSeconds 2400 → 3600 for the new per-region
+#   Job wait + GitRepository convergence. Catalog + bootstrap-kit slot 06a move
+#   to 0.1.202; umbrella 1.4.1630.
+version: 0.1.202
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

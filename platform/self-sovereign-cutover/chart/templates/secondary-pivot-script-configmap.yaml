@@ -1,0 +1,220 @@
+{{- /*
+#5596 (Refs #5359 #6490 #6754) — the SECONDARY-region DURABLE HelmRepository
+pivot, carried as a ConfigMap so the region-A step-06 leg can copy it verbatim
+into each secondary region and run it there as a Job — the #6490 / #6764
+in-region pattern, applied to the durable SOURCE of the pivot.
+
+WHY. Since #6490 (0.1.193) each secondary's Flux consumes that region's OWN
+in-cluster Gitea (gitea-http.gitea.svc, headless, unreachable cross-region),
+populated by the step-01 secondary-mirror Job from UPSTREAM GitHub. Step-06
+Phase 2 pushes the bootstrap-kit rewrite (ghcr -> local Harbor + certSecretRef)
+to region-A's Gitea ONLY, so region-B's durable source never carries the pivot
+and its bootstrap-kit Kustomization re-applies the 65 literal
+`url: oci://ghcr.io/openova-io` lines on every reconcile. hw305 (dep
+b2b00ce4c833badf, 0.1.199) looped FATAL every ~16 min for 10 days:
+  #5359 secondary me-east-215-b-1: pivot ok=65 skip=0 fail=0
+  #5596 ... poked 1 HR-owning Kustomization(s) + flux-system/openova ...
+  FATAL: #5596 secondary me-east-215-b-1: 63 HelmRepository(ies) on
+         oci://ghcr.io/openova-io after the pivot
+Region-A only survived because its own kit Kustomization is suspended.
+
+WHAT. The Job clones the secondary's OWN openova/openova main (depth 1),
+applies the SAME kit transform region-A applies (kit-rewrite.sh, distributed
+alongside this script — one copy, never two, #5646), commits, pushes with the
+shared catalyst-gitea-token PAT (#6754: valid in every region because the two
+regions share one gitea DB), and self-verifies the remote main sha. The region-A
+leg then forces the secondary's GitRepository to that revision BEFORE the live
+patch loop and the #5596 durable assert run. No Kubernetes API calls: default SA
+in the gitea namespace, exactly like the secondary-mirror Job.
+
+RENDER-GATED on secondaryRegions.mirrorToSecondaryGitea (the same 2-region
+signal): a single-region Sovereign renders none of this.
+*/ -}}
+{{- if .Values.secondaryRegions.mirrorToSecondaryGitea }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cutover-secondary-pivot-script
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-self-sovereign-cutover.labels" . | nindent 4 }}
+    app.kubernetes.io/component: secondary-helmrepo-pivot-script
+data:
+  secondary-pivot.sh: |
+    #!/bin/sh
+    set -eu
+    export HOME=/tmp
+    : "${SECONDARY_PIVOT_DIR:=/secondary-pivot}"
+    echo "[secondary-pivot] region ${REGION}: durable rewrite ${UPSTREAM_PREFIX} -> ${LOCAL_PREFIX} in ${GITEA_INTERNAL_URL}/${GITEA_ORG}/${GITEA_REPO} (trust=${TRUST_SECRET:-<none>})"
+
+    case "${GITEA_INTERNAL_URL}" in
+      http://*|https://*)
+        gitea_host="$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -E 's|^https?://||' | cut -d: -f1 | cut -d/ -f1)"
+        dns_ready="false"
+        for i in $(seq 1 30); do
+          if nslookup "${gitea_host}" >/dev/null 2>&1; then dns_ready="true"; break; fi
+          sleep 5
+        done
+        if [ "${dns_ready}" != "true" ]; then
+          echo "[secondary-pivot] FATAL: ${gitea_host} did not resolve within 150s" >&2
+          exit 1
+        fi
+        ;;
+    esac
+
+    if [ -z "${GITEA_PAT:-}" ]; then
+      echo "[secondary-pivot] FATAL: catalyst-gitea-token PAT is empty in this region — region-A's copy into the gitea namespace did not land; refusing to push with no usable credential (#6754)" >&2
+      exit 1
+    fi
+    token_auth=$(printf '%s' "${GITEA_USERNAME}:${GITEA_PAT}" | base64 -w0 2>/dev/null || printf '%s' "${GITEA_USERNAME}:${GITEA_PAT}" | base64 | tr -d '\n')
+    redact() { sed -E "s,${GITEA_PAT}+,REDACTED,g"; }
+
+    git config --global user.name "self-sovereign-cutover-secondary"
+    git config --global user.email "cutover@${REGION}.secondary"
+    git config --global advice.detachedHead false
+    git config --global http.lowSpeedLimit 1000
+    git config --global http.lowSpeedTime 600
+
+    push_url="${GITEA_INTERNAL_URL}/${GITEA_ORG}/${GITEA_REPO}.git"
+    workdir=$(mktemp -d)
+    cd "${workdir}"
+    clone_err=""
+    for _attempt in 1 2 3; do
+      if clone_err=$(git -c http.extraHeader="Authorization: Basic ${token_auth}" clone --depth 1 --branch "${UPSTREAM_BRANCH}" "${push_url}" repo 2>&1); then
+        clone_err=""
+        break
+      fi
+      echo "[secondary-pivot] clone attempt ${_attempt} failed: $(printf '%s' "${clone_err}" | redact | tail -3)" >&2
+      rm -rf repo
+      [ "${_attempt}" = 3 ] || sleep 10
+    done
+    if [ -n "${clone_err}" ]; then
+      echo "[secondary-pivot] FATAL: clone of ${push_url} (${UPSTREAM_BRANCH}) failed after 3 attempts — this region's Gitea is not serving the mirror step-01 pushed (#6490)" >&2
+      exit 1
+    fi
+    cd repo
+
+    target_dir="clusters/_template/bootstrap-kit"
+    if [ ! -d "${target_dir}" ]; then
+      echo "[secondary-pivot] FATAL: ${target_dir} not present in this region's mirror" >&2
+      exit 1
+    fi
+    edited=0
+    local_prefix="${LOCAL_PREFIX}"
+    trust_secret="${TRUST_SECRET:-}"
+    . "${SECONDARY_PIVOT_DIR}/kit-rewrite.sh"
+    rewrite_kit_tree "${target_dir}"
+
+    {{- /* Fail closed (the #6293 shape): a tree still declaring the upstream prefix must never be pushed as "pivoted". */}}
+    left=$(grep -lE "^[[:space:]]*url:[[:space:]]*${UPSTREAM_PREFIX}[[:space:]]*$" "${target_dir}"/*.yaml 2>/dev/null | grep -c . || true)
+    if [ "${left}" -ne 0 ]; then
+      echo "[secondary-pivot] FATAL: ${left} bootstrap-kit file(s) still declare ${UPSTREAM_PREFIX} after the rewrite — pushing now would record a durable pivot that does not exist" >&2
+      exit 1
+    fi
+
+    git add "${target_dir}"
+    if git diff --staged --quiet; then
+      echo "[secondary-pivot] already pivoted in this region's Gitea — nothing to commit (idempotent re-run)"
+    else
+      git commit -q -m "cutover: pivot ${edited} HelmRepository URLs to local Harbor (secondary region ${REGION}, #5596)"
+      if ! push_err=$(git -c http.extraHeader="Authorization: Basic ${token_auth}" push origin "HEAD:refs/heads/${UPSTREAM_BRANCH}" 2>&1); then
+        echo "[secondary-pivot] FATAL: git push to ${push_url} ${UPSTREAM_BRANCH} failed — this region's Kustomization keeps re-applying ${UPSTREAM_PREFIX} (#5596)" >&2
+        printf '%s\n' "${push_err}" | redact >&2
+        exit 1
+      fi
+      echo "[secondary-pivot] pushed ${edited} edit(s) to ${push_url} ${UPSTREAM_BRANCH}"
+    fi
+
+    {{- /* Self-verify: the remote main MUST be the commit this Job holds — the region-A leg gates the GitRepository on this sha. */}}
+    local_sha=$(git rev-parse HEAD)
+    remote_sha=$(git -c http.extraHeader="Authorization: Basic ${token_auth}" ls-remote "${push_url}" "refs/heads/${UPSTREAM_BRANCH}" 2>/tmp/.lsr.err | cut -f1 | head -1 || true)
+    if [ -z "${remote_sha}" ]; then
+      echo "[secondary-pivot] FATAL: git ls-remote of ${push_url} ${UPSTREAM_BRANCH} returned nothing" >&2
+      redact </tmp/.lsr.err >&2 || true
+      exit 1
+    fi
+    if [ "${remote_sha}" != "${local_sha}" ]; then
+      echo "[secondary-pivot] FATAL: remote ${UPSTREAM_BRANCH} is ${remote_sha} but the pivot commit is ${local_sha} — the push did not land" >&2
+      exit 1
+    fi
+    echo "[secondary-pivot] main-sha=${remote_sha}"
+  {{- /*
+   The in-region Job manifest, Helm-rendered like secondary-mirror-job.yaml; the
+   region-A leg sed-substitutes __REGION__, __LOCAL_PREFIX__ and __TRUST_SECRET__
+   (the last two are only known at step-06 run time). managed-by: flux is the
+   kyverno flux-managed escape ns gitea requires (#6493). GITEA_PAT is the shared
+   PAT region-A copied into this namespace (#6754).
+  */}}
+  secondary-pivot-job.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: cutover-helmrepo-pivot-secondary-__REGION__
+      namespace: {{ .Values.secondaryRegions.secondaryGiteaNamespace | quote }}
+      labels:
+        app.kubernetes.io/managed-by: flux
+        app.kubernetes.io/part-of: self-sovereign-cutover
+        app.kubernetes.io/component: secondary-helmrepo-pivot
+        catalyst.openova.io/secondary-region: "__REGION__"
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: {{ .Values.secondaryRegions.pivotJobTimeoutSeconds }}
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/part-of: self-sovereign-cutover
+            app.kubernetes.io/component: secondary-helmrepo-pivot
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: secondary-helmrepo-pivot
+              image: {{ include "bp-self-sovereign-cutover.image" (dict "repository" .Values.images.kubectl.repository "tag" .Values.images.kubectl.tag "cutoverPhase" "post" "Values" .Values) }}
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/sh", "/secondary-pivot/secondary-pivot.sh"]
+              env:
+                - name: HOME
+                  value: /tmp
+                - name: REGION
+                  value: "__REGION__"
+                - name: UPSTREAM_BRANCH
+                  value: {{ .Values.upstream.branch | quote }}
+                - name: GITEA_INTERNAL_URL
+                  value: {{ .Values.sovereign.giteaInternalURL | quote }}
+                - name: GITEA_ORG
+                  value: {{ .Values.gitea.org | quote }}
+                - name: GITEA_REPO
+                  value: {{ .Values.gitea.repo | quote }}
+                - name: GITEA_USERNAME
+                  value: {{ .Values.gitRepositorySecretRef.username | quote }}
+                - name: GITEA_PAT
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.secondaryRegions.secondaryGiteaPatSecretName | quote }}
+                      key: token
+                - name: UPSTREAM_PREFIX
+                  value: {{ .Values.helmRepositories.upstreamPrefix | quote }}
+                - name: LOCAL_PREFIX
+                  value: "__LOCAL_PREFIX__"
+                - name: TRUST_SECRET
+                  value: "__TRUST_SECRET__"
+              volumeMounts:
+                - name: secondary-pivot
+                  mountPath: /secondary-pivot
+                  readOnly: true
+              resources:
+                requests: { cpu: 100m, memory: 256Mi }
+                limits:   { memory: 1Gi }
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 1000
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: false
+                capabilities:
+                  drop: ["ALL"]
+          volumes:
+            - name: secondary-pivot
+              configMap:
+                name: cutover-secondary-pivot-script
+                defaultMode: 0755
+{{- end }}
