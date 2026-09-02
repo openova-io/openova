@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-02T19:30:05Z` |
+| Last refreshed | `2026-09-02T19:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6172](https://github.com/openova-io/openova/issues/6172) | Fresh prov hw294 wedges Phase 1 at 51/67: bp-keycloak 1.5.9 post-install realm i | Other |
 | [#6183](https://github.com/openova-io/openova/issues/6183) | specter residue + UAT row W5: remove the phantom wizard component id and the non | Other |
 | [#6187](https://github.com/openova-io/openova/issues/6187) | bp-keycloak 1.5.10: the #6172 backchannel anchor is not gated to Sovereign mode, | Other |
 | [#6189](https://github.com/openova-io/openova/issues/6189) | P0: mothership owner sign-in dead — Keycloak scaled to 0 behind a green HelmRe | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6803](https://github.com/openova-io/openova/issues/6803) | Harbor proxy-cache serves an index whose child manifests are gone — invisible  | Other |
 | [#6815](https://github.com/openova-io/openova/issues/6815) | A region-A worker has never joined k3s and nothing reports it — Phase 1 counts | Other |
 | [#6825](https://github.com/openova-io/openova/issues/6825) | Every self-upgrade takes the Sovereign's console and API down for 2-3 minutes � | Other |
+| [#6827](https://github.com/openova-io/openova/issues/6827) | A newly added door answers 404 on ~half of requests to the same VIP while its ap | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-02T19:36 | [#6826](https://github.com/openova-io/openova/pull/6826) | #6778 | docs(uat): six more scheduler-due rows walked live on hw307  |
 | 2026-09-02T19:05 | [#6824](https://github.com/openova-io/openova/pull/6824) | #6819 | docs(uat): five more scheduler-due rows walked live on hw307 |
 | 2026-09-02T19:02 | [#6822](https://github.com/openova-io/openova/pull/6822) | #6806 | docs(sessions): hw307 evening evidence — the console fix ver |
 | 2026-09-02T18:41 | [#6821](https://github.com/openova-io/openova/pull/6821) | #6814 | test(handler): stop a detached goroutine's late writes from  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-02T09:34 | [#6785](https://github.com/openova-io/openova/pull/6785) | #6781 | fix(uat-tooling): read the HTML ledger in uat-tally and the  |
 | 2026-09-02T09:05 | [#6784](https://github.com/openova-io/openova/pull/6784) | #6778 | docs: hw306 FIRED — wipe, pre-flight and fire evidence; prot |
 | 2026-09-02T09:23 | [#6781](https://github.com/openova-io/openova/pull/6781) | #6778 | fix(uat): uat-confidence.py reads the HTML-table ledger; rec |
-| 2026-09-02T09:34 | [#6780](https://github.com/openova-io/openova/pull/6780) | #6324 | fix(provisioning): newapi funnel pin 1.4.155 + run pin-parit |
 
 ---
 
