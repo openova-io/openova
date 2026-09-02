@@ -140,4 +140,30 @@ piv="$(render --set global.imageRegistry=registry.$FQDN)"
 has "$piv" "image: registry.$FQDN/openova-io/chargeback:${version}" "pivot: global.imageRegistry not honored for the app image"
 has "$piv" "registry.$FQDN/proxy-dockerhub/curlimages/curl" "pivot: global.imageRegistry not honored for the hook/gate image"
 
-echo "PASS: bp-chargeback render contract (defaults + sovereign + per-Org + fail-closed + CNP + CNPG + pivot)"
+# ── #6819: the apiserver leg of the egress policy ────────────────────────────
+# The DSN-sync Job reads its source Secret and PATCHes the DSN Secret through
+# kubernetes.default.svc. The policy previously allowed host/remote-node on
+# :443 only; the Service port DNATs to the node's :6443 and Cilium enforces the
+# POST-DNAT port, so the packet was dropped, curl timed out (exit 28), `set -eu`
+# killed the container, and the app never left Init:0/1 on hw307 (2026-09-02).
+api="$(render)"
+has "$api" 'kube-apiserver' \
+  "#6819: the egress policy does not name the kube-apiserver entity — the DSN sync's apiserver call is dropped and the app never leaves Init"
+
+# The entity must be its OWN rule: toPorts applies to the whole rule, so folding
+# it into the workload block clamps it to 443/8080/5432 and reproduces the drop.
+api_ports="$(sed -n '/- kube-apiserver/,/^    - /p' <<<"$api" | grep -oE 'port: "[0-9]+"' | grep -oE '[0-9]+' | sort -u | tr '\n' ',')"
+[ "$api_ports" = "443,6443," ] || fail \
+  "#6819: the kube-apiserver rule must carry :443 AND :6443 and nothing else (got '$api_ports')"
+
+# Vacuity control — the workload rule must still be present with its own port,
+# so this check cannot pass on a policy that lost its main egress leg.
+has "$api" 'port: "5432"' \
+  "#6819 control: the workload egress rule (:5432 to the CNPG Cluster) vanished — the render is not the policy this test thinks it is"
+
+# The poll must report WHY it is waiting: a bare `code=$(curl …)` under set -eu
+# dies on a timeout before its own timeout branch can print anything.
+has "$api" 'code="curl-$?"' \
+  "#6819: the DSN-sync poll still lets a failed curl kill the container silently"
+
+echo "PASS: bp-chargeback render contract (defaults + sovereign + per-Org + fail-closed + CNP + CNPG + pivot + #6819 apiserver egress)"
