@@ -1517,7 +1517,7 @@ spec:
       #   catalog-seed card advances bp-cnpg 1.0.15 -> 1.0.16, so the umbrella's
       #   rendered surface changed). Pin bumped to match so
       #   check-bootstrap-kit-pin-sync.sh stays green.
-      version: 1.4.1639
+      version: 1.4.1640
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
