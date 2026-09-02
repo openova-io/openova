@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-02T00:45:02Z` |
+| Last refreshed | `2026-09-02T01:00:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-02T00:56 | [#6775](https://github.com/openova-io/openova/pull/6775) | #6759 | fix(bp-newapi): repin admin-promote CNPG image :16.4 → :16 ( |
 | 2026-09-01T23:32 | [#6774](https://github.com/openova-io/openova/pull/6774) | docs(uat): re-confirm row 194 live on hw305 (recon surface l |  |
 | 2026-09-01T17:11 | [#6772](https://github.com/openova-io/openova/pull/6772) | #6764 | test(cutover): render test for #6764 secondary-region Harbor |
 | 2026-09-01T16:58 | [#6771](https://github.com/openova-io/openova/pull/6771) | #6490 | fix(cutover): step-01 secondary mirror — unify secondary git |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-30T21:23 | [#6731](https://github.com/openova-io/openova/pull/6731) | #6725 | docs(status): billing row is stale ('Designed. No code.') —  |
 | 2026-08-30T19:57 | [#6730](https://github.com/openova-io/openova/pull/6730) | #6723 | docs(adr): ADR-0014 D9a decision→UI-surface map per profile  |
 | 2026-08-30T19:38 | [#6729](https://github.com/openova-io/openova/pull/6729) | #6723 | docs(adr): ADR-0014 D8a — customer intake tables (create / i |
-| 2026-08-30T20:05 | [#6728](https://github.com/openova-io/openova/pull/6728) | #6727 | feat(jobs): map phase-gating deps in the /jobs DAG via phase |
 
 ---
 
