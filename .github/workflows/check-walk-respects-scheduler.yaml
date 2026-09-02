@@ -39,6 +39,14 @@ jobs:
         run: python3 scripts/uat-confidence.py --self-test
 
       - name: A walk only stamps rows the scheduler marked due
+        env:
+          # The documented bypass, reachable from the PR itself: the literal
+          # token ALLOW_FULL_WALK=1 in the PR body, written next to the reason
+          # (a fresh prov's first walk, a founder-directed sweep). The script
+          # still prints the "state the reason" requirement when it fires.
+          # Before 2026-09-02 nothing set this variable, so the bypass the
+          # script documents could not be exercised from any PR.
+          ALLOW_FULL_WALK: ${{ contains(github.event.pull_request.body, 'ALLOW_FULL_WALK=1') && '1' || '0' }}
         run: |
           bash scripts/check-walk-respects-scheduler.sh \
             "origin/${{ github.base_ref }}"

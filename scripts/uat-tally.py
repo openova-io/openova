@@ -26,6 +26,13 @@ Rules
   (``---``).
 * The verdict is read from the STATUS COLUMN (field 6) and nowhere else.
 * A status cell with no glyph (e.g. ``N/A``) is reported as N/A, never as green.
+* The ledger has been an HTML ``<table>`` since 2026-08-20 (ca3486cf4). Every
+  line is routed through ``scripts/uat_html_compat.to_pipe`` first, which
+  unfolds each ``<tr id="row-…">`` into the seven-field pipe row the rules above
+  describe. Reading the raw HTML counted 0 rows and reported ``0/0 = 0.0%`` on a
+  286-row ledger (measured 2026-09-02) — an empty count that looked like a
+  number. The adapter is line-preserving, so ``--list`` line numbers still
+  point at the ``<tr>``.
 
 Usage:  scripts/uat-tally.py [--uat docs/ledger/UAT.md] [--json] [--check N]
         --check N exits non-zero unless the green count equals N (for CI).
@@ -35,6 +42,9 @@ import collections
 import json
 import os
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from uat_html_compat import to_pipe  # noqa: E402  HTML-<table> ledger -> markdown rows
 
 # `⏳` (PENDING) was missing here while every other reader carried it —
 # uat-snapshot.py, uat-backfill.py, uat-audit.py and test_uat_table_shape.py all
@@ -74,12 +84,15 @@ def tally(path):
     rows = []
     meta = collections.Counter()
     with open(path, encoding="utf-8") as fh:
-        for n, line in enumerate(fh, 1):
-            kind, rid, verdict = classify(line.rstrip("\n"))
-            meta[kind] += 1
-            if kind == "data":
-                counts[verdict] += 1
-                rows.append((n, rid, verdict))
+        text = fh.read()
+    # to_pipe rewrites each <tr> line in place and passes every other line
+    # through, so `n` below is still the line in the file on disk.
+    for n, line in enumerate(to_pipe(text).split("\n"), 1):
+        kind, rid, verdict = classify(line.rstrip("\r"))
+        meta[kind] += 1
+        if kind == "data":
+            counts[verdict] += 1
+            rows.append((n, rid, verdict))
     return counts, rows, meta
 
 
