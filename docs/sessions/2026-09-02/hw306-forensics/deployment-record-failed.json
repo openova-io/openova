@@ -1,0 +1,51 @@
+{
+ "controlPlaneSize": "m7n.xlarge.8",
+ "error": "tofu apply: tofu apply -input=false -no-color -auto-approve -parallelism=2 tfplan failed: exit status 1 | stderr: Error: error creating VPC route: Bad request with: [PUT https://vpc.me-east-215.kom4dc.nationalcloud.om/v1/f27698137bdc4b00ad509cf27f1e5547/routetables/0179307a-720c-41d2-9870-088ec7a71d6a], request_id: 706d90e4995a4bf43829135f5ec8a4ff, error message: {\"code\":\"VPC.2812\",\"message\":\"The destination of route to add is exist already.\"}\nwith huaweicloud_vpc_route.mesh_b_to_a[\"me-east-215-a--me-east-215-b\"],\non main.tf line 244, in resource \"huaweicloud_vpc_route\" \"mesh_b_to_a\":\n244: resource \"huaweicloud_vpc_route\" \"mesh_b_to_a\" {",
+ "finishedAt": "2026-09-02T09:10:39Z",
+ "id": "e68e79721ecbde62",
+ "numEvents": 3112,
+ "openovaFlowEnabled": true,
+ "operationInProgress": false,
+ "orgEmail": "emrah.baysal@openova.io",
+ "orgName": "Omantel",
+ "ownerEmail": "emrah.baysal@openova.io",
+ "phase1Substate": "watcher-watching",
+ "region": "me-east-215-a",
+ "regionCensusSource": "live-watchers",
+ "regionControlPlaneSizes": [
+  "m7n.xlarge.8",
+  "m7n.xlarge.8"
+ ],
+ "regions": [
+  {
+   "region": "me-east-215-a",
+   "primary": true,
+   "hrReady": 32,
+   "hrTotal": 66,
+   "degraded": false
+  },
+  {
+   "region": "me-east-215-b-1",
+   "primary": false,
+   "hrReady": 26,
+   "hrTotal": 66,
+   "degraded": true
+  }
+ ],
+ "result": {
+  "sovereignFQDN": "hw306.omani.works",
+  "controlPlaneIP": "",
+  "loadBalancerIP": "",
+  "consoleURL": "",
+  "gitopsRepoURL": "",
+  "kubeconfigPath": "/var/lib/catalyst/kubeconfigs/e68e79721ecbde62.yaml",
+  "phase1Substate": "watcher-watching"
+ },
+ "secondaryDegraded": true,
+ "sovereignByoDomain": "hw306.omani.works",
+ "sovereignDomainMode": "byo",
+ "sovereignFQDN": "hw306.omani.works",
+ "startedAt": "2026-09-02T09:01:05Z",
+ "status": "failed",
+ "storageClass": "evs-ssd"
+}
