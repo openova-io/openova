@@ -87,7 +87,7 @@ func TestChrootEnsureOrgPoolSeed_MatchesAllowedTLDsLiteral(t *testing.T) {
 func TestChrootEnsureOrgPoolSeed_TopsUpPartialPool(t *testing.T) {
 	t.Setenv("SOVEREIGN_FQDN", "t31.omani.works")
 
-	st, err := store.New(t.TempDir())
+	st, err := store.New(storeDirForBackgroundWriters(t))
 	if err != nil {
 		t.Fatalf("store.New: %v", err)
 	}
