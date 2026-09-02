@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-02T14:30:10Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Last refreshed | `2026-09-02T14:45:05Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6155](https://github.com/openova-io/openova/issues/6155) | Showback bills an Organization the CR model does not contain — the join reads  | Other |
 | [#6156](https://github.com/openova-io/openova/issues/6156) | DR preflight-02 cannot Fail on a 2-region Sovereign — the standby outage that  | Other |
 | [#6163](https://github.com/openova-io/openova/issues/6163) | Agenity credential chain has TWO one-shot freezes: the init container reads once | Other |
 | [#6166](https://github.com/openova-io/openova/issues/6166) | catalyst-ui has no priorityClassName, so it loses the slot #6157 freed — mothe | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6786](https://github.com/openova-io/openova/issues/6786) | Fresh 2-region prov fails at tofu apply when the hashed node-VPC CIDR base lands | Other |
 | [#6795](https://github.com/openova-io/openova/issues/6795) | Retry surface gaps: Phase-1 retry is a no-op notice, reconciler action has no re | Other |
 | [#6796](https://github.com/openova-io/openova/issues/6796) | bp-postgres: pre-flip secondary -mesh/-mesh-rw stub selects the LOCAL placeholde | Other |
+| [#6799](https://github.com/openova-io/openova/issues/6799) | NAT-EIP rotation at prov time drifts tofu state (rotated SNAT rule/EIP outside s | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-02T14:32 | [#6797](https://github.com/openova-io/openova/pull/6797) | #6795 | docs(sessions): hw307 Phase-1 timeout root cause + recovery  |
 | 2026-09-02T14:22 | [#6794](https://github.com/openova-io/openova/pull/6794) | #6778 | docs(sessions): hw307 failed in Phase 1 — forensics (Refs #6 |
 | 2026-09-02T14:22 | [#6793](https://github.com/openova-io/openova/pull/6793) | #6778 | docs: hw307 train manifest v3 + protect-list reset to none-l |
 | 2026-09-02T14:22 | [#6790](https://github.com/openova-io/openova/pull/6790) | #5359 | fix(cutover): step-06 secondary-region HelmRepository pivot  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-31T09:05 | [#6750](https://github.com/openova-io/openova/pull/6750) | #6749 | fix(jobs): serve jobs.Store first, refresh seed in backgroun |
 | 2026-08-31T07:23 | [#6748](https://github.com/openova-io/openova/pull/6748) | #6747 | fix(jobs): prune childless phase-container nodes from the gr |
 | 2026-08-31T06:24 | [#6746](https://github.com/openova-io/openova/pull/6746) | #6723 | docs(chargeback): per-chart DESIGN.md (composable structure, |
-| 2026-08-31T06:12 | [#6745](https://github.com/openova-io/openova/pull/6745) | #6744 | fix(jobs): list counts from authoritative backend list, not  |
 
 ---
 
