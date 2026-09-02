@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -39,6 +40,12 @@ import (
 // BACKGROUND refresh really did start (it's parked in List) rather than never
 // having been scheduled.
 func blockingListDynamicFactory(block <-chan struct{}, listStarted chan<- struct{}, objs ...runtime.Object) func(string) (dynamic.Interface, error) {
+	// Shared by every client this factory hands out. The scope matters: the
+	// handler calls the factory once per seed run, so a `once` declared INSIDE
+	// the closure is per-client and the second client closes an already-closed
+	// `listStarted`. Only a factory-scoped guard is right, because the channel
+	// it protects is factory-scoped too.
+	var once sync.Once
 	return func(_ string) (dynamic.Interface, error) {
 		scheme := runtime.NewScheme()
 		for _, lk := range []schema.GroupVersionKind{
@@ -58,12 +65,14 @@ func blockingListDynamicFactory(block <-chan struct{}, listStarted chan<- struct
 				{Group: "batch", Version: "v1", Resource: "jobs"}:                                 "JobList",
 				{Group: "apps", Version: "v1", Resource: "deployments"}:                           "DeploymentList",
 			}, objs...)
-		var once bool
+		// The seed lists FIVE GVRs and the handler may build more than one
+		// client, so this reactor runs from several goroutines — a plain
+		// `var once bool` was both a data race and a double close:
+		//   panic: close of closed channel  (jobs_async_seed_6749_test.go:65)
+		// Reproducible with `go test -run TestListJobs_WarmStore -count=5`, and
+		// it failed two consecutive CI runs on 2026-09-02.
 		c.PrependReactor("list", "*", func(clienttesting.Action) (bool, runtime.Object, error) {
-			if !once {
-				once = true
-				close(listStarted)
-			}
+			once.Do(func() { close(listStarted) })
 			<-block // park here until the test releases the background refresh
 			return false, nil, nil
 		})
@@ -89,7 +98,24 @@ func TestListJobs_WarmStore_ServesWithoutBlockingOnSeed(t *testing.T) {
 	block := make(chan struct{})
 	listStarted := make(chan struct{})
 	h.dynamicFactory = blockingListDynamicFactory(block, listStarted, makeReadyHR("bp-cilium"))
-	t.Cleanup(func() { close(block) }) // always release the parked goroutine
+	// Release the parked goroutine, then WAIT for it to finish. Closing `block`
+	// alone lets the seed resume and keep writing into t.TempDir() after the
+	// test has returned, which surfaced as
+	//   testing.go:1464: TempDir RemoveAll cleanup: unlinkat …: directory not empty
+	// on both CI runs. The singleflight slot is the goroutine's own liveness
+	// signal: kickJobsSeedAsync stores dep.ID before starting and deletes it in
+	// a defer, so an absent key means the goroutine has returned.
+	t.Cleanup(func() {
+		close(block)
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			if _, busy := h.jobsSeedInFlight.Load(depID); !busy {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Log("background seed goroutine still in flight after 5s; TempDir cleanup may race")
+	})
 
 	// 3. ?inventory=full is the treemap read (the founder's second surface) AND
 	//    it skips FilterFiniteJobs so the install row is visible to assert on.
