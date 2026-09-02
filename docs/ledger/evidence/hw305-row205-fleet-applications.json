@@ -1,0 +1,6 @@
+{
+ "endpoint": "/api/v1/fleet/applications",
+ "count": 78,
+ "walked": "2026-09-02",
+ "env": "hw305"
+}
