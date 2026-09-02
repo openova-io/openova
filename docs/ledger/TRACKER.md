@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-02T09:45:04Z` |
+| Last refreshed | `2026-09-02T10:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -309,6 +309,7 @@ flowchart LR
 |---|---|---|---|
 | 2026-09-02T09:41 | [#6789](https://github.com/openova-io/openova/pull/6789) | #6786 | fix(infra/huawei): keep the hashed node-VPC CIDR off the k3s |
 | 2026-09-02T09:27 | [#6788](https://github.com/openova-io/openova/pull/6788) | #6786 | docs(sessions): hw306 failed at tofu apply — forensics + roo |
+| 2026-09-02T09:47 | [#6787](https://github.com/openova-io/openova/pull/6787) | #1888 | fix(bp-harbor): alias-redirect HTTPRoute must not pin sectio |
 | 2026-09-02T09:34 | [#6785](https://github.com/openova-io/openova/pull/6785) | #6781 | fix(uat-tooling): read the HTML ledger in uat-tally and the  |
 | 2026-09-02T09:05 | [#6784](https://github.com/openova-io/openova/pull/6784) | #6778 | docs: hw306 FIRED — wipe, pre-flight and fire evidence; prot |
 | 2026-09-02T09:23 | [#6781](https://github.com/openova-io/openova/pull/6781) | #6778 | fix(uat): uat-confidence.py reads the HTML-table ledger; rec |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-31T05:50 | [#6743](https://github.com/openova-io/openova/pull/6743) | #6742 | fix(jobs): graph honours finite-jobs scope — drop open-ended |
 | 2026-08-31T04:54 | [#6741](https://github.com/openova-io/openova/pull/6741) | #6723 | feat(chargeback): adapter chart RBAC + env wiring (lane D fo |
 | 2026-08-31T02:46 | [#6740](https://github.com/openova-io/openova/pull/6740) | #6736 | docs(sessions): chargeback walk second pass — Overview/Custo |
-| 2026-08-31T02:41 | [#6739](https://github.com/openova-io/openova/pull/6739) | #6736 | fix(chargeback): render-contract test uses appVersion, not a |
 
 ---
 
