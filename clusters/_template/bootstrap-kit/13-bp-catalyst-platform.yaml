@@ -1505,7 +1505,7 @@ spec:
       # 1.4.1619 — #6754: lockstep with the umbrella Chart.yaml bump (catalog-seed
       #   advances bp-self-sovereign-cutover 0.1.200 -> 0.1.201, the rendered surface
       #   changed). Pin bumped to match so check-bootstrap-kit-pin-sync.sh stays green.
-      version: 1.4.1621
+      version: 1.4.1622
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
