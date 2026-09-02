@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-02T22:30:05Z` |
+| Last refreshed | `2026-09-02T22:45:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,6 +200,7 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
+| [#6172](https://github.com/openova-io/openova/issues/6172) | Fresh prov hw294 wedges Phase 1 at 51/67: bp-keycloak 1.5.9 post-install realm i | Other |
 | [#6183](https://github.com/openova-io/openova/issues/6183) | specter residue + UAT row W5: remove the phantom wizard component id and the non | Other |
 | [#6187](https://github.com/openova-io/openova/issues/6187) | bp-keycloak 1.5.10: the #6172 backchannel anchor is not gated to Sovereign mode, | Other |
 | [#6189](https://github.com/openova-io/openova/issues/6189) | P0: mothership owner sign-in dead — Keycloak scaled to 0 behind a green HelmRe | Other |
@@ -287,7 +288,6 @@ flowchart LR
 | [#6760](https://github.com/openova-io/openova/issues/6760) | fix(bp-mimir/bp-vpa/bp-external-secrets): #6757 chart bumps fail to UPGRADE live | Other |
 | [#6761](https://github.com/openova-io/openova/issues/6761) | gitea chart over the #6004 payload ceiling (91.86%) — blocks publishing 1.2.50 | Other |
 | [#6764](https://github.com/openova-io/openova/issues/6764) | 2-region cutover cannot complete: secondary region runs its own EMPTY Harbor ins | Other |
-| [#6765](https://github.com/openova-io/openova/issues/6765) | seaweedfs volume auto-max under-sizes to 2 → S3 writes fail (openbao snapshots | Other |
 | [#6773](https://github.com/openova-io/openova/issues/6773) | mothership iogrid: 14 digest-pinned service images lost in Harbor blob-store wip | Other |
 | [#6776](https://github.com/openova-io/openova/issues/6776) | 3 catalog charts pin the nonexistent cloudnative-pg/postgresql:16.4 (latent ErrI | Other |
 | [#6778](https://github.com/openova-io/openova/issues/6778) | hw306 — fresh 2-region prov train: manifest → wipe hw305 → fire → cutove | Other |
