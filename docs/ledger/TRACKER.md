@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-02T09:15:04Z` |
+| Last refreshed | `2026-09-02T09:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6140](https://github.com/openova-io/openova/issues/6140) | hw293: a console-gateway hostname probed on the SHARED gateway's host port retur | Other |
 | [#6148](https://github.com/openova-io/openova/issues/6148) | Region-kill failback: recovered region-A returns as an UNFENCED TL=1 primary and | Other |
 | [#6149](https://github.com/openova-io/openova/issues/6149) | bp-postgres DR pairs ship a dr-promoter but NO dr-failback — region-A return l | Other |
 | [#6155](https://github.com/openova-io/openova/issues/6155) | Showback bills an Organization the CR model does not contain — the join reads  | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6773](https://github.com/openova-io/openova/issues/6773) | mothership iogrid: 14 digest-pinned service images lost in Harbor blob-store wip | Other |
 | [#6776](https://github.com/openova-io/openova/issues/6776) | 3 catalog charts pin the nonexistent cloudnative-pg/postgresql:16.4 (latent ErrI | Other |
 | [#6778](https://github.com/openova-io/openova/issues/6778) | hw306 — fresh 2-region prov train: manifest → wipe hw305 → fire → cutove | Other |
+| [#6786](https://github.com/openova-io/openova/issues/6786) | Fresh 2-region prov fails at tofu apply when the hashed node-VPC CIDR base lands | Other |
 
 ---
 
@@ -307,7 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-02T09:27 | [#6788](https://github.com/openova-io/openova/pull/6788) | #6786 | docs(sessions): hw306 failed at tofu apply — forensics + roo |
 | 2026-09-02T09:05 | [#6784](https://github.com/openova-io/openova/pull/6784) | #6778 | docs: hw306 FIRED — wipe, pre-flight and fire evidence; prot |
+| 2026-09-02T09:23 | [#6781](https://github.com/openova-io/openova/pull/6781) | #6778 | fix(uat): uat-confidence.py reads the HTML-table ledger; rec |
 | 2026-09-02T07:32 | [#6779](https://github.com/openova-io/openova/pull/6779) | #6778 | docs(sessions): hw306 train manifest v1 (Refs #6778) |
 | 2026-09-02T05:23 | [#6777](https://github.com/openova-io/openova/pull/6777) | docs(uat): re-confirm row 205 live on hw305 (/fleet/applicat |  |
 | 2026-09-02T00:56 | [#6775](https://github.com/openova-io/openova/pull/6775) | #6759 | fix(bp-newapi): repin admin-promote CNPG image :16.4 → :16 ( |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-31T02:06 | [#6738](https://github.com/openova-io/openova/pull/6738) | #6723 | docs(architecture): cross-reference bp-chargeback (ADR-0014) |
 | 2026-08-31T01:51 | [#6737](https://github.com/openova-io/openova/pull/6737) | #6723 | docs(sessions): bp-chargeback pre-Sovereign UI walk evidence |
 | 2026-08-31T02:22 | [#6736](https://github.com/openova-io/openova/pull/6736) | #6723 | fix(chargeback): Sources tab fetches /sources with envelope  |
-| 2026-08-30T22:04 | [#6733](https://github.com/openova-io/openova/pull/6733) | #6723 | feat(chargeback): OpenOva adapter — Organization sync, platf |
-| 2026-08-30T21:41 | [#6732](https://github.com/openova-io/openova/pull/6732) | #6726 | feat(chargeback): catalog-seed entry for bp-chargeback + umb |
 
 ---
 
