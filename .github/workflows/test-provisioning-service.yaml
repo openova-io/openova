@@ -56,6 +56,21 @@ on:
       - 'products/catalyst/chart/templates/catalog-seed/**'
       - 'scripts/lib/parse-catalog-seed-pins.awk'
       - '.github/workflows/test-provisioning-service.yaml'
+  # PATHS ARE NOT ENOUGH when the commit comes from the deploy bot. The lockstep
+  # commit blueprint-release.yaml's "Auto-bump bootstrap-kit pin" job pushes
+  # (bootstrap-kit pin + blueprint.yaml + catalog seed) is authored with
+  # GITHUB_TOKEN, and GitHub fires NO push-triggered workflow for such commits —
+  # the catalog-seed path above is correct and simply never gets evaluated.
+  # PROVEN 2026-09-02: a475a5578 moved the seed to bp-newapi 1.4.155 with
+  # DefaultHRAppChartVersions still at 1.4.154; that commit carries zero
+  # check-runs and hrAppPinSeedDrift sat red on main unreported. workflow_run is
+  # outside that suppression: it fires when Blueprint Release completes on main
+  # and checks out main HEAD, which by then carries the bot's bump — so the
+  # pin-parity guard measures the seed the bot just wrote.
+  workflow_run:
+    workflows: ["Blueprint Release"]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
 
 jobs:

@@ -727,7 +727,15 @@ spec:
 // + the catalog seed to 0.5.33 (blueprint.yaml gains spec.consoleUI — Agenity's
 // Sovereign-console sidebar registration; no chart-template change); this funnel
 // pin moves in lockstep so hrAppPinSeedDrift stays green.
-const DefaultHRAppChartVersions = "openclaw=0.2.19,stalwart-mail=0.1.16,newapi=1.4.154,agenity=0.5.33"
+// 2026-09-02: newapi 1.4.154 -> 1.4.155. a475a5578 (the blueprint-release
+// auto-bump bot) moved the bootstrap-kit pin + the catalog seed to 1.4.155 and,
+// like every bot lockstep commit, does not touch this constant. hrAppPinSeedDrift
+// went red on main and NOTHING reported it: the bot pushes with GITHUB_TOKEN, and
+// GitHub fires no push-triggered workflow for such commits (zero check-runs on
+// a475a5578) — the seed path in test-provisioning-service.yaml was already
+// right (#6324) and never got the chance to match. That workflow now also runs
+// on workflow_run of Blueprint Release, which the suppression does not cover.
+const DefaultHRAppChartVersions = "openclaw=0.2.19,stalwart-mail=0.1.16,newapi=1.4.155,agenity=0.5.33"
 
 // ParseHRAppVersions parses the CATALYST_HR_APP_CHART_VERSIONS wire format
 // ("slug=version,slug=version") into the HelmReleaseAppVersions map (#4706).
