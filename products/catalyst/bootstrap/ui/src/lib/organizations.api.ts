@@ -366,6 +366,14 @@ export interface OrgConsumption {
   /** True on the single synthetic "Platform overhead" row the API folds
    *  infra/Job usage into (org_consumption.go `json:"isPlatform"`). */
   isPlatform?: boolean
+  /** True on the single synthetic "Unowned namespaces" row (#6114,
+   *  org_consumption.go `json:"isUnowned"`): real consumption whose
+   *  namespace carries an `openova.io/organization` label that no
+   *  Organization CR claims. It is NOT an Organization and must never be
+   *  labelled as one — the panel says so explicitly, because the whole
+   *  reason this row exists is that the alternative to billing a phantom
+   *  Org is showing the orphan, not hiding it. */
+  isUnowned?: boolean
   costUnits: number
   cpuMilli: number
   memoryGiB: number
@@ -377,6 +385,9 @@ export interface OrgConsumption {
 export interface SovereignConsumption {
   totalCostUnits: number
   orgs: OrgConsumption[]
+  /** The `openova.io/organization` label values drawing consumption with
+   *  no Organization CR behind them (#6114). Empty on a healthy estate. */
+  unownedOrgs?: string[]
   /** True when the metrics cache wasn't ready — the panel flags "metering
    *  warming up" instead of asserting a false zero. */
   pending: boolean
@@ -385,6 +396,7 @@ export interface SovereignConsumption {
 const EMPTY_CONSUMPTION: SovereignConsumption = {
   totalCostUnits: 0,
   orgs: [],
+  unownedOrgs: [],
   pending: true,
 }
 
@@ -411,6 +423,12 @@ export async function getConsumption(): Promise<SovereignConsumption> {
     return {
       totalCostUnits: Number(body.totalCostUnits ?? 0),
       orgs: Array.isArray(body.orgs) ? (body.orgs as OrgConsumption[]) : [],
+      // #6114: this mapper rebuilds the object field by field, so a field
+      // it does not name is dropped no matter what the API sends. Omitting
+      // unownedOrgs here would leave the orphan warning permanently
+      // unrenderable while every panel-level test still passed — they seed
+      // the feed through initialOverride and never traverse this function.
+      unownedOrgs: Array.isArray(body.unownedOrgs) ? (body.unownedOrgs as string[]) : [],
       pending: Boolean(body.pending),
     }
   } catch {

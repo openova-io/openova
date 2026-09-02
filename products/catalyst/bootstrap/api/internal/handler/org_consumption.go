@@ -39,6 +39,7 @@ import (
 	"sort"
 	"strings"
 
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 )
 
@@ -57,6 +58,14 @@ type orgConsumption struct {
 	// tenant. The console renders this as one distinct line, never
 	// itemized inside a tenant's app list.
 	IsPlatform bool `json:"isPlatform"`
+	// IsUnowned flags the synthetic "Unowned namespaces" rollup — real
+	// consumption carrying an `openova.io/organization` label whose slug
+	// has NO Organization CR. It is neither an Organization nor platform
+	// overhead: nothing is billed to an Organization, but the units are
+	// still counted into TotalCostUnits and the orphaned slugs are named
+	// in UnownedOrgs so the estate total stays honest and the orphan is
+	// visible rather than silent (UAT row 25(c), #6114).
+	IsUnowned bool `json:"isUnowned"`
 	// CostUnits — the showback cost in abstract attribution units (the
 	// weighted CPU+memory+storage sum). Showback attributes consumption;
 	// it is not a billed currency amount.
@@ -87,6 +96,14 @@ type SovereignConsumptionResponse struct {
 	// Orgs — one rollup per org, parent first. Empty estate ⇒ a single
 	// parent row with zeros (never null — the page renders its chrome).
 	Orgs []orgConsumption `json:"orgs"`
+	// UnownedOrgs — the `openova.io/organization` label values that drew
+	// consumption but have no Organization CR, sorted. Empty (never null)
+	// when the object model contains everything the estate bills, which
+	// is the state UAT row 25 asserts. Naming them here is the whole
+	// point: the alternative to billing a phantom Organization is NOT
+	// dropping its consumption silently, it is saying which slug is
+	// orphaned so the sovereign-admin can reconcile or reap it.
+	UnownedOrgs []string `json:"unownedOrgs"`
 	// Pending — true when the metrics cache wasn't available so the page
 	// can flag "metering warming up" instead of asserting a false zero.
 	Pending bool `json:"pending"`
@@ -111,6 +128,43 @@ const (
 // guards against collision with a real slug (slugs match
 // [a-z][a-z0-9-]{2,30}).
 const platformOrg = "__platform__"
+
+// unownedOrg is the synthetic bucket for consumption whose namespace
+// carries an `openova.io/organization` label that NO Organization CR
+// claims. It exists because the label alone used to be the whole join:
+// orgForRow returned any non-empty label value verbatim, so a namespace
+// that outlived (or never had) its CR produced a full customer
+// Organization row and accrued showback against an entity the control
+// plane does not model. Measured on hw293: `g7doora` had no Organization
+// CR — `kubectl get organizations` listed hw293vch, hw293walkone,
+// hw293walktwo, uat107org, uat107vc and not g7doora — yet it drew the
+// LARGEST customer slice on the Sovereign, 4272.25 units across
+// bp-keycloak, bp-agenity, bp-stalwart-tenant, bp-newapi, bp-openclaw and
+// bp-wordpress, because its namespace kept converging after the Org
+// create failed. That is UAT row 25's set-agreement conjunct failing:
+// the billable set and the Organization set disagreed.
+//
+// Why a distinct bucket and not one of the three obvious alternatives:
+//
+//   - NOT folded into platformOrg. "Platform overhead" is a claim that
+//     the consumption is the control plane's own, and a half-torn-down
+//     customer namespace is not that. Folding it there re-hides the
+//     orphan behind a line the sovereign-admin is trained to ignore —
+//     silent again, just in a different column.
+//   - NOT dropped. Dropping the rows would make TotalCostUnits understate
+//     the estate by whatever the orphan actually runs (4272 units on
+//     hw293) and leave no surface on which the orphan is visible. The
+//     units are real; only their attribution was wrong.
+//   - NOT reaped. Reaping the namespace is destructive and belongs to the
+//     organization-controller's finalizer cascade, not to a read-only
+//     showback aggregation. A namespace legitimately outlives its CR for
+//     the duration of a teardown, so no predicate this handler can
+//     evaluate from a cache read distinguishes "orphan" from "mid-delete"
+//     safely enough to justify deletion.
+//
+// The double-underscore guards against collision with a real slug
+// (slugs match [a-z][a-z0-9-]{2,30}), same convention as platformOrg.
+const unownedOrg = "__unowned__"
 
 // ephemeralApp is the single app row every one-shot Job pod folds into
 // inside the platform-overhead org. Before #5485 each Job pod produced
@@ -201,8 +255,9 @@ func (h *Handler) HandleSovereignConsumption(w http.ResponseWriter, r *http.Requ
 	// §5 "never blank" rule applied to the metering feed.
 	if clusterID == "" || h.k8sCache == nil || !h.k8sCacheHasCluster(clusterID) {
 		writeJSON(w, http.StatusOK, SovereignConsumptionResponse{
-			Orgs:    []orgConsumption{{Org: parentOrg, IsParent: true, Apps: []appConsumption{}}},
-			Pending: true,
+			Orgs:        []orgConsumption{{Org: parentOrg, IsParent: true, Apps: []appConsumption{}}},
+			UnownedOrgs: []string{},
+			Pending:     true,
 		})
 		return
 	}
@@ -219,8 +274,73 @@ func (h *Handler) HandleSovereignConsumption(w http.ResponseWriter, r *http.Requ
 
 	rows := buildPodRows(pods, pvcs, podMetrics, namespaces, nodes, replicaSets, clusterID, "")
 
-	resp := aggregateConsumption(rows, parentOrg, infraNamespaceSet(os.Getenv("SHOWBACK_INFRA_NAMESPACES")))
+	resp := aggregateConsumption(rows, parentOrg,
+		infraNamespaceSet(os.Getenv("SHOWBACK_INFRA_NAMESPACES")),
+		h.knownOrganizationSlugs(clusterID))
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// knownOrganizationSlugs reads the Organization CR set for a cluster —
+// the object model showback's billable set must be a function of (#6114,
+// UAT row 25(c)).
+//
+// `organization` is already a registered k8scache kind
+// (k8scache/kinds.go: orgs.openova.io/v1 organizations, cluster-scoped)
+// and the catalyst-api-cutover-driver ClusterRole already grants read on
+// it, so this join adds no informer, no apiserver round-trip and no RBAC
+// rule — it reads the same warm indexer the /organizations page does.
+//
+// Returns nil — meaning "the Organization set is UNKNOWN", never "the
+// Organization set is empty" — when the cache cannot vouch for it:
+//
+//   - no cache / no cluster id (CI, pre-handover mothership),
+//   - List error (cluster unregistered, or the Organization CRD is not
+//     served on this cluster),
+//   - zero Organizations returned.
+//
+// The zero case is folded into "unknown" on purpose. A cold or
+// not-yet-synced informer returns an empty list with no error, and it is
+// indistinguishable at this seam from a genuinely Org-less Sovereign — but
+// the two states are NOT equally costly to get wrong. Treating an unsynced
+// read as authoritative would move every labelled namespace on the estate
+// into the unowned rollup at once and bill nobody, which is the
+// over-correction this fix must not make. Treating a genuinely Org-less
+// Sovereign as unknown costs nothing, because a Sovereign with no
+// Organization CRs also has no organization-controller-stamped namespaces
+// to mis-attribute: the label and the CR come from the same producer
+// (core/controllers/organization/internal/gitops/manifests.go stamps
+// `openova.io/organization: {{ .Slug }}`).
+func (h *Handler) knownOrganizationSlugs(clusterID string) map[string]struct{} {
+	if h == nil || h.k8sCache == nil || clusterID == "" {
+		return nil
+	}
+	orgs, _, err := h.k8sCache.List(clusterID, "organization", labels.Everything())
+	if err != nil || len(orgs) == 0 {
+		return nil
+	}
+	set := make(map[string]struct{}, len(orgs))
+	for _, o := range orgs {
+		if o == nil {
+			continue
+		}
+		// spec.slug is the value the org-controller stamps as the
+		// namespace label; metadata.name is set to the same slug by every
+		// producer (org_tenant_org_cr.go ensureOrganizationCR, the
+		// provisioning-service's createOrganizationCR). Accept both so a
+		// CR authored by a future producer that diverges on one of the two
+		// still counts as owning its namespaces — the failure mode this
+		// guards against is a REAL Organization being called unowned.
+		if slug, _, _ := unstructured.NestedString(o.Object, "spec", "slug"); strings.TrimSpace(slug) != "" {
+			set[strings.TrimSpace(slug)] = struct{}{}
+		}
+		if name := strings.TrimSpace(o.GetName()); name != "" {
+			set[name] = struct{}{}
+		}
+	}
+	if len(set) == 0 {
+		return nil
+	}
+	return set
 }
 
 // aggregateConsumption rolls podRows up into the per-org / per-app
@@ -235,12 +355,20 @@ func (h *Handler) HandleSovereignConsumption(w http.ResponseWriter, r *http.Requ
 // their own org row immediately, with no per-name special-casing — adding
 // a third org needs zero code change (the generality proof §7c).
 //
+// knownOrgs is the Organization CR set (nil = not read; see orgForRow).
+// It closes UAT row 25's set-agreement conjunct in BOTH directions:
+// a labelled namespace with no CR lands in unownedOrg instead of minting a
+// phantom billable Organization, and every CR gets a row even with nothing
+// running. The Organization rows the console bills — those with
+// !IsParent && !IsPlatform && !IsUnowned — are then exactly the
+// Organization set, which is the invariant the row asserts.
+//
 // Inside the platform bucket the one-shot Job pods further collapse into
 // a SINGLE `(one-shot jobs)` app row (#5485 defect A) instead of one row
 // per Job pod. Their cost still counts toward the platform row's totals
 // and the Sovereign-wide total — only the per-app itemization folds, so
 // the table shows durable platform workloads plus one activity line.
-func aggregateConsumption(rows []podRow, parentOrg string, infraNamespaces map[string]struct{}) SovereignConsumptionResponse {
+func aggregateConsumption(rows []podRow, parentOrg string, infraNamespaces map[string]struct{}, knownOrgs map[string]struct{}) SovereignConsumptionResponse {
 	// org → namespace+app key → app rollup.
 	type appKey struct{ org, ns, app string }
 	appAgg := map[appKey]*appConsumption{}
@@ -253,6 +381,7 @@ func aggregateConsumption(rows []podRow, parentOrg string, infraNamespaces map[s
 				Org:        org,
 				IsParent:   org == parentOrg,
 				IsPlatform: org == platformOrg,
+				IsUnowned:  org == unownedOrg,
 				Apps:       []appConsumption{},
 			}
 			orgAgg[org] = oc
@@ -261,10 +390,37 @@ func aggregateConsumption(rows []podRow, parentOrg string, infraNamespaces map[s
 	}
 	// Always seed the parent so the estate is never blank (§5).
 	ensureOrg(parentOrg)
+	// #6114, the INVERSE of the phantom-org defect and the other half of
+	// row 25's set-agreement conjunct: seed a row for every Organization
+	// the CR set holds, so an Org that exists but currently runs nothing
+	// renders a zero slice instead of vanishing from the feed entirely.
+	//
+	// Rows only ever materialised from pod rows before this, so an
+	// Organization's presence in showback tracked whether it happened to
+	// have a running pod, not whether it existed. hw293 measured exactly
+	// that asymmetry: uat107org and its twin uat107vc were created and
+	// deleted the same way on the same day, both reading state deleted,
+	// and uat107vc carried a 525.5-unit slice purely because its pods had
+	// not finished terminating while uat107org drew no slice at all.
+	// Same disposition, different treatment — a join defect cutting the
+	// opposite way from g7doora's.
+	for slug := range knownOrgs {
+		ensureOrg(slug)
+	}
 
 	var total float64
+	unowned := []string{}
 	for _, row := range rows {
-		org := orgForRow(row, infraNamespaces)
+		org := orgForRow(row, infraNamespaces, knownOrgs, parentOrg)
+		if org == unownedOrg {
+			// Record the label value that had no CR behind it. This is the
+			// slug the sovereign-admin needs in order to act; the bucket
+			// name alone would say "something is orphaned" without saying
+			// what, which is the silence this fix exists to break.
+			if slug := strings.TrimSpace(row.org); slug != "" && !containsString(unowned, slug) {
+				unowned = append(unowned, slug)
+			}
+		}
 		cpuMilli := row.cpuReq
 		memGiB := row.memReq / bytesPerGiB
 		storageGiB := row.storageLim / bytesPerGiB
@@ -323,6 +479,7 @@ func aggregateConsumption(rows []podRow, parentOrg string, infraNamespaces map[s
 	// Stable ordering: parent first, then orgs by descending cost; apps
 	// within an org by descending cost.
 	orgs := make([]orgConsumption, 0, len(orgAgg))
+	sort.Strings(unowned)
 	for _, oc := range orgAgg {
 		sort.Slice(oc.Apps, func(i, j int) bool {
 			return oc.Apps[i].CostUnits > oc.Apps[j].CostUnits
@@ -334,14 +491,13 @@ func aggregateConsumption(rows []podRow, parentOrg string, infraNamespaces map[s
 		orgs = append(orgs, *oc)
 	}
 	// Ordering: parent estate first, then customer Organizations by
-	// descending cost, then the synthetic platform-overhead row last so
-	// the console renders it as a trailing distinct line (#3687 §6).
+	// descending cost, then the unowned rollup, then the synthetic
+	// platform-overhead row last so the console renders it as a trailing
+	// distinct line (#3687 §6, extended by #6114).
 	sort.Slice(orgs, func(i, j int) bool {
-		if orgs[i].IsParent != orgs[j].IsParent {
-			return orgs[i].IsParent // parent first
-		}
-		if orgs[i].IsPlatform != orgs[j].IsPlatform {
-			return orgs[j].IsPlatform // platform overhead last
+		ri, rj := orgSortRank(orgs[i]), orgSortRank(orgs[j])
+		if ri != rj {
+			return ri < rj
 		}
 		return orgs[i].CostUnits > orgs[j].CostUnits
 	})
@@ -349,7 +505,21 @@ func aggregateConsumption(rows []podRow, parentOrg string, infraNamespaces map[s
 	return SovereignConsumptionResponse{
 		TotalCostUnits: round2(total),
 		Orgs:           orgs,
+		UnownedOrgs:    unowned,
 	}
+}
+
+// containsString — small linear membership helper. The unowned slug list
+// is bounded by the number of orphaned namespaces on a Sovereign (zero on
+// a healthy estate, single digits on a broken one), so a linear scan is
+// cheaper than building a map.
+func containsString(haystack []string, needle string) bool {
+	for _, s := range haystack {
+		if s == needle {
+			return true
+		}
+	}
+	return false
 }
 
 // orgForRow resolves the owning org for a pod row's showback attribution
@@ -361,17 +531,64 @@ func aggregateConsumption(rows []podRow, parentOrg string, infraNamespaces map[s
 // as a single "Platform overhead" line, never inside a tenant's app list.
 // No per-org-name or per-namespace-name special-casing: the resolver keys
 // purely on the label + the config-driven exclusion set.
-func orgForRow(row podRow, infraNamespaces map[string]struct{}) string {
+//
+// #6114 (UAT row 25(c)): the label is now checked AGAINST the Organization
+// CR set rather than trusted on its own. A label value with no CR resolves
+// to unownedOrg, so the set of billable Organization rows is a strict
+// function of the Organization set — which is exactly the conjunct row 25
+// asserts and the one hw293 refuted.
+//
+// knownOrgs is deliberately NILABLE and nil means "not read", not "empty":
+//
+//   - nil          → the Organization CR set could not be established
+//     (no cache, cluster unregistered, CRD not served, informer not yet
+//     synced). Every labelled row keeps its pre-#6114 attribution. To move
+//     a row into unownedOrg we require POSITIVE evidence that the
+//     Organization set was actually read; absence of evidence must never
+//     become evidence of orphanhood, or a cold cache would relabel the
+//     entire estate as unowned and bill nobody.
+//   - non-nil      → authoritative. A slug outside it has no CR.
+//
+// parentOrg is always owned regardless of knownOrgs: it is the Sovereign
+// estate itself (§2.2), seeded unconditionally by aggregateConsumption,
+// and not a customer Organization whose CR must exist for it to be real.
+func orgForRow(row podRow, infraNamespaces map[string]struct{}, knownOrgs map[string]struct{}, parentOrg string) string {
 	if _, infra := infraNamespaces[row.namespace]; infra {
 		return platformOrg
 	}
 	if strings.EqualFold(row.ownerKind, "Job") {
 		return platformOrg
 	}
-	if org := strings.TrimSpace(row.org); org != "" {
+	org := strings.TrimSpace(row.org)
+	if org == "" {
+		return platformOrg
+	}
+	if org == parentOrg || knownOrgs == nil {
 		return org
 	}
-	return platformOrg
+	if _, owned := knownOrgs[org]; owned {
+		return org
+	}
+	return unownedOrg
+}
+
+// orgSortRank orders the response: the parent estate first, then customer
+// Organizations (by descending cost), then the unowned rollup, then
+// platform overhead last. Expressed as a rank rather than a chain of
+// pairwise boolean flips because the pairwise form silently mis-orders
+// once a third synthetic bucket exists — comparing an unowned row against
+// a platform row would consult the wrong flag and put platform first.
+func orgSortRank(oc orgConsumption) int {
+	switch {
+	case oc.IsParent:
+		return 0
+	case oc.IsPlatform:
+		return 3
+	case oc.IsUnowned:
+		return 2
+	default:
+		return 1
+	}
 }
 
 // consumptionParentOrg resolves the parent Organization's SLUG — the same
@@ -413,6 +630,38 @@ func (h *Handler) consumptionParentOrg(depID string) string {
 		}
 	}
 	return "sovereign"
+}
+
+// showbackParentSlug derives the parent-estate identifier for the FLEET
+// TREEMAP from a Sovereign FQDN, producing the same value
+// consumptionParentOrg produces for the same FQDN. The two are pinned
+// together by value in TestShowbackParentSlug_IsOneDerivationForBothSurfaces;
+// they are separate functions only because consumptionParentOrg resolves
+// its FQDN from the deployment store while the treemap already holds one.
+//
+// It exists because #6114 turned this from a cosmetic detail into a
+// correctness one. orgForRow treats `org == parentOrg` as the "always
+// owned" escape, and parentOrg is compared against
+// `openova.io/organization` label values, which are CR slugs — DNS-1123,
+// no dots. The treemap derived its parent as the RAW Sovereign FQDN, so an
+// FQDN-shaped parent matched no label, denied the escape to the estate's
+// own namespaces, and on an estate whose self-org CR is absent would have
+// rendered the operator's own workloads as "Unowned namespaces" while
+// showback correctly placed them on the parent row. #5819 fixed exactly
+// this on the showback side; it survived on the treemap because the
+// identifier was derived a second time in a second place.
+//
+// The empty check is on the INPUT, not on orgNamespace's output:
+// orgNamespace("") returns "org", not "" (namespace_ensure.go), so an
+// output-emptiness guard would hand an unidentifiable estate the
+// real-looking slug "org". The "sovereign" fallback is deliberately
+// synthetic — a plausible-looking slug for an Org we cannot identify would
+// read as a genuine Organization on the panel.
+func showbackParentSlug(fqdn string) string {
+	if strings.TrimSpace(fqdn) == "" {
+		return "sovereign"
+	}
+	return orgNamespace(fqdn)
 }
 
 func roundPct(v float64) float64 { return round2(v) }
