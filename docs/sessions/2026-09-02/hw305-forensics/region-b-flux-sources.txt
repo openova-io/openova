@@ -1,0 +1,7 @@
+NAME                                             URL                                                              AGE   READY   STATUS
+gitrepository.source.toolkit.fluxcd.io/openova   http://gitea-http.gitea.svc.cluster.local:3000/openova/openova   9d    False   failed to checkout and determine revision: unable to list remote for 'http://gitea-http.gitea.svc.cluster.local:3000/openova/openova': authentication required
+
+NAME                                                          AGE   READY   STATUS
+kustomization.kustomize.toolkit.fluxcd.io/bootstrap-kit       9d    False   health check failed after 104.166652ms: failed early due to stalled resources: [HelmRelease/flux-system/bp-external-secrets status: 'Failed']
+kustomization.kustomize.toolkit.fluxcd.io/bootstrap-kit-crs   9d    True    Applied revision: main@sha1:25eba1a580e8b4f0c9e41ac2f2dfd88faeb115ce
+kustomization.kustomize.toolkit.fluxcd.io/sovereign-tls       9d    True    Applied revision: main@sha1:25eba1a580e8b4f0c9e41ac2f2dfd88faeb115ce

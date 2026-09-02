@@ -1,0 +1,7 @@
+NAME                                                           STATUS   ROLES                       AGE   VERSION        INTERNAL-IP   EXTERNAL-IP    OS-IMAGE             KERNEL-VERSION       CONTAINER-RUNTIME
+catalyst-hw305-omantel-biz-b2b00ce4-me-east-215-a-cp1-1f9a7b   Ready    control-plane,etcd,master   9d    v1.31.4+k3s1   10.66.1.49    212.72.24.24   Ubuntu 22.04.2 LTS   5.15.0-190-generic   containerd://1.7.23-k3s2
+catalyst-hw305-omantel-biz-b2b00ce4-me-east-215-a-w0ce6fe      Ready    <none>                      9d    v1.31.4+k3s1   10.66.1.84    <none>         Ubuntu 22.04.2 LTS   5.15.0-76-generic    containerd://1.7.23-k3s2
+catalyst-hw305-omantel-biz-b2b00ce4-me-east-215-a-w578550      Ready    <none>                      9d    v1.31.4+k3s1   10.66.1.70    <none>         Ubuntu 22.04.2 LTS   5.15.0-76-generic    containerd://1.7.23-k3s2
+catalyst-hw305-omantel-biz-b2b00ce4-me-east-215-a-wa0e3af      Ready    <none>                      9d    v1.31.4+k3s1   10.66.1.203   <none>         Ubuntu 22.04.2 LTS   5.15.0-76-generic    containerd://1.7.23-k3s2
+catalyst-hw305-omantel-biz-b2b00ce4-me-east-215-a-wac25af      Ready    <none>                      9d    v1.31.4+k3s1   10.66.1.155   <none>         Ubuntu 22.04.2 LTS   5.15.0-76-generic    containerd://1.7.23-k3s2
+catalyst-hw305-omantel-biz-b2b00ce4-me-east-215-a-wf9bd87      Ready    <none>                      9d    v1.31.4+k3s1   10.66.1.113   <none>         Ubuntu 22.04.2 LTS   5.15.0-76-generic    containerd://1.7.23-k3s2
