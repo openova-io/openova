@@ -71,6 +71,32 @@ func TestSnapshotsToSeeds_TransientFailedNotStalledIsInProgress(t *testing.T) {
 
 // newBackfillRouter wires the two new endpoints + a jobs.Store so the
 // /refresh-watch handler can write Jobs through the bridge.
+// storeDirForBackgroundWriters returns a directory for a store.Store whose
+// handler starts BACKGROUND goroutines (restoreFromStore's ClusterMesh
+// reconcile, the async jobs seed). Those goroutines keep saving records after
+// the test body returns — a retry budget can outlive the assertions by seconds
+// — and t.TempDir()'s own cleanup then fails the test that already passed:
+//
+//	testing.go:1464: TempDir RemoveAll cleanup: unlinkat …/002: directory not empty
+//
+// Two real CI failures came from this shape on 2026-09-02 (#6749's async-seed
+// test, fixed by waiting on its singleflight slot, and the #6040 census test,
+// which has no handle to wait on because the goroutine is a detached retry
+// loop). The directory is still removed; the removal is simply allowed to lose
+// the race instead of turning a passing test red.
+//
+// Use t.TempDir() everywhere else — this is only for the store a detached
+// goroutine writes to.
+func storeDirForBackgroundWriters(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "handler-store-")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
 func newBackfillRouter(t *testing.T) (*chi.Mux, *jobs.Store, *Handler) {
 	t.Helper()
 	js, err := jobs.NewStore(t.TempDir())

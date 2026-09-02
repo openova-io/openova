@@ -958,7 +958,7 @@ func TestRestoreFromStore_StartupKicksClusterMeshReconcile(t *testing.T) {
 	restoreDyn := installClusterMeshDynamicClientFactory(dynClients)
 	defer restoreDyn()
 
-	st, err := store.New(t.TempDir())
+	st, err := store.New(storeDirForBackgroundWriters(t))
 	if err != nil {
 		t.Fatalf("store.New: %v", err)
 	}

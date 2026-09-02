@@ -85,7 +85,11 @@ spec:
       # Secret + post-install sync Job) + create-if-absent
       # APP_ENCRYPTION_KEY Job. Lockstep: products/chargeback/chart/
       # Chart.yaml + blueprint.yaml + catalog-seed (blueprints.yaml).
-      version: 0.1.2
+      # 0.1.3 — #6819: the egress policy gains a dedicated kube-apiserver rule.
+      #   Without it the DSN-sync Job's apiserver call was DROPPED (:443 DNATs
+      #   to the node's :6443, which the workload rule does not allow), curl
+      #   timed out, and the app never left Init:0/1 on hw307.
+      version: 0.1.3
       sourceRef:
         kind: HelmRepository
         name: bp-chargeback
