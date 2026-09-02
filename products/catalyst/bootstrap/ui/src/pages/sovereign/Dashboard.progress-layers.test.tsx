@@ -569,3 +569,69 @@ describe('Dashboard — job-sourced Progress treemap render', () => {
     expect(router.state.location.pathname).toBe(`/provision/${DEP}/jobs/install-keycloak`)
   })
 })
+
+/* ──────────────────────────────────────────────────────────────────
+ * #6802 — a failed tile must say WHEN it failed
+ *
+ * The job store holds ONE row per job and updates it in place (measured on
+ * hw307: 186 rows, zero (jobName, region) duplicates), so during a recovery a
+ * red tile is usually "failed at 13:05" rather than "failing right now". With
+ * no timestamp on the tile — and `— %` on the aggregate, because an aggregate
+ * carried no statusLabel at all — that is indistinguishable from a live
+ * failure, and beside the record's READY badge the pair reads as a
+ * contradiction. The founder called it exactly that on hw307.
+ * ────────────────────────────────────────────────────────────────── */
+describe('failed tiles carry their failure time (#6802)', () => {
+  const FAILED_AT = '2026-09-02T13:05:00.000Z'
+
+  function failedJobs(): Job[] {
+    return [
+      J({
+        id: `${DEP}:install-chargeback`, jobName: 'install-chargeback', kind: 'install',
+        appId: 'bp-chargeback', status: 'failed', finishedAt: FAILED_AT,
+      }),
+      J({
+        id: `${DEP}:install-cilium`, jobName: 'install-cilium', kind: 'install',
+        appId: 'bp-cilium', status: 'succeeded', finishedAt: FAILED_AT,
+      }),
+    ]
+  }
+
+  it('labels the failed LEAF with a relative time, not the bare status word', () => {
+    vi.setSystemTime(new Date('2026-09-02T15:05:00.000Z'))
+    const data = buildJobsTreemapData(failedJobs(), ['progress'], [])
+    const failedBucket = data.items.find((i) => i.id === 'progress-failed')
+    expect(failedBucket).toBeDefined()
+    const leaf = failedBucket!.children![0]!
+    expect(leaf.statusLabel).toBe('failed · 2h ago')
+  })
+
+  it('labels the failed AGGREGATE with a count and the latest failure time', () => {
+    // Without this the cell falls through to `— %` in Dashboard.tsx, because
+    // every job tile's percentage is null. `— %` on a red tile is the least
+    // useful thing it could say.
+    vi.setSystemTime(new Date('2026-09-02T13:35:00.000Z'))
+    const data = buildJobsTreemapData(failedJobs(), ['progress'], [])
+    const failedBucket = data.items.find((i) => i.id === 'progress-failed')!
+    expect(failedBucket.statusLabel).toBe('1 failed · 30m ago')
+  })
+
+  it('leaves a healthy aggregate unlabelled — only a bad state gets the annotation', () => {
+    const data = buildJobsTreemapData(failedJobs(), ['progress'], [])
+    const doneBucket = data.items.find((i) => i.id === 'progress-done')!
+    expect(doneBucket.statusLabel).toBeUndefined()
+    expect(doneBucket.children![0]!.statusLabel).toBe('succeeded')
+  })
+
+  it('falls back to the bare status word when the job carries no time at all', () => {
+    // A failed row with neither finishedAt nor startedAt must still render its
+    // status rather than an empty or invented time.
+    const jobs = [J({
+      id: `${DEP}:install-x`, jobName: 'install-x', kind: 'install',
+      appId: 'bp-x', status: 'failed',
+    })]
+    const data = buildJobsTreemapData(jobs, ['progress'], [])
+    const leaf = data.items.find((i) => i.id === 'progress-failed')!.children![0]!
+    expect(leaf.statusLabel).toBe('failed')
+  })
+})

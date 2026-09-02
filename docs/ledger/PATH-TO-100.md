@@ -1,3 +1,28 @@
+# PATH TO 100% — **hw307 partition** (opened 2026-09-02, env live)
+
+> **Point-in-time: hw307 (`hw307.omani.works`, dep `9a1f230f320d7ff9`), `ready` 15:15:30Z, stability watch passed 16:16:59Z.** `UAT.md` on `origin/main` reads **✅98 · ❌12 · ⚠️8 · ⏳168 of 286** after the carry-forward (#6810) and the first walk (#6811). The ⏳ count is the scheduler's work-list, not a regression: 156 rows carried their evidence verbatim and 103 are held at high confidence. **merge ≠ green** (founder rule): a fix on main clears a row only after a walk on an env that booted it.
+
+### What hw307 has surfaced so far, by unblock
+
+| Rows / surface | Gate (measured live 2026-09-02) | Unblock |
+|---|---|---|
+| every Blueprint-registered console menu entry (Agenity, Chargeback) | **#6805** — `spec.consoleUI.sidebarRoute` declares `/apps/<id>/dashboard` in two shipped Blueprints and `router.tsx` served nothing under `/apps/`. Both entries render **Not Found**. Founder hit it live. | **#6806** (route + guard) merged, then a console image roll. No fresh prov needed. |
+| chargeback door 404 · record `chargeback: installing` | Two defects in series. (a) **#6803** — the mothership proxy-cache served the index for `proxy-dockerhub/curlimages/curl:8.10.1` with all four children 404, so the pre-install hook could not pull. Repaired 16:0xZ via **#6804**; the hook Job now Completes. (b) **#6795** — the HelmRelease had already reached `installFailures=6 / Stalled=RetriesExceeded`, and the product's reconcile endpoint writes only `requestedAt`, which cannot clear a failure counter. | **#6807** (endpoint stamps `requestedAt`+`forceAt`+`resetAt`) → mothership roll → reconcile through the product path. No hands-on step. |
+| any fire, any environment | **#6803 class is invisible to every health check** — Harbor `/api/v2.0/health` was green while hw307 lost Phase 1 to it (2h42m timeout on `cloudnative-pg/postgresql:16`). The take-off checklist did not probe a child manifest. | **#6814** — pre-flight check 7 walks the kit's images through the node's own mirror face and distinguishes a fatal child/config miss from a cold index miss. Already caught one armed defect (`bp-openbao` → `proxy-dockerhub/alpine:3.20`, config blob 404). |
+| region-A capacity, and any region-kill headroom assumption | **#6815** — a fifth region-A worker has been ACTIVE in Huawei since 10:25:18Z and never registered with k3s. `hrReady` counts HelmReleases, not nodes, so Phase 1 reports healthy with a worker missing, and workers push no cloud-init log. | Surface `nodesJoined`/`nodesRequested` on the record; push worker cloud-init logs. |
+| G11, 165, 166, 227 (sovereignty proofs) | hw307 is **pre-cutover** (`fireCutoverOnHandover:false` by design). Every post-cutover clause is vacuous here, not failing. | A cutover run from the Sovereignty CTA — which is also the live validation of `bp-self-sovereign-cutover` **0.1.202** (#6790). |
+| G8, G9, 218–223 (agentic) | Unchanged: the shared Anthropic OAuth credential is expired and its refresh spent. Not in-cluster fixable. | Founder re-issues the credential (#6477). |
+| 91 (customer half), 94, 212, 213, 225 (per-Org half), 232, 234 | **No funnel Organization exists on hw307 yet** — the only Org is the internal `hw307-omani-works`. These clauses need a customer Org, an Org-scoped MCP token, or an installed per-Org app. | Walk the funnel (voucher → Org → app install) on hw307. |
+| 189 (restart half), 60, 133 | Mutating steps a read-only walk cannot take. | A walk cycle authorised to mutate, after the pre-cutover stamps. |
+
+### Verified live on hw307 this session
+
+- **#6796** (bp-postgres 0.2.26) — region B `shared-pg-mesh-rw` endpoints **empty by construction**, `keycloak-0` 1/1 Running with its last restart 142 min earlier, `bp-keycloak` Ready=True, and the HelmRelease actually running 0.2.26. The fix is delivered, not merely merged.
+- **#6787** (harbor alias) — `harbor.hw307.omani.works` 301 → `registry.…`, both landing `/harbor/projects` signed in.
+- **#6780** (newapi 1.4.155) — platform HelmRelease Ready at 1.4.155, catalog agrees, admin-promote Jobs complete in 5–6 s.
+
+---
+
 # PATH TO 100% — **hw302 partition** (re-measured 2026-08-21; SUPERSEDED — current env hw305)
 
 > **Point-in-time: hw302 (measured 2026-08-21) — SUPERSEDED. Current env = hw305** (`hw305.omantel.biz`); `UAT.md` on `origin/main` now reads **✅246 · ❌12 · ⚠️6 · ⏳22 of 286** (PR #6690, as of 2026-08-25) — re-measure this partition on hw305. The hw302 figures below (**271/286 green (94.8%)** as measured 2026-08-21, every green backed by live evidence) are retained as history. This partition maps the **15 non-green rows** to their EXACT unblock as measured live on hw302 2026-08-21. Everything below the `---` after this section is hw292/hw293/hw296/hw298-era history — those envs are wiped; read this partition first. **merge ≠ green** (founder rule): a fix on main only clears a row after a walk on an env that booted it.

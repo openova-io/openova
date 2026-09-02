@@ -19,7 +19,11 @@
 //
 //   POST /api/v1/deployments/{depId}/reconcilers/{kind}/{ns}/{name}/{action}
 //        action ∈ {reconcile, suspend, resume}:
-//          reconcile → annotate reconcile.fluxcd.io/requestedAt=<RFC3339>
+//          reconcile → annotate reconcile.fluxcd.io/requestedAt=<RFC3339>,
+//                      plus …/forceAt and …/resetAt with the SAME token on a
+//                      HelmRelease so an exhausted install actually retries
+//                      (#6795 — requestedAt alone is a no-op on Stalled=
+//                      RetriesExceeded)
 //          suspend   → merge-patch spec.suspend=true
 //          resume    → merge-patch spec.suspend=false
 //        via the IN-CLUSTER DYNAMIC CLIENT only — NEVER a shell-out
@@ -33,6 +37,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -191,15 +196,39 @@ func (h *Handler) ReconcilerAction(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now().UTC()
 	var patch []byte
+	// The annotation keys a reconcile actually wrote, echoed in the response so
+	// a caller can tell a counter-clearing retry from a bare nudge (#6795).
+	var wroteTokens []string
 	switch action {
 	case "reconcile":
 		// The Flux-native "reconcile now" primitive (the same annotation
 		// `flux reconcile` writes). Reuse the exact constant + shape
 		// jobs_retry.go's triggerReconcileAnnotation uses.
-		patch = []byte(fmt.Sprintf(
-			`{"metadata":{"annotations":{%q:%q}}}`,
-			reconcileRequestedAtAnnotation, now.Format(time.RFC3339Nano),
-		))
+		//
+		// #6795 — requestedAt ALONE is a no-op on the object an operator
+		// actually reaches for this endpoint about. A HelmRelease whose
+		// install retries are exhausted carries Stalled=True
+		// (RetriesExceeded); helm-controller reads requestedAt, sees the
+		// failure counter still above the limit, and does nothing. Measured
+		// on hw307 (2026-09-02): bp-chargeback at installFailures=6 ignored
+		// repeated requestedAt patches and only moved once resetAt landed.
+		// So for a HelmRelease this stamps all three tokens with the SAME
+		// value — resetAt clears the failure counters, forceAt makes the
+		// controller act on a release that is otherwise unchanged, and
+		// matching values are what make helm-controller honour them
+		// (the proven #5261 shape in clustermesh.go). Other kinds have no
+		// failure counters and keep the single-token patch.
+		tokens := map[string]string{reconcileRequestedAtAnnotation: now.Format(time.RFC3339Nano)}
+		if kind == helmwatch.ManageKindHelmRelease {
+			tokens[fluxReconcileForceAtAnnotation] = now.Format(time.RFC3339Nano)
+			tokens[fluxReconcileResetAtAnnotation] = now.Format(time.RFC3339Nano)
+		}
+		annotations := make([]string, 0, len(tokens))
+		for _, key := range sortedAnnotationKeys(tokens) {
+			annotations = append(annotations, fmt.Sprintf("%q:%q", key, tokens[key]))
+		}
+		patch = []byte(fmt.Sprintf(`{"metadata":{"annotations":{%s}}}`, strings.Join(annotations, ",")))
+		wroteTokens = sortedAnnotationKeys(tokens)
 	case "suspend":
 		patch = []byte(`{"spec":{"suspend":true}}`)
 	case "resume":
@@ -227,7 +256,20 @@ func (h *Handler) ReconcilerAction(w http.ResponseWriter, r *http.Request) {
 		"action":      action,
 		"requestedAt": now.Format(time.RFC3339),
 		"requestedBy": operator,
+		"annotations": wroteTokens,
 	})
+}
+
+// sortedAnnotationKeys returns a map's keys in a stable order so the emitted patch and
+// the echoed annotation list do not vary between calls (Go map iteration is
+// deliberately random, and an unstable patch body makes a diff unreadable).
+func sortedAnnotationKeys(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // GetReconcilerLogs handles GET

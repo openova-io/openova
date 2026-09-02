@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-02T15:15:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-09-02T18:00:05Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,10 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6156](https://github.com/openova-io/openova/issues/6156) | DR preflight-02 cannot Fail on a 2-region Sovereign — the standby outage that  | Other |
-| [#6163](https://github.com/openova-io/openova/issues/6163) | Agenity credential chain has TWO one-shot freezes: the init container reads once | Other |
-| [#6166](https://github.com/openova-io/openova/issues/6166) | catalyst-ui has no priorityClassName, so it loses the slot #6157 freed — mothe | Other |
-| [#6169](https://github.com/openova-io/openova/issues/6169) | Funnel-serving + singles residue (#6114 rows 87/90/95/115/218/228/232/234/241):  | Other |
 | [#6172](https://github.com/openova-io/openova/issues/6172) | Fresh prov hw294 wedges Phase 1 at 51/67: bp-keycloak 1.5.9 post-install realm i | Other |
 | [#6183](https://github.com/openova-io/openova/issues/6183) | specter residue + UAT row W5: remove the phantom wizard component id and the non | Other |
 | [#6187](https://github.com/openova-io/openova/issues/6187) | bp-keycloak 1.5.10: the #6172 backchannel anchor is not gated to Sovereign mode, | Other |
@@ -300,6 +296,10 @@ flowchart LR
 | [#6795](https://github.com/openova-io/openova/issues/6795) | Retry surface gaps: Phase-1 retry is a no-op notice, reconciler action has no re | Other |
 | [#6796](https://github.com/openova-io/openova/issues/6796) | bp-postgres: pre-flip secondary -mesh/-mesh-rw stub selects the LOCAL placeholde | Other |
 | [#6799](https://github.com/openova-io/openova/issues/6799) | NAT-EIP rotation at prov time drifts tofu state (rotated SNAT rule/EIP outside s | Other |
+| [#6802](https://github.com/openova-io/openova/issues/6802) | Dashboard Failed filter shows superseded failed attempts next to a READY badge w | Other |
+| [#6803](https://github.com/openova-io/openova/issues/6803) | Harbor proxy-cache serves an index whose child manifests are gone — invisible  | Other |
+| [#6805](https://github.com/openova-io/openova/issues/6805) | Every Blueprint-registered sidebar entry lands on Not Found — the console rout | Other |
+| [#6815](https://github.com/openova-io/openova/issues/6815) | A region-A worker has never joined k3s and nothing reports it — Phase 1 counts | Other |
 
 ---
 
@@ -307,6 +307,18 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-02T17:42 | [#6817](https://github.com/openova-io/openova/pull/6817) | #6802 | fix(console): a failed dashboard tile must say WHEN it faile |
+| 2026-09-02T17:24 | [#6816](https://github.com/openova-io/openova/pull/6816) | #6805 | docs(ledger): open the hw307 partition in PATH-TO-100 (Refs  |
+| 2026-09-02T16:54 | [#6813](https://github.com/openova-io/openova/pull/6813) | #6811 | docs(ledger): record the hw307 walk observations (Refs #6778 |
+| 2026-09-02T16:41 | [#6812](https://github.com/openova-io/openova/pull/6812) | #6810 | docs(sessions): hw307 post-ready evidence — stability watch, |
+| 2026-09-02T16:41 | [#6811](https://github.com/openova-io/openova/pull/6811) | #6778 | docs(uat): seven scheduler-due rows walked live on hw307 (Re |
+| 2026-09-02T16:28 | [#6810](https://github.com/openova-io/openova/pull/6810) | #6330 | docs(ledger): carry the UAT ledger forward onto hw307 (Refs  |
+| 2026-09-02T17:23 | [#6809](https://github.com/openova-io/openova/pull/6809) | #5512 | fix(bp-cnpg): the upstream chart repo redirects to a host th |
+| 2026-09-02T16:26 | [#6808](https://github.com/openova-io/openova/pull/6808) | #6485 | docs: protect-list promoted to hw307 (Refs #6778) |
+| 2026-09-02T17:27 | [#6807](https://github.com/openova-io/openova/pull/6807) | #5261 | fix(api): a reconcile on an exhausted HelmRelease must clear |
+| 2026-09-02T17:29 | [#6806](https://github.com/openova-io/openova/pull/6806) | #2370 | fix(console): serve the route a Blueprint registers as its s |
+| 2026-09-02T16:26 | [#6804](https://github.com/openova-io/openova/pull/6804) | #6803 | fix(harbor): repair a proxy-cache artifact whose index serve |
+| 2026-09-02T15:19 | [#6801](https://github.com/openova-io/openova/pull/6801) | #6800 | docs(sessions): hw307 READY via the Phase-1 re-watch — evide |
 | 2026-09-02T15:06 | [#6800](https://github.com/openova-io/openova/pull/6800) | #3153 | fix(catalyst-api): phase1-watch retry re-runs only the Phase |
 | 2026-09-02T14:53 | [#6798](https://github.com/openova-io/openova/pull/6798) | #4460 | fix(bp-postgres): pre-flip secondary -mesh/-mesh-rw stub mus |
 | 2026-09-02T14:32 | [#6797](https://github.com/openova-io/openova/pull/6797) | #6795 | docs(sessions): hw307 Phase-1 timeout root cause + recovery  |
@@ -325,18 +337,6 @@ flowchart LR
 | 2026-09-02T00:56 | [#6775](https://github.com/openova-io/openova/pull/6775) | #6759 | fix(bp-newapi): repin admin-promote CNPG image :16.4 → :16 ( |
 | 2026-09-01T23:32 | [#6774](https://github.com/openova-io/openova/pull/6774) | docs(uat): re-confirm row 194 live on hw305 (recon surface l |  |
 | 2026-09-01T17:11 | [#6772](https://github.com/openova-io/openova/pull/6772) | #6764 | test(cutover): render test for #6764 secondary-region Harbor |
-| 2026-09-01T16:58 | [#6771](https://github.com/openova-io/openova/pull/6771) | #6490 | fix(cutover): step-01 secondary mirror — unify secondary git |
-| 2026-09-01T15:22 | [#6770](https://github.com/openova-io/openova/pull/6770) | #5359 | feat(cutover): step-03 secondary-region Harbor prewarm for 2 |
-| 2026-09-01T15:41 | [#6769](https://github.com/openova-io/openova/pull/6769) | #6757 | fix(charts): repin remaining bitnamilegacy/* kubectl images  |
-| 2026-09-01T14:20 | [#6768](https://github.com/openova-io/openova/pull/6768) | #6755 | fix(bp-mimir/bp-vpa/bp-external-secrets): #6760 make chart b |
-| 2026-09-01T14:13 | [#6767](https://github.com/openova-io/openova/pull/6767) | #2447 | fix(dashboard): suspended HelmReleases render as Dormant not |
-| 2026-09-01T14:30 | [#6766](https://github.com/openova-io/openova/pull/6766) | #6765 | fix(seaweedfs): explicit volume maxVolumes — auto under-size |
-| 2026-09-01T08:48 | [#6763](https://github.com/openova-io/openova/pull/6763) | #6004 | fix(#6004): payload gate over-counts subchart source that th |
-| 2026-09-01T06:42 | [#6762](https://github.com/openova-io/openova/pull/6762) | #6004 | fix(gitea): .helmignore build-only files to clear the #6004  |
-| 2026-08-31T10:58 | [#6757](https://github.com/openova-io/openova/pull/6757) | #6755 | fix(charts): repin bitnamilegacy/kubectl -> alpine/k8s:1.31. |
-| 2026-08-31T11:33 | [#6756](https://github.com/openova-io/openova/pull/6756) | #6149 | fix(bp-postgres): consumer -mesh/-mesh-rw aliases follow a # |
-| 2026-08-31T10:34 | [#6752](https://github.com/openova-io/openova/pull/6752) | #4086 | docs(runbooks): §7.5 — provider/role-gated suspended HRs bla |
-| 2026-08-31T09:05 | [#6750](https://github.com/openova-io/openova/pull/6750) | #6749 | fix(jobs): serve jobs.Store first, refresh seed in backgroun |
 
 ---
 
