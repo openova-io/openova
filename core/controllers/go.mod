@@ -3,16 +3,16 @@
 // (slices C1-C5) + the shared core/controllers/internal/* helpers.
 module github.com/openova-io/openova/core/controllers
 
-go 1.23
+go 1.25.0
 
 require (
 	github.com/go-logr/logr v1.4.2
 	github.com/google/uuid v1.6.0
-	github.com/jackc/pgx/v5 v5.7.2
+	github.com/jackc/pgx/v5 v5.9.2
 	github.com/nats-io/nats.go v1.37.0
 	github.com/prometheus/client_golang v1.19.1
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
-	github.com/stretchr/testify v1.9.0
+	github.com/stretchr/testify v1.11.1
 	k8s.io/api v0.31.1
 	k8s.io/apimachinery v0.31.1
 	k8s.io/client-go v0.31.1
@@ -68,7 +68,7 @@ require (
 	golang.org/x/oauth2 v0.21.0 // indirect
 	golang.org/x/sys v0.28.0 // indirect
 	golang.org/x/term v0.27.0 // indirect
-	golang.org/x/text v0.21.0 // indirect
+	golang.org/x/text v0.29.0 // indirect
 	golang.org/x/time v0.3.0 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.4.0 // indirect
 	google.golang.org/protobuf v1.34.2 // indirect
