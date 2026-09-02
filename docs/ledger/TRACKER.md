@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-02T23:00:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-09-02T23:15:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,6 +200,7 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
+| [#6169](https://github.com/openova-io/openova/issues/6169) | Funnel-serving + singles residue (#6114 rows 87/90/95/115/218/228/232/234/241):  | Other |
 | [#6172](https://github.com/openova-io/openova/issues/6172) | Fresh prov hw294 wedges Phase 1 at 51/67: bp-keycloak 1.5.9 post-install realm i | Other |
 | [#6183](https://github.com/openova-io/openova/issues/6183) | specter residue + UAT row W5: remove the phantom wizard component id and the non | Other |
 | [#6187](https://github.com/openova-io/openova/issues/6187) | bp-keycloak 1.5.10: the #6172 backchannel anchor is not gated to Sovereign mode, | Other |
@@ -283,7 +284,6 @@ flowchart LR
 | [#6751](https://github.com/openova-io/openova/issues/6751) | Huawei Sovereign: 4 provider/role-gated HRs show blank READY (suspend-by-design) | Other |
 | [#6753](https://github.com/openova-io/openova/issues/6753) | bp-postgres: consumer -mesh-rw write alias does not follow a #6149 automatic DR  | Other |
 | [#6754](https://github.com/openova-io/openova/issues/6754) | 2-region cutover wedges at step-01: secondary-mirror auth depends on drifting pe | Other |
-| [#6755](https://github.com/openova-io/openova/issues/6755) | Repin broken bitnamilegacy/kubectl + alpine/k8s:1.31.1 images across platform ch | Other |
 | [#6759](https://github.com/openova-io/openova/issues/6759) | fix(bp-newapi): admin-promote CronJob pins nonexistent cloudnative-pg/postgresql | Other |
 | [#6760](https://github.com/openova-io/openova/issues/6760) | fix(bp-mimir/bp-vpa/bp-external-secrets): #6757 chart bumps fail to UPGRADE live | Other |
 | [#6761](https://github.com/openova-io/openova/issues/6761) | gitea chart over the #6004 payload ceiling (91.86%) — blocks publishing 1.2.50 | Other |
