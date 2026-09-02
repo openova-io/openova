@@ -297,7 +297,7 @@ func TestRestoreFromStore_KicksClusterMeshOnComponentCensusFailure6040(t *testin
 	restoreDyn := installClusterMeshDynamicClientFactory(dynClients)
 	defer restoreDyn()
 
-	st, err := store.New(t.TempDir())
+	st, err := store.New(storeDirForBackgroundWriters(t))
 	if err != nil {
 		t.Fatalf("store.New: %v", err)
 	}
