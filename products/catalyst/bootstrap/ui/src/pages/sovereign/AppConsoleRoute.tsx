@@ -28,6 +28,7 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { API_BASE } from '@/shared/config/urls'
+import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { authedFetch } from '@/shared/lib/authedFetch'
 import { getLaunchURL } from '@/lib/catalog.api'
 import { PortalShell } from './PortalShell'
@@ -85,6 +86,10 @@ export function appLabel(appId: string): string {
 export function AppConsoleRoute() {
   const params = useParams({ strict: false }) as { appId?: string }
   const appId = params.appId ?? ''
+  // PortalShell needs the deployment this console is chrooted to; the same
+  // resolver every other Sovereign-console page uses (URL param on the
+  // mothership tree, /api/v1/sovereign/self on the chroot).
+  const { deploymentId } = useResolvedDeploymentId() as { deploymentId: string | null }
   const [launchError, setLaunchError] = useState('')
 
   const estate = useQuery<{ rows: AppRow[]; catalog: Set<string> }>({
@@ -144,7 +149,7 @@ export function AppConsoleRoute() {
   const loading = estate.isLoading || (!!row && launch.isLoading)
 
   return (
-    <PortalShell>
+    <PortalShell deploymentId={deploymentId ?? ''}>
       <div data-testid="app-console-route" style={{ padding: '2rem', maxWidth: '46rem' }}>
         <h1 style={{ fontSize: '1.4rem', marginBottom: '0.75rem' }}>{label}</h1>
         {loading && <p data-testid="app-console-loading">Opening {label}…</p>}
