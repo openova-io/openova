@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-02T17:15:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-09-02T17:30:08Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,11 +307,15 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-02T17:24 | [#6816](https://github.com/openova-io/openova/pull/6816) | #6805 | docs(ledger): open the hw307 partition in PATH-TO-100 (Refs  |
 | 2026-09-02T16:54 | [#6813](https://github.com/openova-io/openova/pull/6813) | #6811 | docs(ledger): record the hw307 walk observations (Refs #6778 |
 | 2026-09-02T16:41 | [#6812](https://github.com/openova-io/openova/pull/6812) | #6810 | docs(sessions): hw307 post-ready evidence — stability watch, |
 | 2026-09-02T16:41 | [#6811](https://github.com/openova-io/openova/pull/6811) | #6778 | docs(uat): seven scheduler-due rows walked live on hw307 (Re |
 | 2026-09-02T16:28 | [#6810](https://github.com/openova-io/openova/pull/6810) | #6330 | docs(ledger): carry the UAT ledger forward onto hw307 (Refs  |
+| 2026-09-02T17:23 | [#6809](https://github.com/openova-io/openova/pull/6809) | #5512 | fix(bp-cnpg): the upstream chart repo redirects to a host th |
 | 2026-09-02T16:26 | [#6808](https://github.com/openova-io/openova/pull/6808) | #6485 | docs: protect-list promoted to hw307 (Refs #6778) |
+| 2026-09-02T17:27 | [#6807](https://github.com/openova-io/openova/pull/6807) | #5261 | fix(api): a reconcile on an exhausted HelmRelease must clear |
+| 2026-09-02T17:29 | [#6806](https://github.com/openova-io/openova/pull/6806) | #2370 | fix(console): serve the route a Blueprint registers as its s |
 | 2026-09-02T16:26 | [#6804](https://github.com/openova-io/openova/pull/6804) | #6803 | fix(harbor): repair a proxy-cache artifact whose index serve |
 | 2026-09-02T15:19 | [#6801](https://github.com/openova-io/openova/pull/6801) | #6800 | docs(sessions): hw307 READY via the Phase-1 re-watch — evide |
 | 2026-09-02T15:06 | [#6800](https://github.com/openova-io/openova/pull/6800) | #3153 | fix(catalyst-api): phase1-watch retry re-runs only the Phase |
@@ -333,10 +337,6 @@ flowchart LR
 | 2026-09-01T23:32 | [#6774](https://github.com/openova-io/openova/pull/6774) | docs(uat): re-confirm row 194 live on hw305 (recon surface l |  |
 | 2026-09-01T17:11 | [#6772](https://github.com/openova-io/openova/pull/6772) | #6764 | test(cutover): render test for #6764 secondary-region Harbor |
 | 2026-09-01T16:58 | [#6771](https://github.com/openova-io/openova/pull/6771) | #6490 | fix(cutover): step-01 secondary mirror — unify secondary git |
-| 2026-09-01T15:22 | [#6770](https://github.com/openova-io/openova/pull/6770) | #5359 | feat(cutover): step-03 secondary-region Harbor prewarm for 2 |
-| 2026-09-01T15:41 | [#6769](https://github.com/openova-io/openova/pull/6769) | #6757 | fix(charts): repin remaining bitnamilegacy/* kubectl images  |
-| 2026-09-01T14:20 | [#6768](https://github.com/openova-io/openova/pull/6768) | #6755 | fix(bp-mimir/bp-vpa/bp-external-secrets): #6760 make chart b |
-| 2026-09-01T14:13 | [#6767](https://github.com/openova-io/openova/pull/6767) | #2447 | fix(dashboard): suspended HelmReleases render as Dormant not |
 
 ---
 
