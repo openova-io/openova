@@ -532,7 +532,7 @@ func TestGetKubeconfig_ReadsFromPathPointer(t *testing.T) {
 }
 
 func TestGetKubeconfig_PathPointerSetButFileMissingReturns409(t *testing.T) {
-	deploymentsDir := t.TempDir()
+	deploymentsDir := storeDirForBackgroundWriters(t)  // #6749: restoreFromStore's resume goroutine writes here after the body returns
 	kubeconfigsDir := t.TempDir()
 	st, _ := store.New(deploymentsDir)
 	h := NewWithStoreAndKubeconfigsDir(silentLogger(), &fakePDM{}, st, kubeconfigsDir)
