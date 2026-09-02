@@ -65,3 +65,25 @@ endpoint, #6820 verified by chargeback installing.
 
 The cost of that automation is recorded in #6825: each self-upgrade takes the console and API 503 for 2–3
 minutes, and the frequency tracks merge cadence.
+
+## Delivery verification — main HEAD vs what hw307 actually runs (22:2xZ)
+
+Measured rather than assumed, because "the Sovereign follows main" is a claim until the SHAs match:
+
+| | `origin/main` | hw307, live |
+|---|---|---|
+| git revision | `2473554d7` | `main@sha1:2473554d77ffaae0134fa5498faa4e7277f24256` |
+| umbrella `bp-catalyst-platform` | `1.4.1648` | `1.4.1648` |
+| bootstrap-kit slot-13 pin | `1.4.1648` | — |
+| `catalyst-api` image tag | `48d4dab` | `ghcr.io/openova-io/openova/catalyst-api:48d4dab` |
+
+**Zero delta.** The Sovereign's Flux `GitRepository` artifact is the byte-identical commit main points at,
+the umbrella it runs is the version main pins, and the control-plane image it runs is the tag main
+declares.
+
+`48d4dab` is the merge commit of **#6814** — the last PR of the evening train, merged minutes before this
+reading. So every fix landed this session is applied and running here, delivered by the platform with no
+hand-applied manifest, no `kubectl set image`, and no forced release.
+
+That is what "apply the accumulated fixes from main" resolves to on a pre-cutover Sovereign: verify the
+delta and name it. The delta is nil.
