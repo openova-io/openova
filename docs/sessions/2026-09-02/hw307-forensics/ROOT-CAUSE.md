@@ -1,0 +1,13 @@
+# hw307 (dep 9a1f230f320d7ff9) — Phase-1 timeout root cause (2026-09-02)
+
+**Record:** fired 10:19:34Z, `failed` 13:01:54Z, `phase1Outcome: timeout`, componentStates keycloak=`failed`, 13 `pending` (sso-bridge, oidc-gate, gitea, grafana, guacamole, newapi, catalyst-platform, chargeback, continuum, openova-mcp, powerdns-admin, self-sovereign-cutover, external-dns), powerdns `installing`; regions A 51/66 · B 56/66 HelmReleases ready. All 12 ECS ACTIVE; both node VPCs at the fixed CIDR formula (10.75/10.85, #6786) and all four peering routes created 10:23:54–57Z — the hw306 failure did not recur.
+
+**Root cause (mothership, not the Sovereign):** the Harbor proxy-cache still served the cached OCI index for `proxy-ghcr/cloudnative-pg/postgresql:16` (HTTP 200) while its amd64 child manifest returned **404** — the aftermath of the 2026-09-01 registry blob-store wipe. Every `shared-pg-*-initdb` pod in both regions sat in `ImagePullBackOff` for 3 h (`failed to copy: httpReadSeeker`), so keycloak never got its database (`timeout reached before the port went into state "inuse"`), Flux exhausted `install.remediation.retries` on bp-keycloak (`Stalled=True RetriesExceeded`), and everything that depends on keycloak stayed `DependencyNotReady`. Only this one image was broken (both regions scanned for ImagePullBackOff/ErrImagePull).
+
+**Fix applied (mothership Harbor, ns `openova-harbor`, as admin — the robot gets 401 on DELETE):** deleted the 5 stale cached artifacts of that repository; the proxy re-fetched index (200), child manifest (200) and blobs (206); hw307 kubelets recovered at 14:03Z (region-B shared-pg 3/3 healthy, region-A shared-pg 3/3 by 14:08Z). Region-A bp-keycloak re-installed after `reconcile.fluxcd.io/resetAt` + `requestedAt` (UpgradeSucceeded 14:17Z); the product reconcile endpoint's `requestedAt` alone did not clear RetriesExceeded (#6795).
+
+**Secondary defect found while recovering (region B):** region B runs its own full `shared-pg` CNPG cluster and its `shared-pg-mesh-rw` (global + `affinity: local`) routes region-B keycloak to that local database, whose `keycloak` role has a different password → `password authentication failed for user "keycloak"`. Contradicts the singleton design in kit slot 16a (#6627/#6753); chart fix in progress.
+
+**Also observed:** region A joined only 4 of its 5 workers (ECS `…-a-w9b4787` ACTIVE since 10:25:18Z, never registered with k3s); workers push no cloud-init log, so the cause is not observable from the mothership.
+
+Files: `cloudinit-me-east-215-a-cp1.log`, `cloudinit-me-east-215-b-cp1.log` (control-plane logs pushed to the mothership PVC), `events-tofu-and-errors.txt` (filtered), `deployment-record-failed.json`.
