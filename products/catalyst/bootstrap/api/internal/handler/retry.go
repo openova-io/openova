@@ -80,6 +80,26 @@ var phase1Phases = map[string]bool{
 	"bp-catalyst-platform": true,
 }
 
+// rewatchPhases — #6795 / #6799. A Phase-1 TIMEOUT (record
+// status=failed, phase1Outcome=timeout) on a Sovereign that later
+// converged on its own (both clusters alive, HelmReleases Ready,
+// console 200) has no honest retry path: the Phase-0 retry re-runs
+// `tofu apply`, which is NOT idempotent on kom4dc once the prov-time
+// NAT-EIP rotation left region B's SNAT rule + EIP outside tofu state
+// (plan "2 to add" → VPC.20xx, record stays failed forever), and the
+// Phase-1 advisory branch above only prints an event. `phase1-watch`
+// re-runs ONLY the helmwatch observer — no tofu, no cloud writes — and
+// on OutcomeReady takes the SAME terminal path as a first-launch watch
+// (markPhase1Done → status=ready → fireHandover). Kept out of
+// phase1Phases so the Flux-owned advisory branch stays as it is.
+//
+// Measured live 2026-09-02 on hw307 (dep 9a1f230f320d7ff9): region A
+// 64/66 HelmReleases Ready, console 200, record failed/timeout, and
+// the only offered retry would have re-applied tofu.
+var rewatchPhases = map[string]bool{
+	"phase1-watch": true,
+}
+
 // RetryPhase handles POST /api/v1/deployments/:id/phases/:phase/retry.
 //
 // Response:
@@ -88,6 +108,9 @@ var phase1Phases = map[string]bool{
 //	400 — unknown phase id
 //	404 — unknown deployment id
 //	409 — deployment is still in-flight; can't retry while running
+//	409 — `phase1-watch` only: a watch is already attached, or the
+//	      watcher's inputs (Result + kubeconfig) were never produced;
+//	      the body's `error` names which
 func (h *Handler) RetryPhase(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	phase := chi.URLParam(r, "phase")
@@ -114,6 +137,8 @@ func (h *Handler) RetryPhase(w http.ResponseWriter, r *http.Request) {
 		h.retryPhase0(w, dep, phase)
 	case phase1Phases[phase]:
 		h.retryPhase1(w, dep, phase)
+	case rewatchPhases[phase]:
+		h.retryPhase1Rewatch(w, dep, phase)
 	default:
 		writeJSON(w, http.StatusBadRequest, map[string]string{
 			"error": fmt.Sprintf("unknown phase %q — see docs/RUNBOOK-PROVISIONING.md for the canonical phase list", phase),
@@ -205,6 +230,130 @@ func (h *Handler) retryPhase1(w http.ResponseWriter, dep *Deployment, phase stri
 		"streamURL": fmt.Sprintf("/api/v1/deployments/%s/logs", dep.ID),
 		"runbook":   "docs/RUNBOOK-PROVISIONING.md#rollback-procedures-per-phase",
 		"message":   fmt.Sprintf("Phase 1 (%s) is owned by Flux on the new Sovereign — operator action required if automatic remediation exhausted.", phase),
+	})
+}
+
+// retryPhase1Rewatch re-attaches ONLY the Phase-1 helmwatch observer to a
+// terminal deployment (#6795 / #6799). It performs no `tofu apply` and no
+// cloud write of any kind: the watcher reads HelmRelease status through
+// the kubeconfig the Sovereign PUT back during its first run.
+//
+// State transitions:
+//
+//	failed (phase1Outcome=timeout|…)  ──POST phase1-watch──▶  phase1-watching
+//	phase1-watching  ──watch OutcomeReady──▶  ready   (+ fireHandover, same as first launch)
+//	phase1-watching  ──any other outcome──▶   failed  (Error names the outcome)
+//
+// Preconditions (409 with a naming `error` otherwise): no watch is
+// currently attached, the record is not adopted, Phase 0 produced a
+// Result, and a kubeconfig exists on disk — either the stamped
+// Result.KubeconfigPath or the conventional <kubeconfigsDir>/<id>.yaml
+// (#3153: the stamp is `omitempty` and can be lost across a mothership
+// roll while the file survives on the PVC).
+//
+// The reset mirrors PutKubeconfig's relaunch-after-kubeconfig-missing
+// branch and resumePhase1Watch: clear the previous terminal markers,
+// clear phase1Started so the at-most-once guard admits the new launch,
+// allocate a fresh eventsCh/done pair (the originals were closed when
+// the first run finished), and close them ourselves when the watch
+// returns because runProvisioning is not on this path.
+func (h *Handler) retryPhase1Rewatch(w http.ResponseWriter, dep *Deployment, phase string) {
+	// Resolve the kubeconfig BEFORE taking dep.mu — the helper takes the
+	// lock itself and stats the file on disk.
+	kubeconfigPath, haveKubeconfig := h.resolvePrimaryKubeconfigPath(dep)
+
+	dep.mu.Lock()
+	var refuse string
+	switch {
+	case dep.Status == "phase1-watching" || dep.liveWatcher != nil:
+		refuse = "a Phase-1 watch is already attached to this deployment — wait for it to terminate before re-watching"
+	case dep.Status == "adopted":
+		refuse = "deployment is already adopted — the handover has completed; nothing to re-watch"
+	case dep.Result == nil:
+		refuse = "Phase 0 never produced a result for this deployment (no tofu outputs) — the watcher has nothing to observe; use a Phase 0 retry instead"
+	case !haveKubeconfig:
+		refuse = "no kubeconfig was ever posted for this deployment (Result.kubeconfigPath empty and no <kubeconfigsDir>/<id>.yaml on disk) — the watcher needs it; verify cloud-init completed the kubeconfig PUT"
+	}
+	if refuse != "" {
+		dep.mu.Unlock()
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"id":    dep.ID,
+			"phase": phase,
+			"error": refuse,
+		})
+		return
+	}
+
+	dep.Result.KubeconfigPath = kubeconfigPath
+	dep.Result.Phase1Outcome = ""
+	dep.Result.Phase1FinishedAt = nil
+	dep.Result.ComponentStates = nil
+	dep.Status = "phase1-watching"
+	dep.Error = ""
+	dep.FinishedAt = time.Time{}
+	dep.phase1Started = false
+	dep.eventsCh = make(chan provisioner.Event, 256)
+	dep.done = make(chan struct{})
+	dep.mu.Unlock()
+
+	// Record the banner into the durable buffer (this also persists the
+	// phase1-watching flip, so a Pod restart mid-watch rehydrates as
+	// resumable rather than as the stale "failed") and offer it to the
+	// live SSE channel without blocking.
+	recorded := h.recordEventAndPersist(dep, provisioner.Event{
+		Time:    time.Now().UTC().Format(time.RFC3339),
+		Phase:   phase,
+		Level:   "info",
+		Message: "Phase-1 re-watch initiated — no tofu, no cloud writes. Re-attaching the HelmRelease watcher through the existing kubeconfig; status flips to ready (and the handover fires) only when every component reports installed.",
+	})
+	select {
+	case dep.eventsCh <- recorded:
+	default:
+	}
+
+	h.log.Info("phase 1 re-watch initiated (no tofu, no cloud writes)",
+		"id", dep.ID,
+		"kubeconfigPath", kubeconfigPath,
+	)
+
+	// phase1WatchWG is the test-only WaitGroup resumePhase1Watch honours
+	// so a test can await the goroutine before its TempDir is removed.
+	if h.phase1WatchWG != nil {
+		h.phase1WatchWG.Add(1)
+	}
+	go func() {
+		if h.phase1WatchWG != nil {
+			defer h.phase1WatchWG.Done()
+		}
+		h.runPhase1Watch(dep)
+		// markPhase1Done flips Status terminal but does not close the
+		// channels — runProvisioning owns that on the first-launch path.
+		// Here we allocated them, so we close them. Same nil-check +
+		// recover defence as resumePhase1Watch against a concurrent wipe
+		// that nils eventsCh after closing it.
+		defer func() { _ = recover() }()
+		dep.mu.Lock()
+		evCh := dep.eventsCh
+		doneCh := dep.done
+		dep.mu.Unlock()
+		select {
+		case <-doneCh:
+		default:
+			if evCh != nil {
+				close(evCh)
+			}
+			if doneCh != nil {
+				close(doneCh)
+			}
+		}
+	}()
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"id":        dep.ID,
+		"status":    "phase1-watching",
+		"phase":     phase,
+		"streamURL": fmt.Sprintf("/api/v1/deployments/%s/logs", dep.ID),
+		"message":   "Phase-1 re-watch accepted — no tofu, no cloud writes. Reopen the SSE stream to follow convergence; the record flips to ready and the handover fires when every component is installed.",
 	})
 }
 
@@ -306,7 +455,7 @@ func validatePhaseID(phase string) error {
 	if strings.TrimSpace(phase) == "" {
 		return errors.New("phase id required")
 	}
-	if !phase0Phases[phase] && !phase1Phases[phase] {
+	if !phase0Phases[phase] && !phase1Phases[phase] && !rewatchPhases[phase] {
 		return fmt.Errorf("unknown phase %q", phase)
 	}
 	return nil
