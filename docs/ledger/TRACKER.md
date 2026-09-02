@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-02T15:00:04Z` |
+| Last refreshed | `2026-09-02T15:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-02T15:06 | [#6800](https://github.com/openova-io/openova/pull/6800) | #3153 | fix(catalyst-api): phase1-watch retry re-runs only the Phase |
 | 2026-09-02T14:53 | [#6798](https://github.com/openova-io/openova/pull/6798) | #4460 | fix(bp-postgres): pre-flip secondary -mesh/-mesh-rw stub mus |
 | 2026-09-02T14:32 | [#6797](https://github.com/openova-io/openova/pull/6797) | #6795 | docs(sessions): hw307 Phase-1 timeout root cause + recovery  |
 | 2026-09-02T14:22 | [#6794](https://github.com/openova-io/openova/pull/6794) | #6778 | docs(sessions): hw307 failed in Phase 1 — forensics (Refs #6 |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-31T11:33 | [#6756](https://github.com/openova-io/openova/pull/6756) | #6149 | fix(bp-postgres): consumer -mesh/-mesh-rw aliases follow a # |
 | 2026-08-31T10:34 | [#6752](https://github.com/openova-io/openova/pull/6752) | #4086 | docs(runbooks): §7.5 — provider/role-gated suspended HRs bla |
 | 2026-08-31T09:05 | [#6750](https://github.com/openova-io/openova/pull/6750) | #6749 | fix(jobs): serve jobs.Store first, refresh seed in backgroun |
-| 2026-08-31T07:23 | [#6748](https://github.com/openova-io/openova/pull/6748) | #6747 | fix(jobs): prune childless phase-container nodes from the gr |
 
 ---
 
