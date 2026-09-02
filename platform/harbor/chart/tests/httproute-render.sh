@@ -149,4 +149,64 @@ if grep -q "harbor.smoke.omani.works" <<<"$route_block_noalias"; then
 fi
 echo "[bp-harbor] Case 6: PASS"
 
+# ── Case 7: the alias-redirect route is admitted by the SAME parentRef as the main route ──
+# #6140 / #6778 (hw305 live, 2026-09-02): the harbor.<fqdn> alias-redirect
+# HTTPRoute read `.Values.gateway.{name,namespace,sectionName}` — keys that do
+# not exist — and fell through to `sectionName: "https"`. That listener name
+# exists ONLY on a single-zone Sovereign; every Org-pool Sovereign names it
+# `https-<zone-dashed>`, so the pin matched nothing: Accepted=False
+# NoMatchingParent, harbor.<fqdn> 404 while registry.<fqdn> 200. The alias route
+# must (a) carry NO sectionName by default, (b) cite the canonical Gateway with
+# the same quoting as the main route, (c) honour gateway.parentRef.sectionName
+# when a sovereign-admin sets one, and (d) IGNORE the dead `gateway.sectionName`
+# key — the control that proves the old read path is gone, not merely defaulted.
+echo "[bp-harbor] Case 7: alias-redirect parentRef mirrors gateway.parentRef (no sectionName pin by default)"
+pick_alias_doc() {
+  # POSIX awk: print the YAML document that is the alias-redirect HTTPRoute.
+  awk '
+    /^---$/ { if (buf ~ /kind: HTTPRoute/ && buf ~ /harbor-alias-redirect/) print buf; buf=""; next }
+    { buf = buf $0 "\n" }
+    END { if (buf ~ /kind: HTTPRoute/ && buf ~ /harbor-alias-redirect/) print buf }'
+}
+alias_doc=$(pick_alias_doc <<<"$out_alias")
+if [ -z "$alias_doc" ]; then
+  echo "FAIL: alias-redirect HTTPRoute (harbor-alias-redirect) did not render with gateway.host=registry.*"
+  exit 1
+fi
+if grep -q "sectionName" <<<"$alias_doc"; then
+  echo "FAIL: #6140 REGRESSION — alias-redirect route pins a sectionName by default:"
+  grep -n "sectionName" <<<"$alias_doc"
+  echo "(on an Org-pool Sovereign the HTTPS listener is named https-<zone-dashed>; a pinned 'https' matches nothing → Accepted=False NoMatchingParent → harbor.<fqdn> 404)"
+  exit 1
+fi
+if ! grep -q "name: \"cilium-gateway\"" <<<"$alias_doc" || ! grep -q "namespace: \"kube-system\"" <<<"$alias_doc"; then
+  echo "FAIL: alias-redirect parentRefs must cite \"cilium-gateway\"/\"kube-system\" (quoted, same as the main route)"
+  echo "$alias_doc"
+  exit 1
+fi
+# (c) the SAME knob the main route reads reaches the alias route too.
+out_pinned=$("$helm" template smoke "$chart_dir" \
+        --set gateway.enabled=true \
+        --set gateway.host=registry.smoke.omani.works \
+        --set gateway.parentRef.sectionName=https-omani-works 2>&1)
+alias_doc_pinned=$(pick_alias_doc <<<"$out_pinned")
+if ! grep -q "sectionName: \"https-omani-works\"" <<<"$alias_doc_pinned"; then
+  echo "FAIL: gateway.parentRef.sectionName is not propagated to the alias-redirect route"
+  echo "$alias_doc_pinned"
+  exit 1
+fi
+# (d) CONTROL — the dead key must stay dead. If someone re-introduces a read of
+# `.Values.gateway.sectionName`, this render would emit it.
+out_deadkey=$("$helm" template smoke "$chart_dir" \
+        --set gateway.enabled=true \
+        --set gateway.host=registry.smoke.omani.works \
+        --set gateway.sectionName=https 2>&1)
+alias_doc_deadkey=$(pick_alias_doc <<<"$out_deadkey")
+if grep -q "sectionName" <<<"$alias_doc_deadkey"; then
+  echo "FAIL: #6140 REGRESSION — alias-redirect route reads the dead key gateway.sectionName again"
+  grep -n "sectionName" <<<"$alias_doc_deadkey"
+  exit 1
+fi
+echo "[bp-harbor] Case 7: PASS"
+
 echo "[bp-harbor] All HTTPRoute render cases PASS"
