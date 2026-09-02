@@ -117,7 +117,7 @@ nothing.
 {{- /* #3374: Deployment annotation recording the provider-config hash the
    running NewAPI was last restarted for — makes the reload idempotent. */ -}}
 {{- $reloadHashAnno := "catalyst.openova.io/newapi-provider-reload-hash" -}}
-{{- $pgImage := .Values.cnpg.cluster.imageName | default "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql:16.4" -}}
+{{- $pgImage := .Values.cnpg.cluster.imageName | default "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql:16" -}}
 {{- $fqdn := .Values.sovereignFQDN -}}
 {{- $clientId := .Values.auth.adminUI.keycloak.clientId | default "newapi-admin" -}}
 {{- $oidcSecretName := .Values.auth.adminUI.keycloak.existingSecret | default (printf "%s-oidc" (include "bp-newapi.fullname" .)) -}}

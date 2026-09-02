@@ -318,7 +318,7 @@ cnpg:
     # on anonymous ghcr (#3058). PUBLIC image → proxy-ghcr serves it
     # cred-free. Post-cutover Step-04's containerd mirror redirects
     # harbor.openova.io → local Harbor.
-    imageName: "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql:16.4"
+    imageName: "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql:16"
     storage: "5Gi"
     storageClassName: "" # empty ⇒ default StorageClass
     owner: "newapi"
