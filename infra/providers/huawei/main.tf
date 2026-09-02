@@ -54,7 +54,63 @@ locals {
   #
   # Inter-VPC routing is via DMZ WireGuard over PUBLIC EIPs (per
   # docs/DOD.md A2), so a fresh CIDR per prov is transparent.
-  cidr_base = 32 + (parseint(substr(sha256(var.deployment_id), 0, 2), 16) % (216 - (length(var.regions) - 1) * 10))
+  #
+  # POD/SERVICE-BAND FIX (2026-09-02, hw306 dep e68e79721ecbde62, VPC.2812,
+  # Refs #6786): the hashed base is disjoint from the management and
+  # reserved ranges but NOT from the k3s overlay ranges pinned further down
+  # in this file — pod CIDR 10.(42+idx).0.0/16 and service CIDR
+  # 10.(96+idx).0.0/16 (region_cluster_cidr / region_service_cidr).
+  # e68e79721ecbde62 hashed to base=42 on a 2-region prov, so region-a's
+  # node VPC rendered 10.42.0.0/16 == region-a's POD CIDR (kom4dc inventory
+  # 09:25Z: catalyst-hw306-omani-works-e68e7972-me-east-215-a-vpc
+  # 10.42.0.0/16, ...-b-vpc 10.52.0.0/16). The peering route mesh_b_to_a
+  # (destination = region-a VPC CIDR) then duplicated mesh_pod_b_to_a
+  # (destination = region-a pod CIDR) on region-b's route table ->
+  # `VPC.2812 The destination of route to add is exist already` and
+  # `tofu apply` FAILED. Even without the route clash a node VPC inside the
+  # pod overlay breaks cluster networking. For N=2 the colliding raw bases
+  # are {32,33,42,43,86,87,96,97} = 8 of 206 buckets (3.9%); hw305
+  # (b2b00ce4c833badf) hashed to 66 and worked, hw302 to 47, hw300 to 126.
+  #
+  # Fix: keep the raw hash bucket and, when ANY region octet (raw + idx*10,
+  # idx in 0..N-1) lands in the pod band [42, 41+N] or the service band
+  # [96, 95+N], shift the base UP by N (the band width). A non-colliding
+  # hash is untouched, so every existing Sovereign keeps its CIDRs.
+  #
+  # PROOF (N = number of regions, 1 <= N <= 5; the guard enforces the bound):
+  #   Say region i hit a band [B, B+N-1] (B = 42 or 96) at offset
+  #   p = raw + 10*i - B, 0 <= p <= N-1. After the shift every region octet
+  #   is (raw + N) + 10*idx = B + (p + N + 10*k) with k = idx - i in
+  #   [-(N-1), N-1] and p + N in [N, 2N-1].
+  #     k = 0: offset >= N            -> above the band top B+N-1.
+  #     k > 0: offset >= N + 10       -> above the band top.
+  #     k < 0: offset <= 2N-1-10 < 0  -> below the band bottom (needs N<=5).
+  #   So no shifted octet re-enters the band that was hit. The OTHER band is
+  #   unreachable too: a pod hit keeps every shifted octet
+  #   <= 41+N + N + 10*(N-1) = 31+12N <= 91 < 96, and a service hit keeps
+  #   every shifted octet >= 96+N - 10*(N-1) = 106-9N >= 61 > 41+N. (No raw
+  #   base can hit BOTH bands: that needs 41+N >= 96-10*(N-1), i.e. N >= 6.)
+  #   Overflow: the largest colliding raw is 95+N (service hit at idx 0), so
+  #   the largest shifted last-region octet is 95+N + N + 10*(N-1) = 85+12N
+  #   <= 145 <= 247 — the OVERFLOW FIX ceiling above still holds.
+  #   Worked, N=2 (region-b = +10): raw 32->34, 33->35, 42->44, 43->45,
+  #   86->88, 87->89, 96->98, 97->99; e68e79721ecbde62: 42 -> 44 / 54.
+  # Enumerated for every hash byte x N in 1..5 by
+  # scripts/check-vpc-cidr-no-pod-overlap.py (CI: infra-huawei-tofu.yaml),
+  # which also parses the 32/216/10/42/96 literals so drift is caught.
+  cidr_base_raw = 32 + (parseint(substr(sha256(var.deployment_id), 0, 2), 16) % (216 - (length(var.regions) - 1) * 10))
+
+  # TRUE when any region's node-VPC second octet (raw + idx*10) lands in the
+  # pod band [42, 42+N-1] or the service band [96, 96+N-1]. The 42 / 96
+  # literals MUST equal the ones in region_cluster_cidr / region_service_cidr
+  # below (the guard parses both sites and fails on drift).
+  cidr_base_hits_overlay = anytrue([
+    for idx in range(length(var.regions)) :
+    (local.cidr_base_raw + idx * 10 >= 42 && local.cidr_base_raw + idx * 10 <= 42 + length(var.regions) - 1)
+    || (local.cidr_base_raw + idx * 10 >= 96 && local.cidr_base_raw + idx * 10 <= 96 + length(var.regions) - 1)
+  ])
+
+  cidr_base = local.cidr_base_raw + (local.cidr_base_hits_overlay ? length(var.regions) : 0)
   region_vpc_cidr = {
     for idx, r in var.regions :
     r.code => format("10.%d.0.0/16", local.cidr_base + idx * 10)
