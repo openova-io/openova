@@ -40,7 +40,7 @@ Production was deleted TWICE by automation (#4614 on 2026-06-28; #4675 on 2026-0
 | Resource | Identity | Rule |
 |---|---|---|
 | Bastion node | `bastion-openova`, EIP `212.72.24.20` | NEVER wipe/scale/modify without explicit founder say-so (the one founder-protected Huawei resource) |
-| Current production Sovereign | as of 2026-08-26: **hw305** (re-verify against live inventory before acting; #4675's victim was production omantel.biz, dep `2c3f7c34`) | NEVER a wipe target, NEVER a converged-env cutover re-fire target (§0.5), NEVER an in-band quota-reclaim victim |
+| Current production Sovereign | as of 2026-09-02: **hw306** (`hw306.omani.works`, dep `e68e79721ecbde62`, fired 09:01Z after hw305 was wiped + zero-remnant verified; re-verify against live inventory before acting; #4675's victim was production omantel.biz, dep `2c3f7c34`) | NEVER a wipe target, NEVER a converged-env cutover re-fire target (§0.5), NEVER an in-band quota-reclaim victim |
 | Any Sovereign serving a real Organization / shared infra the platform did not create | per live cloud inventory | protect-by-default — never infra-delete on CI-green; goal-first, walk incrementally |
 
 **Maintenance rule:** when production is promoted to a new env, **updating this table is part of the promotion checklist** — the promotion is not complete until the production row names the new env (keep the execution protocol's copy, `docs/PROTOCOL.md` §5.0, in lockstep). Code-level protect sets (e.g. the provisioner reclaim hook) seed from THIS table and cross-check **live cloud inventory** (Huawei ECS/VPC API) — never the in-memory deployments store alone (#4675).
