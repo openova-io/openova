@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-02T16:15:01Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-09-02T16:30:07Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-02T16:28 | [#6810](https://github.com/openova-io/openova/pull/6810) | #6330 | docs(ledger): carry the UAT ledger forward onto hw307 (Refs  |
+| 2026-09-02T16:26 | [#6808](https://github.com/openova-io/openova/pull/6808) | #6485 | docs: protect-list promoted to hw307 (Refs #6778) |
+| 2026-09-02T16:26 | [#6804](https://github.com/openova-io/openova/pull/6804) | #6803 | fix(harbor): repair a proxy-cache artifact whose index serve |
 | 2026-09-02T15:19 | [#6801](https://github.com/openova-io/openova/pull/6801) | #6800 | docs(sessions): hw307 READY via the Phase-1 re-watch — evide |
 | 2026-09-02T15:06 | [#6800](https://github.com/openova-io/openova/pull/6800) | #3153 | fix(catalyst-api): phase1-watch retry re-runs only the Phase |
 | 2026-09-02T14:53 | [#6798](https://github.com/openova-io/openova/pull/6798) | #4460 | fix(bp-postgres): pre-flip secondary -mesh/-mesh-rw stub mus |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-09-01T14:30 | [#6766](https://github.com/openova-io/openova/pull/6766) | #6765 | fix(seaweedfs): explicit volume maxVolumes — auto under-size |
 | 2026-09-01T08:48 | [#6763](https://github.com/openova-io/openova/pull/6763) | #6004 | fix(#6004): payload gate over-counts subchart source that th |
 | 2026-09-01T06:42 | [#6762](https://github.com/openova-io/openova/pull/6762) | #6004 | fix(gitea): .helmignore build-only files to clear the #6004  |
-| 2026-08-31T10:58 | [#6757](https://github.com/openova-io/openova/pull/6757) | #6755 | fix(charts): repin bitnamilegacy/kubectl -> alpine/k8s:1.31. |
-| 2026-08-31T11:33 | [#6756](https://github.com/openova-io/openova/pull/6756) | #6149 | fix(bp-postgres): consumer -mesh/-mesh-rw aliases follow a # |
-| 2026-08-31T10:34 | [#6752](https://github.com/openova-io/openova/pull/6752) | #4086 | docs(runbooks): §7.5 — provider/role-gated suspended HRs bla |
 
 ---
 
