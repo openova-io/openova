@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-02T09:49:17.746Z",
+  "generatedAt": "2026-09-02T16:25:52.345Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -855,7 +855,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.0.15",
+      "version": "1.0.16",
       "section": "pts-4-1-data-services",
       "depends": [
         "bp-flux"

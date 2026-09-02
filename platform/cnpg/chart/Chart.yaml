@@ -101,7 +101,7 @@ name: bp-cnpg
 #       4635277cae4ffed9). FIX: switch both to `command: ["/bin/bash", ...]`
 #       (the image carries /bin/bash + /usr/bin/openssl; webhook-gate-hook.yaml
 #       already uses bash). Refs #4322 #4143 #4201 #4326.
-version: 1.0.15
+version: 1.0.16
 description: |
   Catalyst-curated Blueprint umbrella chart for CloudNativePG. Depends on
   the upstream `cloudnative-pg` chart as a Helm subchart so
@@ -125,4 +125,16 @@ maintainers:
 dependencies:
   - name: cloudnative-pg
     version: "0.28.0"
-    repository: "https://cloudnative-pg.github.io/charts"
+    # 2026-09-02 — https://cloudnative-pg.github.io/charts now 301s to
+    # https://cloudnative-pg.io/charts/index.yaml, and that host does not
+    # resolve: helm reports "no cached repository for helm-manager-<sha>
+    # found", the chart stops rendering offline, and the zero-NodePort guard
+    # fails every PR with the ABSOLUTELY-FORBIDDEN banner over a dependency
+    # fetch. Measured identically here and on the GitHub runner (both time out
+    # resolving cloudnative-pg.io). The gh-pages branch is the same index the
+    # redirect used to serve, reachable with no credentials, and its 0.28.0
+    # entry points at the github.com release tarball — same chart, same digest.
+    # Upstream's OCI copy (oci://ghcr.io/cloudnative-pg/charts) is NOT usable
+    # here: an unauthenticated helm gets 403 from ghcr's token endpoint, and
+    # the guard job holds no registry credentials.
+    repository: "https://raw.githubusercontent.com/cloudnative-pg/charts/gh-pages"
