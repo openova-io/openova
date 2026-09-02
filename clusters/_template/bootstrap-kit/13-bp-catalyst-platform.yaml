@@ -1521,7 +1521,7 @@ spec:
       #   catalog-seed card advances bp-chargeback 0.1.2 -> 0.1.3, so the
       #   umbrella's rendered surface changed). Pin bumped to match so
       #   check-bootstrap-kit-pin-sync.sh stays green.
-      version: 1.4.1643
+      version: 1.4.1645
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
