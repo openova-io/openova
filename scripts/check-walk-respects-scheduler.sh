@@ -30,7 +30,11 @@
 #     current-env walk. See below — this one is not a walk at all.
 #   * an explicit, reasoned override via ALLOW_FULL_WALK=1 (a fresh prov's
 #     first walk, or a founder-directed sweep) — which must be stated in the
-#     PR body, because the point is that it becomes a decision again
+#     PR body, because the point is that it becomes a decision again. The
+#     workflow (.github/workflows/check-walk-respects-scheduler.yaml) sets the
+#     variable from the PR body: the literal token ALLOW_FULL_WALK=1 must appear
+#     there, next to the reason. Until 2026-09-02 the workflow never passed it,
+#     so the bypass existed only on paper.
 #
 # WHAT IT REFUSES
 # ---------------
@@ -92,6 +96,65 @@ for line in to_pipe(sys.stdin.read()).split("\n"):
         if len(f) >= 8:
             print(f[1].strip(), f[6].strip())
 '
+}
+
+# Row IDs the scheduler marked due, from `uat-confidence.py --due` output on
+# stdin, one per line. Read ONLY from the indented id lines under the FAILING
+# and DUE headings. A grep over the whole output also swallowed the summary
+# counts — "183 of 286 rows (64%)", "DUE … (177)", "SKIPPED 103" — and whenever
+# a count happened to equal a row id that row was silently admitted. Measured
+# 2026-09-02 on hw305: rows 64 and 177 were "due" only because the numbers 64
+# and 177 appeared in the summary lines.
+due_ids() {
+  python3 -c '
+import re, sys
+grab, ids = False, set()
+for line in sys.stdin.read().split("\n"):
+    if re.match(r"^(FAILING|DUE)\b", line):
+        grab = True                    # the ids follow on the indented line(s)
+        continue
+    if not line.startswith(" "):
+        grab = False                   # any other heading or a blank line ends the block
+        continue
+    if grab:
+        ids.update(t for t in line.split() if re.fullmatch(r"R?\d+|[GWM]\d+", t))
+for r in sorted(ids):
+    print(r)
+'
+}
+
+# The REINSTATEMENT set for a ledger FILE ($1) and env ($2): rows whose evidence
+# is not a measurement of this env, so a ⏳ -> ✅ on them puts back a carried
+# verdict rather than recording a walk. Attribution comes from uat-confidence's
+# own observable_here — the predicate that already decides whether a verdict may
+# be recorded as an observation of this env — so this gate and the scheduler
+# cannot disagree about which machine a row was measured on. The ledger is an
+# HTML <table> (ca3486cf4) and ledger_envs reads pipe rows, so the file goes
+# through uat_html_compat.to_pipe first; on the raw HTML this set was always
+# empty (measured reinstatable=0 on every hw305 run) and the carve-out was dead.
+reinstatable() {
+  UAT_SCRIPTS="$REPO/scripts" python3 - "$1" "$2" <<'PY'
+import importlib.util, os, sys
+scripts = os.environ["UAT_SCRIPTS"]
+sys.path.insert(0, scripts)
+from uat_html_compat import to_pipe   # HTML-<table> ledger -> markdown rows
+spec = importlib.util.spec_from_file_location("uat_confidence", os.path.join(scripts, "uat-confidence.py"))
+uc = importlib.util.module_from_spec(spec); spec.loader.exec_module(uc)
+body = to_pipe(open(sys.argv[1], encoding="utf-8").read())
+for rid, envs in uc.ledger_envs(body).items():
+    # A row qualifies only if its evidence NAMES a predecessor and does not name
+    # this env. UNATTRIBUTED evidence deliberately does not qualify: it is the
+    # shape a real walk takes when the walker forgets the stamp, and admitting it
+    # would let anyone stamp green by omitting the env label — the same evasion
+    # uat-drift-guard.py already treats an anonymised predecessor reference as.
+    if envs and not uc.observable_here(envs, sys.argv[2]):
+        print(rid)
+PY
+}
+
+# One HTML ledger row in the live 5-column layout, for the self-test fixtures.
+html_row() {  # <id> <verdict> <evidence>
+  printf '<tr id="row-%s"><td><strong>%s</strong><br><sub>epic · <a href="https://github.com/openova-io/openova/issues/1">#1</a></sub></td><td><sub>kubectl read</sub></td><td>%s<br><sub>env</sub></td><td>clause %s</td><td>%s</td></tr>\n' "$1" "$1" "$2" "$1" "$3"
 }
 
 self_test() {
@@ -180,6 +243,65 @@ self_test() {
     echo "  FAIL  CONTROL: the ⏳ carve-out leaked into ❌→✅"; bad=1
   else
     echo "  PASS  CONTROL — the ⏳ carve-out does not leak into ❌→✅"
+  fi
+
+  # DUE-LIST PARSING: only the ids under FAILING/DUE are due. Here the DUE
+  # count is 64, the skipped count 177 and the total 286 — 64 and 177 are real
+  # row ids on the ledger, and 177 is ALSO genuinely listed. The parser must
+  # admit 177 once, and never admit 64, 286 or the FAILING count 2.
+  printf 'WALK-LIST for hw999 — 64 of 286 rows (22%%%%)\n\nFAILING (2) — these are the work:\n   5 G11\n\nDUE for re-confirmation (64):\n   7 177 R3 W1\n\nSKIPPED 177 rows held at high confidence — that effort goes to the failing rows instead.\n' > "$tmp/due-out"
+  local got; got="$(due_ids < "$tmp/due-out" | tr '\n' ' ')"
+  if [ "$got" = "177 5 7 G11 R3 W1 " ]; then
+    echo "  PASS  due-list ids come only from the FAILING/DUE lines (summary counts 2/64/286 not admitted)"
+  else
+    echo "  FAIL  due-list parsing: got [$got], want [177 5 7 G11 R3 W1 ]"; bad=1
+  fi
+
+  # CONTROL: the parser must still be fed by the real scheduler's output shape.
+  # An empty result from a well-formed FAILING/DUE block would make every gate
+  # run INCONCLUSIVE — which exits 0.
+  printf 'FAILING (1) — these are the work:\n   9\n\nDUE for re-confirmation (0):\n   \n' > "$tmp/due-out"
+  got="$(due_ids < "$tmp/due-out" | tr '\n' ' ')"
+  if [ "$got" = "9 " ]; then
+    echo "  PASS  CONTROL — a FAILING-only walk-list still yields its id"
+  else
+    echo "  FAIL  CONTROL: a FAILING-only walk-list yielded [$got]"; bad=1
+  fi
+
+  # HTML LEDGER REINSTATEMENT, end to end: the ledger is an HTML <table>, and
+  # a ⏳ -> ✅ on a row whose evidence names only the predecessor (hw290) must
+  # be detected as a reinstatement and allowed with an empty due-list. Raw HTML
+  # yields no pipe rows, so before the adapter this set was always empty.
+  { html_row 6 '⏳' 'hw290-2026-08-01 ✅ carried from the predecessor';
+    html_row 7 '✅' 'hw306-2026-09-03 ✅ walked here';
+    html_row 8 '✅' 'no environment named at all'; } > "$tmp/ledger-before.md"
+  { html_row 6 '✅' 'hw290-2026-08-01 ✅ carried from the predecessor';
+    html_row 7 '✅' 'hw306-2026-09-03 ✅ walked here';
+    html_row 8 '✅' 'no environment named at all'; } > "$tmp/ledger-after.md"
+  verdicts < "$tmp/ledger-before.md" > "$tmp/before"
+  verdicts < "$tmp/ledger-after.md" > "$tmp/after"
+  : > "$tmp/due"
+  reinstatable "$tmp/ledger-after.md" hw306 > "$tmp/carried"
+  if [ "$(tr '\n' ' ' < "$tmp/carried")" = "6 " ] && [ "$(wc -l < "$tmp/before")" = "3" ]; then
+    echo "  PASS  reinstatement set is read through the HTML adapter (row 6 only; 7 names this env, 8 is unattributed)"
+  else
+    echo "  FAIL  HTML reinstatement set: got [$(tr '\n' ' ' < "$tmp/carried")] from $(wc -l < "$tmp/before") verdict rows, want [6 ] from 3"; bad=1
+  fi
+  if verdict_diff_ok "$tmp/before" "$tmp/after" "$tmp/due" "$tmp/carried" >/dev/null 2>&1; then
+    echo "  PASS  an undue ⏳→✅ REINSTATEMENT on the HTML ledger is allowed end to end"
+  else
+    echo "  FAIL  an HTML-ledger reinstatement was refused — the carve-out is still dead"; bad=1
+  fi
+
+  # CONTROL: the same ⏳ -> ✅ with evidence that names THIS env is a walk on an
+  # HTML ledger too, and the empty due-list must refuse it.
+  html_row 6 '✅' 'hw306-2026-09-03 ✅ walked here' > "$tmp/ledger-after.md"
+  verdicts < "$tmp/ledger-after.md" > "$tmp/after"
+  reinstatable "$tmp/ledger-after.md" hw306 > "$tmp/carried"
+  if verdict_diff_ok "$tmp/before" "$tmp/after" "$tmp/due" "$tmp/carried" >/dev/null 2>&1; then
+    echo "  FAIL  CONTROL: an HTML-ledger ⏳→✅ WALK bypassed the scheduler"; bad=1
+  else
+    echo "  PASS  CONTROL — an HTML-ledger ⏳→✅ WALK on this env still needs the scheduler"
   fi
 
   # VACUITY: the comparator must be capable of failing at all.
@@ -278,7 +400,7 @@ fi
 [ -n "$ENV_LABEL" ] || die "could not determine the environment label"
 
 python3 scripts/uat-confidence.py --due --env "$ENV_LABEL" 2>/dev/null \
-  | grep -oE '\b(R?[0-9]+|[GWM][0-9]+)\b' | sort -u > "$tmp/due" || true
+  | due_ids > "$tmp/due" || true
 
 if [ ! -s "$tmp/due" ]; then
   # No observations yet for this environment: the scheduler has nothing to say,
@@ -289,26 +411,10 @@ if [ ! -s "$tmp/due" ]; then
   exit 0
 fi
 
-# The REINSTATEMENT set: rows whose evidence in the PR's ledger is not a
-# measurement of this env, so a ⏳ -> ✅ on them put back a carried verdict
-# rather than recording a walk. Attribution comes from uat-confidence's own
-# observable_here — the predicate that already decides whether a verdict may be
-# recorded as an observation of this env — so this gate and the scheduler cannot
-# disagree about which machine a row was measured on.
-python3 - "$UAT" "$ENV_LABEL" > "$tmp/carried" <<'PY' || : > "$tmp/carried"
-import importlib.util, sys
-spec = importlib.util.spec_from_file_location("uat_confidence", "scripts/uat-confidence.py")
-uc = importlib.util.module_from_spec(spec); spec.loader.exec_module(uc)
-body = open(sys.argv[1], encoding="utf-8").read()
-for rid, envs in uc.ledger_envs(body).items():
-    # A row qualifies only if its evidence NAMES a predecessor and does not name
-    # this env. UNATTRIBUTED evidence deliberately does not qualify: it is the
-    # shape a real walk takes when the walker forgets the stamp, and admitting it
-    # would let anyone stamp green by omitting the env label — the same evasion
-    # uat-drift-guard.py already treats an anonymised predecessor reference as.
-    if envs and not uc.observable_here(envs, sys.argv[2]):
-        print(rid)
-PY
+# The REINSTATEMENT set for the PR's ledger (see reinstatable() above). A
+# failure of the helper leaves the set EMPTY, which refuses every undue ⏳ -> ✅
+# rather than admitting one.
+reinstatable "$UAT" "$ENV_LABEL" > "$tmp/carried" || : > "$tmp/carried"
 
 echo "env=$ENV_LABEL  due=$(wc -l < "$tmp/due") row(s)  reinstatable=$(wc -l < "$tmp/carried")"
 verdict_diff_ok "$tmp/before" "$tmp/after" "$tmp/due" "$tmp/carried" || {
@@ -318,7 +424,7 @@ verdict_diff_ok "$tmp/before" "$tmp/after" "$tmp/due" "$tmp/carried" || {
   echo "taken from the failing ones, and it is why the ❌ count sat flat for days." >&2
   echo >&2
   echo "  see the due-list:  python3 scripts/uat-confidence.py --due --env $ENV_LABEL" >&2
-  echo "  deliberate sweep:  ALLOW_FULL_WALK=1 (and say why in the PR body)" >&2
+  echo "  deliberate sweep:  write ALLOW_FULL_WALK=1 in the PR body, with the reason (the workflow passes it through)" >&2
   exit 1
 }
 echo "OK — every green flip in this walk was on the scheduler's due-list."
