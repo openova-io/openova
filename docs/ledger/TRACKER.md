@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-02T16:30:07Z` |
+| Last refreshed | `2026-09-02T16:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-02T16:41 | [#6812](https://github.com/openova-io/openova/pull/6812) | #6810 | docs(sessions): hw307 post-ready evidence — stability watch, |
+| 2026-09-02T16:41 | [#6811](https://github.com/openova-io/openova/pull/6811) | #6778 | docs(uat): seven scheduler-due rows walked live on hw307 (Re |
 | 2026-09-02T16:28 | [#6810](https://github.com/openova-io/openova/pull/6810) | #6330 | docs(ledger): carry the UAT ledger forward onto hw307 (Refs  |
 | 2026-09-02T16:26 | [#6808](https://github.com/openova-io/openova/pull/6808) | #6485 | docs: protect-list promoted to hw307 (Refs #6778) |
 | 2026-09-02T16:26 | [#6804](https://github.com/openova-io/openova/pull/6804) | #6803 | fix(harbor): repair a proxy-cache artifact whose index serve |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-09-01T14:20 | [#6768](https://github.com/openova-io/openova/pull/6768) | #6755 | fix(bp-mimir/bp-vpa/bp-external-secrets): #6760 make chart b |
 | 2026-09-01T14:13 | [#6767](https://github.com/openova-io/openova/pull/6767) | #2447 | fix(dashboard): suspended HelmReleases render as Dormant not |
 | 2026-09-01T14:30 | [#6766](https://github.com/openova-io/openova/pull/6766) | #6765 | fix(seaweedfs): explicit volume maxVolumes — auto under-size |
-| 2026-09-01T08:48 | [#6763](https://github.com/openova-io/openova/pull/6763) | #6004 | fix(#6004): payload gate over-counts subchart source that th |
-| 2026-09-01T06:42 | [#6762](https://github.com/openova-io/openova/pull/6762) | #6004 | fix(gitea): .helmignore build-only files to clear the #6004  |
 
 ---
 
