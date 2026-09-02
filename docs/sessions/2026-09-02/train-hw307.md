@@ -1,0 +1,78 @@
+# Train manifest — hw307.omani.works (v3, 2026-09-02T09:55Z; **fire 2 of 2 today — the LAST fire before 2026-09-03T00:00Z**)
+
+Supersedes [`train-hw306.md`](train-hw306.md) (v1 + executed evidence §9) after hw306 (dep `e68e79721ecbde62`) failed at tofu apply and was wiped. The synthesized plan from the ultracode workflow is kept verbatim in [`train-hw306-synthesized-plan.md`](train-hw306-synthesized-plan.md) (reference only). Tracking issue **#6778**; defect **#6786**. This file carries the corrections the three adversarial critics required (stale-manifest, in-pod verification of the CIDR fix, protect-list reset, agent cap, RT-3 honesty, R18, keystone wording, cookie lifetime, cooldown anchor).
+
+## 1. Rules (delta vs train-hw306 §1 — everything there still applies)
+
+| # | Rule | Applied how |
+|---|---|---|
+| R16 | **hw307 is the last fire today** (RUNBOOKS §0.4). A failed hw307 stalls the train until the next UTC day, so every merged passenger boards it now; nothing that can be fixed before the fire is deferred to "after ready". | Board list §3; the fire helper refuses a POST when `grep -c '^- \*\*FIRED' docs/sessions/2026-09-02/*.md` ≥ 2. |
+| R17 | **The CIDR fix is verified inside the running mothership pod, not by image tag.** Pre-flight 4b only compares tags. | `kubectl -n catalyst exec deploy/catalyst-api -- grep -c cidr_base_hits_overlay /infra/providers/huawei/main.tf` = 1 **and** the pod's image tag equals main's pin **and** `check-vpc-cidr-no-pod-overlap.py` passes on that commit. |
+| R18 | **Never wipe a working Sovereign to deploy code** (founder 2026-08-13). Exception relied on this cycle: hw305 was mid-cutover past step-05 and by construction could not receive any fix (region-A kit Kustomization suspended at main@35b4e9df, region-B mirror frozen at 25eba1a5); founder decision 2026-09-02 authorised hw306. | Recorded here; no further wipes of a converged env in this train. |
+| R19 | **Agent cap ≤ 3 concurrent** (PRINCIPLES III.5: floor 2, ceiling 3; supersedes the "≤6" in train-hw306 R11 and lane D). | Walkers run in waves of ≤ 3 with disjoint `--schedule` row lists; lane A/C fixers count toward the same cap. |
+| R20 | **Protect-list names only a Sovereign that holds `ready`.** RUNBOOKS §0.1 + PROTOCOL §5.0 now read "none live"; hw307 is promoted only after `ready` + the 60-min #6485 stability watch, with the `GET /deployments/<id>` `status:"ready"` output pasted in the promotion PR. | This PR resets both rows. |
+| R21 | **Lifecycle credential outlives the watch**: owner cookie minted with `exp = now + 6 h`; every poller checks the HTTP code and stops on non-200. | `hw306-lifecycle.sh` (session scratchpad) hardened 09:52Z. |
+| R22 | **Cooldown is anchored by measurement**: `T_fire_earliest = max(first `wiped` or 404-after-wiping sighting, first cloud read showing vpc 1/5 · publicIp 1/10 · ECS 1) + 15 min`. | hw306: wiped 09:24Z (POST 202 09:24:01Z), bastion-only inventory 09:34Z → earliest 09:49Z. |
+| R23 | **RT-3 honesty**: the hw305 walk-before-wipe enumeration named 21 walk-only rows (16 89 241 242 W2 3 8 52 56 60 62 91 94 109 133 159 189 212 213 234 232) that a last pass could have re-stamped; they were **forfeited** under the founder decision and R18's exception, not "nothing new". | Recorded; all 21 are on hw307's walk list. |
+| R24 | **Keystone wording**: a cutover started from the sovereign-admin CTA on hw307 is the **live validation of chart 0.1.202** (CP-2 class), not the D1 zero-touch keystone; D1 needs a later fire with `fireCutoverOnHandover:true` on a kit that pins 0.1.202 at fire time. | §8 DoD. |
+
+## 2. Live state at 09:55Z
+
+- Mothership deployments: **none** (hw305 `wiped` 07:47Z; hw306 `wiped` 09:24Z, record reaped). kom4dc inventory 09:34Z: bastion only — vpc 1/5 · publicIp 1/10 · subnet 3/100 · ELB 0 · NAT 0 · EVS 2.
+- Mothership catalyst-api/ui on `b27d54a` (rolled 07:26Z). main now pins **a rebuilt tag pending** (catalyst-build for `26f4d0b20` #6789 in progress since 09:42Z; a second build queued for `2bbbb57ce` #6787). Deploy-bot already landed `8cce29044 deploy: update org service images to 7a87813` (#6780) and `e075f26fd deploy(bp-catalyst-platform): bump chart version -> 1.4.1626`.
+- Merged since the hw306 fire: #6789 (CIDR collision fix + guard, #6786), #6780 (newapi funnel pin 1.4.155 + guard trigger), #6785 (uat-tally/scheduler-guard `to_pipe` + ALLOW_FULL_WALK wiring), #6787 (bp-harbor 1.2.49 alias-redirect route), #6781 (uat-confidence HTML ledger parser), #6788/#6784/#6779 (docs).
+- Open: **#6790** bp-self-sovereign-cutover **0.1.202** (step-06 durable region-B pivot; 24 chart tests + a new render/exec test; payload 86.4 % / 88.3 % two-region) — being rebased onto the new umbrella version; **#6783** hw305 observations CSV (HELD: scoring-semantics decision, see §7); 16 superseded/dead-env PRs closed.
+- Anthropic credential: EXPIRED and REVOKED by use (mothership `catalyst/sovereign-anthropic-credentials`, `expiresAt` 2026-08-14T04:28Z; refresh spent — hw305's #6317 renewal loop got HTTP 400 ×6). hw306's fire logged `Sovereign Anthropic seed: SKIPPED … cannot authenticate` at 09:06:57Z. **Founder input still outstanding** (pushed 07:4xZ). If it arrives before the mothership roll, it is written into `catalyst-openova-kc-credentials` (`anthropic-api-key`, `anthropic-credentials-json`) + `sovereign-anthropic-credentials` (`apiKey`, `credentialsJson`) in the same roll window and hw307 seeds it at kubeconfig postback; otherwise the per-Sovereign rotation path after ready.
+
+## 3. Board list for hw307 (RT-1..RT-5)
+
+| Passenger | Kind | Rows | Status |
+|---|---|---|---|
+| #6789 CIDR collision fix (#6786) | image (mothership) | fire itself | **mandatory**; verified per R17 |
+| #6790 cutover 0.1.202 durable step-06 pivot (#5359 #5596) | kit pin 06a + umbrella | G11 166 227 165 159 | recommended pre-fire; else lands pre-cutover as a pin bump |
+| #6787 bp-harbor 1.2.49 alias-redirect route (#6140) | kit pin 19 + umbrella 1.4.1624 | 104 181 | on main |
+| #6780 newapi funnel pin 1.4.155 | org-services image + umbrella 1.4.1626 | 225 | on main |
+| region-B class: `ca1546627` #6760 hook lifecycle, `79d1d213b` #6753 mesh-rw aliases, `81df2e36b` #6627, `35ca70338` #6766 seaweedfs | kit pins | 235 R21 14 189 G12 G3 67 | on main (never run live) |
+| chargeback #6723 (slot 13f, DNS allowlist in `b27d54a`+) | kit + image | 89 93 225 3 8 91 94 | on main |
+| jobs/console `7d25c2908` #6749, `44005b070` #6767, `0bc54baf5` #6705 | umbrella | 161–174 193–197 212 213 | on main |
+| Anthropic credential | founder input | G8 G9 219–223 | outstanding |
+
+Pins re-verified at T-0 (`check-bootstrap-kit-pin-sync.sh --check-ghcr`, `check-train-coherent.sh --ref origin/main`, last Blueprint Release runs success). Payload gate: umbrella must stay < 90 % (was 88.77 % at 1.4.1623) — **no umbrella prose edits** in this train.
+
+## 4. Pre-fire sequence (ordered; each step measured)
+
+1. Wait for **both** catalyst-build runs (`26f4d0b20`, `2bbbb57ce`) → success, and the deploy-bot `deploy: update catalyst images to <tag>` commit on main; then wait for #6790 to merge (rebased) and its build/deploy commit if it lands in time (cut-off: 10:30Z — after that 0.1.202 rides as a pre-cutover pin bump).
+2. **Roll the mothership by hand** to main's pinned tag (`kubectl -n catalyst set image deploy/catalyst-api … deploy/catalyst-ui …`), `rollout status` settled, ≥ 5 min; zero in-flight provs/wipes (none exist).
+3. **R17 in-pod verification**: `grep -c cidr_base_hits_overlay /infra/providers/huawei/main.tf` = 1 inside the new pod; `python3 scripts/check-vpc-cidr-no-pod-overlap.py` on origin/main exit 0; pod image tag == `images.catalystApi.tag` on origin/main.
+4. Anthropic secrets if delivered (§2), inside the same roll window.
+5. T-0 checks (§3) + `scripts/prov-preflight.sh hw307.omani.works catalyst-hw307-omani-works false false` exit 0 → **PRE-FLIGHT PASS** line in §9. Check 5 (in-flight CI) is measured with the main-branch filter: `gh api 'repos/openova-io/openova/actions/runs?branch=main&status=in_progress'` must show no Catalyst/Backend/Blueprint Release run.
+6. **FIRE** `POST /sovereign/api/v1/deployments` with the §5 body → 201 → §9 FIRED line; Monitor armed (`dep-status.py`, HTTP-code aware).
+
+## 5. Fire body
+
+Identical to train-hw306 §5 except `sovereignFQDN: "hw307.omani.works"` (bucket `catalyst-hw307-omani-works`); `fireCutoverOnHandover:false`, `qaTestEnabled:false`, 2 regions me-east-215-a/-b, cp m7n.xlarge.8, 5× m7n.2xlarge.8 per region, evs-ssd, active-hotstandby, marketplace + console isolation on, parentDomains omani.works primary + omani.homes/omani.rest org-pool. Expected node VPCs for the new id are computed at fire time with the fixed formula and recorded in §9 (must not be 10.42/10.43/10.96/10.97).
+
+## 6. Phase-1 watch (additions to train-hw306 §6)
+
+- **Phase-0 failure class added**: any tofu apply error → capture the events stream (`/events`, `done:true`), the cloud-init log **per region** (`?node=<cp-hostname>` when supported), the record, and the live VPC list, *before* the wipe. The clusters stay alive and keep consuming EIP/EVS until wiped.
+- **Hook-failed class** (first live run of #6760 on a fresh prov): on any HR condition containing `hooks failed` / `BackoffLimitExceeded` (external-secrets, mimir, vpa, cert-manager crd-gate, cnpg/kyverno webhook-gate, gitea gitdata-preservation, evs-csi reclaim) capture `kubectl -n <ns> describe job/<hook>` + its logs within the job TTL.
+- **Anthropic seed**: expect `Sovereign Anthropic seed: SKIPPED` ~6 min after fire unless the credential was re-issued.
+- Post-ready reads to bank (region-B class): `keycloak-0` Running 0 restarts in region-B; `shared-data` mesh Services present; region-B `nslookup shared-pg-mesh-rw.shared-data`; `kubectl get continuums -A`; region-B HR set: the by-design suspended slots (`grep -lE 'SECONDARY_HR_SUSPEND|HUAWEI_HR_SUSPEND' clusters/_template/bootstrap-kit/*.yaml`) versus every other HR Ready=True.
+- Timeline: hw306 reached region-A 32/66 + region-B 26/66 HRs within 9 min of the fire; hw305 105 min to ready; hw300 51 min.
+
+## 7. Post-ready walk (delta vs train-hw306 §7)
+
+- Ledger reset in ONE PR after ready + stability watch: `reset-uat.py hw307` → rewrite UAT.md line 1 to `# UAT — Sovereign acceptance walk on \`hw307.omani.works\` (walked from 2026-09-02)` and the Tally line → guards (`uat-drift-guard.py` bare, `test_uat_table_shape.py`, `test_uat_clause_identity.py`, `check-walk-respects-scheduler.sh origin/main`, `uat-tally.py --check`).
+- Scheduler order: **first** decide the scoring semantics for predecessor-env FAILs (wiped-env discount inside #6783 with a self-test) and land the hw305 observations; **then** compute `--due --env hw307`. Until then the 17 not-due rows (G3 67 227 235 16 232 241 W2 8 52 56 62 109 212 213 234 242) are flipped only with `ALLOW_FULL_WALK=1` justified per PR (#6785 wiring) — never by re-walking green rows.
+- Screenshot provenance: every `hw307-row<N>-*.png` gets a `.json` sidecar `{url, host, title, ts, walker}` written by the walker helper from `page.url()`; a stamp whose sidecar host is not `*.hw307.omani.works` / `*.omani.{homes,rest,trade}` is refused.
+- Pre-cutover window (kept by `fireCutoverOnHandover:false`): walk 159 (TETHERED badge + CTA, screenshot before clicking), then start the cutover from the CTA / `POST /api/v1/sovereign/cutover/start` only after the pre-cutover stamps are committed (RT-10 `LANE-B-EXTRACTED`). At ready, **measure** the flag: `CATALYST_FIRE_CUTOVER_ON_HANDOVER` on the Sovereign's catalyst-api = `false` and the reconciler log says dormant.
+- Cutover step-06 live check (from #6790): `step.helmrepository-patches.result` + `…region.me-east-215-b-1.result`; region-B `gitrepository openova` revision = a sha not on GitHub, Ready=True; region-B HelmRepositories on `oci://ghcr.io/openova-io` = 0 after two kit intervals.
+
+## 8. DoD (delta)
+
+Same numbers as train-hw306 §10 with: Phase-1 `ready` ≤ 105 min; both regions `hrReady == hrTotal` (secondary non-degraded ≤ 60 min after primary); 60-min stability watch green; doors + `chargeback.hw307.omani.works` 200 with a Let's Encrypt **production** issuer; **cutover = live validation of 0.1.202** (R24) with `cutoverComplete=true` and the step-08 deny-egress proof in both regions; ledger ≥ 270 green on hw307 stamps (reachable ceiling 278 = 286 − 7 INPUT-gated − R21); 0 NodePorts live; 0 orphan cloud resources after each wipe; ≤ 3 concurrent agents; every stamp guard-green.
+
+## 9. Evidence appendix (appended at execution)
+
+- **hw306 FAILED 09:10:36Z** (VPC.2812; #6786) — forensics in `hw306-forensics/`; wipe POST 202 at **09:24:01Z** (`[WIPE-AUDIT] … status failed ageSec 1376`); parent-zone A records (19 each in omani.works/omani.homes/omani.rest) deleted 09:32:53Z; bastion-only inventory **09:34:14Z** (vpc 1/5 · publicIp 1/10 · ECS 1 · NAT 0 · ELB 0 · EVS 2); record reaped (404) by 09:40Z. Fires today: **1 of 2**.
+- *(roll line, R17 verification line, PRE-FLIGHT PASS line, FIRED line, ready line, promotion PR, cutover lines, walk PRs go here.)*
