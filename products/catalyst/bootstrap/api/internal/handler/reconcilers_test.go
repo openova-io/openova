@@ -185,6 +185,86 @@ func TestReconcilerAction_Reconcile_AnnotatesRequestedAt(t *testing.T) {
 	}
 }
 
+// #6795 — a reconcile on a HelmRelease must stamp the counter-clearing tokens
+// too, with the SAME value. requestedAt alone is what an operator gets today
+// when they press reconcile on the object they most often press it on: one
+// whose install retries are exhausted (Stalled=True, RetriesExceeded).
+// helm-controller reads requestedAt, sees the failure counter still above the
+// limit, and does nothing — measured live on hw307, bp-chargeback stuck at
+// installFailures=6 through repeated requestedAt patches.
+func TestReconcilerAction_Reconcile_HelmReleaseAlsoResetsFailureCounters(t *testing.T) {
+	r, h, depID := manageHarness(t, "",
+		helmReleaseObj("bp-chargeback", false /*ready*/, false /*suspend*/, "0.1.2"))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, manageActionReq(depID, "HelmRelease", helmwatch.FluxNamespace, "bp-chargeback", "reconcile", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d; body=%s", rec.Code, rec.Body.String())
+	}
+	dyn, _ := h.dynamicFactory("")
+	got, err := dyn.Resource(helmwatch.HelmReleaseGVR).Namespace(helmwatch.FluxNamespace).
+		Get(context.Background(), "bp-chargeback", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get after reconcile: %v", err)
+	}
+	ann := got.GetAnnotations()
+	requested := ann[reconcileRequestedAtAnnotation]
+	force := ann[fluxReconcileForceAtAnnotation]
+	reset := ann[fluxReconcileResetAtAnnotation]
+	if requested == "" || force == "" || reset == "" {
+		t.Fatalf("want requestedAt+forceAt+resetAt all set, got requestedAt=%q forceAt=%q resetAt=%q",
+			requested, force, reset)
+	}
+	// Matching values are the half that makes helm-controller honour them —
+	// the proven #5261 shape. Three different timestamps would look right in a
+	// diff and still leave the release stalled.
+	if requested != force || requested != reset {
+		t.Errorf("tokens must MATCH: requestedAt=%q forceAt=%q resetAt=%q", requested, force, reset)
+	}
+	// The response says which keys were written so a caller can tell a
+	// counter-clearing retry from a bare nudge.
+	var body struct {
+		Annotations []string `json:"annotations"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if len(body.Annotations) != 3 {
+		t.Errorf("want the 3 written annotation keys echoed, got %v", body.Annotations)
+	}
+}
+
+// A Kustomization has no failure counters, so it keeps the single-token patch:
+// writing resetAt there would claim a capability the object does not have.
+func TestReconcilerAction_Reconcile_NonHelmReleaseKeepsSingleToken(t *testing.T) {
+	kustomization := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+		"kind":       "Kustomization",
+		"metadata": map[string]any{
+			"name":      "catalyst-platform",
+			"namespace": helmwatch.FluxNamespace,
+		},
+	}}
+	r, h, depID := manageHarness(t, "", kustomization)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, manageActionReq(depID, "Kustomization", helmwatch.FluxNamespace, "catalyst-platform", "reconcile", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d; body=%s", rec.Code, rec.Body.String())
+	}
+	dyn, _ := h.dynamicFactory("")
+	got, err := dyn.Resource(helmwatch.KustomizationGVR).Namespace(helmwatch.FluxNamespace).
+		Get(context.Background(), "catalyst-platform", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get after reconcile: %v", err)
+	}
+	ann := got.GetAnnotations()
+	if ann[reconcileRequestedAtAnnotation] == "" {
+		t.Fatalf("want requestedAt set, annotations=%v", ann)
+	}
+	if ann[fluxReconcileResetAtAnnotation] != "" || ann[fluxReconcileForceAtAnnotation] != "" {
+		t.Errorf("a Kustomization must not be stamped with HelmRelease retry tokens: %v", ann)
+	}
+}
+
 // Suspend then Resume flip spec.suspend on the live object.
 func TestReconcilerAction_SuspendResume(t *testing.T) {
 	r, h, depID := manageHarness(t, "",
