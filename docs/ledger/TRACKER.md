@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-02T15:15:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-09-02T15:30:07Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6156](https://github.com/openova-io/openova/issues/6156) | DR preflight-02 cannot Fail on a 2-region Sovereign — the standby outage that  | Other |
 | [#6163](https://github.com/openova-io/openova/issues/6163) | Agenity credential chain has TWO one-shot freezes: the init container reads once | Other |
 | [#6166](https://github.com/openova-io/openova/issues/6166) | catalyst-ui has no priorityClassName, so it loses the slot #6157 freed — mothe | Other |
 | [#6169](https://github.com/openova-io/openova/issues/6169) | Funnel-serving + singles residue (#6114 rows 87/90/95/115/218/228/232/234/241):  | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6795](https://github.com/openova-io/openova/issues/6795) | Retry surface gaps: Phase-1 retry is a no-op notice, reconciler action has no re | Other |
 | [#6796](https://github.com/openova-io/openova/issues/6796) | bp-postgres: pre-flip secondary -mesh/-mesh-rw stub selects the LOCAL placeholde | Other |
 | [#6799](https://github.com/openova-io/openova/issues/6799) | NAT-EIP rotation at prov time drifts tofu state (rotated SNAT rule/EIP outside s | Other |
+| [#6802](https://github.com/openova-io/openova/issues/6802) | Dashboard Failed filter shows superseded failed attempts next to a READY badge w | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-02T15:19 | [#6801](https://github.com/openova-io/openova/pull/6801) | #6800 | docs(sessions): hw307 READY via the Phase-1 re-watch — evide |
 | 2026-09-02T15:06 | [#6800](https://github.com/openova-io/openova/pull/6800) | #3153 | fix(catalyst-api): phase1-watch retry re-runs only the Phase |
 | 2026-09-02T14:53 | [#6798](https://github.com/openova-io/openova/pull/6798) | #4460 | fix(bp-postgres): pre-flip secondary -mesh/-mesh-rw stub mus |
 | 2026-09-02T14:32 | [#6797](https://github.com/openova-io/openova/pull/6797) | #6795 | docs(sessions): hw307 Phase-1 timeout root cause + recovery  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-31T10:58 | [#6757](https://github.com/openova-io/openova/pull/6757) | #6755 | fix(charts): repin bitnamilegacy/kubectl -> alpine/k8s:1.31. |
 | 2026-08-31T11:33 | [#6756](https://github.com/openova-io/openova/pull/6756) | #6149 | fix(bp-postgres): consumer -mesh/-mesh-rw aliases follow a # |
 | 2026-08-31T10:34 | [#6752](https://github.com/openova-io/openova/pull/6752) | #4086 | docs(runbooks): §7.5 — provider/role-gated suspended HRs bla |
-| 2026-08-31T09:05 | [#6750](https://github.com/openova-io/openova/pull/6750) | #6749 | fix(jobs): serve jobs.Store first, refresh seed in backgroun |
 
 ---
 
