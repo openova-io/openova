@@ -101,4 +101,44 @@ Same numbers as train-hw306 §10 with: Phase-1 `ready` ≤ 105 min; both regions
 - **Chargeback then stalled on Flux, not on the image.** The hook Job completes now (`chargeback-app-key-dlxsr` Completed), but the HelmRelease had already burned its retries (`installFailures=6`, `Stalled=RetriesExceeded`, `Remediated=True`) and the product's reconcile endpoint writes only `requestedAt`, which cannot clear that counter — the reason the runbook sends walkers to `kubectl annotate`. **#6807** makes the endpoint stamp `requestedAt`+`forceAt`+`resetAt` together for a HelmRelease (matching values, the proven #5261 shape) and leaves other kinds on the single token; it reaches hw307 through the mothership roll, so the recovery costs no hands-on step.
 - **Founder-reported console defect, root-caused and fixed.** `console.hw307.omani.works/apps/bp-chargeback/dashboard` and `/apps/bp-agenity/dashboard` both rendered **Not Found**: `products/agenity/blueprint.yaml:44` and `products/chargeback/blueprint.yaml:161` register those routes through the `spec.consoleUI` contract (#2370), and `router.tsx` served nothing under `/apps/` — only `/apps` and the singular `/app/$componentId[/$tab]`. **#6805** / **#6806**: `AppConsoleRoute` on `/apps/$appId[/$view]` resolves the front door the way the card's Open button does and names the three no-front-door states separately, plus a guard asserting every Blueprint-declared `sidebarRoute` has a matching router path, segment count included (mutation-checked).
 - **The zero-NodePort guard was red on every PR for a reason that is not a NodePort.** `https://cloudnative-pg.github.io/charts` now 301s to `https://cloudnative-pg.io/charts/index.yaml`, a host that does not resolve — on the GitHub runner as well as locally — so `platform/cnpg/chart` stopped rendering offline and the guard failed with the ABSOLUTELY-FORBIDDEN banner over a fetch that never happened. **#6809** repoints the dependency at the gh-pages index (upstream's OCI copy was measured and rejected: 403 from ghcr's token endpoint for an unauthenticated helm, and the guard job holds no credentials), bumps bp-cnpg 1.0.15 → 1.0.16 with its lockstep sites, regenerates the two catalog copies with the committed generator, and adds a bounded fetch retry.
+- **The console defect is FIXED ON THE LIVE ENVIRONMENT, delivered by the platform's own chain.** hw307
+  upgraded itself 1.4.1634 → 1.4.1637 → 1.4.1641 → 1.4.1643 while the session worked (`Helm upgrade
+  succeeded for release catalyst-system/catalyst-platform`), pulling from `github.com/openova-io/openova`
+  main with no hands-on step. Verified in the RUNNING pod rather than by tag: `catalyst-ui`'s bundle
+  `assets/index-BkfahYJa.js` contains `app-console-not-installed` + `app-console-installing`, markers that
+  exist only in #6806's new route, and `/apps/bp-chargeback/dashboard` + `/apps/bp-agenity/dashboard` both
+  resolve instead of falling through to Not Found. During that self-upgrade the API was down ~3 min (RWO
+  volume detach + a transient `lookup ghcr.io: Try again`); it recovered unattended.
+- **#6807 verified live through the product path.** `POST …/reconcilers/HelmRelease/flux-system/bp-chargeback/reconcile`
+  on hw307's OWN console returned `annotations: [forceAt, requestedAt, resetAt]` and chargeback's install
+  restarted immediately. The binary is UPX-packed, so a string grep for `resetAt` returns 0 — including for
+  the control string `requestedAt`, which proves the method invalid rather than the fix absent. The
+  behavioural probe is the honest test.
+- **Chargeback took THREE defects in series, each hiding the next.** (1) the hook image could not pull
+  (#6803, repaired); (2) Flux had exhausted its retries and the endpoint could not clear the counter
+  (#6795 → #6807); (3) the Blueprint's OWN egress policy drops its apiserver call — `:443` DNATs to the
+  node's `:6443` and Cilium enforces the post-DNAT port, so the DSN-sync Job dies with `exitCode 28` and a
+  single log line because `set -eu` + `code=$(curl …)` kills it before its own timeout branch prints
+  (#6819 → #6820, chart 0.1.3). Control: `chargeback-pg-1`, same namespace and nodes, is not selected by
+  that policy and its CNPG instance manager reached the apiserver uninterrupted for hours. As of
+  2026-09-02T18:5xZ hw307 carries 0.1.3 and 0.1.3 is published; Flux is mid-`install` on the old attempt
+  with a 15-minute timeout (`install.remediation.retries=5`), so it picks the new chart up on its next
+  attempt without intervention.
+- **Class audit (source-side):** only bp-chargeback had the apiserver-egress defect. bp-agenity's policy
+  looks identical but its chart sets `agent.forceLocalSpawner: true` and BLANKS `KUBERNETES_SERVICE_HOST`
+  on purpose — adding the entity there would grant the AI workspace apiserver reach it is designed not to
+  have. `platform/plane-isolation` already carries the correct namespace-wide pattern.
+- **Two CI defects fixed rather than re-run.** The zero-NodePort guard was failing EVERY PR because
+  `cloudnative-pg.github.io/charts` now 301s to a host with no DNS (#6809, chart repointed at gh-pages;
+  upstream's OCI copy measured and rejected — 403 for an unauthenticated helm). And two Go tests failed
+  CI on a `TempDir RemoveAll cleanup: directory not empty` raised by detached goroutines outliving the test
+  body (#6818 fixed one by waiting on its singleflight slot; #6821 swept the remaining four
+  `restoreFromStore` tests onto a directory whose cleanup is allowed to lose the race).
+- **Merged this session (14):** #6804 #6806 #6807 #6808 #6809 #6810 #6811 #6812 #6813 #6816 #6817 #6818
+  #6820 #6821. **Filed from live measurement (4):** #6803 #6805 #6815 #6819, plus corrections recorded on
+  #6802 (no superseded-attempt history exists — the store keeps one row per job) and #6796 (verified
+  delivered on region B).
+- **Convergence at 18:4xZ:** region A 63 Ready / 1 Unknown (bp-chargeback) / 4 suspended-by-design; region B
+  60 Ready / 8 suspended-by-design — fully converged, up from 54/66 at handover. Zero live NodePorts in
+  both regions.
 - *(cutover lines go here.)*
