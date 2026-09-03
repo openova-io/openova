@@ -2009,3 +2009,89 @@ func TestBootstrapKit_McpSecondaryEdgeArmedBothLegs(t *testing.T) {
 
 	t.Logf("#5394 mcp secondary-edge chain: slot 13d+13e arms present, both chart legs render armed (input-keyed, value-asserted) and stay empty un-armed, port contract %d==%d", rp, sp)
 }
+
+// TestBootstrapKit_ChargebackSecondaryEdgeArmedBothLegs — #6827.
+//
+// bp-chargeback (slot 13f) is SECONDARY_HR_SUSPEND on a secondary CP, so
+// region-b renders no chargeback route — while the SHARED cilium-gateway VIP
+// still sends it half the traffic. Measured on hw307 2026-09-03 against the
+// same VIP:
+//
+//	chargeback  404 200 404 200 404 200 200 404 200 404   5/10
+//	registry    200 200 200 200 200 200                   6/6   (both regions)
+//	region-a envoy chargeback=11 · region-b envoy chargeback=0
+//
+// The app was healthy throughout — 2 pods 1/1, HelmRelease Ready, HTTPRoute
+// Accepted in region-a. Only the secondary lacked the route.
+//
+// This is the THIRD instance of the activation-left-to-a-second-file class on
+// this chain (catalyst-api/ui #5289, mcp #5394). Both halves must be armed
+// together and neither works alone:
+//
+//	leg A — slot 13f: multiRegion.enabled=true puts service.cilium.io/global on
+//	        region-a's chargeback Service, so a secondary stub has something to
+//	        merge with through ClusterMesh.
+//	leg B — slot 13e: ingress.hosts.chargeback.host gates the edge chart's
+//	        service-chargeback.yaml, which renders the namespace, the
+//	        zero-selector stub Service and the HTTPRoute on region-b.
+//
+// Arm only leg A and the secondary still has no route; arm only leg B and the
+// stub has no global Service to fall through to. Hence one test over both.
+func TestBootstrapKit_ChargebackSecondaryEdgeArmedBothLegs(t *testing.T) {
+	root := repoRoot(t)
+
+	loadHR := func(file, hrName string) map[string]any {
+		t.Helper()
+		raw, err := os.ReadFile(filepath.Join(root, "clusters", "_template", "bootstrap-kit", file))
+		if err != nil {
+			t.Fatalf("read %s: %v", file, err)
+		}
+		dec := yaml.NewDecoder(strings.NewReader(string(raw)))
+		for {
+			var doc map[string]any
+			if derr := dec.Decode(&doc); derr != nil {
+				break
+			}
+			if doc == nil {
+				continue
+			}
+			if kind, _ := doc["kind"].(string); kind != "HelmRelease" {
+				continue
+			}
+			meta, _ := doc["metadata"].(map[string]any)
+			if meta == nil {
+				continue
+			}
+			if name, _ := meta["name"].(string); name == hrName {
+				return doc
+			}
+		}
+		t.Fatalf("%s: HelmRelease %q not found", file, hrName)
+		return nil
+	}
+
+	dig := func(doc map[string]any, path ...string) any {
+		cur := any(doc)
+		for _, p := range path {
+			m, ok := cur.(map[string]any)
+			if !ok {
+				return nil
+			}
+			cur = m[p]
+		}
+		return cur
+	}
+
+	// Leg A — slot 13f arms the region-a global Service.
+	cbHR := loadHR("13f-bp-chargeback.yaml", "bp-chargeback")
+	if got := dig(cbHR, "spec", "values", "multiRegion", "enabled"); got != true {
+		t.Errorf("slot 13f spec.values.multiRegion.enabled = %v, want true — without it region-a's chargeback Service carries no service.cilium.io/global, the secondary's stub has nothing to merge with, and chargeback.<fqdn> keeps 404ing its share of the two-region VIP (#6827, measured 5/10 on hw307)", got)
+	}
+
+	// Leg B — slot 13e supplies the host that gates the secondary render.
+	edgeHR := loadHR("13e-bp-catalyst-secondary-edge-routes.yaml", "bp-catalyst-secondary-edge")
+	const wantHost = "chargeback.${SOVEREIGN_FQDN}"
+	if got, _ := dig(edgeHR, "spec", "values", "ingress", "hosts", "chargeback", "host").(string); got != wantHost {
+		t.Errorf("slot 13e ingress.hosts.chargeback.host = %q, want %q — without it the edge chart's service-chargeback.yaml gate renders NOTHING on region-b and chargeback.<fqdn> bare-404s its share of the two-region VIP (#6827)", got, wantHost)
+	}
+}

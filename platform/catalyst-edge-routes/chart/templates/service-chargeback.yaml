@@ -1,0 +1,106 @@
+{{- /*
+Region-b chargeback secondary-edge (#6827).
+
+bp-chargeback is SECONDARY_HR_SUSPEND on a secondary CP, so region-b has NO
+local chargeback Pod/Service/HTTPRoute — yet the SHARED kube-system/
+cilium-gateway VIP still targets region-b's envoy for HA. Every request that
+lands there hits an envoy with no chargeback route and gets a 404 from envoy
+itself.
+
+Measured on hw307 2026-09-03, against the SAME VIP (212.72.24.25):
+
+    chargeback   404 200 404 200 404 200 200 404 200 404     5/10
+    registry     200 200 200 200 200 200                     6/6   (both regions)
+    grafana      302 302 302 302 302 302                     6/6   (both regions)
+
+    region-a envoy config:  chargeback=11  registry=10
+    region-b envoy config:  chargeback=0   registry=10  grafana=6
+
+The app was healthy throughout — 2 pods 1/1, HelmRelease Ready, HTTPRoute
+Accepted=True/ResolvedRefs=True in region-a. Only the secondary lacked the
+route. This is the identical case service-mcp.yaml documents for
+openova-mcp (#5341, measured 7/12 on hw288) and bp-catalyst-platform for
+catalyst-api/catalyst-ui (#5289) — chargeback is one more single-region app
+with a public door.
+
+ONE DIFFERENCE from the mcp stub: openova-mcp lives in `catalyst-system`, the
+release namespace, which already exists on region-b. chargeback lives in its
+OWN namespace, and with its HelmRelease suspended that namespace does not exist
+on the secondary at all — so this template creates it. The namespace carries no
+quota or policy: it exists solely to hold a zero-selector Service.
+
+Gating: only when the chargeback host is supplied by the slot-13e overlay
+(ingress.hosts.chargeback.host). Default render is empty
+(smoke-render-mode:default-off), so a single-region Sovereign renders nothing.
+*/ -}}
+{{- $cbHost := (((.Values.ingress.hosts).chargeback).host) }}
+{{- $cbNs := (((.Values.ingress.hosts).chargeback).namespace) | default "chargeback" }}
+{{- $cbName := (((.Values.ingress.hosts).chargeback).serviceName) | default "chargeback" }}
+{{- $cbPort := (((.Values.ingress.hosts).chargeback).port) | default 8080 }}
+{{- if $cbHost }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  # bp-chargeback is suspended here, so nothing else creates this namespace.
+  name: {{ $cbNs | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-edge-routes
+    catalyst.openova.io/component: chargeback-secondary-edge
+---
+apiVersion: v1
+kind: Service
+metadata:
+  # Same name+namespace as region-a's chargeback Service so ClusterMesh merges
+  # them. region-a's Service carries service.cilium.io/global only when
+  # multiRegion.enabled is set on bp-chargeback — both halves are required, and
+  # neither works alone.
+  name: {{ $cbName | quote }}
+  namespace: {{ $cbNs | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-edge-routes
+    catalyst.openova.io/component: chargeback
+  annotations:
+    service.cilium.io/global: "true"
+    service.cilium.io/shared: "true"
+spec:
+  type: ClusterIP
+  selector:
+    # Zero local matches on region-b (no chargeback Pod here) → the mesh routes
+    # to region-a's endpoints. Mirrors products/chargeback selectorLabels.
+    app.kubernetes.io/name: chargeback
+    app.kubernetes.io/instance: chargeback
+  ports:
+    - name: http
+      port: {{ $cbPort }}
+      targetPort: {{ $cbPort }}
+      protocol: TCP
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: chargeback
+  namespace: {{ $cbNs | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-edge-routes
+    catalyst.openova.io/component: chargeback
+spec:
+  parentRefs:
+    # The SHARED cilium-gateway — matches products/chargeback httproute.yaml,
+    # which is what region-a attaches to. If these diverge the secondary would
+    # answer on a listener the primary never uses.
+    - name: {{ (((.Values.ingress.chargebackGateway).parentRef).name) | default "cilium-gateway" | quote }}
+      namespace: {{ (((.Values.ingress.chargebackGateway).parentRef).namespace) | default "kube-system" | quote }}
+      {{- with (((.Values.ingress.chargebackGateway).parentRef).sectionName) }}
+      sectionName: {{ . | quote }}
+      {{- end }}
+  hostnames:
+    - {{ $cbHost | quote }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: "/"
+      backendRefs:
+        - name: {{ $cbName | quote }}
+          port: {{ $cbPort }}
+{{- end }}

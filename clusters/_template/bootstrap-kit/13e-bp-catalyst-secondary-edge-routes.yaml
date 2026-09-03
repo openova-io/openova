@@ -72,7 +72,9 @@ spec:
       chart: bp-catalyst-edge-routes
       # 0.1.0 (#5289): initial region-b edge. Lockstep with
       # platform/catalyst-edge-routes/chart/Chart.yaml.
-      version: 0.2.0
+      # 0.2.1 — #6827: adds service-chargeback.yaml, the region-b namespace +
+      #   zero-selector stub + HTTPRoute gated on ingress.hosts.chargeback (leg B).
+      version: 0.2.1
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-edge-routes
@@ -115,6 +117,21 @@ spec:
         # 2-region prov, so single-region + primary renders are unchanged.
         mcp:
           host: mcp.${SOVEREIGN_FQDN}
+        # #6827 — ARM the region-b chargeback leg, the SECOND half of this fix.
+        # bp-chargeback (slot 13f) is SECONDARY_HR_SUSPEND on the secondary, so
+        # region-b renders no chargeback route while the shared cilium-gateway
+        # VIP still sends it half the traffic: measured 5/10 404s on hw307
+        # (2026-09-03) against registry/grafana 6/6, with region-b's envoy
+        # config carrying chargeback=0 to region-a's 11.
+        #
+        # This is the SAME activation-left-to-a-second-file class the mcp
+        # comment above records, so both halves are armed together: this host,
+        # and multiRegion.enabled on slot 13f (which puts
+        # service.cilium.io/global on region-a's chargeback Service). Either
+        # alone is inert — the stub needs a global Service to fall through to,
+        # and the global Service needs a secondary route to be reached from.
+        chargeback:
+          host: chargeback.${SOVEREIGN_FQDN}
       # Mirror slot 13's marketplace gate so region-b proxies marketplace.<fqdn>
       # (→ org-services gateway/admin/marketplace over the mesh) exactly when
       # region-a serves it.

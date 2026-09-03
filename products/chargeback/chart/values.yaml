@@ -174,3 +174,14 @@ resources:
 # Object-name stem. Empty = "chargeback" (the bp- prefix belongs to the
 # chart/catalog, not to the workload names).
 nameOverride: ""
+
+# #6827 — multi-region posture. When the Sovereign spans regions, the Service
+# is annotated as a ClusterMesh global Service so the secondary region can
+# front chargeback.<fqdn> through a zero-selector stub that falls through the
+# mesh to the primary's Pod (platform/catalyst-edge-routes renders that stub).
+#
+# Default false: a single-region Sovereign needs none of it, and annotating a
+# Service global where there is no mesh is noise. Slot 13f sets this from the
+# same signal the other multi-region legs read.
+multiRegion:
+  enabled: false

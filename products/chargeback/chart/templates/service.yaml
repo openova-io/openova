@@ -9,6 +9,25 @@ metadata:
   name: {{ include "chargeback.fullname" . }}
   labels:
     {{- include "chargeback.labels" . | nindent 4 }}
+  {{- if .Values.multiRegion.enabled }}
+  annotations:
+    # #6827 — ClusterMesh global Service, so a secondary region can front this
+    # host without running the workload. chargeback is SECONDARY_HR_SUSPEND on
+    # the secondary CP, yet the SHARED kube-system/cilium-gateway VIP still
+    # targets the secondary's envoy for HA — so ~half of every request to
+    # chargeback.<fqdn> hits an envoy with no chargeback route and 404s.
+    # Measured on hw307 2026-09-03: 5 of 10 requests to the SAME VIP, while
+    # both-region apps (registry, grafana) were 6/6 — and region-b's envoy
+    # config carried chargeback=0 against registry=10.
+    #
+    # Marking the Service global lets platform/catalyst-edge-routes render a
+    # zero-selector stub of the same name+namespace on the secondary, which
+    # falls through the mesh to this Pod. Exactly the idiom
+    # products/openova-mcp uses for the same reason (#5341), and
+    # bp-catalyst-platform for catalyst-api/catalyst-ui (#5289).
+    service.cilium.io/global: "true"
+    service.cilium.io/shared: "true"
+  {{- end }}
 spec:
   type: {{ .Values.service.type }}
   selector:

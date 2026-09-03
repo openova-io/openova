@@ -39,11 +39,30 @@ ingress:
     # service-mcp.yaml stub proxies to region-a over the mesh. Empty → no-op.
     mcp:
       host: ""
+    # #6827 — chargeback.<fqdn> (ADR-0014 D5, the Sovereign BSS placement).
+    # bp-chargeback is SECONDARY_HR_SUSPEND on the secondary, so region-b has
+    # no local chargeback route and ~half of every request to the shared VIP
+    # 404s (measured 5/10 on hw307). The slot fills this on multi-region provs
+    # and service-chargeback.yaml proxies to region-a over the mesh. Empty →
+    # no-op. namespace/serviceName/port override the defaults only if
+    # products/chargeback ever renames them.
+    chargeback:
+      host: ""
+      namespace: ""
+      serviceName: ""
+      port: ""
   # #5341 — mcp rides the SHARED cilium-gateway (kube-system), NOT the dedicated
   # console gateway the api./console. routes use — matching products/openova-mcp
   # httpRoute.parentRef. Overridable per-Sovereign; default is the canonical
   # Sovereign Gateway.
   mcpGateway:
+    parentRef:
+      name: cilium-gateway
+      namespace: kube-system
+      sectionName: ""
+  # #6827 — chargeback rides the SAME shared cilium-gateway as region-a's own
+  # route (products/chargeback httproute.yaml parentRef).
+  chargebackGateway:
     parentRef:
       name: cilium-gateway
       namespace: kube-system
