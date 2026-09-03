@@ -154,6 +154,67 @@ type RegionHealth struct {
 	// convergence baseline, and its own failure is already surfaced via
 	// dep.Status/Phase1Outcome.
 	Degraded bool `json:"degraded"`
+
+	// NodesJoined / NodesRequested are the node-side census (#6815).
+	//
+	// HRReady/HRTotal count HelmReleases, so a region whose kit converged on
+	// FEWER machines than were paid for reads perfectly healthy. Measured on
+	// hw307: 12 ECS instances existed in Huawei while 11 nodes had joined —
+	// worker `…-me-east-215-a-w9b4787` was ACTIVE for 12+ hours and never
+	// registered with k3s. Nothing reported it: Phase 1 said ready, every door
+	// served, and the scheduler simply packed everything onto the workers that
+	// did join. What is lost is the capacity the operator paid for, and the
+	// headroom a region-kill test assumes.
+	//
+	// Zero means "not measured" rather than "zero nodes" — both fields are
+	// omitempty so a census taken without cluster access serialises exactly as
+	// it did before this field existed.
+	NodesJoined    int `json:"nodesJoined,omitempty"`
+	NodesRequested int `json:"nodesRequested,omitempty"`
+}
+
+// NodeCensus is one region's node-side count: how many nodes actually
+// registered with the cluster, against how many the deployment spec asked for
+// (control plane + WorkerCount).
+type NodeCensus struct {
+	Joined    int
+	Requested int
+}
+
+// WithNodeCensus decorates an existing region census with node counts, keyed by
+// the same region label ComputeRegionHealth emits.
+//
+// Kept separate from ComputeRegionHealth on purpose: that function is pure over
+// component-state maps and fully table-testable without a cluster, while node
+// counts require listing a live API. Threading a client into it would make the
+// HelmRelease census untestable offline to serve a field that is optional.
+//
+// A region with no entry in `census` is returned untouched, so a caller that
+// could only reach some regions still publishes what it has rather than
+// zeroing the rest — an unreachable region must not be reported as having lost
+// its nodes.
+func WithNodeCensus(regions []RegionHealth, census map[string]NodeCensus) []RegionHealth {
+	if len(census) == 0 {
+		return regions
+	}
+	out := make([]RegionHealth, len(regions))
+	copy(out, regions)
+	for i := range out {
+		c, ok := census[out[i].Region]
+		if !ok {
+			continue
+		}
+		out[i].NodesJoined = c.Joined
+		out[i].NodesRequested = c.Requested
+	}
+	return out
+}
+
+// NodesShort reports whether a region joined fewer nodes than the spec asked
+// for. It is false when the census was not taken (either field zero), so an
+// unmeasured region is never reported as short.
+func (r RegionHealth) NodesShort() bool {
+	return r.NodesJoined > 0 && r.NodesRequested > 0 && r.NodesJoined < r.NodesRequested
 }
 
 // countInstalled returns (ready, total) for a component-state map keyed by
