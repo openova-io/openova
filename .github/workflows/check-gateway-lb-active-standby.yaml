@@ -1,0 +1,76 @@
+name: check — gateway ELBs are active/hot-standby by default (#6837)
+
+# Permanent guard on the north-south traffic posture.
+#
+# The Huawei gateway + console ELBs pool EVERY node of EVERY region (#5244, so a
+# region-kill does not black-hole the public EIP). Under the provider-default
+# member weight of 1 and ROUND_ROBIN, that pooling silently means active/active:
+# measured on hw307 as an exact 6/6 split across all four pools, with the
+# secondary region taking 6 of 11 live members.
+#
+# Nobody chose that. It fell out of "every node is a member", and it produced
+# user-visible 404s: the pool health monitor is TCP on node:443, which
+# cilium-envoy answers on every node in every region, so a secondary-region node
+# passes the health check while holding no L7 HTTPRoute for a host whose
+# Blueprint is SECONDARY_HR_SUSPENDed there. Any host installed in only one
+# region flaps at the rate of the other region's pool share (#6827).
+#
+# Founder set the posture on 2026-09-03: 100% of north-south traffic to the
+# primary region by default. This gate fails if a member resource stops
+# weighting on its .primary flag, or if the default posture stops being 0.
+#
+# It does NOT forbid active/active — `secondary_region_lb_weight` is the knob and
+# an operator may set it. It forbids losing the knob, or shipping a DEFAULT that
+# splits traffic across regions again.
+#
+# Per docs/PRINCIPLES.md #4a this workflow reads source only — it does not
+# deploy, call cloud APIs, or touch a live cluster.
+#
+# Refs #6837 #6827 #5244
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'infra/providers/huawei/**'
+      - 'scripts/check-gateway-lb-active-standby.sh'
+      - '.github/workflows/check-gateway-lb-active-standby.yaml'
+  pull_request:
+    paths:
+      - 'infra/providers/huawei/**'
+      - 'scripts/check-gateway-lb-active-standby.sh'
+      - '.github/workflows/check-gateway-lb-active-standby.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gateway-lb-active-standby:
+    name: Gateway + console ELBs are active/hot-standby by default
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run gateway-LB active/hot-standby gate
+        run: bash scripts/check-gateway-lb-active-standby.sh
+
+      - name: Self-test — the gate must reject an active/active default
+        run: |
+          set -euo pipefail
+          tmp=$(mktemp -d)
+          cp infra/providers/huawei/main.tf "$tmp/m.tf"
+          sed 's/^  default     = 0$/  default     = 1/' \
+            infra/providers/huawei/variables.tf > "$tmp/v.tf"
+          if bash scripts/check-gateway-lb-active-standby.sh "$tmp/m.tf" "$tmp/v.tf" >/dev/null 2>&1; then
+            echo "SELF-TEST FAILED: gate passed on an active/active default (weight 1)"
+            exit 1
+          fi
+          # and it must reject a member resource that drops its weight entirely
+          grep -v 'weight        = local.gateway_lb_members' infra/providers/huawei/main.tf > "$tmp/m2.tf"
+          if bash scripts/check-gateway-lb-active-standby.sh "$tmp/m2.tf" infra/providers/huawei/variables.tf >/dev/null 2>&1; then
+            echo "SELF-TEST FAILED: gate passed with no member weights at all"
+            exit 1
+          fi
+          echo "self-test ok — the gate rejects both mutants"
