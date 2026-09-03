@@ -105,6 +105,20 @@ service:
   port: 8080
 
 # ── HTTPRoute (Cilium Gateway — the ONLY external door) ──────────────────
+# ── Sovereign SSO (#6841) ─────────────────────────────────────────────────
+# When the app sits behind bp-oidc-gate (slot 13c), the gate has already
+# authenticated the browser against the Keycloak sovereign realm and passes
+# the verified address upstream. Naming that header here makes chargeback
+# accept it INSTEAD of prompting for its own PIN — the zero-click contract of
+# docs/SECURITY.md §6. Empty (default) = off and the header is ignored.
+#
+# The header is trusted WITHOUT verification, so it is only safe when the app
+# cannot be reached except through the gate. Setting this while httpRoute is
+# also enabled would leave a public door that bypasses the gate and accepts a
+# spoofed identity — the chart REFUSES to render that combination.
+forwardAuth:
+  header: ""
+
 httpRoute:
   enabled: true
   # Empty → derived chargeback.<sovereignFqdn>. No hostname resolvable →

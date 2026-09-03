@@ -89,7 +89,7 @@ spec:
       #   Without it the DSN-sync Job's apiserver call was DROPPED (:443 DNATs
       #   to the node's :6443, which the workload rule does not allow), curl
       #   timed out, and the app never left Init:0/1 on hw307.
-      version: 0.1.3
+      version: 0.1.4
       sourceRef:
         kind: HelmRepository
         name: bp-chargeback
@@ -122,6 +122,21 @@ spec:
     global:
       imageRegistry: ''
     sovereignFqdn: ${SOVEREIGN_FQDN}
+    # #6841 — the Sovereign SSO owns sign-in. bp-oidc-gate (slot 13c) holds
+    # chargeback.<fqdn> and authenticates the browser against the Keycloak
+    # sovereign realm silently (kc_idp_hint=catalyst-pin), then passes the
+    # verified address in X-Auth-Request-Email. chargeback accepts it instead
+    # of prompting for its own PIN, so a user already signed in at the
+    # Sovereign is never asked a second time.
+    #
+    # httpRoute.enabled MUST stay false while this is set: the gate owns the
+    # hostname, and a second route on the same host would both be undefined
+    # routing AND a public door that bypasses the gate with a spoofable
+    # header. The chart refuses to render that combination.
+    forwardAuth:
+      header: X-Auth-Request-Email
+    httpRoute:
+      enabled: false
     config:
       # The Sovereign owner signs in as the operator (spec §4 auth); the
       # bootstrap-kit substitute carries the owner address every Sovereign

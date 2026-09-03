@@ -199,18 +199,56 @@ type ctxKey int
 const sessionKey ctxKey = 1
 
 func (h *Handler) loadSession(r *http.Request) context.Context {
-	c, err := r.Cookie(sessionCookie)
-	if err != nil || c.Value == "" {
-		return r.Context()
-	}
-	sess, err := h.Store.GetSession(r.Context(), c.Value)
-	if err != nil {
+	if c, err := r.Cookie(sessionCookie); err == nil && c.Value != "" {
+		sess, err := h.Store.GetSession(r.Context(), c.Value)
+		if err == nil {
+			return context.WithValue(r.Context(), sessionKey, sess)
+		}
 		if !errors.Is(err, store.ErrNotFound) {
 			slog.Warn("session lookup", "error", err)
 		}
+	}
+	return h.loadGateSession(r)
+}
+
+// loadGateSession derives a session from the identity the Sovereign's OIDC
+// gate already verified, so a user who signed in once at the Sovereign SSO is
+// not asked to sign in a second time here (#6841 — the zero-click contract of
+// docs/SECURITY.md §6 / bp-oidc-gate).
+//
+// The identity is per-request: no session row is written and no cookie is set,
+// because the gate is the session. Sign-out is the gate's /oauth2/sign_out.
+//
+// The header is trusted WITHOUT verification, which is only safe because the
+// gate owns the public hostname and the app has no route of its own — see
+// Config.TrustedForwardAuthHeader. When TRUSTED_FORWARD_AUTH_HEADER is unset
+// (the default) this returns the context untouched and the header, if any, is
+// ignored: an unconfigured deployment cannot be spoofed.
+func (h *Handler) loadGateSession(r *http.Request) context.Context {
+	name := h.Config.TrustedForwardAuthHeader
+	if name == "" {
 		return r.Context()
 	}
-	return context.WithValue(r.Context(), sessionKey, sess)
+	email := strings.ToLower(strings.TrimSpace(r.Header.Get(name)))
+	if email == "" || !strings.Contains(email, "@") {
+		return r.Context()
+	}
+	role, customerID, err := h.resolveRole(r, email)
+	if err != nil {
+		slog.Warn("gate identity role lookup", "error", err)
+		return r.Context()
+	}
+	if role == "" {
+		// Authenticated at the gate but granted nothing here. Fall through
+		// unauthenticated so the API answers 401 rather than inventing access.
+		return r.Context()
+	}
+	return context.WithValue(r.Context(), sessionKey, store.Session{
+		Email:      email,
+		Role:       role,
+		CustomerID: customerID,
+		ExpiresAt:  time.Now().Add(sessionTTL).UTC(),
+	})
 }
 
 // withSession injects a session for tests and internal calls.

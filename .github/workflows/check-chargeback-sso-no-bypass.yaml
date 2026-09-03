@@ -1,0 +1,72 @@
+name: check — chargeback is gated by Sovereign SSO with no bypass (#6841)
+
+# chargeback shipped its OWN PIN sign-in on a Sovereign that already has SSO,
+# so a user signed in at the console was asked to sign in a second time — and
+# the PIN never arrived, because SMTP is unset and the binary only logs it
+# ("mail (dev mode, not sent)"). Both symptoms are one defect: the app was
+# never registered with bp-oidc-gate.
+#
+# The fix has two halves and either alone is wrong. Half A (the gate owns the
+# hostname) without half B (the app's own route off) leaves a public door that
+# BYPASSES the gate while the app trusts a spoofable identity header — anyone
+# could assume the operator role. Half B without half A means nothing sets the
+# header and no one can sign in at all.
+#
+# Per docs/PRINCIPLES.md #4a this workflow renders templates locally — it does
+# not deploy anything, call cloud APIs, or touch a live cluster.
+#
+# Refs #6841 #6723 #3374
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'products/chargeback/**'
+      - 'clusters/_template/bootstrap-kit/13c-bp-oidc-gate.yaml'
+      - 'clusters/_template/bootstrap-kit/13f-bp-chargeback.yaml'
+      - 'scripts/check-chargeback-sso-no-bypass.sh'
+      - '.github/workflows/check-chargeback-sso-no-bypass.yaml'
+  pull_request:
+    paths:
+      - 'products/chargeback/**'
+      - 'clusters/_template/bootstrap-kit/13c-bp-oidc-gate.yaml'
+      - 'clusters/_template/bootstrap-kit/13f-bp-chargeback.yaml'
+      - 'scripts/check-chargeback-sso-no-bypass.sh'
+      - '.github/workflows/check-chargeback-sso-no-bypass.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  chargeback-sso-no-bypass:
+    name: chargeback SSO gating has no bypass
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Run the chargeback SSO no-bypass gate
+        run: bash scripts/check-chargeback-sso-no-bypass.sh
+
+      - name: Self-test — the gate must reject a bypassable wiring
+        run: |
+          set -euo pipefail
+          tmp=$(mktemp -d)
+          cp -r clusters/_template/bootstrap-kit "$tmp/kit"
+          sed -i 's/^    httpRoute:$/    httpRoute:/; ' "$tmp/kit/13f-bp-chargeback.yaml"
+          python3 - "$tmp/kit/13f-bp-chargeback.yaml" <<'PY'
+          import sys
+          p = sys.argv[1]
+          s = open(p).read().replace("    httpRoute:\n      enabled: false",
+                                     "    httpRoute:\n      enabled: true")
+          open(p, "w").write(s)
+          PY
+          if bash scripts/check-chargeback-sso-no-bypass.sh "$tmp/kit" >/dev/null 2>&1; then
+            echo "SELF-TEST FAILED: gate passed while the app kept a gate-bypassing public route"
+            exit 1
+          fi
+          echo "self-test ok — the gate rejects the bypass"
