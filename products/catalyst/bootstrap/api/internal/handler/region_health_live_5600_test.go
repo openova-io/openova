@@ -137,7 +137,13 @@ func newHRFixtureCluster(t *testing.T, hrs []hrSpec) *dynamicfake.FakeDynamicCli
 		objs = append(objs, u)
 	}
 	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
-		map[schema.GroupVersionResource]string{helmwatch.HelmReleaseGVR: "HelmReleaseList"},
+		// #6815 — the live census now also lists nodes, so the fake client must
+		// know that kind or it panics (the real client returns an error, which
+		// liveRegionNodeCount handles by omitting the region).
+		map[schema.GroupVersionResource]string{
+			helmwatch.HelmReleaseGVR:                      "HelmReleaseList",
+			{Group: "", Version: "v1", Resource: "nodes"}: "NodeList",
+		},
 		objs...,
 	)
 }

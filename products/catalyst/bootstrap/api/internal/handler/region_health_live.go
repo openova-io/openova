@@ -60,6 +60,8 @@ import (
 	"os"
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
@@ -285,6 +287,29 @@ func (h *Handler) refreshLiveRegionCensus(ctx context.Context, dep *Deployment) 
 	regions, secondaryDegraded := provisioner.ComputeRegionHealth(
 		provider, primaryRegion, primaryStates, secondaryStates)
 
+	// #6815 — decorate with the node-side census. HRReady/HRTotal count
+	// HelmReleases, so a region that converged on FEWER machines than the spec
+	// asked for reads perfectly healthy; hw307 ran 12+ hours with one ACTIVE
+	// worker that never joined k3s and nothing reported it. A region we cannot
+	// list is OMITTED from the census rather than recorded as 0 — see
+	// WithNodeCensus.
+	nodeCensus := make(map[string]provisioner.NodeCensus, len(secondaryStates)+1)
+	if joined, ok := h.liveRegionNodeCount(ctx, "", dep); ok {
+		nodeCensus[primaryRegion] = provisioner.NodeCensus{
+			Joined:    joined,
+			Requested: requestedNodesForRegion(dep, primaryRegion),
+		}
+	}
+	for region, path := range res.paths {
+		if joined, ok := h.liveRegionNodeCount(ctx, path, dep); ok {
+			nodeCensus[region] = provisioner.NodeCensus{
+				Joined:    joined,
+				Requested: requestedNodesForRegion(dep, region),
+			}
+		}
+	}
+	regions = provisioner.WithNodeCensus(regions, nodeCensus)
+
 	dep.mu.Lock()
 	dep.liveRegionCensus = regions
 	dep.liveRegionCensusDegraded = secondaryDegraded
@@ -292,6 +317,67 @@ func (h *Handler) refreshLiveRegionCensus(ctx context.Context, dep *Deployment) 
 	dep.mu.Unlock()
 	return true
 }
+
+// requestedNodesForRegion returns how many nodes the SPEC asked for in a region:
+// one control plane plus WorkerCount. Returns 0 when the region is not in the
+// request (or the request is absent), which WithNodeCensus/NodesShort treat as
+// "not measured" rather than "asked for none" — a census must never invent a
+// denominator it cannot source (#6815).
+func requestedNodesForRegion(dep *Deployment, region string) int {
+	if dep == nil || region == "" {
+		return 0
+	}
+	for _, r := range dep.Request.Regions {
+		if r.CloudRegion == region {
+			return 1 + r.WorkerCount
+		}
+	}
+	return 0
+}
+
+// liveRegionNodeCount lists one region's registered nodes (#6815).
+//
+// Mirrors liveRegionStates' client resolution exactly — same kubeconfig
+// selector, same dynamicFactory test seam, same list timeout — because the two
+// run against the same regions in the same pass and must not disagree about
+// which cluster they are talking to.
+//
+// Returns ok=false when the region cannot be listed. The caller then omits that
+// region from the census rather than recording 0, because "we could not look"
+// and "it has no nodes" must never serialise the same way.
+func (h *Handler) liveRegionNodeCount(ctx context.Context, kubeconfigPath string, dep *Deployment) (int, bool) {
+	if kubeconfigPath == "" {
+		resolved, ok := h.resolvePrimaryKubeconfigPath(dep)
+		if !ok {
+			return 0, false
+		}
+		kubeconfigPath = resolved
+	}
+	raw, err := os.ReadFile(kubeconfigPath)
+	if err != nil {
+		return 0, false
+	}
+	var dyn dynamic.Interface
+	if h.dynamicFactory != nil {
+		dyn, err = h.dynamicFactory(string(raw))
+	} else {
+		dyn, err = helmwatch.NewDynamicClientFromKubeconfig(string(raw))
+	}
+	if err != nil || dyn == nil {
+		return 0, false
+	}
+	listCtx, cancel := context.WithTimeout(ctx, liveRegionCensusListTimeout)
+	defer cancel()
+	list, err := dyn.Resource(nodesGVRForCensus).List(listCtx, metav1.ListOptions{})
+	if err != nil || list == nil {
+		return 0, false
+	}
+	return len(list.Items), true
+}
+
+// nodesGVRForCensus is the core/v1 Nodes GVR the census lists through the
+// dynamic client (nodes are cluster-scoped, hence no namespace).
+var nodesGVRForCensus = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "nodes"}
 
 // liveRegionStates lists one region's bp-* HelmReleases and projects them into
 // the componentID → helmwatch-state map ComputeRegionHealth consumes.
