@@ -1,0 +1,61 @@
+name: check — the Sovereign runs chargeback with its adapter on (#6846)
+
+# The OpenOva adapter is the reason the Sovereign placement of chargeback exists
+# (ADR-0014 D2 case 1, EPIC #6723 lane D): it syncs the Sovereign's
+# Organizations in as customers and runs the in-cluster platform collector.
+#
+# The chart defaults it OFF — right for the standalone and operator-central
+# profiles, which never touch a cluster. The Sovereign kit slot must turn it on,
+# and it never did.
+#
+# The failure is SILENT and looks healthy: automountServiceAccountToken follows
+# adapter.enabled, so with it false no token is mounted, rest.InClusterConfig()
+# fails, and the binary logs `openova adapter off` at INFO and carries on. Pods
+# Ready, HelmRelease Ready, collector ticking `result: ok` — with `sources: 0`
+# forever, and a signed-in operator looking at an app with no customers.
+#
+# Refs #6846 #6723 #6841
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'products/chargeback/**'
+      - 'clusters/_template/bootstrap-kit/13f-bp-chargeback.yaml'
+      - 'scripts/check-chargeback-adapter-on-sovereign.sh'
+      - '.github/workflows/check-chargeback-adapter-on-sovereign.yaml'
+  pull_request:
+    paths:
+      - 'products/chargeback/**'
+      - 'clusters/_template/bootstrap-kit/13f-bp-chargeback.yaml'
+      - 'scripts/check-chargeback-adapter-on-sovereign.sh'
+      - '.github/workflows/check-chargeback-adapter-on-sovereign.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  chargeback-adapter-on-sovereign:
+    name: Sovereign chargeback runs its OpenOva adapter
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Run the adapter gate
+        run: bash scripts/check-chargeback-adapter-on-sovereign.sh
+
+      - name: Self-test — must reject the adapter being turned off
+        run: |
+          set -euo pipefail
+          tmp=$(mktemp -d)
+          sed 's/^      enabled: true$/      enabled: false/' \
+            clusters/_template/bootstrap-kit/13f-bp-chargeback.yaml > "$tmp/cb.yaml"
+          if bash scripts/check-chargeback-adapter-on-sovereign.sh "$tmp/cb.yaml" >/dev/null 2>&1; then
+            echo "SELF-TEST FAILED: gate passed with the Sovereign adapter disabled"
+            exit 1
+          fi
+          echo "self-test ok — the gate rejects a disabled Sovereign adapter"
