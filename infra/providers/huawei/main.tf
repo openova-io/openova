@@ -1722,6 +1722,25 @@ locals {
   # `primary` marks nodes in the ELB's own VPC (region_keys[0]) — they carry
   # the primary subnet_id; peer-region nodes are IP-type members (no subnet,
   # requires cross_vpc_backend on the LB).
+  # #6837 — ACTIVE / HOT-STANDBY is the default north-south posture (founder
+  # 2026-09-03: "our traffic should go by default 100% to region a, so we have
+  # the active hotstandby approach by default instead of active active").
+  #
+  # Every node in EVERY region is a pool member (that stays true — it is what
+  # makes a region-kill recoverable without re-plumbing the ELB), but the
+  # SECONDARY regions' members carry weight 0, so they receive no traffic while
+  # the primary region has a healthy member. Before this, all members were
+  # provider-default weight 1 under ROUND_ROBIN, i.e. an even split across
+  # regions — measured on hw307 as a 6/6 split on all four pools.
+  #
+  # Why an even split was actively wrong, not merely un-chosen: the pool health
+  # monitor is TCP against node:443, and cilium-envoy answers that on every node
+  # in every region. A secondary-region node therefore passes the health check
+  # while having no L7 HTTPRoute for a host whose Blueprint is suspended there —
+  # so it correctly returns 404 for roughly half of all requests to that host.
+  # hw307 chargeback measured 7/12 before, 15/15 after (#6827).
+  gateway_lb_primary_weight = 1
+
   gateway_lb_members = concat(
     [for idx, n in local.cp_nodes : {
       ip      = huaweicloud_compute_instance.control_plane[idx].access_ip_v4
@@ -1758,6 +1777,7 @@ resource "huaweicloud_elb_member" "https" {
   address       = local.gateway_lb_members[count.index].ip
   protocol_port = var.gateway_member_port_https
   subnet_id     = local.gateway_lb_members[count.index].primary ? huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id : null
+  weight        = local.gateway_lb_members[count.index].primary ? local.gateway_lb_primary_weight : var.secondary_region_lb_weight
 }
 
 resource "huaweicloud_elb_member" "http" {
@@ -1766,6 +1786,7 @@ resource "huaweicloud_elb_member" "http" {
   address       = local.gateway_lb_members[count.index].ip
   protocol_port = var.gateway_member_port_http
   subnet_id     = local.gateway_lb_members[count.index].primary ? huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id : null
+  weight        = local.gateway_lb_members[count.index].primary ? local.gateway_lb_primary_weight : var.secondary_region_lb_weight
 }
 
 resource "huaweicloud_elb_monitor" "https" {
@@ -1907,6 +1928,7 @@ resource "huaweicloud_elb_member" "console_https" {
   address       = local.gateway_lb_members[count.index].ip
   protocol_port = 8443
   subnet_id     = local.gateway_lb_members[count.index].primary ? huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id : null
+  weight        = local.gateway_lb_members[count.index].primary ? local.gateway_lb_primary_weight : var.secondary_region_lb_weight
 }
 
 resource "huaweicloud_elb_member" "console_http" {
@@ -1915,6 +1937,7 @@ resource "huaweicloud_elb_member" "console_http" {
   address       = local.gateway_lb_members[count.index].ip
   protocol_port = 8080
   subnet_id     = local.gateway_lb_members[count.index].primary ? huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id : null
+  weight        = local.gateway_lb_members[count.index].primary ? local.gateway_lb_primary_weight : var.secondary_region_lb_weight
 }
 
 resource "huaweicloud_elb_monitor" "console_https" {
