@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-03T05:45:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-09-03T06:00:08Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,6 +200,7 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
+| [#6148](https://github.com/openova-io/openova/issues/6148) | Region-kill failback: recovered region-A returns as an UNFENCED TL=1 primary and | Other |
 | [#6149](https://github.com/openova-io/openova/issues/6149) | bp-postgres DR pairs ship a dr-promoter but NO dr-failback — region-A return l | Other |
 | [#6155](https://github.com/openova-io/openova/issues/6155) | Showback bills an Organization the CR model does not contain — the join reads  | Other |
 | [#6156](https://github.com/openova-io/openova/issues/6156) | DR preflight-02 cannot Fail on a 2-region Sovereign — the standby outage that  | Other |
@@ -297,9 +298,8 @@ flowchart LR
 | [#6803](https://github.com/openova-io/openova/issues/6803) | Harbor proxy-cache serves an index whose child manifests are gone — invisible  | Other |
 | [#6815](https://github.com/openova-io/openova/issues/6815) | A region-A worker has never joined k3s and nothing reports it — Phase 1 counts | Other |
 | [#6825](https://github.com/openova-io/openova/issues/6825) | Every self-upgrade takes the Sovereign's console and API down for 2-3 minutes � | Other |
-| [#6827](https://github.com/openova-io/openova/issues/6827) | A newly added door answers 404 on ~half of requests to the same VIP while its ap | Other |
 | [#6832](https://github.com/openova-io/openova/issues/6832) | kyverno pvc-volume-expansion errors on every PVC — the policy's APICall has no | Other |
-| [#6837](https://github.com/openova-io/openova/issues/6837) | Gateway + console ELBs split north-south traffic evenly across regions — defau | Other |
+| [#6839](https://github.com/openova-io/openova/issues/6839) | Region promotion must flip secondary_region_lb_weight — hot-standby has no aut | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-03T05:55 | [#6838](https://github.com/openova-io/openova/pull/6838) | #6827 | fix(huawei): active/hot-standby by default — 100% of north-s |
 | 2026-09-03T04:28 | [#6834](https://github.com/openova-io/openova/pull/6834) | #6815 | feat(api): surface the node-side census so a short-joined re |
 | 2026-09-03T04:15 | [#6833](https://github.com/openova-io/openova/pull/6833) | #5505 | fix(bp-kyverno-policies): grant the storageclasses read its  |
 | 2026-09-03T04:28 | [#6831](https://github.com/openova-io/openova/pull/6831) | #6827 | docs(sessions): hw307 health gate — nodes, zero-NodePort and |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-02T14:22 | [#6793](https://github.com/openova-io/openova/pull/6793) | #6778 | docs: hw307 train manifest v3 + protect-list reset to none-l |
 | 2026-09-02T14:22 | [#6790](https://github.com/openova-io/openova/pull/6790) | #5359 | fix(cutover): step-06 secondary-region HelmRepository pivot  |
 | 2026-09-02T09:41 | [#6789](https://github.com/openova-io/openova/pull/6789) | #6786 | fix(infra/huawei): keep the hashed node-VPC CIDR off the k3s |
-| 2026-09-02T09:27 | [#6788](https://github.com/openova-io/openova/pull/6788) | #6786 | docs(sessions): hw306 failed at tofu apply — forensics + roo |
 
 ---
 
