@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-03T07:30:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-09-03T08:15:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6163](https://github.com/openova-io/openova/issues/6163) | Agenity credential chain has TWO one-shot freezes: the init container reads once | Other |
 | [#6166](https://github.com/openova-io/openova/issues/6166) | catalyst-ui has no priorityClassName, so it loses the slot #6157 freed — mothe | Other |
 | [#6169](https://github.com/openova-io/openova/issues/6169) | Funnel-serving + singles residue (#6114 rows 87/90/95/115/218/228/232/234/241):  | Other |
 | [#6172](https://github.com/openova-io/openova/issues/6172) | Fresh prov hw294 wedges Phase 1 at 51/67: bp-keycloak 1.5.9 post-install realm i | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6841](https://github.com/openova-io/openova/issues/6841) | chargeback asks for its own PIN login on a Sovereign that already has SSO, and t | Other |
 | [#6843](https://github.com/openova-io/openova/issues/6843) | chargeback silently discards all outbound mail on a Sovereign (invite links, sta | Other |
 | [#6844](https://github.com/openova-io/openova/issues/6844) | SSO gap audit: verify whether registry/harbor and newapi have zero-click SSO (gi | Other |
+| [#6846](https://github.com/openova-io/openova/issues/6846) | chargeback on a Sovereign never syncs Organizations: the kit slot leaves the Ope | Other |
 
 ---
 
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-03T08:14 | [#6847](https://github.com/openova-io/openova/pull/6847) | #6846 | fix(chargeback): turn the OpenOva adapter on in the Sovereig |
+| 2026-09-03T08:14 | [#6845](https://github.com/openova-io/openova/pull/6845) | #6842 | fix(chargeback): bump appVersion so the SSO code actually re |
+| 2026-09-03T07:34 | [#6842](https://github.com/openova-io/openova/pull/6842) | #6841 | fix(chargeback): sign in with Sovereign SSO instead of a sec |
 | 2026-09-03T05:55 | [#6838](https://github.com/openova-io/openova/pull/6838) | #6827 | fix(huawei): active/hot-standby by default — 100% of north-s |
 | 2026-09-03T04:28 | [#6834](https://github.com/openova-io/openova/pull/6834) | #6815 | feat(api): surface the node-side census so a short-joined re |
 | 2026-09-03T04:15 | [#6833](https://github.com/openova-io/openova/pull/6833) | #5505 | fix(bp-kyverno-policies): grant the storageclasses read its  |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-09-02T14:53 | [#6798](https://github.com/openova-io/openova/pull/6798) | #4460 | fix(bp-postgres): pre-flip secondary -mesh/-mesh-rw stub mus |
 | 2026-09-02T14:32 | [#6797](https://github.com/openova-io/openova/pull/6797) | #6795 | docs(sessions): hw307 Phase-1 timeout root cause + recovery  |
 | 2026-09-02T14:22 | [#6794](https://github.com/openova-io/openova/pull/6794) | #6778 | docs(sessions): hw307 failed in Phase 1 — forensics (Refs #6 |
-| 2026-09-02T14:22 | [#6793](https://github.com/openova-io/openova/pull/6793) | #6778 | docs: hw307 train manifest v3 + protect-list reset to none-l |
-| 2026-09-02T14:22 | [#6790](https://github.com/openova-io/openova/pull/6790) | #5359 | fix(cutover): step-06 secondary-region HelmRepository pivot  |
-| 2026-09-02T09:41 | [#6789](https://github.com/openova-io/openova/pull/6789) | #6786 | fix(infra/huawei): keep the hashed node-VPC CIDR off the k3s |
 
 ---
 
