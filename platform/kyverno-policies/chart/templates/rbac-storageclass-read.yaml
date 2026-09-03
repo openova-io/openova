@@ -1,0 +1,48 @@
+{{- /*
+#6832: Kyverno needs READ on storage.k8s.io/storageclasses.
+
+`baseline/07-pvc-expansion.yaml` resolves an `scExpansion` context variable via
+an APICall to /apis/storage.k8s.io/v1/storageclasses/<name>. Kyverno's built-in
+aggregated roles do not grant storage.k8s.io, so that context has NEVER
+resolved and the rule reports `error` instead of pass/fail — measured on hw307
+2026-09-02 across all 46 PVCs:
+
+  policy pvc-volume-expansion/storageclass-must-allow-expansion error:
+    failed to substitute variables in condition key: failed to resolve
+    scExpansion at path : failed to fetch data for APICall: failed to GET
+    resource with raw url: /apis/storage.k8s.io/v1/storageclasses/evs-ssd:
+    permission denied
+
+Confirmed as RBAC and not something else, with a control: all three controllers
+answer `no` to `can-i get storageclasses`, while the same ServiceAccount
+answers `yes` to `can-i get persistentvolumeclaims`.
+
+Nothing is broken TODAY only because the condition happens to hold — evs-ssd
+carries allowVolumeExpansion=true — and because the policy sits at Audit, where
+an unresolvable context is reported and the request proceeds. That is exactly
+the #5505 shape one step earlier: there, the same defect on cilium.io sat
+harmless at Audit and began DENYING every Namespace create the moment #5494
+flipped the policy to Enforce through the fail-closed webhook. This policy is
+one action-flip away from the same outcome, and until then it silently fails to
+catch the case it exists for — a StorageClass that does NOT allow expansion.
+
+Granting the read is the durable fix, aggregated via the labels Kyverno itself
+watches so it survives a Kyverno upgrade without patching vendor roles.
+Mirrors templates/rbac-cilium-read.yaml deliberately: same class, same remedy.
+*/ -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: bp-kyverno-policies-storageclass-read
+  labels:
+    app.kubernetes.io/name: bp-kyverno-policies
+    app.kubernetes.io/managed-by: Helm
+    catalyst.openova.io/blueprint: bp-kyverno-policies
+    rbac.kyverno.io/aggregate-to-admission-controller: "true"
+    rbac.kyverno.io/aggregate-to-background-controller: "true"
+    rbac.kyverno.io/aggregate-to-reports-controller: "true"
+rules:
+  - apiGroups: ["storage.k8s.io"]
+    resources:
+      - storageclasses
+    verbs: ["get", "list", "watch"]

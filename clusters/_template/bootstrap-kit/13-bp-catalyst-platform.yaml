@@ -1521,7 +1521,9 @@ spec:
       #   catalog-seed card advances bp-openbao 1.2.68 -> 1.2.69, so the
       #   umbrella's rendered surface changed). Pin bumped to match so
       #   check-bootstrap-kit-pin-sync.sh stays green.
-      version: 1.4.1648
+      # 1.4.1649 — #6832: lockstep with the umbrella Chart.yaml bump (the catalog-seed
+      #   card advances bp-kyverno-policies 1.0.52 -> 1.0.53). Pin bumped to match.
+      version: 1.4.1649
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
