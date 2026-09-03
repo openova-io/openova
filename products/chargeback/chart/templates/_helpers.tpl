@@ -126,3 +126,18 @@ renders nothing, Inviolable #4).
 {{- define "chargeback.appKeySecretName" -}}
 {{- default (printf "%s-app-key" (include "chargeback.fullname" .)) .Values.encryptionKey.secretName -}}
 {{- end -}}
+
+{{/*
+chargeback.validateForwardAuth — #6841 fail-closed.
+
+Trusting an identity header is only safe when every request must pass the
+gate. If the app keeps its OWN HTTPRoute while forwardAuth is on, the app's
+hostname is a public door that bypasses the gate, and anyone may set the
+header and assume any identity — including an operator's. Rendering is
+refused rather than shipping a spoofable deployment.
+*/}}
+{{- define "chargeback.validateForwardAuth" -}}
+{{- if and .Values.forwardAuth.header .Values.httpRoute.enabled -}}
+{{- fail "forwardAuth.header is set while httpRoute.enabled is true: the app's own route would bypass the OIDC gate and accept a spoofed identity. Disable httpRoute (bp-oidc-gate owns the hostname) or clear forwardAuth.header (#6841)." -}}
+{{- end -}}
+{{- end -}}

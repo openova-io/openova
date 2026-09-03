@@ -4,6 +4,7 @@ package config
 import (
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -42,6 +43,22 @@ type Config struct {
 	// superadmin bearer token the metering endpoint requires.
 	BillingHookURL   string
 	BillingHookToken string
+
+	// TrustedForwardAuthHeader is the request header carrying an identity
+	// already verified by the Sovereign's OIDC gate. oauth2-proxy passes the
+	// address UPSTREAM as X-Forwarded-Email; X-Auth-Request-Email is a
+	// RESPONSE header for nginx auth_request mode and never arrives here
+	// (verified from the v7.6.0 binary's --convert-config-to-alpha output).
+	// Empty (the default) = off, and the header is ignored entirely.
+	//
+	// This header is TRUSTED WITHOUT VERIFICATION, so it may only be
+	// enabled where the app is unreachable except through the gate: the
+	// gate must own the public hostname (the app's own HTTPRoute disabled)
+	// and the ingress NetworkPolicy must admit only the gate. Enabling it
+	// while the app keeps its own public route would let anyone set the
+	// header and assume any identity — the chart refuses to render that
+	// combination, and scripts/check-chargeback-sso-no-bypass.sh gates it.
+	TrustedForwardAuthHeader string
 }
 
 // FromEnv builds the configuration; it fails only on values that would make
@@ -68,6 +85,8 @@ func FromEnv() (Config, error) {
 		AdapterEnabled:         strings.ToLower(strings.TrimSpace(os.Getenv("ADAPTER_ENABLED"))),
 		BillingHookURL:         strings.TrimRight(strings.TrimSpace(os.Getenv("BILLING_HOOK_URL")), "/"),
 		BillingHookToken:       strings.TrimSpace(os.Getenv("BILLING_HOOK_TOKEN")),
+		TrustedForwardAuthHeader: http.CanonicalHeaderKey(
+			strings.TrimSpace(os.Getenv("TRUSTED_FORWARD_AUTH_HEADER"))),
 	}
 	if c.Profile != "sovereign" && c.Profile != "operator-central" {
 		return c, fmt.Errorf("PROFILE must be sovereign or operator-central, got %q", c.Profile)

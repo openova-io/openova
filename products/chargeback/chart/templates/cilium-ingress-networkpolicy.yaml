@@ -10,7 +10,7 @@ Gated on the cilium.io/v2 Capabilities check (the #2988/#3102 idiom) so
 the chart still installs on CRD-less clusters (kind CI).
 */ -}}
 {{- if and .Values.networkPolicy.enabled (.Capabilities.APIVersions.Has "cilium.io/v2") }}
-{{- if or .Values.networkPolicy.ingress.allowGatewayEntity .Values.networkPolicy.ingress.allowClusterEntity }}
+{{- if or .Values.forwardAuth.header .Values.networkPolicy.ingress.allowGatewayEntity .Values.networkPolicy.ingress.allowClusterEntity }}
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -23,6 +23,21 @@ spec:
     matchLabels:
       {{- include "chargeback.selectorLabels" . | nindent 6 }}
   ingress:
+    {{- if .Values.forwardAuth.header }}
+    # #6841 — the app trusts an identity header, so the ONLY admitted caller is
+    # the OIDC gate that sets it. `cluster` is deliberately absent here: with a
+    # trusted header, any pod able to open a socket to this Service could set
+    # it and assume any identity, including the operator's. The public door is
+    # the gate's HTTPRoute, so nothing else needs ingress.
+    - fromEndpoints:
+        - matchLabels:
+            {{- toYaml .Values.forwardAuth.fromEndpointSelector | nindent 12 }}
+            k8s:io.kubernetes.pod.namespace: {{ .Values.forwardAuth.fromNamespace }}
+      toPorts:
+        - ports:
+            - port: {{ .Values.service.port | quote }}
+              protocol: TCP
+    {{- else }}
     - fromEntities:
         {{- if .Values.networkPolicy.ingress.allowGatewayEntity }}
         - ingress
@@ -34,5 +49,6 @@ spec:
         - ports:
             - port: {{ .Values.service.port | quote }}
               protocol: TCP
+    {{- end }}
 {{- end }}
 {{- end }}

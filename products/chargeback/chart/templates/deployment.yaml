@@ -1,3 +1,4 @@
+{{- include "chargeback.validateForwardAuth" . -}}
 {{- /*
 The chargeback Deployment (EPIC #6723, ADR-0014): the Go binary serving the
 UI at / and the JSON API at /api/v1, plus the in-process collectors. Every
@@ -123,6 +124,10 @@ spec:
                 secretKeyRef:
                   name: {{ $appKeySecret }}
                   key: {{ .Values.encryptionKey.key }}
+            {{- with .Values.forwardAuth.header }}
+            - name: TRUSTED_FORWARD_AUTH_HEADER
+              value: {{ . | quote }}
+            {{- end }}
             - name: OPERATOR_EMAILS
               value: {{ .Values.config.operatorEmails | quote }}
             - name: PUBLIC_URL
