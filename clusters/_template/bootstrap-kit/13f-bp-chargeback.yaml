@@ -142,6 +142,22 @@ spec:
       header: X-Forwarded-Email
     httpRoute:
       enabled: false
+    # #6846 — the OpenOva adapter is the WHOLE POINT of the Sovereign
+    # placement (ADR-0014 D2 case 1, EPIC #6723 lane D): it syncs this
+    # Sovereign's Organizations in as chargeback customers and runs the
+    # in-cluster platform collector. The chart defaults it OFF, which is right
+    # for the standalone and operator-central profiles that never touch a
+    # cluster — but this slot IS the Sovereign profile and never turned it on.
+    #
+    # Measured on hw307 before this: `"openova adapter off","reason":"no
+    # in-cluster Kubernetes configuration"` and `sources:0` on every collect
+    # tick. The chart ships the read-only ClusterRole and the ServiceAccount
+    # for the adapter, but `automountServiceAccountToken` follows
+    # adapter.enabled — so with it false no token is mounted,
+    # rest.InClusterConfig() fails, and the binary disables the adapter at
+    # INFO level. A signed-in operator sees an app with no customers in it.
+    adapter:
+      enabled: true
     config:
       # The Sovereign owner signs in as the operator (spec §4 auth); the
       # bootstrap-kit substitute carries the owner address every Sovereign
