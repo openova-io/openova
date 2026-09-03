@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-03T07:15:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Last refreshed | `2026-09-03T07:30:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6155](https://github.com/openova-io/openova/issues/6155) | Showback bills an Organization the CR model does not contain — the join reads  | Other |
-| [#6156](https://github.com/openova-io/openova/issues/6156) | DR preflight-02 cannot Fail on a 2-region Sovereign — the standby outage that  | Other |
 | [#6163](https://github.com/openova-io/openova/issues/6163) | Agenity credential chain has TWO one-shot freezes: the init container reads once | Other |
 | [#6166](https://github.com/openova-io/openova/issues/6166) | catalyst-ui has no priorityClassName, so it loses the slot #6157 freed — mothe | Other |
 | [#6169](https://github.com/openova-io/openova/issues/6169) | Funnel-serving + singles residue (#6114 rows 87/90/95/115/218/228/232/234/241):  | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#6839](https://github.com/openova-io/openova/issues/6839) | Region promotion must flip secondary_region_lb_weight — hot-standby has no aut | Other |
 | [#6840](https://github.com/openova-io/openova/issues/6840) | hw307 primary region silently runs 4 of 5 provisioned workers — w9b4787 ACTIVE | Other |
 | [#6841](https://github.com/openova-io/openova/issues/6841) | chargeback asks for its own PIN login on a Sovereign that already has SSO, and t | Other |
+| [#6843](https://github.com/openova-io/openova/issues/6843) | chargeback silently discards all outbound mail on a Sovereign (invite links, sta | Other |
+| [#6844](https://github.com/openova-io/openova/issues/6844) | SSO gap audit: verify whether registry/harbor and newapi have zero-click SSO (gi | Other |
 
 ---
 
