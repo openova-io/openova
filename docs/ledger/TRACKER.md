@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-03T00:30:04Z` |
+| Last refreshed | `2026-09-03T00:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,6 +200,7 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
+| [#6169](https://github.com/openova-io/openova/issues/6169) | Funnel-serving + singles residue (#6114 rows 87/90/95/115/218/228/232/234/241):  | Other |
 | [#6172](https://github.com/openova-io/openova/issues/6172) | Fresh prov hw294 wedges Phase 1 at 51/67: bp-keycloak 1.5.9 post-install realm i | Other |
 | [#6183](https://github.com/openova-io/openova/issues/6183) | specter residue + UAT row W5: remove the phantom wizard component id and the non | Other |
 | [#6187](https://github.com/openova-io/openova/issues/6187) | bp-keycloak 1.5.10: the #6172 backchannel anchor is not gated to Sovereign mode, | Other |
@@ -265,7 +266,6 @@ flowchart LR
 | [#6508](https://github.com/openova-io/openova/issues/6508) | fresh-prov Flux bootstrap stalls ~1h: unauthenticated openova GitRepository clon | Other |
 | [#6509](https://github.com/openova-io/openova/issues/6509) | per-Org console login still 400s on fresh prov: #6504 mid-host wildcard console. | Other |
 | [#6511](https://github.com/openova-io/openova/issues/6511) | cutover step-01 gitea-mirror halts with DeadlineExceeded on the ~470MB monorepo  | Other |
-| [#6513](https://github.com/openova-io/openova/issues/6513) | bp-agenity 0.5.31 creds-resync sidecar lacks liveness/readiness probes — kyver | Other |
 | [#6573](https://github.com/openova-io/openova/issues/6573) | reset-uat.py carry-forward silently no-ops on HTML UAT.md (scans raw HTML with a | Other |
 | [#6582](https://github.com/openova-io/openova/issues/6582) | bp-postgres@0.2.23 HR upgrade times out (context deadline exceeded) → 16-app c | Other |
 | [#6627](https://github.com/openova-io/openova/issues/6627) | Singleton shared-pg netpol: region-B keycloak cross-mesh :5432 DROP → JDBC acq | Other |
