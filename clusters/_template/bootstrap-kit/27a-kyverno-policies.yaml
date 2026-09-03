@@ -154,7 +154,11 @@ spec:
       # mixed-source pods (proxy-cache sidecars + openova-io plugin) —
       # un-wedges huawei-evs-csi + its 24-HR dependency cascade (#5017,
       # #4973 family).
-      version: 1.0.52
+      # 1.0.53 — #6832: adds the storage.k8s.io/storageclasses read the
+      #   pvc-volume-expansion policy's apiCall needs. Without it the rule
+      #   reported `error` on every PVC instead of pass/fail (46 on hw307) —
+      #   silent at Audit, and the #5505 shape one action-flip from denying.
+      version: 1.0.53
       sourceRef:
         kind: HelmRepository
         name: bp-kyverno
