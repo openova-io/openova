@@ -1,0 +1,55 @@
+name: check — product source changes bump appVersion (#6841)
+
+# A product chart pins its image by `appVersion`. Change the source without
+# bumping it and the build re-pushes the SAME mutable tag, so every node with
+# that tag cached keeps running the OLD binary under IfNotPresent. Bumping the
+# chart version is not enough: that delivers new VALUES to an old image.
+#
+# Measured on hw307: bp-chargeback went 0.1.3 -> 0.1.4 carrying a new env var,
+# appVersion stayed 0.1.2, and the pods kept running chargeback:0.1.2 from a
+# 20-hour-old layer. TRUSTED_FORWARD_AUTH_HEADER was set correctly on the
+# Deployment and read by a binary that had never heard of it — the SSO fix was
+# live, configured, and silently doing nothing.
+#
+# Refs #6841
+
+on:
+  pull_request:
+    paths:
+      - 'products/*/**'
+      - 'scripts/check-appversion-bumped-with-source.sh'
+      - '.github/workflows/check-appversion-bumped-with-source.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  appversion-bumped-with-source:
+    name: Product source changes bump appVersion
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run the appVersion-drift gate
+        run: |
+          git fetch -q origin "${{ github.base_ref }}"
+          bash scripts/check-appversion-bumped-with-source.sh \
+            "origin/${{ github.base_ref }}" HEAD
+
+      - name: Self-test — must FAIL on the commit that shipped the defect
+        run: |
+          set -euo pipefail
+          # 79907a73b changed chargeback Go source with appVersion pinned at 0.1.2
+          if ! git cat-file -e 79907a73b^{commit} 2>/dev/null; then
+            echo "self-test skipped: reference commit not in this checkout"; exit 0
+          fi
+          if bash scripts/check-appversion-bumped-with-source.sh \
+               "$(git rev-parse 79907a73b^)" 79907a73b >/dev/null 2>&1; then
+            echo "SELF-TEST FAILED: gate passed on the commit that shipped the appVersion drift"
+            exit 1
+          fi
+          echo "self-test ok — the gate rejects the known-bad commit"
