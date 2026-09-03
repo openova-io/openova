@@ -2,72 +2,72 @@
 //
 // Why this exists:
 //
-//   On a freshly franchised Sovereign, console-side magic-link / PIN
-//   email delivery fails because there's no SMTP relay reachable inside
-//   the cluster: the bootstrap-kit doesn't deploy a Stalwart on the new
-//   Sovereign, the Sovereign-local org-services-secrets has empty SMTP_HOST/PORT/
-//   FROM/USER/PASS, and services-auth defaults SMTP_HOST=localhost.
+//	On a freshly franchised Sovereign, console-side magic-link / PIN
+//	email delivery fails because there's no SMTP relay reachable inside
+//	the cluster: the bootstrap-kit doesn't deploy a Stalwart on the new
+//	Sovereign, the Sovereign-local org-services-secrets has empty SMTP_HOST/PORT/
+//	FROM/USER/PASS, and services-auth defaults SMTP_HOST=localhost.
 //
-//   Phase-1 architectural decision (founder-confirmed): during initial
-//   provisioning the Sovereign Console relays mail through the
-//   mothership Stalwart at mail.openova.io:587.
+//	Phase-1 architectural decision (founder-confirmed): during initial
+//	provisioning the Sovereign Console relays mail through the
+//	mothership Stalwart at mail.openova.io:587.
 //
-//   Phase-2 cutover (issue #924, bp-stalwart-sovereign blueprint):
-//   bootstrap-kit slot 95 installs a Sovereign-local Stalwart whose
-//   post-install Job re-materialises catalyst-system/sovereign-smtp-
-//   credentials with Sovereign-local infrastructure addresses
-//   (`mail.<sovereignFQDN>` / `noreply@<sovereignFQDN>`) AND
-//   credentials minted in-cluster. bp-catalyst-platform 1.4.20+
-//   reads BOTH key shapes (`smtp-user`/`smtp-pass` AND legacy
-//   `user`/`password`) so this Phase-1 seed and the Phase-2 chart's
-//   write are interchangeable on the read side.
+//	Phase-2 cutover (issue #924, bp-stalwart-sovereign blueprint):
+//	bootstrap-kit slot 95 installs a Sovereign-local Stalwart whose
+//	post-install Job re-materialises catalyst-system/sovereign-smtp-
+//	credentials with Sovereign-local infrastructure addresses
+//	(`mail.<sovereignFQDN>` / `noreply@<sovereignFQDN>`) AND
+//	credentials minted in-cluster. bp-catalyst-platform 1.4.20+
+//	reads BOTH key shapes (`smtp-user`/`smtp-pass` AND legacy
+//	`user`/`password`) so this Phase-1 seed and the Phase-2 chart's
+//	write are interchangeable on the read side.
 //
-//   This Phase-1 step remains as a graceful fallback that runs ONLY
-//   when no in-namespace Secret exists yet (Get → IsNotFound → Create).
-//   The Phase-2 chart's post-install Job uses `kubectl apply` against
-//   the same Secret and overwrites whatever Phase-1 seeded — so the
-//   first cluster reconcile after slot 95 lands cuts over to
-//   `noreply@<sovereignFQDN>` automatically, no operator action.
+//	This Phase-1 step remains as a graceful fallback that runs ONLY
+//	when no in-namespace Secret exists yet (Get → IsNotFound → Create).
+//	The Phase-2 chart's post-install Job uses `kubectl apply` against
+//	the same Secret and overwrites whatever Phase-1 seeded — so the
+//	first cluster reconcile after slot 95 lands cuts over to
+//	`noreply@<sovereignFQDN>` automatically, no operator action.
 //
 // What this seeds:
 //
-//   On the freshly-provisioned Sovereign (target cluster reached via
-//   the cloud-init-postback kubeconfig), we create:
+//	On the freshly-provisioned Sovereign (target cluster reached via
+//	the cloud-init-postback kubeconfig), we create:
 //
-//     Secret catalyst-system/sovereign-smtp-credentials
-//       smtp-user: <mothership smtp-user>
-//       smtp-pass: <mothership smtp-pass>
+//	  Secret catalyst-system/sovereign-smtp-credentials
+//	    smtp-user: <mothership smtp-user>
+//	    smtp-pass: <mothership smtp-pass>
 //
-//   The bp-catalyst-platform chart's auto-create step (#901) reads
-//   this Secret via Helm `lookup` when rendering the Sovereign-local
-//   `catalyst-openova-kc-credentials` Secret, so the chart-rendered
-//   bytes carry working SMTP submission credentials and the auth
-//   service's SMTP-PLAIN dial against mail.openova.io:587 succeeds
-//   on first send-pin.
+//	The bp-catalyst-platform chart's auto-create step (#901) reads
+//	this Secret via Helm `lookup` when rendering the Sovereign-local
+//	`catalyst-openova-kc-credentials` Secret, so the chart-rendered
+//	bytes carry working SMTP submission credentials and the auth
+//	service's SMTP-PLAIN dial against mail.openova.io:587 succeeds
+//	on first send-pin.
 //
 // Source of mothership SMTP creds:
 //
-//   The mothership catalyst-api Pod already has CATALYST_SMTP_USER /
-//   CATALYST_SMTP_PASS in its environment (chart api-deployment.yaml
-//   wires them via secretKeyRef → catalyst-openova-kc-credentials in
-//   the catalyst namespace). We read those env vars directly — no new
-//   K8s read against the mothership API is needed.
+//	The mothership catalyst-api Pod already has CATALYST_SMTP_USER /
+//	CATALYST_SMTP_PASS in its environment (chart api-deployment.yaml
+//	wires them via secretKeyRef → catalyst-openova-kc-credentials in
+//	the catalyst namespace). We read those env vars directly — no new
+//	K8s read against the mothership API is needed.
 //
 // When this runs:
 //
-//   PutKubeconfig (kubeconfig.go) calls SeedSovereignSMTPCredentials
-//   AFTER the cloud-init kubeconfig postback has been persisted to
-//   disk and BEFORE the runPhase1Watch goroutine fires. That window is
-//   exactly the "Sovereign cluster up, bp-catalyst-platform not yet
-//   installed" gap the chart's lookup needs.
+//	PutKubeconfig (kubeconfig.go) calls SeedSovereignSMTPCredentials
+//	AFTER the cloud-init kubeconfig postback has been persisted to
+//	disk and BEFORE the runPhase1Watch goroutine fires. That window is
+//	exactly the "Sovereign cluster up, bp-catalyst-platform not yet
+//	installed" gap the chart's lookup needs.
 //
-//   The seed step is idempotent: an already-existing
-//   sovereign-smtp-credentials Secret is a no-op (the chart's lookup
-//   will read whatever bytes are there). This survives:
-//     - retry of the kubeconfig PUT (single-use bearer normally
-//       prevents this; defensive anyway)
-//     - the kubeconfig-missing relaunch path (#538)
-//     - operator manual replay during incident response
+//	The seed step is idempotent: an already-existing
+//	sovereign-smtp-credentials Secret is a no-op (the chart's lookup
+//	will read whatever bytes are there). This survives:
+//	  - retry of the kubeconfig PUT (single-use bearer normally
+//	    prevents this; defensive anyway)
+//	  - the kubeconfig-missing relaunch path (#538)
+//	  - operator manual replay during incident response
 //
 // Failure modes (per docs/INVIOLABLE-PRINCIPLES.md #1: surface, never hide):
 //
@@ -114,6 +114,13 @@ import (
 // override.
 const sovereignSMTPSeedNamespace = "catalyst-system"
 
+// sovereignSMTPConsumerNamespaces — namespaces allowed to receive a reflector
+// copy of the seeded Secret (#6843). Kubernetes forbids a cross-namespace
+// secretKeyRef, so an app that must SEND mail can only reach these credentials
+// through the platform mirror. Keep this list to namespaces that genuinely
+// send mail: every entry is a copy of live SMTP credentials.
+const sovereignSMTPConsumerNamespaces = "chargeback"
+
 // sovereignSMTPSeedSecretName — name of the Secret the chart's
 // lookup reads. Same fixed-by-contract reasoning.
 const sovereignSMTPSeedSecretName = "sovereign-smtp-credentials"
@@ -152,7 +159,7 @@ func (h *Handler) SetSovereignSMTPSeedClientFactory(f SovereignSMTPSeedClientFac
 type SovereignSMTPSeedOutcome string
 
 const (
-	SovereignSMTPSeedOutcomeCreated      SovereignSMTPSeedOutcome = "created"
+	SovereignSMTPSeedOutcomeCreated       SovereignSMTPSeedOutcome = "created"
 	SovereignSMTPSeedOutcomeAlreadyExists SovereignSMTPSeedOutcome = "already-exists"
 	SovereignSMTPSeedOutcomeSkippedNoEnv  SovereignSMTPSeedOutcome = "skipped-no-env"
 	SovereignSMTPSeedOutcomeClientFailure SovereignSMTPSeedOutcome = "client-failure"
@@ -279,41 +286,7 @@ func (h *Handler) seedSovereignSMTPCredentials(ctx context.Context, dep *Deploym
 		return SovereignSMTPSeedOutcomeAPIFailure
 	}
 
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      sovereignSMTPSeedSecretName,
-			Namespace: sovereignSMTPSeedNamespace,
-			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "catalyst-api",
-				"app.kubernetes.io/part-of":    "sovereign-bootstrap",
-				"catalyst.openova.io/seed":     "smtp-credentials",
-			},
-			Annotations: map[string]string{
-				// Trace: which mothership deployment minted this
-				// Secret. Useful for incident-response when an
-				// operator wonders why a Sovereign has unexpected
-				// SMTP credentials. The value is a UUID — not a
-				// credential — and is safe to log.
-				"catalyst.openova.io/seeded-by-deployment-id": dep.ID,
-				// Phase-1 marker: when Phase-2 spins up per-Sovereign
-				// Stalwart-relay, the migration script can target
-				// every Secret with this annotation for rotation.
-				"catalyst.openova.io/seed-phase": "phase-1-mothership-relay",
-			},
-		},
-		Type: corev1.SecretTypeOpaque,
-		Data: map[string][]byte{
-			// #4748 — host/port/from are the PUBLIC relay endpoint, not the
-			// mothership's in-cluster Stalwart. Without these three keys the
-			// chart's contract Secret has nothing to win precedence over and
-			// falls back to the unreachable in-cluster-Stalwart default.
-			"smtp-host": []byte(relayHost),
-			"smtp-port": []byte(relayPort),
-			"smtp-from": []byte(relayFrom),
-			"smtp-user": []byte(smtpUser),
-			"smtp-pass": []byte(smtpPass),
-		},
-	}
+	secret := buildSovereignSMTPSeedSecret(dep.ID, relayHost, relayPort, relayFrom, smtpUser, smtpPass)
 	if _, createErr := clientset.CoreV1().Secrets(sovereignSMTPSeedNamespace).Create(cctx, secret, metav1.CreateOptions{}); createErr != nil {
 		// Race-window guard: a parallel writer (operator manual
 		// kubectl apply, retry of this PUT) raced our Get→Create.
@@ -385,4 +358,69 @@ func (h *Handler) emitSovereignSMTPSeedEvent(dep *Deployment, outcome SovereignS
 		Level:   level,
 		Message: msg,
 	})
+}
+
+// buildSovereignSMTPSeedSecret constructs the seeded Secret. Extracted from
+// the handler so its key shape and reflection annotations can be asserted
+// directly (#6843) — both are contracts consumed by other components, and both
+// fail silently when wrong.
+func buildSovereignSMTPSeedSecret(depID, relayHost, relayPort, relayFrom, smtpUser, smtpPass string) *corev1.Secret {
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      sovereignSMTPSeedSecretName,
+			Namespace: sovereignSMTPSeedNamespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/managed-by": "catalyst-api",
+				"app.kubernetes.io/part-of":    "sovereign-bootstrap",
+				"catalyst.openova.io/seed":     "smtp-credentials",
+			},
+			Annotations: map[string]string{
+				// Trace: which mothership deployment minted this
+				// Secret. Useful for incident-response when an
+				// operator wonders why a Sovereign has unexpected
+				// SMTP credentials. The value is a UUID — not a
+				// credential — and is safe to log.
+				"catalyst.openova.io/seeded-by-deployment-id": depID,
+				// Phase-1 marker: when Phase-2 spins up per-Sovereign
+				// Stalwart-relay, the migration script can target
+				// every Secret with this annotation for rotation.
+				"catalyst.openova.io/seed-phase": "phase-1-mothership-relay",
+				// #6843 — let bp-reflector mirror this Secret into the
+				// namespaces of apps that must SEND mail. Kubernetes forbids a
+				// cross-namespace secretKeyRef, so reflector is the canonical
+				// platform-level mirror (the same reason bp-gitea reflects its
+				// admin Secret into the catalyst namespace).
+				//
+				// Without it chargeback runs in "dev mode": Mail.Send returns
+				// nil, the API answers 200, and the invite link or statement is
+				// written to a pod log instead of being delivered. That failure
+				// looks exactly like success to the caller.
+				"reflector.v1.k8s.emberstack.com/reflection-allowed":            "true",
+				"reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces": sovereignSMTPConsumerNamespaces,
+				"reflector.v1.k8s.emberstack.com/reflection-auto-enabled":       "true",
+				"reflector.v1.k8s.emberstack.com/reflection-auto-namespaces":    sovereignSMTPConsumerNamespaces,
+			},
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{
+			// #4748 — host/port/from are the PUBLIC relay endpoint, not the
+			// mothership's in-cluster Stalwart. Without these three keys the
+			// chart's contract Secret has nothing to win precedence over and
+			// falls back to the unreachable in-cluster-Stalwart default.
+			"smtp-host": []byte(relayHost),
+			"smtp-port": []byte(relayPort),
+			"smtp-from": []byte(relayFrom),
+			"smtp-user": []byte(smtpUser),
+			"smtp-pass": []byte(smtpPass),
+			// #6843 — the same bytes under the SMTP_* env-var names, so a
+			// consumer that mounts this Secret with `envFrom.secretRef`
+			// (chargeback) works without a per-key mapping. This mirrors the
+			// duplication the Phase-2 Stalwart mirror already does for
+			// `user`/`password`, and costs nothing for readers of smtp-*.
+			"SMTP_HOST": []byte(relayHost),
+			"SMTP_PORT": []byte(relayPort),
+			"SMTP_FROM": []byte(relayFrom),
+			"SMTP_USER": []byte(smtpUser),
+			"SMTP_PASS": []byte(smtpPass),
+		}}
 }

@@ -300,3 +300,54 @@ func TestEmitSovereignSMTPSeedEvent_MessageMatrix(t *testing.T) {
 		})
 	}
 }
+
+// #6843 — the seeded Secret must be usable by an app that mounts it with
+// envFrom (chargeback), and must be reflectable into that app's namespace.
+// Without both, chargeback silently runs in dev mode: Mail.Send returns nil,
+// the API answers 200, and the invite link is written to a pod log. That
+// failure is indistinguishable from success at the call site, which is why it
+// needs a test rather than a comment.
+func TestSovereignSMTPSeed_UsableByEnvFromConsumers(t *testing.T) {
+	sec := buildSovereignSMTPSeedSecret(
+		"dep-1234", "mail.example.test", "587", "noreply@example.test", "relay-user", "relay-pass")
+
+	// The smtp-* shape every existing reader uses must survive.
+	for _, k := range []string{"smtp-host", "smtp-port", "smtp-from", "smtp-user", "smtp-pass"} {
+		if len(sec.Data[k]) == 0 {
+			t.Fatalf("legacy key %q missing or empty — existing readers would break", k)
+		}
+	}
+
+	// The SMTP_* shape an envFrom consumer needs, carrying the SAME bytes.
+	for legacy, envName := range map[string]string{
+		"smtp-host": "SMTP_HOST",
+		"smtp-port": "SMTP_PORT",
+		"smtp-from": "SMTP_FROM",
+		"smtp-user": "SMTP_USER",
+		"smtp-pass": "SMTP_PASS",
+	} {
+		got, want := sec.Data[envName], sec.Data[legacy]
+		if len(got) == 0 {
+			t.Fatalf("%s missing — an envFrom consumer (chargeback) gets no SMTP config and silently discards mail", envName)
+		}
+		if string(got) != string(want) {
+			t.Fatalf("%s = %q but %s = %q — the duplicate must carry the same bytes", envName, got, legacy, want)
+		}
+	}
+
+	// Reflector must be allowed into the consuming namespace, or the Secret
+	// never reaches it (cross-namespace secretKeyRef is forbidden by K8s).
+	ann := sec.Annotations
+	if ann["reflector.v1.k8s.emberstack.com/reflection-allowed"] != "true" ||
+		ann["reflector.v1.k8s.emberstack.com/reflection-auto-enabled"] != "true" {
+		t.Fatal("reflection not enabled — the Secret cannot reach a consuming namespace")
+	}
+	for _, k := range []string{
+		"reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces",
+		"reflector.v1.k8s.emberstack.com/reflection-auto-namespaces",
+	} {
+		if !strings.Contains(ann[k], "chargeback") {
+			t.Fatalf("%s = %q does not admit the chargeback namespace", k, ann[k])
+		}
+	}
+}
