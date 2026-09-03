@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-03T01:15:03Z` |
+| Last refreshed | `2026-09-03T01:30:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,6 +200,10 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
+| [#6148](https://github.com/openova-io/openova/issues/6148) | Region-kill failback: recovered region-A returns as an UNFENCED TL=1 primary and | Other |
+| [#6149](https://github.com/openova-io/openova/issues/6149) | bp-postgres DR pairs ship a dr-promoter but NO dr-failback — region-A return l | Other |
+| [#6155](https://github.com/openova-io/openova/issues/6155) | Showback bills an Organization the CR model does not contain — the join reads  | Other |
+| [#6156](https://github.com/openova-io/openova/issues/6156) | DR preflight-02 cannot Fail on a 2-region Sovereign — the standby outage that  | Other |
 | [#6163](https://github.com/openova-io/openova/issues/6163) | Agenity credential chain has TWO one-shot freezes: the init container reads once | Other |
 | [#6166](https://github.com/openova-io/openova/issues/6166) | catalyst-ui has no priorityClassName, so it loses the slot #6157 freed — mothe | Other |
 | [#6169](https://github.com/openova-io/openova/issues/6169) | Funnel-serving + singles residue (#6114 rows 87/90/95/115/218/228/232/234/241):  | Other |
@@ -290,11 +294,7 @@ flowchart LR
 | [#6773](https://github.com/openova-io/openova/issues/6773) | mothership iogrid: 14 digest-pinned service images lost in Harbor blob-store wip | Other |
 | [#6776](https://github.com/openova-io/openova/issues/6776) | 3 catalog charts pin the nonexistent cloudnative-pg/postgresql:16.4 (latent ErrI | Other |
 | [#6778](https://github.com/openova-io/openova/issues/6778) | hw306 — fresh 2-region prov train: manifest → wipe hw305 → fire → cutove | Other |
-| [#6786](https://github.com/openova-io/openova/issues/6786) | Fresh 2-region prov fails at tofu apply when the hashed node-VPC CIDR base lands | Other |
-| [#6795](https://github.com/openova-io/openova/issues/6795) | Retry surface gaps: Phase-1 retry is a no-op notice, reconciler action has no re | Other |
-| [#6796](https://github.com/openova-io/openova/issues/6796) | bp-postgres: pre-flip secondary -mesh/-mesh-rw stub selects the LOCAL placeholde | Other |
 | [#6799](https://github.com/openova-io/openova/issues/6799) | NAT-EIP rotation at prov time drifts tofu state (rotated SNAT rule/EIP outside s | Other |
-| [#6802](https://github.com/openova-io/openova/issues/6802) | Dashboard Failed filter shows superseded failed attempts next to a READY badge w | Other |
 | [#6803](https://github.com/openova-io/openova/issues/6803) | Harbor proxy-cache serves an index whose child manifests are gone — invisible  | Other |
 | [#6815](https://github.com/openova-io/openova/issues/6815) | A region-A worker has never joined k3s and nothing reports it — Phase 1 counts | Other |
 | [#6825](https://github.com/openova-io/openova/issues/6825) | Every self-upgrade takes the Sovereign's console and API down for 2-3 minutes � | Other |
