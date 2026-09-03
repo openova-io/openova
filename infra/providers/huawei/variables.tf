@@ -698,7 +698,23 @@ variable "secondary_region_lb_weight" {
     only serves a given host correctly once that host's Blueprint is actually
     running there: with `SECONDARY_HR_SUSPEND` the workload is suspended in the
     secondary, so flipping this to 1 without promoting the region reintroduces
-    the split-brand 404 this default exists to prevent (#6827, #6837).
+    the split 404 this default exists to prevent (#6827, #6837).
+
+    ── FAILOVER: this weight MUST be flipped by the promotion path ──
+    Weight 0 does NOT degrade to "used only when everything else is down".
+    Measured on hw307 (#6837) with an isolated listener on an unused port:
+    a weight-1 member OFFLINE alongside a weight-0 member ONLINE refuses the
+    connection; flipping that same member to weight 1 — the only variable
+    changed — connects immediately. So a total loss of the primary region
+    leaves the pool with no eligible member until something raises this value.
+    That is a deliberate trade against #5244 (which spanned members across all
+    regions precisely so a region-kill would not black-hole the public EIP),
+    and it is why region promotion has to own this flip.
+
+    Huawei's native active/standby primitive cannot be substituted here: a
+    `master-slave-pool` accepts EXACTLY two members, one master and one slave
+    (measured: `ELB.8902 Master_slave_pool must have two members`), so it
+    cannot express 6 primary-region nodes + 6 secondary-region nodes.
   EOT
 
   validation {
