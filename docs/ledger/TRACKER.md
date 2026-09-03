@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-03T04:15:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-09-03T04:30:06Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-03T04:28 | [#6834](https://github.com/openova-io/openova/pull/6834) | #6815 | feat(api): surface the node-side census so a short-joined re |
+| 2026-09-03T04:15 | [#6833](https://github.com/openova-io/openova/pull/6833) | #5505 | fix(bp-kyverno-policies): grant the storageclasses read its  |
+| 2026-09-03T04:28 | [#6831](https://github.com/openova-io/openova/pull/6831) | #6827 | docs(sessions): hw307 health gate — nodes, zero-NodePort and |
 | 2026-09-02T19:36 | [#6826](https://github.com/openova-io/openova/pull/6826) | #6778 | docs(uat): six more scheduler-due rows walked live on hw307  |
 | 2026-09-02T19:05 | [#6824](https://github.com/openova-io/openova/pull/6824) | #6819 | docs(uat): five more scheduler-due rows walked live on hw307 |
 | 2026-09-02T19:02 | [#6822](https://github.com/openova-io/openova/pull/6822) | #6806 | docs(sessions): hw307 evening evidence — the console fix ver |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-09-02T14:22 | [#6790](https://github.com/openova-io/openova/pull/6790) | #5359 | fix(cutover): step-06 secondary-region HelmRepository pivot  |
 | 2026-09-02T09:41 | [#6789](https://github.com/openova-io/openova/pull/6789) | #6786 | fix(infra/huawei): keep the hashed node-VPC CIDR off the k3s |
 | 2026-09-02T09:27 | [#6788](https://github.com/openova-io/openova/pull/6788) | #6786 | docs(sessions): hw306 failed at tofu apply — forensics + roo |
-| 2026-09-02T09:47 | [#6787](https://github.com/openova-io/openova/pull/6787) | #1888 | fix(bp-harbor): alias-redirect HTTPRoute must not pin sectio |
-| 2026-09-02T09:34 | [#6785](https://github.com/openova-io/openova/pull/6785) | #6781 | fix(uat-tooling): read the HTML ledger in uat-tally and the  |
-| 2026-09-02T09:05 | [#6784](https://github.com/openova-io/openova/pull/6784) | #6778 | docs: hw306 FIRED — wipe, pre-flight and fire evidence; prot |
 
 ---
 
