@@ -45,9 +45,11 @@ type Config struct {
 	BillingHookToken string
 
 	// TrustedForwardAuthHeader is the request header carrying an identity
-	// already verified by the Sovereign's OIDC gate (bp-oidc-gate /
-	// oauth2-proxy sets X-Auth-Request-Email). Empty (the default) = off,
-	// and the header is ignored entirely.
+	// already verified by the Sovereign's OIDC gate. oauth2-proxy passes the
+	// address UPSTREAM as X-Forwarded-Email; X-Auth-Request-Email is a
+	// RESPONSE header for nginx auth_request mode and never arrives here
+	// (verified from the v7.6.0 binary's --convert-config-to-alpha output).
+	// Empty (the default) = off, and the header is ignored entirely.
 	//
 	// This header is TRUSTED WITHOUT VERIFICATION, so it may only be
 	// enabled where the app is unreachable except through the gate: the

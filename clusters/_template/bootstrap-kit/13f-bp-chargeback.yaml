@@ -125,7 +125,12 @@ spec:
     # #6841 — the Sovereign SSO owns sign-in. bp-oidc-gate (slot 13c) holds
     # chargeback.<fqdn> and authenticates the browser against the Keycloak
     # sovereign realm silently (kc_idp_hint=catalyst-pin), then passes the
-    # verified address in X-Auth-Request-Email. chargeback accepts it instead
+    # verified address UPSTREAM in X-Forwarded-Email. (X-Auth-Request-* are
+    # oauth2-proxy RESPONSE headers for nginx auth_request mode and never
+    # reach the upstream — verified from the v7.6.0 binary's own
+    # --convert-config-to-alpha output, which lists X-Forwarded-Email under
+    # injectRequestHeaders and X-Auth-Request-Email under
+    # injectResponseHeaders.) chargeback accepts it instead
     # of prompting for its own PIN, so a user already signed in at the
     # Sovereign is never asked a second time.
     #
@@ -134,7 +139,7 @@ spec:
     # routing AND a public door that bypasses the gate with a spoofable
     # header. The chart refuses to render that combination.
     forwardAuth:
-      header: X-Auth-Request-Email
+      header: X-Forwarded-Email
     httpRoute:
       enabled: false
     config:

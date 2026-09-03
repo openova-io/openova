@@ -37,7 +37,7 @@ else
 fi
 
 # --- half B: the app's own route is off and the header is named ----------
-if grep -qE '^\s*header:\s*X-Auth-Request-Email\s*$' "$CB"; then
+if grep -qE '^\s*header:\s*X-Forwarded-Email\s*$' "$CB"; then
   echo "  ok: slot 13f names the trusted forward-auth header"
 else
   echo "FAIL: $CB does not set forwardAuth.header — chargeback will prompt for its own PIN"
@@ -57,7 +57,7 @@ fi
 # --- the chart itself must refuse the spoofable pair ---------------------
 if command -v helm >/dev/null 2>&1; then
   if helm template cb "$CHART" --set config.sovereignFqdn=t99.omani.works \
-       --set forwardAuth.header=X-Auth-Request-Email --set httpRoute.enabled=true \
+       --set forwardAuth.header=X-Forwarded-Email --set httpRoute.enabled=true \
        >/dev/null 2>&1; then
     echo "FAIL: the chart RENDERED forwardAuth.header together with httpRoute.enabled=true."
     echo "      That combination is spoofable and must be refused at render time."
@@ -70,7 +70,7 @@ if command -v helm >/dev/null 2>&1; then
   # assume any identity. The gated render must admit ONLY the gate.
   gated=$(helm template cb "$CHART" --api-versions cilium.io/v2 \
       --set config.sovereignFqdn=t99.omani.works \
-      --set forwardAuth.header=X-Auth-Request-Email --set httpRoute.enabled=false 2>/dev/null)
+      --set forwardAuth.header=X-Forwarded-Email --set httpRoute.enabled=false 2>/dev/null)
   cnp=$(printf '%s' "$gated" | awk '/kind: CiliumNetworkPolicy/{f=1} f&&/  ingress:/{p=1} p{print} p&&/protocol: TCP/{exit}')
   if [[ -z "$cnp" ]]; then
     echo "FAIL: the gated render produced NO ingress CiliumNetworkPolicy — the app would be"
@@ -99,7 +99,7 @@ if command -v helm >/dev/null 2>&1; then
 
   # vacuity control: the safe combination must still render
   if helm template cb "$CHART" --set config.sovereignFqdn=t99.omani.works \
-       --set forwardAuth.header=X-Auth-Request-Email --set httpRoute.enabled=false \
+       --set forwardAuth.header=X-Forwarded-Email --set httpRoute.enabled=false \
        >/dev/null 2>&1; then
     echo "  ok: the gated combination still renders (control — the refusal is targeted)"
   else

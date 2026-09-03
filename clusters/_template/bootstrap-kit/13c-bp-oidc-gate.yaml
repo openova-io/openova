@@ -262,7 +262,7 @@ spec:
       #
       # Unlike openova-flow (login-less) and pdns-admin (its own OIDC), we
       # own this binary, so it is the clean third case: the gate verifies the
-      # browser and chargeback trusts X-Auth-Request-Email instead of
+      # browser and chargeback trusts X-Forwarded-Email instead of
       # prompting. Its own HTTPRoute is disabled in slot 13f — the gate owns
       # chargeback.<fqdn>, and leaving both would be undefined routing AND a
       # spoofable bypass (the chart refuses to render that pair).
