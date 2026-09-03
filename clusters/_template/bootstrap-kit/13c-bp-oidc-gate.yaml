@@ -269,7 +269,10 @@ spec:
       - name: chargeback
         enabled: true
         clientId: chargeback
-        upstream: http://chargeback.chargeback.svc.cluster.local:80
+        # The chargeback Service listens on 8080 (values.service.port), NOT
+        # the :80 that guacamole/openova-flow use — verified against the live
+        # Service, not assumed from the neighbouring entries.
+        upstream: http://chargeback.chargeback.svc.cluster.local:8080
         skipAuthRoutes:
           # Probes stay reachable without a browser session.
           - "GET=^/(healthz|readyz)$"

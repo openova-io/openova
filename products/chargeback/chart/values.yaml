@@ -118,6 +118,14 @@ service:
 # spoofed identity — the chart REFUSES to render that combination.
 forwardAuth:
   header: ""
+  # Cilium endpoint selector for the gate allowed to reach the app when
+  # `header` is set. With a trusted header, ANY pod that can open a socket to
+  # the Service could otherwise set it and assume any identity — including the
+  # operator's — so networkPolicy.ingress.allowClusterEntity is refused while
+  # forwardAuth is on, and only these endpoints are admitted.
+  fromEndpointSelector:
+    app.kubernetes.io/name: bp-oidc-gate
+  fromNamespace: oidc-gate
 
 httpRoute:
   enabled: true

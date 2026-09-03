@@ -65,6 +65,38 @@ if command -v helm >/dev/null 2>&1; then
   else
     echo "  ok: chart refuses forwardAuth + own HTTPRoute (fail-closed)"
   fi
+  # With a trusted header, in-cluster callers must NOT reach the app directly:
+  # anything that can open a socket to the Service could set the header and
+  # assume any identity. The gated render must admit ONLY the gate.
+  gated=$(helm template cb "$CHART" --api-versions cilium.io/v2 \
+      --set config.sovereignFqdn=t99.omani.works \
+      --set forwardAuth.header=X-Auth-Request-Email --set httpRoute.enabled=false 2>/dev/null)
+  cnp=$(printf '%s' "$gated" | awk '/kind: CiliumNetworkPolicy/{f=1} f&&/  ingress:/{p=1} p{print} p&&/protocol: TCP/{exit}')
+  if [[ -z "$cnp" ]]; then
+    echo "FAIL: the gated render produced NO ingress CiliumNetworkPolicy — the app would be"
+    echo "      reachable by anything in the cluster while trusting a spoofable header."
+    fail=1
+  elif grep -qE '^\s*- cluster\s*$' <<<"$cnp"; then
+    echo "FAIL: the gated ingress policy still admits the 'cluster' entity. Any in-cluster pod"
+    echo "      could reach the app directly and spoof the identity header (#6841)."
+    fail=1
+  elif ! grep -q "fromEndpoints" <<<"$cnp"; then
+    echo "FAIL: the gated ingress policy does not restrict callers to the OIDC gate."
+    fail=1
+  else
+    echo "  ok: gated ingress admits only the OIDC gate (no 'cluster' entity)"
+  fi
+
+  # The gate must point at the app's ACTUAL Service port, or it 502s.
+  svcport=$(grep -A6 '^service:' "$CHART/values.yaml" | grep -oE 'port:\s*[0-9]+' | head -1 | grep -oE '[0-9]+')
+  if [[ -n "$svcport" ]] && ! grep -qE "chargeback\.chargeback\.svc\.cluster\.local:${svcport}\b" "$GATE"; then
+    echo "FAIL: the oidc-gate upstream does not target chargeback's Service port ($svcport)."
+    echo "      A wrong port makes the gate 502 for every request (#6841)."
+    fail=1
+  else
+    echo "  ok: gate upstream targets the app's Service port ($svcport)"
+  fi
+
   # vacuity control: the safe combination must still render
   if helm template cb "$CHART" --set config.sovereignFqdn=t99.omani.works \
        --set forwardAuth.header=X-Auth-Request-Email --set httpRoute.enabled=false \
