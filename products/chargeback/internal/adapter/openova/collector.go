@@ -39,7 +39,10 @@ const (
 	orgLabelLegacy = "catalyst.openova.io/organization"
 
 	platformBackfill = 31 * 24 * time.Hour
-	usageBatch       = 500
+	// overheadTier marks a usage record as the Sovereign's own platform
+	// footprint rather than tenant consumption (ADR-0014 D3 case 3, #6850).
+	overheadTier = "platform-overhead"
+	usageBatch   = 500
 )
 
 // PlatformCollector watches pods and PVCs across Organization-labelled
@@ -59,6 +62,58 @@ type PlatformCollector struct {
 	nsOrg map[string]string           // namespace → Organization slug
 	res   map[string]*trackedResource // resource key → lifecycle + factors
 	dirty map[string]bool             // Organization slugs touched by events
+
+	// overheadOrg is the slug of the Sovereign's OWN Organization
+	// (spec.kind = internal). Namespaces with no Organization label are the
+	// Sovereign's own platform footprint — its control plane, gitea, harbor,
+	// keycloak, openbao, shared-pg. ADR-0014 D3 case 3 puts that on a
+	// platform-overhead line, NOT on a tenant Org row, so the split can
+	// reconcile back to the collected cloud total (#6850).
+	//
+	// Empty until OrgSync observes the internal Organization; until then
+	// unlabelled namespaces are ignored exactly as before, so nothing is
+	// mis-attributed while the identity is unknown.
+	overheadOrg string
+	// ovNs is the set of namespaces attributed to the overhead line, so an
+	// emitted record can be labelled `tier: platform-overhead` and the
+	// allocation view can separate overhead from tenant Org rows.
+	ovNs map[string]bool
+}
+
+// SetOverheadOrg names the Organization that carries the platform-overhead
+// line. OrgSync calls this when it observes the Sovereign's own Organization.
+// overheadNs / overheadNsClear track which namespaces feed the overhead line.
+// Callers hold c.mu.
+func (c *PlatformCollector) overheadNs(ns string) {
+	if c.ovNs == nil {
+		c.ovNs = map[string]bool{}
+	}
+	c.ovNs[ns] = true
+}
+
+func (c *PlatformCollector) overheadNsClear(ns string) {
+	delete(c.ovNs, ns)
+}
+
+// isOverheadNs reports whether a namespace feeds the overhead line.
+// Callers hold c.mu.
+func (c *PlatformCollector) isOverheadNs(ns string) bool {
+	return c.ovNs[ns]
+}
+
+func (c *PlatformCollector) SetOverheadOrg(slug string) {
+	c.init()
+	c.mu.Lock()
+	changed := c.overheadOrg != slug
+	c.overheadOrg = slug
+	c.mu.Unlock()
+	if changed && slug != "" {
+		// Namespaces observed before the identity was known were dropped;
+		// re-observe on the next reconciliation pass rather than losing them.
+		c.mu.Lock()
+		c.dirty[slug] = true
+		c.mu.Unlock()
+	}
 }
 
 // trackedResource is the collector's in-memory record of one pod or PVC.
@@ -132,10 +187,22 @@ func (c *PlatformCollector) ObserveNamespace(ns *corev1.Namespace) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if org == "" {
-		delete(c.nsOrg, ns.Name)
+		// No Organization label: this is the Sovereign's own platform
+		// footprint. Attribute it to the overhead line (#6850) rather than
+		// dropping it — dropping is what made the ledger read empty on a
+		// namespace-isolated Sovereign, whose Applications all run in
+		// platform namespaces that carry no Organization label.
+		if c.overheadOrg == "" {
+			delete(c.nsOrg, ns.Name)
+			return
+		}
+		c.nsOrg[ns.Name] = c.overheadOrg
+		c.overheadNs(ns.Name)
+		c.dirty[c.overheadOrg] = true
 		return
 	}
 	c.nsOrg[ns.Name] = org
+	c.overheadNsClear(ns.Name)
 	c.dirty[org] = true
 }
 
@@ -422,11 +489,13 @@ func (c *PlatformCollector) EmitOrg(ctx context.Context, org string) (int, error
 	c.mu.Lock()
 	var tracked []*trackedResource
 	var keys []string
+	overhead := map[string]bool{}
 	for k, tr := range c.res {
 		if tr.Org == org {
 			cp := *tr
 			tracked = append(tracked, &cp)
 			keys = append(keys, k)
+			overhead[k] = c.isOverheadNs(tr.Namespace)
 		}
 	}
 	c.mu.Unlock()
@@ -453,7 +522,14 @@ func (c *PlatformCollector) EmitOrg(ctx context.Context, org string) (int, error
 				if qty <= 0 {
 					continue
 				}
-				labels, _ := json.Marshal(map[string]any{"name": tr.Namespace + "/" + tr.Name, "namespace": tr.Namespace, "kind": tr.Kind})
+				lb := map[string]any{"name": tr.Namespace + "/" + tr.Name, "namespace": tr.Namespace, "kind": tr.Kind}
+				if overhead[keys[i]] {
+					// ADR-0014 D3 case 3: the Sovereign's own footprint is a
+					// platform-overhead line, not tenant consumption. The
+					// allocation view splits on this label (#6850).
+					lb["tier"] = overheadTier
+				}
+				labels, _ := json.Marshal(lb)
 				batch = append(batch, store.UsageRecord{
 					CustomerID:   cust.ID,
 					SourceID:     src.ID,

@@ -45,6 +45,13 @@ type OrgSync struct {
 	Metrics  *metrics.Registry
 	Resync   time.Duration // informer resync period; 0 = 1h
 
+	// OverheadSink receives the slug of the Sovereign's OWN Organization
+	// (spec.kind = internal) when one is observed. The platform collector
+	// uses it to attribute unlabelled platform namespaces to the
+	// platform-overhead line instead of dropping them (ADR-0014 D3 case 3,
+	// #6850). Optional — nil disables overhead attribution entirely.
+	OverheadSink interface{ SetOverheadOrg(string) }
+
 	loggedAbsent bool
 }
 
@@ -140,6 +147,11 @@ type orgFields struct {
 	BillingMode string
 	AdminEmail  string
 	CostSources []costSourceSpec
+	// Internal marks the Sovereign's OWN Organization (spec.kind = internal)
+	// as opposed to a tenant Organization. ADR-0014 D3 case 3 puts the
+	// Sovereign's own platform consumption on a platform-overhead line rather
+	// than a tenant Org row, and this is the discriminator (#6850).
+	Internal bool
 }
 
 type costSourceSpec struct {
@@ -167,6 +179,8 @@ func readOrg(u *unstructured.Unstructured) (orgFields, error) {
 	if f.DisplayName == "" {
 		f.DisplayName = f.Slug
 	}
+	orgKind, _, _ := unstructured.NestedString(u.Object, "spec", "kind")
+	f.Internal = orgKind == "internal"
 	f.BillingMode, _, _ = unstructured.NestedString(u.Object, "spec", "billingMode")
 	switch f.BillingMode {
 	case "real", "chargeback", "showback":
@@ -226,6 +240,13 @@ func (s *OrgSync) SyncOrganization(ctx context.Context, u *unstructured.Unstruct
 	if err != nil {
 		return err
 	}
+	// #6850 — publish the Sovereign's own Organization so the platform
+	// collector knows which slug carries the platform-overhead line. Done
+	// before the upsert so a restart re-establishes it on the first pass,
+	// whether or not the customer row changes.
+	if f.Internal && s.OverheadSink != nil {
+		s.OverheadSink.SetOverheadOrg(f.Slug)
+	}
 	c, err := s.Repo.GetCustomerBySlug(ctx, f.Slug)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
@@ -243,7 +264,7 @@ func (s *OrgSync) SyncOrganization(ctx context.Context, u *unstructured.Unstruct
 		if err := s.Repo.SetCustomerStatus(ctx, c.ID, "active"); err != nil {
 			return fmt.Errorf("activate customer: %w", err)
 		}
-		slog.Info("openova adapter: organization synced as new customer", "org", f.Slug, "customer", c.ID, "billing_mode", f.BillingMode)
+		slog.Info("openova adapter: organization synced as new customer", "org", f.Slug, "customer", c.ID, "billing_mode", f.BillingMode, "internal", f.Internal)
 	case err != nil:
 		return fmt.Errorf("get customer: %w", err)
 	default:
