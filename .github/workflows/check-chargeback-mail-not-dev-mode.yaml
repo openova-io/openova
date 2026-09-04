@@ -1,0 +1,55 @@
+name: check — chargeback has real SMTP on a Sovereign (#6843)
+
+# chargeback's chart documents its own empty-SMTP behaviour as dev mode: the
+# binary LOGS the PIN / invite URL instead of mailing it. Mail.Send returns nil,
+# so the API answers 200 and the caller sees success — a customer invite that
+# was never delivered is indistinguishable from one that was.
+#
+# Sign-in no longer depends on mail (#6841 moved it to Sovereign SSO), but
+# customer onboarding does: invite links are the only way to activate a
+# customer admin.
+#
+# Refs #6843 #6841 #6723
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'products/chargeback/**'
+      - 'products/catalyst/bootstrap/api/internal/handler/sovereign_smtp_seed.go'
+      - 'clusters/_template/bootstrap-kit/13f-bp-chargeback.yaml'
+      - 'scripts/check-chargeback-mail-not-dev-mode.sh'
+      - '.github/workflows/check-chargeback-mail-not-dev-mode.yaml'
+  pull_request:
+    paths:
+      - 'products/chargeback/**'
+      - 'products/catalyst/bootstrap/api/internal/handler/sovereign_smtp_seed.go'
+      - 'clusters/_template/bootstrap-kit/13f-bp-chargeback.yaml'
+      - 'scripts/check-chargeback-mail-not-dev-mode.sh'
+      - '.github/workflows/check-chargeback-mail-not-dev-mode.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  chargeback-mail-not-dev-mode:
+    name: chargeback has real SMTP credentials on a Sovereign
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the mail gate
+        run: bash scripts/check-chargeback-mail-not-dev-mode.sh
+
+      - name: Self-test — must reject a slot with no SMTP secret
+        run: |
+          set -euo pipefail
+          tmp=$(mktemp -d)
+          grep -v "existingSecret: sovereign-smtp-credentials" \
+            clusters/_template/bootstrap-kit/13f-bp-chargeback.yaml > "$tmp/cb.yaml"
+          if bash scripts/check-chargeback-mail-not-dev-mode.sh "$tmp/cb.yaml" >/dev/null 2>&1; then
+            echo "SELF-TEST FAILED: gate passed with SMTP unset (silent dev mode)"
+            exit 1
+          fi
+          echo "self-test ok — the gate rejects a mail-discarding Sovereign"

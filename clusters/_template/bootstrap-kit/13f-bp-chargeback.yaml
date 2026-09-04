@@ -158,6 +158,16 @@ spec:
     # INFO level. A signed-in operator sees an app with no customers in it.
     adapter:
       enabled: true
+    # #6843 — without this chargeback runs in "dev mode": Mail.Send returns nil,
+    # the API answers 200, and the invite link or statement is written to a pod
+    # log instead of being delivered. The caller cannot tell that from success.
+    #
+    # catalyst-api seeds sovereign-smtp-credentials into catalyst-system and
+    # bp-reflector mirrors it here (Kubernetes forbids a cross-namespace
+    # secretKeyRef). The Secret carries SMTP_* duplicates of its smtp-* keys
+    # precisely so this chart's `envFrom.secretRef` works without a per-key map.
+    smtp:
+      existingSecret: sovereign-smtp-credentials
     config:
       # The Sovereign owner signs in as the operator (spec §4 auth); the
       # bootstrap-kit substitute carries the owner address every Sovereign
