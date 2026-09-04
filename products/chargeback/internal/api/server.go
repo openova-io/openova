@@ -119,6 +119,9 @@ func New(d Deps) http.Handler {
 
 	// Sources.
 	mux.HandleFunc("GET /api/v1/customers/{id}/sources", h.listSources)
+	// #6850 — the Sovereign allocation view (ADR-0014 D3 case 3): tenant Org
+	// rows + the platform-overhead line. Operator-only; it spans customers.
+	mux.HandleFunc("GET /api/v1/allocation", h.allocation)
 	mux.HandleFunc("POST /api/v1/customers/{id}/sources", h.createSource)
 	mux.HandleFunc("POST /api/v1/sources/{id}/credential", h.rotateCredential)
 	mux.HandleFunc("POST /api/v1/sources/{id}/verify", h.verifySource)

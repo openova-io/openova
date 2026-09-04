@@ -120,8 +120,11 @@ func main() {
 		if derr != nil || cerr != nil {
 			slog.Error("openova adapter: build Kubernetes clients", "dynamic_error", derr, "clientset_error", cerr)
 		} else {
-			orgSync := &openova.OrgSync{Dyn: dyn, Core: clientset, Repo: st, Keys: keys, Verifier: collector, Metrics: reg}
 			platform := &openova.PlatformCollector{Client: clientset, Repo: st, Metrics: reg}
+			// #6850 — OrgSync tells the collector which Organization carries
+			// the platform-overhead line, so the Sovereign's own footprint is
+			// metered instead of dropped.
+			orgSync := &openova.OrgSync{Dyn: dyn, Core: clientset, Repo: st, Keys: keys, Verifier: collector, Metrics: reg, OverheadSink: platform}
 			go orgSync.Run(ctx)
 			go platform.Run(ctx)
 			slog.Info("openova adapter started", "reason", why)
