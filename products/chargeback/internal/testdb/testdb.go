@@ -46,7 +46,12 @@ func Open(t *testing.T) *store.Store {
 	return st
 }
 
-const wipeSQL = `TRUNCATE TABLE audit_log, sessions, pins, invites, rated_lines, statements, usage_records, resource_inventory, cost_sources, credentials, customer_users, discounts, budgets, budget_alerts, saved_views, customers, price_items, price_books RESTART IDENTITY CASCADE; UPDATE allocation_settings SET weights = '{"vcpu":1,"mem_gib":1,"pvc_gb":1}'::jsonb, overhead_policy = 'separate', pool = 'sovereign-cost', manual_amount = 0, currency = 'OMR', sovereign_customer_id = NULL WHERE id = 1`
+// allocation_settings references customers, so TRUNCATE ... CASCADE empties
+// it too; the single row is put back with its defaults rather than updated.
+const wipeSQL = `TRUNCATE TABLE audit_log, sessions, pins, invites, rated_lines, statements, usage_records, resource_inventory, cost_sources, credentials, customer_users, discounts, budgets, budget_alerts, saved_views, customers, price_items, price_books RESTART IDENTITY CASCADE;
+INSERT INTO allocation_settings (id, weights, overhead_policy, pool, manual_amount, currency, sovereign_customer_id)
+VALUES (1, '{"vcpu":1,"mem_gib":1,"pvc_gb":1}'::jsonb, 'separate', 'sovereign-cost', 0, 'OMR', NULL)
+ON CONFLICT (id) DO UPDATE SET weights = EXCLUDED.weights, overhead_policy = EXCLUDED.overhead_policy, pool = EXCLUDED.pool, manual_amount = EXCLUDED.manual_amount, currency = EXCLUDED.currency, sovereign_customer_id = NULL, updated_at = now()`
 
 func wipe(t *testing.T, db *sql.DB) {
 	t.Helper()

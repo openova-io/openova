@@ -120,9 +120,12 @@ func New(d Deps) http.Handler {
 
 	// Sources.
 	mux.HandleFunc("GET /api/v1/customers/{id}/sources", h.listSources)
-	// #6850 — the Sovereign allocation view (ADR-0014 D3 case 3): tenant Org
-	// rows + the platform-overhead line. Operator-only; it spans customers.
+	// #6850/#6867 — the Sovereign allocation view (ADR-0014 D3 case 3):
+	// tenant Org rows + the platform-overhead line, in currency, per the
+	// editable settings. Operator-only; it spans customers.
 	mux.HandleFunc("GET /api/v1/allocation", h.allocation)
+	mux.HandleFunc("GET /api/v1/allocation/settings", h.getAllocationSettings)
+	mux.HandleFunc("PUT /api/v1/allocation/settings", h.putAllocationSettings)
 	// #6862 — discounts and campaigns. Operator-only to create, edit, toggle
 	// or delete; a customer must never be able to grant themselves a
 	// discount. The customer-scoped list also carries the global campaigns
@@ -144,6 +147,14 @@ func New(d Deps) http.Handler {
 	// Usage + inventory.
 	mux.HandleFunc("GET /api/v1/customers/{id}/usage", h.customerUsage)
 	mux.HandleFunc("GET /api/v1/customers/{id}/inventory", h.customerInventory)
+
+	// Resources with cost (#6867, DESIGN.md §3.4). A resource id may itself
+	// contain slashes (k8s "namespace/pod"), hence the rest-of-path wildcard.
+	mux.HandleFunc("GET /api/v1/resources", h.listResources)
+	mux.HandleFunc("GET /api/v1/resources.csv", h.resourcesCSV)
+	mux.HandleFunc("GET /api/v1/resources/{source_id}/{resource_id...}", h.getResource)
+	mux.HandleFunc("GET /api/v1/customers/{id}/resources", h.customerResources)
+	mux.HandleFunc("GET /api/v1/customers/{id}/resources.csv", h.customerResourcesCSV)
 
 	// Price books.
 	mux.HandleFunc("GET /api/v1/pricebooks", h.listPriceBooks)

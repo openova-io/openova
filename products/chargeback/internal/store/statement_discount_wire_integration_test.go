@@ -25,7 +25,9 @@ func TestIntegrationStatementExposesDiscountOnTheWire(t *testing.T) {
 		t.Fatalf("run = %+v err=%v", results, err)
 	}
 	for _, get := range []func() (store.Statement, error){
-		func() (store.Statement, error) { return st.GetStatement(ctx, store.OperatorScope, results[0].StatementID) },
+		func() (store.Statement, error) {
+			return st.GetStatement(ctx, store.OperatorScope, results[0].StatementID)
+		},
 		func() (store.Statement, error) {
 			list, err := st.ListStatements(ctx, store.OperatorScope, s.a.ID)
 			if err != nil || len(list) != 1 {
