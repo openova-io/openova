@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-06T09:30:08Z` |
+| Last refreshed | `2026-09-06T09:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-06T09:31 | [#6862](https://github.com/openova-io/openova/pull/6862) | #6862 | feat(chargeback): discounts and time-boxed campaigns (Refs # |
 | 2026-09-06T07:59 | [#6860](https://github.com/openova-io/openova/pull/6860) | #6855 | fix(chargeback): let an operator actually set a source's sco |
 | 2026-09-06T09:00 | [#6858](https://github.com/openova-io/openova/pull/6858) | #6853 | fix(chargeback): four extended listers 400'd against the rea |
 | 2026-09-06T07:01 | [#6856](https://github.com/openova-io/openova/pull/6856) | #6855 | fix(chargeback): scope a project cost source to one deployme |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-02T16:28 | [#6810](https://github.com/openova-io/openova/pull/6810) | #6330 | docs(ledger): carry the UAT ledger forward onto hw307 (Refs  |
 | 2026-09-02T17:23 | [#6809](https://github.com/openova-io/openova/pull/6809) | #5512 | fix(bp-cnpg): the upstream chart repo redirects to a host th |
 | 2026-09-02T16:26 | [#6808](https://github.com/openova-io/openova/pull/6808) | #6485 | docs: protect-list promoted to hw307 (Refs #6778) |
-| 2026-09-02T17:27 | [#6807](https://github.com/openova-io/openova/pull/6807) | #5261 | fix(api): a reconcile on an exhausted HelmRelease must clear |
 
 ---
 
