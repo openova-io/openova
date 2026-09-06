@@ -134,7 +134,10 @@ export function Allocation() {
   const money = (v: number | string | null | undefined, compact = false) => formatMoney(toNumber(v), cur, { compact })
   const hours = sumHours(rows)
   const preview = basisPreview(weights, hours)
-  const marginPct = totals.revenue > 0 ? (totals.margin / totals.revenue) * 100 : null
+  // A margin percentage against a sub-unit revenue (an Organization that
+  // started minutes ago) prints an absurd number; below 1 currency unit it
+  // is not a meaningful ratio.
+  const marginPct = totals.revenue >= 1 ? (totals.margin / totals.revenue) * 100 : null
   const poolSource =
     pool?.source === 'manual' || (pool === undefined && draft.pool === 'manual')
       ? 'manual amount'
@@ -186,7 +189,7 @@ export function Allocation() {
         return <span className={m < 0 ? 'bad' : m > 0 ? 'ok' : ''}>{money(m)}</span>
       },
     },
-    { key: 'margin_pct', header: 'Margin %', value: (r) => r.margin_pct, numeric: true, render: (r) => formatPct(r.margin_pct) },
+    { key: 'margin_pct', header: 'Margin %', value: (r) => r.margin_pct, numeric: true, render: (r) => (r.margin_pct === null || toNumber(r.rated_revenue) < 1 ? <span className="muted" title="revenue below 1 unit — the ratio is not meaningful">—</span> : formatPct(r.margin_pct)) },
   ]
 
   return (
@@ -309,7 +312,7 @@ export function Allocation() {
           <KPI label="Cost pool" value={pool ? money(pool.amount, true) : '—'} note={poolSource} hint={describeWindow(range.window)} />
           <KPI label="Allocated" value={money(totals.allocated, true)} note={`${pct(shareTotal)} of consumption accounted for`} tone={ok ? undefined : 'bad'} />
           <KPI label="Rated revenue" value={money(totals.revenue, true)} note="what the Organizations are billed at their price books" />
-          <KPI label="Margin" value={money(totals.margin, true)} note={marginPct === null ? 'no revenue in the window' : `${formatPct(marginPct)} of revenue`} tone={totals.margin < 0 ? 'bad' : totals.margin > 0 ? 'ok' : undefined} />
+          <KPI label="Margin" value={money(totals.margin, true)} note={marginPct === null ? (totals.revenue > 0 ? 'revenue below 1 unit — % not meaningful' : 'no revenue in the window') : `${formatPct(marginPct)} of revenue`} tone={totals.margin < 0 ? 'bad' : totals.margin > 0 ? 'ok' : undefined} />
         </div>
       ) : null}
 
