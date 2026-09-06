@@ -165,6 +165,12 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/customers/{id}/cost/summary", h.customerSummary)
 	mux.HandleFunc("GET /api/v1/customers/{id}/cost/dimensions", h.customerCostDimensions)
 
+	// Anomalies + recommendations (#6867, DESIGN.md §3.6-3.7).
+	mux.HandleFunc("GET /api/v1/anomalies", h.anomalies)
+	mux.HandleFunc("GET /api/v1/customers/{id}/anomalies", h.customerAnomalies)
+	mux.HandleFunc("GET /api/v1/recommendations", h.recommendations)
+	mux.HandleFunc("GET /api/v1/customers/{id}/recommendations", h.customerRecommendations)
+
 	// Anything else under /api is 404 JSON; everything else is the UI.
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) { writeErr(w, http.StatusNotFound, "not found") })
 	mux.Handle("/", h.uiHandler())

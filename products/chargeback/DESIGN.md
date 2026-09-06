@@ -183,12 +183,35 @@ Params `from`, `to`. Daily cost per (customer, kind) is compared with the traili
 absolute impact is at least 1 currency unit. Rows carry `drivers[]` — the SKUs and
 resources whose Δ explains the spike.
 
+Shipped shape (`internal/anomaly`, `internal/store/anomalies.go`, `internal/api/anomalies.go`):
+the baseline needs ≥ 5 prior days with data (absent days are unknown, not zero);
+σ = 0 makes z infinite, so `score` is capped at 99 (JSON cannot carry Inf); `actual`
+is the ledger's exact day total, `expected`/`impact`/`score` are statistics. A driver's
+`delta` is the day's cost minus the mean daily cost of the 7 calendar days before it,
+per SKU and per resource, top 5 by |Δ|, zero deltas dropped. Default window = last
+30 days; the summary block is the last 7 days, top 5 by impact.
+
 ### 3.7 `GET /recommendations` · `GET /customers/{id}/recommendations`
 Rows `{type,severity,customer_id,customer_name,resource_id,resource_name,kind,title,detail,
 monthly_saving,currency,evidence}` and `total_monthly_saving`. Types:
 `stopped-instance-billed`, `unattached-volume`, `unbound-eip`, `low-cpu-utilisation`
 (7-day mean < 10 % → one flavor step down), `unpriced-sku`, `stale-source`,
 `no-price-book`. Savings = rate × 730 h.
+
+Shipped rules (`internal/recommend`, inputs from `internal/store/recommendations.go`):
+resource savings reuse the collector's `SKUsFor` (ECS `ecs.<flavor>`, EVS
+`evs.<class>.gb × size_gb`, EIP `eip + eip.bandwidth_mbps × bandwidth_mbps`), exact
+rational money. `stopped-instance-billed` fires only under `bill_stopped = compute` and
+only when the flavor is priced (otherwise nothing is billed). `unbound-eip` uses
+`attrs.status = DOWN` as the signal — Huawei reports an EIP bound to no port as DOWN —
+and carries it as `evidence.status`. `low-cpu-utilisation` needs ≥ 48 hourly samples;
+when the smaller SKU is not on the rate card the saving is half the current rate with
+`evidence.estimate = true`. `unpriced-sku` covers customers that HAVE a book (a bookless
+customer gets one `no-price-book` row instead) and never the `ecs.cpu_util` metric.
+`stale-source` reasons: `failed`, `error`, `never-collected`, `stale` (> 2 h); sources of
+non-active customers are dormant, not stale. Rows sort by `monthly_saving` desc, then
+severity, type, id; ids are `type:customer:resource` / `type:customer:sku` /
+`type:source` / `type:customer`.
 
 ### 3.8 CRUD gaps closed
 - `DELETE /customers/{id}` — 409 while issued statements exist.
