@@ -85,6 +85,28 @@ func Totals(lines []store.RatedLine, taxRate store.Decimal) (subtotal, tax, tota
 	return
 }
 
+// TotalsWithDiscount is Totals with a discount applied to the subtotal BEFORE
+// tax (#6862). Tax must be charged on what the customer actually pays: taxing
+// the list price and discounting afterwards overcharges VAT on money that was
+// never invoiced, which is a compliance problem, not a rounding one.
+//
+// The returned subtotal is the NET (list minus discount) so
+// subtotal + tax == total still holds for every downstream reader.
+func TotalsWithDiscount(lines []store.RatedLine, discount store.Decimal, taxRate store.Decimal) (subtotal, tax, total store.Decimal, err error) {
+	gross, _, _, err := Totals(lines, taxRate)
+	if err != nil {
+		return
+	}
+	if subtotal, err = Sub(gross, discount); err != nil {
+		return
+	}
+	if tax, err = Tax(subtotal, taxRate); err != nil {
+		return
+	}
+	total, err = Sum(subtotal, tax)
+	return
+}
+
 // DefaultTaxRate is Oman VAT.
 const DefaultTaxRate store.Decimal = "0.05"
 
@@ -157,7 +179,18 @@ func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, priceB
 	if err != nil {
 		return store.Statement{}, nil, err
 	}
-	subtotal, tax, total, err := Totals(lines, DefaultTaxRate)
+	// #6862 — discounts reduce the subtotal BEFORE tax. Taxing the list price
+	// and then discounting would overcharge tax on money the customer never
+	// paid.
+	discounts, err := st.ActiveDiscountsAt(ctx, c.ID, from)
+	if err != nil {
+		return store.Statement{}, nil, fmt.Errorf("discounts: %w", err)
+	}
+	discountTotal, applied, err := ApplyDiscounts(lines, discounts)
+	if err != nil {
+		return store.Statement{}, nil, err
+	}
+	subtotal, tax, total, err := TotalsWithDiscount(lines, discountTotal, DefaultTaxRate)
 	if err != nil {
 		return store.Statement{}, nil, err
 	}
@@ -171,6 +204,8 @@ func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, priceB
 		Tax:         tax,
 		Total:       total,
 		Lines:       lines,
+		Discount:    discountTotal,
+		AppliedDiscounts: applied,
 	})
 	return stmt, unpriced, err
 }

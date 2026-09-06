@@ -187,6 +187,55 @@ type PriceItem struct {
 	Description string   `json:"description,omitempty"`
 }
 
+// Discount reduces a customer's rated total (#6862).
+//
+// Two shapes cover the commercial cases the founder named — a negotiated
+// percentage off, and a time-boxed campaign:
+//
+//	kind=percent  value=15      -> 15% off the matching lines
+//	kind=fixed    value=500     -> 500 off the matching subtotal, never below 0
+//
+// Scope narrows what it applies to. An empty SKU means the whole bill; a set
+// SKU means only that meter (e.g. compute discounted, storage not).
+// StartsAt/EndsAt bound a campaign; both nil means always active.
+//
+// A discount is NOT a price change: the price book stays the list price, so a
+// statement can show what the customer would have paid and what they saved.
+// Overwriting the rate would destroy that, and destroy the audit trail with it.
+type Discount struct {
+	ID         string     `json:"id"`
+	CustomerID string     `json:"customer_id"`
+	Name       string     `json:"name"`
+	Kind       string     `json:"kind"` // percent | fixed
+	Value      Decimal    `json:"value"`
+	SKU        string     `json:"sku,omitempty"`
+	StartsAt   *time.Time `json:"starts_at,omitempty"`
+	EndsAt     *time.Time `json:"ends_at,omitempty"`
+	Active     bool       `json:"active"`
+	CreatedAt  time.Time  `json:"created_at"`
+}
+
+// AppliesAt reports whether the discount is live at t. A campaign that has not
+// started, or has ended, must not silently keep discounting.
+func (d Discount) AppliesAt(t time.Time) bool {
+	if !d.Active {
+		return false
+	}
+	if d.StartsAt != nil && t.Before(*d.StartsAt) {
+		return false
+	}
+	if d.EndsAt != nil && !t.Before(*d.EndsAt) {
+		return false
+	}
+	return true
+}
+
+// AppliesToSKU reports whether the discount covers a given meter. An empty
+// SKU on the discount means "the whole bill".
+func (d Discount) AppliesToSKU(sku string) bool {
+	return d.SKU == "" || d.SKU == sku
+}
+
 // Statement is one customer's rated period.
 type Statement struct {
 	ID           string      `json:"id"`

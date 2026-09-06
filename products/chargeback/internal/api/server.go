@@ -122,6 +122,11 @@ func New(d Deps) http.Handler {
 	// #6850 — the Sovereign allocation view (ADR-0014 D3 case 3): tenant Org
 	// rows + the platform-overhead line. Operator-only; it spans customers.
 	mux.HandleFunc("GET /api/v1/allocation", h.allocation)
+	// #6862 — discounts and campaigns. Operator-only to create or toggle; a
+	// customer must never be able to grant themselves a discount.
+	mux.HandleFunc("GET /api/v1/customers/{id}/discounts", h.listDiscounts)
+	mux.HandleFunc("POST /api/v1/customers/{id}/discounts", h.createDiscount)
+	mux.HandleFunc("PATCH /api/v1/discounts/{did}", h.setDiscountActive)
 	mux.HandleFunc("POST /api/v1/customers/{id}/sources", h.createSource)
 	mux.HandleFunc("POST /api/v1/sources/{id}/credential", h.rotateCredential)
 	mux.HandleFunc("POST /api/v1/sources/{id}/verify", h.verifySource)
