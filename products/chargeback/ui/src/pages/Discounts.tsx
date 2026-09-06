@@ -100,6 +100,7 @@ export function Discounts() {
     },
     {
       key: 'actions',
+      className: 'actions',
       header: '',
       value: () => '',
       sortable: false,

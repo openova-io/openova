@@ -111,7 +111,7 @@ export function Customers() {
       header: '',
       value: () => '',
       sortable: false,
-      className: 'nowrap',
+      className: 'nowrap actions',
       render: (c) => (
         <button
           className="link small"

@@ -78,7 +78,7 @@ export function SourcesPanel({
       header: '',
       value: () => '',
       sortable: false,
-      className: 'nowrap',
+      className: 'nowrap actions',
       render: (s) => (
         <span className="btn-row">
           {editable.length ? (

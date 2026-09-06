@@ -101,7 +101,7 @@ export function BudgetsPanel({ customerId, canManage, currency }: { customerId: 
             header: '',
             value: () => '',
             sortable: false,
-            className: 'nowrap',
+            className: 'nowrap actions',
             render: (v: BudgetView) => (
               <span className="btn-row">
                 <button className="link small" disabled={act.busy} onClick={() => setDialog({ kind: 'edit', budget: v.budget })}>

@@ -63,7 +63,7 @@ export function DiscountsPanel({ customerId, canManage, currency }: { customerId
       header: '',
       value: () => '',
       sortable: false,
-      className: 'nowrap',
+      className: 'nowrap actions',
       render: (d) =>
         isGlobalDiscount(d) ? (
           canManage ? (
