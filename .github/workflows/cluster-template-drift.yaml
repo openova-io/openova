@@ -38,7 +38,7 @@ jobs:
     name: Detect bootstrap-kit drift
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: List per-Sovereign bootstrap-kits
         id: list

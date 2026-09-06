@@ -84,7 +84,7 @@ jobs:
     if: github.event_name != 'schedule'
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install yq
         run: |
@@ -282,7 +282,7 @@ jobs:
       packages: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           # Need history back to the PR base for the --changed-only diff.
           fetch-depth: 0
@@ -359,7 +359,7 @@ jobs:
         working-directory: tests/e2e/bootstrap-kit
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -384,7 +384,7 @@ jobs:
         working-directory: tests/e2e/bootstrap-kit
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Go
         uses: actions/setup-go@v5
