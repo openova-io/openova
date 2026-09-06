@@ -210,3 +210,25 @@ func discountDetailJSON(v any) any {
 	}
 	return b
 }
+
+// DeleteDraftStatement removes a draft and its rated lines (cascade). An
+// issued statement is refused with ErrConflict: it is the bill the customer
+// received, and the next run for the period must still see it as issued.
+func (s *Store) DeleteDraftStatement(ctx context.Context, id string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var status string
+	if err := tx.QueryRowContext(ctx, `SELECT status FROM statements WHERE id = $1 FOR UPDATE`, id).Scan(&status); err != nil {
+		return mapErr(err)
+	}
+	if status == "issued" {
+		return fmt.Errorf("%w: statement is issued; only drafts can be deleted", ErrConflict)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM statements WHERE id = $1`, id); err != nil {
+		return mapErr(err)
+	}
+	return tx.Commit()
+}
