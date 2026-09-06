@@ -140,6 +140,9 @@ export interface Statement {
   issued_at?: string | null
   created_at?: string
   lines?: RatedLine[] | null
+  /** #6862 — what discounts took off the list subtotal, frozen at issue time. */
+  discount_total?: number | string
+  discount_detail?: Array<{ id?: string; name: string; kind: string; value?: number | string; sku?: string; amount: number | string }> | null
 }
 
 export interface Invite {
