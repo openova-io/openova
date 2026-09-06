@@ -9,13 +9,6 @@ export function Overview() {
   const [data, setData] = useState<OverviewData | null>(null)
   const [error, setError] = useState('')
 
-  useEffect(() => {
-    api
-      .get<OverviewData>('/overview')
-      .then(setData)
-      .catch((e) => setError(errorText(e)))
-  }, [])
-
   if (error) return <Notice kind="bad">{error}</Notice>
   if (!data) return <p className="muted">Loading…</p>
 
