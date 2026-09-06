@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-06T11:30:02Z` |
+| Last refreshed | `2026-09-06T11:45:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-06T11:41 | [#6865](https://github.com/openova-io/openova/pull/6865) | #6850 | feat(chargeback): the allocation screen (Refs #6865) |
 | 2026-09-06T10:45 | [#6864](https://github.com/openova-io/openova/pull/6864) | #6863 | feat(chargeback): usage trend chart (Refs #6863) |
 | 2026-09-06T09:31 | [#6862](https://github.com/openova-io/openova/pull/6862) | #6862 | feat(chargeback): discounts and time-boxed campaigns (Refs # |
 | 2026-09-06T07:59 | [#6860](https://github.com/openova-io/openova/pull/6860) | #6855 | fix(chargeback): let an operator actually set a source's sco |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-02T16:41 | [#6812](https://github.com/openova-io/openova/pull/6812) | #6810 | docs(sessions): hw307 post-ready evidence — stability watch, |
 | 2026-09-02T16:41 | [#6811](https://github.com/openova-io/openova/pull/6811) | #6778 | docs(uat): seven scheduler-due rows walked live on hw307 (Re |
 | 2026-09-02T16:28 | [#6810](https://github.com/openova-io/openova/pull/6810) | #6330 | docs(ledger): carry the UAT ledger forward onto hw307 (Refs  |
-| 2026-09-02T17:23 | [#6809](https://github.com/openova-io/openova/pull/6809) | #5512 | fix(bp-cnpg): the upstream chart repo redirects to a host th |
 
 ---
 
