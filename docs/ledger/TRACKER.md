@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-06T07:00:04Z` |
+| Last refreshed | `2026-09-06T07:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6183](https://github.com/openova-io/openova/issues/6183) | specter residue + UAT row W5: remove the phantom wizard component id and the non | Other |
 | [#6187](https://github.com/openova-io/openova/issues/6187) | bp-keycloak 1.5.10: the #6172 backchannel anchor is not gated to Sovereign mode, | Other |
 | [#6189](https://github.com/openova-io/openova/issues/6189) | P0: mothership owner sign-in dead — Keycloak scaled to 0 behind a green HelmRe | Other |
 | [#6191](https://github.com/openova-io/openova/issues/6191) | hw295 reports status=ready while its console gateway EIP (212.72.24.8, the wiped | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6853](https://github.com/openova-io/openova/issues/6853) | chargeback meters only 5 of 16 provisionable resource kinds — everything else  | Other |
 | [#6855](https://github.com/openova-io/openova/issues/6855) | chargeback bills the whole Huawei project to one customer — bastion-openova is | Other |
 | [#6857](https://github.com/openova-io/openova/issues/6857) | Four extended listers 400 against the real Huawei gateway — limit=200 rejected | Other |
+| [#6859](https://github.com/openova-io/openova/issues/6859) | scope_token is unsettable, so the #6855 project-scoping fix is inert — every s | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-06T07:01 | [#6856](https://github.com/openova-io/openova/pull/6856) | #6855 | fix(chargeback): scope a project cost source to one deployme |
 | 2026-09-06T06:27 | [#6854](https://github.com/openova-io/openova/pull/6854) | #6853 | feat(chargeback): meter every provisionable resource kind, n |
 | 2026-09-06T04:27 | [#6852](https://github.com/openova-io/openova/pull/6852) | #6849 | fix(catalyst-api): platform Applications are platform-*, not |
 | 2026-09-04T08:40 | [#6851](https://github.com/openova-io/openova/pull/6851) | #6841 | feat(chargeback): meter the Sovereign's own footprint as a p |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-02T17:27 | [#6807](https://github.com/openova-io/openova/pull/6807) | #5261 | fix(api): a reconcile on an exhausted HelmRelease must clear |
 | 2026-09-02T17:29 | [#6806](https://github.com/openova-io/openova/pull/6806) | #2370 | fix(console): serve the route a Blueprint registers as its s |
 | 2026-09-02T16:26 | [#6804](https://github.com/openova-io/openova/pull/6804) | #6803 | fix(harbor): repair a proxy-cache artifact whose index serve |
-| 2026-09-02T15:19 | [#6801](https://github.com/openova-io/openova/pull/6801) | #6800 | docs(sessions): hw307 READY via the Phase-1 re-watch — evide |
 
 ---
 
