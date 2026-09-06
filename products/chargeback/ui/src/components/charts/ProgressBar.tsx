@@ -51,7 +51,11 @@ export function ProgressBar({ value, max, markers = [], thresholds = [], format,
   const pct = (v / max) * 100
   const state = progressState(pct, thresholds)
   const marks = markers.filter((m) => Number.isFinite(m.value))
-  const scale = Math.max(max, v, ...marks.map((m) => m.value)) * (marks.length || v > max ? 1.04 : 1)
+  // A marker far beyond the amount (a runaway forecast) would squash the bar
+  // and its threshold ticks into a sliver; cap the scale at 2× the amount and
+  // pin such markers to the right edge with their real value in the label.
+  const rawScale = Math.max(max, v, ...marks.map((m) => m.value)) * (marks.length || v > max ? 1.04 : 1)
+  const scale = Math.min(rawScale, max * 2)
   const above = marks.length ? 16 : 0
   const below = thresholds.length ? 14 : 0
   const svgH = above + height + below
@@ -72,20 +76,25 @@ export function ProgressBar({ value, max, markers = [], thresholds = [], format,
         {scale > max ? <rect x={x(max)} y={barY} width={width - x(max)} height={height} fill="#f1f5f9" /> : null}
         {v > 0 ? <rect className="chart-mark" x={0} y={barY} width={Math.max(1, x(v))} height={height} fill={COLOR[state]} /> : null}
         {scale > max ? <line x1={x(max)} x2={x(max)} y1={barY - 3} y2={barY + height + 3} stroke="#0f172a" strokeWidth={1.5} /> : null}
-        {thresholds.map((t) => {
+        {thresholds.map((t, i) => {
           const tx = x((t / 100) * max)
+          // Skip a label that would land on the previous one (keep the tick).
+          const prevX = i > 0 ? x((thresholds[i - 1] / 100) * max) : -Infinity
+          const showLabel = tx - prevX >= 30
           return (
             <g key={t} className="chart-axis">
               <line x1={tx} x2={tx} y1={barY} y2={barY + height + 3} stroke="#64748b" strokeWidth={1} />
-              <text x={tx} y={svgH - 2} textAnchor={tx > width - 24 ? 'end' : tx < 24 ? 'start' : 'middle'}>
-                {`${t} %`}
-              </text>
+              {showLabel ? (
+                <text x={tx} y={svgH - 2} textAnchor={tx > width - 24 ? 'end' : tx < 24 ? 'start' : 'middle'}>
+                  {`${t} %`}
+                </text>
+              ) : null}
             </g>
           )
         })}
         {marks.map((m) => {
           const mx = x(m.value)
-          const text = `${m.label} ${formatCompact(m.value)}`
+          const text = `${m.label} ${formatCompact(m.value)}${m.value > scale ? ' ▸' : ''}`
           const anchor = mx > width - 60 ? 'end' : 'start'
           return (
             <g key={m.label} className="chart-axis">

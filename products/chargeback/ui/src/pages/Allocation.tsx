@@ -255,7 +255,7 @@ export function Allocation() {
               {draft.pool === 'sovereign-cost' ? (
                 <Field label="Sovereign customer" help="The customer whose cost sources carry the cloud bill">
                   <select value={draft.sovereign_customer_id} onChange={(e) => set({ sovereign_customer_id: e.target.value })}>
-                    <option value="">— choose —</option>
+                    <option value="">{pool?.source === 'sovereign-cost' && pool.customer_name ? `auto: ${pool.customer_name} (the only customer with a verified cloud project)` : '— choose —'}</option>
                     {customers.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.name}

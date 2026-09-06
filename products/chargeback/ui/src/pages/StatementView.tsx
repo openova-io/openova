@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { API_BASE, api, errorText } from '../api/client'
+import { API_BASE, api, asList, errorText } from '../api/client'
 import { useSession } from '../auth/session'
-import type { RatedLine, Statement } from '../api/types'
+import type { CostSource, RatedLine, Statement } from '../api/types'
 import { Waterfall, waterfallLayout, type WaterfallStep } from '../components/charts'
 import { Badge, Confirm, EmptyState, Notice, PageHeader, Skeleton } from '../components/ui'
 import { num, when } from '../lib/format'
@@ -29,6 +29,13 @@ export function StatementView() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const s = q.data
+  // The rated lines carry source ids; the customer's sources give them names.
+  const srcQ = useQuery<unknown>(s ? `/customers/${s.customer_id}/sources` : null)
+  const sourceLabel = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const src of asList<CostSource>(srcQ.data, 'sources')) m.set(src.id, `${src.kind}${src.project_id ? ' · ' + src.project_id : ''}${src.region ? ' · ' + src.region : ''}`)
+    return m
+  }, [srcQ.data])
   const lines: RatedLine[] = useMemo(() => s?.lines ?? [], [s])
   const groups = useMemo(() => groupByService(lines), [lines])
   const sources = useMemo(() => groupBySource(lines), [lines])
@@ -258,7 +265,16 @@ export function StatementView() {
             <tbody>
               {sources.map((src) => (
                 <tr key={src.source_id || '(none)'}>
-                  <td>{src.source_id ? <span className="mono">{src.source_id}</span> : <span className="muted">no source recorded</span>}</td>
+                  <td>
+                    {src.source_id ? (
+                      <>
+                        {sourceLabel.get(src.source_id) ?? 'cost source'}
+                        <span className="sub mono">{src.source_id}</span>
+                      </>
+                    ) : (
+                      <span className="muted">no source recorded</span>
+                    )}
+                  </td>
                   <td className="num">{src.lines}</td>
                   <td className="num">{money(src.amount)}</td>
                   <td className="num">{formatPct(src.share * 100)}</td>
