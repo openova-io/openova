@@ -12,6 +12,7 @@ import { PriceBookEdit } from './pages/PriceBookEdit'
 import { PriceBooks } from './pages/PriceBooks'
 import { SignIn } from './pages/SignIn'
 import { StatementView } from './pages/StatementView'
+import { Allocation } from './pages/Allocation'
 import { Statements } from './pages/Statements'
 
 function Home() {
@@ -37,6 +38,7 @@ export function App() {
             <Route path="/customers/new" element={<CustomerNew />} />
             <Route path="/customers/import" element={<CustomerImport />} />
             <Route path="/customers/:id" element={<CustomerDetail />} />
+            <Route path="/allocation" element={<Allocation />} />
             <Route path="/pricebooks" element={<PriceBooks />} />
             <Route path="/pricebooks/:id" element={<PriceBookEdit />} />
             <Route path="/statements" element={<Statements />} />
