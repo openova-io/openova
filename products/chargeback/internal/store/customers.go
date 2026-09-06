@@ -256,3 +256,34 @@ func (s *Store) CustomerStartDate(ctx context.Context, id string) (time.Time, er
 	}
 	return d.Time.UTC(), nil
 }
+
+// DeleteCustomer removes a customer and, through the FK cascades, its
+// sources, credentials, usage, inventory, users, invites, discounts, budgets
+// and draft statements. It is refused (ErrConflict) while any ISSUED
+// statement exists: an issued bill is a financial record and must survive
+// the customer that received it — suspend the customer instead.
+func (s *Store) DeleteCustomer(ctx context.Context, id string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var exists bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM customers WHERE id = $1 FOR UPDATE)`, id).Scan(&exists); err != nil {
+		return mapErr(err)
+	}
+	if !exists {
+		return ErrNotFound
+	}
+	var issued int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM statements WHERE customer_id = $1 AND status = 'issued'`, id).Scan(&issued); err != nil {
+		return mapErr(err)
+	}
+	if issued > 0 {
+		return fmt.Errorf("%w: customer has %d issued statement(s); issued statements are permanent records, suspend the customer instead of deleting it", ErrConflict, issued)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM customers WHERE id = $1`, id); err != nil {
+		return mapErr(err)
+	}
+	return tx.Commit()
+}

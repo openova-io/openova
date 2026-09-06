@@ -121,13 +121,16 @@ type RatableUsage struct {
 }
 
 // UsageForRating aggregates a customer's records in [from, to) per source and
-// SKU, splitting out the stopped-instance share.
+// SKU, splitting out the stopped-instance share. The CPU-utilisation sample
+// (ecs.cpu_util) is a metric, not a meter: it is excluded here so a run never
+// reports it as an "unpriced SKU" — the explorer excludes it the same way
+// (#6867), and the two must agree.
 func (s *Store) UsageForRating(ctx context.Context, customerID string, from, to time.Time) ([]RatableUsage, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT u.source_id, u.sku, u.unit, u.resource_kind, sum(u.quantity)::text,
 		COALESCE(sum(u.quantity) FILTER (WHERE upper(COALESCE(u.labels->>'status','')) IN ('SHUTOFF','STOPPED','SHUTDOWN')
 			OR upper(COALESCE(u.labels->>'server_status','')) IN ('SHUTOFF','STOPPED','SHUTDOWN')), 0)::text,
 		count(DISTINCT u.resource_id)
-		FROM usage_records u WHERE u.customer_id = $1 AND u.window_start >= $2 AND u.window_start < $3
+		FROM usage_records u WHERE u.customer_id = $1 AND u.window_start >= $2 AND u.window_start < $3 AND u.sku <> 'ecs.cpu_util'
 		GROUP BY u.source_id, u.sku, u.unit, u.resource_kind ORDER BY u.source_id, u.sku`, customerID, from, to)
 	if err != nil {
 		return nil, mapErr(err)
@@ -219,4 +222,17 @@ func PeriodBounds(period string) (time.Time, time.Time, error) {
 	}
 	start := time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, time.UTC)
 	return start, start.AddDate(0, 1, 0), nil
+}
+
+// DeleteUsageForResources removes every record of the given resources on one
+// source (#6867 purge of scope-excluded usage). Returns the rows removed.
+func (s *Store) DeleteUsageForResources(ctx context.Context, sourceID string, resourceIDs []string) (int64, error) {
+	if len(resourceIDs) == 0 {
+		return 0, nil
+	}
+	res, err := s.db.ExecContext(ctx, `DELETE FROM usage_records WHERE source_id = $1 AND resource_id = ANY($2)`, sourceID, pq.Array(resourceIDs))
+	if err != nil {
+		return 0, mapErr(err)
+	}
+	return res.RowsAffected()
 }

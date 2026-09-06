@@ -57,5 +57,5 @@ export function useSession() {
 
 export function homeFor(me: Me | null): string {
   if (!me) return '/signin'
-  return me.role === 'operator' ? '/overview' : '/my/usage'
+  return me.role === 'operator' ? '/overview' : '/my/overview'
 }

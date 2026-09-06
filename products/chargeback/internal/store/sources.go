@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -228,4 +229,71 @@ func truncateErr(s string) string {
 		return s[:500]
 	}
 	return s
+}
+
+// SourcePatch carries optional source updates; nil means unchanged.
+type SourcePatch struct {
+	Region     *string
+	ProjectID  *string
+	ScopeToken *string
+	DomainID   *string
+}
+
+// Fields names the fields the patch changes, for the audit entry.
+func (p SourcePatch) Fields() []string {
+	var f []string
+	if p.Region != nil {
+		f = append(f, "region")
+	}
+	if p.ProjectID != nil {
+		f = append(f, "project_id")
+	}
+	if p.ScopeToken != nil {
+		f = append(f, "scope_token")
+	}
+	if p.DomainID != nil {
+		f = append(f, "domain_id")
+	}
+	return f
+}
+
+// UpdateSource applies a patch. Changing the region or the project id points
+// the source at a different cloud location, so the stored verification no
+// longer proves anything: status drops back to pending and last_error is
+// cleared, and the operator re-verifies. A scope_token or domain_id change
+// keeps the status — the credential's reach is unchanged.
+func (s *Store) UpdateSource(ctx context.Context, id string, p SourcePatch) (CostSource, error) {
+	sets := []string{}
+	var args []any
+	add := func(col string, v any) {
+		args = append(args, v)
+		sets = append(sets, fmt.Sprintf("%s = $%d", col, len(args)))
+	}
+	if p.Region != nil {
+		add("region", strings.TrimSpace(*p.Region))
+	}
+	if p.ProjectID != nil {
+		add("project_id", strings.TrimSpace(*p.ProjectID))
+	}
+	if p.ScopeToken != nil {
+		add("scope_token", strings.TrimSpace(*p.ScopeToken))
+	}
+	if p.DomainID != nil {
+		add("domain_id", nullStr(p.DomainID))
+	}
+	if p.Region != nil || p.ProjectID != nil {
+		sets = append(sets, "status = 'pending'", "last_error = NULL", "verified_at = NULL")
+	}
+	if len(sets) == 0 {
+		return s.GetSource(ctx, OperatorScope, id)
+	}
+	args = append(args, id)
+	res, err := s.db.ExecContext(ctx, fmt.Sprintf(`UPDATE cost_sources SET %s WHERE id = $%d`, strings.Join(sets, ", "), len(args)), args...)
+	if err != nil {
+		return CostSource{}, mapErr(err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return CostSource{}, ErrNotFound
+	}
+	return s.GetSource(ctx, OperatorScope, id)
 }

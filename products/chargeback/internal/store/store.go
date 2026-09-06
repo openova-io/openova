@@ -226,6 +226,63 @@ CREATE TABLE IF NOT EXISTS pins (
 	// campaign that later ends must not change an issued bill.
 	`ALTER TABLE statements ADD COLUMN IF NOT EXISTS discount_total NUMERIC(20,6) NOT NULL DEFAULT 0;`,
 	`ALTER TABLE statements ADD COLUMN IF NOT EXISTS discount_detail JSONB;`,
+	// #6867 — cost analysis. Cost is computed at query time from usage_records
+	// joined to the customer's price book (no rollup table, no second source of
+	// truth); these two indexes keep month-scale explorer windows in the tens of
+	// milliseconds on the measured hw307 shape (72k rows).
+	`CREATE INDEX IF NOT EXISTS usage_records_window_sku_idx ON usage_records (window_start, sku);`,
+	`CREATE INDEX IF NOT EXISTS usage_records_customer_kind_window_idx ON usage_records (customer_id, resource_kind, window_start);`,
+	// #6867 — budgets with thresholds. customer_id NULL = every customer.
+	`CREATE TABLE IF NOT EXISTS budgets (
+		id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+		name TEXT NOT NULL,
+		customer_id UUID REFERENCES customers(id) ON DELETE CASCADE,
+		amount NUMERIC(20,6) NOT NULL CHECK (amount >= 0),
+		currency TEXT NOT NULL DEFAULT 'OMR',
+		period TEXT NOT NULL DEFAULT 'monthly' CHECK (period IN ('monthly')),
+		thresholds INT[] NOT NULL DEFAULT '{50,80,100}',
+		notify_emails TEXT[] NOT NULL DEFAULT '{}',
+		active BOOLEAN NOT NULL DEFAULT true,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+	);`,
+	`CREATE INDEX IF NOT EXISTS budgets_customer_idx ON budgets (customer_id);`,
+	// One alert per (budget, period, threshold): a crossing is recorded once,
+	// so an hourly evaluator can never mail the same threshold twice.
+	`CREATE TABLE IF NOT EXISTS budget_alerts (
+		id BIGSERIAL PRIMARY KEY,
+		budget_id UUID NOT NULL REFERENCES budgets(id) ON DELETE CASCADE,
+		period TEXT NOT NULL,
+		threshold INT NOT NULL,
+		actual NUMERIC(20,6) NOT NULL,
+		at TIMESTAMPTZ NOT NULL DEFAULT now(),
+		UNIQUE (budget_id, period, threshold)
+	);`,
+	// #6867 — editable allocation basis (was a constant in store/allocation.go).
+	// Single row, id = 1.
+	`CREATE TABLE IF NOT EXISTS allocation_settings (
+		id INT PRIMARY KEY CHECK (id = 1),
+		weights JSONB NOT NULL DEFAULT '{"vcpu":1,"mem_gib":1,"pvc_gb":1}'::jsonb,
+		overhead_policy TEXT NOT NULL DEFAULT 'separate' CHECK (overhead_policy IN ('separate','distribute')),
+		pool TEXT NOT NULL DEFAULT 'sovereign-cost' CHECK (pool IN ('sovereign-cost','manual')),
+		manual_amount NUMERIC(20,6) NOT NULL DEFAULT 0,
+		currency TEXT NOT NULL DEFAULT 'OMR',
+		sovereign_customer_id UUID REFERENCES customers(id) ON DELETE SET NULL,
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+	);`,
+	`INSERT INTO allocation_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;`,
+	// #6867 — saved explorer views, per signed-in user.
+	`CREATE TABLE IF NOT EXISTS saved_views (
+		id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+		owner_email TEXT NOT NULL,
+		name TEXT NOT NULL,
+		page TEXT NOT NULL DEFAULT 'explore',
+		params JSONB NOT NULL DEFAULT '{}'::jsonb,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+		UNIQUE (owner_email, page, name)
+	);`,
+	// #6867 — a discount with no customer is a campaign for every customer.
+	`ALTER TABLE discounts ALTER COLUMN customer_id DROP NOT NULL;`,
 }
 
 // Migrate applies every migration not yet recorded in schema_migrations.

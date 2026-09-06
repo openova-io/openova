@@ -202,17 +202,23 @@ type PriceItem struct {
 // A discount is NOT a price change: the price book stays the list price, so a
 // statement can show what the customer would have paid and what they saved.
 // Overwriting the rate would destroy that, and destroy the audit trail with it.
+//
+// CustomerID nil is a GLOBAL campaign (#6867): it applies to every customer.
+// The JSON key is always present (null for global) so a reader can tell "all
+// customers" from "field missing".
 type Discount struct {
-	ID         string     `json:"id"`
-	CustomerID string     `json:"customer_id"`
-	Name       string     `json:"name"`
-	Kind       string     `json:"kind"` // percent | fixed
-	Value      Decimal    `json:"value"`
-	SKU        string     `json:"sku,omitempty"`
-	StartsAt   *time.Time `json:"starts_at,omitempty"`
-	EndsAt     *time.Time `json:"ends_at,omitempty"`
-	Active     bool       `json:"active"`
-	CreatedAt  time.Time  `json:"created_at"`
+	ID         string  `json:"id"`
+	CustomerID *string `json:"customer_id"`
+	// CustomerName is the joined display name; nil for a global campaign.
+	CustomerName *string    `json:"customer_name,omitempty"`
+	Name         string     `json:"name"`
+	Kind         string     `json:"kind"` // percent | fixed
+	Value        Decimal    `json:"value"`
+	SKU          string     `json:"sku,omitempty"`
+	StartsAt     *time.Time `json:"starts_at,omitempty"`
+	EndsAt       *time.Time `json:"ends_at,omitempty"`
+	Active       bool       `json:"active"`
+	CreatedAt    time.Time  `json:"created_at"`
 }
 
 // AppliesAt reports whether the discount is live at t. A campaign that has not
@@ -252,6 +258,10 @@ type Statement struct {
 	CreatedAt    time.Time   `json:"created_at"`
 	Lines        []RatedLine `json:"lines,omitempty"`
 	CustomerName string      `json:"customer_name,omitempty"`
+	// #6862/#6867 — what discounts took off the list subtotal, frozen with the
+	// statement. Subtotal is the NET; list = Subtotal + DiscountTotal.
+	DiscountTotal  Decimal         `json:"discount_total"`
+	DiscountDetail json.RawMessage `json:"discount_detail,omitempty"`
 }
 
 // RatedLine is one priced aggregate on a statement.
@@ -327,3 +337,6 @@ var ErrNotFound = errors.New("not found")
 
 // ErrConflict is returned on unique-constraint or state conflicts.
 var ErrConflict = errors.New("conflict")
+
+// IsConflict reports whether err is (or wraps) ErrConflict.
+func IsConflict(err error) bool { return errors.Is(err, ErrConflict) }

@@ -107,6 +107,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/customers/import", h.importCustomers)
 	mux.HandleFunc("GET /api/v1/customers/{id}", h.getCustomer)
 	mux.HandleFunc("PATCH /api/v1/customers/{id}", h.patchCustomer)
+	mux.HandleFunc("DELETE /api/v1/customers/{id}", h.deleteCustomer)
 	mux.HandleFunc("POST /api/v1/customers/{id}/invite", h.inviteCustomer)
 	mux.HandleFunc("GET /api/v1/customers/{id}/users", h.listUsers)
 	mux.HandleFunc("POST /api/v1/customers/{id}/users", h.addUser)
@@ -119,22 +120,42 @@ func New(d Deps) http.Handler {
 
 	// Sources.
 	mux.HandleFunc("GET /api/v1/customers/{id}/sources", h.listSources)
-	// #6850 — the Sovereign allocation view (ADR-0014 D3 case 3): tenant Org
-	// rows + the platform-overhead line. Operator-only; it spans customers.
+	// #6850/#6867 — the Sovereign allocation view (ADR-0014 D3 case 3):
+	// tenant Org rows + the platform-overhead line, in currency, per the
+	// editable settings. Operator-only; it spans customers.
 	mux.HandleFunc("GET /api/v1/allocation", h.allocation)
-	// #6862 — discounts and campaigns. Operator-only to create or toggle; a
-	// customer must never be able to grant themselves a discount.
+	mux.HandleFunc("GET /api/v1/allocation/settings", h.getAllocationSettings)
+	mux.HandleFunc("PUT /api/v1/allocation/settings", h.putAllocationSettings)
+	// #6862 — discounts and campaigns. Operator-only to create, edit, toggle
+	// or delete; a customer must never be able to grant themselves a
+	// discount. The customer-scoped list also carries the global campaigns
+	// (customer_id null, #6867) so a customer sees what applies to it.
 	mux.HandleFunc("GET /api/v1/customers/{id}/discounts", h.listDiscounts)
 	mux.HandleFunc("POST /api/v1/customers/{id}/discounts", h.createDiscount)
-	mux.HandleFunc("PATCH /api/v1/discounts/{did}", h.setDiscountActive)
+	mux.HandleFunc("GET /api/v1/discounts", h.listAllDiscounts)
+	mux.HandleFunc("POST /api/v1/discounts", h.createGlobalDiscount)
+	mux.HandleFunc("GET /api/v1/discounts/{id}", h.getDiscount)
+	mux.HandleFunc("PUT /api/v1/discounts/{id}", h.updateDiscount)
+	mux.HandleFunc("PATCH /api/v1/discounts/{id}", h.setDiscountActive)
+	mux.HandleFunc("DELETE /api/v1/discounts/{id}", h.deleteDiscount)
 	mux.HandleFunc("POST /api/v1/customers/{id}/sources", h.createSource)
+	mux.HandleFunc("PATCH /api/v1/sources/{id}", h.patchSource)
 	mux.HandleFunc("POST /api/v1/sources/{id}/credential", h.rotateCredential)
 	mux.HandleFunc("POST /api/v1/sources/{id}/verify", h.verifySource)
 	mux.HandleFunc("DELETE /api/v1/sources/{id}", h.deleteSource)
+	mux.HandleFunc("POST /api/v1/sources/{id}/purge-excluded", h.purgeExcluded)
 
 	// Usage + inventory.
 	mux.HandleFunc("GET /api/v1/customers/{id}/usage", h.customerUsage)
 	mux.HandleFunc("GET /api/v1/customers/{id}/inventory", h.customerInventory)
+
+	// Resources with cost (#6867, DESIGN.md §3.4). A resource id may itself
+	// contain slashes (k8s "namespace/pod"), hence the rest-of-path wildcard.
+	mux.HandleFunc("GET /api/v1/resources", h.listResources)
+	mux.HandleFunc("GET /api/v1/resources.csv", h.resourcesCSV)
+	mux.HandleFunc("GET /api/v1/resources/{source_id}/{resource_id...}", h.getResource)
+	mux.HandleFunc("GET /api/v1/customers/{id}/resources", h.customerResources)
+	mux.HandleFunc("GET /api/v1/customers/{id}/resources.csv", h.customerResourcesCSV)
 
 	// Price books.
 	mux.HandleFunc("GET /api/v1/pricebooks", h.listPriceBooks)
@@ -142,7 +163,14 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/pricebooks/template.csv", h.priceBookTemplate)
 	mux.HandleFunc("GET /api/v1/pricebooks/{id}", h.getPriceBook)
 	mux.HandleFunc("PUT /api/v1/pricebooks/{id}", h.updatePriceBook)
+	mux.HandleFunc("DELETE /api/v1/pricebooks/{id}", h.deletePriceBook)
+	mux.HandleFunc("POST /api/v1/pricebooks/{id}/clone", h.clonePriceBook)
+	mux.HandleFunc("GET /api/v1/pricebooks/{id}/export.csv", h.exportPriceBook)
+	mux.HandleFunc("GET /api/v1/pricebooks/{id}/coverage", h.priceBookCoverage)
 	mux.HandleFunc("PUT /api/v1/pricebooks/{id}/items", h.putPriceItems)
+	mux.HandleFunc("POST /api/v1/pricebooks/{id}/items", h.addPriceItem)
+	mux.HandleFunc("PATCH /api/v1/pricebooks/{id}/items/{sku}", h.patchPriceItem)
+	mux.HandleFunc("DELETE /api/v1/pricebooks/{id}/items/{sku}", h.deletePriceItem)
 	mux.HandleFunc("POST /api/v1/pricebooks/{id}/import", h.importPriceBook)
 
 	// Statements.
@@ -151,9 +179,40 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/customers/{id}/statements", h.listCustomerStatements)
 	mux.HandleFunc("GET /api/v1/statements/{id}", h.getStatement)
 	mux.HandleFunc("POST /api/v1/statements/{id}/issue", h.issueStatement)
+	mux.HandleFunc("DELETE /api/v1/statements/{id}", h.deleteStatement)
+
+	// Saved views (#6867) — per signed-in user, any role.
+	mux.HandleFunc("GET /api/v1/views", h.listViews)
+	mux.HandleFunc("POST /api/v1/views", h.createView)
+	mux.HandleFunc("DELETE /api/v1/views/{id}", h.deleteView)
 
 	// Operator.
 	mux.HandleFunc("GET /api/v1/overview", h.overview)
+
+	// Cost analysis (#6867, DESIGN.md §3.1-3.3).
+	mux.HandleFunc("GET /api/v1/cost/explore", h.explore)
+	mux.HandleFunc("GET /api/v1/cost/export.csv", h.exploreCSV)
+	mux.HandleFunc("GET /api/v1/cost/summary", h.summary)
+	mux.HandleFunc("GET /api/v1/cost/dimensions", h.costDimensions)
+	mux.HandleFunc("GET /api/v1/customers/{id}/cost/explore", h.customerExplore)
+	mux.HandleFunc("GET /api/v1/customers/{id}/cost/export.csv", h.customerExploreCSV)
+	mux.HandleFunc("GET /api/v1/customers/{id}/cost/summary", h.customerSummary)
+	mux.HandleFunc("GET /api/v1/customers/{id}/cost/dimensions", h.customerCostDimensions)
+
+	// Budgets (#6867, DESIGN.md §3.5). Reads follow the session scope;
+	// writes are operator-only.
+	mux.HandleFunc("GET /api/v1/budgets", h.listBudgets)
+	mux.HandleFunc("POST /api/v1/budgets", h.createBudget)
+	mux.HandleFunc("GET /api/v1/budgets/{id}", h.getBudget)
+	mux.HandleFunc("PUT /api/v1/budgets/{id}", h.updateBudget)
+	mux.HandleFunc("DELETE /api/v1/budgets/{id}", h.deleteBudget)
+	mux.HandleFunc("GET /api/v1/budgets/{id}/status", h.budgetStatus)
+	mux.HandleFunc("GET /api/v1/customers/{id}/budgets", h.customerBudgets)
+	// Anomalies + recommendations (#6867, DESIGN.md §3.6-3.7).
+	mux.HandleFunc("GET /api/v1/anomalies", h.anomalies)
+	mux.HandleFunc("GET /api/v1/customers/{id}/anomalies", h.customerAnomalies)
+	mux.HandleFunc("GET /api/v1/recommendations", h.recommendations)
+	mux.HandleFunc("GET /api/v1/customers/{id}/recommendations", h.customerRecommendations)
 
 	// Anything else under /api is 404 JSON; everything else is the UI.
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) { writeErr(w, http.StatusNotFound, "not found") })

@@ -6,14 +6,22 @@ import { CustomerDetail } from './pages/CustomerDetail'
 import { CustomerImport } from './pages/CustomerImport'
 import { CustomerNew } from './pages/CustomerNew'
 import { Customers } from './pages/Customers'
-import { MySources, MyStatements, MyUsage } from './pages/My'
+import { MyBudgets, MyDiscounts, MyExplore, MyOverview, MySources, MyStatements, MyUsage } from './pages/My'
 import { Overview } from './pages/Overview'
+import { CostExplorer } from './pages/CostExplorer'
 import { PriceBookEdit } from './pages/PriceBookEdit'
 import { PriceBooks } from './pages/PriceBooks'
 import { SignIn } from './pages/SignIn'
 import { StatementView } from './pages/StatementView'
 import { Allocation } from './pages/Allocation'
+import { ChartGallery } from './pages/ChartGallery'
+import { Budgets } from './pages/Budgets'
+import { Discounts } from './pages/Discounts'
 import { Statements } from './pages/Statements'
+import { Resources } from './pages/Resources'
+import { ResourceDetail } from './pages/ResourceDetail'
+import { Anomalies } from './pages/Anomalies'
+import { Recommendations } from './pages/Recommendations'
 
 function Home() {
   const { me, loading } = useSession()
@@ -34,6 +42,7 @@ export function App() {
 
           <Route element={<Shell roles={['operator']} />}>
             <Route path="/overview" element={<Overview />} />
+            <Route path="/explore" element={<CostExplorer />} />
             <Route path="/customers" element={<Customers />} />
             <Route path="/customers/new" element={<CustomerNew />} />
             <Route path="/customers/import" element={<CustomerImport />} />
@@ -41,13 +50,29 @@ export function App() {
             <Route path="/allocation" element={<Allocation />} />
             <Route path="/pricebooks" element={<PriceBooks />} />
             <Route path="/pricebooks/:id" element={<PriceBookEdit />} />
+            <Route path="/discounts" element={<Discounts />} />
+            <Route path="/budgets" element={<Budgets />} />
             <Route path="/statements" element={<Statements />} />
+            <Route path="/resources" element={<Resources />} />
+            <Route path="/resources/:sourceId/:resourceId" element={<ResourceDetail />} />
+            <Route path="/anomalies" element={<Anomalies />} />
+            <Route path="/recommendations" element={<Recommendations />} />
+            {/* Visual regression page for the chart library (#6867); not in the nav. */}
+            <Route path="/dev/charts" element={<ChartGallery />} />
           </Route>
 
           <Route element={<Shell roles={['customer-admin', 'customer-viewer']} />}>
+            <Route path="/my/overview" element={<MyOverview />} />
+            <Route path="/my/explore" element={<MyExplore />} />
             <Route path="/my/usage" element={<MyUsage />} />
             <Route path="/my/statements" element={<MyStatements />} />
+            <Route path="/my/budgets" element={<MyBudgets />} />
             <Route path="/my/sources" element={<MySources />} />
+            <Route path="/my/resources" element={<Resources />} />
+            <Route path="/my/resources/:sourceId/:resourceId" element={<ResourceDetail />} />
+            <Route path="/my/anomalies" element={<Anomalies />} />
+            <Route path="/my/recommendations" element={<Recommendations />} />
+            <Route path="/my/discounts" element={<MyDiscounts />} />
           </Route>
 
           <Route element={<Shell />}>

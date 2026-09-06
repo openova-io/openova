@@ -205,3 +205,62 @@ func (h *Handler) collectingFor(r *http.Request, src store.CostSource) bool {
 	c, err := h.Store.GetCustomer(r.Context(), store.OperatorScope, src.CustomerID)
 	return err == nil && c.Status == "active"
 }
+
+// patchSource edits a source's location or scope (#6867). The operator may
+// change everything; a customer admin of the owning customer may change ONLY
+// scope_token — region and project_id decide what the customer is billed
+// for, and domain_id is what verification stamped, so those stay with the
+// operator. Changing region or project_id resets the source to pending: the
+// stored verification proved a different project.
+func (h *Handler) patchSource(w http.ResponseWriter, r *http.Request) {
+	s, ok := h.requireAuth(w, r)
+	if !ok {
+		return
+	}
+	src, err := h.Store.GetSource(r.Context(), s.Scope(), r.PathValue("id"))
+	if err != nil {
+		storeErr(w, err)
+		return
+	}
+	if _, ok := h.requireCustomer(w, r, src.CustomerID, true); !ok {
+		return
+	}
+	var in struct {
+		Region     *string `json:"region"`
+		ProjectID  *string `json:"project_id"`
+		ScopeToken *string `json:"scope_token"`
+		DomainID   *string `json:"domain_id"`
+	}
+	if err := decode(r, &in); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body: "+err.Error())
+		return
+	}
+	p := store.SourcePatch{Region: in.Region, ProjectID: in.ProjectID, ScopeToken: in.ScopeToken, DomainID: in.DomainID}
+	fields := p.Fields()
+	if len(fields) == 0 {
+		writeErr(w, http.StatusBadRequest, "nothing to update: give region, project_id, scope_token or domain_id")
+		return
+	}
+	if s.Role != store.RoleOperator && (in.Region != nil || in.ProjectID != nil || in.DomainID != nil) {
+		writeErr(w, http.StatusForbidden, "a customer admin may change scope_token only; region, project_id and domain_id are set by the operator")
+		return
+	}
+	if in.Region != nil && src.Kind == "huawei-project" && strings.TrimSpace(*in.Region) == "" {
+		writeErr(w, http.StatusBadRequest, "region is required for a huawei-project source")
+		return
+	}
+	if in.ProjectID != nil && src.Kind == "huawei-project" && strings.TrimSpace(*in.ProjectID) == "" {
+		writeErr(w, http.StatusBadRequest, "project_id is required for a huawei-project source")
+		return
+	}
+	updated, err := h.Store.UpdateSource(r.Context(), src.ID, p)
+	if err != nil {
+		storeErr(w, err)
+		return
+	}
+	h.audit(r, &src.CustomerID, "source.update", map[string]any{"source_id": src.ID, "fields": fields, "status": updated.Status})
+	writeJSON(w, http.StatusOK, struct {
+		store.CostSource
+		Collecting bool `json:"collecting"`
+	}{updated, h.collectingFor(r, updated)})
+}

@@ -290,3 +290,24 @@ func (h *Handler) activateIfPending(r *http.Request, customerID string) {
 	}
 	h.audit(r, &customerID, "customer.activate", map[string]any{"via": "source verification"})
 }
+
+// deleteCustomer removes a customer and everything hanging off it (sources,
+// credentials, usage, drafts) through the FK cascades. Refused with 409
+// while an issued statement exists — that bill is a permanent record.
+func (h *Handler) deleteCustomer(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if _, ok := h.requireOperator(w, r); !ok {
+		return
+	}
+	c, err := h.Store.GetCustomer(r.Context(), store.OperatorScope, id)
+	if err != nil {
+		storeErr(w, err)
+		return
+	}
+	if err := h.Store.DeleteCustomer(r.Context(), id); err != nil {
+		storeErr(w, err)
+		return
+	}
+	h.audit(r, &id, "customer.delete", map[string]any{"slug": c.Slug, "name": c.Name})
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": true, "id": id, "slug": c.Slug})
+}

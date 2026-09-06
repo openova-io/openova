@@ -10,16 +10,22 @@ import (
 )
 
 const statementColumns = `st.id, st.customer_id, to_char(st.period_start, 'YYYY-MM-DD'), to_char(st.period_end, 'YYYY-MM-DD'), st.currency,
-	st.subtotal::text, st.tax_rate::text, st.tax::text, st.total::text, st.status, st.issued_at, st.created_at, c.name`
+	st.subtotal::text, st.tax_rate::text, st.tax::text, st.total::text, st.status, st.issued_at, st.created_at, c.name,
+	COALESCE(st.discount_total, 0)::text, st.discount_detail`
 
 func scanStatement(row interface{ Scan(...any) error }) (Statement, error) {
 	var st Statement
-	var sub, rate, tax, total string
+	var sub, rate, tax, total, disc string
 	var issued sql.NullTime
-	if err := row.Scan(&st.ID, &st.CustomerID, &st.PeriodStart, &st.PeriodEnd, &st.Currency, &sub, &rate, &tax, &total, &st.Status, &issued, &st.CreatedAt, &st.CustomerName); err != nil {
+	var detail []byte
+	if err := row.Scan(&st.ID, &st.CustomerID, &st.PeriodStart, &st.PeriodEnd, &st.Currency, &sub, &rate, &tax, &total, &st.Status, &issued, &st.CreatedAt, &st.CustomerName, &disc, &detail); err != nil {
 		return st, mapErr(err)
 	}
 	st.Subtotal, st.TaxRate, st.Tax, st.Total = Decimal(sub), Decimal(rate), Decimal(tax), Decimal(total)
+	st.DiscountTotal = Decimal(disc)
+	if len(detail) > 0 && string(detail) != "null" {
+		st.DiscountDetail = detail
+	}
 	st.IssuedAt = timePtr(issued)
 	return st, nil
 }
@@ -209,4 +215,26 @@ func discountDetailJSON(v any) any {
 		return nil
 	}
 	return b
+}
+
+// DeleteDraftStatement removes a draft and its rated lines (cascade). An
+// issued statement is refused with ErrConflict: it is the bill the customer
+// received, and the next run for the period must still see it as issued.
+func (s *Store) DeleteDraftStatement(ctx context.Context, id string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var status string
+	if err := tx.QueryRowContext(ctx, `SELECT status FROM statements WHERE id = $1 FOR UPDATE`, id).Scan(&status); err != nil {
+		return mapErr(err)
+	}
+	if status == "issued" {
+		return fmt.Errorf("%w: statement is issued; only drafts can be deleted", ErrConflict)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM statements WHERE id = $1`, id); err != nil {
+		return mapErr(err)
+	}
+	return tx.Commit()
 }
