@@ -111,6 +111,10 @@ jobs:
         with:
           context: products/chargeback
           file: products/chargeback/Containerfile
+          # The binary reports `version` (/api/v1/auth/me, the listening log);
+          # without the build-arg every pushed tag says "dev" — hw307 did.
+          build-args: |
+            VERSION=${{ steps.vars.outputs.app_version }}
           load: true
           push: false
           tags: |
