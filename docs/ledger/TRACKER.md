@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-06T04:15:02Z` |
+| Last refreshed | `2026-09-06T04:30:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-06T04:27 | [#6852](https://github.com/openova-io/openova/pull/6852) | #6849 | fix(catalyst-api): platform Applications are platform-*, not |
 | 2026-09-04T08:40 | [#6851](https://github.com/openova-io/openova/pull/6851) | #6841 | feat(chargeback): meter the Sovereign's own footprint as a p |
 | 2026-09-04T07:41 | [#6848](https://github.com/openova-io/openova/pull/6848) | #6841 | fix(chargeback): give the Sovereign real SMTP so invites are |
 | 2026-09-03T08:14 | [#6847](https://github.com/openova-io/openova/pull/6847) | #6846 | fix(chargeback): turn the OpenOva adapter on in the Sovereig |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-02T16:26 | [#6804](https://github.com/openova-io/openova/pull/6804) | #6803 | fix(harbor): repair a proxy-cache artifact whose index serve |
 | 2026-09-02T15:19 | [#6801](https://github.com/openova-io/openova/pull/6801) | #6800 | docs(sessions): hw307 READY via the Phase-1 re-watch — evide |
 | 2026-09-02T15:06 | [#6800](https://github.com/openova-io/openova/pull/6800) | #3153 | fix(catalyst-api): phase1-watch retry re-runs only the Phase |
-| 2026-09-02T14:53 | [#6798](https://github.com/openova-io/openova/pull/6798) | #4460 | fix(bp-postgres): pre-flip secondary -mesh/-mesh-rw stub mus |
 
 ---
 
