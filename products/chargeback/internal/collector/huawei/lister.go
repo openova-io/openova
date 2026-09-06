@@ -21,6 +21,47 @@ const (
 
 var pageLimit = 200
 
+// listerFn lists one kind.
+type listerFn func(*Client, context.Context, Credentials, string) ([]Resource, error)
+
+// kindListers is THE registry of collectable kinds — one list, read by both
+// ListAll and SupportedKinds. A second hand-written copy is how a newly added
+// kind silently loses deletion tracking: its resources would never be marked
+// deleted and would bill forever (#6853).
+var kindListers = []struct {
+	kind string
+	fn   listerFn
+}{
+	{KindECS, (*Client).ListECS},
+	{KindEVS, (*Client).ListEVS},
+	{KindEIP, (*Client).ListEIP},
+	{KindELB, (*Client).ListELB},
+	{KindNAT, (*Client).ListNAT},
+	// #6853 — every other service a customer can provision. An unmetered
+	// resource emits no usage record at all, so it bills zero while nothing
+	// looks wrong; that is worse than a mispriced one.
+	{KindRDS, (*Client).ListRDS},
+	{KindDDS, (*Client).ListDDS},
+	{KindGaussDB, (*Client).ListGaussDB},
+	{KindCBR, (*Client).ListCBR},
+	{KindCCE, (*Client).ListCCE},
+	{KindVPC, (*Client).ListVPC},
+	{KindDNS, (*Client).ListDNS},
+	{KindWAF, (*Client).ListWAF},
+	{KindIMS, (*Client).ListIMS},
+	{KindAS, (*Client).ListAS},
+	{KindVPCEP, (*Client).ListVPCEP},
+}
+
+// SupportedKinds returns every resource kind the collector lists.
+func SupportedKinds() []string {
+	out := make([]string, 0, len(kindListers))
+	for _, k := range kindListers {
+		out = append(out, k.kind)
+	}
+	return out
+}
+
 // Resource is one cloud resource as observed by a list call.
 type Resource struct {
 	ID      string
@@ -47,18 +88,8 @@ func (c *Client) Verify(ctx context.Context, creds Credentials, region string) e
 // result so the caller does not mark their resources deleted.
 func (c *Client) ListAll(ctx context.Context, creds Credentials, region string) (resources []Resource, failed map[string]error) {
 	failed = map[string]error{}
-	kinds := []struct {
-		kind string
-		fn   func(context.Context, Credentials, string) ([]Resource, error)
-	}{
-		{KindECS, c.ListECS},
-		{KindEVS, c.ListEVS},
-		{KindEIP, c.ListEIP},
-		{KindELB, c.ListELB},
-		{KindNAT, c.ListNAT},
-	}
-	for _, k := range kinds {
-		rs, err := k.fn(ctx, creds, region)
+	for _, k := range kindListers {
+		rs, err := k.fn(c, ctx, creds, region)
 		if err != nil {
 			failed[k.kind] = err
 			continue

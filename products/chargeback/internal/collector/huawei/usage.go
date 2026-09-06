@@ -97,6 +97,66 @@ func SKUsFor(kind string, attrs map[string]any, flavor string) []SKU {
 			spec = "unknown"
 		}
 		return []SKU{{Name: "nat." + spec, Unit: "hour", Multiplier: 1}}
+
+	// #6853 — the remaining provisionable kinds. Each derives a SKU that is
+	// stable for the resource's billable shape, so the price book can carry a
+	// rate for it before the first one is ever created.
+	case KindRDS, KindDDS, KindGaussDB:
+		// The catalog prices a managed database by engine, flavor and whether
+		// it is a single instance or a primary-standby pair, and prices its
+		// storage separately per GB. Both lines are emitted so a pair is not
+		// billed as a single, and storage is not billed as compute.
+		engine := strings.ToLower(str(attrs["engine"]))
+		if engine == "" {
+			engine = "unknown"
+		}
+		flavor := str(attrs["flavor"])
+		if flavor == "" {
+			flavor = "unknown"
+		}
+		// The catalog prices a single instance and a primary-standby pair
+		// differently, so the mode is part of the SKU. Huawei reports "Ha"
+		// for a pair; normalise both spellings to one token or the same
+		// deployment bills under two different SKUs.
+		mode := strings.ToLower(str(attrs["mode"]))
+		switch mode {
+		case "ha", "primary-standby", "replicaset", "replica":
+			mode = "ha"
+		default:
+			mode = "single"
+		}
+		// A Huawei DB flavor_ref already carries kind+engine
+		// ("rds.mysql.c7.large.2"), so prepending them again would yield
+		// "rds.mysql.rds.mysql.c7.large.2" — a SKU no price list can match.
+		base := flavor
+		if !strings.HasPrefix(base, kind+".") {
+			base = kind + "." + engine + "." + flavor
+		}
+		out := []SKU{{Name: base + "." + mode, Unit: "instance-hour", Multiplier: 1}}
+		if gb := num(attrs["size_gb"]); gb > 0 {
+			out = append(out, SKU{Name: kind + ".storage." + mode + ".gb", Unit: "gb-hour", Multiplier: gb})
+		}
+		return out
+	case KindCBR:
+		return []SKU{{Name: "cbr.gb", Unit: "gb-hour", Multiplier: num(attrs["size_gb"])}}
+	case KindCCE:
+		flavor := str(attrs["flavor"])
+		if flavor == "" {
+			flavor = "unknown"
+		}
+		return []SKU{{Name: "cce." + flavor, Unit: "cluster-hour", Multiplier: 1}}
+	case KindIMS:
+		return []SKU{{Name: "ims.gb", Unit: "gb-hour", Multiplier: num(attrs["size_gb"])}}
+	case KindVPC:
+		return []SKU{{Name: "vpc", Unit: "hour", Multiplier: 1}}
+	case KindDNS:
+		return []SKU{{Name: "dns", Unit: "hour", Multiplier: 1}}
+	case KindWAF:
+		return []SKU{{Name: "waf", Unit: "hour", Multiplier: 1}}
+	case KindAS:
+		return []SKU{{Name: "as", Unit: "hour", Multiplier: 1}}
+	case KindVPCEP:
+		return []SKU{{Name: "vpcep", Unit: "hour", Multiplier: 1}}
 	}
 	return nil
 }

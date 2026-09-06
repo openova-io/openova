@@ -113,6 +113,27 @@ func TestListOtherKindsMapFields(t *testing.T) {
 			w.Write([]byte(`{"nat_gateways":[{"id":"n1","name":"nat","spec":"1","status":"ACTIVE","created_at":"2026-08-01 00:00:00.418723"}]}`))
 		case strings.Contains(r.URL.Path, "/cloudservers/detail"):
 			w.Write([]byte(`{"servers":[]}`))
+		// #6853 — the extended kinds. Each returns one row so the mapping of
+		// billable attributes (engine/flavor/mode/size) is exercised, not just
+		// the call path.
+		case strings.HasSuffix(r.URL.Path, "/instances"):
+			w.Write([]byte(`{"instances":[{"id":"db1","name":"db","status":"ACTIVE","mode":"Ha","flavor_ref":"rds.mysql.c7.large.2","datastore":{"type":"MySQL","version":"8.0"},"volume":{"type":"ULTRAHIGH","size":40}}]}`))
+		case strings.Contains(r.URL.Path, "/vaults"):
+			w.Write([]byte(`{"vaults":[{"id":"cb1","name":"vault","billing":{"size":100,"protect_type":"backup","status":"available"}}]}`))
+		case strings.Contains(r.URL.Path, "/clusters"):
+			w.Write([]byte(`{"items":[{"metadata":{"uid":"cce1","name":"k8s"},"spec":{"flavor":"cce.s1.small","type":"VirtualMachine"},"status":{"phase":"Available"}}]}`))
+		case strings.HasSuffix(r.URL.Path, "/vpcs"):
+			w.Write([]byte(`{"vpcs":[{"id":"vpc1","name":"vpc","status":"OK"}]}`))
+		case strings.Contains(r.URL.Path, "/zones"):
+			w.Write([]byte(`{"zones":[{"id":"z1","name":"example.om.","status":"ACTIVE","zone_type":"public"}]}`))
+		case strings.Contains(r.URL.Path, "/waf/instance"):
+			w.Write([]byte(`{"items":[{"id":"w1","instancename":"waf-1"}]}`))
+		case strings.Contains(r.URL.Path, "/cloudimages"):
+			w.Write([]byte(`{"images":[{"id":"im1","name":"img","status":"active","visibility":"private","min_disk":40}]}`))
+		case strings.Contains(r.URL.Path, "/scaling_group"):
+			w.Write([]byte(`{"scaling_groups":[{"scaling_group_id":"as1","scaling_group_name":"asg","scaling_group_status":"INSERVICE"}]}`))
+		case strings.Contains(r.URL.Path, "/vpc-endpoints"):
+			w.Write([]byte(`{"endpoints":[{"id":"ep1","status":"accepted","endpoint_service_name":"svc"}]}`))
 		default:
 			w.WriteHeader(404)
 			w.Write([]byte(`{"error_code":"APIGW.0101","error_msg":"not published"}`))
