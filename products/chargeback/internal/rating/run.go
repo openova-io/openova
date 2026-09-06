@@ -195,16 +195,16 @@ func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, priceB
 		return store.Statement{}, nil, err
 	}
 	stmt, err := st.WriteDraftStatement(ctx, store.StatementDraft{
-		CustomerID:  c.ID,
-		PeriodStart: from,
-		PeriodEnd:   to.AddDate(0, 0, -1),
-		Currency:    pb.Currency,
-		Subtotal:    subtotal,
-		TaxRate:     DefaultTaxRate,
-		Tax:         tax,
-		Total:       total,
-		Lines:       lines,
-		Discount:    discountTotal,
+		CustomerID:       c.ID,
+		PeriodStart:      from,
+		PeriodEnd:        to.AddDate(0, 0, -1),
+		Currency:         pb.Currency,
+		Subtotal:         subtotal,
+		TaxRate:          DefaultTaxRate,
+		Tax:              tax,
+		Total:            total,
+		Lines:            lines,
+		Discount:         discountTotal,
 		AppliedDiscounts: applied,
 	})
 	return stmt, unpriced, err

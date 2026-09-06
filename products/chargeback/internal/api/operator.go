@@ -2,40 +2,27 @@ package api
 
 import (
 	"net/http"
-	"time"
+
+	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
 
-// overview is the operator landing payload: customers by status, usage over
-// the last 30 days, and the rated total of the most recent period.
+// overview is the operator landing payload. Since #6867 it is the cost
+// summary document (DESIGN.md §3.2): the earlier three-block payload used
+// keys the page never read, which is how hw307 rendered every KPI as zero.
 func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	s, ok := h.requireOperator(w, r)
+	if !ok {
 		return
 	}
-	counts, err := h.Store.CustomerCountsByStatus(r.Context())
-	if err != nil {
-		storeErr(w, err)
-		return
-	}
-	usage, err := h.Store.UsageSince(r.Context(), h.Now().Add(-30*24*time.Hour), 20)
-	if err != nil {
-		storeErr(w, err)
-		return
-	}
-	period, total, n, err := h.Store.LastPeriodTotal(r.Context())
-	if err != nil {
-		storeErr(w, err)
-		return
-	}
-	sources, err := h.Store.SourceStatusCounts(r.Context())
-	if err != nil {
-		storeErr(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"profile":        h.Config.Profile,
-		"customers":      counts,
-		"sources":        sources,
-		"usage_last_30d": usage,
-		"last_period":    map[string]any{"period": period, "total": total, "statements": n},
-	})
+	h.writeSummary(w, r, s.Scope(), "")
+}
+
+// enrichSummary is the seam where the budgets and anomalies lanes add their
+// blocks to the summary (parts.Budgets / parts.Anomalies). Kept as a method
+// so each lane extends it without touching the composition.
+func (h *Handler) enrichSummary(r *http.Request, scope store.Scope, customerID string, parts *summaryParts) {
+	_ = r
+	_ = scope
+	_ = customerID
+	_ = parts
 }

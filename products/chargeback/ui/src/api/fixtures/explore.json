@@ -1,0 +1,115 @@
+{
+  "from": "2026-09-01",
+  "to": "2026-09-08",
+  "granularity": "day",
+  "group_by": "kind",
+  "metric": "cost",
+  "currency": "OMR",
+  "mixed_currency": false,
+  "buckets": [
+    "2026-09-01",
+    "2026-09-02",
+    "2026-09-03",
+    "2026-09-04",
+    "2026-09-05",
+    "2026-09-06",
+    "2026-09-07"
+  ],
+  "bucket_has_data": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+  ],
+  "groups": [
+    {
+      "key": "ecs",
+      "label": "Elastic Cloud Server",
+      "total": 84.000000,
+      "previous": 42.000000,
+      "delta_pct": 100,
+      "share": 0.8065,
+      "resources": 2,
+      "values": [
+        12.000000,
+        12.000000,
+        12.000000,
+        12.000000,
+        12.000000,
+        12.000000,
+        12.000000
+      ]
+    },
+    {
+      "key": "evs",
+      "label": "Block storage (EVS)",
+      "total": 16.800000,
+      "previous": 0.000000,
+      "delta_pct": null,
+      "share": 0.1613,
+      "resources": 1,
+      "values": [
+        2.400000,
+        2.400000,
+        2.400000,
+        2.400000,
+        2.400000,
+        2.400000,
+        2.400000
+      ]
+    }
+  ],
+  "other": {
+    "key": "other",
+    "label": "Other",
+    "total": 3.360000,
+    "previous": 0.000000,
+    "delta_pct": null,
+    "share": 0.0323,
+    "resources": 1,
+    "values": [
+      0.480000,
+      0.480000,
+      0.480000,
+      0.480000,
+      0.480000,
+      0.480000,
+      0.480000
+    ]
+  },
+  "total": {
+    "current": 104.160000,
+    "previous": 42.000000,
+    "delta_pct": 148,
+    "resources": 4
+  },
+  "totals_by_bucket": [
+    14.880000,
+    14.880000,
+    14.880000,
+    14.880000,
+    14.880000,
+    14.880000,
+    14.880000
+  ],
+  "unpriced": [
+    {
+      "sku": "k8s.vcpu",
+      "unit": "vcpu-hour",
+      "quantity": 84.000000,
+      "resources": 1
+    }
+  ],
+  "forecast": {
+    "month_end": 446.4,
+    "run_rate_daily": 14.879999999999999,
+    "trend_daily": 0,
+    "method": "run-rate-7d",
+    "days_observed": 7,
+    "days_in_month": 30,
+    "confidence": "medium"
+  }
+}

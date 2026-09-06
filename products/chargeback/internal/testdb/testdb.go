@@ -46,7 +46,7 @@ func Open(t *testing.T) *store.Store {
 	return st
 }
 
-const wipeSQL = `TRUNCATE TABLE audit_log, sessions, pins, invites, rated_lines, statements, usage_records, resource_inventory, cost_sources, credentials, customer_users, customers, price_items, price_books RESTART IDENTITY CASCADE`
+const wipeSQL = `TRUNCATE TABLE audit_log, sessions, pins, invites, rated_lines, statements, usage_records, resource_inventory, cost_sources, credentials, customer_users, discounts, budgets, budget_alerts, saved_views, customers, price_items, price_books RESTART IDENTITY CASCADE; UPDATE allocation_settings SET weights = '{"vcpu":1,"mem_gib":1,"pvc_gb":1}'::jsonb, overhead_policy = 'separate', pool = 'sovereign-cost', manual_amount = 0, currency = 'OMR', sovereign_customer_id = NULL WHERE id = 1`
 
 func wipe(t *testing.T, db *sql.DB) {
 	t.Helper()

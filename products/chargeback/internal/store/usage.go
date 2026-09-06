@@ -121,13 +121,16 @@ type RatableUsage struct {
 }
 
 // UsageForRating aggregates a customer's records in [from, to) per source and
-// SKU, splitting out the stopped-instance share.
+// SKU, splitting out the stopped-instance share. The CPU-utilisation sample
+// (ecs.cpu_util) is a metric, not a meter: it is excluded here so a run never
+// reports it as an "unpriced SKU" — the explorer excludes it the same way
+// (#6867), and the two must agree.
 func (s *Store) UsageForRating(ctx context.Context, customerID string, from, to time.Time) ([]RatableUsage, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT u.source_id, u.sku, u.unit, u.resource_kind, sum(u.quantity)::text,
 		COALESCE(sum(u.quantity) FILTER (WHERE upper(COALESCE(u.labels->>'status','')) IN ('SHUTOFF','STOPPED','SHUTDOWN')
 			OR upper(COALESCE(u.labels->>'server_status','')) IN ('SHUTOFF','STOPPED','SHUTDOWN')), 0)::text,
 		count(DISTINCT u.resource_id)
-		FROM usage_records u WHERE u.customer_id = $1 AND u.window_start >= $2 AND u.window_start < $3
+		FROM usage_records u WHERE u.customer_id = $1 AND u.window_start >= $2 AND u.window_start < $3 AND u.sku <> 'ecs.cpu_util'
 		GROUP BY u.source_id, u.sku, u.unit, u.resource_kind ORDER BY u.source_id, u.sku`, customerID, from, to)
 	if err != nil {
 		return nil, mapErr(err)

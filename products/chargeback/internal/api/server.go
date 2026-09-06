@@ -155,6 +155,16 @@ func New(d Deps) http.Handler {
 	// Operator.
 	mux.HandleFunc("GET /api/v1/overview", h.overview)
 
+	// Cost analysis (#6867, DESIGN.md §3.1-3.3).
+	mux.HandleFunc("GET /api/v1/cost/explore", h.explore)
+	mux.HandleFunc("GET /api/v1/cost/export.csv", h.exploreCSV)
+	mux.HandleFunc("GET /api/v1/cost/summary", h.summary)
+	mux.HandleFunc("GET /api/v1/cost/dimensions", h.costDimensions)
+	mux.HandleFunc("GET /api/v1/customers/{id}/cost/explore", h.customerExplore)
+	mux.HandleFunc("GET /api/v1/customers/{id}/cost/export.csv", h.customerExploreCSV)
+	mux.HandleFunc("GET /api/v1/customers/{id}/cost/summary", h.customerSummary)
+	mux.HandleFunc("GET /api/v1/customers/{id}/cost/dimensions", h.customerCostDimensions)
+
 	// Anything else under /api is 404 JSON; everything else is the UI.
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) { writeErr(w, http.StatusNotFound, "not found") })
 	mux.Handle("/", h.uiHandler())

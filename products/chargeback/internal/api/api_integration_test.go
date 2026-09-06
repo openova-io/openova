@@ -356,7 +356,9 @@ func TestIntegrationEndToEndOnboardingUsageStatements(t *testing.T) {
 		m := r.(map[string]any)
 		if m["customer_id"] == acmeID {
 			stmtID = m["statement_id"].(string)
-			if m["lines"].(float64) != 2 || m["unpriced_skus"].([]any)[0] != "ecs.cpu_util" {
+			// ecs.cpu_util is a metric sample, not a meter: since #6867 the
+			// run no longer reports it as an unpriced SKU (omitempty → absent).
+			if m["lines"].(float64) != 2 || m["unpriced_skus"] != nil {
 				t.Fatalf("acme result = %+v", m)
 			}
 		} else if m["lines"].(float64) != 0 || m["statement_id"] == "" {
@@ -400,7 +402,9 @@ func TestIntegrationEndToEndOnboardingUsageStatements(t *testing.T) {
 		t.Fatalf("re-run on issued = %+v", r)
 	}
 	ov := op.must("GET", "/api/v1/overview", 200)
-	if ov["customers"].(map[string]any)["active"].(float64) != 1 || ov["last_period"].(map[string]any)["period"] != "2026-08" {
+	// #6867 — the overview is the cost summary document (DESIGN.md §3.2).
+	latest := ov["statements"].(map[string]any)["latest"].([]any)
+	if ov["customers"].(map[string]any)["active"].(float64) != 1 || len(latest) == 0 || latest[0].(map[string]any)["period_start"] != "2026-08-01" || ov["mtd"] == nil || ov["daily"] == nil {
 		t.Fatalf("overview = %+v", ov)
 	}
 

@@ -1,0 +1,231 @@
+{
+  "anomalies": [
+    {
+      "actual": 24,
+      "customer_id": "c-1",
+      "customer_name": "Acme",
+      "day": "2026-09-03",
+      "dimension": "kind",
+      "drivers": [
+        {
+          "delta": 12,
+          "key": "vm-2",
+          "kind": "resource",
+          "label": "batch-2"
+        }
+      ],
+      "expected": 12,
+      "impact": 12,
+      "key": "ecs",
+      "label": "Elastic Cloud Server",
+      "score": 4.2
+    }
+  ],
+  "avg_daily_30d": 14.879999999999999,
+  "budgets": [
+    {
+      "actual": "104.160000",
+      "amount": "3000.000000",
+      "currency": "OMR",
+      "customer_id": null,
+      "forecast": 2712.5,
+      "id": "b-1",
+      "name": "September",
+      "pct_actual": 3.47,
+      "pct_forecast": 90.4,
+      "status": "warning",
+      "thresholds": [
+        {
+          "crossed": false,
+          "pct": 50
+        },
+        {
+          "crossed": false,
+          "pct": 80
+        },
+        {
+          "crossed": false,
+          "pct": 100
+        }
+      ]
+    }
+  ],
+  "by_customer": [
+    {
+      "cost": 100.800000,
+      "delta_pct": null,
+      "id": "c-1",
+      "key": "c-1",
+      "label": "Acme",
+      "name": "Acme",
+      "previous": 42.000000,
+      "resources": 3,
+      "share": 0.97
+    },
+    {
+      "cost": 3.360000,
+      "delta_pct": null,
+      "id": "c-2",
+      "key": "c-2",
+      "label": "Bravo",
+      "name": "Bravo",
+      "previous": 0.000000,
+      "resources": 1,
+      "share": 0.03
+    }
+  ],
+  "by_kind": [
+    {
+      "cost": 84.000000,
+      "delta_pct": 100,
+      "key": "ecs",
+      "label": "Elastic Cloud Server",
+      "previous": 42.000000,
+      "resources": 2,
+      "share": 0.8065
+    },
+    {
+      "cost": 16.800000,
+      "delta_pct": null,
+      "key": "evs",
+      "label": "Block storage (EVS)",
+      "previous": 0.000000,
+      "resources": 1,
+      "share": 0.1613
+    },
+    {
+      "cost": 3.360000,
+      "delta_pct": null,
+      "key": "other",
+      "label": "Other",
+      "previous": 0.000000,
+      "resources": 1,
+      "share": 0.0323
+    }
+  ],
+  "currency": "OMR",
+  "customers": {
+    "active": 2,
+    "pending": 0,
+    "suspended": 0
+  },
+  "daily": [
+    {
+      "cost": 14.880000,
+      "day": "2026-09-01",
+      "has_data": true
+    },
+    {
+      "cost": 14.880000,
+      "day": "2026-09-02",
+      "has_data": true
+    },
+    {
+      "cost": 14.880000,
+      "day": "2026-09-03",
+      "has_data": true
+    },
+    {
+      "cost": 14.880000,
+      "day": "2026-09-04",
+      "has_data": true
+    },
+    {
+      "cost": 14.880000,
+      "day": "2026-09-05",
+      "has_data": true
+    },
+    {
+      "cost": 14.880000,
+      "day": "2026-09-06",
+      "has_data": true
+    },
+    {
+      "cost": 14.880000,
+      "day": "2026-09-07",
+      "has_data": true
+    }
+  ],
+  "forecast": {
+    "month_end": 446.4,
+    "run_rate_daily": 14.879999999999999,
+    "trend_daily": 0,
+    "method": "run-rate-7d",
+    "days_observed": 7,
+    "days_in_month": 30,
+    "confidence": "medium"
+  },
+  "last_30d": {
+    "cost": 104.160000,
+    "days_with_data": 7
+  },
+  "last_collected_at": "2026-09-08T10:00:00Z",
+  "last_month": {
+    "cost": 42.000000,
+    "period": "2026-08"
+  },
+  "mixed_currency": false,
+  "mom_delta_pct": 148,
+  "mtd": {
+    "cost": 104.160000,
+    "days": 8,
+    "from": "2026-09-01",
+    "resources": 4,
+    "to": "2026-09-08"
+  },
+  "now": "2026-09-08T10:00:00Z",
+  "prev_mtd": {
+    "cost": 42.000000,
+    "days": 8
+  },
+  "profile": "sovereign",
+  "resources_live": 126,
+  "sources": {
+    "failed": 0,
+    "pending": 0,
+    "verified": 3
+  },
+  "statements": {
+    "draft": 1,
+    "issued": 1,
+    "latest": [
+      {
+        "id": "s-1",
+        "customer_id": "c-1",
+        "period_start": "2026-08-01",
+        "period_end": "2026-08-31",
+        "currency": "OMR",
+        "subtotal": 42.000000,
+        "tax_rate": 0.05,
+        "tax": 2.100000,
+        "total": 44.100000,
+        "status": "issued",
+        "issued_at": "2026-09-01T08:00:00Z",
+        "created_at": "2026-09-01T08:00:00Z",
+        "customer_name": "Acme"
+      },
+      {
+        "id": "s-2",
+        "customer_id": "c-1",
+        "period_start": "2026-09-01",
+        "period_end": "2026-09-30",
+        "currency": "OMR",
+        "subtotal": 100.800000,
+        "tax_rate": 0.05,
+        "tax": 5.040000,
+        "total": 105.840000,
+        "status": "draft",
+        "created_at": "2026-09-01T08:00:00Z",
+        "customer_name": "Acme"
+      }
+    ]
+  },
+  "unpriced_skus": [
+    {
+      "sku": "k8s.vcpu",
+      "unit": "vcpu-hour",
+      "quantity": 84.000000,
+      "resources": 1
+    }
+  ]
+}
