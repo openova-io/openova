@@ -18,7 +18,7 @@ import {
   createMemoryHistory,
 } from '@tanstack/react-router'
 import { BillingSectionNav } from './BillingSectionNav'
-import { BILLING_SECTIONS, billingSectionsFor } from './billing-sections'
+import { billingSectionsFor } from './billing-sections'
 
 function renderAt(path: string) {
   const rootRoute = createRootRoute({ component: () => <BillingSectionNav /> })
