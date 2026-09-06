@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { Fragment, useMemo, useState, type ReactNode } from 'react'
 import { EmptyState } from './ui'
 
 /**
@@ -36,6 +36,15 @@ export interface DataTableProps<T> {
   csvName?: string
   footNote?: ReactNode
   dense?: boolean
+  /**
+   * Controlled sort for server-sorted lists: the header shows `sort`, a
+   * click reports the next sort here, and rows are rendered in the order
+   * they arrived (the caller owns the ordering).
+   */
+  sort?: { key: string; dir: 'asc' | 'desc' } | null
+  onSortChange?: (sort: { key: string; dir: 'asc' | 'desc' }) => void
+  /** Optional detail row rendered under a row (null/undefined = collapsed). */
+  expanded?: (row: T) => ReactNode | null | undefined
 }
 
 export function toCSV<T>(columns: Column<T>[], rows: T[]): string {
@@ -79,10 +88,15 @@ export function DataTable<T>({
   emptyBody,
   csvName,
   footNote,
+  sort: controlledSort,
+  onSortChange,
+  expanded,
 }: DataTableProps<T>) {
-  const [sort, setSort] = useState(defaultSort ?? null)
+  const [localSort, setSort] = useState(defaultSort ?? null)
+  const controlled = Boolean(onSortChange)
+  const sort = controlled ? (controlledSort ?? null) : localSort
   const [page, setPage] = useState(0)
-  const sorted = useMemo(() => sortRows(rows, columns.find((c) => c.key === sort?.key), sort?.dir ?? 'desc'), [rows, columns, sort])
+  const sorted = useMemo(() => (controlled ? rows : sortRows(rows, columns.find((c) => c.key === sort?.key), sort?.dir ?? 'desc')), [rows, columns, sort, controlled])
   const size = pageSize ?? sorted.length
   const pages = Math.max(1, Math.ceil(sorted.length / Math.max(size, 1)))
   const cur = Math.min(page, pages - 1)
@@ -92,7 +106,10 @@ export function DataTable<T>({
   const toggleSort = (c: Column<T>) => {
     if (c.sortable === false) return
     setPage(0)
-    setSort((s) => (s?.key === c.key ? { key: c.key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key: c.key, dir: c.numeric ? 'desc' : 'asc' }))
+    const next = (s: { key: string; dir: 'asc' | 'desc' } | null): { key: string; dir: 'asc' | 'desc' } =>
+      s?.key === c.key ? { key: c.key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key: c.key, dir: c.numeric ? 'desc' : 'asc' }
+    if (onSortChange) onSortChange(next(sort))
+    else setSort(next)
   }
 
   const download = () => {
@@ -138,18 +155,25 @@ export function DataTable<T>({
           <tbody>
             {visible.map((r, i) => {
               const k = rowKey(r, i)
+              const detail = expanded ? expanded(r) : null
               return (
-                <tr
-                  key={k}
-                  className={`${onRowClick ? 'clickable' : ''} ${selectedKey === k ? 'selected' : ''}`}
-                  onClick={onRowClick ? () => onRowClick(r) : undefined}
-                >
-                  {columns.map((c) => (
-                    <td key={c.key} className={`${c.numeric ? 'num' : ''} ${c.className ?? ''}`}>
-                      {c.render ? c.render(r) : (c.value(r) ?? '—')}
-                    </td>
-                  ))}
-                </tr>
+                <Fragment key={k}>
+                  <tr
+                    className={`${onRowClick ? 'clickable' : ''} ${selectedKey === k ? 'selected' : ''} ${detail ? 'open' : ''}`}
+                    onClick={onRowClick ? () => onRowClick(r) : undefined}
+                  >
+                    {columns.map((c) => (
+                      <td key={c.key} className={`${c.numeric ? 'num' : ''} ${c.className ?? ''}`}>
+                        {c.render ? c.render(r) : (c.value(r) ?? '—')}
+                      </td>
+                    ))}
+                  </tr>
+                  {detail ? (
+                    <tr className="expand">
+                      <td colSpan={columns.length}>{detail}</td>
+                    </tr>
+                  ) : null}
+                </Fragment>
               )
             })}
           </tbody>
