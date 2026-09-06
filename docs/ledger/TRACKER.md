@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-06T18:00:03Z` |
+| Last refreshed | `2026-09-06T18:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-06T18:11 | [#6868](https://github.com/openova-io/openova/pull/6868) | #6867 | feat(chargeback): cloud-provider-grade cost analysis — explo |
 | 2026-09-06T12:48 | [#6866](https://github.com/openova-io/openova/pull/6866) | #6866 | fix(chargeback): the usage table showed a dash in every grou |
 | 2026-09-06T11:41 | [#6865](https://github.com/openova-io/openova/pull/6865) | #6850 | feat(chargeback): the allocation screen (Refs #6865) |
 | 2026-09-06T10:45 | [#6864](https://github.com/openova-io/openova/pull/6864) | #6863 | feat(chargeback): usage trend chart (Refs #6863) |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-02T17:24 | [#6816](https://github.com/openova-io/openova/pull/6816) | #6805 | docs(ledger): open the hw307 partition in PATH-TO-100 (Refs  |
 | 2026-09-02T19:53 | [#6814](https://github.com/openova-io/openova/pull/6814) | #5281 | fix(preflight): gate the fire on the Phase-1 image path, wal |
 | 2026-09-02T16:54 | [#6813](https://github.com/openova-io/openova/pull/6813) | #6811 | docs(ledger): record the hw307 walk observations (Refs #6778 |
-| 2026-09-02T16:41 | [#6812](https://github.com/openova-io/openova/pull/6812) | #6810 | docs(sessions): hw307 post-ready evidence — stability watch, |
 
 ---
 
