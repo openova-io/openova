@@ -123,7 +123,7 @@ aside.side button.ghost:hover { background: #172036; }
 .kpi.warn { border-color: var(--warn-line); background: var(--warn-bg); }
 .kpi.bad { border-color: var(--bad-line); background: var(--bad-bg); }
 .kpi.ok { border-color: var(--ok-line); background: var(--ok-bg); }
-.delta { display: inline-flex; align-items: center; gap: 3px; padding: 0 6px; border-radius: 999px; font-size: 11.5px; font-variant-numeric: tabular-nums; border: 1px solid var(--line); background: var(--panel-2); }
+.delta { display: inline-flex; white-space: nowrap; align-items: center; gap: 3px; padding: 0 6px; border-radius: 999px; font-size: 11.5px; font-variant-numeric: tabular-nums; border: 1px solid var(--line); background: var(--panel-2); }
 .delta.up { color: var(--bad); border-color: var(--bad-line); background: var(--bad-bg); }
 .delta.down { color: var(--ok); border-color: var(--ok-line); background: var(--ok-bg); }
 .delta.flat { color: var(--muted); }
@@ -170,6 +170,7 @@ th .sort { margin-left: 4px; color: var(--muted-2); }
 th.sorted .sort { color: var(--accent); }
 tfoot td { font-weight: 600; background: var(--panel-2); border-top: 1px solid var(--line-2); }
 td .sub { color: var(--muted); font-size: 11.5px; display: block; }
+td .sub.warn { color: var(--warn); }
 td .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 7px; vertical-align: -1px; }
 .share-bar { display: inline-block; height: 6px; border-radius: 3px; background: var(--accent-2); vertical-align: middle; margin-right: 6px; }
 .share-bar > i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }

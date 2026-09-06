@@ -29,6 +29,15 @@ export interface CostSource {
   verified_at?: string | null
   last_collected_at?: string | null
   last_error?: string | null
+  /** Non-secret key id of the linked credential, for display. */
+  access_key?: string | null
+  /**
+   * #6855 — bills only resources whose name carries this token (e.g. a
+   * deployment id); empty bills the whole project.
+   */
+  scope_token?: string | null
+  /** Whether the collector picks this source up (customer active + verified). */
+  collecting?: boolean
 }
 
 export interface CustomerUser {
@@ -61,9 +70,14 @@ export interface Customer {
   /** List endpoints may send a count; the detail endpoint embeds the rows. */
   sources?: number | CostSource[] | null
   source_count?: number | null
+  verified_source_count?: number | null
   users?: CustomerUser[] | null
   last_collected_at?: string | null
   last_statement?: StatementSummary | string | null
+  /** YYYY-MM-DD period start of the newest statement (list aggregate). */
+  last_statement_period?: string | null
+  /** Active AND at least one verified source — why nothing flows otherwise. */
+  collecting?: boolean
 }
 
 export interface UsageRow {

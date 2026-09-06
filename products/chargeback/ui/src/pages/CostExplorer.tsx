@@ -11,7 +11,7 @@ import { Delta, Field, KPI, Modal, Notice, PageHeader, Segmented, ShareBar, Skel
 import { bucketLabel, describeWindow } from '../lib/dates'
 import { apiQuery, drillInto, paramsFromState, stateFromParams, type ChartKind, type ExploreState } from '../lib/exploreState'
 import { formatMoney, formatQty } from '../lib/money'
-import { customerLens, lensFor, type Lens } from '../lib/scope'
+import { customerLens, lensFor, pageHref, type Lens } from '../lib/scope'
 import { useQuery } from '../lib/useQuery'
 
 /**
@@ -232,7 +232,7 @@ export function ExplorerBody({ lens, embedded }: { lens: Lens; embedded?: boolea
             rowKey={(r) => r.key}
             defaultSort={{ key: 'total', dir: 'desc' }}
             csvName={`cost-by-${state.groupBy}-${state.window.from}`}
-            onRowClick={state.groupBy !== 'none' ? (r) => { if (r.key === 'other') return; if (state.groupBy === 'resource') nav(`${lens.route === '' ? '' : lens.route}/resources?q=${encodeURIComponent(r.key)}`); else setState(drillInto(state, r.key)) } : undefined}
+            onRowClick={state.groupBy !== 'none' ? (r) => { if (r.key === 'other') return; if (state.groupBy === 'resource') nav(pageHref(lens, 'resources', `q=${encodeURIComponent(r.key)}`)); else setState(drillInto(state, r.key)) } : undefined}
             emptyTitle="No groups"
             emptyBody="Nothing matched this selection."
             footNote={state.groupBy !== 'none' ? `click a row to drill into ${DIM_LABEL[state.groupBy as Dim] ?? state.groupBy} → next level` : undefined}

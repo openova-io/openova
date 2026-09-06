@@ -6,7 +6,7 @@ import { Donut, EmptyChart, ProgressBar, RankedBars, StackedBars, seriesFromExpl
 import { Badge, Delta, KPI, Notice, PageHeader, Skeleton } from '../components/ui'
 import { bucketLabel, describeWindow, presetWindow } from '../lib/dates'
 import { formatMoney, formatPct } from '../lib/money'
-import { customerLens, lensFor, type Lens } from '../lib/scope'
+import { customerLens, lensFor, pageHref, type Lens } from '../lib/scope'
 import { readGroups, readKPIs } from '../lib/summary'
 import { useQuery } from '../lib/useQuery'
 import { day, when } from '../lib/format'
@@ -38,9 +38,11 @@ export function OverviewBody({ lens, title, embedded }: { lens: Lens; title?: st
   const k = readKPIs(s)
   const byCustomer = readGroups(s.by_customer)
   const byKind = readGroups(s.by_kind)
+  // Sovereign-wide (operator, not pinned to one customer): show the customer split.
+  const wide = lens.operator && !lens.customerId
   const cur = k.currency
   const money = (v: number | null | undefined, compact = false) => formatMoney(v, cur, { compact })
-  const explorerHref = (q: string) => `${lens.route}/explore?${q}`
+  const explorerHref = (q: string) => pageHref(lens, 'explore', q)
 
   return (
     <div className="stack">
@@ -55,7 +57,7 @@ export function OverviewBody({ lens, title, embedded }: { lens: Lens; title?: st
           }
           actions={
             <>
-              <Link to={`${lens.route}/explore?preset=mtd&group_by=kind`}>
+              <Link to={explorerHref('preset=mtd&group_by=kind')}>
                 <button>Open in cost explorer</button>
               </Link>
               {lens.operator ? (
@@ -77,24 +79,26 @@ export function OverviewBody({ lens, title, embedded }: { lens: Lens; title?: st
         </Notice>
       ) : null}
 
-      <div className="kpis">
-        <KPI label="Month to date" value={money(k.mtd, true)} note={<><Delta pct={k.momDeltaPct} /> vs same days last month ({money(k.prevMTD, true)})</>} hint="Cost of the current calendar month so far" />
-        <KPI
-          label="Forecast month end"
-          value={k.forecastMonthEnd === null ? '—' : money(k.forecastMonthEnd, true)}
-          note={k.forecastMethod ? `${k.forecastMethod} · ${k.forecastConfidence} confidence` : 'needs one complete day'}
-          tone={k.forecastConfidence === 'low' ? 'warn' : undefined}
-          hint="Complete days so far + daily run rate × days left"
-        />
-        <KPI label={`Last month (${k.lastMonthPeriod})`} value={money(k.lastMonth, true)} note="full calendar month" />
-        <KPI label="Average per day" value={money(k.avgDaily, true)} note={`over ${s.last_30d?.days_with_data ?? 0} days with data of the last 30`} />
-        <KPI label="Live resources" value={k.resourcesLive.toLocaleString()} note={`${k.sourcesVerified} source${k.sourcesVerified === 1 ? '' : 's'} verified${k.sourcesFailed ? ` · ${k.sourcesFailed} failed` : ''}`} tone={k.sourcesFailed ? 'bad' : undefined} />
-        {lens.operator ? (
-          <KPI label="Customers" value={k.customersActive} note={`${k.customersPending} pending · ${k.customersSuspended} suspended`} />
-        ) : (
-          <KPI label="Statements" value={k.draftStatements + k.issuedStatements} note={`${k.draftStatements} draft · ${k.issuedStatements} issued`} />
-        )}
-      </div>
+      {embedded ? null : (
+        <div className="kpis">
+          <KPI label="Month to date" value={money(k.mtd, true)} note={<><Delta pct={k.momDeltaPct} /> vs same days last month ({money(k.prevMTD, true)})</>} hint="Cost of the current calendar month so far" />
+          <KPI
+            label="Forecast month end"
+            value={k.forecastMonthEnd === null ? '—' : money(k.forecastMonthEnd, true)}
+            note={k.forecastMethod ? `${k.forecastMethod} · ${k.forecastConfidence} confidence` : 'needs one complete day'}
+            tone={k.forecastConfidence === 'low' ? 'warn' : undefined}
+            hint="Complete days so far + daily run rate × days left"
+          />
+          <KPI label={`Last month (${k.lastMonthPeriod})`} value={money(k.lastMonth, true)} note="full calendar month" />
+          <KPI label="Average per day" value={money(k.avgDaily, true)} note={`over ${s.last_30d?.days_with_data ?? 0} days with data of the last 30`} />
+          <KPI label="Live resources" value={k.resourcesLive.toLocaleString()} note={`${k.sourcesVerified} source${k.sourcesVerified === 1 ? '' : 's'} verified${k.sourcesFailed ? ` · ${k.sourcesFailed} failed` : ''}`} tone={k.sourcesFailed ? 'bad' : undefined} />
+          {wide ? (
+            <KPI label="Customers" value={k.customersActive} note={`${k.customersPending} pending · ${k.customersSuspended} suspended`} />
+          ) : (
+            <KPI label="Statements" value={k.draftStatements + k.issuedStatements} note={`${k.draftStatements} draft · ${k.issuedStatements} issued`} />
+          )}
+        </div>
+      )}
 
       <div className="grid side">
         <div className="card">
@@ -124,10 +128,10 @@ export function OverviewBody({ lens, title, embedded }: { lens: Lens; title?: st
         </div>
         <div className="card">
           <div className="card-head">
-            <h2>{lens.operator ? 'Cost by customer' : 'Cost by service'}</h2>
+            <h2>{wide ? 'Cost by customer' : 'Cost by service'}</h2>
             <span className="hint">month to date</span>
           </div>
-          {lens.operator ? (
+          {wide ? (
             byCustomer.length ? (
               <Donut slices={byCustomer.map((g) => ({ key: g.key, label: g.label, value: g.value }))} format={(v) => money(v, true)} caption="Month to date" onSliceClick={(key) => { if (key !== 'other') nav(`/customers/${key}`) }} />
             ) : (
@@ -155,7 +159,7 @@ export function OverviewBody({ lens, title, embedded }: { lens: Lens; title?: st
             <EmptyChart message={'Nothing priced this month.'} />
           )}
         </div>
-        {lens.operator ? (
+        {wide ? (
           <div className="card">
             <div className="card-head">
               <h2>Top customers</h2>
@@ -171,7 +175,7 @@ export function OverviewBody({ lens, title, embedded }: { lens: Lens; title?: st
           <div className="card">
             <div className="card-head">
               <h2>Statements</h2>
-              <Link to={`${lens.route}/statements`} className="hint">
+              <Link to={pageHref(lens, 'statements')} className="hint">
                 all
               </Link>
             </div>
@@ -184,14 +188,14 @@ export function OverviewBody({ lens, title, embedded }: { lens: Lens; title?: st
         <div className="card">
           <div className="card-head">
             <h2>Budgets</h2>
-            <Link to={`${lens.route}/budgets`} className="hint">
+            <Link to={pageHref(lens, 'budgets')} className="hint">
               manage
             </Link>
           </div>
           {s.budgets.length === 0 ? (
             <div className="empty">
               <b>No budget yet</b>
-              <Link to={`${lens.route}/budgets`}>Set a monthly budget</Link> to get alerts at 50 / 80 / 100 %.
+              <Link to={pageHref(lens, 'budgets')}>Set a monthly budget</Link> to get alerts at 50 / 80 / 100 %.
             </div>
           ) : (
             <div className="strip">
@@ -211,7 +215,7 @@ export function OverviewBody({ lens, title, embedded }: { lens: Lens; title?: st
         <div className="card">
           <div className="card-head">
             <h2>Anomalies, last 7 days</h2>
-            <Link to={`${lens.route}/anomalies`} className="hint">
+            <Link to={pageHref(lens, 'anomalies')} className="hint">
               all
             </Link>
           </div>
@@ -233,11 +237,11 @@ export function OverviewBody({ lens, title, embedded }: { lens: Lens; title?: st
               </thead>
               <tbody>
                 {s.anomalies.map((a, i) => (
-                  <tr key={i} className="clickable" onClick={() => nav(`${lens.route}/anomalies?day=${a.day}`)}>
+                  <tr key={i} className="clickable" onClick={() => nav(pageHref(lens, 'anomalies', `day=${a.day}`))}>
                     <td className="nowrap">{day(a.day)}</td>
                     <td>
                       {a.label}
-                      {lens.operator ? <span className="sub">{a.customer_name}</span> : null}
+                      {wide ? <span className="sub">{a.customer_name}</span> : null}
                     </td>
                     <td className="num">{money(a.expected)}</td>
                     <td className="num">{money(a.actual)}</td>
@@ -250,7 +254,7 @@ export function OverviewBody({ lens, title, embedded }: { lens: Lens; title?: st
         </div>
       </div>
 
-      {lens.operator ? (
+      {wide ? (
         <div className="card">
           <div className="card-head">
             <h2>Recent statements</h2>
