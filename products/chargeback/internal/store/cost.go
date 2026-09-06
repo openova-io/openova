@@ -157,6 +157,38 @@ type ExploreResult struct {
 	Unpriced       []UnpricedSKU `json:"unpriced"`
 }
 
+// costPriceJoinSQL joins a usage_records row aliased `u` to its customer
+// (`c`), the customer's price book (`b`) and the book's rate for the SKU
+// (`p`, NULL when unpriced). costPricedExpr reads those aliases.
+const costPriceJoinSQL = `
+  JOIN customers c ON c.id = u.customer_id
+  LEFT JOIN price_books b ON b.id = c.price_book_id
+  LEFT JOIN price_items p ON p.price_book_id = c.price_book_id AND p.sku = u.sku`
+
+// costPricedExpr is the cost of ONE usage record after the customer's
+// price book and its stopped-instance policy: NULL when the SKU carries no
+// rate, 0 when the policy waives a stopped instance (or its volume), else
+// quantity × unit price — exactly what the rating run charges.
+//
+// It is the single definition every cost surface uses (the explorer via
+// costBaseSQL, the per-resource views in resources.go). Two copies of this
+// CASE would be two bills that can disagree; factoring it is what makes
+// "resource costs sum to the explorer total" a property instead of a hope.
+// Requires the aliases costPriceJoinSQL introduces.
+const costPricedExpr = `CASE
+         WHEN p.unit_price IS NULL THEN NULL
+         WHEN (upper(COALESCE(u.labels->>'status', '')) IN ('SHUTOFF','STOPPED','SHUTDOWN')
+               OR upper(COALESCE(u.labels->>'server_status', '')) IN ('SHUTOFF','STOPPED','SHUTDOWN'))
+              AND ((COALESCE(b.bill_stopped, 'compute') = 'none' AND (u.sku LIKE 'ecs.%' OR u.sku LIKE 'evs.%'))
+                   OR (COALESCE(b.bill_stopped, 'compute') = 'storage-only' AND u.sku LIKE 'ecs.%'))
+           THEN 0
+         ELSE u.quantity * p.unit_price
+       END`
+
+// costMeterFilter excludes the CPU-utilisation sample, which is a metric and
+// never a meter — the same exclusion the rating run applies.
+const costMeterFilter = `u.sku <> 'ecs.cpu_util'`
+
 // costBaseSQL is the priced ledger: every record in the window with the unit
 // price its customer's book carries for the SKU (NULL = unpriced) and the
 // cost after the book's stopped-instance policy. Placeholders $1/$2 are the
@@ -171,21 +203,10 @@ SELECT u.customer_id, c.slug AS customer_slug, c.name AS customer_name,
        COALESCE(NULLIF(u.labels->>'name', ''), u.resource_id) AS resource_label,
        p.unit_price,
        COALESCE(b.currency, '') AS currency,
-       CASE
-         WHEN p.unit_price IS NULL THEN NULL
-         WHEN (upper(COALESCE(u.labels->>'status', '')) IN ('SHUTOFF','STOPPED','SHUTDOWN')
-               OR upper(COALESCE(u.labels->>'server_status', '')) IN ('SHUTOFF','STOPPED','SHUTDOWN'))
-              AND ((COALESCE(b.bill_stopped, 'compute') = 'none' AND (u.sku LIKE 'ecs.%' OR u.sku LIKE 'evs.%'))
-                   OR (COALESCE(b.bill_stopped, 'compute') = 'storage-only' AND u.sku LIKE 'ecs.%'))
-           THEN 0
-         ELSE u.quantity * p.unit_price
-       END AS cost
-  FROM usage_records u
-  JOIN customers c ON c.id = u.customer_id
+       ` + costPricedExpr + ` AS cost
+  FROM usage_records u` + costPriceJoinSQL + `
   LEFT JOIN cost_sources s ON s.id = u.source_id
-  LEFT JOIN price_books b ON b.id = c.price_book_id
-  LEFT JOIN price_items p ON p.price_book_id = c.price_book_id AND p.sku = u.sku
- WHERE u.window_start >= $1 AND u.window_start < $2 AND u.sku <> 'ecs.cpu_util'`
+ WHERE u.window_start >= $1 AND u.window_start < $2 AND ` + costMeterFilter
 
 type costArgs struct{ args []any }
 

@@ -10,7 +10,12 @@ import (
 // parseRange reads from/to (RFC3339 or YYYY-MM-DD); default = last 30 days.
 func (h *Handler) parseRange(r *http.Request) (time.Time, time.Time, bool) {
 	now := h.Now().UTC()
-	from, to := now.Add(-30*24*time.Hour), now
+	return h.parseRangeFrom(r, now.Add(-30*24*time.Hour), now)
+}
+
+// parseRangeFrom is parseRange with the caller's defaults for an absent
+// from/to.
+func (h *Handler) parseRangeFrom(r *http.Request, from, to time.Time) (time.Time, time.Time, bool) {
 	parse := func(s string) (time.Time, bool) {
 		if s == "" {
 			return time.Time{}, true
