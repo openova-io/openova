@@ -21,6 +21,10 @@ func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
 // enrichSummary is the seam where the budgets and anomalies lanes add their
 // blocks to the summary (parts.Budgets / parts.Anomalies). Kept as a method
 // so each lane extends it without touching the composition.
+//
+// Anomalies: the last 7 days, top 5 by impact (DESIGN.md §3.2). A failure
+// here is logged and leaves the block empty rather than failing the whole
+// overview — the KPIs above it are already computed and correct.
 func (h *Handler) enrichSummary(r *http.Request, scope store.Scope, customerID string, parts *summaryParts) {
 	// Budgets (#6867 §3.5): the current-month status of every active budget
 	// the scope may see. On the customer lens (the operator's
@@ -31,10 +35,16 @@ func (h *Handler) enrichSummary(r *http.Request, scope store.Scope, customerID s
 	if customerID != "" {
 		listScope = store.CustomerScope(customerID)
 	}
-	rows, err := h.budgetStatuses(r.Context(), listScope, scope, parts.Now)
-	if err != nil {
+	if rows, err := h.budgetStatuses(r.Context(), listScope, scope, parts.Now); err != nil {
 		slog.Warn("summary budgets", "error", err)
-		return
+	} else {
+		parts.Budgets = rows
 	}
-	parts.Budgets = rows
+	// Anomalies (#6867 §3.6): independent of the budgets block — one failing
+	// must not empty the other.
+	if rows, err := h.summaryAnomalies(r.Context(), scope, customerID); err != nil {
+		slog.Error("summary anomalies", "error", err)
+	} else {
+		parts.Anomalies = rows
+	}
 }
