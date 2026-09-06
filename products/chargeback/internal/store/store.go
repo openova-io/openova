@@ -205,6 +205,27 @@ CREATE TABLE IF NOT EXISTS pins (
 	// empty keeps the prior behaviour (bill everything in the project), so an
 	// existing source does not silently stop billing on upgrade.
 	`ALTER TABLE cost_sources ADD COLUMN IF NOT EXISTS scope_token TEXT NOT NULL DEFAULT '';`,
+	// #6862 — discounts and campaigns. A discount never rewrites the price
+	// book: list price stays intact so a statement can show list, discount and
+	// net, which is what makes the number auditable.
+	`CREATE TABLE IF NOT EXISTS discounts (
+		id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+		customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+		name TEXT NOT NULL,
+		kind TEXT NOT NULL CHECK (kind IN ('percent','fixed')),
+		value NUMERIC(20,6) NOT NULL CHECK (value >= 0),
+		sku TEXT NOT NULL DEFAULT '',
+		starts_at TIMESTAMPTZ,
+		ends_at TIMESTAMPTZ,
+		active BOOLEAN NOT NULL DEFAULT true,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+		CHECK (starts_at IS NULL OR ends_at IS NULL OR starts_at < ends_at)
+	);`,
+	`CREATE INDEX IF NOT EXISTS discounts_customer_idx ON discounts (customer_id);`,
+	// The discount actually applied to a statement, frozen at issue time. A
+	// campaign that later ends must not change an issued bill.
+	`ALTER TABLE statements ADD COLUMN IF NOT EXISTS discount_total NUMERIC(20,6) NOT NULL DEFAULT 0;`,
+	`ALTER TABLE statements ADD COLUMN IF NOT EXISTS discount_detail JSONB;`,
 }
 
 // Migrate applies every migration not yet recorded in schema_migrations.

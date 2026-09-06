@@ -3,7 +3,9 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -33,6 +35,10 @@ type StatementDraft struct {
 	Tax         Decimal
 	Total       Decimal
 	Lines       []RatedLine
+	// #6862 — what the discounts took off, and their breakdown. Frozen with
+	// the statement so a campaign that later ends cannot change an issued bill.
+	Discount         Decimal
+	AppliedDiscounts any
 }
 
 // WriteDraftStatement upserts a draft for (customer, period) and replaces its
@@ -47,9 +53,9 @@ func (s *Store) WriteDraftStatement(ctx context.Context, d StatementDraft) (Stat
 	err = tx.QueryRowContext(ctx, `SELECT id, status FROM statements WHERE customer_id = $1 AND period_start = $2 FOR UPDATE`, d.CustomerID, d.PeriodStart).Scan(&existingID, &status)
 	switch {
 	case err == sql.ErrNoRows:
-		if err := tx.QueryRowContext(ctx, `INSERT INTO statements (customer_id, period_start, period_end, currency, subtotal, tax_rate, tax, total, status)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft') RETURNING id`,
-			d.CustomerID, d.PeriodStart, d.PeriodEnd, d.Currency, string(d.Subtotal), string(d.TaxRate), string(d.Tax), string(d.Total)).Scan(&existingID); err != nil {
+		if err := tx.QueryRowContext(ctx, `INSERT INTO statements (customer_id, period_start, period_end, currency, subtotal, tax_rate, tax, total, status, discount_total, discount_detail)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft', $9::numeric, $10) RETURNING id`,
+			d.CustomerID, d.PeriodStart, d.PeriodEnd, d.Currency, string(d.Subtotal), string(d.TaxRate), string(d.Tax), string(d.Total), discountOrZero(d.Discount), discountDetailJSON(d.AppliedDiscounts)).Scan(&existingID); err != nil {
 			return Statement{}, mapErr(err)
 		}
 	case err != nil:
@@ -57,8 +63,8 @@ func (s *Store) WriteDraftStatement(ctx context.Context, d StatementDraft) (Stat
 	case status == "issued":
 		return Statement{}, fmt.Errorf("%w: statement for this period is already issued", ErrConflict)
 	default:
-		if _, err := tx.ExecContext(ctx, `UPDATE statements SET period_end = $2, currency = $3, subtotal = $4, tax_rate = $5, tax = $6, total = $7, created_at = now() WHERE id = $1`,
-			existingID, d.PeriodEnd, d.Currency, string(d.Subtotal), string(d.TaxRate), string(d.Tax), string(d.Total)); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE statements SET period_end = $2, currency = $3, subtotal = $4, tax_rate = $5, tax = $6, total = $7, discount_total = $8::numeric, discount_detail = $9, created_at = now() WHERE id = $1`,
+			existingID, d.PeriodEnd, d.Currency, string(d.Subtotal), string(d.TaxRate), string(d.Tax), string(d.Total), discountOrZero(d.Discount), discountDetailJSON(d.AppliedDiscounts)); err != nil {
 			return Statement{}, mapErr(err)
 		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM rated_lines WHERE statement_id = $1`, existingID); err != nil {
@@ -178,4 +184,29 @@ func (s *Store) LastPeriodTotal(ctx context.Context) (period string, total Decim
 		return "", "", 0, mapErr(err)
 	}
 	return p.String, Decimal(t.String), count, nil
+}
+
+// discountOrZero renders a discount for SQL; an empty Decimal is 0, not NULL,
+// so `subtotal + tax = total` arithmetic downstream never meets a NULL.
+func discountOrZero(d Decimal) string {
+	if strings.TrimSpace(string(d)) == "" {
+		return "0"
+	}
+	return string(d)
+}
+
+// discountDetailJSON stores the per-discount breakdown, or SQL NULL when none
+// applied — an empty array and "no discounts" should not read the same.
+func discountDetailJSON(v any) any {
+	if v == nil {
+		return nil
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil
+	}
+	if string(b) == "null" || string(b) == "[]" {
+		return nil
+	}
+	return b
 }
