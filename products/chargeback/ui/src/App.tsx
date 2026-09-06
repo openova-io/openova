@@ -13,6 +13,8 @@ import { PriceBooks } from './pages/PriceBooks'
 import { SignIn } from './pages/SignIn'
 import { StatementView } from './pages/StatementView'
 import { Allocation } from './pages/Allocation'
+import { Budgets } from './pages/Budgets'
+import { Discounts } from './pages/Discounts'
 import { Statements } from './pages/Statements'
 
 function Home() {
@@ -41,6 +43,8 @@ export function App() {
             <Route path="/allocation" element={<Allocation />} />
             <Route path="/pricebooks" element={<PriceBooks />} />
             <Route path="/pricebooks/:id" element={<PriceBookEdit />} />
+            <Route path="/discounts" element={<Discounts />} />
+            <Route path="/budgets" element={<Budgets />} />
             <Route path="/statements" element={<Statements />} />
           </Route>
 

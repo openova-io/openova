@@ -100,6 +100,8 @@ export interface PriceItem {
   sku: string
   unit: string
   unit_price: number | string
+  /** List (annual) price when the item came from an annual list; unit_price = annual_price ÷ annual_divisor. */
+  annual_price?: number | string | null
   description?: string
 }
 
