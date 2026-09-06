@@ -199,6 +199,7 @@ func (c *Client) ListEIP(ctx context.Context, creds Credentials, region string) 
 				ID            string `json:"id"`
 				Address       string `json:"public_ip_address"`
 				BandwidthSize int    `json:"bandwidth_size"`
+				BandwidthName string `json:"bandwidth_name"`
 				Status        string `json:"status"`
 				CreateTime    string `json:"create_time"`
 				Type          string `json:"type"`
@@ -210,7 +211,14 @@ func (c *Client) ListEIP(ctx context.Context, creds Credentials, region string) 
 		for _, e := range resp.PublicIPs {
 			out = append(out, Resource{
 				ID: e.ID, Kind: KindEIP, Name: e.Address, Status: e.Status, Created: parseTime(e.CreateTime),
-				Attrs: map[string]any{"public_ip_address": e.Address, "bandwidth_mbps": e.BandwidthSize, "status": e.Status, "type": e.Type},
+				// #6859 — an EIP on this cloud has NO name of its own (the
+				// Name field above is its IP address), so deployment
+				// attribution runs through the bandwidth's name
+				// ("catalyst-<sovereign>-<depid>-...-bw" vs
+				// "bastion-openova-bw"). Without capturing it, ScopeMatcher
+				// cannot attribute ANY EIP and excludes every one of them —
+				// silently under-billing, which is as wrong as over-billing.
+				Attrs: map[string]any{"public_ip_address": e.Address, "bandwidth_mbps": e.BandwidthSize, "bandwidth_name": e.BandwidthName, "status": e.Status, "type": e.Type},
 			})
 		}
 		if len(resp.PublicIPs) < pageLimit {
