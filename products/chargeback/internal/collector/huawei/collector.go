@@ -271,7 +271,13 @@ func (c *Collector) CollectSource(ctx context.Context, src store.CostSource, now
 		for kind, ferr := range failed {
 			slog.Warn("collector: list failed", "source", src.ID, "kind", kind, "error", ferr)
 		}
-		if len(failed) == 5 {
+		// #6853 — compare against the CURRENT kind count, never a literal.
+		// This read `== 5` when there were five kinds; adding more made a
+		// total credential rejection (every kind failing) compare false, so a
+		// source with dead credentials reported healthy and silently stopped
+		// billing. Deriving the count keeps "nothing listed" true whatever the
+		// registry holds.
+		if len(failed) == len(SupportedKinds()) {
 			// Nothing listed: surface the first error and back off.
 			for _, ferr := range failed {
 				return ferr
@@ -372,7 +378,10 @@ func (c *Collector) reconcileInventory(ctx context.Context, src store.CostSource
 		c.metricsReg().Set("chargeback_inventory_resources", "Live resources by kind (last pass)", map[string]string{"kind": kind, "source": src.ID}, float64(n))
 	}
 	var okKinds, seen []string
-	for _, kind := range []string{KindECS, KindEVS, KindEIP, KindELB, KindNAT} {
+	// #6853 — derive from the lister registry, never a second hand-written
+	// copy. A hardcoded list silently drops deletion tracking for every kind
+	// added later, so a removed resource would bill forever.
+	for _, kind := range SupportedKinds() {
 		if _, bad := failed[kind]; !bad {
 			okKinds = append(okKinds, kind)
 		}
