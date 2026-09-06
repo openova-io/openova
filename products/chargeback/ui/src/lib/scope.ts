@@ -34,6 +34,25 @@ export function lensFor(me: Me | null): Lens {
   }
 }
 
+export type LensPage = 'overview' | 'explore' | 'resources' | 'statements' | 'budgets' | 'anomalies' | 'recommendations' | 'discounts' | 'sources'
+
+/**
+ * A link to another page of the same lens. On the operator and /my lenses
+ * pages are routes (`/explore?…`, `/my/budgets`); on a customer-pinned lens
+ * they are tabs of the customer detail page (`/customers/<id>?tab=cost&…`),
+ * and the two operator-only analyses point at the operator page filtered to
+ * that customer.
+ */
+export function pageHref(lens: Lens, page: LensPage, query = ''): string {
+  const q = query.replace(/^[?&]/, '')
+  if (lens.operator && lens.customerId) {
+    if (page === 'anomalies' || page === 'recommendations') return `/${page}?customer=${encodeURIComponent(lens.customerId)}${q ? '&' + q : ''}`
+    const tab = page === 'explore' ? 'cost' : page
+    return `${lens.route}?tab=${tab}${q ? '&' + q : ''}`
+  }
+  return `${lens.route}/${page}${q ? '?' + q : ''}`
+}
+
 /** A lens pinned to one customer (the operator's customer detail tabs). */
 export function customerLens(customerId: string): Lens {
   const cust = `/customers/${customerId}`

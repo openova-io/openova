@@ -1,0 +1,79 @@
+import { describe, expect, it } from 'vitest'
+import type { Budget, BudgetStatus } from '../api/types'
+import { budgetForm, budgetTone, budgetView, readBudgetStatus, sortBudgetViews } from './budgets'
+
+const budget = (over: Partial<Budget>): Budget => ({
+  id: 'b-1',
+  name: 'September',
+  customer_id: 'c-1',
+  amount: 3000,
+  currency: 'OMR',
+  period: 'monthly',
+  thresholds: [50, 80, 100],
+  notify_emails: ['fin@acme.om'],
+  active: true,
+  ...over,
+})
+
+const status = (over: Partial<BudgetStatus>): BudgetStatus => ({
+  id: 'b-1',
+  name: 'September',
+  customer_id: 'c-1',
+  amount: 3000,
+  currency: 'OMR',
+  actual: 104.16,
+  forecast: 2712.5,
+  pct_actual: 3.47,
+  pct_forecast: 90.4,
+  status: 'warning',
+  thresholds: [
+    { pct: 50, crossed: false },
+    { pct: 80, crossed: false },
+    { pct: 100, crossed: false },
+  ],
+  ...over,
+})
+
+describe('readBudgetStatus', () => {
+  it('reads numbers and numeric strings alike (the fixture shape)', () => {
+    const r = readBudgetStatus(status({ actual: '104.160000' as unknown as number, amount: '3000.000000' as unknown as number }))
+    expect(r.actual).toBeCloseTo(104.16, 6)
+    expect(r.amount).toBe(3000)
+    expect(r.pctActual).toBeCloseTo(3.47, 6)
+  })
+  it('derives the percentages when the server omitted them, and keeps a null forecast null', () => {
+    const r = readBudgetStatus(status({ pct_actual: undefined as unknown as number, forecast: null, pct_forecast: null, actual: 1500 }))
+    expect(r.pctActual).toBe(50)
+    expect(r.forecast).toBeNull()
+    expect(r.pctForecast).toBeNull()
+  })
+})
+
+describe('budgetView / tone / sort', () => {
+  it('maps status to tone and lists the crossed thresholds', () => {
+    const v = budgetView(budget({}), status({ status: 'exceeded', thresholds: [{ pct: 50, crossed: true }, { pct: 80, crossed: true }, { pct: 100, crossed: false }] }))
+    expect(v.tone).toBe('bad')
+    expect(v.crossed).toEqual([50, 80])
+    expect(budgetTone('warning')).toBe('warn')
+    expect(budgetTone('ok')).toBe('ok')
+  })
+  it('a view without a status keeps the budget amount and records the error', () => {
+    const v = budgetView(budget({ amount: '250.5' as unknown as number }), null, 'HTTP 500')
+    expect(v.amount).toBe(250.5)
+    expect(v.actual).toBe(0)
+    expect(v.statusError).toBe('HTTP 500')
+  })
+  it('sorts exceeded > warning > ok, inactive last, then by name', () => {
+    const rows = [
+      budgetView(budget({ id: 'ok-b', name: 'B' }), status({ status: 'ok' })),
+      budgetView(budget({ id: 'off', name: 'A', active: false }), status({ status: 'exceeded' })),
+      budgetView(budget({ id: 'warn', name: 'C' }), status({ status: 'warning' })),
+      budgetView(budget({ id: 'ok-a', name: 'A' }), status({ status: 'ok' })),
+      budgetView(budget({ id: 'over', name: 'Z' }), status({ status: 'exceeded' })),
+    ]
+    expect(sortBudgetViews(rows).map((v) => v.budget.id)).toEqual(['over', 'warn', 'ok-a', 'ok-b', 'off'])
+  })
+  it('budgetForm round-trips the lists as comma text', () => {
+    expect(budgetForm(budget({ thresholds: [50, 100], notify_emails: ['a@x.om', 'b@x.om'] }))).toEqual({ name: 'September', amount: '3000', currency: 'OMR', thresholds: '50, 100', notify_emails: 'a@x.om, b@x.om', active: true })
+  })
+})
