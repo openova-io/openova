@@ -13,6 +13,7 @@ import { PriceBooks } from './pages/PriceBooks'
 import { SignIn } from './pages/SignIn'
 import { StatementView } from './pages/StatementView'
 import { Allocation } from './pages/Allocation'
+import { ChartGallery } from './pages/ChartGallery'
 import { Statements } from './pages/Statements'
 
 function Home() {
@@ -42,6 +43,8 @@ export function App() {
             <Route path="/pricebooks" element={<PriceBooks />} />
             <Route path="/pricebooks/:id" element={<PriceBookEdit />} />
             <Route path="/statements" element={<Statements />} />
+            {/* Visual regression page for the chart library (#6867); not in the nav. */}
+            <Route path="/dev/charts" element={<ChartGallery />} />
           </Route>
 
           <Route element={<Shell roles={['customer-admin', 'customer-viewer']} />}>
