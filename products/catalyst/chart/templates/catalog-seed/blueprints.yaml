@@ -6305,7 +6305,7 @@ spec:
   # 0.1.0): first release, EPIC #6723 lane B.
   # 0.1.4 (#6841): Sovereign SSO via bp-oidc-gate replaces the app's own PIN
   # prompt — the card version tracks the component chart.
-  version: 0.1.14
+  version: 0.1.15
   visibility: listed
   card:
     title: "Chargeback"
@@ -6327,7 +6327,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-chargeback
-    version: 0.1.14
+    version: 0.1.15
   topology:
     supported:
       - singleton

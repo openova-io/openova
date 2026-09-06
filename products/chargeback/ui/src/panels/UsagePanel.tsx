@@ -1,4 +1,5 @@
 import { TrendChart, toDailySeries } from '../components/TrendChart'
+import { keyOfUsageRow } from '../lib/usageKey'
 import { useCallback, useEffect, useState } from 'react'
 import { api, asList, errorText } from '../api/client'
 import type { InventoryItem, UsageRow } from '../api/types'
@@ -43,7 +44,13 @@ export function UsagePanel({ customerId }: { customerId: string }) {
     }
   }
 
-  const keyOf = (r: UsageRow) => (groupBy === 'sku' ? r.sku : groupBy === 'day' ? r.day : r.resource_id) ?? '—'
+  // #6866 — the API returns the grouped column as `key` for every grouping.
+  // This read r.day / r.resource_id, which the server never sends, so the day
+  // and resource views rendered '—' in every row of their first column while
+  // the numbers beside them were correct — the table looked populated and
+  // unusable at the same time. `key` first, with the old fields as a fallback
+  // so a server that does send them still works.
+  const keyOf = (r: UsageRow) => keyOfUsageRow(r, groupBy)
 
   // #6863 — the day view gets a trend above the table. Only for `day`:
   // a bar per SKU or per resource is a ranking, not a trend, and drawing it
