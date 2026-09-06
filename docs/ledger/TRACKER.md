@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-06T06:45:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-09-06T07:00:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6172](https://github.com/openova-io/openova/issues/6172) | Fresh prov hw294 wedges Phase 1 at 51/67: bp-keycloak 1.5.9 post-install realm i | Other |
 | [#6183](https://github.com/openova-io/openova/issues/6183) | specter residue + UAT row W5: remove the phantom wizard component id and the non | Other |
 | [#6187](https://github.com/openova-io/openova/issues/6187) | bp-keycloak 1.5.10: the #6172 backchannel anchor is not gated to Sovereign mode, | Other |
 | [#6189](https://github.com/openova-io/openova/issues/6189) | P0: mothership owner sign-in dead — Keycloak scaled to 0 behind a green HelmRe | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6850](https://github.com/openova-io/openova/issues/6850) | Sovereign cloud cost is collected but never allocated: ADR-0014's 'cloud cost sp | Other |
 | [#6853](https://github.com/openova-io/openova/issues/6853) | chargeback meters only 5 of 16 provisionable resource kinds — everything else  | Other |
 | [#6855](https://github.com/openova-io/openova/issues/6855) | chargeback bills the whole Huawei project to one customer — bastion-openova is | Other |
+| [#6857](https://github.com/openova-io/openova/issues/6857) | Four extended listers 400 against the real Huawei gateway — limit=200 rejected | Other |
 
 ---
 
