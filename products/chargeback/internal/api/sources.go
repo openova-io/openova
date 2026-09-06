@@ -39,6 +39,12 @@ func (h *Handler) createSource(w http.ResponseWriter, r *http.Request) {
 		Kind      string `json:"kind"`
 		Region    string `json:"region"`
 		ProjectID string `json:"project_id"`
+		// ScopeToken narrows a project-scoped source to ONE deployment's
+		// resources (#6855/#6859). Without it the source bills every resource
+		// in the project, including shared infrastructure and any other
+		// Sovereign sharing it. Empty = bill the whole project (the prior
+		// behaviour), so an existing integration is unaffected.
+		ScopeToken string `json:"scope_token"`
 	}
 	if err := decode(r, &in); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid body: "+err.Error())
@@ -63,6 +69,13 @@ func (h *Handler) createSource(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		storeErr(w, err)
 		return
+	}
+	if tok := strings.TrimSpace(in.ScopeToken); tok != "" || src.ScopeToken != "" {
+		if err := h.Store.SetSourceScopeToken(r.Context(), src.ID, tok); err != nil {
+			storeErr(w, err)
+			return
+		}
+		src.ScopeToken = tok
 	}
 	status := http.StatusOK
 	if created {

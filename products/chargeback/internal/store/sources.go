@@ -73,6 +73,27 @@ func (s *Store) UpsertSource(ctx context.Context, customerID, kind, region, proj
 	return src, created, err
 }
 
+// SetSourceScopeToken narrows a source to one deployment's resources (#6859).
+//
+// The scope column shipped in #6855 but nothing could write it, so the fix was
+// inert: every source kept billing the whole project. That is the
+// activation-left-to-a-second-file shape — the field existed, the filter
+// existed, and no path connected them.
+//
+// An empty token clears the scope, which is a legitimate operation (bill the
+// whole project again) and must stay possible.
+func (s *Store) SetSourceScopeToken(ctx context.Context, sourceID, token string) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE cost_sources SET scope_token = $2 WHERE id = $1`, sourceID, strings.TrimSpace(token))
+	if err != nil {
+		return mapErr(err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // SetSourceCredential links a credential to a source and resets it to pending.
 func (s *Store) SetSourceCredential(ctx context.Context, sourceID, credentialID string) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE cost_sources SET credential_id = $2, status = 'pending', last_error = NULL WHERE id = $1`, sourceID, credentialID)
