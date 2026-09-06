@@ -119,7 +119,7 @@ aside.side button.ghost:hover { background: #172036; }
 .kpi .k { color: var(--muted); font-size: 12px; display: flex; justify-content: space-between; gap: 6px; }
 .kpi .v { font-size: 22px; font-weight: 650; letter-spacing: -0.01em; margin-top: 2px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .kpi .v .unit { font-size: 12px; color: var(--muted); font-weight: 500; margin-left: 4px; }
-.kpi .d { font-size: 12px; margin-top: 3px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+.kpi .d { font-size: 12px; margin-top: 3px; color: var(--muted); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; line-height: 1.3; }
 .kpi.warn { border-color: var(--warn-line); background: var(--warn-bg); }
 .kpi.bad { border-color: var(--bad-line); background: var(--bad-bg); }
 .kpi.ok { border-color: var(--ok-line); background: var(--ok-bg); }
