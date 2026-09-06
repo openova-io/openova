@@ -92,7 +92,7 @@ export function ExplorerBody({ lens, embedded }: { lens: Lens; embedded?: boolea
   const rows: Row[] = useMemo(() => {
     if (!d) return []
     const gs = d.groups.map((g, i) => ({ key: g.key, label: g.label, total: g.total, previous: g.previous, delta_pct: g.delta_pct, share: g.share, resources: g.resources, color: colorFor(i) }))
-    if (d.other) gs.push({ key: 'other', label: `Other (${Math.max(0, d.total.resources - gs.reduce((n, g) => n + g.resources, 0))} more)`, total: d.other.total, previous: d.other.previous, delta_pct: d.other.delta_pct, share: d.other.share, resources: d.other.resources, color: colorFor(gs.length) })
+    if (d.other) gs.push({ key: 'other', label: 'Other', total: d.other.total, previous: d.other.previous, delta_pct: d.other.delta_pct, share: d.other.share, resources: d.other.resources, color: colorFor(gs.length) })
     return gs
   }, [d])
 
