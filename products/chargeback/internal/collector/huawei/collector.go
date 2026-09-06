@@ -267,6 +267,21 @@ func (c *Collector) CollectSource(ctx context.Context, src store.CostSource, now
 		return err
 	}
 	resources, failed := c.Client.ListAll(ctx, creds, src.Region)
+	// #6855 — a project-scoped source sees EVERY resource in the project,
+	// including shared infrastructure and any other Sovereign living there.
+	// Keep only what belongs to this source's deployment. Excluded resources
+	// are COUNTED and logged, never silently dropped: a bill quietly missing
+	// the customer's own servers is as wrong as one quietly containing
+	// somebody else's.
+	if scope := (ScopeMatcher{Token: src.ScopeToken}); scope.Enabled() {
+		kept, excluded := scope.Partition(resources)
+		if len(excluded) > 0 {
+			slog.Info("collector: resources excluded as out of scope",
+				"source", src.ID, "token", src.ScopeToken,
+				"kept", len(kept), "excluded", len(excluded))
+		}
+		resources = kept
+	}
 	if len(failed) > 0 {
 		for kind, ferr := range failed {
 			slog.Warn("collector: list failed", "source", src.ID, "kind", kind, "error", ferr)

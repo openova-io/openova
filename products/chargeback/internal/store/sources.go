@@ -7,14 +7,14 @@ import (
 	"time"
 )
 
-const sourceColumns = `s.id, s.customer_id, s.kind, s.region, s.project_id, s.domain_id, s.credential_id, s.status, s.verified_at, s.last_collected_at, s.last_error,
+const sourceColumns = `s.id, s.customer_id, s.kind, s.region, s.project_id, s.domain_id, s.credential_id, s.status, s.verified_at, s.last_collected_at, s.last_error, s.scope_token,
 	COALESCE((SELECT c.access_key FROM credentials c WHERE c.id = s.credential_id), '')`
 
 func scanSource(row interface{ Scan(...any) error }) (CostSource, error) {
 	var src CostSource
 	var domain, cred, lastErr sql.NullString
 	var verified, collected sql.NullTime
-	err := row.Scan(&src.ID, &src.CustomerID, &src.Kind, &src.Region, &src.ProjectID, &domain, &cred, &src.Status, &verified, &collected, &lastErr, &src.AccessKey)
+	err := row.Scan(&src.ID, &src.CustomerID, &src.Kind, &src.Region, &src.ProjectID, &domain, &cred, &src.Status, &verified, &collected, &lastErr, &src.ScopeToken, &src.AccessKey)
 	if err != nil {
 		return src, mapErr(err)
 	}
