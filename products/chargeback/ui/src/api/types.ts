@@ -67,6 +67,13 @@ export interface Customer {
 }
 
 export interface UsageRow {
+  /**
+   * The grouped column. The API returns it as `key` for EVERY grouping — the
+   * day for group_by=day, the resource id for group_by=resource, the SKU for
+   * group_by=sku. `day` and `resource_id` below are NOT sent by the server
+   * (#6866); they are kept only so older callers still compile.
+   */
+  key?: string
   sku?: string
   resource_id?: string
   resource_kind?: string
