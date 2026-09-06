@@ -142,3 +142,24 @@ func (h *Handler) issueStatement(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, st)
 }
+
+// deleteStatement removes a DRAFT and its rated lines so the period can be
+// re-run from nothing. An issued statement is refused (409): it is the bill
+// the customer received.
+func (h *Handler) deleteStatement(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireOperator(w, r); !ok {
+		return
+	}
+	id := r.PathValue("id")
+	st, err := h.Store.GetStatement(r.Context(), store.OperatorScope, id)
+	if err != nil {
+		storeErr(w, err)
+		return
+	}
+	if err := h.Store.DeleteDraftStatement(r.Context(), id); err != nil {
+		storeErr(w, err)
+		return
+	}
+	h.audit(r, &st.CustomerID, "statement.delete", map[string]any{"statement_id": id, "period": st.PeriodStart[:7], "lines": len(st.Lines), "total": st.Total})
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": true, "id": id})
+}
