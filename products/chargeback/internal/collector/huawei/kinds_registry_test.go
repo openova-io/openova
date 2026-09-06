@@ -59,3 +59,43 @@ func TestTotalRejectionIsDetectedWhateverTheKindCount(t *testing.T) {
 		}
 	}
 }
+
+// #6857 — every GET must carry Content-Type. The WAF gateway rejects a
+// request without it ("APIGW.0106: Invalid header parameter: Content-Type,
+// required") even though a GET has no body. This was invisible in probing
+// because the probe tool set the header and the shipped client did not — the
+// failure only appeared once the code ran against the real gateway.
+func TestGetAlwaysSendsContentType(t *testing.T) {
+	var got string
+	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("Content-Type")
+		w.Write([]byte(`{"items":[]}`))
+	})
+	_, _ = client.ListWAF(context.Background(),
+		Credentials{AccessKey: "a", SecretKey: "b", ProjectID: "pid"}, "r")
+	if got != "application/json" {
+		t.Fatalf("Content-Type = %q, want application/json — the WAF gateway 400s without it", got)
+	}
+}
+
+// #6857 — RDS, DDS, GaussDB and AS reject limit=200 (400 "Invalid limit"),
+// measured against the live gateway. Pin the smaller page size so a future
+// tidy-up does not collapse it back onto the generic pageLimit.
+func TestDatabaseListersUseTheAcceptedPageLimit(t *testing.T) {
+	if dbPageLimit > 100 {
+		t.Fatalf("dbPageLimit = %d; the gateway rejects anything above 100", dbPageLimit)
+	}
+	seen := map[string]string{}
+	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		seen[r.URL.Path] = r.URL.Query().Get("limit")
+		w.Write([]byte(`{"instances":[],"scaling_groups":[]}`))
+	})
+	creds := Credentials{AccessKey: "a", SecretKey: "b", ProjectID: "pid"}
+	_, _ = client.ListRDS(context.Background(), creds, "r")
+	_, _ = client.ListAS(context.Background(), creds, "r")
+	for path, lim := range seen {
+		if lim != "100" {
+			t.Fatalf("%s sent limit=%q, want 100 — the gateway 400s on 200", path, lim)
+		}
+	}
+}

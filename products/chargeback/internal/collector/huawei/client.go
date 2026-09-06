@@ -93,6 +93,12 @@ func (c *Client) Get(ctx context.Context, creds Credentials, service, region, pa
 	if err != nil {
 		return fmt.Errorf("%s: build request: %w", service, err)
 	}
+	// #6857 — the WAF gateway rejects a GET with no Content-Type
+	// ("APIGW.0106: Invalid header parameter: Content-Type, required"), even
+	// though the request has no body. Every other service tolerates it, so
+	// setting it unconditionally costs nothing and removes a per-service
+	// special case. Set BEFORE signing: the signature covers the headers.
+	req.Header.Set("Content-Type", "application/json")
 	if _, err := c.Signer.Sign(req, creds, nil); err != nil {
 		return fmt.Errorf("%s: sign: %w", service, err)
 	}
