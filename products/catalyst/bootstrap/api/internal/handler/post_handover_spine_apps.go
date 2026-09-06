@@ -53,11 +53,13 @@ package handler
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
@@ -413,6 +415,14 @@ func (h *Handler) enrollSpineApplications(
 				"id", dep.ID, "chart", sc.Chart, "err", err)
 			continue
 		}
+		// #6849 — the replacement is in place; remove the legacy `spine-`
+		// object so the banned portfolio name stops appearing in
+		// `kubectl get applications`. A failure here leaves an orphan, which
+		// is cosmetic-but-visible, so it warns and does not abort enrolment.
+		if rerr := reapLegacyPrefixedApplication(dyn, sc.Chart); rerr != nil {
+			h.log.Warn("spine-apps: legacy prefix reap failed (leaving the old CR)",
+				"id", dep.ID, "chart", sc.Chart, "err", rerr)
+		}
 		enrolled++
 	}
 	return enrolled
@@ -438,6 +448,55 @@ var applySpineApplicationCR = func(dyn dynamic.Interface, obj *unstructured.Unst
 			FieldManager: spineApplyFieldManager,
 			Force:        boolPtr(true),
 		})
+}
+
+// reapLegacyPrefixedApplication deletes the pre-#6849 `spine-<chart>` CR for a
+// component once its `platform-<chart>` replacement exists.
+//
+// Renaming a CR is a CREATE plus an ORPHAN, never a rename: the producer writes
+// the new name and the old object simply stays, still printing the banned
+// portfolio name in `kubectl get applications` forever. So the rename is only
+// half a fix without this reap.
+//
+// Guards, in order — each one is a way this could delete something it must not:
+//   - only objects carrying our own managed-by label are touched, so a
+//     hand-authored CR that happens to share the name is never removed;
+//   - the replacement must already exist, so a failed apply cannot leave the
+//     component with no CR at all;
+//   - NotFound is success — the common case is a Sovereign provisioned after
+//     this change, which never had a legacy object.
+func reapLegacyPrefixedApplication(dyn dynamic.Interface, chart string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ri := dyn.Resource(ApplicationGVR()).Namespace(spineApplicationNamespace)
+
+	// The replacement must be present before the old one goes.
+	if _, err := ri.Get(ctx, platformApplicationName(chart), metav1.GetOptions{}); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil // nothing to reap against; the apply will retry
+		}
+		return err
+	}
+	legacy, err := ri.Get(ctx, legacyApplicationName(chart), metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	if legacy.GetLabels()["catalyst.openova.io/managed-by"] != "catalyst-api" {
+		// Not ours. Leave it and say so — silently skipping would hide a
+		// name clash from whoever has to explain the leftover object.
+		slog.Warn("spine-prefix reap: legacy Application is not catalyst-api managed; leaving it",
+			"name", legacy.GetName(), "namespace", spineApplicationNamespace)
+		return nil
+	}
+	if err := ri.Delete(ctx, legacy.GetName(), metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	slog.Info("spine-prefix reap: removed legacy Application", "name", legacy.GetName(),
+		"replaced_by", platformApplicationName(chart))
+	return nil
 }
 
 // renderSpineApplicationCR composes the idempotent Application CR for one
@@ -473,7 +532,7 @@ func renderSpineApplicationCR(sc spineComponent, envRef, orgRef string, regions 
 	obj := &unstructured.Unstructured{}
 	obj.SetAPIVersion(ApplicationGVR().Group + "/" + ApplicationGVR().Version)
 	obj.SetKind("Application")
-	obj.SetName(spineApplicationName(sc.Chart))
+	obj.SetName(platformApplicationName(sc.Chart))
 	obj.SetNamespace(spineApplicationNamespace)
 
 	// #5476 — own the spine Application by its control-plane Environment so
@@ -588,10 +647,34 @@ func spinePlacementMode(sc spineComponent, regionCount int) string {
 	return "singleton"
 }
 
-// spineApplicationName composes the spine Application CR name (`spine-<chart>`).
-// Exported-style helper so tests reference the same convention.
-func spineApplicationName(chart string) string {
-	return "spine-" + chart
+// platformApplicationPrefix — the CR-name prefix for the Sovereign's own
+// control-plane Applications.
+//
+// #6849: this was `spine-`, which collides with **Spine**, the portfolio name
+// of the network product. The collision is not confined to source: these are
+// Application CR NAMES, so `kubectl get applications` on any live Sovereign
+// printed the product's name against unrelated platform components. That is
+// the banned-term-from-a-runtime-object-name class — a source-only grep of the
+// console trees cannot see it.
+//
+// `platform-` is accurate (these components live under platform/ and are the
+// Sovereign's own control plane) and collides with no portfolio name.
+const platformApplicationPrefix = "platform-"
+
+// legacyApplicationPrefix — the pre-#6849 prefix. Retained ONLY so the
+// producer can reap the CRs it created under the old name; nothing new is
+// ever written with it.
+const legacyApplicationPrefix = "spine-"
+
+// platformApplicationName composes the platform Application CR name
+// (`platform-<chart>`). Helper so tests reference the same convention.
+func platformApplicationName(chart string) string {
+	return platformApplicationPrefix + chart
+}
+
+// legacyApplicationName is the pre-#6849 name for the same component.
+func legacyApplicationName(chart string) string {
+	return legacyApplicationPrefix + chart
 }
 
 // spineEnvironmentRef returns the RFC-1123-label control-plane Environment

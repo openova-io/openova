@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -82,8 +83,14 @@ func TestRenderSpineApplicationCR_ContractShape(t *testing.T) {
 	}
 	cr := renderSpineApplicationCR(sc, "t99-omani-works-cp", "t99-omani-works", []string{"me-east-215", "eu-west-101"}, owner, "")
 
-	if got := cr.GetName(); got != "spine-openbao" {
-		t.Fatalf("name = %q, want spine-openbao", got)
+	// #6849 — the CR name must NOT carry the Spine portfolio prefix. This
+	// assertion caught the rename when it landed, which is the point of
+	// pinning the name here; keep it pinned to the new one.
+	if got := cr.GetName(); got != "platform-openbao" {
+		t.Fatalf("name = %q, want platform-openbao", got)
+	}
+	if strings.HasPrefix(cr.GetName(), "spine-") {
+		t.Fatalf("name %q uses the Spine network-product portfolio name for a platform component (#6849)", cr.GetName())
 	}
 	if got := cr.GetNamespace(); got != spineApplicationNamespace {
 		t.Fatalf("namespace = %q, want %q", got, spineApplicationNamespace)
@@ -369,9 +376,9 @@ func TestEnrollSpineApplications_StampsOneCRPerPresentHR(t *testing.T) {
 	// Verify each spine Application CR exists with the adopt label.
 	for _, sc := range present {
 		got, err := dyn.Resource(ApplicationGVR()).Namespace(spineApplicationNamespace).
-			Get(context.Background(), spineApplicationName(sc.Chart), metav1.GetOptions{})
+			Get(context.Background(), platformApplicationName(sc.Chart), metav1.GetOptions{})
 		if err != nil {
-			t.Fatalf("spine Application %s not created: %v", spineApplicationName(sc.Chart), err)
+			t.Fatalf("spine Application %s not created: %v", platformApplicationName(sc.Chart), err)
 		}
 		if got.GetLabels()["catalyst.openova.io/adopts-helmrelease"] != sc.HRName {
 			t.Fatalf("CR %s adopts-helmrelease = %q, want %q",
@@ -724,9 +731,9 @@ func TestSpineOwnershipChain_AppOwnedByEnvOwnedByOrg(t *testing.T) {
 		}
 		for _, sc := range present {
 			app, err := dyn.Resource(ApplicationGVR()).Namespace(spineApplicationNamespace).
-				Get(context.Background(), spineApplicationName(sc.Chart), metav1.GetOptions{})
+				Get(context.Background(), platformApplicationName(sc.Chart), metav1.GetOptions{})
 			if err != nil {
-				t.Fatalf("spine Application %s not created: %v", spineApplicationName(sc.Chart), err)
+				t.Fatalf("spine Application %s not created: %v", platformApplicationName(sc.Chart), err)
 			}
 			appRefs := app.GetOwnerReferences()
 			if len(appRefs) != 1 || appRefs[0].Kind != "Environment" || appRefs[0].Name != envRef || string(appRefs[0].UID) != envUID {
