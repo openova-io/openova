@@ -10,6 +10,14 @@ const LOCALE = 'en-US'
 export const MINUS = '−'
 export const NA = '—'
 
+/** Accepts a number or a numeric string (the API's Decimal fields arrive as JSON numbers, older callers pass strings). */
+type Numeric = number | string | null | undefined
+
+function num(v: Numeric): number | null {
+  const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN
+  return Number.isFinite(n) ? n : null
+}
+
 function finite(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v)
 }
@@ -19,8 +27,10 @@ function fixed(abs: number, digits: number): string {
 }
 
 /** Up to `digits` decimals, trailing zeros trimmed, thousands separated. */
-export function formatNumber(v: number | null | undefined, digits = 3): string {
-  if (!finite(v)) return NA
+export function formatNumber(v: Numeric, digits = 3): string {
+  const nv = num(v)
+  if (nv === null) return NA
+  v = nv
   const s = Math.abs(v).toLocaleString(LOCALE, { maximumFractionDigits: digits })
   return v < 0 && s !== '0' ? MINUS + s : s
 }
@@ -35,8 +45,10 @@ const UNITS: ReadonlyArray<[number, string]> = [
  * formatCompact renders three significant digits with a k / M / B suffix:
  * 2780.012 → "2.78k", 1200000 → "1.2M", 104.16 → "104", 0.48 → "0.48".
  */
-export function formatCompact(v: number | null | undefined, significant = 3): string {
-  if (!finite(v)) return NA
+export function formatCompact(v: Numeric, significant = 3): string {
+  const nv = num(v)
+  if (nv === null) return NA
+  v = nv
   const abs = Math.abs(v)
   if (abs === 0) return '0'
   const sig = (x: number) => {
@@ -62,8 +74,10 @@ export interface MoneyOptions {
 }
 
 /** formatMoney(2780.012, 'OMR') → "2,780.012 OMR"; compact → "2.78k OMR". */
-export function formatMoney(v: number | null | undefined, currency: string, opts: MoneyOptions = {}): string {
-  if (!finite(v)) return NA
+export function formatMoney(v: Numeric, currency: string, opts: MoneyOptions = {}): string {
+  const nv = num(v)
+  if (nv === null) return NA
+  v = nv
   const cur = currency ? ` ${currency}` : ''
   if (opts.compact) return formatCompact(v) + cur
   const digits = opts.digits ?? 3
@@ -91,8 +105,10 @@ export function formatPct(v: number | null | undefined, opts: PctOptions = {}): 
 }
 
 /** formatQty(84, 'vcpu-hour') → "84 vcpu-hour"; 1234.5678 GB → "1,234.568 GB". */
-export function formatQty(v: number | null | undefined, unit?: string | null): string {
-  if (!finite(v)) return NA
+export function formatQty(v: Numeric, unit?: string | null): string {
+  const nv = num(v)
+  if (nv === null) return NA
+  v = nv
   const n = formatNumber(v, 3)
   return unit ? `${n} ${unit}` : n
 }

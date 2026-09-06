@@ -211,7 +211,7 @@ export function PriceBookEdit() {
       numeric: true,
       render: (r) =>
         r.priced ? (
-          formatMoney(r.unit_price, undefined, { digits: 8 })
+          formatMoney(toNumber(r.unit_price), currency, { digits: 8 })
         ) : (
           <button className="link small" onClick={() => openAdd({ sku: r.sku, unit: r.unit })}>
             Add rate
@@ -225,7 +225,7 @@ export function PriceBookEdit() {
 
   const cov = coverage.data
   const assigned = cov?.customers ?? []
-  const money = (v: number | string | null | undefined, digits?: number) => formatMoney(v, currency, digits === undefined ? undefined : { digits })
+  const money = (v: number | string | null | undefined, digits?: number) => formatMoney(toNumber(v), currency, digits === undefined ? undefined : { digits })
 
   return (
     <div className="stack">

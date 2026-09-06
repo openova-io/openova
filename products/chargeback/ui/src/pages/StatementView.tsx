@@ -38,7 +38,7 @@ export function StatementView() {
 
   const operator = me?.role === 'operator'
   const cur = s.currency
-  const money = (v: number | string | null | undefined) => formatMoney(v, cur)
+  const money = (v: number | string | null | undefined) => formatMoney(toNumber(v), cur)
   const subtotal = toNumber(s.subtotal)
   const discount = toNumber(s.discount_total)
   const tax = toNumber(s.tax)
@@ -132,7 +132,7 @@ export function StatementView() {
           <h2>Totals</h2>
           <table>
             <tbody>
-              {layout.map((step, i) => (
+              {layout.bars.map((step, i) => (
                 <tr key={step.label} style={step.kind === 'total' ? { fontWeight: 600 } : undefined}>
                   <td className={step.kind === 'total' ? '' : 'muted'}>{step.label}</td>
                   <td className="num">
@@ -221,7 +221,7 @@ export function StatementView() {
                       <td className="mono">{l.sku}</td>
                       <td>{l.unit ?? '—'}</td>
                       <td className="num">{num(l.quantity, 4)}</td>
-                      <td className="num">{formatMoney(l.unit_price, undefined, { digits: 8 })}</td>
+                      <td className="num">{formatMoney(l.unit_price, cur, { digits: 8 })}</td>
                       <td className="num">{money(l.amount)}</td>
                       <td className="num">{l.resource_count ?? '—'}</td>
                     </tr>

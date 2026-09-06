@@ -131,7 +131,7 @@ export function Allocation() {
   }
   const pool = d?.pool
   const cur = pool?.currency ?? settings.data?.currency ?? draft.currency
-  const money = (v: number | string | null | undefined, compact = false) => formatMoney(v, cur, { compact })
+  const money = (v: number | string | null | undefined, compact = false) => formatMoney(toNumber(v), cur, { compact })
   const hours = sumHours(rows)
   const preview = basisPreview(weights, hours)
   const marginPct = totals.revenue > 0 ? (totals.margin / totals.revenue) * 100 : null
@@ -340,11 +340,10 @@ export function Allocation() {
             <Donut
               slices={rows.map((r, i) => ({ key: `${r.customer_id}-${r.tier}`, label: r.tier === 'platform-overhead' ? 'Platform overhead' : r.customer_name || r.customer_slug, value: toNumber(r.allocated_cost), color: r.tier === 'platform-overhead' ? '#94a3b8' : colorFor(i) }))}
               format={(v) => money(v, true)}
-              centerLabel={money(totals.allocated, true)}
-              centerCaption="allocated"
+              caption="allocated"
             />
           ) : (
-            <EmptyChart>{d ? 'Nothing allocated: the pool is 0 for this window, or no row has a share.' : 'Waiting for the result.'}</EmptyChart>
+            <EmptyChart message={d ? 'Nothing allocated: the pool is 0 for this window, or no row has a share.' : 'Waiting for the result.'} />
           )}
         </div>
       </div>

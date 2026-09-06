@@ -25,7 +25,7 @@ const STATE_TONE: Record<DiscountState, 'ok' | 'info' | 'warn' | 'bad' | undefin
 
 function valueText(d: Discount): string {
   const v = toNumber(d.value)
-  return d.kind === 'percent' ? formatPct(v, { digits: v % 1 ? 2 : 0 }) : formatMoney(v)
+  return d.kind === 'percent' ? formatPct(v, { digits: v % 1 ? 2 : 0 }) : formatMoney(v, '')
 }
 
 export function Discounts() {
