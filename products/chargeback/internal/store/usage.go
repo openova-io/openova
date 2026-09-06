@@ -223,3 +223,16 @@ func PeriodBounds(period string) (time.Time, time.Time, error) {
 	start := time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, time.UTC)
 	return start, start.AddDate(0, 1, 0), nil
 }
+
+// DeleteUsageForResources removes every record of the given resources on one
+// source (#6867 purge of scope-excluded usage). Returns the rows removed.
+func (s *Store) DeleteUsageForResources(ctx context.Context, sourceID string, resourceIDs []string) (int64, error) {
+	if len(resourceIDs) == 0 {
+		return 0, nil
+	}
+	res, err := s.db.ExecContext(ctx, `DELETE FROM usage_records WHERE source_id = $1 AND resource_id = ANY($2)`, sourceID, pq.Array(resourceIDs))
+	if err != nil {
+		return 0, mapErr(err)
+	}
+	return res.RowsAffected()
+}

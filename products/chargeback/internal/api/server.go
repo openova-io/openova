@@ -143,6 +143,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/sources/{id}/credential", h.rotateCredential)
 	mux.HandleFunc("POST /api/v1/sources/{id}/verify", h.verifySource)
 	mux.HandleFunc("DELETE /api/v1/sources/{id}", h.deleteSource)
+	mux.HandleFunc("POST /api/v1/sources/{id}/purge-excluded", h.purgeExcluded)
 
 	// Usage + inventory.
 	mux.HandleFunc("GET /api/v1/customers/{id}/usage", h.customerUsage)
