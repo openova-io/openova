@@ -165,6 +165,16 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/customers/{id}/cost/summary", h.customerSummary)
 	mux.HandleFunc("GET /api/v1/customers/{id}/cost/dimensions", h.customerCostDimensions)
 
+	// Budgets (#6867, DESIGN.md §3.5). Reads follow the session scope;
+	// writes are operator-only.
+	mux.HandleFunc("GET /api/v1/budgets", h.listBudgets)
+	mux.HandleFunc("POST /api/v1/budgets", h.createBudget)
+	mux.HandleFunc("GET /api/v1/budgets/{id}", h.getBudget)
+	mux.HandleFunc("PUT /api/v1/budgets/{id}", h.updateBudget)
+	mux.HandleFunc("DELETE /api/v1/budgets/{id}", h.deleteBudget)
+	mux.HandleFunc("GET /api/v1/budgets/{id}/status", h.budgetStatus)
+	mux.HandleFunc("GET /api/v1/customers/{id}/budgets", h.customerBudgets)
+
 	// Anything else under /api is 404 JSON; everything else is the UI.
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) { writeErr(w, http.StatusNotFound, "not found") })
 	mux.Handle("/", h.uiHandler())
