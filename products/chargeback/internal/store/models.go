@@ -101,6 +101,14 @@ type CostSource struct {
 	LastError       *string    `json:"last_error,omitempty"`
 	// AccessKey is the (non-secret) key id of the linked credential, for display.
 	AccessKey string `json:"access_key,omitempty"`
+	// ScopeToken narrows a project-scoped source to ONE deployment's
+	// resources (#6855). A Huawei project can hold shared infrastructure and
+	// more than one Sovereign, and without this the customer is billed for
+	// all of it — measured on hw307, `bastion-openova` was on the statement.
+	// Empty = no filtering, which is the pre-#6855 behaviour: billing too much
+	// is a bug, but silently dropping a customer's own resources because a
+	// scope was never configured would be a worse one.
+	ScopeToken string `json:"scope_token,omitempty"`
 }
 
 // Credential is the API view of a stored AK/SK: the secret never leaves the

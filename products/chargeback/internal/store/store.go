@@ -201,6 +201,10 @@ CREATE TABLE IF NOT EXISTS pins (
 	attempts INT NOT NULL DEFAULT 0
 );
 `,
+	// #6855 — narrow a project-scoped cost source to one deployment. NULL /
+	// empty keeps the prior behaviour (bill everything in the project), so an
+	// existing source does not silently stop billing on upgrade.
+	`ALTER TABLE cost_sources ADD COLUMN IF NOT EXISTS scope_token TEXT NOT NULL DEFAULT '';`,
 }
 
 // Migrate applies every migration not yet recorded in schema_migrations.

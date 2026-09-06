@@ -6242,7 +6242,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-openova-mcp
-    version: 0.1.7
+    version: 0.1.8
   topology:
     supported:
       - singleton
@@ -6327,7 +6327,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-chargeback
-    version: 0.1.7
+    version: 0.1.8
   topology:
     supported:
       - singleton
