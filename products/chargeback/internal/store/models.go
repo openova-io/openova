@@ -258,6 +258,10 @@ type Statement struct {
 	CreatedAt    time.Time   `json:"created_at"`
 	Lines        []RatedLine `json:"lines,omitempty"`
 	CustomerName string      `json:"customer_name,omitempty"`
+	// #6862/#6867 — what discounts took off the list subtotal, frozen with the
+	// statement. Subtotal is the NET; list = Subtotal + DiscountTotal.
+	DiscountTotal  Decimal         `json:"discount_total"`
+	DiscountDetail json.RawMessage `json:"discount_detail,omitempty"`
 }
 
 // RatedLine is one priced aggregate on a statement.

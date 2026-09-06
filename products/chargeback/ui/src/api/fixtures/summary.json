@@ -202,7 +202,8 @@
         "status": "issued",
         "issued_at": "2026-09-01T08:00:00Z",
         "created_at": "2026-09-01T08:00:00Z",
-        "customer_name": "Acme"
+        "customer_name": "Acme",
+        "discount_total": 0
       },
       {
         "id": "s-2",
@@ -216,7 +217,8 @@
         "total": 105.840000,
         "status": "draft",
         "created_at": "2026-09-01T08:00:00Z",
-        "customer_name": "Acme"
+        "customer_name": "Acme",
+        "discount_total": 0
       }
     ]
   },
