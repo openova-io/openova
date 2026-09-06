@@ -7,6 +7,7 @@ const OPERATOR_NAV = [
   ['/customers', 'Customers'],
   ['/pricebooks', 'Price books'],
   ['/statements', 'Statements'],
+  ['/allocation', 'Allocation'],
 ] as const
 
 const CUSTOMER_NAV = [
