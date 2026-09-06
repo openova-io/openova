@@ -14,6 +14,10 @@ import { SignIn } from './pages/SignIn'
 import { StatementView } from './pages/StatementView'
 import { Allocation } from './pages/Allocation'
 import { Statements } from './pages/Statements'
+import { Resources } from './pages/Resources'
+import { ResourceDetail } from './pages/ResourceDetail'
+import { Anomalies } from './pages/Anomalies'
+import { Recommendations } from './pages/Recommendations'
 
 function Home() {
   const { me, loading } = useSession()
@@ -42,12 +46,20 @@ export function App() {
             <Route path="/pricebooks" element={<PriceBooks />} />
             <Route path="/pricebooks/:id" element={<PriceBookEdit />} />
             <Route path="/statements" element={<Statements />} />
+            <Route path="/resources" element={<Resources />} />
+            <Route path="/resources/:sourceId/:resourceId" element={<ResourceDetail />} />
+            <Route path="/anomalies" element={<Anomalies />} />
+            <Route path="/recommendations" element={<Recommendations />} />
           </Route>
 
           <Route element={<Shell roles={['customer-admin', 'customer-viewer']} />}>
             <Route path="/my/usage" element={<MyUsage />} />
             <Route path="/my/statements" element={<MyStatements />} />
             <Route path="/my/sources" element={<MySources />} />
+            <Route path="/my/resources" element={<Resources />} />
+            <Route path="/my/resources/:sourceId/:resourceId" element={<ResourceDetail />} />
+            <Route path="/my/anomalies" element={<Anomalies />} />
+            <Route path="/my/recommendations" element={<Recommendations />} />
           </Route>
 
           <Route element={<Shell />}>

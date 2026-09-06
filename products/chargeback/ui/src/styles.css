@@ -64,23 +64,23 @@ p { margin: 6px 0; }
 
 /* ── Layout ─────────────────────────────────────────────────────────── */
 .shell { display: grid; grid-template-columns: 232px minmax(0, 1fr); min-height: 100vh; }
-.side {
+aside.side {
   background: var(--side-bg); color: var(--side-ink); padding: 14px 10px 16px;
   display: flex; flex-direction: column; gap: 2px; position: sticky; top: 0; height: 100vh; overflow-y: auto;
 }
-.side .brand { color: #fff; font-weight: 650; font-size: 15px; padding: 6px 10px 12px; display: flex; align-items: center; gap: 8px; }
-.side .brand .dot { width: 10px; height: 10px; border-radius: 3px; background: #60a5fa; display: inline-block; }
-.side .brand .env { color: var(--side-muted); font-weight: 400; font-size: 11px; margin-left: auto; }
-.side .group { color: var(--side-muted); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; padding: 12px 10px 4px; }
-.side a { color: var(--side-ink); display: flex; align-items: center; gap: 9px; padding: 6px 10px; border-radius: 6px; font-size: 13.5px; }
-.side a .ico { width: 16px; text-align: center; opacity: .8; font-size: 13px; }
-.side a:hover { background: #172036; text-decoration: none; }
-.side a.active { background: var(--side-active); color: #fff; }
-.side .spacer { flex: 1; }
-.side .who { font-size: 12px; color: #94a3b8; padding: 8px 10px; word-break: break-all; line-height: 1.35; }
-.side .who .role { display: inline-block; margin-top: 3px; padding: 1px 7px; border-radius: 999px; background: #1e293b; color: #cbd5e1; font-family: var(--mono); font-size: 11px; }
-.side button.ghost { width: 100%; background: transparent; color: var(--side-ink); border-color: #1e293b; }
-.side button.ghost:hover { background: #172036; }
+aside.side .brand { color: #fff; font-weight: 650; font-size: 15px; padding: 6px 10px 12px; display: flex; align-items: center; gap: 8px; }
+aside.side .brand .dot { width: 10px; height: 10px; border-radius: 3px; background: #60a5fa; display: inline-block; }
+aside.side .brand .env { color: var(--side-muted); font-weight: 400; font-size: 11px; margin-left: auto; }
+aside.side .group { color: var(--side-muted); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; padding: 12px 10px 4px; }
+aside.side a { color: var(--side-ink); display: flex; align-items: center; gap: 9px; padding: 6px 10px; border-radius: 6px; font-size: 13.5px; }
+aside.side a .ico { width: 16px; text-align: center; opacity: .8; font-size: 13px; }
+aside.side a:hover { background: #172036; text-decoration: none; }
+aside.side a.active { background: var(--side-active); color: #fff; }
+aside.side .spacer { flex: 1; }
+aside.side .who { font-size: 12px; color: #94a3b8; padding: 8px 10px; word-break: break-all; line-height: 1.35; }
+aside.side .who .role { display: inline-block; margin-top: 3px; padding: 1px 7px; border-radius: 999px; background: #1e293b; color: #cbd5e1; font-family: var(--mono); font-size: 11px; }
+aside.side button.ghost { width: 100%; background: transparent; color: var(--side-ink); border-color: #1e293b; }
+aside.side button.ghost:hover { background: #172036; }
 .main { padding: 0 0 56px; min-width: 0; }
 .main-inner { padding: 18px 28px 0; max-width: 1480px; }
 .single { max-width: 520px; margin: 48px auto; padding: 0 16px; }
@@ -261,9 +261,20 @@ pre.details { white-space: pre-wrap; word-break: break-all; margin: 0; font-size
 
 /* Print: statements */
 @media print {
-  .side, .page-head .actions, .tabs, .toolbar, button, .no-print { display: none !important; }
+  aside.side, .page-head .actions, .tabs, .toolbar, button, .no-print { display: none !important; }
   .shell { grid-template-columns: 1fr; }
   .main-inner { padding: 0; max-width: none; }
   .card { box-shadow: none; }
   body { background: #fff; }
 }
+
+/* Expandable rows (anomaly drivers), toggle chips (recommendation filters), loose record tables (#6867) */
+tbody tr.open td { background: var(--panel-2); border-bottom-color: transparent; }
+tbody tr.expand td { background: var(--panel-2); padding: 6px 14px 14px 36px; }
+tbody tr.expand:hover td { background: var(--panel-2); }
+.caret { display: inline-block; width: 12px; color: var(--muted-2); font-size: 11px; }
+.chip.toggle { cursor: pointer; background: #fff; color: var(--ink-2); font: inherit; font-size: 12px; }
+.chip.toggle:hover { border-color: var(--accent); color: var(--accent); }
+.chip.toggle.on { background: var(--accent-2); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.chip.toggle .n { color: var(--muted); font-size: 11px; font-weight: 400; }
+.records-table td { font-size: 12px; white-space: nowrap; }
