@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-06T13:45:03Z` |
+| Last refreshed | `2026-09-06T14:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -322,6 +322,7 @@ flowchart LR
 | 2026-09-03T08:14 | [#6845](https://github.com/openova-io/openova/pull/6845) | #6842 | fix(chargeback): bump appVersion so the SSO code actually re |
 | 2026-09-03T07:34 | [#6842](https://github.com/openova-io/openova/pull/6842) | #6841 | fix(chargeback): sign in with Sovereign SSO instead of a sec |
 | 2026-09-03T05:55 | [#6838](https://github.com/openova-io/openova/pull/6838) | #6827 | fix(huawei): active/hot-standby by default — 100% of north-s |
+| 2026-09-06T13:48 | [#6835](https://github.com/openova-io/openova/pull/6835) | #6723 | feat(console): Billing links the Sovereign chargeback placem |
 | 2026-09-03T04:28 | [#6834](https://github.com/openova-io/openova/pull/6834) | #6815 | feat(api): surface the node-side census so a short-joined re |
 | 2026-09-03T04:15 | [#6833](https://github.com/openova-io/openova/pull/6833) | #5505 | fix(bp-kyverno-policies): grant the storageclasses read its  |
 | 2026-09-03T04:28 | [#6831](https://github.com/openova-io/openova/pull/6831) | #6827 | docs(sessions): hw307 health gate — nodes, zero-NodePort and |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-02T19:53 | [#6814](https://github.com/openova-io/openova/pull/6814) | #5281 | fix(preflight): gate the fire on the Phase-1 image path, wal |
 | 2026-09-02T16:54 | [#6813](https://github.com/openova-io/openova/pull/6813) | #6811 | docs(ledger): record the hw307 walk observations (Refs #6778 |
 | 2026-09-02T16:41 | [#6812](https://github.com/openova-io/openova/pull/6812) | #6810 | docs(sessions): hw307 post-ready evidence — stability watch, |
-| 2026-09-02T16:41 | [#6811](https://github.com/openova-io/openova/pull/6811) | #6778 | docs(uat): seven scheduler-due rows walked live on hw307 (Re |
 
 ---
 
