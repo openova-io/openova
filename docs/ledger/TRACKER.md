@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-06T16:30:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-09-06T16:45:02Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6189](https://github.com/openova-io/openova/issues/6189) | P0: mothership owner sign-in dead — Keycloak scaled to 0 behind a green HelmRe | Other |
 | [#6191](https://github.com/openova-io/openova/issues/6191) | hw295 reports status=ready while its console gateway EIP (212.72.24.8, the wiped | Other |
 | [#6192](https://github.com/openova-io/openova/issues/6192) | Per-app Overview prints stale PLACEMENT 'singleton' while Topology reads runtime | Other |
 | [#6194](https://github.com/openova-io/openova/issues/6194) | Wizard StepOrg still says "All fields are pre-filled" after #5401 emptied them � | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6857](https://github.com/openova-io/openova/issues/6857) | Four extended listers 400 against the real Huawei gateway — limit=200 rejected | Other |
 | [#6859](https://github.com/openova-io/openova/issues/6859) | scope_token is unsettable, so the #6855 project-scoping fix is inert — every s | Other |
 | [#6861](https://github.com/openova-io/openova/issues/6861) | Every Blueprint PR races the deploy-bot for the umbrella chart version — auto- | Other |
+| [#6867](https://github.com/openova-io/openova/issues/6867) | chargeback: bring cost analysis to cloud-provider level — overview renders zer | Other |
 
 ---
 
