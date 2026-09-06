@@ -43,7 +43,7 @@ Legend: ✅ have · ◐ partial · ❌ missing. "Target" = this design.
 | Saved reports / views | ✅ | ✅ | ✅ | ❌ | ✅ |
 | CSV export of any view | ✅ CUR | ✅ BigQuery export | ✅ | ◐ (statements) | ✅ explore + resources + price books |
 | Invoices / statements with line detail | ✅ Bills | ✅ Invoices | ✅ | ✅ | ✅ redesigned, printable |
-| Cost allocation of shared spend to tenants | ✅ split charges | ❌ | ✅ allocation rules | ◐ | ✅ editable weights, overhead policy, pool, money + margin |
+| Cost allocation of shared spend to Organizations | ✅ split charges | ❌ | ✅ allocation rules | ◐ | ✅ editable weights, overhead policy, pool, money + margin |
 | Multi-tenant scope (operator vs customer) | ✅ | ✅ | ✅ | ✅ | ✅ every endpoint scope-filtered |
 
 ## 2. Information architecture
