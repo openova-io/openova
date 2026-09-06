@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/openova-io/openova/products/chargeback/internal/store"
@@ -21,8 +22,19 @@ func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
 // blocks to the summary (parts.Budgets / parts.Anomalies). Kept as a method
 // so each lane extends it without touching the composition.
 func (h *Handler) enrichSummary(r *http.Request, scope store.Scope, customerID string, parts *summaryParts) {
-	_ = r
-	_ = scope
-	_ = customerID
-	_ = parts
+	// Budgets (#6867 §3.5): the current-month status of every active budget
+	// the scope may see. On the customer lens (the operator's
+	// /customers/{id}/cost/summary, or a customer principal's own) only the
+	// budgets naming that customer; the operator's overview lists them all,
+	// global budgets included.
+	listScope := scope
+	if customerID != "" {
+		listScope = store.CustomerScope(customerID)
+	}
+	rows, err := h.budgetStatuses(r.Context(), listScope, scope, parts.Now)
+	if err != nil {
+		slog.Warn("summary budgets", "error", err)
+		return
+	}
+	parts.Budgets = rows
 }

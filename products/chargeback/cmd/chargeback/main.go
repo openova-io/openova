@@ -19,6 +19,7 @@ import (
 
 	"github.com/openova-io/openova/products/chargeback/internal/adapter/openova"
 	"github.com/openova-io/openova/products/chargeback/internal/api"
+	"github.com/openova-io/openova/products/chargeback/internal/budget"
 	"github.com/openova-io/openova/products/chargeback/internal/collector/huawei"
 	"github.com/openova-io/openova/products/chargeback/internal/config"
 	"github.com/openova-io/openova/products/chargeback/internal/crypto"
@@ -106,6 +107,10 @@ func main() {
 		slog.Info("collector disabled by COLLECTOR_ENABLED=false")
 	}
 	go housekeeping(ctx, st)
+	// #6867 — hourly budget evaluator: records each threshold crossing once
+	// per period (budget_alerts), audits it and mails the budget's
+	// recipients. First run one minute after start, then hourly.
+	go (&budget.Evaluator{Store: st, Mail: deps.Mail}).Run(ctx)
 
 	// OpenOva adapter (ADR-0014 D2 case 1): Organization → Customer sync +
 	// the platform collector, in this same binary. On by default only for
