@@ -1,6 +1,10 @@
 package huawei
 
-import "testing"
+import (
+	"context"
+	"net/http"
+	"testing"
+)
 
 func res(id, kind, name string, attrs map[string]any) Resource {
 	if attrs == nil {
@@ -84,5 +88,29 @@ func TestUnscopedSourceMatchesEverything(t *testing.T) {
 	})
 	if len(in) != 2 || len(out) != 0 {
 		t.Fatalf("unscoped: in=%d out=%d, want everything in scope", len(in), len(out))
+	}
+}
+
+// #6859 — regression: the EIP lister must CARRY bandwidth_name, or ScopeMatcher
+// has nothing to attribute an EIP by and silently excludes every one of them.
+// Caught by replaying the live hw307 inventory through Partition: all 7 EIPs
+// fell out of scope, including the 5 belonging to the Sovereign.
+func TestEIPListerCarriesBandwidthNameForScoping(t *testing.T) {
+	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"publicips":[{"id":"e1","public_ip_address":"5.37.79.59","bandwidth_size":100,` +
+			`"bandwidth_name":"catalyst-hw307-omani-works-9a1f230f-me-east-215-a-nat-bw",` +
+			`"status":"ACTIVE","create_time":"2026-08-01 00:00:00","type":"5_bgp"}]}`))
+	})
+	rs, err := client.ListEIP(context.Background(), Credentials{AccessKey: "a", SecretKey: "b", ProjectID: "p"}, "r")
+	if err != nil || len(rs) != 1 {
+		t.Fatalf("list: %v %d", err, len(rs))
+	}
+	if got := rs[0].Attrs["bandwidth_name"]; got != "catalyst-hw307-omani-works-9a1f230f-me-east-215-a-nat-bw" {
+		t.Fatalf("bandwidth_name = %v — ScopeMatcher cannot attribute this EIP and will drop it", got)
+	}
+	// And it must actually survive scoping.
+	in, out := ScopeMatcher{Token: "9a1f230f"}.Partition(rs)
+	if len(in) != 1 || len(out) != 0 {
+		t.Fatalf("scoped EIP: in=%d out=%d, want the Sovereign EIP kept", len(in), len(out))
 	}
 }
