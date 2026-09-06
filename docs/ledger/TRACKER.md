@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-06T08:15:03Z` |
+| Last refreshed | `2026-09-06T08:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6187](https://github.com/openova-io/openova/issues/6187) | bp-keycloak 1.5.10: the #6172 backchannel anchor is not gated to Sovereign mode, | Other |
 | [#6189](https://github.com/openova-io/openova/issues/6189) | P0: mothership owner sign-in dead — Keycloak scaled to 0 behind a green HelmRe | Other |
 | [#6191](https://github.com/openova-io/openova/issues/6191) | hw295 reports status=ready while its console gateway EIP (212.72.24.8, the wiped | Other |
 | [#6192](https://github.com/openova-io/openova/issues/6192) | Per-app Overview prints stale PLACEMENT 'singleton' while Topology reads runtime | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6855](https://github.com/openova-io/openova/issues/6855) | chargeback bills the whole Huawei project to one customer — bastion-openova is | Other |
 | [#6857](https://github.com/openova-io/openova/issues/6857) | Four extended listers 400 against the real Huawei gateway — limit=200 rejected | Other |
 | [#6859](https://github.com/openova-io/openova/issues/6859) | scope_token is unsettable, so the #6855 project-scoping fix is inert — every s | Other |
+| [#6861](https://github.com/openova-io/openova/issues/6861) | Every Blueprint PR races the deploy-bot for the umbrella chart version — auto- | Other |
 
 ---
 
