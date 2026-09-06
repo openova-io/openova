@@ -34,7 +34,7 @@ export function UsersPanel({ customerId, users, adminEmail, onChanged }: { custo
       header: '',
       value: () => '',
       sortable: false,
-      className: 'nowrap',
+      className: 'nowrap actions',
       render: (u) => (
         <button className="link small danger" disabled={act.busy} onClick={() => setRemoving(u)}>
           Remove

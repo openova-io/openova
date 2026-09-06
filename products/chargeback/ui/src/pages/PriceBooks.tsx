@@ -127,6 +127,7 @@ export function PriceBooks() {
     },
     {
       key: 'actions',
+      className: 'actions',
       header: '',
       value: () => '',
       sortable: false,

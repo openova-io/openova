@@ -165,6 +165,13 @@ tbody tr.clickable { cursor: pointer; }
 tbody tr.selected td { background: var(--accent-2); }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 th.sortable { cursor: pointer; user-select: none; }
+/* Row actions stay visible when a wide table scrolls horizontally: pinned to
+   the right edge with a soft shadow. Measured on hw307 at 1440 px: the Sources
+   table was 1257 px in a 1150 px container and every Edit / Verify / Purge /
+   Delete button sat behind a scroll nobody sees. */
+th.actions, td.actions { position: sticky; right: 0; background: var(--panel); z-index: 1; box-shadow: -8px 0 8px -8px rgba(15, 23, 42, .25); }
+th.actions { background: var(--panel-2); z-index: 2; }
+tbody tr:hover td.actions { background: #fbfcfe; }
 th.sortable:hover { color: var(--ink); }
 th .sort { margin-left: 4px; color: var(--muted-2); }
 th.sorted .sort { color: var(--accent); }

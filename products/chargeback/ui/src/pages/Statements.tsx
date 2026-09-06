@@ -101,6 +101,7 @@ export function Statements() {
     { key: 'issued_at', header: 'Issued', value: (s) => s.issued_at ?? '', render: (s) => (s.issued_at ? when(s.issued_at) : <span className="muted">—</span>) },
     {
       key: 'actions',
+      className: 'actions',
       header: '',
       value: () => '',
       sortable: false,
