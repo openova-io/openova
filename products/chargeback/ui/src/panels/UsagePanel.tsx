@@ -1,3 +1,4 @@
+import { TrendChart, toDailySeries } from '../components/TrendChart'
 import { useCallback, useEffect, useState } from 'react'
 import { api, asList, errorText } from '../api/client'
 import type { InventoryItem, UsageRow } from '../api/types'
@@ -44,8 +45,16 @@ export function UsagePanel({ customerId }: { customerId: string }) {
 
   const keyOf = (r: UsageRow) => (groupBy === 'sku' ? r.sku : groupBy === 'day' ? r.day : r.resource_id) ?? '—'
 
+  // #6863 — the day view gets a trend above the table. Only for `day`:
+  // a bar per SKU or per resource is a ranking, not a trend, and drawing it
+  // on a time axis would imply an ordering the data does not have.
+  const series = groupBy === 'day' ? toDailySeries(rows) : []
+
   return (
     <div className="stack">
+      {series.length > 1 && (
+        <TrendChart points={series} title="Usage per day" format={(v) => String(Math.round(v * 100) / 100)} />
+      )}
       <form
         className="inline"
         onSubmit={(e) => {
