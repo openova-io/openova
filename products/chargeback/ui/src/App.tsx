@@ -13,6 +13,7 @@ import { PriceBooks } from './pages/PriceBooks'
 import { SignIn } from './pages/SignIn'
 import { StatementView } from './pages/StatementView'
 import { Allocation } from './pages/Allocation'
+import { ChartGallery } from './pages/ChartGallery'
 import { Statements } from './pages/Statements'
 import { Resources } from './pages/Resources'
 import { ResourceDetail } from './pages/ResourceDetail'
@@ -50,6 +51,8 @@ export function App() {
             <Route path="/resources/:sourceId/:resourceId" element={<ResourceDetail />} />
             <Route path="/anomalies" element={<Anomalies />} />
             <Route path="/recommendations" element={<Recommendations />} />
+            {/* Visual regression page for the chart library (#6867); not in the nav. */}
+            <Route path="/dev/charts" element={<ChartGallery />} />
           </Route>
 
           <Route element={<Shell roles={['customer-admin', 'customer-viewer']} />}>

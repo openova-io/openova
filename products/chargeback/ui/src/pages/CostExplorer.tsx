@@ -214,15 +214,13 @@ export function ExplorerBody({ lens, embedded }: { lens: Lens; embedded?: boolea
           <Skeleton lines={5} />
         ) : d && chartProps && hasData ? (
           state.chart === 'stacked' ? (
-            <StackedBars {...chartProps} height={300} format={fmt} labelFor={bucketLabel} onBarClick={(i, key) => { if (key && key !== 'other' && state.groupBy !== 'none') setState(drillInto(state, key)); else if (state.granularity === 'day') setState({ ...state, preset: 'custom', window: { from: d.buckets[i], to: d.buckets[i] < d.to ? nextDay(d.buckets[i]) : d.to } }) }} />
+            <StackedBars {...chartProps} height={300} format={fmt} bucketLabel={bucketLabel} onBarClick={(i, key) => { if (key && key !== 'other' && state.groupBy !== 'none') setState(drillInto(state, key)); else if (state.granularity === 'day') setState({ ...state, preset: 'custom', window: { from: d.buckets[i], to: d.buckets[i] < d.to ? nextDay(d.buckets[i]) : d.to } }) }} />
           ) : (
-            <LineChart {...chartProps} height={300} format={fmt} labelFor={bucketLabel} area={state.chart === 'area'} />
+            <LineChart {...chartProps} height={300} format={fmt} bucketLabel={bucketLabel} area={state.chart === 'area'} />
           )
         ) : d ? (
-          <EmptyChart>
-            No {state.metric === 'usage' ? 'usage' : 'priced usage'} for this selection in {describeWindow(state.window)}.
-            {filterCount(state.filters) ? ' Try removing a filter.' : ''}
-          </EmptyChart>
+          <EmptyChart message={`No ${state.metric === 'usage' ? 'usage' : 'priced usage'} for this selection in ${describeWindow(state.window)}.
+            ${filterCount(state.filters) ? ' Try removing a filter.' : ''}`} />
         ) : null}
       </div>
 

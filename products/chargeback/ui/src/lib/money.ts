@@ -1,40 +1,113 @@
-// Money / percentage formatting (#6867). The chart lane ships the full
-// version with tests; this file carries the same exported signatures so the
-// frame compiles on its own — on merge, theirs wins.
+/**
+ * Number formatting for the cost-analysis surfaces (#6867).
+ *
+ * Locale is pinned to en-US so a value renders identically in every browser
+ * and in the node test run; the thin space before % and the true minus sign
+ * (U+2212) are deliberate — a hyphen-minus reads as a dash in a table.
+ */
 
-export function formatMoney(v: number | string | null | undefined, currency?: string, opts?: { compact?: boolean; digits?: number }): string {
-  if (v === null || v === undefined || v === '') return '—'
-  const n = typeof v === 'number' ? v : Number(v)
-  if (!Number.isFinite(n)) return '—'
-  const digits = opts?.digits ?? 3
-  let text: string
-  if (opts?.compact && Math.abs(n) >= 1000) {
-    const abs = Math.abs(n)
-    const [div, suffix] = abs >= 1e9 ? [1e9, 'B'] : abs >= 1e6 ? [1e6, 'M'] : [1e3, 'k']
-    text = `${(n / div).toLocaleString('en-GB', { maximumFractionDigits: 2, minimumFractionDigits: 0 })}${suffix}`
-  } else {
-    text = n.toLocaleString('en-GB', { minimumFractionDigits: digits, maximumFractionDigits: digits })
+const LOCALE = 'en-US'
+export const MINUS = '−'
+export const NA = '—'
+
+function finite(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v)
+}
+
+function fixed(abs: number, digits: number): string {
+  return abs.toLocaleString(LOCALE, { minimumFractionDigits: digits, maximumFractionDigits: digits })
+}
+
+/** Up to `digits` decimals, trailing zeros trimmed, thousands separated. */
+export function formatNumber(v: number | null | undefined, digits = 3): string {
+  if (!finite(v)) return NA
+  const s = Math.abs(v).toLocaleString(LOCALE, { maximumFractionDigits: digits })
+  return v < 0 && s !== '0' ? MINUS + s : s
+}
+
+const UNITS: ReadonlyArray<[number, string]> = [
+  [1e9, 'B'],
+  [1e6, 'M'],
+  [1e3, 'k'],
+]
+
+/**
+ * formatCompact renders three significant digits with a k / M / B suffix:
+ * 2780.012 → "2.78k", 1200000 → "1.2M", 104.16 → "104", 0.48 → "0.48".
+ */
+export function formatCompact(v: number | null | undefined, significant = 3): string {
+  if (!finite(v)) return NA
+  const abs = Math.abs(v)
+  if (abs === 0) return '0'
+  const sig = (x: number) => {
+    const decimals = Math.max(0, significant - 1 - Math.floor(Math.log10(x)))
+    return x.toLocaleString(LOCALE, { maximumFractionDigits: Math.min(decimals, 12) })
   }
-  return currency ? `${text} ${currency}` : text
+  let out = sig(abs)
+  for (const [unit, suffix] of UNITS) {
+    const x = abs / unit
+    // 999.6k would round to "1,000k": promote it to the next unit instead.
+    if (x >= 1 || (x >= 0.9995 && Number(sig(x)) === 1)) {
+      out = sig(x) + suffix
+      break
+    }
+  }
+  return v < 0 ? MINUS + out : out
 }
 
-export function formatPct(v: number | null | undefined, opts?: { sign?: boolean; digits?: number }): string {
-  if (v === null || v === undefined || !Number.isFinite(v)) return '—'
-  const digits = opts?.digits ?? 1
-  const abs = Math.abs(v).toLocaleString('en-GB', { minimumFractionDigits: digits, maximumFractionDigits: digits })
-  const sign = v < 0 ? '−' : opts?.sign && v > 0 ? '+' : ''
-  return `${sign}${abs} %`
+export interface MoneyOptions {
+  compact?: boolean
+  /** Fraction digits for the full form (default 3 — OMR has three). */
+  digits?: number
 }
 
-export function formatQty(v: number | string | null | undefined, unit?: string): string {
-  if (v === null || v === undefined || v === '') return '—'
-  const n = typeof v === 'number' ? v : Number(v)
-  if (!Number.isFinite(n)) return '—'
-  const text = n.toLocaleString('en-GB', { maximumFractionDigits: 2 })
-  return unit ? `${text} ${unit}` : text
+/** formatMoney(2780.012, 'OMR') → "2,780.012 OMR"; compact → "2.78k OMR". */
+export function formatMoney(v: number | null | undefined, currency: string, opts: MoneyOptions = {}): string {
+  if (!finite(v)) return NA
+  const cur = currency ? ` ${currency}` : ''
+  if (opts.compact) return formatCompact(v) + cur
+  const digits = opts.digits ?? 3
+  const s = fixed(Math.abs(v), digits)
+  const zero = Number(s.replace(/,/g, '')) === 0
+  return (v < 0 && !zero ? MINUS : '') + s + cur
 }
 
-export function formatDelta(cur: number, prev: number): number | null {
-  if (!prev) return null
-  return ((cur - prev) / prev) * 100
+export interface PctOptions {
+  /** Prefix positive values with "+". */
+  sign?: boolean
+  /** Fraction digits; default 1, or 0 once |v| ≥ 100. */
+  digits?: number
+}
+
+/** formatPct(5.8, {sign:true}) → "+5.8 %"; −3.1 → "−3.1 %"; null → "—". */
+export function formatPct(v: number | null | undefined, opts: PctOptions = {}): string {
+  if (!finite(v)) return NA
+  const abs = Math.abs(v)
+  const digits = opts.digits ?? (abs >= 100 ? 0 : 1)
+  const s = fixed(abs, digits)
+  const zero = Number(s.replace(/,/g, '')) === 0
+  const prefix = zero ? '' : v < 0 ? MINUS : opts.sign ? '+' : ''
+  return `${prefix}${s} %`
+}
+
+/** formatQty(84, 'vcpu-hour') → "84 vcpu-hour"; 1234.5678 GB → "1,234.568 GB". */
+export function formatQty(v: number | null | undefined, unit?: string | null): string {
+  if (!finite(v)) return NA
+  const n = formatNumber(v, 3)
+  return unit ? `${n} ${unit}` : n
+}
+
+/**
+ * deltaPct is the change from `prev` to `cur` in percent, or null when there
+ * is nothing to compare against (prev = 0, or either side is not a number) —
+ * the same rule the API applies to delta_pct.
+ */
+export function deltaPct(cur: number | null | undefined, prev: number | null | undefined): number | null {
+  if (!finite(cur) || !finite(prev) || prev === 0) return null
+  return ((cur - prev) / Math.abs(prev)) * 100
+}
+
+/** formatDelta(105.8, 100) → "+5.8 %"; formatDelta(5, 0) → "—". */
+export function formatDelta(cur: number | null | undefined, prev: number | null | undefined): string {
+  return formatPct(deltaPct(cur, prev), { sign: true })
 }

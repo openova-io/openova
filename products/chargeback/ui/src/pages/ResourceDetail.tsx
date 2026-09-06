@@ -125,9 +125,9 @@ export function ResourceDetailBody({ lens, sourceId, resourceId }: { lens: Lens;
           <span className="hint">{describeWindow(window)} · missing days had no usage record</span>
         </div>
         {daysWithData > 0 ? (
-          <LineChart buckets={daily.map((x) => x.day)} series={[{ key: 'cost', label: 'Cost', values: daily.map((x) => x.cost), color: colorFor(0) }]} missing={daily.map((x) => !x.has_data)} height={220} area format={(v) => money(v)} labelFor={bucketLabel} legend={false} />
+          <LineChart buckets={daily.map((x) => x.day)} series={[{ key: 'cost', label: 'Cost', values: daily.map((x) => x.cost), color: colorFor(0) }]} missing={daily.map((x) => !x.has_data)} height={220} area format={(v) => money(v)} bucketLabel={bucketLabel} legend={false} />
         ) : (
-          <EmptyChart>No priced usage for this resource in {describeWindow(window)}. Widen the window, or check the SKU lines below for usage the price book does not rate.</EmptyChart>
+          <EmptyChart message={`No priced usage for this resource in ${describeWindow(window)}. Widen the window, or check the SKU lines below for usage the price book does not rate.`} />
         )}
       </div>
 

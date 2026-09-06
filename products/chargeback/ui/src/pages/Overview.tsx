@@ -112,11 +112,11 @@ export function OverviewBody({ lens, title, embedded }: { lens: Lens; title?: st
                 {...seriesFromExplore(daily.data)}
                 height={240}
                 format={(v) => money(v)}
-                labelFor={bucketLabel}
-                onBarClick={(i) => nav(explorerHref(`preset=custom&from=${daily.data!.buckets[i]}&to=${daily.data!.buckets[i]}&group_by=kind`))}
+                bucketLabel={bucketLabel}
+                onBarClick={(i) => void nav(explorerHref(`preset=custom&from=${daily.data!.buckets[i]}&to=${daily.data!.buckets[i]}&group_by=kind`))}
               />
             ) : (
-              <EmptyChart>No priced usage in the last 30 days.</EmptyChart>
+              <EmptyChart message={'No priced usage in the last 30 days.'} />
             )
           ) : (
             <Skeleton lines={4} />
@@ -129,14 +129,14 @@ export function OverviewBody({ lens, title, embedded }: { lens: Lens; title?: st
           </div>
           {lens.operator ? (
             byCustomer.length ? (
-              <Donut slices={byCustomer.map((g) => ({ key: g.key, label: g.label, value: g.value }))} format={(v) => money(v, true)} centerLabel={money(k.mtd, true)} centerCaption="MTD" onSliceClick={(key) => key !== 'other' && nav(`/customers/${key}`)} />
+              <Donut slices={byCustomer.map((g) => ({ key: g.key, label: g.label, value: g.value }))} format={(v) => money(v, true)} caption="Month to date" onSliceClick={(key) => { if (key !== 'other') nav(`/customers/${key}`) }} />
             ) : (
-              <EmptyChart>No customer has priced usage this month.</EmptyChart>
+              <EmptyChart message={'No customer has priced usage this month.'} />
             )
           ) : byKind.length ? (
-            <Donut slices={byKind.map((g) => ({ key: g.key, label: g.label, value: g.value }))} format={(v) => money(v, true)} centerLabel={money(k.mtd, true)} centerCaption="MTD" />
+            <Donut slices={byKind.map((g) => ({ key: g.key, label: g.label, value: g.value }))} format={(v) => money(v, true)} caption="Month to date" />
           ) : (
-            <EmptyChart>No priced usage this month.</EmptyChart>
+            <EmptyChart message={'No priced usage this month.'} />
           )}
         </div>
       </div>
@@ -152,7 +152,7 @@ export function OverviewBody({ lens, title, embedded }: { lens: Lens; title?: st
           {byKind.length ? (
             <RankedBars rows={byKind.map((g) => ({ key: g.key, label: g.label, value: g.value, share: g.share, delta_pct: g.delta_pct }))} format={(v) => money(v)} onClick={(key) => nav(explorerHref(`preset=mtd&group_by=sku&kind=${encodeURIComponent(key)}`))} />
           ) : (
-            <EmptyChart>Nothing priced this month.</EmptyChart>
+            <EmptyChart message={'Nothing priced this month.'} />
           )}
         </div>
         {lens.operator ? (
@@ -164,7 +164,7 @@ export function OverviewBody({ lens, title, embedded }: { lens: Lens; title?: st
             {byCustomer.length ? (
               <RankedBars rows={byCustomer.map((g) => ({ key: g.key, label: g.label, value: g.value, share: g.share, delta_pct: g.delta_pct }))} format={(v) => money(v)} onClick={(key) => key !== 'other' && nav(`/customers/${key}`)} />
             ) : (
-              <EmptyChart>No customer has priced usage this month.</EmptyChart>
+              <EmptyChart message={'No customer has priced usage this month.'} />
             )}
           </div>
         ) : (
@@ -293,7 +293,7 @@ function StatementsMini({ s, route }: { s: Summary; route: string }) {
             <td>
               <Badge status={st.status} />
             </td>
-            <td className="num">{formatMoney(st.total, st.currency)}</td>
+            <td className="num">{formatMoney(Number(st.total), st.currency)}</td>
           </tr>
         ))}
       </tbody>
