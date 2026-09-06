@@ -110,6 +110,7 @@ vi.mock('../lib/useQuery', () => {
     if (path.startsWith('/allocation?')) return allocation
     if (path.startsWith('/statements?')) return { statements: [statement, { ...statement, id: 'st2', customer_id: 'c2', customer_name: 'Globex', customer_slug: 'globex', status: 'issued', issued_at: '2026-09-02T10:00:00Z', discount_total: 0, discount_detail: null }] }
     if (path === '/statements/st1') return statement
+    if (path === '/customers/c1/sources') return { sources: [{ id: 'src1', customer_id: 'c1', kind: 'huawei-project', region: 'me-east-215', project_id: 'proj-1', status: 'verified' }] }
     if (path.includes('/cost/explore?')) return explore
     throw new Error(`no fixture for ${path}`)
   }

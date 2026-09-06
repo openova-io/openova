@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { api } from '../api/client'
+import { api, errorText } from '../api/client'
 import type { CostSource } from '../api/types'
 import { DataTable, type Column } from '../components/DataTable'
 import { Badge, Confirm, Field, Modal, Notice, Skeleton } from '../components/ui'
@@ -16,7 +16,7 @@ const KINDS: ReadonlyArray<{ value: string; label: string; help: string }> = [
   { value: 'file', label: 'File', help: 'Usage uploaded as CSV.' },
 ]
 
-type Dialog = { kind: 'add' } | { kind: 'edit'; source: CostSource } | { kind: 'rotate'; source: CostSource } | { kind: 'delete'; source: CostSource } | null
+type Dialog = { kind: 'add' } | { kind: 'edit'; source: CostSource } | { kind: 'rotate'; source: CostSource } | { kind: 'delete'; source: CostSource } | { kind: 'purge'; source: CostSource } | null
 
 /**
  * Cost sources of one customer (#6867). `canManage` = add / edit every
@@ -44,6 +44,7 @@ export function SourcesPanel({
 }) {
   const act = useAction()
   const [dialog, setDialog] = useState<Dialog>(null)
+  const [purge, setPurge] = useState<{ ok?: string; err?: string }>({})
   const editable: Array<keyof SourceForm> = canManage ? ['region', 'project_id', 'domain_id', 'scope_token'] : canEditScope ? ['scope_token'] : []
   const close = () => setDialog(null)
 
@@ -95,6 +96,11 @@ export function SourcesPanel({
               Rotate key
             </button>
           ) : null}
+          {canManage && s.scope_token ? (
+            <button className="link small" disabled={act.busy} title="Remove the hours collected before the scope token existed for resources it excludes" onClick={() => setDialog({ kind: 'purge', source: s })}>
+              Purge excluded
+            </button>
+          ) : null}
           {canManage ? (
             <button className="link small danger" disabled={act.busy} onClick={() => setDialog({ kind: 'delete', source: s })}>
               Delete
@@ -107,6 +113,8 @@ export function SourcesPanel({
 
   return (
     <div className="stack">
+      {purge.ok ? <Notice kind="ok">{purge.ok}</Notice> : null}
+      {purge.err ? <Notice kind="bad">{purge.err}</Notice> : null}
       <div className="row between">
         <span className="muted small">
           {sources.length} source{sources.length === 1 ? '' : 's'} · {sources.filter((s) => s.status === 'verified').length} verified
@@ -147,6 +155,32 @@ export function SourcesPanel({
       {dialog?.kind === 'add' ? <SourceFormModal title="Add cost source" customerId={customerId} editable={['kind', 'region', 'project_id', 'scope_token']} onClose={close} onDone={onChanged} /> : null}
       {dialog?.kind === 'edit' ? <SourceFormModal title={`Edit source ${dialog.source.project_id || dialog.source.id}`} customerId={customerId} source={dialog.source} editable={editable} onClose={close} onDone={onChanged} /> : null}
       {dialog?.kind === 'rotate' ? <RotateKeyModal source={dialog.source} onClose={close} onDone={onChanged} /> : null}
+      {dialog?.kind === 'purge' ? (
+        <Confirm
+          title="Purge usage of excluded resources"
+          danger
+          confirmLabel="Purge"
+          busy={act.busy}
+          onClose={close}
+          onConfirm={async () => {
+            setPurge({})
+            try {
+              const r = await api.post<{ usage_records_deleted: number; excluded_resources: string[] }>(`/sources/${dialog.source.id}/purge-excluded`)
+              setPurge({ ok: `${r.usage_records_deleted.toLocaleString()} usage record(s) of ${r.excluded_resources.length} excluded resource(s) removed from ${dialog.source.project_id || dialog.source.id}` })
+              close()
+              await onChanged()
+            } catch (e) {
+              setPurge({ err: errorText(e) })
+            }
+          }}
+          body={
+            <>
+              Scope token <span className="mono">{dialog.source.scope_token}</span> stops NEW collection for resources outside it, but the hours collected before the token was set stay on every explorer view and draft statement. This removes those hours for every resource of{' '}
+              <span className="mono">{dialog.source.project_id || dialog.source.id}</span> that neither carries the token nor is attached to one that does, and marks them deleted in the inventory. Issued statements are unchanged. Cannot be undone.
+            </>
+          }
+        />
+      ) : null}
       {dialog?.kind === 'delete' ? (
         <Confirm
           title="Delete cost source"
