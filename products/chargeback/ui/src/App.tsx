@@ -8,6 +8,7 @@ import { CustomerNew } from './pages/CustomerNew'
 import { Customers } from './pages/Customers'
 import { MySources, MyStatements, MyUsage } from './pages/My'
 import { Overview } from './pages/Overview'
+import { CostExplorer } from './pages/CostExplorer'
 import { PriceBookEdit } from './pages/PriceBookEdit'
 import { PriceBooks } from './pages/PriceBooks'
 import { SignIn } from './pages/SignIn'
@@ -41,6 +42,7 @@ export function App() {
 
           <Route element={<Shell roles={['operator']} />}>
             <Route path="/overview" element={<Overview />} />
+            <Route path="/explore" element={<CostExplorer />} />
             <Route path="/customers" element={<Customers />} />
             <Route path="/customers/new" element={<CustomerNew />} />
             <Route path="/customers/import" element={<CustomerImport />} />
