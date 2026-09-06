@@ -22,6 +22,12 @@ import (
 	"strconv"
 )
 
+// dbPageLimit — RDS, DDS, GaussDB and AS reject limit=200 with a 400
+// ("Invalid limit" / "The value of parameter Limit is invalid"). Measured
+// against the live gateway: 100 is accepted, 200 is not (#6857). The generic
+// pageLimit stays 200 for the APIs that accept it.
+const dbPageLimit = 100
+
 const (
 	KindRDS     = "rds"
 	KindDDS     = "dds"
@@ -90,7 +96,7 @@ func (c *Client) listDBLike(ctx context.Context, creds Credentials, region, serv
 	var resp struct {
 		Instances []dbInstance `json:"instances"`
 	}
-	q := url.Values{"limit": {strconv.Itoa(pageLimit)}}
+	q := url.Values{"limit": {strconv.Itoa(dbPageLimit)}}
 	if err := c.Get(ctx, creds, service, region, "/v3/"+creds.ProjectID+"/instances", q, &resp); err != nil {
 		return nil, err
 	}
@@ -121,9 +127,9 @@ func (c *Client) ListGaussDB(ctx context.Context, creds Credentials, region stri
 func (c *Client) ListCBR(ctx context.Context, creds Credentials, region string) ([]Resource, error) {
 	var resp struct {
 		Vaults []struct {
-			ID       string `json:"id"`
-			Name     string `json:"name"`
-			Billing  struct {
+			ID      string `json:"id"`
+			Name    string `json:"name"`
+			Billing struct {
 				Size            int    `json:"size"`
 				ProtectType     string `json:"protect_type"`
 				Status          string `json:"status"`
@@ -272,7 +278,7 @@ func (c *Client) ListAS(ctx context.Context, creds Credentials, region string) (
 			Status string `json:"scaling_group_status"`
 		} `json:"scaling_groups"`
 	}
-	q := url.Values{"limit": {strconv.Itoa(pageLimit)}}
+	q := url.Values{"limit": {strconv.Itoa(dbPageLimit)}}
 	if err := c.Get(ctx, creds, "as", region, "/autoscaling-api/v1/"+creds.ProjectID+"/scaling_group", q, &resp); err != nil {
 		return nil, err
 	}
