@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/openova-io/openova/products/chargeback/internal/rating"
@@ -337,31 +338,47 @@ func (h *Handler) gatherSummary(r *http.Request, scope store.Scope, customerID s
 	base := func(from, to time.Time, gran, groupBy string, limit int) store.CostQuery {
 		return store.CostQuery{From: from, To: to, Granularity: gran, GroupBy: groupBy, Metric: "cost", Limit: limit, CustomerID: customerID}
 	}
-	var err error
-	if p.MTD, err = h.Store.Explore(ctx, scope, base(ms, nextMs, "day", "none", 0)); err != nil {
-		return p, err
-	}
-	if p.Daily30, err = h.Store.Explore(ctx, scope, base(today.AddDate(0, 0, -29), today.AddDate(0, 0, 1), "day", "none", 0)); err != nil {
-		return p, err
-	}
-	if p.LastMonth, err = h.Store.Explore(ctx, scope, base(lastMs, ms, "month", "none", 0)); err != nil {
-		return p, err
-	}
 	// Same day-count of last month, so MoM compares like with like on the 7th.
 	elapsed := int(today.Sub(ms).Hours()/24) + 1
 	prevTo := lastMs.AddDate(0, 0, elapsed)
 	if prevTo.After(ms) {
 		prevTo = ms
 	}
-	if p.PrevMTD, err = h.Store.Explore(ctx, scope, base(lastMs, prevTo, "month", "none", 0)); err != nil {
-		return p, err
+	// The six explorer documents are independent; measured on hw307 each is
+	// ~150 ms over 72k rows, so they run concurrently (the pool holds 16).
+	type job struct {
+		dst *store.ExploreResult
+		q   store.CostQuery
 	}
-	if p.ByCustomer, err = h.Store.Explore(ctx, scope, base(ms, nextMs, "month", "customer", 10)); err != nil {
-		return p, err
+	jobs := []job{
+		{&p.MTD, base(ms, nextMs, "day", "none", 0)},
+		{&p.Daily30, base(today.AddDate(0, 0, -29), today.AddDate(0, 0, 1), "day", "none", 0)},
+		{&p.LastMonth, base(lastMs, ms, "month", "none", 0)},
+		{&p.PrevMTD, base(lastMs, prevTo, "month", "none", 0)},
+		{&p.ByCustomer, base(ms, nextMs, "month", "customer", 10)},
+		{&p.ByKind, base(ms, nextMs, "month", "kind", 10)},
 	}
-	if p.ByKind, err = h.Store.Explore(ctx, scope, base(ms, nextMs, "month", "kind", 10)); err != nil {
-		return p, err
+	errs := make([]error, len(jobs))
+	var wg sync.WaitGroup
+	for i, j := range jobs {
+		wg.Add(1)
+		go func(i int, j job) {
+			defer wg.Done()
+			res, err := h.Store.Explore(ctx, scope, j.q)
+			if err != nil {
+				errs[i] = err
+				return
+			}
+			*j.dst = res
+		}(i, j)
 	}
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
+			return p, err
+		}
+	}
+	var err error
 	if scope.Operator {
 		if p.Customers, err = h.Store.CustomerCountsByStatus(ctx); err != nil {
 			return p, err
