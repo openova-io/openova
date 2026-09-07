@@ -237,7 +237,17 @@ spec:
       #   keycloak/gitea/harbor host on the same signal. Single-region singleton
       #   byte-identical. Existing consumer Pods adopt the new host on their next
       #   restart. Lockstep 16a/16c/16d.
-      version: 0.2.29
+      # 0.2.30 (#6874 D5, Refs #5178 #5218 #5623): the region-B dr-promoter's
+      #   /shared/diverged anti-flap marker self-clears once the local cluster is
+      #   a consistent streaming replica again (replica.enabled=true +
+      #   ConsistentSystemID=True + walreceiver streaming), and the actor
+      #   releases its own stale suspend latch (un-suspend + dr-auto-promote*
+      #   annotations dropped) when no promotion drives this HR. hw307
+      #   (2026-09-07): after the switchback the stale marker re-froze region B's
+      #   HR within a tick of every un-suspend and blocked the chart upgrade. A
+      #   latch on a promoted HR is never touched. Script-only; substitutes
+      #   unchanged. Lockstep 16a/16c/16d.
+      version: 0.2.30
       sourceRef:
         kind: HelmRepository
         name: bp-postgres

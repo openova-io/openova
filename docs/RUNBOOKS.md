@@ -1646,6 +1646,35 @@ The deterministic failover test for two independent CNPG clusters:
    failover-readiness gate and the never-promote-while-the-peer-streams rule are
    unchanged; the `dr-auto-promote-reason` annotation now names which clock
    expired.
+   🛑 **#6874 D5 — the promoter's `/shared/diverged` anti-flap marker is
+   self-clearing (`bp-postgres` ≥ 0.2.30 / `bp-cnpg-pair` ≥ 0.2.27).** The
+   signals container writes the marker when it sees the local cluster out of
+   recovery; nothing ever removed it. hw307 (2026-09-07, region B): the marker
+   landed at 07:33Z during the failover episode and, after the controlled
+   switchback above, B was a healthy streaming replica again
+   (`replica.enabled=true`, `ConsistentSystemID=True`, `pg_stat_wal_receiver`
+   streaming) yet every un-suspend of its HelmRelease was re-frozen within one
+   tick (`LATCHED (self-heal): HR … spec.suspend=true VERIFIED`), which blocked
+   B's chart upgrade until the marker was removed by hand (`rm /shared/diverged`
+   in the promoter Pod, the `dr-auto-promote*` annotations dropped,
+   `suspend=false`). The actor now clears the marker itself the moment it
+   observes the local cluster as a consistent streaming replica — all three of
+   `replica.enabled=true`, the Cluster condition `ConsistentSystemID=True`, and
+   the signals container's fresh per-tick local state `streaming`
+   (`/shared/local-state`) — logging `DIVERGENCE CLEARED: local cluster is a
+   consistent streaming replica again — self-heal latch released`, and if the HR
+   is still suspended by the actor's own latch (`dr-auto-promote-latched-at`
+   present, `promoted` not `true`) it un-suspends it and drops the
+   `dr-auto-promote*` annotations (`LATCH RELEASED …`). A latch whose HR still
+   carries `promoted: true` is legitimate and never touched, and the diverged
+   self-heal arm (on `bp-cnpg-pair` also the #5245 handoff arm, which would
+   otherwise flip the substitute and re-promote) no longer fires while the
+   cluster is a consistent replica. Step 5 of the switchback therefore needs no
+   promoter-side manual step; if an HR stays frozen after B streams, read the
+   actor log:
+   ```
+   kubectl --context <region-b> -n shared-data logs deploy/<instance>-dr-promoter -c actor | grep -E 'DIVERGENCE CLEARED|LATCH RELEASED|LATCHED'
+   ```
    🛑 **Timeline-divergence signal (#5220/#5245)**: the dr-promoter still
    records `catalyst.openova.io/dr-timeline-diverged-at` on the region-B HR
    when a side cannot stream from a REACHABLE peer — on ≥ 0.2.18 the wedge

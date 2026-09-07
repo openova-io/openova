@@ -2643,3 +2643,215 @@ run20e sig.sh 120 "$FAKE/sig-c3.log"
   || fail "#6874 D2 (c4) a reachable primary must clear both clocks"
 grep -q 'region-A REACHABLE' "$FAKE/sig-c3.log" || fail "#6874 D2 (c4) signals lost the region-A REACHABLE replication-fault path"
 echo "  PASS (-mesh-any in every shape · two probes · two clocks · PRIMARY-LESS never reads the fast hold · scripted: c1 no-promote@200s + promote@610s, c2 promote@130s, c3 partial recovery keeps the slow anchor, c4 reachable primary clears both)"
+
+# ── Case 20f: #6874 D5 — the /shared/diverged anti-flap marker is SELF-CLEARING ──
+# The signals container writes /shared/diverged when it sees the local cluster
+# OUT of recovery (state=promoted); nothing ever removed it. hw307 (2026-09-07,
+# region B): the marker was written at 07:33Z during the failover episode; after
+# the controlled switchback B was a healthy streaming replica again
+# (replica.enabled=true, ConsistentSystemID=True, walreceiver streaming) yet the
+# self-heal latch re-froze its HR within a tick of every un-suspend
+# (`LATCHED (self-heal)`) and blocked the chart upgrade until the marker was rm'd
+# by hand. 0.2.30: the actor clears the marker once the local cluster is a
+# CONSISTENT STREAMING REPLICA (ALL of: replica.enabled=true, the Cluster's
+# ConsistentSystemID condition True, the signals container's fresh local state
+# `streaming`), releases ITS OWN stale latch (latched-at present, promoted not
+# true), and the DIVERGED self-heal arm requires NOT-a-consistent-replica. Runs
+# the rendered scripts (extracted in Case 20e) under fake kubectl/psql/pg_isready
+# and the virtual clock.
+echo "[render] Case 20f: #6874 D5 stale /shared/diverged self-clears on a consistent streaming replica; own stale latch released; promoted latch untouched; a later real kill still promotes"
+# (a) STRUCTURE — the rendered scripts carry the D5 surface.
+grep -q '/shared/local-state' "$TMP/sig20e.sh" || fail "#6874 D5 signals never publishes /shared/local-state (the actor has no psql — it cannot see the walreceiver otherwise)"
+grep -q "ConsistentSystemID" "$TMP/act20e.sh" || fail "#6874 D5 actor never reads the Cluster ConsistentSystemID condition"
+grep -q 'DIVERGENCE CLEARED: local cluster is a consistent streaming replica again — self-heal latch released' "$TMP/act20e.sh" || fail "#6874 D5 actor missing the DIVERGENCE CLEARED line"
+grep -q 'LATCH RELEASED' "$TMP/act20e.sh" || fail "#6874 D5 actor missing the LATCH RELEASED line"
+grep -q 'rm -f /shared/diverged /shared/diverged-\*' "$TMP/act20e.sh" || fail "#6874 D5 actor does not remove the marker (+ companion diverged-* clocks)"
+for a in dr-auto-promote-latched-at dr-auto-promoted-at dr-auto-promote-reason; do
+  grep -qF "\"catalyst.openova.io/$a\":null" "$TMP/act20e.sh" || fail "#6874 D5 release does not drop catalyst.openova.io/$a"
+done
+python3 - "$TMP/act20e.sh" <<'PY' || fail "#6874 D5 the self-heal DIVERGED arm is not guarded by the consistent-replica observation"
+import sys
+s = open(sys.argv[1]).read()
+i = s.index('suspend_hr "self-heal"')
+cond = s[:i].rstrip().splitlines()[-1]
+assert cond.lstrip().startswith("if "), "self-heal call not directly under its if: " + cond
+assert '[ "${DIVERGED}" = "true" ] && [ "${CONSISTENT_REPLICA}" != "true" ]' in cond, "self-heal condition does not AND the DIVERGED arm with NOT-consistent-replica:\n" + cond
+assert '[ "${HR_PROMOTED}" = "true" ] && [ "${REPLICA_ENABLED}" = "false" ]' in cond, "the rendered-promotion arm of the self-heal was lost:\n" + cond
+j = s.index("CONSISTENT_REPLICA=\"true\"")
+assert j < i, "the consistent-replica observation must run BEFORE the self-heal (same tick)"
+PY
+echo "  ok: signals publishes /shared/local-state; actor reads ConsistentSystemID, clears the marker, releases its latch, self-heal DIVERGED arm guarded"
+
+# (b) FAKES — psql state, pg_isready rc, ConsistentSystemID, latched-at and
+#     replica.enabled all come from files; patches are recorded and applied.
+FAKE="$TMP/fake20f"; mkdir -p "$FAKE/bin"; export FAKE
+cat > "$FAKE/bin/psql" <<'EOF'
+#!/bin/sh
+cat "$FAKE/psql_state"
+EOF
+cat > "$FAKE/bin/pg_isready" <<'EOF'
+#!/bin/sh
+exit "$(cat "$FAKE/isready_rc" 2>/dev/null || echo 0)"
+EOF
+cat > "$FAKE/bin/date" <<'EOF'
+#!/bin/sh
+C=$(cat "$FAKE/clock")
+for a in "$@"; do case "$a" in +%s) echo "$C"; exit 0;; esac; done
+echo "T+${C}s"
+EOF
+cat > "$FAKE/bin/sleep" <<'EOF'
+#!/bin/sh
+C=$(cat "$FAKE/clock"); C=$((C + ${1:-0})); echo "$C" > "$FAKE/clock"
+if [ "$C" -ge "$(cat "$FAKE/limit")" ]; then kill -TERM "$PPID" 2>/dev/null; exit 99; fi
+exit 0
+EOF
+cat > "$FAKE/bin/kubectl" <<'EOF'
+#!/bin/sh
+A="$*"
+echo "$A" >> "$FAKE/kubectl.log"
+case "$A" in
+  *"patch helmrelease"*)
+    echo "$A" >> "$FAKE/patches.log"
+    case "$A" in *'"promoted":true'*) : > "$FAKE/promoted";; esac
+    case "$A" in *'"suspend":true'*) : > "$FAKE/suspended"; echo "T+latched" > "$FAKE/latched";; esac
+    case "$A" in *'"suspend":false'*) rm -f "$FAKE/suspended";; esac
+    case "$A" in *'"catalyst.openova.io/dr-auto-promote-latched-at":null'*) rm -f "$FAKE/latched";; esac
+    exit 0;;
+  *"ConsistentSystemID"*) cat "$FAKE/consistent" 2>/dev/null; exit 0;;
+  *"dr-auto-promote-latched-at}"*) cat "$FAKE/latched" 2>/dev/null; exit 0;;
+  *"{.spec.suspend}"*) [ -f "$FAKE/suspended" ] && printf 'true'; exit 0;;
+  *"promoted}"*) [ -f "$FAKE/promoted" ] && printf 'true'; exit 0;;
+  *"{.spec.replica.enabled}"*)
+    if [ -f "$FAKE/replica_enabled" ]; then cat "$FAKE/replica_enabled"
+    elif [ -f "$FAKE/promoted" ]; then printf 'false'; else printf 'true'; fi; exit 0;;
+  *"get pod"*) printf 'True'; exit 0;;
+esac
+exit 0
+EOF
+chmod +x "$FAKE"/bin/*
+run20f() { # run20f <script> <limit> <logfile>
+  echo "$2" > "$FAKE/limit"
+  ( export PATH="$FAKE/bin:$PATH"; . "$TMP/env20e.sh"; export STARTUP_GRACE_SECONDS=0 PROBE_TIMEOUT=1 NAMESPACE=shared-data HOME="$FAKE" PROMOTE_RENDER_WAIT_SECONDS=5
+    timeout 60 sh "$FAKE/$1" ) > "$3" 2>&1 || true
+}
+reset20f() { # reset20f <ConsistentSystemID> <psql state>
+  rm -rf "$FAKE/shared" "$FAKE/promoted" "$FAKE/suspended" "$FAKE/latched" "$FAKE/replica_enabled" "$FAKE/patches.log" "$FAKE/kubectl.log"
+  mkdir -p "$FAKE/shared"; echo "$1" > "$FAKE/consistent"; echo "$2" > "$FAKE/psql_state"; echo 0 > "$FAKE/isready_rc"; echo 0 > "$FAKE/clock"
+}
+sed "s#/shared#$FAKE/shared#g" "$TMP/sig20e.sh" > "$FAKE/sig.sh"
+sed "s#/shared#$FAKE/shared#g" "$TMP/act20e.sh" > "$FAKE/act.sh"
+# harness self-test: the fakes must be the ones answering.
+reset20f True streaming
+( export PATH="$FAKE/bin:$PATH"; [ "$(date -u +%s)" = "0" ] \
+  && [ "$(kubectl -n x get clusters.postgresql.cnpg.io y -o jsonpath="{.status.conditions[?(@.type=='ConsistentSystemID')].status}")" = "True" ] \
+  && [ "$(psql anything -tAXc q)" = "streaming" ] ) || fail "#6874 D5 harness: fakes not in effect"
+
+# (s) the signals container publishes its state every tick, and still writes
+#     the marker on state=promoted (the CONTROL: the thing the actor clears).
+run20f sig.sh 30 "$FAKE/sig-s.log"
+[ "$(cat "$FAKE/shared/local-state" 2>/dev/null)" = "streaming" ] || fail "#6874 D5 (s) signals did not publish local-state=streaming (got '$(cat "$FAKE/shared/local-state" 2>/dev/null)')"
+[ ! -f "$FAKE/shared/diverged" ] || fail "#6874 D5 (s) a streaming replica must not be marked diverged"
+echo promoted > "$FAKE/psql_state"
+run20f sig.sh 60 "$FAKE/sig-s2.log"
+[ "$(cat "$FAKE/shared/local-state" 2>/dev/null)" = "promoted" ] || fail "#6874 D5 (s) signals did not publish local-state=promoted"
+[ -f "$FAKE/shared/diverged" ] || fail "#6874 D5 (s) CONTROL: the signals container no longer writes /shared/diverged on state=promoted — the marker the actor clears would never exist"
+echo "  ok: (s) signals publishes local-state each tick; state=promoted still writes /shared/diverged"
+
+# (a) hw307 shape — marker present, HR unsuspended, cluster a consistent
+#     streaming replica: marker removed, DIVERGENCE CLEARED once, HR NOT frozen.
+reset20f True streaming
+: > "$FAKE/shared/diverged"; : > "$FAKE/shared/armed"
+run20f sig.sh 20 "$FAKE/sig-a.log"
+run20f act.sh 50 "$FAKE/act-a.log"
+grep -q 'DIVERGENCE CLEARED: local cluster is a consistent streaming replica again — self-heal latch released' "$FAKE/act-a.log" \
+  || { cat "$FAKE/act-a.log" >&2; fail "#6874 D5 (a) actor did not log DIVERGENCE CLEARED on a consistent streaming replica"; }
+[ ! -f "$FAKE/shared/diverged" ] || fail "#6874 D5 (a) stale /shared/diverged still present after the clearing tick"
+[ ! -f "$FAKE/suspended" ] || fail "#6874 D5 (a) the self-heal FROZE a healthy streaming replica's HR on a stale marker — the hw307 re-freeze"
+if grep -q 'LATCHED (self-heal)' "$FAKE/act-a.log"; then cat "$FAKE/act-a.log" >&2; fail "#6874 D5 (a) LATCHED (self-heal) fired on a consistent streaming replica"; fi
+[ ! -f "$FAKE/patches.log" ] || fail "#6874 D5 (a) actor patched the HR of a healthy replica with nothing to release: $(cat "$FAKE/patches.log")"
+[ "$(grep -c 'DIVERGENCE CLEARED' "$FAKE/act-a.log")" = "1" ] || fail "#6874 D5 (a) DIVERGENCE CLEARED must be logged ONCE, not every tick (got $(grep -c 'DIVERGENCE CLEARED' "$FAKE/act-a.log"))"
+echo "  ok: (a) marker + unsuspended + consistent streaming replica -> marker removed, DIVERGENCE CLEARED x1, HR left alone"
+
+# (b) still diverged (ConsistentSystemID=False): the self-heal latches as before.
+reset20f False streaming
+: > "$FAKE/shared/diverged"
+run20f sig.sh 20 "$FAKE/sig-b.log"
+run20f act.sh 50 "$FAKE/act-b.log"
+[ -f "$FAKE/suspended" ] || { cat "$FAKE/act-b.log" >&2; fail "#6874 D5 (b) a diverged cluster (ConsistentSystemID=False) must still be latched by the self-heal"; }
+grep -q 'LATCHED (self-heal)' "$FAKE/act-b.log" || fail "#6874 D5 (b) self-heal latch line missing"
+[ -f "$FAKE/shared/diverged" ] || fail "#6874 D5 (b) the marker was cleared on an INCONSISTENT cluster"
+if grep -q 'DIVERGENCE CLEARED' "$FAKE/act-b.log"; then fail "#6874 D5 (b) DIVERGENCE CLEARED logged on ConsistentSystemID=False"; fi
+# (b2) ConsistentSystemID=True but NO streaming walreceiver: all three signals
+#      are required — the self-heal still latches.
+reset20f True noreceiver
+: > "$FAKE/shared/diverged"
+run20f sig.sh 20 "$FAKE/sig-b2.log"
+[ "$(cat "$FAKE/shared/local-state" 2>/dev/null)" = "noreceiver" ] || fail "#6874 D5 (b2) setup: signals should publish noreceiver"
+run20f act.sh 50 "$FAKE/act-b2.log"
+[ -f "$FAKE/suspended" ] || fail "#6874 D5 (b2) ConsistentSystemID=True without a streaming walreceiver must NOT clear the marker (all three signals required)"
+[ -f "$FAKE/shared/diverged" ] || fail "#6874 D5 (b2) marker cleared without the streaming signal"
+# (b3) a STALE local-state (older than a minute — a dead signals container's
+#      last word) counts as absent.
+reset20f True streaming
+: > "$FAKE/shared/diverged"
+echo streaming > "$FAKE/shared/local-state"; touch -d '10 minutes ago' "$FAKE/shared/local-state"
+run20f act.sh 30 "$FAKE/act-b3.log"
+[ -f "$FAKE/suspended" ] || fail "#6874 D5 (b3) a stale (>1min) local-state must count as absent — the marker was cleared on a dead signals container's last word"
+[ -f "$FAKE/shared/diverged" ] || fail "#6874 D5 (b3) marker cleared on a stale streaming signal"
+echo "  ok: (b) ConsistentSystemID=False -> LATCHED (self-heal), marker kept; (b2) no walreceiver -> latched; (b3) stale local-state -> latched"
+
+# (c) HR suspended by THIS actor's latch (latched-at present), promoted absent,
+#     cluster consistent: un-suspended, the three annotations dropped.
+reset20f True streaming
+: > "$FAKE/shared/diverged"; : > "$FAKE/suspended"; echo "2026-09-07T07:33:00Z" > "$FAKE/latched"
+run20f sig.sh 20 "$FAKE/sig-c.log"
+run20f act.sh 50 "$FAKE/act-c.log"
+grep -q 'LATCH RELEASED' "$FAKE/act-c.log" || { cat "$FAKE/act-c.log" >&2; fail "#6874 D5 (c) actor did not release its own stale latch on a consistent streaming replica"; }
+[ ! -f "$FAKE/suspended" ] || fail "#6874 D5 (c) HR still suspended after the release"
+[ ! -f "$FAKE/latched" ] || fail "#6874 D5 (c) dr-auto-promote-latched-at not dropped"
+grep -qF '"suspend":false' "$FAKE/patches.log" || fail "#6874 D5 (c) no spec.suspend=false patch recorded"
+grep -qF '"catalyst.openova.io/dr-auto-promoted-at":null' "$FAKE/patches.log" || fail "#6874 D5 (c) dr-auto-promoted-at not dropped"
+grep -qF '"catalyst.openova.io/dr-auto-promote-reason":null' "$FAKE/patches.log" || fail "#6874 D5 (c) dr-auto-promote-reason not dropped"
+grep -qF -- '--field-manager=dr-promoter' "$FAKE/patches.log" || fail "#6874 D5 (c) release patch not under the dr-promoter field manager (kustomize cleanup would fight it)"
+[ ! -f "$FAKE/shared/diverged" ] || fail "#6874 D5 (c) marker not cleared alongside the release"
+grep -q 'DIVERGENCE CLEARED' "$FAKE/act-c.log" || fail "#6874 D5 (c) DIVERGENCE CLEARED missing"
+if grep -qF '"suspend":true' "$FAKE/patches.log"; then cat "$FAKE/act-c.log" >&2; fail "#6874 D5 (c) the HR was RE-FROZEN after the release"; fi
+# (c2) HR suspended by SOMEONE ELSE (no latched-at annotation): the marker still
+#      clears, the HR is left alone — the actor only lifts its own latch.
+reset20f True streaming
+: > "$FAKE/shared/diverged"; : > "$FAKE/suspended"
+run20f sig.sh 20 "$FAKE/sig-c2.log"
+run20f act.sh 50 "$FAKE/act-c2.log"
+[ -f "$FAKE/suspended" ] || fail "#6874 D5 (c2) actor un-suspended an HR it never latched (no dr-auto-promote-latched-at)"
+[ ! -f "$FAKE/patches.log" ] || fail "#6874 D5 (c2) actor patched an HR it never latched: $(cat "$FAKE/patches.log")"
+[ ! -f "$FAKE/shared/diverged" ] || fail "#6874 D5 (c2) marker not cleared"
+echo "  ok: (c) own stale latch -> LATCH RELEASED, suspend=false + 3 annotations dropped, no re-freeze; (c2) a foreign suspend is left alone"
+
+# (d) HR suspended with promoted=true (a LEGITIMATE latch): untouched, even
+#     though the cluster observation reads consistent + streaming.
+reset20f True streaming
+: > "$FAKE/suspended"; echo "2026-09-07T07:33:00Z" > "$FAKE/latched"; : > "$FAKE/promoted"; echo true > "$FAKE/replica_enabled"
+run20f sig.sh 20 "$FAKE/sig-d.log"
+run20f act.sh 50 "$FAKE/act-d.log"
+[ -f "$FAKE/suspended" ] || fail "#6874 D5 (d) a latch whose HR carries promoted=true was released — that latch is legitimate"
+[ -f "$FAKE/latched" ] || fail "#6874 D5 (d) annotations dropped on a promoted HR"
+[ ! -f "$FAKE/patches.log" ] || fail "#6874 D5 (d) actor patched a promoted, latched HR: $(cat "$FAKE/patches.log")"
+if grep -q 'LATCH RELEASED' "$FAKE/act-d.log"; then cat "$FAKE/act-d.log" >&2; fail "#6874 D5 (d) LATCH RELEASED on promoted=true"; fi
+echo "  ok: (d) promoted=true latch untouched"
+
+# (e) the point of CLEARING (not merely neutralising) the marker: after (a) a
+#     later REAL region kill promotes again instead of `REFUSING promote:
+#     local cluster already diverged`.
+reset20f True streaming
+: > "$FAKE/shared/diverged"; : > "$FAKE/shared/armed"
+run20f sig.sh 20 "$FAKE/sig-e.log"
+run20f act.sh 40 "$FAKE/act-e.log"
+[ ! -f "$FAKE/shared/diverged" ] || fail "#6874 D5 (e) setup: marker should have cleared"
+echo noreceiver > "$FAKE/psql_state"; echo 2 > "$FAKE/isready_rc"
+run20f sig.sh 170 "$FAKE/sig-e2.log"
+[ -f "$FAKE/shared/primary-wal-down-since" ] || fail "#6874 D5 (e) setup: both aliases dark must arm the unreachable clock"
+run20f act.sh 200 "$FAKE/act-e2.log"
+grep -q 'PROMOTING: region-A WAL stream absent AND region-A unreachable' "$FAKE/act-e2.log" \
+  || { cat "$FAKE/act-e2.log" >&2; fail "#6874 D5 (e) a real region kill AFTER the switchback did not promote — the cleared marker still blocks (or the promote path regressed)"; }
+if grep -q 'REFUSING promote: local cluster already diverged' "$FAKE/act-e2.log"; then fail "#6874 D5 (e) anti-flap still refuses on a cleared marker"; fi
+echo "  PASS (signals publishes local-state · marker self-clears on replica.enabled=true + ConsistentSystemID=True + fresh streaming · self-heal never re-freezes a consistent replica · own stale latch released with annotations dropped · foreign suspend + promoted latch untouched · later real kill promotes again)"

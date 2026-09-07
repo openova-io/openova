@@ -1,5 +1,28 @@
 apiVersion: v2
 name: bp-postgres
+# 0.2.30 — #6874 D5 (Refs #5178 #5218 #5623): the region-B dr-promoter's
+#   /shared/diverged anti-flap marker is SELF-CLEARING. The signals container
+#   writes it when it sees the local cluster OUT of recovery; nothing ever
+#   removed it. hw307 (2026-09-07, region B): the marker landed at 07:33Z during
+#   the failover episode and, after the controlled switchback, B was a healthy
+#   streaming replica again (replica.enabled=true, ConsistentSystemID=True,
+#   pg_stat_wal_receiver streaming) yet the self-heal latch re-froze its HR
+#   within a tick of every un-suspend (`LATCHED (self-heal)`), blocking B's
+#   chart upgrade until the marker was rm'd by hand. The actor now (0) observes
+#   a CONSISTENT STREAMING REPLICA — replica.enabled=true AND the Cluster's
+#   ConsistentSystemID condition True AND the signals container's fresh
+#   per-tick local state `streaming` (new /shared/local-state) — and on it
+#   removes the marker (`DIVERGENCE CLEARED`) and, when the HR is still frozen
+#   by THIS actor's latch with no promotion driving it (dr-auto-promote-
+#   latched-at present, topology.promoted not true), un-suspends it and drops
+#   the three dr-auto-promote* annotations (`LATCH RELEASED`); a latch whose HR
+#   carries promoted=true is never touched. The DIVERGED self-heal arm now also
+#   requires NOT-a-consistent-replica, so a stale marker can never re-freeze a
+#   healthy replica even before the clearing tick. Promote gates, arm, holds and
+#   the same-tick latch are unchanged; no RBAC change (get + patch already
+#   held). tests/postgres-render.sh Case 20f (the rendered scripts under fake
+#   kubectl/psql + the virtual clock). Lockstep: 16a/16c/16d HR pins +
+#   blueprint.yaml + catalog-seed -> 0.2.30.
 # 0.2.29 — #6874 D3 (Refs #3629 #4460 #6753): the consumer hub Secrets' `host`/
 #   `uri` name the ClusterMesh-global `<instance>-mesh-rw` WRITE alias whenever
 #   THIS render publishes it — activeHotStandby OR the multi-region
@@ -572,8 +595,8 @@ name: bp-postgres
 #   honoured — sprig's `default` swallows boolean false). Primary render is
 #   byte-identical. Lockstep slot pins 16a/16c/16d → 0.2.20.
 #   tests/postgres-render.sh Case 21 added.
-version: 0.2.29
-appVersion: 0.2.29
+version: 0.2.30
+appVersion: 0.2.30
 description: |
   Catalyst-authored data-instance Blueprint for a shareable, reusable
   PostgreSQL engine. Each install of bp-postgres = ONE
