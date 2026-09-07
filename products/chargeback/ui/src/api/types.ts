@@ -221,9 +221,10 @@ export interface Overview {
 // Cost analysis (#6867, DESIGN.md §3). Every money value is a JSON number in
 // the customer's price-book currency; windows are half-open [from, to) in
 // whole UTC days (so the picker's inclusive "to" date is sent as +1 day).
+// Buckets are `YYYY-MM-DDTHH` (hour, UTC), `YYYY-MM-DD` (day) or `YYYY-MM`.
 // ---------------------------------------------------------------------------
 
-export type Granularity = 'day' | 'month'
+export type Granularity = 'hour' | 'day' | 'month'
 export type GroupBy = 'none' | 'customer' | 'source' | 'kind' | 'sku' | 'region' | 'resource' | 'tier' | 'namespace'
 export type Metric = 'cost' | 'usage'
 export const GROUP_BY_OPTIONS: ReadonlyArray<{ value: GroupBy; label: string }> = [
@@ -273,6 +274,17 @@ export interface Forecast {
   weekday_factors?: Record<string, number>
 }
 
+/**
+ * The half-open window every `previous` in the document was summed over.
+ * label is "previous period" (the automatic same-length window before `from`)
+ * or "custom" (the caller's compare_from/compare_to).
+ */
+export interface CompareWindow {
+  from: string
+  to: string
+  label: 'previous period' | 'custom' | string
+}
+
 /** GET /cost/explore · GET /customers/{id}/cost/explore */
 export interface ExploreResult {
   from: string
@@ -290,17 +302,22 @@ export interface ExploreResult {
   totals_by_bucket: number[]
   unpriced: Array<{ sku: string; unit: string; quantity: number; resources: number }>
   forecast: Forecast | null
+  compare: CompareWindow
 }
 
 export interface ExploreParams {
   from: string
   to: string
+  /** `hour` is accepted for windows of at most 14 days. */
   granularity?: Granularity
   group_by?: GroupBy
   metric?: Metric
   limit?: number
   include?: Partial<Record<Exclude<GroupBy, 'none'>, string[]>>
   exclude?: Partial<Record<Exclude<GroupBy, 'none'>, string[]>>
+  /** Custom compare window, half-open; both or neither. Omitted = previous period of equal length. */
+  compare_from?: string
+  compare_to?: string
 }
 
 /** Serialises ExploreParams to the query string the API reads. */
@@ -310,6 +327,10 @@ export function exploreQuery(p: ExploreParams): string {
   if (p.group_by) q.set('group_by', p.group_by)
   if (p.metric) q.set('metric', p.metric)
   if (p.limit !== undefined) q.set('limit', String(p.limit))
+  if (p.compare_from && p.compare_to) {
+    q.set('compare_from', p.compare_from)
+    q.set('compare_to', p.compare_to)
+  }
   for (const [dim, vals] of Object.entries(p.include ?? {})) if (vals && vals.length) q.set(dim, vals.join(','))
   for (const [dim, vals] of Object.entries(p.exclude ?? {})) if (vals && vals.length) q.set('exclude_' + dim, vals.join(','))
   return q.toString()

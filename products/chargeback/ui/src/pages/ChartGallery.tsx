@@ -96,6 +96,7 @@ function thirtyDays(): ExploreResult {
       projection,
       weekday_factors: { Mon: 1.06, Tue: 1.06, Wed: 1.06, Thu: 1.06, Fri: 1.06, Sat: 0.86, Sun: 0.86 },
     },
+    compare: { from: '2026-07-10', to: days[0], label: 'previous period' },
   }
 }
 const month = seriesFromExplore(thirtyDays())

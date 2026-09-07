@@ -139,6 +139,7 @@ aside.side button.ghost:hover { background: #172036; }
 .seg button + button { border-left: 1px solid var(--line); }
 .seg button.on { background: var(--accent-2); color: var(--accent); font-weight: 600; }
 .seg button:hover:not(.on) { background: var(--panel-2); }
+.seg button:disabled { color: var(--muted-2); background: #fff; cursor: not-allowed; }
 
 /* Filter chips */
 .chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }

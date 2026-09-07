@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fitLabel, linearTicks, niceMax, niceTicks, shortBucket, xLabelEvery } from './scale'
+import { CHAR_PX, clampLabelX, fitLabel, isHourBucket, linearTicks, niceMax, niceTicks, shortBucket, snapHourStride, xLabelEvery, xLabelStride } from './scale'
 
 describe('niceTicks', () => {
   // A flat-zero series that WAS measured still needs a baseline to sit on.
@@ -79,12 +79,67 @@ describe('xLabelEvery', () => {
   })
 })
 
+describe('hour strides', () => {
+  it('recognises hour buckets only', () => {
+    expect(isHourBucket('2026-09-01T14')).toBe(true)
+    expect(isHourBucket('2026-09-01')).toBe(false)
+    expect(isHourBucket('2026-09')).toBe(false)
+  })
+  it('snaps to divisors of 24, then whole days', () => {
+    expect(snapHourStride(1)).toBe(1)
+    expect(snapHourStride(5)).toBe(6)
+    expect(snapHourStride(7)).toBe(8)
+    expect(snapHourStride(13)).toBe(24)
+    expect(snapHourStride(24)).toBe(24)
+    expect(snapHourStride(25)).toBe(48)
+    expect(snapHourStride(32)).toBe(48)
+  })
+  const hours = (n: number) => Array.from({ length: n }, (_, i) => `2026-09-${String(1 + Math.floor(i / 24)).padStart(2, '0')}T${String(i % 24).padStart(2, '0')}`)
+  it('snaps hour buckets and leaves day buckets on the plain stride', () => {
+    const labelW = '1 Sep 14:00'.length * CHAR_PX + 12
+    expect(xLabelStride(hours(24), 900, labelW)).toBe(3)
+    expect(xLabelStride(['2026-09-01', '2026-09-02'], 900, 48)).toBe(1)
+    expect(xLabelStride([], 900, 48)).toBe(1)
+  })
+  // The widest hourly chart the API allows: 14 days = 336 buckets. With the
+  // stride snapped to whole days every drawn label has more room than its
+  // text needs, so none is truncated — and every label sits on midnight.
+  it('keeps 336 hour labels unclipped at the SSR width and at a wide plot', () => {
+    const buckets = hours(336)
+    const label = shortBucket(buckets[14]) // "1 Sep 14:00"
+    expect(label).toBe('1 Sep 14:00')
+    for (const plotW of [560, 900, 1400]) {
+      const every = xLabelStride(buckets, plotW, label.length * CHAR_PX + 12)
+      expect(every % 24).toBe(0)
+      const room = (plotW / buckets.length) * every - 4
+      expect(fitLabel(label, room)).toBe(label)
+      for (let i = 0; i < buckets.length; i += every) expect(buckets[i].endsWith('T00')).toBe(true)
+    }
+  })
+})
+
 describe('shortBucket', () => {
-  it('abbreviates day and month buckets and leaves others alone', () => {
+  it('abbreviates hour, day and month buckets and leaves others alone', () => {
+    expect(shortBucket('2026-09-01T14')).toBe('1 Sep 14:00')
+    expect(shortBucket('2026-09-01T00')).toBe('1 Sep 00:00')
     expect(shortBucket('2026-09-01')).toBe('1 Sep')
     expect(shortBucket('2026-12-31')).toBe('31 Dec')
     expect(shortBucket('2026-09')).toBe('Sep 2026')
     expect(shortBucket('ecs')).toBe('ecs')
+  })
+})
+
+describe('clampLabelX', () => {
+  it('leaves a label alone when it fits where it is', () => {
+    expect(clampLabelX(300, 74, 640)).toBe(300)
+  })
+  it('nudges a label off the left and right edges', () => {
+    // First hour bucket: centred 31 px in, 74 px wide → moved so it starts at the pad.
+    expect(clampLabelX(31, 74, 640)).toBe(39)
+    expect(clampLabelX(630, 74, 640)).toBe(601)
+  })
+  it('gives up when the label is wider than the chart', () => {
+    expect(clampLabelX(50, 700, 640)).toBe(50)
   })
 })
 

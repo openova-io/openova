@@ -75,10 +75,40 @@ export function xLabelEvery(n: number, width: number, labelWidth = 48): number {
   return Math.max(1, Math.ceil((n * labelWidth) / Math.max(width, 1)))
 }
 
+const HOUR_BUCKET = /^\d{4}-\d{2}-\d{2}T\d{2}$/
+
+/** isHourBucket: the API's hour grain, `YYYY-MM-DDTHH`. */
+export function isHourBucket(b: string): boolean {
+  return HOUR_BUCKET.test(b)
+}
+
+// Strides that land hour labels on the same clock hours every day: the
+// divisors of 24, then whole days.
+const HOUR_STRIDES = [1, 2, 3, 4, 6, 8, 12, 24]
+
+/** snapHourStride rounds a stride up to a clock-friendly one: 5 → 6, 13 → 24, 32 → 48. */
+export function snapHourStride(every: number): number {
+  for (const s of HOUR_STRIDES) if (s >= every) return s
+  return Math.ceil(every / 24) * 24
+}
+
+/**
+ * xLabelStride is xLabelEvery for a bucket axis, snapped for hour buckets so a
+ * 14-day hourly chart reads "1 Sep 00:00 · 3 Sep 00:00 · …" rather than
+ * drifting through the clock. Windows start on a day boundary, so index 0 is
+ * midnight and every whole-day stride stays on midnight.
+ */
+export function xLabelStride(buckets: string[], width: number, labelWidth: number): number {
+  const every = xLabelEvery(buckets.length, width, labelWidth)
+  return buckets.length && isHourBucket(buckets[0]) ? snapHourStride(every) : every
+}
+
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
-/** shortBucket abbreviates an API bucket for an axis: 2026-09-01 → "1 Sep", 2026-09 → "Sep 2026". */
+/** shortBucket abbreviates an API bucket for an axis: 2026-09-01T14 → "1 Sep 14:00", 2026-09-01 → "1 Sep", 2026-09 → "Sep 2026". */
 export function shortBucket(b: string): string {
+  const hour = /^(\d{4})-(\d{2})-(\d{2})T(\d{2})$/.exec(b)
+  if (hour) return `${Number(hour[3])} ${MONTHS[Number(hour[2]) - 1] ?? hour[2]} ${hour[4]}:00`
   const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(b)
   if (day) return `${Number(day[3])} ${MONTHS[Number(day[2]) - 1] ?? day[2]}`
   const month = /^(\d{4})-(\d{2})$/.exec(b)
@@ -88,6 +118,19 @@ export function shortBucket(b: string): string {
 
 /** Approximate rendered width of 12-px system-ui text. */
 export const CHAR_PX = 6.7
+
+/**
+ * clampLabelX nudges a centred axis label so text `textPx` wide stays inside
+ * [pad, width − pad]. The first bucket sits half a slot from the y axis, so a
+ * label wider than twice that distance ("1 Sep 00:00" at hour grain) would
+ * otherwise be clipped or truncated at the edge; the stride already leaves
+ * more than a label's width between neighbours, so the nudge cannot collide.
+ */
+export function clampLabelX(cx: number, textPx: number, width: number, pad = 2): number {
+  const half = textPx / 2
+  if (!Number.isFinite(cx) || textPx > width - 2 * pad) return cx
+  return Math.min(Math.max(cx, pad + half), width - pad - half)
+}
 
 /** fitLabel truncates with an ellipsis when the text would exceed `maxPx`. */
 export function fitLabel(text: string, maxPx: number, charPx = CHAR_PX): string {

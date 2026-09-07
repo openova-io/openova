@@ -83,8 +83,108 @@ export function defaultGranularity(w: Window): 'day' | 'month' {
   return daysIn(w) > 93 ? 'month' : 'day'
 }
 
+/** The API accepts granularity=hour for windows of at most this many days (336 buckets). */
+export const MAX_HOURLY_DAYS = 14
+
+/** Whether the API will take the window at hour grain. */
+export function hourlyAllowed(w: Window): boolean {
+  return daysIn(w) <= MAX_HOURLY_DAYS
+}
+
+/**
+ * fitGranularity keeps `g` unless it is `hour` on a window too long for it,
+ * in which case it falls back to day — what a picker does when the window
+ * grows under an hourly chart, and what a stale URL gets instead of a 400.
+ */
+export function fitGranularity(g: 'hour' | 'day' | 'month', w: Window): 'hour' | 'day' | 'month' {
+  return g === 'hour' && !hourlyAllowed(w) ? 'day' : g
+}
+
+/** "hourly" / "daily" / "monthly" for a subtitle. */
+export function granularityLabel(g: 'hour' | 'day' | 'month'): string {
+  return g === 'hour' ? 'hourly' : g === 'month' ? 'monthly' : 'daily'
+}
+
+/** The bucket noun: "hours" / "days" / "months". */
+export function bucketNoun(g: 'hour' | 'day' | 'month'): string {
+  return g === 'hour' ? 'hours' : g === 'month' ? 'months' : 'days'
+}
+
 export function daysIn(w: Window): number {
   return Math.round((parseDay(w.to).getTime() - parseDay(w.from).getTime()) / 86_400_000)
+}
+
+/** The same-length window immediately before `w` — the API's automatic compare window. */
+export function previousWindow(w: Window): Window {
+  return { from: addDays(w.from, -daysIn(w)), to: w.from }
+}
+
+/**
+ * shiftDay moves a calendar day by whole months (or years, as 12 months),
+ * clamping to the last day when the target month is shorter: 31 Mar → 28 Feb
+ * (29 in a leap year), 31 Aug → 30 Sep, 29 Feb 2028 → 28 Feb 2027.
+ */
+export function shiftDay(s: string, n: number, unit: 'months' | 'years'): string {
+  const d = parseDay(s)
+  const months = unit === 'years' ? n * 12 : n
+  const y = d.getUTCFullYear()
+  const m0 = d.getUTCMonth() + months
+  const lastDay = utc(y, m0 + 1, 0).getUTCDate()
+  return iso(utc(y, m0, Math.min(d.getUTCDate(), lastDay)))
+}
+
+/**
+ * shiftWindow moves a window by whole months or years — "same period last
+ * month / last year". The inclusive end is shifted (not the exclusive one) so
+ * a window ending 31 Mar compares with one ending 28 Feb, a whole month maps
+ * to a whole month, and the result is never empty: both ends clamp the same
+ * way, so from ≤ inclusive-end is preserved.
+ */
+export function shiftWindow(w: Window, n: number, unit: 'months' | 'years'): Window {
+  return { from: shiftDay(w.from, n, unit), to: toExclusive(shiftDay(toInclusive(w.to), n, unit)) }
+}
+
+/** What the explorer compares against. */
+export type CompareMode = 'previous' | 'last-month' | 'last-year' | 'custom'
+
+export const COMPARE_MODES: ReadonlyArray<{ value: CompareMode; label: string }> = [
+  { value: 'previous', label: 'Previous period' },
+  { value: 'last-month', label: 'Same period last month' },
+  { value: 'last-year', label: 'Same period last year' },
+  { value: 'custom', label: 'Custom period…' },
+]
+
+/**
+ * compareWindow resolves the mode to the window sent as compare_from/to.
+ * null = leave it to the API (the automatic previous period). A custom mode
+ * without a window is also automatic — the picker seeds one before it is
+ * ever shown, so this only happens for a URL that named the mode alone.
+ */
+export function compareWindow(w: Window, mode: CompareMode, custom?: Window | null): Window | null {
+  switch (mode) {
+    case 'previous':
+      return null
+    case 'last-month':
+      return shiftWindow(w, -1, 'months')
+    case 'last-year':
+      return shiftWindow(w, -1, 'years')
+    case 'custom':
+      return custom ?? null
+  }
+}
+
+/** Lower-case phrase for a KPI note: "vs 42 OMR · same period last month". */
+export function compareLabel(mode: CompareMode): string {
+  switch (mode) {
+    case 'previous':
+      return 'previous period'
+    case 'last-month':
+      return 'same period last month'
+    case 'last-year':
+      return 'same period last year'
+    case 'custom':
+      return 'custom period'
+  }
 }
 
 /** Human window text: "1–7 Sep 2026" / "Aug 2026" / "1 Aug – 7 Sep 2026". */
@@ -103,14 +203,16 @@ export function describeWindow(w: Window): string {
   return `${a.getUTCDate()} ${mon(a)} ${a.getUTCFullYear()} – ${b.getUTCDate()} ${mon(b)} ${b.getUTCFullYear()}`
 }
 
-/** Short bucket label for axes: "7 Sep" for days, "Sep 26" for months. */
+/** Short bucket label for axes: "7 Sep 14:00" for hours, "7 Sep" for days, "Sep 26" for months. */
 export function bucketLabel(bucket: string): string {
   if (bucket.length === 7) {
     const [y, m] = bucket.split('-').map(Number)
     return `${utc(y, m - 1, 1).toLocaleString('en-US', { month: 'short', timeZone: 'UTC' })} ${String(y).slice(2)}`
   }
-  const d = parseDay(bucket)
-  return `${d.getUTCDate()} ${d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' })}`
+  const [dayPart, hour] = bucket.split('T')
+  const d = parseDay(dayPart)
+  const day = `${d.getUTCDate()} ${d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' })}`
+  return hour !== undefined ? `${day} ${hour}:00` : day
 }
 
 /** Read window + granularity from URL search params, falling back to a preset. */

@@ -9,8 +9,8 @@ import { DateRange } from '../components/DateRange'
 import { DIM_LABEL, FilterChips, filterCount, type Dim } from '../components/FilterChips'
 import { Delta, Field, KPI, Modal, Notice, PageHeader, Segmented, ShareBar, Skeleton } from '../components/ui'
 import { forecastHint, forecastNote } from '../lib/forecast'
-import { bucketLabel, describeWindow } from '../lib/dates'
-import { apiQuery, drillInto, paramsFromState, stateFromParams, type ChartKind, type ExploreState } from '../lib/exploreState'
+import { COMPARE_MODES, bucketLabel, bucketNoun, compareLabel, describeWindow, granularityLabel, previousWindow, toExclusive, toInclusive, type CompareMode } from '../lib/dates'
+import { apiQuery, drillInto, paramsFromState, resolvedCompare, stateFromParams, type ChartKind, type ExploreState } from '../lib/exploreState'
 import { formatMoney, formatQty } from '../lib/money'
 import { customerLens, lensFor, pageHref, type Lens } from '../lib/scope'
 import { useQuery } from '../lib/useQuery'
@@ -18,7 +18,10 @@ import { useQuery } from '../lib/useQuery'
 /**
  * Cost explorer (DESIGN.md §2.2) — the AWS Cost Explorer / Azure Cost
  * analysis equivalent. Every control lives in the URL; the table and the
- * chart are two views of the same /cost/explore document.
+ * chart are two views of the same /cost/explore document. Grain is hourly
+ * (windows up to 14 days), daily or monthly; `previous` compares against the
+ * automatic previous period, the same period a month or a year earlier, or a
+ * custom window.
  */
 export function CostExplorer() {
   const { me } = useSession()
@@ -98,6 +101,27 @@ export function ExplorerBody({ lens, embedded }: { lens: Lens; embedded?: boolea
   }, [d])
 
   const groupLabel = GROUP_BY_OPTIONS.find((o) => o.value === state.groupBy)?.label ?? state.groupBy
+  // The compare window as the API reports it — what `previous` was summed
+  // over — falling back to the state's own resolution before the first load.
+  const compareWin = d?.compare ? { from: d.compare.from, to: d.compare.to } : (resolvedCompare(state) ?? previousWindow(state.window))
+  const compareNote = state.compare === 'custom' ? describeWindow(compareWin) : compareLabel(state.compare)
+  const setCompare = (mode: CompareMode) => {
+    // Custom starts from the window that was being compared until now, so
+    // switching to it changes nothing until a date is edited.
+    const seed = mode === 'custom' ? (state.compareWindow ?? resolvedCompare(state) ?? previousWindow(state.window)) : null
+    setState({ ...state, compare: mode, compareWindow: seed })
+  }
+  const setCompareFrom = (from: string) => {
+    if (!from) return
+    const cur = state.compareWindow ?? previousWindow(state.window)
+    setState({ ...state, compare: 'custom', compareWindow: { from, to: cur.to > from ? cur.to : toExclusive(from) } })
+  }
+  const setCompareTo = (toInc: string) => {
+    if (!toInc) return
+    const cur = state.compareWindow ?? previousWindow(state.window)
+    const to = toExclusive(toInc)
+    setState({ ...state, compare: 'custom', compareWindow: { from: cur.from < to ? cur.from : toInc, to } })
+  }
   const columns: Column<Row>[] = [
     {
       key: 'label',
@@ -112,7 +136,7 @@ export function ExplorerBody({ lens, embedded }: { lens: Lens; embedded?: boolea
       ),
     },
     { key: 'total', header: describeWindow(state.window), value: (r) => r.total, numeric: true, render: (r) => fmt(r.total), total: (rs) => fmt(rs.reduce((n, r) => n + r.total, 0)) },
-    { key: 'previous', header: 'Previous period', value: (r) => r.previous, numeric: true, render: (r) => fmt(r.previous), total: (rs) => fmt(rs.reduce((n, r) => n + r.previous, 0)) },
+    { key: 'previous', header: <span title={`Compared with: ${compareNote}`}>{describeWindow(compareWin)}</span>, value: (r) => r.previous, numeric: true, render: (r) => fmt(r.previous), total: (rs) => fmt(rs.reduce((n, r) => n + r.previous, 0)) },
     { key: 'delta', header: 'Change', value: (r) => r.delta_pct, numeric: true, render: (r) => <Delta pct={r.delta_pct} /> },
     { key: 'share', header: 'Share', value: (r) => r.share, numeric: true, render: (r) => <><ShareBar share={r.share} /> {(r.share * 100).toFixed(1)} %</> },
     { key: 'resources', header: 'Resources', value: (r) => r.resources, numeric: true },
@@ -128,7 +152,7 @@ export function ExplorerBody({ lens, embedded }: { lens: Lens; embedded?: boolea
       {!embedded ? (
         <PageHeader
           title="Cost explorer"
-          sub={`${describeWindow(state.window)} · ${state.granularity === 'day' ? 'daily' : 'monthly'} · by ${groupLabel.toLowerCase()}${filterCount(state.filters) ? ` · ${filterCount(state.filters)} filter${filterCount(state.filters) === 1 ? '' : 's'}` : ''}`}
+          sub={`${describeWindow(state.window)} · ${granularityLabel(state.granularity)} · by ${groupLabel.toLowerCase()}${state.compare !== 'previous' ? ` · vs ${compareNote}` : ''}${filterCount(state.filters) ? ` · ${filterCount(state.filters)} filter${filterCount(state.filters) === 1 ? '' : 's'}` : ''}`}
           actions={
             <>
               {views.length ? (
@@ -194,6 +218,26 @@ export function ExplorerBody({ lens, embedded }: { lens: Lens; embedded?: boolea
             ))}
           </select>
         </Field>
+        <span className="sep" />
+        <Field label="Compare with">
+          <select value={state.compare} onChange={(e) => setCompare(e.target.value as CompareMode)} aria-label="Compare with" title={`Compared with ${describeWindow(compareWin)}`}>
+            {COMPARE_MODES.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+        {state.compare === 'custom' ? (
+          <>
+            <Field label="Compare from">
+              <input type="date" value={compareWin.from} max={toInclusive(compareWin.to)} onChange={(e) => setCompareFrom(e.target.value)} aria-label="Compare from date" />
+            </Field>
+            <Field label="Compare to">
+              <input type="date" value={toInclusive(compareWin.to)} min={compareWin.from} onChange={(e) => setCompareTo(e.target.value)} aria-label="Compare to date (inclusive)" />
+            </Field>
+          </>
+        ) : null}
       </div>
       <FilterChips filters={state.filters} onChange={(filters) => setState({ ...state, filters })} dimensions={dims.data} labelFor={labelFor} hideDims={lens.operator ? [] : ['customer']} />
 
@@ -202,8 +246,8 @@ export function ExplorerBody({ lens, embedded }: { lens: Lens; embedded?: boolea
 
       {d ? (
         <div className="kpis">
-          <KPI label={`Total · ${describeWindow(state.window)}`} value={fmtCompact(d.total.current)} note={<><Delta pct={d.total.delta_pct} /> vs {fmtCompact(d.total.previous)} before</>} />
-          <KPI label="Average per bucket" value={fmtCompact(d.buckets.length ? d.total.current / Math.max(1, d.bucket_has_data.filter(Boolean).length) : 0)} note={`${d.bucket_has_data.filter(Boolean).length} of ${d.buckets.length} ${state.granularity === 'day' ? 'days' : 'months'} with data`} />
+          <KPI label={`Total · ${describeWindow(state.window)}`} value={fmtCompact(d.total.current)} note={<><Delta pct={d.total.delta_pct} /> vs {fmtCompact(d.total.previous)} · {compareNote}</>} hint={`Compared with ${describeWindow(compareWin)}`} />
+          <KPI label="Average per bucket" value={fmtCompact(d.buckets.length ? d.total.current / Math.max(1, d.bucket_has_data.filter(Boolean).length) : 0)} note={`${d.bucket_has_data.filter(Boolean).length} of ${d.buckets.length} ${bucketNoun(state.granularity)} with data`} />
           {d.forecast ? <KPI label="Forecast month end" value={fmtCompact(d.forecast.month_end)} note={forecastNote(d.forecast)} hint={forecastHint(d.forecast)} /> : <KPI label="Groups" value={d.groups.length + (d.other ? 1 : 0)} note={d.other ? `top ${d.groups.length} + other` : 'all shown'} />}
           <KPI label="Resources" value={d.total.resources.toLocaleString()} note="distinct in the window" />
           {d.unpriced.length ? <KPI label="Unpriced SKUs" value={d.unpriced.length} note={d.unpriced.map((u) => u.sku).join(', ')} tone="warn" /> : null}
@@ -215,7 +259,7 @@ export function ExplorerBody({ lens, embedded }: { lens: Lens; embedded?: boolea
           <Skeleton lines={5} />
         ) : d && chartProps && hasData ? (
           state.chart === 'stacked' ? (
-            <StackedBars {...chartProps} height={300} format={fmt} bucketLabel={bucketLabel} onBarClick={(i, key) => { if (key && key !== 'other' && state.groupBy !== 'none') setState(drillInto(state, key)); else if (state.granularity === 'day') setState({ ...state, preset: 'custom', window: { from: d.buckets[i], to: d.buckets[i] < d.to ? nextDay(d.buckets[i]) : d.to } }) }} />
+            <StackedBars {...chartProps} height={300} format={fmt} bucketLabel={bucketLabel} onBarClick={(i, key) => { if (key && key !== 'other' && state.groupBy !== 'none') setState(drillInto(state, key)); else if (state.granularity === 'day' && i < d.buckets.length) setState({ ...state, preset: 'custom', window: { from: d.buckets[i], to: d.buckets[i] < d.to ? nextDay(d.buckets[i]) : d.to }, granularity: 'hour' }) }} />
           ) : (
             <LineChart {...chartProps} height={300} format={fmt} bucketLabel={bucketLabel} area={state.chart === 'area'} />
           )

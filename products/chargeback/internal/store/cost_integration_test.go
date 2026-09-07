@@ -347,3 +347,162 @@ func TestIntegrationExploreCountsAndLastCollected(t *testing.T) {
 		t.Fatalf("A has no collected source yet, got %v", lc)
 	}
 }
+
+// Hourly grain: one seeded day is 24 buckets whose sum is the day total, and
+// the automatic compare window is the day before.
+func TestIntegrationExploreHourlyBuckets(t *testing.T) {
+	st := testdb.Open(t)
+	seedLedger(t, st)
+	ctx := context.Background()
+	res, err := st.Explore(ctx, store.OperatorScope, store.CostQuery{From: day(2026, 9, 3), To: day(2026, 9, 4), Granularity: "hour", GroupBy: "kind"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Buckets) != 24 || res.Buckets[0] != "2026-09-03T00" || res.Buckets[23] != "2026-09-03T23" {
+		t.Fatalf("hour buckets = %v", res.Buckets)
+	}
+	if res.Granularity != "hour" || len(res.TotalsByBucket) != 24 || len(res.BucketHasData) != 24 {
+		t.Fatalf("shape = %+v", res)
+	}
+	// Every hour of day 3: ECS 0.5 + EVS 0.1 + EIP 0.02 = 0.62 (the stopped
+	// vm-2 adds 0 under policy none); 24 × 0.62 = 14.88, the day total the
+	// daily explore reports for the same date.
+	sum := 0.0
+	for i, v := range res.TotalsByBucket {
+		if !near(f(v), 0.62) {
+			t.Fatalf("hour %d total = %v, want 0.62", i, v)
+		}
+		if !res.BucketHasData[i] {
+			t.Fatalf("hour %d marked without data", i)
+		}
+		sum += f(v)
+	}
+	if !near(sum, 14.88) || !near(f(res.Total.Current), 14.88) {
+		t.Fatalf("hour sum %v / total %v, want 14.88", sum, res.Total.Current)
+	}
+	daily, err := st.Explore(ctx, store.OperatorScope, store.CostQuery{From: day(2026, 9, 3), To: day(2026, 9, 4), Granularity: "day", GroupBy: "kind"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(daily.Total.Current) != string(res.Total.Current) {
+		t.Fatalf("hourly total %s ≠ daily total %s for the same day", res.Total.Current, daily.Total.Current)
+	}
+	// Per-group hour values sum to the group's total.
+	ecs := groupByKey(res, "ecs")
+	if ecs == nil || len(ecs.Values) != 24 || !near(f(ecs.Values[5]), 0.5) || !near(f(ecs.Total), 12) {
+		t.Fatalf("ecs hourly = %+v", ecs)
+	}
+	// The automatic compare window is the day before, reported as such.
+	if res.Compare != (store.CompareWindow{From: "2026-09-02", To: "2026-09-03", Label: store.CompareLabelPrevious}) {
+		t.Fatalf("compare = %+v", res.Compare)
+	}
+	if !near(f(res.Total.Previous), 14.88) || res.Total.DeltaPct == nil || !near(*res.Total.DeltaPct, 0) {
+		t.Fatalf("previous day = %v Δ%v", res.Total.Previous, res.Total.DeltaPct)
+	}
+	// A window with no rows at all still enumerates every hour, flagged empty.
+	empty, err := st.Explore(ctx, store.OperatorScope, store.CostQuery{From: day(2026, 7, 1), To: day(2026, 7, 2), Granularity: "hour"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(empty.Buckets) != 24 || empty.BucketHasData[0] || !near(f(empty.Total.Current), 0) {
+		t.Fatalf("empty hourly window = %d buckets has_data[0]=%v total=%v", len(empty.Buckets), empty.BucketHasData[0], empty.Total.Current)
+	}
+}
+
+// A custom compare window replaces the automatic previous period for every
+// `previous` and delta in the document, and may be any length.
+func TestIntegrationExploreCustomCompareWindow(t *testing.T) {
+	st := testdb.Open(t)
+	s := seedLedger(t, st)
+	ctx := context.Background()
+	win := store.CostQuery{From: day(2026, 9, 1), To: day(2026, 9, 8), Granularity: "day", GroupBy: "kind"}
+
+	// Naming the automatic window explicitly gives the same numbers, labelled custom.
+	same := win
+	same.CompareFrom, same.CompareTo = day(2026, 8, 25), day(2026, 9, 1)
+	r1, err := st.Explore(ctx, store.OperatorScope, same)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r1.Compare != (store.CompareWindow{From: "2026-08-25", To: "2026-09-01", Label: store.CompareLabelCustom}) {
+		t.Fatalf("compare = %+v", r1.Compare)
+	}
+	ecs := groupByKey(r1, "ecs")
+	if ecs == nil || !near(f(ecs.Previous), 42) || ecs.DeltaPct == nil || !near(*ecs.DeltaPct, 100) {
+		t.Fatalf("ecs vs explicit previous week = %+v", ecs)
+	}
+	if !near(f(r1.Total.Previous), 42) {
+		t.Fatalf("total previous = %v", r1.Total.Previous)
+	}
+
+	// A shorter compare window (3 days × 12 h × 0.5 = 18) is reported as-is:
+	// previous 18, delta (84 − 18) / 18 = +366.67 %.
+	short := win
+	short.CompareFrom, short.CompareTo = day(2026, 8, 25), day(2026, 8, 28)
+	r2, err := st.Explore(ctx, store.OperatorScope, short)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r2.Compare.From != "2026-08-25" || r2.Compare.To != "2026-08-28" || r2.Compare.Label != store.CompareLabelCustom {
+		t.Fatalf("compare = %+v", r2.Compare)
+	}
+	ecs = groupByKey(r2, "ecs")
+	if ecs == nil || !near(f(ecs.Previous), 18) || ecs.DeltaPct == nil || !near(*ecs.DeltaPct, (84-18)/18.0*100) {
+		t.Fatalf("ecs vs 3-day window = %+v", ecs)
+	}
+	if !near(f(r2.Total.Previous), 18) || !near(f(r2.Total.Current), 104.16) {
+		t.Fatalf("totals = %+v", r2.Total)
+	}
+	// Groups absent from the compare window keep previous 0 and a nil delta.
+	if g := groupByKey(r2, "eip"); g == nil || !near(f(g.Previous), 0) || g.DeltaPct != nil {
+		t.Fatalf("eip vs August = %+v", g)
+	}
+
+	// A compare window overlapping the current one (its first 3 days) is
+	// legal: the ECS ran 24 h then, so previous = 3 × 24 × 0.5 = 36.
+	overlap := win
+	overlap.CompareFrom, overlap.CompareTo = day(2026, 9, 1), day(2026, 9, 4)
+	r3, err := st.Explore(ctx, store.OperatorScope, overlap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g := groupByKey(r3, "ecs"); g == nil || !near(f(g.Previous), 36) {
+		t.Fatalf("ecs vs overlapping window = %+v", g)
+	}
+	// The current-window numbers never move with the compare window.
+	if string(r3.Total.Current) != string(r1.Total.Current) || string(r3.TotalsByBucket[2]) != string(r1.TotalsByBucket[2]) {
+		t.Fatalf("current changed with compare window: %v vs %v", r3.Total, r1.Total)
+	}
+	// Top-N Other folds `previous` over the compare window too.
+	topped := short
+	topped.Limit = 1
+	r4, err := st.Explore(ctx, store.OperatorScope, topped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r4.Other == nil || !near(f(r4.Groups[0].Previous)+f(r4.Other.Previous), f(r4.Total.Previous)) {
+		t.Fatalf("top-1 previous: %+v + %+v ≠ %v", r4.Groups[0].Previous, r4.Other, r4.Total.Previous)
+	}
+
+	// Half a window, or an empty one, is refused before any query runs.
+	half := win
+	half.CompareFrom = day(2026, 8, 25)
+	if _, err := st.Explore(ctx, store.OperatorScope, half); err == nil {
+		t.Fatal("compare_from without compare_to must be refused")
+	}
+	rev := win
+	rev.CompareFrom, rev.CompareTo = day(2026, 8, 28), day(2026, 8, 25)
+	if _, err := st.Explore(ctx, store.OperatorScope, rev); err == nil {
+		t.Fatal("reversed compare window must be refused")
+	}
+	// The customer scope applies to the compare window as it does to the
+	// current one: B's compare numbers never include A.
+	scoped := short
+	rB, err := st.Explore(ctx, store.CustomerScope(s.b.ID), scoped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !near(f(rB.Total.Previous), 0) || groupByKey(rB, "ecs") != nil {
+		t.Fatalf("B's compare window leaked A: %+v", rB)
+	}
+}
