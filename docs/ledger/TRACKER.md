@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-07T08:15:02Z` |
+| Last refreshed | `2026-09-07T08:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-07T08:18 | [#6875](https://github.com/openova-io/openova/pull/6875) | #6867 | fix(chargeback): SMTP egress on Sovereigns, customer-scoped  |
 | 2026-09-07T07:22 | [#6873](https://github.com/openova-io/openova/pull/6873) | #6867 | feat(chargeback): bill the catalog plan (plan.<slug> meter + |
 | 2026-09-07T06:20 | [#6872](https://github.com/openova-io/openova/pull/6872) | #6871 | feat(chargeback): tag/enterprise-project dimension, hourly g |
 | 2026-09-06T19:27 | [#6871](https://github.com/openova-io/openova/pull/6871) | #6869 | fix(chargeback-ui): allocation margin % reads n/a below one  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-02T19:02 | [#6822](https://github.com/openova-io/openova/pull/6822) | #6806 | docs(sessions): hw307 evening evidence — the console fix ver |
 | 2026-09-02T18:41 | [#6821](https://github.com/openova-io/openova/pull/6821) | #6814 | test(handler): stop a detached goroutine's late writes from  |
 | 2026-09-02T18:39 | [#6820](https://github.com/openova-io/openova/pull/6820) | #6803 | fix(bp-chargeback): the Blueprint's own egress policy droppe |
-| 2026-09-02T18:00 | [#6818](https://github.com/openova-io/openova/pull/6818) | #6814 | test(jobs): fix the #6749 async-seed test's double close and |
 
 ---
 
