@@ -52,11 +52,11 @@ Operator (sovereign-admin lens):
 
 ```
 Analyse    Overview · Cost explorer · Resources · Anomalies · Recommendations
-Bill       Statements · Budgets
+Bill       Statements · Budgets · Reports
 Configure  Customers · Price books · Discounts · Allocation
 ```
 
-Customer lens (`/my/…`): Overview · Cost explorer · Resources · Statements · Budgets · Sources.
+Customer lens (`/my/…`): Overview · Cost explorer · Resources · Statements · Budgets · Reports · Sources.
 
 Every page is a real route (deep-linkable) and every list is sortable, filterable
 and exportable. Every number on a screen comes from an endpoint in §3; nothing is
@@ -118,7 +118,18 @@ currency: allocated cloud cost, rated revenue, margin, margin %. Chart of the sp
 ### 2.9 Statements
 Filters (period, customer, status). Run period. Statement view: waterfall (list
 → discounts → net → tax → total), lines grouped by service kind with per-source
-breakdown, printable, CSV.
+breakdown, printable, CSV. The Issue confirm carries a checked-by-default
+"Email the statement to the customer" box (§3.9).
+
+### 2.10 Reports
+Scheduled plain-text cost reports, the way a cloud console mails a cost report
+on a schedule. KPIs (schedules, sent last 30 days, failures, next due); table
+(name, scope, cadence in words, recipients, sections, next run, last sent,
+active) with Create / Edit (name, scope, cadence, weekday or day-of-month,
+hour UTC, recipients, section checkboxes, active), Delete, Preview (the exact
+text the next send mails, in a `<pre>`), Send now, and a deliveries log per
+schedule. Customer lens `/my/reports`: a customer-admin manages schedules for
+its own customer only; a viewer reads and previews.
 
 ## 3. API contracts (all under `/api/v1`, JSON, scope-filtered)
 
@@ -288,6 +299,40 @@ severity, type, id; ids are `type:customer:resource` / `type:customer:sku` /
   `rated_revenue`, `margin`, `margin_pct`, plus `pool` and `totals`.
 - `GET|POST /views`, `DELETE /views/{id}` — saved explorer views per user.
 
+### 3.9 Scheduled reports + statement mail
+`GET|POST /reports/schedules`, `GET|PUT|DELETE /reports/schedules/{id}`,
+`POST /reports/schedules/{id}/send` → `{sent_to, subject, window_from, window_to, delivery}`,
+`GET /reports/schedules/{id}/preview` → `{subject, body, window_from, window_to, recipients}`,
+`GET /reports/schedules/{id}/deliveries`, `GET /customers/{id}/reports/schedules`.
+Schedule: `{id, name, customer_id|null, cadence: daily|weekly|monthly, day_of_week
+(0=Sun..6, weekly), day_of_month (1..28, monthly), hour_utc, recipients[≤20],
+sections ⊆ {summary, services, customers, budgets, anomalies, recommendations},
+active, last_sent_at, next_at, sent_30d, failed_30d, last_error}`. Reads follow
+the session scope; the operator writes any schedule, a customer-admin only its
+own customer's (customer_id forced server-side), a viewer none.
+
+The window a send covers is implied by the cadence at send time: daily =
+yesterday, weekly = the last 7 complete days, monthly = the previous calendar
+month; today is never included. `internal/report` builds the document from the
+same store calls the explorer, budgets, anomalies and recommendations endpoints
+use (never HTTP) and renders it as ≤ 78-column plain text: window label
+("1–7 Sep 2026"), total vs the previous period, month to date + forecast,
+top 5 services (cost, share, Δ), top 5 customers (operator scope only), budget
+standings, anomaly count + biggest, recommendation count + total saving, unpriced
+SKUs, console link. A golden test pins the text. The scheduler polls every
+5 minutes (first poll one minute after start); `ClaimReportRun` is a
+compare-and-set on `next_at`, so two replicas never mail one due instant twice.
+Every attempt is a `report_deliveries` row; a failure records `ok=false, error`
+and still advances `next_at` (no retry storm); audit `report.sent` /
+`report.failed`.
+
+`POST /statements/{id}/issue` takes an optional `{notify: bool}` (default
+true). On the draft → issued transition only — issuing stays idempotent — the
+customer's `admin_email` and every `customer_users` admin receive a plain-text
+statement summary (period, list → discount → net → tax → total, largest lines,
+link `PUBLIC_URL/statements/<id>`); audit `statement.notified {recipients}`.
+A re-issue never mails again.
+
 ## 4. Data model additions (migrations 6+)
 
 ```
@@ -299,6 +344,10 @@ allocation_settings(id=1, weights jsonb, overhead_policy, pool, manual_amount, c
 saved_views(id, owner_email, name, page, params jsonb, created_at)
 discounts.customer_id → NULLABLE (global campaigns)
 INDEX usage_records (window_start, sku); INDEX usage_records (customer_id, resource_kind, window_start)
+report_schedules(id, name, customer_id NULL, cadence, day_of_week NULL, day_of_month NULL, hour_utc,
+        recipients text[], sections text[], active, last_sent_at, next_at, created_at, updated_at)
+report_deliveries(id, schedule_id, sent_at, window_from date, window_to date, recipients text[],
+        subject, ok, error)
 ```
 
 Cost is computed at query time by joining `usage_records` to the customer's

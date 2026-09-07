@@ -1,0 +1,46 @@
+Subject: Cost report: Weekly ops — 1–7 Sep 2026: 810.400 OMR
+
+Cost report: Weekly ops
+Window: 1–7 Sep 2026 (weekly)
+Scope: All customers · Currency: OMR
+
+SUMMARY
+  Total for the period            810.400 OMR  +2.6% vs 25–31 Aug 2026
+  Month to date (Sep 2026)        810.400 OMR
+  Forecast month end             2712.500 OMR  run-rate-7d, medium confidence
+  Resources with cost                 126
+  Unpriced usage (1 SKU carries no rate in the price book):
+    - k8s.vcpu: 1118.4 vcpu-hour across 14097 resources
+
+TOP SERVICES
+                                             Cost   Share   vs prev
+  Elastic Cloud Server                    421.100   52.0%     +5.8%
+  Block storage (EVS)                     212.000   26.2%     -1.6%
+  Elastic IP                               96.000   11.8%       n/a
+  Other                                    81.300   10.0%    -54.0%
+
+TOP CUSTOMERS
+                                             Cost   Share   vs prev
+  Acme                                    700.000   86.4%     +1.4%
+  Bravo Industries With A Very …          110.400   13.6%    +10.2%
+
+BUDGETS
+  ok        Compute ceiling · Acme          23.3% of 3000 OMR, forecast 90.4%
+  exceeded  Sovereign cap · all customers  101.3% of 800 OMR
+
+ANOMALIES
+  3 anomalous days in the window.
+  Biggest: 2026-09-04, Acme · Elastic Cloud Server
+    actual 60.100 OMR vs expected 12.100 (impact +48.00, score 4.2)
+
+RECOMMENDATIONS
+  5 recommendations, potential saving 120.500 OMR per month.
+    - Stopped instance is still billed: vm-batch-01 (Acme)
+      45.000 OMR/month
+    - Unattached volume: vol-orphan (Acme)
+      40.500 OMR/month
+    - Unbound elastic IP: eip-3 (Bravo)
+      35.000 OMR/month
+
+Open the console:
+https://billing.t99.omani.works/reports

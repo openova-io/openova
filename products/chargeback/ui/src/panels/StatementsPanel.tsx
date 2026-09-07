@@ -53,11 +53,12 @@ export function StatementTable({
   const [error, setError] = useState('')
   const [pending, setPending] = useState<{ kind: 'issue' | 'delete'; s: Statement } | null>(null)
   const [busy, setBusy] = useState(false)
+  const [notify, setNotify] = useState(true)
   const act = async () => {
     if (!pending) return
     setBusy(true)
     try {
-      if (pending.kind === 'issue') await api.post(`/statements/${pending.s.id}/issue`)
+      if (pending.kind === 'issue') await api.post(`/statements/${pending.s.id}/issue`, { notify })
       else await api.del(`/statements/${pending.s.id}`)
       setPending(null)
       setError('')
@@ -108,7 +109,13 @@ export function StatementTable({
                 <a href={`${API_BASE}/statements/${s.id}.csv`}>CSV</a>
                 {canIssue && s.status === 'draft' ? (
                   <>
-                    <button className="link" onClick={() => setPending({ kind: 'issue', s })}>
+                    <button
+                      className="link"
+                      onClick={() => {
+                        setNotify(true)
+                        setPending({ kind: 'issue', s })
+                      }}
+                    >
                       Issue
                     </button>
                     <button className="link danger" onClick={() => setPending({ kind: 'delete', s })}>
@@ -131,7 +138,12 @@ export function StatementTable({
           onConfirm={act}
           body={
             pending.kind === 'issue' ? (
-              <p>An issued statement is final: {money(pending.s.total, pending.s.currency)} with its lines and discounts frozen.</p>
+              <div className="stack tight">
+                <p>An issued statement is final: {money(pending.s.total, pending.s.currency)} with its lines and discounts frozen.</p>
+                <label className="check">
+                  <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} /> Email the statement to the customer
+                </label>
+              </div>
             ) : (
               <p>Removes the draft only; the usage stays and the period can be run again.</p>
             )

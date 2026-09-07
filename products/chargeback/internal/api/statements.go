@@ -2,13 +2,16 @@ package api
 
 import (
 	"encoding/csv"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"regexp"
 	"strings"
 
 	"github.com/openova-io/openova/products/chargeback/internal/rating"
+	"github.com/openova-io/openova/products/chargeback/internal/report"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
 
@@ -117,30 +120,95 @@ func (h *Handler) getStatement(w http.ResponseWriter, r *http.Request) {
 	cw.Flush()
 }
 
+// issueStatement — POST /statements/{id}/issue, optional body
+// {"notify": bool} (default true). Issuing is idempotent; the customer is
+// mailed only on the draft → issued transition, so a re-POST (to repeat the
+// billing hook, say) never mails twice.
 func (h *Handler) issueStatement(w http.ResponseWriter, r *http.Request) {
 	if _, ok := h.requireOperator(w, r); !ok {
 		return
 	}
-	st, err := h.Store.IssueStatement(r.Context(), r.PathValue("id"))
+	var in struct {
+		Notify *bool `json:"notify"`
+	}
+	if err := decode(r, &in); err != nil && !errors.Is(err, io.EOF) {
+		writeErr(w, http.StatusBadRequest, "invalid body: "+err.Error())
+		return
+	}
+	notify := in.Notify == nil || *in.Notify
+	st, transitioned, err := h.Store.IssueStatementOnce(r.Context(), r.PathValue("id"))
 	if err != nil {
 		storeErr(w, err)
 		return
 	}
-	h.audit(r, &st.CustomerID, "statement.issue", map[string]any{"statement_id": st.ID, "period": st.PeriodStart[:7], "total": st.Total})
+	h.audit(r, &st.CustomerID, "statement.issue", map[string]any{"statement_id": st.ID, "period": st.PeriodStart[:7], "total": st.Total, "transitioned": transitioned, "notify": notify})
+	c, cerr := h.Store.GetCustomer(r.Context(), store.OperatorScope, st.CustomerID)
+	if cerr != nil {
+		slog.Warn("issue statement: load customer", "statement", st.ID, "customer", st.CustomerID, "error", cerr)
+	}
 	// ADR-0014 D6: an issued statement of a real-billing Organization
 	// becomes a credit debit through the billing hook. The hook decides
 	// applicability (kind/billing_mode) and is idempotent on the statement
 	// id, so a failure here leaves the statement issued and the operator
 	// re-POSTs issue to repeat the hook.
-	if h.StatementHook != nil {
-		if c, cerr := h.Store.GetCustomer(r.Context(), store.OperatorScope, st.CustomerID); cerr != nil {
-			slog.Warn("statement hook: load customer", "statement", st.ID, "customer", st.CustomerID, "error", cerr)
-		} else if herr := h.StatementHook.StatementIssued(r.Context(), st, c); herr != nil {
+	if h.StatementHook != nil && cerr == nil {
+		if herr := h.StatementHook.StatementIssued(r.Context(), st, c); herr != nil {
 			slog.Warn("statement hook failed; the statement stays issued and a re-issue repeats the idempotent hook", "statement", st.ID, "error", herr)
 			h.audit(r, &st.CustomerID, "statement.hook.error", map[string]any{"statement_id": st.ID, "error": herr.Error()})
 		}
 	}
+	if transitioned && notify && cerr == nil {
+		h.notifyStatement(r, st, c)
+	}
 	writeJSON(w, http.StatusOK, st)
+}
+
+// notifyStatement mails the plain-text statement summary to the customer's
+// admin_email and every customer_users admin, and audits statement.notified
+// with the recipients. Send failures are noted in the audit entry, never
+// surfaced as a request failure: the statement is issued either way.
+func (h *Handler) notifyStatement(r *http.Request, st store.Statement, c store.Customer) {
+	recipients := []string{}
+	seen := map[string]bool{}
+	add := func(e string) {
+		e = normEmail(e)
+		if e == "" || seen[e] || !validEmail(e) {
+			return
+		}
+		seen[e] = true
+		recipients = append(recipients, e)
+	}
+	add(c.AdminEmail)
+	if users, err := h.Store.ListCustomerUsers(r.Context(), c.ID); err != nil {
+		slog.Warn("statement notify: list users", "customer", c.ID, "error", err)
+	} else {
+		for _, u := range users {
+			if u.Role == "admin" {
+				add(u.Email)
+			}
+		}
+	}
+	link := strings.TrimRight(h.Config.PublicURL, "/") + "/statements/" + st.ID
+	subject, body := report.RenderStatement(st, link)
+	sent := []string{}
+	var failed []string
+	for _, to := range recipients {
+		if h.Mail == nil {
+			failed = append(failed, to+": no mail sender configured")
+			continue
+		}
+		if err := h.Mail.Send(r.Context(), to, subject, body); err != nil {
+			slog.Warn("statement notify: send", "statement", st.ID, "to", to, "error", err)
+			failed = append(failed, to+": "+err.Error())
+			continue
+		}
+		sent = append(sent, to)
+	}
+	details := map[string]any{"statement_id": st.ID, "period": st.PeriodStart[:7], "recipients": sent, "subject": subject}
+	if len(failed) > 0 {
+		details["failed"] = failed
+	}
+	h.audit(r, &st.CustomerID, "statement.notified", details)
 }
 
 // deleteStatement removes a DRAFT and its rated lines so the period can be

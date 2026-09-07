@@ -125,10 +125,17 @@ vi.mock('../lib/useQuery', () => {
     dimensions: { kind: [{ key: 'ecs', label: 'Elastic Cloud Server' }], 'tag:team': [{ key: '(untagged)', label: '(untagged)' }, { key: 'platform', label: 'platform' }] },
     tag_keys: ['Env', 'team'],
   }
+  const schedules = {
+    schedules: [
+      { id: 'r1', name: 'Weekly ops', customer_id: null, cadence: 'weekly', day_of_week: 1, day_of_month: null, hour_utc: 6, recipients: ['ops@nc.example', 'fin@nc.example', 'ceo@nc.example'], sections: ['summary', 'services', 'customers', 'budgets', 'anomalies', 'recommendations'], active: true, last_sent_at: '2026-09-07T06:00:04Z', next_at: '2099-09-14T06:00:00Z', sent_30d: 4, failed_30d: 0, last_error: null },
+      { id: 'r2', name: 'ACME month-end', customer_id: 'c1', customer_name: 'ACME LLC', cadence: 'monthly', day_of_week: null, day_of_month: 1, hour_utc: 7, recipients: ['fin@acme.example'], sections: ['summary', 'budgets'], active: false, last_sent_at: null, next_at: '2099-10-01T07:00:00Z', sent_30d: 1, failed_30d: 1, last_error: '550 relay refused' },
+    ],
+  }
   const docFor = (path: string): unknown => {
     if (path === '/customers') return customers
     if (path.includes('/resources/src1/srv-1?')) return resource
     if (path.includes('/cost/dimensions?')) return dimensions
+    if (path === '/reports/schedules') return schedules
     if (path === '/pricebooks') return { pricebooks: [book] }
     if (path === '/pricebooks/pb1') return book
     if (path === '/pricebooks/pb1/coverage') return coverage
@@ -155,6 +162,7 @@ import { Discounts } from './Discounts'
 import { PriceBookEdit } from './PriceBookEdit'
 import { PriceBooks } from './PriceBooks'
 import { ResourceDetailBody } from './ResourceDetail'
+import { Reports } from './Reports'
 import { Statements } from './Statements'
 import { StatementView } from './StatementView'
 
@@ -200,6 +208,22 @@ describe('configure + bill pages render their documents', () => {
     expect(html).toContain('ACME LLC')
     expect(html).toContain('thresholds 50 % · 80 % · 100 %')
     expect(html).toContain('New budget')
+  })
+  it('Reports: schedules with cadence in words, scope, recipients, sections, failure note, actions', () => {
+    const html = render(Reports, '/reports')
+    expect(html).toContain('Weekly ops')
+    expect(html).toContain('Weekly on Monday at 06:00 UTC')
+    expect(html).toContain('Monthly on the 1st at 07:00 UTC')
+    expect(html).toContain('All customers')
+    expect(html).toContain('ACME LLC')
+    expect(html).toContain('+1') // third recipient folded
+    expect(html).toContain('Summary · Budgets')
+    expect(html).toContain('1 failed in 30 d')
+    expect(html).toContain('paused')
+    expect(html).toContain('New schedule')
+    expect(html).toContain('Send now')
+    expect(html).toContain('Preview')
+    expect(html).toContain('Deliveries')
   })
   it('Allocation: settings form, pool + margin KPIs, result rows, explainer', () => {
     const html = render(Allocation, '/allocation')
