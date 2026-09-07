@@ -77,7 +77,16 @@ spec:
   #   all-instances alias (every multi-region shape) + autoPromote.
   #   primaryMissingHoldSeconds (600s) for "region-A alive but primary-less"; "no
   #   instance answers" keeps the 120s hold. +1 Service; singleton byte-identical.
-  version: 0.2.28
+  # 0.2.29 — #6874 D3 (Refs #3629 #4460 #6753): the consumer hub Secrets' `host`/
+  #   `uri` name the ClusterMesh-global `<instance>-mesh-rw` write alias whenever
+  #   the render publishes it (activeHotStandby OR the multi-region
+  #   meshGlobalServices signal), not only after the late crossRegion flip. hw307
+  #   (2026-09-07): after the dr-failback actor demoted region A, the region-local
+  #   `shared-pg-rw` was a read-only standby and region-A consumers on that host
+  #   hit `cannot execute ... in a read-only transaction` until a manual
+  #   switchback; the alias follows the writable side. Singleton byte-identical.
+  #   Existing consumer Pods adopt the rewritten host on their next restart.
+  version: 0.2.29
   card:
     title: PostgreSQL
     summary: |

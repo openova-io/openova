@@ -225,7 +225,19 @@ spec:
       #   clock: "region-A alive but primary-less" waits autoPromote.
       #   primaryMissingHoldSeconds (600s); "no instance answers" keeps the 120s
       #   hold. +1 Service; singleton byte-identical. Lockstep 16a/16c/16d.
-      version: 0.2.28
+      # 0.2.29 (#6874 D3, Refs #3629 #4460 #6753): the consumer hub Secrets'
+      #   `host`/`uri` name the ClusterMesh-global `shared-pg-mesh-rw` write alias
+      #   whenever THIS render publishes it (activeHotStandby OR the multi-region
+      #   meshGlobalServices signal) instead of only after the late crossRegion
+      #   flip. hw307 (2026-09-07 07:26-07:55Z): after the dr-failback actor
+      #   demoted region A, the region-local `shared-pg-rw` was a read-only
+      #   standby and region-A consumers on that host logged `cannot execute ...
+      #   in a read-only transaction` until a manual switchback. The alias follows
+      #   the writable side across demote/switchback; cloud-init keys the scalar
+      #   keycloak/gitea/harbor host on the same signal. Single-region singleton
+      #   byte-identical. Existing consumer Pods adopt the new host on their next
+      #   restart. Lockstep 16a/16c/16d.
+      version: 0.2.29
       sourceRef:
         kind: HelmRepository
         name: bp-postgres
@@ -279,9 +291,12 @@ spec:
     # bootstrap-kit Kustomization (handler/clustermesh.go) only after
     # ClusterMesh is established + the primary's replica-auth Secrets sync.
     # When it flips true the chart renders the PROVEN bp-cnpg-pair split-side
-    # shape: side=primary (region-A) → the named `shared-pg` Cluster (so the
-    # keycloak/gitea/harbor host shared-pg-rw is unchanged) + the
-    # ClusterMesh-global shared-pg-mesh Service; side=secondary (region-B) →
+    # shape: side=primary (region-A) → the named `shared-pg` Cluster + the
+    # ClusterMesh-global shared-pg-mesh Service (on EVERY 2-region prov the
+    # keycloak/gitea/harbor host and the hub Secrets' `host`/`uri` are the
+    # global `shared-pg-mesh-rw` write alias, #6874 D3 — it follows the
+    # writable side across a demotion; the region-local shared-pg-rw is a
+    # read-only standby after one); side=secondary (region-B) →
     # the shared-pg-replica follower streaming WAL over the mesh. side is
     # stamped from the per-region SOVEREIGN_REGION_ROLE (primary|secondary).
     # primary/replica.region carry the canonical openova.io/region node

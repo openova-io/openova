@@ -1564,6 +1564,24 @@ The deterministic failover test for two independent CNPG clusters:
    `SOVEREIGN_SHARED_PG{,_B,_C}_DEMOTED` for slots 16a/16c/16d → `"false"` on
    each region's bootstrap-kit Kustomization) during a maintenance window —
    automate via the CNPG demotion-token handshake is follow-up on #5245.
+   🛑 **#6874 D3 — consumers on the DEMOTED side must write through the global
+   write alias, never the region-local `-rw`.** After a demotion the local
+   `<instance>-rw` is a read-only standby of the promoted region; hw307
+   (2026-09-07 07:26–07:55Z) had Gitea, Harbor and Keycloak on region A pinned
+   to `shared-pg-rw` and logging `cannot execute … in a read-only transaction`
+   (Gitea 45/5 min, Keycloak 28/5 min) until the switchback. `bp-postgres`
+   ≥ 0.2.29 renders the hub Secrets' `host`/`uri` as `<instance>-mesh-rw` in
+   every shape that publishes the alias (the pre-flip window, the slot shape,
+   the demoted primary — not only post-flip active-hot-standby), and cloud-init
+   keys the scalar `SOVEREIGN_{GITEA,HARBOR,KEYCLOAK}_PG_HOST` on the same
+   multi-region signal so the primary region dials the alias too; the alias is
+   CNPG-managed on the steady primary and the primary-demoted stub after a
+   demotion, so it follows the writable side with no consumer change. A running
+   Pod reads its DB host once at start-up: after upgrading a LIVE Sovereign onto
+   this chart the shared consumers (Gitea, Harbor, Keycloak, plus any
+   hub-Secret consumer such as Grafana / powerdns-admin) need ONE rollout
+   (`kubectl -n <ns> rollout restart statefulset/<app>`) to adopt the rewritten
+   host; a fresh prov renders it from the first reconcile.
    🛑 **#6874 D1 — a Cluster the failback actor deletes is NOT re-created by a
    plain reconcile request.** hw307 (2026-09-07 06:10–07:26Z): the divergence
    escalation deleted region A's `shared-pg` for the re-clone and patched only

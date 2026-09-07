@@ -146,7 +146,17 @@ spec:
       #   both regions) + a second clock: "region-A alive but primary-less" waits
       #   autoPromote.primaryMissingHoldSeconds (600s); "no instance answers" keeps
       #   the 120s hold. +1 Service; singleton byte-identical. Lockstep 16a/16c/16d.
-      version: 0.2.28
+      # 0.2.29 (#6874 D3, Refs #3629 #4460 #6753): the consumer hub Secrets'
+      #   `host`/`uri` name the ClusterMesh-global `shared-pg-b-mesh-rw` write
+      #   alias whenever THIS render publishes it (activeHotStandby OR the multi-
+      #   region meshGlobalServices signal) instead of only after the late
+      #   crossRegion flip — after a #6149 demotion the region-local `-rw` is a
+      #   read-only standby (hw307: `cannot execute ... in a read-only
+      #   transaction` on the shared-pg sibling). The alias follows the writable
+      #   side across demote/switchback. Single-region singleton byte-identical.
+      #   Existing consumer Pods adopt the new host on their next restart.
+      #   Lockstep 16a/16c/16d.
+      version: 0.2.29
       sourceRef:
         kind: HelmRepository
         name: bp-postgres

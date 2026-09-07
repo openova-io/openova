@@ -754,15 +754,30 @@ write_files:
             # Service + a same-named replica stub) resolves in BOTH regions and
             # routes writes to the current primary — and bp-continuum re-homes the
             # `rw` selector on failover, so the host needs no change on promotion.
-            # Keyed on sovereign_region_role exactly like SECONDARY_HR_SUSPEND
-            # below; primary keeps `-rw` so single-region stays byte-identical.
-            SOVEREIGN_GITEA_PG_HOST: "${enable_shared_pg == "true" ? (sovereign_region_role == "primary" ? "shared-pg-rw.shared-data.svc.cluster.local" : "shared-pg-mesh-rw.shared-data.svc.cluster.local") : "gitea-pg-rw.gitea.svc.cluster.local"}"
+            # #6874 D3: keyed on the MULTI-REGION signal (replica_region_canonical_label
+            # non-empty — the SAME signal bp-postgres.meshGlobalServices renders the
+            # alias on, stamped as SOVEREIGN_REPLICA_REGION above), NOT on the region
+            # role. Until now the PRIMARY kept the region-local `-rw` and the
+            # post-mesh catalyst-api re-stamp (clustermesh.go) touches SECONDARIES
+            # only, so region A's gitea/harbor/keycloak dialed `shared-pg-rw` for
+            # the life of the Sovereign. hw307 (2026-09-07 07:26-07:55Z): after the
+            # dr-failback actor demoted region A, `shared-pg-rw` was a READ-ONLY
+            # standby of region B's promoted cluster and those three consumers
+            # logged `cannot execute ... in a read-only transaction` (gitea 45/5min,
+            # keycloak 28/5min) until a manual switchback. `shared-pg-mesh-rw` is
+            # CNPG-managed with real local backends on the steady primary (resolves
+            # on region A from the first reconcile, before the mesh peers) and the
+            # primary-demoted stub routing cross-mesh to region B after a demotion,
+            # so the host follows the WRITABLE side with no consumer change. A
+            # single-region prov (empty replica label → bp-postgres renders no
+            # alias) keeps `-rw`, byte-identical.
+            SOVEREIGN_GITEA_PG_HOST: "${enable_shared_pg == "true" ? (replica_region_canonical_label == "" ? "shared-pg-rw.shared-data.svc.cluster.local" : "shared-pg-mesh-rw.shared-data.svc.cluster.local") : "gitea-pg-rw.gitea.svc.cluster.local"}"
             SOVEREIGN_GITEA_PG_SECRET: "${enable_shared_pg == "true" ? "gitea-database-secret" : "gitea-pg-app"}"
-            SOVEREIGN_HARBOR_PG_HOST: "${enable_shared_pg == "true" ? (sovereign_region_role == "primary" ? "shared-pg-rw.shared-data.svc.cluster.local" : "shared-pg-mesh-rw.shared-data.svc.cluster.local") : "harbor-pg-rw.harbor.svc.cluster.local"}"
+            SOVEREIGN_HARBOR_PG_HOST: "${enable_shared_pg == "true" ? (replica_region_canonical_label == "" ? "shared-pg-rw.shared-data.svc.cluster.local" : "shared-pg-mesh-rw.shared-data.svc.cluster.local") : "harbor-pg-rw.harbor.svc.cluster.local"}"
             # #4158: keycloak (slot 09 externalDatabase.host) had NO host var —
             # it fell to the slot's bare `:=shared-pg-rw` default, which NXDOMAINs
             # on the SECONDARY. Same cross-region treatment as gitea/harbor above.
-            SOVEREIGN_KEYCLOAK_PG_HOST: "${enable_shared_pg == "true" ? (sovereign_region_role == "primary" ? "shared-pg-rw.shared-data.svc.cluster.local" : "shared-pg-mesh-rw.shared-data.svc.cluster.local") : "shared-pg-rw.shared-data.svc.cluster.local"}"
+            SOVEREIGN_KEYCLOAK_PG_HOST: "${enable_shared_pg == "true" ? (replica_region_canonical_label == "" ? "shared-pg-rw.shared-data.svc.cluster.local" : "shared-pg-mesh-rw.shared-data.svc.cluster.local") : "shared-pg-rw.shared-data.svc.cluster.local"}"
             # #3188 three-instance model: the SAME one-flag contract
             # extends to instance A's third consumer (keycloak — slot 09
             # skips its bundled bitnami postgresql + flips to

@@ -1,5 +1,31 @@
 apiVersion: v2
 name: bp-postgres
+# 0.2.29 — #6874 D3 (Refs #3629 #4460 #6753): the consumer hub Secrets' `host`/
+#   `uri` name the ClusterMesh-global `<instance>-mesh-rw` WRITE alias whenever
+#   THIS render publishes it — activeHotStandby OR the multi-region
+#   meshGlobalServices signal (clusterMesh.enabled + both regions stamped) —
+#   instead of only after the LATE crossRegion flip. #4460 decoupled the ALIAS
+#   from the flip; role-secrets.yaml never received that decoupling, so the
+#   #4460 pre-flip window of every 2-region prov (and any consumer Pod that
+#   started in it) held the region-LOCAL `<instance>-rw`. hw307 (2026-09-07
+#   07:26-07:55Z): after the dr-failback actor demoted region A, `shared-pg-rw`
+#   was a READ-ONLY STANDBY of region B's promoted cluster and region-A
+#   consumers on that host logged `cannot execute ... in a read-only
+#   transaction` (gitea 45/5min, keycloak 28/5min) until a manual switchback.
+#   The write alias never changes name and follows the writable side: CNPG-
+#   managed on the steady primary, the primary-demoted stub after a demotion.
+#   Three shapes, each pinned against its OWN rendered objects (tests Case
+#   21k): singleton-no-mesh → `-rw` (byte-identical, no alias rendered);
+#   active-hot-standby → `-mesh-rw` (unchanged); cross-region DR pair with the
+#   alias on (pre-flip / slot crossRegion=true / demoted) → `-mesh-rw`. The
+#   condition is the union of the gates that render the alias on the primary
+#   side, so the host can never name a Service the render does not emit.
+#   Companion: cloudinit-control-plane.tftpl keys the scalar gitea/harbor/
+#   keycloak host (which cannot read the hub Secret's `host`) on the same
+#   multi-region signal, so the PRIMARY region dials the alias too. Existing
+#   consumer Pods adopt a rewritten Secret host on their next restart
+#   (RUNBOOKS §6.1). Lockstep: 16a/16c/16d HR pins + blueprint.yaml +
+#   catalog-seed -> 0.2.29.
 # 0.2.28 — #6874 D2 (Refs #5178 #5473 #5623): the region-B dr-promoter no longer
 #   mistakes a CNPG LOCAL failover for a region kill. `<instance>-mesh` selects
 #   instanceRole=primary ONLY (#5473), so its pg_isready went dark whenever region
@@ -546,8 +572,8 @@ name: bp-postgres
 #   honoured — sprig's `default` swallows boolean false). Primary render is
 #   byte-identical. Lockstep slot pins 16a/16c/16d → 0.2.20.
 #   tests/postgres-render.sh Case 21 added.
-version: 0.2.28
-appVersion: 0.2.28
+version: 0.2.29
+appVersion: 0.2.29
 description: |
   Catalyst-authored data-instance Blueprint for a shareable, reusable
   PostgreSQL engine. Each install of bp-postgres = ONE
