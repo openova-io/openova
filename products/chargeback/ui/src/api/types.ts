@@ -252,14 +252,25 @@ export interface CostGroup {
   values: number[]
 }
 
+/** One projected (or observed) day of the month-end forecast. */
+export interface ForecastDay {
+  day: string
+  cost: number
+}
+
 export interface Forecast {
   month_end: number
   run_rate_daily: number
   trend_daily: number
+  /** run-rate-Nd (< 7 days) · run-rate-7d+trend (7–13) · weekday-seasonal (≥ 14) */
   method: string
   days_observed: number
   days_in_month: number
   confidence: 'low' | 'medium' | 'high' | string
+  /** One entry per remaining day, today first; sums to month_end − observed. Absent from older APIs. */
+  projection?: ForecastDay[]
+  /** Mon…Sun cost relative to the overall mean; only for weekday-seasonal. */
+  weekday_factors?: Record<string, number>
 }
 
 /** GET /cost/explore · GET /customers/{id}/cost/explore */

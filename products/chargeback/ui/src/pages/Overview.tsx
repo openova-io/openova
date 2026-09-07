@@ -8,6 +8,7 @@ import { bucketLabel, describeWindow, presetWindow } from '../lib/dates'
 import { formatMoney, formatPct } from '../lib/money'
 import { customerLens, lensFor, pageHref, type Lens } from '../lib/scope'
 import { readGroups, readKPIs } from '../lib/summary'
+import { forecastHint, forecastNote } from '../lib/forecast'
 import { useQuery } from '../lib/useQuery'
 import { day, when } from '../lib/format'
 
@@ -85,9 +86,9 @@ export function OverviewBody({ lens, title, embedded }: { lens: Lens; title?: st
           <KPI
             label="Forecast month end"
             value={k.forecastMonthEnd === null ? '—' : money(k.forecastMonthEnd, true)}
-            note={k.forecastMethod ? `${k.forecastMethod} · ${k.forecastConfidence} confidence` : 'needs one complete day'}
+            note={s.forecast ? forecastNote(s.forecast) : 'needs one complete day'}
             tone={k.forecastConfidence === 'low' ? 'warn' : undefined}
-            hint="Complete days so far + daily run rate × days left"
+            hint={forecastHint(s.forecast)}
           />
           <KPI label={`Last month (${k.lastMonthPeriod})`} value={money(k.lastMonth, true)} note="full calendar month" />
           <KPI label="Average per day" value={money(k.avgDaily, true)} note={`over ${s.last_30d?.days_with_data ?? 0} days with data of the last 30`} />

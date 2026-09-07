@@ -134,7 +134,12 @@ describe('seriesFromExplore on the Go-generated fixture', () => {
     expect(d.buckets).toHaveLength(30)
     expect(d.buckets[7]).toBe('2026-09-08')
     expect(d.buckets[29]).toBe('2026-09-30')
+    // The Go fixture is seven flat days → run-rate-7d+trend with a zero
+    // slope, so every projected day equals the run rate, and the tail IS the
+    // API's projection (Sep 8–30) value for value.
     for (const v of d.forecast!.values) expect(v).toBeCloseTo(fixture.forecast!.run_rate_daily, 12)
+    expect(d.forecast!.values).toEqual(fixture.forecast!.projection!.map((p) => p.cost))
+    expect(d.buckets.slice(7)).toEqual(fixture.forecast!.projection!.map((p) => p.day))
     const tail = d.forecast!.values.reduce((a, b) => a + b, 0)
     expect(fixture.total.current + tail).toBeCloseTo(fixture.forecast!.month_end, 6)
   })
@@ -177,22 +182,54 @@ describe('forecastTail', () => {
     expect(forecastTail('2028-02-27', fc)).toEqual({ buckets: ['2028-02-28', '2028-02-29'], values: [2, 2] })
     expect(forecastTail('2026-12-30', fc)).toEqual({ buckets: ['2026-12-31'], values: [2] })
   })
+  it('follows the per-day projection when the API sends one', () => {
+    // Sep 2026: 26 = Sat, 27 = Sun. A weekday-seasonal projection dips at
+    // the weekend; the tail must carry that shape, not the flat run rate.
+    const seasonal = {
+      ...fc,
+      method: 'weekday-seasonal',
+      projection: [
+        { day: '2026-09-25', cost: 10 },
+        { day: '2026-09-26', cost: 5 },
+        { day: '2026-09-27', cost: 5 },
+        { day: '2026-09-28', cost: 11 },
+        { day: '2026-09-29', cost: 11 },
+        { day: '2026-09-30', cost: 11 },
+      ],
+    }
+    expect(forecastTail('2026-09-24', seasonal)).toEqual({
+      buckets: ['2026-09-25', '2026-09-26', '2026-09-27', '2026-09-28', '2026-09-29', '2026-09-30'],
+      values: [10, 5, 5, 11, 11, 11],
+    })
+    // The window's last bucket is today (partial): the tail starts tomorrow
+    // and simply drops today's projected entry.
+    expect(forecastTail('2026-09-25', seasonal)!.values).toEqual([5, 5, 11, 11, 11])
+  })
+  it('falls back to the run rate for days the projection does not cover, or without one', () => {
+    const partial = { ...fc, projection: [{ day: '2026-09-29', cost: 7 }] }
+    expect(forecastTail('2026-09-27', partial)).toEqual({ buckets: ['2026-09-28', '2026-09-29', '2026-09-30'], values: [2, 7, 2] })
+    const legacy = { ...fc } as typeof fc & { projection?: unknown }
+    delete legacy.projection
+    expect(forecastTail('2026-09-28', legacy)).toEqual({ buckets: ['2026-09-29', '2026-09-30'], values: [2, 2] })
+    expect(forecastTail('2026-09-28', { ...fc, projection: 'nonsense' as unknown as undefined })!.values).toEqual([2, 2])
+  })
 })
 
 describe('seriesFromDaily', () => {
-  it('shapes summary daily rows into one series with gaps and a tail', () => {
-    const d = seriesFromDaily(
-      [
-        { day: '2026-09-28', cost: 1, has_data: true },
-        { day: '2026-09-29', cost: 0, has_data: false },
-      ],
-      { ...fixture.forecast!, run_rate_daily: 3 },
-      'OMR',
-    )
+  const rows = [
+    { day: '2026-09-28', cost: 1, has_data: true },
+    { day: '2026-09-29', cost: 0, has_data: false },
+  ]
+  it('shapes summary daily rows into one series with gaps and a run-rate tail', () => {
+    const d = seriesFromDaily(rows, { ...fixture.forecast!, run_rate_daily: 3, projection: undefined }, 'OMR')
     expect(d.series).toHaveLength(1)
     expect(d.series[0].values).toEqual([1, 0])
     expect(d.missing).toEqual([false, true])
     expect(d.buckets).toEqual(['2026-09-28', '2026-09-29', '2026-09-30'])
     expect(d.forecast).toEqual({ fromIndex: 2, values: [3] })
+  })
+  it('lets the per-day projection win over the flat run rate', () => {
+    const d = seriesFromDaily(rows, { ...fixture.forecast!, run_rate_daily: 3, projection: [{ day: '2026-09-30', cost: 1.5 }] }, 'OMR')
+    expect(d.forecast).toEqual({ fromIndex: 2, values: [1.5] })
   })
 })
