@@ -82,7 +82,8 @@ export function CustomerDetail() {
         }
         sub={
           <>
-            <span className="mono">{c.slug}</span> · {c.kind === 'organization' ? 'Organization' : 'external'} · {c.billing_mode} ·{' '}
+            <span className="mono">{c.slug}</span> · {c.kind === 'organization' ? 'Organization' : 'external'} · {c.billing_mode}
+            {c.plan_slug ? ` · ${c.plan_slug.toUpperCase()} plan` : ''} ·{' '}
             {bookName ? (
               <Link to={`/pricebooks/${c.price_book_id}`}>{bookName}</Link>
             ) : (

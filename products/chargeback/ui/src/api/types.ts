@@ -65,6 +65,8 @@ export interface Customer {
   billing_mode: BillingMode | string
   status: CustomerStatus | string
   start_date?: string | null
+  /** Catalog plan (s, m, l, xl, flexi; '' = none) — an Organization's comes from its CR. */
+  plan_slug?: string | null
   created_at?: string
   updated_at?: string
   /** List endpoints may send a count; the detail endpoint embeds the rows. */

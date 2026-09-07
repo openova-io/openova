@@ -24,6 +24,7 @@ describe('kindLabel', () => {
     expect(kindLabel('ecs')).toBe('Elastic Cloud Server')
     expect(kindLabel('evs', dims)).toBe('Block storage (EVS)')
     expect(kindLabel('k8s-pvc')).toBe('Kubernetes volumes')
+    expect(kindLabel('plan')).toBe('Subscription plan')
   })
   it('a server label that merely repeats the key does not hide the local name', () => {
     const bare: DimensionValues = { from: '', to: '', dimensions: { kind: [{ key: 'eip', label: 'eip' }, { key: 'obs', label: 'obs' }] } }

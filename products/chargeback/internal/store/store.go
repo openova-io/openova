@@ -320,6 +320,10 @@ CREATE TABLE IF NOT EXISTS pins (
 		error TEXT
 	);`,
 	`CREATE INDEX IF NOT EXISTS report_deliveries_schedule_idx ON report_deliveries (schedule_id, sent_at DESC);`,
+	// #6867 follow-up — plan revenue. The catalog plan a customer pays for
+	// (s, m, l, xl, flexi; '' = none). OrgSync fills it from the Organization
+	// CR's spec.planSlug; the platform collector meters it as plan.<slug>.
+	`ALTER TABLE customers ADD COLUMN IF NOT EXISTS plan_slug TEXT NOT NULL DEFAULT '';`,
 }
 
 // Migrate applies every migration not yet recorded in schema_migrations.

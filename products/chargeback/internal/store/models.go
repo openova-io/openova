@@ -54,18 +54,23 @@ func (d *Decimal) UnmarshalJSON(b []byte) error {
 
 // Customer is a buyer: an external account or a synced Organization.
 type Customer struct {
-	ID          string    `json:"id"`
-	Slug        string    `json:"slug"`
-	Name        string    `json:"name"`
-	AdminEmail  string    `json:"admin_email"`
-	Kind        string    `json:"kind"`
-	OrgSlug     *string   `json:"org_slug,omitempty"`
-	PriceBookID *string   `json:"price_book_id,omitempty"`
-	BillingMode string    `json:"billing_mode"`
-	Status      string    `json:"status"`
-	StartDate   *string   `json:"start_date,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          string  `json:"id"`
+	Slug        string  `json:"slug"`
+	Name        string  `json:"name"`
+	AdminEmail  string  `json:"admin_email"`
+	Kind        string  `json:"kind"`
+	OrgSlug     *string `json:"org_slug,omitempty"`
+	PriceBookID *string `json:"price_book_id,omitempty"`
+	BillingMode string  `json:"billing_mode"`
+	Status      string  `json:"status"`
+	StartDate   *string `json:"start_date,omitempty"`
+	// PlanSlug is the catalog plan the customer pays for (s, m, l, xl,
+	// flexi; "" = no plan). For an Organization customer OrgSync reads it
+	// from the Organization CR's spec.planSlug; the platform collector
+	// meters it as plan.<slug> (DESIGN.md §2.8 "Plan revenue").
+	PlanSlug  string    `json:"plan_slug"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 
 	// List-view aggregates.
 	SourceCount         int        `json:"source_count"`

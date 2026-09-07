@@ -634,3 +634,40 @@ func TestIntegrationSavedViewsPerUser(t *testing.T) {
 		t.Fatalf("view audit = create %d delete %d", auditActions(t, st, "view.create"), auditActions(t, st, "view.delete"))
 	}
 }
+
+// TestIntegrationCustomerPlanSlugPatch: plan_slug is settable on an external
+// customer (case-folded, validated), refused on an Organization customer
+// (its plan comes from the Organization CR), and carried by GET/list.
+func TestIntegrationCustomerPlanSlugPatch(t *testing.T) {
+	h, st, mail, _, _ := setupAPI(t)
+	seed := seedCRUD(t, st)
+	op := &client{t: t, h: h}
+	op.signIn(opEmail, mail)
+	acme := &client{t: t, h: h}
+	acme.signIn(acmeAdmin, mail)
+
+	out := op.mustJSON("PATCH", "/api/v1/customers/"+seed.acme.ID, map[string]any{"plan_slug": " M "}, 200)
+	if out["plan_slug"] != "m" {
+		t.Fatalf("plan_slug after patch = %v", out["plan_slug"])
+	}
+	if got := op.must("GET", "/api/v1/customers/"+seed.acme.ID, 200); got["plan_slug"] != "m" {
+		t.Fatalf("GET plan_slug = %v", got["plan_slug"])
+	}
+	op.mustJSON("PATCH", "/api/v1/customers/"+seed.acme.ID, map[string]any{"plan_slug": "xxl"}, 400)
+	acme.mustJSON("PATCH", "/api/v1/customers/"+seed.acme.ID, map[string]any{"plan_slug": "l"}, 403)
+	if out := op.mustJSON("PATCH", "/api/v1/customers/"+seed.acme.ID, map[string]any{"plan_slug": ""}, 200); out["plan_slug"] != "" {
+		t.Fatalf("clearing plan_slug = %v", out["plan_slug"])
+	}
+
+	org := op.mustJSON("POST", "/api/v1/customers", map[string]any{"slug": "orgone", "name": "Org One", "admin_email": "own@orgone.example", "kind": "organization", "org_slug": "orgone", "plan_slug": "l"}, 201)
+	if org["plan_slug"] != "l" {
+		t.Fatalf("create with plan_slug = %v", org["plan_slug"])
+	}
+	rec, body := op.json("PATCH", "/api/v1/customers/"+org["id"].(string), map[string]any{"plan_slug": "xl"})
+	if rec.Code != 400 || !strings.Contains(body["error"].(string), "Organization CR") {
+		t.Fatalf("patching an Organization customer's plan = %d %v", rec.Code, body)
+	}
+	if n := auditActions(t, st, "customer.update"); n != 2 {
+		t.Fatalf("customer.update audit entries = %d, want 2", n)
+	}
+}

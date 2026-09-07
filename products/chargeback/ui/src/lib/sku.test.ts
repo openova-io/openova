@@ -29,6 +29,11 @@ describe('serviceOfSKU', () => {
     expect(serviceOfSKU('k8s-pvc.gb').key).toBe('k8s')
     expect(serviceOfSKU('k8s_pod_mem').key).toBe('k8s')
   })
+  it('files the catalog plan line under Subscription plan', () => {
+    expect(serviceOfSKU('plan.m')).toEqual({ key: 'plan', label: 'Subscription plan' })
+    expect(serviceOfSKU('plan.xl').key).toBe('plan')
+    expect(serviceOfSKU('PLAN.S').label).toBe('Subscription plan')
+  })
   it('never guesses: an unknown or empty SKU is Other', () => {
     expect(serviceOfSKU('obs.standard.gb').key).toBe('other')
     expect(serviceOfSKU('')).toEqual({ key: 'other', label: 'Other' })
@@ -42,14 +47,16 @@ describe('groupByService', () => {
     { sku: 'evs.ssd.gb', amount: 10 },
     { sku: 'ecs.c7.xlarge.2', amount: 30 },
     { sku: 'k8s.pod.vcpu', amount: '0' },
+    { sku: 'plan.m', amount: '2.071233' },
   ]
   it('sums amounts per service, largest first, and shares sum to one', () => {
     const g = groupByService(lines)
-    expect(g.map((x) => x.key)).toEqual(['ecs', 'evs', 'k8s'])
+    expect(g.map((x) => x.key)).toEqual(['ecs', 'evs', 'plan', 'k8s'])
     expect(g[0].amount).toBe(90)
-    expect(g[0].share).toBeCloseTo(0.9)
-    expect(g[1].share).toBeCloseTo(0.1)
-    expect(g[2].share).toBe(0)
+    expect(g[0].share).toBeCloseTo(90 / 102.071233)
+    expect(g[1].share).toBeCloseTo(10 / 102.071233)
+    expect(g[2].label).toBe('Subscription plan')
+    expect(g[3].share).toBe(0)
     expect(g.reduce((n, x) => n + x.share, 0)).toBeCloseTo(1)
   })
   it('orders lines inside a group by amount and accepts string amounts', () => {

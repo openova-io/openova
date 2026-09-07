@@ -10,6 +10,8 @@ export interface Service {
 }
 
 export const PLATFORM_SERVICE: Service = { key: 'k8s', label: 'Platform (Kubernetes)' }
+/** The catalog plan line (`plan.<slug>`, DESIGN.md §2.8 "Plan revenue"). */
+export const PLAN_SERVICE: Service = { key: 'plan', label: 'Subscription plan' }
 export const OTHER_SERVICE: Service = { key: 'other', label: 'Other' }
 
 const SERVICES: ReadonlyArray<Service> = [
@@ -29,14 +31,16 @@ const SERVICES: ReadonlyArray<Service> = [
   { key: 'waf', label: 'Web application firewall' },
   { key: 'as', label: 'Auto scaling' },
   { key: 'vpcep', label: 'VPC endpoint' },
+  PLAN_SERVICE,
 ]
 const BY_KEY = new Map(SERVICES.map((s) => [s.key, s]))
 
 /**
  * The service a SKU belongs to. `ecs.s6.large.2` → ECS, `evs.ssd.gb` → EVS,
  * `eip`/`eip-bandwidth` → Elastic IP, `k8s.pod.vcpu` / `k8s-pvc.gb` →
- * Platform (Kubernetes). Anything unrecognised is "Other" rather than a
- * guess: a statement must never file a line under the wrong service.
+ * Platform (Kubernetes), `plan.m` → Subscription plan. Anything unrecognised
+ * is "Other" rather than a guess: a statement must never file a line under
+ * the wrong service.
  */
 export function serviceOfSKU(sku: string): Service {
   const s = sku.trim().toLowerCase()
