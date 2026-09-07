@@ -533,3 +533,77 @@ export interface PriceBookCoverage {
   coverage_pct: number
   unpriced_count: number
 }
+
+// ---------------------------------------------------------------------------
+// Scheduled cost reports (#6867 follow-up). A schedule mails a plain-text
+// report on a cadence; every attempt is a delivery row.
+// ---------------------------------------------------------------------------
+
+export type ReportCadence = 'daily' | 'weekly' | 'monthly'
+export type ReportSection = 'summary' | 'services' | 'customers' | 'budgets' | 'anomalies' | 'recommendations'
+
+/** Every section the server knows, in the order it renders them. */
+export const REPORT_SECTIONS: ReadonlyArray<{ value: ReportSection; label: string; hint: string }> = [
+  { value: 'summary', label: 'Summary', hint: 'total vs previous period, month to date, forecast, unpriced usage' },
+  { value: 'services', label: 'Top services', hint: 'the five biggest service kinds' },
+  { value: 'customers', label: 'Top customers', hint: 'the five biggest customers (operator reports only)' },
+  { value: 'budgets', label: 'Budgets', hint: 'every active budget with its standing' },
+  { value: 'anomalies', label: 'Anomalies', hint: 'flagged days in the window and the biggest' },
+  { value: 'recommendations', label: 'Recommendations', hint: 'count, total saving and the top three' },
+]
+
+export interface ReportSchedule {
+  id: string
+  name: string
+  customer_id: string | null
+  customer_name?: string | null
+  cadence: ReportCadence | string
+  /** 0 = Sunday … 6 = Saturday; set for weekly schedules. */
+  day_of_week: number | null
+  /** 1..28; set for monthly schedules. */
+  day_of_month: number | null
+  hour_utc: number
+  recipients: string[]
+  sections: string[]
+  active: boolean
+  last_sent_at: string | null
+  next_at: string
+  created_at?: string
+  updated_at?: string
+  /** Delivery attempts in the last 30 days, how many failed, newest failure. */
+  sent_30d: number
+  failed_30d: number
+  last_error: string | null
+}
+
+export interface ReportDelivery {
+  id: number
+  schedule_id: string
+  sent_at: string
+  window_from: string
+  /** Half-open end: the day after the last reported day. */
+  window_to: string
+  recipients: string[]
+  subject: string
+  ok: boolean
+  error: string | null
+}
+
+/** GET /reports/schedules/{id}/preview */
+export interface ReportPreview {
+  subject: string
+  body: string
+  window_from: string
+  window_to: string
+  recipients: string[]
+}
+
+/** POST /reports/schedules/{id}/send */
+export interface ReportSendResult {
+  sent_to: string[]
+  subject: string
+  window_from: string
+  window_to: string
+  delivery?: ReportDelivery
+  error?: string
+}

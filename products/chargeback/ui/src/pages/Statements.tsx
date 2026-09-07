@@ -43,6 +43,8 @@ export function Statements() {
   const [error, setError] = useState('')
   const [flash, setFlash] = useState('')
   const [busy, setBusy] = useState(false)
+  // Issue confirm: mail the statement to the customer (on by default).
+  const [notify, setNotify] = useState(true)
 
   const nameOf = (s: Statement) => s.customer_name ?? customerName(customers, s.customer_id, s.customer_slug)
   const drafts = rows.filter((s) => s.status === 'draft').length
@@ -54,10 +56,10 @@ export function Statements() {
     setBusy(true)
     setError('')
     try {
-      if (kind === 'issue') await api.post(`/statements/${s.id}/issue`)
+      if (kind === 'issue') await api.post(`/statements/${s.id}/issue`, { notify })
       else await api.del(`/statements/${s.id}`)
       setDialog(null)
-      setFlash(kind === 'issue' ? `${nameOf(s)} · ${statementPeriod(s)} issued` : `draft for ${nameOf(s)} · ${statementPeriod(s)} deleted`)
+      setFlash(kind === 'issue' ? `${nameOf(s)} · ${statementPeriod(s)} issued${notify ? ' and emailed to the customer' : ''}` : `draft for ${nameOf(s)} · ${statementPeriod(s)} deleted`)
       await list.reload()
     } catch (e) {
       setError(errorText(e))
@@ -115,7 +117,13 @@ export function Statements() {
           </a>
           {s.status === 'draft' ? (
             <>
-              <button className="small primary" onClick={() => setDialog({ kind: 'issue', s })}>
+              <button
+                className="small primary"
+                onClick={() => {
+                  setNotify(true)
+                  setDialog({ kind: 'issue', s })
+                }}
+              >
                 Issue
               </button>
               <button className="small danger" onClick={() => setDialog({ kind: 'delete', s })}>
@@ -228,9 +236,14 @@ export function Statements() {
           onClose={() => setDialog(null)}
           onConfirm={() => act('issue', dialog.s)}
           body={
-            <p>
-              An issued statement is final: {formatMoney(dialog.s.total, dialog.s.currency)} with its lines and discounts frozen. Re-running the period will not change it.
-            </p>
+            <div className="stack tight">
+              <p>
+                An issued statement is final: {formatMoney(dialog.s.total, dialog.s.currency)} with its lines and discounts frozen. Re-running the period will not change it.
+              </p>
+              <label className="check">
+                <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} /> Email the statement to the customer
+              </label>
+            </div>
           }
         />
       ) : null}

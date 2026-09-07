@@ -214,6 +214,19 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/recommendations", h.recommendations)
 	mux.HandleFunc("GET /api/v1/customers/{id}/recommendations", h.customerRecommendations)
 
+	// Scheduled cost reports (#6867 follow-up). Reads follow the session
+	// scope; the operator writes any schedule, a customer-admin only its
+	// own customer's (customer_id forced), a customer-viewer none.
+	mux.HandleFunc("GET /api/v1/reports/schedules", h.listReportSchedules)
+	mux.HandleFunc("POST /api/v1/reports/schedules", h.createReportSchedule)
+	mux.HandleFunc("GET /api/v1/reports/schedules/{id}", h.getReportSchedule)
+	mux.HandleFunc("PUT /api/v1/reports/schedules/{id}", h.updateReportSchedule)
+	mux.HandleFunc("DELETE /api/v1/reports/schedules/{id}", h.deleteReportSchedule)
+	mux.HandleFunc("POST /api/v1/reports/schedules/{id}/send", h.sendReportNow)
+	mux.HandleFunc("GET /api/v1/reports/schedules/{id}/preview", h.previewReport)
+	mux.HandleFunc("GET /api/v1/reports/schedules/{id}/deliveries", h.listReportDeliveries)
+	mux.HandleFunc("GET /api/v1/customers/{id}/reports/schedules", h.customerReportSchedules)
+
 	// Anything else under /api is 404 JSON; everything else is the UI.
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) { writeErr(w, http.StatusNotFound, "not found") })
 	mux.Handle("/", h.uiHandler())
