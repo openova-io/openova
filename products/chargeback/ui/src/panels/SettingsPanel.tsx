@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import type { Customer, PriceBook } from '../api/types'
 import { Badge, Confirm, Field, Notice } from '../components/ui'
-import { BILLING_MODES, CUSTOMER_KINDS, customerPatch, settingsFrom, type CustomerSettings } from '../lib/customers'
+import { BILLING_MODES, CUSTOMER_KINDS, customerPatch, fieldLabel, settingsFrom, type CustomerSettings } from '../lib/customers'
 import { hasErrors, validateSettings, type Errors } from '../lib/forms'
 import { useAction } from '../lib/useAction'
 
@@ -36,7 +36,7 @@ export function SettingsPanel({ customer, books, onSaved }: { customer: Customer
       act.setError('Nothing changed.')
       return
     }
-    await act.run(`saved ${Object.keys(patch).map((k) => k.replace('_', ' ')).join(', ')}`, async () => {
+    await act.run(`saved ${Object.keys(patch).map(fieldLabel).join(', ')}`, async () => {
       const c = await api.patch<Customer>(`/customers/${customer.id}`, patch)
       await onSaved(c)
     })

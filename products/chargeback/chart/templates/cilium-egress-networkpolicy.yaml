@@ -54,6 +54,12 @@ spec:
             # the private CNPG Cluster (<fullname>-pg-rw).
             - port: "5432"
               protocol: TCP
+            {{- if .Values.smtp.existingSecret }}
+            # SMTP submission to the external mail host (statement mail,
+            # budget alerts, scheduled reports). Only when mail is configured.
+            - port: {{ .Values.smtp.port | default 587 | quote }}
+              protocol: TCP
+            {{- end }}
             {{- range .Values.networkPolicy.egress.extraPorts }}
             - port: {{ . | quote }}
               protocol: TCP

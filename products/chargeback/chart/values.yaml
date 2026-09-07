@@ -66,6 +66,13 @@ config:
 # Referenced with optional:true so the chart schedules either way.
 smtp:
   existingSecret: ""
+  # TCP port of the submission host named in that Secret's SMTP_PORT. The
+  # binary reads the port from the Secret; the chart cannot, so this value
+  # is what the egress CiliumNetworkPolicy opens toward `world` whenever
+  # existingSecret is set (hw307: mail on 587 timed out behind a policy that
+  # only allowed 443/8080/5432 — statements, budget alerts and reports were
+  # all silently undeliverable). Keep the two in step.
+  port: 587
 
 # ── APP_ENCRYPTION_KEY (spec §1 credentials envelope) ────────────────────
 # Generated ONCE by templates/app-key-job.yaml (pre-install hook,

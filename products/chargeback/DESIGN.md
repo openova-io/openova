@@ -278,6 +278,13 @@ series' when the month has none), `mtd{cost,from,to,days}`,
 `by_kind[{key,label,cost,share}]`, `budgets[…status rows]`, `anomalies[…]`,
 `statements{draft,issued,latest[…]}`. `GET /overview` returns the same document.
 
+The global blocks belong to `GET /cost/summary` alone. On
+`GET /customers/{id}/cost/summary` — the operator's customer page as much as a
+customer principal's own — `sources` counts and `statements` lists only that
+customer's, and `customers` is `{}`; the explorer blocks are already
+customer-filtered. (The hw307 walk found the operator's customer page carrying
+every customer's statements and every source's status.)
+
 ### 3.3 `GET /cost/export.csv`
 Same params as explore; one row per (bucket, group).
 
@@ -358,6 +365,11 @@ severity, type, id; ids are `type:customer:resource` / `type:customer:sku` /
 - `GET|POST /discounts` (global list; `customer_id` null = all customers) ·
   `GET|PUT|DELETE /discounts/{id}`; existing customer-scoped routes kept.
 - `PATCH /sources/{id}` — region, project_id, scope_token, domain_id.
+- `GET /statements` — the operator list, newest period first. `period=YYYY-MM`
+  narrows to one period and `customer_id=<id>` (alias `customer`) to one
+  customer; both may be given. An id no customer has answers an empty list,
+  not 404 — the filter selected nothing. Customer principals always get their
+  own list, whatever they ask for.
 - `DELETE /statements/{id}` — drafts only.
 - `GET|PUT /allocation/settings` — `{weights{vcpu,mem_gib,pvc_gb},overhead_policy:
   separate|distribute,pool:sovereign-cost|manual,manual_amount,currency,

@@ -464,8 +464,15 @@ func (h *Handler) gatherSummary(r *http.Request, scope store.Scope, customerID s
 			return p, err
 		}
 	}
+	// The global counts belong to the operator overview alone. A selected
+	// customer — the operator's /customers/{id}/cost/summary as much as a
+	// customer principal's own — counts its own sources and lists its own
+	// statements. Branching on scope.Operator here put every customer's
+	// statements and every source on the operator's customer page (hw307:
+	// a one-source, no-statement customer read "3 draft · 3 verified" and
+	// carried another customer's 2,701.606 OMR statement).
 	var err error
-	if scope.Operator {
+	if customerID == "" {
 		if p.Customers, err = h.Store.CustomerCountsByStatus(ctx); err != nil {
 			return p, err
 		}

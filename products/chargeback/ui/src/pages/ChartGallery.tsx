@@ -107,8 +107,8 @@ const byCustomer = [
   { key: 'c3', label: 'Bank Muscat Labs', value: 410 },
   { key: 'c4', label: 'Duqm Port Authority — very long customer name to ellipsise', value: 265.75 },
   { key: 'c5', label: 'Nizwa University', value: 92 },
-  { key: 'c6', label: 'Tiny tenant A', value: 9.5 },
-  { key: 'c7', label: 'Tiny tenant B', value: 4.25 },
+  { key: 'c6', label: 'Tiny account A', value: 9.5 },
+  { key: 'c7', label: 'Tiny account B', value: 4.25 },
 ]
 const total = byCustomer.reduce((a, s) => a + s.value, 0)
 const ranked = byCustomer.map((c, i) => ({ key: c.key, label: c.label, value: c.value, share: c.value / total, delta_pct: [12.4, -3.1, 0, null, 148, -0.02, 41][i] }))

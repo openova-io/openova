@@ -111,6 +111,14 @@ has "$sov" 'k8s-app: kube-dns' "CNP: DNS egress carve-out missing (#4604)"
 has "$sov" 'port: "53"' "CNP: port 53 missing"
 has "$sov" 'protocol: UDP' "CNP: DNS UDP missing"
 has "$sov" 'matchPattern: "\*"' "CNP: dns matchPattern missing"
+# SMTP submission opens ONLY when mail is configured — hw307 2026-09-07: the
+# scheduled-report send timed out on 587 behind a policy that allowed
+# 443/8080/5432 only; statements, budget alerts and reports were undeliverable.
+lacks "$sov" 'port: "587"' "CNP: 587 rendered with no smtp.existingSecret"
+mail="$(render --set "sovereignFqdn=$FQDN" --set smtp.existingSecret=sovereign-smtp-credentials)"
+has "$mail" 'port: "587"' "CNP: SMTP 587 egress missing when smtp.existingSecret is set"
+mail465="$(render --set "sovereignFqdn=$FQDN" --set smtp.existingSecret=x --set smtp.port=465)"
+has "$mail465" 'port: "465"' "CNP: smtp.port not honoured on the egress policy"
 nocnp="$("$helm" template chargeback "$chart_dir" --namespace chargeback --api-versions "postgresql.cnpg.io/v1" 2>/dev/null)"
 lacks "$nocnp" 'kind: CiliumNetworkPolicy' "CNP rendered WITHOUT the cilium.io/v2 CRD (kind CI would fail)"
 
