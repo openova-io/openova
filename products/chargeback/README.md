@@ -222,7 +222,7 @@ customers' ids answer `404`, writes need `customer-admin`.
 | Sources | `GET/POST /customers/{id}/sources` · `POST /sources/{id}/credential` (rotate + verify) · `POST /sources/{id}/verify` · `DELETE /sources/{id}` |
 | Usage | `GET /customers/{id}/usage?from&to&group_by=sku\|resource\|day` · `GET /customers/{id}/inventory` |
 | Price books | `GET/POST /pricebooks` · `GET /pricebooks/template.csv` · `GET/PUT /pricebooks/{id}` · `PUT /pricebooks/{id}/items` · `POST /pricebooks/{id}/import` |
-| Statements | `POST /statements/run {period, customer_id?}` · `GET /statements[?period]` · `GET /customers/{id}/statements` · `GET /statements/{id}` · `GET /statements/{id}.csv` · `POST /statements/{id}/issue` |
+| Statements | `POST /statements/run {period, customer_id?}` · `GET /statements[?period&customer_id]` · `GET /customers/{id}/statements` · `GET /statements/{id}` · `GET /statements/{id}.csv` · `POST /statements/{id}/issue` |
 | Operator | `GET /overview` |
 | Ops (root) | `GET /healthz` · `GET /readyz` · `GET /metrics` |
 

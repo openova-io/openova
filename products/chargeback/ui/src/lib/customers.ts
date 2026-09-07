@@ -22,7 +22,7 @@ export const BILLING_MODES: ReadonlyArray<{ value: string; label: string; help: 
 ]
 
 export const CUSTOMER_KINDS: ReadonlyArray<{ value: string; label: string; help: string }> = [
-  { value: 'external', label: 'External', help: 'A tenant billed for its own cloud projects.' },
+  { value: 'external', label: 'External', help: 'An external account billed for its own cloud projects.' },
   { value: 'organization', label: 'Organization', help: 'An Organization on this Sovereign; usage is allocated from the shared platform.' },
 ]
 
@@ -132,6 +132,25 @@ export function settingsFrom(c: Customer): CustomerSettings {
     status: c.status ?? 'pending',
     org_slug: c.org_slug ?? '',
   }
+}
+
+/**
+ * The settings-form field names as the saved notice reads them: the known
+ * keys get the label the form shows, anything else loses its underscores.
+ * String.replace with a string pattern swaps only the first one, which is how
+ * the notice read "saved price book_id" on hw307.
+ */
+const FIELD_LABELS: ReadonlyMap<string, string> = new Map([
+  ['price_book_id', 'price book'],
+  ['billing_mode', 'billing mode'],
+  ['admin_email', 'admin email'],
+  ['start_date', 'start date'],
+  ['org_slug', 'Organization slug'],
+  ['plan_slug', 'plan'],
+])
+
+export function fieldLabel(key: string): string {
+  return FIELD_LABELS.get(key) ?? key.replace(/_/g, ' ')
 }
 
 /**

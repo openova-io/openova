@@ -58,17 +58,57 @@ func (h *Handler) listAllStatements(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"statements": list})
 		return
 	}
-	period := r.URL.Query().Get("period")
+	qs := r.URL.Query()
+	period := qs.Get("period")
 	if period != "" && !periodShape.MatchString(period) {
 		writeErr(w, http.StatusBadRequest, "period must be YYYY-MM")
 		return
 	}
-	list, err := h.Store.ListAllStatements(r.Context(), period)
+	// Optional `customer_id` (alias `customer`): one customer's statements,
+	// still narrowed by `period` when both are given. The hw307 walk found
+	// the parameter silently ignored — the operator got every customer's.
+	customerID := strings.TrimSpace(qs.Get("customer_id"))
+	if customerID == "" {
+		customerID = strings.TrimSpace(qs.Get("customer"))
+	}
+	if customerID == "" {
+		list, err := h.Store.ListAllStatements(r.Context(), period)
+		if err != nil {
+			storeErr(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"statements": list})
+		return
+	}
+	list, err := h.Store.ListStatements(r.Context(), s.Scope(), customerID)
+	if errors.Is(err, store.ErrNotFound) {
+		// An id no customer has — or one that is not a UUID at all — is a
+		// filter that selected nothing, not a missing document.
+		list, err = []store.Statement{}, nil
+	}
 	if err != nil {
 		storeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"statements": list})
+	writeJSON(w, http.StatusOK, map[string]any{"statements": statementsInPeriod(list, period)})
+}
+
+// statementsInPeriod keeps the statements whose month is `period` (YYYY-MM);
+// an empty period keeps them all. The per-customer store query has no
+// period argument, so the narrowing happens here. The month is compared
+// whole, so a shorter string (a bare year) selects nothing rather than
+// every month it prefixes.
+func statementsInPeriod(list []store.Statement, period string) []store.Statement {
+	if period == "" {
+		return list
+	}
+	out := []store.Statement{}
+	for _, st := range list {
+		if len(st.PeriodStart) >= 7 && st.PeriodStart[:7] == period {
+			out = append(out, st)
+		}
+	}
+	return out
 }
 
 func (h *Handler) listCustomerStatements(w http.ResponseWriter, r *http.Request) {

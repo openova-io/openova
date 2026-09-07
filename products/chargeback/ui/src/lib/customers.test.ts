@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Customer, PriceBook, Summary } from '../api/types'
-import { customerCounts, customerPatch, filterCustomers, lastStatementText, mtdByCustomer, mtdFor, priceBookName, settingsFrom, sourceCounts, sourcesText } from './customers'
+import { customerCounts, customerPatch, fieldLabel, filterCustomers, lastStatementText, mtdByCustomer, mtdFor, priceBookName, settingsFrom, sourceCounts, sourcesText } from './customers'
 
 const cust = (over: Partial<Customer>): Customer => ({
   id: 'c-x',
@@ -113,5 +113,31 @@ describe('customerPatch', () => {
   it('a cleared price book is sent as "" (clear), lowercases the email, trims', () => {
     const form = { ...settingsFrom(orig), price_book_id: '', admin_email: '  Finance@Acme.om ' }
     expect(customerPatch(orig, form)).toEqual({ price_book_id: '', admin_email: 'finance@acme.om' })
+  })
+})
+
+describe('fieldLabel', () => {
+  it('names the known settings fields as the form labels them', () => {
+    expect(fieldLabel('price_book_id')).toBe('price book')
+    expect(fieldLabel('billing_mode')).toBe('billing mode')
+    expect(fieldLabel('admin_email')).toBe('admin email')
+    expect(fieldLabel('start_date')).toBe('start date')
+    expect(fieldLabel('org_slug')).toBe('Organization slug')
+    expect(fieldLabel('plan_slug')).toBe('plan')
+    expect(fieldLabel('name')).toBe('name')
+    expect(fieldLabel('status')).toBe('status')
+  })
+  // "saved price book_id" on hw307: a string pattern to String.replace swaps
+  // only the first underscore. Every underscore of an unknown key must go.
+  it('drops every underscore of a key it does not know', () => {
+    expect(fieldLabel('some_new_field')).toBe('some new field')
+    expect(fieldLabel('a_b_c_d')).toBe('a b c d')
+  })
+  it('composes the saved notice from the patch keys', () => {
+    expect(['price_book_id', 'status'].map(fieldLabel).join(', ')).toBe('price book, status')
+  })
+  it('does not read the label table through its prototype', () => {
+    expect(fieldLabel('constructor')).toBe('constructor')
+    expect(fieldLabel('__proto__')).toBe('  proto  ')
   })
 })
