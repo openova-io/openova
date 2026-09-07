@@ -2232,3 +2232,291 @@ if fails:
     sys.exit(1)
 print("  PASS (pre-flip secondary stubs unsatisfiable by the placeholder primary Pod; promoted control MATCHES; primary + post-flip steady byte-identical)")
 PY
+
+# ── Case 20e: #6874 D2 — two-clock primary-loss classification ─────────────────
+# hw307 (2026-09-07 06:02-06:05Z): region A lost ONE instance of a 3-instance
+# cluster inside a healthy region (all 5 nodes Ready, standbys running).
+# `<instance>-mesh` selects instanceRole=primary ONLY (#5473), so the promoter's
+# pg_isready read "no elected primary right now" as "region A unreachable", and
+# its single 120s primaryDownHoldSeconds expired before CNPG's own local failover
+# (98s to start, ~30s more on "Wrong target primary") — a cross-region promotion
+# plus the whole demote / re-clone / switchback episode for a single-Pod outage.
+#
+# 0.2.28: a second, ALL-INSTANCES alias `<instance>-mesh-any` (cnpg.io/cluster
+# only, NO role term) and a second, SLOW clock. primary-dark + any-alive ⇒
+# "region-A ALIVE but PRIMARY-LESS" runs ONLY primaryMissingHoldSeconds (600s);
+# primary-dark + any-dark ⇒ "region-A UNREACHABLE (no instance answers)" runs the
+# fast primaryDownHoldSeconds (120s) exactly as before. Asserted structurally on
+# the render AND behaviourally by running the rendered signals + actor scripts
+# under a fake kubectl / pg_isready / psql and a VIRTUAL clock (fake date+sleep).
+echo "[render] Case 20e: #6874 D2 -mesh-any alias in every shape + two-clock classification (PRIMARY-LESS waits the slow hold; UNREACHABLE keeps the fast hold) + scripted scenarios"
+
+# (a) STRUCTURE — the alias renders wherever `-mesh` renders, with the cluster-only
+#     selector and the ClusterMesh global annotation; the pre-flip secondary adds
+#     the #6796 remote-only term; a singleton renders nothing. CONTROL: the same
+#     checker sees the role term on `-mesh-rw`, so "no role term" is a real verdict.
+python3 - \
+  "$TMP/promoter.yaml" "$TMP/ahs.yaml" "$TMP/ahs-replica.yaml" \
+  "$TMP/failback-demoted.yaml" "$TMP/failback-promoted.yaml" \
+  "$TMP/preflip-primary.yaml" "$TMP/preflip-secondary.yaml" "$TMP/shared.yaml" <<'PY' || fail "#6874 D2 -mesh-any structural assertions failed"
+import sys, yaml
+promoter, ahs_pri, ahs_rep, demoted, promoted, preflip_pri, preflip_sec, singleton = sys.argv[1:9]
+TERM = "catalyst.openova.io/mesh-backends"
+NAME = "shared-pg-mesh-any"
+def load(p): return [d for d in yaml.safe_load_all(open(p)) if isinstance(d, dict)]
+def svc(docs, name):
+    for d in docs:
+        if d.get("kind") == "Service" and (d.get("metadata") or {}).get("name") == name:
+            return d
+def sel(s): return ((s or {}).get("spec") or {}).get("selector") or {}
+fails = []
+shapes = {"promoter (side=secondary, peers)": (promoter, False), "ahs primary": (ahs_pri, False),
+          "ahs replica": (ahs_rep, False), "demoted primary": (demoted, False),
+          "promoted replica": (promoted, False), "pre-flip primary": (preflip_pri, False),
+          "pre-flip secondary": (preflip_sec, True)}
+for label, (path, want_term) in shapes.items():
+    docs = load(path)
+    s = svc(docs, NAME)
+    if s is None:
+        fails.append(f"{label}: Service {NAME} ABSENT — the promoter's all-instances probe would NXDOMAIN (rc=2) and the two-clock split collapses back to the hw307 single clock"); continue
+    if [d for d in docs if d.get("kind") == "Service" and (d.get("metadata") or {}).get("name") == NAME] != [s]:
+        fails.append(f"{label}: {NAME} rendered more than once")
+    sl = sel(s)
+    if sl.get("cnpg.io/cluster") != "shared-pg":
+        fails.append(f"{label}: {NAME} selector cnpg.io/cluster={sl.get('cnpg.io/cluster')!r}, expected 'shared-pg' — it is a region-A liveness probe and must NOT follow consumerAliasCluster")
+    if "cnpg.io/instanceRole" in sl or "cnpg.io/podRole" in sl:
+        fails.append(f"{label}: {NAME} selector {sl} carries a role term — that is the defect: a role-scoped alias goes dark with no elected primary")
+    if (TERM in sl) != want_term:
+        fails.append(f"{label}: {NAME} remote-only term present={TERM in sl}, expected {want_term}")
+    expected_keys = {"cnpg.io/cluster"} | ({TERM} if want_term else set())
+    if set(sl) != expected_keys:
+        fails.append(f"{label}: {NAME} selector keys {sorted(sl)} != {sorted(expected_keys)} (cluster-only selector)")
+    ann = (s.get("metadata") or {}).get("annotations") or {}
+    if ann.get("service.cilium.io/global") != "true" or ann.get("service.cilium.io/affinity") != "local":
+        fails.append(f"{label}: {NAME} missing the ClusterMesh global/affinity annotations: {ann}")
+    ports = ((s.get("spec") or {}).get("ports") or [])
+    if [(p.get("port"), p.get("targetPort")) for p in ports] != [(5432, 5432)]:
+        fails.append(f"{label}: {NAME} ports {ports} != a single 5432/5432")
+    if (s.get("spec") or {}).get("type") not in (None, "ClusterIP"):
+        fails.append(f"{label}: {NAME} must be ClusterIP, got {s['spec'].get('type')}")
+    lbl = (s.get("metadata") or {}).get("labels") or {}
+    if lbl.get("catalyst.openova.io/cnpg-pair") != "shared-pg":
+        fails.append(f"{label}: {NAME} missing the cnpg-pair label")
+# CONTROL — the checker can SEE a role term: the replica-side -mesh-rw stub has one.
+if sel(svc(load(promoter), "shared-pg-mesh-rw")).get("cnpg.io/instanceRole") != "primary":
+    fails.append("CONTROL FAILED: -mesh-rw stub has no instanceRole=primary term — the 'no role term' verdict above proves nothing")
+# NEGATIVE — a singleton renders no alias at all.
+if svc(load(singleton), NAME) is not None:
+    fails.append("singleton render leaked the -mesh-any alias (multi-region meshGlobalServices only)")
+# The alias must be a STANDALONE Service, never a managed.services.additional entry
+# (its selector is static; only the rw aliases need CNPG to follow the primary).
+for label, (path, _) in shapes.items():
+    txt = open(path).read()
+    if f"name: {NAME}\n" in txt and "selectorType" in txt:
+        idx = txt.find(f"name: {NAME}\n")
+        block = txt[max(0, idx-400):idx]
+        if "serviceTemplate:" in block:
+            fails.append(f"{label}: {NAME} is declared under managed.services.additional — must be standalone")
+if fails:
+    for f in fails: sys.stderr.write("  FAIL #6874 D2: " + f + "\n")
+    sys.exit(1)
+print("  ok: -mesh-any renders in all 7 multi-region shapes (cluster-only selector, global+affinity, 5432); pre-flip secondary carries remote-only; singleton clean; control sees the role term on -mesh-rw")
+PY
+
+# (b) SCRIPTS + ENV — extract both container scripts from the promoter render.
+python3 - "$TMP/promoter.yaml" "$TMP/sig20e.sh" "$TMP/act20e.sh" "$TMP/env20e.sh" <<'PY' || fail "#6874 D2 could not extract the dr-promoter scripts/env"
+import sys, yaml, shlex
+src, sig_out, act_out, env_out = sys.argv[1:5]
+docs = [d for d in yaml.safe_load_all(open(src)) if isinstance(d, dict)]
+dep = [d for d in docs if d.get("kind") == "Deployment" and d["metadata"]["name"] == "shared-pg-dr-promoter"][0]
+cs = {c["name"]: c for c in dep["spec"]["template"]["spec"]["containers"]}
+open(sig_out, "w").write(cs["signals"]["args"][0])
+open(act_out, "w").write(cs["actor"]["args"][0])
+env = {}
+for c in ("signals", "actor"):
+    for e in cs[c].get("env", []):
+        if "value" in e: env[e["name"]] = e["value"]
+# --- the render-side contract ---
+assert env["PRIMARY_MESH_HOST"] == "shared-pg-mesh", env
+assert env["ANY_MESH_HOST"] == "shared-pg-mesh-any", f"ANY_MESH_HOST must be the -mesh-any alias (templated), got {env.get('ANY_MESH_HOST')!r}"
+assert env["HOLD_SECONDS"] == "120", env
+assert env["PRIMARY_MISSING_HOLD_SECONDS"] == "600", f"primaryMissingHoldSeconds must default 600, got {env.get('PRIMARY_MISSING_HOLD_SECONDS')!r}"
+assert env["PRIMARY_MISSING_HOLD_SECONDS"] != env["HOLD_SECONDS"], "the two holds must be distinct knobs"
+with open(env_out, "w") as f:
+    for k, v in env.items(): f.write(f"export {k}={shlex.quote(str(v))}\n")
+PY
+sh -n "$TMP/sig20e.sh" || fail "#6874 D2 signals script is not valid POSIX shell"
+sh -n "$TMP/act20e.sh" || fail "#6874 D2 actor script is not valid POSIX shell"
+# signals probes BOTH aliases and keeps BOTH clocks.
+grep -q 'pg_isready -h "${PRIMARY_MESH_HOST}"' "$TMP/sig20e.sh" || fail "#6874 D2 signals lost the primary-alias probe"
+grep -q 'pg_isready -h "${ANY_MESH_HOST}"' "$TMP/sig20e.sh" || fail "#6874 D2 signals does not probe the all-instances alias (\${ANY_MESH_HOST})"
+grep -q '/shared/primary-missing-since' "$TMP/sig20e.sh" || fail "#6874 D2 signals has no primary-missing clock file"
+grep -q '/shared/primary-wal-down-since' "$TMP/sig20e.sh" || fail "#6874 D2 signals lost the unreachable clock file"
+grep -q 'region-A ALIVE but PRIMARY-LESS' "$TMP/sig20e.sh" || fail "#6874 D2 signals does not name the PRIMARY-LESS state"
+grep -q 'region-A UNREACHABLE (no instance answers' "$TMP/sig20e.sh" || fail "#6874 D2 signals does not name the no-instance-answers state"
+# the any-probe must sit INSIDE the primary-dark (rc=2) branch — never replace the primary probe.
+python3 - "$TMP/sig20e.sh" <<'PY' || fail "#6874 D2 signals probe ordering assertion failed"
+import sys
+s = open(sys.argv[1]).read()
+p = s.find('pg_isready -h "${PRIMARY_MESH_HOST}"'); a = s.find('pg_isready -h "${ANY_MESH_HOST}"'); rc2 = s.find('"${RC}" -eq 2')
+assert -1 < p < rc2 < a, "the all-instances probe must run only after the primary alias returned rc=2"
+# the REACHABLE branch (primary answers) must clear BOTH clocks via clear_clock
+cc = s[s.find('clear_clock() {'):s.find('}', s.find('clear_clock() {'))]
+assert 'primary-missing-since' in cc and 'primary-wal-down-since' in cc, "clear_clock must clear both clocks"
+PY
+# the ACTOR carries both clocks, both holds, both waiting lines — and the
+# PRIMARY-LESS path reads ONLY the slow hold (grep discriminates the two vars).
+grep -q '/shared/primary-missing-since' "$TMP/act20e.sh" || fail "#6874 D2 actor never reads the primary-missing clock"
+grep -q '/shared/primary-wal-down-since' "$TMP/act20e.sh" || fail "#6874 D2 actor lost the unreachable clock"
+grep -q 'region-A ALIVE but PRIMARY-LESS ${MISSING_FOR}s < ${PRIMARY_MISSING_HOLD_SECONDS}s — local failover expected, waiting' "$TMP/act20e.sh" \
+  || fail "#6874 D2 actor missing the PRIMARY-LESS waiting line keyed on \${PRIMARY_MISSING_HOLD_SECONDS}"
+grep -q 'region-A UNREACHABLE (no instance answers) ${DOWN_FOR}s < hold ${HOLD_SECONDS}s — waiting' "$TMP/act20e.sh" \
+  || fail "#6874 D2 actor missing the UNREACHABLE waiting line keyed on \${HOLD_SECONDS}"
+if grep 'PRIMARY-LESS' "$TMP/act20e.sh" | grep -qF '${HOLD_SECONDS}'; then
+  fail "#6874 D2 the PRIMARY-LESS path references the FAST hold (\${HOLD_SECONDS}) — that is the hw307 defect"; fi
+grep -q 'name: PRIMARY_MISSING_HOLD_SECONDS' "$TMP/promoter.yaml" || fail "#6874 D2 actor env PRIMARY_MISSING_HOLD_SECONDS missing"
+grep -q 'name: ANY_MESH_HOST' "$TMP/promoter.yaml" || fail "#6874 D2 signals env ANY_MESH_HOST missing"
+# the knob is independent: overriding it moves ONLY the slow hold.
+helm template shared-pg . -f "$TMP/promoter.values.yaml" --set topology.autoPromote.primaryMissingHoldSeconds=900 \
+  --namespace shared-data --api-versions postgresql.cnpg.io/v1 > "$TMP/promoter-900.yaml" 2>&1 || fail "#6874 D2 primaryMissingHoldSeconds override render errored"
+python3 - "$TMP/promoter-900.yaml" <<'PY' || fail "#6874 D2 primaryMissingHoldSeconds is not an independent knob"
+import sys, yaml
+docs = [d for d in yaml.safe_load_all(open(sys.argv[1])) if isinstance(d, dict)]
+dep = [d for d in docs if d.get("kind") == "Deployment" and d["metadata"]["name"] == "shared-pg-dr-promoter"][0]
+act = [c for c in dep["spec"]["template"]["spec"]["containers"] if c["name"] == "actor"][0]
+env = {e["name"]: e.get("value") for e in act["env"]}
+assert env["PRIMARY_MISSING_HOLD_SECONDS"] == "900" and env["HOLD_SECONDS"] == "120", env
+PY
+echo "  ok: signals probes -mesh then -mesh-any inside the rc=2 branch; actor keys PRIMARY-LESS on PRIMARY_MISSING_HOLD_SECONDS (600, independent) and UNREACHABLE on HOLD_SECONDS (120)"
+
+# (c) SCENARIOS — run the rendered scripts under fakes + a VIRTUAL clock.
+#     Fakes: psql -> 'noreceiver'; pg_isready -> exit code per alias from files;
+#     date -> the virtual clock; sleep -> advances the clock (and stops the loop
+#     at a limit); kubectl -> canned reads, records patches, flips replica.enabled
+#     after the promote patch. /shared is rewritten to a temp dir.
+FAKE="$TMP/fake20e"; mkdir -p "$FAKE/bin"; export FAKE
+cat > "$FAKE/bin/psql" <<'EOF'
+#!/bin/sh
+echo noreceiver
+EOF
+cat > "$FAKE/bin/pg_isready" <<'EOF'
+#!/bin/sh
+H=""
+while [ $# -gt 0 ]; do case "$1" in -h) H="$2"; shift;; esac; shift; done
+echo "$H" >> "$FAKE/probes.log"
+case "$H" in
+  "$ANY_MESH_HOST") exit "$(cat "$FAKE/any_rc")";;
+  "$PRIMARY_MESH_HOST") exit "$(cat "$FAKE/primary_rc")";;
+  *) exit 3;;
+esac
+EOF
+cat > "$FAKE/bin/date" <<'EOF'
+#!/bin/sh
+C=$(cat "$FAKE/clock")
+for a in "$@"; do case "$a" in +%s) echo "$C"; exit 0;; esac; done
+echo "T+${C}s"
+EOF
+cat > "$FAKE/bin/sleep" <<'EOF'
+#!/bin/sh
+C=$(cat "$FAKE/clock"); C=$((C + ${1:-0})); echo "$C" > "$FAKE/clock"
+if [ "$C" -ge "$(cat "$FAKE/limit")" ]; then kill -TERM "$PPID" 2>/dev/null; exit 99; fi
+exit 0
+EOF
+cat > "$FAKE/bin/kubectl" <<'EOF'
+#!/bin/sh
+A="$*"
+echo "$A" >> "$FAKE/kubectl.log"
+case "$A" in
+  *"patch helmrelease"*)
+    echo "$A" >> "$FAKE/patches.log"
+    # argv carries the REAL quotes (the backslashes exist only in the YAML source)
+    case "$A" in *'"promoted":true'*) : > "$FAKE/promoted";; esac
+    case "$A" in *'"suspend":true'*) : > "$FAKE/suspended";; esac
+    exit 0;;
+  *"{.spec.suspend}"*) [ -f "$FAKE/suspended" ] && printf 'true'; exit 0;;
+  *"promoted}"*) [ -f "$FAKE/promoted" ] && printf 'true'; exit 0;;
+  *"{.spec.replica.enabled}"*) if [ -f "$FAKE/promoted" ]; then printf 'false'; else printf 'true'; fi; exit 0;;
+  *"get pod"*) printf 'True'; exit 0;;
+esac
+exit 0
+EOF
+chmod +x "$FAKE"/bin/*
+run20e() { # run20e <script> <limit> <logfile>  — runs until the virtual clock reaches <limit>
+  echo "$2" > "$FAKE/limit"
+  ( export PATH="$FAKE/bin:$PATH"; . "$TMP/env20e.sh"; export STARTUP_GRACE_SECONDS=0 PROBE_TIMEOUT=1 NAMESPACE=shared-data HOME="$FAKE" PROMOTE_RENDER_WAIT_SECONDS=5
+    timeout 60 sh "$FAKE/$1" ) > "$3" 2>&1 || true
+}
+reset20e() { # reset20e <primary_rc> <any_rc> <clock>
+  rm -rf "$FAKE/shared" "$FAKE/promoted" "$FAKE/suspended" "$FAKE/patches.log" "$FAKE/probes.log" "$FAKE/kubectl.log"
+  mkdir -p "$FAKE/shared"; echo "$1" > "$FAKE/primary_rc"; echo "$2" > "$FAKE/any_rc"; echo "$3" > "$FAKE/clock"
+}
+sed "s#/shared#$FAKE/shared#g" "$TMP/sig20e.sh" > "$FAKE/sig.sh"
+sed "s#/shared#$FAKE/shared#g" "$TMP/act20e.sh" > "$FAKE/act.sh"
+# harness self-test: the fakes must be the ones running (a real date would not read the clock file).
+reset20e 2 0 4242
+( export PATH="$FAKE/bin:$PATH"; [ "$(date -u +%s)" = "4242" ] ) || fail "#6874 D2 harness: fake date not in effect"
+( export PATH="$FAKE/bin:$PATH"; export ANY_MESH_HOST=shared-pg-mesh-any PRIMARY_MESH_HOST=shared-pg-mesh
+  pg_isready -h shared-pg-mesh-any; [ $? -eq 0 ] && { pg_isready -h shared-pg-mesh; [ $? -eq 2 ]; } ) || fail "#6874 D2 harness: fake pg_isready does not route by alias"
+
+# (c1) hw307 shape — primary dark, an instance answers, for 200s: NO promotion,
+#      the PRIMARY-LESS state is named, only the slow clock runs.
+reset20e 2 0 0
+run20e sig.sh 200 "$FAKE/sig-a.log"
+[ -f "$FAKE/shared/primary-missing-since" ] || fail "#6874 D2 (c1) primary dark + any alive must start the primary-missing clock"
+[ "$(cat "$FAKE/shared/primary-missing-since")" = "0" ] || fail "#6874 D2 (c1) primary-missing clock must anchor at first observation (got $(cat "$FAKE/shared/primary-missing-since"))"
+[ ! -f "$FAKE/shared/primary-wal-down-since" ] || fail "#6874 D2 (c1) primary dark + any alive must NOT arm the unreachable clock — that is the hw307 defect"
+grep -q 'shared-pg-mesh-any' "$FAKE/probes.log" || fail "#6874 D2 (c1) the all-instances alias was never probed"
+grep -q 'primary-missing clock started' "$FAKE/sig-a.log" || fail "#6874 D2 (c1) signals did not log the primary-missing clock start"
+: > "$FAKE/shared/armed"
+run20e act.sh 230 "$FAKE/act-a.log"
+grep -q 'region-A ALIVE but PRIMARY-LESS 200s < 600s — local failover expected, waiting' "$FAKE/act-a.log" \
+  || { cat "$FAKE/act-a.log" >&2; fail "#6874 D2 (c1) actor must wait in the PRIMARY-LESS state at 200s against the 600s hold"; }
+if grep -q 'PROMOTING' "$FAKE/act-a.log" || [ -f "$FAKE/patches.log" ]; then
+  cat "$FAKE/act-a.log" >&2; fail "#6874 D2 (c1) actor PROMOTED on a primary-less-but-alive region at 200s — the hw307 cross-region promotion"; fi
+# (c1b) ... and a region whose standbys answer but never elect a primary STILL
+#       fails over once the slow hold expires.
+echo 610 > "$FAKE/clock"
+run20e act.sh 630 "$FAKE/act-a2.log"
+grep -q 'PROMOTING: region-A WAL stream absent AND region-A primary-less 610s >= 600s' "$FAKE/act-a2.log" \
+  || { cat "$FAKE/act-a2.log" >&2; fail "#6874 D2 (c1b) actor must promote on the primary-less path once primaryMissingHoldSeconds expires"; }
+grep -qF '"promoted":true' "$FAKE/patches.log" || fail "#6874 D2 (c1b) promote patch not recorded"
+grep -q 'LATCHED (post-promote same-tick)' "$FAKE/act-a2.log" || fail "#6874 D2 (c1b) same-tick suspend latch did not fire after the promote"
+echo "  ok: (c1) primary dark + any alive for 200s -> PRIMARY-LESS wait, no promotion; (c1b) still promotes at 610s >= 600s"
+
+# (c2) real region kill — nothing answers for 130s: the fast hold promotes.
+reset20e 2 2 0
+run20e sig.sh 130 "$FAKE/sig-b.log"
+[ -f "$FAKE/shared/primary-wal-down-since" ] || fail "#6874 D2 (c2) both aliases dark must arm the unreachable clock"
+[ "$(cat "$FAKE/shared/primary-wal-down-since")" = "0" ] || fail "#6874 D2 (c2) unreachable clock must anchor at first observation"
+[ -f "$FAKE/shared/primary-missing-since" ] || fail "#6874 D2 (c2) the primary-missing clock runs in the unreachable state too"
+grep -q 'region-A UNREACHABLE (no instance answers' "$FAKE/sig-b.log" || fail "#6874 D2 (c2) signals did not name the UNREACHABLE state"
+: > "$FAKE/shared/armed"
+echo 100 > "$FAKE/clock"
+run20e act.sh 110 "$FAKE/act-b0.log"
+grep -q 'region-A UNREACHABLE (no instance answers) 100s < hold 120s — waiting' "$FAKE/act-b0.log" \
+  || { cat "$FAKE/act-b0.log" >&2; fail "#6874 D2 (c2) actor must still wait at 100s < 120s on the unreachable clock"; }
+[ ! -f "$FAKE/patches.log" ] || fail "#6874 D2 (c2) actor promoted BEFORE the fast hold expired"
+echo 130 > "$FAKE/clock"
+run20e act.sh 150 "$FAKE/act-b.log"
+grep -q 'PROMOTING: region-A WAL stream absent AND region-A unreachable (no instance answers) 130s >= 120s' "$FAKE/act-b.log" \
+  || { cat "$FAKE/act-b.log" >&2; fail "#6874 D2 (c2) actor must promote on the unreachable path at 130s >= 120s"; }
+grep -qF '"promoted":true' "$FAKE/patches.log" || fail "#6874 D2 (c2) promote patch not recorded"
+echo "  ok: (c2) both dark for 130s -> UNREACHABLE wait at 100s, promotion at 130s >= 120s"
+
+# (c3) partial recovery — both dark for 60s, then a standby answers: the fast
+#      clock is cleared, the slow clock keeps its anchor (no reset to zero).
+reset20e 2 2 0
+run20e sig.sh 60 "$FAKE/sig-c.log"
+[ -f "$FAKE/shared/primary-wal-down-since" ] || fail "#6874 D2 (c3) setup: unreachable clock should be armed after 60s dark"
+echo 0 > "$FAKE/any_rc"
+run20e sig.sh 100 "$FAKE/sig-c2.log"
+[ ! -f "$FAKE/shared/primary-wal-down-since" ] || fail "#6874 D2 (c3) an answering instance must clear the unreachable clock"
+[ "$(cat "$FAKE/shared/primary-missing-since")" = "0" ] || fail "#6874 D2 (c3) the primary-missing clock must keep its anchor across the partial recovery"
+grep -q 'unreachable clock cleared; local failover expected' "$FAKE/sig-c2.log" || fail "#6874 D2 (c3) signals did not log the UNREACHABLE -> PRIMARY-LESS transition"
+# (c4) primary answers again: BOTH clocks cleared (the replication-fault path is unchanged).
+echo 0 > "$FAKE/primary_rc"
+run20e sig.sh 120 "$FAKE/sig-c3.log"
+[ ! -f "$FAKE/shared/primary-missing-since" ] && [ ! -f "$FAKE/shared/primary-wal-down-since" ] \
+  || fail "#6874 D2 (c4) a reachable primary must clear both clocks"
+grep -q 'region-A REACHABLE' "$FAKE/sig-c3.log" || fail "#6874 D2 (c4) signals lost the region-A REACHABLE replication-fault path"
+echo "  PASS (-mesh-any in every shape · two probes · two clocks · PRIMARY-LESS never reads the fast hold · scripted: c1 no-promote@200s + promote@610s, c2 promote@130s, c3 partial recovery keeps the slow anchor, c4 reachable primary clears both)"

@@ -285,6 +285,19 @@ containers sharing an emptyDir:
   byte-identical to the RUNBOOKS §6.1 operator command), never a live
   Cluster-CR patch (hw256 G12: drift-correction reverts those).
 
+Since 0.2.26 (#6874 D2) "dead" is classified with TWO probes, not one.
+`-primary-mesh` is `selectorType: rw` — the PRIMARY instance only — so
+it goes dark whenever the primary Cluster has no ELECTED primary, which
+is exactly CNPG's own local failover inside a healthy region (hw307,
+2026-09-07: one Pod of three lost, all nodes Ready, and the single 120s
+hold cross-region-promoted before CNPG finished). The signals container
+therefore also probes `-primary-mesh-any` (`cnpg.io/cluster` only —
+every instance; `any-mesh-service.yaml`, both sides) and keeps two
+clocks: primary-dark + any-alive is "region-A ALIVE but PRIMARY-LESS"
+and waits `autoPromote.primaryMissingHoldSeconds` (600s); primary-dark
++ any-dark is "region-A UNREACHABLE (no instance answers)" and keeps
+the 120s `primaryDownHoldSeconds`. Every other gate is unchanged.
+
 **Why acting on a region-local signal is split-brain-safe** (and why
 the promoter renders only when `replication.mode=sync`): with
 `synchronous_commit=remote_apply` + `FIRST 1` pinned to the

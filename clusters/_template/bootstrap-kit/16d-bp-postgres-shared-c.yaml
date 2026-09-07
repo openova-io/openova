@@ -124,7 +124,17 @@ spec:
       #   now carries a selector term no Pod carries → zero local backends by
       #   construction → cross-mesh to region A. Every other render byte-identical.
       #   Lockstep 16a/16c/16d.
-      version: 0.2.27
+      # 0.2.28 (#6874 D2, Refs #5178 #5473 #5623): the region-B dr-promoter tells a
+      #   CNPG LOCAL failover apart from a region kill. `shared-pg-c-mesh` is the
+      #   primary-only alias (instanceRole=primary), so it went dark whenever
+      #   region A had no elected primary; on hw307 (2026-09-07 06:02Z) the sibling
+      #   shared-pg lost one Pod of three inside a healthy region and the single
+      #   120s hold cross-region-promoted before CNPG's own failover finished. New
+      #   `shared-pg-c-mesh-any` all-instances alias (every multi-region shape,
+      #   both regions) + a second clock: "region-A alive but primary-less" waits
+      #   autoPromote.primaryMissingHoldSeconds (600s); "no instance answers" keeps
+      #   the 120s hold. +1 Service; singleton byte-identical. Lockstep 16a/16c/16d.
+      version: 0.2.28
       sourceRef:
         kind: HelmRepository
         name: bp-postgres

@@ -1,5 +1,26 @@
 apiVersion: v2
 name: bp-postgres
+# 0.2.28 — #6874 D2 (Refs #5178 #5473 #5623): the region-B dr-promoter no longer
+#   mistakes a CNPG LOCAL failover for a region kill. `<instance>-mesh` selects
+#   instanceRole=primary ONLY (#5473), so its pg_isready went dark whenever region
+#   A had NO ELECTED PRIMARY, not only when region A was gone. hw307 (2026-09-07
+#   06:02-06:05Z): region A lost one Pod of a 3-instance cluster with all five
+#   nodes Ready; CNPG's own failover started 98s later (+~30s on "Wrong target
+#   primary"), the 120s primaryDownHoldSeconds expired first, and a single-Pod
+#   outage became a cross-region promotion plus the demote / re-clone /
+#   switchback episode. NEW: a second ClusterMesh-global alias
+#   `<instance>-mesh-any` (cnpg.io/cluster only — EVERY instance;
+#   any-mesh-service.yaml, standalone, rendered in every multi-region shape incl.
+#   the demoted primary and the #6796 pre-flip secondary) and a second clock.
+#   primary-dark + any-alive = "region-A ALIVE but PRIMARY-LESS" runs ONLY the new
+#   topology.autoPromote.primaryMissingHoldSeconds (600); primary-dark + any-dark
+#   = "region-A UNREACHABLE (no instance answers)" keeps primaryDownHoldSeconds
+#   (120). WAL-receiver-absent, steady-state arm, failover-readiness and the
+#   never-promote-while-the-peer-streams rules unchanged. +1 Service in the
+#   multi-region shapes; singleton byte-identical. tests/postgres-render.sh Case
+#   20e (structure in 7 shapes + the rendered scripts run under fake
+#   kubectl/pg_isready and a virtual clock). Lockstep: 16a/16c/16d HR pins +
+#   blueprint.yaml + catalog-seed -> 0.2.28.
 # 0.2.27 — #6874 D1 (Refs #6149 #5245): a Cluster the dr-failback actor DELETES
 #   for the re-clone is now RE-CREATED. hw307 (2026-09-07 06:10-07:26Z): the
 #   divergence escalation deleted region-A's shared-pg, patched
@@ -525,8 +546,8 @@ name: bp-postgres
 #   honoured — sprig's `default` swallows boolean false). Primary render is
 #   byte-identical. Lockstep slot pins 16a/16c/16d → 0.2.20.
 #   tests/postgres-render.sh Case 21 added.
-version: 0.2.27
-appVersion: 0.2.27
+version: 0.2.28
+appVersion: 0.2.28
 description: |
   Catalyst-authored data-instance Blueprint for a shareable, reusable
   PostgreSQL engine. Each install of bp-postgres = ONE

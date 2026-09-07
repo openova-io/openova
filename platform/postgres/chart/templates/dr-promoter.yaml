@@ -51,14 +51,29 @@ reconcile) cannot strip the latch.
 
 HOW IT DECIDES (region-B-local signals + a POSITIVE region-A probe)
 -------------------------------------------------------------------
-1. PRIMARY LOSS (#5178) — the signals container arms the promote clock ONLY when
-   BOTH hold: (a) the LOCAL WAL receiver is ABSENT (catchup/starting/waiting/streaming
-   all count as ALIVE), AND (b) a DIRECT pg_isready of the region-A primary over the
-   ClusterMesh (`-mesh`:5432 — the exact endpoint the replica streams from) returns
-   "no response" (rc=2). region-A REACHABLE + local stream stalled ⇒ replication fault
-   ⇒ do NOT promote. A startup grace holds the clock clear while a fresh replica
-   finishes its first catchup. FAIL-SAFE: no cross-region liveness path wired ⇒ observe
-   only, NEVER promote.
+1. PRIMARY LOSS (#5178, two-clock refinement #6874 D2) — the signals container arms
+   a promote clock ONLY when the LOCAL WAL receiver is ABSENT (catchup/starting/
+   waiting/streaming all count as ALIVE) AND a DIRECT pg_isready of region-A over the
+   ClusterMesh returns "no response" (rc=2). TWO probes, TWO clocks:
+     `-mesh`     — instanceRole=primary ONLY (#5473; the exact endpoint the replica
+                   streams from). Dark ⇒ region A has NO ELECTED PRIMARY right now.
+     `-mesh-any` — cnpg.io/cluster only, EVERY instance (any-mesh-service.yaml).
+                   Dark ⇒ nothing in region A answers at all.
+   primary-dark + any-alive ⇒ "region-A ALIVE but PRIMARY-LESS": a CNPG local failover
+   inside a healthy region is in progress — that is CNPG's job, not ours. hw307
+   (2026-09-07 06:02Z) lost ONE instance of a 3-instance cluster with all 5 nodes
+   Ready; CNPG's failover started 98s later and elected ~30s after that, but the
+   single 120s hold expired first and cross-region-promoted (then demote / re-clone /
+   switchback) for a single-Pod outage. This state runs ONLY the SLOW
+   `primaryMissingHoldSeconds` clock (600s), so a region whose standbys answer but
+   never elect a primary still fails over eventually.
+   primary-dark + any-dark ⇒ "region-A UNREACHABLE (no instance answers)": the FAST
+   `primaryDownHoldSeconds` clock (120s) — unchanged from #5178.
+   region-A REACHABLE (primary answers) + local stream stalled ⇒ replication fault ⇒
+   do NOT promote, both clocks cleared. A startup grace holds both clocks clear while
+   a fresh replica finishes its first catchup. FAIL-SAFE: no cross-region liveness
+   path wired ⇒ observe only, NEVER promote; an ambiguous probe never arms the fast
+   clock.
 2. STEADY-STATE ARM (#5220) — the actor is INELIGIBLE to promote until the signals
    container has OBSERVED the replica actively STREAMING (a live pg_stat_wal_receiver
    row + a set receive-LSN — the #5239 non-privileged signal) CONTINUOUSLY for
@@ -88,6 +103,10 @@ replication.mode=sync (see bp-postgres.autoPromoteActive) — async has no fence
 {{- $kpull := $kimg.pullPolicy | default "IfNotPresent" }}
 {{- $interval := $ap.intervalSeconds | default 10 }}
 {{- $hold := $ap.primaryDownHoldSeconds | default 120 }}
+{{- /* #6874 D2 — the SLOW hold for the "region-A alive but primary-less" state
+       (standbys answer on `-mesh-any`, nothing answers on `-mesh`). Deliberately a
+       SEPARATE knob from $hold: CNPG's local failover must be allowed to finish. */ -}}
+{{- $missingHold := $ap.primaryMissingHoldSeconds | default 600 }}
 {{- $startupGrace := $ap.startupGraceSeconds | default 300 }}
 {{- $probeTimeout := $ap.livenessProbeTimeoutSeconds | default 5 }}
 {{- $renderWait := $ap.promoteRenderWaitSeconds | default 90 }}
@@ -221,12 +240,15 @@ spec:
 {{- if $livenessEnabled }}
     # #5178 region-A liveness probe path — the signals container pg_isready's the
     # region-A primary over the mesh (the SAME `-mesh`:5432 the replica streams from) to
-    # POSITIVELY confirm region-A is gone before arming the promote clock. Cross-region
-    # ClusterMesh endpoints carry their OWN pod identity; a plain local `toEndpoints` is
-    # implicitly ANDed with the LOCAL cluster and never matches the remote primary
-    # (#4846), so admit the peer cluster(s) by identity. EMPTY crossRegionPeerClusters
-    # (or clusterMesh off) → this rule is absent AND $livenessEnabled=false → the actor
-    # fail-safes to observe-only (never promotes).
+    # POSITIVELY confirm region-A is gone before arming the promote clock, and (#6874
+    # D2) the ALL-INSTANCES `-mesh-any`:5432 alias to tell "no elected primary" apart
+    # from "region gone". This ONE rule covers both: it selects `cnpg.io/cluster` with
+    # no role term, i.e. every instance of the named cluster in the peer region.
+    # Cross-region ClusterMesh endpoints carry their OWN pod identity; a plain local
+    # `toEndpoints` is implicitly ANDed with the LOCAL cluster and never matches the
+    # remote primary (#4846), so admit the peer cluster(s) by identity. EMPTY
+    # crossRegionPeerClusters (or clusterMesh off) → this rule is absent AND
+    # $livenessEnabled=false → the actor fail-safes to observe-only (never promotes).
     - toEndpoints:
         - matchLabels:
             cnpg.io/cluster: {{ include "bp-postgres.instanceName" . }}
@@ -296,12 +318,15 @@ spec:
         # ── signals — PRIMARY-LOSS detector (#5178 liveness-gated, #5220 arm) ──
         # psql (streaming_replica client cert, #5133 auth) against the LOCAL replica
         # `-rw` for pg_stat_wal_receiver state, PLUS a POSITIVE region-A liveness probe
-        # (pg_isready of the `-mesh` endpoint over the ClusterMesh). The promote clock
-        # is armed ONLY when the LOCAL WAL receiver is ABSENT (catchup/starting/waiting/
-        # streaming all count as ALIVE) AND region-A is genuinely UNREACHABLE, and never
-        # during the startup grace. It is CLEARED the moment the receiver returns,
-        # region-A answers, the replica leaves recovery, psql itself fails (fail-safe),
-        # or no liveness path is wired.
+        # over the ClusterMesh — pg_isready of BOTH the `-mesh` (primary-only) and the
+        # `-mesh-any` (every-instance, #6874 D2) aliases. When the LOCAL WAL receiver is
+        # ABSENT (catchup/starting/waiting/streaming all count as ALIVE) and the primary
+        # alias is dark, the any-alias classifies the state: any-alive ⇒ region-A ALIVE
+        # but PRIMARY-LESS (only /shared/primary-missing-since runs — the slow clock);
+        # any-dark ⇒ region-A UNREACHABLE (/shared/primary-wal-down-since too — the
+        # fast clock). Never during the startup grace. Both clocks are CLEARED the
+        # moment the receiver returns, the primary answers, the replica leaves
+        # recovery, psql itself fails (fail-safe), or no liveness path is wired.
         - name: signals
           image: {{ include "bp-postgres.imageRef" . | quote }}
           imagePullPolicy: IfNotPresent
@@ -331,12 +356,15 @@ spec:
                 ELSE 'noreceiver'
               END"
               STARTED=$(date -u +%s)
-              echo "[dr-promoter/signals] loop started (interval=${INTERVAL_SECONDS}s startupGrace=${STARTUP_GRACE_SECONDS}s primaryLiveness=${PRIMARY_LIVENESS_ENABLED} primaryMeshHost=${PRIMARY_MESH_HOST})"
+              echo "[dr-promoter/signals] loop started (interval=${INTERVAL_SECONDS}s startupGrace=${STARTUP_GRACE_SECONDS}s primaryLiveness=${PRIMARY_LIVENESS_ENABLED} primaryMeshHost=${PRIMARY_MESH_HOST} anyMeshHost=${ANY_MESH_HOST})"
+              # Clears BOTH clocks (#6874 D2): the fast region-A-unreachable clock
+              # (/shared/primary-wal-down-since) and the slow primary-missing clock
+              # (/shared/primary-missing-since).
               clear_clock() {
-                if [ -f /shared/primary-wal-down-since ]; then
+                if [ -f /shared/primary-wal-down-since ] || [ -f /shared/primary-missing-since ]; then
                   echo "$(date -u +"%FT%TZ") [dr-promoter/signals] $1 — hold clock cleared"
                 fi
-                rm -f /shared/primary-wal-down-since
+                rm -f /shared/primary-wal-down-since /shared/primary-missing-since
               }
               while true; do
                 : > /shared/signals-alive
@@ -392,15 +420,52 @@ spec:
                       clear_clock "state=noreceiver but NO region-A liveness path (clusterMesh off / crossRegionPeerClusters empty) — auto-promote inert, fail-safe"
                     elif pg_isready -h "${PRIMARY_MESH_HOST}" -p 5432 -t "${PROBE_TIMEOUT}" -q; then
                       # region-A REACHABLE + local WAL absent ⇒ replication fault, NOT a
-                      # region kill. Clear the promote clock; DO NOT promote.
+                      # region kill. Clear both promote clocks; DO NOT promote.
                       clear_clock "state=noreceiver but region-A REACHABLE (pg_isready ok @ ${PRIMARY_MESH_HOST}) — replication fault, data safety: NOT promoting"
                     else
                       RC=$?
                       if [ "${RC}" -eq 2 ]; then
-                        if [ ! -f /shared/primary-wal-down-since ]; then
-                          echo "${NOW}" > /shared/primary-wal-down-since
-                          echo "$(date -u +"%FT%TZ") [dr-promoter/signals] WAL receiver ABSENT and region-A UNREACHABLE (pg_isready rc=2 @ ${PRIMARY_MESH_HOST}) — primary loss; hold clock started"
+                        # #6874 D2 — the PRIMARY alias is dark. That is NOT yet proof
+                        # region A is gone: `-mesh` selects instanceRole=primary ONLY
+                        # (#5473), so it goes dark whenever the named cluster has NO
+                        # ELECTED PRIMARY — exactly the window of a CNPG local failover
+                        # inside a healthy region (hw307: 98s to start, ~30s to elect,
+                        # and the 120s hold expired first). The primary-missing clock
+                        # starts here in either case; the ALL-INSTANCES alias decides
+                        # which of the two states holds.
+                        if [ ! -f /shared/primary-missing-since ]; then
+                          echo "${NOW}" > /shared/primary-missing-since
+                          echo "$(date -u +"%FT%TZ") [dr-promoter/signals] WAL receiver ABSENT and region-A PRIMARY alias dark (pg_isready rc=2 @ ${PRIMARY_MESH_HOST}) — primary-missing clock started; classifying via ${ANY_MESH_HOST} (#6874 D2)"
                         fi
+                        ANY_RC=0
+                        pg_isready -h "${ANY_MESH_HOST}" -p 5432 -t "${PROBE_TIMEOUT}" -q || ANY_RC=$?
+                        case "${ANY_RC}" in
+                          0|1)
+                            # An instance of region-A's cluster ANSWERED (0 = accepting,
+                            # 1 = up but rejecting, e.g. a standby still starting) ⇒
+                            # region-A ALIVE but PRIMARY-LESS. Local failover is CNPG's
+                            # job; the fast unreachable clock must NOT run.
+                            if [ -f /shared/primary-wal-down-since ]; then
+                              echo "$(date -u +"%FT%TZ") [dr-promoter/signals] region-A ALIVE but PRIMARY-LESS (an instance answers @ ${ANY_MESH_HOST}, rc=${ANY_RC}) — unreachable clock cleared; local failover expected (#6874 D2)"
+                            fi
+                            rm -f /shared/primary-wal-down-since
+                            ;;
+                          2)
+                            # NOTHING in region-A answers ⇒ region-A UNREACHABLE — the
+                            # only state that arms the fast primaryDownHoldSeconds clock.
+                            if [ ! -f /shared/primary-wal-down-since ]; then
+                              echo "${NOW}" > /shared/primary-wal-down-since
+                              echo "$(date -u +"%FT%TZ") [dr-promoter/signals] WAL receiver ABSENT and region-A UNREACHABLE (no instance answers: pg_isready rc=2 @ ${PRIMARY_MESH_HOST} AND @ ${ANY_MESH_HOST}) — primary loss; hold clock started"
+                            fi
+                            ;;
+                          *)
+                            # Ambiguous all-instances probe ⇒ cannot prove region-A gone;
+                            # fail-safe to the SLOW path (primary-missing clock keeps
+                            # running, the unreachable clock does not).
+                            rm -f /shared/primary-wal-down-since
+                            echo "$(date -u +"%FT%TZ") [dr-promoter/signals] region-A primary alias dark but all-instances probe ambiguous (pg_isready rc=${ANY_RC} @ ${ANY_MESH_HOST}) — fail-safe, NOT arming the unreachable clock (#6874 D2)"
+                            ;;
+                        esac
                       else
                         clear_clock "state=noreceiver, region-A probe ambiguous (pg_isready rc=${RC}) — fail-safe, NOT arming"
                       fi
@@ -417,6 +482,11 @@ spec:
             # never hardcoded).
             - name: PRIMARY_MESH_HOST
               value: {{ include "bp-postgres.replicationServiceName" . | quote }}
+            # #6874 D2 — the ALL-INSTANCES alias (cnpg.io/cluster only, no role term)
+            # that tells "region A has no primary right now" apart from "region A is
+            # gone" (templated from anyServiceName, never hardcoded).
+            - name: ANY_MESH_HOST
+              value: {{ include "bp-postgres.anyServiceName" . | quote }}
             - name: PRIMARY_LIVENESS_ENABLED
               value: {{ if $livenessEnabled }}"true"{{ else }}"false"{{ end }}
             - name: PROBE_TIMEOUT
@@ -477,10 +547,13 @@ spec:
         #   2. ANTI-FLAP — already suspended (latched) ⇒ done. HR promoted but not yet
         #      rendered ⇒ WAIT for the render (never suspend a pre-render HR — a suspended
         #      HR is not reconciled by helm, so the promotion would never land).
-        #   3. PROMOTE — armed → hold expired → NOT already diverged → local Cluster
-        #      still a replica → failover-readiness Ready. Flip the HR desired state,
-        #      then STAY IN THE SAME TICK (#5218): poll until helm renders
-        #      replica.enabled=false and suspend IMMEDIATELY.
+        #   3. PROMOTE — armed → a hold expired (#6874 D2: the FAST HOLD_SECONDS on the
+        #      region-A-unreachable clock, OR the SLOW PRIMARY_MISSING_HOLD_SECONDS on
+        #      the primary-less clock — never the fast hold on the primary-less state)
+        #      → NOT already diverged → local Cluster still a replica →
+        #      failover-readiness Ready. Flip the HR desired state, then STAY IN THE
+        #      SAME TICK (#5218): poll until helm renders replica.enabled=false and
+        #      suspend IMMEDIATELY.
         - name: actor
           image: {{ printf "%s:%s" $krepo $ktag | quote }}
           imagePullPolicy: {{ $kpull | quote }}
@@ -512,7 +585,7 @@ spec:
                 echo "$(date -u +"%FT%TZ") [dr-promoter/actor] ERROR (${_reason}): spec.suspend patch FAILED (RBAC/conflict?) — HR NOT frozen; re-asserting next tick (#5218)"
                 return 1
               }
-              echo "[dr-promoter/actor] loop started (hold=${HOLD_SECONDS}s interval=${INTERVAL_SECONDS}s renderWait=${PROMOTE_RENDER_WAIT_SECONDS}s hr=${HR_NAMESPACE}/${HR_NAME})"
+              echo "[dr-promoter/actor] loop started (hold=${HOLD_SECONDS}s primaryMissingHold=${PRIMARY_MISSING_HOLD_SECONDS}s interval=${INTERVAL_SECONDS}s renderWait=${PROMOTE_RENDER_WAIT_SECONDS}s hr=${HR_NAMESPACE}/${HR_NAME})"
               while true; do
                 : > /shared/actor-alive
                 (
@@ -551,17 +624,39 @@ spec:
                   # state can never promote, so the suspend latch can never cement a false
                   # positive.
                   if [ ! -f /shared/armed ]; then
-                    if [ -f /shared/primary-wal-down-since ]; then
+                    if [ -f /shared/primary-wal-down-since ] || [ -f /shared/primary-missing-since ]; then
                       echo "$(date -u +"%FT%TZ") [dr-promoter/actor] REFUSING promote: region-A-down signal present but the DR pair never reached streaming steady-state (UNARMED) — convergence-time transient, not a real kill; holding (#5220)"
                     fi
                     exit 0
                   fi
-                  [ -f /shared/primary-wal-down-since ] || exit 0
-                  DOWN_SINCE=$(cat /shared/primary-wal-down-since)
+                  # #6874 D2 — TWO clocks, TWO holds. The signals container keeps
+                  #   /shared/primary-wal-down-since : region-A UNREACHABLE (no instance
+                  #                                     answers on `-mesh` OR `-mesh-any`)
+                  #   /shared/primary-missing-since  : region-A has NO ELECTED PRIMARY
+                  #                                     (whether or not its standbys answer)
+                  # The FAST hold (HOLD_SECONDS) applies ONLY to the unreachable clock. The
+                  # primary-less state waits the SLOW PRIMARY_MISSING_HOLD_SECONDS so CNPG's
+                  # own local failover (hw307: ~130s) finishes first, while a region whose
+                  # standbys answer but never elect a primary still fails over eventually.
+                  [ -f /shared/primary-wal-down-since ] || [ -f /shared/primary-missing-since ] || exit 0
                   NOW=$(date -u +%s)
-                  DOWN_FOR=$((NOW - DOWN_SINCE))
-                  if [ "${DOWN_FOR}" -lt "${HOLD_SECONDS}" ]; then
-                    echo "$(date -u +"%FT%TZ") [dr-promoter/actor] region-A unreachable ${DOWN_FOR}s < hold ${HOLD_SECONDS}s — waiting"
+                  DOWN_FOR=""; MISSING_FOR=""
+                  if [ -f /shared/primary-wal-down-since ]; then
+                    DOWN_FOR=$((NOW - $(cat /shared/primary-wal-down-since)))
+                  fi
+                  if [ -f /shared/primary-missing-since ]; then
+                    MISSING_FOR=$((NOW - $(cat /shared/primary-missing-since)))
+                  fi
+                  REASON=""
+                  if [ -n "${DOWN_FOR}" ] && [ "${DOWN_FOR}" -ge "${HOLD_SECONDS}" ]; then
+                    REASON="region-A unreachable (no instance answers) ${DOWN_FOR}s >= ${HOLD_SECONDS}s"
+                  elif [ -n "${MISSING_FOR}" ] && [ "${MISSING_FOR}" -ge "${PRIMARY_MISSING_HOLD_SECONDS}" ]; then
+                    REASON="region-A primary-less ${MISSING_FOR}s >= ${PRIMARY_MISSING_HOLD_SECONDS}s (no local failover elected a primary)"
+                  elif [ -n "${DOWN_FOR}" ]; then
+                    echo "$(date -u +"%FT%TZ") [dr-promoter/actor] region-A UNREACHABLE (no instance answers) ${DOWN_FOR}s < hold ${HOLD_SECONDS}s — waiting"
+                    exit 0
+                  else
+                    echo "$(date -u +"%FT%TZ") [dr-promoter/actor] region-A ALIVE but PRIMARY-LESS ${MISSING_FOR}s < ${PRIMARY_MISSING_HOLD_SECONDS}s — local failover expected, waiting (#6874 D2)"
                     exit 0
                   fi
                   # ANTI-FLAP: never re-promote a cluster that already left the source
@@ -579,8 +674,8 @@ spec:
                     echo "$(date -u +"%FT%TZ") [dr-promoter/actor] failover-readiness NOT Ready (got: '${READY}') — standby not promotable; holding (data safety over RTO)"
                     exit 0
                   fi
-                  echo "$(date -u +"%FT%TZ") [dr-promoter/actor] PROMOTING: region-A WAL stream absent AND region-A unreachable ${DOWN_FOR}s >= ${HOLD_SECONDS}s AND failover-readiness Ready — patching HR desired state (#5125-D1 seam)"
-                  kubectl -n "${HR_NAMESPACE}" patch helmrelease "${HR_NAME}" --type merge ${FM} -p "{\"metadata\":{\"annotations\":{\"catalyst.openova.io/dr-auto-promoted-at\":\"$(date -u +"%FT%TZ")\",\"catalyst.openova.io/dr-auto-promote-reason\":\"region-A WAL stream absent and region-A unreachable ${DOWN_FOR}s; failover-readiness Ready (#5623/#5178)\"}},\"spec\":{\"values\":{\"topology\":{\"promoted\":true}}}}"
+                  echo "$(date -u +"%FT%TZ") [dr-promoter/actor] PROMOTING: region-A WAL stream absent AND ${REASON} AND failover-readiness Ready — patching HR desired state (#5125-D1 seam)"
+                  kubectl -n "${HR_NAMESPACE}" patch helmrelease "${HR_NAME}" --type merge ${FM} -p "{\"metadata\":{\"annotations\":{\"catalyst.openova.io/dr-auto-promoted-at\":\"$(date -u +"%FT%TZ")\",\"catalyst.openova.io/dr-auto-promote-reason\":\"region-A WAL stream absent and ${REASON}; failover-readiness Ready (#5623/#5178/#6874)\"}},\"spec\":{\"values\":{\"topology\":{\"promoted\":true}}}}"
                   echo "$(date -u +"%FT%TZ") [dr-promoter/actor] PROMOTED (step 1/2): HR ${HR_NAMESPACE}/${HR_NAME} spec.values.topology.promoted=true — helm-controller renders replica.enabled:false → CNPG promotes"
                   # 3b. SAME-TICK DURABLE LATCH (#5218) — do NOT wait for the next tick.
                   #     Poll until helm renders replica.enabled=false (the promotion has
@@ -616,6 +711,11 @@ spec:
               value: {{ $hrNamespace | quote }}
             - name: HOLD_SECONDS
               value: {{ $hold | quote }}
+            # #6874 D2 — the SLOW hold for the primary-less state (region-A standbys
+            # answer on `-mesh-any`, no elected primary on `-mesh`). Deliberately NOT
+            # HOLD_SECONDS: CNPG's local failover must be allowed to finish.
+            - name: PRIMARY_MISSING_HOLD_SECONDS
+              value: {{ $missingHold | quote }}
             - name: INTERVAL_SECONDS
               value: {{ $interval | quote }}
             # #5218 — ceiling on the same-tick post-promote poll that waits for helm to

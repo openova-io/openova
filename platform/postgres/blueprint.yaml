@@ -69,7 +69,15 @@ spec:
   #   record and re-forces every ~120s while the Cluster is absent. hw307: the
   #   annotation alone left shared-pg-rw absent on region A for 75 min because the
   #   HR's stored release already held the demoted manifest ("in-sync"). Script-only.
-  version: 0.2.27
+  # 0.2.28 — #6874 D2 (Refs #5178 #5473): the region-B dr-promoter tells a CNPG
+  #   LOCAL failover apart from a region kill. `<instance>-mesh` is the primary-only
+  #   alias, so it went dark with no elected primary; hw307 (2026-09-07 06:02Z) lost
+  #   one Pod of three inside a healthy region and the 120s hold cross-region-
+  #   promoted before CNPG's own failover finished. New `<instance>-mesh-any`
+  #   all-instances alias (every multi-region shape) + autoPromote.
+  #   primaryMissingHoldSeconds (600s) for "region-A alive but primary-less"; "no
+  #   instance answers" keeps the 120s hold. +1 Service; singleton byte-identical.
+  version: 0.2.28
   card:
     title: PostgreSQL
     summary: |

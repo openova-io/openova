@@ -1,0 +1,68 @@
+{{- /*
+ClusterMesh-global ALL-INSTANCES liveness alias `<fullname>-primary-mesh-any`
+(#6874 D2) — the exact counterpart of bp-postgres's any-mesh-service.yaml.
+
+WHY THIS EXISTS
+---------------
+The region-B dr-promoter (dr-promoter.yaml) proved "region-A UNREACHABLE" with
+a pg_isready of `-primary-mesh`, and that Service is `selectorType: rw` — the
+PRIMARY instance only (#3740, the replication-source contract). So it goes dark
+the moment the primary Cluster has NO ELECTED PRIMARY, which is exactly the
+window of CNPG's own local failover inside a healthy region. hw307 (2026-09-07
+06:02-06:05Z, on bp-postgres's faithful port of this actor): one Pod of a
+3-instance cluster lost, all nodes Ready, CNPG's failover started 98s later and
+elected ~30s after that — the 120s primaryDownHoldSeconds expired first, and a
+single-Pod outage became a cross-region promotion plus demote / re-clone /
+switchback.
+
+WHAT THIS SERVICE IS
+--------------------
+The same ClusterMesh-global shape as `-primary-mesh` (global + affinity
+annotations, port 5432, the cnpg-pair label) with selector
+`cnpg.io/cluster: <fullname>-primary` and NO role term, so it has backends as
+long as ANY instance of the primary Cluster answers. The promoter probes both
+aliases: primary-dark + any-alive is "region-A ALIVE but PRIMARY-LESS" (the SLOW
+primaryMissingHoldSeconds clock), primary-dark + any-dark is "region-A
+UNREACHABLE" (the FAST primaryDownHoldSeconds clock).
+
+WHERE IT RENDERS
+----------------
+On BOTH sides whenever the pair + mesh are on (the union of where
+`-primary-mesh` renders: CNPG-managed on side=primary, the stub on
+side=replica), because Cilium merges global services by name+namespace and the
+promoter's probe crosses the mesh only if the same-named object exists on both
+clusters. A standalone Service is correct here: the name is not CNPG-reserved
+and the selector is static, so it needs no managed.services.additional entry.
+On cluster-A it has REAL local backends (every primary-Cluster instance); on
+cluster-B the selector matches zero Pods by construction (the local Cluster is
+`<fullname>-replica`) so the probe routes across the mesh — the same
+zero-backend idiom as replica-mesh-service.yaml / peer-mesh-service.yaml.
+*/ -}}
+{{- if and .Values.cnpgPair.enabled .Values.cnpgPair.clusterMesh.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "cnpg-pair.anyServiceName" . }}
+  labels:
+    {{- include "cnpg-pair.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+    catalyst.openova.io/role: liveness-any
+  annotations:
+    # Same global/affinity annotations as `-primary-mesh` so Cilium merges the
+    # per-cluster objects into one global service; zero local backends on the
+    # replica side → the promoter's probe crosses the mesh.
+    service.cilium.io/global: "true"
+    service.cilium.io/affinity: {{ .Values.cnpgPair.clusterMesh.affinity | quote }}
+    catalyst.openova.io/blueprint: bp-cnpg-pair
+spec:
+  type: ClusterIP
+  selector:
+    # #6874 D2 — cluster-only selector, deliberately NO cnpg.io/instanceRole
+    # term: this alias answers while ANY instance of the primary Cluster is up.
+    cnpg.io/cluster: {{ include "cnpg-pair.primaryName" . }}
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+      protocol: TCP
+{{- end }}
