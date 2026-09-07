@@ -135,6 +135,25 @@ export function settingsFrom(c: Customer): CustomerSettings {
 }
 
 /**
+ * The settings-form field names as the saved notice reads them: the known
+ * keys get the label the form shows, anything else loses its underscores.
+ * String.replace with a string pattern swaps only the first one, which is how
+ * the notice read "saved price book_id" on hw307.
+ */
+const FIELD_LABELS: ReadonlyMap<string, string> = new Map([
+  ['price_book_id', 'price book'],
+  ['billing_mode', 'billing mode'],
+  ['admin_email', 'admin email'],
+  ['start_date', 'start date'],
+  ['org_slug', 'Organization slug'],
+  ['plan_slug', 'plan'],
+])
+
+export function fieldLabel(key: string): string {
+  return FIELD_LABELS.get(key) ?? key.replace(/_/g, ' ')
+}
+
+/**
  * Only the fields that changed. The server treats an absent key as "leave
  * it" and an empty string as "clear it" for the nullable columns, so a
  * cleared price book is sent as "" and an untouched one is not sent at all.
