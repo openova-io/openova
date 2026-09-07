@@ -160,6 +160,45 @@ test.describe('chargeback cost console (#6867)', () => {
     await expect(page.getByText('Basis weights')).toBeVisible()
   })
 
+  test('explorer: hourly grain, tag dimension, custom compare window', async ({ page }) => {
+    const dayTo = new Date(Date.UTC(+FROM.slice(0, 4), +FROM.slice(5, 7) - 1, +FROM.slice(8, 10) + 1)).toISOString().slice(0, 10)
+    // One seeded day at hour grain: 24 buckets, 24 × (0.5 + 0.1) = 14.400 OMR.
+    await page.goto(`${BASE}/explore?preset=custom&from=${FROM}&to=${dayTo}&granularity=hour&group_by=kind`)
+    await expect(page.locator('table').first().locator('tfoot')).toContainText('14.400 OMR')
+    await expect(page.locator('.card svg rect.chart-mark')).toHaveCount(48)
+    // Tag dimension: the seeded resources carry no tags → one "(untagged)" group with the whole 100.800.
+    await page.goto(`${BASE}/explore?preset=custom&from=${FROM}&to=${TO}&group_by=tag:team`)
+    const tagRows = page.locator('table').first().locator('tbody tr')
+    await expect(tagRows).toHaveCount(1)
+    await expect(tagRows.first()).toContainText('(untagged)')
+    await expect(tagRows.first()).toContainText('100.800 OMR')
+    // Custom compare against the seeded week itself → previous == current, delta 0.
+    await page.goto(`${BASE}/explore?preset=custom&from=${FROM}&to=${TO}&group_by=kind&compare=custom&compare_from=${FROM}&compare_to=${TO}`)
+    const foot = page.locator('table').first().locator('tfoot')
+    await expect(foot).toContainText('100.800 OMR')
+    await expect(page.locator('table').first().locator('tbody tr').first().locator('.delta')).toContainText('0.0 %')
+  })
+
+  test('reports: a weekly schedule lists, previews the rendered text and records a manual send', async ({ page }) => {
+    const existing = await page.request.get(`${BASE}/api/v1/reports/schedules`).then((r) => r.json())
+    for (const r of (existing.schedules ?? []) as Array<{ id: string; name: string }>) if (r.name === 'E2E weekly') await page.request.delete(`${BASE}/api/v1/reports/schedules/${r.id}`)
+    const created = await page.request.post(`${BASE}/api/v1/reports/schedules`, {
+      data: { name: 'E2E weekly', customer_id: CUSTOMER, cadence: 'weekly', day_of_week: 1, hour_utc: 6, recipients: ['fin@acme-e2e.example'], sections: ['summary', 'services', 'budgets'], active: true },
+    })
+    expect(created.status(), await created.text()).toBe(201)
+    await page.goto(`${BASE}/reports`)
+    await expect(page.getByRole('heading', { name: 'Reports' })).toBeVisible()
+    const row = page.locator('table').first().locator('tbody tr', { hasText: 'E2E weekly' })
+    await expect(row).toBeVisible()
+    await expect(row).toContainText('fin@acme-e2e.example')
+    await row.getByRole('button', { name: 'Preview' }).click()
+    const dlg = page.getByRole('dialog')
+    await expect(dlg.locator('pre')).toContainText(/OMR/)
+    await dlg.getByRole('button', { name: /Close|Done/ }).click().catch(() => page.keyboard.press('Escape'))
+    await row.getByRole('button', { name: 'Send now' }).click()
+    await expect(page.locator('.notice.ok')).toContainText('fin@acme-e2e.example')
+  })
+
   test('a customer principal is scoped: another customer id is not found and operator pages redirect', async ({ browser }) => {
     // The customer's admin, via the same seam, sees only its own lens.
     const ctx = await browser.newContext({ extraHTTPHeaders: { [HEADER]: 'admin@acme-e2e.example' } })
