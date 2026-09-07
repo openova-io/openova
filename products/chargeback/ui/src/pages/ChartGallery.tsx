@@ -79,6 +79,7 @@ function thirtyDays(): ExploreResult {
     totals_by_bucket: totals,
     unpriced: [],
     forecast: { month_end: 3200, run_rate_daily: 84.2, trend_daily: 0.4, method: 'run-rate-7d', days_observed: 7, days_in_month: 30, confidence: 'medium' },
+    compare: { from: '2026-07-10', to: days[0], label: 'previous period' },
   }
 }
 const month = seriesFromExplore(thirtyDays())

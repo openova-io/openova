@@ -97,11 +97,16 @@ func KindLabel(kind string) string {
 // CostQuery selects a window, a grain, a grouping and filters.
 type CostQuery struct {
 	From, To    time.Time
-	Granularity string // day | month
+	Granularity string // hour | day | month
 	GroupBy     string // none | a costDims key
 	Metric      string // cost | usage
 	Include     map[string][]string
 	Exclude     map[string][]string
+	// CompareFrom/CompareTo is the window `previous` and `delta_pct` are
+	// measured against. Both zero = the window of the same length
+	// immediately before From (the automatic previous period). A custom
+	// window may be any length; it is reported as-is in ExploreResult.Compare.
+	CompareFrom, CompareTo time.Time
 	// Limit keeps the top-N groups by total and folds the rest into Other.
 	// 0 = every group.
 	Limit int
@@ -122,7 +127,7 @@ type CostGroup struct {
 	Values    []Decimal `json:"values"`
 }
 
-// CostTotal is the window total against the previous window.
+// CostTotal is the window total against the compare window.
 type CostTotal struct {
 	Current   Decimal  `json:"current"`
 	Previous  Decimal  `json:"previous"`
@@ -137,6 +142,20 @@ type UnpricedSKU struct {
 	Quantity  Decimal `json:"quantity"`
 	Resources int     `json:"resources"`
 }
+
+// CompareWindow is the half-open window every `previous` value in the result
+// was summed over. Label is "previous period" for the automatic window of
+// equal length before From, "custom" when the caller chose it.
+type CompareWindow struct {
+	From  string `json:"from"`
+	To    string `json:"to"`
+	Label string `json:"label"`
+}
+
+const (
+	CompareLabelPrevious = "previous period"
+	CompareLabelCustom   = "custom"
+)
 
 // ExploreResult is the explorer payload (DESIGN.md §3.1). Forecast is added
 // by the API layer, which owns the calendar arithmetic.
@@ -155,6 +174,7 @@ type ExploreResult struct {
 	Total          CostTotal     `json:"total"`
 	TotalsByBucket []Decimal     `json:"totals_by_bucket"`
 	Unpriced       []UnpricedSKU `json:"unpriced"`
+	Compare        CompareWindow `json:"compare"`
 }
 
 // costPriceJoinSQL joins a usage_records row aliased `u` to its customer
@@ -263,9 +283,21 @@ func filteredCTE(q CostQuery, from, to time.Time) (string, *costArgs, error) {
 	return sb.String(), a, nil
 }
 
+// Bucket label formats per grain. Hour buckets are `YYYY-MM-DDTHH` in UTC —
+// the calendar date plus the 24-hour clock, sortable and unambiguous, and
+// what bucketExpr's to_char produces for the same window_start.
+const (
+	bucketFormatHour  = "2006-01-02T15"
+	bucketFormatDay   = "2006-01-02"
+	bucketFormatMonth = "2006-01"
+)
+
 func bucketExpr(granularity string) string {
-	if granularity == "month" {
+	switch granularity {
+	case "month":
 		return "to_char(window_start AT TIME ZONE 'UTC', 'YYYY-MM')"
+	case "hour":
+		return `to_char(window_start AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24')`
 	}
 	return "to_char(window_start AT TIME ZONE 'UTC', 'YYYY-MM-DD')"
 }
@@ -274,17 +306,26 @@ func bucketExpr(granularity string) string {
 // chart axis is uniform even where the ledger has no rows.
 func Buckets(from, to time.Time, granularity string) []string {
 	var out []string
-	if granularity == "month" {
+	from, to = from.UTC(), to.UTC()
+	switch granularity {
+	case "month":
 		t := time.Date(from.Year(), from.Month(), 1, 0, 0, 0, 0, time.UTC)
 		for t.Before(to) {
-			out = append(out, t.Format("2006-01"))
+			out = append(out, t.Format(bucketFormatMonth))
 			t = t.AddDate(0, 1, 0)
+		}
+		return out
+	case "hour":
+		t := time.Date(from.Year(), from.Month(), from.Day(), from.Hour(), 0, 0, 0, time.UTC)
+		for t.Before(to) {
+			out = append(out, t.Format(bucketFormatHour))
+			t = t.Add(time.Hour)
 		}
 		return out
 	}
 	t := time.Date(from.Year(), from.Month(), from.Day(), 0, 0, 0, 0, time.UTC)
 	for t.Before(to) {
-		out = append(out, t.Format("2006-01-02"))
+		out = append(out, t.Format(bucketFormatDay))
 		t = t.AddDate(0, 0, 1)
 	}
 	return out
@@ -364,7 +405,8 @@ SELECT sku, unit, round(sum(quantity), 6)::text, count(DISTINCT resource_id)
 }
 
 // Explore aggregates cost (or usage) over the window, pivoted by bucket and
-// group, with the previous window of the same length for comparison.
+// group, with a compare window for `previous`: the caller's CompareFrom/To
+// when set, else the window of the same length immediately before From.
 func (s *Store) Explore(ctx context.Context, scope Scope, q CostQuery) (ExploreResult, error) {
 	if !scope.Operator {
 		if scope.CustomerID == "" {
@@ -386,7 +428,10 @@ func (s *Store) Explore(ctx context.Context, scope Scope, q CostQuery) (ExploreR
 		return ExploreResult{}, fmt.Errorf("from must be before to")
 	}
 	from, to := q.From.UTC(), q.To.UTC()
-	prevFrom, prevTo := from.Add(-to.Sub(from)), from
+	prevFrom, prevTo, compareLabel, err := compareWindow(q, from, to)
+	if err != nil {
+		return ExploreResult{}, err
+	}
 
 	cur, err := s.queryCostRows(ctx, q, from, to, true)
 	if err != nil {
@@ -414,11 +459,12 @@ func (s *Store) Explore(ctx context.Context, scope Scope, q CostQuery) (ExploreR
 		bucketIdx[b] = i
 	}
 	res := ExploreResult{
-		From: from.Format("2006-01-02"), To: to.Format("2006-01-02"),
+		From: from.Format(bucketFormatDay), To: to.Format(bucketFormatDay),
 		Granularity: q.Granularity, GroupBy: q.GroupBy, Metric: q.Metric,
 		Buckets: buckets, BucketHasData: make([]bool, len(buckets)),
 		TotalsByBucket: make([]Decimal, len(buckets)),
 		Unpriced:       unpriced,
+		Compare:        CompareWindow{From: prevFrom.Format(bucketFormatDay), To: prevTo.Format(bucketFormatDay), Label: compareLabel},
 	}
 	for i := range res.TotalsByBucket {
 		res.TotalsByBucket[i] = "0.000000"
@@ -548,6 +594,24 @@ func (s *Store) Explore(ctx context.Context, scope Scope, q CostQuery) (ExploreR
 	}
 	res.MixedCurrency = len(cl) > 1
 	return res, nil
+}
+
+// compareWindow resolves the window `previous` is summed over. With no
+// CompareFrom/CompareTo it is the same-length window ending at from; a custom
+// window must be complete (both ends) and non-empty, and may overlap the
+// current window or differ in length — the caller asked for exactly that.
+func compareWindow(q CostQuery, from, to time.Time) (time.Time, time.Time, string, error) {
+	if q.CompareFrom.IsZero() && q.CompareTo.IsZero() {
+		return from.Add(-to.Sub(from)), from, CompareLabelPrevious, nil
+	}
+	if q.CompareFrom.IsZero() || q.CompareTo.IsZero() {
+		return time.Time{}, time.Time{}, "", fmt.Errorf("compare_from and compare_to must be given together")
+	}
+	cf, ct := q.CompareFrom.UTC(), q.CompareTo.UTC()
+	if !ct.After(cf) {
+		return time.Time{}, time.Time{}, "", fmt.Errorf("compare_from must be before compare_to")
+	}
+	return cf, ct, CompareLabelCustom, nil
 }
 
 func (s *Store) countResources(ctx context.Context, q CostQuery, from, to time.Time) (int, error) {

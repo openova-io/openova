@@ -246,7 +246,7 @@ export function ShareBar({ share, width = 72 }: { share: number; width?: number 
   )
 }
 
-/** Segmented control. */
+/** Segmented control. An option may be disabled, with a title saying why. */
 export function Segmented<T extends string>({
   value,
   options,
@@ -254,14 +254,22 @@ export function Segmented<T extends string>({
   ariaLabel,
 }: {
   value: T
-  options: ReadonlyArray<{ value: T; label: string }>
+  options: ReadonlyArray<{ value: T; label: string; disabled?: boolean; title?: string }>
   onChange: (v: T) => void
   ariaLabel?: string
 }) {
   return (
     <div className="seg" role="group" aria-label={ariaLabel}>
       {options.map((o) => (
-        <button key={o.value} type="button" className={o.value === value ? 'on' : ''} onClick={() => onChange(o.value)} aria-pressed={o.value === value}>
+        <button
+          key={o.value}
+          type="button"
+          className={o.value === value ? 'on' : ''}
+          onClick={() => onChange(o.value)}
+          aria-pressed={o.value === value}
+          disabled={o.disabled}
+          title={o.title}
+        >
           {o.label}
         </button>
       ))}

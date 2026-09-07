@@ -73,11 +73,15 @@ collected).
 
 ### 2.2 Cost explorer
 Controls: date presets (7d · 30d · MTD · last month · 3M · 6M · YTD · custom),
-granularity, group by, include/exclude filter chips per dimension, metric
-(cost | usage), chart type (stacked bar · line · area), top-N, compare toggle,
-save view, export CSV. Chart + table (group · current · previous · Δ% · share ·
-resources) with a totals row. Clicking a group row adds it as a filter and
-re-groups one level down (kind → sku → resource).
+granularity (hourly for windows ≤ 14 days · daily · monthly; hourly falls back
+to daily when the window grows), group by, include/exclude filter chips per
+dimension, metric (cost | usage), chart type (stacked bar · line · area), top-N,
+compare with (previous period · same period last month · same period last year ·
+custom from/to), save view, export CSV. Chart + table (group · current · compare
+window · Δ% · share · resources) with a totals row; the compare column is headed
+by the window it sums. Clicking a group row adds it as a filter and re-groups one
+level down (kind → sku → resource); clicking a day bar with nothing to drill zooms
+to that day at hourly grain.
 
 ### 2.3 Resources
 Inventory joined with cost in the window: kind, name, region, customer, status
@@ -123,10 +127,15 @@ number in the customer's price-book currency. `customer` query values are
 customer ids; the customer role is forced to its own id server-side.
 
 ### 3.1 `GET /cost/explore` · `GET /customers/{id}/cost/explore`
-Params: `from`, `to`, `granularity=day|month`, `group_by=none|customer|source|kind|sku|region|resource|tier|namespace`,
+Params: `from`, `to`, `granularity=hour|day|month` (`hour` only for windows of at
+most 14 days — 336 buckets; every grain is capped at 400 buckets), `group_by=none|customer|source|kind|sku|region|resource|tier|namespace`,
 `metric=cost|usage` (usage requires `group_by=sku` or a single `sku` filter),
 include filters `customer|kind|sku|region|source|resource|tier|namespace=a,b`,
-exclude filters `exclude_<dim>=a,b`, `limit` (top-N groups, default 10, 0 = all).
+exclude filters `exclude_<dim>=a,b`, `limit` (top-N groups, default 10, 0 = all),
+`compare_from`/`compare_to` (`YYYY-MM-DD`, half-open, both or neither — the window
+`previous` and `delta_pct` are measured against; it may be any length and may
+overlap the window; omitted = the same-length window immediately before `from`).
+Buckets are `YYYY-MM-DDTHH` (hour, UTC), `YYYY-MM-DD` (day) or `YYYY-MM` (month).
 
 ```json
 {
@@ -140,11 +149,16 @@ exclude filters `exclude_<dim>=a,b`, `limit` (top-N groups, default 10, 0 = all)
   "totals_by_bucket": [115.7, "…"],
   "unpriced": [{ "sku": "k8s.vcpu", "unit": "vcpu-hour", "quantity": 1118.4, "resources": 14097 }],
   "forecast": { "month_end": 2712.5, "run_rate_daily": 92.1, "method": "run-rate-7d",
-                "days_observed": 7, "confidence": "medium" }
+                "days_observed": 7, "confidence": "medium" },
+  "compare": { "from": "2026-08-25", "to": "2026-09-01", "label": "previous period" }
 }
 ```
 `forecast` is present only when the window is the current calendar month at day
-granularity. `previous` is the same-length window immediately before `from`.
+granularity. `compare` is the window every `previous` (and so every `delta_pct`)
+was summed over: `label` is `previous period` for the automatic same-length
+window immediately before `from`, `custom` when `compare_from`/`compare_to` were
+given. The CSV export (`/cost/export.csv`) stays one row per bucket; a custom
+compare window is appended to the file name (`cost-<group>-<from>-<to>-vs-<cf>-<ct>.csv`).
 Stopped-instance policy of the customer's price book applies exactly as in rating.
 
 ### 3.2 `GET /cost/summary` · `GET /customers/{id}/cost/summary`

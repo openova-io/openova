@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -52,6 +53,7 @@ func sampleExplore() store.ExploreResult {
 		Total:          store.CostTotal{Current: "104.160000", Previous: "42.000000", DeltaPct: pct(148), Resources: 4},
 		TotalsByBucket: []store.Decimal{"14.880000", "14.880000", "14.880000", "14.880000", "14.880000", "14.880000", "14.880000"},
 		Unpriced:       []store.UnpricedSKU{{SKU: "k8s.vcpu", Unit: "vcpu-hour", Quantity: "84.000000", Resources: 1}},
+		Compare:        store.CompareWindow{From: "2026-08-25", To: "2026-09-01", Label: store.CompareLabelPrevious},
 	}
 }
 
@@ -158,6 +160,86 @@ func TestParseCostQueryDefaultsAndValidation(t *testing.T) {
 	}
 	if _, msg := h.parseCostQuery(mustReq("/x?metric=usage&sku=ecs.m7n.xlarge.8")); msg != "" {
 		t.Fatalf("usage with one sku filter is valid: %s", msg)
+	}
+}
+
+// Hourly grain is bounded by days, not only by the bucket ceiling: 15 days is
+// 360 buckets — under 400 — and is still refused, with the limit in the message.
+func TestParseCostQueryHourlyWindowLimit(t *testing.T) {
+	h := &Handler{Deps: Deps{Now: func() time.Time { return time.Date(2026, 9, 8, 10, 0, 0, 0, time.UTC) }}}
+	q, msg := h.parseCostQuery(mustReq("/x?from=2026-09-01&to=2026-09-15&granularity=hour"))
+	if msg != "" || q.Granularity != "hour" {
+		t.Fatalf("14 hourly days must parse: %+v %q", q, msg)
+	}
+	if n := len(store.Buckets(q.From, q.To, q.Granularity)); n != 336 {
+		t.Fatalf("14 days = %d hour buckets, want 336", n)
+	}
+	q, msg = h.parseCostQuery(mustReq("/x?from=2026-09-01&to=2026-09-02&granularity=hour"))
+	if msg != "" || len(store.Buckets(q.From, q.To, q.Granularity)) != 24 {
+		t.Fatalf("one hourly day = %v %q", store.Buckets(q.From, q.To, q.Granularity), msg)
+	}
+	_, msg = h.parseCostQuery(mustReq("/x?from=2026-09-01&to=2026-09-16&granularity=hour"))
+	if msg == "" || !strings.Contains(msg, "14 days") || !strings.Contains(msg, "15 requested") {
+		t.Fatalf("15 hourly days must be refused naming the limit: %q", msg)
+	}
+	// The default 30-day window at hour grain is refused the same way.
+	if _, msg := h.parseCostQuery(mustReq("/x?granularity=hour")); msg == "" || !strings.Contains(msg, "14 days") {
+		t.Fatalf("default window at hour grain: %q", msg)
+	}
+	// Day and month grain keep the 400-bucket ceiling as their only bound.
+	if _, msg := h.parseCostQuery(mustReq("/x?from=2025-09-01&to=2026-09-01&granularity=day")); msg != "" {
+		t.Fatalf("365 daily buckets are fine: %q", msg)
+	}
+}
+
+func TestParseCostQueryCompareWindow(t *testing.T) {
+	h := &Handler{Deps: Deps{Now: func() time.Time { return time.Date(2026, 9, 8, 10, 0, 0, 0, time.UTC) }}}
+	q, msg := h.parseCostQuery(mustReq("/x?from=2026-09-01&to=2026-09-08"))
+	if msg != "" || !q.CompareFrom.IsZero() || !q.CompareTo.IsZero() {
+		t.Fatalf("no compare params must leave the automatic window: %+v %q", q, msg)
+	}
+	q, msg = h.parseCostQuery(mustReq("/x?from=2026-09-01&to=2026-09-08&compare_from=2026-08-01&compare_to=2026-08-08"))
+	if msg != "" || q.CompareFrom.Format("2006-01-02") != "2026-08-01" || q.CompareTo.Format("2006-01-02") != "2026-08-08" {
+		t.Fatalf("compare window = %v..%v %q", q.CompareFrom, q.CompareTo, msg)
+	}
+	// A different length than the window, and overlap with it, are both allowed.
+	if _, msg := h.parseCostQuery(mustReq("/x?from=2026-09-01&to=2026-09-08&compare_from=2026-08-01&compare_to=2026-09-01")); msg != "" {
+		t.Fatalf("31-day compare for a 7-day window is valid: %q", msg)
+	}
+	if _, msg := h.parseCostQuery(mustReq("/x?from=2026-09-01&to=2026-09-08&compare_from=2026-09-04&compare_to=2026-09-08")); msg != "" {
+		t.Fatalf("overlapping compare window is valid: %q", msg)
+	}
+	for _, bad := range []string{
+		"/x?compare_from=2026-08-01",                              // one side only
+		"/x?compare_to=2026-08-08",                                // one side only
+		"/x?compare_from=2026-08-08&compare_to=2026-08-01",        // reversed
+		"/x?compare_from=2026-08-01&compare_to=2026-08-01",        // empty
+		"/x?compare_from=01-08-2026&compare_to=2026-08-08",        // malformed
+		"/x?compare_from=2026-08-01&compare_to=2026-08-08T00:00Z", // not a day
+	} {
+		if _, msg := h.parseCostQuery(mustReq(bad)); msg == "" {
+			t.Fatalf("%s must be rejected", bad)
+		}
+	}
+}
+
+func TestExploreCSVNameCarriesCustomCompare(t *testing.T) {
+	doc := exploreDoc{ExploreResult: sampleExplore()}
+	if got := exploreCSVName(doc); got != "cost-kind-2026-09-01-2026-09-08.csv" {
+		t.Fatalf("automatic compare must not change the name: %q", got)
+	}
+	doc.Compare = store.CompareWindow{From: "2026-08-01", To: "2026-08-08", Label: store.CompareLabelCustom}
+	if got := exploreCSVName(doc); got != "cost-kind-2026-09-01-2026-09-08-vs-2026-08-01-2026-08-08.csv" {
+		t.Fatalf("custom compare name = %q", got)
+	}
+	rec := httptest.NewRecorder()
+	writeExploreCSV(rec, doc)
+	if cd := rec.Header().Get("Content-Disposition"); !strings.Contains(cd, "-vs-2026-08-01-2026-08-08.csv") {
+		t.Fatalf("Content-Disposition = %q", cd)
+	}
+	// Rows stay per bucket: header + 7 buckets × (2 groups + other).
+	if lines := strings.Count(strings.TrimSpace(rec.Body.String()), "\n") + 1; lines != 1+7*3 {
+		t.Fatalf("csv lines = %d", lines)
 	}
 }
 

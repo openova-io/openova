@@ -61,6 +61,26 @@ describe('StackedBars render', () => {
     expect(count(h, /tabindex="0"/g)).toBe(21)
     expect(count(h, /role="button"/g)).toBe(21)
   })
+  // The widest hourly window the API allows (14 days = 336 buckets): the axis
+  // thins to whole days, so no label is truncated and each one is a midnight.
+  it('labels 336 hour buckets on whole days, none clipped', () => {
+    const buckets = Array.from({ length: 336 }, (_, i) => `2026-09-${String(1 + Math.floor(i / 24)).padStart(2, '0')}T${String(i % 24).padStart(2, '0')}`)
+    const h = renderToStaticMarkup(createElement(StackedBars, { buckets, series: [{ key: 'a', label: 'A', values: buckets.map(() => 0.62) }], bucketLabel: (b) => `${Number(b.slice(8, 10))} Sep ${b.slice(11)}:00` }))
+    const labels = [...h.matchAll(/text-anchor="middle">([^<]*)</g)].map((m) => m[1])
+    expect(labels.length).toBeGreaterThanOrEqual(4)
+    for (const l of labels) {
+      expect(l).not.toContain('…')
+      expect(l.endsWith(' 00:00')).toBe(true)
+    }
+    expect(h).toContain('336 buckets from 1 Sep 00:00 to 14 Sep 23:00')
+    const line = renderToStaticMarkup(createElement(LineChart, { buckets, series: [{ key: 'a', label: 'A', values: buckets.map(() => 0.62) }], bucketLabel: (b) => `${Number(b.slice(8, 10))} Sep ${b.slice(11)}:00` }))
+    const lineLabels = [...line.matchAll(/text-anchor="middle">([^<]*)</g)].map((m) => m[1])
+    expect(lineLabels.length).toBeGreaterThanOrEqual(4)
+    for (const l of lineLabels) {
+      expect(l).not.toContain('…')
+      expect(l.endsWith(' 00:00')).toBe(true)
+    }
+  })
 })
 
 describe('LineChart render', () => {

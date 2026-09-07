@@ -103,6 +103,11 @@
       "resources": 1
     }
   ],
+  "compare": {
+    "from": "2026-08-25",
+    "to": "2026-09-01",
+    "label": "previous period"
+  },
   "forecast": {
     "month_end": 446.4,
     "run_rate_daily": 14.879999999999999,

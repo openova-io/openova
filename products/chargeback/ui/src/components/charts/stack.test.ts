@@ -151,6 +151,17 @@ describe('seriesFromExplore on the Go-generated fixture', () => {
     expect(monthly.forecast).toBeUndefined()
     expect(monthly.buckets).toEqual(['2026-08', '2026-09'])
   })
+  it('has no tail at hour grain even when the API sent a forecast', () => {
+    const hours = Array.from({ length: 24 }, (_, h) => `2026-09-07T${String(h).padStart(2, '0')}`)
+    const hourly = seriesFromExplore({ ...fixture, granularity: 'hour', buckets: hours, bucket_has_data: hours.map(() => true), totals_by_bucket: hours.map(() => 0.62) })
+    expect(hourly.forecast).toBeUndefined()
+    expect(hourly.buckets).toEqual(hours)
+    expect(hourly.granularity).toBe('hour')
+    expect(hourly.missing).toHaveLength(24)
+  })
+  it('carries the compare window the API used', () => {
+    expect(fixture.compare).toEqual({ from: '2026-08-25', to: '2026-09-01', label: 'previous period' })
+  })
   it('marks bucket_has_data=false as missing rather than zero', () => {
     const has = [...fixture.bucket_has_data]
     has[2] = false

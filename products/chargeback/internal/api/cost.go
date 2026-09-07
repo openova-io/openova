@@ -18,11 +18,17 @@ import (
 // Windows are half-open [from, to) in whole UTC days. The default window is
 // the last 30 days. The customer-lens routes force the session's customer
 // through the store scope; the operator routes accept a `customer` filter.
+//
+// Hourly grain is for short windows: at most maxHourlyDays days (336 buckets),
+// so a 14-day hourly chart stays under the 400-bucket ceiling that bounds every
+// grain. The compare window (`compare_from`/`compare_to`) is optional and, when
+// given, replaces the automatic previous period of equal length.
 
 const (
 	maxExploreBuckets = 400
 	maxExploreGroups  = 500
 	defaultTopN       = 10
+	maxHourlyDays     = 14
 )
 
 func dateOnly(t time.Time) time.Time {
@@ -79,11 +85,37 @@ func (h *Handler) parseCostQuery(r *http.Request) (store.CostQuery, string) {
 		q.Granularity = "day"
 	case "month":
 		q.Granularity = "month"
+	case "hour":
+		if days := int(q.To.Sub(q.From).Hours() / 24); days > maxHourlyDays {
+			return q, fmt.Sprintf("granularity=hour needs a window of at most %d days (%d requested)", maxHourlyDays, days)
+		}
+		q.Granularity = "hour"
 	default:
-		return q, "granularity must be day or month"
+		return q, "granularity must be hour, day or month"
 	}
 	if n := len(store.Buckets(q.From, q.To, q.Granularity)); n > maxExploreBuckets {
 		return q, fmt.Sprintf("window too long: %d buckets, maximum %d", n, maxExploreBuckets)
+	}
+	// The compare window: both ends or neither. Any length is allowed — "same
+	// period last month" from a 31-day March lands on a 28-day February — and
+	// so is overlap with the current window; the store reports what it used.
+	cf, ct := qs.Get("compare_from"), qs.Get("compare_to")
+	if (cf == "") != (ct == "") {
+		return q, "compare_from and compare_to must be given together"
+	}
+	if cf != "" {
+		f, ok := parseDay(cf)
+		if !ok {
+			return q, "compare_from must be YYYY-MM-DD"
+		}
+		t, ok := parseDay(ct)
+		if !ok {
+			return q, "compare_to must be YYYY-MM-DD"
+		}
+		if !t.After(f) {
+			return q, "compare_from must be before compare_to"
+		}
+		q.CompareFrom, q.CompareTo = f, t
 	}
 	switch v := qs.Get("group_by"); v {
 	case "", "none":
@@ -224,9 +256,22 @@ func (h *Handler) customerExplore(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, doc)
 }
 
+// exploreCSVName names the export after its grouping and window; a custom
+// compare window is appended so two files that differ only in what they were
+// compared against do not collide on disk. The rows are per bucket and carry
+// no compare column — the comparison is a property of the totals, not of
+// any one bucket.
+func exploreCSVName(doc exploreDoc) string {
+	name := fmt.Sprintf("cost-%s-%s-%s", doc.GroupBy, doc.From, doc.To)
+	if doc.Compare.Label == store.CompareLabelCustom {
+		name += fmt.Sprintf("-vs-%s-%s", doc.Compare.From, doc.Compare.To)
+	}
+	return name + ".csv"
+}
+
 func writeExploreCSV(w http.ResponseWriter, doc exploreDoc) {
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="cost-%s-%s-%s.csv"`, doc.GroupBy, doc.From, doc.To))
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, exploreCSVName(doc)))
 	cw := csv.NewWriter(w)
 	_ = cw.Write([]string{"bucket", "group_by", "group_key", "group_label", doc.Metric, "currency"})
 	groups := doc.Groups
