@@ -211,11 +211,36 @@ topology:
     enabled: true
     # Poll cadence for both containers.
     intervalSeconds: 10
-    # The region-A-loss clock (local WAL stream absent AND region-A
-    # unreachable) must hold CONTINUOUSLY this long before the actor promotes.
-    # An intra-region primary restart/switchover reconnects in seconds and
-    # clears the clock; 120s auto-recovers a real region kill in ~2-4 min.
+    # ── TWO clocks, TWO holds (#6874 D2) ──────────────────────────────
+    # The signals container probes region-A over the ClusterMesh at TWO
+    # aliases: `<instance>-mesh` (the PRIMARY only — instanceRole=primary,
+    # #5473) and `<instance>-mesh-any` (EVERY instance — cnpg.io/cluster only,
+    # any-mesh-service.yaml). With the local WAL stream absent:
+    #   primary dark + any dark  => region-A UNREACHABLE  -> primaryDownHoldSeconds
+    #   primary dark + any alive => region-A ALIVE but    -> primaryMissingHoldSeconds
+    #                               PRIMARY-LESS
+    # Before #6874 only the primary alias was probed, so "unreachable" really
+    # meant "no elected primary right now" — and a CNPG local failover inside
+    # a healthy region (hw307, 2026-09-07: one Pod of three lost, all five
+    # nodes Ready, CNPG started its own failover 98s later) outlasted the
+    # 120s hold and was answered with a cross-region promotion plus the
+    # whole demote / re-clone / switchback episode.
+    #
+    # FAST clock — the region-A-UNREACHABLE clock (local WAL stream absent
+    # AND no instance of region-A answers) must hold CONTINUOUSLY this long
+    # before the actor promotes. An intra-region primary restart/switchover
+    # reconnects in seconds and clears the clock; 120s auto-recovers a real
+    # region kill in ~2-4 min.
     primaryDownHoldSeconds: 120
+    # SLOW clock — the region-A-PRIMARY-LESS clock (the primary alias is dark
+    # but SOME instance of region-A still answers) must hold CONTINUOUSLY
+    # this long before the actor promotes. This state is CNPG's local
+    # failover in progress — its job, not ours — so the hold is sized for
+    # the slowest local failover observed (hw307: ~130s from primary loss to
+    # a new primary) with margin, while still failing over eventually if the
+    # surviving standbys never elect a primary at all. Never the fast hold:
+    # the actor's PRIMARY-LESS path reads THIS value only.
+    primaryMissingHoldSeconds: 600
     # #5178 startup grace — a freshly-(re)started replica still completing its
     # first catchup must NEVER trip the promote clock. Must exceed a normal
     # basebackup+catchup.

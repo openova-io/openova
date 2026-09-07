@@ -1,5 +1,22 @@
 apiVersion: v2
 name: bp-cnpg-pair
+# 0.2.26 (#6874 D2, Refs #5178 #3740 #5137): dr-promoter two-clock primary-loss
+# classification — the counterpart of bp-postgres 0.2.28. `-primary-mesh` is
+# selectorType rw (the PRIMARY only, #3740), so its pg_isready went dark whenever
+# region A had NO ELECTED PRIMARY, and a CNPG LOCAL failover inside a healthy
+# region (hw307, 2026-09-07 06:02-06:05Z, on bp-postgres's port of this actor:
+# one Pod of three lost, all nodes Ready, CNPG's failover 98s late) outlasted the
+# 120s hold and became a cross-region promotion. NEW `-primary-mesh-any`
+# ClusterMesh-global alias (cnpg.io/cluster only — EVERY instance;
+# any-mesh-service.yaml, standalone, BOTH sides) + cnpgPair.replica.autoPromote.
+# primaryMissingHoldSeconds (600): primary-dark + any-alive = "region-A ALIVE but
+# PRIMARY-LESS" waits the slow hold; primary-dark + any-dark = "region-A
+# UNREACHABLE (no instance answers)" keeps primaryDownHoldSeconds (120). The
+# WAL-receiver-absent, steady-state arm, failover-readiness, TL-divergence and
+# never-promote-while-the-peer-streams gates are unchanged. +1 Service per side
+# (counts 4->5 primary, 12->13 replica). tests/cnpg-pair-render.sh Case 24
+# (structure + the rendered scripts under fake kubectl/pg_isready + a virtual
+# clock). Lockstep slot 16b pin -> 0.2.26.
 # 0.2.25 (#6874 D1): dr-failback RE-CREATES the Cluster it DELETES. hw307
 # (2026-09-07 06:10-07:26Z, on bp-postgres's port of this actor): the divergence
 # escalation deleted region-A's Cluster for the re-clone, patched
@@ -402,7 +419,7 @@ name: bp-cnpg-pair
 # the post-mesh flip. Default-OFF contract UNCHANGED: cnpgPair.enabled=false OR
 # empty crossRegionPeerClusters renders ZERO CiliumNetworkPolicy — resource
 # counts unchanged from 0.2.8. Lockstep slot 16b pin → 0.2.9.
-version: 0.2.25
+version: 0.2.26
 appVersion: "0.2.1"
 description: |
   Catalyst-curated Blueprint for an active-hotstandby CNPG cluster-pair

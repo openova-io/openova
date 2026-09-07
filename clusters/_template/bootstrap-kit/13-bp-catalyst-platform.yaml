@@ -1523,7 +1523,10 @@ spec:
       #   check-bootstrap-kit-pin-sync.sh stays green.
       # 1.4.1649 — #6832: lockstep with the umbrella Chart.yaml bump (the catalog-seed
       #   card advances bp-kyverno-policies 1.0.52 -> 1.0.53). Pin bumped to match.
-      version: 1.4.1692
+      # 1.4.1693 — #6874 D2: lockstep with the umbrella Chart.yaml bump (the catalog-seed
+      #   cards advance bp-postgres 0.2.27 -> 0.2.28 and bp-cnpg-pair 0.2.25 -> 0.2.26:
+      #   the dr-promoter two-clock primary-loss classification + `-mesh-any` alias).
+      version: 1.4.1693
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

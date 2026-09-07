@@ -1598,6 +1598,36 @@ The deterministic failover test for two independent CNPG clusters:
       it (`forceAt` = `requestedAt`, as above).
    5. Confirm B streams from A: `pg_stat_wal_receiver` shows `streaming` and the
       Cluster reports `ConsistentSystemID=True`.
+   🛑 **#6874 D2 — a CNPG local failover is NOT a region kill (`bp-postgres`
+   ≥ 0.2.28 / `bp-cnpg-pair` ≥ 0.2.26).** The promoter's original liveness probe
+   was a `pg_isready` of `<instance>-mesh`, which selects
+   `cnpg.io/instanceRole: primary` ONLY — so it went dark whenever region A had
+   no ELECTED primary, not only when region A was gone. hw307 (2026-09-07
+   06:02–06:05Z): region A lost one Pod of a 3-instance cluster with all five
+   nodes Ready, CNPG's own failover started 98 s later (`Current primary isn't
+   healthy, initiating a failover`, then ~30 s of `Wrong target primary`), the
+   120 s `primaryDownHoldSeconds` expired first, and a single-Pod outage became
+   a cross-region promotion plus the whole demote / re-clone / switchback
+   sequence above. The promoter now probes a second, ALL-INSTANCES alias
+   `<instance>-mesh-any` (`cnpg.io/cluster` only, no role term; rendered in every
+   multi-region shape on both regions) and keeps TWO clocks:
+   - primary alias dark + ANY instance answers → actor log
+     `region-A ALIVE but PRIMARY-LESS Ns < 600s — local failover expected,
+     waiting`; only `topology.autoPromote.primaryMissingHoldSeconds` (default
+     600) runs, so CNPG's local failover is left to finish, while a region whose
+     standbys answer but never elect a primary still fails over eventually.
+   - primary alias dark + NOTHING answers → `region-A UNREACHABLE (no instance
+     answers) Ns < hold 120s — waiting`; the fast `primaryDownHoldSeconds` clock,
+     unchanged.
+   Sample which state held before reading a promotion as a region kill:
+   ```
+   kubectl --context <region-b> -n shared-data logs deploy/<instance>-dr-promoter -c actor | grep -E 'PRIMARY-LESS|UNREACHABLE|PROMOTING'
+   kubectl --context <region-b> -n shared-data get svc <instance>-mesh-any -o jsonpath='{.spec.selector}'   # cluster-only, no instanceRole
+   ```
+   The WAL-receiver-absent precondition, the steady-state arm, the
+   failover-readiness gate and the never-promote-while-the-peer-streams rule are
+   unchanged; the `dr-auto-promote-reason` annotation now names which clock
+   expired.
    🛑 **Timeline-divergence signal (#5220/#5245)**: the dr-promoter still
    records `catalyst.openova.io/dr-timeline-diverged-at` on the region-B HR
    when a side cannot stream from a REACHABLE peer — on ≥ 0.2.18 the wedge

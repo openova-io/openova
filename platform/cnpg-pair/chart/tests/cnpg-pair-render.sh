@@ -96,10 +96,12 @@ helm template smoke-cnpg-pair . \
 # Expect 1×Cluster (primary) + 1×ConfigMap (audit) + 1×NetworkPolicy
 # (replication ingress) + 1×Service (#5245 `-replica-mesh` stub — the
 # zero-backend local anchor for the reverse-direction global-service
-# merge) = 4 non-test kinds; helm-test Pod + SA + Role + RoleBinding =
-# 4 test kinds. The replication Service is CNPG-managed via the
-# primary Cluster's spec.managed.services.additional, so it is NOT a
-# kind in the rendered manifest.
+# merge) + 1×Service (#6874 D2 `-primary-mesh-any` — the ALL-INSTANCES
+# liveness alias, real local backends here) = 5 non-test kinds; helm-test
+# Pod + SA + Role + RoleBinding = 4 test kinds. The replication Service
+# is CNPG-managed via the primary Cluster's
+# spec.managed.services.additional, so it is NOT a kind in the rendered
+# manifest.
 count_resources() {
   python3 - "$1" <<'PYEOF'
 import sys, yaml
@@ -117,8 +119,8 @@ count_resources "$TMP/primary.yaml" > "$TMP/primary-counts" || {
 }
 NONTEST=$(grep -E '^NONTEST=' "$TMP/primary-counts" | cut -d= -f2)
 TEST=$(grep -E '^TEST=' "$TMP/primary-counts" | cut -d= -f2)
-if [ "$NONTEST" -ne 4 ] || [ "$TEST" -ne 4 ]; then
-  echo "FAIL: side=primary expected 4 non-test + 4 test resources, got $NONTEST + $TEST." >&2
+if [ "$NONTEST" -ne 5 ] || [ "$TEST" -ne 4 ]; then
+  echo "FAIL: side=primary expected 5 non-test + 4 test resources, got $NONTEST + $TEST." >&2
   grep -E "^kind: " "$TMP/primary.yaml" >&2
   exit 1
 fi
@@ -253,13 +255,14 @@ count_resources "$TMP/replica.yaml" > "$TMP/replica-counts" || {
 }
 NONTEST=$(grep -E '^NONTEST=' "$TMP/replica-counts" | cut -d= -f2)
 TEST=$(grep -E '^TEST=' "$TMP/replica-counts" | cut -d= -f2)
-# 1×Cluster (replica) + 1×Service (mesh stub) + 1×Deployment (probe)
-# + 2×NetworkPolicy = 5, plus the #5137 dr-promoter set (default-ON on
+# 1×Cluster (replica) + 1×Service (mesh stub) + 1×Service (#6874 D2
+# `-primary-mesh-any` stub, zero local backends) + 1×Deployment (probe)
+# + 2×NetworkPolicy = 6, plus the #5137 dr-promoter set (default-ON on
 # side=replica): 1×Deployment + 1×ServiceAccount + 2×Role +
-# 2×RoleBinding + 1×CiliumNetworkPolicy (egress) = 7 → 12 non-test;
+# 2×RoleBinding + 1×CiliumNetworkPolicy (egress) = 7 → 13 non-test;
 # helm-test renders on primary only.
-if [ "$NONTEST" -ne 12 ] || [ "$TEST" -ne 0 ]; then
-  echo "FAIL: side=replica expected 12 non-test + 0 test resources, got $NONTEST + $TEST." >&2
+if [ "$NONTEST" -ne 13 ] || [ "$TEST" -ne 0 ]; then
+  echo "FAIL: side=replica expected 13 non-test + 0 test resources, got $NONTEST + $TEST." >&2
   grep -E "^kind: " "$TMP/replica.yaml" >&2
   exit 1
 fi
@@ -328,7 +331,7 @@ grep -qE '^\s+- port: 9187' "$TMP/replica.yaml" || {
   echo "FAIL: replica-side NetworkPolicy missing the operator metrics port (9187)." >&2
   exit 1
 }
-echo "  PASS (12 non-test resources — 5 replica-half + 7 dr-promoter)"
+echo "  PASS (13 non-test resources — 6 replica-half + 7 dr-promoter)"
 
 # ── Case 4: side normalization + invalid side fail-fast ──────────
 echo "[render] Case 4: side=secondary aliases replica; invalid side fails fast"
@@ -763,7 +766,8 @@ grep -q 'kube-apiserver' "$TMP/replica.yaml" || {
 #    the upstream awk and fails the pipeline even on a match.)
 awk '/allow-probe-to-replica/{f=1} f' "$TMP/replica.yaml" | grep 'catalyst.openova.io/role: dr-promoter' >/dev/null || {
   echo "FAIL: #5137 allow-probe-to-replica must admit the dr-promoter signals container to 5432." >&2; exit 1; }
-# 10. autoPromote.enabled=false → the 0.2.12 replica set (5 non-test), no promoter.
+# 10. autoPromote.enabled=false → the 0.2.12 replica set (5 non-test) + the
+#     #6874 D2 `-primary-mesh-any` stub (6), no promoter.
 helm template smoke-cnpg-pair . \
   --set cnpgPair.enabled=true \
   --set cnpgPair.side=replica \
@@ -775,8 +779,8 @@ helm template smoke-cnpg-pair . \
   echo "FAIL: #5137 autoPromote-disabled render errored:" >&2; cat "$TMP/nopromoter.err" >&2; exit 1; }
 if grep -q 'dr-promoter' "$TMP/nopromoter.yaml"; then
   echo "FAIL: #5137 autoPromote.enabled=false must render ZERO dr-promoter resources." >&2; exit 1; fi
-if [ "$(grep -cE '^kind: ' "$TMP/nopromoter.yaml")" -ne 5 ]; then
-  echo "FAIL: #5137 autoPromote.enabled=false replica render must match the 0.2.12 set (5 non-test)." >&2
+if [ "$(grep -cE '^kind: ' "$TMP/nopromoter.yaml")" -ne 6 ]; then
+  echo "FAIL: #5137 autoPromote.enabled=false replica render must match the 0.2.12 set + the #6874 -primary-mesh-any stub (6 non-test)." >&2
   grep -E '^kind: ' "$TMP/nopromoter.yaml" >&2; exit 1; fi
 # 11. replication.mode=async → NO promoter (the sync-rep remote_apply +
 #     dataDurability:required fence is what makes automatic promotion
@@ -1672,5 +1676,219 @@ assert 'rm -f /shared/reclone-absent-since' in s[x:], "the watchdog must clear i
 assert len(CALL.findall(s))>=4, "expected >= 4 force_render calls (3 delete paths + the watchdog)"
 PYEOF
 echo "  PASS (forceAt=requestedAt helper · forced after recloned-at on rejoin + divergence + wedge · ~120s re-clone watchdog that stops when the CR is back)"
+
+# ── Case 24: #6874 D2 — two-clock primary-loss classification ─────────────────
+# The counterpart of bp-postgres 0.2.28 / postgres-render.sh Case 20e. hw307
+# (2026-09-07 06:02-06:05Z, on bp-postgres's port of this actor): region A lost
+# ONE instance of a 3-instance cluster inside a healthy region; `-primary-mesh` is
+# selectorType rw (the PRIMARY only, #3740), so the promoter's pg_isready read "no
+# elected primary right now" as "region A unreachable" and its single 120s hold
+# expired before CNPG's own local failover (98s to start, ~30s more to elect).
+# 0.2.26: a second, ALL-INSTANCES alias `-primary-mesh-any` (cnpg.io/cluster only,
+# NO role term) on both sides and a second, SLOW clock (primaryMissingHoldSeconds).
+echo "[render] Case 24: #6874 D2 -primary-mesh-any alias both sides + two-clock classification (PRIMARY-LESS waits the slow hold; UNREACHABLE keeps the fast hold) + scripted scenarios"
+
+# (a) STRUCTURE — both sides render the alias with the cluster-only selector and
+#     the global annotation; clusterMesh off renders none; a CONTROL sees the
+#     role term the primary side's managed -primary-mesh alias would carry.
+python3 - "$TMP/primary.yaml" "$TMP/replica.yaml" "$TMP/nomesh-primary.yaml" "$TMP/nomesh-replica.yaml" "$TMP/replica-peer.yaml" <<'PY' || { echo "FAIL: #6874 D2 -primary-mesh-any structural assertions failed." >&2; exit 1; }
+import sys, yaml
+pri, rep, nomesh_pri, nomesh_rep, rep_peer = sys.argv[1:6]
+def load(p): return [d for d in yaml.safe_load_all(open(p)) if isinstance(d, dict)]
+def sel(s): return ((s or {}).get("spec") or {}).get("selector") or {}
+docs = load(rep_peer)
+dep = [d for d in docs if d.get("kind") == "Deployment" and d["metadata"]["name"].endswith("-dr-promoter")][0]
+sig = [c for c in dep["spec"]["template"]["spec"]["containers"] if c["name"] == "signals"][0]
+env = {e["name"]: e.get("value") for e in sig["env"]}
+PRIMARY = env["PRIMARY_MESH_HOST"]; ANY = env.get("ANY_MESH_HOST")
+assert PRIMARY.endswith("-primary-mesh"), PRIMARY
+assert ANY == PRIMARY + "-any", f"ANY_MESH_HOST must be <fullname>-primary-mesh-any (templated), got {ANY!r}"
+CLUSTER = PRIMARY[:-len("-mesh")]  # <fullname>-primary
+fails = []
+for label, path in (("side=primary", pri), ("side=replica", rep)):
+    ds = load(path)
+    ss = [d for d in ds if d.get("kind") == "Service" and d["metadata"]["name"] == ANY]
+    if len(ss) != 1:
+        fails.append(f"{label}: expected exactly one Service {ANY}, got {len(ss)} — the promoter's all-instances probe would NXDOMAIN (rc=2) and the two-clock split collapses back to the hw307 single clock"); continue
+    s = ss[0]; sl = sel(s)
+    if sl != {"cnpg.io/cluster": CLUSTER}:
+        fails.append(f"{label}: {ANY} selector {sl} != cluster-only {{'cnpg.io/cluster': {CLUSTER!r}}} (a role term is the defect)")
+    ann = (s.get("metadata") or {}).get("annotations") or {}
+    if ann.get("service.cilium.io/global") != "true" or ann.get("service.cilium.io/affinity") != "local":
+        fails.append(f"{label}: {ANY} missing the ClusterMesh global/affinity annotations: {ann}")
+    ports = ((s.get("spec") or {}).get("ports") or [])
+    if [(p.get("port"), p.get("targetPort")) for p in ports] != [(5432, 5432)]:
+        fails.append(f"{label}: {ANY} ports {ports} != a single 5432/5432")
+    if "helm.sh/hook" in ann:
+        fails.append(f"{label}: {ANY} must not be a helm-test resource")
+for label, path in (("clusterMesh=off primary", nomesh_pri), ("clusterMesh=off replica", nomesh_rep)):
+    if any(d.get("kind") == "Service" and d["metadata"]["name"] == ANY for d in load(path)):
+        fails.append(f"{label}: {ANY} rendered with the mesh off (no mesh, no global alias)")
+# CONTROL — the checker can SEE a role-bearing selector: the primary Cluster's
+# managed -primary-mesh alias is selectorType rw (primary only).
+cl = [d for d in load(pri) if d.get("kind") == "Cluster"][0]
+add = ((cl["spec"].get("managed") or {}).get("services") or {}).get("additional") or []
+if not any(a.get("selectorType") == "rw" and a["serviceTemplate"]["metadata"]["name"] == PRIMARY for a in add):
+    fails.append("CONTROL FAILED: the managed -primary-mesh alias is no longer selectorType rw — the 'cluster-only selector' verdict above proves nothing")
+if fails:
+    for f in fails: sys.stderr.write("  FAIL #6874 D2: " + f + "\n")
+    sys.exit(1)
+print(f"  ok: {ANY} renders on both sides (cluster-only selector, global+affinity, 5432), none with the mesh off; control sees selectorType rw on {PRIMARY}")
+PY
+
+# (b) SCRIPTS + ENV — from the liveness-ON replica render (crossRegionPeerClusters set).
+python3 - "$TMP/replica-peer.yaml" "$TMP/sig24.sh" "$TMP/act24.sh" "$TMP/env24.sh" <<'PY' || { echo "FAIL: #6874 D2 could not extract the dr-promoter scripts/env." >&2; exit 1; }
+import sys, yaml, shlex
+src, sig_out, act_out, env_out = sys.argv[1:5]
+docs = [d for d in yaml.safe_load_all(open(src)) if isinstance(d, dict)]
+dep = [d for d in docs if d.get("kind") == "Deployment" and d["metadata"]["name"].endswith("-dr-promoter")][0]
+cs = {c["name"]: c for c in dep["spec"]["template"]["spec"]["containers"]}
+open(sig_out, "w").write(cs["signals"]["args"][0]); open(act_out, "w").write(cs["actor"]["args"][0])
+env = {}
+for c in ("signals", "actor"):
+    for e in cs[c].get("env", []):
+        if "value" in e: env[e["name"]] = e["value"]
+assert env["PRIMARY_LIVENESS_ENABLED"] == "true", env
+assert env["HOLD_SECONDS"] == "120", env
+assert env["PRIMARY_MISSING_HOLD_SECONDS"] == "600", f"primaryMissingHoldSeconds must default 600, got {env.get('PRIMARY_MISSING_HOLD_SECONDS')!r}"
+assert env["PRIMARY_MISSING_HOLD_SECONDS"] != env["HOLD_SECONDS"], "the two holds must be distinct knobs"
+with open(env_out, "w") as f:
+    for k, v in env.items(): f.write(f"export {k}={shlex.quote(str(v))}\n")
+PY
+sh -n "$TMP/sig24.sh" || { echo "FAIL: #6874 D2 signals script is not valid POSIX shell." >&2; exit 1; }
+sh -n "$TMP/act24.sh" || { echo "FAIL: #6874 D2 actor script is not valid POSIX shell." >&2; exit 1; }
+grep -q 'pg_isready -h "${PRIMARY_MESH_HOST}"' "$TMP/sig24.sh" || { echo "FAIL: #6874 D2 signals lost the primary-alias probe." >&2; exit 1; }
+grep -q 'pg_isready -h "${ANY_MESH_HOST}"' "$TMP/sig24.sh" || { echo "FAIL: #6874 D2 signals does not probe the all-instances alias." >&2; exit 1; }
+grep -q '/shared/primary-missing-since' "$TMP/sig24.sh" || { echo "FAIL: #6874 D2 signals has no primary-missing clock file." >&2; exit 1; }
+grep -q 'region-A ALIVE but PRIMARY-LESS' "$TMP/sig24.sh" || { echo "FAIL: #6874 D2 signals does not name the PRIMARY-LESS state." >&2; exit 1; }
+python3 - "$TMP/sig24.sh" <<'PY' || { echo "FAIL: #6874 D2 signals probe ordering / clear_clock assertion failed." >&2; exit 1; }
+import sys
+s = open(sys.argv[1]).read()
+p = s.find('pg_isready -h "${PRIMARY_MESH_HOST}"'); a = s.find('pg_isready -h "${ANY_MESH_HOST}"'); rc2 = s.find('"${RC}" -eq 2')
+assert -1 < p < rc2 < a, "the all-instances probe must run only after the primary alias returned rc=2"
+cc = s[s.find('clear_clock() {'):s.find('\n              }', s.find('clear_clock() {'))]
+assert 'primary-missing-since' in cc and 'primary-wal-down-since' in cc, "clear_clock must clear both clocks"
+# the REACHABLE branch (which keeps the #5220 fault clock) must still drop BOTH promote clocks
+r = s.find('region-A REACHABLE — replication fault'); assert r != -1
+assert 'rm -f /shared/primary-wal-down-since /shared/primary-missing-since' in s[r:r+400], "the reachable-primary branch must clear both promote clocks"
+PY
+grep -q 'region-A ALIVE but PRIMARY-LESS ${MISSING_FOR}s < ${PRIMARY_MISSING_HOLD_SECONDS}s — local failover expected, waiting' "$TMP/act24.sh" \
+  || { echo "FAIL: #6874 D2 actor missing the PRIMARY-LESS waiting line keyed on PRIMARY_MISSING_HOLD_SECONDS." >&2; exit 1; }
+grep -q 'region-A UNREACHABLE (no instance answers) ${DOWN_FOR}s < hold ${HOLD_SECONDS}s — waiting' "$TMP/act24.sh" \
+  || { echo "FAIL: #6874 D2 actor missing the UNREACHABLE waiting line keyed on HOLD_SECONDS." >&2; exit 1; }
+if grep 'PRIMARY-LESS' "$TMP/act24.sh" | grep -qF '${HOLD_SECONDS}'; then
+  echo "FAIL: #6874 D2 the PRIMARY-LESS path references the FAST hold — that is the hw307 defect." >&2; exit 1; fi
+helm template smoke-cnpg-pair . \
+  --set cnpgPair.enabled=true --set cnpgPair.side=replica \
+  --set cnpgPair.primary.region=hz-fsn-rtz-prod --set cnpgPair.replica.region=hz-hel-rtz-prod \
+  --set cnpgPair.image.tag=16.3-23 --set cnpgPair.replica.autoPromote.primaryMissingHoldSeconds=900 \
+  > "$TMP/replica-900.yaml" 2>&1 || { echo "FAIL: #6874 D2 primaryMissingHoldSeconds override render errored." >&2; exit 1; }
+grep -q 'name: PRIMARY_MISSING_HOLD_SECONDS' "$TMP/replica-900.yaml" || { echo "FAIL: #6874 D2 PRIMARY_MISSING_HOLD_SECONDS env missing." >&2; exit 1; }
+awk '/name: PRIMARY_MISSING_HOLD_SECONDS/{getline; print}' "$TMP/replica-900.yaml" | grep -q '"900"' || { echo "FAIL: #6874 D2 primaryMissingHoldSeconds is not an independent knob." >&2; exit 1; }
+awk '/name: HOLD_SECONDS/{getline; print}' "$TMP/replica-900.yaml" | grep -q '"120"' || { echo "FAIL: #6874 D2 the fast hold moved with the slow knob." >&2; exit 1; }
+echo "  ok: signals probes -primary-mesh then -primary-mesh-any inside the rc=2 branch; actor keys PRIMARY-LESS on PRIMARY_MISSING_HOLD_SECONDS (600, independent) and UNREACHABLE on HOLD_SECONDS (120)"
+
+# (c) SCENARIOS — the rendered scripts under fake psql/pg_isready/kubectl and a
+#     VIRTUAL clock (fake date+sleep); /shared rewritten to a temp dir.
+FAKE="$TMP/fake24"; mkdir -p "$FAKE/bin"; export FAKE
+cat > "$FAKE/bin/psql" <<'EOF'
+#!/bin/sh
+echo noreceiver
+EOF
+cat > "$FAKE/bin/pg_isready" <<'EOF'
+#!/bin/sh
+H=""
+while [ $# -gt 0 ]; do case "$1" in -h) H="$2"; shift;; esac; shift; done
+echo "$H" >> "$FAKE/probes.log"
+case "$H" in
+  "$ANY_MESH_HOST") exit "$(cat "$FAKE/any_rc")";;
+  "$PRIMARY_MESH_HOST") exit "$(cat "$FAKE/primary_rc")";;
+  *) exit 3;;
+esac
+EOF
+cat > "$FAKE/bin/date" <<'EOF'
+#!/bin/sh
+C=$(cat "$FAKE/clock")
+for a in "$@"; do case "$a" in +%s) echo "$C"; exit 0;; esac; done
+echo "T+${C}s"
+EOF
+cat > "$FAKE/bin/sleep" <<'EOF'
+#!/bin/sh
+C=$(cat "$FAKE/clock"); C=$((C + ${1:-0})); echo "$C" > "$FAKE/clock"
+if [ "$C" -ge "$(cat "$FAKE/limit")" ]; then kill -TERM "$PPID" 2>/dev/null; exit 99; fi
+exit 0
+EOF
+cat > "$FAKE/bin/kubectl" <<'EOF'
+#!/bin/sh
+A="$*"
+echo "$A" >> "$FAKE/kubectl.log"
+case "$A" in
+  *"patch helmrelease"*)
+    echo "$A" >> "$FAKE/patches.log"
+    case "$A" in *'"promoted":true'*) : > "$FAKE/promoted";; esac
+    case "$A" in *'"suspend":true'*) : > "$FAKE/suspended";; esac
+    exit 0;;
+  *"{.spec.suspend}"*) [ -f "$FAKE/suspended" ] && printf 'true'; exit 0;;
+  *"replica.promoted}"*) [ -f "$FAKE/promoted" ] && printf 'true'; exit 0;;
+  *"{.spec.replica.enabled}"*) if [ -f "$FAKE/promoted" ]; then printf 'false'; else printf 'true'; fi; exit 0;;
+  *"get pod"*) printf 'True'; exit 0;;
+esac
+exit 0
+EOF
+chmod +x "$FAKE"/bin/*
+run24() { echo "$2" > "$FAKE/limit"
+  ( export PATH="$FAKE/bin:$PATH"; . "$TMP/env24.sh"; export STARTUP_GRACE_SECONDS=0 PROBE_TIMEOUT=1 NAMESPACE=cnpg-pair HOME="$FAKE" PROMOTE_RENDER_WAIT_SECONDS=5
+    timeout 60 sh "$FAKE/$1" ) > "$3" 2>&1 || true; }
+reset24() { rm -rf "$FAKE/shared" "$FAKE/promoted" "$FAKE/suspended" "$FAKE/patches.log" "$FAKE/probes.log" "$FAKE/kubectl.log"
+  mkdir -p "$FAKE/shared"; echo "$1" > "$FAKE/primary_rc"; echo "$2" > "$FAKE/any_rc"; echo "$3" > "$FAKE/clock"; }
+sed "s#/shared#$FAKE/shared#g" "$TMP/sig24.sh" > "$FAKE/sig.sh"
+sed "s#/shared#$FAKE/shared#g" "$TMP/act24.sh" > "$FAKE/act.sh"
+reset24 2 0 4242
+( export PATH="$FAKE/bin:$PATH"; [ "$(date -u +%s)" = "4242" ] ) || { echo "FAIL: #6874 D2 harness: fake date not in effect." >&2; exit 1; }
+# (c1) hw307 shape — primary dark, an instance answers, 200s: no promotion.
+reset24 2 0 0
+run24 sig.sh 200 "$FAKE/sig-a.log"
+[ -f "$FAKE/shared/primary-missing-since" ] || { echo "FAIL: #6874 D2 (c1) primary dark + any alive must start the primary-missing clock." >&2; exit 1; }
+[ ! -f "$FAKE/shared/primary-wal-down-since" ] || { echo "FAIL: #6874 D2 (c1) primary dark + any alive must NOT arm the unreachable clock — the hw307 defect." >&2; exit 1; }
+grep -q -- '-primary-mesh-any' "$FAKE/probes.log" || { echo "FAIL: #6874 D2 (c1) the all-instances alias was never probed." >&2; exit 1; }
+: > "$FAKE/shared/armed"
+run24 act.sh 230 "$FAKE/act-a.log"
+grep -q 'region-A ALIVE but PRIMARY-LESS 200s < 600s — local failover expected, waiting' "$FAKE/act-a.log" \
+  || { cat "$FAKE/act-a.log" >&2; echo "FAIL: #6874 D2 (c1) actor must wait in the PRIMARY-LESS state at 200s against the 600s hold." >&2; exit 1; }
+if grep -q 'PROMOTING' "$FAKE/act-a.log" || [ -f "$FAKE/patches.log" ]; then
+  cat "$FAKE/act-a.log" >&2; echo "FAIL: #6874 D2 (c1) actor PROMOTED on a primary-less-but-alive region at 200s." >&2; exit 1; fi
+echo 610 > "$FAKE/clock"
+run24 act.sh 630 "$FAKE/act-a2.log"
+grep -q 'PROMOTING: region-A WAL stream absent AND region-A primary-less 610s >= 600s' "$FAKE/act-a2.log" \
+  || { cat "$FAKE/act-a2.log" >&2; echo "FAIL: #6874 D2 (c1b) actor must promote on the primary-less path once primaryMissingHoldSeconds expires." >&2; exit 1; }
+grep -qF '"promoted":true' "$FAKE/patches.log" || { echo "FAIL: #6874 D2 (c1b) promote patch not recorded." >&2; exit 1; }
+# (c2) real region kill — nothing answers, 130s: the fast hold promotes.
+reset24 2 2 0
+run24 sig.sh 130 "$FAKE/sig-b.log"
+[ -f "$FAKE/shared/primary-wal-down-since" ] || { echo "FAIL: #6874 D2 (c2) both aliases dark must arm the unreachable clock." >&2; exit 1; }
+grep -q 'region-A UNREACHABLE (no instance answers' "$FAKE/sig-b.log" || { echo "FAIL: #6874 D2 (c2) signals did not name the UNREACHABLE state." >&2; exit 1; }
+: > "$FAKE/shared/armed"
+echo 100 > "$FAKE/clock"
+run24 act.sh 110 "$FAKE/act-b0.log"
+grep -q 'region-A UNREACHABLE (no instance answers) 100s < hold 120s — waiting' "$FAKE/act-b0.log" \
+  || { cat "$FAKE/act-b0.log" >&2; echo "FAIL: #6874 D2 (c2) actor must still wait at 100s < 120s on the unreachable clock." >&2; exit 1; }
+[ ! -f "$FAKE/patches.log" ] || { echo "FAIL: #6874 D2 (c2) actor promoted BEFORE the fast hold expired." >&2; exit 1; }
+echo 130 > "$FAKE/clock"
+run24 act.sh 150 "$FAKE/act-b.log"
+grep -q 'PROMOTING: region-A WAL stream absent AND region-A unreachable (no instance answers) 130s >= 120s' "$FAKE/act-b.log" \
+  || { cat "$FAKE/act-b.log" >&2; echo "FAIL: #6874 D2 (c2) actor must promote on the unreachable path at 130s >= 120s." >&2; exit 1; }
+grep -qF '"promoted":true' "$FAKE/patches.log" || { echo "FAIL: #6874 D2 (c2) promote patch not recorded." >&2; exit 1; }
+# (c3) partial recovery — both dark 60s, then a standby answers: fast clock cleared, slow anchor kept.
+reset24 2 2 0
+run24 sig.sh 60 "$FAKE/sig-c.log"
+echo 0 > "$FAKE/any_rc"
+run24 sig.sh 100 "$FAKE/sig-c2.log"
+[ ! -f "$FAKE/shared/primary-wal-down-since" ] || { echo "FAIL: #6874 D2 (c3) an answering instance must clear the unreachable clock." >&2; exit 1; }
+[ "$(cat "$FAKE/shared/primary-missing-since")" = "0" ] || { echo "FAIL: #6874 D2 (c3) the primary-missing clock must keep its anchor across the partial recovery." >&2; exit 1; }
+echo 0 > "$FAKE/primary_rc"
+run24 sig.sh 120 "$FAKE/sig-c3.log"
+[ ! -f "$FAKE/shared/primary-missing-since" ] && [ ! -f "$FAKE/shared/primary-wal-down-since" ] \
+  || { echo "FAIL: #6874 D2 (c4) a reachable primary must clear both clocks." >&2; exit 1; }
+echo "  PASS (-primary-mesh-any both sides · two probes · two clocks · PRIMARY-LESS never reads the fast hold · scripted: c1 no-promote@200s + promote@610s, c2 promote@130s, c3 partial recovery keeps the slow anchor, c4 reachable primary clears both)"
 
 echo "[render] All bp-cnpg-pair render gates green."

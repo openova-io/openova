@@ -482,6 +482,38 @@ host needs no change on failover.
 {{- end -}}
 
 {{/*
+ClusterMesh-global ALL-INSTANCES liveness alias `<instance>-mesh-any` (#6874 D2).
+
+`<instance>-mesh` selects `cnpg.io/instanceRole: primary` ONLY (selectorType rw,
+#5473 — the replication source MUST be the primary's walsender). That is the
+right selector for the WAL stream and the WRONG one for a liveness probe: the
+alias goes dark whenever the named cluster has NO ELECTED PRIMARY, which is
+exactly the window of a CNPG local failover inside a healthy region. Measured
+on hw307 (2026-09-07 06:02-06:05Z): region A lost ONE instance of a 3-instance
+cluster with all five nodes Ready; CNPG's own failover started 98s later and
+spent another ~30s on "Wrong target primary"; the region-B promoter's 120s
+primaryDownHoldSeconds expired first and cross-region-promoted, dragging the
+pair through demote / re-clone / switchback for a single-Pod outage.
+
+This alias selects `cnpg.io/cluster: <instance>` with NO role term, so it has
+backends as long as ANY instance of the named cluster answers. The dr-promoter
+probes BOTH aliases and classifies:
+  primary-dark + any-alive  => region A ALIVE but PRIMARY-LESS (local failover
+                               in progress) — the SLOW primaryMissingHoldSeconds
+                               clock, so a region whose standbys answer but never
+                               elect a primary still fails over eventually;
+  primary-dark + any-dark   => region A UNREACHABLE — the existing FAST
+                               primaryDownHoldSeconds clock.
+Rendered as a standalone Service on EVERY side and shape (any-mesh-service.yaml):
+the name is not CNPG-reserved and the selector never has to follow the primary,
+so it needs no managed.services entry and resolves in every shape (steady /
+pre-flip / promoted / demoted) by construction.
+*/}}
+{{- define "bp-postgres.anyServiceName" -}}
+{{- printf "%s-mesh-any" (include "bp-postgres.instanceName" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{/*
 Is the pair CURRENTLY failed over to region-B? (#6753)
 
 The #6149 AUTOMATIC DR path does NOT switch the pair in place — it PROMOTES the

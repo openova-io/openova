@@ -136,7 +136,13 @@ spec:
   # rebooted-region datapath shape, #5339), the actor records
   # dr-failback-starved-at + reason on the HR instead of idling silently at D0
   # while a split-brain persists. Script + env + value only.
-  version: 0.2.25
+  # 0.2.26 (#6874 D2): dr-promoter two-clock primary-loss classification —
+  # `-primary-mesh` is the primary-only alias, so it went dark with no elected
+  # primary and a CNPG LOCAL failover (hw307, on bp-postgres's port of this actor)
+  # outlasted the 120s hold. New `-primary-mesh-any` all-instances alias (both
+  # sides) + autoPromote.primaryMissingHoldSeconds (600s) for "region-A alive but
+  # primary-less"; "no instance answers" keeps the 120s hold. +1 Service per side.
+  version: 0.2.26
   card:
     title: CNPG Cluster-Pair (Active-Hotstandby DR)
     summary: |

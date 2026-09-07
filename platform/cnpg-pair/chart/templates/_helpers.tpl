@@ -163,6 +163,27 @@ directly to the right object) rather than as a standalone template.
 {{- end }}
 
 {{/*
+ALL-INSTANCES liveness alias `<fullname>-primary-mesh-any` (#6874 D2).
+
+`-primary-mesh` is selectorType rw — the PRIMARY instance only (#3740: the
+cross-region replica must stream from the primary's walsender). Right for the
+WAL stream, wrong as the promoter's only liveness signal: it goes dark whenever
+the primary Cluster has NO ELECTED PRIMARY, i.e. during CNPG's own local
+failover inside a healthy region (hw307, 2026-09-07, on bp-postgres's port of
+this promoter: one Pod of three lost, all nodes Ready, and the 120s hold expired
+before CNPG's failover finished). This alias selects `cnpg.io/cluster:
+<fullname>-primary` with NO role term, so it answers while ANY instance is up;
+the promoter probes both and runs the SLOW primaryMissingHoldSeconds clock when
+the primary is dark but an instance answers, the FAST primaryDownHoldSeconds
+clock only when nothing answers. Standalone Service on both sides
+(any-mesh-service.yaml) — the name is not CNPG-reserved and the selector never
+has to follow the primary.
+*/}}
+{{- define "cnpg-pair.anyServiceName" -}}
+{{- printf "%s-primary-mesh-any" (include "cnpg-pair.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end }}
+
+{{/*
 Peer replication Service name (#5245) — the REVERSE-direction mesh
 alias: region-A reaches region-B's writable (promoted) primary through
 `<fullname>-replica-mesh`. Declared via the replica Cluster CR's
