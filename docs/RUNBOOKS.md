@@ -1564,6 +1564,40 @@ The deterministic failover test for two independent CNPG clusters:
    `SOVEREIGN_SHARED_PG{,_B,_C}_DEMOTED` for slots 16a/16c/16d → `"false"` on
    each region's bootstrap-kit Kustomization) during a maintenance window —
    automate via the CNPG demotion-token handshake is follow-up on #5245.
+   🛑 **#6874 D1 — a Cluster the failback actor deletes is NOT re-created by a
+   plain reconcile request.** hw307 (2026-09-07 06:10–07:26Z): the divergence
+   escalation deleted region A's `shared-pg` for the re-clone and patched only
+   `dr-failback-recloned-at`; the HR's stored release already held the demoted
+   manifest, so helm-controller answered `release in-sync with desired state`
+   and `shared-pg-rw` stayed absent for 75 min (Gitea, Harbor, Keycloak down,
+   every umbrella upgrade hung). `bp-postgres` ≥ 0.2.27 / `bp-cnpg-pair` ≥ 0.2.25
+   force the render themselves after every delete and re-force every ~120 s
+   while the Cluster is absent (`RE-CLONE PENDING` … `RE-CLONE RENDERED` in the
+   actor log). The manual recovery, and what the actor now does:
+   ```
+   T=$(date -u +%s); kubectl --context <region-a> -n flux-system annotate helmrelease bp-postgres-shared \
+     reconcile.fluxcd.io/forceAt=$T reconcile.fluxcd.io/requestedAt=$T --overwrite
+   ```
+   `forceAt` must EQUAL `requestedAt`; helm-controller then runs a forced
+   upgrade that re-creates the missing Cluster from the release manifest.
+
+   **Executable switchback — the sequence that worked on hw307 (2026-09-07),
+   per pair (`<instance>` = `shared-pg` / `-b` / `-c`, cnpg-pair likewise).**
+   `topology.promoted: false` alone CANNOT demote a CNPG primary in place — the
+   pair rides the legacy `replica.enabled` API, which has no demotion token — so
+   region B is re-cloned from region A:
+   1. Fence region B so it stops accepting writes:
+      `kubectl --context <region-b> -n shared-data annotate cluster <instance>-replica cnpg.io/fencedInstances='["*"]'`.
+   2. Verify region A has replayed everything B ever wrote: A's
+      `pg_last_wal_replay_lsn()` ≥ B's last `pg_current_wal_lsn()`.
+   3. Set `SOVEREIGN_SHARED_PG{,_B,_C}_DEMOTED=false` (`SOVEREIGN_CNPG_PAIR_DEMOTED`
+      for slot 16b) on region A's bootstrap-kit Kustomization
+      (`spec.postBuild.substitute`) and wait for `pg_is_in_recovery()=false` on A.
+   4. Delete B's Cluster (`<instance>-replica`), set B's HelmRelease
+      `spec.suspend=false` and `spec.values.topology.promoted=false`, then force
+      it (`forceAt` = `requestedAt`, as above).
+   5. Confirm B streams from A: `pg_stat_wal_receiver` shows `streaming` and the
+      Cluster reports `ConsistentSystemID=True`.
    🛑 **Timeline-divergence signal (#5220/#5245)**: the dr-promoter still
    records `catalyst.openova.io/dr-timeline-diverged-at` on the region-B HR
    when a side cannot stream from a REACHABLE peer — on ≥ 0.2.18 the wedge

@@ -2058,6 +2058,69 @@ for absent in "$TMP/failback-replica.yaml" "$TMP/failback-singleton.yaml" "$TMP/
 done
 echo "  PASS (#6148 ingressDeny on 5432 · purely subtractive · failback Pod and replication exempt · endpoint-identity not CIDR · armed at detection, swept on every abort · non-fatal · RBAC bounded · absent with the chain)"
 
+
+# ── Case 21h: #6874 D1 — a Cluster the actor DELETES is RE-CREATED (forced HR render + watchdog) ──
+#
+# hw307 (2026-09-07 06:10-07:26Z): the divergence escalation deleted region-A's
+# shared-pg for the re-clone and recorded dr-failback-recloned-at — and nothing
+# re-created the Cluster for 75 minutes (shared-pg-rw gone: gitea, harbor,
+# keycloak down, every umbrella upgrade hung). The annotation is not a flux
+# trigger, and the HR's STORED release already held the demoted manifest, so
+# helm-controller answered every reconcile with "release in-sync with desired
+# state" and applied nothing. The recovery that worked was a FORCED reconcile:
+# reconcile.fluxcd.io/forceAt + requestedAt carrying the SAME epoch.
+#
+# Asserted on the actor script the Deployment actually runs, not on template
+# text. The literal annotation key lives in ONE helper (nudge()-style), so the
+# per-path proof is the CALL that follows each recloned-at record — a helper
+# nobody calls would pass a bare grep and fix nothing.
+echo "[render] Case 21h: #6874 every re-clone delete FORCES the HR render (forceAt=requestedAt) + ~120s re-clone watchdog"
+[ "$(grep -c 'reconcile.fluxcd.io/forceAt' "$TMP/failback.yaml")" -ge 2 ] \
+  || fail "#6874 the rendered dr-failback actor never annotates reconcile.fluxcd.io/forceAt — a deleted Cluster is never re-created (hw307: 75 min without shared-pg-rw)"
+python3 - "$TMP/failback.yaml" <<'PYEOF' || fail "#6874 forced-render / re-clone-watchdog assertions failed"
+import sys, re, yaml
+docs=[d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+dep=[d for d in docs if d.get('kind')=='Deployment' and 'dr-failback' in d['metadata']['name']][0]
+s=[c for c in dep['spec']['template']['spec']['containers'] if c['name']=='actor'][0]['args'][0]
+CALL=re.compile(r'^\s*force_render\s*$', re.M)
+# (a) the helper: forceAt AND requestedAt from ONE epoch, --overwrite, the
+#     actor's own field manager, non-fatal, and it says so.
+i=s.find('force_render() {'); assert i!=-1, "actor missing the force_render helper"
+body=s[i:s.find('\n}', i)]
+m=re.search(r'reconcile\.fluxcd\.io/forceAt=\$\{(\w+)\}', body)
+assert m, "force_render must annotate reconcile.fluxcd.io/forceAt=<epoch>"
+assert 'reconcile.fluxcd.io/requestedAt=${%s}' % m.group(1) in body, \
+    "forceAt and requestedAt must carry the SAME epoch — helm-controller honours forceAt only when it equals requestedAt"
+assert '--overwrite' in body and '${FM}' in body, "force_render must --overwrite under the dr-failback field manager"
+assert '|| true' in body, "force_render must be non-fatal (a failed annotate must not abort the tick)"
+assert 'FORCE REQUESTED' in body, "force_render must log that the force was requested"
+# (b) EVERY bounded Cluster delete records recloned-at and THEN forces, before
+#     its tick exits — the rejoin delete, the divergence escalation and the
+#     wedge escalation. recloned-at alone is not a flux trigger.
+deletes=[x.start() for x in re.finditer(r'delete clusters\.postgresql\.cnpg\.io "\$\{PRIMARY_CLUSTER\}"', s)]
+assert len(deletes)==3, f"expected the 3 bounded Cluster deletes (rejoin + divergence + wedge), got {len(deletes)}"
+for d in deletes:
+    blk=s[d:s.find('exit 0', d)]
+    r=blk.find('dr-failback-recloned-at')
+    assert r!=-1, "a Cluster delete must record dr-failback-recloned-at before its tick exits"
+    assert CALL.search(blk[r:]), "the forced render must FOLLOW the dr-failback-recloned-at record on every re-clone path"
+for tag in ('DIVERGENCE ESCALATION','WEDGE ESCALATION'):
+    t=s.find(tag); assert t!=-1, f"actor missing {tag}"
+    assert CALL.search(s[t:s.find('exit 0', t)]), f"{tag} deletes the Cluster without forcing the HR render"
+# (c) the watchdog: in the Cluster-absent branch, keyed on the recloned-at
+#     record, re-FORCES (never merely nudges) on a ~120s clock, and stops
+#     loudly when the CR is back.
+w=s.find('RE-CLONE PENDING: Cluster absent'); assert w!=-1, "actor missing the re-clone watchdog"
+a=s.find('"${CR_JSON}" = "__absent__"'); assert a!=-1 and a<w, "the watchdog must live in the Cluster-absent branch"
+assert 'RECLONED_AT' in s[a:w], "the watchdog must key on the dr-failback-recloned-at record (absent + recloned = a delete helm never followed)"
+assert CALL.search(s[w:s.find('exit 0', w)]), "the watchdog must re-FORCE, not merely nudge (a requestedAt nudge is exactly what did nothing on hw307)"
+assert 'reclone-forced' in s[a:w] and '-mmin +2' in s[a:w], "the watchdog must rate-limit re-forces to ~120s via a /shared clock file"
+x=s.find('RE-CLONE RENDERED'); assert x>w, "the watchdog must log once and stop when the Cluster exists again"
+assert 'rm -f /shared/reclone-absent-since' in s[x:], "the watchdog must clear its clocks when it stops"
+assert len(CALL.findall(s))>=4, "expected >= 4 force_render calls (3 delete paths + the watchdog)"
+PYEOF
+echo "  PASS (forceAt=requestedAt helper · forced after recloned-at on rejoin + divergence + wedge · ~120s re-clone watchdog that stops when the CR is back)"
+
 # ── Case 4i: #6796 — the PRE-FLIP secondary stub must select ZERO local Pods ──────
 #
 # Case 4d pins that the pre-flip secondary renders the -mesh/-mesh-rw STUBS and

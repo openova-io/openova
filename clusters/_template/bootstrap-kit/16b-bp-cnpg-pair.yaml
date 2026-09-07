@@ -323,7 +323,7 @@ spec:
       # shape, #5339), the actor records dr-failback-starved-at + reason on the
       # HR instead of idling silently at D0 while a split-brain persists.
       # Diagnostic only; substitutes unchanged.
-      version: 0.2.24
+      version: 0.2.25
       sourceRef:
         kind: HelmRepository
         name: bp-cnpg-pair

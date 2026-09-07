@@ -214,7 +214,7 @@ spec:
       #   no Pod carries → zero local backends by construction → the baked
       #   `shared-pg-mesh-rw` host crosses the mesh to region A's shared-pg as
       #   designed. Every other render byte-identical. Lockstep 16a/16c/16d.
-      version: 0.2.26
+      version: 0.2.27
       sourceRef:
         kind: HelmRepository
         name: bp-postgres

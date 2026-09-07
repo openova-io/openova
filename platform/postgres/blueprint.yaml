@@ -63,7 +63,13 @@ spec:
   #   throwaway DB → keycloak 28P01 (hw307). In that window the stub selector now
   #   carries a term no Pod carries → zero local backends by construction → cross-
   #   mesh to region A. Every other render byte-identical.
-  version: 0.2.26
+  # 0.2.27 — #6874 D1 (Refs #6149 #5245): a Cluster the dr-failback actor deletes
+  #   for the re-clone is now RE-CREATED — the actor forces the HR render
+  #   (reconcile.fluxcd.io/forceAt = requestedAt) right after every recloned-at
+  #   record and re-forces every ~120s while the Cluster is absent. hw307: the
+  #   annotation alone left shared-pg-rw absent on region A for 75 min because the
+  #   HR's stored release already held the demoted manifest ("in-sync"). Script-only.
+  version: 0.2.27
   card:
     title: PostgreSQL
     summary: |
