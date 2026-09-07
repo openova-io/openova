@@ -131,8 +131,10 @@ vi.mock('../lib/useQuery', () => {
       { id: 'r2', name: 'ACME month-end', customer_id: 'c1', customer_name: 'ACME LLC', cadence: 'monthly', day_of_week: null, day_of_month: 1, hour_utc: 7, recipients: ['fin@acme.example'], sections: ['summary', 'budgets'], active: false, last_sent_at: null, next_at: '2099-10-01T07:00:00Z', sent_30d: 1, failed_30d: 1, last_error: '550 relay refused' },
     ],
   }
+  const currencies = { reporting_currency: 'OMR', rates: [{ code: 'USD', per_base: 2.6, source: 'manual', updated_at: '2026-09-01T00:00:00Z' }] }
   const docFor = (path: string): unknown => {
     if (path === '/customers') return customers
+    if (path === '/currencies') return currencies
     if (path.includes('/resources/src1/srv-1?')) return resource
     if (path.includes('/cost/dimensions?')) return dimensions
     if (path === '/reports/schedules') return schedules
@@ -182,6 +184,13 @@ describe('configure + bill pages render their documents', () => {
     expect(html).toContain('billed as running')
     expect(html).toContain('Clone')
     expect(html).toContain('Delete')
+    // The Currencies card: reporting currency, the USD rate both ways, add/edit.
+    expect(html).toContain('Currencies')
+    expect(html).toContain('reporting currency')
+    expect(html).toContain('>USD<')
+    expect(html).toContain('2.6')
+    expect(html).toContain('0.384615 OMR')
+    expect(html).toContain('Add currency')
   })
   it('Price book detail: settings line, coverage with an unpriced SKU, editable items', () => {
     const html = render(PriceBookEdit, '/pricebooks/:id', '/pricebooks/pb1')

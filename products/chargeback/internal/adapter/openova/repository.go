@@ -24,6 +24,9 @@ type Repository interface {
 	SetSourceFailed(ctx context.Context, sourceID, lastError string) error
 	SetSourceCollected(ctx context.Context, sourceID string, at time.Time) error
 	UpsertUsage(ctx context.Context, recs []store.UsageRecord) (int, error)
+	// EnsurePlanBook returns the "OpenOva plans" rate card, creating it when
+	// absent (DESIGN.md §2.8 "Plan revenue"); created reports a fresh book.
+	EnsurePlanBook(ctx context.Context) (pb store.PriceBook, created bool, err error)
 }
 
 var _ Repository = (*store.Store)(nil)

@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const customerColumns = `c.id, c.slug, c.name, c.admin_email, c.kind, c.org_slug, c.price_book_id, c.billing_mode, c.status, c.start_date, c.created_at, c.updated_at,
+const customerColumns = `c.id, c.slug, c.name, c.admin_email, c.kind, c.org_slug, c.price_book_id, c.billing_mode, c.status, c.start_date, c.plan_slug, c.created_at, c.updated_at,
 	(SELECT count(*) FROM cost_sources s WHERE s.customer_id = c.id),
 	(SELECT count(*) FROM cost_sources s WHERE s.customer_id = c.id AND s.status = 'verified'),
 	(SELECT max(s.last_collected_at) FROM cost_sources s WHERE s.customer_id = c.id),
@@ -19,7 +19,7 @@ func scanCustomer(row interface{ Scan(...any) error }) (Customer, error) {
 	var orgSlug, pb sql.NullString
 	var start, lastCollected sql.NullTime
 	var lastPeriod sql.NullString
-	err := row.Scan(&c.ID, &c.Slug, &c.Name, &c.AdminEmail, &c.Kind, &orgSlug, &pb, &c.BillingMode, &c.Status, &start, &c.CreatedAt, &c.UpdatedAt,
+	err := row.Scan(&c.ID, &c.Slug, &c.Name, &c.AdminEmail, &c.Kind, &orgSlug, &pb, &c.BillingMode, &c.Status, &start, &c.PlanSlug, &c.CreatedAt, &c.UpdatedAt,
 		&c.SourceCount, &c.VerifiedSourceCount, &lastCollected, &lastPeriod)
 	if err != nil {
 		return c, mapErr(err)
@@ -81,6 +81,7 @@ type CustomerInput struct {
 	PriceBookID string
 	BillingMode string
 	StartDate   string
+	PlanSlug    string
 }
 
 // CreateCustomer inserts a pending customer and grants admin_email the admin
@@ -98,10 +99,10 @@ func (s *Store) CreateCustomer(ctx context.Context, in CustomerInput) (Customer,
 	}
 	defer tx.Rollback()
 	var id string
-	err = tx.QueryRowContext(ctx, `INSERT INTO customers (slug, name, admin_email, kind, org_slug, price_book_id, billing_mode, start_date)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+	err = tx.QueryRowContext(ctx, `INSERT INTO customers (slug, name, admin_email, kind, org_slug, price_book_id, billing_mode, start_date, plan_slug)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
 		strings.ToLower(strings.TrimSpace(in.Slug)), strings.TrimSpace(in.Name), strings.ToLower(strings.TrimSpace(in.AdminEmail)), in.Kind,
-		nullStr(&in.OrgSlug), nullStr(&in.PriceBookID), in.BillingMode, nullStr(&in.StartDate)).Scan(&id)
+		nullStr(&in.OrgSlug), nullStr(&in.PriceBookID), in.BillingMode, nullStr(&in.StartDate), NormalizePlanSlug(in.PlanSlug)).Scan(&id)
 	if err != nil {
 		return Customer{}, mapErr(err)
 	}
@@ -123,6 +124,7 @@ type CustomerPatch struct {
 	Status      *string
 	StartDate   *string
 	OrgSlug     *string
+	PlanSlug    *string
 }
 
 // UpdateCustomer applies a patch.
@@ -153,6 +155,9 @@ func (s *Store) UpdateCustomer(ctx context.Context, id string, p CustomerPatch) 
 	}
 	if p.OrgSlug != nil {
 		add("org_slug", nullStr(p.OrgSlug))
+	}
+	if p.PlanSlug != nil {
+		add("plan_slug", NormalizePlanSlug(*p.PlanSlug))
 	}
 	args = append(args, id)
 	res, err := s.db.ExecContext(ctx, fmt.Sprintf(`UPDATE customers SET %s WHERE id = $%d`, strings.Join(sets, ", "), len(args)), args...)

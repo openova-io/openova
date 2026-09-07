@@ -9,9 +9,10 @@ import (
 // Anomaly inputs (#6867, DESIGN.md §3.6).
 //
 // Both readers sit on the same priced CTE as the explorer (filteredCTE +
-// costBaseSQL), so a flagged day's "actual" is exactly the number the
-// explorer shows for that day, and the stopped-instance policy applies the
-// same way. Unpriced records are excluded: they have no cost to spike.
+// costBaseSQL) and sum cost_base — the reporting currency — so a flagged
+// day's "actual" is exactly the number the explorer shows for that day,
+// and the stopped-instance policy applies the same way. Unpriced and
+// unconverted records are excluded: they have no cost to spike.
 
 // DailyKindCost is one (day, customer, kind) cost total.
 type DailyKindCost struct {
@@ -52,8 +53,8 @@ func (s *Store) DailyCostByCustomerKind(ctx context.Context, scope Scope, custom
 	}
 	rows, err := s.db.QueryContext(ctx, cte+`
 SELECT `+bucketExpr("day")+` AS day, customer_id::text, min(customer_name), resource_kind,
-       COALESCE(round(sum(cost), 6), 0)::text
-  FROM f WHERE unit_price IS NOT NULL
+       COALESCE(round(sum(cost_base), 6), 0)::text
+  FROM f WHERE cost_base IS NOT NULL
  GROUP BY 1, 2, 4 ORDER BY 2, 4, 1`, a.args...)
 	if err != nil {
 		return nil, mapErr(err)
@@ -109,8 +110,8 @@ func (s *Store) DayDrivers(ctx context.Context, scope Scope, customerID, kind, d
 	dayArg := a.add(day)
 	delta := fmt.Sprintf(`COALESCE(sum(cost) FILTER (WHERE day = %s), 0) - COALESCE(sum(cost) FILTER (WHERE day < %s), 0) / %d`, dayArg, dayArg, driverLookbackDays)
 	rows, err := s.db.QueryContext(ctx, cte+`,
-d AS (SELECT `+bucketExpr("day")+` AS day, sku, resource_id, min(resource_label) AS resource_label, sum(cost) AS cost
-        FROM f WHERE unit_price IS NOT NULL GROUP BY 1, 2, 3),
+d AS (SELECT `+bucketExpr("day")+` AS day, sku, resource_id, min(resource_label) AS resource_label, sum(cost_base) AS cost
+        FROM f WHERE cost_base IS NOT NULL GROUP BY 1, 2, 3),
 x AS (SELECT 'sku' AS kind, sku AS key, sku AS label, `+delta+` AS delta FROM d GROUP BY sku
       UNION ALL
       SELECT 'resource', resource_id, min(resource_label), `+delta+` FROM d GROUP BY resource_id)

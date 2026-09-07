@@ -33,7 +33,9 @@ idled on, probing every 5 minutes). Each Organization upserts one customer:
 slug = Org slug, `kind=organization`, `org_slug` set, `admin_email` from the
 owner roster (`role: owner` preferred, blank-pending when the roster is
 empty), `billing_mode` from `spec.billingMode` (real→real,
-chargeback→chargeback, showback→showback), status active. GitOps-declared
+chargeback→chargeback, showback→showback), `plan_slug` from `spec.planSlug`
+(lower-cased; empty → `s`, the org-controller's default; the Sovereign's own
+`kind: internal` Organization gets none), status active. GitOps-declared
 `spec.costSources[]` (see the Organization CRD,
 `products/catalyst/chart/crds/organization.yaml`) become `cost_sources`
 rows; a `credentialRef` is resolved read-only from the named Secret in the
@@ -57,10 +59,18 @@ idempotent per `(source, resource, sku, window_start)`:
 | `k8s.vcpu` | vcpu-hour | sum of the pod's container CPU requests (cores) |
 | `k8s.mem_gb` | gib-hour | sum of the pod's container memory requests (GiB) |
 | `k8s.pvc_gb` | gb-hour | PVC capacity (GB), joined to the Organization by namespace |
+| `plan.<slug>` | plan-hour | 1 while the Organization is active on plan `s`/`m`/`l`/`xl` (`flexi` = pay per use, no line); `resource_kind=plan`, labels `{name, plan}` |
 
 One `cost_source` of kind `openova-org` is auto-created per Organization;
 records land on it, source kind `openova-org` (the request is the
 entitlement the plan quota enforces, so the request is what is billed).
+The `plan.<slug>` line is what the Organization actually pays (DESIGN.md
+§2.8 "Plan revenue"): it is priced by the **"OpenOva plans"** book OrgSync
+creates once when absent (OMR, divisor 8760; `plan.s` 60/yr, `plan.m` 108,
+`plan.l` 192, `plan.xl` 360 — monthly × 12, so a plan-hour is monthly / 730;
+`k8s.*` deliberately unpriced) and assigns to every tenant Organization
+customer that has no book. It is never re-created, re-priced or re-assigned
+over an operator's choice.
 
 **Billing hook (D6).** Off unless `BILLING_HOOK_URL` is set. After
 `POST /statements/{id}/issue` for a customer with `kind=organization` and

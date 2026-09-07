@@ -43,6 +43,11 @@ type AllocationWeights struct {
 }
 
 // AllocationSettings is the single editable row (id = 1).
+//
+// Currency is the REPORTING currency of the whole service (currency.go):
+// every cost surface converts price-book currencies into it, the manual
+// pool amount is in it, and budgets are compared in it. It keeps its
+// historical name and place on the wire; only its meaning is wider.
 type AllocationSettings struct {
 	Weights        AllocationWeights `json:"weights"`
 	OverheadPolicy string            `json:"overhead_policy"` // separate | distribute
@@ -239,6 +244,9 @@ type AllocationResult struct {
 	Totals           AllocationTotals   `json:"totals"`
 	OrganizationRows int                `json:"organization_rows"`
 	PlatformOverhead int                `json:"platform_overhead"`
+	// Unconverted lists priced usage (pool or revenue) in a book currency
+	// with no exchange rate — money the split could not see (currency.go).
+	Unconverted []UnconvertedCurrency `json:"unconverted"`
 }
 
 // PlatformSKUKinds are the resource kinds the platform collector writes.
@@ -403,10 +411,11 @@ func (s *Store) Allocation(ctx context.Context, scope Scope, from, to time.Time)
 	}
 	res := AllocationResult{
 		From: from.Format("2006-01-02"), To: to.Format("2006-01-02"),
-		Settings: settings,
-		Pool:     AllocationPool{Source: settings.Pool, Amount: "0.000000", Currency: settings.Currency},
-		Rows:     []AllocationRow{},
-		Totals:   AllocationTotals{Allocated: "0.000000", Revenue: "0.000000", Margin: "0.000000"},
+		Settings:    settings,
+		Pool:        AllocationPool{Source: settings.Pool, Amount: "0.000000", Currency: settings.Currency},
+		Rows:        []AllocationRow{},
+		Totals:      AllocationTotals{Allocated: "0.000000", Revenue: "0.000000", Margin: "0.000000"},
+		Unconverted: []UnconvertedCurrency{},
 	}
 
 	// The pool.
@@ -447,10 +456,13 @@ func (s *Store) Allocation(ctx context.Context, scope Scope, from, to time.Time)
 			if err != nil {
 				return AllocationResult{}, err
 			}
+			// Explore reports in the reporting currency already; what it
+			// could not convert is money missing from the pool.
 			res.Pool.Amount = decOf(ratOf(ex.Total.Current))
 			if ex.Currency != "" {
 				res.Pool.Currency = ex.Currency
 			}
+			res.Unconverted = ex.Unconverted
 		}
 	}
 
@@ -474,6 +486,10 @@ func (s *Store) Allocation(ctx context.Context, scope Scope, from, to time.Time)
 		for _, g := range ex.Groups {
 			revenue[g.Key] = g.Total
 		}
+		// Every customer, every kind, same window: a superset of the pool
+		// query's records, so its unconverted list replaces (never adds to)
+		// the pool's.
+		res.Unconverted = ex.Unconverted
 	}
 	allocated, rev, margin := new(big.Rat), new(big.Rat), new(big.Rat)
 	for i := range rows {

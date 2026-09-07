@@ -23,6 +23,8 @@ type fakeRepo struct {
 	credEnc   map[string][]byte
 	rotated   map[string]bool
 	usage     map[string]store.UsageRecord // source|resource|sku|window_start
+	planBook  *store.PriceBook             // the "OpenOva plans" book once ensured
+	planCalls int                          // EnsurePlanBook invocations
 }
 
 func newFakeRepo() *fakeRepo {
@@ -56,10 +58,14 @@ func (f *fakeRepo) CreateCustomer(_ context.Context, in store.CustomerInput) (st
 		return store.Customer{}, store.ErrConflict
 	}
 	id := f.nextID("cust")
-	c := &store.Customer{ID: id, Slug: slug, Name: in.Name, AdminEmail: strings.ToLower(in.AdminEmail), Kind: in.Kind, BillingMode: in.BillingMode, Status: "pending"}
+	c := &store.Customer{ID: id, Slug: slug, Name: in.Name, AdminEmail: strings.ToLower(in.AdminEmail), Kind: in.Kind, BillingMode: in.BillingMode, Status: "pending", PlanSlug: store.NormalizePlanSlug(in.PlanSlug)}
 	if in.OrgSlug != "" {
 		v := in.OrgSlug
 		c.OrgSlug = &v
+	}
+	if in.PriceBookID != "" {
+		v := in.PriceBookID
+		c.PriceBookID = &v
 	}
 	f.customers[id] = c
 	f.bySlug[slug] = id
@@ -88,6 +94,17 @@ func (f *fakeRepo) UpdateCustomer(_ context.Context, id string, p store.Customer
 	if p.OrgSlug != nil {
 		v := *p.OrgSlug
 		c.OrgSlug = &v
+	}
+	if p.PriceBookID != nil {
+		if *p.PriceBookID == "" {
+			c.PriceBookID = nil
+		} else {
+			v := *p.PriceBookID
+			c.PriceBookID = &v
+		}
+	}
+	if p.PlanSlug != nil {
+		c.PlanSlug = store.NormalizePlanSlug(*p.PlanSlug)
 	}
 	return *c, nil
 }
@@ -203,6 +220,18 @@ func (f *fakeRepo) UpsertUsage(_ context.Context, recs []store.UsageRecord) (int
 	return len(recs), nil
 }
 
+func (f *fakeRepo) EnsurePlanBook(_ context.Context) (store.PriceBook, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.planCalls++
+	if f.planBook != nil {
+		return *f.planBook, false, nil
+	}
+	pb := &store.PriceBook{ID: f.nextID("book"), Name: store.PlanBookName, Currency: "OMR", AnnualDivisor: store.PlanBookDivisor, BillStopped: "compute", Items: store.PlanBookItems()}
+	f.planBook = pb
+	return *pb, true, nil
+}
+
 // ---- test-side accessors ------------------------------------------------
 
 func (f *fakeRepo) customerBySlug(slug string) (store.Customer, bool) {
@@ -235,6 +264,18 @@ func (f *fakeRepo) usageRecords(sourceID string) []store.UsageRecord {
 func (f *fakeRepo) addActiveCustomer(slug string) store.Customer {
 	c, _ := f.CreateCustomer(context.Background(), store.CustomerInput{Slug: slug, Name: slug, Kind: "organization", OrgSlug: slug, BillingMode: "chargeback"})
 	_ = f.SetCustomerStatus(context.Background(), c.ID, "active")
+	got, _ := f.customerBySlug(slug)
+	return got
+}
+
+// addPlanCustomer is an active Organization customer on a plan, first synced
+// at createdAt — the instant its plan line starts.
+func (f *fakeRepo) addPlanCustomer(slug, plan string, createdAt time.Time) store.Customer {
+	c, _ := f.CreateCustomer(context.Background(), store.CustomerInput{Slug: slug, Name: slug, Kind: "organization", OrgSlug: slug, BillingMode: "chargeback", PlanSlug: plan})
+	_ = f.SetCustomerStatus(context.Background(), c.ID, "active")
+	f.mu.Lock()
+	f.customers[c.ID].CreatedAt = createdAt
+	f.mu.Unlock()
 	got, _ := f.customerBySlug(slug)
 	return got
 }

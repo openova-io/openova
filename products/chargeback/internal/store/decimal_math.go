@@ -47,24 +47,28 @@ func floatOf(d Decimal) float64 {
 
 // deltaPct returns (cur - prev) / prev × 100, or nil when prev is zero: a
 // change against nothing is not a percentage, and 0 would read as "no change".
-func deltaPct(cur, prev Decimal) *float64 {
-	p := ratOf(prev)
-	if p.Sign() == 0 {
+func deltaPct(cur, prev Decimal) *float64 { return deltaPctRat(ratOf(cur), ratOf(prev)) }
+
+// deltaPctRat is deltaPct over exact rationals.
+func deltaPctRat(cur, prev *big.Rat) *float64 {
+	if prev.Sign() == 0 {
 		return nil
 	}
-	d := new(big.Rat).Sub(ratOf(cur), p)
-	d.Quo(d, p)
+	d := new(big.Rat).Sub(cur, prev)
+	d.Quo(d, prev)
 	d.Mul(d, big.NewRat(100, 1))
 	f, _ := d.Float64()
 	return &f
 }
 
 // shareOf returns part / whole, or 0 when whole is zero.
-func shareOf(part, whole Decimal) float64 {
-	w := ratOf(whole)
-	if w.Sign() == 0 {
+func shareOf(part, whole Decimal) float64 { return shareRat(ratOf(part), ratOf(whole)) }
+
+// shareRat is shareOf over exact rationals.
+func shareRat(part, whole *big.Rat) float64 {
+	if whole.Sign() == 0 {
 		return 0
 	}
-	f, _ := new(big.Rat).Quo(ratOf(part), w).Float64()
+	f, _ := new(big.Rat).Quo(part, whole).Float64()
 	return f
 }

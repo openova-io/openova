@@ -269,3 +269,141 @@ func TestPlatformCollectorTagsFromLabels(t *testing.T) {
 		t.Fatalf("pvc tags = %v (%v)", tags, ok)
 	}
 }
+
+// planRecords are the plan.* records on a source, keyed by window start.
+func planRecords(repo *fakeRepo, sourceID string) map[string]store.UsageRecord {
+	out := map[string]store.UsageRecord{}
+	for _, r := range repo.usageRecords(sourceID) {
+		if r.ResourceKind == store.PlanKind {
+			out[r.WindowStart.UTC().Format("15:04")] = r
+		}
+	}
+	return out
+}
+
+// TestPlatformCollectorPlanLine: an active Organization on plan m owes one
+// plan.m record per hour from the instant it was synced — with no pod
+// running at all — sliced by the same hour math as the k8s.* meters, on the
+// same source, idempotent across passes; EmitAll reaches it through its
+// namespace alone (DESIGN.md §2.8 "Plan revenue").
+func TestPlatformCollectorPlanLine(t *testing.T) {
+	repo := newFakeRepo()
+	now := time.Date(2026, 9, 7, 12, 0, 0, 0, time.UTC)
+	cust := repo.addPlanCustomer("acme", "m", time.Date(2026, 9, 7, 9, 30, 0, 0, time.UTC))
+	c := &PlatformCollector{Repo: repo, Metrics: metrics.New(), Now: func() time.Time { return now }}
+	c.ObserveNamespace(orgNamespace("acme"))
+
+	ctx := context.Background()
+	c.EmitAll(ctx) // no tracked resource: the namespace is enough
+	srcs := repo.sourcesOf(cust.ID)
+	if len(srcs) != 1 || srcs[0].Kind != SourceKindOrg {
+		t.Fatalf("platform source = %+v", srcs)
+	}
+	src := srcs[0]
+	plan := planRecords(repo, src.ID)
+	if len(plan) != 3 {
+		t.Fatalf("plan records = %d %v, want 3 (09:30 partial, 10:00, 11:00)", len(plan), keysOf(plan))
+	}
+	want := map[string]string{"09:30": "0.500000", "10:00": "1.000000", "11:00": "1.000000"}
+	for k, q := range want {
+		r, ok := plan[k]
+		if !ok {
+			t.Fatalf("plan slice %s absent; have %v", k, keysOf(plan))
+		}
+		if string(r.Quantity) != q {
+			t.Fatalf("%s quantity = %s, want %s", k, r.Quantity, q)
+		}
+		if r.SKU != "plan.m" || r.Unit != store.PlanUnit || r.ResourceID != "plan/m" || r.ResourceKind != store.PlanKind {
+			t.Fatalf("%s record = %+v", k, r)
+		}
+		if r.CustomerID != cust.ID || r.SourceID != src.ID {
+			t.Fatalf("%s attribution = %s/%s", k, r.CustomerID, r.SourceID)
+		}
+		var lb map[string]any
+		if err := json.Unmarshal(r.Labels, &lb); err != nil {
+			t.Fatal(err)
+		}
+		if lb["name"] != "M plan" || lb["plan"] != "m" || len(lb) != 2 {
+			t.Fatalf("%s labels = %v", k, lb)
+		}
+	}
+	if len(repo.usageRecords(src.ID)) != 3 {
+		t.Fatalf("a namespace with no pod must produce plan lines only: %d records", len(repo.usageRecords(src.ID)))
+	}
+
+	// One hour later: the hour that closed is re-emitted at 1.0 (same row),
+	// the new hour appears, nothing is duplicated.
+	now = now.Add(time.Hour)
+	if _, err := c.EmitOrg(ctx, "acme"); err != nil {
+		t.Fatal(err)
+	}
+	plan = planRecords(repo, src.ID)
+	if len(plan) != 4 || string(plan["12:00"].Quantity) != "1.000000" || string(plan["09:30"].Quantity) != "0.500000" {
+		t.Fatalf("after the second pass: %d records, 12:00=%s 09:30=%s", len(plan), plan["12:00"].Quantity, plan["09:30"].Quantity)
+	}
+}
+
+// TestPlatformCollectorPlanLineFlexiAndSuspended: flexi is pay per use and
+// carries no plan line; a suspended Organization stops accruing plan hours —
+// the hours after the suspension never appear, the hours before stay.
+func TestPlatformCollectorPlanLineFlexiAndSuspended(t *testing.T) {
+	repo := newFakeRepo()
+	now := time.Date(2026, 9, 7, 12, 0, 0, 0, time.UTC)
+	created := now.Add(-2 * time.Hour)
+	flexi := repo.addPlanCustomer("payg", "flexi", created)
+	paid := repo.addPlanCustomer("acme", "l", created)
+	c := &PlatformCollector{Repo: repo, Metrics: metrics.New(), Now: func() time.Time { return now }}
+	c.ObserveNamespace(orgNamespace("payg"))
+	c.ObserveNamespace(orgNamespace("acme"))
+	c.ObservePod(testPod("payg", "web-0", "pod-payg", created, "1", "1Gi"))
+	ctx := context.Background()
+	c.EmitAll(ctx)
+
+	flexiSrc := repo.sourcesOf(flexi.ID)[0]
+	if n := len(planRecords(repo, flexiSrc.ID)); n != 0 {
+		t.Fatalf("flexi produced %d plan records, want none (pay per use)", n)
+	}
+	if n := len(repo.usageRecords(flexiSrc.ID)); n != 4 {
+		t.Fatalf("flexi k8s meters = %d records, want 4 (2 h × vcpu + mem)", n)
+	}
+	paidSrc := repo.sourcesOf(paid.ID)[0]
+	if got := planRecords(repo, paidSrc.ID); len(got) != 2 || got["10:00"].SKU != "plan.l" || got["11:00"].SKU != "plan.l" {
+		t.Fatalf("plan l records = %v", keysOf(got))
+	}
+
+	// Suspended at 12:xx; the 13:00 pass writes no plan hour for 12:00.
+	if err := repo.SetCustomerStatus(ctx, paid.ID, "suspended"); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Hour)
+	if _, err := c.EmitOrg(ctx, "acme"); err != nil {
+		t.Fatal(err)
+	}
+	got := planRecords(repo, paidSrc.ID)
+	if _, leak := got["12:00"]; leak || len(got) != 2 {
+		t.Fatalf("plan accrued while suspended: %v", keysOf(got))
+	}
+}
+
+// TestPlanStart: the plan starts at the customer's start_date when the
+// operator set one, else at the first sync.
+func TestPlanStart(t *testing.T) {
+	created := time.Date(2026, 9, 7, 9, 30, 0, 0, time.UTC)
+	if got := planStart(store.Customer{CreatedAt: created}); !got.Equal(created) {
+		t.Fatalf("no start_date → %v, want created_at %v", got, created)
+	}
+	sd := "2026-09-01"
+	if got := planStart(store.Customer{CreatedAt: created, StartDate: &sd}); !got.Equal(time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("start_date → %v", got)
+	}
+	bad := "not-a-date"
+	if got := planStart(store.Customer{CreatedAt: created, StartDate: &bad}); !got.Equal(created) {
+		t.Fatalf("unparseable start_date must fall back to created_at, got %v", got)
+	}
+	if billablePlan(store.Customer{Status: "active", PlanSlug: "xl"}) != "xl" ||
+		billablePlan(store.Customer{Status: "active", PlanSlug: "flexi"}) != "" ||
+		billablePlan(store.Customer{Status: "active"}) != "" ||
+		billablePlan(store.Customer{Status: "pending", PlanSlug: "m"}) != "" {
+		t.Fatal("billablePlan: active + a paid plan only")
+	}
+}

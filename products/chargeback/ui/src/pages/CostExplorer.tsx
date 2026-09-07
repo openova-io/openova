@@ -8,6 +8,7 @@ import { DataTable, type Column } from '../components/DataTable'
 import { DateRange } from '../components/DateRange'
 import { FilterChips, dimLabel, filterCount, type Dim } from '../components/FilterChips'
 import { Delta, Field, KPI, Modal, Notice, PageHeader, Segmented, ShareBar, Skeleton } from '../components/ui'
+import { describeUnconverted } from '../lib/currencies'
 import { forecastHint, forecastNote } from '../lib/forecast'
 import { COMPARE_MODES, bucketLabel, bucketNoun, compareLabel, describeWindow, granularityLabel, previousWindow, toExclusive, toInclusive, type CompareMode } from '../lib/dates'
 import { apiQuery, drillInto, paramsFromState, resolvedCompare, stateFromParams, type ChartKind, type ExploreState } from '../lib/exploreState'
@@ -303,7 +304,11 @@ export function ExplorerBody({ lens, embedded }: { lens: Lens; embedded?: boolea
       <FilterChips filters={state.filters} onChange={(filters) => setState({ ...state, filters })} dimensions={dims.data} labelFor={labelFor} hideDims={lens.operator ? [] : ['customer']} />
 
       {res.error ? <Notice kind="bad">{res.error}</Notice> : null}
-      {d?.mixed_currency ? <Notice kind="warn">This selection mixes more than one currency; values are shown as {cur}.</Notice> : null}
+      {d && (d.unconverted?.length || d.mixed_currency) ? (
+        <Notice kind="warn">
+          {describeUnconverted(d.unconverted, cur, d.mixed_currency)} {lens.operator ? <Link to="/pricebooks">Add the rate under Price books → Currencies</Link> : null}
+        </Notice>
+      ) : null}
 
       {d ? (
         <div className="kpis">

@@ -67,6 +67,11 @@ func (s *Store) LiveResources(ctx context.Context, scope Scope, customerID strin
 
 // CustomerBook is a customer with the rate card it bills against. HasBook
 // false means no price book is assigned (Rates is then empty).
+//
+// RateToBase is per_base for the book's currency — "1" when it IS the
+// reporting currency, the stored exchange rate, or "" when there is none —
+// so a saving computed from Rates (book currency) can be reported in the
+// reporting currency with store.ToBase, or flagged unconverted.
 type CustomerBook struct {
 	CustomerID   string
 	CustomerName string
@@ -76,6 +81,7 @@ type CustomerBook struct {
 	Currency     string
 	BillStopped  string
 	Rates        map[string]Decimal // sku → hourly unit price
+	RateToBase   Decimal
 }
 
 // CustomerBooks lists every customer in scope with its book and rates.
@@ -118,6 +124,27 @@ func (s *Store) CustomerBooks(ctx context.Context, scope Scope, customerID strin
 	}
 	if len(bookIdx) == 0 {
 		return out, nil
+	}
+	// The exchange rate of each book's currency, for savings in the
+	// reporting currency; per currency, not per book (one query).
+	reporting, err := s.ReportingCurrency(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rates, err := s.ListCurrencyRates(ctx)
+	if err != nil {
+		return nil, err
+	}
+	perBase := map[string]Decimal{reporting: "1"}
+	for _, r := range rates {
+		if r.Code != reporting {
+			perBase[r.Code] = r.PerBase
+		}
+	}
+	for i := range out {
+		if out[i].HasBook {
+			out[i].RateToBase = perBase[out[i].Currency]
+		}
 	}
 	ids := make([]string, 0, len(bookIdx))
 	for id := range bookIdx {

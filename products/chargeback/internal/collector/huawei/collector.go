@@ -293,10 +293,8 @@ func (c *Collector) CollectSource(ctx context.Context, src store.CostSource, now
 		// billing. Deriving the count keeps "nothing listed" true whatever the
 		// registry holds.
 		if len(failed) == len(SupportedKinds()) {
-			// Nothing listed: surface the first error and back off.
-			for _, ferr := range failed {
-				return ferr
-			}
+			// Nothing listed: surface ONE error and back off.
+			return firstListError(failed)
 		}
 	}
 	if err := c.reconcileInventory(ctx, src, resources, failed, now); err != nil {
@@ -727,4 +725,29 @@ func (c *Collector) SampleCES(ctx context.Context, src store.CostSource, now tim
 // VerifyProject implements api.Verifier: one signed ECS list call.
 func (c *Collector) VerifyProject(ctx context.Context, region, projectID, accessKey, secretKey string) error {
 	return c.Client.Verify(ctx, Credentials{AccessKey: accessKey, SecretKey: secretKey, ProjectID: projectID}, region)
+}
+
+// firstListError picks the error to surface when every kind failed. Map
+// traversal order is random and the kinds do not all fail the same way (a
+// list path without the project id is never rejected by an IAM gate, so it
+// fails on something else), so returning "the first" map entry made the
+// recorded last_error a coin toss — TestCollectAllIsolatesGatewayRejection-
+// WithBackoff failed 1 run in 5 on exactly that. Prefer the credential
+// rejection (the cause the operator can act on), then registry order.
+func firstListError(failed map[string]error) error {
+	var first error
+	for _, kind := range SupportedKinds() {
+		err, ok := failed[kind]
+		if !ok {
+			continue
+		}
+		var ge *GatewayError
+		if errors.As(err, &ge) && ge.Unauthorized() {
+			return err
+		}
+		if first == nil {
+			first = err
+		}
+	}
+	return first
 }

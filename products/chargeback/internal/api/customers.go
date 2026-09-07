@@ -32,7 +32,19 @@ type customerBody struct {
 	Status      *string `json:"status"`
 	OrgSlug     *string `json:"org_slug"`
 	Kind        *string `json:"kind"`
+	// PlanSlug is the catalog plan (s, m, l, xl, flexi; "" = none). Settable
+	// on external customers; an Organization customer's plan is read from
+	// its Organization CR by OrgSync and a PATCH is refused.
+	PlanSlug *string `json:"plan_slug"`
 }
+
+// validPlanSlug accepts a catalog plan slug or "" (no plan), case-folded.
+func validPlanSlug(p string) bool {
+	n := store.NormalizePlanSlug(p)
+	return n == "" || store.ValidPlanSlug(n)
+}
+
+const planSlugHelp = "plan_slug must be s, m, l, xl, flexi or empty"
 
 func validBillingMode(m string) bool { return m == "real" || m == "chargeback" || m == "showback" }
 func validStatus(s string) bool      { return s == "pending" || s == "active" || s == "suspended" }
@@ -82,6 +94,13 @@ func (h *Handler) createCustomer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		ci.Kind = *in.Kind
+	}
+	if in.PlanSlug != nil {
+		if !validPlanSlug(*in.PlanSlug) {
+			writeErr(w, http.StatusBadRequest, planSlugHelp)
+			return
+		}
+		ci.PlanSlug = *in.PlanSlug
 	}
 	c, err := h.Store.CreateCustomer(r.Context(), ci)
 	if err != nil {
@@ -148,6 +167,22 @@ func (h *Handler) patchCustomer(w http.ResponseWriter, r *http.Request) {
 		}
 		p.StartDate = in.StartDate
 	}
+	if in.PlanSlug != nil {
+		if !validPlanSlug(*in.PlanSlug) {
+			writeErr(w, http.StatusBadRequest, planSlugHelp)
+			return
+		}
+		cur, err := h.Store.GetCustomer(r.Context(), store.OperatorScope, id)
+		if err != nil {
+			storeErr(w, err)
+			return
+		}
+		if cur.Kind == "organization" {
+			writeErr(w, http.StatusBadRequest, "plan_slug of an Organization customer is read from its Organization CR (spec.planSlug); change the plan there")
+			return
+		}
+		p.PlanSlug = in.PlanSlug
+	}
 	c, err := h.Store.UpdateCustomer(r.Context(), id, p)
 	if err != nil {
 		storeErr(w, err)
@@ -179,6 +214,9 @@ func patchedFields(in customerBody) []string {
 	}
 	if in.OrgSlug != nil {
 		f = append(f, "org_slug")
+	}
+	if in.PlanSlug != nil {
+		f = append(f, "plan_slug")
 	}
 	return f
 }

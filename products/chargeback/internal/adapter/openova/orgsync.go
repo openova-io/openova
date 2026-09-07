@@ -33,9 +33,14 @@ const SourceKindOrg = "openova-org"
 // OrgSync lists+watches Organization CRs and mirrors them into the
 // chargeback application's customers (ADR-0014 D2): slug = Org slug,
 // kind = organization, billing_mode from spec.billingMode, admin_email from
-// the owner roster (blank-pending when absent). spec.costSources[] become
-// cost_sources rows; a deleted Organization SUSPENDS its customer — history
-// is billing data and is never deleted.
+// the owner roster (blank-pending when absent), plan_slug from spec.planSlug
+// (DESIGN.md §2.8 "Plan revenue"). spec.costSources[] become cost_sources
+// rows; a deleted Organization SUSPENDS its customer — history is billing
+// data and is never deleted.
+//
+// It also owns the "OpenOva plans" rate card: created once when absent,
+// assigned to every tenant Organization customer that has no price book, and
+// never re-created, re-priced or re-assigned over an operator's choice.
 type OrgSync struct {
 	Dyn      dynamic.Interface
 	Core     kubernetes.Interface
@@ -52,7 +57,17 @@ type OrgSync struct {
 	// #6850). Optional — nil disables overhead attribution entirely.
 	OverheadSink interface{ SetOverheadOrg(string) }
 
+	// Now is the clock (tests); nil = time.Now.
+	Now func() time.Time
+
 	loggedAbsent bool
+}
+
+func (s *OrgSync) now() time.Time {
+	if s.Now != nil {
+		return s.Now().UTC()
+	}
+	return time.Now().UTC()
 }
 
 func (s *OrgSync) metricsReg() *metrics.Registry {
@@ -152,6 +167,11 @@ type orgFields struct {
 	// Sovereign's own platform consumption on a platform-overhead line rather
 	// than a tenant Org row, and this is the discriminator (#6850).
 	Internal bool
+	// PlanSlug is spec.planSlug lower-cased; empty defaults to "s" exactly as
+	// the org-controller's planQuota renderer does. The Sovereign's own
+	// Organization buys no plan from itself, so Internal forces "" (no plan
+	// line, and the pool it feeds is never inflated by a plan).
+	PlanSlug string
 }
 
 type costSourceSpec struct {
@@ -181,6 +201,14 @@ func readOrg(u *unstructured.Unstructured) (orgFields, error) {
 	}
 	orgKind, _, _ := unstructured.NestedString(u.Object, "spec", "kind")
 	f.Internal = orgKind == "internal"
+	planSlug, _, _ := unstructured.NestedString(u.Object, "spec", "planSlug")
+	f.PlanSlug = store.NormalizePlanSlug(planSlug)
+	if f.PlanSlug == "" {
+		f.PlanSlug = "s" // the org-controller's default for a CR without spec.planSlug
+	}
+	if f.Internal {
+		f.PlanSlug = ""
+	}
 	f.BillingMode, _, _ = unstructured.NestedString(u.Object, "spec", "billingMode")
 	switch f.BillingMode {
 	case "real", "chargeback", "showback":
@@ -247,6 +275,27 @@ func (s *OrgSync) SyncOrganization(ctx context.Context, u *unstructured.Unstruct
 	if f.Internal && s.OverheadSink != nil {
 		s.OverheadSink.SetOverheadOrg(f.Slug)
 	}
+	// The "OpenOva plans" rate card prices the plan line every tenant
+	// Organization carries. Ensured on every sync (one indexed lookup by
+	// name) so a book the operator removed comes back on the next event; a
+	// failure here is logged and leaves the customer bookless until the next
+	// sync rather than blocking the customer itself. The Sovereign's own
+	// Organization buys no plan and needs the operator's cloud rate card, so
+	// it is not assigned to this book.
+	planBookID := ""
+	if !f.Internal {
+		pb, created, err := s.Repo.EnsurePlanBook(ctx)
+		switch {
+		case err != nil:
+			slog.Warn("openova adapter: plan price book unavailable; the customer is synced without a book", "org", f.Slug, "error", err)
+		case created:
+			slog.Info("openova adapter: plan price book created", "book", pb.Name, "id", pb.ID, "items", len(pb.Items))
+			planBookID = pb.ID
+		default:
+			planBookID = pb.ID
+		}
+	}
+	resumed := false
 	c, err := s.Repo.GetCustomerBySlug(ctx, f.Slug)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
@@ -257,6 +306,8 @@ func (s *OrgSync) SyncOrganization(ctx context.Context, u *unstructured.Unstruct
 			Kind:        "organization",
 			OrgSlug:     f.Slug,
 			BillingMode: f.BillingMode,
+			PlanSlug:    f.PlanSlug,
+			PriceBookID: planBookID,
 		})
 		if err != nil {
 			return fmt.Errorf("create customer: %w", err)
@@ -264,7 +315,7 @@ func (s *OrgSync) SyncOrganization(ctx context.Context, u *unstructured.Unstruct
 		if err := s.Repo.SetCustomerStatus(ctx, c.ID, "active"); err != nil {
 			return fmt.Errorf("activate customer: %w", err)
 		}
-		slog.Info("openova adapter: organization synced as new customer", "org", f.Slug, "customer", c.ID, "billing_mode", f.BillingMode, "internal", f.Internal)
+		slog.Info("openova adapter: organization synced as new customer", "org", f.Slug, "customer", c.ID, "billing_mode", f.BillingMode, "plan", f.PlanSlug, "internal", f.Internal)
 	case err != nil:
 		return fmt.Errorf("get customer: %w", err)
 	default:
@@ -282,6 +333,14 @@ func (s *OrgSync) SyncOrganization(ctx context.Context, u *unstructured.Unstruct
 		if c.OrgSlug == nil || *c.OrgSlug != f.Slug {
 			p.OrgSlug, changed = &f.Slug, true
 		}
+		if c.PlanSlug != f.PlanSlug {
+			p.PlanSlug, changed = &f.PlanSlug, true
+		}
+		if c.PriceBookID == nil && planBookID != "" {
+			// Bookless → the plan book. An explicit assignment (any book,
+			// including a clone the operator negotiated) is never touched.
+			p.PriceBookID, changed = &planBookID, true
+		}
 		if changed {
 			if c, err = s.Repo.UpdateCustomer(ctx, c.ID, p); err != nil {
 				return fmt.Errorf("update customer: %w", err)
@@ -290,6 +349,7 @@ func (s *OrgSync) SyncOrganization(ctx context.Context, u *unstructured.Unstruct
 		if c.Status != "active" {
 			// The CR exists (again) — a suspended or pending customer
 			// resumes; its history was kept across the suspension.
+			resumed = c.Status == "suspended"
 			if err := s.Repo.SetCustomerStatus(ctx, c.ID, "active"); err != nil {
 				return fmt.Errorf("reactivate customer: %w", err)
 			}
@@ -307,6 +367,16 @@ func (s *OrgSync) SyncOrganization(ctx context.Context, u *unstructured.Unstruct
 		if err := s.Repo.SetSourceVerified(ctx, src.ID, ""); err != nil {
 			return fmt.Errorf("verify platform source: %w", err)
 		}
+	}
+	if resumed {
+		// A suspended Organization had no pods and paid no plan; the
+		// collector recomputes from the source's collection stamp, so
+		// moving the stamp to the resume instant keeps the suspended gap
+		// out of the ledger instead of billing the plan across it.
+		if err := s.Repo.SetSourceCollected(ctx, src.ID, s.now()); err != nil {
+			return fmt.Errorf("stamp platform source on resume: %w", err)
+		}
+		slog.Info("openova adapter: organization resumed; platform collection restarts now", "org", f.Slug, "customer", c.ID)
 	}
 
 	for _, cs := range f.CostSources {

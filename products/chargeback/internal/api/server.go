@@ -181,6 +181,14 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/statements/{id}/issue", h.issueStatement)
 	mux.HandleFunc("DELETE /api/v1/statements/{id}", h.deleteStatement)
 
+	// Currency rates (#6867 follow-up, DESIGN.md §3.10) — operator-only.
+	// per_base of a price-book currency relative to the reporting currency
+	// (allocation_settings.currency); every cost surface converts with them.
+	mux.HandleFunc("GET /api/v1/currencies", h.listCurrencies)
+	mux.HandleFunc("GET /api/v1/currencies/{code}", h.getCurrency)
+	mux.HandleFunc("PUT /api/v1/currencies/{code}", h.putCurrency)
+	mux.HandleFunc("DELETE /api/v1/currencies/{code}", h.deleteCurrency)
+
 	// Saved views (#6867) — per signed-in user, any role.
 	mux.HandleFunc("GET /api/v1/views", h.listViews)
 	mux.HandleFunc("POST /api/v1/views", h.createView)

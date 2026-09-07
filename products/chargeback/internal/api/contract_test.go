@@ -54,6 +54,7 @@ func sampleExplore() store.ExploreResult {
 		TotalsByBucket: []store.Decimal{"14.880000", "14.880000", "14.880000", "14.880000", "14.880000", "14.880000", "14.880000"},
 		Unpriced:       []store.UnpricedSKU{{SKU: "k8s.vcpu", Unit: "vcpu-hour", Quantity: "84.000000", Resources: 1}},
 		Compare:        store.CompareWindow{From: "2026-08-25", To: "2026-09-01", Label: store.CompareLabelPrevious},
+		Unconverted:    []store.UnconvertedCurrency{},
 	}
 }
 
@@ -130,7 +131,7 @@ func TestWireContractFixtures(t *testing.T) {
 	// The summary must carry the keys the page reads — pinned here by name so
 	// a rename on the Go side fails before the fixture is even compared.
 	sum := composeSummary(parts)
-	for _, k := range []string{"currency", "mtd", "forecast", "last_month", "prev_mtd", "mom_delta_pct", "avg_daily_30d", "resources_live", "unpriced_skus", "customers", "sources", "last_collected_at", "daily", "by_customer", "by_kind", "budgets", "anomalies", "statements"} {
+	for _, k := range []string{"currency", "mixed_currency", "unconverted", "mtd", "forecast", "last_month", "prev_mtd", "mom_delta_pct", "avg_daily_30d", "resources_live", "unpriced_skus", "customers", "sources", "last_collected_at", "daily", "by_customer", "by_kind", "budgets", "anomalies", "statements"} {
 		if _, ok := sum[k]; !ok {
 			t.Fatalf("summary lacks %q", k)
 		}
