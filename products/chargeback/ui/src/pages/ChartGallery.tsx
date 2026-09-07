@@ -62,6 +62,13 @@ function thirtyDays(): ExploreResult {
   })
   const totals = days.map((_, i) => groups.reduce((a, g) => a + g.values[i], 0))
   const current = totals.reduce((a, b) => a + b, 0)
+  // The forecast tail Sep 8–30 with the same weekend dip and trend, so the
+  // gallery shows the hatched tail following the weekly shape.
+  const projection = Array.from({ length: 23 }, (_, i) => {
+    const d = new Date(Date.UTC(2026, 8, 8 + i))
+    const weekend = d.getUTCDay() % 6 === 0 ? 0.86 : 1.06
+    return { day: d.toISOString().slice(0, 10), cost: Math.round(84.2 * weekend * (1 + i * 0.006) * 1000) / 1000 }
+  })
   for (const g of groups) g.share = g.total / current
   return {
     from: days[0],
@@ -78,7 +85,17 @@ function thirtyDays(): ExploreResult {
     total: { current, previous: current * 0.9, delta_pct: 11.1, resources: 18 },
     totals_by_bucket: totals,
     unpriced: [],
-    forecast: { month_end: 3200, run_rate_daily: 84.2, trend_daily: 0.4, method: 'run-rate-7d', days_observed: 7, days_in_month: 30, confidence: 'medium' },
+    forecast: {
+      month_end: current + projection.reduce((a, p) => a + p.cost, 0),
+      run_rate_daily: 84.2,
+      trend_daily: 0.4,
+      method: 'weekday-seasonal',
+      days_observed: 29,
+      days_in_month: 30,
+      confidence: 'medium',
+      projection,
+      weekday_factors: { Mon: 1.06, Tue: 1.06, Wed: 1.06, Thu: 1.06, Fri: 1.06, Sat: 0.86, Sun: 0.86 },
+    },
   }
 }
 const month = seriesFromExplore(thirtyDays())

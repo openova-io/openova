@@ -31,7 +31,7 @@ Legend: ✅ have · ◐ partial · ❌ missing. "Target" = this design.
 | Chart types: stacked bar · line · area · donut · ranked bars | ✅ | ✅ | ✅ | ◐ (1 bar) | ✅ dependency-free SVG set |
 | Table under the chart with totals, share %, Δ vs previous period | ✅ | ✅ | ✅ | ❌ | ✅ |
 | Previous-period comparison | ✅ | ✅ | ✅ | ❌ | ✅ always computed |
-| Forecast to month end | ✅ | ✅ | ✅ | ❌ | ✅ run-rate + trend, with confidence |
+| Forecast to month end | ✅ | ✅ | ✅ | ❌ | ✅ run-rate → run-rate + trend → weekday-seasonal by history, per-day projection, with confidence |
 | Top-N with "Other" bucket | ✅ | ✅ | ✅ | ❌ | ✅ |
 | MTD / last month / MoM KPIs | ✅ | ✅ | ✅ | ❌ | ✅ |
 | Per-resource cost, ranking, drill-in | ✅ (resource level) | ✅ | ✅ | ❌ | ✅ `resources` + detail |
@@ -139,17 +139,43 @@ exclude filters `exclude_<dim>=a,b`, `limit` (top-N groups, default 10, 0 = all)
   "total": { "current": 810.4, "previous": 790.2, "delta_pct": 2.6, "resources": 126 },
   "totals_by_bucket": [115.7, "…"],
   "unpriced": [{ "sku": "k8s.vcpu", "unit": "vcpu-hour", "quantity": 1118.4, "resources": 14097 }],
-  "forecast": { "month_end": 2712.5, "run_rate_daily": 92.1, "method": "run-rate-7d",
-                "days_observed": 7, "confidence": "medium" }
+  "forecast": { "month_end": 2712.5, "run_rate_daily": 92.1, "trend_daily": 0.8,
+                "method": "weekday-seasonal", "days_observed": 21, "days_in_month": 30,
+                "confidence": "medium",
+                "projection": [{ "day": "2026-09-22", "cost": 98.4 }, "…"],
+                "weekday_factors": { "Mon": 1.17, "Tue": 1.17, "Wed": 1.17, "Thu": 1.17,
+                                     "Fri": 1.17, "Sat": 0.58, "Sun": 0.58 } }
 }
 ```
 `forecast` is present only when the window is the current calendar month at day
 granularity. `previous` is the same-length window immediately before `from`.
+
+The forecast method follows how much of the month is complete
+(`internal/rating/forecast.go`; every value is a float estimate, never billed):
+
+| complete days | `method` | each remaining day *d* (k = 1 today, 2 tomorrow, …) |
+|---|---|---|
+| < 7 | `run-rate-Nd` | mean of the N days |
+| 7 – 13 | `run-rate-7d+trend` | max(0, rr7 + slope × (3 + k)) |
+| ≥ 14 | `weekday-seasonal` | max(0, (mean₂₈ + slope × ((W−1)/2 + k)) × factor(weekday d)) |
+
+rr7 = mean of the last 7 complete days; mean₂₈ = mean of the last W = min(28, n)
+days; slope = least-squares cost change per day (fitted on cost ÷ weekday factor
+for the seasonal method, so the weekly shape never reads as a trend); factor(w)
+= mean cost on weekday w ÷ overall mean, 1 for a weekday seen fewer than twice.
+The slope is applied from the centre of the averaging window because a
+window's mean is the fitted line's value at its midpoint. `projection` lists the
+exact per-day values summed into `month_end` (today first), so the chart tail
+reconciles with the KPI; `weekday_factors` is present only for
+`weekday-seasonal`. Confidence: `high` needs ≥ 14 days and a last-week
+coefficient of variation < 0.15; `medium` ≥ 7 days; `low` otherwise — and
+always `low` when the last week's CV ≥ 0.5.
 Stopped-instance policy of the customer's price book applies exactly as in rating.
 
 ### 3.2 `GET /cost/summary` · `GET /customers/{id}/cost/summary`
 The overview payload: `currency`, `mtd{cost,from,to,days}`,
-`forecast{month_end,run_rate_daily,method,days_observed,confidence}`,
+`forecast{month_end,run_rate_daily,trend_daily,method,days_observed,days_in_month,confidence,projection[{day,cost}],weekday_factors?}`
+(same object as §3.1),
 `last_month{period,cost}`, `prev_mtd{cost}` (same day count last month),
 `mom_delta_pct`, `avg_daily_30d`, `resources_live`, `unpriced_skus`,
 `customers{active,pending,suspended}`, `sources{verified,failed,pending}`,

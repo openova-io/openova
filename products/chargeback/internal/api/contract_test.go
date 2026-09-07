@@ -141,6 +141,55 @@ func TestWireContractFixtures(t *testing.T) {
 	}
 }
 
+// TestForecastWireKeys pins the forecast object's keys by name (#6867
+// follow-up): the projection the chart draws its hatched tail from, and the
+// weekday factors the overview tooltip lists. `weekday_factors` is present
+// only for the weekday-seasonal method (≥ 14 complete days); `projection` is
+// always there and sums to month_end − observed.
+func TestForecastWireKeys(t *testing.T) {
+	now := time.Date(2026, 9, 22, 10, 0, 0, 0, time.UTC)
+	var long []rating.DayCost
+	for d := 1; d <= 21; d++ {
+		day := time.Date(2026, 9, d, 0, 0, 0, 0, time.UTC)
+		c := 100.0
+		if day.Weekday() == time.Saturday || day.Weekday() == time.Sunday {
+			c = 50
+		}
+		long = append(long, rating.DayCost{Day: day.Format("2006-01-02"), Cost: c})
+	}
+	roundTrip := func(f rating.Forecast) map[string]any {
+		b, err := json.Marshal(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m map[string]any
+		if err := json.Unmarshal(b, &m); err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+	seasonal, _ := rating.ForecastMonth(now, long)
+	m := roundTrip(seasonal)
+	for _, k := range []string{"month_end", "run_rate_daily", "trend_daily", "method", "days_observed", "days_in_month", "confidence", "projection", "weekday_factors"} {
+		if _, ok := m[k]; !ok {
+			t.Fatalf("seasonal forecast lacks %q: %v", k, m)
+		}
+	}
+	proj := m["projection"].([]any)
+	if len(proj) != 9 || proj[0].(map[string]any)["day"] != "2026-09-22" || proj[8].(map[string]any)["day"] != "2026-09-30" {
+		t.Fatalf("projection = %v, want Sep 22–30", proj)
+	}
+	if wf := m["weekday_factors"].(map[string]any); len(wf) != 7 || wf["Sat"].(float64) >= wf["Wed"].(float64) {
+		t.Fatalf("weekday_factors = %v", wf)
+	}
+	short, _ := rating.ForecastMonth(time.Date(2026, 9, 8, 10, 0, 0, 0, time.UTC), long[:7])
+	if m := roundTrip(short); m["weekday_factors"] != nil {
+		t.Fatalf("a %s forecast must not carry weekday_factors: %v", short.Method, m["weekday_factors"])
+	} else if len(m["projection"].([]any)) != 23 {
+		t.Fatalf("projection = %v", m["projection"])
+	}
+}
+
 func TestParseCostQueryDefaultsAndValidation(t *testing.T) {
 	h := &Handler{Deps: Deps{Now: func() time.Time { return time.Date(2026, 9, 8, 10, 0, 0, 0, time.UTC) }}}
 	q, msg := h.parseCostQuery(mustReq("/api/v1/cost/explore"))

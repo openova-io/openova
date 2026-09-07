@@ -8,6 +8,7 @@ import { DataTable, type Column } from '../components/DataTable'
 import { DateRange } from '../components/DateRange'
 import { DIM_LABEL, FilterChips, filterCount, type Dim } from '../components/FilterChips'
 import { Delta, Field, KPI, Modal, Notice, PageHeader, Segmented, ShareBar, Skeleton } from '../components/ui'
+import { forecastHint, forecastNote } from '../lib/forecast'
 import { bucketLabel, describeWindow } from '../lib/dates'
 import { apiQuery, drillInto, paramsFromState, stateFromParams, type ChartKind, type ExploreState } from '../lib/exploreState'
 import { formatMoney, formatQty } from '../lib/money'
@@ -203,7 +204,7 @@ export function ExplorerBody({ lens, embedded }: { lens: Lens; embedded?: boolea
         <div className="kpis">
           <KPI label={`Total · ${describeWindow(state.window)}`} value={fmtCompact(d.total.current)} note={<><Delta pct={d.total.delta_pct} /> vs {fmtCompact(d.total.previous)} before</>} />
           <KPI label="Average per bucket" value={fmtCompact(d.buckets.length ? d.total.current / Math.max(1, d.bucket_has_data.filter(Boolean).length) : 0)} note={`${d.bucket_has_data.filter(Boolean).length} of ${d.buckets.length} ${state.granularity === 'day' ? 'days' : 'months'} with data`} />
-          {d.forecast ? <KPI label="Forecast month end" value={fmtCompact(d.forecast.month_end)} note={`${d.forecast.method} · ${d.forecast.confidence}`} /> : <KPI label="Groups" value={d.groups.length + (d.other ? 1 : 0)} note={d.other ? `top ${d.groups.length} + other` : 'all shown'} />}
+          {d.forecast ? <KPI label="Forecast month end" value={fmtCompact(d.forecast.month_end)} note={forecastNote(d.forecast)} hint={forecastHint(d.forecast)} /> : <KPI label="Groups" value={d.groups.length + (d.other ? 1 : 0)} note={d.other ? `top ${d.groups.length} + other` : 'all shown'} />}
           <KPI label="Resources" value={d.total.resources.toLocaleString()} note="distinct in the window" />
           {d.unpriced.length ? <KPI label="Unpriced SKUs" value={d.unpriced.length} note={d.unpriced.map((u) => u.sku).join(', ')} tone="warn" /> : null}
         </div>
