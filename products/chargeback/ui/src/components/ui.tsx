@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react'
+import { cloneElement, isValidElement, useEffect, useId, type ReactElement, type ReactNode } from 'react'
 import { Link, NavLink } from 'react-router-dom'
 import { formatPct } from '../lib/money'
 
@@ -21,10 +21,24 @@ export function Badge({ status, kind }: { status: string | null | undefined; kin
 }
 
 export function Field({ label, error, help, children }: { label: string; error?: string; help?: string; children: ReactNode }) {
+  // The label is associated with its control: a single input/select/textarea
+  // child gets a generated id unless it brings its own, so screen readers,
+  // click-to-focus and label-based tests all work.
+  const id = useId()
+  let control: ReactNode = children
+  let htmlFor: string | undefined
+  if (isValidElement(children)) {
+    const el = children as ReactElement<{ id?: string }>
+    const t = el.type
+    if (t === 'input' || t === 'select' || t === 'textarea') {
+      htmlFor = el.props.id ?? id
+      control = el.props.id ? el : cloneElement(el, { id })
+    }
+  }
   return (
     <div className="field">
-      <label>{label}</label>
-      {children}
+      <label htmlFor={htmlFor}>{label}</label>
+      {control}
       {help && !error ? <div className="help">{help}</div> : null}
       {error ? <div className="err">{error}</div> : null}
     </div>
@@ -246,7 +260,7 @@ export function ShareBar({ share, width = 72 }: { share: number; width?: number 
   )
 }
 
-/** Segmented control. */
+/** Segmented control. An option may be disabled, with a title saying why. */
 export function Segmented<T extends string>({
   value,
   options,
@@ -254,14 +268,22 @@ export function Segmented<T extends string>({
   ariaLabel,
 }: {
   value: T
-  options: ReadonlyArray<{ value: T; label: string }>
+  options: ReadonlyArray<{ value: T; label: string; disabled?: boolean; title?: string }>
   onChange: (v: T) => void
   ariaLabel?: string
 }) {
   return (
     <div className="seg" role="group" aria-label={ariaLabel}>
       {options.map((o) => (
-        <button key={o.value} type="button" className={o.value === value ? 'on' : ''} onClick={() => onChange(o.value)} aria-pressed={o.value === value}>
+        <button
+          key={o.value}
+          type="button"
+          className={o.value === value ? 'on' : ''}
+          onClick={() => onChange(o.value)}
+          aria-pressed={o.value === value}
+          disabled={o.disabled}
+          title={o.title}
+        >
           {o.label}
         </button>
       ))}

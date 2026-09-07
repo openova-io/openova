@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -52,6 +53,7 @@ func sampleExplore() store.ExploreResult {
 		Total:          store.CostTotal{Current: "104.160000", Previous: "42.000000", DeltaPct: pct(148), Resources: 4},
 		TotalsByBucket: []store.Decimal{"14.880000", "14.880000", "14.880000", "14.880000", "14.880000", "14.880000", "14.880000"},
 		Unpriced:       []store.UnpricedSKU{{SKU: "k8s.vcpu", Unit: "vcpu-hour", Quantity: "84.000000", Resources: 1}},
+		Compare:        store.CompareWindow{From: "2026-08-25", To: "2026-09-01", Label: store.CompareLabelPrevious},
 	}
 }
 
@@ -141,6 +143,55 @@ func TestWireContractFixtures(t *testing.T) {
 	}
 }
 
+// TestForecastWireKeys pins the forecast object's keys by name (#6867
+// follow-up): the projection the chart draws its hatched tail from, and the
+// weekday factors the overview tooltip lists. `weekday_factors` is present
+// only for the weekday-seasonal method (≥ 14 complete days); `projection` is
+// always there and sums to month_end − observed.
+func TestForecastWireKeys(t *testing.T) {
+	now := time.Date(2026, 9, 22, 10, 0, 0, 0, time.UTC)
+	var long []rating.DayCost
+	for d := 1; d <= 21; d++ {
+		day := time.Date(2026, 9, d, 0, 0, 0, 0, time.UTC)
+		c := 100.0
+		if day.Weekday() == time.Saturday || day.Weekday() == time.Sunday {
+			c = 50
+		}
+		long = append(long, rating.DayCost{Day: day.Format("2006-01-02"), Cost: c})
+	}
+	roundTrip := func(f rating.Forecast) map[string]any {
+		b, err := json.Marshal(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m map[string]any
+		if err := json.Unmarshal(b, &m); err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+	seasonal, _ := rating.ForecastMonth(now, long)
+	m := roundTrip(seasonal)
+	for _, k := range []string{"month_end", "run_rate_daily", "trend_daily", "method", "days_observed", "days_in_month", "confidence", "projection", "weekday_factors"} {
+		if _, ok := m[k]; !ok {
+			t.Fatalf("seasonal forecast lacks %q: %v", k, m)
+		}
+	}
+	proj := m["projection"].([]any)
+	if len(proj) != 9 || proj[0].(map[string]any)["day"] != "2026-09-22" || proj[8].(map[string]any)["day"] != "2026-09-30" {
+		t.Fatalf("projection = %v, want Sep 22–30", proj)
+	}
+	if wf := m["weekday_factors"].(map[string]any); len(wf) != 7 || wf["Sat"].(float64) >= wf["Wed"].(float64) {
+		t.Fatalf("weekday_factors = %v", wf)
+	}
+	short, _ := rating.ForecastMonth(time.Date(2026, 9, 8, 10, 0, 0, 0, time.UTC), long[:7])
+	if m := roundTrip(short); m["weekday_factors"] != nil {
+		t.Fatalf("a %s forecast must not carry weekday_factors: %v", short.Method, m["weekday_factors"])
+	} else if len(m["projection"].([]any)) != 23 {
+		t.Fatalf("projection = %v", m["projection"])
+	}
+}
+
 func TestParseCostQueryDefaultsAndValidation(t *testing.T) {
 	h := &Handler{Deps: Deps{Now: func() time.Time { return time.Date(2026, 9, 8, 10, 0, 0, 0, time.UTC) }}}
 	q, msg := h.parseCostQuery(mustReq("/api/v1/cost/explore"))
@@ -158,6 +209,141 @@ func TestParseCostQueryDefaultsAndValidation(t *testing.T) {
 	}
 	if _, msg := h.parseCostQuery(mustReq("/x?metric=usage&sku=ecs.m7n.xlarge.8")); msg != "" {
 		t.Fatalf("usage with one sku filter is valid: %s", msg)
+	}
+}
+
+// Hourly grain is bounded by days, not only by the bucket ceiling: 15 days is
+// 360 buckets — under 400 — and is still refused, with the limit in the message.
+func TestParseCostQueryHourlyWindowLimit(t *testing.T) {
+	h := &Handler{Deps: Deps{Now: func() time.Time { return time.Date(2026, 9, 8, 10, 0, 0, 0, time.UTC) }}}
+	q, msg := h.parseCostQuery(mustReq("/x?from=2026-09-01&to=2026-09-15&granularity=hour"))
+	if msg != "" || q.Granularity != "hour" {
+		t.Fatalf("14 hourly days must parse: %+v %q", q, msg)
+	}
+	if n := len(store.Buckets(q.From, q.To, q.Granularity)); n != 336 {
+		t.Fatalf("14 days = %d hour buckets, want 336", n)
+	}
+	q, msg = h.parseCostQuery(mustReq("/x?from=2026-09-01&to=2026-09-02&granularity=hour"))
+	if msg != "" || len(store.Buckets(q.From, q.To, q.Granularity)) != 24 {
+		t.Fatalf("one hourly day = %v %q", store.Buckets(q.From, q.To, q.Granularity), msg)
+	}
+	_, msg = h.parseCostQuery(mustReq("/x?from=2026-09-01&to=2026-09-16&granularity=hour"))
+	if msg == "" || !strings.Contains(msg, "14 days") || !strings.Contains(msg, "15 requested") {
+		t.Fatalf("15 hourly days must be refused naming the limit: %q", msg)
+	}
+	// The default 30-day window at hour grain is refused the same way.
+	if _, msg := h.parseCostQuery(mustReq("/x?granularity=hour")); msg == "" || !strings.Contains(msg, "14 days") {
+		t.Fatalf("default window at hour grain: %q", msg)
+	}
+	// Day and month grain keep the 400-bucket ceiling as their only bound.
+	if _, msg := h.parseCostQuery(mustReq("/x?from=2025-09-01&to=2026-09-01&granularity=day")); msg != "" {
+		t.Fatalf("365 daily buckets are fine: %q", msg)
+	}
+}
+
+func TestParseCostQueryCompareWindow(t *testing.T) {
+	h := &Handler{Deps: Deps{Now: func() time.Time { return time.Date(2026, 9, 8, 10, 0, 0, 0, time.UTC) }}}
+	q, msg := h.parseCostQuery(mustReq("/x?from=2026-09-01&to=2026-09-08"))
+	if msg != "" || !q.CompareFrom.IsZero() || !q.CompareTo.IsZero() {
+		t.Fatalf("no compare params must leave the automatic window: %+v %q", q, msg)
+	}
+	q, msg = h.parseCostQuery(mustReq("/x?from=2026-09-01&to=2026-09-08&compare_from=2026-08-01&compare_to=2026-08-08"))
+	if msg != "" || q.CompareFrom.Format("2006-01-02") != "2026-08-01" || q.CompareTo.Format("2006-01-02") != "2026-08-08" {
+		t.Fatalf("compare window = %v..%v %q", q.CompareFrom, q.CompareTo, msg)
+	}
+	// A different length than the window, and overlap with it, are both allowed.
+	if _, msg := h.parseCostQuery(mustReq("/x?from=2026-09-01&to=2026-09-08&compare_from=2026-08-01&compare_to=2026-09-01")); msg != "" {
+		t.Fatalf("31-day compare for a 7-day window is valid: %q", msg)
+	}
+	if _, msg := h.parseCostQuery(mustReq("/x?from=2026-09-01&to=2026-09-08&compare_from=2026-09-04&compare_to=2026-09-08")); msg != "" {
+		t.Fatalf("overlapping compare window is valid: %q", msg)
+	}
+	for _, bad := range []string{
+		"/x?compare_from=2026-08-01",                              // one side only
+		"/x?compare_to=2026-08-08",                                // one side only
+		"/x?compare_from=2026-08-08&compare_to=2026-08-01",        // reversed
+		"/x?compare_from=2026-08-01&compare_to=2026-08-01",        // empty
+		"/x?compare_from=01-08-2026&compare_to=2026-08-08",        // malformed
+		"/x?compare_from=2026-08-01&compare_to=2026-08-08T00:00Z", // not a day
+	} {
+		if _, msg := h.parseCostQuery(mustReq(bad)); msg == "" {
+			t.Fatalf("%s must be rejected", bad)
+		}
+	}
+}
+
+func TestExploreCSVNameCarriesCustomCompare(t *testing.T) {
+	doc := exploreDoc{ExploreResult: sampleExplore()}
+	if got := exploreCSVName(doc); got != "cost-kind-2026-09-01-2026-09-08.csv" {
+		t.Fatalf("automatic compare must not change the name: %q", got)
+	}
+	doc.Compare = store.CompareWindow{From: "2026-08-01", To: "2026-08-08", Label: store.CompareLabelCustom}
+	if got := exploreCSVName(doc); got != "cost-kind-2026-09-01-2026-09-08-vs-2026-08-01-2026-08-08.csv" {
+		t.Fatalf("custom compare name = %q", got)
+	}
+	rec := httptest.NewRecorder()
+	writeExploreCSV(rec, doc)
+	if cd := rec.Header().Get("Content-Disposition"); !strings.Contains(cd, "-vs-2026-08-01-2026-08-08.csv") {
+		t.Fatalf("Content-Disposition = %q", cd)
+	}
+	// Rows stay per bucket: header + 7 buckets × (2 groups + other).
+	if lines := strings.Count(strings.TrimSpace(rec.Body.String()), "\n") + 1; lines != 1+7*3 {
+		t.Fatalf("csv lines = %d", lines)
+	}
+}
+
+// TestParseCostQueryTagDimensions: `tag:<key>` groups and filters parse (the
+// colon URL-encoded or not), enterprise_project is a static dimension, and a
+// key that fails the rule is a 400 whose message names the rule — it is
+// refused before the store ever sees it.
+func TestParseCostQueryTagDimensions(t *testing.T) {
+	h := &Handler{Deps: Deps{Now: func() time.Time { return time.Date(2026, 9, 8, 10, 0, 0, 0, time.UTC) }}}
+	q, msg := h.parseCostQuery(mustReq("/x?group_by=tag:team&tag:team=a,b&exclude_tag:env=dev&tag%3Acost-centre=CC-42&enterprise_project=ep-1"))
+	if msg != "" {
+		t.Fatalf("valid tag query rejected: %s", msg)
+	}
+	if q.GroupBy != "tag:team" {
+		t.Fatalf("group_by = %q", q.GroupBy)
+	}
+	if got := q.Include["tag:team"]; len(got) != 2 || got[0] != "a" || got[1] != "b" {
+		t.Fatalf("include tag:team = %v", got)
+	}
+	if got := q.Include["tag:cost-centre"]; len(got) != 1 || got[0] != "CC-42" {
+		t.Fatalf("url-encoded colon: include = %v", q.Include)
+	}
+	if got := q.Exclude["tag:env"]; len(got) != 1 || got[0] != "dev" {
+		t.Fatalf("exclude tag:env = %v", got)
+	}
+	if got := q.Include["enterprise_project"]; len(got) != 1 || got[0] != "ep-1" {
+		t.Fatalf("enterprise_project filter = %v", got)
+	}
+	if q, msg := h.parseCostQuery(mustReq("/x?group_by=enterprise_project")); msg != "" || q.GroupBy != "enterprise_project" {
+		t.Fatalf("group_by=enterprise_project: %q %q", q.GroupBy, msg)
+	}
+	// "(untagged)" is a legal filter value.
+	if q, msg := h.parseCostQuery(mustReq("/x?tag:team=(untagged)")); msg != "" || q.Include["tag:team"][0] != "(untagged)" {
+		t.Fatalf("(untagged) filter: %v %q", q.Include, msg)
+	}
+	for _, bad := range []string{
+		"/x?group_by=tag:",                            // empty key
+		"/x?group_by=tag:te'am",                       // quote
+		"/x?group_by=tag:team%27%20OR%201%3D1--",      // injection attempt
+		"/x?group_by=tag:a%20b",                       // space
+		"/x?tag:x%27y=1",                              // quote in a filter key
+		"/x?exclude_tag:x%22y=1",                      // double quote in an exclude key
+		"/x?group_by=tag:" + strings.Repeat("k", 129), // too long
+	} {
+		_, msg := h.parseCostQuery(mustReq(bad))
+		if msg == "" {
+			t.Fatalf("%s must be rejected", bad)
+		}
+		if !strings.Contains(msg, store.TagKeyRule) {
+			t.Fatalf("%s: message must name the rule, got %q", bad, msg)
+		}
+	}
+	// The old message still lists the static dimensions and now names tag:<key>.
+	if _, msg := h.parseCostQuery(mustReq("/x?group_by=colour")); !strings.Contains(msg, "tag:<key>") || !strings.Contains(msg, "enterprise_project") {
+		t.Fatalf("unknown group_by message = %q", msg)
 	}
 }
 

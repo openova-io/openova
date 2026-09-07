@@ -25,6 +25,7 @@ import (
 	"github.com/openova-io/openova/products/chargeback/internal/crypto"
 	"github.com/openova-io/openova/products/chargeback/internal/mail"
 	"github.com/openova-io/openova/products/chargeback/internal/metrics"
+	"github.com/openova-io/openova/products/chargeback/internal/report"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 	"github.com/openova-io/openova/products/chargeback/ui"
 )
@@ -111,6 +112,11 @@ func main() {
 	// per period (budget_alerts), audits it and mails the budget's
 	// recipients. First run one minute after start, then hourly.
 	go (&budget.Evaluator{Store: st, Mail: deps.Mail}).Run(ctx)
+	// #6867 follow-up — scheduled cost reports: every 5 minutes, mail each
+	// due schedule's report for the window its cadence implies (yesterday /
+	// last 7 days / last month), record the delivery and advance next_at.
+	// First poll one minute after start.
+	go (&report.Scheduler{Store: st, Mail: deps.Mail, PublicURL: cfg.PublicURL}).Run(ctx)
 
 	// OpenOva adapter (ADR-0014 D2 case 1): Organization → Customer sync +
 	// the platform collector, in this same binary. On by default only for

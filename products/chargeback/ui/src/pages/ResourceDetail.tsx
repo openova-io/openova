@@ -12,6 +12,7 @@ import { explorerHref, resourcesHref } from '../lib/links'
 import { formatMoney, formatQty } from '../lib/money'
 import { flattenAttrs, kindLabel, transitionRows, unitCost } from '../lib/resources'
 import { lensFor, type Lens } from '../lib/scope'
+import { tagDim, tagEntries } from '../lib/tags'
 import { useQuery } from '../lib/useQuery'
 
 /**
@@ -53,7 +54,19 @@ export function ResourceDetailBody({ lens, sourceId, resourceId }: { lens: Lens;
   const daily = d?.daily ?? []
   const daysWithData = daily.filter((x) => x.has_data).length
   const lines = d?.lines ?? []
-  const attrs = useMemo(() => flattenAttrs(d?.attrs), [d])
+  // Tags get chips of their own (each one a link into the explorer filtered
+  // by that tag); the rest of the attributes stay in the key/value list.
+  const tags = useMemo(() => tagEntries(d?.attrs?.tags), [d])
+  const attrs = useMemo(() => flattenAttrs(d?.attrs, ['transitions', 'tags']), [d])
+  const tagHref = (key: string, value: string) => {
+    const p = new URLSearchParams({ preset, group_by: 'kind' })
+    if (preset === 'custom') {
+      p.set('from', window.from)
+      p.set('to', window.to)
+    }
+    p.set(tagDim(key), value || '')
+    return explorerHref(lens, p)
+  }
   const transitions = useMemo(() => transitionRows(d?.transitions ?? (Array.isArray(d?.attrs?.transitions) ? (d.attrs.transitions as Array<Record<string, unknown>>) : null)), [d])
   const records = d?.records_recent ?? []
   const recordKeys = useMemo(() => unionKeys(records), [records])
@@ -144,6 +157,16 @@ export function ResourceDetailBody({ lens, sourceId, resourceId }: { lens: Lens;
             <h2>Attributes</h2>
             <span className="hint">as collected</span>
           </div>
+          {tags.length ? (
+            <div className="chips" role="list" aria-label="Tags" style={{ marginBottom: 10 }}>
+              {tags.map((t) => (
+                <Link key={t.key} role="listitem" className="chip" to={tagHref(t.key, t.value)} title={`explore cost with tag ${t.key} = ${t.value || '(empty)'}`}>
+                  <span className="dim">{t.key}:</span>
+                  <span className="val">{t.value || <span className="muted">(empty)</span>}</span>
+                </Link>
+              ))}
+            </div>
+          ) : null}
           {attrs.length ? (
             <dl className="kv">
               {attrs.map((a) => (
@@ -153,7 +176,7 @@ export function ResourceDetailBody({ lens, sourceId, resourceId }: { lens: Lens;
                 </div>
               ))}
             </dl>
-          ) : (
+          ) : tags.length ? null : (
             <EmptyState title="No attributes">The collector recorded nothing beyond the identity of this resource.</EmptyState>
           )}
         </div>

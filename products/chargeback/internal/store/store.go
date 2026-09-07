@@ -283,6 +283,43 @@ CREATE TABLE IF NOT EXISTS pins (
 	);`,
 	// #6867 — a discount with no customer is a campaign for every customer.
 	`ALTER TABLE discounts ALTER COLUMN customer_id DROP NOT NULL;`,
+	// #6867 follow-up — scheduled cost reports. A schedule mails a plain-text
+	// cost report on a cadence; customer_id NULL is the operator's
+	// Sovereign-wide report. day_of_week (0 = Sunday) is read for weekly
+	// schedules, day_of_month (1..28, so every month has the day) for
+	// monthly ones. next_at is the due instant the scheduler polls on.
+	`CREATE TABLE IF NOT EXISTS report_schedules (
+		id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+		name TEXT NOT NULL,
+		customer_id UUID REFERENCES customers(id) ON DELETE CASCADE,
+		cadence TEXT NOT NULL CHECK (cadence IN ('daily','weekly','monthly')),
+		day_of_week INT CHECK (day_of_week IS NULL OR day_of_week BETWEEN 0 AND 6),
+		day_of_month INT CHECK (day_of_month IS NULL OR day_of_month BETWEEN 1 AND 28),
+		hour_utc INT NOT NULL DEFAULT 6 CHECK (hour_utc BETWEEN 0 AND 23),
+		recipients TEXT[] NOT NULL DEFAULT '{}',
+		sections TEXT[] NOT NULL DEFAULT '{summary,services,customers,budgets,anomalies,recommendations}',
+		active BOOLEAN NOT NULL DEFAULT true,
+		last_sent_at TIMESTAMPTZ,
+		next_at TIMESTAMPTZ NOT NULL,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+	);`,
+	`CREATE INDEX IF NOT EXISTS report_schedules_due_idx ON report_schedules (next_at) WHERE active;`,
+	`CREATE INDEX IF NOT EXISTS report_schedules_customer_idx ON report_schedules (customer_id);`,
+	// One row per attempted delivery, failed ones included (ok = false with
+	// the error), so the UI can show what was sent and why a run was missed.
+	`CREATE TABLE IF NOT EXISTS report_deliveries (
+		id BIGSERIAL PRIMARY KEY,
+		schedule_id UUID NOT NULL REFERENCES report_schedules(id) ON DELETE CASCADE,
+		sent_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+		window_from DATE NOT NULL,
+		window_to DATE NOT NULL,
+		recipients TEXT[] NOT NULL DEFAULT '{}',
+		subject TEXT NOT NULL DEFAULT '',
+		ok BOOLEAN NOT NULL,
+		error TEXT
+	);`,
+	`CREATE INDEX IF NOT EXISTS report_deliveries_schedule_idx ON report_deliveries (schedule_id, sent_at DESC);`,
 }
 
 // Migrate applies every migration not yet recorded in schema_migrations.

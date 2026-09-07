@@ -14,6 +14,8 @@ export interface Lens {
   anomalies: string
   recommendations: string
   budgets: string
+  /** e.g. '/reports/schedules' or '/customers/<id>/reports/schedules' */
+  reports: string
   /** UI route prefix: '' for the operator, '/my' for a customer. */
   route: string
 }
@@ -30,11 +32,17 @@ export function lensFor(me: Me | null): Lens {
     anomalies: `${cust}/anomalies`,
     recommendations: `${cust}/recommendations`,
     budgets: `${cust}/budgets`,
+    reports: `${cust}/reports/schedules`,
     route: operator ? '' : '/my',
   }
 }
 
-export type LensPage = 'overview' | 'explore' | 'resources' | 'statements' | 'budgets' | 'anomalies' | 'recommendations' | 'discounts' | 'sources'
+/** The operator's Sovereign-wide lens (no customer pinned). */
+export function operatorLens(): Lens {
+  return lensFor({ email: '', role: 'operator' })
+}
+
+export type LensPage = 'overview' | 'explore' | 'resources' | 'statements' | 'budgets' | 'reports' | 'anomalies' | 'recommendations' | 'discounts' | 'sources'
 
 /**
  * A link to another page of the same lens. On the operator and /my lenses
@@ -64,6 +72,7 @@ export function customerLens(customerId: string): Lens {
     anomalies: `${cust}/anomalies`,
     recommendations: `${cust}/recommendations`,
     budgets: `${cust}/budgets`,
+    reports: `${cust}/reports/schedules`,
     route: `/customers/${customerId}`,
   }
 }

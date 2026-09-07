@@ -136,12 +136,15 @@ function isoDay(d: Date): string {
 }
 
 /**
- * forecastTail projects the rest of the month after `lastBucket` at the
- * API's run rate. The API's month_end is observed + run_rate_daily × the days
- * from today to month end, so the tail is drawn one bucket per remaining day
- * at run_rate_daily and sums to month_end − observed whenever the window's
- * last bucket is yesterday (the MTD case). It returns null for a non-day
- * bucket, a missing forecast, or a bucket already at month end.
+ * forecastTail draws the rest of the month after `lastBucket`, one bucket per
+ * remaining day. Each day takes the API's per-day `projection` value when the
+ * forecast carries one — so the hatched tail follows the weekly shape and the
+ * trend the method applied — and the flat run_rate_daily otherwise (older
+ * API, or a day the projection does not cover). The API's month_end is
+ * observed + Σ projection (today first), so the tail sums to month_end −
+ * observed whenever the window's last bucket is yesterday (the MTD case). It
+ * returns null for a non-day bucket, a missing forecast, or a bucket already
+ * at month end.
  */
 export function forecastTail(lastBucket: string, forecast: Forecast | null | undefined): { buckets: string[]; values: number[] } | null {
   if (!forecast || !Number.isFinite(forecast.run_rate_daily)) return null
@@ -151,11 +154,16 @@ export function forecastTail(lastBucket: string, forecast: Forecast | null | und
   const mo = Number(m[2])
   const d = Number(m[3])
   const monthEnd = new Date(Date.UTC(y, mo, 0)) // day 0 of next month = last day of this one
+  const projected = new Map<string, number>()
+  for (const p of Array.isArray(forecast.projection) ? forecast.projection : []) {
+    if (typeof p?.day === 'string' && Number.isFinite(num(p.cost))) projected.set(p.day, num(p.cost))
+  }
   const buckets: string[] = []
   const values: number[] = []
   for (let day = d + 1; day <= monthEnd.getUTCDate(); day++) {
-    buckets.push(isoDay(new Date(Date.UTC(y, mo - 1, day))))
-    values.push(forecast.run_rate_daily)
+    const iso = isoDay(new Date(Date.UTC(y, mo - 1, day)))
+    buckets.push(iso)
+    values.push(projected.get(iso) ?? forecast.run_rate_daily)
   }
   return buckets.length ? { buckets, values } : null
 }

@@ -18,6 +18,7 @@ package huawei
 
 import (
 	"context"
+	"encoding/json"
 	"net/url"
 	"strconv"
 )
@@ -64,6 +65,9 @@ type dbInstance struct {
 		ID   string `json:"id"`
 		Name string `json:"name"`
 	} `json:"flavor"`
+	// tags arrive as [{"key": ..., "value": ...}] on the v3 instance APIs.
+	Tags                json.RawMessage `json:"tags"`
+	EnterpriseProjectID string          `json:"enterprise_project_id"`
 }
 
 func (d dbInstance) attrs() map[string]any {
@@ -84,11 +88,13 @@ func (d dbInstance) attrs() map[string]any {
 	if mode == "" {
 		mode = d.Type
 	}
-	return map[string]any{
+	attrs := map[string]any{
 		"engine": engine, "flavor": flavor, "mode": mode,
 		"volume_type": d.Volume.Type, "size_gb": d.Volume.Size,
 		"status": d.Status,
 	}
+	putTagAttrs(attrs, d.Tags, d.EnterpriseProjectID)
+	return attrs
 }
 
 func (c *Client) listDBLike(ctx context.Context, creds Credentials, region, service, kind string) ([]Resource, error) {

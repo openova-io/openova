@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -37,9 +38,13 @@ var costDims = map[string]costDim{
 	"resource":  {expr: "resource_id", label: "resource_label"},
 	"tier":      {expr: "tier", label: "tier"},
 	"namespace": {expr: "namespace", label: "namespace"},
+	// The cloud's enterprise project (Huawei's cost-centre grouping), read
+	// off labels.enterprise_project; records without one group as "(none)".
+	"enterprise_project": {expr: "enterprise_project", label: "enterprise_project"},
 }
 
-// CostDimensions lists the valid group_by / filter dimensions.
+// CostDimensions lists the valid STATIC group_by / filter dimensions. Tag
+// dimensions (`tag:<key>`) are dynamic — see IsTagDimension.
 func CostDimensions() []string {
 	out := make([]string, 0, len(costDims))
 	for k := range costDims {
@@ -47,6 +52,48 @@ func CostDimensions() []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// Tag dimensions (EPIC #6867 follow-up). Cloud consoles group and filter
+// cost by resource tag; here the dimension is `tag:<key>`, where <key> is a
+// tag key the collectors stored under labels.tags (cloud resource tags, or
+// the app.kubernetes.io/* labels of a pod on the Sovereign's own cluster).
+//
+// The key is user input that ends up next to SQL. It is validated against
+// tagKeyRE AND passed as a bind parameter — never interpolated — so a key
+// that fails validation is refused before any SQL is built, and one that
+// passes cannot carry a quote into the query text.
+
+// TagDimensionPrefix introduces a tag dimension name.
+const TagDimensionPrefix = "tag:"
+
+// TagKeyRule is the validation rule a tag key must satisfy, in the words the
+// API reports when a request fails it.
+const TagKeyRule = "^[A-Za-z0-9_.:/@-]{1,128}$"
+
+var tagKeyRE = regexp.MustCompile(TagKeyRule)
+
+// TagUntagged is the group records without the tag fall into.
+const TagUntagged = "(untagged)"
+
+// IsTagDimension reports whether name is a `tag:<key>` dimension with a valid
+// key, and returns the key. A `tag:` name with an invalid key is NOT a
+// dimension (ok=false): the caller rejects it, it never reaches SQL.
+func IsTagDimension(name string) (key string, ok bool) {
+	key, found := strings.CutPrefix(name, TagDimensionPrefix)
+	if !found || !tagKeyRE.MatchString(key) {
+		return "", false
+	}
+	return key, true
+}
+
+// ValidTagKey reports whether key alone satisfies TagKeyRule.
+func ValidTagKey(key string) bool { return tagKeyRE.MatchString(key) }
+
+// tagExpr is the SQL for the value of one tag key on a tags jsonb column,
+// with the key bound as a parameter: COALESCE(<col>->>$n, '(untagged)').
+func tagExpr(a *costArgs, col, key string) string {
+	return "COALESCE(" + col + "->>" + a.add(key) + ", '" + TagUntagged + "')"
 }
 
 // KindLabel names a resource kind for people.
@@ -97,11 +144,16 @@ func KindLabel(kind string) string {
 // CostQuery selects a window, a grain, a grouping and filters.
 type CostQuery struct {
 	From, To    time.Time
-	Granularity string // day | month
+	Granularity string // hour | day | month
 	GroupBy     string // none | a costDims key
 	Metric      string // cost | usage
 	Include     map[string][]string
 	Exclude     map[string][]string
+	// CompareFrom/CompareTo is the window `previous` and `delta_pct` are
+	// measured against. Both zero = the window of the same length
+	// immediately before From (the automatic previous period). A custom
+	// window may be any length; it is reported as-is in ExploreResult.Compare.
+	CompareFrom, CompareTo time.Time
 	// Limit keeps the top-N groups by total and folds the rest into Other.
 	// 0 = every group.
 	Limit int
@@ -122,7 +174,7 @@ type CostGroup struct {
 	Values    []Decimal `json:"values"`
 }
 
-// CostTotal is the window total against the previous window.
+// CostTotal is the window total against the compare window.
 type CostTotal struct {
 	Current   Decimal  `json:"current"`
 	Previous  Decimal  `json:"previous"`
@@ -137,6 +189,20 @@ type UnpricedSKU struct {
 	Quantity  Decimal `json:"quantity"`
 	Resources int     `json:"resources"`
 }
+
+// CompareWindow is the half-open window every `previous` value in the result
+// was summed over. Label is "previous period" for the automatic window of
+// equal length before From, "custom" when the caller chose it.
+type CompareWindow struct {
+	From  string `json:"from"`
+	To    string `json:"to"`
+	Label string `json:"label"`
+}
+
+const (
+	CompareLabelPrevious = "previous period"
+	CompareLabelCustom   = "custom"
+)
 
 // ExploreResult is the explorer payload (DESIGN.md §3.1). Forecast is added
 // by the API layer, which owns the calendar arithmetic.
@@ -155,6 +221,7 @@ type ExploreResult struct {
 	Total          CostTotal     `json:"total"`
 	TotalsByBucket []Decimal     `json:"totals_by_bucket"`
 	Unpriced       []UnpricedSKU `json:"unpriced"`
+	Compare        CompareWindow `json:"compare"`
 }
 
 // costPriceJoinSQL joins a usage_records row aliased `u` to its customer
@@ -201,6 +268,8 @@ SELECT u.customer_id, c.slug AS customer_slug, c.name AS customer_name,
        COALESCE(NULLIF(u.labels->>'tier', ''), 'organization') AS tier,
        COALESCE(u.labels->>'namespace', '') AS namespace,
        COALESCE(NULLIF(u.labels->>'name', ''), u.resource_id) AS resource_label,
+       u.labels->'tags' AS tags,
+       COALESCE(NULLIF(u.labels->>'enterprise_project', ''), '(none)') AS enterprise_project,
        p.unit_price,
        COALESCE(b.currency, '') AS currency,
        ` + costPricedExpr + ` AS cost
@@ -230,29 +299,45 @@ func filteredCTE(q CostQuery, from, to time.Time) (string, *costArgs, error) {
 	// CTE projects, so include/exclude and group-by can never disagree on
 	// what a dimension means.
 	dimCol := map[string]string{
-		"customer":  "u.customer_id::text",
-		"source":    "u.source_id::text",
-		"kind":      "u.resource_kind",
-		"sku":       "u.sku",
-		"region":    "u.region",
-		"resource":  "u.resource_id",
-		"tier":      "COALESCE(NULLIF(u.labels->>'tier', ''), 'organization')",
-		"namespace": "COALESCE(u.labels->>'namespace', '')",
+		"customer":           "u.customer_id::text",
+		"source":             "u.source_id::text",
+		"kind":               "u.resource_kind",
+		"sku":                "u.sku",
+		"region":             "u.region",
+		"resource":           "u.resource_id",
+		"tier":               "COALESCE(NULLIF(u.labels->>'tier', ''), 'organization')",
+		"namespace":          "COALESCE(u.labels->>'namespace', '')",
+		"enterprise_project": "COALESCE(NULLIF(u.labels->>'enterprise_project', ''), '(none)')",
 	}
-	for dim, vals := range q.Include {
-		col, ok := dimCol[dim]
-		if !ok {
-			return "", nil, fmt.Errorf("unknown dimension %q", dim)
+	// column resolves a filter dimension to its expression; a tag dimension
+	// binds its key as a parameter (never text in the query).
+	column := func(dim string) (string, error) {
+		if col, ok := dimCol[dim]; ok {
+			return col, nil
+		}
+		if key, ok := IsTagDimension(dim); ok {
+			return tagExpr(a, "u.labels->'tags'", key), nil
+		}
+		return "", fmt.Errorf("unknown dimension %q", dim)
+	}
+	// Deterministic clause order (map iteration is not), so two identical
+	// queries build identical SQL — a prepared-statement cache would thank us.
+	for _, dim := range sortedKeys(q.Include) {
+		vals := q.Include[dim]
+		col, err := column(dim)
+		if err != nil {
+			return "", nil, err
 		}
 		if len(vals) == 0 {
 			continue
 		}
 		sb.WriteString(" AND " + col + " = ANY(" + a.add(pq.Array(vals)) + ")")
 	}
-	for dim, vals := range q.Exclude {
-		col, ok := dimCol[dim]
-		if !ok {
-			return "", nil, fmt.Errorf("unknown dimension %q", dim)
+	for _, dim := range sortedKeys(q.Exclude) {
+		vals := q.Exclude[dim]
+		col, err := column(dim)
+		if err != nil {
+			return "", nil, err
 		}
 		if len(vals) == 0 {
 			continue
@@ -263,9 +348,46 @@ func filteredCTE(q CostQuery, from, to time.Time) (string, *costArgs, error) {
 	return sb.String(), a, nil
 }
 
+// Bucket label formats per grain. Hour buckets are `YYYY-MM-DDTHH` in UTC —
+// the calendar date plus the 24-hour clock, sortable and unambiguous, and
+// what bucketExpr's to_char produces for the same window_start.
+const (
+	bucketFormatHour  = "2006-01-02T15"
+	bucketFormatDay   = "2006-01-02"
+	bucketFormatMonth = "2006-01"
+)
+
+func sortedKeys(m map[string][]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// groupExprs resolves the group_by dimension to (group, label) expressions
+// over the filtered CTE. "none"/"" groups everything into one row.
+func groupExprs(a *costArgs, groupBy string) (groupExpr, labelExpr string, err error) {
+	if groupBy == "none" || groupBy == "" {
+		return "''", "''", nil
+	}
+	if d, ok := costDims[groupBy]; ok {
+		return d.expr, d.label, nil
+	}
+	if key, ok := IsTagDimension(groupBy); ok {
+		e := tagExpr(a, "tags", key)
+		return e, e, nil
+	}
+	return "", "", fmt.Errorf("unknown group_by %q", groupBy)
+}
+
 func bucketExpr(granularity string) string {
-	if granularity == "month" {
+	switch granularity {
+	case "month":
 		return "to_char(window_start AT TIME ZONE 'UTC', 'YYYY-MM')"
+	case "hour":
+		return `to_char(window_start AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24')`
 	}
 	return "to_char(window_start AT TIME ZONE 'UTC', 'YYYY-MM-DD')"
 }
@@ -274,17 +396,26 @@ func bucketExpr(granularity string) string {
 // chart axis is uniform even where the ledger has no rows.
 func Buckets(from, to time.Time, granularity string) []string {
 	var out []string
-	if granularity == "month" {
+	from, to = from.UTC(), to.UTC()
+	switch granularity {
+	case "month":
 		t := time.Date(from.Year(), from.Month(), 1, 0, 0, 0, 0, time.UTC)
 		for t.Before(to) {
-			out = append(out, t.Format("2006-01"))
+			out = append(out, t.Format(bucketFormatMonth))
 			t = t.AddDate(0, 1, 0)
+		}
+		return out
+	case "hour":
+		t := time.Date(from.Year(), from.Month(), from.Day(), from.Hour(), 0, 0, 0, time.UTC)
+		for t.Before(to) {
+			out = append(out, t.Format(bucketFormatHour))
+			t = t.Add(time.Hour)
 		}
 		return out
 	}
 	t := time.Date(from.Year(), from.Month(), from.Day(), 0, 0, 0, 0, time.UTC)
 	for t.Before(to) {
-		out = append(out, t.Format("2006-01-02"))
+		out = append(out, t.Format(bucketFormatDay))
 		t = t.AddDate(0, 0, 1)
 	}
 	return out
@@ -302,13 +433,9 @@ func (s *Store) queryCostRows(ctx context.Context, q CostQuery, from, to time.Ti
 	if err != nil {
 		return nil, err
 	}
-	groupExpr, labelExpr := "''", "''"
-	if q.GroupBy != "none" && q.GroupBy != "" {
-		d, ok := costDims[q.GroupBy]
-		if !ok {
-			return nil, fmt.Errorf("unknown group_by %q", q.GroupBy)
-		}
-		groupExpr, labelExpr = d.expr, d.label
+	groupExpr, labelExpr, err := groupExprs(a, q.GroupBy)
+	if err != nil {
+		return nil, err
 	}
 	bucket := "''"
 	if withBucket {
@@ -364,7 +491,8 @@ SELECT sku, unit, round(sum(quantity), 6)::text, count(DISTINCT resource_id)
 }
 
 // Explore aggregates cost (or usage) over the window, pivoted by bucket and
-// group, with the previous window of the same length for comparison.
+// group, with a compare window for `previous`: the caller's CompareFrom/To
+// when set, else the window of the same length immediately before From.
 func (s *Store) Explore(ctx context.Context, scope Scope, q CostQuery) (ExploreResult, error) {
 	if !scope.Operator {
 		if scope.CustomerID == "" {
@@ -386,7 +514,10 @@ func (s *Store) Explore(ctx context.Context, scope Scope, q CostQuery) (ExploreR
 		return ExploreResult{}, fmt.Errorf("from must be before to")
 	}
 	from, to := q.From.UTC(), q.To.UTC()
-	prevFrom, prevTo := from.Add(-to.Sub(from)), from
+	prevFrom, prevTo, compareLabel, err := compareWindow(q, from, to)
+	if err != nil {
+		return ExploreResult{}, err
+	}
 
 	cur, err := s.queryCostRows(ctx, q, from, to, true)
 	if err != nil {
@@ -414,11 +545,12 @@ func (s *Store) Explore(ctx context.Context, scope Scope, q CostQuery) (ExploreR
 		bucketIdx[b] = i
 	}
 	res := ExploreResult{
-		From: from.Format("2006-01-02"), To: to.Format("2006-01-02"),
+		From: from.Format(bucketFormatDay), To: to.Format(bucketFormatDay),
 		Granularity: q.Granularity, GroupBy: q.GroupBy, Metric: q.Metric,
 		Buckets: buckets, BucketHasData: make([]bool, len(buckets)),
 		TotalsByBucket: make([]Decimal, len(buckets)),
 		Unpriced:       unpriced,
+		Compare:        CompareWindow{From: prevFrom.Format(bucketFormatDay), To: prevTo.Format(bucketFormatDay), Label: compareLabel},
 	}
 	for i := range res.TotalsByBucket {
 		res.TotalsByBucket[i] = "0.000000"
@@ -550,6 +682,24 @@ func (s *Store) Explore(ctx context.Context, scope Scope, q CostQuery) (ExploreR
 	return res, nil
 }
 
+// compareWindow resolves the window `previous` is summed over. With no
+// CompareFrom/CompareTo it is the same-length window ending at from; a custom
+// window must be complete (both ends) and non-empty, and may overlap the
+// current window or differ in length — the caller asked for exactly that.
+func compareWindow(q CostQuery, from, to time.Time) (time.Time, time.Time, string, error) {
+	if q.CompareFrom.IsZero() && q.CompareTo.IsZero() {
+		return from.Add(-to.Sub(from)), from, CompareLabelPrevious, nil
+	}
+	if q.CompareFrom.IsZero() || q.CompareTo.IsZero() {
+		return time.Time{}, time.Time{}, "", fmt.Errorf("compare_from and compare_to must be given together")
+	}
+	cf, ct := q.CompareFrom.UTC(), q.CompareTo.UTC()
+	if !ct.After(cf) {
+		return time.Time{}, time.Time{}, "", fmt.Errorf("compare_from must be before compare_to")
+	}
+	return cf, ct, CompareLabelCustom, nil
+}
+
 func (s *Store) countResources(ctx context.Context, q CostQuery, from, to time.Time) (int, error) {
 	cte, a, err := filteredCTE(q, from, to)
 	if err != nil {
@@ -610,7 +760,9 @@ type DimensionValue struct {
 }
 
 // DimensionValues lists, per dimension, the values present in the window —
-// what the filter pickers offer. One query, one UNION per dimension.
+// what the filter pickers offer. One query, one UNION per dimension. The
+// static dimensions are always listed; a tag dimension is listed (under its
+// `tag:<key>` name) when the query groups or filters by it.
 func (s *Store) DimensionValues(ctx context.Context, scope Scope, q CostQuery) (map[string][]DimensionValue, error) {
 	if !scope.Operator {
 		if scope.CustomerID == "" {
@@ -627,15 +779,22 @@ func (s *Store) DimensionValues(ctx context.Context, scope Scope, q CostQuery) (
 		parts = append(parts, fmt.Sprintf(`SELECT '%s' AS dim, %s AS key, min(%s) AS label FROM f GROUP BY 2`, dim, d.expr, d.label))
 	}
 	sort.Strings(parts)
+	out := map[string][]DimensionValue{}
+	for dim := range costDims {
+		out[dim] = []DimensionValue{}
+	}
+	for _, dim := range q.TagDimensions() {
+		key, _ := IsTagDimension(dim)
+		// Both the dimension name and the key are bound, not spliced.
+		e := tagExpr(a, "tags", key)
+		parts = append(parts, `SELECT `+a.add(dim)+`::text AS dim, `+e+` AS key, min(`+e+`) AS label FROM f GROUP BY 2`)
+		out[dim] = []DimensionValue{}
+	}
 	rows, err := s.db.QueryContext(ctx, cte+" "+strings.Join(parts, " UNION ALL ")+" ORDER BY 1, 3", a.args...)
 	if err != nil {
 		return nil, mapErr(err)
 	}
 	defer rows.Close()
-	out := map[string][]DimensionValue{}
-	for dim := range costDims {
-		out[dim] = []DimensionValue{}
-	}
 	for rows.Next() {
 		var dim, key, label string
 		if err := rows.Scan(&dim, &key, &label); err != nil {
@@ -645,6 +804,61 @@ func (s *Store) DimensionValues(ctx context.Context, scope Scope, q CostQuery) (
 			label = KindLabel(key)
 		}
 		out[dim] = append(out[dim], DimensionValue{Key: key, Label: label})
+	}
+	return out, rows.Err()
+}
+
+// TagDimensions lists the distinct tag dimensions (`tag:<key>`, valid keys
+// only) the query groups or filters by, sorted.
+func (q CostQuery) TagDimensions() []string {
+	seen := map[string]bool{}
+	add := func(dim string) {
+		if _, ok := IsTagDimension(dim); ok {
+			seen[dim] = true
+		}
+	}
+	add(q.GroupBy)
+	for dim := range q.Include {
+		add(dim)
+	}
+	for dim := range q.Exclude {
+		add(dim)
+	}
+	out := make([]string, 0, len(seen))
+	for dim := range seen {
+		out = append(out, dim)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// TagKeys lists the distinct tag keys present on the records in the window
+// (scoped and filtered like the explorer) — what the "group by tag" picker
+// offers. A record whose tags label is not an object contributes nothing.
+func (s *Store) TagKeys(ctx context.Context, scope Scope, q CostQuery) ([]string, error) {
+	if !scope.Operator {
+		if scope.CustomerID == "" {
+			return nil, ErrNotFound
+		}
+		q.CustomerID = scope.CustomerID
+	}
+	cte, a, err := filteredCTE(q, q.From.UTC(), q.To.UTC())
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, cte+`
+SELECT DISTINCT k FROM f, jsonb_object_keys(CASE WHEN jsonb_typeof(f.tags) = 'object' THEN f.tags ELSE '{}'::jsonb END) k ORDER BY 1`, a.args...)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var k string
+		if err := rows.Scan(&k); err != nil {
+			return nil, err
+		}
+		out = append(out, k)
 	}
 	return out, rows.Err()
 }

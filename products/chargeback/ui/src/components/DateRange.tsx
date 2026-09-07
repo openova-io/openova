@@ -1,11 +1,13 @@
 import { Field, Segmented } from './ui'
-import { PRESETS, presetWindow, toExclusive, toInclusive, type Preset, type Window } from '../lib/dates'
+import { MAX_HOURLY_DAYS, PRESETS, fitGranularity, hourlyAllowed, presetWindow, toExclusive, toInclusive, type Preset, type Window } from '../lib/dates'
 import type { Granularity } from '../api/types'
 
 /**
  * Window picker: preset select + custom from/to (inclusive in the UI,
- * exclusive on the wire) + day/month grain. Emits a whole state object so a
- * page can mirror it to the URL.
+ * exclusive on the wire) + hour/day/month grain. Emits a whole state object
+ * so a page can mirror it to the URL. Hourly is offered only for windows of
+ * at most MAX_HOURLY_DAYS days (the API's limit); when the window grows past
+ * it under an hourly view the grain falls back to daily.
  */
 export interface DateRangeState {
   preset: Preset
@@ -22,22 +24,26 @@ export function DateRange({
   onChange: (v: DateRangeState) => void
   showGranularity?: boolean
 }) {
+  // Every window change passes through here so an hourly grain never outlives
+  // a window the API would refuse it for.
+  const emit = (next: DateRangeState) => onChange({ ...next, granularity: fitGranularity(next.granularity, next.window) })
   const setPreset = (p: Preset) => {
     if (p === 'custom') {
       onChange({ ...value, preset: 'custom' })
       return
     }
-    onChange({ ...value, preset: p, window: presetWindow(p) })
+    emit({ ...value, preset: p, window: presetWindow(p) })
   }
   const setFrom = (from: string) => {
     if (!from) return
-    onChange({ ...value, preset: 'custom', window: { from, to: value.window.to > from ? value.window.to : toExclusive(from) } })
+    emit({ ...value, preset: 'custom', window: { from, to: value.window.to > from ? value.window.to : toExclusive(from) } })
   }
   const setTo = (toInc: string) => {
     if (!toInc) return
     const to = toExclusive(toInc)
-    onChange({ ...value, preset: 'custom', window: { from: value.window.from < to ? value.window.from : toInc, to } })
+    emit({ ...value, preset: 'custom', window: { from: value.window.from < to ? value.window.from : toInc, to } })
   }
+  const hourly = hourlyAllowed(value.window)
   return (
     <>
       <Field label="Period">
@@ -61,6 +67,7 @@ export function DateRange({
             value={value.granularity}
             onChange={(granularity) => onChange({ ...value, granularity })}
             options={[
+              { value: 'hour', label: 'Hourly', disabled: !hourly, title: hourly ? 'One bucket per hour (UTC)' : `Hourly needs a window of at most ${MAX_HOURLY_DAYS} days` },
               { value: 'day', label: 'Daily' },
               { value: 'month', label: 'Monthly' },
             ]}

@@ -4,7 +4,7 @@ import { EmptyChart } from './EmptyChart'
 import { Legend, type LegendItem } from './Legend'
 import { useWidth } from './measure'
 import { FORECAST_COLOR, SURFACE, colorFor } from './palette'
-import { CHAR_PX, fitLabel, linearTicks, shortBucket, xLabelEvery } from './scale'
+import { CHAR_PX, clampLabelX, fitLabel, linearTicks, shortBucket, xLabelStride } from './scale'
 import type { ForecastTail, Series } from './stack'
 import { ChartTooltip, TipRows, useTooltip, type TipRow } from './tooltip'
 
@@ -142,10 +142,12 @@ export function LineChart({
   const y = (v: number) => TOP + plotH - ((v - lo) / (hi - lo)) * plotH
   const step = n > 1 ? (plotW - 2 * PAD) / (n - 1) : 0
   const x = (i: number) => (n > 1 ? left + PAD + i * step : left + plotW / 2)
-  // Thin labels by the width of the longest one, so thinning happens before truncation.
-  const every = xLabelEvery(n, plotW, Math.max(...buckets.map((b) => blabel(b).length)) * CHAR_PX + 12)
+  // Thin labels by the width of the longest one, so thinning happens before
+  // truncation; hour buckets snap to whole-day strides.
+  const every = xLabelStride(buckets, plotW, Math.max(...buckets.map((b) => blabel(b).length)) * CHAR_PX + 12)
   const color = (i: number) => series[i].color ?? colorFor(i)
-  const labelW = (i: number) => Math.min(Math.max(step, 1) * every - 4, 2 * x(i), 2 * (width - x(i)))
+  // Room per drawn label is the stride; edge labels are nudged inward, not cut.
+  const labelRoom = Math.min(n > 1 ? step * every - 4 : plotW, width - 4)
 
   const pts = series.map((s) => buckets.map((_, i): Pt => (i < observed && val(s, i) !== undefined ? { x: x(i), y: y(val(s, i) as number) } : null)))
   const drawTotals = totalsLine ?? (series.length > 1 && !!forecast && observed < n)
@@ -310,13 +312,15 @@ export function LineChart({
           onClick={onPointClick ? (e) => onPointClick(nearest(e.clientX)) : undefined}
         />
         <g className="chart-axis">
-          {buckets.map((b, i) =>
-            i % every === 0 ? (
-              <text key={`${b}-${i}`} x={x(i)} y={height - 6} textAnchor="middle">
-                {fitLabel(blabel(b), labelW(i))}
+          {buckets.map((b, i) => {
+            if (i % every !== 0) return null
+            const text = fitLabel(blabel(b), labelRoom)
+            return (
+              <text key={`${b}-${i}`} x={clampLabelX(x(i), text.length * CHAR_PX, width)} y={height - 6} textAnchor="middle">
+                {text}
               </text>
-            ) : null,
-          )}
+            )
+          })}
         </g>
       </svg>
       <ChartTooltip tip={tip} width={width} />

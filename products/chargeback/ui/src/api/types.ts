@@ -221,12 +221,17 @@ export interface Overview {
 // Cost analysis (#6867, DESIGN.md §3). Every money value is a JSON number in
 // the customer's price-book currency; windows are half-open [from, to) in
 // whole UTC days (so the picker's inclusive "to" date is sent as +1 day).
+// Buckets are `YYYY-MM-DDTHH` (hour, UTC), `YYYY-MM-DD` (day) or `YYYY-MM`.
 // ---------------------------------------------------------------------------
 
-export type Granularity = 'day' | 'month'
-export type GroupBy = 'none' | 'customer' | 'source' | 'kind' | 'sku' | 'region' | 'resource' | 'tier' | 'namespace'
+export type Granularity = 'hour' | 'day' | 'month'
+/** The fixed dimensions the server lists in CostDimensions(). */
+export type StaticGroupBy = 'none' | 'customer' | 'source' | 'kind' | 'sku' | 'region' | 'resource' | 'tier' | 'namespace' | 'enterprise_project'
+/** A resource-tag dimension, `tag:<key>` — dynamic, one per tag key present (lib/tags.ts). */
+export type TagDimension = `tag:${string}`
+export type GroupBy = StaticGroupBy | TagDimension
 export type Metric = 'cost' | 'usage'
-export const GROUP_BY_OPTIONS: ReadonlyArray<{ value: GroupBy; label: string }> = [
+export const GROUP_BY_OPTIONS: ReadonlyArray<{ value: StaticGroupBy; label: string }> = [
   { value: 'kind', label: 'Service' },
   { value: 'customer', label: 'Customer' },
   { value: 'sku', label: 'SKU' },
@@ -235,10 +240,11 @@ export const GROUP_BY_OPTIONS: ReadonlyArray<{ value: GroupBy; label: string }> 
   { value: 'source', label: 'Cost source' },
   { value: 'tier', label: 'Tier' },
   { value: 'namespace', label: 'Namespace' },
+  { value: 'enterprise_project', label: 'Enterprise project' },
   { value: 'none', label: 'Total only' },
 ]
-export const FILTER_DIMENSIONS: ReadonlyArray<Exclude<GroupBy, 'none'>> = [
-  'customer', 'kind', 'sku', 'resource', 'region', 'source', 'tier', 'namespace',
+export const FILTER_DIMENSIONS: ReadonlyArray<Exclude<StaticGroupBy, 'none'>> = [
+  'customer', 'kind', 'sku', 'resource', 'region', 'source', 'tier', 'namespace', 'enterprise_project',
 ]
 
 export interface CostGroup {
@@ -252,14 +258,36 @@ export interface CostGroup {
   values: number[]
 }
 
+/** One projected (or observed) day of the month-end forecast. */
+export interface ForecastDay {
+  day: string
+  cost: number
+}
+
 export interface Forecast {
   month_end: number
   run_rate_daily: number
   trend_daily: number
+  /** run-rate-Nd (< 7 days) · run-rate-7d+trend (7–13) · weekday-seasonal (≥ 14) */
   method: string
   days_observed: number
   days_in_month: number
   confidence: 'low' | 'medium' | 'high' | string
+  /** One entry per remaining day, today first; sums to month_end − observed. Absent from older APIs. */
+  projection?: ForecastDay[]
+  /** Mon…Sun cost relative to the overall mean; only for weekday-seasonal. */
+  weekday_factors?: Record<string, number>
+}
+
+/**
+ * The half-open window every `previous` in the document was summed over.
+ * label is "previous period" (the automatic same-length window before `from`)
+ * or "custom" (the caller's compare_from/compare_to).
+ */
+export interface CompareWindow {
+  from: string
+  to: string
+  label: 'previous period' | 'custom' | string
 }
 
 /** GET /cost/explore · GET /customers/{id}/cost/explore */
@@ -279,17 +307,22 @@ export interface ExploreResult {
   totals_by_bucket: number[]
   unpriced: Array<{ sku: string; unit: string; quantity: number; resources: number }>
   forecast: Forecast | null
+  compare: CompareWindow
 }
 
 export interface ExploreParams {
   from: string
   to: string
+  /** `hour` is accepted for windows of at most 14 days. */
   granularity?: Granularity
   group_by?: GroupBy
   metric?: Metric
   limit?: number
   include?: Partial<Record<Exclude<GroupBy, 'none'>, string[]>>
   exclude?: Partial<Record<Exclude<GroupBy, 'none'>, string[]>>
+  /** Custom compare window, half-open; both or neither. Omitted = previous period of equal length. */
+  compare_from?: string
+  compare_to?: string
 }
 
 /** Serialises ExploreParams to the query string the API reads. */
@@ -299,6 +332,10 @@ export function exploreQuery(p: ExploreParams): string {
   if (p.group_by) q.set('group_by', p.group_by)
   if (p.metric) q.set('metric', p.metric)
   if (p.limit !== undefined) q.set('limit', String(p.limit))
+  if (p.compare_from && p.compare_to) {
+    q.set('compare_from', p.compare_from)
+    q.set('compare_to', p.compare_to)
+  }
   for (const [dim, vals] of Object.entries(p.include ?? {})) if (vals && vals.length) q.set(dim, vals.join(','))
   for (const [dim, vals] of Object.entries(p.exclude ?? {})) if (vals && vals.length) q.set('exclude_' + dim, vals.join(','))
   return q.toString()
@@ -312,7 +349,10 @@ export interface DimensionValue {
 export interface DimensionValues {
   from: string
   to: string
+  /** Static dimensions always; `tag:<key>` when the query grouped or filtered by that tag. */
   dimensions: Record<string, DimensionValue[]>
+  /** Distinct tag keys on the records in the window (scoped) — the "group by tag" picker. */
+  tag_keys?: string[]
 }
 
 export interface SummaryGroup {
@@ -532,4 +572,78 @@ export interface PriceBookCoverage {
   skus_in_use: Array<{ sku: string; unit: string; quantity_30d: number; resources: number; priced: boolean; unit_price: number | null }>
   coverage_pct: number
   unpriced_count: number
+}
+
+// ---------------------------------------------------------------------------
+// Scheduled cost reports (#6867 follow-up). A schedule mails a plain-text
+// report on a cadence; every attempt is a delivery row.
+// ---------------------------------------------------------------------------
+
+export type ReportCadence = 'daily' | 'weekly' | 'monthly'
+export type ReportSection = 'summary' | 'services' | 'customers' | 'budgets' | 'anomalies' | 'recommendations'
+
+/** Every section the server knows, in the order it renders them. */
+export const REPORT_SECTIONS: ReadonlyArray<{ value: ReportSection; label: string; hint: string }> = [
+  { value: 'summary', label: 'Summary', hint: 'total vs previous period, month to date, forecast, unpriced usage' },
+  { value: 'services', label: 'Top services', hint: 'the five biggest service kinds' },
+  { value: 'customers', label: 'Top customers', hint: 'the five biggest customers (operator reports only)' },
+  { value: 'budgets', label: 'Budgets', hint: 'every active budget with its standing' },
+  { value: 'anomalies', label: 'Anomalies', hint: 'flagged days in the window and the biggest' },
+  { value: 'recommendations', label: 'Recommendations', hint: 'count, total saving and the top three' },
+]
+
+export interface ReportSchedule {
+  id: string
+  name: string
+  customer_id: string | null
+  customer_name?: string | null
+  cadence: ReportCadence | string
+  /** 0 = Sunday … 6 = Saturday; set for weekly schedules. */
+  day_of_week: number | null
+  /** 1..28; set for monthly schedules. */
+  day_of_month: number | null
+  hour_utc: number
+  recipients: string[]
+  sections: string[]
+  active: boolean
+  last_sent_at: string | null
+  next_at: string
+  created_at?: string
+  updated_at?: string
+  /** Delivery attempts in the last 30 days, how many failed, newest failure. */
+  sent_30d: number
+  failed_30d: number
+  last_error: string | null
+}
+
+export interface ReportDelivery {
+  id: number
+  schedule_id: string
+  sent_at: string
+  window_from: string
+  /** Half-open end: the day after the last reported day. */
+  window_to: string
+  recipients: string[]
+  subject: string
+  ok: boolean
+  error: string | null
+}
+
+/** GET /reports/schedules/{id}/preview */
+export interface ReportPreview {
+  subject: string
+  body: string
+  window_from: string
+  window_to: string
+  recipients: string[]
+}
+
+/** POST /reports/schedules/{id}/send */
+export interface ReportSendResult {
+  sent_to: string[]
+  subject: string
+  window_from: string
+  window_to: string
+  delivery?: ReportDelivery
+  error?: string
 }

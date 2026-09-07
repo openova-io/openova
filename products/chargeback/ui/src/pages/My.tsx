@@ -11,6 +11,7 @@ import { SourcesPanel } from '../panels/SourcesPanel'
 import { StatementsPanel } from '../panels/StatementsPanel'
 import { ExplorerBody } from './CostExplorer'
 import { OverviewBody } from './Overview'
+import { ReportsBody } from './Reports'
 
 /**
  * Customer-lens pages (#6867, DESIGN.md §2 "Customer lens"). Every request
@@ -72,6 +73,12 @@ export function MyBudgets() {
       <BudgetsPanel customerId={id} canManage={false} currency={currency} />
     </div>
   )
+}
+
+export function MyReports() {
+  const { id, lens, isAdmin } = useMy()
+  if (!id) return <NoCustomer />
+  return <ReportsBody lens={lens} canManage={isAdmin} />
 }
 
 export function MySources() {

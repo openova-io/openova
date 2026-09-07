@@ -31,7 +31,7 @@ Legend: ✅ have · ◐ partial · ❌ missing. "Target" = this design.
 | Chart types: stacked bar · line · area · donut · ranked bars | ✅ | ✅ | ✅ | ◐ (1 bar) | ✅ dependency-free SVG set |
 | Table under the chart with totals, share %, Δ vs previous period | ✅ | ✅ | ✅ | ❌ | ✅ |
 | Previous-period comparison | ✅ | ✅ | ✅ | ❌ | ✅ always computed |
-| Forecast to month end | ✅ | ✅ | ✅ | ❌ | ✅ run-rate + trend, with confidence |
+| Forecast to month end | ✅ | ✅ | ✅ | ❌ | ✅ run-rate → run-rate + trend → weekday-seasonal by history, per-day projection, with confidence |
 | Top-N with "Other" bucket | ✅ | ✅ | ✅ | ❌ | ✅ |
 | MTD / last month / MoM KPIs | ✅ | ✅ | ✅ | ❌ | ✅ |
 | Per-resource cost, ranking, drill-in | ✅ (resource level) | ✅ | ✅ | ❌ | ✅ `resources` + detail |
@@ -52,11 +52,11 @@ Operator (sovereign-admin lens):
 
 ```
 Analyse    Overview · Cost explorer · Resources · Anomalies · Recommendations
-Bill       Statements · Budgets
+Bill       Statements · Budgets · Reports
 Configure  Customers · Price books · Discounts · Allocation
 ```
 
-Customer lens (`/my/…`): Overview · Cost explorer · Resources · Statements · Budgets · Sources.
+Customer lens (`/my/…`): Overview · Cost explorer · Resources · Statements · Budgets · Reports · Sources.
 
 Every page is a real route (deep-linkable) and every list is sortable, filterable
 and exportable. Every number on a screen comes from an endpoint in §3; nothing is
@@ -73,11 +73,15 @@ collected).
 
 ### 2.2 Cost explorer
 Controls: date presets (7d · 30d · MTD · last month · 3M · 6M · YTD · custom),
-granularity, group by, include/exclude filter chips per dimension, metric
-(cost | usage), chart type (stacked bar · line · area), top-N, compare toggle,
-save view, export CSV. Chart + table (group · current · previous · Δ% · share ·
-resources) with a totals row. Clicking a group row adds it as a filter and
-re-groups one level down (kind → sku → resource).
+granularity (hourly for windows ≤ 14 days · daily · monthly; hourly falls back
+to daily when the window grows), group by, include/exclude filter chips per
+dimension, metric (cost | usage), chart type (stacked bar · line · area), top-N,
+compare with (previous period · same period last month · same period last year ·
+custom from/to), save view, export CSV. Chart + table (group · current · compare
+window · Δ% · share · resources) with a totals row; the compare column is headed
+by the window it sums. Clicking a group row adds it as a filter and re-groups one
+level down (kind → sku → resource); clicking a day bar with nothing to drill zooms
+to that day at hourly grain.
 
 ### 2.3 Resources
 Inventory joined with cost in the window: kind, name, region, customer, status
@@ -114,7 +118,18 @@ currency: allocated cloud cost, rated revenue, margin, margin %. Chart of the sp
 ### 2.9 Statements
 Filters (period, customer, status). Run period. Statement view: waterfall (list
 → discounts → net → tax → total), lines grouped by service kind with per-source
-breakdown, printable, CSV.
+breakdown, printable, CSV. The Issue confirm carries a checked-by-default
+"Email the statement to the customer" box (§3.9).
+
+### 2.10 Reports
+Scheduled plain-text cost reports, the way a cloud console mails a cost report
+on a schedule. KPIs (schedules, sent last 30 days, failures, next due); table
+(name, scope, cadence in words, recipients, sections, next run, last sent,
+active) with Create / Edit (name, scope, cadence, weekday or day-of-month,
+hour UTC, recipients, section checkboxes, active), Delete, Preview (the exact
+text the next send mails, in a `<pre>`), Send now, and a deliveries log per
+schedule. Customer lens `/my/reports`: a customer-admin manages schedules for
+its own customer only; a viewer reads and previews.
 
 ## 3. API contracts (all under `/api/v1`, JSON, scope-filtered)
 
@@ -123,10 +138,33 @@ number in the customer's price-book currency. `customer` query values are
 customer ids; the customer role is forced to its own id server-side.
 
 ### 3.1 `GET /cost/explore` · `GET /customers/{id}/cost/explore`
-Params: `from`, `to`, `granularity=day|month`, `group_by=none|customer|source|kind|sku|region|resource|tier|namespace`,
+Params: `from`, `to`, `granularity=hour|day|month` (`hour` only for windows of at
+most 14 days — 336 buckets; every grain is capped at 400 buckets),
+`group_by=none|customer|source|kind|sku|region|resource|tier|namespace|enterprise_project|tag:<key>`,
 `metric=cost|usage` (usage requires `group_by=sku` or a single `sku` filter),
-include filters `customer|kind|sku|region|source|resource|tier|namespace=a,b`,
-exclude filters `exclude_<dim>=a,b`, `limit` (top-N groups, default 10, 0 = all).
+include filters `customer|kind|sku|region|source|resource|tier|namespace|enterprise_project|tag:<key>=a,b`,
+exclude filters `exclude_<dim>=a,b`, `limit` (top-N groups, default 10, 0 = all),
+`compare_from`/`compare_to` (`YYYY-MM-DD`, half-open, both or neither — the window
+`previous` and `delta_pct` are measured against; it may be any length and may
+overlap the window; omitted = the same-length window immediately before `from`).
+Buckets are `YYYY-MM-DDTHH` (hour, UTC), `YYYY-MM-DD` (day) or `YYYY-MM` (month).
+
+**Tags and enterprise project** (the AWS cost-allocation-tag / Azure tag
+dimension). `tag:<key>` is a dynamic dimension over the resource tags the
+collectors store in `labels.tags`: the Huawei ECS/EVS/EIP/ELB/RDS-family
+tags (all three wire shapes — `["k=v"]`, `[{key,value}]`, `{k: v}` — folded
+into one map, keys case-sensitive, ≤50 tags, keys ≤128 chars), and on the
+Sovereign's own cluster the pod/PVC labels `app.kubernetes.io/name|instance|component`
+and `openova.io/application`, exposed as `tag:app|instance|component|application`
+— which is cost per Application. Records without the key group as
+`(untagged)`, and `(untagged)` is a legal filter value. The key must match
+`^[A-Za-z0-9_.:/@-]{1,128}$` (400 naming the rule otherwise) and is bound as a
+SQL parameter, never interpolated; the colon may be URL-encoded.
+`enterprise_project` is a static dimension over `labels.enterprise_project`
+(`(none)` when absent). `GET /cost/dimensions` additionally returns `tag_keys`
+(the distinct keys in the window, scoped and filtered like the explorer) and,
+when `group_by` or a filter names a tag, that tag's values under
+`dimensions["tag:<key>"]`.
 
 ```json
 {
@@ -139,17 +177,50 @@ exclude filters `exclude_<dim>=a,b`, `limit` (top-N groups, default 10, 0 = all)
   "total": { "current": 810.4, "previous": 790.2, "delta_pct": 2.6, "resources": 126 },
   "totals_by_bucket": [115.7, "…"],
   "unpriced": [{ "sku": "k8s.vcpu", "unit": "vcpu-hour", "quantity": 1118.4, "resources": 14097 }],
-  "forecast": { "month_end": 2712.5, "run_rate_daily": 92.1, "method": "run-rate-7d",
-                "days_observed": 7, "confidence": "medium" }
+  "forecast": { "month_end": 2712.5, "run_rate_daily": 92.1, "trend_daily": 0.8,
+                "method": "weekday-seasonal", "days_observed": 21, "days_in_month": 30,
+                "confidence": "medium",
+                "projection": [{ "day": "2026-09-22", "cost": 98.4 }, "…"],
+                "weekday_factors": { "Mon": 1.17, "Tue": 1.17, "Wed": 1.17, "Thu": 1.17,
+                                     "Fri": 1.17, "Sat": 0.58, "Sun": 0.58 } },
+  "compare": { "from": "2026-08-25", "to": "2026-09-01", "label": "previous period" }
 }
 ```
 `forecast` is present only when the window is the current calendar month at day
 granularity. `previous` is the same-length window immediately before `from`.
+
+The forecast method follows how much of the month is complete
+(`internal/rating/forecast.go`; every value is a float estimate, never billed):
+
+| complete days | `method` | each remaining day *d* (k = 1 today, 2 tomorrow, …) |
+|---|---|---|
+| < 7 | `run-rate-Nd` | mean of the N days |
+| 7 – 13 | `run-rate-7d+trend` | max(0, rr7 + slope × (3 + k)) |
+| ≥ 14 | `weekday-seasonal` | max(0, (mean₂₈ + slope × ((W−1)/2 + k)) × factor(weekday d)) |
+
+rr7 = mean of the last 7 complete days; mean₂₈ = mean of the last W = min(28, n)
+days; slope = least-squares cost change per day (fitted on cost ÷ weekday factor
+for the seasonal method, so the weekly shape never reads as a trend); factor(w)
+= mean cost on weekday w ÷ overall mean, 1 for a weekday seen fewer than twice.
+The slope is applied from the centre of the averaging window because a
+window's mean is the fitted line's value at its midpoint. `projection` lists the
+exact per-day values summed into `month_end` (today first), so the chart tail
+reconciles with the KPI; `weekday_factors` is present only for
+`weekday-seasonal`. Confidence: `high` needs ≥ 14 days and a last-week
+coefficient of variation < 0.15; `medium` ≥ 7 days; `low` otherwise — and
+always `low` when the last week's CV ≥ 0.5.
+
+`compare` is the window every `previous` (and so every `delta_pct`) was summed
+over: `label` is `previous period` for the automatic same-length window
+immediately before `from`, `custom` when `compare_from`/`compare_to` were given.
+The CSV export (`/cost/export.csv`) stays one row per bucket; a custom compare
+window is appended to the file name (`cost-<group>-<from>-<to>-vs-<cf>-<ct>.csv`).
 Stopped-instance policy of the customer's price book applies exactly as in rating.
 
 ### 3.2 `GET /cost/summary` · `GET /customers/{id}/cost/summary`
 The overview payload: `currency`, `mtd{cost,from,to,days}`,
-`forecast{month_end,run_rate_daily,method,days_observed,confidence}`,
+`forecast{month_end,run_rate_daily,trend_daily,method,days_observed,days_in_month,confidence,projection[{day,cost}],weekday_factors?}`
+(same object as §3.1),
 `last_month{period,cost}`, `prev_mtd{cost}` (same day count last month),
 `mom_delta_pct`, `avg_daily_30d`, `resources_live`, `unpriced_skus`,
 `customers{active,pending,suspended}`, `sources{verified,failed,pending}`,
@@ -228,6 +299,40 @@ severity, type, id; ids are `type:customer:resource` / `type:customer:sku` /
   `rated_revenue`, `margin`, `margin_pct`, plus `pool` and `totals`.
 - `GET|POST /views`, `DELETE /views/{id}` — saved explorer views per user.
 
+### 3.9 Scheduled reports + statement mail
+`GET|POST /reports/schedules`, `GET|PUT|DELETE /reports/schedules/{id}`,
+`POST /reports/schedules/{id}/send` → `{sent_to, subject, window_from, window_to, delivery}`,
+`GET /reports/schedules/{id}/preview` → `{subject, body, window_from, window_to, recipients}`,
+`GET /reports/schedules/{id}/deliveries`, `GET /customers/{id}/reports/schedules`.
+Schedule: `{id, name, customer_id|null, cadence: daily|weekly|monthly, day_of_week
+(0=Sun..6, weekly), day_of_month (1..28, monthly), hour_utc, recipients[≤20],
+sections ⊆ {summary, services, customers, budgets, anomalies, recommendations},
+active, last_sent_at, next_at, sent_30d, failed_30d, last_error}`. Reads follow
+the session scope; the operator writes any schedule, a customer-admin only its
+own customer's (customer_id forced server-side), a viewer none.
+
+The window a send covers is implied by the cadence at send time: daily =
+yesterday, weekly = the last 7 complete days, monthly = the previous calendar
+month; today is never included. `internal/report` builds the document from the
+same store calls the explorer, budgets, anomalies and recommendations endpoints
+use (never HTTP) and renders it as ≤ 78-column plain text: window label
+("1–7 Sep 2026"), total vs the previous period, month to date + forecast,
+top 5 services (cost, share, Δ), top 5 customers (operator scope only), budget
+standings, anomaly count + biggest, recommendation count + total saving, unpriced
+SKUs, console link. A golden test pins the text. The scheduler polls every
+5 minutes (first poll one minute after start); `ClaimReportRun` is a
+compare-and-set on `next_at`, so two replicas never mail one due instant twice.
+Every attempt is a `report_deliveries` row; a failure records `ok=false, error`
+and still advances `next_at` (no retry storm); audit `report.sent` /
+`report.failed`.
+
+`POST /statements/{id}/issue` takes an optional `{notify: bool}` (default
+true). On the draft → issued transition only — issuing stays idempotent — the
+customer's `admin_email` and every `customer_users` admin receive a plain-text
+statement summary (period, list → discount → net → tax → total, largest lines,
+link `PUBLIC_URL/statements/<id>`); audit `statement.notified {recipients}`.
+A re-issue never mails again.
+
 ## 4. Data model additions (migrations 6+)
 
 ```
@@ -239,6 +344,10 @@ allocation_settings(id=1, weights jsonb, overhead_policy, pool, manual_amount, c
 saved_views(id, owner_email, name, page, params jsonb, created_at)
 discounts.customer_id → NULLABLE (global campaigns)
 INDEX usage_records (window_start, sku); INDEX usage_records (customer_id, resource_kind, window_start)
+report_schedules(id, name, customer_id NULL, cadence, day_of_week NULL, day_of_month NULL, hour_utc,
+        recipients text[], sections text[], active, last_sent_at, next_at, created_at, updated_at)
+report_deliveries(id, schedule_id, sent_at, window_from date, window_to date, recipients text[],
+        subject, ok, error)
 ```
 
 Cost is computed at query time by joining `usage_records` to the customer's

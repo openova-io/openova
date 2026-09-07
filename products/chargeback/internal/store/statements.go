@@ -167,14 +167,26 @@ func (s *Store) GetStatement(ctx context.Context, scope Scope, id string) (State
 
 // IssueStatement flips a draft to issued (idempotent on already-issued).
 func (s *Store) IssueStatement(ctx context.Context, id string) (Statement, error) {
-	res, err := s.db.ExecContext(ctx, `UPDATE statements SET status = 'issued', issued_at = COALESCE(issued_at, now()) WHERE id = $1`, id)
+	st, _, err := s.IssueStatementOnce(ctx, id)
+	return st, err
+}
+
+// IssueStatementOnce flips a draft to issued and reports whether THIS call
+// made the transition. A second call on an issued statement returns it
+// unchanged with transitioned = false, which is what lets the API mail the
+// customer exactly once: the notification rides on the draft → issued edge,
+// not on the request.
+func (s *Store) IssueStatementOnce(ctx context.Context, id string) (st Statement, transitioned bool, err error) {
+	res, err := s.db.ExecContext(ctx, `UPDATE statements SET status = 'issued', issued_at = COALESCE(issued_at, now()) WHERE id = $1 AND status = 'draft'`, id)
 	if err != nil {
-		return Statement{}, mapErr(err)
+		return Statement{}, false, mapErr(err)
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return Statement{}, ErrNotFound
+	n, _ := res.RowsAffected()
+	st, err = s.GetStatement(ctx, OperatorScope, id)
+	if err != nil {
+		return Statement{}, false, err
 	}
-	return s.GetStatement(ctx, OperatorScope, id)
+	return st, n == 1, nil
 }
 
 // LastPeriodTotal sums the totals of the most recent statement period.

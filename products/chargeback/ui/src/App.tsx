@@ -6,7 +6,7 @@ import { CustomerDetail } from './pages/CustomerDetail'
 import { CustomerImport } from './pages/CustomerImport'
 import { CustomerNew } from './pages/CustomerNew'
 import { Customers } from './pages/Customers'
-import { MyBudgets, MyDiscounts, MyExplore, MyOverview, MySources, MyStatements, MyUsage } from './pages/My'
+import { MyBudgets, MyDiscounts, MyExplore, MyOverview, MyReports, MySources, MyStatements, MyUsage } from './pages/My'
 import { Overview } from './pages/Overview'
 import { CostExplorer } from './pages/CostExplorer'
 import { PriceBookEdit } from './pages/PriceBookEdit'
@@ -16,6 +16,7 @@ import { StatementView } from './pages/StatementView'
 import { Allocation } from './pages/Allocation'
 import { ChartGallery } from './pages/ChartGallery'
 import { Budgets } from './pages/Budgets'
+import { Reports } from './pages/Reports'
 import { Discounts } from './pages/Discounts'
 import { Statements } from './pages/Statements'
 import { Resources } from './pages/Resources'
@@ -52,6 +53,7 @@ export function App() {
             <Route path="/pricebooks/:id" element={<PriceBookEdit />} />
             <Route path="/discounts" element={<Discounts />} />
             <Route path="/budgets" element={<Budgets />} />
+            <Route path="/reports" element={<Reports />} />
             <Route path="/statements" element={<Statements />} />
             <Route path="/resources" element={<Resources />} />
             <Route path="/resources/:sourceId/:resourceId" element={<ResourceDetail />} />
@@ -67,6 +69,7 @@ export function App() {
             <Route path="/my/usage" element={<MyUsage />} />
             <Route path="/my/statements" element={<MyStatements />} />
             <Route path="/my/budgets" element={<MyBudgets />} />
+            <Route path="/my/reports" element={<MyReports />} />
             <Route path="/my/sources" element={<MySources />} />
             <Route path="/my/resources" element={<Resources />} />
             <Route path="/my/resources/:sourceId/:resourceId" element={<ResourceDetail />} />

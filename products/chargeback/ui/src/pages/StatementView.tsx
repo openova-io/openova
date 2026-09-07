@@ -26,6 +26,7 @@ export function StatementView() {
   const { me } = useSession()
   const q = useQuery<Statement>(`/statements/${id}`)
   const [dialog, setDialog] = useState<Dialog>(null)
+  const [notify, setNotify] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const s = q.data
@@ -46,11 +47,14 @@ export function StatementView() {
   const operator = me?.role === 'operator'
   const cur = s.currency
   const money = (v: number | string | null | undefined) => formatMoney(toNumber(v), cur)
-  const subtotal = toNumber(s.subtotal)
+  // Wire contract (rating.TotalsWithDiscount): `subtotal` is the NET — list
+  // minus discounts, before tax — so that subtotal + tax == total holds for
+  // every reader. The list price is reconstructed as net + discount.
+  const net = toNumber(s.subtotal)
   const discount = toNumber(s.discount_total)
   const tax = toNumber(s.tax)
   const total = toNumber(s.total)
-  const net = subtotal - discount
+  const subtotal = net + discount
   const taxRate = toNumber(s.tax_rate) * 100
   const steps: WaterfallStep[] = [
     { label: 'List subtotal', value: subtotal, kind: 'total' },
@@ -69,7 +73,7 @@ export function StatementView() {
     setError('')
     try {
       if (kind === 'issue') {
-        await api.post(`/statements/${id}/issue`)
+        await api.post(`/statements/${id}/issue`, { notify })
         setDialog(null)
         await q.reload()
       } else {
@@ -113,7 +117,13 @@ export function StatementView() {
             </a>
             {operator && s.status === 'draft' ? (
               <>
-                <button className="primary" onClick={() => setDialog({ kind: 'issue' })}>
+                <button
+                  className="primary"
+                  onClick={() => {
+                    setNotify(true)
+                    setDialog({ kind: 'issue' })
+                  }}
+                >
                   Issue
                 </button>
                 <button className="danger" onClick={() => setDialog({ kind: 'delete' })}>
@@ -296,7 +306,14 @@ export function StatementView() {
           busy={busy}
           onClose={() => setDialog(null)}
           onConfirm={() => act('issue')}
-          body={<p>An issued statement is final: {money(total)} with its lines and discounts frozen. Re-running the period will not change it.</p>}
+          body={
+            <div className="stack tight">
+              <p>An issued statement is final: {money(total)} with its lines and discounts frozen. Re-running the period will not change it.</p>
+              <label className="check">
+                <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} /> Email the statement to the customer
+              </label>
+            </div>
+          }
         />
       ) : null}
       {dialog?.kind === 'delete' ? (

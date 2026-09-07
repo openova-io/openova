@@ -22,6 +22,7 @@ const OPERATOR_NAV: readonly NavGroup[] = [
     [
       ['/statements', 'Statements', '≡'],
       ['/budgets', 'Budgets', '◔'],
+      ['/reports', 'Reports', '✉'],
     ],
   ],
   [
@@ -49,6 +50,7 @@ const CUSTOMER_NAV: readonly NavGroup[] = [
     [
       ['/my/statements', 'Statements', '≡'],
       ['/my/budgets', 'Budgets', '◔'],
+      ['/my/reports', 'Reports', '✉'],
     ],
   ],
   [

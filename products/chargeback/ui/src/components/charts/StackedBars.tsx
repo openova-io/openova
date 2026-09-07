@@ -5,7 +5,7 @@ import { Legend, type LegendItem } from './Legend'
 import { HatchDefs, hatchForecast, hatchMissing, useChartId } from './defs'
 import { useWidth } from './measure'
 import { FORECAST_COLOR, SURFACE, colorFor } from './palette'
-import { CHAR_PX, fitLabel, linearTicks, shortBucket, xLabelEvery } from './scale'
+import { CHAR_PX, clampLabelX, fitLabel, linearTicks, shortBucket, xLabelStride } from './scale'
 import { stackSeries, type ForecastTail, type Series } from './stack'
 import { ChartTooltip, TipRows, useTooltip } from './tooltip'
 
@@ -86,10 +86,12 @@ export function StackedBars({
   const barW = Math.min(32, Math.max(2, slot * 0.64))
   const bx = (i: number) => left + i * slot + (slot - barW) / 2
   const cx = (i: number) => left + (i + 0.5) * slot
-  // Thin labels by the width of the longest one, so thinning happens before truncation.
-  const every = xLabelEvery(n, plotW, Math.max(...buckets.map((b) => blabel(b).length)) * CHAR_PX + 12)
+  // Thin labels by the width of the longest one, so thinning happens before
+  // truncation; hour buckets snap to whole-day strides.
+  const every = xLabelStride(buckets, plotW, Math.max(...buckets.map((b) => blabel(b).length)) * CHAR_PX + 12)
   const color = (i: number) => series[i].color ?? colorFor(i)
-  const labelW = (i: number) => Math.min(slot * every - 4, 2 * cx(i), 2 * (width - cx(i)))
+  // Room per drawn label is the stride; edge labels are nudged inward, not cut.
+  const labelRoom = Math.min(slot * every - 4, width - 4)
 
   const tipFor = (i: number): ReactNode => {
     const t = buckets[i]
@@ -235,13 +237,15 @@ export function StackedBars({
           </g>
         ) : null}
         <g className="chart-axis">
-          {buckets.map((b, i) =>
-            i % every === 0 ? (
-              <text key={`${b}-${i}`} x={cx(i)} y={height - 6} textAnchor="middle">
-                {fitLabel(blabel(b), labelW(i))}
+          {buckets.map((b, i) => {
+            if (i % every !== 0) return null
+            const text = fitLabel(blabel(b), labelRoom)
+            return (
+              <text key={`${b}-${i}`} x={clampLabelX(cx(i), text.length * CHAR_PX, width)} y={height - 6} textAnchor="middle">
+                {text}
               </text>
-            ) : null,
-          )}
+            )
+          })}
         </g>
       </svg>
       <ChartTooltip tip={tip} width={width} />
