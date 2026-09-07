@@ -28,6 +28,7 @@ export const KIND_LABELS: Readonly<Record<string, string>> = {
   vpcep: 'VPC endpoint',
   'k8s-pod': 'Kubernetes pods',
   'k8s-pvc': 'Kubernetes volumes',
+  plan: 'Subscription plan',
 }
 
 /** Human name for a kind: the server's label for the window, else the local map, else the key. */

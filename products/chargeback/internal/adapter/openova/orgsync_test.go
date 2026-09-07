@@ -19,6 +19,7 @@ import (
 
 	"github.com/openova-io/openova/products/chargeback/internal/crypto"
 	"github.com/openova-io/openova/products/chargeback/internal/metrics"
+	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
 
 func testKeys(t *testing.T) *crypto.Keyring {
@@ -267,5 +268,127 @@ func TestParseAKSK(t *testing.T) {
 	}
 	if _, _, err := parseAKSK([]byte("just-one-token")); err == nil {
 		t.Fatal("want error for a value with no separator")
+	}
+}
+
+// TestReadOrgPlanSlug: spec.planSlug lower-cased; absent → "s" (the
+// org-controller's default); the Sovereign's own Organization has no plan.
+func TestReadOrgPlanSlug(t *testing.T) {
+	f, err := readOrg(orgUnstructured("acme", func(spec map[string]any) { spec["planSlug"] = " M " }))
+	if err != nil || f.PlanSlug != "m" {
+		t.Fatalf("planSlug M → %q err=%v", f.PlanSlug, err)
+	}
+	f, err = readOrg(orgUnstructured("legacy", nil))
+	if err != nil || f.PlanSlug != "s" {
+		t.Fatalf("absent planSlug → %q, want s", f.PlanSlug)
+	}
+	f, err = readOrg(orgUnstructured("platform", func(spec map[string]any) { spec["kind"] = "internal"; spec["planSlug"] = "xl" }))
+	if err != nil || !f.Internal || f.PlanSlug != "" {
+		t.Fatalf("internal org → plan %q internal=%v, want no plan", f.PlanSlug, f.Internal)
+	}
+}
+
+// TestSyncOrganizationPlanAndBook: a synced Organization carries its plan and
+// is put on the "OpenOva plans" book when it has none; an explicit book is
+// never overwritten; a plan change on the CR follows; the Sovereign's own
+// Organization gets neither a plan nor the book; the book is ensured, never
+// re-created (the fake counts calls and returns the same book).
+func TestSyncOrganizationPlanAndBook(t *testing.T) {
+	repo := newFakeRepo()
+	s := &OrgSync{Core: k8sfake.NewSimpleClientset(), Repo: repo, Keys: testKeys(t), Metrics: metrics.New()}
+	ctx := context.Background()
+	acme := orgUnstructured("acme", func(spec map[string]any) { spec["planSlug"] = "m" })
+	if err := s.SyncOrganization(ctx, acme); err != nil {
+		t.Fatal(err)
+	}
+	c, _ := repo.customerBySlug("acme")
+	if c.PlanSlug != "m" || c.PriceBookID == nil || *c.PriceBookID != repo.planBook.ID {
+		t.Fatalf("customer = plan %q book %v, want m on the plan book %s", c.PlanSlug, c.PriceBookID, repo.planBook.ID)
+	}
+	if repo.planBook.Name != store.PlanBookName || len(repo.planBook.Items) != 4 {
+		t.Fatalf("plan book = %+v", repo.planBook)
+	}
+
+	// Operator moves acme to a negotiated clone; the CR upgrades to xl.
+	clone := "book-negotiated"
+	if _, err := repo.UpdateCustomer(ctx, c.ID, store.CustomerPatch{PriceBookID: &clone}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SyncOrganization(ctx, orgUnstructured("acme", func(spec map[string]any) { spec["planSlug"] = "XL" })); err != nil {
+		t.Fatal(err)
+	}
+	c, _ = repo.customerBySlug("acme")
+	if c.PlanSlug != "xl" || c.PriceBookID == nil || *c.PriceBookID != clone {
+		t.Fatalf("after resync: plan %q book %v, want xl on the negotiated clone", c.PlanSlug, c.PriceBookID)
+	}
+
+	// A customer that lost its book gets the plan book back; the book itself
+	// was ensured on every sync and created exactly once.
+	empty := ""
+	if _, err := repo.UpdateCustomer(ctx, c.ID, store.CustomerPatch{PriceBookID: &empty}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SyncOrganization(ctx, acme); err != nil {
+		t.Fatal(err)
+	}
+	c, _ = repo.customerBySlug("acme")
+	if c.PriceBookID == nil || *c.PriceBookID != repo.planBook.ID {
+		t.Fatalf("bookless customer not re-assigned: %v", c.PriceBookID)
+	}
+	if repo.planCalls != 3 {
+		t.Fatalf("EnsurePlanBook calls = %d, want one per tenant sync (3)", repo.planCalls)
+	}
+
+	// The Sovereign's own Organization: no plan, no book, and the book is
+	// not even consulted.
+	if err := s.SyncOrganization(ctx, orgUnstructured("platform", func(spec map[string]any) { spec["kind"] = "internal" })); err != nil {
+		t.Fatal(err)
+	}
+	own, _ := repo.customerBySlug("platform")
+	if own.PlanSlug != "" || own.PriceBookID != nil || repo.planCalls != 3 {
+		t.Fatalf("internal org = plan %q book %v calls %d", own.PlanSlug, own.PriceBookID, repo.planCalls)
+	}
+}
+
+// TestSyncOrganizationResumeStampsPlatformSource: an Organization that was
+// deleted (customer suspended) and re-created resumes with its platform
+// source's collection stamp at the resume instant, so the collector never
+// bills the plan across the gap. A plain resync of an active customer does
+// not touch the stamp.
+func TestSyncOrganizationResumeStampsPlatformSource(t *testing.T) {
+	repo := newFakeRepo()
+	now := time.Date(2026, 9, 7, 12, 0, 0, 0, time.UTC)
+	s := &OrgSync{Core: k8sfake.NewSimpleClientset(), Repo: repo, Keys: testKeys(t), Metrics: metrics.New(), Now: func() time.Time { return now }}
+	ctx := context.Background()
+	org := orgUnstructured("acme", func(spec map[string]any) { spec["planSlug"] = "m" })
+	if err := s.SyncOrganization(ctx, org); err != nil {
+		t.Fatal(err)
+	}
+	c, _ := repo.customerBySlug("acme")
+	src := repo.sourcesOf(c.ID)[0]
+	if src.LastCollectedAt != nil {
+		t.Fatalf("a fresh source must keep its backfill window: stamp = %v", src.LastCollectedAt)
+	}
+	stamp := now.Add(-3 * 24 * time.Hour)
+	if err := repo.SetSourceCollected(ctx, src.ID, stamp); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SyncOrganization(ctx, org); err != nil {
+		t.Fatal(err)
+	}
+	if got := repo.sourcesOf(c.ID)[0].LastCollectedAt; got == nil || !got.Equal(stamp) {
+		t.Fatalf("active resync moved the stamp: %v", got)
+	}
+
+	if err := s.SuspendOrganization(ctx, org); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(48 * time.Hour)
+	if err := s.SyncOrganization(ctx, org); err != nil {
+		t.Fatal(err)
+	}
+	c, _ = repo.customerBySlug("acme")
+	if got := repo.sourcesOf(c.ID)[0].LastCollectedAt; c.Status != "active" || got == nil || !got.Equal(now) {
+		t.Fatalf("resume: status %s stamp %v, want active at %v", c.Status, got, now)
 	}
 }

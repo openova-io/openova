@@ -450,13 +450,19 @@ func (c *PlatformCollector) rescanNamespace(podInf, pvcInf cache.SharedIndexInfo
 	}
 }
 
-// EmitAll runs one reconciliation pass over every tracked Organization.
+// EmitAll runs one reconciliation pass over every tracked Organization —
+// every Organization with a tracked pod or PVC, and every Organization that
+// owns a namespace even with nothing running in it: its plan line (§2.8) is
+// owed for the hour whether or not a pod is scheduled.
 func (c *PlatformCollector) EmitAll(ctx context.Context) {
 	c.init()
 	c.mu.Lock()
 	orgs := map[string]bool{}
 	for _, tr := range c.res {
 		orgs[tr.Org] = true
+	}
+	for _, org := range c.nsOrg {
+		orgs[org] = true
 	}
 	c.dirty = map[string]bool{}
 	c.mu.Unlock()
@@ -583,6 +589,44 @@ func (c *PlatformCollector) EmitOrg(ctx context.Context, org string) (int, error
 			}
 		}
 	}
+	// Plan revenue (DESIGN.md §2.8): the catalog plan the Organization pays
+	// for, metered as one plan.<slug> record per hour slice with the same
+	// window math as the k8s.* records above, on the same source — so a
+	// re-run over the same hour updates the same row. Only while the
+	// customer is active and on a plan other than flexi (pay per use has no
+	// plan line). The Sovereign's own Organization carries no plan (OrgSync
+	// stores "" for it), so the pool it feeds is never inflated by one.
+	//
+	// A plan change mid-hour leaves the old plan's partial slice alongside
+	// the new plan's — at most one plan-hour of overlap, kept rather than
+	// deleted because the ledger is append-only per (resource, sku, hour).
+	if plan := billablePlan(cust); plan != "" {
+		lc := window.Lifecycle{Created: planStart(cust)}
+		for _, sl := range window.HourSlices(from, now, lc) {
+			qty := window.Quantity(sl.Hours(), 1)
+			if qty <= 0 {
+				continue
+			}
+			labels, _ := json.Marshal(map[string]any{"name": store.PlanName(plan) + " plan", "plan": plan})
+			batch = append(batch, store.UsageRecord{
+				CustomerID:   cust.ID,
+				SourceID:     src.ID,
+				ResourceID:   store.PlanKind + "/" + plan,
+				ResourceKind: store.PlanKind,
+				SKU:          store.PlanSKU(plan),
+				Quantity:     store.Decimal(strconv.FormatFloat(qty, 'f', 6, 64)),
+				Unit:         store.PlanUnit,
+				WindowStart:  sl.Start,
+				WindowEnd:    sl.End,
+				Labels:       labels,
+			})
+			if len(batch) >= usageBatch {
+				if err := flush(); err != nil {
+					return written, err
+				}
+			}
+		}
+	}
 	if err := flush(); err != nil {
 		return written, err
 	}
@@ -595,6 +639,28 @@ func (c *PlatformCollector) EmitOrg(ctx context.Context, org string) (int, error
 		slog.Info("openova adapter: platform usage emitted", "org", org, "records", written, "window_from", from, "window_to", now)
 	}
 	return written, nil
+}
+
+// billablePlan is the plan slug an active customer owes a plan line for; ""
+// when the customer is not active, has no plan, or is on flexi.
+func billablePlan(cust store.Customer) string {
+	if cust.Status != "active" || !store.PlanBillable(cust.PlanSlug) {
+		return ""
+	}
+	return cust.PlanSlug
+}
+
+// planStart is the instant the plan line begins: the customer's billing
+// start_date when the operator set one, else the moment the Organization
+// was first synced (created_at). Before that the Organization did not exist
+// to this ledger, and a plan cannot be owed for hours nobody was on it.
+func planStart(cust store.Customer) time.Time {
+	if cust.StartDate != nil {
+		if d, err := time.Parse("2006-01-02", *cust.StartDate); err == nil {
+			return d.UTC()
+		}
+	}
+	return cust.CreatedAt.UTC()
 }
 
 type skuLine struct {

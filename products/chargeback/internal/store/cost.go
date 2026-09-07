@@ -135,6 +135,8 @@ func KindLabel(kind string) string {
 		return "Kubernetes pods"
 	case "k8s-pvc":
 		return "Kubernetes volumes"
+	case PlanKind:
+		return "Subscription plan"
 	case "":
 		return "(none)"
 	}

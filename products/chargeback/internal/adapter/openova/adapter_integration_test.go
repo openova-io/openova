@@ -144,3 +144,48 @@ func TestIntegrationBillingHookOnIssuedStatement(t *testing.T) {
 		t.Fatalf("hook payload = %+v calls=%d", got, calls)
 	}
 }
+
+// TestIntegrationPlanLineAgainstStore (DESIGN.md §2.8 "Plan revenue"): on
+// real SQL the sync stores the plan, creates the "OpenOva plans" book once
+// and assigns it, and the collector's plan.m records land on usage_records
+// keyed like every other meter.
+func TestIntegrationPlanLineAgainstStore(t *testing.T) {
+	st := testdb.Open(t)
+	ctx := context.Background()
+	s := &OrgSync{Core: k8sfake.NewSimpleClientset(), Repo: st, Keys: testKeys(t), Metrics: metrics.New()}
+	org := orgUnstructured("agwalk", func(spec map[string]any) { spec["planSlug"] = "m" })
+	if err := s.SyncOrganization(ctx, org); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SyncOrganization(ctx, org); err != nil {
+		t.Fatalf("resync: %v", err)
+	}
+	c, err := st.GetCustomerBySlug(ctx, "agwalk")
+	if err != nil || c.PlanSlug != "m" || c.PriceBookID == nil {
+		t.Fatalf("customer = %+v err=%v", c, err)
+	}
+	book, err := st.GetPriceBook(ctx, *c.PriceBookID)
+	if err != nil || book.Name != store.PlanBookName || len(book.Items) != 4 {
+		t.Fatalf("assigned book = %+v err=%v", book, err)
+	}
+	books, err := st.ListPriceBooks(ctx)
+	if err != nil || len(books) != 1 {
+		t.Fatalf("books after two syncs = %d err=%v, want the one plan book", len(books), err)
+	}
+
+	// The collector, 90 minutes after the customer was first synced: the
+	// plan line is owed from that instant, so its slices sum to 1.5 h.
+	now := c.CreatedAt.Add(90 * time.Minute)
+	pc := &PlatformCollector{Repo: st, Metrics: metrics.New(), Now: func() time.Time { return now }}
+	pc.ObserveNamespace(orgNamespace("agwalk"))
+	if _, err := pc.EmitOrg(ctx, "agwalk"); err != nil {
+		t.Fatal(err)
+	}
+	usage, err := st.UsageForRating(ctx, c.ID, now.Add(-2*time.Hour), now.Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(usage) != 1 || usage[0].SKU != "plan.m" || usage[0].Unit != store.PlanUnit || usage[0].ResourceKind != store.PlanKind || usage[0].Quantity != "1.500000" || usage[0].ResourceCount != 1 {
+		t.Fatalf("rateable usage = %+v, want one plan.m line of 1.5 plan-hours", usage)
+	}
+}

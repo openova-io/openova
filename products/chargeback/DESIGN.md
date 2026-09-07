@@ -115,6 +115,31 @@ separate line, or distribute across Organizations), cost pool (the Sovereign
 customer's rated cloud cost for the window, or a manual amount). Result table in
 currency: allocated cloud cost, rated revenue, margin, margin %. Chart of the split.
 
+**Plan revenue.** What an Organization actually pays is its catalog plan
+(S 5 · M 9 · L 16 · XL 30 OMR/month, Flexi 0 = pay per use — the prices seeded
+by `core/services/catalog/handlers/seed.go` `seedPlanRows`, restated in
+`internal/store/planbook.go` because the engine imports nothing from Catalyst).
+The plans are bundles whose per-resource split is not identifiable (M = 2×S,
+L = 4×S, XL = 8×S), so no per-vCPU rate is invented: the platform collector
+meters the plan itself as one `plan.<slug>` record per hour slice (unit
+`plan-hour`, quantity 1 for a full hour, `resource_kind=plan`, labels
+`{name: "<Plan> plan", plan: <slug>}`) on the Organization's `openova-org`
+source, only while the Organization is active and on a plan other than flexi,
+starting at the customer's `start_date` or, absent one, the first sync. OrgSync
+reads `spec.planSlug` (lower-cased; empty → `s`, the org-controller's default;
+the Sovereign's own Organization gets none) into `customers.plan_slug`, and
+owns the **"OpenOva plans"** price book: OMR, divisor 8760, `plan.s` 60/yr,
+`plan.m` 108, `plan.l` 192, `plan.xl` 360 as annual prices, so
+`unit_price = annual / 8760 = monthly / 730` per plan-hour; created once when
+absent, assigned to every tenant Organization customer with no book, never
+re-created, re-priced or re-assigned over an operator's choice. `k8s.vcpu` /
+`k8s.mem_gb` / `k8s.pvc_gb` stay unpriced in that book — they are the allocation
+basis above, and flexi's pay-per-use rates are a product decision the founder
+has not made (the item descriptions say so; `price_books` has no description
+column). `rated_revenue` needs no new arithmetic: it is the Explore total per
+Organization customer, and the plan line is part of it. Statements group the
+line under "Subscription plan" (`KindLabel("plan")`, `serviceOfSKU("plan.m")`).
+
 ### 2.9 Statements
 Filters (period, customer, status). Run period. Statement view: waterfall (list
 → discounts → net → tax → total), lines grouped by service kind with per-source
@@ -286,6 +311,9 @@ severity, type, id; ids are `type:customer:resource` / `type:customer:sku` /
 
 ### 3.8 CRUD gaps closed
 - `DELETE /customers/{id}` — 409 while issued statements exist.
+- `POST|PATCH /customers[/{id}]` accept `plan_slug` (`s|m|l|xl|flexi|""`,
+  case-folded); every customer read carries it. A PATCH on an Organization
+  customer is 400 — its plan is read from the Organization CR (§2.8).
 - `DELETE /pricebooks/{id}` (409 while assigned) · `POST /pricebooks/{id}/clone {name}` ·
   `PATCH|DELETE /pricebooks/{id}/items/{sku}` · `GET /pricebooks/{id}/export.csv` ·
   `GET /pricebooks/{id}/coverage`.
