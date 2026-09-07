@@ -1045,7 +1045,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.2.26",
+    "version": "0.2.27",
     "section": "pts-9-disaster-recovery",
     "depends": [
       "bp-cnpg",
@@ -4265,7 +4265,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.2.29",
+    "version": "0.2.30",
     "section": "pts-4-1-data-services",
     "depends": [
       "bp-cnpg",

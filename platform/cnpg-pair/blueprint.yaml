@@ -142,7 +142,14 @@ spec:
   # outlasted the 120s hold. New `-primary-mesh-any` all-instances alias (both
   # sides) + autoPromote.primaryMissingHoldSeconds (600s) for "region-A alive but
   # primary-less"; "no instance answers" keeps the 120s hold. +1 Service per side.
-  version: 0.2.26
+  # 0.2.27 (#6874 D5): dr-promoter /shared/diverged anti-flap marker self-clears
+  # once the local cluster is a consistent streaming replica again
+  # (replica.enabled=true + ConsistentSystemID=True + walreceiver streaming); the
+  # actor releases its own stale suspend latch when no promotion drives the HR,
+  # and the diverged arms of the self-heal AND the #5245 handoff no longer fire
+  # on a consistent replica (hw307: a stale marker re-froze the HR after the
+  # switchback; here it would also re-promote via the substitute). Script only.
+  version: 0.2.27
   card:
     title: CNPG Cluster-Pair (Active-Hotstandby DR)
     summary: |

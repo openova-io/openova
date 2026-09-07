@@ -1,5 +1,25 @@
 apiVersion: v2
 name: bp-cnpg-pair
+# 0.2.27 (#6874 D5, Refs #5178 #5218 #5245): dr-promoter /shared/diverged
+# anti-flap marker is SELF-CLEARING — the counterpart of bp-postgres 0.2.30. The
+# signals container writes the marker when it sees the local cluster OUT of
+# recovery; nothing ever removed it. hw307 (2026-09-07, on bp-postgres's port of
+# this actor): after the controlled switchback region B was a healthy streaming
+# replica again yet the stale marker re-froze its HR within a tick of every
+# un-suspend and blocked the chart upgrade. On THIS chart the same stale marker
+# also satisfies the #5245 durable-handoff arm (suspended + DIVERGED -> push the
+# substitute to true), i.e. a re-promotion of a healthy replica. The actor now
+# observes a CONSISTENT STREAMING REPLICA (replica.enabled=true AND the
+# Cluster's ConsistentSystemID condition True AND the signals container's fresh
+# per-tick local state `streaming`, new /shared/local-state), removes the
+# marker (`DIVERGENCE CLEARED`), and when the HR is still frozen by THIS
+# actor's latch with no promotion driving it (dr-auto-promote-latched-at
+# present, replica.promoted not true) un-suspends it and drops the
+# dr-auto-promote* annotations incl. handoff-at (`LATCH RELEASED`); a latch
+# whose HR carries promoted=true is never touched. The DIVERGED arms of BOTH
+# the self-heal and the handoff now require NOT-a-consistent-replica. Promote
+# gates, arm, holds, TL-ahead and failback are unchanged; no RBAC change.
+# tests/cnpg-pair-render.sh Case 25. Lockstep slot 16b pin -> 0.2.27.
 # 0.2.26 (#6874 D2, Refs #5178 #3740 #5137): dr-promoter two-clock primary-loss
 # classification — the counterpart of bp-postgres 0.2.28. `-primary-mesh` is
 # selectorType rw (the PRIMARY only, #3740), so its pg_isready went dark whenever
@@ -419,7 +439,7 @@ name: bp-cnpg-pair
 # the post-mesh flip. Default-OFF contract UNCHANGED: cnpgPair.enabled=false OR
 # empty crossRegionPeerClusters renders ZERO CiliumNetworkPolicy — resource
 # counts unchanged from 0.2.8. Lockstep slot 16b pin → 0.2.9.
-version: 0.2.26
+version: 0.2.27
 appVersion: "0.2.1"
 description: |
   Catalyst-curated Blueprint for an active-hotstandby CNPG cluster-pair

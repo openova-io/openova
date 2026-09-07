@@ -84,6 +84,22 @@ HOW IT DECIDES (region-B-local signals + a POSITIVE region-A probe)
 4. ANTI-FLAP (#5178) — never re-promote a cluster that has ALREADY left the source
    timeline; once promoted it latches (suspend) so it can neither re-demote nor
    re-promote.
+5. DIVERGENCE SELF-CLEARING (#6874 D5) — the anti-flap marker (/shared/diverged) is
+   written by the signals container when it sees the local cluster OUT of recovery
+   and, before 0.2.30, was never removed. After the hw307 controlled switchback
+   (2026-09-07) region B was a healthy streaming replica again (replica.enabled=true,
+   ConsistentSystemID=True, walreceiver streaming) yet the stale marker re-froze its
+   HelmRelease within one tick of every un-suspend and blocked the chart upgrade.
+   The actor now clears the marker the moment it observes the local cluster as a
+   CONSISTENT STREAMING REPLICA — replica.enabled=true AND the Cluster's
+   ConsistentSystemID condition True AND the signals container's last local state
+   `streaming` (/shared/local-state, written every tick) — logs `DIVERGENCE
+   CLEARED`, and, if the HR is still suspended by THIS actor's latch
+   (dr-auto-promote-latched-at present, topology.promoted not true), un-suspends
+   it and drops the dr-auto-promote* annotations (`LATCH RELEASED`). The DIVERGED
+   self-heal arm additionally requires NOT-a-consistent-replica, so a stale marker
+   can never re-freeze a healthy replica even before the clearing tick runs. A
+   latch whose HR still carries promoted=true is legitimate and is never touched.
 
 ANTI-SPLIT-BRAIN (sync-only fence) — the pair runs synchronous replication
 (remote_apply + FIRST 1 pinned to the cross-region replica), so the region-A primary
@@ -369,6 +385,11 @@ spec:
               while true; do
                 : > /shared/signals-alive
                 STATE=$(psql "${CONN}" -tAXc "${Q}" 2>/dev/null || echo "unknown")
+                # #6874 D5 — publish the raw local observation for the actor (which has
+                # kubectl but no psql): the divergence self-clearing must know the
+                # replica is STREAMING right now. Atomic per tick; the actor treats a
+                # copy older than a minute as absent.
+                printf '%s\n' "${STATE}" > /shared/local-state.tmp && mv -f /shared/local-state.tmp /shared/local-state
                 NOW=$(date -u +%s)
                 # ── #5220 steady-state ARM gate ──────────────────────────────────
                 # The promoter must OBSERVE the pair reach a stable STREAMING steady-
@@ -402,7 +423,9 @@ spec:
                 case "${STATE}" in
                   promoted)
                     # Left recovery → already promoted/diverged. Mark it so the actor
-                    # never re-promotes (anti-flap #5178).
+                    # never re-promotes (anti-flap #5178). The actor removes the marker
+                    # again once it observes this cluster as a consistent streaming
+                    # replica of the peer (#6874 D5).
                     : > /shared/diverged
                     clear_clock "state=promoted (local cluster writable)"
                     ;;
@@ -538,12 +561,21 @@ spec:
         # ── actor — the PROMOTER + durable SUSPEND LATCH (#5178 / #5218) ──
         # Each tick runs in a subshell (a persistent fault retries next tick instead of
         # crashing the pod — #5157 shape). A `suspend_hr` helper sets spec.suspend=true,
-        # READBACK-VERIFIES it landed, and logs loudly on failure. Ordering:
+        # READBACK-VERIFIES it landed, and logs loudly on failure; `release_latch` is
+        # its inverse (#6874 D5). Ordering:
+        #   0. DIVERGENCE CLEARING (#6874 D5, every tick) — if the local cluster is a
+        #      CONSISTENT STREAMING REPLICA again (replica.enabled=true AND
+        #      ConsistentSystemID=True AND the signals container's last local state
+        #      `streaming`), drop the stale /shared/diverged anti-flap marker, and if
+        #      the HR is still frozen by THIS actor's latch with no promotion driving
+        #      it (latched-at present, promoted not true) un-suspend it and drop the
+        #      dr-auto-promote* annotations. A latch on a promoted HR is never touched.
         #   1. SELF-HEAL LATCH (every tick) — if the promotion is DRIVEN + RENDERED (HR
         #      promoted=true AND local replica.enabled=false) OR the local cluster has
-        #      already left recovery (/shared/diverged), and the HR is NOT suspended,
-        #      RE-ASSERT spec.suspend=true. Both arms require POSITIVE render evidence,
-        #      so it can never freeze a pre-render HR and strand an un-rendered promotion.
+        #      already left recovery (/shared/diverged) and is NOT a consistent
+        #      streaming replica, and the HR is NOT suspended, RE-ASSERT
+        #      spec.suspend=true. Both arms require POSITIVE render evidence, so it can
+        #      never freeze a pre-render HR and strand an un-rendered promotion.
         #   2. ANTI-FLAP — already suspended (latched) ⇒ done. HR promoted but not yet
         #      rendered ⇒ WAIT for the render (never suspend a pre-render HR — a suspended
         #      HR is not reconciled by helm, so the promotion would never land).
@@ -585,6 +617,25 @@ spec:
                 echo "$(date -u +"%FT%TZ") [dr-promoter/actor] ERROR (${_reason}): spec.suspend patch FAILED (RBAC/conflict?) — HR NOT frozen; re-asserting next tick (#5218)"
                 return 1
               }
+              # release_latch — #6874 D5: the inverse of suspend_hr for a latch that
+              # protects nothing any more. spec.suspend=false + the dr-auto-promote*
+              # annotations dropped in ONE merge-patch (same custom manager), then
+              # READBACK-VERIFIED. Called ONLY when the local cluster is a consistent
+              # streaming replica, the latched-at annotation is present and
+              # topology.promoted is NOT true — a latch on a promoted HR is legitimate.
+              release_latch() {
+                if kubectl -n "${HR_NAMESPACE}" patch helmrelease "${HR_NAME}" --type merge ${FM} -p '{"metadata":{"annotations":{"catalyst.openova.io/dr-auto-promote-latched-at":null,"catalyst.openova.io/dr-auto-promoted-at":null,"catalyst.openova.io/dr-auto-promote-reason":null}},"spec":{"suspend":false}}' >/dev/null 2>&1; then
+                  _v=$(kubectl -n "${HR_NAMESPACE}" get helmrelease "${HR_NAME}" -o jsonpath='{.spec.suspend}' 2>/dev/null || echo "")
+                  if [ "${_v}" != "true" ]; then
+                    echo "$(date -u +"%FT%TZ") [dr-promoter/actor] LATCH RELEASED: HR ${HR_NAMESPACE}/${HR_NAME} spec.suspend=false VERIFIED, dr-auto-promote* annotations dropped — the local cluster is a consistent streaming replica again and no promotion drives this HR; flux reconciles it normally (#6874 D5)"
+                    return 0
+                  fi
+                  echo "$(date -u +"%FT%TZ") [dr-promoter/actor] ERROR (latch release): spec.suspend patch accepted but readback='${_v}' (expected not true) — HR still frozen; retrying next tick (#6874 D5)"
+                  return 1
+                fi
+                echo "$(date -u +"%FT%TZ") [dr-promoter/actor] ERROR (latch release): patch FAILED (RBAC/conflict?) — HR still frozen; retrying next tick (#6874 D5)"
+                return 1
+              }
               echo "[dr-promoter/actor] loop started (hold=${HOLD_SECONDS}s primaryMissingHold=${PRIMARY_MISSING_HOLD_SECONDS}s interval=${INTERVAL_SECONDS}s renderWait=${PROMOTE_RENDER_WAIT_SECONDS}s hr=${HR_NAMESPACE}/${HR_NAME})"
               while true; do
                 : > /shared/actor-alive
@@ -595,12 +646,58 @@ spec:
                   REPLICA_ENABLED=$(kubectl -n "${NAMESPACE}" get clusters.postgresql.cnpg.io "${REPLICA_CLUSTER}" -o jsonpath='{.spec.replica.enabled}' 2>/dev/null || echo "")
                   DIVERGED=""; [ -f /shared/diverged ] && DIVERGED="true"
 
+                  # 0. #6874 D5 — CONSISTENT STREAMING REPLICA observation. The signals
+                  #    container writes /shared/diverged when it sees the local cluster
+                  #    OUT of recovery; nothing removed it before 0.2.30. After the hw307
+                  #    controlled switchback (2026-09-07) region B was a healthy streaming
+                  #    replica again and the stale marker re-froze its HR within a tick of
+                  #    every un-suspend, blocking the chart upgrade. Three LIVE signals,
+                  #    ALL required: helm renders replica.enabled=true; CNPG's own
+                  #    ConsistentSystemID condition is True (the replica's system
+                  #    identifier matches its source); and the signals container's last
+                  #    local state is `streaming` (live walreceiver + set receive-LSN,
+                  #    /shared/local-state written fresh every tick — stale >1min = absent).
+                  CONSISTENT_SYSID=$(kubectl -n "${NAMESPACE}" get clusters.postgresql.cnpg.io "${REPLICA_CLUSTER}" -o jsonpath="{.status.conditions[?(@.type=='ConsistentSystemID')].status}" 2>/dev/null || echo "")
+                  LOCAL_STATE=""
+                  if [ -f /shared/local-state ] && [ -z "$(find /shared/local-state -mmin +1 2>/dev/null)" ]; then
+                    LOCAL_STATE=$(cat /shared/local-state 2>/dev/null || echo "")
+                  fi
+                  CONSISTENT_REPLICA=""
+                  if [ "${REPLICA_ENABLED}" = "true" ] && [ "${CONSISTENT_SYSID}" = "True" ] && [ "${LOCAL_STATE}" = "streaming" ]; then
+                    CONSISTENT_REPLICA="true"
+                  fi
+                  if [ "${CONSISTENT_REPLICA}" = "true" ]; then
+                    # 0a. DIVERGENCE CLEARED — the anti-flap marker describes a lineage
+                    #     this cluster no longer has (re-cloned / switched back). Drop it
+                    #     so the self-heal cannot re-freeze a healthy replica and a
+                    #     future real region kill can promote it again.
+                    if [ "${DIVERGED}" = "true" ]; then
+                      rm -f /shared/diverged /shared/diverged-*
+                      DIVERGED=""
+                      echo "$(date -u +"%FT%TZ") [dr-promoter/actor] DIVERGENCE CLEARED: local cluster is a consistent streaming replica again — self-heal latch released (replica.enabled=true, ConsistentSystemID=True, walreceiver streaming; #6874 D5)"
+                    fi
+                    # 0b. LATCH RELEASED — the HR is still frozen by THIS actor's latch
+                    #     (dr-auto-promote-latched-at present) with no promotion driving
+                    #     it (topology.promoted not true): lift it. A latch whose HR still
+                    #     carries promoted=true is legitimate and is never touched.
+                    if [ "${SUSPENDED}" = "true" ] && [ "${HR_PROMOTED}" != "true" ]; then
+                      LATCHED_AT=$(kubectl -n "${HR_NAMESPACE}" get helmrelease "${HR_NAME}" -o jsonpath='{.metadata.annotations.catalyst\.openova\.io/dr-auto-promote-latched-at}' 2>/dev/null || echo "")
+                      if [ -n "${LATCHED_AT}" ]; then
+                        release_latch || true
+                        exit 0
+                      fi
+                    fi
+                  fi
+
                   # 1. SELF-HEAL LATCH — keep an already-rendered promotion durable. Fires
                   #    on the post-promote tick AND re-freezes the HR if anything ever
                   #    un-suspends it. Both arms require POSITIVE render evidence
                   #    (replica.enabled=false OR the cluster already left recovery) so it
-                  #    can never freeze a pre-render HR and strand the promotion.
-                  if [ "${SUSPENDED}" != "true" ] && { { [ "${HR_PROMOTED}" = "true" ] && [ "${REPLICA_ENABLED}" = "false" ]; } || [ "${DIVERGED}" = "true" ]; }; then
+                  #    can never freeze a pre-render HR and strand the promotion. #6874 D5:
+                  #    the diverged arm also requires that the local cluster is NOT a
+                  #    consistent streaming replica right now — a stale marker never
+                  #    re-freezes a healthy replica.
+                  if [ "${SUSPENDED}" != "true" ] && { { [ "${HR_PROMOTED}" = "true" ] && [ "${REPLICA_ENABLED}" = "false" ]; } || { [ "${DIVERGED}" = "true" ] && [ "${CONSISTENT_REPLICA}" != "true" ]; }; }; then
                     suspend_hr "self-heal" || true
                     exit 0
                   fi
