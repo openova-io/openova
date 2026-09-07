@@ -68,7 +68,8 @@ vi.mock('../lib/useQuery', () => {
     period_start: '2026-08-01',
     period_end: '2026-08-31',
     currency: 'OMR',
-    subtotal: '1000.000',
+    // NET subtotal on the wire (list 1,000 − 150 discount); tax 5 % of the net.
+    subtotal: '850.000',
     discount_total: '150.000',
     discount_detail: [{ id: 'd1', name: 'Launch campaign', kind: 'percent', value: 15, sku: '', amount: '150.000' }],
     tax_rate: '0.05',
@@ -193,8 +194,12 @@ describe('configure + bill pages render their documents', () => {
     expect(html).toContain('Aug 2026')
     expect(html).toContain('Elastic Cloud Server')
     expect(html).toContain('Block storage (EVS)')
+    // List (net + discount), net and total are three DIFFERENT numbers — a
+    // view that treats the wire subtotal as the list price shows 850/700 here.
+    expect(html).toContain('1,000.000 OMR')
     expect(html).toContain('Net subtotal')
     expect(html).toContain('850.000 OMR')
+    expect(html).not.toContain('700.000 OMR')
     expect(html).toContain('Tax 5 %')
     expect(html).toContain('892.500 OMR')
     expect(html).toContain('Launch campaign')

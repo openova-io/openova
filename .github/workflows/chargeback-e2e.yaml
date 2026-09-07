@@ -1,0 +1,119 @@
+name: chargeback console e2e
+
+# Browser end-to-end for products/chargeback (#6867): build the embedded UI
+# and the Go binary from THIS commit, run it against a real Postgres, seed a
+# customer through the public API, and walk the console in Chromium with
+# exact-money assertions (tests/e2e/playwright/tests/chargeback-console.spec.ts).
+# The unit tests, the Go integration tests and the wire-contract fixture pin
+# the pieces; this is the one gate that sees the rendered result.
+
+on:
+  pull_request:
+    paths:
+      - 'products/chargeback/**'
+      - 'tests/e2e/chargeback/**'
+      - 'tests/e2e/playwright/tests/chargeback-console.spec.ts'
+      - '.github/workflows/chargeback-e2e.yaml'
+  push:
+    branches: [main]
+    paths:
+      - 'products/chargeback/**'
+      - 'tests/e2e/chargeback/**'
+      - 'tests/e2e/playwright/tests/chargeback-console.spec.ts'
+      - '.github/workflows/chargeback-e2e.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: chargeback console e2e (Chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: chargeback
+          POSTGRES_PASSWORD: chargeback
+          POSTGRES_DB: chargeback
+        ports:
+          - 15432:5432
+        options: >-
+          --health-cmd "pg_isready -U chargeback"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      CB_BASE: http://127.0.0.1:18080
+      CB_OPERATOR: e2e-operator@example.invalid
+      CB_HEADER: X-Forwarded-Email
+      CB_PG: postgres://chargeback:chargeback@127.0.0.1:15432/chargeback?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: products/chargeback/go.mod
+          cache-dependency-path: products/chargeback/go.sum
+
+      - name: Build the embedded UI
+        working-directory: products/chargeback/ui
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
+      - name: Build the binary
+        working-directory: products/chargeback
+        run: CGO_ENABLED=0 go build -trimpath -o /tmp/chargeback ./cmd/chargeback
+
+      - name: Start chargeback against the Postgres service
+        run: |
+          set -euo pipefail
+          KEY="$(head -c 32 /dev/urandom | base64 | tr -d '\n')"
+          DATABASE_URL="$CB_PG" APP_ENCRYPTION_KEY="$KEY" OPERATOR_EMAILS="$CB_OPERATOR" \
+          TRUSTED_FORWARD_AUTH_HEADER="$CB_HEADER" COLLECTOR_ENABLED=false ADAPTER_ENABLED=false \
+          LISTEN_ADDR=":18080" PUBLIC_URL="$CB_BASE" PROFILE=sovereign \
+            nohup /tmp/chargeback > /tmp/chargeback.log 2>&1 &
+          for i in $(seq 1 40); do
+            curl -fsS "$CB_BASE/healthz" >/dev/null 2>&1 && { echo "up"; exit 0; }
+            sleep 1
+          done
+          echo "chargeback never served /healthz"; cat /tmp/chargeback.log; exit 1
+
+      - name: Seed a customer, price book and one week of usage
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client >/dev/null
+          bash tests/e2e/chargeback/seed.sh /tmp/seed.env
+          cat /tmp/seed.env >> "$GITHUB_ENV"
+
+      - name: Install Playwright
+        working-directory: tests/e2e/playwright
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: Walk the console
+        working-directory: tests/e2e/playwright
+        env:
+          CHARGEBACK_BASE_URL: ${{ env.CB_BASE }}
+          CHARGEBACK_OPERATOR_EMAIL: ${{ env.CB_OPERATOR }}
+          CHARGEBACK_FORWARD_AUTH_HEADER: ${{ env.CB_HEADER }}
+        run: npx playwright test tests/chargeback-console.spec.ts --reporter=list
+
+      - name: Binary log on failure
+        if: failure()
+        run: tail -200 /tmp/chargeback.log
+
+      - name: Upload Playwright artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: chargeback-e2e-artifacts
+          path: tests/e2e/playwright/test-results
+          if-no-files-found: ignore

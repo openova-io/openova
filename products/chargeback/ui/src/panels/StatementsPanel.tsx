@@ -79,7 +79,7 @@ export function StatementTable({
             {showCustomer ? <th>Customer</th> : null}
             <th>Period</th>
             <th>Status</th>
-            <th className="num">Subtotal</th>
+            <th className="num">Net subtotal</th>
             <th className="num">Discount</th>
             <th className="num">Tax</th>
             <th className="num">Total</th>

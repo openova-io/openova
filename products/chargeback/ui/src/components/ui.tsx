@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react'
+import { cloneElement, isValidElement, useEffect, useId, type ReactElement, type ReactNode } from 'react'
 import { Link, NavLink } from 'react-router-dom'
 import { formatPct } from '../lib/money'
 
@@ -21,10 +21,24 @@ export function Badge({ status, kind }: { status: string | null | undefined; kin
 }
 
 export function Field({ label, error, help, children }: { label: string; error?: string; help?: string; children: ReactNode }) {
+  // The label is associated with its control: a single input/select/textarea
+  // child gets a generated id unless it brings its own, so screen readers,
+  // click-to-focus and label-based tests all work.
+  const id = useId()
+  let control: ReactNode = children
+  let htmlFor: string | undefined
+  if (isValidElement(children)) {
+    const el = children as ReactElement<{ id?: string }>
+    const t = el.type
+    if (t === 'input' || t === 'select' || t === 'textarea') {
+      htmlFor = el.props.id ?? id
+      control = el.props.id ? el : cloneElement(el, { id })
+    }
+  }
   return (
     <div className="field">
-      <label>{label}</label>
-      {children}
+      <label htmlFor={htmlFor}>{label}</label>
+      {control}
       {help && !error ? <div className="help">{help}</div> : null}
       {error ? <div className="err">{error}</div> : null}
     </div>

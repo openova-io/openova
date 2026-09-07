@@ -46,11 +46,14 @@ export function StatementView() {
   const operator = me?.role === 'operator'
   const cur = s.currency
   const money = (v: number | string | null | undefined) => formatMoney(toNumber(v), cur)
-  const subtotal = toNumber(s.subtotal)
+  // Wire contract (rating.TotalsWithDiscount): `subtotal` is the NET — list
+  // minus discounts, before tax — so that subtotal + tax == total holds for
+  // every reader. The list price is reconstructed as net + discount.
+  const net = toNumber(s.subtotal)
   const discount = toNumber(s.discount_total)
   const tax = toNumber(s.tax)
   const total = toNumber(s.total)
-  const net = subtotal - discount
+  const subtotal = net + discount
   const taxRate = toNumber(s.tax_rate) * 100
   const steps: WaterfallStep[] = [
     { label: 'List subtotal', value: subtotal, kind: 'total' },

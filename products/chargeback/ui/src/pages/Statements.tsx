@@ -81,7 +81,10 @@ export function Statements() {
     },
     { key: 'period', header: 'Period', value: (s) => s.period_start, render: (s) => <Link to={`/statements/${s.id}`}>{statementPeriod(s)}</Link> },
     { key: 'status', header: 'Status', value: (s) => s.status, render: (s) => <Badge status={s.status} /> },
-    { key: 'subtotal', header: 'List subtotal', value: (s) => toNumber(s.subtotal), numeric: true, render: (s) => formatMoney(s.subtotal, s.currency) },
+    // The wire `subtotal` is the NET (after discounts, before tax); the list
+    // price is net + discount. Showing the net under a "List" header made a
+    // discounted statement look under-billed (caught by the e2e).
+    { key: 'subtotal', header: 'List subtotal', value: (s) => toNumber(s.subtotal) + toNumber(s.discount_total ?? 0), numeric: true, render: (s) => formatMoney(toNumber(s.subtotal) + toNumber(s.discount_total ?? 0), s.currency) },
     {
       key: 'discount',
       header: 'Discount',
