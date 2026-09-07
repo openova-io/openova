@@ -127,6 +127,32 @@ guessed:
   - `guard_on` is NON-FATAL. Converging region-A is what ENDS the exposure, so a
     guard that cannot be applied must warn loudly and let the failback run.
 
+RE-CREATE AFTER THE DELETE (#6874 D1, chart 0.2.27 — the hw307 residual)
+----------------------------------------------------------------------------
+hw307 (2026-09-07 06:10-07:26Z): the divergence escalation fired correctly,
+deleted region-A's shared-pg for the re-clone and recorded
+dr-failback-recloned-at on the HR — and nothing re-created the Cluster for
+75 minutes. shared-pg-rw was gone on region A (gitea, harbor, keycloak down,
+every umbrella upgrade hung on the missing database). The annotation is not a
+flux trigger, and the HR's STORED release already contained the demoted
+(rejoin) manifest, so helm-controller reported "release in-sync with desired
+state" on every reconcile and applied nothing: a deleted object that the
+stored manifest still describes is invisible to a drift-free upgrade. The
+recovery that worked was a FORCED reconcile —
+reconcile.fluxcd.io/forceAt=<epoch> together with
+reconcile.fluxcd.io/requestedAt=<the SAME epoch> — which makes
+helm-controller run a forced upgrade and re-apply the stored manifest, and
+that re-creates the Cluster. Two fixes:
+  1. force_render(): every path that deletes the Cluster for a re-clone
+     (D2 rejoin, D2a divergence escalation, D2b wedge escalation) now
+     forces the HR render right after recording recloned-at.
+  2. RE-CLONE WATCHDOG: while recloned-at is recorded and the Cluster is
+     absent, the actor re-forces every ~120s (clock file
+     /shared/reclone-forced) and logs "RE-CLONE PENDING: Cluster absent Ns
+     after delete — re-forcing HR render"; once the CR exists again it logs
+     "RE-CLONE RENDERED" once and clears its clocks. A re-clone that helm
+     never follows can no longer sit dark.
+
 WHY A DEPLOYMENT, NOT A CronJob (#5157)
 ---------------------------------------
 A region-local actor that must run DURING and AFTER a region outage is a
@@ -828,6 +854,28 @@ spec:
                   : > "/shared/$4"
                 fi
               }
+              # force_render — FORCE the HR's helm upgrade (#6874, hw307):
+              # reconcile.fluxcd.io/forceAt AND reconcile.fluxcd.io/requestedAt
+              # carrying ONE epoch (helm-controller honours forceAt only when it
+              # equals requestedAt). nudge() is NOT enough after the bounded
+              # Cluster delete below: the HR's stored release already holds the
+              # demoted manifest, so helm-controller answers a plain requestedAt
+              # with "release in-sync with desired state" and never re-creates
+              # the Cluster. hw307 (2026-09-07 06:10-07:26Z): the divergence
+              # escalation deleted shared-pg, patched recloned-at, and
+              # shared-pg-rw stayed absent on region A for 75 min — gitea /
+              # harbor / keycloak down, every umbrella upgrade hung — until a
+              # manual forceAt=requestedAt annotation made helm re-apply the
+              # stored manifest. Unconditional (the caller sets the cadence),
+              # non-fatal like nudge(); stamps the re-clone watchdog clocks so
+              # the next automatic re-force waits ~120s.
+              force_render() {
+                _ts=$(date -u +%s)
+                kubectl -n "${HR_NAMESPACE}" annotate helmrelease "${HR_NAME}" "reconcile.fluxcd.io/forceAt=${_ts}" "reconcile.fluxcd.io/requestedAt=${_ts}" --overwrite ${FM} >/dev/null 2>&1 || true
+                : > /shared/reclone-forced
+                [ -f /shared/reclone-absent-since ] || date -u +%s > /shared/reclone-absent-since
+                echo "$(date -u +"%FT%TZ") [dr-failback/actor] FORCE REQUESTED: reconcile.fluxcd.io/forceAt=requestedAt=${_ts} on HR ${HR_NAMESPACE}/${HR_NAME} — helm-controller must re-apply the stored release so Cluster ${PRIMARY_CLUSTER} is re-created (a plain requestedAt answers in-sync and creates nothing, #6874)"
+              }
               # peer_fresh — the signals container re-verified the peer
               # writable+ahead within the last 60s (it re-probes every
               # tick, ~10s). Required before EVERY destructive step (a
@@ -929,6 +977,9 @@ spec:
                   # divergence escalation and the post-re-clone watch.
                   CR_JSON=$(kubectl -n "${NAMESPACE}" get clusters.postgresql.cnpg.io "${PRIMARY_CLUSTER}" -o jsonpath="{.spec.replica.enabled}|{.metadata.creationTimestamp}|{.metadata.deletionTimestamp}|{.status.conditions[?(@.type=='ConsistentSystemID')].status}|{.status.conditions[?(@.type=='ConsistentSystemID')].reason}|{.status.phase}" 2>/dev/null || echo "__absent__")
                   STARTED_AT=$(kubectl -n "${HR_NAMESPACE}" get helmrelease "${HR_NAME}" -o jsonpath='{.metadata.annotations.catalyst\.openova\.io/dr-failback-started-at}' 2>/dev/null || echo "")
+                  # #6874: the re-clone record — set by every bounded delete
+                  # below; with the CR absent it means helm owes us a Cluster.
+                  RECLONED_AT=$(kubectl -n "${HR_NAMESPACE}" get helmrelease "${HR_NAME}" -o jsonpath='{.metadata.annotations.catalyst\.openova\.io/dr-failback-recloned-at}' 2>/dev/null || echo "")
                   # 0.2.21 (#5331): parse the CR fields up-front — the
                   # CONVERGED verification gate below needs CNPG's own
                   # ConsistentSystemID verdict, not just the psql streaming
@@ -1048,14 +1099,41 @@ spec:
 
                   # ── D2: RE-CLONE — the one bounded destructive act ────
                   if [ "${CR_JSON}" = "__absent__" ]; then
-                    # Deleted (by us) or not yet re-created — nudge helm to
-                    # render the demoted shape promptly.
+                    # ── RE-CLONE WATCHDOG (#6874, hw307) ─────────────────
+                    # The Cluster was deleted for the re-clone (recloned-at
+                    # is recorded) and helm has not re-created it. A plain
+                    # nudge is a no-op here — the stored release already
+                    # equals the desired state — so only a FORCE makes
+                    # helm-controller re-apply the manifest. Re-force every
+                    # ~120s (the reclone-forced clock; the delete tick fired
+                    # the first one) until the CR is back, and say so.
+                    if [ -n "${RECLONED_AT}" ]; then
+                      [ -f /shared/reclone-absent-since ] || date -u +%s > /shared/reclone-absent-since
+                      if [ ! -f /shared/reclone-forced ] || [ -n "$(find /shared/reclone-forced -mmin +2 2>/dev/null)" ]; then
+                        echo "$(date -u +"%FT%TZ") [dr-failback/actor] RE-CLONE PENDING: Cluster absent $(($(date -u +%s) - $(cat /shared/reclone-absent-since)))s after delete — re-forcing HR render (${PRIMARY_CLUSTER}: helm-controller reported the stored release in-sync and re-created nothing — the hw307 75-minute shape, #6874)"
+                        force_render
+                      fi
+                      exit 0
+                    fi
+                    # Not yet re-created and no delete recorded — nudge helm
+                    # to render the demoted shape promptly.
                     nudge helmrelease "${HR_NAMESPACE}" "${HR_NAME}" nudged-hr
                     exit 0
                   fi
                   # CR fields parsed up-front (before the CONVERGED gate, #5331).
                   if [ -n "${CR_DELETING}" ]; then
+                    # #6874: a force that fires while the old object is still
+                    # terminating re-applies onto THAT object and creates
+                    # nothing — clear the clock so the first ABSENT tick
+                    # re-forces at once instead of waiting out the ~120s.
+                    rm -f /shared/reclone-forced
                     exit 0   # teardown in progress — wait
+                  fi
+                  # #6874: the Cluster exists again (the forced render re-created
+                  # it) — close the re-clone watchdog once and clear its clocks.
+                  if [ -f /shared/reclone-absent-since ]; then
+                    echo "$(date -u +"%FT%TZ") [dr-failback/actor] RE-CLONE RENDERED: Cluster ${PRIMARY_CLUSTER} re-created $(($(date -u +%s) - $(cat /shared/reclone-absent-since)))s after delete (phase='${CR_PHASE:-?}') — re-clone watchdog stops (#6874)"
+                    rm -f /shared/reclone-absent-since /shared/reclone-forced
                   fi
                   if [ "${CR_REPLICA}" != "true" ]; then
                     # Still the OLD primary shape with the stale timeline.
@@ -1064,6 +1142,7 @@ spec:
                     echo "$(date -u +"%FT%TZ") [dr-failback/actor] RE-CLONING: deleting stale Cluster ${PRIMARY_CLUSTER} (old primary shape, TL=$(cat /shared/tl-local 2>/dev/null || echo '?')) — helm re-creates it as a pg_basebackup replica of region-B; PVCs are CNPG-owned and garbage-collect, PKI Secrets preserved (#5245)"
                     kubectl -n "${NAMESPACE}" delete clusters.postgresql.cnpg.io "${PRIMARY_CLUSTER}" --wait=false
                     kubectl -n "${HR_NAMESPACE}" patch helmrelease "${HR_NAME}" --type merge ${FM} -p "{\"metadata\":{\"annotations\":{\"catalyst.openova.io/dr-failback-recloned-at\":\"$(date -u +"%FT%TZ")\"}}}" >/dev/null 2>&1 || true
+                    force_render
                     exit 0
                   fi
                   # Demoted shape exists. A CR created BEFORE the failback
@@ -1107,6 +1186,7 @@ spec:
                           kubectl -n "${NAMESPACE}" delete clusters.postgresql.cnpg.io "${PRIMARY_CLUSTER}" --wait=false
                           rm -f /shared/diverged-since
                           kubectl -n "${HR_NAMESPACE}" patch helmrelease "${HR_NAME}" --type merge ${FM} -p "{\"metadata\":{\"annotations\":{\"catalyst.openova.io/dr-failback-recloned-at\":\"$(date -u +"%FT%TZ")\"}}}" >/dev/null 2>&1 || true
+                          force_render
                           exit 0
                         fi
                         echo "$(date -u +"%FT%TZ") [dr-failback/actor] divergence grace expired but no fresh peer-writable proof — NOT deleting (fail-safe)"
@@ -1125,6 +1205,7 @@ spec:
                         echo "$(date -u +"%FT%TZ") [dr-failback/actor] WEDGE ESCALATION: in-place-demoted Cluster (created ${CR_CREATED} < failback start ${STARTED_AT}) unable to stream $((NOW - WSINCE))s >= ${WEDGE_HOLD_SECONDS}s with peer writable+ahead — deleting for a clean re-clone (PKI preserved) (#5245)"
                         kubectl -n "${NAMESPACE}" delete clusters.postgresql.cnpg.io "${PRIMARY_CLUSTER}" --wait=false
                         kubectl -n "${HR_NAMESPACE}" patch helmrelease "${HR_NAME}" --type merge ${FM} -p "{\"metadata\":{\"annotations\":{\"catalyst.openova.io/dr-failback-recloned-at\":\"$(date -u +"%FT%TZ")\"}}}" >/dev/null 2>&1 || true
+                        force_render
                         exit 0
                       fi
                     fi

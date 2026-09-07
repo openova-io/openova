@@ -1,5 +1,18 @@
 apiVersion: v2
 name: bp-cnpg-pair
+# 0.2.25 (#6874 D1): dr-failback RE-CREATES the Cluster it DELETES. hw307
+# (2026-09-07 06:10-07:26Z, on bp-postgres's port of this actor): the divergence
+# escalation deleted region-A's Cluster for the re-clone, patched
+# dr-failback-recloned-at, and nothing re-created it for 75 min — the annotation
+# is not a flux trigger and the HR's stored release already held the demoted
+# manifest, so helm-controller reported "release in-sync with desired state" and
+# applied nothing. The actor now annotates reconcile.fluxcd.io/forceAt +
+# requestedAt with ONE epoch (force_render, helm-controller's forced-upgrade
+# contract) right after every recloned-at record (D2 rejoin, D2a divergence, D2b
+# wedge), and a re-clone watchdog re-forces every ~120s while recloned-at is set
+# and the Cluster is absent ("RE-CLONE PENDING" / "RE-CLONE RENDERED"). Script-
+# only; no schema/RBAC/resource delta (the HR patch verb was already held for
+# nudge()). tests/cnpg-pair-render.sh Case 23. Lockstep slot 16b pin → 0.2.25.
 # 0.2.24 (#6148): dr-failback PEER-AHEAD WRITE-GUARD. region-A returned from
 # a region-kill as a writable TL=1 primary and ACCEPTED writes for the whole
 # 120s peer-ahead hold (hw293, 03:58Z) — acknowledged commits on a divergent
@@ -389,7 +402,7 @@ name: bp-cnpg-pair
 # the post-mesh flip. Default-OFF contract UNCHANGED: cnpgPair.enabled=false OR
 # empty crossRegionPeerClusters renders ZERO CiliumNetworkPolicy — resource
 # counts unchanged from 0.2.8. Lockstep slot 16b pin → 0.2.9.
-version: 0.2.24
+version: 0.2.25
 appVersion: "0.2.1"
 description: |
   Catalyst-curated Blueprint for an active-hotstandby CNPG cluster-pair

@@ -120,6 +120,12 @@ spec:
   # topology (the #5335 Secret-RBAC fix was necessary-not-sufficient; the
   # connection was still NetworkPolicy-dropped — hw287 residual). NetworkPolicy
   # + values only; no schema/RBAC/resource delta to the Cluster CRs.
+  # 0.2.25 (#6874 D1): dr-failback re-creates the Cluster it deletes — the actor
+  # forces the HR render (reconcile.fluxcd.io/forceAt = requestedAt) right after
+  # every recloned-at record and re-forces every ~120s while the Cluster is
+  # absent. hw307: the annotation alone left the Cluster absent for 75 min because
+  # the HR's stored release already held the demoted manifest ("in-sync").
+  # Script-only.
   # 0.2.24 (#6148): dr-failback peer-ahead write-guard — region-A stays
   # writable through the 120s hold and its commits are discarded by the
   # re-clone; the actor now denies client ingress to :5432 for the duration
@@ -130,7 +136,7 @@ spec:
   # rebooted-region datapath shape, #5339), the actor records
   # dr-failback-starved-at + reason on the HR instead of idling silently at D0
   # while a split-brain persists. Script + env + value only.
-  version: 0.2.24
+  version: 0.2.25
   card:
     title: CNPG Cluster-Pair (Active-Hotstandby DR)
     summary: |
