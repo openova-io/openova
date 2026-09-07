@@ -123,10 +123,27 @@ number in the customer's price-book currency. `customer` query values are
 customer ids; the customer role is forced to its own id server-side.
 
 ### 3.1 `GET /cost/explore` · `GET /customers/{id}/cost/explore`
-Params: `from`, `to`, `granularity=day|month`, `group_by=none|customer|source|kind|sku|region|resource|tier|namespace`,
+Params: `from`, `to`, `granularity=day|month`, `group_by=none|customer|source|kind|sku|region|resource|tier|namespace|enterprise_project|tag:<key>`,
 `metric=cost|usage` (usage requires `group_by=sku` or a single `sku` filter),
-include filters `customer|kind|sku|region|source|resource|tier|namespace=a,b`,
+include filters `customer|kind|sku|region|source|resource|tier|namespace|enterprise_project|tag:<key>=a,b`,
 exclude filters `exclude_<dim>=a,b`, `limit` (top-N groups, default 10, 0 = all).
+
+**Tags and enterprise project** (the AWS cost-allocation-tag / Azure tag
+dimension). `tag:<key>` is a dynamic dimension over the resource tags the
+collectors store in `labels.tags`: the Huawei ECS/EVS/EIP/ELB/RDS-family
+tags (all three wire shapes — `["k=v"]`, `[{key,value}]`, `{k: v}` — folded
+into one map, keys case-sensitive, ≤50 tags, keys ≤128 chars), and on the
+Sovereign's own cluster the pod/PVC labels `app.kubernetes.io/name|instance|component`
+and `openova.io/application`, exposed as `tag:app|instance|component|application`
+— which is cost per Application. Records without the key group as
+`(untagged)`, and `(untagged)` is a legal filter value. The key must match
+`^[A-Za-z0-9_.:/@-]{1,128}$` (400 naming the rule otherwise) and is bound as a
+SQL parameter, never interpolated; the colon may be URL-encoded.
+`enterprise_project` is a static dimension over `labels.enterprise_project`
+(`(none)` when absent). `GET /cost/dimensions` additionally returns `tag_keys`
+(the distinct keys in the window, scoped and filtered like the explorer) and,
+when `group_by` or a filter names a tag, that tag's values under
+`dimensions["tag:<key>"]`.
 
 ```json
 {

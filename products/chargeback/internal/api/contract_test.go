@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -158,6 +159,61 @@ func TestParseCostQueryDefaultsAndValidation(t *testing.T) {
 	}
 	if _, msg := h.parseCostQuery(mustReq("/x?metric=usage&sku=ecs.m7n.xlarge.8")); msg != "" {
 		t.Fatalf("usage with one sku filter is valid: %s", msg)
+	}
+}
+
+// TestParseCostQueryTagDimensions: `tag:<key>` groups and filters parse (the
+// colon URL-encoded or not), enterprise_project is a static dimension, and a
+// key that fails the rule is a 400 whose message names the rule — it is
+// refused before the store ever sees it.
+func TestParseCostQueryTagDimensions(t *testing.T) {
+	h := &Handler{Deps: Deps{Now: func() time.Time { return time.Date(2026, 9, 8, 10, 0, 0, 0, time.UTC) }}}
+	q, msg := h.parseCostQuery(mustReq("/x?group_by=tag:team&tag:team=a,b&exclude_tag:env=dev&tag%3Acost-centre=CC-42&enterprise_project=ep-1"))
+	if msg != "" {
+		t.Fatalf("valid tag query rejected: %s", msg)
+	}
+	if q.GroupBy != "tag:team" {
+		t.Fatalf("group_by = %q", q.GroupBy)
+	}
+	if got := q.Include["tag:team"]; len(got) != 2 || got[0] != "a" || got[1] != "b" {
+		t.Fatalf("include tag:team = %v", got)
+	}
+	if got := q.Include["tag:cost-centre"]; len(got) != 1 || got[0] != "CC-42" {
+		t.Fatalf("url-encoded colon: include = %v", q.Include)
+	}
+	if got := q.Exclude["tag:env"]; len(got) != 1 || got[0] != "dev" {
+		t.Fatalf("exclude tag:env = %v", got)
+	}
+	if got := q.Include["enterprise_project"]; len(got) != 1 || got[0] != "ep-1" {
+		t.Fatalf("enterprise_project filter = %v", got)
+	}
+	if q, msg := h.parseCostQuery(mustReq("/x?group_by=enterprise_project")); msg != "" || q.GroupBy != "enterprise_project" {
+		t.Fatalf("group_by=enterprise_project: %q %q", q.GroupBy, msg)
+	}
+	// "(untagged)" is a legal filter value.
+	if q, msg := h.parseCostQuery(mustReq("/x?tag:team=(untagged)")); msg != "" || q.Include["tag:team"][0] != "(untagged)" {
+		t.Fatalf("(untagged) filter: %v %q", q.Include, msg)
+	}
+	for _, bad := range []string{
+		"/x?group_by=tag:",                            // empty key
+		"/x?group_by=tag:te'am",                       // quote
+		"/x?group_by=tag:team%27%20OR%201%3D1--",      // injection attempt
+		"/x?group_by=tag:a%20b",                       // space
+		"/x?tag:x%27y=1",                              // quote in a filter key
+		"/x?exclude_tag:x%22y=1",                      // double quote in an exclude key
+		"/x?group_by=tag:" + strings.Repeat("k", 129), // too long
+	} {
+		_, msg := h.parseCostQuery(mustReq(bad))
+		if msg == "" {
+			t.Fatalf("%s must be rejected", bad)
+		}
+		if !strings.Contains(msg, store.TagKeyRule) {
+			t.Fatalf("%s: message must name the rule, got %q", bad, msg)
+		}
+	}
+	// The old message still lists the static dimensions and now names tag:<key>.
+	if _, msg := h.parseCostQuery(mustReq("/x?group_by=colour")); !strings.Contains(msg, "tag:<key>") || !strings.Contains(msg, "enterprise_project") {
+		t.Fatalf("unknown group_by message = %q", msg)
 	}
 }
 

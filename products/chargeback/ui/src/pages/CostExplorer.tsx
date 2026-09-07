@@ -6,13 +6,17 @@ import { useSession } from '../auth/session'
 import { EmptyChart, LineChart, StackedBars, colorFor, seriesFromExplore } from '../components/charts'
 import { DataTable, type Column } from '../components/DataTable'
 import { DateRange } from '../components/DateRange'
-import { DIM_LABEL, FilterChips, filterCount, type Dim } from '../components/FilterChips'
+import { FilterChips, dimLabel, filterCount, type Dim } from '../components/FilterChips'
 import { Delta, Field, KPI, Modal, Notice, PageHeader, Segmented, ShareBar, Skeleton } from '../components/ui'
 import { bucketLabel, describeWindow } from '../lib/dates'
 import { apiQuery, drillInto, paramsFromState, stateFromParams, type ChartKind, type ExploreState } from '../lib/exploreState'
 import { formatMoney, formatQty } from '../lib/money'
 import { customerLens, lensFor, pageHref, type Lens } from '../lib/scope'
+import { isTagDim, isValidTagKey, tagDim, tagKeyOf } from '../lib/tags'
 import { useQuery } from '../lib/useQuery'
+
+/** Sentinel value of the group-by select for "Tag…" — the key is picked next to it. */
+const GROUP_TAG = 'tag:'
 
 /**
  * Cost explorer (DESIGN.md §2.2) — the AWS Cost Explorer / Azure Cost
@@ -44,7 +48,20 @@ export function ExplorerBody({ lens, embedded }: { lens: Lens; embedded?: boolea
   )
   const query = apiQuery(state)
   const res = useQuery<ExploreResult>(`${lens.cost('explore')}?${query}`)
-  const dims = useQuery<DimensionValues>(`${lens.cost('dimensions')}?from=${state.window.from}&to=${state.window.to}`)
+  // Grouping by a tag asks the dimensions document for that tag's values too
+  // (they arrive under dimensions["tag:<key>"]); tag_keys always comes back.
+  const dims = useQuery<DimensionValues>(`${lens.cost('dimensions')}?from=${state.window.from}&to=${state.window.to}${isTagDim(state.groupBy) ? `&group_by=${encodeURIComponent(state.groupBy)}` : ''}`)
+  // "Tag…" in the group-by select: the draft key while it is being picked (null = not picking).
+  const [tagDraft, setTagDraft] = useState<string | null>(null)
+  const tagKeys = dims.data?.tag_keys ?? []
+  const groupingByTag = tagDraft !== null || isTagDim(state.groupBy)
+  const tagKeyShown = tagDraft ?? tagKeyOf(state.groupBy) ?? ''
+  const commitTagKey = (raw: string) => {
+    const key = raw.trim()
+    if (!isValidTagKey(key)) return
+    setTagDraft(null)
+    setState({ ...state, groupBy: tagDim(key), metric: 'cost' })
+  }
   const [views, setViews] = useState<SavedView[]>([])
   const [saving, setSaving] = useState(false)
   const [viewName, setViewName] = useState('')
@@ -96,7 +113,7 @@ export function ExplorerBody({ lens, embedded }: { lens: Lens; embedded?: boolea
     return gs
   }, [d])
 
-  const groupLabel = GROUP_BY_OPTIONS.find((o) => o.value === state.groupBy)?.label ?? state.groupBy
+  const groupLabel = GROUP_BY_OPTIONS.find((o) => o.value === state.groupBy)?.label ?? dimLabel(state.groupBy)
   const columns: Column<Row>[] = [
     {
       key: 'label',
@@ -153,13 +170,57 @@ export function ExplorerBody({ lens, embedded }: { lens: Lens; embedded?: boolea
         <DateRange value={{ preset: state.preset, window: state.window, granularity: state.granularity }} onChange={(v) => setState({ ...state, preset: v.preset, window: v.window, granularity: v.granularity })} />
         <span className="sep" />
         <Field label="Group by">
-          <select value={state.groupBy} onChange={(e) => setState({ ...state, groupBy: e.target.value as GroupBy, metric: e.target.value === 'sku' ? state.metric : 'cost' })} aria-label="Group by">
-            {GROUP_BY_OPTIONS.filter((o) => lens.operator || o.value !== 'customer').map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
+          <span className="row" style={{ gap: 6 }}>
+            <select
+              value={groupingByTag ? GROUP_TAG : state.groupBy}
+              onChange={(e) => {
+                const v = e.target.value
+                if (v === GROUP_TAG) {
+                  // Known keys: take the first straight away; none known: ask for one.
+                  if (tagKeys.length) commitTagKey(tagKeys[0])
+                  else setTagDraft('')
+                  return
+                }
+                setTagDraft(null)
+                setState({ ...state, groupBy: v as GroupBy, metric: v === 'sku' ? state.metric : 'cost' })
+              }}
+              aria-label="Group by"
+            >
+              {GROUP_BY_OPTIONS.filter((o) => lens.operator || o.value !== 'customer').map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+              <option value={GROUP_TAG}>Tag…</option>
+            </select>
+            {groupingByTag ? (
+              <>
+                <input
+                  list="explorer-tag-keys"
+                  value={tagKeyShown}
+                  onChange={(e) => setTagDraft(e.target.value)}
+                  onBlur={(e) => commitTagKey(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      commitTagKey((e.target as HTMLInputElement).value)
+                    }
+                  }}
+                  placeholder={tagKeys.length ? `tag key (${tagKeys.length} known)` : 'tag key'}
+                  aria-label="Tag key"
+                  aria-invalid={tagKeyShown.trim() !== '' && !isValidTagKey(tagKeyShown.trim())}
+                  title="letters, digits, _ . : / @ - (max 128)"
+                  style={{ width: 160 }}
+                  autoFocus={tagDraft !== null}
+                />
+                <datalist id="explorer-tag-keys">
+                  {tagKeys.map((k) => (
+                    <option key={k} value={k} />
+                  ))}
+                </datalist>
+              </>
+            ) : null}
+          </span>
         </Field>
         <Field label="Metric">
           <Segmented<Metric>
@@ -235,7 +296,7 @@ export function ExplorerBody({ lens, embedded }: { lens: Lens; embedded?: boolea
             onRowClick={state.groupBy !== 'none' ? (r) => { if (r.key === 'other') return; if (state.groupBy === 'resource') nav(pageHref(lens, 'resources', `q=${encodeURIComponent(r.key)}`)); else setState(drillInto(state, r.key)) } : undefined}
             emptyTitle="No groups"
             emptyBody="Nothing matched this selection."
-            footNote={state.groupBy !== 'none' ? `click a row to drill into ${DIM_LABEL[state.groupBy as Dim] ?? state.groupBy} → next level` : undefined}
+            footNote={state.groupBy !== 'none' ? `click a row to drill into ${dimLabel(state.groupBy)} → next level` : undefined}
           />
         </div>
       ) : null}

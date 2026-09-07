@@ -96,7 +96,15 @@ func (h *Handler) parseCostQuery(r *http.Request) (store.CostQuery, string) {
 			}
 		}
 		if !found {
-			return q, "group_by must be none or one of " + strings.Join(store.CostDimensions(), ", ")
+			// `tag:<key>` groups by a resource tag; the key is validated here
+			// and bound as a parameter in the store, never spliced into SQL.
+			if strings.HasPrefix(v, store.TagDimensionPrefix) {
+				if _, ok := store.IsTagDimension(v); !ok {
+					return q, "group_by tag key must match " + store.TagKeyRule
+				}
+			} else {
+				return q, "group_by must be none, tag:<key>, or one of " + strings.Join(store.CostDimensions(), ", ")
+			}
 		}
 		q.GroupBy = v
 	}
@@ -106,6 +114,30 @@ func (h *Handler) parseCostQuery(r *http.Request) (store.CostQuery, string) {
 		}
 		if vals := splitCSV(qs["exclude_"+dim]); len(vals) > 0 {
 			q.Exclude[dim] = vals
+		}
+	}
+	// Tag filters: `tag:<key>=v1,v2` and `exclude_tag:<key>=…` (the colon may
+	// be URL-encoded; the query parser has already decoded it). "(untagged)"
+	// is a legal value — it selects records that lack the key.
+	for name, raw := range qs {
+		dim, exclude := name, false
+		if rest, ok := strings.CutPrefix(name, "exclude_"); ok && strings.HasPrefix(rest, store.TagDimensionPrefix) {
+			dim, exclude = rest, true
+		}
+		if !strings.HasPrefix(dim, store.TagDimensionPrefix) {
+			continue
+		}
+		if _, ok := store.IsTagDimension(dim); !ok {
+			return q, "filter " + name + ": tag key must match " + store.TagKeyRule
+		}
+		vals := splitCSV(raw)
+		if len(vals) == 0 {
+			continue
+		}
+		if exclude {
+			q.Exclude[dim] = vals
+		} else {
+			q.Include[dim] = vals
 		}
 	}
 	switch v := qs.Get("metric"); v {
@@ -226,7 +258,9 @@ func (h *Handler) customerExplore(w http.ResponseWriter, r *http.Request) {
 
 func writeExploreCSV(w http.ResponseWriter, doc exploreDoc) {
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="cost-%s-%s-%s.csv"`, doc.GroupBy, doc.From, doc.To))
+	// A tag dimension ("tag:team") keeps its colon in the CSV column; the file
+	// name swaps it for a dash so the download saves cleanly everywhere.
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="cost-%s-%s-%s.csv"`, strings.ReplaceAll(doc.GroupBy, ":", "-"), doc.From, doc.To))
 	cw := csv.NewWriter(w)
 	_ = cw.Write([]string{"bucket", "group_by", "group_key", "group_label", doc.Metric, "currency"})
 	groups := doc.Groups
@@ -298,7 +332,14 @@ func (h *Handler) writeDimensions(w http.ResponseWriter, r *http.Request, scope 
 		storeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"from": q.From.Format("2006-01-02"), "to": q.To.Format("2006-01-02"), "dimensions": vals})
+	// tag_keys feeds the "group by tag" picker: every tag key present on the
+	// records in the window (scoped and filtered like the explorer).
+	tagKeys, err := h.Store.TagKeys(r.Context(), scope, q)
+	if err != nil {
+		storeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"from": q.From.Format("2006-01-02"), "to": q.To.Format("2006-01-02"), "dimensions": vals, "tag_keys": tagKeys})
 }
 
 // ---------------------------------------------------------------------------

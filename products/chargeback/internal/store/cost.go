@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -37,9 +38,13 @@ var costDims = map[string]costDim{
 	"resource":  {expr: "resource_id", label: "resource_label"},
 	"tier":      {expr: "tier", label: "tier"},
 	"namespace": {expr: "namespace", label: "namespace"},
+	// The cloud's enterprise project (Huawei's cost-centre grouping), read
+	// off labels.enterprise_project; records without one group as "(none)".
+	"enterprise_project": {expr: "enterprise_project", label: "enterprise_project"},
 }
 
-// CostDimensions lists the valid group_by / filter dimensions.
+// CostDimensions lists the valid STATIC group_by / filter dimensions. Tag
+// dimensions (`tag:<key>`) are dynamic — see IsTagDimension.
 func CostDimensions() []string {
 	out := make([]string, 0, len(costDims))
 	for k := range costDims {
@@ -47,6 +52,48 @@ func CostDimensions() []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// Tag dimensions (EPIC #6867 follow-up). Cloud consoles group and filter
+// cost by resource tag; here the dimension is `tag:<key>`, where <key> is a
+// tag key the collectors stored under labels.tags (cloud resource tags, or
+// the app.kubernetes.io/* labels of a pod on the Sovereign's own cluster).
+//
+// The key is user input that ends up next to SQL. It is validated against
+// tagKeyRE AND passed as a bind parameter — never interpolated — so a key
+// that fails validation is refused before any SQL is built, and one that
+// passes cannot carry a quote into the query text.
+
+// TagDimensionPrefix introduces a tag dimension name.
+const TagDimensionPrefix = "tag:"
+
+// TagKeyRule is the validation rule a tag key must satisfy, in the words the
+// API reports when a request fails it.
+const TagKeyRule = "^[A-Za-z0-9_.:/@-]{1,128}$"
+
+var tagKeyRE = regexp.MustCompile(TagKeyRule)
+
+// TagUntagged is the group records without the tag fall into.
+const TagUntagged = "(untagged)"
+
+// IsTagDimension reports whether name is a `tag:<key>` dimension with a valid
+// key, and returns the key. A `tag:` name with an invalid key is NOT a
+// dimension (ok=false): the caller rejects it, it never reaches SQL.
+func IsTagDimension(name string) (key string, ok bool) {
+	key, found := strings.CutPrefix(name, TagDimensionPrefix)
+	if !found || !tagKeyRE.MatchString(key) {
+		return "", false
+	}
+	return key, true
+}
+
+// ValidTagKey reports whether key alone satisfies TagKeyRule.
+func ValidTagKey(key string) bool { return tagKeyRE.MatchString(key) }
+
+// tagExpr is the SQL for the value of one tag key on a tags jsonb column,
+// with the key bound as a parameter: COALESCE(<col>->>$n, '(untagged)').
+func tagExpr(a *costArgs, col, key string) string {
+	return "COALESCE(" + col + "->>" + a.add(key) + ", '" + TagUntagged + "')"
 }
 
 // KindLabel names a resource kind for people.
@@ -201,6 +248,8 @@ SELECT u.customer_id, c.slug AS customer_slug, c.name AS customer_name,
        COALESCE(NULLIF(u.labels->>'tier', ''), 'organization') AS tier,
        COALESCE(u.labels->>'namespace', '') AS namespace,
        COALESCE(NULLIF(u.labels->>'name', ''), u.resource_id) AS resource_label,
+       u.labels->'tags' AS tags,
+       COALESCE(NULLIF(u.labels->>'enterprise_project', ''), '(none)') AS enterprise_project,
        p.unit_price,
        COALESCE(b.currency, '') AS currency,
        ` + costPricedExpr + ` AS cost
@@ -230,29 +279,45 @@ func filteredCTE(q CostQuery, from, to time.Time) (string, *costArgs, error) {
 	// CTE projects, so include/exclude and group-by can never disagree on
 	// what a dimension means.
 	dimCol := map[string]string{
-		"customer":  "u.customer_id::text",
-		"source":    "u.source_id::text",
-		"kind":      "u.resource_kind",
-		"sku":       "u.sku",
-		"region":    "u.region",
-		"resource":  "u.resource_id",
-		"tier":      "COALESCE(NULLIF(u.labels->>'tier', ''), 'organization')",
-		"namespace": "COALESCE(u.labels->>'namespace', '')",
+		"customer":           "u.customer_id::text",
+		"source":             "u.source_id::text",
+		"kind":               "u.resource_kind",
+		"sku":                "u.sku",
+		"region":             "u.region",
+		"resource":           "u.resource_id",
+		"tier":               "COALESCE(NULLIF(u.labels->>'tier', ''), 'organization')",
+		"namespace":          "COALESCE(u.labels->>'namespace', '')",
+		"enterprise_project": "COALESCE(NULLIF(u.labels->>'enterprise_project', ''), '(none)')",
 	}
-	for dim, vals := range q.Include {
-		col, ok := dimCol[dim]
-		if !ok {
-			return "", nil, fmt.Errorf("unknown dimension %q", dim)
+	// column resolves a filter dimension to its expression; a tag dimension
+	// binds its key as a parameter (never text in the query).
+	column := func(dim string) (string, error) {
+		if col, ok := dimCol[dim]; ok {
+			return col, nil
+		}
+		if key, ok := IsTagDimension(dim); ok {
+			return tagExpr(a, "u.labels->'tags'", key), nil
+		}
+		return "", fmt.Errorf("unknown dimension %q", dim)
+	}
+	// Deterministic clause order (map iteration is not), so two identical
+	// queries build identical SQL — a prepared-statement cache would thank us.
+	for _, dim := range sortedKeys(q.Include) {
+		vals := q.Include[dim]
+		col, err := column(dim)
+		if err != nil {
+			return "", nil, err
 		}
 		if len(vals) == 0 {
 			continue
 		}
 		sb.WriteString(" AND " + col + " = ANY(" + a.add(pq.Array(vals)) + ")")
 	}
-	for dim, vals := range q.Exclude {
-		col, ok := dimCol[dim]
-		if !ok {
-			return "", nil, fmt.Errorf("unknown dimension %q", dim)
+	for _, dim := range sortedKeys(q.Exclude) {
+		vals := q.Exclude[dim]
+		col, err := column(dim)
+		if err != nil {
+			return "", nil, err
 		}
 		if len(vals) == 0 {
 			continue
@@ -261,6 +326,31 @@ func filteredCTE(q CostQuery, from, to time.Time) (string, *costArgs, error) {
 	}
 	sb.WriteString(")")
 	return sb.String(), a, nil
+}
+
+func sortedKeys(m map[string][]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// groupExprs resolves the group_by dimension to (group, label) expressions
+// over the filtered CTE. "none"/"" groups everything into one row.
+func groupExprs(a *costArgs, groupBy string) (groupExpr, labelExpr string, err error) {
+	if groupBy == "none" || groupBy == "" {
+		return "''", "''", nil
+	}
+	if d, ok := costDims[groupBy]; ok {
+		return d.expr, d.label, nil
+	}
+	if key, ok := IsTagDimension(groupBy); ok {
+		e := tagExpr(a, "tags", key)
+		return e, e, nil
+	}
+	return "", "", fmt.Errorf("unknown group_by %q", groupBy)
 }
 
 func bucketExpr(granularity string) string {
@@ -302,13 +392,9 @@ func (s *Store) queryCostRows(ctx context.Context, q CostQuery, from, to time.Ti
 	if err != nil {
 		return nil, err
 	}
-	groupExpr, labelExpr := "''", "''"
-	if q.GroupBy != "none" && q.GroupBy != "" {
-		d, ok := costDims[q.GroupBy]
-		if !ok {
-			return nil, fmt.Errorf("unknown group_by %q", q.GroupBy)
-		}
-		groupExpr, labelExpr = d.expr, d.label
+	groupExpr, labelExpr, err := groupExprs(a, q.GroupBy)
+	if err != nil {
+		return nil, err
 	}
 	bucket := "''"
 	if withBucket {
@@ -610,7 +696,9 @@ type DimensionValue struct {
 }
 
 // DimensionValues lists, per dimension, the values present in the window —
-// what the filter pickers offer. One query, one UNION per dimension.
+// what the filter pickers offer. One query, one UNION per dimension. The
+// static dimensions are always listed; a tag dimension is listed (under its
+// `tag:<key>` name) when the query groups or filters by it.
 func (s *Store) DimensionValues(ctx context.Context, scope Scope, q CostQuery) (map[string][]DimensionValue, error) {
 	if !scope.Operator {
 		if scope.CustomerID == "" {
@@ -627,15 +715,22 @@ func (s *Store) DimensionValues(ctx context.Context, scope Scope, q CostQuery) (
 		parts = append(parts, fmt.Sprintf(`SELECT '%s' AS dim, %s AS key, min(%s) AS label FROM f GROUP BY 2`, dim, d.expr, d.label))
 	}
 	sort.Strings(parts)
+	out := map[string][]DimensionValue{}
+	for dim := range costDims {
+		out[dim] = []DimensionValue{}
+	}
+	for _, dim := range q.TagDimensions() {
+		key, _ := IsTagDimension(dim)
+		// Both the dimension name and the key are bound, not spliced.
+		e := tagExpr(a, "tags", key)
+		parts = append(parts, `SELECT `+a.add(dim)+`::text AS dim, `+e+` AS key, min(`+e+`) AS label FROM f GROUP BY 2`)
+		out[dim] = []DimensionValue{}
+	}
 	rows, err := s.db.QueryContext(ctx, cte+" "+strings.Join(parts, " UNION ALL ")+" ORDER BY 1, 3", a.args...)
 	if err != nil {
 		return nil, mapErr(err)
 	}
 	defer rows.Close()
-	out := map[string][]DimensionValue{}
-	for dim := range costDims {
-		out[dim] = []DimensionValue{}
-	}
 	for rows.Next() {
 		var dim, key, label string
 		if err := rows.Scan(&dim, &key, &label); err != nil {
@@ -645,6 +740,61 @@ func (s *Store) DimensionValues(ctx context.Context, scope Scope, q CostQuery) (
 			label = KindLabel(key)
 		}
 		out[dim] = append(out[dim], DimensionValue{Key: key, Label: label})
+	}
+	return out, rows.Err()
+}
+
+// TagDimensions lists the distinct tag dimensions (`tag:<key>`, valid keys
+// only) the query groups or filters by, sorted.
+func (q CostQuery) TagDimensions() []string {
+	seen := map[string]bool{}
+	add := func(dim string) {
+		if _, ok := IsTagDimension(dim); ok {
+			seen[dim] = true
+		}
+	}
+	add(q.GroupBy)
+	for dim := range q.Include {
+		add(dim)
+	}
+	for dim := range q.Exclude {
+		add(dim)
+	}
+	out := make([]string, 0, len(seen))
+	for dim := range seen {
+		out = append(out, dim)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// TagKeys lists the distinct tag keys present on the records in the window
+// (scoped and filtered like the explorer) — what the "group by tag" picker
+// offers. A record whose tags label is not an object contributes nothing.
+func (s *Store) TagKeys(ctx context.Context, scope Scope, q CostQuery) ([]string, error) {
+	if !scope.Operator {
+		if scope.CustomerID == "" {
+			return nil, ErrNotFound
+		}
+		q.CustomerID = scope.CustomerID
+	}
+	cte, a, err := filteredCTE(q, q.From.UTC(), q.To.UTC())
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, cte+`
+SELECT DISTINCT k FROM f, jsonb_object_keys(CASE WHEN jsonb_typeof(f.tags) = 'object' THEN f.tags ELSE '{}'::jsonb END) k ORDER BY 1`, a.args...)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var k string
+		if err := rows.Scan(&k); err != nil {
+			return nil, err
+		}
+		out = append(out, k)
 	}
 	return out, rows.Err()
 }

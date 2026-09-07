@@ -71,7 +71,7 @@ func TestVerifyClassifiesGatewayResponses(t *testing.T) {
 
 func TestListECSPaginatesAndMapsFields(t *testing.T) {
 	pages := map[string]string{
-		"1": `{"count":3,"servers":[{"id":"s1","name":"web-1","status":"ACTIVE","created":"2026-08-01T10:00:00Z","flavor":{"id":"s6.large.2","name":"s6.large.2","vcpus":"2","ram":"4096"}},{"id":"s2","name":"db-1","status":"SHUTOFF","created":"2026-08-02T00:00:00Z","flavor":{"id":"c7.xlarge.2","name":"","vcpus":4,"ram":8192}}]}`,
+		"1": `{"count":3,"servers":[{"id":"s1","name":"web-1","status":"ACTIVE","created":"2026-08-01T10:00:00Z","flavor":{"id":"s6.large.2","name":"s6.large.2","vcpus":"2","ram":"4096"},"tags":["team=platform","Env=prod","novalue"],"enterprise_project_id":"ep-1"},{"id":"s2","name":"db-1","status":"SHUTOFF","created":"2026-08-02T00:00:00Z","flavor":{"id":"c7.xlarge.2","name":"","vcpus":4,"ram":8192}}]}`,
 		"2": `{"count":3,"servers":[{"id":"s3","name":"x","status":"ACTIVE","created":"2026-08-03T00:00:00Z","flavor":{"id":"f","name":"f"}}]}`,
 	}
 	calls := 0
@@ -95,6 +95,17 @@ func TestListECSPaginatesAndMapsFields(t *testing.T) {
 	if rs[1].Attrs["flavor"] != "c7.xlarge.2" || rs[1].Status != "SHUTOFF" || rs[1].Attrs["vcpus"] != int64(4) {
 		t.Fatalf("ecs fallback flavor = %+v", rs[1])
 	}
+	// ECS tags arrive as "key=value" strings; the enterprise project rides
+	// along; a server without tags stores no tags attr at all.
+	if tags, _ := rs[0].Attrs["tags"].(map[string]string); tags["team"] != "platform" || tags["Env"] != "prod" || tags["novalue"] != "" || len(tags) != 3 {
+		t.Fatalf("ecs tags = %v", rs[0].Attrs["tags"])
+	}
+	if rs[0].Attrs["enterprise_project_id"] != "ep-1" {
+		t.Fatalf("ecs enterprise project = %v", rs[0].Attrs["enterprise_project_id"])
+	}
+	if _, ok := rs[1].Attrs["tags"]; ok {
+		t.Fatalf("untagged server must carry no tags attr: %v", rs[1].Attrs)
+	}
 	if reg.Get("chargeback_cloud_api_calls_total", map[string]string{"service": "ecs", "status": "200"}) != 2 {
 		t.Fatal("api call counter not incremented")
 	}
@@ -104,11 +115,11 @@ func TestListOtherKindsMapFields(t *testing.T) {
 	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.Contains(r.URL.Path, "/cloudvolumes/detail"):
-			w.Write([]byte(`{"volumes":[{"id":"v1","name":"pvc-1","size":100,"volume_type":"SSD","status":"in-use","created_at":"2026-08-01T00:00:00.000000","attachments":[{"server_id":"s1","device":"/dev/vdb"}]}]}`))
+			w.Write([]byte(`{"volumes":[{"id":"v1","name":"pvc-1","size":100,"volume_type":"SSD","status":"in-use","created_at":"2026-08-01T00:00:00.000000","attachments":[{"server_id":"s1","device":"/dev/vdb"}],"tags":{"team":"data","tier":"gold"},"enterprise_project_id":"0"}]}`))
 		case strings.Contains(r.URL.Path, "/publicips"):
-			w.Write([]byte(`{"publicips":[{"id":"e1","public_ip_address":"10.0.0.1","bandwidth_size":5,"status":"ACTIVE","create_time":"2026-08-01 00:00:00"}]}`))
+			w.Write([]byte(`{"publicips":[{"id":"e1","public_ip_address":"10.0.0.1","bandwidth_size":5,"status":"ACTIVE","create_time":"2026-08-01 00:00:00","tags":["team=edge"]}]}`))
 		case strings.Contains(r.URL.Path, "/elb/loadbalancers"):
-			w.Write([]byte(`{"loadbalancers":[{"id":"l1","name":"lb","created_at":"2026-08-01T00:00:00Z","provisioning_status":"ACTIVE"}],"page_info":{"next_marker":""}}`))
+			w.Write([]byte(`{"loadbalancers":[{"id":"l1","name":"lb","created_at":"2026-08-01T00:00:00Z","provisioning_status":"ACTIVE","tags":[{"key":"team","value":"lb"},{"key":"","value":"dropped"}]}],"page_info":{"next_marker":""}}`))
 		case strings.Contains(r.URL.Path, "/nat_gateways"):
 			w.Write([]byte(`{"nat_gateways":[{"id":"n1","name":"nat","spec":"1","status":"ACTIVE","created_at":"2026-08-01 00:00:00.418723"}]}`))
 		case strings.Contains(r.URL.Path, "/cloudservers/detail"):
@@ -117,7 +128,7 @@ func TestListOtherKindsMapFields(t *testing.T) {
 		// billable attributes (engine/flavor/mode/size) is exercised, not just
 		// the call path.
 		case strings.HasSuffix(r.URL.Path, "/instances"):
-			w.Write([]byte(`{"instances":[{"id":"db1","name":"db","status":"ACTIVE","mode":"Ha","flavor_ref":"rds.mysql.c7.large.2","datastore":{"type":"MySQL","version":"8.0"},"volume":{"type":"ULTRAHIGH","size":40}}]}`))
+			w.Write([]byte(`{"instances":[{"id":"db1","name":"db","status":"ACTIVE","mode":"Ha","flavor_ref":"rds.mysql.c7.large.2","datastore":{"type":"MySQL","version":"8.0"},"volume":{"type":"ULTRAHIGH","size":40},"tags":[{"key":"team","value":"db"}]}]}`))
 		case strings.Contains(r.URL.Path, "/vaults"):
 			w.Write([]byte(`{"vaults":[{"id":"cb1","name":"vault","billing":{"size":100,"protect_type":"backup","status":"available"}}]}`))
 		case strings.Contains(r.URL.Path, "/clusters"):
@@ -158,6 +169,28 @@ func TestListOtherKindsMapFields(t *testing.T) {
 	}
 	if n := byKind[KindNAT]; n.Attrs["spec"] != "1" || n.Created.IsZero() {
 		t.Fatalf("nat = %+v", n)
+	}
+	// Tags: each service's own shape lands as one map (tags.go). EVS is an
+	// object, EIP "key=value" strings, ELB and the v3 instance APIs
+	// {key,value} objects; an empty key is dropped; NAT has none.
+	tagsOf := func(r Resource) map[string]string {
+		m, _ := r.Attrs["tags"].(map[string]string)
+		return m
+	}
+	if m := tagsOf(byKind[KindEVS]); m["team"] != "data" || m["tier"] != "gold" || byKind[KindEVS].Attrs["enterprise_project_id"] != "0" {
+		t.Fatalf("evs tags = %v attrs=%v", m, byKind[KindEVS].Attrs)
+	}
+	if m := tagsOf(byKind[KindEIP]); m["team"] != "edge" || len(m) != 1 {
+		t.Fatalf("eip tags = %v", m)
+	}
+	if m := tagsOf(byKind[KindELB]); m["team"] != "lb" || len(m) != 1 {
+		t.Fatalf("elb tags = %v", m)
+	}
+	if m := tagsOf(byKind[KindRDS]); m["team"] != "db" {
+		t.Fatalf("rds tags = %v", m)
+	}
+	if _, ok := byKind[KindNAT].Attrs["tags"]; ok {
+		t.Fatalf("nat must carry no tags attr: %v", byKind[KindNAT].Attrs)
 	}
 }
 
