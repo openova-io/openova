@@ -1885,6 +1885,129 @@ print("  PASS (demoted primary -> stub selects shared-pg-replica, managed alias 
       "promoted replica -> real local backends; steady primary+replica byte-identical)")
 PY
 
+# ── Case 21k: #6874 D3 — the consumer hub host FOLLOWS the write alias, in every shape that renders it ─
+#
+# role-secrets.yaml rendered the hub Secrets' `host`/`uri` as the region-LOCAL
+# `<instance>-rw` unless bp-postgres.activeHotStandby (the LATE crossRegion
+# flip) was true — while the ClusterMesh-global `<instance>-mesh-rw` write alias
+# has rendered on the DECOUPLED meshGlobalServices signal since #4460. hw307
+# (2026-09-07 07:26-07:55Z): after the dr-failback actor demoted region A, the
+# local `shared-pg-rw` was a read-only standby and region-A consumers holding
+# that host logged `cannot execute ... in a read-only transaction` (gitea 45/5min,
+# keycloak 28/5min) until a manual switchback. The global write alias never
+# changes name and always follows the writable side (CNPG-managed on the steady
+# primary, the primary-demoted stub after a demotion), so the hub host names it
+# whenever THIS render publishes it: activeHotStandby OR meshGlobalServices.
+#
+# STRUCTURAL parse + a vacuity control per shape: the host must equal the expected
+# name AND the expected name must be an object THIS render emits (a standalone
+# Service or a managed.services.additional alias) — the plain singleton is the
+# one shape whose `-rw` is CNPG-auto-created, so there the control is the named
+# Cluster CR plus the ABSENCE of any `-mesh-rw` object.
+echo "[render] Case 21k: #6874 D3 consumer hub host names the -mesh-rw write alias in every multi-region shape (pre-flip / slot / demoted / ahs); plain singleton keeps -rw"
+# The slot shape (mode=singleton + crossRegion=true, Case 4c values) DEMOTED —
+# region A after a #6149 promote, the exact hw307 state.
+helm template shared-pg . -f "$TMP/xr.values.yaml" --set topology.demoted=true \
+  --namespace shared-data --api-versions postgresql.cnpg.io/v1 > "$TMP/xr-demoted.yaml" 2>&1 || fail "#6874 D3 slot-shape demoted render errored"
+# meshGlobalServices opt-out (clusterMesh.enabled=false) on the pre-flip shape:
+# NO alias renders, so the host must fall back to `-rw` — the host may never
+# name a Service the render does not emit.
+helm template shared-pg . -f "$TMP/preflip.values.yaml" --set topology.clusterMesh.enabled=false \
+  --namespace shared-data --api-versions postgresql.cnpg.io/v1 > "$TMP/preflip-nomesh.yaml" 2>&1 || fail "#6874 D3 pre-flip no-mesh render errored"
+python3 - \
+  "plain-singleton|$TMP/shared.yaml|shared-pg-rw" \
+  "preflip-nomesh|$TMP/preflip-nomesh.yaml|shared-pg-rw" \
+  "preflip-primary|$TMP/preflip-primary.yaml|shared-pg-mesh-rw" \
+  "slot-crossRegion|$TMP/xr.yaml|shared-pg-mesh-rw" \
+  "slot-demoted|$TMP/xr-demoted.yaml|shared-pg-mesh-rw" \
+  "ahs-primary|$TMP/ahs.yaml|shared-pg-mesh-rw" \
+  "ahs-demoted|$TMP/failback-demoted.yaml|shared-pg-mesh-rw" <<'PY' || { echo "FAIL: #6874 D3 consumer-host-follows-write-alias assertions failed." >&2; exit 1; }
+import sys, yaml
+NS = "shared-data"
+
+def load(p):
+    return [d for d in yaml.safe_load_all(open(p)) if isinstance(d, dict)]
+
+def hub_secrets(docs):
+    return [d for d in docs if d.get("kind") == "Secret"
+            and "catalyst.openova.io/binding-secret" in ((d.get("metadata") or {}).get("labels") or {})]
+
+def rendered_names(docs):
+    """Every Service name this render emits: standalone kind: Service objects
+    PLUS managed.services.additional serviceTemplate names on Cluster CRs."""
+    out = set()
+    for d in docs:
+        if d.get("kind") == "Service":
+            out.add((d.get("metadata") or {}).get("name"))
+        if d.get("kind") == "Cluster":
+            add = (((d.get("spec") or {}).get("managed") or {}).get("services") or {}).get("additional") or []
+            for a in add:
+                nm = (((a or {}).get("serviceTemplate") or {}).get("metadata") or {}).get("name")
+                if nm:
+                    out.add(nm)
+    return out
+
+def cluster_names(docs):
+    return {(d.get("metadata") or {}).get("name") for d in docs if d.get("kind") == "Cluster"}
+
+fails = []
+for spec in sys.argv[1:]:
+    label, path, expected = spec.split("|")
+    docs = load(path)
+    hubs = hub_secrets(docs)
+    if not hubs:
+        fails.append(f"{label}: VACUOUS — no hub Secret (binding-secret label) in the render; the host assertion would pass on nothing")
+        continue
+    fqdn = f"{expected}.{NS}.svc.cluster.local"
+    other = "shared-pg-rw." if expected.endswith("-mesh-rw") else "shared-pg-mesh-rw."
+    for s in hubs:
+        nm = (s.get("metadata") or {}).get("name")
+        sd = s.get("stringData") or {}
+        if sd.get("host") != fqdn:
+            fails.append(f"{label}: hub Secret {nm} host={sd.get('host')!r}, expected {fqdn!r}")
+        if f"@{fqdn}:5432/" not in (sd.get("uri") or ""):
+            fails.append(f"{label}: hub Secret {nm} uri does not dial {fqdn}: {sd.get('uri')!r}")
+        # No key of the contract (hostKeys / hostPortKeys / extraData / uri) may
+        # smuggle the OTHER host in — the contract is assembled once ($data).
+        leak = [k for k, v in sd.items() if isinstance(v, str) and other in v]
+        if leak:
+            fails.append(f"{label}: hub Secret {nm} keys {leak} still carry a '{other}' host")
+    names = rendered_names(docs)
+    if expected.endswith("-mesh-rw"):
+        # CONTROL: the alias the host names is emitted by THIS render.
+        if expected not in names:
+            fails.append(f"{label}: host names {expected} but the render emits no such Service/managed alias — "
+                         f"a consumer would NXDOMAIN (rendered: {sorted(n for n in names if n)})")
+    else:
+        # CONTROL: `-rw` is CNPG-auto-created off the named Cluster; the render
+        # must carry that Cluster and must NOT emit any -mesh-rw object (else the
+        # host should have named it).
+        if "shared-pg" not in cluster_names(docs):
+            fails.append(f"{label}: expected the named Cluster shared-pg (CNPG creates shared-pg-rw off it)")
+        if "shared-pg-mesh-rw" in names:
+            fails.append(f"{label}: render emits shared-pg-mesh-rw yet the hub host stayed on -rw (the alias exists — the host must follow it)")
+        if expected in names:
+            fails.append(f"{label}: render emits a standalone {expected} Service — that name is CNPG-reserved")
+
+# The demoted slot shape: the alias the host names must be the STANDALONE stub
+# selecting the promoted replica (primary-demoted-mesh-service.yaml), never a
+# managed alias off the demoted read-only Cluster — that is the read-only-
+# transaction trap by another name.
+dd = load(sys.argv[5].split("|")[1])
+stub = [d for d in dd if d.get("kind") == "Service" and (d.get("metadata") or {}).get("name") == "shared-pg-mesh-rw"]
+if len(stub) != 1:
+    fails.append(f"slot-demoted: expected exactly 1 standalone shared-pg-mesh-rw stub, got {len(stub)}")
+elif (((stub[0].get("spec") or {}).get("selector") or {}).get("cnpg.io/cluster")) != "shared-pg-replica":
+    fails.append("slot-demoted: the shared-pg-mesh-rw stub does not select the promoted shared-pg-replica")
+
+if fails:
+    for f in fails:
+        sys.stderr.write("  FAIL #6874 D3: " + f + "\n")
+    sys.exit(1)
+print("  PASS (pre-flip / slot / slot-demoted / ahs / ahs-demoted hubs -> shared-pg-mesh-rw, each name emitted by its own render; "
+      "plain singleton + mesh opt-out -> shared-pg-rw with no -mesh-rw object; demoted stub selects shared-pg-replica)")
+PY
+
 echo "[render] Case 21d: #6149 dr-failback absent for replica / async / singleton"
 if grep -q 'role: dr-failback' "$TMP/failback-replica.yaml"; then
   fail "#6149 side=replica must render ZERO dr-failback resources (the actor belongs on cluster-A, the half being rejoined)"; fi
