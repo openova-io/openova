@@ -320,6 +320,19 @@ CREATE TABLE IF NOT EXISTS pins (
 		error TEXT
 	);`,
 	`CREATE INDEX IF NOT EXISTS report_deliveries_schedule_idx ON report_deliveries (schedule_id, sent_at DESC);`,
+	// #6867 follow-up — multi-currency conversion. Price books carry a
+	// currency; every cost surface reports in ONE reporting currency, which
+	// is allocation_settings.currency. per_base is how many units of `code`
+	// one unit of the reporting currency buys (1 OMR = 2.6 USD → USD 2.6),
+	// so cost_base = cost / per_base. The reporting currency itself is
+	// always 1 and never stored here; a book currency without a row is
+	// "unconverted" and reported as such, never silently summed.
+	`CREATE TABLE IF NOT EXISTS currency_rates (
+		code TEXT PRIMARY KEY CHECK (code ~ '^[A-Z]{3}$'),
+		per_base NUMERIC(20,10) NOT NULL CHECK (per_base > 0),
+		source TEXT NOT NULL DEFAULT 'manual',
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+	);`,
 }
 
 // Migrate applies every migration not yet recorded in schema_migrations.

@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { API_BASE, api, asList, errorText } from '../api/client'
 import type { PriceBook, PriceBookCoverage, PriceItem } from '../api/types'
 import { DataTable, type Column } from '../components/DataTable'
+import { CurrencyRatesCard } from '../components/CurrencyRates'
 import { BookSettingsModal, CloneBookModal, DeleteBookConfirm, billStoppedLabel, settingsFrom } from '../components/PriceBookForms'
 import { KPI, Notice, PageHeader, ShareBar, Skeleton } from '../components/ui'
 import { day } from '../lib/format'
@@ -13,7 +14,9 @@ import { useQuery } from '../lib/useQuery'
 /**
  * Price books (DESIGN.md §2.5) — every book with its currency, item count,
  * assigned customers and how much of their last-30-day usage it prices.
- * Coverage comes from GET /pricebooks/{id}/coverage per book.
+ * Coverage comes from GET /pricebooks/{id}/coverage per book. Below the
+ * list, the Currencies card holds the reporting currency and the exchange
+ * rates books in other currencies are converted with (§3.10).
  */
 
 interface Extra {
@@ -204,6 +207,8 @@ export function PriceBooks() {
           />
         )}
       </div>
+
+      <CurrencyRatesCard />
 
       {dialog?.kind === 'new' ? (
         <BookSettingsModal

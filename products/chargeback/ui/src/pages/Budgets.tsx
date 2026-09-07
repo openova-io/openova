@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { api, asList, errorText } from '../api/client'
-import type { Budget, BudgetStatus, Customer } from '../api/types'
+import type { Budget, BudgetStatus, CurrencyRates, Customer } from '../api/types'
 import { ProgressBar } from '../components/charts'
 import { Badge, Confirm, EmptyState, Field, KPI, Modal, Notice, PageHeader, Skeleton } from '../components/ui'
 import { parseEmails, parseThresholds } from '../lib/budgets'
+import { readRates } from '../lib/currencies'
 import { presetWindow, describeWindow } from '../lib/dates'
 import { when } from '../lib/format'
 import { formatMoney, formatPct } from '../lib/money'
@@ -27,6 +28,9 @@ type Dialog = { kind: 'create' } | { kind: 'edit'; b: Budget } | { kind: 'delete
 export function Budgets() {
   const list = useQuery<unknown>('/budgets')
   const { customers } = useCustomers()
+  // A budget's amount is in the reporting currency (DESIGN.md §3.10): the
+  // form shows it read-only and the server refuses any other.
+  const reporting = readRates(useQuery<CurrencyRates>('/currencies').data).reporting
   const budgets = useMemo(() => asList<Budget>(list.data, 'budgets'), [list.data])
   const [statuses, setStatuses] = useState<Record<string, { s: BudgetStatus | null; e: string }>>({})
   const [statusesFor, setStatusesFor] = useState('')
@@ -165,7 +169,7 @@ export function Budgets() {
       </div>
 
       {dialog?.kind === 'create' || dialog?.kind === 'edit' ? (
-        <BudgetModal
+        <BudgetModal reporting={reporting}
           initial={dialog.kind === 'edit' ? dialog.b : null}
           customers={customers}
           onClose={() => setDialog(null)}
@@ -201,20 +205,20 @@ interface Draft {
   active: boolean
 }
 
-function draftOf(b: Budget | null): Draft {
+function draftOf(b: Budget | null, reporting: string): Draft {
   return {
     name: b?.name ?? '',
     customer_id: b?.customer_id ?? '',
     amount: b ? String(toNumber(b.amount)) : '',
-    currency: b?.currency ?? 'OMR',
+    currency: reporting || b?.currency || 'OMR',
     thresholds: (b?.thresholds ?? [50, 80, 100]).join(', '),
     notify_emails: (b?.notify_emails ?? []).join(', '),
     active: b?.active ?? true,
   }
 }
 
-function BudgetModal({ initial, customers, onClose, onSaved }: { initial: Budget | null; customers: Customer[]; onClose: () => void; onSaved: (name: string) => void }) {
-  const [draft, setDraft] = useState<Draft>(() => draftOf(initial))
+function BudgetModal({ initial, customers, reporting, onClose, onSaved }: { initial: Budget | null; customers: Customer[]; reporting: string; onClose: () => void; onSaved: (name: string) => void }) {
+  const [draft, setDraft] = useState<Draft>(() => draftOf(initial, reporting))
   const [errors, setErrors] = useState<Partial<Record<keyof Draft, string>>>({})
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -290,8 +294,8 @@ function BudgetModal({ initial, customers, onClose, onSaved }: { initial: Budget
           <Field label="Monthly amount" error={errors.amount}>
             <input type="number" step="any" min={0} value={draft.amount} onChange={(e) => set({ amount: e.target.value })} />
           </Field>
-          <Field label="Currency" error={errors.currency} help="Compared against cost in this currency">
-            <input value={draft.currency} maxLength={3} onChange={(e) => set({ currency: e.target.value.toUpperCase() })} />
+          <Field label="Currency" error={errors.currency} help="The reporting currency (Allocation settings). Actual cost is converted to it before the comparison.">
+            <input value={draft.currency} maxLength={3} readOnly className="mono" aria-label="Currency (reporting currency, read-only)" />
           </Field>
         </div>
         <Field label="Alert thresholds (% of amount)" error={errors.thresholds} help="Comma-separated whole percentages, ascending; each alerts once per month">

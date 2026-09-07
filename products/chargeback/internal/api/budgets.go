@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"math/big"
 	"net/http"
@@ -21,6 +22,11 @@ import (
 // principal only the budgets naming its customer (a global budget is the
 // operator's instrument and is never listed to a customer). Writes are
 // operator-only: a budget's recipients and cap are commercial settings.
+//
+// A budget's amount is in the REPORTING currency (§3.10): `actual` is the
+// explorer's converted month total, so a cap in any other currency could
+// not be compared. The currency defaults to the reporting currency and a
+// different one is refused, naming the reporting currency.
 
 var (
 	defaultThresholds = []int{50, 80, 100}
@@ -111,12 +117,19 @@ func (h *Handler) validateBudget(ctx context.Context, in store.BudgetInput) (sto
 	}
 	in.Amount = store.Decimal(amount)
 
+	reporting, err := h.Store.ReportingCurrency(ctx)
+	if err != nil {
+		return in, "", err
+	}
 	in.Currency = strings.ToUpper(strings.TrimSpace(in.Currency))
 	if in.Currency == "" {
-		in.Currency = "OMR"
+		in.Currency = reporting
 	}
 	if !currencyShape.MatchString(in.Currency) {
 		return in, "currency must be a 3-letter code", nil
+	}
+	if in.Currency != reporting {
+		return in, fmt.Sprintf("currency must be the reporting currency (%s): a budget is compared against cost converted to it", reporting), nil
 	}
 
 	in.Period = strings.ToLower(strings.TrimSpace(in.Period))
@@ -212,7 +225,7 @@ func (h *Handler) createBudget(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid body: "+err.Error())
 		return
 	}
-	in, err := body.merge(store.BudgetInput{Currency: "OMR", Period: "monthly", Active: true})
+	in, err := body.merge(store.BudgetInput{Period: "monthly", Active: true})
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return

@@ -62,6 +62,10 @@ type Input struct {
 	MTD       store.Decimal
 	Forecast  *rating.Forecast
 	Unpriced  []store.UnpricedSKU
+	// Unconverted is priced usage in a book currency with no exchange rate
+	// to Currency — excluded from every figure above, listed so the reader
+	// knows the totals are short by exactly this.
+	Unconverted []store.UnconvertedCurrency
 
 	Services       []Group
 	ServicesOther  *Group
@@ -138,6 +142,12 @@ func Render(in Input) (subject, body string) {
 			w.line("  Unpriced usage (%d SKU%s %s no rate in the price book):", len(in.Unpriced), plural(len(in.Unpriced)), verb)
 			for _, u := range in.Unpriced {
 				w.line("    - %s: %s %s across %d resource%s", clip(u.SKU, 24), trimDec(u.Quantity), clip(u.Unit, 14), u.Resources, plural(u.Resources))
+			}
+		}
+		if len(in.Unconverted) > 0 {
+			w.line("  Unconverted usage (no exchange rate to %s; left out of every total):", cur)
+			for _, u := range in.Unconverted {
+				w.line("    - %s %s across %d record%s", money(u.Cost, u.Currency), u.Currency, u.Records, plural(u.Records))
 			}
 		}
 	}

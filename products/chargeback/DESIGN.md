@@ -45,6 +45,7 @@ Legend: ✅ have · ◐ partial · ❌ missing. "Target" = this design.
 | Invoices / statements with line detail | ✅ Bills | ✅ Invoices | ✅ | ✅ | ✅ redesigned, printable |
 | Cost allocation of shared spend to Organizations | ✅ split charges | ❌ | ✅ allocation rules | ◐ | ✅ editable weights, overhead policy, pool, money + margin |
 | Multi-Organization scope (operator vs customer) | ✅ | ✅ | ✅ | ✅ | ✅ every endpoint scope-filtered |
+| One reporting currency with stored exchange rates | ✅ | ✅ | ✅ | ❌ (`mixed_currency` flag, unconverted sums) | ✅ `currency_rates` + `cost_base`, unconverted listed never summed (§3.10) |
 
 ## 2. Information architecture
 
@@ -100,14 +101,23 @@ Detail: settings (edit), searchable inline item table (add / edit / delete / bul
 save), import CSV with preview, export CSV, clone (per-account pricing), delete
 (refused while assigned), coverage panel listing SKUs in use that carry no rate.
 
+Below the list, a **Currencies** card (§3.10): the reporting currency (read-only —
+it is `allocation_settings.currency`, changed on the Allocation page) and the
+table of exchange rates (code, per base, one unit in the reporting currency,
+source, updated) with inline add / edit / delete. The overview and the explorer
+show a warning naming every currency in use that has no rate, with the records
+and cost left out, and link here.
+
 ### 2.6 Discounts
 All discounts in one place: scope (customer or all customers), kind, value, SKU
 scope, campaign window, active. Create / edit / delete / toggle. Preview panel
 shows the effect on the current MTD.
 
 ### 2.7 Budgets
-Create / edit / delete. Scope (all or one customer), monthly amount, thresholds,
-notification emails. Status bars: actual, forecast marker, thresholds crossed.
+Create / edit / delete. Scope (all or one customer), monthly amount **in the
+reporting currency** (the form shows it read-only; §3.5), thresholds,
+notification emails. Status bars: actual (converted), forecast marker,
+thresholds crossed.
 
 ### 2.8 Allocation
 Settings editor: basis weights (vCPU-h, GiB-h, GB-h), overhead policy (keep as a
@@ -134,8 +144,11 @@ its own customer only; a viewer reads and previews.
 ## 3. API contracts (all under `/api/v1`, JSON, scope-filtered)
 
 Dates are `YYYY-MM-DD`, windows are half-open `[from, to)`. Money is a decimal
-number in the customer's price-book currency. `customer` query values are
-customer ids; the customer role is forced to its own id server-side.
+number in the **reporting currency** (§3.10) on every cost surface — explore,
+summary, resources, anomalies, recommendations, budgets, allocation, reports —
+and in the customer's price-book currency on statements and price books, which
+are never converted. `customer` query values are customer ids; the customer
+role is forced to its own id server-side.
 
 ### 3.1 `GET /cost/explore` · `GET /customers/{id}/cost/explore`
 Params: `from`, `to`, `granularity=hour|day|month` (`hour` only for windows of at
@@ -177,6 +190,8 @@ when `group_by` or a filter names a tag, that tag's values under
   "total": { "current": 810.4, "previous": 790.2, "delta_pct": 2.6, "resources": 126 },
   "totals_by_bucket": [115.7, "…"],
   "unpriced": [{ "sku": "k8s.vcpu", "unit": "vcpu-hour", "quantity": 1118.4, "resources": 14097 }],
+  "unconverted": [{ "currency": "USD", "records": 168, "cost": 84.0 }],
+  "mixed_currency": true,
   "forecast": { "month_end": 2712.5, "run_rate_daily": 92.1, "trend_daily": 0.8,
                 "method": "weekday-seasonal", "days_observed": 21, "days_in_month": 30,
                 "confidence": "medium",
@@ -188,6 +203,14 @@ when `group_by` or a filter names a tag, that tag's values under
 ```
 `forecast` is present only when the window is the current calendar month at day
 granularity. `previous` is the same-length window immediately before `from`.
+
+`currency` is always the reporting currency (§3.10); every group, bucket and
+total is the exact rational sum of converted record costs rounded once to six
+decimals. `unconverted` lists, per price-book currency that has no exchange
+rate, the priced records the window holds in it and their cost **in that
+currency** — none of it is in any total. `mixed_currency` is true exactly when
+`unconverted` is non-empty (it no longer means "several book currencies were
+summed": nothing is ever summed across currencies).
 
 The forecast method follows how much of the month is complete
 (`internal/rating/forecast.go`; every value is a float estimate, never billed):
@@ -218,7 +241,9 @@ window is appended to the file name (`cost-<group>-<from>-<to>-vs-<cf>-<ct>.csv`
 Stopped-instance policy of the customer's price book applies exactly as in rating.
 
 ### 3.2 `GET /cost/summary` · `GET /customers/{id}/cost/summary`
-The overview payload: `currency`, `mtd{cost,from,to,days}`,
+The overview payload: `currency` (the reporting currency), `mixed_currency`,
+`unconverted[{currency,records,cost}]` (the month-to-date list; the 30-day
+series' when the month has none), `mtd{cost,from,to,days}`,
 `forecast{month_end,run_rate_daily,trend_daily,method,days_observed,days_in_month,confidence,projection[{day,cost}],weekday_factors?}`
 (same object as §3.1),
 `last_month{period,cost}`, `prev_mtd{cost}` (same day count last month),
@@ -235,8 +260,11 @@ Same params as explore; one row per (bucket, group).
 Params: `from`, `to`, `kind`, `region`, `status=live|stopped|deleted|all`, `q`,
 `sort=cost|name|kind|first_seen|last_seen`, `order`, `limit`, `offset`.
 Returns `rows[{source_id,resource_id,kind,name,region,customer_id,customer_name,
-status,first_seen,last_seen,deleted_at,cost,currency,lines[{sku,unit,quantity,cost}]}]`,
-`total`, `sum_cost`. `GET /resources/{source_id}/{resource_id}` adds `daily[]`,
+status,first_seen,last_seen,deleted_at,cost,currency,unconverted?,lines[{sku,unit,quantity,cost}]}]`,
+`total`, `sum_cost`, `currency`, `mixed_currency`. `cost` and `currency` are the
+reporting currency; a row whose book currency has no rate carries `cost` 0 and
+`unconverted: true`, and `mixed_currency` says whether any row of the filtered
+set is like that. `GET /resources/{source_id}/{resource_id}` adds `daily[]`,
 `attrs`, `transitions`, `records_recent[]`.
 
 ### 3.5 Budgets
@@ -247,6 +275,11 @@ period:"monthly",thresholds:[50,80,100],notify_emails:[…],active}`. Status:
 thresholds:[{pct,crossed,alerted_at}]}`. An hourly evaluator records a crossing
 once per threshold per period (`budget_alerts`), writes an audit entry and mails
 `notify_emails`.
+
+A budget's `amount` is in the **reporting currency** (§3.10): `actual` is the
+explorer's converted month total, so the cap must be in the same unit. `currency`
+defaults to the reporting currency and any other value is refused with 400
+naming it (`currency must be the reporting currency (OMR)…`).
 
 ### 3.6 `GET /anomalies` · `GET /customers/{id}/anomalies`
 Params `from`, `to`. Daily cost per (customer, kind) is compared with the trailing
@@ -264,7 +297,12 @@ per SKU and per resource, top 5 by |Δ|, zero deltas dropped. Default window = l
 
 ### 3.7 `GET /recommendations` · `GET /customers/{id}/recommendations`
 Rows `{type,severity,customer_id,customer_name,resource_id,resource_name,kind,title,detail,
-monthly_saving,currency,evidence}` and `total_monthly_saving`. Types:
+monthly_saving,currency,evidence}`, `total_monthly_saving`, `currency` (the
+reporting currency) and `unconverted[{currency,records,cost}]`. A saving is
+computed from the customer's book rates and converted with the book currency's
+exchange rate (§3.10); when the book currency has no rate the row keeps its
+book currency, carries `evidence.unconverted = true`, is left out of
+`total_monthly_saving` and is summed under `unconverted`. Types:
 `stopped-instance-billed`, `unattached-volume`, `unbound-eip`, `low-cpu-utilisation`
 (7-day mean < 10 % → one flavor step down), `unpriced-sku`, `stale-source`,
 `no-price-book`. Savings = rate × 730 h.
@@ -295,8 +333,11 @@ severity, type, id; ids are `type:customer:resource` / `type:customer:sku` /
 - `DELETE /statements/{id}` — drafts only.
 - `GET|PUT /allocation/settings` — `{weights{vcpu,mem_gib,pvc_gb},overhead_policy:
   separate|distribute,pool:sovereign-cost|manual,manual_amount,currency,
-  sovereign_customer_id}`; `GET /allocation` returns rows with `allocated_cost`,
-  `rated_revenue`, `margin`, `margin_pct`, plus `pool` and `totals`.
+  sovereign_customer_id}`; `currency` is the **reporting currency** of the whole
+  service (§3.10; the field keeps its name and place). `GET /allocation` returns
+  rows with `allocated_cost`, `rated_revenue`, `margin`, `margin_pct` (all in the
+  reporting currency), plus `pool`, `totals` and `unconverted[…]` — priced
+  usage the pool or revenue query could not convert.
 - `GET|POST /views`, `DELETE /views/{id}` — saved explorer views per user.
 
 ### 3.9 Scheduled reports + statement mail
@@ -333,6 +374,46 @@ statement summary (period, list → discount → net → tax → total, largest 
 link `PUBLIC_URL/statements/<id>`); audit `statement.notified {recipients}`.
 A re-issue never mails again.
 
+### 3.10 Currency rates — `GET /currencies`, `GET|PUT|DELETE /currencies/{code}`
+Operator-only. Price books carry a currency and customers' books may differ;
+like a cloud console, every cost surface reports in **one reporting currency**
+with stored exchange rates. The reporting currency is
+`allocation_settings.currency` (the field keeps its name; PUT
+`/allocation/settings` changes it).
+
+`GET /currencies` → `{reporting_currency, rates:[{code, per_base, source,
+updated_at}]}`. `PUT /currencies/{code} {per_base}` (optional `source`, default
+`manual`) creates or replaces a rate; `code` must be three letters (400
+otherwise), `per_base` a number > 0 (400), and the reporting currency itself is
+refused with 400 `reporting currency …: its rate is 1 by definition`. `GET
+/currencies/{code}` reads one rate (the reporting currency answers `per_base` 1,
+`source: reporting`); `DELETE` removes one (404 when absent). Every write is
+audited as `currency.rate` `{code, per_base | deleted, previous_per_base?,
+source}`.
+
+`per_base` is how many units of `code` **one unit of the reporting currency**
+buys: 1 OMR = 2.6 USD → `USD 2.6`. The priced ledger (`store/cost.go`
+`costBaseSQL`) carries, next to `cost` in the book currency,
+
+    cost_base = cost / per_base(book currency)      per_base(reporting) = 1
+
+and every reader — explorer, summary, resources, anomalies, budgets (`actual`),
+allocation (pool, revenue), reports — sums `cost_base` and reports `currency =
+<reporting>`. Recommendation savings are converted the same way on the Go side
+(`store.ToBase`). A record whose book currency has no rate has `cost_base NULL`:
+it is **left out of every total** and counted, per currency, in the document's
+`unconverted[{currency, records, cost}]` list (cost in that currency), with
+`mixed_currency = true`. Nothing is ever summed across currencies. Changing the
+reporting currency does not rewrite the stored rates — they are relative to the
+new one from that moment, and the former reporting currency is unconverted until
+a rate for it is entered.
+
+**Statements are not converted.** A statement is issued in the customer's
+price-book currency — that is the bill the customer pays — so `statements`
+and `rated_lines` keep the book currency and the explorer ↔ statement
+reconciliation holds record for record within one book. Price books keep
+their own currency too.
+
 ## 4. Data model additions (migrations 6+)
 
 ```
@@ -348,6 +429,8 @@ report_schedules(id, name, customer_id NULL, cadence, day_of_week NULL, day_of_m
         recipients text[], sections text[], active, last_sent_at, next_at, created_at, updated_at)
 report_deliveries(id, schedule_id, sent_at, window_from date, window_to date, recipients text[],
         subject, ok, error)
+currency_rates(code TEXT PK CHECK '^[A-Z]{3}$', per_base NUMERIC(20,10) CHECK (> 0),
+        source TEXT DEFAULT 'manual', updated_at)        -- allocation_settings.currency is the reporting currency
 ```
 
 Cost is computed at query time by joining `usage_records` to the customer's

@@ -579,6 +579,16 @@ func composeSummary(p summaryParts) map[string]any {
 	if currency == "" {
 		currency = p.LastMonth.Currency
 	}
+	// What the headline (month to date) could not convert; the 30-day
+	// series when the month has nothing unconverted yet. Never nil: the
+	// page renders [] as "nothing to warn about".
+	unconverted := p.MTD.Unconverted
+	if len(unconverted) == 0 {
+		unconverted = p.Daily30.Unconverted
+	}
+	if unconverted == nil {
+		unconverted = []store.UnconvertedCurrency{}
+	}
 	budgets := p.Budgets
 	if budgets == nil {
 		budgets = []any{}
@@ -600,6 +610,7 @@ func composeSummary(p summaryParts) map[string]any {
 		"now":            now.Format(time.RFC3339),
 		"currency":       currency,
 		"mixed_currency": p.MTD.MixedCurrency || p.Daily30.MixedCurrency,
+		"unconverted":    unconverted,
 		"mtd": map[string]any{
 			"cost": mtd, "from": ms.Format("2006-01-02"), "to": today.Format("2006-01-02"), "days": elapsed,
 			"resources": p.MTD.Total.Resources,

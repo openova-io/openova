@@ -264,3 +264,27 @@ func TestRenderStatement(t *testing.T) {
 	}
 	_ = time.Now
 }
+
+// Unconverted usage (#6867 follow-up) renders as its own summary lines,
+// naming the reporting currency the rate is missing to, and never adds to
+// the total. A report with nothing unconverted prints no such line — the
+// golden fixture above pins that.
+func TestRenderUnconvertedUsage(t *testing.T) {
+	in := fixtureInput()
+	in.Unconverted = []store.UnconvertedCurrency{{Currency: "EUR", Records: 168, Cost: "67.200000"}, {Currency: "USD", Records: 1, Cost: "84.000000"}}
+	_, body := Render(in)
+	for _, want := range []string{"Unconverted usage (no exchange rate to OMR; left out of every total):", "67.20 EUR across 168 records", "84.00 USD across 1 record\n"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body lacks %q:\n%s", want, body)
+		}
+	}
+	for _, line := range strings.Split(body, "\n") {
+		if utf8.RuneCountInString(line) > MaxLineWidth {
+			t.Fatalf("line over %d columns: %q", MaxLineWidth, line)
+		}
+	}
+	_, plain := Render(fixtureInput())
+	if strings.Contains(plain, "Unconverted") {
+		t.Fatal("a report with nothing unconverted must not mention it")
+	}
+}
