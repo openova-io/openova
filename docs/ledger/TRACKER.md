@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-07T06:15:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-09-07T06:30:08Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-07T06:20 | [#6872](https://github.com/openova-io/openova/pull/6872) | #6871 | feat(chargeback): tag/enterprise-project dimension, hourly g |
 | 2026-09-06T19:27 | [#6871](https://github.com/openova-io/openova/pull/6871) | #6869 | fix(chargeback-ui): allocation margin % reads n/a below one  |
 | 2026-09-06T18:47 | [#6869](https://github.com/openova-io/openova/pull/6869) | #6868 | fix(chargeback): purge-excluded action, allocation auto-pick |
 | 2026-09-06T18:11 | [#6868](https://github.com/openova-io/openova/pull/6868) | #6867 | feat(chargeback): cloud-provider-grade cost analysis — explo |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-02T18:39 | [#6820](https://github.com/openova-io/openova/pull/6820) | #6803 | fix(bp-chargeback): the Blueprint's own egress policy droppe |
 | 2026-09-02T18:00 | [#6818](https://github.com/openova-io/openova/pull/6818) | #6814 | test(jobs): fix the #6749 async-seed test's double close and |
 | 2026-09-02T17:42 | [#6817](https://github.com/openova-io/openova/pull/6817) | #6802 | fix(console): a failed dashboard tile must say WHEN it faile |
-| 2026-09-02T17:24 | [#6816](https://github.com/openova-io/openova/pull/6816) | #6805 | docs(ledger): open the hw307 partition in PATH-TO-100 (Refs  |
 
 ---
 
