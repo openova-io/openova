@@ -22,7 +22,7 @@ export const BILLING_MODES: ReadonlyArray<{ value: string; label: string; help: 
 ]
 
 export const CUSTOMER_KINDS: ReadonlyArray<{ value: string; label: string; help: string }> = [
-  { value: 'external', label: 'External', help: 'A tenant billed for its own cloud projects.' },
+  { value: 'external', label: 'External', help: 'An external account billed for its own cloud projects.' },
   { value: 'organization', label: 'Organization', help: 'An Organization on this Sovereign; usage is allocated from the shared platform.' },
 ]
 
