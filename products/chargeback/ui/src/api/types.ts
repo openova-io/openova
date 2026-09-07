@@ -225,9 +225,13 @@ export interface Overview {
 // ---------------------------------------------------------------------------
 
 export type Granularity = 'hour' | 'day' | 'month'
-export type GroupBy = 'none' | 'customer' | 'source' | 'kind' | 'sku' | 'region' | 'resource' | 'tier' | 'namespace'
+/** The fixed dimensions the server lists in CostDimensions(). */
+export type StaticGroupBy = 'none' | 'customer' | 'source' | 'kind' | 'sku' | 'region' | 'resource' | 'tier' | 'namespace' | 'enterprise_project'
+/** A resource-tag dimension, `tag:<key>` — dynamic, one per tag key present (lib/tags.ts). */
+export type TagDimension = `tag:${string}`
+export type GroupBy = StaticGroupBy | TagDimension
 export type Metric = 'cost' | 'usage'
-export const GROUP_BY_OPTIONS: ReadonlyArray<{ value: GroupBy; label: string }> = [
+export const GROUP_BY_OPTIONS: ReadonlyArray<{ value: StaticGroupBy; label: string }> = [
   { value: 'kind', label: 'Service' },
   { value: 'customer', label: 'Customer' },
   { value: 'sku', label: 'SKU' },
@@ -236,10 +240,11 @@ export const GROUP_BY_OPTIONS: ReadonlyArray<{ value: GroupBy; label: string }> 
   { value: 'source', label: 'Cost source' },
   { value: 'tier', label: 'Tier' },
   { value: 'namespace', label: 'Namespace' },
+  { value: 'enterprise_project', label: 'Enterprise project' },
   { value: 'none', label: 'Total only' },
 ]
-export const FILTER_DIMENSIONS: ReadonlyArray<Exclude<GroupBy, 'none'>> = [
-  'customer', 'kind', 'sku', 'resource', 'region', 'source', 'tier', 'namespace',
+export const FILTER_DIMENSIONS: ReadonlyArray<Exclude<StaticGroupBy, 'none'>> = [
+  'customer', 'kind', 'sku', 'resource', 'region', 'source', 'tier', 'namespace', 'enterprise_project',
 ]
 
 export interface CostGroup {
@@ -344,7 +349,10 @@ export interface DimensionValue {
 export interface DimensionValues {
   from: string
   to: string
+  /** Static dimensions always; `tag:<key>` when the query grouped or filtered by that tag. */
   dimensions: Record<string, DimensionValue[]>
+  /** Distinct tag keys on the records in the window (scoped) — the "group by tag" picker. */
+  tag_keys?: string[]
 }
 
 export interface SummaryGroup {

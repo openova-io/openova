@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"math"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -76,24 +77,27 @@ func seedLedger(t *testing.T, st *store.Store) seeded {
 	for d := 1; d <= 7; d++ {
 		for h := 0; h < 24; h++ {
 			at := day(2026, 9, d).Add(time.Duration(h) * time.Hour)
-			rec(a, srcA, "vm-1", "ecs", "ecs.m7n.xlarge.8", "instance-hour", 1, at, map[string]any{"name": "web-1", "status": "ACTIVE"})
-			rec(a, srcA, "vol-1", "evs", "evs.ssd.gb", "gb-hour", 100, at, map[string]any{"name": "vol-1", "server_status": "ACTIVE"})
+			// Tags as the collectors write them (labels.tags is a map; the
+			// enterprise project a plain label): vm-1 team=a env=prod in
+			// ep-1, vol-1 team=b, vm-2 untagged, the pod tagged app=wordpress.
+			rec(a, srcA, "vm-1", "ecs", "ecs.m7n.xlarge.8", "instance-hour", 1, at, map[string]any{"name": "web-1", "status": "ACTIVE", "tags": map[string]string{"team": "a", "env": "prod"}, "enterprise_project": "ep-1"})
+			rec(a, srcA, "vol-1", "evs", "evs.ssd.gb", "gb-hour", 100, at, map[string]any{"name": "vol-1", "server_status": "ACTIVE", "tags": map[string]string{"team": "b"}})
 			if d == 3 {
 				rec(a, srcA, "vm-2", "ecs", "ecs.m7n.xlarge.8", "instance-hour", 1, at, map[string]any{"name": "batch-2", "status": "SHUTOFF"})
 			}
 			// Platform usage on the second source: unpriced.
-			rec(a, srcA2, "ns/pod-1", "k8s-pod", "k8s.vcpu", "vcpu-hour", 0.5, at, map[string]any{"name": "pod-1", "namespace": "ns", "tier": "organization"})
+			rec(a, srcA2, "ns/pod-1", "k8s-pod", "k8s.vcpu", "vcpu-hour", 0.5, at, map[string]any{"name": "pod-1", "namespace": "ns", "tier": "organization", "tags": map[string]string{"app": "wordpress"}})
 			// The metric sample must never count.
 			rec(a, srcA, "vm-1", "ecs", "ecs.cpu_util", "pct-hour-avg", 42, at, map[string]any{"name": "web-1"})
-			// Customer B: one EIP hour per hour.
-			rec(b, srcB, "eip-1", "eip", "eip", "hour", 1, at, map[string]any{"name": "1.2.3.4"})
+			// Customer B: one EIP hour per hour, tagged team=zulu.
+			rec(b, srcB, "eip-1", "eip", "eip", "hour", 1, at, map[string]any{"name": "1.2.3.4", "tags": map[string]string{"team": "zulu"}})
 		}
 	}
 	// Previous window (Aug 25..31): A runs the ECS 12 h a day only.
 	for d := 25; d <= 31; d++ {
 		for h := 0; h < 12; h++ {
 			at := day(2026, 8, d).Add(time.Duration(h) * time.Hour)
-			rec(a, srcA, "vm-1", "ecs", "ecs.m7n.xlarge.8", "instance-hour", 1, at, map[string]any{"name": "web-1", "status": "ACTIVE"})
+			rec(a, srcA, "vm-1", "ecs", "ecs.m7n.xlarge.8", "instance-hour", 1, at, map[string]any{"name": "web-1", "status": "ACTIVE", "tags": map[string]string{"team": "a", "env": "prod"}, "enterprise_project": "ep-1"})
 		}
 	}
 	if _, err := st.UpsertUsage(ctx, recs); err != nil {
@@ -504,5 +508,189 @@ func TestIntegrationExploreCustomCompareWindow(t *testing.T) {
 	}
 	if !near(f(rB.Total.Previous), 0) || groupByKey(rB, "ecs") != nil {
 		t.Fatalf("B's compare window leaked A: %+v", rB)
+	}
+}
+
+// The tag dimension (EPIC #6867 follow-up): `tag:<key>` groups and filters
+// like any other dimension, records without the key fall into "(untagged)",
+// the enterprise project is its own dimension, tag keys are listed per
+// scope, and a key that fails validation never reaches SQL.
+func TestIntegrationExploreTagDimensions(t *testing.T) {
+	st := testdb.Open(t)
+	s := seedLedger(t, st)
+	ctx := context.Background()
+	win := store.CostQuery{From: day(2026, 9, 1), To: day(2026, 9, 8), Granularity: "day", GroupBy: "tag:team", Metric: "cost"}
+
+	res, err := st.Explore(ctx, store.OperatorScope, win)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.GroupBy != "tag:team" {
+		t.Fatalf("group_by echoed as %q", res.GroupBy)
+	}
+	want := map[string]float64{"a": 84, "b": 16.8, "zulu": 3.36, store.TagUntagged: 0}
+	if len(res.Groups) != len(want) {
+		t.Fatalf("groups = %+v", res.Groups)
+	}
+	for key, total := range want {
+		g := groupByKey(res, key)
+		if g == nil || !near(f(g.Total), total) || g.Label != key {
+			t.Fatalf("tag:team=%s → %+v (want %v)", key, g, total)
+		}
+	}
+	// The untagged group holds the two resources without a team tag.
+	if g := groupByKey(res, store.TagUntagged); g.Resources != 2 {
+		t.Fatalf("untagged resources = %d", g.Resources)
+	}
+	// Previous window: team a ran 7×12×0.5 = 42 → +100 %.
+	if g := groupByKey(res, "a"); !near(f(g.Previous), 42) || g.DeltaPct == nil || !near(*g.DeltaPct, 100) {
+		t.Fatalf("team a previous/delta = %v / %v", g.Previous, g.DeltaPct)
+	}
+	if !near(f(res.Total.Current), 104.16) {
+		t.Fatalf("total = %v", res.Total.Current)
+	}
+
+	// Include a tag value; exclude it; select the untagged records.
+	only := win
+	only.GroupBy, only.Include = "kind", map[string][]string{"tag:team": {"a"}}
+	r2, err := st.Explore(ctx, store.OperatorScope, only)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r2.Groups) != 1 || r2.Groups[0].Key != "ecs" || !near(f(r2.Total.Current), 84) {
+		t.Fatalf("tag:team=a → %+v", r2.Groups)
+	}
+	without := win
+	without.GroupBy, without.Exclude = "kind", map[string][]string{"tag:team": {"a"}}
+	r3, err := st.Explore(ctx, store.OperatorScope, without)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !near(f(r3.Total.Current), 104.16-84) {
+		t.Fatalf("exclude tag:team=a → total %v", r3.Total.Current)
+	}
+	untagged := win
+	untagged.GroupBy, untagged.Include = "resource", map[string][]string{"tag:team": {store.TagUntagged}}
+	r4, err := st.Explore(ctx, store.OperatorScope, untagged)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r4.Groups) != 2 || groupByKey(r4, "vm-2") == nil || groupByKey(r4, "ns/pod-1") == nil {
+		t.Fatalf("tag:team=(untagged) → %+v", r4.Groups)
+	}
+	// Two tag filters combine (AND), and a tag filter with a tag group_by.
+	both := win
+	both.Include = map[string][]string{"tag:team": {"a", "b"}, "tag:env": {"prod"}}
+	r5, err := st.Explore(ctx, store.OperatorScope, both)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r5.Groups) != 1 || r5.Groups[0].Key != "a" || !near(f(r5.Total.Current), 84) {
+		t.Fatalf("team in (a,b) AND env=prod → %+v", r5.Groups)
+	}
+
+	// Enterprise project is a static dimension: ep-1 vs (none).
+	ep := win
+	ep.GroupBy = "enterprise_project"
+	r6, err := st.Explore(ctx, store.OperatorScope, ep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g := groupByKey(r6, "ep-1"); g == nil || !near(f(g.Total), 84) {
+		t.Fatalf("enterprise_project ep-1 = %+v", g)
+	}
+	if g := groupByKey(r6, "(none)"); g == nil || !near(f(g.Total), 20.16) {
+		t.Fatalf("enterprise_project (none) = %+v", g)
+	}
+	epOnly := win
+	epOnly.GroupBy, epOnly.Include = "kind", map[string][]string{"enterprise_project": {"ep-1"}}
+	if r, err := st.Explore(ctx, store.OperatorScope, epOnly); err != nil || !near(f(r.Total.Current), 84) {
+		t.Fatalf("enterprise_project=ep-1 → %v %v", r.Total.Current, err)
+	}
+
+	// Tag keys and the grouped tag's values, per scope.
+	keys, err := st.TagKeys(ctx, store.OperatorScope, win)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 3 || keys[0] != "app" || keys[1] != "env" || keys[2] != "team" {
+		t.Fatalf("operator tag keys = %v", keys)
+	}
+	vals, err := st.DimensionValues(ctx, store.OperatorScope, win)
+	if err != nil {
+		t.Fatal(err)
+	}
+	teams := vals["tag:team"]
+	if len(teams) != 4 || teams[0].Key != store.TagUntagged || teams[1].Key != "a" || teams[2].Key != "b" || teams[3].Key != "zulu" {
+		t.Fatalf("tag:team values = %+v", teams)
+	}
+	if eps := vals["enterprise_project"]; len(eps) != 2 || eps[0].Key != "(none)" || eps[1].Key != "ep-1" {
+		t.Fatalf("enterprise_project values = %+v", eps)
+	}
+	// A tag named only in a filter is listed too (so its chips can resolve).
+	vals, err = st.DimensionValues(ctx, store.OperatorScope, both)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if envs := vals["tag:env"]; len(envs) != 1 || envs[0].Key != "prod" {
+		t.Fatalf("filtered tag:env values = %+v", envs)
+	}
+
+	// Scope: B never sees A's tag keys or values, even when it names them.
+	bKeys, err := st.TagKeys(ctx, store.CustomerScope(s.b.ID), win)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bKeys) != 1 || bKeys[0] != "team" {
+		t.Fatalf("B tag keys = %v (A's env/app must not leak)", bKeys)
+	}
+	bVals, err := st.DimensionValues(ctx, store.CustomerScope(s.b.ID), win)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bt := bVals["tag:team"]; len(bt) != 1 || bt[0].Key != "zulu" {
+		t.Fatalf("B tag:team values = %+v", bt)
+	}
+	leak := win
+	leak.Include = map[string][]string{"tag:team": {"a"}}
+	bRes, err := st.Explore(ctx, store.CustomerScope(s.b.ID), leak)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bRes.Groups) != 0 || !near(f(bRes.Total.Current), 0) {
+		t.Fatalf("B naming A's tag value must see nothing: %+v", bRes.Groups)
+	}
+	bRes, err = st.Explore(ctx, store.CustomerScope(s.b.ID), win)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bRes.Groups) != 1 || bRes.Groups[0].Key != "zulu" {
+		t.Fatalf("B by tag:team = %+v", bRes.Groups)
+	}
+
+	// A key that fails the rule is refused before SQL is built — as group_by,
+	// as an include and as an exclude; the store never sees the quote.
+	for _, bad := range []string{"tag:team' OR 1=1--", `tag:te"am`, "tag:", "tag:a b", "tag:" + strings.Repeat("k", 129)} {
+		q := win
+		q.GroupBy = bad
+		if _, err := st.Explore(ctx, store.OperatorScope, q); err == nil {
+			t.Fatalf("group_by %q must be rejected", bad)
+		}
+		q = win
+		q.Include = map[string][]string{bad: {"x"}}
+		if _, err := st.Explore(ctx, store.OperatorScope, q); err == nil {
+			t.Fatalf("include %q must be rejected", bad)
+		}
+		q = win
+		q.Exclude = map[string][]string{bad: {"x"}}
+		if _, err := st.DimensionValues(ctx, store.OperatorScope, q); err == nil {
+			t.Fatalf("exclude %q must be rejected", bad)
+		}
+	}
+	// A VALUE may contain anything — it is data, bound as a parameter.
+	q := win
+	q.Include = map[string][]string{"tag:team": {"a' OR 1=1--", "a"}}
+	if r, err := st.Explore(ctx, store.OperatorScope, q); err != nil || !near(f(r.Total.Current), 84) {
+		t.Fatalf("hostile value must be harmless data: %v %v", r.Total.Current, err)
 	}
 }

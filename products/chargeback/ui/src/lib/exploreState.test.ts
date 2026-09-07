@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { apiQuery, defaultExploreState, drillInto, paramsFromState, resolvedCompare, stateFromParams } from './exploreState'
+import { apiQuery, defaultExploreState, drillInto, isGroupBy, nextGroupBy, paramsFromState, resolvedCompare, stateFromParams } from './exploreState'
 
 const now = new Date(Date.UTC(2026, 8, 7, 10))
 
@@ -101,6 +101,52 @@ describe('explorer state ↔ URL', () => {
       expect(s.compareWindow).toBeNull()
       expect(new URLSearchParams(apiQuery(s)).has('compare_from')).toBe(false)
     }
+  })
+  it('round-trips a tag grouping and tag filters', () => {
+    const s = {
+      ...defaultExploreState(now),
+      groupBy: 'tag:team' as const,
+      filters: { include: { kind: ['ecs'], 'tag:team': ['platform', '(untagged)'] }, exclude: { 'tag:env': ['dev'], 'tag:cost-centre': ['CC-1'] } },
+    }
+    const p = paramsFromState(s)
+    expect(p.get('group_by')).toBe('tag:team')
+    expect(p.get('tag:team')).toBe('platform,(untagged)')
+    expect(p.get('exclude_tag:env')).toBe('dev')
+    expect(p.get('exclude_tag:cost-centre')).toBe('CC-1')
+    expect(stateFromParams(p, now)).toEqual(s)
+    // The API query carries the same names (URLSearchParams encodes the colon; the server decodes it).
+    const q = new URLSearchParams(apiQuery(s))
+    expect(q.get('group_by')).toBe('tag:team')
+    expect(q.get('tag:team')).toBe('platform,(untagged)')
+    expect(q.get('exclude_tag:env')).toBe('dev')
+    // A saved view's params object rebuilds the same state.
+    expect(stateFromParams(new URLSearchParams(Object.fromEntries(p.entries())), now)).toEqual(s)
+  })
+  it('round-trips enterprise_project as a static dimension', () => {
+    const s = { ...defaultExploreState(now), groupBy: 'enterprise_project' as const, filters: { include: { enterprise_project: ['ep-1'] }, exclude: {} } }
+    const p = paramsFromState(s)
+    expect(p.get('enterprise_project')).toBe('ep-1')
+    expect(stateFromParams(p, now)).toEqual(s)
+  })
+  it('drops a tag key the server would refuse instead of sending it', () => {
+    const s = stateFromParams(new URLSearchParams("group_by=tag:te'am&tag:a%20b=1&exclude_tag:=x&tag:ok=1"), now)
+    expect(s.groupBy).toBe('kind')
+    expect(s.filters).toEqual({ include: { 'tag:ok': ['1'] }, exclude: {} })
+    expect(isGroupBy('tag:team')).toBe(true)
+    expect(isGroupBy('tag:')).toBe(false)
+    expect(isGroupBy('enterprise_project')).toBe(true)
+    expect(isGroupBy('colour')).toBe(false)
+  })
+  it('drills a tag group into its resources and an enterprise project into services', () => {
+    const s0 = { ...defaultExploreState(now), groupBy: 'tag:team' as const }
+    const s1 = drillInto(s0, 'platform')
+    expect(s1.groupBy).toBe('resource')
+    expect(s1.filters.include['tag:team']).toEqual(['platform'])
+    const e1 = drillInto({ ...defaultExploreState(now), groupBy: 'enterprise_project' }, 'ep-1')
+    expect(e1.groupBy).toBe('kind')
+    expect(e1.filters.include.enterprise_project).toEqual(['ep-1'])
+    expect(nextGroupBy('tag:anything')).toBe('resource')
+    expect(nextGroupBy('none')).toBe('none')
   })
   it('drills kind → sku → resource, keeping the clicked value as a filter', () => {
     const s0 = defaultExploreState(now)

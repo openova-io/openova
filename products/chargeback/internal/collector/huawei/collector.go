@@ -479,6 +479,16 @@ func (c *Collector) emitUsage(ctx context.Context, src store.CostSource, from, t
 		}
 		lc, attrs := lifecycleOf(it)
 		labelsBase := map[string]any{"name": it.Name}
+		// Resource tags and the enterprise project ride along on every usage
+		// record so the explorer can group/filter by `tag:<key>` and
+		// `enterprise_project` (EPIC #6867 follow-up). Omitted when empty —
+		// an absent key is what the explorer renders as "(untagged)".
+		if tags, ok := attrs["tags"].(map[string]any); ok && len(tags) > 0 {
+			labelsBase["tags"] = tags
+		}
+		if ep := str(attrs["enterprise_project_id"]); ep != "" {
+			labelsBase["enterprise_project"] = ep
+		}
 		if it.Kind == KindEVS {
 			if sid := str(attrs["attached_to"]); sid != "" {
 				labelsBase["attached_to"] = sid

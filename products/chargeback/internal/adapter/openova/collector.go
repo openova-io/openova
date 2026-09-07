@@ -129,6 +129,34 @@ type trackedResource struct {
 	PVCGB     float64
 	Created   time.Time
 	Deleted   time.Time // zero = alive
+	// Tags is the platform equivalent of cloud resource tags: the standard
+	// app.kubernetes.io/* labels and OpenOva's application label, folded to
+	// the keys the explorer offers as `tag:app`, `tag:instance`,
+	// `tag:component`, `tag:application` — which is cost per Application.
+	Tags map[string]string
+}
+
+// platformTagLabels maps a pod/PVC label to the tag key it is exposed under.
+var platformTagLabels = [...]struct{ label, tag string }{
+	{"app.kubernetes.io/name", "app"},
+	{"app.kubernetes.io/instance", "instance"},
+	{"app.kubernetes.io/component", "component"},
+	{"openova.io/application", "application"},
+}
+
+// platformTags derives the tag map from an object's labels: only the keys
+// present, nil when none are.
+func platformTags(labels map[string]string) map[string]string {
+	var out map[string]string
+	for _, m := range platformTagLabels {
+		if v := labels[m.label]; v != "" {
+			if out == nil {
+				out = map[string]string{}
+			}
+			out[m.tag] = v
+		}
+	}
+	return out
 }
 
 func (c *PlatformCollector) now() time.Time {
@@ -245,6 +273,7 @@ func (c *PlatformCollector) ObservePod(pod *corev1.Pod) {
 		c.res[key] = tr
 	}
 	tr.VCPU, tr.MemGiB = cores, gib
+	tr.Tags = platformTags(pod.Labels)
 	if pod.DeletionTimestamp != nil {
 		tr.Deleted = pod.DeletionTimestamp.Time.UTC()
 	} else if pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
@@ -289,6 +318,7 @@ func (c *PlatformCollector) ObservePVC(pvc *corev1.PersistentVolumeClaim) {
 		c.res[key] = tr
 	}
 	tr.PVCGB = gb
+	tr.Tags = platformTags(pvc.Labels)
 	if pvc.DeletionTimestamp != nil {
 		tr.Deleted = pvc.DeletionTimestamp.Time.UTC()
 	} else {
@@ -523,6 +553,9 @@ func (c *PlatformCollector) EmitOrg(ctx context.Context, org string) (int, error
 					continue
 				}
 				lb := map[string]any{"name": tr.Namespace + "/" + tr.Name, "namespace": tr.Namespace, "kind": tr.Kind}
+				if len(tr.Tags) > 0 {
+					lb["tags"] = tr.Tags
+				}
 				if overhead[keys[i]] {
 					// ADR-0014 D3 case 3: the Sovereign's own footprint is a
 					// platform-overhead line, not tenant consumption. The

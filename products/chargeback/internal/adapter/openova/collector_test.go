@@ -2,6 +2,7 @@ package openova
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -215,5 +216,56 @@ func TestPlatformCollectorInformerWiring(t *testing.T) {
 		if !skus[want] {
 			t.Fatalf("sku %s absent; have %v", want, skus)
 		}
+	}
+}
+
+// TestPlatformCollectorTagsFromLabels: the standard app.kubernetes.io/*
+// labels and openova.io/application become labels.tags on every record —
+// the platform's cost-allocation tags, which is cost per Application. Only
+// the labels present are mapped; an unlabelled pod carries no tags key.
+func TestPlatformCollectorTagsFromLabels(t *testing.T) {
+	repo := newFakeRepo()
+	repo.addActiveCustomer("acme")
+	now := time.Date(2026, 9, 7, 12, 0, 0, 0, time.UTC)
+	c := &PlatformCollector{Repo: repo, Metrics: metrics.New(), Now: func() time.Time { return now }}
+	c.ObserveNamespace(orgNamespace("acme"))
+	wp := testPod("acme", "wordpress-0", "pod-wp", now.Add(-2*time.Hour), "500m", "1Gi")
+	wp.Labels = map[string]string{"app.kubernetes.io/name": "wordpress", "app.kubernetes.io/instance": "blog", "openova.io/application": "blog", "helm.sh/chart": "wordpress-1.2.3"}
+	c.ObservePod(wp)
+	plain := testPod("acme", "job-1", "pod-plain", now.Add(-2*time.Hour), "100m", "128Mi")
+	c.ObservePod(plain)
+	pvc := testPVC("acme", "data-wordpress-0", "pvc-wp", now.Add(-2*time.Hour), "10G")
+	pvc.Labels = map[string]string{"app.kubernetes.io/name": "wordpress", "app.kubernetes.io/component": "mariadb"}
+	c.ObservePVC(pvc)
+
+	if _, err := c.EmitOrg(context.Background(), "acme"); err != nil {
+		t.Fatal(err)
+	}
+	tagsOf := func(res string) (map[string]any, bool) {
+		t.Helper()
+		for _, r := range repo.usage {
+			if r.ResourceID != res {
+				continue
+			}
+			var m map[string]any
+			if err := json.Unmarshal(r.Labels, &m); err != nil {
+				t.Fatal(err)
+			}
+			tags, ok := m["tags"].(map[string]any)
+			return tags, ok
+		}
+		t.Fatalf("no usage for %s", res)
+		return nil, false
+	}
+	tags, ok := tagsOf("pod/pod-wp")
+	if !ok || tags["app"] != "wordpress" || tags["instance"] != "blog" || tags["application"] != "blog" || len(tags) != 3 {
+		t.Fatalf("pod tags = %v (%v)", tags, ok)
+	}
+	if _, ok := tagsOf("pod/pod-plain"); ok {
+		t.Fatal("unlabelled pod must carry no tags key")
+	}
+	tags, ok = tagsOf("pvc/pvc-wp")
+	if !ok || tags["app"] != "wordpress" || tags["component"] != "mariadb" || len(tags) != 2 {
+		t.Fatalf("pvc tags = %v (%v)", tags, ok)
 	}
 }

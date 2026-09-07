@@ -117,6 +117,9 @@ func (c *Client) ListECS(ctx context.Context, creds Credentials, region string) 
 					VCPUs json.RawMessage `json:"vcpus"`
 					RAM   json.RawMessage `json:"ram"`
 				} `json:"flavor"`
+				// tags arrive as ["key=value", ...] on this API (see tags.go).
+				Tags                json.RawMessage `json:"tags"`
+				EnterpriseProjectID string          `json:"enterprise_project_id"`
 			} `json:"servers"`
 		}
 		if err := c.Get(ctx, creds, "ecs", region, "/v1/"+creds.ProjectID+"/cloudservers/detail", q, &resp); err != nil {
@@ -127,14 +130,16 @@ func (c *Client) ListECS(ctx context.Context, creds Credentials, region string) 
 			if flavor == "" {
 				flavor = s.Flavor.ID
 			}
+			attrs := map[string]any{
+				"flavor": flavor,
+				"vcpus":  rawNumber(s.Flavor.VCPUs),
+				"ram_mb": rawNumber(s.Flavor.RAM),
+				"status": s.Status,
+			}
+			putTagAttrs(attrs, s.Tags, s.EnterpriseProjectID)
 			out = append(out, Resource{
 				ID: s.ID, Kind: KindECS, Name: s.Name, Status: s.Status, Created: parseTime(s.Created),
-				Attrs: map[string]any{
-					"flavor": flavor,
-					"vcpus":  rawNumber(s.Flavor.VCPUs),
-					"ram_mb": rawNumber(s.Flavor.RAM),
-					"status": s.Status,
-				},
+				Attrs: attrs,
 			})
 		}
 		if len(resp.Servers) < pageLimit {
@@ -162,6 +167,9 @@ func (c *Client) ListEVS(ctx context.Context, creds Credentials, region string) 
 					ServerID string `json:"server_id"`
 					Device   string `json:"device"`
 				} `json:"attachments"`
+				// tags arrive as an OBJECT {"key": "value"} on this API.
+				Tags                json.RawMessage `json:"tags"`
+				EnterpriseProjectID string          `json:"enterprise_project_id"`
 			} `json:"volumes"`
 		}
 		if err := c.Get(ctx, creds, "evs", region, "/v2/"+creds.ProjectID+"/cloudvolumes/detail", q, &resp); err != nil {
@@ -176,6 +184,7 @@ func (c *Client) ListEVS(ctx context.Context, creds Credentials, region string) 
 			if len(v.Attachments) > 0 {
 				attrs["attached_to"] = v.Attachments[0].ServerID
 			}
+			putTagAttrs(attrs, v.Tags, v.EnterpriseProjectID)
 			out = append(out, Resource{ID: v.ID, Kind: KindEVS, Name: v.Name, Status: v.Status, Created: parseTime(v.CreatedAt), Attrs: attrs})
 		}
 		if len(resp.Volumes) < pageLimit {
@@ -203,22 +212,27 @@ func (c *Client) ListEIP(ctx context.Context, creds Credentials, region string) 
 				Status        string `json:"status"`
 				CreateTime    string `json:"create_time"`
 				Type          string `json:"type"`
+				// tags arrive as ["key=value", ...] on this API.
+				Tags                json.RawMessage `json:"tags"`
+				EnterpriseProjectID string          `json:"enterprise_project_id"`
 			} `json:"publicips"`
 		}
 		if err := c.Get(ctx, creds, "vpc", region, "/v1/"+creds.ProjectID+"/publicips", q, &resp); err != nil {
 			return nil, err
 		}
 		for _, e := range resp.PublicIPs {
+			// #6859 — an EIP on this cloud has NO name of its own (the
+			// Name field above is its IP address), so deployment
+			// attribution runs through the bandwidth's name
+			// ("catalyst-<sovereign>-<depid>-...-bw" vs
+			// "bastion-openova-bw"). Without capturing it, ScopeMatcher
+			// cannot attribute ANY EIP and excludes every one of them —
+			// silently under-billing, which is as wrong as over-billing.
+			attrs := map[string]any{"public_ip_address": e.Address, "bandwidth_mbps": e.BandwidthSize, "bandwidth_name": e.BandwidthName, "status": e.Status, "type": e.Type}
+			putTagAttrs(attrs, e.Tags, e.EnterpriseProjectID)
 			out = append(out, Resource{
 				ID: e.ID, Kind: KindEIP, Name: e.Address, Status: e.Status, Created: parseTime(e.CreateTime),
-				// #6859 — an EIP on this cloud has NO name of its own (the
-				// Name field above is its IP address), so deployment
-				// attribution runs through the bandwidth's name
-				// ("catalyst-<sovereign>-<depid>-...-bw" vs
-				// "bastion-openova-bw"). Without capturing it, ScopeMatcher
-				// cannot attribute ANY EIP and excludes every one of them —
-				// silently under-billing, which is as wrong as over-billing.
-				Attrs: map[string]any{"public_ip_address": e.Address, "bandwidth_mbps": e.BandwidthSize, "bandwidth_name": e.BandwidthName, "status": e.Status, "type": e.Type},
+				Attrs: attrs,
 			})
 		}
 		if len(resp.PublicIPs) < pageLimit {
@@ -244,6 +258,9 @@ func (c *Client) ListELB(ctx context.Context, creds Credentials, region string) 
 				Name      string `json:"name"`
 				CreatedAt string `json:"created_at"`
 				Status    string `json:"provisioning_status"`
+				// tags arrive as [{"key": ..., "value": ...}] on this API.
+				Tags                json.RawMessage `json:"tags"`
+				EnterpriseProjectID string          `json:"enterprise_project_id"`
 			} `json:"loadbalancers"`
 			PageInfo struct {
 				NextMarker string `json:"next_marker"`
@@ -253,7 +270,9 @@ func (c *Client) ListELB(ctx context.Context, creds Credentials, region string) 
 			return nil, err
 		}
 		for _, lb := range resp.LoadBalancers {
-			out = append(out, Resource{ID: lb.ID, Kind: KindELB, Name: lb.Name, Status: lb.Status, Created: parseTime(lb.CreatedAt), Attrs: map[string]any{"status": lb.Status}})
+			attrs := map[string]any{"status": lb.Status}
+			putTagAttrs(attrs, lb.Tags, lb.EnterpriseProjectID)
+			out = append(out, Resource{ID: lb.ID, Kind: KindELB, Name: lb.Name, Status: lb.Status, Created: parseTime(lb.CreatedAt), Attrs: attrs})
 		}
 		if resp.PageInfo.NextMarker == "" || len(resp.LoadBalancers) < pageLimit {
 			break

@@ -100,8 +100,35 @@ vi.mock('../lib/useQuery', () => {
     unpriced: [],
     forecast: null,
   }
+  const resource = {
+    source_id: 'src1',
+    resource_id: 'srv-1',
+    kind: 'ecs',
+    name: 'web-1',
+    region: 'me-east-215',
+    customer_id: 'c1',
+    customer_name: 'ACME LLC',
+    status: 'live',
+    first_seen: '2026-08-01T00:00:00Z',
+    last_seen: '2026-09-07T10:00:00Z',
+    deleted_at: null,
+    cost: 84,
+    currency: 'OMR',
+    lines: [{ sku: 'ecs.s6.large.2', unit: 'instance-hour', quantity: 168, cost: 84 }],
+    attrs: { flavor: 's6.large.2', status: 'ACTIVE', tags: { team: 'platform', Env: 'prod', novalue: '' }, enterprise_project_id: 'ep-1', transitions: [{ at: '2026-08-01T00:00:00Z', status: 'ACTIVE', source: 'created' }] },
+    daily: [{ day: '2026-09-01', cost: 12, has_data: true }],
+    records_recent: [],
+  }
+  const dimensions = {
+    from: '2026-09-01',
+    to: '2026-09-08',
+    dimensions: { kind: [{ key: 'ecs', label: 'Elastic Cloud Server' }], 'tag:team': [{ key: '(untagged)', label: '(untagged)' }, { key: 'platform', label: 'platform' }] },
+    tag_keys: ['Env', 'team'],
+  }
   const docFor = (path: string): unknown => {
     if (path === '/customers') return customers
+    if (path.includes('/resources/src1/srv-1?')) return resource
+    if (path.includes('/cost/dimensions?')) return dimensions
     if (path === '/pricebooks') return { pricebooks: [book] }
     if (path === '/pricebooks/pb1') return book
     if (path === '/pricebooks/pb1/coverage') return coverage
@@ -120,11 +147,14 @@ vi.mock('../lib/useQuery', () => {
   }
 })
 
+import { customerLens } from '../lib/scope'
 import { Allocation } from './Allocation'
 import { Budgets } from './Budgets'
+import { ExplorerBody } from './CostExplorer'
 import { Discounts } from './Discounts'
 import { PriceBookEdit } from './PriceBookEdit'
 import { PriceBooks } from './PriceBooks'
+import { ResourceDetailBody } from './ResourceDetail'
 import { Statements } from './Statements'
 import { StatementView } from './StatementView'
 
@@ -205,5 +235,41 @@ describe('configure + bill pages render their documents', () => {
     expect(html).toContain('Launch campaign')
     expect(html).toContain('By cost source')
     expect(html).toContain('src-a')
+  })
+})
+
+describe('tag dimension surfaces render', () => {
+  const lens = customerLens('c1')
+  it('Resource detail: tags as chips linking into the explorer, kept out of the attribute list', () => {
+    const Page: ComponentType = () => createElement(ResourceDetailBody, { lens, sourceId: 'src1', resourceId: 'srv-1' })
+    const html = render(Page, '/customers/c1/resources/src1/srv-1')
+    expect(html).toContain('aria-label="Tags"')
+    // Sorted by key; an empty value reads "(empty)", never a blank chip.
+    expect(html.indexOf('Env:')).toBeGreaterThan(-1)
+    expect(html.indexOf('Env:')).toBeLessThan(html.indexOf('team:'))
+    expect(html).toContain('platform')
+    expect(html).toContain('(empty)')
+    // Each chip links to the explorer filtered by that tag (URL-encoded colon).
+    expect(html).toMatch(/tab=explore[^"]*tag%3Ateam=platform/)
+    // The attribute list keeps the other attrs but does not repeat the tags.
+    expect(html).toContain('enterprise_project_id')
+    expect(html).not.toContain('tags.team')
+  })
+  it('Cost explorer grouped by a tag: "Tag…" selected, key shown, table header "Tag team", chips for tag filters', () => {
+    const Page: ComponentType = () => createElement(ExplorerBody, { lens, embedded: true })
+    const html = render(Page, '/customers/c1', '/customers/c1?group_by=tag:team&tag:team=platform&exclude_tag:Env=dev&preset=30d')
+    expect(html).toContain('Tag…')
+    expect(html).toMatch(/aria-label="Tag key"[^>]*value="team"|value="team"[^>]*aria-label="Tag key"/)
+    expect(html).toContain('<th')
+    expect(html).toContain('Tag team')
+    // Known keys feed the datalist.
+    expect(html).toContain('id="explorer-tag-keys"')
+    expect(html).toContain('value="Env"')
+    // Filter chips name the tag dimension, include and exclude.
+    expect(html).toContain('Tag team:')
+    expect(html).toContain('Tag Env:')
+    expect(html).toContain('chip exclude')
+    // Drill hint names the tag dimension.
+    expect(html).toContain('drill into Tag team')
   })
 })
