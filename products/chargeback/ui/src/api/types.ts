@@ -221,10 +221,36 @@ export interface Overview {
 
 // ---------------------------------------------------------------------------
 // Cost analysis (#6867, DESIGN.md §3). Every money value is a JSON number in
-// the customer's price-book currency; windows are half-open [from, to) in
-// whole UTC days (so the picker's inclusive "to" date is sent as +1 day).
-// Buckets are `YYYY-MM-DDTHH` (hour, UTC), `YYYY-MM-DD` (day) or `YYYY-MM`.
+// the REPORTING currency (§3.10: allocation settings → currency; price-book
+// currencies are converted at the stored rates, and usage in a currency
+// without a rate is listed under `unconverted`, never summed); windows are
+// half-open [from, to) in whole UTC days (so the picker's inclusive "to" date
+// is sent as +1 day). Buckets are `YYYY-MM-DDTHH` (hour, UTC), `YYYY-MM-DD`
+// (day) or `YYYY-MM`.
 // ---------------------------------------------------------------------------
+
+/** One stored exchange rate: how many units of `code` one reporting unit buys. */
+export interface CurrencyRate {
+  code: string
+  per_base: number
+  /** "manual", or the feed a future importer names; "reporting" on GET of the reporting currency itself. */
+  source: string
+  updated_at?: string
+}
+
+/** GET /currencies */
+export interface CurrencyRates {
+  reporting_currency: string
+  rates: CurrencyRate[]
+}
+
+/** Priced usage in a book currency that has no rate — left out of every total. */
+export interface UnconvertedCurrency {
+  currency: string
+  records: number
+  /** In `currency`, not the reporting currency. */
+  cost: number
+}
 
 export type Granularity = 'hour' | 'day' | 'month'
 /** The fixed dimensions the server lists in CostDimensions(). */
@@ -310,6 +336,8 @@ export interface ExploreResult {
   unpriced: Array<{ sku: string; unit: string; quantity: number; resources: number }>
   forecast: Forecast | null
   compare: CompareWindow
+  /** Usage no total includes because its book currency has no rate; mixed_currency is true exactly when non-empty. Absent from older APIs. */
+  unconverted?: UnconvertedCurrency[]
 }
 
 export interface ExploreParams {
@@ -434,6 +462,8 @@ export interface Summary {
   now: string
   currency: string
   mixed_currency: boolean
+  /** Month-to-date usage left out for want of a rate (the 30-day series when the month has none). Absent from older APIs. */
+  unconverted?: UnconvertedCurrency[]
   mtd: { cost: number; from: string; to: string; days: number; resources: number }
   forecast: Forecast | null
   last_month: { period: string; cost: number }
@@ -493,6 +523,8 @@ export interface ResourceRow {
   currency: string
   lines: ResourceLine[]
   attrs?: Record<string, unknown> | null
+  /** Some of this resource's priced usage has no exchange rate, so `cost` understates it. */
+  unconverted?: boolean
 }
 
 export interface ResourceList {
@@ -502,6 +534,8 @@ export interface ResourceList {
   limit: number
   offset: number
   currency: string
+  /** True when a row in the filtered set is unconverted. */
+  mixed_currency?: boolean
 }
 
 export interface ResourceDetail extends ResourceRow {
@@ -515,6 +549,7 @@ export interface AllocationSettings {
   overhead_policy: 'separate' | 'distribute' | string
   pool: 'sovereign-cost' | 'manual' | string
   manual_amount: number
+  /** The REPORTING currency of every cost screen (§3.10), not only of the pool. */
   currency: string
   sovereign_customer_id: string | null
   updated_at?: string
@@ -544,6 +579,8 @@ export interface AllocationResult {
   rows: AllocationRow[]
   share_total: number
   totals: { allocated: number; revenue: number; margin: number }
+  /** Pool or revenue usage in a book currency with no rate — money the split could not see. */
+  unconverted?: UnconvertedCurrency[]
 }
 
 export interface SavedView {

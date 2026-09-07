@@ -80,9 +80,12 @@ func Build(ctx context.Context, r Reader, sched store.ReportSchedule, from, to, 
 	if err != nil {
 		return in, err
 	}
+	// Explore reports in the reporting currency (store/currency.go); what
+	// it could not convert is listed, never summed.
 	in.Currency = total.Currency
 	in.Total, in.Previous, in.DeltaPct, in.Resources = total.Total.Current, total.Total.Previous, total.Total.DeltaPct, total.Total.Resources
 	in.Unpriced = total.Unpriced
+	in.Unconverted = total.Unconverted
 
 	if in.has(SectionSummary) {
 		ms := monthStart(now)
@@ -136,7 +139,8 @@ func Build(ctx context.Context, r Reader, sched store.ReportSchedule, from, to, 
 		in.AnomalyCount, in.Anomalies = count, rows
 	}
 	if in.has(SectionRecommendations) {
-		rin := recommend.Input{Now: now}
+		// Savings in the reporting currency, like every other figure here.
+		rin := recommend.Input{Now: now, ReportingCurrency: in.Currency}
 		if rin.Books, err = r.CustomerBooks(ctx, scope, customerID); err != nil {
 			return in, err
 		}
@@ -154,8 +158,11 @@ func Build(ctx context.Context, r Reader, sched store.ReportSchedule, from, to, 
 		}
 		rows := recommend.Evaluate(rin)
 		in.RecommendationCount = len(rows)
-		in.RecommendationSaving = recommend.Total(rows)
 		in.RecommendationCurrency = recommend.Currency(rows, rin.Books)
+		if rin.ReportingCurrency != "" {
+			in.RecommendationCurrency = rin.ReportingCurrency
+		}
+		in.RecommendationSaving = recommend.TotalIn(rows, in.RecommendationCurrency)
 		if len(rows) > topRecommendations {
 			rows = rows[:topRecommendations]
 		}

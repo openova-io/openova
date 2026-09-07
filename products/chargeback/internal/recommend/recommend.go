@@ -62,6 +62,13 @@ type Input struct {
 	Sources   []store.SourceHealth
 	Unpriced  []store.CustomerUnpricedSKU // last 30 days
 	CPUUtil   []store.CPUUtilMean         // last 7 days
+	// ReportingCurrency, when set, has Evaluate report every saving in it:
+	// a saving computed from a book in another currency is divided by that
+	// book's RateToBase (store.ToBase). A row whose book currency has no
+	// rate keeps its book currency and carries evidence.unconverted = true,
+	// so TotalIn can leave it out rather than add USD to OMR. Empty = no
+	// conversion (savings in each book's own currency, as before).
+	ReportingCurrency string
 }
 
 // Recommendation is one row of GET /recommendations (ui/src/api/types.ts).
@@ -94,6 +101,7 @@ func Evaluate(in Input) []Recommendation {
 	rows = append(rows, unpricedSKUs(in, books)...)
 	rows = append(rows, staleSources(in)...)
 	rows = append(rows, noPriceBook(in)...)
+	convertToReporting(in, books, rows)
 	sort.SliceStable(rows, func(i, j int) bool {
 		if c := ratOf(rows[i].MonthlySaving).Cmp(ratOf(rows[j].MonthlySaving)); c != 0 {
 			return c > 0
@@ -109,13 +117,79 @@ func Evaluate(in Input) []Recommendation {
 	return rows
 }
 
-// Total sums the monthly savings exactly.
+// convertToReporting rewrites each row's saving into in.ReportingCurrency
+// (no-op when it is empty). A zero saving is zero in any currency and is
+// simply relabelled; a non-zero saving needs the book's rate, and without
+// one the row keeps its currency and is marked unconverted.
+func convertToReporting(in Input, books map[string]store.CustomerBook, rows []Recommendation) {
+	if in.ReportingCurrency == "" {
+		return
+	}
+	for i := range rows {
+		r := &rows[i]
+		if r.Currency == "" || r.Currency == in.ReportingCurrency || ratOf(r.MonthlySaving).Sign() == 0 {
+			r.Currency = in.ReportingCurrency
+			continue
+		}
+		if v, ok := store.ToBase(r.MonthlySaving, books[r.CustomerID].RateToBase); ok {
+			r.MonthlySaving, r.Currency = v, in.ReportingCurrency
+			continue
+		}
+		if r.Evidence == nil {
+			r.Evidence = map[string]any{}
+		}
+		r.Evidence["unconverted"] = true
+	}
+}
+
+// Total sums the monthly savings exactly, whatever currency each row is in
+// — meaningful only when every row shares one. Callers that converted
+// (Input.ReportingCurrency) use TotalIn.
 func Total(rows []Recommendation) store.Decimal {
 	t := new(big.Rat)
 	for _, r := range rows {
 		t.Add(t, ratOf(r.MonthlySaving))
 	}
 	return money(t)
+}
+
+// TotalIn sums the savings of the rows in one currency, exactly; rows in
+// any other currency (unconverted) are left out.
+func TotalIn(rows []Recommendation, currency string) store.Decimal {
+	t := new(big.Rat)
+	for _, r := range rows {
+		if r.Currency == currency {
+			t.Add(t, ratOf(r.MonthlySaving))
+		}
+	}
+	return money(t)
+}
+
+// UnconvertedSavings lists, per currency other than the reporting one, the
+// rows whose saving could not be converted and what they sum to in that
+// currency — the recommendations' twin of the explorer's unconverted list.
+func UnconvertedSavings(rows []Recommendation, reporting string) []store.UnconvertedCurrency {
+	sums := map[string]*store.UnconvertedCurrency{}
+	var order []string
+	for _, r := range rows {
+		if r.Currency == "" || r.Currency == reporting {
+			continue
+		}
+		u, ok := sums[r.Currency]
+		if !ok {
+			u = &store.UnconvertedCurrency{Currency: r.Currency, Cost: "0.000000"}
+			sums[r.Currency] = u
+			order = append(order, r.Currency)
+		}
+		u.Records++
+		u.Cost = money(new(big.Rat).Add(ratOf(u.Cost), ratOf(r.MonthlySaving)))
+	}
+	sort.Strings(order)
+	out := []store.UnconvertedCurrency{}
+	for _, c := range order {
+		out = append(out, *sums[c])
+	}
+	return out
 }
 
 // Currency is the currency the totals are in: the first row that carries

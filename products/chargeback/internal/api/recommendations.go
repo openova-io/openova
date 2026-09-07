@@ -11,7 +11,10 @@ import (
 
 // Recommendations (#6867, DESIGN.md §3.7): the store gathers, the pure
 // rules in internal/recommend decide, the handler writes
-// {rows, total_monthly_saving, currency}.
+// {rows, total_monthly_saving, currency, unconverted}. Savings are in the
+// reporting currency (§3.10); a saving from a book whose currency has no
+// exchange rate stays in that currency, is flagged in its evidence, is left
+// out of the total and listed under unconverted.
 
 const (
 	// unpricedWindow is the usage window the unpriced-sku rule looks at.
@@ -24,6 +27,9 @@ func (h *Handler) gatherRecommendations(ctx context.Context, scope store.Scope, 
 	now := h.Now().UTC()
 	in := recommend.Input{Now: now}
 	var err error
+	if in.ReportingCurrency, err = h.Store.ReportingCurrency(ctx); err != nil {
+		return in, err
+	}
 	if in.Books, err = h.Store.CustomerBooks(ctx, scope, customerID); err != nil {
 		return in, err
 	}
@@ -68,7 +74,8 @@ func (h *Handler) writeRecommendations(w http.ResponseWriter, r *http.Request, s
 	rows := recommend.Evaluate(in)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"rows":                 rows,
-		"total_monthly_saving": recommend.Total(rows),
-		"currency":             recommend.Currency(rows, in.Books),
+		"total_monthly_saving": recommend.TotalIn(rows, in.ReportingCurrency),
+		"currency":             in.ReportingCurrency,
+		"unconverted":          recommend.UnconvertedSavings(rows, in.ReportingCurrency),
 	})
 }

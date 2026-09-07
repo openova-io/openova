@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/openova-io/openova/products/chargeback/internal/store"
+	"math/big"
 )
 
 // One positive and one control per rule. Every rule must fire exactly once
@@ -321,5 +322,72 @@ func TestEmptyInputIsEmptyNotNil(t *testing.T) {
 	b, _ := json.Marshal(rows)
 	if string(b) != "[]" {
 		t.Fatalf("json = %s", b)
+	}
+}
+
+// Savings in the reporting currency (#6867 follow-up). Acme bills in USD
+// with a stored rate of 2.6 per OMR, so its stopped-instance saving of
+// 365 USD (0.5/h × 730) reports as 365 / 2.6 = 140.384615 OMR — a build
+// that multiplies would say 949. Delta bills in EUR with no rate: its row
+// keeps EUR, is flagged, and is left out of the total.
+func TestEvaluateConvertsSavingsToReportingCurrency(t *testing.T) {
+	in := fixture()
+	for i := range in.Books {
+		switch in.Books[i].CustomerID {
+		case "c-a":
+			in.Books[i].Currency, in.Books[i].RateToBase = "USD", "2.6"
+		case "c-c":
+			in.Books[i].RateToBase = "1"
+		}
+	}
+	in.Books = append(in.Books, store.CustomerBook{CustomerID: "c-d", CustomerName: "Delta", Status: "active", HasBook: true, BookName: "eur", Currency: "EUR", BillStopped: "compute",
+		Rates: map[string]store.Decimal{"ecs.m7n.xlarge.8": "0.50000000"}})
+	in.Resources = append(in.Resources, store.LiveResource{CustomerID: "c-d", CustomerName: "Delta", SourceID: "src-d", ResourceID: "vm-d-stopped", Kind: "ecs", Name: "old-d",
+		Attrs: map[string]any{"flavor": "m7n.xlarge.8", "status": "SHUTOFF"}})
+	in.ReportingCurrency = "OMR"
+
+	rows := Evaluate(in)
+	byID := map[string]Recommendation{}
+	for _, r := range rows {
+		byID[r.ID] = r
+	}
+	a := byID[TypeStoppedInstanceBilled+":c-a:vm-stopped"]
+	if a.MonthlySaving != "140.384615" || a.Currency != "OMR" || a.Evidence["unconverted"] != nil {
+		t.Fatalf("converted saving = %s %s unconverted=%v (365 USD ÷ 2.6; ×2.6 would be 949)", a.MonthlySaving, a.Currency, a.Evidence["unconverted"])
+	}
+	d := byID[TypeStoppedInstanceBilled+":c-d:vm-d-stopped"]
+	if d.MonthlySaving != "365.000000" || d.Currency != "EUR" || d.Evidence["unconverted"] != true {
+		t.Fatalf("unconverted saving = %s %s evidence %v", d.MonthlySaving, d.Currency, d.Evidence)
+	}
+	// Zero-saving rows (unpriced SKU, stale source, no book) are zero in
+	// any currency and are simply reported in the reporting currency.
+	for _, r := range rows {
+		if ratOf(r.MonthlySaving).Sign() == 0 && r.Currency != "OMR" {
+			t.Fatalf("zero-saving row %s in %q", r.ID, r.Currency)
+		}
+	}
+	// The total is the reporting-currency rows only; the EUR row is listed.
+	want := new(big.Rat)
+	for _, r := range rows {
+		if r.Currency == "OMR" {
+			want.Add(want, ratOf(r.MonthlySaving))
+		}
+	}
+	if TotalIn(rows, "OMR") != money(want) || TotalIn(rows, "OMR") == Total(rows) {
+		t.Fatalf("TotalIn = %s, Total = %s", TotalIn(rows, "OMR"), Total(rows))
+	}
+	u := UnconvertedSavings(rows, "OMR")
+	if len(u) != 1 || u[0].Currency != "EUR" || u[0].Records != 1 || u[0].Cost != "365.000000" {
+		t.Fatalf("unconverted savings = %+v", u)
+	}
+	// Without a reporting currency nothing is converted (the older contract).
+	in.ReportingCurrency = ""
+	for _, r := range Evaluate(in) {
+		if r.ID == a.ID && (r.MonthlySaving != "365.000000" || r.Currency != "USD") {
+			t.Fatalf("unconverted contract broke: %s %s", r.MonthlySaving, r.Currency)
+		}
+	}
+	if len(UnconvertedSavings(rows, "")) == 0 {
+		t.Fatal("with no reporting currency every priced row is 'unconverted'")
 	}
 }

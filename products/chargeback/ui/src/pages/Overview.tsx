@@ -4,6 +4,7 @@ import type { ExploreResult, Summary } from '../api/types'
 import { exploreQuery } from '../api/types'
 import { Donut, EmptyChart, ProgressBar, RankedBars, StackedBars, seriesFromExplore } from '../components/charts'
 import { Badge, Delta, KPI, Notice, PageHeader, Skeleton } from '../components/ui'
+import { describeUnconverted } from '../lib/currencies'
 import { bucketLabel, describeWindow, presetWindow } from '../lib/dates'
 import { formatMoney, formatPct } from '../lib/money'
 import { customerLens, lensFor, pageHref, type Lens } from '../lib/scope'
@@ -71,7 +72,11 @@ export function OverviewBody({ lens, title, embedded }: { lens: Lens; title?: st
         />
       ) : null}
 
-      {s.mixed_currency ? <Notice kind="warn">Customers bill in more than one currency; totals below mix currencies and are shown in {cur}.</Notice> : null}
+      {s.unconverted?.length || s.mixed_currency ? (
+        <Notice kind="warn">
+          {describeUnconverted(s.unconverted, cur, s.mixed_currency)} {lens.operator ? <Link to="/pricebooks">Add the rate under Price books → Currencies</Link> : null}
+        </Notice>
+      ) : null}
       {k.unpricedCount > 0 ? (
         <Notice kind="warn">
           {k.unpricedCount} SKU{k.unpricedCount === 1 ? '' : 's'} in use carry no rate in the price book, so their cost shows as 0:{' '}
@@ -267,7 +272,7 @@ export function OverviewBody({ lens, title, embedded }: { lens: Lens; title?: st
         </div>
       ) : null}
       <p className="muted tiny">
-        Month-to-date change {formatPct(k.momDeltaPct, { sign: true })} compares the same number of days of last month. Costs are list-price rates from each customer's price book; discounts apply on statements.
+        Month-to-date change {formatPct(k.momDeltaPct, { sign: true })} compares the same number of days of last month. Costs are list-price rates from each customer's price book, converted to {cur || 'the reporting currency'} where the book's currency differs; discounts apply on statements, which stay in the book's currency.
       </p>
     </div>
   )

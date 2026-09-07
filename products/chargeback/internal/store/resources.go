@@ -15,10 +15,12 @@ import (
 // Resources (#6867, DESIGN.md §2.3 / §3.4): the inventory joined with what
 // each resource cost in a window.
 //
-// Cost per resource is computed with costPricedExpr — the same expression
-// the explorer and the rating run use — so a resource's cost is the slice
-// of the bill it caused, and the resources of a customer sum to the
-// customer's explorer total for the same window.
+// Cost per resource is computed with costBaseExpr — the same expression
+// the explorer uses, in the reporting currency — so a resource's cost is
+// the slice of the bill it caused, and the resources of a customer sum to
+// the customer's explorer total for the same window. A resource whose
+// book currency has no stored rate carries cost 0 and Unconverted = true;
+// the list's MixedCurrency says whether any row in the set is like that.
 
 // ResourceQuery selects, filters, sorts and pages the resource list.
 type ResourceQuery struct {
@@ -59,6 +61,9 @@ type ResourceRow struct {
 	Currency     string          `json:"currency"`
 	Lines        []ResourceLine  `json:"lines"`
 	Attrs        json.RawMessage `json:"attrs,omitempty"`
+	// Unconverted is true when some of this resource's priced usage is in a
+	// book currency without a rate, so Cost understates it.
+	Unconverted bool `json:"unconverted,omitempty"`
 }
 
 // ResourceList is a page of rows with the totals of the whole filtered set.
@@ -103,11 +108,13 @@ const (
 )
 
 // resourceCostCTE aggregates cost per resource in the window with the shared
-// priced expression. $1/$2 are the window; an optional customer clause is
-// appended by the caller before the GROUP BY.
+// priced expression, in the reporting currency, and whether any priced
+// record of it could not be converted. $1/$2 are the window; an optional
+// customer clause is appended by the caller before the GROUP BY.
 const resourceCostCTE = `rc AS (
   SELECT u.source_id, u.resource_id,
-         sum(` + costPricedExpr + `) AS cost,
+         sum(` + costBaseExpr + `) AS cost,
+         bool_or((` + costPricedExpr + `) IS NOT NULL AND (` + costBaseExpr + `) IS NULL) AS unconverted,
          max(NULLIF(u.region, '')) AS region
     FROM usage_records u` + costPriceJoinSQL + `
    WHERE u.window_start >= $1 AND u.window_start < $2 AND ` + costMeterFilter
@@ -124,12 +131,12 @@ const resourceBaseCTE = `base AS (
               ELSE 'live' END AS status,
          i.first_seen, i.last_seen, i.deleted_at,
          COALESCE(rc.cost, 0) AS cost,
-         COALESCE(b.currency, '') AS currency,
+         ` + reportingCurrencySQL + ` AS currency,
+         COALESCE(rc.unconverted, false) AS unconverted,
          i.attrs
     FROM resource_inventory i
     JOIN cost_sources s ON s.id = i.source_id
     JOIN customers c ON c.id = s.customer_id
-    LEFT JOIN price_books b ON b.id = c.price_book_id
     LEFT JOIN rc ON rc.source_id = i.source_id AND rc.resource_id = i.resource_id
 )`
 
@@ -140,8 +147,9 @@ func escapeLike(q string) string {
 }
 
 // resourceRowsSQL builds the CTEs and the filtered SELECT over base. The
-// projection ends with the three window aggregates (total, sum_cost, the
-// currency of the set) so one round-trip answers the page and its totals.
+// projection ends with the window aggregates (total, sum_cost, whether any
+// row of the set is unconverted) so one round-trip answers the page and
+// its totals.
 func resourceRowsSQL(q ResourceQuery) (string, []any, error) {
 	a := &costArgs{}
 	a.add(q.From)
@@ -154,9 +162,9 @@ func resourceRowsSQL(q ResourceQuery) (string, []any, error) {
 	sb.WriteString(" GROUP BY u.source_id, u.resource_id), " + resourceBaseCTE)
 	sb.WriteString(`
 SELECT source_id, resource_id, kind, name, region, customer_id, customer_name, status,
-       first_seen, last_seen, deleted_at, round(cost, 6)::text, currency, attrs,
+       first_seen, last_seen, deleted_at, round(cost, 6)::text, currency, attrs, unconverted,
        count(*) OVER (), round(COALESCE(sum(cost) OVER (), 0), 6)::text,
-       COALESCE(min(NULLIF(currency, '')) OVER (), '') || ',' || COALESCE(max(NULLIF(currency, '')) OVER (), '')
+       COALESCE(bool_or(unconverted) OVER (), false)
   FROM base WHERE true`)
 	if q.CustomerID != "" {
 		sb.WriteString(" AND customer_id = " + a.add(q.CustomerID))
@@ -216,15 +224,16 @@ SELECT source_id, resource_id, kind, name, region, customer_id, customer_name, s
 	return sb.String(), a.args, nil
 }
 
-func scanResourceRow(rows *sql.Rows, withAttrs bool) (ResourceRow, int, string, string, error) {
+func scanResourceRow(rows *sql.Rows, withAttrs bool) (ResourceRow, int, string, bool, error) {
 	var r ResourceRow
 	var deleted sql.NullTime
-	var cost, sumCost, currencies string
+	var cost, sumCost string
 	var attrs []byte
 	var total int
+	var anyUnconverted bool
 	if err := rows.Scan(&r.SourceID, &r.ResourceID, &r.Kind, &r.Name, &r.Region, &r.CustomerID, &r.CustomerName, &r.Status,
-		&r.FirstSeen, &r.LastSeen, &deleted, &cost, &r.Currency, &attrs, &total, &sumCost, &currencies); err != nil {
-		return r, 0, "", "", err
+		&r.FirstSeen, &r.LastSeen, &deleted, &cost, &r.Currency, &attrs, &r.Unconverted, &total, &sumCost, &anyUnconverted); err != nil {
+		return r, 0, "", false, err
 	}
 	r.FirstSeen, r.LastSeen = r.FirstSeen.UTC(), r.LastSeen.UTC()
 	r.DeletedAt = timePtr(deleted)
@@ -233,7 +242,7 @@ func scanResourceRow(rows *sql.Rows, withAttrs bool) (ResourceRow, int, string, 
 	if withAttrs {
 		r.Attrs = attrs
 	}
-	return r, total, sumCost, currencies, nil
+	return r, total, sumCost, anyUnconverted, nil
 }
 
 // ListResources returns a page of inventory rows with their window cost and
@@ -271,23 +280,25 @@ func (s *Store) ListResources(ctx context.Context, scope Scope, q ResourceQuery)
 	}
 	var keys []string
 	for rows.Next() {
-		r, total, sumCost, currencies, err := scanResourceRow(rows, false)
+		r, total, sumCost, anyUnconverted, err := scanResourceRow(rows, false)
 		if err != nil {
 			return ResourceList{}, err
 		}
 		out.Total, out.SumCost = total, Decimal(sumCost)
-		// currencies is "min,max" over the filtered set: one currency when
-		// they agree, mixed when they do not (a sum across currencies is
-		// meaningless and the flag says so).
-		if lo, hi, _ := strings.Cut(currencies, ","); lo != "" {
-			out.Currency = lo
-			out.MixedCurrency = hi != "" && hi != lo
-		}
+		// Every row is in the reporting currency; the set is "mixed" when
+		// some row's book currency has no rate and its cost is understated.
+		out.Currency, out.MixedCurrency = r.Currency, anyUnconverted
 		out.Rows = append(out.Rows, r)
 		keys = append(keys, r.SourceID+"/"+r.ResourceID)
 	}
 	if err := rows.Err(); err != nil {
 		return ResourceList{}, err
+	}
+	if out.Currency == "" {
+		// An empty page still names the currency the totals are in.
+		if out.Currency, err = s.ReportingCurrency(ctx); err != nil {
+			return ResourceList{}, err
+		}
 	}
 	if len(keys) > 0 {
 		lines, err := s.resourceLines(ctx, q.From, q.To, keys)
@@ -303,13 +314,14 @@ func (s *Store) ListResources(ctx context.Context, scope Scope, q ResourceQuery)
 	return out, nil
 }
 
-// resourceLines aggregates (sku, unit) quantity and cost for the given
-// "source_id/resource_id" keys. A source id is a UUID and never contains a
-// slash, so the key is unambiguous even for resource ids that do.
+// resourceLines aggregates (sku, unit) quantity and cost (reporting
+// currency; 0 for an unconverted line) for the given "source_id/resource_id"
+// keys. A source id is a UUID and never contains a slash, so the key is
+// unambiguous even for resource ids that do.
 func (s *Store) resourceLines(ctx context.Context, from, to time.Time, keys []string) (map[string][]ResourceLine, error) {
 	rows, err := s.db.QueryContext(ctx, `
 SELECT u.source_id::text, u.resource_id, u.sku, u.unit, round(sum(u.quantity), 6)::text,
-       round(COALESCE(sum(`+costPricedExpr+`), 0), 6)::text
+       round(COALESCE(sum(`+costBaseExpr+`), 0), 6)::text
   FROM usage_records u`+costPriceJoinSQL+`
  WHERE u.window_start >= $1 AND u.window_start < $2 AND `+costMeterFilter+`
    AND u.source_id::text || '/' || u.resource_id = ANY($3)
@@ -360,8 +372,8 @@ func (s *Store) GetResource(ctx context.Context, scope Scope, sourceID, resource
 	sqlText := "WITH " + resourceCostCTE + " AND u.source_id::text = " + a.add(sourceID) + " AND u.resource_id = " + a.add(resourceID) +
 		" GROUP BY u.source_id, u.resource_id), " + resourceBaseCTE + `
 SELECT source_id, resource_id, kind, name, region, customer_id, customer_name, status,
-       first_seen, last_seen, deleted_at, round(cost, 6)::text, currency, attrs,
-       1, round(cost, 6)::text, currency
+       first_seen, last_seen, deleted_at, round(cost, 6)::text, currency, attrs, unconverted,
+       1, round(cost, 6)::text, unconverted
   FROM base WHERE source_id = ` + a.add(sourceID) + ` AND resource_id = ` + a.add(resourceID)
 	rows, err := s.db.QueryContext(ctx, sqlText, a.args...)
 	if err != nil {
@@ -396,7 +408,7 @@ SELECT source_id, resource_id, kind, name, region, customer_id, customer_name, s
 	// Daily series over uniform day buckets.
 	daily := map[string]Decimal{}
 	dr, err := s.db.QueryContext(ctx, `
-SELECT to_char(u.window_start AT TIME ZONE 'UTC', 'YYYY-MM-DD'), round(COALESCE(sum(`+costPricedExpr+`), 0), 6)::text
+SELECT to_char(u.window_start AT TIME ZONE 'UTC', 'YYYY-MM-DD'), round(COALESCE(sum(`+costBaseExpr+`), 0), 6)::text
   FROM usage_records u`+costPriceJoinSQL+`
  WHERE u.source_id::text = $1 AND u.resource_id = $2 AND u.window_start >= $3 AND u.window_start < $4 AND `+costMeterFilter+`
  GROUP BY 1 ORDER BY 1`, sourceID, resourceID, from, to)

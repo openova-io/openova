@@ -210,8 +210,8 @@ function BudgetFormModal({ customerId, budget, currency, onClose, onDone }: { cu
           <Field label="Monthly amount" error={errors.amount}>
             <input value={form.amount} onChange={(e) => set('amount', e.target.value)} inputMode="decimal" placeholder="3000" />
           </Field>
-          <Field label="Currency" error={errors.currency} help="Normally the price-book currency.">
-            <input value={form.currency} onChange={(e) => set('currency', e.target.value.toUpperCase())} maxLength={3} className="mono" />
+          <Field label="Currency" error={errors.currency} help="The reporting currency: actual cost is converted to it before the comparison.">
+            <input value={form.currency} readOnly maxLength={3} className="mono" aria-label="Currency (reporting currency, read-only)" />
           </Field>
         </div>
         <Field label="Alert thresholds (% of amount)" error={errors.thresholds} help="Comma-separated. Each is mailed once per month when the actual cost crosses it.">
