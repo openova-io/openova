@@ -2,6 +2,7 @@ package rating
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -17,6 +18,17 @@ const (
 	BillStoppedStorageOnly = "storage-only" // stopped hours: no instance charge, volumes still billed
 	BillStoppedNone        = "none"         // stopped hours: no instance charge and no charge for volumes attached to it
 )
+
+// ErrMixedCurrency is returned when one customer's sources are assigned
+// books in different currencies: a statement is issued in ONE currency and
+// nothing here converts money, so the run is refused for that customer
+// until the operator assigns books of one currency (DESIGN.md §2.9). The
+// API answers 400 with the message.
+var ErrMixedCurrency = errors.New("mixed currencies")
+
+// ErrNoPriceBook is reported for a customer none of whose sources has a
+// price book: there is nothing to rate against.
+var ErrNoPriceBook = errors.New("no price book assigned to any of the customer's sources")
 
 // Rate prices aggregated usage against a price book. Usage for SKUs missing
 // from the book is reported in unpriced and produces no line.
@@ -118,11 +130,23 @@ type Result struct {
 	Lines        int      `json:"lines"`
 	Total        string   `json:"total,omitempty"`
 	UnpricedSKUs []string `json:"unpriced_skus,omitempty"`
-	Error        string   `json:"error,omitempty"`
+	// NotSoldPerUse lists the platform meters a platform book deliberately
+	// leaves unpriced (the allocation basis) — reported apart from
+	// UnpricedSKUs so nobody is told to "add a rate" for them.
+	NotSoldPerUse []string `json:"not_sold_per_use,omitempty"`
+	// UnbookedSources names the customer's sources that have usage in the
+	// period but no price book; their SKUs are in UnpricedSKUs.
+	UnbookedSources []string `json:"unbooked_sources,omitempty"`
+	Error           string   `json:"error,omitempty"`
 }
 
 // Run rates every (or one) customer's usage for a period into draft
-// statements. Customers without a price book are reported, not rated.
+// statements. A customer's statement is the sum of its sources, each rated
+// by ITS OWN book (DESIGN.md §2): a cloud source by its cloud book, a
+// platform source by its platform book. Customers with no book on any
+// source are reported, not rated. A single-customer run whose sources use
+// books of different currencies returns ErrMixedCurrency; in an all-customer
+// run that customer carries the message in its Result and the others proceed.
 func Run(ctx context.Context, st *store.Store, period, customerID string) ([]Result, error) {
 	from, to, err := store.PeriodBounds(period)
 	if err != nil {
@@ -144,22 +168,24 @@ func Run(ctx context.Context, st *store.Store, period, customerID string) ([]Res
 			continue
 		}
 		res := Result{CustomerID: c.ID, CustomerName: c.Name}
-		if c.PriceBookID == nil {
-			res.Error = "no price book assigned"
-			results = append(results, res)
-			continue
-		}
-		stmt, unpriced, err := rateCustomer(ctx, st, c, *c.PriceBookID, from, to, settings.DiscountRule)
+		stmt, detail, err := rateCustomer(ctx, st, c, from, to, settings.DiscountRule)
 		if err != nil {
+			if customerID != "" && errors.Is(err, ErrMixedCurrency) {
+				return nil, err
+			}
 			res.Error = err.Error()
-			slog.Warn("statement run failed for customer", "customer", c.Slug, "period", period, "error", err)
+			if !errors.Is(err, ErrNoPriceBook) && !errors.Is(err, ErrMixedCurrency) {
+				slog.Warn("statement run failed for customer", "customer", c.Slug, "period", period, "error", err)
+			}
 			results = append(results, res)
 			continue
 		}
 		res.StatementID = stmt.ID
 		res.Lines = len(stmt.Lines)
 		res.Total = string(stmt.Total)
-		res.UnpricedSKUs = unpriced
+		res.UnpricedSKUs = detail.unpriced
+		res.NotSoldPerUse = detail.notSold
+		res.UnbookedSources = detail.unbooked
 		results = append(results, res)
 	}
 	if customerID != "" && len(results) == 0 {
@@ -168,46 +194,124 @@ func Run(ctx context.Context, st *store.Store, period, customerID string) ([]Res
 	return results, nil
 }
 
-func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, priceBookID string, from, to time.Time, discountRule string) (store.Statement, []string, error) {
-	pb, err := st.GetPriceBook(ctx, priceBookID)
+// rateDetail is what a run reports besides the statement.
+type rateDetail struct {
+	unpriced, notSold, unbooked []string
+}
+
+// rateCustomer rates one customer: its usage grouped per source, each
+// source's rows priced with that source's book and stopped-instance policy,
+// the lines summed into one statement in the one currency the books share.
+// discountRule is the operator-selected combination rule, read once per run
+// so every statement of the run states the same rule (#6867).
+func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, from, to time.Time, discountRule string) (store.Statement, rateDetail, error) {
+	var detail rateDetail
+	sources, err := st.ListSources(ctx, store.OperatorScope, c.ID)
 	if err != nil {
-		return store.Statement{}, nil, fmt.Errorf("price book: %w", err)
+		return store.Statement{}, detail, fmt.Errorf("sources: %w", err)
 	}
-	items := map[string]store.PriceItem{}
-	for _, it := range pb.Items {
-		items[it.SKU] = it
+	byID := map[string]store.CostSource{}
+	booked := 0
+	for _, s := range sources {
+		byID[s.ID] = s
+		if s.PriceBookID != nil {
+			booked++
+		}
+	}
+	if booked == 0 {
+		return store.Statement{}, detail, ErrNoPriceBook
 	}
 	usage, err := st.UsageForRating(ctx, c.ID, from, to)
 	if err != nil {
-		return store.Statement{}, nil, err
+		return store.Statement{}, detail, err
 	}
-	lines, unpriced, err := Rate(usage, items, pb.BillStopped)
-	if err != nil {
-		return store.Statement{}, nil, err
+	// Usage per source, in source order (ListSources orders by layer, then
+	// location), so the lines of a statement are stable across runs.
+	perSource := map[string][]store.RatableUsage{}
+	for _, u := range usage {
+		perSource[u.SourceID] = append(perSource[u.SourceID], u)
 	}
+	books := map[string]store.PriceBook{}
+	currency := ""
+	var lines []store.RatedLine
+	unpricedSet, notSoldSet := map[string]bool{}, map[string]bool{}
+	for _, src := range sources {
+		rows := perSource[src.ID]
+		if src.PriceBookID == nil {
+			if len(rows) > 0 {
+				detail.unbooked = append(detail.unbooked, src.Label())
+				for _, u := range rows {
+					unpricedSet[u.SKU] = true
+				}
+			}
+			continue
+		}
+		pb, ok := books[*src.PriceBookID]
+		if !ok {
+			if pb, err = st.GetPriceBook(ctx, *src.PriceBookID); err != nil {
+				return store.Statement{}, detail, fmt.Errorf("price book of source %s: %w", src.Label(), err)
+			}
+			books[pb.ID] = pb
+		}
+		// The statement's currency is the one every booked source shares;
+		// the first booked source (usage or not) sets it.
+		if currency == "" {
+			currency = pb.Currency
+		} else if pb.Currency != currency {
+			return store.Statement{}, detail, fmt.Errorf("%w: source %s is priced in %s while another source of %s is priced in %s; a statement is issued in one currency — assign books of one currency", ErrMixedCurrency, src.Label(), pb.Currency, c.Name, currency)
+		}
+		if len(rows) == 0 {
+			continue
+		}
+		items := map[string]store.PriceItem{}
+		pricesPlatformMeter := false
+		for _, it := range pb.Items {
+			items[it.SKU] = it
+			if store.IsPlatformMeter(it.SKU) {
+				pricesPlatformMeter = true
+			}
+		}
+		srcLines, unpriced, err := Rate(rows, items, pb.BillStopped)
+		if err != nil {
+			return store.Statement{}, detail, fmt.Errorf("source %s: %w", src.Label(), err)
+		}
+		lines = append(lines, srcLines...)
+		for _, sku := range unpriced {
+			// A platform book that prices none of the k8s.* meters sells
+			// plans, not vCPU-hours: those meters are the allocation basis,
+			// not a gap in the book.
+			if src.Layer == store.LayerPlatform && store.IsPlatformMeter(sku) && !pricesPlatformMeter {
+				notSoldSet[sku] = true
+				continue
+			}
+			unpricedSet[sku] = true
+		}
+	}
+	detail.unpriced = sortedKeys(unpricedSet)
+	detail.notSold = sortedKeys(notSoldSet)
 	// #6862 — discounts reduce the subtotal BEFORE tax. Taxing the list price
 	// and then discounting would overcharge tax on money the customer never
 	// paid.
 	discounts, err := st.ActiveDiscountsAt(ctx, c.ID, from)
 	if err != nil {
-		return store.Statement{}, nil, fmt.Errorf("discounts: %w", err)
+		return store.Statement{}, detail, fmt.Errorf("discounts: %w", err)
 	}
 	if discountRule == "" {
 		discountRule = store.DefaultDiscountRule
 	}
 	discountTotal, applied, err := ApplyDiscounts(lines, discounts, discountRule)
 	if err != nil {
-		return store.Statement{}, nil, err
+		return store.Statement{}, detail, err
 	}
 	subtotal, tax, total, err := TotalsWithDiscount(lines, discountTotal, DefaultTaxRate)
 	if err != nil {
-		return store.Statement{}, nil, err
+		return store.Statement{}, detail, err
 	}
 	stmt, err := st.WriteDraftStatement(ctx, store.StatementDraft{
 		CustomerID:       c.ID,
 		PeriodStart:      from,
 		PeriodEnd:        to.AddDate(0, 0, -1),
-		Currency:         pb.Currency,
+		Currency:         currency,
 		Subtotal:         subtotal,
 		TaxRate:          DefaultTaxRate,
 		Tax:              tax,
@@ -217,5 +321,17 @@ func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, priceB
 		AppliedDiscounts: applied,
 		DiscountRule:     discountRule,
 	})
-	return stmt, unpriced, err
+	return stmt, detail, err
+}
+
+func sortedKeys(m map[string]bool) []string {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }

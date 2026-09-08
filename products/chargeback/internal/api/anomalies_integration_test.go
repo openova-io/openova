@@ -85,7 +85,7 @@ func seedWalk(t *testing.T, st *store.Store) walkSeed {
 	if _, err := st.PutPriceItems(ctx, storage.ID, []store.PriceItem{{SKU: "ecs.m7n.xlarge.8", Unit: "instance-hour", UnitPrice: "0.5"}}, true); err != nil {
 		t.Fatal(err)
 	}
-	a, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "acme", Name: "Acme", AdminEmail: "a@acme.example", PriceBookID: book.ID})
+	a, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "acme", Name: "Acme", AdminEmail: "a@acme.example"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func seedWalk(t *testing.T, st *store.Store) walkSeed {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "charlie", Name: "Charlie", AdminEmail: "c@charlie.example", PriceBookID: storage.ID})
+	c, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "charlie", Name: "Charlie", AdminEmail: "c@charlie.example"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,6 +118,11 @@ func seedWalk(t *testing.T, st *store.Store) walkSeed {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Per-source books: A's two projects on the list book, C's on the
+	// storage book, B's project bookless (DESIGN.md §2).
+	assignBook(t, st, srcA.ID, book.ID)
+	assignBook(t, st, srcA2.ID, book.ID)
+	assignBook(t, st, srcC.ID, storage.ID)
 	// Source health: srcA fresh (30 min), srcA2 stale (3 h), srcB fresh,
 	// srcC verified but never collected for a pending customer (dormant).
 	for _, s := range []store.CostSource{srcA, srcA2, srcB, srcC} {

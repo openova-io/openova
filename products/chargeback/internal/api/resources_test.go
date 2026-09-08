@@ -38,11 +38,11 @@ func seedResourcesAPI(t *testing.T, st *store.Store) resSeed {
 	}, true); err != nil {
 		t.Fatal(err)
 	}
-	a, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "acme", Name: "Acme", AdminEmail: "a@acme.test", PriceBookID: book.ID})
+	a, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "acme", Name: "Acme", AdminEmail: "a@acme.test"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "bravo", Name: "Bravo", AdminEmail: "b@bravo.test", PriceBookID: book.ID})
+	b, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "bravo", Name: "Bravo", AdminEmail: "b@bravo.test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,6 +54,8 @@ func seedResourcesAPI(t *testing.T, st *store.Store) resSeed {
 	if err != nil {
 		t.Fatal(err)
 	}
+	assignBook(t, st, srcA.ID, book.ID)
+	assignBook(t, st, srcB.ID, book.ID)
 	seen := time.Date(2026, 9, 3, 23, 0, 0, 0, time.UTC)
 	if _, err := st.UpsertInventory(ctx, srcA.ID, []store.InventoryUpsert{
 		{ResourceID: "vm-1", Kind: "ecs", Name: "web-1", Attrs: map[string]any{"status": "ACTIVE"}, SeenAt: seen},

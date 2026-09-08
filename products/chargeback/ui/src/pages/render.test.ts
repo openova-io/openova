@@ -184,10 +184,18 @@ function render(Page: ComponentType, path: string, url = path): string {
 }
 
 describe('configure + bill pages render their documents', () => {
-  it('Price books: list with coverage, customers without a book, actions', () => {
+  it('Price books: list with the scope column and filter, coverage, actions', () => {
     const html = render(PriceBooks, '/pricebooks')
     expect(html).toContain('Standard 2026')
-    expect(html).toContain('Customers without a book')
+    // DESIGN.md §2: a book prices ONE layer, and the list says which.
+    expect(html).toContain('>Scope<')
+    expect(html).toContain('badge info">Cloud')
+    expect(html).toContain('Cloud (1)')
+    expect(html).toContain('Platform (0)')
+    // The column is the SOURCES the book prices, not a customer's book.
+    expect(html).toContain('>Sources<')
+    expect(html).not.toContain('>Price book<')
+    expect(html).toContain('Customers without a source')
     expect(html).toContain('billed as running')
     expect(html).toContain('Clone')
     expect(html).toContain('Delete')

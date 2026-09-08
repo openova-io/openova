@@ -14,42 +14,53 @@ import (
 )
 
 // Allocation against Postgres (#6867): two Organizations consuming the
-// platform, the Sovereign's own platform-overhead footprint, and the
-// Sovereign's priced cloud bill that is the pool.
+// platform, the Sovereign's own platform-overhead footprint on the INTERNAL
+// source (no customer — the Sovereign is not a customer, DESIGN.md §2), and
+// the landlord customer's priced cloud bill that is the pool.
 
 type allocSeed struct {
 	orgA, orgB, sov store.Customer
 	sovSrc          store.CostSource
+	internal        store.CostSource
 }
 
 // seedAllocation writes, on 2026-09-01..03 (3 days × 24 h):
 //   - orgA: 2 vCPU-h + 4 GiB-h per hour (72 h)          → 144 / 288 / 0
 //   - orgB: 1 vCPU-h + 0 GiB + 10 PVC-GB-h per hour     → 72 / 0 / 720
-//   - sov overhead: 1 vCPU-h + 1 GiB-h per hour         → 72 / 72 / 0
-//   - sov cloud: one ECS at 0.5/h + 100 GB EVS at 0.001/h → 72×0.5 + 72×0.1 = 43.2
+//   - internal overhead: 1 vCPU-h + 1 GiB-h per hour    → 72 / 72 / 0
+//   - landlord cloud: one ECS at 0.5/h + 100 GB EVS at 0.001/h → 72×0.5 + 72×0.1 = 43.2
 //   - orgA revenue: a priced plan meter 0.25/h          → 18; orgB: none
+//
+// Two books, one per layer: the cloud book rates the landlord's cloud
+// source, the platform book the Organizations' platform sources.
 func seedAllocation(t *testing.T, st *store.Store) allocSeed {
 	t.Helper()
 	ctx := context.Background()
-	book, err := st.CreatePriceBook(ctx, store.PriceBookInput{Name: "list", Currency: "OMR", AnnualDivisor: 8760, BillStopped: "compute"})
+	cloud, err := st.CreatePriceBook(ctx, store.PriceBookInput{Name: "cloud list", Scope: store.LayerCloud, Currency: "OMR", AnnualDivisor: 8760, BillStopped: "compute"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.PutPriceItems(ctx, book.ID, []store.PriceItem{
+	if _, err := st.PutPriceItems(ctx, cloud.ID, []store.PriceItem{
 		{SKU: "ecs.m7n.xlarge.8", Unit: "instance-hour", UnitPrice: "0.5"},
 		{SKU: "evs.ssd.gb", Unit: "gb-hour", UnitPrice: "0.001"},
-		{SKU: "plan.hour", Unit: "hour", UnitPrice: "0.25"},
 	}, true); err != nil {
 		t.Fatal(err)
 	}
-	mk := func(slug string) store.Customer {
-		c, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: slug, Name: slug, AdminEmail: slug + "@x.example", Kind: "organization", PriceBookID: book.ID})
+	platform, err := st.CreatePriceBook(ctx, store.PriceBookInput{Name: "plans", Scope: store.LayerPlatform, Currency: "OMR", AnnualDivisor: 8760, BillStopped: "compute"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PutPriceItems(ctx, platform.ID, []store.PriceItem{{SKU: "plan.hour", Unit: "hour", UnitPrice: "0.25"}}, true); err != nil {
+		t.Fatal(err)
+	}
+	mk := func(slug, kind string) store.Customer {
+		c, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: slug, Name: slug, AdminEmail: slug + "@x.example", Kind: kind})
 		if err != nil {
 			t.Fatal(err)
 		}
 		return c
 	}
-	orgA, orgB, sov := mk("acme"), mk("bravo"), mk("sovereign")
+	orgA, orgB, sov := mk("acme", "organization"), mk("bravo", "organization"), mk("landlord", "external")
 	srcA, _, err := st.UpsertSource(ctx, orgA.ID, "openova-org", "", "acme")
 	if err != nil {
 		t.Fatal(err)
@@ -58,7 +69,7 @@ func seedAllocation(t *testing.T, st *store.Store) allocSeed {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srcSovK8s, _, err := st.UpsertSource(ctx, sov.ID, "openova-org", "", "platform")
+	internal, _, err := st.EnsureInternalSource(ctx, "platform")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,10 +80,13 @@ func seedAllocation(t *testing.T, st *store.Store) allocSeed {
 	if err := st.SetSourceVerified(ctx, sovSrc.ID, ""); err != nil {
 		t.Fatal(err)
 	}
+	assignBook(t, st, srcA.ID, platform.ID)
+	assignBook(t, st, srcB.ID, platform.ID)
+	assignBook(t, st, sovSrc.ID, cloud.ID)
 	var recs []store.UsageRecord
-	rec := func(c store.Customer, src store.CostSource, res, kind, sku, unit string, qty float64, at time.Time, labels map[string]any) {
+	rec := func(customerID string, src store.CostSource, res, kind, sku, unit string, qty float64, at time.Time, labels map[string]any) {
 		lb, _ := json.Marshal(labels)
-		recs = append(recs, store.UsageRecord{CustomerID: c.ID, SourceID: src.ID, ResourceID: res, ResourceKind: kind, SKU: sku,
+		recs = append(recs, store.UsageRecord{CustomerID: customerID, SourceID: src.ID, ResourceID: res, ResourceKind: kind, SKU: sku,
 			Quantity: store.Decimal(strconv.FormatFloat(qty, 'f', 6, 64)), Unit: unit, WindowStart: at, WindowEnd: at.Add(time.Hour), Region: "me-east-1", Labels: lb})
 	}
 	org := map[string]any{"tier": "organization", "namespace": "ns"}
@@ -80,21 +94,22 @@ func seedAllocation(t *testing.T, st *store.Store) allocSeed {
 	for d := 1; d <= 3; d++ {
 		for h := 0; h < 24; h++ {
 			at := day(2026, 9, d).Add(time.Duration(h) * time.Hour)
-			rec(orgA, srcA, "acme/pod-1", "k8s-pod", "k8s.vcpu", "vcpu-hour", 2, at, org)
-			rec(orgA, srcA, "acme/pod-1", "k8s-pod", "k8s.mem_gb", "gib-hour", 4, at, org)
-			rec(orgA, srcA, "acme", "plan", "plan.hour", "hour", 1, at, org)
-			rec(orgB, srcB, "bravo/pod-1", "k8s-pod", "k8s.vcpu", "vcpu-hour", 1, at, org)
-			rec(orgB, srcB, "bravo/pvc-1", "k8s-pvc", "k8s.pvc_gb", "gb-hour", 10, at, org)
-			rec(sov, srcSovK8s, "gitea/pod-1", "k8s-pod", "k8s.vcpu", "vcpu-hour", 1, at, overhead)
-			rec(sov, srcSovK8s, "gitea/pod-1", "k8s-pod", "k8s.mem_gb", "gib-hour", 1, at, overhead)
-			rec(sov, sovSrc, "vm-1", "ecs", "ecs.m7n.xlarge.8", "instance-hour", 1, at, map[string]any{"name": "node-1", "status": "ACTIVE"})
-			rec(sov, sovSrc, "vol-1", "evs", "evs.ssd.gb", "gb-hour", 100, at, map[string]any{"name": "vol-1"})
+			rec(orgA.ID, srcA, "acme/pod-1", "k8s-pod", "k8s.vcpu", "vcpu-hour", 2, at, org)
+			rec(orgA.ID, srcA, "acme/pod-1", "k8s-pod", "k8s.mem_gb", "gib-hour", 4, at, org)
+			rec(orgA.ID, srcA, "acme", "plan", "plan.hour", "hour", 1, at, org)
+			rec(orgB.ID, srcB, "bravo/pod-1", "k8s-pod", "k8s.vcpu", "vcpu-hour", 1, at, org)
+			rec(orgB.ID, srcB, "bravo/pvc-1", "k8s-pvc", "k8s.pvc_gb", "gb-hour", 10, at, org)
+			// The internal source has no customer (customer_id NULL).
+			rec("", internal, "gitea/pod-1", "k8s-pod", "k8s.vcpu", "vcpu-hour", 1, at, overhead)
+			rec("", internal, "gitea/pod-1", "k8s-pod", "k8s.mem_gb", "gib-hour", 1, at, overhead)
+			rec(sov.ID, sovSrc, "vm-1", "ecs", "ecs.m7n.xlarge.8", "instance-hour", 1, at, map[string]any{"name": "node-1", "status": "ACTIVE"})
+			rec(sov.ID, sovSrc, "vol-1", "evs", "evs.ssd.gb", "gb-hour", 100, at, map[string]any{"name": "vol-1"})
 		}
 	}
 	if _, err := st.UpsertUsage(ctx, recs); err != nil {
 		t.Fatal(err)
 	}
-	return allocSeed{orgA: orgA, orgB: orgB, sov: sov, sovSrc: sovSrc}
+	return allocSeed{orgA: orgA, orgB: orgB, sov: sov, sovSrc: sovSrc, internal: internal}
 }
 
 func allocRow(res store.AllocationResult, id, tier string) *store.AllocationRow {
@@ -129,10 +144,17 @@ func TestIntegrationAllocationResolvesPoolAndReconciles(t *testing.T) {
 	if math.Abs(res.ShareTotal-1) > 1e-9 {
 		t.Fatalf("share_total = %v", res.ShareTotal)
 	}
-	// Equal weights: A 432, B 792, overhead 144 of 1368.
-	a, b, o := allocRow(res, s.orgA.ID, "organization"), allocRow(res, s.orgB.ID, "organization"), allocRow(res, s.sov.ID, "platform-overhead")
+	// Equal weights: A 432, B 792, overhead 144 of 1368. The overhead row is
+	// the internal source's: no customer, named for what it is.
+	a, b, o := allocRow(res, s.orgA.ID, "organization"), allocRow(res, s.orgB.ID, "organization"), allocRow(res, "", "platform-overhead")
 	if a == nil || b == nil || o == nil {
 		t.Fatalf("missing rows: %+v", res.Rows)
+	}
+	if o.CustomerSlug != store.OverheadSlug || o.CustomerName != store.OverheadName {
+		t.Fatalf("overhead row identity = %q / %q", o.CustomerSlug, o.CustomerName)
+	}
+	if r := allocRow(res, s.sov.ID, "organization"); r != nil {
+		t.Fatalf("the landlord has no platform source and must have no basis row: %+v", *r)
 	}
 	if a.VCPUHours != "144.000000" || a.MemGiBHours != "288.000000" || a.Weight != "432.000000" {
 		t.Fatalf("a basis = %+v", *a)

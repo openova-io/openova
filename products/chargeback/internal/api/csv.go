@@ -167,6 +167,10 @@ func (h *Handler) importCustomers(w http.ResponseWriter, r *http.Request) {
 	created, updated := 0, 0
 	for _, row := range rows {
 		ci := store.CustomerInput{Slug: row.Slug, Name: row.Name, AdminEmail: row.AdminEmail, BillingMode: row.BillingMode, StartDate: row.StartDate}
+		// The price_book column names the CLOUD book the row's projects are
+		// rated by (DESIGN.md §2: a book is assigned per source). A platform
+		// book cannot rate a cloud project and is refused for the row.
+		bookID := ""
 		if row.PriceBook != "" {
 			pb, err := h.Store.GetPriceBookByName(r.Context(), row.PriceBook)
 			if err != nil {
@@ -177,16 +181,17 @@ func (h *Handler) importCustomers(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 			}
-			ci.PriceBookID = pb.ID
+			if pb.Scope != store.LayerCloud {
+				errs = append(errs, ImportError{Line: row.Line, Slug: row.Slug, Message: "price_book " + pb.Name + " is a " + pb.Scope + " book; imported projects are cloud sources and take a cloud book"})
+				continue
+			}
+			bookID = pb.ID
 		}
 		existing, err := h.Store.GetCustomerBySlug(r.Context(), row.Slug)
 		var c store.Customer
 		switch {
 		case err == nil:
 			p := store.CustomerPatch{Name: &ci.Name, AdminEmail: &ci.AdminEmail}
-			if ci.PriceBookID != "" {
-				p.PriceBookID = &ci.PriceBookID
-			}
 			if ci.BillingMode != "" {
 				p.BillingMode = &ci.BillingMode
 			}
@@ -209,11 +214,18 @@ func (h *Handler) importCustomers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for _, pid := range row.ProjectIDs {
-			if _, _, err := h.Store.UpsertSource(r.Context(), c.ID, "huawei-project", row.Region, pid); err != nil {
+			src, _, err := h.Store.UpsertSource(r.Context(), c.ID, store.SourceKindHuaweiProject, row.Region, pid)
+			if err != nil {
 				errs = append(errs, ImportError{Line: row.Line, Slug: row.Slug, Message: "project " + pid + ": " + err.Error()})
+				continue
+			}
+			if bookID != "" {
+				if err := h.Store.SetSourcePriceBook(r.Context(), src.ID, bookID); err != nil {
+					errs = append(errs, ImportError{Line: row.Line, Slug: row.Slug, Message: "project " + pid + ": " + err.Error()})
+				}
 			}
 		}
-		h.audit(r, &c.ID, "customer.import", map[string]any{"slug": c.Slug, "projects": len(row.ProjectIDs)})
+		h.audit(r, &c.ID, "customer.import", map[string]any{"slug": c.Slug, "projects": len(row.ProjectIDs), "price_book": row.PriceBook})
 	}
 	if errs == nil {
 		errs = []ImportError{}

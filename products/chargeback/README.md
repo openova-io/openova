@@ -61,6 +61,12 @@ idempotent per `(source, resource, sku, window_start)`:
 | `k8s.pvc_gb` | gb-hour | PVC capacity (GB), joined to the Organization by namespace |
 | `plan.<slug>` | plan-hour | 1 while the Organization is active on plan `s`/`m`/`l`/`xl` (`flexi` = pay per use, no line); `resource_kind=plan`, labels `{name, plan}` |
 
+Every row above lands on the Organization's `openova-org` **platform source**,
+which the Organization sync puts on the platform-scoped "OpenOva plans" book.
+The Sovereign's own footprint (namespaces with no Organization label) lands on
+the **internal** `openova-platform` source instead: no customer, never billed,
+read only by the allocation report.
+
 One `cost_source` of kind `openova-org` is auto-created per Organization;
 records land on it, source kind `openova-org` (the request is the
 entitlement the plan quota enforces, so the request is what is billed).
@@ -217,14 +223,36 @@ customers' ids answer `404`, writes need `customer-admin`.
 | Area | Endpoints |
 |---|---|
 | Auth | `POST /auth/pin/request` · `POST /auth/pin/verify` · `POST /auth/logout` · `GET /auth/me` |
-| Customers | `GET/POST /customers` · `POST /customers/import` (multipart CSV, raw CSV or JSON array) · `GET/PATCH /customers/{id}` · `POST /customers/{id}/invite` · `GET/POST /customers/{id}/users` · `DELETE /customers/{id}/users/{email}` · `GET /customers/{id}/audit` |
+| Customers | `GET/POST /customers` (no price book — see below) · `POST /customers/import` (multipart CSV, raw CSV or JSON array) · `GET/PATCH /customers/{id}` · `POST /customers/{id}/invite` · `GET/POST /customers/{id}/users` · `DELETE /customers/{id}/users/{email}` · `GET /customers/{id}/audit` |
 | Invites (public by token) | `GET /invites/{token}` · `POST /invites/{token}/activate` |
-| Sources | `GET/POST /customers/{id}/sources` · `POST /sources/{id}/credential` (rotate + verify) · `POST /sources/{id}/verify` · `DELETE /sources/{id}` |
+| Sources | `GET /sources[?internal=true]` (operator-wide) · `GET/POST /customers/{id}/sources` · `GET/PATCH /customers/{id}/sources/{sid}` · `GET/PATCH /sources/{id}` (region, project_id, scope_token, domain_id, **price_book_id**) · `POST /sources/{id}/credential` (rotate + verify) · `POST /sources/{id}/verify` · `DELETE /sources/{id}` |
 | Usage | `GET /customers/{id}/usage?from&to&group_by=sku\|resource\|day` · `GET /customers/{id}/inventory` |
-| Price books | `GET/POST /pricebooks` · `GET /pricebooks/template.csv` · `GET/PUT /pricebooks/{id}` · `PUT /pricebooks/{id}/items` · `POST /pricebooks/{id}/import` |
+| Price books | `GET/POST /pricebooks` (**`scope`**: cloud \| platform) · `GET /pricebooks/template.csv` · `GET/PUT /pricebooks/{id}` · `GET /pricebooks/{id}/coverage` · `PUT /pricebooks/{id}/items` · `POST /pricebooks/{id}/import` |
 | Statements | `POST /statements/run {period, customer_id?}` · `GET /statements[?period&customer_id]` · `GET /customers/{id}/statements` · `GET /statements/{id}` · `GET /statements/{id}.csv` · `POST /statements/{id}/issue` |
 | Operator | `GET /overview` |
 | Ops (root) | `GET /healthz` · `GET /readyz` · `GET /metrics` |
+
+**Two layers, one book per source** (DESIGN.md §2, founder direction
+2026-09-08). Every cost source belongs to the **cloud** layer (a cloud
+project: `huawei-project`, `file`) or the **platform** layer (an Organization
+on this Sovereign: `openova-org`), and the price book that rates it is
+assigned **to the source**, not to the customer — its `scope` must equal the
+source's `layer`, or the API answers 400 `price book scope X does not match
+source layer Y`. A customer's statement is the sum of its sources, each rated
+by its own book, and is issued in one currency (a customer whose sources use
+books of different currencies is refused with 400).
+`customers.price_book_id` is deprecated: `POST|PATCH /customers` decode the
+key and ignore it, and the column is never written again.
+
+A source may be **disabled** — decommissioned: the collector skips it and it
+counts as neither verified nor live, but its collected history still rates,
+in the explorer and on every statement already issued from it
+(`PATCH /sources/{id} {"disabled": true}`, operator-only).
+
+**The Sovereign is not a customer.** Its own platform footprint is metered on
+one internal source (`kind=openova-platform`, `internal=true`, no customer),
+which every customer-facing query excludes and only `GET /allocation` reads —
+as the `platform-overhead` row of that report.
 
 Money and quantities are emitted as exact JSON numbers taken from Postgres
 `numeric` columns; the service never does money math in floating point.
@@ -238,6 +266,9 @@ carry `collecting: true|false` (customer active ∧ source verified — the exac
 gate the collector applies), so the UI can say why nothing flows.
 
 Customer import CSV columns: `slug,name,admin_email,region,project_ids(;-separated),price_book,billing_mode,start_date`.
+`price_book` names the **cloud** book the row's projects are rated by — it is
+assigned to each imported source, and a platform book there is rejected for
+that row.
 Price book CSV columns: `sku,unit,annual_price,description` (template at
 `/api/v1/pricebooks/template.csv`; a `unit_price` column may be given instead of
 `annual_price`).

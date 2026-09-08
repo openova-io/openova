@@ -25,6 +25,19 @@ type fakeRepo struct {
 	usage     map[string]store.UsageRecord // source|resource|sku|window_start
 	planBook  *store.PriceBook             // the "OpenOva plans" book once ensured
 	planCalls int                          // EnsurePlanBook invocations
+	retired   []string                     // RetireOrganizationCustomer calls
+}
+
+// internalSource returns the internal platform source for a slug, if ensured.
+func (f *fakeRepo) internalSource(projectID string) (store.CostSource, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, s := range f.sources {
+		if s.Internal && s.ProjectID == projectID {
+			return *s, true
+		}
+	}
+	return store.CostSource{}, false
 }
 
 func newFakeRepo() *fakeRepo {
@@ -63,10 +76,6 @@ func (f *fakeRepo) CreateCustomer(_ context.Context, in store.CustomerInput) (st
 		v := in.OrgSlug
 		c.OrgSlug = &v
 	}
-	if in.PriceBookID != "" {
-		v := in.PriceBookID
-		c.PriceBookID = &v
-	}
 	f.customers[id] = c
 	f.bySlug[slug] = id
 	return *c, nil
@@ -95,14 +104,6 @@ func (f *fakeRepo) UpdateCustomer(_ context.Context, id string, p store.Customer
 		v := *p.OrgSlug
 		c.OrgSlug = &v
 	}
-	if p.PriceBookID != nil {
-		if *p.PriceBookID == "" {
-			c.PriceBookID = nil
-		} else {
-			v := *p.PriceBookID
-			c.PriceBookID = &v
-		}
-	}
 	if p.PlanSlug != nil {
 		c.PlanSlug = store.NormalizePlanSlug(*p.PlanSlug)
 	}
@@ -123,9 +124,75 @@ func (f *fakeRepo) UpsertSource(_ context.Context, customerID, kind, region, pro
 		}
 	}
 	id := f.nextID("src")
-	s := &store.CostSource{ID: id, CustomerID: customerID, Kind: kind, Region: region, ProjectID: projectID, Status: "pending"}
+	s := &store.CostSource{ID: id, CustomerID: customerID, Kind: kind, Layer: store.LayerOfKind(kind), Region: region, ProjectID: projectID, Status: "pending"}
 	f.sources[id] = s
 	return *s, true, nil
+}
+
+func (f *fakeRepo) EnsureInternalSource(_ context.Context, projectID string) (store.CostSource, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, s := range f.sources {
+		if s.Internal && s.Kind == store.SourceKindPlatform && s.ProjectID == projectID {
+			return *s, false, nil
+		}
+	}
+	id := f.nextID("src")
+	s := &store.CostSource{ID: id, Kind: store.SourceKindPlatform, Layer: store.LayerPlatform, Internal: true, ProjectID: projectID, Status: "verified"}
+	f.sources[id] = s
+	return *s, true, nil
+}
+
+func (f *fakeRepo) SetSourcePriceBook(_ context.Context, sourceID, bookID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	s, ok := f.sources[sourceID]
+	if !ok {
+		return store.ErrNotFound
+	}
+	if s.Internal {
+		return fmt.Errorf("%w: internal source takes no book", store.ErrInvalid)
+	}
+	if bookID == "" {
+		s.PriceBookID, s.PriceBookName = nil, ""
+		return nil
+	}
+	// The fake knows one book — the plan book — plus any id a test assigns
+	// by hand; the plan book is platform-scoped like the real one.
+	if f.planBook != nil && bookID == f.planBook.ID && s.Layer != store.LayerPlatform {
+		return fmt.Errorf("%w: price book scope platform does not match source layer %s", store.ErrInvalid, s.Layer)
+	}
+	v := bookID
+	s.PriceBookID = &v
+	if f.planBook != nil && bookID == f.planBook.ID {
+		s.PriceBookName = f.planBook.Name
+	} else {
+		s.PriceBookName = bookID
+	}
+	return nil
+}
+
+func (f *fakeRepo) RetireOrganizationCustomer(_ context.Context, customerID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	c, ok := f.customers[customerID]
+	if !ok {
+		return store.ErrNotFound
+	}
+	c.Kind, c.OrgSlug, c.PlanSlug = "external", nil, ""
+	for _, s := range f.sources {
+		if s.CustomerID == customerID && s.Kind == store.SourceKindOrg {
+			s.Kind, s.Layer, s.Internal, s.CustomerID, s.PriceBookID, s.PriceBookName, s.Status = store.SourceKindPlatform, store.LayerPlatform, true, "", nil, "", "verified"
+			for k, r := range f.usage {
+				if r.SourceID == s.ID {
+					r.CustomerID = ""
+					f.usage[k] = r
+				}
+			}
+		}
+	}
+	f.retired = append(f.retired, customerID)
+	return nil
 }
 
 func (f *fakeRepo) ListSources(_ context.Context, scope store.Scope, customerID string) ([]store.CostSource, error) {

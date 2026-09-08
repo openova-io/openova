@@ -12,6 +12,7 @@ import { describeUnconverted } from '../lib/currencies'
 import { forecastHint, forecastNote } from '../lib/forecast'
 import { COMPARE_MODES, bucketLabel, bucketNoun, compareLabel, describeWindow, granularityLabel, previousWindow, toExclusive, toInclusive, type CompareMode } from '../lib/dates'
 import { apiQuery, drillInto, paramsFromState, resolvedCompare, stateFromParams, type ChartKind, type ExploreState } from '../lib/exploreState'
+import { notSoldPerUseNote } from '../lib/layers'
 import { formatMoney, formatQty } from '../lib/money'
 import { customerLens, lensFor, pageHref, type Lens } from '../lib/scope'
 import { isTagDim, isValidTagKey, tagDim, tagKeyOf } from '../lib/tags'
@@ -353,10 +354,12 @@ export function ExplorerBody({ lens, embedded }: { lens: Lens; embedded?: boolea
 
       {d && d.unpriced.length ? (
         <Notice kind="warn">
-          Usage without a rate (shown as 0 cost): {d.unpriced.map((u) => `${u.sku} · ${formatQty(u.quantity, u.unit)} · ${u.resources} resource${u.resources === 1 ? '' : 's'}`).join(' — ')}.{' '}
+          Usage without a rate in its source's price book (shown as 0 cost):{' '}
+          {d.unpriced.map((u) => `${u.sku} · ${formatQty(u.quantity, u.unit)} · ${u.resources} resource${u.resources === 1 ? '' : 's'}`).join(' — ')}.{' '}
           {lens.operator ? <Link to="/pricebooks">Add the missing rates</Link> : null}
         </Notice>
       ) : null}
+      {d && Array.isArray(d.not_sold_per_use) && d.not_sold_per_use.length > 0 ? <Notice kind="info">{notSoldPerUseNote(d.not_sold_per_use)}</Notice> : null}
 
       {saving ? (
         <Modal

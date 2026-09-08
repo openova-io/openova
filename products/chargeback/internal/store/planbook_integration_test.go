@@ -80,7 +80,7 @@ func TestIntegrationAllocationPlanRevenue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	orgA, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "acme", Name: "acme", AdminEmail: "acme@x.example", Kind: "organization", OrgSlug: "acme", PriceBookID: book.ID, PlanSlug: "m"})
+	orgA, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "acme", Name: "acme", AdminEmail: "acme@x.example", Kind: "organization", OrgSlug: "acme", PlanSlug: "m"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,9 @@ func TestIntegrationAllocationPlanRevenue(t *testing.T) {
 	if _, err := st.PutPriceItems(ctx, cloud.ID, []store.PriceItem{{SKU: "ecs.m7n.xlarge.8", Unit: "instance-hour", UnitPrice: "0.5"}}, true); err != nil {
 		t.Fatal(err)
 	}
-	sov, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "sovereign", Name: "sovereign", AdminEmail: "sov@x.example", Kind: "organization", PriceBookID: cloud.ID})
+	// The landlord: a plain external customer whose cloud source carries the
+	// cloud bill (the Sovereign itself is not a customer, DESIGN.md §2).
+	sov, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "landlord", Name: "landlord", AdminEmail: "sov@x.example"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,6 +112,10 @@ func TestIntegrationAllocationPlanRevenue(t *testing.T) {
 	if err := st.SetSourceVerified(ctx, sovSrc.ID, ""); err != nil {
 		t.Fatal(err)
 	}
+	// Per-source books (DESIGN.md §2): the Organization's platform source on
+	// the plans book, the landlord's cloud source on the cloud book.
+	assignBook(t, st, srcA.ID, book.ID)
+	assignBook(t, st, sovSrc.ID, cloud.ID)
 	planLabels, _ := json.Marshal(map[string]any{"name": "M plan", "plan": "m"})
 	orgLabels, _ := json.Marshal(map[string]any{"tier": "organization", "namespace": "acme"})
 	var recs []store.UsageRecord

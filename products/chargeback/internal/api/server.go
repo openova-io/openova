@@ -143,6 +143,13 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/billing-settings", h.getBillingSettings)
 	mux.HandleFunc("PUT /api/v1/billing-settings", h.putBillingSettings)
 	mux.HandleFunc("POST /api/v1/customers/{id}/sources", h.createSource)
+	// DESIGN.md §2 — a price book is assigned PER SOURCE: GET/PATCH a source
+	// under its customer (price_book_id, scope-checked against the source's
+	// layer), the operator-wide source directory, and one source by id.
+	mux.HandleFunc("GET /api/v1/customers/{id}/sources/{sid}", h.getSource)
+	mux.HandleFunc("PATCH /api/v1/customers/{id}/sources/{sid}", h.patchSource)
+	mux.HandleFunc("GET /api/v1/sources", h.listAllSources)
+	mux.HandleFunc("GET /api/v1/sources/{id}", h.getSource)
 	mux.HandleFunc("PATCH /api/v1/sources/{id}", h.patchSource)
 	mux.HandleFunc("POST /api/v1/sources/{id}/credential", h.rotateCredential)
 	mux.HandleFunc("POST /api/v1/sources/{id}/verify", h.verifySource)

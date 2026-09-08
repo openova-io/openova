@@ -68,7 +68,9 @@ type PlatformCollector struct {
 	// Sovereign's own platform footprint — its control plane, gitea, harbor,
 	// keycloak, openbao, shared-pg. ADR-0014 D3 case 3 puts that on a
 	// platform-overhead line, NOT on a tenant Org row, so the split can
-	// reconcile back to the collected cloud total (#6850).
+	// reconcile back to the collected cloud total (#6850). Since the
+	// two-layer model (DESIGN.md §2) that line is the INTERNAL platform
+	// source — no customer — which only Allocation reads.
 	//
 	// Empty until OrgSync observes the internal Organization; until then
 	// unlabelled namespaces are ignored exactly as before, so nothing is
@@ -500,22 +502,46 @@ func (c *PlatformCollector) EmitDirty(ctx context.Context) {
 
 // EmitOrg recomputes one Organization's usage from its source's last
 // collection stamp to now and upserts it (idempotent per hour slice).
+//
+// The Sovereign's own Organization (overheadOrg) is not a customer: its
+// footprint — every unlabelled platform namespace and any namespace
+// labelled with its slug — is written to the INTERNAL platform source with
+// customer_id NULL and the platform-overhead tier, and it carries no plan
+// line. Every other Organization's records go to its own openova-org
+// source under its customer.
 func (c *PlatformCollector) EmitOrg(ctx context.Context, org string) (int, error) {
 	c.init()
 	now := c.now()
-	cust, err := c.Repo.GetCustomerBySlug(ctx, org)
-	if errors.Is(err, store.ErrNotFound) {
-		// The Organization sync has not created the customer yet; the next
-		// pass picks the records up — nothing is lost, the windows are
-		// recomputed from the tracked lifecycles.
+	c.mu.Lock()
+	internal := org != "" && org == c.overheadOrg
+	c.mu.Unlock()
+	var cust store.Customer
+	var src store.CostSource
+	if internal {
+		var err error
+		if src, _, err = c.Repo.EnsureInternalSource(ctx, org); err != nil {
+			return 0, fmt.Errorf("internal platform source: %w", err)
+		}
+	} else {
+		var err error
+		cust, err = c.Repo.GetCustomerBySlug(ctx, org)
+		if errors.Is(err, store.ErrNotFound) {
+			// The Organization sync has not created the customer yet; the next
+			// pass picks the records up — nothing is lost, the windows are
+			// recomputed from the tracked lifecycles.
+			return 0, nil
+		}
+		if err != nil {
+			return 0, err
+		}
+		if src, err = c.orgSource(ctx, cust); err != nil {
+			return 0, err
+		}
+	}
+	if src.Status == store.StatusDisabled {
+		// Decommissioned: nothing new is collected. Its history stays and
+		// keeps rating on every surface.
 		return 0, nil
-	}
-	if err != nil {
-		return 0, err
-	}
-	src, err := c.orgSource(ctx, cust)
-	if err != nil {
-		return 0, err
 	}
 	from := now.Add(-platformBackfill)
 	if src.LastCollectedAt != nil && !src.LastCollectedAt.IsZero() && src.LastCollectedAt.After(from) {
@@ -562,10 +588,11 @@ func (c *PlatformCollector) EmitOrg(ctx context.Context, org string) (int, error
 				if len(tr.Tags) > 0 {
 					lb["tags"] = tr.Tags
 				}
-				if overhead[keys[i]] {
+				if internal || overhead[keys[i]] {
 					// ADR-0014 D3 case 3: the Sovereign's own footprint is a
 					// platform-overhead line, not tenant consumption. The
-					// allocation view splits on this label (#6850).
+					// allocation view splits on the internal source (#6850);
+					// the label is kept so a record says what it is on its own.
 					lb["tier"] = overheadTier
 				}
 				labels, _ := json.Marshal(lb)
@@ -600,7 +627,8 @@ func (c *PlatformCollector) EmitOrg(ctx context.Context, org string) (int, error
 	// A plan change mid-hour leaves the old plan's partial slice alongside
 	// the new plan's — at most one plan-hour of overlap, kept rather than
 	// deleted because the ledger is append-only per (resource, sku, hour).
-	if plan := billablePlan(cust); plan != "" {
+	// The internal source has no customer and no plan (cust is zero there).
+	if plan := billablePlan(cust); !internal && plan != "" {
 		lc := window.Lifecycle{Created: planStart(cust)}
 		for _, sl := range window.HourSlices(from, now, lc) {
 			qty := window.Quantity(sl.Hours(), 1)
@@ -704,7 +732,9 @@ func (c *PlatformCollector) orgSource(ctx context.Context, cust store.Customer) 
 	if err != nil {
 		return store.CostSource{}, fmt.Errorf("auto-create platform source: %w", err)
 	}
-	if src.Status != "verified" {
+	// A DISABLED source is a decommission the operator asked for: never
+	// re-verify it here, and never collect into it (EmitOrg stops on it).
+	if src.Status != "verified" && src.Status != store.StatusDisabled {
 		if err := c.Repo.SetSourceVerified(ctx, src.ID, ""); err != nil {
 			return store.CostSource{}, err
 		}

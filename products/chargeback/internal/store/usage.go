@@ -44,7 +44,10 @@ func (s *Store) UpsertUsage(ctx context.Context, recs []UsageRecord) (int, error
 		if len(labels) == 0 {
 			labels = []byte("{}")
 		}
-		if _, err := stmt.ExecContext(ctx, r.CustomerID, r.SourceID, r.ResourceID, r.ResourceKind, r.SKU, string(r.Quantity), r.Unit, r.WindowStart, r.WindowEnd, r.Region, []byte(labels), r.RawRef); err != nil {
+		// The internal platform source has no customer: its records carry
+		// customer_id NULL (an empty CustomerID here).
+		cid := r.CustomerID
+		if _, err := stmt.ExecContext(ctx, nullStr(&cid), r.SourceID, r.ResourceID, r.ResourceKind, r.SKU, string(r.Quantity), r.Unit, r.WindowStart, r.WindowEnd, r.Region, []byte(labels), r.RawRef); err != nil {
 			return n, mapErr(err)
 		}
 		n++
@@ -121,16 +124,19 @@ type RatableUsage struct {
 }
 
 // UsageForRating aggregates a customer's records in [from, to) per source and
-// SKU, splitting out the stopped-instance share. The CPU-utilisation sample
-// (ecs.cpu_util) is a metric, not a meter: it is excluded here so a run never
-// reports it as an "unpriced SKU" — the explorer excludes it the same way
-// (#6867), and the two must agree.
+// SKU, splitting out the stopped-instance share, so the rating run can price
+// each source's rows with THAT source's book (DESIGN.md §2). The
+// CPU-utilisation sample (ecs.cpu_util) is a metric, not a meter: it is
+// excluded here so a run never reports it as an "unpriced SKU" — the
+// explorer excludes it the same way (#6867), and the two must agree. The
+// internal platform source is never a customer's and is never rated.
 func (s *Store) UsageForRating(ctx context.Context, customerID string, from, to time.Time) ([]RatableUsage, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT u.source_id, u.sku, u.unit, u.resource_kind, sum(u.quantity)::text,
 		COALESCE(sum(u.quantity) FILTER (WHERE upper(COALESCE(u.labels->>'status','')) IN ('SHUTOFF','STOPPED','SHUTDOWN')
 			OR upper(COALESCE(u.labels->>'server_status','')) IN ('SHUTOFF','STOPPED','SHUTDOWN')), 0)::text,
 		count(DISTINCT u.resource_id)
-		FROM usage_records u WHERE u.customer_id = $1 AND u.window_start >= $2 AND u.window_start < $3 AND u.sku <> 'ecs.cpu_util'
+		FROM usage_records u JOIN cost_sources s ON s.id = u.source_id AND NOT s.internal
+		WHERE u.customer_id = $1 AND u.window_start >= $2 AND u.window_start < $3 AND u.sku <> 'ecs.cpu_util'
 		GROUP BY u.source_id, u.sku, u.unit, u.resource_kind ORDER BY u.source_id, u.sku`, customerID, from, to)
 	if err != nil {
 		return nil, mapErr(err)
@@ -157,13 +163,15 @@ type UsageSummary struct {
 	CustomerCount int     `json:"customer_count"`
 }
 
-// UsageSince aggregates all customers' usage since a time (overview).
+// UsageSince aggregates all customers' usage since a time (overview); the
+// Sovereign's own footprint on the internal source is not a customer's.
 func (s *Store) UsageSince(ctx context.Context, since time.Time, limit int) ([]UsageSummary, error) {
 	if limit <= 0 {
 		limit = 20
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT sku, unit, sum(quantity)::text, count(DISTINCT customer_id) FROM usage_records
-		WHERE window_start >= $1 AND sku <> 'ecs.cpu_util' GROUP BY sku, unit ORDER BY sum(quantity) DESC LIMIT $2`, since, limit)
+	rows, err := s.db.QueryContext(ctx, `SELECT u.sku, u.unit, sum(u.quantity)::text, count(DISTINCT u.customer_id)
+		FROM usage_records u JOIN cost_sources s ON s.id = u.source_id AND NOT s.internal
+		WHERE u.window_start >= $1 AND u.sku <> 'ecs.cpu_util' GROUP BY u.sku, u.unit ORDER BY sum(u.quantity) DESC LIMIT $2`, since, limit)
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -198,20 +206,32 @@ func (s *Store) ListUsageRecords(ctx context.Context, sourceID, resourceID strin
 	defer rows.Close()
 	out := []UsageRecord{}
 	for rows.Next() {
-		var r UsageRecord
-		var q string
-		var labels []byte
-		var rawRef sql.NullString
-		if err := rows.Scan(&r.ID, &r.CustomerID, &r.SourceID, &r.ResourceID, &r.ResourceKind, &r.SKU, &q, &r.Unit, &r.WindowStart, &r.WindowEnd, &r.Region, &labels, &rawRef, &r.CollectedAt); err != nil {
+		r, err := scanUsageRecord(rows)
+		if err != nil {
 			return nil, err
 		}
-		r.Quantity = Decimal(q)
-		r.Labels = labels
-		r.RawRef = rawRef.String
-		r.WindowStart, r.WindowEnd = r.WindowStart.UTC(), r.WindowEnd.UTC()
+		r.CollectedAt = time.Time{}
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// scanUsageRecord reads one raw record; customer_id is NULL on the internal
+// source's rows and reads as "".
+func scanUsageRecord(rows *sql.Rows) (UsageRecord, error) {
+	var r UsageRecord
+	var q string
+	var labels []byte
+	var cid, rawRef sql.NullString
+	if err := rows.Scan(&r.ID, &cid, &r.SourceID, &r.ResourceID, &r.ResourceKind, &r.SKU, &q, &r.Unit, &r.WindowStart, &r.WindowEnd, &r.Region, &labels, &rawRef, &r.CollectedAt); err != nil {
+		return r, err
+	}
+	r.CustomerID = cid.String
+	r.Quantity = Decimal(q)
+	r.Labels = labels
+	r.RawRef = rawRef.String
+	r.WindowStart, r.WindowEnd, r.CollectedAt = r.WindowStart.UTC(), r.WindowEnd.UTC(), r.CollectedAt.UTC()
+	return r, nil
 }
 
 // PeriodBounds turns "YYYY-MM" into [first day, first day of next month).

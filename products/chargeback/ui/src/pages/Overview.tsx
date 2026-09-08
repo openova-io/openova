@@ -5,6 +5,7 @@ import { exploreQuery } from '../api/types'
 import { Donut, EmptyChart, ProgressBar, RankedBars, StackedBars, seriesFromExplore } from '../components/charts'
 import { Badge, Delta, KPI, Notice, PageHeader, Skeleton } from '../components/ui'
 import { describeUnconverted } from '../lib/currencies'
+import { notSoldPerUseNote } from '../lib/layers'
 import { bucketLabel, describeWindow, presetWindow } from '../lib/dates'
 import { formatMoney, formatPct } from '../lib/money'
 import { customerLens, lensFor, pageHref, type Lens } from '../lib/scope'
@@ -79,11 +80,12 @@ export function OverviewBody({ lens, title, embedded }: { lens: Lens; title?: st
       ) : null}
       {k.unpricedCount > 0 ? (
         <Notice kind="warn">
-          {k.unpricedCount} SKU{k.unpricedCount === 1 ? '' : 's'} in use carry no rate in the price book, so their cost shows as 0:{' '}
+          {k.unpricedCount} SKU{k.unpricedCount === 1 ? '' : 's'} in use carry no rate in the price book of the source that meters them, so their cost shows as 0:{' '}
           <span className="mono">{s.unpriced_skus.map((u) => u.sku).join(', ')}</span>.{' '}
           {lens.operator ? <Link to="/pricebooks">Add rates</Link> : null}
         </Notice>
       ) : null}
+      {Array.isArray(s.not_sold_per_use) && s.not_sold_per_use.length > 0 ? <Notice kind="info">{notSoldPerUseNote(s.not_sold_per_use)}</Notice> : null}
 
       {embedded ? null : (
         <div className="kpis">

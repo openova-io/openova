@@ -35,7 +35,7 @@ func seedCurrencyAPI(t *testing.T, st *store.Store) fxAPISeed {
 		if _, err := st.PutPriceItems(ctx, b.ID, []store.PriceItem{{SKU: "ecs.m7n.xlarge.8", Unit: "instance-hour", UnitPrice: "0.5"}}, true); err != nil {
 			t.Fatal(err)
 		}
-		c, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: slug, Name: strings.ToUpper(slug), AdminEmail: slug + "@x.example", PriceBookID: b.ID, StartDate: "2026-08-01"})
+		c, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: slug, Name: strings.ToUpper(slug), AdminEmail: slug + "@x.example", StartDate: "2026-08-01"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -43,6 +43,7 @@ func seedCurrencyAPI(t *testing.T, st *store.Store) fxAPISeed {
 		if err != nil {
 			t.Fatal(err)
 		}
+		assignBook(t, st, src.ID, b.ID)
 		if _, err := st.UpsertInventory(ctx, src.ID, []store.InventoryUpsert{{ResourceID: "vm-" + slug, Kind: "ecs", Name: "vm-" + slug,
 			Attrs: map[string]any{"status": "ACTIVE", "flavor": "m7n.xlarge.8"}, Created: dayAt(2026, 8, 20), SeenAt: dayAt(2026, 9, 7).Add(23 * time.Hour)}}); err != nil {
 			t.Fatal(err)

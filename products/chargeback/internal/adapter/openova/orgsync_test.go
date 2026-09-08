@@ -288,11 +288,12 @@ func TestReadOrgPlanSlug(t *testing.T) {
 	}
 }
 
-// TestSyncOrganizationPlanAndBook: a synced Organization carries its plan and
-// is put on the "OpenOva plans" book when it has none; an explicit book is
-// never overwritten; a plan change on the CR follows; the Sovereign's own
-// Organization gets neither a plan nor the book; the book is ensured, never
-// re-created (the fake counts calls and returns the same book).
+// TestSyncOrganizationPlanAndBook: a synced Organization carries its plan
+// and its PLATFORM SOURCE is put on the "OpenOva plans" book when it has
+// none (DESIGN.md §2 — the book belongs to the source, never to the
+// customer); an explicit book on the source is never overwritten; a plan
+// change on the CR follows; the book is ensured, never re-created (the fake
+// counts calls and returns the same book).
 func TestSyncOrganizationPlanAndBook(t *testing.T) {
 	repo := newFakeRepo()
 	s := &OrgSync{Core: k8sfake.NewSimpleClientset(), Repo: repo, Keys: testKeys(t), Metrics: metrics.New()}
@@ -302,53 +303,151 @@ func TestSyncOrganizationPlanAndBook(t *testing.T) {
 		t.Fatal(err)
 	}
 	c, _ := repo.customerBySlug("acme")
-	if c.PlanSlug != "m" || c.PriceBookID == nil || *c.PriceBookID != repo.planBook.ID {
-		t.Fatalf("customer = plan %q book %v, want m on the plan book %s", c.PlanSlug, c.PriceBookID, repo.planBook.ID)
+	if c.PlanSlug != "m" || c.PriceBookID != nil {
+		t.Fatalf("customer = plan %q book %v, want m and NO customer-level book", c.PlanSlug, c.PriceBookID)
+	}
+	orgSource := func() store.CostSource {
+		t.Helper()
+		for _, src := range repo.sourcesOf(c.ID) {
+			if src.Kind == SourceKindOrg {
+				return src
+			}
+		}
+		t.Fatalf("no platform source for acme: %+v", repo.sourcesOf(c.ID))
+		return store.CostSource{}
+	}
+	src := orgSource()
+	if src.Layer != store.LayerPlatform || src.PriceBookID == nil || *src.PriceBookID != repo.planBook.ID {
+		t.Fatalf("platform source = layer %q book %v, want the plan book %s", src.Layer, src.PriceBookID, repo.planBook.ID)
 	}
 	if repo.planBook.Name != store.PlanBookName || len(repo.planBook.Items) != 4 {
 		t.Fatalf("plan book = %+v", repo.planBook)
 	}
 
-	// Operator moves acme to a negotiated clone; the CR upgrades to xl.
+	// Operator moves the SOURCE to a negotiated clone; the CR upgrades to xl.
 	clone := "book-negotiated"
-	if _, err := repo.UpdateCustomer(ctx, c.ID, store.CustomerPatch{PriceBookID: &clone}); err != nil {
+	if err := repo.SetSourcePriceBook(ctx, src.ID, clone); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SyncOrganization(ctx, orgUnstructured("acme", func(spec map[string]any) { spec["planSlug"] = "XL" })); err != nil {
 		t.Fatal(err)
 	}
 	c, _ = repo.customerBySlug("acme")
-	if c.PlanSlug != "xl" || c.PriceBookID == nil || *c.PriceBookID != clone {
-		t.Fatalf("after resync: plan %q book %v, want xl on the negotiated clone", c.PlanSlug, c.PriceBookID)
+	if src = orgSource(); c.PlanSlug != "xl" || src.PriceBookID == nil || *src.PriceBookID != clone {
+		t.Fatalf("after resync: plan %q source book %v, want xl on the negotiated clone", c.PlanSlug, src.PriceBookID)
 	}
 
-	// A customer that lost its book gets the plan book back; the book itself
+	// A source that lost its book gets the plan book back; the book itself
 	// was ensured on every sync and created exactly once.
-	empty := ""
-	if _, err := repo.UpdateCustomer(ctx, c.ID, store.CustomerPatch{PriceBookID: &empty}); err != nil {
+	if err := repo.SetSourcePriceBook(ctx, src.ID, ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SyncOrganization(ctx, acme); err != nil {
 		t.Fatal(err)
 	}
-	c, _ = repo.customerBySlug("acme")
-	if c.PriceBookID == nil || *c.PriceBookID != repo.planBook.ID {
-		t.Fatalf("bookless customer not re-assigned: %v", c.PriceBookID)
+	if src = orgSource(); src.PriceBookID == nil || *src.PriceBookID != repo.planBook.ID {
+		t.Fatalf("bookless source not re-assigned: %v", src.PriceBookID)
 	}
 	if repo.planCalls != 3 {
-		t.Fatalf("EnsurePlanBook calls = %d, want one per tenant sync (3)", repo.planCalls)
-	}
-
-	// The Sovereign's own Organization: no plan, no book, and the book is
-	// not even consulted.
-	if err := s.SyncOrganization(ctx, orgUnstructured("platform", func(spec map[string]any) { spec["kind"] = "internal" })); err != nil {
-		t.Fatal(err)
-	}
-	own, _ := repo.customerBySlug("platform")
-	if own.PlanSlug != "" || own.PriceBookID != nil || repo.planCalls != 3 {
-		t.Fatalf("internal org = plan %q book %v calls %d", own.PlanSlug, own.PriceBookID, repo.planCalls)
+		t.Fatalf("EnsurePlanBook calls = %d, want one per Organization sync (3)", repo.planCalls)
 	}
 }
+
+// TestSyncInternalOrganizationIsNotACustomer (DESIGN.md §2, founder
+// direction 2026-09-08): the Sovereign's OWN Organization gets NO customer
+// row at all — its footprint lives on the internal openova-platform source
+// with no customer — and the plan book is not even consulted for it. On the
+// old code this created a customer, which is the mixing the founder rejected.
+func TestSyncInternalOrganizationIsNotACustomer(t *testing.T) {
+	repo := newFakeRepo()
+	sink := &fakeOverheadSink{}
+	s := &OrgSync{Core: k8sfake.NewSimpleClientset(), Repo: repo, Keys: testKeys(t), Metrics: metrics.New(), OverheadSink: sink}
+	ctx := context.Background()
+	org := orgUnstructured("platform", func(spec map[string]any) { spec["kind"] = "internal"; spec["planSlug"] = "xl" })
+	if err := s.SyncOrganization(ctx, org); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := repo.customerBySlug("platform"); ok {
+		t.Fatal("the Sovereign's own Organization was synced as a customer — the Sovereign is not a customer")
+	}
+	if repo.planCalls != 0 {
+		t.Fatalf("plan book consulted for the internal Organization: %d calls", repo.planCalls)
+	}
+	if sink.slug != "platform" {
+		t.Fatalf("overhead sink = %q, want the internal Organization's slug", sink.slug)
+	}
+	src, ok := repo.internalSource("platform")
+	if !ok {
+		t.Fatal("no internal platform source ensured; the Sovereign's footprint would be dropped")
+	}
+	if !src.Internal || src.CustomerID != "" || src.Kind != store.SourceKindPlatform || src.Layer != store.LayerPlatform || src.Status != "verified" {
+		t.Fatalf("internal source = %+v", src)
+	}
+	// A second sync is idempotent: no duplicate source, still no customer.
+	if err := s.SyncOrganization(ctx, org); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(repo.sources); n != 1 {
+		t.Fatalf("sources after resync = %d, want the one internal source", n)
+	}
+	// Deleting the internal Organization suspends nothing (it has no customer).
+	if err := s.SuspendOrganization(ctx, org); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestSyncInternalOrganizationRetiresTheOldCustomer: a database written by
+// the previous model, where the Sovereign's own Organization IS a customer
+// holding an openova-org source, is migrated on the first sync — the
+// customer becomes a plain external one (its cloud sources stay with it) and
+// the openova-org source becomes the internal source with no customer.
+func TestSyncInternalOrganizationRetiresTheOldCustomer(t *testing.T) {
+	repo := newFakeRepo()
+	ctx := context.Background()
+	old := repo.addActiveCustomer("hw307-omani-works")
+	orgSrc, _, err := repo.UpsertSource(ctx, old.ID, SourceKindOrg, "", "hw307-omani-works")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cloudSrc, _, err := repo.UpsertSource(ctx, old.ID, "huawei-project", "me-east-215", "proj-landlord")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &OrgSync{Core: k8sfake.NewSimpleClientset(), Repo: repo, Keys: testKeys(t), Metrics: metrics.New()}
+	if err := s.SyncOrganization(ctx, orgUnstructured("hw307-omani-works", func(spec map[string]any) { spec["kind"] = "internal" })); err != nil {
+		t.Fatal(err)
+	}
+	c, ok := repo.customerBySlug("hw307-omani-works")
+	if !ok || c.Kind != "external" || c.OrgSlug != nil || c.PlanSlug != "" {
+		t.Fatalf("landlord customer after retirement = %+v ok=%v", c, ok)
+	}
+	if len(repo.retired) != 1 || repo.retired[0] != old.ID {
+		t.Fatalf("RetireOrganizationCustomer calls = %v", repo.retired)
+	}
+	var cloud, internal, org int
+	for _, src := range repo.sourcesOf(c.ID) {
+		switch src.Kind {
+		case "huawei-project":
+			cloud++
+			if src.ID != cloudSrc.ID || src.Layer != store.LayerCloud {
+				t.Fatalf("the landlord's cloud source must stay with it: %+v", src)
+			}
+		case SourceKindOrg:
+			org++
+		}
+	}
+	if src, ok := repo.internalSource("hw307-omani-works"); ok && src.ID == orgSrc.ID && src.Internal && src.CustomerID == "" {
+		internal++
+	}
+	if cloud != 1 || org != 0 || internal != 1 {
+		t.Fatalf("after retirement: cloud=%d org=%d internal=%d, want 1/0/1", cloud, org, internal)
+	}
+}
+
+// fakeOverheadSink records the slug OrgSync publishes to the collector.
+type fakeOverheadSink struct{ slug string }
+
+func (f *fakeOverheadSink) SetOverheadOrg(slug string) { f.slug = slug }
 
 // TestSyncOrganizationResumeStampsPlatformSource: an Organization that was
 // deleted (customer suspended) and re-created resumes with its platform

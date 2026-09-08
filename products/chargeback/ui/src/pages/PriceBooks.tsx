@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { API_BASE, api, asList, errorText } from '../api/client'
-import type { PriceBook, PriceBookCoverage, PriceItem } from '../api/types'
+import type { Layer, PriceBook, PriceBookCoverage, PriceItem } from '../api/types'
 import { DataTable, type Column } from '../components/DataTable'
+import { Badge } from '../components/ui'
 import { CurrencyRatesCard } from '../components/CurrencyRates'
 import { BookSettingsModal, CloneBookModal, DeleteBookConfirm, billStoppedLabel, settingsFrom } from '../components/PriceBookForms'
-import { KPI, Notice, PageHeader, ShareBar, Skeleton } from '../components/ui'
+import { KPI, Notice, PageHeader, Segmented, ShareBar, Skeleton } from '../components/ui'
 import { day } from '../lib/format'
 import { formatPct } from '../lib/money'
+import { booksInScope, layerLabel, scopeCounts, scopeOf } from '../lib/layers'
 import { useCustomers } from '../lib/useCustomers'
 import { useQuery } from '../lib/useQuery'
 
@@ -36,6 +38,9 @@ export function PriceBooks() {
   const [extras, setExtras] = useState<Record<string, Extra>>({})
   const [dialog, setDialog] = useState<Dialog>(null)
   const [flash, setFlash] = useState('')
+  // DESIGN.md §2: a book prices ONE layer. The filter is how an operator
+  // finds the cloud rate cards without the plans book in the way.
+  const [scope, setScope] = useState<Layer | 'all'>('all')
 
   // Coverage + item count per book. The list endpoint may omit items; the
   // detail call fills the count in only when it does.
@@ -70,11 +75,15 @@ export function PriceBooks() {
   }, [list])
 
   const rows: Row[] = useMemo(
-    () => list.map((b) => ({ ...b, ...(extras[b.id] ?? { coverage: null, coverageError: '', itemCount: Array.isArray(b.items) ? b.items.length : null }) })),
-    [list, extras],
+    () => booksInScope(list, scope).map((b) => ({ ...b, ...(extras[b.id] ?? { coverage: null, coverageError: '', itemCount: Array.isArray(b.items) ? b.items.length : null }) })),
+    [list, extras, scope],
   )
-  const assignedOf = (r: Row) => r.coverage?.customers ?? customers.filter((c) => c.price_book_id === r.id).map((c) => ({ id: c.id, name: c.name, slug: c.slug }))
-  const withoutBook = customers.filter((c) => !c.price_book_id)
+  const counts = scopeCounts(list)
+  // Assignment lives on the SOURCE (DESIGN.md §2), so the count comes from
+  // the coverage document's `sources`; `customers` is its distinct owners.
+  const sourcesOf = (r: Row) => r.coverage?.sources ?? []
+  const assignedOf = (r: Row) => r.coverage?.customers ?? []
+  const withoutBook = customers.filter((c) => (c.cloud_source_count ?? 0) + (c.platform_source_count ?? 0) === 0)
   const coverageKnown = rows.filter((r) => r.coverage)
   const unpriced = coverageKnown.reduce((n, r) => n + (r.coverage?.unpriced_count ?? 0), 0)
 
@@ -90,16 +99,31 @@ export function PriceBooks() {
         </>
       ),
     },
+    {
+      key: 'scope',
+      header: 'Scope',
+      value: (r) => scopeOf(r),
+      render: (r) => <Badge status={layerLabel(scopeOf(r))} kind={scopeOf(r) === 'cloud' ? 'info' : undefined} />,
+    },
     { key: 'currency', header: 'Currency', value: (r) => r.currency },
     { key: 'items', header: 'Items', value: (r) => r.itemCount, numeric: true, render: (r) => (r.itemCount === null ? <span className="muted">…</span> : r.itemCount.toLocaleString()) },
     {
-      key: 'customers',
-      header: 'Customers',
-      value: (r) => assignedOf(r).length,
+      key: 'sources',
+      header: 'Sources',
+      value: (r) => sourcesOf(r).length,
       numeric: true,
       render: (r) => {
-        const a = assignedOf(r)
-        return a.length ? <span title={a.map((c) => c.name).join(', ')}>{a.length}</span> : <span className="muted">none</span>
+        const srcs = sourcesOf(r)
+        const owners = assignedOf(r)
+        if (!srcs.length) return <span className="muted">none</span>
+        return (
+          <span title={srcs.map((s) => `${s.customer_name} · ${s.label}`).join(', ')}>
+            {srcs.length}
+            <span className="sub">
+              {owners.length} customer{owners.length === 1 ? '' : 's'}
+            </span>
+          </span>
+        )
       },
     },
     {
@@ -154,7 +178,7 @@ export function PriceBooks() {
     <div className="stack">
       <PageHeader
         title="Price books"
-        sub={`${list.length} book${list.length === 1 ? '' : 's'} · ${customers.length} customer${customers.length === 1 ? '' : 's'} · coverage measured on the last 30 days of usage`}
+        sub={`${counts.cloud} cloud · ${counts.platform} platform · a book prices one layer, and is assigned to the sources of that layer · coverage measured on the last 30 days of usage`}
         actions={
           <>
             <a href={`${API_BASE}/pricebooks/template.csv`}>
@@ -170,11 +194,11 @@ export function PriceBooks() {
       {flash ? <Notice kind="ok">{flash}</Notice> : null}
 
       <div className="kpis">
-        <KPI label="Price books" value={list.length} note={`${rows.filter((r) => assignedOf(r).length > 0).length} in use by a customer`} />
+        <KPI label="Price books" value={list.length} note={`${counts.cloud} cloud · ${counts.platform} platform`} />
         <KPI
-          label="Customers without a book"
+          label="Customers without a source"
           value={withoutBook.length}
-          note={withoutBook.length ? 'their usage rates as 0 until a book is assigned' : 'every customer is priced'}
+          note={withoutBook.length ? 'nothing is collected for them at all' : 'every customer has a cost source'}
           tone={withoutBook.length ? 'warn' : undefined}
           hint={withoutBook.map((c) => c.name).join(', ')}
         />
@@ -184,6 +208,23 @@ export function PriceBooks() {
           note={unpriced ? 'in use in the last 30 days without a rate — cost shows as 0' : 'every SKU in use carries a rate'}
           tone={unpriced ? 'warn' : undefined}
         />
+      </div>
+
+      <div className="toolbar" role="region" aria-label="Price book scope">
+        <div className="field">
+          <label>Scope</label>
+          <Segmented<Layer | 'all'>
+            value={scope}
+            options={[
+              { value: 'all', label: `All (${counts.total})` },
+              { value: 'cloud', label: `Cloud (${counts.cloud})` },
+              { value: 'platform', label: `Platform (${counts.platform})` },
+            ]}
+            onChange={setScope}
+            ariaLabel="Price book scope filter"
+          />
+        </div>
+        <span className="muted small">A cloud book prices cloud SKUs; a platform book prices plans, and the k8s meters only when they are sold per use.</span>
       </div>
 
       <div className="card pad-0">

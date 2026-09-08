@@ -50,7 +50,7 @@ describe('sourceCounts / sourcesText', () => {
     expect(sourcesText(c)).toBe('2/3')
   })
   it('counts embedded rows on the detail document', () => {
-    const c = cust({ sources: [{ id: 'a', kind: 'huawei-project', region: 'r', project_id: 'p', status: 'verified' }, { id: 'b', kind: 'huawei-project', region: 'r', project_id: 'q', status: 'pending' }] })
+    const c = cust({ sources: [{ id: 'a', kind: 'huawei-project', region: 'r', project_id: 'p', status: 'verified', layer: 'cloud' }, { id: 'b', kind: 'huawei-project', region: 'r', project_id: 'q', status: 'pending', layer: 'cloud' }] })
     expect(sourcesText(c)).toBe('1/2')
   })
   it('says "—" when the document did not say, and a bare total when only that is known', () => {
@@ -83,7 +83,7 @@ describe('mtdByCustomer / mtdFor', () => {
 })
 
 describe('priceBookName', () => {
-  const books: PriceBook[] = [{ id: 'pb-1', name: 'Standard', currency: 'OMR', annual_divisor: 8760, bill_stopped: 'compute' }]
+  const books: PriceBook[] = [{ id: 'pb-1', name: 'Standard', scope: 'cloud', currency: 'OMR', annual_divisor: 8760, bill_stopped: 'compute' }]
   it('joins by id and returns null for none / unknown', () => {
     expect(priceBookName(books, 'pb-1')).toBe('Standard')
     expect(priceBookName(books, 'pb-9')).toBeNull()

@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
-import type { Customer, PriceBook } from '../api/types'
+import type { Customer } from '../api/types'
 import { Badge, Confirm, Field, Notice } from '../components/ui'
 import { BILLING_MODES, CUSTOMER_KINDS, customerPatch, fieldLabel, settingsFrom, type CustomerSettings } from '../lib/customers'
 import { hasErrors, validateSettings, type Errors } from '../lib/forms'
@@ -12,7 +12,7 @@ import { useAction } from '../lib/useAction'
  * (#6867). Only changed fields are sent, so a save never rewrites a value
  * the operator did not touch.
  */
-export function SettingsPanel({ customer, books, onSaved }: { customer: Customer; books: PriceBook[]; onSaved: (c: Customer) => void | Promise<void> }) {
+export function SettingsPanel({ customer, onSaved }: { customer: Customer; onSaved: (c: Customer) => void | Promise<void> }) {
   const [form, setForm] = useState<CustomerSettings>(() => settingsFrom(customer))
   const [errors, setErrors] = useState<Errors<CustomerSettings>>({})
   const [deleting, setDeleting] = useState(false)
@@ -78,23 +78,19 @@ export function SettingsPanel({ customer, books, onSaved }: { customer: Customer
               ))}
             </select>
           </Field>
-          <Field label="Price book" error={errors.price_book_id} help={form.price_book_id ? undefined : 'Without a price book nothing is rated — every cost shows as 0.'}>
-            <select value={form.price_book_id} onChange={(e) => set('price_book_id', e.target.value)}>
-              <option value="">— none —</option>
-              {books.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name} ({b.currency})
-                </option>
-              ))}
-            </select>
-          </Field>
-        </div>
-        <div className="grid2">
           <Field label="Start date" error={errors.start_date} help="Usage before this day is not billed.">
             <input type="date" value={form.start_date} onChange={(e) => set('start_date', e.target.value)} />
           </Field>
+        </div>
+        <div className="grid2">
           <Field label="Kind" help={kind?.help}>
             <input value={kind?.label ?? customer.kind ?? 'external'} disabled />
+          </Field>
+          {/* DESIGN.md §2: a price book is assigned to each SOURCE, not to
+              the customer — a cloud source takes a cloud book, a platform
+              source a platform book. */}
+          <Field label="Price books" help="Assigned per cost source: a cloud source takes a cloud book, a platform source a platform book.">
+            <Link to={`/customers/${customer.id}?tab=sources`}>Assign them on the Sources tab</Link>
           </Field>
         </div>
         {(customer.kind ?? 'external') === 'organization' ? (

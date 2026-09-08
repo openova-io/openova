@@ -267,6 +267,14 @@
     "resources": 4,
     "to": "2026-09-08"
   },
+  "not_sold_per_use": [
+    {
+      "sku": "k8s.vcpu",
+      "unit": "vcpu-hour",
+      "quantity": 84.000000,
+      "resources": 1
+    }
+  ],
   "now": "2026-09-08T10:00:00Z",
   "prev_mtd": {
     "cost": 42.000000,
@@ -319,9 +327,9 @@
   "unconverted": [],
   "unpriced_skus": [
     {
-      "sku": "k8s.vcpu",
-      "unit": "vcpu-hour",
-      "quantity": 84.000000,
+      "sku": "eip.bandwidth_mbps",
+      "unit": "mbps-hour",
+      "quantity": 840.000000,
       "resources": 1
     }
   ]

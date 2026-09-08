@@ -46,11 +46,11 @@ func seedLedger(t *testing.T, st *store.Store) seeded {
 	}, true); err != nil {
 		t.Fatal(err)
 	}
-	a, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "acme", Name: "Acme", AdminEmail: "a@acme.example", PriceBookID: book.ID, StartDate: "2026-08-01"})
+	a, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "acme", Name: "Acme", AdminEmail: "a@acme.example", StartDate: "2026-08-01"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "bravo", Name: "Bravo", AdminEmail: "b@bravo.example", PriceBookID: book.ID, StartDate: "2026-08-01"})
+	b, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "bravo", Name: "Bravo", AdminEmail: "b@bravo.example", StartDate: "2026-08-01"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,6 +66,10 @@ func seedLedger(t *testing.T, st *store.Store) seeded {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The cloud sources bill against the cloud book; A's platform source has
+	// no book, so its k8s.vcpu is unpriced (DESIGN.md §2: per-source books).
+	assignBook(t, st, srcA.ID, book.ID)
+	assignBook(t, st, srcB.ID, book.ID)
 	var recs []store.UsageRecord
 	rec := func(c store.Customer, src store.CostSource, res, kind, sku, unit string, qty float64, at time.Time, labels map[string]any) {
 		lb, _ := json.Marshal(labels)

@@ -96,6 +96,20 @@ test.describe('chargeback cost console (#6867)', () => {
     for (const tab of ['Overview', 'Cost', 'Resources', 'Statements', 'Discounts', 'Budgets', 'Sources', 'Users', 'Settings', 'Audit']) {
       await expect(page.locator('.tabs a').filter({ hasText: new RegExp(`^${tab}`) })).toBeVisible()
     }
+    // DESIGN.md §2 — the price book is a property of the SOURCE: the Sources
+    // tab carries the layer badge and the scoped select, and Settings no
+    // longer has a price-book field at all.
+    await page.locator('.tabs a').filter({ hasText: /^Sources/ }).click()
+    const srcRow = page.locator('table').first().locator('tbody tr', { hasText: 'e2e-project' })
+    await expect(srcRow).toContainText('Cloud')
+    const bookSelect = srcRow.getByLabel('Price book for e2e-project')
+    await expect(bookSelect).toBeVisible()
+    await expect(bookSelect.locator('option', { hasText: 'E2E list' })).toHaveCount(1)
+    await page.locator('.tabs a').filter({ hasText: /^Settings/ }).click()
+    await expect(page.getByRole('heading', { name: 'Customer settings' })).toBeVisible()
+    await expect(page.getByLabel('Price book', { exact: true })).toHaveCount(0)
+    await expect(page.getByText('Assign them on the Sources tab')).toBeVisible()
+    await page.goto(`${BASE}/customers/${CUSTOMER}?tab=discounts`)
     // Discount: 10 % on the whole bill, created through the UI.
     await page.getByRole('button', { name: /New discount/ }).click()
     const dlg = page.getByRole('dialog')
@@ -139,11 +153,20 @@ test.describe('chargeback cost console (#6867)', () => {
     await expect(page.getByText('Elastic Cloud Server')).toBeVisible()
   })
 
-  test('price books: coverage 100 %, items editable inline; discounts and budgets pages list the created rows', async ({ page }) => {
+  test('price books: cloud scope, coverage 100 %, items editable inline; discounts and budgets pages list the created rows', async ({ page }) => {
     await page.goto(`${BASE}/pricebooks`)
-    await expect(page.locator('table').first().locator('tbody tr', { hasText: 'E2E list' })).toContainText('100 %')
-    await page.locator('table').first().locator('tbody tr', { hasText: 'E2E list' }).getByRole('link', { name: 'E2E list' }).click()
+    const bookRow = page.locator('table').first().locator('tbody tr', { hasText: 'E2E list' })
+    await expect(bookRow).toContainText('100 %')
+    // DESIGN.md §2: a book prices ONE layer, and the list says which. The
+    // seeded book is a cloud book, assigned to one cloud source.
+    await expect(bookRow).toContainText('Cloud')
+    await expect(page.getByRole('group', { name: 'Price book scope filter' })).toBeVisible()
+    await expect(bookRow.locator('td').nth(4)).toContainText('1')
+    await bookRow.getByRole('link', { name: 'E2E list' }).click()
     await expect(page.getByText('ecs.m7n.xlarge.8')).toBeVisible()
+    // The coverage card is measured over the sources assigned to the book.
+    await expect(page.getByRole('heading', { name: 'SKUs in use by the sources assigned to this book' })).toBeVisible()
+    await expect(page.getByText('e2e-project').first()).toBeVisible()
     await page.goto(`${BASE}/discounts`)
     await expect(page.locator('table').first().locator('tbody tr', { hasText: 'E2E ten percent' })).toBeVisible()
     await page.goto(`${BASE}/budgets`)
@@ -158,6 +181,9 @@ test.describe('chargeback cost console (#6867)', () => {
     await page.goto(`${BASE}/allocation`)
     await expect(page.getByRole('heading', { name: 'Allocation' })).toBeVisible()
     await expect(page.getByText('Basis weights')).toBeVisible()
+    // It is a report over the two layers, never billing (DESIGN.md §2.8).
+    await expect(page.getByText('A report over the two layers, not billing')).toBeVisible()
+    await expect(page.getByText(/Landlord customer/)).toBeVisible()
   })
 
   test('explorer: hourly grain, tag dimension, custom compare window', async ({ page }) => {
@@ -197,6 +223,15 @@ test.describe('chargeback cost console (#6867)', () => {
     await dlg.getByRole('button', { name: /Close|Done/ }).click().catch(() => page.keyboard.press('Escape'))
     await row.getByRole('button', { name: 'Send now' }).click()
     await expect(page.locator('.notice.ok')).toContainText('fin@acme-e2e.example')
+  })
+
+  test('customers list: the Sources column counts by layer, not a price book', async ({ page }) => {
+    await page.goto(`${BASE}/customers`)
+    const row = page.locator('table').first().locator('tbody tr', { hasText: 'Acme E2E' })
+    await expect(row).toBeVisible()
+    await expect(row).toContainText('1 cloud')
+    await expect(page.locator('table').first().locator('thead')).toContainText('Sources')
+    await expect(page.locator('table').first().locator('thead')).not.toContainText('Price book')
   })
 
   test('a customer principal is scoped: another customer id is not found and operator pages redirect', async ({ browser }) => {

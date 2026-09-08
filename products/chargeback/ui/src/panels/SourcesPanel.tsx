@@ -1,57 +1,129 @@
 import { useState, type FormEvent } from 'react'
 import { api, errorText } from '../api/client'
-import type { CostSource } from '../api/types'
+import type { CostSource, PriceBook } from '../api/types'
 import { DataTable, type Column } from '../components/DataTable'
 import { Badge, Confirm, Field, Modal, Notice, Skeleton } from '../components/ui'
 import { when } from '../lib/format'
 import { hasErrors, validateSource, type Errors, type SourceForm } from '../lib/forms'
+import { CLOUD_SOURCE_KINDS, bookCellText, booksForSource, layerLabel, layerOf, sourceKindLabel } from '../lib/layers'
 import { useAction } from '../lib/useAction'
 
 export const SCOPE_TOKEN_HELP = 'Bills only resources whose name carries this token (e.g. a deployment id) — empty bills the whole project.'
 
-const KINDS: ReadonlyArray<{ value: string; label: string; help: string }> = [
-  { value: 'huawei-project', label: 'Huawei project', help: 'Metered through the Huawei APIs with an AK/SK of the project.' },
-  { value: 'openova-org', label: 'OpenOva Organization', help: 'Usage allocated from this Sovereign to one Organization.' },
-  { value: 'k8s-namespace', label: 'Kubernetes namespace', help: 'Pod resource usage of one namespace.' },
-  { value: 'file', label: 'File', help: 'Usage uploaded as CSV.' },
-]
+export const BOOK_HELP = 'The rate card that prices THIS source. A cloud source takes a cloud book, a platform source a platform book — the two layers are never priced by the same card.'
 
 type Dialog = { kind: 'add' } | { kind: 'edit'; source: CostSource } | { kind: 'rotate'; source: CostSource } | { kind: 'delete'; source: CostSource } | { kind: 'purge'; source: CostSource } | null
 
 /**
- * Cost sources of one customer (#6867). `canManage` = add / edit every
- * field / verify / delete (operator); `canRotate` = credential rotation
- * (operator + customer-admin); `canEditScope` = the customer-admin may edit
- * scope_token only — region and project decide what is billed and stay
- * with the operator. The secret key is write-only and never read back.
+ * Cost sources of one customer (#6867, DESIGN.md §2). Each source carries
+ * its LAYER (cloud or platform) and the price book that rates it — the book
+ * is a property of the source, never of the customer — so the book select
+ * offers only the books of the matching scope.
+ *
+ * `canManage` = add / edit every field / assign the book / verify / delete
+ * (operator); `canRotate` = credential rotation (operator + customer-admin);
+ * `canEditScope` = the customer-admin may edit scope_token only — region,
+ * project and the price book decide what is billed and stay with the
+ * operator. The secret key is write-only and never read back.
  */
 export function SourcesPanel({
   customerId,
   sources,
+  books,
   canManage,
   canRotate,
   canEditScope,
   onChanged,
   loading,
+  autoAdd,
 }: {
   customerId: string
   sources: CostSource[]
+  books?: PriceBook[]
   canManage: boolean
   canRotate: boolean
   canEditScope?: boolean
   onChanged: () => void | Promise<void>
   loading?: boolean
+  /** Open the add-source modal immediately (the new-customer flow). */
+  autoAdd?: boolean
 }) {
   const act = useAction()
-  const [dialog, setDialog] = useState<Dialog>(null)
+  const [dialog, setDialog] = useState<Dialog>(autoAdd ? { kind: 'add' } : null)
   const [purge, setPurge] = useState<{ ok?: string; err?: string }>({})
+  const [bookDraft, setBookDraft] = useState<Record<string, string>>({})
+  const [bookErr, setBookErr] = useState<Record<string, string>>({})
+  const [bookBusy, setBookBusy] = useState<string | null>(null)
+  const catalogue = books ?? []
   const editable: Array<keyof SourceForm> = canManage ? ['region', 'project_id', 'domain_id', 'scope_token'] : canEditScope ? ['scope_token'] : []
   const close = () => setDialog(null)
 
+  const saveBook = async (s: CostSource) => {
+    const next = bookDraft[s.id] ?? ''
+    setBookBusy(s.id)
+    setBookErr((p) => ({ ...p, [s.id]: '' }))
+    try {
+      await api.patch(`/sources/${s.id}`, { price_book_id: next })
+      setBookDraft((p) => {
+        const { [s.id]: _gone, ...rest } = p
+        return rest
+      })
+      await onChanged()
+    } catch (e) {
+      setBookErr((p) => ({ ...p, [s.id]: errorText(e) }))
+    } finally {
+      setBookBusy(null)
+    }
+  }
+
   const columns: Column<CostSource>[] = [
-    { key: 'kind', header: 'Kind', value: (s) => s.kind, render: (s) => KINDS.find((k) => k.value === s.kind)?.label ?? s.kind },
+    { key: 'kind', header: 'Kind', value: (s) => s.kind, render: (s) => sourceKindLabel(s.kind) },
+    {
+      key: 'layer',
+      header: 'Layer',
+      value: (s) => layerOf(s),
+      render: (s) => <Badge status={layerLabel(layerOf(s))} kind={layerOf(s) === 'cloud' ? 'info' : undefined} />,
+    },
     { key: 'region', header: 'Region', value: (s) => s.region, render: (s) => s.region || <span className="muted">—</span> },
     { key: 'project', header: 'Project', value: (s) => s.project_id, render: (s) => (s.project_id ? <span className="mono">{s.project_id}</span> : <span className="muted">—</span>) },
+    {
+      key: 'book',
+      header: 'Price book',
+      value: (s) => s.price_book_name ?? '',
+      render: (s) => {
+        const offered = booksForSource(catalogue, s)
+        const current = s.price_book_id ?? ''
+        const draft = bookDraft[s.id]
+        const dirty = draft !== undefined && draft !== current
+        if (!canManage || s.internal) {
+          return s.price_book_id ? <span>{bookCellText(s)}</span> : <span className="muted warn">{bookCellText(s)}</span>
+        }
+        return (
+          <span className="btn-row">
+            <select
+              value={draft ?? current}
+              aria-label={`Price book for ${s.project_id || s.kind}`}
+              disabled={bookBusy === s.id}
+              onChange={(e) => setBookDraft((p) => ({ ...p, [s.id]: e.target.value }))}
+            >
+              <option value="">— none —</option>
+              {offered.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name} ({b.currency})
+                </option>
+              ))}
+            </select>
+            {dirty ? (
+              <button className="primary small" disabled={bookBusy === s.id} onClick={() => void saveBook(s)}>
+                Save
+              </button>
+            ) : null}
+            {!s.price_book_id && !dirty ? <span className="sub warn">its usage rates to 0</span> : null}
+            {bookErr[s.id] ? <span className="sub bad">{bookErr[s.id]}</span> : null}
+          </span>
+        )
+      },
+    },
     {
       key: 'scope',
       header: 'Scope',
@@ -65,6 +137,7 @@ export function SourcesPanel({
       render: (s) => (
         <>
           <Badge status={s.status} />
+          {s.status === 'disabled' ? <span className="sub">decommissioned — collects nothing new; its history still bills</span> : null}
           {s.status === 'verified' && s.collecting === false ? <span className="sub">not collecting — customer is not active</span> : null}
         </>
       ),
@@ -86,9 +159,25 @@ export function SourcesPanel({
               Edit
             </button>
           ) : null}
-          {canManage ? (
+          {canManage && s.status !== 'disabled' ? (
             <button className="link small" disabled={act.busy} onClick={() => void act.run(`verification requested for ${s.project_id || s.id}`, () => api.post(`/sources/${s.id}/verify`), onChanged)}>
               Verify
+            </button>
+          ) : null}
+          {canManage && !s.internal ? (
+            <button
+              className="link small"
+              disabled={act.busy}
+              title={s.status === 'disabled' ? 'Collect from this source again' : 'Stop collecting from this source; its history keeps billing'}
+              onClick={() =>
+                void act.run(
+                  s.status === 'disabled' ? `${s.project_id || s.id} enabled` : `${s.project_id || s.id} disabled — its history still bills`,
+                  () => api.patch(`/sources/${s.id}`, { disabled: s.status !== 'disabled' }),
+                  onChanged,
+                )
+              }
+            >
+              {s.status === 'disabled' ? 'Enable' : 'Disable'}
             </button>
           ) : null}
           {canRotate ? (
@@ -149,11 +238,11 @@ export function SourcesPanel({
         ) : (
           <>A verified source is collected hourly while your account is active; the operator adds, verifies and removes sources{canRotate ? ', you may rotate their access keys' : ''}. </>
         )}
-        <b>Scope</b>: {SCOPE_TOKEN_HELP}
+        <b>Scope</b>: {SCOPE_TOKEN_HELP} <b>Price book</b>: {BOOK_HELP} <b>Disable</b>: a decommissioned source collects nothing new and counts as neither verified nor live, but its collected history still rates — in the explorer and on every statement already issued from it.
       </p>
 
-      {dialog?.kind === 'add' ? <SourceFormModal title="Add cost source" customerId={customerId} editable={['kind', 'region', 'project_id', 'scope_token']} onClose={close} onDone={onChanged} /> : null}
-      {dialog?.kind === 'edit' ? <SourceFormModal title={`Edit source ${dialog.source.project_id || dialog.source.id}`} customerId={customerId} source={dialog.source} editable={editable} onClose={close} onDone={onChanged} /> : null}
+      {dialog?.kind === 'add' ? <SourceFormModal title="Add cost source" customerId={customerId} books={catalogue} editable={['kind', 'region', 'project_id', 'scope_token']} onClose={close} onDone={onChanged} /> : null}
+      {dialog?.kind === 'edit' ? <SourceFormModal title={`Edit source ${dialog.source.project_id || dialog.source.id}`} customerId={customerId} books={catalogue} source={dialog.source} editable={editable} onClose={close} onDone={onChanged} /> : null}
       {dialog?.kind === 'rotate' ? <RotateKeyModal source={dialog.source} onClose={close} onDone={onChanged} /> : null}
       {dialog?.kind === 'purge' ? (
         <Confirm
@@ -209,6 +298,7 @@ function SourceFormModal({
   title,
   customerId,
   source,
+  books,
   editable,
   onClose,
   onDone,
@@ -216,6 +306,7 @@ function SourceFormModal({
   title: string
   customerId: string
   source?: CostSource
+  books: PriceBook[]
   editable: SourceField[]
   onClose: () => void
   onDone: () => void | Promise<void>
@@ -227,11 +318,15 @@ function SourceFormModal({
     domain_id: source?.domain_id ?? '',
     scope_token: source?.scope_token ?? '',
   })
+  // A new source is always a CLOUD source (platform sources are created by
+  // the Organization sync), so the book offered here is a cloud book.
+  const [bookID, setBookID] = useState(source?.price_book_id ?? '')
   const [errors, setErrors] = useState<Errors<SourceForm>>({})
   const act = useAction()
   const can = (f: SourceField) => editable.includes(f)
   const set = (k: SourceField, v: string) => setForm((f) => ({ ...f, [k]: v }))
-  const kindHelp = KINDS.find((k) => k.value === form.kind)?.help
+  const kindHelp = CLOUD_SOURCE_KINDS.find((k) => k.value === form.kind)?.help
+  const offered = booksForSource(books, { layer: layerOf({ layer: '', kind: form.kind }), kind: form.kind })
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -254,7 +349,11 @@ function SourceFormModal({
       if (ok) onClose()
       return
     }
-    const ok = await act.run('source added', () => api.post(`/customers/${customerId}/sources`, { kind: form.kind, region: form.region.trim(), project_id: form.project_id.trim(), scope_token: form.scope_token.trim() }), onDone)
+    const ok = await act.run(
+      'source added',
+      () => api.post(`/customers/${customerId}/sources`, { kind: form.kind, region: form.region.trim(), project_id: form.project_id.trim(), scope_token: form.scope_token.trim(), price_book_id: bookID }),
+      onDone,
+    )
     if (ok) onClose()
   }
 
@@ -278,7 +377,7 @@ function SourceFormModal({
         {can('kind') ? (
           <Field label="Kind" help={kindHelp}>
             <select value={form.kind} onChange={(e) => set('kind', e.target.value)}>
-              {KINDS.map((k) => (
+              {CLOUD_SOURCE_KINDS.map((k) => (
                 <option key={k.value} value={k.value}>
                   {k.label}
                 </option>
@@ -287,7 +386,7 @@ function SourceFormModal({
           </Field>
         ) : (
           <p className="muted small">
-            {KINDS.find((k) => k.value === form.kind)?.label ?? form.kind}
+            {sourceKindLabel(form.kind)}
             {!can('region') ? (
               <>
                 {' '}
@@ -319,6 +418,23 @@ function SourceFormModal({
           <Field label="Scope token" error={errors.scope_token} help={SCOPE_TOKEN_HELP}>
             <input value={form.scope_token} onChange={(e) => set('scope_token', e.target.value)} className="mono" placeholder="e.g. 1c56518035a83e03" autoFocus={!can('region')} />
           </Field>
+        ) : null}
+        {!source && can('kind') ? (
+          <>
+            <Field label="Price book" help={BOOK_HELP}>
+              <select value={bookID} onChange={(e) => setBookID(e.target.value)} aria-label="Price book">
+                <option value="">— none yet —</option>
+                {offered.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name} ({b.currency})
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <p className="muted small" style={{ marginTop: 0 }}>
+              This is a <b>cloud</b> source. The platform source of an Organization on this Sovereign is created automatically by the Organization sync and priced by the OpenOva plans book.
+            </p>
+          </>
         ) : null}
       </form>
     </Modal>

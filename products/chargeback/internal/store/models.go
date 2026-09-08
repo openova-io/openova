@@ -52,14 +52,70 @@ func (d *Decimal) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// Customer is a buyer: an external account or a synced Organization.
+// Source kinds and the layer each belongs to (DESIGN.md §2). A source is
+// either a CLOUD source — a cloud project whose resource kinds are cloud
+// SKUs, priced by a cloud book — or a PLATFORM source — an Organization on
+// this Sovereign whose resource kinds are platform SKUs, priced by a platform
+// book. The two layers never meet in billing: a book is assigned per source
+// and its scope must equal the source's layer.
+const (
+	SourceKindHuaweiProject = "huawei-project"
+	SourceKindFile          = "file"
+	SourceKindOrg           = "openova-org"
+	// SourceKindPlatform is the ONE internal source the Sovereign's own
+	// platform footprint is recorded on (customer_id NULL, internal = true).
+	// It is never billed and only Allocation reads it.
+	SourceKindPlatform  = "openova-platform"
+	SourceKindNamespace = "k8s-namespace"
+
+	LayerCloud    = "cloud"
+	LayerPlatform = "platform"
+)
+
+// LayerOfKind derives a source's layer from its kind — the same CASE the
+// generated column cost_sources.layer stores.
+func LayerOfKind(kind string) string {
+	switch kind {
+	case SourceKindHuaweiProject, SourceKindFile:
+		return LayerCloud
+	}
+	return LayerPlatform
+}
+
+// ValidLayer reports whether s is cloud or platform.
+func ValidLayer(s string) bool { return s == LayerCloud || s == LayerPlatform }
+
+// CloudSourceKinds are the kinds an operator may create by hand; platform
+// sources are created by the Organization sync and the platform collector.
+var CloudSourceKinds = []string{SourceKindHuaweiProject, SourceKindFile}
+
+// PlatformMeterSKUs are the k8s.* meters the platform collector writes. Under
+// a platform book that prices none of them they are "not sold per use" —
+// the allocation basis, not unpriced revenue.
+var PlatformMeterSKUs = []string{"k8s.vcpu", "k8s.mem_gb", "k8s.pvc_gb"}
+
+// IsPlatformMeter reports whether sku is one of PlatformMeterSKUs.
+func IsPlatformMeter(sku string) bool {
+	for _, s := range PlatformMeterSKUs {
+		if s == sku {
+			return true
+		}
+	}
+	return false
+}
+
+// Customer is a buyer: an external account or a synced Organization. A
+// customer owns one or more sources; the price book is assigned per SOURCE.
 type Customer struct {
-	ID          string  `json:"id"`
-	Slug        string  `json:"slug"`
-	Name        string  `json:"name"`
-	AdminEmail  string  `json:"admin_email"`
-	Kind        string  `json:"kind"`
-	OrgSlug     *string `json:"org_slug,omitempty"`
+	ID         string  `json:"id"`
+	Slug       string  `json:"slug"`
+	Name       string  `json:"name"`
+	AdminEmail string  `json:"admin_email"`
+	Kind       string  `json:"kind"`
+	OrgSlug    *string `json:"org_slug,omitempty"`
+	// PriceBookID is DEPRECATED (DESIGN.md §4.1): the book is assigned per
+	// source since the two-layer migration. The column is read for
+	// compatibility and never written by the API or the Organization sync.
 	PriceBookID *string `json:"price_book_id,omitempty"`
 	BillingMode string  `json:"billing_mode"`
 	Status      string  `json:"status"`
@@ -73,8 +129,12 @@ type Customer struct {
 	UpdatedAt time.Time `json:"updated_at"`
 
 	// List-view aggregates.
-	SourceCount         int        `json:"source_count"`
-	VerifiedSourceCount int        `json:"verified_source_count"`
+	SourceCount         int `json:"source_count"`
+	VerifiedSourceCount int `json:"verified_source_count"`
+	// Sources per layer — what the customer list shows in its Sources column
+	// ("1 cloud · 1 platform").
+	CloudSourceCount    int        `json:"cloud_source_count"`
+	PlatformSourceCount int        `json:"platform_source_count"`
 	LastCollectedAt     *time.Time `json:"last_collected_at,omitempty"`
 	LastStatementPeriod *string    `json:"last_statement_period,omitempty"`
 
@@ -91,11 +151,27 @@ type CustomerUser struct {
 	Role       string `json:"role"`
 }
 
-// CostSource is one metered origin of usage (today: a Huawei project).
+// CostSource is one metered origin of usage: a cloud project (layer cloud)
+// or an Organization on this Sovereign (layer platform). The price book that
+// rates its usage is assigned HERE, per source, and must have the matching
+// scope. CustomerID is empty only for the internal platform source.
 type CostSource struct {
-	ID              string     `json:"id"`
-	CustomerID      string     `json:"customer_id"`
-	Kind            string     `json:"kind"`
+	ID         string `json:"id"`
+	CustomerID string `json:"customer_id"`
+	// CustomerName is joined for operator-wide listings (empty on the
+	// customer-scoped list, where it is redundant).
+	CustomerName string `json:"customer_name,omitempty"`
+	Kind         string `json:"kind"`
+	// Layer is cloud or platform, derived from Kind (LayerOfKind).
+	Layer string `json:"layer"`
+	// PriceBookID is the book that rates this source's usage; nil = none
+	// (its SKUs are unpriced). PriceBookName is joined for display.
+	PriceBookID   *string `json:"price_book_id"`
+	PriceBookName string  `json:"price_book_name,omitempty"`
+	// Internal marks the Sovereign's own platform source (SourceKindPlatform):
+	// no customer, never billed, excluded from every customer-facing query,
+	// read by Allocation as the platform-overhead row.
+	Internal        bool       `json:"internal"`
 	Region          string     `json:"region"`
 	ProjectID       string     `json:"project_id"`
 	DomainID        *string    `json:"domain_id,omitempty"`
@@ -169,10 +245,13 @@ type UsageRow struct {
 	ResourceName  string  `json:"resource_name,omitempty"`
 }
 
-// PriceBook is a rate card.
+// PriceBook is a rate card. Scope says which layer of source it may be
+// assigned to: a cloud book prices cloud SKUs, a platform book prices
+// platform SKUs (plan.<slug>, and k8s.* only if sold per use).
 type PriceBook struct {
 	ID            string      `json:"id"`
 	Name          string      `json:"name"`
+	Scope         string      `json:"scope"`
 	Currency      string      `json:"currency"`
 	AnnualDivisor int         `json:"annual_divisor"`
 	BillStopped   string      `json:"bill_stopped"`
