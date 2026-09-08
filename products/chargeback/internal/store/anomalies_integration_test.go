@@ -35,11 +35,11 @@ func seedSpike(t *testing.T, st *store.Store) anomalySeed {
 	}, true); err != nil {
 		t.Fatal(err)
 	}
-	a, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "acme", Name: "Acme", AdminEmail: "a@acme.example", PriceBookID: book.ID})
+	a, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "acme", Name: "Acme", AdminEmail: "a@acme.example"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "bravo", Name: "Bravo", AdminEmail: "b@bravo.example", PriceBookID: book.ID})
+	b, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "bravo", Name: "Bravo", AdminEmail: "b@bravo.example"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,6 +55,8 @@ func seedSpike(t *testing.T, st *store.Store) anomalySeed {
 	if err != nil {
 		t.Fatal(err)
 	}
+	assignBook(t, st, srcA.ID, book.ID)
+	assignBook(t, st, srcB.ID, book.ID)
 	var recs []store.UsageRecord
 	rec := func(c store.Customer, src store.CostSource, res, kind, sku, unit string, qty float64, at time.Time, labels map[string]any) {
 		lb, _ := json.Marshal(labels)

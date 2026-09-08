@@ -337,14 +337,132 @@ CREATE TABLE IF NOT EXISTS pins (
 		source TEXT NOT NULL DEFAULT 'manual',
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 	);`,
+	// #6867 — two-layer sources (DESIGN.md §2, founder direction 2026-09-08).
+	// A cost source belongs to ONE layer: cloud (huawei-project, file) or
+	// platform (openova-org, openova-platform, k8s-namespace), derived from
+	// its kind. A price book has a scope, cloud or platform, and is assigned
+	// PER SOURCE — never per customer — so a platform meter can never be
+	// rated by a cloud book. The Sovereign itself is not a customer: its own
+	// platform footprint lives on one internal `openova-platform` source
+	// with no customer, read only by Allocation.
+	twoLayerMigrationSQL,
+	// A DECOMMISSIONED source (coordinator direction 2026-09-08). The status
+	// CHECK allowed only pending/verified/failed, so "this source is retired"
+	// could not be expressed at all. A `disabled` source collects nothing
+	// more — the collector's listing skips it and it counts as neither
+	// verified nor live — but its history is billing data: it still rates,
+	// still shows in the explorer, and still stands on every statement
+	// already issued from it (DESIGN.md §2.6 "Disabling a source").
+	//
+	// Its own migration rather than a line inside the one above: that one may
+	// already be recorded as applied on a database this is deployed over, and
+	// migrations are positional — editing an applied entry silently skips it.
+	`ALTER TABLE cost_sources DROP CONSTRAINT IF EXISTS cost_sources_status_check;
+ALTER TABLE cost_sources ADD CONSTRAINT cost_sources_status_check CHECK (status IN ('pending','verified','failed','disabled'));`,
+	// Appended AFTER the two-layer entries on purpose: migrations are
+	// positional, so an entry inserted below a database's recorded version
+	// is silently skipped. New migrations always go at the end.
+	// #6867 follow-up — the discount combination rule (DESIGN.md §2.11). One
+	// row of billing settings; the rule decides how several percent
+	// discounts on one line combine. 'most-specific' is the default; 'stack'
+	// is what every statement rated before this migration did.
+	`CREATE TABLE IF NOT EXISTS billing_settings (
+		id SMALLINT PRIMARY KEY CHECK (id = 1),
+		discount_rule TEXT NOT NULL DEFAULT 'most-specific' CHECK (discount_rule IN ('most-specific','highest','stack','compound')),
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+	);`,
+	`INSERT INTO billing_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;`,
+	// A stackable discount adds on top of the winner under most-specific and
+	// highest (a campaign on top of the contract); it changes nothing under
+	// stack or compound.
+	`ALTER TABLE discounts ADD COLUMN IF NOT EXISTS stackable BOOLEAN NOT NULL DEFAULT false;`,
+	// Every statement records the rule that produced its numbers. Statements
+	// rated before the rule existed were summed, so they read 'stack'; ones
+	// without a discount breakdown carried no rule-dependent figure.
+	`ALTER TABLE statements ADD COLUMN IF NOT EXISTS discount_rule TEXT;`,
+	`UPDATE statements SET discount_rule = 'stack' WHERE discount_rule IS NULL AND discount_detail IS NOT NULL;`,
 }
+
+// MigrationTwoLayerSources is the schema_migrations version of the two-layer
+// source migration (the last entry of migrations). The migration test
+// applies every version before it, seeds the pre-change shape, and then
+// applies it.
+var MigrationTwoLayerSources = func() int {
+	for i, m := range migrations {
+		if m == twoLayerMigrationSQL {
+			return i + 1
+		}
+	}
+	return len(migrations)
+}()
+
+// twoLayerMigrationSQL is one transaction: the schema change and the data
+// migration described in DESIGN.md §4.1. Every statement is idempotent
+// against a database that already carries the shape.
+const twoLayerMigrationSQL = `
+ALTER TABLE cost_sources DROP CONSTRAINT IF EXISTS cost_sources_kind_check;
+ALTER TABLE cost_sources ADD CONSTRAINT cost_sources_kind_check CHECK (kind IN ('huawei-project','openova-org','openova-platform','k8s-namespace','file'));
+ALTER TABLE cost_sources ADD COLUMN IF NOT EXISTS layer TEXT NOT NULL GENERATED ALWAYS AS (CASE WHEN kind IN ('huawei-project','file') THEN 'cloud' ELSE 'platform' END) STORED;
+ALTER TABLE cost_sources DROP CONSTRAINT IF EXISTS cost_sources_layer_check;
+ALTER TABLE cost_sources ADD CONSTRAINT cost_sources_layer_check CHECK (layer IN ('cloud','platform'));
+ALTER TABLE cost_sources ADD COLUMN IF NOT EXISTS price_book_id UUID REFERENCES price_books(id);
+ALTER TABLE cost_sources ADD COLUMN IF NOT EXISTS internal BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE cost_sources ALTER COLUMN customer_id DROP NOT NULL;
+ALTER TABLE cost_sources DROP CONSTRAINT IF EXISTS cost_sources_internal_check;
+ALTER TABLE cost_sources ADD CONSTRAINT cost_sources_internal_check CHECK ((internal AND customer_id IS NULL AND kind = 'openova-platform') OR (NOT internal AND customer_id IS NOT NULL));
+CREATE UNIQUE INDEX IF NOT EXISTS cost_sources_internal_idx ON cost_sources (kind, region, project_id) WHERE customer_id IS NULL;
+CREATE INDEX IF NOT EXISTS cost_sources_price_book_idx ON cost_sources (price_book_id);
+ALTER TABLE usage_records ALTER COLUMN customer_id DROP NOT NULL;
+ALTER TABLE price_books ADD COLUMN IF NOT EXISTS scope TEXT NOT NULL DEFAULT 'cloud';
+ALTER TABLE price_books DROP CONSTRAINT IF EXISTS price_books_scope_check;
+ALTER TABLE price_books ADD CONSTRAINT price_books_scope_check CHECK (scope IN ('cloud','platform'));
+
+-- The "OpenOva plans" book prices platform SKUs; every other book is a cloud book.
+UPDATE price_books SET scope = 'platform' WHERE lower(name) = lower('` + PlanBookName + `');
+
+-- The Sovereign's own Organization was synced as a customer and its
+-- openova-org source carried the platform-overhead records. That customer
+-- becomes a plain external customer (its cloud sources stay); the source
+-- becomes the internal openova-platform source with no customer.
+CREATE TEMP TABLE two_layer_landlord ON COMMIT DROP AS
+  SELECT DISTINCT s.customer_id
+    FROM cost_sources s
+   WHERE s.kind = 'openova-org' AND s.customer_id IS NOT NULL
+     AND EXISTS (SELECT 1 FROM usage_records u WHERE u.source_id = s.id AND u.labels->>'tier' = 'platform-overhead');
+UPDATE usage_records u SET customer_id = NULL
+  FROM cost_sources s
+ WHERE s.id = u.source_id AND s.kind = 'openova-org' AND s.customer_id IN (SELECT customer_id FROM two_layer_landlord);
+UPDATE cost_sources SET kind = 'openova-platform', internal = true, customer_id = NULL, price_book_id = NULL
+ WHERE kind = 'openova-org' AND customer_id IN (SELECT customer_id FROM two_layer_landlord);
+UPDATE customers SET kind = 'external', org_slug = NULL, plan_slug = '', updated_at = now()
+ WHERE id IN (SELECT customer_id FROM two_layer_landlord);
+
+-- The customer's book moves onto each of its sources whose layer matches
+-- the book's scope; platform sources still without a book get the plans book.
+UPDATE cost_sources s SET price_book_id = c.price_book_id
+  FROM customers c JOIN price_books b ON b.id = c.price_book_id
+ WHERE s.customer_id = c.id AND s.price_book_id IS NULL AND s.layer = b.scope;
+UPDATE cost_sources s SET price_book_id = b.id
+  FROM price_books b
+ WHERE lower(b.name) = lower('` + PlanBookName + `') AND s.layer = 'platform' AND NOT s.internal AND s.price_book_id IS NULL;
+`
 
 // Migrate applies every migration not yet recorded in schema_migrations.
 func (s *Store) Migrate(ctx context.Context) error {
+	return s.MigrateUpTo(ctx, len(migrations))
+}
+
+// MigrateUpTo applies every migration up to and including version that is
+// not yet recorded. The migration test uses it to stand a database at the
+// shape BEFORE a migration and seed it; the service always calls Migrate.
+func (s *Store) MigrateUpTo(ctx context.Context, version int) error {
+	if version < 0 || version > len(migrations) {
+		return fmt.Errorf("migration version %d out of range 0..%d", version, len(migrations))
+	}
 	if _, err := s.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (version INT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())`); err != nil {
 		return fmt.Errorf("schema_migrations: %w", err)
 	}
-	for i, sqlText := range migrations {
+	for i, sqlText := range migrations[:version] {
 		version := i + 1
 		var exists bool
 		if err := s.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version = $1)`, version).Scan(&exists); err != nil {

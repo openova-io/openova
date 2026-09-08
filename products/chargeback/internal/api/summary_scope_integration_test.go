@@ -3,8 +3,6 @@ package api
 import (
 	"context"
 	"testing"
-
-	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
 
 // The operator's customer page must show THAT customer (#6867, hw307 walk).
@@ -130,9 +128,9 @@ func TestIntegrationOperatorStatementsListFiltersByCustomer(t *testing.T) {
 	op := &client{t: t, h: h}
 	op.signIn(opEmail, mail)
 
-	// One August draft each for A and B (B is given A's price book so its
-	// EIP meter rates).
-	if _, err := st.UpdateCustomer(ctx, s.b.ID, store.CustomerPatch{PriceBookID: &s.bookID}); err != nil {
+	// One August draft each for A and B (B's project is given A's price book
+	// so its EIP meter rates).
+	if err := st.SetSourcePriceBook(ctx, s.srcB.ID, s.bookID); err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range []string{s.a.ID, s.b.ID} {

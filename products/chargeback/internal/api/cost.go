@@ -596,6 +596,13 @@ func composeSummary(p summaryParts) map[string]any {
 	if unconverted == nil {
 		unconverted = []store.UnconvertedCurrency{}
 	}
+	// Platform meters a platform book deliberately does not price (the
+	// allocation basis) — reported apart from unpriced_skus so the page
+	// says so in one line instead of asking for a rate.
+	notSold := p.MTD.NotSoldPerUse
+	if notSold == nil {
+		notSold = []store.UnpricedSKU{}
+	}
 	budgets := p.Budgets
 	if budgets == nil {
 		budgets = []any{}
@@ -630,6 +637,7 @@ func composeSummary(p summaryParts) map[string]any {
 		"last_30d":          map[string]any{"cost": last30, "days_with_data": daysWithData},
 		"resources_live":    p.Resources,
 		"unpriced_skus":     p.MTD.Unpriced,
+		"not_sold_per_use":  notSold,
 		"customers":         customers,
 		"sources":           sources,
 		"last_collected_at": p.LastCollect,

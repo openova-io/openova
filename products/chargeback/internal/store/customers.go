@@ -11,6 +11,8 @@ import (
 const customerColumns = `c.id, c.slug, c.name, c.admin_email, c.kind, c.org_slug, c.price_book_id, c.billing_mode, c.status, c.start_date, c.plan_slug, c.created_at, c.updated_at,
 	(SELECT count(*) FROM cost_sources s WHERE s.customer_id = c.id),
 	(SELECT count(*) FROM cost_sources s WHERE s.customer_id = c.id AND s.status = 'verified'),
+	(SELECT count(*) FROM cost_sources s WHERE s.customer_id = c.id AND s.layer = 'cloud'),
+	(SELECT count(*) FROM cost_sources s WHERE s.customer_id = c.id AND s.layer = 'platform'),
 	(SELECT max(s.last_collected_at) FROM cost_sources s WHERE s.customer_id = c.id),
 	(SELECT to_char(max(st.period_start), 'YYYY-MM') FROM statements st WHERE st.customer_id = c.id)`
 
@@ -20,7 +22,7 @@ func scanCustomer(row interface{ Scan(...any) error }) (Customer, error) {
 	var start, lastCollected sql.NullTime
 	var lastPeriod sql.NullString
 	err := row.Scan(&c.ID, &c.Slug, &c.Name, &c.AdminEmail, &c.Kind, &orgSlug, &pb, &c.BillingMode, &c.Status, &start, &c.PlanSlug, &c.CreatedAt, &c.UpdatedAt,
-		&c.SourceCount, &c.VerifiedSourceCount, &lastCollected, &lastPeriod)
+		&c.SourceCount, &c.VerifiedSourceCount, &c.CloudSourceCount, &c.PlatformSourceCount, &lastCollected, &lastPeriod)
 	if err != nil {
 		return c, mapErr(err)
 	}
@@ -71,14 +73,15 @@ func (s *Store) GetCustomerBySlug(ctx context.Context, slug string) (Customer, e
 	return scanCustomer(s.db.QueryRowContext(ctx, `SELECT `+customerColumns+` FROM customers c WHERE c.slug = $1`, slug))
 }
 
-// CustomerInput is the creatable/updatable subset.
+// CustomerInput is the creatable/updatable subset. There is no price book
+// here: the book is assigned per source (SetSourcePriceBook), never per
+// customer (DESIGN.md §2).
 type CustomerInput struct {
 	Slug        string
 	Name        string
 	AdminEmail  string
 	Kind        string
 	OrgSlug     string
-	PriceBookID string
 	BillingMode string
 	StartDate   string
 	PlanSlug    string
@@ -99,10 +102,10 @@ func (s *Store) CreateCustomer(ctx context.Context, in CustomerInput) (Customer,
 	}
 	defer tx.Rollback()
 	var id string
-	err = tx.QueryRowContext(ctx, `INSERT INTO customers (slug, name, admin_email, kind, org_slug, price_book_id, billing_mode, start_date, plan_slug)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+	err = tx.QueryRowContext(ctx, `INSERT INTO customers (slug, name, admin_email, kind, org_slug, billing_mode, start_date, plan_slug)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
 		strings.ToLower(strings.TrimSpace(in.Slug)), strings.TrimSpace(in.Name), strings.ToLower(strings.TrimSpace(in.AdminEmail)), in.Kind,
-		nullStr(&in.OrgSlug), nullStr(&in.PriceBookID), in.BillingMode, nullStr(&in.StartDate), NormalizePlanSlug(in.PlanSlug)).Scan(&id)
+		nullStr(&in.OrgSlug), in.BillingMode, nullStr(&in.StartDate), NormalizePlanSlug(in.PlanSlug)).Scan(&id)
 	if err != nil {
 		return Customer{}, mapErr(err)
 	}
@@ -115,11 +118,11 @@ func (s *Store) CreateCustomer(ctx context.Context, in CustomerInput) (Customer,
 	return s.GetCustomer(ctx, OperatorScope, id)
 }
 
-// CustomerPatch carries optional updates; nil means unchanged.
+// CustomerPatch carries optional updates; nil means unchanged. The price
+// book is not here: it is a property of each source (SourcePatch).
 type CustomerPatch struct {
 	Name        *string
 	AdminEmail  *string
-	PriceBookID *string
 	BillingMode *string
 	Status      *string
 	StartDate   *string
@@ -140,9 +143,6 @@ func (s *Store) UpdateCustomer(ctx context.Context, id string, p CustomerPatch) 
 	}
 	if p.AdminEmail != nil {
 		add("admin_email", strings.ToLower(strings.TrimSpace(*p.AdminEmail)))
-	}
-	if p.PriceBookID != nil {
-		add("price_book_id", nullStr(p.PriceBookID))
 	}
 	if p.BillingMode != nil {
 		add("billing_mode", *p.BillingMode)

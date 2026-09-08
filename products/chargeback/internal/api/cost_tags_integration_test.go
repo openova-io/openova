@@ -28,11 +28,11 @@ func TestIntegrationCostTagDimensionsOverHTTP(t *testing.T) {
 	if _, err := st.PutPriceItems(ctx, book.ID, []store.PriceItem{{SKU: "ecs.s6.large.2", Unit: "instance-hour", UnitPrice: "1"}, {SKU: "eip", Unit: "hour", UnitPrice: "0.5"}}, true); err != nil {
 		t.Fatal(err)
 	}
-	acme, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "acme", Name: "Acme", AdminEmail: "admin@acme.example", PriceBookID: book.ID, StartDate: "2026-08-01"})
+	acme, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "acme", Name: "Acme", AdminEmail: "admin@acme.example", StartDate: "2026-08-01"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	beta, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "beta", Name: "Beta", AdminEmail: "admin@beta.example", PriceBookID: book.ID, StartDate: "2026-08-01"})
+	beta, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "beta", Name: "Beta", AdminEmail: "admin@beta.example", StartDate: "2026-08-01"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,6 +44,8 @@ func TestIntegrationCostTagDimensionsOverHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	assignBook(t, st, srcA.ID, book.ID)
+	assignBook(t, st, srcB.ID, book.ID)
 	ws := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
 	var recs []store.UsageRecord
 	rec := func(cust store.Customer, src store.CostSource, res, kind, sku, unit string, at time.Time, labels map[string]any) {

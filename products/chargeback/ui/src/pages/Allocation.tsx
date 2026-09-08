@@ -97,7 +97,7 @@ export function Allocation() {
       return
     }
     if (draft.pool === 'sovereign-cost' && !draft.sovereign_customer_id) {
-      setSaveErr('Choose the Sovereign customer whose rated cloud cost is the pool')
+      setSaveErr('Choose the landlord customer whose rated cloud cost is the pool')
       return
     }
     setSaving(true)
@@ -143,7 +143,7 @@ export function Allocation() {
       ? 'manual amount'
       : pool?.customer_name || pool?.customer_id
         ? `rated cloud cost of ${pool.customer_name ?? customerName(customers, pool.customer_id)}`
-        : 'rated cloud cost of the Sovereign customer'
+        : 'rated cloud cost of the landlord customer'
   const tierLabel = (r: AllocationRow) => (r.tier === 'platform-overhead' ? 'Platform overhead' : 'Organization')
 
   const columns: Column<AllocationRow>[] = [
@@ -196,7 +196,7 @@ export function Allocation() {
     <div className="stack">
       <PageHeader
         title="Allocation"
-        sub="The Sovereign's cloud bill split across Organizations by weighted platform consumption, against what each is billed"
+        sub="A report over the two layers, not billing: the landlord's rated CLOUD cost split across the Organizations by their weighted PLATFORM consumption, against what each is billed"
         actions={
           <button onClick={() => void result.reload()} disabled={result.loading}>
             Recalculate
@@ -248,15 +248,17 @@ export function Allocation() {
               <label className="check">
                 <input type="radio" name="overhead" checked={draft.overhead_policy === 'distribute'} onChange={() => set({ overhead_policy: 'distribute' })} /> Distribute across Organizations by share
               </label>
-              <p className="muted small">The control plane's own pods and volumes: shown as a row of their own, or folded into every Organization's allocated cost.</p>
+              <p className="muted small">
+            The Sovereign's own pods and volumes, metered on its internal platform source (it belongs to no customer and is never billed): shown as a row of their own, or folded into every Organization's allocated cost.
+          </p>
             </div>
             <div>
               <h3>Cost pool</h3>
               <label className="check" style={{ marginBottom: 6 }}>
-                <input type="radio" name="pool" checked={draft.pool === 'sovereign-cost'} onChange={() => set({ pool: 'sovereign-cost' })} /> The Sovereign's rated cloud cost for the window
+                <input type="radio" name="pool" checked={draft.pool === 'sovereign-cost'} onChange={() => set({ pool: 'sovereign-cost' })} /> The landlord's rated cloud cost for the window
               </label>
               {draft.pool === 'sovereign-cost' ? (
-                <Field label="Sovereign customer" help="The customer whose cost sources carry the cloud bill">
+                <Field label="Landlord customer (its cloud sources are the pool)" help="The customer whose CLOUD sources carry this Sovereign's cloud bill. The Sovereign itself is not a customer; its own platform footprint is the overhead row below.">
                   <select value={draft.sovereign_customer_id} onChange={(e) => set({ sovereign_customer_id: e.target.value })}>
                     <option value="">{pool?.source === 'sovereign-cost' && pool.customer_name ? `auto: ${pool.customer_name} (the only customer with a verified cloud project)` : '— choose —'}</option>
                     {customers.map((c) => (
@@ -354,10 +356,10 @@ export function Allocation() {
       <div className="card">
         <h2>How this is computed</h2>
         <p style={{ margin: 0 }}>
-          Pool = {poolSource} for {describeWindow(range.window)}
+          This page reads the two layers; it never bills. Pool = {poolSource} for {describeWindow(range.window)}
           {pool ? ` (${money(pool.amount)})` : ''}. Each Organization's share = its weighted platform consumption (vCPU-h × {weights.vcpu} + GiB-h × {weights.mem_gib} + GB-h × {weights.pvc_gb}) ÷ all consumption
           {draft.overhead_policy === 'distribute' ? ', with the platform overhead distributed by the same shares' : ', with the platform overhead kept as its own row'}. Allocated cost = pool × share. Margin = what the
-          Organization is billed (its price book) − its allocated cloud cost.
+          Organization is billed (the books of its own sources) − its allocated cloud cost.
         </p>
       </div>
     </div>

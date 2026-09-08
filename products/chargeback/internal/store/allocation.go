@@ -16,6 +16,12 @@ import (
 
 // Allocation (#6867, ADR-0014 D3 case 3, DESIGN.md §2.8 / §3.8).
 //
+// Allocation is a REPORT over the two layers, never billing (DESIGN.md §2):
+// the pool is the rated cloud cost of the landlord customer's cloud sources,
+// the shares are each Organization customer's platform-source usage, and the
+// overhead row is the Sovereign's own internal platform source — the one
+// reader that opts into it (CostQuery.IncludeInternal).
+//
 // The Sovereign's cloud bill is one number; the platform SKUs
 // (k8s.vcpu / k8s.mem_gb / k8s.pvc_gb) say who consumed the platform that
 // bill paid for. Allocation splits the bill across those consumers:
@@ -54,9 +60,11 @@ type AllocationSettings struct {
 	Pool           string            `json:"pool"`            // sovereign-cost | manual
 	ManualAmount   Decimal           `json:"manual_amount"`
 	Currency       string            `json:"currency"`
-	// SovereignCustomerID names the customer whose rated cloud cost is the
-	// pool. Nil = resolve it: the one customer with a verified huawei-project
-	// source, when there is exactly one.
+	// SovereignCustomerID names the LANDLORD customer — the one whose cloud
+	// sources carry the Sovereign's cloud bill; their rated cost is the pool.
+	// Nil = resolve it: the one customer with a verified huawei-project
+	// source, when there is exactly one. The field keeps its historical wire
+	// name; the Sovereign itself is not a customer (DESIGN.md §2).
 	SovereignCustomerID *string   `json:"sovereign_customer_id"`
 	UpdatedAt           time.Time `json:"updated_at"`
 }
@@ -323,24 +331,31 @@ func splitAllocation(rows []AllocationRow, w AllocationWeights, policy string, p
 	return out, st
 }
 
-// allocationBasis reads the platform meters per (customer, tier) in the window.
+// Overhead row identity: the internal source has no customer, so the row
+// carries these instead of a customer's id, slug and name.
+const (
+	OverheadTier = "platform-overhead"
+	OverheadSlug = "platform"
+	OverheadName = "Platform overhead"
+)
+
+// allocationBasis reads the platform meters per (customer, tier) in the
+// window over the priced CTE WITH the internal source admitted: its rows are
+// the platform-overhead tier (the CTE's tier column says so), every
+// customer's platform-source rows the organization tier.
 func (s *Store) allocationBasis(ctx context.Context, from, to time.Time) ([]AllocationRow, error) {
-	const q = `
-SELECT u.customer_id,
-       c.slug,
-       c.name,
-       CASE WHEN COALESCE(u.labels->>'tier', '') = 'platform-overhead'
-            THEN 'platform-overhead' ELSE 'organization' END AS tier,
-       COALESCE(round(sum(u.quantity) FILTER (WHERE u.sku = 'k8s.vcpu'), 6),   0)::text,
-       COALESCE(round(sum(u.quantity) FILTER (WHERE u.sku = 'k8s.mem_gb'), 6), 0)::text,
-       COALESCE(round(sum(u.quantity) FILTER (WHERE u.sku = 'k8s.pvc_gb'), 6), 0)::text
-  FROM usage_records u
-  JOIN customers c ON c.id = u.customer_id
- WHERE u.window_start >= $1 AND u.window_start < $2
-   AND u.sku IN ('k8s.vcpu', 'k8s.mem_gb', 'k8s.pvc_gb')
- GROUP BY u.customer_id, c.slug, c.name, tier
- ORDER BY tier, c.slug`
-	rows, err := s.db.QueryContext(ctx, q, from, to)
+	cte, a, err := filteredCTE(CostQuery{IncludeInternal: true, Include: map[string][]string{"sku": PlatformMeterSKUs}}, from, to)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, cte+`
+SELECT COALESCE(customer_id::text, ''), min(customer_slug), min(customer_name), tier,
+       COALESCE(round(sum(quantity) FILTER (WHERE sku = 'k8s.vcpu'), 6),   0)::text,
+       COALESCE(round(sum(quantity) FILTER (WHERE sku = 'k8s.mem_gb'), 6), 0)::text,
+       COALESCE(round(sum(quantity) FILTER (WHERE sku = 'k8s.pvc_gb'), 6), 0)::text
+  FROM f
+ GROUP BY 1, tier
+ ORDER BY tier, 2`, a.args...)
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -352,14 +367,17 @@ SELECT u.customer_id,
 		if err := rows.Scan(&r.CustomerID, &r.CustomerSlug, &r.CustomerName, &r.Tier, &v, &m, &p); err != nil {
 			return nil, err
 		}
+		if r.CustomerID == "" {
+			r.CustomerSlug, r.CustomerName = OverheadSlug, OverheadName
+		}
 		r.VCPUHours, r.MemGiBHours, r.PVCGBHours = Decimal(v), Decimal(m), Decimal(p)
 		out = append(out, r)
 	}
 	return out, rows.Err()
 }
 
-// resolveSovereignCustomer finds the pool customer when the settings do not
-// name one: the single customer holding a verified huawei-project source.
+// resolveSovereignCustomer finds the landlord customer when the settings do
+// not name one: the single customer holding a verified huawei-project source.
 // Zero or several candidates is "unresolved" with a note saying what to set;
 // guessing among several would bill the wrong Sovereign's footprint.
 func (s *Store) resolveSovereignCustomer(ctx context.Context) (id, name, note string, err error) {
@@ -392,11 +410,11 @@ func (s *Store) resolveSovereignCustomer(ctx context.Context) (id, name, note st
 }
 
 // Allocation returns the per-Organization + platform-overhead split of the
-// Sovereign's cloud cost in [from, to), per the stored settings.
+// landlord's cloud cost in [from, to), per the stored settings.
 //
-// Rows are tiered by the `tier` label the platform collector stamps: records
-// carrying "platform-overhead" are the Sovereign's own footprint, everything
-// else is tenant consumption.
+// Rows are tiered by source: the internal platform source is the Sovereign's
+// own footprint (platform-overhead), every customer's platform source is
+// Organization consumption.
 func (s *Store) Allocation(ctx context.Context, scope Scope, from, to time.Time) (AllocationResult, error) {
 	if !scope.Operator {
 		return AllocationResult{}, ErrNotFound
@@ -495,7 +513,7 @@ func (s *Store) Allocation(ctx context.Context, scope Scope, from, to time.Time)
 	for i := range rows {
 		r := &rows[i]
 		r.RatedRevenue = "0.000000"
-		if r.Tier == "organization" && r.CustomerID != poolCustomer {
+		if r.Tier == "organization" && r.CustomerID != "" && r.CustomerID != poolCustomer {
 			if v, ok := revenue[r.CustomerID]; ok {
 				r.RatedRevenue = decOf(ratOf(v))
 			}

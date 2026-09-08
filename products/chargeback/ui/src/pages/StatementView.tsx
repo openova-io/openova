@@ -5,6 +5,7 @@ import { useSession } from '../auth/session'
 import type { CostSource, RatedLine, Statement } from '../api/types'
 import { Waterfall, waterfallLayout, type WaterfallStep } from '../components/charts'
 import { Badge, Confirm, EmptyState, Notice, PageHeader, Skeleton } from '../components/ui'
+import { discountRuleLabel } from '../lib/discountRule'
 import { num, when } from '../lib/format'
 import { formatMoney, formatPct } from '../lib/money'
 import { toNumber } from '../lib/num'
@@ -66,6 +67,12 @@ export function StatementView() {
   const layout = waterfallLayout(steps)
   const customer = s.customer_name ?? s.customer_slug ?? s.customer_id
   const detail = s.discount_detail ?? []
+  // DESIGN.md §2.11 — a superseded entry matched the bill but lost to a
+  // better discount under the rule; it is shown, not counted.
+  const applied = detail.filter((d) => !d.superseded_by)
+  const detailID = (d: (typeof detail)[number]) => d.discount_id ?? d.id ?? ''
+  const nameOf = (id: string) => detail.find((d) => detailID(d) === id)?.name ?? id
+  const ruleLabel = discountRuleLabel(s.discount_rule)
   const back = operator ? { to: '/statements', label: 'Statements' } : { to: '/my/statements', label: 'My statements' }
 
   const act = async (kind: 'issue' | 'delete') => {
@@ -168,13 +175,20 @@ export function StatementView() {
           </table>
           <p className="muted tiny" style={{ marginBottom: 0 }}>
             {lines.length} rated line{lines.length === 1 ? '' : 's'} across {groups.length} service{groups.length === 1 ? '' : 's'}
-            {discount > 0 ? ` · ${detail.length || 'the'} discount${detail.length === 1 ? '' : 's'} applied` : ' · no discount applied'}
+            {discount > 0 ? ` · ${applied.length || 'the'} discount${applied.length === 1 ? '' : 's'} applied` : ' · no discount applied'}
+            {ruleLabel ? ` · rule: ${ruleLabel}` : ''}
           </p>
         </div>
       </div>
 
       {detail.length ? (
         <div className="card pad-0">
+          <div className="card-head" style={{ padding: '12px 12px 0' }}>
+            <h2>Discounts</h2>
+            <span className="hint" title="DESIGN.md §2.11 — how several percent discounts on one line were combined when this statement was rated">
+              {ruleLabel ? `Combination rule: ${ruleLabel}` : 'rated before the combination rule existed'}
+            </span>
+          </div>
           <table>
             <thead>
               <tr>
@@ -187,12 +201,16 @@ export function StatementView() {
             </thead>
             <tbody>
               {detail.map((d, i) => (
-                <tr key={d.id ?? i}>
-                  <td>{d.name}</td>
+                <tr key={detailID(d) || i} className={d.superseded_by ? 'muted' : undefined}>
+                  <td>
+                    {d.name}
+                    {d.stackable ? <span className="sub">stackable — added on top of the winner</span> : null}
+                    {d.superseded_by ? <span className="sub">not applied: superseded by {nameOf(d.superseded_by)}</span> : null}
+                  </td>
                   <td>{d.kind === 'percent' ? 'percent off' : d.kind === 'fixed' ? 'fixed amount' : d.kind}</td>
                   <td className="num">{d.value === undefined || d.value === null ? '—' : d.kind === 'percent' ? formatPct(toNumber(d.value), { digits: toNumber(d.value) % 1 ? 2 : 0 }) : money(d.value)}</td>
                   <td>{d.sku ? <span className="mono">{d.sku}</span> : <span className="muted">whole bill</span>}</td>
-                  <td className="num ok">−{money(d.amount)}</td>
+                  <td className="num ok">{d.superseded_by ? <span className="muted">—</span> : `−${money(d.amount)}`}</td>
                 </tr>
               ))}
             </tbody>

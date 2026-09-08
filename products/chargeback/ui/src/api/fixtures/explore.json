@@ -97,6 +97,14 @@
   ],
   "unpriced": [
     {
+      "sku": "eip.bandwidth_mbps",
+      "unit": "mbps-hour",
+      "quantity": 840.000000,
+      "resources": 1
+    }
+  ],
+  "not_sold_per_use": [
+    {
       "sku": "k8s.vcpu",
       "unit": "vcpu-hour",
       "quantity": 84.000000,

@@ -70,11 +70,11 @@ func seedBudgetLedger(t *testing.T, st *store.Store) budgetSeed {
 	}, true); err != nil {
 		t.Fatal(err)
 	}
-	a, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "acme", Name: "Acme", AdminEmail: "a@acme.example", PriceBookID: book.ID, StartDate: "2026-08-01"})
+	a, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "acme", Name: "Acme", AdminEmail: "a@acme.example", StartDate: "2026-08-01"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "bravo", Name: "Bravo", AdminEmail: "b@bravo.example", PriceBookID: book.ID, StartDate: "2026-08-01"})
+	b, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "bravo", Name: "Bravo", AdminEmail: "b@bravo.example", StartDate: "2026-08-01"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,6 +86,8 @@ func seedBudgetLedger(t *testing.T, st *store.Store) budgetSeed {
 	if err != nil {
 		t.Fatal(err)
 	}
+	assignBook(t, st, srcA.ID, book.ID)
+	assignBook(t, st, srcB.ID, book.ID)
 	day := func(y, m, d int) time.Time { return time.Date(y, time.Month(m), d, 0, 0, 0, 0, time.UTC) }
 	var recs []store.UsageRecord
 	rec := func(c store.Customer, src store.CostSource, res, kind, sku, unit string, qty float64, at time.Time) {

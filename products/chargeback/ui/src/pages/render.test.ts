@@ -71,7 +71,12 @@ vi.mock('../lib/useQuery', () => {
     // NET subtotal on the wire (list 1,000 − 150 discount); tax 5 % of the net.
     subtotal: '850.000',
     discount_total: '150.000',
-    discount_detail: [{ id: 'd1', name: 'Launch campaign', kind: 'percent', value: 15, sku: '', amount: '150.000' }],
+    discount_detail: [
+      { discount_id: 'd1', name: 'Launch campaign', kind: 'percent', value: 15, sku: '', amount: '150.000' },
+      // Matched every line but lost to the campaign under most-specific: on the bill, amount 0.
+      { discount_id: 'd3', name: 'Loyalty 10%', kind: 'percent', value: 10, sku: '', amount: '0.000000', superseded_by: 'd1' },
+    ],
+    discount_rule: 'most-specific',
     tax_rate: '0.05',
     tax: '42.500',
     total: '892.500',
@@ -132,9 +137,11 @@ vi.mock('../lib/useQuery', () => {
     ],
   }
   const currencies = { reporting_currency: 'OMR', rates: [{ code: 'USD', per_base: 2.6, source: 'manual', updated_at: '2026-09-01T00:00:00Z' }] }
+  const billingSettings = { discount_rule: 'most-specific', updated_at: '2026-09-01T00:00:00Z' }
   const docFor = (path: string): unknown => {
     if (path === '/customers') return customers
     if (path === '/currencies') return currencies
+    if (path === '/billing-settings') return billingSettings
     if (path.includes('/resources/src1/srv-1?')) return resource
     if (path.includes('/cost/dimensions?')) return dimensions
     if (path === '/reports/schedules') return schedules
@@ -177,10 +184,18 @@ function render(Page: ComponentType, path: string, url = path): string {
 }
 
 describe('configure + bill pages render their documents', () => {
-  it('Price books: list with coverage, customers without a book, actions', () => {
+  it('Price books: list with the scope column and filter, coverage, actions', () => {
     const html = render(PriceBooks, '/pricebooks')
     expect(html).toContain('Standard 2026')
-    expect(html).toContain('Customers without a book')
+    // DESIGN.md §2: a book prices ONE layer, and the list says which.
+    expect(html).toContain('>Scope<')
+    expect(html).toContain('badge info">Cloud')
+    expect(html).toContain('Cloud (1)')
+    expect(html).toContain('Platform (0)')
+    // The column is the SOURCES the book prices, not a customer's book.
+    expect(html).toContain('>Sources<')
+    expect(html).not.toContain('>Price book<')
+    expect(html).toContain('Customers without a source')
     expect(html).toContain('billed as running')
     expect(html).toContain('Clone')
     expect(html).toContain('Delete')
@@ -210,6 +225,13 @@ describe('configure + bill pages render their documents', () => {
     expect(html).toContain('inactive')
     expect(html).toContain('whole bill')
     expect(html).toContain('15 %')
+    // The combination rule card (DESIGN.md §2.11): the saved rule is selected,
+    // the example table carries the engine's numbers, and the table has the
+    // stackable column.
+    expect(html).toContain('Combination rule')
+    expect(html).toMatch(/aria-pressed="true"[^>]*>Most specific wins</)
+    expect(html).toContain('Compound')
+    expect(html).toContain('Stackable')
   })
   it('Budgets: strip row with scope, amount and thresholds', () => {
     const html = render(Budgets, '/budgets')
@@ -266,6 +288,10 @@ describe('configure + bill pages render their documents', () => {
     expect(html).toContain('Tax 5 %')
     expect(html).toContain('892.500 OMR')
     expect(html).toContain('Launch campaign')
+    // DESIGN.md §2.11 — the rule the run applied, and the superseded row
+    // named after its winner rather than shown as a zero discount.
+    expect(html).toContain('Most specific wins')
+    expect(html).toContain('superseded by Launch campaign')
     expect(html).toContain('By cost source')
     expect(html).toContain('src-a')
   })

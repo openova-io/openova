@@ -14,13 +14,37 @@ export interface Me {
 
 export type CustomerStatus = 'pending' | 'active' | 'suspended'
 export type BillingMode = 'real' | 'chargeback' | 'showback'
-export type SourceStatus = 'pending' | 'verified' | 'failed'
-export type SourceKind = 'huawei-project' | 'openova-org' | 'k8s-namespace' | 'file'
+/**
+ * `disabled` is a decommissioned source (coordinator direction 2026-09-08):
+ * the collector skips it and it counts as neither verified nor live, but its
+ * history keeps rating — in the explorer and on every statement already
+ * issued from it.
+ */
+export type SourceStatus = 'pending' | 'verified' | 'failed' | 'disabled'
+export type SourceKind = 'huawei-project' | 'openova-org' | 'openova-platform' | 'k8s-namespace' | 'file'
+/**
+ * The two layers a source belongs to (DESIGN.md §2). A CLOUD source is a
+ * cloud project whose resource kinds are cloud SKUs, priced by a cloud price
+ * book; a PLATFORM source is an Organization on this Sovereign whose
+ * resource kinds are platform SKUs, priced by a platform book. The two never
+ * meet in billing: the book is assigned per source and its scope must equal
+ * the source's layer.
+ */
+export type Layer = 'cloud' | 'platform'
 
 export interface CostSource {
   id: string
   customer_id?: string
+  /** Joined for the operator-wide directory; absent on a customer's own list. */
+  customer_name?: string
   kind: SourceKind | string
+  /** Derived from `kind` — cloud (huawei-project, file) or platform. */
+  layer: Layer | string
+  /** The book that rates THIS source; null = none, so its SKUs rate to 0. */
+  price_book_id?: string | null
+  price_book_name?: string
+  /** The Sovereign's own platform source: no customer, never billed. */
+  internal?: boolean
   region: string
   project_id: string
   domain_id?: string | null
@@ -61,6 +85,7 @@ export interface Customer {
   admin_email: string
   kind?: 'external' | 'organization' | string
   org_slug?: string | null
+  /** @deprecated The book is assigned per SOURCE (DESIGN.md §4.1); this is never written. */
   price_book_id?: string | null
   billing_mode: BillingMode | string
   status: CustomerStatus | string
@@ -73,6 +98,9 @@ export interface Customer {
   sources?: number | CostSource[] | null
   source_count?: number | null
   verified_source_count?: number | null
+  /** Sources per layer — the list's "1 cloud · 1 platform" column. */
+  cloud_source_count?: number | null
+  platform_source_count?: number | null
   users?: CustomerUser[] | null
   last_collected_at?: string | null
   last_statement?: StatementSummary | string | null
@@ -124,6 +152,12 @@ export interface PriceItem {
 export interface PriceBook {
   id: string
   name: string
+  /**
+   * Which layer of source this book may price (DESIGN.md §2): a cloud book
+   * prices cloud SKUs, a platform book platform SKUs (plan.<slug>, and the
+   * k8s.* meters only when they are sold per use).
+   */
+  scope: Layer | string
   currency: string
   annual_divisor: number
   bill_stopped: 'compute' | 'storage-only' | 'none' | string
@@ -160,7 +194,21 @@ export interface Statement {
   lines?: RatedLine[] | null
   /** #6862 — what discounts took off the list subtotal, frozen at issue time. */
   discount_total?: number | string
-  discount_detail?: Array<{ id?: string; name: string; kind: string; value?: number | string; sku?: string; amount: number | string }> | null
+  discount_detail?: Array<{
+    id?: string
+    discount_id?: string
+    name: string
+    kind: string
+    value?: number | string
+    sku?: string
+    amount: number | string
+    /** DESIGN.md §2.11 — added on top of the winner. */
+    stackable?: boolean
+    /** DESIGN.md §2.11 — matched but lost to this discount id; amount is 0. */
+    superseded_by?: string
+  }> | null
+  /** DESIGN.md §2.11 — the combination rule the run applied; absent on statements rated before it existed. */
+  discount_rule?: DiscountRule | string | null
 }
 
 export interface Invite {
@@ -334,6 +382,12 @@ export interface ExploreResult {
   total: { current: number; previous: number; delta_pct: number | null; resources: number }
   totals_by_bucket: number[]
   unpriced: Array<{ sku: string; unit: string; quantity: number; resources: number }>
+  /**
+   * Platform meters (k8s.*) on a platform source whose book prices none of
+   * them: the allocation basis, deliberately not sold per use — never a gap
+   * in the book, so the page says so instead of asking for a rate.
+   */
+  not_sold_per_use?: Array<{ sku: string; unit: string; quantity: number; resources: number }>
   forecast: Forecast | null
   compare: CompareWindow
   /** Usage no total includes because its book currency has no rate; mixed_currency is true exactly when non-empty. Absent from older APIs. */
@@ -473,6 +527,8 @@ export interface Summary {
   last_30d: { cost: number; days_with_data: number }
   resources_live: number
   unpriced_skus: Array<{ sku: string; unit: string; quantity: number; resources: number }>
+  /** Platform meters a platform book deliberately does not price (§2.5). */
+  not_sold_per_use?: Array<{ sku: string; unit: string; quantity: number; resources: number }>
   customers: Record<string, number>
   sources: Record<string, number>
   last_collected_at: string | null
@@ -603,14 +659,40 @@ export interface Discount {
   starts_at: string | null
   ends_at: string | null
   active: boolean
+  /** DESIGN.md §2.11 — adds on top of the winner under most-specific / highest. */
+  stackable?: boolean
   created_at?: string
 }
 
+/** DESIGN.md §2.11 — how several percent discounts on one line combine. */
+export type DiscountRule = 'most-specific' | 'highest' | 'stack' | 'compound'
+
+export interface BillingSettings {
+  discount_rule: DiscountRule | string
+  updated_at?: string
+}
+
+/** One source assigned to a price book (DESIGN.md §2.5 coverage). */
+export interface CoverageSource {
+  source_id: string
+  customer_id: string
+  customer_name: string
+  customer_slug: string
+  label: string
+  kind: string
+  layer: Layer | string
+}
+
 export interface PriceBookCoverage {
+  scope?: Layer | string
+  /** The SOURCES assigned to this book — what its coverage is measured over. */
+  sources?: CoverageSource[]
   customers: Array<{ id: string; name: string; slug: string }>
-  skus_in_use: Array<{ sku: string; unit: string; quantity_30d: number; resources: number; priced: boolean; unit_price: number | null }>
+  skus_in_use: Array<{ sku: string; unit: string; quantity_30d: number; resources: number; priced: boolean; not_sold_per_use?: boolean; unit_price: number | null }>
   coverage_pct: number
   unpriced_count: number
+  /** Platform meters this platform book deliberately does not price. */
+  not_sold_count?: number
 }
 
 // ---------------------------------------------------------------------------

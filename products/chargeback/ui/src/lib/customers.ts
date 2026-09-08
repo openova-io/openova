@@ -116,7 +116,6 @@ export interface CustomerSettings {
   name: string
   admin_email: string
   billing_mode: string
-  price_book_id: string
   start_date: string
   status: string
   org_slug: string
@@ -127,7 +126,6 @@ export function settingsFrom(c: Customer): CustomerSettings {
     name: c.name ?? '',
     admin_email: c.admin_email ?? '',
     billing_mode: c.billing_mode ?? 'showback',
-    price_book_id: c.price_book_id ?? '',
     start_date: c.start_date ? c.start_date.slice(0, 10) : '',
     status: c.status ?? 'pending',
     org_slug: c.org_slug ?? '',

@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api, asList } from '../api/client'
-import type { Customer, InviteIssued, PriceBook, Summary } from '../api/types'
+import type { Customer, InviteIssued, Summary } from '../api/types'
 import { DataTable, type Column } from '../components/DataTable'
 import { Badge, Delta, KPI, Notice, PageHeader, Segmented, Skeleton } from '../components/ui'
-import { STATUS_FILTERS, customerCounts, filterCustomers, lastStatementText, mtdByCustomer, mtdFor, priceBookName, sourceCounts, sourcesText, type StatusFilter } from '../lib/customers'
+import { STATUS_FILTERS, customerCounts, filterCustomers, lastStatementText, mtdByCustomer, mtdFor, sourceCounts, sourcesText, type StatusFilter } from '../lib/customers'
+import { sourcesByLayerText } from '../lib/layers'
 import { when } from '../lib/format'
 import { formatMoney } from '../lib/money'
 import { readKPIs } from '../lib/summary'
@@ -21,10 +22,8 @@ export function Customers() {
   const nav = useNavigate()
   const [params, setParams] = useSearchParams()
   const list = useQuery<unknown>('/customers')
-  const books = useQuery<unknown>('/pricebooks')
   const sum = useQuery<Summary>('/cost/summary')
   const rows = useMemo(() => asList<Customer>(list.data, 'customers'), [list.data])
-  const bookRows = useMemo(() => asList<PriceBook>(books.data, 'pricebooks', 'price_books'), [books.data])
   const mtd = useMemo(() => mtdByCustomer(sum.data), [sum.data])
   const k = sum.data ? readKPIs(sum.data) : null
   const currency = k?.currency ?? ''
@@ -76,22 +75,22 @@ export function Customers() {
     },
     { key: 'billing', header: 'Billing', value: (c) => c.billing_mode },
     {
-      key: 'book',
-      header: 'Price book',
-      value: (c) => priceBookName(bookRows, c.price_book_id) ?? '',
-      render: (c) => {
-        const name = priceBookName(bookRows, c.price_book_id)
-        return name ? <Link to={`/pricebooks/${c.price_book_id}`} onClick={(e) => e.stopPropagation()}>{name}</Link> : <span className="muted" title="Nothing is rated without a price book">none</span>
-      },
-    },
-    {
+      // DESIGN.md §2: the price book is a property of each SOURCE, so the
+      // directory shows what a customer owns per layer instead of one book.
       key: 'sources',
       header: 'Sources',
-      value: (c) => sourceCounts(c).total,
-      numeric: true,
+      value: (c) => (c.cloud_source_count ?? 0) + (c.platform_source_count ?? 0),
       render: (c) => {
         const { verified, total } = sourceCounts(c)
-        return <span className={total !== null && verified === 0 && total > 0 ? 'warn' : ''} title="verified / total">{sourcesText(c)}</span>
+        const none = (c.cloud_source_count ?? 0) + (c.platform_source_count ?? 0) === 0
+        return (
+          <>
+            <span className={none ? 'warn' : ''}>{sourcesByLayerText(c)}</span>
+            <span className={total !== null && verified === 0 && total > 0 ? 'sub warn' : 'sub'} title="verified / total">
+              {sourcesText(c)} verified
+            </span>
+          </>
+        )
       },
     },
     {
@@ -209,7 +208,7 @@ export function Customers() {
         </div>
       )}
 
-      {showNew ? <NewCustomerModal books={bookRows} onClose={() => setParam('new', '')} /> : null}
+      {showNew ? <NewCustomerModal onClose={() => setParam('new', '')} /> : null}
     </div>
   )
 }

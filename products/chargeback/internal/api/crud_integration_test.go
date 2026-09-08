@@ -48,11 +48,11 @@ func seedCRUD(t *testing.T, st *store.Store) crudSeed {
 	}, true); err != nil {
 		t.Fatal(err)
 	}
-	acme, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "acme", Name: "Acme", AdminEmail: acmeAdmin, PriceBookID: book.ID, StartDate: "2026-08-01"})
+	acme, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "acme", Name: "Acme", AdminEmail: acmeAdmin, StartDate: "2026-08-01"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	bravo, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "bravo", Name: "Bravo", AdminEmail: bravoAdmin, PriceBookID: book.ID, StartDate: "2026-08-01"})
+	bravo, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "bravo", Name: "Bravo", AdminEmail: bravoAdmin, StartDate: "2026-08-01"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,6 +67,8 @@ func seedCRUD(t *testing.T, st *store.Store) crudSeed {
 	if err != nil {
 		t.Fatal(err)
 	}
+	assignBook(t, st, srcA.ID, book.ID)
+	assignBook(t, st, srcB.ID, book.ID)
 	var recs []store.UsageRecord
 	rec := func(c store.Customer, src store.CostSource, res, kind, sku, unit string, at time.Time) {
 		recs = append(recs, store.UsageRecord{CustomerID: c.ID, SourceID: src.ID, ResourceID: res, ResourceKind: kind, SKU: sku, Quantity: "1.000000", Unit: unit,
@@ -306,8 +308,9 @@ func TestIntegrationPriceBookCloneItemsExportCoverageDelete(t *testing.T) {
 	}
 	op.must("GET", "/api/v1/pricebooks/00000000-0000-0000-0000-000000000000/coverage", 404)
 
-	// Delete: refused while assigned, naming the customers; allowed after
-	// they are moved to the clone.
+	// Delete: refused while sources are assigned, naming the sources and
+	// their customers; allowed after the sources are moved to the clone
+	// (DESIGN.md §2: the book is a property of the source).
 	acme.must("DELETE", "/api/v1/pricebooks/"+seed.bookID, 403)
 	rec, out = op.do("DELETE", "/api/v1/pricebooks/"+seed.bookID, "", nil)
 	if rec.Code != 409 {
@@ -317,9 +320,19 @@ func TestIntegrationPriceBookCloneItemsExportCoverageDelete(t *testing.T) {
 	if len(names) != 2 || names[0] != "Acme" || names[1] != "Bravo" || !strings.Contains(out["error"].(string), "2 customer(s)") {
 		t.Fatalf("409 details = %+v", out)
 	}
+	if srcs := out["details"].(map[string]any)["sources"].([]any); len(srcs) != 2 || srcs[0].(map[string]any)["label"] != "ok-a" || srcs[0].(map[string]any)["layer"] != "cloud" {
+		t.Fatalf("409 sources = %+v", out["details"])
+	}
 	op.must("GET", "/api/v1/pricebooks/"+seed.bookID, 200)
-	for _, cid := range []string{seed.acme.ID, seed.bravo.ID} {
-		op.mustJSON("PATCH", "/api/v1/customers/"+cid, map[string]any{"price_book_id": cloneID}, 200)
+	// The deprecated customer-level assignment is ignored, never an error,
+	// and moves nothing.
+	op.mustJSON("PATCH", "/api/v1/customers/"+seed.acme.ID, map[string]any{"price_book_id": cloneID}, 200)
+	op.must("DELETE", "/api/v1/pricebooks/"+seed.bookID, 409)
+	for _, sid := range []string{seed.srcA.ID, seed.srcB.ID} {
+		moved := op.mustJSON("PATCH", "/api/v1/sources/"+sid, map[string]any{"price_book_id": cloneID}, 200)
+		if moved["price_book_id"] != cloneID || moved["price_book_name"] != "Acme negotiated" || moved["layer"] != "cloud" {
+			t.Fatalf("source after book move = %+v", moved)
+		}
 	}
 	op.must("DELETE", "/api/v1/pricebooks/"+seed.bookID, 200)
 	op.must("GET", "/api/v1/pricebooks/"+seed.bookID, 404)

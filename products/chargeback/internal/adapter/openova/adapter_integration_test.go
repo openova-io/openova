@@ -161,11 +161,16 @@ func TestIntegrationPlanLineAgainstStore(t *testing.T) {
 		t.Fatalf("resync: %v", err)
 	}
 	c, err := st.GetCustomerBySlug(ctx, "agwalk")
-	if err != nil || c.PlanSlug != "m" || c.PriceBookID == nil {
-		t.Fatalf("customer = %+v err=%v", c, err)
+	if err != nil || c.PlanSlug != "m" || c.PriceBookID != nil {
+		t.Fatalf("customer = %+v err=%v (the book is a property of the source, never the customer)", c, err)
 	}
-	book, err := st.GetPriceBook(ctx, *c.PriceBookID)
-	if err != nil || book.Name != store.PlanBookName || len(book.Items) != 4 {
+	// The plans book is assigned to the Organization's PLATFORM source.
+	srcs, err := st.ListSources(ctx, store.OperatorScope, c.ID)
+	if err != nil || len(srcs) != 1 || srcs[0].Kind != SourceKindOrg || srcs[0].Layer != store.LayerPlatform || srcs[0].PriceBookID == nil {
+		t.Fatalf("platform source = %+v err=%v", srcs, err)
+	}
+	book, err := st.GetPriceBook(ctx, *srcs[0].PriceBookID)
+	if err != nil || book.Name != store.PlanBookName || book.Scope != store.LayerPlatform || len(book.Items) != 4 {
 		t.Fatalf("assigned book = %+v err=%v", book, err)
 	}
 	books, err := st.ListPriceBooks(ctx)

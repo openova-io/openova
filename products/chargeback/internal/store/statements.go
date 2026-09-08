@@ -11,14 +11,15 @@ import (
 
 const statementColumns = `st.id, st.customer_id, to_char(st.period_start, 'YYYY-MM-DD'), to_char(st.period_end, 'YYYY-MM-DD'), st.currency,
 	st.subtotal::text, st.tax_rate::text, st.tax::text, st.total::text, st.status, st.issued_at, st.created_at, c.name,
-	COALESCE(st.discount_total, 0)::text, st.discount_detail`
+	COALESCE(st.discount_total, 0)::text, st.discount_detail, st.discount_rule`
 
 func scanStatement(row interface{ Scan(...any) error }) (Statement, error) {
 	var st Statement
 	var sub, rate, tax, total, disc string
 	var issued sql.NullTime
 	var detail []byte
-	if err := row.Scan(&st.ID, &st.CustomerID, &st.PeriodStart, &st.PeriodEnd, &st.Currency, &sub, &rate, &tax, &total, &st.Status, &issued, &st.CreatedAt, &st.CustomerName, &disc, &detail); err != nil {
+	var rule sql.NullString
+	if err := row.Scan(&st.ID, &st.CustomerID, &st.PeriodStart, &st.PeriodEnd, &st.Currency, &sub, &rate, &tax, &total, &st.Status, &issued, &st.CreatedAt, &st.CustomerName, &disc, &detail, &rule); err != nil {
 		return st, mapErr(err)
 	}
 	st.Subtotal, st.TaxRate, st.Tax, st.Total = Decimal(sub), Decimal(rate), Decimal(tax), Decimal(total)
@@ -26,6 +27,7 @@ func scanStatement(row interface{ Scan(...any) error }) (Statement, error) {
 	if len(detail) > 0 && string(detail) != "null" {
 		st.DiscountDetail = detail
 	}
+	st.DiscountRule = rule.String
 	st.IssuedAt = timePtr(issued)
 	return st, nil
 }
@@ -45,6 +47,9 @@ type StatementDraft struct {
 	// the statement so a campaign that later ends cannot change an issued bill.
 	Discount         Decimal
 	AppliedDiscounts any
+	// DiscountRule names the combination rule the run applied (DESIGN.md
+	// §2.11); recorded on the statement so an issued bill states it.
+	DiscountRule string
 }
 
 // WriteDraftStatement upserts a draft for (customer, period) and replaces its
@@ -59,9 +64,9 @@ func (s *Store) WriteDraftStatement(ctx context.Context, d StatementDraft) (Stat
 	err = tx.QueryRowContext(ctx, `SELECT id, status FROM statements WHERE customer_id = $1 AND period_start = $2 FOR UPDATE`, d.CustomerID, d.PeriodStart).Scan(&existingID, &status)
 	switch {
 	case err == sql.ErrNoRows:
-		if err := tx.QueryRowContext(ctx, `INSERT INTO statements (customer_id, period_start, period_end, currency, subtotal, tax_rate, tax, total, status, discount_total, discount_detail)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft', $9::numeric, $10) RETURNING id`,
-			d.CustomerID, d.PeriodStart, d.PeriodEnd, d.Currency, string(d.Subtotal), string(d.TaxRate), string(d.Tax), string(d.Total), discountOrZero(d.Discount), discountDetailJSON(d.AppliedDiscounts)).Scan(&existingID); err != nil {
+		if err := tx.QueryRowContext(ctx, `INSERT INTO statements (customer_id, period_start, period_end, currency, subtotal, tax_rate, tax, total, status, discount_total, discount_detail, discount_rule)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft', $9::numeric, $10, $11) RETURNING id`,
+			d.CustomerID, d.PeriodStart, d.PeriodEnd, d.Currency, string(d.Subtotal), string(d.TaxRate), string(d.Tax), string(d.Total), discountOrZero(d.Discount), discountDetailJSON(d.AppliedDiscounts), nullStr(&d.DiscountRule)).Scan(&existingID); err != nil {
 			return Statement{}, mapErr(err)
 		}
 	case err != nil:
@@ -69,8 +74,8 @@ func (s *Store) WriteDraftStatement(ctx context.Context, d StatementDraft) (Stat
 	case status == "issued":
 		return Statement{}, fmt.Errorf("%w: statement for this period is already issued", ErrConflict)
 	default:
-		if _, err := tx.ExecContext(ctx, `UPDATE statements SET period_end = $2, currency = $3, subtotal = $4, tax_rate = $5, tax = $6, total = $7, discount_total = $8::numeric, discount_detail = $9, created_at = now() WHERE id = $1`,
-			existingID, d.PeriodEnd, d.Currency, string(d.Subtotal), string(d.TaxRate), string(d.Tax), string(d.Total), discountOrZero(d.Discount), discountDetailJSON(d.AppliedDiscounts)); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE statements SET period_end = $2, currency = $3, subtotal = $4, tax_rate = $5, tax = $6, total = $7, discount_total = $8::numeric, discount_detail = $9, discount_rule = $10, created_at = now() WHERE id = $1`,
+			existingID, d.PeriodEnd, d.Currency, string(d.Subtotal), string(d.TaxRate), string(d.Tax), string(d.Total), discountOrZero(d.Discount), discountDetailJSON(d.AppliedDiscounts), nullStr(&d.DiscountRule)); err != nil {
 			return Statement{}, mapErr(err)
 		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM rated_lines WHERE statement_id = $1`, existingID); err != nil {

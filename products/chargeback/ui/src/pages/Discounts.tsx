@@ -1,20 +1,23 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { api, asList, errorText } from '../api/client'
-import { exploreQuery, type Customer, type Discount, type ExploreResult } from '../api/types'
+import { exploreQuery, type BillingSettings, type Customer, type Discount, type DiscountRule, type ExploreResult } from '../api/types'
 import { DataTable, type Column } from '../components/DataTable'
 import { Badge, Confirm, Field, KPI, Modal, Notice, PageHeader, Segmented, Skeleton } from '../components/ui'
 import { describeWindow, presetWindow } from '../lib/dates'
+import { DEFAULT_DISCOUNT_RULE, DISCOUNT_RULES, isDiscountRule, ruleExampleRows } from '../lib/discountRule'
 import { discountPreview, discountState, validateDiscount, type DiscountState } from '../lib/discounts'
-import { day } from '../lib/format'
-import { formatMoney, formatPct } from '../lib/money'
+import { day, when } from '../lib/format'
+import { formatMoney, formatNumber, formatPct } from '../lib/money'
 import { toNumber } from '../lib/num'
 import { customerName, useCustomers } from '../lib/useCustomers'
 import { useQuery } from '../lib/useQuery'
 
 /**
- * Discounts (DESIGN.md §2.6) — every negotiated discount and campaign in one
- * place. A discount never changes the price book: statements show the list
- * subtotal and what came off it, so the saving stays visible.
+ * Discounts (DESIGN.md §2.6, §2.11) — every negotiated discount and campaign
+ * in one place, plus the combination rule that decides how several percent
+ * discounts on one line combine. A discount never changes the price book:
+ * statements show the list subtotal and what came off it, so the saving
+ * stays visible.
  */
 
 type Row = Discount & { state: DiscountState }
@@ -42,11 +45,13 @@ export function Discounts() {
   const rows = all.filter((r) => (filter === 'all' || r.state === filter) && (scope === '' || (scope === 'global' ? r.customer_id === null : r.customer_id === scope)))
   const count = (s: DiscountState) => all.filter((r) => r.state === s).length
 
-  const toggle = async (r: Row) => {
+  // One flag per call (PATCH {active} or {stackable}), so the two inline
+  // checkboxes cannot clobber each other.
+  const flip = async (r: Row, patch: { active: boolean } | { stackable: boolean }) => {
     setBusyId(r.id)
     setError('')
     try {
-      await api.patch(`/discounts/${r.id}`, { active: !r.active })
+      await api.patch(`/discounts/${r.id}`, patch)
       await list.reload()
     } catch (e) {
       setError(errorText(e))
@@ -94,9 +99,24 @@ export function Discounts() {
       value: (r) => (r.active ? 1 : 0),
       render: (r) => (
         <label className="check" title={r.active ? 'Switch off — stops applying from the next statement run' : 'Switch on'}>
-          <input type="checkbox" checked={r.active} disabled={busyId === r.id} onChange={() => void toggle(r)} aria-label={`${r.name} active`} />
+          <input type="checkbox" checked={r.active} disabled={busyId === r.id} onChange={() => void flip(r, { active: !r.active })} aria-label={`${r.name} active`} />
         </label>
       ),
+    },
+    {
+      key: 'stackable',
+      header: 'Stackable',
+      value: (r) => (r.stackable ? 1 : 0),
+      render: (r) =>
+        r.kind === 'percent' ? (
+          <label className="check" title="Under Most specific wins and Highest wins this percent is added on top of the winning discount instead of competing with it. No effect under Stack or Compound, or on fixed amounts.">
+            <input type="checkbox" checked={Boolean(r.stackable)} disabled={busyId === r.id} onChange={() => void flip(r, { stackable: !r.stackable })} aria-label={`${r.name} stackable`} />
+          </label>
+        ) : (
+          <span className="muted" title="Fixed amounts always come off after the percentages">
+            —
+          </span>
+        ),
     },
     {
       key: 'actions',
@@ -131,6 +151,8 @@ export function Discounts() {
       {list.error ? <Notice kind="bad">{list.error}</Notice> : null}
       {error ? <Notice kind="bad">{error}</Notice> : null}
       {flash ? <Notice kind="ok">{flash}</Notice> : null}
+
+      <RuleCard onSaved={(label) => setFlash(`Combination rule saved: ${label}. It applies from the next statement run.`)} />
 
       <div className="kpis">
         <KPI label="Discounts" value={all.length} note={`${all.filter((r) => r.customer_id === null).length} for all customers`} />
@@ -174,6 +196,7 @@ export function Discounts() {
           </div>
         ) : (
           <DataTable
+            label="Discounts"
             columns={columns}
             rows={rows}
             rowKey={(r) => r.id}
@@ -211,6 +234,104 @@ export function Discounts() {
   )
 }
 
+/**
+ * Combination rule (DESIGN.md §2.11): which of several percent discounts on
+ * one line apply, and how. The example is computed client-side by the same
+ * arithmetic the statement run uses (lib/discountRule, unit-tested against
+ * the engine's fixture), so the operator sees the consequence before saving.
+ */
+function RuleCard({ onSaved }: { onSaved: (label: string) => void }) {
+  const settings = useQuery<BillingSettings>('/billing-settings')
+  const [choice, setChoice] = useState<DiscountRule | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  // Derived, not synced by an effect: the saved rule shows the moment the
+  // document arrives, and a choice the operator made stays until saved or
+  // reverted.
+  const saved: DiscountRule = isDiscountRule(settings.data?.discount_rule) ? settings.data.discount_rule : DEFAULT_DISCOUNT_RULE
+  const rule = choice ?? saved
+  const info = DISCOUNT_RULES.find((r) => r.value === rule) ?? DISCOUNT_RULES[0]
+  const rows = useMemo(() => ruleExampleRows(), [])
+  const dirty = rule !== saved
+
+  const save = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      await api.put('/billing-settings', { discount_rule: rule })
+      await settings.reload()
+      setChoice(null)
+      onSaved(info.label)
+    } catch (e) {
+      setError(errorText(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="card">
+      <div className="card-head">
+        <h2>Combination rule</h2>
+        <span className="hint">{settings.data?.updated_at ? `last changed ${when(settings.data.updated_at)}` : settings.loading ? 'loading…' : ''}</span>
+      </div>
+      {settings.error ? <Notice kind="bad">{settings.error}</Notice> : null}
+      {error ? <Notice kind="bad">{error}</Notice> : null}
+      <p className="muted small">
+        When more than one percent discount applies to the same line, this decides how they combine. Fixed amounts always come off afterwards, whatever the rule. A change applies from the
+        next statement run; an issued statement keeps the rule it was rated under and states it.
+      </p>
+      <div className="grid side" style={{ gap: 18, alignItems: 'start' }}>
+        <div className="stack tight">
+          <Segmented<DiscountRule> value={rule} onChange={setChoice} options={DISCOUNT_RULES.map((r) => ({ value: r.value, label: r.label, title: r.summary }))} ariaLabel="Combination rule" />
+          <p className="small" style={{ margin: '8px 0' }}>
+            <b>{info.label}.</b> {info.summary}
+          </p>
+          <p className="muted tiny" style={{ margin: 0 }}>
+            A <b>stackable</b> discount (checkbox in the table below) is added on top of the winner under Most specific wins and Highest wins — a campaign on top of the contract. It changes nothing under Stack or
+            Compound.
+          </p>
+          <div className="btn-row" style={{ marginTop: 10 }}>
+            <button className="primary" disabled={busy || !dirty || !settings.data} onClick={() => void save()}>
+              Save
+            </button>
+            {dirty ? (
+              <button type="button" disabled={busy} onClick={() => setChoice(null)}>
+                Revert
+              </button>
+            ) : null}
+          </div>
+        </div>
+        <div className="card flat pad-0" style={{ background: 'var(--panel-2)' }}>
+          <table aria-label="Combination rule example">
+            <thead>
+              <tr>
+                <th>Example · list 100</th>
+                <th className="num">SKU A (50)</th>
+                <th className="num">SKU B (50)</th>
+                <th className="num">Discount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.rule} style={r.rule === rule ? { fontWeight: 600 } : undefined} aria-current={r.rule === rule ? 'true' : undefined}>
+                  <td>{r.label}</td>
+                  <td className="num">−{formatNumber(r.a, 2)}</td>
+                  <td className="num">−{formatNumber(r.b, 2)}</td>
+                  <td className="num">−{formatNumber(r.total, 2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="muted tiny" style={{ margin: '8px 12px 10px' }}>
+            10 % on the whole bill and 20 % on SKU A, neither stackable. SKU B only ever sees the 10 %.
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 interface Draft {
   customer_id: string
   name: string
@@ -220,6 +341,7 @@ interface Draft {
   starts_at: string
   ends_at: string
   active: boolean
+  stackable: boolean
 }
 
 function draftOf(d: Discount | null): Draft {
@@ -232,6 +354,7 @@ function draftOf(d: Discount | null): Draft {
     starts_at: d?.starts_at ? d.starts_at.slice(0, 10) : '',
     ends_at: d?.ends_at ? d.ends_at.slice(0, 10) : '',
     active: d?.active ?? true,
+    stackable: Boolean(d?.stackable),
   }
 }
 
@@ -259,6 +382,8 @@ function DiscountModal({ initial, customers, onClose, onSaved }: { initial: Disc
     if (Object.keys(errs).length) return
     setBusy(true)
     setError('')
+    // PUT replaces every field, so the stackable flag rides along or the
+    // edit would silently clear it.
     const body = {
       customer_id: draft.customer_id || null,
       name: draft.name.trim(),
@@ -268,6 +393,7 @@ function DiscountModal({ initial, customers, onClose, onSaved }: { initial: Disc
       starts_at: draft.starts_at || null,
       ends_at: draft.ends_at || null,
       active: draft.active,
+      stackable: draft.kind === 'percent' && draft.stackable,
     }
     try {
       if (initial) await api.put(`/discounts/${initial.id}`, body)
@@ -346,6 +472,11 @@ function DiscountModal({ initial, customers, onClose, onSaved }: { initial: Disc
           <label className="check">
             <input type="checkbox" checked={draft.active} onChange={(e) => set({ active: e.target.checked })} /> Active
           </label>
+          {draft.kind === 'percent' ? (
+            <label className="check" style={{ marginTop: 6 }} title="Under Most specific wins and Highest wins this percent is added on top of the winning discount instead of competing with it">
+              <input type="checkbox" checked={draft.stackable} onChange={(e) => set({ stackable: e.target.checked })} /> Stackable — adds on top of the winning discount
+            </label>
+          ) : null}
         </div>
         <div className="card flat" style={{ background: 'var(--panel-2)' }}>
           <h3>Effect this month — estimate</h3>
@@ -372,7 +503,8 @@ function DiscountModal({ initial, customers, onClose, onSaved }: { initial: Disc
                 </p>
               ) : null}
               <p className="muted tiny" style={{ marginBottom: 0 }}>
-                List prices, month to date ({formatMoney(preview.data.total.current, cur)} total), before other discounts and tax. The statement run applies the exact figure.
+                List prices, month to date ({formatMoney(preview.data.total.current, cur)} total), on its own — before other discounts, the combination rule and tax. The statement run applies the
+                exact figure.
               </p>
             </>
           )}

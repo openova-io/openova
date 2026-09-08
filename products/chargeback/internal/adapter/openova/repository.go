@@ -27,6 +27,18 @@ type Repository interface {
 	// EnsurePlanBook returns the "OpenOva plans" rate card, creating it when
 	// absent (DESIGN.md §2.8 "Plan revenue"); created reports a fresh book.
 	EnsurePlanBook(ctx context.Context) (pb store.PriceBook, created bool, err error)
+	// SetSourcePriceBook assigns a book to a source (DESIGN.md §2: the book
+	// is a property of the source, scope-checked against its layer).
+	SetSourcePriceBook(ctx context.Context, sourceID, bookID string) error
+	// EnsureInternalSource returns the Sovereign's own internal platform
+	// source for the internal Organization's slug, creating it when absent.
+	// It has no customer; the platform collector writes the overhead
+	// records to it and only Allocation reads them.
+	EnsureInternalSource(ctx context.Context, projectID string) (src store.CostSource, created bool, err error)
+	// RetireOrganizationCustomer converts the customer an earlier version
+	// synced the Sovereign's own Organization as into a plain external
+	// customer and its openova-org source into the internal source.
+	RetireOrganizationCustomer(ctx context.Context, customerID string) error
 }
 
 var _ Repository = (*store.Store)(nil)

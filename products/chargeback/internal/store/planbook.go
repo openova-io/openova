@@ -123,7 +123,8 @@ func PlanBookItems() []PriceItem {
 	return out
 }
 
-// EnsurePlanBook returns the "OpenOva plans" rate card, creating and
+// EnsurePlanBook returns the "OpenOva plans" rate card — the PLATFORM-scope
+// book every Organization's openova-org source is assigned to — creating and
 // pricing it when absent. created reports whether this call made it. An
 // existing book is returned untouched — never re-priced, never re-created —
 // so an operator's edits survive every restart and resync.
@@ -135,7 +136,7 @@ func (s *Store) EnsurePlanBook(ctx context.Context) (pb PriceBook, created bool,
 	if !errors.Is(err, ErrNotFound) {
 		return PriceBook{}, false, err
 	}
-	pb, err = s.CreatePriceBook(ctx, PriceBookInput{Name: PlanBookName, Currency: "OMR", AnnualDivisor: PlanBookDivisor, BillStopped: "compute"})
+	pb, err = s.CreatePriceBook(ctx, PriceBookInput{Name: PlanBookName, Scope: LayerPlatform, Currency: "OMR", AnnualDivisor: PlanBookDivisor, BillStopped: "compute"})
 	if err != nil {
 		if errors.Is(err, ErrConflict) {
 			// Raced with another creator (two replicas): theirs wins.

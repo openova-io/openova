@@ -3,7 +3,8 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { api, asList } from '../api/client'
 import type { CostSource, Customer, CustomerUser, InviteIssued, PriceBook, Summary } from '../api/types'
 import { Badge, Confirm, Delta, KPI, Notice, PageHeader, Skeleton, Tabs } from '../components/ui'
-import { priceBookCurrency, priceBookName } from '../lib/customers'
+import { priceBookCurrency } from '../lib/customers'
+import { sourcesByLayerText } from '../lib/layers'
 import { day, when } from '../lib/format'
 import { formatMoney } from '../lib/money'
 import { customerLens } from '../lib/scope'
@@ -55,9 +56,11 @@ export function CustomerDetail() {
   const sources = asList<CostSource>(src.data, 'sources')
   const users = asList<CustomerUser>(usr.data, 'users')
   const bookRows = asList<PriceBook>(books.data, 'pricebooks', 'price_books')
-  const bookName = priceBookName(bookRows, c.price_book_id)
+  // The book belongs to the source (DESIGN.md §2): a source with none rates
+  // its usage to zero, and that is what the header warns about.
+  const unbooked = sources.filter((s) => !s.internal && !s.price_book_id)
   const k = sum.data ? readKPIs(sum.data) : null
-  const currency = k?.currency || priceBookCurrency(bookRows, c.price_book_id) || ''
+  const currency = k?.currency || priceBookCurrency(bookRows, sources.find((s) => s.price_book_id)?.price_book_id) || ''
   const money = (v: number | null | undefined) => formatMoney(v, currency, { compact: true })
   const base = `/customers/${id}`
   const verified = sources.filter((s) => s.status === 'verified').length
@@ -84,13 +87,12 @@ export function CustomerDetail() {
           <>
             <span className="mono">{c.slug}</span> · {c.kind === 'organization' ? 'Organization' : 'external'} · {c.billing_mode}
             {c.plan_slug ? ` · ${c.plan_slug.toUpperCase()} plan` : ''} ·{' '}
-            {bookName ? (
-              <Link to={`/pricebooks/${c.price_book_id}`}>{bookName}</Link>
-            ) : (
-              <Link to={`${base}?tab=settings`} className="warn">
-                no price book
-              </Link>
-            )}
+            {/* The price book is a property of each SOURCE (DESIGN.md §2), so
+                the header counts the sources per layer and links to the tab
+                where their books are assigned. */}
+            <Link to={`${base}?tab=sources`} className={unbooked.length ? 'warn' : undefined}>
+              {sourcesByLayerText(c)} source{sources.length === 1 ? '' : 's'}
+            </Link>
             {c.start_date ? ` · from ${day(c.start_date)}` : ''} · {c.admin_email}
           </>
         }
@@ -138,9 +140,11 @@ export function CustomerDetail() {
           .
         </Notice>
       ) : null}
-      {!c.price_book_id && c.status !== 'suspended' ? (
+      {unbooked.length > 0 && c.status !== 'suspended' ? (
         <Notice kind="warn">
-          No price book — usage is collected but every cost shows as 0. <Link to={`${base}?tab=settings`}>Assign one</Link>.
+          {unbooked.length === 1 ? 'One source has' : `${unbooked.length} sources have`} no price book —{' '}
+          <span className="mono">{unbooked.map((s) => s.project_id || s.kind).join(', ')}</span>: their usage is collected but every cost shows as 0.{' '}
+          <Link to={`${base}?tab=sources`}>Assign a rate card</Link>.
         </Notice>
       ) : null}
 
@@ -166,13 +170,27 @@ export function CustomerDetail() {
       {tab === 'statements' ? <StatementsPanel customerId={id} canIssue /> : null}
       {tab === 'discounts' ? <DiscountsPanel customerId={id} canManage currency={currency} /> : null}
       {tab === 'budgets' ? <BudgetsPanel customerId={id} canManage currency={currency} /> : null}
-      {tab === 'sources' ? <SourcesPanel customerId={id} sources={sources} canManage canRotate onChanged={async () => { await Promise.all([src.reload(), cust.reload()]) }} loading={src.loading} /> : null}
+      {tab === 'sources' ? (
+        <SourcesPanel
+          customerId={id}
+          sources={sources}
+          books={bookRows}
+          canManage
+          canRotate
+          // The new-customer flow lands here with the add-source modal open:
+          // defining a customer means defining where its cost comes from.
+          autoAdd={params.get('add') === '1'}
+          onChanged={async () => {
+            await Promise.all([src.reload(), cust.reload()])
+          }}
+          loading={src.loading}
+        />
+      ) : null}
       {tab === 'users' ? <UsersPanel customerId={id} users={users} adminEmail={c.admin_email} onChanged={usr.reload} /> : null}
       {tab === 'settings' ? (
         <SettingsPanel
           key={c.id}
           customer={c}
-          books={bookRows}
           onSaved={(next) => {
             cust.setData({ ...c, ...next })
             return sum.reload()

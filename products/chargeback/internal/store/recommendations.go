@@ -65,59 +65,85 @@ func (s *Store) LiveResources(ctx context.Context, scope Scope, customerID strin
 	return out, rows.Err()
 }
 
-// CustomerBook is a customer with the rate card it bills against. HasBook
-// false means no price book is assigned (Rates is then empty).
+// CustomerBook is a customer with the rate cards its SOURCES bill against
+// (DESIGN.md §2: a book is assigned per source). HasBook is true when at
+// least one source has a book; BookName / Currency / BillStopped are those
+// of the customer's cloud book (the cloud rules price cloud SKUs), else of
+// its platform book. Rates is the union of every assigned book's items —
+// cloud and platform SKU namespaces do not overlap. UnbookedSources names
+// the sources that have no book at all.
 //
-// RateToBase is per_base for the book's currency — "1" when it IS the
-// reporting currency, the stored exchange rate, or "" when there is none —
-// so a saving computed from Rates (book currency) can be reported in the
-// reporting currency with store.ToBase, or flagged unconverted.
+// RateToBase is per_base for Currency — "1" when it IS the reporting
+// currency, the stored exchange rate, or "" when there is none — so a saving
+// computed from Rates can be reported in the reporting currency with
+// store.ToBase, or flagged unconverted.
 type CustomerBook struct {
-	CustomerID   string
-	CustomerName string
-	Status       string
-	HasBook      bool
-	BookName     string
-	Currency     string
-	BillStopped  string
-	Rates        map[string]Decimal // sku → hourly unit price
-	RateToBase   Decimal
+	CustomerID      string
+	CustomerName    string
+	Status          string
+	HasBook         bool
+	BookName        string
+	Currency        string
+	BillStopped     string
+	Rates           map[string]Decimal // sku → hourly unit price
+	RateToBase      Decimal
+	UnbookedSources []string
 }
 
-// CustomerBooks lists every customer in scope with its book and rates.
+// CustomerBooks lists every customer in scope with its books and rates.
 func (s *Store) CustomerBooks(ctx context.Context, scope Scope, customerID string) ([]CustomerBook, error) {
 	cid, err := scopedCustomer(scope, customerID)
 	if err != nil {
 		return nil, err
 	}
-	q := `SELECT c.id::text, c.name, c.status, b.id::text, b.name, b.currency, b.bill_stopped
-	        FROM customers c LEFT JOIN price_books b ON b.id = c.price_book_id`
+	q := `SELECT c.id::text, c.name, c.status, COALESCE(NULLIF(s.project_id, ''), s.kind, ''), COALESCE(s.layer, ''), s.id::text,
+	             b.id::text, b.name, b.currency, b.bill_stopped
+	        FROM customers c
+	        LEFT JOIN cost_sources s ON s.customer_id = c.id
+	        LEFT JOIN price_books b ON b.id = s.price_book_id`
 	var args []any
 	if cid != "" {
 		q += ` WHERE c.id::text = $1`
 		args = append(args, cid)
 	}
-	q += ` ORDER BY c.name`
+	q += ` ORDER BY c.name, c.id, s.layer, s.project_id`
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, mapErr(err)
 	}
 	defer rows.Close()
 	out := []CustomerBook{}
+	idx := map[string]int{}       // customer id → index in out
 	bookIdx := map[string][]int{} // book id → indexes in out
+	cloudBook := map[string]bool{}
 	for rows.Next() {
-		var cb CustomerBook
-		var bookID, bookName, currency, billStopped sql.NullString
-		if err := rows.Scan(&cb.CustomerID, &cb.CustomerName, &cb.Status, &bookID, &bookName, &currency, &billStopped); err != nil {
+		var custID, custName, status string
+		var label, layer string
+		var srcID, bookID, bookName, currency, billStopped sql.NullString
+		if err := rows.Scan(&custID, &custName, &status, &label, &layer, &srcID, &bookID, &bookName, &currency, &billStopped); err != nil {
 			return nil, err
 		}
-		cb.Rates = map[string]Decimal{}
-		if bookID.Valid {
-			cb.HasBook = true
-			cb.BookName, cb.Currency, cb.BillStopped = bookName.String, currency.String, billStopped.String
-			bookIdx[bookID.String] = append(bookIdx[bookID.String], len(out))
+		i, ok := idx[custID]
+		if !ok {
+			i = len(out)
+			idx[custID] = i
+			out = append(out, CustomerBook{CustomerID: custID, CustomerName: custName, Status: status, Rates: map[string]Decimal{}, UnbookedSources: []string{}})
 		}
-		out = append(out, cb)
+		if !srcID.Valid {
+			continue // a customer with no source at all
+		}
+		if !bookID.Valid {
+			out[i].UnbookedSources = append(out[i].UnbookedSources, label)
+			continue
+		}
+		// The first cloud book names the customer's currency and policy; a
+		// platform book only when there is no cloud book.
+		if !out[i].HasBook || (layer == LayerCloud && !cloudBook[custID]) {
+			out[i].BookName, out[i].Currency, out[i].BillStopped = bookName.String, currency.String, billStopped.String
+			cloudBook[custID] = layer == LayerCloud
+		}
+		out[i].HasBook = true
+		bookIdx[bookID.String] = append(bookIdx[bookID.String], i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -217,7 +243,7 @@ func (s *Store) SourceHealths(ctx context.Context, scope Scope, customerID strin
 	return out, rows.Err()
 }
 
-// CustomerUnpricedSKU is usage of a customer that HAS a price book but no
+// CustomerUnpricedSKU is usage on a source that HAS a price book but no
 // rate for the SKU: revenue that rates to zero.
 type CustomerUnpricedSKU struct {
 	CustomerID   string
@@ -229,10 +255,12 @@ type CustomerUnpricedSKU struct {
 }
 
 // UnpricedUsageByCustomer aggregates, per customer and SKU, the usage in
-// [from, to) that the customer's book does not price. Customers without a
-// book are left out (every SKU of theirs is unpriced; the no-price-book
-// rule says so once), and so is the CPU-utilisation sample, which is a
-// metric and not a meter — the base CTE already excludes it.
+// [from, to) on sources whose book does not price the SKU. Sources without
+// a book are left out (every SKU of theirs is unpriced; the no-price-book
+// rule says so once), so are the platform meters a platform book
+// deliberately leaves unpriced (not sold per use), and so is the
+// CPU-utilisation sample, which is a metric and not a meter — the base CTE
+// already excludes it.
 func (s *Store) UnpricedUsageByCustomer(ctx context.Context, scope Scope, customerID string, from, to time.Time) ([]CustomerUnpricedSKU, error) {
 	cid, err := scopedCustomer(scope, customerID)
 	if err != nil {
@@ -244,8 +272,7 @@ func (s *Store) UnpricedUsageByCustomer(ctx context.Context, scope Scope, custom
 	}
 	rows, err := s.db.QueryContext(ctx, cte+`
 SELECT customer_id::text, min(customer_name), sku, unit, round(sum(quantity), 6)::text, count(DISTINCT resource_id)
-  FROM f WHERE unit_price IS NULL
-   AND customer_id IN (SELECT id FROM customers WHERE price_book_id IS NOT NULL)
+  FROM f WHERE unit_price IS NULL AND book_id IS NOT NULL AND NOT `+costNotSoldPerUseExpr+`
  GROUP BY 1, 3, 4 ORDER BY 1, sum(quantity) DESC, 3`, a.args...)
 	if err != nil {
 		return nil, mapErr(err)

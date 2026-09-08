@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { api, errorText } from '../api/client'
-import type { PriceBook } from '../api/types'
+import type { Layer, PriceBook } from '../api/types'
+import { LAYERS, scopeOf } from '../lib/layers'
 import { Confirm, Field, Modal, Notice } from './ui'
 
 // Price-book settings, clone and delete dialogs (DESIGN.md §2.5), shared by
@@ -29,6 +30,8 @@ export function billStoppedLabel(v: string | null | undefined): string {
 /** Form state for the settings a book carries besides its items — strings, as typed. */
 export interface BookSettings {
   name: string
+  /** Which layer of source this book may price (DESIGN.md §2). */
+  scope: Layer | string
   currency: string
   annual_divisor: string
   bill_stopped: string
@@ -38,6 +41,7 @@ export interface BookSettings {
 export function settingsFrom(b?: PriceBook | null): BookSettings {
   return {
     name: b?.name ?? '',
+    scope: b ? scopeOf(b) : 'cloud',
     currency: b?.currency ?? 'OMR',
     annual_divisor: String(b?.annual_divisor ?? 8760),
     bill_stopped: b?.bill_stopped ?? 'compute',
@@ -47,6 +51,7 @@ export function settingsFrom(b?: PriceBook | null): BookSettings {
 
 export interface BookSettingsBody {
   name: string
+  scope: string
   currency: string
   annual_divisor: number
   bill_stopped: string
@@ -56,6 +61,7 @@ export interface BookSettingsBody {
 export function settingsBody(s: BookSettings): BookSettingsBody {
   return {
     name: s.name.trim(),
+    scope: s.scope,
     currency: s.currency.trim().toUpperCase(),
     annual_divisor: Number(s.annual_divisor),
     bill_stopped: s.bill_stopped,
@@ -68,6 +74,7 @@ export type SettingsErrors = Partial<Record<keyof BookSettings, string>>
 export function validateSettings(s: BookSettings): SettingsErrors {
   const e: SettingsErrors = {}
   if (!s.name.trim()) e.name = 'Name is required'
+  if (s.scope !== 'cloud' && s.scope !== 'platform') e.scope = 'Choose cloud or platform'
   if (!/^[A-Za-z]{3}$/.test(s.currency.trim())) e.currency = 'Three-letter ISO code, e.g. OMR'
   const d = Number(s.annual_divisor)
   if (!Number.isInteger(d) || d < 1) e.annual_divisor = 'Whole number of hours per year, e.g. 8760'
@@ -81,6 +88,15 @@ export function BookSettingsFields({ value, onChange, errors }: { value: BookSet
     <div className="grid2">
       <Field label="Name" error={errors.name}>
         <input value={value.name} onChange={(e) => set({ name: e.target.value })} autoFocus placeholder="e.g. Standard 2026" />
+      </Field>
+      <Field label="Scope" error={errors.scope} help={LAYERS.find((l) => l.value === value.scope)?.help}>
+        <select value={value.scope} onChange={(e) => set({ scope: e.target.value })} aria-label="Scope">
+          {LAYERS.map((l) => (
+            <option key={l.value} value={l.value}>
+              {l.label}
+            </option>
+          ))}
+        </select>
       </Field>
       <Field label="Currency" error={errors.currency} help="Statements for customers on this book are issued in it">
         <input value={value.currency} maxLength={3} onChange={(e) => set({ currency: e.target.value.toUpperCase() })} />
@@ -242,7 +258,7 @@ export function DeleteBookConfirm({ book, assigned, onClose, onDeleted }: { book
           <p>Removes the book and every item in it. Statements already issued keep their rated lines.</p>
           {assigned > 0 ? (
             <Notice kind="warn">
-              {assigned} customer{assigned === 1 ? ' is' : 's are'} on this book — the server refuses the delete until they are moved to another book.
+              {assigned} cost source{assigned === 1 ? ' is' : 's are'} on this book — the server refuses the delete until they are moved to another book of the same scope.
             </Notice>
           ) : null}
           {error ? <Notice kind="bad">{error}</Notice> : null}

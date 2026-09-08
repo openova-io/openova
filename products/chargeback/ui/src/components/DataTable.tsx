@@ -45,6 +45,14 @@ export interface DataTableProps<T> {
   onSortChange?: (sort: { key: string; dir: 'asc' | 'desc' }) => void
   /** Optional detail row rendered under a row (null/undefined = collapsed). */
   expanded?: (row: T) => ReactNode | null | undefined
+  /**
+   * Accessible name for the table. A page that renders more than one table
+   * needs it: without a name every table is just `table`, and a locator can
+   * only tell them apart by position, which the next card added above the
+   * list silently breaks (#6867 — the combination-rule example did exactly
+   * that to the discounts e2e).
+   */
+  label?: string
 }
 
 export function toCSV<T>(columns: Column<T>[], rows: T[]): string {
@@ -91,6 +99,7 @@ export function DataTable<T>({
   sort: controlledSort,
   onSortChange,
   expanded,
+  label,
 }: DataTableProps<T>) {
   const [localSort, setSort] = useState(defaultSort ?? null)
   const controlled = Boolean(onSortChange)
@@ -132,7 +141,7 @@ export function DataTable<T>({
   return (
     <div>
       <div className="table-wrap">
-        <table>
+        <table aria-label={label}>
           <thead>
             <tr>
               {columns.map((c) => {
