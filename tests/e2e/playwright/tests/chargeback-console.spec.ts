@@ -168,7 +168,12 @@ test.describe('chargeback cost console (#6867)', () => {
     await expect(page.getByRole('heading', { name: 'SKUs in use by the sources assigned to this book' })).toBeVisible()
     await expect(page.getByText('e2e-project').first()).toBeVisible()
     await page.goto(`${BASE}/discounts`)
-    await expect(page.locator('table').first().locator('tbody tr', { hasText: 'E2E ten percent' })).toBeVisible()
+    // The combination-rule card (DESIGN.md §2.11) renders its worked example
+    // as a table ABOVE the discounts table, so `table.first()` is the example.
+    // Both tables carry an accessible name; assert on each by its own name.
+    await expect(page.getByRole('table', { name: 'Combination rule example' })).toBeVisible()
+    const discountsTable = page.getByRole('table', { name: 'Discounts' })
+    await expect(discountsTable.locator('tbody tr', { hasText: 'E2E ten percent' })).toBeVisible()
     await page.goto(`${BASE}/budgets`)
     await expect(page.getByText('E2E ceiling')).toBeVisible()
   })

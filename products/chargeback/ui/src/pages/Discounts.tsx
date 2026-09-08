@@ -196,6 +196,7 @@ export function Discounts() {
           </div>
         ) : (
           <DataTable
+            label="Discounts"
             columns={columns}
             rows={rows}
             rowKey={(r) => r.id}
@@ -302,7 +303,7 @@ function RuleCard({ onSaved }: { onSaved: (label: string) => void }) {
           </div>
         </div>
         <div className="card flat pad-0" style={{ background: 'var(--panel-2)' }}>
-          <table>
+          <table aria-label="Combination rule example">
             <thead>
               <tr>
                 <th>Example · list 100</th>
