@@ -38,11 +38,19 @@ SEED_PERIOD=${SEED_FROM%-*}
 
 echo "operator identity: $(api GET /auth/me | jqv "['role']")"
 
-BOOK=$(api POST /pricebooks '{"name":"E2E list","currency":"OMR","annual_divisor":8760,"bill_stopped":"none"}' | jqv "['id']")
+BOOK=$(api POST /pricebooks '{"name":"E2E list","scope":"cloud","currency":"OMR","annual_divisor":8760,"bill_stopped":"none"}' | jqv "['id']")
 api PUT "/pricebooks/$BOOK/items" '{"items":[{"sku":"ecs.m7n.xlarge.8","unit":"instance-hour","unit_price":"0.5","description":"4 vCPU 32 GB"},{"sku":"evs.ssd.gb","unit":"gb-hour","unit_price":"0.001","description":"SSD per GB"}]}' >/dev/null
-CUST=$(api POST /customers "{\"slug\":\"acme-e2e\",\"name\":\"Acme E2E\",\"admin_email\":\"admin@acme-e2e.example\",\"price_book_id\":\"$BOOK\",\"billing_mode\":\"chargeback\",\"start_date\":\"$SEED_FROM\"}" | jqv "['id']")
+# The price book is assigned PER SOURCE (DESIGN.md §2), never to the
+# customer: the customer create body carries no book at all, and the file
+# source is created with the cloud book that rates it.
+CUST=$(api POST /customers "{\"slug\":\"acme-e2e\",\"name\":\"Acme E2E\",\"admin_email\":\"admin@acme-e2e.example\",\"billing_mode\":\"chargeback\",\"start_date\":\"$SEED_FROM\"}" | jqv "['id']")
 api PATCH "/customers/$CUST" '{"status":"active"}' >/dev/null
-SRC=$(api POST "/customers/$CUST/sources" '{"kind":"file","region":"me-east-1","project_id":"e2e-project"}' | jqv "['id']")
+SRC=$(api POST "/customers/$CUST/sources" "{\"kind\":\"file\",\"region\":\"me-east-1\",\"project_id\":\"e2e-project\",\"price_book_id\":\"$BOOK\"}" | jqv "['id']")
+# Prove the assignment landed on the source and carries the right layer.
+SRC_LAYER=$(api GET "/sources/$SRC" | jqv "['layer']")
+SRC_BOOK=$(api GET "/sources/$SRC" | jqv "['price_book_id']")
+[ "$SRC_LAYER" = "cloud" ] || { echo "FAIL: source layer=$SRC_LAYER, want cloud"; exit 1; }
+[ "$SRC_BOOK" = "$BOOK" ] || { echo "FAIL: source price_book_id=$SRC_BOOK, want $BOOK"; exit 1; }
 
 psql "$CB_PG" -v ON_ERROR_STOP=1 -q <<SQL
 INSERT INTO resource_inventory (source_id, resource_id, kind, name, attrs, first_seen, last_seen)

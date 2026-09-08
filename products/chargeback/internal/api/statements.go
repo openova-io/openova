@@ -32,6 +32,13 @@ func (h *Handler) runStatements(w http.ResponseWriter, r *http.Request) {
 	}
 	results, err := rating.Run(r.Context(), h.Store, in.Period, in.CustomerID)
 	if err != nil {
+		if errors.Is(err, rating.ErrMixedCurrency) {
+			// DESIGN.md §2.9: a statement is issued in ONE currency; a
+			// customer whose sources are on books of different currencies
+			// cannot be rated until the operator assigns books of one.
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		storeErr(w, err)
 		return
 	}

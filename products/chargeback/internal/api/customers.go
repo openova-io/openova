@@ -23,9 +23,12 @@ func (h *Handler) listCustomers(w http.ResponseWriter, r *http.Request) {
 }
 
 type customerBody struct {
-	Slug        string  `json:"slug"`
-	Name        string  `json:"name"`
-	AdminEmail  string  `json:"admin_email"`
+	Slug       string `json:"slug"`
+	Name       string `json:"name"`
+	AdminEmail string `json:"admin_email"`
+	// PriceBookID is DEPRECATED and IGNORED (DESIGN.md §4.1): the price
+	// book is assigned per source (PATCH /sources/{id} price_book_id). The
+	// key is still decoded so an older client is not answered 400.
 	PriceBookID *string `json:"price_book_id"`
 	BillingMode *string `json:"billing_mode"`
 	StartDate   *string `json:"start_date"`
@@ -69,7 +72,7 @@ func (h *Handler) createCustomer(w http.ResponseWriter, r *http.Request) {
 	}
 	ci := store.CustomerInput{Slug: in.Slug, Name: in.Name, AdminEmail: in.AdminEmail}
 	if in.PriceBookID != nil {
-		ci.PriceBookID = *in.PriceBookID
+		slog.Info("customer create: price_book_id is deprecated and ignored; assign the book on the customer's sources (DESIGN.md §4.1)", "slug", in.Slug)
 	}
 	if in.BillingMode != nil {
 		if !validBillingMode(*in.BillingMode) {
@@ -135,7 +138,10 @@ func (h *Handler) patchCustomer(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid body: "+err.Error())
 		return
 	}
-	p := store.CustomerPatch{PriceBookID: in.PriceBookID, OrgSlug: in.OrgSlug}
+	p := store.CustomerPatch{OrgSlug: in.OrgSlug}
+	if in.PriceBookID != nil {
+		slog.Info("customer patch: price_book_id is deprecated and ignored; assign the book on the customer's sources", "customer", id)
+	}
 	if in.Name != "" {
 		p.Name = &in.Name
 	}
@@ -199,9 +205,6 @@ func patchedFields(in customerBody) []string {
 	}
 	if in.AdminEmail != "" {
 		f = append(f, "admin_email")
-	}
-	if in.PriceBookID != nil {
-		f = append(f, "price_book_id")
 	}
 	if in.BillingMode != nil {
 		f = append(f, "billing_mode")

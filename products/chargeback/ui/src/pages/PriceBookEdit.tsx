@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { API_BASE, api, asList, errorText } from '../api/client'
 import type { PriceBook, PriceBookCoverage, PriceItem } from '../api/types'
 import { DataTable, sortRows, type Column } from '../components/DataTable'
@@ -8,6 +8,7 @@ import { Badge, Confirm, EmptyState, Field, KPI, Modal, Notice, PageHeader, Skel
 import { PRICE_CSV_SAMPLE, dataUrl, parsePriceBookCsv, unitPrice } from '../lib/csv'
 import { day, num } from '../lib/format'
 import { formatMoney, formatPct, formatQty } from '../lib/money'
+import { layerLabel, notSoldPerUseNote, scopeOf } from '../lib/layers'
 import { round, toNumber } from '../lib/num'
 import { useQuery } from '../lib/useQuery'
 
@@ -199,7 +200,12 @@ export function PriceBookEdit() {
   type CovRow = PriceBookCoverage['skus_in_use'][number]
   const covRows = useMemo(() => [...(coverage.data?.skus_in_use ?? [])].sort((a, b) => b.quantity_30d - a.quantity_30d), [coverage.data])
   const covCols: Column<CovRow>[] = [
-    { key: 'priced', header: 'Rate', value: (r) => (r.priced ? 1 : 0), render: (r) => (r.priced ? <Badge status="priced" kind="ok" /> : <Badge status="unpriced" kind="warn" />) },
+    {
+      key: 'priced',
+      header: 'Rate',
+      value: (r) => (r.priced ? 2 : r.not_sold_per_use ? 1 : 0),
+      render: (r) => (r.priced ? <Badge status="priced" kind="ok" /> : r.not_sold_per_use ? <Badge status="basis" /> : <Badge status="unpriced" kind="warn" />),
+    },
     { key: 'sku', header: 'SKU', value: (r) => r.sku, render: (r) => <span className="mono">{r.sku}</span> },
     { key: 'unit', header: 'Unit', value: (r) => r.unit },
     { key: 'qty', header: 'Quantity, 30 d', value: (r) => r.quantity_30d, numeric: true, render: (r) => formatQty(r.quantity_30d, r.unit) },
@@ -212,6 +218,10 @@ export function PriceBookEdit() {
       render: (r) =>
         r.priced ? (
           formatMoney(toNumber(r.unit_price), currency, { digits: 8 })
+        ) : r.not_sold_per_use ? (
+          <span className="muted" title="The plan covers it; it is the allocation basis, not a missing rate.">
+            not sold per use
+          </span>
         ) : (
           <button className="link small" onClick={() => openAdd({ sku: r.sku, unit: r.unit })}>
             Add rate
@@ -225,6 +235,8 @@ export function PriceBookEdit() {
 
   const cov = coverage.data
   const assigned = cov?.customers ?? []
+  const assignedSources = cov?.sources ?? []
+  const notSold = (cov?.skus_in_use ?? []).filter((k) => k.not_sold_per_use)
   const money = (v: number | string | null | undefined, digits?: number) => formatMoney(toNumber(v), currency, digits === undefined ? undefined : { digits })
 
   return (
@@ -234,14 +246,14 @@ export function PriceBookEdit() {
         title={b.name}
         sub={
           <>
-            {b.currency} · annual ÷ {b.annual_divisor.toLocaleString()} h · stopped compute {billStoppedLabel(b.bill_stopped)} · effective {b.effective_from ? day(b.effective_from) : 'always'} ·{' '}
-            {items.length} item{items.length === 1 ? '' : 's'} ·{' '}
-            {assigned.length ? (
-              <span title={assigned.map((c) => c.name).join(', ')}>
-                {assigned.length} customer{assigned.length === 1 ? '' : 's'}
+            <Badge status={`${layerLabel(scopeOf(b))} book`} kind={scopeOf(b) === 'cloud' ? 'info' : undefined} /> {b.currency} · annual ÷ {b.annual_divisor.toLocaleString()} h · stopped compute{' '}
+            {billStoppedLabel(b.bill_stopped)} · effective {b.effective_from ? day(b.effective_from) : 'always'} · {items.length} item{items.length === 1 ? '' : 's'} ·{' '}
+            {assignedSources.length ? (
+              <span title={assignedSources.map((x) => `${x.customer_name} · ${x.label}`).join(', ')}>
+                {assignedSources.length} source{assignedSources.length === 1 ? '' : 's'} of {assigned.length} customer{assigned.length === 1 ? '' : 's'}
               </span>
             ) : (
-              'no customer assigned'
+              'no source assigned'
             )}
           </>
         }
@@ -271,14 +283,32 @@ export function PriceBookEdit() {
         />
         <KPI label="Unpriced SKUs" value={cov ? cov.unpriced_count : '…'} note={cov?.unpriced_count ? 'their usage costs 0 until a rate is added' : 'every SKU in use carries a rate'} tone={cov?.unpriced_count ? 'warn' : undefined} />
         <KPI label="Items" value={items.length} note={`${currency} per unit · annual ÷ ${b.annual_divisor.toLocaleString()}`} />
-        <KPI label="Customers" value={assigned.length} note={assigned.length ? assigned.map((c) => c.name).join(', ') : 'assign a customer from its detail page'} />
+        <KPI
+          label="Sources"
+          value={assignedSources.length}
+          note={assignedSources.length ? assignedSources.map((x) => `${x.customer_name} · ${x.label}`).join(', ') : 'assign this book on a customer’s Sources tab'}
+        />
       </div>
 
       <div className="card">
         <div className="card-head">
-          <h2>Coverage — SKUs in use, last 30 days</h2>
-          <span className="hint">from the assigned customers’ collected usage · unpriced first</span>
+          <h2>SKUs in use by the sources assigned to this book</h2>
+          <span className="hint">last 30 days · unpriced first</span>
         </div>
+        {assignedSources.length ? (
+          <p className="muted small" style={{ marginTop: 0 }}>
+            Assigned sources:{' '}
+            {assignedSources.map((x, i) => (
+              <span key={x.source_id}>
+                {i > 0 ? ' · ' : ''}
+                <Link to={`/customers/${x.customer_id}?tab=sources`}>{x.customer_name}</Link> <span className="mono">{x.label}</span> ({layerLabel(x.layer)})
+              </span>
+            ))}
+          </p>
+        ) : null}
+        {notSold.length ? (
+          <Notice kind="info">{notSoldPerUseNote(notSold)}</Notice>
+        ) : null}
         {coverage.error ? (
           <Notice kind="bad">{coverage.error}</Notice>
         ) : !cov ? (
@@ -291,7 +321,7 @@ export function PriceBookEdit() {
             defaultSort={{ key: 'priced', dir: 'asc' }}
             pageSize={12}
             emptyTitle="No usage to cover"
-            emptyBody={assigned.length ? 'The assigned customers have no collected usage in the last 30 days — their cost sources have not reported yet.' : 'No customer is on this book, so there is no usage to price against it.'}
+            emptyBody={assignedSources.length ? 'The assigned sources have no collected usage in the last 30 days — they have not reported yet.' : 'No cost source is on this book, so there is no usage to price against it.'}
           />
         )}
       </div>

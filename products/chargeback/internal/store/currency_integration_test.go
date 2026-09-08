@@ -37,7 +37,7 @@ func seedCurrencies(t *testing.T, st *store.Store) fxSeed {
 		return b.ID
 	}
 	mkCustomer := func(slug, book string) (store.Customer, store.CostSource) {
-		c, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: slug, Name: slug, AdminEmail: slug + "@x.example", PriceBookID: book, StartDate: "2026-08-01"})
+		c, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: slug, Name: slug, AdminEmail: slug + "@x.example", StartDate: "2026-08-01"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -45,6 +45,7 @@ func seedCurrencies(t *testing.T, st *store.Store) fxSeed {
 		if err != nil {
 			t.Fatal(err)
 		}
+		assignBook(t, st, src.ID, book)
 		// The resources view joins the inventory: one live ECS per customer.
 		if _, err := st.UpsertInventory(ctx, src.ID, []store.InventoryUpsert{{ResourceID: "vm-" + slug, Kind: "ecs", Name: "vm-" + slug,
 			Attrs: map[string]any{"status": "ACTIVE", "flavor": "m7n.xlarge.8"}, Created: day(2026, 8, 20), SeenAt: day(2026, 9, 7).Add(23 * time.Hour)}}); err != nil {

@@ -25,16 +25,18 @@ func TestIntegrationGlobalDiscountReducesStatementSubtotal(t *testing.T) {
 	if _, err := st.PutPriceItems(ctx, book.ID, []store.PriceItem{{SKU: "ecs.m7n.xlarge.8", Unit: "instance-hour", UnitPrice: "0.5"}}, true); err != nil {
 		t.Fatal(err)
 	}
-	acme, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "acme", Name: "Acme", AdminEmail: "a@acme.example", PriceBookID: book.ID, StartDate: "2026-08-01"})
+	acme, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "acme", Name: "Acme", AdminEmail: "a@acme.example", StartDate: "2026-08-01"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	bravo, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "bravo", Name: "Bravo", AdminEmail: "b@bravo.example", PriceBookID: book.ID, StartDate: "2026-08-01"})
+	bravo, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "bravo", Name: "Bravo", AdminEmail: "b@bravo.example", StartDate: "2026-08-01"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	srcA := mkSource(t, st, acme.ID, "pa")
 	srcB := mkSource(t, st, bravo.ID, "pb")
+	assignBook(t, st, srcA.ID, book.ID)
+	assignBook(t, st, srcB.ID, book.ID)
 	aug := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 	var recs []store.UsageRecord
 	for h := 0; h < 100; h++ { // 100 h × 0.5 = 50.000000 gross

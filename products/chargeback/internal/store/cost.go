@@ -14,11 +14,18 @@ import (
 
 // Cost engine (#6867, DESIGN.md §3.1).
 //
-// Cost is computed at query time: usage_records joined to the customer's
-// price book, with the book's stopped-instance policy applied exactly as the
-// rating run applies it. There is no rollup table — a price change is visible
-// immediately and the explorer can never disagree with a statement for the
-// same window (TestIntegrationExploreReconcilesWithStatement pins this).
+// Cost is computed at query time: usage_records joined, through its SOURCE,
+// to the price book assigned to that source (DESIGN.md §2 — a book is
+// assigned per source, never per customer, so a cloud book can only ever
+// rate cloud SKUs and a platform book platform SKUs), with the book's
+// stopped-instance policy applied exactly as the rating run applies it.
+// There is no rollup table — a price change is visible immediately and the
+// explorer can never disagree with a statement for the same window
+// (TestIntegrationExploreReconcilesWithStatement pins this).
+//
+// The Sovereign's own platform footprint sits on the internal source
+// (cost_sources.internal). Every customer-facing query here leaves it out;
+// only Allocation opts in, through CostQuery.IncludeInternal.
 //
 // The CPU-utilisation sample (ecs.cpu_util) is a metric, not a meter: it is
 // excluded from every cost and usage aggregate here, as it is in rating.
@@ -163,6 +170,10 @@ type CostQuery struct {
 	// CustomerID narrows to one customer (the customer-lens endpoints); the
 	// scope forces it for non-operators regardless of what was asked.
 	CustomerID string
+	// IncludeInternal admits the Sovereign's own internal platform source
+	// (cost_sources.internal), which every customer-facing query excludes.
+	// Only Allocation sets it: the overhead row is that source's usage.
+	IncludeInternal bool
 }
 
 // CostGroup is one line of the explorer table and one series of its chart.
@@ -185,7 +196,9 @@ type CostTotal struct {
 	Resources int      `json:"resources"`
 }
 
-// UnpricedSKU is usage that carries no rate in the customer's price book.
+// UnpricedSKU is usage that carries no rate in its source's price book — or,
+// in ExploreResult.NotSoldPerUse, a platform meter the platform book
+// deliberately does not price.
 type UnpricedSKU struct {
 	SKU       string  `json:"sku"`
 	Unit      string  `json:"unit"`
@@ -224,7 +237,11 @@ type ExploreResult struct {
 	Total          CostTotal     `json:"total"`
 	TotalsByBucket []Decimal     `json:"totals_by_bucket"`
 	Unpriced       []UnpricedSKU `json:"unpriced"`
-	Compare        CompareWindow `json:"compare"`
+	// NotSoldPerUse lists the k8s.* platform meters recorded on platform
+	// sources whose book prices none of them: the allocation basis, not
+	// unpriced revenue (DESIGN.md §2.5). Never in Unpriced.
+	NotSoldPerUse []UnpricedSKU `json:"not_sold_per_use"`
+	Compare       CompareWindow `json:"compare"`
 	// Unconverted lists, per book currency without a rate, the priced
 	// records that were left OUT of every total (DESIGN.md §3.10). Currency
 	// above is always the reporting currency; MixedCurrency is true exactly
@@ -232,18 +249,33 @@ type ExploreResult struct {
 	Unconverted []UnconvertedCurrency `json:"unconverted"`
 }
 
-// costPriceJoinSQL joins a usage_records row aliased `u` to its customer
-// (`c`), the customer's price book (`b`), the book's rate for the SKU
-// (`p`, NULL when unpriced) and the exchange rate of the book's currency
-// (`x`, NULL when none is stored). costPricedExpr and costBaseExpr read
-// those aliases.
+// costPriceJoinSQL joins a usage_records row aliased `u` to its source
+// (`s`), the source's customer (`c`, NULL for the internal source), the
+// SOURCE's price book (`b`), the book's rate for the SKU (`p`, NULL when
+// unpriced) and the exchange rate of the book's currency (`x`, NULL when
+// none is stored). costPricedExpr and costBaseExpr read those aliases.
+// Callers add `AND NOT s.internal` (costExcludeInternalSQL) unless they mean
+// to see the Sovereign's own footprint.
 const costPriceJoinSQL = `
-  JOIN customers c ON c.id = u.customer_id
-  LEFT JOIN price_books b ON b.id = c.price_book_id
-  LEFT JOIN price_items p ON p.price_book_id = c.price_book_id AND p.sku = u.sku
+  JOIN cost_sources s ON s.id = u.source_id
+  LEFT JOIN customers c ON c.id = s.customer_id
+  LEFT JOIN price_books b ON b.id = s.price_book_id
+  LEFT JOIN price_items p ON p.price_book_id = s.price_book_id AND p.sku = u.sku
   LEFT JOIN currency_rates x ON x.code = b.currency`
 
-// costPricedExpr is the cost of ONE usage record after the customer's
+// costExcludeInternalSQL keeps the internal platform source out of a query
+// built on costPriceJoinSQL.
+const costExcludeInternalSQL = ` AND NOT s.internal`
+
+// costNotSoldPerUseExpr is true for a record of the filtered CTE `f` that is
+// a k8s.* platform meter on a platform source whose book prices NONE of the
+// platform meters: "not sold per use" (the allocation basis), never
+// "unpriced". Requires the CTE columns layer, book_id and sku.
+const costNotSoldPerUseExpr = `(layer = 'platform' AND book_id IS NOT NULL
+         AND sku IN ('k8s.vcpu', 'k8s.mem_gb', 'k8s.pvc_gb')
+         AND NOT EXISTS (SELECT 1 FROM price_items pm WHERE pm.price_book_id = book_id AND pm.sku IN ('k8s.vcpu', 'k8s.mem_gb', 'k8s.pvc_gb')))`
+
+// costPricedExpr is the cost of ONE usage record after its source's
 // price book and its stopped-instance policy: NULL when the SKU carries no
 // rate, 0 when the policy waives a stopped instance (or its volume), else
 // quantity × unit price — exactly what the rating run charges.
@@ -277,17 +309,19 @@ const costBaseExpr = `(` + costPricedExpr + `) / (` + costRateExpr + `)`
 const costMeterFilter = `u.sku <> 'ecs.cpu_util'`
 
 // costBaseSQL is the priced ledger: every record in the window with the unit
-// price its customer's book carries for the SKU (NULL = unpriced), the
-// cost after the book's stopped-instance policy in the BOOK currency, and
+// price its SOURCE's book carries for the SKU (NULL = unpriced), the cost
+// after the book's stopped-instance policy in the BOOK currency, and
 // cost_base — the same cost in the reporting currency (NULL when the book
-// currency has no rate). Placeholders $1/$2 are the window; the
-// scope/filter clauses are appended by the builder.
+// currency has no rate) — plus the source's layer, book and internal flag.
+// Placeholders $1/$2 are the window; the scope/filter clauses (and the
+// internal-source exclusion) are appended by the builder.
 const costBaseSQL = `
-SELECT u.customer_id, c.slug AS customer_slug, c.name AS customer_name,
+SELECT u.customer_id, COALESCE(c.slug, '') AS customer_slug, COALESCE(c.name, '') AS customer_name,
        u.source_id,
-       COALESCE(NULLIF(s.project_id, ''), COALESCE(s.kind, '')) AS source_label,
+       COALESCE(NULLIF(s.project_id, ''), s.kind) AS source_label,
+       s.layer, s.internal, s.price_book_id AS book_id,
        u.resource_id, u.resource_kind, u.sku, u.unit, u.region, u.window_start, u.quantity,
-       COALESCE(NULLIF(u.labels->>'tier', ''), 'organization') AS tier,
+       CASE WHEN s.internal THEN 'platform-overhead' ELSE COALESCE(NULLIF(u.labels->>'tier', ''), 'organization') END AS tier,
        COALESCE(u.labels->>'namespace', '') AS namespace,
        COALESCE(NULLIF(u.labels->>'name', ''), u.resource_id) AS resource_label,
        u.labels->'tags' AS tags,
@@ -297,7 +331,6 @@ SELECT u.customer_id, c.slug AS customer_slug, c.name AS customer_name,
        ` + costPricedExpr + ` AS cost,
        ` + costBaseExpr + ` AS cost_base
   FROM usage_records u` + costPriceJoinSQL + `
-  LEFT JOIN cost_sources s ON s.id = u.source_id
  WHERE u.window_start >= $1 AND u.window_start < $2 AND ` + costMeterFilter
 
 type costArgs struct{ args []any }
@@ -315,6 +348,9 @@ func filteredCTE(q CostQuery, from, to time.Time) (string, *costArgs, error) {
 	sb.WriteString(costBaseSQL)
 	a.add(from)
 	a.add(to)
+	if !q.IncludeInternal {
+		sb.WriteString(costExcludeInternalSQL)
+	}
 	if q.CustomerID != "" {
 		sb.WriteString(" AND u.customer_id::text = " + a.add(q.CustomerID))
 	}
@@ -328,7 +364,7 @@ func filteredCTE(q CostQuery, from, to time.Time) (string, *costArgs, error) {
 		"sku":                "u.sku",
 		"region":             "u.region",
 		"resource":           "u.resource_id",
-		"tier":               "COALESCE(NULLIF(u.labels->>'tier', ''), 'organization')",
+		"tier":               "CASE WHEN s.internal THEN 'platform-overhead' ELSE COALESCE(NULLIF(u.labels->>'tier', ''), 'organization') END",
 		"namespace":          "COALESCE(u.labels->>'namespace', '')",
 		"enterprise_project": "COALESCE(NULLIF(u.labels->>'enterprise_project', ''), '(none)')",
 	}
@@ -492,29 +528,37 @@ SELECT ` + bucket + ` AS bucket, ` + groupExpr + ` AS grp, min(` + labelExpr + `
 	return out, rows.Err()
 }
 
-func (s *Store) queryUnpriced(ctx context.Context, q CostQuery, from, to time.Time) ([]UnpricedSKU, error) {
+// queryUnpriced lists the SKUs in the window that carry no rate in their
+// source's book, split into the genuinely unpriced and the platform meters
+// a platform book deliberately leaves unpriced (not sold per use).
+func (s *Store) queryUnpriced(ctx context.Context, q CostQuery, from, to time.Time) (unpriced, notSold []UnpricedSKU, err error) {
 	cte, a, err := filteredCTE(q, from, to)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	rows, err := s.db.QueryContext(ctx, cte+`
-SELECT sku, unit, round(sum(quantity), 6)::text, count(DISTINCT resource_id)
+SELECT sku, unit, round(sum(quantity), 6)::text, count(DISTINCT resource_id), bool_or(`+costNotSoldPerUseExpr+`)
   FROM f WHERE unit_price IS NULL GROUP BY sku, unit ORDER BY sum(quantity) DESC`, a.args...)
 	if err != nil {
-		return nil, mapErr(err)
+		return nil, nil, mapErr(err)
 	}
 	defer rows.Close()
-	out := []UnpricedSKU{}
+	unpriced, notSold = []UnpricedSKU{}, []UnpricedSKU{}
 	for rows.Next() {
 		var u UnpricedSKU
 		var qty string
-		if err := rows.Scan(&u.SKU, &u.Unit, &qty, &u.Resources); err != nil {
-			return nil, err
+		var ns bool
+		if err := rows.Scan(&u.SKU, &u.Unit, &qty, &u.Resources, &ns); err != nil {
+			return nil, nil, err
 		}
 		u.Quantity = Decimal(qty)
-		out = append(out, u)
+		if ns {
+			notSold = append(notSold, u)
+		} else {
+			unpriced = append(unpriced, u)
+		}
 	}
-	return out, rows.Err()
+	return unpriced, notSold, rows.Err()
 }
 
 // queryUnconverted lists, per book currency without a rate, the priced
@@ -573,7 +617,7 @@ func (s *Store) Explore(ctx context.Context, scope Scope, q CostQuery) (ExploreR
 	if err != nil {
 		return ExploreResult{}, err
 	}
-	unpriced, err := s.queryUnpriced(ctx, q, from, to)
+	unpriced, notSold, err := s.queryUnpriced(ctx, q, from, to)
 	if err != nil {
 		return ExploreResult{}, err
 	}
@@ -605,6 +649,7 @@ func (s *Store) Explore(ctx context.Context, scope Scope, q CostQuery) (ExploreR
 		Buckets: buckets, BucketHasData: make([]bool, len(buckets)),
 		TotalsByBucket: make([]Decimal, len(buckets)),
 		Unpriced:       unpriced,
+		NotSoldPerUse:  notSold,
 		Unconverted:    unconverted,
 		Compare:        CompareWindow{From: prevFrom.Format(bucketFormatDay), To: prevTo.Format(bucketFormatDay), Label: compareLabel},
 	}
@@ -772,7 +817,10 @@ func (s *Store) LiveResourceCount(ctx context.Context, scope Scope, customerID s
 	if !scope.Operator {
 		customerID = scope.CustomerID
 	}
-	q := `SELECT count(*) FROM resource_inventory i JOIN cost_sources s ON s.id = i.source_id WHERE i.deleted_at IS NULL`
+	// A disabled source collects nothing more, so its inventory is history,
+	// not live estate; its recorded cost still shows in the explorer.
+	q := `SELECT count(*) FROM resource_inventory i JOIN cost_sources s ON s.id = i.source_id
+		WHERE i.deleted_at IS NULL AND NOT s.internal AND s.status <> '` + StatusDisabled + `'`
 	var args []any
 	if customerID != "" {
 		q += ` AND s.customer_id::text = $1`
@@ -785,15 +833,16 @@ func (s *Store) LiveResourceCount(ctx context.Context, scope Scope, customerID s
 	return n, nil
 }
 
-// LastCollectedAt is the newest collection time across the scope's sources.
+// LastCollectedAt is the newest collection time across the scope's sources
+// (the internal source is not a customer's source and is left out).
 func (s *Store) LastCollectedAt(ctx context.Context, scope Scope, customerID string) (*time.Time, error) {
 	if !scope.Operator {
 		customerID = scope.CustomerID
 	}
-	q := `SELECT max(last_collected_at) FROM cost_sources`
+	q := `SELECT max(last_collected_at) FROM cost_sources WHERE NOT internal`
 	var args []any
 	if customerID != "" {
-		q += ` WHERE customer_id::text = $1`
+		q += ` AND customer_id::text = $1`
 		args = append(args, customerID)
 	}
 	var t pq.NullTime

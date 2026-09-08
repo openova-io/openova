@@ -110,14 +110,15 @@ const (
 // resourceCostCTE aggregates cost per resource in the window with the shared
 // priced expression, in the reporting currency, and whether any priced
 // record of it could not be converted. $1/$2 are the window; an optional
-// customer clause is appended by the caller before the GROUP BY.
+// customer clause is appended by the caller before the GROUP BY. The
+// internal platform source is never a customer's resource.
 const resourceCostCTE = `rc AS (
   SELECT u.source_id, u.resource_id,
          sum(` + costBaseExpr + `) AS cost,
          bool_or((` + costPricedExpr + `) IS NOT NULL AND (` + costBaseExpr + `) IS NULL) AS unconverted,
          max(NULLIF(u.region, '')) AS region
     FROM usage_records u` + costPriceJoinSQL + `
-   WHERE u.window_start >= $1 AND u.window_start < $2 AND ` + costMeterFilter
+   WHERE u.window_start >= $1 AND u.window_start < $2 AND ` + costMeterFilter + costExcludeInternalSQL
 
 // resourceBaseCTE is every inventory row with its customer, region, status
 // and window cost. Region comes from the source, else from the records.
@@ -135,7 +136,7 @@ const resourceBaseCTE = `base AS (
          COALESCE(rc.unconverted, false) AS unconverted,
          i.attrs
     FROM resource_inventory i
-    JOIN cost_sources s ON s.id = i.source_id
+    JOIN cost_sources s ON s.id = i.source_id AND NOT s.internal
     JOIN customers c ON c.id = s.customer_id
     LEFT JOIN rc ON rc.source_id = i.source_id AND rc.resource_id = i.resource_id
 )`
@@ -323,7 +324,7 @@ func (s *Store) resourceLines(ctx context.Context, from, to time.Time, keys []st
 SELECT u.source_id::text, u.resource_id, u.sku, u.unit, round(sum(u.quantity), 6)::text,
        round(COALESCE(sum(`+costBaseExpr+`), 0), 6)::text
   FROM usage_records u`+costPriceJoinSQL+`
- WHERE u.window_start >= $1 AND u.window_start < $2 AND `+costMeterFilter+`
+ WHERE u.window_start >= $1 AND u.window_start < $2 AND `+costMeterFilter+costExcludeInternalSQL+`
    AND u.source_id::text || '/' || u.resource_id = ANY($3)
  GROUP BY u.source_id, u.resource_id, u.sku, u.unit`, from, to, pq.Array(keys))
 	if err != nil {
@@ -410,7 +411,7 @@ SELECT source_id, resource_id, kind, name, region, customer_id, customer_name, s
 	dr, err := s.db.QueryContext(ctx, `
 SELECT to_char(u.window_start AT TIME ZONE 'UTC', 'YYYY-MM-DD'), round(COALESCE(sum(`+costBaseExpr+`), 0), 6)::text
   FROM usage_records u`+costPriceJoinSQL+`
- WHERE u.source_id::text = $1 AND u.resource_id = $2 AND u.window_start >= $3 AND u.window_start < $4 AND `+costMeterFilter+`
+ WHERE u.source_id::text = $1 AND u.resource_id = $2 AND u.window_start >= $3 AND u.window_start < $4 AND `+costMeterFilter+costExcludeInternalSQL+`
  GROUP BY 1 ORDER BY 1`, sourceID, resourceID, from, to)
 	if err != nil {
 		return ResourceDetail{}, mapErr(err)
@@ -466,17 +467,10 @@ func (s *Store) recentUsageRecords(ctx context.Context, sourceID, resourceID str
 	defer rows.Close()
 	out := []UsageRecord{}
 	for rows.Next() {
-		var r UsageRecord
-		var q string
-		var labels []byte
-		var rawRef sql.NullString
-		if err := rows.Scan(&r.ID, &r.CustomerID, &r.SourceID, &r.ResourceID, &r.ResourceKind, &r.SKU, &q, &r.Unit, &r.WindowStart, &r.WindowEnd, &r.Region, &labels, &rawRef, &r.CollectedAt); err != nil {
+		r, err := scanUsageRecord(rows)
+		if err != nil {
 			return nil, err
 		}
-		r.Quantity = Decimal(q)
-		r.Labels = labels
-		r.RawRef = rawRef.String
-		r.WindowStart, r.WindowEnd, r.CollectedAt = r.WindowStart.UTC(), r.WindowEnd.UTC(), r.CollectedAt.UTC()
 		out = append(out, r)
 	}
 	return out, rows.Err()

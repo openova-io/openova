@@ -8,10 +8,12 @@ import (
 	"time"
 )
 
+const priceBookColumns = `id, name, scope, currency, annual_divisor, bill_stopped, effective_from, created_at`
+
 func scanPriceBook(row interface{ Scan(...any) error }) (PriceBook, error) {
 	var pb PriceBook
 	var eff sql.NullTime
-	if err := row.Scan(&pb.ID, &pb.Name, &pb.Currency, &pb.AnnualDivisor, &pb.BillStopped, &eff, &pb.CreatedAt); err != nil {
+	if err := row.Scan(&pb.ID, &pb.Name, &pb.Scope, &pb.Currency, &pb.AnnualDivisor, &pb.BillStopped, &eff, &pb.CreatedAt); err != nil {
 		return pb, mapErr(err)
 	}
 	pb.EffectiveFrom = datePtr(eff)
@@ -20,7 +22,7 @@ func scanPriceBook(row interface{ Scan(...any) error }) (PriceBook, error) {
 
 // ListPriceBooks returns every rate card (no items).
 func (s *Store) ListPriceBooks(ctx context.Context) ([]PriceBook, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, name, currency, annual_divisor, bill_stopped, effective_from, created_at FROM price_books ORDER BY name`)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+priceBookColumns+` FROM price_books ORDER BY name`)
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -38,7 +40,7 @@ func (s *Store) ListPriceBooks(ctx context.Context) ([]PriceBook, error) {
 
 // GetPriceBook returns a rate card with its items.
 func (s *Store) GetPriceBook(ctx context.Context, id string) (PriceBook, error) {
-	pb, err := scanPriceBook(s.db.QueryRowContext(ctx, `SELECT id, name, currency, annual_divisor, bill_stopped, effective_from, created_at FROM price_books WHERE id = $1`, id))
+	pb, err := scanPriceBook(s.db.QueryRowContext(ctx, `SELECT `+priceBookColumns+` FROM price_books WHERE id = $1`, id))
 	if err != nil {
 		return pb, err
 	}
@@ -48,12 +50,14 @@ func (s *Store) GetPriceBook(ctx context.Context, id string) (PriceBook, error) 
 
 // GetPriceBookByName resolves a rate card by name (imports).
 func (s *Store) GetPriceBookByName(ctx context.Context, name string) (PriceBook, error) {
-	return scanPriceBook(s.db.QueryRowContext(ctx, `SELECT id, name, currency, annual_divisor, bill_stopped, effective_from, created_at FROM price_books WHERE lower(name) = lower($1)`, strings.TrimSpace(name)))
+	return scanPriceBook(s.db.QueryRowContext(ctx, `SELECT `+priceBookColumns+` FROM price_books WHERE lower(name) = lower($1)`, strings.TrimSpace(name)))
 }
 
-// PriceBookInput is the creatable/updatable subset.
+// PriceBookInput is the creatable/updatable subset. Scope is cloud or
+// platform ("" = cloud on create, unchanged on update).
 type PriceBookInput struct {
 	Name          string
+	Scope         string
 	Currency      string
 	AnnualDivisor int
 	BillStopped   string
@@ -71,9 +75,16 @@ func (s *Store) CreatePriceBook(ctx context.Context, in PriceBookInput) (PriceBo
 	if in.BillStopped == "" {
 		in.BillStopped = "compute"
 	}
+	in.Scope = strings.ToLower(strings.TrimSpace(in.Scope))
+	if in.Scope == "" {
+		in.Scope = LayerCloud
+	}
+	if !ValidLayer(in.Scope) {
+		return PriceBook{}, fmt.Errorf("%w: scope must be cloud or platform", ErrInvalid)
+	}
 	var id string
-	err := s.db.QueryRowContext(ctx, `INSERT INTO price_books (name, currency, annual_divisor, bill_stopped, effective_from) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-		strings.TrimSpace(in.Name), strings.ToUpper(in.Currency), in.AnnualDivisor, in.BillStopped, nullStr(&in.EffectiveFrom)).Scan(&id)
+	err := s.db.QueryRowContext(ctx, `INSERT INTO price_books (name, scope, currency, annual_divisor, bill_stopped, effective_from) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+		strings.TrimSpace(in.Name), in.Scope, strings.ToUpper(in.Currency), in.AnnualDivisor, in.BillStopped, nullStr(&in.EffectiveFrom)).Scan(&id)
 	if err != nil {
 		return PriceBook{}, mapErr(err)
 	}
@@ -81,17 +92,33 @@ func (s *Store) CreatePriceBook(ctx context.Context, in PriceBookInput) (PriceBo
 }
 
 // UpdatePriceBook replaces the header fields; when the divisor changes, unit
-// prices derived from an annual price are recomputed.
+// prices derived from an annual price are recomputed. The scope may change
+// only while no source is assigned: a source's book must always match its
+// layer, and flipping the book under assigned sources would break that.
 func (s *Store) UpdatePriceBook(ctx context.Context, id string, in PriceBookInput) (PriceBook, error) {
+	in.Scope = strings.ToLower(strings.TrimSpace(in.Scope))
+	if in.Scope != "" && !ValidLayer(in.Scope) {
+		return PriceBook{}, fmt.Errorf("%w: scope must be cloud or platform", ErrInvalid)
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return PriceBook{}, err
 	}
 	defer tx.Rollback()
+	if in.Scope != "" {
+		var current string
+		var assigned int
+		if err := tx.QueryRowContext(ctx, `SELECT scope, (SELECT count(*) FROM cost_sources s WHERE s.price_book_id = b.id) FROM price_books b WHERE id = $1 FOR UPDATE`, id).Scan(&current, &assigned); err != nil {
+			return PriceBook{}, mapErr(err)
+		}
+		if current != in.Scope && assigned > 0 {
+			return PriceBook{}, fmt.Errorf("%w: scope cannot change while %d source(s) are assigned to this book; assign them another book first", ErrConflict, assigned)
+		}
+	}
 	res, err := tx.ExecContext(ctx, `UPDATE price_books SET name = COALESCE(NULLIF($2, ''), name), currency = COALESCE(NULLIF($3, ''), currency),
 		annual_divisor = CASE WHEN $4 > 0 THEN $4 ELSE annual_divisor END, bill_stopped = COALESCE(NULLIF($5, ''), bill_stopped),
-		effective_from = COALESCE($6, effective_from) WHERE id = $1`,
-		id, strings.TrimSpace(in.Name), strings.ToUpper(in.Currency), in.AnnualDivisor, in.BillStopped, nullStr(&in.EffectiveFrom))
+		effective_from = COALESCE($6, effective_from), scope = COALESCE(NULLIF($7, ''), scope) WHERE id = $1`,
+		id, strings.TrimSpace(in.Name), strings.ToUpper(in.Currency), in.AnnualDivisor, in.BillStopped, nullStr(&in.EffectiveFrom), in.Scope)
 	if err != nil {
 		return PriceBook{}, mapErr(err)
 	}
@@ -170,12 +197,64 @@ func (s *Store) PutPriceItems(ctx context.Context, priceBookID string, items []P
 	return n, tx.Commit()
 }
 
+// CoverageSource is one source assigned to a rate card: whose it is, what it
+// meters and which layer it belongs to.
+type CoverageSource struct {
+	SourceID     string `json:"source_id"`
+	CustomerID   string `json:"customer_id"`
+	CustomerName string `json:"customer_name"`
+	CustomerSlug string `json:"customer_slug"`
+	Label        string `json:"label"`
+	Kind         string `json:"kind"`
+	Layer        string `json:"layer"`
+}
+
+// AssignedSources lists the sources assigned to a rate card, by customer
+// name then label. The internal source is never assigned a book.
+func (s *Store) AssignedSources(ctx context.Context, priceBookID string) ([]CoverageSource, error) {
+	return s.assignedSources(ctx, s.db, priceBookID)
+}
+
+func (s *Store) assignedSources(ctx context.Context, q interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}, priceBookID string) ([]CoverageSource, error) {
+	rows, err := q.QueryContext(ctx, `SELECT s.id, c.id, c.name, c.slug, COALESCE(NULLIF(s.project_id, ''), s.kind), s.kind, s.layer
+		FROM cost_sources s JOIN customers c ON c.id = s.customer_id
+		WHERE s.price_book_id = $1 ORDER BY c.name, s.layer, s.project_id`, priceBookID)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	defer rows.Close()
+	out := []CoverageSource{}
+	for rows.Next() {
+		var cs CoverageSource
+		if err := rows.Scan(&cs.SourceID, &cs.CustomerID, &cs.CustomerName, &cs.CustomerSlug, &cs.Label, &cs.Kind, &cs.Layer); err != nil {
+			return nil, err
+		}
+		out = append(out, cs)
+	}
+	return out, rows.Err()
+}
+
+// coverageCustomers reduces the assigned sources to their distinct customers.
+func coverageCustomers(srcs []CoverageSource) []CoverageCustomer {
+	out := []CoverageCustomer{}
+	seen := map[string]bool{}
+	for _, cs := range srcs {
+		if seen[cs.CustomerID] {
+			continue
+		}
+		seen[cs.CustomerID] = true
+		out = append(out, CoverageCustomer{ID: cs.CustomerID, Name: cs.CustomerName, Slug: cs.CustomerSlug})
+	}
+	return out
+}
+
 // DeletePriceBook removes a rate card and its items (cascade). It is refused
-// while any customer is assigned to it — the names of those customers come
-// back so the operator knows what to re-point first — because a customer
-// without a book silently stops rating (rating.Run reports "no price book
-// assigned" and writes nothing).
-func (s *Store) DeletePriceBook(ctx context.Context, id string) (assigned []string, err error) {
+// while any source is assigned to it — those sources come back so the
+// operator knows what to re-point first — because a source without a book
+// silently stops rating (its SKUs are unpriced on every statement).
+func (s *Store) DeletePriceBook(ctx context.Context, id string) (assigned []CoverageSource, err error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -188,22 +267,12 @@ func (s *Store) DeletePriceBook(ctx context.Context, id string) (assigned []stri
 	if !exists {
 		return nil, ErrNotFound
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT name FROM customers WHERE price_book_id = $1 ORDER BY name`, id)
+	assigned, err = s.assignedSources(ctx, tx, id)
 	if err != nil {
-		return nil, mapErr(err)
+		return nil, err
 	}
-	assigned = []string{}
-	for rows.Next() {
-		var n string
-		if err := rows.Scan(&n); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		assigned = append(assigned, n)
-	}
-	rows.Close()
 	if len(assigned) > 0 {
-		return assigned, fmt.Errorf("%w: price book is assigned to %d customer(s); assign them another book first", ErrConflict, len(assigned))
+		return assigned, fmt.Errorf("%w: price book is assigned to %d source(s) of %d customer(s); assign them another book first", ErrConflict, len(assigned), len(coverageCustomers(assigned)))
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM price_books WHERE id = $1`, id); err != nil {
 		return nil, mapErr(err)
@@ -211,9 +280,9 @@ func (s *Store) DeletePriceBook(ctx context.Context, id string) (assigned []stri
 	return nil, tx.Commit()
 }
 
-// ClonePriceBook copies a rate card under a new name: the header and every
-// item, annual_price preserved. This is how per-account pricing is made — the
-// list book stays the list, the clone is negotiated.
+// ClonePriceBook copies a rate card under a new name: the header (scope
+// included) and every item, annual_price preserved. This is how per-account
+// pricing is made — the list book stays the list, the clone is negotiated.
 func (s *Store) ClonePriceBook(ctx context.Context, id, name string) (PriceBook, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -221,8 +290,8 @@ func (s *Store) ClonePriceBook(ctx context.Context, id, name string) (PriceBook,
 	}
 	defer tx.Rollback()
 	var newID string
-	err = tx.QueryRowContext(ctx, `INSERT INTO price_books (name, currency, annual_divisor, bill_stopped, effective_from)
-		SELECT $2, currency, annual_divisor, bill_stopped, effective_from FROM price_books WHERE id = $1 RETURNING id`,
+	err = tx.QueryRowContext(ctx, `INSERT INTO price_books (name, scope, currency, annual_divisor, bill_stopped, effective_from)
+		SELECT $2, scope, currency, annual_divisor, bill_stopped, effective_from FROM price_books WHERE id = $1 RETURNING id`,
 		id, strings.TrimSpace(name)).Scan(&newID)
 	if err != nil {
 		return PriceBook{}, mapErr(err)
@@ -331,63 +400,62 @@ func (s *Store) DeletePriceItem(ctx context.Context, priceBookID, sku string) er
 	return nil
 }
 
-// CoverageCustomer is one customer assigned to a rate card.
+// CoverageCustomer is one customer that owns a source assigned to a rate
+// card (kept on the wire for the pages that list customers by book).
 type CoverageCustomer struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	Slug string `json:"slug"`
 }
 
-// CoverageSKU is one SKU the assigned customers actually consumed, with
-// whether the book prices it.
+// CoverageSKU is one SKU the assigned sources actually consumed, with
+// whether the book prices it. NotSoldPerUse marks a k8s.* meter under a
+// platform book that prices none of the platform meters: the allocation
+// basis, deliberately unpriced — not a gap in the book.
 type CoverageSKU struct {
-	SKU         string   `json:"sku"`
-	Unit        string   `json:"unit"`
-	Quantity30d Decimal  `json:"quantity_30d"`
-	Resources   int      `json:"resources"`
-	Priced      bool     `json:"priced"`
-	UnitPrice   *Decimal `json:"unit_price"`
+	SKU           string   `json:"sku"`
+	Unit          string   `json:"unit"`
+	Quantity30d   Decimal  `json:"quantity_30d"`
+	Resources     int      `json:"resources"`
+	Priced        bool     `json:"priced"`
+	NotSoldPerUse bool     `json:"not_sold_per_use"`
+	UnitPrice     *Decimal `json:"unit_price"`
 }
 
-// PriceBookCoverage answers "does this book price what its customers use?"
-// (DESIGN.md §2.5). CoveragePct is priced SKUs over SKUs in use; 100 when
-// nothing is in use, because an unused book is not an incomplete one.
+// PriceBookCoverage answers "does this book price what the sources assigned
+// to it use?" (DESIGN.md §2.5). CoveragePct is priced SKUs over the SKUs in
+// use that the book is expected to price (not-sold-per-use meters are left
+// out of both sides); 100 when nothing is in use, because an unused book is
+// not an incomplete one.
 type PriceBookCoverage struct {
+	Scope         string             `json:"scope"`
+	Sources       []CoverageSource   `json:"sources"`
 	Customers     []CoverageCustomer `json:"customers"`
 	SKUsInUse     []CoverageSKU      `json:"skus_in_use"`
 	CoveragePct   float64            `json:"coverage_pct"`
 	UnpricedCount int                `json:"unpriced_count"`
+	NotSoldCount  int                `json:"not_sold_count"`
 }
 
-// PriceBookCoverage computes the coverage of a rate card over the usage its
-// assigned customers recorded in [from, to). It runs over costBaseSQL, the
-// same priced ledger the explorer and rating use, so "unpriced here" and
+// PriceBookCoverage computes the coverage of a rate card over the usage the
+// sources ASSIGNED TO IT recorded in [from, to). It runs over costBaseSQL,
+// the same priced ledger the explorer and rating use, so "unpriced here" and
 // "unpriced on the statement" can never disagree (ecs.cpu_util excluded
-// alike).
+// alike), and a platform meter can never appear under a cloud book.
 func (s *Store) PriceBookCoverage(ctx context.Context, priceBookID string, from, to time.Time) (PriceBookCoverage, error) {
-	out := PriceBookCoverage{Customers: []CoverageCustomer{}, SKUsInUse: []CoverageSKU{}}
-	if _, err := s.GetPriceBook(ctx, priceBookID); err != nil {
-		return out, err
-	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id, name, slug FROM customers WHERE price_book_id = $1 ORDER BY name`, priceBookID)
+	out := PriceBookCoverage{Sources: []CoverageSource{}, Customers: []CoverageCustomer{}, SKUsInUse: []CoverageSKU{}}
+	pb, err := s.GetPriceBook(ctx, priceBookID)
 	if err != nil {
-		return out, mapErr(err)
-	}
-	for rows.Next() {
-		var c CoverageCustomer
-		if err := rows.Scan(&c.ID, &c.Name, &c.Slug); err != nil {
-			rows.Close()
-			return out, err
-		}
-		out.Customers = append(out.Customers, c)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
 		return out, err
 	}
-	rows, err = s.db.QueryContext(ctx, `WITH f AS (`+costBaseSQL+` AND c.price_book_id = $3)
+	out.Scope = pb.Scope
+	if out.Sources, err = s.AssignedSources(ctx, priceBookID); err != nil {
+		return out, err
+	}
+	out.Customers = coverageCustomers(out.Sources)
+	rows, err := s.db.QueryContext(ctx, `WITH f AS (`+costBaseSQL+` AND NOT s.internal AND s.price_book_id = $3)
 		SELECT sku, COALESCE((SELECT p.unit FROM price_items p WHERE p.price_book_id = $3 AND p.sku = f.sku), min(unit)),
-		       sum(quantity)::text, count(DISTINCT resource_id), unit_price::text
+		       sum(quantity)::text, count(DISTINCT resource_id), unit_price::text, bool_or(`+costNotSoldPerUseExpr+`)
 		  FROM f GROUP BY sku, unit_price ORDER BY sku`, from, to, priceBookID)
 	if err != nil {
 		return out, mapErr(err)
@@ -398,7 +466,7 @@ func (s *Store) PriceBookCoverage(ctx context.Context, priceBookID string, from,
 		var k CoverageSKU
 		var qty string
 		var up sql.NullString
-		if err := rows.Scan(&k.SKU, &k.Unit, &qty, &k.Resources, &up); err != nil {
+		if err := rows.Scan(&k.SKU, &k.Unit, &qty, &k.Resources, &up, &k.NotSoldPerUse); err != nil {
 			return out, err
 		}
 		k.Quantity30d = Decimal(qty)
@@ -406,18 +474,22 @@ func (s *Store) PriceBookCoverage(ctx context.Context, priceBookID string, from,
 			d := Decimal(up.String)
 			k.UnitPrice = &d
 			k.Priced = true
+			k.NotSoldPerUse = false
 			priced++
+		} else if k.NotSoldPerUse {
+			out.NotSoldCount++
 		}
 		out.SKUsInUse = append(out.SKUsInUse, k)
 	}
 	if err := rows.Err(); err != nil {
 		return out, err
 	}
-	out.UnpricedCount = len(out.SKUsInUse) - priced
-	if len(out.SKUsInUse) == 0 {
+	out.UnpricedCount = len(out.SKUsInUse) - priced - out.NotSoldCount
+	priceable := len(out.SKUsInUse) - out.NotSoldCount
+	if priceable == 0 {
 		out.CoveragePct = 100
 	} else {
-		out.CoveragePct = float64(priced) * 100 / float64(len(out.SKUsInUse))
+		out.CoveragePct = float64(priced) * 100 / float64(priceable)
 	}
 	return out, nil
 }

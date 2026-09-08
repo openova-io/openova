@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -25,7 +26,11 @@ func (h *Handler) listPriceBooks(w http.ResponseWriter, r *http.Request) {
 }
 
 type priceBookBody struct {
-	Name          string `json:"name"`
+	Name string `json:"name"`
+	// Scope is cloud or platform (DESIGN.md §2): which layer of source the
+	// book may be assigned to. Default cloud on create; on update it may
+	// change only while no source is assigned.
+	Scope         string `json:"scope"`
 	Currency      string `json:"currency"`
 	AnnualDivisor int    `json:"annual_divisor"`
 	BillStopped   string `json:"bill_stopped"`
@@ -35,6 +40,9 @@ type priceBookBody struct {
 func (b priceBookBody) validate(create bool) string {
 	if create && strings.TrimSpace(b.Name) == "" {
 		return "name is required"
+	}
+	if s := strings.ToLower(strings.TrimSpace(b.Scope)); s != "" && !store.ValidLayer(s) {
+		return "scope must be cloud or platform"
 	}
 	if b.AnnualDivisor < 0 {
 		return "annual_divisor must be positive"
@@ -63,10 +71,14 @@ func (h *Handler) createPriceBook(w http.ResponseWriter, r *http.Request) {
 	}
 	pb, err := h.Store.CreatePriceBook(r.Context(), store.PriceBookInput(in))
 	if err != nil {
+		if errors.Is(err, store.ErrInvalid) {
+			writeErr(w, http.StatusBadRequest, strings.TrimPrefix(err.Error(), "invalid: "))
+			return
+		}
 		storeErr(w, err)
 		return
 	}
-	h.audit(r, nil, "pricebook.create", map[string]any{"id": pb.ID, "name": pb.Name})
+	h.audit(r, nil, "pricebook.create", map[string]any{"id": pb.ID, "name": pb.Name, "scope": pb.Scope})
 	writeJSON(w, http.StatusCreated, pb)
 }
 
@@ -97,10 +109,14 @@ func (h *Handler) updatePriceBook(w http.ResponseWriter, r *http.Request) {
 	}
 	pb, err := h.Store.UpdatePriceBook(r.Context(), r.PathValue("id"), store.PriceBookInput(in))
 	if err != nil {
+		if errors.Is(err, store.ErrInvalid) {
+			writeErr(w, http.StatusBadRequest, strings.TrimPrefix(err.Error(), "invalid: "))
+			return
+		}
 		storeErr(w, err)
 		return
 	}
-	h.audit(r, nil, "pricebook.update", map[string]any{"id": pb.ID})
+	h.audit(r, nil, "pricebook.update", map[string]any{"id": pb.ID, "scope": pb.Scope})
 	writeJSON(w, http.StatusOK, pb)
 }
 
@@ -202,8 +218,8 @@ func (h *Handler) priceBookTemplate(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.WriteString(w, rating.PriceBookCSVTemplate)
 }
 
-// deletePriceBook removes a rate card; 409 (with the customer names in
-// details) while any customer is assigned to it.
+// deletePriceBook removes a rate card; 409 while any source is assigned to
+// it, with the assigned sources and the (distinct) customer names in details.
 func (h *Handler) deletePriceBook(w http.ResponseWriter, r *http.Request) {
 	if _, ok := h.requireOperator(w, r); !ok {
 		return
@@ -217,7 +233,15 @@ func (h *Handler) deletePriceBook(w http.ResponseWriter, r *http.Request) {
 	assigned, err := h.Store.DeletePriceBook(r.Context(), id)
 	if err != nil {
 		if store.IsConflict(err) {
-			writeErrDetails(w, http.StatusConflict, err.Error(), map[string]any{"customers": assigned})
+			names := []string{}
+			seen := map[string]bool{}
+			for _, s := range assigned {
+				if !seen[s.CustomerID] {
+					seen[s.CustomerID] = true
+					names = append(names, s.CustomerName)
+				}
+			}
+			writeErrDetails(w, http.StatusConflict, err.Error(), map[string]any{"customers": names, "sources": assigned})
 			return
 		}
 		storeErr(w, err)
@@ -436,8 +460,8 @@ func csvFileToken(name string) string {
 	return s
 }
 
-// priceBookCoverage reports which SKUs the assigned customers used in the
-// last 30 days and whether the book prices them (DESIGN.md §2.5).
+// priceBookCoverage reports which SKUs the sources assigned to the book used
+// in the last 30 days and whether the book prices them (DESIGN.md §2.5).
 // Operator-only: it names customers across the whole Sovereign.
 func (h *Handler) priceBookCoverage(w http.ResponseWriter, r *http.Request) {
 	if _, ok := h.requireOperator(w, r); !ok {

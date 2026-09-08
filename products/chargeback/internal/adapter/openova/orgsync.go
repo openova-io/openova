@@ -28,7 +28,11 @@ var OrganizationGVR = schema.GroupVersionResource{Group: "orgs.openova.io", Vers
 
 // SourceKindOrg is the cost-source kind of the auto-created per-Organization
 // platform source the platform collector writes into.
-const SourceKindOrg = "openova-org"
+const SourceKindOrg = store.SourceKindOrg
+
+// SourceKindPlatform is the kind of the ONE internal source the Sovereign's
+// own platform footprint is recorded on (no customer).
+const SourceKindPlatform = store.SourceKindPlatform
 
 // OrgSync lists+watches Organization CRs and mirrors them into the
 // chargeback application's customers (ADR-0014 D2): slug = Org slug,
@@ -38,9 +42,16 @@ const SourceKindOrg = "openova-org"
 // rows; a deleted Organization SUSPENDS its customer — history is billing
 // data and is never deleted.
 //
+// The Sovereign's OWN Organization (spec.kind = internal) is NOT a customer
+// (DESIGN.md §2): it gets no customer row; its platform footprint is
+// recorded on the internal openova-platform source, which only Allocation
+// reads. A customer an earlier version synced it as is retired to a plain
+// external customer (its cloud sources stay).
+//
 // It also owns the "OpenOva plans" rate card: created once when absent,
-// assigned to every tenant Organization customer that has no price book, and
-// never re-created, re-priced or re-assigned over an operator's choice.
+// assigned to every Organization's openova-org SOURCE that has no price
+// book, and never re-created, re-priced or re-assigned over an operator's
+// choice.
 type OrgSync struct {
 	Dyn      dynamic.Interface
 	Core     kubernetes.Interface
@@ -268,32 +279,24 @@ func (s *OrgSync) SyncOrganization(ctx context.Context, u *unstructured.Unstruct
 	if err != nil {
 		return err
 	}
-	// #6850 — publish the Sovereign's own Organization so the platform
-	// collector knows which slug carries the platform-overhead line. Done
-	// before the upsert so a restart re-establishes it on the first pass,
-	// whether or not the customer row changes.
-	if f.Internal && s.OverheadSink != nil {
-		s.OverheadSink.SetOverheadOrg(f.Slug)
+	if f.Internal {
+		return s.syncInternalOrganization(ctx, f)
 	}
-	// The "OpenOva plans" rate card prices the plan line every tenant
-	// Organization carries. Ensured on every sync (one indexed lookup by
-	// name) so a book the operator removed comes back on the next event; a
-	// failure here is logged and leaves the customer bookless until the next
-	// sync rather than blocking the customer itself. The Sovereign's own
-	// Organization buys no plan and needs the operator's cloud rate card, so
-	// it is not assigned to this book.
+	// The "OpenOva plans" rate card prices the plan line every Organization
+	// carries. Ensured on every sync (one indexed lookup by name) so a book
+	// the operator removed comes back on the next event; a failure here is
+	// logged and leaves the source bookless until the next sync rather than
+	// blocking the customer itself.
 	planBookID := ""
-	if !f.Internal {
-		pb, created, err := s.Repo.EnsurePlanBook(ctx)
-		switch {
-		case err != nil:
-			slog.Warn("openova adapter: plan price book unavailable; the customer is synced without a book", "org", f.Slug, "error", err)
-		case created:
-			slog.Info("openova adapter: plan price book created", "book", pb.Name, "id", pb.ID, "items", len(pb.Items))
-			planBookID = pb.ID
-		default:
-			planBookID = pb.ID
-		}
+	pb, created, err := s.Repo.EnsurePlanBook(ctx)
+	switch {
+	case err != nil:
+		slog.Warn("openova adapter: plan price book unavailable; the customer is synced without a book", "org", f.Slug, "error", err)
+	case created:
+		slog.Info("openova adapter: plan price book created", "book", pb.Name, "id", pb.ID, "items", len(pb.Items))
+		planBookID = pb.ID
+	default:
+		planBookID = pb.ID
 	}
 	resumed := false
 	c, err := s.Repo.GetCustomerBySlug(ctx, f.Slug)
@@ -307,7 +310,6 @@ func (s *OrgSync) SyncOrganization(ctx context.Context, u *unstructured.Unstruct
 			OrgSlug:     f.Slug,
 			BillingMode: f.BillingMode,
 			PlanSlug:    f.PlanSlug,
-			PriceBookID: planBookID,
 		})
 		if err != nil {
 			return fmt.Errorf("create customer: %w", err)
@@ -315,7 +317,7 @@ func (s *OrgSync) SyncOrganization(ctx context.Context, u *unstructured.Unstruct
 		if err := s.Repo.SetCustomerStatus(ctx, c.ID, "active"); err != nil {
 			return fmt.Errorf("activate customer: %w", err)
 		}
-		slog.Info("openova adapter: organization synced as new customer", "org", f.Slug, "customer", c.ID, "billing_mode", f.BillingMode, "plan", f.PlanSlug, "internal", f.Internal)
+		slog.Info("openova adapter: organization synced as new customer", "org", f.Slug, "customer", c.ID, "billing_mode", f.BillingMode, "plan", f.PlanSlug)
 	case err != nil:
 		return fmt.Errorf("get customer: %w", err)
 	default:
@@ -336,11 +338,6 @@ func (s *OrgSync) SyncOrganization(ctx context.Context, u *unstructured.Unstruct
 		if c.PlanSlug != f.PlanSlug {
 			p.PlanSlug, changed = &f.PlanSlug, true
 		}
-		if c.PriceBookID == nil && planBookID != "" {
-			// Bookless → the plan book. An explicit assignment (any book,
-			// including a clone the operator negotiated) is never touched.
-			p.PriceBookID, changed = &planBookID, true
-		}
 		if changed {
 			if c, err = s.Repo.UpdateCustomer(ctx, c.ID, p); err != nil {
 				return fmt.Errorf("update customer: %w", err)
@@ -358,15 +355,25 @@ func (s *OrgSync) SyncOrganization(ctx context.Context, u *unstructured.Unstruct
 
 	// The per-Organization platform source (one auto-created; the platform
 	// collector writes into it). Nothing external to verify — it is marked
-	// verified so `collecting` reads true.
+	// verified so `collecting` reads true. Bookless → the plan book; an
+	// explicit assignment (any platform book, including a clone the operator
+	// negotiated) is never touched.
 	src, _, err := s.Repo.UpsertSource(ctx, c.ID, SourceKindOrg, "", f.Slug)
 	if err != nil {
 		return fmt.Errorf("upsert platform source: %w", err)
 	}
-	if src.Status != "verified" {
+	// A disabled source stays disabled: a resync must never undo the
+	// operator's decommission.
+	if src.Status != "verified" && src.Status != store.StatusDisabled {
 		if err := s.Repo.SetSourceVerified(ctx, src.ID, ""); err != nil {
 			return fmt.Errorf("verify platform source: %w", err)
 		}
+	}
+	if src.PriceBookID == nil && planBookID != "" {
+		if err := s.Repo.SetSourcePriceBook(ctx, src.ID, planBookID); err != nil {
+			return fmt.Errorf("assign plan book to platform source: %w", err)
+		}
+		slog.Info("openova adapter: platform source assigned the plan book", "org", f.Slug, "source", src.ID, "book", planBookID)
 	}
 	if resumed {
 		// A suspended Organization had no pods and paid no plan; the
@@ -383,6 +390,38 @@ func (s *OrgSync) SyncOrganization(ctx context.Context, u *unstructured.Unstruct
 		if err := s.syncCostSource(ctx, c, f.Slug, cs); err != nil {
 			slog.Warn("openova adapter: cost source sync failed; continuing with the next one", "org", f.Slug, "project", cs.ProjectID, "error", err)
 		}
+	}
+	return nil
+}
+
+// syncInternalOrganization handles the Sovereign's OWN Organization
+// (spec.kind = internal), which is not a customer (DESIGN.md §2): it tells
+// the platform collector which slug carries the overhead line (#6850),
+// retires the customer an earlier version synced it as — the customer stays
+// as a plain external one with its cloud sources, its openova-org source
+// becomes the internal source — and ensures the internal openova-platform
+// source exists (customer NULL, internal, verified) for the collector to
+// write the Sovereign's footprint to.
+func (s *OrgSync) syncInternalOrganization(ctx context.Context, f orgFields) error {
+	if s.OverheadSink != nil {
+		s.OverheadSink.SetOverheadOrg(f.Slug)
+	}
+	c, err := s.Repo.GetCustomerBySlug(ctx, f.Slug)
+	switch {
+	case err == nil && c.Kind == "organization":
+		if err := s.Repo.RetireOrganizationCustomer(ctx, c.ID); err != nil {
+			return fmt.Errorf("retire the Sovereign's own Organization customer %s: %w", f.Slug, err)
+		}
+		slog.Info("openova adapter: the Sovereign's own Organization is not a customer; its customer row is now a plain external customer and its platform source the internal source", "org", f.Slug, "customer", c.ID)
+	case err != nil && !errors.Is(err, store.ErrNotFound):
+		return fmt.Errorf("get customer: %w", err)
+	}
+	src, created, err := s.Repo.EnsureInternalSource(ctx, f.Slug)
+	if err != nil {
+		return fmt.Errorf("ensure internal platform source: %w", err)
+	}
+	if created {
+		slog.Info("openova adapter: internal platform source created for the Sovereign's own footprint", "org", f.Slug, "source", src.ID)
 	}
 	return nil
 }
@@ -464,11 +503,14 @@ func (s *OrgSync) syncCostSource(ctx context.Context, c store.Customer, slug str
 
 // SuspendOrganization marks the customer of a deleted Organization
 // suspended. Deletion never deletes — statements and the usage ledger are
-// billing history.
+// billing history. The Sovereign's own Organization has no customer.
 func (s *OrgSync) SuspendOrganization(ctx context.Context, u *unstructured.Unstructured) error {
 	f, err := readOrg(u)
 	if err != nil {
 		return err
+	}
+	if f.Internal {
+		return nil
 	}
 	c, err := s.Repo.GetCustomerBySlug(ctx, f.Slug)
 	if errors.Is(err, store.ErrNotFound) {

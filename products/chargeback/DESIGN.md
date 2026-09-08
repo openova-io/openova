@@ -47,7 +47,67 @@ Legend: ✅ have · ◐ partial · ❌ missing. "Target" = this design.
 | Multi-Organization scope (operator vs customer) | ✅ | ✅ | ✅ | ✅ | ✅ every endpoint scope-filtered |
 | One reporting currency with stored exchange rates | ✅ | ✅ | ✅ | ❌ (`mixed_currency` flag, unconverted sums) | ✅ `currency_rates` + `cost_base`, unconverted listed never summed (§3.10) |
 
-## 2. Information architecture
+## 2. The ownership model — two layers that never meet in billing
+
+Founder direction, 2026-09-08. Everything this application meters belongs to
+exactly one of two layers, and the two are priced independently:
+
+| | **Cloud layer** | **Platform layer** |
+|---|---|---|
+| A source is | a cloud project — kind `huawei-project` (and `file` for imports) | an Organization on this Sovereign — kind `openova-org` |
+| Distinguishers | enterprise project, tag filter, resource scope (`scope_token`) | the Organization slug |
+| Its resource kinds are | cloud SKUs (`ecs.*`, `evs.*`, `eip*`, …) | platform SKUs (`plan.<slug>`, and `k8s.vcpu` / `k8s.mem_gb` / `k8s.pvc_gb` only if sold per use) |
+| Priced by | a **cloud** price book | a **platform** price book (the "OpenOva plans" book) |
+
+Three rules follow, and they are enforced in the schema, not by convention:
+
+1. **A customer owns one or more sources.** A source belongs to one layer,
+   derived from its kind (`cost_sources.layer`, a generated column).
+2. **A price book is assigned per SOURCE, not per customer**
+   (`cost_sources.price_book_id`), and the book's `scope` must equal the
+   source's `layer`. A customer's statement is the sum of its sources, each
+   rated by its own book. `customers.price_book_id` survives only as a
+   deprecated column (§4.1).
+3. **Coverage and "unpriced" are computed per book from the usage of the
+   sources assigned to it** — so a platform meter can never appear under a
+   cloud book, which is exactly what the hw307 screenshot showed before this
+   change.
+
+### 2.0a The Sovereign is not a customer
+
+The Sovereign's own platform footprint — its control plane, gitea, harbor,
+keycloak, openbao, shared-pg, every namespace with no Organization label —
+is recorded on **one internal source**: kind `openova-platform`,
+`internal = true`, `customer_id NULL`. It has no customer row, no plan, and
+no price book, and every customer-facing query excludes it
+(`CostQuery.IncludeInternal` is the single opt-in, used only by Allocation).
+
+Before this change `internal/adapter/openova/orgsync.go` synced the
+Sovereign's own Organization (`spec.kind = internal`) as a customer and the
+platform collector attached the cluster-wide overhead to it. On hw307 that
+made the landlord "Omantel" a customer holding two Huawei sources **and** an
+`openova-org` source whose `k8s.*` rows read "unpriced" under the National
+Cloud cloud book — the mixing the founder rejected. OrgSync now skips the
+internal Organization entirely, ensures the internal source instead, and
+retires the customer an earlier version created (§4.1). The landlord's
+Huawei project stays a plain customer with cloud sources and nothing else.
+
+### 2.0b Allocation is a report, not billing
+
+`Allocation` reads the two layers read-only and never writes a bill:
+
+- **pool** = the rated cloud cost of the chosen **landlord customer's** cloud
+  sources (`allocation_settings.sovereign_customer_id` keeps its wire name);
+- **shares** = each Organization customer's platform-source usage;
+- **overhead** = the internal source's usage, as the `platform-overhead` row
+  (no customer id; it is labelled `Platform overhead`).
+
+It must keep working after this change, and
+`TestIntegrationInternalSourceIsInvisibleToCustomersButCountedByAllocation`
+pins both halves: the internal source never reaches an explorer, a summary or
+a statement, and it is exactly the overhead row of the report.
+
+### 2.1 Information architecture
 
 Operator (sovereign-admin lens):
 
@@ -63,7 +123,7 @@ Every page is a real route (deep-linkable) and every list is sortable, filterabl
 and exportable. Every number on a screen comes from an endpoint in §3; nothing is
 computed client-side except display formatting.
 
-### 2.1 Overview
+### 2.2 Overview
 KPI strip: month-to-date cost · forecast month end (with method + confidence) ·
 last month · MoM Δ% · average daily (30d) · live resources · active customers ·
 unpriced SKUs (warning). Daily cost stacked by kind for the last 30 days with the
@@ -72,7 +132,7 @@ kind (ranked bars). Budgets strip (actual vs amount, forecast marker). Latest
 anomalies. Recent statements. Collector health (sources verified/failed, last
 collected).
 
-### 2.2 Cost explorer
+### 2.3 Cost explorer
 Controls: date presets (7d · 30d · MTD · last month · 3M · 6M · YTD · custom),
 granularity (hourly for windows ≤ 14 days · daily · monthly; hourly falls back
 to daily when the window grows), group by, include/exclude filter chips per
@@ -84,22 +144,51 @@ by the window it sums. Clicking a group row adds it as a filter and re-groups on
 level down (kind → sku → resource); clicking a day bar with nothing to drill zooms
 to that day at hourly grain.
 
-### 2.3 Resources
+### 2.4 Resources
 Inventory joined with cost in the window: kind, name, region, customer, status
 (live / stopped / deleted), first/last seen, cost, cost sparkline. Filters and
 free text. Drill-in shows daily cost, SKU lines, attributes, transitions.
 
-### 2.4 Customer detail
+### 2.5 Customer detail
 Header KPIs (MTD, forecast, last month, open drafts). Tabs: Overview (trend + by
 kind + top resources) · Cost explorer (scoped) · Resources · Statements ·
-Discounts (CRUD) · Budgets (CRUD) · Sources (CRUD incl. scope token) · Users ·
-Settings (edit every field; delete) · Audit.
+Discounts (CRUD) · Budgets (CRUD) · Sources (CRUD incl. scope token, the
+layer badge and the per-source price book) · Users · Settings (edit every
+field except the price book; delete) · Audit.
 
-### 2.5 Price books
-List with currency, items, assigned customers, coverage % of SKUs in use.
+**Disabling a source.** `cost_sources.status` gains `disabled`: a
+decommissioned source. The collector's listing skips it, it counts as
+neither a verified source nor live estate, and the Sources tab badges it and
+offers Disable / Enable (`PATCH /sources/{id} {"disabled": true|false}`,
+operator-only). Its history is billing data and is untouched: it still rates,
+still appears in the explorer, and still stands on every statement already
+issued from it. Enabling returns it to `verified` when it had been verified
+before and to `pending` otherwise; verifying a disabled source is refused
+(409) until it is enabled, and neither the Organization sync nor the platform
+collector may re-enable one. The internal platform source cannot be disabled.
+
+**Creating a customer lands on the Sources tab with the add-source modal
+open** (`/customers/{id}?tab=sources&add=1`): a customer is defined by where
+its cost comes from, and the price book is chosen there, one per source. The
+customers list shows a **Sources** column counting by layer ("1 cloud ·
+1 platform") in place of the old single price-book column.
+
+### 2.6 Price books
+List with **scope** (cloud | platform, with a filter above the table),
+currency, items, the **sources** assigned to the book, and coverage % of the
+SKUs those sources use. New price book asks for the scope; the detail header
+shows it.
 Detail: settings (edit), searchable inline item table (add / edit / delete / bulk
 save), import CSV with preview, export CSV, clone (per-account pricing), delete
-(refused while assigned), coverage panel listing SKUs in use that carry no rate.
+(refused while any SOURCE is assigned — the 409 names the sources and their
+customers), and the coverage card **"SKUs in use by the sources assigned to
+this book"**, which lists those sources.
+
+Under a platform book that prices none of the `k8s.*` meters, those meters
+are reported as **not sold per use** — the plan covers them and they are the
+allocation basis — never as "unpriced", and the page says so in one line
+instead of offering "Add rate". The explorer and the summary carry the same
+split: `unpriced` for a genuine gap, `not_sold_per_use` for the basis meters.
 
 Below the list, a **Currencies** card (§3.10): the reporting currency (read-only —
 it is `allocation_settings.currency`, changed on the Allocation page) and the
@@ -108,21 +197,23 @@ source, updated) with inline add / edit / delete. The overview and the explorer
 show a warning naming every currency in use that has no rate, with the records
 and cost left out, and link here.
 
-### 2.6 Discounts
+### 2.7 Discounts
 All discounts in one place: scope (customer or all customers), kind, value, SKU
 scope, campaign window, active. Create / edit / delete / toggle. Preview panel
 shows the effect on the current MTD.
 
-### 2.7 Budgets
+### 2.8 Budgets
 Create / edit / delete. Scope (all or one customer), monthly amount **in the
 reporting currency** (the form shows it read-only; §3.5), thresholds,
 notification emails. Status bars: actual (converted), forecast marker,
 thresholds crossed.
 
-### 2.8 Allocation
-Settings editor: basis weights (vCPU-h, GiB-h, GB-h), overhead policy (keep as a
-separate line, or distribute across Organizations), cost pool (the Sovereign
-customer's rated cloud cost for the window, or a manual amount). Result table in
+### 2.9 Allocation
+A **report over the two layers, never billing** (§2.0b). Settings editor:
+basis weights (vCPU-h, GiB-h, GB-h), overhead policy (keep as a separate
+line, or distribute across Organizations), cost pool (the **landlord
+customer's** rated cloud cost for the window — its cloud sources are the pool
+— or a manual amount). Result table in
 currency: allocated cloud cost, rated revenue, margin, margin %. Chart of the split.
 
 **Plan revenue.** What an Organization actually pays is its catalog plan
@@ -134,15 +225,17 @@ L = 4×S, XL = 8×S), so no per-vCPU rate is invented: the platform collector
 meters the plan itself as one `plan.<slug>` record per hour slice (unit
 `plan-hour`, quantity 1 for a full hour, `resource_kind=plan`, labels
 `{name: "<Plan> plan", plan: <slug>}`) on the Organization's `openova-org`
-source, only while the Organization is active and on a plan other than flexi,
+source — the source the plans book is assigned to — only while the
+Organization is active and on a plan other than flexi,
 starting at the customer's `start_date` or, absent one, the first sync. OrgSync
 reads `spec.planSlug` (lower-cased; empty → `s`, the org-controller's default;
 the Sovereign's own Organization gets none) into `customers.plan_slug`, and
 owns the **"OpenOva plans"** price book: OMR, divisor 8760, `plan.s` 60/yr,
 `plan.m` 108, `plan.l` 192, `plan.xl` 360 as annual prices, so
 `unit_price = annual / 8760 = monthly / 730` per plan-hour; created once when
-absent, assigned to every tenant Organization customer with no book, never
-re-created, re-priced or re-assigned over an operator's choice. `k8s.vcpu` /
+absent with `scope = platform`, assigned to every Organization's
+`openova-org` SOURCE that has no book, never re-created, re-priced or
+re-assigned over an operator's choice. `k8s.vcpu` /
 `k8s.mem_gb` / `k8s.pvc_gb` stay unpriced in that book — they are the allocation
 basis above, and flexi's pay-per-use rates are a product decision the founder
 has not made (the item descriptions say so; `price_books` has no description
@@ -150,13 +243,20 @@ column). `rated_revenue` needs no new arithmetic: it is the Explore total per
 Organization customer, and the plan line is part of it. Statements group the
 line under "Subscription plan" (`KindLabel("plan")`, `serviceOfSKU("plan.m")`).
 
-### 2.9 Statements
+### 2.10 Statements
+A statement is the sum of the customer's sources, each rated by its own book,
+and is issued in **one** currency. A run for a customer whose sources are
+assigned books of different currencies is **refused with 400** naming both
+("… a statement is issued in one currency — assign books of one currency");
+in an all-customer run that customer carries the message in its own result
+and every other customer is still rated.
+
 Filters (period, customer, status). Run period. Statement view: waterfall (list
 → discounts → net → tax → total), lines grouped by service kind with per-source
 breakdown, printable, CSV. The Issue confirm carries a checked-by-default
 "Email the statement to the customer" box (§3.9).
 
-### 2.10 Reports
+### 2.11 Reports
 Scheduled plain-text cost reports, the way a cloud console mails a cost report
 on a schedule. KPIs (schedules, sent last 30 days, failures, next due); table
 (name, scope, cadence in words, recipients, sections, next run, last sent,
@@ -364,7 +464,38 @@ severity, type, id; ids are `type:customer:resource` / `type:customer:sku` /
   `GET /pricebooks/{id}/coverage`.
 - `GET|POST /discounts` (global list; `customer_id` null = all customers) ·
   `GET|PUT|DELETE /discounts/{id}`; existing customer-scoped routes kept.
-- `PATCH /sources/{id}` — region, project_id, scope_token, domain_id.
+- **Sources carry the price book (§2).** `GET /sources` is the operator-wide
+  directory (every source with `layer`, `price_book_id`, `price_book_name`,
+  `internal` and its customer; `?internal=true` adds the Sovereign's own
+  internal source). `GET|PATCH /sources/{id}` and
+  `GET|PATCH /customers/{id}/sources/{sid}` read and edit one source:
+  `region`, `project_id`, `scope_token`, `domain_id`, `price_book_id`.
+  A book whose `scope` is not the source's `layer` is **400**
+  `price book scope <X> does not match source layer <Y>`, and nothing else in
+  the patch is applied; an unknown book id is 400, not 500; `""` clears the
+  book. A customer-admin may still change `scope_token` only. The internal
+  source is never edited through the API (400).
+  `POST /customers/{id}/sources` accepts `price_book_id` alongside the kind,
+  and offers **cloud kinds only** (`huawei-project`, `file`) — platform
+  sources are created by the Organization sync.
+- `POST /pricebooks` accepts `scope` (`cloud` | `platform`, default cloud);
+  `GET /pricebooks` and `GET /pricebooks/{id}` return it. `PUT` may change it
+  only while no source is assigned (409 otherwise).
+  `GET /pricebooks/{id}/coverage` returns `scope`, the assigned `sources`
+  (`{source_id, customer_id, customer_name, customer_slug, label, kind,
+  layer}`), the distinct `customers`, `skus_in_use` (each with
+  `not_sold_per_use`), `coverage_pct`, `unpriced_count` and `not_sold_count`.
+  `DELETE /pricebooks/{id}` is 409 while any SOURCE is assigned, with
+  `details.sources` and `details.customers`.
+- **`POST|PATCH /customers` no longer accept a price book.** The
+  `price_book_id` key is still decoded and **ignored** with a log line — never
+  an error, so an older client is not broken — and `customers.price_book_id`
+  is never written again (§4.1). Every customer read carries
+  `cloud_source_count` and `platform_source_count`.
+- `POST /statements/run` answers **400** when one customer's sources are
+  assigned books of different currencies (§2.10).
+- The explorer and summary documents carry `not_sold_per_use[]` beside
+  `unpriced` / `unpriced_skus` (§2.6).
 - `GET /statements` — the operator list, newest period first. `period=YYYY-MM`
   narrows to one period and `customer_id=<id>` (alias `customer`) to one
   customer; both may be given. An id no customer has answers an empty list,
@@ -471,7 +602,50 @@ report_deliveries(id, schedule_id, sent_at, window_from date, window_to date, re
         subject, ok, error)
 currency_rates(code TEXT PK CHECK '^[A-Z]{3}$', per_base NUMERIC(20,10) CHECK (> 0),
         source TEXT DEFAULT 'manual', updated_at)        -- allocation_settings.currency is the reporting currency
+
+-- Two-layer ownership (§2), one migration:
+cost_sources.layer      TEXT NOT NULL GENERATED ALWAYS AS
+                        (CASE WHEN kind IN ('huawei-project','file') THEN 'cloud' ELSE 'platform' END) STORED
+                        CHECK (layer IN ('cloud','platform'))
+cost_sources.price_book_id UUID NULL REFERENCES price_books(id)
+cost_sources.internal   BOOLEAN NOT NULL DEFAULT false
+cost_sources.customer_id → NULLABLE          -- the internal source has no customer
+cost_sources.kind       += 'openova-platform'
+CHECK ((internal AND customer_id IS NULL AND kind = 'openova-platform')
+       OR (NOT internal AND customer_id IS NOT NULL))
+UNIQUE INDEX (kind, region, project_id) WHERE customer_id IS NULL   -- one internal source per slug
+usage_records.customer_id → NULLABLE          -- the internal source's rows carry none
+price_books.scope       TEXT NOT NULL DEFAULT 'cloud' CHECK (scope IN ('cloud','platform'))
 ```
+
+### 4.1 Migrating the customer-level price book
+
+One migration (`store.MigrationTwoLayerSources`), schema and data in one
+transaction, idempotent, and pinned end to end by
+`TestIntegrationTwoLayerMigrationMovesBooksOntoSources`, which stands a
+database at the PREVIOUS shape, writes the rows the old model wrote, applies
+the migration and asserts every clause:
+
+1. The plans book (`EnsurePlanBook`'s name) becomes `scope = platform`; every
+   other book is `cloud`.
+2. `customers.price_book_id` is **copied onto each of that customer's sources
+   whose layer matches the book's scope** — a platform book therefore never
+   lands on a cloud source, which stays bookless rather than mis-rated.
+3. Platform sources still without a book get the plans book.
+4. The customer row whose Organization is the Sovereign's own (found by the
+   `openova-org` source carrying `tier: platform-overhead` usage — the way
+   OrgSync identifies it) becomes `kind = 'external'`, `org_slug NULL`,
+   `plan_slug ''`; its `openova-org` source becomes `kind='openova-platform'`,
+   `internal = true`, `customer_id = NULL`, and its usage rows lose their
+   customer. Its cloud sources stay with it: the landlord is a plain customer.
+5. `customers.price_book_id` is **kept as a deprecated column**: the API stops
+   writing it and the UI stops showing it, and the JSON key stays for
+   compatibility. Nothing reads it for rating any more.
+
+At runtime the same conversion happens on the first sync of the internal
+Organization (`OrgSync.syncInternalOrganization` →
+`RetireOrganizationCustomer`), for a database that had not yet collected
+overhead usage when the migration ran.
 
 Cost is computed at query time by joining `usage_records` to the customer's
 price book — no rollup table, no second source of truth, and a price change is

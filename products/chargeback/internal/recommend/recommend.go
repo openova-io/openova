@@ -498,19 +498,31 @@ func staleSources(in Input) []Recommendation {
 // no-price-book
 // ---------------------------------------------------------------------------
 
+// noPriceBook flags a customer none of whose sources has a book, and — since
+// a book is assigned per source (DESIGN.md §2) — each individual source that
+// has none while the customer's others do.
 func noPriceBook(in Input) []Recommendation {
 	var out []Recommendation
 	for _, b := range in.Books {
-		if b.HasBook {
+		if !b.HasBook {
+			out = append(out, Recommendation{
+				ID: TypeNoPriceBook + ":" + b.CustomerID, Type: TypeNoPriceBook, Severity: SeverityHigh,
+				CustomerID: b.CustomerID, CustomerName: b.CustomerName,
+				Title:         "No price book",
+				Detail:        fmt.Sprintf("%s has no price book on any of its sources: every SKU is unpriced and its statements rate to zero. Assign a rate card to each source.", b.CustomerName),
+				MonthlySaving: "0.000000", Evidence: map[string]any{"customer_status": b.Status},
+			})
 			continue
 		}
-		out = append(out, Recommendation{
-			ID: TypeNoPriceBook + ":" + b.CustomerID, Type: TypeNoPriceBook, Severity: SeverityHigh,
-			CustomerID: b.CustomerID, CustomerName: b.CustomerName,
-			Title:         "No price book",
-			Detail:        fmt.Sprintf("%s has no price book: every SKU is unpriced and its statements rate to zero. Assign a rate card.", b.CustomerName),
-			MonthlySaving: "0.000000", Evidence: map[string]any{"customer_status": b.Status},
-		})
+		for _, src := range b.UnbookedSources {
+			out = append(out, Recommendation{
+				ID: TypeNoPriceBook + ":" + b.CustomerID + ":" + src, Type: TypeNoPriceBook, Severity: SeverityHigh,
+				CustomerID: b.CustomerID, CustomerName: b.CustomerName,
+				Title:         "Source without a price book: " + src,
+				Detail:        fmt.Sprintf("Source %s of %s has no price book: its usage is unpriced and rates to zero on every statement. Assign a rate card of the source's layer.", src, b.CustomerName),
+				MonthlySaving: "0.000000", Evidence: map[string]any{"customer_status": b.Status, "source": src},
+			})
+		}
 	}
 	return out
 }
