@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { showsRawKey } from '../lib/dims'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { API_BASE, api, asList, errorText } from '../api/client'
 import { GROUP_BY_OPTIONS, type DimensionValues, type ExploreResult, type GroupBy, type Metric, type SavedView } from '../api/types'
@@ -150,7 +151,7 @@ export function ExplorerBody({ lens, embedded }: { lens: Lens; embedded?: boolea
         <>
           <span className="swatch" style={{ background: r.color }} />
           {r.label}
-          {r.key !== r.label && r.key !== 'other' ? <span className="sub mono">{r.key}</span> : null}
+          {showsRawKey(r.key, r.label) ? <span className="sub mono">{r.key}</span> : null}
         </>
       ),
     },

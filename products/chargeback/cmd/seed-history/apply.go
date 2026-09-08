@@ -179,6 +179,25 @@ func (s *seeder) ensureSource(customerID string, c *synth.Customer) (string, err
 		"region":     c.Source.Region,
 		"project_id": c.Source.Name,
 	})
+	if isStatus(err, 400) && c.Source.Layer == synth.LayerPlatform {
+		// A PLATFORM source has no create endpoint on purpose: for a real
+		// Organization the adapter makes it from the Organization CR, so the
+		// operator API refuses to hand-craft one (DESIGN.md §2). A showcase
+		// Organization has no CR to sync, so its source goes through the same
+		// store the adapter writes — the same reason the usage ledger below
+		// does not go through the API either.
+		stored, _, serr := s.st.UpsertSource(s.ctx, customerID, c.Source.Kind, c.Source.Region, c.Source.Name)
+		if serr != nil {
+			return "", fmt.Errorf("platform source for %s (store): %w", c.Slug, serr)
+		}
+		if stored.Status != "verified" {
+			if serr := s.st.SetSourceVerified(s.ctx, stored.ID, ""); serr != nil {
+				return "", fmt.Errorf("verify platform source for %s: %w", c.Slug, serr)
+			}
+		}
+		s.infof("  no create endpoint for a platform source; writing it through the store, as the adapter does")
+		src, err = apiSource{ID: stored.ID}, nil
+	}
 	if err != nil {
 		return "", fmt.Errorf("source for %s: %w", c.Slug, err)
 	}
@@ -187,9 +206,16 @@ func (s *seeder) ensureSource(customerID string, c *synth.Customer) (string, err
 		switch {
 		case err == nil:
 			s.infof("  source %s: price book assigned per source", src.ID[:8])
-		case isStatus(err, 404), isStatus(err, 400), isStatus(err, 405):
+		case isStatus(err, 404), isStatus(err, 405):
 			// This build assigns the book on the customer; already done in
 			// ensureCustomer. Nothing is missing, the model is just older.
+		case isStatus(err, 400) && c.Source.Layer == synth.LayerPlatform:
+			// Same reason as the source itself: no endpoint owns a showcase
+			// Organization's source, so the book is assigned through the store.
+			if serr := s.st.SetSourcePriceBook(s.ctx, src.ID, bookID); serr != nil {
+				return "", fmt.Errorf("assign price book to platform source %s: %w", src.ID, serr)
+			}
+			s.infof("  source %s: price book assigned per source (store)", src.ID[:8])
 		default:
 			return "", fmt.Errorf("assign price book to source %s: %w", src.ID, err)
 		}
