@@ -11,7 +11,7 @@ import (
 // discountColumns is the shared projection so a new field cannot be added to
 // one query and forgotten in another. Every query joins customers with a LEFT
 // JOIN because a global campaign (customer_id NULL, #6867) has no customer.
-const discountColumns = `d.id, d.customer_id, c.name, d.name, d.kind, d.value::text, d.sku, d.starts_at, d.ends_at, d.active, d.created_at`
+const discountColumns = `d.id, d.customer_id, c.name, d.name, d.kind, d.value::text, d.sku, d.starts_at, d.ends_at, d.active, d.created_at, d.stackable`
 
 const discountFrom = ` FROM discounts d LEFT JOIN customers c ON c.id = d.customer_id`
 
@@ -20,7 +20,7 @@ func scanDiscount(row interface{ Scan(...any) error }) (Discount, error) {
 	var val string
 	var customerID, customerName sql.NullString
 	var starts, ends sql.NullTime
-	if err := row.Scan(&d.ID, &customerID, &customerName, &d.Name, &d.Kind, &val, &d.SKU, &starts, &ends, &d.Active, &d.CreatedAt); err != nil {
+	if err := row.Scan(&d.ID, &customerID, &customerName, &d.Name, &d.Kind, &val, &d.SKU, &starts, &ends, &d.Active, &d.CreatedAt, &d.Stackable); err != nil {
 		return d, mapErr(err)
 	}
 	d.CustomerID = strPtr(customerID)
@@ -82,6 +82,10 @@ type DiscountInput struct {
 	EndsAt     *time.Time
 	// Active nil keeps the default (true on create, unchanged on update).
 	Active *bool
+	// Stackable adds this discount on top of the winner under the
+	// most-specific and highest combination rules (DESIGN.md §2.11).
+	// PUT semantics: absent means false.
+	Stackable bool
 }
 
 // CreateDiscount stores a discount. The CHECK constraints reject a negative
@@ -94,10 +98,10 @@ func (s *Store) CreateDiscount(ctx context.Context, in DiscountInput) (Discount,
 	}
 	var id string
 	err := s.db.QueryRowContext(ctx,
-		`INSERT INTO discounts (customer_id, name, kind, value, sku, starts_at, ends_at, active)
-		 VALUES ($1,$2,$3,$4::numeric,$5,$6,$7,$8) RETURNING id`,
+		`INSERT INTO discounts (customer_id, name, kind, value, sku, starts_at, ends_at, active, stackable)
+		 VALUES ($1,$2,$3,$4::numeric,$5,$6,$7,$8,$9) RETURNING id`,
 		nullStr(in.CustomerID), strings.TrimSpace(in.Name), in.Kind, string(in.Value),
-		strings.TrimSpace(in.SKU), nullTime(in.StartsAt), nullTime(in.EndsAt), active).Scan(&id)
+		strings.TrimSpace(in.SKU), nullTime(in.StartsAt), nullTime(in.EndsAt), active, in.Stackable).Scan(&id)
 	if err != nil {
 		return Discount{}, mapErr(err)
 	}
@@ -110,9 +114,9 @@ func (s *Store) CreateDiscount(ctx context.Context, in DiscountInput) (Discount,
 func (s *Store) UpdateDiscount(ctx context.Context, id string, in DiscountInput) (Discount, error) {
 	res, err := s.db.ExecContext(ctx,
 		`UPDATE discounts SET customer_id = $2, name = $3, kind = $4, value = $5::numeric, sku = $6, starts_at = $7, ends_at = $8,
-		 active = COALESCE($9, active) WHERE id = $1`,
+		 active = COALESCE($9, active), stackable = $10 WHERE id = $1`,
 		id, nullStr(in.CustomerID), strings.TrimSpace(in.Name), in.Kind, string(in.Value),
-		strings.TrimSpace(in.SKU), nullTime(in.StartsAt), nullTime(in.EndsAt), nullBool(in.Active))
+		strings.TrimSpace(in.SKU), nullTime(in.StartsAt), nullTime(in.EndsAt), nullBool(in.Active), in.Stackable)
 	if err != nil {
 		return Discount{}, mapErr(err)
 	}
@@ -139,6 +143,20 @@ func (s *Store) DeleteDiscount(ctx context.Context, id string) error {
 // campaign that ran stays visible on the statements it affected.
 func (s *Store) SetDiscountActive(ctx context.Context, id string, active bool) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE discounts SET active = $2 WHERE id = $1`, id, active)
+	if err != nil {
+		return mapErr(err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// SetDiscountStackable flips the stackable flag (DESIGN.md §2.11) without
+// touching any other field, so the list's inline checkbox cannot clobber a
+// concurrent edit of the window or value.
+func (s *Store) SetDiscountStackable(ctx context.Context, id string, stackable bool) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE discounts SET stackable = $2 WHERE id = $1`, id, stackable)
 	if err != nil {
 		return mapErr(err)
 	}

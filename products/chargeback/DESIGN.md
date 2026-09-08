@@ -166,6 +166,71 @@ text the next send mails, in a `<pre>`), Send now, and a deliveries log per
 schedule. Customer lens `/my/reports`: a customer-admin manages schedules for
 its own customer only; a viewer reads and previews.
 
+### 2.11 Discount combination rule
+Founder direction 2026-09-08 (EPIC #6867): *"why don't we provide a
+stack/aggregation function selection?"* Until then every percent discount was
+computed against the untouched base and **summed** — a 10 % campaign for all
+customers plus a 20 % SKU discount took 30 % off that SKU — which reads as a
+surprise on a bill. The rule is now an operator setting, read at statement run
+time and printed on the statement.
+
+**Setting.** `billing_settings` is a single-row table (`id = 1`,
+`discount_rule TEXT NOT NULL DEFAULT 'most-specific'`, `updated_at`); the
+migration seeds the row and a wiped row reads as the defaults. `GET|PUT
+/api/v1/billing-settings` `{discount_rule}`, operator-only, 400 naming the
+accepted values on an unknown rule, audited as `billing.settings` with the
+previous value. The Discounts page carries a "Combination rule" card at the
+top: a segmented control over the four rules, a one-line explanation, a live
+example computed client-side by `ui/src/lib/discountRule.ts` (the same
+arithmetic as the engine, unit-tested against the engine's fixture), Save.
+
+**The four rules** decide, **per SKU** (a discount applies to a meter; the
+lines of one meter share every applicable discount), what happens when more
+than one percent discount applies:
+
+| rule | per line | 10 % global + 20 % on A, list 100 (A 50, B 50) |
+|---|---|---|
+| `most-specific` (default) | the one percent with the narrowest scope wins — a SKU discount beats a whole-bill one; at the same scope the higher percent wins | A 20 % (10) + B 10 % (5) = **15** |
+| `highest` | the highest percent wins regardless of scope (scope is the tie-break) | A 20 % (10) + B 10 % (5) = **15**; with a 30 % global instead: 30 on both = **30**, where most-specific gives A 20 % (10) + B 30 % (15) = **25** |
+| `stack` | every applicable percent is summed against the untouched base — what every statement did before this section | A 30 % (15) + B 10 % (5) = **20** |
+| `compound` | percents multiply: 10 % then 20 % is 1 − 0.9 × 0.8 = 28 % | A 28 % (14) + B 10 % (5) = **19** |
+
+Scope means SKU-scoped vs whole-bill only. The customer dimension does not
+enter — a customer's own discount and an all-customer campaign both already
+apply to that customer's statement — and a tie at the same scope goes to the
+higher percent, so a customer never loses on a tie. **Fixed amounts** come off
+what remains after the percentages, in every rule, clamped so the bill never
+goes below zero (a 100 credit on the 15-off example above takes the remaining
+85). Money stays exact (`big.Rat`); the per-discount breakdown is rounded once.
+
+**Stackable.** A per-discount boolean (`discounts.stackable`, default false;
+the "Stackable" checkbox column on the Discounts page saves inline via
+`PATCH /discounts/{id} {stackable}`; create/PUT accept it). Under
+`most-specific` and `highest` a stackable discount is **added on top of the
+winner** instead of competing with it — the campaign on top of the contract:
+with the 20 % on A stackable, A takes 10 % + 20 % = 15 and the bill 20. Under
+`stack` and `compound` the flag changes nothing. Stackable discounts never
+win; if every candidate on a line is stackable they simply add.
+
+**On the statement.** `statements.discount_rule` (wire key `discount_rule`)
+records the rule in force when the run wrote the statement, so an issued bill
+states which rule produced its numbers; the migration backfills `stack` on
+statements that carry a discount breakdown, because summing is what produced
+them. Changing the setting never rewrites an issued statement — the next run
+states the new rule. Each `discount_detail` entry carries `stackable` when
+set, and a discount that matched the bill but lost on every line it matched
+under `most-specific` / `highest` is still on the bill with `amount` 0 and
+`superseded_by` = the winner's id, so the statement view shows "not applied:
+superseded by <name>" rather than a discount that silently vanished. The
+statement view names the rule next to the discount block.
+
+**Tests.** `internal/rating/discount_test.go` pins every number in the table
+above plus the stackable and fixed-after-percent cases;
+`internal/store/billing_settings_integration_test.go` the setting round-trip,
+the `stackable` column and the rule recorded on a real run;
+`internal/api/billing_settings_test.go` the endpoints' validation, scope and
+audit; `ui/src/lib/discountRule.test.ts` the client-side example.
+
 ## 3. API contracts (all under `/api/v1`, JSON, scope-filtered)
 
 Dates are `YYYY-MM-DD`, windows are half-open `[from, to)`. Money is a decimal
