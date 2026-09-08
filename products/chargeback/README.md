@@ -275,6 +275,80 @@ make image                       # container image (build context = this directo
 Integration tests share one database and truncate it between tests, which is
 why `make integration` passes `-p 1`.
 
+## Synthetic history (showcase)
+
+`cmd/seed-history` fills the database with a deterministic three-month trading
+history — 1 June to 1 September 2026, hourly — for six showcase customers, so
+the console can be demonstrated with a past instead of a blank explorer. Three
+buy National Cloud resources (`file` sources on the National Cloud list) and
+three are Organizations of this Sovereign on catalog plans (`openova-org`
+sources on "OpenOva plans"):
+
+| Customer | Layer | Story |
+|---|---|---|
+| Gulf Retail Group | cloud | steady e-commerce; worker pool 6 → 10 ECS on a weekly rhythm, EIP bandwidth on a daily traffic curve, a 14–16 July promo, EVS 2 → 3.5 TB, a bandwidth anomaly on 22 August, 1,800 OMR budget |
+| Muscat Health Systems | cloud | migration: 4 × `m7n.2xlarge.8` replaced over 15–17 July by 8 × `m7n.xlarge.8` (both generations overlap), 6 TB SSD, 10 % off the new compute from 1 August |
+| Dhofar Logistics | cloud | bursty batch: 2 base servers plus 6–14 more between 02:00 and 06:00 daily; joined 20 June, left 25 August |
+| Nizwa Fintech | platform | growth: plan S → M (1 July) → L (10 August); pods 12 → 40 vCPU-hours; PVC 200 → 900 GB |
+| Sohar Ports Analytics | platform | plan M throughout, nightly ETL peaks, suspended 18–24 July (no pods, plan still billed) |
+| Salalah Tourism Board | platform | plan XL June–July, downgraded to M in August |
+
+Plus a global 5 % "launch" campaign for June. Every customer is decommissioned
+before the window closes — usage stops, resources are marked deleted, the
+customer goes `suspended` and the reason is written to its audit trail — so
+**from 2 September only the real data is there** and the showcase customers
+read as having been moved off or shut down.
+
+Everything the API can express goes through the API as the operator, so the
+product's own validation, auditing and upsert rules apply. The usage ledger,
+the inventory and the backdating of created/issued timestamps have no endpoint
+(the collectors write them), so those go through the same `internal/store` the
+collectors use — which is why `--dsn` is required.
+
+**Marking and removal.** Customers and sources are named `demo-*`, discounts
+and budgets `demo: *`, and every usage record and inventory row carries
+`{"synthetic":"true"}`. `--purge` removes exactly those rows — measured against
+a control: a real customer named `acmewalk307`, a real discount literally named
+`demo` and a real budget named `demonstration cap` all survive it. Price books
+are never removed: `"National Cloud list 2026"` and `"OpenOva plans"` are
+shared with real customers and are never created over, re-priced or deleted.
+
+```bash
+# Preview the plan and the totals — no service, no database, nothing written.
+go run ./cmd/seed-history --dry-run
+
+# Seed hw307. Reach the app and its database without exposing either: the
+# DSN is read from the cluster at run time and never written down.
+kubectl -n chargeback port-forward svc/chargeback 18080:8080 &
+kubectl -n chargeback port-forward svc/chargeback-pg-rw 15432:5432 &
+DSN="$(kubectl -n chargeback get secret chargeback-db-dsn \
+         -o jsonpath='{.data.DATABASE_URL}' | base64 -d \
+       | sed 's#@[^/]*/#@127.0.0.1:15432/#')"
+
+go run ./cmd/seed-history \
+  --base-url http://127.0.0.1:18080 \
+  --forward-auth-email <an address in OPERATOR_EMAILS> \
+  --dsn "$DSN"
+
+# Remove everything it created, and nothing else.
+go run ./cmd/seed-history --purge --dsn "$DSN"
+```
+
+Flags: `--base-url`, `--forward-auth-email` (header name from
+`TRUSTED_FORWARD_AUTH_HEADER`) or `--session-cookie`, `--dsn`, `--from`,
+`--to` (exclusive), `--seed` (default 2026 — the same seed always produces the
+same bytes), `--dry-run`, `--purge`, `--only <slug>`.
+
+Re-running is safe: usage upserts on `(source, resource, sku, window_start)`,
+customers and sources are matched by slug and name, and an already-issued
+statement is left alone by the product itself. Measured: a second run changed
+no row count and no metered quantity.
+
+The generators live in `internal/synth` and are pure — no HTTP, no SQL — so
+the patterns, the scaling events, the migration, the spike and the plan
+switches are unit-tested directly, including that the 22 August spike is
+flagged by the product's own `internal/anomaly` rule at z ≥ 3.
+
 ## Operational notes
 
 - The binary is static, runs as uid 65532 with a read-only root filesystem, and
