@@ -564,3 +564,78 @@ absence of data is stated in words, never drawn as zero.
   produced the zeros cannot recur silently.
 - UI: vitest on data mappers; a rendered walk on hw307 with screenshots for
   every page in §2, recorded in `docs/ledger/UAT.md`.
+
+## 7. Synthetic history for showcases
+
+Everything above describes surfaces that are only convincing against data with
+a past. A freshly provisioned Sovereign has none: the explorer draws one
+bucket, the anomaly detector has no baseline to judge against, no budget has
+ever crossed a threshold and the statements list is empty. `cmd/seed-history`
+(EPIC #6867, founder direction 2026-09-08) manufactures that past —
+1 June to 1 September 2026 at hourly granularity, for six customers who are
+all decommissioned before the window closes, so **the real data from
+2 September stands alone** and the showcase customers read as having been
+moved off, deleted or decommissioned.
+
+**Where it writes.** Through the product's own surfaces wherever they exist —
+`POST /customers`, sources, price books, discounts, budgets,
+`POST /statements/run`, `POST /statements/{id}/issue` with `notify:false` — so
+every invariant, validation and audit entry is the product's own rather than
+this tool's imitation of it. Three things have no endpoint, because the
+collectors write them and nothing else does: the usage ledger, the resource
+inventory, and the `created_at` / `issued_at` timestamps that make the history
+read as history. Those go through `internal/store` — `UpsertUsage`,
+`UpsertInventory`, `SetInventoryBounds` — which is the same code path the
+Huawei and platform collectors take. That is why the command needs a `--dsn`
+as well as a `--base-url`, and it is the same split
+`tests/e2e/chargeback/seed.sh` already uses.
+
+**Determinism.** Every quantity is a function of `(seed, customer, resource,
+hour)` alone, hashed with FNV-1a into a PCG stream — never of generation order
+and never of the window asked for. Two runs with the same seed produce
+identical bytes; a run over a narrower window agrees with the wider one on
+every shared hour. That is what makes the command idempotent rather than
+merely re-runnable: usage upserts on `(source, resource, sku, window_start)`,
+so a second pass rewrites the same rows with the same values. Measured on a
+full local run: a re-run changed no row count and no metered quantity across
+291,343 records.
+
+**Marking.** Customers and sources are named `demo-*`, discounts and budgets
+`demo: *`, and every usage record and inventory row carries
+`{"synthetic":"true"}` in its labels. `--purge` deletes exactly what those four
+selectors match. Two findings from building it, both now covered by the purge:
+`audit_log.customer_id` carries **no foreign key**, so deleting a customer does
+not cascade to its audit trail and left 111 orphaned rows behind; and the audit
+log is append-only by design, so writing the decommission note unconditionally
+stacked a second copy on every re-run. The selectors are pinned by test against
+real names taken from live databases — a customer named `acmewalk307`, a
+discount named `demo`, a budget named `demonstration cap` — none of which the
+purge may touch. Price books are never purged at all: `"National Cloud list
+2026"` priced the real August 2026 statement on hw307, and a showcase must
+never move a real rate.
+
+**Rates.** The cloud SKUs are priced at the National Cloud list, and the eight
+hourly rates reproduce to the last decimal the ones the hw307 book rated the
+real August statement with (`docs/sessions/2026-08-31/chargeback-walk/
+statement-2026-08.csv`); a test pins them. The plan SKUs are priced by the
+product's own `store.EnsurePlanBook`, so a showcase Organization is billed at
+exactly the platform's rate, and the `k8s.*` meters stay unpriced — an
+Organization's bill is its plan and nothing else, which §2.8 requires and a
+test asserts.
+
+**What the scenario demonstrates.** A worker pool scaling 6 → 10 on a weekly
+rhythm; a three-day migration in which two ECS generations overlap; a promo
+weekend; a bandwidth anomaly on 22 August that the product's own
+`internal/anomaly` rule flags at z = 12.25 through `GET /anomalies`; a 1,800
+OMR budget that reaches 50 % in June, 80 % in July and 100 % in August; plan
+upgrades and a downgrade, each splitting the switch day into exactly 24
+plan-hours; a suspended Organization that pays its plan and meters nothing
+else; and eighteen statements issued on the first of the following month.
+
+One deliberate tension is recorded rather than hidden. The founder asked for
+each cloud customer to bill 1,500–4,000 OMR a month *and* for the 1,800 OMR
+budget to reach 80 % in July and 100 % in August. Those cannot both hold in
+June: 1,500 is 83 % of 1,800, so any June inside the band already crosses the
+80 % threshold and flattens the escalation the budget exists to show. The
+escalation wins; Gulf Retail's June is 1,418 OMR, 5 % under the band, and the
+test that checks the band names that month as the exception and why.
