@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-08T13:47:17Z` |
+| Last refreshed | `2026-09-08T14:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
-| Open issues |  |
+| Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All  open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 100 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All  open items (clickable table)
+### All 100 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -307,6 +307,36 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-07T11:21 | [#6880](https://github.com/openova-io/openova/pull/6880) | #6874 | fix(dr-promoter): clear the divergence marker and release th |
+| 2026-09-07T10:44 | [#6879](https://github.com/openova-io/openova/pull/6879) | #6874 | fix(bp-postgres, cloud-init): shared consumers dial the glob |
+| 2026-09-07T09:48 | [#6878](https://github.com/openova-io/openova/pull/6878) | #6874 | fix(dr-promoter): tell a CNPG local failover apart from a re |
+| 2026-09-07T08:34 | [#6877](https://github.com/openova-io/openova/pull/6877) | #6867 | docs(ledger): hw307 live-walk screenshots for bp-chargeback  |
+| 2026-09-07T09:11 | [#6876](https://github.com/openova-io/openova/pull/6876) | #6874 | fix(dr-failback): force the HelmRelease render after every r |
+| 2026-09-07T08:18 | [#6875](https://github.com/openova-io/openova/pull/6875) | #6867 | fix(chargeback): SMTP egress on Sovereigns, customer-scoped  |
+| 2026-09-07T07:22 | [#6873](https://github.com/openova-io/openova/pull/6873) | #6867 | feat(chargeback): bill the catalog plan (plan.<slug> meter + |
+| 2026-09-07T06:20 | [#6872](https://github.com/openova-io/openova/pull/6872) | #6871 | feat(chargeback): tag/enterprise-project dimension, hourly g |
+| 2026-09-06T19:27 | [#6871](https://github.com/openova-io/openova/pull/6871) | #6869 | fix(chargeback-ui): allocation margin % reads n/a below one  |
+| 2026-09-06T18:47 | [#6869](https://github.com/openova-io/openova/pull/6869) | #6868 | fix(chargeback): purge-excluded action, allocation auto-pick |
+| 2026-09-06T18:11 | [#6868](https://github.com/openova-io/openova/pull/6868) | #6867 | feat(chargeback): cloud-provider-grade cost analysis — explo |
+| 2026-09-06T12:48 | [#6866](https://github.com/openova-io/openova/pull/6866) | #6866 | fix(chargeback): the usage table showed a dash in every grou |
+| 2026-09-06T11:41 | [#6865](https://github.com/openova-io/openova/pull/6865) | #6850 | feat(chargeback): the allocation screen (Refs #6865) |
+| 2026-09-06T10:45 | [#6864](https://github.com/openova-io/openova/pull/6864) | #6863 | feat(chargeback): usage trend chart (Refs #6863) |
+| 2026-09-06T09:31 | [#6862](https://github.com/openova-io/openova/pull/6862) | #6862 | feat(chargeback): discounts and time-boxed campaigns (Refs # |
+| 2026-09-06T07:59 | [#6860](https://github.com/openova-io/openova/pull/6860) | #6855 | fix(chargeback): let an operator actually set a source's sco |
+| 2026-09-06T09:00 | [#6858](https://github.com/openova-io/openova/pull/6858) | #6853 | fix(chargeback): four extended listers 400'd against the rea |
+| 2026-09-06T07:01 | [#6856](https://github.com/openova-io/openova/pull/6856) | #6855 | fix(chargeback): scope a project cost source to one deployme |
+| 2026-09-06T06:27 | [#6854](https://github.com/openova-io/openova/pull/6854) | #6853 | feat(chargeback): meter every provisionable resource kind, n |
+| 2026-09-06T04:27 | [#6852](https://github.com/openova-io/openova/pull/6852) | #6849 | fix(catalyst-api): platform Applications are platform-*, not |
+| 2026-09-04T08:40 | [#6851](https://github.com/openova-io/openova/pull/6851) | #6841 | feat(chargeback): meter the Sovereign's own footprint as a p |
+| 2026-09-04T07:41 | [#6848](https://github.com/openova-io/openova/pull/6848) | #6841 | fix(chargeback): give the Sovereign real SMTP so invites are |
+| 2026-09-03T08:14 | [#6847](https://github.com/openova-io/openova/pull/6847) | #6846 | fix(chargeback): turn the OpenOva adapter on in the Sovereig |
+| 2026-09-03T08:14 | [#6845](https://github.com/openova-io/openova/pull/6845) | #6842 | fix(chargeback): bump appVersion so the SSO code actually re |
+| 2026-09-03T07:34 | [#6842](https://github.com/openova-io/openova/pull/6842) | #6841 | fix(chargeback): sign in with Sovereign SSO instead of a sec |
+| 2026-09-03T05:55 | [#6838](https://github.com/openova-io/openova/pull/6838) | #6827 | fix(huawei): active/hot-standby by default — 100% of north-s |
+| 2026-09-06T13:48 | [#6835](https://github.com/openova-io/openova/pull/6835) | #6723 | feat(console): Billing links the Sovereign chargeback placem |
+| 2026-09-03T04:28 | [#6834](https://github.com/openova-io/openova/pull/6834) | #6815 | feat(api): surface the node-side census so a short-joined re |
+| 2026-09-03T04:15 | [#6833](https://github.com/openova-io/openova/pull/6833) | #5505 | fix(bp-kyverno-policies): grant the storageclasses read its  |
+| 2026-09-03T04:28 | [#6831](https://github.com/openova-io/openova/pull/6831) | #6827 | docs(sessions): hw307 health gate — nodes, zero-NodePort and |
 
 ---
 
