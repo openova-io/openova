@@ -132,6 +132,12 @@ func Run(ctx context.Context, st *store.Store, period, customerID string) ([]Res
 	if err != nil {
 		return nil, err
 	}
+	// The discount combination rule (DESIGN.md §2.11) is read once per run,
+	// so every statement of the run states the same rule.
+	settings, err := st.GetBillingSettings(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("billing settings: %w", err)
+	}
 	var results []Result
 	for _, c := range customers {
 		if customerID != "" && c.ID != customerID {
@@ -143,7 +149,7 @@ func Run(ctx context.Context, st *store.Store, period, customerID string) ([]Res
 			results = append(results, res)
 			continue
 		}
-		stmt, unpriced, err := rateCustomer(ctx, st, c, *c.PriceBookID, from, to)
+		stmt, unpriced, err := rateCustomer(ctx, st, c, *c.PriceBookID, from, to, settings.DiscountRule)
 		if err != nil {
 			res.Error = err.Error()
 			slog.Warn("statement run failed for customer", "customer", c.Slug, "period", period, "error", err)
@@ -162,7 +168,7 @@ func Run(ctx context.Context, st *store.Store, period, customerID string) ([]Res
 	return results, nil
 }
 
-func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, priceBookID string, from, to time.Time) (store.Statement, []string, error) {
+func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, priceBookID string, from, to time.Time, discountRule string) (store.Statement, []string, error) {
 	pb, err := st.GetPriceBook(ctx, priceBookID)
 	if err != nil {
 		return store.Statement{}, nil, fmt.Errorf("price book: %w", err)
@@ -186,7 +192,10 @@ func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, priceB
 	if err != nil {
 		return store.Statement{}, nil, fmt.Errorf("discounts: %w", err)
 	}
-	discountTotal, applied, err := ApplyDiscounts(lines, discounts)
+	if discountRule == "" {
+		discountRule = store.DefaultDiscountRule
+	}
+	discountTotal, applied, err := ApplyDiscounts(lines, discounts, discountRule)
 	if err != nil {
 		return store.Statement{}, nil, err
 	}
@@ -206,6 +215,7 @@ func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, priceB
 		Lines:            lines,
 		Discount:         discountTotal,
 		AppliedDiscounts: applied,
+		DiscountRule:     discountRule,
 	})
 	return stmt, unpriced, err
 }

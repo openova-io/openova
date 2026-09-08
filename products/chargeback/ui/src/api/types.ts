@@ -160,7 +160,21 @@ export interface Statement {
   lines?: RatedLine[] | null
   /** #6862 — what discounts took off the list subtotal, frozen at issue time. */
   discount_total?: number | string
-  discount_detail?: Array<{ id?: string; name: string; kind: string; value?: number | string; sku?: string; amount: number | string }> | null
+  discount_detail?: Array<{
+    id?: string
+    discount_id?: string
+    name: string
+    kind: string
+    value?: number | string
+    sku?: string
+    amount: number | string
+    /** DESIGN.md §2.11 — added on top of the winner. */
+    stackable?: boolean
+    /** DESIGN.md §2.11 — matched but lost to this discount id; amount is 0. */
+    superseded_by?: string
+  }> | null
+  /** DESIGN.md §2.11 — the combination rule the run applied; absent on statements rated before it existed. */
+  discount_rule?: DiscountRule | string | null
 }
 
 export interface Invite {
@@ -603,7 +617,17 @@ export interface Discount {
   starts_at: string | null
   ends_at: string | null
   active: boolean
+  /** DESIGN.md §2.11 — adds on top of the winner under most-specific / highest. */
+  stackable?: boolean
   created_at?: string
+}
+
+/** DESIGN.md §2.11 — how several percent discounts on one line combine. */
+export type DiscountRule = 'most-specific' | 'highest' | 'stack' | 'compound'
+
+export interface BillingSettings {
+  discount_rule: DiscountRule | string
+  updated_at?: string
 }
 
 export interface PriceBookCoverage {

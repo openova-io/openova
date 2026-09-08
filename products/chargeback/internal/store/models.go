@@ -223,7 +223,11 @@ type Discount struct {
 	StartsAt     *time.Time `json:"starts_at,omitempty"`
 	EndsAt       *time.Time `json:"ends_at,omitempty"`
 	Active       bool       `json:"active"`
-	CreatedAt    time.Time  `json:"created_at"`
+	// Stackable (DESIGN.md §2.11): under the most-specific and highest
+	// combination rules this discount is added on top of the winning
+	// percent instead of competing with it. No effect under stack/compound.
+	Stackable bool      `json:"stackable"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // AppliesAt reports whether the discount is live at t. A campaign that has not
@@ -267,6 +271,11 @@ type Statement struct {
 	// statement. Subtotal is the NET; list = Subtotal + DiscountTotal.
 	DiscountTotal  Decimal         `json:"discount_total"`
 	DiscountDetail json.RawMessage `json:"discount_detail,omitempty"`
+	// DiscountRule (DESIGN.md §2.11) names the combination rule in force
+	// when the statement was rated, so an issued bill states which rule
+	// produced its numbers. Empty for statements rated before the rule
+	// existed that carried no discount.
+	DiscountRule string `json:"discount_rule,omitempty"`
 }
 
 // RatedLine is one priced aggregate on a statement.

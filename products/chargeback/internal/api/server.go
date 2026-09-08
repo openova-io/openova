@@ -138,6 +138,10 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("PUT /api/v1/discounts/{id}", h.updateDiscount)
 	mux.HandleFunc("PATCH /api/v1/discounts/{id}", h.setDiscountActive)
 	mux.HandleFunc("DELETE /api/v1/discounts/{id}", h.deleteDiscount)
+	// DESIGN.md §2.11 — the discount combination rule. Operator-only; read at
+	// statement run time and recorded on every statement the run writes.
+	mux.HandleFunc("GET /api/v1/billing-settings", h.getBillingSettings)
+	mux.HandleFunc("PUT /api/v1/billing-settings", h.putBillingSettings)
 	mux.HandleFunc("POST /api/v1/customers/{id}/sources", h.createSource)
 	mux.HandleFunc("PATCH /api/v1/sources/{id}", h.patchSource)
 	mux.HandleFunc("POST /api/v1/sources/{id}/credential", h.rotateCredential)

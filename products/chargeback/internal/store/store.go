@@ -337,6 +337,25 @@ CREATE TABLE IF NOT EXISTS pins (
 		source TEXT NOT NULL DEFAULT 'manual',
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 	);`,
+	// #6867 follow-up — the discount combination rule (DESIGN.md §2.11). One
+	// row of billing settings; the rule decides how several percent
+	// discounts on one line combine. 'most-specific' is the default; 'stack'
+	// is what every statement rated before this migration did.
+	`CREATE TABLE IF NOT EXISTS billing_settings (
+		id SMALLINT PRIMARY KEY CHECK (id = 1),
+		discount_rule TEXT NOT NULL DEFAULT 'most-specific' CHECK (discount_rule IN ('most-specific','highest','stack','compound')),
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+	);`,
+	`INSERT INTO billing_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;`,
+	// A stackable discount adds on top of the winner under most-specific and
+	// highest (a campaign on top of the contract); it changes nothing under
+	// stack or compound.
+	`ALTER TABLE discounts ADD COLUMN IF NOT EXISTS stackable BOOLEAN NOT NULL DEFAULT false;`,
+	// Every statement records the rule that produced its numbers. Statements
+	// rated before the rule existed were summed, so they read 'stack'; ones
+	// without a discount breakdown carried no rule-dependent figure.
+	`ALTER TABLE statements ADD COLUMN IF NOT EXISTS discount_rule TEXT;`,
+	`UPDATE statements SET discount_rule = 'stack' WHERE discount_rule IS NULL AND discount_detail IS NOT NULL;`,
 }
 
 // Migrate applies every migration not yet recorded in schema_migrations.

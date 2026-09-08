@@ -22,6 +22,9 @@ type discountBody struct {
 	StartsAt   string        `json:"starts_at"`
 	EndsAt     string        `json:"ends_at"`
 	Active     *bool         `json:"active"`
+	// Stackable (DESIGN.md §2.11): add on top of the winning percent under
+	// the most-specific and highest rules. Absent = false (PUT semantics).
+	Stackable *bool `json:"stackable"`
 }
 
 // validateDiscount turns a body into a store input, or names the first
@@ -65,6 +68,7 @@ func validateDiscount(in discountBody) (store.DiscountInput, string) {
 		CustomerID: in.CustomerID, Name: in.Name, Kind: in.Kind,
 		Value: store.Decimal(strings.TrimSpace(string(in.Value))),
 		SKU:   strings.TrimSpace(in.SKU), StartsAt: starts, EndsAt: ends, Active: in.Active,
+		Stackable: in.Stackable != nil && *in.Stackable,
 	}
 	return out, ""
 }
@@ -72,7 +76,7 @@ func validateDiscount(in discountBody) (store.DiscountInput, string) {
 func discountAudit(d store.Discount) map[string]any {
 	return map[string]any{
 		"discount_id": d.ID, "name": d.Name, "kind": d.Kind, "value": string(d.Value), "sku": d.SKU,
-		"scope": d.ScopeLabel(), "active": d.Active,
+		"scope": d.ScopeLabel(), "active": d.Active, "stackable": d.Stackable,
 	}
 }
 
@@ -235,20 +239,32 @@ func (h *Handler) deleteDiscount(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": true, "id": id})
 }
 
-// setDiscountActive enables or disables a discount. Deactivating rather than
-// deleting keeps a finished campaign visible on the statements it affected.
+// setDiscountActive flips one flag of a discount: `active` (deactivating
+// rather than deleting keeps a finished campaign visible on the statements it
+// affected) or `stackable` (DESIGN.md §2.11). One flag per call, so the
+// list's inline checkboxes cannot clobber each other.
 func (h *Handler) setDiscountActive(w http.ResponseWriter, r *http.Request) {
 	if _, ok := h.requireOperator(w, r); !ok {
 		return
 	}
 	var in struct {
-		Active *bool `json:"active"`
+		Active    *bool `json:"active"`
+		Stackable *bool `json:"stackable"`
 	}
-	if err := decode(r, &in); err != nil || in.Active == nil {
-		writeErr(w, http.StatusBadRequest, "active (bool) is required")
+	if err := decode(r, &in); err != nil || (in.Active == nil) == (in.Stackable == nil) {
+		writeErr(w, http.StatusBadRequest, "exactly one of active (bool) or stackable (bool) is required")
 		return
 	}
 	id := r.PathValue("id")
+	if in.Stackable != nil {
+		if err := h.Store.SetDiscountStackable(r.Context(), id, *in.Stackable); err != nil {
+			storeErr(w, err)
+			return
+		}
+		h.audit(r, nil, "discount.stackable", map[string]any{"discount_id": id, "stackable": *in.Stackable})
+		writeJSON(w, http.StatusOK, map[string]any{"id": id, "stackable": *in.Stackable})
+		return
+	}
 	if err := h.Store.SetDiscountActive(r.Context(), id, *in.Active); err != nil {
 		storeErr(w, err)
 		return
