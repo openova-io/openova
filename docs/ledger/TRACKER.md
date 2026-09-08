@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-08T17:45:05Z` |
+| Last refreshed | `2026-09-08T18:00:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -308,6 +308,7 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-09-08T17:41 | [#6883](https://github.com/openova-io/openova/pull/6883) | #6867 | docs(ledger): hw307 showcase screenshots for the rebuilt cha |
+| 2026-09-08T17:58 | [#6882](https://github.com/openova-io/openova/pull/6882) | #6867 | fix(chargeback): seed a showcase Organization's source, hide |
 | 2026-09-08T14:56 | [#6881](https://github.com/openova-io/openova/pull/6881) | #6867 | feat(chargeback): two-layer ownership, discount combination  |
 | 2026-09-07T11:21 | [#6880](https://github.com/openova-io/openova/pull/6880) | #6874 | fix(dr-promoter): clear the divergence marker and release th |
 | 2026-09-07T10:44 | [#6879](https://github.com/openova-io/openova/pull/6879) | #6874 | fix(bp-postgres, cloud-init): shared consumers dial the glob |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-03T07:34 | [#6842](https://github.com/openova-io/openova/pull/6842) | #6841 | fix(chargeback): sign in with Sovereign SSO instead of a sec |
 | 2026-09-03T05:55 | [#6838](https://github.com/openova-io/openova/pull/6838) | #6827 | fix(huawei): active/hot-standby by default — 100% of north-s |
 | 2026-09-06T13:48 | [#6835](https://github.com/openova-io/openova/pull/6835) | #6723 | feat(console): Billing links the Sovereign chargeback placem |
-| 2026-09-03T04:28 | [#6834](https://github.com/openova-io/openova/pull/6834) | #6815 | feat(api): surface the node-side census so a short-joined re |
 
 ---
 
