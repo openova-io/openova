@@ -30,6 +30,12 @@ type seeder struct {
 	ctx   context.Context
 	books map[string]string // price book name -> id
 
+	// cloudBook is the resolved cloud rate card and the rule that picked it;
+	// priceBooks is the book list that resolution saw, which the duplicate
+	// repair reads again rather than re-fetching.
+	cloudBook  bookChoice
+	priceBooks []apiPriceBook
+
 	// csvImport memoizes whether the per-source CSV import endpoint of the
 	// target model exists on this build, so a missing endpoint is probed once
 	// rather than once per month.
@@ -52,28 +58,27 @@ func (s *seeder) infof(format string, a ...any) { log.Printf(format, a...) }
 
 // ensureBooks makes the two rate cards available and records their ids.
 //
-// Neither book is ever re-priced: on a Sovereign both may already hold the
-// operator's own numbers ("National Cloud list 2026" priced the real August
-// statement on hw307), and a showcase must not move a real rate.
-func (s *seeder) ensureBooks(needCloud, needPlan bool) error {
+// No book is ever re-priced: on a Sovereign a book holds the operator's own
+// numbers, and a showcase must not move a real rate. The cloud book is
+// RESOLVED rather than made (book.go) — creating one was the hw307 defect,
+// because "National Cloud list 2026" with nine rates sat beside the
+// operator's "National Cloud 2026 list" with 134 and priced the showcase off
+// a different card than the real customer next to it.
+func (s *seeder) ensureBooks(needCloud, needPlan bool, explicitCloudBook, landlordBookID string) error {
 	s.books = map[string]string{}
 	existing, err := s.api.listPriceBooks()
 	if err != nil {
 		return fmt.Errorf("list price books: %w", err)
 	}
-	byName := map[string]apiPriceBook{}
-	for _, b := range existing {
-		byName[strings.ToLower(b.Name)] = b
-	}
 	if needCloud {
-		name := s.sc.CloudBookName
-		if b, ok := byName[strings.ToLower(name)]; ok {
-			s.books[name] = b.ID
-			s.infof("price book %q already exists (%s) — left untouched", name, b.ID[:8])
-		} else {
-			b, err := s.api.createPriceBook(name, "OMR", synth.AnnualDivisor)
+		choice, err := resolveCloudBook(explicitCloudBook, existing, landlordBookID)
+		if err != nil {
+			return err
+		}
+		if choice.ID == "" {
+			b, err := s.api.createPriceBook(choice.Name, "OMR", synth.AnnualDivisor)
 			if err != nil {
-				return fmt.Errorf("create price book %q: %w", name, err)
+				return fmt.Errorf("create price book %q: %w", choice.Name, err)
 			}
 			items := make([]apiPriceItem, 0, len(synth.NationalCloudRates))
 			for _, r := range synth.NationalCloudRates {
@@ -84,11 +89,18 @@ func (s *seeder) ensureBooks(needCloud, needPlan bool) error {
 				})
 			}
 			if err := s.api.putPriceItems(b.ID, items); err != nil {
-				return fmt.Errorf("price %q: %w", name, err)
+				return fmt.Errorf("price %q: %w", choice.Name, err)
 			}
-			s.books[name] = b.ID
-			s.infof("price book %q created (%s) with %d National Cloud rates", name, b.ID[:8], len(items))
+			choice.ID = b.ID
+			s.infof("cloud rates: created %q (%s) with %d rates — %s", choice.Name, shortID(b.ID), len(items), choice.Why)
+		} else {
+			s.infof("cloud rates: %q (%s) via %s — %s; left untouched",
+				choice.Name, shortID(choice.ID), choice.Rule, choice.Why)
 		}
+		s.cloudBook = choice
+		s.books[s.sc.CloudBookName] = choice.ID
+		s.books[choice.Name] = choice.ID
+		s.priceBooks = existing
 	}
 	if needPlan {
 		// EnsurePlanBook is the product's OWN plan-book logic (the one OrgSync
@@ -326,8 +338,17 @@ func (s *seeder) writeInventory(sourceID string, out synth.Output) error {
 		return fmt.Errorf("inventory: %w", err)
 	}
 	for _, r := range out.Resources {
-		first, deleted := r.FirstSeen, r.DeletedAt
-		if err := s.st.SetInventoryBounds(s.ctx, sourceID, r.ID, &first, &deleted); err != nil {
+		first := r.FirstSeen
+		// A zero DeletedAt is a resource that did NOT go away — the landlord
+		// backfill hands its machines over to the live collection rather than
+		// decommissioning them, and writing a deleted_at there would put a
+		// false fact on the resources page.
+		var deleted *time.Time
+		if !r.DeletedAt.IsZero() {
+			d := r.DeletedAt
+			deleted = &d
+		}
+		if err := s.st.SetInventoryBounds(s.ctx, sourceID, r.ID, &first, deleted); err != nil {
 			return fmt.Errorf("inventory bounds for %s: %w", r.ID, err)
 		}
 	}

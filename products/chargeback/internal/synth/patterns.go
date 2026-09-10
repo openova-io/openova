@@ -84,7 +84,15 @@ func HourIn(t time.Time, h0, h1 int) bool {
 // DayFraction is a deterministic value in [0, 1) per (seed, key, UTC day):
 // the per-day randomness behind batch sizes and volume churn.
 func DayFraction(seed uint64, key string, t time.Time) float64 {
-	h := Hash64(seed, key, t.UTC().Format("2006-01-02"))
+	return Fraction(seed, key, t.UTC().Format("2006-01-02"))
+}
+
+// Fraction is a deterministic value in [0, 1) for (seed, parts…) — the same
+// hash DayFraction uses, over any key. It carries no time of its own, so a
+// value drawn from it is a property of the thing, not of the hour: that is
+// what the landlord backfill's fixed volume sizes need.
+func Fraction(seed uint64, parts ...string) float64 {
+	h := Hash64(seed, parts...)
 	return float64(h>>11) / float64(uint64(1)<<53)
 }
 

@@ -749,7 +749,9 @@ ever crossed a threshold and the statements list is empty. `cmd/seed-history`
 1 June to 1 September 2026 at hourly granularity, for six customers who are
 all decommissioned before the window closes, so **the real data from
 2 September stands alone** and the showcase customers read as having been
-moved off, deleted or decommissioned.
+moved off, deleted or decommissioned. §7.1 covers the second half of the job:
+giving the Sovereign's own landlord customer a past that converges on its real
+present, so the series joins the two instead of jumping between them.
 
 **Where it writes.** Through the product's own surfaces wherever they exist —
 `POST /customers`, sources, price books, discounts, budgets,
@@ -776,8 +778,10 @@ full local run: a re-run changed no row count and no metered quantity across
 
 **Marking.** Customers and sources are named `demo-*`, discounts and budgets
 `demo: *`, and every usage record and inventory row carries
-`{"synthetic":"true"}` in its labels. `--purge` deletes exactly what those four
-selectors match. Two findings from building it, both now covered by the purge:
+`{"synthetic":"true"}` in its labels. `--purge` deletes exactly what those
+selectors match — five of them, the fifth being the source NAME, which is the
+only one that can reach the landlord backfill of §7.1 (it hangs off a real
+customer). Two findings from building it, both now covered by the purge:
 `audit_log.customer_id` carries **no foreign key**, so deleting a customer does
 not cascade to its audit trail and left 111 orphaned rows behind; and the audit
 log is append-only by design, so writing the decommission note unconditionally
@@ -788,10 +792,11 @@ purge may touch. Price books are never purged at all: `"National Cloud list
 2026"` priced the real August 2026 statement on hw307, and a showcase must
 never move a real rate.
 
-**Rates.** The cloud SKUs are priced at the National Cloud list, and the eight
-hourly rates reproduce to the last decimal the ones the hw307 book rated the
-real August statement with (`docs/sessions/2026-08-31/chargeback-walk/
-statement-2026-08.csv`); a test pins them. The plan SKUs are priced by the
+**Rates.** The cloud rate card is **resolved, never minted** (§7.2). The eight
+hourly rates in `internal/synth` are only the fallback used when a card has to
+be created; they reproduce to the last decimal the ones the hw307 book rated
+the real August statement with (`docs/sessions/2026-08-31/chargeback-walk/
+statement-2026-08.csv`), and a test pins them. The plan SKUs are priced by the
 product's own `store.EnsurePlanBook`, so a showcase Organization is billed at
 exactly the platform's rate, and the `k8s.*` meters stay unpriced — an
 Organization's bill is its plan and nothing else, which §2.8 requires and a
@@ -813,3 +818,131 @@ June: 1,500 is 83 % of 1,800, so any June inside the band already crosses the
 80 % threshold and flattens the escalation the budget exists to show. The
 escalation wins; Gulf Retail's June is 1,418 OMR, 5 % under the band, and the
 test that checks the band names that month as the exception and why.
+
+### 7.1 The landlord backfill — continuity across the join
+
+Six invented customers and nothing else left two visible defects in the very
+chart the showcase exists to fill (founder, 2026-09-10, looking at the hw307
+overview): *"step 1st is empty and the actual usage was already there from the
+beginning, you failed to show the continuity"*. Both were real.
+
+**The hole.** The showcase window ends at midnight on 1 September; the real
+collection on hw307 begins at **2026-09-02 10:21:09Z**, when the Sovereign was
+provisioned. Nothing was written for 1 September or the morning of the 2nd, so
+the daily series carried an empty bucket in the middle.
+
+**The jump.** The Sovereign's own landlord customer had no past at all, so the
+series stepped from ~150 OMR a day of showcase customers to ~594 OMR a day of
+real usage in a different service mix, from one bucket to the next. Six
+customers appearing and vanishing against a platform with no history reads as
+"nothing existed, then everything appeared" — the opposite of the story.
+
+The fix is a synthetic past for the landlord that **converges on its real
+present**, so the join is invisible rather than merely covered. The end state
+(`synth.LandlordEndState`) is the measured shape of that customer's real
+cloud-layer usage sampled on 5 September 2026 — 10 `m7n.2xlarge.8` and 2
+`m7n.xlarge.8`, six EIPs reserving 1,200 Mbps, 102 volumes totalling 2,281 GB,
+two NAT gateways, two load balancers — and the backfill grows into exactly that
+across two steps (1 July, 1 August) and a storage ramp, then stops at the hour
+boundary before the first real record. Priced on the National Cloud list the
+final full day is 596.63 OMR against a measured 594.10: a seam 0.43 % wide,
+pinned by test at 2 %.
+
+**Reservation, not traffic.** 494 of those 594 OMR are EIP bandwidth, and the
+reason is that Huawei bills a pipe's *provisioned* size whether or not traffic
+flows through it. So bandwidth is constant per EIP per hour and steps only when
+an EIP is added — as are the EIP itself, the NAT gateways, the load balancers,
+the instance-hours and each volume's size. Only the storage TOTAL drifts, and
+only because volumes are created (a 32-step staircase tracking a straight line
+from 1,400 to 2,281 GB). Jittering any of them would make the data contradict
+the billing model it is there to explain; two tests in
+`internal/synth/landlord_test.go` — one on reserved bandwidth, one on the
+volume roster — hold the line.
+
+**What it refuses to write.** The landlord is a REAL customer, and three rules
+follow, each one a rule about not writing: the customer is found and read but
+never created, patched, suspended, audited or backdated (measured: its row is
+byte-identical after a run); no statement is ever run or issued for it, because
+issuing one would put a bill in front of somebody over invented data; and its
+rows go on their OWN source, `demo-<slug>-history`, carrying the same price
+book as the customer's real cloud source so both halves of the series are rated
+identically. Same customer means the explorer grouped by customer draws one
+continuous series; separate source means a purge removes exactly the backfill.
+A resource still metering in the last hour is handed over **alive** — no
+`deleted_at`, because it did not go away, the real collection took it over.
+
+Hanging the backfill off a real customer also exposed a gap in the purge. Its
+source step reached sources only through `customers.slug LIKE 'demo-_%'`, which
+by construction can never match the landlord: the labelled usage and inventory
+rows would have gone, and the `demo-hw307-omani-works-history` source itself
+would have stayed behind forever — an orphan `demo-` source on a live customer,
+counted in its source directory and its verified-source count.
+`synth.SQLSourcePredicate` (`project_id LIKE 'demo-_%'`, paired with
+`NOT internal` so the Sovereign's own platform source stays out of reach) is
+the second door, pinned by test against real project ids taken from live
+databases.
+
+The cut is **discovered, never assumed**: the earliest non-synthetic
+`usage_records.window_start` for that customer, truncated to the hour. A row
+written at or after it would double-bill an hour the collector already owns.
+`--landlord-until` overrides the discovery for a dry run or a database whose
+ledger cannot answer; `--landlord ''` disables the backfill entirely.
+
+Measured end to end against a scratch Postgres with control rows standing in
+for the real half: 98 daily buckets from 1 June to 6 September, **not one of
+them empty**, and the landlord's last synthetic day and first full real day
+both 594.09 OMR — a 0.00 % seam. A purge then removed 545,274 synthetic usage
+rows, 257 inventory rows, 7 sources and 6 customers while leaving the landlord,
+its real source and all 14,300 real rows untouched.
+
+### 7.2 Borrow a rate card, never mint one
+
+The same look at hw307 found a second defect, and a worse one, because it moved
+money rather than a chart. `seed-history` **created** a cloud book,
+`"National Cloud list 2026"`, with the nine rates in `internal/synth`. The
+operator's own card was already there, called `"National Cloud 2026 list"`,
+with 134 items. One word apart, and not equivalent:
+
+| | seeded card | operator's card |
+|---|---|---|
+| `nat.1` | 0.11322489 /hour | 0.06037935 /hour |
+| `bill_stopped` | `compute` | `none` |
+| items | 9 | 134 |
+
+So the three showcase cloud customers were rated from one card and the real
+customer beside them in the same console from another. A console whose whole
+purpose is comparison was not comparing like with like, and the difference was
+nearly double on the biggest of the fixed-fee SKUs.
+
+The rule is now **borrow, never mint**, and the resolution order says what to
+borrow (`cmd/seed-history/book.go`): `--cloud-book`, then the card the LANDLORD
+is billed on — the principled default, since the whole point is to read the
+showcase against the Sovereign's own usage — then the one cloud book whose name
+reads as a National Cloud card (two is ambiguous and stops the run rather than
+guessing), then a card an earlier run made, and only then a new
+`"Showcase cloud rates (seed-history)"`, named so nobody has to guess whose it
+is. Every run logs which rule answered and why.
+
+Resolving the right card fixes tomorrow. hw307 also needed yesterday moved, so
+a run repairs what an earlier one left: showcase cloud sources and customers
+are re-pointed onto the resolved card, the showcase statements rated on the old
+card are **dropped and regenerated** — a bill nothing can reproduce is worse
+than no bill, and these are synthetic bills for customers that never existed —
+and the duplicate is then removed. Three guards stand in front of that delete,
+and each one leaves the book in place and says so: a source still assigned, a
+customer still referencing it, or an ISSUED statement whose lines came through
+a source on it. Only a card this tool is known to have made is ever a
+candidate, whatever anything is called; the product's own
+`DELETE /pricebooks/{id}` refuses on assigned sources as well, so the last word
+belongs to the product rather than to this command. `--purge` is untouched: it
+has never removed a price book and still does not.
+
+Because the figures move, the run says so rather than letting a reader assume
+the database changed under them. Measured on a scratch database that
+reproduced the hw307 state exactly: the landlord's card resolved by rule (b),
+three showcase sources re-pointed, eighteen statements dropped and re-rated,
+the duplicate removed, and Gulf Retail's June moved 1,414.14 → 1,376.19 OMR.
+The landlord backfill's own figures are read back from the explorer scoped to
+its source, so the summary reports the product's number at the operator's
+rates and never this command's arithmetic at the fallback ones — which is how
+the seam above closed from 0.43 % to 0.00 %.
