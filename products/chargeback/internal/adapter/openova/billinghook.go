@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/openova-io/openova/products/chargeback/internal/metrics"
+	"github.com/openova-io/openova/products/chargeback/internal/settle"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
 
@@ -64,14 +65,64 @@ type meteringMetadata struct {
 	TenantID  string `json:"tenant_id"`
 }
 
+// RequestSettlement implements settle.Gateway. This is the STRIPE-backed
+// implementation, registered under the gateway name "stripe": the registry
+// hands it a statement only when the customer's charging is billed, its
+// payment_method is gateway and its gateway_name is stripe. The behaviour is
+// unchanged from the pre-seam call — the same metering post, the same
+// idempotency on the statement id, the same silent no-op for anything that
+// is not an Organization charge.
+//
+// Replacing Stripe with Omantel's gateway is registering a different
+// implementation under a different name; nothing here has to move.
+func (b *BillingHook) RequestSettlement(ctx context.Context, req settle.Request) (settle.Result, error) {
+	if b == nil || b.URL == "" {
+		return settle.Result{Outcome: settle.NotApplicable, Gateway: "billing", Detail: "the billing hook is not configured"}, nil
+	}
+	if !applies(req.Customer) {
+		return settle.Result{Outcome: settle.NotApplicable, Gateway: "billing", Detail: "only a billed Organization collected through the stripe gateway is debited through billing"}, nil
+	}
+	if err := b.StatementIssued(ctx, req.Statement, req.Customer); err != nil {
+		return settle.Result{Outcome: settle.NotApplicable, Gateway: "billing"}, err
+	}
+	return settle.Result{Outcome: settle.Settled, Gateway: "billing", Reference: req.Statement.ID,
+		Detail: "debited to the Organization's billing credit as usage:chargeback"}, nil
+}
+
+// applies is the one condition the billing service can serve.
+//
+// The commercial half is charging=billed AND payment_method=gateway AND
+// gateway_name=stripe — the four-field replacement for the old
+// billing_mode=real, and narrower than it was: a billed customer paying by
+// TRANSFER also derives billing_mode=real, and must never be debited.
+//
+// The kind=organization guard is LOAD-BEARING and stays: the payload's
+// customer_id is the Organization slug, which is the only identifier the
+// platform billing service knows. An external customer has no billing
+// account there, so posting for one would be a debit against nothing.
+func applies(c store.Customer) bool {
+	return c.Kind == "organization" &&
+		c.Charging == store.ChargingBilled &&
+		c.PaymentMethod == store.PaymentMethodGateway &&
+		c.GatewayName == store.GatewayStripe
+}
+
+// ConfirmSettlement implements settle.Gateway's second half: the billing
+// service relays a confirmation (its own gateway's callback, or a manual
+// credit), and this normalises it into the payment to record. It writes
+// nothing itself — the store books the payment and owns the lifecycle.
+func (b *BillingHook) ConfirmSettlement(_ context.Context, c settle.Confirmation) (settle.Payment, error) {
+	return settle.Normalise(c, "billing")
+}
+
 // StatementIssued implements the api.StatementHook seam. Only issued
-// statements of kind=organization, billing_mode=real customers reach
+// statements of an Organization collected through the stripe gateway reach
 // billing; everything else is a silent no-op (D6 is adapter-only).
 func (b *BillingHook) StatementIssued(ctx context.Context, st store.Statement, c store.Customer) error {
 	if b == nil || b.URL == "" {
 		return nil
 	}
-	if c.Kind != "organization" || c.BillingMode != "real" {
+	if !applies(c) {
 		return nil
 	}
 	micro, err := microOMR(st.Total)

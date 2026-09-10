@@ -87,7 +87,29 @@ export interface Customer {
   org_slug?: string | null
   /** @deprecated The book is assigned per SOURCE (DESIGN.md §4.1); this is never written. */
   price_book_id?: string | null
+  /**
+   * @deprecated DESIGN.md §8 — DERIVED from charging + payment_method on
+   * every write and never sent by this UI. Kept on the wire for readers
+   * written against it.
+   */
   billing_mode: BillingMode | string
+  /** DESIGN.md §8 — is anything collected at all? */
+  charging?: 'billed' | 'informational' | string
+  /** When it is paid; absent when charging is informational. */
+  payment_model?: 'prepaid' | 'postpaid' | string | null
+  /** How the money moves; absent when charging is informational. */
+  payment_method?: 'gateway' | 'transfer' | 'internal' | string | null
+  /** Which gateway collects, when payment_method is gateway. */
+  gateway_name?: string | null
+  /** The customer's standing purchase-order reference, copied onto invoices. */
+  po_reference?: string | null
+  /** Net terms an invoice falls due in; 0 is due on receipt. */
+  payment_terms_days?: number | null
+  /**
+   * DESIGN.md §8.10 — this customer's account in the operator's own billing
+   * system, when that system is the Sovereign's system of record.
+   */
+  external_account_id?: string | null
   status: CustomerStatus | string
   start_date?: string | null
   /** Catalog plan (s, m, l, xl, flexi; '' = none) — an Organization's comes from its CR. */
@@ -182,6 +204,30 @@ export interface RatedLine {
   source_id?: string | null
 }
 
+/**
+ * One payment the customer made (DESIGN.md §8). It belongs to the CUSTOMER
+ * and is linked to the invoice it was recorded against, so a later lane can
+ * allocate one payment across invoices and hold unallocated credit without
+ * changing this shape.
+ */
+export interface StatementPayment {
+  id: number
+  customer_id?: string
+  /** The invoice it was recorded against; absent for unallocated credit. */
+  statement_id?: string
+  amount: number | string
+  paid_at: string
+  /** How the money arrived. */
+  method?: 'gateway' | 'transfer' | 'internal' | string
+  reference?: string
+  /** Only a received payment counts towards the balance. */
+  status?: 'received' | 'pending' | 'failed' | string
+  /** "manual" when the operator recorded a transfer, else the gateway. */
+  gateway?: string
+  recorded_by?: string
+  recorded_at?: string
+}
+
 export interface Statement {
   id: string
   customer_id: string
@@ -194,7 +240,34 @@ export interface Statement {
   tax_rate: number | string
   tax: number | string
   total: number | string
-  status: 'draft' | 'issued' | string
+  status: 'draft' | 'issued' | 'sent' | 'paid' | 'cancelled' | string
+  /**
+   * DESIGN.md §8 — `status`, except that a sent invoice past its due date
+   * with money outstanding reads "overdue". Absent on a document written
+   * before invoicing existed, so readers fall back to `status`.
+   */
+  effective_status?: 'draft' | 'issued' | 'sent' | 'paid' | 'overdue' | 'cancelled' | string
+  /** Assigned at issue: gapless per calendar year, unique. */
+  invoice_number?: string | null
+  /**
+   * DESIGN.md §8.10 — what the operator's billing system knows this invoice
+   * by, when that system is the Sovereign's system of record. Present
+   * INSTEAD of invoice_number: we never number an invoice for them.
+   */
+  external_invoice_ref?: string | null
+  /** The purchase order this invoice quotes. */
+  po_reference?: string | null
+  /** Net terms the due date was computed from. */
+  payment_terms_days?: number | null
+  due_at?: string | null
+  sent_at?: string | null
+  paid_at?: string | null
+  cancelled_at?: string | null
+  cancel_reason?: string | null
+  /** Sum of the recorded payments, and total − paid. Computed on read. */
+  paid_total?: number | string
+  balance?: number | string
+  payments?: StatementPayment[] | null
   issued_at?: string | null
   created_at?: string
   lines?: RatedLine[] | null

@@ -3,7 +3,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { api, asList } from '../api/client'
 import type { CostSource, Customer, CustomerUser, InviteIssued, PriceBook, Summary } from '../api/types'
 import { Badge, Confirm, Delta, KPI, Notice, PageHeader, Skeleton, Tabs } from '../components/ui'
-import { planLabel, priceBookCurrency } from '../lib/customers'
+import { commercialLabel, planLabel, priceBookCurrency } from '../lib/customers'
 import { sourcesByLayerText } from '../lib/layers'
 import { day, when } from '../lib/format'
 import { formatMoney } from '../lib/money'
@@ -85,7 +85,7 @@ export function CustomerDetail() {
         }
         sub={
           <>
-            <span className="mono">{c.slug}</span> · {c.kind === 'organization' ? 'Organization' : 'external'} · {c.billing_mode}
+            <span className="mono">{c.slug}</span> · {c.kind === 'organization' ? 'Organization' : 'external'} · {commercialLabel(c)}
             {planLabel(c.plan_slug) ? ` · ${planLabel(c.plan_slug)}` : ''} ·{' '}
             {/* The price book is a property of each SOURCE (DESIGN.md §2), so
                 the header counts the sources per layer and links to the tab

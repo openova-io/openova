@@ -1,16 +1,17 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { API_BASE, api, asList, errorText } from '../api/client'
 import { useSession } from '../auth/session'
 import type { CostSource, RatedLine, Statement } from '../api/types'
 import { Waterfall, waterfallLayout, type WaterfallStep } from '../components/charts'
-import { Badge, Confirm, EmptyState, Notice, PageHeader, Skeleton } from '../components/ui'
+import { Badge, Confirm, EmptyState, Field, Modal, Notice, PageHeader, Skeleton } from '../components/ui'
 import { discountRuleLabel } from '../lib/discountRule'
-import { num, when } from '../lib/format'
+import { day, num, when } from '../lib/format'
 import { formatMoney, formatPct } from '../lib/money'
 import { toNumber } from '../lib/num'
 import { groupBySource, groupByService } from '../lib/sku'
-import { statementPeriod } from '../lib/statements'
+import { acceptsPayment, dueLabel, statementBalance, statementPaid, statementPeriod, statementStatus } from '../lib/statements'
+import { emptyPaymentForm, hasErrors, paymentBody, validatePayment, type Errors, type PaymentForm } from '../lib/forms'
 import { useQuery } from '../lib/useQuery'
 
 /**
@@ -19,7 +20,9 @@ import { useQuery } from '../lib/useQuery'
  * by service with each group's share, a per-source breakdown, printable.
  */
 
-type Dialog = { kind: 'issue' } | { kind: 'delete' } | null
+// DESIGN.md §8 — the invoice lifecycle, from this page: issue, send it to
+// the customer, record what they paid, or void it.
+type Dialog = { kind: 'issue' } | { kind: 'delete' } | { kind: 'send' } | { kind: 'pay' } | { kind: 'cancel' } | null
 
 export function StatementView() {
   const { id = '' } = useParams()
@@ -30,6 +33,7 @@ export function StatementView() {
   const [notify, setNotify] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [flash, setFlash] = useState('')
   const s = q.data
   // The rated lines carry source ids; the customer's sources give them names.
   const srcQ = useQuery<unknown>(s ? `/customers/${s.customer_id}/sources` : null)
@@ -75,18 +79,22 @@ export function StatementView() {
   const ruleLabel = discountRuleLabel(s.discount_rule)
   const back = operator ? { to: '/statements', label: 'Statements' } : { to: '/my/statements', label: 'My statements' }
 
-  const act = async (kind: 'issue' | 'delete') => {
+  const act = async (kind: 'issue' | 'delete' | 'send' | 'cancel', body?: Record<string, unknown>) => {
     setBusy(true)
     setError('')
+    setFlash('')
     try {
-      if (kind === 'issue') {
-        await api.post(`/statements/${id}/issue`, { notify })
-        setDialog(null)
-        await q.reload()
-      } else {
+      if (kind === 'delete') {
         await api.del(`/statements/${id}`)
         nav('/statements')
+        return
       }
+      if (kind === 'issue') await api.post(`/statements/${id}/issue`, { notify })
+      if (kind === 'send') await api.post(`/statements/${id}/send`, { notify: body?.notify === true })
+      if (kind === 'cancel') await api.post(`/statements/${id}/cancel`, { reason: String(body?.reason ?? '') })
+      setDialog(null)
+      setFlash(kind === 'send' ? 'marked as sent to the customer' : kind === 'cancel' ? 'invoice cancelled' : 'issued')
+      await q.reload()
     } catch (e) {
       setError(errorText(e))
       setDialog(null)
@@ -101,7 +109,7 @@ export function StatementView() {
         crumbs={[back, { label: statementPeriod(s) }]}
         title={
           <>
-            {customer} · {statementPeriod(s)} <Badge status={s.status} />
+            {customer} · {statementPeriod(s)} <Badge status={statementStatus(s)} kind={statementStatus(s) === 'overdue' ? 'bad' : undefined} />
           </>
         }
         sub={
@@ -138,11 +146,138 @@ export function StatementView() {
                 </button>
               </>
             ) : null}
+            {/* DESIGN.md §8 — the invoice lifecycle. Send records that the
+                customer received it (which the due date is measured from);
+                Record payment books what arrived; Cancel voids an invoice
+                nobody has been sent yet. */}
+            {operator && s.status === 'issued' ? (
+              <button className="primary" onClick={() => setDialog({ kind: 'send' })}>
+                Mark sent
+              </button>
+            ) : null}
+            {operator && acceptsPayment(s) ? (
+              <button className="primary" onClick={() => setDialog({ kind: 'pay' })}>
+                Record payment
+              </button>
+            ) : null}
+            {operator && s.status === 'issued' ? (
+              <button className="danger" onClick={() => setDialog({ kind: 'cancel' })}>
+                Cancel invoice
+              </button>
+            ) : null}
           </>
         }
       />
       {error ? <Notice kind="bad">{error}</Notice> : null}
+      {flash ? <Notice kind="ok">{flash}</Notice> : null}
       {s.status === 'draft' ? <Notice kind="warn">Draft — figures change if the period is run again. Issue it to freeze them.</Notice> : null}
+      {statementStatus(s) === 'overdue' ? (
+        <Notice kind="bad">
+          Overdue — {money(statementBalance(s))} outstanding, {dueLabel(s)}.
+        </Notice>
+      ) : null}
+      {s.status === 'cancelled' ? <Notice kind="warn">Cancelled{s.cancel_reason ? ` — ${s.cancel_reason}` : ''}. Nothing is collected against it.</Notice> : null}
+
+      {s.invoice_number || s.external_invoice_ref || s.po_reference || s.due_at ? (
+        <div className="card">
+          <div className="card-head">
+            <h2>Invoice</h2>
+            <span className="hint">
+              {s.invoice_number ? (
+                <span className="mono">{s.invoice_number}</span>
+              ) : s.external_invoice_ref ? (
+                <span className="mono">{s.external_invoice_ref}</span>
+              ) : (
+                'not yet numbered'
+              )}
+            </span>
+          </div>
+          <table>
+            <tbody>
+              {/* DESIGN.md §8.10 — when the operator's billing system is the
+                  system of record it numbers the invoice, and what we hold is
+                  the reference it knows this bill by. */}
+              {s.external_invoice_ref ? (
+                <tr>
+                  <td className="muted">Billing system reference</td>
+                  <td>
+                    <span className="mono">{s.external_invoice_ref}</span>
+                    <span className="sub">this invoice is raised and collected in the operator's billing system</span>
+                  </td>
+                </tr>
+              ) : null}
+              <tr>
+                <td className="muted">Purchase order</td>
+                <td>{s.po_reference ? <span className="mono">{s.po_reference}</span> : <span className="muted">none quoted</span>}</td>
+              </tr>
+              <tr>
+                <td className="muted">Payment terms</td>
+                <td>{typeof s.payment_terms_days === 'number' ? (s.payment_terms_days === 0 ? 'due on receipt' : `net ${s.payment_terms_days}`) : '—'}</td>
+              </tr>
+              <tr>
+                <td className="muted">Due</td>
+                <td>
+                  {s.due_at ? (
+                    <>
+                      {day(s.due_at)} <span className={statementStatus(s) === 'overdue' ? 'bad' : 'muted'}>· {dueLabel(s)}</span>
+                    </>
+                  ) : (
+                    '—'
+                  )}
+                </td>
+              </tr>
+              <tr>
+                <td className="muted">Paid</td>
+                <td>
+                  {money(statementPaid(s))} of {money(total)}
+                  {statementBalance(s) > 0 ? <span className="muted"> · {money(statementBalance(s))} outstanding</span> : <span className="ok"> · settled</span>}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+
+      {s.payments && s.payments.length ? (
+        <div className="card pad-0">
+          <div className="card-head" style={{ padding: '12px 12px 0' }}>
+            <h2>Payments</h2>
+            <span className="hint">{s.payments.length} recorded</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Reference</th>
+                <th>Recorded by</th>
+                <th className="num">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {s.payments.map((p) => (
+                <tr key={p.id} className={p.status && p.status !== 'received' ? 'muted' : undefined}>
+                  <td>
+                    {day(p.paid_at)}
+                    {p.status && p.status !== 'received' ? <span className="sub warn">{p.status} — settles nothing yet</span> : null}
+                  </td>
+                  <td>
+                    {p.reference ? <span className="mono">{p.reference}</span> : <span className="muted">—</span>}
+                    {p.method ? <span className="sub">{p.method}</span> : null}
+                  </td>
+                  <td className="muted">{p.recorded_by || p.gateway || '—'}</td>
+                  <td className="num">{money(p.amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colSpan={3}>Outstanding</td>
+                <td className="num">{money(statementBalance(s))}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      ) : null}
 
       <div className="grid side">
         <div className="card">
@@ -345,6 +480,145 @@ export function StatementView() {
           body={<p>Removes the draft only; the usage stays and the period can be run again.</p>}
         />
       ) : null}
+      {dialog?.kind === 'send' ? (
+        <Confirm
+          title={`Mark ${s.invoice_number || statementPeriod(s)} as sent?`}
+          confirmLabel="Mark sent"
+          busy={busy}
+          onClose={() => setDialog(null)}
+          onConfirm={() => act('send', { notify })}
+          body={
+            <div className="stack tight">
+              <p>Records that the customer has the invoice. Its due date{s.due_at ? ` (${day(s.due_at)})` : ''} is measured from there, and it reads overdue once that passes with money outstanding.</p>
+              <label className="check">
+                <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} /> Also email the invoice to the customer
+              </label>
+              <p className="muted small" style={{ marginBottom: 0 }}>
+                Leave this unticked if you have already sent it yourself — the customer would otherwise receive a second copy.
+              </p>
+            </div>
+          }
+        />
+      ) : null}
+      {dialog?.kind === 'cancel' ? (
+        <CancelDialog busy={busy} onClose={() => setDialog(null)} onConfirm={(reason) => act('cancel', { reason })} />
+      ) : null}
+      {dialog?.kind === 'pay' ? (
+        <RecordPaymentModal
+          statementId={id}
+          balance={statementBalance(s)}
+          currency={cur}
+          onClose={() => setDialog(null)}
+          onDone={async (amount) => {
+            setDialog(null)
+            setFlash(`payment of ${formatMoney(amount, cur)} recorded`)
+            await q.reload()
+          }}
+        />
+      ) : null}
     </div>
+  )
+}
+
+/** Voiding an invoice: the reason is kept on the record. */
+function CancelDialog({ busy, onClose, onConfirm }: { busy: boolean; onClose: () => void; onConfirm: (reason: string) => void }) {
+  const [reason, setReason] = useState('')
+  return (
+    <Confirm
+      title="Cancel this invoice?"
+      danger
+      confirmLabel="Cancel invoice"
+      busy={busy}
+      onClose={onClose}
+      onConfirm={() => onConfirm(reason)}
+      body={
+        <div className="stack tight">
+          <p>The invoice stays on the record as cancelled — its number is never reused — and nothing is collected against it. An invoice already sent to the customer cannot be cancelled; issue a credit note instead.</p>
+          <Field label="Reason">
+            <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="raised in error" autoFocus />
+          </Field>
+        </div>
+      }
+    />
+  )
+}
+
+/**
+ * Recording what arrived (DESIGN.md §8). Part payment is ordinary: the
+ * balance carries and the invoice stays open until the payments reach the
+ * total. More than the balance is refused — by this form and by the server.
+ */
+function RecordPaymentModal({
+  statementId,
+  balance,
+  currency,
+  onClose,
+  onDone,
+}: {
+  statementId: string
+  balance: number
+  currency: string
+  onClose: () => void
+  onDone: (amount: number) => void | Promise<void>
+}) {
+  const today = new Date().toISOString().slice(0, 10)
+  const [form, setForm] = useState<PaymentForm>(() => emptyPaymentForm(balance, today))
+  const [errors, setErrors] = useState<Errors<PaymentForm>>({})
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const set = <K extends keyof PaymentForm>(k: K, v: PaymentForm[K]) => setForm((f) => ({ ...f, [k]: v }))
+  const remaining = balance - Number(form.amount || 0)
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    const errs = validatePayment(form, balance)
+    setErrors(errs)
+    if (hasErrors(errs)) return
+    setBusy(true)
+    setError('')
+    try {
+      await api.post(`/statements/${statementId}/payments`, paymentBody(form))
+      await onDone(Number(form.amount))
+    } catch (err) {
+      setError(errorText(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal
+      title="Record a payment"
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+          <button className="primary" form="record-payment-form" disabled={busy}>
+            {busy ? 'Recording…' : 'Record payment'}
+          </button>
+        </>
+      }
+    >
+      <form id="record-payment-form" onSubmit={(e) => void submit(e)} className="stack tight">
+        <p className="muted small" style={{ margin: 0 }}>
+          {formatMoney(balance, currency)} outstanding. Part payment is fine — the balance carries and the invoice settles when the payments reach the total.
+        </p>
+        <div className="grid2">
+          <Field label={`Amount (${currency})`} error={errors.amount}>
+            <input value={form.amount} onChange={(e) => set('amount', e.target.value)} inputMode="decimal" autoFocus />
+          </Field>
+          <Field label="Received on" error={errors.paid_at} help="The day the money arrived, as the bank shows it.">
+            <input type="date" value={form.paid_at} onChange={(e) => set('paid_at', e.target.value)} />
+          </Field>
+        </div>
+        <Field label="Reference" error={errors.reference} help="The bank or gateway transaction id. Recording the same reference twice is refused, so a duplicate can never be booked.">
+          <input value={form.reference} onChange={(e) => set('reference', e.target.value)} className="mono" placeholder="TRF-4471" />
+        </Field>
+        {!hasErrors(errors) && form.amount && remaining > 0 ? <Notice kind="warn">{formatMoney(remaining, currency)} will still be outstanding.</Notice> : null}
+        {error ? <Notice kind="bad">{error}</Notice> : null}
+      </form>
+    </Modal>
   )
 }

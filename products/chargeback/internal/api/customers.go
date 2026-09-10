@@ -30,6 +30,11 @@ type customerBody struct {
 	// book is assigned per source (PATCH /sources/{id} price_book_id). The
 	// key is still decoded so an older client is not answered 400.
 	PriceBookID *string `json:"price_book_id"`
+	// BillingMode is DEPRECATED and IGNORED (DESIGN.md §8): showback /
+	// chargeback / real were three labels for three different questions and
+	// are replaced by charging + payment_model + payment_method. The key is
+	// still decoded so an older client is not answered 400, and the value on
+	// the customer document is derived from the four fields.
 	BillingMode *string `json:"billing_mode"`
 	StartDate   *string `json:"start_date"`
 	Status      *string `json:"status"`
@@ -39,6 +44,24 @@ type customerBody struct {
 	// on external customers; an Organization customer's plan is read from
 	// its Organization CR by OrgSync and a PATCH is refused.
 	PlanSlug *string `json:"plan_slug"`
+	// The commercial model (DESIGN.md §8). Charging says whether anything is
+	// collected (billed | informational); PaymentModel when (prepaid |
+	// postpaid) and PaymentMethod how (gateway | transfer | internal), both
+	// meaningful only when billed; GatewayName which gateway implementation
+	// collects. PORef is the customer's standing purchase-order reference
+	// and PaymentTermsDays the net terms an invoice falls due in; both are
+	// copied onto each statement at issue.
+	Charging         *string `json:"charging"`
+	PaymentModel     *string `json:"payment_model"`
+	PaymentMethod    *string `json:"payment_method"`
+	GatewayName      *string `json:"gateway_name"`
+	PORef            *string `json:"po_reference"`
+	PaymentTermsDays *int    `json:"payment_terms_days"`
+	// ExternalAccountID is this customer's account in the operator's own
+	// billing system (DESIGN.md §8.10). It is the one commercial field that
+	// stays writable in external mode — it is how a rated bill is attributed
+	// over there, and only we know which of our customers is which.
+	ExternalAccountID *string `json:"external_account_id"`
 }
 
 // validPlanSlug accepts a catalog plan slug or "" (no plan), case-folded.
@@ -49,8 +72,53 @@ func validPlanSlug(p string) bool {
 
 const planSlugHelp = "plan_slug must be s, m, l, xl, flexi or empty"
 
+// validBillingMode is still used by the CSV importer, whose documented
+// columns include billing_mode; the importer maps it through
+// store.CommercialFromBillingMode, exactly as the migration did.
 func validBillingMode(m string) bool { return m == "real" || m == "chargeback" || m == "showback" }
-func validStatus(s string) bool      { return s == "pending" || s == "active" || s == "suspended" }
+
+const paymentTermsHelp = "payment_terms_days must be a whole number of days between 0 and 365"
+
+// externallyOwnedHelp is what a write to a commercial field is answered with
+// when the operator's billing system is the system of record (DESIGN.md
+// §8.10). The fields are still shown — they are what the export carries —
+// but they are theirs to change, not ours.
+const externallyOwnedHelp = "this Sovereign invoices through the operator's billing system; charging, payment model, payment method and terms are owned there and are read-only here"
+
+// commercialWriteRefused reports whether the body touches a field the
+// external billing system owns, and answers 400 when it does.
+func (h *Handler) commercialWriteRefused(w http.ResponseWriter, r *http.Request, in customerBody) bool {
+	if in.Charging == nil && in.PaymentModel == nil && in.PaymentMethod == nil && in.GatewayName == nil && in.PORef == nil && in.PaymentTermsDays == nil {
+		return false
+	}
+	settings, err := h.Store.GetBillingSettings(r.Context())
+	if err != nil {
+		storeErr(w, err)
+		return true
+	}
+	if !settings.ExternalCommercial() {
+		return false
+	}
+	writeErr(w, http.StatusBadRequest, externallyOwnedHelp)
+	return true
+}
+
+// commercialFrom reads the four commercial keys off the body. Absent keys
+// stay nil, which the store reads as "unchanged" on a patch and "not given"
+// on a create.
+func commercialFrom(in customerBody) store.CustomerPatch {
+	return store.CustomerPatch{Charging: in.Charging, PaymentModel: in.PaymentModel, PaymentMethod: in.PaymentMethod, GatewayName: in.GatewayName}
+}
+
+// deref returns the pointed-to string, or "".
+func deref(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+func validStatus(s string) bool { return s == "pending" || s == "active" || s == "suspended" }
 
 func (h *Handler) createCustomer(w http.ResponseWriter, r *http.Request) {
 	if _, ok := h.requireOperator(w, r); !ok {
@@ -70,16 +138,15 @@ func (h *Handler) createCustomer(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "name and a valid admin_email are required")
 		return
 	}
+	if h.commercialWriteRefused(w, r, in) {
+		return
+	}
 	ci := store.CustomerInput{Slug: in.Slug, Name: in.Name, AdminEmail: in.AdminEmail}
 	if in.PriceBookID != nil {
 		slog.Info("customer create: price_book_id is deprecated and ignored; assign the book on the customer's sources (DESIGN.md §4.1)", "slug", in.Slug)
 	}
 	if in.BillingMode != nil {
-		if !validBillingMode(*in.BillingMode) {
-			writeErr(w, http.StatusBadRequest, "billing_mode must be real, chargeback or showback")
-			return
-		}
-		ci.BillingMode = *in.BillingMode
+		slog.Info("customer create: billing_mode is deprecated and ignored; set charging, payment_model and payment_method (DESIGN.md §8)", "slug", in.Slug)
 	}
 	if in.StartDate != nil && *in.StartDate != "" {
 		if !store.ValidDate(*in.StartDate) {
@@ -104,6 +171,23 @@ func (h *Handler) createCustomer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		ci.PlanSlug = *in.PlanSlug
+	}
+	// The commercial position, validated as a whole by the store: an
+	// informational customer may carry no payment model or method, and a
+	// billed one must carry both.
+	ci.Commercial = store.Commercial{Charging: deref(in.Charging), PaymentModel: deref(in.PaymentModel), PaymentMethod: deref(in.PaymentMethod), GatewayName: deref(in.GatewayName)}
+	if in.PORef != nil {
+		ci.PORef = *in.PORef
+	}
+	if in.ExternalAccountID != nil {
+		ci.ExternalAccountID = *in.ExternalAccountID
+	}
+	if in.PaymentTermsDays != nil {
+		if *in.PaymentTermsDays < 0 || *in.PaymentTermsDays > store.MaxPaymentTermsDays {
+			writeErr(w, http.StatusBadRequest, paymentTermsHelp)
+			return
+		}
+		ci.PaymentTermsDays = in.PaymentTermsDays
 	}
 	c, err := h.Store.CreateCustomer(r.Context(), ci)
 	if err != nil {
@@ -138,9 +222,17 @@ func (h *Handler) patchCustomer(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid body: "+err.Error())
 		return
 	}
-	p := store.CustomerPatch{OrgSlug: in.OrgSlug}
+	if h.commercialWriteRefused(w, r, in) {
+		return
+	}
+	p := commercialFrom(in)
+	p.OrgSlug = in.OrgSlug
+	p.ExternalAccountID = in.ExternalAccountID
 	if in.PriceBookID != nil {
 		slog.Info("customer patch: price_book_id is deprecated and ignored; assign the book on the customer's sources", "customer", id)
+	}
+	if in.BillingMode != nil {
+		slog.Info("customer patch: billing_mode is deprecated and ignored; set charging, payment_model and payment_method (DESIGN.md §8)", "customer", id)
 	}
 	if in.Name != "" {
 		p.Name = &in.Name
@@ -151,13 +243,6 @@ func (h *Handler) patchCustomer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		p.AdminEmail = &in.AdminEmail
-	}
-	if in.BillingMode != nil {
-		if !validBillingMode(*in.BillingMode) {
-			writeErr(w, http.StatusBadRequest, "billing_mode must be real, chargeback or showback")
-			return
-		}
-		p.BillingMode = in.BillingMode
 	}
 	if in.Status != nil {
 		if !validStatus(*in.Status) {
@@ -189,6 +274,14 @@ func (h *Handler) patchCustomer(w http.ResponseWriter, r *http.Request) {
 		}
 		p.PlanSlug = in.PlanSlug
 	}
+	p.PORef = in.PORef
+	if in.PaymentTermsDays != nil {
+		if *in.PaymentTermsDays < 0 || *in.PaymentTermsDays > store.MaxPaymentTermsDays {
+			writeErr(w, http.StatusBadRequest, paymentTermsHelp)
+			return
+		}
+		p.PaymentTermsDays = in.PaymentTermsDays
+	}
 	c, err := h.Store.UpdateCustomer(r.Context(), id, p)
 	if err != nil {
 		storeErr(w, err)
@@ -206,8 +299,20 @@ func patchedFields(in customerBody) []string {
 	if in.AdminEmail != "" {
 		f = append(f, "admin_email")
 	}
-	if in.BillingMode != nil {
-		f = append(f, "billing_mode")
+	if in.Charging != nil {
+		f = append(f, "charging")
+	}
+	if in.PaymentModel != nil {
+		f = append(f, "payment_model")
+	}
+	if in.PaymentMethod != nil {
+		f = append(f, "payment_method")
+	}
+	if in.GatewayName != nil {
+		f = append(f, "gateway_name")
+	}
+	if in.ExternalAccountID != nil {
+		f = append(f, "external_account_id")
 	}
 	if in.Status != nil {
 		f = append(f, "status")
@@ -220,6 +325,12 @@ func patchedFields(in customerBody) []string {
 	}
 	if in.PlanSlug != nil {
 		f = append(f, "plan_slug")
+	}
+	if in.PORef != nil {
+		f = append(f, "po_reference")
+	}
+	if in.PaymentTermsDays != nil {
+		f = append(f, "payment_terms_days")
 	}
 	return f
 }

@@ -45,6 +45,11 @@ func storeErr(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusNotFound, "not found")
 	case errors.Is(err, store.ErrConflict):
 		writeErr(w, http.StatusConflict, err.Error())
+	case errors.Is(err, store.ErrInvalid):
+		// A value the store validated and refused is the caller's mistake,
+		// not a server fault; handlers that want a tailored message check
+		// ErrInvalid themselves before reaching here.
+		writeErr(w, http.StatusBadRequest, invalidMessage(err))
 	default:
 		slog.Error("store error", "error", err)
 		writeErr(w, http.StatusInternalServerError, "internal error")
