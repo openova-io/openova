@@ -131,7 +131,7 @@ spec:
                     SINGLE truth-source for the resource cap the
                     organization-controller materializes on the boundary
                     namespace: the ResourceQuota + LimitRange (planQuota table —
-                    S=2vCPU/4Gi, M=4/8, L=8/16, XL=16/32, Flexi=on-demand). The
+                    S=2 vCPU/4 GiB purchased (the host-namespace quota adds the vCluster control-plane overhead on top), M=4/8, L=8/16, XL=16/32, Flexi=on-demand). The
                     plan SIZES the boundary and never selects it: every
                     Organization on every plan is backed by a dedicated
                     vCluster (founder 2026-09-10; the former free/S host-ns
