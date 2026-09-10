@@ -744,6 +744,19 @@ rules:
     verbs: ["create"]
 
   # ───────────────────────────────────────────────────────────────
+  # Issue #6867 — ORGANIZATION SUSPEND / RESUME on an explicit billing
+  # command (PR #6905). The sovereign-admin API merge-patches
+  # spec.suspended + spec.suspendReason on the cluster-scoped Organization
+  # CR; the org-controller then parks the per-Org Flux Kustomizations.
+  # Measured on hw307 2026-09-10 14:30Z: the first live suspend answered
+  # 502 `organization-cr-patch-failed` because this ClusterRole had
+  # get/list/watch/create/delete on organizations but never PATCH.
+  # ───────────────────────────────────────────────────────────────
+  - apiGroups: ["orgs.openova.io"]
+    resources: ["organizations"]
+    verbs: ["patch", "update"]
+
+  # ───────────────────────────────────────────────────────────────
   # Issue #5426 — ORGANIZATION DELETE. The create verb above landed with
   # #4921; the matching DELETE never did, so the teardown half of the
   # same lifecycle was 403'd on every call. Measured on hw293
