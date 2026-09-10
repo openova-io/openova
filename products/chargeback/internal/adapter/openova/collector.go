@@ -102,15 +102,84 @@ func isVClusterControlPlane(labels, annotations map[string]string) bool {
 		annotations[vclusterObjectNamespaceAnno] == vclusterSystemNamespace
 }
 
-// controlPlaneExcluded decides, for a resource in namespace ns attributed to
-// org, whether it is vCluster control plane that must stay off the meters.
-// Only customer Organizations exclude it; the platform-overhead line counts
-// it. Callers hold c.mu.
-func (c *PlatformCollector) controlPlaneExcluded(org string, labels, annotations map[string]string) bool {
+// ─── The per-Organization platform stack is not the customer's usage ────────
+//
+// Every Organization is delivered with the same platform HelmReleases in its
+// host namespace, none of them chosen from the catalog: bp-keycloak (the
+// Organization's own Keycloak plus its bundled PostgreSQL), bp-newapi (the LLM
+// gateway plus its CNPG PostgreSQL), bp-openclaw (the workspace controller) and
+// bp-agenity (the agentic dashboard plus the oidc-gate in front of it). The
+// org-controller sizes the namespace ResourceQuota as plan + control plane +
+// this stack (core/controllers/organization/internal/gitops/manifests.go
+// platformStack) so the stack never eats into what the customer bought; the
+// same split applies here. The stack is overhead the Sovereign delivers, not
+// usage the customer bought, so it must not become k8s.* meter rows on the
+// customer's source. Measured on hw307 (Acme Walk, plan S, 2026-09-10):
+// keycloak 1 CPU / 2Gi, its postgresql 500m / 512Mi, agenity 1005m / 2064Mi
+// and the oidc-gate 50m / 64Mi were all rows on the customer's source.
+//
+// Identification is by the labels the charts stamp on their pods (and on the
+// PVCs whose claim templates carry them):
+//   - app.kubernetes.io/instance = the HelmRelease name — bp-keycloak (its
+//     bitnami keycloak AND postgresql pods share the release name), bp-newapi,
+//     bp-openclaw, bp-agenity — exact value, never a prefix;
+//   - app.kubernetes.io/name = the chart's fixed name — bp-newapi, bp-openclaw,
+//     bp-agenity — which also catches the funnel door's releases (releaseName
+//     newapi / openclaw / agenity, installed into the vCluster and synced to
+//     the host), and bp-oidc-gate, the label the bp-agenity chart's own
+//     oidc-gate Deployment stamps (its pod template carries no instance label);
+//   - cnpg.io/cluster ending in -newapi-pg — the CNPG operator labels the
+//     bp-newapi database pods and PVCs with the Cluster name the chart fixes
+//     as <fullname>-newapi-pg and propagates no Helm label to them.
+//
+// bp-wordpress-tenant and bp-stalwart-tenant are the customer's purchase and
+// stay metered, as does anything else a customer installs from the catalog —
+// including a customer workload synced from the vCluster under a
+// -x-<org>-x-vcluster suffix. As with the control plane, the platform-overhead
+// line is where these DO count: the Sovereign's own namespaces keep their
+// keycloak / newapi / agenity pods, so that line still reconciles to the cloud
+// total (#6850).
+const (
+	instanceLabel     = "app.kubernetes.io/instance"
+	nameLabel         = "app.kubernetes.io/name"
+	cnpgClusterLabel  = "cnpg.io/cluster"
+	newapiCNPGSuffix  = "-newapi-pg"
+	oidcGateChartName = "bp-oidc-gate"
+)
+
+var (
+	// platformStackReleases are the HelmRelease names the BSS door renders for
+	// every Organization (organization_gitops.go orgTenantTemplates, minus the
+	// customer's purchase).
+	platformStackReleases = map[string]bool{"bp-keycloak": true, "bp-newapi": true, "bp-openclaw": true, "bp-agenity": true}
+	// platformStackCharts are the chart-fixed app.kubernetes.io/name values of
+	// the OpenOva-authored charts in that stack, independent of release name.
+	platformStackCharts = map[string]bool{"bp-newapi": true, "bp-openclaw": true, "bp-agenity": true, oidcGateChartName: true}
+)
+
+// isPlatformStack reports whether a pod or PVC in an Organization namespace
+// belongs to the per-Organization platform stack rather than to a workload the
+// customer runs.
+func isPlatformStack(labels map[string]string) bool {
+	if platformStackReleases[labels[instanceLabel]] || platformStackCharts[labels[nameLabel]] {
+		return true
+	}
+	if c := labels[cnpgClusterLabel]; c != "" && strings.HasSuffix(c, newapiCNPGSuffix) {
+		return true
+	}
+	return false
+}
+
+// overheadExcluded decides, for a resource in a namespace attributed to org,
+// whether it is the Organization's vCluster control plane or its platform
+// stack — overhead that must stay off the customer's meters. Only customer
+// Organizations exclude it; the platform-overhead line counts it. Callers hold
+// c.mu.
+func (c *PlatformCollector) overheadExcluded(org string, labels, annotations map[string]string) bool {
 	if org == c.overheadOrg {
 		return false
 	}
-	return isVClusterControlPlane(labels, annotations)
+	return isVClusterControlPlane(labels, annotations) || isPlatformStack(labels)
 }
 
 // PlatformCollector watches pods and PVCs across Organization-labelled
@@ -324,13 +393,14 @@ func resourceKey(kind, namespace, name, uid string) string {
 // ObservePod tracks a pod in an Organization namespace. A pod that ran to
 // completion (Succeeded/Failed) stops billing at the moment it is observed
 // finished — its requests are no longer scheduled entitlement. The
-// Organization's vCluster control plane is not tracked at all (see
-// isVClusterControlPlane): it is overhead, not the customer's usage.
+// Organization's vCluster control plane and its platform stack are not tracked
+// at all (see isVClusterControlPlane, isPlatformStack): they are overhead, not
+// the customer's usage.
 func (c *PlatformCollector) ObservePod(pod *corev1.Pod) {
 	c.init()
 	c.mu.Lock()
 	org, ok := c.nsOrg[pod.Namespace]
-	skip := ok && c.controlPlaneExcluded(org, pod.Labels, pod.Annotations)
+	skip := ok && c.overheadExcluded(org, pod.Labels, pod.Annotations)
 	c.mu.Unlock()
 	if !ok || skip {
 		return
@@ -377,12 +447,14 @@ func (c *PlatformCollector) ObservePodDeleted(pod *corev1.Pod) {
 
 // ObservePVC tracks a PersistentVolumeClaim in an Organization namespace. The
 // vCluster control plane's own backing-store claim (`data-vcluster-0`, which
-// carries the StatefulSet's `app=vcluster` selector label) is not tracked.
+// carries the StatefulSet's `app=vcluster` selector label) and the platform
+// stack's labelled claims (keycloak's postgresql data, newapi's CNPG volume)
+// are not tracked.
 func (c *PlatformCollector) ObservePVC(pvc *corev1.PersistentVolumeClaim) {
 	c.init()
 	c.mu.Lock()
 	org, ok := c.nsOrg[pvc.Namespace]
-	skip := ok && c.controlPlaneExcluded(org, pvc.Labels, pvc.Annotations)
+	skip := ok && c.overheadExcluded(org, pvc.Labels, pvc.Annotations)
 	c.mu.Unlock()
 	if !ok || skip {
 		return

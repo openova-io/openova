@@ -12,9 +12,11 @@
 //     figures by value, because those figures are restated in the canonical
 //     docs and a silent move here would strand them.
 //  2. TABLE — for EVERY hard-capped slug in planQuotaTable the rendered hard
-//     cap equals plan + overhead exactly, per resource, and is strictly above
-//     the plan (so an overhead that collapses to zero is caught, not merely a
-//     wrong non-zero one). Flexi stays quota-less.
+//     cap equals plan + control-plane overhead + platform-stack overhead
+//     exactly, per resource, and is strictly above the plan (so an overhead
+//     that collapses to zero is caught, not merely a wrong non-zero one).
+//     Flexi stays quota-less. The platform-stack term itself is pinned to its
+//     sources in plan_quota_plus_platform_stack_test.go.
 //  3. LIMITRANGE — the per-container defaults are plan-only and unchanged by
 //     the overhead.
 package gitops
@@ -248,9 +250,10 @@ func TestControlPlaneOverheadOf_PodUsageRule(t *testing.T) {
 	}
 }
 
-// TestRender_ResourceQuotaIsPlanPlusControlPlaneOverhead is property 2, driven
-// off planQuotaTable itself so a new plan is covered the moment it is added.
-func TestRender_ResourceQuotaIsPlanPlusControlPlaneOverhead(t *testing.T) {
+// TestRender_ResourceQuotaIsPlanPlusBothOverheads is property 2, driven off
+// planQuotaTable itself so a new plan is covered the moment it is added: the
+// hard cap is plan + vCluster control plane + per-Organization platform stack.
+func TestRender_ResourceQuotaIsPlanPlusBothOverheads(t *testing.T) {
 	t.Parallel()
 	if len(planQuotaTable) == 0 {
 		t.Fatal("vacuity: planQuotaTable is empty — the per-plan loop would assert nothing")
@@ -261,7 +264,7 @@ func TestRender_ResourceQuotaIsPlanPlusControlPlaneOverhead(t *testing.T) {
 		"limits.cpu": o.LimitsCPU, "limits.memory": o.LimitsMemory,
 	} {
 		if q.IsZero() {
-			t.Fatalf("vacuity: overhead %s is zero — plan + overhead would equal the plan and this test could not tell them apart", res)
+			t.Fatalf("vacuity: control-plane overhead %s is zero — plan + overhead would equal the plan and this test could not tell them apart", res)
 		}
 	}
 
@@ -288,6 +291,15 @@ func TestRender_ResourceQuotaIsPlanPlusControlPlaneOverhead(t *testing.T) {
 			t.Fatalf("plan %q: missing resourcequota.yaml", slug)
 		}
 		hardCapped++
+		ps := platformStackOverheadFor(q)
+		for res, pq := range map[string]resource.Quantity{
+			"requests.cpu": ps.RequestsCPU, "requests.memory": ps.RequestsMemory,
+			"limits.cpu": ps.LimitsCPU, "limits.memory": ps.LimitsMemory,
+		} {
+			if pq.IsZero() {
+				t.Fatalf("vacuity: plan %q platform-stack overhead %s is zero — the stack would be eating the plan again", slug, res)
+			}
+		}
 
 		var rq struct {
 			Metadata struct {
@@ -303,13 +315,14 @@ func TestRender_ResourceQuotaIsPlanPlusControlPlaneOverhead(t *testing.T) {
 		}
 
 		for res, tc := range map[string]struct {
-			plan     string
-			overhead resource.Quantity
+			plan         string
+			controlPlane resource.Quantity
+			stack        resource.Quantity
 		}{
-			"requests.cpu":    {q.CPU, o.RequestsCPU},
-			"requests.memory": {q.Mem, o.RequestsMemory},
-			"limits.cpu":      {q.CPU, o.LimitsCPU},
-			"limits.memory":   {q.Mem, o.LimitsMemory},
+			"requests.cpu":    {q.CPU, o.RequestsCPU, ps.RequestsCPU},
+			"requests.memory": {q.Mem, o.RequestsMemory, ps.RequestsMemory},
+			"limits.cpu":      {q.CPU, o.LimitsCPU, ps.LimitsCPU},
+			"limits.memory":   {q.Mem, o.LimitsMemory, ps.LimitsMemory},
 		} {
 			hard, ok := rq.Spec.Hard[res]
 			if !ok {
@@ -319,17 +332,24 @@ func TestRender_ResourceQuotaIsPlanPlusControlPlaneOverhead(t *testing.T) {
 			got := mustQ(t, slug+" hard "+res, hard)
 			plan := mustQ(t, slug+" plan "+res, tc.plan)
 			want := plan.DeepCopy()
-			want.Add(tc.overhead)
+			want.Add(tc.controlPlane)
+			want.Add(tc.stack)
 			if got.Cmp(want) != 0 {
-				t.Errorf("plan %q: hard %s = %s, want plan %s + control plane %s = %s",
-					slug, res, got.String(), plan.String(), tc.overhead.String(), want.String())
+				t.Errorf("plan %q: hard %s = %s, want plan %s + control plane %s + platform stack %s = %s",
+					slug, res, got.String(), plan.String(), tc.controlPlane.String(), tc.stack.String(), want.String())
 			}
-			// Control: strictly above the plan. A zero overhead would satisfy
-			// the equality above only because the vacuity guard already
-			// refused it; this makes the property visible per row.
+			// Controls: strictly above the plan, and strictly above plan +
+			// control plane alone (so a stack term that collapses to zero is
+			// visible per row, not only through the vacuity guard above).
 			if got.Cmp(plan) <= 0 {
-				t.Errorf("plan %q: hard %s = %s is not strictly above the purchased plan %s — the control plane is eating the customer's plan again",
+				t.Errorf("plan %q: hard %s = %s is not strictly above the purchased plan %s — the overheads are eating the customer's plan again",
 					slug, res, got.String(), plan.String())
+			}
+			planPlusCP := plan.DeepCopy()
+			planPlusCP.Add(tc.controlPlane)
+			if got.Cmp(planPlusCP) <= 0 {
+				t.Errorf("plan %q: hard %s = %s is not strictly above plan + control plane %s — the platform stack is eating the customer's plan again (the hw307 bp-keycloak-0 refusal)",
+					slug, res, got.String(), planPlusCP.String())
 			}
 		}
 		if len(rq.Spec.Hard) != 4 {
@@ -344,8 +364,11 @@ func TestRender_ResourceQuotaIsPlanPlusControlPlaneOverhead(t *testing.T) {
 		if got := rq.Metadata.Annotations["openova.io/vcluster-control-plane-overhead"]; got != o.String() {
 			t.Errorf("plan %q: annotation openova.io/vcluster-control-plane-overhead = %q, want %q", slug, got, o.String())
 		}
-		if rq.Metadata.Annotations["openova.io/quota-formula"] == "" {
-			t.Errorf("plan %q: annotation openova.io/quota-formula missing", slug)
+		if got := rq.Metadata.Annotations["openova.io/platform-stack-overhead"]; got != ps.String() {
+			t.Errorf("plan %q: annotation openova.io/platform-stack-overhead = %q, want %q", slug, got, ps.String())
+		}
+		if got, want := rq.Metadata.Annotations["openova.io/quota-formula"], "purchased plan + vcluster control plane + per-Organization platform stack"; got != want {
+			t.Errorf("plan %q: annotation openova.io/quota-formula = %q, want %q", slug, got, want)
 		}
 		if got := rq.Metadata.Labels["openova.io/plan"]; got != slug {
 			t.Errorf("plan %q: label openova.io/plan = %q (the raw input slug is what the walker filters by)", slug, got)
