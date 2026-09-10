@@ -401,6 +401,11 @@ ALTER TABLE cost_sources ADD CONSTRAINT cost_sources_status_check CHECK (status 
 	// number, no terms and no due date. Numbered here, continuing the
 	// per-year sequence. Appended after the ledger, at the END: migrations are positional.
 	backfillIssuedInvoicesMigrationSQL,
+	// DESIGN.md §10 — role bindings and directory group mappings (EPIC
+	// #6867, founder requirement 2026-09-10). customer_users is backfilled
+	// into role_bindings and left behind as a view. Appended at the very
+	// END: migrations are positional.
+	accessMigrationSQL,
 }
 
 // MigrationBackfillIssuedInvoices is the schema_migrations version of the

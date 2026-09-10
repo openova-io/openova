@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/openova-io/openova/products/chargeback/internal/access"
 	"github.com/openova-io/openova/products/chargeback/internal/settle"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
@@ -31,7 +32,7 @@ import (
 // reference the invoice must quote, and the payment terms its due date is
 // computed from. Both are frozen at issue.
 func (h *Handler) patchStatement(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.BillingIssue); !ok {
 		return
 	}
 	var in struct {
@@ -74,7 +75,7 @@ func (h *Handler) patchStatement(w http.ResponseWriter, r *http.Request) {
 // happened, and a second copy of the same invoice in the customer's inbox is
 // worse than none.
 func (h *Handler) sendStatement(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.BillingIssue); !ok {
 		return
 	}
 	var in struct {
@@ -110,7 +111,7 @@ func (h *Handler) sendStatement(w http.ResponseWriter, r *http.Request) {
 // cancellable: the customer holds it, and the correction for that is a
 // credit note rather than a status flip.
 func (h *Handler) cancelStatement(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.BillingIssue); !ok {
 		return
 	}
 	var in struct {
@@ -158,7 +159,7 @@ func (h *Handler) listStatementPayments(w http.ResponseWriter, r *http.Request) 
 // overpayment, and flipping the invoice to paid when the balance reaches
 // zero.
 func (h *Handler) recordStatementPayment(w http.ResponseWriter, r *http.Request) {
-	s, ok := h.requireOperator(w, r)
+	s, ok := h.requireSovereign(w, r, access.BillingCollect)
 	if !ok {
 		return
 	}

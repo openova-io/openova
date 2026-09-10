@@ -1,12 +1,16 @@
 import { Navigate, NavLink, Outlet, useNavigate } from 'react-router-dom'
+import type { Me, Permission } from '../api/types'
 import { useSession } from '../auth/session'
-import type { Role } from '../api/types'
+import { can, customerIds, displayRole, isSovereign, roleLabel } from '../lib/access'
 
-// Sovereign-admin lens: Analyse · Bill · Configure (DESIGN.md §2).
-type NavItem = readonly [to: string, label: string, icon: string]
+// Sovereign-admin lens: Analyse · Bill · Configure (DESIGN.md §2). Every
+// item may name the permission it needs (DESIGN.md §10.9); items without one
+// are readable by any principal on the lens, and the server still filters
+// every row by the session's scope.
+type NavItem = readonly [to: string, label: string, icon: string, needs?: Permission]
 type NavGroup = readonly [title: string, items: readonly NavItem[]]
 
-const OPERATOR_NAV: readonly NavGroup[] = [
+const SOVEREIGN_NAV: readonly NavGroup[] = [
   [
     'Analyse',
     [
@@ -34,10 +38,14 @@ const OPERATOR_NAV: readonly NavGroup[] = [
       ['/discounts', 'Discounts', '%'],
       ['/allocation', 'Allocation', '⇶'],
       ['/billing', 'Billing', '¶'],
+      ['/access', 'Access', '⚿', 'settings.manage'],
     ],
   ],
 ] as const
 
+// The customer lens (DESIGN.md §10.9). A customer never sees the Sovereign's
+// Bill / Configure groups; its own are its statements, its account and its
+// users — each gated by the permission the customer role holds.
 const CUSTOMER_NAV: readonly NavGroup[] = [
   [
     'Analyse',
@@ -51,6 +59,7 @@ const CUSTOMER_NAV: readonly NavGroup[] = [
     'Bill',
     [
       ['/my/statements', 'Statements', '≡'],
+      ['/my/account', 'Account', '◎'],
       ['/my/budgets', 'Budgets', '◔'],
       ['/my/reports', 'Reports', '✉'],
     ],
@@ -60,18 +69,33 @@ const CUSTOMER_NAV: readonly NavGroup[] = [
     [
       ['/my/sources', 'Cost sources', '⇄'],
       ['/my/discounts', 'Discounts', '%'],
+      ['/my/users', 'Users', '☺', 'customer.self.manage'],
     ],
   ],
 ] as const
 
-export function Shell({ roles }: { roles?: Role[] }) {
+export type Lens = 'sovereign' | 'customer'
+
+/** The groups a principal sees, with the items it lacks permission for removed. */
+export function navFor(me: Me): readonly NavGroup[] {
+  const sovereign = isSovereign(me)
+  const customerId = sovereign ? null : (customerIds(me)[0] ?? null)
+  const groups = sovereign ? SOVEREIGN_NAV : CUSTOMER_NAV
+  return groups
+    .map(([title, items]) => [title, items.filter(([, , , needs]) => !needs || can(me, needs, customerId))] as const)
+    .filter(([, items]) => items.length > 0)
+}
+
+export function Shell({ lens }: { lens?: Lens }) {
   const { me, loading, logout } = useSession()
   const nav = useNavigate()
   if (loading) return <div className="single muted">Loading…</div>
   if (!me) return <Navigate to="/signin" replace />
-  if (roles && !roles.includes(me.role)) return <Navigate to="/" replace />
+  const mine: Lens = isSovereign(me) ? 'sovereign' : 'customer'
+  if (lens && lens !== mine) return <Navigate to="/" replace />
 
-  const groups = me.role === 'operator' ? OPERATOR_NAV : CUSTOMER_NAV
+  const groups = navFor(me)
+  const role = displayRole(me)
   return (
     <div className="shell">
       <aside className="side">
@@ -97,7 +121,9 @@ export function Shell({ roles }: { roles?: Role[] }) {
         <div className="who">
           {me.email}
           <br />
-          <span className="role">{me.role}</span>
+          <span className="role" title={role}>
+            {roleLabel(role)}
+          </span>
         </div>
         <button
           className="ghost"

@@ -28,6 +28,8 @@ func setupGateAPI(t *testing.T, hdr string) (http.Handler, *store.Store) {
 		PublicURL:      "https://chargeback.t99.omani.works",
 		Profile:        "sovereign",
 		OperatorEmails: []string{opEmail},
+		// The FromEnv default; honoured only while the identity header is set.
+		TrustedForwardGroupsHeader: "X-Forwarded-Groups",
 	}
 	if hdr != "" {
 		cfg.TrustedForwardAuthHeader = http.CanonicalHeaderKey(hdr)

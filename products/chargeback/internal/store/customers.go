@@ -199,9 +199,8 @@ func (s *Store) CreateCustomer(ctx context.Context, in CustomerInput) (Customer,
 	if err != nil {
 		return Customer{}, mapErr(err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO customer_users (customer_id, email, role) VALUES ($1, $2, 'admin') ON CONFLICT DO NOTHING`, id, strings.ToLower(strings.TrimSpace(in.AdminEmail))); err != nil {
-		return Customer{}, mapErr(err)
-	}
+	// The admin_email's customer-owner binding is written by the
+	// customers_owner_binding trigger (access.go), not here.
 	if err := tx.Commit(); err != nil {
 		return Customer{}, err
 	}
@@ -354,11 +353,9 @@ func (s *Store) UpdateCustomer(ctx context.Context, id string, p CustomerPatch) 
 	if n, _ := res.RowsAffected(); n == 0 {
 		return Customer{}, ErrNotFound
 	}
-	if p.AdminEmail != nil {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO customer_users (customer_id, email, role) VALUES ($1, $2, 'admin') ON CONFLICT DO NOTHING`, id, strings.ToLower(strings.TrimSpace(*p.AdminEmail))); err != nil {
-			return Customer{}, mapErr(err)
-		}
-	}
+	// A new admin_email receives its customer-owner binding from the
+	// customers_owner_binding trigger (access.go); the previous owner keeps
+	// its binding until revoked.
 	if err := tx.Commit(); err != nil {
 		return Customer{}, err
 	}
@@ -372,56 +369,12 @@ func (s *Store) SetCustomerStatus(ctx context.Context, id, status string) error 
 	return err
 }
 
-// ListCustomerUsers returns the users of one customer.
-func (s *Store) ListCustomerUsers(ctx context.Context, customerID string) ([]CustomerUser, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT customer_id, email, role FROM customer_users WHERE customer_id = $1 ORDER BY email`, customerID)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	defer rows.Close()
-	out := []CustomerUser{}
-	for rows.Next() {
-		var u CustomerUser
-		if err := rows.Scan(&u.CustomerID, &u.Email, &u.Role); err != nil {
-			return nil, err
-		}
-		out = append(out, u)
-	}
-	return out, rows.Err()
-}
-
-// UpsertCustomerUser adds or re-roles a user.
-func (s *Store) UpsertCustomerUser(ctx context.Context, customerID, email, role string) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO customer_users (customer_id, email, role) VALUES ($1, $2, $3)
-		ON CONFLICT (customer_id, email) DO UPDATE SET role = EXCLUDED.role`, customerID, strings.ToLower(strings.TrimSpace(email)), role)
-	return mapErr(err)
-}
-
-// DeleteCustomerUser removes a user's access.
-func (s *Store) DeleteCustomerUser(ctx context.Context, customerID, email string) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM customer_users WHERE customer_id = $1 AND email = $2`, customerID, strings.ToLower(strings.TrimSpace(email)))
-	if err != nil {
-		return mapErr(err)
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNotFound
-	}
-	return nil
-}
-
-// RoleForEmail resolves the customer role of an email: the first customer
-// (by slug) granting it, admin winning over viewer. ok=false when none.
-func (s *Store) RoleForEmail(ctx context.Context, email string) (customerID, role string, ok bool, err error) {
-	err = s.db.QueryRowContext(ctx, `SELECT cu.customer_id, cu.role FROM customer_users cu JOIN customers c ON c.id = cu.customer_id
-		WHERE cu.email = $1 ORDER BY (cu.role = 'admin') DESC, c.slug LIMIT 1`, strings.ToLower(strings.TrimSpace(email))).Scan(&customerID, &role)
-	if err == sql.ErrNoRows {
-		return "", "", false, nil
-	}
-	if err != nil {
-		return "", "", false, mapErr(err)
-	}
-	return customerID, role, true, nil
-}
+// The customer's users (ListCustomerUsers, UpsertCustomerUser,
+// DeleteCustomerUser, RoleForEmail) live in access.go: they are the
+// customer-scoped view of role_bindings (DESIGN.md §10). The admin_email's
+// own customer-owner binding is kept by the customers_owner_binding trigger
+// the access migration installs, so it holds for every writer of the
+// customers table — this store, the Organization sync, a repair script.
 
 // CustomerCountsByStatus feeds the operator overview.
 func (s *Store) CustomerCountsByStatus(ctx context.Context) (map[string]int, error) {

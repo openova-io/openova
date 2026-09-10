@@ -119,15 +119,40 @@ func (s *Store) DeleteSession(ctx context.Context, token string) error {
 	return mapErr(err)
 }
 
-// Scope derives the query scope of a session.
+// Scope derives the query scope of a session: any Sovereign-scoped binding
+// reads every row (the three operator roles all hold metering.read at the
+// Sovereign); otherwise the session's customer. A session built before role
+// bindings existed carries only Role + CustomerID and derives the same way.
 func (sess Session) Scope() Scope {
 	if sess.Role == RoleOperator {
 		return OperatorScope
+	}
+	for _, b := range sess.Roles {
+		if b.ScopeKind == ScopeKindSovereign {
+			return OperatorScope
+		}
 	}
 	if sess.CustomerID != nil {
 		return CustomerScope(*sess.CustomerID)
 	}
 	return Scope{}
+}
+
+// HasCustomer reports whether the session holds any binding on the customer
+// (a Sovereign binding counts for every customer).
+func (sess Session) HasCustomer(customerID string) bool {
+	if sess.Scope().Operator {
+		return true
+	}
+	if sess.CustomerID != nil && *sess.CustomerID == customerID {
+		return true
+	}
+	for _, b := range sess.Roles {
+		if b.CustomerID != nil && *b.CustomerID == customerID {
+			return true
+		}
+	}
+	return false
 }
 
 // CreateInvite issues an activation link token for a customer.

@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/openova-io/openova/products/chargeback/internal/access"
 	"github.com/openova-io/openova/products/chargeback/internal/rating"
 	"github.com/openova-io/openova/products/chargeback/internal/report"
 	"github.com/openova-io/openova/products/chargeback/internal/settle"
@@ -20,7 +21,7 @@ var periodShape = regexp.MustCompile(`^\d{4}-(0[1-9]|1[0-2])$`)
 
 // runStatements rates a period for every customer (or one) into drafts.
 func (h *Handler) runStatements(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.BillingIssue); !ok {
 		return
 	}
 	var in struct {
@@ -56,7 +57,7 @@ func (h *Handler) listAllStatements(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if s.Role != store.RoleOperator {
+	if !s.Scope().Operator {
 		// Customer principals get their own list here too.
 		list, err := h.Store.ListStatements(r.Context(), s.Scope(), *s.CustomerID)
 		if err != nil {
@@ -173,7 +174,7 @@ func (h *Handler) getStatement(w http.ResponseWriter, r *http.Request) {
 // mailed only on the draft → issued transition, so a re-POST (to repeat the
 // billing hook, say) never mails twice.
 func (h *Handler) issueStatement(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.BillingIssue); !ok {
 		return
 	}
 	var in struct {
@@ -303,7 +304,7 @@ func (h *Handler) notifyStatement(r *http.Request, st store.Statement, c store.C
 // re-run from nothing. An issued statement is refused (409): it is the bill
 // the customer received.
 func (h *Handler) deleteStatement(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.BillingIssue); !ok {
 		return
 	}
 	id := r.PathValue("id")

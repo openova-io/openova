@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/openova-io/openova/products/chargeback/internal/access"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
 
@@ -43,7 +44,7 @@ type billingSettingsBody struct {
 }
 
 func (h *Handler) getBillingSettings(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.MeteringRead); !ok {
 		return
 	}
 	s, err := h.Store.GetBillingSettings(r.Context())
@@ -55,7 +56,7 @@ func (h *Handler) getBillingSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) putBillingSettings(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.SettingsManage); !ok {
 		return
 	}
 	var in billingSettingsBody

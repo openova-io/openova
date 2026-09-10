@@ -238,14 +238,21 @@ func TestPlanQuota_CatalogSlugMapping(t *testing.T) {
 }
 
 // TestRender_ResourceQuotaPerPlan proves the ResourceQuota renders the
-// purchased plan's cap with requests==limits (the Guaranteed precondition).
+// purchased plan's cap PLUS the vCluster control-plane overhead, in the exact
+// canonical spellings an operator sees on the live object (#6902 follow-up).
+// The plan is requests==limits (S 2/4Gi, M 4/8Gi, L 8/16Gi, XL 16/32Gi); the
+// control plane adds 520m/1088Mi to requests and 1500m/1194Mi to limits
+// (vcluster-0 syncer 500m/1Gi + coredns 20m/64Mi requests, 1000m/170Mi limits).
+// The arithmetic itself is asserted plan-by-plan against the live table in
+// TestRender_ResourceQuotaIsPlanPlusControlPlaneOverhead; this test pins the
+// rendered strings so a change in either half is visible here by name.
 func TestRender_ResourceQuotaPerPlan(t *testing.T) {
 	t.Parallel()
-	cases := map[string]struct{ cpu, mem string }{
-		"s":  {"2", "4Gi"},
-		"m":  {"4", "8Gi"},
-		"l":  {"8", "16Gi"},
-		"xl": {"16", "32Gi"},
+	cases := map[string]struct{ reqCPU, reqMem, limCPU, limMem string }{
+		"s":  {"2520m", "5184Mi", "3500m", "5290Mi"},
+		"m":  {"4520m", "9280Mi", "5500m", "9386Mi"},
+		"l":  {"8520m", "17472Mi", "9500m", "17578Mi"},
+		"xl": {"16520m", "33856Mi", "17500m", "33962Mi"},
 	}
 	for slug, want := range cases {
 		out, err := Render(Inputs{Slug: "acme", DisplayName: "Acme", Tier: "org",
@@ -259,12 +266,13 @@ func TestRender_ResourceQuotaPerPlan(t *testing.T) {
 		}
 		s := string(rq)
 		for _, line := range []string{
-			"requests.cpu: \"" + want.cpu + "\"",
-			"limits.cpu: \"" + want.cpu + "\"",
-			"requests.memory: \"" + want.mem + "\"",
-			"limits.memory: \"" + want.mem + "\"",
+			"requests.cpu: \"" + want.reqCPU + "\"",
+			"limits.cpu: \"" + want.limCPU + "\"",
+			"requests.memory: \"" + want.reqMem + "\"",
+			"limits.memory: \"" + want.limMem + "\"",
 			"namespace: acme",
 			"openova.io/plan: " + slug,
+			`openova.io/quota-formula: "purchased plan + vcluster control plane"`,
 		} {
 			if !strings.Contains(s, line) {
 				t.Errorf("plan %s resourcequota.yaml missing %q\n%s", slug, line, s)

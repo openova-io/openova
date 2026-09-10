@@ -92,6 +92,15 @@ type Config struct {
 	// header and assume any identity — the chart refuses to render that
 	// combination, and scripts/check-chargeback-sso-no-bypass.sh gates it.
 	TrustedForwardAuthHeader string
+	// TrustedForwardGroupsHeader is the request header carrying the
+	// directory groups of the identity in TrustedForwardAuthHeader, comma-
+	// separated (oauth2-proxy's X-Forwarded-Groups). Each group is looked up
+	// in group_role_mappings and its roles are added to the session's
+	// bindings (DESIGN.md §10). Only honoured when TrustedForwardAuthHeader
+	// is set — the groups header is trusted for exactly the same reason and
+	// under exactly the same conditions as the identity header, and is inert
+	// without it. Default X-Forwarded-Groups.
+	TrustedForwardGroupsHeader string
 }
 
 // FromEnv builds the configuration; it fails only on values that would make
@@ -127,6 +136,7 @@ func FromEnv() (Config, error) {
 		PlatformAPITokenFile:      strings.TrimSpace(os.Getenv("PLATFORM_API_TOKEN_FILE")),
 		TrustedForwardAuthHeader: http.CanonicalHeaderKey(
 			strings.TrimSpace(os.Getenv("TRUSTED_FORWARD_AUTH_HEADER"))),
+		TrustedForwardGroupsHeader: http.CanonicalHeaderKey(get("TRUSTED_FORWARD_GROUPS_HEADER", "X-Forwarded-Groups")),
 	}
 	if c.Profile != "sovereign" && c.Profile != "operator-central" {
 		return c, fmt.Errorf("PROFILE must be sovereign or operator-central, got %q", c.Profile)

@@ -2,6 +2,7 @@ import { useMemo, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { API_BASE, api, asList, errorText } from '../api/client'
 import { useSession } from '../auth/session'
+import { can, isSovereign } from '../lib/access'
 import type { CostSource, CreditNote, RatedLine, Statement } from '../api/types'
 import { Waterfall, waterfallLayout, type WaterfallStep } from '../components/charts'
 import { Badge, Confirm, EmptyState, Field, Modal, Notice, PageHeader, Skeleton } from '../components/ui'
@@ -51,7 +52,13 @@ export function StatementView() {
   if (q.error && !s) return <Notice kind="bad">{q.error}</Notice>
   if (!s) return <Skeleton lines={8} />
 
-  const operator = me?.role === 'operator'
+  // The lens decides where "back" goes; the permissions decide the actions
+  // (DESIGN.md §10.9): issuing, sending, cancelling and credit notes are
+  // billing.issue, recording a payment is billing.collect — never the
+  // customer's, whatever its role.
+  const operator = isSovereign(me)
+  const canIssue = can(me, 'billing.issue', s.customer_id)
+  const canCollect = can(me, 'billing.collect', s.customer_id)
   const cur = s.currency
   const money = (v: number | string | null | undefined) => formatMoney(toNumber(v), cur)
   // Wire contract (rating.TotalsWithDiscount): `subtotal` is the NET — list
@@ -134,7 +141,7 @@ export function StatementView() {
             <a href={`${API_BASE}/statements/${s.id}.csv`}>
               <button>CSV</button>
             </a>
-            {operator && s.status === 'draft' ? (
+            {canIssue && s.status === 'draft' ? (
               <>
                 <button
                   className="primary"
@@ -154,22 +161,22 @@ export function StatementView() {
                 customer received it (which the due date is measured from);
                 Record payment books what arrived; Cancel voids an invoice
                 nobody has been sent yet. */}
-            {operator && s.status === 'issued' ? (
+            {canIssue && s.status === 'issued' ? (
               <button className="primary" onClick={() => setDialog({ kind: 'send' })}>
                 Mark sent
               </button>
             ) : null}
-            {operator && acceptsPayment(s) ? (
+            {canCollect && acceptsPayment(s) ? (
               <button className="primary" onClick={() => setDialog({ kind: 'pay' })}>
                 Record payment
               </button>
             ) : null}
-            {operator && acceptsCreditNote(s) ? (
+            {canIssue && acceptsCreditNote(s) ? (
               <button onClick={() => setDialog({ kind: 'credit' })} title={`Up to ${money(creditRoom(s))} can still be credited`}>
                 Credit note
               </button>
             ) : null}
-            {operator && s.status === 'issued' ? (
+            {canIssue && s.status === 'issued' ? (
               <button className="danger" onClick={() => setDialog({ kind: 'cancel' })}>
                 Cancel invoice
               </button>

@@ -54,6 +54,65 @@ const (
 	usageBatch   = 500
 )
 
+// ─── The vCluster control plane is not the customer's usage ─────────────────
+//
+// Every Organization's vCluster control plane runs in the Organization's own
+// host namespace (#6902): the `vcluster-0` StatefulSet pod — labelled
+// `app=vcluster` by the loft-sh chart, the same exact-value signal the
+// sovereign-admin dashboard (dashboard.go vclustersFromRuntime) and the
+// topology loader key on — its `data-vcluster-0` backing-store PVC (the
+// StatefulSet controller stamps the selector labels `app`/`release` onto it),
+// and the vCluster's own coredns, which the syncer mirrors down from the
+// virtual `kube-system` carrying `vcluster.loft.sh/managed-by` plus
+// `vcluster.loft.sh/namespace: kube-system`. The org-controller sizes the
+// namespace ResourceQuota as plan + this control plane precisely so it never
+// eats into what the customer bought (core/controllers/organization/internal/
+// gitops/manifests.go, vclusterControlPlaneOverhead); the same split applies
+// here. The control plane is overhead the Sovereign pays, not usage the
+// customer bought, so it must not become `k8s.*` meter rows on the customer's
+// source. Customer workloads synced from the vCluster carry the managed-by
+// label too, but sit in the customer's own virtual namespace — never
+// kube-system — and are metered as before.
+//
+// The Sovereign's own Organization (the platform-overhead line) is the one
+// place these pods ARE counted: that line exists to reconcile back to the
+// cloud total (#6850), and vCluster control planes are part of what the
+// Sovereign pays for.
+const (
+	vclusterAppLabel            = "app"
+	vclusterAppLabelValue       = "vcluster"
+	vclusterManagedByLabel      = "vcluster.loft.sh/managed-by"
+	vclusterNamespaceLabel      = "vcluster.loft.sh/namespace"
+	vclusterObjectNamespaceAnno = "vcluster.loft.sh/object-namespace"
+	vclusterSystemNamespace     = "kube-system"
+)
+
+// isVClusterControlPlane reports whether a pod or PVC in an Organization
+// namespace belongs to the Organization's vCluster control plane rather than
+// to a workload the customer runs.
+func isVClusterControlPlane(labels, annotations map[string]string) bool {
+	if _, synced := labels[vclusterManagedByLabel]; !synced {
+		// The control plane itself (and its PVC): exact value, never a prefix
+		// — `app=vcluster-operator` is a different workload (#5932).
+		return labels[vclusterAppLabel] == vclusterAppLabelValue
+	}
+	// Mirrored down by the syncer: the vCluster's own system workloads live
+	// in the virtual kube-system; everything else is the customer's.
+	return labels[vclusterNamespaceLabel] == vclusterSystemNamespace ||
+		annotations[vclusterObjectNamespaceAnno] == vclusterSystemNamespace
+}
+
+// controlPlaneExcluded decides, for a resource in namespace ns attributed to
+// org, whether it is vCluster control plane that must stay off the meters.
+// Only customer Organizations exclude it; the platform-overhead line counts
+// it. Callers hold c.mu.
+func (c *PlatformCollector) controlPlaneExcluded(org string, labels, annotations map[string]string) bool {
+	if org == c.overheadOrg {
+		return false
+	}
+	return isVClusterControlPlane(labels, annotations)
+}
+
 // PlatformCollector watches pods and PVCs across Organization-labelled
 // namespaces and emits usage_records per Organization (ADR-0014 D3 case 1):
 // event-driven through informers, with an hourly reconciliation pass (D3a).
@@ -264,13 +323,16 @@ func resourceKey(kind, namespace, name, uid string) string {
 
 // ObservePod tracks a pod in an Organization namespace. A pod that ran to
 // completion (Succeeded/Failed) stops billing at the moment it is observed
-// finished — its requests are no longer scheduled entitlement.
+// finished — its requests are no longer scheduled entitlement. The
+// Organization's vCluster control plane is not tracked at all (see
+// isVClusterControlPlane): it is overhead, not the customer's usage.
 func (c *PlatformCollector) ObservePod(pod *corev1.Pod) {
 	c.init()
 	c.mu.Lock()
 	org, ok := c.nsOrg[pod.Namespace]
+	skip := ok && c.controlPlaneExcluded(org, pod.Labels, pod.Annotations)
 	c.mu.Unlock()
-	if !ok {
+	if !ok || skip {
 		return
 	}
 	var cores, gib float64
@@ -313,13 +375,16 @@ func (c *PlatformCollector) ObservePodDeleted(pod *corev1.Pod) {
 	c.closeResource(resourceKey("pod", pod.Namespace, pod.Name, string(pod.UID)), pod.DeletionTimestamp)
 }
 
-// ObservePVC tracks a PersistentVolumeClaim in an Organization namespace.
+// ObservePVC tracks a PersistentVolumeClaim in an Organization namespace. The
+// vCluster control plane's own backing-store claim (`data-vcluster-0`, which
+// carries the StatefulSet's `app=vcluster` selector label) is not tracked.
 func (c *PlatformCollector) ObservePVC(pvc *corev1.PersistentVolumeClaim) {
 	c.init()
 	c.mu.Lock()
 	org, ok := c.nsOrg[pvc.Namespace]
+	skip := ok && c.controlPlaneExcluded(org, pvc.Labels, pvc.Annotations)
 	c.mu.Unlock()
-	if !ok {
+	if !ok || skip {
 		return
 	}
 	var gb float64

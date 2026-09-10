@@ -92,6 +92,23 @@ internal Organization entirely, ensures the internal source instead, and
 retires the customer an earlier version created (§4.1). The landlord's
 Huawei project stays a plain customer with cloud sources and nothing else.
 
+**The Organization's vCluster control plane is not the customer's usage.**
+Every Organization's vCluster control plane runs in the Organization's own
+host namespace (#6902): the `vcluster-0` StatefulSet pod (`app=vcluster`), its
+`data-vcluster-0` backing-store PVC, and the vCluster's own coredns, which the
+syncer mirrors down from the virtual `kube-system`
+(`vcluster.loft.sh/managed-by` + `vcluster.loft.sh/namespace: kube-system`).
+The org-controller sizes the namespace ResourceQuota as plan **plus** that
+control plane (520m / 1088Mi requests, 1500m / 1194Mi limits, 5Gi storage) so
+it never eats into what the customer bought, and the platform collector draws
+the same line: `isVClusterControlPlane` keeps those pods and that PVC off a
+customer Organization's `k8s.*` meters (`collector.go`,
+`TestVClusterControlPlaneIsNotMetered`). Customer workloads synced from the
+vCluster carry the managed-by label too but sit in the customer's own virtual
+namespace and are metered as before. The one place the control plane IS
+counted is the platform-overhead line above — the Sovereign pays for it, and
+that line has to reconcile back to the cloud total.
+
 ### 2.0b Allocation is a report, not billing
 
 `Allocation` reads the two layers read-only and never writes a bill:
@@ -253,7 +270,7 @@ structurally impossible rather than merely avoided.
 
 | | Committed plan (`s` / `m` / `l` / `xl`) | Pay per use (`flexi`) |
 |---|---|---|
-| What the Organization buys | a fixed shape, enforced by a ResourceQuota (S 2 vCPU / 4 GiB, M 4/8, L 8/16, XL 16/32, all Guaranteed) | nothing fixed: `planQuotaTable` gives flexi no CPU/memory ceiling and Burstable QoS |
+| What the Organization buys | a fixed shape, enforced by a ResourceQuota (S 2 vCPU / 4 GiB, M 4/8, L 8/16, XL 16/32, all Guaranteed; the namespace quota is that plan **plus** the vCluster control-plane overhead — 520m / 1088Mi requests, 1500m / 1194Mi limits — so the control plane never eats the plan, §2.0a) | nothing fixed: `planQuotaTable` gives flexi no CPU/memory ceiling and Burstable QoS |
 | What the collector emits | one `plan.<slug>` record per hour **plus** the `k8s.*` meters | the `k8s.*` meters only — `billablePlan` returns "" for flexi, so there is no plan line to emit |
 | Which book rates its source | **"OpenOva plans"** | **"Organization PAYG"** |
 | What that book prices | `plan.s` / `plan.m` / `plan.l` / `plan.xl` — the meters are deliberately unpriced | `k8s.vcpu` / `k8s.mem_gb` / `k8s.pvc_gb` — no plan line is priced |
@@ -1739,3 +1756,220 @@ action with its consequence spelled out.
   back in words, escalation days and action — through one `PUT
   /billing-settings` that carries the saved discount rule plus only what
   changed.
+
+## 10. Access model — who signs in, and what a role lets them do (founder requirement 2026-09-10)
+
+The founder's question was exact: *how will customers log in, and how is
+their role-based access defined — scopes and roles*. Before this section the
+answer was three hard-coded roles (`operator`, `customer-admin`,
+`customer-viewer`), a `customer_users` table binding an email to one customer,
+and `requireOperator` in front of every write. That could not say "this
+person runs billing but may not change settings", "this auditor reads
+everything and changes nothing", or "this customer's finance contact may top
+up the account but not manage its users". It now can, with two scope kinds,
+nine permissions and six roles — and nothing else: there is no per-user
+permission and no custom role.
+
+### 10.1 Scopes
+
+| Scope key | Meaning |
+|---|---|
+| `sovereign` | The whole Sovereign: every customer, every setting. |
+| `customer:<id>` | One customer. |
+
+A permission held at the Sovereign scope holds on every customer; a
+permission held on a customer holds there and nowhere else — never at the
+Sovereign, never on another customer. Every handler asks the one question
+`access.Has(bindings, permission, customerID)` (`internal/access`), with
+`customerID == ""` meaning the Sovereign scope.
+
+### 10.2 Permissions
+
+| Permission | Grants |
+|---|---|
+| `metering.read` | Every read surface: usage, cost, resources, statements, the account, budgets, reports, sources, price books, settings documents. At the Sovereign scope it spans all customers. |
+| `rating.manage` | Price books and their items, discounts and campaigns, currency rates. |
+| `customers.manage` | Create, edit, invite, import and delete customers; their sources (region, project, price book, disable), budgets and report schedules — for ANY customer. Implies `customer.self.manage` on every customer. |
+| `billing.issue` | Run, issue, edit (PO / terms of a draft), send, cancel and delete statements; issue credit notes; retry the commercial outbox. |
+| `billing.collect` | Record, allocate and refund payments on the customer's behalf, apply credit, run collections, suspend and resume at the platform. |
+| `account.topup` | Ask the gateway to collect a top-up for the customer's OWN account (a checkout). Nothing is booked until the gateway confirms — this is the one money write a customer may make. |
+| `settings.manage` | Billing settings, allocation settings, and access itself: role bindings and directory group mappings. |
+| `audit.read` | Audit trails. A Sovereign permission: a customer does not read its own trail. |
+| `customer.self.manage` | The customer-scoped subset of `customers.manage` an owner holds on its own customer: its users, its sources' credentials and scope token, its PO reference and tax registration number. |
+
+### 10.3 Roles — fixed bundles
+
+| Role | Scope kind | Permissions |
+|---|---|---|
+| `sovereign-admin` | sovereign | all nine |
+| `billing-operator` | sovereign | `metering.read`, `rating.manage`, `customers.manage`, `billing.issue`, `billing.collect`, `audit.read` |
+| `finance-viewer` | sovereign | `metering.read`, `audit.read` — read and export only |
+| `customer-owner` | customer | `metering.read`, `account.topup`, `customer.self.manage` |
+| `customer-billing` | customer | `metering.read`, `account.topup` |
+| `customer-viewer` | customer | `metering.read` |
+
+The discriminating decisions: a `billing-operator` runs everything about
+billing but cannot change a setting or grant a role; a `finance-viewer` opens
+every page and every CSV and changes nothing; a `customer-owner` manages its
+own users, PO reference and tax registration and may top up, but cannot
+record a payment, apply credit, issue, or suspend — those stay
+`billing.collect` / `billing.issue`, never customer-side; a `customer-billing`
+tops up but manages nobody; a `customer-viewer` reads.
+
+`access.Matrix` (`internal/access/access.go`) is the whole policy;
+`TestMatrixEveryRoleEveryPermission` pins every cell, at both scope kinds.
+
+### 10.4 Where a binding comes from
+
+A **binding** is (subject, role, scope). A session holds the UNION of:
+
+1. **Configuration** — every address in `OPERATOR_EMAILS` holds an implicit
+   `sovereign-admin` binding (source `config`). Not a row, not revocable
+   through the API; it is the bootstrap identity of a Sovereign.
+2. **Explicit bindings** — `role_bindings(id, subject_email, role, scope_kind,
+   customer_id, granted_by, granted_at)`, unique per (email, role, scope,
+   customer). Granted through `POST /api/v1/access/bindings`, through the
+   customer's Users tab (`POST /customers/{id}/users`), by the customer's
+   `admin_email` (the `customers_owner_binding` trigger keeps every
+   `admin_email` a `customer-owner` of its customer), and by the Organization
+   sync (§10.6). `customer_users` — the pre-binding table — is now a VIEW over
+   the customer-scoped bindings with its old columns (`role` reads `admin`
+   for an owner and `viewer` for everything else), so an older reader is
+   unchanged.
+3. **Directory groups** — `group_role_mappings(group_name, role, scope_kind,
+   customer_id)`. When the SSO gate forwards the identity
+   (`TRUSTED_FORWARD_AUTH_HEADER`, `X-Forwarded-Email`) it also forwards the
+   user's groups (`TRUSTED_FORWARD_GROUPS_HEADER`, default
+   `X-Forwarded-Groups`, comma-separated); each named group adds the roles
+   mapped to it, with source `group:<name>`. The groups header is trusted
+   under exactly the same conditions as the identity header and is inert
+   without it — a deployment that has not opted into the gate cannot be
+   handed a role by naming a group.
+
+Bindings are resolved on EVERY request — for a cookie session and for a
+gate identity alike — never read back from what was stored at sign-in. A
+revoked binding takes effect at the principal's next request; a granted one
+needs no re-login; a principal left with no binding is unauthenticated (401),
+so the API never invents access. The PIN flow mails a code only to an address
+that resolves to at least one binding (groups cannot be known there).
+
+### 10.5 What the session carries — `GET /api/v1/me`
+
+```json
+{
+  "email": "owner@acme.example",
+  "role": "customer-admin",
+  "customer_id": "…",
+  "roles": [{ "role": "customer-owner", "scope_kind": "customer", "customer_id": "…", "customer_name": "Acme", "source": "binding" }],
+  "permissions": { "customer:…": ["account.topup", "customer.self.manage", "metering.read"] },
+  "scopes": ["customer:…"],
+  "customer": { "id": "…", "slug": "acme", "name": "Acme", "status": "active", "billing_mode": "chargeback", "payment_method": "gateway", "gateway_name": "stripe" },
+  "expires_at": "…", "profile": "sovereign", "version": "…"
+}
+```
+
+`role` and `customer_id` are the legacy pair and describe the highest-power
+binding in the old vocabulary (`sovereign-admin` → `operator`,
+`customer-owner` → `customer-admin`, `customer-viewer` unchanged; the three
+new roles are reported as themselves because no old name means the same
+thing), so `seed-history` and any reader written against the old document
+keep working. `roles`, `permissions` and `scopes` are additive. The console
+hides and shows by `permissions` alone. `GET /api/v1/auth/me` is the same
+document.
+
+### 10.6 The Organization sync
+
+When an Organization CR is created or updated, `OrgSync.SyncOrganization`
+upserts a `customer-owner` binding for the Organization's owner (the first
+`spec.owners[]` entry with `role: owner`, else the first entry — the same
+field it reads for `admin_email`) on the Organization's customer, granted by
+`org-sync`. The sync only ever ADDS: a previous owner, and anyone the
+operator granted, keeps access until it is revoked through the Users tab or
+the access API. An Organization with no owner grants nothing; the
+Sovereign's own Organization is not a customer and grants nothing.
+
+### 10.7 The API
+
+| Route | Permission |
+|---|---|
+| `GET /api/v1/access/roles` | any signed-in principal (the policy as a document, for labels) |
+| `GET /api/v1/access/bindings[?email&customer_id]` | `settings.manage` — explicit rows plus the implicit `OPERATOR_EMAILS` ones, marked |
+| `POST /api/v1/access/bindings {subject_email, role, customer_id?}` | `settings.manage` — 201, or 200 when already granted; audited `access.binding` op=grant |
+| `DELETE /api/v1/access/bindings/{id}` | `settings.manage` — audited op=revoke; 409 on the last `sovereign-admin` when `OPERATOR_EMAILS` is empty |
+| `GET /api/v1/access/group-mappings` | `settings.manage` |
+| `PUT /api/v1/access/group-mappings {mappings:[{group_name, role, customer_id?}]}` | `settings.manage` — replaces the set, all or nothing; audited `access.mapping` |
+| `GET /api/v1/customers/{id}/users` | `metering.read` on the customer |
+| `POST /api/v1/customers/{id}/users {email, role}` | `customer.self.manage` on the customer (the owner) or `customers.manage` (the operator); `role` is a customer role or the legacy `admin` / `viewer`; the email ends up with exactly one customer role there |
+| `DELETE /api/v1/customers/{id}/users/{email}` | as above; removes every customer-scoped binding of that email on the customer |
+
+The role fixes the scope kind: a customer role without `customer_id`, or a
+Sovereign role with one, is 400.
+
+### 10.8 Handler → permission
+
+Reads follow the session scope as before (`store.Scope`): a Sovereign
+binding reads every row, a customer binding its customer's. A customer-scoped
+route asked for a customer the caller holds no binding on answers 404, so
+ids are not confirmed; a caller on the scope without the permission answers
+403 naming the permission. `requirePermission(perm, customerID)` /
+`requireSovereign(perm)` / `requireAnyPermission(customerID, perms…)` in
+`internal/api/server.go` are the only gates.
+
+| Handlers | Permission (scope) |
+|---|---|
+| `overview`, `explore`, `exploreCSV`, `costDimensions`, `summary`, `listResources`, `resourcesCSV`, `anomalies`, `recommendations`, `listAllSources`, `allocation`, `getAllocationSettings`, `getBillingSettings`, `listCurrencies`, `getCurrency`, `listAllDiscounts`, `getDiscount`, `priceBookCoverage`, `listOutbox` | `metering.read` (sovereign) |
+| `customerUsage`, `customerInventory`, `customerExplore`, `customerExploreCSV`, `customerCostDimensions`, `customerSummary`, `customerResources`, `customerResourcesCSV`, `customerAnomalies`, `customerRecommendations`, `customerBudgets`, `customerReportSchedules`, `listSources`, `listDiscounts`, `listCustomerStatements`, `getCustomer`, `listUsers`, `getAccount`, `listCustomerPayments`, `listPaymentIntents`, `listCustomerCreditNotes`, `listSuspensions` | `metering.read` (customer) |
+| `listCustomers`, `listAllStatements`, `getStatement`, `listPriceBooks`, `getPriceBook`, `exportPriceBook`, `listBudgets`, `getBudget`, `budgetStatus`, `getSource`, `getResource`, `getPayment`, `getCreditNote`, `listStatementCreditNotes`, `listStatementPayments`, `aging`, `listReportSchedules`, `getReportSchedule`, `previewReport`, `listReportDeliveries`, `listViews`, `createView`, `deleteView`, `me`, `listRoles` | signed in; rows filtered by the session scope |
+| `createCustomer`, `patchCustomer` (all fields), `deleteCustomer`, `inviteCustomer`, `importCustomers`, `createBudget`, `updateBudget`, `deleteBudget`, `purgeExcluded` | `customers.manage` |
+| `patchCustomer` (`po_reference`, `tax_registration_number` only), `addUser`, `deleteUser`, `createSource`, `rotateCredential`, `verifySource`, `deleteSource`, `patchSource` (`scope_token` only; the other fields need `customers.manage`) | `customer.self.manage` (customer) — or `customers.manage` |
+| `createReportSchedule`, `updateReportSchedule`, `deleteReportSchedule`, `sendReportNow` | `customers.manage`, or `customer.self.manage` on the session's own customer (`customer_id` forced) |
+| `createPriceBook`, `updatePriceBook`, `putPriceItems`, `addPriceItem`, `patchPriceItem`, `deletePriceItem`, `importPriceBook`, `clonePriceBook`, `deletePriceBook`, `createDiscount`, `createGlobalDiscount`, `updateDiscount`, `setDiscountActive`, `deleteDiscount`, `putCurrency`, `deleteCurrency` | `rating.manage` |
+| `runStatements`, `issueStatement`, `patchStatement`, `sendStatement`, `cancelStatement`, `deleteStatement`, `createCreditNote`, `retryOutbox` | `billing.issue` |
+| `recordPayment`, `recordStatementPayment`, `allocatePayment`, `refundPayment`, `applyCredit`, `runCollections`, `suspendCustomer`, `resumeCustomer` | `billing.collect` |
+| `createPaymentIntent` | `account.topup` (customer) or `billing.collect` |
+| `putBillingSettings`, `putAllocationSettings`, `listBindings`, `createBinding`, `deleteBinding`, `listGroupMappings`, `putGroupMappings` | `settings.manage` |
+| `customerAudit` | `audit.read` (customer route; a customer principal is 403) |
+| `importInvoiceStatus`, `importPaymentStatus`, `importAccountBalance`, `importEnforcement`, `gatewayCallback`, `getInvite`, `activateInvite`, `pinRequest`, `pinVerify`, `logout` | not session-gated (HMAC, gateway signature, invite token, public) |
+
+Every change to who holds what is audited: `access.binding` (op grant /
+revoke, with the subject, role, scope and customer) and `access.mapping` (op
+replace, with the resulting set); the Users tab writes both its
+`customer.user.add` / `customer.user.remove` entry and the `access.binding`
+one.
+
+### 10.9 The console
+
+`/me.permissions` is the only thing the console consults. The Sovereign lens
+(any Sovereign binding) shows Analyse · Bill · Configure; **Configure →
+Access** (bindings with grant and revoke, the implicit `OPERATOR_EMAILS`
+rows read-only, the directory group mappings with save) is listed only with
+`settings.manage`, and every other control is rendered only with its
+permission — Issue / Send / Cancel / Credit note with `billing.issue`, Record
+payment / Apply credit / Suspend / Resume / Run collections with
+`billing.collect`, price-book and discount edits with `rating.manage`,
+customer create / edit / invite / delete with `customers.manage`. The
+customer lens shows Analyse (overview, explorer, resources), Bill
+(statements, budgets, reports), **Account** (the ledger; `Top up` — a
+checkout through the gateway — with `account.topup`) and Configure (sources,
+discounts, and **Users** with `customer.self.manage`: add a user as owner /
+billing / viewer, remove). A customer never sees the operator's Bill /
+Configure groups.
+
+### 10.10 Tests
+
+`internal/access/access_test.go` pins the matrix (every role × permission ×
+scope kind) and one discriminating case per role.
+`internal/api/authz_roles_test.go` proves each refusal against a nil store
+(the decision does not depend on data). `internal/api/access_integration_test.go`
+proves the grants against Postgres: the implicit `OPERATOR_EMAILS` binding and
+the `/me` shape; a directory group mapped to `finance-viewer` reads and gets
+403 on every write, and is unknown without the group; a `customer-owner` tops
+up its own account, manages its users and PO reference, is 404 on another
+customer and 403 on the operator's money writes; a `customer-billing` tops up
+and manages nobody; a `customer-viewer` is 403 on top-up; a revoked binding
+ends a live cookie session at its next request; the bindings API and the
+last-`sovereign-admin` guard. `internal/store/access_migration_integration_test.go`
+stands a database before the migration, writes `customer_users` rows and
+proves the backfill, the view, the widened sessions CHECK and the unique
+indexes. `internal/adapter/openova/orgsync_access_test.go` proves the sync
+grants the owner binding once and never revokes.

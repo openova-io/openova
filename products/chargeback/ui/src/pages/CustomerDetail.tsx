@@ -11,6 +11,8 @@ import { formatMoney } from '../lib/money'
 import { customerLens } from '../lib/scope'
 import { readKPIs } from '../lib/summary'
 import { useAction } from '../lib/useAction'
+import { useSession } from '../auth/session'
+import { can } from '../lib/access'
 import { useQuery } from '../lib/useQuery'
 import { AccountPanel } from '../panels/AccountPanel'
 import { AuditPanel } from '../panels/AuditPanel'
@@ -42,6 +44,14 @@ export function CustomerDetail() {
   const sum = useQuery<Summary>(`/customers/${id}/cost/summary`)
   const books = useQuery<unknown>('/pricebooks')
   const act = useAction()
+  const { me } = useSession()
+  // What this caller may do here (DESIGN.md §10.9): the customer master is
+  // customers.manage, the money billing.collect, its users
+  // customer.self.manage (which customers.manage implies), the audit trail
+  // audit.read. A finance-viewer sees every tab read-only.
+  const canManageCustomer = can(me, 'customers.manage', id)
+  const canCollect = can(me, 'billing.collect', id)
+  const canManageUsers = can(me, 'customer.self.manage', id)
   const [dialog, setDialog] = useState<'suspend' | 'resume' | 'delete' | null>(null)
   const [invite, setInvite] = useState<InviteIssued | null>(null)
 
@@ -100,10 +110,12 @@ export function CustomerDetail() {
         }
         actions={
           <>
-            <button onClick={() => void sendInvite()} disabled={act.busy} title={c.status === 'pending' ? 'Send the activation invite' : 'Re-send the sign-in invite'}>
-              {c.status === 'pending' ? 'Invite' : 'Re-invite'}
-            </button>
-            {c.status === 'suspended' ? (
+            {canManageCustomer ? (
+              <button onClick={() => void sendInvite()} disabled={act.busy} title={c.status === 'pending' ? 'Send the activation invite' : 'Re-send the sign-in invite'}>
+                {c.status === 'pending' ? 'Invite' : 'Re-invite'}
+              </button>
+            ) : null}
+            {!canCollect ? null : c.status === 'suspended' ? (
               <button onClick={() => setDialog('resume')} disabled={act.busy}>
                 Resume
               </button>
@@ -112,12 +124,16 @@ export function CustomerDetail() {
                 Suspend
               </button>
             )}
-            <Link to={`${base}?tab=settings`}>
-              <button>Edit</button>
-            </Link>
-            <button className="danger" onClick={() => setDialog('delete')} disabled={act.busy}>
-              Delete
-            </button>
+            {canManageCustomer ? (
+              <>
+                <Link to={`${base}?tab=settings`}>
+                  <button>Edit</button>
+                </Link>
+                <button className="danger" onClick={() => setDialog('delete')} disabled={act.busy}>
+                  Delete
+                </button>
+              </>
+            ) : null}
           </>
         }
       />
@@ -173,19 +189,19 @@ export function CustomerDetail() {
       <Tabs base={base} tabs={TABS} current={tab} counts={{ sources: src.data ? sources.length : undefined, users: usr.data ? users.length : undefined, statements: k ? k.draftStatements + k.issuedStatements : undefined }} />
 
       {tab === 'overview' ? <CustomerOverview customerId={id} /> : null}
-      {tab === 'account' ? <AccountPanel customerId={id} customer={c} currency={currency} onChanged={cust.reload} /> : null}
+      {tab === 'account' ? <AccountPanel customerId={id} customer={c} currency={currency} canRecord={canCollect} canCheckout={canCollect || can(me, 'account.topup', id)} onChanged={cust.reload} /> : null}
       {tab === 'cost' ? <CustomerCostExplorer customerId={id} /> : null}
       {tab === 'resources' ? <ResourcesBody lens={customerLens(id)} /> : null}
-      {tab === 'statements' ? <StatementsPanel customerId={id} canIssue /> : null}
-      {tab === 'discounts' ? <DiscountsPanel customerId={id} canManage currency={currency} /> : null}
-      {tab === 'budgets' ? <BudgetsPanel customerId={id} canManage currency={currency} /> : null}
+      {tab === 'statements' ? <StatementsPanel customerId={id} canIssue={can(me, 'billing.issue', id)} /> : null}
+      {tab === 'discounts' ? <DiscountsPanel customerId={id} canManage={can(me, 'rating.manage', id)} currency={currency} /> : null}
+      {tab === 'budgets' ? <BudgetsPanel customerId={id} canManage={canManageCustomer} currency={currency} /> : null}
       {tab === 'sources' ? (
         <SourcesPanel
           customerId={id}
           sources={sources}
           books={bookRows}
-          canManage
-          canRotate
+          canManage={canManageCustomer}
+          canRotate={canManageUsers}
           // The new-customer flow lands here with the add-source modal open:
           // defining a customer means defining where its cost comes from.
           autoAdd={params.get('add') === '1'}
@@ -195,7 +211,7 @@ export function CustomerDetail() {
           loading={src.loading}
         />
       ) : null}
-      {tab === 'users' ? <UsersPanel customerId={id} users={users} adminEmail={c.admin_email} onChanged={usr.reload} /> : null}
+      {tab === 'users' ? <UsersPanel customerId={id} users={users} adminEmail={c.admin_email} canManage={canManageUsers} onChanged={usr.reload} /> : null}
       {tab === 'settings' ? (
         <SettingsPanel
           key={c.id}

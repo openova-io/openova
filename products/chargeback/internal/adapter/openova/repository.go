@@ -45,6 +45,10 @@ type Repository interface {
 	// synced the Sovereign's own Organization as into a plain external
 	// customer and its openova-org source into the internal source.
 	RetireOrganizationCustomer(ctx context.Context, customerID string) error
+	// UpsertRoleBinding grants a role at a scope, idempotently (DESIGN.md
+	// §10). The sync uses it to make the Organization's owner the
+	// customer-owner of its customer; it never revokes anything.
+	UpsertRoleBinding(ctx context.Context, b store.RoleBinding) (store.RoleBinding, error)
 }
 
 var _ Repository = (*store.Store)(nil)

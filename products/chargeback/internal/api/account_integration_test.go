@@ -469,7 +469,11 @@ func TestIntegrationOperatorSuspendResumeAndCancelSentInvoice(t *testing.T) {
 	_ = time.Now
 }
 
-// Every write of this lane is operator-only.
+// Every write of this lane that books or moves money is billing.collect /
+// billing.issue — the operator's, never the customer's (DESIGN.md §10). The
+// one exception is the checkout request (POST .../payment-intents): that is
+// account.topup, which a customer-owner holds on its own account, and it is
+// proven in access_integration_test.go.
 func TestAccountEndpointsAreOperatorOnly(t *testing.T) {
 	h := newAuthzHandler()
 	a := "11111111-1111-1111-1111-111111111111"
@@ -480,7 +484,6 @@ func TestAccountEndpointsAreOperatorOnly(t *testing.T) {
 		{"POST", "/api/v1/payments/1/allocate"},
 		{"POST", "/api/v1/payments/1/refund"},
 		{"POST", "/api/v1/customers/" + a + "/account/apply-credit"},
-		{"POST", "/api/v1/customers/" + a + "/payment-intents"},
 		{"POST", "/api/v1/statements/x/credit-notes"},
 		{"POST", "/api/v1/collections/run"},
 		{"POST", "/api/v1/customers/" + a + "/suspend"},

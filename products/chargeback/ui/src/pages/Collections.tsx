@@ -9,6 +9,8 @@ import { day, when } from '../lib/format'
 import { formatMoney, formatPct } from '../lib/money'
 import { toNumber } from '../lib/num'
 import { useAction } from '../lib/useAction'
+import { useSession } from '../auth/session'
+import { can } from '../lib/access'
 import { useQuery } from '../lib/useQuery'
 
 /**
@@ -24,6 +26,10 @@ export function Collections() {
   const rep = useQuery<AgingReport>('/collections/aging')
   const settings = useQuery<BillingSettings>('/billing-settings')
   const act = useAction()
+  const { me } = useSession()
+  // Running collections and suspending or resuming at the platform are
+  // billing.collect (DESIGN.md §10.9); a finance-viewer reads the report.
+  const canCollect = can(me, 'billing.collect')
   const [dialog, setDialog] = useState<Dialog>(null)
   const [reason, setReason] = useState('')
   const [run, setRun] = useState<CollectionsRun | null>(null)
@@ -128,7 +134,7 @@ export function Collections() {
           >
             {open === r.customer_id ? 'Hide invoices' : 'Invoices'}
           </button>
-          {r.suspended ? (
+          {!canCollect ? null : r.suspended ? (
             <button
               className="small primary"
               disabled={act.busy}
@@ -178,9 +184,11 @@ export function Collections() {
             <Link to="/billing">
               <button>Reminder schedule</button>
             </Link>
-            <button className="primary" onClick={() => setDialog({ kind: 'run' })} disabled={act.busy}>
-              Run collections now
-            </button>
+            {canCollect ? (
+              <button className="primary" onClick={() => setDialog({ kind: 'run' })} disabled={act.busy}>
+                Run collections now
+              </button>
+            ) : null}
           </>
         }
       />

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/openova-io/openova/products/chargeback/internal/access"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
 
@@ -20,7 +21,7 @@ import (
 // query.
 
 func (h *Handler) getAllocationSettings(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.MeteringRead); !ok {
 		return
 	}
 	s, err := h.Store.GetAllocationSettings(r.Context())
@@ -32,7 +33,7 @@ func (h *Handler) getAllocationSettings(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) putAllocationSettings(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.SettingsManage); !ok {
 		return
 	}
 	var in store.AllocationSettings
@@ -65,7 +66,7 @@ func (h *Handler) putAllocationSettings(w http.ResponseWriter, r *http.Request) 
 // month). Money is exact: every currency figure is computed server-side in
 // big.Rat and the rows sum to the pool — see store.splitAllocation.
 func (h *Handler) allocation(w http.ResponseWriter, r *http.Request) {
-	sess, ok := h.requireOperator(w, r)
+	sess, ok := h.requireSovereign(w, r, access.MeteringRead)
 	if !ok {
 		return
 	}

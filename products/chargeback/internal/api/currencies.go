@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/openova-io/openova/products/chargeback/internal/access"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
 
@@ -41,7 +42,7 @@ func invalidMessage(err error) string {
 }
 
 func (h *Handler) listCurrencies(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.MeteringRead); !ok {
 		return
 	}
 	reporting, err := h.Store.ReportingCurrency(r.Context())
@@ -58,7 +59,7 @@ func (h *Handler) listCurrencies(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getCurrency(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.MeteringRead); !ok {
 		return
 	}
 	code, ok := store.NormalizeCurrencyCode(r.PathValue("code"))
@@ -85,7 +86,7 @@ func (h *Handler) getCurrency(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) putCurrency(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.RatingManage); !ok {
 		return
 	}
 	code := r.PathValue("code")
@@ -126,7 +127,7 @@ func (h *Handler) putCurrency(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) deleteCurrency(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.RatingManage); !ok {
 		return
 	}
 	code := r.PathValue("code")

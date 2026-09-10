@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/openova-io/openova/products/chargeback/internal/access"
 	"github.com/openova-io/openova/products/chargeback/internal/collections"
 	"github.com/openova-io/openova/products/chargeback/internal/commercial"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
@@ -169,7 +170,7 @@ func allocationsFrom(in []allocationBody) []store.AllocationInput {
 // per-invoice endpoint does, so a gateway callback and an operator's
 // transfer take one path.
 func (h *Handler) recordPayment(w http.ResponseWriter, r *http.Request) {
-	s, ok := h.requireOperator(w, r)
+	s, ok := h.requireSovereign(w, r, access.BillingCollect)
 	if !ok {
 		return
 	}
@@ -282,7 +283,7 @@ func (h *Handler) afterAccountChange(r *http.Request, customerID string, settled
 }
 
 func (h *Handler) allocatePayment(w http.ResponseWriter, r *http.Request) {
-	s, ok := h.requireOperator(w, r)
+	s, ok := h.requireSovereign(w, r, access.BillingCollect)
 	if !ok {
 		return
 	}
@@ -318,7 +319,7 @@ func (h *Handler) allocatePayment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) refundPayment(w http.ResponseWriter, r *http.Request) {
-	s, ok := h.requireOperator(w, r)
+	s, ok := h.requireSovereign(w, r, access.BillingCollect)
 	if !ok {
 		return
 	}
@@ -348,7 +349,7 @@ func (h *Handler) refundPayment(w http.ResponseWriter, r *http.Request) {
 // named, in that order, or every open invoice oldest due first. Explicit,
 // never implicit (DESIGN.md §9.5).
 func (h *Handler) applyCredit(w http.ResponseWriter, r *http.Request) {
-	s, ok := h.requireOperator(w, r)
+	s, ok := h.requireSovereign(w, r, access.BillingCollect)
 	if !ok {
 		return
 	}
@@ -380,9 +381,13 @@ func (h *Handler) applyCredit(w http.ResponseWriter, r *http.Request) {
 }
 
 // createPaymentIntent — POST /customers/{id}/payment-intents. The gateway
-// seam under the provider check (DESIGN.md §9.2).
+// seam under the provider check (DESIGN.md §9.2). This is the ONE money
+// write a customer may make on its own account (DESIGN.md §10,
+// account.topup): it asks the gateway to collect — nothing is booked until
+// the gateway confirms. An operator with billing.collect may request it on
+// the customer's behalf.
 func (h *Handler) createPaymentIntent(w http.ResponseWriter, r *http.Request) {
-	s, ok := h.requireOperator(w, r)
+	s, ok := h.requireAnyPermission(w, r, r.PathValue("id"), access.AccountTopup, access.BillingCollect)
 	if !ok {
 		return
 	}
@@ -435,7 +440,7 @@ func (h *Handler) listPaymentIntents(w http.ResponseWriter, r *http.Request) {
 
 // createCreditNote — POST /statements/{id}/credit-notes (DESIGN.md §9.3).
 func (h *Handler) createCreditNote(w http.ResponseWriter, r *http.Request) {
-	s, ok := h.requireOperator(w, r)
+	s, ok := h.requireSovereign(w, r, access.BillingIssue)
 	if !ok {
 		return
 	}
@@ -551,7 +556,7 @@ func (h *Handler) aging(w http.ResponseWriter, r *http.Request) {
 // runCollections — POST /collections/run: one evaluator pass now, so an
 // operator can see the outcome instead of waiting a day.
 func (h *Handler) runCollections(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.BillingCollect); !ok {
 		return
 	}
 	if h.Collections == nil {
@@ -594,7 +599,7 @@ func (h *Handler) resumeCustomer(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) enforce(w http.ResponseWriter, r *http.Request, action string) {
-	s, ok := h.requireOperator(w, r)
+	s, ok := h.requireSovereign(w, r, access.BillingCollect)
 	if !ok {
 		return
 	}

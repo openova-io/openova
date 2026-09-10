@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/openova-io/openova/products/chargeback/internal/access"
 	"github.com/openova-io/openova/products/chargeback/internal/anomaly"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
@@ -161,7 +162,7 @@ func (h *Handler) summaryAnomalies(ctx context.Context, scope store.Scope, custo
 func round6(f float64) float64 { return math.Round(f*1e6) / 1e6 }
 
 func (h *Handler) anomalies(w http.ResponseWriter, r *http.Request) {
-	s, ok := h.requireOperator(w, r)
+	s, ok := h.requireSovereign(w, r, access.MeteringRead)
 	if !ok {
 		return
 	}

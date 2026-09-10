@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/openova-io/openova/products/chargeback/internal/access"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
 
@@ -99,7 +100,7 @@ func (h *Handler) listDiscounts(w http.ResponseWriter, r *http.Request) {
 // listAllDiscounts is the operator's single place for every discount and
 // campaign across customers (DESIGN.md §2.6).
 func (h *Handler) listAllDiscounts(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.MeteringRead); !ok {
 		return
 	}
 	ds, err := h.Store.ListAllDiscounts(r.Context())
@@ -117,7 +118,7 @@ func (h *Handler) listAllDiscounts(w http.ResponseWriter, r *http.Request) {
 // principal must never be able to grant themselves one.
 func (h *Handler) createDiscount(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.RatingManage); !ok {
 		return
 	}
 	var in discountBody
@@ -136,7 +137,7 @@ func (h *Handler) createDiscount(w http.ResponseWriter, r *http.Request) {
 // createGlobalDiscount adds a discount for one customer (customer_id set) or
 // a campaign for every customer (customer_id null).
 func (h *Handler) createGlobalDiscount(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.RatingManage); !ok {
 		return
 	}
 	var in discountBody
@@ -169,7 +170,7 @@ func (h *Handler) storeDiscount(w http.ResponseWriter, r *http.Request, in disco
 }
 
 func (h *Handler) getDiscount(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.MeteringRead); !ok {
 		return
 	}
 	d, err := h.Store.GetDiscount(r.Context(), r.PathValue("id"))
@@ -182,7 +183,7 @@ func (h *Handler) getDiscount(w http.ResponseWriter, r *http.Request) {
 
 // updateDiscount replaces every field (PUT). Same validation as create.
 func (h *Handler) updateDiscount(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.RatingManage); !ok {
 		return
 	}
 	var in discountBody
@@ -222,7 +223,7 @@ func (h *Handler) updateDiscount(w http.ResponseWriter, r *http.Request) {
 // frozen breakdown; prefer PATCH active=false when the campaign should stay
 // visible in the list.
 func (h *Handler) deleteDiscount(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.RatingManage); !ok {
 		return
 	}
 	id := r.PathValue("id")
@@ -244,7 +245,7 @@ func (h *Handler) deleteDiscount(w http.ResponseWriter, r *http.Request) {
 // affected) or `stackable` (DESIGN.md §2.11). One flag per call, so the
 // list's inline checkboxes cannot clobber each other.
 func (h *Handler) setDiscountActive(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.RatingManage); !ok {
 		return
 	}
 	var in struct {
