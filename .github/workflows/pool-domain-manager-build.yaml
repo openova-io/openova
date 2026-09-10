@@ -40,7 +40,7 @@ jobs:
         run: echo "sha_short=$(echo $GITHUB_SHA | head -c 7)" >> "$GITHUB_OUTPUT"
 
       - name: Set up Go (for unit tests)
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: '1.23'
           cache-dependency-path: core/pool-domain-manager/go.sum
