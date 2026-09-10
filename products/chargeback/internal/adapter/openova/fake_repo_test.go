@@ -25,6 +25,8 @@ type fakeRepo struct {
 	usage     map[string]store.UsageRecord // source|resource|sku|window_start
 	planBook  *store.PriceBook             // the "OpenOva plans" book once ensured
 	planCalls int                          // EnsurePlanBook invocations
+	paygBook  *store.PriceBook             // the "Organization PAYG" book once ensured
+	paygCalls int                          // EnsurePAYGBook invocations
 	retired   []string                     // RetireOrganizationCustomer calls
 }
 
@@ -157,15 +159,23 @@ func (f *fakeRepo) SetSourcePriceBook(_ context.Context, sourceID, bookID string
 		s.PriceBookID, s.PriceBookName = nil, ""
 		return nil
 	}
-	// The fake knows one book — the plan book — plus any id a test assigns
-	// by hand; the plan book is platform-scoped like the real one.
-	if f.planBook != nil && bookID == f.planBook.ID && s.Layer != store.LayerPlatform {
-		return fmt.Errorf("%w: price book scope platform does not match source layer %s", store.ErrInvalid, s.Layer)
+	// The fake knows the two platform books the Organization sync owns — the
+	// plans book and the pay-per-use book — plus any id a test assigns by
+	// hand. Both are platform-scoped like the real ones, so assigning either
+	// to a cloud source is refused exactly as the store refuses it.
+	name := ""
+	for _, b := range []*store.PriceBook{f.planBook, f.paygBook} {
+		if b != nil && bookID == b.ID {
+			if s.Layer != store.LayerPlatform {
+				return fmt.Errorf("%w: price book scope platform does not match source layer %s", store.ErrInvalid, s.Layer)
+			}
+			name = b.Name
+		}
 	}
 	v := bookID
 	s.PriceBookID = &v
-	if f.planBook != nil && bookID == f.planBook.ID {
-		s.PriceBookName = f.planBook.Name
+	if name != "" {
+		s.PriceBookName = name
 	} else {
 		s.PriceBookName = bookID
 	}
@@ -294,8 +304,20 @@ func (f *fakeRepo) EnsurePlanBook(_ context.Context) (store.PriceBook, bool, err
 	if f.planBook != nil {
 		return *f.planBook, false, nil
 	}
-	pb := &store.PriceBook{ID: f.nextID("book"), Name: store.PlanBookName, Currency: "OMR", AnnualDivisor: store.PlanBookDivisor, BillStopped: "compute", Items: store.PlanBookItems()}
+	pb := &store.PriceBook{ID: f.nextID("book"), Name: store.PlanBookName, Scope: store.LayerPlatform, Currency: "OMR", AnnualDivisor: store.PlanBookDivisor, BillStopped: "compute", Description: store.PlanBookDescription, Items: store.PlanBookItems()}
 	f.planBook = pb
+	return *pb, true, nil
+}
+
+func (f *fakeRepo) EnsurePAYGBook(_ context.Context) (store.PriceBook, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.paygCalls++
+	if f.paygBook != nil {
+		return *f.paygBook, false, nil
+	}
+	pb := &store.PriceBook{ID: f.nextID("book"), Name: store.PAYGBookName, Scope: store.LayerPlatform, Currency: "OMR", AnnualDivisor: store.PAYGBookDivisor, BillStopped: "compute", Description: store.PAYGBookDescription, Items: store.PAYGBookItems()}
+	f.paygBook = pb
 	return *pb, true, nil
 }
 

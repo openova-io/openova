@@ -9,7 +9,7 @@ import { BookSettingsModal, CloneBookModal, DeleteBookConfirm, billStoppedLabel,
 import { KPI, Notice, PageHeader, Segmented, ShareBar, Skeleton } from '../components/ui'
 import { day } from '../lib/format'
 import { formatPct } from '../lib/money'
-import { booksInScope, layerLabel, scopeCounts, scopeOf } from '../lib/layers'
+import { BOOK_ROLES, bookRole, booksInScope, layerLabel, scopeCounts, scopeOf } from '../lib/layers'
 import { useCustomers } from '../lib/useCustomers'
 import { useQuery } from '../lib/useQuery'
 
@@ -92,12 +92,22 @@ export function PriceBooks() {
       key: 'name',
       header: 'Name',
       value: (r) => r.name,
-      render: (r) => (
-        <>
-          <Link to={`/pricebooks/${r.id}`}>{r.name}</Link>
-          <span className="sub">created {day(r.created_at)}</span>
-        </>
-      ),
+      render: (r) => {
+        // Two platform books look alike in a list: one prices the committed
+        // plan line, the other prices the meters a flexi Organization pays.
+        // The role says which, and its help says why the other one does not
+        // price the same SKUs.
+        const role = bookRole(r)
+        return (
+          <>
+            <Link to={`/pricebooks/${r.id}`}>{r.name}</Link>
+            <span className="sub">
+              {role ? <span title={BOOK_ROLES[role].help}>{BOOK_ROLES[role].label} · </span> : null}
+              created {day(r.created_at)}
+            </span>
+          </>
+        )
+      },
     },
     {
       key: 'scope',
@@ -224,7 +234,10 @@ export function PriceBooks() {
             ariaLabel="Price book scope filter"
           />
         </div>
-        <span className="muted small">A cloud book prices cloud SKUs; a platform book prices plans, and the k8s meters only when they are sold per use.</span>
+        <span className="muted small">
+          A cloud book prices cloud SKUs. The two platform books are the two ways an Organization is billed: <strong>{BOOK_ROLES.plans.label}</strong> prices the flat plan line an S / M / L / XL Organization pays, and{' '}
+          <strong>{BOOK_ROLES.payg.label}</strong> prices the k8s meters an uncapped flexi Organization pays instead. Neither prices what the other does, so nothing is billed twice.
+        </span>
       </div>
 
       <div className="card pad-0">

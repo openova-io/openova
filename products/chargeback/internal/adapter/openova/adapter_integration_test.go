@@ -173,9 +173,29 @@ func TestIntegrationPlanLineAgainstStore(t *testing.T) {
 	if err != nil || book.Name != store.PlanBookName || book.Scope != store.LayerPlatform || len(book.Items) != 4 {
 		t.Fatalf("assigned book = %+v err=%v", book, err)
 	}
+	// Both platform books exist after a sync — the plans book and the
+	// pay-per-use book a flexi Organization would be billed by (§2.9a) — and
+	// two syncs create each exactly once.
 	books, err := st.ListPriceBooks(ctx)
-	if err != nil || len(books) != 1 {
-		t.Fatalf("books after two syncs = %d err=%v, want the one plan book", len(books), err)
+	if err != nil || len(books) != 2 {
+		t.Fatalf("books after two syncs = %d err=%v, want the two platform books", len(books), err)
+	}
+	names := map[string]string{}
+	for _, b := range books {
+		if b.Scope != store.LayerPlatform {
+			t.Fatalf("book %q has scope %q, want platform", b.Name, b.Scope)
+		}
+		names[b.Name] = b.ID
+	}
+	if names[store.PlanBookName] == "" || names[store.PAYGBookName] == "" {
+		t.Fatalf("books = %+v, want %q and %q", books, store.PlanBookName, store.PAYGBookName)
+	}
+	if *srcs[0].PriceBookID != names[store.PlanBookName] {
+		t.Fatalf("the plan m Organization is on %v, want the plans book %s", srcs[0].PriceBookID, names[store.PlanBookName])
+	}
+	payg, err := st.GetPriceBook(ctx, names[store.PAYGBookName])
+	if err != nil || len(payg.Items) != 3 {
+		t.Fatalf("pay-per-use book = %+v err=%v, want the three platform meters priced", payg, err)
 	}
 
 	// The collector, 90 minutes after the customer was first synced: the

@@ -62,21 +62,53 @@ idempotent per `(source, resource, sku, window_start)`:
 | `plan.<slug>` | plan-hour | 1 while the Organization is active on plan `s`/`m`/`l`/`xl` (`flexi` = pay per use, no line); `resource_kind=plan`, labels `{name, plan}` |
 
 Every row above lands on the Organization's `openova-org` **platform source**,
-which the Organization sync puts on the platform-scoped "OpenOva plans" book.
+which the Organization sync puts on one of the two platform-scoped books below.
 The Sovereign's own footprint (namespaces with no Organization label) lands on
 the **internal** `openova-platform` source instead: no customer, never billed,
 read only by the allocation report.
 
 One `cost_source` of kind `openova-org` is auto-created per Organization;
-records land on it, source kind `openova-org` (the request is the
-entitlement the plan quota enforces, so the request is what is billed).
-The `plan.<slug>` line is what the Organization actually pays (DESIGN.md
-§2.8 "Plan revenue"): it is priced by the **"OpenOva plans"** book OrgSync
-creates once when absent (OMR, divisor 8760; `plan.s` 60/yr, `plan.m` 108,
-`plan.l` 192, `plan.xl` 360 — monthly × 12, so a plan-hour is monthly / 730;
-`k8s.*` deliberately unpriced) and assigns to every tenant Organization
-customer that has no book. It is never re-created, re-priced or re-assigned
-over an operator's choice.
+records land on it, source kind `openova-org` (the request is the entitlement
+the plan quota enforces, so the request is what is billed).
+
+**Two platform billing shapes, never both** (DESIGN.md §2.9 / §2.9a). OrgSync
+creates both books when absent, never re-creates or re-prices them, and points
+each Organization's source at the one its plan calls for — re-pointing when the
+plan changes between flexi and a sized plan, and never overruling a book an
+operator assigned. The two books price **disjoint** SKUs, so nothing is billed
+twice.
+
+**"OpenOva plans"** — the committed plans (`s`/`m`/`l`/`xl`). OMR, divisor 8760;
+annual = monthly × 12, so a plan-hour is monthly / 730:
+
+| SKU | Unit | OMR/month | Annual | Unit price |
+|---|---|---|---|---|
+| `plan.s` | plan-hour | 5 | 60 | `0.00684932` |
+| `plan.m` | plan-hour | 9 | 108 | `0.01232877` |
+| `plan.l` | plan-hour | 16 | 192 | `0.02191781` |
+| `plan.xl` | plan-hour | 30 | 360 | `0.04109589` |
+
+`k8s.vcpu` / `k8s.mem_gb` / `k8s.pvc_gb` are deliberately unpriced here: under a
+plan they are the allocation basis, not the bill.
+
+**"Organization PAYG"** — pay per use, for the uncapped `flexi` plan, which has
+no bundle to sell and carries no `plan.<slug>` line at all. Rates are derived
+from the plan ladder: per unit of (1 vCPU + 2 GiB) the sized plans cost 2.50 /
+2.25 / 2.00 / 1.875 OMR per month, and pay per use — which commits to nothing —
+is the entry rung plus 10 %, i.e. **2.75 per unit-month**, split 2.00 per vCPU
+and 0.375 per GiB. Storage is set against cost instead, ~31 % above the
+0.00022831 OMR per GB-hour the cloud charges for the SSD underneath:
+
+| SKU | Unit | OMR/month | Annual | Unit price |
+|---|---|---|---|---|
+| `k8s.vcpu` | vcpu-hour | 2.000 per vCPU | 24.000 | `0.00273973` |
+| `k8s.mem_gb` | gib-hour | 0.375 per GiB | 4.500 | `0.00051370` |
+| `k8s.pvc_gb` | gb-hour | 0.219 per GB | 2.628 | `0.00030000` |
+
+A flexi Organization on 4 vCPU + 8 GiB around the clock pays ≈ 11 OMR/month
+against 9 for the committed M plan of the same shape, and near zero while idle.
+The full derivation is written onto each book's `description`, where the
+operator can read it before changing a rate.
 
 **Billing hook (D6).** Off unless `BILLING_HOOK_URL` is set. After
 `POST /statements/{id}/issue` for a customer with `kind=organization` and
