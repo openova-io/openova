@@ -3,6 +3,7 @@ package synth
 import (
 	"math"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -21,10 +22,54 @@ type Rate struct {
 // UnitPrice is the per-hour rate at the 8 decimals price_items carry.
 func (r Rate) UnitPrice() float64 { return math.Round(r.Annual/AnnualDivisor*1e8) / 1e8 }
 
-// CloudBookName is the National Cloud rate card the seeding command assigns
-// to the cloud-layer sources. It is looked up by name and only created when
-// absent — on hw307 it exists (imported in the 2026-08-31 walk).
+// CloudBookName is the name earlier versions of the seeding command CREATED
+// for the cloud-layer sources, and it is now only ever reused, never made.
+//
+// Making it was the defect (founder, hw307, 2026-09-10). The operator's own
+// card on that Sovereign is called "National Cloud 2026 list" and carries 134
+// items; the seeder made "National Cloud list 2026" with the nine below. One
+// word apart, and NOT equivalent: nat.1 was 0.11322489 against the operator's
+// 0.06037935 — nearly double — bill_stopped was `compute` against `none`, and
+// several other rates differ in the last digits because the two were derived
+// independently. The showcase was therefore priced from a different rate card
+// than the real customer sitting next to it in the same console, so the demo
+// was not comparing like with like.
+//
+// The command now RESOLVES a book (cmd/seed-history/book.go) and creates one
+// only when nothing can be resolved — under ShowcaseCloudBookName, which no
+// operator would mistake for their own.
 const CloudBookName = "National Cloud list 2026"
+
+// ShowcaseCloudBookName is what the command calls a cloud book it has to
+// create because the Sovereign has none to borrow. It says who made it, so a
+// later reader never has to guess whether it is the operator's card.
+const ShowcaseCloudBookName = "Showcase cloud rates (seed-history)"
+
+// SeederCloudBookNames are the cloud-book names this tool has ever created.
+// Only a book named one of these may be repaired away: never a book the
+// seeder did not make.
+func SeederCloudBookNames() []string { return []string{ShowcaseCloudBookName, CloudBookName} }
+
+// IsSeederCloudBookName reports whether name is one of them (case-insensitive,
+// trimmed: a book list is operator input).
+func IsSeederCloudBookName(name string) bool {
+	name = strings.ToLower(strings.TrimSpace(name))
+	for _, n := range SeederCloudBookNames() {
+		if name == strings.ToLower(n) {
+			return true
+		}
+	}
+	return false
+}
+
+// CloudBookNamePattern matches the rate cards an operator of a National Cloud
+// Sovereign names their own — "National Cloud 2026 list", "national cloud
+// list 2026", "National Cloud (Duqm) list". Word order and case vary, so the
+// two words are matched independently and in either order.
+func LooksLikeNationalCloudBook(name string) bool {
+	n := strings.ToLower(name)
+	return strings.Contains(n, "national") && strings.Contains(n, "cloud")
+}
 
 // NationalCloudRates are the National Cloud list prices in OMR per year for
 // the SKUs the showcase meters. The eight hourly rates below reproduce, to

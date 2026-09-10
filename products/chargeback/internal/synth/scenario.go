@@ -58,6 +58,16 @@ func (b builder) ip(name string) string {
 	return fmt.Sprintf("185.203.%d.%d", 16+h%64, 1+(h>>8)%250)
 }
 
+// omanIP is the address shape of the Sovereign's OWN elastic IPs on the
+// National Cloud: 212.72.24.0/21, the block the platform's own bastion sits
+// in. The host octet starts at 30 so a generated address can never collide
+// with 212.72.24.20 (the bastion), which is real infrastructure and must not
+// appear in synthetic data.
+func (b builder) omanIP(name string) string {
+	h := Hash64(b.seed, b.slug, "oman-ip", name)
+	return fmt.Sprintf("212.72.%d.%d", 24+h%8, 30+(h>>8)%200)
+}
+
 func azOf(region string, idx int) string { return fmt.Sprintf("%s-az%d", region, 1+idx%2) }
 
 // ecs is one Elastic Cloud Server; active decides whether it runs in hour t

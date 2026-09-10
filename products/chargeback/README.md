@@ -324,11 +324,12 @@ sources on "OpenOva plans"):
 | Sohar Ports Analytics | platform | plan M throughout, nightly ETL peaks, suspended 18–24 July (no pods, plan still billed) |
 | Salalah Tourism Board | platform | plan XL June–July, downgraded to M in August |
 
-Plus a global 5 % "launch" campaign for June. Every customer is decommissioned
-before the window closes — usage stops, resources are marked deleted, the
-customer goes `suspended` and the reason is written to its audit trail — so
-**from 2 September only the real data is there** and the showcase customers
-read as having been moved off or shut down.
+Plus a global 5 % "launch" campaign for June. Every one of the six is
+decommissioned before the window closes — usage stops, resources are marked
+deleted, the customer goes `suspended` and the reason is written to its audit
+trail — so **from 2 September only the real data is there** and they read as
+having been moved off or shut down. What carries the series across that join is
+the landlord backfill described below.
 
 Everything the API can express goes through the API as the operator, so the
 product's own validation, auditing and upsert rules apply. The usage ledger,
@@ -340,9 +341,13 @@ collectors use — which is why `--dsn` is required.
 and budgets `demo: *`, and every usage record and inventory row carries
 `{"synthetic":"true"}`. `--purge` removes exactly those rows — measured against
 a control: a real customer named `acmewalk307`, a real discount literally named
-`demo` and a real budget named `demonstration cap` all survive it. Price books
-are never removed: `"National Cloud list 2026"` and `"OpenOva plans"` are
-shared with real customers and are never created over, re-priced or deleted.
+`demo` and a real budget named `demonstration cap` all survive it. The source
+name is a selector in its own right, not merely a label: the landlord backfill
+hangs off a REAL customer, so a purge that reached sources only through the
+customer slug would strand three months of synthetic rows on a live ledger.
+Price books are never removed: `"National Cloud list 2026"` and `"OpenOva
+plans"` are shared with real customers and are never created over, re-priced or
+deleted.
 
 ```bash
 # Preview the plan and the totals — no service, no database, nothing written.
@@ -368,7 +373,52 @@ go run ./cmd/seed-history --purge --dsn "$DSN"
 Flags: `--base-url`, `--forward-auth-email` (header name from
 `TRUSTED_FORWARD_AUTH_HEADER`) or `--session-cookie`, `--dsn`, `--from`,
 `--to` (exclusive), `--seed` (default 2026 — the same seed always produces the
-same bytes), `--dry-run`, `--purge`, `--only <slug>`.
+same bytes), `--dry-run`, `--purge`, `--only <slug>`,
+`--landlord <slug>` (default `hw307-omani-works`, empty disables),
+`--landlord-until <RFC3339>` (default: discovered from the ledger) and
+`--cloud-book <name or id>` (default: resolved, see below).
+
+### Which rate card the showcase is priced from
+
+The command **borrows a rate card, it does not mint one**. Minting was a
+defect: on hw307 it created `"National Cloud list 2026"` with nine rates while
+the operator's own `"National Cloud 2026 list"` — 134 items — was already
+there. One word apart, and not equivalent: `nat.1` was `0.11322489` against the
+operator's `0.06037935`, `bill_stopped` `compute` against `none`, and several
+rates differed in the last digits because the two cards were derived
+independently. The showcase was priced from one card and the real customer
+beside it from the other, so the demo was not comparing like with like.
+
+Resolution order, logged with the reason on every run:
+
+1. `--cloud-book <name or id>` — the operator overrides everything.
+2. **The card the landlord's own cloud source is billed on.** The principled
+   default: the showcase exists to be compared against the Sovereign's real
+   usage, so it must carry the same rates.
+3. The one cloud-scope book whose name reads as a National Cloud card. Two
+   such cards is ambiguous and the run stops rather than guess.
+4. A card an earlier `seed-history` run made — reused, never duplicated.
+5. Only if none of those resolve: create
+   `"Showcase cloud rates (seed-history)"`, a name no operator would mistake
+   for their own.
+
+`"OpenOva plans"` is unchanged: the platform book is still the product's own
+`EnsurePlanBook`.
+
+**Repairing a database that already has the duplicate.** When a card an earlier
+run made is still there and a different one resolves, the run re-points every
+showcase cloud source and customer onto the resolved card, **drops the showcase
+statements rated on the old one** so they are regenerated, and then removes the
+duplicate. The delete is refused — loudly, and the book left in place — if any
+source, any customer or any issued statement still uses it, and only a card
+this tool is known to have made is ever a candidate. `--purge` is unchanged: it
+never removes an operator's book.
+
+Because the showcase moves onto the operator's rates, **its historical figures
+shift**, and the run says so in as many words. Measured on the scratch database
+that reproduced the hw307 state: three sources re-pointed, eighteen statements
+dropped and re-rated, the duplicate removed, and Gulf Retail's June moved from
+1,414.14 to 1,376.19 OMR.
 
 Re-running is safe: usage upserts on `(source, resource, sku, window_start)`,
 customers and sources are matched by slug and name, and an already-issued
@@ -379,6 +429,80 @@ The generators live in `internal/synth` and are pure — no HTTP, no SQL — so
 the patterns, the scaling events, the migration, the spike and the plan
 switches are unit-tested directly, including that the 22 August spike is
 flagged by the product's own `internal/anomaly` rule at z ≥ 3.
+
+### The landlord backfill — continuity across the join
+
+The six customers above were, at first, the only history there was, and the
+overview chart said so in two ways the founder caught immediately: 1 September
+was an **empty bucket** (the showcase stops at midnight on the 1st, the real
+collection on hw307 begins at 10:21:09 on the 2nd), and the series **jumped**
+from about 150 OMR a day of showcase customers straight to about 594 OMR a day
+of real usage in an entirely different service mix, as though the platform had
+sprung into existence fully formed.
+
+`--landlord <slug>` closes both. It gives the Sovereign's own landlord
+customer — a REAL customer, `hw307-omani-works` by default — a synthetic past
+that grows into the shape its real usage actually has, and stops one hour
+before the first real record:
+
+| SKU | at the start (1 June) | 1 July | 1 August | measured end state |
+|---|---|---|---|---|
+| `ecs.m7n.2xlarge.8` | 6 | 8 | 10 | 10 × 1 instance-hour |
+| `ecs.m7n.xlarge.8` | 2 | 2 | 2 | 2 × 1 instance-hour |
+| `eip` | 4 | 5 | 6 | 6 × 1 hour |
+| `eip.bandwidth_mbps` | 2 × 300 + 2 × 100 | + one 100 | + one 300 | 3 × 300 + 3 × 100 = 1,200 Mbps |
+| `evs.ssd.gb` | 70 volumes, 1,400 GB | — grows — | — grows — | 102 volumes, 2,281 GB |
+| `nat.1` | 2 | 2 | 2 | 2 × 1 hour |
+| `elb` | 2 | 2 | 2 | 2 × 1 hour |
+
+That end state prices at **596.63 OMR a day** at the rates in `internal/synth`
+— 494.40 of it EIP bandwidth — against the 594.10 a real day rated on hw307, a
+seam 0.43 % wide. `TestLandlordSeamMatchesTheMeasuredRealDay` fails if it ever
+opens past 2 %. The whole 2.54 OMR of it is `nat.1`: the walked August book
+priced it at 0.11322489 an hour and the operator's own card at 0.06037935. On
+a live Sovereign that gap does not exist at all, because the command prices the
+backfill from the operator's card — measured end to end, the last synthetic day
+and the first real day are both **594.09 OMR**, a 0.00 % seam.
+
+**Everything above is a reservation, not traffic.** An EIP is billed for the
+bandwidth it has *provisioned* whether or not a byte flows — which is why
+bandwidth is 83 % of the bill — so its quantity is constant per EIP per hour
+and steps only on the two days an EIP is added. The same holds for the EIP
+itself, the NAT gateways, the load balancers and the instance-hours, and for
+each volume's size. The only thing that drifts is the storage **total**, and it
+drifts because volumes are created, not because a size wobbles. Jittering any
+of them would make the data contradict the billing model it exists to
+illustrate; three tests pin it.
+
+Where it writes, and what it refuses to write:
+
+- **The customer is never created or edited.** It is found by slug and read.
+  If there is no such customer the backfill is skipped with a log line, not
+  forced. Measured: the customer row is byte-identical after a run.
+- **No statements.** Usage and inventory only — the landlord's statements are
+  the operator's business, and issuing one over invented data would put a bill
+  in front of somebody.
+- **Its own source**, `demo-<slug>-history`, carrying the same price book as
+  the customer's real cloud source (looked up; the run fails naming what it
+  found if there is not exactly one). Same customer means the explorer grouped
+  by customer draws ONE continuous series; a separate source means `--purge`
+  removes exactly the backfill.
+- **Resources are handed over alive.** A machine still metering in the last
+  hour did not go away, so it gets no `deleted_at` — unlike every showcase
+  resource, which is decommissioned before its window closes.
+
+The cut is discovered, not assumed: the earliest non-synthetic
+`usage_records.window_start` for that customer, truncated to the hour.
+`--landlord-until <RFC3339>` overrides it; `--landlord ''` disables the
+backfill; `--only landlord` runs it alone.
+
+Measured end to end on a scratch Postgres (the `chargeback-e2e` workflow's
+shape, with control rows for the real half): the daily series has **no empty
+day** across all 98 days from 1 June to 6 September, and the landlord's last
+synthetic day and first full real day are both 596.63 OMR — a 0.00 % seam. A
+purge then removed 545,274 synthetic usage rows, 257 inventory rows and 7
+sources while leaving the landlord customer, its real source and all 14,300
+real rows in place.
 
 ## Operational notes
 

@@ -34,6 +34,13 @@ type purgeCounts struct {
 //   - anything whose slug, name or label does not carry the mark, however
 //     demo-looking it is. "demo", "demonstration" and "hw307-demo" all
 //     survive, by test.
+//   - the LANDLORD customer itself and everything of its own: its real cloud
+//     source, its real usage, and any statement or rated line it has. The
+//     backfill (landlord.go) writes only usage, inventory and one demo- source
+//     onto a real customer, so that is exactly what comes back off. A
+//     statement the operator issued over that window is a financial record and
+//     stands; rated_lines.source_id is ON DELETE SET NULL, so removing the
+//     backfill source cannot break one.
 //
 // Statements are deleted directly rather than through DELETE /customers/{id},
 // which refuses while an issued statement exists. That guard protects real
@@ -64,7 +71,14 @@ func purge(ctx context.Context, db *sql.DB) (purgeCounts, error) {
 		// which belongs to no customer, is removed too.
 		{"discounts", `DELETE FROM discounts WHERE ` + synth.SQLNamePredicate, &c.Discounts},
 		{"budgets", `DELETE FROM budgets WHERE ` + synth.SQLNamePredicate, &c.Budgets},
-		{"sources", `DELETE FROM cost_sources WHERE customer_id IN (` + synthCustomers + `)`, &c.Sources},
+		// Sources are reached two ways. A showcase customer's sources go with
+		// the customer. The LANDLORD backfill's source hangs off a REAL
+		// customer, so it is reached by its own demo- name instead — without
+		// that clause a purge would strand three months of synthetic rows on
+		// a live ledger. `NOT internal` keeps the Sovereign's own platform
+		// source out of reach whatever it is called.
+		{"sources", `DELETE FROM cost_sources WHERE customer_id IN (` + synthCustomers + `)
+			OR (NOT internal AND ` + synth.SQLSourcePredicate + `)`, &c.Sources},
 		// audit_log.customer_id carries NO foreign key, so deleting the
 		// customer does NOT cascade to it — measured: a purge left 111 audit
 		// rows pointing at customers that no longer existed. They have to go

@@ -17,10 +17,19 @@
 // no endpoint — the collectors write them — so those go through the same
 // store package the collectors use, which is why --dsn is required.
 //
+// It also backfills the Sovereign's own LANDLORD customer (--landlord, see
+// landlord.go): a real customer given a synthetic past that converges on the
+// shape its real usage actually has and stops one hour before its first real
+// record. Without it the daily chart had an empty bucket on 1 September and
+// then jumped from the showcase customers straight to full real usage, which
+// is the founder's 2026-09-10 defect: "step 1st is empty and the actual usage
+// was already there from the beginning, you failed to show the continuity".
+//
 // Every row it writes is marked and removable: customers and sources are
 // named demo-*, discounts and budgets "demo: *", and every usage record and
 // inventory row carries {"synthetic":"true"}. --purge removes exactly those
-// rows and nothing else.
+// rows and nothing else — including the landlord's backfill source, which is
+// reached by its own demo- name because its customer is real.
 package main
 
 import (
@@ -44,17 +53,24 @@ import (
 func jsonMarshal(v any) ([]byte, error) { return json.Marshal(v) }
 
 type options struct {
-	baseURL      string
-	forwardEmail string
-	authHeader   string
-	sessionToken string
-	dsn          string
-	from, to     string
-	seed         uint64
-	dryRun       bool
-	doPurge      bool
-	only         string
+	baseURL       string
+	forwardEmail  string
+	authHeader    string
+	sessionToken  string
+	dsn           string
+	from, to      string
+	seed          uint64
+	dryRun        bool
+	doPurge       bool
+	only          string
+	landlord      string
+	landlordUntil string
+	cloudBook     string
 }
+
+// landlordOnly is what --only takes to seed the landlord backfill alone,
+// besides the landlord's own slug.
+const landlordOnly = "landlord"
 
 func main() {
 	log.SetFlags(0)
@@ -69,7 +85,10 @@ func main() {
 	flag.Uint64Var(&o.seed, "seed", synth.DefaultSeed, "random seed; the same seed always produces the same data")
 	flag.BoolVar(&o.dryRun, "dry-run", false, "print the plan and the totals, write nothing")
 	flag.BoolVar(&o.doPurge, "purge", false, "remove everything seed-history created, and nothing else")
-	flag.StringVar(&o.only, "only", "", "seed one customer only (slug, with or without the demo- prefix)")
+	flag.StringVar(&o.only, "only", "", "seed one customer only (slug, with or without the demo- prefix, or \""+landlordOnly+"\")")
+	flag.StringVar(&o.landlord, "landlord", synth.LandlordDefaultSlug, "slug of the EXISTING landlord customer to backfill a converging past for; empty disables the backfill")
+	flag.StringVar(&o.landlordUntil, "landlord-until", "", "exclusive end of the landlord backfill, RFC3339 (default: the hour before that customer's first real usage record)")
+	flag.StringVar(&o.cloudBook, "cloud-book", "", "name or id of the cloud rate card to price the showcase from (default: the card the landlord's own cloud source is billed on, else the Sovereign's National Cloud card)")
 	flag.Parse()
 
 	if err := run(o); err != nil {
@@ -87,17 +106,29 @@ func run(o options) error {
 	}
 	sc := synth.DefaultScenario(window, o.seed)
 
+	landlordSlug := strings.ToLower(strings.TrimSpace(o.landlord))
+	landlordUntil, err := parseLandlordUntil(o.landlordUntil)
+	if err != nil {
+		return err
+	}
+	doLandlord := landlordSlug != ""
+
 	customers := sc.Customers
 	if o.only != "" {
-		c := sc.Customer(o.only)
-		if c == nil {
-			return fmt.Errorf("--only %q names no showcase customer; known: %s", o.only, strings.Join(slugs(sc.Customers), ", "))
+		only := strings.ToLower(strings.TrimSpace(o.only))
+		if doLandlord && (only == landlordOnly || only == landlordSlug) {
+			customers = nil
+		} else {
+			c := sc.Customer(o.only)
+			if c == nil {
+				return fmt.Errorf("--only %q names no showcase customer; known: %s, %s", o.only, strings.Join(slugs(sc.Customers), ", "), landlordOnly)
+			}
+			customers, doLandlord = []*synth.Customer{c}, false
 		}
-		customers = []*synth.Customer{c}
 	}
 
 	if o.dryRun {
-		return dryRun(sc, customers)
+		return dryRun(sc, customers, landlordSlug, landlordUntil, doLandlord)
 	}
 
 	// --purge needs only the database: it is a delete, and the API has no
@@ -152,7 +183,25 @@ func run(o options) error {
 			needPlan = true
 		}
 	}
-	if err := s.ensureBooks(needCloud, needPlan); err != nil {
+	// The cloud rate card is RESOLVED, not minted: the showcase must be priced
+	// off the same card as the Sovereign's own usage or the two halves of the
+	// console are not comparable. The landlord's own card is the default, so
+	// it is looked up before the books are settled.
+	landlordBookID := ""
+	if doLandlord {
+		landlordBookID = s.landlordCloudBookID(landlordSlug)
+	}
+	if err := s.ensureBooks(needCloud, needPlan, o.cloudBook, landlordBookID); err != nil {
+		return err
+	}
+	if landlordBookID != "" && s.cloudBook.ID != "" && s.cloudBook.ID != landlordBookID {
+		log.Printf("note: the showcase is priced from %q while the landlord is billed on another card; the two halves of the console will not be comparable", s.cloudBook.Name)
+	}
+
+	// Move a database an earlier run left on a duplicate card, and drop the
+	// bills it rated there, BEFORE the statements below are run again.
+	_, rerated, err := s.repointShowcase(s.cloudBook.ID)
+	if err != nil {
 		return err
 	}
 
@@ -161,7 +210,7 @@ func run(o options) error {
 		return err
 	}
 
-	results := make([]result, 0, len(customers))
+	results := make([]result, 0, len(customers)+1)
 	start := time.Now()
 	for _, c := range customers {
 		r, err := s.apply(c)
@@ -170,19 +219,81 @@ func run(o options) error {
 		}
 		results = append(results, r)
 	}
+
+	// The landlord backfill runs last and reaches furthest: it ends one hour
+	// before the customer's first real record, not at the showcase window's
+	// close, so it is what closes the 1 September hole and joins the six
+	// showcase customers to the real collection.
+	summaryWindow := sc.Window
+	if doLandlord {
+		r, found, err := s.applyLandlord(landlordSlug, landlordUntil)
+		if err != nil {
+			return err
+		}
+		if !found {
+			log.Printf("landlord backfill skipped: no customer with slug %q on this database (pass --landlord <slug>, or --landlord '' to stop looking)", landlordSlug)
+		} else {
+			results = append(results, r)
+			if to := landlordEnd(r); to.After(summaryWindow.To) {
+				summaryWindow.To = to
+			}
+		}
+	}
+	// Last: the duplicate rate cards an earlier run left behind. By now every
+	// row this tool owns has moved onto the resolved card, so anything still
+	// pointing at a duplicate belongs to somebody else and stops the delete.
+	if err := s.dropDuplicateBooks(); err != nil {
+		return err
+	}
+
 	log.Printf("done in %s", time.Since(start).Round(time.Second))
-	printSummary(results, sc.Window)
+	printSummary(results, summaryWindow)
+	if rerated {
+		log.Printf("the showcase moved onto %q, so the OMR figures above are NOT the ones this database held before: every showcase month was re-rated on the operator's own rates.",
+			s.cloudBook.Name)
+	}
 	return nil
+}
+
+// landlordEnd is the last month the backfill wrote into, as an exclusive
+// window end, so the summary table grows the column the backfill needs.
+func landlordEnd(r result) time.Time {
+	var last time.Time
+	for period := range r.Months {
+		if _, end, err := synth.MonthBounds(period); err == nil && end.After(last) {
+			last = end
+		}
+	}
+	return last
+}
+
+// parseLandlordUntil reads --landlord-until. Zero means "discover it from the
+// customer's own ledger", which is the default and the only value that can be
+// trusted to sit exactly one hour before the real data.
+func parseLandlordUntil(s string) (time.Time, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return time.Time{}, nil
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("--landlord-until: %q is not RFC3339", s)
+	}
+	t = t.UTC()
+	if !t.Equal(t.Truncate(time.Hour)) {
+		return time.Time{}, fmt.Errorf("--landlord-until: %s is not a whole hour; the backfill writes hourly rows and must stop on an hour boundary", s)
+	}
+	return t, nil
 }
 
 // dryRun prints what would be written, with the totals computed from the
 // product's own rates, and touches nothing.
-func dryRun(sc *synth.Scenario, customers []*synth.Customer) error {
+func dryRun(sc *synth.Scenario, customers []*synth.Customer, landlordSlug string, landlordUntil time.Time, doLandlord bool) error {
 	prices := synth.Prices(synth.NationalCloudRates, synth.PlanRates)
 	log.Printf("DRY RUN — nothing is written")
 	log.Printf("window %s .. %s (exclusive); seed %d",
 		sc.Window.From.Format(time.RFC3339), sc.Window.To.Format(time.RFC3339), sc.Seed)
-	results := make([]result, 0, len(customers))
+	results := make([]result, 0, len(customers)+1)
 	for _, c := range customers {
 		out := sc.Generate(c)
 		r := result{
@@ -196,8 +307,41 @@ func dryRun(sc *synth.Scenario, customers []*synth.Customer) error {
 		r.Statements = len(sc.Months(c))
 		results = append(results, r)
 	}
-	printSummary(results, sc.Window)
+
+	summaryWindow := sc.Window
+	if doLandlord {
+		until := landlordUntil
+		if until.IsZero() {
+			// A dry run has no database to ask, so it shows the measured cut
+			// a real run would discover on hw307.
+			until = synth.LandlordDefaultUntil
+			log.Printf("landlord %q: no database to discover the cut from, showing the measured %s",
+				landlordSlug, until.Format(time.RFC3339))
+		}
+		lsc, err := synth.LandlordScenario(landlordSlug, sc.Window.From, until, sc.Seed)
+		if err != nil {
+			return err
+		}
+		c := lsc.Landlord()
+		out := lsc.Generate(c)
+		r := result{
+			Customer: c.Name, Slug: c.Slug, Source: c.Source.Name,
+			Rows: len(out.Records), Resources: len(out.Resources), Months: map[string]string{},
+			Note: fmt.Sprintf("landlord backfill to %s — usage and inventory only, no statements", until.Format(time.RFC3339)),
+		}
+		for period, total := range synth.MonthlyCost(out.Records, synth.Prices(synth.NationalCloudRates)) {
+			r.Months[period] = strconv.FormatFloat(total, 'f', 3, 64)
+		}
+		results = append(results, r)
+		if end := landlordEnd(r); end.After(summaryWindow.To) {
+			summaryWindow.To = end
+		}
+	}
+
+	printSummary(results, summaryWindow)
 	log.Printf("the OMR figures above are list price at the product's own rates; a real run reports what the statements actually rated")
+	log.Printf("a real run does NOT price from those rates: it resolves the Sovereign's own cloud rate card (--cloud-book, else the landlord's card, else the National Cloud card) and only creates %q when there is none to borrow",
+		synth.ShowcaseCloudBookName)
 	return nil
 }
 

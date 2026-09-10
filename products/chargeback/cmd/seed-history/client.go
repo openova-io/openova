@@ -132,15 +132,28 @@ type apiCustomer struct {
 type apiSource struct {
 	ID        string `json:"id"`
 	Kind      string `json:"kind"`
+	Layer     string `json:"layer"`
 	Region    string `json:"region"`
 	ProjectID string `json:"project_id"`
 	Status    string `json:"status"`
+	Internal  bool   `json:"internal"`
+	// PriceBookID is the book that rates this source. The landlord backfill
+	// reads it off the customer's REAL cloud source and assigns the same one
+	// to its synthetic source, so the two halves of the series are priced by
+	// the same rates and the seam does not jump.
+	PriceBookID   *string `json:"price_book_id"`
+	PriceBookName string  `json:"price_book_name,omitempty"`
 }
 
 type apiPriceBook struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Currency string `json:"currency"`
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Scope string `json:"scope"`
+	// Currency and BillStopped are read so a resolved book can be reported
+	// with the terms it actually carries, which is how the hw307 duplicate
+	// was spotted (`compute` against `none`).
+	Currency    string `json:"currency"`
+	BillStopped string `json:"bill_stopped"`
 }
 
 type apiPriceItem struct {
@@ -212,6 +225,15 @@ func (c *client) patchCustomer(id string, body map[string]any) (apiCustomer, err
 	return out, err
 }
 
+// listSources returns one customer's sources with their layer and book.
+func (c *client) listSources(customerID string) ([]apiSource, error) {
+	var out struct {
+		Sources []apiSource `json:"sources"`
+	}
+	err := c.do("GET", "/api/v1/customers/"+url.PathEscape(customerID)+"/sources", nil, &out)
+	return out.Sources, err
+}
+
 func (c *client) upsertSource(customerID string, body map[string]any) (apiSource, error) {
 	var out apiSource
 	err := c.do("POST", "/api/v1/customers/"+customerID+"/sources", body, &out)
@@ -241,6 +263,13 @@ func (c *client) createPriceBook(name, currency string, divisor int) (apiPriceBo
 		"name": name, "currency": currency, "annual_divisor": divisor, "bill_stopped": "compute",
 	}, &out)
 	return out, err
+}
+
+// deletePriceBook removes a book. The product refuses while any source is
+// assigned to it (store.DeletePriceBook), which is a guard this command relies
+// on rather than reimplements.
+func (c *client) deletePriceBook(id string) error {
+	return c.do("DELETE", "/api/v1/pricebooks/"+url.PathEscape(id), nil, nil)
 }
 
 // putPriceItems merges items into a book (merge=true never removes a rate the
@@ -299,6 +328,36 @@ func (c *client) listStatements(customerID string) ([]apiStatement, error) {
 	}
 	err := c.do("GET", "/api/v1/customers/"+url.PathEscape(customerID)+"/statements", nil, &out)
 	return out.Statements, err
+}
+
+// monthlyCostOfSource is the product's OWN monthly cost for one source over
+// [from, to) — rated by whatever card that source carries. The landlord
+// backfill issues no statement, so this is the only number about it that is
+// the product's rather than this command's arithmetic.
+func (c *client) monthlyCostOfSource(customerID, sourceID string, from, to time.Time) (map[string]string, error) {
+	q := url.Values{
+		"from": {from.UTC().Format("2006-01-02")},
+		// The explorer's `to` is exclusive on the day, so the last day of the
+		// window has to be asked for explicitly.
+		"to":          {to.UTC().AddDate(0, 0, 1).Format("2006-01-02")},
+		"granularity": {"month"},
+		"group_by":    {"none"},
+		"source":      {sourceID},
+	}
+	var out struct {
+		Buckets []string      `json:"buckets"`
+		Totals  []json.Number `json:"totals_by_bucket"`
+	}
+	if err := c.do("GET", "/api/v1/customers/"+url.PathEscape(customerID)+"/cost/explore?"+q.Encode(), nil, &out); err != nil {
+		return nil, err
+	}
+	res := map[string]string{}
+	for i, b := range out.Buckets {
+		if i < len(out.Totals) {
+			res[b] = out.Totals[i].String()
+		}
+	}
+	return res, nil
 }
 
 // importUsageCSV offers one month's records to a source's CSV import

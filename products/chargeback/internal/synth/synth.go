@@ -101,6 +101,20 @@ func (w Window) Months() []string {
 	return out
 }
 
+// LastFullDay is the start of the last whole UTC day inside the window — the
+// last day the window can be priced against a real day of the same length.
+// ok is false when the window holds no whole day.
+func (w Window) LastFullDay() (time.Time, bool) {
+	day := w.To.UTC().Add(-time.Nanosecond).Truncate(24 * time.Hour)
+	for !day.Before(w.From) {
+		if !day.Add(24 * time.Hour).After(w.To) {
+			return day, true
+		}
+		day = day.Add(-24 * time.Hour)
+	}
+	return time.Time{}, false
+}
+
 // MonthBounds is [first day, first day of next month) of a YYYY-MM period.
 func MonthBounds(period string) (time.Time, time.Time, error) {
 	t, err := time.Parse("2006-01", period)
@@ -214,6 +228,14 @@ type Customer struct {
 	// PlanSwitches lists the catalog plans in force, ascending by At; the
 	// first entry takes effect at Joined. Empty for cloud customers.
 	PlanSwitches []PlanSwitch
+	// Backfill marks a customer that is NOT a showcase creation but an
+	// EXISTING one being given a synthetic past that hands over to a live
+	// collection (the landlord backfill, landlord.go). Two things follow:
+	// the seeding command never creates, edits, decommissions or bills such a
+	// customer, and a resource still metering at the end of the window is
+	// left ALIVE in the inventory — it did not go away, the real source took
+	// it over.
+	Backfill bool
 }
 
 // PlanSwitch is a catalog plan taking effect at a time.
@@ -345,6 +367,11 @@ func (s *Scenario) Generate(c *Customer) Output {
 		deleted := c.Left
 		if !r.To.IsZero() && r.To.Before(c.Left) {
 			deleted = r.To
+		} else if c.Backfill {
+			// A backfill hands over to a live collection instead of ending:
+			// a resource still metering in the last hour is still there, so
+			// marking it deleted at the cut would be a false fact.
+			deleted = time.Time{}
 		}
 		out.Resources = append(out.Resources, Resource{
 			ID: r.ID, Kind: r.Kind, Name: r.Name, Region: r.Region, Attrs: attrs,
