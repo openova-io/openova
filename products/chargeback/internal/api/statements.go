@@ -12,6 +12,7 @@ import (
 
 	"github.com/openova-io/openova/products/chargeback/internal/rating"
 	"github.com/openova-io/openova/products/chargeback/internal/report"
+	"github.com/openova-io/openova/products/chargeback/internal/settle"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
 
@@ -183,25 +184,50 @@ func (h *Handler) issueStatement(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	notify := in.Notify == nil || *in.Notify
-	st, transitioned, err := h.Store.IssueStatementOnce(r.Context(), r.PathValue("id"))
+	// DESIGN.md §8.10 — WHO invoices. Internally this numbers the invoice and
+	// runs our own lifecycle; externally it queues the rated bill for the
+	// operator's billing system and takes no number at all.
+	provider, settings, err := h.Commercial.For(r.Context())
 	if err != nil {
 		storeErr(w, err)
 		return
 	}
-	h.audit(r, &st.CustomerID, "statement.issue", map[string]any{"statement_id": st.ID, "period": st.PeriodStart[:7], "total": st.Total, "transitioned": transitioned, "notify": notify})
+	st, transitioned, err := provider.Issue(r.Context(), r.PathValue("id"))
+	switch {
+	case errors.Is(err, store.ErrInvalid):
+		writeErr(w, http.StatusBadRequest, invalidMessage(err))
+		return
+	case err != nil:
+		storeErr(w, err)
+		return
+	}
+	if settings.ExternalCommercial() {
+		// The billing system sends its own invoice and collects on it; a
+		// second copy from us would confuse the customer it reached.
+		notify = false
+	}
+	h.audit(r, &st.CustomerID, "statement.issue", map[string]any{"statement_id": st.ID, "period": st.PeriodStart[:7], "total": st.Total, "transitioned": transitioned, "notify": notify,
+		"invoice_number": st.InvoiceNumber, "po_reference": st.PORef, "due_at": st.DueAt, "commercial_provider": provider.Name()})
 	c, cerr := h.Store.GetCustomer(r.Context(), store.OperatorScope, st.CustomerID)
 	if cerr != nil {
 		slog.Warn("issue statement: load customer", "statement", st.ID, "customer", st.CustomerID, "error", cerr)
 	}
-	// ADR-0014 D6: an issued statement of a real-billing Organization
-	// becomes a credit debit through the billing hook. The hook decides
-	// applicability (kind/billing_mode) and is idempotent on the statement
+	// ADR-0014 D6 / DESIGN.md §8: an issued statement is handed to whoever
+	// collects for THIS customer — the Stripe-backed billing hook when the
+	// payment method is the stripe gateway, the built-in manual gateway when
+	// it is a transfer or an internal recharge, nothing at all when charging
+	// is informational. Requesting settlement is idempotent on the statement
 	// id, so a failure here leaves the statement issued and the operator
-	// re-POSTs issue to repeat the hook.
-	if h.StatementHook != nil && cerr == nil {
-		if herr := h.StatementHook.StatementIssued(r.Context(), st, c); herr != nil {
-			slog.Warn("statement hook failed; the statement stays issued and a re-issue repeats the idempotent hook", "statement", st.ID, "error", herr)
-			h.audit(r, &st.CustomerID, "statement.hook.error", map[string]any{"statement_id": st.ID, "error": herr.Error()})
+	// re-POSTs issue to repeat it.
+	if cerr == nil {
+		if res, serr := h.Settlement.RequestSettlement(r.Context(), st, c); serr != nil {
+			slog.Warn("settlement request failed; the statement stays issued and a re-issue repeats the idempotent request", "statement", st.ID, "payment_method", c.PaymentMethod, "gateway", c.GatewayName, "error", serr)
+			h.audit(r, &st.CustomerID, "statement.hook.error", map[string]any{"statement_id": st.ID, "payment_method": c.PaymentMethod, "gateway_name": c.GatewayName, "error": serr.Error()})
+		} else if transitioned && res.Outcome != settle.NotApplicable {
+			h.audit(r, &st.CustomerID, "statement.settlement.requested", map[string]any{
+				"statement_id": st.ID, "charging": c.Charging, "payment_model": c.PaymentModel, "payment_method": c.PaymentMethod,
+				"outcome": string(res.Outcome), "gateway": res.Gateway, "reference": res.Reference, "detail": res.Detail,
+			})
 		}
 	}
 	if transitioned && notify && cerr == nil {

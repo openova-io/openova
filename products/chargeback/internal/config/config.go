@@ -44,6 +44,15 @@ type Config struct {
 	BillingHookURL   string
 	BillingHookToken string
 
+	// CommercialExportDir is where the csvfile exporter writes rated bills
+	// when the Sovereign invoices through the operator's own billing system
+	// (DESIGN.md §8.10). Unset ⇒ no exporter is wired and queued documents
+	// wait in the outbox. CommercialImportSecret is the shared secret the
+	// inbound invoice-status webhook is HMAC-signed with; unset ⇒ that
+	// endpoint answers 503 rather than accepting an unauthenticated write.
+	CommercialExportDir    string
+	CommercialImportSecret string
+
 	// TrustedForwardAuthHeader is the request header carrying an identity
 	// already verified by the Sovereign's OIDC gate. oauth2-proxy passes the
 	// address UPSTREAM as X-Forwarded-Email; X-Auth-Request-Email is a
@@ -85,6 +94,8 @@ func FromEnv() (Config, error) {
 		AdapterEnabled:         strings.ToLower(strings.TrimSpace(os.Getenv("ADAPTER_ENABLED"))),
 		BillingHookURL:         strings.TrimRight(strings.TrimSpace(os.Getenv("BILLING_HOOK_URL")), "/"),
 		BillingHookToken:       strings.TrimSpace(os.Getenv("BILLING_HOOK_TOKEN")),
+		CommercialExportDir:    strings.TrimSpace(os.Getenv("COMMERCIAL_EXPORT_DIR")),
+		CommercialImportSecret: strings.TrimSpace(os.Getenv("COMMERCIAL_IMPORT_SECRET")),
 		TrustedForwardAuthHeader: http.CanonicalHeaderKey(
 			strings.TrimSpace(os.Getenv("TRUSTED_FORWARD_AUTH_HEADER"))),
 	}

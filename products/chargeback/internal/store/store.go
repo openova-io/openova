@@ -386,12 +386,27 @@ ALTER TABLE cost_sources ADD CONSTRAINT cost_sources_status_check CHECK (status 
 	// - an entry inserted mid-list is silently skipped on a database that
 	// already recorded that version, so a new one only ever goes last.
 	paygPlatformBooksMigrationSQL(),
+	// #6867 follow-up — post-paid invoicing and the settlement seam (founder
+	// direction 2026-09-10). Appended at the very END of the slice because
+	// migrations are positional: an entry inserted above a database's
+	// recorded version is silently skipped.
+	invoicingMigrationSQL,
 }
 
 // MigrationPAYGPlatformBooks is the schema_migrations version of the
 // pay-per-use migration (the last entry of migrations); the migration test
 // stands a database at the version before it and then applies it.
-var MigrationPAYGPlatformBooks = len(migrations)
+var MigrationPAYGPlatformBooks = func() int {
+	// Located by content rather than assumed to be last: another migration
+	// appended after it (the invoicing one was) must not move this version.
+	want := paygPlatformBooksMigrationSQL()
+	for i, m := range migrations {
+		if m == want {
+			return i + 1
+		}
+	}
+	return len(migrations)
+}()
 
 // sqlQuote renders s as a SQL string literal. Every value it is used on here
 // is a compile-time constant of this package, never input; it doubles quotes

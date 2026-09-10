@@ -22,6 +22,10 @@ import (
 
 type billingSettingsBody struct {
 	DiscountRule string `json:"discount_rule"`
+	// InvoicePrefix is what an issued statement's invoice number starts with
+	// (DESIGN.md §8). Absent leaves the stored prefix alone, so a client that
+	// only knows about the discount rule cannot silently reset it.
+	InvoicePrefix *string `json:"invoice_prefix"`
 }
 
 func (h *Handler) getBillingSettings(w http.ResponseWriter, r *http.Request) {
@@ -50,7 +54,11 @@ func (h *Handler) putBillingSettings(w http.ResponseWriter, r *http.Request) {
 		storeErr(w, err)
 		return
 	}
-	s, err := h.Store.UpdateBillingSettings(r.Context(), store.BillingSettings{DiscountRule: in.DiscountRule})
+	next := store.BillingSettings{DiscountRule: in.DiscountRule, InvoicePrefix: prev.InvoicePrefix}
+	if in.InvoicePrefix != nil {
+		next.InvoicePrefix = *in.InvoicePrefix
+	}
+	s, err := h.Store.UpdateBillingSettings(r.Context(), next)
 	switch {
 	case errors.Is(err, store.ErrInvalid):
 		writeErr(w, http.StatusBadRequest, invalidMessage(err))
@@ -59,6 +67,7 @@ func (h *Handler) putBillingSettings(w http.ResponseWriter, r *http.Request) {
 		storeErr(w, err)
 		return
 	}
-	h.audit(r, nil, "billing.settings", map[string]any{"discount_rule": s.DiscountRule, "previous": prev.DiscountRule})
+	h.audit(r, nil, "billing.settings", map[string]any{"discount_rule": s.DiscountRule, "previous": prev.DiscountRule,
+		"invoice_prefix": s.InvoicePrefix, "previous_invoice_prefix": prev.InvoicePrefix})
 	writeJSON(w, http.StatusOK, s)
 }

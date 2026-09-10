@@ -21,11 +21,13 @@ import (
 	"github.com/openova-io/openova/products/chargeback/internal/api"
 	"github.com/openova-io/openova/products/chargeback/internal/budget"
 	"github.com/openova-io/openova/products/chargeback/internal/collector/huawei"
+	"github.com/openova-io/openova/products/chargeback/internal/commercial"
 	"github.com/openova-io/openova/products/chargeback/internal/config"
 	"github.com/openova-io/openova/products/chargeback/internal/crypto"
 	"github.com/openova-io/openova/products/chargeback/internal/mail"
 	"github.com/openova-io/openova/products/chargeback/internal/metrics"
 	"github.com/openova-io/openova/products/chargeback/internal/report"
+	"github.com/openova-io/openova/products/chargeback/internal/settle"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 	"github.com/openova-io/openova/products/chargeback/ui"
 )
@@ -93,11 +95,40 @@ func main() {
 		UI:       api.UIFromDist(ui.Dist),
 		Version:  version,
 	}
-	// ADR-0014 D6: statements issued for real-billing Organizations debit
-	// their credit through the billing service. Off when the URL is unset.
+	// The payment-gateway seam (DESIGN.md §8). Customers paid by bank
+	// transfer or settled as an internal recharge need no registration —
+	// nothing external collects for them. A gateway is registered under the
+	// gateway_name its customers carry.
+	//
+	// ADR-0014 D6: statements issued for Organizations collected through the
+	// stripe gateway debit their credit through the platform billing
+	// service. Off when the URL is unset. Adding Omantel's gateway is one
+	// more Register call here, under the name "omantel".
+	settlement := settle.NewRegistry()
 	if cfg.BillingHookURL != "" {
-		deps.StatementHook = &openova.BillingHook{URL: cfg.BillingHookURL, Token: cfg.BillingHookToken, Metrics: reg}
+		hook := &openova.BillingHook{URL: cfg.BillingHookURL, Token: cfg.BillingHookToken, Metrics: reg}
+		settlement.Register(settle.GatewayStripe, hook)
+		deps.StatementHook = hook
 		slog.Info("billing hook enabled", "url", cfg.BillingHookURL)
+	}
+	deps.Settlement = settlement
+	slog.Info("payment gateways registered", "gateways", settlement.Gateways())
+
+	// WHO invoices on this Sovereign (DESIGN.md §8.10). The setting lives in
+	// billing_settings and defaults to `internal`, so this wiring changes
+	// nothing until an operator switches it. In external mode issuing queues
+	// the rated bill in the outbox and the deliverer below pushes it out.
+	var exporter commercial.Exporter
+	if cfg.CommercialExportDir != "" {
+		exporter = commercial.NewCSVFileExporter(cfg.CommercialExportDir)
+		slog.Info("commercial export enabled", "dir", cfg.CommercialExportDir)
+	}
+	deps.Commercial = commercial.NewSelector(st, exporter)
+	deliverer := &commercial.Deliverer{Store: st, Exporter: exporter}
+	deps.Deliverer = deliverer
+	if cfg.CommercialImportSecret != "" {
+		deps.Importer = &commercial.Importer{Store: st, Secret: cfg.CommercialImportSecret}
+		slog.Info("commercial invoice-status import enabled")
 	}
 	handler := api.New(deps)
 
@@ -108,6 +139,10 @@ func main() {
 		slog.Info("collector disabled by COLLECTOR_ENABLED=false")
 	}
 	go housekeeping(ctx, st)
+	// DESIGN.md §8.10 — drain the commercial outbox: at-least-once delivery of
+	// every rated bill queued for the operator's billing system, with backoff.
+	// A no-op when the Sovereign invoices internally.
+	go deliverer.Run(ctx)
 	// #6867 — hourly budget evaluator: records each threshold crossing once
 	// per period (budget_alerts), audits it and mails the budget's
 	// recipients. First run one minute after start, then hourly.

@@ -3,9 +3,10 @@ import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import type { Customer } from '../api/types'
 import { Badge, Confirm, Field, Notice } from '../components/ui'
-import { BILLING_MODES, CUSTOMER_KINDS, customerPatch, fieldLabel, settingsFrom, type CustomerSettings } from '../lib/customers'
+import { CHARGING_OPTIONS, CUSTOMER_KINDS, GATEWAYS, PAYMENT_METHODS, PAYMENT_MODELS, customerPatch, fieldLabel, settingsFrom, type CustomerSettings } from '../lib/customers'
 import { hasErrors, validateSettings, type Errors } from '../lib/forms'
 import { useAction } from '../lib/useAction'
+import { useQuery } from '../lib/useQuery'
 
 /**
  * Every field PATCH /customers/{id} accepts, plus the delete at the bottom
@@ -17,6 +18,11 @@ export function SettingsPanel({ customer, onSaved }: { customer: Customer; onSav
   const [errors, setErrors] = useState<Errors<CustomerSettings>>({})
   const [deleting, setDeleting] = useState(false)
   const act = useAction()
+  // DESIGN.md §8.10 — WHO invoices on this Sovereign. When the operator's own
+  // billing system does, the commercial fields are theirs and are read-only
+  // here; the billing-account id stays ours to fill in.
+  const settings = useQuery<{ commercial_provider?: string }>('/billing-settings')
+  const external = settings.data?.commercial_provider === 'external'
   // The document changed underneath (our own save, or Suspend/Resume in the
   // header): show what is stored now. State (and the saved notice) survive.
   useEffect(() => {
@@ -68,12 +74,23 @@ export function SettingsPanel({ customer, onSaved }: { customer: Customer; onSav
             </select>
           </Field>
         </div>
+        {/* DESIGN.md §8 — the commercial model. Three questions, three
+            controls: is anything collected, when is it paid, and how does
+            the money move. The deprecated billing_mode is derived from them
+            server-side and is neither shown nor sent. */}
+        <h3 className="section">How this customer is charged</h3>
+        {external ? (
+          <Notice kind="warn">
+            This Sovereign invoices through the operator's billing system. Charging, payment model, method and terms are owned there and are read-only here &mdash; what we do is rate the usage
+            and hand it over.
+          </Notice>
+        ) : null}
         <div className="grid2">
-          <Field label="Billing mode" error={errors.billing_mode} help={BILLING_MODES.find((m) => m.value === form.billing_mode)?.help}>
-            <select value={form.billing_mode} onChange={(e) => set('billing_mode', e.target.value)}>
-              {BILLING_MODES.map((m) => (
-                <option key={m.value} value={m.value}>
-                  {m.label}
+          <Field label="Charging" error={errors.charging} help={CHARGING_OPTIONS.find((o) => o.value === form.charging)?.help}>
+            <select value={form.charging} onChange={(e) => set('charging', e.target.value)} disabled={external}>
+              {CHARGING_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
                 </option>
               ))}
             </select>
@@ -82,6 +99,65 @@ export function SettingsPanel({ customer, onSaved }: { customer: Customer; onSav
             <input type="date" value={form.start_date} onChange={(e) => set('start_date', e.target.value)} />
           </Field>
         </div>
+        {form.charging === 'billed' ? (
+          <>
+            <div className="grid2">
+              <Field label="Payment model" error={errors.payment_model} help={PAYMENT_MODELS.find((o) => o.value === form.payment_model)?.help ?? 'When the customer pays, relative to the usage.'}>
+                <select value={form.payment_model} onChange={(e) => set('payment_model', e.target.value)} disabled={external}>
+                  <option value="">choose…</option>
+                  {PAYMENT_MODELS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Payment method" error={errors.payment_method} help={PAYMENT_METHODS.find((o) => o.value === form.payment_method)?.help ?? 'How the money actually moves.'}>
+                <select
+                  value={form.payment_method}
+                  disabled={external}
+                  onChange={(e) => {
+                    set('payment_method', e.target.value)
+                    if (e.target.value !== 'gateway') set('gateway_name', '')
+                    else if (!form.gateway_name) set('gateway_name', GATEWAYS[0]?.value ?? '')
+                  }}
+                >
+                  <option value="">choose…</option>
+                  {PAYMENT_METHODS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+            {form.payment_method === 'gateway' ? (
+              <Field label="Payment gateway" error={errors.gateway_name} help="Which gateway collects. Adding another is a deployment change, not a customer one.">
+                <select value={form.gateway_name} onChange={(e) => set('gateway_name', e.target.value)} disabled={external}>
+                  <option value="">choose…</option>
+                  {GATEWAYS.map((g) => (
+                    <option key={g.value} value={g.value}>
+                      {g.label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            ) : (
+              <div className="grid2">
+                <Field label="Purchase order" error={errors.po_reference} help="Quoted on every invoice issued to this customer; a statement can override it before it is issued.">
+                  <input value={form.po_reference} onChange={(e) => set('po_reference', e.target.value)} className="mono" placeholder="PO-4471" disabled={external} />
+                </Field>
+                <Field label="Payment terms" error={errors.payment_terms_days} help={form.payment_terms_days === '0' ? 'Due on receipt.' : 'Days from the issue date to the due date. 30 is the default.'}>
+                  <input type="number" min={0} max={365} value={form.payment_terms_days} onChange={(e) => set('payment_terms_days', e.target.value)} placeholder="30" disabled={external} />
+                </Field>
+              </div>
+            )}
+          </>
+        ) : (
+          <p className="muted small" style={{ marginTop: 0 }}>
+            Statements are still rated and shown, and nothing is ever collected. Switch charging to billed to choose how it is paid.
+          </p>
+        )}
         <div className="grid2">
           <Field label="Kind" help={kind?.help}>
             <input value={kind?.label ?? customer.kind ?? 'external'} disabled />
@@ -93,6 +169,11 @@ export function SettingsPanel({ customer, onSaved }: { customer: Customer; onSav
             <Link to={`/customers/${customer.id}?tab=sources`}>Assign them on the Sources tab</Link>
           </Field>
         </div>
+        {external ? (
+          <Field label="Billing account id" error={errors.external_account_id} help="This customer's account in the operator's billing system; every rated bill we export is attributed to it.">
+            <input value={form.external_account_id} onChange={(e) => set('external_account_id', e.target.value)} className="mono" placeholder="BA-99001" />
+          </Field>
+        ) : null}
         {(customer.kind ?? 'external') === 'organization' ? (
           <Field label="Organization slug" error={errors.org_slug} help="The Organization on this Sovereign whose allocated usage is billed to this customer.">
             <input value={form.org_slug} onChange={(e) => set('org_slug', e.target.value)} className="mono" />

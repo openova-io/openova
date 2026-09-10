@@ -13,10 +13,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/openova-io/openova/products/chargeback/internal/commercial"
 	"github.com/openova-io/openova/products/chargeback/internal/config"
 	"github.com/openova-io/openova/products/chargeback/internal/crypto"
 	"github.com/openova-io/openova/products/chargeback/internal/mail"
 	"github.com/openova-io/openova/products/chargeback/internal/metrics"
+	"github.com/openova-io/openova/products/chargeback/internal/settle"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
 
@@ -62,7 +64,28 @@ type Deps struct {
 	Version  string
 
 	// StatementHook, when set, receives issued statements (ADR-0014 D6).
+	// It is the legacy name of the PREPAID settlement gateway: when
+	// Settlement carries no prepaid gateway, this one is registered as it,
+	// so existing wiring keeps its exact behaviour.
 	StatementHook StatementHook
+
+	// Settlement is the payment-gateway seam (DESIGN.md §8): which gateway
+	// collects for which settlement method. nil is replaced in New with the
+	// built-in registry (manual for invoice and internal), so a customer
+	// paying against a purchase order is always serviceable.
+	Settlement *settle.Registry
+
+	// Commercial selects WHO invoices on this Sovereign (DESIGN.md §8.10):
+	// this product, or the operator's own billing system. nil is replaced in
+	// New with a selector over the store, whose default setting is internal.
+	Commercial *commercial.Selector
+	// Importer applies invoice-status imports from the operator's billing
+	// system. nil = the import endpoint answers 503.
+	Importer *commercial.Importer
+	// Deliverer drains the commercial outbox. The background loop is started
+	// by main; the handler holds it only so a Retry can push one row at once
+	// instead of waiting for the next tick.
+	Deliverer *commercial.Deliverer
 }
 
 // Handler serves the API.
@@ -86,6 +109,25 @@ func New(d Deps) http.Handler {
 	}
 	if d.Metrics == nil {
 		d.Metrics = metrics.Default
+	}
+	// The payment-gateway seam (DESIGN.md §8). A deployment always has the
+	// built-in registry — a customer paying by transfer, or settled as an
+	// internal recharge, needs no configuration — and the legacy
+	// StatementHook is registered under the stripe gateway name when nothing
+	// else claimed it, so existing wiring behaves exactly as before.
+	if d.Settlement == nil {
+		d.Settlement = settle.NewRegistry()
+	}
+	if d.StatementHook != nil {
+		stripe := store.Customer{Charging: store.ChargingBilled, PaymentMethod: store.PaymentMethodGateway, GatewayName: store.GatewayStripe}
+		if g, _ := d.Settlement.For(stripe); g == nil {
+			d.Settlement.Register(settle.GatewayStripe, settle.FromHook(d.StatementHook))
+		}
+	}
+	// Who invoices (DESIGN.md §8.10). Internal by default, so a Sovereign
+	// that never chose behaves exactly as it did.
+	if d.Commercial == nil {
+		d.Commercial = commercial.NewSelector(d.Store, nil)
 	}
 	h := &Handler{Deps: d}
 	mux := http.NewServeMux()
@@ -190,6 +232,20 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/customers/{id}/statements", h.listCustomerStatements)
 	mux.HandleFunc("GET /api/v1/statements/{id}", h.getStatement)
 	mux.HandleFunc("POST /api/v1/statements/{id}/issue", h.issueStatement)
+	// Post-paid invoicing (DESIGN.md §8) — operator-only, every transition
+	// audited. PATCH edits the purchase-order reference and terms of a DRAFT;
+	// send / payments / cancel walk the invoice lifecycle.
+	mux.HandleFunc("PATCH /api/v1/statements/{id}", h.patchStatement)
+	mux.HandleFunc("POST /api/v1/statements/{id}/send", h.sendStatement)
+	mux.HandleFunc("POST /api/v1/statements/{id}/payments", h.recordStatementPayment)
+	mux.HandleFunc("GET /api/v1/statements/{id}/payments", h.listStatementPayments)
+	mux.HandleFunc("POST /api/v1/statements/{id}/cancel", h.cancelStatement)
+	// The operator's billing system reports back on the invoices we exported
+	// (DESIGN.md §8.10). Authenticated by an HMAC over the raw body, not by a
+	// session: the caller is a machine in the operator's estate.
+	mux.HandleFunc("POST /api/v1/commercial/import/invoice-status", h.importInvoiceStatus)
+	mux.HandleFunc("GET /api/v1/commercial/outbox", h.listOutbox)
+	mux.HandleFunc("POST /api/v1/commercial/outbox/{id}/retry", h.retryOutbox)
 	mux.HandleFunc("DELETE /api/v1/statements/{id}", h.deleteStatement)
 
 	// Currency rates (#6867 follow-up, DESIGN.md §3.10) — operator-only.

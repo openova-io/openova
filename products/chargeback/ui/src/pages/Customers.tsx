@@ -4,7 +4,7 @@ import { api, asList } from '../api/client'
 import type { Customer, InviteIssued, Summary } from '../api/types'
 import { DataTable, type Column } from '../components/DataTable'
 import { Badge, Delta, KPI, Notice, PageHeader, Segmented, Skeleton } from '../components/ui'
-import { STATUS_FILTERS, customerCounts, filterCustomers, lastStatementText, mtdByCustomer, mtdFor, sourceCounts, sourcesText, type StatusFilter } from '../lib/customers'
+import { STATUS_FILTERS, commercialDetail, commercialLabel, customerCounts, filterCustomers, lastStatementText, mtdByCustomer, mtdFor, sourceCounts, sourcesText, type StatusFilter } from '../lib/customers'
 import { sourcesByLayerText } from '../lib/layers'
 import { when } from '../lib/format'
 import { formatMoney } from '../lib/money'
@@ -73,7 +73,23 @@ export function Customers() {
         </>
       ),
     },
-    { key: 'billing', header: 'Billing', value: (c) => c.billing_mode },
+    {
+      // DESIGN.md §8: the commercial position, not a mode word — "prepaid ·
+      // Stripe", "postpaid · transfer", "internal recharge",
+      // "informational", with the terms underneath where they apply.
+      key: 'billing',
+      header: 'Charging',
+      value: (c) => commercialLabel(c),
+      render: (c) => {
+        const detail = commercialDetail(c)
+        return (
+          <>
+            <span className={c.charging === 'informational' ? 'muted' : ''}>{commercialLabel(c)}</span>
+            {detail ? <span className="sub">{detail}</span> : null}
+          </>
+        )
+      },
+    },
     {
       // DESIGN.md §2: the price book is a property of each SOURCE, so the
       // directory shows what a customer owns per layer instead of one book.

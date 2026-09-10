@@ -40,7 +40,11 @@ export interface CustomerForm {
   slug: string
   name: string
   admin_email: string
-  billing_mode: string
+  /** DESIGN.md §8 — the commercial model replaces billing_mode. */
+  charging: string
+  payment_model: string
+  payment_method: string
+  gateway_name: string
   price_book_id: string
   start_date: string
   kind: string
@@ -50,7 +54,7 @@ export interface CustomerForm {
 export type Errors<T> = Partial<Record<keyof T, string>>
 
 export function emptyCustomerForm(): CustomerForm {
-  return { slug: '', name: '', admin_email: '', billing_mode: 'showback', price_book_id: '', start_date: '', kind: 'external', org_slug: '' }
+  return { slug: '', name: '', admin_email: '', charging: 'informational', payment_model: '', payment_method: '', gateway_name: '', price_book_id: '', start_date: '', kind: 'external', org_slug: '' }
 }
 
 export function validateCustomer(f: CustomerForm): Errors<CustomerForm> {
@@ -61,7 +65,12 @@ export function validateCustomer(f: CustomerForm): Errors<CustomerForm> {
   else if (!SLUG.test(slug)) e.slug = 'Lowercase letters, digits and hyphens only; must start and end with a letter or digit.'
   if (!f.admin_email.trim()) e.admin_email = 'Admin email is required.'
   else if (!isEmail(f.admin_email)) e.admin_email = 'Not a valid email address.'
-  if (!['showback', 'chargeback', 'real'].includes(f.billing_mode)) e.billing_mode = 'Choose showback, chargeback or real.'
+  if (!['billed', 'informational'].includes(f.charging)) e.charging = 'Choose billed or informational.'
+  if (f.charging === 'billed') {
+    if (!['prepaid', 'postpaid'].includes(f.payment_model)) e.payment_model = 'Choose prepaid or postpaid.'
+    if (!['gateway', 'transfer', 'internal'].includes(f.payment_method)) e.payment_method = 'Choose a payment method.'
+    if (f.payment_method === 'gateway' && !f.gateway_name.trim()) e.gateway_name = 'Choose which gateway collects.'
+  }
   if (f.start_date && !isDay(f.start_date)) e.start_date = 'Use YYYY-MM-DD.'
   if (!['external', 'organization'].includes(f.kind)) e.kind = 'Choose external or organization.'
   if (f.kind === 'organization' && f.org_slug.trim() && !SLUG.test(f.org_slug.trim())) e.org_slug = 'Lowercase letters, digits and hyphens only.'
@@ -69,11 +78,16 @@ export function validateCustomer(f: CustomerForm): Errors<CustomerForm> {
 }
 
 export function customerBody(f: CustomerForm): Record<string, string | null> {
+  const billed = f.charging === 'billed'
   return {
     slug: f.slug.trim().toLowerCase(),
     name: f.name.trim(),
     admin_email: f.admin_email.trim().toLowerCase(),
-    billing_mode: f.billing_mode,
+    // DESIGN.md §8: billing_mode is derived server-side and never sent.
+    charging: f.charging,
+    payment_model: billed ? f.payment_model : null,
+    payment_method: billed ? f.payment_method : null,
+    gateway_name: billed && f.payment_method === 'gateway' ? f.gateway_name : null,
     price_book_id: f.price_book_id || null,
     start_date: f.start_date || null,
     kind: f.kind,
@@ -86,22 +100,73 @@ export function customerBody(f: CustomerForm): Record<string, string | null> {
 export interface SettingsShape {
   name: string
   admin_email: string
-  billing_mode: string
+  charging: string
+  payment_model: string
+  payment_method: string
+  gateway_name: string
+  po_reference: string
+  payment_terms_days: string
+  external_account_id: string
   start_date: string
   status: string
   org_slug: string
 }
 
+/**
+ * The commercial model (DESIGN.md §8): charging says whether anything is
+ * collected, and the payment model and method are only meaningful when it
+ * is. The server validates the same combination — this is what the operator
+ * sees inline before the round trip.
+ */
 export function validateSettings(f: SettingsShape): Errors<SettingsShape> {
   const e: Errors<SettingsShape> = {}
   if (!f.name.trim()) e.name = 'Name is required.'
   if (!f.admin_email.trim()) e.admin_email = 'Admin email is required.'
   else if (!isEmail(f.admin_email)) e.admin_email = 'Not a valid email address.'
-  if (!['showback', 'chargeback', 'real'].includes(f.billing_mode)) e.billing_mode = 'Choose showback, chargeback or real.'
+  if (!['billed', 'informational'].includes(f.charging)) e.charging = 'Choose billed or informational.'
+  if (f.charging === 'billed') {
+    if (!['prepaid', 'postpaid'].includes(f.payment_model)) e.payment_model = 'Choose prepaid or postpaid.'
+    if (!['gateway', 'transfer', 'internal'].includes(f.payment_method)) e.payment_method = 'Choose a payment method.'
+    if (f.payment_method === 'gateway' && !f.gateway_name.trim()) e.gateway_name = 'Choose which gateway collects.'
+  }
+  const terms = f.payment_terms_days.trim()
+  if (terms) {
+    if (!/^\d+$/.test(terms)) e.payment_terms_days = 'A whole number of days.'
+    else if (Number(terms) > 365) e.payment_terms_days = 'At most 365 days.'
+  }
   if (!['pending', 'active', 'suspended'].includes(f.status)) e.status = 'Choose pending, active or suspended.'
   if (f.start_date && !isDay(f.start_date)) e.start_date = 'Use YYYY-MM-DD.'
   if (f.org_slug.trim() && !SLUG.test(f.org_slug.trim())) e.org_slug = 'Lowercase letters, digits and hyphens only.'
   return e
+}
+
+// ── Recording a payment (DESIGN.md §8) ────────────────────────────────────
+
+export interface PaymentForm {
+  amount: string
+  paid_at: string
+  reference: string
+}
+
+export function emptyPaymentForm(balance: number, today: string): PaymentForm {
+  return { amount: balance > 0 ? balance.toFixed(3) : '', paid_at: today, reference: '' }
+}
+
+export function validatePayment(f: PaymentForm, balance: number): Errors<PaymentForm> {
+  const e: Errors<PaymentForm> = {}
+  const a = f.amount.trim()
+  if (!a) e.amount = 'Amount is required.'
+  else if (!DECIMAL.test(a)) e.amount = 'Enter a plain number, e.g. 1200 or 850.500.'
+  else if (Number(a) <= 0) e.amount = 'A payment must be above zero.'
+  else if (balance > 0 && Number(a) > balance + 1e-9) e.amount = `More than the outstanding ${balance.toFixed(3)} — a customer who paid too much needs a credit note.`
+  if (!f.paid_at.trim()) e.paid_at = 'The day the money arrived is required.'
+  else if (!isDay(f.paid_at)) e.paid_at = 'Use YYYY-MM-DD.'
+  return e
+}
+
+/** The body POST /statements/{id}/payments decodes. */
+export function paymentBody(f: PaymentForm): Record<string, string> {
+  return { amount: f.amount.trim(), paid_at: f.paid_at, reference: f.reference.trim() }
 }
 
 // ── Discounts ─────────────────────────────────────────────────────────────

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { budgetBody, currentPeriod, customerBody, discountBody, emptyBudgetForm, emptyCustomerForm, emptyDiscountForm, isDay, parseEmails, parseThresholds, slugify, validateBudget, validateCustomer, validateDiscount, validateSettings, validateSource } from './forms'
+import { budgetBody, currentPeriod, customerBody, discountBody, emptyBudgetForm, emptyCustomerForm, emptyDiscountForm, emptyPaymentForm, isDay, parseEmails, parseThresholds, paymentBody, slugify, validateBudget, validateCustomer, validateDiscount, validatePayment, validateSettings, validateSource } from './forms'
 
 describe('slugify / isDay / currentPeriod', () => {
   it('slugifies names', () => {
@@ -43,10 +43,43 @@ describe('validateCustomer / customerBody', () => {
 })
 
 describe('validateSettings', () => {
-  it('rejects an unknown status and billing mode, accepts a valid form', () => {
-    expect(validateSettings({ name: 'A', admin_email: 'a@b.co', billing_mode: 'real', start_date: '', status: 'active', org_slug: '' })).toEqual({})
-    const e = validateSettings({ name: '', admin_email: 'a@b.co', billing_mode: 'free', start_date: '', status: 'deleted', org_slug: '' })
-    expect(Object.keys(e).sort()).toEqual(['billing_mode', 'name', 'status'])
+  const base = { name: 'A', admin_email: 'a@b.co', charging: 'informational', payment_model: '', payment_method: '', gateway_name: '', po_reference: '', payment_terms_days: '', external_account_id: '', start_date: '', status: 'active', org_slug: '' }
+  it('accepts an informational customer with no payment model or method', () => {
+    expect(validateSettings(base)).toEqual({})
+  })
+  it('a billed customer must say when and how it pays (DESIGN.md §8)', () => {
+    expect(Object.keys(validateSettings({ ...base, charging: 'billed' })).sort()).toEqual(['payment_method', 'payment_model'])
+    expect(validateSettings({ ...base, charging: 'billed', payment_model: 'postpaid', payment_method: 'transfer' })).toEqual({})
+    expect(validateSettings({ ...base, charging: 'billed', payment_model: 'prepaid', payment_method: 'gateway' }).gateway_name).toMatch(/which gateway/)
+    expect(validateSettings({ ...base, charging: 'billed', payment_model: 'prepaid', payment_method: 'gateway', gateway_name: 'stripe' })).toEqual({})
+  })
+  it('rejects an unknown status, an unknown charging and impossible terms', () => {
+    const e = validateSettings({ ...base, name: '', charging: 'free', status: 'deleted', payment_terms_days: '400' })
+    expect(Object.keys(e).sort()).toEqual(['charging', 'name', 'payment_terms_days', 'status'])
+    expect(validateSettings({ ...base, payment_terms_days: 'thirty' }).payment_terms_days).toMatch(/whole number/)
+    expect(validateSettings({ ...base, payment_terms_days: '0' })).toEqual({})
+  })
+})
+
+describe('validatePayment / paymentBody', () => {
+  const ok = { amount: '500', paid_at: '2026-07-02', reference: 'TRF-77' }
+  it('accepts a payment up to the outstanding balance', () => {
+    expect(validatePayment(ok, 1200)).toEqual({})
+    expect(validatePayment({ ...ok, amount: '1200' }, 1200)).toEqual({})
+  })
+  it('refuses more than the balance, zero, and a bad date', () => {
+    expect(validatePayment({ ...ok, amount: '1200.01' }, 1200).amount).toMatch(/credit note/)
+    expect(validatePayment({ ...ok, amount: '0' }, 1200).amount).toMatch(/above zero/)
+    expect(validatePayment({ ...ok, amount: 'lots' }, 1200).amount).toMatch(/plain number/)
+    expect(validatePayment({ ...ok, paid_at: '' }, 1200).paid_at).toMatch(/required/)
+    expect(validatePayment({ ...ok, paid_at: '02-07-2026' }, 1200).paid_at).toMatch(/YYYY-MM-DD/)
+  })
+  it('the body is exactly what the API decodes', () => {
+    expect(paymentBody({ amount: ' 500 ', paid_at: '2026-07-02', reference: ' TRF-77 ' })).toEqual({ amount: '500', paid_at: '2026-07-02', reference: 'TRF-77' })
+  })
+  it('the form opens on the full outstanding balance', () => {
+    expect(emptyPaymentForm(1200, '2026-07-02')).toEqual({ amount: '1200.000', paid_at: '2026-07-02', reference: '' })
+    expect(emptyPaymentForm(0, '2026-07-02').amount).toBe('')
   })
 })
 

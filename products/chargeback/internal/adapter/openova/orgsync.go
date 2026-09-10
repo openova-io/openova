@@ -324,6 +324,12 @@ func (s *OrgSync) SyncOrganization(ctx context.Context, u *unstructured.Unstruct
 		if f.AdminEmail != "" && !strings.EqualFold(c.AdminEmail, f.AdminEmail) {
 			p.AdminEmail, changed = &f.AdminEmail, true
 		}
+		// DESIGN.md §8: billing_mode is now DERIVED from the commercial
+		// fields, and CustomerInput/CustomerPatch translate this legacy
+		// value through store.CommercialFromBillingMode — the same mapping
+		// the migration used. Comparing the derived value keeps the CR
+		// authoritative over the coarse mode while leaving a finer operator
+		// choice inside it (stripe gateway vs bank transfer) alone.
 		if c.BillingMode != f.BillingMode {
 			p.BillingMode, changed = &f.BillingMode, true
 		}
