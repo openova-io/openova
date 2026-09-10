@@ -98,6 +98,36 @@ org="$(render --set "httpRoute.hostnames[0]=chargeback.demo.omani.homes" \
 has "$org" 'chargeback.demo.omani.homes' "org: explicit hostname missing"
 has "$org" 'cilium-gateway-console' "org: console gateway parentRef missing"
 
+# ── 4. platform enforcement (DESIGN.md §9.6, #6867) ──────────────────────
+# With platformApi.url EMPTY nothing of the seam renders: no env, no projected
+# token, no mount — the binary runs its Nop enforcer. With it SET the env pair
+# and the projected ServiceAccount token (1h, re-read per call) all render,
+# the audience only when named. Both halves must hold or the assertion is
+# vacuous.
+lacks "$sov" 'name: PLATFORM_API_URL' "platformApi: PLATFORM_API_URL rendered with platformApi.url empty"
+lacks "$sov" 'name: PLATFORM_API_TOKEN_FILE' "platformApi: PLATFORM_API_TOKEN_FILE rendered with platformApi.url empty"
+lacks "$sov" 'serviceAccountToken:' "platformApi: projected token rendered with platformApi.url empty"
+lacks "$sov" 'name: platform-api-token' "platformApi: token volume rendered with platformApi.url empty"
+enf="$(render --set "sovereignFqdn=$FQDN" --set adapter.enabled=true \
+  --set platformApi.url=http://catalyst-api.catalyst-system.svc.cluster.local:8080)"
+has "$enf" 'name: PLATFORM_API_URL' "platformApi: PLATFORM_API_URL not wired"
+has "$enf" 'value: "http://catalyst-api.catalyst-system.svc.cluster.local:8080"' "platformApi: url did not propagate to PLATFORM_API_URL"
+has "$enf" 'name: PLATFORM_API_TOKEN_FILE' "platformApi: PLATFORM_API_TOKEN_FILE not wired"
+has "$enf" 'value: /var/run/secrets/platform-api/token' "platformApi: PLATFORM_API_TOKEN_FILE does not point at the projected token"
+has "$enf" 'mountPath: /var/run/secrets/platform-api' "platformApi: token volume not mounted"
+has "$enf" 'serviceAccountToken:' "platformApi: bearer is not a projected ServiceAccount token"
+has "$enf" 'expirationSeconds: 3600' "platformApi: projected token is not rotated hourly"
+lacks "$enf" 'audience:' "platformApi: an audience rendered with tokenAudience empty — the API reviews against the apiserver default"
+lacks "$enf" 'name: PLATFORM_API_TOKEN$' "platformApi: a literal PLATFORM_API_TOKEN env rendered — the bearer is the projected file, never a literal"
+aud="$(render --set "sovereignFqdn=$FQDN" --set platformApi.url=http://x:8080 --set platformApi.tokenAudience=sovereign-admin-api)"
+has "$aud" 'audience: "sovereign-admin-api"' "platformApi: tokenAudience did not propagate to the projection"
+# The billing callback secret is a Secret NAME (secretKeyRef), never a literal.
+lacks "$enf" 'BILLING_HOOK_CALLBACK_SECRET' "billingHook: BILLING_HOOK_CALLBACK_SECRET rendered with callbackSecret empty"
+cb="$(render --set "sovereignFqdn=$FQDN" --set adapter.enabled=true --set adapter.billingHook.callbackSecret=chargeback-billing-callback)"
+has "$cb" 'name: BILLING_HOOK_CALLBACK_SECRET' "billingHook: BILLING_HOOK_CALLBACK_SECRET not wired"
+has "$cb" 'name: chargeback-billing-callback' "billingHook: callbackSecret Secret name not referenced"
+has "$cb" 'key: BILLING_HOOK_CALLBACK_SECRET' "billingHook: BILLING_HOOK_CALLBACK_SECRET is not a secretKeyRef"
+
 # ── 5. CNPs ───────────────────────────────────────────────────────────────
 has "$sov" 'kind: CiliumNetworkPolicy' "CNP: none rendered with cilium.io/v2 present"
 has "$sov" 'name: chargeback-ingress' "CNP: ingress policy missing"

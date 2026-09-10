@@ -129,12 +129,15 @@ func main() {
 	deps.Commercial = commercial.NewSelector(st, exporter)
 	deliverer := &commercial.Deliverer{Store: st, Exporter: exporter}
 	deps.Deliverer = deliverer
-	// DESIGN.md §9.7 — the platform seam enforcement runs through. Every
+	// DESIGN.md §9.6 — the platform seam enforcement runs through. Every
 	// suspension is recorded and audited whether or not a platform is wired.
+	// On a Sovereign the chart sets PLATFORM_API_URL to the in-cluster
+	// sovereign-admin API and PLATFORM_API_TOKEN_FILE to the projected
+	// ServiceAccount token; the client re-reads that file on every call.
 	var plat platform.Client = platform.Nop{}
 	if cfg.PlatformAPIURL != "" {
-		plat = platform.NewHTTP(cfg.PlatformAPIURL, cfg.PlatformAPIToken)
-		slog.Info("platform enforcement enabled", "url", cfg.PlatformAPIURL)
+		plat = platform.NewHTTP(cfg.PlatformAPIURL, cfg.PlatformAPIToken, cfg.PlatformAPITokenFile)
+		slog.Info("platform enforcement enabled", "url", cfg.PlatformAPIURL, "token_file", cfg.PlatformAPITokenFile, "token_literal", cfg.PlatformAPIToken != "")
 	} else {
 		slog.Info("platform enforcement off: PLATFORM_API_URL unset; suspensions are recorded here only")
 	}

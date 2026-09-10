@@ -1705,6 +1705,34 @@ action with its consequence spelled out.
   Suspended, `Run collections now` behind a confirm that reports the pass, and
   per-row `Suspend` / `Resume` with a reason. A row expands to the customer's
   open invoices.
+
+  **The enforcement path (§9.6, EPIC #6867).** A suspension — a collections
+  escalation, a prepaid balance at zero, an operator's `Suspend`, or the
+  external billing system's command (§9.1) — is recorded here first and then
+  executed at the platform, in that order, by `collections.Enforcer`
+  (`internal/collections/enforce.go`). The platform half runs through
+  `internal/platform`: chargeback POSTs the Sovereign's sovereign-admin API
+  at `PLATFORM_API_URL` — in-cluster,
+  `http://catalyst-api.catalyst-system.svc.cluster.local:8080` — on
+  `/api/v1/internal/organizations/{slug}/suspend` (with the reason) or
+  `/resume`, presenting the projected ServiceAccount token the chart mounts
+  at `/var/run/secrets/platform-api/token` (`platformApi.url` /
+  `platformApi.tokenAudience`; the file is re-read on every call because the
+  kubelet rotates it hourly). Those routes live outside the operator session
+  gate and authenticate exactly as the cutover trigger does: a TokenReview on
+  the bearer, then an allow-list that admits
+  `system:serviceaccount:chargeback:chargeback`. The API merge-patches
+  `spec.suspended` and `spec.suspendReason` onto the Organization CR and
+  records the ServiceAccount username in the
+  `orgs.openova.io/suspend-actor` annotation; the org-controller honours the
+  flag by parking the per-Org Flux Kustomizations and surfacing a `Suspended`
+  condition, so nothing new reconciles for that Organization until the flag
+  is cleared. The chain is chargeback → internal route → CR → org-controller
+  and nothing on the platform infers a suspension from a payment state; only
+  that stamp sets it. Without `PLATFORM_API_URL` the Enforcer is a `Nop`: the
+  customer still flips here and the audit entry says the platform was not
+  called. The platform's refusal, when there is one, is kept verbatim on the
+  suspension record and shown on the customer's Account tab.
 - **Configure → Billing** edits the invoice and credit-note prefixes, the
   Sovereign's tax rate (as a percentage), registration number, legal name and
   address, and the collections schedule — reminder days as a comma list read

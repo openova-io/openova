@@ -2809,6 +2809,21 @@ security:
       # templates/api-service.yaml (`port: 8080`), which
       # tests/baseline-cnp-allowlist.sh Case 11 already pins.
       port: 8080
+    # #6867 — the chargeback application's billing-ENFORCEMENT ingress
+    # (templates/network-policies/chargeback-enforcement-ingress.yaml). The
+    # Sovereign placement of bp-chargeback (slot 13f, namespace `chargeback`)
+    # suspends and resumes Organizations by POSTing catalyst-api's
+    # ServiceAccount-authenticated /api/v1/internal/organizations/{slug}/
+    # suspend | /resume in-cluster. The catalyst-system default-deny drops
+    # that call unless this port-scoped carve-out admits it — the same shape
+    # as keycloakBackchannel above, for the same reason: the blanket
+    # allowedIngressNamespaces rule carries no toPorts.
+    chargebackEnforcement:
+      enabled: true
+      # Source namespace — the 13f slot's targetNamespace.
+      namespace: chargeback
+      # catalyst-api's only Service port (templates/api-service.yaml).
+      port: 8080
 
 # ── Migrations (post-install / post-upgrade Helm-hook Jobs) ──────────────
 # Per PR #2795 (G117.2 multi-instance Application CRD): backfill spec.instanceId

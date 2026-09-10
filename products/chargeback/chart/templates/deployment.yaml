@@ -157,6 +157,25 @@ spec:
                   key: BILLING_HOOK_TOKEN
                   optional: true
             {{- end }}
+            {{- with .Values.adapter.billingHook.callbackSecret }}
+            # The billing service's payment-callback signing secret
+            # (DESIGN.md §9.2). A Secret NAME, never a literal.
+            - name: BILLING_HOOK_CALLBACK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . }}
+                  key: BILLING_HOOK_CALLBACK_SECRET
+                  optional: true
+            {{- end }}
+            {{- end }}
+            {{- if .Values.platformApi.url }}
+            # Platform enforcement (DESIGN.md §9.6): the sovereign-admin API
+            # and the projected ServiceAccount token the binary re-reads on
+            # every suspend/resume call (volume `platform-api-token` below).
+            - name: PLATFORM_API_URL
+              value: {{ .Values.platformApi.url | quote }}
+            - name: PLATFORM_API_TOKEN_FILE
+              value: /var/run/secrets/platform-api/token
             {{- end }}
           {{- with .Values.smtp.existingSecret }}
           envFrom:
@@ -183,6 +202,11 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- if .Values.platformApi.url }}
+            - name: platform-api-token
+              mountPath: /var/run/secrets/platform-api
+              readOnly: true
+            {{- end }}
       volumes:
         # read-only rootfs: the only writable path is a memory-backed /tmp.
         - name: tmp
@@ -193,4 +217,20 @@ spec:
         - name: dsn
           secret:
             secretName: {{ $dsnSecret }}
+        {{- end }}
+        {{- if .Values.platformApi.url }}
+        # The bearer for the sovereign-admin API's internal suspend/resume
+        # routes: a projected ServiceAccount token, rotated by the kubelet
+        # (expirationSeconds), re-read by the binary on every call. Audience
+        # only when platformApi.tokenAudience names one — the API reviews the
+        # token against the apiserver's default audience otherwise.
+        - name: platform-api-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  expirationSeconds: 3600
+                  {{- with .Values.platformApi.tokenAudience }}
+                  audience: {{ . | quote }}
+                  {{- end }}
         {{- end }}

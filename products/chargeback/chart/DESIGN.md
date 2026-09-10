@@ -61,6 +61,18 @@ never identity — no duplication across instances.
   Secrets named by `costSources[].credentialRef` are granted by per-Organization
   Roles the org-gitops emitter writes on the named Secret (`resourceNames get`),
   never a cluster-wide secrets read.
+- **Platform enforcement** (`platformApi.url`, DESIGN.md §9.6, #6867) — when
+  set, `PLATFORM_API_URL` is wired and a **projected ServiceAccount token**
+  volume (`serviceAccountToken`, `expirationSeconds: 3600`, `audience` only
+  when `platformApi.tokenAudience` names one) is mounted read-only at
+  `/var/run/secrets/platform-api/token` with `PLATFORM_API_TOKEN_FILE`
+  pointing at it. The binary re-reads that file on every suspend/resume call
+  to the sovereign-admin API's `/api/v1/internal/organizations/{slug}/…`
+  routes, which verify it with a TokenReview against
+  `system:serviceaccount:<namespace>:<sa>`. Empty url ⇒ none of this renders
+  and the Enforcer is a Nop. `adapter.billingHook.callbackSecret` names the
+  Secret whose `BILLING_HOOK_CALLBACK_SECRET` key signs the billing
+  service's payment callbacks — a Secret name, never a literal.
 
 ## Deployment profiles
 
