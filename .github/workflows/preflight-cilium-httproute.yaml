@@ -140,6 +140,22 @@ jobs:
           kubectl get crd gatewayclasses.gateway.networking.k8s.io -o jsonpath='bundle={.metadata.annotations.gateway\.networking\.k8s\.io/bundle-version} channel={.metadata.annotations.gateway\.networking\.k8s\.io/channel}{"\n"}' || true
           exit 1
 
+      - name: Give the Gateway an address the way a Sovereign does — a Cilium LB-IPAM pool
+        # A live Sovereign's Gateway is Programmed from a cilium LB-IPAM VIP
+        # (or hostNetwork), never a NodePort. kind has no cloud LB, so without
+        # a pool the Gateway sits at Programmed=False "Address not ready yet"
+        # (main 2026-09-10 17:47Z). A private pool gives LB-IPAM an address.
+        run: |
+          kubectl apply -f - <<'EOF'
+          apiVersion: cilium.io/v2
+          kind: CiliumLoadBalancerIPPool
+          metadata:
+            name: preflight-c
+          spec:
+            blocks:
+              - cidr: 10.250.0.0/24
+          EOF
+          kubectl get ciliumloadbalancerippools.cilium.io preflight-c -o wide
       - name: Apply per-Sovereign Gateway (HTTP listener only — TLS is Phase 8a)
         run: |
           # Mirrors `clusters/_template/bootstrap-kit/01-cilium.yaml`
