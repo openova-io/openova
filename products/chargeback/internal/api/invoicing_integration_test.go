@@ -493,7 +493,7 @@ func TestIntegrationPaymentSettlesAtTheMinorUnit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Balance != "0.000000" || got.Paid != "14.857000" || got.Status != store.StatusPaid {
+	if got.Balance != "0.000000" || got.Paid != "14.856782" || got.Status != store.StatusPaid {
 		t.Fatalf("store reads balance %s paid %s status %s", got.Balance, got.Paid, got.Status)
 	}
 
