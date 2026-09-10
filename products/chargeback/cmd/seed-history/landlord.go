@@ -29,6 +29,14 @@ import (
 //     carries the same price book as the customer's real cloud source, so
 //     both halves of the series are rated identically and the seam does not
 //     jump.
+//
+// One deliberate exception writes to the real ledger, and it is a delete:
+// --neutralise-reservations (neutralise.go) removes the landlord's real
+// eip.bandwidth_mbps rows on addresses the cloud bills by traffic — rows the
+// old collector recorded before it could read the charge mode, describing a
+// charge the cloud never made. It runs first in the landlord step, so the
+// real present the backfill converges on is the one without the fictional
+// reservation line.
 
 // resolveLandlordUntil answers where the backfill must stop: the hour
 // boundary before the customer's earliest REAL usage record, so the last
@@ -163,6 +171,18 @@ func (s *seeder) applyLandlord(slug string, untilOverride time.Time) (r result, 
 		return r, false, nil
 	}
 
+	// The real ledger first: reservations the cloud never billed come off
+	// whether or not the backfill below has anything to write.
+	note := ""
+	if s.neutralise {
+		n, nerr := neutraliseReservations(s.ctx, s.db, landlord.ID)
+		if nerr != nil {
+			return r, true, fmt.Errorf("neutralise reservations of %s: %w", slug, nerr)
+		}
+		s.infof("%s (%s) — reservations the cloud never billed: %s", landlord.Name, slug, n)
+		note = "; " + n.String()
+	}
+
 	until, discovered := untilOverride.UTC(), false
 	if untilOverride.IsZero() {
 		t, ok, uerr := resolveLandlordUntil(s.ctx, s.db, landlord.ID)
@@ -187,7 +207,7 @@ func (s *seeder) applyLandlord(slug string, untilOverride time.Time) (r result, 
 		Resources: len(out.Resources), Months: map[string]string{},
 	}
 	if len(out.Records) == 0 {
-		r.Note = "backfill window is empty"
+		r.Note = "backfill window is empty" + note
 		return r, true, nil
 	}
 
@@ -259,7 +279,7 @@ func (s *seeder) applyLandlord(slug string, untilOverride time.Time) (r result, 
 		}
 		rated = "list price at the National Cloud rates in internal/synth — the explorer could not be read: " + cerr.Error()
 	}
-	r.Note = fmt.Sprintf("landlord backfill to %s — usage and inventory only, no statements issued (its statements are the operator's); OMR is %s",
-		sc.Window.To.Format(time.RFC3339), rated)
+	r.Note = fmt.Sprintf("landlord backfill to %s — usage and inventory only, no statements issued (its statements are the operator's); OMR is %s; %s is unpriced until the operator enters a traffic rate%s",
+		sc.Window.To.Format(time.RFC3339), rated, synth.EIPTrafficSKU, note)
 	return r, true, nil
 }
