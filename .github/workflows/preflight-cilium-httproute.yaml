@@ -68,6 +68,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Write the kind config (helm/kind-action takes a file path, not inline YAML)
+        # The former inline `config: |` was read by the action as a PATH named
+        # "kind: Cluster" → `error reading file: open kind: Cluster` on every
+        # run (main 2026-09-10, three attempts). Written to a file first.
+        run: |
+          cat > "${RUNNER_TEMP}/kind-preflight-c.yaml" <<'EOF'
+          kind: Cluster
+          apiVersion: kind.x-k8s.io/v1alpha4
+          networking:
+            disableDefaultCNI: true
+            kubeProxyMode: none
+          nodes:
+            - role: control-plane
+            - role: worker
+          EOF
       - name: Set up kind cluster (no kindnet, kube-proxy disabled)
         uses: helm/kind-action@v1
         with:
@@ -76,15 +91,7 @@ jobs:
           # Disable default CNI + kube-proxy so Cilium can take over both
           # roles (matches the Sovereign k3s shape: --flannel-backend=none
           # + --disable-kube-proxy in cloud-init).
-          config: |
-            kind: Cluster
-            apiVersion: kind.x-k8s.io/v1alpha4
-            networking:
-              disableDefaultCNI: true
-              kubeProxyMode: none
-            nodes:
-              - role: control-plane
-              - role: worker
+          config: ${{ runner.temp }}/kind-preflight-c.yaml
 
       - name: Install Gateway API CRDs (v1.2.0 — matches Cilium 1.16.x support matrix)
         run: |
