@@ -69,11 +69,12 @@ type OrganizationSpec struct {
 	// PlanSlug is the purchased catalog plan slug (s|m|l|xl|flexi). It is
 	// the SINGLE truth-source for the resource cap the org-controller
 	// materializes on the boundary namespace (Workstream B, #4292): the
-	// ResourceQuota + LimitRange (gitops.planQuota) and the tier-gate that
-	// decides host-ns vs dedicated vCluster (gitops.boundaryIsVcluster). Both
-	// CR-minting emitters resolve the plan UUID to this slug before stamping
-	// the CR; empty defaults to "s" in the renderer so a legacy CR still gets
-	// a cap rather than running uncapped.
+	// ResourceQuota + LimitRange (gitops.planQuota). It SIZES the boundary
+	// and never selects it — every Organization on every plan is backed by a
+	// dedicated vCluster (founder 2026-09-10). Both CR-minting emitters
+	// resolve the plan UUID to this slug before stamping the CR; empty
+	// defaults to "s" in the renderer so a legacy CR still gets a cap rather
+	// than running uncapped.
 	PlanSlug string `json:"planSlug,omitempty"`
 
 	// BillingMode is "real" | "chargeback" | "showback".

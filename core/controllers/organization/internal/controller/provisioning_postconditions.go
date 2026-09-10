@@ -18,8 +18,7 @@
 // of them:
 //
 //   - `vclusterReadiness` (organization_controller.go) reads back the vCluster
-//     HelmRelease + the `<slug>` Namespace, and NOTHING else. For a host-tier
-//     Org it is satisfied by the namespace alone.
+//     HelmRelease + the `<slug>` Namespace, and NOTHING else.
 //   - `reconcileConsoleServing` (organization_controller.go) runs the DNS +
 //     console-TLS + HTTPRoute trio best-effort. Its only output is
 //     `degraded bool`, which feeds a requeue and is discarded — it never

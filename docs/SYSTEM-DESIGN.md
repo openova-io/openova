@@ -65,7 +65,7 @@ graph LR
 | Term | Is | Backed by (runtime) |
 |---|---|---|
 | **Sovereign** | a deployed Catalyst (a whole multi-region cloud) | k3s clusters × 2 regions + the Catalyst control plane |
-| **Organization** | the multi-tenancy unit | `Organization` CR (`orgs.openova.io`) + a vCluster (paid) or host namespace (free/S) |
+| **Organization** | the multi-tenancy unit | `Organization` CR (`orgs.openova.io`) + a dedicated vCluster on every plan (the plan sizes its ResourceQuota/LimitRange; since 2026-09-10 no plan shares the bare host namespace) |
 | **Environment** | an env-typed scope in an Org | `Environment` CR with an **`envType`** (`prod` is the default; `dev`/`staging` exist but are rarely used — in practice most Orgs run a single `prod`) |
 | **Application** | a running deployment (App Store-style card) | `Application` CR (`apps.openova.io`) → a Flux `HelmRelease` |
 | **Blueprint** | the OCI-signed installable unit | `ghcr.io/openova-io/bp-<name>:<semver>` OCI (Helm chart + `blueprint.yaml`) |

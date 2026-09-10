@@ -979,8 +979,10 @@ whole remaining set actually needs:
 The adjudications, stated so they can be answered without re-deriving them:
 
 - **row 5** — demands `TIER=sme`, which the CRD 422-rejects (`enum: [org,
-  corporate]`), *and* `ISOLATION=vcluster` without the #4292 plan qualifier its
-  siblings 10/11 received. Two clauses, neither satisfiable by a correct
+  corporate]`). Its second clause, `ISOLATION=vcluster`, is satisfiable since
+  2026-09-10: the #4292 tier gate is removed and every Organization on every
+  plan is vCluster-backed, so the plan qualifier its siblings 10/11 once
+  carried is gone as well. One clause left, not satisfiable by a correct
   platform. #5847.
 - **row 19** (#5867) — **SETTLED 2026-08-11, the clause was amended.** The premise
   ("the grid renders only blueprint SLOTS") did not survive a full read of

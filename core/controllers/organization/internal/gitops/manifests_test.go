@@ -9,7 +9,7 @@ import (
 
 func TestRender_AllPathsAndStructuralYAML(t *testing.T) {
 	t.Parallel()
-	// PlanSlug "m" → paid tier → dedicated vCluster boundary (#4292 tier-gate).
+	// PlanSlug "m" sizes the cap; every plan gets the dedicated vCluster boundary.
 	out, err := Render(Inputs{
 		Slug:                 "acme",
 		DisplayName:          "ACME Corp",
@@ -22,7 +22,7 @@ func TestRender_AllPathsAndStructuralYAML(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	// #4292: the paid-tier set is namespace + vcluster + resourcequota +
+	// #4292: the boundary set (every plan) is namespace + vcluster + resourcequota +
 	// limitrange + kustomization + the apps-tree networkpolicy baseline +
 	// (#4293 MAJOR-2) the apps-tree kustomization index + (#4475 §1) the
 	// host-apps-tree CNP + its kustomization index.
@@ -91,14 +91,14 @@ func TestRender_AllPathsAndStructuralYAML(t *testing.T) {
 }
 
 // TestRender_ProvisioningRBACAndVclusterTargetNS_4991 locks in the two #4991
-// deliveries: (1) the provisioning-tenant Role+RoleBinding lands in the
-// ALWAYS-host-applied host-apps tree for BOTH tiers, and (2) the vcluster-tier
-// apps tree creates the target namespace INSIDE the vcluster (host tier must NOT
-// re-declare the boundary-owned host ns).
+// deliveries for every plan: (1) the provisioning-tenant Role+RoleBinding lands
+// in the ALWAYS-host-applied host-apps tree, and (2) the apps tree creates the
+// target namespace INSIDE the vcluster. Plan s is rendered as well as m because
+// the removed #4292 tier gate used to skip (2) for it.
 func TestRender_ProvisioningRBACAndVclusterTargetNS_4991(t *testing.T) {
 	t.Parallel()
 
-	// --- vcluster tier (m) ---
+	// --- plan m ---
 	vc, err := Render(Inputs{Slug: "acme", DisplayName: "ACME", Tier: "org",
 		PlanSlug: "m", SovereignFQDN: "omantel.omani.works", HostCluster: "hz"})
 	if err != nil {
@@ -124,7 +124,7 @@ func TestRender_ProvisioningRBACAndVclusterTargetNS_4991(t *testing.T) {
 			t.Errorf("host-apps kustomization missing %q\n%s", want, hk)
 		}
 	}
-	// vcluster tier creates the vcluster-internal target ns + lists it.
+	// The vcluster-internal target ns is created + listed.
 	tns, ok := vc["vcluster/apps/"+appsNamespaceDoc]
 	if !ok {
 		t.Fatalf("vcluster tier: missing vcluster/apps/%s — the kubeConfig-targeted apps Kustomization fails 'namespaces \"acme\" not found' and the app never deploys (#4991)", appsNamespaceDoc)
@@ -135,24 +135,24 @@ func TestRender_ProvisioningRBACAndVclusterTargetNS_4991(t *testing.T) {
 	ak := string(vc["vcluster/apps/kustomization.yaml"])
 	for _, want := range []string{"- " + networkPolicyDoc, "- " + appsNamespaceDoc} {
 		if !strings.Contains(ak, want) {
-			t.Errorf("vcluster-tier apps kustomization missing %q\n%s", want, ak)
+			t.Errorf("apps kustomization missing %q\n%s", want, ak)
 		}
 	}
 
-	// --- host tier (s): RBAC still delivered; NO apps target ns ---
+	// --- plan s: the SAME shape (every Organization is vCluster-backed) ---
 	hs, err := Render(Inputs{Slug: "bob", DisplayName: "Bob", Tier: "org",
 		PlanSlug: "s", SovereignFQDN: "omantel.omani.works", HostCluster: "hz"})
 	if err != nil {
 		t.Fatalf("Render(s): %v", err)
 	}
 	if _, ok := hs["vcluster/host-apps/"+provisioningRBACDoc]; !ok {
-		t.Errorf("host tier: provisioning RBAC must ALSO be delivered (the SA still mirrors/kicks in the host ns)")
+		t.Errorf("plan s: provisioning RBAC must be delivered (the SA mirrors the kubeconfig + kicks vcluster-0 in the host ns)")
 	}
-	if _, ok := hs["vcluster/apps/"+appsNamespaceDoc]; ok {
-		t.Errorf("host tier: must NOT emit vcluster/apps/namespace.yaml — the boundary already owns the host ns; a second Flux Kustomization managing the same Namespace fights it")
+	if _, ok := hs["vcluster/apps/"+appsNamespaceDoc]; !ok {
+		t.Errorf("plan s: must emit vcluster/apps/namespace.yaml — the kubeConfig-targeted apps Kustomization creates the `bob` namespace INSIDE the vCluster for every Organization (#4991); the removed tier gate used to skip it for s")
 	}
-	if strings.Contains(string(hs["vcluster/apps/kustomization.yaml"]), "- "+appsNamespaceDoc) {
-		t.Errorf("host tier: apps kustomization must not list namespace.yaml")
+	if !strings.Contains(string(hs["vcluster/apps/kustomization.yaml"]), "- "+appsNamespaceDoc) {
+		t.Errorf("plan s: apps kustomization must list namespace.yaml")
 	}
 }
 
@@ -209,7 +209,7 @@ func TestRender_VClusterImageRegistryOverride(t *testing.T) {
 	}
 }
 
-// ---- #4292 Workstream B: plan-templated quota / LimitRange / np-sync / QoS / tier-gate ----
+// ---- #4292 Workstream B: plan-templated quota / LimitRange / np-sync / QoS ----
 
 // TestPlanQuota_CatalogSlugMapping asserts the plan-slug → host-ns cap table
 // (the seed.go target: S=2/4Gi, M=4/8, L=8/16, XL=16/32, Flexi=on-demand).
@@ -415,10 +415,9 @@ func TestRender_NetworkPolicyBaselineInAppsTree(t *testing.T) {
 // `kube-apiserver` egress (so an in-vcluster Org pod can reach the cluster API).
 func TestRender_CiliumNetworkPolicyReservedEntities(t *testing.T) {
 	t.Parallel()
-	// Both a paid (vcluster) tier and the free/host tier must carry the CNP in
-	// the host-apps tree — it binds the host `<slug>` ns endpoints (the Org's own
-	// pods for the host tier; the syncer-reflected vcluster pods for the paid
-	// tier) for every tier identically.
+	// Every plan carries the CNP in the host-apps tree — it binds the host
+	// `<slug>` ns endpoints (the syncer-reflected vcluster pods) identically
+	// for every Organization.
 	for _, slug := range []string{"m", "s"} {
 		out, err := Render(Inputs{Slug: "acme", DisplayName: "Acme", Tier: "org",
 			PlanSlug: slug, SovereignFQDN: "x.example", HostCluster: "hz", VClusterChartVersion: "0.33.*"})
@@ -498,38 +497,53 @@ func TestRender_CiliumNetworkPolicyReservedEntities(t *testing.T) {
 	}
 }
 
-// TestRender_TierGate proves the founder default: free/S → host-ns (NO
-// vcluster.yaml), paid M+ → dedicated vCluster.
-func TestRender_TierGate(t *testing.T) {
+// TestRender_EveryPlanSlugIsVclusterBacked_NoTierGate is the guard against the
+// tier gate creeping back (founder 2026-09-10: "the 1 SME customer must have
+// 1 vcluster"). It walks EVERY slug in planQuotaTable — the one table the
+// renderer sizes from, so a new plan is covered the moment it is added — plus
+// the empty legacy slug, "free", an upper-cased and a padded slug, and a slug
+// the table has never heard of, and asserts for each that the boundary IS a
+// dedicated vCluster: vcluster.yaml is rendered AND indexed, and the
+// in-vCluster apps namespace the kubeConfig-targeted apps Kustomization needs
+// (#4991) is rendered AND indexed too. A plan-keyed `case "", "s", "free":`
+// anywhere in Render fails this on the first slug it excludes.
+func TestRender_EveryPlanSlugIsVclusterBacked_NoTierGate(t *testing.T) {
 	t.Parallel()
-	cases := map[string]bool{ // planSlug → expect vcluster.yaml
-		"s":     false,
-		"":      false,
-		"m":     true,
-		"l":     true,
-		"xl":    true,
-		"flexi": true,
+	if len(planQuotaTable) < 5 {
+		t.Fatalf("planQuotaTable has %d entries — the walk below would prove nothing", len(planQuotaTable))
 	}
-	for slug, wantVcluster := range cases {
+	slugs := []string{"", "free", "S", "  s ", "enterprise-2027"}
+	for slug := range planQuotaTable {
+		slugs = append(slugs, slug)
+	}
+	for _, slug := range slugs {
 		out, err := Render(Inputs{Slug: "acme", DisplayName: "Acme", Tier: "org",
 			PlanSlug: slug, SovereignFQDN: "x.example", HostCluster: "hz", VClusterChartVersion: "0.33.*"})
 		if err != nil {
 			t.Fatalf("Render(%q): %v", slug, err)
 		}
-		_, hasVcluster := out["vcluster/vcluster.yaml"]
-		if hasVcluster != wantVcluster {
-			t.Errorf("plan %q: vcluster.yaml present=%v, want %v (tier-gate)", slug, hasVcluster, wantVcluster)
+		vcl, ok := out["vcluster/vcluster.yaml"]
+		if !ok {
+			t.Errorf("plan %q: no vcluster/vcluster.yaml — every Organization is vCluster-backed; a tier gate is back", slug)
+			continue
 		}
-		// Either way the boundary ns + LimitRange + kustomization always render.
+		if !strings.Contains(string(vcl), "kind: HelmRelease") || !strings.Contains(string(vcl), "chart: vcluster") {
+			t.Errorf("plan %q: vcluster.yaml is not the vcluster HelmRelease:\n%s", slug, vcl)
+		}
+		if kz := string(out["vcluster/kustomization.yaml"]); !strings.Contains(kz, "- vcluster.yaml") {
+			t.Errorf("plan %q: boundary kustomization does not index vcluster.yaml — rendered but never applied:\n%s", slug, kz)
+		}
+		if _, ok := out["vcluster/apps/"+appsNamespaceDoc]; !ok {
+			t.Errorf("plan %q: no in-vCluster apps namespace doc (#4991) — the kubeConfig-targeted apps Kustomization fails `namespaces \"acme\" not found`", slug)
+		}
+		if akz := string(out["vcluster/apps/kustomization.yaml"]); !strings.Contains(akz, "- "+appsNamespaceDoc) {
+			t.Errorf("plan %q: apps kustomization does not index %s:\n%s", slug, appsNamespaceDoc, akz)
+		}
+		// The boundary ns + LimitRange + kustomization render for every plan.
 		for _, p := range []string{"vcluster/namespace.yaml", "vcluster/limitrange.yaml", "vcluster/kustomization.yaml"} {
 			if _, ok := out[p]; !ok {
-				t.Errorf("plan %q: missing %q (must render for every tier)", slug, p)
+				t.Errorf("plan %q: missing %q (must render for every plan)", slug, p)
 			}
-		}
-		kz := string(out["vcluster/kustomization.yaml"])
-		listsVcluster := strings.Contains(kz, "- vcluster.yaml")
-		if listsVcluster != wantVcluster {
-			t.Errorf("plan %q: kustomization lists vcluster.yaml=%v, want %v\n%s", slug, listsVcluster, wantVcluster, kz)
 		}
 	}
 }
@@ -588,25 +602,6 @@ func TestRender_VclusterHRSelfHealsColdPull_5003(t *testing.T) {
 	}
 	if hr.Spec.Upgrade.Remediation.Retries != -1 {
 		t.Errorf("#5003: spec.upgrade.remediation.retries = %d, want -1 (retry forever, never terminally Stalled)", hr.Spec.Upgrade.Remediation.Retries)
-	}
-}
-
-// TestBoundaryIsVcluster_FlippableGate documents the one-line Sovereign switch.
-func TestBoundaryIsVcluster_FlippableGate(t *testing.T) {
-	t.Parallel()
-	if allTiersVcluster {
-		if !boundaryIsVcluster("s") {
-			t.Errorf("allTiersVcluster=true must put S on a vcluster")
-		}
-		return
-	}
-	if boundaryIsVcluster("s") || boundaryIsVcluster("") {
-		t.Errorf("default gate: free/S must be host-ns (boundaryIsVcluster=false)")
-	}
-	for _, paid := range []string{"m", "l", "xl", "flexi"} {
-		if !boundaryIsVcluster(paid) {
-			t.Errorf("default gate: %q must be vcluster (boundaryIsVcluster=true)", paid)
-		}
 	}
 }
 

@@ -832,16 +832,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	// what is pending, and the reconcile requeues so the status converges
 	// as Flux brings the vCluster up.
 	//
-	// #4339 (Refs #4292): the readback is TIER-AWARE. A host-tier Org
-	// (""/s/free — the same gitops.BoundaryIsVcluster gate that decides the
-	// boundary primitive) renders NO vcluster HR, so there is nothing to
-	// wait on — the host `<slug>` namespace IS the boundary. Gating those
-	// Orgs on a `vcluster` HR that is correctly never authored wedged them
-	// at Ready=False:VClusterProvisioning forever, so ensureEnvironment
-	// never ran and the apps-install phase was never reached. We pass the
-	// plan slug through so vclusterReadiness can short-circuit to host-ns
-	// readiness for host-tier and only wait on the HR for the vcluster tier.
-	vcPhase, vcReady, vcMsg := r.vclusterReadiness(ctx, org.Spec.Slug, org.Spec.PlanSlug)
+	// Every Organization, on every plan, authors a vCluster HelmRelease
+	// (gitops.Render — one boundary primitive, founder 2026-09-10), so the
+	// readback waits on that HR for every Organization. The #4339 host-tier
+	// short-circuit that let a free/S Org go Ready off its bare namespace
+	// went with the tier gate it keyed off.
+	vcPhase, vcReady, vcMsg := r.vclusterReadiness(ctx, org.Spec.Slug)
 
 	// 6a. Auto-ensure the parent Environment CR (issue #4077, Refs #3687)
 	// once the vCluster can actually host Applications. Without this, every
@@ -859,8 +855,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 
 	// 6b. POSTCONDITION VERIFICATION (#5395). vclusterReadiness above reads back
-	// exactly ONE of the artifacts this reconciler authors (the vCluster HR, or
-	// for a host-tier Org merely the `<slug>` namespace). Everything else — the
+	// exactly ONE of the artifacts this reconciler authors (the vCluster HR plus
+	// the `<slug>` namespace it lives in). Everything else — the
 	// plan ResourceQuota + LimitRange authored into the per-Org repo, and the
 	// per-Org console Gateway listener pair — was fire-and-forget: nothing ever
 	// read it back, and reconcileConsoleServing's only output (`degraded`) fed a
@@ -920,28 +916,20 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	case vcReady:
 		readyCond.Status = "True"
 		readyCond.Reason = "Reconciled"
-		// #4813 (status honesty): word the Ready message off the SAME
-		// #4292/#4339 tier gate vclusterReadiness used, so it names the
-		// boundary that ACTUALLY backs the Org. A host-tier (""/s/free) Org
-		// authors NO vCluster HelmRelease — its host `<slug>` namespace IS the
-		// boundary — so asserting "vCluster HelmRelease Ready" for it is a
-		// false green over absent backing (Ready-over-absent-backing
-		// anti-pattern, cf. #3687 / #856). Only the vcluster tier
-		// (m/l/xl/flexi) authors + waits on the HR, so only it may claim it.
-		readyCond.Message = readyOrgMessage(org.Spec.PlanSlug)
+		// #4813 (status honesty): the message names the boundary that
+		// ACTUALLY backs the Org. Every Organization authors + waits on its
+		// vCluster HelmRelease, so the message may claim it for every one.
+		readyCond.Message = readyOrgMessage
 	default:
 		readyCond.Status = "False"
-		// #5502 (Refs #4813/#4292/#4339): name the pending reason off the SAME
-		// tier gate vclusterReadiness + readyOrgMessage use. vcMsg was already
-		// tier-aware here; the machine-readable Reason was not, so a host-tier
-		// Org waiting on its host NAMESPACE reported VClusterProvisioning and
-		// sent the diagnosis hunting a vCluster that is correctly never
-		// authored for that tier.
-		readyCond.Reason = pendingBoundaryReason(org.Spec.PlanSlug)
+		// #5502 (Refs #4813): the machine-readable Reason names the artifact
+		// the Org is actually waiting on — its vCluster HelmRelease, for every
+		// Organization.
+		readyCond.Reason = pendingBoundaryReason
 		readyCond.Message = vcMsg
 	}
 	desired := orgapi.OrganizationStatus{
-		VCluster: vclusterStatusFor(org.Spec.Slug, r.HostCluster, org.Spec.PlanSlug, vcPhase),
+		VCluster: vclusterStatusFor(org.Spec.Slug, r.HostCluster, vcPhase),
 		KeycloakGroup: orgapi.KeycloakGroupStatus{
 			ID:    kcID,
 			Path:  kcPath,
@@ -981,9 +969,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	// the readback every 30s (matching the fail() cadence).
 	// Requeue while the vCluster is still coming up OR the console-serving trio
 	// (#4999) reported a transient failure — so the console DNS/TLS/HTTPRoute
-	// retry on the 30s cadence even for an Org that is otherwise Ready (a
-	// host-tier Org goes Ready immediately, so without this a transient console
-	// route write would sit un-retried until the next spec change).
+	// retry on the 30s cadence even for an Org that is otherwise Ready (without
+	// this a transient console route write would sit un-retried until the next
+	// spec change).
 	//
 	// #5395 — ALSO requeue while any provisioning postcondition is missing or
 	// could not be verified. This is what makes the check self-healing rather
@@ -1124,80 +1112,29 @@ func (r *Reconciler) reconcileConsoleRedirectURI(ctx context.Context, org *orgap
 	return r.Keycloak.RegisterOrgConsoleRedirectURI(ctx, subdomain, parentDomain)
 }
 
-// readyOrgMessage words the Organization's Ready=True condition message off the
-// SAME #4292/#4339 tier gate that decides the boundary primitive
-// (gitops.BoundaryIsVcluster) + that vclusterReadiness keys off. This keeps the
-// human-readable status HONEST about what actually backs the Org (#4813):
-//
-//   - vcluster tier (m/l/xl/flexi): a real vCluster HelmRelease was authored +
-//     is Ready, so the message names it.
-//   - host tier (""/s/free): NO vCluster HR is ever authored — the host `<slug>`
-//     namespace IS the boundary. vclusterReadiness returns Ready as soon as that
-//     namespace is Active (no HR to wait on), so claiming "vCluster HelmRelease
-//     Ready" here would be a false green over absent backing (the
-//     Ready-over-absent-backing anti-pattern flagged in #4813, cf. #3687 / #856).
-//     The message instead names the host namespace boundary that truly exists.
-func readyOrgMessage(planSlug string) string {
-	if gitops.BoundaryIsVcluster(planSlug) {
-		return "vCluster HelmRelease Ready + Keycloak group + Gitea Org reconciled"
-	}
-	return "host namespace Active + Keycloak group + Gitea Org reconciled (namespace-isolated tier — no vCluster authored)"
-}
+// readyOrgMessage is the Organization's Ready=True condition message. It names
+// the boundary that ACTUALLY backs the Org (#4813): every Organization authors
+// a vCluster HelmRelease and goes Ready only once that HR is Ready, so the
+// message is the same for every plan. The plan-keyed variant that named a
+// "host namespace" boundary for free/S went with the tier gate (2026-09-10).
+const readyOrgMessage = "vCluster HelmRelease Ready + Keycloak group + Gitea Org reconciled"
 
-// pendingBoundaryReason names the artifact a not-yet-Ready Org is ACTUALLY
-// waiting on, keyed off the same #4292/#4339 tier gate
-// (gitops.BoundaryIsVcluster) that vclusterReadiness and readyOrgMessage use.
-//
-// #4813 made the Ready=True *message* tier-aware for exactly this reason, but
-// the Ready=False *Reason* stayed hardcoded to "VClusterProvisioning". Reason
-// is the machine-readable field — it is what `kubectl get org -o jsonpath`,
-// operators, and tooling filter on — so a host-tier (""/s/free) Org, which
-// authors NO vCluster HelmRelease and whose host `<slug>` namespace IS the
-// boundary, reported that it was waiting on a vCluster.
-//
-// Observed cost (#5502): on hw291 the Org `uatcorp` (plan=s → namespace by
-// design) sat at Ready=False:VClusterProvisioning, and the acceptance walk
-// duly went hunting — `kubectl get vclusters -A` returned "No resources
-// found" in both regions and vcluster StatefulSets were 0, all of which is
-// the CORRECT state for that tier. The real missing artifact was the
-// `uatcorp` namespace. The honest explanation was already sitting in the
-// message; the Reason contradicted it.
-//
-// The vcluster tier keeps the original string, so nothing that legitimately
-// waits on a vCluster changes.
-func pendingBoundaryReason(planSlug string) string {
-	if gitops.BoundaryIsVcluster(planSlug) {
-		return "VClusterProvisioning"
-	}
-	return "NamespaceProvisioning"
-}
+// pendingBoundaryReason is the Ready=False Reason while the boundary is not
+// yet up. Reason is the machine-readable field — what `kubectl get org -o
+// jsonpath`, operators and tooling filter on — so it names the artifact the
+// Org is actually waiting on (#5502): its vCluster HelmRelease, for every
+// Organization. The "NamespaceProvisioning" arm for free/S went with the tier
+// gate (2026-09-10).
+const pendingBoundaryReason = "VClusterProvisioning"
 
 // vclusterStatusFor returns the status.vcluster block to stamp on the
-// Organization, keyed off the SAME #4292/#4339 tier gate
-// (gitops.BoundaryIsVcluster) that decides whether a vCluster is authored at
-// all (#5489):
-//
-//   - vcluster tier (m/l/xl/flexi): the controller authors a real vCluster
-//     HelmRelease, so the block carries name + hostCluster + the phase
-//     vclusterReadiness derived — exactly the pre-#5489 shape.
-//   - host tier (""/s/free): NO vCluster is ever authored. The old
-//     unconditional stamp wrote status.vcluster{name, hostCluster, phase:
-//     Ready} over that absence, and the CRD printer column
-//     (products/catalyst/chart/crds/organization.yaml, .status.vcluster.phase)
-//     surfaced it as `vCluster: Ready` on `kubectl get organizations -o wide`
-//     — a fabricated object beside an honest Ready message (#4813 fixed the
-//     message; the field kept lying). The zero value serializes as an
-//     empty/absent block, which the printer column renders as blank — the
-//     honest representation of "no vCluster exists for this Org".
-//
-// The console directory is unaffected: orgStateFromCR (bootstrap api,
-// org_list_from_cr.go) reads phase first and falls through to the Ready
-// condition, which this controller still stamps tier-honestly via
-// readyOrgMessage.
-func vclusterStatusFor(slug, hostCluster, planSlug, vcPhase string) orgapi.VClusterStatus {
-	if !gitops.BoundaryIsVcluster(planSlug) {
-		return orgapi.VClusterStatus{}
-	}
+// Organization: name + hostCluster + the phase vclusterReadiness derived.
+// Every Organization authors a real vCluster HelmRelease, so the block is
+// stamped for every one. #5489 asked that it never be stamped over an
+// UNAUTHORED vCluster (the CRD printer column then showed `vCluster: Ready`
+// for a namespace-only Org); with one boundary primitive that case cannot
+// arise, and the phase is whatever the readback of the real HR derived.
+func vclusterStatusFor(slug, hostCluster, vcPhase string) orgapi.VClusterStatus {
 	return orgapi.VClusterStatus{
 		Name:        slug,
 		HostCluster: hostCluster,
@@ -1227,14 +1164,11 @@ func vclusterStatusFor(slug, hostCluster, planSlug, vcPhase string) orgapi.VClus
 // other than NotFound degrade to Provisioning (transient API blips
 // shouldn't flip a healthy Org to Pending) and requeue.
 //
-// #4339 (Refs #4292): TIER-AWARE. For a host-tier Org (""/s/free — same
-// gitops.BoundaryIsVcluster gate that decides the boundary primitive) the
-// controller authors NO vcluster HR; the host `<slug>` namespace IS the
-// boundary. So host-tier readiness keys solely off the namespace existing —
-// waiting on a `vcluster` HR that is correctly never rendered would wedge the
-// Org at Ready=False forever and never reach the apps-install phase. Only the
-// vcluster tier (m/l/xl/flexi) reads back + waits on the HR.
-func (r *Reconciler) vclusterReadiness(ctx context.Context, slug, planSlug string) (phase string, ready bool, message string) {
+// Every Organization authors a vcluster HR (one boundary primitive, founder
+// 2026-09-10), so every Organization reads back + waits on it. The #4339
+// host-tier short-circuit (readiness off the bare namespace for ""/s/free)
+// went with the tier gate.
+func (r *Reconciler) vclusterReadiness(ctx context.Context, slug string) (phase string, ready bool, message string) {
 	nsExists := false
 	ns := &corev1.Namespace{}
 	switch err := r.Get(ctx, types.NamespacedName{Name: slug}, ns); {
@@ -1245,18 +1179,6 @@ func (r *Reconciler) vclusterReadiness(ctx context.Context, slug, planSlug strin
 	default:
 		return "Provisioning", false,
 			fmt.Sprintf("vCluster namespace readback error (transient): %s", err)
-	}
-
-	// Host-tier boundary: no vcluster HR is ever authored (gitops.Render omits
-	// vcluster.yaml from ./vcluster for ""/s/free). Readiness = the host ns is
-	// Active. The phase string stays "Ready"/"Pending" so the existing status
-	// projection + the vcReady-gated ensureEnvironment / apps phase proceed.
-	if !gitops.BoundaryIsVcluster(planSlug) {
-		if nsExists {
-			return "Ready", true, ""
-		}
-		return "Pending", false,
-			"host-tier Org namespace not yet Active (no vCluster HR is authored for this tier; the host namespace is the boundary)"
 	}
 
 	hr := &unstructured.Unstructured{}

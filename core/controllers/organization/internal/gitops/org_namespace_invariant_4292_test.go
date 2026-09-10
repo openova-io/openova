@@ -5,14 +5,13 @@
 // missing one." That clause is arithmetically unsatisfiable on any mixed-tier
 // Sovereign, and this file is the source evidence for why.
 //
-// Render() emits `vcluster/namespace.yaml` UNCONDITIONALLY — it is seeded into
-// the file set before the tier gate is consulted, and only
-// `vcluster/vcluster.yaml` sits behind boundaryIsVcluster(). So a vCluster-tier
-// Organization has a host namespace TOO: the namespace is where its vCluster
-// HelmRelease, its plan-quota/plan-limits pair, its CNP and its provisioning
-// RBAC all live, and it is the namespace the syncer mirrors the Org's pods
-// into. Org-labelled namespace count therefore equals TOTAL Organization
-// count, not host-tier count, and the two coincide only on an all-host estate.
+// Render() emits `vcluster/namespace.yaml` for every Organization, and since
+// 2026-09-10 it emits `vcluster/vcluster.yaml` for every Organization too —
+// the #4292 tier gate that kept free/S on the bare namespace is gone. The host
+// namespace is where the Org's vCluster HelmRelease, its plan-quota/plan-limits
+// pair, its CNP and its provisioning RBAC all live, and it is the namespace the
+// syncer mirrors the Org's pods into. Org-labelled namespace count therefore
+// equals TOTAL Organization count.
 //
 // The invariant the row was reaching for — and the one this file pins — is:
 //
@@ -27,6 +26,7 @@
 package gitops
 
 import (
+	"sort"
 	"strings"
 	"testing"
 
@@ -58,13 +58,13 @@ func TestRender_EveryTierOwnsExactlyOneOrgNamespace(t *testing.T) {
 		//	vcluster/            boundary tree, host-applied
 		//	vcluster/host-apps/  CNP + provisioning RBAC, ALWAYS host-applied
 		//
-		// `vcluster/apps/` is excluded on purpose. For a vcluster-tier Org the
+		// `vcluster/apps/` is excluded on purpose. For every Organization the
 		// per-Org apps Kustomization carries spec.kubeConfig, so
 		// vcluster/apps/namespace.yaml is created INSIDE that Org's vCluster
 		// apiserver (per_org_flux.go, #4991) — it is invisible to a host-side
-		// `kubectl get ns` and counting it would inflate every vcluster-tier
-		// Org to two. Verified by this very assertion: scoping it wrongly made
-		// the m/l/xl/flexi renders report 2.
+		// `kubectl get ns` and counting it would inflate every Org to two.
+		// Verified by this very assertion: scoping it wrongly made the renders
+		// report 2.
 		hostApplied := func(path string) bool {
 			return !strings.HasPrefix(path, "vcluster/apps/")
 		}
@@ -93,13 +93,11 @@ func TestRender_EveryTierOwnsExactlyOneOrgNamespace(t *testing.T) {
 				"(UAT row 106: one host namespace per Organization, every tier)",
 				plan, nsDocs)
 		}
-		// Control on the exclusion itself: the vcluster tier DOES author an
-		// in-vCluster namespace, and the host tier does not. Without this the
-		// filter above could be hiding a real second host namespace.
-		_, hasInVcluster := out["vcluster/apps/"+appsNamespaceDoc]
-		if wantInVcluster := BoundaryIsVcluster(plan); hasInVcluster != wantInVcluster {
-			t.Errorf("plan %q: in-vCluster apps namespace present=%v, want %v",
-				plan, hasInVcluster, wantInVcluster)
+		// Control on the exclusion itself: every Organization DOES author an
+		// in-vCluster namespace under vcluster/apps/. Without this the filter
+		// above could be hiding a real second host namespace.
+		if _, hasInVcluster := out["vcluster/apps/"+appsNamespaceDoc]; !hasInVcluster {
+			t.Errorf("plan %q: in-vCluster apps namespace missing — every Organization authors one", plan)
 		}
 
 		// (2) Its identity is the Org slug, on BOTH the name and the join
@@ -108,7 +106,7 @@ func TestRender_EveryTierOwnsExactlyOneOrgNamespace(t *testing.T) {
 		raw, ok := out["vcluster/namespace.yaml"]
 		if !ok {
 			t.Fatalf("plan %q: no vcluster/namespace.yaml — the boundary namespace "+
-				"is NOT tier-gated and must render for every plan", plan)
+				"must render for every plan", plan)
 		}
 		var ns struct {
 			Kind     string `json:"kind"`
@@ -133,13 +131,19 @@ func TestRender_EveryTierOwnsExactlyOneOrgNamespace(t *testing.T) {
 	}
 }
 
-// TestRender_HostNamespaceIsNotTierGated states the negative half of row 106
-// directly: the tier gate moves exactly ONE file, and it is not the namespace.
+// TestRender_BoundaryFileSetIsPlanIndependent states the negative half of row
+// 106 in its one-boundary form (founder 2026-09-10): the plan slug moves
+// NOTHING in the boundary file set except `vcluster/resourcequota.yaml`, which
+// is absent for the soft-cap Flexi plan alone (PlanRendersResourceQuota). Every
+// other file — the vCluster HelmRelease and the in-vCluster apps namespace
+// included — renders for every plan.
 //
-// Without this, a future edit could put namespace.yaml behind the gate and the
-// test above would still pass for every plan that happens to be on the
-// rendering side of it.
-func TestRender_HostNamespaceIsNotTierGated(t *testing.T) {
+// This is the anti-creep guard: an edit that puts vcluster.yaml (or the apps
+// namespace) back behind a plan check produces a file-set difference between
+// two plans, and that difference is exactly what fails here. It is deliberately
+// NOT written as "s and m render the same files", which would pass again the
+// moment a THIRD plan were gated.
+func TestRender_BoundaryFileSetIsPlanIndependent(t *testing.T) {
 	t.Parallel()
 	render := func(plan string) map[string][]byte {
 		out, err := Render(Inputs{
@@ -151,54 +155,50 @@ func TestRender_HostNamespaceIsNotTierGated(t *testing.T) {
 		}
 		return out
 	}
-	hostTier := render("s")     // boundaryIsVcluster == false
-	vclusterTier := render("m") // boundaryIsVcluster == true
+	pathsOf := func(out map[string][]byte) []string {
+		paths := make([]string, 0, len(out))
+		for p := range out {
+			paths = append(paths, p)
+		}
+		sort.Strings(paths)
+		return paths
+	}
+	without := func(paths []string, drop string) []string {
+		kept := make([]string, 0, len(paths))
+		for _, p := range paths {
+			if p != drop {
+				kept = append(kept, p)
+			}
+		}
+		return kept
+	}
 
-	// The file sets differ ONLY by vcluster.yaml and the in-vcluster apps
-	// namespace doc. Anything else differing means the gate grew a second
-	// consequence nobody declared.
-	expectedExtra := map[string]bool{
-		"vcluster/vcluster.yaml":            true,
-		"vcluster/apps/" + appsNamespaceDoc: true,
-	}
-	for path := range vclusterTier {
-		if _, inHost := hostTier[path]; inHost {
-			continue
+	reference := pathsOf(render("s"))
+	// Vacuity guards: the reference set must contain the files the removed
+	// tier gate used to move, or the comparison below proves nothing about
+	// them; and the Flexi exception must be real, or its branch is inert.
+	for _, must := range []string{"vcluster/vcluster.yaml", "vcluster/resourcequota.yaml", "vcluster/apps/" + appsNamespaceDoc} {
+		found := false
+		for _, p := range reference {
+			found = found || p == must
 		}
-		if !expectedExtra[path] {
-			t.Errorf("the tier gate also adds %q for the vcluster tier — row 106's "+
-				"namespace arithmetic assumes the gate moves vcluster.yaml (plus the "+
-				"in-vcluster apps namespace) and NOTHING else", path)
+		if !found {
+			t.Fatalf("plan s does not render %q — the plan-independence check below would be vacuous", must)
 		}
 	}
-	for path := range hostTier {
-		if _, inVcluster := vclusterTier[path]; !inVcluster {
-			t.Errorf("the host tier renders %q that the vcluster tier does not — the "+
-				"boundary tree must be a superset in the vcluster direction", path)
+	if PlanRendersResourceQuota("flexi") {
+		t.Fatal("flexi renders a ResourceQuota — the one declared plan difference does not exist, so this test would assert identity by accident")
+	}
+
+	for _, plan := range []string{"", "free", "s", "S", "m", "l", "xl", "flexi", "enterprise-2027"} {
+		want := reference
+		if !PlanRendersResourceQuota(plan) {
+			want = without(reference, "vcluster/resourcequota.yaml")
 		}
-	}
-	// Vacuity guard: if the two renders were identical the loops above would
-	// pass while proving nothing about the gate.
-	if len(vclusterTier) == len(hostTier) {
-		t.Fatalf("host tier and vcluster tier rendered the same %d files — the tier "+
-			"gate is inert and neither loop above asserted anything", len(hostTier))
-	}
-	// And the one file whose ABSENCE defines the host tier is absent.
-	if _, bad := hostTier["vcluster/vcluster.yaml"]; bad {
-		t.Error("plan s rendered vcluster/vcluster.yaml — the free/S tier must have NO vCluster")
-	}
-	// The namespace is present on BOTH sides — the row-106 point.
-	for name, out := range map[string]map[string][]byte{"s": hostTier, "m": vclusterTier} {
-		if _, ok := out["vcluster/namespace.yaml"]; !ok {
-			t.Errorf("plan %s: host namespace missing", name)
-		}
-	}
-	// Sanity: the kustomization lists the namespace on both sides too, so the
-	// namespace is not merely rendered-but-unreferenced bytes.
-	for name, out := range map[string]map[string][]byte{"s": hostTier, "m": vclusterTier} {
-		kz := string(out["vcluster/kustomization.yaml"])
-		if !strings.Contains(kz, "- namespace.yaml") {
-			t.Errorf("plan %s: kustomization does not list namespace.yaml:\n%s", name, kz)
+		got := pathsOf(render(plan))
+		if strings.Join(got, "\n") != strings.Join(want, "\n") {
+			t.Errorf("plan %q renders a different boundary file set than plan s — the plan must size the boundary, never select it\n got: %v\nwant: %v",
+				plan, got, want)
 		}
 	}
 }
