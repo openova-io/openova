@@ -14,8 +14,8 @@ func ptr(s string) *string { return &s }
 // table on purpose.
 func TestMatrixEveryRoleEveryPermission(t *testing.T) {
 	want := map[string]map[Permission]bool{
-		RoleSovereignAdmin:  {MeteringRead: true, RatingManage: true, CustomersManage: true, BillingIssue: true, BillingCollect: true, AccountTopup: true, SettingsManage: true, AuditRead: true, CustomerSelfManage: true},
-		RoleBillingOperator: {MeteringRead: true, RatingManage: true, CustomersManage: true, BillingIssue: true, BillingCollect: true, AuditRead: true, CustomerSelfManage: true},
+		RoleSovereignAdmin:  {MeteringRead: true, RatingManage: true, CustomersManage: true, BillingIssue: true, BillingCollect: true, AccountTopup: true, SettingsManage: true, AuditRead: true, CustomerSelfManage: true, CapacityManage: true},
+		RoleBillingOperator: {MeteringRead: true, RatingManage: true, CustomersManage: true, BillingIssue: true, BillingCollect: true, AuditRead: true, CustomerSelfManage: true, CapacityManage: true},
 		RoleFinanceViewer:   {MeteringRead: true, AuditRead: true},
 		RoleCustomerOwner:   {MeteringRead: true, AccountTopup: true, CustomerSelfManage: true},
 		RoleCustomerBilling: {MeteringRead: true, AccountTopup: true},

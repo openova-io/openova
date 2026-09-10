@@ -406,6 +406,11 @@ ALTER TABLE cost_sources ADD CONSTRAINT cost_sources_status_check CHECK (status 
 	// into role_bindings and left behind as a view. Appended at the very
 	// END: migrations are positional.
 	accessMigrationSQL,
+	// DESIGN.md §11 — capacity management (EPIC #6867, founder requirement
+	// 2026-09-11): regions, zones, per-family pools with their total history,
+	// SKU footprints (seeded from the National Cloud list) and per-SKU caps.
+	// Appended at the very END: migrations are positional.
+	capacityMigrationSQL(),
 }
 
 // MigrationBackfillIssuedInvoices is the schema_migrations version of the

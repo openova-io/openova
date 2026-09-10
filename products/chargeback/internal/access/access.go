@@ -1,5 +1,5 @@
 // Package access is the authorization policy of the chargeback application
-// (DESIGN.md §10): two scope kinds, nine permissions, six roles that are
+// (DESIGN.md §10): two scope kinds, ten permissions, six roles that are
 // fixed bundles of permissions, and the one question every handler asks —
 // does this session hold permission P at scope S?
 //
@@ -44,10 +44,14 @@ const (
 	// owner holds on its own customer: its users, its sources' credentials
 	// and scope, its PO reference and tax registration.
 	CustomerSelfManage Permission = "customer.self.manage"
+	// CapacityManage writes capacity (DESIGN.md §11): regions, zones, pool
+	// totals, SKU footprints and caps. Sovereign scope only; reads ride on
+	// metering.read at the Sovereign, so a customer never sees capacity.
+	CapacityManage Permission = "capacity.manage"
 )
 
 // Permissions lists every permission, in a stable order.
-var Permissions = []Permission{MeteringRead, RatingManage, CustomersManage, BillingIssue, BillingCollect, AccountTopup, SettingsManage, AuditRead, CustomerSelfManage}
+var Permissions = []Permission{MeteringRead, RatingManage, CustomersManage, BillingIssue, BillingCollect, AccountTopup, SettingsManage, AuditRead, CustomerSelfManage, CapacityManage}
 
 // Scope kinds, re-exported so callers need only this package.
 const (
@@ -69,7 +73,7 @@ const (
 // policy; there is no per-user permission and no custom role.
 var Matrix = map[string][]Permission{
 	RoleSovereignAdmin:  Permissions,
-	RoleBillingOperator: {MeteringRead, RatingManage, CustomersManage, BillingIssue, BillingCollect, AuditRead},
+	RoleBillingOperator: {MeteringRead, RatingManage, CustomersManage, BillingIssue, BillingCollect, AuditRead, CapacityManage},
 	RoleFinanceViewer:   {MeteringRead, AuditRead},
 	RoleCustomerOwner:   {MeteringRead, AccountTopup, CustomerSelfManage},
 	RoleCustomerBilling: {MeteringRead, AccountTopup},

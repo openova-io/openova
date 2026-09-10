@@ -165,6 +165,7 @@ products/chargeback/
 │   ├── adapter/openova/          OpenOva adapter (lane D): Organization → Customer sync,
 │   │                             platform collector (pods/PVCs → k8s.* usage), billing hook (D6)
 │   ├── api/                      /api/v1 handlers, session + PIN auth, authorization, UI serving
+│   ├── capacity/                 capacity families + SKU footprints derived from SKU names (DESIGN.md §11); pure
 │   ├── collector/huawei/         SDK-HMAC-SHA256 signer, gateway client, ECS/EVS/EIP/ELB/NAT listers,
 │   │                             CTS change-log poller, CES sampler, kind → SKU mapping
 │   ├── config/                   environment → Config
@@ -271,9 +272,9 @@ with the user's directory groups on `TRUSTED_FORWARD_GROUPS_HEADER`
 Either way the session's bindings are resolved on **every** request.
 
 **Access (DESIGN.md §10).** Two scope kinds — `sovereign` and
-`customer:<id>` — nine permissions, six roles that are fixed permission
+`customer:<id>` — ten permissions, six roles that are fixed permission
 bundles: `sovereign-admin` (everything), `billing-operator` (rating,
-customers, issuing, collecting, audit — no settings, no access changes),
+customers, issuing, collecting, capacity, audit — no settings, no access changes),
 `finance-viewer` (read + export only), `customer-owner` (own costs and
 invoices, top-up, own users / PO reference / tax registration),
 `customer-billing` (own costs, top-up), `customer-viewer` (own costs). A
@@ -298,7 +299,28 @@ highest-power binding.
 | Price books | `GET/POST /pricebooks` (**`scope`**: cloud \| platform) · `GET /pricebooks/template.csv` · `GET/PUT /pricebooks/{id}` · `GET /pricebooks/{id}/coverage` · `PUT /pricebooks/{id}/items` · `POST /pricebooks/{id}/import` |
 | Statements | `POST /statements/run {period, customer_id?}` · `GET /statements[?period&customer_id]` · `GET /customers/{id}/statements` · `GET /statements/{id}` · `GET /statements/{id}.csv` · `POST /statements/{id}/issue` |
 | Operator | `GET /overview` |
+| Capacity (DESIGN.md §11; reads `metering.read` at the Sovereign, writes `capacity.manage`, every write audited `capacity.*`) | `GET /capacity/overview[?region=]` (regions → zones → pools with total / reserved / consumed / available / utilisation / exhaustion, SKU headroom with the binding family, `unmapped_skus`, `unmapped_regions`) · `GET/POST /capacity/regions` · `DELETE /capacity/regions/{id}` · `POST /capacity/regions/{id}/zones` · `DELETE /capacity/zones/{id}` · `GET /capacity/zones/{id}/pools` (+ total history) · `PUT /capacity/pools/{id} {total, note}` · `GET /capacity/footprints` · `PUT /capacity/footprints/{sku} {families}` · `GET/PUT /capacity/caps {zone_id, sku, total}` |
 | Ops (root) | `GET /healthz` · `GET /readyz` · `GET /metrics` |
+
+**Capacity** (DESIGN.md §11, founder requirement 2026-09-11). Console menu
+group **Plan → Capacity**. A region holds availability zones; a zone holds
+one pool per resource family (`vcpu`, `memory_gib`, `block_ssd_gib`,
+`block_hdd_gib`, `object_gib`, `eip_addresses`, `bandwidth_mbps`) whose
+**total** the sovereign-admin enters — static-first; a capacity collector
+fills it later through the same `PUT /capacity/pools/{id}` shape with its own
+`source`. **Consumed** is not entered: it is the latest complete hour of the
+usage ledger multiplied through the **SKU footprints** (how much of each
+family one unit of a SKU consumes — `ecs.m7n.2xlarge.8` is 8 vCPU and 64
+GiB, read from the flavour name; `evs.ssd.gb` is 1 GiB of block SSD), zone
+by the inventory's `availability_zone`, else the region's default zone
+(reported as `zone_unknown`). `available = total − reserved − consumed`,
+never below 0 (`clamped`, `overcommit`); `reserved` is 0 until proposals
+fill it. Per SKU the page shows **headroom** — the fewest more units any of
+its families allows, with the binding family — and per pool **time to
+exhaustion** = available ÷ the 7-day run-rate trend of consumed
+(`rating.RunRate`, the explorer's own arithmetic). A metered SKU with no
+footprint is listed under `unmapped_skus` and counts against no pool; a
+metered region the admin has not added is `unmapped_regions`.
 
 **Two layers, one book per source** (DESIGN.md §2, founder direction
 2026-09-08). Every cost source belongs to the **cloud** layer (a cloud
