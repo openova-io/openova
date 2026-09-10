@@ -702,6 +702,9 @@ func (c *Collector) SampleCES(ctx context.Context, src store.CostSource, now tim
 		var ge *GatewayError
 		return errors.As(err, &ge) && ge.NotPublished()
 	}
+	// A gateway can publish the ECS metrics and not the VPC ones. Note that
+	// once and stop asking, rather than logging it per address per pass.
+	vpcMetricsOff := false
 	for _, it := range items {
 		if it.DeletedAt != nil {
 			continue
@@ -726,6 +729,9 @@ func (c *Collector) SampleCES(ctx context.Context, src store.CostSource, now tim
 				})
 			}
 		case KindEIP, KindBandwidth:
+			if vpcMetricsOff {
+				continue
+			}
 			attrs := map[string]any{}
 			_ = json.Unmarshal(it.Attrs, &attrs)
 			bwID := BandwidthIDOf(attrs)
@@ -745,6 +751,7 @@ func (c *Collector) SampleCES(ctx context.Context, src store.CostSource, now tim
 			if err != nil {
 				if notPublished(err) {
 					slog.Info("collector: CES bandwidth metrics not published on this gateway; traffic sampling disabled", "source", src.ID)
+					vpcMetricsOff = true
 					continue
 				}
 				return err
