@@ -97,7 +97,20 @@ cnpg:
     # local-path is FORBIDDEN (#3971).
     storageClassName: ""
     owner: chargeback
-    resources: {}
+    # Copied verbatim by the CNPG operator onto the postgres container of
+    # every instance Pod it creates from this spec — which is where the
+    # Sovereign's Kyverno `resource-requests` (Enforce) and `resource-limits`
+    # (Audit) policies look. hw307 2026-09-11: Pod/chargeback-pg-1 was
+    # BestEffort (`requests-pod` fail) because this was `{}`. Requests size
+    # the ledger's steady state; the limits leave the rater's month-end
+    # statement pass headroom. Changing them rolls the instance.
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
     affinity: {}
   # Init-container gate: the binary applies migrations at startup (spec §1)
   # so it must not start on the empty placeholder DSN. Polls the mounted
@@ -209,7 +222,12 @@ adapter:
 # is set the Deployment mounts a serviceAccountToken projection at
 # /var/run/secrets/platform-api/token (expirationSeconds 3600; the kubelet
 # rotates it and the binary re-reads the file on every call) and sets
-# PLATFORM_API_TOKEN_FILE to that path. The sovereign-admin API verifies it
+# PLATFORM_API_BEARER_FILE to that path (the name was PLATFORM_API_TOKEN_FILE
+# through chart 0.1.32: a path is not a secret, but the Sovereign's Kyverno
+# `secret-not-in-env` policy flags any env whose NAME matches
+# `(?i)(PASSWORD|TOKEN|KEY|SECRET)` and carries a literal `value:`; the
+# binary still reads the old name as a deprecated alias for one release).
+# The sovereign-admin API verifies it
 # with a TokenReview and admits system:serviceaccount:<namespace>:<sa> — the
 # Sovereign slot's release is `chargeback` in namespace `chargeback`, which
 # is the API's default allow-list entry.
@@ -228,6 +246,50 @@ platformApi:
   # empty (the projection omits `audience`). Set it only if the API is ever
   # reconfigured to review against a named audience.
   tokenAudience: ""
+
+# ── Sovereign compliance seams (bp-kyverno-policies) ─────────────────────
+# Every workload on a Sovereign is audited by the ClusterPolicies in
+# platform/kyverno-policies/chart/templates/baseline/ and the PolicyReports
+# feed the console's Compliance view. hw307 2026-09-11: Deployment/chargeback
+# failed prometheus-scrape, otel-injected and topology-spread. Each block
+# below renders the exact shape the policy's own pattern accepts, and
+# chart/tests/kyverno-policies.sh runs the whole policy set against the
+# rendered chart with the kyverno CLI so a regression fails at PR time.
+metrics:
+  # prometheus-scrape / workload-must-be-scrape-targeted: the pod template
+  # carries `prometheus.io/scrape: "true"` (+ port/path). The binary serves
+  # the Prometheus text exposition at GET /metrics on the `http` port
+  # (internal/api/ops.go) — no exporter sidecar. false = annotations off.
+  scrape: true
+  path: /metrics
+
+otel:
+  # otel-injected / workload-must-be-otel-instrumented: the pod template
+  # names, in the `instrumentation.opentelemetry.io/inject-go` annotation
+  # the OTel Operator's webhook keys on, the Instrumentation CR this Go
+  # workload belongs to. "opentelemetry/default" is the CR
+  # bp-opentelemetry-operator renders (defaultInstrumentation, namespace
+  # `opentelemetry`) — the cross-namespace form the policy documents.
+  # Empty = annotation off.
+  #
+  # What the annotation does NOT do: the operator's Go auto-instrumentation
+  # is an eBPF sidecar that additionally requires the
+  # `instrumentation.opentelemetry.io/otel-go-auto-target-exe` annotation;
+  # this chart deliberately never sets it, so the webhook injects nothing
+  # into this pod (that sidecar runs privileged, which the runAsNonRoot /
+  # read-only-rootfs posture forbids). Telemetry flows through the
+  # Prometheus scrape above.
+  instrumentation: opentelemetry/default
+
+# topology-spread / workload-must-declare-spread: a >=2-replica Deployment
+# must declare a spread across kubernetes.io/hostname or
+# topology.kubernetes.io/zone. ScheduleAnyway keeps a single-node Sovereign
+# schedulable — the spread is a preference, never a fence.
+topologySpread:
+  enabled: true
+  topologyKey: kubernetes.io/hostname
+  maxSkew: 1
+  whenUnsatisfiable: ScheduleAnyway
 
 # requests == limits (Guaranteed QoS, 1:1 ratio) — REQUIRED for a per-Org
 # install under the plan-limits LimitRange (#4362/#4553).

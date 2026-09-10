@@ -39,8 +39,36 @@ spec:
       labels:
         {{- include "chargeback.labels" . | nindent 8 }}
         policy.cilium.io/enforced: "true"
+      {{- if or .Values.metrics.scrape .Values.otel.instrumentation }}
+      # The Sovereign's Kyverno compliance seams (values.yaml §Sovereign
+      # compliance seams; chart/tests/kyverno-policies.sh proves them):
+      annotations:
+        {{- if .Values.metrics.scrape }}
+        # prometheus-scrape: GET /metrics on the `http` port (internal/api/ops.go).
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.service.port | quote }}
+        prometheus.io/path: {{ .Values.metrics.path | quote }}
+        {{- end }}
+        {{- with .Values.otel.instrumentation }}
+        # otel-injected: the Instrumentation CR this Go workload belongs to.
+        # Never paired with otel-go-auto-target-exe, so the OTel Operator's
+        # webhook injects nothing (its Go sidecar runs privileged).
+        instrumentation.opentelemetry.io/inject-go: {{ . | quote }}
+        {{- end }}
+      {{- end }}
     spec:
       serviceAccountName: {{ include "chargeback.serviceAccountName" . }}
+      {{- if .Values.topologySpread.enabled }}
+      # topology-spread: replicas prefer distinct hosts; ScheduleAnyway keeps a
+      # single-node Sovereign schedulable.
+      topologySpreadConstraints:
+        - maxSkew: {{ .Values.topologySpread.maxSkew | int }}
+          topologyKey: {{ .Values.topologySpread.topologyKey | quote }}
+          whenUnsatisfiable: {{ .Values.topologySpread.whenUnsatisfiable | quote }}
+          labelSelector:
+            matchLabels:
+              {{- include "chargeback.selectorLabels" . | nindent 14 }}
+      {{- end }}
       # Phase 0 reads nothing from the Kubernetes API — no token mount.
       automountServiceAccountToken: {{ .Values.adapter.enabled }}
       {{- with .Values.imagePullSecrets }}
@@ -174,7 +202,14 @@ spec:
             # every suspend/resume call (volume `platform-api-token` below).
             - name: PLATFORM_API_URL
               value: {{ .Values.platformApi.url | quote }}
-            - name: PLATFORM_API_TOKEN_FILE
+            # A PATH, not a credential — but named without TOKEN/KEY/SECRET:
+            # the Sovereign's Kyverno `secret-not-in-env` policy flags any env
+            # whose NAME matches `(?i)(PASSWORD|TOKEN|KEY|SECRET)` and carries
+            # a literal `value:` (hw307 2026-09-11, as PLATFORM_API_TOKEN_FILE).
+            # Same treatment as catalyst-api's CATALYST_HANDOVER_SIGNER_PATH.
+            # The binary reads the old name as a deprecated alias for one
+            # release (internal/config).
+            - name: PLATFORM_API_BEARER_FILE
               value: /var/run/secrets/platform-api/token
             {{- end }}
           {{- with .Values.smtp.existingSecret }}

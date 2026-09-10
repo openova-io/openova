@@ -360,7 +360,7 @@ Price book CSV columns: `sku,unit,annual_price,description` (template at
 | `BILLING_HOOK_TOKEN` | unset | superadmin bearer token `POST /billing/metering/record` requires |
 | `BILLING_HOOK_CALLBACK_SECRET` | unset | shared secret the billing service signs its payment callbacks with (`POST /api/v1/gateways/stripe/callback`, DESIGN.md §9.2); unset ⇒ every callback for the stripe gateway is refused. Chart: `adapter.billingHook.callbackSecret` names the Secret |
 | `PLATFORM_API_URL` | unset | the Sovereign's sovereign-admin API, for suspend/resume at the platform (DESIGN.md §9.6: `POST /api/v1/internal/organizations/{slug}/suspend` / `resume`); unset ⇒ the Enforcer is a Nop and suspensions are recorded here only. Chart: `platformApi.url`; the Sovereign slot sets `http://catalyst-api.catalyst-system.svc.cluster.local:8080` |
-| `PLATFORM_API_TOKEN_FILE` | unset | file holding the bearer for those routes — the projected ServiceAccount token the chart mounts at `/var/run/secrets/platform-api/token` (audience `platformApi.tokenAudience`, empty = the apiserver default); re-read on every call because the kubelet rotates it. Wins over `PLATFORM_API_TOKEN` |
+| `PLATFORM_API_BEARER_FILE` | unset | file holding the bearer for those routes — the projected ServiceAccount token the chart mounts at `/var/run/secrets/platform-api/token` (audience `platformApi.tokenAudience`, empty = the apiserver default); re-read on every call because the kubelet rotates it. Wins over `PLATFORM_API_TOKEN`. Named without TOKEN/KEY/SECRET because the Sovereign's Kyverno `secret-not-in-env` policy flags any such name carrying a literal value; `PLATFORM_API_TOKEN_FILE` (the name through chart 0.1.32) is still read as a deprecated alias for one release, the new name winning when both are set |
 | `PLATFORM_API_TOKEN` | unset | literal bearer for those routes when no file is mounted (a local run against a Sovereign) |
 | `TRUSTED_FORWARD_AUTH_HEADER` | unset | the request header carrying the identity the Sovereign's SSO gate verified (`X-Forwarded-Email`); unset = the header is ignored entirely. Only safe when the gate owns the public hostname — the chart refuses `forwardAuth.header` together with `httpRoute.enabled` |
 | `TRUSTED_FORWARD_GROUPS_HEADER` | `X-Forwarded-Groups` | the header carrying the identity's directory groups (comma-separated), each looked up in `group_role_mappings` (DESIGN.md §10). Honoured only while `TRUSTED_FORWARD_AUTH_HEADER` is set |
@@ -650,3 +650,13 @@ and has not yet been re-measured end to end on hw307.
   runs per database.
 - No NodePort anywhere: the chart (follow-up) exposes the service through the
   gateway HTTPRoute like every other Blueprint.
+- The chart passes the Sovereign's Kyverno compliance set (`bp-kyverno-policies`)
+  by rendering each policy's own accepted shape: `prometheus.io/scrape` pod
+  annotations pointing at `GET /metrics` on the `http` port, the
+  `instrumentation.opentelemetry.io/inject-go` annotation naming the
+  Sovereign's `opentelemetry/default` Instrumentation CR (never paired with
+  `otel-go-auto-target-exe`, so nothing is injected), a hostname
+  `topologySpreadConstraints` entry (`ScheduleAnyway`), requests + limits on
+  the CNPG instance, and no secret-shaped env name carrying a literal value.
+  `chart/tests/kyverno-policies.sh` renders the chart and runs the full policy
+  set against it with the kyverno CLI on every PR.

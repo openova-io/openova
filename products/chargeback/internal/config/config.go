@@ -73,6 +73,13 @@ type Config struct {
 	// because projected tokens rotate; PlatformAPIToken is a literal for
 	// the cases where no file exists (a local run against a Sovereign).
 	// The file wins when both are set.
+	//
+	// The file's env is PLATFORM_API_BEARER_FILE. It was
+	// PLATFORM_API_TOKEN_FILE through chart 0.1.32; a path is not a secret,
+	// but the Sovereign's Kyverno `secret-not-in-env` policy flags any env
+	// whose NAME matches `(?i)(PASSWORD|TOKEN|KEY|SECRET)` and carries a
+	// literal value, so the chart renders the new name and the old one is
+	// read as a deprecated alias for one release (the new name wins).
 	PlatformAPIURL       string
 	PlatformAPIToken     string
 	PlatformAPITokenFile string
@@ -133,10 +140,15 @@ func FromEnv() (Config, error) {
 		CommercialImportDir:       strings.TrimSpace(os.Getenv("COMMERCIAL_IMPORT_DIR")),
 		PlatformAPIURL:            strings.TrimRight(strings.TrimSpace(os.Getenv("PLATFORM_API_URL")), "/"),
 		PlatformAPIToken:          strings.TrimSpace(os.Getenv("PLATFORM_API_TOKEN")),
-		PlatformAPITokenFile:      strings.TrimSpace(os.Getenv("PLATFORM_API_TOKEN_FILE")),
+		// New name first; PLATFORM_API_TOKEN_FILE is the deprecated alias
+		// (see the field comment).
+		PlatformAPITokenFile: get("PLATFORM_API_BEARER_FILE", strings.TrimSpace(os.Getenv("PLATFORM_API_TOKEN_FILE"))),
 		TrustedForwardAuthHeader: http.CanonicalHeaderKey(
 			strings.TrimSpace(os.Getenv("TRUSTED_FORWARD_AUTH_HEADER"))),
 		TrustedForwardGroupsHeader: http.CanonicalHeaderKey(get("TRUSTED_FORWARD_GROUPS_HEADER", "X-Forwarded-Groups")),
+	}
+	if c.PlatformAPITokenFile != "" && strings.TrimSpace(os.Getenv("PLATFORM_API_BEARER_FILE")) == "" {
+		slog.Warn("PLATFORM_API_TOKEN_FILE is a deprecated alias read for one release only; set PLATFORM_API_BEARER_FILE to the same path")
 	}
 	if c.Profile != "sovereign" && c.Profile != "operator-central" {
 		return c, fmt.Errorf("PROFILE must be sovereign or operator-central, got %q", c.Profile)
