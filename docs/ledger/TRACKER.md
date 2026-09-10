@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-10T15:45:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-09-10T16:00:08Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -316,6 +316,7 @@ flowchart LR
 | 2026-09-10T14:12 | [#6905](https://github.com/openova-io/openova/pull/6905) | #6867 | feat(org): suspend and resume an Organization on an explicit |
 | 2026-09-10T12:06 | [#6904](https://github.com/openova-io/openova/pull/6904) | #6867 | feat(chargeback): 0.1.28 — account ledger, balance, top-up,  |
 | 2026-09-10T11:11 | [#6903](https://github.com/openova-io/openova/pull/6903) | #6867 | docs(chargeback): 0.1.27 live evidence on hw307 — commercial |
+| 2026-09-10T15:55 | [#6902](https://github.com/openova-io/openova/pull/6902) | #4292 | refactor(organization): every Organization gets a dedicated  |
 | 2026-09-10T10:47 | [#6901](https://github.com/openova-io/openova/pull/6901) | #6867 | feat(chargeback): retire the billing modes, post-paid invoic |
 | 2026-09-10T09:44 | [#6900](https://github.com/openova-io/openova/pull/6900) | #6867 | feat(chargeback): meter in-place resizes and Elastic IP traf |
 | 2026-09-10T08:55 | [#6899](https://github.com/openova-io/openova/pull/6899) | #6867 | feat(chargeback): bill flexi Organizations per use instead o |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-06T18:47 | [#6869](https://github.com/openova-io/openova/pull/6869) | #6868 | fix(chargeback): purge-excluded action, allocation auto-pick |
 | 2026-09-06T18:11 | [#6868](https://github.com/openova-io/openova/pull/6868) | #6867 | feat(chargeback): cloud-provider-grade cost analysis — explo |
 | 2026-09-06T12:48 | [#6866](https://github.com/openova-io/openova/pull/6866) | #6866 | fix(chargeback): the usage table showed a dash in every grou |
-| 2026-09-06T11:41 | [#6865](https://github.com/openova-io/openova/pull/6865) | #6850 | feat(chargeback): the allocation screen (Refs #6865) |
 
 ---
 
