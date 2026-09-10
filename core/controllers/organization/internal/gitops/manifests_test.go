@@ -238,21 +238,29 @@ func TestPlanQuota_CatalogSlugMapping(t *testing.T) {
 }
 
 // TestRender_ResourceQuotaPerPlan proves the ResourceQuota renders the
-// purchased plan's cap PLUS the vCluster control-plane overhead, in the exact
-// canonical spellings an operator sees on the live object (#6902 follow-up).
-// The plan is requests==limits (S 2/4Gi, M 4/8Gi, L 8/16Gi, XL 16/32Gi); the
-// control plane adds 520m/1088Mi to requests and 1500m/1194Mi to limits
-// (vcluster-0 syncer 500m/1Gi + coredns 20m/64Mi requests, 1000m/170Mi limits).
-// The arithmetic itself is asserted plan-by-plan against the live table in
-// TestRender_ResourceQuotaIsPlanPlusControlPlaneOverhead; this test pins the
-// rendered strings so a change in either half is visible here by name.
+// purchased plan's cap PLUS the vCluster control-plane overhead PLUS the
+// per-Organization platform-stack overhead, in the exact canonical spellings
+// an operator sees on the live object (#6902 follow-ups). The plan is
+// requests==limits (S 2/4Gi, M 4/8Gi, L 8/16Gi, XL 16/32Gi); the control
+// plane adds 520m/1088Mi to requests and 1500m/1194Mi to limits (vcluster-0
+// syncer 500m/1Gi + coredns 20m/64Mi requests, 1000m/170Mi limits); the
+// platform stack adds 3840m/6064Mi to requests and 4550m/7168Mi to limits on
+// S/M/L (bp-keycloak 1/2Gi + its postgresql 500m/512Mi + the bp-newapi pod
+// 535m/352Mi requests, 1200m/1408Mi limits + its CNPG 500m/512Mi + bp-openclaw
+// 250m/512Mi + bp-agenity 1005m/2064Mi requests, 1050m/2112Mi limits +
+// oidc-gate 50m/64Mi), and 4835m/8096Mi requests, 5500m/9152Mi limits on XL,
+// where the 2-CPU/4Gi LimitRange default sizes agenity's unsized init
+// container above its app containers. The arithmetic itself is asserted
+// plan-by-plan against the live table in
+// TestRender_ResourceQuotaIsPlanPlusBothOverheads; this test pins the rendered
+// strings so a change in any term is visible here by name.
 func TestRender_ResourceQuotaPerPlan(t *testing.T) {
 	t.Parallel()
 	cases := map[string]struct{ reqCPU, reqMem, limCPU, limMem string }{
-		"s":  {"2520m", "5184Mi", "3500m", "5290Mi"},
-		"m":  {"4520m", "9280Mi", "5500m", "9386Mi"},
-		"l":  {"8520m", "17472Mi", "9500m", "17578Mi"},
-		"xl": {"16520m", "33856Mi", "17500m", "33962Mi"},
+		"s":  {"6360m", "11248Mi", "8050m", "12458Mi"},
+		"m":  {"8360m", "15344Mi", "10050m", "16554Mi"},
+		"l":  {"12360m", "23536Mi", "14050m", "24746Mi"},
+		"xl": {"21355m", "41952Mi", "23", "43114Mi"},
 	}
 	for slug, want := range cases {
 		out, err := Render(Inputs{Slug: "acme", DisplayName: "Acme", Tier: "org",
@@ -272,7 +280,7 @@ func TestRender_ResourceQuotaPerPlan(t *testing.T) {
 			"limits.memory: \"" + want.limMem + "\"",
 			"namespace: acme",
 			"openova.io/plan: " + slug,
-			`openova.io/quota-formula: "purchased plan + vcluster control plane"`,
+			`openova.io/quota-formula: "purchased plan + vcluster control plane + per-Organization platform stack"`,
 		} {
 			if !strings.Contains(s, line) {
 				t.Errorf("plan %s resourcequota.yaml missing %q\n%s", slug, line, s)

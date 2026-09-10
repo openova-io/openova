@@ -100,8 +100,8 @@ type Inputs struct {
 //
 //	CPU  — the CPU the customer PURCHASED. The ResourceQuota hard cap is this
 //	       plus the vCluster control-plane overhead (vclusterControlPlaneOverhead)
-//	       so the control plane never eats into it; requests and limits carry
-//	       their own overhead figure.
+//	       plus the per-Organization platform-stack overhead (platformStack) so
+//	       neither eats into it; requests and limits carry their own figures.
 //	Mem  — the memory the customer purchased; same rule.
 //	Burstable — Flexi alone; when true the LimitRange omits the
 //	            maxLimitRequestRatio so pods may run requests<limits
@@ -193,10 +193,11 @@ const (
 // That asymmetry is what makes the pair a usable diagnostic; see
 // provisioning_postconditions.go.
 //
-// NOTE (Refs #5393, decided with the #6902 follow-up): the SIZE of the cap is
-// the purchased plan PLUS the vCluster control-plane overhead — see
-// vclusterControlPlaneOverhead below. This predicate answers only "is a quota
-// object expected at all", never "how big it is".
+// NOTE (Refs #5393, decided with the #6902 follow-ups): the SIZE of the cap is
+// the purchased plan PLUS the vCluster control-plane overhead PLUS the
+// per-Organization platform-stack overhead — see vclusterControlPlaneOverhead
+// and platformStack below. This predicate answers only "is a quota object
+// expected at all", never "how big it is".
 func PlanRendersResourceQuota(planSlug string) bool {
 	return !planQuota(planSlug).Burstable
 }
@@ -351,9 +352,9 @@ func mustQuantity(s string) resource.Quantity {
 }
 
 // quotaHard is the four hard-cap strings the ResourceQuota template renders:
-// the purchased plan plus the control-plane overhead, per resource, in the
-// canonical Quantity spelling (e.g. plan "2" + 520m → "2520m", "4Gi" + 1088Mi →
-// "5184Mi").
+// the purchased plan plus the control-plane overhead plus the platform-stack
+// overhead, per resource, in the canonical Quantity spelling (e.g. plan "2" +
+// 520m + 3840m → "6360m", "4Gi" + 1088Mi + 6064Mi → "11248Mi").
 type quotaHard struct {
 	RequestsCPU    string
 	RequestsMemory string
@@ -361,20 +362,24 @@ type quotaHard struct {
 	LimitsMemory   string
 }
 
-// planPlusOverhead sizes the hard cap for a fixed-tier plan. Flexi never
-// reaches here (PlanRendersResourceQuota gates the file), and its empty
-// CPU/Mem would not parse.
-func planPlusOverhead(q PlanQuota, o ControlPlaneOverhead) quotaHard {
-	add := func(plan string, overhead resource.Quantity) string {
+// planPlusOverhead sizes the hard cap for a fixed-tier plan: the plan plus the
+// vCluster control plane plus the per-Organization platform stack, requests
+// and limits each with their own figures. Flexi never reaches here
+// (PlanRendersResourceQuota gates the file), and its empty CPU/Mem would not
+// parse.
+func planPlusOverhead(q PlanQuota, cp ControlPlaneOverhead, ps PlatformStackOverhead) quotaHard {
+	add := func(plan string, overheads ...resource.Quantity) string {
 		sum := mustQuantity(plan)
-		sum.Add(overhead)
+		for _, o := range overheads {
+			sum.Add(o)
+		}
 		return sum.String()
 	}
 	return quotaHard{
-		RequestsCPU:    add(q.CPU, o.RequestsCPU),
-		RequestsMemory: add(q.Mem, o.RequestsMemory),
-		LimitsCPU:      add(q.CPU, o.LimitsCPU),
-		LimitsMemory:   add(q.Mem, o.LimitsMemory),
+		RequestsCPU:    add(q.CPU, cp.RequestsCPU, ps.RequestsCPU),
+		RequestsMemory: add(q.Mem, cp.RequestsMemory, ps.RequestsMemory),
+		LimitsCPU:      add(q.CPU, cp.LimitsCPU, ps.LimitsCPU),
+		LimitsMemory:   add(q.Mem, cp.LimitsMemory, ps.LimitsMemory),
 	}
 }
 
@@ -384,6 +389,196 @@ func (o ControlPlaneOverhead) String() string {
 	return fmt.Sprintf("requests cpu=%s memory=%s; limits cpu=%s memory=%s; storage=%s",
 		o.RequestsCPU.String(), o.RequestsMemory.String(),
 		o.LimitsCPU.String(), o.LimitsMemory.String(), o.Storage.String())
+}
+
+// ─── The per-Organization platform stack is overhead, not purchased capacity ─
+//
+// Every Organization is delivered with the SAME set of platform HelmReleases
+// in its host `<slug>` namespace, none of which the customer chose from the
+// catalog: bp-keycloak (the Organization's own Keycloak plus its bundled
+// PostgreSQL), bp-newapi (the LLM gateway plus its CNPG PostgreSQL),
+// bp-openclaw (the workspace controller) and bp-agenity (the agentic dashboard
+// plus the oidc-gate in front of it). The BSS door renders all four for every
+// Organization unconditionally (products/catalyst/bootstrap/api/internal/
+// handler/organization_gitops.go orgTenantTemplates; bp-wordpress-tenant and
+// bp-stalwart-tenant in that same map are the customer's purchase and are NOT
+// in this list). Every one of their pods is charged to `plan-quota` at
+// admission.
+//
+// Measured on hw307 (Acme Walk, plan S, 2026-09-10 17:10Z): with the quota
+// equal to plan + control plane, vcluster-0 was admitted and bp-keycloak-0 was
+// refused — `requested: limits.cpu=1,limits.memory=2Gi | used:
+// limits.cpu=3450m,limits.memory=4394Mi | limited: limits.cpu=3500m,
+// limits.memory=5290Mi` — so the Helm install timed out and newapi, openclaw
+// and the purchased WordPress and Stalwart waited on the keycloak dependency
+// forever. The stack alone is ~4.5 CPU / 7 GiB of limits, larger than the S
+// plan by itself.
+//
+// Decision (Refs #6902 #6867; same principle as the control plane): the stack
+// is OpenOva's overhead delivered with every Organization, not the customer's
+// purchase. The hard cap is purchased plan + vCluster control plane + this
+// platform stack, for requests and for limits, and the customer's catalog
+// applications consume the plan. Chargeback draws the same line
+// (products/chargeback/internal/adapter/openova/collector.go isPlatformStack):
+// these pods stay off the customer's k8s.* meters.
+//
+// WHAT IS COUNTED: the long-running pods each release keeps in the namespace,
+// with every container the pod carries — the app container, native sidecars
+// (which count like app containers) and plain init containers under the
+// pod-usage max rule (podEffectiveShape). The figures come from the ONE place
+// each is set: the BSS door pins keycloak, its postgresql and the newapi
+// container; the funnel (core/services/provisioning/gitops/helmrelease_apps.go)
+// pins the newapi container to the same values; every other figure is the
+// chart's own default, because neither door overrides it. The pin test
+// (plan_quota_plus_platform_stack_test.go) re-reads each of those sources,
+// fails on drift, and checks the release list against orgTenantTemplates.
+//
+// A container the chart leaves UNSIZED (bp-agenity's `seed-claude-creds` init
+// container) is admitted with the per-Org LimitRange defaults of the plan
+// (limitRangeDefaults: plan/8, requests==limits) — so its cost, and with it
+// the stack overhead, depends on the plan. On S/M/L the agenity app containers
+// still dominate the pod; on XL the 2-CPU / 4Gi default makes the init
+// container the pod's effective shape. A zero-value containerShape below means
+// exactly that, and platformStackOverheadOf resolves it per plan.
+//
+// NOT COUNTED, deliberately: transient pods — Helm hook Jobs (keycloak-config-
+// cli 250m/256Mi, the newapi seed and secret-sync Jobs) and a Deployment's
+// surge replica during a rollout. The quota charges them only while they run,
+// and a namespace quota cannot reserve room for a pod that is not there: any
+// headroom added for them is headroom the customer's own pods may take first.
+// They ride the plan's unconsumed slack, exactly as the control plane's own
+// transients do. openclaw's per-user workspace pods are not here either: they
+// exist per signed-in User of the customer, so they are the customer's usage,
+// not a workload delivered with the Organization. Storage is not counted: the
+// quota renders no storage cap.
+
+// platformStackWorkload is one long-running pod the per-Organization platform
+// stack keeps in the host namespace, with the requests/limits of every
+// container it carries exactly as the source named in Source sets them.
+type platformStackWorkload struct {
+	// Name is the pod (or pod-name prefix) as it appears in the host namespace.
+	Name string
+	// Release is the HelmRelease that installs it — one of the four the BSS
+	// door renders for every Organization.
+	Release string
+	// Source names where each figure is pinned, for the pin test and the reader.
+	Source string
+	// Containers are the app containers plus native sidecars; their shapes sum.
+	Containers []containerShape
+	// Inits are plain init containers; the largest competes with the sum above
+	// under the pod-usage rule. A zero-value shape is a container the chart
+	// leaves unsized, which the LimitRange defaults size per plan.
+	Inits []containerShape
+}
+
+// platformStack is the stack rendered today. Change a figure at its Source
+// and the pin test names this table; change it here and the pin test names
+// the Source — the two cannot drift apart silently.
+var platformStack = []platformStackWorkload{
+	{
+		Name: "bp-keycloak-0", Release: "bp-keycloak",
+		Source: "organization_gitops.go orgTenantBPKeycloak spec.values.keycloak.resources",
+		// The bitnami subchart's own init containers are preset-sized below the
+		// keycloak container on every plan; the hw307 admission message quoted
+		// above charges this pod at exactly 1 CPU / 2Gi.
+		Containers: []containerShape{{RequestsCPU: "1", RequestsMemory: "2Gi", LimitsCPU: "1", LimitsMemory: "2Gi"}},
+	},
+	{
+		Name: "bp-keycloak-postgresql-0", Release: "bp-keycloak",
+		Source:     "organization_gitops.go orgTenantBPKeycloak spec.values.keycloak.postgresql.primary.resources",
+		Containers: []containerShape{{RequestsCPU: "500m", RequestsMemory: "512Mi", LimitsCPU: "500m", LimitsMemory: "512Mi"}},
+	},
+	{
+		Name: "bp-newapi-<hash>", Release: "bp-newapi",
+		Source: "newapi: organization_gitops.go orgTenantBPNewAPI and helmrelease_apps.go generateNewAPIHR spec.values.newapi.resources; " +
+			"sandbox-bridge (native sidecar) / metering-sidecar: platform/newapi/chart/values.yaml sandboxBridge.resources / meteringSidecar.resources; " +
+			"wait-for-sql-dsn: platform/newapi/chart/templates/deployment.yaml (inline)",
+		Containers: []containerShape{
+			{RequestsCPU: "500m", RequestsMemory: "256Mi", LimitsCPU: "500m", LimitsMemory: "1Gi"}, // newapi
+			{RequestsCPU: "10m", RequestsMemory: "32Mi", LimitsCPU: "200m", LimitsMemory: "128Mi"}, // sandbox-bridge (native sidecar, #3374)
+			{RequestsCPU: "25m", RequestsMemory: "64Mi", LimitsCPU: "500m", LimitsMemory: "256Mi"}, // metering-sidecar
+		},
+		// The plain init runs with the sandbox-bridge sidecar already held, so
+		// its true branch is init + bridge; both are far below the container
+		// sum, so the standalone max rule below gives the same pod shape.
+		Inits: []containerShape{{RequestsCPU: "10m", RequestsMemory: "16Mi", LimitsCPU: "100m", LimitsMemory: "32Mi"}}, // wait-for-sql-dsn
+	},
+	{
+		Name: "bp-newapi-newapi-pg-1", Release: "bp-newapi",
+		Source:     "platform/newapi/chart/values.yaml cnpg.cluster.resources × cnpg.cluster.instances (1); the CNPG bootstrap-controller init container inherits the same block",
+		Containers: []containerShape{{RequestsCPU: "500m", RequestsMemory: "512Mi", LimitsCPU: "500m", LimitsMemory: "512Mi"}},
+		Inits:      []containerShape{{RequestsCPU: "500m", RequestsMemory: "512Mi", LimitsCPU: "500m", LimitsMemory: "512Mi"}},
+	},
+	{
+		Name: "bp-openclaw-<hash>", Release: "bp-openclaw",
+		Source:     "platform/openclaw/chart/values.yaml controller.resources",
+		Containers: []containerShape{{RequestsCPU: "250m", RequestsMemory: "512Mi", LimitsCPU: "250m", LimitsMemory: "512Mi"}},
+	},
+	{
+		Name: "bp-agenity-0", Release: "bp-agenity",
+		Source: "products/agenity/chart/values.yaml resources (chepherd) and anthropic.credentialResync.resources (creds-resync); " +
+			"seed-claude-creds is unsized in templates/statefulset.yaml and takes the LimitRange defaults",
+		Containers: []containerShape{
+			{RequestsCPU: "1", RequestsMemory: "2Gi", LimitsCPU: "1", LimitsMemory: "2Gi"},      // chepherd
+			{RequestsCPU: "5m", RequestsMemory: "16Mi", LimitsCPU: "50m", LimitsMemory: "64Mi"}, // creds-resync (#6317)
+		},
+		Inits: []containerShape{{}}, // seed-claude-creds → LimitRange defaults of the plan
+	},
+	{
+		Name: "oidc-gate-agenity-<slug>", Release: "bp-agenity",
+		Source:     "products/agenity/chart/values.yaml oidcGate.resources",
+		Containers: []containerShape{{RequestsCPU: "50m", RequestsMemory: "64Mi", LimitsCPU: "50m", LimitsMemory: "64Mi"}},
+	},
+}
+
+// PlatformStackOverhead is what the per-Organization platform stack charges to
+// the host-namespace ResourceQuota, per hard-cap resource, for one plan. CPU is
+// exact in millicores (Quantity.MilliValue), memory in bytes (Quantity.Value).
+type PlatformStackOverhead struct {
+	RequestsCPU    resource.Quantity
+	RequestsMemory resource.Quantity
+	LimitsCPU      resource.Quantity
+	LimitsMemory   resource.Quantity
+}
+
+// platformStackOverheadOf applies the ResourceQuota pod-usage rule to every
+// workload in the stack and sums the pods. defCPU/defMem are the plan's
+// LimitRange per-container defaults (limitRangeDefaults), which size any
+// container the chart leaves unsized — so the result is per plan.
+func platformStackOverheadOf(stack []platformStackWorkload, defCPU, defMem string) PlatformStackOverhead {
+	sized := func(cs []containerShape) []containerShape {
+		out := make([]containerShape, len(cs))
+		for i, c := range cs {
+			if c == (containerShape{}) {
+				c = containerShape{RequestsCPU: defCPU, RequestsMemory: defMem, LimitsCPU: defCPU, LimitsMemory: defMem}
+			}
+			out[i] = c
+		}
+		return out
+	}
+	var o PlatformStackOverhead
+	for _, w := range stack {
+		eff := podEffectiveShape(sized(w.Containers), sized(w.Inits))
+		o.RequestsCPU.Add(mustQuantity(eff.RequestsCPU))
+		o.RequestsMemory.Add(mustQuantity(eff.RequestsMemory))
+		o.LimitsCPU.Add(mustQuantity(eff.LimitsCPU))
+		o.LimitsMemory.Add(mustQuantity(eff.LimitsMemory))
+	}
+	return o
+}
+
+// platformStackOverheadFor is the stack overhead for a plan: the shared table
+// resolved against that plan's LimitRange defaults.
+func platformStackOverheadFor(q PlanQuota) PlatformStackOverhead {
+	defCPU, defMem := limitRangeDefaults(q)
+	return platformStackOverheadOf(platformStack, defCPU, defMem)
+}
+
+// String renders the overhead the way the ResourceQuota annotation carries it.
+func (o PlatformStackOverhead) String() string {
+	return fmt.Sprintf("requests cpu=%s memory=%s; limits cpu=%s memory=%s",
+		o.RequestsCPU.String(), o.RequestsMemory.String(),
+		o.LimitsCPU.String(), o.LimitsMemory.String())
 }
 
 // renderTemplates is the named template set the controller uses.
@@ -667,14 +862,15 @@ spec:
 `
 
 // resourceQuotaTemplate caps the Org boundary host namespace at the plan the
-// customer purchased (#4292) PLUS the vCluster control-plane overhead that runs
-// in the same namespace (#6902 follow-up; see vclusterControlPlaneOverhead).
-// Driven by planQuota(.PlanSlug) → planPlusOverhead. Requests and limits carry
-// their own overhead: the plan itself is requests==limits (Guaranteed shape),
-// the control plane is not (coredns is Burstable), so the two hard caps differ
-// by exactly the control plane's request/limit gap. Flexi renders NO
-// ResourceQuota (on-demand, soft cap) — the controller skips this file for
-// Burstable plans.
+// customer purchased (#4292) PLUS the vCluster control-plane overhead PLUS the
+// per-Organization platform-stack overhead, both of which run in the same
+// namespace (#6902 follow-ups; see vclusterControlPlaneOverhead and
+// platformStack). Driven by planQuota(.PlanSlug) → planPlusOverhead. Requests
+// and limits carry their own overheads: the plan itself is requests==limits
+// (Guaranteed shape), the overheads are not (coredns and the newapi pod are
+// Burstable), so the two hard caps differ by exactly the overheads'
+// request/limit gap. Flexi renders NO ResourceQuota (on-demand, soft cap) —
+// the controller skips this file for Burstable plans.
 //
 // The split is stamped as annotations so an operator reading the LIVE object
 // (`kubectl get resourcequota plan-quota -o yaml`) can reconcile the number to
@@ -682,15 +878,19 @@ spec:
 // block does not.
 //
 // 5-pillar Pillar 1: the cap the customer pays for IS the cap that
-// materializes — and is usable in full, because the control plane is on top
-// of it. This replaces the dev-tiny marketplace-api SizeResources + the
-// syncer-only provisioning planLimits, both retired in Workstream A.
+// materializes — and is usable in full, because the control plane and the
+// platform stack are on top of it. This replaces the dev-tiny marketplace-api
+// SizeResources + the syncer-only provisioning planLimits, both retired in
+// Workstream A.
 const resourceQuotaTemplate = `# The hard cap below is NOT the plan alone. It is the purchased plan PLUS the
-# per-Org vCluster control plane (vcluster-0 syncer + the synced coredns) that
-# runs in this same namespace and is charged to this quota at admission, so the
-# control plane never eats into what the customer bought.
+# per-Org vCluster control plane (vcluster-0 syncer + the synced coredns) PLUS
+# the per-Organization platform stack (bp-keycloak + its postgresql, bp-newapi
+# + its postgresql, bp-openclaw, bp-agenity + its oidc-gate), all of which run
+# in this same namespace and are charged to this quota at admission, so neither
+# eats into what the customer bought.
 #   plan {{ .PlanSlug }}: {{ .PlanCapText }}
 #   vcluster control plane: {{ .OverheadText }}
+#   per-Organization platform stack: {{ .PlatformStackText }}
 apiVersion: v1
 kind: ResourceQuota
 metadata:
@@ -701,9 +901,10 @@ metadata:
     openova.io/plan: {{ .PlanSlug }}
     openova.io/managed-by: catalyst
   annotations:
-    openova.io/quota-formula: "purchased plan + vcluster control plane"
+    openova.io/quota-formula: "purchased plan + vcluster control plane + per-Organization platform stack"
     openova.io/plan-cap: {{ .PlanCapText | quote }}
     openova.io/vcluster-control-plane-overhead: {{ .OverheadText | quote }}
+    openova.io/platform-stack-overhead: {{ .PlatformStackText | quote }}
 spec:
   hard:
     requests.cpu: "{{ .Hard.RequestsCPU }}"
@@ -1122,16 +1323,18 @@ type renderView struct {
 	// customer purchased.
 	Quota PlanQuota
 	// Hard is the ResourceQuota hard cap: Quota plus the vCluster
-	// control-plane overhead, per resource (planPlusOverhead).
+	// control-plane overhead plus the per-Organization platform-stack
+	// overhead, per resource (planPlusOverhead).
 	Hard quotaHard
 	// ControlPlane is the vCluster control-plane shape the HelmRelease
 	// template interpolates (vclusterControlPlane) — the same values Hard's
 	// overhead was computed from.
 	ControlPlane vclusterControlPlaneShape
-	// PlanCapText / OverheadText are the human-readable halves of the split,
-	// stamped as annotations on the ResourceQuota.
-	PlanCapText  string
-	OverheadText string
+	// PlanCapText / OverheadText / PlatformStackText are the human-readable
+	// terms of the split, stamped as annotations on the ResourceQuota.
+	PlanCapText       string
+	OverheadText      string
+	PlatformStackText string
 	// DefaultCPU/DefaultMem are the LimitRange per-container default
 	// request==limit (plan ceiling / 8 for fixed tiers; a small fixed
 	// floor for Flexi which has no ceiling).
@@ -1191,9 +1394,10 @@ func limitRangeDefaults(q PlanQuota) (cpu, mem string) {
 //     EVERY plan slug. It deploys into the host `<slug>` ns, so the plan cap
 //     below applies to it exactly as it applies to the Org's own pods.
 //   - resourcequota.yaml + limitrange.yaml cap the host ns at the purchased
-//     plan PLUS the vCluster control-plane overhead that shares the namespace
-//     (vclusterControlPlaneOverhead; skipped ResourceQuota for soft-cap Flexi;
-//     LimitRange always, its per-container defaults plan-only).
+//     plan PLUS the vCluster control-plane overhead PLUS the per-Organization
+//     platform-stack overhead that share the namespace
+//     (vclusterControlPlaneOverhead, platformStack; skipped ResourceQuota for
+//     soft-cap Flexi; LimitRange always, its per-container defaults plan-only).
 //   - apps/networkpolicy.yaml seeds the default-deny + same-Org-allow baseline
 //     the syncer reflects to the host (sync.toHost.networkPolicies.enabled).
 //   - host-apps/ciliumnetworkpolicy.yaml is the MANDATORY companion that admits
@@ -1236,11 +1440,15 @@ func Render(in Inputs) (map[string][]byte, error) {
 		ResourceQuotaName: BoundaryResourceQuotaName,
 		LimitRangeName:    BoundaryLimitRangeName,
 	}
-	// The hard cap = plan + control-plane overhead. Only for hard-capped plans:
-	// Flexi has no plan figure to add to (and renders no quota).
+	// The hard cap = plan + control-plane overhead + platform-stack overhead.
+	// Only for hard-capped plans: Flexi has no plan figure to add to (and
+	// renders no quota). The stack term is per plan because a chart-unsized
+	// container takes this plan's LimitRange defaults.
 	if PlanRendersResourceQuota(in.PlanSlug) {
-		view.Hard = planPlusOverhead(quota, vclusterControlPlaneOverhead)
+		ps := platformStackOverheadFor(quota)
+		view.Hard = planPlusOverhead(quota, vclusterControlPlaneOverhead, ps)
 		view.PlanCapText = fmt.Sprintf("cpu=%s memory=%s", quota.CPU, quota.Mem)
+		view.PlatformStackText = ps.String()
 	}
 
 	// Assemble the file set. The boundary host namespace, its plan-templated
