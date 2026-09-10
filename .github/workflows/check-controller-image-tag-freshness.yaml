@@ -52,7 +52,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           # Need full history so `git rev-list <pin>..<latest>` can
           # compute the lag. PR shallow clones drop the per-controller

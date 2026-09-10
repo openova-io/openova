@@ -20,7 +20,7 @@ jobs:
       sha_short: ${{ steps.vars.outputs.sha_short }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set short SHA
         id: vars
@@ -50,7 +50,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Bump images.console.tag in values.yaml
         # #5451: this step used to sed the `image:` line of
