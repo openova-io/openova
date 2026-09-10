@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-10T17:45:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-09-10T18:00:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-10T17:50 | [#6917](https://github.com/openova-io/openova/pull/6917) | #6916 | fix(ci): preflight C gives the Gateway an LB-IPAM address so |
 | 2026-09-10T17:41 | [#6916](https://github.com/openova-io/openova/pull/6916) | #6915 | fix(ci): preflight C installs Gateway API v1.3.0 experimenta |
 | 2026-09-10T17:33 | [#6915](https://github.com/openova-io/openova/pull/6915) | #6914 | fix(ci): preflight C mirrors the platform — Cilium 1.19.3 an |
 | 2026-09-10T17:23 | [#6914](https://github.com/openova-io/openova/pull/6914) | fix(ci): preflight C writes the kind config to a file (helm/ |  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-07T08:34 | [#6877](https://github.com/openova-io/openova/pull/6877) | #6867 | docs(ledger): hw307 live-walk screenshots for bp-chargeback  |
 | 2026-09-07T09:11 | [#6876](https://github.com/openova-io/openova/pull/6876) | #6874 | fix(dr-failback): force the HelmRelease render after every r |
 | 2026-09-07T08:18 | [#6875](https://github.com/openova-io/openova/pull/6875) | #6867 | fix(chargeback): SMTP egress on Sovereigns, customer-scoped  |
-| 2026-09-07T07:22 | [#6873](https://github.com/openova-io/openova/pull/6873) | #6867 | feat(chargeback): bill the catalog plan (plan.<slug> meter + |
 
 ---
 
