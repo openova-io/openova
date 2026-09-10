@@ -28,6 +28,7 @@ type fakeRepo struct {
 	paygBook  *store.PriceBook             // the "Organization PAYG" book once ensured
 	paygCalls int                          // EnsurePAYGBook invocations
 	retired   []string                     // RetireOrganizationCustomer calls
+	bindings  []store.RoleBinding          // UpsertRoleBinding grants, deduplicated
 }
 
 // internalSource returns the internal platform source for a slug, if ensured.

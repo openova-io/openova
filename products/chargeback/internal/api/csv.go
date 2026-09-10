@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/openova-io/openova/products/chargeback/internal/access"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
 
@@ -156,7 +157,7 @@ func validateImportRow(row CustomerImportRow) string {
 // JSON array; creates pending customers, updates existing slugs, and records
 // pending huawei-project sources for the listed projects.
 func (h *Handler) importCustomers(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.CustomersManage); !ok {
 		return
 	}
 	rows, errs, err := h.readImport(r)

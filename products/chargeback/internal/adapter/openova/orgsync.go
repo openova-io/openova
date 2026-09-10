@@ -354,6 +354,20 @@ func (s *OrgSync) SyncOrganization(ctx context.Context, u *unstructured.Unstruct
 		}
 	}
 
+	// The Organization's owner is the customer-owner of its customer
+	// (DESIGN.md §10): one idempotent grant on every sync, so an owner who
+	// signs in at the Sovereign SSO lands on its own costs with no invite. A
+	// binding is only ever ADDED here — a previous owner, or anyone the
+	// operator granted, keeps access until it is revoked through the Users
+	// tab or the access API; the sync is not the place that takes access
+	// away. A failure is logged and does not fail the sync: the customer's
+	// billing does not depend on who may read it.
+	if f.AdminEmail != "" {
+		if _, err := s.Repo.UpsertRoleBinding(ctx, store.RoleBinding{SubjectEmail: f.AdminEmail, Role: store.RoleCustomerOwner, ScopeKind: store.ScopeKindCustomer, CustomerID: &c.ID, GrantedBy: "org-sync"}); err != nil {
+			slog.Warn("openova adapter: owner binding not granted; the customer still syncs", "org", f.Slug, "customer", c.ID, "email", f.AdminEmail, "error", err)
+		}
+	}
+
 	// The per-Organization platform source (one auto-created; the platform
 	// collector writes into it). Nothing external to verify — it is marked
 	// verified so `collecting` reads true. Bookless → the plan book; an

@@ -43,32 +43,46 @@ func TestAuthorizationCustomerSeesOnlyOwnCustomer(t *testing.T) {
 		method string
 		path   string
 		want   int
+		body   string // "" = {}
 	}{
-		{"anonymous list customers", nil, "GET", "/api/v1/customers", 401},
-		{"anonymous overview", nil, "GET", "/api/v1/overview", 401},
-		{"anonymous me", nil, "GET", "/api/v1/auth/me", 401},
-		{"viewer reads another customer", viewer, "GET", "/api/v1/customers/" + b, 404},
-		{"viewer reads another customer's usage", viewer, "GET", "/api/v1/customers/" + b + "/usage", 404},
-		{"viewer reads another customer's statements", viewer, "GET", "/api/v1/customers/" + b + "/statements", 404},
-		{"viewer reads another customer's sources", viewer, "GET", "/api/v1/customers/" + b + "/sources", 404},
-		{"viewer reads another customer's audit", viewer, "GET", "/api/v1/customers/" + b + "/audit", 404},
-		{"viewer adds a source to own customer", viewer, "POST", "/api/v1/customers/" + a + "/sources", 403},
-		{"viewer adds a user to own customer", viewer, "POST", "/api/v1/customers/" + a + "/users", 403},
-		{"admin adds a source to another customer", admin, "POST", "/api/v1/customers/" + b + "/sources", 404},
-		{"admin creates a customer", admin, "POST", "/api/v1/customers", 403},
-		{"admin patches a customer", admin, "PATCH", "/api/v1/customers/" + a, 403},
-		{"admin imports customers", admin, "POST", "/api/v1/customers/import", 403},
-		{"admin invites", admin, "POST", "/api/v1/customers/" + a + "/invite", 403},
-		{"admin runs statements", admin, "POST", "/api/v1/statements/run", 403},
-		{"admin issues a statement", admin, "POST", "/api/v1/statements/x/issue", 403},
-		{"admin creates a price book", admin, "POST", "/api/v1/pricebooks", 403},
-		{"admin imports a price book", admin, "POST", "/api/v1/pricebooks/x/import", 403},
-		{"admin reads overview", admin, "GET", "/api/v1/overview", 403},
-		{"unknown api path", admin, "GET", "/api/v1/nope", 404},
+		{"anonymous list customers", nil, "GET", "/api/v1/customers", 401, ""},
+		{"anonymous overview", nil, "GET", "/api/v1/overview", 401, ""},
+		{"anonymous me", nil, "GET", "/api/v1/auth/me", 401, ""},
+		{"viewer reads another customer", viewer, "GET", "/api/v1/customers/" + b, 404, ""},
+		{"viewer reads another customer's usage", viewer, "GET", "/api/v1/customers/" + b + "/usage", 404, ""},
+		{"viewer reads another customer's statements", viewer, "GET", "/api/v1/customers/" + b + "/statements", 404, ""},
+		{"viewer reads another customer's sources", viewer, "GET", "/api/v1/customers/" + b + "/sources", 404, ""},
+		{"viewer reads another customer's audit", viewer, "GET", "/api/v1/customers/" + b + "/audit", 404, ""},
+		{"viewer adds a source to own customer", viewer, "POST", "/api/v1/customers/" + a + "/sources", 403, ""},
+		{"viewer adds a user to own customer", viewer, "POST", "/api/v1/customers/" + a + "/users", 403, ""},
+		{"admin adds a source to another customer", admin, "POST", "/api/v1/customers/" + b + "/sources", 404, ""},
+		{"admin creates a customer", admin, "POST", "/api/v1/customers", 403, ""},
+		// An owner may set its PO reference and tax registration (DESIGN.md
+		// §10); anything else on its own customer is customers.manage.
+		{"admin renames its customer", admin, "PATCH", "/api/v1/customers/" + a, 403, `{"name":"Renamed"}`},
+		{"admin patches another customer", admin, "PATCH", "/api/v1/customers/" + b, 404, `{"po_reference":"PO"}`},
+		{"admin imports customers", admin, "POST", "/api/v1/customers/import", 403, ""},
+		{"admin invites", admin, "POST", "/api/v1/customers/" + a + "/invite", 403, ""},
+		{"admin runs statements", admin, "POST", "/api/v1/statements/run", 403, ""},
+		{"admin issues a statement", admin, "POST", "/api/v1/statements/x/issue", 403, ""},
+		{"admin creates a price book", admin, "POST", "/api/v1/pricebooks", 403, ""},
+		{"admin imports a price book", admin, "POST", "/api/v1/pricebooks/x/import", 403, ""},
+		{"admin reads overview", admin, "GET", "/api/v1/overview", 403, ""},
+		{"admin reads own audit (audit.read is a Sovereign permission)", admin, "GET", "/api/v1/customers/" + a + "/audit", 403, ""},
+		{"admin lists bindings", admin, "GET", "/api/v1/access/bindings", 403, ""},
+		{"viewer requests a checkout", viewer, "POST", "/api/v1/customers/" + a + "/payment-intents", 403, ""},
+		{"viewer requests a checkout on another customer", viewer, "POST", "/api/v1/customers/" + b + "/payment-intents", 404, ""},
+		{"admin records a payment on its own account", admin, "POST", "/api/v1/customers/" + a + "/payments", 403, ""},
+		{"admin suspends itself", admin, "POST", "/api/v1/customers/" + a + "/suspend", 403, ""},
+		{"unknown api path", admin, "GET", "/api/v1/nope", 404, ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			rec := do(t, h, c.sess, c.method, c.path, "{}")
+			body := c.body
+			if body == "" {
+				body = "{}"
+			}
+			rec := do(t, h, c.sess, c.method, c.path, body)
 			if rec.Code != c.want {
 				t.Fatalf("%s %s = %d (%s), want %d", c.method, c.path, rec.Code, rec.Body.String(), c.want)
 			}

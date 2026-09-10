@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/openova-io/openova/products/chargeback/internal/access"
 	"github.com/openova-io/openova/products/chargeback/internal/collector/huawei"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
@@ -21,7 +22,7 @@ import (
 // ScopeMatcher the collector uses, so the purge can never disagree with what
 // the collector keeps. Operator-only; the customer never rewrites its ledger.
 func (h *Handler) purgeExcluded(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.CustomersManage); !ok {
 		return
 	}
 	src, err := h.Store.GetSource(r.Context(), store.OperatorScope, r.PathValue("id"))

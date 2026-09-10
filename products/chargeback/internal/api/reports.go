@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/openova-io/openova/products/chargeback/internal/access"
 	"github.com/openova-io/openova/products/chargeback/internal/report"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
@@ -178,7 +179,7 @@ func (h *Handler) validateReport(ctx context.Context, s store.Session, in store.
 	}
 	in.Sections = report.NormalizeSections(in.Sections)
 
-	if s.Role != store.RoleOperator {
+	if !s.Scope().Operator {
 		// A customer writes only its own customer's schedules.
 		if s.CustomerID == nil {
 			return in, "", store.ErrNotFound
@@ -216,20 +217,22 @@ func (h *Handler) reports() *report.Scheduler {
 }
 
 // requireReportWriter answers 401/403 unless the session may write
-// schedules: operators always; customer-admins for their own customer.
+// schedules: customers.manage Sovereign-wide (any schedule), or
+// customer.self.manage on the session's own customer (its schedules only).
 func (h *Handler) requireReportWriter(w http.ResponseWriter, r *http.Request) (store.Session, bool) {
 	s, ok := h.requireAuth(w, r)
 	if !ok {
 		return s, false
 	}
-	if s.Role == store.RoleOperator {
+	bs := access.Bindings(s)
+	if access.Has(bs, access.CustomersManage, "") {
 		return s, true
 	}
-	if s.Role != store.RoleCustomerAdmin || s.CustomerID == nil {
-		writeErr(w, http.StatusForbidden, "customer admin role required")
-		return s, false
+	if s.CustomerID != nil && access.Has(bs, access.CustomerSelfManage, *s.CustomerID) {
+		return s, true
 	}
-	return s, true
+	writeErr(w, http.StatusForbidden, "permission customers.manage at the Sovereign or customer.self.manage on your customer required")
+	return s, false
 }
 
 // listReportSchedules — GET /api/v1/reports/schedules.

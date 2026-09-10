@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/openova-io/openova/products/chargeback/internal/access"
 	"github.com/openova-io/openova/products/chargeback/internal/collections"
 	"github.com/openova-io/openova/products/chargeback/internal/commercial"
 	"github.com/openova-io/openova/products/chargeback/internal/config"
@@ -168,6 +169,21 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/auth/pin/verify", h.pinVerify)
 	mux.HandleFunc("POST /api/v1/auth/logout", h.logout)
 	mux.HandleFunc("GET /api/v1/auth/me", h.me)
+	// /me is the same document at the address DESIGN.md §10 names: email,
+	// bindings and the effective permissions per scope the console hides
+	// and shows by.
+	mux.HandleFunc("GET /api/v1/me", h.me)
+
+	// Access (DESIGN.md §10) — who holds which role at which scope. Every
+	// change is audited as access.binding / access.mapping. settings.manage
+	// Sovereign-wide; the roles document is readable by any principal so
+	// the console can label what it shows.
+	mux.HandleFunc("GET /api/v1/access/roles", h.listRoles)
+	mux.HandleFunc("GET /api/v1/access/bindings", h.listBindings)
+	mux.HandleFunc("POST /api/v1/access/bindings", h.createBinding)
+	mux.HandleFunc("DELETE /api/v1/access/bindings/{id}", h.deleteBinding)
+	mux.HandleFunc("GET /api/v1/access/group-mappings", h.listGroupMappings)
+	mux.HandleFunc("PUT /api/v1/access/group-mappings", h.putGroupMappings)
 
 	// Customers.
 	mux.HandleFunc("GET /api/v1/customers", h.listCustomers)
@@ -409,11 +425,27 @@ type ctxKey int
 
 const sessionKey ctxKey = 1
 
+// loadSession resolves the principal of an API request: the cb_session
+// cookie, else the identity the Sovereign's SSO gate forwarded. Either way
+// the session's bindings are resolved NOW, from role_bindings, the
+// directory-group mappings and OPERATOR_EMAILS — never from what was stored
+// at sign-in — so a revoked binding takes effect at the next request and a
+// granted one needs no re-login. A principal left with no binding is
+// unauthenticated: the API answers 401 rather than inventing access.
 func (h *Handler) loadSession(r *http.Request) context.Context {
 	if c, err := r.Cookie(sessionCookie); err == nil && c.Value != "" {
 		sess, err := h.Store.GetSession(r.Context(), c.Value)
 		if err == nil {
-			return context.WithValue(r.Context(), sessionKey, sess)
+			resolved, err := h.resolveSession(r, sess.Email, nil)
+			if err != nil {
+				slog.Warn("session bindings lookup", "error", err)
+				return r.Context()
+			}
+			if len(resolved.Roles) == 0 {
+				return r.Context()
+			}
+			resolved.Token, resolved.ExpiresAt = sess.Token, sess.ExpiresAt
+			return context.WithValue(r.Context(), sessionKey, resolved)
 		}
 		if !errors.Is(err, store.ErrNotFound) {
 			slog.Warn("session lookup", "error", err)
@@ -444,22 +476,29 @@ func (h *Handler) loadGateSession(r *http.Request) context.Context {
 	if email == "" || !strings.Contains(email, "@") {
 		return r.Context()
 	}
-	role, customerID, err := h.resolveRole(r, email)
+	// The directory groups ride on a second header from the same gate and
+	// are trusted under exactly the same conditions (DESIGN.md §10). Each
+	// named group adds the roles group_role_mappings binds to it.
+	var groups []string
+	if gh := h.Config.TrustedForwardGroupsHeader; gh != "" {
+		for _, g := range strings.Split(r.Header.Get(gh), ",") {
+			if g = strings.TrimSpace(g); g != "" {
+				groups = append(groups, g)
+			}
+		}
+	}
+	sess, err := h.resolveSession(r, email, groups)
 	if err != nil {
 		slog.Warn("gate identity role lookup", "error", err)
 		return r.Context()
 	}
-	if role == "" {
+	if len(sess.Roles) == 0 {
 		// Authenticated at the gate but granted nothing here. Fall through
 		// unauthenticated so the API answers 401 rather than inventing access.
 		return r.Context()
 	}
-	return context.WithValue(r.Context(), sessionKey, store.Session{
-		Email:      email,
-		Role:       role,
-		CustomerID: customerID,
-		ExpiresAt:  time.Now().Add(sessionTTL).UTC(),
-	})
+	sess.ExpiresAt = time.Now().Add(sessionTTL).UTC()
+	return context.WithValue(r.Context(), sessionKey, sess)
 }
 
 // withSession injects a session for tests and internal calls.
@@ -482,40 +521,63 @@ func (h *Handler) requireAuth(w http.ResponseWriter, r *http.Request) (store.Ses
 	return s, true
 }
 
-// requireOperator answers 401/403 for non-operators.
-func (h *Handler) requireOperator(w http.ResponseWriter, r *http.Request) (store.Session, bool) {
-	s, ok := h.requireAuth(w, r)
-	if !ok {
-		return s, false
-	}
-	if s.Role != store.RoleOperator {
-		writeErr(w, http.StatusForbidden, "operator role required")
-		return s, false
-	}
-	return s, true
+// requirePermission is THE authorization check (DESIGN.md §10): the session
+// must hold perm at the scope — the Sovereign when customerID is "", else
+// that customer. A Sovereign-scoped binding carrying the permission passes
+// at either scope; a customer-scoped binding passes only on its customer.
+//
+// Refusals: 401 with no session; 404 when the caller holds no binding at all
+// on the customer asked for, so ids of other customers are not confirmed;
+// 403 when the caller is on the scope but lacks the permission — the body
+// names the permission, which is what the console shows.
+func (h *Handler) requirePermission(w http.ResponseWriter, r *http.Request, perm access.Permission, customerID string) (store.Session, bool) {
+	return h.requireAnyPermission(w, r, customerID, perm)
 }
 
-// requireCustomer answers 401/403/404 unless the session may act on the
-// customer: operators always; customer principals only on their own customer,
-// and only admins for writes. Customers outside the session's scope read as
-// 404 so ids of other customers are not confirmed.
-func (h *Handler) requireCustomer(w http.ResponseWriter, r *http.Request, customerID string, write bool) (store.Session, bool) {
+// requireAnyPermission passes when the session holds ANY of the permissions
+// at the scope (a checkout may be requested by the customer's own top-up
+// permission or by the operator's collect permission).
+func (h *Handler) requireAnyPermission(w http.ResponseWriter, r *http.Request, customerID string, perms ...access.Permission) (store.Session, bool) {
 	s, ok := h.requireAuth(w, r)
 	if !ok {
 		return s, false
 	}
-	if s.Role == store.RoleOperator {
-		return s, true
-	}
-	if s.CustomerID == nil || *s.CustomerID != customerID {
+	bindings := access.Bindings(s)
+	if customerID != "" && !access.OnCustomer(bindings, customerID) {
 		writeErr(w, http.StatusNotFound, "not found")
 		return s, false
 	}
-	if write && s.Role != store.RoleCustomerAdmin {
-		writeErr(w, http.StatusForbidden, "customer admin role required")
-		return s, false
+	if access.HasAny(bindings, customerID, perms...) {
+		return s, true
 	}
-	return s, true
+	names := make([]string, len(perms))
+	for i, p := range perms {
+		names[i] = string(p)
+	}
+	where := "at the Sovereign"
+	if customerID != "" {
+		where = "on this customer"
+	}
+	writeErr(w, http.StatusForbidden, "permission "+strings.Join(names, " or ")+" required "+where)
+	return s, false
+}
+
+// requireSovereign is requirePermission at the Sovereign scope: what every
+// cross-customer surface asks.
+func (h *Handler) requireSovereign(w http.ResponseWriter, r *http.Request, perm access.Permission) (store.Session, bool) {
+	return h.requirePermission(w, r, perm, "")
+}
+
+// requireCustomer answers 401/403/404 unless the session may act on the
+// customer: a read needs metering.read on it, a write customer.self.manage
+// (the owner on its own customer, or customers.manage Sovereign-wide).
+// Customers outside the caller's bindings read as 404 so ids of other
+// customers are not confirmed.
+func (h *Handler) requireCustomer(w http.ResponseWriter, r *http.Request, customerID string, write bool) (store.Session, bool) {
+	if write {
+		return h.requirePermission(w, r, access.CustomerSelfManage, customerID)
+	}
+	return h.requirePermission(w, r, access.MeteringRead, customerID)
 }
 
 func (h *Handler) setSessionCookie(w http.ResponseWriter, token string, expires time.Time) {

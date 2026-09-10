@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/openova-io/openova/products/chargeback/internal/access"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
 
@@ -27,7 +28,7 @@ func (h *Handler) listSources(w http.ResponseWriter, r *http.Request) {
 // source with its layer, book and customer; `?internal=true` adds the
 // Sovereign's own internal platform source.
 func (h *Handler) listAllSources(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.MeteringRead); !ok {
 		return
 	}
 	list, err := h.Store.ListAllSources(r.Context(), r.URL.Query().Get("internal") == "true")
@@ -336,8 +337,8 @@ func (h *Handler) patchSource(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "nothing to update: give region, project_id, scope_token, domain_id, price_book_id or disabled")
 		return
 	}
-	if s.Role != store.RoleOperator && (in.Region != nil || in.ProjectID != nil || in.DomainID != nil || in.PriceBookID != nil || in.Disabled != nil) {
-		writeErr(w, http.StatusForbidden, "a customer admin may change scope_token only; region, project_id, domain_id, price_book_id and disabled are set by the operator")
+	if !access.Has(access.Bindings(s), access.CustomersManage, src.CustomerID) && (in.Region != nil || in.ProjectID != nil || in.DomainID != nil || in.PriceBookID != nil || in.Disabled != nil) {
+		writeErr(w, http.StatusForbidden, "a customer owner may change scope_token only; region, project_id, domain_id, price_book_id and disabled need permission customers.manage")
 		return
 	}
 	if in.Region != nil && src.Kind == store.SourceKindHuaweiProject && strings.TrimSpace(*in.Region) == "" {

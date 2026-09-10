@@ -221,11 +221,15 @@ type Customer struct {
 	Collecting bool `json:"collecting"`
 }
 
-// CustomerUser grants an email a role on a customer.
+// CustomerUser grants an email a role on a customer. It is the customer-
+// scoped view of a RoleBinding: Role is the LEGACY name an older reader
+// expects (admin = customer-owner, viewer = every other customer role) and
+// BindingRole the role actually bound (DESIGN.md §10).
 type CustomerUser struct {
-	CustomerID string `json:"customer_id"`
-	Email      string `json:"email"`
-	Role       string `json:"role"`
+	CustomerID  string `json:"customer_id"`
+	Email       string `json:"email"`
+	Role        string `json:"role"`
+	BindingRole string `json:"binding_role,omitempty"`
 }
 
 // CostSource is one metered origin of usage: a cloud project (layer cloud)
@@ -522,19 +526,109 @@ type AuditEntry struct {
 }
 
 // Session is a signed-in principal.
+//
+// Role and CustomerID describe the HIGHEST-POWER binding in the legacy
+// vocabulary (operator / customer-admin / customer-viewer) so a reader
+// written before role bindings existed keeps working; Roles is the full
+// set of bindings the principal holds (DESIGN.md §10), resolved on every
+// request from role_bindings, the directory-group mappings and the
+// OPERATOR_EMAILS configuration. Groups are the directory groups the SSO
+// gate forwarded for this request (never persisted).
 type Session struct {
-	Token      string    `json:"-"`
-	Email      string    `json:"email"`
-	Role       string    `json:"role"`
-	CustomerID *string   `json:"customer_id,omitempty"`
-	ExpiresAt  time.Time `json:"expires_at"`
+	Token      string        `json:"-"`
+	Email      string        `json:"email"`
+	Role       string        `json:"role"`
+	CustomerID *string       `json:"customer_id,omitempty"`
+	Roles      []RoleBinding `json:"roles,omitempty"`
+	Groups     []string      `json:"-"`
+	ExpiresAt  time.Time     `json:"expires_at"`
 }
 
-// Roles.
+// Legacy role names (the session's `role` key, kept for older readers).
 const (
 	RoleOperator       = "operator"
 	RoleCustomerAdmin  = "customer-admin"
 	RoleCustomerViewer = "customer-viewer"
+)
+
+// The six roles of the access model (DESIGN.md §10), each a fixed bundle of
+// permissions bound at exactly one scope kind. RoleCustomerViewer
+// ("customer-viewer") is both the legacy and the new name: its meaning did
+// not change.
+const (
+	RoleSovereignAdmin  = "sovereign-admin"
+	RoleBillingOperator = "billing-operator"
+	RoleFinanceViewer   = "finance-viewer"
+	RoleCustomerOwner   = "customer-owner"
+	RoleCustomerBilling = "customer-billing"
+)
+
+// Scope kinds a role is bound at.
+const (
+	ScopeKindSovereign = "sovereign"
+	ScopeKindCustomer  = "customer"
+)
+
+// Roles lists the six roles in power order, highest first.
+var Roles = []string{RoleSovereignAdmin, RoleBillingOperator, RoleFinanceViewer, RoleCustomerOwner, RoleCustomerBilling, RoleCustomerViewer}
+
+// ValidRole reports whether r is one of the six roles.
+func ValidRole(r string) bool {
+	for _, x := range Roles {
+		if x == r {
+			return true
+		}
+	}
+	return false
+}
+
+// ScopeKindOfRole is the scope kind a role is bound at: the three operator
+// roles at the Sovereign, the three customer roles at one customer.
+func ScopeKindOfRole(r string) string {
+	switch r {
+	case RoleSovereignAdmin, RoleBillingOperator, RoleFinanceViewer:
+		return ScopeKindSovereign
+	case RoleCustomerOwner, RoleCustomerBilling, RoleCustomerViewer:
+		return ScopeKindCustomer
+	}
+	return ""
+}
+
+// RoleBinding grants an email (or, through a GroupRoleMapping, a directory
+// group) one role at one scope: the Sovereign (CustomerID nil) or one
+// customer. Source says where the binding came from when it is carried on a
+// session: "binding" (role_bindings), "group:<name>" (a directory group the
+// gate forwarded) or "config" (OPERATOR_EMAILS).
+type RoleBinding struct {
+	ID           string     `json:"id,omitempty"`
+	SubjectEmail string     `json:"subject_email,omitempty"`
+	Role         string     `json:"role"`
+	ScopeKind    string     `json:"scope_kind"`
+	CustomerID   *string    `json:"customer_id,omitempty"`
+	CustomerName string     `json:"customer_name,omitempty"`
+	GrantedBy    string     `json:"granted_by,omitempty"`
+	GrantedAt    *time.Time `json:"granted_at,omitempty"`
+	Source       string     `json:"source,omitempty"`
+}
+
+// GroupRoleMapping grants every member of a directory group (as forwarded
+// by the SSO gate in the groups header) one role at one scope.
+type GroupRoleMapping struct {
+	ID           string    `json:"id,omitempty"`
+	GroupName    string    `json:"group_name"`
+	Role         string    `json:"role"`
+	ScopeKind    string    `json:"scope_kind"`
+	CustomerID   *string   `json:"customer_id,omitempty"`
+	CustomerName string    `json:"customer_name,omitempty"`
+	CreatedAt    time.Time `json:"created_at,omitempty"`
+}
+
+// Sources a session binding may carry.
+const (
+	BindingSourceExplicit = "binding"
+	BindingSourceConfig   = "config"
+	// BindingSourceGroup is a prefix; the group name follows.
+	BindingSourceGroup = "group:"
 )
 
 // Scope is the authorization boundary every query is filtered by: the operator

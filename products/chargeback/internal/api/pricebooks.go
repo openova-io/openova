@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/openova-io/openova/products/chargeback/internal/access"
 	"github.com/openova-io/openova/products/chargeback/internal/rating"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
@@ -61,7 +62,7 @@ func (b priceBookBody) validate(create bool) string {
 }
 
 func (h *Handler) createPriceBook(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.RatingManage); !ok {
 		return
 	}
 	var in priceBookBody
@@ -99,7 +100,7 @@ func (h *Handler) getPriceBook(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) updatePriceBook(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.RatingManage); !ok {
 		return
 	}
 	var in priceBookBody
@@ -126,7 +127,7 @@ func (h *Handler) updatePriceBook(w http.ResponseWriter, r *http.Request) {
 
 // putPriceItems replaces (default) or merges (?merge=true) the SKU list.
 func (h *Handler) putPriceItems(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.RatingManage); !ok {
 		return
 	}
 	id := r.PathValue("id")
@@ -176,7 +177,7 @@ func (h *Handler) putPriceItems(w http.ResponseWriter, r *http.Request) {
 
 // importPriceBook loads a CSV (multipart field "file" or raw text/csv).
 func (h *Handler) importPriceBook(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.RatingManage); !ok {
 		return
 	}
 	id := r.PathValue("id")
@@ -225,7 +226,7 @@ func (h *Handler) priceBookTemplate(w http.ResponseWriter, r *http.Request) {
 // deletePriceBook removes a rate card; 409 while any source is assigned to
 // it, with the assigned sources and the (distinct) customer names in details.
 func (h *Handler) deletePriceBook(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.RatingManage); !ok {
 		return
 	}
 	id := r.PathValue("id")
@@ -258,7 +259,7 @@ func (h *Handler) deletePriceBook(w http.ResponseWriter, r *http.Request) {
 // clonePriceBook copies a book (header + every item) under a new name —
 // the way a negotiated per-account book is made from the list book.
 func (h *Handler) clonePriceBook(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.RatingManage); !ok {
 		return
 	}
 	var in struct {
@@ -313,7 +314,7 @@ func resolvePrice(b priceItemBody, divisor int) (unit store.Decimal, annual *sto
 
 // addPriceItem adds one SKU to a book (409 when the SKU exists).
 func (h *Handler) addPriceItem(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.RatingManage); !ok {
 		return
 	}
 	id := r.PathValue("id")
@@ -360,7 +361,7 @@ func (h *Handler) addPriceItem(w http.ResponseWriter, r *http.Request) {
 
 // patchPriceItem edits one SKU (404 when it is not in the book).
 func (h *Handler) patchPriceItem(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.RatingManage); !ok {
 		return
 	}
 	id, sku := r.PathValue("id"), r.PathValue("sku")
@@ -408,7 +409,7 @@ func (h *Handler) patchPriceItem(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) deletePriceItem(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.RatingManage); !ok {
 		return
 	}
 	id, sku := r.PathValue("id"), r.PathValue("sku")
@@ -468,7 +469,7 @@ func csvFileToken(name string) string {
 // in the last 30 days and whether the book prices them (DESIGN.md §2.5).
 // Operator-only: it names customers across the whole Sovereign.
 func (h *Handler) priceBookCoverage(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.MeteringRead); !ok {
 		return
 	}
 	now := h.Now().UTC()

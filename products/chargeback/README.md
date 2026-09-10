@@ -263,14 +263,34 @@ source rejoins collection only after a new credential is entered via
 
 ## API (`/api/v1`, JSON, cookie `cb_session` HttpOnly SameSite=Lax)
 
-Roles: `operator` (email ∈ `OPERATOR_EMAILS`), `customer-admin`, `customer-viewer`
-(from `customer_users`). Operators see everything; customer principals see only
-their own customer — every query is filtered by the session's scope, other
-customers' ids answer `404`, writes need `customer-admin`.
+**Sign-in.** On a Sovereign the identity arrives from the SSO gate
+(oauth2-proxy → Keycloak) on `TRUSTED_FORWARD_AUTH_HEADER` (`X-Forwarded-Email`),
+with the user's directory groups on `TRUSTED_FORWARD_GROUPS_HEADER`
+(`X-Forwarded-Groups`); standalone, a one-time PIN mailed to the address
+(`POST /auth/pin/request` → `POST /auth/pin/verify` → `cb_session` cookie).
+Either way the session's bindings are resolved on **every** request.
+
+**Access (DESIGN.md §10).** Two scope kinds — `sovereign` and
+`customer:<id>` — nine permissions, six roles that are fixed permission
+bundles: `sovereign-admin` (everything), `billing-operator` (rating,
+customers, issuing, collecting, audit — no settings, no access changes),
+`finance-viewer` (read + export only), `customer-owner` (own costs and
+invoices, top-up, own users / PO reference / tax registration),
+`customer-billing` (own costs, top-up), `customer-viewer` (own costs). A
+binding comes from `OPERATOR_EMAILS` (implicit `sovereign-admin`), from
+`role_bindings` (the access API, the customer's Users tab, the customer's
+`admin_email`, the Organization sync), or from a directory group mapped in
+`group_role_mappings`. A Sovereign permission covers every customer; a
+customer permission covers that customer only. Other customers' ids answer
+`404`; a missing permission answers `403` naming it. `customer_users` remains
+as a view for older readers; the legacy `role` key on `/auth/me`
+(`operator` / `customer-admin` / `customer-viewer`) still describes the
+highest-power binding.
 
 | Area | Endpoints |
 |---|---|
-| Auth | `POST /auth/pin/request` · `POST /auth/pin/verify` · `POST /auth/logout` · `GET /auth/me` |
+| Auth | `POST /auth/pin/request` · `POST /auth/pin/verify` · `POST /auth/logout` · `GET /auth/me` = `GET /me` (email, `role`, `roles[]`, `permissions{scope: [...]}`, `scopes[]`) |
+| Access (`settings.manage`) | `GET /access/roles` (any principal) · `GET/POST /access/bindings` · `DELETE /access/bindings/{id}` · `GET/PUT /access/group-mappings` — every change audited `access.binding` / `access.mapping` |
 | Customers | `GET/POST /customers` (no price book — see below) · `POST /customers/import` (multipart CSV, raw CSV or JSON array) · `GET/PATCH /customers/{id}` · `POST /customers/{id}/invite` · `GET/POST /customers/{id}/users` · `DELETE /customers/{id}/users/{email}` · `GET /customers/{id}/audit` |
 | Invites (public by token) | `GET /invites/{token}` · `POST /invites/{token}/activate` |
 | Sources | `GET /sources[?internal=true]` (operator-wide) · `GET/POST /customers/{id}/sources` · `GET/PATCH /customers/{id}/sources/{sid}` · `GET/PATCH /sources/{id}` (region, project_id, scope_token, domain_id, **price_book_id**) · `POST /sources/{id}/credential` (rotate + verify) · `POST /sources/{id}/verify` · `DELETE /sources/{id}` |
@@ -342,6 +362,8 @@ Price book CSV columns: `sku,unit,annual_price,description` (template at
 | `PLATFORM_API_URL` | unset | the Sovereign's sovereign-admin API, for suspend/resume at the platform (DESIGN.md §9.6: `POST /api/v1/internal/organizations/{slug}/suspend` / `resume`); unset ⇒ the Enforcer is a Nop and suspensions are recorded here only. Chart: `platformApi.url`; the Sovereign slot sets `http://catalyst-api.catalyst-system.svc.cluster.local:8080` |
 | `PLATFORM_API_TOKEN_FILE` | unset | file holding the bearer for those routes — the projected ServiceAccount token the chart mounts at `/var/run/secrets/platform-api/token` (audience `platformApi.tokenAudience`, empty = the apiserver default); re-read on every call because the kubelet rotates it. Wins over `PLATFORM_API_TOKEN` |
 | `PLATFORM_API_TOKEN` | unset | literal bearer for those routes when no file is mounted (a local run against a Sovereign) |
+| `TRUSTED_FORWARD_AUTH_HEADER` | unset | the request header carrying the identity the Sovereign's SSO gate verified (`X-Forwarded-Email`); unset = the header is ignored entirely. Only safe when the gate owns the public hostname — the chart refuses `forwardAuth.header` together with `httpRoute.enabled` |
+| `TRUSTED_FORWARD_GROUPS_HEADER` | `X-Forwarded-Groups` | the header carrying the identity's directory groups (comma-separated), each looked up in `group_role_mappings` (DESIGN.md §10). Honoured only while `TRUSTED_FORWARD_AUTH_HEADER` is set |
 | `LISTEN_ADDR` | `:8080` | |
 
 ## Development

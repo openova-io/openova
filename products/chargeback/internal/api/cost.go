@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/openova-io/openova/products/chargeback/internal/access"
 	"github.com/openova-io/openova/products/chargeback/internal/rating"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
@@ -264,7 +265,7 @@ func (h *Handler) runExplore(w http.ResponseWriter, r *http.Request, scope store
 }
 
 func (h *Handler) explore(w http.ResponseWriter, r *http.Request) {
-	s, ok := h.requireOperator(w, r)
+	s, ok := h.requireSovereign(w, r, access.MeteringRead)
 	if !ok {
 		return
 	}
@@ -324,7 +325,7 @@ func writeExploreCSV(w http.ResponseWriter, doc exploreDoc) {
 }
 
 func (h *Handler) exploreCSV(w http.ResponseWriter, r *http.Request) {
-	s, ok := h.requireOperator(w, r)
+	s, ok := h.requireSovereign(w, r, access.MeteringRead)
 	if !ok {
 		return
 	}
@@ -349,7 +350,7 @@ func (h *Handler) customerExploreCSV(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) costDimensions(w http.ResponseWriter, r *http.Request) {
-	s, ok := h.requireOperator(w, r)
+	s, ok := h.requireSovereign(w, r, access.MeteringRead)
 	if !ok {
 		return
 	}
@@ -665,7 +666,7 @@ func deltaPercent(cur, prev store.Decimal) *float64 {
 }
 
 func (h *Handler) summary(w http.ResponseWriter, r *http.Request) {
-	s, ok := h.requireOperator(w, r)
+	s, ok := h.requireSovereign(w, r, access.MeteringRead)
 	if !ok {
 		return
 	}
