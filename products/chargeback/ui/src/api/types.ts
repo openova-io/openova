@@ -127,6 +127,14 @@ export interface Customer {
   /** The balance the external billing system last reported (external mode). */
   external_balance?: number | string | null
   external_balance_at?: string | null
+  /**
+   * DESIGN.md §9 — the ledger balance from the customer_balances view,
+   * accounting-signed: positive is owed by the customer, negative is credit
+   * it holds. Read-only bare numbers; absent on a document written before
+   * they existed.
+   */
+  balance?: number
+  available_credit?: number
   status: CustomerStatus | string
   start_date?: string | null
   /** Catalog plan (s, m, l, xl, flexi; '' = none) — an Organization's comes from its CR. */

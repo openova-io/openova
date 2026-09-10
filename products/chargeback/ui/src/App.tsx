@@ -23,6 +23,8 @@ import { Resources } from './pages/Resources'
 import { ResourceDetail } from './pages/ResourceDetail'
 import { Anomalies } from './pages/Anomalies'
 import { Recommendations } from './pages/Recommendations'
+import { Collections } from './pages/Collections'
+import { Billing } from './pages/Billing'
 
 function Home() {
   const { me, loading } = useSession()
@@ -55,6 +57,8 @@ export function App() {
             <Route path="/budgets" element={<Budgets />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/statements" element={<Statements />} />
+            <Route path="/collections" element={<Collections />} />
+            <Route path="/billing" element={<Billing />} />
             <Route path="/resources" element={<Resources />} />
             <Route path="/resources/:sourceId/:resourceId" element={<ResourceDetail />} />
             <Route path="/anomalies" element={<Anomalies />} />

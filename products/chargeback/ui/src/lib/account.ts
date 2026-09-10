@@ -1,5 +1,6 @@
-import type { AccountDocument, AccountEntry, AgingBucket, AgingReport, CreditNote, Payment, Statement } from '../api/types'
+import type { AccountDocument, AccountEntry, AgingBucket, AgingReport, CreditNote, Payment, PaymentIntent, Statement, Suspension } from '../api/types'
 import { toNumber } from './num'
+import { statementStatus } from './statements'
 
 /**
  * Readers over the account, payments, credit notes and the aging report
@@ -140,4 +141,124 @@ export function parseReminderDays(s: string): { values: number[]; error?: string
 /** The account's headline figures as numbers, whatever the wire sent. */
 export function accountFigures(a: AccountDocument): { balance: number; credit: number; outstanding: number; overdue: number } {
   return { balance: toNumber(a.balance), credit: toNumber(a.available_credit), outstanding: toNumber(a.outstanding), overdue: toNumber(a.overdue) }
+}
+
+// ── The ledger as the Account tab shows it ────────────────────────────────
+
+/** One ledger line: the entry, its debit/credit split, and the balance after it. */
+export interface LedgerRow {
+  entry: AccountEntry
+  debit: number | null
+  credit: number | null
+  /** The running balance after this entry: positive owed, negative in credit. */
+  running: number
+}
+
+/**
+ * The ledger newest first, with the running balance after every line. The
+ * balance is recomputed from the signed amounts in posting order; the
+ * server's figure, when it sent one, wins — the two agree on a complete
+ * ledger, and the recomputation is what carries a document that omits it.
+ */
+export function ledgerRows(entries: AccountEntry[]): LedgerRow[] {
+  const ordered = [...entries].sort((a, b) => (a.entered_at ?? '').localeCompare(b.entered_at ?? '') || a.id - b.id)
+  let running = 0
+  const rows: LedgerRow[] = []
+  for (const e of ordered) {
+    running += toNumber(e.amount)
+    const sent = e.balance !== null && e.balance !== undefined && e.balance !== '' && Number.isFinite(Number(e.balance))
+    if (sent) running = toNumber(e.balance)
+    rows.push({ entry: e, ...entryColumns(e), running })
+  }
+  return rows.reverse()
+}
+
+/** What a ledger line points at: the invoice, the credit note, or the payment reference. */
+export function entryReference(e: AccountEntry): string {
+  return e.invoice_number || e.credit_note_number || e.reference || ''
+}
+
+// ── Aging, as the Collections page reads it ───────────────────────────────
+
+export function bucketLabel(bucket: string): string {
+  return AGING_BUCKETS.find((b) => b.value === bucket)?.label ?? bucket
+}
+
+/** "nothing overdue" / "12 days overdue" from a row's oldest open invoice. */
+export function oldestDueText(days: number): string {
+  if (days <= 0) return 'nothing overdue'
+  return `${days} day${days === 1 ? '' : 's'} overdue`
+}
+
+export interface AgingKPIs {
+  total: number
+  overdue: number
+  customers: number
+  customersOverdue: number
+  invoices: number
+  currency: string
+}
+
+/** The figures the Collections strip shows, as numbers whatever the wire sent. */
+export function agingKPIs(rep: AgingReport | null | undefined): AgingKPIs {
+  const rows = rep?.rows ?? []
+  return {
+    total: toNumber(rep?.total),
+    overdue: toNumber(rep?.overdue),
+    customers: rows.length,
+    customersOverdue: rows.filter((r) => toNumber(r.overdue) > 0).length,
+    invoices: rep?.invoices?.length ?? 0,
+    currency: rows[0]?.currency ?? rep?.invoices?.[0]?.currency ?? '',
+  }
+}
+
+/**
+ * The directory's Balance column reads the customer document's `balance`,
+ * accounting-signed like the ledger: positive is what the customer OWES,
+ * negative is credit it holds. Null when the document did not carry it, so
+ * the cell reads "—" and never 0.
+ */
+export function directoryBalance(v: number | string | null | undefined): number | null {
+  if (v === null || v === undefined || v === '') return null
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
+}
+
+// ── Payment intents, suspensions, credit notes on an invoice ──────────────
+
+export const INTENT_STATUS_LABELS: Record<string, string> = {
+  requested: 'requested',
+  pending: 'pending',
+  settled: 'settled',
+  failed: 'failed',
+  refused: 'refused',
+  'awaiting-transfer': 'awaiting transfer',
+}
+
+export function intentStatus(i: PaymentIntent): string {
+  return INTENT_STATUS_LABELS[i.status] ?? i.status
+}
+
+/** "suspended at the platform by collections since 2026-09-01 — 45 days overdue" for a header notice. */
+export function suspensionText(s: { suspended_at: string; source: string; reason?: string | null }): string {
+  const since = (s.suspended_at ?? '').slice(0, 10)
+  const by = s.source ? `by ${s.source.replace(/_/g, ' ')}` : ''
+  return ['suspended at the platform', by, since ? `since ${since}` : '', s.reason ? `— ${s.reason}` : ''].filter(Boolean).join(' ')
+}
+
+/** "suspended · collections" / "resumed · operator", with the platform's refusal when there was one. */
+export function suspensionOutcome(s: Suspension): { label: string; ok: boolean; detail: string } {
+  const label = `${s.action === 'resume' ? 'resumed' : 'suspended'} · ${(s.source || 'operator').replace(/_/g, ' ')}`
+  return { label, ok: s.ok, detail: s.ok ? (s.reason ?? '') : `the platform refused: ${s.error || 'unknown error'}` }
+}
+
+/** How much of an invoice can still be credited: its total less the credit notes already issued. */
+export function creditRoom(s: Statement): number {
+  return Math.max(0, toNumber(s.total) - toNumber(s.credited_total))
+}
+
+/** Whether a credit note can be issued: the statement is an invoice (not a draft), not cancelled, and not fully credited. */
+export function acceptsCreditNote(s: Statement): boolean {
+  const st = statementStatus(s)
+  return (st === 'issued' || st === 'sent' || st === 'paid' || st === 'overdue') && creditRoom(s) > 0
 }

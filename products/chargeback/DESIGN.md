@@ -1606,3 +1606,48 @@ two sources of truth on one fact. `paid_amount` is CUMULATIVE, and the
 difference against what we already hold is booked as a payment — so the
 payment ledger stays the single place a balance comes from, and a repeated
 import books nothing twice.
+
+## 9. Account, credit notes, collections and tax — the console
+
+The account surfaces follow the §8.9 pattern: every figure the server sends is
+shown with the word that says what it means, and every write is an explicit
+action with its consequence spelled out.
+
+- **The customers directory** gains a `Balance` column read from the customer
+  document's accounting-signed `balance`: owed in red with "owes" under it,
+  credit in green with "in credit", "settled" at zero, and a dash — never 0 —
+  when the document did not carry one.
+- **Customer → Account** (first tab after Overview) shows Balance, Credit
+  available, Owed and Overdue from `GET /customers/{id}/account`, then the
+  ledger newest first (date, type, reference linking to the invoice, debit,
+  credit, running balance — `aria-label="Account ledger"`), with where each
+  payment went under its line. `Top up` records a transfer or internal recharge
+  as credit on account (`POST /customers/{id}/payments`, no allocations); a
+  gateway customer also gets `Checkout with <gateway>` (`POST
+  …/payment-intents`, purpose checkout) and a Checkouts table of its intents;
+  `Apply credit` is a confirm that applies the available credit to the open
+  invoices oldest-first — explicit, never implicit. Credit notes and platform
+  suspensions (with the platform's refusal when there was one) are listed
+  below; each absence is one sentence.
+- **Customer → Settings** adds the account-credit switches (auto-apply credit;
+  suspend at zero for a prepaid wallet) and the tax block (exempt with a
+  required reason, a rate override typed as a percentage and sent as a
+  fraction, the registration number) on the same only-what-changed PATCH.
+- **The statement view** of an issued invoice shows the tax line from
+  `tax_snapshot` (the rate and both registrations, or the exemption), a
+  `Credited` line, the credit notes it carries, the allocations applied from
+  the account, and a `Credit note` action whose dialog refuses more than the
+  total less the notes already issued — the server's rule, seen before the
+  round trip.
+- **Bill → Collections** is the aging report per customer (`aria-label="Aging"`:
+  the five buckets, total owed, overdue, oldest due, credit available, a
+  suspended badge), a strip of Total owed / Overdue / Customers overdue /
+  Suspended, `Run collections now` behind a confirm that reports the pass, and
+  per-row `Suspend` / `Resume` with a reason. A row expands to the customer's
+  open invoices.
+- **Configure → Billing** edits the invoice and credit-note prefixes, the
+  Sovereign's tax rate (as a percentage), registration number, legal name and
+  address, and the collections schedule — reminder days as a comma list read
+  back in words, escalation days and action — through one `PUT
+  /billing-settings` that carries the saved discount rule plus only what
+  changed.
