@@ -126,6 +126,12 @@ A Sovereign's Gitea instance hosts five conventional Gitea Orgs. The unified rul
 
 ---
 
+### Catalyst BSS
+
+**Catalyst BSS** is the product formerly named "chargeback" (`products/chargeback`, `bp-chargeback`): the business-support layer of a Sovereign — usage mediation, rating, price books and plans, invoicing and payments, account ledger and collections, role-based access, and (next) capacity, partners, the public calculator and proposals. "Chargeback" and "showback" survive only as names of the cost-management reports inside it. The internal identifiers (`bp-chargeback`, the `chargeback` namespace and host, the database) keep their names until the 0.2.0 rename, when they move together with a redirect from the old host.
+
+Not to be confused with the **BSS menu** of the sovereign-admin console (vouchers, orders, the platform billing service for marketplace plans, `core/services/billing`): that menu is the marketplace's own commerce for platform plans, connected to Catalyst BSS through the billing hook, and is absorbed by it over time.
+
 ## Banned terms (do not use in any docs / UI / API / code / commit messages)
 
 This section is the **single source of truth** for forbidden terminology. Cross-referenced by [`CLAUDE.md`](../CLAUDE.md), [`RUNBOOKS.md`](RUNBOOKS.md), [`DOD.md`](DOD.md), and the user-global `~/.claude/CLAUDE.md`. There is no separate `docs/BANNED-TERMS.md`.
