@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-10T12:30:10Z` |
+| Last refreshed | `2026-09-10T12:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -308,6 +308,7 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-09-10T12:24 | [#6907](https://github.com/openova-io/openova/pull/6907) | #6867 | docs(chargeback): 0.1.28 live evidence on hw307 — balances,  |
+| 2026-09-10T12:40 | [#6906](https://github.com/openova-io/openova/pull/6906) | #6867 | fix(chargeback): landlord backfill on the traffic model; neu |
 | 2026-09-10T12:06 | [#6904](https://github.com/openova-io/openova/pull/6904) | #6867 | feat(chargeback): 0.1.28 — account ledger, balance, top-up,  |
 | 2026-09-10T11:11 | [#6903](https://github.com/openova-io/openova/pull/6903) | #6867 | docs(chargeback): 0.1.27 live evidence on hw307 — commercial |
 | 2026-09-10T10:47 | [#6901](https://github.com/openova-io/openova/pull/6901) | #6867 | feat(chargeback): retire the billing modes, post-paid invoic |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-06T07:59 | [#6860](https://github.com/openova-io/openova/pull/6860) | #6855 | fix(chargeback): let an operator actually set a source's sco |
 | 2026-09-06T09:00 | [#6858](https://github.com/openova-io/openova/pull/6858) | #6853 | fix(chargeback): four extended listers 400'd against the rea |
 | 2026-09-06T07:01 | [#6856](https://github.com/openova-io/openova/pull/6856) | #6855 | fix(chargeback): scope a project cost source to one deployme |
-| 2026-09-06T06:27 | [#6854](https://github.com/openova-io/openova/pull/6854) | #6853 | feat(chargeback): meter every provisionable resource kind, n |
 
 ---
 
