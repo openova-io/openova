@@ -150,34 +150,34 @@ func TestFunnelCart_HRApps_NoDeploymentNoHostIngress(t *testing.T) {
 	}
 }
 
-// TestFunnelCart_HRApps_TierAwareKubeConfig — the HR-level kubeConfig follows
-// the same tier gate as the apps-sync + bp-cnpg-pair: vcluster tier (M+)
-// installs the chart INTO the Org vcluster via the tenant-<slug>-kubeconfig
-// mirror; host tier (S/free) installs straight into the host <slug> ns with NO
-// kubeConfig.
-func TestFunnelCart_HRApps_TierAwareKubeConfig(t *testing.T) {
-	t.Run("vcluster-tier", func(t *testing.T) {
+// TestFunnelCart_HRApps_KubeConfigEveryPlan — the HR-level kubeConfig follows
+// the apps-sync: every Organization is vCluster-backed (#4292), so on EVERY
+// plan the HR installs the chart INTO the Org vcluster via the
+// tenant-<slug>-kubeconfig mirror. The s/free/"" subtest is the inverse of the
+// former host-namespace assertion for those plans.
+func TestFunnelCart_HRApps_KubeConfigEveryPlan(t *testing.T) {
+	t.Run("plan m", func(t *testing.T) {
 		out := cartOrgFor(t, "acme", "m", []string{"openclaw", "stalwart-mail"})
 		for _, f := range []string{"app-openclaw.yaml", "app-stalwart-mail.yaml"} {
 			body := out[testBasePath+"/acme/"+f]
 			if !strings.Contains(body, "kubeConfig:") {
-				t.Errorf("vcluster tier %s MUST carry an HR-level kubeConfig so the host helm-controller installs INTO the vcluster:\n%s", f, body)
+				t.Errorf("plan m %s MUST carry an HR-level kubeConfig so the host helm-controller installs INTO the vcluster:\n%s", f, body)
 			}
 			if !strings.Contains(body, "name: tenant-acme-kubeconfig") {
-				t.Errorf("vcluster tier %s kubeConfig must reference the tenant-<slug>-kubeconfig mirror:\n%s", f, body)
+				t.Errorf("plan m %s kubeConfig must reference the tenant-<slug>-kubeconfig mirror:\n%s", f, body)
 			}
 		}
 	})
-	t.Run("host-tier", func(t *testing.T) {
+	t.Run("plans s/free/empty carry the same mirror as m", func(t *testing.T) {
 		for _, plan := range []string{"s", "free", ""} {
 			out := cartOrgFor(t, "acme", plan, []string{"openclaw", "stalwart-mail"})
 			for _, f := range []string{"app-openclaw.yaml", "app-stalwart-mail.yaml"} {
 				body := out[testBasePath+"/acme/"+f]
-				if strings.Contains(body, "kubeConfig:") {
-					t.Errorf("host tier (plan=%q) %s MUST NOT carry kubeConfig (no vcluster mirror exists):\n%s", plan, f, body)
+				if !strings.Contains(body, "kubeConfig:") {
+					t.Errorf("plan=%q %s MUST carry an HR-level kubeConfig — every Organization is vCluster-backed (#4292):\n%s", plan, f, body)
 				}
-				if strings.Contains(body, "tenant-acme-kubeconfig") {
-					t.Errorf("host tier (plan=%q) %s MUST NOT reference the never-created vcluster mirror:\n%s", plan, f, body)
+				if !strings.Contains(body, "name: tenant-acme-kubeconfig") {
+					t.Errorf("plan=%q %s kubeConfig must reference the tenant-<slug>-kubeconfig mirror:\n%s", plan, f, body)
 				}
 			}
 		}

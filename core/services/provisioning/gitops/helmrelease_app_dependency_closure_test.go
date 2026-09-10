@@ -78,17 +78,15 @@ func TestOpenClawCart_RendersImpliedNewAPIHelmRelease(t *testing.T) {
 	}
 }
 
-func TestOpenClawCart_ImpliedNewAPIIsIndexed_VclusterTier(t *testing.T) {
-	// On the vcluster tier the HR docs live in vcluster/host-apps/ and are
-	// indexed by PerOrgHostHelmReleaseAppDocs. A file rendered but not listed
-	// there is never applied — so the closure has to hold at BOTH seams.
-	const vclusterPlan = "medium"
-	if !BoundaryIsVcluster(vclusterPlan) {
-		t.Fatalf("control failed: plan %q is not a vcluster-tier plan, so this test would "+
-			"pass vacuously on the nil return", vclusterPlan)
+func TestOpenClawCart_ImpliedNewAPIIsIndexed(t *testing.T) {
+	// The HR docs live in vcluster/host-apps/ for every Organization (#4292)
+	// and are indexed by PerOrgHostHelmReleaseAppDocs. A file rendered but not
+	// listed there is never applied — so the closure has to hold at BOTH seams.
+	docs := PerOrgHostHelmReleaseAppDocs(openclawCart)
+	if docs == nil {
+		t.Fatalf("control failed: PerOrgHostHelmReleaseAppDocs(%v) returned nil, so this test would "+
+			"pass vacuously", openclawCart)
 	}
-
-	docs := PerOrgHostHelmReleaseAppDocs(vclusterPlan, openclawCart)
 
 	if !contains(docs, "app-openclaw.yaml") {
 		t.Fatalf("control failed: openclaw itself is not indexed for cart %v (docs=%v)", openclawCart, docs)

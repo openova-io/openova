@@ -160,7 +160,7 @@ func TestIsGiteaNotReadyError_4404(t *testing.T) {
 		{"user-redirect-404", errString("commit to per-Org repo s3376walk/catalyst-tenant: auto-create branch \"main\": read source branch \"main\": GitHub API GET .../git/refs/heads/main: 404 {\"errors\":[\"user redirect does not exist [name: s3376walk]\"]}"), true},
 		{"plain-404", errString("read source branch \"main\": 404 Not Found"), true},
 		{"permanent-manifest", errString("manifest generation produced no files"), false},
-		{"permanent-tier", errString("day-2 install aborted: could not authoritatively resolve plan tier"), false},
+		{"permanent-plan", errString("day-2 install aborted: could not authoritatively resolve plan slug"), false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

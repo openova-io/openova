@@ -84,8 +84,8 @@ func TestNewAPIHR_Row232_FitsSmallestPlanQuota(t *testing.T) {
 		name string
 		opt  helmReleaseAppOpts
 	}{
-		{"host-tier", helmReleaseAppOpts{slug: "acme", parentDomain: "omani.homes"}},
-		{"vcluster-tier", helmReleaseAppOpts{slug: "acme", parentDomain: "omani.homes", kubeSecret: "tenant-acme-kubeconfig"}},
+		{"no-kubeconfig-mirror", helmReleaseAppOpts{slug: "acme", parentDomain: "omani.homes"}},
+		{"kubeconfig-mirror", helmReleaseAppOpts{slug: "acme", parentDomain: "omani.homes", kubeSecret: "tenant-acme-kubeconfig"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

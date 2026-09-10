@@ -21,46 +21,44 @@ const PerOrgAppsDir = "vcluster/apps"
 // Kustomization (`catalyst-tenant-<slug>-host-apps`, path `./vcluster/host-apps`,
 // NO kubeConfig) reconciles straight onto the host `<slug>` namespace. The
 // org-controller authors the reserved-entity CiliumNetworkPolicy + provisioning
-// RBAC here; the funnel (#4993) adds the host-native per-app HTTPRoutes here so a
-// vcluster-tier app's route reaches the host Cilium Gateway WITHOUT relying on
+// RBAC here; the funnel (#4993) adds the host-native per-app HTTPRoutes here so
+// an Org app's route reaches the host Cilium Gateway WITHOUT relying on
 // the vcluster syncer (which registers no httproute reflecting controller in
 // vcluster 0.33.4). This is the SAME host-native model the per-Org console route
 // uses — never an in-vcluster route that has to sync out.
 const PerOrgHostAppsDir = "vcluster/host-apps"
 
 // PerOrgAppsBaselineDocs returns the boundary files the org-controller authors
-// into `vcluster/apps/` on Org create for the given plan (#4292 boundary set +
-// #4991/#4992 vcluster target-ns). The funnel MUST preserve them in the apps
-// kustomization (they enforce intra-Org isolation + create the Flux
-// targetNamespace), so MergePerOrgAppsKustomization keeps them in the
-// resources list even though the funnel does not own/regenerate them.
+// into `vcluster/apps/` on Org create (#4292 boundary set + #4991/#4992
+// vcluster target-ns). The funnel MUST preserve them in the apps kustomization
+// (they enforce intra-Org isolation + create the Flux targetNamespace), so
+// MergePerOrgAppsKustomization keeps them in the resources list even though
+// the funnel does not own/regenerate them.
 //
-// The list is PLAN-AWARE (#5104): `namespace.yaml` (the #4992 vcluster-internal
-// target Namespace) exists ONLY for the vcluster tier — the kubeConfig-targeted
-// apps Kustomization applies INTO the Org vcluster with targetNamespace=<slug>
-// and Flux does NOT auto-create it. When the funnel's merge did not know about
-// it, the merged index dropped it (the file was committed but never applied) and
-// Flux wedged permanently on `namespaces "<slug>" not found` — the purchased app
-// never deployed (hw255, 2/2 customer Orgs). It must NOT be listed for the host
-// tier, where the file does not exist (#4567-class kustomize build failure).
+// The list takes no plan (#4292, founder 2026-09-10): every Organization is
+// vCluster-backed, so `namespace.yaml` (the #4992 vcluster-internal target
+// Namespace) exists for EVERY Org — the kubeConfig-targeted apps Kustomization
+// applies INTO the Org vcluster with targetNamespace=<slug> and Flux does NOT
+// auto-create it. When the funnel's merge did not know about it, the merged
+// index dropped it (the file was committed but never applied) and Flux wedged
+// permanently on `namespaces "<slug>" not found` — the purchased app never
+// deployed (hw255, 2/2 customer Orgs). The former plan-aware variant (#5104)
+// omitted it for s/free/"" because those Orgs had no vcluster; that arm no
+// longer exists.
 //
 // #4567: the Cilium `ciliumnetworkpolicy.yaml` lives in `vcluster/host-apps/`
 // (NOT `apps/`) — the #4292 split deliberately keeps the CNP out of the apps
 // tree because a `cilium.io/v2` doc in the kubeConfig-targeted `vcluster/apps`
-// Kustomization wedges the vcluster-tier reconcile (no Cilium CRD inside the
+// Kustomization wedges the whole apps reconcile (no Cilium CRD inside the
 // vcluster). The org-controller's own `vcluster/host-apps` Kustomization
 // delivers the CNP. Listing it here made the funnel emit a
 // `vcluster/apps/kustomization.yaml` that references a non-existent
 // `vcluster/apps/ciliumnetworkpolicy.yaml` → `kustomize build failed: …: no
 // such file or directory` → the ENTIRE apps Kustomization failed → the
-// purchased app + its db dependency never deployed (host-tier S/free funnel
-// Orgs). The CNP must NOT be re-listed in the apps tree by the funnel.
-func PerOrgAppsBaselineDocs(planSlug string) []string {
-	docs := []string{"networkpolicy.yaml"}
-	if BoundaryIsVcluster(planSlug) {
-		docs = append(docs, "namespace.yaml")
-	}
-	return docs
+// purchased app + its db dependency never deployed (S/free funnel Orgs on
+// hw255). The CNP must NOT be re-listed in the apps tree by the funnel.
+func PerOrgAppsBaselineDocs() []string {
+	return []string{"networkpolicy.yaml", "namespace.yaml"}
 }
 
 // perOrgHostAppsBaselineDocs are the boundary files the org-controller authored
@@ -89,13 +87,10 @@ var perOrgHostAppsBaselineDocs = []string{
 //     re-creating the `apps` ns here would collide with the targetNamespace
 //     rewrite the org-controller's apps Kustomization applies.
 //   - the host-scoped HelmRelease-shaped apps `<basePath>/<slug>/app-<x>.yaml`
-//     (openclaw / stalwart-mail / newapi) → **tier-dependent**:
-//   - HOST tier (free/S): → `vcluster/apps/app-<x>.yaml`. That Kustomization
-//     carries no `kubeConfig`, so it applies to the HOST `<slug>` ns where the
-//     Flux CRDs live and the HelmRelease reconciles normally.
-//   - VCLUSTER tier (m/l/xl/flexi, #5423): → `vcluster/host-apps/app-<x>.yaml`.
-//     The org-controller gives the apps Kustomization a `kubeConfig.secretRef`
-//     on this tier, so it applies INTO the Org vcluster — which registers no
+//     (openclaw / stalwart-mail / newapi) → `vcluster/host-apps/app-<x>.yaml`,
+//     for EVERY plan (#5423, made unconditional by #4292). The org-controller
+//     gives the apps Kustomization a `kubeConfig.secretRef` for every
+//     Organization, so it applies INTO the Org vcluster — which registers no
 //     `helm.toolkit.fluxcd.io` / `source.toolkit.fluxcd.io` CRDs at all. A
 //     HelmRelease/HelmRepository doc there fails server dry-run with
 //     `no matches for kind "HelmRelease" in version "helm.toolkit.fluxcd.io/v2"`,
@@ -116,7 +111,10 @@ var perOrgHostAppsBaselineDocs = []string{
 // provisioning-rbac.yaml, the host kustomization.yaml) is dropped: the
 // org-controller's per-Org Flux loop already provides the GitRepository +
 // apps Kustomization that this tree feeds, so re-emitting an apps-sync
-// Kustomization or a second namespace boundary would duplicate/fight it.
+// Kustomization or a second boundary would duplicate/fight it.
+//
+// planSlug is still threaded through to GenerateAllWithAppConfigs for the
+// per-plan QoS class (qosResources); it does not influence the tree shape.
 //
 // Returns the re-rooted file map (paths relative to the per-Org repo root) and
 // the sorted list of app file basenames the caller merges into
@@ -144,20 +142,15 @@ func (g *ManifestGenerator) GeneratePerOrgAppsTree(slug, planSlug string, appSlu
 			docSet[name] = struct{}{}
 		case isHostHelmReleaseAppFile(path, hostHRPrefix):
 			name := strings.TrimPrefix(path, hostHRPrefix)
-			// #5423 — on the vcluster tier the apps Kustomization is
-			// kubeConfig-targeted at the CRD-less Org vcluster, so a Flux doc
+			// #5423 — the apps Kustomization is kubeConfig-targeted at the
+			// CRD-less Org vcluster for every Organization, so a Flux doc
 			// there poisons the whole tree. Land it in host-apps instead
 			// (kubeConfig: null, targetNamespace: <slug>). appDocs must NOT
-			// list it: it no longer lives under vcluster/apps/, and a
+			// list it: it does not live under vcluster/apps/, and a
 			// kustomization entry for a missing file breaks the build outright
 			// (the #4567 failure mode). PerOrgHostHelmReleaseAppDocs feeds the
 			// host-apps index instead.
-			if BoundaryIsVcluster(planSlug) {
-				out[PerOrgHostAppsDir+"/"+name] = content
-				continue
-			}
-			out[PerOrgAppsDir+"/"+name] = content
-			docSet[name] = struct{}{}
+			out[PerOrgHostAppsDir+"/"+name] = content
 		default:
 			// Drop the contabo-model host scaffolding (apps-sync, ingress,
 			// provisioning-rbac, host kustomization) — the org-controller's
@@ -173,18 +166,18 @@ func (g *ManifestGenerator) GeneratePerOrgAppsTree(slug, planSlug string, appSlu
 	return out, appDocs
 }
 
-// GeneratePerOrgHostAppRoutes renders the HOST-NATIVE per-app HTTPRoutes for a
-// VCLUSTER-tier Org (#4993) into the per-Org repo's `vcluster/host-apps/` tree.
-// Each Deployment-shaped purchased app gets one route (`app-<x>-hostroute.yaml`)
+// GeneratePerOrgHostAppRoutes renders the HOST-NATIVE per-app HTTPRoutes for an
+// Org (#4993) into the per-Org repo's `vcluster/host-apps/` tree. Each
+// Deployment-shaped purchased app gets one route (`app-<x>-hostroute.yaml`)
 // that binds the SYNCED Service (`<app>-x-<slug>-x-vcluster:80`) on the host
 // `<slug>` ns to the app's public host (`<app>.<slug>.<parentDomain>`), parented
 // to the dedicated console Cilium Gateway — so the route reaches the host gateway
 // deterministically instead of via the (non-existent) vcluster httproute syncer.
 //
-// Emitted ONLY for the vcluster tier: the host tier (free/S) runs the app + its
-// plain Service directly in the host `<slug>` ns, where the co-located
-// generateAppHTTPRoute already routes (no synced-service name exists there), so
-// this returns (nil, nil) for host-tier plans. HelmRelease-shaped apps (openclaw,
+// Emitted for EVERY Organization (#4292): every Org's apps run inside its
+// vCluster, so the synced Service is the only host-side backend and this route
+// is the only path from the host gateway to the app — there is no plan whose
+// apps run natively in the host `<slug>` ns. HelmRelease-shaped apps (openclaw,
 // stalwart-mail) carry their OWN chart-emitted HTTPRoute parented to the same
 // gateway and sync no `<app>-x-…-x-vcluster` Service, so they are skipped — a
 // second route to a non-existent Service would 404. Shareable DB slugs
@@ -193,10 +186,8 @@ func (g *ManifestGenerator) GeneratePerOrgAppsTree(slug, planSlug string, appSlu
 // Returns the file map (paths relative to the per-Org repo root) and the sorted
 // list of route doc basenames the caller merges into
 // `vcluster/host-apps/kustomization.yaml` (via MergePerOrgHostAppsKustomization).
-func (g *ManifestGenerator) GeneratePerOrgHostAppRoutes(slug, planSlug string, appSlugs []string) (files map[string]string, hostAppDocs []string) {
-	if !BoundaryIsVcluster(planSlug) {
-		return nil, nil
-	}
+// Returns (nil, nil) only when no routable app is in the cart.
+func (g *ManifestGenerator) GeneratePerOrgHostAppRoutes(slug string, appSlugs []string) (files map[string]string, hostAppDocs []string) {
 	hostNS := slug // the org-controller-owned boundary ns (apps targetNamespace)
 	out := map[string]string{}
 	docs := []string{}
@@ -329,24 +320,19 @@ func MergePerOrgHostAppsKustomization(existing string, treeDocs, hostAppDocs []s
 
 // PerOrgHostHelmReleaseAppDocs returns the `app-<x>.yaml` basenames that
 // GeneratePerOrgAppsTree re-roots into `vcluster/host-apps/` for this cart —
-// i.e. the HelmRelease-shaped apps on the VCLUSTER tier (#5423). The caller
+// i.e. the HelmRelease-shaped apps (#5423), for every plan (#4292). The caller
 // unions these into the host-apps kustomization index alongside the #4993
 // host-native route docs.
 //
-// Returns nil on the host tier: there the HR files stay in `vcluster/apps/`
-// (that Kustomization already applies to the host) and are indexed by
-// GeneratePerOrgAppsTree's own appDocs, exactly as before.
+// Returns nil only when the cart holds no HelmRelease-shaped app.
 //
 // Kept as a standalone pure function rather than a third return value of
 // GeneratePerOrgAppsTree so the render seam's signature — asserted by the
 // #4384/#4758/#3376 render-proof tests — stays stable. It is the deliberate
-// counterpart of the `continue` in GeneratePerOrgAppsTree: both key off
-// BoundaryIsVcluster + isHelmReleaseApp, so the file set and the index set
+// counterpart of the host-apps branch in GeneratePerOrgAppsTree: both key off
+// isHelmReleaseApp (via helmReleaseAppsFor), so the file set and the index set
 // cannot drift.
-func PerOrgHostHelmReleaseAppDocs(planSlug string, appSlugs []string) []string {
-	if !BoundaryIsVcluster(planSlug) {
-		return nil
-	}
+func PerOrgHostHelmReleaseAppDocs(appSlugs []string) []string {
 	// helmReleaseAppsFor — NOT a raw isHelmReleaseApp walk over appSlugs — so
 	// this index sees the SAME set GenerateAllWithAppConfigs writes files for,
 	// including the impliedHelmReleaseApps closure (openclaw ⇒ newapi, row 225).
@@ -385,11 +371,11 @@ func isHostHelmReleaseAppFile(path, hostPrefix string) bool {
 }
 
 // MergePerOrgAppsKustomization rebuilds the `vcluster/apps/kustomization.yaml`
-// resources list so it enumerates the org-controller boundary baseline for the
-// Org's plan (networkpolicy.yaml always; namespace.yaml — the #4992 vcluster
-// target-ns — for the vcluster tier, #5104), any further baseline doc ACTUALLY
-// present in the tree (`treeDocs` — the dir listing of `vcluster/apps/`, nil
-// when unavailable), AND the funnel's app docs.
+// resources list so it enumerates the org-controller boundary baseline
+// (networkpolicy.yaml + namespace.yaml — the #4992 vcluster target-ns — for
+// every Organization, #5104/#4292), any further baseline doc ACTUALLY present
+// in the tree (`treeDocs` — the dir listing of `vcluster/apps/`, nil when
+// unavailable), AND the funnel's app docs.
 //
 // `existing` is the current kustomization.yaml content read from the per-Org
 // repo (empty if absent). Any resource already listed there is preserved
@@ -398,10 +384,10 @@ func isHostHelmReleaseAppFile(path, hostPrefix string) bool {
 // deterministic (sorted) so a re-render is byte-stable and the PutFile/commit
 // short-circuits when nothing changed.
 //
-// #5104: before the merge was plan-aware, it preserved ONLY networkpolicy.yaml
-// — so for a vcluster-tier funnel Org whose index the funnel committed first,
-// the #4992 `namespace.yaml` was authored to the tree but never indexed, the
-// target namespace never existed inside the vcluster, and the apps Flux
+// #5104: before the merge knew about namespace.yaml, it preserved ONLY
+// networkpolicy.yaml — so for a funnel Org whose index the funnel committed
+// first, the #4992 `namespace.yaml` was authored to the tree but never indexed,
+// the target namespace never existed inside the vcluster, and the apps Flux
 // Kustomization wedged permanently on `namespaces "<slug>" not found` (hw255,
 // 2/2 customer Orgs; the purchased app never deployed).
 //
@@ -411,7 +397,7 @@ func isHostHelmReleaseAppFile(path, hostPrefix string) bool {
 // the kustomize build for the WHOLE apps tree (→ purchased app never deploys).
 // Stripping it on every merge self-heals an already-broken per-Org repo on the
 // next cart install / reconcile.
-func MergePerOrgAppsKustomization(existing, planSlug string, treeDocs, appDocs []string) string {
+func MergePerOrgAppsKustomization(existing string, treeDocs, appDocs []string) string {
 	// excludedFromAppsTree are docs that must NEVER appear in
 	// `vcluster/apps/kustomization.yaml` because their file does not live in
 	// `vcluster/apps/` (the org-controller authors them under
@@ -420,26 +406,21 @@ func MergePerOrgAppsKustomization(existing, planSlug string, treeDocs, appDocs [
 	excludedFromAppsTree := map[string]struct{}{
 		"ciliumnetworkpolicy.yaml": {},
 	}
-	// #5423 — same self-heal, same reason, one tier: on the VCLUSTER tier the
-	// HelmRelease-shaped app docs now live in `vcluster/host-apps/`, so an
+	// #5423 — same self-heal, same reason: the HelmRelease-shaped app docs
+	// live in `vcluster/host-apps/` for every Organization (#4292), so an
 	// entry for them here points at a file this tree does not contain. A repo
-	// written by a pre-#5423 build still lists them in `existing`; strip them
-	// on every merge so the next cart install / reconcile heals an Org that
-	// would otherwise stay wedged on
-	// `no matches for kind "HelmRelease"` forever. The orphaned blob left at
-	// `vcluster/apps/app-<x>.yaml` is inert once unindexed — kustomize builds
-	// only what `resources:` lists.
-	//
-	// HOST tier is untouched: there the HR docs legitimately live in
-	// `vcluster/apps/` and MUST stay indexed.
-	if BoundaryIsVcluster(planSlug) {
-		for slug := range helmReleaseAppSlugs {
-			excludedFromAppsTree[fmt.Sprintf("app-%s.yaml", slug)] = struct{}{}
-		}
+	// written by a pre-#5423 build (or by the former S/free arm, which kept
+	// them in `vcluster/apps/`) still lists them in `existing`; strip them on
+	// every merge so the next cart install / reconcile heals an Org that would
+	// otherwise stay wedged on `no matches for kind "HelmRelease"` forever.
+	// The orphaned blob left at `vcluster/apps/app-<x>.yaml` is inert once
+	// unindexed — kustomize builds only what `resources:` lists.
+	for slug := range helmReleaseAppSlugs {
+		excludedFromAppsTree[fmt.Sprintf("app-%s.yaml", slug)] = struct{}{}
 	}
 
 	resources := map[string]struct{}{}
-	for _, d := range PerOrgAppsBaselineDocs(planSlug) {
+	for _, d := range PerOrgAppsBaselineDocs() {
 		resources[d] = struct{}{}
 	}
 	for _, d := range baselineDocsFromTree(treeDocs, excludedFromAppsTree) {

@@ -221,7 +221,7 @@ func TestPerOrgAppsTree_UnresolvableEntryDoesNotSinkTheCart_5910(t *testing.T) {
 }
 
 // TestPerOrgHostAppRoutes_NoRouteForUnrenderableEntry_5910 pins the SECOND call
-// site of the shared predicate. The vcluster tier emits a host-native HTTPRoute
+// site of the shared predicate. Every Organization emits a host-native HTTPRoute
 // per Deployment-shaped app; for an entry that renders no Deployment and no
 // Service, that route would bind `<id>-x-<slug>-x-vcluster` — a backend that can
 // never exist — and sit ResolvedRefs=False forever.
@@ -234,8 +234,8 @@ func TestPerOrgHostAppRoutes_NoRouteForUnrenderableEntry_5910(t *testing.T) {
 	g := NewManifestGenerator("clusters/sov/org-tenants")
 	g.ParentDomain = "omani.trade"
 
-	// "m" is a vcluster-tier plan — the only tier that emits host-native routes.
-	files, docs := g.GeneratePerOrgHostAppRoutes("g95walktwo", "m",
+	// Host-native routes are emitted for every Organization (#4292).
+	files, docs := g.GeneratePerOrgHostAppRoutes("g95walktwo",
 		[]string{"wordpress", unresolved})
 
 	if _, ok := files[PerOrgHostAppsDir+"/app-wordpress-hostroute.yaml"]; !ok {

@@ -8,8 +8,9 @@ import (
 )
 
 // #4293 MAJOR-3 — resolvePlanSlug silently returned "s" on ANY transient
-// catalog failure, so a day-2 install for a paid (M+) Org could re-route apps
-// to the wrong boundary on a momentary catalog blip. The fix splits the lookup
+// catalog failure, so a day-2 install for a paid (M+) Org could re-generate its
+// manifests against the S plan's QoS/quota on a momentary catalog blip. The
+// fix splits the lookup
 // so the day-2 path can DISTINGUISH a confirmed answer from an
 // unreachable-catalog guess (lookupPlanSlug → reachable bool) and reads the
 // authoritative spec.planSlug off the Organization CR first
@@ -82,7 +83,7 @@ func TestLookupPlanSlug_TransientFailuresAreUnreachable(t *testing.T) {
 // TestResolveTenantPlanSlug_FailsClosedOnTransient is the headline MAJOR-3 lock.
 // With no in-cluster env (Org CR read fails) AND a transient catalog failure,
 // resolveTenantPlanSlug must return authoritative=false so the day-2 caller
-// ABORTS rather than silently downgrading a paid Org to host tier.
+// ABORTS rather than silently downgrading a paid Org's quota/QoS to the S cap.
 func TestResolveTenantPlanSlug_FailsClosedOnTransient(t *testing.T) {
 	clearK8sEnv(t) // Org CR read returns "not running in cluster"
 	url := catalogPlansStub(t, http.StatusInternalServerError, `boom`)

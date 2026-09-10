@@ -245,9 +245,15 @@ func valuesPathsOfHelper(helpers, helper string) []string {
 	return nil
 }
 
-// pinnedSecretPaths finds every `name:`/`key:` pair in the overlay's values —
-// the shape of a Secret reference — and returns the dotted path of its parent
-// key (e.g. `oidc.clientSecret`).
+// pinnedSecretPaths finds every `name:`/`key:` pair INSIDE the overlay's
+// `values:` block — the shape of a chart Secret reference — and returns the
+// dotted path of its parent key (e.g. `oidc.clientSecret`).
+//
+// Pairs outside `values:` are not chart values paths and are skipped. The one
+// that exists is the Flux HR-level `spec.kubeConfig.secretRef` (the
+// tenant-<slug>-kubeconfig mirror), which every Organization's HR carries now
+// that every plan is vCluster-backed (#4292); this scanner only ever saw a
+// clean plan-"s" overlay before because that plan used to render no mirror.
 func pinnedSecretPaths(overlay string) map[string]bool {
 	out := map[string]bool{}
 	lines := strings.Split(overlay, "\n")
@@ -272,19 +278,22 @@ func pinnedSecretPaths(overlay string) map[string]bool {
 		if nextIndent != indent || !strings.HasPrefix(next, "key:") {
 			continue
 		}
-		// Walk enclosing keys, stopping at the `values:` block root.
+		// Walk enclosing keys, stopping at the `values:` block root. A pair
+		// with no `values:` ancestor is a Flux spec field, not a values path.
 		var parts []string
+		inValues := false
 		for ind := indent - 2; ind >= 0; ind -= 2 {
 			k, ok := stack[ind]
 			if !ok {
 				continue
 			}
 			if k == "values" {
+				inValues = true
 				break
 			}
 			parts = append([]string{k}, parts...)
 		}
-		if len(parts) > 0 {
+		if inValues && len(parts) > 0 {
 			out[strings.Join(parts, ".")] = true
 		}
 	}

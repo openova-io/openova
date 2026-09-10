@@ -23,13 +23,16 @@ import (
 //
 // Three defects, each independently sufficient to strand a record:
 //
-//	(a) HOST TIER IS INVISIBLE. isolationForTier maps plan free/S/"" to
-//	    "namespace" (allTiersVcluster is false), so those Orgs run their app
-//	    pods NATIVELY in the host `<slug>` ns with no syncer suffix. The
-//	    suffix gate skips every one of them, `ready` comes back empty and
-//	    reconcileOneProvision returns before it can heal anything. The
-//	    write-once record #5646 set out to fix stays permanently failed for
-//	    exactly the tier the funnel sells first.
+//	(a) UN-SYNCED PODS ARE INVISIBLE. At the time, plans free/S/"" had no
+//	    vcluster and ran their app pods NATIVELY in the host `<slug>` ns with
+//	    no syncer suffix; the suffix gate skipped every one of them, `ready`
+//	    came back empty and reconcileOneProvision returned before it could
+//	    heal anything. The write-once record #5646 set out to fix stayed
+//	    permanently failed for exactly the plans the funnel sells first.
+//	    Every Organization is vCluster-backed now (#4292), so every app pod
+//	    carries the suffix — but the matcher stays tolerant of the native
+//	    shape (the cases below pin that), because a reconciler that can go
+//	    blind on a pod-name shape is the defect, whatever plan produced it.
 //
 //	(b) SHORT POD NAMES ARE SKIPPED. The `< 3 segments` guard assumes every
 //	    pod is Deployment-shaped (`<slug>-<rsHash>-<podHash>`). A
@@ -95,22 +98,22 @@ func TestPodOwnerSlug(t *testing.T) {
 		wantLegacy string // what the replaced matcher returned
 	}{
 		{
-			// (a) HOST TIER. Plan free/S Org — native pod, no syncer suffix.
-			// This is the case that stranded the record.
-			name:       "host-tier native Deployment pod",
+			// (a) NATIVE SHAPE. A pod with no syncer suffix — the case that
+			// stranded the record.
+			name:       "native (un-synced) Deployment pod",
 			pod:        "mysql-5b9d89cbc6-hh6jt",
 			want:       "mysql",
 			wantLegacy: "",
 		},
 		{
-			name:       "host-tier native app pod",
+			name:       "native (un-synced) app pod",
 			pod:        "wordpress-7d4f9c8b6-2xk9p",
 			want:       "wordpress",
 			wantLegacy: "",
 		},
 		{
-			// (b) SHORT NAME. StatefulSet ordinal, host tier.
-			name:       "host-tier StatefulSet pod",
+			// (b) SHORT NAME. StatefulSet ordinal, native shape.
+			name:       "native StatefulSet pod",
 			pod:        "postgres-1",
 			want:       "postgres",
 			wantLegacy: "",
@@ -134,7 +137,7 @@ func TestPodOwnerSlug(t *testing.T) {
 			// (c) SLUG RECONSTRUCTION. A dashed slug survives the legacy
 			// split only by luck of segment count; assert it against the
 			// requested set instead.
-			name:       "dashed slug, host tier",
+			name:       "dashed slug, native shape",
 			pod:        "uptime-kuma-6b8d7c9f4-abcde",
 			want:       "uptime-kuma",
 			wantLegacy: "",
@@ -179,19 +182,20 @@ func TestPodOwnerSlug(t *testing.T) {
 	}
 }
 
-// TestPodOwnerSlug_HostTierIsTheRegression states the headline in one
-// assertion: on the tier the funnel sells first, the replaced matcher saw
-// NOTHING, so reconcileOneProvision returned early and no failed step could
-// ever be superseded.
-func TestPodOwnerSlug_HostTierIsTheRegression(t *testing.T) {
+// TestPodOwnerSlug_NativePodsAreTheRegression states the headline in one
+// assertion: for un-synced pods the replaced matcher saw NOTHING, so
+// reconcileOneProvision returned early and no failed step could ever be
+// superseded. Every Organization app pod is synced now (#4292); the tolerance
+// is kept so the reconciler cannot go blind on a shape again.
+func TestPodOwnerSlug_NativePodsAreTheRegression(t *testing.T) {
 	apps := wantedSet("wordpress", "mysql")
-	hostTierPods := []string{
+	nativePods := []string{
 		"wordpress-7d4f9c8b6-2xk9p",
 		"mysql-5b9d89cbc6-hh6jt",
 	}
 	seen := 0
 	legacySeen := 0
-	for _, p := range hostTierPods {
+	for _, p := range nativePods {
 		if podOwnerSlug(p, apps) != "" {
 			seen++
 		}
@@ -199,11 +203,11 @@ func TestPodOwnerSlug_HostTierIsTheRegression(t *testing.T) {
 			legacySeen++
 		}
 	}
-	if seen != len(hostTierPods) {
-		t.Errorf("host-tier pods matched: got %d, want %d", seen, len(hostTierPods))
+	if seen != len(nativePods) {
+		t.Errorf("native pods matched: got %d, want %d", seen, len(nativePods))
 	}
 	if legacySeen != 0 {
 		t.Errorf("control is not exercising the defect: the replaced matcher saw %d "+
-			"host-tier pods, expected 0 — if this fires the test proves nothing", legacySeen)
+			"native pods, expected 0 — if this fires the test proves nothing", legacySeen)
 	}
 }
