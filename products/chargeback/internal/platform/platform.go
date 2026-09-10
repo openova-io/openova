@@ -1,15 +1,22 @@
 // Package platform is the chargeback → platform seam for ENFORCEMENT
-// (DESIGN.md §9.7): suspending an Organization when collections escalate or
+// (DESIGN.md §9.6): suspending an Organization when collections escalate or
 // a prepaid balance reaches zero, and resuming it when the account is
 // settled.
 //
 // The Organization sync (internal/adapter/openova) runs the other way — CR →
 // customer — and the platform had no reverse door: nothing let a billing
 // decision pause an Organization. The sovereign-admin API now has the
-// narrowest one, `POST /api/v1/organizations/{slug}/suspend` and
+// narrowest one, `POST /api/v1/internal/organizations/{slug}/suspend` and
 // `.../resume`, which stamp `spec.suspended` on the Organization CR; the
 // org-controller parks the per-Org Flux reconciliation and surfaces a
 // Suspended condition. This client is what calls it.
+//
+// Those routes are ServiceAccount-authenticated: the bearer is a projected
+// ServiceAccount token the sovereign-admin API verifies with a TokenReview
+// and checks against its allow-list (system:serviceaccount:chargeback:
+// chargeback). The chart projects that token to a file and this client
+// re-reads the file on every call — projected tokens rotate, and a bearer
+// read once at start-up would begin failing an hour later.
 //
 // It is deliberately a seam: a Fake for tests, a Nop that only logs when no
 // platform URL is configured, and an HTTP client for the real thing. Every
@@ -25,6 +32,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -62,16 +70,26 @@ func (Nop) Name() string { return "none" }
 
 // HTTP calls the sovereign-admin API.
 type HTTP struct {
-	// BaseURL is the sovereign-admin API base, e.g. https://console.t99.omani.works
+	// BaseURL is the sovereign-admin API base — in-cluster,
+	// http://catalyst-api.catalyst-system.svc.cluster.local:8080.
 	BaseURL string
-	// Token is the bearer the operator-only routes accept.
+	// TokenFile, when set, is read on EVERY call and its contents presented
+	// as the bearer: the projected ServiceAccount token the chart mounts at
+	// /var/run/secrets/platform-api/token, which the kubelet rotates.
+	TokenFile string
+	// Token is the literal bearer used when TokenFile is empty.
 	Token  string
 	Client *http.Client
 }
 
-// NewHTTP returns a client for the sovereign-admin API.
-func NewHTTP(baseURL, token string) *HTTP {
-	return &HTTP{BaseURL: strings.TrimRight(strings.TrimSpace(baseURL), "/"), Token: strings.TrimSpace(token)}
+// NewHTTP returns a client for the sovereign-admin API. tokenFile wins over
+// token when both are given.
+func NewHTTP(baseURL, token, tokenFile string) *HTTP {
+	return &HTTP{
+		BaseURL:   strings.TrimRight(strings.TrimSpace(baseURL), "/"),
+		Token:     strings.TrimSpace(token),
+		TokenFile: strings.TrimSpace(tokenFile),
+	}
 }
 
 func (h *HTTP) client() *http.Client {
@@ -79,6 +97,26 @@ func (h *HTTP) client() *http.Client {
 		return h.Client
 	}
 	return &http.Client{Timeout: 15 * time.Second}
+}
+
+// bearer is the token to present now: the file's current contents when a
+// file is configured (never cached — rotation is the point), else the
+// literal. A configured file that cannot be read is an error, not a silent
+// fall-back to a stale literal: the call would be refused anyway, and the
+// audit should say why.
+func (h *HTTP) bearer() (string, error) {
+	if h.TokenFile == "" {
+		return h.Token, nil
+	}
+	raw, err := os.ReadFile(h.TokenFile)
+	if err != nil {
+		return "", fmt.Errorf("platform enforcement: read the ServiceAccount token %s: %w", h.TokenFile, err)
+	}
+	tok := strings.TrimSpace(string(raw))
+	if tok == "" {
+		return "", fmt.Errorf("platform enforcement: the ServiceAccount token file %s is empty", h.TokenFile)
+	}
+	return tok, nil
 }
 
 func (h *HTTP) Name() string { return h.BaseURL }
@@ -100,13 +138,17 @@ func (h *HTTP) post(ctx context.Context, slug, action string, body any) error {
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("%s/api/v1/organizations/%s/%s", h.BaseURL, slug, action), bytes.NewReader(raw))
+	tok, err := h.bearer()
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("%s/api/v1/internal/organizations/%s/%s", h.BaseURL, slug, action), bytes.NewReader(raw))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if h.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+h.Token)
+	if tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
 	}
 	resp, err := h.client().Do(req)
 	if err != nil {

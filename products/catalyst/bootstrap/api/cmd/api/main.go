@@ -1201,6 +1201,18 @@ func main() {
 	// what was hanging cutover on otech113 2026-05-05 (issue #935).
 	r.Post("/api/v1/internal/cutover/trigger", h.HandleCutoverInternalTrigger)
 
+	// Billing enforcement from the chargeback application (products/
+	// chargeback DESIGN.md §9, EPIC #6867). The collections Enforcer is a
+	// Pod with a projected ServiceAccount token and no operator session, so
+	// the operator-only suspend/resume routes inside RequireSession below
+	// refused every call it made and the Organization was never suspended
+	// at the platform. These twins authenticate EXACTLY like the cutover
+	// trigger above — TokenReview on the bearer + the allow-list in
+	// internal/handler/internal_auth.go (system:serviceaccount:chargeback:
+	// chargeback) — and then run the same CR stamp the operator routes do.
+	r.Post("/api/v1/internal/organizations/{id}/suspend", h.HandleInternalSuspendOrganization)
+	r.Post("/api/v1/internal/organizations/{id}/resume", h.HandleInternalResumeOrganization)
+
 	// Sovereign-side handover ARCHIVE RECEIVER (issue #317 / #933,
 	// fix #3379). Catalyst-Zero's postTofuArchive POSTs the sealed
 	// OpenTofu state here (https://api.<sov-fqdn>/api/v1/handover/
