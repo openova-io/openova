@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-10T14:00:04Z` |
+| Last refreshed | `2026-09-10T14:30:11Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,36 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-10T14:12 | [#6909](https://github.com/openova-io/openova/pull/6909) | #6867 | docs(status): chargeback live on hw307 at 0.1.29 |
+| 2026-09-10T12:58 | [#6908](https://github.com/openova-io/openova/pull/6908) | #6867 | docs(chargeback): 0.1.29 live evidence on hw307 — traffic-mo |
+| 2026-09-10T12:24 | [#6907](https://github.com/openova-io/openova/pull/6907) | #6867 | docs(chargeback): 0.1.28 live evidence on hw307 — balances,  |
+| 2026-09-10T12:40 | [#6906](https://github.com/openova-io/openova/pull/6906) | #6867 | fix(chargeback): landlord backfill on the traffic model; neu |
+| 2026-09-10T14:12 | [#6905](https://github.com/openova-io/openova/pull/6905) | #6867 | feat(org): suspend and resume an Organization on an explicit |
+| 2026-09-10T12:06 | [#6904](https://github.com/openova-io/openova/pull/6904) | #6867 | feat(chargeback): 0.1.28 — account ledger, balance, top-up,  |
+| 2026-09-10T11:11 | [#6903](https://github.com/openova-io/openova/pull/6903) | #6867 | docs(chargeback): 0.1.27 live evidence on hw307 — commercial |
+| 2026-09-10T10:47 | [#6901](https://github.com/openova-io/openova/pull/6901) | #6867 | feat(chargeback): retire the billing modes, post-paid invoic |
+| 2026-09-10T09:44 | [#6900](https://github.com/openova-io/openova/pull/6900) | #6867 | feat(chargeback): meter in-place resizes and Elastic IP traf |
+| 2026-09-10T08:55 | [#6899](https://github.com/openova-io/openova/pull/6899) | #6867 | feat(chargeback): bill flexi Organizations per use instead o |
+| 2026-09-10T08:16 | [#6898](https://github.com/openova-io/openova/pull/6898) | #6867 | fix(chargeback): showcase continuity, the 1 September hole,  |
+| 2026-09-08T18:08 | [#6884](https://github.com/openova-io/openova/pull/6884) | #6867 | docs(ledger): hw307 explorer capture after 0.1.23 |
+| 2026-09-08T17:41 | [#6883](https://github.com/openova-io/openova/pull/6883) | #6867 | docs(ledger): hw307 showcase screenshots for the rebuilt cha |
+| 2026-09-08T17:58 | [#6882](https://github.com/openova-io/openova/pull/6882) | #6867 | fix(chargeback): seed a showcase Organization's source, hide |
+| 2026-09-08T14:56 | [#6881](https://github.com/openova-io/openova/pull/6881) | #6867 | feat(chargeback): two-layer ownership, discount combination  |
+| 2026-09-07T11:21 | [#6880](https://github.com/openova-io/openova/pull/6880) | #6874 | fix(dr-promoter): clear the divergence marker and release th |
+| 2026-09-07T10:44 | [#6879](https://github.com/openova-io/openova/pull/6879) | #6874 | fix(bp-postgres, cloud-init): shared consumers dial the glob |
+| 2026-09-07T09:48 | [#6878](https://github.com/openova-io/openova/pull/6878) | #6874 | fix(dr-promoter): tell a CNPG local failover apart from a re |
+| 2026-09-07T08:34 | [#6877](https://github.com/openova-io/openova/pull/6877) | #6867 | docs(ledger): hw307 live-walk screenshots for bp-chargeback  |
+| 2026-09-07T09:11 | [#6876](https://github.com/openova-io/openova/pull/6876) | #6874 | fix(dr-failback): force the HelmRelease render after every r |
+| 2026-09-07T08:18 | [#6875](https://github.com/openova-io/openova/pull/6875) | #6867 | fix(chargeback): SMTP egress on Sovereigns, customer-scoped  |
+| 2026-09-07T07:22 | [#6873](https://github.com/openova-io/openova/pull/6873) | #6867 | feat(chargeback): bill the catalog plan (plan.<slug> meter + |
+| 2026-09-07T06:20 | [#6872](https://github.com/openova-io/openova/pull/6872) | #6871 | feat(chargeback): tag/enterprise-project dimension, hourly g |
+| 2026-09-06T19:27 | [#6871](https://github.com/openova-io/openova/pull/6871) | #6869 | fix(chargeback-ui): allocation margin % reads n/a below one  |
+| 2026-09-06T18:47 | [#6869](https://github.com/openova-io/openova/pull/6869) | #6868 | fix(chargeback): purge-excluded action, allocation auto-pick |
+| 2026-09-06T18:11 | [#6868](https://github.com/openova-io/openova/pull/6868) | #6867 | feat(chargeback): cloud-provider-grade cost analysis — explo |
+| 2026-09-06T12:48 | [#6866](https://github.com/openova-io/openova/pull/6866) | #6866 | fix(chargeback): the usage table showed a dash in every grou |
+| 2026-09-06T11:41 | [#6865](https://github.com/openova-io/openova/pull/6865) | #6850 | feat(chargeback): the allocation screen (Refs #6865) |
+| 2026-09-06T10:45 | [#6864](https://github.com/openova-io/openova/pull/6864) | #6863 | feat(chargeback): usage trend chart (Refs #6863) |
+| 2026-09-06T09:31 | [#6862](https://github.com/openova-io/openova/pull/6862) | #6862 | feat(chargeback): discounts and time-boxed campaigns (Refs # |
 
 ---
 
