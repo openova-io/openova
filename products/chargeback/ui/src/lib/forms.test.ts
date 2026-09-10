@@ -81,6 +81,20 @@ describe('validatePayment / paymentBody', () => {
     expect(emptyPaymentForm(1200, '2026-07-02')).toEqual({ amount: '1200.000', paid_at: '2026-07-02', reference: '' })
     expect(emptyPaymentForm(0, '2026-07-02').amount).toBe('')
   })
+  it('prefills and judges at the minor unit — the hw307 case', () => {
+    // 14.856782 OMR, 10.000 paid: the exact outstanding has more decimals
+    // than a transfer can carry. The form offers 4.857 and must accept it.
+    const outstanding = 14.856782 - 10
+    expect(emptyPaymentForm(outstanding, '2026-09-09', 3).amount).toBe('4.857')
+    expect(validatePayment({ ...ok, amount: '4.857' }, outstanding, 3)).toEqual({})
+    expect(validatePayment({ ...ok, amount: '4.856' }, outstanding, 3)).toEqual({})
+    // Half a baisa or more over is still an overpayment, named at the unit.
+    expect(validatePayment({ ...ok, amount: '4.858' }, outstanding, 3).amount).toMatch(/More than the outstanding 4\.857 /)
+    // Two-decimal currencies: the same rule at the cent.
+    expect(emptyPaymentForm(outstanding, '2026-09-09', 2).amount).toBe('4.86')
+    expect(validatePayment({ ...ok, amount: '4.86' }, outstanding, 2)).toEqual({})
+    expect(validatePayment({ ...ok, amount: '4.87' }, outstanding, 2).amount).toMatch(/More than the outstanding 4\.86 /)
+  })
 })
 
 describe('validateDiscount / discountBody', () => {

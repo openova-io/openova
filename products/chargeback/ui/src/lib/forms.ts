@@ -148,17 +148,30 @@ export interface PaymentForm {
   reference: string
 }
 
-export function emptyPaymentForm(balance: number, today: string): PaymentForm {
-  return { amount: balance > 0 ? balance.toFixed(3) : '', paid_at: today, reference: '' }
+/**
+ * The form opens on the outstanding balance rounded to the currency's minor
+ * unit (`digits`: 3 for OMR, 2 for most others — lib/money minorUnitDigits),
+ * which is the amount a transfer can carry and the amount the store accepts
+ * as the settlement even when the exact balance has more decimals.
+ */
+export function emptyPaymentForm(balance: number, today: string, digits = 3): PaymentForm {
+  return { amount: balance > 0 ? balance.toFixed(digits) : '', paid_at: today, reference: '' }
 }
 
-export function validatePayment(f: PaymentForm, balance: number): Errors<PaymentForm> {
+/**
+ * "More than the outstanding" is judged the way the server judges it: at the
+ * minor unit. An amount within half a unit of the exact balance — the very
+ * amount this form prefilled — is the settlement, not an overpayment; half a
+ * unit or more over is refused here before the server refuses it.
+ */
+export function validatePayment(f: PaymentForm, balance: number, digits = 3): Errors<PaymentForm> {
   const e: Errors<PaymentForm> = {}
   const a = f.amount.trim()
+  const tolerance = 0.5 * 10 ** -digits
   if (!a) e.amount = 'Amount is required.'
   else if (!DECIMAL.test(a)) e.amount = 'Enter a plain number, e.g. 1200 or 850.500.'
   else if (Number(a) <= 0) e.amount = 'A payment must be above zero.'
-  else if (balance > 0 && Number(a) > balance + 1e-9) e.amount = `More than the outstanding ${balance.toFixed(3)} — a customer who paid too much needs a credit note.`
+  else if (balance > 0 && Number(a) - balance >= tolerance - 1e-9) e.amount = `More than the outstanding ${balance.toFixed(digits)} — a customer who paid too much needs a credit note.`
   if (!f.paid_at.trim()) e.paid_at = 'The day the money arrived is required.'
   else if (!isDay(f.paid_at)) e.paid_at = 'Use YYYY-MM-DD.'
   return e
