@@ -72,7 +72,7 @@ func TestIntegrationAccessOperatorEmailImplicitBindingAndMeShape(t *testing.T) {
 		t.Fatalf("implicit binding = %v", b)
 	}
 	sov := permsOf(me, "sovereign")
-	if len(sov) != 9 || !has(sov, "settings.manage") || !has(sov, "customer.self.manage") {
+	if len(sov) != 10 || !has(sov, "settings.manage") || !has(sov, "customer.self.manage") || !has(sov, "capacity.manage") {
 		t.Fatalf("sovereign permissions = %v", sov)
 	}
 	if got := strs(me["scopes"]); len(got) != 1 || got[0] != "sovereign" {

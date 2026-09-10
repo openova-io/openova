@@ -177,6 +177,27 @@ func ForecastMonth(now time.Time, completeDays []DayCost) (Forecast, bool) {
 	return f, true
 }
 
+// RunRate is the flat run rate and the trend of a daily series by the SAME
+// arithmetic ForecastMonth projects with: the rate is the mean of the last
+// runRateWindow complete days and the trend the least-squares slope over
+// those same days, in units per day. Capacity's time-to-exhaustion divides a
+// pool's available amount by this trend (DESIGN.md §11), so the explorer's
+// "run rate" and the capacity page's "growth per day" can never be two
+// different numbers for the same series. ok is false with fewer than 3 days,
+// which is the least a slope can be fitted on.
+func RunRate(completeDays []DayCost) (rate, trend float64, ok bool) {
+	n := len(completeDays)
+	if n < 3 {
+		return 0, 0, false
+	}
+	w := runRateWindow
+	if n < w {
+		w = n
+	}
+	last := completeDays[n-w:]
+	return mean(last), slope(last), true
+}
+
 // weekdayFactors is the weekly shape of d: for each weekday, its mean cost
 // over the overall mean m. A weekday seen fewer than minWeekdaySamples times
 // — or every weekday when m is not positive — gets 1, i.e. no shape.

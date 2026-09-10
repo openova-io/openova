@@ -54,6 +54,15 @@ func TestAuthorizationRefusalsPerRole(t *testing.T) {
 		{"customer-viewer requests a checkout", viewer, "POST", "/api/v1/customers/" + a + "/payment-intents", 403, "account.topup"},
 		{"customer-viewer adds a user", viewer, "POST", "/api/v1/customers/" + a + "/users", 403, "customer.self.manage"},
 		{"customer-viewer reads another customer's account", viewer, "GET", "/api/v1/customers/" + b + "/account", 404, ""},
+		// Capacity (DESIGN.md §11): Sovereign reads only, capacity.manage to write.
+		{"finance-viewer sets a pool total", finance, "PUT", "/api/v1/capacity/pools/x", 403, "capacity.manage"},
+		{"finance-viewer creates a region", finance, "POST", "/api/v1/capacity/regions", 403, "capacity.manage"},
+		{"finance-viewer writes a footprint", finance, "PUT", "/api/v1/capacity/footprints/ecs.x", 403, "capacity.manage"},
+		{"finance-viewer sets a cap", finance, "PUT", "/api/v1/capacity/caps", 403, "capacity.manage"},
+		{"customer-owner reads capacity", owner, "GET", "/api/v1/capacity/overview", 403, "metering.read"},
+		{"customer-owner lists regions", owner, "GET", "/api/v1/capacity/regions", 403, "metering.read"},
+		{"customer-owner sets a pool total", owner, "PUT", "/api/v1/capacity/pools/x", 403, "capacity.manage"},
+		{"customer-viewer reads footprints", viewer, "GET", "/api/v1/capacity/footprints", 403, "metering.read"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

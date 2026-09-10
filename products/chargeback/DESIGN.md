@@ -160,6 +160,7 @@ Operator (sovereign-admin lens):
 
 ```
 Analyse    Overview · Cost explorer · Resources · Anomalies · Recommendations
+Plan       Capacity                                                  (§11)
 Bill       Statements · Budgets · Reports
 Configure  Customers · Price books · Discounts · Allocation
 ```
@@ -814,6 +815,17 @@ CHECK ((internal AND customer_id IS NULL AND kind = 'openova-platform')
 UNIQUE INDEX (kind, region, project_id) WHERE customer_id IS NULL   -- one internal source per slug
 usage_records.customer_id → NULLABLE          -- the internal source's rows carry none
 price_books.scope       TEXT NOT NULL DEFAULT 'cloud' CHECK (scope IN ('cloud','platform'))
+
+-- Capacity (§11), one migration appended last:
+capacity_regions(id, code UNIQUE lower-case, name, cloud_source_kind IN ('huawei-project','file'), created_at)
+capacity_zones(id, region_id → regions CASCADE, code lower-case, name, is_default, created_at)   UNIQUE(region_id, code)
+        UNIQUE INDEX (region_id) WHERE is_default                       -- one default zone per region
+capacity_pools(id, zone_id → zones CASCADE, family CHECK IN (the seven families), total NUMERIC(20,6) >= 0,
+        reserved NUMERIC(20,6) >= 0, source DEFAULT 'manual', note, updated_by, updated_at)   UNIQUE(zone_id, family)
+capacity_pool_history(id, pool_id → pools CASCADE, total, source, note, changed_by, changed_at)
+sku_footprints(sku, family CHECK, amount NUMERIC(20,6) > 0, source DEFAULT 'manual', updated_at)   PK(sku, family)
+        -- seeded from the National Cloud list (capacity.Seed), source = 'seed'
+sku_caps(zone_id → zones CASCADE, sku, total NUMERIC(20,6) >= 0, updated_by, updated_at)   PK(zone_id, sku)
 ```
 
 ### 4.1 Migrating the customer-level price book
@@ -1797,7 +1809,7 @@ and `requireOperator` in front of every write. That could not say "this
 person runs billing but may not change settings", "this auditor reads
 everything and changes nothing", or "this customer's finance contact may top
 up the account but not manage its users". It now can, with two scope kinds,
-nine permissions and six roles — and nothing else: there is no per-user
+ten permissions and six roles — and nothing else: there is no per-user
 permission and no custom role.
 
 ### 10.1 Scopes
@@ -1826,13 +1838,14 @@ Sovereign, never on another customer. Every handler asks the one question
 | `settings.manage` | Billing settings, allocation settings, and access itself: role bindings and directory group mappings. |
 | `audit.read` | Audit trails. A Sovereign permission: a customer does not read its own trail. |
 | `customer.self.manage` | The customer-scoped subset of `customers.manage` an owner holds on its own customer: its users, its sources' credentials and scope token, its PO reference and tax registration number. |
+| `capacity.manage` | Capacity (§11): regions, zones, pool totals, SKU footprints and caps. A Sovereign permission; capacity reads ride on `metering.read` at the Sovereign, so a customer never sees capacity at all. |
 
 ### 10.3 Roles — fixed bundles
 
 | Role | Scope kind | Permissions |
 |---|---|---|
-| `sovereign-admin` | sovereign | all nine |
-| `billing-operator` | sovereign | `metering.read`, `rating.manage`, `customers.manage`, `billing.issue`, `billing.collect`, `audit.read` |
+| `sovereign-admin` | sovereign | all ten |
+| `billing-operator` | sovereign | `metering.read`, `rating.manage`, `customers.manage`, `billing.issue`, `billing.collect`, `audit.read`, `capacity.manage` |
 | `finance-viewer` | sovereign | `metering.read`, `audit.read` — read and export only |
 | `customer-owner` | customer | `metering.read`, `account.topup`, `customer.self.manage` |
 | `customer-billing` | customer | `metering.read`, `account.topup` |
@@ -1959,6 +1972,8 @@ ids are not confirmed; a caller on the scope without the permission answers
 | `createPaymentIntent` | `account.topup` (customer) or `billing.collect` |
 | `putBillingSettings`, `putAllocationSettings`, `listBindings`, `createBinding`, `deleteBinding`, `listGroupMappings`, `putGroupMappings` | `settings.manage` |
 | `customerAudit` | `audit.read` (customer route; a customer principal is 403) |
+| `capacityOverview`, `listCapacityRegions`, `listCapacityPools`, `listFootprints`, `listCaps` | `metering.read` (sovereign) — a customer principal is 403, never a filtered view |
+| `createCapacityRegion`, `deleteCapacityRegion`, `createCapacityZone`, `deleteCapacityZone`, `putCapacityPool`, `putFootprint`, `putCap` | `capacity.manage` |
 | `importInvoiceStatus`, `importPaymentStatus`, `importAccountBalance`, `importEnforcement`, `gatewayCallback`, `getInvite`, `activateInvite`, `pinRequest`, `pinVerify`, `logout` | not session-gated (HMAC, gateway signature, invite token, public) |
 
 Every change to who holds what is audited: `access.binding` (op grant /
@@ -2003,3 +2018,162 @@ stands a database before the migration, writes `customer_users` rows and
 proves the backfill, the view, the widened sessions CHECK and the unique
 indexes. `internal/adapter/openova/orgsync_access_test.go` proves the sync
 grants the owner binding once and never revokes.
+
+## 11. Capacity — regions, zones, pools and SKU footprints (founder requirement 2026-09-11)
+
+The founder's requirement, verbatim: *"capacity management for the underlying
+regions — overall capacity information of underlying AZs and regions as well
+for each SKU; initially static, the admin defines the capacity; later from
+integrations"*. The module answers three questions for a sovereign-admin: how
+much of each kind of capacity does each availability zone hold; how much of it
+is in use right now; and how many more of a given SKU could still be sold in
+that zone before something runs out — and when, at the present rate, it will.
+
+### 11.1 The model
+
+```
+capacity_regions  ─┬─ capacity_zones (one is_default per region) ─┬─ capacity_pools, one per family
+                   │                                              ├─ sku_caps (optional direct ceiling per SKU)
+                   │                                              └─ (consumption lands here, see 11.2)
+                   └─ code = usage_records.region, e.g. me-east-215
+sku_footprints    how much of each family ONE unit of a SKU consumes
+capacity_pool_history   every total ever entered, by whom, with the note
+```
+
+**Families** (`internal/capacity.Families`) are the seven pooled kinds a zone
+is measured in: `vcpu`, `memory_gib`, `block_ssd_gib`, `block_hdd_gib`,
+`object_gib`, `eip_addresses`, `bandwidth_mbps`. The list is the CHECK
+constraint on `capacity_pools.family` and `sku_footprints.family`, generated
+from the Go list so the two cannot drift.
+
+**Static first.** A pool's `total` is what the sovereign-admin types, with a
+note, under `capacity.manage`; `source` reads `manual`. Every change writes
+`capacity_pool_history` and an audit entry `capacity.pool` with the previous
+and new total. A capacity collector — the integration the requirement defers —
+plugs into exactly this shape later: it writes the same pools with its own
+`source`, and nothing downstream changes. Until it exists a pool without a
+total reads `status: unset`, never `ok`, so an empty page is honest about
+what has not been entered. **Reserved** is carried at 0, column and wire key
+present, for proposals and plans to fill.
+
+**Footprints.** `sku_footprints(sku, family, amount)` says how much of each
+family one unit of the SKU consumes: `ecs.m7n.2xlarge.8` → `vcpu 8,
+memory_gib 64`; `evs.ssd.gb` → `block_ssd_gib 1`; `eip` → `eip_addresses 1`;
+`eip.bandwidth_mbps` → `bandwidth_mbps 1`. The migration seeds the SKUs of the
+National Cloud list price book whose footprint the name states —
+`capacity.Seed()`, pinned equal to `synth.NationalCloudRates` — six of its
+nine SKUs (`elb`, `nat.1`, `vpc` have no per-unit footprint in any family and
+are reported as such). At read time a metered SKU with no row takes what its
+name implies (`capacity.Derive`, source `derived`): an ECS flavour
+`<family>.<size>.<ratio>` is `size` vCPU (small/medium 1, large 2, xlarge 4,
+Nxlarge 4N) and vCPU × ratio GiB — the convention the ECS lister's
+`vcpus`/`ram_mb` attributes and the list-price descriptions both follow.
+Platform meters (`k8s.*`, `plan.*`) derive nothing: they run on the cloud's
+instances, which the `ecs.*` SKUs already count, and deriving them too would
+consume the same vCPU twice. A SKU whose storage class is not in its name
+(`rds.storage.ha.gb`, `cbr.gb`, `ims.gb`) derives nothing and is listed as
+unmapped until the operator writes its footprint. A stored row always wins
+over derivation.
+
+### 11.2 Derivations — consumed, available, headroom, exhaustion
+
+Nothing about consumption is entered. It is the usage ledger this product
+already keeps (§2), read one way:
+
+- **Current hour.** For every cloud-layer source that is not disabled, its
+  latest metered hour before the current one (`window_start < date_trunc(hour,
+  now)`). Per source rather than one global hour, so a collector that lags a
+  few hours still contributes its last fact instead of reading as zero;
+  `as_of` is the newest of those hours, `lagging_sources` counts sources more
+  than six hours behind it. Sampled measurements (`ecs.cpu_util`,
+  `eip.traffic_gb.observed`) are excluded exactly as rating excludes them.
+- **Region** is `usage_records.region`, matched to `capacity_regions.code`.
+  Usage in a region the admin has not added — or has added without a zone —
+  is `unmapped_regions[]` with the reason.
+- **Zone** is the inventory row's `availability_zone` (or `az`) attribute
+  when present, matched to `capacity_zones.code` within the region; otherwise
+  the region's **default zone**, and that share is reported on the pool as
+  `zone_unknown`. (The Huawei ECS lister does not yet record the zone; when it
+  does, attribution sharpens with no change here.)
+- **Consumed** per (zone, family) = Σ over SKUs of quantity × footprint, in
+  exact rationals; a SKU with no footprint contributes to no pool and is
+  listed once under `unmapped_skus[]` with its quantity, resources and regions.
+- **Available** = total − reserved − consumed, never below 0: when the
+  arithmetic goes negative the pool reads `available 0`, `clamped true`,
+  `overcommit` = the shortfall. **Utilisation** = (consumed + reserved) ÷
+  total, null without a total. **Status** is `unset` (no total), `ok`, `warn`
+  (≥ 70 %) or `critical` (≥ 85 %); the thresholds ride on the document.
+- **Headroom per SKU, per zone** = min over the SKU's families of
+  ⌊available ÷ footprint⌋, over the families that have a total — a family the
+  admin has not sized carries no information and is skipped; when none has a
+  total the headroom is null. The family that produced the minimum is the
+  `binding_family`. A direct `sku_caps` row (units of the SKU) bounds it
+  further: ⌊cap − consumed units⌋, binding as `cap` when it is the lower one.
+- **Time to exhaustion per pool** = available ÷ growth per day, where growth
+  is the least-squares trend over the last seven complete days of consumed
+  (each day's value: the sources' last metered hour of that day) — the
+  explorer's own run-rate arithmetic, `rating.RunRate`, the trend
+  `ForecastMonth` projects with. The store cannot import `rating` (which
+  imports `store`), so the API supplies the function
+  (`api.capacityGrowth`) and `TestCapacityGrowthIsTheRunRateTrend` pins it to
+  `RunRate`; there is no second run rate. Null when consumption is not
+  growing, when the history is shorter than three days, or when the pool has
+  no total. The daily series rides on the pool as `series[]`.
+
+Every quantity on the wire is an exact Postgres numeric rendered as a JSON
+number; only the ratios (utilisation, growth, exhaustion) are floats, because
+they are estimates and have no exact form.
+
+### 11.3 API (`/api/v1`, DESIGN.md §10.8 for the gates)
+
+| Method and path | Body / answer |
+|---|---|
+| `GET /capacity/overview[?region=<code>]` | `{as_of, sources, lagging_sources, thresholds{warn_pct, critical_pct}, families[], regions[{id, code, name, cloud_source_kind, zones[{id, code, name, is_default, pools[{…pool, label, unit, consumed, available, utilisation_pct, status, clamped, overcommit, zone_unknown, growth_per_day, exhaustion_days, history_days, series[]}], skus[{sku, footprint, footprint_source, consumed_units, resources, headroom_units, binding_family, cap}]}]}], unmapped_skus[], unmapped_regions[], summary{regions, zones, pools, pools_with_total, pools_warn, pools_critical, pools_below_threshold, skus, unmapped_skus}}` |
+| `GET /capacity/regions` | `{regions[{…, zones[]}]}` |
+| `POST /capacity/regions` | `{code, name, cloud_source_kind?}` → 201 the region; 409 on a duplicate code |
+| `DELETE /capacity/regions/{id}` | cascades zones, pools, history, caps |
+| `POST /capacity/regions/{id}/zones` | `{code, name, default?}` → 201 the zone with its seven pools at 0; the first zone is the default |
+| `DELETE /capacity/zones/{id}` | the oldest remaining zone becomes default |
+| `GET /capacity/zones/{id}/pools` | `{zone, pools[], history{pool_id: [changes]}, families[]}` |
+| `PUT /capacity/pools/{id}` | `{total, note}` → the pool; audited `capacity.pool` with `from` / `to` |
+| `GET /capacity/footprints` | `{footprints[{sku, families{family: amount}, source, updated_at}], families[], unseeded_skus[]}` |
+| `PUT /capacity/footprints/{sku}` | `{families: {family: amount}}` — PUT semantics: absent or 0 removes a family, `{}` removes the footprint; 400 names an unknown family |
+| `GET /capacity/caps` · `PUT /capacity/caps` | `{zone_id, sku, total}`; `total: null` removes the cap |
+
+Reads need `metering.read` at the Sovereign — a customer principal is 403,
+not a filtered view: capacity is the operator's picture of the cloud, never a
+customer's bill. Writes need `capacity.manage` (`sovereign-admin`,
+`billing-operator`); every write is audited as `capacity.region` /
+`capacity.zone` / `capacity.pool` / `capacity.footprint` / `capacity.cap`.
+
+### 11.4 The console — Plan → Capacity
+
+A new menu group **Plan** holds **Capacity**. The page: a KPI strip (regions,
+zones, pools past the 70 % line, SKUs without a footprint, as-of hour); a
+heatmap table per zone × family — utilisation coloured at 70 / 85 %, the
+available amount and the time to exhaustion in each cell, an inline editor for
+the total with its note where the principal holds `capacity.manage`; a SKU
+headroom table per zone with the binding family; the footprints editor; and an
+"unmapped SKUs" notice with a one-click footprint form. The empty state
+explains the static-first model: add the region and its zones, enter totals,
+and a capacity collector fills them later. `ui/src/lib/capacity.ts` carries
+the threshold colouring and the headroom arithmetic the page renders with,
+pinned by vitest against the same figures the Go tests derive.
+
+### 11.5 Tests
+
+`internal/capacity/capacity_test.go` pins the flavour convention, `Derive`
+(with the platform-meter and storage-class controls) and the seed against the
+National Cloud list. `internal/store/capacity_integration_test.go` derives
+consumption from seeded records: known-zone and unknown-zone instances, a
+volume growing 10 GB a day (82.0 days to exhaustion against 1000 GiB), a
+bandwidth reservation past its total (clamped, overcommit, critical), an
+address with no total (unset), a SKU without a footprint (unmapped, counts
+against no pool), a metric sample and a platform meter (neither counts), an
+unconfigured region, headroom with the binding family and the cap, region
+filtering, history, and the default-zone hand-over on delete.
+`internal/api/capacity_integration_test.go` proves the permissions (viewer
+reads, 403 naming `capacity.manage` on writes; customer 403 naming
+`metering.read` at the Sovereign), the overview's keys, and the audit rows
+of every write; `internal/api/authz_roles_test.go` proves the refusals
+against a nil store.
