@@ -120,10 +120,15 @@ spec:
         - name: app-key
           image: {{ include "chargeback.pivotImage" (dict "repo" .Values.cnpg.dsnGate.image "tag" "" "root" .) | quote }}
           imagePullPolicy: IfNotPresent
+          # Object NAME and data FIELD of the Secret to create — literals, so
+          # the env names must stay clear of `(?i)(PASSWORD|TOKEN|KEY|SECRET)`:
+          # the Sovereign's Kyverno `secret-not-in-env` policy flags any
+          # secret-shaped name carrying a plain `value:` (they were
+          # SECRET_NAME / SECRET_KEY through chart 0.1.32).
           env:
-            - name: SECRET_NAME
+            - name: TARGET_NAME
               value: {{ $secretName | quote }}
-            - name: SECRET_KEY
+            - name: TARGET_FIELD
               value: {{ $secretKey | quote }}
             - name: NAMESPACE
               value: {{ $ns | quote }}
@@ -135,10 +140,10 @@ spec:
               APISERVER="https://kubernetes.default.svc"
               TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
               CA=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-              echo "[app-key] target: ${NAMESPACE}/${SECRET_NAME} (key=${SECRET_KEY})"
+              echo "[app-key] target: ${NAMESPACE}/${TARGET_NAME} (key=${TARGET_FIELD})"
               code=$(curl -sS -o /tmp/probe.json -w '%{http_code}' --cacert "${CA}" \
                 -H "Authorization: Bearer ${TOKEN}" \
-                "${APISERVER}/api/v1/namespaces/${NAMESPACE}/secrets/${SECRET_NAME}")
+                "${APISERVER}/api/v1/namespaces/${NAMESPACE}/secrets/${TARGET_NAME}")
               if [ "${code}" = "200" ]; then
                 echo "[app-key] Secret already exists — keeping it (never regenerated)"
                 exit 0
@@ -155,7 +160,7 @@ spec:
               fi
               WIRE_B64=$(printf '%s' "${KEY_B64}" | base64 | tr -d '\n')
               BODY=$(printf '{"apiVersion":"v1","kind":"Secret","metadata":{"name":"%s","namespace":"%s","labels":{"catalyst.openova.io/blueprint":"bp-chargeback","catalyst.openova.io/component":"chargeback-app-key"}},"type":"Opaque","data":{"%s":"%s"}}' \
-                "${SECRET_NAME}" "${NAMESPACE}" "${SECRET_KEY}" "${WIRE_B64}")
+                "${TARGET_NAME}" "${NAMESPACE}" "${TARGET_FIELD}" "${WIRE_B64}")
               code=$(curl -sS -o /tmp/create.json -w '%{http_code}' --cacert "${CA}" \
                 -H "Authorization: Bearer ${TOKEN}" \
                 -H "Content-Type: application/json" \
@@ -163,7 +168,7 @@ spec:
                 "${APISERVER}/api/v1/namespaces/${NAMESPACE}/secrets")
               KEY_B64=""; WIRE_B64=""; BODY=""
               if [ "${code}" = "201" ] || [ "${code}" = "200" ]; then
-                echo "[app-key] Secret ${NAMESPACE}/${SECRET_NAME} created"
+                echo "[app-key] Secret ${NAMESPACE}/${TARGET_NAME} created"
                 exit 0
               fi
               if [ "${code}" = "409" ]; then
