@@ -98,16 +98,6 @@ type OrganizationSpec struct {
 	// DefaultEnvironmentType is one of prod|stg|uat|dev|poc.
 	DefaultEnvironmentType string `json:"defaultEnvironmentType,omitempty"`
 
-	// Suspended is the billing-enforcement flag (products/chargeback
-	// DESIGN.md §9.7), set ONLY by the sovereign-admin API's operator-only
-	// suspend / resume routes. While true the controller parks the per-Org
-	// Flux reconciliation (spec.suspend on the per-Org Kustomizations) and
-	// reports a Suspended=True condition; SuspendReason says why. Mirrored
-	// here so a typed round-trip carries it instead of erasing it — the
-	// same trap #4471 documented on clientSecretRef.
-	Suspended     bool   `json:"suspended,omitempty"`
-	SuspendReason string `json:"suspendReason,omitempty"`
-
 	// Owners is the initial owner roster.
 	Owners []OrganizationOwner `json:"owners"`
 

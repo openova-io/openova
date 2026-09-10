@@ -1970,15 +1970,6 @@ func main() {
 		rg.Get("/api/v1/organizations/{id}", h.HandleGetOrganization)
 		rg.Post("/api/v1/organizations/{id}/reconcile", h.HandleReconcileOrganization)
 		rg.Delete("/api/v1/organizations/{id}", h.HandleDeleteOrganization)
-		// Billing enforcement (products/chargeback DESIGN.md §9.7): the
-		// NARROWEST reverse seam from a billing decision to the platform —
-		// stamp spec.suspended on the Organization CR, which the
-		// org-controller honours by parking the per-Org Flux reconciliation
-		// and surfacing a Suspended condition. Operator-only (RequireSession
-		// + OrgScopeGuard above); the chargeback application calls it with a
-		// bearer session. See internal/handler/org_suspend.go.
-		rg.Post("/api/v1/organizations/{id}/suspend", h.HandleSuspendOrganization)
-		rg.Post("/api/v1/organizations/{id}/resume", h.HandleResumeOrganization)
 
 		// BSS landing KPI rollup (Refs #1949, TBD-A58). Read-only feed
 		// for the /console/bss landing surface (BssLandingPage.tsx →

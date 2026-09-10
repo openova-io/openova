@@ -953,13 +953,13 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			Repos: []string{repoName},
 		},
 		IacBootstrap: iacStatus,
-		Conditions: withSuspendedCondition([]orgapi.Condition{
+		Conditions: []orgapi.Condition{
 			readyCond,
 			idpCond,
 			mappersCond,
 			iacBootstrapCondition(iacStatus),
 			perOrgRealmCondition(realmStatus),
-		}, &org),
+		},
 		ObservedGeneration: org.Generation,
 	}
 	if err := r.patchStatus(ctx, &org, desired); err != nil {
@@ -1343,24 +1343,6 @@ func (r *Reconciler) fail(ctx context.Context, org *orgapi.Organization, reason,
 		return ctrl.Result{}, nil
 	}
 	return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
-}
-
-// withSuspendedCondition appends the billing-enforcement condition
-// (products/chargeback DESIGN.md §9.7) ONLY while spec.suspended is set: a
-// Suspended=True condition with the reason the sovereign-admin API recorded.
-// An Organization that is not suspended carries no such condition at all —
-// absence is the normal state, so every existing status stays byte-identical
-// and a reader that keys on the condition type sees exactly one fact. The
-// timestamp is carried forward by patchStatus while the status is unchanged.
-func withSuspendedCondition(conds []orgapi.Condition, org *orgapi.Organization) []orgapi.Condition {
-	if org == nil || !org.Spec.Suspended {
-		return conds
-	}
-	msg := org.Spec.SuspendReason
-	if msg == "" {
-		msg = "suspended through the sovereign-admin API"
-	}
-	return append(conds, orgapi.Condition{Type: "Suspended", Status: "True", Reason: "BillingEnforcement", Message: msg, LastTransitionTime: metav1.NewTime(time.Now())})
 }
 
 func (r *Reconciler) patchStatus(ctx context.Context, org *orgapi.Organization, desired orgapi.OrganizationStatus) error {
