@@ -93,9 +93,9 @@ jobs:
           # + --disable-kube-proxy in cloud-init).
           config: ${{ runner.temp }}/kind-preflight-c.yaml
 
-      - name: Install Gateway API CRDs (v1.2.0 — matches Cilium 1.16.x support matrix)
+      - name: Install Gateway API CRDs (v1.3.0 experimental — what a live Sovereign runs with Cilium 1.19.3)
         run: |
-          kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.1.0/experimental-install.yaml
+          kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.3.0/experimental-install.yaml
           kubectl wait --for=condition=Established --timeout=60s \
             crd/gateways.gateway.networking.k8s.io \
             crd/httproutes.gateway.networking.k8s.io \
@@ -135,6 +135,9 @@ jobs:
           echo "GatewayClass cilium did NOT reach Accepted=True"
           kubectl describe gatewayclass cilium || true
           kubectl -n kube-system get pods
+          echo "--- cilium-operator log (gateway lines) — the reason the class is not accepted is here"
+          kubectl -n kube-system logs deploy/cilium-operator --tail=400 2>/dev/null | grep -i 'gateway\|crd' | tail -40 || true
+          kubectl get crd gatewayclasses.gateway.networking.k8s.io -o jsonpath='bundle={.metadata.annotations.gateway\.networking\.k8s\.io/bundle-version} channel={.metadata.annotations.gateway\.networking\.k8s\.io/channel}{"\n"}' || true
           exit 1
 
       - name: Apply per-Sovereign Gateway (HTTP listener only — TLS is Phase 8a)
