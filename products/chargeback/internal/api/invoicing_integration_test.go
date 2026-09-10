@@ -288,8 +288,9 @@ func TestIntegrationInvoiceLifecycleOverTheAPI(t *testing.T) {
 	if stDoc["status"] != store.StatusSent || stDoc["balance"] != float64(700) || stDoc["paid_total"] != float64(500) {
 		t.Fatalf("after part payment = %+v", stDoc)
 	}
-	// More than the balance is refused.
-	mustJSONDo(t, h, op, "POST", "/api/v1/statements/"+d.ID+"/payments", map[string]any{"amount": "700.000001", "reference": "TRF-OVER"}, 409)
+	// More than the balance is refused — judged at the minor unit, so a
+	// full baisa over is an overpayment (a millionth over would settle).
+	mustJSONDo(t, h, op, "POST", "/api/v1/statements/"+d.ID+"/payments", map[string]any{"amount": "700.001", "reference": "TRF-OVER"}, 409)
 	// So is a nonsense amount or date.
 	mustJSONDo(t, h, op, "POST", "/api/v1/statements/"+d.ID+"/payments", map[string]any{"amount": "0", "reference": "TRF-0"}, 400)
 	mustJSONDo(t, h, op, "POST", "/api/v1/statements/"+d.ID+"/payments", map[string]any{"amount": "1.000000", "paid_at": "last tuesday"}, 400)
@@ -448,4 +449,64 @@ func mustDo(t *testing.T, h http.Handler, sess *store.Session, method, path stri
 	var out map[string]any
 	_ = json.Unmarshal(rec.Body.Bytes(), &out)
 	return out
+}
+
+// The hw307 case (DESIGN.md §8.6): an invoice of 14.856782 OMR part-paid by
+// 10.000 leaves 4.856782 owed, which no transfer can carry. The dialog
+// prefills 4.857 — the outstanding at the minor unit — and the store must
+// take that as the settlement, flip the invoice to paid and report a zero
+// balance, never a negative one. Half a baisa or more over is still refused.
+func TestIntegrationPaymentSettlesAtTheMinorUnit(t *testing.T) {
+	h, st, _, _ := setupInvoicingAPI(t)
+	ctx := context.Background()
+	op := operatorSession()
+	c, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "nizwa-fintech", Name: "Nizwa Fintech", AdminEmail: "ap@nizwa.example",
+		Kind: "organization", OrgSlug: "nizwa-fintech",
+		Commercial: store.Commercial{Charging: store.ChargingBilled, PaymentModel: store.PaymentModelPostpaid, PaymentMethod: store.PaymentMethodTransfer}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Settled by the amount the dialog shows.
+	d := draftFor(t, st, c.ID, "2026-08-01", "14.856782")
+	mustJSONDo(t, h, op, "POST", "/api/v1/statements/"+d.ID+"/issue", map[string]any{"notify": false}, 200)
+	part := mustJSONDo(t, h, op, "POST", "/api/v1/statements/"+d.ID+"/payments", map[string]any{"amount": "10", "paid_at": "2026-09-02", "reference": "TRF-1"}, 200)
+	stDoc, _ := part["statement"].(map[string]any)
+	if stDoc["status"] != store.StatusIssued || stDoc["balance"] != float64(4.856782) || stDoc["paid_total"] != float64(10) {
+		t.Fatalf("after the part payment = %+v", stDoc)
+	}
+	rest := mustJSONDo(t, h, op, "POST", "/api/v1/statements/"+d.ID+"/payments", map[string]any{"amount": "4.857", "paid_at": "2026-09-09", "reference": "TRF-2"}, 200)
+	stDoc, _ = rest["statement"].(map[string]any)
+	if stDoc["status"] != store.StatusPaid || stDoc["effective_status"] != store.StatusPaid {
+		t.Fatalf("4.857 against 4.856782 must settle the invoice: %+v", stDoc)
+	}
+	if stDoc["balance"] != float64(0) || stDoc["paid_total"] != float64(14.857) {
+		t.Fatalf("balance/paid_total after settlement = %v / %v, want 0 / 14.857", stDoc["balance"], stDoc["paid_total"])
+	}
+	if paidAt, _ := stDoc["paid_at"].(string); !strings.HasPrefix(paidAt, "2026-09-09") {
+		t.Fatalf("paid_at = %v, want the day the money arrived", stDoc["paid_at"])
+	}
+	got, err := st.GetStatement(ctx, store.OperatorScope, d.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Balance != "0.000000" || got.Paid != "14.857000" || got.Status != store.StatusPaid {
+		t.Fatalf("store reads balance %s paid %s status %s", got.Balance, got.Paid, got.Status)
+	}
+
+	// Half a baisa or more over is still an overpayment.
+	d2 := draftFor(t, st, c.ID, "2026-07-01", "14.856782")
+	mustJSONDo(t, h, op, "POST", "/api/v1/statements/"+d2.ID+"/issue", map[string]any{"notify": false}, 200)
+	mustJSONDo(t, h, op, "POST", "/api/v1/statements/"+d2.ID+"/payments", map[string]any{"amount": "10", "paid_at": "2026-09-02", "reference": "TRF-3"}, 200)
+	rec := do(t, h, op, "POST", "/api/v1/statements/"+d2.ID+"/payments", `{"amount":"4.858","paid_at":"2026-09-09","reference":"TRF-4"}`)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "exceeds the outstanding balance of 4.856782") {
+		t.Fatalf("4.858 against 4.856782 = %d %s, want 409 naming the outstanding", rec.Code, rec.Body.String())
+	}
+	open, err := st.GetStatement(ctx, store.OperatorScope, d2.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if open.Status != store.StatusIssued || open.Balance != "4.856782" {
+		t.Fatalf("a refused payment must leave the invoice as it was: %s %s", open.Status, open.Balance)
+	}
 }

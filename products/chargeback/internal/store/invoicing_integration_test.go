@@ -366,8 +366,10 @@ func TestIntegrationPartPaymentCarriesTheBalance(t *testing.T) {
 		t.Fatalf("a pending payment settled something: status=%s balance=%s (was %s)", withPending.Status, withPending.Balance, pendingBefore)
 	}
 
-	// Too much, by the smallest unit the column carries.
-	if _, _, err := st.RecordStatementPayment(ctx, d.ID, store.PaymentInput{Amount: "600.100001", Reference: "TRF-OVER"}); !store.IsConflict(err) {
+	// Too much, by the smallest unit MONEY carries — a baisa. (A millionth
+	// over, the smallest unit the column carries, is a settlement now:
+	// TestIntegrationPaymentSettlesAtTheMinorUnit in internal/api.)
+	if _, _, err := st.RecordStatementPayment(ctx, d.ID, store.PaymentInput{Amount: "600.101", Reference: "TRF-OVER"}); !store.IsConflict(err) {
 		t.Fatalf("overpayment = %v, want a conflict", err)
 	}
 	if _, _, err := st.RecordStatementPayment(ctx, d.ID, store.PaymentInput{Amount: "0", Reference: "TRF-ZERO"}); err == nil {

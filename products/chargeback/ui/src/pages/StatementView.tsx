@@ -7,7 +7,7 @@ import { Waterfall, waterfallLayout, type WaterfallStep } from '../components/ch
 import { Badge, Confirm, EmptyState, Field, Modal, Notice, PageHeader, Skeleton } from '../components/ui'
 import { discountRuleLabel } from '../lib/discountRule'
 import { day, num, when } from '../lib/format'
-import { formatMoney, formatPct } from '../lib/money'
+import { formatMoney, formatPct, minorUnitDigits, minorUnitTolerance } from '../lib/money'
 import { toNumber } from '../lib/num'
 import { groupBySource, groupByService } from '../lib/sku'
 import { acceptsPayment, dueLabel, statementBalance, statementPaid, statementPeriod, statementStatus } from '../lib/statements'
@@ -546,7 +546,10 @@ function CancelDialog({ busy, onClose, onConfirm }: { busy: boolean; onClose: ()
 /**
  * Recording what arrived (DESIGN.md §8). Part payment is ordinary: the
  * balance carries and the invoice stays open until the payments reach the
- * total. More than the balance is refused — by this form and by the server.
+ * total. More than the balance is refused — by this form and by the server —
+ * judged at the currency's minor unit: the prefilled amount is the exact
+ * outstanding rounded to what a transfer can carry (4.857 for 4.856782 OMR),
+ * and paying it settles the invoice.
  */
 function RecordPaymentModal({
   statementId,
@@ -562,16 +565,20 @@ function RecordPaymentModal({
   onDone: (amount: number) => void | Promise<void>
 }) {
   const today = new Date().toISOString().slice(0, 10)
-  const [form, setForm] = useState<PaymentForm>(() => emptyPaymentForm(balance, today))
+  const digits = minorUnitDigits(currency)
+  const [form, setForm] = useState<PaymentForm>(() => emptyPaymentForm(balance, today, digits))
   const [errors, setErrors] = useState<Errors<PaymentForm>>({})
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const set = <K extends keyof PaymentForm>(k: K, v: PaymentForm[K]) => setForm((f) => ({ ...f, [k]: v }))
   const remaining = balance - Number(form.amount || 0)
+  // Still owed only when what is left is at least half a minor unit — less
+  // than that is the settlement the server books as paid.
+  const stillOwed = remaining >= minorUnitTolerance(currency)
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
-    const errs = validatePayment(form, balance)
+    const errs = validatePayment(form, balance, digits)
     setErrors(errs)
     if (hasErrors(errs)) return
     setBusy(true)
@@ -603,7 +610,7 @@ function RecordPaymentModal({
     >
       <form id="record-payment-form" onSubmit={(e) => void submit(e)} className="stack tight">
         <p className="muted small" style={{ margin: 0 }}>
-          {formatMoney(balance, currency)} outstanding. Part payment is fine — the balance carries and the invoice settles when the payments reach the total.
+          {formatMoney(balance, currency, { digits })} outstanding. Part payment is fine — the balance carries and the invoice settles when the payments reach the total.
         </p>
         <div className="grid2">
           <Field label={`Amount (${currency})`} error={errors.amount}>
@@ -616,7 +623,7 @@ function RecordPaymentModal({
         <Field label="Reference" error={errors.reference} help="The bank or gateway transaction id. Recording the same reference twice is refused, so a duplicate can never be booked.">
           <input value={form.reference} onChange={(e) => set('reference', e.target.value)} className="mono" placeholder="TRF-4471" />
         </Field>
-        {!hasErrors(errors) && form.amount && remaining > 0 ? <Notice kind="warn">{formatMoney(remaining, currency)} will still be outstanding.</Notice> : null}
+        {!hasErrors(errors) && form.amount && stillOwed ? <Notice kind="warn">{formatMoney(remaining, currency, { digits })} will still be outstanding.</Notice> : null}
         {error ? <Notice kind="bad">{error}</Notice> : null}
       </form>
     </Modal>

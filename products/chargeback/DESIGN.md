@@ -1361,6 +1361,14 @@ that a later lane can add both without changing the wire.
   stamps `paid_at` with the day that money arrived.
 - **Overpayment is refused** (409, naming the outstanding amount). A customer
   who sent too much needs a credit note, not a bigger invoice.
+- Both of those are judged **at the currency's minor unit** — three decimals
+  for OMR and the other dinars / the rial, two for everything else — because
+  money is added at six decimals but moves at the unit. An invoice of
+  14.856782 part-paid by 10.000 leaves 4.856782, which no transfer carries:
+  the 4.857 the dialog prefills is the settlement (paid, balance 0 — never
+  negative), while half a unit or more over (4.858) is the overpayment that
+  is refused. The arithmetic underneath stays exact; only the two decisions
+  round.
 - A **reference is unique per customer**, so a gateway that delivers the same
   confirmation twice books one payment.
 
