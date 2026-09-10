@@ -181,6 +181,89 @@ CREATE TABLE IF NOT EXISTS commercial_outbox (
 CREATE INDEX IF NOT EXISTS commercial_outbox_due_idx ON commercial_outbox (next_attempt_at) WHERE delivered_at IS NULL;
 `
 
+// backfillIssuedInvoicesMigrationSQL numbers the invoices that were issued
+// BEFORE the invoicing release (0.1.27) ran invoicingMigrationSQL.
+//
+// The gap: that migration mapped every customer onto the four commercial
+// fields (billing_mode real / chargeback → charging = 'billed') and added the
+// invoice columns to statements, but it never looked at the statements that
+// were ALREADY issued when it ran. An issued statement of a billed customer
+// IS an invoice — and on the live Sovereign hw307 six August statements of
+// billed customers were left with invoice_number NULL, due_at NULL,
+// payment_terms_days NULL and an empty po_reference: invoices with no
+// number, invisible to the invoicing surface. Only IssueStatementOnce mints
+// a number, and it runs on the draft → issued edge alone, so nothing would
+// ever have numbered them.
+//
+// What it does, in one transaction, for every statement with invoice_number
+// IS NULL and status issued / sent / paid whose customer is charging =
+// 'billed':
+//
+//  1. Numbers it as <prefix>-<YYYY>-<00000>, the exact shape InvoiceNumberFor
+//     renders: the prefix from the single billing_settings row ('INV' when
+//     that row is absent), the year of issued_at in UTC — the way
+//     nextInvoiceNumber takes it. Numbers are dealt per year in
+//     (issued_at, id) order and CONTINUE from invoice_sequences.last_value:
+//     the year row is advanced by the count first (inserted at that count
+//     when absent, ON CONFLICT DO UPDATE otherwise, which is the same row
+//     lock a concurrent live issue takes) and the numbers are dealt from the
+//     value it held before. The counter stays gapless, and the next live
+//     issue carries on after the backfilled ones.
+//  2. Copies the customer's payment_terms_days where the statement's is
+//     NULL, and the customer's po_reference where the statement's is empty,
+//     exactly as issue would have.
+//  3. Computes due_at = issued_at + terms where it is NULL.
+//
+// Idempotent: a second run matches no row and touches no sequence. The
+// statements of informational customers are not invoices and are left
+// alone. BackfillIssuedInvoices runs the same batch on demand.
+const backfillIssuedInvoicesMigrationSQL = `
+-- Issue has always stamped issued_at (COALESCE(issued_at, now())), so an
+-- issued row without one is a repair, not a rule: it takes its creation
+-- time so it can be placed in a year at all.
+UPDATE statements SET issued_at = created_at
+ WHERE issued_at IS NULL AND status IN ('issued','sent','paid');
+
+WITH settings AS (
+	SELECT COALESCE((SELECT invoice_prefix FROM billing_settings WHERE id = 1), 'INV') AS prefix
+),
+pending AS (
+	SELECT st.id,
+	       c.po_reference AS customer_po,
+	       c.payment_terms_days AS customer_terms,
+	       EXTRACT(YEAR FROM (st.issued_at AT TIME ZONE 'UTC'))::int AS yr,
+	       row_number() OVER (
+	           PARTITION BY EXTRACT(YEAR FROM (st.issued_at AT TIME ZONE 'UTC'))::int
+	           ORDER BY st.issued_at, st.id) AS rn
+	  FROM statements st
+	  JOIN customers c ON c.id = st.customer_id
+	 WHERE st.invoice_number IS NULL
+	   AND st.status IN ('issued','sent','paid')
+	   AND c.charging = 'billed'
+),
+per_year AS (
+	SELECT yr, count(*)::bigint AS n FROM pending GROUP BY yr
+),
+advanced AS (
+	INSERT INTO invoice_sequences (year, last_value)
+	SELECT yr, n FROM per_year
+	ON CONFLICT (year) DO UPDATE SET last_value = invoice_sequences.last_value + EXCLUDED.last_value
+	RETURNING year, last_value
+)
+UPDATE statements st
+   SET invoice_number = s.prefix
+                        || '-' || lpad(p.yr::text, greatest(4, length(p.yr::text)), '0')
+                        || '-' || lpad((a.last_value - y.n + p.rn)::text, greatest(5, length((a.last_value - y.n + p.rn)::text)), '0'),
+       payment_terms_days = COALESCE(st.payment_terms_days, p.customer_terms),
+       po_reference = CASE WHEN st.po_reference = '' THEN p.customer_po ELSE st.po_reference END,
+       due_at = COALESCE(st.due_at, st.issued_at + make_interval(days => COALESCE(st.payment_terms_days, p.customer_terms)))
+  FROM pending p
+  JOIN per_year y ON y.yr = p.yr
+  JOIN advanced a ON a.year = p.yr
+ CROSS JOIN settings s
+ WHERE st.id = p.id;
+`
+
 // ---------------------------------------------------------------------------
 // the commercial model
 // ---------------------------------------------------------------------------
@@ -560,6 +643,34 @@ func nextInvoiceNumber(ctx context.Context, tx *sql.Tx, prefix string) (string, 
 		return "", mapErr(err)
 	}
 	return InvoiceNumberFor(prefix, year, seq), nil
+}
+
+// BackfillIssuedInvoices numbers the invoices that were issued before the
+// invoicing release, on demand: the same batch the migration applies once
+// at startup (backfillIssuedInvoicesMigrationSQL), for an operator running
+// it by hand against a live database who wants to see how many it touched.
+// It returns the number of statements it numbered; a second call returns 0.
+func (s *Store) BackfillIssuedInvoices(ctx context.Context) (int64, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	var pending int64
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM statements st JOIN customers c ON c.id = st.customer_id
+		WHERE st.invoice_number IS NULL AND st.status IN ('issued','sent','paid') AND c.charging = 'billed'`).Scan(&pending); err != nil {
+		return 0, mapErr(err)
+	}
+	if pending == 0 {
+		return 0, nil
+	}
+	if _, err := tx.ExecContext(ctx, backfillIssuedInvoicesMigrationSQL); err != nil {
+		return 0, mapErr(err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return pending, nil
 }
 
 // ---------------------------------------------------------------------------
