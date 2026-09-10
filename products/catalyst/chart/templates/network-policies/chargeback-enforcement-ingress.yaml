@@ -1,0 +1,90 @@
+{{- /*
+CiliumNetworkPolicy — catalyst-api ingress for the chargeback application's
+billing ENFORCEMENT calls (EPIC #6867, products/chargeback DESIGN.md §9.6).
+
+WHAT THIS ADMITS
+───────────────────────────────────────────────────────────────────────────
+The chargeback Sovereign placement (bootstrap-kit slot 13f, namespace
+`chargeback`) suspends and resumes Organizations by POSTing the in-cluster
+sovereign-admin API:
+
+  http://catalyst-api.catalyst-system.svc.cluster.local:8080
+      /api/v1/internal/organizations/{slug}/suspend | /resume
+
+authenticated with its projected ServiceAccount token (TokenReview on the API
+side, allow-list system:serviceaccount:chargeback:chargeback). catalyst-api
+stamps spec.suspended on the Organization CR and the org-controller parks the
+per-Org Flux Kustomizations.
+
+The denial this lifts is in `baseline-catalyst-system.yaml`, this file's
+sibling: `baseline-default-deny` is `endpointSelector: {}` over the whole
+catalyst-system namespace and its blanket ingress allow-list admits
+`catalyst`, `flux-system`, `kube-system`, `oidc-gate`, `guacamole`,
+`cnpg-system` — and not `chargeback`. Without this policy every enforcement
+call times out at the catalyst-system ingress hook, the Enforcer records
+"not executed at the platform", and the Organization keeps reconciling.
+
+WHY A SEPARATE POLICY, NOT ANOTHER ENTRY IN THE BLANKET LIST
+───────────────────────────────────────────────────────────────────────────
+The same reason as keycloak-backchannel-ingress.yaml (#6106): the blanket
+allow-list rule carries no `toPorts`, so adding `chargeback` there would admit
+that namespace to EVERY Pod in catalyst-system on EVERY port — org-pg,
+guacamole-pg and the shared-pg family included. Enforcement needs one
+namespace reaching one workload on one port, so it is its own policy with its
+own `endpointSelector`. Cilium evaluates the UNION of every policy selecting
+an endpoint, so this is purely additive; `baseline-default-deny` is unchanged
+and `tests/baseline-cnp-allowlist.sh` Case 17 keeps `chargeback` out of the
+blanket list.
+
+CLUSTERMESH
+───────────────────────────────────────────────────────────────────────────
+bp-chargeback and bp-catalyst-platform are both SECONDARY_HR_SUSPEND'd (G2
+#2574), so today both ends live in region A. The ClusterMesh cluster key is
+still named — the idiom of the backchannel policy — so the rule keeps
+matching if the chargeback placement ever moves to a peer region: a bare
+`fromEndpoints` is implicitly ANDed with `cluster=<local>` and would silently
+deny a remote source.
+*/}}
+{{- if and .Values.security.baselineCnp.enabled .Values.security.baselineCnp.chargebackEnforcement.enabled }}
+{{- $cb := .Values.security.baselineCnp.chargebackEnforcement }}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: baseline-allow-chargeback-enforcement
+  namespace: catalyst-system
+  labels:
+    openova.io/managed-by: catalyst-baseline
+    openova.io/policy-tier: baseline
+    catalyst.openova.io/component: chargeback-enforcement-cnp
+  annotations:
+    policies.openova.io/title: Catalyst-API Billing-Enforcement Ingress From Chargeback
+    policies.openova.io/description: |
+      Admits the chargeback namespace — in this cluster and, over the
+      ClusterMesh, in the peer region — to catalyst-api's Service port only,
+      for the ServiceAccount-authenticated Organization suspend / resume
+      routes (products/chargeback DESIGN.md §9.6, #6867). Without it every
+      enforcement call is dropped by the catalyst-system default-deny and a
+      suspended customer's Organization keeps reconciling.
+spec:
+  description: "chargeback -> catalyst-api:{{ $cb.port }} — billing enforcement ingress (#6867)."
+  # Scoped to the catalyst-api Pods ONLY — the same selector
+  # templates/api-service.yaml uses to pick its backends. The rest of
+  # catalyst-system stays exactly as closed to the chargeback namespace as
+  # it was before this policy.
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: catalyst-api
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ $cb.namespace | quote }}
+          matchExpressions:
+            # See the ClusterMesh note above.
+            - key: io.cilium.k8s.policy.cluster
+              operator: Exists
+      toPorts:
+        - ports:
+            # catalyst-api's only Service port (templates/api-service.yaml).
+            - port: {{ $cb.port | quote }}
+              protocol: TCP
+{{- end }}

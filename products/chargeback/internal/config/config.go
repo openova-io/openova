@@ -61,12 +61,21 @@ type Config struct {
 	// in. Unset ⇒ no poller.
 	CommercialImportDir string
 
-	// PlatformAPIURL and PlatformAPIToken reach the sovereign-admin API's
-	// operator-only Organization suspend / resume routes (DESIGN.md §9.7).
-	// Unset ⇒ a suspension flips the customer here and is recorded as not
-	// executed at the platform.
-	PlatformAPIURL   string
-	PlatformAPIToken string
+	// PlatformAPIURL reaches the sovereign-admin API's ServiceAccount-
+	// authenticated Organization suspend / resume routes (DESIGN.md §9.6,
+	// /api/v1/internal/organizations/{slug}/suspend | /resume). Unset ⇒ a
+	// suspension flips the customer here and is recorded as not executed
+	// at the platform.
+	//
+	// The bearer is one of two: PlatformAPITokenFile names a file — the
+	// chart's projected ServiceAccount token at
+	// /var/run/secrets/platform-api/token — that is re-read on EVERY call,
+	// because projected tokens rotate; PlatformAPIToken is a literal for
+	// the cases where no file exists (a local run against a Sovereign).
+	// The file wins when both are set.
+	PlatformAPIURL       string
+	PlatformAPIToken     string
+	PlatformAPITokenFile string
 
 	// TrustedForwardAuthHeader is the request header carrying an identity
 	// already verified by the Sovereign's OIDC gate. oauth2-proxy passes the
@@ -115,6 +124,7 @@ func FromEnv() (Config, error) {
 		CommercialImportDir:       strings.TrimSpace(os.Getenv("COMMERCIAL_IMPORT_DIR")),
 		PlatformAPIURL:            strings.TrimRight(strings.TrimSpace(os.Getenv("PLATFORM_API_URL")), "/"),
 		PlatformAPIToken:          strings.TrimSpace(os.Getenv("PLATFORM_API_TOKEN")),
+		PlatformAPITokenFile:      strings.TrimSpace(os.Getenv("PLATFORM_API_TOKEN_FILE")),
 		TrustedForwardAuthHeader: http.CanonicalHeaderKey(
 			strings.TrimSpace(os.Getenv("TRUSTED_FORWARD_AUTH_HEADER"))),
 	}

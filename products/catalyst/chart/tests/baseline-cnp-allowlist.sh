@@ -512,4 +512,110 @@ if ! grep -q 'k8s:io.kubernetes.pod.namespace: "keycloak-alt"' "$TMP/backchannel
 fi
 echo "  PASS (policy disappears on both toggles; port + namespace are genuinely values-derived)"
 
+# Cases 19-20 (#6867) — the chargeback billing-enforcement ingress carve-out.
+#
+# The chargeback Sovereign placement (slot 13f, namespace chargeback) suspends
+# and resumes Organizations by POSTing catalyst-api's ServiceAccount-
+# authenticated /api/v1/internal/organizations/{slug}/suspend | /resume
+# in-cluster. Same shape and same reasoning as the keycloak backchannel
+# (Cases 15-18): its own port-scoped policy, never an entry in the blanket
+# list. Case 20 is the vacuity + derivation control.
+# ─────────────────────────────────────────────────────────────────────────
+ENFORCEMENT_TEMPLATE="templates/network-policies/chargeback-enforcement-ingress.yaml"
+
+echo "[baseline-cnp] Case 19: chargeback billing-enforcement ingress CNP renders with the right VALUES (#6867)"
+helm template smoke . --show-only "${ENFORCEMENT_TEMPLATE}" > "$TMP/enforcement.yaml" 2>"$TMP/enforcement.err" || {
+  echo "FAIL: ${ENFORCEMENT_TEMPLATE} did not render — chargeback cannot reach catalyst-api and every suspension stays 'not executed at the platform' (#6867)." >&2
+  cat "$TMP/enforcement.err" >&2
+  exit 1
+}
+if [ ! -s "$TMP/enforcement.yaml" ]; then
+  echo "FAIL: ${ENFORCEMENT_TEMPLATE} rendered EMPTY — the assertions below would be vacuous." >&2
+  exit 1
+fi
+if ! grep -q '^  name: baseline-allow-chargeback-enforcement$' "$TMP/enforcement.yaml"; then
+  echo "FAIL: baseline-allow-chargeback-enforcement CNP missing (#6867)." >&2
+  exit 1
+fi
+if ! grep -q '^kind: CiliumNetworkPolicy$' "$TMP/enforcement.yaml"; then
+  echo "FAIL: the enforcement allow is not a CiliumNetworkPolicy (#6867)." >&2
+  exit 1
+fi
+if ! awk '/^  endpointSelector:/,/^  ingress:/' "$TMP/enforcement.yaml" | grep -q '^      app.kubernetes.io/name: catalyst-api$'; then
+  echo "FAIL: the enforcement CNP is not scoped to the catalyst-api Pods — a namespace-wide selector would admit chargeback to org-pg / guacamole-pg / shared-pg too (#6867)." >&2
+  exit 1
+fi
+_ing6867="$(awk '/^  ingress:/,0' "$TMP/enforcement.yaml" | grep -v '^[[:space:]]*#' || true)"
+if [ -z "$_ing6867" ]; then
+  echo "FAIL: could not slice the ingress block out of the enforcement CNP — the awk range is broken, not the policy." >&2
+  exit 1
+fi
+if ! printf '%s' "$_ing6867" | grep -q 'k8s:io.kubernetes.pod.namespace: "chargeback"'; then
+  echo "FAIL: the enforcement CNP does not admit the 'chargeback' namespace (#6867)." >&2
+  exit 1
+fi
+if ! printf '%s' "$_ing6867" | grep -q 'port: "8080"'; then
+  echo "FAIL: the enforcement CNP does not name TCP/8080 — catalyst-api's only Service port (#6867)." >&2
+  exit 1
+fi
+if ! printf '%s' "$_ing6867" | grep -q 'protocol: TCP'; then
+  echo "FAIL: the enforcement CNP's port rule has no TCP protocol (#6867)." >&2
+  exit 1
+fi
+if ! printf '%s' "$_ing6867" | grep -q 'fromEndpoints:'; then
+  echo "FAIL: the enforcement allow does not use fromEndpoints (#6867)." >&2
+  exit 1
+fi
+if ! printf '%s' "$_ing6867" | grep -A1 'key: io.cilium.k8s.policy.cluster' | grep -q 'operator: Exists'; then
+  echo "FAIL: the enforcement allow does not name io.cilium.k8s.policy.cluster with operator Exists (#6867)." >&2
+  exit 1
+fi
+for _bad in 'ipBlock' 'fromCIDR' 'fromCIDRSet'; do
+  if printf '%s' "$_ing6867" | grep -q "${_bad}"; then
+    echo "FAIL: the enforcement allow uses ${_bad} — a CIDR match NEVER resolves a ClusterMesh remote pod identity (#6867)." >&2
+    exit 1
+  fi
+done
+for _wild in 'world' 'cluster' 'all'; do
+  if printf '%s' "$_ing6867" | grep -qE "^\s*-\s*${_wild}\s*$"; then
+    echo "FAIL: the enforcement allow includes the '${_wild}' entity — that is a wildcard, not a carve-out (#6867)." >&2
+    exit 1
+  fi
+done
+# CONTROL: the blanket list did not gain chargeback (Case 17's reasoning).
+if printf '%s\n' "$_ing14" | grep -q '"chargeback"'; then
+  echo "FAIL: 'chargeback' appears in baseline-default-deny's blanket ingress allow-list — that admits the namespace to EVERY catalyst-system Pod on EVERY port; enforcement has its own port-scoped policy (#6867)." >&2
+  exit 1
+fi
+echo "  PASS (baseline-allow-chargeback-enforcement admits ns chargeback -> catalyst-api Pods on TCP/8080; blanket list unchanged)"
+
+echo "[baseline-cnp] Case 20: VACUITY — the enforcement CNP disappears when toggled off and follows its values (#6867)"
+helm template smoke-cb-off . \
+  --set security.baselineCnp.chargebackEnforcement.enabled=false \
+  --show-only "${ENFORCEMENT_TEMPLATE}" > "$TMP/enforcement-off.yaml" 2>&1 || true
+if grep -q 'name: baseline-allow-chargeback-enforcement' "$TMP/enforcement-off.yaml"; then
+  echo "FAIL: the enforcement CNP still renders with chargebackEnforcement.enabled=false — the toggle is dead and Case 19 proves nothing." >&2
+  exit 1
+fi
+helm template smoke-cb-baseline-off . \
+  --set security.baselineCnp.enabled=false \
+  --show-only "${ENFORCEMENT_TEMPLATE}" > "$TMP/enforcement-baseline-off.yaml" 2>&1 || true
+if grep -q 'name: baseline-allow-chargeback-enforcement' "$TMP/enforcement-baseline-off.yaml"; then
+  echo "FAIL: the enforcement CNP still renders with security.baselineCnp.enabled=false — it must follow the baseline master gate." >&2
+  exit 1
+fi
+helm template smoke-cb-port . \
+  --set security.baselineCnp.chargebackEnforcement.port=18080 \
+  --set security.baselineCnp.chargebackEnforcement.namespace=chargeback-alt \
+  --show-only "${ENFORCEMENT_TEMPLATE}" > "$TMP/enforcement-port.yaml"
+if ! grep -q 'port: "18080"' "$TMP/enforcement-port.yaml"; then
+  echo "FAIL: chargebackEnforcement.port did not propagate — the port is hardcoded in the template." >&2
+  exit 1
+fi
+if ! grep -q 'k8s:io.kubernetes.pod.namespace: "chargeback-alt"' "$TMP/enforcement-port.yaml"; then
+  echo "FAIL: chargebackEnforcement.namespace did not propagate — the source namespace is hardcoded in the template." >&2
+  exit 1
+fi
+echo "  PASS (policy disappears on both toggles; port + namespace are genuinely values-derived)"
+
 echo "[baseline-cnp] All gates green."

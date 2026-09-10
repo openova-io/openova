@@ -567,6 +567,12 @@ func (s *seeder) apply(c *synth.Customer) (result, error) {
 	if err != nil {
 		return r, err
 	}
+	// Same shape as the landlord backfill: the upsert keeps rows of SKUs the
+	// model has stopped emitting, so clear them from this showcase source
+	// inside the window first (stale.go).
+	if err := s.clearStaleSKUs(c.Slug, sourceID, s.sc.Window, out.Records); err != nil {
+		return r, fmt.Errorf("showcase source of %s: %w", c.Slug, err)
+	}
 	rows, err := s.writeUsage(customerID, sourceID, out)
 	if err != nil {
 		return r, err

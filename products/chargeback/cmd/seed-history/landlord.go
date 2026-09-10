@@ -244,6 +244,13 @@ func (s *seeder) applyLandlord(slug string, untilOverride time.Time) (r result, 
 		return r, true, fmt.Errorf("assign price book to the backfill source: %w", err)
 	}
 
+	// The write is an upsert per (source, resource, sku, hour), so a row of a
+	// SKU this model no longer emits would survive a re-seed (stale.go): clear
+	// those from the backfill source, inside its window, before writing.
+	if err := s.clearStaleSKUs(slug, src.ID, sc.Window, out.Records); err != nil {
+		return r, true, fmt.Errorf("backfill source of %s: %w", slug, err)
+	}
+
 	// One seeder over the landlord's own window, sharing this one's
 	// connections: writeUsage reads the scenario's months.
 	ls := &seeder{sc: sc, api: s.api, st: s.st, db: s.db, ctx: s.ctx, books: s.books, csvImport: s.csvImport}

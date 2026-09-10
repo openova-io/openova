@@ -158,6 +158,27 @@ spec:
     # INFO level. A signed-in operator sees an app with no customers in it.
     adapter:
       enabled: true
+    # #6867 — platform ENFORCEMENT. Without this the collections Enforcer is
+    # a Nop: a customer escalated, at zero prepaid balance, or suspended by
+    # the operator flips to `suspended` inside chargeback while its
+    # Organization keeps reconciling. With it chargeback POSTs the in-cluster
+    # sovereign-admin API — /api/v1/internal/organizations/{slug}/suspend |
+    # /resume, the same catalyst-api Service the cutover auto-trigger dials —
+    # presenting the projected ServiceAccount token the chart mounts at
+    # /var/run/secrets/platform-api/token. catalyst-api verifies it with a
+    # TokenReview against its allow-list (system:serviceaccount:chargeback:
+    # chargeback — this release, this namespace) and stamps spec.suspended on
+    # the Organization CR; the org-controller parks the per-Org Flux
+    # Kustomizations. The umbrella's baseline-allow-chargeback-enforcement
+    # CNP admits this namespace to catalyst-api:8080 (the default-deny in
+    # catalyst-system otherwise drops the call).
+    #
+    # tokenAudience stays empty: catalyst-api reviews the token with no
+    # audience set (the apiserver default), exactly as it does the cutover
+    # runner's standard mount.
+    platformApi:
+      url: http://catalyst-api.catalyst-system.svc.cluster.local:8080
+      tokenAudience: ""
     # #6843 — without this chargeback runs in "dev mode": Mail.Send returns nil,
     # the API answers 200, and the invite link or statement is written to a pod
     # log instead of being delivered. The caller cannot tell that from success.
