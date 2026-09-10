@@ -108,6 +108,21 @@ var (
 // perOrgFluxNames returns the deterministic (GitRepository, Kustomization)
 // names for an Org slug. Keyed only off slug → generic for any Org, no
 // per-org-name special-casing (#3687 §7d).
+// parkIfSuspended sets `spec.suspend: true` on a per-Org Flux Kustomization
+// spec while the Organization carries the billing-enforcement flag
+// (products/chargeback DESIGN.md §9.7; spec.suspended is set only by the
+// sovereign-admin API's operator-only suspend / resume routes). A suspended
+// Kustomization is PARKED: Flux reconciles nothing new for the Organization
+// until the flag is cleared, and upsertFluxResource's spec comparison makes
+// both directions converge on the next reconcile. It never writes the key
+// when the Organization is not suspended, so every existing spec stays
+// byte-identical.
+func parkIfSuspended(spec map[string]any, org *orgapi.Organization) {
+	if org != nil && org.Spec.Suspended {
+		spec["suspend"] = true
+	}
+}
+
 func perOrgFluxNames(slug string) (gitRepo, kustomization string) {
 	return fmt.Sprintf("catalyst-tenant-%s", slug),
 		fmt.Sprintf("catalyst-tenant-%s-vcluster", slug)
@@ -254,6 +269,7 @@ func (r *Reconciler) reconcilePerOrgFlux(ctx context.Context, org *orgapi.Organi
 			"namespace": ns,
 		},
 	}
+	parkIfSuspended(ksSpec, org)
 	if err := unstructured.SetNestedMap(ks.Object, ksSpec, "spec"); err != nil {
 		return fmt.Errorf("set Kustomization spec: %w", err)
 	}
@@ -312,6 +328,7 @@ func (r *Reconciler) reconcilePerOrgFlux(ctx context.Context, org *orgapi.Organi
 			"key":  "config",
 		},
 	}
+	parkIfSuspended(appsKSSpec, org)
 	if err := unstructured.SetNestedMap(appsKS.Object, appsKSSpec, "spec"); err != nil {
 		return fmt.Errorf("set apps Kustomization spec: %w", err)
 	}
@@ -357,6 +374,7 @@ func (r *Reconciler) reconcilePerOrgFlux(ctx context.Context, org *orgapi.Organi
 			"namespace": ns,
 		},
 	}
+	parkIfSuspended(hostAppsKSSpec, org)
 	if err := unstructured.SetNestedMap(hostAppsKS.Object, hostAppsKSSpec, "spec"); err != nil {
 		return fmt.Errorf("set host-apps Kustomization spec: %w", err)
 	}
