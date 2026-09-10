@@ -36,6 +36,8 @@ export interface BookSettings {
   annual_divisor: string
   bill_stopped: string
   effective_from: string
+  /** The note on the book: what it prices and where its rates came from. */
+  description: string
 }
 
 export function settingsFrom(b?: PriceBook | null): BookSettings {
@@ -46,6 +48,7 @@ export function settingsFrom(b?: PriceBook | null): BookSettings {
     annual_divisor: String(b?.annual_divisor ?? 8760),
     bill_stopped: b?.bill_stopped ?? 'compute',
     effective_from: b?.effective_from ? b.effective_from.slice(0, 10) : '',
+    description: b?.description ?? '',
   }
 }
 
@@ -56,6 +59,7 @@ export interface BookSettingsBody {
   annual_divisor: number
   bill_stopped: string
   effective_from: string
+  description: string
 }
 
 export function settingsBody(s: BookSettings): BookSettingsBody {
@@ -66,6 +70,7 @@ export function settingsBody(s: BookSettings): BookSettingsBody {
     annual_divisor: Number(s.annual_divisor),
     bill_stopped: s.bill_stopped,
     effective_from: s.effective_from || '',
+    description: s.description.trim(),
   }
 }
 
@@ -116,6 +121,11 @@ export function BookSettingsFields({ value, onChange, errors }: { value: BookSet
       <Field label="Effective from" error={errors.effective_from} help="Leave empty to apply to every period">
         <input type="date" value={value.effective_from} onChange={(e) => set({ effective_from: e.target.value })} />
       </Field>
+      <div style={{ gridColumn: '1 / -1' }}>
+        <Field label="Description" help="What this book prices and where its rates came from. The two platform books arrive with their derivation written here; edit it when you change a rate.">
+          <textarea rows={4} value={value.description} onChange={(e) => set({ description: e.target.value })} placeholder="e.g. Committed plans: 5 / 9 / 16 / 30 OMR per month, billed as one plan line per hour." />
+        </Field>
+      </div>
     </div>
   )
 }

@@ -8,7 +8,7 @@ import { Badge, Confirm, EmptyState, Field, KPI, Modal, Notice, PageHeader, Skel
 import { PRICE_CSV_SAMPLE, dataUrl, parsePriceBookCsv, unitPrice } from '../lib/csv'
 import { day, num } from '../lib/format'
 import { formatMoney, formatPct, formatQty } from '../lib/money'
-import { layerLabel, notSoldPerUseNote, scopeOf } from '../lib/layers'
+import { BOOK_ROLES, bookRole, layerLabel, notSoldPerUseNote, scopeOf } from '../lib/layers'
 import { round, toNumber } from '../lib/num'
 import { useQuery } from '../lib/useQuery'
 
@@ -273,6 +273,21 @@ export function PriceBookEdit() {
       />
       {error ? <Notice kind="bad">{error}</Notice> : null}
       {flash ? <Notice kind="ok">{flash}</Notice> : null}
+
+      {/* The book’s own note: what it prices and where its rates came from.
+          The two platform books arrive with their whole derivation written
+          here, so an operator can see every number before changing one. */}
+      {b.description ? (
+        <div className="card">
+          <div className="card-head">
+            <h2>About this book</h2>
+            {bookRole(b) ? <span className="hint">{BOOK_ROLES[bookRole(b)!].label}</span> : null}
+          </div>
+          <p className="muted small" style={{ margin: 0 }}>
+            {b.description}
+          </p>
+        </div>
+      ) : null}
 
       <div className="kpis">
         <KPI

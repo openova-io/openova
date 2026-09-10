@@ -381,6 +381,67 @@ ALTER TABLE cost_sources ADD CONSTRAINT cost_sources_status_check CHECK (status 
 	// without a discount breakdown carried no rule-dependent figure.
 	`ALTER TABLE statements ADD COLUMN IF NOT EXISTS discount_rule TEXT;`,
 	`UPDATE statements SET discount_rule = 'stack' WHERE discount_rule IS NULL AND discount_detail IS NOT NULL;`,
+	// Pay per use for flexi Organizations (EPIC #6867, founder direction
+	// 2026-09-10). APPENDED AT THE END on purpose: migrations are positional
+	// - an entry inserted mid-list is silently skipped on a database that
+	// already recorded that version, so a new one only ever goes last.
+	paygPlatformBooksMigrationSQL(),
+}
+
+// MigrationPAYGPlatformBooks is the schema_migrations version of the
+// pay-per-use migration (the last entry of migrations); the migration test
+// stands a database at the version before it and then applies it.
+var MigrationPAYGPlatformBooks = len(migrations)
+
+// sqlQuote renders s as a SQL string literal. Every value it is used on here
+// is a compile-time constant of this package, never input; it doubles quotes
+// so a rate description that later gains an apostrophe cannot break a
+// migration.
+func sqlQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+}
+
+// paygPlatformBooksMigrationSQL is one transaction that makes the two
+// platform rate cards usable as the pair they are:
+//
+//  1. price_books gains the `description` an operator reads a book's intent
+//     from - until now the only place to write that was an item description,
+//     which cannot describe a book as a whole.
+//  2. "Organization PAYG" is moved to scope = platform. It shipped as a
+//     `cloud` book, which is the wrong scope for k8s.* SKUs and made it
+//     UNASSIGNABLE: SetSourcePriceBook refuses a book whose scope is not the
+//     source's layer, so no flexi Organization could ever have been pointed
+//     at it. Moved only while nothing cloud-shaped is assigned to it, so an
+//     operator who did put a cloud source on it keeps a consistent book.
+//  3. Both books get their derivation as a description, but only where the
+//     operator has not written one.
+//  4. The pay-per-use book gets the derived rates. Its shipped rates were
+//     placeholders an order of magnitude out (k8s.vcpu 0.02589041 per
+//     vcpu-hour is 18.90 OMR per vCPU per month, against 2.25 for the same
+//     vCPU inside an M plan). They are corrected ONLY while the book rates
+//     no source at all: a book that has never billed anyone can hold no
+//     operator decision, and one that has is left exactly as it is.
+//
+// It is built from PAYGBookItems() rather than restating the numbers, so the
+// book a migrated Sovereign ends up with and the book a fresh one creates can
+// never be two different books.
+func paygPlatformBooksMigrationSQL() string {
+	var b strings.Builder
+	b.WriteString("ALTER TABLE price_books ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT '';\n")
+	fmt.Fprintf(&b, "UPDATE price_books SET scope = '%s'\n WHERE lower(name) = lower(%s) AND scope <> '%s'\n   AND NOT EXISTS (SELECT 1 FROM cost_sources s WHERE s.price_book_id = price_books.id AND s.layer <> '%s');\n",
+		LayerPlatform, sqlQuote(PAYGBookName), LayerPlatform, LayerPlatform)
+	for _, d := range []struct{ name, desc string }{{PlanBookName, PlanBookDescription}, {PAYGBookName, PAYGBookDescription}} {
+		fmt.Fprintf(&b, "UPDATE price_books SET description = %s WHERE lower(name) = lower(%s) AND description = '';\n", sqlQuote(d.desc), sqlQuote(d.name))
+	}
+	for _, it := range PAYGBookItems() {
+		annual := "NULL"
+		if it.AnnualPrice != nil {
+			annual = string(*it.AnnualPrice)
+		}
+		fmt.Fprintf(&b, "INSERT INTO price_items (price_book_id, sku, unit, unit_price, annual_price, description)\n SELECT b.id, %s, %s, %s, %s, %s FROM price_books b\n  WHERE lower(b.name) = lower(%s)\n    AND NOT EXISTS (SELECT 1 FROM cost_sources s WHERE s.price_book_id = b.id)\n ON CONFLICT (price_book_id, sku) DO UPDATE SET unit = EXCLUDED.unit, unit_price = EXCLUDED.unit_price, annual_price = EXCLUDED.annual_price, description = EXCLUDED.description;\n",
+			sqlQuote(it.SKU), sqlQuote(it.Unit), string(it.UnitPrice), annual, sqlQuote(it.Description), sqlQuote(PAYGBookName))
+	}
+	return b.String()
 }
 
 // MigrationTwoLayerSources is the schema_migrations version of the two-layer

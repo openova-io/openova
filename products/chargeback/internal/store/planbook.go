@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math/big"
 	"strings"
@@ -93,10 +92,17 @@ func PlanBillable(slug string) bool {
 // PlanSKU is the usage SKU of a plan: plan.<slug>.
 func PlanSKU(slug string) string { return PlanSKUPrefix + slug }
 
-// planNote is appended to every plan item's description. price_books has no
-// description column, so the item descriptions are the one place the
-// operator reads the book's intent.
-const planNote = "k8s.vcpu / k8s.mem_gb / k8s.pvc_gb are deliberately not priced in this book: they are the allocation basis, and Flexi's pay-per-use rates are a product decision the founder has not made."
+// planNote is appended to every plan item's description, so a rate read on
+// its own still says why the k8s.* meters next to it carry none.
+const planNote = "k8s.vcpu / k8s.mem_gb / k8s.pvc_gb are deliberately not priced in this book: under a plan they are the allocation basis, not the bill. A flexi Organization is billed off those meters instead, by the " + PAYGBookName + " book."
+
+// PlanBookDescription is the note written on the plans book itself, so an
+// operator reading the two platform books side by side sees at once which is
+// the committed card and which is the pay-per-use one. No apostrophes — the
+// backfill migration embeds it in SQL.
+const PlanBookDescription = "The committed catalog plans (S 5 / M 9 / L 16 / XL 30 OMR per month for 2 / 4 / 8 / 16 vCPU with 2 GiB per vCPU), billed as one flat plan.<slug> subscription line per Organization per hour: annual = monthly x 12, hourly = annual / 8760 = monthly / 730. " +
+	"The k8s.vcpu / k8s.mem_gb / k8s.pvc_gb meters are deliberately UNPRICED here - under a plan they are the allocation basis, and a bundle has no identifiable per-resource split (M = 2xS, L = 4xS, XL = 8xS), so any per-vCPU rate under this book would be invented. " +
+	"An Organization on the uncapped flexi plan is billed the other way round, per use and with no plan line, by the " + PAYGBookName + " book."
 
 // PlanBookItems are the four priced plans of the "OpenOva plans" book:
 // annual_price = monthly × 12, unit_price = annual_price / 8760 rounded to
@@ -129,25 +135,5 @@ func PlanBookItems() []PriceItem {
 // existing book is returned untouched — never re-priced, never re-created —
 // so an operator's edits survive every restart and resync.
 func (s *Store) EnsurePlanBook(ctx context.Context) (pb PriceBook, created bool, err error) {
-	pb, err = s.GetPriceBookByName(ctx, PlanBookName)
-	if err == nil {
-		return pb, false, nil
-	}
-	if !errors.Is(err, ErrNotFound) {
-		return PriceBook{}, false, err
-	}
-	pb, err = s.CreatePriceBook(ctx, PriceBookInput{Name: PlanBookName, Scope: LayerPlatform, Currency: "OMR", AnnualDivisor: PlanBookDivisor, BillStopped: "compute"})
-	if err != nil {
-		if errors.Is(err, ErrConflict) {
-			// Raced with another creator (two replicas): theirs wins.
-			pb, err = s.GetPriceBookByName(ctx, PlanBookName)
-			return pb, false, err
-		}
-		return PriceBook{}, false, err
-	}
-	if _, err := s.PutPriceItems(ctx, pb.ID, PlanBookItems(), false); err != nil {
-		return PriceBook{}, false, fmt.Errorf("price the plan book: %w", err)
-	}
-	pb, err = s.GetPriceBook(ctx, pb.ID)
-	return pb, true, err
+	return s.ensureManagedPlatformBook(ctx, PlanBookName, PlanBookDescription, PlanBookDivisor, PlanBookItems())
 }

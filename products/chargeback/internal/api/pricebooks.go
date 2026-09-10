@@ -35,6 +35,10 @@ type priceBookBody struct {
 	AnnualDivisor int    `json:"annual_divisor"`
 	BillStopped   string `json:"bill_stopped"`
 	EffectiveFrom string `json:"effective_from"`
+	// Description is the operator-editable note on the book: what it is for
+	// and, on the two books the Organization sync owns, where every rate in
+	// it came from. Empty on update leaves the stored one alone.
+	Description string `json:"description"`
 }
 
 func (b priceBookBody) validate(create bool) string {
