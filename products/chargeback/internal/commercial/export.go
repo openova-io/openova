@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/openova-io/openova/products/chargeback/internal/commercial/external"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
 
@@ -193,6 +194,11 @@ func BuildInvoiceDocument(st store.Statement, c store.Customer) (InvoiceDocument
 //
 // The reference it returns is the file's stem, which is also written into
 // every row, so the billing system can echo it back on the import.
+//
+// It is ALSO the exporter of every other document the outbox carries
+// (DESIGN.md §9.1) — TMF635 rated usage, TMF666 account, TMF676 payment,
+// the summary charge — through external.CSVFile in the same directory: one
+// transport, one wiring, one directory the billing system collects from.
 type CSVFileExporter struct {
 	Dir string
 	mu  sync.Mutex
@@ -200,6 +206,12 @@ type CSVFileExporter struct {
 
 // NewCSVFileExporter returns an exporter writing into dir.
 func NewCSVFileExporter(dir string) *CSVFileExporter { return &CSVFileExporter{Dir: dir} }
+
+// DeliverDocument implements external.Exporter for the non-invoice
+// documents, writing them beside the bills.
+func (e *CSVFileExporter) DeliverDocument(ctx context.Context, env external.Envelope) (string, error) {
+	return (&external.CSVFile{Dir: e.Dir}).DeliverDocument(ctx, env)
+}
 
 // ExportRef is the reference a csvfile export is known by:
 // <period>-<customer slug>-<first 8 of the statement id>. It is derived from
@@ -311,6 +323,37 @@ type Recorder struct {
 	FailTimes int
 	failed    int
 	attempts  int
+	envs      []external.Envelope
+}
+
+// DeliverDocument implements external.Exporter: the non-invoice documents
+// are recorded too, so a test can assert what left the outbox by type.
+func (r *Recorder) DeliverDocument(_ context.Context, env external.Envelope) (string, error) {
+	if r.Err != nil {
+		return "", r.Err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.envs = append(r.envs, env)
+	return external.Ref(env), nil
+}
+
+// Envelopes returns the non-invoice documents exported, oldest first.
+func (r *Recorder) Envelopes() []external.Envelope {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]external.Envelope{}, r.envs...)
+}
+
+// OfType returns the exported envelopes of one document type.
+func (r *Recorder) OfType(t string) []external.Envelope {
+	var out []external.Envelope
+	for _, e := range r.Envelopes() {
+		if e.Type == t {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // Deliver records the document and returns its reference. FailTimes, when

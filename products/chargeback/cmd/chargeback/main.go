@@ -20,12 +20,15 @@ import (
 	"github.com/openova-io/openova/products/chargeback/internal/adapter/openova"
 	"github.com/openova-io/openova/products/chargeback/internal/api"
 	"github.com/openova-io/openova/products/chargeback/internal/budget"
+	"github.com/openova-io/openova/products/chargeback/internal/collections"
 	"github.com/openova-io/openova/products/chargeback/internal/collector/huawei"
 	"github.com/openova-io/openova/products/chargeback/internal/commercial"
+	"github.com/openova-io/openova/products/chargeback/internal/commercial/external"
 	"github.com/openova-io/openova/products/chargeback/internal/config"
 	"github.com/openova-io/openova/products/chargeback/internal/crypto"
 	"github.com/openova-io/openova/products/chargeback/internal/mail"
 	"github.com/openova-io/openova/products/chargeback/internal/metrics"
+	"github.com/openova-io/openova/products/chargeback/internal/platform"
 	"github.com/openova-io/openova/products/chargeback/internal/report"
 	"github.com/openova-io/openova/products/chargeback/internal/settle"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
@@ -126,9 +129,20 @@ func main() {
 	deps.Commercial = commercial.NewSelector(st, exporter)
 	deliverer := &commercial.Deliverer{Store: st, Exporter: exporter}
 	deps.Deliverer = deliverer
+	// DESIGN.md §9.7 — the platform seam enforcement runs through. Every
+	// suspension is recorded and audited whether or not a platform is wired.
+	var plat platform.Client = platform.Nop{}
+	if cfg.PlatformAPIURL != "" {
+		plat = platform.NewHTTP(cfg.PlatformAPIURL, cfg.PlatformAPIToken)
+		slog.Info("platform enforcement enabled", "url", cfg.PlatformAPIURL)
+	} else {
+		slog.Info("platform enforcement off: PLATFORM_API_URL unset; suspensions are recorded here only")
+	}
+	enforcer := &collections.Enforcer{Store: st, Platform: plat}
+	deps.Enforcer = enforcer
 	if cfg.CommercialImportSecret != "" {
-		deps.Importer = &commercial.Importer{Store: st, Secret: cfg.CommercialImportSecret}
-		slog.Info("commercial invoice-status import enabled")
+		deps.Importer = &commercial.Importer{Store: st, Secret: cfg.CommercialImportSecret, Enforcer: enforcer}
+		slog.Info("commercial import webhooks enabled")
 	}
 	handler := api.New(deps)
 
@@ -147,6 +161,31 @@ func main() {
 	// per period (budget_alerts), audits it and mails the budget's
 	// recipients. First run one minute after start, then hourly.
 	go (&budget.Evaluator{Store: st, Mail: deps.Mail}).Run(ctx)
+	// DESIGN.md §9.6 — the daily collections evaluator: reminders on the
+	// schedule, the escalation at its age, resumption once settled. A no-op
+	// when the external billing system owns collections.
+	go (&collections.Evaluator{Store: st, Mail: deps.Mail, Enforcer: enforcer, PublicURL: cfg.PublicURL, Owns: deps.Commercial.OwnsCollections}).Run(ctx)
+	// DESIGN.md §9.1 — the polling fallback of the import webhooks.
+	if cfg.CommercialImportDir != "" && deps.Importer != nil {
+		poller := &external.DirectoryPoller{Dir: cfg.CommercialImportDir, Applier: deps.Importer}
+		go func() {
+			t := time.NewTicker(time.Minute)
+			defer t.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-t.C:
+					if ok, failed, err := poller.Poll(ctx); err != nil {
+						slog.Warn("commercial import poller", "error", err)
+					} else if ok+failed > 0 {
+						slog.Info("commercial import poller", "applied", ok, "failed", failed)
+					}
+				}
+			}
+		}()
+		slog.Info("commercial import poller enabled", "dir", cfg.CommercialImportDir)
+	}
 	// #6867 follow-up — scheduled cost reports: every 5 minutes, mail each
 	// due schedule's report for the window its cadence implies (yesterday /
 	// last 7 days / last month), record the delivery and advance next_at.

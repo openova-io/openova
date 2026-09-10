@@ -391,6 +391,10 @@ ALTER TABLE cost_sources ADD CONSTRAINT cost_sources_status_check CHECK (status 
 	// migrations are positional: an entry inserted above a database's
 	// recorded version is silently skipped.
 	invoicingMigrationSQL,
+	// DESIGN.md §9 — the customer account ledger, payment allocation, credit
+	// notes, the tax profile, the collections schedule and the platform
+	// suspension trail. Appended at the very END: migrations are positional.
+	collectionsMigrationSQL,
 }
 
 // MigrationPAYGPlatformBooks is the schema_migrations version of the

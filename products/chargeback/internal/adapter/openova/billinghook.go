@@ -82,6 +82,13 @@ func (b *BillingHook) RequestSettlement(ctx context.Context, req settle.Request)
 	if !applies(req.Customer) {
 		return settle.Result{Outcome: settle.NotApplicable, Gateway: "billing", Detail: "only a billed Organization collected through the stripe gateway is debited through billing"}, nil
 	}
+	if req.IsCheckout() {
+		// The metering endpoint DEBITS an Organization's credit for an issued
+		// statement; a checkout (a top-up) is a CREDIT the billing service
+		// takes on its own checkout page, not here. Answering not-applicable
+		// leaves the intent awaiting the gateway's own confirmation.
+		return settle.Result{Outcome: settle.NotApplicable, Gateway: "billing", Detail: "the billing hook debits issued statements; a checkout is collected on the billing service's own checkout page"}, nil
+	}
 	if err := b.StatementIssued(ctx, req.Statement, req.Customer); err != nil {
 		return settle.Result{Outcome: settle.NotApplicable, Gateway: "billing"}, err
 	}

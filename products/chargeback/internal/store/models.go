@@ -168,9 +168,36 @@ type Customer struct {
 	// ExternalAccountID is this customer's account in the operator's own
 	// billing system (a TMF666 billing account id). Used only when the
 	// Sovereign's commercial provider is external (DESIGN.md §8.10).
-	ExternalAccountID string    `json:"external_account_id,omitempty"`
-	CreatedAt         time.Time `json:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at"`
+	ExternalAccountID string `json:"external_account_id,omitempty"`
+
+	// The tax profile (DESIGN.md §9.4): the customer's registration number,
+	// an exemption with its reason, and an optional rate overriding the
+	// Sovereign default (nil = the default). An issued invoice snapshots
+	// these; changing them afterwards changes the NEXT invoice only.
+	TaxRegistrationNumber string   `json:"tax_registration_number,omitempty"`
+	TaxExempt             bool     `json:"tax_exempt"`
+	TaxExemptReason       string   `json:"tax_exempt_reason,omitempty"`
+	TaxRate               *Decimal `json:"tax_rate,omitempty"`
+	// Account credit (DESIGN.md §9.5). AutoApplyCredit applies available
+	// credit to every invoice at issue; LowBalanceThreshold and
+	// SuspendAtZero are what payment_model = prepaid adds: an alert when the
+	// balance falls below the threshold (nil = off) and a platform
+	// suspension when it reaches zero.
+	AutoApplyCredit     bool     `json:"auto_apply_credit"`
+	LowBalanceThreshold *Decimal `json:"low_balance_threshold,omitempty"`
+	SuspendAtZero       bool     `json:"suspend_at_zero"`
+	// PlatformSuspendedAt is set while this product has the Organization
+	// suspended at the platform (DESIGN.md §9.7), with why and by which
+	// path — collections, wallet, operator, or an imported command.
+	PlatformSuspendedAt *time.Time `json:"platform_suspended_at,omitempty"`
+	SuspensionReason    string     `json:"suspension_reason,omitempty"`
+	SuspensionSource    string     `json:"suspension_source,omitempty"`
+	// ExternalBalance is the balance the operator's billing system last
+	// reported (external mode); ours is never authoritative there.
+	ExternalBalance   *Decimal   `json:"external_balance,omitempty"`
+	ExternalBalanceAt *time.Time `json:"external_balance_at,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
 
 	// List-view aggregates.
 	SourceCount         int `json:"source_count"`
@@ -435,6 +462,16 @@ type Statement struct {
 	// payments ledger.
 	Paid    Decimal `json:"paid_total,omitempty"`
 	Balance Decimal `json:"balance,omitempty"`
+	// Credited is what credit notes took off this invoice (DESIGN.md §9.3);
+	// Balance is total − paid − credited. Computed on read like Paid.
+	Credited Decimal `json:"credited_total,omitempty"`
+	// TaxSnapshot is what the invoice carries about tax, frozen at issue:
+	// the rate applied, the customer's registration and exemption, and the
+	// seller's identity. Absent on a draft (DESIGN.md §9.4).
+	TaxSnapshot *TaxSnapshot `json:"tax_snapshot,omitempty"`
+	// CreditNotes are the notes issued against this invoice; present on the
+	// single-statement document like Payments.
+	CreditNotes []CreditNote `json:"credit_notes,omitempty"`
 	// EffectiveStatus is Status, except that a sent statement past its due
 	// date with money outstanding reads as "overdue". Derived from the clock
 	// rather than stored, so no sweeper has to keep it true.

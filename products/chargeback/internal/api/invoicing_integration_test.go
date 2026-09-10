@@ -279,8 +279,9 @@ func TestIntegrationInvoiceLifecycleOverTheAPI(t *testing.T) {
 	if len(mail.msgs) != before {
 		t.Fatalf("send must not mail unless asked: %d new messages", len(mail.msgs)-before)
 	}
-	// A sent invoice cannot be cancelled — that is a credit note, not a flip.
-	mustJSONDo(t, h, op, "POST", "/api/v1/statements/"+d.ID+"/cancel", map[string]any{"reason": "changed our mind"}, 409)
+	// A sent invoice is cancelled through a FULL CREDIT NOTE, never a status
+	// flip (DESIGN.md §9.3) — proven in account_integration_test.go, where
+	// the invoice is not needed alive afterwards as it is here.
 
 	// A part payment carries the balance and leaves the invoice open.
 	part := mustJSONDo(t, h, op, "POST", "/api/v1/statements/"+d.ID+"/payments", map[string]any{"amount": "500.000000", "paid_at": "2026-07-02", "reference": "TRF-77"}, 200)

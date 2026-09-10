@@ -13,8 +13,9 @@ import (
 //
 //	draft     → issued, cancelled
 //	issued    → sent, paid, cancelled
-//	sent      → paid, overdue
-//	overdue   → paid
+//	sent      → paid, overdue, cancelled (DESIGN.md §9.3: through a FULL
+//	             credit note, never a status flip)
+//	overdue   → paid, cancelled (same)
 //	paid      → (final)
 //	cancelled → (final)
 //
@@ -24,8 +25,8 @@ func TestLegalStatementTransitions(t *testing.T) {
 	legal := map[string][]string{
 		store.StatusDraft:     {store.StatusIssued, store.StatusCancelled},
 		store.StatusIssued:    {store.StatusSent, store.StatusPaid, store.StatusCancelled},
-		store.StatusSent:      {store.StatusPaid, store.StatusOverdue},
-		store.StatusOverdue:   {store.StatusPaid},
+		store.StatusSent:      {store.StatusPaid, store.StatusOverdue, store.StatusCancelled},
+		store.StatusOverdue:   {store.StatusPaid, store.StatusCancelled},
 		store.StatusPaid:      {},
 		store.StatusCancelled: {},
 	}

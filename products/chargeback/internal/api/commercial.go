@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	"github.com/openova-io/openova/products/chargeback/internal/commercial"
+	"github.com/openova-io/openova/products/chargeback/internal/commercial/external"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
 
@@ -26,24 +27,8 @@ import (
 // system. In external mode this is the only thing that moves a statement
 // after issue.
 func (h *Handler) importInvoiceStatus(w http.ResponseWriter, r *http.Request) {
-	if h.Importer == nil {
-		writeErr(w, http.StatusServiceUnavailable, commercial.ErrImportNotConfigured.Error())
-		return
-	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxBodyBytes))
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, "could not read the body")
-		return
-	}
-	// Verify BEFORE decoding: the signature is over the bytes as sent, and
-	// nothing unverified may reach the ledger.
-	switch err := commercial.VerifySignature(h.Importer.Secret, r.Header.Get(commercial.SignatureHeader), body); {
-	case errors.Is(err, commercial.ErrImportNotConfigured):
-		writeErr(w, http.StatusServiceUnavailable, err.Error())
-		return
-	case err != nil:
-		slog.Warn("commercial import: rejected", "remote", r.RemoteAddr, "error", err)
-		writeErr(w, http.StatusUnauthorized, err.Error())
+	body, ok := h.verifiedImport(w, r)
+	if !ok {
 		return
 	}
 	var in commercial.InvoiceStatusImport
@@ -65,6 +50,110 @@ func (h *Handler) importInvoiceStatus(w http.ResponseWriter, r *http.Request) {
 		"status": st.Status, "paid_total": st.Paid, "balance": st.Balance,
 	})
 	writeJSON(w, http.StatusOK, st)
+}
+
+// verifiedImport reads the raw body and verifies its signature BEFORE it is
+// decoded: the signature is over the bytes as sent, and nothing unverified
+// may reach the ledger. Shared by the whole webhook family.
+func (h *Handler) verifiedImport(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
+	if h.Importer == nil {
+		writeErr(w, http.StatusServiceUnavailable, commercial.ErrImportNotConfigured.Error())
+		return nil, false
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxBodyBytes))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "could not read the body")
+		return nil, false
+	}
+	switch err := commercial.VerifySignature(h.Importer.Secret, r.Header.Get(commercial.SignatureHeader), body); {
+	case errors.Is(err, commercial.ErrImportNotConfigured):
+		writeErr(w, http.StatusServiceUnavailable, err.Error())
+		return nil, false
+	case err != nil:
+		slog.Warn("commercial import: rejected", "remote", r.RemoteAddr, "path", r.URL.Path, "error", err)
+		writeErr(w, http.StatusUnauthorized, err.Error())
+		return nil, false
+	}
+	return body, true
+}
+
+// importPaymentStatus — POST /commercial/import/payment-status (TMF676): a
+// payment the billing system took, against an exported invoice or as credit
+// on the account.
+func (h *Handler) importPaymentStatus(w http.ResponseWriter, r *http.Request) {
+	body, ok := h.verifiedImport(w, r)
+	if !ok {
+		return
+	}
+	var in external.PaymentStatus
+	if err := json.Unmarshal(body, &in); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body: "+err.Error())
+		return
+	}
+	p, err := h.Importer.ApplyPaymentStatus(r.Context(), in, "billing-system")
+	switch {
+	case errors.Is(err, store.ErrInvalid):
+		writeErr(w, http.StatusBadRequest, invalidMessage(err))
+		return
+	case err != nil:
+		storeErr(w, err)
+		return
+	}
+	h.audit(r, &p.CustomerID, "commercial.import.payment-status", map[string]any{"payment_id": p.ID, "amount": p.Amount, "status": p.Status, "reference": p.Reference, "allocated": p.Allocated, "unallocated": p.Unallocated})
+	writeJSON(w, http.StatusOK, p)
+}
+
+// importAccountBalance — POST /commercial/import/account-balance (TMF666).
+func (h *Handler) importAccountBalance(w http.ResponseWriter, r *http.Request) {
+	body, ok := h.verifiedImport(w, r)
+	if !ok {
+		return
+	}
+	var in external.AccountBalanceImport
+	if err := json.Unmarshal(body, &in); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body: "+err.Error())
+		return
+	}
+	c, err := h.Importer.ApplyAccountBalance(r.Context(), in)
+	switch {
+	case errors.Is(err, store.ErrInvalid):
+		writeErr(w, http.StatusBadRequest, invalidMessage(err))
+		return
+	case err != nil:
+		storeErr(w, err)
+		return
+	}
+	h.audit(r, &c.ID, "commercial.import.account-balance", map[string]any{"external_balance": c.ExternalBalance, "as_of": c.ExternalBalanceAt})
+	writeJSON(w, http.StatusOK, c)
+}
+
+// importEnforcement — POST /commercial/import/enforcement: the EXPLICIT
+// suspend / resume command (DESIGN.md §9.7). Never inferred from a payment
+// status; executed here, decided there.
+func (h *Handler) importEnforcement(w http.ResponseWriter, r *http.Request) {
+	body, ok := h.verifiedImport(w, r)
+	if !ok {
+		return
+	}
+	var in external.Enforcement
+	if err := json.Unmarshal(body, &in); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body: "+err.Error())
+		return
+	}
+	rec, err := h.Importer.ApplyEnforcement(r.Context(), in, "billing-system")
+	switch {
+	case errors.Is(err, store.ErrInvalid):
+		writeErr(w, http.StatusBadRequest, invalidMessage(err))
+		return
+	case err != nil && rec.ID == 0:
+		storeErr(w, err)
+		return
+	}
+	status := http.StatusOK
+	if err != nil {
+		status = http.StatusBadGateway
+	}
+	writeJSON(w, status, rec)
 }
 
 // listOutbox shows what is queued for the operator's billing system, and why

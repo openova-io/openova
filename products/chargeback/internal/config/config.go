@@ -52,6 +52,17 @@ type Config struct {
 	// endpoint answers 503 rather than accepting an unauthenticated write.
 	CommercialExportDir    string
 	CommercialImportSecret string
+	// CommercialImportDir is the polling fallback of the import webhooks
+	// (DESIGN.md §9.1): a directory the billing system drops command files
+	// in. Unset ⇒ no poller.
+	CommercialImportDir string
+
+	// PlatformAPIURL and PlatformAPIToken reach the sovereign-admin API's
+	// operator-only Organization suspend / resume routes (DESIGN.md §9.7).
+	// Unset ⇒ a suspension flips the customer here and is recorded as not
+	// executed at the platform.
+	PlatformAPIURL   string
+	PlatformAPIToken string
 
 	// TrustedForwardAuthHeader is the request header carrying an identity
 	// already verified by the Sovereign's OIDC gate. oauth2-proxy passes the
@@ -96,6 +107,9 @@ func FromEnv() (Config, error) {
 		BillingHookToken:       strings.TrimSpace(os.Getenv("BILLING_HOOK_TOKEN")),
 		CommercialExportDir:    strings.TrimSpace(os.Getenv("COMMERCIAL_EXPORT_DIR")),
 		CommercialImportSecret: strings.TrimSpace(os.Getenv("COMMERCIAL_IMPORT_SECRET")),
+		CommercialImportDir:    strings.TrimSpace(os.Getenv("COMMERCIAL_IMPORT_DIR")),
+		PlatformAPIURL:         strings.TrimRight(strings.TrimSpace(os.Getenv("PLATFORM_API_URL")), "/"),
+		PlatformAPIToken:       strings.TrimSpace(os.Getenv("PLATFORM_API_TOKEN")),
 		TrustedForwardAuthHeader: http.CanonicalHeaderKey(
 			strings.TrimSpace(os.Getenv("TRUSTED_FORWARD_AUTH_HEADER"))),
 	}
