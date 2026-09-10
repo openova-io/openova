@@ -20,9 +20,10 @@ never moves, and the swap is written down: old clause, new clause, ground, date.
 
 The replacements are not filler. They test what the platform ACTUALLY does now
 and mostly nobody was testing it, because the slots were frozen against a dead
-migration -- the #4292 tier gate (free/S Organizations back onto a host
-namespace, M+ get a dedicated Org vCluster) has been shipping untested this
-whole time.
+migration -- the per-Organization vCluster boundary (every Organization on
+every plan gets a dedicated Org vCluster since 2026-09-10; until then a #4292
+tier gate kept free/S Organizations on a bare host namespace) had been shipping
+untested this whole time.
 
 SWAPS HOLDS THE BATCH BEING APPLIED, NOT THE HISTORY. Re-running a previous
 batch would reset rows that have since been WALKED on their replacement clause

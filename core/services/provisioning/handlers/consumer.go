@@ -343,23 +343,19 @@ func (h *Handler) waitAndFinalizeInstall(ctx context.Context, data appChangeData
 	h.markJobStep(ctx, job, 1, "running", "")
 	// #4290: org-controller-owned `<slug>` host namespace (single boundary).
 	hostNS := data.TenantSlug
-	// #4297 TIER GATE — vcluster tiers (M+) sync app pods up to the host ns
-	// with the `-x-apps-x-vcluster` suffix; host tiers (free/S) run them with
-	// native names in the host ns. Match the right shape.
-	//
-	// #4293 MAJOR-3 — resolve the tier AUTHORITATIVELY off the Organization CR
-	// (immune to a transient catalog blip) so the pod-name matcher tracks the
-	// boundary the manifests were actually committed against, not a catalog-miss
-	// "s" downgrade. (This wait is for the matcher only; the manifests were
-	// already committed authoritatively by applyTenantChange, which fails-closed.)
-	planSlug, _ := h.resolveTenantPlanSlug(ctx, data.TenantSlug, data.PlanID)
-	isVcluster := gitops.BoundaryIsVcluster(planSlug)
+	// Every Organization's apps run inside its vCluster (#4292) and surface on
+	// the host ns as synced `<pod>-x-<slug>-x-vcluster` pods — the one shape
+	// appPodNameMatches accepts. The plan is not consulted here: it used to
+	// pick between a synced and a native pod-name shape, and the native arm no
+	// longer exists. (The manifests were already committed authoritatively by
+	// applyTenantChange, which still resolves the plan for QoS and fails
+	// closed on a guess.)
 	waitSlugs := data.DeploySlugs
 	if len(waitSlugs) == 0 {
 		waitSlugs = []string{data.AppSlug}
 	}
 	for _, slug := range waitSlugs {
-		if err := h.waitForVclusterApp(ctx, hostNS, slug, 10*time.Minute, isVcluster); err != nil {
+		if err := h.waitForVclusterApp(ctx, hostNS, slug, 10*time.Minute); err != nil {
 			if ctx.Err() != nil {
 				slog.Warn("day-2 install: wait canceled — tenant delete preempted",
 					"tenant", data.TenantSlug, "app", slug, "job_id", job.ID)
@@ -471,12 +467,12 @@ func (h *Handler) waitAndFinalizeUninstall(ctx context.Context, data appChangeDa
 	h.markJobStep(ctx, job, 1, "running", "")
 	// #4290: org-controller-owned `<slug>` host namespace (single boundary).
 	hostNS := data.TenantSlug
-	// #4293 MINOR-4 — tier-gate the uninstall wait so a host-tier (native pod
-	// name) Org isn't reported "gone" while its pod is still Terminating.
-	// Authoritative tier off the Organization CR (immune to a catalog blip).
-	planSlug, _ := h.resolveTenantPlanSlug(ctx, data.TenantSlug, data.PlanID)
-	isVcluster := gitops.BoundaryIsVcluster(planSlug)
-	if err := h.waitForVclusterAppGone(ctx, hostNS, data.AppSlug, 5*time.Minute, isVcluster); err != nil {
+	// The uninstall wait matches the same synced pod shape as the install wait
+	// (every Organization is vCluster-backed, #4292), so "gone" means the
+	// synced pod has left the host ns — never a first-poll false positive on a
+	// shape the matcher could not see (the #4293 MINOR-4 defect, which the
+	// former per-plan gate existed to fix and which the single shape closes).
+	if err := h.waitForVclusterAppGone(ctx, hostNS, data.AppSlug, 5*time.Minute); err != nil {
 		if ctx.Err() != nil {
 			slog.Warn("day-2 uninstall: wait canceled — tenant delete preempted",
 				"tenant", data.TenantSlug, "app", data.AppSlug, "job_id", job.ID)
@@ -573,18 +569,21 @@ func (h *Handler) applyTenantChange(ctx context.Context, data appChangeData, act
 		return fmt.Errorf("manifest generator not configured")
 	}
 
-	// #4293 MAJOR-3 — fail-CLOSED tier resolution on the day-2 re-generation
+	// #4293 MAJOR-3 — fail-CLOSED plan resolution on the day-2 re-generation
 	// path. resolvePlanSlug returns "s" on ANY transient catalog failure; if
-	// that fired here for a paid (M+) Org we'd re-emit apps-sync WITHOUT
-	// kubeConfig (host tier) and Flux would RE-ROUTE the apps from the vcluster
-	// into the host `<slug>` ns, orphaning the in-vcluster copy. resolveTenantPlanSlug
-	// reads the AUTHORITATIVE `spec.planSlug` off the Organization CR first
-	// (immune to a catalog blip); ok=false means it could only guess (catalog
-	// unreachable AND no CR planSlug) — in that case ABORT the day-2 change so
-	// the job retries rather than silently downgrading the boundary.
+	// that fired here for a paid (M+) Org we'd re-emit every app Deployment
+	// with the S plan's QoS class (qosResources) — a silent resource downgrade
+	// of a customer who paid for more. (The plan no longer selects the
+	// boundary: every Organization is vCluster-backed, #4292, so a wrong slug
+	// can no longer re-route apps out of the vcluster — but it can still
+	// shrink them.) resolveTenantPlanSlug reads the AUTHORITATIVE
+	// `spec.planSlug` off the Organization CR first (immune to a catalog
+	// blip); ok=false means it could only guess (catalog unreachable AND no CR
+	// planSlug) — in that case ABORT the day-2 change so the job retries
+	// rather than silently downgrading the QoS class.
 	planSlug, authoritative := h.resolveTenantPlanSlug(ctx, data.TenantSlug, data.PlanID)
 	if !authoritative {
-		return fmt.Errorf("day-2 %s aborted: could not authoritatively resolve plan tier for tenant %q (catalog unreachable + no persisted Organization.spec.planSlug) — refusing to re-generate manifests that could re-route apps to the wrong boundary (#4293 MAJOR-3); will retry", action, data.TenantSlug)
+		return fmt.Errorf("day-2 %s aborted: could not authoritatively resolve plan slug for tenant %q (catalog unreachable + no persisted Organization.spec.planSlug) — refusing to re-generate manifests against a guessed QoS class (#4293 MAJOR-3); will retry", action, data.TenantSlug)
 	}
 	appSlugs := h.resolveAppSlugs(ctx, data.Apps)
 
@@ -749,12 +748,12 @@ func (h *Handler) applyTenantChangePerOrg(ctx context.Context, data appChangeDat
 		// baseline. Empty existing → MergePerOrgAppsKustomization seeds the
 		// baseline + the current docs.
 		//
-		// #5104 — the merge is plan-aware AND tree-derived: it force-includes the
-		// org-controller baseline for this plan (networkpolicy.yaml; plus the #4992
-		// vcluster target-ns namespace.yaml for the vcluster tier) and every
-		// baseline-shaped doc ACTUALLY committed under vcluster/apps/ (best-effort
-		// dir listing — nil on error, the plan-aware list still covers the known
-		// docs). Before this, the merge knew only networkpolicy.yaml, so the funnel
+		// #5104 — the merge is baseline-aware AND tree-derived: it force-includes
+		// the org-controller baseline (networkpolicy.yaml + the #4992 vcluster
+		// target-ns namespace.yaml — every Organization is vCluster-backed,
+		// #4292) and every baseline-shaped doc ACTUALLY committed under
+		// vcluster/apps/ (best-effort dir listing — nil on error, the static list
+		// still covers the known docs). Before this, the merge knew only networkpolicy.yaml, so the funnel
 		// index dropped namespace.yaml → the target ns never existed inside the
 		// vcluster → the apps Flux Kustomization wedged on `namespaces "<slug>"
 		// not found` and the purchased app never deployed (2/2 Orgs, hw255).
@@ -771,39 +770,39 @@ func (h *Handler) applyTenantChangePerOrg(ctx context.Context, data appChangeDat
 			// Rebuild from the baseline + the SURVIVING app docs only, so the
 			// removed app is dropped from resources (a plain merge would preserve
 			// it because it's still listed in the existing kustomization).
-			appFiles[kustPath] = gitops.MergePerOrgAppsKustomization("", planSlug, appsTreeDocs, appDocs)
+			appFiles[kustPath] = gitops.MergePerOrgAppsKustomization("", appsTreeDocs, appDocs)
 		} else {
-			appFiles[kustPath] = gitops.MergePerOrgAppsKustomization(existingKust, planSlug, appsTreeDocs, appDocs)
+			appFiles[kustPath] = gitops.MergePerOrgAppsKustomization(existingKust, appsTreeDocs, appDocs)
 		}
 
-		// #4993 — for the VCLUSTER tier, also emit the HOST-NATIVE per-app HTTPRoutes
-		// into vcluster/host-apps/. The app's own HTTPRoute is co-located INSIDE the
-		// vcluster (apps tree, kubeConfig-targeted) but loft vcluster 0.33.4 registers
-		// no httproute reflecting controller, so it never reaches the host Cilium
-		// Gateway → 404 with pods Running. The host-native route binds the SYNCED
-		// Service (<app>-x-<slug>-x-vcluster) on the host `<slug>` ns directly — the
-		// same host-native model the per-Org console route uses. The org-controller
-		// SEEDS vcluster/host-apps/kustomization.yaml once and never clobbers it, so
-		// merge our route docs in (preserving the CNP + provisioning-rbac baseline),
-		// exactly as the apps kustomization above. Host-tier Orgs route via the
-		// co-located generateAppHTTPRoute (plain Service in the host ns), so
-		// GeneratePerOrgHostAppRoutes returns nothing and this block is a no-op.
-		if gitops.BoundaryIsVcluster(planSlug) {
-			hostRouteFiles, hostAppDocs := gen.GeneratePerOrgHostAppRoutes(slug, planSlug, appSlugs)
+		// #4993 — for EVERY Organization (#4292), also emit the HOST-NATIVE per-app
+		// HTTPRoutes into vcluster/host-apps/. The app's own HTTPRoute is co-located
+		// INSIDE the vcluster (apps tree, kubeConfig-targeted) but loft vcluster
+		// 0.33.4 registers no httproute reflecting controller, so it never reaches
+		// the host Cilium Gateway → 404 with pods Running. The host-native route
+		// binds the SYNCED Service (<app>-x-<slug>-x-vcluster) on the host `<slug>`
+		// ns directly — the same host-native model the per-Org console route uses.
+		// The org-controller SEEDS vcluster/host-apps/kustomization.yaml once and
+		// never clobbers it, so merge our route docs in (preserving the CNP +
+		// provisioning-rbac baseline), exactly as the apps kustomization above.
+		// This block used to be gated on the plan; there is no plan whose apps
+		// run natively in the host ns any more, so it runs for every Org.
+		{
+			hostRouteFiles, hostAppDocs := gen.GeneratePerOrgHostAppRoutes(slug, appSlugs)
 			for p, c := range hostRouteFiles {
 				appFiles[p] = c
 			}
-			// #5423 — on this tier GeneratePerOrgAppsTree has already re-rooted
-			// the HelmRelease-shaped app files (openclaw / stalwart-mail /
-			// newapi) into vcluster/host-apps/, because the apps Kustomization
-			// is kubeConfig-targeted at the Org vcluster, which registers no
-			// Flux CRDs — a HelmRelease doc there fails dry-run and Flux aborts
-			// the ENTIRE Kustomization, so the customer's plain Deployment app
-			// and its DB never applied either (hw290 rows 86/90/233/234).
-			// Index them here so kustomize actually builds them; on uninstall
-			// the rebuilt list carries only the surviving HR apps, which prunes
+			// #5423 — GeneratePerOrgAppsTree has already re-rooted the
+			// HelmRelease-shaped app files (openclaw / stalwart-mail / newapi)
+			// into vcluster/host-apps/, because the apps Kustomization is
+			// kubeConfig-targeted at the Org vcluster, which registers no Flux
+			// CRDs — a HelmRelease doc there fails dry-run and Flux aborts the
+			// ENTIRE Kustomization, so the customer's plain Deployment app and
+			// its DB never applied either (hw290 rows 86/90/233/234). Index
+			// them here so kustomize actually builds them; on uninstall the
+			// rebuilt list carries only the surviving HR apps, which prunes
 			// the removed one exactly like the route docs above.
-			hostAppDocs = append(hostAppDocs, gitops.PerOrgHostHelmReleaseAppDocs(planSlug, appSlugs)...)
+			hostAppDocs = append(hostAppDocs, gitops.PerOrgHostHelmReleaseAppDocs(appSlugs)...)
 			hostKustPath := gitops.PerOrgHostAppsDir + "/kustomization.yaml"
 			existingHostKust := ""
 			if content, err := repoClient.ReadFile(ctx, branch, hostKustPath); err == nil {
@@ -924,15 +923,13 @@ func (h *Handler) readExistingDBPassword(ctx context.Context, tenantSlug string)
 // waitForVclusterAppGone is the inverse of waitForVclusterApp — it waits
 // until no pod matching the app slug exists in the host namespace.
 //
-// #4293 MINOR-4 — TIER-GATED. The keystone tier-gated the install wait
-// (waitForVclusterApp via appPodNameMatches) but left this uninstall wait
-// hardcoded to the vcluster syncer suffix `-x-apps-x-vcluster`. For a host-tier
-// (free/S) Org the app pod has a NATIVE name (no suffix), so the hardcoded
-// matcher never found it → the "no matching pod" branch returned success on the
-// first poll, reporting "gone" while the native pod was still Terminating. Thread
-// isVcluster + reuse appPodNameMatches so both tiers wait on the right shape,
-// mirroring the install side.
-func (h *Handler) waitForVclusterAppGone(ctx context.Context, namespace, appSlug string, timeout time.Duration, isVcluster bool) error {
+// It reuses appPodNameMatches so the install and uninstall waits agree on
+// what an Organization app pod looks like: the synced
+// `<pod>-x-<slug>-x-vcluster` shape, for every plan (#4292). #4293 MINOR-4
+// was this wait hardcoding a different literal than the install side and
+// reporting "gone" on the first poll for a pod it simply could not see; one
+// shared matcher is what prevents that class of drift.
+func (h *Handler) waitForVclusterAppGone(ctx context.Context, namespace, appSlug string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		body, err := h.k8sGet(fmt.Sprintf("/api/v1/namespaces/%s/pods", namespace))
@@ -947,7 +944,7 @@ func (h *Handler) waitForVclusterAppGone(ctx context.Context, namespace, appSlug
 			found := false
 			if jerr := json.Unmarshal(body, &podList); jerr == nil {
 				for _, pod := range podList.Items {
-					if appPodNameMatches(pod.Metadata.Name, appSlug, isVcluster) {
+					if appPodNameMatches(pod.Metadata.Name, appSlug) {
 						found = true
 						break
 					}
@@ -1504,14 +1501,13 @@ func (h *Handler) runProvisioningWorkflow(provisionID, tenantID, subdomain, plan
 	// `tenant-<slug>`. The vCluster pods sync up into `<slug>`; every wait /
 	// pod-status / TLS poll below targets it.
 	hostNS := subdomain
-	// #4297 TIER GATE (keystone of EPIC #4293) — paid M+ Orgs get a dedicated
-	// vCluster (the apps are reconciled INTO it via the apps-sync Kustomization's
-	// kubeConfig); free/S Orgs have NO vcluster, so the apps land directly in the
-	// host `<slug>` ns. The vcluster-HR wait, the DNS-sync kick, and the
-	// kubeconfig mirror below are ALL vcluster-only — running them for a host-tier
-	// Org would block forever (no `vcluster` HelmRelease, no `vc-vcluster` secret
-	// ever appears). Gate every vcluster-specific step on this predicate.
-	isVcluster := gitops.BoundaryIsVcluster(planSlug)
+	// Every Organization on every plan gets a dedicated vCluster (#4292,
+	// founder 2026-09-10); the org-controller renders the `vcluster`
+	// HelmRelease for all of them and the apps are reconciled INTO it via the
+	// apps-sync Kustomization's kubeConfig. So the vcluster-HR wait, the
+	// DNS-sync kick and the kubeconfig mirror below run for every Org — the
+	// former per-plan arm that completed this step immediately is gone, and
+	// the plan is consulted only by the manifest generator for QoS.
 	stepIdx := 0
 
 	// --- Step: Generate manifests ---
@@ -1618,54 +1614,44 @@ func (h *Handler) runProvisioningWorkflow(provisionID, tenantID, subdomain, plan
 	}
 
 	// --- Step: Wait for vCluster HelmRelease Ready ---
-	// #4297 TIER GATE — vcluster-only. The "Provisioning vCluster" step stays in
-	// the timeline for BOTH tiers (step indices must stay stable), but for the
-	// HOST tier (free/S — no vcluster) there is no `vcluster` HelmRelease, no
-	// syncer DNS to kick, and no `vc-vcluster` kubeconfig to mirror. Running any
-	// of those waits would block the host-tier provision forever. So host-tier
-	// completes this step immediately with an explanatory message and lets the
-	// apps-sync Kustomization reconcile the apps straight into the host `<slug>`
-	// ns (no kubeConfig — see generateAppsSyncKustomization).
+	// Runs for every Organization (#4292): the org-controller renders the
+	// `vcluster` HelmRelease for every plan, so the HR wait, the syncer DNS
+	// kick and the `vc-vcluster` kubeconfig mirror always have something to
+	// wait on. (The former per-plan gate completed this step immediately for
+	// s/free/"" because those Orgs had no vcluster; that arm no longer exists.)
 	vcStepIdx := stepIdx
 	h.markStep(ctx, provisionID, vcStepIdx, prov.Steps[vcStepIdx].Name, "running")
-	if isVcluster {
-		if err := h.waitForHelmRelease(ctx, hostNS, "vcluster", 10*time.Minute); err != nil {
-			h.failStep(ctx, provisionID, tenantID, vcStepIdx, prov.Steps[vcStepIdx].Name, err.Error())
-			h.failProvision(ctx, provisionID, tenantID, vcStepIdx, fmt.Sprintf("vcluster not ready: %s", err))
-			return
-		}
-		// HelmRelease Ready only guarantees vcluster-0 is up; the syncer's initial
-		// DNS reconciliation is racy and sometimes leaves kube-dns-x-kube-system-x-
-		// vcluster absent from the host NS. Without that service, app pods inside
-		// the vcluster can't resolve DNS and stay Pending for their full 10-min
-		// wait. Issue #103. Observed on tenant e2e90689b today — gitea + vaultwarden
-		// timed out as a side effect. Gate the next step on DNS being synced and
-		// bounce vcluster-0 once if it doesn't appear, before letting app installs
-		// dispatch.
-		if err := h.waitForVclusterDNSOrKick(ctx, hostNS); err != nil {
-			slog.Warn("vcluster DNS did not sync after kick — proceeding anyway",
-				"ns", hostNS, "error", err)
-			// Don't fail provisioning: apps might still come up if DNS syncs late,
-			// and a hard fail here would strand the tenant. We've done what we can.
-		}
-		// Mirror the vCluster kubeconfig into flux-system so the per-tenant Flux
-		// Kustomization CR (which now lives in flux-system — see issue #97) can
-		// resolve its spec.kubeConfig.secretRef. Without this mirror the CR
-		// reconciles into "secret not found" and tenant apps never deploy.
-		if err := h.mirrorVClusterKubeconfig(ctx, subdomain); err != nil {
-			slog.Error("failed to mirror vcluster kubeconfig", "tenant", subdomain, "error", err)
-			h.failStep(ctx, provisionID, tenantID, vcStepIdx, prov.Steps[vcStepIdx].Name, err.Error())
-			h.failProvision(ctx, provisionID, tenantID, vcStepIdx,
-				fmt.Sprintf("mirror kubeconfig to flux-system: %s", err))
-			return
-		}
-		h.completeStep(ctx, provisionID, tenantID, vcStepIdx, prov.Steps[vcStepIdx].Name, totalSteps)
-	} else {
-		slog.Info("host-tier Org (no vCluster) — skipping vcluster HR wait / DNS kick / kubeconfig mirror; apps reconcile into the host namespace",
-			"tenant", subdomain, "plan", planSlug, "ns", hostNS)
-		h.completeStepWithMessage(ctx, provisionID, tenantID, vcStepIdx, prov.Steps[vcStepIdx].Name, totalSteps,
-			"host-tier plan — apps run directly in the Org namespace (no dedicated vCluster)")
+	if err := h.waitForHelmRelease(ctx, hostNS, "vcluster", 10*time.Minute); err != nil {
+		h.failStep(ctx, provisionID, tenantID, vcStepIdx, prov.Steps[vcStepIdx].Name, err.Error())
+		h.failProvision(ctx, provisionID, tenantID, vcStepIdx, fmt.Sprintf("vcluster not ready: %s", err))
+		return
 	}
+	// HelmRelease Ready only guarantees vcluster-0 is up; the syncer's initial
+	// DNS reconciliation is racy and sometimes leaves kube-dns-x-kube-system-x-
+	// vcluster absent from the host NS. Without that service, app pods inside
+	// the vcluster can't resolve DNS and stay Pending for their full 10-min
+	// wait. Issue #103. Observed on tenant e2e90689b today — gitea + vaultwarden
+	// timed out as a side effect. Gate the next step on DNS being synced and
+	// bounce vcluster-0 once if it doesn't appear, before letting app installs
+	// dispatch.
+	if err := h.waitForVclusterDNSOrKick(ctx, hostNS); err != nil {
+		slog.Warn("vcluster DNS did not sync after kick — proceeding anyway",
+			"ns", hostNS, "error", err)
+		// Don't fail provisioning: apps might still come up if DNS syncs late,
+		// and a hard fail here would strand the tenant. We've done what we can.
+	}
+	// Mirror the vCluster kubeconfig into flux-system so the per-tenant Flux
+	// Kustomization CR (which now lives in flux-system — see issue #97) can
+	// resolve its spec.kubeConfig.secretRef. Without this mirror the CR
+	// reconciles into "secret not found" and tenant apps never deploy.
+	if err := h.mirrorVClusterKubeconfig(ctx, subdomain); err != nil {
+		slog.Error("failed to mirror vcluster kubeconfig", "tenant", subdomain, "error", err)
+		h.failStep(ctx, provisionID, tenantID, vcStepIdx, prov.Steps[vcStepIdx].Name, err.Error())
+		h.failProvision(ctx, provisionID, tenantID, vcStepIdx,
+			fmt.Sprintf("mirror kubeconfig to flux-system: %s", err))
+		return
+	}
+	h.completeStep(ctx, provisionID, tenantID, vcStepIdx, prov.Steps[vcStepIdx].Name, totalSteps)
 	stepIdx++
 
 	// --- Steps: Parallel dependency installs ---
@@ -1684,7 +1670,7 @@ func (h *Handler) runProvisioningWorkflow(provisionID, tenantID, subdomain, plan
 			depWG.Add(1)
 			go func(depSlug, stepName string, stepIdx int) {
 				defer depWG.Done()
-				if err := h.waitForVclusterApp(ctx, hostNS, depSlug, 10*time.Minute, isVcluster); err != nil {
+				if err := h.waitForVclusterApp(ctx, hostNS, depSlug, 10*time.Minute); err != nil {
 					depFailed.Store(true)
 					h.failStep(ctx, provisionID, tenantID, stepIdx, stepName, err.Error())
 					return
@@ -1714,7 +1700,7 @@ func (h *Handler) runProvisioningWorkflow(provisionID, tenantID, subdomain, plan
 		wg.Add(1)
 		go func(appSlug, stepName string, stepIdx int) {
 			defer wg.Done()
-			if err := h.waitForVclusterApp(ctx, hostNS, appSlug, 10*time.Minute, isVcluster); err != nil {
+			if err := h.waitForVclusterApp(ctx, hostNS, appSlug, 10*time.Minute); err != nil {
 				failed.Store(true)
 				h.failStep(ctx, provisionID, tenantID, stepIdx, stepName, err.Error())
 				return

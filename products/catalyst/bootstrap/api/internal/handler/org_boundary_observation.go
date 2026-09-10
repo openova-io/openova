@@ -51,15 +51,17 @@ const (
 )
 
 // boundaryPhaseFromCR derives the observed boundary phase from an
-// Organization CR. Both tiers are covered by the SAME read, because the
-// org-controller reports them differently (#5489):
+// Organization CR. Both boundary shapes are covered by the SAME read, because
+// the org-controller reports them differently (#5489):
 //
-//   - vcluster tier (plan m/l/xl/flexi): `status.vcluster.phase` carries the
+//   - vCluster-backed (every Organization authored now — orgIsolation, on
+//     every plan and for both kinds): `status.vcluster.phase` carries the
 //     ladder — the controller only stamps that block when it actually
 //     authors a vCluster.
-//   - host-namespace tier (internal, plan ""/s/free): NO vcluster block is
-//     ever written, so readiness is the top-level Ready condition the
-//     controller stamps once the `<slug>` namespace exists.
+//   - host-namespace-backed (Organizations authored before every plan became
+//     vCluster-backed): NO vcluster block was ever written, so readiness is
+//     the top-level Ready condition the controller stamps once the `<slug>`
+//     namespace exists.
 //
 // Returns "" ONLY for an object that carries no status at all — an honest
 // "the controller has not observed this object yet", which is exactly what
@@ -80,7 +82,8 @@ func boundaryPhaseFromCR(obj *unstructured.Unstructured) string {
 			return boundaryPhasePending
 		}
 	}
-	// Host-namespace tier: the Ready condition is the boundary signal.
+	// Host-namespace-backed CR (authored before every plan became
+	// vCluster-backed): the Ready condition is the boundary signal.
 	conds, _, _ := unstructured.NestedSlice(obj.Object, "status", "conditions")
 	for _, c := range conds {
 		cm, ok := c.(map[string]any)

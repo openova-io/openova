@@ -1,10 +1,15 @@
 // organization_orgshape_test.go — coverage for resolveOrgShape, the
-// Organizations internal-door defaulting (issue #3378 B1) + the #4539
-// isolation-label-from-tier-gate fix. Locks the §2.1/§2.3 model: kind defaults
-// to customer (the funnel door); kind-derived billingMode default; the #4292
-// TIER GATE deriving the isolation label (free/S → namespace host-ns, M+ →
-// vcluster; internal always namespace); the advanced override; and the
-// malformed-enum fallback that keeps a bad body from stamping a nonsense shape.
+// Organizations internal-door defaulting (issue #3378 B1). Locks the §2.1/§2.3
+// model: kind defaults to customer (the funnel door); kind-derived billingMode
+// default; isolation is the ONE boundary every Organization gets — a dedicated
+// vCluster on every plan and for both kinds (orgIsolation; founder direction
+// 2026-09-10, Refs #4292 #4539 #6135); the plan normalises onto the catalog
+// and drives only the quota; and the malformed-enum fallback that keeps a bad
+// body from stamping a nonsense shape.
+//
+// The plan-keyed tier gate this file used to pin (free/S → namespace, M+ →
+// vcluster) is gone; org_isolation_every_plan_test.go sweeps the full input
+// domain. The cases here keep the per-field defaulting readable.
 package handler
 
 import "testing"
@@ -18,111 +23,97 @@ func TestResolveOrgShape(t *testing.T) {
 		{
 			// #4292: an omitted plan slug defaults to "s" (smallest paid cap),
 			// never empty — the org-controller must always materialize a quota.
-			// #4539: an S-plan customer Org backs a HOST NAMESPACE per the tier
-			// gate, so the derived isolation is "namespace" (was wrongly
-			// "vcluster" pre-#4539).
-			name: "omitted kind defaults to the customer funnel shape — S → host-ns",
+			// The boundary is a dedicated vCluster regardless of that plan.
+			name: "omitted kind defaults to the customer funnel shape — S plan, vcluster",
 			in:   orgTenantCreateRequest{},
-			want: orgShape{Kind: "customer", Tier: "org", BillingMode: "real", Isolation: "namespace", PlanSlug: "s"},
+			want: orgShape{Kind: "customer", Tier: "org", BillingMode: "real", Isolation: "vcluster", PlanSlug: "s"},
 		},
 		{
-			name: "internal door → showback + namespace (kind-derived defaults)",
+			// kind drives billing only; the boundary is the same vCluster.
+			name: "internal door → showback billing, vcluster boundary",
 			in:   orgTenantCreateRequest{Kind: "internal"},
-			want: orgShape{Kind: "internal", Tier: "org", BillingMode: "showback", Isolation: "namespace", PlanSlug: "s"},
+			want: orgShape{Kind: "internal", Tier: "org", BillingMode: "showback", Isolation: "vcluster", PlanSlug: "s"},
 		},
 		{
-			// #4539: explicit customer at the default S plan still backs host-ns.
-			name: "explicit customer at default S plan → real + host-ns",
+			name: "explicit customer at default S plan → real + vcluster",
 			in:   orgTenantCreateRequest{Kind: "customer"},
-			want: orgShape{Kind: "customer", Tier: "org", BillingMode: "real", Isolation: "namespace", PlanSlug: "s"},
+			want: orgShape{Kind: "customer", Tier: "org", BillingMode: "real", Isolation: "vcluster", PlanSlug: "s"},
 		},
 		{
-			// #4539 core assertion: an M-plan customer Org gets a dedicated
-			// vCluster per the #4292 tier gate → isolation "vcluster".
 			name: "customer M plan → dedicated vcluster",
 			in:   orgTenantCreateRequest{Kind: "customer", PlanSlug: "m"},
 			want: orgShape{Kind: "customer", Tier: "org", BillingMode: "real", Isolation: "vcluster", PlanSlug: "m"},
 		},
 		{
-			// #4539: every paid M+ tier (l/xl/flexi) is vcluster.
 			name: "customer XL plan → dedicated vcluster",
 			in:   orgTenantCreateRequest{Kind: "customer", PlanSlug: "xl"},
 			want: orgShape{Kind: "customer", Tier: "org", BillingMode: "real", Isolation: "vcluster", PlanSlug: "xl"},
 		},
 		{
-			// #4539: an explicit "free" plan is a host-ns boundary like S.
-			name: "customer free plan → host-ns",
+			// "free" is not a quota slug → planSlug falls back to "s"; the
+			// boundary does not read the plan at all.
+			name: "customer free plan → S quota, vcluster boundary",
 			in:   orgTenantCreateRequest{Kind: "customer", PlanSlug: "free"},
-			// "free" is not a quota slug → planSlug falls back to "s", but the
-			// isolation derivation runs on the resolved slug → still namespace.
-			want: orgShape{Kind: "customer", Tier: "org", BillingMode: "real", Isolation: "namespace", PlanSlug: "s"},
+			want: orgShape{Kind: "customer", Tier: "org", BillingMode: "real", Isolation: "vcluster", PlanSlug: "s"},
 		},
 		{
-			// #6135 (UAT row G7) — these two cases used to assert the OPPOSITE:
-			// that an explicit `isolation` overrides the tier gate, so an S-plan
-			// Org could be "force-put onto a vcluster". No force ever occurred.
-			// Nothing downstream reads this value — `boundaryIsVcluster(planSlug)`
-			// authors the backing from the plan alone — so the only thing the
-			// override produced was a 202 echoing `vcluster` over a host
-			// namespace (measured on hw293, dep a0077ba47e3720e5: 202 +
-			// isolation=vcluster, zero vClusters). The expectation encoded the
-			// defect. The shape now DERIVES unconditionally; a declaration that
-			// contradicts the plan is refused at the door with 422 by
-			// declaredIsolationConflict, so it never reaches this resolver.
-			name: "declared vcluster on an S plan does NOT override the tier gate",
+			// #6135 (UAT row G7) — a declaration is never an input to the
+			// resolver. `vcluster` on an S plan AGREES with the boundary every
+			// plan delivers and resolves to exactly that; the resolver would
+			// answer the same without the declaration, which is the point:
+			// ONE producer for the boundary.
+			name: "declared vcluster on an S plan resolves to vcluster (agrees, not overrides)",
 			in:   orgTenantCreateRequest{Kind: "customer", PlanSlug: "s", Isolation: "vcluster"},
-			want: orgShape{Kind: "customer", Tier: "org", BillingMode: "real", Isolation: "namespace", PlanSlug: "s"},
+			want: orgShape{Kind: "customer", Tier: "org", BillingMode: "real", Isolation: "vcluster", PlanSlug: "s"},
 		},
 		{
-			name: "declared vcluster on an internal org does NOT override the tier gate",
+			name: "declared vcluster on an internal org resolves to vcluster",
 			in:   orgTenantCreateRequest{Kind: "internal", BillingMode: "chargeback", Isolation: "vcluster"},
-			want: orgShape{Kind: "internal", Tier: "org", BillingMode: "chargeback", Isolation: "namespace", PlanSlug: "s"},
+			want: orgShape{Kind: "internal", Tier: "org", BillingMode: "chargeback", Isolation: "vcluster", PlanSlug: "s"},
 		},
 		{
-			// CONTROL for the two cases above: the declaration is not being
-			// ignored wholesale — kind still drives billingMode on the very same
-			// bodies, and an M-plan declaration of `vcluster` still resolves to
-			// vcluster. What changed is only which input decides the BOUNDARY.
-			name: "declared vcluster AGREEING with an M plan resolves to vcluster",
-			in:   orgTenantCreateRequest{Kind: "customer", PlanSlug: "m", Isolation: "vcluster"},
+			// A declared `namespace` is refused at the door with 422 by
+			// declaredIsolationConflict and never reaches this resolver in
+			// production; if it did, the resolver still answers the constant
+			// — the declaration is not honoured anywhere.
+			name: "declared namespace does NOT steer the resolver",
+			in:   orgTenantCreateRequest{Kind: "customer", PlanSlug: "m", Isolation: "namespace"},
 			want: orgShape{Kind: "customer", Tier: "org", BillingMode: "real", Isolation: "vcluster", PlanSlug: "m"},
 		},
 		{
 			name: "corporate tier honored",
 			in:   orgTenantCreateRequest{Kind: "internal", Tier: "corporate"},
-			want: orgShape{Kind: "internal", Tier: "corporate", BillingMode: "showback", Isolation: "namespace", PlanSlug: "s"},
+			want: orgShape{Kind: "internal", Tier: "corporate", BillingMode: "showback", Isolation: "vcluster", PlanSlug: "s"},
 		},
 		{
-			// #4539: case-insensitive — M plan customer derives vcluster.
-			name: "case-insensitive enum normalization (M plan → vcluster)",
+			name: "case-insensitive enum normalization (M plan)",
 			in:   orgTenantCreateRequest{Kind: "CUSTOMER", Tier: "Corporate", BillingMode: "Real", PlanSlug: "M"},
 			want: orgShape{Kind: "customer", Tier: "corporate", BillingMode: "real", Isolation: "vcluster", PlanSlug: "m"},
 		},
 		{
-			// #4539: malformed kind → customer + S default → host-ns.
-			name: "malformed kind falls back to customer S host-ns shape",
+			name: "malformed kind falls back to the customer S shape",
 			in:   orgTenantCreateRequest{Kind: "garbage"},
-			want: orgShape{Kind: "customer", Tier: "org", BillingMode: "real", Isolation: "namespace", PlanSlug: "s"},
+			want: orgShape{Kind: "customer", Tier: "org", BillingMode: "real", Isolation: "vcluster", PlanSlug: "s"},
 		},
 		{
-			// #4539: malformed billingMode/isolation fall back to the
-			// kind+tier-derived default (internal S → showback + namespace).
-			name: "malformed billingMode/isolation fall back to the derived default",
+			// malformed billingMode/tier fall back to the kind-derived default
+			// (internal → showback, tier org); a malformed isolation is inert
+			// because isolation is never read from the request.
+			name: "malformed billingMode/isolation/tier fall back to the derived default",
 			in:   orgTenantCreateRequest{Kind: "internal", BillingMode: "bogus", Isolation: "bogus", Tier: "bogus"},
-			want: orgShape{Kind: "internal", Tier: "org", BillingMode: "showback", Isolation: "namespace", PlanSlug: "s"},
+			want: orgShape{Kind: "internal", Tier: "org", BillingMode: "showback", Isolation: "vcluster", PlanSlug: "s"},
 		},
 		{
-			// #4539: malformed isolation on an M-plan customer → derived vcluster.
-			name: "malformed isolation on M-plan customer → derived vcluster",
+			name: "malformed isolation on M-plan customer → vcluster",
 			in:   orgTenantCreateRequest{Kind: "customer", PlanSlug: "m", Isolation: "bogus"},
 			want: orgShape{Kind: "customer", Tier: "org", BillingMode: "real", Isolation: "vcluster", PlanSlug: "m"},
 		},
 		{
 			// #4292: a malformed plan slug falls back to "s" so a bad body can
-			// never mint an uncapped Org; #4539: the resolved S → host-ns.
-			name: "malformed plan slug falls back to s → host-ns",
+			// never mint an uncapped Org; the boundary is unaffected.
+			name: "malformed plan slug falls back to s",
 			in:   orgTenantCreateRequest{Kind: "customer", PlanSlug: "jumbo"},
-			want: orgShape{Kind: "customer", Tier: "org", BillingMode: "real", Isolation: "namespace", PlanSlug: "s"},
+			want: orgShape{Kind: "customer", Tier: "org", BillingMode: "real", Isolation: "vcluster", PlanSlug: "s"},
 		},
 	}
 
@@ -131,40 +122,6 @@ func TestResolveOrgShape(t *testing.T) {
 			got := resolveOrgShape(tc.in)
 			if got != tc.want {
 				t.Fatalf("resolveOrgShape(%+v) = %+v, want %+v", tc.in, got, tc.want)
-			}
-		})
-	}
-}
-
-// TestIsolationForTier locks the #4539 tier-gate derivation directly — the
-// single helper both the BSS create path (resolveOrgShape) and the CR read path
-// (orgCRToResponse) call so the displayed isolation label always matches the
-// actual backing the org-controller authors (gitops.boundaryIsVcluster).
-//
-// The `internal M → host-ns` case that used to sit in this table is GONE, and
-// its removal is the point: see TestIsolationForTier_IgnoresKind in
-// tier_gate_lockstep_4292_test.go for why an internal Org on a paid plan is
-// vcluster-backed like any other.
-func TestIsolationForTier(t *testing.T) {
-	tests := []struct {
-		name     string
-		planSlug string
-		want     string
-	}{
-		{"empty plan → host-ns", "", "namespace"},
-		{"S → host-ns", "s", "namespace"},
-		{"free → host-ns", "free", "namespace"},
-		{"M → vcluster", "m", "vcluster"},
-		{"L → vcluster", "l", "vcluster"},
-		{"XL → vcluster", "xl", "vcluster"},
-		{"flexi → vcluster", "flexi", "vcluster"},
-		{"case-insensitive M → vcluster", "M", "vcluster"},
-		{"whitespace tolerated", "  m  ", "vcluster"},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := isolationForTier(tc.planSlug); got != tc.want {
-				t.Fatalf("isolationForTier(%q) = %q, want %q", tc.planSlug, got, tc.want)
 			}
 		})
 	}

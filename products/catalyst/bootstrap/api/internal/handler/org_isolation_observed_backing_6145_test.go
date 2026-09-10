@@ -46,8 +46,15 @@ import (
 // `status.vcluster{name,phase}` is stamped only for a vCluster-backed Org
 // (#5489 vclusterStatusFor). A read path that republishes a declared field is
 // reporting an intention as a fact. So the read path now prefers the
-// controller's own observation and falls back to the tier gate only while the
-// Organization has not been reconciled yet.
+// controller's own observation and falls back to the every-plan constant
+// (orgIsolation) only while the Organization has not been reconciled yet.
+//
+// Every Organization created now is vCluster-backed (founder direction
+// 2026-09-10). The g7freea CR below is therefore the shape a controller that
+// predates that wrote: reconciled, with an empty status.vcluster block. It is
+// still a real object on real Sovereigns, and the contract these tests pin —
+// report what was MEASURED, never a declaration or a constant — is exactly
+// what keeps its card honest.
 //
 // WHAT THESE TESTS PIN.
 //   - RED case: a store record that declares `vcluster` beside plan `s`, with a
@@ -83,8 +90,9 @@ func orgCRWithVCluster(t *testing.T, slug, planSlug string) *unstructured.Unstru
 
 // orgCRHostNamespace builds an Organization CR shaped EXACTLY like the walked
 // g7freea: reconciled (observedGeneration 2, Ready=True) with an EMPTY
-// status.vcluster block, which is how the org-controller records "no vCluster
-// was authored for this Organization".
+// status.vcluster block, which is how a controller that predates the
+// every-plan boundary recorded "no vCluster was authored for this
+// Organization". The Ready message is the live CR's text, verbatim.
 func orgCRHostNamespace(t *testing.T, slug, planSlug string) *unstructured.Unstructured {
 	t.Helper()
 	cr := orgReadyCR(slug, slug, "omani.homes", "owner@"+slug+".test", "")
@@ -314,7 +322,7 @@ func TestObservedIsolationFromCR_VacuityAndValueNotKey_6145(t *testing.T) {
 			// The over-correction guard: an unreconciled CR must NOT read as
 			// namespace. It looks identical to a namespace-backed one, and
 			// answering "namespace" here would report every freshly created
-			// M-plan Organization as host-namespace-backed.
+			// Organization as host-namespace-backed.
 			name:   "no status at all — unobserved",
 			status: nil,
 			want:   "",

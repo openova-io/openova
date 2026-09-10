@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// #4993 — the vcluster-tier durable fix. The app's own HTTPRoute is co-located
+// #4993 — the in-vcluster-app durable fix. The app's own HTTPRoute is co-located
 // INSIDE the Org vcluster (apps tree, kubeConfig-targeted), but loft vcluster
 // 0.33.4 registers NO httproute reflecting controller, so it never reaches the
 // host Cilium Gateway → the app 404s with pods Running. GeneratePerOrgHostAppRoutes
@@ -20,7 +20,7 @@ func TestGeneratePerOrgHostAppRoutes_VclusterTier_SyncedBackend(t *testing.T) {
 	g := NewManifestGenerator("clusters/sov/org-tenants")
 	g.ParentDomain = "omani.homes"
 
-	files, docs := g.GeneratePerOrgHostAppRoutes("walk-stranger-two", "m", []string{"wordpress"})
+	files, docs := g.GeneratePerOrgHostAppRoutes("walk-stranger-two", []string{"wordpress"})
 
 	const routePath = "vcluster/host-apps/app-wordpress-hostroute.yaml"
 	doc, ok := files[routePath]
@@ -69,7 +69,7 @@ func TestGeneratePerOrgHostAppRoutes_HonorsPerOrgPoolZone(t *testing.T) {
 	// omani.rest — consumer.go clones the generator with ParentDomain=omani.rest.
 	g.ParentDomain = "omani.rest"
 
-	files, _ := g.GeneratePerOrgHostAppRoutes("walk-stranger-two", "m", []string{"wordpress"})
+	files, _ := g.GeneratePerOrgHostAppRoutes("walk-stranger-two", []string{"wordpress"})
 	doc, ok := files["vcluster/host-apps/app-wordpress-hostroute.yaml"]
 	if !ok {
 		t.Fatalf("host-native route not emitted (keys: %v)", keys(files))
@@ -83,18 +83,42 @@ func TestGeneratePerOrgHostAppRoutes_HonorsPerOrgPoolZone(t *testing.T) {
 	}
 }
 
-// TestGeneratePerOrgHostAppRoutes_HostTier_NoRoute — free/S host-tier Orgs run the
-// app + its plain Service directly in the host <slug> ns, where the co-located
-// generateAppHTTPRoute already routes and no synced-service name exists. So NO
-// host-native route is emitted (it would reference a non-existent synced Service).
-func TestGeneratePerOrgHostAppRoutes_HostTier_NoRoute(t *testing.T) {
+// TestGeneratePerOrgHostAppRoutes_EveryPlan_EmitsRoute — every Organization is
+// vCluster-backed (#4292), so on s/free/"" exactly as on m the app runs inside
+// the vcluster and its ONLY host-side backend is the synced Service. The
+// host-native route is therefore emitted for every plan (the inverse of the
+// former "no route on the host tier" assertion).
+//
+// The route render itself takes no plan. The loop drives each plan through the
+// per-Org tree render first — the seam that DOES take the plan — as a control
+// that the plan is accepted, then asserts the route set is present, binds the
+// synced Service, and is byte-identical across plans: the plan is not an input
+// to the boundary.
+func TestGeneratePerOrgHostAppRoutes_EveryPlan_EmitsRoute(t *testing.T) {
 	g := NewManifestGenerator("clusters/sov/org-tenants")
 	g.ParentDomain = "omani.homes"
 
-	for _, plan := range []string{"s", "free", ""} {
-		files, docs := g.GeneratePerOrgHostAppRoutes("hostorg", plan, []string{"wordpress"})
-		if len(files) != 0 || len(docs) != 0 {
-			t.Errorf("plan=%q (host tier) must emit NO host-native route, got files=%v docs=%v", plan, keys(files), docs)
+	const routeFile = PerOrgHostAppsDir + "/app-wordpress-hostroute.yaml"
+	want := ""
+	for _, plan := range []string{"s", "free", "", "m"} {
+		if treeFiles, _ := g.GeneratePerOrgAppsTree("hostorg", plan, []string{"wordpress"}, "pw"); len(treeFiles) == 0 {
+			t.Fatalf("control failed: plan=%q rendered no per-Org tree, so the route assertion below would say nothing about that plan", plan)
+		}
+		files, docs := g.GeneratePerOrgHostAppRoutes("hostorg", []string{"wordpress"})
+		if len(files) == 0 || len(docs) == 0 {
+			t.Fatalf("plan=%q must emit the host-native route (every Organization is vCluster-backed), got files=%v docs=%v", plan, keys(files), docs)
+		}
+		doc, ok := files[routeFile]
+		if !ok {
+			t.Fatalf("plan=%q: %s missing (keys: %v)", plan, routeFile, keys(files))
+		}
+		if !strings.Contains(doc, "wordpress-x-hostorg-x-vcluster") {
+			t.Errorf("plan=%q route must bind the SYNCED Service wordpress-x-hostorg-x-vcluster:\n%s", plan, doc)
+		}
+		if want == "" {
+			want = doc
+		} else if doc != want {
+			t.Errorf("plan=%q route differs from the first plan's — the plan must not select the boundary:\n%s", plan, doc)
 		}
 	}
 }
@@ -108,7 +132,7 @@ func TestGeneratePerOrgHostAppRoutes_SkipsHelmReleaseAndDB(t *testing.T) {
 	g.ParentDomain = "omani.homes"
 
 	// wordpress (Deployment) + mysql (DB) — mysql must be skipped.
-	files, docs := g.GeneratePerOrgHostAppRoutes("dbmix", "m", []string{"wordpress", "mysql"})
+	files, docs := g.GeneratePerOrgHostAppRoutes("dbmix", []string{"wordpress", "mysql"})
 	if _, bad := files["vcluster/host-apps/app-mysql-hostroute.yaml"]; bad {
 		t.Errorf("DB slug mysql must NOT get a host-native route:\n%v", keys(files))
 	}
@@ -118,7 +142,7 @@ func TestGeneratePerOrgHostAppRoutes_SkipsHelmReleaseAndDB(t *testing.T) {
 
 	// A cart of ONLY HelmRelease apps (openclaw) yields no host-native routes.
 	if isHelmReleaseApp("openclaw") {
-		hrFiles, hrDocs := g.GeneratePerOrgHostAppRoutes("hrorg", "m", []string{"openclaw"})
+		hrFiles, hrDocs := g.GeneratePerOrgHostAppRoutes("hrorg", []string{"openclaw"})
 		if len(hrFiles) != 0 || len(hrDocs) != 0 {
 			t.Errorf("HelmRelease-only cart must emit no host-native route, got files=%v docs=%v", keys(hrFiles), hrDocs)
 		}

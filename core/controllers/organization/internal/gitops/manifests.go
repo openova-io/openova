@@ -137,40 +137,23 @@ func planQuota(planSlug string) PlanQuota {
 	return planQuotaTable["s"]
 }
 
-// boundaryIsVcluster is the TIER GATE (#4292). It decides whether an Org of a
-// given plan slug gets a dedicated vCluster (control-plane-grade isolation) or
-// shares the host `<slug>` namespace (namespace-grade isolation). The
-// quota/LimitRange/default-deny renderer is IDENTICAL either way — only the
-// boundary PRIMITIVE differs by this one-line policy.
+// ONE boundary primitive (founder, 2026-09-10: "the 1 SME customer must have
+// 1 vcluster"). Every Organization — plan s, m, l, xl, flexi, an empty legacy
+// slug, "free", or a slug nobody has heard of — is backed by a dedicated Org
+// vCluster rendered into its host `<slug>` namespace. The plan slug sizes the
+// boundary (planQuota → ResourceQuota + LimitRange, and the QoS shape) and
+// never selects it.
 //
-// Founder default (issue #4292 "TIER GATE"): free/S share the host namespace;
-// paid M+ get the dedicated Org-vcluster. Flip allTiersVcluster to true to put
-// EVERY tier (incl. free/S) on a vCluster (tierOption A in the spec) — a
-// single Sovereign-level switch, no renderer change.
-const allTiersVcluster = false
-
-func boundaryIsVcluster(planSlug string) bool {
-	if allTiersVcluster {
-		return true
-	}
-	switch strings.ToLower(strings.TrimSpace(planSlug)) {
-	case "", "s", "free":
-		// free/S → host-ns boundary (same quota+LimitRange+default-deny CNP;
-		// the shape already live on demo org-7283eb4a).
-		return false
-	default:
-		// m/l/xl/flexi → dedicated Org-vcluster.
-		return true
-	}
-}
-
-// BoundaryIsVcluster is the EXPORTED tier-gate predicate so the controller
-// package (per_org_flux.go, #4293 MAJOR-2) can decide whether the per-Org apps
-// Flux Kustomization reconciles the apps/ tree INTO the vcluster (kubeConfig)
-// or straight into the host `<slug>` ns. It MUST stay in lockstep with the
-// unexported boundaryIsVcluster (and the funnel's gitops.BoundaryIsVcluster) so
-// the NetworkPolicy reconciler targets the same boundary the apps land on.
-func BoundaryIsVcluster(planSlug string) bool { return boundaryIsVcluster(planSlug) }
+// Until 2026-09-10 a "tier gate" here (boundaryIsVcluster, Refs #4292 #4297)
+// put free/S Organizations onto the bare host namespace and only paid M+ onto
+// a vCluster, behind a `const allTiersVcluster = false` whose comment promised
+// a one-line flip. The flip was never safe to take: the predicate had been
+// copied into three more modules (the funnel's BoundaryIsVcluster, the BSS
+// door's isolationForTier, the console's isolationForPlan), each carrying its
+// own copy of the constant, and behind it a second file set, a second pod-name
+// shape, a second readiness rule and a second status stamp had grown. The gate
+// is REMOVED rather than flipped: there is no predicate left to keep in
+// lockstep, so nothing can drift, and Render below has exactly one shape.
 
 // BoundaryResourceQuotaName / BoundaryLimitRangeName are the object names the
 // boundary templates below render into the `<slug>` host namespace. They are
@@ -635,8 +618,7 @@ spec:
 // where Cilium's CRD lives AND where the syncer reflects the Org's vcluster
 // pods — so `endpointSelector: {}` binds the actual reflected endpoints, the
 // same de-vcluster host-ns enforcement pattern other host-enforced policies
-// follow. For the host tier (free/S) the Org's workloads already run in the
-// host `<slug>` ns, so the same host-applied CNP binds them there too.
+// follow.
 //
 // endpointSelector {} = every endpoint in the namespace (matching the K8s
 // default-deny's podSelector {} scope). On a CRD-less cluster (kind CI) the
@@ -771,22 +753,18 @@ resources:
 
 // appsKustomizationTemplate is the kustomize index for the apps/ tree the
 // per-Org apps Flux Kustomization reconciles (#4293 MAJOR-2). It lists ONLY the
-// default-deny K8s NetworkPolicy baseline — a SYNCABLE object: for the vcluster
-// tier the apps Kustomization carries spec.kubeConfig so this lands in the
-// vcluster apiserver and the syncer reflects it to the host `<slug>` ns; for the
-// host tier it applies straight to the host ns. The CNP is DELIBERATELY NOT here
+// default-deny K8s NetworkPolicy baseline — a SYNCABLE object: the apps
+// Kustomization carries spec.kubeConfig so this lands in the vcluster apiserver
+// and the syncer reflects it to the host `<slug>` ns. The CNP is DELIBERATELY NOT here
 // (#4475 §1): a CiliumNetworkPolicy cannot apply into the CRD-less vcluster
 // apiserver — it lives in the host-apps/ tree instead. The funnel's app-install
 // tree (a DIFFERENT repo) carries the customer's purchased Applications. Keeping
 // an explicit index here makes `kustomize build ./vcluster/apps` deterministic.
-// appsKustomizationTemplate is the kustomize index for the apps/ tree. It ranges
-// over renderView.AppsResources so the file list is tier-aware: the vcluster tier
-// prepends namespace.yaml (#4991 — the kubeConfig-targeted apps Kustomization
-// applies INTO the Org vcluster with targetNamespace=<slug>, but NOTHING creates
+// It ranges over renderView.AppsResources: networkpolicy.yaml plus
+// namespace.yaml (#4991 — the kubeConfig-targeted apps Kustomization applies
+// INTO the Org vcluster with targetNamespace=<slug>, but NOTHING else creates
 // that namespace INSIDE the vcluster, so Flux failed `namespaces "<slug>" not
-// found` and the customer's app never deployed; the host tier already has the
-// boundary-owned host `<slug>` ns so it must NOT re-declare it here — a second
-// Flux Kustomization managing the same host Namespace fights the boundary one).
+// found` and the customer's app never deployed).
 const appsKustomizationTemplate = `apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
@@ -924,13 +902,12 @@ type renderView struct {
 	// so the syncer reflects it to the host `<slug>` ns.
 	AppNamespace string
 	// KustomizeResources is the file list the boundary kustomization.yaml
-	// references — gated by the tier (vcluster.yaml only for paid tiers) and
-	// the plan (resourcequota.yaml skipped for soft-cap Flexi).
+	// references — namespace.yaml, limitrange.yaml and vcluster.yaml always;
+	// resourcequota.yaml skipped for soft-cap Flexi.
 	KustomizeResources []string
 	// AppsResources is the file list vcluster/apps/kustomization.yaml references
-	// (#4991) — networkpolicy.yaml always; namespace.yaml only for the vcluster
-	// tier (the kubeConfig-targeted apps Kustomization needs the target ns
-	// created INSIDE the vcluster; the host tier reuses the boundary-owned ns).
+	// (#4991) — networkpolicy.yaml plus namespace.yaml (the kubeConfig-targeted
+	// apps Kustomization needs the target ns created INSIDE the vcluster).
 	AppsResources []string
 	// HostAppsResources is the file list vcluster/host-apps/kustomization.yaml
 	// references (#4991) — ciliumnetworkpolicy.yaml + provisioning-rbac.yaml,
@@ -966,9 +943,12 @@ func limitRangeDefaults(q PlanQuota) (cpu, mem string) {
 // Render returns the rendered (path, bytes) tuples the controller
 // writes into the per-Org Gitea repo.
 //
-// Workstream B (#4292): the rendered set is now plan- and tier-aware:
-//   - vcluster.yaml is emitted ONLY for tiers whose boundary is a vCluster
-//     (boundaryIsVcluster) — free/S share the host `<slug>` ns by default.
+// The rendered set is the SAME for every Organization; only the plan-sized
+// numbers differ (Workstream B #4292 sizing; one boundary primitive per the
+// founder's 2026-09-10 direction — see the note above planQuota):
+//   - vcluster.yaml is the dedicated Org vCluster HelmRelease, emitted for
+//     EVERY plan slug. It deploys into the host `<slug>` ns, so the plan cap
+//     below applies to it exactly as it applies to the Org's own pods.
 //   - resourcequota.yaml + limitrange.yaml cap the host ns at the purchased
 //     plan (skipped ResourceQuota for soft-cap Flexi; LimitRange always).
 //   - apps/networkpolicy.yaml seeds the default-deny + same-Org-allow baseline
@@ -1012,10 +992,9 @@ func Render(in Inputs) (map[string][]byte, error) {
 		LimitRangeName:    BoundaryLimitRangeName,
 	}
 
-	// Assemble the file set as a function of the tier-gate + plan. The
-	// boundary host namespace + its plan-templated quota/LimitRange always
-	// render; the vCluster HelmRelease only for paid tiers; the ResourceQuota
-	// only for hard-capped plans (Flexi is soft/on-demand).
+	// Assemble the file set. The boundary host namespace, its plan-templated
+	// quota/LimitRange and the vCluster HelmRelease always render; the
+	// ResourceQuota only for hard-capped plans (Flexi is soft/on-demand).
 	files := map[string]string{
 		"vcluster/namespace.yaml":  namespaceTemplate,
 		"vcluster/limitrange.yaml": limitRangeTemplate,
@@ -1029,33 +1008,30 @@ func Render(in Inputs) (map[string][]byte, error) {
 		files["vcluster/resourcequota.yaml"] = resourceQuotaTemplate
 		res = append(res, "resourcequota.yaml")
 	}
-	if boundaryIsVcluster(in.PlanSlug) {
-		files["vcluster/vcluster.yaml"] = vclusterTemplate
-		res = append(res, "vcluster.yaml")
-	}
+	files["vcluster/vcluster.yaml"] = vclusterTemplate
+	res = append(res, "vcluster.yaml")
 	// The default-deny + same-Org-allow baseline lives in the apps tree so
 	// the syncer (sync.toHost.networkPolicies.enabled) reflects it to the
-	// host `<slug>` ns (vcluster tier) / it applies directly (host tier). It is
-	// NOT listed in the boundary kustomization `res` — it is a SEPARATE path
-	// under apps/ reconciled by its OWN per-Org Flux Kustomization
-	// (catalyst-tenant-<slug>-apps, per_org_flux.go), tier-aware: the vcluster
-	// tier carries spec.kubeConfig so the NP lands in the vcluster apiserver;
-	// the host tier applies it to the host `<slug>` ns. #4293 MAJOR-2 closed the
-	// gap where this NP was committed to a path NO Kustomization referenced
-	// (the boundary kustomization omits apps/, and the funnel apps-sync reads a
-	// DIFFERENT repo) → intra-Org isolation stayed inert.
+	// host `<slug>` ns. It is NOT listed in the boundary kustomization `res`
+	// — it is a SEPARATE path under apps/ reconciled by its OWN per-Org Flux
+	// Kustomization (catalyst-tenant-<slug>-apps, per_org_flux.go), which
+	// carries spec.kubeConfig so the NP lands in the vcluster apiserver. #4293
+	// MAJOR-2 closed the gap where this NP was committed to a path NO
+	// Kustomization referenced (the boundary kustomization omits apps/, and
+	// the funnel apps-sync reads a DIFFERENT repo) → intra-Org isolation
+	// stayed inert.
 	files["vcluster/apps/"+networkPolicyDoc] = networkPolicyTemplate
 	// The reserved-entity CNP companion (gateway ingress + apiserver egress) lives
 	// in a SEPARATE host-applied tree (#4475 §1). A CiliumNetworkPolicy CANNOT be
 	// applied into the CRD-less vcluster apiserver — the kustomize-controller
 	// dry-run rejects `cilium.io/v2` ("no matches for kind CiliumNetworkPolicy")
 	// and WEDGES the whole kubeConfig-targeted apps Kustomization (taking the K8s
-	// NPs and every day-2 Application install down) for a vcluster-tier Org. It is
-	// also NOT a syncable workload object. So the org-controller's host-apps Flux
-	// Kustomization (catalyst-tenant-<slug>-host-apps, per_org_flux.go) reconciles
-	// this tree ALWAYS host-side onto the `<slug>` ns — where Cilium's CRD lives,
-	// where the syncer reflects the Org's vcluster pods, and where the host-tier
-	// Org's own pods already run. Without the CNP the K8s default-deny silently
+	// NPs and every day-2 Application install down). It is also NOT a syncable
+	// workload object. So the org-controller's host-apps Flux Kustomization
+	// (catalyst-tenant-<slug>-host-apps, per_org_flux.go) reconciles this tree
+	// ALWAYS host-side onto the `<slug>` ns — where Cilium's CRD lives and where
+	// the syncer reflects the Org's vcluster pods. Without the CNP the K8s
+	// default-deny silently
 	// 503s the Org's Application behind the Cilium Gateway and blocks egress to the
 	// cluster API (neither reachable via any K8s NP selector).
 	files["vcluster/host-apps/"+ciliumNetworkPolicyDoc] = ciliumNetworkPolicyTemplate
@@ -1065,18 +1041,14 @@ func Render(in Inputs) (map[string][]byte, error) {
 	// bounce vcluster-0 in `<slug>` BEFORE the funnel's mirror step 403s and
 	// aborts the whole provision.
 	files["vcluster/host-apps/"+provisioningRBACDoc] = provisioningRBACTemplate
-	appsResources := []string{networkPolicyDoc}
-	if boundaryIsVcluster(in.PlanSlug) {
-		// #4991 — the kubeConfig-targeted apps Kustomization applies INTO the Org
-		// vcluster with targetNamespace=<slug>; create that namespace INSIDE the
-		// vcluster (nothing else does → `namespaces "<slug>" not found`). Host
-		// tier reuses the boundary-owned host ns, so it is NOT re-declared there.
-		files["vcluster/apps/"+appsNamespaceDoc] = appsNamespaceTemplate
-		appsResources = append(appsResources, appsNamespaceDoc)
-	}
+	// #4991 — the kubeConfig-targeted apps Kustomization applies INTO the Org
+	// vcluster with targetNamespace=<slug>; create that namespace INSIDE the
+	// vcluster (nothing else does → `namespaces "<slug>" not found`).
+	files["vcluster/apps/"+appsNamespaceDoc] = appsNamespaceTemplate
+	appsResources := []string{networkPolicyDoc, appsNamespaceDoc}
 	// Explicit apps/kustomization.yaml so the per-Org apps Flux Kustomization's
-	// `kustomize build ./vcluster/apps` enumerates the K8s NP (+ vcluster-tier
-	// target namespace) deterministically.
+	// `kustomize build ./vcluster/apps` enumerates the K8s NP + the in-vcluster
+	// target namespace deterministically.
 	view.AppsResources = sortedResources(appsResources)
 	files["vcluster/apps/kustomization.yaml"] = appsKustomizationTemplate
 	// Explicit host-apps/kustomization.yaml so the per-Org host-apps Flux

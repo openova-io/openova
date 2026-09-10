@@ -354,12 +354,15 @@ func TestReconcilePerOrgFlux_AppsKustomization_VclusterTier(t *testing.T) {
 	}
 }
 
-// TestReconcilePerOrgFlux_AppsKustomization_HostTier — for the HOST tier (free/S)
-// there is NO vcluster, so the apps Kustomization MUST NOT carry a kubeConfig
-// (a referenced never-created vcluster mirror would StateError forever). The NP
-// applies straight to the host `<slug>` ns (which IS the boundary).
-func TestReconcilePerOrgFlux_AppsKustomization_HostTier(t *testing.T) {
-	for _, plan := range []string{"s", "free", ""} {
+// TestReconcilePerOrgFlux_AppsKustomization_EveryPlanRoutesThroughTheVcluster
+// is the anti-creep guard for the per-Org Flux loop (founder 2026-09-10: every
+// Organization has a vCluster). Every plan slug — s, free and the empty legacy
+// slug included, which the removed #4292 tier gate used to apply straight to
+// the host ns — gets an apps Kustomization that routes THROUGH the vCluster
+// kubeconfig mirror. A plan-keyed `if` around spec.kubeConfig fails this on
+// the first slug it excluded.
+func TestReconcilePerOrgFlux_AppsKustomization_EveryPlanRoutesThroughTheVcluster(t *testing.T) {
+	for _, plan := range []string{"", "free", "s", "m", "l", "xl", "flexi", "enterprise-2027"} {
 		t.Run("plan="+plan, func(t *testing.T) {
 			const slug = "acme"
 			cl := fake.NewClientBuilder().WithScheme(fluxScheme(t)).Build()
@@ -373,12 +376,19 @@ func TestReconcilePerOrgFlux_AppsKustomization_HostTier(t *testing.T) {
 				t.Fatalf("reconcilePerOrgFlux: %v", err)
 			}
 			ks := getFlux(t, cl, fluxKustomizationGVK, "flux-system", perOrgAppsKustomizationName(slug))
-			if _, found, _ := unstructured.NestedMap(ks.Object, "spec", "kubeConfig"); found {
-				t.Errorf("host-tier (plan=%q) apps Kustomization MUST NOT carry kubeConfig — it would StateError on the never-created vcluster mirror", plan)
+			kcName, found, _ := unstructured.NestedString(ks.Object, "spec", "kubeConfig", "secretRef", "name")
+			if !found {
+				t.Fatalf("plan %q: apps Kustomization has NO spec.kubeConfig — the apps would land on the host ns outside the vCluster the org-controller authored for this Organization", plan)
 			}
-			// Still targets the host `<slug>` ns so the NP applies there directly.
+			if kcName != perOrgKubeconfigSecretName(slug) {
+				t.Errorf("plan %q: kubeConfig.secretRef.name = %q, want %q", plan, kcName, perOrgKubeconfigSecretName(slug))
+			}
+			if kcKey, _, _ := unstructured.NestedString(ks.Object, "spec", "kubeConfig", "secretRef", "key"); kcKey != "config" {
+				t.Errorf("plan %q: kubeConfig.secretRef.key = %q, want config", plan, kcKey)
+			}
+			// targetNamespace is the in-vCluster `<slug>` namespace (#4991).
 			if tns, _, _ := unstructured.NestedString(ks.Object, "spec", "targetNamespace"); tns != slug {
-				t.Errorf("host-tier apps Kustomization spec.targetNamespace = %q, want %q", tns, slug)
+				t.Errorf("plan %q: apps Kustomization spec.targetNamespace = %q, want %q", plan, tns, slug)
 			}
 		})
 	}
@@ -392,8 +402,8 @@ func TestReconcilePerOrgFlux_AppsKustomization_HostTier(t *testing.T) {
 // host `<slug>` ns. For the vcluster tier this is the fix: without it the CNP in
 // the kubeConfig-targeted apps tree wedged the whole tree.
 func TestReconcilePerOrgFlux_HostAppsKustomization_AlwaysHostSide(t *testing.T) {
-	// Both a paid (vcluster) tier and a free/host tier must get the host-apps
-	// Kustomization, and NEITHER may carry a kubeConfig.
+	// Every plan must get the host-apps Kustomization, and NONE may carry a
+	// kubeConfig.
 	for _, plan := range []string{"m", "s", "free", ""} {
 		t.Run("plan="+plan, func(t *testing.T) {
 			const slug = "acme"

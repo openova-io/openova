@@ -203,27 +203,25 @@ func orgCRToResponse(obj *unstructured.Unstructured, otechFQDN string) orgTenant
 	if billingMode == "" {
 		billingMode = "real"
 	}
-	// planSlug drives the #4292 tier gate below — read it up front so the
-	// derived isolation label reflects the actual backing.
+	// planSlug is the purchased plan (#4292, UAT row 7). It sizes the
+	// ResourceQuota/LimitRange inside the Organization's vCluster and is
+	// reported verbatim; it does not select the boundary.
 	planSlug := strings.ToLower(getSpec("planSlug"))
-	// Isolation is derived (not a spec field) from the SAME #4292 tier gate the
-	// org-controller uses to author the backing (isolationForTier mirrors
-	// gitops.boundaryIsVcluster): free/S/empty → namespace (host-ns);
-	// m/l/xl/flexi → vcluster. Deriving from kind ALONE (the pre-#4539
-	// behavior) mislabeled an S-plan Org "vcluster" while it correctly backs a
-	// host namespace (UAT rows 9-12, dep 91dc05917e44d1c1); deriving from kind
-	// AT ALL (the #4539 `internal → namespace` short-circuit) mislabeled a
-	// paid-plan internal Org "namespace" while the org-controller rendered it a
-	// real vCluster (UAT row 100). `kind` is a billing dimension; it is not read
-	// here.
+	// Isolation is not a spec field. Every Organization is backed by a
+	// dedicated vCluster (orgIsolation) — on every plan and for both kinds, so
+	// neither `planSlug` nor `kind` is read to answer it. (The plan-keyed
+	// #4292 tier gate that used to sit here, and the kind short-circuit #4539
+	// removed from it for UAT row 100, are both gone.)
 	//
-	// #6145 (UAT row 101) — the tier gate is now the FALLBACK, not the answer.
-	// It is a second copy of the switch that decides what to author, so it
-	// reports intent; `status.vcluster` reports what the org-controller
-	// actually authored. Prefer the measurement and fall back to the gate only
-	// while the Organization has not been reconciled yet, so a CR minted
-	// seconds ago still badges its plan's boundary instead of blanking.
-	isolation := isolationForTier(planSlug)
+	// #6145 (UAT row 101) — the constant is the FALLBACK, not the answer. It
+	// states intent; `status.vcluster` reports what the org-controller
+	// actually authored. Prefer the measurement and fall back to the constant
+	// only while the Organization has not been reconciled yet, so a CR minted
+	// seconds ago still badges its boundary instead of blanking. An
+	// Organization last reconciled by a controller that predates the
+	// every-plan boundary can still be OBSERVED as `namespace`; that is
+	// reported as measured, never rewritten to the constant.
+	isolation := orgIsolation
 	if observed := observedIsolationFromCR(obj); observed != "" {
 		isolation = observed
 	}
@@ -286,7 +284,7 @@ func orgCRToResponse(obj *unstructured.Unstructured, otechFQDN string) orgTenant
 		CompanyName:    displayName,
 		OTECHFQDN:      strings.TrimSpace(otechFQDN),
 		// #5489 — derived from the same isolation the row carries: only a
-		// vcluster-tier Org has a vCluster to name. The old unconditional
+		// vCluster-backed row has a vCluster to name. The old unconditional
 		// `vc-<slug>` shipped `vcluster_name: "vc-…"` right next to
 		// `isolation: "namespace"` — latent (the UI declares the field at
 		// pages/org/org.api.ts and never consumes it), but it would assert
@@ -316,10 +314,10 @@ func orgCRToResponse(obj *unstructured.Unstructured, otechFQDN string) orgTenant
 // as a statement about infrastructure, so it has to be MEASURED. Until this
 // function existed every producer of the field answered from intent: the BSS
 // door persisted the request's declaration (organization_provisioning.go
-// resolveOrgShape) and the CR read path mirrored the tier gate
-// (isolationForTier). On hw293 that produced `Isolation: Vcluster` for
-// `g7freea`, an Organization whose bp-keycloak/bp-agenity StatefulSets ran in
-// the host namespace with no vCluster anywhere on the cluster.
+// resolveOrgShape) and the CR read path mirrored the then-current plan-keyed
+// tier gate. On hw293 that produced `Isolation: Vcluster` for `g7freea`, an
+// Organization whose bp-keycloak/bp-agenity StatefulSets ran in the host
+// namespace with no vCluster anywhere on the cluster.
 //
 // The org-controller is the only component that authors the boundary, and it
 // records what it authored: `vclusterStatusFor`
@@ -332,8 +330,15 @@ func orgCRToResponse(obj *unstructured.Unstructured, otechFQDN string) orgTenant
 //     has actually processed the object, which `status.observedGeneration`
 //     reports. An untouched CR is byte-identical to a namespace-backed one,
 //     and answering "namespace" for it would report every freshly created
-//     M-plan Organization as host-namespace-backed. That case returns "" and
-//     the caller falls back to the tier gate.
+//     Organization as host-namespace-backed. That case returns "" and the
+//     caller falls back to orgIsolation.
+//
+// Every Organization is vCluster-backed now (orgIsolation), so the "namespace"
+// branch is reachable only for a CR last reconciled by a controller that
+// predates that — an Organization that really was authored onto the host
+// namespace. It stays an OBSERVATION of that CR, never a plan rule: this
+// function reads what the controller stamped and never rewrites a measured
+// absence into the constant.
 //
 // The read is on the VALUE, never the key. The walked g7freea CR carries
 // `status.vcluster: {}` — an EMPTY block — so `NestedMap(...)` finding the key

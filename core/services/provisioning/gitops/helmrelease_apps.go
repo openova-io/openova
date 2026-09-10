@@ -34,12 +34,12 @@ import (
 // products/catalyst/bootstrap/api/internal/handler/organization_gitops.go
 // (orgTenantBPOpenClaw / orgTenantBPStalwart) — directly from the generic
 // generator. The HRs are HOST files (helm-controller runs on the host, NOT
-// inside a per-Org vCluster — #3055), tier-aware via the same HR-level
-// kubeConfig the bp-cnpg-pair path uses (generateCNPGPair): vcluster tier →
-// install INTO the Org vCluster via the `tenant-<slug>-kubeconfig` mirror;
-// host tier → install straight into the host `<slug>` ns. Each HR ships its
-// own bp-* HelmRepository (flux-system) so a fresh funnel Org resolves the
-// sourceRef without the org-controller having to seed it.
+// inside a per-Org vCluster — #3055) installed INTO the Org vCluster via the
+// same HR-level kubeConfig mechanism generateCNPGPair uses for its replica
+// side — the `tenant-<slug>-kubeconfig` mirror — for every Organization on
+// every plan (#4292). Each HR ships its own bp-* HelmRepository (flux-system)
+// so a fresh funnel Org resolves the sourceRef without the org-controller
+// having to seed it.
 //
 // DIVERGENCE FROM THE BSS DOOR (intentional): the generic funnel path does NOT
 // emit a per-tenant bp-keycloak (the BSS door's Step-6 does). So these HRs
@@ -164,9 +164,11 @@ type helmReleaseAppOpts struct {
 	// per-app from ManifestGenerator.HelmReleaseAppVersions.
 	chartVersion string
 	// kubeSecret, when non-empty, is the flux-system Secret holding the Org
-	// vCluster kubeconfig (`tenant-<slug>-kubeconfig`). Set on the vcluster
-	// tier so the host helm-controller installs the chart INTO the vcluster;
-	// empty on the host tier (install straight into the host `<slug>` ns).
+	// vCluster kubeconfig (`tenant-<slug>-kubeconfig`). The funnel ALWAYS sets
+	// it — every Organization is vCluster-backed (#4292) — so the host
+	// helm-controller installs the chart INTO the vcluster. Empty renders no
+	// kubeConfig block (the HR then installs on the host `<slug>` ns); only
+	// unit fixtures exercise that shape, no funnel path produces it.
 	kubeSecret string
 	// sharedRealmIssuer, when non-empty, is the resolvable SHARED-realm OIDC
 	// issuer (`https://auth.<sovereign-fqdn>/realms/sovereign`) the HR templates
@@ -220,8 +222,9 @@ func pinHRChartVersion(yaml, version string) string {
 }
 
 // kubeConfigBlock renders the HR-level spec.kubeConfig the host helm-controller
-// uses to install INTO the Org vCluster (vcluster tier). Empty kubeSecret →
-// empty block (host tier installs into the host ns). Mirrors generateCNPGPair.
+// uses to install INTO the Org vCluster. Empty kubeSecret → empty block (the
+// HR installs into the host ns — a shape the funnel never renders, see
+// helmReleaseAppOpts.kubeSecret). Mirrors generateCNPGPair.
 func (opt helmReleaseAppOpts) kubeConfigBlock() string {
 	if strings.TrimSpace(opt.kubeSecret) == "" {
 		return ""
@@ -393,8 +396,8 @@ spec:
 // per-tenant bp-keycloak — a dependsOn on a never-rendered HR wedges the release
 // in DependencyNotReady forever). The chart OWNS its Postgres (cnpg.enabled
 // default) + PATCHes the DSN via its own post-install hook, so disableWait:true
-// lets the release reach hook execution (the #4246 deadlock fix). Tier-aware
-// kubeConfig like the other HR apps (vcluster tier installs INTO the vcluster).
+// lets the release reach hook execution (the #4246 deadlock fix). Same
+// HR-level kubeConfig as the other HR apps (installs INTO the Org vcluster).
 //
 // #5987 — THE VALUES BLOCK WAS NOT SPEAKING THE CHART'S LANGUAGE. Three of the
 // four keys below are corrections; each was proven by `helm template` against
@@ -504,7 +507,7 @@ spec:
         keyIssuer: catalyst
     # Valkey OFF (#3858 root cause #3, same as the BSS door): the chart default
     # valkey.url is the host-placed valkey synced from the rtz vCluster, which a
-    # per-Org install (vcluster tier especially) cannot reach. NewAPI treats
+    # per-Org install (inside its own vcluster) cannot reach. NewAPI treats
     # REDIS_CONN_STRING as required once set and CrashLoops on the Redis ping;
     # with valkey off it falls back to an in-process cache and Postgres still
     # holds every piece of durable state.

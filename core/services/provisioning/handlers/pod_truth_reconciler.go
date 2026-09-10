@@ -398,20 +398,24 @@ func (h *Handler) reconcileOneProvision(ctx context.Context, p *store.Provision)
 // podOwnerSlug returns the requested app slug that owns this pod in the Org's
 // host namespace, or "" if none does.
 //
-// TIER-BLIND BY DESIGN. Both pod shapes belong to the Org, because the host
-// `<slug>` namespace IS the Org boundary (#4290) and no sibling Org shares it:
+// Every Organization's app pods are synced by the vCluster syncer (#4292 —
+// every plan is vCluster-backed): the syncer names the pod
+// `<inner>-x-<inner-ns>-x-vcluster`, and the INNER name carries the slug.
+// That is the shape this matcher is written for.
 //
-//   - VCLUSTER tier (plan m/l/xl/flexi) — the syncer names the pod
-//     `<inner>-x-<inner-ns>-x-vcluster`, and the INNER name carries the slug.
-//   - HOST tier (plan free/S/"" — isolationForTier, allTiersVcluster=false) —
-//     the apps-sync Kustomization applies the Deployment straight into the host
-//     ns, so the pod keeps its NATIVE name with no syncer suffix.
-//
-// This used to be an inline `HasSuffix(name, "-x-vcluster") || continue`, which
-// made the ENTIRE host tier invisible to the reconciler: `ready` came back
-// empty and reconcileOneProvision returned before it could advance or supersede
-// anything. That silently voided #5646's whole point for those Orgs — the
-// record stayed permanently `failed` for a workload that had recovered.
+// It is deliberately NOT gated on the syncer suffix, though. The host `<slug>`
+// namespace IS the Org boundary (#4290) and no sibling Org shares it, so a
+// pod there that lacks the suffix is still this Org's — and it costs nothing
+// to compare its native name against the requested set too. The reason to
+// keep that tolerance is history: an earlier version was an inline
+// `HasSuffix(name, "-x-vcluster") || continue`, and when a class of Orgs ran
+// their pods un-synced it made ALL of them invisible to the reconciler —
+// `ready` came back empty and reconcileOneProvision returned before it could
+// advance or supersede anything, silently voiding #5646's whole point (the
+// record stayed permanently `failed` for a workload that had recovered). A
+// matcher that accepts both shapes cannot regress that way again, and the
+// only un-synced pods this namespace actually holds are the infra pods
+// excluded below.
 //
 // It also reconstructed the slug by dropping the last two dashed segments,
 // which assumes a Deployment-shaped `<slug>-<rsHash>-<podHash>` name. A

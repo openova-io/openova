@@ -438,52 +438,6 @@ func (g *ManifestGenerator) GenerateAllWithPassword(slug, planSlug string, appSl
 	return g.GenerateAllWithAppConfigs(slug, planSlug, appSlugs, dbPassword, nil)
 }
 
-// BoundaryIsVcluster is the funnel-side TIER GATE (#4297, keystone of EPIC
-// #4293). It MUST stay in lockstep with the org-controller's authoritative
-// gate `boundaryIsVcluster` in
-// core/controllers/organization/internal/gitops/manifests.go (const
-// allTiersVcluster + the same free/S/"" → host-ns, m/l/xl/flexi → vCluster
-// switch). That gate lives in an `internal/` package the provisioning module
-// cannot import, so this is a deliberate small duplicate, NOT a divergence —
-// flip both together if the Sovereign-level policy changes.
-//
-// The funnel uses it to decide whether the per-Org app-install tree is
-// REDIRECTED into the Org vCluster (paid M+ tiers — the apps-sync Kustomization
-// carries spec.kubeConfig so the host Flux installs INTO the vcluster API) or
-// reconciled straight into the host `<slug>` namespace (free/S tiers — NO
-// kubeConfig, the org-controller's `<slug>` ns IS the boundary). Exported so
-// the provisioning consumer can gate its vcluster-only waits (vcluster-HR
-// Ready / kubeconfig-mirror / synced-pod-name match) on the same predicate.
-// allTiersVcluster is the funnel-side half of the Sovereign-level switch the
-// doc-comment above promises. It MUST hold the same value as the identically
-// named const in core/controllers/organization/internal/gitops/manifests.go
-// and in products/catalyst/bootstrap/api/internal/handler/
-// organization_provisioning.go.
-//
-// It was documented as part of this gate's contract from the start but never
-// actually declared here, so the "flip them together" instruction had nothing
-// to flip in this module: setting the controller-side const to true would have
-// put every free/S Org on a real vCluster while this funnel kept routing the
-// apps tree at the host `<slug>` namespace with no kubeConfig — apps landing
-// outside the boundary the org-controller just authored. The divergence was
-// invisible because at the shipped value (false) all three copies agree.
-const allTiersVcluster = false
-
-func BoundaryIsVcluster(planSlug string) bool {
-	if allTiersVcluster {
-		return true
-	}
-	switch strings.ToLower(strings.TrimSpace(planSlug)) {
-	case "", "s", "free":
-		// free/S → the host `<slug>` ns IS the boundary; apps reconcile there
-		// directly (the org-controller still renders the ns + quota + np).
-		return false
-	default:
-		// m/l/xl/flexi → dedicated Org vCluster; apps are redirected into it.
-		return true
-	}
-}
-
 // GenerateAllWithAppConfigs is the canonical entry point (TBD-V27 #2042).
 // `appConfigs` carries the customer-chosen configSchema values keyed by
 // app SLUG (e.g. {"postgres": {"replicas": 3, "disk_gb": 20,
@@ -512,14 +466,12 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 	hostNS := slug
 	appNS := "apps"
 
-	// #4297 (keystone of EPIC #4293) — TIER GATE. Paid M+ Orgs get a dedicated
-	// vCluster; the apps-sync Kustomization REDIRECTS the apps/ tree INTO it via
+	// ONE boundary for every Organization (#4292, founder 2026-09-10): every
+	// plan — s, m, l, xl, flexi, empty, unknown — gets a dedicated vCluster,
+	// and the apps-sync Kustomization REDIRECTS the apps/ tree INTO it via
 	// spec.kubeConfig (the host helm/kustomize controller installs into the
-	// vcluster API). Free/S Orgs have NO vcluster — the org-controller's `<slug>`
-	// host ns IS the boundary, so the apps-sync reconciles straight into it with
-	// NO kubeConfig (a kubeConfig referencing the never-created `vc-vcluster`
-	// mirror would StateError forever → host-tier apps would never deploy).
-	isVcluster := BoundaryIsVcluster(planSlug)
+	// vcluster API). There is no host-namespace arm any more; planSlug is read
+	// below only for QoS (qosResources) and the quota, never for the boundary.
 
 	// --- databases required by selected apps ---
 	needsRedis := false
@@ -554,7 +506,7 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 	// never inside the vcluster-redirected apps/ tree).
 	hostFiles := map[string]string{
 		"ingress.yaml":           generateHostIngress(hostNS, slug, g.parentDomain(), appSlugs),
-		"apps-sync.yaml":         generateAppsSyncKustomization(hostNS, slug, g.BasePath, isVcluster, g.appsSyncSourceRepo()),
+		"apps-sync.yaml":         generateAppsSyncKustomization(hostNS, slug, g.BasePath, g.appsSyncSourceRepo()),
 		"provisioning-rbac.yaml": generateProvisioningTenantRBAC(hostNS),
 	}
 
@@ -597,7 +549,7 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 			// alongside the apps-sync CR), NOT under apps/.
 			//
 			// #4293 BLOCKER-1 FIX — the CNPG Cluster CRs must stay HOST-SIDE for
-			// BOTH tiers. bp-cnpg-pair ships ONLY `postgresql.cnpg.io/v1 Cluster`
+			// every plan. bp-cnpg-pair ships ONLY `postgresql.cnpg.io/v1 Cluster`
 			// CRs — no operator, no CRD. The cnpg-system operator + the Cluster
 			// CRD are CLUSTER-SINGLETONS that live on the HOST (slot 16,
 			// `target: host`); they do NOT exist inside a per-Org vCluster
@@ -609,7 +561,7 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 			// and (even if the CRD were synced) nothing would reconcile it →
 			// the paid M+ active-hot-standby HA path WEDGES on every fresh prov.
 			// Fix: the PRIMARY HR carries NO vcluster kubeConfig regardless of
-			// tier, so it reconciles on region A's HOST where the operator+CRD
+			// plan, so it reconciles on region A's HOST where the operator+CRD
 			// live and the chart installs the primary Cluster into the host
 			// `<slug>` ns. The in-vcluster app pods reach the DB via the synced
 			// `postgres` Service (sync.toHost.services is enabled on the
@@ -617,12 +569,12 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 			// lands inside the vcluster apps/ tree pointing at that Service.
 			// This matches the EPIC's own "the per-component CNPG Clusters
 			// already live host-side" migration note + the cluster-singleton
-			// webhook invariant (exactly ONE cnpg operator, host-only). The
-			// _ = isVcluster reference is retained below only for the apps-sync /
-			// pod-name tier gate — the CNPG-pair primary is host-side for all.
+			// webhook invariant (exactly ONE cnpg operator, host-only). This is
+			// the ONE deliberate exception to "everything reconciles into the
+			// vCluster": the apps tree goes in, the CNPG primary stays out.
 			//
-			// chartTargetNS — the namespace the chart installs into. For BOTH
-			// tiers the primary Cluster lands in the host `<slug>` ns (where the
+			// chartTargetNS — the namespace the chart installs into. For every
+			// plan the primary Cluster lands in the host `<slug>` ns (where the
 			// org-controller renders the boundary ns + quota), co-located with
 			// the host cnpg-system operator that reconciles it. The app pods
 			// inside the vcluster read the synced Service + the apps-tree
@@ -638,9 +590,9 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 			// region-B affinity matches 0/N nodes → the `*-pgbasebackup` pod
 			// hangs Pending forever and the region-kill pillar has no standby to
 			// fail over to. Fix: emit TWO HRs —
-			//   • PRIMARY side → region A. For the vcluster tier its kubeConfig
-			//     targets the Org vcluster (which lives on region A's host); the
-			//     primary Cluster's region-A affinity matches the local nodes.
+			//   • PRIMARY side → region A, on the HOST (no kubeConfig — see the
+			//     #4293 finding-1 note above); the primary Cluster's region-A affinity
+			//     matches the local nodes.
 			//   • REPLICA side → region B. Its kubeConfig targets region-B's
 			//     host-cluster kubeconfig (the flux-system mirror), so the host
 			//     helm-controller installs the standby Cluster INTO region B,
@@ -664,20 +616,18 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 				// #4293 BLOCKER-1 — NO vcluster kubeConfig. The primary Cluster CR
 				// reconciles on region A's HOST (where the cnpg-system operator +
 				// the postgresql.cnpg.io CRD live), installing into the host
-				// `<slug>` ns for BOTH tiers. Routing it into the vcluster (the
+				// `<slug>` ns for every plan. Routing it into the vcluster (the
 				// keystone's old shape) `helm install`-failed on the missing CRD.
 				kubeSecret: "",
 			})
-			// The replica HR ALWAYS carries a kubeConfig — even for the host
-			// tier — because the standby Cluster MUST land in region B's cluster,
-			// a DIFFERENT physical cluster than the host Flux's own (region A).
-			// For the host tier there is no vcluster, so the chart installs into
-			// region B's host `<slug>` ns; for the vcluster tier region B has no
+			// The replica HR ALWAYS carries a kubeConfig because the standby
+			// Cluster MUST land in region B's cluster, a DIFFERENT physical
+			// cluster than the host Flux's own (region A). Region B has no
 			// per-Org vcluster mirror, so the standby CNPG Cluster lands in region
 			// B's host `<slug>` ns and streams WAL to the region-A primary over
-			// ClusterMesh (CNPG replica clusters are mesh-reachable regardless of
-			// which side runs inside a vcluster). The target namespace is `<slug>`
-			// in region B either way.
+			// ClusterMesh (CNPG replica clusters are mesh-reachable even though
+			// the Org's app pods run inside the vcluster). The target namespace
+			// is `<slug>` in region B.
 			hostFiles["db-cnpg-pair-replica.yaml"] = generateCNPGPair(cnpgPairOpts{
 				side:          "replica",
 				ns:            slug,
@@ -759,17 +709,15 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 
 	// HelmRelease-shaped per-Org apps (openclaw #4272, stalwart-mail #4307) —
 	// emitted as HOST files (helm-controller runs on the host, NOT inside the
-	// per-Org vcluster, #3055), tier-aware via the SAME HR-level kubeConfig the
-	// bp-cnpg-pair path uses: vcluster tier installs the chart INTO the Org
-	// vcluster through the flux-system `tenant-<slug>-kubeconfig` mirror; host
-	// tier installs straight into the host `<slug>` ns (kubeSecret ""). Each HR
-	// ships its own bp-* HelmRepository so a fresh funnel Org resolves the
+	// per-Org vcluster, #3055) and installed INTO the Org vCluster through the
+	// SAME HR-level kubeConfig mechanism the bp-cnpg-pair replica uses: the
+	// flux-system `tenant-<slug>-kubeconfig` mirror. Every Organization is
+	// vCluster-backed (#4292), so the mirror is unconditional — there is no
+	// plan for which the HR installs straight into the host `<slug>` ns. Each
+	// HR ships its own bp-* HelmRepository so a fresh funnel Org resolves the
 	// sourceRef. Mirrors the BSS-door orgTenantBPOpenClaw / orgTenantBPStalwart
 	// overlays so a cart Org gets the SAME releases the BSS door emits.
-	hrKubeSecret := ""
-	if isVcluster {
-		hrKubeSecret = fmt.Sprintf("tenant-%s-kubeconfig", slug)
-	}
+	hrKubeSecret := fmt.Sprintf("tenant-%s-kubeconfig", slug)
 	for _, a := range helmReleaseAppsFor(appSlugs) {
 		hostFiles[fmt.Sprintf("app-%s.yaml", a)] = generateHelmReleaseApp(a, helmReleaseAppOpts{
 			slug:         slug,
@@ -827,35 +775,32 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 // by the teardown handler and its finalizer completes against a still-live
 // flux-system namespace.
 //
-// spec.targetNamespace stamps the destination ns. For BOTH tiers it is the
-// org-controller-owned `<slug>` namespace — for the vcluster tier it is the
-// in-vcluster namespace the synced resources land in; for the host tier it is
-// the host namespace the resources are applied into directly.
+// spec.targetNamespace stamps the destination ns: the org-controller-owned
+// `<slug>` namespace INSIDE the Org vCluster, where the synced resources land.
 //
-// #4297 keystone — TIER-AWARE kubeConfig. For the VCLUSTER tier (isVcluster
-// true) the Kustomization carries spec.kubeConfig.secretRef so the host Flux
-// kustomize-controller reconciles the apps tree INTO the Org vCluster apiserver
-// (the apps then run inside the vcluster, not on the host). For the HOST tier
-// (free/S) there is NO vcluster — emitting a kubeConfig referencing the
-// never-created `vc-vcluster` mirror would StateError forever and the host-tier
-// Org's apps would never deploy. So host-tier omits kubeConfig entirely and the
-// apps reconcile straight into the host `<slug>` ns (which IS the boundary).
+// ONE boundary (#4292, founder 2026-09-10): every Organization on every plan
+// is vCluster-backed, so the Kustomization ALWAYS carries
+// spec.kubeConfig.secretRef and the host Flux kustomize-controller reconciles
+// the apps tree INTO the Org vCluster apiserver (the apps run inside the
+// vcluster, never on the host). The former free/S/"" host-namespace arm —
+// "omit kubeConfig, reconcile straight into the host `<slug>` ns" — is gone;
+// the org-controller renders the `vcluster` HelmRelease for every plan, so the
+// `vc-vcluster` export the mirror is copied from always appears.
 //
-// kubeConfig.secretRef (vcluster tier only): Flux's Kustomization API accepts
-// only `name`+`key` on secretRef (no namespace override), so the secret must
-// live in flux-system alongside the CR. The org-controller's `vcluster`
-// HelmRelease exports the kubeconfig to `<slug>/vc-vcluster`; the provisioning
-// workflow mirrors that into `flux-system/tenant-<slug>-kubeconfig` after the
-// vcluster HelmRelease becomes Ready (handlers.mirrorVClusterKubeconfig). The
-// mirror is deleted during teardown.
+// kubeConfig.secretRef: Flux's Kustomization API accepts only `name`+`key` on
+// secretRef (no namespace override), so the secret must live in flux-system
+// alongside the CR. The org-controller's `vcluster` HelmRelease exports the
+// kubeconfig to `<slug>/vc-vcluster`; the provisioning workflow mirrors that
+// into `flux-system/tenant-<slug>-kubeconfig` after the vcluster HelmRelease
+// becomes Ready (handlers.mirrorVClusterKubeconfig). The mirror is deleted
+// during teardown.
 //
 // Readiness gating: NO manifest-level dependsOn is used (Flux Kustomization
 // dependsOn references other Kustomizations, not the vcluster HelmRelease). The
 // gate is enforced in code: the consumer waits for the vcluster HR Ready and
 // mirrors the kubeconfig BEFORE the apps are expected up; until the mirror
 // exists this Kustomization simply StateErrors-then-retries (retryInterval 1m)
-// — the intended self-healing for the vcluster tier. The host tier has no
-// secret dependency at all, so it reconciles immediately.
+// — the intended self-healing.
 //
 // #4761 — sourceRef.name is threaded from ManifestGenerator.appsSyncSourceRepo()
 // (CATALYST_APPS_SYNC_SOURCE_REPO, default "openova-org-tenants"), NOT a bare
@@ -864,15 +809,12 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 // #4785, then `openova-org-tenants` #4798) leaves the `tenant-<slug>-apps`
 // Kustomization permanently FALSE (`GitRepository "<name>" not found`) on any
 // Sovereign that names the repo differently (Inviolable Principle 4).
-func generateAppsSyncKustomization(ns, slug, basePath string, isVcluster bool, sourceRepo string) string {
-	kubeConfig := ""
-	if isVcluster {
-		kubeConfig = fmt.Sprintf(`
+func generateAppsSyncKustomization(ns, slug, basePath string, sourceRepo string) string {
+	kubeConfig := fmt.Sprintf(`
   kubeConfig:
     secretRef:
       name: tenant-%s-kubeconfig
       key: config`, slug)
-	}
 	return fmt.Sprintf(`apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
@@ -1275,21 +1217,23 @@ spec:
 // generateCNPGPairSecret into the apps/ tree (Kustomization-redirected), NOT
 // here on the host.
 //
-// ns is the chart TARGET namespace (= the Org `<slug>`): for the vcluster tier
-// the host helm-controller installs the chart into the vcluster's `<slug>` ns
-// (where the apps-sync-rewritten app pods + postgres-credentials Secret live);
-// for the host tier the chart installs into the host `<slug>` ns.
+// ns is the chart TARGET namespace (= the Org `<slug>`) on whichever HOST
+// cluster the side lands in: region A's host for the primary, region B's host
+// for the replica. Neither side is installed into the Org vCluster — the cnpg
+// operator + CRD are host singletons (#4293 finding 1) — so the Org's apps,
+// which DO run inside the vcluster, reach the DB through the synced `postgres`
+// Service + the apps-tree postgres-credentials Secret.
 //
 // kubeSecret is the flux-system-co-located kubeconfig mirror the host
 // helm-controller installs THROUGH:
-//   - PRIMARY side, vcluster tier → `tenant-<slug>-kubeconfig` (the Org
-//     vcluster, on region A's host). Empty for the host tier (no vcluster →
-//     the HR reconciles on the host + chart installs into the host `<slug>`).
+//   - PRIMARY side → ALWAYS empty, for every plan: the HR reconciles on region
+//     A's host and the chart installs into the host `<slug>` ns.
 //   - REPLICA side → ALWAYS the region-B host-cluster kubeconfig
 //     (`sovereign-replica-region-kubeconfig`), so the standby Cluster lands in
 //     region B where its region-B node-affinity matches the local nodes
 //     (#4282/#4275). Region B is a DIFFERENT physical cluster than region A's
-//     host Flux, so a kubeConfig is mandatory even for the host tier.
+//     host Flux, so a kubeConfig is mandatory here even though the primary
+//     carries none.
 //
 // #4282/#4275 — SPLIT-SIDE. opt.side selects WHICH half of the pair this HR
 // renders (the chart is side-gated: side=primary renders ONLY the primary
@@ -1356,9 +1300,9 @@ func generateCNPGPair(opt cnpgPairOpts) string {
 	// HR-level kubeConfig. Flux's HelmRelease secretRef accepts name+key only —
 	// the namespace is implied from the HR's OWN namespace — so for the secretRef
 	// to resolve the HR (+ its HelmRepository) must live alongside the mirror in
-	// flux-system. PRIMARY side, host tier carries NO kubeConfig (no vcluster →
-	// the HR reconciles on region A's host + chart installs into the host
-	// `<slug>` ns). REPLICA side ALWAYS carries a kubeConfig (region B is a
+	// flux-system. PRIMARY side carries NO kubeConfig for any plan (the HR
+	// reconciles on region A's host + chart installs into the host `<slug>`
+	// ns — #4293 finding 1). REPLICA side ALWAYS carries a kubeConfig (region B is a
 	// separate cluster). When kubeSecret is set, author the HR in flux-system
 	// next to the mirror; otherwise author it in the host `<slug>` ns.
 	hrNamespace := ns
@@ -2190,14 +2134,14 @@ func hostSyncedServiceName(appSlug, hostNS string) string {
 }
 
 // generateHostNativeAppRoute emits a HOST-NATIVE Gateway-API HTTPRoute (in the
-// host `<slug>` ns) that routes a VCLUSTER-tier app's public host
+// host `<slug>` ns) that routes an Org app's public host
 // (`<app>.<slug>.<parentDomain>`) to the SYNCED Service the vcluster syncer
 // reflects host-side (`<app>-x-<slug>-x-vcluster:80`).
 //
-// #4993 — the DURABLE FIX for the vcluster-tier 404. generateAppHTTPRoute
+// #4993 — the DURABLE FIX for the in-vcluster-app 404. generateAppHTTPRoute
 // co-locates the app's HTTPRoute with the Deployment+Service INSIDE the Org
-// vcluster (the apps tree is kubeConfig-targeted into the vcluster for paid M+
-// tiers). That in-vcluster route was expected to reach the host via
+// vcluster (the apps tree is kubeConfig-targeted into the vcluster for every
+// Organization, #4292). That in-vcluster route was expected to reach the host via
 // `sync.toHost.customResources.httproutes`, but loft vcluster 0.33.4 registers
 // NO httproute reflecting controller (only the CRD import + a quota evaluator —
 // proven live on hw240: `vcluster-0 -c syncer` logs "Created service/…/networkpolicy
@@ -2215,9 +2159,10 @@ func hostSyncedServiceName(appSlug, hostNS string) string {
 // gateway→pod reserved-entity hop is admitted namespace-wide by the
 // org-controller's ciliumNetworkPolicyTemplate (endpointSelector:{},
 // fromEntities:[ingress,host,remote-node]) on `<slug>`, so no per-app CNP is
-// needed. Emitted ONLY for the vcluster tier — the host tier (free/S) runs the
-// app + its plain Service in the host `<slug>` ns directly, where the co-located
-// generateAppHTTPRoute already routes and no synced name exists.
+// needed. Emitted for every Organization (#4292): every Org's apps run inside
+// its vCluster and surface on the host ONLY as the synced
+// `<app>-x-<slug>-x-vcluster` Service, so this host-native route is the one
+// path from the host gateway to the app for every plan.
 func generateHostNativeAppRoute(hostNS, slug, appSlug, parentDomain string) string {
 	host := fmt.Sprintf("%s.%s.%s", appSlug, slug, parentDomain)
 	synced := hostSyncedServiceName(appSlug, hostNS)

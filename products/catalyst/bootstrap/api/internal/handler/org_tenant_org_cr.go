@@ -229,11 +229,11 @@ func ensureOrganizationCR(ctx context.Context, dyn dynamic.Interface, rec store.
 	}
 	// Purchased plan slug → spec.planSlug (#4292). Empty / unknown defaults to
 	// "s" so the org-controller always materializes a cap rather than running
-	// the boundary namespace uncapped.
+	// the Organization's vCluster uncapped. The plan sizes that vCluster; it
+	// never selects the boundary (every Organization gets one, orgIsolation).
+	// Normalised against catalogPlanSlugs, the ONE list the create door reads.
 	planSlug := strings.ToLower(strings.TrimSpace(rec.PlanSlug))
-	switch planSlug {
-	case "s", "m", "l", "xl", "flexi":
-	default:
+	if !isCatalogPlanSlug(planSlug) {
 		planSlug = "s"
 	}
 	parentDomain := strings.ToLower(strings.TrimSpace(rec.ParentDomain))

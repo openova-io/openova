@@ -36,8 +36,12 @@ export type OrgTier = 'org' | 'corporate'
 /** OrgBillingMode — real | chargeback | showback (#3378 §2.6). */
 export type OrgBillingMode = 'real' | 'chargeback' | 'showback'
 
-/** OrgIsolation — namespace (people/app/cost boundary) vs vcluster
- *  (own Kubernetes universe). Kind-derived default (#3378 §2.1). */
+/** OrgIsolation — the boundary primitive the org-controller authored for an
+ *  Organization, as MEASURED off its CR (status.vcluster, #6145). Every
+ *  Organization created now is 'vcluster' — a dedicated vCluster on every
+ *  plan and for both kinds (founder direction 2026-09-10, Refs #4292 #4539
+ *  #6135). 'namespace' stays in the union only because Organizations authored
+ *  before that can still be observed as host-namespace-backed. */
 export type OrgIsolation = 'namespace' | 'vcluster'
 
 /** OrgStatus — lifecycle status the directory renders as a pill. The
@@ -60,14 +64,14 @@ export interface OrgRow {
   kind: OrgKind
   tier: OrgTier
   /** The PURCHASED plan (s|m|l|xl|flexi) off the Organization CR's
-   *  spec.planSlug (#4292, UAT row 7). Distinct from `tier`, which is the
-   *  isolation class — `isolation` below is DERIVED from this value, so the
-   *  directory used to render a consequence of the plan while never naming
-   *  the plan itself. Empty for the sovereign-root row and for records that
-   *  declare none. */
+   *  spec.planSlug (#4292, UAT row 7). Distinct from `tier`. The plan sizes
+   *  the ResourceQuota/LimitRange inside the Organization's vCluster; it does
+   *  not select the boundary (every plan gets a dedicated vCluster). Empty
+   *  for the sovereign-root row and for records that declare none. */
   plan: string
   billingMode: OrgBillingMode
-  /** A real Organization is namespace- or vcluster-isolated. The
+  /** A real Organization is vcluster-isolated (every plan, both kinds); a
+   *  'namespace' value is a measured legacy boundary, see OrgIsolation. The
    *  sovereign-root row is the CLUSTER itself — isolated within nothing —
    *  so it carries 'cluster'. #5489: it previously claimed 'vcluster', a
    *  hardcoded literal with no backing object; on hw291 the directory
@@ -90,19 +94,28 @@ export interface OrgRow {
 }
 
 /**
- * kindDefaults — the kind-derived isolation + billingMode defaults the
- * internal door renders before the advanced override (#3378 §2.3):
- *   internal → showback + namespace (department: a people/app/cost
- *              boundary, no own Kubernetes universe, no voucher step)
- *   customer → real + vcluster (the marketplace funnel's external door)
+ * kindDefaults — the kind-derived billingMode default the internal door
+ * renders before the advanced override (#3378 §2.3), plus the ONE boundary
+ * every Organization gets:
+ *   internal → showback (department: no voucher step)
+ *   customer → real     (the marketplace funnel's external door)
+ *   both     → isolation 'vcluster' — a dedicated vCluster on every plan.
+ *
+ * The boundary never keyed off kind (#4539 / UAT row 100: the org-controller
+ * authors it without reading spec.kind) and now never keys off the plan
+ * either (founder direction 2026-09-10: one SME customer = one vCluster).
+ * The former `internal → namespace` default here was a label that lied.
  */
 export function kindDefaults(kind: OrgKind): {
   billingMode: OrgBillingMode
-  isolation: OrgIsolation
+  /** Narrower than OrgIsolation on purpose: the create door can only ever
+   *  order (and assert) the one boundary every plan delivers. */
+  isolation: 'vcluster'
 } {
-  return kind === 'internal'
-    ? { billingMode: 'showback', isolation: 'namespace' }
-    : { billingMode: 'real', isolation: 'vcluster' }
+  return {
+    billingMode: kind === 'internal' ? 'showback' : 'real',
+    isolation: 'vcluster',
+  }
 }
 
 /**
@@ -110,7 +123,7 @@ export function kindDefaults(kind: OrgKind): {
  * Refs #4293/#4292).
  *
  * Mirrors `catalogPlanSlugs` in
- * products/catalyst/bootstrap/api/internal/handler/organization_provisioning.go:361,
+ * products/catalyst/bootstrap/api/internal/handler/organization_provisioning.go,
  * the ONE list the create handler normalises against: a `plan_slug` outside it
  * is silently coerced to `s`. Kept as a single exported constant so the create
  * form's picker and any future plan surface offer exactly the set the server
@@ -119,33 +132,6 @@ export function kindDefaults(kind: OrgKind): {
 export const ORG_PLAN_SLUGS = ['s', 'm', 'l', 'xl', 'flexi'] as const
 
 export type OrgPlanSlug = (typeof ORG_PLAN_SLUGS)[number]
-
-/**
- * isolationForPlan — the #4292 TIER GATE, front-end side.
- *
- * The boundary primitive an Organization gets is decided by the plan slug
- * ALONE, never by `kind`. free/S share the host `<slug>` namespace; every paid
- * tier from M up gets a dedicated Org-vCluster. This is the exact predicate of
- * `isolationForTier` (organization_provisioning.go:346) and of the renderer
- * that actually authors the boundary, `boundaryIsVcluster`
- * (core/controllers/organization/internal/gitops/manifests.go:151).
- *
- * It exists so the create form can show the isolation the CHOSEN PLAN will
- * deliver. Before UAT row G7 the form showed `kindDefaults(kind).isolation` —
- * 'vcluster' for every customer Org — while the form had no plan input at all,
- * so the server normalised the plan to `s` and authored a host namespace. The
- * page advertised a boundary it could not order.
- */
-export function isolationForPlan(planSlug: string): OrgIsolation {
-  switch (planSlug.trim().toLowerCase()) {
-    case '':
-    case 's':
-    case 'free':
-      return 'namespace'
-    default:
-      return 'vcluster'
-  }
-}
 
 interface SovereignSelf {
   deploymentId: string
@@ -290,8 +276,8 @@ function normalizeBillingMode(raw: string | undefined, kind: OrgKind): OrgBillin
  * hardcoded 'vcluster' (#5489) and the record mapper's fabricated plan (#4292).
  *
  * Unknown renders as an em dash. `kindDefaults` survives for the CREATE form,
- * where pre-selecting a boundary the User can still change is a default rather
- * than a claim.
+ * where the boundary it shows is the one every plan delivers — a statement
+ * about what the create will order, not a measurement of an existing object.
  */
 function normalizeIsolation(raw: string | undefined): OrgIsolation | '' {
   const v = String(raw ?? '').trim().toLowerCase()
@@ -302,11 +288,13 @@ function normalizeIsolation(raw: string | undefined): OrgIsolation | '' {
 /**
  * subOrgRowFromRecord — map an existing OrgRecord (one Organization CR) to
  * a directory row. The roster feed surfaces the real spec fields the
- * orchestrator stamps (kind / tier / billing_mode / isolation, issue
- * #3378 B1), so an Internal org badges Internal · showback · namespace —
- * NOT the old hardcoded customer/real/vcluster. Rows whose spec predates
- * the B1 fields (empty kind/tier/billing/isolation) fall back to the
- * kind-derived defaults so a legacy customer row still badges sensibly.
+ * orchestrator stamps (kind / tier / billing_mode, issue #3378 B1) and the
+ * MEASURED isolation (#6145), so an Internal org badges Internal · showback
+ * · vcluster — its kind and billing from the spec, its boundary from what
+ * the org-controller authored — NOT a hardcoded shape. Rows whose spec
+ * predates the B1 fields (empty kind/tier/billing) fall back to the
+ * kind-derived defaults so a legacy customer row still badges sensibly;
+ * isolation never falls back (an unmeasured boundary renders as an em dash).
  */
 export function subOrgRowFromRecord(t: OrgRecord): OrgRow {
   const kind = normalizeKind(t.kind)

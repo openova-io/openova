@@ -18,13 +18,14 @@ import (
 //	inventory: 0
 //
 // GeneratePerOrgAppsTree re-rooted the host-scoped `app-<x>.yaml` HelmRelease
-// files into `vcluster/apps/` for EVERY plan. On the host tier that is correct
-// (the apps Kustomization has `kubeConfig: null` → applies to the host, where
-// the Flux CRDs live). On the vcluster tier the org-controller attaches
-// `kubeConfig.secretRef: tenant-<slug>-kubeconfig`, so the same doc is applied
-// INTO the Org vcluster — which registers no `helm.toolkit.fluxcd.io` CRDs at
-// all. Flux aborts the WHOLE Kustomization on one dry-run failure, so the two
-// poison docs took `app-wordpress.yaml` and `db-mysql.yaml` down with them.
+// files into `vcluster/apps/` for EVERY plan. The org-controller attaches
+// `kubeConfig.secretRef: tenant-<slug>-kubeconfig` to the apps Kustomization,
+// so the doc is applied INTO the Org vcluster — which registers no
+// `helm.toolkit.fluxcd.io` CRDs at all. Flux aborts the WHOLE Kustomization on
+// one dry-run failure, so the two poison docs took `app-wordpress.yaml` and
+// `db-mysql.yaml` down with them. (At the time only paid plans were
+// vCluster-backed; since #4292 every Organization is, so the host-apps
+// re-root applies to every plan — the second subtest pins s/free/"".)
 //
 // Downstream that was UAT rows 86 (timeline RED), 90 (wordpress → HTTP 500 via
 // `ResolvedRefs=False / BackendNotFound`), 233 (HTTPRoute present but nothing
@@ -39,7 +40,7 @@ func TestPerOrgAppsTree_5423_VclusterTierKeepsFluxDocsOutOfTheKubeconfigTargeted
 	// catalog app is caught even if it is named nothing like app-openclaw.yaml.
 	fluxOnlyKinds := []string{"HelmRelease", "HelmRepository", "OCIRepository", "GitRepository", "Kustomization"}
 
-	t.Run("vcluster tier routes HR apps to host-apps", func(t *testing.T) {
+	t.Run("plan m routes HR apps to host-apps", func(t *testing.T) {
 		g := NewManifestGenerator("clusters/sov/org-tenants")
 		files, appDocs := g.GeneratePerOrgAppsTree("acmex", "m", cart, "pw123")
 
@@ -49,7 +50,7 @@ func TestPerOrgAppsTree_5423_VclusterTierKeepsFluxDocsOutOfTheKubeconfigTargeted
 			}
 			for _, k := range fluxOnlyKinds {
 				if strings.Contains(content, "\nkind: "+k) || strings.HasPrefix(content, "kind: "+k) {
-					t.Errorf("%s carries kind %s — the vcluster-tier apps Kustomization is kubeConfig-targeted at the Org vcluster, which has no Flux CRDs; the whole Kustomization fails dry-run and every sibling app dies with it (#5423)", path, k)
+					t.Errorf("%s carries kind %s — the apps Kustomization is kubeConfig-targeted at the Org vcluster, which has no Flux CRDs; the whole Kustomization fails dry-run and every sibling app dies with it (#5423)", path, k)
 				}
 			}
 		}
@@ -59,7 +60,7 @@ func TestPerOrgAppsTree_5423_VclusterTierKeepsFluxDocsOutOfTheKubeconfigTargeted
 				t.Errorf("expected %s under %s (kubeConfig: null, targetNamespace: <slug> — the host ns these HRs always meant to install into)", want, PerOrgHostAppsDir)
 			}
 			if _, ok := files[PerOrgAppsDir+"/"+want]; ok {
-				t.Errorf("%s must NOT remain under %s on the vcluster tier", want, PerOrgAppsDir)
+				t.Errorf("%s must NOT remain under %s", want, PerOrgAppsDir)
 			}
 		}
 
@@ -86,7 +87,7 @@ func TestPerOrgAppsTree_5423_VclusterTierKeepsFluxDocsOutOfTheKubeconfigTargeted
 		// two lists against each other: it went red when the openclaw⇒newapi
 		// dependency closure (UAT row 225) legitimately added a third doc to
 		// BOTH sides, which is the drift this guard exists to permit.
-		hostDocs := PerOrgHostHelmReleaseAppDocs("m", cart)
+		hostDocs := PerOrgHostHelmReleaseAppDocs(cart)
 		want := []string{}
 		for path := range files {
 			if name, ok := strings.CutPrefix(path, PerOrgHostAppsDir+"/"); ok {
@@ -103,38 +104,47 @@ func TestPerOrgAppsTree_5423_VclusterTierKeepsFluxDocsOutOfTheKubeconfigTargeted
 		}
 	})
 
-	// The host tier is the path that always worked; a regression here would
-	// break every free/S Org, so pin it explicitly.
-	t.Run("host tier is unchanged", func(t *testing.T) {
-		g := NewManifestGenerator("clusters/sov/org-tenants")
-		files, appDocs := g.GeneratePerOrgAppsTree("acmex", "s", cart, "pw123")
+	// s/free/"" used to keep the HR docs in vcluster/apps/ because those Orgs
+	// had no vcluster. Every Organization is vCluster-backed now (#4292), so
+	// they re-root exactly like m — pin it so the old arm cannot creep back.
+	t.Run("plans s/free/empty re-root HR apps exactly like m", func(t *testing.T) {
+		for _, plan := range []string{"s", "free", ""} {
+			g := NewManifestGenerator("clusters/sov/org-tenants")
+			files, appDocs := g.GeneratePerOrgAppsTree("acmex", plan, cart, "pw123")
 
-		for _, want := range []string{"app-openclaw.yaml", "app-stalwart-mail.yaml"} {
-			if _, ok := files[PerOrgAppsDir+"/"+want]; !ok {
-				t.Errorf("host tier: %s must stay under %s (that Kustomization applies to the host, where the Flux CRDs live)", want, PerOrgAppsDir)
+			for _, want := range []string{"app-openclaw.yaml", "app-stalwart-mail.yaml"} {
+				if _, ok := files[PerOrgHostAppsDir+"/"+want]; !ok {
+					t.Errorf("plan=%q: %s must be re-rooted under %s (the apps Kustomization is kubeConfig-targeted at the CRD-less vcluster for every Organization)", plan, want, PerOrgHostAppsDir)
+				}
+				if _, ok := files[PerOrgAppsDir+"/"+want]; ok {
+					t.Errorf("plan=%q: %s must NOT remain under %s", plan, want, PerOrgAppsDir)
+				}
+				if contains(appDocs, want) {
+					t.Errorf("plan=%q: appDocs still lists %s; its file lives in %s, so the apps kustomization would reference a missing file", plan, want, PerOrgHostAppsDir)
+				}
 			}
-			if _, ok := files[PerOrgHostAppsDir+"/"+want]; ok {
-				t.Errorf("host tier: %s must NOT move to %s", want, PerOrgHostAppsDir)
+			for _, want := range []string{"app-wordpress.yaml", "db-mysql.yaml"} {
+				if _, ok := files[PerOrgAppsDir+"/"+want]; !ok {
+					t.Errorf("plan=%q: expected %s to stay under %s", plan, want, PerOrgAppsDir)
+				}
 			}
 		}
-		idx := strings.Join(appDocs, ",")
+		hostDocs := PerOrgHostHelmReleaseAppDocs(cart)
 		for _, want := range []string{"app-openclaw.yaml", "app-stalwart-mail.yaml"} {
-			if !strings.Contains(idx, want) {
-				t.Errorf("host tier: appDocs must still index %s, got %v", want, appDocs)
+			if !contains(hostDocs, want) {
+				t.Errorf("PerOrgHostHelmReleaseAppDocs must index %s for every Organization, got %v", want, hostDocs)
 			}
-		}
-		if got := PerOrgHostHelmReleaseAppDocs("s", cart); got != nil {
-			t.Errorf("host tier: PerOrgHostHelmReleaseAppDocs must be nil, got %v", got)
 		}
 	})
 }
 
-// A per-Org repo written by a pre-#5423 build still lists app-<x>.yaml in
+// A per-Org repo written by a pre-#5423 build — or by the former s/free arm,
+// which kept HR docs in vcluster/apps/ — still lists app-<x>.yaml in
 // vcluster/apps/kustomization.yaml while the file now lives in host-apps. The
-// merge must strip that entry on the vcluster tier so the next cart install
+// merge must strip that entry for every Organization so the next cart install
 // heals an Org that would otherwise stay wedged forever — the same self-heal
 // #4567 applies to a stale ciliumnetworkpolicy.yaml entry.
-func TestMergePerOrgAppsKustomization_5423_StripsStaleHRAppEntryOnVclusterTier(t *testing.T) {
+func TestMergePerOrgAppsKustomization_5423_StripsStaleHRAppEntry(t *testing.T) {
 	stale := `apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
@@ -146,23 +156,36 @@ resources:
   - db-mysql.yaml
 `
 
-	got := MergePerOrgAppsKustomization(stale, "m", nil, []string{"app-wordpress.yaml", "db-mysql.yaml"})
+	got := MergePerOrgAppsKustomization(stale, nil, []string{"app-wordpress.yaml", "db-mysql.yaml"})
 	for _, gone := range []string{"app-openclaw.yaml", "app-stalwart-mail.yaml"} {
 		if strings.Contains(got, gone) {
-			t.Errorf("vcluster tier: stale %s survived the merge — the Org stays wedged on a kustomization entry whose file is not in the dir:\n%s", gone, got)
+			t.Errorf("stale %s survived the merge — the Org stays wedged on a kustomization entry whose file is not in the dir:\n%s", gone, got)
 		}
 	}
 	for _, keep := range []string{"app-wordpress.yaml", "db-mysql.yaml", "networkpolicy.yaml", "namespace.yaml"} {
 		if !strings.Contains(got, keep) {
-			t.Errorf("vcluster tier: %s must survive the merge:\n%s", keep, got)
+			t.Errorf("%s must survive the merge:\n%s", keep, got)
 		}
 	}
 
-	// Host tier: the very same entries are legitimate and must be preserved.
-	gotHost := MergePerOrgAppsKustomization(stale, "s", nil, []string{"app-wordpress.yaml", "db-mysql.yaml"})
-	for _, keep := range []string{"app-openclaw.yaml", "app-stalwart-mail.yaml"} {
-		if !strings.Contains(gotHost, keep) {
-			t.Errorf("host tier: %s must be preserved — its file really is in vcluster/apps/:\n%s", keep, gotHost)
+	// The index shape the former s/free arm wrote — HR docs indexed in
+	// vcluster/apps/ with no namespace.yaml — is healed by the same call: the
+	// stale HR entries go, the vcluster target-ns baseline comes in.
+	oldSmallPlan := `apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - networkpolicy.yaml
+  - app-openclaw.yaml
+  - app-stalwart-mail.yaml
+  - app-wordpress.yaml
+`
+	healed := MergePerOrgAppsKustomization(oldSmallPlan, nil, []string{"app-wordpress.yaml"})
+	for _, gone := range []string{"app-openclaw.yaml", "app-stalwart-mail.yaml"} {
+		if strings.Contains(healed, gone) {
+			t.Errorf("former small-plan index: stale %s survived — every Organization is vCluster-backed, so its file is in host-apps:\n%s", gone, healed)
 		}
+	}
+	if !strings.Contains(healed, "- namespace.yaml") {
+		t.Errorf("former small-plan index: the merge must add the vcluster target-ns namespace.yaml:\n%s", healed)
 	}
 }

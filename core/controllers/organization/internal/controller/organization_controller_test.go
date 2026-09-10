@@ -504,9 +504,9 @@ func sampleOrg() *orgapi.Organization {
 			DisplayName: "ACME Corp",
 			Kind:        "customer",
 			Tier:        "org",
-			// #4292: a paid plan → the renderer emits the vCluster boundary plus
-			// the plan-templated ResourceQuota + LimitRange + apps-tree
-			// NetworkPolicy baseline (6 files total).
+			// #4292: the plan sizes the ResourceQuota + LimitRange; the
+			// renderer emits the vCluster boundary + the apps-tree
+			// NetworkPolicy baseline for every plan.
 			PlanSlug:               "m",
 			BillingMode:            "real",
 			SovereignRef:           "omantel.omani.works",

@@ -176,21 +176,25 @@ type OrganizationProvisionRecord struct {
 	//
 	// These four fields map onto OrganizationSpec
 	// (core/controllers/organization/internal/orgapi/types.go:54-79):
-	// Kind/Tier/BillingMode + the derived Isolation. The marketplace
-	// funnel (the customer door) omits them and the create handler
-	// stamps the customer default shape (kind=customer, tier=org,
-	// billingMode=real, isolation=vcluster) so the funnel is byte-
-	// unchanged. The internal door (kind=internal) stamps the
-	// department shape (showback + namespace) and skips the voucher
-	// dependency. Empty (legacy records) reads as the customer default.
+	// Kind/Tier/BillingMode + Isolation. The marketplace funnel (the
+	// customer door) omits them and the create handler stamps the
+	// customer default shape (kind=customer, tier=org, billingMode=real,
+	// isolation=vcluster) so the funnel is byte-unchanged. The internal
+	// door (kind=internal) stamps the department billing shape (showback)
+	// and skips the voucher dependency. Isolation is `vcluster` for every
+	// Organization on every plan (handler orgIsolation); a persisted
+	// `namespace` is a record written before that and is reported as the
+	// observed boundary, never rewritten. Empty (legacy records) reads as
+	// the customer default.
 	Kind        string `json:"kind,omitempty"`
 	Tier        string `json:"tier,omitempty"`
 	BillingMode string `json:"billing_mode,omitempty"`
 	Isolation   string `json:"isolation,omitempty"`
 	// PlanSlug — purchased catalog plan slug (s|m|l|xl|flexi), #4292. Carried
 	// onto the Organization CR spec.planSlug so the org-controller materializes
-	// the matching ResourceQuota + LimitRange on the boundary namespace. Empty
-	// (legacy records) reads as "s" at the renderer.
+	// the matching ResourceQuota + LimitRange inside the Organization's
+	// vCluster. It sizes the boundary; it never selects it. Empty (legacy
+	// records) reads as "s" at the renderer.
 	PlanSlug string `json:"plan_slug,omitempty"`
 
 	// BoundaryPhase — the LAST OBSERVED phase of the Org's boundary

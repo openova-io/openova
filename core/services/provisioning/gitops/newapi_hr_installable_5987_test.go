@@ -256,16 +256,18 @@ func TestNewAPIValuesFaults_FlagsThePreFixBlock(t *testing.T) {
 }
 
 // TestFunnelNewAPIHR_SatisfiesChartValuesContract_5987 is the regression
-// proof. It runs the REAL generator across both boundary tiers and the
-// shared-realm/per-Org-realm split, and asserts the rendered HR trips none
-// of the chart gates.
+// proof. It runs the REAL generator with and without the vcluster kubeConfig
+// mirror and across the shared-realm/per-Org-realm split, and asserts the
+// rendered HR trips none of the chart gates. (The funnel always sets the
+// mirror — every Organization is vCluster-backed, #4292 — the mirror-less
+// fixture only proves the values contract does not depend on it.)
 func TestFunnelNewAPIHR_SatisfiesChartValuesContract_5987(t *testing.T) {
 	cases := []struct {
 		name string
 		opt  helmReleaseAppOpts
 	}{
-		{"host-tier", helmReleaseAppOpts{slug: "acme", parentDomain: "omani.homes"}},
-		{"vcluster-tier", helmReleaseAppOpts{slug: "acme", parentDomain: "omani.homes", kubeSecret: "tenant-acme-kubeconfig"}},
+		{"no-kubeconfig-mirror", helmReleaseAppOpts{slug: "acme", parentDomain: "omani.homes"}},
+		{"kubeconfig-mirror", helmReleaseAppOpts{slug: "acme", parentDomain: "omani.homes", kubeSecret: "tenant-acme-kubeconfig"}},
 		{"shared-realm", helmReleaseAppOpts{slug: "acme", parentDomain: "omani.homes", sharedRealmIssuer: "https://auth.t99.omani.works/realms/sovereign"}},
 	}
 	for _, tc := range cases {

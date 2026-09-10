@@ -16,18 +16,26 @@ import {
 import type { OrgRecord } from './bss.api'
 
 describe('kindDefaults', () => {
-  it('internal → showback + namespace (the internal door, no voucher)', () => {
+  // Every Organization is backed by a dedicated vCluster on every plan and
+  // for both kinds; kind drives billing only. The former
+  // `internal → namespace` expectation here pinned a label that lied.
+  it('internal → showback billing, vcluster boundary (the internal door, no voucher)', () => {
     expect(kindDefaults('internal')).toEqual({
       billingMode: 'showback',
-      isolation: 'namespace',
+      isolation: 'vcluster',
     })
   })
 
-  it('customer → real + vcluster (the marketplace funnel door)', () => {
+  it('customer → real billing, vcluster boundary (the marketplace funnel door)', () => {
     expect(kindDefaults('customer')).toEqual({
       billingMode: 'real',
       isolation: 'vcluster',
     })
+  })
+
+  it('the boundary does not differ by kind — only billing does', () => {
+    expect(kindDefaults('internal').isolation).toBe(kindDefaults('customer').isolation)
+    expect(kindDefaults('internal').billingMode).not.toBe(kindDefaults('customer').billingMode)
   })
 })
 
@@ -89,9 +97,12 @@ describe('subOrgRowFromRecord', () => {
     expect(row.status).toBe('active')
   })
 
-  // #3378 badge-fidelity regression: an Internal org must badge Internal
-  // (showback + namespace), NOT the old hardcoded customer/real/vcluster.
-  it('maps an internal org to an internal/showback/namespace row', () => {
+  // #3378 badge-fidelity regression: an Internal org must badge what the feed
+  // reports (kind/tier/billing from the spec, isolation as MEASURED), NOT a
+  // hardcoded customer/real/vcluster. The 'namespace' here is the measured
+  // boundary of an Organization authored before every plan became
+  // vCluster-backed; it passes through verbatim (#6145).
+  it('maps an internal org to the row the feed reports, isolation verbatim', () => {
     const row = subOrgRowFromRecord({
       ...record,
       id: 'tnt-internal',

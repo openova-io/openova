@@ -2,10 +2,11 @@ package handlers
 
 import "testing"
 
-// #4297 — the provisioning workflow's app-readiness poll must match the right
-// pod-name shape per tier. Vcluster-tier (M+) app pods are synced up to the
-// host ns with a `-x-<inner-namespace>-x-vcluster` tail; host-tier (free/S, no
-// vcluster) pods run natively in the host ns as `<appSlug>-...`.
+// #4297 — the provisioning workflow's app-readiness poll must match the ONE
+// pod-name shape an Organization app pod has on the host: every Org's apps run
+// inside its vCluster (#4292) and are synced up to the host ns with a
+// `-x-<inner-namespace>-x-vcluster` tail. A native, un-synced pod is never an
+// Organization app pod.
 //
 // WHY THESE FIXTURES ARE COPIED OFF A LIVE CLUSTER (UAT row 86).
 //
@@ -27,56 +28,50 @@ import "testing"
 // 10m0s" — while mysql had been Ready within seconds and stayed up for days.
 // The customer's timeline showed a permanent red step for a healthy Org.
 //
-// The same hardcoded literal broke the HOST tier in the opposite direction:
-// the host branch is documented as rejecting a stray synced pod from a sibling
-// vcluster Org sharing the ns, but it only rejected pods whose inner namespace
-// was literally `apps` — so a real synced pod sailed through the check that
-// existed to stop it. One wrong constant, a false negative on one tier and a
-// false positive on the other.
+// (The matcher used to carry a second, native-name arm for plans that had no
+// vcluster; the same literal broke that arm's rejection of synced pods in the
+// opposite direction. That arm is gone with #4292 — there is one shape now.)
 //
 // The names below are therefore VERBATIM live pod names, not constructed ones.
 // The identical trap was already caught and fixed in the sibling file — see
 // backing_services.go's `vclusterInnerPodName` and
 // backing_services_vcluster_suffix_5451_test.go, whose fixture discipline this
 // follows. `appPodNameMatches` was never migrated onto that helper.
-func TestAppPodNameMatches_TierAware(t *testing.T) {
+func TestAppPodNameMatches_SyncedShapeOnly(t *testing.T) {
 	cases := []struct {
-		name       string
-		podName    string
-		appSlug    string
-		isVcluster bool
-		want       bool
+		name    string
+		podName string
+		appSlug string
+		want    bool
 	}{
-		// ---- Vcluster tier, VERBATIM live names from hw292-a ns uatco ----
+		// ---- VERBATIM live names from hw292-a ns uatco ----
 		// These are the exact pods the row-86 provision was waiting for.
-		{"live mysql synced pod matches", "mysql-5b9d89cbc6-hh6jt-x-uatco-x-vcluster", "mysql", true, true},
-		{"live wordpress synced pod matches", "wordpress-678cbb45dc-lv6hw-x-uatco-x-vcluster", "wordpress", true, true},
+		{"live mysql synced pod matches", "mysql-5b9d89cbc6-hh6jt-x-uatco-x-vcluster", "mysql", true},
+		{"live wordpress synced pod matches", "wordpress-678cbb45dc-lv6hw-x-uatco-x-vcluster", "wordpress", true},
 		// Cross-checks against the same live pair.
-		{"vcluster wrong app", "mysql-5b9d89cbc6-hh6jt-x-uatco-x-vcluster", "wordpress", true, false},
-		{"vcluster native pod does NOT match", "wordpress-678cbb45dc", "wordpress", true, false},
+		{"synced pod, wrong app", "mysql-5b9d89cbc6-hh6jt-x-uatco-x-vcluster", "wordpress", false},
 
 		// The inner namespace is the Org slug and varies per Org — the matcher
 		// must not care which one it is.
-		{"different org slug still matches", "ghost-abc123-x-walk-stranger-two-x-vcluster", "ghost", true, true},
-		{"legacy apps inner ns still matches", "wordpress-7d9f-x-apps-x-vcluster", "wordpress", true, true},
+		{"different org slug still matches", "ghost-abc123-x-walk-stranger-two-x-vcluster", "ghost", true},
+		{"legacy apps inner ns still matches", "wordpress-7d9f-x-apps-x-vcluster", "wordpress", true},
 
-		// ---- Host tier ----
-		{"host native pod matches", "wordpress-7d9f", "wordpress", false, true},
-		{"host wrong app", "ghost-7d9f", "wordpress", false, false},
-		// The rejection this branch was written for, with a REAL inner ns. The
-		// old literal let this through.
-		{"host rejects synced pod from a sibling org", "wordpress-678cbb45dc-lv6hw-x-uatco-x-vcluster", "wordpress", false, false},
-		{"host rejects legacy-shaped synced pod", "wordpress-7d9f-x-apps-x-vcluster", "wordpress", false, false},
+		// ---- Native, un-synced pods are never an Organization app pod ----
+		// Every Org's apps run inside its vCluster (#4292); a pod in the host
+		// ns without the syncer tail is infra or a stray, never the app.
+		{"native pod does NOT match", "wordpress-678cbb45dc", "wordpress", false},
+		{"native Deployment-shaped pod does NOT match", "wordpress-7d9f", "wordpress", false},
+		{"native pod, wrong app", "ghost-7d9f", "wordpress", false},
 
 		// ---- Prefix discipline ----
-		{"prefix boundary respected", "wordpress2-7d9f", "wordpress", false, false},
-		{"prefix boundary respected on synced pod", "wordpress2-7d9f-x-uatco-x-vcluster", "wordpress", true, false},
+		{"prefix boundary respected on synced pod", "wordpress2-7d9f-x-uatco-x-vcluster", "wordpress", false},
+		{"prefix boundary respected on native pod", "wordpress2-7d9f", "wordpress", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := appPodNameMatches(tc.podName, tc.appSlug, tc.isVcluster); got != tc.want {
-				t.Errorf("appPodNameMatches(%q, %q, isVcluster=%v) = %v, want %v",
-					tc.podName, tc.appSlug, tc.isVcluster, got, tc.want)
+			if got := appPodNameMatches(tc.podName, tc.appSlug); got != tc.want {
+				t.Errorf("appPodNameMatches(%q, %q) = %v, want %v",
+					tc.podName, tc.appSlug, got, tc.want)
 			}
 		})
 	}
@@ -94,12 +89,14 @@ func TestAppPodNameMatches_NoHardcodedInnerNamespace(t *testing.T) {
 	for _, innerNS := range []string{"uatco", "walk-stranger-two", "acme", "a", "org-with-many-dashes"} {
 		podName := "mysql-5b9d89cbc6-hh6jt-x-" + innerNS + "-x-vcluster"
 
-		if !appPodNameMatches(podName, "mysql", true) {
-			t.Errorf("vcluster tier: %q did not match slug %q — the matcher is tied to a specific inner namespace",
+		if !appPodNameMatches(podName, "mysql") {
+			t.Errorf("%q did not match slug %q — the matcher is tied to a specific inner namespace",
 				podName, "mysql")
 		}
-		if appPodNameMatches(podName, "mysql", false) {
-			t.Errorf("host tier: %q matched, but a synced pod must never satisfy a host-tier wait", podName)
-		}
+	}
+	// The discriminating half: the SAME pod without the syncer tail is a
+	// native, un-synced pod, which is never an Organization app pod (#4292).
+	if appPodNameMatches("mysql-5b9d89cbc6-hh6jt", "mysql") {
+		t.Errorf("native un-synced pod %q matched — only synced pods are Organization app pods", "mysql-5b9d89cbc6-hh6jt")
 	}
 }

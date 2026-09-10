@@ -141,9 +141,7 @@ def check_citation(sha, pr, main_ref, cwd=ROOT):
             f"{sorted('#' + p for p in flat) or 'no PR number'} — {subject!r}"
         )
 
-    _, files = git(
-        ["show", "--pretty=format:", "--name-only", sha], cwd)
-    paths = [p for p in files.split("\n") if p.strip()]
+    paths = changed_paths(sha, cwd) or []
     if paths and all(DOCS_ONLY.search(p) for p in paths):
         problems.append(
             "docs-only commit — it changes no deployable artifact, so it "
@@ -191,6 +189,34 @@ def _row(evidence):
     return f"| 62 | topology | [#3375](x) | clause | hw292 | ❌ | {evidence} |"
 
 
+
+
+def changed_paths(sha, cwd=ROOT):
+    """Paths a commit changes against its FIRST parent, or None for a root.
+
+    Not `git show --name-only`: on a clean merge commit that prints a
+    combined diff with no files at all, so every "Merge pull request" commit
+    looked empty — the guard passed a docs-only merge as if it were a fix,
+    and the self-test could not build a fixture (2026-09-10, #6902).
+    """
+    rc, out = git(["diff", "--name-only", f"{sha}^1", sha], cwd)
+    if rc != 0:
+        return None
+    return [p for p in out.split("\n") if p.strip()]
+
+def _pr_number(subject):
+    """The PR number a commit subject carries, or None.
+
+    Two shapes exist in this history: the squash-merge form "… (#1234)" and
+    the merge-commit form "Merge pull request #1234 from …". The self-test
+    used to accept only the first, and this repository merges with the
+    second, so it found no fixture in 400 commits and failed on every PR
+    that touched the ledger (2026-09-10, #6902) — a guard that could not
+    pass is as bad as one that cannot fail.
+    """
+    m = re.search(r"\(#(\d+)\)", subject) or re.search(r"pull request #(\d+)", subject)
+    return m.group(1) if m else None
+
 def self_test():
     """Prove the guard goes red for each reason, and green on a clean row.
 
@@ -211,10 +237,14 @@ def self_test():
         if "\t" not in entry:
             continue
         sha, subject = entry.split("\t", 1)
-        if not re.search(r"\(#(\d+)\)", subject):
+        if _pr_number(subject) is None:
             continue          # need a PR number in the subject to build fixtures
-        _, files = git(["show", "--pretty=format:", "--name-only", sha])
-        paths = [p for p in files.split("\n") if p.strip()]
+        # First-parent diff, not `git show`: on a clean merge commit `show`
+        # prints a combined diff that lists NO files, so every "Merge pull
+        # request" commit looked empty and was skipped (2026-09-10, #6902).
+        paths = changed_paths(sha)
+        if paths is None:
+            continue          # a root commit has no first parent
         if not paths:
             continue
         if all(DOCS_ONLY.search(p) for p in paths):
@@ -230,8 +260,8 @@ def self_test():
               "in the last 400 — fixtures unbuildable", file=sys.stderr)
         return 1
 
-    docs_pr = re.search(r"\(#(\d+)\)", docs_only_subject).group(1)
-    code_pr = re.search(r"\(#(\d+)\)", code_subject).group(1)
+    docs_pr = _pr_number(docs_only_subject)
+    code_pr = _pr_number(code_subject)
     wrong_pr = str(int(code_pr) + 100000)   # cannot collide with a real PR
 
     cases = [

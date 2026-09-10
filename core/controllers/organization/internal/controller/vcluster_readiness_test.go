@@ -4,6 +4,12 @@
 // never from "I PUT the manifest to Gitea." The old code reported
 // Phase=Provisioning frozen + Ready=True the instant the Gitea PutFile
 // returned, painting a green Org over orphaned bytes.
+//
+// Since 2026-09-10 (founder: every Organization has a vCluster) the readback
+// is the SAME for every plan: there is no plan whose readiness keys off the
+// bare host namespace, so the #4339 host-tier cases that used to live here
+// are replaced by their negation — a namespace with no HR is Pending, for
+// every Organization.
 package controller
 
 import (
@@ -73,76 +79,45 @@ func TestVClusterReadiness_PhaseLadder(t *testing.T) {
 
 	cases := []struct {
 		name      string
-		planSlug  string
 		objs      []runtime.Object
 		wantPhase string
 		wantReady bool
 	}{
-		// ── vcluster tier (m/l/xl/flexi): readiness keys off the vcluster HR. ──
 		{
-			name:      "vcluster tier: no HR, no namespace → Pending (orphaned bytes, NOT Ready)",
-			planSlug:  "m",
+			name:      "no HR, no namespace → Pending (orphaned bytes, NOT Ready)",
 			objs:      nil,
 			wantPhase: "Pending",
 			wantReady: false,
 		},
 		{
-			name:      "vcluster tier: HR present but Ready=False → Provisioning",
-			planSlug:  "m",
+			name:      "namespace Active but NO HR → Pending (every Organization waits on its vCluster HR; there is no namespace-only short-circuit)",
+			objs:      []runtime.Object{newNS(slug)},
+			wantPhase: "Pending",
+			wantReady: false,
+		},
+		{
+			name:      "HR present but Ready=False → Provisioning",
 			objs:      []runtime.Object{newNS(slug), newHR(slug, "False")},
 			wantPhase: "Provisioning",
 			wantReady: false,
 		},
 		{
-			name:      "vcluster tier: HR present, no Ready condition yet → Provisioning",
-			planSlug:  "m",
+			name:      "HR present, no Ready condition yet → Provisioning",
 			objs:      []runtime.Object{newNS(slug), newHR(slug, "")},
 			wantPhase: "Provisioning",
 			wantReady: false,
 		},
 		{
-			name:      "vcluster tier: HR Ready=True but namespace missing → Provisioning",
-			planSlug:  "m",
+			name:      "HR Ready=True but namespace missing → Provisioning",
 			objs:      []runtime.Object{newHR(slug, "True")},
 			wantPhase: "Provisioning",
 			wantReady: false,
 		},
 		{
-			name:      "vcluster tier: HR Ready=True AND namespace Active → Ready",
-			planSlug:  "m",
+			name:      "HR Ready=True AND namespace Active → Ready",
 			objs:      []runtime.Object{newNS(slug), newHR(slug, "True")},
 			wantPhase: "Ready",
 			wantReady: true,
-		},
-		// ── host tier (""/s/free): NO vcluster HR is ever authored, so
-		//    readiness keys SOLELY off the host namespace existing (#4339). ──
-		{
-			name:      "host tier (s): namespace Active, NO HR → Ready (do NOT wait on a vcluster HR)",
-			planSlug:  "s",
-			objs:      []runtime.Object{newNS(slug)},
-			wantPhase: "Ready",
-			wantReady: true,
-		},
-		{
-			name:      "host tier (free): namespace Active, NO HR → Ready",
-			planSlug:  "free",
-			objs:      []runtime.Object{newNS(slug)},
-			wantPhase: "Ready",
-			wantReady: true,
-		},
-		{
-			name:      "host tier (empty plan): namespace Active, NO HR → Ready",
-			planSlug:  "",
-			objs:      []runtime.Object{newNS(slug)},
-			wantPhase: "Ready",
-			wantReady: true,
-		},
-		{
-			name:      "host tier (s): namespace missing → Pending (host ns is the boundary)",
-			planSlug:  "s",
-			objs:      nil,
-			wantPhase: "Pending",
-			wantReady: false,
 		},
 	}
 
@@ -155,7 +130,7 @@ func TestVClusterReadiness_PhaseLadder(t *testing.T) {
 			r := &Reconciler{Log: logr.Discard()}
 			r.Client = cl
 
-			phase, ready, msg := r.vclusterReadiness(context.Background(), slug, tc.planSlug)
+			phase, ready, msg := r.vclusterReadiness(context.Background(), slug)
 			if phase != tc.wantPhase {
 				t.Errorf("phase = %q, want %q (msg=%q)", phase, tc.wantPhase, msg)
 			}
@@ -171,68 +146,48 @@ func TestVClusterReadiness_PhaseLadder(t *testing.T) {
 	}
 }
 
-// TestVClusterReadiness_HostTierDoesNotWaitOnVclusterHR locks the #4339
-// contract directly: a host-tier (S/free/"") Org reaches Ready as soon as its
-// host namespace is Active, even though NO vcluster HR exists — whereas the
-// identical-shaped vcluster-tier (M) Org with the same single namespace stays
-// not-Ready because it is still waiting on its (absent) vcluster HR. This is
-// the regression that wedged host-tier funnel Orgs at
-// Ready=False:VClusterProvisioning forever so the apps-install phase was never
-// reached.
-func TestVClusterReadiness_HostTierDoesNotWaitOnVclusterHR(t *testing.T) {
+// TestVClusterReadiness_NamespaceAloneIsNeverReady is the regression gate for
+// the removed #4339 host-tier short-circuit. That branch let an Organization on
+// plan ""/s/free go Ready the moment its host namespace existed, with no
+// vCluster HelmRelease authored or awaited. Every Organization now authors one
+// (gitops.Render), so a namespace with no HR is Pending — and the same
+// Organization goes Ready once the HR is Ready. Both halves are asserted so a
+// readback that returned Pending unconditionally could not pass.
+func TestVClusterReadiness_NamespaceAloneIsNeverReady(t *testing.T) {
 	const slug = "g5funnel"
 
-	// Only the host namespace exists — no vcluster HR (correctly never authored
-	// for host tier; never yet reconciled for the vcluster tier).
-	cl := fake.NewClientBuilder().
+	onlyNS := fake.NewClientBuilder().
 		WithScheme(readbackScheme(t)).
 		WithObjects(toClientObjects([]runtime.Object{newNS(slug)})...).
 		Build()
 	r := &Reconciler{Log: logr.Discard()}
-	r.Client = cl
-
-	for _, plan := range []string{"", "s", "free"} {
-		_, ready, msg := r.vclusterReadiness(context.Background(), slug, plan)
-		if !ready {
-			t.Errorf("host-tier plan %q with an Active namespace must be Ready (no vcluster HR to wait on); got not-Ready (msg=%q)", plan, msg)
-		}
+	r.Client = onlyNS
+	if phase, ready, msg := r.vclusterReadiness(context.Background(), slug); ready || phase != "Pending" {
+		t.Errorf("namespace only: want Pending/not-ready, got phase=%q ready=%v (msg=%q) — a namespace-only short-circuit is back", phase, ready, msg)
+	} else if !strings.Contains(msg, "HelmRelease") {
+		t.Errorf("namespace only: the pending message must name the vCluster HelmRelease the Org waits on, got %q", msg)
 	}
 
-	// The vcluster tier with the SAME single namespace must NOT be Ready — it is
-	// still waiting on the vcluster HR that has not reconciled yet.
-	if _, ready, _ := r.vclusterReadiness(context.Background(), slug, "m"); ready {
-		t.Errorf("vcluster-tier plan \"m\" must wait on the vcluster HR; got Ready with only the namespace present")
+	withHR := fake.NewClientBuilder().
+		WithScheme(readbackScheme(t)).
+		WithObjects(toClientObjects([]runtime.Object{newNS(slug), newHR(slug, "True")})...).
+		Build()
+	r.Client = withHR
+	if phase, ready, _ := r.vclusterReadiness(context.Background(), slug); !ready || phase != "Ready" {
+		t.Errorf("namespace + Ready HR: want Ready, got phase=%q ready=%v", phase, ready)
 	}
 }
 
-// TestReadyOrgMessage_TierHonesty locks #4813 (status honesty): the Org's
-// Ready=True message must name the boundary that ACTUALLY backs the Org. A
-// host-tier (""/s/free) Org authors NO vCluster HelmRelease — its host `<slug>`
-// namespace is the boundary — so the message must NOT assert "vCluster
-// HelmRelease Ready" for it (the Ready-over-absent-backing false-green the issue
-// flagged). Only the vcluster tier (m/l/xl/flexi) may claim the HR is Ready. The
-// helper keys off the SAME gitops.BoundaryIsVcluster tier gate vclusterReadiness
-// uses, so the message can never diverge from the boundary it reports.
-func TestReadyOrgMessage_TierHonesty(t *testing.T) {
-	// Host-tier plans: no vCluster HR is ever authored — the message must not
-	// claim one is Ready.
-	for _, plan := range []string{"", "s", "free"} {
-		msg := readyOrgMessage(plan)
-		if strings.Contains(msg, "vCluster HelmRelease") {
-			t.Errorf("host-tier plan %q Ready message must NOT assert a vCluster HelmRelease (false green over absent backing); got %q", plan, msg)
-		}
-		if !strings.Contains(msg, "host namespace") {
-			t.Errorf("host-tier plan %q Ready message should name the host namespace boundary that actually backs the Org; got %q", plan, msg)
-		}
+// TestReadyOrgMessage_NamesTheVcluster locks #4813 (status honesty) in its
+// one-boundary form: the Ready=True message names the vCluster HelmRelease
+// that backs every Organization, and never the "host namespace" wording the
+// removed tier gate used for free/S.
+func TestReadyOrgMessage_NamesTheVcluster(t *testing.T) {
+	if !strings.Contains(readyOrgMessage, "vCluster HelmRelease Ready") {
+		t.Errorf("Ready message must name the vCluster HelmRelease that backs the Org; got %q", readyOrgMessage)
 	}
-
-	// vcluster-tier plans: a real vCluster HR was authored + is Ready — the
-	// message names it.
-	for _, plan := range []string{"m", "l", "xl", "flexi"} {
-		msg := readyOrgMessage(plan)
-		if !strings.Contains(msg, "vCluster HelmRelease Ready") {
-			t.Errorf("vcluster-tier plan %q Ready message should name the vCluster HelmRelease that backs the Org; got %q", plan, msg)
-		}
+	if strings.Contains(readyOrgMessage, "host namespace") || strings.Contains(readyOrgMessage, "namespace-isolated") {
+		t.Errorf("Ready message still describes a namespace-only boundary: %q", readyOrgMessage)
 	}
 }
 

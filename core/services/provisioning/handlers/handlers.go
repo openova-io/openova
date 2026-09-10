@@ -468,10 +468,11 @@ func (h *Handler) resolveAppDependencies(ctx context.Context, appSlugs []string)
 }
 
 // knownPlanSlugs is the canonical set of plan slugs the platform recognizes,
-// matching the boundary/QoS switches in gitops (BoundaryIsVcluster: ""/s/free
-// → host tier; m/l/xl/flexi → dedicated vcluster; qosResources: flexi vs the
-// rest). It is the single source of truth for "is this string already a slug?"
-// so resolvePlanSlug can short-circuit the catalog UUID lookup when the caller
+// matching the QoS switch in gitops (qosResources: flexi vs the rest). The
+// plan no longer selects a boundary — every Organization on every plan is
+// vCluster-backed (#4292) — so this set feeds ONLY QoS/quota resolution. It is
+// the single source of truth for "is this string already a slug?" so
+// resolvePlanSlug can short-circuit the catalog UUID lookup when the caller
 // (the marketplace funnel) already posts the slug directly.
 var knownPlanSlugs = map[string]struct{}{
 	"s":     {},
@@ -564,25 +565,29 @@ func (h *Handler) resolvePlanSlug(ctx context.Context, planID string) string {
 // path. The bug it closes: resolvePlanSlug silently returns "s" on ANY transient
 // catalog failure (3s timeout, non-200, decode error, plan-not-found). On a
 // day-2 install/uninstall for a paid (M+) Org, if the catalog is briefly
-// unreachable at that instant, the day-2 manifests would be re-generated as the
-// HOST tier (no kubeConfig) and the apps RE-ROUTED out of the vcluster into the
-// host `<slug>` ns — orphaning the original in-vcluster copy. A transient blip
-// must NEVER silently downgrade a paid Org's boundary.
+// unreachable at that instant, the day-2 manifests would be re-generated
+// against the S plan's QoS class (qosResources) — a silent resource downgrade
+// of a paying customer. (When this resolver was written the guessed "s" also
+// moved the Org's apps out of its vcluster; the plan no longer selects a
+// boundary, #4292, but the QoS downgrade is reason enough.) A transient blip
+// must NEVER silently downgrade a paid Org.
 //
 // Fix: read the AUTHORITATIVE persisted plan slug off the Organization CR
 // (`spec.planSlug`), which the funnel resolved ONCE at creation
 // (organization_create.go) and which the EPIC designates the single
-// truth-source for the resource cap + boundary tier. The CR read has no
+// truth-source for the resource cap + QoS class. The CR read has no
 // dependency on the live catalog service, so it is immune to the transient. We
 // only fall back to the live catalog (resolvePlanSlug) when the CR genuinely
 // carries no planSlug (legacy tenants created before Workstream B, or a tenant
 // with no Organization CR) — and even then we surface ok=false so the caller can
-// fail-closed (retry) rather than commit a host-tier downgrade off a guess.
+// fail-closed (retry) rather than commit an S-cap quota/QoS downgrade off a
+// guess. (The plan never selects a boundary: every Organization is
+// vCluster-backed, #4292.)
 //
 // Returns (slug, true) when the slug is authoritative (from the CR, or a
 // confirmed live catalog hit); (slug, false) when it could only be guessed
 // (catalog unreachable AND no CR planSlug) — the caller MUST treat false as
-// retryable for the day-2 boundary decision, never as a confirmed host-tier.
+// retryable for the day-2 manifest re-generation, never as a confirmed S cap.
 func (h *Handler) resolveTenantPlanSlug(ctx context.Context, tenantSlug, planID string) (string, bool) {
 	// 1. Authoritative: the persisted Organization CR's spec.planSlug.
 	if tenantSlug != "" {
@@ -837,50 +842,37 @@ func (h *Handler) waitForHelmRelease(ctx context.Context, namespace, name string
 // waitForVclusterApp waits until an app pod for the given app slug is
 // Running+Ready in the host namespace.
 //
-// #4297 TIER-AWARE: for the VCLUSTER tier, vCluster syncs pods up to the host
-// ns under the name pattern <pod>-x-<inner-ns>-x-<vcluster-name> — inner ns is
-// "apps", vcluster release is "vcluster", so the synced pod is
-// `<appSlug>-...-x-apps-x-vcluster`. For the HOST tier (free/S, no vcluster)
-// the apps-sync Kustomization applies the Deployment straight into the host
-// `<slug>` ns, so the pod carries its NATIVE name `<appSlug>-...` with NO
-// syncer suffix. Callers pass `isVcluster` so the right pod-name shape is
-// matched; a host-tier wait that looked for the `-x-apps-x-vcluster` suffix
-// would never match and would always time out.
-// appPodNameMatches is the #4297 TIER-AWARE pod-name matcher. For the VCLUSTER
-// tier the app pod is synced up to the host ns as
-// `<appSlug>-...-x-<inner-namespace>-x-vcluster`; for the HOST tier (no
-// vcluster) the pod runs natively in the host ns as `<appSlug>-...`. Extracted
-// as a pure function so the tier split is unit-testable without a live
-// kube-API.
+// Every Organization's apps run inside its vCluster (#4292), and the vCluster
+// syncer surfaces each pod on the host ns as
+// `<pod>-x-<inner-ns>-x-<vcluster-name>` — inner ns is the Org slug (#4290),
+// vcluster release is "vcluster". That synced shape is the ONLY shape an
+// Organization app pod has on the host; there is no plan whose apps run
+// natively in the host `<slug>` ns any more.
 //
-// The host-tier match is intentionally STRICT: a synced pod from a sibling
-// vcluster Org sharing the host ns must NOT satisfy a host-tier wait.
+// appPodNameMatches is that matcher: it accepts a pod only when it IS a
+// synced pod AND the INNER name (the name the pod has inside the vcluster)
+// carries the app slug. A native, un-synced pod is never an Organization app
+// pod — it can only be host-side infra (coredns, the vcluster control plane)
+// or a stray — so it never satisfies a wait. Extracted as a pure function so
+// the shape rule is unit-testable without a live kube-API.
 //
 // UAT row 86: this used to hardcode the inner namespace as `apps`
 // (`-x-apps-x-vcluster`). Since #4290 the inner namespace is the ORG SLUG, so
 // the literal matched nothing on any real cluster — measured on hw292-a, zero
 // pods cluster-wide carried it while `mysql-...-x-uatco-x-vcluster` was 1/1
-// Running. Every vcluster-tier dependency and app wait therefore ran its full
-// 10-minute budget and failed the provision for an Org that was already
-// healthy. The same literal defeated the host-tier rejection above, which only
-// excluded pods whose inner namespace happened to be `apps`.
+// Running. Every dependency and app wait therefore ran its full 10-minute
+// budget and failed the provision for an Org that was already healthy.
 //
 // Delegating to vclusterInnerPodName (backing_services.go) is the point: that
 // helper already handles an arbitrary inner namespace and was written when
 // #5451 caught this exact defect in the sibling code path. There must be one
 // definition of "is this a synced pod", not two.
-func appPodNameMatches(podName, appSlug string, isVcluster bool) bool {
+func appPodNameMatches(podName, appSlug string) bool {
 	inner, synced := vclusterInnerPodName(podName)
-	if isVcluster {
-		// Vcluster tier — must be a synced pod, and the INNER name (the name
-		// the pod has inside the vcluster) is what carries the app slug.
-		return synced && strings.HasPrefix(inner, appSlug+"-")
-	}
-	// Host tier — native name only, never a synced pod from any Org.
-	return !synced && strings.HasPrefix(podName, appSlug+"-")
+	return synced && strings.HasPrefix(inner, appSlug+"-")
 }
 
-func (h *Handler) waitForVclusterApp(ctx context.Context, namespace, appSlug string, timeout time.Duration, isVcluster bool) error {
+func (h *Handler) waitForVclusterApp(ctx context.Context, namespace, appSlug string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		body, err := h.k8sGet(fmt.Sprintf("/api/v1/namespaces/%s/pods", namespace))
@@ -902,7 +894,7 @@ func (h *Handler) waitForVclusterApp(ctx context.Context, namespace, appSlug str
 			if jerr := json.Unmarshal(body, &podList); jerr == nil {
 				for _, pod := range podList.Items {
 					name := pod.Metadata.Name
-					if !appPodNameMatches(name, appSlug, isVcluster) {
+					if !appPodNameMatches(name, appSlug) {
 						continue
 					}
 					if pod.Status.Phase != "Running" {

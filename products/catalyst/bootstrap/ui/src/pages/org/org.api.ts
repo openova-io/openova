@@ -117,8 +117,9 @@ export type OrgDomainMode = 'free-subdomain' | 'byo'
 export type OrgProvisionStepState = 'pending' | 'done' | 'failed'
 
 export interface OrgProvisionSteps {
-  /** #5489 — absent for a namespace-isolated Org: no vCluster is ever
-   *  provisioned for that tier, so the API omits the step rather than
+  /** #5489 — absent for an Organization observed as namespace-backed
+   *  (authored before every plan became vCluster-backed): no vCluster was
+   *  ever provisioned for it, so the API omits the step rather than
    *  reporting "done" over an object that does not exist. Render only
    *  the steps the payload carries. */
   vcluster?: OrgProvisionStepState
@@ -141,10 +142,11 @@ export interface OrgProvisionRecord {
   admin_email: string
   company_name?: string
   otech_fqdn: string
-  /** #5489/#5501 — absent for a namespace-isolated Org (no vCluster is
-   *  authored for that tier), and the bare slug for a vcluster-tier one:
-   *  the name the org-controller stamps at status.vcluster.name, never a
-   *  client-side `vc-` synthesis. */
+  /** #5489/#5501 — the bare slug for a vCluster-backed Organization (every
+   *  one created now): the name the org-controller stamps at
+   *  status.vcluster.name, never a client-side `vc-` synthesis. Absent for
+   *  an Organization observed as namespace-backed (authored before every
+   *  plan became vCluster-backed) or not yet measured. */
   vcluster_name?: string
   /** Legacy BE wire key — see org_tenant_id note above. */
   tenant_namespace: string
@@ -176,34 +178,38 @@ export interface OrgCreateRequest {
   /** The Organizations internal door (issue #3378 B1). When omitted the
    *  backend defaults to the customer shape (kind=customer, tier=org,
    *  billingMode=real) so the marketplace funnel is unaffected.
+   *  kind='internal' stamps the department billing shape (showback) and
+   *  skips the voucher dependency. These map onto the OrganizationSpec
+   *  fields (Kind/Tier/BillingMode + Isolation).
    *
-   *  `isolation` is NOT part of that default and must not be sent as one
-   *  (#5857): the server DERIVES it from the #4292 tier gate so the label
-   *  matches the backing, and a valid explicit value bypasses that gate.
-   *  Send it only for a deliberate operator override. This comment
-   *  previously read "isolation=vcluster", which was the pre-tier-gate
-   *  behaviour and is exactly the value that made the label wrong. kind='internal' stamps the department shape (showback +
-   *  namespace) and skips the voucher dependency. These map onto the
-   *  OrganizationSpec fields (Kind/Tier/BillingMode + Isolation). */
+   *  `isolation` is a CONSTRAINT ASSERTION, never a default (#5857, #6135).
+   *  Every Organization on every plan and of either kind is backed by a
+   *  dedicated vCluster (founder direction 2026-09-10), so the only value
+   *  the server accepts is 'vcluster'; anything else is refused with HTTP
+   *  422 `isolation-plan-conflict`. Omit it and the server stamps 'vcluster'
+   *  (the funnel path). Send it only to assert that boundary explicitly
+   *  (the Advanced panel). The type admits only that one value so this door
+   *  cannot ask for a boundary no plan delivers; the READ side (OrgRecord)
+   *  keeps 'namespace' for Organizations authored before every plan became
+   *  vCluster-backed. */
   kind?: 'internal' | 'customer'
   tier?: 'org' | 'corporate'
   billing_mode?: 'real' | 'chargeback' | 'showback'
-  isolation?: 'namespace' | 'vcluster'
+  isolation?: 'vcluster'
   /** The PURCHASED catalog plan (s|m|l|xl|flexi) — UAT row G7, Refs
-   *  #4293/#4292.
+   *  #4293/#4292. The server has accepted `plan_slug` since #4292 and the
+   *  org-controller sizes the ResourceQuota/LimitRange inside the
+   *  Organization's vCluster from it. It does not select the boundary:
+   *  every plan gets a dedicated vCluster.
    *
-   *  This field is what makes the console door capable of ordering a
-   *  vcluster-isolation Organization at all. The server has accepted
-   *  `plan_slug` since #4292 (organization_provisioning.go:290) and derives
-   *  BOTH the boundary primitive (`boundaryIsVcluster`) and the
-   *  ResourceQuota/LimitRange from it — but this request type never carried
-   *  it, so every Organization created through the console arrived with no
-   *  plan, was normalised to `s`, and was authored onto the host `<slug>`
-   *  namespace. The dual-door clause ("both Org doors land a
-   *  vcluster-isolation Org") could not be satisfied from this door by
-   *  construction; the funnel door has carried the slug since #4473.
+   *  History: while a plan-keyed tier gate existed, this request type did
+   *  not carry the field, so every Organization created through the console
+   *  was normalised to `s` and authored onto the host `<slug>` namespace —
+   *  the dual-door clause ("both Org doors land a vcluster-isolation Org")
+   *  could not pass from this door by construction. The funnel door has
+   *  carried the slug since #4473.
    *
-   *  Omitted ⇒ the server's `s` default, i.e. the previous behaviour. */
+   *  Omitted ⇒ the server's `s` default (the smallest quota). */
   plan_slug?: string
 }
 

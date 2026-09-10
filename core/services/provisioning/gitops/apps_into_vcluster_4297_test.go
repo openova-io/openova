@@ -5,13 +5,13 @@ import (
 	"testing"
 )
 
-// #4297 (keystone of EPIC #4293) — per-Org apps land INSIDE the Org vCluster,
-// TIER-AWARE. The funnel's apps-sync Flux Kustomization carries
-// spec.kubeConfig.secretRef ONLY for the vcluster tier (paid M+), so the host
-// Flux reconciles the apps tree INTO the Org vCluster apiserver. For the host
-// tier (free/S) there is NO vcluster — emitting a kubeConfig referencing the
-// never-created `vc-vcluster` mirror would StateError forever, so the apps-sync
-// omits kubeConfig and the apps reconcile straight into the host `<slug>` ns.
+// #4297 (keystone of EPIC #4293) — per-Org apps land INSIDE the Org vCluster.
+// The funnel's apps-sync Flux Kustomization carries spec.kubeConfig.secretRef
+// for EVERY Organization (#4292, founder 2026-09-10: one SME customer = one
+// vCluster), so the host Flux reconciles the apps tree INTO the Org vCluster
+// apiserver on every plan. The former free/S/"" host-namespace arm (omit
+// kubeConfig, reconcile straight into the host `<slug>` ns) no longer exists;
+// every_plan_vcluster_test.go walks every slug through that invariant.
 
 const testBasePath = "clusters/sov/tenants"
 
@@ -35,51 +35,58 @@ func keys(m map[string]string) []string {
 	return out
 }
 
-// TestAppsSync_VclusterTier_HasKubeConfig — a paid (M) tier Org's apps-sync
-// Kustomization carries the kubeConfig secretRef so the apps land inside the
-// vcluster. targetNamespace stays the org-controller `<slug>` ns.
-func TestAppsSync_VclusterTier_HasKubeConfig(t *testing.T) {
+// TestAppsSync_PlanM_HasKubeConfig — a plan-m Org's apps-sync Kustomization
+// carries the kubeConfig secretRef so the apps land inside the vcluster.
+// targetNamespace stays the org-controller `<slug>` ns. (Every plan renders
+// this shape now; TestAppsSync_SmallPlans_SameShapeAsPaid pins s/free/"".)
+func TestAppsSync_PlanM_HasKubeConfig(t *testing.T) {
 	body := appsSyncFor(t, "acme", "m")
 	if !strings.Contains(body, "kubeConfig:") {
-		t.Errorf("vcluster tier apps-sync MISSING kubeConfig block:\n%s", body)
+		t.Errorf("plan m apps-sync MISSING kubeConfig block:\n%s", body)
 	}
 	if !strings.Contains(body, "name: tenant-acme-kubeconfig") {
-		t.Errorf("vcluster tier apps-sync MISSING the kubeconfig mirror secretRef name:\n%s", body)
+		t.Errorf("plan m apps-sync MISSING the kubeconfig mirror secretRef name:\n%s", body)
 	}
 	if !strings.Contains(body, "key: config") {
-		t.Errorf("vcluster tier apps-sync MISSING secretRef key: config:\n%s", body)
+		t.Errorf("plan m apps-sync MISSING secretRef key: config:\n%s", body)
 	}
 	if !strings.Contains(body, "targetNamespace: acme") {
-		t.Errorf("vcluster tier apps-sync targetNamespace is not <slug> acme:\n%s", body)
+		t.Errorf("plan m apps-sync targetNamespace is not <slug> acme:\n%s", body)
 	}
 }
 
-// TestAppsSync_HostTier_NoKubeConfig — free/S/"" tier Orgs have no vcluster, so
-// the apps-sync carries NO kubeConfig (apps reconcile into the host `<slug>` ns
-// directly). The apps tree must still render.
-func TestAppsSync_HostTier_NoKubeConfig(t *testing.T) {
+// TestAppsSync_SmallPlans_SameShapeAsPaid — s/free/"" Orgs are vCluster-backed
+// exactly like m (#4292), so their apps-sync carries the SAME kubeConfig
+// mirror, targets the same `<slug>` ns and the same apps path, and the apps
+// tree still renders. This is the inverse of the former host-namespace
+// assertion for these plans.
+func TestAppsSync_SmallPlans_SameShapeAsPaid(t *testing.T) {
+	paid := appsSyncFor(t, "acme", "m")
 	for _, plan := range []string{"s", "free", ""} {
 		t.Run("plan="+plan, func(t *testing.T) {
 			body := appsSyncFor(t, "acme", plan)
-			if strings.Contains(body, "kubeConfig:") {
-				t.Errorf("host tier (plan=%q) apps-sync MUST NOT carry kubeConfig — it would StateError on the never-created vc-vcluster mirror:\n%s", plan, body)
+			if !strings.Contains(body, "kubeConfig:") {
+				t.Errorf("plan=%q apps-sync MUST carry kubeConfig — every Organization is vCluster-backed (#4292):\n%s", plan, body)
 			}
-			if strings.Contains(body, "tenant-acme-kubeconfig") {
-				t.Errorf("host tier (plan=%q) apps-sync MUST NOT reference the kubeconfig mirror:\n%s", plan, body)
+			if !strings.Contains(body, "name: tenant-acme-kubeconfig") {
+				t.Errorf("plan=%q apps-sync MUST reference the kubeconfig mirror:\n%s", plan, body)
 			}
-			// Still targets the host `<slug>` ns + points at the apps path.
 			if !strings.Contains(body, "targetNamespace: acme") {
-				t.Errorf("host tier (plan=%q) apps-sync targetNamespace is not <slug> acme:\n%s", plan, body)
+				t.Errorf("plan=%q apps-sync targetNamespace is not <slug> acme:\n%s", plan, body)
 			}
 			if !strings.Contains(body, "path: ./"+testBasePath+"/acme/apps") {
-				t.Errorf("host tier (plan=%q) apps-sync path wrong:\n%s", plan, body)
+				t.Errorf("plan=%q apps-sync path wrong:\n%s", plan, body)
+			}
+			// The plan is not an input to the boundary: byte-identical to m.
+			if body != paid {
+				t.Errorf("plan=%q apps-sync differs from plan m — the plan must not select the boundary:\n--- m ---\n%s\n--- %s ---\n%s", plan, paid, plan, body)
 			}
 
 			// The apps tree itself must still render so apps actually deploy.
 			g := NewManifestGenerator(testBasePath)
 			out := g.GenerateAllWithAppConfigs("acme", plan, []string{"wordpress"}, "pw", nil)
 			if _, ok := out[testBasePath+"/acme/apps/app-wordpress.yaml"]; !ok {
-				t.Errorf("host tier (plan=%q) MISSING app-wordpress.yaml (keys: %v)", plan, keys(out))
+				t.Errorf("plan=%q MISSING app-wordpress.yaml (keys: %v)", plan, keys(out))
 			}
 		})
 	}
@@ -127,42 +134,19 @@ func TestAppsSync_SourceRepo_Configurable(t *testing.T) {
 	}
 }
 
-// TestBoundaryIsVcluster_FunnelParity locks the funnel's tier gate in lockstep
-// with the org-controller's authoritative boundaryIsVcluster gate (#4292,
-// core/controllers/organization/internal/gitops/manifests.go). The two are
-// intentional duplicates (Go internal/ package boundary); this table guards
-// against silent drift.
-func TestBoundaryIsVcluster_FunnelParity(t *testing.T) {
-	cases := map[string]bool{
-		"":      false,
-		"s":     false,
-		"S":     false,
-		"free":  false,
-		" s ":   false,
-		"m":     true,
-		"l":     true,
-		"xl":    true,
-		"flexi": true,
-		"M":     true,
-	}
-	for plan, want := range cases {
-		if got := BoundaryIsVcluster(plan); got != want {
-			t.Errorf("BoundaryIsVcluster(%q) = %v, want %v", plan, got, want)
-		}
-	}
-}
-
-// TestCNPGPair_PrimaryStaysHostSide_BothTiers is the #4293 BLOCKER-1 lock. The
+// TestCNPGPair_PrimaryStaysHostSide_EveryPlan is the #4293 finding-1 lock. The
 // bp-cnpg-pair chart ships ONLY postgresql.cnpg.io/v1 Cluster CRs — the operator
 // + CRD are cluster-singletons that live on the HOST (slot 16). A vcluster has
 // neither the CRD nor a watching operator, so a primary Cluster `helm install`ed
 // INTO the vcluster (the keystone's old HR-level kubeConfig shape) fails
 // `no matches for kind "Cluster"` and the paid M+ active-hot-standby HA path
 // WEDGES on every fresh prov. The PRIMARY side must therefore land on region A's
-// HOST `<slug>` ns — with NO vcluster kubeConfig — for BOTH tiers. The in-vcluster
-// app pods reach the DB via the synced `postgres` Service + the apps-tree
-// credentials Secret.
-func TestCNPGPair_PrimaryStaysHostSide_BothTiers(t *testing.T) {
+// HOST `<slug>` ns — with NO vcluster kubeConfig — for every plan; m and s are
+// both driven through so the host-side exception to "everything reconciles
+// into the vCluster" is pinned on a paid and a small plan alike. The
+// in-vcluster app pods reach the DB via the synced `postgres` Service + the
+// apps-tree credentials Secret.
+func TestCNPGPair_PrimaryStaysHostSide_EveryPlan(t *testing.T) {
 	for _, plan := range []string{"m", "s"} {
 		t.Run("plan="+plan, func(t *testing.T) {
 			g := NewManifestGenerator(testBasePath)
@@ -241,7 +225,7 @@ func TestCNPGPair_PrimaryStaysHostSide_BothTiers(t *testing.T) {
 // Without this the standby CNPG Cluster lands in region A, its region-B node-
 // affinity matches 0/N nodes, the *-pgbasebackup pod hangs Pending forever, and
 // the region-kill pillar has no standby to fail over to (live demo Org,
-// 2026-06-25). Verified for BOTH tiers — the standby always crosses regions.
+// 2026-06-25). Verified for plans m and s — the standby always crosses regions.
 func TestCNPGPair_XRegion_ReplicaTargetsRegionB(t *testing.T) {
 	for _, plan := range []string{"m", "s"} {
 		t.Run("plan="+plan, func(t *testing.T) {
@@ -325,11 +309,12 @@ func TestCNPGPair_XRegion_ReplicaSecretConfigurable(t *testing.T) {
 	}
 }
 
-// TestCNPGPair_HostTier_PrimaryNoKubeConfig — for the host tier the PRIMARY side
-// has no vcluster to target, so it carries NO kubeConfig and is authored in the
-// host `<slug>` ns where the chart installs (region A). The REPLICA side still
-// crosses to region B (asserted in TestCNPGPair_XRegion_ReplicaTargetsRegionB).
-func TestCNPGPair_HostTier_PrimaryNoKubeConfig(t *testing.T) {
+// TestCNPGPair_PlanS_PrimaryNoKubeConfig — on plan s (vCluster-backed like every
+// plan, #4292) the PRIMARY side still carries NO kubeConfig and is authored in
+// the host `<slug>` ns where the chart installs (region A): the CNPG operator +
+// CRD are host singletons. The REPLICA side still crosses to region B (asserted
+// in TestCNPGPair_XRegion_ReplicaTargetsRegionB).
+func TestCNPGPair_PlanS_PrimaryNoKubeConfig(t *testing.T) {
 	g := NewManifestGenerator(testBasePath)
 	out := g.GenerateAllWithAppConfigs("acme", "s",
 		[]string{"umami"}, "pw",
@@ -343,12 +328,12 @@ func TestCNPGPair_HostTier_PrimaryNoKubeConfig(t *testing.T) {
 	)
 	primaryHR, ok := out[testBasePath+"/acme/db-cnpg-pair-primary.yaml"]
 	if !ok {
-		t.Fatalf("host-tier CNPG-pair PRIMARY HR not emitted (keys: %v)", keys(out))
+		t.Fatalf("plan-s CNPG-pair PRIMARY HR not emitted (keys: %v)", keys(out))
 	}
 	if strings.Contains(primaryHR, "kubeConfig:") {
-		t.Errorf("host-tier CNPG-pair PRIMARY HR MUST NOT carry kubeConfig (no vcluster):\n%s", primaryHR)
+		t.Errorf("plan-s CNPG-pair PRIMARY HR MUST NOT carry kubeConfig (the CNPG primary is host-side for every plan):\n%s", primaryHR)
 	}
 	if !strings.Contains(primaryHR, "namespace: acme") {
-		t.Errorf("host-tier CNPG-pair PRIMARY HR must be authored in the host <slug> ns acme:\n%s", primaryHR)
+		t.Errorf("plan-s CNPG-pair PRIMARY HR must be authored in the host <slug> ns acme:\n%s", primaryHR)
 	}
 }

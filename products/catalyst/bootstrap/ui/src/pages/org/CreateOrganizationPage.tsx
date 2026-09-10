@@ -34,14 +34,13 @@ import {
   type OrgDomainMode,
   type SovereignParentDomain,
 } from './org.api'
-// Organizations model (issue #3378 B1) — the kind-derived defaults that
-// drive the internal door's billingMode + isolation rendering.
+// Organizations model (issue #3378 B1) — the kind-derived billing default
+// that drives the internal door's rendering, plus the one boundary every
+// Organization gets.
 import {
-  isolationForPlan,
   kindDefaults,
   ORG_PLAN_SLUGS,
   type OrgBillingMode,
-  type OrgIsolation,
   type OrgKind,
   type OrgPlanSlug,
 } from '@/lib/organizations.api'
@@ -74,48 +73,49 @@ export function CreateOrganizationPage({
   const [byoDomain, setByoDomain] = useState<string>('')
 
   // ── Organizations internal door (issue #3378 B1) ──
-  // kind drives the kind-derived billingMode + isolation defaults
-  // (internal → showback + namespace; customer → real + vcluster). The
-  // advanced override exposes the two derived fields for the rare org
+  // kind drives the kind-derived billingMode default (internal → showback;
+  // customer → real). The advanced override exposes billing for the rare org
   // that needs a non-default shape (§2.1 advanced-view override). kind
   // defaults to 'customer' so this page behaves exactly as the legacy
-  // Organization create form until the operator picks Internal.
+  // Organization create form until the operator picks Internal. Isolation is
+  // NOT kind-derived: every Organization gets a dedicated vCluster.
   const [orgKind, setOrgKind] = useState<OrgKind>('customer')
   const [advancedOpen, setAdvancedOpen] = useState<boolean>(false)
   const derived = kindDefaults(orgKind)
   const [billingMode, setBillingMode] = useState<OrgBillingMode>(derived.billingMode)
 
   // ── The PURCHASED plan (UAT row G7, Refs #4293/#4292) ──
-  // The #4292 tier gate decides the Organization's boundary primitive from the
-  // plan slug ALONE — free/S share the host `<slug>` namespace, M+ gets a
-  // dedicated Org-vCluster. This form had no plan input at all, so every
-  // Organization it created was normalised server-side to `s` and could only
-  // ever be namespace-backed. That is why the dual-door clause was unsatisfiable
-  // from this door: not a missing precondition, a missing FIELD.
+  // The plan sizes the ResourceQuota/LimitRange inside the Organization's
+  // vCluster. It does not select the boundary: every plan gets a dedicated
+  // vCluster (founder direction 2026-09-10). Options come from ORG_PLAN_SLUGS,
+  // the same list the server normalises against, so nothing offered here can
+  // be silently coerced on submit.
+  //
+  // History: while a plan-keyed tier gate existed (free/S → host namespace,
+  // M+ → vCluster), this form had no plan input, so every Organization it
+  // created was normalised server-side to `s` and could only ever be
+  // namespace-backed — the dual-door clause was unsatisfiable from this door.
   //
   // Defaults to `s` — the value the server already substituted — so an operator
   // who ignores this control gets byte-identical behaviour to before.
   const [planSlug, setPlanSlug] = useState<OrgPlanSlug>('s')
-  const [advancedIsolation, setAdvancedIsolation] = useState<OrgIsolation | null>(null)
 
-  // Isolation is DERIVED from the plan, by the same predicate the server and
-  // the org-controller's renderer apply. It is a PREVIEW of what the chosen
-  // plan will deliver, never an independent choice — a form that let these two
-  // drift is exactly how a create returned 202 saying `vcluster` while a host
-  // namespace was authored (#5857/#6135).
-  const isolation: OrgIsolation = advancedIsolation ?? isolationForPlan(planSlug)
+  // Isolation is the ONE boundary every Organization gets — shown as a badge,
+  // never a choice. A form that let a picked value drift from what the
+  // org-controller authors is exactly how a create returned 202 saying
+  // `vcluster` while a host namespace was authored (#5857/#6135); with one
+  // boundary on every plan there is nothing left to pick.
+  const isolation = derived.isolation
 
   // When kind flips, re-seed billingMode to the kind default UNLESS the
   // operator has opened the advanced override (then their explicit choice
   // sticks). This is what makes "internal → showback render" the moment
-  // Internal is selected (DoD-4). Isolation is no longer re-seeded here: it
-  // follows the plan, and `kind` never selected the boundary primitive — that
-  // conflation is what #4292 removed from the server and what this page kept
-  // rendering afterwards.
+  // Internal is selected (DoD-4). Isolation is not re-seeded because it never
+  // changes: `kind` never selected the boundary primitive (#4539 / UAT row
+  // 100) and the plan no longer does either.
   useEffect(() => {
     if (advancedOpen) return
     setBillingMode(kindDefaults(orgKind).billingMode)
-    setAdvancedIsolation(null)
   }, [orgKind, advancedOpen])
 
   const isInternal = orgKind === 'internal'
@@ -199,37 +199,24 @@ export function CreateOrganizationPage({
         // so the advanced override round-trips.
         kind: orgKind,
         billing_mode: billingMode,
-        // UAT row G7 — the purchased plan. The ONLY input that decides whether
-        // this Organization is authored onto a dedicated vCluster or the host
-        // `<slug>` namespace, and the field this door never sent.
+        // UAT row G7 — the purchased plan. It sizes the ResourceQuota/
+        // LimitRange inside the Organization's vCluster; the boundary itself
+        // is the same dedicated vCluster on every plan.
         plan_slug: planSlug,
-        // #5857 (UAT row G7) — send `isolation` ONLY as an explicit operator
-        // override, never as the form's own default.
+        // #5857 / #6135 (UAT row G7) — send `isolation` ONLY as an explicit
+        // assertion when the operator opened Advanced, never as the form's
+        // own default. Omitted, the server stamps 'vcluster' (the funnel
+        // path, byte-unchanged). Declared, it is a CONSTRAINT ASSERTION: the
+        // server accepts 'vcluster' — the boundary every Organization gets —
+        // and refuses anything else with HTTP 422 `isolation-plan-conflict`,
+        // surfaced verbatim at `org-create-submit-error` (org.api.ts throws
+        // with the response body). This form can only ever send 'vcluster'
+        // (the request type admits nothing else), so the assertion always
+        // agrees.
         //
-        // The GitOps renderer derives the boundary from planSlug alone
-        // (BoundaryIsVcluster) and never reads the record's Isolation. The
-        // form now SENDS a plan, so the derived value below is the one the
-        // plan will actually deliver rather than a fixed 'vcluster' label over
-        // a server-substituted "s".
-        //
-        // `resolveOrgShape` USED to let a valid explicit `isolation` bypass the
-        // tier gate. Sending the kind default — 'vcluster' for every customer —
-        // therefore stamped every Door A Org `vcluster` while it was
-        // namespace-backed, re-introducing the exact mislabel isolationForTier
-        // was written to remove: "an S-plan Org that correctly backs a host
-        // namespace was mislabeled vcluster ... The BACKING was always right —
-        // only the label ignored the tier."
-        //
-        // #6135 closed the override branch server-side: `isolation` is now a
-        // CONSTRAINT ASSERTION. Omitted, the server derives from the tier gate
-        // (what this form relies on). Declared, it must MATCH the resolved
-        // plan's boundary or the create is refused with HTTP 422
-        // `isolation-plan-conflict` — no longer accepted-and-substituted. So an
-        // operator who opens Advanced and picks `vcluster` on this
-        // plan-less form gets a 422 that names the plans which deliver it,
-        // surfaced verbatim at `org-create-submit-error` (org.api.ts throws with
-        // the response body). That refusal is the point: the previous 202 said
-        // vcluster and delivered a namespace.
+        // History: `resolveOrgShape` used to let a declared `isolation`
+        // override a plan-keyed tier gate, which is how a plan-less create
+        // returned 202 saying `vcluster` while a host namespace was authored.
         ...(advancedOpen ? { isolation } : {}),
       })
       setCreated(result)
@@ -275,8 +262,8 @@ export function CreateOrganizationPage({
         {/* ── Organizations internal door (issue #3378 B1) ──
             The kind toggle: Internal = a department (this menu's Create),
             Customer = the external door the marketplace funnel uses. The
-            kind-derived billingMode + isolation render beneath, with an
-            advanced override. */}
+            kind-derived billingMode and the fixed vCluster boundary render
+            beneath, with an advanced override for billing. */}
         <fieldset className="grid gap-2 text-sm" data-testid="create-org-kind">
           <legend className="text-[var(--color-text-dim)]">Organization kind</legend>
           <div className="flex gap-2">
@@ -306,10 +293,10 @@ export function CreateOrganizationPage({
             })}
           </div>
           {/* ── Plan (UAT row G7, Refs #4293/#4292) ──
-              The purchased tier. This is the ONE input that selects the
-              Organization's boundary primitive: free/S share the host `<slug>`
-              namespace, M and above get a dedicated Org-vCluster. Options come
-              from ORG_PLAN_SLUGS — the same list the server normalises against,
+              The purchased plan. It sizes the ResourceQuota and LimitRange
+              inside the Organization's vCluster; the boundary is the same
+              dedicated vCluster on every plan. Options come from
+              ORG_PLAN_SLUGS — the same list the server normalises against,
               so nothing offered here can be silently coerced on submit. */}
           <label className="grid gap-1 text-sm">
             <span className="text-[var(--color-text-dim)]">Plan</span>
@@ -321,14 +308,13 @@ export function CreateOrganizationPage({
             >
               {ORG_PLAN_SLUGS.map((p) => (
                 <option key={p} value={p}>
-                  {p.toUpperCase()} — {isolationForPlan(p)} isolation
+                  {p.toUpperCase()}
                 </option>
               ))}
             </select>
             <span className="text-xs text-[var(--color-text-dim)]">
-              The plan decides the boundary this organization is built on, and
-              the ResourceQuota and LimitRange that cap it. S shares the host
-              namespace; M and above get a dedicated vCluster.
+              Every plan is built on a dedicated vCluster. The plan sets the
+              ResourceQuota and LimitRange that cap it.
             </span>
           </label>
           {/* Kind-derived defaults — the §2.3 values that render the
@@ -379,18 +365,16 @@ export function CreateOrganizationPage({
                   <option value="showback">showback</option>
                 </select>
               </label>
-              <label className="grid gap-1">
+              {/* No isolation picker: every organization gets a dedicated
+                  vCluster on every plan, so there is no other boundary to
+                  choose. Opening Advanced sends `isolation: vcluster` as an
+                  explicit assertion (see the submit body). */}
+              <div className="grid gap-1" data-testid="create-org-isolation-fixed">
                 <span className="text-[var(--color-text-dim)]">Isolation</span>
-                <select
-                  data-testid="create-org-isolation-select"
-                  value={isolation}
-                  onChange={(e) => setAdvancedIsolation(e.target.value as OrgIsolation)}
-                  className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5"
-                >
-                  <option value="namespace">namespace</option>
-                  <option value="vcluster">vcluster</option>
-                </select>
-              </label>
+                <span className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5">
+                  {isolation} — every organization gets a dedicated vCluster
+                </span>
+              </div>
             </div>
           ) : null}
         </fieldset>
@@ -638,9 +622,10 @@ export function CreateOrganizationPage({
 }
 
 // provisionStepItems — the ordered timeline entries for a provisioning
-// payload. #5489: the API omits `steps.vcluster` for a namespace-isolated
-// Org (no vCluster is ever provisioned for that tier), so only the steps
-// the payload actually carries render — the old fixed list painted a
+// payload. #5489: the API omits `steps.vcluster` for an Organization
+// observed as namespace-backed (authored before every plan became
+// vCluster-backed; no vCluster was ever provisioned for it), so only the
+// steps the payload actually carries render — the old fixed list painted a
 // "vCluster: done" dot over an object that does not exist. Exported for
 // the unit test; the render below is a straight map over this.
 export function provisionStepItems(

@@ -62,12 +62,15 @@ import (
 // perOrgAppRouteComponents — the `catalyst.openova.io/component` label values
 // the funnel stamps on the HOST-visible per-app HTTPRoute of a
 // Deployment-shaped purchased app (core/services/provisioning/gitops):
-//   - `per-org-app-route`     — host tier (free/S): generateAppHTTPRoute
-//     co-locates the route with the Deployment+Service in the host `<slug>` ns.
-//   - `per-org-app-hostroute` — vcluster tier (paid M+): #4993
-//     generateHostNativeAppRoute lands the route host-side in the `<slug>` ns
-//     (the Deployment itself lives INSIDE the Org vcluster, invisible to the
-//     host client).
+//   - `per-org-app-route`     — the host-namespace shape: generateAppHTTPRoute
+//     co-located the route with the Deployment+Service in the host `<slug>`
+//     ns. Only Organizations authored before every plan became
+//     vCluster-backed carry it; it is still matched so their apps keep
+//     listing.
+//   - `per-org-app-hostroute` — the vCluster shape (#4993), the one every
+//     Organization gets now: generateHostNativeAppRoute lands the route
+//     host-side in the `<slug>` ns (the Deployment itself lives INSIDE the
+//     Org vcluster, invisible to the host client).
 //
 // #5123 — these routes are the ONLY host-visible per-app artifact of a funnel
 // purchase: the purchase deploys NO Application CR and NO HelmRelease (the
