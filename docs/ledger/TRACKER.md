@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-10T17:15:04Z` |
+| Last refreshed | `2026-09-10T17:30:10Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-10T17:23 | [#6914](https://github.com/openova-io/openova/pull/6914) | fix(ci): preflight C writes the kind config to a file (helm/ |  |
 | 2026-09-10T17:08 | [#6913](https://github.com/openova-io/openova/pull/6913) | #6867 | docs(chargeback): 0.1.31 live evidence on hw307 — Access pag |
 | 2026-09-10T16:52 | [#6912](https://github.com/openova-io/openova/pull/6912) | #6867 | feat(chargeback): 0.1.31 — access control (roles, scopes, di |
 | 2026-09-10T15:24 | [#6911](https://github.com/openova-io/openova/pull/6911) | #6867 | feat(chargeback): 0.1.30 — enforce suspensions at the platfo |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-07T07:22 | [#6873](https://github.com/openova-io/openova/pull/6873) | #6867 | feat(chargeback): bill the catalog plan (plan.<slug> meter + |
 | 2026-09-07T06:20 | [#6872](https://github.com/openova-io/openova/pull/6872) | #6871 | feat(chargeback): tag/enterprise-project dimension, hourly g |
 | 2026-09-06T19:27 | [#6871](https://github.com/openova-io/openova/pull/6871) | #6869 | fix(chargeback-ui): allocation margin % reads n/a below one  |
-| 2026-09-06T18:47 | [#6869](https://github.com/openova-io/openova/pull/6869) | #6868 | fix(chargeback): purge-excluded action, allocation auto-pick |
 
 ---
 
