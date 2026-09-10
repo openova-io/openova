@@ -23,7 +23,32 @@ import { useQuery } from '../lib/useQuery'
 
 type Dialog = { kind: 'topup' } | { kind: 'checkout' } | { kind: 'apply' } | null
 
-export function AccountPanel({ customerId, customer, currency: fallbackCurrency, onChanged }: { customerId: string; customer: Customer; currency?: string; onChanged?: () => void | Promise<void> }) {
+/**
+ * The money controls follow the caller's permissions (DESIGN.md §10.9):
+ * `canRecord` (billing.collect) records a transfer as a top-up and applies
+ * credit — the operator's; `canCheckout` (account.topup, or billing.collect)
+ * asks the gateway to collect — the one money write a customer may make on
+ * its own account; `canApplyCredit` defaults to `canRecord`. The panel
+ * renders read-only without them, which is what a viewer sees.
+ */
+export function AccountPanel({
+  customerId,
+  customer,
+  currency: fallbackCurrency,
+  canRecord = true,
+  canCheckout = true,
+  canApplyCredit,
+  onChanged,
+}: {
+  customerId: string
+  customer: Customer
+  currency?: string
+  canRecord?: boolean
+  canCheckout?: boolean
+  canApplyCredit?: boolean
+  onChanged?: () => void | Promise<void>
+}) {
+  const mayApplyCredit = canApplyCredit ?? canRecord
   const acct = useQuery<AccountDocument>(`/customers/${customerId}/account`)
   const susp = useQuery<unknown>(`/customers/${customerId}/suspensions`)
   const gateway = customer.payment_method === 'gateway'
@@ -256,15 +281,22 @@ export function AccountPanel({ customerId, customer, currency: fallbackCurrency,
                 {a.low_balance_threshold !== null && a.low_balance_threshold !== undefined ? ` · alert below ${money(a.low_balance_threshold)}` : ''}
               </span>
             ) : null}
-            <button className="small" onClick={() => setDialog({ kind: 'topup' })} disabled={act.busy}>
-              Top up
-            </button>
-            {gateway ? (
-              <button className="small" onClick={() => setDialog({ kind: 'checkout' })} disabled={act.busy}>
-                Checkout with {gatewayName}
+            {canRecord ? (
+              <button className="small" onClick={() => setDialog({ kind: 'topup' })} disabled={act.busy} title="Record a transfer or internal recharge as credit on the account">
+                Top up
               </button>
             ) : null}
-            {!external ? (
+            {canCheckout && gateway ? (
+              <button className="small primary" onClick={() => setDialog({ kind: 'checkout' })} disabled={act.busy} title={`Ask ${gatewayName} to collect a top-up`}>
+                {canRecord ? `Checkout with ${gatewayName}` : 'Top up'}
+              </button>
+            ) : null}
+            {canCheckout && !canRecord && !gateway ? (
+              <span className="hint" title="This account has no payment gateway; the operator records transfers">
+                top-ups are recorded by the operator
+              </span>
+            ) : null}
+            {!external && mayApplyCredit ? (
               <button className="small primary" onClick={() => setDialog({ kind: 'apply' })} disabled={act.busy || !canApply} title={canApply ? `Apply ${money(f.credit)} to the open invoices` : f.credit > 0 ? 'No open invoice to apply it to' : 'No credit on account'}>
                 Apply credit
               </button>

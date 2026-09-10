@@ -2,14 +2,76 @@
 // Field names mirror the Postgres columns lane A serialises; optional
 // fields are the ones a list endpoint may summarise rather than embed.
 
-export type Role = 'operator' | 'customer-admin' | 'customer-viewer'
+/**
+ * The legacy `role` key (DESIGN.md §10.5): the highest-power binding in the
+ * old vocabulary — operator / customer-admin / customer-viewer — or one of the
+ * new role names when no old name means the same thing. The console decides
+ * by `permissions`, never by this.
+ */
+export type Role = 'operator' | 'customer-admin' | 'customer-viewer' | BindingRole | string
+
+/** The six roles of the access model (DESIGN.md §10.3). */
+export type BindingRole = 'sovereign-admin' | 'billing-operator' | 'finance-viewer' | 'customer-owner' | 'customer-billing' | 'customer-viewer'
+export type ScopeKind = 'sovereign' | 'customer'
+/** The nine permissions (DESIGN.md §10.2). */
+export type Permission = 'metering.read' | 'rating.manage' | 'customers.manage' | 'billing.issue' | 'billing.collect' | 'account.topup' | 'settings.manage' | 'audit.read' | 'customer.self.manage'
+
+/** One binding as /me reports it: where it came from is `source`. */
+export interface SessionBinding {
+  role: BindingRole | string
+  scope_kind: ScopeKind | string
+  customer_id?: string | null
+  customer_name?: string | null
+  /** 'config' (OPERATOR_EMAILS) · 'binding' (role_bindings) · 'group:<name>'. */
+  source?: string
+}
 
 export interface Me {
   email: string
   role: Role
   customer_id?: string | null
+  /** Every binding the principal holds (additive, DESIGN.md §10.5). */
+  roles?: SessionBinding[]
+  /** Effective permissions per scope key: 'sovereign' or 'customer:<id>'. */
+  permissions?: Record<string, Array<Permission | string>>
+  /** Scope keys, 'sovereign' first. */
+  scopes?: string[]
+  /** The primary customer's card, when the principal has one. */
+  customer?: { id: string; slug: string; name: string; status: string; billing_mode?: string; payment_method?: string; gateway_name?: string } | null
   /** PROFILE env: 'sovereign' | 'operator-central' (spec §6). */
   profile?: string | null
+}
+
+/** A role binding row (GET /access/bindings). */
+export interface RoleBinding {
+  id?: string
+  subject_email: string
+  role: BindingRole | string
+  scope_kind: ScopeKind | string
+  customer_id?: string | null
+  customer_name?: string
+  granted_by?: string
+  granted_at?: string | null
+  source?: string
+}
+
+/** A directory group → role mapping (GET|PUT /access/group-mappings). */
+export interface GroupRoleMapping {
+  id?: string
+  group_name: string
+  role: BindingRole | string
+  scope_kind?: ScopeKind | string
+  customer_id?: string | null
+  customer_name?: string
+  created_at?: string
+}
+
+/** GET /access/roles — the policy as a document. */
+export interface RoleDoc {
+  role: BindingRole | string
+  scope_kind: ScopeKind | string
+  permissions: string[]
+  description: string
 }
 
 export type CustomerStatus = 'pending' | 'active' | 'suspended'
@@ -67,7 +129,10 @@ export interface CostSource {
 export interface CustomerUser {
   customer_id?: string
   email: string
-  role: 'admin' | 'viewer'
+  /** Legacy vocabulary: admin = customer-owner, viewer = every other customer role. */
+  role: 'admin' | 'viewer' | string
+  /** The role actually bound (DESIGN.md §10): customer-owner | customer-billing | customer-viewer. */
+  binding_role?: BindingRole | string
 }
 
 export interface StatementSummary {

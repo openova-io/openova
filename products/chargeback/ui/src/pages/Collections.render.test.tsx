@@ -42,6 +42,17 @@ vi.mock('../lib/useQuery', () => ({
   }),
 }))
 
+// The run and the suspend / resume controls are billing.collect (DESIGN.md
+// §10.9): the page is rendered as a sovereign-admin.
+vi.mock('../auth/session', () => ({
+  useSession: () => ({
+    me: { email: 'ops@sovereign.example', role: 'operator', permissions: { sovereign: ['metering.read', 'billing.collect'] }, roles: [{ role: 'sovereign-admin', scope_kind: 'sovereign' }] },
+    loading: false,
+    refresh: async () => null,
+    logout: async () => {},
+  }),
+}))
+
 import { Collections } from './Collections'
 
 function render(): string {

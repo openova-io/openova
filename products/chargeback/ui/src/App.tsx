@@ -6,7 +6,7 @@ import { CustomerDetail } from './pages/CustomerDetail'
 import { CustomerImport } from './pages/CustomerImport'
 import { CustomerNew } from './pages/CustomerNew'
 import { Customers } from './pages/Customers'
-import { MyBudgets, MyDiscounts, MyExplore, MyOverview, MyReports, MySources, MyStatements, MyUsage } from './pages/My'
+import { MyAccount, MyBudgets, MyDiscounts, MyExplore, MyOverview, MyReports, MySources, MyStatements, MyUsage, MyUsers } from './pages/My'
 import { Overview } from './pages/Overview'
 import { CostExplorer } from './pages/CostExplorer'
 import { PriceBookEdit } from './pages/PriceBookEdit'
@@ -25,6 +25,7 @@ import { Anomalies } from './pages/Anomalies'
 import { Recommendations } from './pages/Recommendations'
 import { Collections } from './pages/Collections'
 import { Billing } from './pages/Billing'
+import { Access } from './pages/Access'
 
 function Home() {
   const { me, loading } = useSession()
@@ -33,7 +34,10 @@ function Home() {
 }
 
 // Every page is a real path under BrowserRouter at `/` (spec §5) — the Go
-// binary serves index.html for any non-/api path, so deep links work.
+// binary serves index.html for any non-/api path, so deep links work. The two
+// lenses (DESIGN.md §10.9): any Sovereign-scoped binding opens the Sovereign
+// pages; a customer-scoped principal its own. Inside a page, every control is
+// rendered by the permission the caller holds (lib/access.ts).
 export function App() {
   return (
     <SessionProvider>
@@ -43,7 +47,7 @@ export function App() {
           <Route path="/signin" element={<SignIn />} />
           <Route path="/activate/:token" element={<Activate />} />
 
-          <Route element={<Shell roles={['operator']} />}>
+          <Route element={<Shell lens="sovereign" />}>
             <Route path="/overview" element={<Overview />} />
             <Route path="/explore" element={<CostExplorer />} />
             <Route path="/customers" element={<Customers />} />
@@ -59,6 +63,7 @@ export function App() {
             <Route path="/statements" element={<Statements />} />
             <Route path="/collections" element={<Collections />} />
             <Route path="/billing" element={<Billing />} />
+            <Route path="/access" element={<Access />} />
             <Route path="/resources" element={<Resources />} />
             <Route path="/resources/:sourceId/:resourceId" element={<ResourceDetail />} />
             <Route path="/anomalies" element={<Anomalies />} />
@@ -67,14 +72,16 @@ export function App() {
             <Route path="/dev/charts" element={<ChartGallery />} />
           </Route>
 
-          <Route element={<Shell roles={['customer-admin', 'customer-viewer']} />}>
+          <Route element={<Shell lens="customer" />}>
             <Route path="/my/overview" element={<MyOverview />} />
             <Route path="/my/explore" element={<MyExplore />} />
             <Route path="/my/usage" element={<MyUsage />} />
             <Route path="/my/statements" element={<MyStatements />} />
+            <Route path="/my/account" element={<MyAccount />} />
             <Route path="/my/budgets" element={<MyBudgets />} />
             <Route path="/my/reports" element={<MyReports />} />
             <Route path="/my/sources" element={<MySources />} />
+            <Route path="/my/users" element={<MyUsers />} />
             <Route path="/my/resources" element={<Resources />} />
             <Route path="/my/resources/:sourceId/:resourceId" element={<ResourceDetail />} />
             <Route path="/my/anomalies" element={<Anomalies />} />

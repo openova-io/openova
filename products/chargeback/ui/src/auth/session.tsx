@@ -55,7 +55,6 @@ export function useSession() {
   return useContext(Ctx)
 }
 
-export function homeFor(me: Me | null): string {
-  if (!me) return '/signin'
-  return me.role === 'operator' ? '/overview' : '/my/overview'
-}
+// The home route follows the lens: any Sovereign-scoped binding lands on the
+// Sovereign overview, everyone else on their own (DESIGN.md §10.9).
+export { homeFor } from '../lib/access'

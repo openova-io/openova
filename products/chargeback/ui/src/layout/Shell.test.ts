@@ -1,0 +1,62 @@
+import { describe, expect, it } from 'vitest'
+import type { Me } from '../api/types'
+import { navFor } from './Shell'
+
+const A = '11111111-1111-1111-1111-111111111111'
+
+function labels(me: Me): Record<string, string[]> {
+  const out: Record<string, string[]> = {}
+  for (const [title, items] of navFor(me)) out[title] = items.map(([, label]) => label)
+  return out
+}
+
+// The sidebar follows the permissions (DESIGN.md §10.9): the Sovereign lens
+// for any Sovereign binding, Access only with settings.manage; the customer
+// lens never shows the Sovereign's Bill / Configure pages, and Users only to
+// an owner.
+describe('Shell navigation per role', () => {
+  it('sovereign-admin sees everything, Access included', () => {
+    const me: Me = { email: 'ops@nc.example', role: 'operator', permissions: { sovereign: ['metering.read', 'settings.manage', 'billing.collect'] }, roles: [{ role: 'sovereign-admin', scope_kind: 'sovereign' }] }
+    const nav = labels(me)
+    expect(nav.Analyse).toContain('Overview')
+    expect(nav.Bill).toContain('Collections')
+    expect(nav.Configure).toContain('Access')
+    expect(nav.Configure).toContain('Customers')
+  })
+
+  it('finance-viewer sees the Sovereign pages but not Access', () => {
+    const me: Me = { email: 'fin@nc.example', role: 'finance-viewer', permissions: { sovereign: ['metering.read', 'audit.read'] }, roles: [{ role: 'finance-viewer', scope_kind: 'sovereign', source: 'group:finance' }] }
+    const nav = labels(me)
+    expect(nav.Analyse).toContain('Cost explorer')
+    expect(nav.Bill).toContain('Statements')
+    expect(nav.Configure).toContain('Price books')
+    expect(nav.Configure).not.toContain('Access')
+  })
+
+  it('customer-owner sees its own pages, Users and Account included, and none of the operator pages', () => {
+    const me: Me = { email: 'owner@acme.example', role: 'customer-admin', customer_id: A, permissions: { [`customer:${A}`]: ['metering.read', 'account.topup', 'customer.self.manage'] }, roles: [{ role: 'customer-owner', scope_kind: 'customer', customer_id: A }], scopes: [`customer:${A}`] }
+    const nav = labels(me)
+    expect(nav.Analyse).toEqual(['Overview', 'Cost explorer', 'Resources'])
+    expect(nav.Bill).toEqual(['Statements', 'Account', 'Budgets', 'Reports'])
+    expect(nav.Configure).toEqual(['Cost sources', 'Discounts', 'Users'])
+    for (const group of Object.values(nav)) {
+      expect(group).not.toContain('Collections')
+      expect(group).not.toContain('Customers')
+      expect(group).not.toContain('Price books')
+      expect(group).not.toContain('Access')
+    }
+  })
+
+  it('customer-viewer has no Users page', () => {
+    const me: Me = { email: 'v@acme.example', role: 'customer-viewer', customer_id: A, permissions: { [`customer:${A}`]: ['metering.read'] }, roles: [{ role: 'customer-viewer', scope_kind: 'customer', customer_id: A }], scopes: [`customer:${A}`] }
+    const nav = labels(me)
+    expect(nav.Configure).toEqual(['Cost sources', 'Discounts'])
+    expect(nav.Bill).toContain('Account')
+  })
+
+  it('a pre-binding /me document still lands on the right lens', () => {
+    expect(labels({ email: 'ops@nc.example', role: 'operator' }).Configure).toContain('Access')
+    expect(labels({ email: 'adm@acme.example', role: 'customer-admin', customer_id: A }).Configure).toContain('Users')
+    expect(labels({ email: 'v@acme.example', role: 'customer-viewer', customer_id: A }).Configure).not.toContain('Users')
+  })
+})
