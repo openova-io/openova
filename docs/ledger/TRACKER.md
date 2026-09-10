@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-10T12:00:04Z` |
+| Last refreshed | `2026-09-10T12:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-10T12:06 | [#6904](https://github.com/openova-io/openova/pull/6904) | #6867 | feat(chargeback): 0.1.28 — account ledger, balance, top-up,  |
 | 2026-09-10T11:11 | [#6903](https://github.com/openova-io/openova/pull/6903) | #6867 | docs(chargeback): 0.1.27 live evidence on hw307 — commercial |
 | 2026-09-10T10:47 | [#6901](https://github.com/openova-io/openova/pull/6901) | #6867 | feat(chargeback): retire the billing modes, post-paid invoic |
 | 2026-09-10T09:44 | [#6900](https://github.com/openova-io/openova/pull/6900) | #6867 | feat(chargeback): meter in-place resizes and Elastic IP traf |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-06T07:01 | [#6856](https://github.com/openova-io/openova/pull/6856) | #6855 | fix(chargeback): scope a project cost source to one deployme |
 | 2026-09-06T06:27 | [#6854](https://github.com/openova-io/openova/pull/6854) | #6853 | feat(chargeback): meter every provisionable resource kind, n |
 | 2026-09-06T04:27 | [#6852](https://github.com/openova-io/openova/pull/6852) | #6849 | fix(catalyst-api): platform Applications are platform-*, not |
-| 2026-09-04T08:40 | [#6851](https://github.com/openova-io/openova/pull/6851) | #6841 | feat(chargeback): meter the Sovereign's own footprint as a p |
 
 ---
 
