@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-10T19:00:05Z` |
+| Last refreshed | `2026-09-10T19:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-10T19:00 | [#6919](https://github.com/openova-io/openova/pull/6919) | #6867 | docs(status): chargeback 0.1.32 live on hw307 |
 | 2026-09-10T18:11 | [#6918](https://github.com/openova-io/openova/pull/6918) | #6902 | feat(organization): 0.1.32 — quota adds the per-Organization |
 | 2026-09-10T17:50 | [#6917](https://github.com/openova-io/openova/pull/6917) | #6916 | fix(ci): preflight C gives the Gateway an LB-IPAM address so |
 | 2026-09-10T17:41 | [#6916](https://github.com/openova-io/openova/pull/6916) | #6915 | fix(ci): preflight C installs Gateway API v1.3.0 experimenta |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-07T10:44 | [#6879](https://github.com/openova-io/openova/pull/6879) | #6874 | fix(bp-postgres, cloud-init): shared consumers dial the glob |
 | 2026-09-07T09:48 | [#6878](https://github.com/openova-io/openova/pull/6878) | #6874 | fix(dr-promoter): tell a CNPG local failover apart from a re |
 | 2026-09-07T08:34 | [#6877](https://github.com/openova-io/openova/pull/6877) | #6867 | docs(ledger): hw307 live-walk screenshots for bp-chargeback  |
-| 2026-09-07T09:11 | [#6876](https://github.com/openova-io/openova/pull/6876) | #6874 | fix(dr-failback): force the HelmRelease render after every r |
 
 ---
 
