@@ -579,15 +579,68 @@ func (s Statement) EffectiveStatusAt(t time.Time) string {
 	if !t.After(*s.DueAt) {
 		return s.Status
 	}
-	if ratOf(s.OutstandingAt()).Sign() <= 0 {
+	if settlesAt(new(big.Rat).Sub(ratOf(s.Total), ratOf(s.Paid)), s.Currency) {
 		return s.Status
 	}
 	return StatusOverdue
 }
 
-// OutstandingAt is total − payments, exactly.
+// OutstandingAt is total − payments, exactly, floored at zero: a settlement
+// that overshot by less than half a minor unit (settlesAt) leaves nothing
+// owed, and a balance is never reported negative.
 func (s Statement) OutstandingAt() Decimal {
-	return decOf(new(big.Rat).Sub(ratOf(s.Total), ratOf(s.Paid)))
+	out := new(big.Rat).Sub(ratOf(s.Total), ratOf(s.Paid))
+	if out.Sign() < 0 {
+		out.SetInt64(0)
+	}
+	return decOf(out)
+}
+
+// ---------------------------------------------------------------------------
+// the minor unit
+// ---------------------------------------------------------------------------
+
+// Money is kept and added at six decimals, exactly; money MOVES at the
+// currency's minor unit. An invoice of 14.856782 OMR part-paid by 10.000
+// leaves 4.856782 owed, which no bank transfer can carry: the customer pays
+// the 4.857 the dialog shows, and that must settle the invoice rather than
+// be refused as an overpayment of 0.000218. So the two decisions a payment
+// turns on — is it more than was owed, has it settled the invoice — are
+// judged at the minor unit, while the arithmetic underneath stays exact.
+
+// minorUnitDigits is how many decimals the currency's minor unit has — what
+// a bank transfer, a gateway confirmation and the operator's dialog can
+// actually carry. Three for the dinars and the rial (baisa, fils), two for
+// everything else, which is where ISO 4217 puts the rest of the world. The
+// console keeps the same table (ui/src/lib/money.ts minorUnitDigits).
+func minorUnitDigits(currency string) int {
+	switch strings.ToUpper(strings.TrimSpace(currency)) {
+	case "OMR", "BHD", "KWD", "JOD", "IQD", "LYD", "TND":
+		return 3
+	}
+	return 2
+}
+
+// minorUnitTolerance is half of one minor unit of the currency: the widest
+// difference from an amount that still rounds to it at the unit.
+func minorUnitTolerance(currency string) *big.Rat {
+	den := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(minorUnitDigits(currency))), nil)
+	den.Mul(den, big.NewInt(2))
+	return new(big.Rat).SetFrac(big.NewInt(1), den)
+}
+
+// settlesAt reports whether remaining — total − paid, exactly — is zero at
+// the currency's minor unit: within half a unit of nothing owed, on either
+// side. That is what "the payments reached the total" means to a bank.
+func settlesAt(remaining *big.Rat, currency string) bool {
+	return new(big.Rat).Abs(remaining).Cmp(minorUnitTolerance(currency)) < 0
+}
+
+// overpaysAt reports whether remaining is negative by at least half a minor
+// unit: the customer visibly sent more than was owed, which is a credit
+// note, not a bigger invoice.
+func overpaysAt(remaining *big.Rat, currency string) bool {
+	return remaining.Sign() < 0 && !settlesAt(remaining, currency)
 }
 
 // ---------------------------------------------------------------------------
@@ -715,23 +768,35 @@ func (s *Store) statementPayments(ctx context.Context, statementID string) ([]St
 // transitions
 // ---------------------------------------------------------------------------
 
+// lockedStatement is what lockStatement reads: the fields every transition
+// decides on, with the payments already summed.
+type lockedStatement struct {
+	status   string
+	currency string
+	total    Decimal
+	paid     Decimal
+	due      *time.Time
+}
+
 // lockStatement reads a statement FOR UPDATE inside tx and returns the
-// fields every transition needs, with the derived status already resolved.
-func lockStatement(ctx context.Context, tx *sql.Tx, id string) (status string, total, paid Decimal, due *time.Time, err error) {
+// fields every transition needs.
+func lockStatement(ctx context.Context, tx *sql.Tx, id string) (lockedStatement, error) {
+	var l lockedStatement
 	var t, p string
 	var d sql.NullTime
-	err = tx.QueryRowContext(ctx, `SELECT st.status, st.total::text, st.due_at,
+	err := tx.QueryRowContext(ctx, `SELECT st.status, st.currency, st.total::text, st.due_at,
 		COALESCE((SELECT sum(x.amount) FROM payments x WHERE x.statement_id = st.id AND x.status = 'received'), 0)::numeric(20,6)::text
-		FROM statements st WHERE st.id = $1 FOR UPDATE`, id).Scan(&status, &t, &d, &p)
+		FROM statements st WHERE st.id = $1 FOR UPDATE`, id).Scan(&l.status, &l.currency, &t, &d, &p)
 	if err != nil {
-		return "", "", "", nil, mapErr(err)
+		return lockedStatement{}, mapErr(err)
 	}
-	return status, Decimal(t), Decimal(p), timePtr(d), nil
+	l.total, l.paid, l.due = Decimal(t), Decimal(p), timePtr(d)
+	return l, nil
 }
 
 // effectiveStatus is EffectiveStatusAt over the locked columns.
-func effectiveStatus(status string, total, paid Decimal, due *time.Time, now time.Time) string {
-	return Statement{Status: status, Total: total, Paid: paid, DueAt: due}.EffectiveStatusAt(now)
+func effectiveStatus(l lockedStatement, now time.Time) string {
+	return Statement{Status: l.status, Currency: l.currency, Total: l.total, Paid: l.paid, DueAt: l.due}.EffectiveStatusAt(now)
 }
 
 // refuseTransition renders the one message every illegal transition answers
@@ -753,11 +818,11 @@ func (s *Store) SendStatement(ctx context.Context, id string) (st Statement, tra
 		return Statement{}, false, err
 	}
 	defer tx.Rollback()
-	status, total, paid, due, err := lockStatement(ctx, tx, id)
+	l, err := lockStatement(ctx, tx, id)
 	if err != nil {
 		return Statement{}, false, err
 	}
-	cur := effectiveStatus(status, total, paid, due, time.Now().UTC())
+	cur := effectiveStatus(l, time.Now().UTC())
 	switch {
 	case cur == StatusSent || cur == StatusOverdue:
 		// Already sent; the send is the edge, not the request.
@@ -786,11 +851,11 @@ func (s *Store) CancelStatement(ctx context.Context, id, reason string) (st Stat
 		return Statement{}, false, err
 	}
 	defer tx.Rollback()
-	status, total, paid, due, err := lockStatement(ctx, tx, id)
+	l, err := lockStatement(ctx, tx, id)
 	if err != nil {
 		return Statement{}, false, err
 	}
-	cur := effectiveStatus(status, total, paid, due, time.Now().UTC())
+	cur := effectiveStatus(l, time.Now().UTC())
 	switch {
 	case cur == StatusCancelled:
 	case !LegalStatementTransition(cur, StatusCancelled):
@@ -843,23 +908,27 @@ func (s *Store) RecordStatementPayment(ctx context.Context, id string, in Paymen
 		return Statement{}, p, err
 	}
 	defer tx.Rollback()
-	status, total, paid, due, err := lockStatement(ctx, tx, id)
+	l, err := lockStatement(ctx, tx, id)
 	if err != nil {
 		return Statement{}, p, err
 	}
 	now := time.Now().UTC()
-	cur := effectiveStatus(status, total, paid, due, now)
+	cur := effectiveStatus(l, now)
 	if !LegalStatementTransition(cur, StatusPaid) {
 		return Statement{}, p, refuseTransition(cur, StatusPaid)
 	}
-	newPaid := new(big.Rat).Add(ratOf(paid), amt)
+	newPaid := new(big.Rat).Add(ratOf(l.paid), amt)
 	if in.Status != PaymentReceived {
 		// A pending or failed payment is recorded but settles nothing, so
 		// it cannot exceed the balance and cannot flip the statement.
-		newPaid = ratOf(paid)
+		newPaid = ratOf(l.paid)
 	}
-	if newPaid.Cmp(ratOf(total)) > 0 {
-		outstanding := decOf(new(big.Rat).Sub(ratOf(total), ratOf(paid)))
+	// What the payment leaves owed, exactly — and judged at the minor unit:
+	// the 4.857 a customer pays against 4.856782 is the settlement the
+	// dialog offered, not an overpayment; half a unit or more over is.
+	remaining := new(big.Rat).Sub(ratOf(l.total), newPaid)
+	if overpaysAt(remaining, l.currency) {
+		outstanding := Statement{Total: l.total, Paid: l.paid}.OutstandingAt()
 		return Statement{}, p, fmt.Errorf("%w: payment of %s exceeds the outstanding balance of %s", ErrConflict, decOf(amt), outstanding)
 	}
 	err = tx.QueryRowContext(ctx, `INSERT INTO payments (customer_id, statement_id, amount, paid_at, method, reference, status, gateway, recorded_by)
@@ -871,7 +940,7 @@ func (s *Store) RecordStatementPayment(ctx context.Context, id string, in Paymen
 		return Statement{}, StatementPayment{}, mapErr(err)
 	}
 	p.PaidAt, p.RecordedAt = p.PaidAt.UTC(), p.RecordedAt.UTC()
-	if newPaid.Cmp(ratOf(total)) == 0 {
+	if in.Status == PaymentReceived && settlesAt(remaining, l.currency) {
 		if _, err := tx.ExecContext(ctx, `UPDATE statements SET status = 'paid', paid_at = $2 WHERE id = $1`, id, in.PaidAt.UTC()); err != nil {
 			return Statement{}, StatementPayment{}, mapErr(err)
 		}
@@ -1012,7 +1081,7 @@ func (s *Store) ApplyExternalInvoiceStatus(ctx context.Context, in ExternalInvoi
 	// Reconcile the cumulative paid amount by booking the difference.
 	if strings.TrimSpace(string(in.PaidAmount)) != "" {
 		want := ratOf(in.PaidAmount)
-		if want.Cmp(ratOf(st.Total)) > 0 {
+		if overpaysAt(new(big.Rat).Sub(ratOf(st.Total), want), st.Currency) {
 			return Statement{}, fmt.Errorf("%w: the billing system reports %s paid against a total of %s", ErrConflict, in.PaidAmount, st.Total)
 		}
 		delta := new(big.Rat).Sub(want, ratOf(st.Paid))
