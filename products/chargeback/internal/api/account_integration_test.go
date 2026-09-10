@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/openova-io/openova/products/chargeback/internal/adapter/openova"
 	"github.com/openova-io/openova/products/chargeback/internal/collections"
 	"github.com/openova-io/openova/products/chargeback/internal/commercial"
 	"github.com/openova-io/openova/products/chargeback/internal/commercial/external"
@@ -51,6 +52,20 @@ func (g *recGateway) RequestSettlement(_ context.Context, req settle.Request) (s
 
 func (g *recGateway) ConfirmSettlement(_ context.Context, c settle.Confirmation) (settle.Payment, error) {
 	return settle.Normalise(c, "omantel")
+}
+
+// callbackSecret is what the test gateway signs its callbacks with; the
+// scheme is the billing hook's (HMAC-SHA256 over the raw body).
+const callbackSecret = "omantel-callback-secret"
+
+func (g *recGateway) VerifyCallback(r *http.Request) (settle.Confirmation, error) {
+	hook := &openova.BillingHook{CallbackSecret: callbackSecret}
+	conf, err := hook.VerifyCallback(r)
+	if err != nil {
+		return conf, err
+	}
+	conf.GatewayName, conf.Actor = "omantel", "gateway:omantel"
+	return conf, nil
 }
 
 func (g *recGateway) purposes() []string {

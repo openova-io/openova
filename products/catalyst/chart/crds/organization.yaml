@@ -215,6 +215,24 @@ spec:
                   enum: [prod, stg, uat, dev, poc]
                   default: prod
                   description: Default env_type for new Environments unless overridden.
+                suspended:
+                  type: boolean
+                  default: false
+                  description: |
+                    Billing enforcement (products/chargeback DESIGN.md §9.7).
+                    Set by the sovereign-admin API's operator-only
+                    POST /api/v1/organizations/{slug}/suspend (cleared by
+                    .../resume) when the chargeback application escalates
+                    collections, a prepaid balance reaches zero, an operator
+                    decides, or the external billing system commands it. The
+                    organization-controller parks the per-Org Flux
+                    reconciliation (spec.suspend on the per-Org
+                    Kustomizations) and surfaces a Suspended condition. It is
+                    never inferred: only the explicit route sets it.
+                suspendReason:
+                  type: string
+                  maxLength: 512
+                  description: Why the Organization is suspended; empty when it is not.
                 owners:
                   type: array
                   minItems: 1

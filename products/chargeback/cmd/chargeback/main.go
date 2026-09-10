@@ -109,7 +109,7 @@ func main() {
 	// more Register call here, under the name "omantel".
 	settlement := settle.NewRegistry()
 	if cfg.BillingHookURL != "" {
-		hook := &openova.BillingHook{URL: cfg.BillingHookURL, Token: cfg.BillingHookToken, Metrics: reg}
+		hook := &openova.BillingHook{URL: cfg.BillingHookURL, Token: cfg.BillingHookToken, Metrics: reg, CallbackSecret: cfg.BillingHookCallbackSecret}
 		settlement.Register(settle.GatewayStripe, hook)
 		deps.StatementHook = hook
 		slog.Info("billing hook enabled", "url", cfg.BillingHookURL)

@@ -3,6 +3,7 @@ package settle
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +16,10 @@ import (
 type fake struct {
 	name  string
 	calls int
+}
+
+func (f *fake) VerifyCallback(*http.Request) (Confirmation, error) {
+	return Confirmation{}, ErrCallbackNotSupported
 }
 
 func (f *fake) RequestSettlement(_ context.Context, req Request) (Result, error) {
