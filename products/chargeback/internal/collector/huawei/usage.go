@@ -56,6 +56,37 @@ func AdoptObserved(existing []Transition, obs Transition, tolerance time.Duratio
 	return window.AdoptObserved(existing, obs, tolerance)
 }
 
+// SKUEIPBandwidth bills the RESERVED size of a pipe, per Mbps per hour. It
+// is what dominates the bill on a Sovereign whose reserved bandwidth is
+// about forty times its compute.
+const (
+	SKUEIPBandwidth  = "eip.bandwidth_mbps"
+	UnitEIPBandwidth = "mbps-hour"
+)
+
+// BillsTraffic reports whether the cloud bills this address (or pipe) by the
+// traffic that crossed it rather than by the size it reserved. Unknown —
+// which is what an older gateway that does not report a charge mode gives —
+// is deliberately NOT traffic: the reservation keeps billing, because
+// guessing "traffic" on an address that really reserved a pipe would drop a
+// real charge off the bill and nothing would look wrong.
+func BillsTraffic(attrs map[string]any) bool {
+	return strings.EqualFold(strings.TrimSpace(str(attrs[attrChargeMode])), ChargeModeTraffic)
+}
+
+// SharesBandwidth reports whether the address hangs off a pipe shared with
+// others, in which case the reservation is billed against the pipe.
+func SharesBandwidth(attrs map[string]any) bool {
+	return strings.EqualFold(strings.TrimSpace(str(attrs[attrShareType])), ShareTypeWhole)
+}
+
+// BandwidthIDOf is the pipe an address (or a shared-pipe resource) belongs
+// to; empty when the gateway reported none, in which case its traffic
+// cannot be sampled and its reservation keeps billing.
+func BandwidthIDOf(attrs map[string]any) string {
+	return strings.TrimSpace(str(attrs[attrBandwidthID]))
+}
+
 // SKU is one billable line a resource produces per slice.
 type SKU struct {
 	Name       string
@@ -84,11 +115,41 @@ func SKUsFor(kind string, attrs map[string]any, flavor string) []SKU {
 		}
 		return []SKU{{Name: "evs." + class + ".gb", Unit: "gb-hour", Multiplier: size}}
 	case KindEIP:
+		// An address always costs its hourly address fee. What it costs on
+		// top of that is EITHER the pipe it reserves OR the traffic that
+		// crossed it — never both (#6867):
+		//
+		//   traffic-billed  → no reservation line at all; the hourly
+		//                     SKUEIPTrafficGB records the CES sampler writes
+		//                     are the meter.
+		//   shared pipe     → the reservation belongs to the pipe's own
+		//                     KindBandwidth resource, which bills it ONCE
+		//                     however many addresses hang off it. Billing it
+		//                     here too would charge the same pipe once per
+		//                     address.
+		//   otherwise       → the reserved size, exactly as before. That is
+		//                     also the case when the gateway reported no
+		//                     charge mode, so an address whose shape is
+		//                     unknown is never silently un-billed.
 		out := []SKU{{Name: "eip", Unit: "hour", Multiplier: 1}}
+		if BillsTraffic(attrs) || SharesBandwidth(attrs) {
+			return out
+		}
 		if bw := num(attrs["bandwidth_mbps"]); bw > 0 {
-			out = append(out, SKU{Name: "eip.bandwidth_mbps", Unit: "mbps-hour", Multiplier: bw})
+			out = append(out, SKU{Name: SKUEIPBandwidth, Unit: UnitEIPBandwidth, Multiplier: bw})
 		}
 		return out
+	case KindBandwidth:
+		// The shared pipe itself. It carries no address fee — each attached
+		// address pays its own — and it is traffic-billed or size-billed on
+		// the same either/or rule.
+		if BillsTraffic(attrs) {
+			return nil
+		}
+		if bw := num(attrs["bandwidth_mbps"]); bw > 0 {
+			return []SKU{{Name: SKUEIPBandwidth, Unit: UnitEIPBandwidth, Multiplier: bw}}
+		}
+		return nil
 	case KindELB:
 		return []SKU{{Name: "elb", Unit: "hour", Multiplier: 1}}
 	case KindNAT:

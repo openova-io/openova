@@ -27,6 +27,7 @@ const (
 	TypeStoppedInstanceBilled = "stopped-instance-billed"
 	TypeUnattachedVolume      = "unattached-volume"
 	TypeUnboundEIP            = "unbound-eip"
+	TypeOversizedBandwidth    = "oversized-bandwidth"
 	TypeLowCPU                = "low-cpu-utilisation"
 	TypeUnpricedSKU           = "unpriced-sku"
 	TypeStaleSource           = "stale-source"
@@ -52,7 +53,33 @@ const (
 	// MinCPUSamples is the number of hourly samples a mean needs (two days)
 	// before it is trusted.
 	MinCPUSamples = 48
+
+	// Oversized-reservation thresholds (#6867).
+	//
+	// MinTrafficHours is how many hourly traffic samples a reservation
+	// needs before it is judged — two days, like the CPU mean. Sizing a
+	// pipe off one quiet afternoon is how a recommendation costs a customer
+	// an outage.
+	MinTrafficHours = 48
+	// BandwidthHeadroom is the multiple of the BUSIEST observed hour a
+	// suggested size must still cover. A pipe sized at exactly the peak has
+	// no room for the next busy hour, so the suggestion doubles it.
+	BandwidthHeadroom = 2.0
+	// OversizedBandwidthFactor is how far above the headroom-covered peak a
+	// reservation must sit before it is worth reporting. At 2 it would fire
+	// on ordinary provisioning slack; at 4 the pipe is at least eight times
+	// the busiest hour that was actually measured.
+	OversizedBandwidthFactor = 4.0
+	// MbpsPerGBHour converts one gigabyte moved in an hour into the average
+	// megabits per second that took: 1 GB = 10^9 bytes = 8×10^9 bits, over
+	// 3600 s, in units of 10^6 bit/s.
+	MbpsPerGBHour = 8e9 / 3600 / 1e6
 )
+
+// bandwidthLadder is the ladder a suggested reservation is rounded UP to.
+// A recommendation to move to 37 Mbps is not actionable; the sizes an
+// operator can actually choose are round ones.
+var bandwidthLadder = []float64{1, 2, 5, 10, 20, 50, 100, 200, 300, 500, 1000, 2000}
 
 // Input is everything the rules read.
 type Input struct {
@@ -62,6 +89,10 @@ type Input struct {
 	Sources   []store.SourceHealth
 	Unpriced  []store.CustomerUnpricedSKU // last 30 days
 	CPUUtil   []store.CPUUtilMean         // last 7 days
+	// EIPTraffic is the observed outbound traffic per address or shared
+	// pipe over the same window, which is what the oversized-reservation
+	// rule compares a reservation against.
+	EIPTraffic []store.EIPTrafficWindow
 	// ReportingCurrency, when set, has Evaluate report every saving in it:
 	// a saving computed from a book in another currency is divided by that
 	// book's RateToBase (store.ToBase). A row whose book currency has no
@@ -98,6 +129,7 @@ func Evaluate(in Input) []Recommendation {
 	rows := []Recommendation{}
 	rows = append(rows, resourceRules(in, books)...)
 	rows = append(rows, lowCPU(in, books)...)
+	rows = append(rows, oversizedBandwidth(in, books)...)
 	rows = append(rows, unpricedSKUs(in, books)...)
 	rows = append(rows, staleSources(in)...)
 	rows = append(rows, noPriceBook(in)...)
@@ -410,6 +442,95 @@ func smallerSize(size string) (smaller string, isSize, ok bool) {
 }
 
 // ---------------------------------------------------------------------------
+// oversized-bandwidth
+// ---------------------------------------------------------------------------
+
+// oversizedBandwidth reports a reserved pipe that dwarfs the traffic that
+// actually crossed it (#6867). On a Sovereign whose reserved bandwidth is
+// about forty times its compute, this is the largest saving the product can
+// name — and unlike the unbound-address rule it fires on pipes that are in
+// use, which is where the money actually sits.
+//
+// The comparison is against the BUSIEST hour observed, not the mean: a pipe
+// has to carry the peak. The suggested size covers that peak with headroom
+// and is then rounded up to a size an operator can actually buy.
+func oversizedBandwidth(in Input, books map[string]store.CustomerBook) []Recommendation {
+	live := map[string]store.LiveResource{}
+	for _, r := range in.Resources {
+		live[r.SourceID+"/"+r.ResourceID] = r
+	}
+	var out []Recommendation
+	for _, tw := range in.EIPTraffic {
+		if tw.Hours < MinTrafficHours {
+			continue
+		}
+		r, ok := live[tw.SourceID+"/"+tw.ResourceID]
+		if !ok || (r.Kind != huawei.KindEIP && r.Kind != huawei.KindBandwidth) {
+			continue
+		}
+		// A traffic-billed pipe reserves nothing, so there is nothing to
+		// shrink — it already pays only for what it moved.
+		if huawei.BillsTraffic(r.Attrs) {
+			continue
+		}
+		// An address on a SHARED pipe does not carry the reservation; the
+		// pipe's own resource does, and that is the row this rule reports.
+		if r.Kind == huawei.KindEIP && huawei.SharesBandwidth(r.Attrs) {
+			continue
+		}
+		reserved := attrNum(r.Attrs, "bandwidth_mbps")
+		if reserved <= 0 {
+			continue
+		}
+		peakMbps := tw.PeakGB * MbpsPerGBHour
+		suggested := suggestBandwidth(peakMbps)
+		if suggested >= reserved || reserved < suggested*OversizedBandwidthFactor {
+			continue
+		}
+		book := books[r.CustomerID]
+		ev := map[string]any{
+			"reserved_mbps": reserved, "suggested_mbps": suggested,
+			"peak_hour_gb": round2(tw.PeakGB), "peak_hour_mbps": round2(peakMbps),
+			"mean_hour_mbps": round2(tw.TotalGB / float64(tw.Hours) * MbpsPerGBHour),
+			"total_gb":       round2(tw.TotalGB), "hours": tw.Hours,
+			"sku": huawei.SKUEIPBandwidth, "headroom": BandwidthHeadroom, "hours_per_month": HoursPerMonth,
+		}
+		saving := new(big.Rat)
+		if rate, priced := rateOf(book, huawei.SKUEIPBandwidth); priced {
+			saving = monthly(rate, reserved-suggested)
+		} else {
+			// Without a rate the shrink is still worth doing, but this
+			// product does not invent a price to make a number look big.
+			ev["unpriced"] = true
+		}
+		out = append(out, Recommendation{
+			ID: TypeOversizedBandwidth + ":" + r.CustomerID + ":" + r.ResourceID, Type: TypeOversizedBandwidth, Severity: SeverityHigh,
+			CustomerID: r.CustomerID, CustomerName: r.CustomerName, ResourceID: r.ResourceID, ResourceName: r.Name, Kind: r.Kind,
+			Title: "Oversized bandwidth reservation",
+			Detail: fmt.Sprintf("%s reserves %s Mbps but its busiest hour in the last %d sampled hours moved %s GB — %s Mbps. Drop the reservation to %s Mbps, which still covers that peak %s times over.",
+				label(r), fmtNum(reserved), tw.Hours, fmtNum(round2(tw.PeakGB)), fmtNum(round2(peakMbps)), fmtNum(suggested), fmtNum(BandwidthHeadroom)),
+			MonthlySaving: money(saving), Currency: book.Currency, Evidence: ev,
+		})
+	}
+	return out
+}
+
+// suggestBandwidth is the smallest size on the ladder that still covers the
+// busiest observed hour with headroom; the top rung when the peak exceeds
+// every rung, so the suggestion is never smaller than what was measured.
+func suggestBandwidth(peakMbps float64) float64 {
+	want := peakMbps * BandwidthHeadroom
+	for _, rung := range bandwidthLadder {
+		if rung >= want {
+			return rung
+		}
+	}
+	return bandwidthLadder[len(bandwidthLadder)-1]
+}
+
+func round2(f float64) float64 { return math.Round(f*100) / 100 }
+
+// ---------------------------------------------------------------------------
 // unpriced-sku
 // ---------------------------------------------------------------------------
 
@@ -417,7 +538,11 @@ func unpricedSKUs(in Input, books map[string]store.CustomerBook) []Recommendatio
 	var out []Recommendation
 	for _, u := range in.Unpriced {
 		book, ok := books[u.CustomerID]
-		if !ok || !book.HasBook || u.SKU == huawei.SKUCPUUtil {
+		// A sampled measurement is a metric, not a meter: telling the
+		// operator to put a price on a gigabyte figure the cloud never
+		// charged for would be wrong advice. The store's aggregates leave
+		// them out for the same reason; this is the belt to that braces.
+		if !ok || !book.HasBook || store.IsMetricSKU(u.SKU) {
 			continue
 		}
 		if _, priced := rateOf(book, u.SKU); priced {
