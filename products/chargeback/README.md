@@ -338,6 +338,10 @@ Price book CSV columns: `sku,unit,annual_price,description` (template at
 | `ADAPTER_ENABLED` | auto | OpenOva adapter override: unset = on when `PROFILE=sovereign` AND in-cluster Kubernetes configuration exists; `true`/`false` force it |
 | `BILLING_HOOK_URL` | unset | billing service base URL for the D6 statement hook; unset ⇒ hook off |
 | `BILLING_HOOK_TOKEN` | unset | superadmin bearer token `POST /billing/metering/record` requires |
+| `BILLING_HOOK_CALLBACK_SECRET` | unset | shared secret the billing service signs its payment callbacks with (`POST /api/v1/gateways/stripe/callback`, DESIGN.md §9.2); unset ⇒ every callback for the stripe gateway is refused. Chart: `adapter.billingHook.callbackSecret` names the Secret |
+| `PLATFORM_API_URL` | unset | the Sovereign's sovereign-admin API, for suspend/resume at the platform (DESIGN.md §9.6: `POST /api/v1/internal/organizations/{slug}/suspend` / `resume`); unset ⇒ the Enforcer is a Nop and suspensions are recorded here only. Chart: `platformApi.url`; the Sovereign slot sets `http://catalyst-api.catalyst-system.svc.cluster.local:8080` |
+| `PLATFORM_API_TOKEN_FILE` | unset | file holding the bearer for those routes — the projected ServiceAccount token the chart mounts at `/var/run/secrets/platform-api/token` (audience `platformApi.tokenAudience`, empty = the apiserver default); re-read on every call because the kubelet rotates it. Wins over `PLATFORM_API_TOKEN` |
+| `PLATFORM_API_TOKEN` | unset | literal bearer for those routes when no file is mounted (a local run against a Sovereign) |
 | `LISTEN_ADDR` | `:8080` | |
 
 ## Development

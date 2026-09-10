@@ -94,23 +94,12 @@ import (
 	"strings"
 	"time"
 
-	authnv1 "k8s.io/api/authentication/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/openbao"
 )
 
-// Default suffix appended to the cutover namespace to compute the
-// canonical service-account username for token-review validation.
-// The chart helper `bp-self-sovereign-cutover.serviceAccountName`
-// always produces `<chartName>-runner`, and chartName is fixed at
-// `bp-self-sovereign-cutover`.
-const defaultCutoverRunnerSAName = "bp-self-sovereign-cutover-runner"
-
-const (
-	envInternalCutoverSAUsername  = "CATALYST_INTERNAL_CUTOVER_SA_USERNAME"
-	envInternalCutoverSAUsernames = "CATALYST_INTERNAL_CUTOVER_SA_USERNAMES"
-)
+// The runner SA name, the env overrides and the TokenReview mechanism live
+// in internal_auth.go — the one table every /api/v1/internal/* route
+// authenticates against (cutoverTriggerCallers is this route's row).
 
 // envRequireHandoverForCutover gates the in-cluster auto-trigger on
 // handover completion. See requireHandoverForCutover.
@@ -241,70 +230,6 @@ func (h *Handler) sealCutoverComplete(ctx context.Context, startedAt, finishedAt
 	})
 }
 
-// expectedInternalCutoverUsernames returns the set of acceptable SA
-// usernames a TokenReview may resolve to. Order is:
-//  1. Singular env override.
-//  2. Plural env override (comma-split).
-//  3. Default = system:serviceaccount:<ns>:<defaultCutoverRunnerSAName>.
-//
-// At least one must match the TokenReview-resolved username for the
-// request to be accepted.
-func expectedInternalCutoverUsernames(deps *cutoverDeps) []string {
-	out := make([]string, 0, 3)
-	if v := strings.TrimSpace(os.Getenv(envInternalCutoverSAUsername)); v != "" {
-		out = append(out, v)
-	}
-	if v := strings.TrimSpace(os.Getenv(envInternalCutoverSAUsernames)); v != "" {
-		for _, p := range strings.Split(v, ",") {
-			p = strings.TrimSpace(p)
-			if p != "" {
-				out = append(out, p)
-			}
-		}
-	}
-	// Default — always accepted unless the operator explicitly
-	// excludes it via env override.
-	defaultUser := fmt.Sprintf("system:serviceaccount:%s:%s", deps.ns, defaultCutoverRunnerSAName)
-	out = append(out, defaultUser)
-	return out
-}
-
-// validateInternalCutoverBearer runs a TokenReview against the
-// cluster's authentication chain. Returns the resolved username on
-// success or an error describing why the token was rejected.
-//
-// Production wires deps.core to a real kubernetes.Interface; tests
-// inject a fake.NewSimpleClientset and prepend a reactor for the
-// `tokenreviews` resource so the apiserver round-trip is mocked.
-func validateInternalCutoverBearer(ctx context.Context, deps *cutoverDeps, bearer string) (string, error) {
-	if bearer == "" {
-		return "", fmt.Errorf("empty bearer token")
-	}
-	tr := &authnv1.TokenReview{
-		Spec: authnv1.TokenReviewSpec{
-			Token: bearer,
-		},
-	}
-	resp, err := deps.core.AuthenticationV1().TokenReviews().Create(ctx, tr, metav1.CreateOptions{})
-	if err != nil {
-		return "", fmt.Errorf("token review API call failed: %w", err)
-	}
-	if !resp.Status.Authenticated {
-		// resp.Status.Error is operator-actionable (e.g. "token expired").
-		// Return verbatim so the auto-trigger Job can log it.
-		detail := resp.Status.Error
-		if detail == "" {
-			detail = "token not authenticated by apiserver"
-		}
-		return "", fmt.Errorf("token review rejected: %s", detail)
-	}
-	user := strings.TrimSpace(resp.Status.User.Username)
-	if user == "" {
-		return "", fmt.Errorf("token review returned empty username")
-	}
-	return user, nil
-}
-
 // HandleCutoverInternalTrigger handles
 //
 //	POST /api/v1/internal/cutover/trigger
@@ -350,45 +275,7 @@ func (h *Handler) HandleCutoverInternalTrigger(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	bearer := extractBearer(r.Header.Get("Authorization"))
-	if bearer == "" {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{
-			"error":  "missing-bearer",
-			"detail": "Authorization: Bearer <serviceaccount-token> header is required",
-		})
-		return
-	}
-
-	user, err := validateInternalCutoverBearer(r.Context(), deps, bearer)
-	if err != nil {
-		// 502 here because the failure is on the apiserver side of the
-		// TokenReview; the client did not necessarily mis-send. The
-		// auto-trigger Job will retry on a non-2xx response per its
-		// shell loop.
-		writeJSON(w, http.StatusBadGateway, map[string]string{
-			"error":  "token-review-failed",
-			"detail": err.Error(),
-		})
-		return
-	}
-
-	allowed := expectedInternalCutoverUsernames(deps)
-	matched := false
-	for _, u := range allowed {
-		if user == u {
-			matched = true
-			break
-		}
-	}
-	if !matched {
-		h.log.Warn("internal cutover trigger: unauthorized SA",
-			"user", user,
-			"allowed", strings.Join(allowed, ","),
-		)
-		writeJSON(w, http.StatusForbidden, map[string]string{
-			"error":  "unauthorized-sa",
-			"detail": fmt.Sprintf("token resolved to %q which is not an authorized cutover-runner SA", user),
-		})
+	if _, ok := h.authenticateInternalCaller(w, r, deps.core, cutoverTriggerCallers(deps.ns)); !ok {
 		return
 	}
 

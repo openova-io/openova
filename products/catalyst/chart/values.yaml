@@ -554,9 +554,9 @@ images:
     # new chart emits only the new name, so handoverSigner never
     # initialises and /api/v1/auth/pin/issue returns 503 "handover
     # signer unavailable". ff778a36 reads both names with fallback.
-    tag: "731bd53"
+    tag: "80c3b45"
   catalystUi:
-    tag: "731bd53"
+    tag: "80c3b45"
   # 2026-08-11 (#5451): marketplaceApi / console / admin were ALL frozen at
   # "3c2f7e4" (2026-04-28) for three and a half months. Their build workflows
   # sed-ed the `image:` line of their chart template; 83ec889f0 (PR #580,
@@ -2808,6 +2808,21 @@ security:
       # catalyst-api's only Service port — keep in lockstep with
       # templates/api-service.yaml (`port: 8080`), which
       # tests/baseline-cnp-allowlist.sh Case 11 already pins.
+      port: 8080
+    # #6867 — the chargeback application's billing-ENFORCEMENT ingress
+    # (templates/network-policies/chargeback-enforcement-ingress.yaml). The
+    # Sovereign placement of bp-chargeback (slot 13f, namespace `chargeback`)
+    # suspends and resumes Organizations by POSTing catalyst-api's
+    # ServiceAccount-authenticated /api/v1/internal/organizations/{slug}/
+    # suspend | /resume in-cluster. The catalyst-system default-deny drops
+    # that call unless this port-scoped carve-out admits it — the same shape
+    # as keycloakBackchannel above, for the same reason: the blanket
+    # allowedIngressNamespaces rule carries no toPorts.
+    chargebackEnforcement:
+      enabled: true
+      # Source namespace — the 13f slot's targetNamespace.
+      namespace: chargeback
+      # catalyst-api's only Service port (templates/api-service.yaml).
       port: 8080
 
 # ── Migrations (post-install / post-upgrade Helm-hook Jobs) ──────────────

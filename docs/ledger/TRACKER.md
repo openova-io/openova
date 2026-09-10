@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-10T14:45:04Z` |
+| Last refreshed | `2026-09-10T15:30:13Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-10T15:24 | [#6911](https://github.com/openova-io/openova/pull/6911) | #6867 | feat(chargeback): 0.1.30 — enforce suspensions at the platfo |
 | 2026-09-10T14:38 | [#6910](https://github.com/openova-io/openova/pull/6910) | #6867 | fix(catalyst): let the sovereign-admin API patch Organizatio |
 | 2026-09-10T14:12 | [#6909](https://github.com/openova-io/openova/pull/6909) | #6867 | docs(status): chargeback live on hw307 at 0.1.29 |
 | 2026-09-10T12:58 | [#6908](https://github.com/openova-io/openova/pull/6908) | #6867 | docs(chargeback): 0.1.29 live evidence on hw307 — traffic-mo |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-06T18:11 | [#6868](https://github.com/openova-io/openova/pull/6868) | #6867 | feat(chargeback): cloud-provider-grade cost analysis — explo |
 | 2026-09-06T12:48 | [#6866](https://github.com/openova-io/openova/pull/6866) | #6866 | fix(chargeback): the usage table showed a dash in every grou |
 | 2026-09-06T11:41 | [#6865](https://github.com/openova-io/openova/pull/6865) | #6850 | feat(chargeback): the allocation screen (Refs #6865) |
-| 2026-09-06T10:45 | [#6864](https://github.com/openova-io/openova/pull/6864) | #6863 | feat(chargeback): usage trend chart (Refs #6863) |
 
 ---
 

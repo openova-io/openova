@@ -189,6 +189,45 @@ adapter:
     url: ""
     # Name of a Secret with key BILLING_HOOK_TOKEN. Empty = no hook auth.
     tokenSecret: ""
+    # Name of a Secret with key BILLING_HOOK_CALLBACK_SECRET — the shared
+    # secret the billing service signs its payment callbacks with
+    # (POST /api/v1/gateways/stripe/callback, DESIGN.md §9.2). Empty = the
+    # binary refuses every callback for the stripe gateway; on a Sovereign
+    # that means a gateway payment never reaches the customer's account.
+    callbackSecret: ""
+
+# ── Platform enforcement (DESIGN.md §9.6, EPIC #6867) ────────────────────
+# Where a collections escalation, a prepaid balance at zero, an operator
+# decision or the external billing system's command becomes a suspended
+# Organization AT THE PLATFORM: chargeback POSTs the Sovereign's sovereign-
+# admin API (/api/v1/internal/organizations/{slug}/suspend | /resume), which
+# stamps spec.suspended on the Organization CR, and the org-controller parks
+# the per-Org Flux Kustomizations. Empty url = enforcement records only: the
+# customer flips here, the audit says "not executed at the platform" (Nop).
+#
+# The bearer is a PROJECTED ServiceAccount token (never a literal): when url
+# is set the Deployment mounts a serviceAccountToken projection at
+# /var/run/secrets/platform-api/token (expirationSeconds 3600; the kubelet
+# rotates it and the binary re-reads the file on every call) and sets
+# PLATFORM_API_TOKEN_FILE to that path. The sovereign-admin API verifies it
+# with a TokenReview and admits system:serviceaccount:<namespace>:<sa> — the
+# Sovereign slot's release is `chargeback` in namespace `chargeback`, which
+# is the API's default allow-list entry.
+platformApi:
+  # URL of the Sovereign's sovereign-admin API for suspend/resume on command
+  # (DESIGN.md §9.6). Empty = enforcement records only (Nop). The Sovereign
+  # slot sets http://catalyst-api.catalyst-system.svc.cluster.local:8080 —
+  # the in-cluster catalyst-api Service, the same one the cutover
+  # auto-trigger dials.
+  url: ""
+  # Audience of the projected ServiceAccount token presented as the bearer;
+  # must match what the API's TokenReview expects. The API reviews the token
+  # with NO audience set, i.e. the apiserver's default audience — the same
+  # default-audience token the cutover runner presents from its standard
+  # /var/run/secrets/kubernetes.io/serviceaccount mount — so this stays
+  # empty (the projection omits `audience`). Set it only if the API is ever
+  # reconfigured to review against a named audience.
+  tokenAudience: ""
 
 # requests == limits (Guaranteed QoS, 1:1 ratio) — REQUIRED for a per-Org
 # install under the plan-limits LimitRange (#4362/#4553).
