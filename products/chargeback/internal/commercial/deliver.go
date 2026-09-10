@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/openova-io/openova/products/chargeback/internal/commercial/external"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
 
@@ -119,19 +120,34 @@ func (d *Deliverer) DeliverOne(ctx context.Context, id int64) (store.OutboxEntry
 	return d.Store.GetOutboxEntry(ctx, id)
 }
 
-// deliver pushes one entry and records the outcome on it.
+// deliver pushes one entry and records the outcome on it. The TMF678 bill
+// goes through Exporter.Deliver as lane 1 wired it; every other document
+// type (DESIGN.md §9.1) goes through the SAME exporter's DeliverDocument —
+// one transport, and an exporter that has none for a type fails the row
+// with a message the operator can read rather than dropping it.
 func (d *Deliverer) deliver(ctx context.Context, e store.OutboxEntry) error {
-	var doc InvoiceDocument
-	if err := json.Unmarshal(e.Document, &doc); err != nil {
-		// A document that cannot be read will never deliver; record it so
-		// an operator sees it rather than retrying forever in silence.
-		_ = d.Store.MarkOutboxFailed(ctx, e.ID, err)
-		return err
+	var ref string
+	var err error
+	if e.DocType == "" || e.DocType == store.OutboxInvoice {
+		var doc InvoiceDocument
+		if uerr := json.Unmarshal(e.Document, &doc); uerr != nil {
+			// A document that cannot be read will never deliver; record it
+			// so an operator sees it rather than retrying forever in silence.
+			_ = d.Store.MarkOutboxFailed(ctx, e.ID, uerr)
+			return uerr
+		}
+		if doc.IdempotencyKey == "" {
+			doc.IdempotencyKey = e.IdempotencyKey
+		}
+		ref, err = d.Exporter.Deliver(ctx, doc)
+	} else {
+		de, ok := d.Exporter.(external.Exporter)
+		if !ok {
+			err = errors.New("the configured exporter delivers invoices only; it has no transport for " + e.DocType + " documents")
+		} else {
+			ref, err = de.DeliverDocument(ctx, external.Envelope{Type: e.DocType, IdempotencyKey: e.IdempotencyKey, Document: e.Document})
+		}
 	}
-	if doc.IdempotencyKey == "" {
-		doc.IdempotencyKey = e.IdempotencyKey
-	}
-	ref, err := d.Exporter.Deliver(ctx, doc)
 	if err != nil {
 		slog.Warn("commercial outbox: delivery failed; it will be retried", "entry", e.ID, "attempts", e.Attempts+1, "error", err)
 		if merr := d.Store.MarkOutboxFailed(ctx, e.ID, err); merr != nil {

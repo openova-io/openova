@@ -129,14 +129,19 @@ func TestIntegrationTheSameHistoryUnderBothCommercialProviders(t *testing.T) {
 	if len(env.exporter.Docs()) != 0 {
 		t.Fatalf("issuing must not deliver synchronously: %+v", env.exporter.Docs())
 	}
+	// Two rows: the TMF678 bill and, beside it, the TMF635 rated usage
+	// (DESIGN.md §9.1) — same outbox, same idempotency key.
 	outbox := mustDo(t, env.h, op, "GET", "/api/v1/commercial/outbox", 200)
-	if outbox["pending"] != float64(1) || outbox["commercial_provider"] != store.ProviderExternal {
+	if outbox["pending"] != float64(2) || outbox["commercial_provider"] != store.ProviderExternal {
 		t.Fatalf("outbox = %+v", outbox)
 	}
 
-	// The delivery loop pushes it, and the export document carries EXACT money.
-	if n, err := env.deliverer.DeliverDue(ctx); err != nil || n != 1 {
+	// The delivery loop pushes both, and the export document carries EXACT money.
+	if n, err := env.deliverer.DeliverDue(ctx); err != nil || n != 2 {
 		t.Fatalf("delivery pass = %d (err %v)", n, err)
+	}
+	if usage := env.exporter.OfType("rated-usage"); len(usage) != 1 || usage[0].IdempotencyKey != d2.ID {
+		t.Fatalf("the rated usage must leave beside the bill, keyed on the statement: %+v", usage)
 	}
 	doc, ok := env.exporter.Last()
 	if !ok {
@@ -235,10 +240,17 @@ func TestIntegrationOutboxDeliversExactlyOnceAfterFailures(t *testing.T) {
 		t.Fatalf("issue while the billing system is down = %+v", issued)
 	}
 
-	// Three failed attempts, each recorded with its error and none delivered.
+	// Three failed attempts, each recorded with its error and the bill never
+	// delivered. The TMF635 rated-usage row queued beside it (DESIGN.md
+	// §9.1) is not what the far end refuses, so the first pass delivers
+	// that one row and nothing else.
 	for i := 1; i <= 3; i++ {
-		if n, err := env.deliverer.DeliverDue(ctx); err != nil || n != 0 {
-			t.Fatalf("attempt %d delivered %d (err %v)", i, n, err)
+		want := 0
+		if i == 1 {
+			want = 1
+		}
+		if n, err := env.deliverer.DeliverDue(ctx); err != nil || n != want {
+			t.Fatalf("attempt %d delivered %d (err %v), want %d", i, n, err, want)
 		}
 		// Backoff pushes the next attempt out; the test drives it by hand.
 		if _, err := env.st.RequeueOutbox(ctx, 1); err != nil {

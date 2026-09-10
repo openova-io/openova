@@ -397,6 +397,10 @@ ALTER TABLE cost_sources ADD CONSTRAINT cost_sources_status_check CHECK (status 
 	// number, no terms and no due date. Numbered here, continuing the
 	// per-year sequence. Appended at the END: migrations are positional.
 	backfillIssuedInvoicesMigrationSQL,
+	// DESIGN.md §9 — the customer account ledger, payment allocation, credit
+	// notes, the tax profile, the collections schedule and the platform
+	// suspension trail. Appended at the very END: migrations are positional.
+	collectionsMigrationSQL,
 }
 
 // MigrationBackfillIssuedInvoices is the schema_migrations version of the

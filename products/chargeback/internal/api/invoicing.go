@@ -221,7 +221,16 @@ func (h *Handler) recordStatementPayment(w http.ResponseWriter, r *http.Request)
 		"payment_status": recorded.Status, "gateway": recorded.Gateway,
 		"paid_total": st.Paid, "balance": st.Balance, "status": st.Status,
 	})
+	// DESIGN.md §9.7 — a settled invoice may lift a suspension this product
+	// holds; a prepaid customer's wallet is re-checked.
+	h.afterAccountChange(r, st.CustomerID, nil)
 	writeJSON(w, http.StatusOK, map[string]any{"statement": st, "payment": recorded})
+}
+
+// settleConfirmation builds the gateway confirmation for a payment that is
+// not against one invoice (a top-up, a split payment).
+func settleConfirmation(c store.Customer, amount store.Decimal, paidAt time.Time, reference, actor string) settle.Confirmation {
+	return settle.Confirmation{Customer: c, Amount: amount, PaidAt: paidAt, Reference: reference, Actor: actor}
 }
 
 // parsePaidAt accepts a YYYY-MM-DD day or an RFC3339 instant; empty means

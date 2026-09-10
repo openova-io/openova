@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/openova-io/openova/products/chargeback/internal/collections"
 	"github.com/openova-io/openova/products/chargeback/internal/commercial"
 	"github.com/openova-io/openova/products/chargeback/internal/config"
 	"github.com/openova-io/openova/products/chargeback/internal/crypto"
@@ -86,6 +87,16 @@ type Deps struct {
 	// by main; the handler holds it only so a Retry can push one row at once
 	// instead of waiting for the next tick.
 	Deliverer *commercial.Deliverer
+
+	// DESIGN.md §9 — the account, collections and enforcement. Intents is
+	// the gateway seam under the provider check; Enforcer suspends and
+	// resumes through the platform seam; Wallet is what prepaid adds;
+	// Collections is the daily evaluator, held so an operator can run a
+	// pass now. nil = the corresponding endpoints answer 503.
+	Intents     *commercial.Intents
+	Enforcer    *collections.Enforcer
+	Wallet      *collections.Wallet
+	Collections *collections.Evaluator
 }
 
 // Handler serves the API.
@@ -128,6 +139,21 @@ func New(d Deps) http.Handler {
 	// that never chose behaves exactly as it did.
 	if d.Commercial == nil {
 		d.Commercial = commercial.NewSelector(d.Store, nil)
+	}
+	if d.Intents == nil {
+		d.Intents = &commercial.Intents{Store: d.Store, Commercial: d.Commercial, Settlement: d.Settlement}
+	}
+	if d.Enforcer == nil && d.Store != nil {
+		d.Enforcer = &collections.Enforcer{Store: d.Store}
+	}
+	if d.Wallet == nil && d.Store != nil {
+		d.Wallet = &collections.Wallet{Store: d.Store, Mail: d.Mail, Enforcer: d.Enforcer, PublicURL: d.Config.PublicURL, Owns: d.Commercial.OwnsCollections}
+	}
+	if d.Collections == nil && d.Store != nil {
+		d.Collections = &collections.Evaluator{Store: d.Store, Mail: d.Mail, Enforcer: d.Enforcer, PublicURL: d.Config.PublicURL, Owns: d.Commercial.OwnsCollections, Now: d.Now}
+	}
+	if d.Importer != nil && d.Importer.Enforcer == nil {
+		d.Importer.Enforcer = d.Enforcer
 	}
 	h := &Handler{Deps: d}
 	mux := http.NewServeMux()
@@ -244,9 +270,35 @@ func New(d Deps) http.Handler {
 	// (DESIGN.md §8.10). Authenticated by an HMAC over the raw body, not by a
 	// session: the caller is a machine in the operator's estate.
 	mux.HandleFunc("POST /api/v1/commercial/import/invoice-status", h.importInvoiceStatus)
+	mux.HandleFunc("POST /api/v1/commercial/import/payment-status", h.importPaymentStatus)
+	mux.HandleFunc("POST /api/v1/commercial/import/account-balance", h.importAccountBalance)
+	mux.HandleFunc("POST /api/v1/commercial/import/enforcement", h.importEnforcement)
 	mux.HandleFunc("GET /api/v1/commercial/outbox", h.listOutbox)
 	mux.HandleFunc("POST /api/v1/commercial/outbox/{id}/retry", h.retryOutbox)
 	mux.HandleFunc("DELETE /api/v1/statements/{id}", h.deleteStatement)
+
+	// The customer account, payments, credit notes, collections and
+	// enforcement (DESIGN.md §9). Reads follow the session scope; writes are
+	// operator-only and audited.
+	mux.HandleFunc("GET /api/v1/customers/{id}/account", h.getAccount)
+	mux.HandleFunc("GET /api/v1/customers/{id}/payments", h.listCustomerPayments)
+	mux.HandleFunc("POST /api/v1/customers/{id}/payments", h.recordPayment)
+	mux.HandleFunc("POST /api/v1/payments", h.recordPayment)
+	mux.HandleFunc("GET /api/v1/payments/{id}", h.getPayment)
+	mux.HandleFunc("POST /api/v1/payments/{id}/allocate", h.allocatePayment)
+	mux.HandleFunc("POST /api/v1/payments/{id}/refund", h.refundPayment)
+	mux.HandleFunc("POST /api/v1/customers/{id}/account/apply-credit", h.applyCredit)
+	mux.HandleFunc("POST /api/v1/customers/{id}/payment-intents", h.createPaymentIntent)
+	mux.HandleFunc("GET /api/v1/customers/{id}/payment-intents", h.listPaymentIntents)
+	mux.HandleFunc("POST /api/v1/statements/{id}/credit-notes", h.createCreditNote)
+	mux.HandleFunc("GET /api/v1/statements/{id}/credit-notes", h.listStatementCreditNotes)
+	mux.HandleFunc("GET /api/v1/customers/{id}/credit-notes", h.listCustomerCreditNotes)
+	mux.HandleFunc("GET /api/v1/credit-notes/{id}", h.getCreditNote)
+	mux.HandleFunc("GET /api/v1/collections/aging", h.aging)
+	mux.HandleFunc("POST /api/v1/collections/run", h.runCollections)
+	mux.HandleFunc("POST /api/v1/customers/{id}/suspend", h.suspendCustomer)
+	mux.HandleFunc("POST /api/v1/customers/{id}/resume", h.resumeCustomer)
+	mux.HandleFunc("GET /api/v1/customers/{id}/suspensions", h.listSuspensions)
 
 	// Currency rates (#6867 follow-up, DESIGN.md §3.10) — operator-only.
 	// per_base of a price-book currency relative to the reporting currency

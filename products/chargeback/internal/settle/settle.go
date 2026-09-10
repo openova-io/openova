@@ -87,7 +87,23 @@ const (
 	NotApplicable Outcome = "not-applicable"
 )
 
-// Request asks a gateway to collect one statement.
+// Purpose says WHY a gateway is asked for money (DESIGN.md §9.2, founder
+// refinement (a)): the two are different triggers with different owners.
+const (
+	// PurposeCheckout — the customer is present and pays now: a marketplace
+	// plan purchase, a top-up. It is a SALE, so our product calls the
+	// gateway in EVERY commercial mode, external included.
+	PurposeCheckout = store.PurposeCheckout
+	// PurposeCollection — an unpaid invoice is pursued. Only the owner of
+	// the receivable triggers that, so with an external billing system this
+	// request is refused before it reaches a gateway.
+	PurposeCollection = store.PurposeCollection
+)
+
+// Request asks a gateway to collect money. For a COLLECTION it carries the
+// statement being pursued and the amount is the statement's total; for a
+// CHECKOUT there may be no statement at all — Amount and Currency say what
+// is being taken, IntentID is the payment intent the answer is recorded on.
 type Request struct {
 	Statement store.Statement
 	Customer  store.Customer
@@ -96,6 +112,33 @@ type Request struct {
 	// registered under when the method is gateway.
 	Method      string
 	GatewayName string
+	// Purpose is checkout or collection; empty reads as collection, which
+	// is what every pre-seam caller meant.
+	Purpose string
+	// Amount and Currency are what to collect. Empty falls back to the
+	// statement's total and currency.
+	Amount   store.Decimal
+	Currency string
+	// IntentID is the payment intent this request belongs to, when the
+	// caller recorded one; a gateway echoes it in its own reference so the
+	// confirmation can be matched.
+	IntentID string
+}
+
+// IsCheckout reports whether the request is a sale rather than a collection.
+func (r Request) IsCheckout() bool { return r.Purpose == PurposeCheckout }
+
+// AmountDue is what the request collects: Amount when given, else the
+// statement's total.
+func (r Request) AmountDue() (store.Decimal, string) {
+	if strings.TrimSpace(string(r.Amount)) != "" {
+		cur := r.Currency
+		if cur == "" {
+			cur = r.Statement.Currency
+		}
+		return r.Amount, cur
+	}
+	return r.Statement.Total, r.Statement.Currency
 }
 
 // Result is what the gateway answers.
@@ -223,7 +266,29 @@ func (r *Registry) RequestSettlement(ctx context.Context, st store.Statement, c 
 		}
 		return Result{Outcome: NotApplicable, Detail: "nothing is collected for a customer whose charging is " + c.Charging}, nil
 	}
-	return g.RequestSettlement(ctx, Request{Statement: st, Customer: c, Method: c.PaymentMethod, GatewayName: c.GatewayName})
+	return g.RequestSettlement(ctx, Request{Statement: st, Customer: c, Method: c.PaymentMethod, GatewayName: c.GatewayName, Purpose: PurposeCollection})
+}
+
+// RequestPayment is RequestSettlement for an explicit request — a checkout
+// with no statement, or a collection the caller built itself. The route is
+// resolved from the customer exactly as RequestSettlement does; the
+// commercial-provider check (a collection is never requested when the
+// external billing system owns the receivable) is the caller's, in
+// commercial.Intents, because the gateway seam must not know who invoices.
+func (r *Registry) RequestPayment(ctx context.Context, req Request) (Result, error) {
+	g, route := r.For(req.Customer)
+	req.Method, req.GatewayName = req.Customer.PaymentMethod, route
+	if req.Purpose == "" {
+		req.Purpose = PurposeCollection
+	}
+	if g == nil {
+		if req.Customer.IsBilled() && req.Customer.PaymentMethod == MethodGateway {
+			return Result{Outcome: NotApplicable, Detail: "no implementation is registered for gateway " + route},
+				fmt.Errorf("%w: %s", ErrNoGateway, route)
+		}
+		return Result{Outcome: NotApplicable, Detail: "nothing is collected for a customer whose charging is " + req.Customer.Charging}, nil
+	}
+	return g.RequestSettlement(ctx, req)
 }
 
 // ConfirmSettlement resolves the customer's gateway and normalises a
@@ -253,6 +318,15 @@ type Manual struct{}
 // RequestSettlement collects nothing. It reports what the operator should
 // expect to happen next, which for a post-paid invoice is a transfer.
 func (Manual) RequestSettlement(_ context.Context, req Request) (Result, error) {
+	if req.IsCheckout() {
+		// A top-up or purchase paid by transfer: the operator records the
+		// payment when the bank shows it, and it lands as account credit.
+		amount, cur := req.AmountDue()
+		if req.Method == MethodInternal {
+			return Result{Outcome: AwaitingTransfer, Gateway: "manual", Detail: fmt.Sprintf("%s %s is an internal recharge; record it as a top-up when the cost centre confirms", amount, cur)}, nil
+		}
+		return Result{Outcome: AwaitingTransfer, Gateway: "manual", Detail: fmt.Sprintf("%s %s by transfer; record the top-up when the transfer arrives", amount, cur)}, nil
+	}
 	detail := "invoice " + req.Statement.InvoiceNumber
 	if req.Statement.PORef != "" {
 		detail += " against purchase order " + req.Statement.PORef
@@ -326,6 +400,11 @@ func FromHook(h StatementHook) Gateway {
 type hookGateway struct{ h StatementHook }
 
 func (g hookGateway) RequestSettlement(ctx context.Context, req Request) (Result, error) {
+	if req.IsCheckout() {
+		// The pre-seam hook only ever debited an ISSUED statement; it has no
+		// checkout surface, and pretending otherwise would take nothing.
+		return Result{Outcome: NotApplicable, Gateway: "statement-hook", Detail: "the statement hook collects issued statements only; a checkout needs a gateway with a payment page"}, nil
+	}
 	if err := g.h.StatementIssued(ctx, req.Statement, req.Customer); err != nil {
 		return Result{Outcome: NotApplicable, Gateway: "statement-hook"}, err
 	}
