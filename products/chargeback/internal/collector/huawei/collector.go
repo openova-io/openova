@@ -678,8 +678,13 @@ func (c *Collector) SampleCESAll(ctx context.Context) TickResult {
 	return c.forEachSource(ctx, "ces", c.SampleCES)
 }
 
-// SampleCES writes informational ecs.cpu_util records for the last two hours
-// (idempotent on the hour).
+// SampleCES writes the cloud-monitoring samples for the last two hours
+// (idempotent on the hour): the informational ecs.cpu_util records, and the
+// per-hour outbound-traffic records of every Elastic IP whose pipe the
+// gateway identified (#6867). A traffic-billed address writes the BILLABLE
+// SKUEIPTraffic meter; a reservation-billed one writes the never-rated
+// SKUEIPTrafficObserved metric, which is what the oversized-reservation
+// recommendation compares against what the address reserved.
 func (c *Collector) SampleCES(ctx context.Context, src store.CostSource, now time.Time) error {
 	creds, err := c.credentials(ctx, src)
 	if err != nil {
@@ -691,27 +696,75 @@ func (c *Collector) SampleCES(ctx context.Context, src store.CostSource, now tim
 	}
 	from := now.Add(-2 * time.Hour).Truncate(time.Hour)
 	var batch []store.UsageRecord
+	// notPublished is returned when the gateway does not publish CES at all;
+	// then nothing here can be sampled and the pass ends quietly.
+	notPublished := func(err error) bool {
+		var ge *GatewayError
+		return errors.As(err, &ge) && ge.NotPublished()
+	}
 	for _, it := range items {
-		if it.Kind != KindECS || it.DeletedAt != nil {
+		if it.DeletedAt != nil {
 			continue
 		}
-		pts, err := c.Client.CPUUtilHourly(ctx, creds, src.Region, it.ResourceID, from, now)
-		if err != nil {
-			var ge *GatewayError
-			if errors.As(err, &ge) && ge.NotPublished() {
-				slog.Info("collector: CES not published on this gateway; utilisation sampling disabled", "source", src.ID)
-				return nil
+		switch it.Kind {
+		case KindECS:
+			pts, err := c.Client.CPUUtilHourly(ctx, creds, src.Region, it.ResourceID, from, now)
+			if err != nil {
+				if notPublished(err) {
+					slog.Info("collector: CES not published on this gateway; utilisation sampling disabled", "source", src.ID)
+					return nil
+				}
+				return err
 			}
-			return err
-		}
-		for _, p := range pts {
-			start := time.UnixMilli(p.Timestamp).UTC().Truncate(time.Hour)
-			labels, _ := json.Marshal(map[string]any{"name": it.Name, "unit": p.Unit})
-			batch = append(batch, store.UsageRecord{
-				CustomerID: src.CustomerID, SourceID: src.ID, ResourceID: it.ResourceID, ResourceKind: KindECS,
-				SKU: SKUCPUUtil, Unit: UnitCPUUtil, Quantity: store.Decimal(strconv.FormatFloat(p.Average, 'f', 6, 64)),
-				WindowStart: start, WindowEnd: start.Add(time.Hour), Region: src.Region, Labels: labels,
-			})
+			for _, p := range pts {
+				start := time.UnixMilli(p.Timestamp).UTC().Truncate(time.Hour)
+				labels, _ := json.Marshal(map[string]any{"name": it.Name, "unit": p.Unit})
+				batch = append(batch, store.UsageRecord{
+					CustomerID: src.CustomerID, SourceID: src.ID, ResourceID: it.ResourceID, ResourceKind: KindECS,
+					SKU: SKUCPUUtil, Unit: UnitCPUUtil, Quantity: store.Decimal(strconv.FormatFloat(p.Average, 'f', 6, 64)),
+					WindowStart: start, WindowEnd: start.Add(time.Hour), Region: src.Region, Labels: labels,
+				})
+			}
+		case KindEIP, KindBandwidth:
+			attrs := map[string]any{}
+			_ = json.Unmarshal(it.Attrs, &attrs)
+			bwID := BandwidthIDOf(attrs)
+			// No pipe id means the gateway never reported one, so there is
+			// nothing to query CES by — and no charge mode either, which is
+			// exactly the case that keeps billing its reservation.
+			if bwID == "" {
+				continue
+			}
+			// A shared pipe is metered ONCE, against the pipe's own
+			// resource; the addresses hanging off it must not each report
+			// the whole pipe's traffic as their own.
+			if it.Kind == KindEIP && SharesBandwidth(attrs) {
+				continue
+			}
+			pts, err := c.Client.OutboundTrafficHourly(ctx, creds, src.Region, bwID, from, now)
+			if err != nil {
+				if notPublished(err) {
+					slog.Info("collector: CES bandwidth metrics not published on this gateway; traffic sampling disabled", "source", src.ID)
+					continue
+				}
+				return err
+			}
+			sku, unit := SKUEIPTrafficObserved, UnitEIPTrafficObserved
+			if BillsTraffic(attrs) {
+				sku, unit = SKUEIPTraffic, UnitEIPTraffic
+			}
+			for _, p := range pts {
+				start := time.UnixMilli(p.Timestamp).UTC().Truncate(time.Hour)
+				labels, _ := json.Marshal(map[string]any{
+					"name": it.Name, "unit": p.Unit, "metric": MetricOutboundTraffic, "direction": "out",
+					attrBandwidthID: bwID,
+				})
+				batch = append(batch, store.UsageRecord{
+					CustomerID: src.CustomerID, SourceID: src.ID, ResourceID: it.ResourceID, ResourceKind: it.Kind,
+					SKU: sku, Unit: unit, Quantity: store.Decimal(strconv.FormatFloat(TrafficGB(p), 'f', 6, 64)),
+					WindowStart: start, WindowEnd: start.Add(time.Hour), Region: src.Region, Labels: labels,
+				})
+			}
 		}
 	}
 	n, err := c.Store.UpsertUsage(ctx, batch)

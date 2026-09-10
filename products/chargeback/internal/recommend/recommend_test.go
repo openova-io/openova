@@ -51,6 +51,22 @@ func fixture() Input {
 			// unbound-eip: positive and bound control.
 			res("c-a", "1.2.3.4", "src-a", "eip-down", "eip", map[string]any{"public_ip_address": "1.2.3.4", "bandwidth_mbps": 5.0, "bandwidth_name": "bw-1", "status": "DOWN", "type": "5_bgp"}),
 			res("c-a", "1.2.3.5", "src-a", "eip-active", "eip", map[string]any{"public_ip_address": "1.2.3.5", "bandwidth_mbps": 5.0, "status": "ACTIVE", "type": "5_bgp"}),
+			// oversized-bandwidth: a 300 Mbps reservation whose busiest hour
+			// moved 1.2 GB, and three controls — a pipe already the right
+			// size, one with too little history to judge, and a
+			// traffic-billed address, which reserves nothing to shrink.
+			res("c-a", "1.2.3.6", "src-a", "eip-fat", "eip", map[string]any{"public_ip_address": "1.2.3.6", "bandwidth_mbps": 300.0, "bandwidth_name": "bw-fat", "bandwidth_id": "bw-fat", "bandwidth_charge_mode": "bandwidth", "bandwidth_share_type": "PER", "status": "ACTIVE", "type": "5_bgp"}),
+			res("c-a", "1.2.3.7", "src-a", "eip-right", "eip", map[string]any{"public_ip_address": "1.2.3.7", "bandwidth_mbps": 10.0, "bandwidth_name": "bw-right", "bandwidth_id": "bw-right", "bandwidth_charge_mode": "bandwidth", "bandwidth_share_type": "PER", "status": "ACTIVE", "type": "5_bgp"}),
+			res("c-a", "1.2.3.8", "src-a", "eip-new", "eip", map[string]any{"public_ip_address": "1.2.3.8", "bandwidth_mbps": 300.0, "bandwidth_name": "bw-new", "bandwidth_id": "bw-new", "bandwidth_charge_mode": "bandwidth", "bandwidth_share_type": "PER", "status": "ACTIVE", "type": "5_bgp"}),
+			res("c-a", "1.2.3.9", "src-a", "eip-metered", "eip", map[string]any{"public_ip_address": "1.2.3.9", "bandwidth_mbps": 300.0, "bandwidth_name": "bw-metered", "bandwidth_id": "bw-metered", "bandwidth_charge_mode": "traffic", "bandwidth_share_type": "PER", "status": "ACTIVE", "type": "5_bgp"}),
+		},
+		EIPTraffic: []store.EIPTrafficWindow{
+			{CustomerID: "c-a", SourceID: "src-a", ResourceID: "eip-fat", Kind: "eip", Hours: 168, TotalGB: 84, PeakGB: 1.2},
+			{CustomerID: "c-a", SourceID: "src-a", ResourceID: "eip-right", Kind: "eip", Hours: 168, TotalGB: 84, PeakGB: 1.2},
+			{CustomerID: "c-a", SourceID: "src-a", ResourceID: "eip-new", Kind: "eip", Hours: 10, TotalGB: 5, PeakGB: 1.2},
+			{CustomerID: "c-a", SourceID: "src-a", ResourceID: "eip-metered", Kind: "eip", Hours: 168, TotalGB: 500, PeakGB: 20},
+			// A window for a resource no longer in inventory is ignored.
+			{CustomerID: "c-a", SourceID: "src-a", ResourceID: "eip-gone", Kind: "eip", Hours: 168, TotalGB: 84, PeakGB: 1.2},
 		},
 		CPUUtil: []store.CPUUtilMean{
 			{CustomerID: "c-a", SourceID: "src-a", ResourceID: "vm-running", Samples: 168, Mean: 4.2},
@@ -88,17 +104,18 @@ func byType(rows []Recommendation) map[string][]Recommendation {
 func TestEveryRuleFiresOnceAndNotOnItsControl(t *testing.T) {
 	rows := Evaluate(fixture())
 	bt := byType(rows)
-	for _, typ := range []string{TypeStoppedInstanceBilled, TypeUnattachedVolume, TypeUnboundEIP, TypeLowCPU, TypeUnpricedSKU, TypeStaleSource, TypeNoPriceBook} {
+	for _, typ := range []string{TypeStoppedInstanceBilled, TypeUnattachedVolume, TypeUnboundEIP, TypeLowCPU, TypeUnpricedSKU, TypeStaleSource, TypeNoPriceBook, TypeOversizedBandwidth} {
 		if n := len(bt[typ]); n != 1 {
 			t.Errorf("%s fired %d times: %+v", typ, n, bt[typ])
 		}
 	}
-	if len(rows) != 7 {
-		t.Fatalf("want 7 rows, got %d: %+v", len(rows), rows)
+	if len(rows) != 8 {
+		t.Fatalf("want 8 rows, got %d: %+v", len(rows), rows)
 	}
 	for _, r := range rows {
 		switch r.ResourceID {
-		case "vm-running", "vm-c-stopped", "vm-busy", "vm-few", "vm-gone", "vol-attached", "eip-active":
+		case "vm-running", "vm-c-stopped", "vm-busy", "vm-few", "vm-gone", "vol-attached", "eip-active",
+			"eip-right", "eip-new", "eip-metered", "eip-gone":
 			if r.Type != TypeLowCPU || r.ResourceID != "vm-running" {
 				t.Errorf("control %s produced %+v", r.ResourceID, r)
 			}
@@ -122,6 +139,18 @@ func TestEveryRuleFiresOnceAndNotOnItsControl(t *testing.T) {
 	e := bt[TypeUnboundEIP][0]
 	if e.ResourceID != "eip-down" || e.MonthlySaving != "32.850000" || e.Evidence["status"] != "DOWN" || e.Evidence["bandwidth_mbps"] != 5.0 {
 		t.Errorf("eip = %+v", e)
+	}
+	// oversized-bandwidth: 300 Mbps reserved, busiest hour 1.2 GB = 2.67
+	// Mbps, so 10 Mbps still covers it twice over. 0.005 × (300 − 10) × 730.
+	ob := bt[TypeOversizedBandwidth][0]
+	if ob.ResourceID != "eip-fat" || ob.MonthlySaving != "1058.500000" || ob.Severity != SeverityHigh || ob.Kind != "eip" {
+		t.Errorf("oversized bandwidth = %+v", ob)
+	}
+	if ob.Evidence["reserved_mbps"] != 300.0 || ob.Evidence["suggested_mbps"] != 10.0 || ob.Evidence["peak_hour_mbps"] != 2.67 || ob.Evidence["hours"] != 168 {
+		t.Errorf("oversized evidence = %+v", ob.Evidence)
+	}
+	if ob.ID != "oversized-bandwidth:c-a:eip-fat" {
+		t.Errorf("oversized id = %s", ob.ID)
 	}
 	// low-cpu: m7n.2xlarge.8 (0.8) → m7n.xlarge.8 (0.5): 0.3 × 730 = 219, exact, not an estimate.
 	c := bt[TypeLowCPU][0]
@@ -152,13 +181,13 @@ func TestEveryRuleFiresOnceAndNotOnItsControl(t *testing.T) {
 	}
 
 	// Sorted by saving desc, then the zero-saving rows by severity and type.
-	wantOrder := []string{TypeStoppedInstanceBilled, TypeLowCPU, TypeUnattachedVolume, TypeUnboundEIP, TypeNoPriceBook, TypeUnpricedSKU, TypeStaleSource}
+	wantOrder := []string{TypeOversizedBandwidth, TypeStoppedInstanceBilled, TypeLowCPU, TypeUnattachedVolume, TypeUnboundEIP, TypeNoPriceBook, TypeUnpricedSKU, TypeStaleSource}
 	for i, typ := range wantOrder {
 		if rows[i].Type != typ {
 			t.Fatalf("row %d = %s, want %s", i, rows[i].Type, typ)
 		}
 	}
-	if got := Total(rows); got != "689.850000" {
+	if got := Total(rows); got != "1748.350000" {
 		t.Fatalf("total = %s", got)
 	}
 	if Currency(rows, nil) != "OMR" {

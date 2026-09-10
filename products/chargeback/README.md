@@ -169,10 +169,22 @@ derived unit prices instead of silently leaving them stale.
 | `ecs.<flavor_name>` | instance-hour | 1 (labels: status, flavor, vcpus, ram_mb) |
 | `evs.ssd.gb` / `evs.hdd.gb` | gb-hour | volume size (SSD/GP/ESSD → ssd; SAS/SATA → hdd) |
 | `eip` | hour | 1 |
-| `eip.bandwidth_mbps` | mbps-hour | bandwidth size |
+| `eip.bandwidth_mbps` | mbps-hour | reserved bandwidth size (see below) |
+| `eip.traffic_gb` | gb | outbound GB in the hour, for a traffic-billed address |
 | `elb` | hour | 1 |
 | `nat.<spec>` | hour | 1 |
 | `ecs.cpu_util` | pct-hour-avg | hourly CES average (informational, never rated) |
+| `eip.traffic_gb.observed` | gb-hour-out | outbound GB of a bandwidth-billed address (informational, never rated) |
+
+An address bills **either** its reservation **or** its traffic, never both
+(DESIGN.md §8.2). The charge mode is read from the address's bandwidth object:
+a traffic-billed address emits no `eip.bandwidth_mbps` at all, and several
+addresses sharing one pipe emit it once against the pipe (kind `bandwidth`,
+keyed by the bandwidth id) rather than once each. An address whose gateway
+reports no charge mode keeps billing its reserved size exactly as before.
+`eip.traffic_gb` ships **unpriced** — no traffic price is invented here, so it
+appears as unpriced usage until the operator enters the rate their contract
+carries.
 
 `unit_price = annual_price / annual_divisor` (default 8760). Stopped ECS
 instances are rated per `price_books.bill_stopped`: `compute` (billed like
@@ -181,8 +193,9 @@ instance nor the volumes attached to it while stopped).
 
 ## Collector
 
-Every `COLLECT_INTERVAL` (15m) per verified source: list ECS, EVS, EIP, ELB and
-NAT (paginated, 15s per call), upsert `resource_inventory` (first_seen /
+Every `COLLECT_INTERVAL` (15m) per verified source: list ECS, EVS, EIP (with the
+VPC bandwidths that carry each address's billing shape, and one resource per
+shared pipe), ELB and NAT (paginated, 15s per call), upsert `resource_inventory` (first_seen /
 last_seen / deleted_at, status and flavor transitions in `attrs`), then recompute
 usage for every touched UTC hour since the previous tick. Each record is one
 contiguous single-status interval inside one hour, so a re-run over the same
@@ -194,7 +207,10 @@ apply `create*` / `delete*` / `resize*` / `stop*` / `start*` operations as exact
 boundaries and transitions of the affected resource, then recompute the hours
 from the event; `raw_ref` carries the trace id.
 
-Hourly: `ces` `cpu_util` per ECS → `ecs.cpu_util`.
+Hourly: `ces` `cpu_util` per ECS → `ecs.cpu_util`, and `ces` `SYS.VPC`
+`up_stream` (outbound traffic, `filter=sum`, dimensioned by `bandwidth_id`) per
+Elastic IP or shared pipe → `eip.traffic_gb` when the cloud bills that address
+by traffic, `eip.traffic_gb.observed` when it bills the reservation.
 
 Verification (activation): one signed `GET ecs /v1/{pid}/cloudservers/detail?limit=1`.
 `2xx` ⇒ verified; `401`/`403` ⇒ failed with the gateway error code

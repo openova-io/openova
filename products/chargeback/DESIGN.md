@@ -946,3 +946,154 @@ The landlord backfill's own figures are read back from the explorer scoped to
 its source, so the summary reports the product's number at the operator's
 rates and never this command's arithmetic at the fallback ones — which is how
 the seam above closed from 0.43 % to 0.00 %.
+
+## 8. True metered billing — in-place resizes and the Elastic-IP meter
+
+Two things were being billed on a shape rather than on what happened. Both
+are corrected here, and both go through the one piece of window math the
+service already had (`internal/window`) rather than a second copy of it.
+
+### 8.1 A pod resized in place was billed at whichever size the emit saw
+
+The platform collector tracked a pod's requested vCPU and memory as two
+fields and every informer update overwrote them. There was no transition
+boundary, so an hour was billed entirely at whatever value happened to be in
+the map when the hour was emitted. With eviction-based autoscaling that is
+accidentally correct — the pod is recreated under a new UID, so it is a new
+resource with its own life — but Kubernetes in-place vertical scaling keeps
+the UID, which is exactly what a Vertical Pod Autoscaler does on a recent
+cluster. A pod that doubled at half past the hour billed the whole hour at
+one of the two sizes, and which one depended on the emit schedule.
+
+The cloud collector never had this problem: an ECS resize is a
+`window.Transition` and `window.HourSlices` splits the hour at it, so a
+resize is billed half at the old flavour and half at the new. The fix gives
+the tracked pod the same thing. The size is encoded into the transition's
+`Flavor` field as a token (`cpu=0.5,mem=1`), which is what lets the platform
+collector reuse the cloud collector's math **unchanged** — to that math, a
+pod growing from 500m to 1 CPU is an instance changing flavour. `EmitOrg`
+then asks for the size in force per slice instead of reading the tracked
+fields.
+
+Three properties are pinned by test: a pod whose requests double at 30
+minutes past the hour bills 0.25 + 0.5 vCPU-hours, which at 0.030000 per
+vCPU-hour is 0.022500 and not the 0.030000 or 0.015000 the old code produced;
+a pod recreated by eviction still bills as two lifecycles, one per UID; and a
+workload that never resizes emits **byte-identical** records, compared
+against the pre-change code path (an empty transition list) over the
+serialised batch rather than a spot check. PVCs go through the same
+mechanism, since a volume expansion is the same class of change.
+
+A restart of the service loses the in-memory transitions and re-seeds each
+tracked resource at its current size, which is the pre-change behaviour for
+the hour in progress and no worse than it.
+
+### 8.2 An Elastic IP was billed on a reservation it may never have made
+
+`eip.bandwidth_mbps` — `bandwidth_size` × hours — is correct for a
+fixed-bandwidth address, and it is why bandwidth dominates the bill on this
+Sovereign. It was applied to every address, because the lister never read the
+charge mode. Two shapes were therefore billed wrongly:
+
+- an address the cloud bills **by traffic** reserves no pipe at all, so the
+  charge was one the cloud never made;
+- several addresses on **one shared pipe** each report the whole pipe's size,
+  so the same reservation was billed once per address. Not happening on
+  hw307 today — every `bandwidth_name` there is distinct — and nothing would
+  have detected it if it started.
+
+The billing shape lives on the bandwidth object, not on the address, so
+`ListEIP` now joins `GET vpc /v1/{pid}/bandwidths` to the publicips listing
+and stores `bandwidth_id`, `bandwidth_charge_mode` and `bandwidth_share_type`
+as attributes. A shared (`WHOLE`) pipe also becomes a resource of its own,
+kind `bandwidth`, keyed by the bandwidth id — registered in the lister
+registry through the new `also` field so the deletion sweep and the "nothing
+listed" check still derive from one list, which is what stops a released pipe
+billing forever.
+
+Billing is then either/or, driven off the captured mode:
+
+| shape | hourly address fee | reservation | traffic |
+|---|---|---|---|
+| bandwidth-billed, dedicated pipe | yes | `eip.bandwidth_mbps` × size | — |
+| traffic-billed | yes | — | `eip.traffic_gb` |
+| on a shared pipe | yes | on the pipe's own resource, **once** | on the pipe |
+| charge mode not reported | yes | `eip.bandwidth_mbps` × size | — |
+
+The last row is deliberate. An older gateway that does not publish the
+bandwidths API reports no charge mode, and every address there keeps billing
+its reservation exactly as before — under-billing an address because its
+shape is unknown would be as wrong as over-billing one. A bandwidths call
+that fails for any *other* reason (a rejected credential, a 500) fails the
+whole kind instead, because reading that as "this project has no bandwidths"
+would mark every shared pipe deleted and silently stop billing it.
+
+**The meter.** `eip.traffic_gb`, unit `gb`, one record per hour, written by
+the same `SampleCES` path that already writes `ecs.cpu_util`. It reads CES
+`SYS.VPC` / **`up_stream`** — Huawei's *Outbound Traffic* — dimensioned by
+`bandwidth_id`, `period=3600`, `filter=sum`. Outbound is the direction the
+cloud charges for (inbound is free), so it is the only one read. The
+dimension is the bandwidth rather than the address because that is the object
+the cloud meters: a dedicated pipe is exactly one address, and a shared pipe
+is metered once for all of them — the same "count the pipe once" rule the
+reservation follows.
+
+`up_stream` is **not** a cumulative counter. Each raw point is the number of
+bytes that left during its own one-minute interval, so the hour is the SUM of
+the points inside it and no delta between readings is taken; `filter=sum`
+asks for exactly that and the answer is divided by 10⁹ — decimal gigabytes,
+because network traffic is sold per 10⁹ bytes and using 2³⁰ would
+under-report every hour by about 7 %. A gateway that answers with only an
+`average` is reporting the mean of those per-minute totals, and the hour is
+that mean × the 60 raw intervals in the period. Both conversions are stated
+in the code because reading a mean as a total under-reports by a factor of 60
+on the one meter charged per gigabyte.
+
+**The measurement is not always a meter.** The same outbound traffic on a
+*reservation*-billed address is something the cloud charges nothing for, so
+it is written under a separate SKU, `eip.traffic_gb.observed`, which is a
+metric and never rated — the `ecs.cpu_util` precedent. That separation is
+what keeps "either the reservation or the traffic, never both" true even
+after a rate is added for the meter: a rate on `eip.traffic_gb` can only ever
+reach addresses the cloud really bills by traffic. The list of such metrics
+now lives once, in `internal/store/metric_skus.go`, rendered both as Go data
+and as the SQL tuple every aggregate filters on; it used to be four
+hand-written copies of one literal across the cost CTE, the rating aggregate,
+the overview aggregate and the boundary-recompute delete, and adding a second
+metric to three of those four would have left it billable in the fourth.
+
+**Rates.** `eip.traffic_gb` ships **unpriced**. No National Cloud traffic
+price is invented here, and the product already reports unpriced usage
+honestly — the SKU will appear in the unpriced-SKU recommendation until the
+operator enters the rate their contract actually carries. Until then a
+traffic-billed address rates to its hourly address fee alone. That is a
+smaller number than the wrong one it used to produce, and it is visible
+rather than silent.
+
+### 8.3 The oversized-reservation recommendation
+
+The rule engine could only flag an address bound to nothing. On a Sovereign
+where reserved bandwidth is about forty times compute, the larger money is in
+pipes that *are* in use and are far wider than anything that crosses them.
+`oversized-bandwidth` reports a reservation whose reserved size exceeds the
+busiest hour observed over the window by at least a factor of four, and names
+the size to drop to.
+
+It sizes against the **peak** hour, not the mean: a pipe has to carry the
+busy hour, and a suggestion sitting on the average is an outage waiting for
+the next one. The peak hour's gigabytes convert to an average throughput at
+1 GB/h = 2.222 Mbps, that is doubled for headroom, and the result is rounded
+**up** to a size an operator can actually buy (1, 2, 5, 10, 20, 50, 100, 200,
+300, 500, 1000, 2000 Mbps). Two days of hourly samples are required before
+any of it is trusted, the same bar the CPU rule uses. A traffic-billed
+address is skipped — it already pays only for what it moved — and for a
+shared pipe the row is the pipe, since that is where the reservation and the
+fix both are. The saving is `rate(eip.bandwidth_mbps) × (reserved −
+suggested) × 730 h`, exact rational money rounded once, like every other
+saving; with no rate on the card the row still names both sizes and carries
+`unpriced: true` rather than inventing a price to make the number look big.
+
+Measured against the shape hw307 actually has — a 300 Mbps pipe whose busiest
+hour moved 1.2 GB (2.67 Mbps) — the rule suggests 10 Mbps and, at the
+National Cloud list rate of 0.005 per Mbps-hour, a saving of 1,058.500 OMR a
+month for that one address.

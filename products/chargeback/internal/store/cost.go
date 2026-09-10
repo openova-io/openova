@@ -27,8 +27,10 @@ import (
 // (cost_sources.internal). Every customer-facing query here leaves it out;
 // only Allocation opts in, through CostQuery.IncludeInternal.
 //
-// The CPU-utilisation sample (ecs.cpu_util) is a metric, not a meter: it is
-// excluded from every cost and usage aggregate here, as it is in rating.
+// The sampled measurements (metric_skus.go — the CPU-utilisation sample and
+// the observed traffic of a reservation-billed address) are metrics, not
+// meters: they are excluded from every cost and usage aggregate here, as
+// they are in rating.
 
 // Explorer dimensions. The map key is the API name; expr is the column in the
 // filtered CTE, label the display column.
@@ -143,6 +145,8 @@ func KindLabel(kind string) string {
 		return "Kubernetes pods"
 	case "k8s-pvc":
 		return "Kubernetes volumes"
+	case "bandwidth":
+		return "Shared bandwidth"
 	case PlanKind:
 		return "Subscription plan"
 	case "":
@@ -304,9 +308,10 @@ const costPricedExpr = `CASE
 // a month agree with the exact rational total at the 6-decimal scale.
 const costBaseExpr = `(` + costPricedExpr + `) / (` + costRateExpr + `)`
 
-// costMeterFilter excludes the CPU-utilisation sample, which is a metric and
-// never a meter — the same exclusion the rating run applies.
-const costMeterFilter = `u.sku <> 'ecs.cpu_util'`
+// costMeterFilter excludes the sampled measurements, which are metrics and
+// never meters — the same exclusion the rating run applies, from the same
+// one list (metric_skus.go).
+const costMeterFilter = `u.` + metricSKUFilter
 
 // costBaseSQL is the priced ledger: every record in the window with the unit
 // price its SOURCE's book carries for the SKU (NULL = unpriced), the cost

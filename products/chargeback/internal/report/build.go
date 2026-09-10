@@ -25,12 +25,14 @@ type Reader interface {
 	SourceHealths(ctx context.Context, scope store.Scope, customerID string) ([]store.SourceHealth, error)
 	UnpricedUsageByCustomer(ctx context.Context, scope store.Scope, customerID string, from, to time.Time) ([]store.CustomerUnpricedSKU, error)
 	CPUUtilMeans(ctx context.Context, scope store.Scope, customerID string, from, to time.Time) ([]store.CPUUtilMean, error)
+	EIPTrafficWindows(ctx context.Context, scope store.Scope, customerID string, from, to time.Time) ([]store.EIPTrafficWindow, error)
 }
 
 // Windows the recommendation rules read (as the API's handler uses).
 const (
 	unpricedWindow = 30 * 24 * time.Hour
 	cpuWindow      = 7 * 24 * time.Hour
+	trafficWindow  = 7 * 24 * time.Hour
 	// topRecommendations is how many recommendation lines the mail lists.
 	topRecommendations = 3
 	// topAnomalies is how many flagged days are kept (the mail prints one).
@@ -154,6 +156,9 @@ func Build(ctx context.Context, r Reader, sched store.ReportSchedule, from, to, 
 			return in, err
 		}
 		if rin.CPUUtil, err = r.CPUUtilMeans(ctx, scope, customerID, now.Add(-cpuWindow), now); err != nil {
+			return in, err
+		}
+		if rin.EIPTraffic, err = r.EIPTrafficWindows(ctx, scope, customerID, now.Add(-trafficWindow), now); err != nil {
 			return in, err
 		}
 		rows := recommend.Evaluate(rin)
