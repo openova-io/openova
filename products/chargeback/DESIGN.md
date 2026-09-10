@@ -92,6 +92,23 @@ internal Organization entirely, ensures the internal source instead, and
 retires the customer an earlier version created (§4.1). The landlord's
 Huawei project stays a plain customer with cloud sources and nothing else.
 
+**The Organization's vCluster control plane is not the customer's usage.**
+Every Organization's vCluster control plane runs in the Organization's own
+host namespace (#6902): the `vcluster-0` StatefulSet pod (`app=vcluster`), its
+`data-vcluster-0` backing-store PVC, and the vCluster's own coredns, which the
+syncer mirrors down from the virtual `kube-system`
+(`vcluster.loft.sh/managed-by` + `vcluster.loft.sh/namespace: kube-system`).
+The org-controller sizes the namespace ResourceQuota as plan **plus** that
+control plane (520m / 1088Mi requests, 1500m / 1194Mi limits, 5Gi storage) so
+it never eats into what the customer bought, and the platform collector draws
+the same line: `isVClusterControlPlane` keeps those pods and that PVC off a
+customer Organization's `k8s.*` meters (`collector.go`,
+`TestVClusterControlPlaneIsNotMetered`). Customer workloads synced from the
+vCluster carry the managed-by label too but sit in the customer's own virtual
+namespace and are metered as before. The one place the control plane IS
+counted is the platform-overhead line above — the Sovereign pays for it, and
+that line has to reconcile back to the cloud total.
+
 ### 2.0b Allocation is a report, not billing
 
 `Allocation` reads the two layers read-only and never writes a bill:
@@ -253,7 +270,7 @@ structurally impossible rather than merely avoided.
 
 | | Committed plan (`s` / `m` / `l` / `xl`) | Pay per use (`flexi`) |
 |---|---|---|
-| What the Organization buys | a fixed shape, enforced by a ResourceQuota (S 2 vCPU / 4 GiB, M 4/8, L 8/16, XL 16/32, all Guaranteed) | nothing fixed: `planQuotaTable` gives flexi no CPU/memory ceiling and Burstable QoS |
+| What the Organization buys | a fixed shape, enforced by a ResourceQuota (S 2 vCPU / 4 GiB, M 4/8, L 8/16, XL 16/32, all Guaranteed; the namespace quota is that plan **plus** the vCluster control-plane overhead — 520m / 1088Mi requests, 1500m / 1194Mi limits — so the control plane never eats the plan, §2.0a) | nothing fixed: `planQuotaTable` gives flexi no CPU/memory ceiling and Burstable QoS |
 | What the collector emits | one `plan.<slug>` record per hour **plus** the `k8s.*` meters | the `k8s.*` meters only — `billablePlan` returns "" for flexi, so there is no plan line to emit |
 | Which book rates its source | **"OpenOva plans"** | **"Organization PAYG"** |
 | What that book prices | `plan.s` / `plan.m` / `plan.l` / `plan.xl` — the meters are deliberately unpriced | `k8s.vcpu` / `k8s.mem_gb` / `k8s.pvc_gb` — no plan line is priced |

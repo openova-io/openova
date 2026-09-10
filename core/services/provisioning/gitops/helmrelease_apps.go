@@ -518,9 +518,11 @@ spec:
     # (platform/newapi/chart/values.yaml:150-153). That is defensible for the
     # bootstrap-kit slot-80 SOVEREIGN install, which runs in no ResourceQuota.
     # Inside an Org it is fatal: plan "s" — the default for an empty or unknown
-    # plan slug — grants limits.cpu "2" TOTAL
-    # (core/controllers/organization/internal/gitops/manifests.go:121, rendered
-    # as hard["limits.cpu"] at :499), and a ResourceQuota counts LIMITS. So this
+    # plan slug — grants the customer limits.cpu "2" TOTAL
+    # (core/controllers/organization/internal/gitops/manifests.go planQuotaTable;
+    # the rendered hard["limits.cpu"] is that plan plus the vCluster
+    # control-plane overhead, which the control plane itself consumes), and a
+    # ResourceQuota counts LIMITS. So this
     # one container reserved the whole Org cap and every pod rendered beside it
     # was refused at admission — the openclaw controller (250m) and this
     # release's own CNPG (500m) included. A User saw only an opaque Helm

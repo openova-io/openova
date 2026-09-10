@@ -38,8 +38,10 @@ func cpuToMillis(v string) (int, error) {
 //
 //	platform/newapi/chart/values.yaml:153   newapi.resources.limits.cpu: 2
 //	                              :150      newapi.resources.requests.cpu: 100m
-//	core/controllers/.../gitops/manifests.go:121  planQuotaTable["s"].CPU = "2"
-//	                                        :499  rendered as hard["limits.cpu"]
+//	core/controllers/.../gitops/manifests.go  planQuotaTable["s"].CPU = "2"
+//	    hard["limits.cpu"] = that plan + the vCluster control-plane overhead
+//	    (#6902 follow-up), which the control plane itself consumes — so the
+//	    customer's usable share of the cap is exactly the plan's 2000m
 //
 // A ResourceQuota counts LIMITS, not requests. So one bp-newapi app container
 // reserves 2000m of a 2000m cap before openclaw's own controller (250m,

@@ -22,6 +22,8 @@ import (
 	"strings"
 	"text/template"
 
+	"k8s.io/apimachinery/pkg/api/resource"
+
 	orgapi "github.com/openova-io/openova/core/controllers/organization/internal/orgapi"
 )
 
@@ -96,8 +98,11 @@ type Inputs struct {
 // keyed by the catalog plan SLUG (seed.go:187-198), so the resource the
 // customer pays for is exactly the resource that materializes.
 //
-//	CPU  — the ResourceQuota requests.cpu == limits.cpu ceiling.
-//	Mem  — the ResourceQuota requests.memory == limits.memory ceiling.
+//	CPU  — the CPU the customer PURCHASED. The ResourceQuota hard cap is this
+//	       plus the vCluster control-plane overhead (vclusterControlPlaneOverhead)
+//	       so the control plane never eats into it; requests and limits carry
+//	       their own overhead figure.
+//	Mem  — the memory the customer purchased; same rule.
 //	Burstable — Flexi alone; when true the LimitRange omits the
 //	            maxLimitRequestRatio so pods may run requests<limits
 //	            (Burstable QoS). Fixed tiers (S/M/L/XL) keep it false →
@@ -188,12 +193,197 @@ const (
 // That asymmetry is what makes the pair a usable diagnostic; see
 // provisioning_postconditions.go.
 //
-// NOTE (Refs #5393): the SIZE of the cap — in particular whether vCluster
-// control-plane overhead should count against the customer's purchased plan —
-// is a separate, open product question. This predicate answers only "is a quota
-// object expected at all", never "how big should it be".
+// NOTE (Refs #5393, decided with the #6902 follow-up): the SIZE of the cap is
+// the purchased plan PLUS the vCluster control-plane overhead — see
+// vclusterControlPlaneOverhead below. This predicate answers only "is a quota
+// object expected at all", never "how big it is".
 func PlanRendersResourceQuota(planSlug string) bool {
 	return !planQuota(planSlug).Burstable
+}
+
+// ─── The vCluster control plane is overhead, not purchased capacity ─────────
+//
+// Every Organization's vCluster control plane runs in the SAME host `<slug>`
+// namespace the plan ResourceQuota caps (#6902): the `vcluster-0` StatefulSet
+// pod (the syncer container behind the k8s-distro init container) and the
+// vCluster's own coredns, which the syncer mirrors down from the virtual
+// `kube-system` into the host namespace. Both are charged to `plan-quota` at
+// admission. With the quota equal to the bare plan an S Organization bought
+// 2 vCPU and could schedule ~1.48 of them — the control plane ate the rest.
+// Decision (follow-up to #6902, Refs #4292 #6867): the hard cap is the
+// purchased plan PLUS the control plane's own requests/limits, so the control
+// plane never eats into what the customer bought and the customer's usable
+// share equals the plan exactly. Chargeback is unchanged by this: the platform
+// collector meters the Organization's workload requests and excludes these
+// control-plane pods (products/chargeback/.../collector.go) — they are overhead
+// the Sovereign pays, not usage the customer bought.
+//
+// The figures are derived from THIS renderer's own values: vclusterControlPlane
+// is the ONE place the vcluster HelmRelease template below takes its resource
+// numbers from, and vclusterControlPlaneOverhead is computed from it — never
+// from a chart default read elsewhere or a figure quoted in a PR. The pin test
+// (TestVClusterControlPlaneOverhead_PinnedToRenderedValues) parses the rendered
+// HelmRelease, walks EVERY `resources` block under spec.values and recomputes
+// the overhead; a block the classification there does not know fails the
+// build, so a new sidecar cannot land in the quota unaccounted.
+//
+// Quota arithmetic follows the pod-usage rule the ResourceQuota admission
+// plugin applies: a pod's effective request (and limit) per resource is
+// max(sum of its app containers, its largest init container). vcluster-0 is
+// one app container (syncer) behind one init container (k8s distro), so it
+// costs max(syncer, distro); coredns is a pod of its own and adds in full.
+// Requests and limits are carried SEPARATELY: coredns runs Burstable (20m
+// requests, 1000m limits — the vcluster chart's own shape, which #4758 already
+// had to admit by dropping the LimitRange ratio), so a single figure would
+// leave one of the two hard caps short.
+
+// containerShape is one container's requests/limits exactly as the vcluster
+// HelmRelease template renders them.
+type containerShape struct {
+	RequestsCPU    string
+	RequestsMemory string
+	LimitsCPU      string
+	LimitsMemory   string
+}
+
+// vclusterControlPlaneShape is every resource figure this renderer writes into
+// the vCluster HelmRelease values. The template interpolates these fields; the
+// overhead is computed from them. Change a figure here and both move together.
+type vclusterControlPlaneShape struct {
+	// Syncer is controlPlane.statefulSet.resources — vcluster-0's app
+	// container (apiserver + controller-manager + syncer processes).
+	Syncer containerShape
+	// Distro is controlPlane.distro.k8s.resources — vcluster-0's `kubernetes`
+	// init container (copies the k8s binaries; #4389/#4297 shape).
+	Distro containerShape
+	// CoreDNS is controlPlane.coredns.deployment.resources — the vCluster's
+	// coredns pod, synced into the host namespace from the virtual kube-system.
+	CoreDNS containerShape
+	// VolumeSize is controlPlane.statefulSet.persistence.volumeClaim.size —
+	// the `data-vcluster-0` PVC (embedded SQLite backing store).
+	VolumeSize string
+}
+
+// vclusterControlPlane is the shape rendered today. The syncer and distro
+// figures are the requests==limits shapes #4389/#4297 introduced; the coredns
+// figures are the vcluster 0.33 chart's own defaults, restated here so the
+// overhead is derived from this render rather than from a default read off
+// the chart (identical to the merged default, so the chart's
+// vClusterConfigHash — and vcluster-0 — do not move).
+var vclusterControlPlane = vclusterControlPlaneShape{
+	Syncer:     containerShape{RequestsCPU: "500m", RequestsMemory: "1Gi", LimitsCPU: "500m", LimitsMemory: "1Gi"},
+	Distro:     containerShape{RequestsCPU: "200m", RequestsMemory: "256Mi", LimitsCPU: "200m", LimitsMemory: "256Mi"},
+	CoreDNS:    containerShape{RequestsCPU: "20m", RequestsMemory: "64Mi", LimitsCPU: "1000m", LimitsMemory: "170Mi"},
+	VolumeSize: "5Gi",
+}
+
+// ControlPlaneOverhead is what the per-Org vCluster control plane charges to
+// the host-namespace ResourceQuota, per hard-cap resource, plus the storage its
+// backing-store volume claims. CPU is exact in millicores
+// (Quantity.MilliValue), memory and storage in bytes (Quantity.Value).
+type ControlPlaneOverhead struct {
+	RequestsCPU    resource.Quantity
+	RequestsMemory resource.Quantity
+	LimitsCPU      resource.Quantity
+	LimitsMemory   resource.Quantity
+	Storage        resource.Quantity
+}
+
+// vclusterControlPlaneOverhead is THE overhead value the ResourceQuota adds to
+// every hard-capped plan: computed once from vclusterControlPlane, pinned to
+// the rendered HelmRelease by test.
+var vclusterControlPlaneOverhead = controlPlaneOverheadOf(vclusterControlPlane)
+
+// controlPlaneOverheadOf applies the ResourceQuota pod-usage rule to the
+// rendered shape: vcluster-0 = max(syncer, distro) per resource (one app
+// container behind one init container), coredns = its own pod, summed.
+func controlPlaneOverheadOf(s vclusterControlPlaneShape) ControlPlaneOverhead {
+	vc0 := podEffectiveShape([]containerShape{s.Syncer}, []containerShape{s.Distro})
+	dns := podEffectiveShape([]containerShape{s.CoreDNS}, nil)
+	return ControlPlaneOverhead{
+		RequestsCPU:    sumQuantities(vc0.RequestsCPU, dns.RequestsCPU),
+		RequestsMemory: sumQuantities(vc0.RequestsMemory, dns.RequestsMemory),
+		LimitsCPU:      sumQuantities(vc0.LimitsCPU, dns.LimitsCPU),
+		LimitsMemory:   sumQuantities(vc0.LimitsMemory, dns.LimitsMemory),
+		Storage:        mustQuantity(s.VolumeSize),
+	}
+}
+
+// podEffectiveShape is the Kubernetes effective pod request/limit per resource:
+// max(sum(app containers), max(init containers)) — the figure the ResourceQuota
+// admission plugin charges for the pod.
+func podEffectiveShape(containers, inits []containerShape) containerShape {
+	eff := func(pick func(containerShape) string) string {
+		var sum resource.Quantity
+		for _, c := range containers {
+			sum.Add(mustQuantity(pick(c)))
+		}
+		for _, c := range inits {
+			if q := mustQuantity(pick(c)); q.Cmp(sum) > 0 {
+				sum = q
+			}
+		}
+		return sum.String()
+	}
+	return containerShape{
+		RequestsCPU:    eff(func(c containerShape) string { return c.RequestsCPU }),
+		RequestsMemory: eff(func(c containerShape) string { return c.RequestsMemory }),
+		LimitsCPU:      eff(func(c containerShape) string { return c.LimitsCPU }),
+		LimitsMemory:   eff(func(c containerShape) string { return c.LimitsMemory }),
+	}
+}
+
+func sumQuantities(a, b string) resource.Quantity {
+	q := mustQuantity(a)
+	q.Add(mustQuantity(b))
+	return q
+}
+
+// mustQuantity parses a resource literal from this file's own constants. A
+// typo is a build-time defect of this package, so it panics at init rather
+// than rendering a quota nobody asked for.
+func mustQuantity(s string) resource.Quantity {
+	q, err := resource.ParseQuantity(s)
+	if err != nil {
+		panic(fmt.Sprintf("gitops: bad resource literal %q: %v", s, err))
+	}
+	return q
+}
+
+// quotaHard is the four hard-cap strings the ResourceQuota template renders:
+// the purchased plan plus the control-plane overhead, per resource, in the
+// canonical Quantity spelling (e.g. plan "2" + 520m → "2520m", "4Gi" + 1088Mi →
+// "5184Mi").
+type quotaHard struct {
+	RequestsCPU    string
+	RequestsMemory string
+	LimitsCPU      string
+	LimitsMemory   string
+}
+
+// planPlusOverhead sizes the hard cap for a fixed-tier plan. Flexi never
+// reaches here (PlanRendersResourceQuota gates the file), and its empty
+// CPU/Mem would not parse.
+func planPlusOverhead(q PlanQuota, o ControlPlaneOverhead) quotaHard {
+	add := func(plan string, overhead resource.Quantity) string {
+		sum := mustQuantity(plan)
+		sum.Add(overhead)
+		return sum.String()
+	}
+	return quotaHard{
+		RequestsCPU:    add(q.CPU, o.RequestsCPU),
+		RequestsMemory: add(q.Mem, o.RequestsMemory),
+		LimitsCPU:      add(q.CPU, o.LimitsCPU),
+		LimitsMemory:   add(q.Mem, o.LimitsMemory),
+	}
+}
+
+// String renders the overhead the way the ResourceQuota annotation carries it,
+// so an operator reading the live object sees the split without the source.
+func (o ControlPlaneOverhead) String() string {
+	return fmt.Sprintf("requests cpu=%s memory=%s; limits cpu=%s memory=%s; storage=%s",
+		o.RequestsCPU.String(), o.RequestsMemory.String(),
+		o.LimitsCPU.String(), o.LimitsMemory.String(), o.Storage.String())
 }
 
 // renderTemplates is the named template set the controller uses.
@@ -285,13 +475,15 @@ spec:
           # 40m/100m + 64Mi/256Mi shape (ratio 2.5/4) — the per-Org LimitRange
           # (#4292, maxLimitRequestRatio 1) rejects it alongside the syncer.
           # Render requests==limits so the whole vcluster-0 pod is admitted.
+          # Figures come from vclusterControlPlane.Distro — the same values the
+          # plan ResourceQuota's control-plane overhead is computed from.
           resources:
             requests:
-              cpu: 200m
-              memory: 256Mi
+              cpu: {{ .ControlPlane.Distro.RequestsCPU }}
+              memory: {{ .ControlPlane.Distro.RequestsMemory }}
             limits:
-              cpu: 200m
-              memory: 256Mi
+              cpu: {{ .ControlPlane.Distro.LimitsCPU }}
+              memory: {{ .ControlPlane.Distro.LimitsMemory }}
       coredns:
         # #3859 (first proven walkorg/hw167): vcluster 0.33.x's baked-in default
         # coredns is coredns/coredns:1.14.1 — a tag that does NOT exist on
@@ -306,6 +498,22 @@ spec:
         # so it ALSO satisfies the harbor-proxy-pull Kyverno Enforce (*/proxy-*/*).
         deployment:
           image: {{ .VClusterImageRegistry }}/proxy-dockerhub/coredns/coredns:1.11.3
+          # The vcluster 0.33 chart's own default coredns shape (requests
+          # 20m/64Mi, limits 1000m/170Mi), restated from vclusterControlPlane.CoreDNS
+          # so the control-plane overhead the plan ResourceQuota carries is
+          # derived from THIS render, not from a default read off the chart. The
+          # syncer mirrors this pod into the host <slug> ns where the quota
+          # charges it. Byte-identical to the merged chart default, so the
+          # chart's vClusterConfigHash — and vcluster-0 — do not move. #4758 is
+          # why this pod can never be Guaranteed (and why requests and limits
+          # carry separate overhead figures).
+          resources:
+            requests:
+              cpu: {{ .ControlPlane.CoreDNS.RequestsCPU }}
+              memory: {{ .ControlPlane.CoreDNS.RequestsMemory }}
+            limits:
+              cpu: {{ .ControlPlane.CoreDNS.LimitsCPU }}
+              memory: {{ .ControlPlane.CoreDNS.LimitsMemory }}
       backingStore:
         database:
           embedded:
@@ -326,16 +534,18 @@ spec:
         # requests==limits (Guaranteed QoS) so the LimitRange admits the syncer.
         # The platform mgmt/rtz/dmz vclusters escape only because their ns has
         # no LimitRange; the per-Org boundary must instead satisfy it.
+        # Figures come from vclusterControlPlane.Syncer — the same values the
+        # plan ResourceQuota's control-plane overhead is computed from.
         resources:
           requests:
-            cpu: 500m
-            memory: 1Gi
+            cpu: {{ .ControlPlane.Syncer.RequestsCPU }}
+            memory: {{ .ControlPlane.Syncer.RequestsMemory }}
           limits:
-            cpu: 500m
-            memory: 1Gi
+            cpu: {{ .ControlPlane.Syncer.LimitsCPU }}
+            memory: {{ .ControlPlane.Syncer.LimitsMemory }}
         persistence:
           volumeClaim:
-            size: 5Gi
+            size: {{ .ControlPlane.VolumeSize }}
       service:
         enabled: true
         spec:
@@ -457,16 +667,31 @@ spec:
 `
 
 // resourceQuotaTemplate caps the Org boundary host namespace at the plan the
-// customer purchased (#4292). Driven by planQuota(.PlanSlug). For the fixed
-// tiers (S/M/L/XL) requests.cpu==limits.cpu and requests.memory==limits.memory
-// — paired with the LimitRange's maxLimitRequestRatio {cpu:1,memory:1} this
-// forces Guaranteed QoS. Flexi renders NO ResourceQuota (on-demand, soft cap)
-// — the controller skips this file for Burstable plans.
+// customer purchased (#4292) PLUS the vCluster control-plane overhead that runs
+// in the same namespace (#6902 follow-up; see vclusterControlPlaneOverhead).
+// Driven by planQuota(.PlanSlug) → planPlusOverhead. Requests and limits carry
+// their own overhead: the plan itself is requests==limits (Guaranteed shape),
+// the control plane is not (coredns is Burstable), so the two hard caps differ
+// by exactly the control plane's request/limit gap. Flexi renders NO
+// ResourceQuota (on-demand, soft cap) — the controller skips this file for
+// Burstable plans.
+//
+// The split is stamped as annotations so an operator reading the LIVE object
+// (`kubectl get resourcequota plan-quota -o yaml`) can reconcile the number to
+// the plan without this source: annotations survive apply, the YAML comment
+// block does not.
 //
 // 5-pillar Pillar 1: the cap the customer pays for IS the cap that
-// materializes. This replaces the dev-tiny marketplace-api SizeResources +
-// the syncer-only provisioning planLimits, both retired in Workstream A.
-const resourceQuotaTemplate = `apiVersion: v1
+// materializes — and is usable in full, because the control plane is on top
+// of it. This replaces the dev-tiny marketplace-api SizeResources + the
+// syncer-only provisioning planLimits, both retired in Workstream A.
+const resourceQuotaTemplate = `# The hard cap below is NOT the plan alone. It is the purchased plan PLUS the
+# per-Org vCluster control plane (vcluster-0 syncer + the synced coredns) that
+# runs in this same namespace and is charged to this quota at admission, so the
+# control plane never eats into what the customer bought.
+#   plan {{ .PlanSlug }}: {{ .PlanCapText }}
+#   vcluster control plane: {{ .OverheadText }}
+apiVersion: v1
 kind: ResourceQuota
 metadata:
   name: {{ .ResourceQuotaName }}
@@ -475,12 +700,16 @@ metadata:
     openova.io/organization: {{ .Slug }}
     openova.io/plan: {{ .PlanSlug }}
     openova.io/managed-by: catalyst
+  annotations:
+    openova.io/quota-formula: "purchased plan + vcluster control plane"
+    openova.io/plan-cap: {{ .PlanCapText | quote }}
+    openova.io/vcluster-control-plane-overhead: {{ .OverheadText | quote }}
 spec:
   hard:
-    requests.cpu: "{{ .Quota.CPU }}"
-    requests.memory: "{{ .Quota.Mem }}"
-    limits.cpu: "{{ .Quota.CPU }}"
-    limits.memory: "{{ .Quota.Mem }}"
+    requests.cpu: "{{ .Hard.RequestsCPU }}"
+    requests.memory: "{{ .Hard.RequestsMemory }}"
+    limits.cpu: "{{ .Hard.LimitsCPU }}"
+    limits.memory: "{{ .Hard.LimitsMemory }}"
 `
 
 // limitRangeTemplate seeds defaultRequest/default so pods authored without
@@ -889,8 +1118,20 @@ metadata:
 // quota + the apps-tree namespace the NetworkPolicy targets.
 type renderView struct {
 	Inputs
-	// Quota is the resolved plan cap (planQuota(.PlanSlug)).
+	// Quota is the resolved plan cap (planQuota(.PlanSlug)) — what the
+	// customer purchased.
 	Quota PlanQuota
+	// Hard is the ResourceQuota hard cap: Quota plus the vCluster
+	// control-plane overhead, per resource (planPlusOverhead).
+	Hard quotaHard
+	// ControlPlane is the vCluster control-plane shape the HelmRelease
+	// template interpolates (vclusterControlPlane) — the same values Hard's
+	// overhead was computed from.
+	ControlPlane vclusterControlPlaneShape
+	// PlanCapText / OverheadText are the human-readable halves of the split,
+	// stamped as annotations on the ResourceQuota.
+	PlanCapText  string
+	OverheadText string
 	// DefaultCPU/DefaultMem are the LimitRange per-container default
 	// request==limit (plan ceiling / 8 for fixed tiers; a small fixed
 	// floor for Flexi which has no ceiling).
@@ -950,7 +1191,9 @@ func limitRangeDefaults(q PlanQuota) (cpu, mem string) {
 //     EVERY plan slug. It deploys into the host `<slug>` ns, so the plan cap
 //     below applies to it exactly as it applies to the Org's own pods.
 //   - resourcequota.yaml + limitrange.yaml cap the host ns at the purchased
-//     plan (skipped ResourceQuota for soft-cap Flexi; LimitRange always).
+//     plan PLUS the vCluster control-plane overhead that shares the namespace
+//     (vclusterControlPlaneOverhead; skipped ResourceQuota for soft-cap Flexi;
+//     LimitRange always, its per-container defaults plan-only).
 //   - apps/networkpolicy.yaml seeds the default-deny + same-Org-allow baseline
 //     the syncer reflects to the host (sync.toHost.networkPolicies.enabled).
 //   - host-apps/ciliumnetworkpolicy.yaml is the MANDATORY companion that admits
@@ -985,11 +1228,19 @@ func Render(in Inputs) (map[string][]byte, error) {
 	view := renderView{
 		Inputs:            in,
 		Quota:             quota,
+		ControlPlane:      vclusterControlPlane,
+		OverheadText:      vclusterControlPlaneOverhead.String(),
 		DefaultCPU:        defCPU,
 		DefaultMem:        defMem,
 		AppNamespace:      "apps",
 		ResourceQuotaName: BoundaryResourceQuotaName,
 		LimitRangeName:    BoundaryLimitRangeName,
+	}
+	// The hard cap = plan + control-plane overhead. Only for hard-capped plans:
+	// Flexi has no plan figure to add to (and renders no quota).
+	if PlanRendersResourceQuota(in.PlanSlug) {
+		view.Hard = planPlusOverhead(quota, vclusterControlPlaneOverhead)
+		view.PlanCapText = fmt.Sprintf("cpu=%s memory=%s", quota.CPU, quota.Mem)
 	}
 
 	// Assemble the file set. The boundary host namespace, its plan-templated
