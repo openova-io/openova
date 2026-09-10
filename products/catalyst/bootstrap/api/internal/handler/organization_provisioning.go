@@ -263,23 +263,25 @@ type orgTenantCreateRequest struct {
 	// derived Isolation. When omitted (the marketplace funnel = the
 	// customer door) the handler stamps the customer default shape so
 	// the funnel is byte-unchanged. kind="internal" (this menu's Create
-	// = the internal door) stamps the department shape (showback +
-	// namespace) and skips the voucher dependency — no voucher step for
-	// an internal org. The handler resolves billing_mode + isolation
-	// from kind when those two are omitted (the kind-derived default;
-	// the advanced-view override sends them explicitly).
+	// = the internal door) stamps the department billing shape
+	// (showback) and skips the voucher dependency — no voucher step for
+	// an internal org. The handler resolves billing_mode from kind when
+	// it is omitted (the kind-derived default; the advanced-view
+	// override sends it explicitly). Isolation is never resolved from
+	// kind or plan: every Organization is backed by a dedicated vCluster
+	// (orgIsolation).
 	Kind        string `json:"kind,omitempty"`
 	Tier        string `json:"tier,omitempty"`
 	BillingMode string `json:"billing_mode,omitempty"`
 	// Isolation — a CONSTRAINT ASSERTION, not an override (#6135). The
-	// Organization's boundary primitive is authored downstream by
-	// `boundaryIsVcluster(planSlug)`, which takes exactly one argument: the
-	// plan. Nothing in the renderer or the org-controller reads this field.
-	// So a value here can only ever AGREE with the plan's boundary or LIE
-	// about it — and it used to be allowed to lie, silently, in a 202.
-	// Declaring it now asserts the boundary you expect: it must match the
-	// resolved plan's, or the create is refused with 422. Omit it to accept
-	// whatever the plan delivers (the marketplace funnel's path).
+	// Organization's boundary is authored downstream by the org-controller,
+	// which gives EVERY Organization a dedicated vCluster regardless of kind
+	// or plan (orgIsolation). Nothing in the renderer or the org-controller
+	// reads this field. So a value here can only ever AGREE with that
+	// boundary (`vcluster`) or LIE about it — and it used to be allowed to
+	// lie, silently, in a 202. Declaring it asserts the boundary you expect:
+	// anything but `vcluster` is refused with 422. Omit it to accept the
+	// vCluster every plan delivers (the marketplace funnel's path).
 	Isolation string `json:"isolation,omitempty"`
 
 	// PlanSlug — purchased catalog plan slug (s|m|l|xl|flexi). Carried onto
@@ -302,58 +304,22 @@ type orgShape struct {
 	PlanSlug string
 }
 
-// allTiersVcluster mirrors the controller-side single switch (issue #4292
-// boundaryIsVcluster in core/controllers/organization/internal/gitops/
-// manifests.go): set it true to put EVERY tier (incl. free/S) on a dedicated
-// vCluster. It is duplicated here the same way gitops.BoundaryIsVcluster
-// duplicates the controller gate — the two MUST flip together so the displayed
-// `isolation` label never diverges from the actual backing.
-const allTiersVcluster = false
-
-// isolationForTier returns the Org's actual boundary primitive ("namespace"
-// for a host-ns Org, "vcluster" for a dedicated Org-vCluster), derived from the
-// SAME #4292 TIER GATE the org-controller uses to author the backing. Keeping
-// this in lockstep with that gate is what makes the displayed `isolation` value
-// ACCURATE rather than a static guess:
+// orgIsolation is the boundary primitive of EVERY Organization: a dedicated
+// vCluster. Founder direction 2026-09-10: one SME customer = one vCluster, on
+// every plan (s, m, l, xl, flexi, an empty or unknown slug alike) and for both
+// kinds (customer and internal). The boundary keys off neither `kind` nor
+// `planSlug`: `planSlug` drives ONLY the ResourceQuota / LimitRange / QoS the
+// org-controller materialises inside that vCluster, and `kind` drives only the
+// billing dimension.
 //
-//   - free/S (or empty) → the host `<slug>` namespace IS the boundary →
-//     "namespace".
-//   - m/l/xl/flexi → a dedicated Org-vCluster → "vcluster".
-//
-// Before #4539 the label was hardcoded customer→vcluster, so an S-plan Org that
-// correctly backs a host namespace was mislabeled "vcluster" (UAT rows 9-12,
-// dep 91dc05917e44d1c1). The BACKING was always right — only the label ignored
-// the tier.
-//
-// #4539 then added a `kind == "internal" → namespace` short-circuit, and THAT
-// re-opened the same class of lie from the other side (UAT row 100). The gate
-// that AUTHORS the backing —
-// core/controllers/organization/internal/gitops/manifests.go
-// boundaryIsVcluster — takes ONE argument, planSlug; it never reads spec.kind.
-// So an internal Org on plan m/l/xl/flexi had a real vCluster HelmRelease
-// rendered for it while every console surface that calls this helper (the BSS
-// create response and the Organization directory via org_list_from_cr.go)
-// labelled it "namespace". The CRD is explicit that this must not happen —
-// products/catalyst/chart/crds/organization.yaml describes kind as "Customer
-// Orgs (kind=customer) and internal-team Orgs (kind=internal) share the SAME
-// shape and the SAME code path. Difference is the billingMode dimension only."
-//
-// The short-circuit is therefore removed rather than mirrored into the
-// controller: `kind` selects the billing dimension, `planSlug` selects the
-// isolation class, and this helper answers only the second question. It takes
-// exactly the argument the authoritative gate takes, which is what makes the
-// lockstep checkable instead of merely asserted.
-func isolationForTier(planSlug string) string {
-	if allTiersVcluster {
-		return "vcluster"
-	}
-	switch strings.ToLower(strings.TrimSpace(planSlug)) {
-	case "", "s", "free":
-		return "namespace"
-	default:
-		return "vcluster"
-	}
-}
+// History, for readers of older stamps: #4292 introduced a plan-keyed "tier
+// gate" (free/S → host `<slug>` namespace, M+ → vCluster) that was mirrored
+// here as `isolationForTier`; #4539 removed a kind short-circuit from that
+// mirror (UAT row 100) and #6135 stopped a declared `isolation` from
+// overriding it (UAT row G7). The gate itself is gone from the org-controller
+// and the funnel; this constant is the catalyst-api side of that removal, so
+// there is no second copy of a switch left to keep in lockstep.
+const orgIsolation = "vcluster"
 
 // catalogPlanSlugs — the purchasable catalog plans, in tier order. ONE list:
 // resolveOrgShape's normalisation and the #6135 conflict message both read it,
@@ -371,74 +337,67 @@ func isCatalogPlanSlug(slug string) bool {
 }
 
 // plansDeliveringIsolation lists the catalog plans whose boundary primitive is
-// `want`, computed by asking the SAME tier gate the create path resolves with.
-// Never a hand-written table: a table would keep naming `m` after a policy flip
-// that moved M-tier Orgs onto a host namespace, which is the class of drift the
-// caller-facing message exists to prevent.
+// `want`, computed from orgIsolation over catalogPlanSlugs. Never a
+// hand-written table: a table would keep naming plans after a policy change
+// and hand every refused caller a wrong instruction. With one boundary for
+// every plan the answer is all of catalogPlanSlugs for `vcluster` and nothing
+// for anything else. The result is a copy, so a caller cannot mutate the
+// catalog through it.
 func plansDeliveringIsolation(want string) []string {
-	var out []string
-	for _, p := range catalogPlanSlugs {
-		if isolationForTier(p) == want {
-			out = append(out, p)
-		}
+	if want != orgIsolation {
+		return nil
 	}
-	return out
+	return append([]string(nil), catalogPlanSlugs...)
 }
 
 // declaredIsolationConflict adjudicates a DECLARED `isolation` against the
-// boundary the RESOLVED plan actually delivers (#6135, UAT row G7).
+// boundary every Organization actually gets (#6135, UAT row G7).
 //
-// The defect it closes: `resolveOrgShape` used to let any valid explicit
-// isolation WIN over the tier gate. The create door then returned 202 echoing
-// `isolation: vcluster` for a plan-`s` Organization that the org-controller
-// backs with the host `<slug>` namespace — and no vCluster was ever authored.
-// The signup form carries no plan picker, so the plan normalised to `s` and
-// EVERY declaring caller on that door got the substitution.
-//
-// The accepted value was never load-bearing: no non-test reader of it exists in
+// The defect it closed: `resolveOrgShape` used to let any valid explicit
+// isolation WIN over the boundary decision, so the create door returned 202
+// echoing a value the org-controller never honoured. The accepted value was
+// never load-bearing — no non-test reader of it exists in
 // core/services/provisioning/gitops, the provisioning consumer, or any
-// core/controllers reconciler. `boundaryIsVcluster(planSlug)` authors the
-// backing from the plan alone. An override branch over a field nothing honours
-// can only produce a divergence, so it is removed rather than plumbed through:
-// making the declaration a second input to the boundary decision would give one
-// outcome two sources of truth, which is the row's own defect wearing a fix's
-// clothes.
+// core/controllers reconciler — so a declaration can only agree with the
+// boundary or lie about it, and a lie is refused here rather than echoed.
+// Making the declaration a second input to the boundary decision would give
+// one outcome two sources of truth, which is the row's own defect wearing a
+// fix's clothes.
 //
 // Returns ("", false) when there is nothing to refuse — an omitted declaration
-// (the marketplace funnel: byte-unchanged) or one that agrees with the plan.
-// Otherwise returns the caller-facing detail and true. An unrecognised enum
-// value lands here too: it cannot equal the plan's boundary, and silently
-// ignoring it is the same lie in a smaller font.
+// (the marketplace funnel: byte-unchanged) or `vcluster`, which agrees on every
+// plan. Otherwise returns the caller-facing detail and true. `namespace` lands
+// here because no catalog plan delivers a host-namespace boundary; an
+// unrecognised enum value lands here too, and silently ignoring it would be
+// the same lie in a smaller font. The plan is named in the detail so the
+// caller reads the same plan the create would have used.
 func declaredIsolationConflict(declared, planSlug string) (string, bool) {
 	want := strings.ToLower(strings.TrimSpace(declared))
-	if want == "" {
-		return "", false
-	}
-	delivered := isolationForTier(planSlug)
-	if want == delivered {
+	if want == "" || want == orgIsolation {
 		return "", false
 	}
 	detail := fmt.Sprintf(
-		"isolation %q is not deliverable on plan %q: that plan's Organizations are backed by %s isolation. ",
-		want, planSlug, delivered)
+		"isolation %q is not deliverable on plan %q: every Organization on every plan is backed by a dedicated vCluster (%s isolation). ",
+		want, planSlug, orgIsolation)
 	if alt := plansDeliveringIsolation(want); len(alt) > 0 {
 		detail += fmt.Sprintf("Plans that deliver %q: %s. ", want, strings.Join(alt, ", "))
 	} else {
-		detail += fmt.Sprintf("No catalog plan currently delivers %q. ", want)
+		detail += fmt.Sprintf("No catalog plan delivers %q. ", want)
 	}
-	detail += "Omit `isolation` to accept the plan's boundary, or send a plan_slug that delivers it."
+	detail += fmt.Sprintf("Omit `isolation` to accept the vCluster boundary, or declare %q.", orgIsolation)
 	return detail, true
 }
 
 // resolveOrgShape applies the §2.1/§2.3 model: kind defaults to
 // "customer" (the marketplace door); billingMode defaults from kind
-// (internal → showback; customer → real); isolation is DERIVED from the
-// #4292 tier gate (isolationForTier) so the displayed boundary matches the
-// actual backing — free/S → namespace, M+ → vcluster — not a static
-// kind-only guess; tier defaults to "org". Unknown enum values fall back to
-// the derived default so a malformed body can never stamp a nonsense shape.
-// An explicit valid isolation in the request still overrides (the advanced
-// operator view).
+// (internal → showback; customer → real); isolation is the ONE boundary every
+// Organization gets (orgIsolation — a dedicated vCluster, on every plan and
+// for both kinds); planSlug normalises onto the catalog and drives only the
+// quota; tier defaults to "org". Unknown enum values fall back to the derived
+// default so a malformed body can never stamp a nonsense shape. A declared
+// isolation is never an input here: it is adjudicated at the door by
+// declaredIsolationConflict, and a surviving declaration already equals
+// orgIsolation.
 func resolveOrgShape(req orgTenantCreateRequest) orgShape {
 	kind := strings.ToLower(strings.TrimSpace(req.Kind))
 	if kind != "internal" && kind != "customer" {
@@ -463,21 +422,18 @@ func resolveOrgShape(req orgTenantCreateRequest) orgShape {
 		planSlug = "s"
 	}
 
-	// Isolation is DERIVED from the #4292 tier gate (host-ns for free/S,
-	// vcluster for M+) so the label reflects the real backing. It keys off
-	// planSlug ALONE, exactly like the org-controller gate that authors that
-	// backing — `kind` selects the billing dimension above, never the boundary
-	// primitive (#4292 / UAT row 100).
+	// Isolation is not derived from anything the request carries: every
+	// Organization is backed by a dedicated vCluster (orgIsolation). `kind`
+	// selects the billing dimension above and `planSlug` the quota; neither
+	// selects the boundary primitive.
 	//
-	// #6135 (UAT row G7) — the derivation is now UNCONDITIONAL. A declared
-	// `isolation` used to win here, which is how a plan-`s` create returned 202
-	// echoing `vcluster` while the org-controller authored a host namespace and
-	// no vCluster ever appeared. A declaration is adjudicated by
-	// declaredIsolationConflict at the door and refused with 422 when the plan
-	// cannot deliver it; by the time this runs, any surviving declaration
-	// already AGREES with the value below, so honouring it and deriving it are
-	// the same answer — and deriving it keeps ONE producer for the boundary.
-	isolation := isolationForTier(planSlug)
+	// #6135 (UAT row G7) — a declared `isolation` never wins here. It is
+	// adjudicated by declaredIsolationConflict at the door and refused with
+	// 422 unless it says `vcluster`; by the time this runs, any surviving
+	// declaration already AGREES with the value below, so honouring it and
+	// stamping the constant are the same answer — and the constant keeps ONE
+	// producer for the boundary.
+	isolation := orgIsolation
 
 	tier := strings.ToLower(strings.TrimSpace(req.Tier))
 	switch tier {
@@ -499,10 +455,12 @@ type orgTenantResponse struct {
 	AdminEmail      string                           `json:"admin_email"`
 	CompanyName     string                           `json:"company_name,omitempty"`
 	OTECHFQDN string `json:"otech_fqdn"`
-	// VClusterName — omitempty (#5501): a host-namespace Org authors no
-	// vCluster, and an empty string in the payload still reads as "there is
-	// a vcluster_name field for this Org" to anything that binds it. An
-	// absent key is the honest shape.
+	// VClusterName — omitempty (#5501): a record or CR whose OBSERVED
+	// boundary is not a vCluster (an Organization authored before every plan
+	// became vCluster-backed, or one not measured yet) names none, and an
+	// empty string in the payload still reads as "there is a vcluster_name
+	// field for this Org" to anything that binds it. An absent key is the
+	// honest shape.
 	VClusterName    string `json:"vcluster_name,omitempty"`
 	TenantNamespace string `json:"tenant_namespace"`
 	ConsoleHost     string `json:"console_host"`
@@ -538,13 +496,16 @@ type orgTenantResponse struct {
 	UpdatedAt time.Time `json:"updated_at,omitzero"`
 }
 
-// vclusterNameFor returns the name of a vcluster-tier Org's vCluster and ""
-// for anything else (#5489): only the vcluster tier has a vCluster to name.
-// The legacy unconditional `vc-<slug>` put a `vcluster_name` in the payload
-// right beside `isolation: "namespace"` — latent (the UI declares the field
-// and never binds it), but it would assert an object that does not exist the
-// moment anyone rendered it. Since #4188 no overlay template consumes the
-// value either, so an empty name is inert on the provisioning pipeline.
+// vclusterNameFor returns the name of a vCluster-backed Org's vCluster and ""
+// for anything else (#5489). Every Organization created now is vCluster-backed
+// (orgIsolation); the guard remains for records and CRs whose OBSERVED
+// boundary is still `namespace` (authored before every plan became
+// vCluster-backed) or empty (not measured). The legacy unconditional
+// `vc-<slug>` put a `vcluster_name` in the payload right beside
+// `isolation: "namespace"` — latent (the UI declares the field and never
+// binds it), but it would assert an object that does not exist the moment
+// anyone rendered it. Since #4188 no overlay template consumes the value
+// either, so an empty name is inert on the provisioning pipeline.
 //
 // #5501 — the name is the BARE SLUG, not the synthesized `vc-<slug>`. The
 // org-controller is the only producer of the object and it reports
@@ -565,8 +526,9 @@ func vclusterNameFor(isolation, slug string) string {
 // orgTenantSteps surfaces the 7-state machine to the SPA so it can
 // render a progress timeline.
 //
-// #5489 — `vcluster` is omitempty: a namespace-isolated Org never
-// provisions a vCluster, so its timeline must not carry a `vcluster:
+// #5489 — `vcluster` is omitempty: an Organization OBSERVED to be
+// namespace-backed (one authored before every plan became vCluster-backed)
+// never provisioned a vCluster, so its timeline must not carry a `vcluster:
 // "done"` step over an unauthored object. orgTenantRecordToResponse
 // blanks the step for records that explicitly say isolation=namespace;
 // the SPA (CreateOrganizationPage ProvisionSteps) renders only the steps
@@ -693,11 +655,12 @@ func orgTenantRecordToResponse(rec store.OrganizationProvisionRecord) orgTenantR
 		}
 	}
 
-	// #5489 — a namespace-isolated Org has no vCluster step to report.
-	// Blank it (the field is omitempty) only when the record EXPLICITLY
-	// says namespace; legacy rows with an empty isolation keep the full
-	// timeline — there is nothing to derive from, and guessing is the
-	// exact fabrication this fix removes. A failed boundary still
+	// #5489 — a namespace-backed Org (one authored before every plan became
+	// vCluster-backed; nothing created now says this) has no vCluster step
+	// to report. Blank it (the field is omitempty) only when the record
+	// EXPLICITLY says namespace; legacy rows with an empty isolation keep
+	// the full timeline — there is nothing to derive from, and guessing is
+	// the exact fabrication this fix removes. A failed boundary still
 	// surfaces via state=failed + last_error.
 	if rec.Isolation == "namespace" {
 		steps.VCluster = ""
@@ -833,16 +796,16 @@ func (h *Handler) HandleCreateOrganization(w http.ResponseWriter, r *http.Reques
 	// Organizations model (issue #3378 B1): resolve the kind/tier/
 	// billingMode/isolation shape. kind defaults to "customer" (the
 	// marketplace funnel door) so the funnel is byte-unchanged; the
-	// internal door sends kind="internal" → showback + namespace, no
-	// voucher step. The resolved shape is stamped on the record below.
+	// internal door sends kind="internal" → showback, no voucher step.
+	// Both kinds get a dedicated vCluster. The resolved shape is stamped
+	// on the record below.
 	shape := resolveOrgShape(body)
 
-	// #6135 (UAT row G7) — a DECLARED isolation the resolved plan cannot
-	// deliver is refused here rather than accepted and silently substituted.
-	// Adjudicated against shape.PlanSlug (the RESOLVED plan, after the
-	// empty/unknown → "s" normalisation) so the check and the outcome read the
-	// same plan; against body.PlanSlug it would clear a declaration that the
-	// create then contradicts.
+	// #6135 (UAT row G7) — a DECLARED isolation that is not the vCluster
+	// every Organization gets is refused here rather than accepted and
+	// silently substituted. Adjudicated against shape.PlanSlug (the RESOLVED
+	// plan, after the empty/unknown → "s" normalisation) so the 422 names
+	// the plan the create would have used.
 	if detail, conflict := declaredIsolationConflict(body.Isolation, shape.PlanSlug); conflict {
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{
 			"error":  "isolation-plan-conflict",
@@ -943,10 +906,11 @@ func (h *Handler) HandleCreateOrganization(w http.ResponseWriter, r *http.Reques
 		AdminEmail:     email,
 		CompanyName:    strings.TrimSpace(body.CompanyName),
 		OTECHFQDN:      otech,
-		// #5489 — only a vcluster-tier Org gets a vCluster name; a
-		// namespace-tier record stays empty rather than naming an object
-		// the platform never authors. Inert on the pipeline: since #4188
-		// no overlay template renders VClusterName.
+		// #5489/#5501 — the vCluster name is the bare slug the
+		// org-controller stamps at status.vcluster.name. Every Organization
+		// is vCluster-backed (orgIsolation), so every record minted here
+		// names one. Inert on the pipeline: since #4188 no overlay template
+		// renders VClusterName.
 		VClusterName: vclusterNameFor(shape.Isolation, subdomain),
 		// Workstream A (#4290 / EPIC #4293) — the per-Organization host
 		// namespace is the org-controller-owned `<slug>`, NOT a stray
@@ -964,14 +928,15 @@ func (h *Handler) HandleCreateOrganization(w http.ResponseWriter, r *http.Reques
 		// Organizations model (issue #3378 B1) — stamp the resolved
 		// kind/tier/billingMode/isolation so the directory badges the
 		// org correctly and the controller can later read the spec
-		// shape (namespace-mode reconcile is the placement/org-controller
-		// follow-on per #3378 §9; this records the desired-state fields).
+		// shape (this records the desired-state fields; isolation is
+		// always orgIsolation).
 		Kind:        shape.Kind,
 		Tier:        shape.Tier,
 		BillingMode: shape.BillingMode,
 		Isolation:   shape.Isolation,
-		// #4292 — the purchased plan slug the org-controller caps the
-		// boundary namespace at (ResourceQuota + LimitRange).
+		// #4292 — the purchased plan slug the org-controller sizes the
+		// Organization's vCluster with (ResourceQuota + LimitRange + QoS).
+		// The plan never selects the boundary.
 		PlanSlug: shape.PlanSlug,
 	}
 	// #5501 — Save (not Put) so the CreatedAt/UpdatedAt the store stamps

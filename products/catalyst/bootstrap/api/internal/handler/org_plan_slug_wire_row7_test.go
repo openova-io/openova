@@ -145,9 +145,9 @@ func TestOrgResponse_PurchasedPlanIsTheActualPlan_Row7(t *testing.T) {
 	if row.BillingMode != "real" {
 		t.Errorf("control billing_mode: want real got %q", row.BillingMode)
 	}
-	// plan xl is a vcluster-tier plan (#4292 gate) — isolation is DERIVED
-	// from planSlug, so this also pins that the new field and the existing
-	// derivation still agree.
+	// Every plan is vCluster-backed (orgIsolation) and the fixture's CR
+	// carries the observed status.vcluster block, so this also pins that the
+	// reported plan and the measured boundary still travel together.
 	if row.Isolation != "vcluster" {
 		t.Errorf("control isolation: want vcluster for plan xl got %q", row.Isolation)
 	}

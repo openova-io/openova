@@ -93,11 +93,13 @@ func newOrgPipelineHandlerWithCRs(t *testing.T, crs ...*unstructured.Unstructure
 	return h, dyn
 }
 
-// orgCRHostNsReady builds a host-namespace-tier Organization CR (customer +
-// plan s — the tier the walked hw291 Org actually was) whose boundary the
-// org-controller has reported READY via the top-level Ready condition. A
-// host-ns Org never gets a `status.vcluster` block (#5489), so the condition
-// is the only readiness signal — the fixture deliberately omits the block.
+// orgCRHostNsReady builds an Organization CR shaped like one a controller
+// that predates the every-plan boundary reconciled onto the host namespace
+// (customer + plan s — what the walked hw291 Org actually was): boundary
+// reported READY via the top-level Ready condition and NO `status.vcluster`
+// block (#5489). boundaryPhaseFromCR covers that shape, and a same-slug
+// re-provision leaves the controller-owned status untouched, so the pipeline
+// under test reads exactly this object.
 func orgCRHostNsReady(slug string) *unstructured.Unstructured {
 	cr := orgReadyCR(slug, strings.ToUpper(slug), "", "owner@"+slug+".test", "")
 	cr.Object["status"] = map[string]any{
@@ -158,7 +160,11 @@ func TestCreateOrganization_FreshOrgIsNotTerminal_5501(t *testing.T) {
 	}
 
 	// Raw-JSON check — the struct decode cannot see an omitted key, and the
-	// #5489 vcluster-step omission rides omitempty.
+	// #5489 vcluster-step omission rides omitempty. Every Organization is
+	// vCluster-backed now, so the step is PRESENT for this fresh Org — and,
+	// like bp_charts, it must report the unobserved boundary rather than
+	// "done" (the step used to be omitted here while plan s was
+	// host-namespace-backed).
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(w.Body.Bytes(), &raw); err != nil {
 		t.Fatalf("decode raw: %v", err)
@@ -167,8 +173,10 @@ func TestCreateOrganization_FreshOrgIsNotTerminal_5501(t *testing.T) {
 	if err := json.Unmarshal(raw["steps"], &steps); err != nil {
 		t.Fatalf("decode steps: %v", err)
 	}
-	if _, present := steps["vcluster"]; present {
-		t.Errorf("namespace-tier Org must not carry a vcluster step at all (#5489), got %v", steps)
+	if vc, present := steps["vcluster"]; !present {
+		t.Errorf("a vCluster-backed Org must carry its vcluster step, got %v", steps)
+	} else if vc != "pending" {
+		t.Errorf("steps.vcluster: want pending (boundary unobserved) got %q", vc)
 	}
 	doneCount := 0
 	for _, v := range steps {
@@ -326,12 +334,15 @@ func TestOrgCreateResponse_NeverPublishesZeroTimestamps_5501(t *testing.T) {
 	}
 }
 
-// TestOrgCreateResponse_NamespaceTier_OmitsVClusterName_5501 is the #5489
-// contract carried onto the create path: a namespace-isolated Org authors no
-// vCluster, so the payload must not name one. Raw-JSON assertion — the field
-// is omitempty, so a struct check alone could pass while the key still
-// shipped as `"vcluster_name": ""`.
-func TestOrgCreateResponse_NamespaceTier_OmitsVClusterName_5501(t *testing.T) {
+// TestOrgCreateResponse_DefaultPlan_NamesTheVCluster_5501 is the #5489/#5501
+// contract carried onto the create path, re-based on the every-plan boundary:
+// a default-plan (`s`) create is vCluster-backed like every other, so the
+// payload names the vCluster with the bare slug the org-controller stamps.
+// Raw-JSON assertion — the field is omitempty, so a struct check alone could
+// not see whether the key shipped. The legacy direction (an observed
+// namespace-backed record names none) is pinned on the record mapper below,
+// where such a record can still exist.
+func TestOrgCreateResponse_DefaultPlan_NamesTheVCluster_5501(t *testing.T) {
 	h, _ := newOrgPipelineHandlerWithCRs(t)
 
 	w, got := postCreateOrg(t, h, `{
@@ -340,23 +351,50 @@ func TestOrgCreateResponse_NamespaceTier_OmitsVClusterName_5501(t *testing.T) {
 		"domain_mode": "free-subdomain"
 	}`)
 
-	if got.Isolation != "namespace" {
-		t.Fatalf("fixture must be namespace-tier (customer + default plan s), got isolation=%q", got.Isolation)
+	if got.PlanSlug != "s" {
+		t.Fatalf("fixture must resolve to the default plan s, got plan_slug=%q", got.PlanSlug)
 	}
-	if got.VClusterName != "" {
-		t.Errorf("namespace-tier Org must not name a vCluster, got vcluster_name=%q", got.VClusterName)
+	if got.Isolation != "vcluster" {
+		t.Fatalf("default-plan create must be vCluster-backed (every plan is), got isolation=%q", got.Isolation)
+	}
+	if got.VClusterName != "nsonly" {
+		t.Errorf("vCluster-backed Org must name its vCluster with the bare slug, got vcluster_name=%q", got.VClusterName)
 	}
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(w.Body.Bytes(), &raw); err != nil {
 		t.Fatalf("decode raw: %v", err)
 	}
-	if _, present := raw["vcluster_name"]; present {
-		t.Errorf("vcluster_name key must be OMITTED for a namespace-tier Org, got %s", string(raw["vcluster_name"]))
+	if _, present := raw["vcluster_name"]; !present {
+		t.Errorf("vcluster_name key must be PRESENT for a vCluster-backed Org, got keys %v", rawKeys(raw))
 	}
 	// Vacuity control: the payload is not empty — the fields that DO describe
 	// this Org's boundary are still present.
 	if _, present := raw["tenant_namespace"]; !present {
 		t.Errorf("tenant_namespace must still be reported")
+	}
+
+	// Legacy direction: a persisted record whose OBSERVED boundary is still
+	// `namespace` (written before every plan became vCluster-backed) carries
+	// no vCluster name, and the key is omitted rather than shipped empty.
+	legacy := orgTenantRecordToResponse(store.OrganizationProvisionRecord{
+		OrganizationID: "tid-legacy",
+		State:          store.STSDone,
+		Subdomain:      "legacy",
+		DomainMode:     store.OrganizationDomainFreeSubdomain,
+		Isolation:      "namespace",
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	})
+	blob, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatalf("marshal legacy: %v", err)
+	}
+	var legacyRaw map[string]json.RawMessage
+	if err := json.Unmarshal(blob, &legacyRaw); err != nil {
+		t.Fatalf("decode legacy raw: %v", err)
+	}
+	if _, present := legacyRaw["vcluster_name"]; present {
+		t.Errorf("an observed namespace-backed record must OMIT vcluster_name, got %s", string(legacyRaw["vcluster_name"]))
 	}
 }
 
@@ -375,6 +413,6 @@ func TestVClusterName_MatchesOrgControllerAuthority_5501(t *testing.T) {
 		t.Errorf("vcluster_name must match the org-controller's status.vcluster.name (the bare slug), want uatcorp got %q", got)
 	}
 	if ns := vclusterNameFor("namespace", "uatcorp"); ns != "" {
-		t.Errorf("namespace tier authors no vCluster, want empty got %q", ns)
+		t.Errorf("an observed namespace-backed record names no vCluster, want empty got %q", ns)
 	}
 }

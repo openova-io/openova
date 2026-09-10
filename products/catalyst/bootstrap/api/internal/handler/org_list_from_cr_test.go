@@ -57,21 +57,20 @@ func orgReadyCR(slug, displayName, parentDomain, ownerEmail, phase string) *unst
 }
 
 // orgReadyCRWithPlan builds the same CR on an explicit plan, and — this is the
-// part that matters (#6145) — stamps the status the org-controller would
-// ACTUALLY write for that plan.
-//
-// This fixture used to put `status.vcluster.phase` on every CR regardless of
-// plan. No such object exists: `vclusterStatusFor`
+// part that matters (#6145) — stamps the status the org-controller ACTUALLY
+// writes: every Organization on every plan is backed by a dedicated vCluster
+// (orgIsolation), so `vclusterStatusFor`
 // (core/controllers/organization/internal/controller/organization_controller.go)
-// is gated on the same tier switch that decides whether a vCluster is authored
-// at all, so a plan-`s` Organization gets the ZERO block (#5489) and reports
-// readiness through the top-level Ready condition instead — exactly what the
-// walked hw293 `g7freea` CR carries (`status.vcluster: {}` + Ready=True with
-// "namespace-isolated tier — no vCluster authored").
+// stamps a real `status.vcluster{name,hostCluster,phase}` block for plan `s`
+// exactly as for plan `m`.
 //
-// A fixture that describes an impossible object teaches the tests a shape the
-// production system cannot produce, and any measurement taken from it is a
-// measurement of the fixture.
+// The host-namespace shape a pre-every-plan controller wrote for plan `s`
+// (`status.vcluster: {}` + Ready=True, the walked hw293 `g7freea` CR) is a
+// different object and lives in its own fixture, orgCRHostNamespace
+// (org_isolation_observed_backing_6145_test.go). A fixture that describes an
+// object the production system does not produce teaches the tests a shape
+// that cannot exist, and any measurement taken from it is a measurement of
+// the fixture.
 func orgReadyCRWithPlan(slug, displayName, parentDomain, ownerEmail, phase, planSlug string) *unstructured.Unstructured {
 	spec := map[string]any{
 		"slug":         slug,
@@ -103,28 +102,14 @@ func orgReadyCRWithPlan(slug, displayName, parentDomain, ownerEmail, phase, plan
 		"spec": spec,
 	}
 	if phase != "" {
-		status := map[string]any{"observedGeneration": int64(1)}
-		if isolationForTier(planSlug) == "vcluster" {
-			status["vcluster"] = map[string]any{
+		obj["status"] = map[string]any{
+			"observedGeneration": int64(1),
+			"vcluster": map[string]any{
 				"name":        slug,
 				"hostCluster": "otech.example",
 				"phase":       phase,
-			}
-		} else {
-			// Host-namespace tier: no vcluster block is ever written, and the
-			// Ready condition is the boundary signal boundaryPhaseFromCR reads.
-			ready := "False"
-			if phase == "Ready" {
-				ready = "True"
-			}
-			status["conditions"] = []any{map[string]any{
-				"type":    "Ready",
-				"status":  ready,
-				"reason":  "Reconciled",
-				"message": "host namespace Active (namespace-isolated tier — no vCluster authored)",
-			}}
+			},
 		}
-		obj["status"] = status
 	}
 	return &unstructured.Unstructured{Object: obj}
 }

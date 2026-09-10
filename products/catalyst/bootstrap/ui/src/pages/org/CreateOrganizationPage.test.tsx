@@ -49,47 +49,42 @@ describe('CreateOrganizationPage', () => {
 
   /* ── Organizations internal door (issue #3378 B1, DoD-4) ── */
 
-  /* UAT row G7 — this test USED TO assert `data-isolation === 'vcluster'` on
-   * first render, and it was protecting a defect rather than behaviour.
-   *
-   * The form's own #5857 comment already recorded why 'vcluster' is wrong here:
-   * the boundary is authored by `boundaryIsVcluster(planSlug)` alone, the form
-   * sent no plan, the server normalised it to `s`, and the org-controller
-   * therefore built a host `<slug>` namespace. The badge asserted 'vcluster'
-   * over a namespace-backed Org — "the BACKING was always right, only the label
-   * ignored the tier", which is the exact mislabel isolationForTier was written
-   * to remove. Pinning it kept the page advertising a boundary it could not
-   * order, and made the honest value look like the regression.
+  /* The isolation badge is the ONE boundary every Organization gets: a
+   * dedicated vCluster on every plan and for both kinds (founder direction
+   * 2026-09-10, Refs #4292 #4539 #6135). This assertion has flipped twice —
+   * 'vcluster' as a kind default over a namespace-backed Org (the #5857
+   * mislabel), then 'namespace' for the default plan S while a plan-keyed
+   * tier gate existed. Both were labels derived from an input the
+   * org-controller does not read for the boundary. Now the badge is a
+   * constant, and the tests below pin that neither kind nor plan moves it.
    *
    * The kind-derived BILLING default is real behaviour and stays pinned.
-   * Isolation now follows the plan, so it is asserted against the default plan
-   * below and re-asserted for a paid tier in CreateOrganizationPage.plan-g7.test.tsx.
    */
-  it('defaults to customer kind with real billing and the default plan S boundary', () => {
+  it('defaults to customer kind with real billing and the vcluster boundary', () => {
     render(<CreateOrganizationPage initialParentDomains={POOL} disableFetch />)
     expect(
       screen.getByTestId('create-org-kind-customer').getAttribute('aria-pressed'),
     ).toBe('true')
     expect(screen.getByTestId('create-org-billing-mode').getAttribute('data-mode')).toBe('real')
-    // Plan defaults to S, and S shares the host namespace — so this is what the
-    // create will actually deliver.
+    // Plan defaults to S; the boundary is a dedicated vCluster regardless.
     expect(
       (screen.getByTestId('create-org-plan-select') as HTMLSelectElement).value,
     ).toBe('s')
-    expect(screen.getByTestId('create-org-isolation').getAttribute('data-isolation')).toBe('namespace')
+    expect(screen.getByTestId('create-org-isolation').getAttribute('data-isolation')).toBe('vcluster')
   })
 
-  it('selecting Internal renders showback + namespace defaults', () => {
+  it('selecting Internal renders showback billing and the same vcluster boundary', () => {
     render(<CreateOrganizationPage initialParentDomains={POOL} disableFetch />)
     fireEvent.click(screen.getByTestId('create-org-kind-internal'))
     expect(
       screen.getByTestId('create-org-kind-internal').getAttribute('aria-pressed'),
     ).toBe('true')
     expect(screen.getByTestId('create-org-billing-mode').getAttribute('data-mode')).toBe('showback')
-    expect(screen.getByTestId('create-org-isolation').getAttribute('data-isolation')).toBe('namespace')
+    // kind drives billing only — the boundary is the same for both kinds.
+    expect(screen.getByTestId('create-org-isolation').getAttribute('data-isolation')).toBe('vcluster')
   })
 
-  it('the advanced override is visible and can change billing/isolation', () => {
+  it('the advanced override is visible and can change billing; isolation is fixed to vcluster', () => {
     render(<CreateOrganizationPage initialParentDomains={POOL} disableFetch />)
     fireEvent.click(screen.getByTestId('create-org-kind-internal'))
     // advanced panel hidden until toggled
@@ -100,6 +95,12 @@ describe('CreateOrganizationPage', () => {
     const billingSel = screen.getByTestId('create-org-billing-select') as HTMLSelectElement
     fireEvent.change(billingSel, { target: { value: 'chargeback' } })
     expect(screen.getByTestId('create-org-billing-mode').getAttribute('data-mode')).toBe('chargeback')
+    // There is no isolation picker: a select offering 'namespace' would offer
+    // a boundary no plan delivers (the server refuses it with 422). The panel
+    // states the fixed boundary instead, and the badge stays vcluster.
+    expect(screen.queryByTestId('create-org-isolation-select')).toBeNull()
+    expect(screen.getByTestId('create-org-isolation-fixed').textContent).toContain('vcluster')
+    expect(screen.getByTestId('create-org-isolation').getAttribute('data-isolation')).toBe('vcluster')
   })
 
   it('renders parent-domain dropdown with every org-pool entry', () => {
@@ -178,22 +179,21 @@ describe('CreateOrganizationPage', () => {
     expect(select.textContent).toContain('No pool parents available')
   })
 
-  /* ── #5857 (UAT row G7): isolation is an OVERRIDE, never a default ──
+  /* ── #5857 / #6135 (UAT row G7): isolation is an ASSERTION, never a default ──
    *
-   * This form has no plan input, so the server normalises planSlug to "s" and
-   * the GitOps renderer derives the boundary from planSlug ALONE
-   * (BoundaryIsVcluster("s") === false → the host `<slug>` namespace). It never
-   * reads the record's Isolation.
+   * The org-controller authors the boundary without reading the record's
+   * Isolation, and every Organization gets a dedicated vCluster. A declared
+   * `isolation` is a constraint assertion the server adjudicates: 'vcluster'
+   * agrees and is accepted, anything else is refused with 422.
    *
-   * resolveOrgShape lets a valid explicit `isolation` bypass the tier gate, so
-   * sending the kind default — 'vcluster' for every customer — stamped every
-   * Door A Org `vcluster` while it was namespace-backed. That is precisely the
-   * mislabel isolationForTier was written to remove, re-entering through the
-   * override branch.
+   * History: while a plan-keyed tier gate existed, resolveOrgShape let a
+   * declared `isolation` bypass it, so sending the kind default — 'vcluster'
+   * for every customer — stamped every Door A Org `vcluster` while it was
+   * namespace-backed.
    *
    * The first assertion is the one that matters: the DEFAULT path must not send
-   * the field at all. The second proves the override still works, so the fix is
-   * not "stop sending isolation ever".
+   * the field at all. The second proves the explicit assertion still travels,
+   * so the fix is not "stop sending isolation ever".
    */
   it('does NOT send isolation when the operator has not opened the advanced override', async () => {
     // mockClear + calls.at(-1): vi mocks ACCUMULATE across tests in this file,
@@ -206,12 +206,10 @@ describe('CreateOrganizationPage', () => {
     vi.mocked(createOrganization).mockRejectedValueOnce(new Error('stop here'))
     render(<CreateOrganizationPage initialParentDomains={POOL} disableFetch />)
 
-    // Sanity: the badge shows the boundary the DEFAULT PLAN delivers. This
-    // line used to assert 'vcluster' — the kind default — which is the mislabel
-    // described above rather than a property worth preserving (UAT row G7).
+    // Sanity: the badge shows the boundary every plan delivers.
     expect(
       screen.getByTestId('create-org-isolation').getAttribute('data-isolation'),
-    ).toBe('namespace')
+    ).toBe('vcluster')
 
     fireEvent.change(screen.getByTestId('org-create-subdomain'), {
       target: { value: 'acme' },
@@ -225,22 +223,19 @@ describe('CreateOrganizationPage', () => {
     const body = vi.mocked(createOrganization).mock.calls.at(-1)![0]
     expect(
       'isolation' in body,
-      'the form sent isolation as a DEFAULT — that bypasses the server tier gate ' +
-        '(resolveOrgShape) and stamps the Org "vcluster" while the GitOps renderer ' +
-        'backs it with a host namespace, because it derives the boundary from ' +
-        'planSlug alone (#5857, UAT row G7).',
+      'the form sent isolation as a DEFAULT — the funnel path must stay ' +
+        'byte-unchanged and let the server stamp the boundary (#5857, UAT row G7).',
     ).toBe(false)
   })
 
-  it('DOES send isolation when the operator explicitly overrides it', async () => {
+  it('DOES send the explicit vcluster assertion when the operator opens Advanced', async () => {
     vi.mocked(createOrganization).mockClear()
     vi.mocked(createOrganization).mockRejectedValueOnce(new Error('stop here'))
     render(<CreateOrganizationPage initialParentDomains={POOL} disableFetch />)
 
+    // Opening Advanced is the operator's explicit choice; there is no
+    // isolation picker because there is no other boundary to pick.
     fireEvent.click(screen.getByTestId('create-org-advanced-toggle'))
-    fireEvent.change(screen.getByTestId('create-org-isolation-select'), {
-      target: { value: 'namespace' },
-    })
     fireEvent.change(screen.getByTestId('org-create-subdomain'), {
       target: { value: 'acme' },
     })
@@ -253,9 +248,9 @@ describe('CreateOrganizationPage', () => {
     const body = vi.mocked(createOrganization).mock.calls.at(-1)![0]
     expect(
       body.isolation,
-      'a deliberate operator override was dropped — the fix must suppress the ' +
-        'DEFAULT, not the explicit choice',
-    ).toBe('namespace')
+      'the explicit assertion was dropped — the fix must suppress the DEFAULT, ' +
+        'not the operator\'s deliberate Advanced submit',
+    ).toBe('vcluster')
   })
 
   /* ── Row 214 regression guard (issue #5100; supersedes PR #5203) ──
