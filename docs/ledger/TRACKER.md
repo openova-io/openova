@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-10T19:45:03Z` |
+| Last refreshed | `2026-09-10T20:00:12Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-10T19:46 | [#6920](https://github.com/openova-io/openova/pull/6920) | #6867 | docs(glossary): the chargeback product is Catalyst BSS |
 | 2026-09-10T19:00 | [#6919](https://github.com/openova-io/openova/pull/6919) | #6867 | docs(status): chargeback 0.1.32 live on hw307 |
 | 2026-09-10T18:11 | [#6918](https://github.com/openova-io/openova/pull/6918) | #6902 | feat(organization): 0.1.32 — quota adds the per-Organization |
 | 2026-09-10T17:50 | [#6917](https://github.com/openova-io/openova/pull/6917) | #6916 | fix(ci): preflight C gives the Gateway an LB-IPAM address so |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-07T11:21 | [#6880](https://github.com/openova-io/openova/pull/6880) | #6874 | fix(dr-promoter): clear the divergence marker and release th |
 | 2026-09-07T10:44 | [#6879](https://github.com/openova-io/openova/pull/6879) | #6874 | fix(bp-postgres, cloud-init): shared consumers dial the glob |
 | 2026-09-07T09:48 | [#6878](https://github.com/openova-io/openova/pull/6878) | #6874 | fix(dr-promoter): tell a CNPG local failover apart from a re |
-| 2026-09-07T08:34 | [#6877](https://github.com/openova-io/openova/pull/6877) | #6867 | docs(ledger): hw307 live-walk screenshots for bp-chargeback  |
 
 ---
 
