@@ -158,6 +158,9 @@ spec:
     # INFO level. A signed-in operator sees an app with no customers in it.
     adapter:
       enabled: true
+      billingHook:
+        # Secret with key BILLING_HOOK_CALLBACK_SECRET: the gateway signs its callbacks with it (#6867).
+        callbackSecret: chargeback-gateway-callback
     # #6867 — platform ENFORCEMENT. Without this the collections Enforcer is
     # a Nop: a customer escalated, at zero prepaid balance, or suspended by
     # the operator flips to `suspended` inside chargeback while its
