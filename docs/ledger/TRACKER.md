@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-10T08:45:03Z` |
+| Last refreshed | `2026-09-10T09:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-10T08:55 | [#6899](https://github.com/openova-io/openova/pull/6899) | #6867 | feat(chargeback): bill flexi Organizations per use instead o |
 | 2026-09-10T08:16 | [#6898](https://github.com/openova-io/openova/pull/6898) | #6867 | fix(chargeback): showcase continuity, the 1 September hole,  |
 | 2026-09-08T18:08 | [#6884](https://github.com/openova-io/openova/pull/6884) | #6867 | docs(ledger): hw307 explorer capture after 0.1.23 |
 | 2026-09-08T17:41 | [#6883](https://github.com/openova-io/openova/pull/6883) | #6867 | docs(ledger): hw307 showcase screenshots for the rebuilt cha |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-04T07:41 | [#6848](https://github.com/openova-io/openova/pull/6848) | #6841 | fix(chargeback): give the Sovereign real SMTP so invites are |
 | 2026-09-03T08:14 | [#6847](https://github.com/openova-io/openova/pull/6847) | #6846 | fix(chargeback): turn the OpenOva adapter on in the Sovereig |
 | 2026-09-03T08:14 | [#6845](https://github.com/openova-io/openova/pull/6845) | #6842 | fix(chargeback): bump appVersion so the SSO code actually re |
-| 2026-09-03T07:34 | [#6842](https://github.com/openova-io/openova/pull/6842) | #6841 | fix(chargeback): sign in with Sovereign SSO instead of a sec |
 
 ---
 
