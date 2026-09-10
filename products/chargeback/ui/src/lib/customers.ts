@@ -182,7 +182,9 @@ export function lastStatementText(c: Customer): string {
 /**
  * The fields PATCH /customers/{id} accepts, as the settings form edits them.
  * billing_mode is NOT among them (DESIGN.md §8): it is derived server-side
- * from charging + payment_method, and sending it would be ignored.
+ * from charging + payment_method, and sending it would be ignored. The tax
+ * profile and the account-credit switches (DESIGN.md §9.4–§9.5) are here
+ * too; the tax rate is typed as a percentage and travels as a fraction.
  */
 export interface CustomerSettings {
   name: string
@@ -197,6 +199,21 @@ export interface CustomerSettings {
   start_date: string
   status: string
   org_slug: string
+  auto_apply_credit: boolean
+  suspend_at_zero: boolean
+  tax_exempt: boolean
+  tax_exempt_reason: string
+  /** Percent as typed ("5"); "" leaves the Sovereign default in force. */
+  tax_rate: string
+  tax_registration_number: string
+}
+
+/** 0.05 → "5" for the override field; absent → "" (the Sovereign default applies). */
+export function taxRatePercent(v: number | string | null | undefined): string {
+  if (v === null || v === undefined || v === '') return ''
+  const n = Number(v)
+  if (!Number.isFinite(n)) return ''
+  return String(Math.round(n * 100 * 1e6) / 1e6)
 }
 
 export function settingsFrom(c: Customer): CustomerSettings {
@@ -214,6 +231,12 @@ export function settingsFrom(c: Customer): CustomerSettings {
     start_date: c.start_date ? c.start_date.slice(0, 10) : '',
     status: c.status ?? 'pending',
     org_slug: c.org_slug ?? '',
+    auto_apply_credit: c.auto_apply_credit === true,
+    suspend_at_zero: c.suspend_at_zero === true,
+    tax_exempt: c.tax_exempt === true,
+    tax_exempt_reason: c.tax_exempt_reason ?? '',
+    tax_rate: taxRatePercent(c.tax_rate),
+    tax_registration_number: c.tax_registration_number ?? '',
   }
 }
 
@@ -236,27 +259,44 @@ const FIELD_LABELS: ReadonlyMap<string, string> = new Map([
   ['po_reference', 'purchase order'],
   ['payment_terms_days', 'payment terms'],
   ['external_account_id', 'billing account id'],
+  ['auto_apply_credit', 'auto-apply credit'],
+  ['suspend_at_zero', 'suspend at zero'],
+  ['tax_exempt', 'tax exemption'],
+  ['tax_exempt_reason', 'exemption reason'],
+  ['tax_rate', 'tax rate'],
+  ['tax_registration_number', 'tax registration number'],
 ])
 
 export function fieldLabel(key: string): string {
   return FIELD_LABELS.get(key) ?? key.replace(/_/g, ' ')
 }
 
+const BOOLEAN_FIELDS: ReadonlyArray<keyof CustomerSettings> = ['auto_apply_credit', 'suspend_at_zero', 'tax_exempt']
+
 /**
  * Only the fields that changed. The server treats an absent key as "leave
  * it" and an empty string as "clear it" for the nullable columns, so a
- * cleared price book is sent as "" and an untouched one is not sent at all.
+ * cleared tax-rate override is sent as "" and an untouched one is not sent
+ * at all. The switches travel as booleans, the tax rate as a fraction.
  */
-export function customerPatch(orig: Customer, form: CustomerSettings): Record<string, string | number> {
+export function customerPatch(orig: Customer, form: CustomerSettings): Record<string, string | number | boolean> {
   const before = settingsFrom(orig)
-  const out: Record<string, string | number> = {}
+  const out: Record<string, string | number | boolean> = {}
   for (const k of Object.keys(form) as Array<keyof CustomerSettings>) {
-    const v = form[k].trim()
+    if (BOOLEAN_FIELDS.includes(k)) {
+      if (form[k] !== before[k]) out[k] = form[k] === true
+      continue
+    }
+    const v = String(form[k]).trim()
     if (v === before[k]) continue
     // payment_terms_days is a whole number on the wire, not a string: 0 is
     // "due on receipt" and must not read as "not given".
     if (k === 'payment_terms_days') {
       if (v !== '') out[k] = Number(v)
+      continue
+    }
+    if (k === 'tax_rate') {
+      out[k] = v === '' ? '' : String(Math.round((Number(v) / 100) * 1e8) / 1e8)
       continue
     }
     out[k] = k === 'admin_email' ? v.toLowerCase() : v
@@ -270,5 +310,7 @@ export function customerPatch(orig: Customer, form: CustomerSettings): Record<st
   } else if (out.payment_method && out.payment_method !== 'gateway') {
     delete out.gateway_name
   }
+  // An exemption that is switched off takes its reason with it.
+  if (out.tax_exempt === false && !('tax_exempt_reason' in out) && before.tax_exempt_reason) out.tax_exempt_reason = ''
   return out
 }

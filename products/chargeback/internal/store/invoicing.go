@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"strings"
@@ -179,6 +180,89 @@ CREATE TABLE IF NOT EXISTS commercial_outbox (
 	UNIQUE (doc_type, idempotency_key)
 );
 CREATE INDEX IF NOT EXISTS commercial_outbox_due_idx ON commercial_outbox (next_attempt_at) WHERE delivered_at IS NULL;
+`
+
+// backfillIssuedInvoicesMigrationSQL numbers the invoices that were issued
+// BEFORE the invoicing release (0.1.27) ran invoicingMigrationSQL.
+//
+// The gap: that migration mapped every customer onto the four commercial
+// fields (billing_mode real / chargeback → charging = 'billed') and added the
+// invoice columns to statements, but it never looked at the statements that
+// were ALREADY issued when it ran. An issued statement of a billed customer
+// IS an invoice — and on the live Sovereign hw307 six August statements of
+// billed customers were left with invoice_number NULL, due_at NULL,
+// payment_terms_days NULL and an empty po_reference: invoices with no
+// number, invisible to the invoicing surface. Only IssueStatementOnce mints
+// a number, and it runs on the draft → issued edge alone, so nothing would
+// ever have numbered them.
+//
+// What it does, in one transaction, for every statement with invoice_number
+// IS NULL and status issued / sent / paid whose customer is charging =
+// 'billed':
+//
+//  1. Numbers it as <prefix>-<YYYY>-<00000>, the exact shape InvoiceNumberFor
+//     renders: the prefix from the single billing_settings row ('INV' when
+//     that row is absent), the year of issued_at in UTC — the way
+//     nextInvoiceNumber takes it. Numbers are dealt per year in
+//     (issued_at, id) order and CONTINUE from invoice_sequences.last_value:
+//     the year row is advanced by the count first (inserted at that count
+//     when absent, ON CONFLICT DO UPDATE otherwise, which is the same row
+//     lock a concurrent live issue takes) and the numbers are dealt from the
+//     value it held before. The counter stays gapless, and the next live
+//     issue carries on after the backfilled ones.
+//  2. Copies the customer's payment_terms_days where the statement's is
+//     NULL, and the customer's po_reference where the statement's is empty,
+//     exactly as issue would have.
+//  3. Computes due_at = issued_at + terms where it is NULL.
+//
+// Idempotent: a second run matches no row and touches no sequence. The
+// statements of informational customers are not invoices and are left
+// alone. BackfillIssuedInvoices runs the same batch on demand.
+const backfillIssuedInvoicesMigrationSQL = `
+-- Issue has always stamped issued_at (COALESCE(issued_at, now())), so an
+-- issued row without one is a repair, not a rule: it takes its creation
+-- time so it can be placed in a year at all.
+UPDATE statements SET issued_at = created_at
+ WHERE issued_at IS NULL AND status IN ('issued','sent','paid');
+
+WITH settings AS (
+	SELECT COALESCE((SELECT invoice_prefix FROM billing_settings WHERE id = 1), 'INV') AS prefix
+),
+pending AS (
+	SELECT st.id,
+	       c.po_reference AS customer_po,
+	       c.payment_terms_days AS customer_terms,
+	       EXTRACT(YEAR FROM (st.issued_at AT TIME ZONE 'UTC'))::int AS yr,
+	       row_number() OVER (
+	           PARTITION BY EXTRACT(YEAR FROM (st.issued_at AT TIME ZONE 'UTC'))::int
+	           ORDER BY st.issued_at, st.id) AS rn
+	  FROM statements st
+	  JOIN customers c ON c.id = st.customer_id
+	 WHERE st.invoice_number IS NULL
+	   AND st.status IN ('issued','sent','paid')
+	   AND c.charging = 'billed'
+),
+per_year AS (
+	SELECT yr, count(*)::bigint AS n FROM pending GROUP BY yr
+),
+advanced AS (
+	INSERT INTO invoice_sequences (year, last_value)
+	SELECT yr, n FROM per_year
+	ON CONFLICT (year) DO UPDATE SET last_value = invoice_sequences.last_value + EXCLUDED.last_value
+	RETURNING year, last_value
+)
+UPDATE statements st
+   SET invoice_number = s.prefix
+                        || '-' || lpad(p.yr::text, greatest(4, length(p.yr::text)), '0')
+                        || '-' || lpad((a.last_value - y.n + p.rn)::text, greatest(5, length((a.last_value - y.n + p.rn)::text)), '0'),
+       payment_terms_days = COALESCE(st.payment_terms_days, p.customer_terms),
+       po_reference = CASE WHEN st.po_reference = '' THEN p.customer_po ELSE st.po_reference END,
+       due_at = COALESCE(st.due_at, st.issued_at + make_interval(days => COALESCE(st.payment_terms_days, p.customer_terms)))
+  FROM pending p
+  JOIN per_year y ON y.yr = p.yr
+  JOIN advanced a ON a.year = p.yr
+ CROSS JOIN settings s
+ WHERE st.id = p.id;
 `
 
 // ---------------------------------------------------------------------------
@@ -406,11 +490,15 @@ var StatementStatuses = []string{StatusDraft, StatusIssued, StatusSent, StatusPa
 
 // statementTransitions is the whole legal lifecycle. Anything absent here is
 // refused by the store, not merely discouraged in the UI.
+//
+// A SENT (or overdue) invoice may become cancelled since DESIGN.md §9.3 —
+// not by a status flip, which lane 1 rightly refused, but through the FULL
+// CREDIT NOTE that CancelStatement now issues for anything past draft.
 var statementTransitions = map[string][]string{
 	StatusDraft:     {StatusIssued, StatusCancelled},
 	StatusIssued:    {StatusSent, StatusPaid, StatusCancelled},
-	StatusSent:      {StatusPaid, StatusOverdue},
-	StatusOverdue:   {StatusPaid},
+	StatusSent:      {StatusPaid, StatusOverdue, StatusCancelled},
+	StatusOverdue:   {StatusPaid, StatusCancelled},
 	StatusPaid:      {},
 	StatusCancelled: {},
 }
@@ -463,7 +551,26 @@ type StatementPayment struct {
 	Gateway    string    `json:"gateway,omitempty"`
 	RecordedBy string    `json:"recorded_by,omitempty"`
 	RecordedAt time.Time `json:"recorded_at"`
+
+	// Allocation (DESIGN.md §9.2). Allocated is what this payment has been
+	// applied to invoices; Unallocated is the remainder held as credit on
+	// the account; Allocations lists where it went. On the single-statement
+	// document Allocated is what reached THAT invoice.
+	Allocated   Decimal      `json:"allocated,omitempty"`
+	Unallocated Decimal      `json:"unallocated,omitempty"`
+	Allocations []Allocation `json:"allocations,omitempty"`
+	// Purpose is checkout (the customer was present and paid now) or
+	// collection (an unpaid invoice was pursued) — founder refinement (a).
+	Purpose  string `json:"purpose,omitempty"`
+	IntentID string `json:"intent_id,omitempty"`
+	// A refunded payment settles nothing; when and why.
+	RefundedAt   *time.Time `json:"refunded_at,omitempty"`
+	RefundReason string     `json:"refund_reason,omitempty"`
+	Note         string     `json:"note,omitempty"`
 }
+
+// Payment is the customer-level name of the same object.
+type Payment = StatementPayment
 
 // PaymentInput is one recorded payment: an amount, the day the money
 // arrived, how it arrived, and the bank or gateway reference that proves it.
@@ -496,15 +603,69 @@ func (s Statement) EffectiveStatusAt(t time.Time) string {
 	if !t.After(*s.DueAt) {
 		return s.Status
 	}
-	if ratOf(s.OutstandingAt()).Sign() <= 0 {
+	if settlesAt(new(big.Rat).Sub(ratOf(s.Total), ratOf(s.Paid)), s.Currency) {
 		return s.Status
 	}
 	return StatusOverdue
 }
 
-// OutstandingAt is total − payments, exactly.
+// OutstandingAt is total − payments − credit notes, exactly, floored at
+// zero: a settlement that overshot by less than half a minor unit
+// (settlesAt) leaves nothing owed, and a balance is never reported negative.
 func (s Statement) OutstandingAt() Decimal {
-	return decOf(new(big.Rat).Sub(ratOf(s.Total), ratOf(s.Paid)))
+	out := new(big.Rat).Sub(ratOf(s.Total), ratOf(s.Paid))
+	out.Sub(out, ratOf(s.Credited))
+	if out.Sign() < 0 {
+		out.SetInt64(0)
+	}
+	return decOf(out)
+}
+
+// ---------------------------------------------------------------------------
+// the minor unit
+// ---------------------------------------------------------------------------
+
+// Money is kept and added at six decimals, exactly; money MOVES at the
+// currency's minor unit. An invoice of 14.856782 OMR part-paid by 10.000
+// leaves 4.856782 owed, which no bank transfer can carry: the customer pays
+// the 4.857 the dialog shows, and that must settle the invoice rather than
+// be refused as an overpayment of 0.000218. So the two decisions a payment
+// turns on — is it more than was owed, has it settled the invoice — are
+// judged at the minor unit, while the arithmetic underneath stays exact.
+
+// minorUnitDigits is how many decimals the currency's minor unit has — what
+// a bank transfer, a gateway confirmation and the operator's dialog can
+// actually carry. Three for the dinars and the rial (baisa, fils), two for
+// everything else, which is where ISO 4217 puts the rest of the world. The
+// console keeps the same table (ui/src/lib/money.ts minorUnitDigits).
+func minorUnitDigits(currency string) int {
+	switch strings.ToUpper(strings.TrimSpace(currency)) {
+	case "OMR", "BHD", "KWD", "JOD", "IQD", "LYD", "TND":
+		return 3
+	}
+	return 2
+}
+
+// minorUnitTolerance is half of one minor unit of the currency: the widest
+// difference from an amount that still rounds to it at the unit.
+func minorUnitTolerance(currency string) *big.Rat {
+	den := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(minorUnitDigits(currency))), nil)
+	den.Mul(den, big.NewInt(2))
+	return new(big.Rat).SetFrac(big.NewInt(1), den)
+}
+
+// settlesAt reports whether remaining — total − paid, exactly — is zero at
+// the currency's minor unit: within half a unit of nothing owed, on either
+// side. That is what "the payments reached the total" means to a bank.
+func settlesAt(remaining *big.Rat, currency string) bool {
+	return new(big.Rat).Abs(remaining).Cmp(minorUnitTolerance(currency)) < 0
+}
+
+// overpaysAt reports whether remaining is negative by at least half a minor
+// unit: the customer visibly sent more than was owed, which is a credit
+// note, not a bigger invoice.
+func overpaysAt(remaining *big.Rat, currency string) bool {
+	return remaining.Sign() < 0 && !settlesAt(remaining, currency)
 }
 
 // ---------------------------------------------------------------------------
@@ -562,6 +723,34 @@ func nextInvoiceNumber(ctx context.Context, tx *sql.Tx, prefix string) (string, 
 	return InvoiceNumberFor(prefix, year, seq), nil
 }
 
+// BackfillIssuedInvoices numbers the invoices that were issued before the
+// invoicing release, on demand: the same batch the migration applies once
+// at startup (backfillIssuedInvoicesMigrationSQL), for an operator running
+// it by hand against a live database who wants to see how many it touched.
+// It returns the number of statements it numbered; a second call returns 0.
+func (s *Store) BackfillIssuedInvoices(ctx context.Context) (int64, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	var pending int64
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM statements st JOIN customers c ON c.id = st.customer_id
+		WHERE st.invoice_number IS NULL AND st.status IN ('issued','sent','paid') AND c.charging = 'billed'`).Scan(&pending); err != nil {
+		return 0, mapErr(err)
+	}
+	if pending == 0 {
+		return 0, nil
+	}
+	if _, err := tx.ExecContext(ctx, backfillIssuedInvoicesMigrationSQL); err != nil {
+		return 0, mapErr(err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return pending, nil
+}
+
 // ---------------------------------------------------------------------------
 // reads
 // ---------------------------------------------------------------------------
@@ -579,9 +768,14 @@ func (s *Store) ListStatementPayments(ctx context.Context, scope Scope, statemen
 	return s.statementPayments(ctx, statementID)
 }
 
+// statementPayments lists the payments that touch one invoice: every
+// payment ALLOCATED to it (with what reached it), plus a pending or failed
+// payment recorded against it that settles nothing yet.
 func (s *Store) statementPayments(ctx context.Context, statementID string) ([]StatementPayment, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, customer_id, COALESCE(statement_id::text, ''), amount::text, paid_at, method, reference, status, gateway, recorded_by, recorded_at
-		FROM payments WHERE statement_id = $1 ORDER BY paid_at, id`, statementID)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+paymentColumns+`, COALESCE(a.amount, 0)::numeric(20,6)::text
+		FROM payments p LEFT JOIN invoice_allocations a ON a.payment_id = p.id AND a.statement_id = $1
+		WHERE a.id IS NOT NULL OR (p.statement_id = $1 AND p.status <> 'received')
+		ORDER BY p.paid_at, p.id`, statementID)
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -589,12 +783,22 @@ func (s *Store) statementPayments(ctx context.Context, statementID string) ([]St
 	out := []StatementPayment{}
 	for rows.Next() {
 		var p StatementPayment
-		var amt string
-		if err := rows.Scan(&p.ID, &p.CustomerID, &p.StatementID, &amt, &p.PaidAt, &p.Method, &p.Reference, &p.Status, &p.Gateway, &p.RecordedBy, &p.RecordedAt); err != nil {
+		var amt, alloc, here string
+		var refunded sql.NullTime
+		if err := rows.Scan(&p.ID, &p.CustomerID, &p.StatementID, &amt, &p.PaidAt, &p.Method, &p.Reference, &p.Status, &p.Gateway, &p.RecordedBy, &p.RecordedAt,
+			&p.Purpose, &p.IntentID, &refunded, &p.RefundReason, &p.Note, &alloc, &here); err != nil {
 			return nil, err
 		}
 		p.Amount = Decimal(amt)
 		p.PaidAt, p.RecordedAt = p.PaidAt.UTC(), p.RecordedAt.UTC()
+		p.RefundedAt = timePtr(refunded)
+		// On the invoice document, Allocated is what reached THIS invoice.
+		p.Allocated = Decimal(here)
+		if p.Status == PaymentReceived {
+			p.Unallocated = decOf(new(big.Rat).Sub(ratOf(p.Amount), ratOf(Decimal(alloc))))
+		} else {
+			p.Unallocated = "0"
+		}
 		out = append(out, p)
 	}
 	return out, rows.Err()
@@ -604,23 +808,40 @@ func (s *Store) statementPayments(ctx context.Context, statementID string) ([]St
 // transitions
 // ---------------------------------------------------------------------------
 
+// lockedStatement is what lockStatement reads: the fields every transition
+// decides on, with the payments already summed.
+type lockedStatement struct {
+	status     string
+	currency   string
+	customerID string
+	total      Decimal
+	paid       Decimal
+	due        *time.Time
+}
+
 // lockStatement reads a statement FOR UPDATE inside tx and returns the
 // fields every transition needs, with the derived status already resolved.
-func lockStatement(ctx context.Context, tx *sql.Tx, id string) (status string, total, paid Decimal, due *time.Time, err error) {
-	var t, p string
+//
+// `paid` is what payment allocations and credit-note allocations together
+// settled (DESIGN.md §9.2), so total − paid is the outstanding balance.
+func lockStatement(ctx context.Context, tx *sql.Tx, id string) (lockedStatement, error) {
+	var l lockedStatement
+	var t, p, c string
 	var d sql.NullTime
-	err = tx.QueryRowContext(ctx, `SELECT st.status, st.total::text, st.due_at,
-		COALESCE((SELECT sum(x.amount) FROM payments x WHERE x.statement_id = st.id AND x.status = 'received'), 0)::numeric(20,6)::text
-		FROM statements st WHERE st.id = $1 FOR UPDATE`, id).Scan(&status, &t, &d, &p)
+	err := tx.QueryRowContext(ctx, `SELECT st.status, st.currency, st.customer_id, st.total::text, st.due_at,
+		COALESCE((SELECT sum(a.amount) FROM invoice_allocations a JOIN payments x ON x.id = a.payment_id WHERE a.statement_id = st.id AND x.status = 'received'), 0)::numeric(20,6)::text,
+		COALESCE((SELECT sum(a.amount) FROM invoice_allocations a WHERE a.statement_id = st.id AND a.credit_note_id IS NOT NULL), 0)::numeric(20,6)::text
+		FROM statements st WHERE st.id = $1 FOR UPDATE`, id).Scan(&l.status, &l.currency, &l.customerID, &t, &d, &p, &c)
 	if err != nil {
-		return "", "", "", nil, mapErr(err)
+		return lockedStatement{}, mapErr(err)
 	}
-	return status, Decimal(t), Decimal(p), timePtr(d), nil
+	l.total, l.paid, l.due = Decimal(t), addDec(Decimal(p), Decimal(c)), timePtr(d)
+	return l, nil
 }
 
 // effectiveStatus is EffectiveStatusAt over the locked columns.
-func effectiveStatus(status string, total, paid Decimal, due *time.Time, now time.Time) string {
-	return Statement{Status: status, Total: total, Paid: paid, DueAt: due}.EffectiveStatusAt(now)
+func effectiveStatus(l lockedStatement, now time.Time) string {
+	return Statement{Status: l.status, Currency: l.currency, Total: l.total, Paid: l.paid, DueAt: l.due}.EffectiveStatusAt(now)
 }
 
 // refuseTransition renders the one message every illegal transition answers
@@ -642,11 +863,11 @@ func (s *Store) SendStatement(ctx context.Context, id string) (st Statement, tra
 		return Statement{}, false, err
 	}
 	defer tx.Rollback()
-	status, total, paid, due, err := lockStatement(ctx, tx, id)
+	l, err := lockStatement(ctx, tx, id)
 	if err != nil {
 		return Statement{}, false, err
 	}
-	cur := effectiveStatus(status, total, paid, due, time.Now().UTC())
+	cur := effectiveStatus(l, time.Now().UTC())
 	switch {
 	case cur == StatusSent || cur == StatusOverdue:
 		// Already sent; the send is the edge, not the request.
@@ -665,28 +886,45 @@ func (s *Store) SendStatement(ctx context.Context, id string) (st Statement, tra
 	return st, transitioned, err
 }
 
-// CancelStatement voids a statement (draft → cancelled, issued → cancelled).
-// A SENT invoice is deliberately not cancellable: the customer holds it, and
-// the correction for that is a credit note, not a status flip. Cancelling is
-// idempotent.
+// CancelStatement voids a statement. A DRAFT is a status flip: no invoice
+// exists yet. Anything past draft — issued, sent, overdue — is an invoice
+// the customer may hold, and the only way to take it back is a FULL CREDIT
+// NOTE (DESIGN.md §9.3): one is issued for the whole total, applied to what
+// the invoice still carries, with the rest — money already paid — becoming
+// credit on the account; the invoice then reads cancelled. A paid invoice
+// is final: credit it with a credit note instead. Cancelling is idempotent.
 func (s *Store) CancelStatement(ctx context.Context, id, reason string) (st Statement, transitioned bool, err error) {
+	return s.cancelStatement(ctx, id, reason, "")
+}
+
+// CancelStatementBy is CancelStatement with the actor the credit note names.
+func (s *Store) CancelStatementBy(ctx context.Context, id, reason, actor string) (st Statement, transitioned bool, err error) {
+	return s.cancelStatement(ctx, id, reason, actor)
+}
+
+func (s *Store) cancelStatement(ctx context.Context, id, reason, actor string) (st Statement, transitioned bool, err error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Statement{}, false, err
 	}
 	defer tx.Rollback()
-	status, total, paid, due, err := lockStatement(ctx, tx, id)
+	l, err := lockStatement(ctx, tx, id)
 	if err != nil {
 		return Statement{}, false, err
 	}
-	cur := effectiveStatus(status, total, paid, due, time.Now().UTC())
+	cur := effectiveStatus(l, time.Now().UTC())
 	switch {
 	case cur == StatusCancelled:
 	case !LegalStatementTransition(cur, StatusCancelled):
 		return Statement{}, false, refuseTransition(cur, StatusCancelled)
-	default:
+	case l.status == StatusDraft:
 		if _, err := tx.ExecContext(ctx, `UPDATE statements SET status = 'cancelled', cancelled_at = now(), cancel_reason = $2 WHERE id = $1`, id, strings.TrimSpace(reason)); err != nil {
 			return Statement{}, false, mapErr(err)
+		}
+		transitioned = true
+	default:
+		if _, err := createCreditNoteTx(ctx, tx, id, CreditNoteInput{Reason: reason, Actor: actor}, CreditNoteFull); err != nil {
+			return Statement{}, false, err
 		}
 		transitioned = true
 	}
@@ -704,68 +942,72 @@ func (s *Store) CancelStatement(ctx context.Context, id, reason string) (st Stat
 // balance carries and the status is unchanged until the payments reach the
 // total, at which point the statement becomes paid. Overpayment is refused —
 // a customer who sent too much is a credit note, not a bigger invoice.
+//
+// Since DESIGN.md §9.2 the payment is a payment plus ONE ALLOCATION of its
+// whole amount to this invoice, and a settled one posts its ledger credit
+// in the same transaction — so nothing lane 1 did changes shape on the
+// wire, and the account is right by construction.
 func (s *Store) RecordStatementPayment(ctx context.Context, id string, in PaymentInput) (st Statement, p StatementPayment, err error) {
-	amt := ratOf(in.Amount)
-	if amt.Sign() <= 0 {
-		return Statement{}, p, fmt.Errorf("%w: a payment amount must be above zero", ErrInvalid)
-	}
-	if in.PaidAt.IsZero() {
-		in.PaidAt = time.Now().UTC()
-	}
-	if in.Gateway == "" {
-		in.Gateway = "manual"
-	}
-	if in.Method == "" {
-		in.Method = PaymentMethodTransfer
-	}
-	if !oneOf(in.Method, PaymentMethods) {
-		return Statement{}, p, fmt.Errorf("%w: a payment method must be %s", ErrInvalid, strings.Join(PaymentMethods, ", "))
-	}
-	if in.Status == "" {
-		in.Status = PaymentReceived
-	}
-	if !oneOf(in.Status, []string{PaymentReceived, PaymentPending, PaymentFailed}) {
-		return Statement{}, p, fmt.Errorf("%w: a payment status must be received, pending or failed", ErrInvalid)
+	in, amt, err := normalisePayment(in)
+	if err != nil {
+		return Statement{}, p, err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Statement{}, p, err
 	}
 	defer tx.Rollback()
-	status, total, paid, due, err := lockStatement(ctx, tx, id)
+	l, err := lockStatement(ctx, tx, id)
 	if err != nil {
 		return Statement{}, p, err
 	}
 	now := time.Now().UTC()
-	cur := effectiveStatus(status, total, paid, due, now)
+	cur := effectiveStatus(l, now)
 	if !LegalStatementTransition(cur, StatusPaid) {
 		return Statement{}, p, refuseTransition(cur, StatusPaid)
 	}
-	newPaid := new(big.Rat).Add(ratOf(paid), amt)
+	newPaid := new(big.Rat).Add(ratOf(l.paid), amt)
 	if in.Status != PaymentReceived {
 		// A pending or failed payment is recorded but settles nothing, so
 		// it cannot exceed the balance and cannot flip the statement.
-		newPaid = ratOf(paid)
+		newPaid = ratOf(l.paid)
 	}
-	if newPaid.Cmp(ratOf(total)) > 0 {
-		outstanding := decOf(new(big.Rat).Sub(ratOf(total), ratOf(paid)))
+	// What the payment leaves owed, exactly — and judged at the minor unit:
+	// the 4.857 a customer pays against 4.856782 is the settlement the
+	// dialog offered, not an overpayment; half a unit or more over is.
+	remaining := new(big.Rat).Sub(ratOf(l.total), newPaid)
+	if overpaysAt(remaining, l.currency) {
+		outstanding := Statement{Total: l.total, Paid: l.paid}.OutstandingAt()
 		return Statement{}, p, fmt.Errorf("%w: payment of %s exceeds the outstanding balance of %s", ErrConflict, decOf(amt), outstanding)
 	}
-	err = tx.QueryRowContext(ctx, `INSERT INTO payments (customer_id, statement_id, amount, paid_at, method, reference, status, gateway, recorded_by)
-		SELECT st.customer_id, st.id, $2::numeric, $3, $4, $5, $6, $7, $8 FROM statements st WHERE st.id = $1
-		RETURNING id, customer_id, COALESCE(statement_id::text, ''), amount::text, paid_at, method, reference, status, gateway, recorded_by, recorded_at`,
-		id, string(decOf(amt)), in.PaidAt.UTC(), in.Method, strings.TrimSpace(in.Reference), in.Status, in.Gateway, in.Actor).
-		Scan(&p.ID, &p.CustomerID, &p.StatementID, (*string)(&p.Amount), &p.PaidAt, &p.Method, &p.Reference, &p.Status, &p.Gateway, &p.RecordedBy, &p.RecordedAt)
-	if err != nil {
+	customerID, currency := l.customerID, l.currency
+	if customerID == "" {
+		return Statement{}, p, fmt.Errorf("%w: statement %s has no customer", ErrInvalid, id)
+	}
+	var paymentID int64
+	if err := tx.QueryRowContext(ctx, `INSERT INTO payments (customer_id, statement_id, amount, paid_at, method, reference, status, gateway, recorded_by, purpose)
+		VALUES ($1, $2, $3::numeric, $4, $5, $6, $7, $8, $9, 'collection') RETURNING id`,
+		customerID, id, string(decOf(amt)), in.PaidAt.UTC(), in.Method, strings.TrimSpace(in.Reference), in.Status, in.Gateway, in.Actor).Scan(&paymentID); err != nil {
 		return Statement{}, StatementPayment{}, mapErr(err)
 	}
-	p.PaidAt, p.RecordedAt = p.PaidAt.UTC(), p.RecordedAt.UTC()
-	if newPaid.Cmp(ratOf(total)) == 0 {
-		if _, err := tx.ExecContext(ctx, `UPDATE statements SET status = 'paid', paid_at = $2 WHERE id = $1`, id, in.PaidAt.UTC()); err != nil {
-			return Statement{}, StatementPayment{}, mapErr(err)
+	if in.Status == PaymentReceived {
+		// A pending or failed payment is recorded but settles nothing: no
+		// allocation, no ledger credit, and the invoice cannot flip. A
+		// received one is allocated whole to this invoice — clipped to what
+		// is owed when it overshoots by less than a minor unit, which is
+		// where allocateTx flips the invoice to paid.
+		if err := allocateTx(ctx, tx, customerID, id, paymentID, "", amt, in.Actor, in.PaidAt); err != nil {
+			return Statement{}, StatementPayment{}, err
+		}
+		if err := postEntry(ctx, tx, AccountEntry{CustomerID: customerID, Kind: EntryPayment, Amount: negate(decOf(amt)), Currency: currency,
+			StatementID: id, PaymentID: paymentID, Reference: in.Reference, EnteredAt: in.PaidAt, EnteredBy: in.Actor}); err != nil {
+			return Statement{}, StatementPayment{}, err
 		}
 	}
 	if err := tx.Commit(); err != nil {
+		return Statement{}, StatementPayment{}, err
+	}
+	if p, err = s.GetPayment(ctx, OperatorScope, paymentID); err != nil {
 		return Statement{}, StatementPayment{}, err
 	}
 	st, err = s.GetStatement(ctx, OperatorScope, id)
@@ -786,6 +1028,29 @@ type ExternalIssue struct {
 	PORef       string
 	TermsDays   int
 	IssuedAt    time.Time
+	// Extra documents queued with the primary one — the TMF635 rated usage
+	// beside the bill (DESIGN.md §9.1). Same transaction, same outbox.
+	Extra []OutboxDocument
+	// NumberInvoice is set only in summary-charge mode, where THIS product
+	// numbers the invoice for the billing system to book as one line. The
+	// number is taken inside the issuing transaction, exactly as an internal
+	// issue does, and handed to BuildDocuments so the exported summary
+	// charge quotes it.
+	NumberInvoice bool
+	// BuildDocuments, when set, renders the documents to queue once the
+	// invoice number (empty unless NumberInvoice) is known; its output
+	// replaces Document and Extra.
+	BuildDocuments func(invoiceNumber string) (primary []byte, extra []OutboxDocument, err error)
+	Actor          string
+}
+
+// OutboxDocument is one document to queue: its type, the key at-least-once
+// delivery is idempotent on (the statement id when queued at issue), and
+// the JSON body.
+type OutboxDocument struct {
+	DocType        string
+	IdempotencyKey string
+	Document       []byte
 }
 
 // IssueStatementExternally flips a draft to issued WITHOUT taking an invoice
@@ -798,7 +1063,7 @@ type ExternalIssue struct {
 // transitioned = false and queues nothing further.
 func (s *Store) IssueStatementExternally(ctx context.Context, in ExternalIssue) (st Statement, transitioned bool, err error) {
 	id := in.StatementID
-	if len(in.Document) == 0 {
+	if len(in.Document) == 0 && in.BuildDocuments == nil {
 		return Statement{}, false, fmt.Errorf("%w: the export document is empty", ErrInvalid)
 	}
 	docType := in.DocType
@@ -825,19 +1090,71 @@ func (s *Store) IssueStatementExternally(ctx context.Context, in ExternalIssue) 
 		// The terms were resolved by the caller and are already IN the
 		// document being queued, so the statement and the export agree by
 		// construction rather than by two separate computations.
-		if _, err := tx.ExecContext(ctx, `UPDATE statements SET status = 'issued', issued_at = $4,
-			po_reference = $2, payment_terms_days = $3,
-			due_at = $4::timestamptz + make_interval(days => $3)
-			WHERE id = $1 AND status = 'draft'`, id, in.PORef, in.TermsDays, in.IssuedAt.UTC()); err != nil {
+		var customerID, currency, rate, total string
+		if err := tx.QueryRowContext(ctx, `SELECT customer_id, currency, tax_rate::text, total::text FROM statements WHERE id = $1`, id).Scan(&customerID, &currency, &rate, &total); err != nil {
 			return Statement{}, false, mapErr(err)
 		}
-		// The document to export, queued in the same transaction. The
-		// statement id is the idempotency key, so at-least-once delivery of
-		// this row is one bill at the far end.
+		settings, err := billingSettingsTx(ctx, tx)
+		if err != nil {
+			return Statement{}, false, err
+		}
+		// The tax snapshot is frozen here too: the exported bill states
+		// the buyer's registration and exemption as they were at issue.
+		snap, err := taxSnapshotTx(ctx, tx, customerID, Decimal(rate), settings)
+		if err != nil {
+			return Statement{}, false, err
+		}
+		snapJSON, _ := json.Marshal(snap)
+		// Summary-charge mode numbers the invoice here (DESIGN.md §9.1): we
+		// produce the invoice document, the billing system books one line.
+		// Taken inside this transaction so the sequence stays gapless.
+		var number any
+		invoiceNumber := ""
+		if in.NumberInvoice {
+			if invoiceNumber, err = nextInvoiceNumber(ctx, tx, settings.InvoicePrefix); err != nil {
+				return Statement{}, false, err
+			}
+			number = invoiceNumber
+		}
+		if in.BuildDocuments != nil {
+			if in.Document, in.Extra, err = in.BuildDocuments(invoiceNumber); err != nil {
+				return Statement{}, false, err
+			}
+			if len(in.Document) == 0 {
+				return Statement{}, false, fmt.Errorf("%w: the export document is empty", ErrInvalid)
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE statements SET status = 'issued', issued_at = $4,
+			po_reference = $2, payment_terms_days = $3,
+			due_at = $4::timestamptz + make_interval(days => $3), tax_snapshot = $5, invoice_number = COALESCE($6, invoice_number)
+			WHERE id = $1 AND status = 'draft'`, id, in.PORef, in.TermsDays, in.IssuedAt.UTC(), snapJSON, number); err != nil {
+			return Statement{}, false, mapErr(err)
+		}
+		// The documents to export, queued in the same transaction. The
+		// statement id is the idempotency key per document type, so
+		// at-least-once delivery of a row is one document at the far end.
 		if _, err := tx.ExecContext(ctx, `INSERT INTO commercial_outbox (doc_type, idempotency_key, statement_id, customer_id, document)
 			SELECT $2, $1::text, st.id, st.customer_id, $3::jsonb FROM statements st WHERE st.id = $1::uuid
 			ON CONFLICT (doc_type, idempotency_key) DO NOTHING`, id, docType, string(in.Document)); err != nil {
 			return Statement{}, false, mapErr(err)
+		}
+		for _, extra := range in.Extra {
+			if len(extra.Document) == 0 {
+				continue
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO commercial_outbox (doc_type, idempotency_key, statement_id, customer_id, document)
+				SELECT $2, $1::text, st.id, st.customer_id, $3::jsonb FROM statements st WHERE st.id = $1::uuid
+				ON CONFLICT (doc_type, idempotency_key) DO NOTHING`, id, extra.DocType, string(extra.Document)); err != nil {
+				return Statement{}, false, mapErr(err)
+			}
+		}
+		// The receivable exists whoever collects it: the ledger mirrors it
+		// (DESIGN.md §9.1 — in external mode the account is theirs, ours is
+		// a mirror of what we issued and what they reported).
+		if ratOf(Decimal(total)).Sign() > 0 {
+			if err := postEntry(ctx, tx, AccountEntry{CustomerID: customerID, Kind: EntryInvoice, Amount: Decimal(total), Currency: currency, StatementID: id, Reference: invoiceNumber, EnteredAt: in.IssuedAt, EnteredBy: in.Actor}); err != nil {
+				return Statement{}, false, err
+			}
 		}
 		transitioned = true
 	}
@@ -901,7 +1218,7 @@ func (s *Store) ApplyExternalInvoiceStatus(ctx context.Context, in ExternalInvoi
 	// Reconcile the cumulative paid amount by booking the difference.
 	if strings.TrimSpace(string(in.PaidAmount)) != "" {
 		want := ratOf(in.PaidAmount)
-		if want.Cmp(ratOf(st.Total)) > 0 {
+		if overpaysAt(new(big.Rat).Sub(ratOf(st.Total), want), st.Currency) {
 			return Statement{}, fmt.Errorf("%w: the billing system reports %s paid against a total of %s", ErrConflict, in.PaidAmount, st.Total)
 		}
 		delta := new(big.Rat).Sub(want, ratOf(st.Paid))

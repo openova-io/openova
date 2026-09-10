@@ -219,7 +219,17 @@ func (h *Handler) issueStatement(w http.ResponseWriter, r *http.Request) {
 	// is informational. Requesting settlement is idempotent on the statement
 	// id, so a failure here leaves the statement issued and the operator
 	// re-POSTs issue to repeat it.
-	if cerr == nil {
+	//
+	// DESIGN.md §9.2 (founder refinement (a)): this is a COLLECTION — the
+	// receivable's owner pursues it — so with an external billing system the
+	// gateway is NEVER called for an invoice; only its settled status is
+	// imported. And an invoice already settled from account credit at issue
+	// (prepaid, or auto-apply) has nothing left to collect.
+	if cerr == nil && settings.ExternalCommercial() {
+		h.audit(r, &st.CustomerID, "statement.settlement.skipped", map[string]any{"statement_id": st.ID, "reason": "collection is owned by the external billing system"})
+	} else if cerr == nil && st.Status == store.StatusPaid {
+		h.audit(r, &st.CustomerID, "statement.settlement.skipped", map[string]any{"statement_id": st.ID, "reason": "settled from account credit at issue", "paid_total": st.Paid})
+	} else if cerr == nil {
 		if res, serr := h.Settlement.RequestSettlement(r.Context(), st, c); serr != nil {
 			slog.Warn("settlement request failed; the statement stays issued and a re-issue repeats the idempotent request", "statement", st.ID, "payment_method", c.PaymentMethod, "gateway", c.GatewayName, "error", serr)
 			h.audit(r, &st.CustomerID, "statement.hook.error", map[string]any{"statement_id": st.ID, "payment_method": c.PaymentMethod, "gateway_name": c.GatewayName, "error": serr.Error()})
@@ -232,6 +242,11 @@ func (h *Handler) issueStatement(w http.ResponseWriter, r *http.Request) {
 	}
 	if transitioned && notify && cerr == nil {
 		h.notifyStatement(r, st, c)
+	}
+	// DESIGN.md §9.5 — a prepaid customer's service depends on the balance
+	// the issue just drew on: the low-balance alert and suspend-at-zero.
+	if transitioned {
+		h.afterAccountChange(r, st.CustomerID, nil)
 	}
 	writeJSON(w, http.StatusOK, st)
 }

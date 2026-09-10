@@ -28,6 +28,14 @@
 // follow TMF678 where a field exists there. No operator's endpoints are
 // modelled: the transport is an Exporter implementation, and `csvfile` is the
 // one that ships.
+//
+// TWO SEAMS EXACTLY (DESIGN.md §9, founder direction 2026-09-10): seam one is
+// the billing system of record — invoice, collections and account are ONE
+// capability, binary per Sovereign, this setting; seam two is the payment
+// gateway (internal/settle), pluggable by name and independent of seam one.
+// Everything outbound couples by DOCUMENTS through the outbox; everything
+// inbound arrives through the HMAC-verified webhook family. There is no
+// third seam.
 package commercial
 
 import (
@@ -37,6 +45,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/openova-io/openova/products/chargeback/internal/commercial/external"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
 
@@ -93,6 +102,39 @@ func (s *Selector) For(ctx context.Context) (InvoiceProvider, store.BillingSetti
 	return s.Internal, settings, nil
 }
 
+// ErrCollectionExternallyOwned is what a COLLECTION request meets in
+// external mode: only the owner of the receivable pursues an unpaid
+// invoice, and here that is the operator's billing system. A CHECKOUT is
+// never refused by this check — it is a sale, whoever invoices.
+var ErrCollectionExternallyOwned = fmt.Errorf("%w: pursuing an unpaid invoice is %w; only its settled status is imported", store.ErrConflict, ErrExternallyOwned)
+
+// AllowsCollection is the provider check of the founder's refinement (a):
+// nil in internal mode; ErrCollectionExternallyOwned (a 409) in external
+// mode. Every path that would ask a gateway for an INVOICE's money — issue,
+// a collection intent, a recorded collection — goes through it.
+func (s *Selector) AllowsCollection(ctx context.Context) (store.BillingSettings, error) {
+	settings, err := s.Store.GetBillingSettings(ctx)
+	if err != nil {
+		return settings, err
+	}
+	if settings.ExternalCommercial() {
+		return settings, ErrCollectionExternallyOwned
+	}
+	return settings, nil
+}
+
+// OwnsCollections reports whether this product runs reminders, escalation
+// and enforcement-by-policy: only in internal mode. In external mode
+// collections belong to the billing system and enforcement is executed here
+// ONLY on an explicit imported command (DESIGN.md §9.7).
+func (s *Selector) OwnsCollections(ctx context.Context) (bool, error) {
+	settings, err := s.Store.GetBillingSettings(ctx)
+	if err != nil {
+		return false, err
+	}
+	return !settings.ExternalCommercial(), nil
+}
+
 // ---------------------------------------------------------------------------
 // internal — this product is the system of record
 // ---------------------------------------------------------------------------
@@ -124,9 +166,11 @@ func (p Internal) Cancel(ctx context.Context, id, reason string) (store.Statemen
 // ---------------------------------------------------------------------------
 
 // External queues the rated bill for export and then gets out of the way. It
-// never assigns an invoice number, never sends anything to a customer, and
-// never decides that an invoice is paid: those are the billing system's, and
-// they reach us as imports.
+// never sends anything to a customer, never pursues an invoice, and never
+// decides that an invoice is paid: those are the billing system's, and they
+// reach us as imports. It numbers an invoice in ONE case — the
+// summary-charge variant (DESIGN.md §9.1), where the billing system cannot
+// ingest a rated bill and asks us for the document plus one line to book.
 type External struct {
 	Store *store.Store
 	// Exporter is used by the delivery loop, not here: nothing on the issuing
@@ -136,12 +180,21 @@ type External struct {
 
 func (External) Name() string { return store.ProviderExternal }
 
-// Issue builds the document, then flips the statement to issued and queues
-// the document in the outbox IN ONE TRANSACTION. It does not deliver: the
-// delivery loop does that afterwards, with backoff, so issuing a bill
-// completes at our speed and on our availability. An export that cannot be
-// delivered right now is a queued row with a last_error the operator can
-// see — never a bill that was silently not raised.
+// Issue builds the documents, then flips the statement to issued and queues
+// them in the outbox IN ONE TRANSACTION. It does not deliver: the delivery
+// loop does that afterwards, with backoff, so issuing a bill completes at
+// our speed and on our availability. An export that cannot be delivered
+// right now is a queued row with a last_error the operator can see — never a
+// bill that was silently not raised.
+//
+// What is queued depends on external_ingest:
+//
+//	rated_bill      the TMF678 bill (no number: theirs to assign) and the
+//	                TMF635 rated usage beside it;
+//	summary_charge  ONE summary charge line quoting the invoice number THIS
+//	                product assigns inside the same transaction, plus the
+//	                TMF635 rated usage — the detailed invoice document is
+//	                ours, the receivable is booked over there.
 func (p External) Issue(ctx context.Context, id string) (store.Statement, bool, error) {
 	st, err := p.Store.GetStatement(ctx, store.OperatorScope, id)
 	if err != nil {
@@ -155,6 +208,10 @@ func (p External) Issue(ctx context.Context, id string) (store.Statement, bool, 
 		return store.Statement{}, false, fmt.Errorf("%w: a %s statement cannot be issued", store.ErrConflict, st.Status)
 	}
 	c, err := p.Store.GetCustomer(ctx, store.OperatorScope, st.CustomerID)
+	if err != nil {
+		return store.Statement{}, false, err
+	}
+	settings, err := p.Store.GetBillingSettings(ctx)
 	if err != nil {
 		return store.Statement{}, false, err
 	}
@@ -175,17 +232,46 @@ func (p External) Issue(ctx context.Context, id string) (store.Statement, bool, 
 	}
 	due := issuedAt.AddDate(0, 0, terms)
 	st.PORef, st.PaymentTermsDays, st.IssuedAt, st.DueAt = poRef, &terms, &issuedAt, &due
-	doc, err := BuildInvoiceDocument(st, c)
-	if err != nil {
+	// The buyer's tax profile as it stands, so the exported documents and
+	// the frozen snapshot agree.
+	st.TaxSnapshot = &store.TaxSnapshot{Rate: st.TaxRate, Exempt: c.TaxExempt, ExemptReason: c.TaxExemptReason, CustomerName: c.Name, CustomerTaxNumber: c.TaxRegistrationNumber,
+		SellerLegalName: settings.LegalName, SellerTaxNumber: settings.TaxRegistrationNumber, SellerAddress: settings.Address}
+	// The rated-bill document is validated up front — a customer with no
+	// billing-account id is refused before the transaction opens.
+	if _, err := BuildInvoiceDocument(st, c); err != nil {
 		return store.Statement{}, false, err
 	}
-	body, err := json.Marshal(doc)
-	if err != nil {
-		return store.Statement{}, false, err
+	summary := settings.SummaryCharge()
+	build := func(invoiceNumber string) ([]byte, []store.OutboxDocument, error) {
+		st.InvoiceNumber = invoiceNumber
+		usage, err := json.Marshal(external.BuildRatedUsage(st, c))
+		if err != nil {
+			return nil, nil, err
+		}
+		extra := []store.OutboxDocument{{DocType: external.DocRatedUsage, Document: usage}}
+		if summary {
+			doc, err := external.BuildSummaryCharge(st, c, invoiceNumber)
+			if err != nil {
+				return nil, nil, err
+			}
+			primary, err := json.Marshal(doc)
+			return primary, extra, err
+		}
+		doc, err := BuildInvoiceDocument(st, c)
+		if err != nil {
+			return nil, nil, err
+		}
+		primary, err := json.Marshal(doc)
+		return primary, extra, err
+	}
+	docType := store.OutboxInvoice
+	if summary {
+		docType = external.DocSummaryCharge
 	}
 	return p.Store.IssueStatementExternally(ctx, store.ExternalIssue{
-		StatementID: id, DocType: store.OutboxInvoice, Document: body,
+		StatementID: id, DocType: docType,
 		PORef: poRef, TermsDays: terms, IssuedAt: issuedAt,
+		NumberInvoice: summary, BuildDocuments: build,
 	})
 }
 
@@ -199,4 +285,52 @@ func (External) RecordPayment(context.Context, string, store.PaymentInput) (stor
 
 func (External) Cancel(context.Context, string, string) (store.Statement, bool, error) {
 	return store.Statement{}, false, fmt.Errorf("%w: cancelling the invoice is %w", store.ErrConflict, ErrExternallyOwned)
+}
+
+// ---------------------------------------------------------------------------
+// exporting what a checkout did, in external mode
+// ---------------------------------------------------------------------------
+
+// QueuePaymentExport queues the TMF676 payment and the TMF666 account
+// documents for a settled CHECKOUT payment when the billing system owns the
+// account (DESIGN.md §9.2): we took the money because it was a sale, and
+// the account it lands on is theirs, so they must learn about both. A no-op
+// in internal mode, and for a customer with no billing-account id (there is
+// no account over there to attribute it to; the operator sees it on ours).
+func (s *Selector) QueuePaymentExport(ctx context.Context, p store.Payment) error {
+	settings, err := s.Store.GetBillingSettings(ctx)
+	if err != nil {
+		return err
+	}
+	if !settings.ExternalCommercial() {
+		return nil
+	}
+	c, err := s.Store.GetCustomer(ctx, store.OperatorScope, p.CustomerID)
+	if err != nil {
+		return err
+	}
+	if c.ExternalAccountID == "" {
+		return nil
+	}
+	bal, err := s.Store.GetAccountBalance(ctx, store.OperatorScope, c.ID)
+	if err != nil {
+		return err
+	}
+	currency, err := s.Store.CustomerCurrency(ctx, c.ID)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	pay, err := external.Wrap(external.DocPayment, fmt.Sprintf("payment-%d", p.ID), external.BuildPayment(p, c, currency))
+	if err != nil {
+		return err
+	}
+	acc := external.BuildAccount(c, bal, currency, now)
+	account, err := external.Wrap(external.DocAccount, acc.IdempotencyKey, acc)
+	if err != nil {
+		return err
+	}
+	return s.Store.QueueOutbox(ctx, c.ID, "",
+		store.OutboxDocument{DocType: pay.Type, IdempotencyKey: pay.IdempotencyKey, Document: pay.Document},
+		store.OutboxDocument{DocType: account.Type, IdempotencyKey: account.IdempotencyKey, Document: account.Document})
 }

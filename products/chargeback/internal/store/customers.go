@@ -9,7 +9,11 @@ import (
 )
 
 const customerColumns = `c.id, c.slug, c.name, c.admin_email, c.kind, c.org_slug, c.price_book_id, c.billing_mode, c.status, c.start_date, c.plan_slug,
-	c.charging, COALESCE(c.payment_model, ''), COALESCE(c.payment_method, ''), c.gateway_name, c.po_reference, c.payment_terms_days, c.external_account_id, c.created_at, c.updated_at,
+	c.charging, COALESCE(c.payment_model, ''), COALESCE(c.payment_method, ''), c.gateway_name, c.po_reference, c.payment_terms_days, c.external_account_id,
+	c.tax_registration_number, c.tax_exempt, c.tax_exempt_reason, c.tax_rate::text, c.auto_apply_credit, c.low_balance_threshold::text, c.suspend_at_zero,
+	c.platform_suspended_at, c.suspension_reason, c.suspension_source, c.external_balance::text, c.external_balance_at, c.created_at, c.updated_at,
+	COALESCE((SELECT b.balance FROM customer_balances b WHERE b.customer_id = c.id), 0)::numeric(20,6)::text,
+	COALESCE((SELECT b.available_credit FROM customer_balances b WHERE b.customer_id = c.id), 0)::numeric(20,6)::text,
 	(SELECT count(*) FROM cost_sources s WHERE s.customer_id = c.id),
 	(SELECT count(*) FROM cost_sources s WHERE s.customer_id = c.id AND s.status = 'verified'),
 	(SELECT count(*) FROM cost_sources s WHERE s.customer_id = c.id AND s.layer = 'cloud'),
@@ -22,14 +26,26 @@ func scanCustomer(row interface{ Scan(...any) error }) (Customer, error) {
 	var orgSlug, pb sql.NullString
 	var start, lastCollected sql.NullTime
 	var lastPeriod sql.NullString
+	var taxRate, lowBalance, extBalance sql.NullString
+	var platformSuspended, extBalanceAt sql.NullTime
+	var balance, credit string
 	err := row.Scan(&c.ID, &c.Slug, &c.Name, &c.AdminEmail, &c.Kind, &orgSlug, &pb, &c.BillingMode, &c.Status, &start, &c.PlanSlug,
-		&c.Charging, &c.PaymentModel, &c.PaymentMethod, &c.GatewayName, &c.PORef, &c.PaymentTermsDays, &c.ExternalAccountID, &c.CreatedAt, &c.UpdatedAt,
+		&c.Charging, &c.PaymentModel, &c.PaymentMethod, &c.GatewayName, &c.PORef, &c.PaymentTermsDays, &c.ExternalAccountID,
+		&c.TaxRegistrationNumber, &c.TaxExempt, &c.TaxExemptReason, &taxRate, &c.AutoApplyCredit, &lowBalance, &c.SuspendAtZero,
+		&platformSuspended, &c.SuspensionReason, &c.SuspensionSource, &extBalance, &extBalanceAt, &c.CreatedAt, &c.UpdatedAt,
+		&balance, &credit,
 		&c.SourceCount, &c.VerifiedSourceCount, &c.CloudSourceCount, &c.PlatformSourceCount, &lastCollected, &lastPeriod)
 	if err != nil {
 		return c, mapErr(err)
 	}
+	c.Balance, c.AvailableCredit = Decimal(balance), Decimal(credit)
 	c.OrgSlug = strPtr(orgSlug)
 	c.PriceBookID = strPtr(pb)
+	c.TaxRate = decPtr(taxRate)
+	c.LowBalanceThreshold = decPtr(lowBalance)
+	c.ExternalBalance = decPtr(extBalance)
+	c.PlatformSuspendedAt = timePtr(platformSuspended)
+	c.ExternalBalanceAt = timePtr(extBalanceAt)
 	c.StartDate = datePtr(start)
 	c.LastCollectedAt = timePtr(lastCollected)
 	c.LastStatementPeriod = strPtr(lastPeriod)
@@ -102,6 +118,36 @@ type CustomerInput struct {
 	// default. A pointer rather than an int because 0 is a real value —
 	// due on receipt — and must not read as "not given".
 	PaymentTermsDays *int
+	// Tax is the customer's tax profile (DESIGN.md §9.4); the zero value
+	// is "not registered, not exempt, the Sovereign's rate".
+	Tax TaxProfile
+	// The account-credit knobs (DESIGN.md §9.5).
+	AutoApplyCredit     bool
+	LowBalanceThreshold *Decimal
+	SuspendAtZero       bool
+}
+
+// decPtr reads a nullable numeric column.
+func decPtr(ns sql.NullString) *Decimal {
+	if !ns.Valid || strings.TrimSpace(ns.String) == "" {
+		return nil
+	}
+	d := Decimal(ns.String)
+	return &d
+}
+
+// nullDec renders an optional Decimal for SQL: nil or empty is NULL.
+func nullDec(p *Decimal) any {
+	if p == nil || strings.TrimSpace(string(*p)) == "" {
+		return nil
+	}
+	return string(*p)
+}
+
+// validTaxRate checks a rate is a fraction in [0, 1].
+func validTaxRate(d Decimal) bool {
+	r := ratOf(d)
+	return r.Sign() >= 0 && r.Cmp(ratOf("1")) <= 0
 }
 
 // CreateCustomer inserts a pending customer and grants admin_email the admin
@@ -128,6 +174,12 @@ func (s *Store) CreateCustomer(ctx context.Context, in CustomerInput) (Customer,
 	if terms < 0 || terms > MaxPaymentTermsDays {
 		return Customer{}, fmt.Errorf("%w: payment_terms_days must be between 0 and %d", ErrInvalid, MaxPaymentTermsDays)
 	}
+	if in.Tax.TaxRate != nil && !validTaxRate(*in.Tax.TaxRate) {
+		return Customer{}, fmt.Errorf("%w: tax_rate must be a fraction between 0 and 1 (0.05 is 5%%)", ErrInvalid)
+	}
+	if in.LowBalanceThreshold != nil && ratOf(*in.LowBalanceThreshold).Sign() < 0 {
+		return Customer{}, fmt.Errorf("%w: low_balance_threshold cannot be negative", ErrInvalid)
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Customer{}, err
@@ -135,12 +187,15 @@ func (s *Store) CreateCustomer(ctx context.Context, in CustomerInput) (Customer,
 	defer tx.Rollback()
 	var id string
 	err = tx.QueryRowContext(ctx, `INSERT INTO customers (slug, name, admin_email, kind, org_slug, billing_mode, start_date, plan_slug,
-		charging, payment_model, payment_method, gateway_name, po_reference, payment_terms_days, external_account_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id`,
+		charging, payment_model, payment_method, gateway_name, po_reference, payment_terms_days, external_account_id,
+		tax_registration_number, tax_exempt, tax_exempt_reason, tax_rate, auto_apply_credit, low_balance_threshold, suspend_at_zero)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::numeric, $20, $21::numeric, $22) RETURNING id`,
 		strings.ToLower(strings.TrimSpace(in.Slug)), strings.TrimSpace(in.Name), strings.ToLower(strings.TrimSpace(in.AdminEmail)), in.Kind,
 		nullStr(&in.OrgSlug), com.BillingMode(), nullStr(&in.StartDate), NormalizePlanSlug(in.PlanSlug),
 		com.Charging, nullStr(&com.PaymentModel), nullStr(&com.PaymentMethod), com.GatewayName,
-		strings.TrimSpace(in.PORef), terms, strings.TrimSpace(in.ExternalAccountID)).Scan(&id)
+		strings.TrimSpace(in.PORef), terms, strings.TrimSpace(in.ExternalAccountID),
+		strings.TrimSpace(in.Tax.TaxRegistrationNumber), in.Tax.TaxExempt, strings.TrimSpace(in.Tax.TaxExemptReason), nullDec(in.Tax.TaxRate),
+		in.AutoApplyCredit, nullDec(in.LowBalanceThreshold), in.SuspendAtZero).Scan(&id)
 	if err != nil {
 		return Customer{}, mapErr(err)
 	}
@@ -179,6 +234,18 @@ type CustomerPatch struct {
 	// ExternalAccountID is the customer's account in the operator's billing
 	// system (external commercial provider only).
 	ExternalAccountID *string
+	// The tax profile (DESIGN.md §9.4); nil leaves a field unchanged. A
+	// TaxRate pointing at an empty Decimal clears the override back to the
+	// Sovereign default.
+	TaxRegistrationNumber *string
+	TaxExempt             *bool
+	TaxExemptReason       *string
+	TaxRate               *Decimal
+	// The account-credit knobs (DESIGN.md §9.5); a LowBalanceThreshold
+	// pointing at an empty Decimal turns the alert off.
+	AutoApplyCredit     *bool
+	LowBalanceThreshold *Decimal
+	SuspendAtZero       *bool
 }
 
 // UpdateCustomer applies a patch. It runs in a transaction because the
@@ -251,6 +318,33 @@ func (s *Store) UpdateCustomer(ctx context.Context, id string, p CustomerPatch) 
 			return Customer{}, fmt.Errorf("%w: payment_terms_days must be between 0 and %d", ErrInvalid, MaxPaymentTermsDays)
 		}
 		add("payment_terms_days", *p.PaymentTermsDays)
+	}
+	if p.TaxRegistrationNumber != nil {
+		add("tax_registration_number", strings.TrimSpace(*p.TaxRegistrationNumber))
+	}
+	if p.TaxExempt != nil {
+		add("tax_exempt", *p.TaxExempt)
+	}
+	if p.TaxExemptReason != nil {
+		add("tax_exempt_reason", strings.TrimSpace(*p.TaxExemptReason))
+	}
+	if p.TaxRate != nil {
+		if strings.TrimSpace(string(*p.TaxRate)) != "" && !validTaxRate(*p.TaxRate) {
+			return Customer{}, fmt.Errorf("%w: tax_rate must be a fraction between 0 and 1 (0.05 is 5%%)", ErrInvalid)
+		}
+		add("tax_rate", nullDec(p.TaxRate))
+	}
+	if p.AutoApplyCredit != nil {
+		add("auto_apply_credit", *p.AutoApplyCredit)
+	}
+	if p.LowBalanceThreshold != nil {
+		if strings.TrimSpace(string(*p.LowBalanceThreshold)) != "" && ratOf(*p.LowBalanceThreshold).Sign() < 0 {
+			return Customer{}, fmt.Errorf("%w: low_balance_threshold cannot be negative", ErrInvalid)
+		}
+		add("low_balance_threshold", nullDec(p.LowBalanceThreshold))
+	}
+	if p.SuspendAtZero != nil {
+		add("suspend_at_zero", *p.SuspendAtZero)
 	}
 	args = append(args, id)
 	res, err := tx.ExecContext(ctx, fmt.Sprintf(`UPDATE customers SET %s WHERE id = $%d`, strings.Join(sets, ", "), len(args)), args...)

@@ -2,16 +2,17 @@ import { useMemo, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { API_BASE, api, asList, errorText } from '../api/client'
 import { useSession } from '../auth/session'
-import type { CostSource, RatedLine, Statement } from '../api/types'
+import type { CostSource, CreditNote, RatedLine, Statement } from '../api/types'
 import { Waterfall, waterfallLayout, type WaterfallStep } from '../components/charts'
 import { Badge, Confirm, EmptyState, Field, Modal, Notice, PageHeader, Skeleton } from '../components/ui'
+import { acceptsCreditNote, allocationText, creditNoteEffect, creditRoom } from '../lib/account'
 import { discountRuleLabel } from '../lib/discountRule'
 import { day, num, when } from '../lib/format'
-import { formatMoney, formatPct } from '../lib/money'
+import { formatMoney, formatPct, minorUnitDigits, minorUnitTolerance } from '../lib/money'
 import { toNumber } from '../lib/num'
 import { groupBySource, groupByService } from '../lib/sku'
 import { acceptsPayment, dueLabel, statementBalance, statementPaid, statementPeriod, statementStatus } from '../lib/statements'
-import { emptyPaymentForm, hasErrors, paymentBody, validatePayment, type Errors, type PaymentForm } from '../lib/forms'
+import { creditNoteBody, emptyCreditNoteForm, emptyPaymentForm, hasErrors, paymentBody, validateCreditNote, validatePayment, type CreditNoteForm, type Errors, type PaymentForm } from '../lib/forms'
 import { useQuery } from '../lib/useQuery'
 
 /**
@@ -21,8 +22,9 @@ import { useQuery } from '../lib/useQuery'
  */
 
 // DESIGN.md §8 — the invoice lifecycle, from this page: issue, send it to
-// the customer, record what they paid, or void it.
-type Dialog = { kind: 'issue' } | { kind: 'delete' } | { kind: 'send' } | { kind: 'pay' } | { kind: 'cancel' } | null
+// the customer, record what they paid, or void it. §9.3 — reduce an issued
+// invoice with a credit note, the only way one is ever reduced.
+type Dialog = { kind: 'issue' } | { kind: 'delete' } | { kind: 'send' } | { kind: 'pay' } | { kind: 'cancel' } | { kind: 'credit' } | null
 
 export function StatementView() {
   const { id = '' } = useParams()
@@ -78,6 +80,8 @@ export function StatementView() {
   const nameOf = (id: string) => detail.find((d) => detailID(d) === id)?.name ?? id
   const ruleLabel = discountRuleLabel(s.discount_rule)
   const back = operator ? { to: '/statements', label: 'Statements' } : { to: '/my/statements', label: 'My statements' }
+  // DESIGN.md §9.2 — what reached THIS invoice from the account, per payment.
+  const allocations = (s.payments ?? []).flatMap((p) => (p.allocations ?? []).filter((a) => a.statement_id === s.id).map((a) => ({ a, p })))
 
   const act = async (kind: 'issue' | 'delete' | 'send' | 'cancel', body?: Record<string, unknown>) => {
     setBusy(true)
@@ -160,6 +164,11 @@ export function StatementView() {
                 Record payment
               </button>
             ) : null}
+            {operator && acceptsCreditNote(s) ? (
+              <button onClick={() => setDialog({ kind: 'credit' })} title={`Up to ${money(creditRoom(s))} can still be credited`}>
+                Credit note
+              </button>
+            ) : null}
             {operator && s.status === 'issued' ? (
               <button className="danger" onClick={() => setDialog({ kind: 'cancel' })}>
                 Cancel invoice
@@ -178,7 +187,7 @@ export function StatementView() {
       ) : null}
       {s.status === 'cancelled' ? <Notice kind="warn">Cancelled{s.cancel_reason ? ` — ${s.cancel_reason}` : ''}. Nothing is collected against it.</Notice> : null}
 
-      {s.invoice_number || s.external_invoice_ref || s.po_reference || s.due_at ? (
+      {s.invoice_number || s.external_invoice_ref || s.po_reference || s.due_at || s.tax_snapshot ? (
         <div className="card">
           <div className="card-head">
             <h2>Invoice</h2>
@@ -226,6 +235,39 @@ export function StatementView() {
                   )}
                 </td>
               </tr>
+              {/* DESIGN.md §9.4 — what the invoice carries about tax,
+                  frozen at issue: the rate applied and both parties'
+                  registrations, or the exemption and its reason. */}
+              {s.tax_snapshot ? (
+                <tr>
+                  <td className="muted">Tax</td>
+                  <td>
+                    {s.tax_snapshot.exempt ? (
+                      <>
+                        exempt{s.tax_snapshot.exempt_reason ? ` — ${s.tax_snapshot.exempt_reason}` : ''}
+                      </>
+                    ) : (
+                      <>
+                        {formatPct(toNumber(s.tax_snapshot.rate) * 100, { digits: (toNumber(s.tax_snapshot.rate) * 100) % 1 ? 2 : 0 })} on the net subtotal · {money(tax)}
+                      </>
+                    )}
+                    <span className="sub">
+                      {s.tax_snapshot.customer_tax_registration_number ? `customer registration ${s.tax_snapshot.customer_tax_registration_number}` : 'customer not tax-registered'}
+                      {s.tax_snapshot.seller_legal_name || s.tax_snapshot.seller_tax_registration_number
+                        ? ` · seller ${[s.tax_snapshot.seller_legal_name, s.tax_snapshot.seller_tax_registration_number].filter(Boolean).join(' ')}`
+                        : ''}
+                    </span>
+                  </td>
+                </tr>
+              ) : null}
+              {toNumber(s.credited_total) > 0 ? (
+                <tr>
+                  <td className="muted">Credited</td>
+                  <td>
+                    −{money(s.credited_total)} <span className="muted">· {s.credit_notes?.length ?? 0} credit note{(s.credit_notes?.length ?? 0) === 1 ? '' : 's'}</span>
+                  </td>
+                </tr>
+              ) : null}
               <tr>
                 <td className="muted">Paid</td>
                 <td>
@@ -263,6 +305,8 @@ export function StatementView() {
                   <td>
                     {p.reference ? <span className="mono">{p.reference}</span> : <span className="muted">—</span>}
                     {p.method ? <span className="sub">{p.method}</span> : null}
+                    {/* DESIGN.md §9.2 — where the payment went: this invoice, others, or credit left on account. */}
+                    {p.allocations && p.allocations.length ? <span className="sub">{allocationText(p, cur, (v, c) => formatMoney(v, c))}</span> : null}
                   </td>
                   <td className="muted">{p.recorded_by || p.gateway || '—'}</td>
                   <td className="num">{money(p.amount)}</td>
@@ -275,6 +319,80 @@ export function StatementView() {
                 <td className="num">{money(statementBalance(s))}</td>
               </tr>
             </tfoot>
+          </table>
+        </div>
+      ) : null}
+
+      {allocations.length ? (
+        <div className="card pad-0">
+          <div className="card-head" style={{ padding: '12px 12px 0' }}>
+            <h2>Allocations</h2>
+            <span className="hint">payments applied to this invoice from the account</span>
+          </div>
+          <table aria-label="Allocations">
+            <thead>
+              <tr>
+                <th>Applied</th>
+                <th>Payment</th>
+                <th>By</th>
+                <th className="num">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {allocations.map(({ a, p }) => (
+                <tr key={a.id}>
+                  <td>{when(a.allocated_at)}</td>
+                  <td>
+                    {p.reference ? <span className="mono">{p.reference}</span> : `payment ${p.id}`}
+                    <span className="sub">
+                      {day(p.paid_at)}
+                      {p.method ? ` · ${p.method}` : ''}
+                    </span>
+                  </td>
+                  <td className="muted">{a.allocated_by || '—'}</td>
+                  <td className="num">{money(a.amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+
+      {s.credit_notes && s.credit_notes.length ? (
+        <div className="card pad-0">
+          <div className="card-head" style={{ padding: '12px 12px 0' }}>
+            <h2>Credit notes</h2>
+            <span className="hint">
+              −{money(s.credited_total)} off this invoice · {money(creditRoom(s))} can still be credited
+            </span>
+          </div>
+          <table aria-label="Credit notes">
+            <thead>
+              <tr>
+                <th>Credit note</th>
+                <th>Reason</th>
+                <th>Effect</th>
+                <th>Issued</th>
+                <th className="num">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {s.credit_notes.map((n: CreditNote) => (
+                <tr key={n.id}>
+                  <td>
+                    <span className="mono">{n.number}</span>
+                    <span className="sub">{n.kind === 'full' ? 'whole invoice' : n.kind === 'write_off' ? 'write-off' : 'partial'}</span>
+                  </td>
+                  <td>{n.reason || <span className="muted">—</span>}</td>
+                  <td>{creditNoteEffect(n, cur, (v, c) => formatMoney(v, c))}</td>
+                  <td>
+                    {when(n.issued_at)}
+                    {n.issued_by ? <span className="sub">{n.issued_by}</span> : null}
+                  </td>
+                  <td className="num ok">−{money(n.total)}</td>
+                </tr>
+              ))}
+            </tbody>
           </table>
         </div>
       ) : null}
@@ -516,7 +634,107 @@ export function StatementView() {
           }}
         />
       ) : null}
+      {dialog?.kind === 'credit' ? (
+        <CreditNoteModal
+          statementId={id}
+          outstanding={statementBalance(s)}
+          room={creditRoom(s)}
+          total={total}
+          currency={cur}
+          onClose={() => setDialog(null)}
+          onDone={async (n) => {
+            setDialog(null)
+            setFlash(`credit note ${n.number} issued for ${formatMoney(toNumber(n.total), cur)} — ${creditNoteEffect(n, cur, (v, c) => formatMoney(v, c))}`)
+            await q.reload()
+          }}
+        />
+      ) : null}
     </div>
+  )
+}
+
+/**
+ * A credit note (DESIGN.md §9.3): the amount comes off the invoice's
+ * outstanding first; anything beyond what is outstanding — a paid invoice,
+ * or an over-credit — becomes credit on the customer's account. The
+ * server refuses a note that would exceed the invoice total less the notes
+ * already issued; this form refuses the same before the round trip.
+ */
+function CreditNoteModal({
+  statementId,
+  outstanding,
+  room,
+  total,
+  currency,
+  onClose,
+  onDone,
+}: {
+  statementId: string
+  outstanding: number
+  room: number
+  total: number
+  currency: string
+  onClose: () => void
+  onDone: (note: CreditNote) => void | Promise<void>
+}) {
+  const [form, setForm] = useState<CreditNoteForm>(() => emptyCreditNoteForm(Math.min(outstanding, room)))
+  const [errors, setErrors] = useState<Errors<CreditNoteForm>>({})
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const set = <K extends keyof CreditNoteForm>(k: K, v: CreditNoteForm[K]) => setForm((f) => ({ ...f, [k]: v }))
+  const amount = form.full ? room : Number(form.amount || 0)
+  const toAccount = Math.max(0, amount - outstanding)
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    const errs = validateCreditNote(form, room)
+    setErrors(errs)
+    if (hasErrors(errs)) return
+    setBusy(true)
+    setError('')
+    try {
+      await onDone(await api.post<CreditNote>(`/statements/${statementId}/credit-notes`, creditNoteBody(form)))
+    } catch (err) {
+      setError(errorText(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal
+      title="Issue a credit note"
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+          <button className="primary" form="credit-note-form" disabled={busy}>
+            {busy ? 'Issuing…' : 'Issue credit note'}
+          </button>
+        </>
+      }
+    >
+      <form id="credit-note-form" onSubmit={(e) => void submit(e)} className="stack tight">
+        <p className="muted small" style={{ margin: 0 }}>
+          {formatMoney(outstanding, currency)} outstanding of {formatMoney(total, currency)}; {formatMoney(room, currency)} can still be credited. The note reduces the outstanding first — anything beyond it becomes credit on the account.
+        </p>
+        <label className="check">
+          <input type="checkbox" checked={form.full} onChange={(e) => set('full', e.target.checked)} /> Credit the whole invoice ({formatMoney(total, currency)})
+        </label>
+        {!form.full ? (
+          <Field label={`Amount (${currency})`} error={errors.amount} help="Including tax, at the rate the invoice was issued with.">
+            <input value={form.amount} onChange={(e) => set('amount', e.target.value)} inputMode="decimal" autoFocus />
+          </Field>
+        ) : null}
+        <Field label="Reason" error={errors.reason} help="Printed on the credit note and kept on the record.">
+          <input value={form.reason} onChange={(e) => set('reason', e.target.value)} placeholder="service credit for the outage of 12 August" />
+        </Field>
+        {!hasErrors(errors) && amount > 0 && toAccount > 0 ? <Notice kind="warn">{formatMoney(toAccount, currency)} exceeds what is outstanding and will be held as credit on the account.</Notice> : null}
+        {error ? <Notice kind="bad">{error}</Notice> : null}
+      </form>
+    </Modal>
   )
 }
 
@@ -546,7 +764,10 @@ function CancelDialog({ busy, onClose, onConfirm }: { busy: boolean; onClose: ()
 /**
  * Recording what arrived (DESIGN.md §8). Part payment is ordinary: the
  * balance carries and the invoice stays open until the payments reach the
- * total. More than the balance is refused — by this form and by the server.
+ * total. More than the balance is refused — by this form and by the server —
+ * judged at the currency's minor unit: the prefilled amount is the exact
+ * outstanding rounded to what a transfer can carry (4.857 for 4.856782 OMR),
+ * and paying it settles the invoice.
  */
 function RecordPaymentModal({
   statementId,
@@ -562,16 +783,20 @@ function RecordPaymentModal({
   onDone: (amount: number) => void | Promise<void>
 }) {
   const today = new Date().toISOString().slice(0, 10)
-  const [form, setForm] = useState<PaymentForm>(() => emptyPaymentForm(balance, today))
+  const digits = minorUnitDigits(currency)
+  const [form, setForm] = useState<PaymentForm>(() => emptyPaymentForm(balance, today, digits))
   const [errors, setErrors] = useState<Errors<PaymentForm>>({})
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const set = <K extends keyof PaymentForm>(k: K, v: PaymentForm[K]) => setForm((f) => ({ ...f, [k]: v }))
   const remaining = balance - Number(form.amount || 0)
+  // Still owed only when what is left is at least half a minor unit — less
+  // than that is the settlement the server books as paid.
+  const stillOwed = remaining >= minorUnitTolerance(currency)
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
-    const errs = validatePayment(form, balance)
+    const errs = validatePayment(form, balance, digits)
     setErrors(errs)
     if (hasErrors(errs)) return
     setBusy(true)
@@ -603,7 +828,7 @@ function RecordPaymentModal({
     >
       <form id="record-payment-form" onSubmit={(e) => void submit(e)} className="stack tight">
         <p className="muted small" style={{ margin: 0 }}>
-          {formatMoney(balance, currency)} outstanding. Part payment is fine — the balance carries and the invoice settles when the payments reach the total.
+          {formatMoney(balance, currency, { digits })} outstanding. Part payment is fine — the balance carries and the invoice settles when the payments reach the total.
         </p>
         <div className="grid2">
           <Field label={`Amount (${currency})`} error={errors.amount}>
@@ -616,7 +841,7 @@ function RecordPaymentModal({
         <Field label="Reference" error={errors.reference} help="The bank or gateway transaction id. Recording the same reference twice is refused, so a duplicate can never be booked.">
           <input value={form.reference} onChange={(e) => set('reference', e.target.value)} className="mono" placeholder="TRF-4471" />
         </Field>
-        {!hasErrors(errors) && form.amount && remaining > 0 ? <Notice kind="warn">{formatMoney(remaining, currency)} will still be outstanding.</Notice> : null}
+        {!hasErrors(errors) && form.amount && stillOwed ? <Notice kind="warn">{formatMoney(remaining, currency, { digits })} will still be outstanding.</Notice> : null}
         {error ? <Notice kind="bad">{error}</Notice> : null}
       </form>
     </Modal>

@@ -110,6 +110,31 @@ export interface Customer {
    * system, when that system is the Sovereign's system of record.
    */
   external_account_id?: string | null
+  /** DESIGN.md §9.4 — the tax profile; tax_rate is a fraction overriding the Sovereign default (absent = default). */
+  tax_registration_number?: string | null
+  tax_exempt?: boolean
+  tax_exempt_reason?: string | null
+  tax_rate?: number | string | null
+  /** DESIGN.md §9.5 — apply available credit to every invoice at issue. */
+  auto_apply_credit?: boolean
+  /** Prepaid wallet: alert below this (absent = off) and suspend at zero. */
+  low_balance_threshold?: number | string | null
+  suspend_at_zero?: boolean
+  /** DESIGN.md §9.7 — set while this product holds the Organization suspended at the platform. */
+  platform_suspended_at?: string | null
+  suspension_reason?: string | null
+  suspension_source?: 'collections' | 'wallet' | 'operator' | 'import' | string | null
+  /** The balance the external billing system last reported (external mode). */
+  external_balance?: number | string | null
+  external_balance_at?: string | null
+  /**
+   * DESIGN.md §9 — the ledger balance from the customer_balances view,
+   * accounting-signed: positive is owed by the customer, negative is credit
+   * it holds. Read-only bare numbers; absent on a document written before
+   * they existed.
+   */
+  balance?: number
+  available_credit?: number
   status: CustomerStatus | string
   start_date?: string | null
   /** Catalog plan (s, m, l, xl, flexi; '' = none) — an Organization's comes from its CR. */
@@ -226,6 +251,187 @@ export interface StatementPayment {
   gateway?: string
   recorded_by?: string
   recorded_at?: string
+  /**
+   * DESIGN.md §9.2 — allocation. On a customer's payment list `allocated` is
+   * what reached invoices and `unallocated` the credit left on account; on
+   * an invoice document `allocated` is what reached THAT invoice.
+   */
+  allocated?: number | string
+  unallocated?: number | string
+  allocations?: Allocation[] | null
+  /** checkout (the customer paid now) or collection (an unpaid invoice was pursued). */
+  purpose?: 'checkout' | 'collection' | string
+  intent_id?: string
+  refunded_at?: string | null
+  refund_reason?: string
+  note?: string
+}
+
+/** A payment as the account lists it — the same object as StatementPayment. */
+export type Payment = StatementPayment
+
+/** One application of a payment or a credit note to an invoice. */
+export interface Allocation {
+  id: number
+  statement_id: string
+  invoice_number?: string
+  payment_id?: number
+  credit_note_id?: string
+  amount: number | string
+  allocated_at: string
+  allocated_by?: string
+}
+
+/** DESIGN.md §9.3 — the only way an issued invoice is reduced. */
+export interface CreditNote {
+  id: string
+  customer_id: string
+  statement_id: string
+  invoice_number?: string
+  number: string
+  kind: 'partial' | 'full' | 'write_off' | string
+  reason?: string
+  currency: string
+  subtotal: number | string
+  tax_rate: number | string
+  tax: number | string
+  total: number | string
+  lines?: Array<{ sku?: string; description?: string; quantity?: number | string; unit?: string; unit_price?: number | string; amount: number | string }> | null
+  /** What reduced the invoice, and what became credit on the account. */
+  applied: number | string
+  unapplied: number | string
+  issued_at: string
+  issued_by?: string
+}
+
+/** DESIGN.md §9.4 — what an issued invoice carries about tax, frozen at issue. */
+export interface TaxSnapshot {
+  rate: number | string
+  exempt: boolean
+  exempt_reason?: string
+  customer_name: string
+  customer_tax_registration_number?: string
+  seller_legal_name?: string
+  seller_tax_registration_number?: string
+  seller_address?: string
+}
+
+/** One row of the account ledger; amount is signed (positive = owed). */
+export interface AccountEntry {
+  id: number
+  customer_id: string
+  kind: 'invoice' | 'payment' | 'credit_note' | 'refund' | 'write_off' | 'top_up' | string
+  amount: number | string
+  currency: string
+  statement_id?: string
+  invoice_number?: string
+  payment_id?: number
+  credit_note_id?: string
+  credit_note_number?: string
+  reference?: string
+  note?: string
+  /** The running balance after this entry. */
+  balance: number | string
+  entered_at: string
+  entered_by?: string
+}
+
+/** GET /customers/{id}/account */
+export interface AccountDocument {
+  customer_id: string
+  currency: string
+  /** The ledger sum: positive owed, negative in credit. */
+  balance: number | string
+  available_credit: number | string
+  outstanding: number | string
+  overdue: number | string
+  open_invoices: number
+  account_owner: 'internal' | 'external' | string
+  external_balance?: number | string | null
+  external_balance_at?: string | null
+  entries: AccountEntry[]
+  payments: Payment[]
+  credit_notes: CreditNote[]
+  suspension?: { suspended_at: string; source: string; reason?: string } | null
+  payment_model?: string
+  auto_apply_credit?: boolean
+  suspend_at_zero?: boolean
+  low_balance_threshold?: number | string | null
+}
+
+/** DESIGN.md §9.2 — one request to the gateway seam and its outcome. */
+export interface PaymentIntent {
+  id: string
+  customer_id: string
+  purpose: 'checkout' | 'collection' | string
+  statement_id?: string
+  amount: number | string
+  currency: string
+  gateway?: string
+  status: 'requested' | 'pending' | 'settled' | 'failed' | 'refused' | 'awaiting-transfer' | string
+  reference?: string
+  pay_url?: string
+  detail?: string
+  payment_id?: number
+  created_at: string
+  updated_at: string
+}
+
+/** DESIGN.md §9.7 — one executed suspend / resume with the platform's answer. */
+export interface Suspension {
+  id: number
+  customer_id: string
+  action: 'suspend' | 'resume' | string
+  source: string
+  reason?: string
+  ok: boolean
+  error?: string
+  actor?: string
+  at: string
+}
+
+export type AgingBucket = 'current' | '1-30' | '31-60' | '61-90' | 'over-90'
+
+export interface AgingRow {
+  customer_id: string
+  customer_name: string
+  customer_slug: string
+  currency: string
+  buckets: Partial<Record<AgingBucket, number | string>>
+  total: number | string
+  overdue: number | string
+  oldest_days: number
+  invoices: number
+  suspended: boolean
+  suspended_at?: string | null
+  suspension_source?: string
+  suspension_reason?: string
+  available_credit: number | string
+}
+
+/** GET /collections/aging */
+export interface AgingReport {
+  as_of: string
+  buckets: string[]
+  rows: AgingRow[]
+  totals: Partial<Record<AgingBucket, number | string>>
+  total: number | string
+  overdue: number | string
+  invoices: Array<{ statement_id: string; invoice_number?: string; customer_id: string; customer_name: string; currency: string; due_at: string; days_past_due: number; bucket: AgingBucket | string; outstanding: number | string; status: string }>
+  collections_owner: 'internal' | 'external' | string
+}
+
+/** POST /collections/run */
+export interface CollectionsRun {
+  invoices: number
+  reminders: number
+  escalations: number
+  suspended: number
+  resumed: number
+  mails: number
+  errors: number
+  skipped: boolean
+  skip_reason?: string
 }
 
 export interface Statement {
@@ -264,9 +470,13 @@ export interface Statement {
   paid_at?: string | null
   cancelled_at?: string | null
   cancel_reason?: string | null
-  /** Sum of the recorded payments, and total − paid. Computed on read. */
+  /** Sum of the recorded payments, and total − paid − credited. Computed on read. */
   paid_total?: number | string
   balance?: number | string
+  /** DESIGN.md §9.3 — what credit notes took off this invoice. */
+  credited_total?: number | string
+  tax_snapshot?: TaxSnapshot | null
+  credit_notes?: CreditNote[] | null
   payments?: StatementPayment[] | null
   issued_at?: string | null
   created_at?: string
@@ -748,6 +958,21 @@ export type DiscountRule = 'most-specific' | 'highest' | 'stack' | 'compound'
 
 export interface BillingSettings {
   discount_rule: DiscountRule | string
+  /** DESIGN.md §8 — what invoice numbers start with. */
+  invoice_prefix?: string
+  /** DESIGN.md §8.10 — who invoices, and the external-ingest variant (§9.1). */
+  commercial_provider?: 'internal' | 'external' | string
+  external_ingest?: 'rated_bill' | 'summary_charge' | string
+  /** DESIGN.md §9.4 — the Sovereign's tax identity and default rate. */
+  tax_rate?: number | string
+  tax_registration_number?: string
+  legal_name?: string
+  address?: string
+  credit_note_prefix?: string
+  /** DESIGN.md §9.6 — the collections schedule; negative days are before the due date. */
+  reminder_days?: number[]
+  escalation_days?: number
+  escalation_action?: 'notify' | 'suspend' | string
   updated_at?: string
 }
 

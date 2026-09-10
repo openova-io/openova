@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { deltaPct, formatCompact, formatDelta, formatMoney, formatNumber, formatPct, formatQty } from './money'
+import { deltaPct, formatCompact, formatDelta, formatMoney, formatNumber, formatPct, formatQty, minorUnitDigits, minorUnitTolerance } from './money'
+
+describe('minorUnitDigits', () => {
+  it('three for the dinars and the rial, two elsewhere, whatever the case', () => {
+    for (const c of ['OMR', 'BHD', 'KWD', 'JOD', 'IQD', 'LYD', 'TND', 'omr', ' omr ']) expect(minorUnitDigits(c)).toBe(3)
+    for (const c of ['USD', 'EUR', 'AED', 'SAR', 'GBP', '', undefined, null]) expect(minorUnitDigits(c)).toBe(2)
+    expect(minorUnitTolerance('OMR')).toBeCloseTo(0.0005, 10)
+    expect(minorUnitTolerance('USD')).toBeCloseTo(0.005, 10)
+  })
+})
 
 describe('formatMoney', () => {
   it('renders three decimals with thousands separators and the currency', () => {

@@ -21,6 +21,7 @@ const OPERATOR_NAV: readonly NavGroup[] = [
     'Bill',
     [
       ['/statements', 'Statements', '≡'],
+      ['/collections', 'Collections', '⧗'],
       ['/budgets', 'Budgets', '◔'],
       ['/reports', 'Reports', '✉'],
     ],
@@ -32,6 +33,7 @@ const OPERATOR_NAV: readonly NavGroup[] = [
       ['/pricebooks', 'Price books', '¤'],
       ['/discounts', 'Discounts', '%'],
       ['/allocation', 'Allocation', '⇶'],
+      ['/billing', 'Billing', '¶'],
     ],
   ],
 ] as const

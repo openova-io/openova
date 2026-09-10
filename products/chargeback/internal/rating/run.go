@@ -119,7 +119,8 @@ func TotalsWithDiscount(lines []store.RatedLine, discount store.Decimal, taxRate
 	return
 }
 
-// DefaultTaxRate is Oman VAT.
+// DefaultTaxRate is Oman VAT — the Sovereign default when the operator has
+// set none (store.DefaultTaxRate is the same figure at the column's scale).
 const DefaultTaxRate store.Decimal = "0.05"
 
 // Result is one customer's outcome in a run.
@@ -168,7 +169,7 @@ func Run(ctx context.Context, st *store.Store, period, customerID string) ([]Res
 			continue
 		}
 		res := Result{CustomerID: c.ID, CustomerName: c.Name}
-		stmt, detail, err := rateCustomer(ctx, st, c, from, to, settings.DiscountRule)
+		stmt, detail, err := rateCustomer(ctx, st, c, from, to, settings)
 		if err != nil {
 			if customerID != "" && errors.Is(err, ErrMixedCurrency) {
 				return nil, err
@@ -202,10 +203,16 @@ type rateDetail struct {
 // rateCustomer rates one customer: its usage grouped per source, each
 // source's rows priced with that source's book and stopped-instance policy,
 // the lines summed into one statement in the one currency the books share.
-// discountRule is the operator-selected combination rule, read once per run
-// so every statement of the run states the same rule (#6867).
-func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, from, to time.Time, discountRule string) (store.Statement, rateDetail, error) {
+// settings carry the operator-selected combination rule, read once per run
+// so every statement of the run states the same rule (#6867), and the
+// Sovereign's default tax rate the customer's own profile overrides
+// (DESIGN.md §9.4).
+func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, from, to time.Time, settings store.BillingSettings) (store.Statement, rateDetail, error) {
 	var detail rateDetail
+	discountRule := settings.DiscountRule
+	// The customer's rate: zero when exempt, its own when it has one, else
+	// the Sovereign default. Frozen onto the invoice at issue.
+	taxRate := store.EffectiveTaxRate(c, settings)
 	sources, err := st.ListSources(ctx, store.OperatorScope, c.ID)
 	if err != nil {
 		return store.Statement{}, detail, fmt.Errorf("sources: %w", err)
@@ -303,7 +310,7 @@ func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, from, 
 	if err != nil {
 		return store.Statement{}, detail, err
 	}
-	subtotal, tax, total, err := TotalsWithDiscount(lines, discountTotal, DefaultTaxRate)
+	subtotal, tax, total, err := TotalsWithDiscount(lines, discountTotal, taxRate)
 	if err != nil {
 		return store.Statement{}, detail, err
 	}
@@ -313,7 +320,7 @@ func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, from, 
 		PeriodEnd:        to.AddDate(0, 0, -1),
 		Currency:         currency,
 		Subtotal:         subtotal,
-		TaxRate:          DefaultTaxRate,
+		TaxRate:          taxRate,
 		Tax:              tax,
 		Total:            total,
 		Lines:            lines,

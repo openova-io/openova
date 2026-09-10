@@ -13,20 +13,28 @@ const statementColumns = `st.id, st.customer_id, to_char(st.period_start, 'YYYY-
 	st.subtotal::text, st.tax_rate::text, st.tax::text, st.total::text, st.status, st.issued_at, st.created_at, c.name,
 	COALESCE(st.discount_total, 0)::text, st.discount_detail, st.discount_rule,
 	st.invoice_number, st.external_invoice_ref, st.po_reference, st.payment_terms_days, st.due_at, st.sent_at, st.paid_at, st.cancelled_at, st.cancel_reason,
-	COALESCE((SELECT sum(p.amount) FROM payments p WHERE p.statement_id = st.id AND p.status = 'received'), 0)::numeric(20,6)::text`
+	COALESCE((SELECT sum(a.amount) FROM invoice_allocations a JOIN payments p ON p.id = a.payment_id WHERE a.statement_id = st.id AND p.status = 'received'), 0)::numeric(20,6)::text,
+	COALESCE((SELECT sum(a.amount) FROM invoice_allocations a WHERE a.statement_id = st.id AND a.credit_note_id IS NOT NULL), 0)::numeric(20,6)::text,
+	st.tax_snapshot`
 
 func scanStatement(row interface{ Scan(...any) error }) (Statement, error) {
 	var st Statement
 	var sub, rate, tax, total, disc string
 	var issued sql.NullTime
-	var detail []byte
+	var detail, snapshot []byte
 	var rule, invoiceNo, externalRef sql.NullString
 	var terms sql.NullInt64
 	var due, sent, paidAt, cancelled sql.NullTime
-	var paid string
+	var paid, credited string
 	if err := row.Scan(&st.ID, &st.CustomerID, &st.PeriodStart, &st.PeriodEnd, &st.Currency, &sub, &rate, &tax, &total, &st.Status, &issued, &st.CreatedAt, &st.CustomerName, &disc, &detail, &rule,
-		&invoiceNo, &externalRef, &st.PORef, &terms, &due, &sent, &paidAt, &cancelled, &st.CancelReason, &paid); err != nil {
+		&invoiceNo, &externalRef, &st.PORef, &terms, &due, &sent, &paidAt, &cancelled, &st.CancelReason, &paid, &credited, &snapshot); err != nil {
 		return st, mapErr(err)
+	}
+	if len(snapshot) > 0 && string(snapshot) != "null" {
+		var ts TaxSnapshot
+		if json.Unmarshal(snapshot, &ts) == nil {
+			st.TaxSnapshot = &ts
+		}
 	}
 	st.Subtotal, st.TaxRate, st.Tax, st.Total = Decimal(sub), Decimal(rate), Decimal(tax), Decimal(total)
 	st.DiscountTotal = Decimal(disc)
@@ -47,6 +55,7 @@ func scanStatement(row interface{ Scan(...any) error }) (Statement, error) {
 	}
 	st.DueAt, st.SentAt, st.PaidAt, st.CancelledAt = timePtr(due), timePtr(sent), timePtr(paidAt), timePtr(cancelled)
 	st.Paid = Decimal(paid)
+	st.Credited = Decimal(credited)
 	st.Balance = st.OutstandingAt()
 	st.EffectiveStatus = st.EffectiveStatusAt(time.Now().UTC())
 	return st, nil
@@ -201,6 +210,14 @@ func (s *Store) GetStatement(ctx context.Context, scope Scope, id string) (State
 		return st, err
 	}
 	st.Payments = pays
+	// And the credit notes behind Credited (DESIGN.md §9.3).
+	if ratOf(st.Credited).Sign() > 0 || st.Status == StatusCancelled {
+		notes, err := s.listCreditNotes(ctx, `n.statement_id = $1`, id)
+		if err != nil {
+			return st, err
+		}
+		st.CreditNotes = notes
+	}
 	return st, nil
 }
 
@@ -222,19 +239,35 @@ func (s *Store) IssueStatement(ctx context.Context, id string) (Statement, error
 // the invoice must quote, and computes the due date from them. Number and
 // status therefore commit together: a concurrent issue cannot duplicate a
 // number, and a transaction that rolls back leaves no hole in the sequence.
+//
+// Since DESIGN.md §9 the same transaction also freezes the TAX SNAPSHOT,
+// posts the invoice DEBIT on the customer's ledger, and — for a prepaid
+// customer, or one with auto_apply_credit — settles the invoice from the
+// account's available credit, oldest credit first.
 func (s *Store) IssueStatementOnce(ctx context.Context, id string) (st Statement, transitioned bool, err error) {
+	return s.issueStatementOnce(ctx, id, "")
+}
+
+// IssueStatementOnceBy is IssueStatementOnce with the actor the ledger names.
+func (s *Store) IssueStatementOnceBy(ctx context.Context, id, actor string) (st Statement, transitioned bool, err error) {
+	return s.issueStatementOnce(ctx, id, actor)
+}
+
+func (s *Store) issueStatementOnce(ctx context.Context, id, actor string) (st Statement, transitioned bool, err error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Statement{}, false, err
 	}
 	defer tx.Rollback()
-	var status, poRef string
+	var status, poRef, customerID, currency, rate, total, paymentModel string
 	var terms sql.NullInt64
 	var custPO string
 	var custTerms int
-	err = tx.QueryRowContext(ctx, `SELECT st.status, st.po_reference, st.payment_terms_days, c.po_reference, c.payment_terms_days
+	var autoApply bool
+	err = tx.QueryRowContext(ctx, `SELECT st.status, st.po_reference, st.payment_terms_days, c.po_reference, c.payment_terms_days,
+		st.customer_id, st.currency, st.tax_rate::text, st.total::text, COALESCE(c.payment_model, ''), c.auto_apply_credit
 		FROM statements st JOIN customers c ON c.id = st.customer_id WHERE st.id = $1 FOR UPDATE OF st`, id).
-		Scan(&status, &poRef, &terms, &custPO, &custTerms)
+		Scan(&status, &poRef, &terms, &custPO, &custTerms, &customerID, &currency, &rate, &total, &paymentModel, &autoApply)
 	if err != nil {
 		return Statement{}, false, mapErr(err)
 	}
@@ -270,11 +303,34 @@ func (s *Store) IssueStatementOnce(ctx context.Context, id string) (st Statement
 		if err != nil {
 			return Statement{}, false, err
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE statements SET status = 'issued', issued_at = COALESCE(issued_at, now()),
+		// The tax snapshot (DESIGN.md §9.4): what the invoice says about
+		// tax is fixed now and never recomputed.
+		snap, err := taxSnapshotTx(ctx, tx, customerID, Decimal(rate), settings)
+		if err != nil {
+			return Statement{}, false, err
+		}
+		snapJSON, _ := json.Marshal(snap)
+		now := time.Now().UTC()
+		if _, err := tx.ExecContext(ctx, `UPDATE statements SET status = 'issued', issued_at = COALESCE(issued_at, $5),
 			invoice_number = $2, po_reference = $3, payment_terms_days = $4,
-			due_at = COALESCE(issued_at, now()) + make_interval(days => $4)
-			WHERE id = $1 AND status = 'draft'`, id, number, poRef, days); err != nil {
+			due_at = COALESCE(issued_at, $5) + make_interval(days => $4), tax_snapshot = $6
+			WHERE id = $1 AND status = 'draft'`, id, number, poRef, days, now, snapJSON); err != nil {
 			return Statement{}, false, mapErr(err)
+		}
+		// The receivable, on the ledger (DESIGN.md §9.1).
+		if ratOf(Decimal(total)).Sign() > 0 {
+			if err := postEntry(ctx, tx, AccountEntry{CustomerID: customerID, Kind: EntryInvoice, Amount: Decimal(total), Currency: currency, StatementID: id, Reference: number, EnteredAt: now, EnteredBy: actor}); err != nil {
+				return Statement{}, false, err
+			}
+			// Prepaid settles from the balance at issue; a postpaid customer
+			// who asked for it gets the same (DESIGN.md §9.5). Otherwise the
+			// invoice is left due on terms and credit is applied when the
+			// customer chooses.
+			if paymentModel == PaymentModelPrepaid || autoApply {
+				if _, err := applyCreditTx(ctx, tx, customerID, id, actor, now); err != nil {
+					return Statement{}, false, err
+				}
+			}
 		}
 		transitioned = true
 	}

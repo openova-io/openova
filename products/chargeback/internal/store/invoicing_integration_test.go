@@ -269,9 +269,26 @@ func TestIntegrationStatementLifecycleRefusesIllegalTransitions(t *testing.T) {
 	if _, transitioned, err := st.SendStatement(ctx, b.ID); err != nil || transitioned {
 		t.Fatalf("re-send: transitioned=%v err=%v", transitioned, err)
 	}
-	// sent → cancelled is refused: the customer holds that invoice.
-	if _, _, err := st.CancelStatement(ctx, b.ID, "changed our mind"); !store.IsConflict(err) {
-		t.Fatalf("cancelling a sent invoice = %v, want a conflict", err)
+	// sent → cancelled is a FULL CREDIT NOTE, never a status flip (DESIGN.md
+	// §9.3): the customer holds that invoice, and the note is the document
+	// that takes it back. Proven on a separate sent invoice so this one can
+	// go on to be paid.
+	cn := newDraft()
+	if _, _, err := st.IssueStatementOnce(ctx, cn.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := st.SendStatement(ctx, cn.ID); err != nil {
+		t.Fatal(err)
+	}
+	voided, transitioned, err := st.CancelStatement(ctx, cn.ID, "changed our mind")
+	if err != nil || !transitioned || voided.Status != store.StatusCancelled {
+		t.Fatalf("cancelling a sent invoice: %+v transitioned=%v err=%v", voided.Status, transitioned, err)
+	}
+	if len(voided.CreditNotes) != 1 || voided.CreditNotes[0].Kind != store.CreditNoteFull || string(voided.CreditNotes[0].Total) != "100.000000" || voided.CreditNotes[0].Reason != "changed our mind" {
+		t.Fatalf("a cancelled sent invoice must carry one full credit note for its total: %+v", voided.CreditNotes)
+	}
+	if string(voided.Balance) != "0.000000" {
+		t.Fatalf("a cancelled invoice carries nothing: balance = %s", voided.Balance)
 	}
 	paid, _, err := st.RecordStatementPayment(ctx, b.ID, store.PaymentInput{Amount: "100.000000", Reference: "TRF-1", PaidAt: time.Now().UTC()})
 	if err != nil || paid.Status != store.StatusPaid || paid.PaidAt == nil {
@@ -366,8 +383,10 @@ func TestIntegrationPartPaymentCarriesTheBalance(t *testing.T) {
 		t.Fatalf("a pending payment settled something: status=%s balance=%s (was %s)", withPending.Status, withPending.Balance, pendingBefore)
 	}
 
-	// Too much, by the smallest unit the column carries.
-	if _, _, err := st.RecordStatementPayment(ctx, d.ID, store.PaymentInput{Amount: "600.100001", Reference: "TRF-OVER"}); !store.IsConflict(err) {
+	// Too much, by the smallest unit MONEY carries — a baisa. (A millionth
+	// over, the smallest unit the column carries, is a settlement now:
+	// TestIntegrationPaymentSettlesAtTheMinorUnit in internal/api.)
+	if _, _, err := st.RecordStatementPayment(ctx, d.ID, store.PaymentInput{Amount: "600.101", Reference: "TRF-OVER"}); !store.IsConflict(err) {
 		t.Fatalf("overpayment = %v, want a conflict", err)
 	}
 	if _, _, err := st.RecordStatementPayment(ctx, d.ID, store.PaymentInput{Amount: "0", Reference: "TRF-ZERO"}); err == nil {

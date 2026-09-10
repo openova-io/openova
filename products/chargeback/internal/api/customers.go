@@ -62,6 +62,17 @@ type customerBody struct {
 	// stays writable in external mode — it is how a rated bill is attributed
 	// over there, and only we know which of our customers is which.
 	ExternalAccountID *string `json:"external_account_id"`
+	// The tax profile (DESIGN.md §9.4). tax_rate is a fraction (0.05 = 5 %);
+	// an empty string clears the override back to the Sovereign default.
+	TaxRegistrationNumber *string        `json:"tax_registration_number"`
+	TaxExempt             *bool          `json:"tax_exempt"`
+	TaxExemptReason       *string        `json:"tax_exempt_reason"`
+	TaxRate               *store.Decimal `json:"tax_rate"`
+	// Account credit (DESIGN.md §9.5): apply credit at issue; the prepaid
+	// wallet's low-balance alert (empty string = off) and suspend-at-zero.
+	AutoApplyCredit     *bool          `json:"auto_apply_credit"`
+	LowBalanceThreshold *store.Decimal `json:"low_balance_threshold"`
+	SuspendAtZero       *bool          `json:"suspend_at_zero"`
 }
 
 // validPlanSlug accepts a catalog plan slug or "" (no plan), case-folded.
@@ -83,12 +94,15 @@ const paymentTermsHelp = "payment_terms_days must be a whole number of days betw
 // when the operator's billing system is the system of record (DESIGN.md
 // §8.10). The fields are still shown — they are what the export carries —
 // but they are theirs to change, not ours.
-const externallyOwnedHelp = "this Sovereign invoices through the operator's billing system; charging, payment model, payment method and terms are owned there and are read-only here"
+const externallyOwnedHelp = "this Sovereign invoices through the operator's billing system; charging, payment model, payment method, terms and the tax profile are owned there and are read-only here"
 
 // commercialWriteRefused reports whether the body touches a field the
-// external billing system owns, and answers 400 when it does.
+// external billing system owns, and answers 400 when it does. The customer
+// master — the tax registration and exemption included — is theirs too
+// (DESIGN.md §9.1); the account-credit knobs stay ours in every mode.
 func (h *Handler) commercialWriteRefused(w http.ResponseWriter, r *http.Request, in customerBody) bool {
-	if in.Charging == nil && in.PaymentModel == nil && in.PaymentMethod == nil && in.GatewayName == nil && in.PORef == nil && in.PaymentTermsDays == nil {
+	if in.Charging == nil && in.PaymentModel == nil && in.PaymentMethod == nil && in.GatewayName == nil && in.PORef == nil && in.PaymentTermsDays == nil &&
+		in.TaxRegistrationNumber == nil && in.TaxExempt == nil && in.TaxExemptReason == nil && in.TaxRate == nil {
 		return false
 	}
 	settings, err := h.Store.GetBillingSettings(r.Context())
@@ -189,6 +203,17 @@ func (h *Handler) createCustomer(w http.ResponseWriter, r *http.Request) {
 		}
 		ci.PaymentTermsDays = in.PaymentTermsDays
 	}
+	ci.Tax = store.TaxProfile{TaxRegistrationNumber: deref(in.TaxRegistrationNumber), TaxExemptReason: deref(in.TaxExemptReason), TaxRate: in.TaxRate}
+	if in.TaxExempt != nil {
+		ci.Tax.TaxExempt = *in.TaxExempt
+	}
+	if in.AutoApplyCredit != nil {
+		ci.AutoApplyCredit = *in.AutoApplyCredit
+	}
+	ci.LowBalanceThreshold = in.LowBalanceThreshold
+	if in.SuspendAtZero != nil {
+		ci.SuspendAtZero = *in.SuspendAtZero
+	}
 	c, err := h.Store.CreateCustomer(r.Context(), ci)
 	if err != nil {
 		storeErr(w, err)
@@ -282,6 +307,8 @@ func (h *Handler) patchCustomer(w http.ResponseWriter, r *http.Request) {
 		}
 		p.PaymentTermsDays = in.PaymentTermsDays
 	}
+	p.TaxRegistrationNumber, p.TaxExempt, p.TaxExemptReason, p.TaxRate = in.TaxRegistrationNumber, in.TaxExempt, in.TaxExemptReason, in.TaxRate
+	p.AutoApplyCredit, p.LowBalanceThreshold, p.SuspendAtZero = in.AutoApplyCredit, in.LowBalanceThreshold, in.SuspendAtZero
 	c, err := h.Store.UpdateCustomer(r.Context(), id, p)
 	if err != nil {
 		storeErr(w, err)
@@ -331,6 +358,27 @@ func patchedFields(in customerBody) []string {
 	}
 	if in.PaymentTermsDays != nil {
 		f = append(f, "payment_terms_days")
+	}
+	if in.TaxRegistrationNumber != nil {
+		f = append(f, "tax_registration_number")
+	}
+	if in.TaxExempt != nil {
+		f = append(f, "tax_exempt")
+	}
+	if in.TaxExemptReason != nil {
+		f = append(f, "tax_exempt_reason")
+	}
+	if in.TaxRate != nil {
+		f = append(f, "tax_rate")
+	}
+	if in.AutoApplyCredit != nil {
+		f = append(f, "auto_apply_credit")
+	}
+	if in.LowBalanceThreshold != nil {
+		f = append(f, "low_balance_threshold")
+	}
+	if in.SuspendAtZero != nil {
+		f = append(f, "suspend_at_zero")
 	}
 	return f
 }

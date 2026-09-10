@@ -13,8 +13,9 @@ import (
 //
 //	draft     → issued, cancelled
 //	issued    → sent, paid, cancelled
-//	sent      → paid, overdue
-//	overdue   → paid
+//	sent      → paid, overdue, cancelled (DESIGN.md §9.3: through a FULL
+//	             credit note, never a status flip)
+//	overdue   → paid, cancelled (same)
 //	paid      → (final)
 //	cancelled → (final)
 //
@@ -24,8 +25,8 @@ func TestLegalStatementTransitions(t *testing.T) {
 	legal := map[string][]string{
 		store.StatusDraft:     {store.StatusIssued, store.StatusCancelled},
 		store.StatusIssued:    {store.StatusSent, store.StatusPaid, store.StatusCancelled},
-		store.StatusSent:      {store.StatusPaid, store.StatusOverdue},
-		store.StatusOverdue:   {store.StatusPaid},
+		store.StatusSent:      {store.StatusPaid, store.StatusOverdue, store.StatusCancelled},
+		store.StatusOverdue:   {store.StatusPaid, store.StatusCancelled},
 		store.StatusPaid:      {},
 		store.StatusCancelled: {},
 	}
@@ -82,9 +83,16 @@ func TestEffectiveStatusIsDerivedFromTheDueDate(t *testing.T) {
 		t.Errorf("a fully paid statement past its due date = %s, want sent (nothing is outstanding)", got)
 	}
 	part := sent
-	part.Paid = "99.999999"
+	part.Paid = "99.990000"
 	if got := part.EffectiveStatusAt(after); got != store.StatusOverdue {
 		t.Errorf("a part-paid statement past its due date = %s, want overdue", got)
+	}
+	// Outstanding is judged at the currency's minor unit: a millionth owed
+	// is nothing a bank can carry, so it is settled, not overdue.
+	dust := sent
+	dust.Paid = "99.999999"
+	if got := dust.EffectiveStatusAt(after); got != store.StatusSent {
+		t.Errorf("a statement short by a millionth past its due date = %s, want sent (settled at the minor unit)", got)
 	}
 
 	// Only a SENT invoice can go overdue: a draft has no due date and an

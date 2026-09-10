@@ -158,6 +158,46 @@ export function SettingsPanel({ customer, onSaved }: { customer: Customer; onSav
             Statements are still rated and shown, and nothing is ever collected. Switch charging to billed to choose how it is paid.
           </p>
         )}
+        {/* DESIGN.md §9.5 — account credit. Applying credit is explicit
+            unless the operator switches it on here; the prepaid wallet adds
+            suspend-at-zero. */}
+        {form.charging === 'billed' ? (
+          <>
+            <h3 className="section">Account credit</h3>
+            <label className="check">
+              <input type="checkbox" checked={form.auto_apply_credit} onChange={(e) => set('auto_apply_credit', e.target.checked)} /> Auto-apply credit to new invoices
+            </label>
+            <div className="help">Available credit is applied when an invoice is issued. Off, it stays on account until applied from the Account tab.</div>
+            {form.payment_model === 'prepaid' ? (
+              <>
+                <label className="check">
+                  <input type="checkbox" checked={form.suspend_at_zero} onChange={(e) => set('suspend_at_zero', e.target.checked)} /> Suspend when balance reaches zero
+                </label>
+                <div className="help">A prepaid wallet that runs out suspends the Organization at the platform; a top-up resumes it.</div>
+              </>
+            ) : null}
+          </>
+        ) : null}
+        {/* DESIGN.md §9.4 — the tax profile: exempt with a reason, or a
+            rate that overrides the Sovereign default, and the registration
+            number printed on every invoice. */}
+        <h3 className="section">Tax</h3>
+        <label className="check">
+          <input type="checkbox" checked={form.tax_exempt} onChange={(e) => set('tax_exempt', e.target.checked)} /> Tax exempt
+        </label>
+        {form.tax_exempt ? (
+          <Field label="Exemption reason" error={errors.tax_exempt_reason} help="Printed on every invoice in place of the tax line.">
+            <input value={form.tax_exempt_reason} onChange={(e) => set('tax_exempt_reason', e.target.value)} placeholder="government entity" />
+          </Field>
+        ) : null}
+        <div className="grid2">
+          <Field label="Tax rate override (%)" error={errors.tax_rate} help="Leave empty for the Sovereign default rate from Billing settings.">
+            <input value={form.tax_rate} onChange={(e) => set('tax_rate', e.target.value)} inputMode="decimal" placeholder="default" disabled={form.tax_exempt} />
+          </Field>
+          <Field label="Tax registration number" error={errors.tax_registration_number} help="The customer's registration, printed on its invoices.">
+            <input value={form.tax_registration_number} onChange={(e) => set('tax_registration_number', e.target.value)} className="mono" placeholder="OM1234567890" />
+          </Field>
+        </div>
         <div className="grid2">
           <Field label="Kind" help={kind?.help}>
             <input value={kind?.label ?? customer.kind ?? 'external'} disabled />

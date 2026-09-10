@@ -732,7 +732,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bss"
     ],
     "visibility": "listed",
-    "version": "0.1.27",
+    "version": "0.1.28",
     "section": "pts-4-8-identity-and-metering",
     "depends": [],
     "shareable": false,
