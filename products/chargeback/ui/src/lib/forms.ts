@@ -110,6 +110,11 @@ export interface SettingsShape {
   start_date: string
   status: string
   org_slug: string
+  /** DESIGN.md §9.4 — optional so a caller that knows only the commercial fields still validates. */
+  tax_exempt?: boolean
+  tax_exempt_reason?: string
+  /** Percent as typed; "" is the Sovereign default. */
+  tax_rate?: string
 }
 
 /**
@@ -137,6 +142,12 @@ export function validateSettings(f: SettingsShape): Errors<SettingsShape> {
   if (!['pending', 'active', 'suspended'].includes(f.status)) e.status = 'Choose pending, active or suspended.'
   if (f.start_date && !isDay(f.start_date)) e.start_date = 'Use YYYY-MM-DD.'
   if (f.org_slug.trim() && !SLUG.test(f.org_slug.trim())) e.org_slug = 'Lowercase letters, digits and hyphens only.'
+  const rate = (f.tax_rate ?? '').trim()
+  if (rate) {
+    if (!/^\d+(\.\d+)?$/.test(rate)) e.tax_rate = 'A percentage, e.g. 5 or 5.5.'
+    else if (Number(rate) > 100) e.tax_rate = 'At most 100 %.'
+  }
+  if (f.tax_exempt === true && !(f.tax_exempt_reason ?? '').trim()) e.tax_exempt_reason = 'Say why this customer is exempt — it is printed on every invoice.'
   return e
 }
 
@@ -315,4 +326,73 @@ export function validateSource(f: SourceForm, editable: Array<keyof SourceForm>)
 
 export function hasErrors<T>(e: Errors<T>): boolean {
   return Object.keys(e).length > 0
+}
+
+// ── Top-up and credit note (DESIGN.md §9) ─────────────────────────────────
+
+/** A payment not tied to an invoice: credit on the account. */
+export interface TopUpForm {
+  amount: string
+  paid_at: string
+  reference: string
+  method: string
+}
+
+export const TOP_UP_METHODS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: 'transfer', label: 'Bank transfer' },
+  { value: 'internal', label: 'Internal recharge' },
+]
+
+export function emptyTopUpForm(today: string): TopUpForm {
+  return { amount: '', paid_at: today, reference: '', method: 'transfer' }
+}
+
+export function validateTopUp(f: TopUpForm): Errors<TopUpForm> {
+  const e: Errors<TopUpForm> = {}
+  const a = f.amount.trim()
+  if (!a) e.amount = 'Amount is required.'
+  else if (!DECIMAL.test(a)) e.amount = 'Enter a plain number, e.g. 1200 or 850.500.'
+  else if (Number(a) <= 0) e.amount = 'A top-up must be above zero.'
+  if (!f.paid_at.trim()) e.paid_at = 'The day the money arrived is required.'
+  else if (!isDay(f.paid_at)) e.paid_at = 'Use YYYY-MM-DD.'
+  if (!TOP_UP_METHODS.some((m) => m.value === f.method)) e.method = 'Choose how the money arrived.'
+  return e
+}
+
+/** The body POST /customers/{id}/payments decodes; no allocations, so it is credit on account. */
+export function topUpBody(f: TopUpForm): Record<string, string> {
+  return { amount: f.amount.trim(), paid_at: f.paid_at, reference: f.reference.trim(), method: f.method }
+}
+
+/** A credit note against an issued invoice (DESIGN.md §9.3). */
+export interface CreditNoteForm {
+  amount: string
+  reason: string
+  /** Credit the whole invoice — the server sets the amount to the total. */
+  full: boolean
+}
+
+export function emptyCreditNoteForm(outstanding: number): CreditNoteForm {
+  return { amount: outstanding > 0 ? outstanding.toFixed(3) : '', reason: '', full: false }
+}
+
+/** `room` is what can still be credited: the invoice total less the notes already issued. */
+export function validateCreditNote(f: CreditNoteForm, room: number): Errors<CreditNoteForm> {
+  const e: Errors<CreditNoteForm> = {}
+  if (!f.reason.trim()) e.reason = 'A credit note carries the reason it was issued.'
+  if (!f.full) {
+    const a = f.amount.trim()
+    if (!a) e.amount = 'Amount is required.'
+    else if (!DECIMAL.test(a)) e.amount = 'Enter a plain number, e.g. 50 or 12.500.'
+    else if (Number(a) <= 0) e.amount = 'A credit note must be above zero.'
+    else if (Number(a) > room + 1e-9) e.amount = `More than the ${room.toFixed(3)} that can still be credited on this invoice.`
+  }
+  return e
+}
+
+/** The body POST /statements/{id}/credit-notes decodes. */
+export function creditNoteBody(f: CreditNoteForm): Record<string, string> {
+  const out: Record<string, string> = { reason: f.reason.trim(), kind: f.full ? 'full' : 'partial' }
+  if (!f.full) out.amount = f.amount.trim()
+  return out
 }

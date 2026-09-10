@@ -4,6 +4,7 @@ import { api, asList } from '../api/client'
 import type { Customer, InviteIssued, Summary } from '../api/types'
 import { DataTable, type Column } from '../components/DataTable'
 import { Badge, Delta, KPI, Notice, PageHeader, Segmented, Skeleton } from '../components/ui'
+import { balanceWord, directoryBalance } from '../lib/account'
 import { STATUS_FILTERS, commercialDetail, commercialLabel, customerCounts, filterCustomers, lastStatementText, mtdByCustomer, mtdFor, sourceCounts, sourcesText, type StatusFilter } from '../lib/customers'
 import { sourcesByLayerText } from '../lib/layers'
 import { when } from '../lib/format'
@@ -117,6 +118,25 @@ export function Customers() {
       render: (c) => {
         const v = mtdFor(mtd, c.id)
         return v === null ? <span className="muted" title="Not among the top customers of the summary — open the account for its cost">—</span> : formatMoney(v, currency)
+      },
+    },
+    {
+      // DESIGN.md §9 — the ledger balance, accounting-signed: positive is
+      // owed (red), negative is credit the customer holds (green).
+      key: 'balance',
+      header: 'Balance',
+      value: (c) => directoryBalance(c.balance),
+      numeric: true,
+      render: (c) => {
+        const b = directoryBalance(c.balance)
+        if (b === null) return <span className="muted" title="The list did not carry a balance — open the Account tab">—</span>
+        if (b === 0) return <span className="muted">settled</span>
+        return (
+          <>
+            <span className={b > 0 ? 'bad' : 'ok'}>{formatMoney(Math.abs(b), currency)}</span>
+            <span className="sub">{balanceWord(b)}</span>
+          </>
+        )
       },
     },
     { key: 'collected', header: 'Last collected', value: (c) => c.last_collected_at ?? '', render: (c) => <span className={c.last_collected_at ? '' : 'muted'}>{when(c.last_collected_at)}</span> },
