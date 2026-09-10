@@ -50,6 +50,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 	"time"
@@ -157,6 +158,11 @@ type Result struct {
 
 // Confirmation is the asynchronous "money arrived" message: a gateway
 // callback, a bank statement line, or an operator recording a transfer.
+//
+// A confirmation a gateway delivers on its own (VerifyCallback) names WHAT
+// it is about by identifier — CustomerID or CustomerSlug, and the
+// StatementID or IntentID when it settles one — because the gateway holds
+// no store; the callback handler resolves Statement and Customer from them.
 type Confirmation struct {
 	Statement   store.Statement
 	Customer    store.Customer
@@ -167,7 +173,25 @@ type Confirmation struct {
 	Reference   string
 	// Actor is who is recording it, for the audit trail.
 	Actor string
+	// Identifiers a gateway callback carries (DESIGN.md §9.2). Empty when
+	// the caller already resolved Statement and Customer.
+	CustomerID   string
+	CustomerSlug string
+	StatementID  string
+	IntentID     string
+	// Status is the gateway's word for the outcome — settled, pending,
+	// failed, refunded — mapped by the handler; empty is settled.
+	Status string
 }
+
+// ErrCallbackNotSupported is answered by a gateway that has no inbound
+// callback: the built-in Manual gateway (a transfer is recorded by the
+// operator), and a hook that predates the seam.
+var ErrCallbackNotSupported = errors.New("this gateway delivers no payment callback")
+
+// ErrCallbackRejected wraps a callback whose signature did not verify or
+// whose body could not be read; the route answers 401.
+var ErrCallbackRejected = errors.New("gateway callback rejected")
 
 // Payment is the normalised fact the caller books. It is a payment in its own
 // right — amount, date, method, reference, status — which the caller links to
@@ -181,11 +205,22 @@ type Payment struct {
 	Gateway   string
 }
 
-// Gateway collects money for statements. Two methods: ask for settlement,
-// accept the confirmation that it happened.
+// Gateway collects money for statements. Three methods: ask for settlement,
+// accept the confirmation that it happened, and verify the confirmation the
+// gateway delivers on its own.
+//
+// VerifyCallback is the inbound half of the seam (DESIGN.md §9.2): the
+// gateway posts to POST /api/v1/gateways/{name}/callback, unauthenticated,
+// and the implementation verifies the request with the gateway's OWN
+// signature scheme — a shared secret, a public key, whatever the gateway
+// specifies — and normalises the body into the Confirmation the route books
+// through the commercial provider. It returns ErrCallbackRejected (wrapped)
+// for a request that does not verify and ErrCallbackNotSupported when the
+// gateway has no callback at all.
 type Gateway interface {
 	RequestSettlement(ctx context.Context, req Request) (Result, error)
 	ConfirmSettlement(ctx context.Context, c Confirmation) (Payment, error)
+	VerifyCallback(r *http.Request) (Confirmation, error)
 }
 
 // ErrNoGateway is returned when a customer's gateway_name has no
@@ -218,6 +253,23 @@ func (r *Registry) Register(gatewayName string, g Gateway) {
 		return
 	}
 	r.byGateway[name] = g
+}
+
+// Gateway resolves an implementation by the name a callback route names:
+// a registered gateway, or the built-in manual one under "manual".
+func (r *Registry) Gateway(name string) (Gateway, bool) {
+	if r == nil {
+		return nil, false
+	}
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name == "manual" {
+		if r.manual == nil {
+			return Manual{}, true
+		}
+		return r.manual, true
+	}
+	g, ok := r.byGateway[name]
+	return g, ok
 }
 
 // Gateways lists the registered gateway names, for the startup log.
@@ -347,6 +399,12 @@ func (Manual) ConfirmSettlement(_ context.Context, c Confirmation) (Payment, err
 	return normalise(c, "manual")
 }
 
+// VerifyCallback: a transfer has no gateway to call back; the operator
+// records it when the bank shows it.
+func (Manual) VerifyCallback(*http.Request) (Confirmation, error) {
+	return Confirmation{}, ErrCallbackNotSupported
+}
+
 // normalise is the shared validation every gateway's ConfirmSettlement wants:
 // an amount above zero, a date, and a trimmed reference.
 func normalise(c Confirmation, gateway string) (Payment, error) {
@@ -413,4 +471,19 @@ func (g hookGateway) RequestSettlement(ctx context.Context, req Request) (Result
 
 func (g hookGateway) ConfirmSettlement(_ context.Context, c Confirmation) (Payment, error) {
 	return normalise(c, "statement-hook")
+}
+
+// CallbackVerifier is the one method a legacy hook may add to accept
+// callbacks through the adapter.
+type CallbackVerifier interface {
+	VerifyCallback(r *http.Request) (Confirmation, error)
+}
+
+// VerifyCallback delegates to the hook when it verifies callbacks itself;
+// a hook that predates the seam has none.
+func (g hookGateway) VerifyCallback(r *http.Request) (Confirmation, error) {
+	if v, ok := g.h.(CallbackVerifier); ok {
+		return v.VerifyCallback(r)
+	}
+	return Confirmation{}, ErrCallbackNotSupported
 }

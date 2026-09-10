@@ -299,6 +299,10 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/customers/{id}/suspend", h.suspendCustomer)
 	mux.HandleFunc("POST /api/v1/customers/{id}/resume", h.resumeCustomer)
 	mux.HandleFunc("GET /api/v1/customers/{id}/suspensions", h.listSuspensions)
+	// The gateway's OWN confirmation (DESIGN.md §9.2): unauthenticated,
+	// verified by the gateway's signature through settle.Gateway.VerifyCallback,
+	// booked through the commercial provider, idempotent on the reference.
+	mux.HandleFunc("POST /api/v1/gateways/{name}/callback", h.gatewayCallback)
 
 	// Currency rates (#6867 follow-up, DESIGN.md §3.10) — operator-only.
 	// per_base of a price-book currency relative to the reporting currency

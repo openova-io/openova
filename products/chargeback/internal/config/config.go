@@ -43,6 +43,10 @@ type Config struct {
 	// superadmin bearer token the metering endpoint requires.
 	BillingHookURL   string
 	BillingHookToken string
+	// BillingHookCallbackSecret signs the billing service's payment
+	// callbacks to POST /api/v1/gateways/stripe/callback (DESIGN.md §9.2);
+	// unset ⇒ that route refuses every callback for the stripe gateway.
+	BillingHookCallbackSecret string
 
 	// CommercialExportDir is where the csvfile exporter writes rated bills
 	// when the Sovereign invoices through the operator's own billing system
@@ -85,31 +89,32 @@ type Config struct {
 // the process unsafe to run (a malformed duration falls back with a warning).
 func FromEnv() (Config, error) {
 	c := Config{
-		DatabaseURL:            get("DATABASE_URL", "postgres://chargeback:chargeback@localhost:5432/chargeback?sslmode=disable"),
-		EncryptionKeyB64:       os.Getenv("APP_ENCRYPTION_KEY"),
-		OperatorEmails:         splitList(os.Getenv("OPERATOR_EMAILS")),
-		PublicURL:              strings.TrimRight(get("PUBLIC_URL", "http://localhost:8080"), "/"),
-		ListenAddr:             get("LISTEN_ADDR", ":8080"),
-		Profile:                get("PROFILE", "sovereign"),
-		SMTPHost:               os.Getenv("SMTP_HOST"),
-		SMTPPort:               intEnv("SMTP_PORT", 587),
-		SMTPUser:               os.Getenv("SMTP_USER"),
-		SMTPPass:               os.Getenv("SMTP_PASS"),
-		SMTPFrom:               get("SMTP_FROM", "chargeback@localhost"),
-		HuaweiEndpointTemplate: get("HUAWEI_ENDPOINT_TEMPLATE", "https://%s.%s.kom4dc.nationalcloud.om"),
-		HuaweiInsecureTLS:      boolEnv("HUAWEI_INSECURE_TLS", true),
-		CollectInterval:        durEnv("COLLECT_INTERVAL", 15*time.Minute),
-		CTSPollInterval:        durEnv("CTS_POLL_INTERVAL", 5*time.Minute),
-		CESInterval:            durEnv("CES_INTERVAL", time.Hour),
-		CollectorEnabled:       boolEnv("COLLECTOR_ENABLED", true),
-		AdapterEnabled:         strings.ToLower(strings.TrimSpace(os.Getenv("ADAPTER_ENABLED"))),
-		BillingHookURL:         strings.TrimRight(strings.TrimSpace(os.Getenv("BILLING_HOOK_URL")), "/"),
-		BillingHookToken:       strings.TrimSpace(os.Getenv("BILLING_HOOK_TOKEN")),
-		CommercialExportDir:    strings.TrimSpace(os.Getenv("COMMERCIAL_EXPORT_DIR")),
-		CommercialImportSecret: strings.TrimSpace(os.Getenv("COMMERCIAL_IMPORT_SECRET")),
-		CommercialImportDir:    strings.TrimSpace(os.Getenv("COMMERCIAL_IMPORT_DIR")),
-		PlatformAPIURL:         strings.TrimRight(strings.TrimSpace(os.Getenv("PLATFORM_API_URL")), "/"),
-		PlatformAPIToken:       strings.TrimSpace(os.Getenv("PLATFORM_API_TOKEN")),
+		DatabaseURL:               get("DATABASE_URL", "postgres://chargeback:chargeback@localhost:5432/chargeback?sslmode=disable"),
+		EncryptionKeyB64:          os.Getenv("APP_ENCRYPTION_KEY"),
+		OperatorEmails:            splitList(os.Getenv("OPERATOR_EMAILS")),
+		PublicURL:                 strings.TrimRight(get("PUBLIC_URL", "http://localhost:8080"), "/"),
+		ListenAddr:                get("LISTEN_ADDR", ":8080"),
+		Profile:                   get("PROFILE", "sovereign"),
+		SMTPHost:                  os.Getenv("SMTP_HOST"),
+		SMTPPort:                  intEnv("SMTP_PORT", 587),
+		SMTPUser:                  os.Getenv("SMTP_USER"),
+		SMTPPass:                  os.Getenv("SMTP_PASS"),
+		SMTPFrom:                  get("SMTP_FROM", "chargeback@localhost"),
+		HuaweiEndpointTemplate:    get("HUAWEI_ENDPOINT_TEMPLATE", "https://%s.%s.kom4dc.nationalcloud.om"),
+		HuaweiInsecureTLS:         boolEnv("HUAWEI_INSECURE_TLS", true),
+		CollectInterval:           durEnv("COLLECT_INTERVAL", 15*time.Minute),
+		CTSPollInterval:           durEnv("CTS_POLL_INTERVAL", 5*time.Minute),
+		CESInterval:               durEnv("CES_INTERVAL", time.Hour),
+		CollectorEnabled:          boolEnv("COLLECTOR_ENABLED", true),
+		AdapterEnabled:            strings.ToLower(strings.TrimSpace(os.Getenv("ADAPTER_ENABLED"))),
+		BillingHookURL:            strings.TrimRight(strings.TrimSpace(os.Getenv("BILLING_HOOK_URL")), "/"),
+		BillingHookToken:          strings.TrimSpace(os.Getenv("BILLING_HOOK_TOKEN")),
+		BillingHookCallbackSecret: strings.TrimSpace(os.Getenv("BILLING_HOOK_CALLBACK_SECRET")),
+		CommercialExportDir:       strings.TrimSpace(os.Getenv("COMMERCIAL_EXPORT_DIR")),
+		CommercialImportSecret:    strings.TrimSpace(os.Getenv("COMMERCIAL_IMPORT_SECRET")),
+		CommercialImportDir:       strings.TrimSpace(os.Getenv("COMMERCIAL_IMPORT_DIR")),
+		PlatformAPIURL:            strings.TrimRight(strings.TrimSpace(os.Getenv("PLATFORM_API_URL")), "/"),
+		PlatformAPIToken:          strings.TrimSpace(os.Getenv("PLATFORM_API_TOKEN")),
 		TrustedForwardAuthHeader: http.CanonicalHeaderKey(
 			strings.TrimSpace(os.Getenv("TRUSTED_FORWARD_AUTH_HEADER"))),
 	}

@@ -196,8 +196,14 @@ type Customer struct {
 	// reported (external mode); ours is never authoritative there.
 	ExternalBalance   *Decimal   `json:"external_balance,omitempty"`
 	ExternalBalanceAt *time.Time `json:"external_balance_at,omitempty"`
-	CreatedAt         time.Time  `json:"created_at"`
-	UpdatedAt         time.Time  `json:"updated_at"`
+	// Balance is the customer's account balance from the ledger (DESIGN.md
+	// §9.8): positive is owed, negative is credit; AvailableCredit is what
+	// the customer could still apply. Both are sums at read time, never
+	// stored, read-only on the wire.
+	Balance         Decimal   `json:"balance"`
+	AvailableCredit Decimal   `json:"available_credit"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 
 	// List-view aggregates.
 	SourceCount         int `json:"source_count"`
