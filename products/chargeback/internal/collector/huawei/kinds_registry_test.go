@@ -7,13 +7,19 @@ import (
 	"testing"
 )
 
-// Every kind the collector lists must be reachable through SupportedKinds().
-// Two places used to hold a hand-written copy of this list — the deletion
-// sweep and the "nothing listed" check — and both silently broke when kinds
-// were added (#6853). This pins the single-source property.
+// Every kind the collector lists must be reachable through SupportedKinds()
+// — including the kinds a lister produces BESIDES its primary one, which is
+// what the registry's `also` field declares. Two places used to hold a
+// hand-written copy of this list — the deletion sweep and the "nothing
+// listed" check — and both silently broke when kinds were added (#6853).
+// This pins the single-source property.
 func TestSupportedKindsCoversEveryLister(t *testing.T) {
-	if len(SupportedKinds()) != len(kindListers) {
-		t.Fatalf("SupportedKinds()=%d but %d listers registered", len(SupportedKinds()), len(kindListers))
+	declared := 0
+	for _, k := range kindListers {
+		declared += 1 + len(k.also)
+	}
+	if len(SupportedKinds()) != declared {
+		t.Fatalf("SupportedKinds()=%d but %d kinds declared across %d listers", len(SupportedKinds()), declared, len(kindListers))
 	}
 	seen := map[string]bool{}
 	for _, k := range SupportedKinds() {
@@ -34,6 +40,12 @@ func TestSupportedKindsCoversEveryLister(t *testing.T) {
 		if !seen[k] {
 			t.Fatalf("extended kind %q is not registered — resources of that kind bill zero", k)
 		}
+	}
+	// The shared-bandwidth resource ListEIP produces is a kind like any
+	// other: absent from here, a released shared pipe would never be marked
+	// deleted and would bill its reserved size forever (#6867).
+	if !seen[KindBandwidth] {
+		t.Fatalf("kind %q is not registered — a released shared bandwidth would bill forever", KindBandwidth)
 	}
 }
 

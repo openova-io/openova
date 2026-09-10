@@ -3,8 +3,8 @@ import { resourceHref, resourcesHref } from './links'
 import type { Lens } from './scope'
 
 /**
- * Recommendations page helpers (#6867, DESIGN.md §3.7). Seven rule types
- * come off the server; the page groups by type, ranks by severity then
+ * Recommendations page helpers (#6867, DESIGN.md §3.7 and §8). Eight rule
+ * types come off the server; the page groups by type, ranks by severity then
  * saving, and points each row at the place where it gets fixed.
  */
 
@@ -35,6 +35,11 @@ export const TYPE_META: Readonly<Record<string, TypeMeta>> = {
   'unbound-eip': {
     label: 'Unbound elastic IPs',
     rule: 'An elastic IP bound to nothing is billed every hour it stays reserved.',
+    action: 'Open resource',
+  },
+  'oversized-bandwidth': {
+    label: 'Oversized bandwidth reservations',
+    rule: 'A reserved pipe far wider than the busiest hour measured on it — the saving is the difference in Mbps at the price-book rate, and the suggested size still covers that peak twice over.',
     action: 'Open resource',
   },
   'low-cpu-utilisation': {

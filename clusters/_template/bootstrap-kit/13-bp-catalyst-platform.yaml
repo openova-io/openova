@@ -1523,11 +1523,7 @@ spec:
       #   check-bootstrap-kit-pin-sync.sh stays green.
       # 1.4.1649 — #6832: lockstep with the umbrella Chart.yaml bump (the catalog-seed
       #   card advances bp-kyverno-policies 1.0.52 -> 1.0.53). Pin bumped to match.
-      # 1.4.1710 — lockstep with the umbrella Chart.yaml bump (crds/organization.yaml
-      #   planSlug description: the #4292 free/S host-namespace tier gate is removed,
-      #   every Organization gets a dedicated vCluster). Pin bumped to match so
-      #   check-bootstrap-kit-pin-sync.sh stays green.
-      version: 1.4.1711
+      version: 1.4.1715
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

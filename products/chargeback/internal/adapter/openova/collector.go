@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -41,6 +42,12 @@ const (
 	orgLabelLegacy = "catalyst.openova.io/organization"
 
 	platformBackfill = 31 * 24 * time.Hour
+	// maxPlatformTransitions bounds the size-change list one tracked pod or
+	// PVC may accumulate, the way the cloud collector bounds its own
+	// (huawei.maxTransitions). A pod flapping between two sizes must never
+	// grow the collector's memory without limit; the oldest changes are the
+	// ones already emitted, so they are the ones dropped.
+	maxPlatformTransitions = 200
 	// overheadTier marks a usage record as the Sovereign's own platform
 	// footprint rather than tenant consumption (ADR-0014 D3 case 3, #6850).
 	overheadTier = "platform-overhead"
@@ -133,6 +140,16 @@ type trackedResource struct {
 	PVCGB     float64
 	Created   time.Time
 	Deleted   time.Time // zero = alive
+	// Transitions are the moments the resource's BILLABLE SIZE changed, in
+	// the same shape the cloud collector records an ECS resize
+	// (window.Transition, carrying the size in Flavor). Without them a pod
+	// resized in place — which is what a Vertical Pod Autoscaler does on a
+	// cluster with in-place vertical scaling, no restart, no new UID — had
+	// its whole hour billed at whichever size happened to be observed when
+	// the hour was emitted. With them the hour splits at the change and
+	// bills each part at the size that was actually in force. The first
+	// entry carries the size the resource was first observed at.
+	Transitions []window.Transition
 	// Tags is the platform equivalent of cloud resource tags: the standard
 	// app.kubernetes.io/* labels and OpenOva's application label, folded to
 	// the keys the explorer offers as `tag:app`, `tag:instance`,
@@ -277,6 +294,7 @@ func (c *PlatformCollector) ObservePod(pod *corev1.Pod) {
 		c.res[key] = tr
 	}
 	tr.VCPU, tr.MemGiB = cores, gib
+	c.noteSize(tr, c.now())
 	tr.Tags = platformTags(pod.Labels)
 	if pod.DeletionTimestamp != nil {
 		tr.Deleted = pod.DeletionTimestamp.Time.UTC()
@@ -322,6 +340,7 @@ func (c *PlatformCollector) ObservePVC(pvc *corev1.PersistentVolumeClaim) {
 		c.res[key] = tr
 	}
 	tr.PVCGB = gb
+	c.noteSize(tr, c.now())
 	tr.Tags = platformTags(pvc.Labels)
 	if pvc.DeletionTimestamp != nil {
 		tr.Deleted = pvc.DeletionTimestamp.Time.UTC()
@@ -557,6 +576,10 @@ func (c *PlatformCollector) EmitOrg(ctx context.Context, org string) (int, error
 	for k, tr := range c.res {
 		if tr.Org == org {
 			cp := *tr
+			// Deep-copy the transitions: emission runs after the lock is
+			// released and a concurrent informer event appends to (or
+			// re-slices) the tracked resource's own list.
+			cp.Transitions = append([]window.Transition(nil), tr.Transitions...)
 			tracked = append(tracked, &cp)
 			keys = append(keys, k)
 			overhead[k] = c.isOverheadNs(tr.Namespace)
@@ -579,9 +602,13 @@ func (c *PlatformCollector) EmitOrg(ctx context.Context, org string) (int, error
 		if !tr.Deleted.IsZero() && tr.Deleted.Before(from.Truncate(time.Hour)) {
 			continue
 		}
-		lc := window.Lifecycle{Created: tr.Created, Deleted: tr.Deleted}
+		// Flavor carries the resource's billable SIZE, and Transitions the
+		// moments it changed, so window.HourSlices — the one implementation
+		// of this math, shared with the cloud collector — splits the hour at
+		// a resize and hands each slice the size that was in force for it.
+		lc := window.Lifecycle{Created: tr.Created, Deleted: tr.Deleted, Flavor: shapeOf(tr), Transitions: tr.Transitions}
 		for _, sl := range window.HourSlices(from, now, lc) {
-			for _, line := range platformSKUs(tr) {
+			for _, line := range platformSKUs(tr, sl.Flavor) {
 				qty := window.Quantity(sl.Hours(), line.factor)
 				if qty <= 0 {
 					continue
@@ -699,17 +726,101 @@ type skuLine struct {
 	factor float64
 }
 
-func platformSKUs(tr *trackedResource) []skuLine {
+// platformSKUs is the resource's billable lines for ONE hour slice: the
+// factors come from the size in force for that slice (shape), falling back
+// to the last observed size when the slice carries no shape — which is what
+// a resource tracked before this collector recorded sizes looks like.
+func platformSKUs(tr *trackedResource, shape string) []skuLine {
+	vcpu, mem, pvc := tr.VCPU, tr.MemGiB, tr.PVCGB
+	if f, ok := parseShape(shape); ok {
+		vcpu, mem, pvc = f.vcpu, f.mem, f.pvc
+	}
 	switch tr.Kind {
 	case "pod":
 		return []skuLine{
-			{SKUVCPU, UnitVCPU, tr.VCPU},
-			{SKUMem, UnitMem, tr.MemGiB},
+			{SKUVCPU, UnitVCPU, vcpu},
+			{SKUMem, UnitMem, mem},
 		}
 	case "pvc":
-		return []skuLine{{SKUPVC, UnitPVC, tr.PVCGB}}
+		return []skuLine{{SKUPVC, UnitPVC, pvc}}
 	}
 	return nil
+}
+
+// size is a tracked resource's billable size, encoded into (and decoded out
+// of) the Flavor field of a window.Transition. Encoding it as a token rather
+// than adding numeric fields to window.Transition is what lets the platform
+// collector reuse the cloud collector's window math unchanged: to that math
+// a pod growing from 500m to 1 CPU is exactly an ECS changing flavour.
+type size struct{ vcpu, mem, pvc float64 }
+
+// shapeOf renders the resource's current billable size as a shape token.
+// Two sizes that bill identically render identically, so an informer update
+// that changes nothing billable records no transition.
+func shapeOf(tr *trackedResource) string {
+	if tr.Kind == "pvc" {
+		return "gb=" + fmtFactor(tr.PVCGB)
+	}
+	return "cpu=" + fmtFactor(tr.VCPU) + ",mem=" + fmtFactor(tr.MemGiB)
+}
+
+// parseShape decodes a shape token. ok is false for an empty or unreadable
+// token, and the caller then bills at the last observed size.
+func parseShape(shape string) (size, bool) {
+	if shape == "" {
+		return size{}, false
+	}
+	var out size
+	for _, part := range strings.Split(shape, ",") {
+		k, v, found := strings.Cut(part, "=")
+		if !found {
+			return size{}, false
+		}
+		f, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return size{}, false
+		}
+		switch k {
+		case "cpu":
+			out.vcpu = f
+		case "mem":
+			out.mem = f
+		case "gb":
+			out.pvc = f
+		default:
+			return size{}, false
+		}
+	}
+	return out, true
+}
+
+// fmtFactor renders a factor exactly, with no trailing zeros, so the token
+// of an unchanged size is byte-identical from one observation to the next.
+func fmtFactor(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }
+
+// noteSize records a size transition when the resource's billable size
+// differs from the one the transitions already put in force at `at`. The
+// first observation seeds the list at the resource's creation, so a resource
+// that never resizes carries exactly one transition, at a time HourSlices
+// never splits on — its output is byte-identical to having no transitions.
+// Callers hold c.mu.
+func (c *PlatformCollector) noteSize(tr *trackedResource, at time.Time) {
+	shape := shapeOf(tr)
+	if len(tr.Transitions) == 0 {
+		start := tr.Created
+		if start.IsZero() || start.After(at) {
+			start = at
+		}
+		tr.Transitions = []window.Transition{{At: start.UTC(), Flavor: shape, Source: "created"}}
+		return
+	}
+	if _, cur := window.StateAt(at, window.Lifecycle{}, tr.Transitions); cur == shape {
+		return
+	}
+	tr.Transitions = append(tr.Transitions, window.Transition{At: at.UTC(), Flavor: shape, Source: "observed"})
+	if n := len(tr.Transitions); n > maxPlatformTransitions {
+		tr.Transitions = append([]window.Transition(nil), tr.Transitions[n-maxPlatformTransitions:]...)
+	}
 }
 
 func resourceIDOf(key string) string { return key }

@@ -21,6 +21,10 @@ const (
 	unpricedWindow = 30 * 24 * time.Hour
 	// cpuWindow is the utilisation window the low-cpu rule averages over.
 	cpuWindow = 7 * 24 * time.Hour
+	// trafficWindow is the window the oversized-bandwidth rule sizes a
+	// reservation against — the same seven days, so a reservation and an
+	// instance are judged on the same stretch of history.
+	trafficWindow = 7 * 24 * time.Hour
 )
 
 func (h *Handler) gatherRecommendations(ctx context.Context, scope store.Scope, customerID string) (recommend.Input, error) {
@@ -43,6 +47,9 @@ func (h *Handler) gatherRecommendations(ctx context.Context, scope store.Scope, 
 		return in, err
 	}
 	if in.CPUUtil, err = h.Store.CPUUtilMeans(ctx, scope, customerID, now.Add(-cpuWindow), now); err != nil {
+		return in, err
+	}
+	if in.EIPTraffic, err = h.Store.EIPTrafficWindows(ctx, scope, customerID, now.Add(-trafficWindow), now); err != nil {
 		return in, err
 	}
 	return in, nil
