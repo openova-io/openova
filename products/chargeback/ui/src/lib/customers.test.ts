@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Customer, PriceBook, Summary } from '../api/types'
-import { customerCounts, customerPatch, fieldLabel, filterCustomers, lastStatementText, mtdByCustomer, mtdFor, priceBookName, settingsFrom, sourceCounts, sourcesText } from './customers'
+import { customerCounts, customerPatch, fieldLabel, filterCustomers, lastStatementText, mtdByCustomer, mtdFor, priceBookName, settingsFrom, sourceCounts, sourcesText, planLabel } from './customers'
 
 const cust = (over: Partial<Customer>): Customer => ({
   id: 'c-x',
@@ -139,5 +139,23 @@ describe('fieldLabel', () => {
   it('does not read the label table through its prototype', () => {
     expect(fieldLabel('constructor')).toBe('constructor')
     expect(fieldLabel('__proto__')).toBe('  proto  ')
+  })
+})
+
+// Flexi is not a plan size: it is uncapped and billed off its meters, so the
+// header must not print "FLEXI plan" as though it were a tier.
+describe('planLabel', () => {
+  it('names a sized plan by its size', () => {
+    expect(planLabel('m')).toBe('M plan')
+    expect(planLabel('XL')).toBe('XL plan')
+  })
+  it('says pay per use for flexi', () => {
+    expect(planLabel('flexi')).toBe('pay per use')
+    expect(planLabel(' FLEXI ')).toBe('pay per use')
+  })
+  it('says nothing for a customer with no plan', () => {
+    expect(planLabel('')).toBe('')
+    expect(planLabel(null)).toBe('')
+    expect(planLabel(undefined)).toBe('')
   })
 })

@@ -8,12 +8,12 @@ import (
 	"time"
 )
 
-const priceBookColumns = `id, name, scope, currency, annual_divisor, bill_stopped, effective_from, created_at`
+const priceBookColumns = `id, name, scope, currency, annual_divisor, bill_stopped, effective_from, description, created_at`
 
 func scanPriceBook(row interface{ Scan(...any) error }) (PriceBook, error) {
 	var pb PriceBook
 	var eff sql.NullTime
-	if err := row.Scan(&pb.ID, &pb.Name, &pb.Scope, &pb.Currency, &pb.AnnualDivisor, &pb.BillStopped, &eff, &pb.CreatedAt); err != nil {
+	if err := row.Scan(&pb.ID, &pb.Name, &pb.Scope, &pb.Currency, &pb.AnnualDivisor, &pb.BillStopped, &eff, &pb.Description, &pb.CreatedAt); err != nil {
 		return pb, mapErr(err)
 	}
 	pb.EffectiveFrom = datePtr(eff)
@@ -54,7 +54,8 @@ func (s *Store) GetPriceBookByName(ctx context.Context, name string) (PriceBook,
 }
 
 // PriceBookInput is the creatable/updatable subset. Scope is cloud or
-// platform ("" = cloud on create, unchanged on update).
+// platform ("" = cloud on create, unchanged on update); Description is the
+// operator-editable note on the book ("" = unchanged on update).
 type PriceBookInput struct {
 	Name          string
 	Scope         string
@@ -62,6 +63,7 @@ type PriceBookInput struct {
 	AnnualDivisor int
 	BillStopped   string
 	EffectiveFrom string
+	Description   string
 }
 
 // CreatePriceBook inserts a rate card.
@@ -83,8 +85,8 @@ func (s *Store) CreatePriceBook(ctx context.Context, in PriceBookInput) (PriceBo
 		return PriceBook{}, fmt.Errorf("%w: scope must be cloud or platform", ErrInvalid)
 	}
 	var id string
-	err := s.db.QueryRowContext(ctx, `INSERT INTO price_books (name, scope, currency, annual_divisor, bill_stopped, effective_from) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-		strings.TrimSpace(in.Name), in.Scope, strings.ToUpper(in.Currency), in.AnnualDivisor, in.BillStopped, nullStr(&in.EffectiveFrom)).Scan(&id)
+	err := s.db.QueryRowContext(ctx, `INSERT INTO price_books (name, scope, currency, annual_divisor, bill_stopped, effective_from, description) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+		strings.TrimSpace(in.Name), in.Scope, strings.ToUpper(in.Currency), in.AnnualDivisor, in.BillStopped, nullStr(&in.EffectiveFrom), in.Description).Scan(&id)
 	if err != nil {
 		return PriceBook{}, mapErr(err)
 	}
@@ -117,8 +119,9 @@ func (s *Store) UpdatePriceBook(ctx context.Context, id string, in PriceBookInpu
 	}
 	res, err := tx.ExecContext(ctx, `UPDATE price_books SET name = COALESCE(NULLIF($2, ''), name), currency = COALESCE(NULLIF($3, ''), currency),
 		annual_divisor = CASE WHEN $4 > 0 THEN $4 ELSE annual_divisor END, bill_stopped = COALESCE(NULLIF($5, ''), bill_stopped),
-		effective_from = COALESCE($6, effective_from), scope = COALESCE(NULLIF($7, ''), scope) WHERE id = $1`,
-		id, strings.TrimSpace(in.Name), strings.ToUpper(in.Currency), in.AnnualDivisor, in.BillStopped, nullStr(&in.EffectiveFrom), in.Scope)
+		effective_from = COALESCE($6, effective_from), scope = COALESCE(NULLIF($7, ''), scope),
+		description = COALESCE(NULLIF($8, ''), description) WHERE id = $1`,
+		id, strings.TrimSpace(in.Name), strings.ToUpper(in.Currency), in.AnnualDivisor, in.BillStopped, nullStr(&in.EffectiveFrom), in.Scope, in.Description)
 	if err != nil {
 		return PriceBook{}, mapErr(err)
 	}
@@ -280,8 +283,8 @@ func (s *Store) DeletePriceBook(ctx context.Context, id string) (assigned []Cove
 	return nil, tx.Commit()
 }
 
-// ClonePriceBook copies a rate card under a new name: the header (scope
-// included) and every item, annual_price preserved. This is how per-account
+// ClonePriceBook copies a rate card under a new name: the header (scope and
+// description included) and every item, annual_price preserved. This is how per-account
 // pricing is made — the list book stays the list, the clone is negotiated.
 func (s *Store) ClonePriceBook(ctx context.Context, id, name string) (PriceBook, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -290,8 +293,8 @@ func (s *Store) ClonePriceBook(ctx context.Context, id, name string) (PriceBook,
 	}
 	defer tx.Rollback()
 	var newID string
-	err = tx.QueryRowContext(ctx, `INSERT INTO price_books (name, scope, currency, annual_divisor, bill_stopped, effective_from)
-		SELECT $2, scope, currency, annual_divisor, bill_stopped, effective_from FROM price_books WHERE id = $1 RETURNING id`,
+	err = tx.QueryRowContext(ctx, `INSERT INTO price_books (name, scope, currency, annual_divisor, bill_stopped, effective_from, description)
+		SELECT $2, scope, currency, annual_divisor, bill_stopped, effective_from, description FROM price_books WHERE id = $1 RETURNING id`,
 		id, strings.TrimSpace(name)).Scan(&newID)
 	if err != nil {
 		return PriceBook{}, mapErr(err)

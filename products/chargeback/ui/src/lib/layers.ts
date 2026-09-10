@@ -79,6 +79,49 @@ export function scopeCounts(books: PriceBook[]): { cloud: number; platform: numb
 }
 
 /**
+ * The two platform rate cards the Organization sync owns, one per billing
+ * shape (EPIC #6867, founder direction 2026-09-10). The names are the
+ * server's — `store.PlanBookName` / `store.PAYGBookName` — and a Sovereign
+ * always ends up with both, so the Price books page says which is which
+ * instead of leaving two same-looking platform rows.
+ */
+export const PLAN_BOOK_NAME = 'OpenOva plans'
+export const PAYG_BOOK_NAME = 'Organization PAYG'
+
+export type BookRole = 'plans' | 'payg'
+
+export const BOOK_ROLES: Readonly<Record<BookRole, { label: string; help: string }>> = {
+  plans: {
+    label: 'committed plans',
+    help: 'Prices the flat plan.<slug> subscription line an Organization on S / M / L / XL pays. The k8s.* meters are deliberately unpriced here: under a plan they are the allocation basis, not the bill.',
+  },
+  payg: {
+    label: 'pay per use',
+    help: 'Prices the k8s.vcpu / k8s.mem_gb / k8s.pvc_gb meters an Organization on the uncapped flexi plan pays. Flexi has no bundle to sell, so it carries no plan line at all.',
+  },
+}
+
+/**
+ * Which of the two shapes a book is, by name — or null for every other book.
+ * Matching on the name is what the server does too (both books are looked up
+ * case-insensitively by name), so a renamed book simply stops being labelled
+ * rather than being mislabelled.
+ */
+export function bookRole(book: Pick<PriceBook, 'name' | 'scope'>): BookRole | null {
+  if (scopeOf(book) !== 'platform') return null
+  const name = (book.name ?? '').trim().toLowerCase()
+  if (name === PLAN_BOOK_NAME.toLowerCase()) return 'plans'
+  if (name === PAYG_BOOK_NAME.toLowerCase()) return 'payg'
+  return null
+}
+
+/** The one-word role of a book for a table cell, or '' when it has none. */
+export function bookRoleLabel(book: Pick<PriceBook, 'name' | 'scope'>): string {
+  const role = bookRole(book)
+  return role ? BOOK_ROLES[role].label : ''
+}
+
+/**
  * The message a source's price-book cell shows: which book rates it, or why
  * nothing does. An internal source is never billed at all.
  */

@@ -48,10 +48,13 @@ const SourceKindPlatform = store.SourceKindPlatform
 // reads. A customer an earlier version synced it as is retired to a plain
 // external customer (its cloud sources stay).
 //
-// It also owns the "OpenOva plans" rate card: created once when absent,
-// assigned to every Organization's openova-org SOURCE that has no price
-// book, and never re-created, re-priced or re-assigned over an operator's
-// choice.
+// It also owns the TWO platform rate cards, one per billing shape (DESIGN.md
+// §2.9a): "OpenOva plans" for a committed plan (s/m/l/xl) and "Organization
+// PAYG" for the uncapped flexi plan, which has no bundle to sell and is
+// billed off its k8s.* meters instead. Each is created once when absent, and
+// an Organization's openova-org SOURCE is pointed at the one its plan calls
+// for. Neither is ever re-created or re-priced, and a source an operator put
+// on some other book is never re-assigned.
 type OrgSync struct {
 	Dyn      dynamic.Interface
 	Core     kubernetes.Interface
@@ -282,22 +285,14 @@ func (s *OrgSync) SyncOrganization(ctx context.Context, u *unstructured.Unstruct
 	if f.Internal {
 		return s.syncInternalOrganization(ctx, f)
 	}
-	// The "OpenOva plans" rate card prices the plan line every Organization
-	// carries. Ensured on every sync (one indexed lookup by name) so a book
-	// the operator removed comes back on the next event; a failure here is
-	// logged and leaves the source bookless until the next sync rather than
-	// blocking the customer itself.
-	planBookID := ""
-	pb, created, err := s.Repo.EnsurePlanBook(ctx)
-	switch {
-	case err != nil:
-		slog.Warn("openova adapter: plan price book unavailable; the customer is synced without a book", "org", f.Slug, "error", err)
-	case created:
-		slog.Info("openova adapter: plan price book created", "book", pb.Name, "id", pb.ID, "items", len(pb.Items))
-		planBookID = pb.ID
-	default:
-		planBookID = pb.ID
-	}
+	// The two platform rate cards, one per billing shape: the plans book
+	// prices the plan.<slug> line a sized Organization carries, the
+	// pay-per-use book prices the k8s.* meters a flexi Organization carries
+	// instead. Both are ensured on every sync (one indexed lookup by name
+	// each) so a book the operator removed comes back on the next event; a
+	// failure here is logged and leaves the source on whatever book it
+	// already had rather than blocking the customer itself.
+	books := s.ensurePlatformBooks(ctx, f.Slug)
 	resumed := false
 	c, err := s.Repo.GetCustomerBySlug(ctx, f.Slug)
 	switch {
@@ -369,11 +364,8 @@ func (s *OrgSync) SyncOrganization(ctx context.Context, u *unstructured.Unstruct
 			return fmt.Errorf("verify platform source: %w", err)
 		}
 	}
-	if src.PriceBookID == nil && planBookID != "" {
-		if err := s.Repo.SetSourcePriceBook(ctx, src.ID, planBookID); err != nil {
-			return fmt.Errorf("assign plan book to platform source: %w", err)
-		}
-		slog.Info("openova adapter: platform source assigned the plan book", "org", f.Slug, "source", src.ID, "book", planBookID)
+	if err := s.assignPlatformBook(ctx, f, src, books); err != nil {
+		return err
 	}
 	if resumed {
 		// A suspended Organization had no pods and paid no plan; the
@@ -391,6 +383,102 @@ func (s *OrgSync) SyncOrganization(ctx context.Context, u *unstructured.Unstruct
 			slog.Warn("openova adapter: cost source sync failed; continuing with the next one", "org", f.Slug, "project", cs.ProjectID, "error", err)
 		}
 	}
+	return nil
+}
+
+// managedBook is one of the two platform rate cards the sync owns, in the
+// order they are ensured.
+type managedBook struct {
+	Name   string
+	Ensure func(context.Context) (store.PriceBook, bool, error)
+}
+
+func (s *OrgSync) managedBooks() []managedBook {
+	return []managedBook{
+		{Name: store.PlanBookName, Ensure: s.Repo.EnsurePlanBook},
+		{Name: store.PAYGBookName, Ensure: s.Repo.EnsurePAYGBook},
+	}
+}
+
+// platformBooks maps each managed book's name to its id. A name is absent
+// when that book could not be ensured this pass.
+type platformBooks map[string]string
+
+// ensurePlatformBooks creates whichever of the two managed rate cards is
+// missing and returns their ids. A book that cannot be ensured is logged and
+// left out: the next sync tries again, and in the meantime a source keeps the
+// book it already has rather than losing its rates.
+func (s *OrgSync) ensurePlatformBooks(ctx context.Context, org string) platformBooks {
+	out := platformBooks{}
+	for _, b := range s.managedBooks() {
+		pb, created, err := b.Ensure(ctx)
+		if err != nil {
+			slog.Warn("openova adapter: platform price book unavailable; the source keeps the book it has", "org", org, "book", b.Name, "error", err)
+			continue
+		}
+		if created {
+			slog.Info("openova adapter: platform price book created", "book", pb.Name, "id", pb.ID, "items", len(pb.Items))
+		}
+		if pb.Scope != store.LayerPlatform {
+			// A book of the wrong scope can never be assigned to a platform
+			// source (SetSourcePriceBook refuses it), and returning that
+			// error here would wedge the whole Organization sync on every
+			// event. Skip the book instead and name the fix: the source
+			// keeps whatever it has, and everything else about the
+			// Organization still syncs.
+			slog.Warn("openova adapter: platform price book has the wrong scope and cannot be assigned; set its scope to platform", "book", pb.Name, "id", pb.ID, "scope", pb.Scope)
+			continue
+		}
+		out[b.Name] = pb.ID
+	}
+	return out
+}
+
+// holds reports whether id is one of the managed books.
+func (p platformBooks) holds(id string) bool {
+	for _, v := range p {
+		if v == id {
+			return true
+		}
+	}
+	return false
+}
+
+// assignPlatformBook points an Organization's platform source at the rate
+// card its plan calls for: the plans book for a sized plan (and for an
+// unknown or absent one, the fallback that was always there), the
+// pay-per-use book for flexi. This is the whole of "never double charge" on
+// the assignment side — a source can only ever be on ONE book, so a sized
+// Organization is on the book where its meters carry no rate, and a flexi
+// Organization is on the book where nothing prices a plan line it never
+// emits.
+//
+// Three cases, in order:
+//
+//   - No book yet: assign the one the plan calls for.
+//   - On the OTHER managed book: the Organization changed plan between flexi
+//     and a sized plan, so re-point it. Without this the bill would not
+//     follow the plan change.
+//   - On any other book: an operator put it there — a negotiated clone, say —
+//     and it is never touched.
+func (s *OrgSync) assignPlatformBook(ctx context.Context, f orgFields, src store.CostSource, books platformBooks) error {
+	name := store.BookForPlan(f.PlanSlug)
+	want := books[name]
+	if want == "" {
+		return nil // not ensured this pass; the next sync assigns it
+	}
+	if src.PriceBookID != nil {
+		if *src.PriceBookID == want {
+			return nil
+		}
+		if !books.holds(*src.PriceBookID) {
+			return nil // the operator chose this book; a resync does not overrule it
+		}
+	}
+	if err := s.Repo.SetSourcePriceBook(ctx, src.ID, want); err != nil {
+		return fmt.Errorf("assign the %q book to the platform source: %w", name, err)
+	}
+	slog.Info("openova adapter: platform source assigned its plan's price book", "org", f.Slug, "source", src.ID, "plan", f.PlanSlug, "book", name, "id", want)
 	return nil
 }
 

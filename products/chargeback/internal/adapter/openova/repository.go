@@ -26,7 +26,13 @@ type Repository interface {
 	UpsertUsage(ctx context.Context, recs []store.UsageRecord) (int, error)
 	// EnsurePlanBook returns the "OpenOva plans" rate card, creating it when
 	// absent (DESIGN.md §2.8 "Plan revenue"); created reports a fresh book.
+	// It prices the plan.<slug> line a sized Organization pays.
 	EnsurePlanBook(ctx context.Context) (pb store.PriceBook, created bool, err error)
+	// EnsurePAYGBook returns the "Organization PAYG" rate card, creating it
+	// when absent (DESIGN.md §2.9a "Pay per use"); created reports a fresh
+	// book. It prices the k8s.* meters a flexi Organization pays, which the
+	// plans book deliberately leaves unpriced.
+	EnsurePAYGBook(ctx context.Context) (pb store.PriceBook, created bool, err error)
 	// SetSourcePriceBook assigns a book to a source (DESIGN.md §2: the book
 	// is a property of the source, scope-checked against its layer).
 	SetSourcePriceBook(ctx context.Context, sourceID, bookID string) error

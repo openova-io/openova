@@ -24,14 +24,16 @@ import (
 )
 
 // Platform SKUs (allocation-based, hourly — the request is the entitlement
-// the plan quota enforces, so the request is what is billed).
+// the plan quota enforces, so the request is what is billed). The names are
+// the store's: the "Organization PAYG" rate card prices exactly these SKUs
+// and units, and two spellings of them would be a flexi bill of zero.
 const (
-	SKUVCPU  = "k8s.vcpu"
-	UnitVCPU = "vcpu-hour"
-	SKUMem   = "k8s.mem_gb"
-	UnitMem  = "gib-hour"
-	SKUPVC   = "k8s.pvc_gb"
-	UnitPVC  = "gb-hour"
+	SKUVCPU  = store.SKUVCPU
+	UnitVCPU = store.UnitVCPU
+	SKUMem   = store.SKUMem
+	UnitMem  = store.UnitMem
+	SKUPVC   = store.SKUPVC
+	UnitPVC  = store.UnitPVC
 
 	// orgLabel joins a host namespace to its Organization — the same key
 	// the sovereign-admin dashboard's buildPodRows uses

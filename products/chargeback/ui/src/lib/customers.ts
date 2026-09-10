@@ -26,6 +26,24 @@ export const CUSTOMER_KINDS: ReadonlyArray<{ value: string; label: string; help:
   { value: 'organization', label: 'Organization', help: 'An Organization on this Sovereign; usage is allocated from the shared platform.' },
 ]
 
+/**
+ * The plan a customer is on, as the header says it (EPIC #6867, founder
+ * direction 2026-09-10). The four sized plans are a committed bundle and are
+ * named by their size; FLEXI is not a size at all — it is uncapped and billed
+ * off its k8s.* meters — so it reads "pay per use" rather than pretending to
+ * be a plan tier. "" is a customer with no plan (every external one).
+ *
+ * The slug is the same one `store.PlanFlexi` uses server-side.
+ */
+export const PLAN_FLEXI = 'flexi'
+
+export function planLabel(slug: string | null | undefined): string {
+  const s = (slug ?? '').trim().toLowerCase()
+  if (!s) return ''
+  if (s === PLAN_FLEXI) return 'pay per use'
+  return `${s.toUpperCase()} plan`
+}
+
 const n = (v: unknown): number => {
   const x = typeof v === 'number' ? v : Number(v)
   return Number.isFinite(x) ? x : 0

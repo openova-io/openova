@@ -162,6 +162,12 @@ export interface PriceBook {
   annual_divisor: number
   bill_stopped: 'compute' | 'storage-only' | 'none' | string
   effective_from?: string | null
+  /**
+   * The operator-editable note on the book itself: what it is for and, on
+   * the two books the Organization sync owns, where every rate in it came
+   * from. Absent on a document that predates the field.
+   */
+  description?: string
   created_at?: string
   items?: PriceItem[] | null
 }

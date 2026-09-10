@@ -89,10 +89,25 @@ func ValidLayer(s string) bool { return s == LayerCloud || s == LayerPlatform }
 // sources are created by the Organization sync and the platform collector.
 var CloudSourceKinds = []string{SourceKindHuaweiProject, SourceKindFile}
 
+// The platform meters the platform collector writes, one hourly record each
+// (the request is the entitlement the plan quota enforces, so the request is
+// what is metered). They are declared here rather than in the adapter because
+// the "Organization PAYG" rate card prices them (planbook.go) and the store
+// must name the same SKUs the collector emits; the adapter aliases these.
+const (
+	SKUVCPU  = "k8s.vcpu"
+	UnitVCPU = "vcpu-hour"
+	SKUMem   = "k8s.mem_gb"
+	UnitMem  = "gib-hour"
+	SKUPVC   = "k8s.pvc_gb"
+	UnitPVC  = "gb-hour"
+)
+
 // PlatformMeterSKUs are the k8s.* meters the platform collector writes. Under
 // a platform book that prices none of them they are "not sold per use" —
-// the allocation basis, not unpriced revenue.
-var PlatformMeterSKUs = []string{"k8s.vcpu", "k8s.mem_gb", "k8s.pvc_gb"}
+// the allocation basis, not unpriced revenue. Under the pay-per-use book they
+// ARE the bill.
+var PlatformMeterSKUs = []string{SKUVCPU, SKUMem, SKUPVC}
 
 // IsPlatformMeter reports whether sku is one of PlatformMeterSKUs.
 func IsPlatformMeter(sku string) bool {
@@ -249,15 +264,20 @@ type UsageRow struct {
 // assigned to: a cloud book prices cloud SKUs, a platform book prices
 // platform SKUs (plan.<slug>, and k8s.* only if sold per use).
 type PriceBook struct {
-	ID            string      `json:"id"`
-	Name          string      `json:"name"`
-	Scope         string      `json:"scope"`
-	Currency      string      `json:"currency"`
-	AnnualDivisor int         `json:"annual_divisor"`
-	BillStopped   string      `json:"bill_stopped"`
-	EffectiveFrom *string     `json:"effective_from,omitempty"`
-	CreatedAt     time.Time   `json:"created_at"`
-	Items         []PriceItem `json:"items,omitempty"`
+	ID            string  `json:"id"`
+	Name          string  `json:"name"`
+	Scope         string  `json:"scope"`
+	Currency      string  `json:"currency"`
+	AnnualDivisor int     `json:"annual_divisor"`
+	BillStopped   string  `json:"bill_stopped"`
+	EffectiveFrom *string `json:"effective_from,omitempty"`
+	// Description is the operator-editable note on the book itself: what it
+	// is for and, for the two books the Organization sync owns, where every
+	// rate in it came from. Before it existed the only place to write that
+	// was an item description, which cannot explain a book as a whole.
+	Description string      `json:"description,omitempty"`
+	CreatedAt   time.Time   `json:"created_at"`
+	Items       []PriceItem `json:"items,omitempty"`
 }
 
 // PriceItem prices one SKU. UnitPrice is derived from AnnualPrice and the

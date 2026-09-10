@@ -234,14 +234,100 @@ owns the **"OpenOva plans"** price book: OMR, divisor 8760, `plan.s` 60/yr,
 `plan.m` 108, `plan.l` 192, `plan.xl` 360 as annual prices, so
 `unit_price = annual / 8760 = monthly / 730` per plan-hour; created once when
 absent with `scope = platform`, assigned to every Organization's
-`openova-org` SOURCE that has no book, never re-created, re-priced or
+`openova-org` SOURCE whose plan calls for it, never re-created, re-priced or
 re-assigned over an operator's choice. `k8s.vcpu` /
-`k8s.mem_gb` / `k8s.pvc_gb` stay unpriced in that book — they are the allocation
-basis above, and flexi's pay-per-use rates are a product decision the founder
-has not made (the item descriptions say so; `price_books` has no description
-column). `rated_revenue` needs no new arithmetic: it is the Explore total per
+`k8s.mem_gb` / `k8s.pvc_gb` stay unpriced in that book — under a plan they are
+the allocation basis above, not the bill, and a bundle has no identifiable
+per-resource split, so any per-vCPU rate under the plans book would be
+invented. An Organization on **flexi** is billed the other way round; that is
+§2.9a. `rated_revenue` needs no new arithmetic: it is the Explore total per
 Organization customer, and the plan line is part of it. Statements group the
 line under "Subscription plan" (`KindLabel("plan")`, `serviceOfSKU("plan.m")`).
+
+### 2.9a Pay per use — the two platform billing shapes
+
+Founder direction 2026-09-10 (EPIC #6867): *"How will the payg flexi users get
+measured and charged"*. There are **two** platform billing shapes, and an
+Organization is on exactly one of them — which is what makes double charging
+structurally impossible rather than merely avoided.
+
+| | Committed plan (`s` / `m` / `l` / `xl`) | Pay per use (`flexi`) |
+|---|---|---|
+| What the Organization buys | a fixed shape, enforced by a ResourceQuota (S 2 vCPU / 4 GiB, M 4/8, L 8/16, XL 16/32, all Guaranteed) | nothing fixed: `planQuotaTable` gives flexi no CPU/memory ceiling and Burstable QoS |
+| What the collector emits | one `plan.<slug>` record per hour **plus** the `k8s.*` meters | the `k8s.*` meters only — `billablePlan` returns "" for flexi, so there is no plan line to emit |
+| Which book rates its source | **"OpenOva plans"** | **"Organization PAYG"** |
+| What that book prices | `plan.s` / `plan.m` / `plan.l` / `plan.xl` — the meters are deliberately unpriced | `k8s.vcpu` / `k8s.mem_gb` / `k8s.pvc_gb` — no plan line is priced |
+| What the bill is | the flat monthly plan, whatever it ran | exactly what it ran; zero while idle |
+
+The two books price **disjoint** SKU sets (`TestPlanAndPAYGBooksAreDisjoint`),
+and a source carries exactly ONE book, so a sized Organization can never be
+charged per vCPU on top of its plan and a flexi Organization can never be
+charged a plan line it does not have.
+`TestIntegrationSizedAndFlexiAreNeverDoubleCharged` proves both directions in
+money over a full 7-day window.
+
+**Before this change a flexi Organization was billed nothing at all**: it got
+no plan line by design, and its meters were unpriced under the only book the
+sync ever assigned. The "Organization PAYG" book existed on a Sovereign but at
+`scope = 'cloud'`, which is the wrong scope for `k8s.*` SKUs and made it
+**unassignable** — `SetSourcePriceBook` refuses a book whose scope is not the
+source's layer, so nothing could ever be pointed at it.
+
+**Rate derivation** (`internal/store/paygbook.go`, and written onto the book's
+own `description` so an operator can read it before changing a rate). The
+sized plans are S 5 · M 9 · L 16 · XL 30 OMR/month for 2 / 4 / 8 / 16 vCPU with
+2 GiB per vCPU. Per **unit** of (1 vCPU + 2 GiB) per month that is:
+
+| Plan | units | OMR/month | OMR per unit-month |
+|---|---|---|---|
+| S | 2 | 5 | 2.500 |
+| M | 4 | 9 | 2.250 |
+| L | 8 | 16 | 2.000 |
+| XL | 16 | 30 | 1.875 |
+
+— a volume ladder: the larger the commitment, the cheaper the unit. Pay per
+use commits to **nothing** (the Organization can scale to zero and stop paying
+that hour), so it must not undercut the cheapest thing an Organization can
+commit to, or nobody would ever take a plan. It is therefore the ENTRY
+commitment plus 10 %: **2.50 × 1.1 = 2.75 OMR per unit-month**, which sits
+above every rung of the ladder. That splits across what a unit is made of:
+
+| SKU | OMR/month | Annual (× 12) | Unit price (÷ 8760) | Why |
+|---|---|---|---|---|
+| `k8s.vcpu` | 2.000 per vCPU | 24.000 | `0.00273973` per vcpu-hour | the compute share of the 2.75 unit |
+| `k8s.mem_gb` | 0.375 per GiB | 4.500 | `0.00051370` per gib-hour | 2.75 − 2.00 = 0.75 over the 2 GiB a unit carries |
+| `k8s.pvc_gb` | 0.219 per GB | 2.628 | `0.00030000` per gb-hour (exact) | not from the ladder — no plan bundles storage; set ~31 % above the 0.00022831 OMR per GB-hour the cloud charges for the SSD underneath |
+
+`2.00 + 2 × 0.375 = 2.75` is asserted by `TestPAYGUnitRateSplit`, so the split
+and the ladder cannot drift apart. Conversion uses the book's own divisor
+(annual ÷ 8760 = monthly ÷ 730), so an operator who changes the divisor
+recomputes both platform books alike.
+
+**Sanity check.** A flexi Organization holding 4 vCPU + 8 GiB around the clock
+pays 730 × (4 × 0.00273973 + 8 × 0.00051370) ≈ **11.00 OMR/month**, against
+**9** for the committed M plan of the same shape — the no-commitment premium —
+and near **zero** when it is idle.
+
+**Assignment.** `OrgSync` ensures BOTH books on every Organization sync and
+points the Organization's `openova-org` source at the one `BookForPlan` names:
+the plans book for `s`/`m`/`l`/`xl` (and for an unknown or absent plan, which
+keeps the pre-existing fallback rather than inferring pay-per-use), the
+pay-per-use book for `flexi`. A source already on the OTHER managed book is
+**re-pointed** — that is how a plan change between flexi and a sized plan
+reaches the bill. A source on any other book was put there by an operator (a
+negotiated clone) and is never touched.
+
+**Migration.** The last entry of `migrations` — appended at the END, because
+migrations are positional and an entry inserted mid-list is silently skipped
+on an already-migrated database — adds `price_books.description`, moves
+"Organization PAYG" to `scope = platform` (only while nothing cloud-shaped is
+assigned to it), backfills both books' descriptions where the operator has
+written none, and replaces the shipped placeholder rates (`k8s.vcpu`
+0.02589041 per vcpu-hour = 18.90 OMR per vCPU-month, an order of magnitude
+out) with the derived ones — but ONLY while the book rates no source at all, so
+a book that has ever billed anyone is left exactly as it is. Its SQL is built
+from `PAYGBookItems()` rather than restating the numbers, so a migrated
+Sovereign and a fresh one cannot end up with two different books.
 
 ### 2.10 Statements
 A statement is the sum of the customer's sources, each rated by its own book,

@@ -276,8 +276,13 @@ const costExcludeInternalSQL = ` AND NOT s.internal`
 // platform meters: "not sold per use" (the allocation basis), never
 // "unpriced". Requires the CTE columns layer, book_id and sku.
 const costNotSoldPerUseExpr = `(layer = 'platform' AND book_id IS NOT NULL
-         AND sku IN ('k8s.vcpu', 'k8s.mem_gb', 'k8s.pvc_gb')
-         AND NOT EXISTS (SELECT 1 FROM price_items pm WHERE pm.price_book_id = book_id AND pm.sku IN ('k8s.vcpu', 'k8s.mem_gb', 'k8s.pvc_gb')))`
+         AND sku IN (` + platformMeterSKUListSQL + `)
+         AND NOT EXISTS (SELECT 1 FROM price_items pm WHERE pm.price_book_id = book_id AND pm.sku IN (` + platformMeterSKUListSQL + `)))`
+
+// platformMeterSKUListSQL is PlatformMeterSKUs as a SQL literal list, so the
+// "not sold per use" test and the pay-per-use rate card can never disagree
+// about which meters are the platform meters.
+const platformMeterSKUListSQL = `'` + SKUVCPU + `', '` + SKUMem + `', '` + SKUPVC + `'`
 
 // costPricedExpr is the cost of ONE usage record after its source's
 // price book and its stopped-instance policy: NULL when the SKU carries no

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CostSource, PriceBook } from '../api/types'
-import { bookCellText, booksForSource, booksInScope, layerLabel, layerOf, layerOfKind, notSoldPerUseNote, scopeCounts, scopeOf, sourceKindLabel, sourcesByLayerText } from './layers'
+import { BOOK_ROLES, PAYG_BOOK_NAME, PLAN_BOOK_NAME, bookCellText, bookRole, bookRoleLabel, booksForSource, booksInScope, layerLabel, layerOf, layerOfKind, notSoldPerUseNote, scopeCounts, scopeOf, sourceKindLabel, sourcesByLayerText } from './layers'
 
 const book = (id: string, scope: string, name = id): PriceBook =>
   ({ id, name, scope, currency: 'OMR', annual_divisor: 8760, bill_stopped: 'compute' }) as PriceBook
@@ -124,5 +124,31 @@ describe('sourceKindLabel', () => {
     expect(sourceKindLabel('openova-platform')).toBe('Platform overhead (this Sovereign)')
     expect(sourceKindLabel('unknown-kind')).toBe('unknown-kind')
     expect(sourceKindLabel(null)).toBe('—')
+  })
+})
+
+// The two platform books are the two ways an Organization is billed, and a
+// list of platform books is unreadable without saying which is which.
+describe('bookRole', () => {
+  it('names the committed-plans card and the pay-per-use card', () => {
+    expect(bookRole(book('b1', 'platform', PLAN_BOOK_NAME))).toBe('plans')
+    expect(bookRole(book('b2', 'platform', PAYG_BOOK_NAME))).toBe('payg')
+    expect(bookRoleLabel(book('b1', 'platform', PLAN_BOOK_NAME))).toBe('committed plans')
+    expect(bookRoleLabel(book('b2', 'platform', PAYG_BOOK_NAME))).toBe('pay per use')
+  })
+  it('matches the name case-insensitively, the way the server looks it up', () => {
+    expect(bookRole(book('b1', 'platform', '  organization payg  '))).toBe('payg')
+    expect(bookRole(book('b2', 'platform', 'OPENOVA PLANS'))).toBe('plans')
+  })
+  it('labels no other book, so a clone or a cloud book is never mislabelled', () => {
+    expect(bookRole(book('b3', 'platform', 'Acme negotiated'))).toBeNull()
+    expect(bookRole(book('b4', 'cloud', PLAN_BOOK_NAME))).toBeNull()
+    expect(bookRoleLabel(book('b5', 'cloud', 'NC list'))).toBe('')
+  })
+  it('explains what each card prices and what it deliberately does not', () => {
+    expect(BOOK_ROLES.plans.help).toContain('plan.<slug>')
+    expect(BOOK_ROLES.plans.help).toContain('unpriced')
+    expect(BOOK_ROLES.payg.help).toContain('flexi')
+    expect(BOOK_ROLES.payg.help).toContain('no plan line')
   })
 })
