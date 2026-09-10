@@ -430,8 +430,11 @@ func TestIntegrationEndToEndOnboardingUsageStatements(t *testing.T) {
 	}
 	ver.mu.Unlock()
 
-	// Audit trail is visible to the customer and carries no secret.
-	audit := cust.must("GET", "/api/v1/customers/"+acmeID+"/audit", 200)
+	// The audit trail is the operator's (audit.read is a Sovereign permission,
+	// DESIGN.md §10): the customer is refused, and the operator's view carries
+	// no secret.
+	cust.must("GET", "/api/v1/customers/"+acmeID+"/audit", 403)
+	audit := op.must("GET", "/api/v1/customers/"+acmeID+"/audit", 200)
 	entries := audit["entries"].([]any)
 	if len(entries) < 5 {
 		t.Fatalf("audit entries = %d", len(entries))

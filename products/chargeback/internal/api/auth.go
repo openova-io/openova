@@ -6,7 +6,9 @@ import (
 	"log/slog"
 	"math/big"
 	"net/http"
+	"sort"
 
+	"github.com/openova-io/openova/products/chargeback/internal/access"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
 
@@ -40,16 +42,14 @@ func (h *Handler) pinRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Only known principals receive a code; unknown emails get the same 202.
-	known := h.Config.IsOperator(email)
-	if !known {
-		if _, _, ok, err := h.Store.RoleForEmail(r.Context(), email); err != nil {
-			storeErr(w, err)
-			return
-		} else if ok {
-			known = true
-		}
+	// A PIN sign-in carries no directory groups, so only explicit bindings
+	// and OPERATOR_EMAILS count here.
+	bindings, err := h.resolveBindings(r, email, nil)
+	if err != nil {
+		storeErr(w, err)
+		return
 	}
-	if known {
+	if len(bindings) > 0 {
 		code, err := newPIN()
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, "internal error")
@@ -91,49 +91,87 @@ func (h *Handler) pinVerify(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "invalid or expired code")
 		return
 	}
-	role, customerID, err := h.resolveRole(r, email)
+	resolved, err := h.resolveSession(r, email, nil)
 	if err != nil {
 		storeErr(w, err)
 		return
 	}
-	if role == "" {
+	if len(resolved.Roles) == 0 {
 		writeErr(w, http.StatusForbidden, "this email has no access")
 		return
 	}
-	sess, err := h.Store.CreateSession(r.Context(), email, role, customerID, sessionTTL)
+	sess, err := h.Store.CreateSession(r.Context(), email, resolved.Role, resolved.CustomerID, sessionTTL)
 	if err != nil {
 		storeErr(w, err)
 		return
 	}
+	resolved.Token, resolved.ExpiresAt = sess.Token, sess.ExpiresAt
 	h.setSessionCookie(w, sess.Token, sess.ExpiresAt)
-	h.audit(r, customerID, "auth.signin", map[string]any{"email": email, "role": role})
-	writeJSON(w, http.StatusOK, h.mePayload(r, sess))
+	h.audit(r, resolved.CustomerID, "auth.signin", map[string]any{"email": email, "role": resolved.Role, "roles": roleNames(resolved.Roles)})
+	writeJSON(w, http.StatusOK, h.mePayload(r, resolved))
 }
 
-// resolveRole maps an email to (role, customerID): operator emails from the
-// environment, otherwise the customer_users grant.
-func (h *Handler) resolveRole(r *http.Request, email string) (string, *string, error) {
+// resolveBindings is the union of everything that grants an email a role
+// (DESIGN.md §10): the implicit sovereign-admin of an OPERATOR_EMAILS
+// address, its explicit role_bindings rows, and the mappings of the
+// directory groups the gate forwarded. Order is stable: config, bindings,
+// groups.
+func (h *Handler) resolveBindings(r *http.Request, email string, groups []string) ([]store.RoleBinding, error) {
+	var out []store.RoleBinding
 	if h.Config.IsOperator(email) {
-		return store.RoleOperator, nil, nil
+		out = append(out, store.RoleBinding{SubjectEmail: email, Role: store.RoleSovereignAdmin, ScopeKind: store.ScopeKindSovereign, Source: store.BindingSourceConfig})
 	}
-	cid, role, ok, err := h.Store.RoleForEmail(r.Context(), email)
-	if err != nil || !ok {
-		return "", nil, err
+	explicit, err := h.Store.BindingsForEmail(r.Context(), email)
+	if err != nil {
+		return nil, err
 	}
-	if role == "admin" {
-		return store.RoleCustomerAdmin, &cid, nil
+	out = append(out, explicit...)
+	if len(groups) > 0 {
+		viaGroups, err := h.Store.BindingsForGroups(r.Context(), groups)
+		if err != nil {
+			return nil, err
+		}
+		for i := range viaGroups {
+			viaGroups[i].SubjectEmail = email
+		}
+		out = append(out, viaGroups...)
 	}
-	return store.RoleCustomerViewer, &cid, nil
+	return out, nil
+}
+
+// resolveSession builds the session of an email from its bindings: Roles is
+// the full set, Role + CustomerID the highest-power one in the legacy
+// vocabulary (access.Primary). An email with no binding resolves to a
+// session with no Roles, which every caller treats as unauthenticated.
+func (h *Handler) resolveSession(r *http.Request, email string, groups []string) (store.Session, error) {
+	bindings, err := h.resolveBindings(r, email, groups)
+	if err != nil {
+		return store.Session{}, err
+	}
+	s := store.Session{Email: email, Roles: bindings, Groups: groups}
+	if role, cid, ok := access.Primary(bindings); ok {
+		s.Role, s.CustomerID = role, cid
+	}
+	return s, nil
+}
+
+func roleNames(bs []store.RoleBinding) []string {
+	out := make([]string, 0, len(bs))
+	for _, b := range bs {
+		out = append(out, b.Role)
+	}
+	return out
 }
 
 func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
-	if s, ok := sessionFrom(r); ok {
+	if s, ok := sessionFrom(r); ok && s.Token != "" {
 		_ = h.Store.DeleteSession(r.Context(), s.Token)
 	}
 	h.clearSessionCookie(w)
 	writeJSON(w, http.StatusOK, map[string]any{"signed_out": true})
 }
 
+// me — GET /api/v1/auth/me and GET /api/v1/me.
 func (h *Handler) me(w http.ResponseWriter, r *http.Request) {
 	s, ok := h.requireAuth(w, r)
 	if !ok {
@@ -142,18 +180,52 @@ func (h *Handler) me(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, h.mePayload(r, s))
 }
 
+// mePayload is the signed-in principal as the console reads it. `role` and
+// `customer_id` are the legacy pair (the highest-power binding, in the old
+// vocabulary); `roles` is every binding with where it came from;
+// `permissions` the effective list per scope key ("sovereign" or
+// "customer:<id>"), which is what the console hides and shows by; `scopes`
+// those keys in order. `customer` is the primary customer's card.
 func (h *Handler) mePayload(r *http.Request, s store.Session) map[string]any {
+	bindings := access.Bindings(s)
+	roles := make([]map[string]any, 0, len(bindings))
+	for _, b := range bindings {
+		row := map[string]any{"role": b.Role, "scope_kind": b.ScopeKind, "source": b.Source}
+		if b.Source == "" {
+			row["source"] = store.BindingSourceExplicit
+		}
+		if b.CustomerID != nil {
+			row["customer_id"] = *b.CustomerID
+			if b.CustomerName != "" {
+				row["customer_name"] = b.CustomerName
+			}
+		}
+		roles = append(roles, row)
+	}
+	perms := access.Effective(bindings)
+	permsOut := make(map[string][]string, len(perms))
+	for k, list := range perms {
+		names := make([]string, len(list))
+		for i, p := range list {
+			names[i] = string(p)
+		}
+		sort.Strings(names)
+		permsOut[k] = names
+	}
 	out := map[string]any{
-		"email":      s.Email,
-		"role":       s.Role,
-		"expires_at": s.ExpiresAt,
-		"profile":    h.Config.Profile,
-		"version":    h.Version,
+		"email":       s.Email,
+		"role":        s.Role,
+		"roles":       roles,
+		"permissions": permsOut,
+		"scopes":      access.Scopes(bindings),
+		"expires_at":  s.ExpiresAt,
+		"profile":     h.Config.Profile,
+		"version":     h.Version,
 	}
 	if s.CustomerID != nil {
 		out["customer_id"] = *s.CustomerID
 		if c, err := h.Store.GetCustomer(r.Context(), store.CustomerScope(*s.CustomerID), *s.CustomerID); err == nil {
-			out["customer"] = map[string]any{"id": c.ID, "slug": c.Slug, "name": c.Name, "status": c.Status, "billing_mode": c.BillingMode}
+			out["customer"] = map[string]any{"id": c.ID, "slug": c.Slug, "name": c.Name, "status": c.Status, "billing_mode": c.BillingMode, "payment_method": c.PaymentMethod, "gateway_name": c.GatewayName}
 		}
 	}
 	return out

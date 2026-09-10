@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/openova-io/openova/products/chargeback/internal/access"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
 
@@ -11,7 +12,7 @@ import (
 // summary document (DESIGN.md §3.2): the earlier three-block payload used
 // keys the page never read, which is how hw307 rendered every KPI as zero.
 func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
-	s, ok := h.requireOperator(w, r)
+	s, ok := h.requireSovereign(w, r, access.MeteringRead)
 	if !ok {
 		return
 	}

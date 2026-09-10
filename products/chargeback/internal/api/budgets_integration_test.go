@@ -114,9 +114,19 @@ func seedBudgetLedger(t *testing.T, st *store.Store) budgetSeed {
 	return budgetSeed{a: a, b: b}
 }
 
-// customerClient returns a client signed in as a customer principal.
+// customerClient returns a client signed in as a customer principal. The
+// binding is granted first: a session's roles are resolved on every request
+// from role_bindings (DESIGN.md §10), so a cookie for an email that holds no
+// binding is unauthenticated — exactly what a revoked user gets.
 func customerClient(t *testing.T, h http.Handler, st *store.Store, email, role, customerID string) *client {
 	t.Helper()
+	bound, ok := store.CustomerRoleFromLegacy(role)
+	if !ok {
+		t.Fatalf("customerClient: %q is not a customer role", role)
+	}
+	if err := st.UpsertCustomerUser(context.Background(), customerID, email, bound); err != nil {
+		t.Fatal(err)
+	}
 	sess, err := st.CreateSession(context.Background(), email, role, &customerID, time.Hour)
 	if err != nil {
 		t.Fatal(err)

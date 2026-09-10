@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/openova-io/openova/products/chargeback/internal/access"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
 
@@ -109,7 +110,7 @@ func contains(list []string, v string) bool {
 }
 
 func (h *Handler) listResources(w http.ResponseWriter, r *http.Request) {
-	s, ok := h.requireOperator(w, r)
+	s, ok := h.requireSovereign(w, r, access.MeteringRead)
 	if !ok {
 		return
 	}
@@ -198,7 +199,7 @@ func (h *Handler) writeResourcesCSV(w http.ResponseWriter, r *http.Request, scop
 }
 
 func (h *Handler) resourcesCSV(w http.ResponseWriter, r *http.Request) {
-	s, ok := h.requireOperator(w, r)
+	s, ok := h.requireSovereign(w, r, access.MeteringRead)
 	if !ok {
 		return
 	}

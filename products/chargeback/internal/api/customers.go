@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/openova-io/openova/products/chargeback/internal/access"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
 
@@ -135,7 +136,7 @@ func deref(p *string) string {
 func validStatus(s string) bool { return s == "pending" || s == "active" || s == "suspended" }
 
 func (h *Handler) createCustomer(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.CustomersManage); !ok {
 		return
 	}
 	var in customerBody
@@ -237,15 +238,47 @@ func (h *Handler) getCustomer(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, c)
 }
 
+// ownerPatchFields are the customer fields an owner may set on its own
+// customer (DESIGN.md §10, customer.self.manage): its purchase-order
+// reference and tax registration number. Everything else — the commercial
+// model, the plan, the status, the admin email — stays with customers.manage.
+var ownerPatchFields = map[string]bool{"po_reference": true, "tax_registration_number": true}
+
+// ownerPatchRefused names the first field an owner's patch touches outside
+// ownerPatchFields, or "" when the patch is within them.
+func ownerPatchRefused(in customerBody) string {
+	for _, f := range patchedFields(in) {
+		if !ownerPatchFields[f] {
+			return f
+		}
+	}
+	if in.PriceBookID != nil {
+		return "price_book_id"
+	}
+	if in.BillingMode != nil {
+		return "billing_mode"
+	}
+	return ""
+}
+
 func (h *Handler) patchCustomer(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if _, ok := h.requireOperator(w, r); !ok {
+	// customers.manage edits everything; an owner (customer.self.manage on
+	// its own customer) may set its PO reference and tax registration only.
+	s, ok := h.requireAnyPermission(w, r, id, access.CustomersManage, access.CustomerSelfManage)
+	if !ok {
 		return
 	}
 	var in customerBody
 	if err := decode(r, &in); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid body: "+err.Error())
 		return
+	}
+	if !access.Has(access.Bindings(s), access.CustomersManage, id) {
+		if f := ownerPatchRefused(in); f != "" {
+			writeErr(w, http.StatusForbidden, "a customer owner may change po_reference and tax_registration_number only; "+f+" needs permission customers.manage")
+			return
+		}
 	}
 	if h.commercialWriteRefused(w, r, in) {
 		return
@@ -386,7 +419,7 @@ func patchedFields(in customerBody) []string {
 // inviteCustomer mints an activation link and mails it to the admin.
 func (h *Handler) inviteCustomer(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.CustomersManage); !ok {
 		return
 	}
 	c, err := h.Store.GetCustomer(r.Context(), store.OperatorScope, id)
@@ -430,20 +463,28 @@ func (h *Handler) addUser(w http.ResponseWriter, r *http.Request) {
 		Email string `json:"email"`
 		Role  string `json:"role"`
 	}
-	if err := decode(r, &in); err != nil || !validEmail(in.Email) || (in.Role != "admin" && in.Role != "viewer") {
-		writeErr(w, http.StatusBadRequest, "email and role (admin|viewer) are required")
+	if err := decode(r, &in); err != nil || !validEmail(in.Email) {
+		writeErr(w, http.StatusBadRequest, "email and role (customer-owner | customer-billing | customer-viewer; admin | viewer accepted) are required")
+		return
+	}
+	// The role is a customer role (DESIGN.md §10); the legacy admin | viewer
+	// pair is still accepted and means owner | viewer.
+	bound, okRole := store.CustomerRoleFromLegacy(in.Role)
+	if !okRole {
+		writeErr(w, http.StatusBadRequest, "role must be customer-owner, customer-billing or customer-viewer (admin | viewer accepted)")
 		return
 	}
 	if _, err := h.Store.GetCustomer(r.Context(), store.OperatorScope, id); err != nil {
 		storeErr(w, err)
 		return
 	}
-	if err := h.Store.UpsertCustomerUser(r.Context(), id, in.Email, in.Role); err != nil {
+	if err := h.Store.UpsertCustomerUser(r.Context(), id, in.Email, bound); err != nil {
 		storeErr(w, err)
 		return
 	}
-	h.audit(r, &id, "customer.user.add", map[string]any{"email": normEmail(in.Email), "role": in.Role})
-	writeJSON(w, http.StatusCreated, store.CustomerUser{CustomerID: id, Email: normEmail(in.Email), Role: in.Role})
+	h.audit(r, &id, "customer.user.add", map[string]any{"email": normEmail(in.Email), "role": store.LegacyCustomerRole(bound), "binding_role": bound})
+	h.audit(r, &id, "access.binding", map[string]any{"op": "grant", "subject_email": normEmail(in.Email), "role": bound, "scope_kind": store.ScopeKindCustomer, "customer_id": id})
+	writeJSON(w, http.StatusCreated, store.CustomerUser{CustomerID: id, Email: normEmail(in.Email), Role: store.LegacyCustomerRole(bound), BindingRole: bound})
 }
 
 func (h *Handler) deleteUser(w http.ResponseWriter, r *http.Request) {
@@ -457,12 +498,16 @@ func (h *Handler) deleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.audit(r, &id, "customer.user.remove", map[string]any{"email": email})
+	h.audit(r, &id, "access.binding", map[string]any{"op": "revoke", "subject_email": email, "scope_kind": store.ScopeKindCustomer, "customer_id": id})
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": true})
 }
 
+// customerAudit — GET /customers/{id}/audit. audit.read is a Sovereign
+// permission (DESIGN.md §10): a customer principal on the customer is
+// answered 403, one that is not 404.
 func (h *Handler) customerAudit(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	s, ok := h.requireCustomer(w, r, id, false)
+	s, ok := h.requirePermission(w, r, access.AuditRead, id)
 	if !ok {
 		return
 	}
@@ -496,7 +541,7 @@ func (h *Handler) activateIfPending(r *http.Request, customerID string) {
 // while an issued statement exists — that bill is a permanent record.
 func (h *Handler) deleteCustomer(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.CustomersManage); !ok {
 		return
 	}
 	c, err := h.Store.GetCustomer(r.Context(), store.OperatorScope, id)

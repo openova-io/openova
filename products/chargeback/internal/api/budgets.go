@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/openova-io/openova/products/chargeback/internal/access"
 	"github.com/openova-io/openova/products/chargeback/internal/budget"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
@@ -217,7 +218,7 @@ func (h *Handler) customerBudgets(w http.ResponseWriter, r *http.Request) {
 
 // createBudget — POST /api/v1/budgets (operator).
 func (h *Handler) createBudget(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.CustomersManage); !ok {
 		return
 	}
 	var body budgetBody
@@ -265,7 +266,7 @@ func (h *Handler) getBudget(w http.ResponseWriter, r *http.Request) {
 // updateBudget — PUT /api/v1/budgets/{id} (operator). Fields absent from the
 // body keep their stored value; customer_id: null makes the budget global.
 func (h *Handler) updateBudget(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.CustomersManage); !ok {
 		return
 	}
 	id := r.PathValue("id")
@@ -310,7 +311,7 @@ func (h *Handler) updateBudget(w http.ResponseWriter, r *http.Request) {
 
 // deleteBudget — DELETE /api/v1/budgets/{id} (operator).
 func (h *Handler) deleteBudget(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.CustomersManage); !ok {
 		return
 	}
 	id := r.PathValue("id")

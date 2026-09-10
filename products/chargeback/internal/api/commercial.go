@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/openova-io/openova/products/chargeback/internal/access"
 	"github.com/openova-io/openova/products/chargeback/internal/commercial"
 	"github.com/openova-io/openova/products/chargeback/internal/commercial/external"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
@@ -159,7 +160,7 @@ func (h *Handler) importEnforcement(w http.ResponseWriter, r *http.Request) {
 // listOutbox shows what is queued for the operator's billing system, and why
 // anything is stuck. `?all=1` includes the delivered rows.
 func (h *Handler) listOutbox(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.MeteringRead); !ok {
 		return
 	}
 	pending := r.URL.Query().Get("all") != "1"
@@ -195,7 +196,7 @@ func (h *Handler) listOutbox(w http.ResponseWriter, r *http.Request) {
 // waiting for the next tick. A far-end failure is reported ON THE ROW, not as
 // a failed request: the retry did happen.
 func (h *Handler) retryOutbox(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireOperator(w, r); !ok {
+	if _, ok := h.requireSovereign(w, r, access.BillingIssue); !ok {
 		return
 	}
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)

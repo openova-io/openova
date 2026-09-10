@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/openova-io/openova/products/chargeback/internal/access"
 	"github.com/openova-io/openova/products/chargeback/internal/recommend"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
@@ -56,7 +57,7 @@ func (h *Handler) gatherRecommendations(ctx context.Context, scope store.Scope, 
 }
 
 func (h *Handler) recommendations(w http.ResponseWriter, r *http.Request) {
-	s, ok := h.requireOperator(w, r)
+	s, ok := h.requireSovereign(w, r, access.MeteringRead)
 	if !ok {
 		return
 	}
