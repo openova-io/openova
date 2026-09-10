@@ -3,7 +3,7 @@ import { Navigate, useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import type { Customer } from '../api/types'
 import { Field, Modal, Notice } from '../components/ui'
-import { BILLING_MODES, CUSTOMER_KINDS } from '../lib/customers'
+import { CHARGING_OPTIONS, CUSTOMER_KINDS, GATEWAYS, PAYMENT_METHODS, PAYMENT_MODELS } from '../lib/customers'
 import { customerBody, emptyCustomerForm, hasErrors, slugify, validateCustomer, type CustomerForm, type Errors } from '../lib/forms'
 import { useAction } from '../lib/useAction'
 
@@ -93,23 +93,67 @@ export function NewCustomerModal({ onClose }: { onClose: () => void }) {
               <input value={form.org_slug} onChange={(e) => set('org_slug', e.target.value.toLowerCase())} className="mono" placeholder="acme" />
             </Field>
           ) : (
-            <Field label="Billing mode" error={errors.billing_mode} help={BILLING_MODES.find((m) => m.value === form.billing_mode)?.help}>
-              <select value={form.billing_mode} onChange={(e) => set('billing_mode', e.target.value)}>
-                {BILLING_MODES.map((m) => (
-                  <option key={m.value} value={m.value}>
-                    {m.label}
+            <Field label="Charging" error={errors.charging} help={CHARGING_OPTIONS.find((o) => o.value === form.charging)?.help}>
+              <select value={form.charging} onChange={(e) => set('charging', e.target.value)}>
+                {CHARGING_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
                   </option>
                 ))}
               </select>
             </Field>
           )}
         </div>
+        {/* DESIGN.md §8 — three questions, three controls. billing_mode is
+            derived server-side and never sent from here. */}
         {form.kind === 'organization' ? (
-          <Field label="Billing mode" error={errors.billing_mode} help={BILLING_MODES.find((m) => m.value === form.billing_mode)?.help}>
-            <select value={form.billing_mode} onChange={(e) => set('billing_mode', e.target.value)}>
-              {BILLING_MODES.map((m) => (
-                <option key={m.value} value={m.value}>
-                  {m.label}
+          <Field label="Charging" error={errors.charging} help={CHARGING_OPTIONS.find((o) => o.value === form.charging)?.help}>
+            <select value={form.charging} onChange={(e) => set('charging', e.target.value)}>
+              {CHARGING_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+        ) : null}
+        {form.charging === 'billed' ? (
+          <div className="grid2">
+            <Field label="Payment model" error={errors.payment_model} help={PAYMENT_MODELS.find((o) => o.value === form.payment_model)?.help ?? 'When the customer pays, relative to the usage.'}>
+              <select value={form.payment_model} onChange={(e) => set('payment_model', e.target.value)}>
+                <option value="">choose…</option>
+                {PAYMENT_MODELS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Payment method" error={errors.payment_method} help={PAYMENT_METHODS.find((o) => o.value === form.payment_method)?.help ?? 'How the money actually moves.'}>
+              <select
+                value={form.payment_method}
+                onChange={(e) => {
+                  set('payment_method', e.target.value)
+                  set('gateway_name', e.target.value === 'gateway' ? (GATEWAYS[0]?.value ?? '') : '')
+                }}
+              >
+                <option value="">choose…</option>
+                {PAYMENT_METHODS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
+        ) : null}
+        {form.charging === 'billed' && form.payment_method === 'gateway' ? (
+          <Field label="Payment gateway" error={errors.gateway_name} help="Which gateway collects.">
+            <select value={form.gateway_name} onChange={(e) => set('gateway_name', e.target.value)}>
+              <option value="">choose…</option>
+              {GATEWAYS.map((g) => (
+                <option key={g.value} value={g.value}>
+                  {g.label}
                 </option>
               ))}
             </select>

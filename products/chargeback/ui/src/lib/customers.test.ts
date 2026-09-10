@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Customer, PriceBook, Summary } from '../api/types'
-import { customerCounts, customerPatch, fieldLabel, filterCustomers, lastStatementText, mtdByCustomer, mtdFor, priceBookName, settingsFrom, sourceCounts, sourcesText, planLabel } from './customers'
+import { commercialDetail, commercialLabel, customerCounts, customerPatch, fieldLabel, filterCustomers, lastStatementText, mtdByCustomer, mtdFor, planLabel, priceBookName, settingsFrom, sourceCounts, sourcesText } from './customers'
 
 const cust = (over: Partial<Customer>): Customer => ({
   id: 'c-x',
@@ -101,25 +101,61 @@ describe('lastStatementText', () => {
   })
 })
 
+describe('commercialLabel / commercialDetail', () => {
+  it('names the commercial position instead of a mode word (DESIGN.md §8)', () => {
+    expect(commercialLabel(cust({ charging: 'informational' }))).toBe('informational')
+    expect(commercialLabel(cust({ charging: 'billed', payment_model: 'prepaid', payment_method: 'gateway', gateway_name: 'stripe' }))).toBe('prepaid · Stripe')
+    expect(commercialLabel(cust({ charging: 'billed', payment_model: 'postpaid', payment_method: 'transfer' }))).toBe('postpaid · transfer')
+    expect(commercialLabel(cust({ charging: 'billed', payment_model: 'postpaid', payment_method: 'internal' }))).toBe('internal recharge')
+  })
+  it('falls back to the derived billing_mode for a document without the new fields', () => {
+    expect(commercialLabel(cust({ billing_mode: 'showback' }))).toBe('informational')
+  })
+  it('shows the terms under an invoiced customer only', () => {
+    expect(commercialDetail(cust({ charging: 'billed', payment_model: 'postpaid', payment_method: 'transfer', payment_terms_days: 45, po_reference: 'PO-1' }))).toBe('net 45 · PO-1')
+    expect(commercialDetail(cust({ charging: 'billed', payment_model: 'postpaid', payment_method: 'transfer', payment_terms_days: 0 }))).toBe('due on receipt')
+    expect(commercialDetail(cust({ charging: 'billed', payment_model: 'prepaid', payment_method: 'gateway', gateway_name: 'stripe' }))).toBe('')
+    expect(commercialDetail(cust({ charging: 'informational' }))).toBe('')
+  })
+})
+
 describe('customerPatch', () => {
-  const orig = cust({ name: 'Acme', admin_email: 'ops@acme.om', billing_mode: 'showback', price_book_id: 'pb-1', start_date: '2026-01-01', status: 'active', org_slug: null })
+  const orig = cust({ name: 'Acme', admin_email: 'ops@acme.om', charging: 'informational', price_book_id: 'pb-1', start_date: '2026-01-01', status: 'active', org_slug: null })
   it('sends only the fields that changed', () => {
-    const form = { ...settingsFrom(orig), name: 'Acme Trading', billing_mode: 'real' }
-    expect(customerPatch(orig, form)).toEqual({ name: 'Acme Trading', billing_mode: 'real' })
+    const form = { ...settingsFrom(orig), name: 'Acme Trading', charging: 'billed', payment_model: 'postpaid', payment_method: 'transfer' }
+    expect(customerPatch(orig, form)).toEqual({ name: 'Acme Trading', charging: 'billed', payment_model: 'postpaid', payment_method: 'transfer' })
   })
   it('an untouched form sends nothing', () => {
     expect(customerPatch(orig, settingsFrom(orig))).toEqual({})
   })
+  it('never sends billing_mode — it is derived server-side (DESIGN.md §8)', () => {
+    const form = { ...settingsFrom(orig), charging: 'billed', payment_model: 'prepaid', payment_method: 'gateway', gateway_name: 'stripe' }
+    expect(Object.keys(customerPatch(orig, form))).not.toContain('billing_mode')
+  })
+  it('sends the payment terms as a number, so 0 means due on receipt', () => {
+    const billed = cust({ charging: 'billed', payment_model: 'postpaid', payment_method: 'transfer', payment_terms_days: 30 })
+    expect(customerPatch(billed, { ...settingsFrom(billed), payment_terms_days: '0' })).toEqual({ payment_terms_days: 0 })
+  })
+  it('turning charging off drops the fields that then mean nothing', () => {
+    const billed = cust({ charging: 'billed', payment_model: 'prepaid', payment_method: 'gateway', gateway_name: 'stripe' })
+    expect(customerPatch(billed, { ...settingsFrom(billed), charging: 'informational' })).toEqual({ charging: 'informational' })
+  })
+  it('moving off the gateway drops the gateway name', () => {
+    const billed = cust({ charging: 'billed', payment_model: 'prepaid', payment_method: 'gateway', gateway_name: 'stripe' })
+    const form = { ...settingsFrom(billed), payment_method: 'transfer', gateway_name: '' }
+    expect(customerPatch(billed, form)).toEqual({ payment_method: 'transfer' })
+  })
   it('a cleared price book is sent as "" (clear), lowercases the email, trims', () => {
-    const form = { ...settingsFrom(orig), price_book_id: '', admin_email: '  Finance@Acme.om ' }
-    expect(customerPatch(orig, form)).toEqual({ price_book_id: '', admin_email: 'finance@acme.om' })
+    const form = { ...settingsFrom(orig), admin_email: '  Finance@Acme.om ' }
+    expect(customerPatch(orig, form)).toEqual({ admin_email: 'finance@acme.om' })
   })
 })
 
 describe('fieldLabel', () => {
   it('names the known settings fields as the form labels them', () => {
     expect(fieldLabel('price_book_id')).toBe('price book')
-    expect(fieldLabel('billing_mode')).toBe('billing mode')
+    expect(fieldLabel('payment_method')).toBe('payment method')
+    expect(fieldLabel('po_reference')).toBe('purchase order')
     expect(fieldLabel('admin_email')).toBe('admin email')
     expect(fieldLabel('start_date')).toBe('start date')
     expect(fieldLabel('org_slug')).toBe('Organization slug')

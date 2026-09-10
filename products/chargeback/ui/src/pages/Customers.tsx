@@ -4,7 +4,8 @@ import { api, asList } from '../api/client'
 import type { Customer, InviteIssued, Summary } from '../api/types'
 import { DataTable, type Column } from '../components/DataTable'
 import { Badge, Delta, KPI, Notice, PageHeader, Segmented, Skeleton } from '../components/ui'
-import { STATUS_FILTERS, customerCounts, filterCustomers, lastStatementText, mtdByCustomer, mtdFor, sourceCounts, sourcesText, type StatusFilter } from '../lib/customers'
+import { balanceWord, directoryBalance } from '../lib/account'
+import { STATUS_FILTERS, commercialDetail, commercialLabel, customerCounts, filterCustomers, lastStatementText, mtdByCustomer, mtdFor, sourceCounts, sourcesText, type StatusFilter } from '../lib/customers'
 import { sourcesByLayerText } from '../lib/layers'
 import { when } from '../lib/format'
 import { formatMoney } from '../lib/money'
@@ -73,7 +74,23 @@ export function Customers() {
         </>
       ),
     },
-    { key: 'billing', header: 'Billing', value: (c) => c.billing_mode },
+    {
+      // DESIGN.md §8: the commercial position, not a mode word — "prepaid ·
+      // Stripe", "postpaid · transfer", "internal recharge",
+      // "informational", with the terms underneath where they apply.
+      key: 'billing',
+      header: 'Charging',
+      value: (c) => commercialLabel(c),
+      render: (c) => {
+        const detail = commercialDetail(c)
+        return (
+          <>
+            <span className={c.charging === 'informational' ? 'muted' : ''}>{commercialLabel(c)}</span>
+            {detail ? <span className="sub">{detail}</span> : null}
+          </>
+        )
+      },
+    },
     {
       // DESIGN.md §2: the price book is a property of each SOURCE, so the
       // directory shows what a customer owns per layer instead of one book.
@@ -101,6 +118,25 @@ export function Customers() {
       render: (c) => {
         const v = mtdFor(mtd, c.id)
         return v === null ? <span className="muted" title="Not among the top customers of the summary — open the account for its cost">—</span> : formatMoney(v, currency)
+      },
+    },
+    {
+      // DESIGN.md §9 — the ledger balance, accounting-signed: positive is
+      // owed (red), negative is credit the customer holds (green).
+      key: 'balance',
+      header: 'Balance',
+      value: (c) => directoryBalance(c.balance),
+      numeric: true,
+      render: (c) => {
+        const b = directoryBalance(c.balance)
+        if (b === null) return <span className="muted" title="The list did not carry a balance — open the Account tab">—</span>
+        if (b === 0) return <span className="muted">settled</span>
+        return (
+          <>
+            <span className={b > 0 ? 'bad' : 'ok'}>{formatMoney(Math.abs(b), currency)}</span>
+            <span className="sub">{balanceWord(b)}</span>
+          </>
+        )
       },
     },
     { key: 'collected', header: 'Last collected', value: (c) => c.last_collected_at ?? '', render: (c) => <span className={c.last_collected_at ? '' : 'muted'}>{when(c.last_collected_at)}</span> },

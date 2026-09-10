@@ -386,12 +386,51 @@ ALTER TABLE cost_sources ADD CONSTRAINT cost_sources_status_check CHECK (status 
 	// - an entry inserted mid-list is silently skipped on a database that
 	// already recorded that version, so a new one only ever goes last.
 	paygPlatformBooksMigrationSQL(),
+	// #6867 follow-up — post-paid invoicing and the settlement seam (founder
+	// direction 2026-09-10). Appended after the pay-per-use entry because
+	// migrations are positional: an entry inserted above a database's
+	// recorded version is silently skipped.
+	invoicingMigrationSQL,
+	// DESIGN.md §9 — the customer account ledger, payment allocation, credit
+	// notes, the tax profile, the collections schedule and the platform
+	// suspension trail. Appended at the very END: migrations are positional.
+	collectionsMigrationSQL,
+	// #6867 follow-up — the invoices issued BEFORE the invoicing entry ran. It
+	// mapped the customers onto charging = 'billed' but never numbered the
+	// statements already issued, so on hw307 six August invoices carried no
+	// number, no terms and no due date. Numbered here, continuing the
+	// per-year sequence. Appended after the ledger, at the END: migrations are positional.
+	backfillIssuedInvoicesMigrationSQL,
 }
+
+// MigrationBackfillIssuedInvoices is the schema_migrations version of the
+// invoice backfill; its test stands a database at the version before it,
+// writes the un-numbered invoices the invoicing migration left behind, and
+// then applies it. Located by content, like the others, so a migration
+// appended after it cannot move this version.
+var MigrationBackfillIssuedInvoices = func() int {
+	for i, m := range migrations {
+		if m == backfillIssuedInvoicesMigrationSQL {
+			return i + 1
+		}
+	}
+	return len(migrations)
+}()
 
 // MigrationPAYGPlatformBooks is the schema_migrations version of the
 // pay-per-use migration (the last entry of migrations); the migration test
 // stands a database at the version before it and then applies it.
-var MigrationPAYGPlatformBooks = len(migrations)
+var MigrationPAYGPlatformBooks = func() int {
+	// Located by content rather than assumed to be last: another migration
+	// appended after it (the invoicing one was) must not move this version.
+	want := paygPlatformBooksMigrationSQL()
+	for i, m := range migrations {
+		if m == want {
+			return i + 1
+		}
+	}
+	return len(migrations)
+}()
 
 // sqlQuote renders s as a SQL string literal. Every value it is used on here
 // is a compile-time constant of this package, never input; it doubles quotes

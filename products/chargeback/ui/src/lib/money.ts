@@ -67,6 +67,34 @@ export function formatCompact(v: Numeric, significant = 3): string {
   return v < 0 ? MINUS + out : out
 }
 
+/**
+ * How many decimals the currency's minor unit has — what a bank transfer, a
+ * gateway confirmation and the record-payment dialog can actually carry.
+ * Three for the dinars and the rial (baisa, fils), two everywhere else, which
+ * is where ISO 4217 puts the rest of the world. The server keeps the same
+ * table (internal/store/invoicing.go minorUnitDigits) and judges a payment
+ * by it, so what this prefills is what the store accepts.
+ */
+export function minorUnitDigits(currency: string | null | undefined): number {
+  switch ((currency ?? '').trim().toUpperCase()) {
+    case 'OMR':
+    case 'BHD':
+    case 'KWD':
+    case 'JOD':
+    case 'IQD':
+    case 'LYD':
+    case 'TND':
+      return 3
+    default:
+      return 2
+  }
+}
+
+/** Half a minor unit: the widest difference from an amount that still rounds to it at the unit. */
+export function minorUnitTolerance(currency: string | null | undefined): number {
+  return 0.5 * 10 ** -minorUnitDigits(currency)
+}
+
 export interface MoneyOptions {
   compact?: boolean
   /** Fraction digits for the full form (default 3 — OMR has three). */

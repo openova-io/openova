@@ -919,31 +919,87 @@ the daily series carried an empty bucket in the middle.
 
 **The jump.** The Sovereign's own landlord customer had no past at all, so the
 series stepped from ~150 OMR a day of showcase customers to ~594 OMR a day of
-real usage in a different service mix, from one bucket to the next. Six
+real usage in a different service mix, from one bucket to the next. (About
+494 of those 594 OMR were, it turned out on 10 September, a reservation the
+cloud never billed — see *Traffic, not reservation* below.) Six
 customers appearing and vanishing against a platform with no history reads as
 "nothing existed, then everything appeared" — the opposite of the story.
 
 The fix is a synthetic past for the landlord that **converges on its real
 present**, so the join is invisible rather than merely covered. The end state
 (`synth.LandlordEndState`) is the measured shape of that customer's real
-cloud-layer usage sampled on 5 September 2026 — 10 `m7n.2xlarge.8` and 2
-`m7n.xlarge.8`, six EIPs reserving 1,200 Mbps, 102 volumes totalling 2,281 GB,
+cloud-layer usage sampled on 5 September 2026, its Elastic-IP billing shape
+re-read on 10 September — 10 `m7n.2xlarge.8` and 2 `m7n.xlarge.8`, six
+Elastic IPs billed by outbound traffic (§8.2), 102 volumes totalling 2,281 GB,
 two NAT gateways, two load balancers — and the backfill grows into exactly that
 across two steps (1 July, 1 August) and a storage ramp, then stops at the hour
 boundary before the first real record. Priced on the National Cloud list the
-final full day is 596.63 OMR against a measured 594.10: a seam 0.43 % wide,
-pinned by test at 2 %.
+final full day is 102.23 OMR against 99.69 for a real day of that shape on the
+operator's card without the reservation line: a seam 2.55 % wide, the whole of
+it the known `nat.1` rate gap (2.54 OMR a day), pinned by test at 3 % with a
+second check that the day *minus* its NAT line sits under the measured figure.
 
-**Reservation, not traffic.** 494 of those 594 OMR are EIP bandwidth, and the
-reason is that Huawei bills a pipe's *provisioned* size whether or not traffic
-flows through it. So bandwidth is constant per EIP per hour and steps only when
-an EIP is added — as are the EIP itself, the NAT gateways, the load balancers,
-the instance-hours and each volume's size. Only the storage TOTAL drifts, and
-only because volumes are created (a 32-step staircase tracking a straight line
-from 1,400 to 2,281 GB). Jittering any of them would make the data contradict
-the billing model it is there to explain; two tests in
-`internal/synth/landlord_test.go` — one on reserved bandwidth, one on the
-volume roster — hold the line.
+**Reservations do not move; traffic does.** An instance-hour, an address's
+hourly fee, a NAT gateway, a load balancer and each volume's size are billed
+for existing, so each is constant per resource per hour and steps only when a
+resource is added. Only the storage TOTAL drifts, and only because volumes are
+created (a 32-step staircase tracking a straight line from 1,400 to 2,281 GB).
+Jittering any of them would make the data contradict the billing model it is
+there to explain; the tests in `internal/synth/landlord_test.go` hold the
+line.
+
+**Traffic, not reservation (10 September).** The first revision of the
+backfill mirrored what the pre-0.1.26 collector had recorded: every address
+billing its reserved size, `eip.bandwidth_mbps` × hours — 3 × 300 + 3 × 100 =
+1,200 Mbps, about 494 OMR a day, 83 % of the bill. That collector could not
+read the charge mode (§8.2). The 0.1.26 one does, and on hw307 **all six** of
+the landlord's billable addresses are `bandwidth_charge_mode = traffic`,
+`bandwidth_share_type = PER`: the cloud bills their outbound gigabytes and
+reserves no pipe. The 494 OMR was therefore a charge the cloud never made, and
+the backfill had drawn it as a band through the whole showcase with a cliff at
+the hour the new collector stopped writing it. The first hourly `eip.traffic_gb`
+samples (10 September, 08:00–10:00Z) read 0.013–0.175 GB per address per hour,
+about 0.1 on average, roughly 2.4 GB across the six in three hours.
+
+Each address now meters `eip.traffic_gb` (unit `gb`) and no reservation. The
+hourly volume is a gauge on a daily profile in Oman local time — about 0.03 GB
+through the night, 0.12 across the working day, a 0.20 peak at 20:00 — at 70 %
+on Friday and Saturday, jittered ±30 % per (seed, address, hour), the three
+300-Mbps addresses carrying twice the 100-Mbps ones with the six weights
+averaging to exactly 1, so the roster's total is the profile times six.
+Measured on the generated week of 8 August: 96.5 GB across six addresses
+against 6 × 0.1 × 168 = 100.8 (4 % off, pinned at 25 %), a big/small ratio of
+2.00, and a smallest hour of 0.0098 GB — the curve's floor is a night hour on a
+small address on a weekend at the bottom of the jitter band, never zero. The
+inventory row keeps `bandwidth_mbps` and adds `bandwidth_charge_mode` and
+`bandwidth_share_type`, so it reads like the collector's. Convergence for a
+gauge is the same *shape* at the cut, not the same number: the end-state test
+checks the traffic line's count and unit exactly and its quantity within the
+jitter band, and every reservation exactly. `eip.traffic_gb` stays unpriced,
+as §8.2 requires; it sits on both sides of the seam and adds to neither.
+
+**Neutralising the reservations the cloud never billed.** Correcting the
+backfill left the real ledger holding every `eip.bandwidth_mbps` row the old
+collector wrote for those addresses. `seed-history --neutralise-reservations`
+(on by default, part of the landlord step, so `--only landlord` runs it alone)
+removes them: for every non-synthetic address of the landlord whose inventory
+says `bandwidth_charge_mode = traffic`, the `eip.bandwidth_mbps` usage rows are
+deleted, the count and the window removed are logged, and one entry on the
+landlord's audit trail (`eip.reservation.neutralise`) says what went and why.
+Every clause of the selection is a refusal: an address on charge mode
+`bandwidth` really reserves its pipe and keeps every row; an address with no
+charge mode — an older gateway that does not publish the bandwidths API — is
+left exactly as it is, for the same reason the collector keeps billing it; the
+`eip` fee and the `eip.traffic_gb` meter are the cloud's real charges and stay;
+another customer's addresses and any synthetic row are out of reach. A pass
+that finds nothing writes nothing, so a nightly re-run stacks no entries. The
+neutralisation is a correction of the real ledger and is deliberately **not
+reversed by `--purge`**: the rows were never billable, and the audit entry
+carries no synthetic mark, so both survive a purge.
+`TestNeutraliseRemovesOnlyTrafficBilledReservations` runs the three charge
+modes, a synthetic address, a second customer, a second pass and a purge
+against the real schema. A statement the operator issued over those hours is a
+financial record and stands.
 
 **What it refuses to write.** The landlord is a REAL customer, and three rules
 follow, each one a rule about not writing: the customer is found and read but
@@ -975,11 +1031,15 @@ written at or after it would double-bill an hour the collector already owns.
 ledger cannot answer; `--landlord ''` disables the backfill entirely.
 
 Measured end to end against a scratch Postgres with control rows standing in
-for the real half: 98 daily buckets from 1 June to 6 September, **not one of
-them empty**, and the landlord's last synthetic day and first full real day
-both 594.09 OMR — a 0.00 % seam. A purge then removed 545,274 synthetic usage
-rows, 257 inventory rows, 7 sources and 6 customers while leaving the landlord,
-its real source and all 14,300 real rows untouched.
+for the real half, under the reservation model the backfill mirrored at the
+time: 98 daily buckets from 1 June to 6 September, **not one of them empty**,
+and the landlord's last synthetic day and first full real day both 594.09 OMR
+— a 0.00 % seam. A purge then removed 545,274 synthetic usage rows, 257
+inventory rows, 7 sources and 6 customers while leaving the landlord, its real
+source and all 14,300 real rows untouched. Under the traffic model the row and
+resource counts are unchanged — each address still emits two lines an hour,
+the meter in place of the reservation — and the seam at the new measured day
+is held by the unit test; it has not yet been re-measured end to end on hw307.
 
 ### 7.2 Borrow a rate card, never mint one
 
@@ -1183,3 +1243,471 @@ Measured against the shape hw307 actually has — a 300 Mbps pipe whose busiest
 hour moved 1.2 GB (2.67 Mbps) — the rule suggests 10 Mbps and, at the
 National Cloud list rate of 0.005 per Mbps-hour, a saving of 1,058.500 OMR a
 month for that one address.
+
+---
+
+## 8. Post-paid invoicing and the commercial model (founder direction 2026-09-10)
+
+> *"in many cases omantel corporate customers are charged through invoicing and
+> they are being paid by the customer post paid approach through raising POs
+> etc. so where do these types of customers fall into. And when it comes to the
+> SME cloud customers at the end we need to get integrated with the omantel
+> payment gateway instead of stripe, where do those customers fall under?"*
+
+They fell nowhere, and the reason is worth stating plainly.
+
+### 8.1 Why the three billing modes were retired
+
+`billing_mode` was one column with three values — `showback`, `chargeback`,
+`real` — and it was answering three different questions at once:
+
+- Is anything collected at all? (`showback` said no.)
+- When is it paid? (nothing said.)
+- How does the money move? (`chargeback` implied internally, `real` implied
+  Stripe, and neither said so.)
+
+Three labels over three orthogonal questions cannot cover the cases. A
+corporate customer invoiced on thirty-day terms against a purchase order is
+*real* money, but it is neither Stripe nor an internal recharge — under the old
+model it had to be filed as `real` and then collected by hand outside the
+product. An SME that must pay through Omantel's gateway was `real` too, but
+`real` meant Stripe by construction, because the one place money moved was a
+Stripe-backed hook wired to that value. The labels could not be extended
+either: a fourth mode would have been a fourth label over the same three
+questions.
+
+So the three questions are now three fields, and the answer to "where do those
+customers fall" is a coordinate rather than a label.
+
+### 8.2 The four fields
+
+| Field | Values | Meaning |
+|---|---|---|
+| `charging` | `billed` · `informational` | Is anything collected? `informational` is what showback meant: statements exist for visibility and nothing is ever collected. |
+| `payment_model` | `prepaid` · `postpaid` | `prepaid` settles an invoice from the customer's balance at issue, and service depends on that balance. `postpaid` leaves the invoice due on terms, net of any credit the customer chooses to apply. |
+| `payment_method` | `gateway` · `transfer` · `internal` | How the money moves. `gateway` = a pluggable payment gateway collects. `transfer` = bank transfer against the invoice and its purchase order, recorded by the operator. `internal` = a cost-centre recharge; no external money. |
+| `gateway_name` | e.g. `stripe` | Which gateway collects. Only when `payment_method = gateway`. |
+
+Plus the terms an invoice needs: `po_reference` (the customer's standing
+purchase order) and `payment_terms_days` (net terms, default 30; `0` is due on
+receipt).
+
+**Account credit is universal, not a property of `prepaid`.** A postpaid
+customer may top up as well, and later choose to pay some invoices out of that
+balance. `payment_model` says only what happens *at issue* — whether the
+invoice is settled from the balance and service depends on it, or left due on
+terms. The top-up flow and the allocation of credit across invoices are a
+separate lane; §8.6 describes the shape this one leaves for it.
+
+The last three fields are meaningful **only when `charging = billed`**. That is
+not a convention: the store validates the whole combination and the database
+carries a `CHECK` that refuses an informational customer with a payment model,
+a billed one without a method, a gateway customer with no gateway name, and a
+non-gateway customer that carries one. Every refusal names the field.
+
+The founder's two customers now have coordinates:
+
+| Customer | charging | payment_model | payment_method | gateway_name |
+|---|---|---|---|---|
+| Omantel corporate, invoiced against a PO on terms | `billed` | `postpaid` | `transfer` | — |
+| Omantel SME on Omantel's gateway | `billed` | `prepaid` | `gateway` | `omantel` |
+| The same SME today, on Stripe | `billed` | `prepaid` | `gateway` | `stripe` |
+| An internal department recharged | `billed` | `postpaid` | `internal` | — |
+| A customer shown its cost and never billed | `informational` | — | — | — |
+
+### 8.3 The migration, and `billing_mode` as a derived column
+
+The migration maps the retired trio exactly:
+
+| `billing_mode` | `charging` | `payment_model` | `payment_method` | `gateway_name` |
+|---|---|---|---|---|
+| `showback` | `informational` | NULL | NULL | `''` |
+| `chargeback` | `billed` | `postpaid` | `internal` | `''` |
+| `real` | `billed` | `prepaid` | `gateway` | `stripe` |
+
+`billing_mode` is **kept as a DEPRECATED column**, derived from the four fields
+on every write — `informational` → `showback`, billed + `internal` →
+`chargeback`, anything else → `real` — so a reader written against it, and the
+wire key it reads, keep working unchanged. It is never written directly by the
+API: `POST /customers` and `PATCH /customers/{id}` decode `billing_mode` and
+ignore it with a log line, exactly as they already do for the deprecated
+`price_book_id`. The UI neither shows it nor sends it.
+
+The same mapping is available in Go as `store.CommercialFromBillingMode`, and
+`store.CustomerInput` / `CustomerPatch` route a legacy `BillingMode` through
+it. That is how the **CSV importer** (whose documented columns include
+`billing_mode`) and the **Organization sync** keep working with no change of
+their own: OrgSync still reads `spec.billingMode` from the Organization CR and
+still compares against the derived column, so the CR stays authoritative over
+the coarse mode while a finer operator choice inside it — Stripe gateway versus
+bank transfer — is left alone.
+
+The derivation is deliberately lossy in one direction: a billed customer paying
+by **transfer** also derives `real`. That is the case the three labels could not
+express, which is the whole point; nothing downstream may use `billing_mode` to
+decide whether to take money (§8.7).
+
+### 8.4 A statement becomes an invoice
+
+An issued statement now carries what an invoice must carry:
+
+- **`invoice_number`** — assigned at issue, gapless per calendar year, unique
+  across the table, formatted `<prefix>-<year>-<00001>`. The prefix is the
+  billing setting `invoice_prefix` (default `INV`); changing it changes the
+  *next* number only, because the ones already assigned are on documents the
+  customer holds.
+- **`po_reference`** — copied from the customer at issue, editable on the draft
+  before then (`PATCH /statements/{id}`), frozen afterwards.
+- **`payment_terms_days`** — the customer's terms, overridable per statement
+  before issue.
+- **`due_at`** — the issue date plus the terms, computed at issue.
+
+**Gaplessness is a transaction property, not a counter.** The number is taken
+inside the *same* transaction that flips the status, from a one-row-per-year
+`invoice_sequences` table via `INSERT … ON CONFLICT DO UPDATE … RETURNING`.
+That takes the year row's lock, so a concurrent issue blocks until this
+transaction commits — which makes the sequence unique *and* leaves no hole when
+a transaction rolls back. Measured: twelve concurrent issues produce 1…12 with
+no duplicate and no gap.
+
+### 8.5 The lifecycle
+
+Legal transitions, enforced in the store rather than only in the UI:
+
+| From | May become |
+|---|---|
+| `draft` | `issued`, `cancelled` |
+| `issued` | `sent`, `paid`, `cancelled` |
+| `sent` | `paid`, `overdue` |
+| `overdue` | `paid` |
+| `paid` | — final |
+| `cancelled` | — final |
+
+Anything else is refused with `ErrConflict` (HTTP 409) and a message that says
+what the statement is now and what it could become instead. A **sent** invoice
+is deliberately not cancellable: the customer holds it, and the correction for
+that is a credit note, not a status flip.
+
+**Overdue is DERIVED, never stored.** A statement is overdue when its stored
+status is `sent`, its `due_at` has passed, and money is still outstanding. It is
+computed on every read as `effective_status`, so it is true of the clock rather
+than of the last sweep — there is no sweeper, no cron, and no window in which
+the ledger is wrong. The stored `status` keeps its own name and meaning, and a
+reader written before invoicing falls back to it.
+
+### 8.6 Payments, the balance, and the seam for account credit
+
+A payment is a **row of its own**. It belongs to the CUSTOMER and carries its
+own amount, date, method, reference and status; it is *linked* to the invoice
+it was recorded against rather than being a column on that invoice:
+
+    payments(id, customer_id, statement_id NULL, amount, paid_at,
+             method, reference, status, gateway, recorded_by, recorded_at)
+
+`POST /statements/{id}/payments` creates one such row and links it to that
+invoice, which is why `statement_id` is nullable: unallocated credit is a
+payment with no invoice yet, and allocating one payment across several invoices
+is an allocation table over these same rows. **This lane always sets the link
+and builds neither the top-up flow nor allocation** — it leaves the shape so
+that a later lane can add both without changing the wire.
+
+- `paid_total` is the sum of the **received** payments linked to the statement
+  and `balance` is `total − paid_total`, both computed on read with exact
+  rational arithmetic — never float, never stored, so they cannot drift from
+  the ledger they are read out of. A `pending` or `failed` payment is recorded
+  and settles nothing.
+- A **part payment** leaves the status unchanged and carries the balance; the
+  payment that brings the balance to zero flips the statement to `paid` and
+  stamps `paid_at` with the day that money arrived.
+- **Overpayment is refused** (409, naming the outstanding amount). A customer
+  who sent too much needs a credit note, not a bigger invoice.
+- Both of those are judged **at the currency's minor unit** — three decimals
+  for OMR and the other dinars / the rial, two for everything else — because
+  money is added at six decimals but moves at the unit. An invoice of
+  14.856782 part-paid by 10.000 leaves 4.856782, which no transfer carries:
+  the 4.857 the dialog prefills is the settlement (paid, balance 0 — never
+  negative), while half a unit or more over (4.858) is the overpayment that
+  is refused. The arithmetic underneath stays exact; only the two decisions
+  round.
+- A **reference is unique per customer**, so a gateway that delivers the same
+  confirmation twice books one payment.
+
+### 8.7 The payment-gateway seam
+
+`internal/settle` is the one place that knows how money is collected.
+
+    type Gateway interface {
+        RequestSettlement(ctx, Request) (Result, error)
+        ConfirmSettlement(ctx, Confirmation) (Payment, error)
+    }
+
+**What an implementer must supply — the whole contract:**
+
+1. `RequestSettlement(ctx, Request) (Result, error)`. Called once, on the
+   draft → issued edge, for a customer whose `gateway_name` this
+   implementation is registered under. `Request` carries the statement and the
+   customer; the amount to collect is `Request.Statement.Total` in
+   `Request.Statement.Currency`. Answer a `Result` whose `Outcome` is
+   `settled` (money moved during the call), `pending` (the gateway will confirm
+   later — set `PayURL` when the payer completes it on a hosted page), or
+   `not-applicable` (nothing this gateway collects). It **must be idempotent on
+   `Request.Statement.ID`**: issuing is idempotent, so a re-issue repeats the
+   call and must not take money twice.
+2. `ConfirmSettlement(ctx, Confirmation) (Payment, error)`. Called when the
+   gateway — or the operator, for a transfer — says money arrived. Validate and
+   normalise it into the `Payment` to record: exact amount, the day it arrived,
+   the method, the reference that proves it, and its status.
+   `settle.Normalise` does the standard checks. It records nothing itself: the
+   caller books the payment through the store, which owns the lifecycle,
+   refuses overpayment and carries a part-paid balance.
+3. One line of wiring in `cmd/chargeback`:
+   `settlement.Register("omantel", omantel.New(cfg))` — and the customers that
+   gateway serves get `charging=billed`, `payment_method=gateway`,
+   `gateway_name=omantel`. Nothing else in the product changes.
+
+A gateway never touches the database, never decides whether a customer is
+billable, and never writes a statement's status. Money in, normalised facts
+out.
+
+**Routing.** The registry resolves per customer: `charging != billed` → nothing
+collects (not an error — an informational customer settles nowhere by design);
+`payment_method` of `transfer` or `internal` → the built-in `settle.Manual`
+gateway, which collects nothing and reports what to expect next; `gateway` →
+the implementation registered under `gateway_name`, or an audited error when
+this deployment has none, never a silent success.
+
+**Stripe today.** The existing ADR-0014 D6 billing hook
+(`internal/adapter/openova.BillingHook`) is registered under the name `stripe`
+and is unchanged in behaviour: the same metering post to the platform billing
+service, the same idempotency on the statement id, the same `duplicate=true`
+handling. What changed is only *who calls it*. It now fires on exactly
+**`kind = organization` AND `charging = billed` AND `payment_method = gateway`
+AND `gateway_name = stripe`** — the four-field replacement for the old
+`billing_mode = real`, and strictly narrower than it was, because a billed
+customer paying by **transfer** also derives `real` and must never be debited.
+
+The `kind = organization` guard is **load-bearing and stays**: the metering
+payload's `customer_id` is the Organization slug, which is the only identifier
+the platform billing service knows. An external customer has no billing account
+there, so posting for one would be a debit against nothing.
+
+**What is deliberately not modelled.** Omantel's gateway API, endpoints and
+credentials are not specified in this repository, and inventing their shape
+would be a guess dressed as an integration. What is specified is the seam it
+plugs into and the two methods it must answer.
+
+### 8.8 API
+
+Operator-only, every transition audited:
+
+| Route | Does |
+|---|---|
+| `PATCH /statements/{id}` | `{po_reference, payment_terms_days}` on a DRAFT; frozen once issued (409). |
+| `POST /statements/{id}/send` | `issued → sent`. `{"notify": true}` also emails the invoice; the default is **false**, because an operator marking what they already sent should not put a second copy in the customer's inbox. |
+| `POST /statements/{id}/payments` | `{amount, paid_at, reference}`. Goes through the customer's gateway `ConfirmSettlement` first, then the store creates the payment row and links it to this invoice. Part payment carries the balance; overpayment is 409. |
+| `POST /statements/{id}/cancel` | `{reason}`; `draft` / `issued` → `cancelled`. |
+| `GET /statements/{id}/payments` | The payment history, inside the session's scope — a customer may read what it has paid. |
+
+The statement document carries `invoice_number`, `po_reference`,
+`payment_terms_days`, `due_at`, `sent_at`, `paid_at`, `cancelled_at`,
+`cancel_reason`, `paid_total`, `balance`, `effective_status` and `payments`.
+Every one is additive and absent from a statement that never had it, so a
+reader written against the pre-invoicing document keeps working. `status` keeps
+its name and its meaning.
+
+Customer create and patch accept `charging`, `payment_model`, `payment_method`,
+`gateway_name`, `po_reference` and `payment_terms_days`; the customer document
+carries them alongside the derived `billing_mode`.
+
+`PUT /billing-settings` gains `invoice_prefix` — absent leaves the stored prefix
+alone, so a client that only knows about the discount rule cannot reset it.
+
+### 8.9 UI
+
+- **Customer settings** ask the three questions as three labelled controls with
+  one line under each saying what it means, and reveal the terms
+  (purchase-order reference, payment terms) for a customer paid by transfer or
+  internal recharge, or the gateway picker for one paid through a gateway.
+  Switching charging off hides and clears what then has no meaning.
+- **The customers directory** shows the position compactly — "prepaid · Stripe",
+  "postpaid · transfer", "internal recharge", "informational" — with the terms
+  underneath where they apply. The mode word is gone.
+- **The statements list** filters over the whole lifecycle including the derived
+  `overdue`, and shows the invoice number, the due date with "due in 12 days" /
+  "9 days overdue", and the balance. Two KPIs answer the two questions an
+  operator has: how much is overdue, and how much is outstanding.
+- **The statement view** shows the invoice block (number, purchase order, terms,
+  due date, paid of total), the payment history — a pending payment is listed
+  and marked as settling nothing — and the actions the lifecycle allows from
+  where it is: Mark sent, Record payment, Cancel invoice.
+
+### 8.10 WHO invoices — the internal and external systems of record
+
+Omantel already runs invoicing, payment and collections. So does any operator
+of that size. This product must not become a second system of record beside
+theirs: two systems numbering invoices for the same customer, two ledgers of
+what was paid, and a reconciliation problem nobody asked for.
+
+What this product is unambiguously good at is **mediation and rating**:
+collecting usage, pricing it, and producing a rated bill. Invoicing, payment,
+collections and the customer account belong to whichever system is the system
+of record for the Sovereign.
+
+That is one Sovereign-level setting, `billing_settings.commercial_provider`:
+
+| | `internal` (default) | `external` |
+|---|---|---|
+| Numbers the invoice | this product, gapless per year (§8.4) | the operator's billing system; **we never number one** |
+| Sends it to the customer | `POST /statements/{id}/send` | theirs |
+| Records payments | our ledger (§8.6) | theirs, reported to us |
+| Cancels it | `POST /statements/{id}/cancel` | theirs |
+| We hold | `invoice_number` | `external_invoice_ref` |
+
+`internal` is the default, so an upgraded Sovereign behaves exactly as it did
+and everything in §8.1–§8.9 applies unchanged.
+
+Both sit behind one interface, `commercial.InvoiceProvider` — Issue, Send,
+RecordPayment, Cancel — so the API handlers do not branch on the setting and
+neither does the UI.
+
+**In external mode**, `POST /statements/{id}/issue` flips the statement to
+issued and, in the SAME transaction, writes the rated bill to an **outbox**.
+It assigns no invoice number and calls nothing. `send`, `payments` and
+`cancel` answer **409, "owned by the external billing system"**, and the
+customer's commercial fields and terms are read-only in the API and the UI
+with a one-line note saying so. The one commercial field that stays writable
+is `external_account_id`: it is how a rated bill is attributed over there, and
+only we know which of our customers is which.
+
+#### The outbox, and why the export is not synchronous
+
+Rating and issuing must never wait on, or fail because of, a system in someone
+else's estate. So issuing writes two rows in one transaction — the statement,
+and a `commercial_outbox` entry carrying the document, `attempts`,
+`next_attempt_at`, `delivered_at` and `last_error` — and returns. A delivery
+loop drains it afterwards:
+
+- **At-least-once**, keyed on `idempotency_key` (the statement id, unique per
+  document type). The same document may reach the far end more than once, and
+  the Exporter's contract is to make that one bill — by writing to a name
+  derived from the key, or by sending the key as the receiver's idempotency
+  header.
+- **Exponential backoff**, one minute doubling to an hour, so a billing system
+  down for an afternoon costs a delay and nothing else.
+- A non-empty `externalRef` from the Exporter is stored on the statement as
+  `external_invoice_ref`; the inbound webhook may also name it later, for a
+  billing system that answers asynchronously.
+- `GET /commercial/outbox` lists what is queued and why anything is stuck
+  (`last_error`, `attempts`); `POST /commercial/outbox/{id}/retry` makes one
+  row due now and pushes it immediately. A delivered row is refused rather
+  than sent twice.
+
+An export that cannot be delivered right now is therefore a row an operator
+can see — never a bill that was silently not raised.
+
+#### What an Exporter implementer must supply
+
+    type Exporter interface {
+        Deliver(ctx context.Context, doc InvoiceDocument) (externalRef string, err error)
+    }
+
+One method. Take the document, get it to the billing system, answer with the
+reference that system will know it by (or `""` when it answers later), and
+return an error if you could not — the row is retried and nothing is lost. The
+transport is entirely the implementer's: a file the operator's own job
+collects, an HTTP POST to a TMF678 endpoint, a message on a queue.
+
+**`csvfile` is the one that ships.** It writes one CSV per bill into
+`COMMERCIAL_EXPORT_DIR`, named by the reference derived from the idempotency
+key — `2026-05-omantel-corp-1a2b3c4d.csv` — so a redelivery overwrites its own
+file rather than duplicating the bill. Getting the file to the billing system
+(SFTP, a mounted share, a pickup job) is the operator's concern and
+deliberately not this product's.
+
+#### The document, and the TM Forum shapes
+
+The exported document is aimed at the TM Forum Open APIs, and the field names
+follow **TMF678 (Customer Bill)** where a field exists there:
+
+| TMF | Used for |
+|---|---|
+| **TMF678** Customer Bill | the bill itself: `id`, `billNo` (empty — theirs to assign), `billDate`, `billingPeriod`, `paymentDueDate`, `state`, `taxExcludedAmount`, `taxIncludedAmount`, `taxAmount`, `amountDue`, `remainingAmount` |
+| **TMF635** Usage Management | the rated detail inside it: `ratedProductUsage[]` with `productRef`, `usageQuantity`, `unitOfMeasure`, `ratingUnitPrice`, `taxExcludedRatingAmount` |
+| **TMF666** Account | `billingAccount.id` — the customer's `external_account_id` |
+| **TMF676** Payment | what comes back on the import: amount, date, reference |
+
+Anything with no TMF equivalent is namespaced `@openova…` — the idempotency
+key, the purchase-order reference, the payment terms, the resource count, the
+source reference — so a strict consumer can drop those without losing a
+required field. Every money value is an exact decimal, never a float and never
+a formatted number.
+
+#### The import
+
+    POST /commercial/import/invoice-status
+    X-Signature: sha256=<hex HMAC-SHA256 of the raw body, COMMERCIAL_IMPORT_SECRET>
+
+    { "external_ref": "2026-05-omantel-corp-1a2b3c4d",
+      "state": "paid", "paid_amount": 1000.100000,
+      "paid_at": "2026-06-19", "reference": "BANK-88213" }
+
+In external mode this is the ONLY thing that moves a statement after issue.
+The signature is verified over the raw bytes BEFORE the body is decoded, in
+constant time; no secret configured means 503, never an unauthenticated write
+into a billing ledger. In internal mode the import is refused with 409 — we
+are the system of record there, and a second writer on the same ledger is
+exactly what this design avoids.
+
+`state` takes the billing system's own vocabulary (`sent`, `validated`,
+`settled`, `partiallyPaid`, `void`, …) and maps onto `sent`, `paid` or
+`cancelled`. `overdue` maps to `sent` deliberately: overdue is derived here
+from the due date and the outstanding balance (§8.5), and storing it would put
+two sources of truth on one fact. `paid_amount` is CUMULATIVE, and the
+difference against what we already hold is booked as a payment — so the
+payment ledger stays the single place a balance comes from, and a repeated
+import books nothing twice.
+
+## 9. Account, credit notes, collections and tax — the console
+
+The account surfaces follow the §8.9 pattern: every figure the server sends is
+shown with the word that says what it means, and every write is an explicit
+action with its consequence spelled out.
+
+- **The customers directory** gains a `Balance` column read from the customer
+  document's accounting-signed `balance`: owed in red with "owes" under it,
+  credit in green with "in credit", "settled" at zero, and a dash — never 0 —
+  when the document did not carry one.
+- **Customer → Account** (first tab after Overview) shows Balance, Credit
+  available, Owed and Overdue from `GET /customers/{id}/account`, then the
+  ledger newest first (date, type, reference linking to the invoice, debit,
+  credit, running balance — `aria-label="Account ledger"`), with where each
+  payment went under its line. `Top up` records a transfer or internal recharge
+  as credit on account (`POST /customers/{id}/payments`, no allocations); a
+  gateway customer also gets `Checkout with <gateway>` (`POST
+  …/payment-intents`, purpose checkout) and a Checkouts table of its intents;
+  `Apply credit` is a confirm that applies the available credit to the open
+  invoices oldest-first — explicit, never implicit. Credit notes and platform
+  suspensions (with the platform's refusal when there was one) are listed
+  below; each absence is one sentence.
+- **Customer → Settings** adds the account-credit switches (auto-apply credit;
+  suspend at zero for a prepaid wallet) and the tax block (exempt with a
+  required reason, a rate override typed as a percentage and sent as a
+  fraction, the registration number) on the same only-what-changed PATCH.
+- **The statement view** of an issued invoice shows the tax line from
+  `tax_snapshot` (the rate and both registrations, or the exemption), a
+  `Credited` line, the credit notes it carries, the allocations applied from
+  the account, and a `Credit note` action whose dialog refuses more than the
+  total less the notes already issued — the server's rule, seen before the
+  round trip.
+- **Bill → Collections** is the aging report per customer (`aria-label="Aging"`:
+  the five buckets, total owed, overdue, oldest due, credit available, a
+  suspended badge), a strip of Total owed / Overdue / Customers overdue /
+  Suspended, `Run collections now` behind a confirm that reports the pass, and
+  per-row `Suspend` / `Resume` with a reason. A row expands to the customer's
+  open invoices.
+- **Configure → Billing** edits the invoice and credit-note prefixes, the
+  Sovereign's tax rate (as a percentage), registration number, legal name and
+  address, and the collections schedule — reminder days as a comma list read
+  back in words, escalation days and action — through one `PUT
+  /billing-settings` that carries the saved discount rule plus only what
+  changed.

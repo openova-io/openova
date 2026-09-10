@@ -132,6 +132,11 @@ type Customer struct {
 	// source since the two-layer migration. The column is read for
 	// compatibility and never written by the API or the Organization sync.
 	PriceBookID *string `json:"price_book_id,omitempty"`
+	// BillingMode is DEPRECATED (DESIGN.md §8): showback / chargeback / real
+	// were three labels standing in for three different questions. It is
+	// DERIVED from Charging + PaymentMethod on every write and never set
+	// directly, and it is kept on the wire only so a reader written against
+	// it keeps working.
 	BillingMode string  `json:"billing_mode"`
 	Status      string  `json:"status"`
 	StartDate   *string `json:"start_date,omitempty"`
@@ -139,9 +144,66 @@ type Customer struct {
 	// flexi; "" = no plan). For an Organization customer OrgSync reads it
 	// from the Organization CR's spec.planSlug; the platform collector
 	// meters it as plan.<slug> (DESIGN.md §2.8 "Plan revenue").
-	PlanSlug  string    `json:"plan_slug"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	PlanSlug string `json:"plan_slug"`
+	// The commercial model (DESIGN.md §8) — four orthogonal fields that
+	// replaced billing_mode. Charging says whether anything is collected;
+	// the other three are meaningful only when it is billed.
+	Charging string `json:"charging"`
+	// PaymentModel is prepaid (paid ahead, or a balance debited on issue) or
+	// postpaid (invoiced after the period, paid on terms).
+	PaymentModel string `json:"payment_model,omitempty"`
+	// PaymentMethod is gateway (a pluggable gateway collects), transfer
+	// (bank transfer against the invoice, recorded by the operator) or
+	// internal (a cost-centre recharge, no external money).
+	PaymentMethod string `json:"payment_method,omitempty"`
+	// GatewayName selects the gateway implementation when PaymentMethod is
+	// gateway: "stripe" today, another name when one is registered.
+	GatewayName string `json:"gateway_name,omitempty"`
+	// PORef is the customer's standing purchase-order reference, copied onto
+	// each statement at issue and quotable on the invoice.
+	PORef string `json:"po_reference,omitempty"`
+	// PaymentTermsDays is the net terms an invoice for this customer falls
+	// due in (default 30), overridable per statement before it is issued.
+	PaymentTermsDays int `json:"payment_terms_days"`
+	// ExternalAccountID is this customer's account in the operator's own
+	// billing system (a TMF666 billing account id). Used only when the
+	// Sovereign's commercial provider is external (DESIGN.md §8.10).
+	ExternalAccountID string `json:"external_account_id,omitempty"`
+
+	// The tax profile (DESIGN.md §9.4): the customer's registration number,
+	// an exemption with its reason, and an optional rate overriding the
+	// Sovereign default (nil = the default). An issued invoice snapshots
+	// these; changing them afterwards changes the NEXT invoice only.
+	TaxRegistrationNumber string   `json:"tax_registration_number,omitempty"`
+	TaxExempt             bool     `json:"tax_exempt"`
+	TaxExemptReason       string   `json:"tax_exempt_reason,omitempty"`
+	TaxRate               *Decimal `json:"tax_rate,omitempty"`
+	// Account credit (DESIGN.md §9.5). AutoApplyCredit applies available
+	// credit to every invoice at issue; LowBalanceThreshold and
+	// SuspendAtZero are what payment_model = prepaid adds: an alert when the
+	// balance falls below the threshold (nil = off) and a platform
+	// suspension when it reaches zero.
+	AutoApplyCredit     bool     `json:"auto_apply_credit"`
+	LowBalanceThreshold *Decimal `json:"low_balance_threshold,omitempty"`
+	SuspendAtZero       bool     `json:"suspend_at_zero"`
+	// PlatformSuspendedAt is set while this product has the Organization
+	// suspended at the platform (DESIGN.md §9.7), with why and by which
+	// path — collections, wallet, operator, or an imported command.
+	PlatformSuspendedAt *time.Time `json:"platform_suspended_at,omitempty"`
+	SuspensionReason    string     `json:"suspension_reason,omitempty"`
+	SuspensionSource    string     `json:"suspension_source,omitempty"`
+	// ExternalBalance is the balance the operator's billing system last
+	// reported (external mode); ours is never authoritative there.
+	ExternalBalance   *Decimal   `json:"external_balance,omitempty"`
+	ExternalBalanceAt *time.Time `json:"external_balance_at,omitempty"`
+	// Balance is the customer's account balance from the ledger (DESIGN.md
+	// §9.8): positive is owed, negative is credit; AvailableCredit is what
+	// the customer could still apply. Both are sums at read time, never
+	// stored, read-only on the wire.
+	Balance         Decimal   `json:"balance"`
+	AvailableCredit Decimal   `json:"available_credit"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 
 	// List-view aggregates.
 	SourceCount         int `json:"source_count"`
@@ -375,6 +437,54 @@ type Statement struct {
 	// produced its numbers. Empty for statements rated before the rule
 	// existed that carried no discount.
 	DiscountRule string `json:"discount_rule,omitempty"`
+
+	// Post-paid invoicing (DESIGN.md §8). Every key is additive and absent
+	// on a draft that has never been issued, so a reader written against the
+	// pre-invoicing document keeps working unchanged.
+	//
+	// InvoiceNumber is assigned inside the transaction that flips the status
+	// to issued: gapless per calendar year, unique across the table. It is
+	// EMPTY when the Sovereign's commercial provider is external — the
+	// operator's billing system numbers its own invoices (DESIGN.md §8.10).
+	InvoiceNumber string `json:"invoice_number,omitempty"`
+	// ExternalInvoiceRef is what the operator's billing system knows this
+	// invoice by, set at issue in external mode; the lifecycle after that is
+	// driven by imports against this reference.
+	ExternalInvoiceRef string `json:"external_invoice_ref,omitempty"`
+	// PORef is the purchase-order reference this invoice quotes; copied from
+	// the customer at issue, editable on the draft before then.
+	PORef string `json:"po_reference,omitempty"`
+	// PaymentTermsDays is the net terms the due date was computed from.
+	PaymentTermsDays *int `json:"payment_terms_days,omitempty"`
+	// DueAt is issued_at + terms.
+	DueAt       *time.Time `json:"due_at,omitempty"`
+	SentAt      *time.Time `json:"sent_at,omitempty"`
+	PaidAt      *time.Time `json:"paid_at,omitempty"`
+	CancelledAt *time.Time `json:"cancelled_at,omitempty"`
+	// CancelReason is why the statement was voided, when it was.
+	CancelReason string `json:"cancel_reason,omitempty"`
+	// Paid is the sum of the recorded payments and Balance is total − paid;
+	// both are computed on read, never stored, so they cannot drift from the
+	// payments ledger.
+	Paid    Decimal `json:"paid_total,omitempty"`
+	Balance Decimal `json:"balance,omitempty"`
+	// Credited is what credit notes took off this invoice (DESIGN.md §9.3);
+	// Balance is total − paid − credited. Computed on read like Paid.
+	Credited Decimal `json:"credited_total,omitempty"`
+	// TaxSnapshot is what the invoice carries about tax, frozen at issue:
+	// the rate applied, the customer's registration and exemption, and the
+	// seller's identity. Absent on a draft (DESIGN.md §9.4).
+	TaxSnapshot *TaxSnapshot `json:"tax_snapshot,omitempty"`
+	// CreditNotes are the notes issued against this invoice; present on the
+	// single-statement document like Payments.
+	CreditNotes []CreditNote `json:"credit_notes,omitempty"`
+	// EffectiveStatus is Status, except that a sent statement past its due
+	// date with money outstanding reads as "overdue". Derived from the clock
+	// rather than stored, so no sweeper has to keep it true.
+	EffectiveStatus string `json:"effective_status,omitempty"`
+	// Payments is the ledger behind Paid; present on the single-statement
+	// document, absent from list documents.
+	Payments []StatementPayment `json:"payments,omitempty"`
 }
 
 // RatedLine is one priced aggregate on a statement.

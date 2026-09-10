@@ -3,11 +3,11 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { API_BASE, api, asList, errorText } from '../api/client'
 import type { Customer, RunResult, Statement } from '../api/types'
 import { DataTable, type Column } from '../components/DataTable'
-import { Badge, Confirm, Field, KPI, Modal, Notice, PageHeader, Segmented, Skeleton } from '../components/ui'
-import { lastMonth, when } from '../lib/format'
+import { Badge, Confirm, Field, KPI, Modal, Notice, PageHeader, Skeleton } from '../components/ui'
+import { day, lastMonth, when } from '../lib/format'
 import { formatMoney } from '../lib/money'
 import { toNumber } from '../lib/num'
-import { statementPeriod } from '../lib/statements'
+import { STATEMENT_STATUS_FILTERS, dueLabel, isStatementStatus, statementBalance, statementPeriod, statementStatus, type StatementStatusFilter } from '../lib/statements'
 import { customerName, useCustomers } from '../lib/useCustomers'
 import { useQuery } from '../lib/useQuery'
 
@@ -17,7 +17,6 @@ import { useQuery } from '../lib/useQuery'
  * shared; drafts can be issued or deleted here, issued ones only opened.
  */
 
-type StatusFilter = 'all' | 'draft' | 'issued'
 type Dialog = { kind: 'run' } | { kind: 'issue'; s: Statement } | { kind: 'delete'; s: Statement } | null
 
 const PERIOD_RE = /^\d{4}-(0[1-9]|1[0-2])$/
@@ -27,7 +26,9 @@ export function Statements() {
   const period = PERIOD_RE.test(params.get('period') ?? '') ? params.get('period')! : lastMonth()
   const customerId = params.get('customer') ?? ''
   const statusParam = params.get('status')
-  const status: StatusFilter = statusParam === 'draft' || statusParam === 'issued' ? statusParam : 'all'
+  // DESIGN.md §8 — the filter covers the whole invoice lifecycle, and
+  // matches the DERIVED status so "overdue" selects what is actually late.
+  const status: StatementStatusFilter = isStatementStatus(statusParam) ? statusParam : 'all'
   const setParam = (k: string, v: string) => {
     const p = new URLSearchParams(params)
     if (v) p.set(k, v)
@@ -38,7 +39,7 @@ export function Statements() {
   const { customers } = useCustomers()
   const list = useQuery<unknown>(`/statements?period=${encodeURIComponent(period)}`)
   const all = useMemo(() => asList<Statement>(list.data, 'statements'), [list.data])
-  const rows = useMemo(() => all.filter((s) => (!customerId || s.customer_id === customerId) && (status === 'all' || s.status === status)), [all, customerId, status])
+  const rows = useMemo(() => all.filter((s) => (!customerId || s.customer_id === customerId) && (status === 'all' || statementStatus(s) === status)), [all, customerId, status])
   const [dialog, setDialog] = useState<Dialog>(null)
   const [error, setError] = useState('')
   const [flash, setFlash] = useState('')
@@ -47,8 +48,9 @@ export function Statements() {
   const [notify, setNotify] = useState(true)
 
   const nameOf = (s: Statement) => s.customer_name ?? customerName(customers, s.customer_id, s.customer_slug)
-  const drafts = rows.filter((s) => s.status === 'draft').length
-  const issued = rows.filter((s) => s.status === 'issued').length
+  const drafts = rows.filter((s) => statementStatus(s) === 'draft').length
+  const overdue = rows.filter((s) => statementStatus(s) === 'overdue')
+  const outstanding = rows.filter((s) => statementStatus(s) !== 'draft' && statementStatus(s) !== 'cancelled').reduce((n, s) => n + statementBalance(s), 0)
   const currencies = Array.from(new Set(rows.map((s) => s.currency)))
   const total = rows.reduce((n, s) => n + toNumber(s.total), 0)
 
@@ -82,7 +84,31 @@ export function Statements() {
       ),
     },
     { key: 'period', header: 'Period', value: (s) => s.period_start, render: (s) => <Link to={`/statements/${s.id}`}>{statementPeriod(s)}</Link> },
-    { key: 'status', header: 'Status', value: (s) => s.status, render: (s) => <Badge status={s.status} /> },
+    {
+      key: 'status',
+      header: 'Status',
+      value: (s) => statementStatus(s),
+      render: (s) => (
+        <>
+          <Badge status={statementStatus(s)} kind={statementStatus(s) === 'overdue' ? 'bad' : undefined} />
+          {s.invoice_number ? <span className="sub mono">{s.invoice_number}</span> : s.external_invoice_ref ? <span className="sub mono">{s.external_invoice_ref}</span> : null}
+        </>
+      ),
+    },
+    {
+      key: 'due',
+      header: 'Due',
+      value: (s) => s.due_at ?? '',
+      render: (s) =>
+        s.due_at ? (
+          <>
+            {day(s.due_at)}
+            <span className={statementStatus(s) === 'overdue' ? 'sub bad' : 'sub'}>{dueLabel(s)}</span>
+          </>
+        ) : (
+          <span className="muted">—</span>
+        ),
+    },
     // The wire `subtotal` is the NET (after discounts, before tax); the list
     // price is net + discount. Showing the net under a "List" header made a
     // discounted statement look under-billed (caught by the e2e).
@@ -103,6 +129,18 @@ export function Statements() {
       render: (s) => <b>{formatMoney(s.total, s.currency)}</b>,
       total: (rs) => (currencies.length === 1 ? formatMoney(rs.reduce((n, s) => n + toNumber(s.total), 0), currencies[0]) : 'mixed currencies'),
     },
+    {
+      key: 'balance',
+      header: 'Balance',
+      value: (s) => statementBalance(s),
+      numeric: true,
+      render: (s) => {
+        const st = statementStatus(s)
+        if (st === 'draft' || st === 'cancelled') return <span className="muted">—</span>
+        const b = statementBalance(s)
+        return b === 0 ? <span className="ok">settled</span> : <span className={st === 'overdue' ? 'bad' : ''}>{formatMoney(b, s.currency)}</span>
+      },
+    },
     { key: 'issued_at', header: 'Issued', value: (s) => s.issued_at ?? '', render: (s) => (s.issued_at ? when(s.issued_at) : <span className="muted">—</span>) },
     {
       key: 'actions',
@@ -118,7 +156,7 @@ export function Statements() {
           <a href={`${API_BASE}/statements/${s.id}.csv`}>
             <button className="small">CSV</button>
           </a>
-          {s.status === 'draft' ? (
+          {statementStatus(s) === 'draft' ? (
             <>
               <button
                 className="small primary"
@@ -169,22 +207,25 @@ export function Statements() {
           </select>
         </Field>
         <Field label="Status">
-          <Segmented<StatusFilter>
-            value={status}
-            onChange={(v) => setParam('status', v === 'all' ? '' : v)}
-            options={[
-              { value: 'all', label: 'All' },
-              { value: 'draft', label: 'Draft' },
-              { value: 'issued', label: 'Issued' },
-            ]}
-            ariaLabel="Status"
-          />
+          <select value={status} onChange={(e) => setParam('status', e.target.value === 'all' ? '' : e.target.value)} aria-label="Status">
+            {STATEMENT_STATUS_FILTERS.map((f) => (
+              <option key={f.value} value={f.value}>
+                {f.label}
+              </option>
+            ))}
+          </select>
         </Field>
       </div>
 
       <div className="kpis">
         <KPI label="Drafts" value={drafts} note={drafts ? 'not yet final — re-running the period replaces them' : 'nothing awaiting issue'} tone={drafts ? 'warn' : undefined} />
-        <KPI label="Issued" value={issued} note="final; kept as issued even if the period is re-run" />
+        <KPI
+          label="Overdue"
+          value={overdue.length}
+          note={overdue.length ? `${formatMoney(overdue.reduce((n, s) => n + statementBalance(s), 0), currencies[0], { compact: true })} past its due date` : 'nothing past its due date'}
+          tone={overdue.length ? 'bad' : undefined}
+        />
+        <KPI label="Outstanding" value={currencies.length <= 1 ? formatMoney(outstanding, currencies[0], { compact: true }) : 'mixed'} note="issued and sent invoices not yet settled" />
         <KPI
           label="Total of the selection"
           value={currencies.length <= 1 ? formatMoney(total, currencies[0], { compact: true }) : 'mixed'}

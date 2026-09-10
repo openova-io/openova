@@ -3,7 +3,8 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { api, asList } from '../api/client'
 import type { CostSource, Customer, CustomerUser, InviteIssued, PriceBook, Summary } from '../api/types'
 import { Badge, Confirm, Delta, KPI, Notice, PageHeader, Skeleton, Tabs } from '../components/ui'
-import { planLabel, priceBookCurrency } from '../lib/customers'
+import { suspensionText } from '../lib/account'
+import { commercialLabel, planLabel, priceBookCurrency } from '../lib/customers'
 import { sourcesByLayerText } from '../lib/layers'
 import { day, when } from '../lib/format'
 import { formatMoney } from '../lib/money'
@@ -11,6 +12,7 @@ import { customerLens } from '../lib/scope'
 import { readKPIs } from '../lib/summary'
 import { useAction } from '../lib/useAction'
 import { useQuery } from '../lib/useQuery'
+import { AccountPanel } from '../panels/AccountPanel'
 import { AuditPanel } from '../panels/AuditPanel'
 import { BudgetsPanel } from '../panels/BudgetsPanel'
 import { DiscountsPanel } from '../panels/DiscountsPanel'
@@ -22,7 +24,7 @@ import { CustomerCostExplorer } from './CostExplorer'
 import { CustomerOverview } from './Overview'
 import { ResourcesBody } from './Resources'
 
-const TABS = ['Overview', 'Cost', 'Resources', 'Statements', 'Discounts', 'Budgets', 'Sources', 'Users', 'Settings', 'Audit']
+const TABS = ['Overview', 'Account', 'Cost', 'Resources', 'Statements', 'Discounts', 'Budgets', 'Sources', 'Users', 'Settings', 'Audit']
 
 /**
  * Customer detail — the account view (#6867, DESIGN.md §2.4): header with
@@ -85,7 +87,7 @@ export function CustomerDetail() {
         }
         sub={
           <>
-            <span className="mono">{c.slug}</span> · {c.kind === 'organization' ? 'Organization' : 'external'} · {c.billing_mode}
+            <span className="mono">{c.slug}</span> · {c.kind === 'organization' ? 'Organization' : 'external'} · {commercialLabel(c)}
             {planLabel(c.plan_slug) ? ` · ${planLabel(c.plan_slug)}` : ''} ·{' '}
             {/* The price book is a property of each SOURCE (DESIGN.md §2), so
                 the header counts the sources per layer and links to the tab
@@ -127,6 +129,12 @@ export function CustomerDetail() {
           Invite sent to {c.admin_email}, valid until {when(invite.expires_at)}. <span className="mono small">{invite.invite_url}</span>
         </Notice>
       ) : null}
+      {c.platform_suspended_at ? (
+        <Notice kind="bad">
+          {c.name} is {suspensionText({ suspended_at: c.platform_suspended_at, source: c.suspension_source ?? '', reason: c.suspension_reason })}.{' '}
+          <Link to="/collections">Open Collections</Link> to resume once settled.
+        </Notice>
+      ) : null}
       {c.status === 'pending' ? (
         <Notice kind="info">
           Pending — nothing is collected until the admin activates the invite. {verified === 0 && src.data ? 'No source is verified yet either.' : ''}
@@ -165,6 +173,7 @@ export function CustomerDetail() {
       <Tabs base={base} tabs={TABS} current={tab} counts={{ sources: src.data ? sources.length : undefined, users: usr.data ? users.length : undefined, statements: k ? k.draftStatements + k.issuedStatements : undefined }} />
 
       {tab === 'overview' ? <CustomerOverview customerId={id} /> : null}
+      {tab === 'account' ? <AccountPanel customerId={id} customer={c} currency={currency} onChanged={cust.reload} /> : null}
       {tab === 'cost' ? <CustomerCostExplorer customerId={id} /> : null}
       {tab === 'resources' ? <ResourcesBody lens={customerLens(id)} /> : null}
       {tab === 'statements' ? <StatementsPanel customerId={id} canIssue /> : null}

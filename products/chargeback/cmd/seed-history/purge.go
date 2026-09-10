@@ -41,6 +41,13 @@ type purgeCounts struct {
 //     statement the operator issued over that window is a financial record and
 //     stands; rated_lines.source_id is ON DELETE SET NULL, so removing the
 //     backfill source cannot break one.
+//   - the NEUTRALISATION (neutralise.go). --neutralise-reservations removes
+//     the landlord's REAL eip.bandwidth_mbps rows on addresses the cloud bills
+//     by traffic; that corrects the real ledger, and those rows were never
+//     billable, so a purge does not put them back. The audit entry recording
+//     the removal carries no synthetic mark and stays too.
+//     TestNeutraliseRemovesOnlyTrafficBilledReservations runs a purge after
+//     the neutralisation to hold both halves of that.
 //
 // Statements are deleted directly rather than through DELETE /customers/{id},
 // which refuses while an issued statement exists. That guard protects real

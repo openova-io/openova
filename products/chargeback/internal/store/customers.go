@@ -8,7 +8,12 @@ import (
 	"time"
 )
 
-const customerColumns = `c.id, c.slug, c.name, c.admin_email, c.kind, c.org_slug, c.price_book_id, c.billing_mode, c.status, c.start_date, c.plan_slug, c.created_at, c.updated_at,
+const customerColumns = `c.id, c.slug, c.name, c.admin_email, c.kind, c.org_slug, c.price_book_id, c.billing_mode, c.status, c.start_date, c.plan_slug,
+	c.charging, COALESCE(c.payment_model, ''), COALESCE(c.payment_method, ''), c.gateway_name, c.po_reference, c.payment_terms_days, c.external_account_id,
+	c.tax_registration_number, c.tax_exempt, c.tax_exempt_reason, c.tax_rate::text, c.auto_apply_credit, c.low_balance_threshold::text, c.suspend_at_zero,
+	c.platform_suspended_at, c.suspension_reason, c.suspension_source, c.external_balance::text, c.external_balance_at, c.created_at, c.updated_at,
+	COALESCE((SELECT b.balance FROM customer_balances b WHERE b.customer_id = c.id), 0)::numeric(20,6)::text,
+	COALESCE((SELECT b.available_credit FROM customer_balances b WHERE b.customer_id = c.id), 0)::numeric(20,6)::text,
 	(SELECT count(*) FROM cost_sources s WHERE s.customer_id = c.id),
 	(SELECT count(*) FROM cost_sources s WHERE s.customer_id = c.id AND s.status = 'verified'),
 	(SELECT count(*) FROM cost_sources s WHERE s.customer_id = c.id AND s.layer = 'cloud'),
@@ -21,13 +26,26 @@ func scanCustomer(row interface{ Scan(...any) error }) (Customer, error) {
 	var orgSlug, pb sql.NullString
 	var start, lastCollected sql.NullTime
 	var lastPeriod sql.NullString
-	err := row.Scan(&c.ID, &c.Slug, &c.Name, &c.AdminEmail, &c.Kind, &orgSlug, &pb, &c.BillingMode, &c.Status, &start, &c.PlanSlug, &c.CreatedAt, &c.UpdatedAt,
+	var taxRate, lowBalance, extBalance sql.NullString
+	var platformSuspended, extBalanceAt sql.NullTime
+	var balance, credit string
+	err := row.Scan(&c.ID, &c.Slug, &c.Name, &c.AdminEmail, &c.Kind, &orgSlug, &pb, &c.BillingMode, &c.Status, &start, &c.PlanSlug,
+		&c.Charging, &c.PaymentModel, &c.PaymentMethod, &c.GatewayName, &c.PORef, &c.PaymentTermsDays, &c.ExternalAccountID,
+		&c.TaxRegistrationNumber, &c.TaxExempt, &c.TaxExemptReason, &taxRate, &c.AutoApplyCredit, &lowBalance, &c.SuspendAtZero,
+		&platformSuspended, &c.SuspensionReason, &c.SuspensionSource, &extBalance, &extBalanceAt, &c.CreatedAt, &c.UpdatedAt,
+		&balance, &credit,
 		&c.SourceCount, &c.VerifiedSourceCount, &c.CloudSourceCount, &c.PlatformSourceCount, &lastCollected, &lastPeriod)
 	if err != nil {
 		return c, mapErr(err)
 	}
+	c.Balance, c.AvailableCredit = Decimal(balance), Decimal(credit)
 	c.OrgSlug = strPtr(orgSlug)
 	c.PriceBookID = strPtr(pb)
+	c.TaxRate = decPtr(taxRate)
+	c.LowBalanceThreshold = decPtr(lowBalance)
+	c.ExternalBalance = decPtr(extBalance)
+	c.PlatformSuspendedAt = timePtr(platformSuspended)
+	c.ExternalBalanceAt = timePtr(extBalanceAt)
 	c.StartDate = datePtr(start)
 	c.LastCollectedAt = timePtr(lastCollected)
 	c.LastStatementPeriod = strPtr(lastPeriod)
@@ -77,14 +95,59 @@ func (s *Store) GetCustomerBySlug(ctx context.Context, slug string) (Customer, e
 // here: the book is assigned per source (SetSourcePriceBook), never per
 // customer (DESIGN.md §2).
 type CustomerInput struct {
-	Slug        string
-	Name        string
-	AdminEmail  string
-	Kind        string
-	OrgSlug     string
+	Slug       string
+	Name       string
+	AdminEmail string
+	Kind       string
+	OrgSlug    string
+	// BillingMode is the LEGACY input (DESIGN.md §8): it is translated
+	// through CommercialFromBillingMode when Commercial is not given, which
+	// is how the CSV importer and the Organization sync keep working. The
+	// customer API no longer sends it.
 	BillingMode string
 	StartDate   string
 	PlanSlug    string
+	// Commercial is the four-field commercial position. Its zero value
+	// falls back to BillingMode, and failing that to informational.
+	Commercial Commercial
+	PORef      string
+	// ExternalAccountID is the customer's account in the operator's billing
+	// system, used when the Sovereign's commercial provider is external.
+	ExternalAccountID string
+	// PaymentTermsDays is the net terms in days; nil takes the net-30
+	// default. A pointer rather than an int because 0 is a real value —
+	// due on receipt — and must not read as "not given".
+	PaymentTermsDays *int
+	// Tax is the customer's tax profile (DESIGN.md §9.4); the zero value
+	// is "not registered, not exempt, the Sovereign's rate".
+	Tax TaxProfile
+	// The account-credit knobs (DESIGN.md §9.5).
+	AutoApplyCredit     bool
+	LowBalanceThreshold *Decimal
+	SuspendAtZero       bool
+}
+
+// decPtr reads a nullable numeric column.
+func decPtr(ns sql.NullString) *Decimal {
+	if !ns.Valid || strings.TrimSpace(ns.String) == "" {
+		return nil
+	}
+	d := Decimal(ns.String)
+	return &d
+}
+
+// nullDec renders an optional Decimal for SQL: nil or empty is NULL.
+func nullDec(p *Decimal) any {
+	if p == nil || strings.TrimSpace(string(*p)) == "" {
+		return nil
+	}
+	return string(*p)
+}
+
+// validTaxRate checks a rate is a fraction in [0, 1].
+func validTaxRate(d Decimal) bool {
+	r := ratOf(d)
+	return r.Sign() >= 0 && r.Cmp(ratOf("1")) <= 0
 }
 
 // CreateCustomer inserts a pending customer and grants admin_email the admin
@@ -93,8 +156,29 @@ func (s *Store) CreateCustomer(ctx context.Context, in CustomerInput) (Customer,
 	if in.Kind == "" {
 		in.Kind = "external"
 	}
-	if in.BillingMode == "" {
-		in.BillingMode = "showback"
+	// The four-field position wins; a legacy billing_mode is translated
+	// through the same mapping the migration used; neither given is
+	// informational, which is what the old 'showback' default meant.
+	com := in.Commercial
+	if com.IsZero() {
+		com = CommercialFromBillingMode(in.BillingMode)
+	}
+	com = com.Normalized()
+	if err := com.Validate(); err != nil {
+		return Customer{}, err
+	}
+	terms := DefaultPaymentTermsDays
+	if in.PaymentTermsDays != nil {
+		terms = *in.PaymentTermsDays
+	}
+	if terms < 0 || terms > MaxPaymentTermsDays {
+		return Customer{}, fmt.Errorf("%w: payment_terms_days must be between 0 and %d", ErrInvalid, MaxPaymentTermsDays)
+	}
+	if in.Tax.TaxRate != nil && !validTaxRate(*in.Tax.TaxRate) {
+		return Customer{}, fmt.Errorf("%w: tax_rate must be a fraction between 0 and 1 (0.05 is 5%%)", ErrInvalid)
+	}
+	if in.LowBalanceThreshold != nil && ratOf(*in.LowBalanceThreshold).Sign() < 0 {
+		return Customer{}, fmt.Errorf("%w: low_balance_threshold cannot be negative", ErrInvalid)
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -102,10 +186,16 @@ func (s *Store) CreateCustomer(ctx context.Context, in CustomerInput) (Customer,
 	}
 	defer tx.Rollback()
 	var id string
-	err = tx.QueryRowContext(ctx, `INSERT INTO customers (slug, name, admin_email, kind, org_slug, billing_mode, start_date, plan_slug)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+	err = tx.QueryRowContext(ctx, `INSERT INTO customers (slug, name, admin_email, kind, org_slug, billing_mode, start_date, plan_slug,
+		charging, payment_model, payment_method, gateway_name, po_reference, payment_terms_days, external_account_id,
+		tax_registration_number, tax_exempt, tax_exempt_reason, tax_rate, auto_apply_credit, low_balance_threshold, suspend_at_zero)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::numeric, $20, $21::numeric, $22) RETURNING id`,
 		strings.ToLower(strings.TrimSpace(in.Slug)), strings.TrimSpace(in.Name), strings.ToLower(strings.TrimSpace(in.AdminEmail)), in.Kind,
-		nullStr(&in.OrgSlug), in.BillingMode, nullStr(&in.StartDate), NormalizePlanSlug(in.PlanSlug)).Scan(&id)
+		nullStr(&in.OrgSlug), com.BillingMode(), nullStr(&in.StartDate), NormalizePlanSlug(in.PlanSlug),
+		com.Charging, nullStr(&com.PaymentModel), nullStr(&com.PaymentMethod), com.GatewayName,
+		strings.TrimSpace(in.PORef), terms, strings.TrimSpace(in.ExternalAccountID),
+		strings.TrimSpace(in.Tax.TaxRegistrationNumber), in.Tax.TaxExempt, strings.TrimSpace(in.Tax.TaxExemptReason), nullDec(in.Tax.TaxRate),
+		in.AutoApplyCredit, nullDec(in.LowBalanceThreshold), in.SuspendAtZero).Scan(&id)
 	if err != nil {
 		return Customer{}, mapErr(err)
 	}
@@ -121,17 +211,59 @@ func (s *Store) CreateCustomer(ctx context.Context, in CustomerInput) (Customer,
 // CustomerPatch carries optional updates; nil means unchanged. The price
 // book is not here: it is a property of each source (SourcePatch).
 type CustomerPatch struct {
-	Name        *string
-	AdminEmail  *string
+	Name *string
+	// BillingMode is the LEGACY patch field: it is translated through
+	// CommercialFromBillingMode, so the CSV importer and the Organization
+	// sync keep working. The customer API decodes and ignores it.
 	BillingMode *string
+	AdminEmail  *string
 	Status      *string
 	StartDate   *string
 	OrgSlug     *string
 	PlanSlug    *string
+	// The commercial model (DESIGN.md §8); nil leaves a field unchanged.
+	// Switching Charging to informational clears the three that are then
+	// meaningless, so a partial patch can never leave a refused combination.
+	Charging      *string
+	PaymentModel  *string
+	PaymentMethod *string
+	GatewayName   *string
+	// PORef and PaymentTermsDays are the invoicing terms.
+	PORef            *string
+	PaymentTermsDays *int
+	// ExternalAccountID is the customer's account in the operator's billing
+	// system (external commercial provider only).
+	ExternalAccountID *string
+	// The tax profile (DESIGN.md §9.4); nil leaves a field unchanged. A
+	// TaxRate pointing at an empty Decimal clears the override back to the
+	// Sovereign default.
+	TaxRegistrationNumber *string
+	TaxExempt             *bool
+	TaxExemptReason       *string
+	TaxRate               *Decimal
+	// The account-credit knobs (DESIGN.md §9.5); a LowBalanceThreshold
+	// pointing at an empty Decimal turns the alert off.
+	AutoApplyCredit     *bool
+	LowBalanceThreshold *Decimal
+	SuspendAtZero       *bool
 }
 
-// UpdateCustomer applies a patch.
+// UpdateCustomer applies a patch. It runs in a transaction because the
+// commercial fields are patched partially and validated as a WHOLE: the row
+// is read FOR UPDATE, the patch merged onto it, and the derived billing_mode
+// written from the result — so two concurrent patches cannot interleave into
+// a combination neither of them asked for.
 func (s *Store) UpdateCustomer(ctx context.Context, id string, p CustomerPatch) (Customer, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Customer{}, err
+	}
+	defer tx.Rollback()
+	var cur Commercial
+	if err := tx.QueryRowContext(ctx, `SELECT charging, COALESCE(payment_model, ''), COALESCE(payment_method, ''), gateway_name
+		FROM customers WHERE id = $1 FOR UPDATE`, id).Scan(&cur.Charging, &cur.PaymentModel, &cur.PaymentMethod, &cur.GatewayName); err != nil {
+		return Customer{}, mapErr(err)
+	}
 	sets := []string{"updated_at = now()"}
 	var args []any
 	add := func(col string, v any) {
@@ -144,8 +276,24 @@ func (s *Store) UpdateCustomer(ctx context.Context, id string, p CustomerPatch) 
 	if p.AdminEmail != nil {
 		add("admin_email", strings.ToLower(strings.TrimSpace(*p.AdminEmail)))
 	}
-	if p.BillingMode != nil {
-		add("billing_mode", *p.BillingMode)
+	// The four commercial fields, plus the legacy billing_mode translated
+	// through the same mapping the migration used. billing_mode is never
+	// written on its own: it is derived from the result.
+	charging, model, method, gateway := p.Charging, p.PaymentModel, p.PaymentMethod, p.GatewayName
+	if p.BillingMode != nil && charging == nil && model == nil && method == nil && gateway == nil {
+		legacy := CommercialFromBillingMode(*p.BillingMode)
+		charging, model, method, gateway = &legacy.Charging, &legacy.PaymentModel, &legacy.PaymentMethod, &legacy.GatewayName
+	}
+	if charging != nil || model != nil || method != nil || gateway != nil {
+		next := cur.Merge(charging, model, method, gateway)
+		if err := next.Validate(); err != nil {
+			return Customer{}, err
+		}
+		add("charging", next.Charging)
+		add("payment_model", nullStr(&next.PaymentModel))
+		add("payment_method", nullStr(&next.PaymentMethod))
+		add("gateway_name", next.GatewayName)
+		add("billing_mode", next.BillingMode())
 	}
 	if p.Status != nil {
 		add("status", *p.Status)
@@ -159,8 +307,47 @@ func (s *Store) UpdateCustomer(ctx context.Context, id string, p CustomerPatch) 
 	if p.PlanSlug != nil {
 		add("plan_slug", NormalizePlanSlug(*p.PlanSlug))
 	}
+	if p.PORef != nil {
+		add("po_reference", strings.TrimSpace(*p.PORef))
+	}
+	if p.ExternalAccountID != nil {
+		add("external_account_id", strings.TrimSpace(*p.ExternalAccountID))
+	}
+	if p.PaymentTermsDays != nil {
+		if *p.PaymentTermsDays < 0 || *p.PaymentTermsDays > MaxPaymentTermsDays {
+			return Customer{}, fmt.Errorf("%w: payment_terms_days must be between 0 and %d", ErrInvalid, MaxPaymentTermsDays)
+		}
+		add("payment_terms_days", *p.PaymentTermsDays)
+	}
+	if p.TaxRegistrationNumber != nil {
+		add("tax_registration_number", strings.TrimSpace(*p.TaxRegistrationNumber))
+	}
+	if p.TaxExempt != nil {
+		add("tax_exempt", *p.TaxExempt)
+	}
+	if p.TaxExemptReason != nil {
+		add("tax_exempt_reason", strings.TrimSpace(*p.TaxExemptReason))
+	}
+	if p.TaxRate != nil {
+		if strings.TrimSpace(string(*p.TaxRate)) != "" && !validTaxRate(*p.TaxRate) {
+			return Customer{}, fmt.Errorf("%w: tax_rate must be a fraction between 0 and 1 (0.05 is 5%%)", ErrInvalid)
+		}
+		add("tax_rate", nullDec(p.TaxRate))
+	}
+	if p.AutoApplyCredit != nil {
+		add("auto_apply_credit", *p.AutoApplyCredit)
+	}
+	if p.LowBalanceThreshold != nil {
+		if strings.TrimSpace(string(*p.LowBalanceThreshold)) != "" && ratOf(*p.LowBalanceThreshold).Sign() < 0 {
+			return Customer{}, fmt.Errorf("%w: low_balance_threshold cannot be negative", ErrInvalid)
+		}
+		add("low_balance_threshold", nullDec(p.LowBalanceThreshold))
+	}
+	if p.SuspendAtZero != nil {
+		add("suspend_at_zero", *p.SuspendAtZero)
+	}
 	args = append(args, id)
-	res, err := s.db.ExecContext(ctx, fmt.Sprintf(`UPDATE customers SET %s WHERE id = $%d`, strings.Join(sets, ", "), len(args)), args...)
+	res, err := tx.ExecContext(ctx, fmt.Sprintf(`UPDATE customers SET %s WHERE id = $%d`, strings.Join(sets, ", "), len(args)), args...)
 	if err != nil {
 		return Customer{}, mapErr(err)
 	}
@@ -168,7 +355,12 @@ func (s *Store) UpdateCustomer(ctx context.Context, id string, p CustomerPatch) 
 		return Customer{}, ErrNotFound
 	}
 	if p.AdminEmail != nil {
-		_, _ = s.db.ExecContext(ctx, `INSERT INTO customer_users (customer_id, email, role) VALUES ($1, $2, 'admin') ON CONFLICT DO NOTHING`, id, strings.ToLower(strings.TrimSpace(*p.AdminEmail)))
+		if _, err := tx.ExecContext(ctx, `INSERT INTO customer_users (customer_id, email, role) VALUES ($1, $2, 'admin') ON CONFLICT DO NOTHING`, id, strings.ToLower(strings.TrimSpace(*p.AdminEmail))); err != nil {
+			return Customer{}, mapErr(err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return Customer{}, err
 	}
 	return s.GetCustomer(ctx, OperatorScope, id)
 }
@@ -280,8 +472,10 @@ func (s *Store) DeleteCustomer(ctx context.Context, id string) error {
 	if !exists {
 		return ErrNotFound
 	}
+	// Anything past draft — issued, sent, paid or cancelled — is a document
+	// the customer received and a financial record; only drafts cascade.
 	var issued int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM statements WHERE customer_id = $1 AND status = 'issued'`, id).Scan(&issued); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM statements WHERE customer_id = $1 AND status <> 'draft'`, id).Scan(&issued); err != nil {
 		return mapErr(err)
 	}
 	if issued > 0 {

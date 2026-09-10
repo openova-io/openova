@@ -3,6 +3,9 @@ package openova
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +17,7 @@ import (
 	"time"
 
 	"github.com/openova-io/openova/products/chargeback/internal/metrics"
+	"github.com/openova-io/openova/products/chargeback/internal/settle"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
 
@@ -33,6 +37,81 @@ type BillingHook struct {
 	Token   string // BILLING_HOOK_TOKEN — a superadmin bearer token
 	Client  *http.Client
 	Metrics *metrics.Registry
+	// CallbackSecret — BILLING_HOOK_CALLBACK_SECRET — is the shared secret
+	// the billing service signs its payment callbacks with (DESIGN.md
+	// §9.2): HMAC-SHA256 over the raw body, `sha256=<hex>` in
+	// X-Gateway-Signature. Unset ⇒ callbacks are refused, never trusted.
+	CallbackSecret string
+}
+
+// CallbackSignatureHeader carries the callback's HMAC.
+const CallbackSignatureHeader = "X-Gateway-Signature"
+
+// CallbackMaxBytes bounds a callback body.
+const CallbackMaxBytes = 1 << 20
+
+// callbackBody is what the billing service posts to
+// POST /api/v1/gateways/stripe/callback once its gateway settled money:
+//
+//	{ "customer_id" | "customer_slug": ..., "statement_id": "...", "intent_id": "...",
+//	  "amount": 1200.000000, "paid_at": "2026-09-19", "reference": "pi_3Q...", "status": "settled" }
+//
+// statement_id names the invoice it settles; without one it is a checkout
+// (a top-up) and lands as credit on the account.
+type callbackBody struct {
+	CustomerID   string        `json:"customer_id"`
+	CustomerSlug string        `json:"customer_slug"`
+	StatementID  string        `json:"statement_id"`
+	IntentID     string        `json:"intent_id"`
+	Amount       store.Decimal `json:"amount"`
+	PaidAt       string        `json:"paid_at"`
+	Reference    string        `json:"reference"`
+	Status       string        `json:"status"`
+}
+
+// SignCallback returns the header value for a body — exported so the
+// billing service's sender and this product's tests compute it alike.
+func SignCallback(secret string, body []byte) string {
+	m := hmac.New(sha256.New, []byte(secret))
+	m.Write(body)
+	return "sha256=" + hex.EncodeToString(m.Sum(nil))
+}
+
+// VerifyCallback implements settle.Gateway's inbound half: the signature is
+// checked over the RAW bytes, in constant time, before the body is decoded,
+// and no secret configured means every callback is refused.
+func (b *BillingHook) VerifyCallback(r *http.Request) (settle.Confirmation, error) {
+	if b == nil || strings.TrimSpace(b.CallbackSecret) == "" {
+		return settle.Confirmation{}, fmt.Errorf("%w: no callback secret is configured (BILLING_HOOK_CALLBACK_SECRET)", settle.ErrCallbackRejected)
+	}
+	raw, err := io.ReadAll(io.LimitReader(r.Body, CallbackMaxBytes))
+	if err != nil {
+		return settle.Confirmation{}, fmt.Errorf("%w: could not read the body", settle.ErrCallbackRejected)
+	}
+	sig := strings.TrimSpace(r.Header.Get(CallbackSignatureHeader))
+	if sig == "" || !hmac.Equal([]byte(SignCallback(b.CallbackSecret, raw)), []byte(sig)) {
+		return settle.Confirmation{}, fmt.Errorf("%w: the signature does not match the body", settle.ErrCallbackRejected)
+	}
+	var body callbackBody
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return settle.Confirmation{}, fmt.Errorf("%w: invalid body: %v", store.ErrInvalid, err)
+	}
+	paidAt := time.Now().UTC()
+	if s := strings.TrimSpace(body.PaidAt); s != "" {
+		t, err := time.Parse("2006-01-02", s)
+		if err != nil {
+			if t, err = time.Parse(time.RFC3339, s); err != nil {
+				return settle.Confirmation{}, fmt.Errorf("%w: paid_at must be YYYY-MM-DD or an RFC3339 timestamp", store.ErrInvalid)
+			}
+		}
+		paidAt = t.UTC()
+	}
+	return settle.Confirmation{
+		CustomerID: strings.TrimSpace(body.CustomerID), CustomerSlug: strings.TrimSpace(body.CustomerSlug),
+		StatementID: strings.TrimSpace(body.StatementID), IntentID: strings.TrimSpace(body.IntentID),
+		Amount: body.Amount, PaidAt: paidAt, Reference: strings.TrimSpace(body.Reference), Status: strings.TrimSpace(body.Status),
+		Method: store.PaymentMethodGateway, GatewayName: store.GatewayStripe, Actor: "gateway:stripe",
+	}, nil
 }
 
 func (b *BillingHook) client() *http.Client {
@@ -64,14 +143,71 @@ type meteringMetadata struct {
 	TenantID  string `json:"tenant_id"`
 }
 
+// RequestSettlement implements settle.Gateway. This is the STRIPE-backed
+// implementation, registered under the gateway name "stripe": the registry
+// hands it a statement only when the customer's charging is billed, its
+// payment_method is gateway and its gateway_name is stripe. The behaviour is
+// unchanged from the pre-seam call — the same metering post, the same
+// idempotency on the statement id, the same silent no-op for anything that
+// is not an Organization charge.
+//
+// Replacing Stripe with Omantel's gateway is registering a different
+// implementation under a different name; nothing here has to move.
+func (b *BillingHook) RequestSettlement(ctx context.Context, req settle.Request) (settle.Result, error) {
+	if b == nil || b.URL == "" {
+		return settle.Result{Outcome: settle.NotApplicable, Gateway: "billing", Detail: "the billing hook is not configured"}, nil
+	}
+	if !applies(req.Customer) {
+		return settle.Result{Outcome: settle.NotApplicable, Gateway: "billing", Detail: "only a billed Organization collected through the stripe gateway is debited through billing"}, nil
+	}
+	if req.IsCheckout() {
+		// The metering endpoint DEBITS an Organization's credit for an issued
+		// statement; a checkout (a top-up) is a CREDIT the billing service
+		// takes on its own checkout page, not here. Answering not-applicable
+		// leaves the intent awaiting the gateway's own confirmation.
+		return settle.Result{Outcome: settle.NotApplicable, Gateway: "billing", Detail: "the billing hook debits issued statements; a checkout is collected on the billing service's own checkout page"}, nil
+	}
+	if err := b.StatementIssued(ctx, req.Statement, req.Customer); err != nil {
+		return settle.Result{Outcome: settle.NotApplicable, Gateway: "billing"}, err
+	}
+	return settle.Result{Outcome: settle.Settled, Gateway: "billing", Reference: req.Statement.ID,
+		Detail: "debited to the Organization's billing credit as usage:chargeback"}, nil
+}
+
+// applies is the one condition the billing service can serve.
+//
+// The commercial half is charging=billed AND payment_method=gateway AND
+// gateway_name=stripe — the four-field replacement for the old
+// billing_mode=real, and narrower than it was: a billed customer paying by
+// TRANSFER also derives billing_mode=real, and must never be debited.
+//
+// The kind=organization guard is LOAD-BEARING and stays: the payload's
+// customer_id is the Organization slug, which is the only identifier the
+// platform billing service knows. An external customer has no billing
+// account there, so posting for one would be a debit against nothing.
+func applies(c store.Customer) bool {
+	return c.Kind == "organization" &&
+		c.Charging == store.ChargingBilled &&
+		c.PaymentMethod == store.PaymentMethodGateway &&
+		c.GatewayName == store.GatewayStripe
+}
+
+// ConfirmSettlement implements settle.Gateway's second half: the billing
+// service relays a confirmation (its own gateway's callback, or a manual
+// credit), and this normalises it into the payment to record. It writes
+// nothing itself — the store books the payment and owns the lifecycle.
+func (b *BillingHook) ConfirmSettlement(_ context.Context, c settle.Confirmation) (settle.Payment, error) {
+	return settle.Normalise(c, "billing")
+}
+
 // StatementIssued implements the api.StatementHook seam. Only issued
-// statements of kind=organization, billing_mode=real customers reach
+// statements of an Organization collected through the stripe gateway reach
 // billing; everything else is a silent no-op (D6 is adapter-only).
 func (b *BillingHook) StatementIssued(ctx context.Context, st store.Statement, c store.Customer) error {
 	if b == nil || b.URL == "" {
 		return nil
 	}
-	if c.Kind != "organization" || c.BillingMode != "real" {
+	if !applies(c) {
 		return nil
 	}
 	micro, err := microOMR(st.Total)

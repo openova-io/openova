@@ -46,7 +46,7 @@ func TestBillingHookIdempotentOnStatementID(t *testing.T) {
 	defer srv.Close()
 
 	hook := &BillingHook{URL: srv.URL, Token: "test-superadmin-jwt", Metrics: metrics.New()}
-	c := store.Customer{ID: "cust-1", Slug: "acme", Kind: "organization", BillingMode: "real", OrgSlug: strPtr("acme")}
+	c := store.Customer{ID: "cust-1", Slug: "acme", Kind: "organization", OrgSlug: strPtr("acme"), Charging: store.ChargingBilled, PaymentModel: store.PaymentModelPrepaid, PaymentMethod: store.PaymentMethodGateway, GatewayName: store.GatewayStripe}
 	st := store.Statement{ID: "stmt-0001", CustomerID: "cust-1", PeriodStart: "2026-08-01", PeriodEnd: "2026-08-31", Currency: "OMR", Total: "12.345"}
 
 	for i := 0; i < 2; i++ {
@@ -95,17 +95,22 @@ func TestBillingHookSkipsInapplicableCustomers(t *testing.T) {
 	defer srv.Close()
 	hook := &BillingHook{URL: srv.URL, Metrics: metrics.New()}
 	st := store.Statement{ID: "stmt-1", CustomerID: "c", PeriodStart: "2026-08-01", Total: "5"}
+	// DESIGN.md §8: the hook fires for charging=billed AND
+	// payment_method=gateway AND gateway_name=stripe, on an Organization.
+	// Each row below misses exactly one of those.
 	cases := []store.Customer{
-		{Kind: "external", BillingMode: "real"},
-		{Kind: "organization", BillingMode: "chargeback"},
-		{Kind: "organization", BillingMode: "showback"},
+		{Kind: "external", Charging: store.ChargingBilled, PaymentModel: store.PaymentModelPrepaid, PaymentMethod: store.PaymentMethodGateway, GatewayName: store.GatewayStripe},
+		{Kind: "organization", Charging: store.ChargingBilled, PaymentModel: store.PaymentModelPostpaid, PaymentMethod: store.PaymentMethodInternal},
+		{Kind: "organization", Charging: store.ChargingBilled, PaymentModel: store.PaymentModelPostpaid, PaymentMethod: store.PaymentMethodTransfer},
+		{Kind: "organization", Charging: store.ChargingInformational},
+		{Kind: "organization", Charging: store.ChargingBilled, PaymentModel: store.PaymentModelPrepaid, PaymentMethod: store.PaymentMethodGateway, GatewayName: "omantel"},
 	}
 	for _, c := range cases {
 		if err := hook.StatementIssued(context.Background(), st, c); err != nil {
-			t.Fatalf("%s/%s: %v", c.Kind, c.BillingMode, err)
+			t.Fatalf("%s/%s/%s: %v", c.Kind, c.Charging, c.PaymentMethod, err)
 		}
 	}
-	if err := hook.StatementIssued(context.Background(), store.Statement{ID: "stmt-2", PeriodStart: "2026-08-01", Total: "0"}, store.Customer{Kind: "organization", BillingMode: "real"}); err != nil {
+	if err := hook.StatementIssued(context.Background(), store.Statement{ID: "stmt-2", PeriodStart: "2026-08-01", Total: "0"}, store.Customer{Kind: "organization", Charging: store.ChargingBilled, PaymentModel: store.PaymentModelPrepaid, PaymentMethod: store.PaymentMethodGateway, GatewayName: store.GatewayStripe}); err != nil {
 		t.Fatalf("zero total: %v", err)
 	}
 	if calls != 0 {
@@ -122,7 +127,7 @@ func TestBillingHookSurfacesServerErrors(t *testing.T) {
 	}))
 	defer srv.Close()
 	hook := &BillingHook{URL: srv.URL, Metrics: metrics.New()}
-	err := hook.StatementIssued(context.Background(), store.Statement{ID: "s", PeriodStart: "2026-08-01", Total: "1"}, store.Customer{Kind: "organization", BillingMode: "real", Slug: "acme"})
+	err := hook.StatementIssued(context.Background(), store.Statement{ID: "s", PeriodStart: "2026-08-01", Total: "1"}, store.Customer{Kind: "organization", Slug: "acme", Charging: store.ChargingBilled, PaymentModel: store.PaymentModelPrepaid, PaymentMethod: store.PaymentMethodGateway, GatewayName: store.GatewayStripe})
 	if err == nil {
 		t.Fatal("want an error on 403")
 	}
