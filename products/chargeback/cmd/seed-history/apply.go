@@ -40,6 +40,11 @@ type seeder struct {
 	// target model exists on this build, so a missing endpoint is probed once
 	// rather than once per month.
 	csvImport *bool
+
+	// neutralise says whether the landlord step also removes the landlord's
+	// REAL eip.bandwidth_mbps rows on traffic-billed addresses
+	// (neutralise.go): --neutralise-reservations, on by default.
+	neutralise bool
 }
 
 // result is one customer's outcome, for the summary table.

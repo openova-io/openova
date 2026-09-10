@@ -25,11 +25,20 @@
 // is the founder's 2026-09-10 defect: "step 1st is empty and the actual usage
 // was already there from the beginning, you failed to show the continuity".
 //
+// The landlord step also corrects the REAL ledger in one narrow way
+// (--neutralise-reservations, on by default; neutralise.go): the
+// eip.bandwidth_mbps rows the pre-0.1.26 collector recorded on addresses the
+// cloud bills by traffic describe a charge the cloud never made, and they are
+// removed and the removal written to the landlord's audit trail. Nothing else
+// real is ever written or deleted.
+//
 // Every row it writes is marked and removable: customers and sources are
 // named demo-*, discounts and budgets "demo: *", and every usage record and
 // inventory row carries {"synthetic":"true"}. --purge removes exactly those
 // rows and nothing else — including the landlord's backfill source, which is
-// reached by its own demo- name because its customer is real.
+// reached by its own demo- name because its customer is real. The
+// neutralisation is NOT reversed by --purge: the rows it removed were never
+// billable.
 package main
 
 import (
@@ -66,6 +75,7 @@ type options struct {
 	landlord      string
 	landlordUntil string
 	cloudBook     string
+	neutralise    bool
 }
 
 // landlordOnly is what --only takes to seed the landlord backfill alone,
@@ -89,6 +99,7 @@ func main() {
 	flag.StringVar(&o.landlord, "landlord", synth.LandlordDefaultSlug, "slug of the EXISTING landlord customer to backfill a converging past for; empty disables the backfill")
 	flag.StringVar(&o.landlordUntil, "landlord-until", "", "exclusive end of the landlord backfill, RFC3339 (default: the hour before that customer's first real usage record)")
 	flag.StringVar(&o.cloudBook, "cloud-book", "", "name or id of the cloud rate card to price the showcase from (default: the card the landlord's own cloud source is billed on, else the Sovereign's National Cloud card)")
+	flag.BoolVar(&o.neutralise, "neutralise-reservations", true, "with the landlord step, remove the landlord's real "+synth.EIPReservationSKU+" rows on addresses whose inventory says "+synth.EIPChargeModeAttr+"="+synth.EIPChargeModeTraffic+" (recorded before the collector could read the charge mode; the cloud never billed them) and record the removal on the landlord's audit trail; addresses on mode "+synth.EIPChargeModeBandwidth+" or with no mode are left alone; not reversed by --purge")
 	flag.Parse()
 
 	if err := run(o); err != nil {
@@ -128,7 +139,7 @@ func run(o options) error {
 	}
 
 	if o.dryRun {
-		return dryRun(sc, customers, landlordSlug, landlordUntil, doLandlord)
+		return dryRun(sc, customers, landlordSlug, landlordUntil, doLandlord, o.neutralise)
 	}
 
 	// --purge needs only the database: it is a delete, and the API has no
@@ -173,7 +184,7 @@ func run(o options) error {
 	log.Printf("seeding %s as operator; window %s .. %s (exclusive); seed %d",
 		o.baseURL, window.From.Format(time.RFC3339), window.To.Format(time.RFC3339), o.seed)
 
-	s := &seeder{sc: sc, api: api, st: st, db: db, ctx: ctx}
+	s := &seeder{sc: sc, api: api, st: st, db: db, ctx: ctx, neutralise: o.neutralise}
 	needCloud, needPlan := false, false
 	for _, c := range customers {
 		switch c.Source.Layer {
@@ -288,7 +299,7 @@ func parseLandlordUntil(s string) (time.Time, error) {
 
 // dryRun prints what would be written, with the totals computed from the
 // product's own rates, and touches nothing.
-func dryRun(sc *synth.Scenario, customers []*synth.Customer, landlordSlug string, landlordUntil time.Time, doLandlord bool) error {
+func dryRun(sc *synth.Scenario, customers []*synth.Customer, landlordSlug string, landlordUntil time.Time, doLandlord, neutralise bool) error {
 	prices := synth.Prices(synth.NationalCloudRates, synth.PlanRates)
 	log.Printf("DRY RUN — nothing is written")
 	log.Printf("window %s .. %s (exclusive); seed %d",
@@ -324,10 +335,21 @@ func dryRun(sc *synth.Scenario, customers []*synth.Customer, landlordSlug string
 		}
 		c := lsc.Landlord()
 		out := lsc.Generate(c)
+		trafficGB, trafficRows := 0.0, 0
+		for _, rec := range out.Records {
+			if rec.SKU == synth.EIPTrafficSKU {
+				trafficGB += rec.Quantity
+				trafficRows++
+			}
+		}
 		r := result{
 			Customer: c.Name, Slug: c.Slug, Source: c.Source.Name,
 			Rows: len(out.Records), Resources: len(out.Resources), Months: map[string]string{},
-			Note: fmt.Sprintf("landlord backfill to %s — usage and inventory only, no statements", until.Format(time.RFC3339)),
+			Note: fmt.Sprintf("landlord backfill to %s — usage and inventory only, no statements; %.1f GB of %s over %d address-hours is unpriced until the operator enters a traffic rate",
+				until.Format(time.RFC3339), trafficGB, synth.EIPTrafficSKU, trafficRows),
+		}
+		if neutralise {
+			r.Note += fmt.Sprintf("; a real run first removes the landlord's real %s rows on traffic-billed addresses (--neutralise-reservations) — no database here to count them", synth.EIPReservationSKU)
 		}
 		for period, total := range synth.MonthlyCost(out.Records, synth.Prices(synth.NationalCloudRates)) {
 			r.Months[period] = strconv.FormatFloat(total, 'f', 3, 64)

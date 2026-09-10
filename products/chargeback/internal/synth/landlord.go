@@ -20,28 +20,42 @@ import (
 //     "step 1st is empty".
 //  2. NO CONTINUITY. The Sovereign's own landlord customer (Omantel, the real
 //     Huawei project) had no past whatsoever, so the chart jumped from about
-//     150 OMR a day of showcase customers straight to about 594 OMR a day of
-//     real usage with an entirely different service mix — "the actual usage
-//     was already there from the beginning, you failed to show the
-//     continuity".
+//     150 OMR a day of showcase customers straight to the real usage with an
+//     entirely different service mix — "the actual usage was already there
+//     from the beginning, you failed to show the continuity".
 //
 // The fix is to give the landlord a synthetic past that CONVERGES on its real
 // present. The end state below is the measured shape of the landlord's real
-// cloud-layer usage on hw307 (sampled 5 September 2026), and the backfill
-// grows into exactly that shape and then stops one hour before the first real
-// record. Read left to right the series now says: the Sovereign has been
-// running since June, six customers were on it, they left at the end of
-// August, and the platform carries on.
+// cloud-layer usage on hw307 (sampled 5 September 2026, the Elastic-IP billing
+// shape re-read on 10 September), and the backfill grows into exactly that
+// shape and then stops one hour before the first real record. Read left to
+// right the series now says: the Sovereign has been running since June, six
+// customers were on it, they left at the end of August, and the platform
+// carries on.
 //
-// Everything here is a RESERVATION, not traffic. An EIP is billed for the
-// bandwidth it has provisioned whether or not a byte flows through it — which
-// is why bandwidth is 494 of the 594 OMR a day — so the bandwidth quantity is
-// constant per EIP per hour and steps only when an EIP is added. The same
-// holds for the EIP itself, the NAT gateways, the load balancers, the
-// instance-hours and each volume's size. Jittering any of them would make the
-// data contradict the billing model it is meant to illustrate. The one thing
-// that moves is the EVS TOTAL, and it moves because volumes are created, not
-// because a size wobbles.
+// Two kinds of quantity live here, and the data must not confuse them.
+//
+// RESERVATIONS. An instance-hour, an EIP's hourly address fee, a NAT gateway,
+// a load balancer and each volume's size are billed for existing, so each is
+// constant per resource per hour and steps only when a resource is added.
+// Jittering any of them would make the data contradict the billing model it
+// is meant to illustrate. The one total that moves is EVS, and it moves
+// because volumes are created, not because a size wobbles.
+//
+// TRAFFIC. The landlord's Elastic IPs are NOT billed on a reserved pipe. Since
+// 0.1.26 the collector reads each address's billing shape off its bandwidth
+// object, and on hw307 all six billable addresses are bandwidth_charge_mode =
+// traffic, share PER: the cloud bills the OUTBOUND GIGABYTES. An earlier
+// revision of this file mirrored the wrong shape — eip.bandwidth_mbps
+// reservations of 3 × 300 + 3 × 100 Mbps, about 494 OMR a day at the National
+// Cloud rate — because that is what the old collector recorded before it could
+// see the charge mode. That figure was fiction for this cloud, and the backfill
+// drew a fictional bandwidth band through the whole showcase with a cliff at
+// the hour the new collector rolled. Each address now meters eip.traffic_gb
+// (decimal gigabytes out in the hour, a GAUGE) on a daily curve with jitter,
+// and no reservation at all. The convergence rule still holds: the last
+// synthetic hour matches the real present, which for a gauge means the same
+// SHAPE — six addresses on the same curve — not the same exact number.
 
 // LandlordDefaultSlug is the customer the backfill attaches to unless
 // --landlord names another: the Sovereign's own landlord on hw307. It is a
@@ -109,13 +123,13 @@ const (
 	LandlordNATCount      = 2
 	LandlordELBCount      = 2
 
-	// EIP bandwidth is provisioned size, in Mbps. Two 300 and two 100 at the
-	// start; one 100 added on 1 July and one 300 on 1 August, reaching
-	// 3 × 300 + 3 × 100 = 1,200 Mbps across six EIPs.
+	// Four addresses at the start, one added on 1 July and one on 1 August.
+	// Each hangs off its own pipe (300 Mbps for the two region gateways and
+	// the sixth address, 100 for the rest); the size is an inventory
+	// attribute and the address's weight in the traffic curve, and it is
+	// NOT billed, because every one of these addresses is traffic-billed.
 	LandlordEIPCountStart = 4
 	LandlordEIPCountEnd   = 6
-	LandlordEIPMbpsStart  = 800
-	LandlordEIPMbpsEnd    = 1200
 
 	// EVS: the total grows over a resource count growing 70 → 102, each
 	// volume a constant whole number of GB.
@@ -125,27 +139,102 @@ const (
 	LandlordEVSGBEnd      = 2281
 
 	// LandlordMeasuredDayOMR is what one real day of that shape costs on the
-	// National Cloud list: 2026-09-03 through 09-06 each rated ≈594.1 OMR, of
-	// which ≈494 is EIP bandwidth. TestLandlordSeamMatchesTheMeasuredRealDay
-	// prices the backfill's last full day with this package's own rate table
-	// and requires it within 2 % of this number — that is the seam, and it is
-	// the assertion that fails if the end state ever drifts off the measured
+	// operator's card WITHOUT the reservation line. Until 10 September the
+	// real days on hw307 rated ≈594.1 OMR, ≈494.4 of it eip.bandwidth_mbps —
+	// a reservation this cloud never bills (the addresses are traffic-billed,
+	// see the top of this file), recorded before the collector could read the
+	// charge mode and removed by seed-history --neutralise-reservations.
+	// Stripped of it the same day is 594.09 − 494.40 = 99.69 OMR: ten large
+	// and two small instances, six address fees, 2,281 GB, two NAT gateways
+	// and two load balancers. eip.traffic_gb is UNPRICED on that card until
+	// the operator enters a traffic rate, so it adds nothing yet.
+	// TestLandlordSeamMatchesTheMeasuredRealDay prices the backfill's last
+	// full day with this package's own rate table and requires it within
+	// LandlordSeamTolerance of this number — that is the seam, and it is the
+	// assertion that fails if the end state ever drifts off the measured
 	// shape.
 	//
-	// The tolerance is not slack, it is a known and measured gap. This
-	// package's NationalCloudRates are the ones the hw307 book rated the
-	// August 2026 statement with, where nat.1 is 0.11322489 an hour; the
-	// operator's own card on that Sovereign prices the same SKU at
-	// 0.06037935, which is 2.54 OMR a day across two gateways. Priced here
-	// the day is 596.63, priced on the operator's card 594.09 — and 594.09 is
-	// the number the console shows, because the seeding command resolves the
-	// operator's card and never mints its own (cmd/seed-history/book.go).
-	// Verified end to end: the backfill's last day and the first real day
-	// both 594.09, a 0.00 % seam.
-	LandlordMeasuredDayOMR = 594.1
-	// LandlordSeamTolerance is that 2 %.
-	LandlordSeamTolerance = 0.02
+	// The tolerance is not slack, it is a known and measured gap, the same
+	// one as before the reservation line went. This package's
+	// NationalCloudRates are the ones the hw307 book rated the August 2026
+	// statement with, where nat.1 is 0.11322489 an hour; the operator's own
+	// card on that Sovereign prices the same SKU at 0.06037935, which is
+	// 2.54 OMR a day across two gateways. Priced here the day is 102.23,
+	// priced on the operator's card 99.69. The gap was 0.43 % of a 594-OMR
+	// day; it is 2.5 % of a 100-OMR day, which is why the tolerance is 3 %
+	// now — in OMR the slack is smaller than it was (0.45 against 9.3).
+	LandlordMeasuredDayOMR = 99.69
+	// LandlordSeamTolerance is that 3 %.
+	LandlordSeamTolerance = 0.03
 )
+
+// The Elastic-IP billing shape, as the Huawei collector records it on the
+// address's inventory row (internal/collector/huawei/lister.go) and meters
+// it (ces.go). TestLandlordTrafficConstantsMatchTheCollector pins the values
+// to the collector's own so the two can never drift apart.
+const (
+	// EIPChargeModeAttr and EIPShareTypeAttr are the inventory attrs that
+	// say how the cloud bills the address's bandwidth.
+	EIPChargeModeAttr = "bandwidth_charge_mode"
+	EIPShareTypeAttr  = "bandwidth_share_type"
+	// EIPChargeModeTraffic bills the OUTBOUND bytes; EIPChargeModeBandwidth
+	// bills the reserved size.
+	EIPChargeModeTraffic   = "traffic"
+	EIPChargeModeBandwidth = "bandwidth"
+	// EIPShareTypePer is a pipe dedicated to one address.
+	EIPShareTypePer = "PER"
+	// EIPReservationSKU is the reservation meter a traffic-billed address
+	// never emits; EIPTrafficSKU, in EIPTrafficUnit, is the meter it does.
+	EIPReservationSKU = "eip.bandwidth_mbps"
+	EIPTrafficSKU     = "eip.traffic_gb"
+	EIPTrafficUnit    = "gb"
+)
+
+// The traffic curve. Every figure is decimal gigabytes OUT per address per
+// hour for an address of average weight, before the weekend factor and the
+// jitter. Measured on hw307 from the first hourly eip.traffic_gb samples the
+// 0.1.26 collector wrote (10 September 2026, 08:00–10:00Z): 0.013 to 0.175 GB
+// per address per hour, about 0.1 on average, roughly 2.4 GB across all six
+// addresses in three hours.
+const (
+	LandlordTrafficNightGB = 0.03
+	LandlordTrafficDayGB   = 0.12
+	LandlordTrafficPeakGB  = 0.20
+	// LandlordTrafficMeanGB is the measured mean the curve is tuned to land
+	// near once the weekend factor is in
+	// (TestLandlordWeeklyTrafficLandsNearTheMeasuredMean).
+	LandlordTrafficMeanGB = 0.1
+	// LandlordTrafficWeekendFactor scales Friday and Saturday, the Omani
+	// weekend.
+	LandlordTrafficWeekendFactor = 0.7
+	// LandlordTrafficJitter is the ± fraction each hour's volume is
+	// jittered by, per (seed, address, hour).
+	LandlordTrafficJitter = 0.3
+	// LandlordTrafficRatio is how much more a big address moves than a
+	// small one: the 300-Mbps gateways carry about twice the 100-Mbps
+	// addresses.
+	LandlordTrafficRatio = 2.0
+	// LandlordBigEIPMbps is the pipe size from which an address counts as
+	// big.
+	LandlordBigEIPMbps = 300
+	// landlordLocalOffsetHours is Oman's UTC offset; the profile is written
+	// in local hours because that is the clock the traffic follows.
+	landlordLocalOffsetHours = 4
+)
+
+// LandlordTrafficProfile is the daily shape, GB out per average address per
+// hour, indexed by LOCAL hour (Oman, UTC+4): about 0.03 through the night,
+// 0.12 across the working day, rising to a 0.20 peak at 20:00 and falling
+// back. It sums to 2.52 GB a day, 0.105 an hour; the weekend factor brings
+// the weekly mean to 0.096, within 5 % of the measured 0.1.
+var LandlordTrafficProfile = [24]float64{
+	0.05, 0.04, LandlordTrafficNightGB, LandlordTrafficNightGB, LandlordTrafficNightGB, 0.04, // 00–05 night
+	0.06, 0.09, // 06–07 morning
+	LandlordTrafficDayGB, LandlordTrafficDayGB, LandlordTrafficDayGB, LandlordTrafficDayGB, // 08–11 working day
+	LandlordTrafficDayGB, LandlordTrafficDayGB, LandlordTrafficDayGB, LandlordTrafficDayGB, // 12–15 working day
+	0.13, 0.14, 0.16, 0.18, LandlordTrafficPeakGB, 0.18, // 16–21 evening, peak at 20:00
+	0.12, 0.08, // 22–23 winding down
+}
 
 // SKUShape is one metered SKU of the end state: how many resources report it
 // in one hour and what they report in total.
@@ -154,24 +243,32 @@ type SKUShape struct {
 	Unit     string
 	Count    int
 	Quantity float64
+	// Gauge marks a metered measurement (traffic) rather than a reservation.
+	// The resource count and unit must still match exactly — that is the
+	// shape — but Quantity is the curve's expectation for the hour, and the
+	// generated hour is allowed the jitter band around it.
+	Gauge bool
 }
 
 // LandlordEndState is the measured shape the backfill converges on, ascending
 // by SKU. TestLandlordEndStateMatchesTheMeasuredShape asserts the generated
-// final hour equals it exactly.
+// final hour equals it exactly — count, unit and quantity for every
+// reservation; count and unit for the traffic gauge, whose quantity is the
+// curve at the measured cut and is allowed its jitter.
 var LandlordEndState = []SKUShape{
 	{SKU: "ecs.m7n.2xlarge.8", Unit: "instance-hour", Count: LandlordECSLargeEnd, Quantity: LandlordECSLargeEnd},
 	{SKU: "ecs.m7n.xlarge.8", Unit: "instance-hour", Count: LandlordECSSmallCount, Quantity: LandlordECSSmallCount},
 	{SKU: "eip", Unit: "hour", Count: LandlordEIPCountEnd, Quantity: LandlordEIPCountEnd},
-	{SKU: "eip.bandwidth_mbps", Unit: "mbps-hour", Count: LandlordEIPCountEnd, Quantity: LandlordEIPMbpsEnd},
+	{SKU: EIPTrafficSKU, Unit: EIPTrafficUnit, Count: LandlordEIPCountEnd, Quantity: LandlordTrafficHourGB(LandlordDefaultUntil.Add(-time.Hour)), Gauge: true},
 	{SKU: "elb", Unit: "hour", Count: LandlordELBCount, Quantity: LandlordELBCount},
 	{SKU: "evs.ssd.gb", Unit: "gb-hour", Count: LandlordEVSCountEnd, Quantity: LandlordEVSGBEnd},
 	{SKU: "nat.1", Unit: "hour", Count: LandlordNATCount, Quantity: LandlordNATCount},
 }
 
-// landlordEIP is one Elastic IP of the landlord: a provisioned size in Mbps,
-// the region it lives in, when it was created and whether it fronts a load
-// balancer (the two region gateways do).
+// landlordEIP is one Elastic IP of the landlord: the size in Mbps of the pipe
+// it hangs off (an inventory attribute and its weight in the traffic curve,
+// never a billed quantity), the region it lives in, when it was created and
+// whether it fronts a load balancer (the two region gateways do).
 type landlordEIP struct {
 	Mbps   float64
 	Region string
@@ -189,6 +286,59 @@ var LandlordEIPs = []landlordEIP{
 	{Mbps: 100, Region: RegionB, Status: "ACTIVE"},
 	{Mbps: 100, Region: RegionA, From: LandlordStep1, Status: "ACTIVE"},
 	{Mbps: 300, Region: RegionB, From: LandlordStep2, Status: "ACTIVE"},
+}
+
+// landlordLocalHour is t's hour of day in Oman.
+func landlordLocalHour(t time.Time) int {
+	return (t.UTC().Hour() + landlordLocalOffsetHours) % 24
+}
+
+// LandlordWeekendFactor is LandlordTrafficWeekendFactor on Friday and
+// Saturday and 1 on every other day.
+func LandlordWeekendFactor(t time.Time) float64 {
+	switch t.UTC().Weekday() {
+	case time.Friday, time.Saturday:
+		return LandlordTrafficWeekendFactor
+	}
+	return 1
+}
+
+// LandlordTrafficWeight is an address's share of the roster's traffic
+// relative to the average address: a big address carries LandlordTrafficRatio
+// times a small one, and the weights of the full six-address roster average
+// to exactly 1, so the roster's total is the profile times six.
+func LandlordTrafficWeight(mbps float64) float64 {
+	raw := func(m float64) float64 {
+		if m >= LandlordBigEIPMbps {
+			return LandlordTrafficRatio
+		}
+		return 1
+	}
+	sum := 0.0
+	for _, e := range LandlordEIPs {
+		sum += raw(e.Mbps)
+	}
+	return raw(mbps) * float64(len(LandlordEIPs)) / sum
+}
+
+// LandlordTrafficGB is the outbound gigabytes an address on a pipe of the
+// given size moves in hour t, before jitter: profile × weight × weekend.
+func LandlordTrafficGB(t time.Time, mbps float64) float64 {
+	return LandlordTrafficProfile[landlordLocalHour(t)] * LandlordTrafficWeight(mbps) * LandlordWeekendFactor(t)
+}
+
+// LandlordTrafficHourGB is the roster's expected total in hour t: the sum
+// over every address alive then, before jitter. It is the gauge's end-state
+// quantity.
+func LandlordTrafficHourGB(t time.Time) float64 {
+	sum := 0.0
+	for _, e := range LandlordEIPs {
+		if !e.From.IsZero() && t.Before(e.From) {
+			continue
+		}
+		sum += LandlordTrafficGB(t, e.Mbps)
+	}
+	return sum
 }
 
 // LandlordScenario builds the one-customer backfill for an EXISTING landlord
@@ -306,10 +456,12 @@ func landlordInstance(b builder, name, sku, flavor string, vcpus, ramMB int, reg
 	}
 }
 
-// landlordEIPSpecs turns the roster into resources. Each EIP bills one hour
-// of itself and its PROVISIONED bandwidth every hour — constant, stepping
-// only when an EIP is added, because a reserved pipe is billed whether or not
-// traffic flows through it.
+// landlordEIPSpecs turns the roster into resources. Each address bills one
+// hour of itself and the outbound gigabytes it moved that hour — a gauge on
+// the daily curve, jittered per (seed, address, hour) — and NO reservation,
+// because the cloud bills these addresses by traffic. The inventory row says
+// so the way the collector's does: bandwidth_charge_mode = traffic on a PER
+// (dedicated) pipe, with the pipe's size kept as bandwidth_mbps.
 func landlordEIPSpecs(b builder) []ResourceSpec {
 	out := make([]ResourceSpec, 0, len(LandlordEIPs))
 	for i, e := range LandlordEIPs {
@@ -321,12 +473,13 @@ func landlordEIPSpecs(b builder) []ResourceSpec {
 			Attrs: map[string]any{
 				"bandwidth_mbps": mbps, "public_ip_address": ip, "type": "5_bgp",
 				"status": e.Status, "enterprise_project": "0",
+				EIPChargeModeAttr: EIPChargeModeTraffic, EIPShareTypeAttr: EIPShareTypePer,
 			},
 			Labels: map[string]string{"status": e.Status, "enterprise_project": "0"},
-			Meter: func(time.Time, Jitter) []Line {
+			Meter: func(t time.Time, j Jitter) []Line {
 				return []Line{
 					{SKU: "eip", Unit: "hour", Quantity: 1},
-					{SKU: "eip.bandwidth_mbps", Unit: "mbps-hour", Quantity: mbps},
+					{SKU: EIPTrafficSKU, Unit: EIPTrafficUnit, Quantity: LandlordTrafficGB(t, mbps) * j(LandlordTrafficJitter)},
 				}
 			},
 		})
@@ -378,14 +531,14 @@ const landlordMinVolumeGB = 10
 
 // LandlordEVSRoster builds the storage plan for a seed and slug.
 //
-// A volume's size is provisioned, exactly like bandwidth, so it does not
-// drift: what drifts is the TOTAL, and it drifts because volumes are created.
-// The first LandlordEVSCountStart volumes exist from the start and sum to
-// exactly LandlordEVSGBStart; the remaining ones are provisioned one at a
-// time so that the running total tracks a straight line from
-// LandlordEVSGBStart to LandlordEVSGBEnd across
-// [LandlordStoryStart, LandlordEVSGrowthEnd), reaching LandlordEVSGBEnd over
-// LandlordEVSCountEnd volumes before the window ends.
+// A volume's size is provisioned, so it does not drift: what drifts is the
+// TOTAL, and it drifts because volumes are created. The first
+// LandlordEVSCountStart volumes exist from the start and sum to exactly
+// LandlordEVSGBStart; the remaining ones are provisioned one at a time so
+// that the running total tracks a straight line from LandlordEVSGBStart to
+// LandlordEVSGBEnd across [LandlordStoryStart, LandlordEVSGrowthEnd),
+// reaching LandlordEVSGBEnd over LandlordEVSCountEnd volumes before the
+// window ends.
 func LandlordEVSRoster(seed uint64, slug string) []LandlordEVSPlan {
 	base := apportion(LandlordEVSGBStart, landlordWeights(seed, slug, "evs-base", LandlordEVSCountStart), landlordMinVolumeGB)
 	grow := apportion(LandlordEVSGBEnd-LandlordEVSGBStart, landlordWeights(seed, slug, "evs-grow", LandlordEVSCountEnd-LandlordEVSCountStart), landlordMinVolumeGB)

@@ -395,7 +395,9 @@ hangs off a REAL customer, so a purge that reached sources only through the
 customer slug would strand three months of synthetic rows on a live ledger.
 Price books are never removed: `"National Cloud list 2026"` and `"OpenOva
 plans"` are shared with real customers and are never created over, re-priced or
-deleted.
+deleted. Nor does a purge reverse `--neutralise-reservations` (the landlord
+section below): the real `eip.bandwidth_mbps` rows it removed were never
+billable, and they are not put back.
 
 ```bash
 # Preview the plan and the totals — no service, no database, nothing written.
@@ -423,7 +425,8 @@ Flags: `--base-url`, `--forward-auth-email` (header name from
 `--to` (exclusive), `--seed` (default 2026 — the same seed always produces the
 same bytes), `--dry-run`, `--purge`, `--only <slug>`,
 `--landlord <slug>` (default `hw307-omani-works`, empty disables),
-`--landlord-until <RFC3339>` (default: discovered from the ledger) and
+`--landlord-until <RFC3339>` (default: discovered from the ledger),
+`--neutralise-reservations` (default on; see the landlord section below) and
 `--cloud-book <name or id>` (default: resolved, see below).
 
 ### Which rate card the showcase is priced from
@@ -486,7 +489,9 @@ was an **empty bucket** (the showcase stops at midnight on the 1st, the real
 collection on hw307 begins at 10:21:09 on the 2nd), and the series **jumped**
 from about 150 OMR a day of showcase customers straight to about 594 OMR a day
 of real usage in an entirely different service mix, as though the platform had
-sprung into existence fully formed.
+sprung into existence fully formed. (About 494 of those 594 OMR turned out,
+on 10 September, to be a reservation the cloud never billed — see *Traffic,
+not reservation* below.)
 
 `--landlord <slug>` closes both. It gives the Sovereign's own landlord
 customer — a REAL customer, `hw307-omani-works` by default — a synthetic past
@@ -498,29 +503,80 @@ before the first real record:
 | `ecs.m7n.2xlarge.8` | 6 | 8 | 10 | 10 × 1 instance-hour |
 | `ecs.m7n.xlarge.8` | 2 | 2 | 2 | 2 × 1 instance-hour |
 | `eip` | 4 | 5 | 6 | 6 × 1 hour |
-| `eip.bandwidth_mbps` | 2 × 300 + 2 × 100 | + one 100 | + one 300 | 3 × 300 + 3 × 100 = 1,200 Mbps |
+| `eip.traffic_gb` | 4 addresses on the daily curve | 5 | 6 | 6 × outbound GB in the hour, ~0.1 GB per address per hour on average (a gauge — same curve, not the same number) |
 | `evs.ssd.gb` | 70 volumes, 1,400 GB | — grows — | — grows — | 102 volumes, 2,281 GB |
 | `nat.1` | 2 | 2 | 2 | 2 × 1 hour |
 | `elb` | 2 | 2 | 2 | 2 × 1 hour |
 
-That end state prices at **596.63 OMR a day** at the rates in `internal/synth`
-— 494.40 of it EIP bandwidth — against the 594.10 a real day rated on hw307, a
-seam 0.43 % wide. `TestLandlordSeamMatchesTheMeasuredRealDay` fails if it ever
-opens past 2 %. The whole 2.54 OMR of it is `nat.1`: the walked August book
-priced it at 0.11322489 an hour and the operator's own card at 0.06037935. On
-a live Sovereign that gap does not exist at all, because the command prices the
-backfill from the operator's card — measured end to end, the last synthetic day
-and the first real day are both **594.09 OMR**, a 0.00 % seam.
+That end state prices at **102.23 OMR a day** at the rates in `internal/synth`
+against **99.69** for a real day of the same shape on the operator's card
+without the reservation line (594.09 − 494.40, see below), a seam 2.55 % wide.
+`TestLandlordSeamMatchesTheMeasuredRealDay` fails if it ever opens past 3 %.
+The whole 2.54 OMR of it is `nat.1`: the walked August book priced it at
+0.11322489 an hour and the operator's own card at 0.06037935 — the same gap as
+before, 0.43 % of a 594-OMR day and 2.5 % of a 100-OMR one, which is why the
+tolerance moved from 2 % to 3 % while the slack in OMR shrank from 9.3 to
+0.45. The test also requires the day *minus its NAT line* to sit under the
+measured figure, so nothing but `nat.1` can hide inside the tolerance. On a
+live Sovereign that gap does not exist at all, because the command prices the
+backfill from the operator's card. `eip.traffic_gb` is on both sides of the
+seam and priced on neither: it is the one SKU the test allows to be unpriced,
+until the operator enters a traffic rate.
 
-**Everything above is a reservation, not traffic.** An EIP is billed for the
-bandwidth it has *provisioned* whether or not a byte flows — which is why
-bandwidth is 83 % of the bill — so its quantity is constant per EIP per hour
-and steps only on the two days an EIP is added. The same holds for the EIP
-itself, the NAT gateways, the load balancers and the instance-hours, and for
-each volume's size. The only thing that drifts is the storage **total**, and it
-drifts because volumes are created, not because a size wobbles. Jittering any
-of them would make the data contradict the billing model it exists to
-illustrate; three tests pin it.
+**Reservations do not move.** An instance-hour, an address's hourly fee, a NAT
+gateway, a load balancer and each volume's size are billed for existing, so
+each is constant per resource per hour and steps only when a resource is
+added. The only total that drifts is storage, and it drifts because volumes
+are created, not because a size wobbles. Jittering any of them would make the
+data contradict the billing model it exists to illustrate; the tests pin it.
+
+**Traffic, not reservation (10 September).** Until 0.1.26 the collector could
+not read an Elastic IP's charge mode and billed every address its reserved
+size, `eip.bandwidth_mbps` × hours — 3 × 300 + 3 × 100 = 1,200 Mbps, about
+494 OMR a day — and the backfill mirrored that. Then the collector read each
+address's bandwidth object: **all six** of the landlord's billable addresses
+are `bandwidth_charge_mode = traffic`, `bandwidth_share_type = PER`. The cloud
+bills their **outbound gigabytes** and reserves no pipe at all, so the 494 OMR
+band was a charge the cloud never made, drawn through the whole showcase with
+a cliff at the hour the new collector stopped writing it. The first hourly
+`eip.traffic_gb` samples (10 September, 08:00–10:00Z) read 0.013–0.175 GB per
+address per hour, about 0.1 on average, roughly 2.4 GB across all six in three
+hours.
+
+So each address now meters `eip.traffic_gb` (unit `gb`) and no reservation.
+The hourly volume follows a daily curve in Oman local time — about 0.03 GB
+through the night, 0.12 across the working day, a 0.20 peak at 20:00 — at
+70 % on Friday and Saturday, jittered ±30 % per (seed, address, hour), with the
+three 300-Mbps addresses carrying twice the volume of the 100-Mbps ones and
+the six weights averaging to exactly 1. Measured on the generated week of
+8 August: 96.5 GB across six addresses against 6 × 0.1 × 168 = 100.8 (4 % off,
+pinned at 25 %), ratio 2.00, smallest hour 0.0098 GB — never zero, never
+negative. The inventory row says what the collector's does, `bandwidth_mbps`
+kept and `bandwidth_charge_mode` / `bandwidth_share_type` added, so a reader
+comparing it with the real rows sees the same shape. Convergence for a gauge
+means the same *shape* at the cut — six addresses on the same curve — not the
+same number; `TestLandlordEndStateMatchesTheMeasuredShape` checks count and
+unit exactly and the quantity within the jitter band.
+
+**Neutralising the reservations the cloud never billed.** The real ledger
+still held every `eip.bandwidth_mbps` row the old collector wrote for those
+addresses. `--neutralise-reservations` (on by default, part of the landlord
+step, so `--only landlord` runs it alone) deletes them: for every
+**non-synthetic** address of the landlord whose inventory says
+`bandwidth_charge_mode = traffic`, its `eip.bandwidth_mbps` usage rows go, the
+count and the window removed are logged, and one entry on the landlord's audit
+trail (`eip.reservation.neutralise`) records what was removed and why. It
+refuses to touch an address on charge mode `bandwidth` (the cloud really does
+reserve that pipe) or with no charge mode at all (an older gateway; it keeps
+billing exactly as the collector does), and it never reaches the `eip` or
+`eip.traffic_gb` rows, another customer's addresses, or a synthetic row. A pass
+that finds nothing writes nothing, so a nightly re-run stacks no audit entries.
+`TestNeutraliseRemovesOnlyTrafficBilledReservations` walks all of that against
+a real schema. The neutralisation is a correction of the real ledger and is
+**not reversed by `--purge`**: the rows were never billable, and the audit
+entry carries no synthetic mark, so both survive a purge — the same test runs
+one to prove it. A statement the operator issued over those hours is a
+financial record and stands.
 
 Where it writes, and what it refuses to write:
 
@@ -545,12 +601,16 @@ The cut is discovered, not assumed: the earliest non-synthetic
 backfill; `--only landlord` runs it alone.
 
 Measured end to end on a scratch Postgres (the `chargeback-e2e` workflow's
-shape, with control rows for the real half): the daily series has **no empty
-day** across all 98 days from 1 June to 6 September, and the landlord's last
-synthetic day and first full real day are both 596.63 OMR — a 0.00 % seam. A
-purge then removed 545,274 synthetic usage rows, 257 inventory rows and 7
-sources while leaving the landlord customer, its real source and all 14,300
-real rows in place.
+shape, with control rows for the real half), under the reservation model the
+backfill mirrored at the time: the daily series had **no empty day** across
+all 98 days from 1 June to 6 September, and the landlord's last synthetic day
+and first full real day were both 596.63 OMR — a 0.00 % seam. A purge then
+removed 545,274 synthetic usage rows, 257 inventory rows and 7 sources while
+leaving the landlord customer, its real source and all 14,300 real rows in
+place. Under the traffic model the row and resource counts are unchanged (each
+address still emits two lines an hour, the traffic meter in place of the
+reservation); the seam at the new measured day is held by the unit test above
+and has not yet been re-measured end to end on hw307.
 
 ## Operational notes
 
