@@ -108,11 +108,23 @@ func main() {
 	// service. Off when the URL is unset. Adding Omantel's gateway is one
 	// more Register call here, under the name "omantel".
 	settlement := settle.NewRegistry()
-	if cfg.BillingHookURL != "" {
+	// The stripe gateway is registered when EITHER half of it is configured:
+	// the outbound hook (URL — debits issued statements through billing) or
+	// the inbound callback secret (verifies the gateway's payment
+	// confirmations on POST /api/v1/gateways/stripe/callback). Registering on
+	// the URL alone left a Sovereign with only the secret answering 404 "no
+	// gateway is registered under stripe" to every signed callback (hw307,
+	// 2026-09-10). With the URL empty, RequestSettlement answers
+	// not-applicable and the callback path still works.
+	if cfg.BillingHookURL != "" || cfg.BillingHookCallbackSecret != "" {
 		hook := &openova.BillingHook{URL: cfg.BillingHookURL, Token: cfg.BillingHookToken, Metrics: reg, CallbackSecret: cfg.BillingHookCallbackSecret}
 		settlement.Register(settle.GatewayStripe, hook)
-		deps.StatementHook = hook
-		slog.Info("billing hook enabled", "url", cfg.BillingHookURL)
+		if cfg.BillingHookURL != "" {
+			deps.StatementHook = hook
+			slog.Info("billing hook enabled", "url", cfg.BillingHookURL)
+		} else {
+			slog.Info("stripe gateway registered for callbacks only (no billing hook URL)")
+		}
 	}
 	deps.Settlement = settlement
 	slog.Info("payment gateways registered", "gateways", settlement.Gateways())
