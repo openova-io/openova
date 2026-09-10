@@ -434,8 +434,9 @@ func TestIntegrationLaneOnePaymentShapeIsUnchanged(t *testing.T) {
 	if len(got.Payments) != 1 || got.Payments[0].ID != p.ID || string(got.Payments[0].Allocated) != "400.000000" {
 		t.Fatalf("payment history = %+v", got.Payments)
 	}
-	// Overpayment is still refused.
-	if _, _, err := st.RecordStatementPayment(ctx, a.ID, store.PaymentInput{Amount: "600.100001", Reference: "TRF-OVER"}); !store.IsConflict(err) {
+	// Overpayment is still refused — judged at the minor unit, so a full
+	// baisa over, not a millionth.
+	if _, _, err := st.RecordStatementPayment(ctx, a.ID, store.PaymentInput{Amount: "600.101", Reference: "TRF-OVER"}); !store.IsConflict(err) {
 		t.Fatalf("overpayment = %v, want a conflict", err)
 	}
 	// A pending payment settles nothing and allocates nothing.

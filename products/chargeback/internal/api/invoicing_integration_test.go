@@ -481,8 +481,10 @@ func TestIntegrationPaymentSettlesAtTheMinorUnit(t *testing.T) {
 	if stDoc["status"] != store.StatusPaid || stDoc["effective_status"] != store.StatusPaid {
 		t.Fatalf("4.857 against 4.856782 must settle the invoice: %+v", stDoc)
 	}
-	if stDoc["balance"] != float64(0) || stDoc["paid_total"] != float64(14.857) {
-		t.Fatalf("balance/paid_total after settlement = %v / %v, want 0 / 14.857", stDoc["balance"], stDoc["paid_total"])
+	// The allocation is clipped to what was owed, so paid_total is the exact
+	// total; the 0.000218 the customer sent on top is account credit.
+	if stDoc["balance"] != float64(0) || stDoc["paid_total"] != float64(14.856782) {
+		t.Fatalf("balance/paid_total after settlement = %v / %v, want 0 / 14.856782", stDoc["balance"], stDoc["paid_total"])
 	}
 	if paidAt, _ := stDoc["paid_at"].(string); !strings.HasPrefix(paidAt, "2026-09-09") {
 		t.Fatalf("paid_at = %v, want the day the money arrived", stDoc["paid_at"])

@@ -391,16 +391,16 @@ ALTER TABLE cost_sources ADD CONSTRAINT cost_sources_status_check CHECK (status 
 	// migrations are positional: an entry inserted above a database's
 	// recorded version is silently skipped.
 	invoicingMigrationSQL,
-	// #6867 follow-up — the invoices issued BEFORE the entry above ran. It
-	// mapped the customers onto charging = 'billed' but never numbered the
-	// statements already issued, so on hw307 six August invoices carried no
-	// number, no terms and no due date. Numbered here, continuing the
-	// per-year sequence. Appended at the END: migrations are positional.
-	backfillIssuedInvoicesMigrationSQL,
 	// DESIGN.md §9 — the customer account ledger, payment allocation, credit
 	// notes, the tax profile, the collections schedule and the platform
 	// suspension trail. Appended at the very END: migrations are positional.
 	collectionsMigrationSQL,
+	// #6867 follow-up — the invoices issued BEFORE the invoicing entry ran. It
+	// mapped the customers onto charging = 'billed' but never numbered the
+	// statements already issued, so on hw307 six August invoices carried no
+	// number, no terms and no due date. Numbered here, continuing the
+	// per-year sequence. Appended after the ledger, at the END: migrations are positional.
+	backfillIssuedInvoicesMigrationSQL,
 }
 
 // MigrationBackfillIssuedInvoices is the schema_migrations version of the
