@@ -34,6 +34,20 @@ const SOVEREIGN_NAV: readonly NavGroup[] = [
       ['/reports', 'Reports', '✉'],
     ],
   ],
+  // Finance (DESIGN.md §18) — the handover an operator's finance department
+  // posts from: the journal, the settlement reconciliation, the period close
+  // and the account map. Reading needs audit.read (with metering.read, which
+  // every Sovereign role carries); closing, reopening and editing the map
+  // need settings.manage, and the pages render those controls accordingly.
+  [
+    'Finance',
+    [
+      ['/finance/journal', 'Journal', '⎘', 'audit.read'],
+      ['/finance/reconciliation', 'Reconciliation', '⇄', 'audit.read'],
+      ['/finance/periods', 'Period close', '⊟', 'audit.read'],
+      ['/finance/accounts', 'Account mapping', '#', 'audit.read'],
+    ],
+  ],
   [
     'Configure',
     [

@@ -1764,3 +1764,145 @@ export interface Contract {
   renewal_date?: string
   notice_from?: string
 }
+
+// ---------------------------------------------------------------------------
+// The finance handover (DESIGN.md §18)
+// ---------------------------------------------------------------------------
+
+/** One row of the operator's chart of accounts: our key, their code. */
+export interface AccountMapping {
+  key: string
+  account_code: string
+  description?: string
+  updated_at?: string
+  updated_by?: string
+}
+
+export interface AccountMappings {
+  mappings: AccountMapping[]
+  /** The fixed keys this product books to, in posting order. */
+  keys: string[]
+  /** What a per-service revenue key starts with (`revenue.`). */
+  revenue_key_prefix: string
+}
+
+/** One double-entry journal line. Exactly one of debit / credit is non-zero. */
+export interface JournalLine {
+  seq: number
+  date: string
+  event: string
+  account_key: string
+  account_code: string
+  account_name?: string
+  debit: number | string
+  credit: number | string
+  currency: string
+  customer_id?: string
+  customer_slug?: string
+  customer_name?: string
+  /** statement | payment | credit_note | reconciliation — what it came from. */
+  source_kind: string
+  source_id: string
+  reference?: string
+  memo?: string
+}
+
+export interface CurrencyTotal {
+  currency: string
+  debit: number | string
+  credit: number | string
+}
+
+/** A period's journal. `balanced` is the assertion, shown as a figure. */
+export interface JournalBatch {
+  period: string
+  lines: JournalLine[]
+  total_debit: number | string
+  total_credit: number | string
+  by_currency?: CurrencyTotal[]
+  unmapped_account_keys?: string[]
+  balanced: boolean
+}
+
+export type PeriodStatus = 'open' | 'closed' | 'reopened' | string
+
+export interface FinancePeriod {
+  period: string
+  status: PeriodStatus
+  closed_at?: string | null
+  closed_by?: string
+  total_debit?: number | string
+  total_credit?: number | string
+  lines?: number
+  reopened_at?: string | null
+  reopened_by?: string
+  reopen_reason?: string
+}
+
+/** One thing standing between a period and its close. */
+export interface PeriodBlocker {
+  kind: 'draft-statement' | 'open-dispute' | string
+  id: string
+  customer_id?: string
+  customer_name?: string
+  invoice_number?: string
+  detail?: string
+}
+
+export interface JournalResponse {
+  period: string
+  status: PeriodStatus
+  journal: JournalBatch
+  period_state?: FinancePeriod
+}
+
+export interface FinancePeriodDetail {
+  period: FinancePeriod
+  blockers: PeriodBlocker[]
+  can_close: boolean
+  total_debit?: number | string
+  total_credit?: number | string
+  lines?: number
+  balanced?: boolean
+  balance_error?: string
+}
+
+export type ReconciliationBucket = 'matched' | 'amount-mismatch' | 'missing-in-ledger' | 'missing-in-settlement' | 'duplicate' | string
+
+export interface ReconciliationLine {
+  id?: number
+  bucket: ReconciliationBucket
+  gateway_reference?: string
+  settled_amount?: number | string | null
+  ledger_amount?: number | string | null
+  difference?: number | string | null
+  fee: number | string
+  currency?: string
+  settled_date?: string
+  payment_id?: number
+  customer_id?: string
+  customer_name?: string
+  detail?: string
+}
+
+/** One settlement run and its buckets. Nothing in it was auto-corrected. */
+export interface ReconciliationRun {
+  id: string
+  gateway?: string
+  source: 'file' | 'gateway' | string
+  file_name?: string
+  from?: string
+  to?: string
+  currency?: string
+  matched: number
+  amount_mismatched: number
+  missing_in_ledger: number
+  missing_in_settlement: number
+  duplicates: number
+  settled_total: number | string
+  ledger_total: number | string
+  fee_total: number | string
+  ran_at: string
+  ran_by?: string
+  lines?: ReconciliationLine[]
+}
