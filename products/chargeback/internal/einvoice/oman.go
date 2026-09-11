@@ -202,7 +202,7 @@ func (p *omanProfile) Validate(doc Document) []Problem {
 		add("qr_payload", "the QR payload is empty")
 	}
 	if p.signer == nil || p.signer.key == nil {
-		add("signature", "no signing key is configured; mount the key Secret and set EINVOICE_SIGNING_KEY_FILE")
+		add("signature", "no signing key is configured; mount the key Secret and set EINVOICE_SIGNER_PATH")
 	}
 	return out
 }

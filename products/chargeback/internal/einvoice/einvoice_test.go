@@ -240,7 +240,7 @@ func TestNoSigningKeyIsAValidationProblem(t *testing.T) {
 	problems := p.Validate(mustBuild(t, p, sampleInput()))
 	found := false
 	for _, pr := range problems {
-		if pr.Field == "signature" && strings.Contains(pr.Message, "EINVOICE_SIGNING_KEY_FILE") {
+		if pr.Field == "signature" && strings.Contains(pr.Message, "EINVOICE_SIGNER_PATH") {
 			found = true
 		}
 	}

@@ -101,7 +101,7 @@ type Config struct {
 	// builds, validates, signs and archives an e-invoice at issue.
 	//
 	// The signing key comes from a mounted Secret. EInvoiceSigningKeyFile
-	// names the FILE (EINVOICE_SIGNING_KEY_FILE, e.g.
+	// names the FILE (EINVOICE_SIGNER_PATH, e.g.
 	// /var/run/secrets/einvoice/tls.key) and is read once at start-up;
 	// EInvoiceSigningKey is the literal PEM for a local run where no file
 	// exists. The FILE wins when both are set. Neither is ever logged, and
@@ -110,9 +110,15 @@ type Config struct {
 	//
 	// A path is not a secret, but the Sovereign's Kyverno
 	// `secret-not-in-env` policy flags any env whose NAME matches
-	// (?i)(PASSWORD|TOKEN|KEY|SECRET) carrying a LITERAL value, which is
-	// why the chart renders the _FILE form and the literal exists only for
-	// local runs.
+	// (?i)(PASSWORD|TOKEN|KEY|SECRET) carrying a LITERAL value. That match
+	// is on a SUBSTRING, so a _FILE suffix does not save a name containing
+	// KEY: EINVOICE_SIGNING_KEY_FILE is refused on a Sovereign exactly as
+	// PLATFORM_API_TOKEN_FILE was. The chart therefore renders
+	// EINVOICE_SIGNER_PATH / EINVOICE_SIGNER_ID — the same treatment as
+	// catalyst-api's CATALYST_HANDOVER_SIGNER_PATH — and the binary reads
+	// the old names as deprecated aliases for one release. The literal PEM
+	// (EINVOICE_SIGNING_KEY) is never chart-rendered; it exists only for a
+	// local run.
 	EInvoiceProfile        string
 	EInvoiceSigningKey     string
 	EInvoiceSigningKeyFile string
@@ -188,8 +194,10 @@ func FromEnv() (Config, error) {
 		DocRenderToken:            strings.TrimSpace(os.Getenv("DOCRENDER_TOKEN")),
 		EInvoiceProfile:           strings.ToLower(strings.TrimSpace(os.Getenv("EINVOICE_PROFILE"))),
 		EInvoiceSigningKey:        os.Getenv("EINVOICE_SIGNING_KEY"),
-		EInvoiceSigningKeyFile:    strings.TrimSpace(os.Getenv("EINVOICE_SIGNING_KEY_FILE")),
-		EInvoiceKeyID:             strings.TrimSpace(os.Getenv("EINVOICE_KEY_ID")),
+		// New names first; EINVOICE_SIGNING_KEY_FILE / EINVOICE_KEY_ID are
+		// the deprecated aliases (see the field comment).
+		EInvoiceSigningKeyFile: get("EINVOICE_SIGNER_PATH", strings.TrimSpace(os.Getenv("EINVOICE_SIGNING_KEY_FILE"))),
+		EInvoiceKeyID:          get("EINVOICE_SIGNER_ID", strings.TrimSpace(os.Getenv("EINVOICE_KEY_ID"))),
 		PlatformAPIToken:          strings.TrimSpace(os.Getenv("PLATFORM_API_TOKEN")),
 		// New name first; PLATFORM_API_TOKEN_FILE is the deprecated alias
 		// (see the field comment).

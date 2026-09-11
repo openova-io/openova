@@ -3391,12 +3391,12 @@ supplies above OMR 5 million and from 1 October 2027 below it.
 ### 17.7 Signing, and the key
 
 The signing key comes from a **mounted Secret**, is parsed once at start-up,
-and is held only as a parsed key. `EINVOICE_SIGNING_KEY_FILE` names the file
+and is held only as a parsed key. `EINVOICE_SIGNER_PATH` names the file
 (the literal `EINVOICE_SIGNING_KEY` exists only for a local run where no file
 is mounted; the file wins). RSA, ECDSA and Ed25519 keys are accepted, in
 PKCS#8, PKCS#1 or SEC1 PEM, and the algorithm is named on the document
 (`RSA-SHA256`, `ECDSA-SHA256`, `Ed25519`) so a verifier does not have to guess
-it. `EINVOICE_KEY_ID` names the key on the document so a rotation is
+it. `EINVOICE_SIGNER_ID` names the key on the document so a rotation is
 traceable — it is a NAME, never key material.
 
 **The key is never logged, never returned by any endpoint, and never

@@ -325,6 +325,25 @@ docrender:
     existingSecret: ""
     key: RENDER_TOKEN
 
+# E-invoicing (DESIGN.md §17). OFF unless `profile` names an authority's
+# profile: an empty profile changes nothing about issuing, which is why it is
+# the default. A profile makes issue build the document, validate it, sign it
+# with the mounted key, archive it with the hash of exactly the signed bytes,
+# and submit it where the authority publishes a channel to submit to.
+einvoice:
+  # profile is the authority profile, e.g. "oman". Empty = off.
+  profile: ""
+  signingKey:
+    # Name of a Secret holding the PEM private key (RSA, ECDSA or Ed25519).
+    # Empty leaves the document unsigned, which validation refuses, so a
+    # profile that must sign needs this set. The key is mounted as a file and
+    # only its PATH becomes an env var.
+    existingSecret: ""
+    key: tls.key
+  # keyId names the key on the document so a rotation stays traceable against
+  # documents already archived. A NAME, never key material.
+  keyId: ""
+
 # requests == limits (Guaranteed QoS, 1:1 ratio) — REQUIRED for a per-Org
 # install under the plan-limits LimitRange (#4362/#4553).
 resources:
