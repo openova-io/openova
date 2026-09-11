@@ -181,28 +181,37 @@ func (s *Store) PublicPriceBook(ctx context.Context) (PriceBook, error) {
 // time — this module does not depend on it); otherwise the regions the
 // Sovereign's sources and usage carry. Sorted, without the empty region.
 func (s *Store) EstimateRegions(ctx context.Context) ([]string, error) {
-	var hasCapacity bool
-	if err := s.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'capacity_regions' AND column_name = 'region')`).Scan(&hasCapacity); err != nil {
-		return nil, mapErr(err)
-	}
-	q := `SELECT DISTINCT region FROM cost_sources WHERE region <> '' UNION SELECT DISTINCT region FROM usage_records WHERE region <> '' ORDER BY 1`
-	if hasCapacity {
-		q = `SELECT DISTINCT region FROM capacity_regions WHERE region <> '' ORDER BY 1`
-	}
-	rows, err := s.db.QueryContext(ctx, q)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	defer rows.Close()
-	out := []string{}
-	for rows.Next() {
-		var r string
-		if err := rows.Scan(&r); err != nil {
-			return nil, err
+	// The regions a sovereign-admin defined in capacity management (§11) are
+	// authoritative: they are what the Sovereign SELLS. Before any region is
+	// defined, the regions the cost sources and the ledger already know are
+	// the honest answer, so a Sovereign that never opened the Capacity page
+	// still offers a region list. Reading `code` — capacity's own column —
+	// is what makes the two modules agree; probing for a differently named
+	// column silently fell through to the fallback forever.
+	collect := func(q string) ([]string, error) {
+		rows, err := s.db.QueryContext(ctx, q)
+		if err != nil {
+			return nil, mapErr(err)
 		}
-		out = append(out, r)
+		defer rows.Close()
+		out := []string{}
+		for rows.Next() {
+			var r string
+			if err := rows.Scan(&r); err != nil {
+				return nil, err
+			}
+			out = append(out, r)
+		}
+		return out, rows.Err()
 	}
-	return out, rows.Err()
+	defined, err := collect(`SELECT code FROM capacity_regions WHERE code <> '' ORDER BY 1`)
+	if err != nil {
+		return nil, err
+	}
+	if len(defined) > 0 {
+		return defined, nil
+	}
+	return collect(`SELECT DISTINCT region FROM cost_sources WHERE region <> '' UNION SELECT DISTINCT region FROM usage_records WHERE region <> '' ORDER BY 1`)
 }
 
 // EstimateLine is one priced line of a saved estimate, on the wire.

@@ -229,13 +229,25 @@ func TestIntegrationEstimateRegionsFallback(t *testing.T) {
 	if err != nil || len(regions) != 2 || regions[0] != "me-east-215-a" || regions[1] != "me-east-215-b" {
 		t.Fatalf("regions = %v err=%v", regions, err)
 	}
-	// The capacity table, when another module creates it, wins.
-	if _, err := st.DB().ExecContext(ctx, `CREATE TABLE capacity_regions (region TEXT PRIMARY KEY, note TEXT); INSERT INTO capacity_regions (region) VALUES ('cap-1'), ('cap-2')`); err != nil {
+	// The regions a sovereign-admin defined in capacity management (§11) are
+	// authoritative and win over what the sources happen to carry. The column
+	// read here is capacity's own `code`: when this test asserted a table of
+	// its own making with a `region` column, the product fell through to the
+	// fallback forever and nothing noticed.
+	if _, err := st.DB().ExecContext(ctx, `INSERT INTO capacity_regions (code, name) VALUES ('cap-1', 'Capacity One'), ('cap-2', 'Capacity Two')`); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _, _ = st.DB().ExecContext(context.Background(), `DROP TABLE IF EXISTS capacity_regions`) })
 	regions, err = st.EstimateRegions(ctx)
-	if err != nil || len(regions) != 2 || regions[0] != "cap-1" {
+	if err != nil || len(regions) != 2 || regions[0] != "cap-1" || regions[1] != "cap-2" {
 		t.Fatalf("regions from capacity_regions = %v err=%v", regions, err)
+	}
+	// With every defined region removed the source/ledger answer returns —
+	// a Sovereign that never opened the Capacity page still offers regions.
+	if _, err := st.DB().ExecContext(ctx, `DELETE FROM capacity_regions`); err != nil {
+		t.Fatal(err)
+	}
+	regions, err = st.EstimateRegions(ctx)
+	if err != nil || len(regions) != 2 || regions[0] != "me-east-215-a" {
+		t.Fatalf("fallback after the defined regions are removed = %v err=%v", regions, err)
 	}
 }

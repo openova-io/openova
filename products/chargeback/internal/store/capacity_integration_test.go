@@ -555,16 +555,35 @@ func TestIntegrationCapacityOverviewEmpty(t *testing.T) {
 	}
 }
 
-// TestIntegrationCapacityMigrationVersion pins the capacity migration as the
-// last entry and its locator.
+// TestIntegrationCapacityMigrationVersion pins the capacity locator: it
+// resolves to an APPLIED version that comes after role bindings and at which
+// the capacity tables exist. It deliberately does NOT assert that capacity is
+// the last migration — migrations are positional and every later module
+// appends after it, which is exactly what the estimates migration did.
 func TestIntegrationCapacityMigrationVersion(t *testing.T) {
 	st := testdb.Open(t)
 	var n int
 	if err := st.DB().QueryRowContext(context.Background(), `SELECT max(version) FROM schema_migrations`).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
-	if n != store.MigrationCapacity {
-		t.Fatalf("applied version %d, MigrationCapacity = %d", n, store.MigrationCapacity)
+	if store.MigrationCapacity > n {
+		t.Fatalf("MigrationCapacity = %d is beyond the applied version %d", store.MigrationCapacity, n)
+	}
+	var applied bool
+	if err := st.DB().QueryRowContext(context.Background(), `SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version = $1)`, store.MigrationCapacity).Scan(&applied); err != nil {
+		t.Fatal(err)
+	}
+	if !applied {
+		t.Fatalf("version %d (MigrationCapacity) is not recorded as applied", store.MigrationCapacity)
+	}
+	for _, tbl := range []string{"capacity_regions", "capacity_zones", "capacity_pools", "sku_footprints"} {
+		var exists bool
+		if err := st.DB().QueryRowContext(context.Background(), `SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = $1)`, tbl).Scan(&exists); err != nil {
+			t.Fatal(err)
+		}
+		if !exists {
+			t.Fatalf("%s absent after the capacity migration", tbl)
+		}
 	}
 	if store.MigrationCapacity <= store.MigrationRoleBindings {
 		t.Fatalf("capacity (%d) must come after role bindings (%d)", store.MigrationCapacity, store.MigrationRoleBindings)

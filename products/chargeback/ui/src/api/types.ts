@@ -1344,7 +1344,9 @@ export interface SKUCap {
   total: number | string
   updated_by?: string
   updated_at?: string
-// ── Public cost calculator (DESIGN.md §11) ──────────────────────────────
+}
+
+// ── Public cost calculator (DESIGN.md §12) ──────────────────────────────
 // The unauthenticated surface: list prices only. A negotiated book, a
 // discount and a partner rate never appear in any document below.
 
