@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-11T12:45:03Z` |
+| Last refreshed | `2026-09-11T13:00:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-11T12:53 | [#6923](https://github.com/openova-io/openova/pull/6923) | #6867 | feat(bss): 0.1.35 — contracts and commercial terms, customer |
 | 2026-09-11T11:10 | [#6922](https://github.com/openova-io/openova/pull/6922) | #6867 | feat(bss): 0.1.34 — a Sovereign runs the document renderer s |
 | 2026-09-11T10:29 | [#6921](https://github.com/openova-io/openova/pull/6921) | #6867 | feat(bss): 0.1.33 — capacity, partners, public calculator, d |
 | 2026-09-10T19:46 | [#6920](https://github.com/openova-io/openova/pull/6920) | #6867 | docs(glossary): the chargeback product is Catalyst BSS |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-08T17:41 | [#6883](https://github.com/openova-io/openova/pull/6883) | #6867 | docs(ledger): hw307 showcase screenshots for the rebuilt cha |
 | 2026-09-08T17:58 | [#6882](https://github.com/openova-io/openova/pull/6882) | #6867 | fix(chargeback): seed a showcase Organization's source, hide |
 | 2026-09-08T14:56 | [#6881](https://github.com/openova-io/openova/pull/6881) | #6867 | feat(chargeback): two-layer ownership, discount combination  |
-| 2026-09-07T11:21 | [#6880](https://github.com/openova-io/openova/pull/6880) | #6874 | fix(dr-promoter): clear the divergence marker and release th |
 
 ---
 
