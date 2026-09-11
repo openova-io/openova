@@ -22,6 +22,7 @@ import (
 	"github.com/openova-io/openova/products/chargeback/internal/einvoice"
 	"github.com/openova-io/openova/products/chargeback/internal/mail"
 	"github.com/openova-io/openova/products/chargeback/internal/metrics"
+	"github.com/openova-io/openova/products/chargeback/internal/notify"
 	"github.com/openova-io/openova/products/chargeback/internal/settle"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
@@ -66,6 +67,14 @@ type Deps struct {
 	UI       fs.FS
 	Now      func() time.Time
 	Version  string
+
+	// Notify is notification management (DESIGN.md §21): every message this
+	// product sends goes through it — the catalogue, the templates, the
+	// preferences, the channels and the delivery log. nil is replaced in New
+	// with one over Mail, Store and Metrics, so a deployment that wires only
+	// a mail sender gets the whole of §21 without further wiring, and a test
+	// that wires only a fake sender keeps behaving exactly as it did.
+	Notify *notify.Notifier
 
 	// StatementHook, when set, receives issued statements (ADR-0014 D6).
 	// It is the legacy name of the PREPAID settlement gateway: when
@@ -161,14 +170,26 @@ func New(d Deps) http.Handler {
 	if d.Intents == nil {
 		d.Intents = &commercial.Intents{Store: d.Store, Commercial: d.Commercial, Settlement: d.Settlement}
 	}
+	// Notification management (DESIGN.md §21). Built here rather than in
+	// main so that every deployment and every test that hands over a Store
+	// and a Mail sender gets the catalogue, the preference rule and the
+	// delivery log without wiring them one at a time. A nil Store is a
+	// notifier with no preferences and no log — the catalogue's defaults —
+	// which is exactly what the handler tests that pass no store expect.
+	if d.Notify == nil {
+		d.Notify = &notify.Notifier{Channels: notify.DefaultChannels(d.Mail), Metrics: d.Metrics, Now: d.Now}
+		if d.Store != nil {
+			d.Notify.Store = d.Store
+		}
+	}
 	if d.Enforcer == nil && d.Store != nil {
 		d.Enforcer = &collections.Enforcer{Store: d.Store}
 	}
 	if d.Wallet == nil && d.Store != nil {
-		d.Wallet = &collections.Wallet{Store: d.Store, Mail: d.Mail, Enforcer: d.Enforcer, PublicURL: d.Config.PublicURL, Owns: d.Commercial.OwnsCollections}
+		d.Wallet = &collections.Wallet{Store: d.Store, Mail: d.Mail, Notify: d.Notify, Enforcer: d.Enforcer, PublicURL: d.Config.PublicURL, Owns: d.Commercial.OwnsCollections}
 	}
 	if d.Collections == nil && d.Store != nil {
-		d.Collections = &collections.Evaluator{Store: d.Store, Mail: d.Mail, Enforcer: d.Enforcer, PublicURL: d.Config.PublicURL, Owns: d.Commercial.OwnsCollections, Now: d.Now}
+		d.Collections = &collections.Evaluator{Store: d.Store, Mail: d.Mail, Notify: d.Notify, Enforcer: d.Enforcer, PublicURL: d.Config.PublicURL, Owns: d.Commercial.OwnsCollections, Now: d.Now}
 	}
 	// The document renderer (EPIC #6867). Built from the config when the
 	// caller did not supply one, so a deployment with DOCRENDER_URL set gets
@@ -547,6 +568,21 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/reports/schedules/{id}/deliveries", h.listReportDeliveries)
 	mux.HandleFunc("GET /api/v1/customers/{id}/reports/schedules", h.customerReportSchedules)
 
+	// Notification management (DESIGN.md §21). The catalogue and the
+	// Sovereign-wide preferences are operator surfaces; a customer reads and
+	// edits its OWN under /customers/{id}/…, and reads only its own
+	// deliveries. See internal/api/notifications.go for the permission on
+	// each one.
+	mux.HandleFunc("GET /api/v1/notifications/events", h.notificationEvents)
+	mux.HandleFunc("GET /api/v1/notifications/preferences", h.listNotificationPreferences)
+	mux.HandleFunc("PUT /api/v1/notifications/preferences", h.putNotificationPreference)
+	mux.HandleFunc("DELETE /api/v1/notifications/preferences/{event}", h.deleteNotificationPreference)
+	mux.HandleFunc("GET /api/v1/notifications/deliveries", h.notificationDeliveries)
+	mux.HandleFunc("GET /api/v1/customers/{id}/notifications/preferences", h.customerNotificationPreferences)
+	mux.HandleFunc("PUT /api/v1/customers/{id}/notifications/preferences", h.putCustomerNotificationPreference)
+	mux.HandleFunc("DELETE /api/v1/customers/{id}/notifications/preferences/{event}", h.deleteCustomerNotificationPreference)
+	mux.HandleFunc("GET /api/v1/customers/{id}/notifications/deliveries", h.customerNotificationDeliveries)
+
 	// Anything else under /api is 404 JSON; everything else is the UI.
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) { writeErr(w, http.StatusNotFound, "not found") })
 	mux.Handle("/", h.uiHandler())
@@ -741,6 +777,17 @@ func (h *Handler) requireAnyPermission(w http.ResponseWriter, r *http.Request, c
 // cross-customer surface asks.
 func (h *Handler) requireSovereign(w http.ResponseWriter, r *http.Request, perm access.Permission) (store.Session, bool) {
 	return h.requirePermission(w, r, perm, "")
+}
+
+// notifier is the §21 notification path. New always builds one, so this is
+// nil only for a Handler assembled field by field rather than through New —
+// and that one gets a notifier over whatever sender it does carry, rather
+// than a nil dereference in the middle of a sign-in.
+func (h *Handler) notifier() *notify.Notifier {
+	if h.Notify != nil {
+		return h.Notify
+	}
+	return &notify.Notifier{Channels: notify.DefaultChannels(h.Mail), Metrics: h.Metrics}
 }
 
 // requireCrossCustomer guards the surfaces that read ACROSS customers — the

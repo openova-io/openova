@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/openova-io/openova/products/chargeback/internal/mail"
+	"github.com/openova-io/openova/products/chargeback/internal/notify"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
 
@@ -32,6 +33,9 @@ type Store interface {
 type Scheduler struct {
 	Store Store
 	Mail  mail.Sender
+	// Notify routes the report through the notification catalogue as the
+	// report.scheduled event (DESIGN.md §21); nil builds one over Mail.
+	Notify *notify.Notifier
 	// Now defaults to time.Now.
 	Now func() time.Time
 	// Interval between polls; default 5 minutes.
@@ -61,6 +65,15 @@ type Delivery struct {
 	// Err is the delivery failure (build or every recipient failed); the
 	// record is still written.
 	Err error
+}
+
+// notifier is the notification path: the one wired in, or one built over
+// Mail for a caller that wired only a sender.
+func (s *Scheduler) notifier() *notify.Notifier {
+	if s.Notify != nil {
+		return s.Notify
+	}
+	return &notify.Notifier{Channels: notify.DefaultChannels(s.Mail)}
 }
 
 func (s *Scheduler) now() time.Time {
@@ -185,14 +198,27 @@ func (s *Scheduler) Deliver(ctx context.Context, sched store.ReportSchedule, now
 	} else {
 		d.Subject, d.Body = Render(in)
 		rec.Subject = d.Subject
+		// DESIGN.md §21 — the report goes out as the report.scheduled
+		// event. The DOCUMENT is still rendered here (Render owns the
+		// tables, the money and the column alignment); the template carries
+		// it, which is what puts the send on the catalogue, the delivery log
+		// and the preference rule without changing a byte of the report.
+		payload := map[string]any{
+			"subject": d.Subject, "document": d.Body,
+			"schedule_id": sched.ID, "schedule_name": sched.Name, "cadence": sched.Cadence,
+		}
+		n := s.notifier()
 		var failures []string
 		for _, to := range sched.Recipients {
-			if s.Mail == nil {
-				failures = append(failures, to+": no mail sender configured")
+			res, err := n.Send(ctx, notify.Request{Event: notify.EventReportScheduled, To: to, CustomerID: sched.CustomerID, Payload: payload})
+			if err != nil {
+				failures = append(failures, to+": "+err.Error())
 				continue
 			}
-			if err := s.Mail.Send(ctx, to, d.Subject, d.Body); err != nil {
-				failures = append(failures, to+": "+err.Error())
+			if !res.Sent {
+				// Suppressed by a preference: not a failure, and not a
+				// recipient this run reached either. Recorded in the
+				// delivery log, with the preference that decided it.
 				continue
 			}
 			d.SentTo = append(d.SentTo, to)

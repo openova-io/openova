@@ -28,6 +28,7 @@ import (
 	"github.com/openova-io/openova/products/chargeback/internal/crypto"
 	"github.com/openova-io/openova/products/chargeback/internal/mail"
 	"github.com/openova-io/openova/products/chargeback/internal/metrics"
+	"github.com/openova-io/openova/products/chargeback/internal/notify"
 	"github.com/openova-io/openova/products/chargeback/internal/platform"
 	"github.com/openova-io/openova/products/chargeback/internal/report"
 	"github.com/openova-io/openova/products/chargeback/internal/rollup"
@@ -94,10 +95,26 @@ func main() {
 		CESInterval:     cfg.CESInterval,
 	}
 
+	mailer := mail.New(mail.Options{Host: cfg.SMTPHost, Port: cfg.SMTPPort, User: cfg.SMTPUser, Pass: cfg.SMTPPass, From: cfg.SMTPFrom})
+	// DESIGN.md §21 — notification management. ONE notifier for the whole
+	// process: the API's sign-in codes and invites, the statement
+	// notification, and the three background loops below all send through
+	// it, so every message the product emits is on the catalogue, obeys the
+	// preference rule and lands in the delivery log. Built here rather than
+	// left to api.New because the loops need the same instance.
+	notifier := &notify.Notifier{Channels: notify.DefaultChannels(mailer), Store: st, Metrics: reg}
+	slog.Info("notification channels", "channels", notifier.Channels.Names(), "events", len(notify.Events()), "locales", notify.Locales())
+	for _, d := range notifier.Channels.Docs() {
+		if !d.Available {
+			slog.Warn("notification channel declared but unavailable", "channel", d.Name, "reason", d.Reason)
+		}
+	}
+
 	deps := api.Deps{
 		Store:    st,
 		Keys:     keys,
-		Mail:     mail.New(mail.Options{Host: cfg.SMTPHost, Port: cfg.SMTPPort, User: cfg.SMTPUser, Pass: cfg.SMTPPass, From: cfg.SMTPFrom}),
+		Mail:     mailer,
+		Notify:   notifier,
 		Verifier: verifier{collector},
 		Config:   cfg,
 		Metrics:  reg,
@@ -186,7 +203,7 @@ func main() {
 	} else {
 		slog.Info("cost rollup disabled by COST_ROLLUP_ENABLED=false: every window is rated over the hourly ledger")
 	}
-	go housekeeping(ctx, st)
+	go housekeeping(ctx, st, cfg.NotificationRetention)
 	// DESIGN.md §8.10 — drain the commercial outbox: at-least-once delivery of
 	// every rated bill queued for the operator's billing system, with backoff.
 	// A no-op when the Sovereign invoices internally.
@@ -194,11 +211,11 @@ func main() {
 	// #6867 — hourly budget evaluator: records each threshold crossing once
 	// per period (budget_alerts), audits it and mails the budget's
 	// recipients. First run one minute after start, then hourly.
-	go (&budget.Evaluator{Store: st, Mail: deps.Mail}).Run(ctx)
+	go (&budget.Evaluator{Store: st, Mail: deps.Mail, Notify: notifier}).Run(ctx)
 	// DESIGN.md §9.6 — the daily collections evaluator: reminders on the
 	// schedule, the escalation at its age, resumption once settled. A no-op
 	// when the external billing system owns collections.
-	go (&collections.Evaluator{Store: st, Mail: deps.Mail, Enforcer: enforcer, PublicURL: cfg.PublicURL, Owns: deps.Commercial.OwnsCollections}).Run(ctx)
+	go (&collections.Evaluator{Store: st, Mail: deps.Mail, Notify: notifier, Enforcer: enforcer, PublicURL: cfg.PublicURL, Owns: deps.Commercial.OwnsCollections}).Run(ctx)
 	// DESIGN.md §9.1 — the polling fallback of the import webhooks.
 	if cfg.CommercialImportDir != "" && deps.Importer != nil {
 		poller := &external.DirectoryPoller{Dir: cfg.CommercialImportDir, Applier: deps.Importer}
@@ -224,7 +241,7 @@ func main() {
 	// due schedule's report for the window its cadence implies (yesterday /
 	// last 7 days / last month), record the delivery and advance next_at.
 	// First poll one minute after start.
-	go (&report.Scheduler{Store: st, Mail: deps.Mail, PublicURL: cfg.PublicURL}).Run(ctx)
+	go (&report.Scheduler{Store: st, Mail: deps.Mail, Notify: notifier, PublicURL: cfg.PublicURL}).Run(ctx)
 
 	// OpenOva adapter (ADR-0014 D2 case 1): Organization → Customer sync +
 	// the platform collector, in this same binary. On by default only for
@@ -292,7 +309,7 @@ func (v verifier) VerifyProject(ctx context.Context, region, projectID, accessKe
 }
 
 // housekeeping purges expired sessions, pins and invites hourly.
-func housekeeping(ctx context.Context, st *store.Store) {
+func housekeeping(ctx context.Context, st *store.Store, notificationRetention time.Duration) {
 	t := time.NewTicker(time.Hour)
 	defer t.Stop()
 	for {
@@ -302,6 +319,12 @@ func housekeeping(ctx context.Context, st *store.Store) {
 		case <-t.C:
 			if err := st.PurgeExpired(ctx); err != nil {
 				slog.Warn("housekeeping", "error", err)
+			}
+			// DESIGN.md §21 — the delivery log is kept long enough that
+			// "did they get the August invoice" is answerable in December,
+			// and no longer.
+			if err := st.PurgeNotificationDeliveries(ctx, notificationRetention); err != nil {
+				slog.Warn("housekeeping: notification deliveries", "error", err)
 			}
 		}
 	}

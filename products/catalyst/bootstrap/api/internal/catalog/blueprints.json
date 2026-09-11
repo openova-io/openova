@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-11T18:59:35.669Z",
+  "generatedAt": "2026-09-11T20:50:10.497Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -597,7 +597,7 @@
         "bss"
       ],
       "visibility": "listed",
-      "version": "0.1.38",
+      "version": "0.1.39",
       "section": "pts-4-8-identity-and-metering",
       "depends": [],
       "shareable": false,

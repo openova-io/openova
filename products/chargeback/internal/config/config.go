@@ -168,6 +168,20 @@ type Config struct {
 	// public routes (token bucket; 429 with Retry-After beyond it).
 	PublicCalculatorOrigins       []string
 	PublicCalculatorRatePerMinute int
+
+	// NotificationRetention is how long the notification DELIVERY LOG is
+	// kept (DESIGN.md §21.6). It is configuration rather than a constant
+	// because how long a record of what was sent to whom may be held is a
+	// data-retention decision the operator's own policy makes, not this
+	// product's. The default is 180 days — long enough that "did they get
+	// the August invoice" is answerable when it is asked in December. Zero
+	// or negative disables the purge and keeps the log for ever.
+	//
+	// Nothing else about §21 is configurable, deliberately: the retry ladder
+	// is bounded in code so no deployment can turn a failed delivery into an
+	// unbounded loop, and the SMS channel has nothing to configure until a
+	// gateway specification exists to configure it against.
+	NotificationRetention time.Duration
 }
 
 // FromEnv builds the configuration; it fails only on values that would make
@@ -193,6 +207,7 @@ func FromEnv() (Config, error) {
 		CollectorEnabled:          boolEnv("COLLECTOR_ENABLED", true),
 		CostRollupEnabled:         boolEnv("COST_ROLLUP_ENABLED", true),
 		CostRollupInterval:        durEnv("COST_ROLLUP_INTERVAL", time.Minute),
+		NotificationRetention:     daysEnv("NOTIFICATION_RETENTION_DAYS", DefaultNotificationRetention),
 		AdapterEnabled:            strings.ToLower(strings.TrimSpace(os.Getenv("ADAPTER_ENABLED"))),
 		BillingHookURL:            strings.TrimRight(strings.TrimSpace(os.Getenv("BILLING_HOOK_URL")), "/"),
 		BillingHookToken:          strings.TrimSpace(os.Getenv("BILLING_HOOK_TOKEN")),
@@ -284,6 +299,31 @@ func boolEnv(key string, fallback bool) bool {
 	}
 	slog.Warn("ignoring unusable boolean env, using default", "env", key, "value", raw, "default", fallback)
 	return fallback
+}
+
+// DefaultNotificationRetention is how long the notification delivery log is
+// kept when NOTIFICATION_RETENTION_DAYS is unset (DESIGN.md §21.6).
+const DefaultNotificationRetention = 180 * 24 * time.Hour
+
+// daysEnv reads a whole number of DAYS. Days rather than a Go duration
+// because a retention policy is written in days and "4320h" is not how
+// anyone states one. A zero or negative value disables the purge, which is
+// a deliberate setting and not a misconfiguration: some operators are
+// required to keep the record indefinitely.
+func daysEnv(key string, fallback time.Duration) time.Duration {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		slog.Warn("ignoring unusable day count, using default", "env", key, "value", raw, "default", fallback)
+		return fallback
+	}
+	if n <= 0 {
+		return 0
+	}
+	return time.Duration(n) * 24 * time.Hour
 }
 
 func durEnv(key string, fallback time.Duration) time.Duration {

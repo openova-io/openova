@@ -471,6 +471,45 @@ never be collected. The customer detail and the source verify/rotate responses
 carry `collecting: true|false` (customer active ∧ source verified — the exact
 gate the collector applies), so the UI can say why nothing flows.
 
+**Notifications (DESIGN.md §21).** Every message the product sends is a named
+**event** with a documented payload, rendered from a **template** carrying a
+**locale** key, carried by a **channel**, and recorded as **one row per
+delivery attempt**. Eight events, and `Send` refuses a key that is not one of
+them: `auth.pin`, `customer.invite`, `statement.issued`,
+`collections.reminder`, `collections.escalation`, `account.low_balance`,
+`budget.threshold`, `report.scheduled`.
+
+| Route | Permission |
+|---|---|
+| `GET /notifications/events` | `metering.read` — the catalogue, the channels with their availability, the templates, the locales |
+| `GET /notifications/preferences` | `metering.read` — the rows, plus what each event RESOLVES to at the Sovereign scope |
+| `PUT /notifications/preferences` | `settings.manage` — body `{event, enabled, channels[], locale, email?, customer_id?}` |
+| `DELETE /notifications/preferences/{event}` | `settings.manage` — `?customer_id=&email=` names the scope; returns it to the default |
+| `GET /notifications/deliveries` | `audit.read` — `?event=&status=&customer_id=&recipient=&limit=`; `status=problems` is failed + unavailable |
+| `GET /customers/{id}/notifications/preferences` | `metering.read` on the customer (`?email=` resolves for one user) |
+| `PUT /customers/{id}/notifications/preferences` | `customer.self.manage` — the path pins the customer |
+| `DELETE /customers/{id}/notifications/preferences/{event}` | `customer.self.manage` |
+| `GET /customers/{id}/notifications/deliveries` | `metering.read` on the customer — its own rows only |
+
+Preferences resolve **most specific first** — this person on this customer,
+then this person Sovereign-wide, then this customer, then the Sovereign
+default, then the event's own default, which for every shipped event is *send*.
+A **mandatory** notice (an invoice, a dunning reminder, the sign-in code, the
+activation link) can be switched off by nobody: the write is refused with a
+message saying why, the resolver ignores a disabling row however it got there,
+and its channels are a floor a preference may add to and never remove from.
+
+**Email** is the implemented channel. **SMS is declared and has no transport** —
+Omantel's gateway specification has not been provided, so there is no endpoint,
+credential shape or payload to implement against. It refuses at send time with
+that reason, records the refusal as `unavailable`, and is never retried; the
+console shows the reason verbatim. Nothing stubs a send.
+
+A failed delivery is **visible**: three bounded attempts with a doubling
+backoff (a permanent failure is not retried at all), a `failed` row the console
+opens on, a `chargeback_notifications_total{event,channel,status}` counter, and
+an error naming the event and the recipient.
+
 Customer import CSV columns: `slug,name,admin_email,region,project_ids(;-separated),price_book,billing_mode,start_date`.
 `price_book` names the **cloud** book the row's projects are rated by — it is
 assigned to each imported source, and a platform book there is rejected for
@@ -506,6 +545,7 @@ Price book CSV columns: `sku,unit,annual_price,description` (template at
 | `TRUSTED_FORWARD_GROUPS_HEADER` | `X-Forwarded-Groups` | the header carrying the identity's directory groups (comma-separated), each looked up in `group_role_mappings` (DESIGN.md §10). Honoured only while `TRUSTED_FORWARD_AUTH_HEADER` is set |
 | `PUBLIC_CALCULATOR_ORIGINS` | empty | comma-separated origins allowed to call `/api/v1/public/*` cross-origin and to frame `/estimate` (the marketplace, a partner site); empty = same origin only and the page cannot be framed, `*` = any. Every other path keeps `X-Frame-Options: DENY` |
 | `PUBLIC_CALCULATOR_RATE_PER_MINUTE` | `60` | per-client-address budget on the public calculator routes (token bucket, one minute's burst); beyond it the route answers `429` with `Retry-After` |
+| `NOTIFICATION_RETENTION_DAYS` | `180` | how long the notification DELIVERY LOG is kept (DESIGN.md §21.6) — one row per delivery attempt, which is what answers "was the customer told". Long enough by default that "did they get the August invoice" is answerable in December; `0` keeps it for ever. Purged by the hourly housekeeping pass. How long that record may be held is the operator's own data-retention decision, which is why it is configuration — the retry ladder deliberately is NOT, so no deployment can turn a failed delivery into an unbounded loop |
 | `EINVOICE_PROFILE` | unset | the e-invoicing profile (DESIGN.md §17): unset = **OFF** — nothing is built at issue, the two e-invoice routes answer 404, and issuing behaves exactly as it did. `oman` builds, validates, signs and archives a UBL-shaped e-invoice with a base64 TLV QR payload at issue, and refuses an issue that cannot yield a compliant one with every problem listed |
 | `EINVOICE_SIGNER_PATH` | unset | file holding the PEM signing key — the Secret the chart mounts. RSA, ECDSA or Ed25519; PKCS#8, PKCS#1 or SEC1. Wins over `EINVOICE_SIGNING_KEY`. Named without PASSWORD/TOKEN/KEY/SECRET anywhere in it, per the Sovereign's Kyverno `secret-not-in-env` policy — that match is on a SUBSTRING, so a `_FILE` suffix does not rescue a name containing KEY (`EINVOICE_SIGNING_KEY_FILE` is read as a deprecated alias for one release). With a profile configured and NO key, issuing is refused with a message naming this variable — never a half-signed invoice. The key is never logged, never returned by any endpoint and never archived; what is archived is the document and its SHA-256 hash |
 | `EINVOICE_SIGNING_KEY` | unset | the literal PEM, for a local run where no file is mounted |

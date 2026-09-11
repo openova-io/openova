@@ -60,6 +60,11 @@ const SOVEREIGN_NAV: readonly NavGroup[] = [
       ['/allocation', 'Allocation', '⇶'],
       ['/billing', 'Billing', '¶'],
       ['/tax', 'Tax', '⚖', 'metering.read'],
+      // Notification management (DESIGN.md §21). Reading the catalogue is
+      // metering.read — what the product sends is not a secret and every
+      // Sovereign role may see it; the Sovereign-wide switches on the page
+      // are rendered by settings.manage inside.
+      ['/notifications', 'Notifications', '✉', 'metering.read'],
       ['/access', 'Access', '⚿', 'settings.manage'],
     ],
   ],
@@ -100,6 +105,11 @@ const CUSTOMER_NAV: readonly NavGroup[] = [
       ['/my/sources', 'Cost sources', '⇄'],
       ['/my/discounts', 'Discounts', '%'],
       ['/my/users', 'Users', '☺', 'customer.self.manage'],
+      // DESIGN.md §21 — which messages this account receives, and what
+      // happened to each one. Readable by any customer role (metering.read);
+      // the switches are rendered by customer.self.manage inside, and an
+      // invoice or a dunning notice offers no switch at all.
+      ['/my/notifications', 'Notifications', '✉'],
     ],
   ],
 ] as const

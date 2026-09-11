@@ -54,7 +54,9 @@ describe('Shell navigation per role', () => {
     const nav = labels(me)
     expect(nav.Analyse).toEqual(['Overview', 'Cost explorer', 'Resources', 'Cost centres'])
     expect(nav.Bill).toEqual(['Statements', 'Account', 'Payment methods', 'Budgets', 'Reports'])
-    expect(nav.Configure).toEqual(['Cost sources', 'Discounts', 'Users'])
+    // DESIGN.md §21 — the account's own Notifications tab: which messages
+    // it receives, and what happened to each one.
+    expect(nav.Configure).toEqual(['Cost sources', 'Discounts', 'Users', 'Notifications'])
     for (const group of Object.values(nav)) {
       expect(group).not.toContain('Collections')
       expect(group).not.toContain('Customers')
@@ -66,7 +68,8 @@ describe('Shell navigation per role', () => {
   it('customer-viewer has no Users page', () => {
     const me: Me = { email: 'v@acme.example', role: 'customer-viewer', customer_id: A, permissions: { [`customer:${A}`]: ['metering.read'] }, roles: [{ role: 'customer-viewer', scope_kind: 'customer', customer_id: A }], scopes: [`customer:${A}`] }
     const nav = labels(me)
-    expect(nav.Configure).toEqual(['Cost sources', 'Discounts'])
+    // A viewer reads its Notifications tab and is offered no switch on it.
+    expect(nav.Configure).toEqual(['Cost sources', 'Discounts', 'Notifications'])
     expect(nav.Bill).toContain('Account')
   })
 

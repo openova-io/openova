@@ -26,6 +26,7 @@ import { Recommendations } from './pages/Recommendations'
 import { Collections } from './pages/Collections'
 import { Billing } from './pages/Billing'
 import { Tax } from './pages/Tax'
+import { MyNotifications, Notifications } from './pages/Notifications'
 import { Access } from './pages/Access'
 import { Capacity } from './pages/Capacity'
 import { EstimatePublic } from './pages/EstimatePublic'
@@ -83,6 +84,9 @@ function ConsoleRoutes() {
             <Route path="/collections" element={<Collections />} />
             <Route path="/billing" element={<Billing />} />
             <Route path="/tax" element={<Tax />} />
+            {/* Notification management (DESIGN.md §21): the catalogue, the
+                Sovereign-wide preferences and the delivery log. */}
+            <Route path="/notifications" element={<Notifications />} />
             {/* The finance handover (DESIGN.md §18) — Sovereign-scoped, like
                 every route the server gates at that scope. */}
             <Route path="/finance/journal" element={<FinanceJournal />} />
@@ -110,6 +114,7 @@ function ConsoleRoutes() {
             <Route path="/my/reports" element={<MyReports />} />
             <Route path="/my/sources" element={<MySources />} />
             <Route path="/my/users" element={<MyUsers />} />
+            <Route path="/my/notifications" element={<MyNotifications />} />
             <Route path="/my/cost-centres" element={<MyCostCentres />} />
             <Route path="/my/resources" element={<Resources />} />
             <Route path="/my/resources/:sourceId/:resourceId" element={<ResourceDetail />} />

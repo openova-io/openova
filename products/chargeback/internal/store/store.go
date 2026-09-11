@@ -468,6 +468,12 @@ ALTER TABLE cost_sources ADD CONSTRAINT cost_sources_status_check CHECK (status 
 	// writes to it. Appended at the very END: migrations are positional.
 	// Located by content as MigrationCostRollup (costrollup.go).
 	costRollupMigrationSQL,
+	// DESIGN.md §21 — notification management: which events a recipient
+	// receives and on which channel (notification_preferences), and one row
+	// per delivery attempt with its outcome (notification_deliveries).
+	// Appended at the very END: migrations are positional. Located by
+	// content as MigrationNotifications (notify.go).
+	notifyMigrationSQL,
 }
 
 // MigrationBackfillIssuedInvoices is the schema_migrations version of the
