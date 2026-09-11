@@ -344,7 +344,7 @@ const (
 // the platform-overhead tier (the CTE's tier column says so), every
 // customer's platform-source rows the organization tier.
 func (s *Store) allocationBasis(ctx context.Context, from, to time.Time) ([]AllocationRow, error) {
-	cte, a, err := filteredCTE(CostQuery{IncludeInternal: true, Include: map[string][]string{"sku": PlatformMeterSKUs}}, from, to)
+	cte, a, err := s.filteredCTE(ctx, CostQuery{IncludeInternal: true, Include: map[string][]string{"sku": PlatformMeterSKUs}}, from, to, grainDay)
 	if err != nil {
 		return nil, err
 	}

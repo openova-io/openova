@@ -33,6 +33,15 @@ type Config struct {
 	CESInterval            time.Duration
 	CollectorEnabled       bool
 
+	// The daily cost rollup (DESIGN.md §20, #6926). CostRollupEnabled is the
+	// kill switch for BOTH halves — with it off nothing is built and no
+	// window is served from the rollup, so every read is rated over the
+	// hourly usage ledger. The answers do not change; §20.8 measures what
+	// the cache is worth. CostRollupInterval is how often the builder looks
+	// for partitions a usage write has marked.
+	CostRollupEnabled  bool
+	CostRollupInterval time.Duration
+
 	// OpenOva adapter (ADR-0014 D2 case 1; #6723 lane D). AdapterEnabled
 	// is the raw ADAPTER_ENABLED override: "" = auto (on when the profile
 	// is sovereign AND in-cluster Kubernetes configuration is available),
@@ -182,6 +191,8 @@ func FromEnv() (Config, error) {
 		CTSPollInterval:           durEnv("CTS_POLL_INTERVAL", 5*time.Minute),
 		CESInterval:               durEnv("CES_INTERVAL", time.Hour),
 		CollectorEnabled:          boolEnv("COLLECTOR_ENABLED", true),
+		CostRollupEnabled:         boolEnv("COST_ROLLUP_ENABLED", true),
+		CostRollupInterval:        durEnv("COST_ROLLUP_INTERVAL", time.Minute),
 		AdapterEnabled:            strings.ToLower(strings.TrimSpace(os.Getenv("ADAPTER_ENABLED"))),
 		BillingHookURL:            strings.TrimRight(strings.TrimSpace(os.Getenv("BILLING_HOOK_URL")), "/"),
 		BillingHookToken:          strings.TrimSpace(os.Getenv("BILLING_HOOK_TOKEN")),

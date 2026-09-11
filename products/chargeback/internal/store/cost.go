@@ -14,14 +14,22 @@ import (
 
 // Cost engine (#6867, DESIGN.md §3.1).
 //
-// Cost is computed at query time: usage_records joined, through its SOURCE,
-// to the price book assigned to that source (DESIGN.md §2 — a book is
-// assigned per source, never per customer, so a cloud book can only ever
+// Cost is computed at query time: the usage ledger joined, through its
+// SOURCE, to the price book assigned to that source (DESIGN.md §2 — a book
+// is assigned per source, never per customer, so a cloud book can only ever
 // rate cloud SKUs and a platform book platform SKUs), with the book's
-// stopped-instance policy applied exactly as the rating run applies it.
-// There is no rollup table — a price change is visible immediately and the
+// stopped-instance policy applied exactly as the rating run applies it. No
+// money is ever cached — a price change is visible immediately and the
 // explorer can never disagree with a statement for the same window
 // (TestIntegrationExploreReconcilesWithStatement pins this).
+//
+// What IS cached is the USAGE the rating reads, aggregated to one row per
+// (UTC day, source, resource, SKU, unit, region, labels): the `u` CTE
+// (costrollup.go, DESIGN.md §20) serves the whole days a fresh rollup
+// partition covers from cost_usage_daily and the rest of the window from
+// usage_records, aggregated by the same expression to the same grain. Every
+// query below reads `u` and is otherwise unchanged, which is why the seam
+// cannot change a figure: it is the same aggregation either way.
 //
 // The Sovereign's own platform footprint sits on the internal source
 // (cost_sources.internal). Every customer-facing query here leaves it out;
@@ -265,7 +273,7 @@ type ExploreResult struct {
 	Unconverted []UnconvertedCurrency `json:"unconverted"`
 }
 
-// costPriceJoinSQL joins a usage_records row aliased `u` to its source
+// costPriceJoinSQL joins a usage row aliased `u` to its source
 // (`s`), the source's customer (`c`, NULL for the internal source), the
 // SOURCE's price book (`b`), the book's rate for the SKU (`p`, NULL when
 // unpriced) and the exchange rate of the book's currency (`x`, NULL when
@@ -330,19 +338,26 @@ const costBaseExpr = `(` + costPricedExpr + `) / (` + costRateExpr + `)`
 // one list (metric_skus.go).
 const costMeterFilter = `u.` + metricSKUFilter
 
-// costBaseSQL is the priced ledger: every record in the window with the unit
-// price its SOURCE's book carries for the SKU (NULL = unpriced), the cost
-// after the book's stopped-instance policy in the BOOK currency, and
+// costBaseSQL is the priced ledger: every row of the usage CTE `u` with the
+// unit price its SOURCE's book carries for the SKU (NULL = unpriced), the
+// cost after the book's stopped-instance policy in the BOOK currency, and
 // cost_base — the same cost in the reporting currency (NULL when the book
 // currency has no rate) — plus the source's layer, book and internal flag.
-// Placeholders $1/$2 are the window; the scope/filter clauses (and the
-// internal-source exclusion) are appended by the builder.
+//
+// The window lives in `u` (costrollup.go), not here: `u` is already only the
+// rows of the window, at the grain the caller asked for, whichever of the
+// rollup and the live ledger supplied them. `records` rides along because
+// one row of `u` stands for several usage records and the unconverted list
+// reports how many.
+//
+// The scope/filter clauses (and the internal-source exclusion) are appended
+// by the builder.
 const costBaseSQL = `
 SELECT u.customer_id, COALESCE(c.slug, '') AS customer_slug, COALESCE(c.name, '') AS customer_name,
        u.source_id,
        COALESCE(NULLIF(s.project_id, ''), s.kind) AS source_label,
        s.layer, s.internal, s.price_book_id AS book_id,
-       u.resource_id, u.resource_kind, u.sku, u.unit, u.region, u.window_start, u.quantity,
+       u.resource_id, u.resource_kind, u.sku, u.unit, u.region, u.window_start, u.quantity, u.records,
        CASE WHEN s.internal THEN 'platform-overhead' ELSE COALESCE(NULLIF(u.labels->>'tier', ''), 'organization') END AS tier,
        COALESCE(u.labels->>'namespace', '') AS namespace,
        COALESCE(NULLIF(u.labels->>'name', ''), u.resource_id) AS resource_label,
@@ -354,8 +369,8 @@ SELECT u.customer_id, COALESCE(c.slug, '') AS customer_slug, COALESCE(c.name, ''
        COALESCE(b.currency, '') AS currency,
        ` + costPricedExpr + ` AS cost,
        ` + costBaseExpr + ` AS cost_base
-  FROM usage_records u` + costPriceJoinSQL + costCentreJoinSQL + `
- WHERE u.window_start >= $1 AND u.window_start < $2 AND ` + costMeterFilter
+  FROM u` + costPriceJoinSQL + costCentreJoinSQL + `
+ WHERE ` + costMeterFilter
 
 type costArgs struct{ args []any }
 
@@ -364,14 +379,29 @@ func (a *costArgs) add(v any) string {
 	return fmt.Sprintf("$%d", len(a.args))
 }
 
-// filteredCTE builds `WITH f AS (<base> AND <scope> AND <filters>)`.
-func filteredCTE(q CostQuery, from, to time.Time) (string, *costArgs, error) {
+// filteredCTE builds `WITH u AS (<usage>), f AS (<base> AND <scope> AND
+// <filters>)`. grain is the grain the CALLER needs `u` aggregated to:
+// grainDay for every total, per-day and per-month reader, grainHour only for
+// the explorer's hour-grain chart. Asking for the coarser grain where the
+// answer does not depend on it is what lets the rollup serve the window
+// totals of an hour-grain request.
+func (s *Store) filteredCTE(ctx context.Context, q CostQuery, from, to time.Time, grain string) (string, *costArgs, error) {
+	w, err := s.costWindow(ctx, from, to, grain)
+	if err != nil {
+		return "", nil, err
+	}
+	return buildFilteredCTE(q, w, grain)
+}
+
+// buildFilteredCTE is the pure half: everything but the freshness read, so
+// the clause builder can be tested without a database.
+func buildFilteredCTE(q CostQuery, w usageWindow, grain string) (string, *costArgs, error) {
 	a := &costArgs{}
 	var sb strings.Builder
-	sb.WriteString("WITH f AS (")
+	sb.WriteString("WITH u AS (")
+	sb.WriteString(usageBranches(a, w, grain))
+	sb.WriteString("), f AS (")
 	sb.WriteString(costBaseSQL)
-	a.add(from)
-	a.add(to)
 	if !q.IncludeInternal {
 		sb.WriteString(costExcludeInternalSQL)
 	}
@@ -516,7 +546,14 @@ type costRow struct {
 }
 
 func (s *Store) queryCostRows(ctx context.Context, q CostQuery, from, to time.Time, withBucket bool) ([]costRow, error) {
-	cte, a, err := filteredCTE(q, from, to)
+	// Only a bucketed read at hour grain needs the hourly ledger; a window
+	// total (the compare window) is the same number at either grain, so it
+	// asks for the day grain the rollup can serve.
+	grain := grainDay
+	if withBucket && q.Granularity == grainHour {
+		grain = grainHour
+	}
+	cte, a, err := s.filteredCTE(ctx, q, from, to, grain)
 	if err != nil {
 		return nil, err
 	}
@@ -561,7 +598,7 @@ SELECT ` + bucket + ` AS bucket, ` + groupExpr + ` AS grp, min(` + labelExpr + `
 // source's book, split into the genuinely unpriced and the platform meters
 // a platform book deliberately leaves unpriced (not sold per use).
 func (s *Store) queryUnpriced(ctx context.Context, q CostQuery, from, to time.Time) (unpriced, notSold []UnpricedSKU, err error) {
-	cte, a, err := filteredCTE(q, from, to)
+	cte, a, err := s.filteredCTE(ctx, q, from, to, grainDay)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -593,7 +630,7 @@ SELECT sku, unit, round(sum(quantity), 6)::text, count(DISTINCT resource_id), bo
 // queryUnconverted lists, per book currency without a rate, the priced
 // records of the window that no total includes.
 func (s *Store) queryUnconverted(ctx context.Context, q CostQuery, from, to time.Time) ([]UnconvertedCurrency, error) {
-	cte, a, err := filteredCTE(q, from, to)
+	cte, a, err := s.filteredCTE(ctx, q, from, to, grainDay)
 	if err != nil {
 		return nil, err
 	}
@@ -828,7 +865,7 @@ func compareWindow(q CostQuery, from, to time.Time) (time.Time, time.Time, strin
 }
 
 func (s *Store) countResources(ctx context.Context, q CostQuery, from, to time.Time) (int, error) {
-	cte, a, err := filteredCTE(q, from, to)
+	cte, a, err := s.filteredCTE(ctx, q, from, to, grainDay)
 	if err != nil {
 		return 0, err
 	}
@@ -935,7 +972,7 @@ func (s *Store) DimensionValues(ctx context.Context, scope Scope, q CostQuery) (
 	if err := q.confine(scope); err != nil {
 		return nil, err
 	}
-	cte, a, err := filteredCTE(q, q.From.UTC(), q.To.UTC())
+	cte, a, err := s.filteredCTE(ctx, q, q.From.UTC(), q.To.UTC(), grainDay)
 	if err != nil {
 		return nil, err
 	}
@@ -1004,7 +1041,7 @@ func (s *Store) TagKeys(ctx context.Context, scope Scope, q CostQuery) ([]string
 	if err := q.confine(scope); err != nil {
 		return nil, err
 	}
-	cte, a, err := filteredCTE(q, q.From.UTC(), q.To.UTC())
+	cte, a, err := s.filteredCTE(ctx, q, q.From.UTC(), q.To.UTC(), grainDay)
 	if err != nil {
 		return nil, err
 	}

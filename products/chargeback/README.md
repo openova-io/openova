@@ -492,6 +492,8 @@ Price book CSV columns: `sku,unit,annual_price,description` (template at
 | `HUAWEI_INSECURE_TLS` | `true` | on-prem CA |
 | `COLLECT_INTERVAL` / `CTS_POLL_INTERVAL` / `CES_INTERVAL` | `15m` / `5m` / `1h` | collector cadences |
 | `COLLECTOR_ENABLED` | `true` | set `false` on API-only replicas |
+| `COST_ROLLUP_ENABLED` | `true` | the daily cost rollup (DESIGN.md §20): the aggregated usage ledger the explorer and the Overview read. `false` is the kill switch for BOTH halves — nothing is built and no window is served from the rollup, so every read rates over the hourly `usage_records` (DESIGN.md §20.8 measures what that costs). The answers are identical either way, and no money is cached either way: a price change is always immediate |
+| `COST_ROLLUP_INTERVAL` | `1m` | how often the builder rebuilds the `(source, day)` partitions a usage write has marked. A stale partition is served live, so a stopped builder costs a slower page and never a wrong figure |
 | `PROFILE` | `sovereign` | `sovereign` or `operator-central`; surfaced in `/auth/me` and `/overview` |
 | `ADAPTER_ENABLED` | auto | OpenOva adapter override: unset = on when `PROFILE=sovereign` AND in-cluster Kubernetes configuration exists; `true`/`false` force it |
 | `BILLING_HOOK_URL` | unset | billing service base URL for the D6 statement hook; unset ⇒ hook off |

@@ -266,7 +266,7 @@ func (s *Store) UnpricedUsageByCustomer(ctx context.Context, scope Scope, custom
 	if err != nil {
 		return nil, err
 	}
-	cte, a, err := filteredCTE(CostQuery{CustomerIDs: ids}, from.UTC(), to.UTC())
+	cte, a, err := s.filteredCTE(ctx, CostQuery{CustomerIDs: ids}, from.UTC(), to.UTC(), grainDay)
 	if err != nil {
 		return nil, err
 	}
