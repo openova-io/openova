@@ -18,6 +18,7 @@ import (
 	"github.com/openova-io/openova/products/chargeback/internal/commercial"
 	"github.com/openova-io/openova/products/chargeback/internal/config"
 	"github.com/openova-io/openova/products/chargeback/internal/crypto"
+	"github.com/openova-io/openova/products/chargeback/internal/docs"
 	"github.com/openova-io/openova/products/chargeback/internal/mail"
 	"github.com/openova-io/openova/products/chargeback/internal/metrics"
 	"github.com/openova-io/openova/products/chargeback/internal/settle"
@@ -89,6 +90,11 @@ type Deps struct {
 	// instead of waiting for the next tick.
 	Deliverer *commercial.Deliverer
 
+	// Docs renders a statement as a PDF through the document renderer
+	// (EPIC #6867). A client whose URL is empty reports Enabled() false and
+	// GET /statements/{id}.pdf answers 503; nothing else depends on it.
+	Docs *docs.Client
+
 	// DESIGN.md §9 — the account, collections and enforcement. Intents is
 	// the gateway seam under the provider check; Enforcer suspends and
 	// resumes through the platform seam; Wallet is what prepaid adds;
@@ -155,6 +161,13 @@ func New(d Deps) http.Handler {
 	}
 	if d.Collections == nil && d.Store != nil {
 		d.Collections = &collections.Evaluator{Store: d.Store, Mail: d.Mail, Enforcer: d.Enforcer, PublicURL: d.Config.PublicURL, Owns: d.Commercial.OwnsCollections, Now: d.Now}
+	}
+	// The document renderer (EPIC #6867). Built from the config when the
+	// caller did not supply one, so a deployment with DOCRENDER_URL set gets
+	// the feature without any further wiring, and one without it gets a
+	// client that honestly reports itself unconfigured.
+	if d.Docs == nil {
+		d.Docs = docs.New(d.Config.DocRenderURL, d.Config.DocRenderToken)
 	}
 	if d.Importer != nil && d.Importer.Enforcer == nil {
 		d.Importer.Enforcer = d.Enforcer

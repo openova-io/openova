@@ -1,0 +1,54 @@
+{
+  "template": "invoice",
+  "locale": "en",
+  "currency": "OMR",
+  "document": {
+    "number": "INV-2026-00042",
+    "status": "sent",
+    "issued_at": "2026-09-01",
+    "due_at": "2026-10-01",
+    "period_start": "2026-08-01",
+    "period_end": "2026-08-31",
+    "seller": {
+      "name": "Sovereign Cloud Operator LLC",
+      "address": "Knowledge Oasis Muscat\nBuilding 3, Floor 2\nMuscat 130, Oman",
+      "tax_registration": "OM1100012345",
+      "email": "billing@hw307.omani.works"
+    },
+    "buyer": {
+      "name": "Acme Trading LLC",
+      "address": "Al Khuwair\nMuscat, Oman",
+      "tax_registration": "OM1100098765",
+      "email": "finance@acme.omani.homes"
+    },
+    "references": {
+      "po": "PO-2026-118",
+      "statement_id": "3f9c1b2e-7a4d-4c1e-9b0a-1d2e3f4a5b6c"
+    },
+    "lines": [
+      {"sku": "k8s.vcpu", "description": "Kubernetes vCPU allocation, metered hourly across every Environment in the Organization", "unit": "vcpu-hour", "quantity": "2976.000000", "unit_price": "0.012000", "amount": "35.712000"},
+      {"sku": "k8s.mem_gb", "description": "Kubernetes memory allocation", "unit": "gib-hour", "quantity": "5952.000000", "unit_price": "0.001500", "amount": "8.928000"},
+      {"sku": "k8s.pvc_gb", "description": "Persistent volume capacity", "unit": "gb-hour", "quantity": "74400.000000", "unit_price": "0.000100", "amount": "7.440000"},
+      {"sku": "plan.m", "description": "Catalyst plan M", "unit": "month", "quantity": "1.000000", "unit_price": "45.000000", "amount": "45.000000"}
+    ],
+    "waterfall": {
+      "list_subtotal": "97.080000",
+      "discount_total": "9.708000",
+      "net_subtotal": "87.372000",
+      "tax_rate": "0.05",
+      "tax": "4.368600",
+      "total": "91.740600",
+      "paid": "50.000000",
+      "balance": "41.740600"
+    },
+    "discounts": [
+      {"label": "Launch campaign (10%)", "amount": "9.708000"}
+    ],
+    "tax": {"discount_rule": "best-single"},
+    "payments": [
+      {"paid_at": "2026-09-05", "method": "transfer", "reference": "TRF-88213", "amount": "50.000000"}
+    ],
+    "terms": {"payment_terms_days": 30},
+    "notes": "Thank you for your business. Payment by bank transfer to the account named on your onboarding pack."
+  }
+}

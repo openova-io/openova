@@ -303,6 +303,27 @@ topologySpread:
   topologyKey: kubernetes.io/hostname
   maxSkew: 1
   whenUnsatisfiable: ScheduleAnyway
+# ── Document renderer (EPIC #6867) ─────────────────────────────────────
+# The invoice / credit-note / statement / quote PDF service, shipped as an
+# OPTIONAL sub-chart (products/chargeback/docrender/chart). Turning it on
+# renders that chart AND points the application's DOCRENDER_URL at its
+# ClusterIP Service, which is what makes GET /api/v1/statements/{id}.pdf
+# answer with a document instead of 503.
+#
+# Everything under this key belongs to the sub-chart itself — see its own
+# values.yaml. The two keys the PARENT reads are `enabled` (does the seam get
+# wired) and `auth.existingSecret` (does the BSS send the shared-secret
+# header). Off by default: a Sovereign that does not offer invoice downloads
+# should not run a second workload for them.
+docrender:
+  enabled: false
+  auth:
+    # Name of a Secret holding the shared secret under key RENDER_TOKEN. Both
+    # sides reference the SAME Secret: the renderer requires the header, the
+    # application sends it. Empty = no header, and the renderer's
+    # NetworkPolicy is the only perimeter (it admits these pods alone).
+    existingSecret: ""
+    key: RENDER_TOKEN
 
 # requests == limits (Guaranteed QoS, 1:1 ratio) — REQUIRED for a per-Org
 # install under the plan-limits LimitRange (#4362/#4553).

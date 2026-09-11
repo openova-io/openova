@@ -1,0 +1,285 @@
+name: Build chargeback-docrender
+
+# Builds the BSS document-renderer image (EPIC #6867) — the stateless Go
+# service that turns an invoice / credit note / statement / quote into a PDF,
+# deployed as the optional `docrender` sub-chart of bp-chargeback
+# (products/chargeback/docrender/chart).
+#
+# This mirrors build-chargeback.yaml, with two additions that the renderer
+# earns on its own:
+#
+#   * the CHART gates run here. The docrender chart lives at
+#     products/chargeback/docrender/chart, which is NOT matched by the
+#     `products/*/chart/**` globs that chart-tests-pr.yaml and
+#     blueprint-release.yaml fire on — so without this job its
+#     tests/*.sh would never execute anywhere, which is precisely the
+#     fail-open shape #6235 documents. They run below, on every change.
+#   * the smoke gate renders a REAL DOCUMENT through the built image and
+#     checks the bytes are a PDF. An image that starts and serves /healthz
+#     but cannot produce an invoice is exactly the failure the customer sees.
+#
+# Build context = products/chargeback/docrender (the module is self-contained,
+# the same shape as products/chargeback). Per the #4706 chart-repo-collision
+# lesson the image repo is the PLAIN name ghcr.io/openova-io/chargeback-docrender
+# — never a bp-* CHART OCI repo.
+#
+# Image tag contract: the chart's image helper resolves to
+# repository:<Chart.AppVersion> (docrender.image in _helpers.tpl), so the
+# published image MUST carry that exact tag — derived from the chart below so
+# the tag can never drift from what the chart references.
+
+on:
+  pull_request:
+    paths:
+      - 'products/chargeback/docrender/**'
+      - 'products/chargeback/chart/**'
+      - '.github/workflows/build-docrender.yaml'
+  push:
+    branches: [main]
+    paths:
+      - 'products/chargeback/docrender/**'
+      - '.github/workflows/build-docrender.yaml'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/openova-io/chargeback-docrender
+  # Pinned with its published checksum: an unverified download into a job that
+  # gates admission compliance would be a supply-chain hole in the guard.
+  KYVERNO_VERSION: v1.13.4
+  KYVERNO_SHA256: abd318dbb971ab6de2bbe3b7226f4a03230d5c9c651df8a29b6b5e085a55aeeb
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-docrender:
+    name: docrender — tests, chart gates, image
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: products/chargeback/docrender/go.mod
+          cache-dependency-path: products/chargeback/docrender/go.sum
+
+      # ─────────────────────────────────────────────────────────────────
+      # GATE — the renderer module
+      # ─────────────────────────────────────────────────────────────────
+      - name: Vet and test the docrender module
+        run: |
+          set -euo pipefail
+          cd products/chargeback/docrender
+          go vet ./...
+          # -count=1 — Refs #6235. This repo has no root go.mod, and Go's test
+          # cache keys on a package's OWN inputs only, so any test that reads a
+          # file outside its module (these read testdata/) can report a stale
+          # `ok (cached)` forever. Enforced repo-wide by
+          # scripts/check-go-test-count1.sh.
+          go test -count=1 ./...
+
+      # The BSS half of the contract: products/chargeback/internal/docs holds
+      # the mapper and asserts it still produces the shared fixture that the
+      # renderer's suite above renders. Running both halves in one job is what
+      # makes the cross-module contract enforceable at all.
+      - name: Test the BSS document client against the shared fixture
+        run: |
+          set -euo pipefail
+          cd products/chargeback
+          go vet ./internal/docs/ ./internal/api/
+          go test -count=1 ./internal/docs/
+
+      - name: Check gofmt
+        run: |
+          set -euo pipefail
+          cd products/chargeback/docrender
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "::error title=gofmt::These files are not formatted:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      # ─────────────────────────────────────────────────────────────────
+      # GATE — the chart
+      # ─────────────────────────────────────────────────────────────────
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.18.4
+
+      - name: Install the Kyverno CLI (pinned + checksum-verified)
+        run: |
+          set -euo pipefail
+          url="https://github.com/kyverno/kyverno/releases/download/${KYVERNO_VERSION}/kyverno-cli_${KYVERNO_VERSION}_linux_x86_64.tar.gz"
+          curl -fsSL -o /tmp/kyverno.tar.gz "$url"
+          echo "${KYVERNO_SHA256}  /tmp/kyverno.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/kyverno.tar.gz -C /tmp kyverno
+          sudo install -m 0755 /tmp/kyverno /usr/local/bin/kyverno
+          kyverno version
+
+      - name: helm lint + template (sub-chart and parent, both ways)
+        run: |
+          set -euo pipefail
+          helm lint products/chargeback/docrender/chart
+          helm lint products/chargeback/chart
+          # The parent resolves the sub-chart from the local file:// path.
+          helm dependency build products/chargeback/chart
+          # Renders with the renderer OFF (the default) and ON.
+          helm template chargeback products/chargeback/chart --namespace chargeback \
+            --api-versions cilium.io/v2 --api-versions postgresql.cnpg.io/v1 \
+            --set sovereignFqdn=hw307.omani.works > /tmp/render-off.yaml
+          helm template chargeback products/chargeback/chart --namespace chargeback \
+            --api-versions cilium.io/v2 --api-versions postgresql.cnpg.io/v1 \
+            --set sovereignFqdn=hw307.omani.works --set docrender.enabled=true > /tmp/render-on.yaml
+          if grep -qi docrender /tmp/render-off.yaml; then
+            echo "::error title=Sub-chart not gated::docrender rendered with docrender.enabled unset"; exit 1
+          fi
+          grep -q 'chargeback-docrender' /tmp/render-on.yaml
+          echo "both renders OK"
+
+      - name: "docrender chart tests (chart/tests/*.sh)"
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          scripts=( products/chargeback/docrender/chart/tests/*.sh )
+          if [ "${#scripts[@]}" -eq 0 ]; then
+            echo "::error title=No chart tests::products/chargeback/docrender/chart/tests carries no *.sh. This job is the ONLY place they run; an empty directory here means the chart ships ungated."
+            exit 1
+          fi
+          for s in "${scripts[@]}"; do
+            echo "── $(basename "$s") ──"
+            bash "$s" products/chargeback/docrender/chart
+          done
+
+      # The parent's own suites must still pass: the dependency, the new env
+      # and the values block all touch bp-chargeback's render.
+      - name: "bp-chargeback chart tests (unchanged contracts)"
+        run: |
+          set -euo pipefail
+          for s in products/chargeback/chart/tests/*.sh; do
+            echo "── $(basename "$s") ──"
+            bash "$s" products/chargeback/chart
+          done
+
+      # ─────────────────────────────────────────────────────────────────
+      # IMAGE
+      # ─────────────────────────────────────────────────────────────────
+      - name: Set short SHA + chart appVersion
+        id: vars
+        run: |
+          set -euo pipefail
+          echo "sha_short=$(echo $GITHUB_SHA | head -c 7)" >> "$GITHUB_OUTPUT"
+          APPVER=$(grep -E '^appVersion:' products/chargeback/docrender/chart/Chart.yaml | head -1 | sed -E 's/appVersion:[[:space:]]*"?([^"]+)"?/\1/')
+          [ -n "$APPVER" ] || { echo "could not read appVersion"; exit 1; }
+          echo "app_version=${APPVER}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Build to the LOCAL daemon first (load, no push) so the smoke gate
+      # below inspects the exact bytes that would be pushed (#4118 lesson).
+      - name: Build image (load)
+        uses: docker/build-push-action@v6
+        with:
+          context: products/chargeback/docrender
+          file: products/chargeback/docrender/Containerfile
+          build-args: |
+            VERSION=${{ steps.vars.outputs.app_version }}
+          load: true
+          push: false
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.vars.outputs.app_version }}
+            ${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}
+            ${{ env.IMAGE }}:latest
+
+      # Smoke gate: the built image must serve /healthz and /readyz, RENDER A
+      # REAL DOCUMENT, honour the shared-secret header, and refuse an
+      # oversized body. Readiness in particular is a proven capability here —
+      # the binary renders its sample invoice at start-up — so a /readyz 200
+      # from this image means the PDF engine, the templates and the locales
+      # all work inside the layer that would be pushed.
+      - name: Smoke-gate the built image (healthz, readyz, a real PDF, the token, the cap)
+        run: |
+          set -euo pipefail
+          IMG="${{ env.IMAGE }}:${{ steps.vars.outputs.app_version }}"
+          TOKEN="$(head -c 24 /dev/urandom | base64 | tr -d '\n')"
+          docker run -d --name dr-smoke --network host \
+            -e LISTEN_ADDR=":18081" \
+            -e RENDER_TOKEN="$TOKEN" \
+            "$IMG"
+          ok=0
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18081/healthz >/dev/null 2>&1; then ok=1; break; fi
+            sleep 1
+          done
+          [ "$ok" = "1" ] || { echo "FAIL: /healthz never served"; docker logs dr-smoke; exit 1; }
+          echo "healthz OK"
+
+          curl -fsS http://127.0.0.1:18081/readyz >/dev/null
+          echo "readyz OK (the image rendered its own sample document at start-up)"
+
+          # The token gate: without the header, 401.
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+            -H 'Content-Type: application/json' \
+            --data @products/chargeback/docrender/testdata/invoice.json \
+            http://127.0.0.1:18081/v1/render)
+          [ "$code" = "401" ] || { echo "FAIL: unauthenticated render returned $code, want 401"; docker logs dr-smoke; exit 1; }
+          echo "token gate OK"
+
+          # With it, a real PDF — for the BSS's own document, not just a fixture.
+          curl -fsS -X POST \
+            -H 'Content-Type: application/json' \
+            -H "X-Render-Token: $TOKEN" \
+            --data @products/chargeback/docrender/testdata/bss-invoice.json \
+            -o /tmp/smoke.pdf http://127.0.0.1:18081/v1/render
+          head -c 5 /tmp/smoke.pdf | grep -q '%PDF-' || { echo "FAIL: the response is not a PDF"; head -c 200 /tmp/smoke.pdf; exit 1; }
+          size=$(stat -c%s /tmp/smoke.pdf)
+          [ "$size" -gt 1200 ] || { echo "FAIL: the rendered document is only $size bytes"; exit 1; }
+          # The TEXT LAYER carries the invoice: a blank page of the right size
+          # would pass every check above.
+          sudo apt-get install -y -qq poppler-utils >/dev/null
+          pdftotext /tmp/smoke.pdf /tmp/smoke.txt
+          grep -q 'INV-2026-00042' /tmp/smoke.txt || { echo "FAIL: the invoice number is not in the document's text layer"; cat /tmp/smoke.txt; exit 1; }
+          grep -q '91.741' /tmp/smoke.txt || { echo "FAIL: the total is not in the document's text layer"; cat /tmp/smoke.txt; exit 1; }
+          echo "render OK ($size bytes, invoice number and total both in the text layer)"
+
+          # The body cap answers 413 rather than reading an unbounded request.
+          head -c 3000000 /dev/zero | tr '\0' 'a' > /tmp/big.json
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+            -H 'Content-Type: application/json' -H "X-Render-Token: $TOKEN" \
+            --data-binary @/tmp/big.json http://127.0.0.1:18081/v1/render)
+          [ "$code" = "413" ] || { echo "FAIL: a 3 MB body returned $code, want 413"; exit 1; }
+          echo "body cap OK"
+
+          # The secret must never reach the logs.
+          if docker logs dr-smoke 2>&1 | grep -q "$TOKEN"; then
+            echo "FAIL: RENDER_TOKEN leaked into the logs"; exit 1
+          fi
+          echo "no secret in logs OK"
+
+          docker rm -f dr-smoke
+          echo "smoke gate PASSED"
+
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push image (only after the smoke gate is green)
+        if: github.event_name != 'pull_request'
+        run: |
+          set -euo pipefail
+          for TAG in \
+            "${{ env.IMAGE }}:${{ steps.vars.outputs.app_version }}" \
+            "${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}" \
+            "${{ env.IMAGE }}:latest"; do
+            echo "pushing $TAG"
+            docker push "$TAG"
+          done

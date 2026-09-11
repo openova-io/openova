@@ -1,0 +1,28 @@
+{{- /*
+ClusterIP only — NodePorts are ABSOLUTELY FORBIDDEN (§854, founder
+2026-07-03). This service has no external door of any kind: no HTTPRoute, no
+Ingress, no Gateway parent. Its only caller is the chargeback application in
+the same cluster, and the NetworkPolicy says so.
+
+`type` is deliberately NOT a free-form value passthrough the way a generic
+chart would write it: the template refuses anything but ClusterIP rather than
+letting an overlay flip it.
+*/ -}}
+{{- if ne .Values.service.type "ClusterIP" }}
+{{- fail (printf "service.type is %q: the document renderer is in-cluster only and must be ClusterIP. A NodePort is forbidden outright (§854), and a LoadBalancer would give an internal renderer a public address." .Values.service.type) }}
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "docrender.fullname" . }}
+  labels:
+    {{- include "docrender.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "docrender.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP

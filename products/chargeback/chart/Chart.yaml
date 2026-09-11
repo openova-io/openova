@@ -22,11 +22,23 @@ type: application
 # Image = ghcr.io/openova-io/chargeback:<appVersion>
 # (build-chargeback.yaml; plain image repo per the #4706 chart-repo-collision
 # lesson — never the bp-chargeback chart OCI repo).
-version: 0.1.32
+version: 0.1.33
 # appVersion is the default image tag (chargeback.image in _helpers.tpl);
 # build-chargeback.yaml derives the pushed tag from this field so the two
 # can never drift.
-appVersion: 0.1.30
+appVersion: 0.1.31
+# The document renderer (EPIC #6867) ships as an OPTIONAL sub-chart, gated on
+# `docrender.enabled` (default false), so a Sovereign that does not offer
+# invoice downloads runs no second workload. The repository is a `file://`
+# URL into the sibling source directory — never a remote repo — so
+# `helm dependency build` resolves it from the LOCAL committed bytes with the
+# network unreachable, the same idiom platform/seaweedfs uses for its
+# vendored subchart.
+dependencies:
+  - name: docrender
+    version: "0.1.0"
+    repository: "file://../docrender/chart"
+    condition: docrender.enabled
 keywords:
   - chargeback
   - showback

@@ -84,6 +84,18 @@ type Config struct {
 	PlatformAPIToken     string
 	PlatformAPITokenFile string
 
+	// DocRenderURL reaches the document renderer (EPIC #6867), the
+	// stateless in-cluster service that turns a statement into a PDF:
+	// http://<release>-docrender.<namespace>.svc.cluster.local:8080. Unset ⇒
+	// the feature is OFF and GET /api/v1/statements/{id}.pdf answers 503;
+	// every other surface behaves exactly as it did.
+	//
+	// DocRenderToken is the optional shared secret sent as X-Render-Token.
+	// It is defence in depth on top of the renderer's NetworkPolicy, which
+	// admits these pods and nothing else — never the perimeter by itself.
+	DocRenderURL   string
+	DocRenderToken string
+
 	// TrustedForwardAuthHeader is the request header carrying an identity
 	// already verified by the Sovereign's OIDC gate. oauth2-proxy passes the
 	// address UPSTREAM as X-Forwarded-Email; X-Auth-Request-Email is a
@@ -148,6 +160,8 @@ func FromEnv() (Config, error) {
 		CommercialImportSecret:    strings.TrimSpace(os.Getenv("COMMERCIAL_IMPORT_SECRET")),
 		CommercialImportDir:       strings.TrimSpace(os.Getenv("COMMERCIAL_IMPORT_DIR")),
 		PlatformAPIURL:            strings.TrimRight(strings.TrimSpace(os.Getenv("PLATFORM_API_URL")), "/"),
+		DocRenderURL:              strings.TrimRight(strings.TrimSpace(os.Getenv("DOCRENDER_URL")), "/"),
+		DocRenderToken:            strings.TrimSpace(os.Getenv("DOCRENDER_TOKEN")),
 		PlatformAPIToken:          strings.TrimSpace(os.Getenv("PLATFORM_API_TOKEN")),
 		// New name first; PLATFORM_API_TOKEN_FILE is the deprecated alias
 		// (see the field comment).

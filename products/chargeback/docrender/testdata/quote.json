@@ -1,0 +1,42 @@
+{
+  "template": "quote",
+  "locale": "en",
+  "currency": "OMR",
+  "document": {
+    "number": "Q-2026-0117",
+    "status": "pro_forma",
+    "issued_at": "2026-09-11",
+    "valid_until": "2026-10-11",
+    "seller": {
+      "name": "Sovereign Cloud Operator LLC",
+      "address": "Knowledge Oasis Muscat\nMuscat 130, Oman",
+      "tax_registration": "OM1100012345",
+      "email": "sales@hw307.omani.works",
+      "phone": "+968 2400 0000"
+    },
+    "buyer": {
+      "name": "Future Health LLC",
+      "address": "Azaiba\nMuscat, Oman",
+      "email": "procurement@futurehealth.omani.homes"
+    },
+    "references": {"po": "RFQ-4471"},
+    "lines": [
+      {"sku": "plan.l", "description": "Catalyst plan L, annual commitment", "unit": "year", "quantity": "1.000000", "unit_price": "5400.000000", "amount": "5400.000000"},
+      {"sku": "k8s.vcpu", "description": "Reserved vCPU allocation", "unit": "vcpu-hour", "quantity": "87600.000000", "unit_price": "0.010000", "amount": "876.000000"},
+      {"sku": "support.gold", "description": "Gold support, 24x7", "unit": "year", "quantity": "1.000000", "unit_price": "1200.000000", "amount": "1200.000000"}
+    ],
+    "waterfall": {
+      "list_subtotal": "7476.000000",
+      "discount_total": "747.600000",
+      "net_subtotal": "6728.400000",
+      "tax_rate": "0.05",
+      "tax": "336.420000",
+      "total": "7064.820000"
+    },
+    "discounts": [
+      {"label": "Annual commitment (10%)", "amount": "747.600000"}
+    ],
+    "tax": {"discount_rule": "best-single"},
+    "terms": {"payment_terms_days": 45, "text": "Acceptance of this quotation constitutes an order under the master service agreement."}
+  }
+}

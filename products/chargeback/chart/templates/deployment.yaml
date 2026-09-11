@@ -204,6 +204,29 @@ spec:
                   optional: true
             {{- end }}
             {{- end }}
+            {{- if .Values.docrender.enabled }}
+            # Document renderer (EPIC #6867). With this set,
+            # GET /api/v1/statements/{id}.pdf renders the invoice through the
+            # sub-chart's in-cluster Service; without it that route answers
+            # 503 "document renderer not configured" and every other surface
+            # is untouched.
+            - name: DOCRENDER_URL
+              value: {{ include "chargeback.docrenderURL" . | quote }}
+            {{- with .Values.docrender.auth.existingSecret }}
+            # The shared-secret header, from the SAME Secret the renderer
+            # reads. A Secret NAME, never a literal (Inviolable #4; the
+            # kyverno `secret-not-in-env` baseline denies a plaintext value on
+            # an env whose name carries TOKEN). optional:true so the pod still
+            # schedules before the Secret lands — the renderer then simply
+            # does not require the header.
+            - name: DOCRENDER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . }}
+                  key: {{ $.Values.docrender.auth.key }}
+                  optional: true
+            {{- end }}
+            {{- end }}
             {{- if .Values.platformApi.url }}
             # Platform enforcement (DESIGN.md §9.6): the sovereign-admin API
             # and the projected ServiceAccount token the binary re-reads on
