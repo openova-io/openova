@@ -167,6 +167,8 @@ Configure  Customers · Price books · Discounts · Allocation
 
 Customer lens (`/my/…`): Overview · Cost explorer · Resources · Statements · Budgets · Reports · Sources.
 
+Partner lens (`/partner/…`, §13.5): My customers · Cost explorer · Resources · Anomalies · Recommendations · Statements · Account · Margin · Retail prices · Users. The Analyse pages are the operator's own, over the partner's customers.
+
 Every page is a real route (deep-linkable) and every list is sortable, filterable
 and exportable. Every number on a screen comes from an endpoint in §3; nothing is
 computed client-side except display formatting.
@@ -471,8 +473,11 @@ Dates are `YYYY-MM-DD`, windows are half-open `[from, to)`. Money is a decimal
 number in the **reporting currency** (§3.10) on every cost surface — explore,
 summary, resources, anomalies, recommendations, budgets, allocation, reports —
 and in the customer's price-book currency on statements and price books, which
-are never converted. `customer` query values are customer ids; the customer
-role is forced to its own id server-side.
+are never converted. `customer` query values are customer ids, and every one
+of them is INTERSECTED with the caller's scope server-side: a customer role
+sees its own customer, a partner role its partner's customers (§13.5), the
+operator whichever it asked for. Naming a customer outside the scope returns
+an empty document, never someone else's rows.
 
 ### 3.1 `GET /cost/explore` · `GET /customers/{id}/cost/explore`
 Params: `from`, `to`, `granularity=hour|day|month` (`hour` only for windows of at
@@ -1817,13 +1822,17 @@ permission and no custom role.
 | Scope key | Meaning |
 |---|---|
 | `sovereign` | The whole Sovereign: every customer, every setting. |
+| `partner:<id>` | The customers assigned to one partner, plus its own party (§13.5). |
 | `customer:<id>` | One customer. |
 
 A permission held at the Sovereign scope holds on every customer; a
 permission held on a customer holds there and nowhere else — never at the
-Sovereign, never on another customer. Every handler asks the one question
+Sovereign, never on another customer; a permission held on a partner holds on
+the customers that partner expands to. Every handler asks the one question
 `access.Has(bindings, permission, customerID)` (`internal/access`), with
-`customerID == ""` meaning the Sovereign scope.
+`customerID == ""` meaning the Sovereign scope. The routes that read ACROSS
+customers ask `requireCrossCustomer` instead, which is that same question at
+the Sovereign plus `access.HasAnyPartner` — see §13.5.
 
 ### 10.2 Permissions
 
@@ -2502,10 +2511,35 @@ A third scope kind joins `sovereign` and `customer:<id>`: **`partner:<id>`**.
 A binding there **expands**, with the session and never stored, to the
 customers assigned to that partner plus the partner's own party — so a
 partner principal reads its customers' explorer, resources, statements and
-accounts through the surfaces that already exist, each of which now filters
-by a SET of customers rather than one (`store.Scope.CustomerIDs`). A customer
-assigned to or taken from a partner takes effect at the principal's next
-request.
+accounts through the surfaces that already exist. A customer assigned to or
+taken from a partner takes effect at the principal's next request.
+
+**One predicate.** Every scoped read resolves its customers through
+`store.Scope.Confine(customerID)` and filters on `customer_id = ANY(<that
+set>)`. A customer principal is the one-element case of what a partner does
+with several; `nil` is the operator's unfiltered read and can mean nothing
+else. A customer the caller named is INTERSECTED with the scope, never
+replaced by it — so a partner opening one of its own customers sees that
+customer alone, and one naming a customer outside its scope is told not
+found rather than quietly handed its own rows.
+
+**The cost surfaces reach a partner.** `GET /cost/explore`,
+`/cost/summary`, `/cost/export.csv`, `/cost/dimensions`, `/resources`,
+`/resources.csv`, `/anomalies`, `/recommendations` and `/overview` are
+cross-customer routes, guarded by `requireCrossCustomer`: a Sovereign
+principal passes, and so does a partner principal holding `metering.read` at
+its partner scope — the store confines every query underneath to that
+partner's customers. So a reseller groups, filters, compares, forecasts and
+exports ACROSS its customers exactly as the operator does, with `group_by=customer`
+listing its own and no others; `/views` (saved explorer states) belongs to the
+signed-in email and needs no scope at all. A customer principal is still
+refused these routes (403): its lens is `/customers/{id}/…`.
+
+What a partner does NOT get from `/cost/summary` is the Sovereign's own
+counts — how many customers this Sovereign has (`customers`) and how its
+sources are doing (`sources`) are the operator's picture, so both come back
+empty; the cost blocks, the statements and the live-resource count are its
+customers'.
 
 Two roles, bound at that scope:
 
@@ -2522,8 +2556,10 @@ and two permissions join the nine:
 | `partner.self.manage` | The partner-scoped subset an owner holds on its OWN partner: its retail rule and its users. |
 
 **What a partner never sees**: another partner, another partner's customers
-or margin, the provider's list books (403 — it reads its own retail book
-instead), and the tier catalogue. **What a customer never sees**: the partner
+or margin (a filter naming one returns an empty document, a path naming one a
+404), the provider's list books (403 — it reads its own retail book instead),
+the tier catalogue, the Sovereign-wide customer and source counts, and the
+provider's own configuration pages. **What a customer never sees**: the partner
 directory (403), any partner-scoped route (404), and the buy price or margin
 on its own bill — `buy_total`, `margin_total` and the per-line `buy_amount`,
 `list_amount` and `list_unit_price` are stripped for any principal that is
@@ -2551,6 +2587,7 @@ relationship, not a secret.
 | `GET /api/v1/partners/{id}/users` | `metering.read` (partner) |
 | `POST /api/v1/partners/{id}/users` · `DELETE …/users/{email}` | `partner.self.manage` (partner) |
 | `PATCH /api/v1/customers/{id}` (`partner_id`) | `partners.manage` — never `customers.manage` alone, and never the customer itself |
+| `GET /api/v1/cost/explore` · `cost/summary` · `cost/export.csv` · `cost/dimensions` · `resources` · `resources.csv` · `anomalies` · `recommendations` · `overview` | `metering.read` at the Sovereign OR at a partner — the cross-customer read (§13.5). A partner's answer covers its customers and nothing else; a customer principal is 403 |
 
 Every write is audited: `partner.create`, `partner.update`, `partner.tier`,
 `partner.retail_rule`, and `access.binding` for the partner-scoped grants.
@@ -2571,13 +2608,20 @@ the below-buy warnings) and its users; and creates and edits both partners
 and tiers, tier discounts included. The customer page gains a **Partner**
 block: which partner this customer buys through, and the assignment.
 
-The **partner lens** is the third lens beside the Sovereign's and the
-customer's. When the caller's bindings are partner-scoped the menu shows
-**Analyse** (its customers' cost), **Bill** (its customers' statements and
-its own wholesale or commission statements), **Account** (its party),
-**Margin** and **Users** — and nothing else. The statement view shows the
-partner block — buy total, margin, margin % — to Sovereign roles and partner
-roles only.
+The **partner lens** (`/partner/…`) is the third lens beside the Sovereign's
+and the customer's. When the caller's bindings are partner-scoped the menu
+shows **Analyse** — My customers, and then the operator's own **Cost
+explorer**, **Resources**, **Anomalies** and **Recommendations** over the
+partner's customers — **Bill** (its customers' statements and its own
+wholesale or commission statements), **Account** (its party), **Margin** and
+**Users**, and nothing else. Those are the same components the operator
+opens, on the same Sovereign-wide documents: what a lens carries is
+`crossCustomer` — this lens spans more than one customer, so the `customer`
+dimension is offered and the Customer column drawn — separately from
+`operator`, which alone opens the provider's price books and a customer's
+configuration. Every link a partner follows stays inside `/partner`. The
+statement view shows the partner block — buy total, margin, margin % — to
+Sovereign roles and partner roles only.
 
 ### 13.8 Tests
 
@@ -2603,6 +2647,29 @@ another partner's (404), 403 on the provider books and the tier catalogue,
 revoked partner user out at the next request, and a customer principal
 refused the partner directory with the buy price and margin stripped from its
 own statement.
+
+The cost surfaces have their own pair, on a deliberately uneven ledger — One's
+customers cost 10 and 20, Two's 40, a direct customer 80, so 30 is reachable
+only by seeing exactly One's two.
+`internal/store/partner_cost_integration_test.go` pins the store: the partner
+scope totals its own two customers and lists only them under
+`group_by=customer`; a filter naming another partner's customer returns
+nothing and a path naming it returns not found; naming one of its OWN returns
+that one alone; the operator still sees all five and a customer principal
+still only itself; and resources, the daily series and the recommendation
+inputs are confined by the same predicate.
+`internal/api/partner_explore_integration_test.go` walks it through HTTP: a
+partner session 200 on `/cost/explore` with only its customers in the
+group-by and its exact total, an empty document for a foreign `customer`
+filter, 404 on a foreign path, a CSV export carrying its customers and no
+others, a summary with its costs but none of the Sovereign's counts, its two
+resources, a saved view of its own — with the operator's own explorer and
+counts unchanged and a customer principal still 403.
+`ui/src/pages/PartnerAnalyse.render.test.tsx` renders the partner lens's
+explorer and resource list (the Customer group-by offered, its customers on
+the page, every link inside `/partner`, no price-book link);
+`ui/src/layout/Shell.test.ts` and `ui/src/lib/scope.test.ts` pin the menu and
+the lens's paths.
 ---
 
 ## 14. Documents — the invoice the customer actually receives (EPIC #6867)

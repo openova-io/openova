@@ -172,11 +172,13 @@ type CostQuery struct {
 	// 0 = every group.
 	Limit int
 	// CustomerID narrows to one customer (the customer-lens endpoints); the
-	// scope forces it for non-operators regardless of what was asked.
+	// scope confines it for non-operators regardless of what was asked.
 	CustomerID string
 	// CustomerIDs narrows to a SET of customers — a partner principal's
-	// customers and party (DESIGN.md §13). Set by the scope, never by
-	// a caller's parameter.
+	// customers and party (DESIGN.md §13.5). Set by confine from the scope,
+	// never by a caller's parameter. CustomerID is the one-element case of
+	// the same predicate; customerSet resolves the two into the one set the
+	// SQL filters on.
 	CustomerIDs []string
 	// IncludeInternal admits the Sovereign's own internal platform source
 	// (cost_sources.internal), which every customer-facing query excludes.
@@ -365,11 +367,8 @@ func filteredCTE(q CostQuery, from, to time.Time) (string, *costArgs, error) {
 	if !q.IncludeInternal {
 		sb.WriteString(costExcludeInternalSQL)
 	}
-	if q.CustomerID != "" {
-		sb.WriteString(" AND u.customer_id::text = " + a.add(q.CustomerID))
-	}
-	if len(q.CustomerIDs) > 0 {
-		sb.WriteString(" AND u.customer_id::text = ANY(" + a.add(pq.Array(q.CustomerIDs)) + ")")
+	if ids := q.customerSet(); ids != nil {
+		sb.WriteString(" AND u.customer_id::text = ANY(" + a.add(pq.Array(ids)) + ")")
 	}
 	// Filters reference the base columns through the same expressions the
 	// CTE projects, so include/exclude and group-by can never disagree on
@@ -601,8 +600,9 @@ func (s *Store) queryUnconverted(ctx context.Context, q CostQuery, from, to time
 // book currency has no stored rate are excluded from every sum and listed
 // in Unconverted, with MixedCurrency set — never silently added.
 func (s *Store) Explore(ctx context.Context, scope Scope, q CostQuery) (ExploreResult, error) {
-	// A customer principal sees its own rows whatever it asked for; a
-	// partner principal the rows of its customers.
+	// A customer principal sees its own rows; a partner principal the rows of
+	// its customers, or of the one of them it named. Anything else is
+	// ErrNotFound, never someone else's rows.
 	if err := q.confine(scope); err != nil {
 		return ExploreResult{}, err
 	}
@@ -826,40 +826,47 @@ func (s *Store) countResources(ctx context.Context, q CostQuery, from, to time.T
 	return n, nil
 }
 
-// confine narrows a non-operator query to the scope's customers: the one
-// customer of a customer principal, the set of a partner principal. An empty
-// non-operator scope is a bug upstream, never a wildcard.
-func (q *CostQuery) confine(scope Scope) error {
-	if scope.Operator {
-		return nil
+// customerSet is the customer id set this query filters on — nil for an
+// unfiltered operator read. CustomerID is the one-element case: a reader
+// that names one customer and a partner scope that spans several go through
+// the SAME `customer_id = ANY(...)` predicate, so there is one customer
+// filter in the product and not one per kind of principal.
+func (q CostQuery) customerSet() []string {
+	if len(q.CustomerIDs) > 0 {
+		return q.CustomerIDs
 	}
-	ids := scope.Set()
-	switch len(ids) {
-	case 0:
-		return ErrNotFound
-	case 1:
-		q.CustomerID, q.CustomerIDs = ids[0], nil
-	default:
-		q.CustomerID, q.CustomerIDs = "", ids
+	if q.CustomerID != "" {
+		return []string{q.CustomerID}
 	}
 	return nil
 }
 
-// scopeCustomerClause is the `customer_id` predicate a scoped count uses:
-// the asked-for customer for the operator, the scope's own customer or set
-// for anyone else. col names the customer column; "" = no predicate.
-func scopeCustomerClause(scope Scope, customerID, col string) (string, []any) {
-	if scope.Operator {
-		if customerID == "" {
-			return "", nil
-		}
-		return ` AND ` + col + `::text = $1`, []any{customerID}
+// confine narrows a query to the customers the scope may read (Scope.Confine):
+// the one customer of a customer principal, the set of a partner principal,
+// every customer for the operator. A customer the query already named is
+// INTERSECTED with the scope, never replaced by it — so a partner reading one
+// of its own customers sees that customer alone, not its whole book.
+func (q *CostQuery) confine(scope Scope) error {
+	ids, err := scope.Confine(q.CustomerID)
+	if err != nil {
+		return err
 	}
-	ids := scope.Set()
-	if len(ids) == 1 {
-		return ` AND ` + col + `::text = $1`, []any{ids[0]}
+	q.CustomerID, q.CustomerIDs = "", ids
+	return nil
+}
+
+// scopeCustomerClause is that same predicate for a scoped count that does not
+// go through the explorer CTE: `col = ANY($1)` over Scope.Confine. An empty
+// clause is the operator asking across every customer, and only that.
+func scopeCustomerClause(scope Scope, customerID, col string) (string, []any, error) {
+	ids, err := scope.Confine(customerID)
+	if err != nil {
+		return "", nil, err
 	}
-	return ` AND ` + col + `::text = ANY($1)`, []any{pq.Array(ids)}
+	if ids == nil {
+		return "", nil, nil
+	}
+	return ` AND ` + col + `::text = ANY($1)`, []any{pq.Array(ids)}, nil
 }
 
 // LiveResourceCount counts inventory rows not marked deleted, inside the
@@ -869,7 +876,10 @@ func (s *Store) LiveResourceCount(ctx context.Context, scope Scope, customerID s
 	// not live estate; its recorded cost still shows in the explorer.
 	q := `SELECT count(*) FROM resource_inventory i JOIN cost_sources s ON s.id = i.source_id
 		WHERE i.deleted_at IS NULL AND NOT s.internal AND s.status <> '` + StatusDisabled + `'`
-	clause, args := scopeCustomerClause(scope, customerID, "s.customer_id")
+	clause, args, err := scopeCustomerClause(scope, customerID, "s.customer_id")
+	if err != nil {
+		return 0, err
+	}
 	q += clause
 	var n int
 	if err := s.db.QueryRowContext(ctx, q, args...).Scan(&n); err != nil {
@@ -882,7 +892,10 @@ func (s *Store) LiveResourceCount(ctx context.Context, scope Scope, customerID s
 // (the internal source is not a customer's source and is left out).
 func (s *Store) LastCollectedAt(ctx context.Context, scope Scope, customerID string) (*time.Time, error) {
 	q := `SELECT max(last_collected_at) FROM cost_sources WHERE NOT internal`
-	clause, args := scopeCustomerClause(scope, customerID, "customer_id")
+	clause, args, err := scopeCustomerClause(scope, customerID, "customer_id")
+	if err != nil {
+		return nil, err
+	}
 	q += clause
 	var t pq.NullTime
 	if err := s.db.QueryRowContext(ctx, q, args...).Scan(&t); err != nil {

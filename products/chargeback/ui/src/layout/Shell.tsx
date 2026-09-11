@@ -80,11 +80,25 @@ const CUSTOMER_NAV: readonly NavGroup[] = [
   ],
 ] as const
 
-// The PARTNER lens (DESIGN.md §11.5): a principal bound to a partner reads
-// its own customers, its own and their statements, its account, its margin
-// and its users — and none of the Sovereign's pages.
+// The PARTNER lens (DESIGN.md §13.5): a principal bound to a partner reads
+// its own customers, THEIR COST ANALYSIS, its own and their statements, its
+// account, its margin and its users — and none of the Sovereign's pages.
+//
+// Analyse is the same cost explorer, resource list, anomaly detector and
+// recommendation set the operator has; the server confines every one of them
+// to the customers assigned to the partner, so a reseller answers "what is
+// each of my customers costing" without a page of its own.
 const PARTNER_NAV: readonly NavGroup[] = [
-  ['Analyse', [['/partner/overview', 'My customers', '⌂']]],
+  [
+    'Analyse',
+    [
+      ['/partner/overview', 'My customers', '⌂'],
+      ['/partner/explore', 'Cost explorer', '▤'],
+      ['/partner/resources', 'Resources', '▦'],
+      ['/partner/anomalies', 'Anomalies', '△'],
+      ['/partner/recommendations', 'Recommendations', '✓'],
+    ],
+  ],
   [
     'Bill',
     [

@@ -110,7 +110,7 @@ func contains(list []string, v string) bool {
 }
 
 func (h *Handler) listResources(w http.ResponseWriter, r *http.Request) {
-	s, ok := h.requireSovereign(w, r, access.MeteringRead)
+	s, ok := h.requireCrossCustomer(w, r, access.MeteringRead)
 	if !ok {
 		return
 	}
@@ -199,7 +199,7 @@ func (h *Handler) writeResourcesCSV(w http.ResponseWriter, r *http.Request, scop
 }
 
 func (h *Handler) resourcesCSV(w http.ResponseWriter, r *http.Request) {
-	s, ok := h.requireSovereign(w, r, access.MeteringRead)
+	s, ok := h.requireCrossCustomer(w, r, access.MeteringRead)
 	if !ok {
 		return
 	}

@@ -57,7 +57,7 @@ func (h *Handler) gatherRecommendations(ctx context.Context, scope store.Scope, 
 }
 
 func (h *Handler) recommendations(w http.ResponseWriter, r *http.Request) {
-	s, ok := h.requireSovereign(w, r, access.MeteringRead)
+	s, ok := h.requireCrossCustomer(w, r, access.MeteringRead)
 	if !ok {
 		return
 	}

@@ -100,11 +100,19 @@ function ConsoleRoutes() {
             <Route path="/my/discounts" element={<MyDiscounts />} />
           </Route>
 
-          {/* The partner lens (DESIGN.md §11.5): its customers, its own and
-              their statements, its account, its margin and its users. */}
+          {/* The partner lens (DESIGN.md §13.5): its customers and their COST
+              ANALYSIS — the same explorer, resource list, anomalies and
+              recommendations the operator reads, confined by the server to
+              the partner's customers — beside its own and their statements,
+              its account, its margin and its users. */}
           <Route element={<Shell lens="partner" />}>
             <Route path="/partner/overview" element={<PartnerHome />} />
             <Route path="/partner/customers/:id" element={<CustomerDetail />} />
+            <Route path="/partner/explore" element={<CostExplorer />} />
+            <Route path="/partner/resources" element={<Resources />} />
+            <Route path="/partner/resources/:sourceId/:resourceId" element={<ResourceDetail />} />
+            <Route path="/partner/anomalies" element={<Anomalies />} />
+            <Route path="/partner/recommendations" element={<Recommendations />} />
             <Route path="/partner/statements" element={<PartnerBill />} />
             <Route path="/partner/account" element={<PartnerMyAccount />} />
             <Route path="/partner/margin" element={<PartnerMyMargin />} />

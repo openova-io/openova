@@ -70,9 +70,9 @@ describe('Shell navigation per role', () => {
     expect(nav.Bill).toContain('Account')
   })
 
-  // The partner lens (DESIGN.md §11.5): its customers, its statements, its
-  // account, its margin and its users — and none of the Sovereign's pages,
-  // nor a customer's.
+  // The partner lens (DESIGN.md §13.5): its customers AND their cost
+  // analysis, its statements, its account, its margin and its users — and
+  // none of the Sovereign's pages, nor a customer's.
   it('partner-owner sees its own pages only', () => {
     const me: Me = {
       email: 'ap@resell.example',
@@ -82,7 +82,10 @@ describe('Shell navigation per role', () => {
       scopes: [`partner:${P}`],
     }
     const nav = labels(me)
-    expect(nav.Analyse).toEqual(['My customers'])
+    // The founder's reason for resellers: "so the resellers could see the
+    // cost analysis of their customers" — the operator's Analyse group, over
+    // the partner's own customers.
+    expect(nav.Analyse).toEqual(['My customers', 'Cost explorer', 'Resources', 'Anomalies', 'Recommendations'])
     expect(nav.Bill).toEqual(['Statements', 'Account', 'Margin'])
     expect(nav.Configure).toEqual(['Retail prices', 'Users'])
     for (const group of Object.values(nav)) {
@@ -103,7 +106,8 @@ describe('Shell navigation per role', () => {
       scopes: [`partner:${P}`],
     }
     const nav = labels(me)
-    expect(nav.Analyse).toEqual(['My customers'])
+    // A viewer reads the same analysis; only the Configure group is gone.
+    expect(nav.Analyse).toEqual(['My customers', 'Cost explorer', 'Resources', 'Anomalies', 'Recommendations'])
     expect(nav.Bill).toEqual(['Statements', 'Account', 'Margin'])
     expect(nav.Configure).toBeUndefined()
   })

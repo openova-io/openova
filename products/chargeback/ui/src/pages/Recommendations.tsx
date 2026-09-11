@@ -19,7 +19,7 @@ import {
   type RecommendationFilter,
   type Severity,
 } from '../lib/recommendations'
-import { customerLens, lensFor, type Lens } from '../lib/scope'
+import { customerHref, customerLens, lensFor, type Lens } from '../lib/scope'
 import { useQuery } from '../lib/useQuery'
 
 /**
@@ -55,7 +55,7 @@ export function RecommendationsBody({ lens, embedded }: { lens: Lens; embedded?:
   const types = useMemo(() => Array.from(new Set(all.map((r) => r.type))), [all])
   const rows = useMemo(() => filterRecommendations(all, filter), [all, filter])
   const groups = useMemo(() => groupRecommendations(rows), [rows])
-  const showCustomer = lens.operator && !lens.customerId
+  const showCustomer = lens.crossCustomer
   const filtered = filter.severities.length > 0 || filter.types.length > 0
   const money = (v: number | null | undefined, compact = false) => formatMoney(v, currency, { compact })
 
@@ -70,7 +70,7 @@ export function RecommendationsBody({ lens, embedded }: { lens: Lens; embedded?:
             key: 'customer',
             header: 'Customer',
             value: (r: Recommendation) => r.customer_name || r.customer_id,
-            render: (r: Recommendation) => <Link to={`/customers/${r.customer_id}`}>{r.customer_name || r.customer_id}</Link>,
+            render: (r: Recommendation) => <Link to={customerHref(lens, r.customer_id)}>{r.customer_name || r.customer_id}</Link>,
           },
         ]
       : []),
