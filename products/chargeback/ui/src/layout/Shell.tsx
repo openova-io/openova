@@ -45,6 +45,7 @@ const SOVEREIGN_NAV: readonly NavGroup[] = [
       ['/discounts', 'Discounts', '%'],
       ['/allocation', 'Allocation', '⇶'],
       ['/billing', 'Billing', '¶'],
+      ['/tax', 'Tax', '⚖', 'metering.read'],
       ['/access', 'Access', '⚿', 'settings.manage'],
     ],
   ],

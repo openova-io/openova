@@ -9,6 +9,7 @@ const saved: BillingSettings = {
   commercial_provider: 'internal',
   tax_rate: '0.050000',
   tax_registration_number: 'OM100',
+  tax_country: 'OM',
   legal_name: 'Sovereign LLC',
   address: 'Muscat',
   reminder_days: [-3, 0, 7, 14, 30],
@@ -39,6 +40,7 @@ describe('the billing settings form', () => {
       credit_note_prefix: 'CN',
       tax_rate: '5',
       tax_registration_number: 'OM100',
+      tax_country: 'OM',
       legal_name: 'Sovereign LLC',
       address: 'Muscat',
       reminder_days: '-3, 0, 7, 14, 30',
@@ -57,12 +59,23 @@ describe('the billing settings form', () => {
     expect(validateBilling({ ...f, reminder_days: '7, soon' }).reminder_days).toMatch(/whole number/)
     expect(validateBilling({ ...f, escalation_days: '-1' }).escalation_days).toMatch(/whole number/)
     expect(validateBilling({ ...f, escalation_action: 'call' }).escalation_action).toMatch(/notify or suspend/)
+    // DESIGN.md §17 — the Sovereign's registration country. Empty is a
+    // configured absence (no cross-border determination); anything that is
+    // not two letters is a mistake.
+    expect(validateBilling({ ...f, tax_country: '' })).toEqual({})
+    expect(validateBilling({ ...f, tax_country: 'OMN' }).tax_country).toMatch(/two-letter/)
   })
   it('sends the required discount rule plus only what changed, with the rate as a fraction and the days as integers', () => {
     const f = billingFormFrom(saved)
     expect(billingBody(saved, f)).toBeNull()
     expect(billingBody(saved, { ...f, tax_rate: '7.5', reminder_days: '0, 7, 7, 30', credit_note_prefix: 'CRN' })).toEqual({ discount_rule: 'most-specific', credit_note_prefix: 'CRN', tax_rate: '0.075', reminder_days: [0, 7, 30] })
     expect(billingBody(saved, { ...f, escalation_days: '', escalation_action: 'suspend' })).toEqual({ discount_rule: 'most-specific', escalation_days: 0, escalation_action: 'suspend' })
+  })
+  it('sends the registration country the §17 rules resolve against', () => {
+    const f = billingFormFrom(saved)
+    expect(billingBody(saved, { ...f, tax_country: 'AE' })).toEqual({ discount_rule: 'most-specific', tax_country: 'AE' })
+    // Clearing it is a real change: it turns cross-border determination off.
+    expect(billingBody(saved, { ...f, tax_country: '' })).toEqual({ discount_rule: 'most-specific', tax_country: '' })
   })
   it('an emptied tax rate is sent as 0 — the Sovereign default is a rate, never unset', () => {
     expect(billingBody(saved, { ...billingFormFrom(saved), tax_rate: '' })).toEqual({ discount_rule: 'most-specific', tax_rate: '0' })

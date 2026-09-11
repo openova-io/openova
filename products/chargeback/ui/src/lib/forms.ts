@@ -115,6 +115,18 @@ export interface SettingsShape {
   tax_exempt_reason?: string
   /** Percent as typed; "" is the Sovereign default. */
   tax_rate?: string
+  /**
+   * DESIGN.md §17 — the rule side of the profile. tax_country is ISO 3166-1
+   * alpha-2 ("" = treated as domestic); tax_business marks a registered
+   * BUSINESS buyer, which is what makes reverse charge apply; the three
+   * certificate fields are what make an exemption auditable.
+   */
+  tax_country?: string
+  tax_region?: string
+  tax_business?: boolean
+  tax_exemption_number?: string
+  tax_exemption_expires_on?: string
+  tax_exemption_scan_ref?: string
 }
 
 /**
@@ -148,6 +160,10 @@ export function validateSettings(f: SettingsShape): Errors<SettingsShape> {
     else if (Number(rate) > 100) e.tax_rate = 'At most 100 %.'
   }
   if (f.tax_exempt === true && !(f.tax_exempt_reason ?? '').trim()) e.tax_exempt_reason = 'Say why this customer is exempt — it is printed on every invoice.'
+  const country = (f.tax_country ?? '').trim()
+  if (country && !/^[A-Za-z]{2}$/.test(country)) e.tax_country = 'A two-letter ISO 3166-1 alpha-2 code, e.g. AE, or empty for domestic.'
+  const expires = (f.tax_exemption_expires_on ?? '').trim()
+  if (expires && !isDay(expires)) e.tax_exemption_expires_on = 'Use YYYY-MM-DD.'
   return e
 }
 
