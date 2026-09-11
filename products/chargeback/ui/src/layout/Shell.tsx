@@ -40,6 +40,7 @@ const SOVEREIGN_NAV: readonly NavGroup[] = [
       ['/customers', 'Customers', '⌂'],
       ['/leads', 'Leads', '✦', 'customers.manage'],
       ['/partners', 'Partners', '⇋'],
+      ['/contracts', 'Contracts', '§'],
       ['/pricebooks', 'Price books', '¤'],
       ['/discounts', 'Discounts', '%'],
       ['/allocation', 'Allocation', '⇶'],

@@ -482,6 +482,14 @@ type CreditNote struct {
 	Tax           Decimal          `json:"tax"`
 	Total         Decimal          `json:"total"`
 	Lines         []CreditNoteLine `json:"lines,omitempty"`
+	// An SLA CREDIT (DESIGN.md §15.5) is a credit note that records what it
+	// answers: the contract, the percentage owed and the availability
+	// actually measured. Absent on every other credit note, so a reader
+	// written before §15 is unchanged.
+	ContractID           *string  `json:"contract_id,omitempty"`
+	ContractName         string   `json:"contract_name,omitempty"`
+	SLAPct               *Decimal `json:"sla_pct,omitempty"`
+	MeasuredAvailability *Decimal `json:"measured_availability,omitempty"`
 	// Applied is what reduced the invoice; Unapplied is what became credit
 	// on the account because the invoice was already settled that far.
 	Applied   Decimal   `json:"applied"`
@@ -1221,15 +1229,20 @@ func nextCreditNoteNumber(ctx context.Context, tx *sql.Tx, prefix string) (strin
 }
 
 const creditNoteColumns = `n.id, n.customer_id, n.statement_id, COALESCE(st.invoice_number, ''), n.number, n.kind, n.reason, n.currency, n.subtotal::text, n.tax_rate::text, n.tax::text, n.total::text, n.lines, n.issued_at, n.issued_by,
-	COALESCE((SELECT sum(a.amount) FROM invoice_allocations a WHERE a.credit_note_id = n.id), 0)::numeric(20,6)::text`
+	COALESCE((SELECT sum(a.amount) FROM invoice_allocations a WHERE a.credit_note_id = n.id), 0)::numeric(20,6)::text,
+	n.contract_id, COALESCE(ct.name, ''), n.sla_pct::text, n.measured_availability::text`
 
 func scanCreditNote(row interface{ Scan(...any) error }) (CreditNote, error) {
 	var n CreditNote
 	var sub, rate, tax, total, applied string
 	var lines []byte
-	if err := row.Scan(&n.ID, &n.CustomerID, &n.StatementID, &n.InvoiceNumber, &n.Number, &n.Kind, &n.Reason, &n.Currency, &sub, &rate, &tax, &total, &lines, &n.IssuedAt, &n.IssuedBy, &applied); err != nil {
+	var contract, slaPct, availability sql.NullString
+	if err := row.Scan(&n.ID, &n.CustomerID, &n.StatementID, &n.InvoiceNumber, &n.Number, &n.Kind, &n.Reason, &n.Currency, &sub, &rate, &tax, &total, &lines, &n.IssuedAt, &n.IssuedBy, &applied,
+		&contract, &n.ContractName, &slaPct, &availability); err != nil {
 		return n, mapErr(err)
 	}
+	n.ContractID = strPtr(contract)
+	n.SLAPct, n.MeasuredAvailability = decPtr(slaPct), decPtr(availability)
 	n.Subtotal, n.TaxRate, n.Tax, n.Total, n.Applied = Decimal(sub), Decimal(rate), Decimal(tax), Decimal(total), Decimal(applied)
 	n.Unapplied = decOf(new(big.Rat).Sub(ratOf(n.Total), ratOf(n.Applied)))
 	n.IssuedAt = n.IssuedAt.UTC()
@@ -1241,7 +1254,7 @@ func scanCreditNote(row interface{ Scan(...any) error }) (CreditNote, error) {
 
 // GetCreditNote reads one credit note inside the scope.
 func (s *Store) GetCreditNote(ctx context.Context, scope Scope, id string) (CreditNote, error) {
-	n, err := scanCreditNote(s.db.QueryRowContext(ctx, `SELECT `+creditNoteColumns+` FROM credit_notes n JOIN statements st ON st.id = n.statement_id WHERE n.id = $1`, id))
+	n, err := scanCreditNote(s.db.QueryRowContext(ctx, `SELECT `+creditNoteColumns+` FROM credit_notes n JOIN statements st ON st.id = n.statement_id LEFT JOIN contracts ct ON ct.id = n.contract_id WHERE n.id = $1`, id))
 	if err != nil {
 		return n, err
 	}
@@ -1252,7 +1265,7 @@ func (s *Store) GetCreditNote(ctx context.Context, scope Scope, id string) (Cred
 }
 
 func (s *Store) listCreditNotes(ctx context.Context, where string, arg any) ([]CreditNote, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+creditNoteColumns+` FROM credit_notes n JOIN statements st ON st.id = n.statement_id WHERE `+where+` ORDER BY n.issued_at DESC, n.number DESC`, arg)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+creditNoteColumns+` FROM credit_notes n JOIN statements st ON st.id = n.statement_id LEFT JOIN contracts ct ON ct.id = n.contract_id WHERE `+where+` ORDER BY n.issued_at DESC, n.number DESC`, arg)
 	if err != nil {
 		return nil, mapErr(err)
 	}

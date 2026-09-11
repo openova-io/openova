@@ -290,6 +290,18 @@ export interface InventoryItem {
   deleted_at?: string | null
 }
 
+/**
+ * DESIGN.md §15.2 — one band of a volume-tiered item: everything up to
+ * `up_to` rates at `price`. `up_to` null is the last, unbounded band.
+ */
+export interface PriceTier {
+  up_to?: number | string | null
+  price: number | string
+}
+
+/** The two industry tier modes; '' (or absent) is an item with no bands. */
+export type TierMode = '' | 'graduated' | 'all_units'
+
 export interface PriceItem {
   sku: string
   unit: string
@@ -297,6 +309,20 @@ export interface PriceItem {
   /** List (annual) price when the item came from an annual list; unit_price = annual_price ÷ annual_divisor. */
   annual_price?: number | string | null
   description?: string
+  /**
+   * The RATING SHAPES (DESIGN.md §15.1-15.2). All additive: an item with
+   * none of them rates at unit_price, which is every item of every book
+   * written before §15.
+   *
+   * `graduated` rates each band at its own price; `all_units` rates the
+   * whole billable quantity at the band the total reaches.
+   */
+  tier_mode?: TierMode | string
+  tiers?: PriceTier[] | null
+  /** Units of this SKU the plan includes per billing period. */
+  allowance?: number | string | null
+  /** Carry an unused allowance into the next period (one period, no compounding). */
+  allowance_rollover?: boolean
 }
 
 export interface PriceBook {
@@ -426,6 +452,15 @@ export interface CreditNote {
   tax: number | string
   total: number | string
   lines?: Array<{ sku?: string; description?: string; quantity?: number | string; unit?: string; unit_price?: number | string; amount: number | string }> | null
+  /**
+   * DESIGN.md §15.5 — an SLA credit is a credit note that RECORDS what it
+   * answers: the contract, the percentage owed and the availability actually
+   * measured. Absent on every other credit note.
+   */
+  contract_id?: string | null
+  contract_name?: string
+  sla_pct?: number | string | null
+  measured_availability?: number | string | null
   /** What reduced the invoice, and what became credit on the account. */
   applied: number | string
   unapplied: number | string
@@ -1620,4 +1655,57 @@ export interface MarginReport {
   currency: string
   rows: MarginRow[]
   totals: MarginRow
+}
+
+
+/**
+ * DESIGN.md §15.3 — one line of a contract: a committed-use line, or an
+ * allowance that belongs to the contract rather than to the plan.
+ */
+export interface ContractItem {
+  id?: string
+  contract_id?: string
+  kind: 'commitment' | 'allowance' | string
+  sku: string
+  unit?: string
+  /** Committed quantity per billing period, or allowance units per period. */
+  quantity: number | string
+  /** A commitment's negotiated unit price… */
+  committed_price?: number | string | null
+  /** …or the percentage off list it stands for. One of the two is required. */
+  discount_pct?: number | string | null
+  /** Allowance only: carry the unused part into the next period. */
+  rollover?: boolean
+  notes?: string
+  created_at?: string
+}
+
+/** DESIGN.md §15.4 — the agreement a customer's commercial terms hang on. */
+export interface Contract {
+  id: string
+  customer_id: string
+  customer_name?: string
+  customer_slug?: string
+  name: string
+  starts_on: string
+  ends_on: string
+  term_months: number
+  auto_renew: boolean
+  /** Days before the end date the contract joins the renewals-due list. */
+  renewal_notice_days: number
+  /** The MONTHLY floor; a period below it carries a true-up line. */
+  minimum_commitment?: number | string | null
+  currency: string
+  status: 'draft' | 'active' | 'expired' | 'cancelled' | string
+  signed_at?: string | null
+  po_reference?: string
+  notes?: string
+  renewed_at?: string | null
+  renewal_count?: number
+  created_at?: string
+  updated_at?: string
+  items?: ContractItem[] | null
+  /** Derived, never stored: ends_on + 1 day, and ends_on − notice days. */
+  renewal_date?: string
+  notice_from?: string
 }
