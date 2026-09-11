@@ -1,5 +1,6 @@
 import { cloneElement, isValidElement, useEffect, useId, type ReactElement, type ReactNode } from 'react'
 import { Link, NavLink } from 'react-router-dom'
+import { t } from '../i18n'
 import { formatPct } from '../lib/money'
 
 export function Notice({ kind, children }: { kind?: 'ok' | 'bad' | 'warn' | 'info'; children: ReactNode }) {
@@ -17,7 +18,7 @@ export function Badge({ status, kind }: { status: string | null | undefined; kin
         : s === 'failed' || s === 'suspended' || s === 'exceeded' || s === 'deleted' || s === 'high'
           ? 'bad'
           : '')
-  return <span className={`badge ${cls}`}>{status || '—'}</span>
+  return <span className={`badge ${cls}`}>{status || t('common.none')}</span>
 }
 
 export function Field({ label, error, help, children }: { label: string; error?: string; help?: string; children: ReactNode }) {
@@ -99,7 +100,7 @@ export function Steps({ steps, at }: { steps: string[]; at: number }) {
 }
 
 export function Details({ value }: { value: unknown }) {
-  if (value === null || value === undefined || value === '') return <span className="muted">—</span>
+  if (value === null || value === undefined || value === '') return <span className="muted">{t('common.none')}</span>
   const text = typeof value === 'string' ? value : JSON.stringify(value)
   return <pre className="details">{text}</pre>
 }
@@ -139,12 +140,12 @@ export function PageHeader({
 
 /** ▲ +5.8 % / ▼ −3.1 % chip. Cost going UP is red; null renders "—". */
 export function Delta({ pct, invert }: { pct: number | null | undefined; invert?: boolean }) {
-  if (pct === null || pct === undefined || !Number.isFinite(pct)) return <span className="delta flat">—</span>
+  if (pct === null || pct === undefined || !Number.isFinite(pct)) return <span className="delta flat">{t('common.none')}</span>
   const up = pct > 0.05
   const down = pct < -0.05
   const cls = up ? (invert ? 'down' : 'up') : down ? (invert ? 'up' : 'down') : 'flat'
   return (
-    <span className={`delta ${cls}`} title="change versus the previous period of the same length">
+    <span className={`delta ${cls}`} title={t('ui.delta.title')}>
       {up ? '▲' : down ? '▼' : '•'} {formatPct(pct, { sign: true })}
     </span>
   )
@@ -237,10 +238,10 @@ export function Confirm({
       footer={
         <>
           <button onClick={onClose} disabled={busy}>
-            Cancel
+            {t('common.cancel')}
           </button>
           <button className={danger ? 'danger' : 'primary'} onClick={() => void onConfirm()} disabled={busy}>
-            {confirmLabel ?? 'Confirm'}
+            {confirmLabel ?? t('common.confirm')}
           </button>
         </>
       }

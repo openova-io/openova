@@ -1,4 +1,5 @@
 import { Fragment, useMemo, useState, type ReactNode } from 'react'
+import { t } from '../i18n'
 import { EmptyState } from './ui'
 
 /**
@@ -132,7 +133,7 @@ export function DataTable<T>({
 
   if (rows.length === 0) {
     return (
-      <EmptyState title={emptyTitle ?? 'Nothing to show'}>
+      <EmptyState title={emptyTitle ?? t('table.empty')}>
         {emptyBody}
       </EmptyState>
     )
@@ -173,7 +174,7 @@ export function DataTable<T>({
                   >
                     {columns.map((c) => (
                       <td key={c.key} className={`${c.numeric ? 'num' : ''} ${c.className ?? ''}`}>
-                        {c.render ? c.render(r) : (c.value(r) ?? '—')}
+                        {c.render ? c.render(r) : (c.value(r) ?? t('common.none'))}
                       </td>
                     ))}
                   </tr>
@@ -201,7 +202,7 @@ export function DataTable<T>({
       </div>
       <div className="table-foot">
         <span>
-          {sorted.length.toLocaleString()} row{sorted.length === 1 ? '' : 's'}
+          {t('table.rows', { count: sorted.length, n: sorted.length.toLocaleString() })}
           {footNote ? <> · {footNote}</> : null}
         </span>
         <span className="row">
@@ -220,7 +221,7 @@ export function DataTable<T>({
           ) : null}
           {csvName ? (
             <button className="link small" onClick={download}>
-              Download CSV
+              {t('table.downloadCsv')}
             </button>
           ) : null}
         </span>

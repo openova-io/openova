@@ -4,9 +4,8 @@ import { api, errorText } from '../api/client'
 import { useSession } from '../auth/session'
 import type { ActivateResult, Invite } from '../api/types'
 import { Badge, Field, Notice, Steps } from '../components/ui'
+import { t } from '../i18n'
 import { hasErrors, parseProjectIds, validateActivation, type ActivationErrors } from '../lib/activation'
-
-const STEPS = ['PIN', 'Projects and key', 'Verify', 'Done']
 
 /**
  * Invite activation (spec §5 customer flow): the invite link opens here;
@@ -16,6 +15,9 @@ const STEPS = ['PIN', 'Projects and key', 'Verify', 'Done']
  * belongs to the admin. The secret key is posted once and never shown.
  */
 export function Activate() {
+  // Resolved per render, not once at import: the sidebar and the steps must
+  // follow the active locale, not whichever one was set when this module loaded.
+  const steps = [t('activate.step.pin'), t('activate.step.projects'), t('activate.step.verify'), t('activate.step.done')]
   const { token = '' } = useParams()
   const { me, refresh } = useSession()
   const [invite, setInvite] = useState<Invite | null>(null)
@@ -115,36 +117,36 @@ export function Activate() {
   if (loadError) {
     return (
       <div className="single">
-        <h1>Activate</h1>
-        <Notice kind="bad">This invite link is not valid: {loadError}</Notice>
+        <h1>{t('activate.title')}</h1>
+        <Notice kind="bad">{t('activate.invalid', { error: loadError })}</Notice>
       </div>
     )
   }
-  if (!invite) return <div className="single muted">Loading invite…</div>
+  if (!invite) return <div className="single muted">{t('activate.loading')}</div>
 
   return (
     <div className="single" style={{ maxWidth: 640 }}>
-      <h1>Activate {invite.customer_name}</h1>
-      <Steps steps={STEPS} at={step} />
+      <h1>{t('activate.heading', { customer: invite.customer_name })}</h1>
+      <Steps steps={steps} at={step} />
 
       {step === 0 ? (
         <div className="card">
-          <p className="muted">Confirm the address this invite was sent to.</p>
+          <p className="muted">{t('activate.confirmAddress')}</p>
           {!pinSent ? (
             <form onSubmit={requestPin}>
-              <Field label="Email">
+              <Field label={t('common.email')}>
                 <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
               </Field>
               {pinError ? <Notice kind="bad">{pinError}</Notice> : null}
-              <button className="primary">Send PIN</button>
+              <button className="primary">{t('activate.sendPin')}</button>
             </form>
           ) : (
             <form onSubmit={verifyPin}>
-              <Field label={`PIN sent to ${email}`}>
+              <Field label={t('activate.pinSentTo', { email })}>
                 <input value={code} onChange={(e) => setCode(e.target.value)} inputMode="numeric" autoFocus required />
               </Field>
               {pinError ? <Notice kind="bad">{pinError}</Notice> : null}
-              <button className="primary">Continue</button>
+              <button className="primary">{t('common.continue')}</button>
             </form>
           )}
         </div>
@@ -152,48 +154,45 @@ export function Activate() {
 
       {step === 1 ? (
         <form className="card" onSubmit={submit}>
-          <p className="muted">
-            Add a read-only access key for the cloud projects to be metered. Each project is verified with one signed
-            call before anything is collected.
-          </p>
-          <Field label="Region" error={errors.region}>
-            <input value={region} onChange={(e) => setRegion(e.target.value)} placeholder="om-east-1" />
+          <p className="muted">{t('activate.keyHelp')}</p>
+          <Field label={t('common.region')} error={errors.region}>
+            <input value={region} onChange={(e) => setRegion(e.target.value)} placeholder={t('activate.regionPlaceholder')} />
           </Field>
-          <Field label="Project ids (one per line)" error={errors.projectIds}>
+          <Field label={t('activate.projectIds')} error={errors.projectIds}>
             <textarea value={projectIds} onChange={(e) => setProjectIds(e.target.value)} />
           </Field>
           <div className="grid2">
-            <Field label="Access key (AK)" error={errors.accessKey}>
+            <Field label={t('activate.accessKey')} error={errors.accessKey}>
               <input value={accessKey} onChange={(e) => setAccessKey(e.target.value)} autoComplete="off" />
             </Field>
-            <Field label="Secret key (SK) — write-only" error={errors.secretKey}>
+            <Field label={t('activate.secretKey')} error={errors.secretKey}>
               <input type="password" value={secretKey} onChange={(e) => setSecretKey(e.target.value)} autoComplete="new-password" />
             </Field>
           </div>
           {submitError ? <Notice kind="bad">{submitError}</Notice> : null}
           <button className="primary" disabled={busy}>
-            Verify and activate
+            {t('activate.submit')}
           </button>
         </form>
       ) : null}
 
       {step === 2 ? (
         <div className="card">
-          <p>Verifying {parseProjectIds(projectIds).length} project(s)…</p>
+          <p>{t('activate.verifying', { count: parseProjectIds(projectIds).length })}</p>
         </div>
       ) : null}
 
       {step === 3 && result ? (
         <div className="card stack">
-          <Notice kind="ok">{invite.customer_name} is active.</Notice>
+          <Notice kind="ok">{t('activate.active', { customer: invite.customer_name })}</Notice>
           {result.sources && result.sources.length > 0 ? (
             <table>
               <thead>
                 <tr>
-                  <th>Project</th>
-                  <th>Region</th>
-                  <th>Status</th>
-                  <th>Detail</th>
+                  <th>{t('activate.col.project')}</th>
+                  <th>{t('common.region')}</th>
+                  <th>{t('common.status')}</th>
+                  <th>{t('activate.col.detail')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -204,14 +203,14 @@ export function Activate() {
                     <td>
                       <Badge status={s.status} />
                     </td>
-                    <td className="small">{s.last_error ?? '—'}</td>
+                    <td className="small">{s.last_error ?? t('common.none')}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           ) : null}
           <p>
-            <Link to="/my/usage">Open my usage</Link>
+            <Link to="/my/usage">{t('activate.openUsage')}</Link>
           </p>
         </div>
       ) : null}
