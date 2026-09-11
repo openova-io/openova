@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-11T14:30:08Z` |
+| Last refreshed | `2026-09-11T14:45:10Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-11T14:41 | [#6924](https://github.com/openova-io/openova/pull/6924) | #6867 | feat(bss): Catalyst BSS 0.1.36 — tax rules, e-invoicing and  |
 | 2026-09-11T12:53 | [#6923](https://github.com/openova-io/openova/pull/6923) | #6867 | feat(bss): 0.1.35 — contracts and commercial terms, customer |
 | 2026-09-11T11:10 | [#6922](https://github.com/openova-io/openova/pull/6922) | #6867 | feat(bss): 0.1.34 — a Sovereign runs the document renderer s |
 | 2026-09-11T10:29 | [#6921](https://github.com/openova-io/openova/pull/6921) | #6867 | feat(bss): 0.1.33 — capacity, partners, public calculator, d |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-08T18:08 | [#6884](https://github.com/openova-io/openova/pull/6884) | #6867 | docs(ledger): hw307 explorer capture after 0.1.23 |
 | 2026-09-08T17:41 | [#6883](https://github.com/openova-io/openova/pull/6883) | #6867 | docs(ledger): hw307 showcase screenshots for the rebuilt cha |
 | 2026-09-08T17:58 | [#6882](https://github.com/openova-io/openova/pull/6882) | #6867 | fix(chargeback): seed a showcase Organization's source, hide |
-| 2026-09-08T14:56 | [#6881](https://github.com/openova-io/openova/pull/6881) | #6867 | feat(chargeback): two-layer ownership, discount combination  |
 
 ---
 
