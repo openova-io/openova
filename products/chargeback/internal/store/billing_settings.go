@@ -82,6 +82,12 @@ type BillingSettings struct {
 	TaxRegistrationNumber string  `json:"tax_registration_number"`
 	LegalName             string  `json:"legal_name"`
 	Address               string  `json:"address"`
+	// TaxCountry is the country the Sovereign is registered in (ISO 3166-1
+	// alpha-2, DESIGN.md §17). It is what decides whether a buyer is
+	// domestic or cross-border, so reverse charge cannot be determined
+	// without it; empty means "not configured" and no cross-border
+	// determination is made at all.
+	TaxCountry string `json:"tax_country"`
 	// CreditNotePrefix numbers credit notes, gaplessly per year, apart from
 	// invoices (DESIGN.md §9.3).
 	CreditNotePrefix string `json:"credit_note_prefix"`
@@ -164,6 +170,7 @@ func (b *BillingSettings) Normalize() {
 	b.TaxRegistrationNumber = strings.TrimSpace(b.TaxRegistrationNumber)
 	b.LegalName = strings.TrimSpace(b.LegalName)
 	b.Address = strings.TrimSpace(b.Address)
+	b.TaxCountry = strings.ToUpper(strings.TrimSpace(b.TaxCountry))
 	b.CreditNotePrefix = NormalizeInvoicePrefix(b.CreditNotePrefix)
 	if b.CreditNotePrefix == "" {
 		b.CreditNotePrefix = DefaultCreditNotePrefix
@@ -230,6 +237,9 @@ func (b BillingSettings) Validate() error {
 	if !oneOf(b.EscalationAction, EscalationActions) {
 		return fmt.Errorf("%w: escalation_action must be %s", ErrInvalid, strings.Join(EscalationActions, " or "))
 	}
+	if b.TaxCountry != "" && (len(b.TaxCountry) != 2 || !lettersOnly(b.TaxCountry)) {
+		return fmt.Errorf("%w: tax_country must be a two-letter ISO 3166-1 alpha-2 code, or empty", ErrInvalid)
+	}
 	return nil
 }
 
@@ -241,7 +251,7 @@ func (s *Store) GetBillingSettings(ctx context.Context) (BillingSettings, error)
 }
 
 const billingSettingsQuery = `SELECT discount_rule, invoice_prefix, commercial_provider, external_ingest, tax_rate::text, tax_registration_number, legal_name, address, credit_note_prefix,
-	reminder_days, escalation_days, escalation_action, updated_at FROM billing_settings WHERE id = 1`
+	reminder_days, escalation_days, escalation_action, tax_country, updated_at FROM billing_settings WHERE id = 1`
 
 // billingSettingsTx reads the settings inside a transaction — the issuing
 // path needs the invoice prefix in the same transaction that takes the
@@ -255,7 +265,7 @@ func billingSettingsFrom(_ context.Context, row interface{ Scan(...any) error })
 	var rate string
 	var days []int64
 	err := row.Scan(&b.DiscountRule, &b.InvoicePrefix, &b.CommercialProvider, &b.ExternalIngest, &rate, &b.TaxRegistrationNumber, &b.LegalName, &b.Address, &b.CreditNotePrefix,
-		pq.Array(&days), &b.EscalationDays, &b.EscalationAction, &b.UpdatedAt)
+		pq.Array(&days), &b.EscalationDays, &b.EscalationAction, &b.TaxCountry, &b.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return DefaultBillingSettings(), nil
 	}
@@ -283,16 +293,16 @@ func (s *Store) UpdateBillingSettings(ctx context.Context, in BillingSettings) (
 		days = append(days, int64(d))
 	}
 	args := []any{in.DiscountRule, in.InvoicePrefix, in.CommercialProvider, in.ExternalIngest, string(in.TaxRate), in.TaxRegistrationNumber, in.LegalName, in.Address, in.CreditNotePrefix,
-		pq.Array(days), in.EscalationDays, in.EscalationAction}
+		pq.Array(days), in.EscalationDays, in.EscalationAction, in.TaxCountry}
 	res, err := s.db.ExecContext(ctx, `UPDATE billing_settings SET discount_rule = $1, invoice_prefix = $2, commercial_provider = $3, external_ingest = $4, tax_rate = $5::numeric,
-		tax_registration_number = $6, legal_name = $7, address = $8, credit_note_prefix = $9, reminder_days = $10, escalation_days = $11, escalation_action = $12, updated_at = now() WHERE id = 1`, args...)
+		tax_registration_number = $6, legal_name = $7, address = $8, credit_note_prefix = $9, reminder_days = $10, escalation_days = $11, escalation_action = $12, tax_country = $13, updated_at = now() WHERE id = 1`, args...)
 	if err != nil {
 		return BillingSettings{}, mapErr(err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		// The migration seeds the row; a missing one is a wiped table.
-		if _, err := s.db.ExecContext(ctx, `INSERT INTO billing_settings (id, discount_rule, invoice_prefix, commercial_provider, external_ingest, tax_rate, tax_registration_number, legal_name, address, credit_note_prefix, reminder_days, escalation_days, escalation_action)
-			VALUES (1, $1, $2, $3, $4, $5::numeric, $6, $7, $8, $9, $10, $11, $12)`, args...); err != nil {
+		if _, err := s.db.ExecContext(ctx, `INSERT INTO billing_settings (id, discount_rule, invoice_prefix, commercial_provider, external_ingest, tax_rate, tax_registration_number, legal_name, address, credit_note_prefix, reminder_days, escalation_days, escalation_action, tax_country)
+			VALUES (1, $1, $2, $3, $4, $5::numeric, $6, $7, $8, $9, $10, $11, $12, $13)`, args...); err != nil {
 			return BillingSettings{}, mapErr(err)
 		}
 	}

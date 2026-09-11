@@ -19,6 +19,7 @@ import (
 	"github.com/openova-io/openova/products/chargeback/internal/config"
 	"github.com/openova-io/openova/products/chargeback/internal/crypto"
 	"github.com/openova-io/openova/products/chargeback/internal/docs"
+	"github.com/openova-io/openova/products/chargeback/internal/einvoice"
 	"github.com/openova-io/openova/products/chargeback/internal/mail"
 	"github.com/openova-io/openova/products/chargeback/internal/metrics"
 	"github.com/openova-io/openova/products/chargeback/internal/settle"
@@ -95,6 +96,13 @@ type Deps struct {
 	// GET /statements/{id}.pdf answers 503; nothing else depends on it.
 	Docs *docs.Client
 
+	// EInvoice is the e-invoicing profile (DESIGN.md §17). nil = OFF: no
+	// document is built at issue and the two e-invoice routes answer 404 on
+	// every statement. New builds it from Config.EInvoiceProfile when the
+	// caller supplied none, so a deployment with EINVOICE_PROFILE set gets
+	// the step without further wiring.
+	EInvoice einvoice.Profile
+
 	// DESIGN.md §9 — the account, collections and enforcement. Intents is
 	// the gateway seam under the provider check; Enforcer suspends and
 	// resumes through the platform seam; Wallet is what prepaid adds;
@@ -169,6 +177,23 @@ func New(d Deps) http.Handler {
 	if d.Docs == nil {
 		d.Docs = docs.New(d.Config.DocRenderURL, d.Config.DocRenderToken)
 	}
+	// E-invoicing (DESIGN.md §17). An empty EINVOICE_PROFILE builds nothing
+	// and every statement behaves exactly as it did. A configured profile
+	// whose key cannot be parsed is a FATAL misconfiguration reported at
+	// start-up rather than a silent fall back to no e-invoicing: a Sovereign
+	// that believes it is issuing compliant invoices and is not is the worst
+	// of the three outcomes.
+	if d.EInvoice == nil && d.Config.EInvoiceProfile != "" {
+		p, err := einvoice.New(einvoice.Config{
+			Profile:       d.Config.EInvoiceProfile,
+			SigningKeyPEM: einvoiceSigningKey(d.Config),
+			KeyID:         d.Config.EInvoiceKeyID,
+		})
+		if err != nil {
+			slog.Error("e-invoicing profile could not be built; issuing will refuse until it is fixed", "profile", d.Config.EInvoiceProfile, "error", err)
+		}
+		d.EInvoice = p
+	}
 	if d.Importer != nil && d.Importer.Enforcer == nil {
 		d.Importer.Enforcer = d.Enforcer
 	}
@@ -188,6 +213,16 @@ func New(d Deps) http.Handler {
 	// and the read-only Leads list (customers.manage).
 	mux.HandleFunc("PUT /api/v1/pricebooks/{id}/public", h.setPriceBookPublic)
 	mux.HandleFunc("GET /api/v1/leads", h.listLeads)
+
+	// Tax rules and SKU tax categories (DESIGN.md §17). Reading is
+	// metering.read; every write is settings.manage.
+	mux.HandleFunc("GET /api/v1/tax/rules", h.listTaxRules)
+	mux.HandleFunc("POST /api/v1/tax/rules", h.createTaxRule)
+	mux.HandleFunc("PUT /api/v1/tax/rules/{id}", h.updateTaxRule)
+	mux.HandleFunc("DELETE /api/v1/tax/rules/{id}", h.deleteTaxRule)
+	mux.HandleFunc("GET /api/v1/tax/categories", h.listTaxCategories)
+	mux.HandleFunc("PUT /api/v1/tax/categories", h.putTaxCategory)
+	mux.HandleFunc("DELETE /api/v1/tax/categories/{sku}", h.deleteTaxCategory)
 
 	// Ops.
 	mux.HandleFunc("GET /healthz", h.healthz)
@@ -344,6 +379,10 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/statements/{id}/send", h.sendStatement)
 	mux.HandleFunc("POST /api/v1/statements/{id}/payments", h.recordStatementPayment)
 	mux.HandleFunc("GET /api/v1/statements/{id}/payments", h.listStatementPayments)
+	// The e-invoice (DESIGN.md §17): the structured document and the signed
+	// archival XML. Both follow reading the statement.
+	mux.HandleFunc("GET /api/v1/statements/{id}/einvoice", h.getEInvoice)
+	mux.HandleFunc("GET /api/v1/statements/{id}/einvoice.xml", h.getEInvoiceXML)
 	mux.HandleFunc("POST /api/v1/statements/{id}/cancel", h.cancelStatement)
 	// The operator's billing system reports back on the invoices we exported
 	// (DESIGN.md §8.10). Authenticated by an HMAC over the raw body, not by a

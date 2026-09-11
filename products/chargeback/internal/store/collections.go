@@ -380,6 +380,24 @@ type TaxSnapshot struct {
 	SellerLegalName string `json:"seller_legal_name,omitempty"`
 	SellerTaxNumber string `json:"seller_tax_registration_number,omitempty"`
 	SellerAddress   string `json:"seller_address,omitempty"`
+
+	// DESIGN.md §17 — what the RULES decided, frozen with the rest. Lines
+	// is the per-rule summary the invoice prints as its tax summary block;
+	// every row carries the RULE ID it came from, so "why was this line
+	// zero-rated" is answerable years later against a rules table that has
+	// since been edited. Audit records every determination that was not the
+	// plain reading of that table — an expired exemption certificate, a
+	// reverse-charge finding, a per-customer rate override.
+	Lines []TaxLine `json:"lines,omitempty"`
+	Audit []string  `json:"audit,omitempty"`
+	// The two countries the determination turned on.
+	CustomerCountry string `json:"customer_country,omitempty"`
+	SellerCountry   string `json:"seller_country,omitempty"`
+	// CustomerExemptionNumber and CustomerExemptionExpiresOn record the
+	// certificate as it stood at issue — including one that had EXPIRED,
+	// which is the state the audit line above explains.
+	CustomerExemptionNumber    string `json:"customer_exemption_number,omitempty"`
+	CustomerExemptionExpiresOn string `json:"customer_exemption_expires_on,omitempty"`
 }
 
 // TaxProfile is the customer side of the tax profile.
@@ -389,6 +407,14 @@ type TaxProfile struct {
 	TaxExemptReason       string
 	// TaxRate nil = the Sovereign default.
 	TaxRate *Decimal
+	// DESIGN.md §17 — the rule side: where the customer is registered,
+	// whether it is a registered business, and the exemption certificate.
+	TaxCountry            string
+	TaxRegion             string
+	TaxBusiness           bool
+	TaxExemptionNumber    string
+	TaxExemptionExpiresOn string // YYYY-MM-DD; empty = no expiry recorded
+	TaxExemptionScanRef   string
 }
 
 // EffectiveTaxRate is the rate a customer's statements are rated at: zero
@@ -1469,12 +1495,47 @@ func createCreditNoteTx(ctx context.Context, tx *sql.Tx, statementID string, in 
 // customer's profile and the Sovereign's identity as they stand right now.
 func taxSnapshotTx(ctx context.Context, tx *sql.Tx, customerID string, rate Decimal, settings BillingSettings) (TaxSnapshot, error) {
 	var ts TaxSnapshot
-	if err := tx.QueryRowContext(ctx, `SELECT name, tax_registration_number, tax_exempt, tax_exempt_reason FROM customers WHERE id = $1`, customerID).
-		Scan(&ts.CustomerName, &ts.CustomerTaxNumber, &ts.Exempt, &ts.ExemptReason); err != nil {
+	var expires sql.NullTime
+	if err := tx.QueryRowContext(ctx, `SELECT name, tax_registration_number, tax_exempt, tax_exempt_reason, tax_country, tax_exemption_number, tax_exemption_expires_on
+		FROM customers WHERE id = $1`, customerID).
+		Scan(&ts.CustomerName, &ts.CustomerTaxNumber, &ts.Exempt, &ts.ExemptReason, &ts.CustomerCountry, &ts.CustomerExemptionNumber, &expires); err != nil {
 		return ts, mapErr(err)
+	}
+	if expires.Valid {
+		ts.CustomerExemptionExpiresOn = expires.Time.UTC().Format("2006-01-02")
 	}
 	ts.Rate = rate
 	ts.SellerLegalName, ts.SellerTaxNumber, ts.SellerAddress = settings.LegalName, settings.TaxRegistrationNumber, settings.Address
+	ts.SellerCountry = settings.TaxCountry
+	return ts, nil
+}
+
+// taxSnapshotWithRulesTx is taxSnapshotTx plus what the RULES decided: the
+// per-rule summary the rating run froze on the statement, copied onto the
+// snapshot so the invoice's tax summary block can never drift from the
+// figures the invoice was issued with (DESIGN.md §17). A statement rated
+// before §17 carries no summary and the snapshot keeps its single rate,
+// which is exactly the reading it has always had.
+func taxSnapshotWithRulesTx(ctx context.Context, tx *sql.Tx, statementID, customerID string, rate Decimal, settings BillingSettings) (TaxSnapshot, error) {
+	ts, err := taxSnapshotTx(ctx, tx, customerID, rate, settings)
+	if err != nil {
+		return ts, err
+	}
+	lines, audit, err := taxLinesTx(ctx, tx, statementID)
+	if err != nil {
+		return ts, err
+	}
+	ts.Lines, ts.Audit = lines, audit
+	for _, l := range lines {
+		if l.Kind == TaxKindExempt || l.Kind == TaxKindReverseCharge {
+			// The invoice must carry the note that made it zero. Kept on the
+			// snapshot's existing exemption fields so every reader written
+			// against §9.4 keeps seeing an exemption where there is one.
+			if !ts.Exempt && strings.TrimSpace(l.Note) != "" && len(lines) == 1 {
+				ts.Exempt, ts.ExemptReason = true, l.Note
+			}
+		}
+	}
 	return ts, nil
 }
 

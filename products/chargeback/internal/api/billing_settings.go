@@ -37,10 +37,13 @@ type billingSettingsBody struct {
 	TaxRegistrationNumber *string        `json:"tax_registration_number"`
 	LegalName             *string        `json:"legal_name"`
 	Address               *string        `json:"address"`
-	CreditNotePrefix      *string        `json:"credit_note_prefix"`
-	ReminderDays          *[]int         `json:"reminder_days"`
-	EscalationDays        *int           `json:"escalation_days"`
-	EscalationAction      *string        `json:"escalation_action"`
+	// TaxCountry is the Sovereign's registration country (DESIGN.md §17) —
+	// what makes a cross-border reverse-charge determination possible.
+	TaxCountry       *string `json:"tax_country"`
+	CreditNotePrefix *string `json:"credit_note_prefix"`
+	ReminderDays     *[]int  `json:"reminder_days"`
+	EscalationDays   *int    `json:"escalation_days"`
+	EscalationAction *string `json:"escalation_action"`
 }
 
 func (h *Handler) getBillingSettings(w http.ResponseWriter, r *http.Request) {
@@ -94,6 +97,9 @@ func (h *Handler) putBillingSettings(w http.ResponseWriter, r *http.Request) {
 	if in.Address != nil {
 		next.Address = *in.Address
 	}
+	if in.TaxCountry != nil {
+		next.TaxCountry = *in.TaxCountry
+	}
 	if in.CreditNotePrefix != nil {
 		next.CreditNotePrefix = *in.CreditNotePrefix
 	}
@@ -117,7 +123,7 @@ func (h *Handler) putBillingSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	h.audit(r, nil, "billing.settings", map[string]any{"discount_rule": s.DiscountRule, "previous": prev.DiscountRule,
 		"invoice_prefix": s.InvoicePrefix, "previous_invoice_prefix": prev.InvoicePrefix,
-		"commercial_provider": s.CommercialProvider, "external_ingest": s.ExternalIngest, "tax_rate": s.TaxRate, "tax_registration_number": s.TaxRegistrationNumber,
+		"commercial_provider": s.CommercialProvider, "external_ingest": s.ExternalIngest, "tax_rate": s.TaxRate, "tax_registration_number": s.TaxRegistrationNumber, "tax_country": s.TaxCountry,
 		"credit_note_prefix": s.CreditNotePrefix, "reminder_days": s.ReminderDays, "escalation_days": s.EscalationDays, "escalation_action": s.EscalationAction})
 	writeJSON(w, http.StatusOK, s)
 }

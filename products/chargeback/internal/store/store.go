@@ -433,6 +433,18 @@ ALTER TABLE cost_sources ADD CONSTRAINT cost_sources_status_check CHECK (status 
 	// END: migrations are positional. Located by content as
 	// MigrationContracts.
 	contractsMigrationSQL,
+	// DESIGN.md §17 — tax rules by country, region and category, the tax
+	// category of a SKU, the customer's registration country and exemption
+	// certificate, the Sovereign's own registration country, and the
+	// per-rule tax summary frozen on a statement (EPIC #6867). Appended at
+	// the very END: migrations are positional. Located by content as
+	// MigrationTax.
+	taxMigrationSQL,
+	// DESIGN.md §17 — the e-invoice archive: one built, validated, signed
+	// and archived document per statement, with its hash and its QR payload.
+	// Appended at the very END: migrations are positional. Located by
+	// content as MigrationEInvoice.
+	einvoiceMigrationSQL,
 }
 
 // MigrationBackfillIssuedInvoices is the schema_migrations version of the

@@ -161,6 +161,23 @@ type Tax struct {
 	Exempt       bool   `json:"exempt,omitempty"`
 	ExemptReason string `json:"exempt_reason,omitempty"`
 	DiscountRule string `json:"discount_rule,omitempty"`
+	// Summary is the per-rate tax block (DESIGN.md §17): one row per tax
+	// rule the statement froze. Notes are the sentences a zero-rated,
+	// exempt or reverse-charge row must carry. QRPayload is the base64 TLV
+	// the e-invoice built; the renderer encodes it into the QR symbol.
+	Summary   []TaxRate `json:"summary,omitempty"`
+	Notes     []string  `json:"notes,omitempty"`
+	QRPayload string    `json:"qr_payload,omitempty"`
+}
+
+// TaxRate is one row of the tax summary.
+type TaxRate struct {
+	Label  string `json:"label,omitempty"`
+	Kind   string `json:"kind,omitempty"`
+	Rate   string `json:"rate"`
+	Base   string `json:"base"`
+	Amount string `json:"amount"`
+	Note   string `json:"note,omitempty"`
 }
 
 // Payment is one received payment.
@@ -229,6 +246,26 @@ func InvoiceRequest(st store.Statement, c store.Customer, settings store.Billing
 			buyer.TaxRegistration = snap.CustomerTaxNumber
 		}
 		tax.Exempt, tax.ExemptReason = snap.Exempt, snap.ExemptReason
+	}
+	// DESIGN.md §17 — the per-rate summary, the notes that make a zero tax
+	// line lawful, and the e-invoice's QR payload. The summary is read from
+	// the statement's FROZEN tax lines, never recomputed: the document the
+	// customer holds must keep saying what it said at issue.
+	for _, t := range st.TaxLines {
+		tax.Summary = append(tax.Summary, TaxRate{
+			Label:  t.RuleName,
+			Kind:   t.Kind,
+			Rate:   dec(t.Rate),
+			Base:   dec(t.Base),
+			Amount: dec(t.Tax),
+			Note:   t.Note,
+		})
+		if t.Note != "" {
+			tax.Notes = append(tax.Notes, t.Note)
+		}
+	}
+	if st.EInvoice != nil {
+		tax.QRPayload = st.EInvoice.QRPayload
 	}
 	if seller.Name == "" {
 		// A tax invoice with no seller would be refused by the renderer's

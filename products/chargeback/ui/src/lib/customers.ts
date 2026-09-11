@@ -1,4 +1,5 @@
 import type { Customer, PriceBook, Summary } from '../api/types'
+import { dayOf } from './tax'
 
 /**
  * Readers over the customer list and detail documents (#6867). Pure, so the
@@ -206,6 +207,18 @@ export interface CustomerSettings {
   /** Percent as typed ("5"); "" leaves the Sovereign default in force. */
   tax_rate: string
   tax_registration_number: string
+  /**
+   * DESIGN.md §17 — where the customer is registered, whether it is a
+   * registered BUSINESS (which is what makes reverse charge apply, and is
+   * not derivable from a registration number), and the exemption
+   * CERTIFICATE behind tax_exempt. The expiry is YYYY-MM-DD; "" clears it.
+   */
+  tax_country: string
+  tax_region: string
+  tax_business: boolean
+  tax_exemption_number: string
+  tax_exemption_expires_on: string
+  tax_exemption_scan_ref: string
 }
 
 /** 0.05 → "5" for the override field; absent → "" (the Sovereign default applies). */
@@ -237,6 +250,13 @@ export function settingsFrom(c: Customer): CustomerSettings {
     tax_exempt_reason: c.tax_exempt_reason ?? '',
     tax_rate: taxRatePercent(c.tax_rate),
     tax_registration_number: c.tax_registration_number ?? '',
+    tax_country: c.tax_country ?? '',
+    tax_region: c.tax_region ?? '',
+    tax_business: c.tax_business === true,
+    tax_exemption_number: c.tax_exemption_number ?? '',
+    // The document sends a timestamp; the PATCH takes a plain day.
+    tax_exemption_expires_on: dayOf(c.tax_exemption_expires_on),
+    tax_exemption_scan_ref: c.tax_exemption_scan_ref ?? '',
   }
 }
 
@@ -265,13 +285,19 @@ const FIELD_LABELS: ReadonlyMap<string, string> = new Map([
   ['tax_exempt_reason', 'exemption reason'],
   ['tax_rate', 'tax rate'],
   ['tax_registration_number', 'tax registration number'],
+  ['tax_country', 'tax country'],
+  ['tax_region', 'tax region'],
+  ['tax_business', 'registered business'],
+  ['tax_exemption_number', 'exemption certificate number'],
+  ['tax_exemption_expires_on', 'exemption expiry'],
+  ['tax_exemption_scan_ref', 'exemption scan reference'],
 ])
 
 export function fieldLabel(key: string): string {
   return FIELD_LABELS.get(key) ?? key.replace(/_/g, ' ')
 }
 
-const BOOLEAN_FIELDS: ReadonlyArray<keyof CustomerSettings> = ['auto_apply_credit', 'suspend_at_zero', 'tax_exempt']
+const BOOLEAN_FIELDS: ReadonlyArray<keyof CustomerSettings> = ['auto_apply_credit', 'suspend_at_zero', 'tax_exempt', 'tax_business']
 
 /**
  * Only the fields that changed. The server treats an absent key as "leave
@@ -299,7 +325,7 @@ export function customerPatch(orig: Customer, form: CustomerSettings): Record<st
       out[k] = v === '' ? '' : String(Math.round((Number(v) / 100) * 1e8) / 1e8)
       continue
     }
-    out[k] = k === 'admin_email' ? v.toLowerCase() : v
+    out[k] = k === 'admin_email' ? v.toLowerCase() : k === 'tax_country' ? v.toUpperCase() : v
   }
   // Switching charging off makes the other three meaningless; the server
   // clears them, so they are not sent as contradictions alongside it.

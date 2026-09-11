@@ -25,6 +25,7 @@ import { Anomalies } from './pages/Anomalies'
 import { Recommendations } from './pages/Recommendations'
 import { Collections } from './pages/Collections'
 import { Billing } from './pages/Billing'
+import { Tax } from './pages/Tax'
 import { Access } from './pages/Access'
 import { Capacity } from './pages/Capacity'
 import { EstimatePublic } from './pages/EstimatePublic'
@@ -77,6 +78,7 @@ function ConsoleRoutes() {
             <Route path="/statements" element={<Statements />} />
             <Route path="/collections" element={<Collections />} />
             <Route path="/billing" element={<Billing />} />
+            <Route path="/tax" element={<Tax />} />
             <Route path="/access" element={<Access />} />
             <Route path="/resources" element={<Resources />} />
             <Route path="/resources/:sourceId/:resourceId" element={<ResourceDetail />} />

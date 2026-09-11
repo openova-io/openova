@@ -16,6 +16,12 @@ export interface BillingForm {
   /** Percent, as typed: "5" or "5.5". */
   tax_rate: string
   tax_registration_number: string
+  /**
+   * DESIGN.md §17 — the country the Sovereign is REGISTERED in (ISO 3166-1
+   * alpha-2, upper case). "" = not configured, and no cross-border
+   * determination is made at all.
+   */
+  tax_country: string
   legal_name: string
   address: string
   /** "-3, 0, 7, 14, 30" — negative days are before the due date. */
@@ -52,6 +58,7 @@ export function billingFormFrom(s: BillingSettings | null | undefined): BillingF
     credit_note_prefix: s?.credit_note_prefix ?? '',
     tax_rate: fractionToPercent(s?.tax_rate),
     tax_registration_number: s?.tax_registration_number ?? '',
+    tax_country: s?.tax_country ?? '',
     legal_name: s?.legal_name ?? '',
     address: s?.address ?? '',
     reminder_days: (s?.reminder_days ?? []).join(', '),
@@ -73,6 +80,8 @@ export function validateBilling(f: BillingForm): Errors<BillingForm> {
     if (!/^\d+(\.\d+)?$/.test(rate)) e.tax_rate = 'A percentage, e.g. 5 or 5.5.'
     else if (Number(rate) > 100) e.tax_rate = 'At most 100 %.'
   }
+  const country = f.tax_country.trim()
+  if (country && !/^[A-Za-z]{2}$/.test(country)) e.tax_country = 'A two-letter ISO 3166-1 alpha-2 code, e.g. OM, or empty.'
   const days = parseReminderDays(f.reminder_days)
   if (days.error) e.reminder_days = days.error
   const esc = f.escalation_days.trim()
@@ -92,7 +101,7 @@ export function validateBilling(f: BillingForm): Errors<BillingForm> {
 export function billingBody(saved: BillingSettings, f: BillingForm): Record<string, unknown> | null {
   const before = billingFormFrom(saved)
   const out: Record<string, unknown> = {}
-  const strings: Array<keyof BillingForm> = ['invoice_prefix', 'credit_note_prefix', 'tax_registration_number', 'legal_name', 'address', 'escalation_action']
+  const strings: Array<keyof BillingForm> = ['invoice_prefix', 'credit_note_prefix', 'tax_registration_number', 'tax_country', 'legal_name', 'address', 'escalation_action']
   for (const k of strings) {
     const v = f[k].trim()
     if (v !== before[k]) out[k] = v

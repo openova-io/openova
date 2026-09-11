@@ -1100,7 +1100,7 @@ func (s *Store) IssueStatementExternally(ctx context.Context, in ExternalIssue) 
 		}
 		// The tax snapshot is frozen here too: the exported bill states
 		// the buyer's registration and exemption as they were at issue.
-		snap, err := taxSnapshotTx(ctx, tx, customerID, Decimal(rate), settings)
+		snap, err := taxSnapshotWithRulesTx(ctx, tx, id, customerID, Decimal(rate), settings)
 		if err != nil {
 			return Statement{}, false, err
 		}

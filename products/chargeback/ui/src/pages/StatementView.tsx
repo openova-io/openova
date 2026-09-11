@@ -13,6 +13,20 @@ import { day, num, when } from '../lib/format'
 import { formatMoney, formatPct, minorUnitDigits, minorUnitTolerance } from '../lib/money'
 import { toNumber } from '../lib/num'
 import { groupBySource, groupByService } from '../lib/sku'
+import {
+  distinctRates,
+  einvoiceDocumentURL,
+  einvoiceStateHelp,
+  einvoiceStateLabel,
+  einvoiceTone,
+  einvoiceXMLURL,
+  hasArchivedXML,
+  kindTone,
+  rateText,
+  taxBaseTotal,
+  taxKindLabel,
+  taxLinesTotal,
+} from '../lib/tax'
 import { acceptsPayment, dueLabel, statementBalance, statementPaid, statementPeriod, statementStatus } from '../lib/statements'
 import { creditNoteBody, emptyCreditNoteForm, emptyPaymentForm, hasErrors, paymentBody, validateCreditNote, validatePayment, type CreditNoteForm, type Errors, type PaymentForm } from '../lib/forms'
 import { useQuery } from '../lib/useQuery'
@@ -98,6 +112,12 @@ export function StatementView() {
   const back = operator ? { to: '/statements', label: 'Statements' } : { to: '/my/statements', label: 'My statements' }
   // DESIGN.md §9.2 — what reached THIS invoice from the account, per payment.
   const allocations = (s.payments ?? []).flatMap((p) => (p.allocations ?? []).filter((a) => a.statement_id === s.id).map((a) => ({ a, p })))
+  // DESIGN.md §17 — the per-rule tax summary. `tax_lines` is the frozen
+  // summary; a statement issued before it existed carries the same rows
+  // inside its tax snapshot, and either is the same block to read.
+  const taxLines = s.tax_lines?.length ? s.tax_lines : (s.tax_snapshot?.lines ?? [])
+  const audit = s.tax_snapshot?.audit ?? []
+  const taxSummaryAgrees = Math.abs(taxLinesTotal(taxLines) - tax) < minorUnitTolerance(cur)
 
   const act = async (kind: 'issue' | 'delete' | 'send' | 'cancel', body?: Record<string, unknown>) => {
     setBusy(true)
@@ -323,6 +343,153 @@ export function StatementView() {
               </tr>
             </tbody>
           </table>
+        </div>
+      ) : null}
+
+      {/* DESIGN.md §17 — the tax summary BY RATE. An invoice with several
+          rates has to show one row per rule that applied: what was taxed,
+          at what rate, under which rule, and the sentence that rule makes
+          the invoice carry. Frozen at issue and never recomputed. */}
+      {taxLines.length ? (
+        <div className="card pad-0">
+          <div className="card-head" style={{ padding: '12px 12px 0' }}>
+            <h2>Tax summary</h2>
+            <span className="hint">
+              {taxLines.length} rule{taxLines.length === 1 ? '' : 's'} applied · {distinctRates(taxLines)} rate{distinctRates(taxLines) === 1 ? '' : 's'}
+            </span>
+          </div>
+          <table aria-label="Tax summary by rate">
+            <thead>
+              <tr>
+                <th>Rate</th>
+                <th>Kind</th>
+                <th>Category</th>
+                <th className="num">Taxable base</th>
+                <th className="num">Tax</th>
+              </tr>
+            </thead>
+            <tbody>
+              {taxLines.map((t, i) => (
+                <tr key={`${t.rule_id ?? 'rule'}-${i}`}>
+                  <td className="nowrap">
+                    {rateText(t.rate)}
+                    {t.rule_name ? <span className="sub">{t.rule_name}</span> : null}
+                  </td>
+                  <td>
+                    <Badge status={taxKindLabel(t.kind)} kind={kindTone(t.kind)} />
+                  </td>
+                  <td>{(t.category ?? '').trim() ? <span className="mono">{t.category}</span> : <span className="muted">default</span>}</td>
+                  <td className="num">{money(t.base)}</td>
+                  <td className="num">
+                    {money(t.tax)}
+                    {t.note ? <span className="sub">{t.note}</span> : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colSpan={3}>Total</td>
+                <td className="num">{money(taxBaseTotal(taxLines))}</td>
+                <td className="num">{money(taxLinesTotal(taxLines))}</td>
+              </tr>
+            </tfoot>
+          </table>
+          <p className={`${taxSummaryAgrees ? 'muted' : 'bad'} small`} style={{ padding: '0 12px 12px', margin: 0 }}>
+            {taxSummaryAgrees
+              ? `These rows add up to the ${money(tax)} of tax on this invoice.`
+              : `These rows add up to ${money(taxLinesTotal(taxLines))}, and the invoice carries ${money(tax)} of tax — the summary and the total disagree.`}
+          </p>
+          {audit.length ? (
+            <div style={{ padding: '0 12px 12px' }}>
+              <div className="muted small">Why, where the rules alone did not decide it:</div>
+              <ul className="muted small" style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+                {audit.map((line, i) => (
+                  <li key={i}>{line}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* DESIGN.md §17 — the e-invoice: where the signed document has got
+          to, and how to take it away. The signing KEY is never shown and
+          never asked for; the hash and the algorithm are what make the
+          archived copy verifiable. */}
+      {s.einvoice ? (
+        <div className="card">
+          <div className="card-head">
+            <h2>E-invoice</h2>
+            <span className="hint">
+              <Badge status={einvoiceStateLabel(s.einvoice.state)} kind={einvoiceTone(s.einvoice.state)} />
+            </span>
+          </div>
+          <p className="muted small">{einvoiceStateHelp(s.einvoice.state)}</p>
+          {s.einvoice.state === 'not_submitted' ? (
+            <Notice kind="warn">
+              Not submitted: {s.einvoice.submit_reason?.trim() || 'the profile gave no reason.'}
+            </Notice>
+          ) : null}
+          <table>
+            <tbody>
+              <tr>
+                <td className="muted">Profile</td>
+                <td>
+                  <span className="mono">{s.einvoice.profile || '—'}</span>
+                  {s.einvoice.invoice_number ? <span className="sub">invoice {s.einvoice.invoice_number}</span> : null}
+                </td>
+              </tr>
+              <tr>
+                <td className="muted">Built</td>
+                <td>
+                  {when(s.einvoice.built_at)}
+                  {s.einvoice.submitted_at ? <span className="sub">submitted {when(s.einvoice.submitted_at)}</span> : null}
+                </td>
+              </tr>
+              {s.einvoice.submit_reference ? (
+                <tr>
+                  <td className="muted">Authority reference</td>
+                  <td>
+                    <span className="mono">{s.einvoice.submit_reference}</span>
+                  </td>
+                </tr>
+              ) : null}
+              <tr>
+                <td className="muted">Hash</td>
+                <td>
+                  <span className="mono small" style={{ overflowWrap: 'anywhere' }}>{s.einvoice.hash || '—'}</span>
+                  <span className="sub">of the document that was signed — recompute it over the archived XML to prove the copy is the one issued</span>
+                </td>
+              </tr>
+              <tr>
+                <td className="muted">Signature</td>
+                <td>
+                  {s.einvoice.signature_algorithm ? <span className="mono">{s.einvoice.signature_algorithm}</span> : <span className="muted">not signed</span>}
+                  {s.einvoice.key_id ? <span className="sub">key {s.einvoice.key_id}</span> : null}
+                  <span className="sub">the signing key stays on the server; it is never shown here and never asked for</span>
+                </td>
+              </tr>
+              {s.einvoice.qr_payload ? (
+                <tr>
+                  <td className="muted">QR payload</td>
+                  <td>
+                    <span className="mono small" style={{ overflowWrap: 'anywhere' }}>{s.einvoice.qr_payload}</span>
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+          <div className="btn-row">
+            <a href={einvoiceDocumentURL(s.id)} target="_blank" rel="noreferrer">
+              Open the structured document
+            </a>
+            {hasArchivedXML(s.einvoice) ? (
+              <a href={einvoiceXMLURL(s.id)}>Download the signed XML</a>
+            ) : (
+              <span className="muted small">No archival copy yet — the XML exists once the document is archived.</span>
+            )}
+          </div>
         </div>
       ) : null}
 
