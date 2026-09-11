@@ -26,6 +26,9 @@ import { Recommendations } from './pages/Recommendations'
 import { Collections } from './pages/Collections'
 import { Billing } from './pages/Billing'
 import { Access } from './pages/Access'
+import { Partners } from './pages/Partners'
+import { PartnerDetail } from './pages/PartnerDetail'
+import { PartnerBill, PartnerHome, PartnerMyAccount, PartnerMyMargin, PartnerMyRetail, PartnerMyUsers } from './pages/Partner'
 
 function Home() {
   const { me, loading } = useSession()
@@ -54,6 +57,8 @@ export function App() {
             <Route path="/customers/new" element={<CustomerNew />} />
             <Route path="/customers/import" element={<CustomerImport />} />
             <Route path="/customers/:id" element={<CustomerDetail />} />
+            <Route path="/partners" element={<Partners />} />
+            <Route path="/partners/:id" element={<PartnerDetail />} />
             <Route path="/allocation" element={<Allocation />} />
             <Route path="/pricebooks" element={<PriceBooks />} />
             <Route path="/pricebooks/:id" element={<PriceBookEdit />} />
@@ -87,6 +92,18 @@ export function App() {
             <Route path="/my/anomalies" element={<Anomalies />} />
             <Route path="/my/recommendations" element={<Recommendations />} />
             <Route path="/my/discounts" element={<MyDiscounts />} />
+          </Route>
+
+          {/* The partner lens (DESIGN.md §11.5): its customers, its own and
+              their statements, its account, its margin and its users. */}
+          <Route element={<Shell lens="partner" />}>
+            <Route path="/partner/overview" element={<PartnerHome />} />
+            <Route path="/partner/customers/:id" element={<CustomerDetail />} />
+            <Route path="/partner/statements" element={<PartnerBill />} />
+            <Route path="/partner/account" element={<PartnerMyAccount />} />
+            <Route path="/partner/margin" element={<PartnerMyMargin />} />
+            <Route path="/partner/retail" element={<PartnerMyRetail />} />
+            <Route path="/partner/users" element={<PartnerMyUsers />} />
           </Route>
 
           <Route element={<Shell />}>

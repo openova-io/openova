@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Me } from '../api/types'
-import { can, customerIds, customerScope, displayRole, homeFor, isSovereign, roleLabel, scopeKindOf } from './access'
+import { can, canPartner, customerIds, customerScope, displayRole, homeFor, isPartner, isSovereign, partnerIds, partnerName, primaryPartnerId, roleLabel, scopeKindOf } from './access'
 
 const A = '11111111-1111-1111-1111-111111111111'
 const B = '22222222-2222-2222-2222-222222222222'
@@ -115,9 +115,61 @@ describe('access — the console decides by permissions', () => {
     expect(scopeKindOf('sovereign-admin')).toBe('sovereign')
     expect(scopeKindOf('billing-operator')).toBe('sovereign')
     expect(scopeKindOf('finance-viewer')).toBe('sovereign')
+    expect(scopeKindOf('partner-owner')).toBe('partner')
+    expect(scopeKindOf('partner-viewer')).toBe('partner')
     expect(scopeKindOf('customer-owner')).toBe('customer')
     expect(scopeKindOf('customer-billing')).toBe('customer')
     expect(scopeKindOf('customer-viewer')).toBe('customer')
     expect(scopeKindOf('root')).toBe('')
+  })
+})
+
+// The partner scope (DESIGN.md §11.5): a binding at partner:<id> covers the
+// customers it expanded to, and its partner-scoped permissions are asked for
+// at the partner, never at the Sovereign.
+const P = '99999999-9999-9999-9999-999999999999'
+const partnerOwner: Me = {
+  email: 'ap@resell.example',
+  role: 'partner-owner',
+  customer_id: 'party-1',
+  roles: [{ role: 'partner-owner', scope_kind: 'partner', partner_id: P, partner_name: 'Resell Co', customer_ids: ['party-1', A] }],
+  permissions: { [`partner:${P}`]: ['metering.read', 'account.topup', 'partner.self.manage'] },
+  scopes: [`partner:${P}`],
+}
+
+describe('the partner lens', () => {
+  it('is a lens of its own, neither the Sovereign nor a customer', () => {
+    expect(isPartner(partnerOwner)).toBe(true)
+    expect(isSovereign(partnerOwner)).toBe(false)
+    expect(isPartner(sovereignAdmin)).toBe(false)
+    expect(homeFor(partnerOwner)).toBe('/partner/overview')
+    expect(partnerIds(partnerOwner)).toEqual([P])
+    expect(primaryPartnerId(partnerOwner)).toBe(P)
+    expect(partnerName(partnerOwner, P)).toBe('Resell Co')
+  })
+
+  it('covers the customers it expanded to, and no others', () => {
+    expect(can(partnerOwner, 'metering.read', A)).toBe(true)
+    expect(can(partnerOwner, 'metering.read', B)).toBe(false)
+    expect(customerIds(partnerOwner)).toContain(A)
+    expect(customerIds(partnerOwner)).toContain('party-1')
+    // A partner-scoped permission is not a Sovereign one.
+    expect(can(partnerOwner, 'metering.read')).toBe(false)
+    expect(can(partnerOwner, 'partners.manage', A)).toBe(false)
+  })
+
+  it('asks partner permissions at the partner', () => {
+    expect(canPartner(partnerOwner, 'partner.self.manage', P)).toBe(true)
+    expect(canPartner(partnerOwner, 'partner.self.manage', 'another')).toBe(false)
+    expect(canPartner(partnerOwner, 'partners.manage', P)).toBe(false)
+    // A Sovereign binding answers at every partner.
+    expect(canPartner(sovereignAdmin, 'metering.read', P)).toBe(true)
+    expect(canPartner(null, 'metering.read', P)).toBe(false)
+  })
+
+  it('labels the two partner roles', () => {
+    expect(roleLabel('partner-owner')).toBe('Partner owner')
+    expect(roleLabel('partner-viewer')).toBe('Partner viewer')
+    expect(displayRole(partnerOwner)).toBe('partner-owner')
   })
 })

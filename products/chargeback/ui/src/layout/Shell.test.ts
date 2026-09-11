@@ -3,6 +3,7 @@ import type { Me } from '../api/types'
 import { navFor } from './Shell'
 
 const A = '11111111-1111-1111-1111-111111111111'
+const P = '99999999-9999-9999-9999-999999999999'
 
 function labels(me: Me): Record<string, string[]> {
   const out: Record<string, string[]> = {}
@@ -52,6 +53,49 @@ describe('Shell navigation per role', () => {
     const nav = labels(me)
     expect(nav.Configure).toEqual(['Cost sources', 'Discounts'])
     expect(nav.Bill).toContain('Account')
+  })
+
+  // The partner lens (DESIGN.md §11.5): its customers, its statements, its
+  // account, its margin and its users — and none of the Sovereign's pages,
+  // nor a customer's.
+  it('partner-owner sees its own pages only', () => {
+    const me: Me = {
+      email: 'ap@resell.example',
+      role: 'partner-owner',
+      permissions: { [`partner:${P}`]: ['metering.read', 'account.topup', 'partner.self.manage'] },
+      roles: [{ role: 'partner-owner', scope_kind: 'partner', partner_id: P, partner_name: 'Resell Co', customer_ids: [A] }],
+      scopes: [`partner:${P}`],
+    }
+    const nav = labels(me)
+    expect(nav.Analyse).toEqual(['My customers'])
+    expect(nav.Bill).toEqual(['Statements', 'Account', 'Margin'])
+    expect(nav.Configure).toEqual(['Retail prices', 'Users'])
+    for (const group of Object.values(nav)) {
+      expect(group).not.toContain('Partners')
+      expect(group).not.toContain('Price books')
+      expect(group).not.toContain('Customers')
+      expect(group).not.toContain('Collections')
+      expect(group).not.toContain('Access')
+    }
+  })
+
+  it('partner-viewer reads and gets neither the retail rule nor the users', () => {
+    const me: Me = {
+      email: 'v@resell.example',
+      role: 'partner-viewer',
+      permissions: { [`partner:${P}`]: ['metering.read'] },
+      roles: [{ role: 'partner-viewer', scope_kind: 'partner', partner_id: P, customer_ids: [A] }],
+      scopes: [`partner:${P}`],
+    }
+    const nav = labels(me)
+    expect(nav.Analyse).toEqual(['My customers'])
+    expect(nav.Bill).toEqual(['Statements', 'Account', 'Margin'])
+    expect(nav.Configure).toBeUndefined()
+  })
+
+  it('a sovereign-admin keeps Partners under Configure', () => {
+    const me: Me = { email: 'ops@nc.example', role: 'operator', permissions: { sovereign: ['metering.read', 'partners.manage', 'settings.manage'] }, roles: [{ role: 'sovereign-admin', scope_kind: 'sovereign' }] }
+    expect(labels(me).Configure).toContain('Partners')
   })
 
   it('a pre-binding /me document still lands on the right lens', () => {
