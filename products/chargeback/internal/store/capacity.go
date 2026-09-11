@@ -1208,15 +1208,19 @@ func poolView(p CapacityPool, cons, unknown *big.Rat, days map[string]*big.Rat, 
 	}
 	total, reserved := ratOf(p.Total), ratOf(p.Reserved)
 	pv := CapacityPoolView{CapacityPool: p, Label: fam.Label, Unit: fam.Unit, Consumed: decOf(cons), ZoneUnknown: decOf(unknown), Overcommit: "0.000000", Series: []CapacityDayPoint{}}
+	hasTotal := total.Sign() > 0
 	avail := new(big.Rat).Sub(total, reserved)
 	avail.Sub(avail, cons)
 	if avail.Sign() < 0 {
-		pv.Clamped = true
-		pv.Overcommit = decOf(new(big.Rat).Neg(avail))
+		// Over-committed only against a total that was entered: a pool
+		// nobody has sized yet reads unset with 0 available, not "over".
+		if hasTotal {
+			pv.Clamped = true
+			pv.Overcommit = decOf(new(big.Rat).Neg(avail))
+		}
 		avail = new(big.Rat)
 	}
 	pv.Available = decOf(avail)
-	hasTotal := total.Sign() > 0
 	if hasTotal {
 		used := new(big.Rat).Add(cons, reserved)
 		pct, _ := new(big.Rat).Quo(used, total).Float64()
