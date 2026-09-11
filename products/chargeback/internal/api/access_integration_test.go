@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/openova-io/openova/products/chargeback/internal/access"
 	"github.com/openova-io/openova/products/chargeback/internal/config"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
@@ -72,7 +73,7 @@ func TestIntegrationAccessOperatorEmailImplicitBindingAndMeShape(t *testing.T) {
 		t.Fatalf("implicit binding = %v", b)
 	}
 	sov := permsOf(me, "sovereign")
-	if len(sov) != 9 || !has(sov, "settings.manage") || !has(sov, "customer.self.manage") {
+	if len(sov) != len(access.Permissions) || !has(sov, "settings.manage") || !has(sov, "customer.self.manage") || !has(sov, "partners.manage") {
 		t.Fatalf("sovereign permissions = %v", sov)
 	}
 	if got := strs(me["scopes"]); len(got) != 1 || got[0] != "sovereign" {

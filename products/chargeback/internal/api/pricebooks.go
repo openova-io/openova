@@ -14,8 +14,25 @@ import (
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
 
+// refuseProviderBooks answers 403 for a PARTNER principal on a provider-level
+// price book (DESIGN.md §Partners: "partners never see provider-level books,
+// tiers, or another partner's margin"). A partner has its own derived retail
+// book at /partners/{id}/retail-book; the Sovereign's list books are what set
+// its buy price and are not its to read.
+func (h *Handler) refuseProviderBooks(w http.ResponseWriter, s store.Session) bool {
+	if !access.IsPartner(access.Bindings(s)) {
+		return false
+	}
+	writeErr(w, http.StatusForbidden, "permission metering.read required at the Sovereign; a partner reads its own retail book at /partners/{id}/retail-book")
+	return true
+}
+
 func (h *Handler) listPriceBooks(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireAuth(w, r); !ok {
+	s, ok := h.requireAuth(w, r)
+	if !ok {
+		return
+	}
+	if h.refuseProviderBooks(w, s) {
 		return
 	}
 	list, err := h.Store.ListPriceBooks(r.Context())
@@ -88,7 +105,8 @@ func (h *Handler) createPriceBook(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getPriceBook(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireAuth(w, r); !ok {
+	s, ok := h.requireAuth(w, r)
+	if !ok {
 		return
 	}
 	pb, err := h.Store.GetPriceBook(r.Context(), r.PathValue("id"))
@@ -96,7 +114,23 @@ func (h *Handler) getPriceBook(w http.ResponseWriter, r *http.Request) {
 		storeErr(w, err)
 		return
 	}
+	if h.refuseOthersBook(w, s, pb) {
+		return
+	}
 	writeJSON(w, http.StatusOK, pb)
+}
+
+// refuseOthersBook is refuseProviderBooks for ONE book: a partner principal
+// may read the retail book derived for its own partner and nothing else.
+func (h *Handler) refuseOthersBook(w http.ResponseWriter, s store.Session, pb store.PriceBook) bool {
+	bindings := access.Bindings(s)
+	if !access.IsPartner(bindings) {
+		return false
+	}
+	if pb.DerivedFromRule && pb.PartnerID != nil && access.OnPartner(bindings, *pb.PartnerID) {
+		return false
+	}
+	return h.refuseProviderBooks(w, s)
 }
 
 func (h *Handler) updatePriceBook(w http.ResponseWriter, r *http.Request) {
@@ -112,12 +146,24 @@ func (h *Handler) updatePriceBook(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, msg)
 		return
 	}
-	pb, err := h.Store.UpdatePriceBook(r.Context(), r.PathValue("id"), store.PriceBookInput(in))
+	if h.derivedBookWriteRefused(w, r, r.PathValue("id")) {
+		return
+	}
+	pb, err := h.Store.UpdatePriceBook(r.Context(), r.PathValue("id"), store.PriceBookInput{
+		Name: in.Name, Scope: in.Scope, Currency: in.Currency, AnnualDivisor: in.AnnualDivisor,
+		BillStopped: in.BillStopped, EffectiveFrom: in.EffectiveFrom, Description: in.Description,
+	})
 	if err != nil {
 		if errors.Is(err, store.ErrInvalid) {
 			writeErr(w, http.StatusBadRequest, strings.TrimPrefix(err.Error(), "invalid: "))
 			return
 		}
+		storeErr(w, err)
+		return
+	}
+	// A divisor or currency change moves every unit price, so the retail
+	// books derived from this list book are re-derived (DESIGN.md §Partners).
+	if err := h.rederiveForBook(r, pb.ID); err != nil {
 		storeErr(w, err)
 		return
 	}
@@ -166,6 +212,10 @@ func (h *Handler) putPriceItems(w http.ResponseWriter, r *http.Request) {
 		storeErr(w, err)
 		return
 	}
+	if err := h.rederiveForBook(r, id); err != nil {
+		storeErr(w, err)
+		return
+	}
 	h.audit(r, nil, "pricebook.items.put", map[string]any{"id": id, "items": n})
 	pb, err = h.Store.GetPriceBook(r.Context(), id)
 	if err != nil {
@@ -207,6 +257,10 @@ func (h *Handler) importPriceBook(w http.ResponseWriter, r *http.Request) {
 	}
 	n, err := h.Store.PutPriceItems(r.Context(), id, items, r.URL.Query().Get("merge") != "true")
 	if err != nil {
+		storeErr(w, err)
+		return
+	}
+	if err := h.rederiveForBook(r, id); err != nil {
 		storeErr(w, err)
 		return
 	}
@@ -346,12 +400,19 @@ func (h *Handler) addPriceItem(w http.ResponseWriter, r *http.Request) {
 	if in.Description != nil {
 		item.Description = *in.Description
 	}
+	if h.derivedBookWriteRefused(w, r, id) {
+		return
+	}
 	it, err := h.Store.AddPriceItem(r.Context(), id, item)
 	if err != nil {
 		if store.IsConflict(err) {
 			writeErr(w, http.StatusConflict, "sku "+in.SKU+" is already in this price book; PATCH it instead")
 			return
 		}
+		storeErr(w, err)
+		return
+	}
+	if err := h.rederiveForBook(r, id); err != nil {
 		storeErr(w, err)
 		return
 	}
@@ -399,8 +460,15 @@ func (h *Handler) patchPriceItem(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "nothing to update: give unit, unit_price, annual_price or description")
 		return
 	}
+	if h.derivedBookWriteRefused(w, r, id) {
+		return
+	}
 	it, err := h.Store.UpdatePriceItem(r.Context(), id, sku, p)
 	if err != nil {
+		storeErr(w, err)
+		return
+	}
+	if err := h.rederiveForBook(r, id); err != nil {
 		storeErr(w, err)
 		return
 	}
@@ -413,7 +481,14 @@ func (h *Handler) deletePriceItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id, sku := r.PathValue("id"), r.PathValue("sku")
+	if h.derivedBookWriteRefused(w, r, id) {
+		return
+	}
 	if err := h.Store.DeletePriceItem(r.Context(), id, sku); err != nil {
+		storeErr(w, err)
+		return
+	}
+	if err := h.rederiveForBook(r, id); err != nil {
 		storeErr(w, err)
 		return
 	}
@@ -425,12 +500,16 @@ func (h *Handler) deletePriceItem(w http.ResponseWriter, r *http.Request) {
 // (sku,unit,annual_price,unit_price,description), so a file exported here
 // round-trips through POST /pricebooks/{id}/import unchanged.
 func (h *Handler) exportPriceBook(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireAuth(w, r); !ok {
+	s, ok := h.requireAuth(w, r)
+	if !ok {
 		return
 	}
 	pb, err := h.Store.GetPriceBook(r.Context(), r.PathValue("id"))
 	if err != nil {
 		storeErr(w, err)
+		return
+	}
+	if h.refuseOthersBook(w, s, pb) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")

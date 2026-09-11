@@ -26,14 +26,16 @@ import (
 type ResourceQuery struct {
 	From, To   time.Time
 	CustomerID string
-	Kind       string
-	Region     string
-	Status     string // live | stopped | deleted | all
-	Q          string // matches name or resource_id, case-insensitive
-	Sort       string // cost | name | kind | first_seen | last_seen
-	Order      string // asc | desc
-	Limit      int
-	Offset     int
+	// CustomerIDs is the set a partner principal's scope confines to.
+	CustomerIDs []string
+	Kind        string
+	Region      string
+	Status      string // live | stopped | deleted | all
+	Q           string // matches name or resource_id, case-insensitive
+	Sort        string // cost | name | kind | first_seen | last_seen
+	Order       string // asc | desc
+	Limit       int
+	Offset      int
 }
 
 // ResourceLine is one (sku, unit) of a resource in the window.
@@ -160,6 +162,9 @@ func resourceRowsSQL(q ResourceQuery) (string, []any, error) {
 	if q.CustomerID != "" {
 		sb.WriteString(" AND u.customer_id::text = " + a.add(q.CustomerID))
 	}
+	if len(q.CustomerIDs) > 0 {
+		sb.WriteString(" AND u.customer_id::text = ANY(" + a.add(pq.Array(q.CustomerIDs)) + ")")
+	}
 	sb.WriteString(" GROUP BY u.source_id, u.resource_id), " + resourceBaseCTE)
 	sb.WriteString(`
 SELECT source_id, resource_id, kind, name, region, customer_id, customer_name, status,
@@ -169,6 +174,9 @@ SELECT source_id, resource_id, kind, name, region, customer_id, customer_name, s
   FROM base WHERE true`)
 	if q.CustomerID != "" {
 		sb.WriteString(" AND customer_id = " + a.add(q.CustomerID))
+	}
+	if len(q.CustomerIDs) > 0 {
+		sb.WriteString(" AND customer_id = ANY(" + a.add(pq.Array(q.CustomerIDs)) + ")")
 	}
 	if q.Kind != "" {
 		sb.WriteString(" AND kind = " + a.add(q.Kind))
@@ -251,10 +259,16 @@ func scanResourceRow(rows *sql.Rows, withAttrs bool) (ResourceRow, int, string, 
 // A customer principal is confined to its own rows whatever it asked for.
 func (s *Store) ListResources(ctx context.Context, scope Scope, q ResourceQuery) (ResourceList, error) {
 	if !scope.Operator {
-		if scope.CustomerID == "" {
+		ids := scope.Set()
+		switch len(ids) {
+		case 0:
 			return ResourceList{}, ErrNotFound
+		case 1:
+			q.CustomerID, q.CustomerIDs = ids[0], nil
+		default:
+			// A partner principal: its customers and its own party.
+			q.CustomerID, q.CustomerIDs = "", ids
 		}
-		q.CustomerID = scope.CustomerID
 	}
 	if !q.To.After(q.From) {
 		return ResourceList{}, fmt.Errorf("from must be before to")

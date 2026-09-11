@@ -104,16 +104,21 @@ var MigrationRoleBindings = func() int {
 	return len(migrations)
 }()
 
-const roleBindingColumns = `b.id, b.subject_email, b.role, b.scope_kind, b.customer_id, COALESCE(c.name, ''), b.granted_by, b.granted_at`
+const roleBindingColumns = `b.id, b.subject_email, b.role, b.scope_kind, b.customer_id, COALESCE(c.name, ''), b.granted_by, b.granted_at, b.partner_id, COALESCE(p.name, '')`
+
+// roleBindingFrom joins the customer of a customer binding and the partner
+// of a partner binding (DESIGN.md §Partners).
+const roleBindingFrom = ` FROM role_bindings b LEFT JOIN customers c ON c.id = b.customer_id LEFT JOIN partners p ON p.id = b.partner_id`
 
 func scanRoleBinding(row interface{ Scan(...any) error }) (RoleBinding, error) {
 	var b RoleBinding
-	var cust sql.NullString
+	var cust, partner sql.NullString
 	var at time.Time
-	if err := row.Scan(&b.ID, &b.SubjectEmail, &b.Role, &b.ScopeKind, &cust, &b.CustomerName, &b.GrantedBy, &at); err != nil {
+	if err := row.Scan(&b.ID, &b.SubjectEmail, &b.Role, &b.ScopeKind, &cust, &b.CustomerName, &b.GrantedBy, &at, &partner, &b.PartnerName); err != nil {
 		return b, mapErr(err)
 	}
 	b.CustomerID = strPtr(cust)
+	b.PartnerID = strPtr(partner)
 	at = at.UTC()
 	b.GrantedAt = &at
 	b.Source = BindingSourceExplicit
@@ -124,13 +129,14 @@ func scanRoleBinding(row interface{ Scan(...any) error }) (RoleBinding, error) {
 type RoleBindingFilter struct {
 	SubjectEmail string
 	CustomerID   string
+	PartnerID    string
 }
 
 // ListRoleBindings returns explicit bindings, operator roles first, then by
 // email. The implicit OPERATOR_EMAILS bindings are not rows and are added by
 // the API layer.
 func (s *Store) ListRoleBindings(ctx context.Context, f RoleBindingFilter) ([]RoleBinding, error) {
-	q := `SELECT ` + roleBindingColumns + ` FROM role_bindings b LEFT JOIN customers c ON c.id = b.customer_id`
+	q := `SELECT ` + roleBindingColumns + roleBindingFrom
 	var where []string
 	var args []any
 	if e := strings.ToLower(strings.TrimSpace(f.SubjectEmail)); e != "" {
@@ -141,10 +147,14 @@ func (s *Store) ListRoleBindings(ctx context.Context, f RoleBindingFilter) ([]Ro
 		args = append(args, f.CustomerID)
 		where = append(where, fmt.Sprintf("b.customer_id = $%d", len(args)))
 	}
+	if f.PartnerID != "" {
+		args = append(args, f.PartnerID)
+		where = append(where, fmt.Sprintf("b.partner_id = $%d", len(args)))
+	}
 	if len(where) > 0 {
 		q += " WHERE " + strings.Join(where, " AND ")
 	}
-	q += ` ORDER BY (b.scope_kind = 'sovereign') DESC, b.subject_email, c.name NULLS FIRST, b.role`
+	q += ` ORDER BY (b.scope_kind = 'sovereign') DESC, (b.scope_kind = 'partner') DESC, b.subject_email, p.name NULLS FIRST, c.name NULLS FIRST, b.role`
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, mapErr(err)
@@ -169,14 +179,52 @@ func (s *Store) BindingsForEmail(ctx context.Context, email string) ([]RoleBindi
 
 // GetRoleBinding returns one binding by id.
 func (s *Store) GetRoleBinding(ctx context.Context, id string) (RoleBinding, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT `+roleBindingColumns+` FROM role_bindings b LEFT JOIN customers c ON c.id = b.customer_id WHERE b.id = $1`, id)
+	row := s.db.QueryRowContext(ctx, `SELECT `+roleBindingColumns+roleBindingFrom+` WHERE b.id = $1`, id)
 	return scanRoleBinding(row)
+}
+
+// scopeTarget checks that the ids a binding or mapping carries match the
+// scope kind its role fixes: a customer role needs a customer_id and nothing
+// else, a partner role a partner_id and nothing else, a Sovereign role
+// neither. It clears the ids a Sovereign role does not take.
+func scopeTarget(role string, scopeKind string, customerID, partnerID **string) (string, error) {
+	kind := ScopeKindOfRole(role)
+	if scopeKind != "" && scopeKind != kind {
+		return "", fmt.Errorf("%w: role %s is bound at the %s scope, not %s", ErrInvalid, role, kind, scopeKind)
+	}
+	hasCustomer := *customerID != nil && **customerID != ""
+	hasPartner := *partnerID != nil && **partnerID != ""
+	switch kind {
+	case ScopeKindCustomer:
+		if !hasCustomer {
+			return "", fmt.Errorf("%w: a %s binding needs a customer_id", ErrInvalid, role)
+		}
+		if hasPartner {
+			return "", fmt.Errorf("%w: a %s binding is bound to one customer and takes no partner_id", ErrInvalid, role)
+		}
+		*partnerID = nil
+	case ScopeKindPartner:
+		if !hasPartner {
+			return "", fmt.Errorf("%w: a %s binding needs a partner_id", ErrInvalid, role)
+		}
+		if hasCustomer {
+			return "", fmt.Errorf("%w: a %s binding is bound to one partner and takes no customer_id", ErrInvalid, role)
+		}
+		*customerID = nil
+	default:
+		if hasCustomer || hasPartner {
+			return "", fmt.Errorf("%w: a %s binding is Sovereign-wide and takes no customer_id or partner_id", ErrInvalid, role)
+		}
+		*customerID, *partnerID = nil, nil
+	}
+	return kind, nil
 }
 
 // UpsertRoleBinding grants a role at a scope, idempotently: an identical
 // binding is returned unchanged (granted_by and granted_at are kept from the
 // first grant). The role fixes the scope kind; a customer role without a
-// customer, or a sovereign role with one, is ErrInvalid.
+// customer, a partner role without a partner, or a sovereign role with
+// either, is ErrInvalid.
 func (s *Store) UpsertRoleBinding(ctx context.Context, b RoleBinding) (RoleBinding, error) {
 	b.SubjectEmail = strings.ToLower(strings.TrimSpace(b.SubjectEmail))
 	if b.SubjectEmail == "" || !strings.Contains(b.SubjectEmail, "@") {
@@ -185,33 +233,24 @@ func (s *Store) UpsertRoleBinding(ctx context.Context, b RoleBinding) (RoleBindi
 	if !ValidRole(b.Role) {
 		return RoleBinding{}, fmt.Errorf("%w: role must be one of %s", ErrInvalid, strings.Join(Roles, ", "))
 	}
-	kind := ScopeKindOfRole(b.Role)
-	if b.ScopeKind != "" && b.ScopeKind != kind {
-		return RoleBinding{}, fmt.Errorf("%w: role %s is bound at the %s scope, not %s", ErrInvalid, b.Role, kind, b.ScopeKind)
+	kind, err := scopeTarget(b.Role, b.ScopeKind, &b.CustomerID, &b.PartnerID)
+	if err != nil {
+		return RoleBinding{}, err
 	}
 	b.ScopeKind = kind
-	if kind == ScopeKindCustomer && (b.CustomerID == nil || *b.CustomerID == "") {
-		return RoleBinding{}, fmt.Errorf("%w: a %s binding needs a customer_id", ErrInvalid, b.Role)
-	}
-	if kind == ScopeKindSovereign && b.CustomerID != nil && *b.CustomerID != "" {
-		return RoleBinding{}, fmt.Errorf("%w: a %s binding is Sovereign-wide and takes no customer_id", ErrInvalid, b.Role)
-	}
-	if kind == ScopeKindSovereign {
-		b.CustomerID = nil
-	}
 	var id string
-	err := s.db.QueryRowContext(ctx, `
+	err = s.db.QueryRowContext(ctx, `
 		WITH ins AS (
-			INSERT INTO role_bindings (subject_email, role, scope_kind, customer_id, granted_by)
-			VALUES ($1, $2, $3, $4, $5)
+			INSERT INTO role_bindings (subject_email, role, scope_kind, customer_id, partner_id, granted_by)
+			VALUES ($1, $2, $3, $4, $6, $5)
 			ON CONFLICT DO NOTHING
 			RETURNING id
 		)
 		SELECT id FROM ins
 		UNION ALL
-		SELECT id FROM role_bindings WHERE subject_email = $1 AND role = $2 AND scope_kind = $3 AND customer_id IS NOT DISTINCT FROM $4::uuid
+		SELECT id FROM role_bindings WHERE subject_email = $1 AND role = $2 AND scope_kind = $3 AND customer_id IS NOT DISTINCT FROM $4::uuid AND partner_id IS NOT DISTINCT FROM $6::uuid
 		LIMIT 1`,
-		b.SubjectEmail, b.Role, b.ScopeKind, nullStr(b.CustomerID), strings.TrimSpace(b.GrantedBy)).Scan(&id)
+		b.SubjectEmail, b.Role, b.ScopeKind, nullStr(b.CustomerID), strings.TrimSpace(b.GrantedBy), nullStr(b.PartnerID)).Scan(&id)
 	if err != nil {
 		return RoleBinding{}, mapErr(err)
 	}
@@ -242,22 +281,25 @@ func (s *Store) CountSovereignAdmins(ctx context.Context) (int, error) {
 // directory group mappings
 // ---------------------------------------------------------------------------
 
-const groupMappingColumns = `m.id, m.group_name, m.role, m.scope_kind, m.customer_id, COALESCE(c.name, ''), m.created_at`
+const groupMappingColumns = `m.id, m.group_name, m.role, m.scope_kind, m.customer_id, COALESCE(c.name, ''), m.created_at, m.partner_id, COALESCE(p.name, '')`
+
+const groupMappingFrom = ` FROM group_role_mappings m LEFT JOIN customers c ON c.id = m.customer_id LEFT JOIN partners p ON p.id = m.partner_id`
 
 func scanGroupMapping(row interface{ Scan(...any) error }) (GroupRoleMapping, error) {
 	var m GroupRoleMapping
-	var cust sql.NullString
-	if err := row.Scan(&m.ID, &m.GroupName, &m.Role, &m.ScopeKind, &cust, &m.CustomerName, &m.CreatedAt); err != nil {
+	var cust, partner sql.NullString
+	if err := row.Scan(&m.ID, &m.GroupName, &m.Role, &m.ScopeKind, &cust, &m.CustomerName, &m.CreatedAt, &partner, &m.PartnerName); err != nil {
 		return m, mapErr(err)
 	}
 	m.CustomerID = strPtr(cust)
+	m.PartnerID = strPtr(partner)
 	m.CreatedAt = m.CreatedAt.UTC()
 	return m, nil
 }
 
 // ListGroupRoleMappings returns every mapping, by group then role.
 func (s *Store) ListGroupRoleMappings(ctx context.Context) ([]GroupRoleMapping, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+groupMappingColumns+` FROM group_role_mappings m LEFT JOIN customers c ON c.id = m.customer_id ORDER BY m.group_name, (m.scope_kind = 'sovereign') DESC, c.name NULLS FIRST, m.role`)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+groupMappingColumns+groupMappingFrom+` ORDER BY m.group_name, (m.scope_kind = 'sovereign') DESC, (m.scope_kind = 'partner') DESC, p.name NULLS FIRST, c.name NULLS FIRST, m.role`)
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -283,17 +325,11 @@ func validateGroupMapping(m GroupRoleMapping) (GroupRoleMapping, error) {
 	if !ValidRole(m.Role) {
 		return m, fmt.Errorf("%w: role must be one of %s", ErrInvalid, strings.Join(Roles, ", "))
 	}
-	kind := ScopeKindOfRole(m.Role)
-	if m.ScopeKind != "" && m.ScopeKind != kind {
-		return m, fmt.Errorf("%w: role %s is bound at the %s scope, not %s", ErrInvalid, m.Role, kind, m.ScopeKind)
+	kind, err := scopeTarget(m.Role, m.ScopeKind, &m.CustomerID, &m.PartnerID)
+	if err != nil {
+		return m, err
 	}
 	m.ScopeKind = kind
-	if kind == ScopeKindCustomer && (m.CustomerID == nil || *m.CustomerID == "") {
-		return m, fmt.Errorf("%w: a %s mapping needs a customer_id", ErrInvalid, m.Role)
-	}
-	if kind == ScopeKindSovereign {
-		m.CustomerID = nil
-	}
 	return m, nil
 }
 
@@ -317,8 +353,8 @@ func (s *Store) ReplaceGroupRoleMappings(ctx context.Context, in []GroupRoleMapp
 		return nil, mapErr(err)
 	}
 	for _, m := range clean {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO group_role_mappings (group_name, role, scope_kind, customer_id) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
-			m.GroupName, m.Role, m.ScopeKind, nullStr(m.CustomerID)); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO group_role_mappings (group_name, role, scope_kind, customer_id, partner_id) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING`,
+			m.GroupName, m.Role, m.ScopeKind, nullStr(m.CustomerID), nullStr(m.PartnerID)); err != nil {
 			return nil, mapErr(err)
 		}
 	}
@@ -341,7 +377,7 @@ func (s *Store) BindingsForGroups(ctx context.Context, groups []string) ([]RoleB
 	if len(names) == 0 {
 		return nil, nil
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT `+groupMappingColumns+` FROM group_role_mappings m LEFT JOIN customers c ON c.id = m.customer_id WHERE m.group_name = ANY($1) ORDER BY m.group_name, m.role`, pq.Array(names))
+	rows, err := s.db.QueryContext(ctx, `SELECT `+groupMappingColumns+groupMappingFrom+` WHERE m.group_name = ANY($1) ORDER BY m.group_name, m.role`, pq.Array(names))
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -353,7 +389,7 @@ func (s *Store) BindingsForGroups(ctx context.Context, groups []string) ([]RoleB
 			return nil, err
 		}
 		at := m.CreatedAt
-		out = append(out, RoleBinding{Role: m.Role, ScopeKind: m.ScopeKind, CustomerID: m.CustomerID, CustomerName: m.CustomerName, GrantedAt: &at, Source: BindingSourceGroup + m.GroupName})
+		out = append(out, RoleBinding{Role: m.Role, ScopeKind: m.ScopeKind, CustomerID: m.CustomerID, CustomerName: m.CustomerName, PartnerID: m.PartnerID, PartnerName: m.PartnerName, GrantedAt: &at, Source: BindingSourceGroup + m.GroupName})
 	}
 	return out, rows.Err()
 }

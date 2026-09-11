@@ -52,25 +52,44 @@ func (h *Handler) runStatements(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"period": in.Period, "results": results})
 }
 
+// redactPartner strips the partner BUY and MARGIN figures from statements a
+// principal may read but must not see them on (DESIGN.md §Partners): they
+// are shown to Sovereign roles and to the partner's own roles only. The
+// partner assignment itself stays — it is the customer's own commercial
+// relationship.
+func (h *Handler) redactPartner(s store.Session, sts []store.Statement) {
+	bindings := access.Bindings(s)
+	if access.IsSovereign(bindings) {
+		return
+	}
+	for i := range sts {
+		if sts[i].PartnerID == nil || !access.OnPartner(bindings, *sts[i].PartnerID) {
+			sts[i].RedactPartner()
+		}
+	}
+}
+
 func (h *Handler) listAllStatements(w http.ResponseWriter, r *http.Request) {
 	s, ok := h.requireAuth(w, r)
 	if !ok {
-		return
-	}
-	if !s.Scope().Operator {
-		// Customer principals get their own list here too.
-		list, err := h.Store.ListStatements(r.Context(), s.Scope(), *s.CustomerID)
-		if err != nil {
-			storeErr(w, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"statements": list})
 		return
 	}
 	qs := r.URL.Query()
 	period := qs.Get("period")
 	if period != "" && !periodShape.MatchString(period) {
 		writeErr(w, http.StatusBadRequest, "period must be YYYY-MM")
+		return
+	}
+	if !s.Scope().Operator {
+		// A customer principal gets its own list here too; a partner
+		// principal its customers' statements AND its own party's.
+		list, err := h.Store.ListStatementsInScope(r.Context(), s.Scope(), period)
+		if err != nil {
+			storeErr(w, err)
+			return
+		}
+		h.redactPartner(s, list)
+		writeJSON(w, http.StatusOK, map[string]any{"statements": list})
 		return
 	}
 	// Optional `customer_id` (alias `customer`): one customer's statements,
@@ -131,6 +150,7 @@ func (h *Handler) listCustomerStatements(w http.ResponseWriter, r *http.Request)
 		storeErr(w, err)
 		return
 	}
+	h.redactPartner(s, list)
 	writeJSON(w, http.StatusOK, map[string]any{"statements": list})
 }
 
@@ -148,6 +168,9 @@ func (h *Handler) getStatement(w http.ResponseWriter, r *http.Request) {
 		storeErr(w, err)
 		return
 	}
+	one := []store.Statement{st}
+	h.redactPartner(s, one)
+	st = one[0]
 	if !asCSV {
 		writeJSON(w, http.StatusOK, st)
 		return

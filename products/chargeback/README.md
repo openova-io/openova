@@ -270,17 +270,21 @@ with the user's directory groups on `TRUSTED_FORWARD_GROUPS_HEADER`
 (`POST /auth/pin/request` → `POST /auth/pin/verify` → `cb_session` cookie).
 Either way the session's bindings are resolved on **every** request.
 
-**Access (DESIGN.md §10).** Two scope kinds — `sovereign` and
-`customer:<id>` — nine permissions, six roles that are fixed permission
-bundles: `sovereign-admin` (everything), `billing-operator` (rating,
-customers, issuing, collecting, audit — no settings, no access changes),
-`finance-viewer` (read + export only), `customer-owner` (own costs and
-invoices, top-up, own users / PO reference / tax registration),
+**Access (DESIGN.md §10, §11.5).** Three scope kinds — `sovereign`,
+`partner:<id>` and `customer:<id>` — eleven permissions, eight roles that are
+fixed permission bundles: `sovereign-admin` (everything), `billing-operator`
+(rating, customers, partners, issuing, collecting, audit — no settings, no
+access changes), `finance-viewer` (read + export only), `partner-owner` (its
+customers' costs and statements, its own account and margin, its retail rule
+and its users), `partner-viewer` (those reads only), `customer-owner` (own
+costs and invoices, top-up, own users / PO reference / tax registration),
 `customer-billing` (own costs, top-up), `customer-viewer` (own costs). A
 binding comes from `OPERATOR_EMAILS` (implicit `sovereign-admin`), from
 `role_bindings` (the access API, the customer's Users tab, the customer's
-`admin_email`, the Organization sync), or from a directory group mapped in
-`group_role_mappings`. A Sovereign permission covers every customer; a
+`admin_email`, the partner's Users tab, the partner's `contact_email`, the
+Organization sync), or from a directory group mapped in
+`group_role_mappings`. A partner binding expands to the customers assigned to
+that partner plus the partner's own party. A Sovereign permission covers every customer; a
 customer permission covers that customer only. Other customers' ids answer
 `404`; a missing permission answers `403` naming it. `customer_users` remains
 as a view for older readers; the legacy `role` key on `/auth/me`
@@ -296,9 +300,29 @@ highest-power binding.
 | Sources | `GET /sources[?internal=true]` (operator-wide) · `GET/POST /customers/{id}/sources` · `GET/PATCH /customers/{id}/sources/{sid}` · `GET/PATCH /sources/{id}` (region, project_id, scope_token, domain_id, **price_book_id**) · `POST /sources/{id}/credential` (rotate + verify) · `POST /sources/{id}/verify` · `DELETE /sources/{id}` |
 | Usage | `GET /customers/{id}/usage?from&to&group_by=sku\|resource\|day` · `GET /customers/{id}/inventory` |
 | Price books | `GET/POST /pricebooks` (**`scope`**: cloud \| platform) · `GET /pricebooks/template.csv` · `GET/PUT /pricebooks/{id}` · `GET /pricebooks/{id}/coverage` · `PUT /pricebooks/{id}/items` · `POST /pricebooks/{id}/import` |
+| Partners (`partners.manage`; a partner owner holds `partner.self.manage` on its own) | `GET/POST /partners` · `GET/PATCH /partners/{id}` · `GET/POST /partners/tiers` · `PUT /partners/tiers/{id}/discounts` · `PUT /partners/{id}/retail-rule` (re-derives; the response lists the below-buy lines) · `GET /partners/{id}/retail-book` · `GET /partners/{id}/customers` · `GET /partners/{id}/statements` · `GET /partners/{id}/margin?period=` · `GET /partners/{id}/account` · `GET/POST /partners/{id}/users` · `DELETE /partners/{id}/users/{email}` · `PATCH /customers/{id} {partner_id}` |
 | Statements | `POST /statements/run {period, customer_id?}` · `GET /statements[?period&customer_id]` · `GET /customers/{id}/statements` · `GET /statements/{id}` · `GET /statements/{id}.csv` · `POST /statements/{id}/issue` |
 | Operator | `GET /overview` |
 | Ops (root) | `GET /healthz` · `GET /readyz` · `GET /metrics` |
+
+**Partners — resellers and agents** (DESIGN.md §11, founder direction
+2026-09-11). ONE list price per SKU, two independent discount steps off it,
+both decided by the one discount engine and its combination rule: the
+customer's discounts give the **customer net** (what the end customer pays),
+the partner's **tier** gives the **partner buy** (what the partner pays us),
+and **margin = net − buy** is derived per line and never entered — there is
+no markup typed per SKU anywhere. `bill_to = partner` (resell) invoices the
+partner a **wholesale** statement of its customers' lines at the buy price
+and prices its customers from a **derived retail book** materialised from its
+retail rule (read-only, re-derived on a list, tier or rule change, warning on
+any line below buy); `bill_to = customer` (agent) invoices the end customer
+at our books and credits the partner a **commission** statement — `net − buy`
+— as a ledger credit on its account. A partner is a PARTY: it owns one
+`customers` row (`party_kind = partner`) and so has a balance, invoices,
+payments and collections through the existing ledger. A third scope kind,
+`partner:<id>`, expands to the partner's customers plus its party; the roles
+are `partner-owner` and `partner-viewer`. One `POST /statements/run` writes
+the customer statements and the partner statements together.
 
 **Two layers, one book per source** (DESIGN.md §2, founder direction
 2026-09-08). Every cost source belongs to the **cloud** layer (a cloud

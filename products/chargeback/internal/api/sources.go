@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/openova-io/openova/products/chargeback/internal/access"
+	"github.com/openova-io/openova/products/chargeback/internal/rating"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
 
@@ -374,6 +375,14 @@ func (h *Handler) patchSource(w http.ResponseWriter, r *http.Request) {
 	if in.PriceBookID != nil {
 		details["price_book_id"] = updated.PriceBookID
 		details["price_book_name"] = updated.PriceBookName
+		// A partner customer's source moving onto a list book brings that
+		// book into the partner's retail derivation (DESIGN.md §Partners).
+		if c, cerr := h.Store.GetCustomer(r.Context(), store.OperatorScope, src.CustomerID); cerr == nil && c.PartnerID != nil {
+			if _, derr := rating.DeriveRetailBooks(r.Context(), h.Store, *c.PartnerID); derr != nil {
+				storeErr(w, derr)
+				return
+			}
+		}
 	}
 	h.audit(r, &src.CustomerID, "source.update", details)
 	writeJSON(w, http.StatusOK, struct {

@@ -73,27 +73,35 @@ func (h *Handler) getAccount(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	c, err := h.Store.GetCustomer(r.Context(), s.Scope(), id)
+	h.writeAccount(w, r, s.Scope(), id)
+}
+
+// writeAccount is the account document of ONE party — a customer, or a
+// partner's own party row (DESIGN.md §Partners). It takes the scope and the
+// id rather than reading them off the request because the partner endpoint
+// has already authorised at the partner scope.
+func (h *Handler) writeAccount(w http.ResponseWriter, r *http.Request, scope store.Scope, id string) {
+	c, err := h.Store.GetCustomer(r.Context(), scope, id)
 	if err != nil {
 		storeErr(w, err)
 		return
 	}
-	bal, err := h.Store.GetAccountBalance(r.Context(), s.Scope(), id)
+	bal, err := h.Store.GetAccountBalance(r.Context(), scope, id)
 	if err != nil {
 		storeErr(w, err)
 		return
 	}
-	entries, err := h.Store.ListAccountEntries(r.Context(), s.Scope(), id, 0)
+	entries, err := h.Store.ListAccountEntries(r.Context(), scope, id, 0)
 	if err != nil {
 		storeErr(w, err)
 		return
 	}
-	payments, err := h.Store.ListCustomerPayments(r.Context(), s.Scope(), id)
+	payments, err := h.Store.ListCustomerPayments(r.Context(), scope, id)
 	if err != nil {
 		storeErr(w, err)
 		return
 	}
-	notes, err := h.Store.ListCustomerCreditNotes(r.Context(), s.Scope(), id)
+	notes, err := h.Store.ListCustomerCreditNotes(r.Context(), scope, id)
 	if err != nil {
 		storeErr(w, err)
 		return

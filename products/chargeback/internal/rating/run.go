@@ -123,7 +123,7 @@ func TotalsWithDiscount(lines []store.RatedLine, discount store.Decimal, taxRate
 // set none (store.DefaultTaxRate is the same figure at the column's scale).
 const DefaultTaxRate store.Decimal = "0.05"
 
-// Result is one customer's outcome in a run.
+// Result is one customer's — or one partner's — outcome in a run.
 type Result struct {
 	CustomerID   string   `json:"customer_id"`
 	CustomerName string   `json:"customer_name"`
@@ -139,6 +139,13 @@ type Result struct {
 	// period but no price book; their SKUs are in UnpricedSKUs.
 	UnbookedSources []string `json:"unbooked_sources,omitempty"`
 	Error           string   `json:"error,omitempty"`
+	// The partner keys (DESIGN.md §Partners), additive. On a customer's
+	// result PartnerID is its partner; on a partner's own result — the
+	// wholesale or commission statement on its party, whose id is
+	// CustomerID — Kind says which and PartnerName who.
+	PartnerID   string `json:"partner_id,omitempty"`
+	PartnerName string `json:"partner_name,omitempty"`
+	Kind        string `json:"statement_kind,omitempty"`
 }
 
 // Run rates every (or one) customer's usage for a period into draft
@@ -148,6 +155,13 @@ type Result struct {
 // source are reported, not rated. A single-customer run whose sources use
 // books of different currencies returns ErrMixedCurrency; in an all-customer
 // run that customer carries the message in its Result and the others proceed.
+//
+// A customer with a PARTNER (DESIGN.md §Partners) is rated through the
+// waterfall: its lines carry list, buy and net, its statement the partner
+// keys. After the customer pass the run writes each affected partner's OWN
+// statement for the period — wholesale (resell) or commission (agent) — on
+// the partner's party, from the lines the customer pass just froze. One run,
+// both kinds of statement.
 func Run(ctx context.Context, st *store.Store, period, customerID string) ([]Result, error) {
 	from, to, err := store.PeriodBounds(period)
 	if err != nil {
@@ -163,13 +177,40 @@ func Run(ctx context.Context, st *store.Store, period, customerID string) ([]Res
 	if err != nil {
 		return nil, fmt.Errorf("billing settings: %w", err)
 	}
+	rule := settings.DiscountRule
+	if rule == "" {
+		rule = store.DefaultDiscountRule
+	}
+	partners := map[string]*partnerContext{}
+	var partnerOrder []string
+	partnerOf := func(id string) (*partnerContext, error) {
+		if pc, ok := partners[id]; ok {
+			return pc, nil
+		}
+		pc, err := loadPartner(ctx, st, id, from, rule)
+		if err != nil {
+			return nil, err
+		}
+		partners[id] = pc
+		partnerOrder = append(partnerOrder, id)
+		return pc, nil
+	}
 	var results []Result
 	for _, c := range customers {
 		if customerID != "" && c.ID != customerID {
 			continue
 		}
 		res := Result{CustomerID: c.ID, CustomerName: c.Name}
-		stmt, detail, err := rateCustomer(ctx, st, c, from, to, settings)
+		var pc *partnerContext
+		if c.PartnerID != nil {
+			res.PartnerID, res.PartnerName = *c.PartnerID, c.PartnerName
+			if pc, err = partnerOf(*c.PartnerID); err != nil {
+				res.Error = err.Error()
+				results = append(results, res)
+				continue
+			}
+		}
+		stmt, detail, err := rateCustomer(ctx, st, c, pc, from, to, settings)
 		if err != nil {
 			if customerID != "" && errors.Is(err, ErrMixedCurrency) {
 				return nil, err
@@ -187,10 +228,32 @@ func Run(ctx context.Context, st *store.Store, period, customerID string) ([]Res
 		res.UnpricedSKUs = detail.unpriced
 		res.NotSoldPerUse = detail.notSold
 		res.UnbookedSources = detail.unbooked
+		res.Kind = stmt.Kind
 		results = append(results, res)
 	}
 	if customerID != "" && len(results) == 0 {
 		return nil, store.ErrNotFound
+	}
+	// The partner pass: one statement per affected partner, from the lines
+	// the customer pass froze (including customers whose statement for the
+	// period is already issued and was left untouched).
+	for _, id := range partnerOrder {
+		pc := partners[id]
+		res := Result{PartnerID: pc.partner.ID, PartnerName: pc.partner.Name, CustomerID: pc.party.ID, CustomerName: pc.party.Name}
+		stmt, written, err := ratePartner(ctx, st, pc, from, to, settings)
+		if err != nil {
+			res.Error = err.Error()
+			if !errors.Is(err, ErrMixedCurrency) {
+				slog.Warn("partner statement run failed", "partner", pc.partner.Slug, "period", period, "error", err)
+			}
+			results = append(results, res)
+			continue
+		}
+		if !written {
+			continue
+		}
+		res.StatementID, res.Lines, res.Total, res.Kind = stmt.ID, len(stmt.Lines), string(stmt.Total), stmt.Kind
+		results = append(results, res)
 	}
 	return results, nil
 }
@@ -206,8 +269,9 @@ type rateDetail struct {
 // settings carry the operator-selected combination rule, read once per run
 // so every statement of the run states the same rule (#6867), and the
 // Sovereign's default tax rate the customer's own profile overrides
-// (DESIGN.md §9.4).
-func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, from, to time.Time, settings store.BillingSettings) (store.Statement, rateDetail, error) {
+// (DESIGN.md §9.4). pc is the customer's partner context, nil for a direct
+// customer.
+func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, pc *partnerContext, from, to time.Time, settings store.BillingSettings) (store.Statement, rateDetail, error) {
 	var detail rateDetail
 	discountRule := settings.DiscountRule
 	// The customer's rate: zero when exempt, its own when it has one, else
@@ -239,6 +303,7 @@ func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, from, 
 		perSource[u.SourceID] = append(perSource[u.SourceID], u)
 	}
 	books := map[string]store.PriceBook{}
+	bookOf := map[string]string{} // source id → list book id
 	currency := ""
 	var lines []store.RatedLine
 	unpricedSet, notSoldSet := map[string]bool{}, map[string]bool{}
@@ -260,6 +325,7 @@ func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, from, 
 			}
 			books[pb.ID] = pb
 		}
+		bookOf[src.ID] = pb.ID
 		// The statement's currency is the one every booked source shares;
 		// the first booked source (usage or not) sets it.
 		if currency == "" {
@@ -306,29 +372,75 @@ func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, from, 
 	if discountRule == "" {
 		discountRule = store.DefaultDiscountRule
 	}
-	discountTotal, applied, err := ApplyDiscounts(lines, discounts, discountRule)
+	draft := store.StatementDraft{
+		CustomerID:   c.ID,
+		PeriodStart:  from,
+		PeriodEnd:    to.AddDate(0, 0, -1),
+		Currency:     currency,
+		TaxRate:      taxRate,
+		DiscountRule: discountRule,
+	}
+	if pc == nil {
+		// A direct customer: list, customer discounts, net — as always.
+		discountTotal, applied, err := ApplyDiscounts(lines, discounts, discountRule)
+		if err != nil {
+			return store.Statement{}, detail, err
+		}
+		draft.Lines, draft.Discount, draft.AppliedDiscounts = lines, discountTotal, applied
+	} else {
+		// A partner customer: the waterfall (DESIGN.md §Partners). The
+		// customer-facing lines are priced the way the partner's model shows
+		// them (retail under resell, list under agent); the customer
+		// discounts give the net, the tier the buy, per line.
+		customerLines, err := pc.customerLines(lines, bookOf)
+		if err != nil {
+			return store.Statement{}, detail, err
+		}
+		w, err := pc.waterfall(lines, customerLines, discounts)
+		if err != nil {
+			return store.Statement{}, detail, err
+		}
+		pid := pc.partner.ID
+		buy, margin := w.buyTotal, w.margin
+		draft.Lines, draft.Discount, draft.AppliedDiscounts = w.lines, w.discount, w.applied
+		draft.PartnerID, draft.Kind, draft.BuyTotal, draft.MarginTotal = &pid, store.StatementKindCustomer, &buy, &margin
+	}
+	subtotal, tax, total, err := TotalsWithDiscount(draft.Lines, draft.Discount, taxRate)
 	if err != nil {
 		return store.Statement{}, detail, err
 	}
-	subtotal, tax, total, err := TotalsWithDiscount(lines, discountTotal, taxRate)
-	if err != nil {
-		return store.Statement{}, detail, err
-	}
-	stmt, err := st.WriteDraftStatement(ctx, store.StatementDraft{
-		CustomerID:       c.ID,
-		PeriodStart:      from,
-		PeriodEnd:        to.AddDate(0, 0, -1),
-		Currency:         currency,
-		Subtotal:         subtotal,
-		TaxRate:          taxRate,
-		Tax:              tax,
-		Total:            total,
-		Lines:            lines,
-		Discount:         discountTotal,
-		AppliedDiscounts: applied,
-		DiscountRule:     discountRule,
-	})
+	draft.Subtotal, draft.Tax, draft.Total = subtotal, tax, total
+	stmt, err := st.WriteDraftStatement(ctx, draft)
 	return stmt, detail, err
+}
+
+// ratePartner writes a partner's own statement for the period — wholesale
+// or commission per its billing model — from the per-line waterfall frozen
+// on its customers' statements. written=false when the partner's customers
+// have no rated lines in the period: nothing is invoiced for nothing.
+func ratePartner(ctx context.Context, st *store.Store, pc *partnerContext, from, to time.Time, settings store.BillingSettings) (store.Statement, bool, error) {
+	if pc.party.ID == "" {
+		return store.Statement{}, false, fmt.Errorf("partner %s has no party account", pc.partner.Slug)
+	}
+	lines, currencies, err := st.PartnerPeriodLines(ctx, pc.partner.ID, from)
+	if err != nil {
+		return store.Statement{}, false, err
+	}
+	if len(lines) == 0 {
+		return store.Statement{}, false, nil
+	}
+	if len(currencies) > 1 {
+		return store.Statement{}, false, fmt.Errorf("%w: the customers of %s are billed in %s; a partner statement is issued in one currency", ErrMixedCurrency, pc.partner.Name, strings.Join(currencies, " and "))
+	}
+	draft, err := pc.model.partnerStatement(pc, pc.party, lines, currencies[0], from, to, settings)
+	if err != nil {
+		return store.Statement{}, false, err
+	}
+	stmt, err := st.WriteDraftStatement(ctx, draft)
+	if err != nil {
+		return store.Statement{}, false, err
+	}
+	return stmt, true, nil
 }
 
 func sortedKeys(m map[string]bool) []string {

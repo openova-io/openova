@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/openova-io/openova/products/chargeback/internal/access"
+	"github.com/openova-io/openova/products/chargeback/internal/rating"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
 
@@ -74,6 +75,10 @@ type customerBody struct {
 	AutoApplyCredit     *bool          `json:"auto_apply_credit"`
 	LowBalanceThreshold *store.Decimal `json:"low_balance_threshold"`
 	SuspendAtZero       *bool          `json:"suspend_at_zero"`
+	// PartnerID assigns this customer to a partner (DESIGN.md §Partners);
+	// "" makes it direct again. One partner per customer, and it needs
+	// partners.manage — a customer never sets who resells to it.
+	PartnerID *string `json:"partner_id"`
 }
 
 // validPlanSlug accepts a catalog plan slug or "" (no plan), case-folded.
@@ -258,6 +263,9 @@ func ownerPatchRefused(in customerBody) string {
 	if in.BillingMode != nil {
 		return "billing_mode"
 	}
+	if in.PartnerID != nil {
+		return "partner_id"
+	}
 	return ""
 }
 
@@ -342,12 +350,45 @@ func (h *Handler) patchCustomer(w http.ResponseWriter, r *http.Request) {
 	}
 	p.TaxRegistrationNumber, p.TaxExempt, p.TaxExemptReason, p.TaxRate = in.TaxRegistrationNumber, in.TaxExempt, in.TaxExemptReason, in.TaxRate
 	p.AutoApplyCredit, p.LowBalanceThreshold, p.SuspendAtZero = in.AutoApplyCredit, in.LowBalanceThreshold, in.SuspendAtZero
+	// Assigning a customer to a partner is a partner decision (DESIGN.md
+	// §Partners): partners.manage, never customers.manage alone.
+	if in.PartnerID != nil {
+		if !access.Has(access.Bindings(s), access.PartnersManage, "") {
+			writeErr(w, http.StatusForbidden, "permission partners.manage required at the Sovereign to assign a customer to a partner")
+			return
+		}
+		if *in.PartnerID != "" {
+			if _, err := h.Store.GetPartner(r.Context(), *in.PartnerID); err != nil {
+				writeErr(w, http.StatusBadRequest, "partner_id does not exist")
+				return
+			}
+		}
+		p.PartnerID = in.PartnerID
+	}
+	before, err := h.Store.GetCustomer(r.Context(), store.OperatorScope, id)
+	if err != nil {
+		storeErr(w, err)
+		return
+	}
 	c, err := h.Store.UpdateCustomer(r.Context(), id, p)
 	if err != nil {
 		storeErr(w, err)
 		return
 	}
-	h.audit(r, &c.ID, "customer.update", map[string]any{"fields": patchedFields(in)})
+	// The customer's list book may now (or no longer) feed a partner's
+	// derived retail book, so both partners are re-derived.
+	if in.PartnerID != nil {
+		for _, pid := range []*string{before.PartnerID, c.PartnerID} {
+			if pid == nil {
+				continue
+			}
+			if _, err := rating.DeriveRetailBooks(r.Context(), h.Store, *pid); err != nil {
+				storeErr(w, err)
+				return
+			}
+		}
+	}
+	h.audit(r, &c.ID, "customer.update", map[string]any{"fields": patchedFields(in), "partner_id": c.PartnerID})
 	writeJSON(w, http.StatusOK, c)
 }
 
@@ -412,6 +453,9 @@ func patchedFields(in customerBody) []string {
 	}
 	if in.SuspendAtZero != nil {
 		f = append(f, "suspend_at_zero")
+	}
+	if in.PartnerID != nil {
+		f = append(f, "partner_id")
 	}
 	return f
 }

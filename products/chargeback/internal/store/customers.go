@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/lib/pq"
 )
 
 const customerColumns = `c.id, c.slug, c.name, c.admin_email, c.kind, c.org_slug, c.price_book_id, c.billing_mode, c.status, c.start_date, c.plan_slug,
@@ -19,7 +21,12 @@ const customerColumns = `c.id, c.slug, c.name, c.admin_email, c.kind, c.org_slug
 	(SELECT count(*) FROM cost_sources s WHERE s.customer_id = c.id AND s.layer = 'cloud'),
 	(SELECT count(*) FROM cost_sources s WHERE s.customer_id = c.id AND s.layer = 'platform'),
 	(SELECT max(s.last_collected_at) FROM cost_sources s WHERE s.customer_id = c.id),
-	(SELECT to_char(max(st.period_start), 'YYYY-MM') FROM statements st WHERE st.customer_id = c.id)`
+	(SELECT to_char(max(st.period_start), 'YYYY-MM') FROM statements st WHERE st.customer_id = c.id),
+	c.party_kind, c.partner_id, COALESCE(pn.name, '')`
+
+// customerFrom is the FROM every customer query shares: the partner join
+// gives the directory the partner's name (DESIGN.md §Partners).
+const customerFrom = ` FROM customers c LEFT JOIN partners pn ON pn.id = c.partner_id`
 
 func scanCustomer(row interface{ Scan(...any) error }) (Customer, error) {
 	var c Customer
@@ -29,15 +36,18 @@ func scanCustomer(row interface{ Scan(...any) error }) (Customer, error) {
 	var taxRate, lowBalance, extBalance sql.NullString
 	var platformSuspended, extBalanceAt sql.NullTime
 	var balance, credit string
+	var partner sql.NullString
 	err := row.Scan(&c.ID, &c.Slug, &c.Name, &c.AdminEmail, &c.Kind, &orgSlug, &pb, &c.BillingMode, &c.Status, &start, &c.PlanSlug,
 		&c.Charging, &c.PaymentModel, &c.PaymentMethod, &c.GatewayName, &c.PORef, &c.PaymentTermsDays, &c.ExternalAccountID,
 		&c.TaxRegistrationNumber, &c.TaxExempt, &c.TaxExemptReason, &taxRate, &c.AutoApplyCredit, &lowBalance, &c.SuspendAtZero,
 		&platformSuspended, &c.SuspensionReason, &c.SuspensionSource, &extBalance, &extBalanceAt, &c.CreatedAt, &c.UpdatedAt,
 		&balance, &credit,
-		&c.SourceCount, &c.VerifiedSourceCount, &c.CloudSourceCount, &c.PlatformSourceCount, &lastCollected, &lastPeriod)
+		&c.SourceCount, &c.VerifiedSourceCount, &c.CloudSourceCount, &c.PlatformSourceCount, &lastCollected, &lastPeriod,
+		&c.PartyKind, &partner, &c.PartnerName)
 	if err != nil {
 		return c, mapErr(err)
 	}
+	c.PartnerID = strPtr(partner)
 	c.Balance, c.AvailableCredit = Decimal(balance), Decimal(credit)
 	c.OrgSlug = strPtr(orgSlug)
 	c.PriceBookID = strPtr(pb)
@@ -53,13 +63,15 @@ func scanCustomer(row interface{ Scan(...any) error }) (Customer, error) {
 	return c, nil
 }
 
-// ListCustomers returns the customers visible to the scope.
+// ListCustomers returns the customers visible to the scope. A partner's
+// party row (party_kind = partner) is an account, not a customer: it is
+// never in the directory and never rated by the customer pass of a run.
 func (s *Store) ListCustomers(ctx context.Context, scope Scope) ([]Customer, error) {
-	q := `SELECT ` + customerColumns + ` FROM customers c`
+	q := `SELECT ` + customerColumns + customerFrom + ` WHERE c.party_kind = 'customer'`
 	var args []any
 	if !scope.Operator {
-		q += ` WHERE c.id = $1`
-		args = append(args, scope.CustomerID)
+		q += ` AND c.id::text = ANY($1)`
+		args = append(args, pq.Array(scope.Set()))
 	}
 	q += ` ORDER BY c.name`
 	rows, err := s.db.QueryContext(ctx, q, args...)
@@ -83,12 +95,12 @@ func (s *Store) GetCustomer(ctx context.Context, scope Scope, id string) (Custom
 	if !scope.Allows(id) {
 		return Customer{}, ErrNotFound
 	}
-	return scanCustomer(s.db.QueryRowContext(ctx, `SELECT `+customerColumns+` FROM customers c WHERE c.id = $1`, id))
+	return scanCustomer(s.db.QueryRowContext(ctx, `SELECT `+customerColumns+customerFrom+` WHERE c.id = $1`, id))
 }
 
 // GetCustomerBySlug is operator-only (used by import upserts).
 func (s *Store) GetCustomerBySlug(ctx context.Context, slug string) (Customer, error) {
-	return scanCustomer(s.db.QueryRowContext(ctx, `SELECT `+customerColumns+` FROM customers c WHERE c.slug = $1`, slug))
+	return scanCustomer(s.db.QueryRowContext(ctx, `SELECT `+customerColumns+customerFrom+` WHERE c.slug = $1`, slug))
 }
 
 // CustomerInput is the creatable/updatable subset. There is no price book
@@ -245,6 +257,9 @@ type CustomerPatch struct {
 	AutoApplyCredit     *bool
 	LowBalanceThreshold *Decimal
 	SuspendAtZero       *bool
+	// PartnerID assigns the customer to a partner (DESIGN.md §Partners); a
+	// pointer at "" makes it direct again. Refused on a partner's party row.
+	PartnerID *string
 }
 
 // UpdateCustomer applies a patch. It runs in a transaction because the
@@ -259,9 +274,22 @@ func (s *Store) UpdateCustomer(ctx context.Context, id string, p CustomerPatch) 
 	}
 	defer tx.Rollback()
 	var cur Commercial
-	if err := tx.QueryRowContext(ctx, `SELECT charging, COALESCE(payment_model, ''), COALESCE(payment_method, ''), gateway_name
-		FROM customers WHERE id = $1 FOR UPDATE`, id).Scan(&cur.Charging, &cur.PaymentModel, &cur.PaymentMethod, &cur.GatewayName); err != nil {
+	var partyKind string
+	if err := tx.QueryRowContext(ctx, `SELECT charging, COALESCE(payment_model, ''), COALESCE(payment_method, ''), gateway_name, party_kind
+		FROM customers WHERE id = $1 FOR UPDATE`, id).Scan(&cur.Charging, &cur.PaymentModel, &cur.PaymentMethod, &cur.GatewayName, &partyKind); err != nil {
 		return Customer{}, mapErr(err)
+	}
+	if p.PartnerID != nil && partyKind != PartyKindCustomer {
+		return Customer{}, fmt.Errorf("%w: a partner's own account cannot be assigned to a partner", ErrInvalid)
+	}
+	if p.PartnerID != nil && *p.PartnerID != "" {
+		var exists bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM partners WHERE id = $1)`, *p.PartnerID).Scan(&exists); err != nil {
+			return Customer{}, mapErr(err)
+		}
+		if !exists {
+			return Customer{}, fmt.Errorf("%w: partner %s does not exist", ErrInvalid, *p.PartnerID)
+		}
 	}
 	sets := []string{"updated_at = now()"}
 	var args []any
@@ -345,6 +373,9 @@ func (s *Store) UpdateCustomer(ctx context.Context, id string, p CustomerPatch) 
 	if p.SuspendAtZero != nil {
 		add("suspend_at_zero", *p.SuspendAtZero)
 	}
+	if p.PartnerID != nil {
+		add("partner_id", nullStr(p.PartnerID))
+	}
 	args = append(args, id)
 	res, err := tx.ExecContext(ctx, fmt.Sprintf(`UPDATE customers SET %s WHERE id = $%d`, strings.Join(sets, ", "), len(args)), args...)
 	if err != nil {
@@ -378,7 +409,7 @@ func (s *Store) SetCustomerStatus(ctx context.Context, id, status string) error 
 
 // CustomerCountsByStatus feeds the operator overview.
 func (s *Store) CustomerCountsByStatus(ctx context.Context) (map[string]int, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT status, count(*) FROM customers GROUP BY status`)
+	rows, err := s.db.QueryContext(ctx, `SELECT status, count(*) FROM customers WHERE party_kind = 'customer' GROUP BY status`)
 	if err != nil {
 		return nil, mapErr(err)
 	}

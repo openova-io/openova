@@ -58,14 +58,46 @@ type AppliedDiscount struct {
 // to zero and no further. A negative invoice is not a credit note, it is a bug
 // that reads as money owed to the customer.
 func ApplyDiscounts(lines []store.RatedLine, discounts []store.Discount, rule string) (store.Decimal, []AppliedDiscount, error) {
+	total, applied, _, err := applyDiscounts(lines, discounts, rule)
+	if err != nil {
+		return store.Decimal("0"), nil, err
+	}
+	if len(lines) == 0 || len(discounts) == 0 {
+		// Nothing to reduce: the bare "0" every reader written before the
+		// per-SKU allocation existed expects, not a scaled zero.
+		return store.Decimal("0"), applied, nil
+	}
+	return store.Decimal(roundRat(total, 6)), applied, nil
+}
+
+// DiscountBySKU is ApplyDiscounts with the reduction ALLOCATED per SKU — the
+// same engine, the same total, apportioned to the meters it came off. It is
+// what the partner waterfall reads (DESIGN.md §Partners): the customer net
+// per line is the list line minus its SKU's share, and the partner buy per
+// line the list line minus its SKU's share of the TIER discounts. There is
+// no second pricing path; a tier is decided by this function exactly as a
+// customer's discounts are.
+//
+// The per-SKU figures are exact rationals whose sum is the total: a
+// percentage is attributed to the SKU it was taken from, a fixed amount to
+// the SKUs in proportion to what remained on each, and the gross clamp is
+// spread in the same proportion.
+func DiscountBySKU(lines []store.RatedLine, discounts []store.Discount, rule string) (total *big.Rat, perSKU map[string]*big.Rat, err error) {
+	total, _, perSKU, err = applyDiscounts(lines, discounts, rule)
+	return total, perSKU, err
+}
+
+// applyDiscounts is the engine behind ApplyDiscounts and DiscountBySKU.
+func applyDiscounts(lines []store.RatedLine, discounts []store.Discount, rule string) (*big.Rat, []AppliedDiscount, map[string]*big.Rat, error) {
 	if rule == "" {
 		rule = store.DefaultDiscountRule
 	}
 	if !store.ValidDiscountRule(rule) {
-		return store.Decimal("0"), nil, fmt.Errorf("unknown discount rule %q", rule)
+		return nil, nil, nil, fmt.Errorf("unknown discount rule %q", rule)
 	}
+	perSKU := map[string]*big.Rat{}
 	if len(lines) == 0 || len(discounts) == 0 {
-		return store.Decimal("0"), nil, nil
+		return new(big.Rat), nil, perSKU, nil
 	}
 
 	// Bases: one per SKU (a discount applies to a meter, not to one source's
@@ -77,7 +109,7 @@ func ApplyDiscounts(lines []store.RatedLine, discounts []store.Discount, rule st
 	for _, l := range lines {
 		a, err := parseRat(string(l.Amount))
 		if err != nil {
-			return store.Decimal("0"), nil, fmt.Errorf("line %s: %w", l.SKU, err)
+			return nil, nil, nil, fmt.Errorf("line %s: %w", l.SKU, err)
 		}
 		if bySKU[l.SKU] == nil {
 			bySKU[l.SKU] = new(big.Rat)
@@ -103,7 +135,7 @@ func ApplyDiscounts(lines []store.RatedLine, discounts []store.Discount, rule st
 		}
 		pct, err := parseRat(string(d.Value))
 		if err != nil {
-			return store.Decimal("0"), nil, fmt.Errorf("discount %s: %w", d.Name, err)
+			return nil, nil, nil, fmt.Errorf("discount %s: %w", d.Name, err)
 		}
 		if pct.Sign() <= 0 {
 			continue
@@ -119,12 +151,17 @@ func ApplyDiscounts(lines []store.RatedLine, discounts []store.Discount, rule st
 	for i := range supersededBy {
 		supersededBy[i] = -1
 	}
-	take := func(idx int, base, pct *big.Rat) {
+	taken := map[string]*big.Rat{} // what came off each SKU, before the gross clamp
+	for _, sku := range skus {
+		taken[sku] = new(big.Rat)
+	}
+	take := func(idx int, sku string, base, pct *big.Rat) {
 		amt := new(big.Rat).Quo(new(big.Rat).Mul(base, pct), hundred)
 		if acc[idx] == nil {
 			acc[idx] = new(big.Rat)
 		}
 		acc[idx].Add(acc[idx], amt)
+		taken[sku].Add(taken[sku], amt)
 	}
 	lost := func(idx, winner int, base *big.Rat) {
 		if supersededBase[idx] == nil || base.Cmp(supersededBase[idx]) > 0 {
@@ -153,7 +190,7 @@ func ApplyDiscounts(lines []store.RatedLine, discounts []store.Discount, rule st
 		switch rule {
 		case store.DiscountRuleStack:
 			for _, c := range cands {
-				take(c.idx, base, c.pct)
+				take(c.idx, sku, base, c.pct)
 			}
 		case store.DiscountRuleCompound:
 			// Narrowest first, then highest; a stable sort keeps input order
@@ -171,6 +208,7 @@ func ApplyDiscounts(lines []store.RatedLine, discounts []store.Discount, rule st
 					acc[c.idx] = new(big.Rat)
 				}
 				acc[c.idx].Add(acc[c.idx], amt)
+				taken[sku].Add(taken[sku], amt)
 				remaining.Sub(remaining, amt)
 			}
 		default: // most-specific, highest
@@ -185,7 +223,7 @@ func ApplyDiscounts(lines []store.RatedLine, discounts []store.Discount, rule st
 			}
 			for i, c := range cands {
 				if c.d.Stackable || i == winner {
-					take(c.idx, base, c.pct)
+					take(c.idx, sku, base, c.pct)
 					continue
 				}
 				lost(c.idx, cands[winner].idx, base)
@@ -214,14 +252,15 @@ func ApplyDiscounts(lines []store.RatedLine, discounts []store.Discount, rule st
 		}
 	}
 
-	// Fixed amounts, off what remains, in every rule.
+	// Fixed amounts, off what remains, in every rule. Each is attributed to
+	// the SKUs in proportion to what remains on them after the percentages.
 	for _, d := range discounts {
 		if d.Kind != "fixed" {
 			continue
 		}
 		v, err := parseRat(string(d.Value))
 		if err != nil {
-			return store.Decimal("0"), nil, fmt.Errorf("discount %s: %w", d.Name, err)
+			return nil, nil, nil, fmt.Errorf("discount %s: %w", d.Name, err)
 		}
 		remaining := new(big.Rat).Sub(gross, total)
 		if remaining.Sign() <= 0 {
@@ -234,6 +273,13 @@ func ApplyDiscounts(lines []store.RatedLine, discounts []store.Discount, rule st
 		if amt.Sign() <= 0 {
 			continue
 		}
+		for _, sku := range skus {
+			left := new(big.Rat).Sub(bySKU[sku], taken[sku])
+			if left.Sign() <= 0 {
+				continue
+			}
+			taken[sku].Add(taken[sku], new(big.Rat).Quo(new(big.Rat).Mul(amt, left), remaining))
+		}
 		total.Add(total, amt)
 		applied = append(applied, AppliedDiscount{
 			DiscountID: d.ID, Name: d.Name, Kind: d.Kind, Value: d.Value, SKU: d.SKU,
@@ -244,7 +290,20 @@ func ApplyDiscounts(lines []store.RatedLine, discounts []store.Discount, rule st
 	if total.Cmp(gross) > 0 {
 		total = new(big.Rat).Set(gross)
 	}
-	return store.Decimal(roundRat(total, 6)), applied, nil
+	// The per-SKU allocation of the (possibly clamped) total, in proportion
+	// to what was taken off each SKU, so the parts always sum to the whole.
+	sum := new(big.Rat)
+	for _, sku := range skus {
+		sum.Add(sum, taken[sku])
+	}
+	for _, sku := range skus {
+		if sum.Sign() <= 0 {
+			perSKU[sku] = new(big.Rat)
+			continue
+		}
+		perSKU[sku] = new(big.Rat).Quo(new(big.Rat).Mul(total, taken[sku]), sum)
+	}
+	return total, applied, perSKU, nil
 }
 
 // scopeRank orders discount scopes from widest to narrowest: a SKU-scoped

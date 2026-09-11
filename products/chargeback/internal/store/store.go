@@ -406,6 +406,10 @@ ALTER TABLE cost_sources ADD CONSTRAINT cost_sources_status_check CHECK (status 
 	// into role_bindings and left behind as a view. Appended at the very
 	// END: migrations are positional.
 	accessMigrationSQL,
+	// EPIC #6867 — partners (resellers): tiers as discount rows, partners as
+	// parties, derived retail books, the partner scope (DESIGN.md
+	// §Partners). Located by content as MigrationPartners.
+	partnersMigrationSQL,
 }
 
 // MigrationBackfillIssuedInvoices is the schema_migrations version of the

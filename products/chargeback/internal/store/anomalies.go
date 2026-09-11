@@ -30,10 +30,15 @@ func scopedCustomer(scope Scope, customerID string) (string, error) {
 	if scope.Operator {
 		return customerID, nil
 	}
-	if scope.CustomerID == "" {
-		return "", ErrNotFound
+	// A principal on several customers (a partner) must name one of them;
+	// a principal on one always gets its own.
+	if customerID != "" && scope.Allows(customerID) {
+		return customerID, nil
 	}
-	return scope.CustomerID, nil
+	if ids := scope.Set(); len(ids) == 1 {
+		return ids[0], nil
+	}
+	return "", ErrNotFound
 }
 
 // DailyCostByCustomerKind returns the priced daily cost per (customer,
