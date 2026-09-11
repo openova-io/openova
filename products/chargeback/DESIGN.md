@@ -2739,3 +2739,402 @@ separate Go modules and cannot import each other, so
 rendered by the renderer's — a field renamed on either side fails one of the
 two suites, rather than surfacing as a 400 on a customer's download months
 later.
+
+## 15. Contracts and commercial terms (founder direction 2026-09-11)
+
+Two things the price books and discounts shipped so far cannot express, and
+which every cloud provider sells.
+
+A price book could only say *one rate per SKU*. It could not say "the plan
+includes 50 GB of traffic", it could not say "the first 10 TiB at 0.010 and
+the rest at 0.006", and it could not say "you committed to ten machines for a
+year, so those ten are cheaper". Discounts could not fill the gap: a discount
+takes money off a bill, and none of those three is a reduction of money — two
+of them change the *quantity* being priced or the *rate per unit*, and all
+three belong to an agreement with a start, an end and a signature.
+
+So §15 adds **three rating shapes** on a price-book item and **the contract**
+they hang on. The vocabulary is the industry's throughout — AWS free tiers,
+tiered S3 pricing and Savings Plans; Azure included quantities, graduated
+meters and reservations; Stripe's `graduated` and `volume` tier modes;
+Zuora's tiered and volume pricing, minimum commitments and true-ups. Nothing
+below is invented, and nothing below is a second pricing path.
+
+### 15.1 Allowances — a quantity the plan includes
+
+An item may carry an **allowance**: N units of that SKU included in every
+billing period. Usage up to the allowance rates to **zero**; the excess rates
+at the item's price. Plan M including 50 GB of `eip.traffic_gb` and 100 GB of
+`object_gib` is two items with two allowances, not a discount and a note.
+
+The allowance is **per billing period and lapses**. It does not carry over
+unless the item (or the contract line) says `rollover`, and where it does the
+carry-over is **one period deep and does not compound**: what last period did
+not use is available this period, and then it is gone. An unbounded bank
+would have to be materialised somewhere, and a bank nobody can see on a bill
+is worse than no bank at all.
+
+An allowance may come from the **plan** (the price-book item) or from the
+**contract** (a `contract_items` row of kind `allowance`). They **add up**: a
+negotiated 100 GB on top of a plan's 50 GB is 150 GB. A contract allowance
+that silently replaced the plan's would make a customer worse off for having
+negotiated.
+
+### 15.2 Volume tiers — bands instead of one rate
+
+An item may carry **tiers** instead of one unit price:
+
+    [{up_to: 10240, price: 0.010}, {up_to: 102400, price: 0.008}, {up_to: null, price: 0.006}]
+
+in **two modes**, and the mode is explicit on the item because the two are
+different prices for the same volume:
+
+| mode | what it means | 51,200 units of the ladder above |
+|---|---|---|
+| `graduated` (the default) | each band rates at **its own** price | 10,240 × 0.010 + 40,960 × 0.008 = **430.080000** |
+| `all_units` | the **whole** volume rates at the price of the band the total reaches | 51,200 × 0.008 = **409.600000** |
+
+Both are standard — `graduated` is Stripe's graduated tiers and AWS's tiered
+storage; `all_units` is Stripe's volume tiers and Zuora's volume pricing. An
+engine that picked one silently would over- or under-bill by 20.48 on that
+one line with nothing on the bill to show which it had chosen, so the mode is
+a column and the difference is pinned by
+`TestGraduatedAndAllUnitsDifferOnTheSameVolume`.
+
+The ladder is **validated, not repaired**: bands must ascend, the unbounded
+band must be last, and no band may be priced below zero. Two bands claiming
+the same volume have no single answer, and guessing one would be a pricing
+bug nobody could see. A ladder that simply stops is completed by carrying its
+last price upward — volume above the last bound must not rate at nothing.
+
+### 15.3 Committed use — a quantity bought ahead at a rate
+
+A customer commits to a quantity of a SKU for a term at a discounted rate:
+ten `ecs.m7n.2xlarge.8` for twelve months at 30 % off. The **committed
+quantity rates at the committed price and the excess at list**, and the
+commitment is **consumed per period** — each period offers the whole
+committed quantity again.
+
+The commitment covers the **head** of the volume, not the tail: a commitment
+is for baseline usage, the part you always have, so it displaces the dearest
+band of a ladder rather than the cheapest. Under- and over-consumption are
+both pinned by `TestCommitmentUnderAndOver`:
+
+| the month | arithmetic | total |
+|---|---|---|
+| 5,000 h against 7,440 committed at 0.35 | 5,000 × 0.35 | **1,750.000000** |
+| 10,000 h against the same commitment | 7,440 × 0.35 + 2,560 × 0.50 | **3,884.000000** |
+| the same 10,000 h at list | 10,000 × 0.50 | 5,000.000000 |
+
+A committed-use line carries either a **committed price** or a **discount
+percentage** off list; a commitment at list is refused, because it is not a
+commitment. Unused commitment is **not** invoiced by itself — the instrument
+for "you will spend at least X" is the minimum commitment of §15.4, which is
+explicit on the bill rather than hidden inside a rate.
+
+### 15.4 The contract, the minimum commitment and the true-up
+
+    contracts(id, customer_id, name, starts_on, ends_on, term_months, auto_renew,
+              renewal_notice_days, minimum_commitment, currency, status, signed_at,
+              po_reference, notes, renewed_at, renewal_count)
+    contract_items(id, contract_id, kind, sku, unit, quantity,
+                   committed_price, discount_pct, rollover, notes)
+
+`status` is `draft | active | expired | cancelled`, and only an **active**
+contract covering the first day of a period rates that period. A term of N
+months from `starts_on` ends the day **before** the anniversary — twelve
+months from 2026-01-01 ends 2026-12-31 — so a term never overlaps its own
+renewal. Where two active contracts cover the same day, the one that
+**started last** is in force: that is the renegotiation.
+
+**The minimum commitment is a monthly floor.** If the period's rated total,
+**net of discounts**, falls below it, the statement carries a line:
+
+    true-up   1 period   <shortfall>
+
+named on the invoice and explained, and never a silent adjustment of the
+totals. It brings the net subtotal to exactly the minimum, and tax is charged
+on that, because a true-up is a charge for the service like any other. The
+comparison is against the **net** deliberately: a discount agreed in the same
+contract must not be usable to slide under the minimum the contract set.
+
+A statement records the `contract_id` it was rated under, so an issued bill
+says which agreement produced its numbers.
+
+### 15.5 SLA credits
+
+`POST /contracts/{id}/sla-credit` issues a credit note against a **named
+statement** for an availability breach, with the percentage owed and the
+availability actually measured recorded on it. The amount is that percentage
+of the statement's total, which is what an availability SLA credits.
+
+It uses **the existing credit-note machinery and adds nothing parallel**: the
+same gapless `CN-<year>-<seq>` numbering, the same allocation against the
+invoice with the remainder becoming credit on the account, the same
+`credit_note` entry on the ledger. The only additions are three columns on
+`credit_notes` — `contract_id`, `sla_pct`, `measured_availability` — so the
+document says what it answers. A parallel "service credit" table would have
+been a second ledger to reconcile.
+
+### 15.6 Renewal
+
+A contract with `auto_renew` renews for another term at its end date: the
+same agreement, its window moved forward by `term_months`, `renewal_count`
+incremented and `renewed_at` stamped. One without it becomes `expired`.
+
+`renewal_notice_days` before the end date the contract appears in the
+**renewals-due list** — `GET /contracts/renewals` and the Contracts page —
+which is what an operator acts on. There is **no mailing and no scheduler of
+its own**: the decision between renewing and expiring is a step added to the
+existing daily collections evaluator (`internal/collections`), which already
+walks every open invoice once a day, and it reports `contracts_renewed` and
+`contracts_expired` beside its reminders. The step is idempotent — a second
+pass on the same day changes nothing — so a restart cannot advance a term
+twice.
+
+### 15.7 The order of operations
+
+One waterfall, one engine. Allowances, tiers, commitments and the true-up are
+computed inside `internal/rating` and then handed to the **same**
+`ApplyDiscounts` / `DiscountBySKU` the rest of the product uses, and to the
+**same** partner waterfall (§13):
+
+| | step | where |
+|---|---|---|
+| 1 | **allowance** — usage up to the included quantity rates to zero | `rating.ApplyTerms` |
+| 2 | **tiers** — the remainder priced by the item's bands, or its flat unit price | `rating.ApplyTerms` |
+| 3 | **commitment** — the committed head of the volume repriced at the committed rate | `rating.ApplyTerms` |
+| 4 | **discounts** — customer discounts, and a partner tier, under the combination rule (§2.11) | `rating.ApplyDiscounts` |
+| 5 | **true-up** — the shortfall against the monthly minimum | `rating.TrueUp` |
+| 6 | **tax** — on the net subtotal, the true-up included | `rating.TotalsWithDiscount` |
+
+The order is **not a detail**, and `TestOrderOfOperations` pins it by
+computing the plausible alternative beside it:
+
+- *allowance before tiers.* With bands of 1.00 up to 100 units and 0.10
+  above, an allowance of 100 against 200 units of usage costs **100.000000**
+  under this order — the included quantity resets the ladder. Read the other
+  way, where the allowance is free but still holds its place on the ladder,
+  the same month costs **10.000000**. A factor of ten between two defensible
+  readings; ours is the one the console states.
+- *commitment on the head.* The same ladder, 200 units, 100 committed at
+  0.50: **60.000000** here, against **150.000000** if the commitment took the
+  tail.
+- *discounts before the true-up.* A 1,000 minimum against 1,100 of lines and
+  a 200 discount gives a **100.000000** true-up and a subtotal of exactly
+  1,000. Computed the other way round the period would clear the minimum on
+  its gross, and the discount would then take the bill to 900 — under the
+  minimum the same contract agreed.
+
+Money is exact throughout (`store.Decimal`, `math/big.Rat`), rounded once at
+the edge, as everywhere else in this product.
+
+**The shapes are per SKU per billing period, not per source.** An allowance
+of 50 GB is 50 GB of the customer's month however many projects reported it,
+so a SKU's whole quantity is rated at once and the amount is allocated back
+across its lines in proportion to their quantity, by largest remainder, so
+the lines of a SKU sum exactly to the SKU's figure. A line's `unit_price`
+becomes the rate it actually paid, so quantity × unit price = amount still
+reads across on the invoice. A SKU whose item carries no shape comes back
+**byte for byte** — which is every item of every book written before §15.
+
+**The partner waterfall is unchanged and must stay so.** Buy and net are both
+derived from the same rated lines, so a tiered or allowance-bearing line
+flows through the tier discount exactly as a flat one does. One thing did
+have to change: the customer-facing price under `resell` is now applied as a
+**ratio** of the book's list rate rather than by re-multiplying quantity ×
+retail rate. For a line the price book alone rated the two are identical; for
+a line a tier or an allowance reshaped, re-multiplying would throw the shape
+away and bill the end customer for volume its plan included.
+`TestPartnerMarginIsBuyTimesMarkupOnATieredLine` pins the invariant: on a
+51,200-unit graduated line of 430.080000, with a 20 % tier and a retail rule
+of buy + 25 %, buy is **344.064000** and margin is **86.016000** — buy ×
+markup, exactly, and the customer's line still carries its tier rather than
+the 640.000000 a flat rate would have produced.
+
+### 15.8 Permissions
+
+| surface | permission | scope |
+|---|---|---|
+| create / edit / delete a contract, replace its items | `customers.manage` | Sovereign |
+| read contracts, the renewals-due list | `metering.read` | at the scope — a customer principal reads **its own** contract read-only, a partner principal **its customers'**, a Sovereign principal every one |
+| issue an SLA credit | `billing.issue` | Sovereign |
+| edit tiers and allowances on a price-book item | `rating.manage` | Sovereign |
+
+A contract outside the caller's scope reads as **404**, not 403, so ids of
+other customers' contracts are not confirmed — the same rule as everywhere
+else in §10. Every write is audited.
+
+### 15.9 The console
+
+**Configure → Contracts** lists every contract with its customer, term,
+monthly minimum, status and renewal date, with the **renewals due** inside
+their notice window called out at the top of the page. A contract opens to
+its committed-use and allowance lines, edited in place.
+
+The **customer page gains a Contract tab**, so the agreement is where the
+customer is rather than only in a directory.
+
+A **statement** shows the true-up line named and explained, and any SLA
+credit note beside the reason it was issued for.
+
+The **price-book item editor** gains the tier ladder (mode plus bands) and the
+allowance, with **the item's effective price explained in words underneath** —
+"Each band rates at its own price: up to 10240 at 0.01 OMR per gb-month,
+10240-102400 at 0.008 OMR per gb-month, above 102400 at 0.006 OMR per
+gb-month." That sentence is produced by `rating.ExplainItem`, the same
+package that does the arithmetic, so the words and the price cannot drift.
+
+## 16. Customer self-service — what a paying customer does without the operator (EPIC #6867)
+
+Everything above is what the operator can do. This is what the **customer**
+can do alone, and it is three things: take the invoice away, keep a payment
+method on file, and say an invoice is wrong. Each of the three was, until
+now, an email to the operator — which is to say, a person's afternoon.
+
+None of the three is a new mechanism. The invoice is the existing document
+route (§14); the payment method rides the existing gateway registry
+(`internal/settle`); the dispute's credit note is the existing credit note
+(§9.3). Anything else would have been a second way to do something this
+product already does, and a second way to do money is a way to disagree with
+yourself.
+
+**Who may act.** A customer principal acts on its OWN customer, and every
+handler proves it the same way: the target is read through the session's
+scope before anything else happens, so another customer's id answers **404**
+— not a filtered list, and not a 403 that would confirm the id exists. A
+partner acts on its customers by the same route, because the scope expands to
+them (§13). Reading is `metering.read`; the two customer-side writes —
+saving a method and raising a dispute — are **`account.topup`**, the
+permission an owner and a billing user hold and a viewer does not, which is
+the same permission that lets a customer ask the gateway for a top-up.
+Resolving a dispute is the operator's **`billing.collect`**.
+
+### 16.1 Download the invoice
+
+`GET /api/v1/statements/{id}.pdf` (§14) is put in the customer's hands: a
+**Download** on the statement view and on every row of its invoice list. The
+route is the same handler and the same scope-filtered store read as fetching
+the statement, so the permission to download the document is exactly the
+permission to read what it is made of.
+
+The response carries `Content-Disposition: attachment; filename="<invoice
+number>.pdf"`, so the file lands in the customer's downloads folder already
+named after the invoice — filable, forwardable, attachable to a payment run
+without being renamed first. The filename is built by `docs.Filename`, which
+keeps letters, digits, dash, underscore and dot and maps everything else to a
+dash: an invoice number can therefore neither escape its directory nor end
+the header and start another one. Both are asserted, on real values, in
+`internal/docs`.
+
+### 16.2 A saved payment method
+
+For a customer whose payment method is a **gateway**, `POST
+/api/v1/customers/{id}/payment-methods` opens a setup through the gateway
+seam. `settle.Gateway` gains the pair `SetupMethod` / `ConfirmMethod`,
+added exactly as `VerifyCallback` was: on the interface, with
+`ErrMethodSetupNotSupported` as the honest answer from a gateway that has no
+such facility — the built-in manual gateway, because a bank transfer and an
+internal recharge have no instrument to keep, and a hook that predates the
+seam. The Stripe-backed billing hook implements it against the billing
+service's own portal session, which is the existing surface on which that
+Organization's payer adds, replaces or removes a card.
+
+**The card is never entered here, and never held here.** The payer enters it
+on the gateway's page. What this product stores is the display record and
+only the display record:
+
+| Stored | Never stored |
+|---|---|
+| the gateway's name | the card number |
+| the gateway's **token id** for the instrument | the security code |
+| brand (`visa`), last four digits, expiry month and year | the full expiry-plus-number pair |
+| the customer's own label, who added it, when | any gateway secret or API key |
+
+Two of those rules are enforced rather than described. `store.PaymentMethod`
+carries the token as `json:"-"`, so it reaches no wire at all: that is how
+"an operator may see that a method exists but not its token" holds, by the
+type rather than by a redaction each handler has to remember. And the
+`last4` column carries `CHECK (last4 ~ '^[0-9]{0,4}$')`, so a gateway
+implementation that mistakenly answered with a whole card number could not
+record it — the INSERT fails. The audit entries (`payment_method.setup`,
+`payment_method.confirm`, `payment_method.remove`) carry the method id, the
+gateway and the display triple, and never the token.
+
+`GET /customers/{id}/payment-methods` lists what is on file; `DELETE
+/customers/{id}/payment-methods/{mid}` (or `DELETE /payment-methods/{id}`)
+takes one off it. Removal keeps the row — who removed what, and when, is part
+of the account's history — and **erases the token in the same statement**, so
+a removed method cannot be charged even by a bug.
+
+### 16.3 Dispute an invoice
+
+`POST /api/v1/statements/{id}/disputes {reason, lines?}` opens a dispute by
+the customer on its own invoice. The statement gains `disputed_at` and
+`dispute_reason`, and the dispute itself is a row with a lifecycle — reason,
+amount, who raised it and when, and the outcome.
+
+**What is disputed.** With no lines named, it is the invoice's **outstanding
+balance** — what is actually being chased. With lines named, it is the share
+of the invoice **total** those rated lines represent, computed as an exact
+rational over their amounts and rendered at the schema's six decimals, so the
+figure agreed here is the figure a credit note later carries. Either way it
+is capped at what the invoice can still be credited (total less credit notes
+already issued), because an upheld dispute must always be creditable. A draft
+is refused — there is no invoice yet — and so is a cancelled invoice, which
+nobody collects on. One open dispute per invoice, enforced by a partial
+unique index.
+
+**What a dispute does, and does not do.** The disputed amount **stays on the
+balance**: a dispute is not a credit and does not move money. What stops is
+**collections chasing**, and both readers of the flag say so:
+
+- `GET /collections/aging` still lists the invoice — the operator must see it
+  — and marks it `disputed` with its reason. Its amount stays in `total` and
+  in the aging buckets and leaves `overdue`; the report gains `disputed` and
+  `disputed_invoices` at both the report and the customer-row level, so the
+  gap between the buckets and the overdue figure is named rather than
+  mysterious. A disputed invoice also stops driving `oldest_days`.
+- The daily evaluator (`internal/collections`) passes over it: no reminder
+  stage, no escalation, no suspension flowing from it. Its report carries
+  `disputed`, the count of invoices it passed over, which is what tells an
+  operator why a reminder did not go out.
+
+**Resolving it.** `POST /api/v1/disputes/{id}/resolve {outcome, note}`,
+`billing.collect`:
+
+- **upheld** — a credit note is issued for the disputed amount through
+  `createCreditNoteTx`, the same function `POST /statements/{id}/credit-notes`
+  calls: the same numbering, the same allocation against the invoice, the same
+  ledger entry as any other credit note. The balance moves by exactly the
+  disputed amount. It runs **inside the transaction that records the
+  outcome**, so a dispute can never end up credited but still open, nor
+  resolved without the credit the customer was promised — a retry after a
+  failure finds the dispute still open and no note issued. In external
+  commercial mode the invoice is the billing system's and so is any correction
+  to it, so this is refused with 409 — the same refusal §9.3 makes.
+- **rejected** — the flag is cleared, nothing is credited, and collections
+  resume from the age the invoice then is.
+
+Either way `disputed_at` and `dispute_reason` are cleared in the same
+transaction that records the outcome, so the one flag the aging report and
+the evaluator read can never be left set behind a resolved dispute. Every
+step is audited: `dispute.open`, `dispute.resolve`, and the credit note's own
+`statement.credit_note` carrying the dispute id.
+
+### 16.4 The console
+
+The customer lens (`/my/...`) gains **Payment methods** beside Account, and
+its statements page is the **Invoices** page: a Download on every row, a
+banner naming any invoice under dispute, and a `disputed` marker beside the
+status. The payment-methods card shows brand, last four and expiry, offers
+`Add a payment method` (which sends the payer to the gateway's own page) and
+`Remove`, and says in as many words that the card is held by the payment
+provider. A viewer sees what is on file and is offered nothing to change.
+
+On the statement view: **Download PDF** for anyone who may read the invoice,
+**Dispute** for a customer that may raise one, and — for an operator with
+`billing.collect` while a dispute is open — a **Resolve** control offering
+the two outcomes with the consequence of each spelled out. A disputed invoice
+carries a banner with the reason, the amount and the sentence that matters:
+it stays on the balance and is not chased.

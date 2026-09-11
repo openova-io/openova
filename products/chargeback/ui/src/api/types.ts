@@ -290,6 +290,18 @@ export interface InventoryItem {
   deleted_at?: string | null
 }
 
+/**
+ * DESIGN.md §15.2 — one band of a volume-tiered item: everything up to
+ * `up_to` rates at `price`. `up_to` null is the last, unbounded band.
+ */
+export interface PriceTier {
+  up_to?: number | string | null
+  price: number | string
+}
+
+/** The two industry tier modes; '' (or absent) is an item with no bands. */
+export type TierMode = '' | 'graduated' | 'all_units'
+
 export interface PriceItem {
   sku: string
   unit: string
@@ -297,6 +309,20 @@ export interface PriceItem {
   /** List (annual) price when the item came from an annual list; unit_price = annual_price ÷ annual_divisor. */
   annual_price?: number | string | null
   description?: string
+  /**
+   * The RATING SHAPES (DESIGN.md §15.1-15.2). All additive: an item with
+   * none of them rates at unit_price, which is every item of every book
+   * written before §15.
+   *
+   * `graduated` rates each band at its own price; `all_units` rates the
+   * whole billable quantity at the band the total reaches.
+   */
+  tier_mode?: TierMode | string
+  tiers?: PriceTier[] | null
+  /** Units of this SKU the plan includes per billing period. */
+  allowance?: number | string | null
+  /** Carry an unused allowance into the next period (one period, no compounding). */
+  allowance_rollover?: boolean
 }
 
 export interface PriceBook {
@@ -426,6 +452,15 @@ export interface CreditNote {
   tax: number | string
   total: number | string
   lines?: Array<{ sku?: string; description?: string; quantity?: number | string; unit?: string; unit_price?: number | string; amount: number | string }> | null
+  /**
+   * DESIGN.md §15.5 — an SLA credit is a credit note that RECORDS what it
+   * answers: the contract, the percentage owed and the availability actually
+   * measured. Absent on every other credit note.
+   */
+  contract_id?: string | null
+  contract_name?: string
+  sla_pct?: number | string | null
+  measured_availability?: number | string | null
   /** What reduced the invoice, and what became credit on the account. */
   applied: number | string
   unapplied: number | string
@@ -627,6 +662,13 @@ export interface Statement {
   }> | null
   /** DESIGN.md §2.11 — the combination rule the run applied; absent on statements rated before it existed. */
   discount_rule?: DiscountRule | string | null
+  /**
+   * DESIGN.md §16 — the customer disputes this invoice, and why. The money
+   * stays owed and on the balance; what stops is collections chasing, until
+   * an operator resolves the dispute.
+   */
+  disputed_at?: string | null
+  dispute_reason?: string | null
   /**
    * The partner keys (DESIGN.md §11): the partner of this statement's
    * customer, or the partner whose party this statement bills. `buy_total`
@@ -1620,4 +1662,105 @@ export interface MarginReport {
   currency: string
   rows: MarginRow[]
   totals: MarginRow
+}
+
+// ---------------------------------------------------------------------------
+// Customer self-service (DESIGN.md §16)
+// ---------------------------------------------------------------------------
+
+/**
+ * A payment method the GATEWAY holds. This is the display record and only
+ * the display record: there is no card number here and no gateway token —
+ * the server's own type has no JSON field for one, so the console could not
+ * render a token even by mistake.
+ */
+export interface PaymentMethod {
+  id: string
+  customer_id: string
+  gateway?: string
+  status: 'pending' | 'active' | 'removed' | string
+  /** While pending: the gateway's own page the card is entered on. */
+  setup_url?: string
+  brand?: string
+  last4?: string
+  exp_month?: number
+  exp_year?: number
+  label?: string
+  /** Whether the gateway holds an instrument for it — never the token itself. */
+  saved: boolean
+  created_at?: string
+  confirmed_at?: string | null
+  removed_at?: string | null
+}
+
+/** One customer's objection to one invoice (DESIGN.md §16). */
+export interface Dispute {
+  id: string
+  statement_id: string
+  customer_id: string
+  invoice_number?: string
+  reason: string
+  /** The rated-line ids the dispute names; absent when it is the whole invoice. */
+  lines?: string[] | null
+  amount: number | string
+  currency?: string
+  status: 'open' | 'upheld' | 'rejected' | string
+  opened_by?: string
+  opened_at: string
+  resolved_by?: string
+  resolved_at?: string | null
+  note?: string
+  credit_note_id?: string
+}
+
+/**
+ * DESIGN.md §15.3 — one line of a contract: a committed-use line, or an
+ * allowance that belongs to the contract rather than to the plan.
+ */
+export interface ContractItem {
+  id?: string
+  contract_id?: string
+  kind: 'commitment' | 'allowance' | string
+  sku: string
+  unit?: string
+  /** Committed quantity per billing period, or allowance units per period. */
+  quantity: number | string
+  /** A commitment's negotiated unit price… */
+  committed_price?: number | string | null
+  /** …or the percentage off list it stands for. One of the two is required. */
+  discount_pct?: number | string | null
+  /** Allowance only: carry the unused part into the next period. */
+  rollover?: boolean
+  notes?: string
+  created_at?: string
+}
+
+/** DESIGN.md §15.4 — the agreement a customer's commercial terms hang on. */
+export interface Contract {
+  id: string
+  customer_id: string
+  customer_name?: string
+  customer_slug?: string
+  name: string
+  starts_on: string
+  ends_on: string
+  term_months: number
+  auto_renew: boolean
+  /** Days before the end date the contract joins the renewals-due list. */
+  renewal_notice_days: number
+  /** The MONTHLY floor; a period below it carries a true-up line. */
+  minimum_commitment?: number | string | null
+  currency: string
+  status: 'draft' | 'active' | 'expired' | 'cancelled' | string
+  signed_at?: string | null
+  po_reference?: string
+  notes?: string
+  renewed_at?: string | null
+  renewal_count?: number
+  created_at?: string
+  updated_at?: string
+  items?: ContractItem[] | null
+  /** Derived, never stored: ends_on + 1 day, and ends_on − notice days. */
+  renewal_date?: string
+  notice_from?: string
 }

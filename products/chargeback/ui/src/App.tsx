@@ -6,7 +6,7 @@ import { CustomerDetail } from './pages/CustomerDetail'
 import { CustomerImport } from './pages/CustomerImport'
 import { CustomerNew } from './pages/CustomerNew'
 import { Customers } from './pages/Customers'
-import { MyAccount, MyBudgets, MyDiscounts, MyExplore, MyOverview, MyReports, MySources, MyStatements, MyUsage, MyUsers } from './pages/My'
+import { MyAccount, MyBudgets, MyDiscounts, MyExplore, MyOverview, MyPaymentMethods, MyReports, MySources, MyStatements, MyUsage, MyUsers } from './pages/My'
 import { Overview } from './pages/Overview'
 import { CostExplorer } from './pages/CostExplorer'
 import { PriceBookEdit } from './pages/PriceBookEdit'
@@ -29,6 +29,8 @@ import { Access } from './pages/Access'
 import { Capacity } from './pages/Capacity'
 import { EstimatePublic } from './pages/EstimatePublic'
 import { Leads } from './pages/Leads'
+import { Contracts } from './pages/Contracts'
+import { ContractDetail } from './pages/ContractDetail'
 import { Partners } from './pages/Partners'
 import { PartnerDetail } from './pages/PartnerDetail'
 import { PartnerBill, PartnerHome, PartnerMyAccount, PartnerMyMargin, PartnerMyRetail, PartnerMyUsers } from './pages/Partner'
@@ -65,6 +67,8 @@ function ConsoleRoutes() {
             <Route path="/partners" element={<Partners />} />
             <Route path="/partners/:id" element={<PartnerDetail />} />
             <Route path="/allocation" element={<Allocation />} />
+            <Route path="/contracts" element={<Contracts />} />
+            <Route path="/contracts/:id" element={<ContractDetail />} />
             <Route path="/pricebooks" element={<PriceBooks />} />
             <Route path="/pricebooks/:id" element={<PriceBookEdit />} />
             <Route path="/discounts" element={<Discounts />} />
@@ -89,6 +93,7 @@ function ConsoleRoutes() {
             <Route path="/my/usage" element={<MyUsage />} />
             <Route path="/my/statements" element={<MyStatements />} />
             <Route path="/my/account" element={<MyAccount />} />
+            <Route path="/my/payment-methods" element={<MyPaymentMethods />} />
             <Route path="/my/budgets" element={<MyBudgets />} />
             <Route path="/my/reports" element={<MyReports />} />
             <Route path="/my/sources" element={<MySources />} />

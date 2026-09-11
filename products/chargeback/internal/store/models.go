@@ -383,6 +383,28 @@ type PriceItem struct {
 	UnitPrice   Decimal  `json:"unit_price"`
 	AnnualPrice *Decimal `json:"annual_price,omitempty"`
 	Description string   `json:"description,omitempty"`
+
+	// The RATING SHAPES (DESIGN.md §15.1-15.2, EPIC #6867). All three are
+	// additive: an item that carries none of them rates at UnitPrice, which
+	// is what every book shipped before them does.
+	//
+	// TierMode selects volume pricing instead of one unit price:
+	// `graduated` rates each band at its own price, `all_units` rates the
+	// whole volume at the band the total reaches. Empty = no tiers.
+	TierMode string      `json:"tier_mode,omitempty"`
+	Tiers    []PriceTier `json:"tiers,omitempty"`
+	// Allowance is the quantity of this SKU the plan INCLUDES in every
+	// billing period; usage up to it rates to zero and the excess at the
+	// price above. nil = none.
+	Allowance *Decimal `json:"allowance,omitempty"`
+	// AllowanceRollover carries an unused allowance into the next period.
+	// Off by default: an allowance is per billing period and lapses.
+	AllowanceRollover bool `json:"allowance_rollover,omitempty"`
+}
+
+// HasTiers reports whether the item prices by volume bands.
+func (p PriceItem) HasTiers() bool {
+	return p.TierMode != TierModeNone && len(p.Tiers) > 0
 }
 
 // Discount reduces a customer's rated total (#6862).
@@ -466,6 +488,11 @@ type Statement struct {
 	CreatedAt    time.Time   `json:"created_at"`
 	Lines        []RatedLine `json:"lines,omitempty"`
 	CustomerName string      `json:"customer_name,omitempty"`
+	// The CONTRACT the period was rated under (DESIGN.md §15.3): the
+	// allowances, tiers, commitments and monthly minimum that shaped these
+	// lines. Absent on a statement rated without one.
+	ContractID   *string `json:"contract_id,omitempty"`
+	ContractName string  `json:"contract_name,omitempty"`
 	// #6862/#6867 — what discounts took off the list subtotal, frozen with the
 	// statement. Subtotal is the NET; list = Subtotal + DiscountTotal.
 	DiscountTotal  Decimal         `json:"discount_total"`
@@ -523,6 +550,13 @@ type Statement struct {
 	// Payments is the ledger behind Paid; present on the single-statement
 	// document, absent from list documents.
 	Payments []StatementPayment `json:"payments,omitempty"`
+
+	// DESIGN.md §16 — the customer disputed this invoice, and why. The
+	// disputed amount STAYS on the balance: a dispute is not a credit, it
+	// is a pause on chasing, and the aging report and the collections
+	// evaluator both read this flag. Cleared when an operator resolves it.
+	DisputedAt    *time.Time `json:"disputed_at,omitempty"`
+	DisputeReason string     `json:"dispute_reason,omitempty"`
 
 	// The partner keys (DESIGN.md §13), all additive. PartnerID is the
 	// partner of the statement's customer (a customer statement) or the

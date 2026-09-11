@@ -193,6 +193,78 @@ var ErrCallbackNotSupported = errors.New("this gateway delivers no payment callb
 // whose body could not be read; the route answers 401.
 var ErrCallbackRejected = errors.New("gateway callback rejected")
 
+// ErrMethodSetupNotSupported is answered by a gateway that cannot SAVE a
+// payment method: the built-in Manual gateway (a bank transfer has nothing
+// to save) and a hook that predates the seam.
+var ErrMethodSetupNotSupported = errors.New("this gateway cannot save a payment method")
+
+// SetupRequest asks a gateway to begin saving a payment method for a
+// customer (DESIGN.md §16). It carries no card details and never will: the
+// card is entered on the GATEWAY's page, not on ours, which is the whole
+// reason this seam exists.
+type SetupRequest struct {
+	Customer store.Customer
+	// GatewayName is the key the implementation was registered under.
+	GatewayName string
+	// ReturnURL is where the gateway sends the payer back once the method
+	// is entered; empty when the gateway needs no redirect.
+	ReturnURL string
+	// Label is the customer's own name for the method, passed through.
+	Label string
+	// Actor is who asked, for the audit trail.
+	Actor string
+}
+
+// SetupResult is what the gateway answers a SetupRequest with: the page the
+// customer completes on, and the id that completion is confirmed under.
+// Method is set only when the gateway saved the method during the call.
+type SetupResult struct {
+	Gateway string
+	// SetupID is the gateway's own id for this setup, echoed back to
+	// ConfirmMethod. It is an opaque handle, never a secret of ours.
+	SetupID string
+	// SetupURL is the hosted page the customer enters the card on; empty
+	// when the gateway saved the method during the call.
+	SetupURL string
+	// Detail is one human-readable line for the customer.
+	Detail string
+	// Method is the saved method, when the gateway saved one during the
+	// call rather than sending the customer to a page.
+	Method *SavedMethod
+}
+
+// MethodConfirmation says a setup completed. It names the setup by the id
+// the gateway gave and nothing else: the implementation reads the rest from
+// the gateway, so nothing a caller could forge decides what is saved.
+type MethodConfirmation struct {
+	Customer    store.Customer
+	GatewayName string
+	SetupID     string
+	Actor       string
+}
+
+// SavedMethod is the DISPLAY record of a saved payment method — precisely
+// what a gateway returns for showing it back to the payer, and nothing more.
+// There is deliberately nowhere here to put a card number, a security code
+// or a gateway secret: the only identifier is Token, the gateway's own
+// opaque handle, which is worthless without the gateway's own credentials.
+type SavedMethod struct {
+	Gateway string
+	// Token is the gateway's id for the saved method — what a later charge
+	// names. Stored; never rendered on the wire and never audited.
+	Token string
+	// Brand, Last4 and the expiry are the display triple a payer recognises
+	// the card by. Last4 is FOUR DIGITS AT MOST: the store's own CHECK
+	// constraint refuses anything longer, so a gateway that mistakenly
+	// returned a whole number could not be recorded.
+	Brand    string
+	Last4    string
+	ExpMonth int
+	ExpYear  int
+	// Label is the customer's own name for it.
+	Label string
+}
+
 // Payment is the normalised fact the caller books. It is a payment in its own
 // right — amount, date, method, reference, status — which the caller links to
 // the invoice it was recorded against.
@@ -217,10 +289,19 @@ type Payment struct {
 // through the commercial provider. It returns ErrCallbackRejected (wrapped)
 // for a request that does not verify and ErrCallbackNotSupported when the
 // gateway has no callback at all.
+//
+// SetupMethod and ConfirmMethod are the SAVED-METHOD half (DESIGN.md §16):
+// the customer asks to keep a method on file, the gateway answers with the
+// page to enter it on, and the completion is confirmed back through
+// ConfirmMethod into the display record the store keeps. A gateway with no
+// such facility returns ErrMethodSetupNotSupported, exactly as a gateway
+// with no callback returns ErrCallbackNotSupported.
 type Gateway interface {
 	RequestSettlement(ctx context.Context, req Request) (Result, error)
 	ConfirmSettlement(ctx context.Context, c Confirmation) (Payment, error)
 	VerifyCallback(r *http.Request) (Confirmation, error)
+	SetupMethod(ctx context.Context, req SetupRequest) (SetupResult, error)
+	ConfirmMethod(ctx context.Context, c MethodConfirmation) (SavedMethod, error)
 }
 
 // ErrNoGateway is returned when a customer's gateway_name has no
@@ -357,6 +438,44 @@ func (r *Registry) ConfirmSettlement(ctx context.Context, conf Confirmation) (Pa
 	return g.ConfirmSettlement(ctx, conf)
 }
 
+// SetupMethod resolves the customer's gateway and asks it to begin saving a
+// payment method. A customer nothing collects for, or one that pays by
+// transfer, is ErrMethodSetupNotSupported rather than a silent success:
+// there is no instrument to keep, and telling the caller so is the answer.
+func (r *Registry) SetupMethod(ctx context.Context, req SetupRequest) (SetupResult, error) {
+	g, route := r.For(req.Customer)
+	req.GatewayName = route
+	if g == nil {
+		if req.Customer.IsBilled() && req.Customer.PaymentMethod == MethodGateway {
+			return SetupResult{}, fmt.Errorf("%w: %s", ErrNoGateway, route)
+		}
+		return SetupResult{}, ErrMethodSetupNotSupported
+	}
+	res, err := g.SetupMethod(ctx, req)
+	if res.Gateway == "" {
+		res.Gateway = route
+	}
+	return res, err
+}
+
+// ConfirmMethod resolves the customer's gateway and asks it what the
+// completed setup saved.
+func (r *Registry) ConfirmMethod(ctx context.Context, c MethodConfirmation) (SavedMethod, error) {
+	g, route := r.For(c.Customer)
+	c.GatewayName = route
+	if g == nil {
+		if c.Customer.IsBilled() && c.Customer.PaymentMethod == MethodGateway {
+			return SavedMethod{}, fmt.Errorf("%w: %s", ErrNoGateway, route)
+		}
+		return SavedMethod{}, ErrMethodSetupNotSupported
+	}
+	m, err := g.ConfirmMethod(ctx, c)
+	if m.Gateway == "" {
+		m.Gateway = route
+	}
+	return m, err
+}
+
 // ---------------------------------------------------------------------------
 // the built-in manual gateway
 // ---------------------------------------------------------------------------
@@ -403,6 +522,17 @@ func (Manual) ConfirmSettlement(_ context.Context, c Confirmation) (Payment, err
 // records it when the bank shows it.
 func (Manual) VerifyCallback(*http.Request) (Confirmation, error) {
 	return Confirmation{}, ErrCallbackNotSupported
+}
+
+// SetupMethod / ConfirmMethod: a bank transfer and an internal recharge
+// have nothing to keep on file — there is no instrument, only an invoice
+// and a payer who settles it.
+func (Manual) SetupMethod(context.Context, SetupRequest) (SetupResult, error) {
+	return SetupResult{}, ErrMethodSetupNotSupported
+}
+
+func (Manual) ConfirmMethod(context.Context, MethodConfirmation) (SavedMethod, error) {
+	return SavedMethod{}, ErrMethodSetupNotSupported
 }
 
 // normalise is the shared validation every gateway's ConfirmSettlement wants:
@@ -486,4 +616,28 @@ func (g hookGateway) VerifyCallback(r *http.Request) (Confirmation, error) {
 		return v.VerifyCallback(r)
 	}
 	return Confirmation{}, ErrCallbackNotSupported
+}
+
+// MethodSaver is the pair of methods a legacy hook may add to save payment
+// methods through the adapter, exactly as CallbackVerifier is the one it
+// may add to accept callbacks.
+type MethodSaver interface {
+	SetupMethod(ctx context.Context, req SetupRequest) (SetupResult, error)
+	ConfirmMethod(ctx context.Context, c MethodConfirmation) (SavedMethod, error)
+}
+
+// SetupMethod / ConfirmMethod delegate to the hook when it saves methods
+// itself; a hook that predates the seam saves none.
+func (g hookGateway) SetupMethod(ctx context.Context, req SetupRequest) (SetupResult, error) {
+	if v, ok := g.h.(MethodSaver); ok {
+		return v.SetupMethod(ctx, req)
+	}
+	return SetupResult{}, ErrMethodSetupNotSupported
+}
+
+func (g hookGateway) ConfirmMethod(ctx context.Context, c MethodConfirmation) (SavedMethod, error) {
+	if v, ok := g.h.(MethodSaver); ok {
+		return v.ConfirmMethod(ctx, c)
+	}
+	return SavedMethod{}, ErrMethodSetupNotSupported
 }

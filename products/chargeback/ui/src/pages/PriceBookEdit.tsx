@@ -4,6 +4,7 @@ import { API_BASE, api, asList, errorText } from '../api/client'
 import type { PriceBook, PriceBookCoverage, PriceItem } from '../api/types'
 import { DataTable, sortRows, type Column } from '../components/DataTable'
 import { BookSettingsModal, CloneBookModal, DeleteBookConfirm, billStoppedLabel, settingsFrom } from '../components/PriceBookForms'
+import { ExplainedPrice, PriceItemTermsModal, hasShape, shapeSummary } from '../components/PriceItemTerms'
 import { Badge, Confirm, EmptyState, Field, KPI, Modal, Notice, PageHeader, Skeleton } from '../components/ui'
 import { PRICE_CSV_SAMPLE, dataUrl, parsePriceBookCsv, unitPrice } from '../lib/csv'
 import { day, num } from '../lib/format'
@@ -27,7 +28,7 @@ interface Draft {
 }
 type AddDraft = Draft & { sku: string }
 
-type Dialog = { kind: 'settings' } | { kind: 'import' } | { kind: 'clone' } | { kind: 'delete' } | { kind: 'delete-item'; item: PriceItem } | null
+type Dialog = { kind: 'settings' } | { kind: 'import' } | { kind: 'clone' } | { kind: 'delete' } | { kind: 'delete-item'; item: PriceItem } | { kind: 'terms'; item: PriceItem } | null
 
 function annualOf(it: PriceItem, divisor: number): number {
   return it.annual_price !== null && it.annual_price !== undefined && it.annual_price !== '' ? toNumber(it.annual_price) : round(toNumber(it.unit_price) * divisor, 6)
@@ -344,7 +345,7 @@ export function PriceBookEdit() {
       <div className="card">
         <div className="card-head">
           <h2>Items</h2>
-          <span className="hint">edit a row and save it · unit price = annual ÷ {b.annual_divisor.toLocaleString()}</span>
+          <span className="hint">edit a row and save it · unit price = annual ÷ {b.annual_divisor.toLocaleString()} · tiers and allowances under “Effective price”</span>
         </div>
         <div className="row between" style={{ marginBottom: 10 }}>
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search SKU or description" aria-label="Search items" style={{ maxWidth: 320 }} />
@@ -413,6 +414,7 @@ export function PriceBookEdit() {
                       <span className="sort">{sort.key === c.key ? (sort.dir === 'asc' ? '↑' : '↓') : '↕'}</span>
                     </th>
                   ))}
+                  <th>Effective price</th>
                   <th></th>
                 </tr>
               </thead>
@@ -439,10 +441,28 @@ export function PriceBookEdit() {
                         {!dirty ? <span className="sub">{money(it.unit_price, 8)}</span> : null}
                         {rowErr[it.sku] ? <span className="sub bad">{rowErr[it.sku]}</span> : null}
                       </td>
+                      {/* DESIGN.md §15.1-15.2 — the rating shapes, and what
+                          the item actually charges IN WORDS. A ladder is the
+                          one thing in a book the numbers alone cannot say:
+                          "0.010 / 0.008" does not tell you whether crossing
+                          a bound reprices the whole volume. */}
+                      <td>
+                        {hasShape(it) ? (
+                          <div className="stack tight">
+                            <span className="badge info">{shapeSummary(it)}</span>
+                            <ExplainedPrice item={it} currency={currency} />
+                          </div>
+                        ) : (
+                          <span className="muted small">flat rate</span>
+                        )}
+                      </td>
                       <td className="nowrap">
                         <span className="btn-row">
                           <button className="primary small" disabled={!dirty || busy} onClick={() => void saveRow(it)}>
                             Save
+                          </button>
+                          <button className="link small" disabled={busy} onClick={() => setDialog({ kind: 'terms', item: it })}>
+                            {hasShape(it) ? 'Edit shapes' : 'Add tiers or allowance'}
                           </button>
                           {dirty ? (
                             <button className="link small" disabled={busy} onClick={() => revert(it.sku)}>
@@ -512,6 +532,19 @@ export function PriceBookEdit() {
         />
       ) : null}
       {dialog?.kind === 'delete' ? <DeleteBookConfirm book={b} assigned={assigned.length} onClose={() => setDialog(null)} onDeleted={() => nav('/pricebooks')} /> : null}
+      {dialog?.kind === 'terms' ? (
+        <PriceItemTermsModal
+          bookId={id}
+          item={dialog.item}
+          currency={currency}
+          onClose={() => setDialog(null)}
+          onSaved={async (saved) => {
+            setDialog(null)
+            ok(`${saved.sku} pricing shapes saved`)
+            await reload()
+          }}
+        />
+      ) : null}
       {dialog?.kind === 'delete-item' ? (
         <Confirm
           title={`Remove ${dialog.item.sku}?`}

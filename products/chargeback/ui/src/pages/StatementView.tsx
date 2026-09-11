@@ -3,11 +3,12 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { API_BASE, api, asList, errorText } from '../api/client'
 import { useSession } from '../auth/session'
 import { can, isSovereign } from '../lib/access'
-import type { CostSource, CreditNote, RatedLine, Statement } from '../api/types'
+import type { CostSource, CreditNote, Dispute, RatedLine, Statement } from '../api/types'
 import { Waterfall, waterfallLayout, type WaterfallStep } from '../components/charts'
 import { Badge, Confirm, EmptyState, Field, Modal, Notice, PageHeader, Skeleton } from '../components/ui'
 import { acceptsCreditNote, allocationText, creditNoteEffect, creditRoom } from '../lib/account'
 import { discountRuleLabel } from '../lib/discountRule'
+import { DISPUTE_OUTCOMES, canDispute, disputeState, invoiceDownloadURL, openDispute } from '../lib/selfservice'
 import { day, num, when } from '../lib/format'
 import { formatMoney, formatPct, minorUnitDigits, minorUnitTolerance } from '../lib/money'
 import { toNumber } from '../lib/num'
@@ -25,7 +26,7 @@ import { useQuery } from '../lib/useQuery'
 // DESIGN.md §8 — the invoice lifecycle, from this page: issue, send it to
 // the customer, record what they paid, or void it. §9.3 — reduce an issued
 // invoice with a credit note, the only way one is ever reduced.
-type Dialog = { kind: 'issue' } | { kind: 'delete' } | { kind: 'send' } | { kind: 'pay' } | { kind: 'cancel' } | { kind: 'credit' } | null
+type Dialog = { kind: 'issue' } | { kind: 'delete' } | { kind: 'send' } | { kind: 'pay' } | { kind: 'cancel' } | { kind: 'credit' } | { kind: 'dispute' } | { kind: 'resolve' } | null
 
 export function StatementView() {
   const { id = '' } = useParams()
@@ -45,6 +46,10 @@ export function StatementView() {
     for (const src of asList<CostSource>(srcQ.data, 'sources')) m.set(src.id, `${src.kind}${src.project_id ? ' · ' + src.project_id : ''}${src.region ? ' · ' + src.region : ''}`)
     return m
   }, [srcQ.data])
+  // DESIGN.md §16 — the disputes raised on this invoice; the open one is
+  // what an operator resolves.
+  const disQ = useQuery<unknown>(`/statements/${id}/disputes`)
+  const disputes = useMemo(() => asList<Dispute>(disQ.data, 'disputes'), [disQ.data])
   const lines: RatedLine[] = useMemo(() => s?.lines ?? [], [s])
   const groups = useMemo(() => groupByService(lines), [lines])
   const sources = useMemo(() => groupBySource(lines), [lines])
@@ -59,6 +64,10 @@ export function StatementView() {
   const operator = isSovereign(me)
   const canIssue = can(me, 'billing.issue', s.customer_id)
   const canCollect = can(me, 'billing.collect', s.customer_id)
+  // DESIGN.md §16 — raising a dispute is the customer's own account.topup
+  // (an owner or a billing user); resolving one is the operator's collect.
+  const canRaiseDispute = can(me, 'account.topup', s.customer_id)
+  const current = openDispute(disputes)
   const cur = s.currency
   const money = (v: number | string | null | undefined) => formatMoney(toNumber(v), cur)
   // Wire contract (rating.TotalsWithDiscount): `subtotal` is the NET — list
@@ -138,9 +147,25 @@ export function StatementView() {
         actions={
           <>
             <button onClick={() => window.print()}>Print</button>
+            {/* DESIGN.md §16 — the invoice in the customer's hands: the
+                same scope-checked read, rendered as a document and named
+                after its invoice number. */}
+            <a href={invoiceDownloadURL(s.id)}>
+              <button>Download PDF</button>
+            </a>
             <a href={`${API_BASE}/statements/${s.id}.csv`}>
               <button>CSV</button>
             </a>
+            {canRaiseDispute && canDispute(s) ? (
+              <button onClick={() => setDialog({ kind: 'dispute' })} title="Tell the operator what is wrong with this invoice">
+                Dispute
+              </button>
+            ) : null}
+            {canCollect && current ? (
+              <button className="primary" onClick={() => setDialog({ kind: 'resolve' })}>
+                Resolve dispute
+              </button>
+            ) : null}
             {canIssue && s.status === 'draft' ? (
               <>
                 <button
@@ -193,6 +218,20 @@ export function StatementView() {
         </Notice>
       ) : null}
       {s.status === 'cancelled' ? <Notice kind="warn">Cancelled{s.cancel_reason ? ` — ${s.cancel_reason}` : ''}. Nothing is collected against it.</Notice> : null}
+      {/* DESIGN.md §16 — the dispute, with its reason and where it stands.
+          The amount is still owed; it is simply not chased. */}
+      {s.disputed_at ? (
+        <Notice kind="warn">
+          <strong>Disputed</strong>
+          {s.dispute_reason ? ` — ${s.dispute_reason}` : ''}. {money(current ? toNumber(current.amount) : statementBalance(s))} stays on the balance and is not chased while it is open.
+          {current ? ` Raised ${when(current.opened_at)}${current.opened_by ? ` by ${current.opened_by}` : ''}.` : ''}
+        </Notice>
+      ) : null}
+      {!s.disputed_at && disputes.length > 0 ? (
+        <Notice kind="info">
+          {disputes.length === 1 ? 'A dispute on this invoice was' : `${disputes.length} disputes on this invoice were`} resolved: {disputes.map((d) => `${d.status} — ${disputeState(d)}`).join('; ')}.
+        </Notice>
+      ) : null}
 
       {s.invoice_number || s.external_invoice_ref || s.po_reference || s.due_at || s.tax_snapshot ? (
         <div className="card">
@@ -390,7 +429,16 @@ export function StatementView() {
                     <span className="mono">{n.number}</span>
                     <span className="sub">{n.kind === 'full' ? 'whole invoice' : n.kind === 'write_off' ? 'write-off' : 'partial'}</span>
                   </td>
-                  <td>{n.reason || <span className="muted">—</span>}</td>
+                  <td>
+                    {n.reason || <span className="muted">—</span>}
+                    {/* DESIGN.md §15.5 — an SLA credit says what it answers. */}
+                    {n.sla_pct ? (
+                      <span className="sub">
+                        SLA credit{n.contract_name ? ` under ${n.contract_name}` : ''} · {n.sla_pct} % of the period
+                        {n.measured_availability ? ` · availability measured ${n.measured_availability} %` : ''}
+                      </span>
+                    ) : null}
+                  </td>
                   <td>{creditNoteEffect(n, cur, (v, c) => formatMoney(v, c))}</td>
                   <td>
                     {when(n.issued_at)}
@@ -554,7 +602,13 @@ export function StatementView() {
                   </tr>
                   {g.lines.map((l, i) => (
                     <tr key={`${g.key}-${l.sku}-${l.source_id ?? ''}-${i}`}>
-                      <td className="mono">{l.sku}</td>
+                      {/* DESIGN.md §15.4 — the true-up is a LINE, named and
+                          explained on the invoice: a customer charged for
+                          usage it did not have has to be able to read why. */}
+                      <td className="mono">
+                        {l.sku}
+                        {l.sku === 'true-up' ? <span className="sub">the shortfall against the contract's monthly minimum</span> : null}
+                      </td>
                       <td>{l.unit ?? '—'}</td>
                       <td className="num">{num(l.quantity, 4)}</td>
                       <td className="num">{formatMoney(l.unit_price, cur, { digits: 8 })}</td>
@@ -679,6 +733,29 @@ export function StatementView() {
             setDialog(null)
             setFlash(`payment of ${formatMoney(amount, cur)} recorded`)
             await q.reload()
+          }}
+        />
+      ) : null}
+      {dialog?.kind === 'dispute' ? (
+        <DisputeModal
+          statementId={id}
+          onClose={() => setDialog(null)}
+          onDone={async (d) => {
+            setDialog(null)
+            setFlash(`dispute raised for ${money(toNumber(d.amount))}; this invoice is not chased while the operator reviews it`)
+            await Promise.all([q.reload(), disQ.reload()])
+          }}
+        />
+      ) : null}
+      {dialog?.kind === 'resolve' && current ? (
+        <ResolveDisputeModal
+          dispute={current}
+          currency={cur}
+          onClose={() => setDialog(null)}
+          onDone={async (d) => {
+            setDialog(null)
+            setFlash(d.status === 'upheld' ? `dispute upheld; a credit note was issued for ${money(toNumber(d.amount))}` : 'dispute rejected; collections resume on this invoice')
+            await Promise.all([q.reload(), disQ.reload()])
           }}
         />
       ) : null}
@@ -891,6 +968,115 @@ function RecordPaymentModal({
         </Field>
         {!hasErrors(errors) && form.amount && stillOwed ? <Notice kind="warn">{formatMoney(remaining, currency, { digits })} will still be outstanding.</Notice> : null}
         {error ? <Notice kind="bad">{error}</Notice> : null}
+      </form>
+    </Modal>
+  )
+}
+
+/**
+ * DisputeModal (DESIGN.md §16) — the customer says what is wrong. Naming
+ * lines is optional: with none, the whole outstanding balance is disputed;
+ * with some, the share of the invoice those lines represent.
+ */
+function DisputeModal({ statementId, onClose, onDone }: { statementId: string; onClose: () => void; onDone: (d: Dispute) => void | Promise<void> }) {
+  const [reason, setReason] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!reason.trim()) {
+      setError('say what is wrong with the invoice')
+      return
+    }
+    setBusy(true)
+    setError('')
+    try {
+      const d = await api.post<Dispute>(`/statements/${statementId}/disputes`, { reason: reason.trim() })
+      await onDone(d)
+    } catch (err) {
+      setError(errorText(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Modal
+      title="Dispute this invoice"
+      onClose={onClose}
+      footer={
+        <>
+          <button onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+          <button className="primary" onClick={(e) => void submit(e)} disabled={busy}>
+            Raise the dispute
+          </button>
+        </>
+      }
+    >
+      <form className="stack tight" onSubmit={(e) => void submit(e)}>
+        {error ? <Notice kind="bad">{error}</Notice> : null}
+        <p>The amount stays owed while the operator reviews it — it is simply not chased. If the dispute is upheld you receive a credit note for it.</p>
+        <Field label="What is wrong?" help="The operator reads this; be specific about the line or the period.">
+          <textarea value={reason} onChange={(ev) => setReason(ev.target.value)} rows={4} placeholder="The storage line is not ours — that volume belongs to another account." />
+        </Field>
+      </form>
+    </Modal>
+  )
+}
+
+/**
+ * ResolveDisputeModal (DESIGN.md §16) — the operator's answer. UPHELD issues
+ * a credit note for the disputed amount through the product's own credit-note
+ * machinery; REJECTED clears the flag and collections resume.
+ */
+function ResolveDisputeModal({ dispute, currency, onClose, onDone }: { dispute: Dispute; currency: string; onClose: () => void; onDone: (d: Dispute) => void | Promise<void> }) {
+  const [outcome, setOutcome] = useState<'upheld' | 'rejected'>('upheld')
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const amount = formatMoney(toNumber(dispute.amount), currency)
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    setBusy(true)
+    setError('')
+    try {
+      const d = await api.post<Dispute>(`/disputes/${dispute.id}/resolve`, { outcome, note: note.trim() })
+      await onDone(d)
+    } catch (err) {
+      setError(errorText(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Modal
+      title="Resolve this dispute"
+      onClose={onClose}
+      footer={
+        <>
+          <button onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+          <button className="primary" onClick={(e) => void submit(e)} disabled={busy}>
+            {outcome === 'upheld' ? `Uphold and credit ${amount}` : 'Reject and resume collections'}
+          </button>
+        </>
+      }
+    >
+      <form className="stack tight" onSubmit={(e) => void submit(e)}>
+        {error ? <Notice kind="bad">{error}</Notice> : null}
+        <p>
+          <strong>{amount}</strong> disputed — {dispute.reason}
+        </p>
+        {DISPUTE_OUTCOMES.map((o) => (
+          <label className="check" key={o.outcome}>
+            <input type="radio" name="outcome" checked={outcome === o.outcome} onChange={() => setOutcome(o.outcome)} /> {o.label} — {o.help}
+          </label>
+        ))}
+        <Field label="Note" help="Recorded on the dispute and, when upheld, on the credit note.">
+          <textarea value={note} onChange={(ev) => setNote(ev.target.value)} rows={3} />
+        </Field>
       </form>
     </Modal>
   )

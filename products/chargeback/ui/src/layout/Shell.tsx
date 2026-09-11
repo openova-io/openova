@@ -40,6 +40,7 @@ const SOVEREIGN_NAV: readonly NavGroup[] = [
       ['/customers', 'Customers', '⌂'],
       ['/leads', 'Leads', '✦', 'customers.manage'],
       ['/partners', 'Partners', '⇋'],
+      ['/contracts', 'Contracts', '§'],
       ['/pricebooks', 'Price books', '¤'],
       ['/discounts', 'Discounts', '%'],
       ['/allocation', 'Allocation', '⇶'],
@@ -66,6 +67,10 @@ const CUSTOMER_NAV: readonly NavGroup[] = [
     [
       ['/my/statements', 'Statements', '≡'],
       ['/my/account', 'Account', '◎'],
+      // DESIGN.md §16 — the card kept on file. Adding or removing one is
+      // account.topup, the same permission a top-up needs; a viewer sees
+      // the page and is offered nothing on it.
+      ['/my/payment-methods', 'Payment methods', '▭'],
       ['/my/budgets', 'Budgets', '◔'],
       ['/my/reports', 'Reports', '✉'],
     ],

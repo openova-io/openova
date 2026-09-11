@@ -275,6 +275,18 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("DELETE /api/v1/discounts/{id}", h.deleteDiscount)
 	// DESIGN.md §2.11 — the discount combination rule. Operator-only; read at
 	// statement run time and recorded on every statement the run writes.
+	// Contracts and commercial terms (DESIGN.md §15). `/contracts/renewals`
+	// is a literal path and so wins over `/contracts/{id}` in the mux.
+	mux.HandleFunc("GET /api/v1/contracts", h.listContracts)
+	mux.HandleFunc("POST /api/v1/contracts", h.createContract)
+	mux.HandleFunc("GET /api/v1/contracts/renewals", h.renewalsDue)
+	mux.HandleFunc("GET /api/v1/contracts/{id}", h.getContract)
+	mux.HandleFunc("PATCH /api/v1/contracts/{id}", h.patchContract)
+	mux.HandleFunc("DELETE /api/v1/contracts/{id}", h.deleteContract)
+	mux.HandleFunc("PUT /api/v1/contracts/{id}/items", h.putContractItems)
+	mux.HandleFunc("POST /api/v1/contracts/{id}/sla-credit", h.issueSLACredit)
+	mux.HandleFunc("GET /api/v1/customers/{id}/contracts", h.customerContracts)
+
 	mux.HandleFunc("GET /api/v1/billing-settings", h.getBillingSettings)
 	mux.HandleFunc("PUT /api/v1/billing-settings", h.putBillingSettings)
 	mux.HandleFunc("POST /api/v1/customers/{id}/sources", h.createSource)
@@ -370,6 +382,25 @@ func New(d Deps) http.Handler {
 	// verified by the gateway's signature through settle.Gateway.VerifyCallback,
 	// booked through the commercial provider, idempotent on the reference.
 	mux.HandleFunc("POST /api/v1/gateways/{name}/callback", h.gatewayCallback)
+
+	// Customer self-service (DESIGN.md §16) — what a paying customer does
+	// without the operator. A saved payment method rides the SAME gateway
+	// registry that collects (settle.Registry), and a dispute's credit note
+	// is the SAME credit note §9.3 issues; neither is a second mechanism.
+	// Writes need account.topup on the customer (an owner or a billing user
+	// on its own account) or billing.collect; resolving a dispute is the
+	// operator's billing.collect.
+	mux.HandleFunc("GET /api/v1/customers/{id}/payment-methods", h.listPaymentMethods)
+	mux.HandleFunc("POST /api/v1/customers/{id}/payment-methods", h.createPaymentMethod)
+	mux.HandleFunc("POST /api/v1/customers/{id}/payment-methods/{mid}/confirm", h.confirmPaymentMethod)
+	mux.HandleFunc("DELETE /api/v1/customers/{id}/payment-methods/{mid}", h.deleteCustomerPaymentMethod)
+	mux.HandleFunc("GET /api/v1/payment-methods/{id}", h.getPaymentMethod)
+	mux.HandleFunc("DELETE /api/v1/payment-methods/{id}", h.deletePaymentMethod)
+	mux.HandleFunc("POST /api/v1/statements/{id}/disputes", h.createDispute)
+	mux.HandleFunc("GET /api/v1/statements/{id}/disputes", h.listStatementDisputes)
+	mux.HandleFunc("GET /api/v1/customers/{id}/disputes", h.listCustomerDisputes)
+	mux.HandleFunc("GET /api/v1/disputes/{id}", h.getDispute)
+	mux.HandleFunc("POST /api/v1/disputes/{id}/resolve", h.resolveDispute)
 
 	// Currency rates (#6867 follow-up, DESIGN.md §3.10) — operator-only.
 	// per_base of a price-book currency relative to the reporting currency
