@@ -1,0 +1,73 @@
+{
+  "template": "invoice",
+  "locale": "en",
+  "currency": "OMR",
+  "document": {
+    "number": "INV-2026-00042",
+    "status": "overdue",
+    "issued_at": "2026-09-01",
+    "due_at": "2026-10-01",
+    "period_start": "2026-08-01",
+    "period_end": "2026-08-31",
+    "seller": {
+      "name": "Sovereign Cloud Operator LLC",
+      "address": "Knowledge Oasis Muscat\nMuscat 130, Oman",
+      "tax_registration": "OM1100012345"
+    },
+    "buyer": {
+      "name": "Acme Trading LLC",
+      "tax_registration": "OM1100098765",
+      "email": "finance@acme.omani.homes"
+    },
+    "references": {
+      "po": "PO-2026-118",
+      "invoice_number": "INV-2026-00042",
+      "statement_id": "3f9c1b2e-7a4d-4c1e-9b0a-1d2e3f4a5b6c"
+    },
+    "lines": [
+      {
+        "sku": "k8s.vcpu",
+        "unit": "vcpu-hour",
+        "quantity": "2976.000000",
+        "unit_price": "0.012000",
+        "amount": "35.712000"
+      },
+      {
+        "sku": "plan.m",
+        "unit": "month",
+        "quantity": "1.000000",
+        "unit_price": "45.000000",
+        "amount": "45.000000"
+      }
+    ],
+    "waterfall": {
+      "discount_total": "9.708000",
+      "net_subtotal": "87.372000",
+      "tax_rate": "0.05",
+      "tax": "4.368600",
+      "total": "91.740600",
+      "paid": "50.000000",
+      "balance": "41.740600"
+    },
+    "discounts": [
+      {
+        "label": "Launch campaign",
+        "amount": "9.708000"
+      }
+    ],
+    "tax": {
+      "discount_rule": "best-single"
+    },
+    "payments": [
+      {
+        "paid_at": "2026-09-05",
+        "method": "transfer",
+        "reference": "TRF-88213",
+        "amount": "50.000000"
+      }
+    ],
+    "terms": {
+      "payment_terms_days": 30
+    }
+  }
+}

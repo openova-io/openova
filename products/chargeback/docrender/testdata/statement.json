@@ -1,0 +1,39 @@
+{
+  "template": "statement",
+  "locale": "en",
+  "currency": "OMR",
+  "document": {
+    "number": "2026-08",
+    "issued_at": "2026-09-01",
+    "period_start": "2026-08-01",
+    "period_end": "2026-08-31",
+    "seller": {
+      "name": "Sovereign Cloud Operator LLC",
+      "address": "Knowledge Oasis Muscat\nMuscat 130, Oman",
+      "tax_registration": "OM1100012345"
+    },
+    "buyer": {
+      "name": "Beta Co",
+      "address": "Ruwi\nMuscat, Oman"
+    },
+    "references": {"statement_id": "7c2b4d19-8e35-4a62-bb01-5f0e6d7c8a9b"},
+    "lines": [
+      {"sku": "k8s.vcpu", "unit": "vcpu-hour", "quantity": "1488.000000", "unit_price": "0.012000", "amount": "17.856000"},
+      {"sku": "k8s.mem_gb", "unit": "gib-hour", "quantity": "2976.000000", "unit_price": "0.001500", "amount": "4.464000"},
+      {"sku": "eip.traffic_gb", "unit": "gb", "quantity": "312.500000", "unit_price": "0.020000", "amount": "6.250000"}
+    ],
+    "waterfall": {
+      "net_subtotal": "28.570000",
+      "tax_rate": "0.05",
+      "tax": "1.428500",
+      "total": "29.998500",
+      "paid": "29.998500",
+      "balance": "0.000000"
+    },
+    "tax": {},
+    "payments": [
+      {"paid_at": "2026-09-03", "method": "gateway", "reference": "OMT-4471902", "amount": "29.998500"}
+    ],
+    "terms": {}
+  }
+}

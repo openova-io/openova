@@ -1,0 +1,44 @@
+apiVersion: v2
+name: docrender
+description: |
+  Document renderer for the Catalyst BSS (EPIC #6867) — a stateless service
+  that turns a structured document (invoice, credit note, statement, quote)
+  into a PDF.
+
+  IN-CLUSTER ONLY by construction: a ClusterIP Service, a NetworkPolicy that
+  admits the chargeback pods and nothing else, and an egress half that allows
+  DNS and nothing else. It has no Gateway route, no database, no PVC and makes
+  no outbound call, so there is nothing for it to reach even if something asked
+  it to. Never a NodePort (§854).
+
+  Installed as an OPTIONAL sub-chart of bp-chargeback, gated on
+  `docrender.enabled`; the BSS reaches it at
+  http://<release>-docrender.<namespace>.svc.cluster.local:8080.
+type: application
+# 0.1.0 (#6867): first release — Deployment (2 replicas, distroless non-root
+# 65532, read-only rootfs, Guaranteed QoS, hostname spread) + ClusterIP
+# Service + PodDisruptionBudget + zero-RBAC ServiceAccount + a default-deny
+# NetworkPolicy whose only ingress is the chargeback pods and whose only
+# egress is kube-dns. Image = ghcr.io/openova-io/chargeback-docrender:<appVersion>
+# (build-docrender.yaml; plain image repo per the #4706 chart-repo-collision
+# lesson — never a chart OCI repo).
+version: 0.1.0
+# appVersion is the default image tag (docrender.image in _helpers.tpl);
+# build-docrender.yaml derives the pushed tag from this field so the two can
+# never drift.
+appVersion: 0.1.0
+keywords:
+  - chargeback
+  - bss
+  - invoice
+  - pdf
+  - document-renderer
+maintainers:
+  - name: OpenOva
+    url: https://github.com/openova-io/openova
+sources:
+  - https://github.com/openova-io/openova
+annotations:
+  # First-party Go service, no bundled upstream Helm subchart — the same
+  # shape as bp-openova-mcp / bp-agenity / bp-chargeback itself.
+  catalyst.openova.io/no-upstream: "true"

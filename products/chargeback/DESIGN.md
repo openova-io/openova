@@ -2003,3 +2003,73 @@ stands a database before the migration, writes `customer_users` rows and
 proves the backfill, the view, the widened sessions CHECK and the unique
 indexes. `internal/adapter/openova/orgsync_access_test.go` proves the sync
 grants the owner binding once and never revokes.
+
+---
+
+## 11. Documents — the invoice the customer actually receives (EPIC #6867)
+
+Everything above settles what a customer owes. This settles what they are
+*handed*: a **PDF**. An invoice that exists only as JSON and a CSV is not an
+invoice anyone can file, forward to their accountant, or attach to a payment
+run, and a quote that cannot be sent as a document is not a quote.
+
+**A separate service, not a package.** `products/chargeback/docrender` is its
+own Go module, its own image and an optional sub-chart of `bp-chargeback`
+(`docrender.enabled`, off by default). The split is deliberate on three
+counts. Document layout is a different problem from rating — fonts, page
+breaks, column metrics — and mixing it into the billing binary would put a
+typesetting dependency behind every statement run. A renderer is a **pure
+function** of the document it is given, so it can be stateless, hold no
+credentials, reach nothing, and be restarted or scaled without a thought. And
+the four document kinds are wanted by more than the invoice route: a quote
+today, an e-invoice attachment's human-readable rendition next.
+
+**No headless browser.** The PDF is drawn directly from the document JSON
+with `github.com/go-pdf/fpdf`, a pure-Go library with real font metrics, so
+column widths, wrapped cells and page breaks are measured rather than
+guessed, the output carries a genuine text layer, and the runtime image is a
+single static binary on distroless — no Chromium, no font directory, no
+`/tmp` spool. An HTML rendition of the same document is served from
+`html/template` files for the console to show inline.
+
+**Money crosses the wire as decimal STRINGS.** `internal/docs` passes the
+ledger's own digits through untouched — it never parses an amount, so it
+cannot round or re-scale one — and the renderer formats them at the
+**currency's minor unit**: three decimals for OMR and the other dinars, two
+for the rest, rounded once, half away from zero. A value that has been
+through a float is refused with 400 rather than silently reinterpreted, on
+the same reasoning as §8.6: the arithmetic stays exact and only the final
+rendering rounds.
+
+**Which document it is follows the statement.** One that has been issued
+carries an invoice number and renders as a *Tax Invoice*; a draft, or one the
+operator's external billing system numbers (§8.10), has no number of ours to
+print and renders as a *Statement* of the period. The seller block comes from
+the statement's own **tax snapshot** (§9.4) when it has one — an operator who
+renames the Sovereign must not silently rewrite a document the customer is
+already holding — and only a draft falls back to the live billing settings.
+
+**The route.** `GET /api/v1/statements/{id}.pdf`, alongside the existing
+`.csv`. It is the same handler and the same scope-filtered store read as
+fetching the statement, so the permission to download the document is exactly
+the permission to read the statement it is made of — a customer downloads its
+own invoices and gets 404 on anyone else's. With no renderer configured the
+route answers **503 "document renderer not configured"** and every other
+surface is untouched: an operator reading that response is told which of "not
+turned on" and "broken" they are looking at.
+
+**In-cluster only.** The renderer has no external door at all — ClusterIP,
+no HTTPRoute, no Ingress, and the chart refuses any other Service type. A
+default-deny NetworkPolicy admits the chargeback pods on the service port and
+nothing else, and allows egress to kube-dns and nothing else; it makes no
+outbound call, so there is nothing further to allow. An optional
+`X-Render-Token` shared secret sits on top of that as defence in depth, never
+as the perimeter. `chart/tests/kyverno-policies.sh` applies the platform's
+own admission baseline at its Enforce actions and requires zero failures.
+
+**The contract between the two modules is a committed document.** They are
+separate Go modules and cannot import each other, so
+`docrender/testdata/bss-invoice.json` is written by the BSS mapper's test and
+rendered by the renderer's — a field renamed on either side fails one of the
+two suites, rather than surfacing as a 400 on a customer's download months
+later.

@@ -114,6 +114,36 @@ renders nothing, Inviolable #4).
 {{- end -}}
 {{- end -}}
 
+{{- /*
+chargeback.docrenderURL — the in-cluster address of the document-renderer
+sub-chart, or "" when it is not enabled.
+
+The name is composed the SAME way the sub-chart's own `docrender.fullname`
+composes it (release name + "-docrender", with the de-duplication Helm charts
+conventionally apply), because a sub-chart cannot hand a value back up to its
+parent. The two are pinned together by
+products/chargeback/docrender/chart/tests/render-contract.sh, which renders
+the parent and asserts this URL names the Service the sub-chart actually
+creates — the one drift that would leave the feature silently answering 503.
+*/ -}}
+{{- define "chargeback.docrenderName" -}}
+{{- if contains "docrender" .Release.Name -}}
+{{- .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+{{- printf "%s-docrender" .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "chargeback.docrenderURL" -}}
+{{- if .Values.docrender.enabled -}}
+{{- $port := 8080 -}}
+{{- if .Values.docrender.service -}}
+{{- $port = .Values.docrender.service.port | default 8080 -}}
+{{- end -}}
+{{- printf "http://%s.%s.svc.cluster.local:%v" (include "chargeback.docrenderName" .) .Release.Namespace $port -}}
+{{- end -}}
+{{- end -}}
+
 {{/* CNPG cluster + secret names */}}
 {{- define "chargeback.cnpgClusterName" -}}
 {{- printf "%s-pg" (include "chargeback.fullname" .) -}}

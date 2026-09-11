@@ -1,0 +1,35 @@
+{
+  "template": "credit-note",
+  "locale": "en",
+  "currency": "OMR",
+  "document": {
+    "number": "CN-2026-00003",
+    "status": "issued",
+    "issued_at": "2026-09-12",
+    "seller": {
+      "name": "Sovereign Cloud Operator LLC",
+      "address": "Knowledge Oasis Muscat\nMuscat 130, Oman",
+      "tax_registration": "OM1100012345"
+    },
+    "buyer": {
+      "name": "Acme Trading LLC",
+      "address": "Al Khuwair\nMuscat, Oman",
+      "tax_registration": "OM1100098765"
+    },
+    "references": {"invoice_number": "INV-2026-00042"},
+    "lines": [
+      {"sku": "credit", "description": "Service credit — region-A outage 2026-08-14", "unit": "credit", "quantity": "1.000000", "unit_price": "50.000000", "amount": "50.000000"}
+    ],
+    "waterfall": {
+      "net_subtotal": "50.000000",
+      "tax_rate": "0.05",
+      "tax": "2.500000",
+      "total": "52.500000",
+      "applied": "41.740600",
+      "unapplied": "10.759400"
+    },
+    "tax": {},
+    "terms": {},
+    "notes": "Issued under the service-level commitment in your agreement."
+  }
+}
