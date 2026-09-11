@@ -532,10 +532,21 @@ func (s *Store) PriceBookCoverage(ctx context.Context, priceBookID string, from,
 		return out, err
 	}
 	out.Customers = coverageCustomers(out.Sources)
-	rows, err := s.db.QueryContext(ctx, `WITH f AS (`+costBaseSQL+` AND NOT s.internal AND s.price_book_id = $3)
-		SELECT sku, COALESCE((SELECT p.unit FROM price_items p WHERE p.price_book_id = $3 AND p.sku = f.sku), min(unit)),
+	// The usage CTE the explorer reads (costrollup.go), at the day grain:
+	// this is a window total, so the grain cannot change an answer and the
+	// rollup serves it.
+	w, err := s.costWindow(ctx, from, to, grainDay)
+	if err != nil {
+		return out, err
+	}
+	a := &costArgs{}
+	cte := `WITH u AS (` + usageBranches(a, w, grainDay) + `), f AS (` + costBaseSQL + costExcludeInternalSQL
+	book := a.add(priceBookID)
+	cte += ` AND s.price_book_id = ` + book + `)`
+	rows, err := s.db.QueryContext(ctx, cte+`
+		SELECT sku, COALESCE((SELECT p.unit FROM price_items p WHERE p.price_book_id = `+book+` AND p.sku = f.sku), min(unit)),
 		       sum(quantity)::text, count(DISTINCT resource_id), unit_price::text, bool_or(`+costNotSoldPerUseExpr+`)
-		  FROM f GROUP BY sku, unit_price ORDER BY sku`, from, to, priceBookID)
+		  FROM f GROUP BY sku, unit_price ORDER BY sku`, a.args...)
 	if err != nil {
 		return out, mapErr(err)
 	}

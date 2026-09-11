@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/lib/pq"
@@ -17,6 +18,10 @@ import (
 // Store wraps the database handle.
 type Store struct {
 	db *sql.DB
+	// rollupOff is the daily-cost-rollup kill switch (costrollup.go), read
+	// on every window split and flipped by SetCostRollupEnabled. Zero — the
+	// value a fresh Store has — means the rollup is on.
+	rollupOff atomic.Int32
 }
 
 // New returns a Store over an open connection pool.
@@ -457,6 +462,12 @@ ALTER TABLE cost_sources ADD CONSTRAINT cost_sources_status_check CHECK (status 
 	// very END: migrations are positional. Located by content as
 	// MigrationCostCentres (costcentre.go).
 	costCentreMigrationSQL,
+	// DESIGN.md §20 — the daily cost rollup (#6926): the aggregated usage
+	// ledger, its per-partition freshness state, and the statement-level
+	// triggers on usage_records that mark a partition the moment anything
+	// writes to it. Appended at the very END: migrations are positional.
+	// Located by content as MigrationCostRollup (costrollup.go).
+	costRollupMigrationSQL,
 }
 
 // MigrationBackfillIssuedInvoices is the schema_migrations version of the

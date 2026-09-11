@@ -215,8 +215,13 @@ func ToBase(amount, perBase Decimal) (Decimal, bool) {
 // whose book currency has no rate: per currency, how many and what they
 // cost in that currency. cost IS NOT NULL keeps unpriced usage out (that is
 // the unpriced list's job); cost_base IS NULL is the missing rate.
+//
+// The count is sum(records), not count(*): one row of f stands for the usage
+// records of a whole day at that grain (costrollup.go), and the operator is
+// told how many RECORDS are unconverted, not how many rows the aggregate
+// happened to hold.
 const unconvertedSQL = `
-SELECT currency, count(*), round(sum(cost), 6)::text
+SELECT currency, sum(records)::bigint, round(sum(cost), 6)::text
   FROM f WHERE cost IS NOT NULL AND cost_base IS NULL
  GROUP BY currency ORDER BY currency`
 

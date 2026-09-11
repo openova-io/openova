@@ -7,7 +7,7 @@ import (
 )
 
 // Tag dimensions without a database: the key is validated by IsTagDimension
-// and BOUND by filteredCTE/groupExprs — the query text carries a placeholder,
+// and BOUND by buildFilteredCTE/groupExprs — the query text carries a placeholder,
 // the args carry the key, and a key that fails the rule never gets that far.
 func TestIsTagDimension(t *testing.T) {
 	for name, wantKey := range map[string]string{
@@ -39,7 +39,7 @@ func TestFilteredCTEBindsTagKeysAsParameters(t *testing.T) {
 		Include: map[string][]string{"tag:cost-centre": {"CC-42"}, "kind": {"ecs"}},
 		Exclude: map[string][]string{"tag:env": {"dev"}},
 	}
-	sqlText, a, err := filteredCTE(q, from, to)
+	sqlText, a, err := buildFilteredCTE(q, liveWindow(from, to), grainDay)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,10 +77,10 @@ func TestFilteredCTEBindsTagKeysAsParameters(t *testing.T) {
 
 	// Invalid keys are errors before any SQL exists, in every position.
 	for _, bad := range []string{"tag:te'am", "tag:", "tag:a b", "colour"} {
-		if _, _, err := filteredCTE(CostQuery{Include: map[string][]string{bad: {"x"}}}, from, to); err == nil {
+		if _, _, err := buildFilteredCTE(CostQuery{Include: map[string][]string{bad: {"x"}}}, liveWindow(from, to), grainDay); err == nil {
 			t.Fatalf("include %q accepted", bad)
 		}
-		if _, _, err := filteredCTE(CostQuery{Exclude: map[string][]string{bad: {"x"}}}, from, to); err == nil {
+		if _, _, err := buildFilteredCTE(CostQuery{Exclude: map[string][]string{bad: {"x"}}}, liveWindow(from, to), grainDay); err == nil {
 			t.Fatalf("exclude %q accepted", bad)
 		}
 		if _, _, err := groupExprs(&costArgs{}, bad); err == nil {
@@ -88,7 +88,7 @@ func TestFilteredCTEBindsTagKeysAsParameters(t *testing.T) {
 		}
 	}
 	// A hostile VALUE is data: it lands in the args, not in the text.
-	sqlText, a, err = filteredCTE(CostQuery{Include: map[string][]string{"tag:team": {"a' OR 1=1--"}}}, from, to)
+	sqlText, a, err = buildFilteredCTE(CostQuery{Include: map[string][]string{"tag:team": {"a' OR 1=1--"}}}, liveWindow(from, to), grainDay)
 	if err != nil {
 		t.Fatal(err)
 	}
