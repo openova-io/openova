@@ -75,6 +75,10 @@ const CUSTOMER_NAV: readonly NavGroup[] = [
       ['/my/overview', 'Overview', '◐'],
       ['/my/explore', 'Cost explorer', '▤'],
       ['/my/resources', 'Resources', '▦'],
+      // DESIGN.md §19 — the customer's own spend by cost centre. Reading is
+      // metering.read, which every customer role carries; the edits on the
+      // page are customers.manage and are simply not rendered here.
+      ['/my/cost-centres', 'Cost centres', '⊞'],
     ],
   ],
   [

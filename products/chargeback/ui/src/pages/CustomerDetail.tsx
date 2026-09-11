@@ -19,6 +19,7 @@ import { AccountPanel } from '../panels/AccountPanel'
 import { AuditPanel } from '../panels/AuditPanel'
 import { BudgetsPanel } from '../panels/BudgetsPanel'
 import { ContractPanel } from '../panels/ContractPanel'
+import { CostCentresPanel } from '../panels/CostCentresPanel'
 import { DiscountsPanel } from '../panels/DiscountsPanel'
 import { DeleteCustomerConfirm, SettingsPanel } from '../panels/SettingsPanel'
 import { SourcesPanel } from '../panels/SourcesPanel'
@@ -29,7 +30,7 @@ import { CustomerOverview } from './Overview'
 import { CustomerPartnerCard } from './Partners'
 import { ResourcesBody } from './Resources'
 
-const TABS = ['Overview', 'Account', 'Cost', 'Resources', 'Statements', 'Contract', 'Discounts', 'Budgets', 'Sources', 'Users', 'Settings', 'Audit']
+const TABS = ['Overview', 'Account', 'Cost', 'Cost centres', 'Resources', 'Statements', 'Contract', 'Discounts', 'Budgets', 'Sources', 'Users', 'Settings', 'Audit']
 
 /**
  * Customer detail — the account view (#6867, DESIGN.md §2.4): header with
@@ -209,6 +210,10 @@ export function CustomerDetail() {
       {tab === 'overview' ? <CustomerOverview customerId={id} /> : null}
       {tab === 'account' ? <AccountPanel customerId={id} customer={c} currency={currency} canRecord={canCollect} canCheckout={canCollect || can(me, 'account.topup', id)} onChanged={cust.reload} /> : null}
       {tab === 'cost' ? <CustomerCostExplorer customerId={id} /> : null}
+      {/* DESIGN.md §19 — the customer's own labelling of its spend. Reading
+          is metering.read at the scope (an owner reads its own); every edit
+          is customers.manage, where its budgets and schedules already sit. */}
+      {tab === 'cost centres' ? <CostCentresPanel customerId={id} canManage={canManageCustomer} currency={currency} /> : null}
       {tab === 'resources' ? <ResourcesBody lens={customerLens(id)} /> : null}
       {tab === 'statements' ? <StatementsPanel customerId={id} canIssue={can(me, 'billing.issue', id)} /> : null}
       {/* DESIGN.md §15.9 — the agreement where the customer is. Reading is

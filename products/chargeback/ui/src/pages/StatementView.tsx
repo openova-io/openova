@@ -7,6 +7,7 @@ import type { CostSource, CreditNote, Dispute, RatedLine, Statement } from '../a
 import { Waterfall, waterfallLayout, type WaterfallStep } from '../components/charts'
 import { Badge, Confirm, EmptyState, Field, Modal, Notice, PageHeader, Skeleton } from '../components/ui'
 import { acceptsCreditNote, allocationText, creditNoteEffect, creditRoom } from '../lib/account'
+import { isUnassigned, shareOf } from '../lib/costcentres'
 import { discountRuleLabel } from '../lib/discountRule'
 import { DISPUTE_OUTCOMES, canDispute, disputeState, invoiceDownloadURL, openDispute } from '../lib/selfservice'
 import { day, num, when } from '../lib/format'
@@ -118,6 +119,20 @@ export function StatementView() {
   const taxLines = s.tax_lines?.length ? s.tax_lines : (s.tax_snapshot?.lines ?? [])
   const audit = s.tax_snapshot?.audit ?? []
   const taxSummaryAgrees = Math.abs(taxLinesTotal(taxLines) - tax) < minorUnitTolerance(cur)
+  // DESIGN.md §19 — the cost-centre breakdown, frozen with the statement by
+  // the same run. It is a SHOWBACK dimension over an amount already
+  // computed: the invoice's own net, discount and tax apportioned by the
+  // period's usage, so the columns add up to the invoice EXACTLY. Nothing
+  // else on this page is derived from it.
+  const costCentreLines = s.cost_centre_lines ?? []
+  const costCentreNet = costCentreLines.reduce((a, l) => a + toNumber(l.net), 0)
+  const costCentreTax = costCentreLines.reduce((a, l) => a + toNumber(l.tax), 0)
+  const costCentreTotal = costCentreLines.reduce((a, l) => a + toNumber(l.total), 0)
+  // `net` is the statement's own subtotal column (list MINUS discounts);
+  // `subtotal` above is the list figure reconstructed for the waterfall. The
+  // breakdown apportions the NET, so that is what it must tie back to.
+  const costCentresAgree =
+    Math.abs(costCentreNet - net) < minorUnitTolerance(cur) && Math.abs(costCentreTax - tax) < minorUnitTolerance(cur) && Math.abs(costCentreTotal - total) < minorUnitTolerance(cur)
 
   const act = async (kind: 'issue' | 'delete' | 'send' | 'cancel', body?: Record<string, unknown>) => {
     setBusy(true)
@@ -410,6 +425,65 @@ export function StatementView() {
               </ul>
             </div>
           ) : null}
+        </div>
+      ) : null}
+
+      {/* DESIGN.md §19 — the same invoice, read by COST CENTRE. The figures
+          are the invoice's own, apportioned by the period's usage under each
+          centre by largest remainder — so the net, tax and total columns sum
+          back to the invoice exactly rather than approximately. What no rule
+          and no override named is one visible "(unassigned)" row: never
+          dropped, and never shared out over the centres. */}
+      {costCentreLines.length ? (
+        <div className="card pad-0">
+          <div className="card-head" style={{ padding: '12px 12px 0' }}>
+            <h2>By cost centre</h2>
+            <span className="hint">
+              {costCentreLines.length} centre{costCentreLines.length === 1 ? '' : 's'}
+            </span>
+          </div>
+          <table aria-label="Breakdown by cost centre">
+            <thead>
+              <tr>
+                <th>Cost centre</th>
+                <th className="num">Share</th>
+                <th className="num">List</th>
+                <th className="num">Discount</th>
+                <th className="num">Net</th>
+                <th className="num">Tax</th>
+                <th className="num">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {costCentreLines.map((l) => (
+                <tr key={l.code}>
+                  <td>
+                    <span className="mono">{l.code}</span>
+                    {isUnassigned(l.code) ? <span className="sub muted">no rule and no override named it</span> : l.name ? <span className="sub">{l.name}</span> : null}
+                  </td>
+                  <td className="num">{formatPct(shareOf(l, costCentreTotal), { digits: 0 })}</td>
+                  <td className="num">{money(l.list)}</td>
+                  <td className="num">{money(l.discount)}</td>
+                  <td className="num">{money(l.net)}</td>
+                  <td className="num">{money(l.tax)}</td>
+                  <td className="num">{money(l.total)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colSpan={4}>Total</td>
+                <td className="num">{money(costCentreNet)}</td>
+                <td className="num">{money(costCentreTax)}</td>
+                <td className="num">{money(costCentreTotal)}</td>
+              </tr>
+            </tfoot>
+          </table>
+          <p className={`${costCentresAgree ? 'muted' : 'bad'} small`} style={{ padding: '0 12px 12px', margin: 0 }}>
+            {costCentresAgree
+              ? `These rows add up to the invoice exactly — ${money(net)} net, ${money(tax)} tax, ${money(total)} total. A cost centre attributes what is already charged; it is not a charge.`
+              : `These rows add up to ${money(costCentreTotal)} and the invoice carries ${money(total)} — the breakdown and the invoice disagree.`}
+          </p>
         </div>
       ) : null}
 

@@ -216,6 +216,23 @@ func New(d Deps) http.Handler {
 
 	// Tax rules and SKU tax categories (DESIGN.md §17). Reading is
 	// metering.read; every write is settings.manage.
+	// Cost centres (DESIGN.md §19) — a customer's own labelling of its
+	// spend. Reading is metering.read on the customer (an owner reads its
+	// own); writing is customers.manage, where a customer's budgets and
+	// report schedules already sit.
+	mux.HandleFunc("GET /api/v1/customers/{id}/cost-centres", h.listCostCentres)
+	mux.HandleFunc("POST /api/v1/customers/{id}/cost-centres", h.createCostCentre)
+	mux.HandleFunc("GET /api/v1/customers/{id}/cost-centres/rules", h.listCostCentreRules)
+	mux.HandleFunc("PUT /api/v1/customers/{id}/cost-centres/rules", h.putCostCentreRule)
+	mux.HandleFunc("GET /api/v1/customers/{id}/cost-centres/resources", h.listCostCentreResources)
+	mux.HandleFunc("PUT /api/v1/customers/{id}/cost-centres/resources/{rid...}", h.putResourceCostCentre)
+	mux.HandleFunc("DELETE /api/v1/customers/{id}/cost-centres/resources/{rid...}", h.deleteResourceCostCentre)
+	mux.HandleFunc("GET /api/v1/customers/{id}/cost-centres/report", h.costCentreReport)
+	mux.HandleFunc("GET /api/v1/customers/{id}/cost-centres/report.csv", h.costCentreReportCSV)
+	mux.HandleFunc("DELETE /api/v1/cost-centres/rules/{id}", h.deleteCostCentreRule)
+	mux.HandleFunc("PUT /api/v1/cost-centres/{id}", h.updateCostCentre)
+	mux.HandleFunc("DELETE /api/v1/cost-centres/{id}", h.deleteCostCentre)
+
 	mux.HandleFunc("GET /api/v1/tax/rules", h.listTaxRules)
 	mux.HandleFunc("POST /api/v1/tax/rules", h.createTaxRule)
 	mux.HandleFunc("PUT /api/v1/tax/rules/{id}", h.updateTaxRule)

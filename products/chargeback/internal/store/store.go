@@ -451,6 +451,12 @@ ALTER TABLE cost_sources ADD CONSTRAINT cost_sources_status_check CHECK (status 
 	// very END: migrations are positional. Located by content as
 	// MigrationFinance (ledgerexport.go).
 	financeMigrationSQL,
+	// DESIGN.md §19 — cost-centre labelling: a customer's flat list of cost
+	// centres, the tag rules that attribute usage to them, the per-resource
+	// override, and the breakdown frozen on a statement. Appended at the
+	// very END: migrations are positional. Located by content as
+	// MigrationCostCentres (costcentre.go).
+	costCentreMigrationSQL,
 }
 
 // MigrationBackfillIssuedInvoices is the schema_migrations version of the

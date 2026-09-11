@@ -20,7 +20,7 @@ const statementColumns = `st.id, st.customer_id, to_char(st.period_start, 'YYYY-
 	st.tax_snapshot, st.tax_lines, st.tax_audit,
 	st.partner_id, COALESCE(p.name, ''), c.party_kind, st.statement_kind, st.buy_total::text, st.margin_total::text,
 	st.disputed_at, st.dispute_reason,
-	st.contract_id, COALESCE(ct.name, '')`
+	st.contract_id, COALESCE(ct.name, ''), st.cost_centre_lines`
 
 // statementFrom is the FROM every statement query shares: the customer (or
 // the partner's party) the statement bills and, when there is one, the
@@ -31,7 +31,7 @@ func scanStatement(row interface{ Scan(...any) error }) (Statement, error) {
 	var st Statement
 	var sub, rate, tax, total, disc string
 	var issued sql.NullTime
-	var detail, snapshot, taxLines, taxAudit []byte
+	var detail, snapshot, taxLines, taxAudit, costCentreLines []byte
 	var rule, invoiceNo, externalRef sql.NullString
 	var terms sql.NullInt64
 	var due, sent, paidAt, cancelled sql.NullTime
@@ -40,7 +40,7 @@ func scanStatement(row interface{ Scan(...any) error }) (Statement, error) {
 	var disputed sql.NullTime
 	if err := row.Scan(&st.ID, &st.CustomerID, &st.PeriodStart, &st.PeriodEnd, &st.Currency, &sub, &rate, &tax, &total, &st.Status, &issued, &st.CreatedAt, &st.CustomerName, &disc, &detail, &rule,
 		&invoiceNo, &externalRef, &st.PORef, &terms, &due, &sent, &paidAt, &cancelled, &st.CancelReason, &paid, &credited, &snapshot, &taxLines, &taxAudit,
-		&partner, &st.PartnerName, &st.PartyKind, &st.Kind, &buy, &margin, &disputed, &st.DisputeReason, &contract, &st.ContractName); err != nil {
+		&partner, &st.PartnerName, &st.PartyKind, &st.Kind, &buy, &margin, &disputed, &st.DisputeReason, &contract, &st.ContractName, &costCentreLines); err != nil {
 		return st, mapErr(err)
 	}
 	st.DisputedAt = timePtr(disputed)
@@ -61,6 +61,9 @@ func scanStatement(row interface{ Scan(...any) error }) (Statement, error) {
 	// both frozen by the rating run.
 	st.TaxLines, _ = decodeTaxLines(taxLines)
 	st.TaxAudit = decodeTaxAudit(taxAudit)
+	// The cost-centre breakdown (DESIGN.md §19), frozen by the same run. It
+	// is a showback dimension: nothing below is derived from it.
+	st.CostCentreLines = decodeCostCentreLines(costCentreLines)
 	st.Subtotal, st.TaxRate, st.Tax, st.Total = Decimal(sub), Decimal(rate), Decimal(tax), Decimal(total)
 	st.DiscountTotal = Decimal(disc)
 	if len(detail) > 0 && string(detail) != "null" {
@@ -124,6 +127,12 @@ type StatementDraft struct {
 	// TaxAudit is every determination that was not the plain reading of the
 	// rule table — an expired exemption certificate above all.
 	TaxAudit []string
+	// CostCentreLines is the per-cost-centre breakdown (DESIGN.md §19): the
+	// statement's OWN net, discount and tax apportioned across the customer's
+	// cost centres by the largest-remainder method, so each column sums back
+	// to the statement's figure exactly. Nothing here changes what is
+	// charged — it is a showback dimension over an amount already computed.
+	CostCentreLines []CostCentreLine
 }
 
 // WriteDraftStatement upserts a draft for (customer, period) and replaces its
@@ -141,10 +150,10 @@ func (s *Store) WriteDraftStatement(ctx context.Context, d StatementDraft) (Stat
 	err = tx.QueryRowContext(ctx, `SELECT id, status FROM statements WHERE customer_id = $1 AND period_start = $2 FOR UPDATE`, d.CustomerID, d.PeriodStart).Scan(&existingID, &status)
 	switch {
 	case err == sql.ErrNoRows:
-		if err := tx.QueryRowContext(ctx, `INSERT INTO statements (customer_id, period_start, period_end, currency, subtotal, tax_rate, tax, total, status, discount_total, discount_detail, discount_rule, partner_id, statement_kind, buy_total, margin_total, contract_id, tax_lines, tax_audit)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft', $9::numeric, $10, $11, $12, $13, $14::numeric, $15::numeric, $16, $17, $18) RETURNING id`,
+		if err := tx.QueryRowContext(ctx, `INSERT INTO statements (customer_id, period_start, period_end, currency, subtotal, tax_rate, tax, total, status, discount_total, discount_detail, discount_rule, partner_id, statement_kind, buy_total, margin_total, contract_id, tax_lines, tax_audit, cost_centre_lines)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft', $9::numeric, $10, $11, $12, $13, $14::numeric, $15::numeric, $16, $17, $18, $19) RETURNING id`,
 			d.CustomerID, d.PeriodStart, d.PeriodEnd, d.Currency, string(d.Subtotal), string(d.TaxRate), string(d.Tax), string(d.Total), discountOrZero(d.Discount), discountDetailJSON(d.AppliedDiscounts), nullStr(&d.DiscountRule),
-			nullStr(d.PartnerID), d.Kind, nullDec(d.BuyTotal), nullDec(d.MarginTotal), nullStr(d.ContractID), taxLinesJSON(d.TaxLines), taxAuditJSON(d.TaxAudit)).Scan(&existingID); err != nil {
+			nullStr(d.PartnerID), d.Kind, nullDec(d.BuyTotal), nullDec(d.MarginTotal), nullStr(d.ContractID), taxLinesJSON(d.TaxLines), taxAuditJSON(d.TaxAudit), costCentreLinesJSON(d.CostCentreLines)).Scan(&existingID); err != nil {
 			return Statement{}, mapErr(err)
 		}
 	case err != nil:
@@ -156,9 +165,9 @@ func (s *Store) WriteDraftStatement(ctx context.Context, d StatementDraft) (Stat
 		return Statement{}, fmt.Errorf("%w: statement for this period is already %s", ErrConflict, status)
 	default:
 		if _, err := tx.ExecContext(ctx, `UPDATE statements SET period_end = $2, currency = $3, subtotal = $4, tax_rate = $5, tax = $6, total = $7, discount_total = $8::numeric, discount_detail = $9, discount_rule = $10,
-			partner_id = $11, statement_kind = $12, buy_total = $13::numeric, margin_total = $14::numeric, contract_id = $15, tax_lines = $16, tax_audit = $17, created_at = now() WHERE id = $1`,
+			partner_id = $11, statement_kind = $12, buy_total = $13::numeric, margin_total = $14::numeric, contract_id = $15, tax_lines = $16, tax_audit = $17, cost_centre_lines = $18, created_at = now() WHERE id = $1`,
 			existingID, d.PeriodEnd, d.Currency, string(d.Subtotal), string(d.TaxRate), string(d.Tax), string(d.Total), discountOrZero(d.Discount), discountDetailJSON(d.AppliedDiscounts), nullStr(&d.DiscountRule),
-			nullStr(d.PartnerID), d.Kind, nullDec(d.BuyTotal), nullDec(d.MarginTotal), nullStr(d.ContractID), taxLinesJSON(d.TaxLines), taxAuditJSON(d.TaxAudit)); err != nil {
+			nullStr(d.PartnerID), d.Kind, nullDec(d.BuyTotal), nullDec(d.MarginTotal), nullStr(d.ContractID), taxLinesJSON(d.TaxLines), taxAuditJSON(d.TaxAudit), costCentreLinesJSON(d.CostCentreLines)); err != nil {
 			return Statement{}, mapErr(err)
 		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM rated_lines WHERE statement_id = $1`, existingID); err != nil {

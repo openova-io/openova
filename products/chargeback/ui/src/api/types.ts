@@ -546,6 +546,89 @@ export interface TaxLine {
   note?: string
 }
 
+/**
+ * DESIGN.md §19 — one row of a cost-centre breakdown. `usage` is the weight
+ * the apportionment used (the period's priced usage under the centre);
+ * `list` = `net` + `discount` and `total` = `net` + `tax` on every row.
+ */
+export interface CostCentreLine {
+  code: string
+  name?: string
+  usage: number | string
+  list: number | string
+  discount: number | string
+  net: number | string
+  tax: number | string
+  total: number | string
+}
+
+/** DESIGN.md §19 — one of a customer's cost centres. */
+export interface CostCentre {
+  id: string
+  customer_id: string
+  code: string
+  name: string
+  active: boolean
+  created_at?: string
+  updated_at?: string
+  /** How many rules and per-resource overrides point at this centre. */
+  rules: number
+  resources: number
+}
+
+/** DESIGN.md §19 — a tag value that names a cost centre. */
+export interface CostCentreRule {
+  id: string
+  customer_id: string
+  cost_centre_id: string
+  code: string
+  name?: string
+  tag_key: string
+  tag_value: string
+  priority: number
+  created_at?: string
+}
+
+/** DESIGN.md §19 — the per-resource override, which beats every rule. */
+export interface CostCentreResource {
+  customer_id: string
+  resource_id: string
+  cost_centre_id: string
+  code: string
+  name?: string
+  set_by?: string
+  set_at?: string
+}
+
+export interface CostCentresDoc {
+  cost_centres?: CostCentre[] | null
+  unassigned?: { code: string; name: string }
+  code_rule?: string
+}
+
+export interface CostCentreRulesDoc {
+  rules?: CostCentreRule[] | null
+  tag_key_rule?: string
+  default_priority?: number
+}
+
+/**
+ * DESIGN.md §19 — a period read by cost centre. `source` is `statement` when
+ * the rows are an invoice's own frozen figures and `usage` when the period
+ * has not been rated yet and the rows carry usage alone.
+ */
+export interface CostCentreReport {
+  customer_id: string
+  period: string
+  currency: string
+  source: 'statement' | 'usage' | string
+  statement_id?: string
+  status?: string
+  lines: CostCentreLine[]
+  totals: { usage: number | string; list: number | string; discount: number | string; net: number | string; tax: number | string; total: number | string }
+  invoice?: { subtotal: number | string; discount_total: number | string; tax: number | string; total: number | string; agrees: boolean } | null
+}
+
 /** DESIGN.md §9.4 — what an issued invoice carries about tax, frozen at issue. */
 export interface TaxSnapshot {
   rate: number | string
@@ -767,6 +850,14 @@ export interface Statement {
    * whose only reading is the single `tax_rate` above.
    */
   tax_lines?: TaxLine[] | null
+  /**
+   * DESIGN.md §19 — the per-cost-centre breakdown, frozen by the rating run
+   * with the rest of the statement. It is a SHOWBACK dimension: `subtotal`,
+   * `tax` and `total` above are not derived from it and do not change
+   * because of it. Each money column sums back to the statement's own
+   * figure exactly.
+   */
+  cost_centre_lines?: CostCentreLine[] | null
   /** DESIGN.md §17 — where this statement's e-invoice has got to; absent when no profile is configured. */
   einvoice?: EInvoiceState | null
   credit_notes?: CreditNote[] | null
@@ -907,7 +998,7 @@ export interface UnconvertedCurrency {
 
 export type Granularity = 'hour' | 'day' | 'month'
 /** The fixed dimensions the server lists in CostDimensions(). */
-export type StaticGroupBy = 'none' | 'customer' | 'source' | 'kind' | 'sku' | 'region' | 'resource' | 'tier' | 'namespace' | 'enterprise_project'
+export type StaticGroupBy = 'none' | 'customer' | 'source' | 'kind' | 'sku' | 'region' | 'resource' | 'tier' | 'namespace' | 'enterprise_project' | 'cost_centre'
 /** A resource-tag dimension, `tag:<key>` — dynamic, one per tag key present (lib/tags.ts). */
 export type TagDimension = `tag:${string}`
 export type GroupBy = StaticGroupBy | TagDimension
@@ -922,10 +1013,11 @@ export const GROUP_BY_OPTIONS: ReadonlyArray<{ value: StaticGroupBy; label: stri
   { value: 'tier', label: 'Tier' },
   { value: 'namespace', label: 'Namespace' },
   { value: 'enterprise_project', label: 'Enterprise project' },
+  { value: 'cost_centre', label: 'Cost centre' },
   { value: 'none', label: 'Total only' },
 ]
 export const FILTER_DIMENSIONS: ReadonlyArray<Exclude<StaticGroupBy, 'none'>> = [
-  'customer', 'kind', 'sku', 'resource', 'region', 'source', 'tier', 'namespace', 'enterprise_project',
+  'customer', 'kind', 'sku', 'resource', 'region', 'source', 'tier', 'namespace', 'enterprise_project', 'cost_centre',
 ]
 
 export interface CostGroup {
@@ -1329,12 +1421,13 @@ export interface PriceBookCoverage {
 // ---------------------------------------------------------------------------
 
 export type ReportCadence = 'daily' | 'weekly' | 'monthly'
-export type ReportSection = 'summary' | 'services' | 'customers' | 'budgets' | 'anomalies' | 'recommendations'
+export type ReportSection = 'summary' | 'services' | 'cost-centres' | 'customers' | 'budgets' | 'anomalies' | 'recommendations'
 
 /** Every section the server knows, in the order it renders them. */
 export const REPORT_SECTIONS: ReadonlyArray<{ value: ReportSection; label: string; hint: string }> = [
   { value: 'summary', label: 'Summary', hint: 'total vs previous period, month to date, forecast, unpriced usage' },
   { value: 'services', label: 'Top services', hint: 'the five biggest service kinds' },
+  { value: 'cost-centres', label: 'Cost centres', hint: 'the five biggest cost centres (customer reports only)' },
   { value: 'customers', label: 'Top customers', hint: 'the five biggest customers (operator reports only)' },
   { value: 'budgets', label: 'Budgets', hint: 'every active budget with its standing' },
   { value: 'anomalies', label: 'Anomalies', hint: 'flagged days in the window and the biggest' },

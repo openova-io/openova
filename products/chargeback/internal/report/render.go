@@ -67,10 +67,14 @@ type Input struct {
 	// knows the totals are short by exactly this.
 	Unconverted []store.UnconvertedCurrency
 
-	Services       []Group
-	ServicesOther  *Group
-	Customers      []Group
-	CustomersOther *Group
+	Services      []Group
+	ServicesOther *Group
+	// CostCentres is the window by the customer's own cost centre
+	// (DESIGN.md §19); gathered on a customer-scoped schedule only.
+	CostCentres      []Group
+	CostCentresOther *Group
+	Customers        []Group
+	CustomersOther   *Group
 
 	Budgets []budget.Status
 
@@ -156,6 +160,12 @@ func Render(in Input) (subject, body string) {
 		w.blank()
 		w.line("TOP SERVICES")
 		renderGroups(&w, in.Services, in.ServicesOther, cur, "No priced usage in the window.")
+	}
+
+	if in.has(SectionCostCentres) && !in.Operator {
+		w.blank()
+		w.line("COST CENTRES")
+		renderGroups(&w, in.CostCentres, in.CostCentresOther, cur, "No priced usage in the window.")
 	}
 
 	if in.has(SectionCustomers) && in.Operator {
