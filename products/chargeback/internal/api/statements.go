@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/openova-io/openova/products/chargeback/internal/access"
@@ -52,25 +53,44 @@ func (h *Handler) runStatements(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"period": in.Period, "results": results})
 }
 
+// redactPartner strips the partner BUY and MARGIN figures from statements a
+// principal may read but must not see them on (DESIGN.md §13): they
+// are shown to Sovereign roles and to the partner's own roles only. The
+// partner assignment itself stays — it is the customer's own commercial
+// relationship.
+func (h *Handler) redactPartner(s store.Session, sts []store.Statement) {
+	bindings := access.Bindings(s)
+	if access.IsSovereign(bindings) {
+		return
+	}
+	for i := range sts {
+		if sts[i].PartnerID == nil || !access.OnPartner(bindings, *sts[i].PartnerID) {
+			sts[i].RedactPartner()
+		}
+	}
+}
+
 func (h *Handler) listAllStatements(w http.ResponseWriter, r *http.Request) {
 	s, ok := h.requireAuth(w, r)
 	if !ok {
-		return
-	}
-	if !s.Scope().Operator {
-		// Customer principals get their own list here too.
-		list, err := h.Store.ListStatements(r.Context(), s.Scope(), *s.CustomerID)
-		if err != nil {
-			storeErr(w, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"statements": list})
 		return
 	}
 	qs := r.URL.Query()
 	period := qs.Get("period")
 	if period != "" && !periodShape.MatchString(period) {
 		writeErr(w, http.StatusBadRequest, "period must be YYYY-MM")
+		return
+	}
+	if !s.Scope().Operator {
+		// A customer principal gets its own list here too; a partner
+		// principal its customers' statements AND its own party's.
+		list, err := h.Store.ListStatementsInScope(r.Context(), s.Scope(), period)
+		if err != nil {
+			storeErr(w, err)
+			return
+		}
+		h.redactPartner(s, list)
+		writeJSON(w, http.StatusOK, map[string]any{"statements": list})
 		return
 	}
 	// Optional `customer_id` (alias `customer`): one customer's statements,
@@ -131,10 +151,18 @@ func (h *Handler) listCustomerStatements(w http.ResponseWriter, r *http.Request)
 		storeErr(w, err)
 		return
 	}
+	h.redactPartner(s, list)
 	writeJSON(w, http.StatusOK, map[string]any{"statements": list})
 }
 
-// getStatement serves JSON, or CSV when the id carries a .csv suffix.
+// getStatement serves JSON, CSV when the id carries a .csv suffix, or a PDF
+// when it carries .pdf (EPIC #6867).
+//
+// All three are the SAME read: the id is resolved through the session's scope
+// by the store, so a customer principal can download its own invoice and
+// gets 404 on anybody else's — the permission to download a document is
+// exactly the permission to read the statement it is made of, expressed as
+// one code path rather than two that could drift apart.
 func (h *Handler) getStatement(w http.ResponseWriter, r *http.Request) {
 	s, ok := h.requireAuth(w, r)
 	if !ok {
@@ -142,10 +170,21 @@ func (h *Handler) getStatement(w http.ResponseWriter, r *http.Request) {
 	}
 	id := r.PathValue("id")
 	asCSV := strings.HasSuffix(id, ".csv")
-	id = strings.TrimSuffix(id, ".csv")
+	asPDF := strings.HasSuffix(id, ".pdf")
+	id = strings.TrimSuffix(strings.TrimSuffix(id, ".csv"), ".pdf")
 	st, err := h.Store.GetStatement(r.Context(), s.Scope(), id)
 	if err != nil {
 		storeErr(w, err)
+		return
+	}
+	// Redaction runs BEFORE any representation is chosen: a partner reads a
+	// statement of its customer with the provider's figures removed, and the
+	// PDF it downloads is made from exactly that redacted statement.
+	one := []store.Statement{st}
+	h.redactPartner(s, one)
+	st = one[0]
+	if asPDF {
+		h.statementPDF(w, r, st)
 		return
 	}
 	if !asCSV {
@@ -167,6 +206,48 @@ func (h *Handler) getStatement(w http.ResponseWriter, r *http.Request) {
 	_ = cw.Write([]string{st.ID, st.CustomerName, st.PeriodStart, st.PeriodEnd, st.Currency, st.Status, "", "tax", "", string(st.TaxRate), "", string(st.Tax), ""})
 	_ = cw.Write([]string{st.ID, st.CustomerName, st.PeriodStart, st.PeriodEnd, st.Currency, st.Status, "", "total", "", "", "", string(st.Total), ""})
 	cw.Flush()
+}
+
+// statementPDF renders the statement through the document renderer
+// (EPIC #6867) and streams the PDF back.
+//
+// The renderer is OPTIONAL infrastructure. With DOCRENDER_URL unset this
+// answers 503 and says so plainly, because a Sovereign that has not enabled
+// the renderer has not lost a document — it has not turned the feature on,
+// and an operator reading the response needs to be told which of the two it
+// is. Nothing else on this route changes.
+func (h *Handler) statementPDF(w http.ResponseWriter, r *http.Request, st store.Statement) {
+	if h.Docs == nil || !h.Docs.Enabled() {
+		writeErr(w, http.StatusServiceUnavailable, "document renderer not configured")
+		return
+	}
+	// The statement was already scope-checked above, so loading its customer
+	// and the Sovereign's billing settings is a read the caller has earned.
+	c, err := h.Store.GetCustomer(r.Context(), store.OperatorScope, st.CustomerID)
+	if err != nil {
+		storeErr(w, err)
+		return
+	}
+	settings, err := h.Store.GetBillingSettings(r.Context())
+	if err != nil {
+		storeErr(w, err)
+		return
+	}
+	body, filename, err := h.Docs.RenderInvoice(r.Context(), st, c, settings)
+	if err != nil {
+		// The renderer's own message names what it refused (a missing seller
+		// legal name, say), which is what an operator needs; the customer
+		// gets the plain answer.
+		slog.Error("render statement document", "statement", st.ID, "invoice_number", st.InvoiceNumber, "error", err)
+		writeErr(w, http.StatusBadGateway, "the document could not be rendered")
+		return
+	}
+	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, filename))
+	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+	if _, err := w.Write(body); err != nil {
+		slog.Warn("write statement document", "statement", st.ID, "error", err)
+	}
 }
 
 // issueStatement — POST /statements/{id}/issue, optional body

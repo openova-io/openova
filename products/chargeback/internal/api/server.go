@@ -18,6 +18,7 @@ import (
 	"github.com/openova-io/openova/products/chargeback/internal/commercial"
 	"github.com/openova-io/openova/products/chargeback/internal/config"
 	"github.com/openova-io/openova/products/chargeback/internal/crypto"
+	"github.com/openova-io/openova/products/chargeback/internal/docs"
 	"github.com/openova-io/openova/products/chargeback/internal/mail"
 	"github.com/openova-io/openova/products/chargeback/internal/metrics"
 	"github.com/openova-io/openova/products/chargeback/internal/settle"
@@ -89,6 +90,11 @@ type Deps struct {
 	// instead of waiting for the next tick.
 	Deliverer *commercial.Deliverer
 
+	// Docs renders a statement as a PDF through the document renderer
+	// (EPIC #6867). A client whose URL is empty reports Enabled() false and
+	// GET /statements/{id}.pdf answers 503; nothing else depends on it.
+	Docs *docs.Client
+
 	// DESIGN.md §9 — the account, collections and enforcement. Intents is
 	// the gateway seam under the provider check; Enforcer suspends and
 	// resumes through the platform seam; Wallet is what prepaid adds;
@@ -103,6 +109,9 @@ type Deps struct {
 // Handler serves the API.
 type Handler struct {
 	Deps
+	// limiter is the per-address budget of the public calculator routes
+	// (DESIGN.md §11), sized from Config.PublicCalculatorRatePerMinute.
+	limiter *ipLimiter
 }
 
 const (
@@ -153,11 +162,32 @@ func New(d Deps) http.Handler {
 	if d.Collections == nil && d.Store != nil {
 		d.Collections = &collections.Evaluator{Store: d.Store, Mail: d.Mail, Enforcer: d.Enforcer, PublicURL: d.Config.PublicURL, Owns: d.Commercial.OwnsCollections, Now: d.Now}
 	}
+	// The document renderer (EPIC #6867). Built from the config when the
+	// caller did not supply one, so a deployment with DOCRENDER_URL set gets
+	// the feature without any further wiring, and one without it gets a
+	// client that honestly reports itself unconfigured.
+	if d.Docs == nil {
+		d.Docs = docs.New(d.Config.DocRenderURL, d.Config.DocRenderToken)
+	}
 	if d.Importer != nil && d.Importer.Enforcer == nil {
 		d.Importer.Enforcer = d.Enforcer
 	}
-	h := &Handler{Deps: d}
+	h := &Handler{Deps: d, limiter: newIPLimiter(d.Config.PublicCalculatorRatePerMinute, d.Now)}
 	mux := http.NewServeMux()
+
+	// The public calculator (DESIGN.md §11): unauthenticated, rate-limited,
+	// CORS for the configured origins, no cookie, no principal. The session
+	// middleware skips this prefix (chain). The catalog is the ONE public
+	// list book plus the two platform books; estimates are priced through
+	// rating.PriceEstimate — the same Rate and Totals a statement uses.
+	mux.HandleFunc("GET /api/v1/public/catalog", h.publicRoute(h.publicCatalog))
+	mux.HandleFunc("POST /api/v1/public/estimates", h.publicRoute(h.publicCreateEstimate))
+	mux.HandleFunc("GET /api/v1/public/estimates/{id}", h.publicRoute(h.publicGetEstimate))
+	mux.HandleFunc("OPTIONS /api/v1/public/", h.publicRoute(func(http.ResponseWriter, *http.Request) {}))
+	// Its operator side: the public toggle on a cloud book (rating.manage)
+	// and the read-only Leads list (customers.manage).
+	mux.HandleFunc("PUT /api/v1/pricebooks/{id}/public", h.setPriceBookPublic)
+	mux.HandleFunc("GET /api/v1/leads", h.listLeads)
 
 	// Ops.
 	mux.HandleFunc("GET /healthz", h.healthz)
@@ -184,6 +214,27 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("DELETE /api/v1/access/bindings/{id}", h.deleteBinding)
 	mux.HandleFunc("GET /api/v1/access/group-mappings", h.listGroupMappings)
 	mux.HandleFunc("PUT /api/v1/access/group-mappings", h.putGroupMappings)
+
+	// Partners — resellers and agents (DESIGN.md §13). Sovereign
+	// writes need partners.manage; a partner owner holds partner.self.manage
+	// on its OWN partner. `tiers` is registered before `{id}` so the literal
+	// path wins over the wildcard.
+	mux.HandleFunc("GET /api/v1/partners", h.listPartners)
+	mux.HandleFunc("POST /api/v1/partners", h.createPartner)
+	mux.HandleFunc("GET /api/v1/partners/tiers", h.listPartnerTiers)
+	mux.HandleFunc("POST /api/v1/partners/tiers", h.createPartnerTier)
+	mux.HandleFunc("PUT /api/v1/partners/tiers/{id}/discounts", h.putTierDiscounts)
+	mux.HandleFunc("GET /api/v1/partners/{id}", h.getPartner)
+	mux.HandleFunc("PATCH /api/v1/partners/{id}", h.patchPartner)
+	mux.HandleFunc("PUT /api/v1/partners/{id}/retail-rule", h.putRetailRule)
+	mux.HandleFunc("GET /api/v1/partners/{id}/retail-book", h.getRetailBook)
+	mux.HandleFunc("GET /api/v1/partners/{id}/customers", h.listPartnerCustomers)
+	mux.HandleFunc("GET /api/v1/partners/{id}/statements", h.listPartnerStatements)
+	mux.HandleFunc("GET /api/v1/partners/{id}/margin", h.partnerMargin)
+	mux.HandleFunc("GET /api/v1/partners/{id}/account", h.partnerAccount)
+	mux.HandleFunc("GET /api/v1/partners/{id}/users", h.listPartnerUsers)
+	mux.HandleFunc("POST /api/v1/partners/{id}/users", h.addPartnerUser)
+	mux.HandleFunc("DELETE /api/v1/partners/{id}/users/{email}", h.deletePartnerUser)
 
 	// Customers.
 	mux.HandleFunc("GET /api/v1/customers", h.listCustomers)
@@ -336,6 +387,23 @@ func New(d Deps) http.Handler {
 	// Operator.
 	mux.HandleFunc("GET /api/v1/overview", h.overview)
 
+	// Capacity (DESIGN.md §11, EPIC #6867). Reads need metering.read at the
+	// Sovereign — a customer never sees capacity — writes capacity.manage;
+	// every write is audited as capacity.region / .zone / .pool /
+	// .footprint / .cap.
+	mux.HandleFunc("GET /api/v1/capacity/overview", h.capacityOverview)
+	mux.HandleFunc("GET /api/v1/capacity/regions", h.listCapacityRegions)
+	mux.HandleFunc("POST /api/v1/capacity/regions", h.createCapacityRegion)
+	mux.HandleFunc("DELETE /api/v1/capacity/regions/{id}", h.deleteCapacityRegion)
+	mux.HandleFunc("POST /api/v1/capacity/regions/{id}/zones", h.createCapacityZone)
+	mux.HandleFunc("DELETE /api/v1/capacity/zones/{id}", h.deleteCapacityZone)
+	mux.HandleFunc("GET /api/v1/capacity/zones/{id}/pools", h.listCapacityPools)
+	mux.HandleFunc("PUT /api/v1/capacity/pools/{id}", h.putCapacityPool)
+	mux.HandleFunc("GET /api/v1/capacity/footprints", h.listFootprints)
+	mux.HandleFunc("PUT /api/v1/capacity/footprints/{sku}", h.putFootprint)
+	mux.HandleFunc("GET /api/v1/capacity/caps", h.listCaps)
+	mux.HandleFunc("PUT /api/v1/capacity/caps", h.putCap)
+
 	// Cost analysis (#6867, DESIGN.md §3.1-3.3).
 	mux.HandleFunc("GET /api/v1/cost/explore", h.explore)
 	mux.HandleFunc("GET /api/v1/cost/export.csv", h.exploreCSV)
@@ -393,9 +461,11 @@ func (h *Handler) chain(next http.Handler) http.Handler {
 			}
 		}()
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("X-Frame-Options", "DENY")
+		h.frameHeaders(w, r)
 		w.Header().Set("Referrer-Policy", "same-origin")
-		if strings.HasPrefix(r.URL.Path, "/api/") {
+		// The public calculator routes resolve no principal at all
+		// (DESIGN.md §11): a cookie sent to them is ignored, not looked up.
+		if strings.HasPrefix(r.URL.Path, "/api/") && !isPublicPath(r.URL.Path) {
 			r = r.WithContext(h.loadSession(r))
 		}
 		sw := &statusWriter{ResponseWriter: w, status: 200}
@@ -566,6 +636,28 @@ func (h *Handler) requireAnyPermission(w http.ResponseWriter, r *http.Request, c
 // cross-customer surface asks.
 func (h *Handler) requireSovereign(w http.ResponseWriter, r *http.Request, perm access.Permission) (store.Session, bool) {
 	return h.requirePermission(w, r, perm, "")
+}
+
+// requireCrossCustomer guards the surfaces that read ACROSS customers — the
+// cost explorer, the summary, resources, anomalies, recommendations. Two
+// principals pass: a Sovereign one, which sees every customer, and a PARTNER
+// one, which sees the customers assigned to its partner (DESIGN.md §13.5)
+// because store.Scope.Confine narrows every query underneath to exactly that
+// set. A customer principal is refused: its lens is /customers/{id}/… .
+//
+// This is requireSovereign plus one clause, not a second authorization path:
+// the permission asked for is the same, and the narrowing is the store's.
+func (h *Handler) requireCrossCustomer(w http.ResponseWriter, r *http.Request, perm access.Permission) (store.Session, bool) {
+	s, ok := h.requireAuth(w, r)
+	if !ok {
+		return s, false
+	}
+	bindings := access.Bindings(s)
+	if access.Has(bindings, perm, "") || access.HasAnyPartner(bindings, perm) {
+		return s, true
+	}
+	writeErr(w, http.StatusForbidden, "permission "+string(perm)+" required at the Sovereign")
+	return s, false
 }
 
 // requireCustomer answers 401/403/404 unless the session may act on the

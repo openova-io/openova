@@ -248,15 +248,20 @@ func TestIntegrationResourcesScopeCannotLeak(t *testing.T) {
 	ctx := context.Background()
 	win := store.ResourceQuery{From: day(2026, 9, 1), To: day(2026, 9, 4)}
 
-	// B lists, even naming A: only B's row.
+	// B naming A is refused, not quietly answered about B: the scope narrows
+	// a question, it never rewrites one (Scope.Confine).
 	q := win
 	q.CustomerID = s.a.ID
-	l, err := st.ListResources(ctx, store.CustomerScope(s.b.ID), q)
+	if _, err := st.ListResources(ctx, store.CustomerScope(s.b.ID), q); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("B naming A: %v, want not found", err)
+	}
+	// B listing its own: only B's row.
+	l, err := st.ListResources(ctx, store.CustomerScope(s.b.ID), win)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if l.Total != 1 || l.Rows[0].CustomerID != s.b.ID || l.SumCost != "1.440000" {
-		t.Fatalf("B naming A saw %+v", l)
+		t.Fatalf("B listing its own saw %+v", l)
 	}
 	// B fetches A's resource by its real ids: not found.
 	if _, err := st.GetResource(ctx, store.CustomerScope(s.b.ID), s.srcA.ID, "vm-1", win.From, win.To); !errors.Is(err, store.ErrNotFound) {

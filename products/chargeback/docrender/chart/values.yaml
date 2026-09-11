@@ -1,0 +1,156 @@
+# docrender — default values (EPIC #6867).
+#
+# Inviolable Principle #4: no hardcoded secrets. The only secret this service
+# can hold is the optional shared-secret header, and it is referenced by
+# Secret NAME (auth.existingSecret) and reaches the container as a
+# secretKeyRef — never as a literal in these values or in the render.
+
+# The sub-chart gate. bp-chargeback ships this chart as an optional
+# dependency with `condition: docrender.enabled`, so nothing renders until an
+# operator turns it on. OFF by default: a Sovereign that does not offer
+# invoice downloads should not run a second workload for it.
+enabled: false
+
+# ── Image ───────────────────────────────────────────────────────────────
+# Built by .github/workflows/build-docrender.yaml; the tag defaults to
+# .Chart.AppVersion. Plain image repo per the #4706 lesson.
+image:
+  repository: ghcr.io/openova-io/chargeback-docrender
+  tag: ""                 # defaults to .Chart.AppVersion
+  pullPolicy: IfNotPresent
+
+# Cutover step-07 image-registry pivot seam (#4885/#4892): when the
+# post-handover cutover pivots the Sovereign onto its local Harbor it patches
+# global.imageRegistry and the image helper re-prefixes the repository.
+# Empty = verbatim upstream (byte-identical pre-cutover).
+global:
+  imageRegistry: ""
+
+# ghcr.io/openova-io/* packages are PRIVATE — the reflected `ghcr-pull`
+# dockerconfigjson Secret must be REFERENCED by the pod spec (#4111).
+imagePullSecrets:
+  - name: ghcr-pull
+
+# Two replicas: the service is stateless (no database, no cache, no session),
+# so either pod can serve any render, and a node drain never takes document
+# downloads with it. The kyverno `multi-replica-drainability` baseline
+# requires >= 2.
+replicaCount: 2
+
+# ── Application configuration (values → env) ────────────────────────────
+config:
+  # LISTEN_ADDR — must agree with service.port (the container port `http`).
+  listenAddr: ":8080"
+  # RENDER_TIMEOUT — one render's deadline; past it the caller gets 504
+  # rather than a held connection. Go duration string.
+  renderTimeout: 10s
+  # MAX_BODY_BYTES — the request-body cap. 2 MiB holds a several-thousand-line
+  # invoice with a logo; past it the caller gets 413 before anything decodes.
+  maxBodyBytes: 2097152
+  # LOG_LEVEL — debug | info | warn | error.
+  logLevel: info
+  # FONT_FILE — path of a TrueType font to embed instead of the built-in
+  # core font. Only needed for a script cp1252 cannot carry; it requires a
+  # volume to mount the font from, so it is empty by default and the image
+  # stays a single static binary.
+  fontFile: ""
+
+# ── Shared-secret header (optional) ─────────────────────────────────────
+# Name of a pre-created Secret carrying the token under `key`. When set, the
+# renderer requires it in X-Render-Token and the BSS sends it. Empty = the
+# header is not required, which is safe ONLY because the NetworkPolicy below
+# admits the chargeback pods and nothing else — the token is defence in
+# depth, not the perimeter.
+#
+# A Secret NAME, never a literal: the kyverno `secret-not-in-env` baseline
+# denies a plaintext value on any env whose name looks secret-shaped, and
+# RENDER_TOKEN does.
+auth:
+  existingSecret: ""
+  key: RENDER_TOKEN
+
+# ── Service (ClusterIP — NEVER NodePort, §854) ──────────────────────────
+# There is no HTTPRoute and no Gateway parent: this service has NO external
+# door at all. The BSS is its only caller.
+service:
+  type: ClusterIP
+  port: 8080
+
+# ── Network policy ──────────────────────────────────────────────────────
+# Default-deny in both directions, with exactly two holes:
+#   ingress — the chargeback pods, on the service port, and nothing else;
+#   egress  — kube-dns on 53, and nothing else.
+# The renderer opens no database connection and makes no outbound call, so
+# there is nothing else to allow. Turning this off is a deliberate operator
+# act, not a default.
+networkPolicy:
+  enabled: true
+  # Pod selector of the callers admitted on the service port. Defaults to the
+  # chargeback application's own selector labels.
+  fromSelector:
+    app.kubernetes.io/name: chargeback
+  # Namespace of those callers. Empty = the release namespace (the Sovereign
+  # slot installs both into `chargeback`). Set it when the BSS runs elsewhere.
+  fromNamespace: ""
+  # kube-dns location, for the egress carve-out. DNS IS LOAD-BEARING even
+  # here: without it the pod's own readiness self-check and any future
+  # in-cluster hop fail closed (#4604 / #5617).
+  dns:
+    namespace: kube-system
+    selector:
+      k8s-app: kube-dns
+
+# ── PodDisruptionBudget ─────────────────────────────────────────────────
+# maxUnavailable 1 (never 0 — the kyverno `pdb-permits-eviction` baseline
+# rejects a budget that wedges every voluntary eviction).
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 1
+
+# ── Observability ───────────────────────────────────────────────────────
+# The pod template annotations the platform's Prometheus and OTel operator
+# read. Both are baseline compliance policies.
+observability:
+  # prometheus.io/scrape + port + path on the pod template.
+  scrape: true
+  metricsPath: /metrics
+  # instrumentation.opentelemetry.io/inject-go — "<namespace>/<name>" of the
+  # Instrumentation CR bp-opentelemetry manages.
+  otelInstrumentation: opentelemetry/default
+
+# requests == limits (Guaranteed QoS, 1:1 ratio) — REQUIRED for a per-Org
+# install under the plan-limits LimitRange (#4362/#4553). A render is a
+# short CPU burst over a few MB; 128Mi is ample for a document that is
+# capped at 2 MiB of JSON.
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 100m
+    memory: 128Mi
+
+# Spread the replicas across hostnames so one node taking a nap does not take
+# both (the kyverno `topology-spread` baseline requires a constraint on
+# kubernetes.io/hostname or topology.kubernetes.io/zone).
+topologySpread:
+  enabled: true
+  topologyKey: kubernetes.io/hostname
+  # ScheduleAnyway, not DoNotSchedule: on a single-node Sovereign a hard
+  # constraint would leave the second replica Pending forever.
+  whenUnsatisfiable: ScheduleAnyway
+
+# ── ServiceAccount ──────────────────────────────────────────────────────
+# ZERO RBAC and no token mount: the renderer reads nothing from the
+# Kubernetes API, ever.
+serviceAccount:
+  create: true
+  name: ""
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Object-name stem. Empty = "docrender".
+nameOverride: ""
+fullnameOverride: ""

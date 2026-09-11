@@ -65,8 +65,11 @@ never identity — no duplication across instances.
   set, `PLATFORM_API_URL` is wired and a **projected ServiceAccount token**
   volume (`serviceAccountToken`, `expirationSeconds: 3600`, `audience` only
   when `platformApi.tokenAudience` names one) is mounted read-only at
-  `/var/run/secrets/platform-api/token` with `PLATFORM_API_TOKEN_FILE`
-  pointing at it. The binary re-reads that file on every suspend/resume call
+  `/var/run/secrets/platform-api/token` with `PLATFORM_API_BEARER_FILE`
+  pointing at it (`PLATFORM_API_TOKEN_FILE` through chart 0.1.32 — a path,
+  not a secret, but the Kyverno `secret-not-in-env` policy keys on the NAME;
+  the binary reads the old name as a deprecated alias for one release). The
+  binary re-reads that file on every suspend/resume call
   to the sovereign-admin API's `/api/v1/internal/organizations/{slug}/…`
   routes, which verify it with a TokenReview against
   `system:serviceaccount:<namespace>:<sa>`. Empty url ⇒ none of this renders
@@ -91,6 +94,39 @@ portal instead (ADR-0014 D10).
   and never returned by the API or logged.
 - Cutover-safe: image carries the `global.imageRegistry` pivot seam; kit slot
   **13f** ships the HelmRelease.
+- **Sovereign compliance** (`bp-kyverno-policies`, hw307 2026-09-11: 7 fails
+  in namespace `chargeback`). Each seam is the policy's own accepted shape,
+  read from `platform/kyverno-policies/chart/templates/baseline/`:
+  - `prometheus-scrape` — pod-template annotations `prometheus.io/scrape: "true"`,
+    `prometheus.io/port` (the `http` port), `prometheus.io/path: /metrics`
+    (`metrics.*`); the binary serves the exposition itself.
+  - `otel-injected` — pod-template annotation
+    `instrumentation.opentelemetry.io/inject-go: "opentelemetry/default"`
+    (`otel.instrumentation`), naming the Instrumentation CR
+    `bp-opentelemetry-operator` renders. The operator's Go injection is an
+    eBPF sidecar that also needs `otel-go-auto-target-exe`, which this chart
+    never sets — so the webhook injects nothing and the pod keeps its
+    non-root, read-only posture.
+  - `topology-spread` — `topologySpreadConstraints` on `kubernetes.io/hostname`,
+    `maxSkew 1`, `ScheduleAnyway` (`topologySpread.*`); a single-node Sovereign
+    still schedules both replicas.
+  - `resource-requests` / `resource-limits` — `cnpg.cluster.resources` now
+    defaults to 250m/512Mi requests and 1/1Gi limits; CNPG copies them onto
+    the instance Pod's postgres container (the Pod the policy evaluates).
+  - `secret-not-in-env` — no env whose NAME matches
+    `(?i)(PASSWORD|TOKEN|KEY|SECRET)` carries a literal `value:`:
+    `PLATFORM_API_BEARER_FILE` (was `PLATFORM_API_TOKEN_FILE`), the app-key
+    Job's `TARGET_NAME`/`TARGET_FIELD` (were `SECRET_NAME`/`SECRET_KEY`), the
+    DSN-sync Job's `SOURCE_NAME`/`DEST_NAME` (were `SOURCE_SECRET`/`DEST_SECRET`).
+    Real secrets stay `secretKeyRef`s.
+  - Gate: `tests/kyverno-policies.sh` renders the chart (platformApi on and
+    off, callback secret set), stamps the two `helm.toolkit.fluxcd.io/*`
+    labels Flux's helm-controller adds at apply time, and runs every
+    ClusterPolicy of `bp-kyverno-policies` (canonical actions,
+    `bootstrapMode=false`) against the render with the kyverno CLI pinned to
+    the Sovereign's Kyverno appVersion. Any `fail` or `error` fails the gate;
+    so does an evaluation of zero resources or a policy set missing one of the
+    five policies above (vacuity guard).
 
 See [ADR-0014](../../../docs/adr/0014-chargeback-usage-ledger-and-split-deployment.md)
 for the full decision record and [`../README.md`](../README.md) for the service

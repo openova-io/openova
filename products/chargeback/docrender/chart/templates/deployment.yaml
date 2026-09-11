@@ -1,0 +1,142 @@
+{{- /*
+The docrender Deployment (EPIC #6867): the Go binary serving POST /v1/render
+plus the three operational endpoints. Everything it renders with — the
+locales, the templates, the PDF engine — is compiled into the binary, so the
+pod needs no volume, no config map and no network except the caller's.
+
+The ONLY secret it can hold is the optional shared-secret header, and it
+arrives as a secretKeyRef. A literal would be denied by the kyverno
+`secret-not-in-env` baseline, which matches any env name containing TOKEN.
+*/ -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "docrender.fullname" . }}
+  labels:
+    {{- include "docrender.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  # An integer maxUnavailable keeps a replicaCount=1 override rollable on a
+  # full node (#6079: the default 25% floors to 0 and deadlocks the rollout).
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      {{- include "docrender.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "docrender.labels" . | nindent 8 }}
+        # The catalyst-network controller attaches pods carrying this label
+        # to the L7 mesh; the kyverno `cilium-l7-mtls` baseline ENFORCES it.
+        policy.cilium.io/enforced: "true"
+      annotations:
+        {{- if .Values.observability.scrape }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.service.port | quote }}
+        prometheus.io/path: {{ .Values.observability.metricsPath | quote }}
+        {{- end }}
+        {{- with .Values.observability.otelInstrumentation }}
+        # "<namespace>/<name>" of the Instrumentation CR bp-opentelemetry
+        # manages — the form the OTel operator resolves cross-namespace.
+        instrumentation.opentelemetry.io/inject-go: {{ . | quote }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "docrender.serviceAccountName" . }}
+      # The renderer reads NOTHING from the Kubernetes API — no token mount.
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        # NUMERIC uid/gid beside runAsNonRoot (#5114 hw256 lesson): the
+        # kubelet cannot prove a string USER non-root. 65532 = distroless
+        # nonroot; the Containerfile pins the same numerically.
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      {{- if .Values.topologySpread.enabled }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: {{ .Values.topologySpread.topologyKey | quote }}
+          whenUnsatisfiable: {{ .Values.topologySpread.whenUnsatisfiable }}
+          labelSelector:
+            matchLabels:
+              {{- include "docrender.selectorLabels" . | nindent 14 }}
+      {{- end }}
+      containers:
+        - name: docrender
+          image: {{ include "docrender.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            # Nothing is written at runtime: no temp file, no font cache, no
+            # spool directory. The renderer holds one document in memory and
+            # writes it to the response.
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          env:
+            - name: LISTEN_ADDR
+              value: {{ .Values.config.listenAddr | quote }}
+            - name: RENDER_TIMEOUT
+              value: {{ .Values.config.renderTimeout | quote }}
+            - name: MAX_BODY_BYTES
+              value: {{ .Values.config.maxBodyBytes | toString | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.config.logLevel | quote }}
+            {{- with .Values.config.fontFile }}
+            - name: FONT_FILE
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.auth.existingSecret }}
+            # A Secret NAME, never a literal (Inviolable #4). optional:true so
+            # the pod still schedules if the Secret has not landed yet — the
+            # renderer then simply does not require the header.
+            - name: RENDER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . }}
+                  key: {{ $.Values.auth.key }}
+                  optional: true
+            {{- end }}
+          # Readiness is a PROVEN capability here: the binary renders the
+          # sample document through the real path at start-up and answers
+          # /readyz only if that worked. Liveness is the cheap one.
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/lib/pq"
 )
 
 const statementColumns = `st.id, st.customer_id, to_char(st.period_start, 'YYYY-MM-DD'), to_char(st.period_end, 'YYYY-MM-DD'), st.currency,
@@ -15,7 +17,13 @@ const statementColumns = `st.id, st.customer_id, to_char(st.period_start, 'YYYY-
 	st.invoice_number, st.external_invoice_ref, st.po_reference, st.payment_terms_days, st.due_at, st.sent_at, st.paid_at, st.cancelled_at, st.cancel_reason,
 	COALESCE((SELECT sum(a.amount) FROM invoice_allocations a JOIN payments p ON p.id = a.payment_id WHERE a.statement_id = st.id AND p.status = 'received'), 0)::numeric(20,6)::text,
 	COALESCE((SELECT sum(a.amount) FROM invoice_allocations a WHERE a.statement_id = st.id AND a.credit_note_id IS NOT NULL), 0)::numeric(20,6)::text,
-	st.tax_snapshot`
+	st.tax_snapshot,
+	st.partner_id, COALESCE(p.name, ''), c.party_kind, st.statement_kind, st.buy_total::text, st.margin_total::text`
+
+// statementFrom is the FROM every statement query shares: the customer (or
+// the partner's party) the statement bills and, when there is one, the
+// partner it belongs to (DESIGN.md §13).
+const statementFrom = ` FROM statements st JOIN customers c ON c.id = st.customer_id LEFT JOIN partners p ON p.id = st.partner_id`
 
 func scanStatement(row interface{ Scan(...any) error }) (Statement, error) {
 	var st Statement
@@ -26,9 +34,17 @@ func scanStatement(row interface{ Scan(...any) error }) (Statement, error) {
 	var terms sql.NullInt64
 	var due, sent, paidAt, cancelled sql.NullTime
 	var paid, credited string
+	var partner, buy, margin sql.NullString
 	if err := row.Scan(&st.ID, &st.CustomerID, &st.PeriodStart, &st.PeriodEnd, &st.Currency, &sub, &rate, &tax, &total, &st.Status, &issued, &st.CreatedAt, &st.CustomerName, &disc, &detail, &rule,
-		&invoiceNo, &externalRef, &st.PORef, &terms, &due, &sent, &paidAt, &cancelled, &st.CancelReason, &paid, &credited, &snapshot); err != nil {
+		&invoiceNo, &externalRef, &st.PORef, &terms, &due, &sent, &paidAt, &cancelled, &st.CancelReason, &paid, &credited, &snapshot,
+		&partner, &st.PartnerName, &st.PartyKind, &st.Kind, &buy, &margin); err != nil {
 		return st, mapErr(err)
+	}
+	st.PartnerID = strPtr(partner)
+	st.BuyTotal, st.MarginTotal = decPtr(buy), decPtr(margin)
+	if st.PartnerID == nil {
+		// A direct customer's statement carries no partner keys at all.
+		st.PartyKind, st.Kind = "", ""
 	}
 	if len(snapshot) > 0 && string(snapshot) != "null" {
 		var ts TaxSnapshot
@@ -79,6 +95,14 @@ type StatementDraft struct {
 	// DiscountRule names the combination rule the run applied (DESIGN.md
 	// §2.11); recorded on the statement so an issued bill states it.
 	DiscountRule string
+	// The partner keys (DESIGN.md §13). PartnerID is the customer's
+	// partner (a customer statement) or the partner billed (a wholesale or
+	// commission statement, whose CustomerID is the partner's party); Kind
+	// defaults to customer; BuyTotal / MarginTotal are the derived figures.
+	PartnerID   *string
+	Kind        string
+	BuyTotal    *Decimal
+	MarginTotal *Decimal
 }
 
 // WriteDraftStatement upserts a draft for (customer, period) and replaces its
@@ -89,13 +113,17 @@ func (s *Store) WriteDraftStatement(ctx context.Context, d StatementDraft) (Stat
 		return Statement{}, err
 	}
 	defer tx.Rollback()
+	if d.Kind == "" {
+		d.Kind = StatementKindCustomer
+	}
 	var existingID, status string
 	err = tx.QueryRowContext(ctx, `SELECT id, status FROM statements WHERE customer_id = $1 AND period_start = $2 FOR UPDATE`, d.CustomerID, d.PeriodStart).Scan(&existingID, &status)
 	switch {
 	case err == sql.ErrNoRows:
-		if err := tx.QueryRowContext(ctx, `INSERT INTO statements (customer_id, period_start, period_end, currency, subtotal, tax_rate, tax, total, status, discount_total, discount_detail, discount_rule)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft', $9::numeric, $10, $11) RETURNING id`,
-			d.CustomerID, d.PeriodStart, d.PeriodEnd, d.Currency, string(d.Subtotal), string(d.TaxRate), string(d.Tax), string(d.Total), discountOrZero(d.Discount), discountDetailJSON(d.AppliedDiscounts), nullStr(&d.DiscountRule)).Scan(&existingID); err != nil {
+		if err := tx.QueryRowContext(ctx, `INSERT INTO statements (customer_id, period_start, period_end, currency, subtotal, tax_rate, tax, total, status, discount_total, discount_detail, discount_rule, partner_id, statement_kind, buy_total, margin_total)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft', $9::numeric, $10, $11, $12, $13, $14::numeric, $15::numeric) RETURNING id`,
+			d.CustomerID, d.PeriodStart, d.PeriodEnd, d.Currency, string(d.Subtotal), string(d.TaxRate), string(d.Tax), string(d.Total), discountOrZero(d.Discount), discountDetailJSON(d.AppliedDiscounts), nullStr(&d.DiscountRule),
+			nullStr(d.PartnerID), d.Kind, nullDec(d.BuyTotal), nullDec(d.MarginTotal)).Scan(&existingID); err != nil {
 			return Statement{}, mapErr(err)
 		}
 	case err != nil:
@@ -106,8 +134,10 @@ func (s *Store) WriteDraftStatement(ctx context.Context, d StatementDraft) (Stat
 		// must never rewrite it.
 		return Statement{}, fmt.Errorf("%w: statement for this period is already %s", ErrConflict, status)
 	default:
-		if _, err := tx.ExecContext(ctx, `UPDATE statements SET period_end = $2, currency = $3, subtotal = $4, tax_rate = $5, tax = $6, total = $7, discount_total = $8::numeric, discount_detail = $9, discount_rule = $10, created_at = now() WHERE id = $1`,
-			existingID, d.PeriodEnd, d.Currency, string(d.Subtotal), string(d.TaxRate), string(d.Tax), string(d.Total), discountOrZero(d.Discount), discountDetailJSON(d.AppliedDiscounts), nullStr(&d.DiscountRule)); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE statements SET period_end = $2, currency = $3, subtotal = $4, tax_rate = $5, tax = $6, total = $7, discount_total = $8::numeric, discount_detail = $9, discount_rule = $10,
+			partner_id = $11, statement_kind = $12, buy_total = $13::numeric, margin_total = $14::numeric, created_at = now() WHERE id = $1`,
+			existingID, d.PeriodEnd, d.Currency, string(d.Subtotal), string(d.TaxRate), string(d.Tax), string(d.Total), discountOrZero(d.Discount), discountDetailJSON(d.AppliedDiscounts), nullStr(&d.DiscountRule),
+			nullStr(d.PartnerID), d.Kind, nullDec(d.BuyTotal), nullDec(d.MarginTotal)); err != nil {
 			return Statement{}, mapErr(err)
 		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM rated_lines WHERE statement_id = $1`, existingID); err != nil {
@@ -115,9 +145,10 @@ func (s *Store) WriteDraftStatement(ctx context.Context, d StatementDraft) (Stat
 		}
 	}
 	for _, l := range d.Lines {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO rated_lines (statement_id, customer_id, source_id, sku, quantity, unit, unit_price, amount, resource_count)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-			existingID, d.CustomerID, nullStr(l.SourceID), l.SKU, string(l.Quantity), l.Unit, string(l.UnitPrice), string(l.Amount), l.ResourceCount); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO rated_lines (statement_id, customer_id, source_id, sku, quantity, unit, unit_price, amount, resource_count, end_customer_id, list_unit_price, list_amount, buy_amount, net_amount)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::numeric, $12::numeric, $13::numeric, $14::numeric)`,
+			existingID, d.CustomerID, nullStr(l.SourceID), l.SKU, string(l.Quantity), l.Unit, string(l.UnitPrice), string(l.Amount), l.ResourceCount,
+			nullStr(l.EndCustomerID), nullDec(l.ListUnitPrice), nullDec(l.ListAmount), nullDec(l.BuyAmount), nullDec(l.NetAmount)); err != nil {
 			return Statement{}, mapErr(err)
 		}
 	}
@@ -132,7 +163,7 @@ func (s *Store) ListStatements(ctx context.Context, scope Scope, customerID stri
 	if !scope.Allows(customerID) {
 		return nil, ErrNotFound
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT `+statementColumns+` FROM statements st JOIN customers c ON c.id = st.customer_id WHERE st.customer_id = $1 ORDER BY st.period_start DESC`, customerID)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+statementColumns+statementFrom+` WHERE st.customer_id = $1 ORDER BY st.period_start DESC`, customerID)
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -150,7 +181,7 @@ func (s *Store) ListStatements(ctx context.Context, scope Scope, customerID stri
 
 // ListAllStatements returns statements across customers (operator), newest first.
 func (s *Store) ListAllStatements(ctx context.Context, period string) ([]Statement, error) {
-	q := `SELECT ` + statementColumns + ` FROM statements st JOIN customers c ON c.id = st.customer_id`
+	q := `SELECT ` + statementColumns + statementFrom
 	var args []any
 	if period != "" {
 		q += ` WHERE to_char(st.period_start, 'YYYY-MM') = $1`
@@ -173,16 +204,48 @@ func (s *Store) ListAllStatements(ctx context.Context, period string) ([]Stateme
 	return out, rows.Err()
 }
 
+// ListStatementsInScope returns the statements of every customer a scope
+// may read — a partner principal's customers and its own party (DESIGN.md
+// §13) — newest period first. The operator scope reads them all.
+func (s *Store) ListStatementsInScope(ctx context.Context, scope Scope, period string) ([]Statement, error) {
+	if scope.Operator {
+		return s.ListAllStatements(ctx, period)
+	}
+	q := `SELECT ` + statementColumns + statementFrom + ` WHERE st.customer_id::text = ANY($1)`
+	args := []any{pq.Array(scope.Set())}
+	if period != "" {
+		q += ` AND to_char(st.period_start, 'YYYY-MM') = $2`
+		args = append(args, period)
+	}
+	q += ` ORDER BY st.period_start DESC, c.name`
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	defer rows.Close()
+	out := []Statement{}
+	for rows.Next() {
+		st, err := scanStatement(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, st)
+	}
+	return out, rows.Err()
+}
+
 // GetStatement returns a statement with lines, inside the scope.
 func (s *Store) GetStatement(ctx context.Context, scope Scope, id string) (Statement, error) {
-	st, err := scanStatement(s.db.QueryRowContext(ctx, `SELECT `+statementColumns+` FROM statements st JOIN customers c ON c.id = st.customer_id WHERE st.id = $1`, id))
+	st, err := scanStatement(s.db.QueryRowContext(ctx, `SELECT `+statementColumns+statementFrom+` WHERE st.id = $1`, id))
 	if err != nil {
 		return st, err
 	}
 	if !scope.Allows(st.CustomerID) {
 		return Statement{}, ErrNotFound
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id, statement_id, customer_id, source_id, sku, quantity::text, unit, unit_price::text, amount::text, resource_count FROM rated_lines WHERE statement_id = $1 ORDER BY sku, source_id`, id)
+	rows, err := s.db.QueryContext(ctx, `SELECT l.id, l.statement_id, l.customer_id, l.source_id, l.sku, l.quantity::text, l.unit, l.unit_price::text, l.amount::text, l.resource_count,
+			l.end_customer_id, COALESCE(ec.name, ''), l.list_unit_price::text, l.list_amount::text, l.buy_amount::text, l.net_amount::text
+		FROM rated_lines l LEFT JOIN customers ec ON ec.id = l.end_customer_id WHERE l.statement_id = $1 ORDER BY ec.name, l.sku, l.source_id`, id)
 	if err != nil {
 		return st, mapErr(err)
 	}
@@ -190,13 +253,15 @@ func (s *Store) GetStatement(ctx context.Context, scope Scope, id string) (State
 	st.Lines = []RatedLine{}
 	for rows.Next() {
 		var l RatedLine
-		var src sql.NullString
+		var src, endCustomer, lup, lam, buy, net sql.NullString
 		var q, up, amt string
-		if err := rows.Scan(&l.ID, &l.StatementID, &l.CustomerID, &src, &l.SKU, &q, &l.Unit, &up, &amt, &l.ResourceCount); err != nil {
+		if err := rows.Scan(&l.ID, &l.StatementID, &l.CustomerID, &src, &l.SKU, &q, &l.Unit, &up, &amt, &l.ResourceCount, &endCustomer, &l.EndCustomerName, &lup, &lam, &buy, &net); err != nil {
 			return st, err
 		}
 		l.SourceID = strPtr(src)
 		l.Quantity, l.UnitPrice, l.Amount = Decimal(q), Decimal(up), Decimal(amt)
+		l.EndCustomerID = strPtr(endCustomer)
+		l.ListUnitPrice, l.ListAmount, l.BuyAmount, l.NetAmount = decPtr(lup), decPtr(lam), decPtr(buy), decPtr(net)
 		st.Lines = append(st.Lines, l)
 	}
 	if err := rows.Err(); err != nil {
@@ -259,15 +324,15 @@ func (s *Store) issueStatementOnce(ctx context.Context, id, actor string) (st St
 		return Statement{}, false, err
 	}
 	defer tx.Rollback()
-	var status, poRef, customerID, currency, rate, total, paymentModel string
+	var status, poRef, customerID, currency, rate, total, paymentModel, kind string
 	var terms sql.NullInt64
 	var custPO string
 	var custTerms int
 	var autoApply bool
 	err = tx.QueryRowContext(ctx, `SELECT st.status, st.po_reference, st.payment_terms_days, c.po_reference, c.payment_terms_days,
-		st.customer_id, st.currency, st.tax_rate::text, st.total::text, COALESCE(c.payment_model, ''), c.auto_apply_credit
+		st.customer_id, st.currency, st.tax_rate::text, st.total::text, COALESCE(c.payment_model, ''), c.auto_apply_credit, st.statement_kind
 		FROM statements st JOIN customers c ON c.id = st.customer_id WHERE st.id = $1 FOR UPDATE OF st`, id).
-		Scan(&status, &poRef, &terms, &custPO, &custTerms, &customerID, &currency, &rate, &total, &paymentModel, &autoApply)
+		Scan(&status, &poRef, &terms, &custPO, &custTerms, &customerID, &currency, &rate, &total, &paymentModel, &autoApply, &kind)
 	if err != nil {
 		return Statement{}, false, mapErr(err)
 	}
@@ -317,8 +382,16 @@ func (s *Store) issueStatementOnce(ctx context.Context, id, actor string) (st St
 			WHERE id = $1 AND status = 'draft'`, id, number, poRef, days, now, snapJSON); err != nil {
 			return Statement{}, false, mapErr(err)
 		}
-		// The receivable, on the ledger (DESIGN.md §9.1).
-		if ratOf(Decimal(total)).Sign() > 0 {
+		switch {
+		case kind == StatementKindCommission && ratOf(Decimal(total)).Sign() > 0:
+			// A commission statement is money WE owe the partner (DESIGN.md
+			// §13, agent model): a CREDIT on the party's ledger, with
+			// the statement's number as its reference. Nothing is collected.
+			if err := postEntry(ctx, tx, AccountEntry{CustomerID: customerID, Kind: EntryCommission, Amount: negate(Decimal(total)), Currency: currency, StatementID: id, Reference: number, EnteredAt: now, EnteredBy: actor}); err != nil {
+				return Statement{}, false, err
+			}
+		case ratOf(Decimal(total)).Sign() > 0:
+			// The receivable, on the ledger (DESIGN.md §9.1).
 			if err := postEntry(ctx, tx, AccountEntry{CustomerID: customerID, Kind: EntryInvoice, Amount: Decimal(total), Currency: currency, StatementID: id, Reference: number, EnteredAt: now, EnteredBy: actor}); err != nil {
 				return Statement{}, false, err
 			}

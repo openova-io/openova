@@ -1,0 +1,72 @@
+{{- /*
+The perimeter. This is the control that makes "in-cluster only" a fact rather
+than a claim in a README.
+
+Both policy types are declared, which makes the pod DEFAULT-DENY in both
+directions, and exactly two holes are cut:
+
+  ingress — the chargeback pods, on the service port. Nothing else in the
+            cluster can open a socket to the renderer, so an unauthenticated
+            /v1/render is not an exposed endpoint even when auth.existingSecret
+            is empty. The shared-secret header is defence in depth on top of
+            this, never instead of it.
+
+  egress  — kube-dns on 53 (UDP and TCP). Nothing else. The renderer opens no
+            database connection, fetches no remote logo, calls no API and
+            pulls no font: a document arrives in the request body and leaves
+            in the response body. A logo is a data URI in the JSON precisely
+            so that rendering one never becomes an outbound fetch.
+
+🛑 DNS IS LOAD-BEARING even for a service with no outbound calls: declaring an
+egress section at all flips the pod to deny-by-default, and without the :53
+carve-out the very first name lookup anything in the pod attempts times out
+(#4604 / #5617 — the class scripts/check-netpol-egress-completeness.py gates).
+
+A plain networking.k8s.io/v1 NetworkPolicy rather than a CiliumNetworkPolicy:
+the rule is expressible in the portable API (a podSelector and a DNS
+carve-out — no `ingress`/`world` reserved entity is involved, because this
+service has no Gateway door), Cilium enforces it natively, and it is also the
+object the kyverno `networkpolicy-present` baseline counts.
+*/ -}}
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "docrender.fullname" . }}
+  labels:
+    {{- include "docrender.labels" . | nindent 4 }}
+    catalyst.openova.io/component: docrender-netpol
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "docrender.selectorLabels" . | nindent 6 }}
+  # Naming BOTH types is what makes the policy deny-by-default. Omitting
+  # Egress here would leave the renderer free to dial anything it liked.
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ include "docrender.callerNamespace" . }}
+          podSelector:
+            matchLabels:
+              {{- toYaml .Values.networkPolicy.fromSelector | nindent 14 }}
+      ports:
+        - port: http
+          protocol: TCP
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.dns.namespace }}
+          podSelector:
+            matchLabels:
+              {{- toYaml .Values.networkPolicy.dns.selector | nindent 14 }}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+{{- end }}

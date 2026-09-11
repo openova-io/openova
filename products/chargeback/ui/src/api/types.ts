@@ -10,11 +10,32 @@
  */
 export type Role = 'operator' | 'customer-admin' | 'customer-viewer' | BindingRole | string
 
-/** The six roles of the access model (DESIGN.md §10.3). */
-export type BindingRole = 'sovereign-admin' | 'billing-operator' | 'finance-viewer' | 'customer-owner' | 'customer-billing' | 'customer-viewer'
-export type ScopeKind = 'sovereign' | 'customer'
-/** The nine permissions (DESIGN.md §10.2). */
-export type Permission = 'metering.read' | 'rating.manage' | 'customers.manage' | 'billing.issue' | 'billing.collect' | 'account.topup' | 'settings.manage' | 'audit.read' | 'customer.self.manage'
+/** The eight roles of the access model (DESIGN.md §10.3, §13.5). */
+export type BindingRole =
+  | 'sovereign-admin'
+  | 'billing-operator'
+  | 'finance-viewer'
+  | 'partner-owner'
+  | 'partner-viewer'
+  | 'customer-owner'
+  | 'customer-billing'
+  | 'customer-viewer'
+/** A partner binding expands to its customers plus its own party (DESIGN.md §13.5). */
+export type ScopeKind = 'sovereign' | 'partner' | 'customer'
+/** The twelve permissions (DESIGN.md §10.2, §11 capacity, §13.5 partners). */
+export type Permission =
+  | 'metering.read'
+  | 'rating.manage'
+  | 'customers.manage'
+  | 'billing.issue'
+  | 'billing.collect'
+  | 'account.topup'
+  | 'settings.manage'
+  | 'audit.read'
+  | 'customer.self.manage'
+  | 'capacity.manage'
+  | 'partners.manage'
+  | 'partner.self.manage'
 
 /** One binding as /me reports it: where it came from is `source`. */
 export interface SessionBinding {
@@ -22,6 +43,11 @@ export interface SessionBinding {
   scope_kind: ScopeKind | string
   customer_id?: string | null
   customer_name?: string | null
+  /** The partner a partner-scoped binding is bound to (DESIGN.md §11.5). */
+  partner_id?: string | null
+  partner_name?: string | null
+  /** What a partner binding expands to: its customers plus its own party. */
+  customer_ids?: string[]
   /** 'config' (OPERATOR_EMAILS) · 'binding' (role_bindings) · 'group:<name>'. */
   source?: string
 }
@@ -50,6 +76,8 @@ export interface RoleBinding {
   scope_kind: ScopeKind | string
   customer_id?: string | null
   customer_name?: string
+  partner_id?: string | null
+  partner_name?: string
   granted_by?: string
   granted_at?: string | null
   source?: string
@@ -63,6 +91,8 @@ export interface GroupRoleMapping {
   scope_kind?: ScopeKind | string
   customer_id?: string | null
   customer_name?: string
+  partner_id?: string | null
+  partner_name?: string
   created_at?: string
 }
 
@@ -220,6 +250,14 @@ export interface Customer {
   last_statement_period?: string | null
   /** Active AND at least one verified source — why nothing flows otherwise. */
   collecting?: boolean
+  /**
+   * DESIGN.md §11.3 — what this row IS: a customer, or the account (party) of
+   * a partner. A party row is never in the customer directory.
+   */
+  party_kind?: 'customer' | 'partner' | string
+  /** The partner this customer buys through (null = direct). */
+  partner_id?: string | null
+  partner_name?: string
 }
 
 export interface UsageRow {
@@ -281,7 +319,18 @@ export interface PriceBook {
    */
   description?: string
   created_at?: string
+  /** DESIGN.md §11 — the ONE cloud book the public calculator prices from. */
+  public?: boolean
+  /** Moves with the header AND the items: "prices as of" on the public catalog. */
+  updated_at?: string
   items?: PriceItem[] | null
+  /**
+   * DESIGN.md §11.4 — a partner's DERIVED retail book: materialised from the
+   * list book it names by the partner's retail rule, and read-only here.
+   */
+  partner_id?: string | null
+  derived_from_rule?: boolean
+  derived_from_book_id?: string | null
 }
 
 export interface RatedLine {
@@ -292,6 +341,21 @@ export interface RatedLine {
   amount: number | string
   resource_count?: number
   source_id?: string | null
+  /**
+   * The partner waterfall per line (DESIGN.md §11.1). On a customer's
+   * statement: the Sovereign's list figures beside the amount the customer
+   * is billed, what the partner pays for the line (buy) and what the
+   * customer pays after its own discounts (net). On a wholesale or
+   * commission statement, `end_customer_*` names the customer it belongs to.
+   * All absent for a direct customer, and stripped for a principal that may
+   * not see the buy price.
+   */
+  end_customer_id?: string | null
+  end_customer_name?: string
+  list_unit_price?: number | string | null
+  list_amount?: number | string | null
+  buy_amount?: number | string | null
+  net_amount?: number | string | null
 }
 
 /**
@@ -563,7 +627,23 @@ export interface Statement {
   }> | null
   /** DESIGN.md §2.11 — the combination rule the run applied; absent on statements rated before it existed. */
   discount_rule?: DiscountRule | string | null
+  /**
+   * The partner keys (DESIGN.md §11): the partner of this statement's
+   * customer, or the partner whose party this statement bills. `buy_total`
+   * is what the partner pays us and `margin_total` the customer net less
+   * that — shown to Sovereign roles and to that partner's roles only, and
+   * absent from the document for anyone else.
+   */
+  partner_id?: string | null
+  partner_name?: string
+  party_kind?: 'customer' | 'partner' | string
+  statement_kind?: StatementKind | string
+  buy_total?: number | string | null
+  margin_total?: number | string | null
 }
+
+/** What a statement IS (DESIGN.md §11.2). */
+export type StatementKind = 'customer' | 'wholesale' | 'commission'
 
 export interface Invite {
   token?: string
@@ -1038,6 +1118,8 @@ export interface BillingSettings {
   reminder_days?: number[]
   escalation_days?: number
   escalation_action?: 'notify' | 'suspend' | string
+  /** DESIGN.md §11 — the designated public price book (null = nothing published). */
+  public_price_book_id?: string | null
   updated_at?: string
 }
 
@@ -1136,4 +1218,406 @@ export interface ReportSendResult {
   window_to: string
   delivery?: ReportDelivery
   error?: string
+}
+
+// ---------------------------------------------------------------------------
+// Capacity (DESIGN.md §11, founder requirement 2026-09-11). Static-first: a
+// region holds zones, a zone one pool per family whose TOTAL the operator
+// enters; CONSUMED is derived from the latest complete hour of metering
+// through the SKU footprints; RESERVED is 0 until proposals fill it. Every
+// quantity is an exact JSON number; utilisation, growth and exhaustion are
+// floats (estimates).
+// ---------------------------------------------------------------------------
+
+/** The seven pooled resource families (`internal/capacity.Families`). */
+export type CapacityFamily = 'vcpu' | 'memory_gib' | 'block_ssd_gib' | 'block_hdd_gib' | 'object_gib' | 'eip_addresses' | 'bandwidth_mbps'
+
+export interface CapacityFamilyDef {
+  family: CapacityFamily | string
+  label: string
+  /** What a total and a footprint amount count in (vCPU, GiB, addresses, Mbps). */
+  unit: string
+}
+
+/** unset = no total entered yet · ok · warn (≥ 70 %) · critical (≥ 85 %). */
+export type CapacityPoolStatus = 'unset' | 'ok' | 'warn' | 'critical'
+
+export interface CapacityRegion {
+  id: string
+  code: string
+  name: string
+  /** Which cloud collector will fill this region's totals later. */
+  cloud_source_kind: string
+  created_at?: string
+  zones: CapacityZone[]
+}
+
+export interface CapacityZone {
+  id: string
+  region_id: string
+  region_code?: string
+  code: string
+  name: string
+  /** The default zone receives usage whose zone the inventory does not carry. */
+  is_default: boolean
+  created_at?: string
+  pools?: CapacityPool[]
+}
+
+export interface CapacityPool {
+  id: string
+  zone_id: string
+  family: CapacityFamily | string
+  total: number | string
+  reserved: number | string
+  /** manual (the console) or a collector's name. */
+  source: string
+  note: string
+  updated_by: string
+  updated_at: string
+}
+
+/** One entry of a pool's total history (GET /capacity/zones/{id}/pools). */
+export interface CapacityPoolChange {
+  id: number
+  pool_id: string
+  total: number | string
+  source: string
+  note: string
+  changed_by: string
+  changed_at: string
+}
+
+export interface CapacityDayPoint {
+  day: string
+  consumed: number | string
+}
+
+/** A pool with the derived figures (GET /capacity/overview). */
+export interface CapacityPoolView extends CapacityPool {
+  label: string
+  unit: string
+  consumed: number | string
+  /** total − reserved − consumed, never below 0. */
+  available: number | string
+  utilisation_pct: number | null
+  status: CapacityPoolStatus | string
+  /** True when the arithmetic went negative; overcommit is the shortfall. */
+  clamped: boolean
+  overcommit: number | string
+  /** The part of consumed attributed here because the resource's zone is unknown. */
+  zone_unknown: number | string
+  /** Units per day, the 7-day run-rate trend; null with too little history. */
+  growth_per_day: number | null
+  /** available ÷ growth; null when not growing or no total. */
+  exhaustion_days: number | null
+  history_days: number
+  series: CapacityDayPoint[]
+}
+
+/** One SKU's headroom in one zone. */
+export interface CapacitySKUView {
+  sku: string
+  footprint: Record<string, number | string>
+  /** seed · manual · derived (from the SKU name, no stored row). */
+  footprint_source: string
+  consumed_units: number | string
+  resources: number
+  /** null when no family in the footprint has a total yet. */
+  headroom_units: number | string | null
+  /** The family that limits headroom, or "cap". */
+  binding_family: string
+  cap: number | string | null
+}
+
+export interface CapacityZoneView {
+  id: string
+  code: string
+  name: string
+  is_default: boolean
+  pools: CapacityPoolView[]
+  skus: CapacitySKUView[]
+}
+
+export interface CapacityRegionView {
+  id: string
+  code: string
+  name: string
+  cloud_source_kind: string
+  zones: CapacityZoneView[]
+}
+
+/** A metered SKU with no footprint — counts against no pool. */
+export interface CapacityUnmappedSKU {
+  sku: string
+  unit: string
+  quantity: number | string
+  resources: number
+  regions: string[]
+}
+
+/** Metered usage in a region not configured here (or configured without zones). */
+export interface CapacityUnmappedRegion {
+  region: string
+  reason: 'no-region' | 'no-zones' | string
+  skus: number
+  quantity: number | string
+  resources: number
+}
+
+export interface CapacityThresholds {
+  warn_pct: number
+  critical_pct: number
+}
+
+export interface CapacitySummary {
+  regions: number
+  zones: number
+  pools: number
+  pools_with_total: number
+  pools_warn: number
+  pools_critical: number
+  /** warn + critical: pools past the 70 % line. */
+  pools_below_threshold: number
+  skus: number
+  unmapped_skus: number
+}
+
+/** GET /capacity/overview */
+export interface CapacityOverview {
+  /** The latest complete hour consumption was measured in; null with no cloud usage. */
+  as_of: string | null
+  sources: number
+  lagging_sources: number
+  thresholds: CapacityThresholds
+  families: CapacityFamilyDef[]
+  regions: CapacityRegionView[]
+  unmapped_skus: CapacityUnmappedSKU[]
+  unmapped_regions: CapacityUnmappedRegion[]
+  summary: CapacitySummary
+}
+
+export interface SKUFootprint {
+  sku: string
+  families: Record<string, number | string>
+  source: string
+  updated_at?: string
+}
+
+/** GET /capacity/footprints */
+export interface SKUFootprints {
+  footprints: SKUFootprint[]
+  families: CapacityFamilyDef[]
+  /** List-price SKUs with no per-unit footprint in any family (elb, nat.<spec>, vpc). */
+  unseeded_skus: string[]
+}
+
+export interface SKUCap {
+  zone_id: string
+  zone_code?: string
+  region_code?: string
+  sku: string
+  total: number | string
+  updated_by?: string
+  updated_at?: string
+}
+
+// ── Public cost calculator (DESIGN.md §12) ──────────────────────────────
+// The unauthenticated surface: list prices only. A negotiated book, a
+// discount and a partner rate never appear in any document below.
+
+/** One priced SKU of the public list book. `monthly` is one unit for 730 h. */
+export interface PublicCatalogSKU {
+  sku: string
+  service: string
+  unit: string
+  unit_price: number | string
+  monthly: number | string
+  description?: string
+}
+
+/** One sized catalog plan (S / M / L / XL) as the plans book prices it. */
+export interface PublicCatalogPlan {
+  slug: string
+  name: string
+  sku: string
+  unit: string
+  unit_price: number | string
+  monthly: number | string
+  vcpu: number
+  memory_gib: number
+}
+
+/** One pay-per-use platform meter. */
+export interface PublicCatalogRate {
+  sku: string
+  unit: string
+  unit_price: number | string
+  monthly: number | string
+  description?: string
+}
+
+/** The book an estimate was priced from, and its date. */
+export interface EstimateBook {
+  id: string
+  name: string
+  updated_at: string
+}
+
+/** GET /public/catalog */
+export interface PublicCatalog {
+  price_book: EstimateBook
+  currency: string
+  tax_rate: number | string
+  regions: string[]
+  skus: PublicCatalogSKU[]
+  plans: PublicCatalogPlan[]
+  payg: PublicCatalogRate[]
+  hours_per_month: number
+  list_prices: boolean
+  notice: string
+  generated_at: string
+}
+
+/** One priced line of an estimate. `plan` is set on a plan line. */
+export interface EstimateLine {
+  sku: string
+  plan?: string
+  description?: string
+  unit: string
+  quantity: number | string
+  hours: number | string
+  months: number
+  rated_quantity: number | string
+  unit_price: number | string
+  amount: number | string
+}
+
+/**
+ * POST /public/estimates · GET /public/estimates/{id} · a row of GET /leads.
+ * `contact_email` is present only on the operator's Leads list.
+ */
+export interface Estimate {
+  id: string
+  lines: EstimateLine[]
+  currency: string
+  region?: string
+  subtotal: number | string
+  tax_rate: number | string
+  tax: number | string
+  total: number | string
+  monthly: number | string
+  yearly: number | string
+  price_book: EstimateBook
+  list_prices: boolean
+  lead: boolean
+  contact_email?: string
+  created_at: string
+  valid_until: string
+  share_url?: string
+}
+
+// ---------------------------------------------------------------------------
+// Partners — resellers and agents (DESIGN.md §13)
+// ---------------------------------------------------------------------------
+
+/** How a partner is billed: resell (the partner) or agent (its customer). */
+export type BillTo = 'partner' | 'customer'
+
+/** GET /partners · GET /partners/{id} */
+export interface Partner {
+  id: string
+  slug: string
+  name: string
+  /** The tier whose discounts set the buy price; null = none. */
+  tier_id?: string | null
+  tier_name?: string
+  bill_to: BillTo | string
+  /** The agent commission as a percent of the customer net (used with no tier). */
+  commission_pct?: number | string | null
+  status: string
+  contact_email?: string
+  /** The partner's own account row — its balance, invoices and collections. */
+  party_customer_id?: string
+  customer_count?: number
+  /** The party's ledger figures: positive is owed by the partner. */
+  balance?: number | string
+  available_credit?: number | string
+  has_retail_rule?: boolean
+  created_at?: string
+  updated_at?: string
+}
+
+/** GET /partners/tiers — a tier and the discounts that make it. */
+export interface PartnerTier {
+  id: string
+  name: string
+  description?: string
+  partners?: number
+  discounts?: Discount[]
+  created_at?: string
+}
+
+/** A markup narrowed to one service (a SKU's first segment) or one SKU. */
+export interface RetailOverride {
+  scope: 'service' | 'sku' | string
+  key: string
+  markup_pct: number | string
+}
+
+/** The rule a resell partner's retail book is derived from. */
+export interface RetailRule {
+  partner_id?: string
+  base: 'list' | 'buy' | string
+  markup_pct: number | string
+  overrides?: RetailOverride[]
+  updated_at?: string
+}
+
+/** A derived retail price below the partner's own buy price — warned, never refused. */
+export interface BelowBuyLine {
+  sku: string
+  unit?: string
+  list_unit_price: number | string
+  buy_unit_price: number | string
+  retail_unit_price: number | string
+}
+
+/** One materialised retail book with what it derives from. */
+export interface DerivedBook {
+  book: PriceBook
+  list_book_id: string
+  list_book_name: string
+  below_buy?: BelowBuyLine[]
+}
+
+/** PUT /partners/{id}/retail-rule · GET /partners/{id}/retail-book */
+export interface RetailDocument {
+  partner_id: string
+  bill_to: BillTo | string
+  retail_rule?: RetailRule | null
+  books: DerivedBook[]
+  below_buy: BelowBuyLine[]
+  /** Why there is no retail book, when there is none. */
+  note?: string
+}
+
+/** One (end customer, service) line of the margin report. */
+export interface MarginRow {
+  customer_id: string
+  customer_name: string
+  service: string
+  customer_net: number | string
+  partner_buy: number | string
+  margin: number | string
+  margin_pct?: number | null
+}
+
+/** GET /partners/{id}/margin?period= */
+export interface MarginReport {
+  partner_id: string
+  period: string
+  currency: string
+  rows: MarginRow[]
+  totals: MarginRow
 }

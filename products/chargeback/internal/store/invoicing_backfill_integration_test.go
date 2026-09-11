@@ -25,22 +25,29 @@ func TestIntegrationBackfillNumbersInvoicesIssuedBeforeInvoicing(t *testing.T) {
 
 	// Two billed customers (one with a standing purchase order) and one
 	// informational, exactly as the invoicing migration leaves them.
-	corp, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "nizwa-fintech", Name: "Nizwa Fintech", AdminEmail: "ap@nizwa.example",
-		Kind: "organization", OrgSlug: "nizwa-fintech", PORef: "PO-2026-118",
-		Commercial: store.Commercial{Charging: store.ChargingBilled, PaymentModel: store.PaymentModelPostpaid, PaymentMethod: store.PaymentMethodTransfer}})
-	if err != nil {
-		t.Fatal(err)
+	// Inserted by SQL, like the statements below: the store's customer
+	// reader belongs to the CURRENT schema (it joins partners, DESIGN.md
+	// §13) and cannot read a database standing at an older version.
+	mkCustomer := func(slug, name, email, poRef, charging, model, method string) string {
+		t.Helper()
+		mode := "showback"
+		if charging == store.ChargingBilled {
+			mode = "real"
+			if method == store.PaymentMethodInternal {
+				mode = "chargeback"
+			}
+		}
+		var id string
+		if err := db.QueryRowContext(ctx, `INSERT INTO customers (slug, name, admin_email, kind, org_slug, billing_mode, status, charging, payment_model, payment_method, gateway_name, po_reference)
+			VALUES ($1, $2, $3, 'organization', $1, $4, 'active', $5, NULLIF($6, ''), NULLIF($7, ''), '', $8) RETURNING id`,
+			slug, name, email, mode, charging, model, method, poRef).Scan(&id); err != nil {
+			t.Fatalf("insert customer %s: %v", slug, err)
+		}
+		return id
 	}
-	recharge, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "ops-dept", Name: "Ops department", AdminEmail: "ops@dept.example",
-		Kind: "organization", OrgSlug: "ops-dept",
-		Commercial: store.Commercial{Charging: store.ChargingBilled, PaymentModel: store.PaymentModelPostpaid, PaymentMethod: store.PaymentMethodInternal}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	show, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "show", Name: "Informational", AdminEmail: "s@show.example"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	corpID := mkCustomer("nizwa-fintech", "Nizwa Fintech", "ap@nizwa.example", "PO-2026-118", store.ChargingBilled, store.PaymentModelPostpaid, store.PaymentMethodTransfer)
+	rechargeID := mkCustomer("ops-dept", "Ops department", "ops@dept.example", "", store.ChargingBilled, store.PaymentModelPostpaid, store.PaymentMethodInternal)
+	showID := mkCustomer("show", "Informational", "s@show.example", "", store.ChargingInformational, "", "")
 
 	// The rows the pre-invoicing code wrote: issued, with issued_at, and
 	// none of the invoice fields. Inserted by SQL because nothing in the
@@ -62,20 +69,20 @@ func TestIntegrationBackfillNumbersInvoicesIssuedBeforeInvoicing(t *testing.T) {
 		}
 		return id
 	}
-	later := insert(corp.ID, "2026-08-01", "issued", issuedAt("2026-09-01T10:00:00Z"))
-	earlier := insert(recharge.ID, "2026-08-01", "issued", issuedAt("2026-09-01T09:00:00Z"))
-	lastYear := insert(corp.ID, "2025-07-01", "issued", issuedAt("2025-08-01T09:00:00Z"))
-	informational := insert(show.ID, "2026-08-01", "issued", issuedAt("2026-09-01T08:00:00Z"))
+	later := insert(corpID, "2026-08-01", "issued", issuedAt("2026-09-01T10:00:00Z"))
+	earlier := insert(rechargeID, "2026-08-01", "issued", issuedAt("2026-09-01T09:00:00Z"))
+	lastYear := insert(corpID, "2025-07-01", "issued", issuedAt("2025-08-01T09:00:00Z"))
+	informational := insert(showID, "2026-08-01", "issued", issuedAt("2026-09-01T08:00:00Z"))
 	// A year whose counter already moved: the backfill must CONTINUE it, and
 	// a statement that already carries a number is not touched.
 	if _, err := db.ExecContext(ctx, `INSERT INTO invoice_sequences (year, last_value) VALUES (2024, 7)`); err != nil {
 		t.Fatal(err)
 	}
-	numbered := insert(recharge.ID, "2024-05-01", "paid", issuedAt("2024-06-01T09:00:00Z"))
+	numbered := insert(rechargeID, "2024-05-01", "paid", issuedAt("2024-06-01T09:00:00Z"))
 	if _, err := db.ExecContext(ctx, `UPDATE statements SET invoice_number = 'INV-2024-00007', payment_terms_days = 30, due_at = issued_at + interval '30 days' WHERE id = $1`, numbered); err != nil {
 		t.Fatal(err)
 	}
-	oldYear := insert(corp.ID, "2024-05-01", "sent", issuedAt("2024-06-02T09:00:00Z"))
+	oldYear := insert(corpID, "2024-05-01", "sent", issuedAt("2024-06-02T09:00:00Z"))
 
 	get := func(id string) store.Statement {
 		t.Helper()
@@ -85,8 +92,16 @@ func TestIntegrationBackfillNumbersInvoicesIssuedBeforeInvoicing(t *testing.T) {
 		}
 		return s
 	}
-	if got := get(later); got.InvoiceNumber != "" || got.DueAt != nil || got.PaymentTermsDays != nil {
-		t.Fatalf("the seeded invoice is already numbered before the migration under test — the test proves nothing: %+v", got)
+	// Read by SQL for the same reason the rows were written by it: the store's
+	// statement reader belongs to the current schema, and this database is
+	// standing at the version before the migration under test.
+	var seededNumber, seededDue, seededTerms *string
+	if err := db.QueryRowContext(ctx, `SELECT invoice_number, due_at::text, payment_terms_days::text FROM statements WHERE id = $1`, later).
+		Scan(&seededNumber, &seededDue, &seededTerms); err != nil {
+		t.Fatal(err)
+	}
+	if (seededNumber != nil && *seededNumber != "") || seededDue != nil || seededTerms != nil {
+		t.Fatalf("the seeded invoice is already numbered before the migration under test — the test proves nothing: %v %v %v", seededNumber, seededDue, seededTerms)
 	}
 
 	// The migration under test.
@@ -164,7 +179,7 @@ func TestIntegrationBackfillNumbersInvoicesIssuedBeforeInvoicing(t *testing.T) {
 	// a new draft takes the next number of the current year.
 	from, _ := time.Parse("2006-01-02", "2026-07-01")
 	draft, err := st.WriteDraftStatement(ctx, store.StatementDraft{
-		CustomerID: corp.ID, PeriodStart: from, PeriodEnd: from.AddDate(0, 1, -1), Currency: "OMR",
+		CustomerID: corpID, PeriodStart: from, PeriodEnd: from.AddDate(0, 1, -1), Currency: "OMR",
 		Subtotal: "10.000000", TaxRate: "0", Tax: "0", Total: "10.000000",
 		Lines: []store.RatedLine{{SKU: "ecs.s6.large.2", Unit: "instance-hour", Quantity: "1", UnitPrice: "10.000000", Amount: "10.000000", ResourceCount: 1}},
 	})

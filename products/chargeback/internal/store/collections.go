@@ -1478,8 +1478,8 @@ func (s *Store) ListOpenInvoices(ctx context.Context, scope Scope) ([]OpenInvoic
 		WHERE st.status IN ('issued','sent') AND st.due_at IS NOT NULL AND st.issued_at IS NOT NULL`
 	var args []any
 	if !scope.Operator {
-		q += ` AND st.customer_id = $1`
-		args = append(args, scope.CustomerID)
+		q += ` AND st.customer_id::text = ANY($1)`
+		args = append(args, pq.Array(scope.Set()))
 	}
 	q += ` ORDER BY st.due_at, st.issued_at, st.id`
 	rows, err := s.db.QueryContext(ctx, q, args...)
@@ -1629,7 +1629,7 @@ func (s *Store) GetCustomerByExternalAccount(ctx context.Context, externalAccoun
 	if id == "" {
 		return Customer{}, ErrNotFound
 	}
-	return scanCustomer(s.db.QueryRowContext(ctx, `SELECT `+customerColumns+` FROM customers c WHERE c.external_account_id = $1 ORDER BY c.created_at LIMIT 1`, id))
+	return scanCustomer(s.db.QueryRowContext(ctx, `SELECT `+customerColumns+customerFrom+` WHERE c.external_account_id = $1 ORDER BY c.created_at LIMIT 1`, id))
 }
 
 // ---------------------------------------------------------------------------

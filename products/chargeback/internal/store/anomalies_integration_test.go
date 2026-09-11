@@ -3,6 +3,7 @@ package store_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"testing"
 	"time"
@@ -119,10 +120,15 @@ func TestIntegrationDailyCostByCustomerKind(t *testing.T) {
 	if err != nil || len(rows) != 30 || rows[0].CustomerID != s.b.ID {
 		t.Fatalf("B only: %d rows err=%v", len(rows), err)
 	}
-	// Scope: B asking for A sees B; an empty scope is refused.
-	rows, err = st.DailyCostByCustomerKind(ctx, store.CustomerScope(s.b.ID), s.a.ID, day(2026, 8, 1), day(2026, 8, 31))
+	// Scope: B naming A is refused rather than quietly answered about B —
+	// the scope narrows a question, it never rewrites one (Scope.Confine).
+	if _, err := st.DailyCostByCustomerKind(ctx, store.CustomerScope(s.b.ID), s.a.ID, day(2026, 8, 1), day(2026, 8, 31)); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("B naming A: err=%v, want not found", err)
+	}
+	// B asking for nothing in particular gets its own, and only its own.
+	rows, err = st.DailyCostByCustomerKind(ctx, store.CustomerScope(s.b.ID), "", day(2026, 8, 1), day(2026, 8, 31))
 	if err != nil || len(rows) != 30 || rows[0].CustomerID != s.b.ID {
-		t.Fatalf("B naming A: %d rows err=%v", len(rows), err)
+		t.Fatalf("B alone: %d rows err=%v", len(rows), err)
 	}
 	if _, err := st.DailyCostByCustomerKind(ctx, store.Scope{}, "", day(2026, 8, 1), day(2026, 8, 31)); err == nil {
 		t.Fatal("empty scope must not read the ledger")
@@ -162,10 +168,14 @@ func TestIntegrationDayDrivers(t *testing.T) {
 	if err != nil || len(drivers) != 0 {
 		t.Fatalf("evs drivers = %+v err=%v", drivers, err)
 	}
-	// Scope: B asking about A's spike gets B's (empty) ecs picture.
-	drivers, err = st.DayDrivers(ctx, store.CustomerScope(s.b.ID), s.a.ID, "ecs", "2026-08-20")
+	// Scope: B asking about A's spike is refused, not answered about B.
+	if _, err := st.DayDrivers(ctx, store.CustomerScope(s.b.ID), s.a.ID, "ecs", "2026-08-20"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("B on A: err=%v, want not found", err)
+	}
+	// B asking about its own kind gets its own (empty) ecs picture.
+	drivers, err = st.DayDrivers(ctx, store.CustomerScope(s.b.ID), s.b.ID, "ecs", "2026-08-20")
 	if err != nil || len(drivers) != 0 {
-		t.Fatalf("B on A = %+v err=%v", drivers, err)
+		t.Fatalf("B on B = %+v err=%v", drivers, err)
 	}
 	if _, err := st.DayDrivers(ctx, store.OperatorScope, s.a.ID, "ecs", "20 Aug"); err == nil {
 		t.Fatal("bad day must be rejected")

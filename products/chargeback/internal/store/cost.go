@@ -172,8 +172,14 @@ type CostQuery struct {
 	// 0 = every group.
 	Limit int
 	// CustomerID narrows to one customer (the customer-lens endpoints); the
-	// scope forces it for non-operators regardless of what was asked.
+	// scope confines it for non-operators regardless of what was asked.
 	CustomerID string
+	// CustomerIDs narrows to a SET of customers — a partner principal's
+	// customers and party (DESIGN.md §13.5). Set by confine from the scope,
+	// never by a caller's parameter. CustomerID is the one-element case of
+	// the same predicate; customerSet resolves the two into the one set the
+	// SQL filters on.
+	CustomerIDs []string
 	// IncludeInternal admits the Sovereign's own internal platform source
 	// (cost_sources.internal), which every customer-facing query excludes.
 	// Only Allocation sets it: the overhead row is that source's usage.
@@ -361,8 +367,8 @@ func filteredCTE(q CostQuery, from, to time.Time) (string, *costArgs, error) {
 	if !q.IncludeInternal {
 		sb.WriteString(costExcludeInternalSQL)
 	}
-	if q.CustomerID != "" {
-		sb.WriteString(" AND u.customer_id::text = " + a.add(q.CustomerID))
+	if ids := q.customerSet(); ids != nil {
+		sb.WriteString(" AND u.customer_id::text = ANY(" + a.add(pq.Array(ids)) + ")")
 	}
 	// Filters reference the base columns through the same expressions the
 	// CTE projects, so include/exclude and group-by can never disagree on
@@ -594,12 +600,11 @@ func (s *Store) queryUnconverted(ctx context.Context, q CostQuery, from, to time
 // book currency has no stored rate are excluded from every sum and listed
 // in Unconverted, with MixedCurrency set — never silently added.
 func (s *Store) Explore(ctx context.Context, scope Scope, q CostQuery) (ExploreResult, error) {
-	if !scope.Operator {
-		if scope.CustomerID == "" {
-			return ExploreResult{}, ErrNotFound
-		}
-		// A customer principal sees its own rows whatever it asked for.
-		q.CustomerID = scope.CustomerID
+	// A customer principal sees its own rows; a partner principal the rows of
+	// its customers, or of the one of them it named. Anything else is
+	// ErrNotFound, never someone else's rows.
+	if err := q.confine(scope); err != nil {
+		return ExploreResult{}, err
 	}
 	if q.Granularity == "" {
 		q.Granularity = "day"
@@ -821,21 +826,61 @@ func (s *Store) countResources(ctx context.Context, q CostQuery, from, to time.T
 	return n, nil
 }
 
+// customerSet is the customer id set this query filters on — nil for an
+// unfiltered operator read. CustomerID is the one-element case: a reader
+// that names one customer and a partner scope that spans several go through
+// the SAME `customer_id = ANY(...)` predicate, so there is one customer
+// filter in the product and not one per kind of principal.
+func (q CostQuery) customerSet() []string {
+	if len(q.CustomerIDs) > 0 {
+		return q.CustomerIDs
+	}
+	if q.CustomerID != "" {
+		return []string{q.CustomerID}
+	}
+	return nil
+}
+
+// confine narrows a query to the customers the scope may read (Scope.Confine):
+// the one customer of a customer principal, the set of a partner principal,
+// every customer for the operator. A customer the query already named is
+// INTERSECTED with the scope, never replaced by it — so a partner reading one
+// of its own customers sees that customer alone, not its whole book.
+func (q *CostQuery) confine(scope Scope) error {
+	ids, err := scope.Confine(q.CustomerID)
+	if err != nil {
+		return err
+	}
+	q.CustomerID, q.CustomerIDs = "", ids
+	return nil
+}
+
+// scopeCustomerClause is that same predicate for a scoped count that does not
+// go through the explorer CTE: `col = ANY($1)` over Scope.Confine. An empty
+// clause is the operator asking across every customer, and only that.
+func scopeCustomerClause(scope Scope, customerID, col string) (string, []any, error) {
+	ids, err := scope.Confine(customerID)
+	if err != nil {
+		return "", nil, err
+	}
+	if ids == nil {
+		return "", nil, nil
+	}
+	return ` AND ` + col + `::text = ANY($1)`, []any{pq.Array(ids)}, nil
+}
+
 // LiveResourceCount counts inventory rows not marked deleted, inside the
 // scope (optionally one customer).
 func (s *Store) LiveResourceCount(ctx context.Context, scope Scope, customerID string) (int, error) {
-	if !scope.Operator {
-		customerID = scope.CustomerID
-	}
 	// A disabled source collects nothing more, so its inventory is history,
 	// not live estate; its recorded cost still shows in the explorer.
 	q := `SELECT count(*) FROM resource_inventory i JOIN cost_sources s ON s.id = i.source_id
 		WHERE i.deleted_at IS NULL AND NOT s.internal AND s.status <> '` + StatusDisabled + `'`
-	var args []any
-	if customerID != "" {
-		q += ` AND s.customer_id::text = $1`
-		args = append(args, customerID)
+	clause, args, err := scopeCustomerClause(scope, customerID, "s.customer_id")
+	if err != nil {
+		return 0, err
 	}
+	q += clause
 	var n int
 	if err := s.db.QueryRowContext(ctx, q, args...).Scan(&n); err != nil {
 		return 0, mapErr(err)
@@ -846,15 +891,12 @@ func (s *Store) LiveResourceCount(ctx context.Context, scope Scope, customerID s
 // LastCollectedAt is the newest collection time across the scope's sources
 // (the internal source is not a customer's source and is left out).
 func (s *Store) LastCollectedAt(ctx context.Context, scope Scope, customerID string) (*time.Time, error) {
-	if !scope.Operator {
-		customerID = scope.CustomerID
-	}
 	q := `SELECT max(last_collected_at) FROM cost_sources WHERE NOT internal`
-	var args []any
-	if customerID != "" {
-		q += ` AND customer_id::text = $1`
-		args = append(args, customerID)
+	clause, args, err := scopeCustomerClause(scope, customerID, "customer_id")
+	if err != nil {
+		return nil, err
 	}
+	q += clause
 	var t pq.NullTime
 	if err := s.db.QueryRowContext(ctx, q, args...).Scan(&t); err != nil {
 		return nil, mapErr(err)
@@ -877,11 +919,8 @@ type DimensionValue struct {
 // static dimensions are always listed; a tag dimension is listed (under its
 // `tag:<key>` name) when the query groups or filters by it.
 func (s *Store) DimensionValues(ctx context.Context, scope Scope, q CostQuery) (map[string][]DimensionValue, error) {
-	if !scope.Operator {
-		if scope.CustomerID == "" {
-			return nil, ErrNotFound
-		}
-		q.CustomerID = scope.CustomerID
+	if err := q.confine(scope); err != nil {
+		return nil, err
 	}
 	cte, a, err := filteredCTE(q, q.From.UTC(), q.To.UTC())
 	if err != nil {
@@ -949,11 +988,8 @@ func (q CostQuery) TagDimensions() []string {
 // (scoped and filtered like the explorer) — what the "group by tag" picker
 // offers. A record whose tags label is not an object contributes nothing.
 func (s *Store) TagKeys(ctx context.Context, scope Scope, q CostQuery) ([]string, error) {
-	if !scope.Operator {
-		if scope.CustomerID == "" {
-			return nil, ErrNotFound
-		}
-		q.CustomerID = scope.CustomerID
+	if err := q.confine(scope); err != nil {
+		return nil, err
 	}
 	cte, a, err := filteredCTE(q, q.From.UTC(), q.To.UTC())
 	if err != nil {

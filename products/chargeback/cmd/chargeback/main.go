@@ -144,7 +144,9 @@ func main() {
 	// DESIGN.md §9.6 — the platform seam enforcement runs through. Every
 	// suspension is recorded and audited whether or not a platform is wired.
 	// On a Sovereign the chart sets PLATFORM_API_URL to the in-cluster
-	// sovereign-admin API and PLATFORM_API_TOKEN_FILE to the projected
+	// sovereign-admin API and PLATFORM_API_BEARER_FILE (deprecated alias:
+	// PLATFORM_API_TOKEN_FILE — a TOKEN-named env with a literal value trips
+	// the Sovereign's Kyverno secret-not-in-env policy) to the projected
 	// ServiceAccount token; the client re-reads that file on every call.
 	var plat platform.Client = platform.Nop{}
 	if cfg.PlatformAPIURL != "" {

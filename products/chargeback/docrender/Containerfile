@@ -1,0 +1,46 @@
+# docrender — the chargeback BSS document-renderer image (EPIC #6867).
+#
+# Build context = this directory (the module is self-contained; no replace
+# directives into the rest of the monorepo, the same shape as
+# products/chargeback/Containerfile):
+#
+#   docker build -f products/chargeback/docrender/Containerfile \
+#                products/chargeback/docrender
+#
+# There is NO headless browser in this image and no font directory to mount:
+# the locales, the templates and the PDF engine are all compiled in, so the
+# runtime layer is a single static binary on distroless static. That is what
+# lets the chart run it read-only, non-root, with all egress denied but DNS.
+#
+# Published by .github/workflows/build-docrender.yaml to
+# ghcr.io/openova-io/chargeback-docrender:<chart appVersion>. Per the #4706
+# chart-repo-collision lesson the IMAGE repo is the plain name — never the
+# bp-chargeback CHART OCI repo.
+
+# ─── Stage 1: build the static binary ──────────────────────────────────────
+FROM golang:1.24-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+# The tests run here too: an image whose renderer cannot produce its own
+# fixtures must not be pushed. -count=1 per #6235 (this repo has no root
+# go.mod and tests read files outside their package).
+RUN go vet ./... && go test -count=1 ./...
+ARG VERSION=dev
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath \
+    -ldflags "-s -w -X main.version=${VERSION}" \
+    -o /out/docrender ./cmd/docrender
+
+# ─── Stage 2: runtime ──────────────────────────────────────────────────────
+# distroless static: no shell, no package manager, nothing writable. USER is
+# NUMERIC (#5114 hw256 lesson): the kubelet cannot prove a string USER
+# non-root when the pod spec sets runAsNonRoot, and the container dies with
+# CreateContainerConfigError. 65532:65532 is the distroless nonroot uid:gid;
+# the chart's pod securityContext pins the identical pair.
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /out/docrender /docrender
+USER 65532:65532
+EXPOSE 8080
+ENV LISTEN_ADDR=:8080
+ENTRYPOINT ["/docrender"]

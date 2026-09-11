@@ -1,0 +1,22 @@
+docrender {{ .Chart.AppVersion }} — the BSS document renderer (EPIC #6867).
+
+  Service   http://{{ include "docrender.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+  Replicas  {{ .Values.replicaCount }}
+  Token     {{ if .Values.auth.existingSecret }}required, from Secret {{ .Values.auth.existingSecret }}{{ else }}not required (the NetworkPolicy is the perimeter){{ end }}
+
+It has NO external address: no HTTPRoute, no Ingress, no NodePort. The only
+callers admitted are pods matching {{ range $k, $v := .Values.networkPolicy.fromSelector }}{{ $k }}={{ $v }} {{ end }}in namespace
+{{ include "docrender.callerNamespace" . }}, and the only egress allowed is DNS.
+
+Render a document:
+
+  curl -sS -X POST http://{{ include "docrender.fullname" . }}:{{ .Values.service.port }}/v1/render \
+    -H 'Content-Type: application/json' \
+{{- if .Values.auth.existingSecret }}
+    -H "X-Render-Token: $RENDER_TOKEN" \
+{{- end }}
+    -d '{"template":"invoice","locale":"en","currency":"OMR","document":{...}}' \
+    -o invoice.pdf
+
+The chargeback application does this for you at
+GET /api/v1/statements/{id}.pdf once DOCRENDER_URL points here.

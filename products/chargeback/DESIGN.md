@@ -160,11 +160,14 @@ Operator (sovereign-admin lens):
 
 ```
 Analyse    Overview · Cost explorer · Resources · Anomalies · Recommendations
+Plan       Capacity                                                  (§11)
 Bill       Statements · Budgets · Reports
 Configure  Customers · Price books · Discounts · Allocation
 ```
 
 Customer lens (`/my/…`): Overview · Cost explorer · Resources · Statements · Budgets · Reports · Sources.
+
+Partner lens (`/partner/…`, §13.5): My customers · Cost explorer · Resources · Anomalies · Recommendations · Statements · Account · Margin · Retail prices · Users. The Analyse pages are the operator's own, over the partner's customers.
 
 Every page is a real route (deep-linkable) and every list is sortable, filterable
 and exportable. Every number on a screen comes from an endpoint in §3; nothing is
@@ -470,8 +473,11 @@ Dates are `YYYY-MM-DD`, windows are half-open `[from, to)`. Money is a decimal
 number in the **reporting currency** (§3.10) on every cost surface — explore,
 summary, resources, anomalies, recommendations, budgets, allocation, reports —
 and in the customer's price-book currency on statements and price books, which
-are never converted. `customer` query values are customer ids; the customer
-role is forced to its own id server-side.
+are never converted. `customer` query values are customer ids, and every one
+of them is INTERSECTED with the caller's scope server-side: a customer role
+sees its own customer, a partner role its partner's customers (§13.5), the
+operator whichever it asked for. Naming a customer outside the scope returns
+an empty document, never someone else's rows.
 
 ### 3.1 `GET /cost/explore` · `GET /customers/{id}/cost/explore`
 Params: `from`, `to`, `granularity=hour|day|month` (`hour` only for windows of at
@@ -814,6 +820,17 @@ CHECK ((internal AND customer_id IS NULL AND kind = 'openova-platform')
 UNIQUE INDEX (kind, region, project_id) WHERE customer_id IS NULL   -- one internal source per slug
 usage_records.customer_id → NULLABLE          -- the internal source's rows carry none
 price_books.scope       TEXT NOT NULL DEFAULT 'cloud' CHECK (scope IN ('cloud','platform'))
+
+-- Capacity (§11), one migration appended last:
+capacity_regions(id, code UNIQUE lower-case, name, cloud_source_kind IN ('huawei-project','file'), created_at)
+capacity_zones(id, region_id → regions CASCADE, code lower-case, name, is_default, created_at)   UNIQUE(region_id, code)
+        UNIQUE INDEX (region_id) WHERE is_default                       -- one default zone per region
+capacity_pools(id, zone_id → zones CASCADE, family CHECK IN (the seven families), total NUMERIC(20,6) >= 0,
+        reserved NUMERIC(20,6) >= 0, source DEFAULT 'manual', note, updated_by, updated_at)   UNIQUE(zone_id, family)
+capacity_pool_history(id, pool_id → pools CASCADE, total, source, note, changed_by, changed_at)
+sku_footprints(sku, family CHECK, amount NUMERIC(20,6) > 0, source DEFAULT 'manual', updated_at)   PK(sku, family)
+        -- seeded from the National Cloud list (capacity.Seed), source = 'seed'
+sku_caps(zone_id → zones CASCADE, sku, total NUMERIC(20,6) >= 0, updated_by, updated_at)   PK(zone_id, sku)
 ```
 
 ### 4.1 Migrating the customer-level price book
@@ -1797,7 +1814,7 @@ and `requireOperator` in front of every write. That could not say "this
 person runs billing but may not change settings", "this auditor reads
 everything and changes nothing", or "this customer's finance contact may top
 up the account but not manage its users". It now can, with two scope kinds,
-nine permissions and six roles — and nothing else: there is no per-user
+ten permissions and six roles — and nothing else: there is no per-user
 permission and no custom role.
 
 ### 10.1 Scopes
@@ -1805,13 +1822,17 @@ permission and no custom role.
 | Scope key | Meaning |
 |---|---|
 | `sovereign` | The whole Sovereign: every customer, every setting. |
+| `partner:<id>` | The customers assigned to one partner, plus its own party (§13.5). |
 | `customer:<id>` | One customer. |
 
 A permission held at the Sovereign scope holds on every customer; a
 permission held on a customer holds there and nowhere else — never at the
-Sovereign, never on another customer. Every handler asks the one question
+Sovereign, never on another customer; a permission held on a partner holds on
+the customers that partner expands to. Every handler asks the one question
 `access.Has(bindings, permission, customerID)` (`internal/access`), with
-`customerID == ""` meaning the Sovereign scope.
+`customerID == ""` meaning the Sovereign scope. The routes that read ACROSS
+customers ask `requireCrossCustomer` instead, which is that same question at
+the Sovereign plus `access.HasAnyPartner` — see §13.5.
 
 ### 10.2 Permissions
 
@@ -1826,13 +1847,14 @@ Sovereign, never on another customer. Every handler asks the one question
 | `settings.manage` | Billing settings, allocation settings, and access itself: role bindings and directory group mappings. |
 | `audit.read` | Audit trails. A Sovereign permission: a customer does not read its own trail. |
 | `customer.self.manage` | The customer-scoped subset of `customers.manage` an owner holds on its own customer: its users, its sources' credentials and scope token, its PO reference and tax registration number. |
+| `capacity.manage` | Capacity (§11): regions, zones, pool totals, SKU footprints and caps. A Sovereign permission; capacity reads ride on `metering.read` at the Sovereign, so a customer never sees capacity at all. |
 
 ### 10.3 Roles — fixed bundles
 
 | Role | Scope kind | Permissions |
 |---|---|---|
-| `sovereign-admin` | sovereign | all nine |
-| `billing-operator` | sovereign | `metering.read`, `rating.manage`, `customers.manage`, `billing.issue`, `billing.collect`, `audit.read` |
+| `sovereign-admin` | sovereign | all ten |
+| `billing-operator` | sovereign | `metering.read`, `rating.manage`, `customers.manage`, `billing.issue`, `billing.collect`, `audit.read`, `capacity.manage` |
 | `finance-viewer` | sovereign | `metering.read`, `audit.read` — read and export only |
 | `customer-owner` | customer | `metering.read`, `account.topup`, `customer.self.manage` |
 | `customer-billing` | customer | `metering.read`, `account.topup` |
@@ -1959,6 +1981,8 @@ ids are not confirmed; a caller on the scope without the permission answers
 | `createPaymentIntent` | `account.topup` (customer) or `billing.collect` |
 | `putBillingSettings`, `putAllocationSettings`, `listBindings`, `createBinding`, `deleteBinding`, `listGroupMappings`, `putGroupMappings` | `settings.manage` |
 | `customerAudit` | `audit.read` (customer route; a customer principal is 403) |
+| `capacityOverview`, `listCapacityRegions`, `listCapacityPools`, `listFootprints`, `listCaps` | `metering.read` (sovereign) — a customer principal is 403, never a filtered view |
+| `createCapacityRegion`, `deleteCapacityRegion`, `createCapacityZone`, `deleteCapacityZone`, `putCapacityPool`, `putFootprint`, `putCap` | `capacity.manage` |
 | `importInvoiceStatus`, `importPaymentStatus`, `importAccountBalance`, `importEnforcement`, `gatewayCallback`, `getInvite`, `activateInvite`, `pinRequest`, `pinVerify`, `logout` | not session-gated (HMAC, gateway signature, invite token, public) |
 
 Every change to who holds what is audited: `access.binding` (op grant /
@@ -2003,3 +2027,715 @@ stands a database before the migration, writes `customer_users` rows and
 proves the backfill, the view, the widened sessions CHECK and the unique
 indexes. `internal/adapter/openova/orgsync_access_test.go` proves the sync
 grants the owner binding once and never revokes.
+
+## 11. Capacity — regions, zones, pools and SKU footprints (founder requirement 2026-09-11)
+
+The founder's requirement, verbatim: *"capacity management for the underlying
+regions — overall capacity information of underlying AZs and regions as well
+for each SKU; initially static, the admin defines the capacity; later from
+integrations"*. The module answers three questions for a sovereign-admin: how
+much of each kind of capacity does each availability zone hold; how much of it
+is in use right now; and how many more of a given SKU could still be sold in
+that zone before something runs out — and when, at the present rate, it will.
+
+### 11.1 The model
+
+```
+capacity_regions  ─┬─ capacity_zones (one is_default per region) ─┬─ capacity_pools, one per family
+                   │                                              ├─ sku_caps (optional direct ceiling per SKU)
+                   │                                              └─ (consumption lands here, see 11.2)
+                   └─ code = usage_records.region, e.g. me-east-215
+sku_footprints    how much of each family ONE unit of a SKU consumes
+capacity_pool_history   every total ever entered, by whom, with the note
+```
+
+**Families** (`internal/capacity.Families`) are the seven pooled kinds a zone
+is measured in: `vcpu`, `memory_gib`, `block_ssd_gib`, `block_hdd_gib`,
+`object_gib`, `eip_addresses`, `bandwidth_mbps`. The list is the CHECK
+constraint on `capacity_pools.family` and `sku_footprints.family`, generated
+from the Go list so the two cannot drift.
+
+**Static first.** A pool's `total` is what the sovereign-admin types, with a
+note, under `capacity.manage`; `source` reads `manual`. Every change writes
+`capacity_pool_history` and an audit entry `capacity.pool` with the previous
+and new total. A capacity collector — the integration the requirement defers —
+plugs into exactly this shape later: it writes the same pools with its own
+`source`, and nothing downstream changes. Until it exists a pool without a
+total reads `status: unset`, never `ok`, so an empty page is honest about
+what has not been entered. **Reserved** is carried at 0, column and wire key
+present, for proposals and plans to fill.
+
+**Footprints.** `sku_footprints(sku, family, amount)` says how much of each
+family one unit of the SKU consumes: `ecs.m7n.2xlarge.8` → `vcpu 8,
+memory_gib 64`; `evs.ssd.gb` → `block_ssd_gib 1`; `eip` → `eip_addresses 1`;
+`eip.bandwidth_mbps` → `bandwidth_mbps 1`. The migration seeds the SKUs of the
+National Cloud list price book whose footprint the name states —
+`capacity.Seed()`, pinned equal to `synth.NationalCloudRates` — six of its
+nine SKUs (`elb`, `nat.1`, `vpc` have no per-unit footprint in any family and
+are reported as such). At read time a metered SKU with no row takes what its
+name implies (`capacity.Derive`, source `derived`): an ECS flavour
+`<family>.<size>.<ratio>` is `size` vCPU (small/medium 1, large 2, xlarge 4,
+Nxlarge 4N) and vCPU × ratio GiB — the convention the ECS lister's
+`vcpus`/`ram_mb` attributes and the list-price descriptions both follow.
+Platform meters (`k8s.*`, `plan.*`) derive nothing: they run on the cloud's
+instances, which the `ecs.*` SKUs already count, and deriving them too would
+consume the same vCPU twice. A SKU whose storage class is not in its name
+(`rds.storage.ha.gb`, `cbr.gb`, `ims.gb`) derives nothing and is listed as
+unmapped until the operator writes its footprint. A stored row always wins
+over derivation.
+
+### 11.2 Derivations — consumed, available, headroom, exhaustion
+
+Nothing about consumption is entered. It is the usage ledger this product
+already keeps (§2), read one way:
+
+- **Current hour.** For every cloud-layer source that is not disabled, its
+  latest metered hour before the current one (`window_start < date_trunc(hour,
+  now)`). Per source rather than one global hour, so a collector that lags a
+  few hours still contributes its last fact instead of reading as zero;
+  `as_of` is the newest of those hours, `lagging_sources` counts sources more
+  than six hours behind it. Sampled measurements (`ecs.cpu_util`,
+  `eip.traffic_gb.observed`) are excluded exactly as rating excludes them.
+- **Region** is `usage_records.region`, matched to `capacity_regions.code`.
+  Usage in a region the admin has not added — or has added without a zone —
+  is `unmapped_regions[]` with the reason.
+- **Zone** is the inventory row's `availability_zone` (or `az`) attribute
+  when present, matched to `capacity_zones.code` within the region; otherwise
+  the region's **default zone**, and that share is reported on the pool as
+  `zone_unknown`. (The Huawei ECS lister does not yet record the zone; when it
+  does, attribution sharpens with no change here.)
+- **Consumed** per (zone, family) = Σ over SKUs of quantity × footprint, in
+  exact rationals; a SKU with no footprint contributes to no pool and is
+  listed once under `unmapped_skus[]` with its quantity, resources and regions.
+- **Available** = total − reserved − consumed, never below 0: when the
+  arithmetic goes negative the pool reads `available 0`, `clamped true`,
+  `overcommit` = the shortfall. **Utilisation** = (consumed + reserved) ÷
+  total, null without a total. **Status** is `unset` (no total), `ok`, `warn`
+  (≥ 70 %) or `critical` (≥ 85 %); the thresholds ride on the document.
+- **Headroom per SKU, per zone** = min over the SKU's families of
+  ⌊available ÷ footprint⌋, over the families that have a total — a family the
+  admin has not sized carries no information and is skipped; when none has a
+  total the headroom is null. The family that produced the minimum is the
+  `binding_family`. A direct `sku_caps` row (units of the SKU) bounds it
+  further: ⌊cap − consumed units⌋, binding as `cap` when it is the lower one.
+- **Time to exhaustion per pool** = available ÷ growth per day, where growth
+  is the least-squares trend over the last seven complete days of consumed
+  (each day's value: the sources' last metered hour of that day) — the
+  explorer's own run-rate arithmetic, `rating.RunRate`, the trend
+  `ForecastMonth` projects with. The store cannot import `rating` (which
+  imports `store`), so the API supplies the function
+  (`api.capacityGrowth`) and `TestCapacityGrowthIsTheRunRateTrend` pins it to
+  `RunRate`; there is no second run rate. Null when consumption is not
+  growing, when the history is shorter than three days, or when the pool has
+  no total. The daily series rides on the pool as `series[]`.
+
+Every quantity on the wire is an exact Postgres numeric rendered as a JSON
+number; only the ratios (utilisation, growth, exhaustion) are floats, because
+they are estimates and have no exact form.
+
+### 11.3 API (`/api/v1`, DESIGN.md §10.8 for the gates)
+
+| Method and path | Body / answer |
+|---|---|
+| `GET /capacity/overview[?region=<code>]` | `{as_of, sources, lagging_sources, thresholds{warn_pct, critical_pct}, families[], regions[{id, code, name, cloud_source_kind, zones[{id, code, name, is_default, pools[{…pool, label, unit, consumed, available, utilisation_pct, status, clamped, overcommit, zone_unknown, growth_per_day, exhaustion_days, history_days, series[]}], skus[{sku, footprint, footprint_source, consumed_units, resources, headroom_units, binding_family, cap}]}]}], unmapped_skus[], unmapped_regions[], summary{regions, zones, pools, pools_with_total, pools_warn, pools_critical, pools_below_threshold, skus, unmapped_skus}}` |
+| `GET /capacity/regions` | `{regions[{…, zones[]}]}` |
+| `POST /capacity/regions` | `{code, name, cloud_source_kind?}` → 201 the region; 409 on a duplicate code |
+| `DELETE /capacity/regions/{id}` | cascades zones, pools, history, caps |
+| `POST /capacity/regions/{id}/zones` | `{code, name, default?}` → 201 the zone with its seven pools at 0; the first zone is the default |
+| `DELETE /capacity/zones/{id}` | the oldest remaining zone becomes default |
+| `GET /capacity/zones/{id}/pools` | `{zone, pools[], history{pool_id: [changes]}, families[]}` |
+| `PUT /capacity/pools/{id}` | `{total, note}` → the pool; audited `capacity.pool` with `from` / `to` |
+| `GET /capacity/footprints` | `{footprints[{sku, families{family: amount}, source, updated_at}], families[], unseeded_skus[]}` |
+| `PUT /capacity/footprints/{sku}` | `{families: {family: amount}}` — PUT semantics: absent or 0 removes a family, `{}` removes the footprint; 400 names an unknown family |
+| `GET /capacity/caps` · `PUT /capacity/caps` | `{zone_id, sku, total}`; `total: null` removes the cap |
+
+Reads need `metering.read` at the Sovereign — a customer principal is 403,
+not a filtered view: capacity is the operator's picture of the cloud, never a
+customer's bill. Writes need `capacity.manage` (`sovereign-admin`,
+`billing-operator`); every write is audited as `capacity.region` /
+`capacity.zone` / `capacity.pool` / `capacity.footprint` / `capacity.cap`.
+
+### 11.4 The console — Plan → Capacity
+
+A new menu group **Plan** holds **Capacity**. The page: a KPI strip (regions,
+zones, pools past the 70 % line, SKUs without a footprint, as-of hour); a
+heatmap table per zone × family — utilisation coloured at 70 / 85 %, the
+available amount and the time to exhaustion in each cell, an inline editor for
+the total with its note where the principal holds `capacity.manage`; a SKU
+headroom table per zone with the binding family; the footprints editor; and an
+"unmapped SKUs" notice with a one-click footprint form. The empty state
+explains the static-first model: add the region and its zones, enter totals,
+and a capacity collector fills them later. `ui/src/lib/capacity.ts` carries
+the threshold colouring and the headroom arithmetic the page renders with,
+pinned by vitest against the same figures the Go tests derive.
+
+### 11.5 Tests
+
+`internal/capacity/capacity_test.go` pins the flavour convention, `Derive`
+(with the platform-meter and storage-class controls) and the seed against the
+National Cloud list. `internal/store/capacity_integration_test.go` derives
+consumption from seeded records: known-zone and unknown-zone instances, a
+volume growing 10 GB a day (82.0 days to exhaustion against 1000 GiB), a
+bandwidth reservation past its total (clamped, overcommit, critical), an
+address with no total (unset), a SKU without a footprint (unmapped, counts
+against no pool), a metric sample and a platform meter (neither counts), an
+unconfigured region, headroom with the binding family and the cap, region
+filtering, history, and the default-zone hand-over on delete.
+`internal/api/capacity_integration_test.go` proves the permissions (viewer
+reads, 403 naming `capacity.manage` on writes; customer 403 naming
+`metering.read` at the Sovereign), the overview's keys, and the audit rows
+of every write; `internal/api/authz_roles_test.go` proves the refusals
+against a nil store.
+---
+
+## 12. Public cost calculator (founder requirement 2026-09-11)
+
+> *"we'll provide a cost calculator publicly."*
+
+A prospect who has never signed in can price a month of the Sovereign's
+services, share the result as a link, and ask us to mail it to them. It is the
+shape of the AWS and Azure pricing calculators, with one rule the cloud
+calculators do not have to state: **the public surface shows list prices and
+nothing else**.
+
+### 12.1 What is public, and what never is
+
+Public — the whole of it:
+
+| Published | Where it comes from |
+|---|---|
+| One **cloud list book** | the book flagged `price_books.public`, designated in `billing_settings.public_price_book_id` |
+| The **catalog plans** (S / M / L / XL, monthly, vCPU, memory) | the `OpenOva plans` book (§2.8) |
+| The **pay-per-use rates** (`k8s.vcpu` / `k8s.mem_gb` / `k8s.pvc_gb`) | the `Organization PAYG` book (§2.9a) |
+| The Sovereign **default tax rate** | `billing_settings.tax_rate`, shown as its own line |
+| The **regions** | `capacity_regions` when that table exists, else the regions the sources and usage carry |
+
+Never, by construction rather than by filtering:
+
+- **A negotiated book.** The catalog is assembled from exactly three books by
+  id and by name. A clone made for one customer carries neither the flag nor
+  the designation, and `SetPriceBookPublic` refuses a second public book
+  (`409`, naming the one in force) and refuses a platform book (`400`).
+- **A discount, a campaign or a partner tier.** The estimate path never reads
+  `discounts` at all: `rating.PriceEstimate` calls `Rate` and `Totals`, not
+  `ApplyDiscounts`. A 20 % campaign that moves an invoice moves no estimate —
+  pinned by the control in `public_calculator_integration_test.go`.
+- **Any customer data.** The public routes read three books, the settings row,
+  the region list and the caller's own submission. Nothing else is reachable
+  from them.
+- **A principal.** The session middleware skips `/api/v1/public/`; a cookie
+  sent there is ignored, never looked up, and no route under it sets one.
+
+Both books the Organization sync owns are published only when they exist on
+this Sovereign **and are priced in the public book's currency** — an estimate
+is issued in one currency and nothing here converts money, the same rule §2.9
+gives a statement.
+
+### 12.2 One pricing function, two callers
+
+The calculator has no arithmetic of its own. `rating.PriceEstimate` turns each
+requested line into the `store.RatableUsage` aggregate a month of hourly
+records would leave in the ledger — quantity × hours × months, at the six
+decimals `usage_records` carries — and hands the batch to **`rating.Rate`**,
+the function the statement run calls, with the book's stopped-instance policy;
+the totals come from **`rating.Totals`**, taxed exactly as an invoice is taxed.
+
+The proof is a measurement, not an assertion.
+`TestIntegrationPublicCalculator` seeds 730 hourly records of one instance and
+of 100 GB of SSD, runs the statement, then prices an estimate of the same
+shape, and compares the **text** of every decimal on the wire (the bodies are
+re-read with `json.Number`, so a float64 that happens to print the same cannot
+pass):
+
+```
+invoice line ecs.s6.large.2  730.000000 × 0.10000000 = 73.000000
+estimate line ecs.s6.large.2 730.000000 × 0.10000000 = 73.000000
+invoice  subtotal 83.000270  tax 4.150014  total 87.150284
+estimate subtotal 83.000270  tax 4.150014  total 87.150284
+```
+
+`rating.TestPriceEstimateEqualsRate` pins the same equality at the unit level
+on a deliberately awkward case — an 8-decimal rate and 100.5 hours — where a
+second rounding rule would show.
+
+**Monthly, yearly and the term.** `subtotal` / `tax` / `total` cover the whole
+term of every line, so a plan taken for three months counts three times.
+`monthly` is the recurring month — each line divided by its months, then taxed
+the way `Totals` taxes the term, so an estimate whose lines are all one month
+has `monthly == total` to the digit. `yearly` is 12 × `monthly`.
+
+### 12.3 API
+
+Unauthenticated, rate-limited, under `/api/v1/public/`:
+
+| Route | What it answers |
+|---|---|
+| `GET /public/catalog` | the priced SKUs of the public book (sku, service, unit, unit price, the monthly price of one unit), the plans, the pay-per-use rates, the regions, the currency, the tax rate, the book's name and `updated_at`, and the list-price notice. `404` with *"the public price list is not published yet"* when nothing is designated |
+| `POST /public/estimates` | prices `{currency?, region?, lines:[{sku, quantity, hours_per_month?} \| {plan, months?}], contact_email?}` and saves it → `{id, lines, subtotal, tax, total, monthly, yearly, currency, price_book, valid_until, share_url, lead, created_at}`. `?preview=1` prices without saving (the cart's live total) |
+| `GET /public/estimates/{id}` | the saved estimate — the shareable link. The address a prospect left is **never** in this document |
+
+Defaults and limits: `hours_per_month` 730 (`rating.HoursPerMonth` = 8760 / 12,
+the figure the platform books derive a monthly price from), `quantity` 1,
+`months` 1. At most 200 lines; quantity in (0, 1e9]; hours in (0, 744];
+months in [1, 12]; an unknown SKU is `400` naming it and the line; a plan and
+an SKU on one line is `400`; `flexi` is `400` pointing at the pay-per-use
+meters, because it has no plan line to sell (§2.9a). An estimate quotes its
+prices for **30 days** (`valid_until`).
+
+Rate limit: a token bucket per client address — `PUBLIC_CALCULATOR_RATE_PER_MINUTE`
+(default 60) tokens a minute, one minute's burst — answering `429` with
+`Retry-After` in whole seconds. Behind the Sovereign's gateway the address is
+the **last** `X-Forwarded-For` hop, the one the gateway appended, which a
+caller cannot forge by prepending its own; reached directly, it is the peer.
+An estimate records `client_hash`, a digest of that address, never the address.
+
+CORS: `PUBLIC_CALCULATOR_ORIGINS` (comma-separated; empty = same origin only,
+`*` = any) is the allow-list for cross-origin calls and preflights.
+
+Operator side, on the authenticated API:
+
+| Route | Permission |
+|---|---|
+| `PUT /pricebooks/{id}/public` `{public}` | `rating.manage` — audited `pricebook.public`; `409` on a second public book, `400` on a platform book |
+| `GET /leads[?limit]` | `customers.manage` — the estimates a prospect left an address on, newest first, with the address and the shareable link |
+
+### 12.4 Data model
+
+`estimatesMigrationSQL`, appended last (migrations are positional) and located
+by content in `store.MigrationEstimates`:
+
+- `price_books.public BOOLEAN NOT NULL DEFAULT false`, with a **partial unique
+  index** on `(public) WHERE public` — the backstop behind the store's check,
+  so a second public book cannot be written even directly.
+- `price_books.updated_at`, moved by a trigger on the book **and on its items**:
+  "prices as of" must change when a rate changes, not only when the header does.
+- `billing_settings.public_price_book_id` — the designation, `ON DELETE SET NULL`.
+- `estimates(id, price_book_id, price_book_name, price_book_updated_at,
+  currency, region, payload JSONB, subtotal, tax_rate, tax, total, monthly,
+  yearly, contact_email, lead, client_hash, created_at, valid_until)`, with a
+  partial index on the leads. The book's **name** is copied onto the row so a
+  shared estimate still says what it was priced from after the book is deleted.
+
+An estimate belongs to nobody: no customer, no session, no cookie. `lead` is
+simply "an address was left", and the proposals module reads those rows later.
+
+### 12.5 The page
+
+`/estimate` in the same React app, outside the console shell and outside
+sign-in: a cart (search the catalog by service or SKU, quantity, hours; a plan
+picker), a region selector, a live total from `?preview=1`, tax on its own
+line, **Share estimate** (saves it and shows the link), **Send me this
+estimate** (an address, which makes it a lead), and a footer naming the price
+book and its date beside the list-price notice.
+
+`/estimate?embed=1` drops the page header and posts its height to the parent
+on every change (`{type: 'openova-estimate-height', height}`), for the
+marketplace or a partner site to frame. Framing is allowed only for the
+configured origins: the page answers `Content-Security-Policy: frame-ancestors
+'self' <origins>` and every other path, the console included, keeps
+`X-Frame-Options: DENY`.
+
+Configure → **Price books** carries the `Public` toggle per cloud book — a
+platform book reads "with the list" instead, because the plans and
+pay-per-use cards are published alongside the cloud book and never on their
+own — beside a **Public catalog preview** link to `/estimate`. Configure →
+**Leads** is the read-only list (received, address, per month, per year, what
+they priced, region, link) under `customers.manage`.
+
+The page is mounted ABOVE the session provider in `src/App.tsx`: `/estimate`
+and `/estimate/{id}` render outside the console tree, so a visitor's browser
+makes no `/auth/me` call at all and the sidebar cannot appear. The cart module
+(`src/pages/Estimate.tsx`) holds the cart STATE and the request it becomes —
+never money arithmetic: a total computed in the browser would be the second
+pricing path §12.2 forbids, so every figure on the page comes from
+`?preview=1`.
+
+### 12.6 Tests
+
+`internal/rating/estimate_test.go` — the estimate line equals the rated usage
+line for the same SKU, quantity and hours (8-decimal rate, fractional hours),
+the totals equal `Totals`, plan months, `monthly == total` for a one-month
+estimate, `yearly == 12 × monthly`, and every refusal names its line.
+`internal/store/estimates_integration_test.go` — the flag and the designation
+move together, only one public book (store check **and** unique index), never
+a platform book, the resolver's two paths, `updated_at` following header and
+items, the estimate round-trip with its 30-day validity, the lead flag, and
+the region fallback with and without `capacity_regions`.
+`internal/api/public_calculator_test.go` — the token bucket's budget, refill
+and `Retry-After`; the trusted forwarded hop; every line-validation message;
+the framing and origin rules. `internal/api/public_calculator_integration_test.go`
+— the catalog carries only the public book (the negotiated clone's rate is not
+in the body), estimate math equals invoice math to the digit, the discount
+control, plans and pay-per-use lines, the refusals, the 30-day validity, the
+shareable link, leads and their permission, the `429`, CORS and preflight, and
+that no public route ever reads or sets the session cookie.
+`ui/src/pages/Estimate.test.ts` — the cart model: a second add bumps the
+quantity instead of duplicating a row, a plan line carries months and never
+hours (and an SKU line the reverse, which is what the API refuses), every
+row-level refusal is worded as the server words it, a half-typed row is left
+out of the request while the rest still prices, and the embed predicate and
+height message. `ui/src/pages/EstimatePublic.render.test.tsx` — the page
+renders the list prices, the plans, the pay-per-use rates, the tax line and
+the price-book footer with no console shell and no sign-out, drops its header
+under `?embed=1`, and shows a shared estimate read-only.
+## 13. Partners — resellers and agents (founder direction 2026-09-11)
+
+A Sovereign does not only sell direct. It sells **through** partners: a
+reseller that buys capacity at a wholesale price and bills its own customers,
+and an agent that introduces customers we bill ourselves and earns a
+commission. Both were expressible only as "another customer with a discount",
+which cannot say what a partner actually is — a party that owes us money for
+somebody else's usage, or that we owe money to.
+
+### 13.1 The waterfall — one list price, two independent steps
+
+The whole model is three lines, and everything below follows from them:
+
+    list  −  customer discounts  →  CUSTOMER NET   what the end customer pays
+    list  −  partner tier        →  PARTNER BUY    what the partner pays us
+                                    MARGIN = customer net − partner buy
+
+**There is one list price per SKU** — the Sovereign's list book, assigned to
+the source as always (§2). The two reductions off it are **independent**: a
+customer's negotiated discount does not change what the partner pays us, and
+a partner's tier does not change what the customer is billed. **Margin is
+derived per line and never entered.** There is no markup typed per SKU
+anywhere in the product, because a typed markup is a second price that drifts
+from the first the moment either side moves.
+
+Both steps run through **the same discount engine** — `rating.ApplyDiscounts`
+and its per-meter sibling `rating.DiscountBySKU`, under the operator's
+combination rule (§2.11). A tier discount IS a discount: a row of the
+`discounts` table with `tier_id` set, `customer_id` NULL and `kind =
+percent`. Most-specific, highest, stack and compound decide two tier
+percentages exactly as they decide two customer percentages, and the table in
+§2.11 is the table for a tier. There is no second pricing path to keep in
+step with the first.
+
+Worked, to the decimal, and pinned by
+`TestIntegrationPartnerWaterfallResellAndAgent`:
+
+| | figure |
+|---|---|
+| list (1 unit at 100) | **100.000000** |
+| customer discount 10 % | −10.000000 |
+| **customer net** | **90.000000** |
+| tier discount 30 % off list | −30.000000 |
+| **partner buy** | **70.000000** |
+| **margin** (net − buy) | **20.000000** |
+
+Tax is charged on what the customer pays, as everywhere else: 5 % of 90 is
+4.500000 and the invoice total is 94.500000.
+
+### 13.2 The two billing models
+
+`partners.bill_to` selects one, and it is a value in the rating run
+(`billingModel`), not a conditional sprinkled through it. Both are
+first-class; neither is a special case of the other.
+
+**`partner` — RESELL.** The partner is invoiced a **wholesale statement**: every
+one of its customers' lines at list, less the tier, grouped by end customer.
+Its customers are rated at the partner's **derived retail book** (§13.3) for
+informational showback — they are the partner's customers to bill. The
+wholesale statement is a real invoice on the partner's account: issued,
+numbered, due on terms, collected like any other.
+
+**`customer` — AGENT.** We invoice the end customer ourselves, at **our own
+books** — nothing about the bill changes because an agent introduced it. The
+partner is credited a **commission statement**: one line per end customer,
+`customer net − partner buy`, or `commission_pct × customer net` when the
+partner has no tier. Issuing it posts a ledger **credit** of kind
+`commission` on the partner's account: money we owe, so the balance reads in
+credit. Nothing is collected on it.
+
+**One run produces both.** `POST /statements/run` rates every customer as
+before — a partner's customer additionally carrying its per-line waterfall —
+and then writes each affected partner's own statement from the lines the
+customer pass just froze. A partner's statement is therefore always
+reconcilable to its customers' statements, line for line, and a customer
+whose period is already issued still contributes to it.
+
+### 13.3 A partner is a PARTY — it reuses the customer ledger
+
+A partner owes money, pays it, gets credit notes, is chased by collections
+and can be suspended. All of that already exists for a customer, and
+duplicating it for a partner would mean two ledgers that must agree.
+
+So each partner owns one `customers` row flagged `party_kind = 'partner'`
+(`partners.party_customer_id`), created in the same transaction as the
+partner and billed `postpaid` by `transfer`. The partner's balance, invoices,
+payments, allocations, credit notes and aging are the ones that row already
+has — **zero new ledger code**. `GET /partners/{id}/account` is the customer
+account handler pointed at the party.
+
+A party row is not a customer: `ListCustomers` and the status counts exclude
+it, the rating run never rates it as one, and it can never be assigned to a
+partner itself. `customers.partner_id` assigns an END customer to a partner —
+one partner per customer, nullable, and clearing it makes the customer direct
+again.
+
+### 13.4 The derived retail book
+
+Under resell the partner sets its own prices, and it must be able to do that
+without hand-maintaining a rate card that has to track ours. So it states a
+**rule**, and the book is **materialised from it**:
+
+    partner_retail_rules(partner_id, base ∈ {list, buy}, markup_pct, overrides[])
+
+Per SKU: `buy = list − tier` (through the combination engine),
+`base = list | buy`, `retail = base × (1 + markup)`. The markup is the most
+specific override that matches — `sku`, then `service` (the SKU's first
+segment: `ecs`, `evs`, `plan`, `k8s`), then the rule's default — the same
+"most specific wins" the discount engine uses.
+
+The result is a **real `price_books` row** owned by the partner
+(`partner_id`, `derived_from_rule`, `derived_from_book_id`), one per list
+book its customers are priced by, so every reader that knows a price book —
+rating, coverage, export — reads it unchanged. It is **read-only in the
+editor**: an item write answers 409 naming what to change instead. It is
+re-derived on a **list change, a tier change, a rule change, a billing-model
+change and a customer assignment**, and it is removed when the partner
+becomes an agent or loses its rule.
+
+A retail price **below the partner's own buy price** is reported, in the API
+response and on the console, as a `below_buy` line — never refused. Selling
+at a loss is the partner's decision to make; hiding it from them is not ours.
+
+    base = buy (70) + 5 %  → 73.50000000, no warning
+    base = list (100) + 5 % → 105.00000000
+    base = buy (70) − 10 % → 63.00000000, below the buy price of 70 → warned
+
+### 13.5 The partner scope
+
+A third scope kind joins `sovereign` and `customer:<id>`: **`partner:<id>`**.
+A binding there **expands**, with the session and never stored, to the
+customers assigned to that partner plus the partner's own party — so a
+partner principal reads its customers' explorer, resources, statements and
+accounts through the surfaces that already exist. A customer assigned to or
+taken from a partner takes effect at the principal's next request.
+
+**One predicate.** Every scoped read resolves its customers through
+`store.Scope.Confine(customerID)` and filters on `customer_id = ANY(<that
+set>)`. A customer principal is the one-element case of what a partner does
+with several; `nil` is the operator's unfiltered read and can mean nothing
+else. A customer the caller named is INTERSECTED with the scope, never
+replaced by it — so a partner opening one of its own customers sees that
+customer alone, and one naming a customer outside its scope is told not
+found rather than quietly handed its own rows.
+
+**The cost surfaces reach a partner.** `GET /cost/explore`,
+`/cost/summary`, `/cost/export.csv`, `/cost/dimensions`, `/resources`,
+`/resources.csv`, `/anomalies`, `/recommendations` and `/overview` are
+cross-customer routes, guarded by `requireCrossCustomer`: a Sovereign
+principal passes, and so does a partner principal holding `metering.read` at
+its partner scope — the store confines every query underneath to that
+partner's customers. So a reseller groups, filters, compares, forecasts and
+exports ACROSS its customers exactly as the operator does, with `group_by=customer`
+listing its own and no others; `/views` (saved explorer states) belongs to the
+signed-in email and needs no scope at all. A customer principal is still
+refused these routes (403): its lens is `/customers/{id}/…`.
+
+What a partner does NOT get from `/cost/summary` is the Sovereign's own
+counts — how many customers this Sovereign has (`customers`) and how its
+sources are doing (`sources`) are the operator's picture, so both come back
+empty; the cost blocks, the statements and the live-resource count are its
+customers'.
+
+Two roles, bound at that scope:
+
+| Role | Permissions |
+|---|---|
+| `partner-owner` | `metering.read`, `account.topup`, `partner.self.manage` — reads its customers and its own account, edits its retail rule, manages its own users, tops up its account |
+| `partner-viewer` | `metering.read` |
+
+and two permissions join the nine:
+
+| Permission | Grants |
+|---|---|
+| `partners.manage` | Create and edit partners, tiers and their discounts; assign a customer to a partner; set any partner's retail rule. Sovereign-only (`sovereign-admin`, `billing-operator`). Implies `partner.self.manage` on every partner. |
+| `partner.self.manage` | The partner-scoped subset an owner holds on its OWN partner: its retail rule and its users. |
+
+**What a partner never sees**: another partner, another partner's customers
+or margin (a filter naming one returns an empty document, a path naming one a
+404), the provider's list books (403 — it reads its own retail book instead),
+the tier catalogue, the Sovereign-wide customer and source counts, and the
+provider's own configuration pages. **What a customer never sees**: the partner
+directory (403), any partner-scoped route (404), and the buy price or margin
+on its own bill — `buy_total`, `margin_total` and the per-line `buy_amount`,
+`list_amount` and `list_unit_price` are stripped for any principal that is
+neither Sovereign nor bound to that partner. The partner it buys through
+stays named on its own customer record: that is its own commercial
+relationship, not a secret.
+
+### 13.6 The API
+
+| Route | Permission |
+|---|---|
+| `GET /api/v1/partners` | `metering.read` (sovereign) — a partner principal gets its own only; a customer principal 403 |
+| `POST /api/v1/partners` | `partners.manage` — creates the partner AND its party, and grants the contact `partner-owner` |
+| `GET /api/v1/partners/{id}` | `metering.read` (partner) |
+| `PATCH /api/v1/partners/{id}` | `partners.manage` — a tier or model change re-derives the retail books |
+| `GET /api/v1/partners/tiers` | `metering.read` (sovereign) |
+| `POST /api/v1/partners/tiers` | `partners.manage` |
+| `PUT /api/v1/partners/tiers/{id}/discounts` | `partners.manage` — replaces the set; re-derives every partner on the tier |
+| `PUT /api/v1/partners/{id}/retail-rule` | `partner.self.manage` (partner) — re-derives; the response carries the books and the below-buy lines |
+| `GET /api/v1/partners/{id}/retail-book` | `metering.read` (partner) |
+| `GET /api/v1/partners/{id}/customers` | `metering.read` (partner) |
+| `GET /api/v1/partners/{id}/statements` | `metering.read` (partner) — its wholesale / commission statements |
+| `GET /api/v1/partners/{id}/margin?period=` | `metering.read` (partner) — per customer per service: net, buy, margin, margin % |
+| `GET /api/v1/partners/{id}/account` | `metering.read` (partner) — the party's ledger |
+| `GET /api/v1/partners/{id}/users` | `metering.read` (partner) |
+| `POST /api/v1/partners/{id}/users` · `DELETE …/users/{email}` | `partner.self.manage` (partner) |
+| `PATCH /api/v1/customers/{id}` (`partner_id`) | `partners.manage` — never `customers.manage` alone, and never the customer itself |
+| `GET /api/v1/cost/explore` · `cost/summary` · `cost/export.csv` · `cost/dimensions` · `resources` · `resources.csv` · `anomalies` · `recommendations` · `overview` | `metering.read` at the Sovereign OR at a partner — the cross-customer read (§13.5). A partner's answer covers its customers and nothing else; a customer principal is 403 |
+
+Every write is audited: `partner.create`, `partner.update`, `partner.tier`,
+`partner.retail_rule`, and `access.binding` for the partner-scoped grants.
+
+Statement documents gain `partner_id`, `party_kind`, `statement_kind`
+(`customer` | `wholesale` | `commission`), `buy_total` and `margin_total`;
+rated lines gain `end_customer_id`, `list_unit_price`, `list_amount`,
+`buy_amount` and `net_amount`. Every key is additive — a reader written
+before partners existed is unchanged, and a direct customer's statement
+carries none of them.
+
+### 13.7 The console
+
+**Configure → Partners** lists every partner with its tier, billing model,
+customer count and account balance; opens one for its customers, its
+statements, its margin, its retail rule (with the derived book preview and
+the below-buy warnings) and its users; and creates and edits both partners
+and tiers, tier discounts included. The customer page gains a **Partner**
+block: which partner this customer buys through, and the assignment.
+
+The **partner lens** (`/partner/…`) is the third lens beside the Sovereign's
+and the customer's. When the caller's bindings are partner-scoped the menu
+shows **Analyse** — My customers, and then the operator's own **Cost
+explorer**, **Resources**, **Anomalies** and **Recommendations** over the
+partner's customers — **Bill** (its customers' statements and its own
+wholesale or commission statements), **Account** (its party), **Margin** and
+**Users**, and nothing else. Those are the same components the operator
+opens, on the same Sovereign-wide documents: what a lens carries is
+`crossCustomer` — this lens spans more than one customer, so the `customer`
+dimension is offered and the Customer column drawn — separately from
+`operator`, which alone opens the provider's price books and a customer's
+configuration. Every link a partner follows stays inside `/partner`. The
+statement view shows the partner block — buy total, margin, margin % — to
+Sovereign roles and partner roles only.
+
+### 13.8 Tests
+
+`internal/rating/partners_test.go` pins the engine: `DiscountBySKU` allocates
+exactly the total `ApplyDiscounts` reports, per meter, under all four
+combination rules; a tier obeys that same table (most-specific 20, highest
+30, stack 50, compound 44 on one 100 line); the derived book's 73.5 / 105 /
+63-with-a-warning; the override precedence; and that a split of a figure
+across lines sums back to it exactly.
+`internal/store/partners_integration_test.go` walks the waterfall against
+Postgres: 100 → net 90 / buy 70 / margin 20 on the customer statement and its
+line, the resell wholesale statement summing at 70 with the lines grouped by
+end customer, the agent commission of 20 posted as a ledger credit that takes
+the partner's balance to −20, the margin report, the derived book re-derived
+on a list change (200 − 30 % + 5 % = 147) and removed when the partner
+becomes an agent, the scope expansion, and that a tier discount never reaches
+a customer's list or bill.
+`internal/api/partners_integration_test.go` proves the routes: the documents
+the console reads, the retail-rule response with its below-buy lines, the 409
+on editing a derived book, a partner owner reading its own customer (200) and
+another partner's (404), 403 on the provider books and the tier catalogue,
+403 on every Sovereign write, a partner-viewer refused its own retail rule, a
+revoked partner user out at the next request, and a customer principal
+refused the partner directory with the buy price and margin stripped from its
+own statement.
+
+The cost surfaces have their own pair, on a deliberately uneven ledger — One's
+customers cost 10 and 20, Two's 40, a direct customer 80, so 30 is reachable
+only by seeing exactly One's two.
+`internal/store/partner_cost_integration_test.go` pins the store: the partner
+scope totals its own two customers and lists only them under
+`group_by=customer`; a filter naming another partner's customer returns
+nothing and a path naming it returns not found; naming one of its OWN returns
+that one alone; the operator still sees all five and a customer principal
+still only itself; and resources, the daily series and the recommendation
+inputs are confined by the same predicate.
+`internal/api/partner_explore_integration_test.go` walks it through HTTP: a
+partner session 200 on `/cost/explore` with only its customers in the
+group-by and its exact total, an empty document for a foreign `customer`
+filter, 404 on a foreign path, a CSV export carrying its customers and no
+others, a summary with its costs but none of the Sovereign's counts, its two
+resources, a saved view of its own — with the operator's own explorer and
+counts unchanged and a customer principal still 403.
+`ui/src/pages/PartnerAnalyse.render.test.tsx` renders the partner lens's
+explorer and resource list (the Customer group-by offered, its customers on
+the page, every link inside `/partner`, no price-book link);
+`ui/src/layout/Shell.test.ts` and `ui/src/lib/scope.test.ts` pin the menu and
+the lens's paths.
+---
+
+## 14. Documents — the invoice the customer actually receives (EPIC #6867)
+
+Everything above settles what a customer owes. This settles what they are
+*handed*: a **PDF**. An invoice that exists only as JSON and a CSV is not an
+invoice anyone can file, forward to their accountant, or attach to a payment
+run, and a quote that cannot be sent as a document is not a quote.
+
+**A separate service, not a package.** `products/chargeback/docrender` is its
+own Go module, its own image and an optional sub-chart of `bp-chargeback`
+(`docrender.enabled`, off by default). The split is deliberate on three
+counts. Document layout is a different problem from rating — fonts, page
+breaks, column metrics — and mixing it into the billing binary would put a
+typesetting dependency behind every statement run. A renderer is a **pure
+function** of the document it is given, so it can be stateless, hold no
+credentials, reach nothing, and be restarted or scaled without a thought. And
+the four document kinds are wanted by more than the invoice route: a quote
+today, an e-invoice attachment's human-readable rendition next.
+
+**No headless browser.** The PDF is drawn directly from the document JSON
+with `github.com/go-pdf/fpdf`, a pure-Go library with real font metrics, so
+column widths, wrapped cells and page breaks are measured rather than
+guessed, the output carries a genuine text layer, and the runtime image is a
+single static binary on distroless — no Chromium, no font directory, no
+`/tmp` spool. An HTML rendition of the same document is served from
+`html/template` files for the console to show inline.
+
+**Money crosses the wire as decimal STRINGS.** `internal/docs` passes the
+ledger's own digits through untouched — it never parses an amount, so it
+cannot round or re-scale one — and the renderer formats them at the
+**currency's minor unit**: three decimals for OMR and the other dinars, two
+for the rest, rounded once, half away from zero. A value that has been
+through a float is refused with 400 rather than silently reinterpreted, on
+the same reasoning as §8.6: the arithmetic stays exact and only the final
+rendering rounds.
+
+**Which document it is follows the statement.** One that has been issued
+carries an invoice number and renders as a *Tax Invoice*; a draft, or one the
+operator's external billing system numbers (§8.10), has no number of ours to
+print and renders as a *Statement* of the period. The seller block comes from
+the statement's own **tax snapshot** (§9.4) when it has one — an operator who
+renames the Sovereign must not silently rewrite a document the customer is
+already holding — and only a draft falls back to the live billing settings.
+
+**The route.** `GET /api/v1/statements/{id}.pdf`, alongside the existing
+`.csv`. It is the same handler and the same scope-filtered store read as
+fetching the statement, so the permission to download the document is exactly
+the permission to read the statement it is made of — a customer downloads its
+own invoices and gets 404 on anyone else's. With no renderer configured the
+route answers **503 "document renderer not configured"** and every other
+surface is untouched: an operator reading that response is told which of "not
+turned on" and "broken" they are looking at.
+
+**In-cluster only.** The renderer has no external door at all — ClusterIP,
+no HTTPRoute, no Ingress, and the chart refuses any other Service type. A
+default-deny NetworkPolicy admits the chargeback pods on the service port and
+nothing else, and allows egress to kube-dns and nothing else; it makes no
+outbound call, so there is nothing further to allow. An optional
+`X-Render-Token` shared secret sits on top of that as defence in depth, never
+as the perimeter. `chart/tests/kyverno-policies.sh` applies the platform's
+own admission baseline at its Enforce actions and requires zero failures.
+
+**The contract between the two modules is a committed document.** They are
+separate Go modules and cannot import each other, so
+`docrender/testdata/bss-invoice.json` is written by the BSS mapper's test and
+rendered by the renderer's — a field renamed on either side fails one of the
+two suites, rather than surfacing as a 400 on a customer's download months
+later.

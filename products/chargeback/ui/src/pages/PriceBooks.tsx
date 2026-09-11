@@ -38,6 +38,10 @@ export function PriceBooks() {
   const [extras, setExtras] = useState<Record<string, Extra>>({})
   const [dialog, setDialog] = useState<Dialog>(null)
   const [flash, setFlash] = useState('')
+  // DESIGN.md §11 — publishing a book is one call; only one cloud book may
+  // be public, and the API answers 409 naming the one in force.
+  const [publishError, setPublishError] = useState('')
+  const [publishing, setPublishing] = useState('')
   // DESIGN.md §2: a book prices ONE layer. The filter is how an operator
   // finds the cloud rate cards without the plans book in the way.
   const [scope, setScope] = useState<Layer | 'all'>('all')
@@ -155,6 +159,46 @@ export function PriceBooks() {
           <span className="muted">…</span>
         ),
     },
+    {
+      key: 'public',
+      header: 'Public',
+      value: (r) => (r.public ? 1 : 0),
+      render: (r) => {
+        if (scopeOf(r) !== 'cloud') {
+          return (
+            <span className="muted small" title="The plans and pay-per-use books are published with the public cloud list, never on their own.">
+              with the list
+            </span>
+          )
+        }
+        return (
+          <span className="btn-row">
+            {r.public ? <Badge status="published" kind="ok" /> : null}
+            <button
+              className="small"
+              disabled={publishing === r.id}
+              title={r.public ? 'Withdraw this book from the public calculator' : 'Publish this book as the list prices the public calculator shows'}
+              onClick={async () => {
+                setPublishing(r.id)
+                setPublishError('')
+                setFlash('')
+                try {
+                  await api.put(`/pricebooks/${r.id}/public`, { public: !r.public })
+                  setFlash(r.public ? `${r.name} withdrawn from the public calculator` : `${r.name} is now the public price list`)
+                  await books.reload()
+                } catch (e: unknown) {
+                  setPublishError(errorText(e))
+                } finally {
+                  setPublishing('')
+                }
+              }}
+            >
+              {r.public ? 'Withdraw' : 'Publish'}
+            </button>
+          </span>
+        )
+      },
+    },
     { key: 'stopped', header: 'Stopped compute', value: (r) => billStoppedLabel(r.bill_stopped) },
     {
       key: 'effective',
@@ -194,6 +238,9 @@ export function PriceBooks() {
             <a href={`${API_BASE}/pricebooks/template.csv`}>
               <button>Template CSV</button>
             </a>
+            <a href="/estimate" target="_blank" rel="noreferrer" title="What a prospect sees: the published list prices, the catalog plans and the pay-per-use rates">
+              <button>Public catalog preview</button>
+            </a>
             <button className="primary" onClick={() => setDialog({ kind: 'new' })}>
               New price book
             </button>
@@ -201,6 +248,7 @@ export function PriceBooks() {
         }
       />
       {books.error ? <Notice kind="bad">{books.error}</Notice> : null}
+      {publishError ? <Notice kind="bad">{publishError}</Notice> : null}
       {flash ? <Notice kind="ok">{flash}</Notice> : null}
 
       <div className="kpis">

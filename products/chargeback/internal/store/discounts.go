@@ -11,20 +11,27 @@ import (
 // discountColumns is the shared projection so a new field cannot be added to
 // one query and forgotten in another. Every query joins customers with a LEFT
 // JOIN because a global campaign (customer_id NULL, #6867) has no customer.
-const discountColumns = `d.id, d.customer_id, c.name, d.name, d.kind, d.value::text, d.sku, d.starts_at, d.ends_at, d.active, d.created_at, d.stackable`
+const discountColumns = `d.id, d.customer_id, c.name, d.name, d.kind, d.value::text, d.sku, d.starts_at, d.ends_at, d.active, d.created_at, d.stackable, d.tier_id, COALESCE(t.name, '')`
 
-const discountFrom = ` FROM discounts d LEFT JOIN customers c ON c.id = d.customer_id`
+// discountFrom joins the customer of a customer discount and the tier of a
+// partner tier discount (DESIGN.md §13); a global campaign has neither.
+const discountFrom = ` FROM discounts d LEFT JOIN customers c ON c.id = d.customer_id LEFT JOIN partner_tiers t ON t.id = d.tier_id`
+
+// notTierDiscount keeps partner tier discounts off a customer's list and off
+// a customer's bill: they set the partner BUY price, never the customer's.
+const notTierDiscount = ` AND d.tier_id IS NULL`
 
 func scanDiscount(row interface{ Scan(...any) error }) (Discount, error) {
 	var d Discount
 	var val string
-	var customerID, customerName sql.NullString
+	var customerID, customerName, tierID sql.NullString
 	var starts, ends sql.NullTime
-	if err := row.Scan(&d.ID, &customerID, &customerName, &d.Name, &d.Kind, &val, &d.SKU, &starts, &ends, &d.Active, &d.CreatedAt, &d.Stackable); err != nil {
+	if err := row.Scan(&d.ID, &customerID, &customerName, &d.Name, &d.Kind, &val, &d.SKU, &starts, &ends, &d.Active, &d.CreatedAt, &d.Stackable, &tierID, &d.TierName); err != nil {
 		return d, mapErr(err)
 	}
 	d.CustomerID = strPtr(customerID)
 	d.CustomerName = strPtr(customerName)
+	d.TierID = strPtr(tierID)
 	d.Value = Decimal(val)
 	d.StartsAt = timePtr(starts)
 	d.EndsAt = timePtr(ends)
@@ -56,12 +63,13 @@ func (s *Store) ListDiscounts(ctx context.Context, scope Scope, customerID strin
 	if !scope.Allows(customerID) {
 		return nil, ErrNotFound
 	}
-	return s.queryDiscounts(ctx, ` WHERE d.customer_id = $1 OR d.customer_id IS NULL`, customerID)
+	return s.queryDiscounts(ctx, ` WHERE (d.customer_id = $1 OR d.customer_id IS NULL)`+notTierDiscount, customerID)
 }
 
-// ListAllDiscounts returns every discount and campaign (operator view).
+// ListAllDiscounts returns every customer discount and campaign (operator
+// view). Partner tier discounts live on the tiers (ListPartnerTiers).
 func (s *Store) ListAllDiscounts(ctx context.Context) ([]Discount, error) {
-	return s.queryDiscounts(ctx, ``)
+	return s.queryDiscounts(ctx, ` WHERE d.tier_id IS NULL`)
 }
 
 // GetDiscount returns one discount by id (operator; no scope — a discount

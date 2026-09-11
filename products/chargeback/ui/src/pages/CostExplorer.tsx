@@ -214,7 +214,7 @@ export function ExplorerBody({ lens, embedded }: { lens: Lens; embedded?: boolea
               }}
               aria-label="Group by"
             >
-              {GROUP_BY_OPTIONS.filter((o) => lens.operator || o.value !== 'customer').map((o) => (
+              {GROUP_BY_OPTIONS.filter((o) => lens.crossCustomer || o.value !== 'customer').map((o) => (
                 <option key={o.value} value={o.value}>
                   {o.label}
                 </option>
@@ -303,7 +303,7 @@ export function ExplorerBody({ lens, embedded }: { lens: Lens; embedded?: boolea
           </>
         ) : null}
       </div>
-      <FilterChips filters={state.filters} onChange={(filters) => setState({ ...state, filters })} dimensions={dims.data} labelFor={labelFor} hideDims={lens.operator ? [] : ['customer']} />
+      <FilterChips filters={state.filters} onChange={(filters) => setState({ ...state, filters })} dimensions={dims.data} labelFor={labelFor} hideDims={lens.crossCustomer ? [] : ['customer']} />
 
       {res.error ? <Notice kind="bad">{res.error}</Notice> : null}
       {d && (d.unconverted?.length || d.mixed_currency) ? (

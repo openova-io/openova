@@ -1,0 +1,206 @@
+{{define "layout" -}}
+<!doctype html>
+<html lang="{{.Locale}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{t .TitleKey}} {{.Number}}</title>
+<style>
+  :root{
+    --ink:#111827; --muted:#6b7280; --rule:#d1d5db; --band:#f4f5f7;
+    --good:#047857; --bad:#b91c1c; --paper:#ffffff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#e5e7eb;color:var(--ink);
+       font:13px/1.45 "Helvetica Neue",Helvetica,Arial,sans-serif;
+       -webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .sheet{max-width:210mm;min-height:297mm;margin:16px auto;padding:16mm;
+         background:var(--paper);box-shadow:0 1px 4px rgba(0,0,0,.18)}
+  header.masthead{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
+  h1{margin:0;font-size:26px;letter-spacing:-.01em}
+  .number{margin:2px 0 0;font-size:14px;font-weight:700}
+  .logo{max-width:38mm;max-height:18mm;object-fit:contain}
+  .stamp{display:inline-block;margin-top:8px;padding:3px 8px;font-size:11px;
+         font-weight:700;letter-spacing:.06em;border:1.5px solid var(--muted);color:var(--muted)}
+  .stamp.paid{border-color:var(--good);color:var(--good)}
+  .stamp.overdue,.stamp.cancelled{border-color:var(--bad);color:var(--bad)}
+  hr.major{border:0;border-top:1.5px solid var(--ink);margin:12px 0 18px}
+  .parties{display:flex;gap:8mm;margin-bottom:18px}
+  .party{flex:1 1 0;min-width:0}
+  .eyebrow{font-size:10px;font-weight:700;letter-spacing:.08em;color:var(--muted);
+           text-transform:uppercase;margin:0 0 4px}
+  .party .name{font-size:14px;font-weight:700;margin:0 0 3px}
+  .party .line{margin:0;font-size:12px}
+  .party .sub{margin:2px 0 0;font-size:10.5px;color:var(--muted)}
+  .meta{display:grid;grid-template-columns:repeat(3,1fr);background:var(--band);
+        padding:8px 0;margin-bottom:18px}
+  .meta .cell{padding:4px 12px;min-width:0}
+  .meta .k{font-size:10px;letter-spacing:.06em;color:var(--muted);text-transform:uppercase}
+  .meta .v{font-size:12.5px;font-weight:700;overflow-wrap:anywhere}
+  table.lines{width:100%;border-collapse:collapse;margin-bottom:16px}
+  table.lines thead th{background:var(--band);color:var(--muted);font-size:10px;
+        letter-spacing:.06em;text-transform:uppercase;text-align:left;padding:6px 8px;font-weight:700}
+  table.lines td{padding:6px 8px;border-bottom:1px solid var(--rule);font-size:12px;vertical-align:top}
+  table.lines .num{text-align:right;white-space:nowrap}
+  table.lines td.unit{color:var(--muted);font-size:11px}
+  .summary{display:flex;gap:8mm;align-items:flex-start;margin-bottom:14px}
+  .discounts{flex:1 1 0;min-width:0}
+  .discounts .row{display:flex;justify-content:space-between;font-size:11px;gap:12px}
+  .discounts .row span:last-child{color:var(--muted);white-space:nowrap}
+  table.totals{width:92mm;border-collapse:collapse;margin-left:auto}
+  table.totals td{padding:3px 0;font-size:12.5px}
+  table.totals td.v{text-align:right;white-space:nowrap}
+  table.totals tr.negative td{color:var(--muted)}
+  table.totals tr.emphasis td{font-weight:700;font-size:14px;border-top:1px solid var(--ink);padding-top:6px}
+  .fineprint{font-size:11px;color:var(--muted);font-style:italic;margin:2px 0}
+  section.block{margin-bottom:14px}
+  table.payments{width:100%;border-collapse:collapse}
+  table.payments th{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);
+        text-align:left;padding:4px 8px;border-bottom:1px solid var(--rule);font-weight:700}
+  table.payments td{padding:4px 8px;font-size:12px}
+  table.payments .num{text-align:right;white-space:nowrap}
+  p.term{margin:0 0 3px;font-size:12px}
+  .notes{font-size:12px;white-space:pre-wrap}
+  footer.sheetfoot{display:flex;justify-content:space-between;border-top:1px solid var(--rule);
+        margin-top:24px;padding-top:6px;font-size:10.5px;color:var(--muted)}
+  @media print{
+    body{background:var(--paper)}
+    .sheet{margin:0;box-shadow:none;padding:0}
+    table.lines thead{display:table-header-group}
+    table.lines tr{break-inside:avoid}
+  }
+  @page{size:A4;margin:16mm}
+</style>
+</head>
+<body>
+<article class="sheet">
+  <header class="masthead">
+    <div>
+      <h1>{{t .TitleKey}}</h1>
+      <p class="number">{{.Number}}</p>
+      {{with .StatusKey}}<div class="stamp {{$.StatusClass}}">{{t .}}</div>{{end}}
+    </div>
+    {{with .Logo}}<img class="logo" src="{{logoURI .}}" alt="">{{end}}
+  </header>
+  <hr class="major">
+
+  <div class="parties">
+    {{template "party" dict "Heading" .SellerHeadingKey "P" .Seller "M" .}}
+    {{template "party" dict "Heading" .BuyerHeadingKey "P" .Buyer "M" .}}
+  </div>
+
+  {{if .Meta}}
+  <div class="meta">
+    {{range .Meta}}<div class="cell"><div class="k">{{label .}}</div><div class="v">{{.Value}}</div></div>{{end}}
+  </div>
+  {{end}}
+
+  {{template "content" .}}
+
+  <footer class="sheetfoot">
+    <span>{{t "footer.generated"}}</span>
+    <span>{{tf "footer.page" "page" "1" "pages" "1"}}</span>
+  </footer>
+</article>
+</body>
+</html>
+{{- end}}
+
+{{define "party" -}}
+<div class="party">
+  <p class="eyebrow">{{$.M.T .Heading}}</p>
+  <p class="name">{{.P.Name}}</p>
+  {{range .P.AddressLines}}<p class="line">{{.}}</p>{{end}}
+  {{with .P.TaxRegistration}}<p class="sub">{{$.M.T "field.tax_registration"}}: {{.}}</p>{{end}}
+  {{with .P.Email}}<p class="sub">{{.}}</p>{{end}}
+  {{with .P.Phone}}<p class="sub">{{.}}</p>{{end}}
+</div>
+{{- end}}
+
+{{define "lines" -}}
+{{if .Lines}}
+<table class="lines">
+  <thead>
+    <tr>
+      <th>{{t "table.sku"}}</th>
+      {{if .HasDescription}}<th>{{t "table.description"}}</th>{{end}}
+      <th>{{t "table.unit"}}</th>
+      <th class="num">{{t "table.quantity"}}</th>
+      <th class="num">{{t "table.unit_price"}}</th>
+      <th class="num">{{t "table.amount"}}</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{range .Lines}}
+    <tr>
+      <td>{{.SKU}}</td>
+      {{if $.HasDescription}}<td>{{.Description}}</td>{{end}}
+      <td class="unit">{{.Unit}}</td>
+      <td class="num">{{.Quantity}}</td>
+      <td class="num">{{.UnitPrice}}</td>
+      <td class="num">{{.Amount}}</td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}
+{{- end}}
+
+{{define "summary" -}}
+<div class="summary">
+  <div class="discounts">
+    {{if .Discounts}}
+      <p class="eyebrow">{{t "discounts.title"}}</p>
+      {{range .Discounts}}<div class="row"><span>{{label .}}</span><span>{{.Value}}</span></div>{{end}}
+    {{end}}
+  </div>
+  <table class="totals">
+    <tbody>
+      {{range .Totals}}
+      <tr class="{{if .Emphasis}}emphasis{{else if .Negative}}negative{{end}}">
+        <td>{{label .}}</td><td class="v">{{.Value}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{range .Notes}}<p class="fineprint">{{label .}}</p>{{end}}
+{{- end}}
+
+{{define "payments" -}}
+{{if .Payments}}
+<section class="block">
+  <p class="eyebrow">{{t "payments.title"}}</p>
+  <table class="payments">
+    <thead><tr>
+      <th>{{t "payments.date"}}</th><th>{{t "payments.method"}}</th>
+      <th>{{t "payments.reference"}}</th><th class="num">{{t "payments.amount"}}</th>
+    </tr></thead>
+    <tbody>
+      {{range .Payments}}
+      <tr><td>{{.Date}}</td><td>{{.Method}}</td><td>{{.Reference}}</td><td class="num">{{.Amount}}</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+</section>
+{{end}}
+{{- end}}
+
+{{define "terms" -}}
+{{if or .Terms .TermsText}}
+<section class="block">
+  <p class="eyebrow">{{t "terms.title"}}</p>
+  {{range .Terms}}<p class="term">{{label .}}</p>{{end}}
+  {{with .TermsText}}<p class="notes">{{.}}</p>{{end}}
+</section>
+{{end}}
+{{- end}}
+
+{{define "notes" -}}
+{{with .NotesText}}
+<section class="block">
+  <p class="eyebrow">{{t "notes.title"}}</p>
+  <p class="notes">{{.}}</p>
+</section>
+{{end}}
+{{- end}}

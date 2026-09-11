@@ -26,14 +26,18 @@ import (
 type ResourceQuery struct {
 	From, To   time.Time
 	CustomerID string
-	Kind       string
-	Region     string
-	Status     string // live | stopped | deleted | all
-	Q          string // matches name or resource_id, case-insensitive
-	Sort       string // cost | name | kind | first_seen | last_seen
-	Order      string // asc | desc
-	Limit      int
-	Offset     int
+	// CustomerIDs is the set the scope confines the query to — a partner
+	// principal's customers and its party (DESIGN.md §13.5). CustomerID is
+	// the one-element case of the same predicate; customerSet resolves both.
+	CustomerIDs []string
+	Kind        string
+	Region      string
+	Status      string // live | stopped | deleted | all
+	Q           string // matches name or resource_id, case-insensitive
+	Sort        string // cost | name | kind | first_seen | last_seen
+	Order       string // asc | desc
+	Limit       int
+	Offset      int
 }
 
 // ResourceLine is one (sku, unit) of a resource in the window.
@@ -157,8 +161,8 @@ func resourceRowsSQL(q ResourceQuery) (string, []any, error) {
 	a.add(q.To)
 	var sb strings.Builder
 	sb.WriteString("WITH " + resourceCostCTE)
-	if q.CustomerID != "" {
-		sb.WriteString(" AND u.customer_id::text = " + a.add(q.CustomerID))
+	if ids := q.customerSet(); ids != nil {
+		sb.WriteString(" AND u.customer_id::text = ANY(" + a.add(pq.Array(ids)) + ")")
 	}
 	sb.WriteString(" GROUP BY u.source_id, u.resource_id), " + resourceBaseCTE)
 	sb.WriteString(`
@@ -167,8 +171,8 @@ SELECT source_id, resource_id, kind, name, region, customer_id, customer_name, s
        count(*) OVER (), round(COALESCE(sum(cost) OVER (), 0), 6)::text,
        COALESCE(bool_or(unconverted) OVER (), false)
   FROM base WHERE true`)
-	if q.CustomerID != "" {
-		sb.WriteString(" AND customer_id = " + a.add(q.CustomerID))
+	if ids := q.customerSet(); ids != nil {
+		sb.WriteString(" AND customer_id = ANY(" + a.add(pq.Array(ids)) + ")")
 	}
 	if q.Kind != "" {
 		sb.WriteString(" AND kind = " + a.add(q.Kind))
@@ -246,16 +250,29 @@ func scanResourceRow(rows *sql.Rows, withAttrs bool) (ResourceRow, int, string, 
 	return r, total, sumCost, anyUnconverted, nil
 }
 
+// customerSet is the customer id set this query filters on — nil for an
+// unfiltered operator read. It is the same one-predicate rule the explorer
+// uses (cost.go): one customer is the one-element case of a partner's set.
+func (q ResourceQuery) customerSet() []string {
+	if len(q.CustomerIDs) > 0 {
+		return q.CustomerIDs
+	}
+	if q.CustomerID != "" {
+		return []string{q.CustomerID}
+	}
+	return nil
+}
+
 // ListResources returns a page of inventory rows with their window cost and
 // per-SKU lines, plus the count and cost sum of the whole filtered set.
-// A customer principal is confined to its own rows whatever it asked for.
+// A customer principal is confined to its own rows whatever it asked for, a
+// partner principal to its customers — and to ONE of them when it named one.
 func (s *Store) ListResources(ctx context.Context, scope Scope, q ResourceQuery) (ResourceList, error) {
-	if !scope.Operator {
-		if scope.CustomerID == "" {
-			return ResourceList{}, ErrNotFound
-		}
-		q.CustomerID = scope.CustomerID
+	ids, err := scope.Confine(q.CustomerID)
+	if err != nil {
+		return ResourceList{}, err
 	}
+	q.CustomerID, q.CustomerIDs = "", ids
 	if !q.To.After(q.From) {
 		return ResourceList{}, fmt.Errorf("from must be before to")
 	}
@@ -360,8 +377,8 @@ SELECT u.source_id::text, u.resource_id, u.sku, u.unit, round(sum(u.quantity), 6
 // [from, to), attributes, transitions and the newest 48 raw records. A row
 // outside the scope reads as ErrNotFound so ids are not confirmed.
 func (s *Store) GetResource(ctx context.Context, scope Scope, sourceID, resourceID string, from, to time.Time) (ResourceDetail, error) {
-	if !scope.Operator && scope.CustomerID == "" {
-		return ResourceDetail{}, ErrNotFound
+	if _, err := scope.Confine(""); err != nil {
+		return ResourceDetail{}, err
 	}
 	if !to.After(from) {
 		return ResourceDetail{}, fmt.Errorf("from must be before to")

@@ -29,7 +29,7 @@ type LiveResource struct {
 // LiveResources lists the live inventory in scope (optionally one customer),
 // ordered by customer, kind, name.
 func (s *Store) LiveResources(ctx context.Context, scope Scope, customerID string) ([]LiveResource, error) {
-	cid, err := scopedCustomer(scope, customerID)
+	ids, err := scope.Confine(customerID)
 	if err != nil {
 		return nil, err
 	}
@@ -39,9 +39,9 @@ func (s *Store) LiveResources(ctx context.Context, scope Scope, customerID strin
 	        JOIN customers c ON c.id = s.customer_id
 	       WHERE i.deleted_at IS NULL`
 	var args []any
-	if cid != "" {
-		q += ` AND c.id::text = $1`
-		args = append(args, cid)
+	if ids != nil {
+		q += ` AND c.id::text = ANY($1)`
+		args = append(args, pq.Array(ids))
 	}
 	q += ` ORDER BY c.name, i.kind, i.name, i.resource_id`
 	rows, err := s.db.QueryContext(ctx, q, args...)
@@ -92,7 +92,7 @@ type CustomerBook struct {
 
 // CustomerBooks lists every customer in scope with its books and rates.
 func (s *Store) CustomerBooks(ctx context.Context, scope Scope, customerID string) ([]CustomerBook, error) {
-	cid, err := scopedCustomer(scope, customerID)
+	custIDs, err := scope.Confine(customerID)
 	if err != nil {
 		return nil, err
 	}
@@ -102,9 +102,9 @@ func (s *Store) CustomerBooks(ctx context.Context, scope Scope, customerID strin
 	        LEFT JOIN cost_sources s ON s.customer_id = c.id
 	        LEFT JOIN price_books b ON b.id = s.price_book_id`
 	var args []any
-	if cid != "" {
-		q += ` WHERE c.id::text = $1`
-		args = append(args, cid)
+	if custIDs != nil {
+		q += ` WHERE c.id::text = ANY($1)`
+		args = append(args, pq.Array(custIDs))
 	}
 	q += ` ORDER BY c.name, c.id, s.layer, s.project_id`
 	rows, err := s.db.QueryContext(ctx, q, args...)
@@ -211,16 +211,16 @@ type SourceHealth struct {
 
 // SourceHealths lists every source in scope.
 func (s *Store) SourceHealths(ctx context.Context, scope Scope, customerID string) ([]SourceHealth, error) {
-	cid, err := scopedCustomer(scope, customerID)
+	ids, err := scope.Confine(customerID)
 	if err != nil {
 		return nil, err
 	}
 	q := `SELECT s.id::text, c.id::text, c.name, c.status, s.kind, s.region, s.project_id, s.status, s.last_collected_at, s.last_error
 	        FROM cost_sources s JOIN customers c ON c.id = s.customer_id`
 	var args []any
-	if cid != "" {
-		q += ` WHERE c.id::text = $1`
-		args = append(args, cid)
+	if ids != nil {
+		q += ` WHERE c.id::text = ANY($1)`
+		args = append(args, pq.Array(ids))
 	}
 	q += ` ORDER BY c.name, s.region, s.project_id`
 	rows, err := s.db.QueryContext(ctx, q, args...)
@@ -262,11 +262,11 @@ type CustomerUnpricedSKU struct {
 // CPU-utilisation sample, which is a metric and not a meter — the base CTE
 // already excludes it.
 func (s *Store) UnpricedUsageByCustomer(ctx context.Context, scope Scope, customerID string, from, to time.Time) ([]CustomerUnpricedSKU, error) {
-	cid, err := scopedCustomer(scope, customerID)
+	ids, err := scope.Confine(customerID)
 	if err != nil {
 		return nil, err
 	}
-	cte, a, err := filteredCTE(CostQuery{CustomerID: cid}, from.UTC(), to.UTC())
+	cte, a, err := filteredCTE(CostQuery{CustomerIDs: ids}, from.UTC(), to.UTC())
 	if err != nil {
 		return nil, err
 	}
@@ -304,16 +304,16 @@ type CPUUtilMean struct {
 // CPUUtilMeans averages the ecs.cpu_util samples per instance in [from, to).
 // A mean of a metric is a float: nothing here is money.
 func (s *Store) CPUUtilMeans(ctx context.Context, scope Scope, customerID string, from, to time.Time) ([]CPUUtilMean, error) {
-	cid, err := scopedCustomer(scope, customerID)
+	ids, err := scope.Confine(customerID)
 	if err != nil {
 		return nil, err
 	}
 	q := `SELECT customer_id::text, source_id::text, resource_id, count(*), avg(quantity)::float8
 	        FROM usage_records WHERE sku = 'ecs.cpu_util' AND window_start >= $1 AND window_start < $2`
 	args := []any{from.UTC(), to.UTC()}
-	if cid != "" {
-		q += ` AND customer_id::text = $3`
-		args = append(args, cid)
+	if ids != nil {
+		q += ` AND customer_id::text = ANY($3)`
+		args = append(args, pq.Array(ids))
 	}
 	q += ` GROUP BY 1, 2, 3 ORDER BY 1, 2, 3`
 	rows, err := s.db.QueryContext(ctx, q, args...)

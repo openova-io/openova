@@ -23,31 +23,20 @@ type DailyKindCost struct {
 	Cost         Decimal
 }
 
-// scopedCustomer resolves the customer filter a read may use: operators may
-// ask for one customer or all; a customer principal always gets its own,
-// and an empty customer scope is a bug upstream, never a wildcard.
-func scopedCustomer(scope Scope, customerID string) (string, error) {
-	if scope.Operator {
-		return customerID, nil
-	}
-	if scope.CustomerID == "" {
-		return "", ErrNotFound
-	}
-	return scope.CustomerID, nil
-}
-
 // DailyCostByCustomerKind returns the priced daily cost per (customer,
 // resource kind) for window_start in [from, to), ordered by customer, kind,
-// day. Days with no priced records for a pair are absent, not zero.
+// day. Days with no priced records for a pair are absent, not zero. The scope
+// confines it exactly as it confines the explorer: one customer, a partner's
+// set, or every customer for the operator.
 func (s *Store) DailyCostByCustomerKind(ctx context.Context, scope Scope, customerID string, from, to time.Time) ([]DailyKindCost, error) {
-	cid, err := scopedCustomer(scope, customerID)
+	ids, err := scope.Confine(customerID)
 	if err != nil {
 		return nil, err
 	}
 	if !to.After(from) {
 		return nil, fmt.Errorf("from must be before to")
 	}
-	cte, a, err := filteredCTE(CostQuery{CustomerID: cid}, from.UTC(), to.UTC())
+	cte, a, err := filteredCTE(CostQuery{CustomerIDs: ids}, from.UTC(), to.UTC())
 	if err != nil {
 		return nil, err
 	}
@@ -89,20 +78,22 @@ const (
 // DayDrivers explains one (customer, kind, day): per SKU and per resource,
 // the day's cost minus the mean daily cost over the 7 calendar days before
 // it (a resource absent on a day cost nothing that day), the top 5 by
-// absolute delta. Zero deltas explain nothing and are left out.
+// absolute delta. Zero deltas explain nothing and are left out. It explains
+// ONE customer, so the scope must resolve to exactly one: the operator and a
+// partner both have to name it.
 func (s *Store) DayDrivers(ctx context.Context, scope Scope, customerID, kind, day string) ([]Driver, error) {
-	cid, err := scopedCustomer(scope, customerID)
+	ids, err := scope.Confine(customerID)
 	if err != nil {
 		return nil, err
 	}
-	if cid == "" {
+	if len(ids) != 1 {
 		return nil, fmt.Errorf("customer is required")
 	}
 	d, err := time.Parse("2006-01-02", day)
 	if err != nil {
 		return nil, fmt.Errorf("day must be YYYY-MM-DD: %w", err)
 	}
-	q := CostQuery{CustomerID: cid, Include: map[string][]string{"kind": {kind}}}
+	q := CostQuery{CustomerIDs: ids, Include: map[string][]string{"kind": {kind}}}
 	cte, a, err := filteredCTE(q, d.AddDate(0, 0, -driverLookbackDays), d.AddDate(0, 0, 1))
 	if err != nil {
 		return nil, err

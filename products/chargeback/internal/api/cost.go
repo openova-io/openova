@@ -265,7 +265,7 @@ func (h *Handler) runExplore(w http.ResponseWriter, r *http.Request, scope store
 }
 
 func (h *Handler) explore(w http.ResponseWriter, r *http.Request) {
-	s, ok := h.requireSovereign(w, r, access.MeteringRead)
+	s, ok := h.requireCrossCustomer(w, r, access.MeteringRead)
 	if !ok {
 		return
 	}
@@ -325,7 +325,7 @@ func writeExploreCSV(w http.ResponseWriter, doc exploreDoc) {
 }
 
 func (h *Handler) exploreCSV(w http.ResponseWriter, r *http.Request) {
-	s, ok := h.requireSovereign(w, r, access.MeteringRead)
+	s, ok := h.requireCrossCustomer(w, r, access.MeteringRead)
 	if !ok {
 		return
 	}
@@ -350,7 +350,7 @@ func (h *Handler) customerExploreCSV(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) costDimensions(w http.ResponseWriter, r *http.Request) {
-	s, ok := h.requireSovereign(w, r, access.MeteringRead)
+	s, ok := h.requireCrossCustomer(w, r, access.MeteringRead)
 	if !ok {
 		return
 	}
@@ -472,8 +472,15 @@ func (h *Handler) gatherSummary(r *http.Request, scope store.Scope, customerID s
 	// statements and every source on the operator's customer page (hw307:
 	// a one-source, no-statement customer read "3 draft · 3 verified" and
 	// carried another customer's 2,701.606 OMR statement).
+	//
+	// A PARTNER principal reads the same Sovereign-wide path with no customer
+	// selected (DESIGN.md §13.5). The Sovereign-wide COUNTS are not its to
+	// read — how many customers this Sovereign has, and how its sources are
+	// doing, is the operator's picture — so it gets the statements of the
+	// customers it may see and no global block at all.
 	var err error
-	if customerID == "" {
+	switch {
+	case customerID == "" && scope.Operator:
 		if p.Customers, err = h.Store.CustomerCountsByStatus(ctx); err != nil {
 			return p, err
 		}
@@ -483,7 +490,11 @@ func (h *Handler) gatherSummary(r *http.Request, scope store.Scope, customerID s
 		if p.Statements, err = h.Store.ListAllStatements(ctx, ""); err != nil {
 			return p, err
 		}
-	} else {
+	case customerID == "":
+		if p.Statements, err = h.Store.ListStatementsInScope(ctx, scope, ""); err != nil {
+			return p, err
+		}
+	default:
 		srcs, err := h.Store.ListSources(ctx, scope, customerID)
 		if err != nil {
 			return p, err
@@ -666,7 +677,7 @@ func deltaPercent(cur, prev store.Decimal) *float64 {
 }
 
 func (h *Handler) summary(w http.ResponseWriter, r *http.Request) {
-	s, ok := h.requireSovereign(w, r, access.MeteringRead)
+	s, ok := h.requireCrossCustomer(w, r, access.MeteringRead)
 	if !ok {
 		return
 	}

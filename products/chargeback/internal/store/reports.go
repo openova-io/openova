@@ -155,10 +155,10 @@ func (s *Store) ListReportSchedules(ctx context.Context, scope Scope) ([]ReportS
 	if scope.Operator {
 		return s.queryReportSchedules(ctx, "")
 	}
-	if scope.CustomerID == "" {
+	if len(scope.Set()) == 0 {
 		return nil, ErrNotFound
 	}
-	return s.queryReportSchedules(ctx, ` WHERE r.customer_id::text = $1`, scope.CustomerID)
+	return s.queryReportSchedules(ctx, ` WHERE r.customer_id::text = ANY($1)`, pq.Array(scope.Set()))
 }
 
 // GetReportSchedule returns one schedule, or ErrNotFound when it does not

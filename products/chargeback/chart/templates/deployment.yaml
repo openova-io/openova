@@ -39,8 +39,36 @@ spec:
       labels:
         {{- include "chargeback.labels" . | nindent 8 }}
         policy.cilium.io/enforced: "true"
+      {{- if or .Values.metrics.scrape .Values.otel.instrumentation }}
+      # The Sovereign's Kyverno compliance seams (values.yaml §Sovereign
+      # compliance seams; chart/tests/kyverno-policies.sh proves them):
+      annotations:
+        {{- if .Values.metrics.scrape }}
+        # prometheus-scrape: GET /metrics on the `http` port (internal/api/ops.go).
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.service.port | quote }}
+        prometheus.io/path: {{ .Values.metrics.path | quote }}
+        {{- end }}
+        {{- with .Values.otel.instrumentation }}
+        # otel-injected: the Instrumentation CR this Go workload belongs to.
+        # Never paired with otel-go-auto-target-exe, so the OTel Operator's
+        # webhook injects nothing (its Go sidecar runs privileged).
+        instrumentation.opentelemetry.io/inject-go: {{ . | quote }}
+        {{- end }}
+      {{- end }}
     spec:
       serviceAccountName: {{ include "chargeback.serviceAccountName" . }}
+      {{- if .Values.topologySpread.enabled }}
+      # topology-spread: replicas prefer distinct hosts; ScheduleAnyway keeps a
+      # single-node Sovereign schedulable.
+      topologySpreadConstraints:
+        - maxSkew: {{ .Values.topologySpread.maxSkew | int }}
+          topologyKey: {{ .Values.topologySpread.topologyKey | quote }}
+          whenUnsatisfiable: {{ .Values.topologySpread.whenUnsatisfiable | quote }}
+          labelSelector:
+            matchLabels:
+              {{- include "chargeback.selectorLabels" . | nindent 14 }}
+      {{- end }}
       # Phase 0 reads nothing from the Kubernetes API — no token mount.
       automountServiceAccountToken: {{ .Values.adapter.enabled }}
       {{- with .Values.imagePullSecrets }}
@@ -142,6 +170,14 @@ spec:
               value: {{ .Values.config.ctsPollInterval | quote }}
             - name: PROFILE
               value: {{ .Values.config.profile | quote }}
+            {{- with .Values.publicCalculator.origins }}
+            - name: PUBLIC_CALCULATOR_ORIGINS
+              value: {{ join "," . | quote }}
+            {{- end }}
+            {{- with .Values.publicCalculator.ratePerMinute }}
+            - name: PUBLIC_CALCULATOR_RATE_PER_MINUTE
+              value: {{ . | toString | quote }}
+            {{- end }}
             {{- if .Values.adapter.enabled }}
             - name: ADAPTER_ENABLED
               value: "true"
@@ -168,13 +204,43 @@ spec:
                   optional: true
             {{- end }}
             {{- end }}
+            {{- if .Values.docrender.enabled }}
+            # Document renderer (EPIC #6867). With this set,
+            # GET /api/v1/statements/{id}.pdf renders the invoice through the
+            # sub-chart's in-cluster Service; without it that route answers
+            # 503 "document renderer not configured" and every other surface
+            # is untouched.
+            - name: DOCRENDER_URL
+              value: {{ include "chargeback.docrenderURL" . | quote }}
+            {{- with .Values.docrender.auth.existingSecret }}
+            # The shared-secret header, from the SAME Secret the renderer
+            # reads. A Secret NAME, never a literal (Inviolable #4; the
+            # kyverno `secret-not-in-env` baseline denies a plaintext value on
+            # an env whose name carries TOKEN). optional:true so the pod still
+            # schedules before the Secret lands — the renderer then simply
+            # does not require the header.
+            - name: DOCRENDER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . }}
+                  key: {{ $.Values.docrender.auth.key }}
+                  optional: true
+            {{- end }}
+            {{- end }}
             {{- if .Values.platformApi.url }}
             # Platform enforcement (DESIGN.md §9.6): the sovereign-admin API
             # and the projected ServiceAccount token the binary re-reads on
             # every suspend/resume call (volume `platform-api-token` below).
             - name: PLATFORM_API_URL
               value: {{ .Values.platformApi.url | quote }}
-            - name: PLATFORM_API_TOKEN_FILE
+            # A PATH, not a credential — but named without TOKEN/KEY/SECRET:
+            # the Sovereign's Kyverno `secret-not-in-env` policy flags any env
+            # whose NAME matches `(?i)(PASSWORD|TOKEN|KEY|SECRET)` and carries
+            # a literal `value:` (hw307 2026-09-11, as PLATFORM_API_TOKEN_FILE).
+            # Same treatment as catalyst-api's CATALYST_HANDOVER_SIGNER_PATH.
+            # The binary reads the old name as a deprecated alias for one
+            # release (internal/config).
+            - name: PLATFORM_API_BEARER_FILE
               value: /var/run/secrets/platform-api/token
             {{- end }}
           {{- with .Values.smtp.existingSecret }}

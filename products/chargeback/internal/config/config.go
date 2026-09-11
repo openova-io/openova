@@ -73,9 +73,28 @@ type Config struct {
 	// because projected tokens rotate; PlatformAPIToken is a literal for
 	// the cases where no file exists (a local run against a Sovereign).
 	// The file wins when both are set.
+	//
+	// The file's env is PLATFORM_API_BEARER_FILE. It was
+	// PLATFORM_API_TOKEN_FILE through chart 0.1.32; a path is not a secret,
+	// but the Sovereign's Kyverno `secret-not-in-env` policy flags any env
+	// whose NAME matches `(?i)(PASSWORD|TOKEN|KEY|SECRET)` and carries a
+	// literal value, so the chart renders the new name and the old one is
+	// read as a deprecated alias for one release (the new name wins).
 	PlatformAPIURL       string
 	PlatformAPIToken     string
 	PlatformAPITokenFile string
+
+	// DocRenderURL reaches the document renderer (EPIC #6867), the
+	// stateless in-cluster service that turns a statement into a PDF:
+	// http://<release>-docrender.<namespace>.svc.cluster.local:8080. Unset ⇒
+	// the feature is OFF and GET /api/v1/statements/{id}.pdf answers 503;
+	// every other surface behaves exactly as it did.
+	//
+	// DocRenderToken is the optional shared secret sent as X-Render-Token.
+	// It is defence in depth on top of the renderer's NetworkPolicy, which
+	// admits these pods and nothing else — never the perimeter by itself.
+	DocRenderURL   string
+	DocRenderToken string
 
 	// TrustedForwardAuthHeader is the request header carrying an identity
 	// already verified by the Sovereign's OIDC gate. oauth2-proxy passes the
@@ -101,6 +120,15 @@ type Config struct {
 	// under exactly the same conditions as the identity header, and is inert
 	// without it. Default X-Forwarded-Groups.
 	TrustedForwardGroupsHeader string
+
+	// The public calculator (DESIGN.md §11). PublicCalculatorOrigins are the
+	// origins allowed to call /api/v1/public/* cross-origin and to frame the
+	// /estimate page (the marketplace, a partner's site); empty (the default)
+	// = same origin only and the page cannot be framed. "*" allows any.
+	// PublicCalculatorRatePerMinute is the per-client-address budget on the
+	// public routes (token bucket; 429 with Retry-After beyond it).
+	PublicCalculatorOrigins       []string
+	PublicCalculatorRatePerMinute int
 }
 
 // FromEnv builds the configuration; it fails only on values that would make
@@ -132,11 +160,20 @@ func FromEnv() (Config, error) {
 		CommercialImportSecret:    strings.TrimSpace(os.Getenv("COMMERCIAL_IMPORT_SECRET")),
 		CommercialImportDir:       strings.TrimSpace(os.Getenv("COMMERCIAL_IMPORT_DIR")),
 		PlatformAPIURL:            strings.TrimRight(strings.TrimSpace(os.Getenv("PLATFORM_API_URL")), "/"),
+		DocRenderURL:              strings.TrimRight(strings.TrimSpace(os.Getenv("DOCRENDER_URL")), "/"),
+		DocRenderToken:            strings.TrimSpace(os.Getenv("DOCRENDER_TOKEN")),
 		PlatformAPIToken:          strings.TrimSpace(os.Getenv("PLATFORM_API_TOKEN")),
-		PlatformAPITokenFile:      strings.TrimSpace(os.Getenv("PLATFORM_API_TOKEN_FILE")),
+		// New name first; PLATFORM_API_TOKEN_FILE is the deprecated alias
+		// (see the field comment).
+		PlatformAPITokenFile: get("PLATFORM_API_BEARER_FILE", strings.TrimSpace(os.Getenv("PLATFORM_API_TOKEN_FILE"))),
 		TrustedForwardAuthHeader: http.CanonicalHeaderKey(
 			strings.TrimSpace(os.Getenv("TRUSTED_FORWARD_AUTH_HEADER"))),
-		TrustedForwardGroupsHeader: http.CanonicalHeaderKey(get("TRUSTED_FORWARD_GROUPS_HEADER", "X-Forwarded-Groups")),
+		TrustedForwardGroupsHeader:    http.CanonicalHeaderKey(get("TRUSTED_FORWARD_GROUPS_HEADER", "X-Forwarded-Groups")),
+		PublicCalculatorOrigins:       splitList(os.Getenv("PUBLIC_CALCULATOR_ORIGINS")),
+		PublicCalculatorRatePerMinute: intEnv("PUBLIC_CALCULATOR_RATE_PER_MINUTE", 60),
+	}
+	if c.PlatformAPITokenFile != "" && strings.TrimSpace(os.Getenv("PLATFORM_API_BEARER_FILE")) == "" {
+		slog.Warn("PLATFORM_API_TOKEN_FILE is a deprecated alias read for one release only; set PLATFORM_API_BEARER_FILE to the same path")
 	}
 	if c.Profile != "sovereign" && c.Profile != "operator-central" {
 		return c, fmt.Errorf("PROFILE must be sovereign or operator-central, got %q", c.Profile)

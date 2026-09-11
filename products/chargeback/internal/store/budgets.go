@@ -123,10 +123,10 @@ func (s *Store) ListBudgets(ctx context.Context, scope Scope) ([]Budget, error) 
 	if scope.Operator {
 		return s.queryBudgets(ctx, "")
 	}
-	if scope.CustomerID == "" {
+	if len(scope.Set()) == 0 {
 		return nil, ErrNotFound
 	}
-	return s.queryBudgets(ctx, ` WHERE b.customer_id::text = $1`, scope.CustomerID)
+	return s.queryBudgets(ctx, ` WHERE b.customer_id::text = ANY($1)`, pq.Array(scope.Set()))
 }
 
 // GetBudget returns one budget, or ErrNotFound when it does not exist or lies

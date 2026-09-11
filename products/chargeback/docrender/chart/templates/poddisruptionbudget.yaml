@@ -1,0 +1,25 @@
+{{- /*
+A drain must be able to take one replica at a time and never both. maxUnavailable
+0 is refused by the kyverno `pdb-permits-eviction` baseline because it wedges
+every voluntary eviction — a node drain would hang forever waiting for a pod
+that is never allowed to go.
+
+Rendered only when there is more than one replica: a PDB over a single pod
+either blocks the drain or does nothing, and both are worse than no PDB.
+*/ -}}
+{{- if and .Values.podDisruptionBudget.enabled (gt (int .Values.replicaCount) 1) }}
+{{- if eq (int .Values.podDisruptionBudget.maxUnavailable) 0 }}
+{{- fail "podDisruptionBudget.maxUnavailable is 0: that blocks every voluntary eviction and wedges node drains. Use 1 or more." }}
+{{- end }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "docrender.fullname" . }}
+  labels:
+    {{- include "docrender.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "docrender.selectorLabels" . | nindent 6 }}
+{{- end }}

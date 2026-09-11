@@ -1,7 +1,7 @@
 // Package access is the authorization policy of the chargeback application
-// (DESIGN.md §10): two scope kinds, nine permissions, six roles that are
-// fixed bundles of permissions, and the one question every handler asks —
-// does this session hold permission P at scope S?
+// (DESIGN.md §10, §11 capacity and §13 partners): three scope kinds, twelve
+// permissions, eight roles that are fixed bundles of permissions, and the one
+// question every handler asks — does this session hold permission P at scope S?
 //
 // It is pure: no database, no HTTP. The store carries the bindings
 // (store.RoleBinding) and the API layer turns a refusal into 401/403/404.
@@ -44,15 +44,28 @@ const (
 	// owner holds on its own customer: its users, its sources' credentials
 	// and scope, its PO reference and tax registration.
 	CustomerSelfManage Permission = "customer.self.manage"
+	// CapacityManage writes capacity (DESIGN.md §11): regions, zones, pool
+	// totals, SKU footprints and caps. Sovereign scope only; reads ride on
+	// metering.read at the Sovereign, so a customer never sees capacity.
+	CapacityManage Permission = "capacity.manage"
+
+	// PartnersManage creates and edits partners, tiers and their discounts,
+	// assigns customers to partners and sets any partner's retail rule
+	// (DESIGN.md §13). A Sovereign permission.
+	PartnersManage Permission = "partners.manage"
+	// PartnerSelfManage is what a partner owner holds on its own partner:
+	// its retail rule and its users.
+	PartnerSelfManage Permission = "partner.self.manage"
 )
 
 // Permissions lists every permission, in a stable order.
-var Permissions = []Permission{MeteringRead, RatingManage, CustomersManage, BillingIssue, BillingCollect, AccountTopup, SettingsManage, AuditRead, CustomerSelfManage}
+var Permissions = []Permission{MeteringRead, RatingManage, CustomersManage, BillingIssue, BillingCollect, AccountTopup, SettingsManage, AuditRead, CustomerSelfManage, CapacityManage, PartnersManage, PartnerSelfManage}
 
 // Scope kinds, re-exported so callers need only this package.
 const (
 	ScopeSovereign = store.ScopeKindSovereign
 	ScopeCustomer  = store.ScopeKindCustomer
+	ScopePartner   = store.ScopeKindPartner
 )
 
 // Roles, re-exported.
@@ -63,23 +76,30 @@ const (
 	RoleCustomerOwner   = store.RoleCustomerOwner
 	RoleCustomerBilling = store.RoleCustomerBilling
 	RoleCustomerViewer  = store.RoleCustomerViewer
+	RolePartnerOwner    = store.RolePartnerOwner
+	RolePartnerViewer   = store.RolePartnerViewer
 )
 
 // Matrix is the fixed permission bundle of each role. It is the whole
 // policy; there is no per-user permission and no custom role.
 var Matrix = map[string][]Permission{
 	RoleSovereignAdmin:  Permissions,
-	RoleBillingOperator: {MeteringRead, RatingManage, CustomersManage, BillingIssue, BillingCollect, AuditRead},
+	RoleBillingOperator: {MeteringRead, RatingManage, CustomersManage, BillingIssue, BillingCollect, AuditRead, CapacityManage, PartnersManage},
 	RoleFinanceViewer:   {MeteringRead, AuditRead},
+	RolePartnerOwner:    {MeteringRead, AccountTopup, PartnerSelfManage},
+	RolePartnerViewer:   {MeteringRead},
 	RoleCustomerOwner:   {MeteringRead, AccountTopup, CustomerSelfManage},
 	RoleCustomerBilling: {MeteringRead, AccountTopup},
 	RoleCustomerViewer:  {MeteringRead},
 }
 
-// implies is the one derivation in the model: the Sovereign-wide
-// customers.manage covers what an owner may do on its own customer.
+// implies is the derivation in the model: the Sovereign-wide
+// customers.manage covers what an owner may do on its own customer, and the
+// Sovereign-wide partners.manage what a partner owner may do on its own
+// partner.
 var implies = map[Permission][]Permission{
 	CustomersManage: {CustomerSelfManage},
+	PartnersManage:  {PartnerSelfManage},
 }
 
 // RoleGrants reports whether a role's bundle carries the permission, either
@@ -100,9 +120,11 @@ func RoleGrants(role string, perm Permission) bool {
 
 // Describe is the operator-facing one-liner of each role, for the console.
 var Describe = map[string]string{
-	RoleSovereignAdmin:  "Everything, Sovereign-wide: settings, access, rating, customers, billing.",
-	RoleBillingOperator: "Runs billing for every customer: rating, customers, issuing, collecting, audit. No settings or access changes.",
+	RoleSovereignAdmin:  "Everything, Sovereign-wide: settings, access, rating, customers, partners, billing.",
+	RoleBillingOperator: "Runs billing for every customer and partner: rating, customers, partners, issuing, collecting, audit. No settings or access changes.",
 	RoleFinanceViewer:   "Reads and exports everything, Sovereign-wide. Changes nothing.",
+	RolePartnerOwner:    "One partner: reads its customers' costs and statements and its own account and margin, edits its retail rule, manages its users, tops up its account.",
+	RolePartnerViewer:   "One partner: reads its customers' costs and statements and its own account and margin.",
 	RoleCustomerOwner:   "One customer: reads its costs and invoices, tops up its account, manages its users, PO reference and tax registration.",
 	RoleCustomerBilling: "One customer: reads its costs and invoices and tops up its account.",
 	RoleCustomerViewer:  "One customer: reads its costs and invoices.",
@@ -137,6 +159,7 @@ func LegacyRole(role string) string {
 // FromLegacy turns a pre-binding session (Role + CustomerID) into the one
 // binding it stood for, so a Session built the old way — tests, and any
 // caller that never learned about Roles — is authorised by the same policy.
+// A partner role has no legacy form: it never existed before bindings.
 func FromLegacy(role string, customerID *string) (store.RoleBinding, bool) {
 	switch role {
 	case store.RoleOperator, RoleSovereignAdmin:
@@ -172,7 +195,8 @@ func Bindings(s store.Session) []store.RoleBinding {
 // Primary is the highest-power binding of a set (Sovereign scope wins over
 // customer scope at equal role rank, which the rank order already encodes),
 // as the legacy `role` + `customer_id` the session reports. ok=false for an
-// empty set.
+// empty set. A partner binding reports the partner's PARTY as its customer,
+// so a reader that takes one customer lands on the partner's own account.
 func Primary(bindings []store.RoleBinding) (role string, customerID *string, ok bool) {
 	best := -1
 	for i, b := range bindings {
@@ -187,16 +211,42 @@ func Primary(bindings []store.RoleBinding) (role string, customerID *string, ok 
 		return "", nil, false
 	}
 	b := bindings[best]
-	if b.ScopeKind == ScopeSovereign {
+	switch b.ScopeKind {
+	case ScopeSovereign:
+		return LegacyRole(b.Role), nil, true
+	case ScopePartner:
+		if len(b.Customers) > 0 {
+			party := b.Customers[0]
+			return LegacyRole(b.Role), &party, true
+		}
 		return LegacyRole(b.Role), nil, true
 	}
 	return LegacyRole(b.Role), b.CustomerID, true
 }
 
+// covers reports whether a binding reaches a customer: a Sovereign binding
+// reaches every one, a customer binding its own, a partner binding the
+// customers it expanded to (the partner's customers and its party).
+func covers(b store.RoleBinding, customerID string) bool {
+	switch b.ScopeKind {
+	case ScopeSovereign:
+		return true
+	case ScopePartner:
+		for _, id := range b.Customers {
+			if id == customerID {
+				return true
+			}
+		}
+		return false
+	}
+	return customerID != "" && b.CustomerID != nil && *b.CustomerID == customerID
+}
+
 // Has answers the question. A Sovereign-scoped binding that carries the
 // permission grants it at the Sovereign AND on every customer; a
-// customer-scoped binding grants it on that customer only. customerID ""
-// asks at the Sovereign scope.
+// customer-scoped binding grants it on that customer only; a partner-scoped
+// binding on the customers its partner expands to. customerID "" asks at
+// the Sovereign scope, which only a Sovereign binding answers.
 func Has(bindings []store.RoleBinding, perm Permission, customerID string) bool {
 	for _, b := range bindings {
 		if !RoleGrants(b.Role, perm) {
@@ -205,7 +255,38 @@ func Has(bindings []store.RoleBinding, perm Permission, customerID string) bool 
 		if b.ScopeKind == ScopeSovereign {
 			return true
 		}
-		if customerID != "" && b.CustomerID != nil && *b.CustomerID == customerID {
+		if customerID != "" && covers(b, customerID) {
+			return true
+		}
+	}
+	return false
+}
+
+// HasPartner asks at a PARTNER scope: a Sovereign binding with the
+// permission, or a partner binding on that partner with it.
+func HasPartner(bindings []store.RoleBinding, perm Permission, partnerID string) bool {
+	for _, b := range bindings {
+		if !RoleGrants(b.Role, perm) {
+			continue
+		}
+		if b.ScopeKind == ScopeSovereign {
+			return true
+		}
+		if partnerID != "" && b.ScopeKind == ScopePartner && b.PartnerID != nil && *b.PartnerID == partnerID {
+			return true
+		}
+	}
+	return false
+}
+
+// HasAnyPartner reports whether the set holds a PARTNER-scoped binding that
+// carries the permission — the question a CROSS-CUSTOMER read asks when the
+// reader is a partner (DESIGN.md §13.5). It does not widen what the reader
+// sees: the store scope still confines every query to that partner's own
+// customers, which is what makes the cost explorer safe to hand a partner.
+func HasAnyPartner(bindings []store.RoleBinding, perm Permission) bool {
+	for _, b := range bindings {
+		if b.ScopeKind == ScopePartner && b.PartnerID != nil && store.ValidRole(b.Role) && RoleGrants(b.Role, perm) {
 			return true
 		}
 	}
@@ -232,9 +313,51 @@ func IsSovereign(bindings []store.RoleBinding) bool {
 	return false
 }
 
+// IsPartner reports whether the set holds a partner-scoped binding and no
+// Sovereign one — the partner lens (DESIGN.md §13).
+func IsPartner(bindings []store.RoleBinding) bool {
+	if IsSovereign(bindings) {
+		return false
+	}
+	for _, b := range bindings {
+		if b.ScopeKind == ScopePartner && store.ValidRole(b.Role) {
+			return true
+		}
+	}
+	return false
+}
+
+// PartnerIDs lists the partners the set is bound to, in binding order.
+func PartnerIDs(bindings []store.RoleBinding) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, b := range bindings {
+		if b.ScopeKind == ScopePartner && b.PartnerID != nil && store.ValidRole(b.Role) && !seen[*b.PartnerID] {
+			seen[*b.PartnerID] = true
+			out = append(out, *b.PartnerID)
+		}
+	}
+	return out
+}
+
 // OnCustomer reports whether the set holds any binding covering the
-// customer: a Sovereign binding, or a customer binding on that id.
+// customer: a Sovereign binding, a customer binding on that id, or a
+// partner binding whose partner the customer belongs to.
 func OnCustomer(bindings []store.RoleBinding, customerID string) bool {
+	for _, b := range bindings {
+		if !store.ValidRole(b.Role) {
+			continue
+		}
+		if covers(b, customerID) {
+			return true
+		}
+	}
+	return false
+}
+
+// OnPartner reports whether the set holds any binding covering the partner:
+// a Sovereign binding, or a partner binding on that id.
+func OnPartner(bindings []store.RoleBinding, partnerID string) bool {
 	for _, b := range bindings {
 		if !store.ValidRole(b.Role) {
 			continue
@@ -242,15 +365,15 @@ func OnCustomer(bindings []store.RoleBinding, customerID string) bool {
 		if b.ScopeKind == ScopeSovereign {
 			return true
 		}
-		if b.CustomerID != nil && *b.CustomerID == customerID {
+		if b.ScopeKind == ScopePartner && b.PartnerID != nil && *b.PartnerID == partnerID {
 			return true
 		}
 	}
 	return false
 }
 
-// ScopeKey names a scope the way /me reports it: "sovereign" or
-// "customer:<id>".
+// ScopeKey names a scope the way /me reports it: "sovereign",
+// "customer:<id>" or "partner:<id>".
 func ScopeKey(scopeKind string, customerID *string) string {
 	if scopeKind == ScopeSovereign || customerID == nil {
 		return ScopeSovereign
@@ -258,16 +381,25 @@ func ScopeKey(scopeKind string, customerID *string) string {
 	return ScopeCustomer + ":" + *customerID
 }
 
+// BindingScopeKey is ScopeKey for a whole binding, partner scopes included.
+func BindingScopeKey(b store.RoleBinding) string {
+	if b.ScopeKind == ScopePartner && b.PartnerID != nil {
+		return ScopePartner + ":" + *b.PartnerID
+	}
+	return ScopeKey(b.ScopeKind, b.CustomerID)
+}
+
 // Effective is the permission list per scope key the console hides and
 // shows by. A Sovereign-scoped permission is listed under "sovereign" only —
-// the console knows it covers every customer.
+// the console knows it covers every customer; a partner-scoped one under
+// "partner:<id>" — the console knows it covers the partner's customers.
 func Effective(bindings []store.RoleBinding) map[string][]Permission {
 	sets := map[string]map[Permission]bool{}
 	for _, b := range bindings {
 		if !store.ValidRole(b.Role) {
 			continue
 		}
-		key := ScopeKey(b.ScopeKind, b.CustomerID)
+		key := BindingScopeKey(b)
 		if sets[key] == nil {
 			sets[key] = map[Permission]bool{}
 		}
@@ -290,7 +422,8 @@ func Effective(bindings []store.RoleBinding) map[string][]Permission {
 	return out
 }
 
-// Scopes lists the scope keys of a set, "sovereign" first, then customers by id.
+// Scopes lists the scope keys of a set, "sovereign" first, then partners,
+// then customers by id.
 func Scopes(bindings []store.RoleBinding) []string {
 	seen := map[string]bool{}
 	var out []string
@@ -298,18 +431,24 @@ func Scopes(bindings []store.RoleBinding) []string {
 		if !store.ValidRole(b.Role) {
 			continue
 		}
-		k := ScopeKey(b.ScopeKind, b.CustomerID)
+		k := BindingScopeKey(b)
 		if !seen[k] {
 			seen[k] = true
 			out = append(out, k)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i] == ScopeSovereign {
-			return true
+	rank := func(k string) int {
+		switch {
+		case k == ScopeSovereign:
+			return 0
+		case len(k) > len(ScopePartner) && k[:len(ScopePartner)+1] == ScopePartner+":":
+			return 1
 		}
-		if out[j] == ScopeSovereign {
-			return false
+		return 2
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if ri, rj := rank(out[i]), rank(out[j]); ri != rj {
+			return ri < rj
 		}
 		return out[i] < out[j]
 	})

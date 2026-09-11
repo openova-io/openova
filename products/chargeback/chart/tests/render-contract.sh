@@ -37,6 +37,17 @@ chart_dir="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
 helm="${HELM_BIN:-helm}"
 FQDN=hw305.omani.works
 
+# This chart declares the docrender sub-chart as a file:// dependency (#6867),
+# so `helm template` fails with "missing in charts/ directory" until it is
+# resolved. blueprint-release.yaml and chart-tests-pr.yaml both run
+# `helm dependency build` before these suites; a fresh clone has not, so
+# resolve it here rather than fail with a message about a directory nobody
+# deleted. The file:// URL resolves from the LOCAL committed bytes, no network.
+if ! ls "$chart_dir"/charts/docrender-*.tgz >/dev/null 2>&1; then
+  "$helm" dependency build "$chart_dir" >/dev/null 2>&1 || {
+    echo "FAIL: could not resolve the docrender dependency of $chart_dir" >&2; exit 1; }
+fi
+
 render() {
   "$helm" template chargeback "$chart_dir" --namespace chargeback \
     --api-versions "cilium.io/v2" --api-versions "postgresql.cnpg.io/v1" "$@" 2>/dev/null
@@ -105,15 +116,15 @@ has "$org" 'cilium-gateway-console' "org: console gateway parentRef missing"
 # the audience only when named. Both halves must hold or the assertion is
 # vacuous.
 lacks "$sov" 'name: PLATFORM_API_URL' "platformApi: PLATFORM_API_URL rendered with platformApi.url empty"
-lacks "$sov" 'name: PLATFORM_API_TOKEN_FILE' "platformApi: PLATFORM_API_TOKEN_FILE rendered with platformApi.url empty"
+lacks "$sov" 'name: PLATFORM_API_BEARER_FILE' "platformApi: PLATFORM_API_BEARER_FILE rendered with platformApi.url empty"
 lacks "$sov" 'serviceAccountToken:' "platformApi: projected token rendered with platformApi.url empty"
 lacks "$sov" 'name: platform-api-token' "platformApi: token volume rendered with platformApi.url empty"
 enf="$(render --set "sovereignFqdn=$FQDN" --set adapter.enabled=true \
   --set platformApi.url=http://catalyst-api.catalyst-system.svc.cluster.local:8080)"
 has "$enf" 'name: PLATFORM_API_URL' "platformApi: PLATFORM_API_URL not wired"
 has "$enf" 'value: "http://catalyst-api.catalyst-system.svc.cluster.local:8080"' "platformApi: url did not propagate to PLATFORM_API_URL"
-has "$enf" 'name: PLATFORM_API_TOKEN_FILE' "platformApi: PLATFORM_API_TOKEN_FILE not wired"
-has "$enf" 'value: /var/run/secrets/platform-api/token' "platformApi: PLATFORM_API_TOKEN_FILE does not point at the projected token"
+has "$enf" 'name: PLATFORM_API_BEARER_FILE' "platformApi: PLATFORM_API_BEARER_FILE not wired"
+has "$enf" 'value: /var/run/secrets/platform-api/token' "platformApi: PLATFORM_API_BEARER_FILE does not point at the projected token"
 has "$enf" 'mountPath: /var/run/secrets/platform-api' "platformApi: token volume not mounted"
 has "$enf" 'serviceAccountToken:' "platformApi: bearer is not a projected ServiceAccount token"
 has "$enf" 'expirationSeconds: 3600' "platformApi: projected token is not rotated hourly"
@@ -204,4 +215,39 @@ has "$api" 'port: "5432"' \
 has "$api" 'code="curl-$?"' \
   "#6819: the DSN-sync poll still lets a failed curl kill the container silently"
 
-echo "PASS: bp-chargeback render contract (defaults + sovereign + per-Org + fail-closed + CNP + CNPG + pivot + #6819 apiserver egress)"
+# ── 8. Sovereign compliance seams (bp-kyverno-policies, hw307 2026-09-11) ──
+# The shapes below are what the policies' own patterns accept
+# (platform/kyverno-policies/chart/templates/baseline/); tests/kyverno-policies.sh
+# runs the real policy set against the render. Both halves of every toggle are
+# asserted so the seam cannot pass vacuously.
+has "$def" 'prometheus.io/scrape: "true"' "prometheus-scrape: pod template lacks prometheus.io/scrape"
+has "$def" 'prometheus.io/port: "8080"' "prometheus-scrape: prometheus.io/port is not the http port"
+has "$def" 'prometheus.io/path: "/metrics"' "prometheus-scrape: prometheus.io/path is not /metrics"
+has "$def" 'instrumentation.opentelemetry.io/inject-go: "opentelemetry/default"' "otel-injected: inject-go annotation missing or not the Sovereign's opentelemetry/default CR"
+lacks "$def" 'instrumentation.opentelemetry.io/otel-go-auto-target-exe:' "otel-injected: otel-go-auto-target-exe annotation rendered — that turns inject-go into a privileged eBPF sidecar injection"
+has "$def" 'topologySpreadConstraints:' "topology-spread: no topologySpreadConstraints"
+has "$def" 'topologyKey: "kubernetes.io/hostname"' "topology-spread: topologyKey is not kubernetes.io/hostname"
+has "$def" 'whenUnsatisfiable: "ScheduleAnyway"' "topology-spread: whenUnsatisfiable must be ScheduleAnyway (single-node Sovereign)"
+has "$def" 'maxSkew: 1' "topology-spread: maxSkew 1 missing"
+off="$(render --set metrics.scrape=false --set otel.instrumentation= --set topologySpread.enabled=false)"
+lacks "$off" 'prometheus.io/scrape' "prometheus-scrape: annotation rendered with metrics.scrape=false"
+lacks "$off" 'inject-go' "otel-injected: annotation rendered with otel.instrumentation empty"
+lacks "$off" 'topologySpreadConstraints' "topology-spread: constraints rendered with topologySpread.enabled=false"
+# resource-requests (Enforce) evaluates the Pod CNPG creates from the Cluster
+# spec — the render carries the spec, so assert requests AND limits there.
+cnpg_res="$(sed -n '/^kind: Cluster$/,/^---/p' <<<"$sov" | sed -n '/^  resources:/,/^  [a-z]/p')"
+grep -qE '^\s+cpu: 250m' <<<"$cnpg_res" || fail "resource-requests: CNPG Cluster spec.resources.requests.cpu missing (Pod/chargeback-pg-1 would be BestEffort)"
+grep -qE '^\s+memory: 512Mi' <<<"$cnpg_res" || fail "resource-requests: CNPG Cluster spec.resources.requests.memory missing"
+grep -qE '^\s+memory: 1Gi' <<<"$cnpg_res" || fail "resource-limits: CNPG Cluster spec.resources.limits.memory missing"
+# secret-not-in-env: no env whose NAME matches the policy regex may carry a
+# literal value. Mirror the policy's own predicate over every env entry.
+plain_secret_env="$(awk '
+  /^ *- name: [A-Za-z_]+$/ { n=$3; if ((getline nx) > 0 && toupper(n) ~ /PASSWORD|TOKEN|KEY|SECRET/ && nx ~ /^ *value:/) print n }
+' <<<"$enf" | sort -u | tr '\n' ' ')"
+[ -z "$plain_secret_env" ] || fail "secret-not-in-env: env with a literal value and a secret-shaped name: $plain_secret_env — rename it (a path/object name) or make it a secretKeyRef"
+# control: the same scan must see the secretKeyRef-fed secret names, else it
+# is not reading the render at all.
+seen_secret_env="$(awk '/^ *- name: [A-Za-z_]+$/ { if (toupper($3) ~ /PASSWORD|TOKEN|KEY|SECRET/) print $3 }' <<<"$enf" | sort -u | tr '\n' ' ')"
+grep -q 'APP_ENCRYPTION_KEY' <<<"$seen_secret_env" || fail "secret-not-in-env control: the env scan did not see APP_ENCRYPTION_KEY (saw: '$seen_secret_env')"
+
+echo "PASS: bp-chargeback render contract (defaults + sovereign + per-Org + fail-closed + CNP + CNPG + pivot + #6819 apiserver egress + compliance seams)"
