@@ -47,8 +47,8 @@ export function defaultExploreState(now = new Date()): ExploreState {
   }
 }
 
-const GROUPS: GroupBy[] = ['none', 'customer', 'source', 'kind', 'sku', 'region', 'resource', 'tier', 'namespace', 'enterprise_project']
-const DIMS: Dim[] = ['customer', 'source', 'kind', 'sku', 'region', 'resource', 'tier', 'namespace', 'enterprise_project']
+const GROUPS: GroupBy[] = ['none', 'customer', 'source', 'kind', 'sku', 'region', 'resource', 'tier', 'namespace', 'enterprise_project', 'cost_centre']
+const DIMS: Dim[] = ['customer', 'source', 'kind', 'sku', 'region', 'resource', 'tier', 'namespace', 'enterprise_project', 'cost_centre']
 
 /** A group_by value the server accepts: a static dimension or a `tag:<key>` with a valid key. */
 export function isGroupBy(v: string | null | undefined): v is GroupBy {
@@ -171,6 +171,7 @@ export function nextGroupBy(gb: GroupBy): GroupBy {
     case 'source':
     case 'region':
     case 'enterprise_project':
+    case 'cost_centre':
       return 'kind'
     case 'kind':
       return 'sku'

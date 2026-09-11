@@ -6,7 +6,7 @@ import { CustomerDetail } from './pages/CustomerDetail'
 import { CustomerImport } from './pages/CustomerImport'
 import { CustomerNew } from './pages/CustomerNew'
 import { Customers } from './pages/Customers'
-import { MyAccount, MyBudgets, MyDiscounts, MyExplore, MyOverview, MyPaymentMethods, MyReports, MySources, MyStatements, MyUsage, MyUsers } from './pages/My'
+import { MyAccount, MyBudgets, MyCostCentres, MyDiscounts, MyExplore, MyOverview, MyPaymentMethods, MyReports, MySources, MyStatements, MyUsage, MyUsers } from './pages/My'
 import { Overview } from './pages/Overview'
 import { CostExplorer } from './pages/CostExplorer'
 import { PriceBookEdit } from './pages/PriceBookEdit'
@@ -110,6 +110,7 @@ function ConsoleRoutes() {
             <Route path="/my/reports" element={<MyReports />} />
             <Route path="/my/sources" element={<MySources />} />
             <Route path="/my/users" element={<MyUsers />} />
+            <Route path="/my/cost-centres" element={<MyCostCentres />} />
             <Route path="/my/resources" element={<Resources />} />
             <Route path="/my/resources/:sourceId/:resourceId" element={<ResourceDetail />} />
             <Route path="/my/anomalies" element={<Anomalies />} />

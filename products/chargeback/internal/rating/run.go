@@ -533,6 +533,18 @@ func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, pc *pa
 	draft.Subtotal, draft.Tax, draft.Total = tax.Subtotal, tax.Tax, tax.Total
 	draft.TaxRate, draft.TaxLines, draft.TaxAudit = tax.Rate, tax.Lines, tax.Audit
 	detail.taxAudit = tax.Audit
+	// DESIGN.md §19 — the COST-CENTRE breakdown, after everything. It reads
+	// the totals the waterfall just produced and attributes them; it never
+	// feeds back into them, which is why it is computed here and not
+	// anywhere inside the steps above. The weights are the period's usage
+	// under each centre, and what no rule named is one unassigned row.
+	weights, err := st.CostCentreWeights(ctx, store.OperatorScope, c.ID, from, to)
+	if err != nil {
+		return store.Statement{}, detail, fmt.Errorf("cost centres: %w", err)
+	}
+	if draft.CostCentreLines, err = CostCentreBreakdown(weights, draft.Subtotal, draft.Discount, draft.Tax); err != nil {
+		return store.Statement{}, detail, fmt.Errorf("cost centres: %w", err)
+	}
 	stmt, err := st.WriteDraftStatement(ctx, draft)
 	return stmt, detail, err
 }

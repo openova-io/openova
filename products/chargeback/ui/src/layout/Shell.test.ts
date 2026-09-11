@@ -52,7 +52,7 @@ describe('Shell navigation per role', () => {
   it('customer-owner sees its own pages, Users and Account included, and none of the operator pages', () => {
     const me: Me = { email: 'owner@acme.example', role: 'customer-admin', customer_id: A, permissions: { [`customer:${A}`]: ['metering.read', 'account.topup', 'customer.self.manage'] }, roles: [{ role: 'customer-owner', scope_kind: 'customer', customer_id: A }], scopes: [`customer:${A}`] }
     const nav = labels(me)
-    expect(nav.Analyse).toEqual(['Overview', 'Cost explorer', 'Resources'])
+    expect(nav.Analyse).toEqual(['Overview', 'Cost explorer', 'Resources', 'Cost centres'])
     expect(nav.Bill).toEqual(['Statements', 'Account', 'Payment methods', 'Budgets', 'Reports'])
     expect(nav.Configure).toEqual(['Cost sources', 'Discounts', 'Users'])
     for (const group of Object.values(nav)) {

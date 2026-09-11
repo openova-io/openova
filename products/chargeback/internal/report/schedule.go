@@ -19,8 +19,13 @@ func Cadences() []string { return []string{CadenceDaily, CadenceWeekly, CadenceM
 
 // Sections a report may carry, in the order they are rendered.
 const (
-	SectionSummary         = "summary"
-	SectionServices        = "services"
+	SectionSummary  = "summary"
+	SectionServices = "services"
+	// SectionCostCentres is the window's cost by the customer's own cost
+	// centre (DESIGN.md §19). It renders on a CUSTOMER-scoped schedule only:
+	// a code is unique within its customer, so grouping several customers'
+	// spend by code would add together two centres that merely share a name.
+	SectionCostCentres     = "cost-centres"
 	SectionCustomers       = "customers"
 	SectionBudgets         = "budgets"
 	SectionAnomalies       = "anomalies"
@@ -29,7 +34,7 @@ const (
 
 // Sections lists every known section in render order.
 func Sections() []string {
-	return []string{SectionSummary, SectionServices, SectionCustomers, SectionBudgets, SectionAnomalies, SectionRecommendations}
+	return []string{SectionSummary, SectionServices, SectionCostCentres, SectionCustomers, SectionBudgets, SectionAnomalies, SectionRecommendations}
 }
 
 // ValidSection reports whether name is a known section.

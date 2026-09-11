@@ -570,6 +570,14 @@ type Statement struct {
 	// because "why was this customer charged when it holds an exemption" is
 	// a question asked years later by someone who was not there.
 	TaxAudit []string `json:"tax_audit,omitempty"`
+	// CostCentreLines is the per-cost-centre breakdown (DESIGN.md §19): the
+	// statement's own net, discount and tax apportioned across the
+	// customer's cost centres, each column summing back to the statement's
+	// figure EXACTLY. It is a SHOWBACK dimension — Subtotal, Tax and Total
+	// above are not derived from it and do not change because of it. Absent
+	// on a statement rated before §19 and on a customer with no cost centre
+	// whose usage is therefore one unassigned row.
+	CostCentreLines []CostCentreLine `json:"cost_centre_lines,omitempty"`
 	// EInvoice is the e-invoicing state of this statement (DESIGN.md §17):
 	// built, signed, archived, submitted or not submitted with the reason.
 	// Present on the single-statement document, like Payments; absent
