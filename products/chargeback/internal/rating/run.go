@@ -156,6 +156,12 @@ type Result struct {
 	ContractName string      `json:"contract_name,omitempty"`
 	AppliedTerms []Breakdown `json:"applied_terms,omitempty"`
 	TrueUp       string      `json:"true_up,omitempty"`
+	// The tax outcome (DESIGN.md §17): the per-rule summary the statement
+	// froze, and every determination that was not the plain reading of the
+	// rule table — an expired exemption certificate above all, which the
+	// operator has to be told about on the run that silently charged tax.
+	TaxLines []store.TaxLine `json:"tax_lines,omitempty"`
+	TaxAudit []string        `json:"tax_audit,omitempty"`
 }
 
 // Run rates every (or one) customer's usage for a period into draft
@@ -191,6 +197,14 @@ func Run(ctx context.Context, st *store.Store, period, customerID string) ([]Res
 	if rule == "" {
 		rule = store.DefaultDiscountRule
 	}
+	// The tax rules and SKU categories (DESIGN.md §17), read once per run
+	// for the same reason: every statement of a run must resolve against
+	// one picture of the rule table, not against whatever it said when that
+	// customer's turn came round.
+	taxEngine, err := st.TaxEngineFor(ctx, settings)
+	if err != nil {
+		return nil, fmt.Errorf("tax rules: %w", err)
+	}
 	partners := map[string]*partnerContext{}
 	var partnerOrder []string
 	partnerOf := func(id string) (*partnerContext, error) {
@@ -220,7 +234,7 @@ func Run(ctx context.Context, st *store.Store, period, customerID string) ([]Res
 				continue
 			}
 		}
-		stmt, detail, err := rateCustomer(ctx, st, c, pc, from, to, settings)
+		stmt, detail, err := rateCustomer(ctx, st, c, pc, from, to, settings, taxEngine)
 		if err != nil {
 			if customerID != "" && errors.Is(err, ErrMixedCurrency) {
 				return nil, err
@@ -241,6 +255,7 @@ func Run(ctx context.Context, st *store.Store, period, customerID string) ([]Res
 		res.Kind = stmt.Kind
 		res.ContractID, res.ContractName = detail.contractID, detail.contractName
 		res.AppliedTerms, res.TrueUp = detail.terms, detail.trueUp
+		res.TaxLines, res.TaxAudit = stmt.TaxLines, detail.taxAudit
 		results = append(results, res)
 	}
 	if customerID != "" && len(results) == 0 {
@@ -277,6 +292,10 @@ type rateDetail struct {
 	// shapes did per SKU, and the true-up the minimum commitment produced.
 	contractID, contractName, trueUp string
 	terms                            []Breakdown
+	// taxAudit records every tax determination that was not the plain
+	// reading of the rule table — an expired exemption certificate, a
+	// reverse-charge finding (DESIGN.md §17).
+	taxAudit []string
 }
 
 // rateCustomer rates one customer: its usage grouped per source, each
@@ -287,11 +306,15 @@ type rateDetail struct {
 // Sovereign's default tax rate the customer's own profile overrides
 // (DESIGN.md §9.4). pc is the customer's partner context, nil for a direct
 // customer.
-func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, pc *partnerContext, from, to time.Time, settings store.BillingSettings) (store.Statement, rateDetail, error) {
+func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, pc *partnerContext, from, to time.Time, settings store.BillingSettings, taxEngine *store.TaxEngine) (store.Statement, rateDetail, error) {
 	var detail rateDetail
 	discountRule := settings.DiscountRule
 	// The customer's rate: zero when exempt, its own when it has one, else
-	// the Sovereign default. Frozen onto the invoice at issue.
+	// the Sovereign default. Frozen onto the invoice at issue. Since
+	// DESIGN.md §17 this is the FALLBACK the rule engine reduces to when a
+	// Sovereign has authored no rule and a customer has no country — it is
+	// no longer the only answer, but it is still the answer for everyone
+	// who was on the single-rate model.
 	taxRate := store.EffectiveTaxRate(c, settings)
 	sources, err := st.ListSources(ctx, store.OperatorScope, c.ID)
 	if err != nil {
@@ -492,11 +515,24 @@ func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, pc *pa
 			detail.trueUp = string(line.Amount)
 		}
 	}
-	subtotal, tax, total, err := TotalsWithDiscount(draft.Lines, draft.Discount, taxRate)
+	// DESIGN.md §17 — TAX, still the last step, now per RULE. Each line is
+	// placed in a tax category, each category resolves to a rule for THIS
+	// buyer at the period's last day, and each rule taxes its own base with
+	// the discount apportioned across them. A Sovereign with no rules and a
+	// customer with no country resolve to one rule at taxRate, which is
+	// exactly the arithmetic this line did before §17.
+	//
+	// The date is the LAST DAY OF THE PERIOD: the rule in force when the
+	// supply completed rates the whole period. A rate that changes
+	// mid-period is rated by rating two periods, not by splitting a line.
+	taxedLines, tax, err := ApplyTax(draft.Lines, draft.Discount, taxEngine, store.TaxPartyOf(c), draft.PeriodEnd, taxRate)
 	if err != nil {
 		return store.Statement{}, detail, err
 	}
-	draft.Subtotal, draft.Tax, draft.Total = subtotal, tax, total
+	draft.Lines = taxedLines
+	draft.Subtotal, draft.Tax, draft.Total = tax.Subtotal, tax.Tax, tax.Total
+	draft.TaxRate, draft.TaxLines, draft.TaxAudit = tax.Rate, tax.Lines, tax.Audit
+	detail.taxAudit = tax.Audit
 	stmt, err := st.WriteDraftStatement(ctx, draft)
 	return stmt, detail, err
 }

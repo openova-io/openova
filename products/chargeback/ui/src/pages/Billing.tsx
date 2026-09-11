@@ -79,10 +79,18 @@ export function Billing() {
         </div>
 
         <div className="card">
-          <h2>Tax</h2>
-          <p className="muted small">The default rate every statement is taxed at unless the customer carries an override or an exemption, and the seller identity frozen onto every invoice at issue (DESIGN.md §9.4).</p>
+          <div className="card-head">
+            <h2>Tax</h2>
+            <span className="hint">
+              <Link to="/tax">rules, categories and rates by country</Link>
+            </span>
+          </div>
+          <p className="muted small">
+            The Sovereign's own tax identity, frozen onto every invoice at issue (DESIGN.md §9.4), and the default rate a supply no rule covers is taxed at. Rates that differ by country, region or
+            category of supply — and the reverse-charge wording a registered business abroad is invoiced with — are rules, and live on <Link to="/tax">Configure &rarr; Tax</Link>.
+          </p>
           <div className="grid2">
-            <Field label="Tax rate (%)" error={errors.tax_rate} help="Applied to the net subtotal. 0 for no tax.">
+            <Field label="Tax rate (%)" error={errors.tax_rate} help="Applied to the net subtotal where no rule covers the supply. 0 for no tax.">
               <input value={form.tax_rate} onChange={(e) => set('tax_rate', e.target.value)} inputMode="decimal" placeholder="5" aria-label="Tax rate" />
             </Field>
             <Field label="Tax registration number" error={errors.tax_registration_number} help="The Sovereign's own registration, printed on every invoice.">
@@ -90,13 +98,23 @@ export function Billing() {
             </Field>
           </div>
           <div className="grid2">
+            {/* DESIGN.md §17 — the country the seller is REGISTERED in. It is
+                what decides whether a buyer is domestic or cross-border, so
+                without it reverse charge cannot be determined at all. */}
+            <Field
+              label="Registration country"
+              error={errors.tax_country}
+              help={form.tax_country.trim() ? 'ISO 3166-1 alpha-2. A registered business in another country is invoiced under reverse charge.' : 'ISO 3166-1 alpha-2. Empty: no cross-border determination is made, so a business abroad is invoiced at the domestic rate.'}
+            >
+              <input value={form.tax_country} onChange={(e) => set('tax_country', e.target.value.toUpperCase())} className="mono" maxLength={2} placeholder="OM" aria-label="Registration country" />
+            </Field>
             <Field label="Legal name" error={errors.legal_name} help="The seller as it appears on the invoice.">
               <input value={form.legal_name} onChange={(e) => set('legal_name', e.target.value)} />
             </Field>
-            <Field label="Address" error={errors.address}>
-              <input value={form.address} onChange={(e) => set('address', e.target.value)} />
-            </Field>
           </div>
+          <Field label="Address" error={errors.address}>
+            <input value={form.address} onChange={(e) => set('address', e.target.value)} />
+          </Field>
         </div>
 
         <div className="card">

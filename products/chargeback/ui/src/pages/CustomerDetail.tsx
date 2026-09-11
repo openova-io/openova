@@ -6,10 +6,11 @@ import { Badge, Confirm, Delta, KPI, Notice, PageHeader, Skeleton, Tabs } from '
 import { suspensionText } from '../lib/account'
 import { commercialLabel, planLabel, priceBookCurrency } from '../lib/customers'
 import { sourcesByLayerText } from '../lib/layers'
-import { day, when } from '../lib/format'
+import { day, today, when } from '../lib/format'
 import { formatMoney } from '../lib/money'
 import { customerLens } from '../lib/scope'
 import { readKPIs } from '../lib/summary'
+import { certificateState, certificateText, dayOf } from '../lib/tax'
 import { useAction } from '../lib/useAction'
 import { useSession } from '../auth/session'
 import { can } from '../lib/access'
@@ -157,6 +158,15 @@ export function CustomerDetail() {
         <Notice kind="bad">
           {c.name} is {suspensionText({ suspended_at: c.platform_suspended_at, source: c.suspension_source ?? '', reason: c.suspension_reason })}.{' '}
           <Link to="/collections">Open Collections</Link> to resume once settled.
+        </Notice>
+      ) : null}
+      {/* DESIGN.md §17 — an exemption certificate that has lapsed is not an
+          exemption: the rating engine falls back to the standard rate, and
+          an issuer that is not told about it carries the liability. */}
+      {certificateState(c, today()) === 'expired' ? (
+        <Notice kind="bad">
+          The exemption certificate {(c.tax_exemption_number ?? '').trim() ? <span className="mono">{c.tax_exemption_number}</span> : null}{' '}
+          {certificateText('expired', dayOf(c.tax_exemption_expires_on))}. <Link to={`${base}?tab=settings`}>Record a current certificate</Link>.
         </Notice>
       ) : null}
       {c.status === 'pending' ? (

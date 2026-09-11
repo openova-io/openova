@@ -252,6 +252,15 @@ func (b *BillingHook) ConfirmMethod(_ context.Context, c settle.MethodConfirmati
 	return settle.SavedMethod{Gateway: "billing", Label: "card on file in the payment portal"}, nil
 }
 
+// Settlements implements settle.Gateway's reconciliation half (DESIGN.md
+// §18.3). The platform billing service exposes no settlement feed of its
+// own — Stripe's payouts are read from Stripe — so this answers
+// ErrSettlementsNotSupported and the operator reconciles from the settlement
+// file. Adding a feed later is implementing this one method.
+func (b *BillingHook) Settlements(context.Context, time.Time, time.Time) ([]settle.Settlement, error) {
+	return nil, fmt.Errorf("%w: the billing hook relays charges and publishes no payout feed", settle.ErrSettlementsNotSupported)
+}
+
 // portalSession asks the billing service for a portal URL for one Organization.
 func (b *BillingHook) portalSession(ctx context.Context, slug string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.URL+"/billing/portal/"+slug, bytes.NewReader([]byte("{}")))

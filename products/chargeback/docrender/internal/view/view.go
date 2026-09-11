@@ -14,6 +14,7 @@ import (
 	"github.com/openova-io/openova/products/chargeback/docrender/internal/document"
 	"github.com/openova-io/openova/products/chargeback/docrender/internal/i18n"
 	"github.com/openova-io/openova/products/chargeback/docrender/internal/money"
+	"github.com/openova-io/openova/products/chargeback/docrender/internal/qr"
 )
 
 // Row is a label (by catalog key, with placeholder values) and a value.
@@ -39,6 +40,44 @@ type Party struct {
 // Line is one formatted table row.
 type Line struct {
 	SKU, Description, Unit, Quantity, UnitPrice, Amount string
+}
+
+// TaxRow is one formatted row of the tax summary.
+type TaxRow struct {
+	Label string
+	// Rate is already formatted as a percentage ("5%").
+	Rate string
+	// KindKey is the catalog key naming what the rule DOES — zero-rated,
+	// exempt, reverse charge — or "" for a plain standard-rated row.
+	KindKey string
+	Base    string
+	Amount  string
+}
+
+// QRCode is an encoded QR symbol: Size modules a side, row-major.
+type QRCode struct {
+	Size    int
+	modules []bool
+}
+
+// Dark reports whether the module at column x, row y is dark.
+func (q *QRCode) Dark(x, y int) bool {
+	if q == nil || x < 0 || y < 0 || x >= q.Size || y >= q.Size {
+		return false
+	}
+	return q.modules[y*q.Size+x]
+}
+
+// Rows returns the symbol row by row — what a template ranges over.
+func (q *QRCode) Rows() [][]bool {
+	if q == nil {
+		return nil
+	}
+	out := make([][]bool, q.Size)
+	for y := 0; y < q.Size; y++ {
+		out[y] = q.modules[y*q.Size : (y+1)*q.Size]
+	}
+	return out
 }
 
 // Payment is one formatted payment row.
@@ -76,6 +115,14 @@ type Model struct {
 	Totals    []Row
 	Discounts []Row // detail under the waterfall; Key is "" (free label in Value? no: Vars["label"])
 	Notes     []Row // tax exemption, discount rule — informational lines under the totals
+
+	// TaxSummary is the per-rate block an invoice with several rates has to
+	// show: what each rate was charged on, and what it produced. Empty when
+	// the issuer sent no summary — the waterfall's one tax line says it all.
+	TaxSummary []TaxRow
+	// QR is the encoded tax-authority QR symbol. nil = the issuer sent no
+	// payload, and no QR is drawn.
+	QR *QRCode
 
 	Payments []Payment
 
@@ -267,6 +314,50 @@ func Build(req document.Request, cat *i18n.Catalog) (*Model, error) {
 	}
 	if strings.TrimSpace(d.Tax.DiscountRule) != "" && showDiscount {
 		m.Notes = append(m.Notes, Row{Key: "discounts.rule", Vars: map[string]string{"rule": strings.TrimSpace(d.Tax.DiscountRule)}})
+	}
+
+	// ── the tax summary, and the notes that make a zero line lawful ───────
+	for _, t := range d.Tax.Summary {
+		row := TaxRow{
+			Label:  strings.TrimSpace(t.Label),
+			Rate:   must(money.FormatRatePercent(orZero(t.Rate), style)),
+			Base:   must(amount(orZero(t.Base))),
+			Amount: must(amount(orZero(t.Amount))),
+		}
+		if key := "tax.kind." + strings.TrimSpace(t.Kind); t.Kind != "" && t.Kind != "standard" && cat.Has(key) {
+			row.KindKey = key
+		}
+		m.TaxSummary = append(m.TaxSummary, row)
+	}
+	seenNote := map[string]bool{}
+	addNote := func(n string) {
+		if n = strings.TrimSpace(n); n != "" && !seenNote[n] {
+			seenNote[n] = true
+			m.Notes = append(m.Notes, Row{Vars: map[string]string{"label": n}})
+		}
+	}
+	for _, t := range d.Tax.Summary {
+		addNote(t.Note)
+	}
+	for _, n := range d.Tax.Notes {
+		addNote(n)
+	}
+
+	// The QR the tax authority requires. The PAYLOAD is the issuer's — this
+	// side only encodes it into a symbol, and a payload that fits no symbol
+	// is an error rather than a blank square on a customer's invoice.
+	if payload := strings.TrimSpace(d.Tax.QRPayload); payload != "" {
+		code, err := qr.Encode([]byte(payload))
+		if err != nil {
+			return nil, fmt.Errorf("tax QR: %w", err)
+		}
+		sym := &QRCode{Size: code.Size, modules: make([]bool, code.Size*code.Size)}
+		for y := 0; y < code.Size; y++ {
+			for x := 0; x < code.Size; x++ {
+				sym.modules[y*code.Size+x] = code.Dark(x, y)
+			}
+		}
+		m.QR = sym
 	}
 
 	// ── payments ──────────────────────────────────────────────────────────

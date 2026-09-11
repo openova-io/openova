@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/openova-io/openova/products/chargeback/internal/access"
+	"github.com/openova-io/openova/products/chargeback/internal/einvoice"
 	"github.com/openova-io/openova/products/chargeback/internal/rating"
 	"github.com/openova-io/openova/products/chargeback/internal/report"
 	"github.com/openova-io/openova/products/chargeback/internal/settle"
@@ -31,6 +32,12 @@ func (h *Handler) runStatements(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := decode(r, &in); err != nil || !periodShape.MatchString(in.Period) {
 		writeErr(w, http.StatusBadRequest, "period must be YYYY-MM")
+		return
+	}
+	// DESIGN.md §18.4 — a closed period does not move. Re-rating one would
+	// write new drafts over figures the books were closed on, so the run is
+	// refused here, before the rating engine is entered at all.
+	if h.refuseClosedPeriod(w, r, in.Period, "re-running the statements for "+in.Period) {
 		return
 	}
 	results, err := rating.Run(r.Context(), h.Store, in.Period, in.CustomerID)
@@ -266,6 +273,13 @@ func (h *Handler) issueStatement(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	notify := in.Notify == nil || *in.Notify
+	// DESIGN.md §18.4 — issuing an invoice INTO a closed period would post a
+	// receivable the books have already been signed off without.
+	if st, err := h.Store.GetStatement(r.Context(), store.OperatorScope, r.PathValue("id")); err == nil {
+		if h.refuseClosedPeriod(w, r, st.PeriodStart, "issuing this invoice") {
+			return
+		}
+	}
 	// DESIGN.md §8.10 — WHO invoices. Internally this numbers the invoice and
 	// runs our own lifecycle; externally it queues the rated bill for the
 	// operator's billing system and takes no number at all.
@@ -273,6 +287,27 @@ func (h *Handler) issueStatement(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		storeErr(w, err)
 		return
+	}
+	// DESIGN.md §17 — the e-invoicing PRE-FLIGHT. A statement that cannot
+	// yield a compliant e-invoice is refused here, BEFORE anything is
+	// numbered, with every problem listed: exactly as the commercial outbox
+	// refuses a malformed export. Refusing after the flip would be refusing
+	// something that already happened.
+	if h.eInvoiceEnabled(settings) {
+		customerID, problems, perr := h.preflightEInvoice(r.Context(), r.PathValue("id"), settings)
+		if perr != nil && !errors.Is(perr, store.ErrNotFound) {
+			storeErr(w, perr)
+			return
+		}
+		if len(problems) > 0 {
+			var owner *string
+			if customerID != "" {
+				owner = &customerID
+			}
+			h.audit(r, owner, "statement.einvoice.refused", map[string]any{"statement_id": r.PathValue("id"), "problems": problems})
+			writeErr(w, http.StatusBadRequest, einvoice.ProblemsError(problems).Error())
+			return
+		}
 	}
 	st, transitioned, err := provider.Issue(r.Context(), r.PathValue("id"))
 	switch {
@@ -320,6 +355,23 @@ func (h *Handler) issueStatement(w http.ResponseWriter, r *http.Request) {
 				"statement_id": st.ID, "charging": c.Charging, "payment_model": c.PaymentModel, "payment_method": c.PaymentMethod,
 				"outcome": string(res.Outcome), "gateway": res.Gateway, "reference": res.Reference, "detail": res.Detail,
 			})
+		}
+	}
+	// DESIGN.md §17 — BUILD, SIGN, ARCHIVE, SUBMIT. The statement is issued
+	// by now: a failure here leaves it issued and a re-POST of issue repeats
+	// the step, exactly as the settlement request does. The pre-flight above
+	// has already refused every problem this could find, so what is left is
+	// a signing or a storage failure, which is an operator incident rather
+	// than a customer-visible refusal.
+	if h.eInvoiceEnabled(settings) && cerr == nil {
+		rec, eerr := h.finalizeEInvoice(r.Context(), st, c, settings)
+		if eerr != nil {
+			slog.Error("e-invoice could not be produced; the statement stays issued and a re-issue repeats the step", "statement", st.ID, "invoice_number", st.InvoiceNumber, "error", eerr)
+			h.audit(r, &st.CustomerID, "statement.einvoice.error", map[string]any{"statement_id": st.ID, "error": eerr.Error()})
+		} else {
+			h.audit(r, &st.CustomerID, "statement.einvoice", map[string]any{"statement_id": st.ID, "profile": rec.Profile, "state": rec.State,
+				"hash": rec.Hash, "signature_algorithm": rec.SignatureAlgorithm, "key_id": rec.KeyID, "submit_reason": rec.SubmitReason})
+			st.EInvoice = &rec.EInvoiceState
 		}
 	}
 	if transitioned && notify && cerr == nil {

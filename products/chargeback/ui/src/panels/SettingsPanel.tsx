@@ -4,7 +4,9 @@ import { api } from '../api/client'
 import type { Customer } from '../api/types'
 import { Badge, Confirm, Field, Notice } from '../components/ui'
 import { CHARGING_OPTIONS, CUSTOMER_KINDS, GATEWAYS, PAYMENT_METHODS, PAYMENT_MODELS, customerPatch, fieldLabel, settingsFrom, type CustomerSettings } from '../lib/customers'
+import { today } from '../lib/format'
 import { hasErrors, validateSettings, type Errors } from '../lib/forms'
+import { certificateState, certificateText, dayOf } from '../lib/tax'
 import { useAction } from '../lib/useAction'
 import { useQuery } from '../lib/useQuery'
 
@@ -32,6 +34,15 @@ export function SettingsPanel({ customer, onSaved }: { customer: Customer; onSav
   const patch = customerPatch(customer, form)
   const dirty = Object.keys(patch).length > 0
   const kind = CUSTOMER_KINDS.find((k) => k.value === (customer.kind ?? 'external'))
+  // DESIGN.md §17 — the exemption certificate as it STANDS (the saved
+  // document), and as the form would leave it. An expired certificate is not
+  // an exemption: the rating engine falls back to the standard rate, and an
+  // issuer that is not told quietly carries the liability.
+  const on = today()
+  const savedExpiry = dayOf(customer.tax_exemption_expires_on)
+  const savedCertificateNumber = (customer.tax_exemption_number ?? '').trim()
+  const certificate = certificateState(customer, on)
+  const formCertificate = certificateState({ tax_exempt: form.tax_exempt, tax_exemption_number: form.tax_exemption_number, tax_exemption_expires_on: form.tax_exemption_expires_on }, on)
 
   const save = async (e: FormEvent) => {
     e.preventDefault()
@@ -178,25 +189,76 @@ export function SettingsPanel({ customer, onSaved }: { customer: Customer; onSav
             ) : null}
           </>
         ) : null}
-        {/* DESIGN.md §9.4 — the tax profile: exempt with a reason, or a
-            rate that overrides the Sovereign default, and the registration
-            number printed on every invoice. */}
+        {/* DESIGN.md §9.4 + §17 — the tax profile. WHERE the customer is
+            registered and whether it is a registered BUSINESS is what the
+            rules on Configure → Tax resolve against; the exemption
+            CERTIFICATE is what makes tax_exempt auditable, and an expired
+            one is not an exemption. */}
         <h3 className="section">Tax</h3>
+        {certificate === 'expired' ? (
+          <Notice kind="bad">
+            The exemption certificate {savedCertificateNumber ? <span className="mono">{savedCertificateNumber}</span> : null} {certificateText('expired', savedExpiry)}.
+          </Notice>
+        ) : null}
+        <div className="grid2">
+          <Field
+            label="Tax country"
+            error={errors.tax_country}
+            help="ISO 3166-1 alpha-2, where this customer is registered. Empty is treated as domestic. It is what decides which rule applies and whether the supply is cross-border."
+          >
+            <input value={form.tax_country} onChange={(e) => set('tax_country', e.target.value.toUpperCase())} className="mono" maxLength={2} placeholder="domestic" aria-label="Tax country" />
+          </Field>
+          <Field label="Tax region" error={errors.tax_region} help="Only where a country taxes by region; empty is the whole country.">
+            <input value={form.tax_region} onChange={(e) => set('tax_region', e.target.value)} placeholder="the whole country" aria-label="Tax region" />
+          </Field>
+        </div>
+        <label className="check">
+          <input type="checkbox" checked={form.tax_business} onChange={(e) => set('tax_business', e.target.checked)} aria-label="Registered business" /> Registered business
+        </label>
+        <div className="help">
+          A business buyer, not a consumer. Reverse charge applies to a registered business in another country and never to a consumer, so this — not the registration number — is what makes it apply.
+        </div>
         <label className="check">
           <input type="checkbox" checked={form.tax_exempt} onChange={(e) => set('tax_exempt', e.target.checked)} /> Tax exempt
         </label>
         {form.tax_exempt ? (
-          <Field label="Exemption reason" error={errors.tax_exempt_reason} help="Printed on every invoice in place of the tax line.">
-            <input value={form.tax_exempt_reason} onChange={(e) => set('tax_exempt_reason', e.target.value)} placeholder="government entity" />
-          </Field>
+          <>
+            <Field label="Exemption reason" error={errors.tax_exempt_reason} help="Printed on every invoice in place of the tax line.">
+              <input value={form.tax_exempt_reason} onChange={(e) => set('tax_exempt_reason', e.target.value)} placeholder="government entity" />
+            </Field>
+            <div className="grid2">
+              <Field label="Certificate number" error={errors.tax_exemption_number} help="The certificate the exemption rests on, recorded so it can be produced.">
+                <input value={form.tax_exemption_number} onChange={(e) => set('tax_exemption_number', e.target.value)} className="mono" placeholder="unnumbered" aria-label="Certificate number" />
+              </Field>
+              <Field
+                label="Certificate expires"
+                error={errors.tax_exemption_expires_on}
+                help={
+                  formCertificate === 'expired'
+                    ? `Expired: ${certificateText('expired', form.tax_exemption_expires_on)}.`
+                    : formCertificate === 'valid'
+                      ? `The certificate is ${certificateText('valid', form.tax_exemption_expires_on)} — it still applies on that day, and the standard rate applies from the day after.`
+                      : 'Empty = the exemption does not lapse. From the day named, the rating engine falls back to the standard rate.'
+                }
+              >
+                <input type="date" value={form.tax_exemption_expires_on} onChange={(e) => set('tax_exemption_expires_on', e.target.value)} aria-label="Certificate expires" />
+              </Field>
+            </div>
+            <Field label="Certificate scan" error={errors.tax_exemption_scan_ref} help="Where the scanned certificate is filed — a document reference, not the document itself.">
+              <input value={form.tax_exemption_scan_ref} onChange={(e) => set('tax_exemption_scan_ref', e.target.value)} className="mono" placeholder="optional" aria-label="Certificate scan" />
+            </Field>
+          </>
         ) : null}
         <div className="grid2">
-          <Field label="Tax rate override (%)" error={errors.tax_rate} help="Leave empty for the Sovereign default rate from Billing settings.">
+          <Field label="Tax rate override (%)" error={errors.tax_rate} help="Leave empty for the Sovereign default rate from Billing settings. It replaces the RATE of whatever rule applied, never what the supply is.">
             <input value={form.tax_rate} onChange={(e) => set('tax_rate', e.target.value)} inputMode="decimal" placeholder="default" disabled={form.tax_exempt} />
           </Field>
           <Field label="Tax registration number" error={errors.tax_registration_number} help="The customer's registration, printed on its invoices.">
             <input value={form.tax_registration_number} onChange={(e) => set('tax_registration_number', e.target.value)} className="mono" placeholder="OM1234567890" />
           </Field>
+        </div>
+        <div className="help">
+          Which rate a supply carries is decided by the rules on <Link to="/tax">Configure &rarr; Tax</Link>, against the country, region and category above.
         </div>
         <div className="grid2">
           <Field label="Kind" help={kind?.help}>

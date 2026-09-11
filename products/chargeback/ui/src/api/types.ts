@@ -210,6 +210,23 @@ export interface Customer {
   tax_exempt?: boolean
   tax_exempt_reason?: string | null
   tax_rate?: number | string | null
+  /**
+   * DESIGN.md §17 — what a tax RULE needs on top of the §9.4 profile.
+   * `tax_country` is ISO 3166-1 alpha-2 ("" = treated as domestic);
+   * `tax_business` marks a REGISTERED BUSINESS buyer, which is what makes
+   * reverse charge apply and is not derivable from a registration number.
+   * The three certificate fields are what make `tax_exempt` auditable — an
+   * expired certificate falls back to the standard rate.
+   *
+   * `tax_exemption_expires_on` arrives as a TIMESTAMP on the customer
+   * document and travels back as YYYY-MM-DD; read it through `dayOf`.
+   */
+  tax_country?: string | null
+  tax_region?: string | null
+  tax_business?: boolean
+  tax_exemption_number?: string | null
+  tax_exemption_expires_on?: string | null
+  tax_exemption_scan_ref?: string | null
   /** DESIGN.md §9.5 — apply available credit to every invoice at issue. */
   auto_apply_credit?: boolean
   /** Prepaid wallet: alert below this (absent = off) and suspend at zero. */
@@ -468,6 +485,67 @@ export interface CreditNote {
   issued_by?: string
 }
 
+/**
+ * DESIGN.md §17 — what a tax rule DOES. The rate alone cannot say it:
+ * zero-rated and exempt are both 0 % and are different lines on a tax
+ * return, and reverse charge is 0 % to the issuer and taxable to the buyer.
+ */
+export type TaxKind = 'standard' | 'zero_rated' | 'exempt' | 'reverse_charge' | 'out_of_state'
+
+/**
+ * DESIGN.md §17 — one rate, for one country (optionally one region), for one
+ * category of supply (empty = every category), valid over a date range.
+ * `rate` is a FRACTION: "0.0500" is 5 %. `effective_to` is EXCLUSIVE and
+ * empty is open-ended.
+ */
+export interface TaxRule {
+  id: string
+  name: string
+  country: string
+  region?: string
+  category?: string
+  rate: number | string
+  kind: TaxKind | string
+  /** The sentence the invoice must carry when this rule applies. */
+  note?: string
+  effective_from: string
+  effective_to?: string
+  created_at?: string
+  updated_at?: string
+}
+
+/** GET /tax/rules. `kinds` is the server's own list, in display order. */
+export interface TaxRulesDoc {
+  rules?: TaxRule[]
+  kinds?: string[]
+}
+
+/** DESIGN.md §17 — a SKU, or a family of SKUs, placed in a tax category. */
+export interface TaxCategoryRule {
+  /** An exact SKU (k8s.vcpu) or a prefix ending in '*' (evs.*). */
+  sku: string
+  category: string
+  note?: string
+  updated_at?: string
+}
+
+/**
+ * DESIGN.md §17 — ONE RULE's contribution to a statement: the taxable base
+ * after discounts and the tax on it. A statement carries one per rule that
+ * applied, which is the tax summary block an invoice with several rates has
+ * to show. Frozen with the statement and never recomputed.
+ */
+export interface TaxLine {
+  rule_id?: string
+  rule_name?: string
+  kind: TaxKind | string
+  category?: string
+  rate: number | string
+  base: number | string
+  tax: number | string
+  note?: string
+}
+
 /** DESIGN.md §9.4 — what an issued invoice carries about tax, frozen at issue. */
 export interface TaxSnapshot {
   rate: number | string
@@ -478,6 +556,49 @@ export interface TaxSnapshot {
   seller_legal_name?: string
   seller_tax_registration_number?: string
   seller_address?: string
+  /**
+   * DESIGN.md §17 — what the RULES decided, frozen with the rest. `audit`
+   * records every determination that was NOT the plain reading of the rule
+   * table: an expired exemption certificate, a reverse-charge finding, a
+   * per-customer rate override.
+   */
+  lines?: TaxLine[]
+  audit?: string[]
+  customer_country?: string
+  seller_country?: string
+  customer_exemption_number?: string
+  customer_exemption_expires_on?: string
+}
+
+/** DESIGN.md §17 — where a statement's e-invoice has got to. */
+export type EInvoiceStateName = 'built' | 'signed' | 'archived' | 'submitted' | 'not_submitted'
+
+/**
+ * DESIGN.md §17 — the e-invoicing state of one statement. The signature and
+ * the hash are what make the archived copy verifiable; the signing KEY is
+ * never on the wire and is never asked for.
+ */
+export interface EInvoiceState {
+  profile: string
+  invoice_number?: string
+  state: EInvoiceStateName | string
+  hash?: string
+  signature?: string
+  signature_algorithm?: string
+  key_id?: string
+  qr_payload?: string
+  /** Why it stopped at archived — shown in full, never truncated. */
+  submit_reason?: string
+  submit_reference?: string
+  built_at: string
+  submitted_at?: string
+}
+
+/** GET /statements/{id}/einvoice — the state plus the structured document. */
+export interface EInvoiceDoc {
+  statement_id: string
+  state: EInvoiceState
+  document?: unknown
 }
 
 /** One row of the account ledger; amount is signed (positive = owed). */
@@ -640,6 +761,14 @@ export interface Statement {
   /** DESIGN.md §9.3 — what credit notes took off this invoice. */
   credited_total?: number | string
   tax_snapshot?: TaxSnapshot | null
+  /**
+   * DESIGN.md §17 — the per-rule tax summary, FROZEN at issue: one row per
+   * rule that applied. Absent on a statement rated before the rules existed,
+   * whose only reading is the single `tax_rate` above.
+   */
+  tax_lines?: TaxLine[] | null
+  /** DESIGN.md §17 — where this statement's e-invoice has got to; absent when no profile is configured. */
+  einvoice?: EInvoiceState | null
   credit_notes?: CreditNote[] | null
   payments?: StatementPayment[] | null
   issued_at?: string | null
@@ -1155,6 +1284,12 @@ export interface BillingSettings {
   tax_registration_number?: string
   legal_name?: string
   address?: string
+  /**
+   * DESIGN.md §17 — the country the Sovereign is REGISTERED in (ISO 3166-1
+   * alpha-2). "" = not configured, and no cross-border determination is
+   * made: without it reverse charge cannot be decided at all.
+   */
+  tax_country?: string
   credit_note_prefix?: string
   /** DESIGN.md §9.6 — the collections schedule; negative days are before the due date. */
   reminder_days?: number[]
@@ -1763,4 +1898,146 @@ export interface Contract {
   /** Derived, never stored: ends_on + 1 day, and ends_on − notice days. */
   renewal_date?: string
   notice_from?: string
+}
+
+// ---------------------------------------------------------------------------
+// The finance handover (DESIGN.md §18)
+// ---------------------------------------------------------------------------
+
+/** One row of the operator's chart of accounts: our key, their code. */
+export interface AccountMapping {
+  key: string
+  account_code: string
+  description?: string
+  updated_at?: string
+  updated_by?: string
+}
+
+export interface AccountMappings {
+  mappings: AccountMapping[]
+  /** The fixed keys this product books to, in posting order. */
+  keys: string[]
+  /** What a per-service revenue key starts with (`revenue.`). */
+  revenue_key_prefix: string
+}
+
+/** One double-entry journal line. Exactly one of debit / credit is non-zero. */
+export interface JournalLine {
+  seq: number
+  date: string
+  event: string
+  account_key: string
+  account_code: string
+  account_name?: string
+  debit: number | string
+  credit: number | string
+  currency: string
+  customer_id?: string
+  customer_slug?: string
+  customer_name?: string
+  /** statement | payment | credit_note | reconciliation — what it came from. */
+  source_kind: string
+  source_id: string
+  reference?: string
+  memo?: string
+}
+
+export interface CurrencyTotal {
+  currency: string
+  debit: number | string
+  credit: number | string
+}
+
+/** A period's journal. `balanced` is the assertion, shown as a figure. */
+export interface JournalBatch {
+  period: string
+  lines: JournalLine[]
+  total_debit: number | string
+  total_credit: number | string
+  by_currency?: CurrencyTotal[]
+  unmapped_account_keys?: string[]
+  balanced: boolean
+}
+
+export type PeriodStatus = 'open' | 'closed' | 'reopened' | string
+
+export interface FinancePeriod {
+  period: string
+  status: PeriodStatus
+  closed_at?: string | null
+  closed_by?: string
+  total_debit?: number | string
+  total_credit?: number | string
+  lines?: number
+  reopened_at?: string | null
+  reopened_by?: string
+  reopen_reason?: string
+}
+
+/** One thing standing between a period and its close. */
+export interface PeriodBlocker {
+  kind: 'draft-statement' | 'open-dispute' | string
+  id: string
+  customer_id?: string
+  customer_name?: string
+  invoice_number?: string
+  detail?: string
+}
+
+export interface JournalResponse {
+  period: string
+  status: PeriodStatus
+  journal: JournalBatch
+  period_state?: FinancePeriod
+}
+
+export interface FinancePeriodDetail {
+  period: FinancePeriod
+  blockers: PeriodBlocker[]
+  can_close: boolean
+  total_debit?: number | string
+  total_credit?: number | string
+  lines?: number
+  balanced?: boolean
+  balance_error?: string
+}
+
+export type ReconciliationBucket = 'matched' | 'amount-mismatch' | 'missing-in-ledger' | 'missing-in-settlement' | 'duplicate' | string
+
+export interface ReconciliationLine {
+  id?: number
+  bucket: ReconciliationBucket
+  gateway_reference?: string
+  settled_amount?: number | string | null
+  ledger_amount?: number | string | null
+  difference?: number | string | null
+  fee: number | string
+  currency?: string
+  settled_date?: string
+  payment_id?: number
+  customer_id?: string
+  customer_name?: string
+  detail?: string
+}
+
+/** One settlement run and its buckets. Nothing in it was auto-corrected. */
+export interface ReconciliationRun {
+  id: string
+  gateway?: string
+  source: 'file' | 'gateway' | string
+  file_name?: string
+  from?: string
+  to?: string
+  currency?: string
+  matched: number
+  amount_mismatched: number
+  missing_in_ledger: number
+  missing_in_settlement: number
+  duplicates: number
+  settled_total: number | string
+  ledger_total: number | string
+  fee_total: number | string
+  ran_at: string
+  ran_by?: string
+  lines?: ReconciliationLine[]
 }

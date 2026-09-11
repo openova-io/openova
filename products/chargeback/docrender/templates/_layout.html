@@ -60,6 +60,14 @@
   table.payments td{padding:4px 8px;font-size:12px}
   table.payments .num{text-align:right;white-space:nowrap}
   p.term{margin:0 0 3px;font-size:12px}
+  table.taxsummary{border-collapse:collapse;margin:0 0 10px}
+  table.taxsummary th{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);
+        text-align:left;padding:4px 10px 4px 0;border-bottom:1px solid var(--rule);font-weight:700}
+  table.taxsummary td{padding:4px 10px 4px 0;font-size:12px;white-space:nowrap}
+  table.taxsummary td.num{text-align:right}
+  .taxqr{display:flex;align-items:flex-start;gap:10px;margin:0 0 12px}
+  .taxqr svg{width:28mm;height:28mm;shape-rendering:crispEdges}
+  .taxqr .cap{font-size:10.5px;color:var(--muted)}
   .notes{font-size:12px;white-space:pre-wrap}
   footer.sheetfoot{display:flex;justify-content:space-between;border-top:1px solid var(--rule);
         margin-top:24px;padding-top:6px;font-size:10.5px;color:var(--muted)}
@@ -165,6 +173,45 @@
   </table>
 </div>
 {{range .Notes}}<p class="fineprint">{{label .}}</p>{{end}}
+{{- end}}
+
+{{define "taxsummary" -}}
+{{if .TaxSummary}}
+<section class="block">
+  <p class="eyebrow">{{t "tax.summary.title"}}</p>
+  <table class="taxsummary">
+    <thead><tr>
+      <th>{{t "tax.summary.rate"}}</th>
+      <th class="num">{{t "tax.summary.base"}}</th>
+      <th class="num">{{t "tax.summary.amount"}}</th>
+    </tr></thead>
+    <tbody>
+      {{range .TaxSummary}}
+      <tr>
+        <td>{{.Rate}}{{with .KindKey}} ({{t .}}){{end}}{{with .Label}} — {{.}}{{end}}</td>
+        <td class="num">{{.Base}}</td>
+        <td class="num">{{.Amount}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</section>
+{{end}}
+{{- end}}
+
+{{define "taxqr" -}}
+{{with .QR}}
+<section class="block taxqr">
+  <svg viewBox="0 0 {{.Size}} {{.Size}}" role="img" aria-label="{{t "tax.qr.title"}}">
+    <rect width="{{.Size}}" height="{{.Size}}" fill="#fff"/>
+    {{range $y, $row := .Rows}}{{range $x, $dark := $row}}{{if $dark}}<rect x="{{$x}}" y="{{$y}}" width="1" height="1" fill="#111827"/>{{end}}{{end}}{{end}}
+  </svg>
+  <div>
+    <p class="eyebrow">{{t "tax.qr.title"}}</p>
+    <p class="cap">{{t "tax.qr.caption"}}</p>
+  </div>
+</section>
+{{end}}
 {{- end}}
 
 {{define "payments" -}}

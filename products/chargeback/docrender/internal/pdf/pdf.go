@@ -119,6 +119,8 @@ func Render(m *view.Model, opt Options) ([]byte, error) {
 	d.meta()
 	d.lines()
 	d.totals()
+	d.taxSummary()
+	d.taxQR()
 	d.payments()
 	d.terms()
 	d.notes()
@@ -577,6 +579,89 @@ func (d *doc) totals() {
 		}
 		f.SetY(f.GetY() + 2)
 	}
+}
+
+// taxSummary draws the per-rate block. An invoice carrying several rates has
+// to state what each rate was charged on: the waterfall's single "Tax (5 %)"
+// line cannot, and an invoice whose tax the customer cannot reconcile is one
+// the customer's own accountant will reject.
+func (d *doc) taxSummary() {
+	if len(d.m.TaxSummary) == 0 {
+		return
+	}
+	f := d.f
+	d.need(14 + float64(len(d.m.TaxSummary))*5)
+	f.SetY(f.GetY() + 2)
+	f.SetX(marginL)
+	d.set("B", fontSmal, muted)
+	d.cell(contentW, 5, strings.ToUpper(d.m.T("tax.summary.title")), "L", 1)
+
+	cols := [3]float64{90, 44, 44}
+	f.SetX(marginL)
+	d.set("B", fontSmal, muted)
+	d.cell(cols[0], 4.6, d.m.T("tax.summary.rate"), "L", 0)
+	d.cell(cols[1], 4.6, d.m.T("tax.summary.base"), "R", 0)
+	d.cell(cols[2], 4.6, d.m.T("tax.summary.amount"), "R", 1)
+	d.rule(f.GetY(), ruleCol)
+
+	d.set("", fontBody, ink)
+	for _, row := range d.m.TaxSummary {
+		d.need(6)
+		label := row.Rate
+		if row.KindKey != "" {
+			label += " (" + d.m.T(row.KindKey) + ")"
+		}
+		if row.Label != "" {
+			label += " — " + row.Label
+		}
+		f.SetX(marginL)
+		d.cell(cols[0], 5, d.fit(label, cols[0]), "L", 0)
+		d.cell(cols[1], 5, row.Base, "R", 0)
+		d.cell(cols[2], 5, row.Amount, "R", 1)
+	}
+	f.SetY(f.GetY() + 2)
+}
+
+// taxQR draws the tax authority's QR. The modules are filled rectangles
+// rather than an embedded image: fpdf would have to be handed a PNG, and
+// encoding one would add a dependency to draw squares this already draws
+// exactly. A quiet zone of four modules is part of the symbol — a QR printed
+// flush against text does not scan.
+func (d *doc) taxQR() {
+	q := d.m.QR
+	if q == nil || q.Size == 0 {
+		return
+	}
+	const sideMM = 28.0
+	const quiet = 4 // modules, per the specification
+	f := d.f
+	d.need(sideMM + 8)
+	f.SetY(f.GetY() + 2)
+	top := f.GetY()
+
+	module := sideMM / float64(q.Size+2*quiet)
+	originX, originY := marginL, top
+	// The quiet zone is white paper, which is what the page already is; only
+	// the dark modules are drawn.
+	f.SetFillColor(ink.r, ink.g, ink.b)
+	for y := 0; y < q.Size; y++ {
+		for x := 0; x < q.Size; x++ {
+			if !q.Dark(x, y) {
+				continue
+			}
+			f.Rect(originX+float64(x+quiet)*module, originY+float64(y+quiet)*module, module, module, "F")
+		}
+	}
+	// The caption, to the right of the symbol.
+	capX := originX + sideMM + 6
+	f.SetXY(capX, top+4)
+	d.set("B", fontSmal, muted)
+	f.CellFormat(contentW-(capX-marginL), 4.6, d.enc(strings.ToUpper(d.m.T("tax.qr.title"))), "", 2, "L", false, 0, "")
+	f.SetX(capX)
+	d.set("", fontSmal, muted)
+	f.CellFormat(contentW-(capX-marginL), 4.6, d.enc(d.m.T("tax.qr.caption")), "", 2, "L", false, 0, "")
+
+	f.SetY(top + sideMM + 3)
 }
 
 func (d *doc) rule2(x1, y, x2 float64, c rgb) {

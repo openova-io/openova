@@ -55,7 +55,21 @@ func RenderStatement(st store.Statement, link string) (subject, body string) {
 	w.line("  %-22s %16s %s", "List subtotal", money(list, cur), cur)
 	w.line("  %-22s %16s %s", "Discounts", money(negate(st.DiscountTotal), cur), cur)
 	w.line("  %-22s %16s %s", "Net subtotal", money(st.Subtotal, cur), cur)
-	w.line("  %-22s %16s %s", "Tax ("+pctF(taxPct(st.TaxRate), false)+")", money(st.Tax, cur), cur)
+	// DESIGN.md §17 — an invoice carrying SEVERAL rates states each of them.
+	// One rate keeps the single line it has always had; the summary block
+	// would say nothing the waterfall does not.
+	if len(st.TaxLines) > 1 {
+		for _, t := range st.TaxLines {
+			label := "Tax (" + pctF(taxPct(t.Rate), false) + ")"
+			if t.Kind != "" && t.Kind != store.TaxKindStandard {
+				label += " " + strings.ReplaceAll(t.Kind, "_", " ")
+			}
+			w.line("  %-22s %16s %s", clip(label, 22), money(t.Tax, cur), cur)
+		}
+		w.line("  %-22s %16s %s", "Tax", money(st.Tax, cur), cur)
+	} else {
+		w.line("  %-22s %16s %s", "Tax ("+pctF(taxPct(st.TaxRate), false)+")", money(st.Tax, cur), cur)
+	}
 	w.line("  %-22s %16s %s", "TOTAL", money(st.Total, cur), cur)
 
 	if len(st.Lines) > 0 {

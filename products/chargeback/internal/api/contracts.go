@@ -285,6 +285,13 @@ func (h *Handler) issueSLACredit(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "statement_id is required: an SLA credit is issued against a named statement")
 		return
 	}
+	// DESIGN.md §18.4 — an SLA credit is a credit note, and a closed period
+	// refuses one exactly as it refuses any other.
+	if st, err := h.Store.GetStatement(r.Context(), store.OperatorScope, strings.TrimSpace(in.StatementID)); err == nil {
+		if h.refuseClosedPeriod(w, r, st.PeriodStart, "crediting this invoice") {
+			return
+		}
+	}
 	note, err := h.Store.IssueSLACredit(r.Context(), r.PathValue("id"), store.SLACreditInput{
 		StatementID: strings.TrimSpace(in.StatementID), Pct: in.Pct, Availability: in.Availability,
 		Reason: strings.TrimSpace(in.Reason), Actor: s.Email,

@@ -243,6 +243,29 @@ spec:
             - name: PLATFORM_API_BEARER_FILE
               value: /var/run/secrets/platform-api/token
             {{- end }}
+            {{- with .Values.einvoice.profile }}
+            # E-invoicing (DESIGN.md §17). Empty = OFF and nothing about
+            # issuing changes; naming a profile makes issue build, validate,
+            # sign and archive the document for that authority.
+            - name: EINVOICE_PROFILE
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .Values.einvoice.signingKey.existingSecret }}
+            # The signing key reaches the process as a FILE PATH. A path is
+            # not a credential, but `secret-not-in-env` flags any env whose
+            # NAME matches (?i)(PASSWORD|TOKEN|KEY|SECRET) carrying a literal
+            # value — on a SUBSTRING, so a _FILE suffix does not rescue a name
+            # containing KEY. Hence SIGNER_PATH / SIGNER_ID, the same shape as
+            # catalyst-api's CATALYST_HANDOVER_SIGNER_PATH.
+            - name: EINVOICE_SIGNER_PATH
+              value: /var/run/secrets/einvoice/{{ .Values.einvoice.signingKey.key }}
+            {{- end }}
+            {{- with .Values.einvoice.keyId }}
+            # A NAME, never key material — it makes a rotation traceable on
+            # documents already archived.
+            - name: EINVOICE_SIGNER_ID
+              value: {{ . | quote }}
+            {{- end }}
           {{- with .Values.smtp.existingSecret }}
           envFrom:
             # SMTP_HOST/PORT/USER/PASS/FROM (spec §6) — optional so the
@@ -273,6 +296,11 @@ spec:
               mountPath: /var/run/secrets/platform-api
               readOnly: true
             {{- end }}
+            {{- if .Values.einvoice.signingKey.existingSecret }}
+            - name: einvoice-signing-key
+              mountPath: /var/run/secrets/einvoice
+              readOnly: true
+            {{- end }}
       volumes:
         # read-only rootfs: the only writable path is a memory-backed /tmp.
         - name: tmp
@@ -283,6 +311,16 @@ spec:
         - name: dsn
           secret:
             secretName: {{ $dsnSecret }}
+        {{- end }}
+        {{- if .Values.einvoice.signingKey.existingSecret }}
+        # The e-invoice signing key (DESIGN.md §17.4). Mounted read-only and
+        # owner-readable only; read once at start-up, never logged, never
+        # returned by a route, and never written to the archive — the archive
+        # holds the document and the hash of exactly the signed bytes.
+        - name: einvoice-signing-key
+          secret:
+            secretName: {{ .Values.einvoice.signingKey.existingSecret }}
+            defaultMode: 0400
         {{- end }}
         {{- if .Values.platformApi.url }}
         # The bearer for the sovereign-admin API's internal suspend/resume

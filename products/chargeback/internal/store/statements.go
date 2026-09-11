@@ -17,7 +17,7 @@ const statementColumns = `st.id, st.customer_id, to_char(st.period_start, 'YYYY-
 	st.invoice_number, st.external_invoice_ref, st.po_reference, st.payment_terms_days, st.due_at, st.sent_at, st.paid_at, st.cancelled_at, st.cancel_reason,
 	COALESCE((SELECT sum(a.amount) FROM invoice_allocations a JOIN payments p ON p.id = a.payment_id WHERE a.statement_id = st.id AND p.status = 'received'), 0)::numeric(20,6)::text,
 	COALESCE((SELECT sum(a.amount) FROM invoice_allocations a WHERE a.statement_id = st.id AND a.credit_note_id IS NOT NULL), 0)::numeric(20,6)::text,
-	st.tax_snapshot,
+	st.tax_snapshot, st.tax_lines, st.tax_audit,
 	st.partner_id, COALESCE(p.name, ''), c.party_kind, st.statement_kind, st.buy_total::text, st.margin_total::text,
 	st.disputed_at, st.dispute_reason,
 	st.contract_id, COALESCE(ct.name, '')`
@@ -31,7 +31,7 @@ func scanStatement(row interface{ Scan(...any) error }) (Statement, error) {
 	var st Statement
 	var sub, rate, tax, total, disc string
 	var issued sql.NullTime
-	var detail, snapshot []byte
+	var detail, snapshot, taxLines, taxAudit []byte
 	var rule, invoiceNo, externalRef sql.NullString
 	var terms sql.NullInt64
 	var due, sent, paidAt, cancelled sql.NullTime
@@ -39,7 +39,7 @@ func scanStatement(row interface{ Scan(...any) error }) (Statement, error) {
 	var partner, buy, margin, contract sql.NullString
 	var disputed sql.NullTime
 	if err := row.Scan(&st.ID, &st.CustomerID, &st.PeriodStart, &st.PeriodEnd, &st.Currency, &sub, &rate, &tax, &total, &st.Status, &issued, &st.CreatedAt, &st.CustomerName, &disc, &detail, &rule,
-		&invoiceNo, &externalRef, &st.PORef, &terms, &due, &sent, &paidAt, &cancelled, &st.CancelReason, &paid, &credited, &snapshot,
+		&invoiceNo, &externalRef, &st.PORef, &terms, &due, &sent, &paidAt, &cancelled, &st.CancelReason, &paid, &credited, &snapshot, &taxLines, &taxAudit,
 		&partner, &st.PartnerName, &st.PartyKind, &st.Kind, &buy, &margin, &disputed, &st.DisputeReason, &contract, &st.ContractName); err != nil {
 		return st, mapErr(err)
 	}
@@ -57,6 +57,10 @@ func scanStatement(row interface{ Scan(...any) error }) (Statement, error) {
 			st.TaxSnapshot = &ts
 		}
 	}
+	// The per-rule tax summary and the determination audit (DESIGN.md §17),
+	// both frozen by the rating run.
+	st.TaxLines, _ = decodeTaxLines(taxLines)
+	st.TaxAudit = decodeTaxAudit(taxAudit)
 	st.Subtotal, st.TaxRate, st.Tax, st.Total = Decimal(sub), Decimal(rate), Decimal(tax), Decimal(total)
 	st.DiscountTotal = Decimal(disc)
 	if len(detail) > 0 && string(detail) != "null" {
@@ -112,6 +116,14 @@ type StatementDraft struct {
 	// §15.3) — the allowances, tiers, commitments and minimum that shaped
 	// these lines. nil when the customer has no active contract.
 	ContractID *string
+	// TaxLines is the per-rule tax summary (DESIGN.md §17): one row per tax
+	// rule that applied, whose Tax figures sum to Tax exactly. Empty on a
+	// run that resolved a single rate for the whole statement, which is
+	// every run made before §17 and every customer with no tax profile.
+	TaxLines []TaxLine
+	// TaxAudit is every determination that was not the plain reading of the
+	// rule table — an expired exemption certificate above all.
+	TaxAudit []string
 }
 
 // WriteDraftStatement upserts a draft for (customer, period) and replaces its
@@ -129,10 +141,10 @@ func (s *Store) WriteDraftStatement(ctx context.Context, d StatementDraft) (Stat
 	err = tx.QueryRowContext(ctx, `SELECT id, status FROM statements WHERE customer_id = $1 AND period_start = $2 FOR UPDATE`, d.CustomerID, d.PeriodStart).Scan(&existingID, &status)
 	switch {
 	case err == sql.ErrNoRows:
-		if err := tx.QueryRowContext(ctx, `INSERT INTO statements (customer_id, period_start, period_end, currency, subtotal, tax_rate, tax, total, status, discount_total, discount_detail, discount_rule, partner_id, statement_kind, buy_total, margin_total, contract_id)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft', $9::numeric, $10, $11, $12, $13, $14::numeric, $15::numeric, $16) RETURNING id`,
+		if err := tx.QueryRowContext(ctx, `INSERT INTO statements (customer_id, period_start, period_end, currency, subtotal, tax_rate, tax, total, status, discount_total, discount_detail, discount_rule, partner_id, statement_kind, buy_total, margin_total, contract_id, tax_lines, tax_audit)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft', $9::numeric, $10, $11, $12, $13, $14::numeric, $15::numeric, $16, $17, $18) RETURNING id`,
 			d.CustomerID, d.PeriodStart, d.PeriodEnd, d.Currency, string(d.Subtotal), string(d.TaxRate), string(d.Tax), string(d.Total), discountOrZero(d.Discount), discountDetailJSON(d.AppliedDiscounts), nullStr(&d.DiscountRule),
-			nullStr(d.PartnerID), d.Kind, nullDec(d.BuyTotal), nullDec(d.MarginTotal), nullStr(d.ContractID)).Scan(&existingID); err != nil {
+			nullStr(d.PartnerID), d.Kind, nullDec(d.BuyTotal), nullDec(d.MarginTotal), nullStr(d.ContractID), taxLinesJSON(d.TaxLines), taxAuditJSON(d.TaxAudit)).Scan(&existingID); err != nil {
 			return Statement{}, mapErr(err)
 		}
 	case err != nil:
@@ -144,9 +156,9 @@ func (s *Store) WriteDraftStatement(ctx context.Context, d StatementDraft) (Stat
 		return Statement{}, fmt.Errorf("%w: statement for this period is already %s", ErrConflict, status)
 	default:
 		if _, err := tx.ExecContext(ctx, `UPDATE statements SET period_end = $2, currency = $3, subtotal = $4, tax_rate = $5, tax = $6, total = $7, discount_total = $8::numeric, discount_detail = $9, discount_rule = $10,
-			partner_id = $11, statement_kind = $12, buy_total = $13::numeric, margin_total = $14::numeric, contract_id = $15, created_at = now() WHERE id = $1`,
+			partner_id = $11, statement_kind = $12, buy_total = $13::numeric, margin_total = $14::numeric, contract_id = $15, tax_lines = $16, tax_audit = $17, created_at = now() WHERE id = $1`,
 			existingID, d.PeriodEnd, d.Currency, string(d.Subtotal), string(d.TaxRate), string(d.Tax), string(d.Total), discountOrZero(d.Discount), discountDetailJSON(d.AppliedDiscounts), nullStr(&d.DiscountRule),
-			nullStr(d.PartnerID), d.Kind, nullDec(d.BuyTotal), nullDec(d.MarginTotal), nullStr(d.ContractID)); err != nil {
+			nullStr(d.PartnerID), d.Kind, nullDec(d.BuyTotal), nullDec(d.MarginTotal), nullStr(d.ContractID), taxLinesJSON(d.TaxLines), taxAuditJSON(d.TaxAudit)); err != nil {
 			return Statement{}, mapErr(err)
 		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM rated_lines WHERE statement_id = $1`, existingID); err != nil {
@@ -154,10 +166,10 @@ func (s *Store) WriteDraftStatement(ctx context.Context, d StatementDraft) (Stat
 		}
 	}
 	for _, l := range d.Lines {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO rated_lines (statement_id, customer_id, source_id, sku, quantity, unit, unit_price, amount, resource_count, end_customer_id, list_unit_price, list_amount, buy_amount, net_amount)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::numeric, $12::numeric, $13::numeric, $14::numeric)`,
+		if _, err := tx.ExecContext(ctx, `INSERT INTO rated_lines (statement_id, customer_id, source_id, sku, quantity, unit, unit_price, amount, resource_count, end_customer_id, list_unit_price, list_amount, buy_amount, net_amount, tax_category, tax_rule_id)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::numeric, $12::numeric, $13::numeric, $14::numeric, $15, $16)`,
 			existingID, d.CustomerID, nullStr(l.SourceID), l.SKU, string(l.Quantity), l.Unit, string(l.UnitPrice), string(l.Amount), l.ResourceCount,
-			nullStr(l.EndCustomerID), nullDec(l.ListUnitPrice), nullDec(l.ListAmount), nullDec(l.BuyAmount), nullDec(l.NetAmount)); err != nil {
+			nullStr(l.EndCustomerID), nullDec(l.ListUnitPrice), nullDec(l.ListAmount), nullDec(l.BuyAmount), nullDec(l.NetAmount), l.TaxCategory, l.TaxRuleID); err != nil {
 			return Statement{}, mapErr(err)
 		}
 	}
@@ -253,7 +265,7 @@ func (s *Store) GetStatement(ctx context.Context, scope Scope, id string) (State
 		return Statement{}, ErrNotFound
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT l.id, l.statement_id, l.customer_id, l.source_id, l.sku, l.quantity::text, l.unit, l.unit_price::text, l.amount::text, l.resource_count,
-			l.end_customer_id, COALESCE(ec.name, ''), l.list_unit_price::text, l.list_amount::text, l.buy_amount::text, l.net_amount::text
+			l.end_customer_id, COALESCE(ec.name, ''), l.list_unit_price::text, l.list_amount::text, l.buy_amount::text, l.net_amount::text, l.tax_category, l.tax_rule_id
 		FROM rated_lines l LEFT JOIN customers ec ON ec.id = l.end_customer_id WHERE l.statement_id = $1 ORDER BY ec.name, l.sku, l.source_id`, id)
 	if err != nil {
 		return st, mapErr(err)
@@ -264,7 +276,7 @@ func (s *Store) GetStatement(ctx context.Context, scope Scope, id string) (State
 		var l RatedLine
 		var src, endCustomer, lup, lam, buy, net sql.NullString
 		var q, up, amt string
-		if err := rows.Scan(&l.ID, &l.StatementID, &l.CustomerID, &src, &l.SKU, &q, &l.Unit, &up, &amt, &l.ResourceCount, &endCustomer, &l.EndCustomerName, &lup, &lam, &buy, &net); err != nil {
+		if err := rows.Scan(&l.ID, &l.StatementID, &l.CustomerID, &src, &l.SKU, &q, &l.Unit, &up, &amt, &l.ResourceCount, &endCustomer, &l.EndCustomerName, &lup, &lam, &buy, &net, &l.TaxCategory, &l.TaxRuleID); err != nil {
 			return st, err
 		}
 		l.SourceID = strPtr(src)
@@ -284,6 +296,14 @@ func (s *Store) GetStatement(ctx context.Context, scope Scope, id string) (State
 		return st, err
 	}
 	st.Payments = pays
+	// The e-invoicing state (DESIGN.md §17): built, signed, archived,
+	// submitted or not submitted with the reason. Absent entirely on a
+	// Sovereign that has configured no profile.
+	if state, err := s.eInvoiceState(ctx, id); err != nil {
+		return st, err
+	} else if state != nil {
+		st.EInvoice = state
+	}
 	// And the credit notes behind Credited (DESIGN.md §9.3).
 	if ratOf(st.Credited).Sign() > 0 || st.Status == StatusCancelled {
 		notes, err := s.listCreditNotes(ctx, `n.statement_id = $1`, id)
@@ -379,7 +399,7 @@ func (s *Store) issueStatementOnce(ctx context.Context, id, actor string) (st St
 		}
 		// The tax snapshot (DESIGN.md §9.4): what the invoice says about
 		// tax is fixed now and never recomputed.
-		snap, err := taxSnapshotTx(ctx, tx, customerID, Decimal(rate), settings)
+		snap, err := taxSnapshotWithRulesTx(ctx, tx, id, customerID, Decimal(rate), settings)
 		if err != nil {
 			return Statement{}, false, err
 		}

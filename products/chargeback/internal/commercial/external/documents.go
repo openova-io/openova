@@ -38,6 +38,9 @@ const (
 	DocAccount       = "account"        // TMF666 BillingAccount with its balance
 	DocPayment       = "payment"        // TMF676 Payment
 	DocSummaryCharge = "summary-charge" // one receivable line per statement
+	// DocJournal is a period's double-entry journal (DESIGN.md §18.2) — the
+	// finance handover, delivered the same way as the bills.
+	DocJournal = "journal"
 )
 
 // Money is an exact amount with its currency — a store.Decimal, never a
@@ -275,6 +278,58 @@ func BuildAccount(c store.Customer, b store.AccountBalance, currency string, at 
 			{BalanceType: "outstanding", Amount: money(b.Outstanding), ValidFor: valid},
 		},
 		AsOf: stamp,
+	}
+}
+
+// JournalLine is one double-entry line of a period's journal, in the shape
+// the finance handover renders (DESIGN.md §18.2). TMF has no journal object,
+// so every field is namespaced `@openova…` except the three a reader would
+// recognise anyway; nothing here is claimed as a TM Forum shape it is not.
+type JournalLine struct {
+	Seq         int    `json:"@openovaSeq"`
+	Date        string `json:"date"`
+	Event       string `json:"@openovaEvent"`
+	AccountKey  string `json:"@openovaAccountKey"`
+	AccountCode string `json:"accountCode"`
+	AccountName string `json:"accountName,omitempty"`
+	Debit       Money  `json:"debitAmount"`
+	Credit      Money  `json:"creditAmount"`
+	// Who the line is about, when it is about anybody.
+	CustomerSlug string `json:"@openovaCustomerSlug,omitempty"`
+	CustomerName string `json:"@openovaCustomerName,omitempty"`
+	// SourceKind and SourceID are the object the line came from — a
+	// statement, a payment, a credit note, a reconciliation run — which is
+	// what makes any figure in the export traceable back.
+	SourceKind string `json:"@openovaSourceKind"`
+	SourceID   string `json:"@openovaSourceId"`
+	Reference  string `json:"@openovaReference,omitempty"`
+	Memo       string `json:"description,omitempty"`
+}
+
+// JournalDocument is one period's journal as the outbox carries it. The
+// totals are the ones the balance assertion checked before the document was
+// built: a journal that does not balance is never exported at all.
+type JournalDocument struct {
+	ID             string `json:"id"`
+	IdempotencyKey string `json:"@openovaIdempotencyKey"`
+	Period         string `json:"@openovaPeriod"`
+	// Status is the period's close state: open, closed or reopened. A closed
+	// period's journal is the frozen one, and re-exporting it re-delivers the
+	// same document.
+	Status      string        `json:"@openovaPeriodStatus"`
+	TotalDebit  Money         `json:"@openovaTotalDebit"`
+	TotalCredit Money         `json:"@openovaTotalCredit"`
+	Lines       []JournalLine `json:"@openovaJournalLine"`
+}
+
+// BuildJournal renders a period's journal as the document to export.
+func BuildJournal(period, status string, lines []JournalLine, totalDebit, totalCredit store.Decimal, currency string) JournalDocument {
+	return JournalDocument{
+		ID: "journal-" + period, IdempotencyKey: "journal-" + period + "-" + status,
+		Period: period, Status: status,
+		TotalDebit:  Money{Value: totalDebit, Unit: currency},
+		TotalCredit: Money{Value: totalCredit, Unit: currency},
+		Lines:       lines,
 	}
 }
 

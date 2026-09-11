@@ -149,7 +149,10 @@ render --set "sovereignFqdn=$FQDN" --set adapter.enabled=true \
   --set platformApi.tokenAudience=sovereign-admin-api \
   --set adapter.billingHook.callbackSecret=chargeback-billing-callback \
   --set adapter.billingHook.tokenSecret=chargeback-billing-hook \
-  --set smtp.existingSecret=chargeback-smtp | stamp_flux > "$work/render-b.yaml"
+  --set smtp.existingSecret=chargeback-smtp \
+  --set einvoice.profile=oman \
+  --set einvoice.signingKey.existingSecret=chargeback-einvoice-signer \
+  --set einvoice.keyId=omt-2026 | stamp_flux > "$work/render-b.yaml"
 
 for r in a b; do
   f="$work/render-$r.yaml"
@@ -160,6 +163,14 @@ for r in a b; do
 done
 grep -q 'name: PLATFORM_API_URL' "$work/render-b.yaml" || fail "render b did not wire platformApi — the enforcement env is not under test"
 grep -q 'name: PLATFORM_API_URL' "$work/render-a.yaml" && fail "render a wired platformApi with platformApi.url unset"
+# E-invoicing renders env whose names sit closest to `secret-not-in-env`: the
+# policy matches (?i)(PASSWORD|TOKEN|KEY|SECRET) as a SUBSTRING against any env
+# carrying a literal value, so a name like EINVOICE_SIGNING_KEY_FILE is refused
+# on a Sovereign despite the _FILE suffix. Rendering the feature OFF would test
+# a surface that cannot fail, so render b turns it on and this asserts it did.
+grep -q 'name: EINVOICE_SIGNER_PATH' "$work/render-b.yaml" || fail "render b did not wire e-invoicing — the signing-key env is not under test"
+grep -q 'name: EINVOICE_PROFILE' "$work/render-a.yaml" && fail "render a wired e-invoicing with einvoice.profile unset"
+grep -qE 'name: EINVOICE_[A-Z_]*(PASSWORD|TOKEN|KEY|SECRET)' "$work/render-b.yaml" && fail "an e-invoice env name carries a secret-shaped substring with a literal value — secret-not-in-env refuses it on a Sovereign"
 
 # ── apply ───────────────────────────────────────────────────────────────────
 overall=0

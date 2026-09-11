@@ -56,7 +56,17 @@
       }
     ],
     "tax": {
-      "discount_rule": "best-single"
+      "discount_rule": "best-single",
+      "summary": [
+        {
+          "label": "Oman VAT standard",
+          "kind": "standard",
+          "rate": "0.0500",
+          "base": "87.372000",
+          "amount": "4.368600"
+        }
+      ],
+      "qr_payload": "ARxTb3ZlcmVpZ24gQ2xvdWQgT3BlcmF0b3IgTExDAgxPTTExMDAwMTIzNDUDFDIwMjYtMDktMDFUMDA6MDA6MDBaBAk5MS43NDA2MDAFCDQuMzY4NjAw"
     },
     "payments": [
       {

@@ -79,6 +79,12 @@ func (g *recGateway) ConfirmMethod(_ context.Context, c settle.MethodConfirmatio
 	return settle.SavedMethod{Gateway: "omantel", Token: "pm_" + c.SetupID, Brand: "visa", Last4: "4242", ExpMonth: 11, ExpYear: 2030, Label: "Company card"}, nil
 }
 
+// The reconciliation half (DESIGN.md §18.3). This test gateway publishes no
+// payout feed, so the operator reconciles it from the settlement file.
+func (g *recGateway) Settlements(context.Context, time.Time, time.Time) ([]settle.Settlement, error) {
+	return nil, settle.ErrSettlementsNotSupported
+}
+
 func (g *recGateway) purposes() []string {
 	out := []string{}
 	for _, r := range g.requests {

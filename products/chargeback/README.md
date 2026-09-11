@@ -169,6 +169,8 @@ products/chargeback/
 │   ├── collector/huawei/         SDK-HMAC-SHA256 signer, gateway client, ECS/EVS/EIP/ELB/NAT listers,
 │   │                             CTS change-log poller, CES sampler, kind → SKU mapping
 │   ├── config/                   environment → Config
+│   ├── finance/                  the finance handover (DESIGN.md §18): the double-entry emitter with its
+│   │                             balance assertion, and the gateway settlement matcher; pure — no SQL, no clock
 │   ├── window/                   the shared hour-slice window math both collectors bill by
 │   ├── crypto/                   envelope encryption (AES-256-GCM, per-secret DEK wrapped by APP_ENCRYPTION_KEY)
 │   ├── mail/                     SMTP sender, or log sender when SMTP_HOST is unset
@@ -187,7 +189,10 @@ products/chargeback/
 envelope-encrypted, never returned by the API, never logged) ·
 `resource_inventory` · `usage_records` (append-only facts, idempotent on
 `(source, resource, sku, window_start)`) · `price_books` · `price_items` ·
-`statements` · `rated_lines` · `invites` · `audit_log` · `sessions` · `pins`.
+`statements` · `rated_lines` · `invites` · `audit_log` · `sessions` · `pins` ·
+`account_mappings` (the operator's chart of accounts) · `finance_periods` +
+`finance_journal_lines` (a closed month and the journal it was closed on) ·
+`finance_reconciliations` + `finance_reconciliation_lines` (DESIGN.md §18).
 Migrations are Go-embedded and applied at startup (`store.Migrate`), tracked in
 `schema_migrations`.
 
@@ -316,7 +321,9 @@ highest-power binding.
 | Statements | `POST /statements/run {period, customer_id?}` · `GET /statements[?period&customer_id]` · `GET /customers/{id}/statements` · `GET /statements/{id}` · `GET /statements/{id}.csv` · `POST /statements/{id}/issue` |
 | Contracts (DESIGN.md §15; writes `customers.manage`, reads `metering.read` at the scope, SLA credits `billing.issue`, every write audited `contract.*`) | `GET/POST /contracts[?customer_id&status]` · `GET /contracts/renewals[?on=YYYY-MM-DD]` (the notice window) · `GET/PATCH/DELETE /contracts/{id}` · `PUT /contracts/{id}/items` (committed-use and allowance lines; the list sent is the whole list) · `POST /contracts/{id}/sla-credit {statement_id, pct, measured_availability, reason}` (a real credit note, numbered and posted to the ledger) · `GET /customers/{id}/contracts` |
 | Operator | `GET /overview` |
+| Finance handover (DESIGN.md §18; reads need `audit.read` **and** `metering.read` at the Sovereign, writes `settings.manage`, every write audited `finance.*`) | `GET /finance/journal?period=YYYY-MM[&format=csv]` (double-entry lines against the operator's account codes, the totals and the balance check; a CLOSED period is served from the journal the close froze, so it exports byte-identically for ever) · `POST /finance/journal/export {period}` (queues the same journal as a TMF-shaped `journal` document on the commercial outbox, delivered like the bills) · `GET/PUT /finance/accounts {mappings:[{key, account_code, description}]}` (the chart of accounts; an unknown key is refused by name) · `GET /finance/periods` · `GET /finance/periods/{period}` (status, what blocks a close named row by row, and the balance check as a figure) · `POST /finance/periods/{period}/close` (409 naming every draft statement and open dispute; 422 if the journal does not balance; on success the period is stamped and its journal frozen) · `POST /finance/periods/{period}/reopen {reason}` (reason required, audited) · `POST /finance/reconciliation[?gateway=&from=&to=]` (a settlement file as multipart `file` or a `text/csv` body, or a fetch through `settle.Gateway.Settlements`; four buckets, nothing auto-corrected) · `GET /finance/reconciliations` · `GET /finance/reconciliation/{id}` |
 | Capacity (DESIGN.md §11; reads `metering.read` at the Sovereign, writes `capacity.manage`, every write audited `capacity.*`) | `GET /capacity/overview[?region=]` (regions → zones → pools with total / reserved / consumed / available / utilisation / exhaustion, SKU headroom with the binding family, `unmapped_skus`, `unmapped_regions`) · `GET/POST /capacity/regions` · `DELETE /capacity/regions/{id}` · `POST /capacity/regions/{id}/zones` · `DELETE /capacity/zones/{id}` · `GET /capacity/zones/{id}/pools` (+ total history) · `PUT /capacity/pools/{id} {total, note}` · `GET /capacity/footprints` · `PUT /capacity/footprints/{sku} {families}` · `GET/PUT /capacity/caps {zone_id, sku, total}` |
+| Tax + e-invoicing (DESIGN.md §17; reads `metering.read`, writes `settings.manage`, every write audited `tax.rule.*` / `tax.category.*`) | `GET/POST /tax/rules` · `PUT/DELETE /tax/rules/{id}` — a rule is (country, region, category, kind, rate, validity, note); a kind other than `standard` must carry rate 0, and a second rule for the same country+region+category starting on the same date is `409`. `GET /tax/categories` · `PUT /tax/categories {sku, category}` · `DELETE /tax/categories/{sku}` — `sku` is an exact SKU or a prefix ending in `*` (`evs.*`). A customer's tax block is `PATCH /customers/{id}` (`customers.manage`): `tax_country`, `tax_region`, `tax_business`, `tax_registration_number`, `tax_exempt(+reason)`, `tax_rate`, and the certificate `tax_exemption_number` / `tax_exemption_expires_on` / `tax_exemption_scan_ref`. **`GET /statements/{id}/einvoice`** (the structured UBL-shaped document + its state) · **`GET /statements/{id}/einvoice.xml`** (the signed archival copy) — both follow reading the statement |
 | Ops (root) | `GET /healthz` · `GET /readyz` · `GET /metrics` |
 
 **Capacity** (DESIGN.md §11, founder requirement 2026-09-11). Console menu
@@ -464,6 +471,10 @@ Price book CSV columns: `sku,unit,annual_price,description` (template at
 | `TRUSTED_FORWARD_GROUPS_HEADER` | `X-Forwarded-Groups` | the header carrying the identity's directory groups (comma-separated), each looked up in `group_role_mappings` (DESIGN.md §10). Honoured only while `TRUSTED_FORWARD_AUTH_HEADER` is set |
 | `PUBLIC_CALCULATOR_ORIGINS` | empty | comma-separated origins allowed to call `/api/v1/public/*` cross-origin and to frame `/estimate` (the marketplace, a partner site); empty = same origin only and the page cannot be framed, `*` = any. Every other path keeps `X-Frame-Options: DENY` |
 | `PUBLIC_CALCULATOR_RATE_PER_MINUTE` | `60` | per-client-address budget on the public calculator routes (token bucket, one minute's burst); beyond it the route answers `429` with `Retry-After` |
+| `EINVOICE_PROFILE` | unset | the e-invoicing profile (DESIGN.md §17): unset = **OFF** — nothing is built at issue, the two e-invoice routes answer 404, and issuing behaves exactly as it did. `oman` builds, validates, signs and archives a UBL-shaped e-invoice with a base64 TLV QR payload at issue, and refuses an issue that cannot yield a compliant one with every problem listed |
+| `EINVOICE_SIGNER_PATH` | unset | file holding the PEM signing key — the Secret the chart mounts. RSA, ECDSA or Ed25519; PKCS#8, PKCS#1 or SEC1. Wins over `EINVOICE_SIGNING_KEY`. Named without PASSWORD/TOKEN/KEY/SECRET anywhere in it, per the Sovereign's Kyverno `secret-not-in-env` policy — that match is on a SUBSTRING, so a `_FILE` suffix does not rescue a name containing KEY (`EINVOICE_SIGNING_KEY_FILE` is read as a deprecated alias for one release). With a profile configured and NO key, issuing is refused with a message naming this variable — never a half-signed invoice. The key is never logged, never returned by any endpoint and never archived; what is archived is the document and its SHA-256 hash |
+| `EINVOICE_SIGNING_KEY` | unset | the literal PEM, for a local run where no file is mounted |
+| `EINVOICE_SIGNER_ID` | unset | a NAME for the signing key, recorded on the document so a rotation is traceable. Never key material |
 | `LISTEN_ADDR` | `:8080` | |
 
 ## Development

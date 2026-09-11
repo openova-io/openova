@@ -70,6 +70,17 @@ type customerBody struct {
 	TaxExempt             *bool          `json:"tax_exempt"`
 	TaxExemptReason       *string        `json:"tax_exempt_reason"`
 	TaxRate               *store.Decimal `json:"tax_rate"`
+	// DESIGN.md §17 — what a tax RULE needs: where the customer is
+	// registered, whether it is a registered BUSINESS (reverse charge
+	// applies to a business and never to a consumer), and the exemption
+	// certificate behind tax_exempt. An empty tax_exemption_expires_on
+	// clears the expiry back to "no expiry recorded".
+	TaxCountry            *string `json:"tax_country"`
+	TaxRegion             *string `json:"tax_region"`
+	TaxBusiness           *bool   `json:"tax_business"`
+	TaxExemptionNumber    *string `json:"tax_exemption_number"`
+	TaxExemptionExpiresOn *string `json:"tax_exemption_expires_on"`
+	TaxExemptionScanRef   *string `json:"tax_exemption_scan_ref"`
 	// Account credit (DESIGN.md §9.5): apply credit at issue; the prepaid
 	// wallet's low-balance alert (empty string = off) and suspend-at-zero.
 	AutoApplyCredit     *bool          `json:"auto_apply_credit"`
@@ -108,7 +119,9 @@ const externallyOwnedHelp = "this Sovereign invoices through the operator's bill
 // (DESIGN.md §9.1); the account-credit knobs stay ours in every mode.
 func (h *Handler) commercialWriteRefused(w http.ResponseWriter, r *http.Request, in customerBody) bool {
 	if in.Charging == nil && in.PaymentModel == nil && in.PaymentMethod == nil && in.GatewayName == nil && in.PORef == nil && in.PaymentTermsDays == nil &&
-		in.TaxRegistrationNumber == nil && in.TaxExempt == nil && in.TaxExemptReason == nil && in.TaxRate == nil {
+		in.TaxRegistrationNumber == nil && in.TaxExempt == nil && in.TaxExemptReason == nil && in.TaxRate == nil &&
+		in.TaxCountry == nil && in.TaxRegion == nil && in.TaxBusiness == nil &&
+		in.TaxExemptionNumber == nil && in.TaxExemptionExpiresOn == nil && in.TaxExemptionScanRef == nil {
 		return false
 	}
 	settings, err := h.Store.GetBillingSettings(r.Context())
@@ -209,9 +222,14 @@ func (h *Handler) createCustomer(w http.ResponseWriter, r *http.Request) {
 		}
 		ci.PaymentTermsDays = in.PaymentTermsDays
 	}
-	ci.Tax = store.TaxProfile{TaxRegistrationNumber: deref(in.TaxRegistrationNumber), TaxExemptReason: deref(in.TaxExemptReason), TaxRate: in.TaxRate}
+	ci.Tax = store.TaxProfile{TaxRegistrationNumber: deref(in.TaxRegistrationNumber), TaxExemptReason: deref(in.TaxExemptReason), TaxRate: in.TaxRate,
+		TaxCountry: deref(in.TaxCountry), TaxRegion: deref(in.TaxRegion),
+		TaxExemptionNumber: deref(in.TaxExemptionNumber), TaxExemptionExpiresOn: deref(in.TaxExemptionExpiresOn), TaxExemptionScanRef: deref(in.TaxExemptionScanRef)}
 	if in.TaxExempt != nil {
 		ci.Tax.TaxExempt = *in.TaxExempt
+	}
+	if in.TaxBusiness != nil {
+		ci.Tax.TaxBusiness = *in.TaxBusiness
 	}
 	if in.AutoApplyCredit != nil {
 		ci.AutoApplyCredit = *in.AutoApplyCredit
@@ -349,6 +367,8 @@ func (h *Handler) patchCustomer(w http.ResponseWriter, r *http.Request) {
 		p.PaymentTermsDays = in.PaymentTermsDays
 	}
 	p.TaxRegistrationNumber, p.TaxExempt, p.TaxExemptReason, p.TaxRate = in.TaxRegistrationNumber, in.TaxExempt, in.TaxExemptReason, in.TaxRate
+	p.TaxCountry, p.TaxRegion, p.TaxBusiness = in.TaxCountry, in.TaxRegion, in.TaxBusiness
+	p.TaxExemptionNumber, p.TaxExemptionExpiresOn, p.TaxExemptionScanRef = in.TaxExemptionNumber, in.TaxExemptionExpiresOn, in.TaxExemptionScanRef
 	p.AutoApplyCredit, p.LowBalanceThreshold, p.SuspendAtZero = in.AutoApplyCredit, in.LowBalanceThreshold, in.SuspendAtZero
 	// Assigning a customer to a partner is a partner decision (DESIGN.md
 	// §13): partners.manage, never customers.manage alone.
@@ -444,6 +464,21 @@ func patchedFields(in customerBody) []string {
 	}
 	if in.TaxRate != nil {
 		f = append(f, "tax_rate")
+	}
+	for _, pair := range []struct {
+		name string
+		set  bool
+	}{
+		{"tax_country", in.TaxCountry != nil},
+		{"tax_region", in.TaxRegion != nil},
+		{"tax_business", in.TaxBusiness != nil},
+		{"tax_exemption_number", in.TaxExemptionNumber != nil},
+		{"tax_exemption_expires_on", in.TaxExemptionExpiresOn != nil},
+		{"tax_exemption_scan_ref", in.TaxExemptionScanRef != nil},
+	} {
+		if pair.set {
+			f = append(f, pair.name)
+		}
 	}
 	if in.AutoApplyCredit != nil {
 		f = append(f, "auto_apply_credit")

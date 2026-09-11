@@ -25,6 +25,7 @@ import { Anomalies } from './pages/Anomalies'
 import { Recommendations } from './pages/Recommendations'
 import { Collections } from './pages/Collections'
 import { Billing } from './pages/Billing'
+import { Tax } from './pages/Tax'
 import { Access } from './pages/Access'
 import { Capacity } from './pages/Capacity'
 import { EstimatePublic } from './pages/EstimatePublic'
@@ -34,6 +35,10 @@ import { ContractDetail } from './pages/ContractDetail'
 import { Partners } from './pages/Partners'
 import { PartnerDetail } from './pages/PartnerDetail'
 import { PartnerBill, PartnerHome, PartnerMyAccount, PartnerMyMargin, PartnerMyRetail, PartnerMyUsers } from './pages/Partner'
+import { FinanceAccounts } from './pages/FinanceAccounts'
+import { FinanceJournal } from './pages/FinanceJournal'
+import { FinancePeriods } from './pages/FinancePeriods'
+import { FinanceReconciliation } from './pages/FinanceReconciliation'
 
 function Home() {
   const { me, loading } = useSession()
@@ -77,6 +82,13 @@ function ConsoleRoutes() {
             <Route path="/statements" element={<Statements />} />
             <Route path="/collections" element={<Collections />} />
             <Route path="/billing" element={<Billing />} />
+            <Route path="/tax" element={<Tax />} />
+            {/* The finance handover (DESIGN.md §18) — Sovereign-scoped, like
+                every route the server gates at that scope. */}
+            <Route path="/finance/journal" element={<FinanceJournal />} />
+            <Route path="/finance/reconciliation" element={<FinanceReconciliation />} />
+            <Route path="/finance/periods" element={<FinancePeriods />} />
+            <Route path="/finance/accounts" element={<FinanceAccounts />} />
             <Route path="/access" element={<Access />} />
             <Route path="/resources" element={<Resources />} />
             <Route path="/resources/:sourceId/:resourceId" element={<ResourceDetail />} />

@@ -3138,3 +3138,655 @@ On the statement view: **Download PDF** for anyone who may read the invoice,
 the two outcomes with the consequence of each spelled out. A disputed invoice
 carries a banner with the reason, the amount and the sentence that matters:
 it stays on the balance and is not chased.
+
+## 17. Tax and e-invoicing (EPIC #6867, founder direction 2026-09-11)
+
+Quoting, tax and the invoice document are OURS to build completely. An
+operator running Catalyst BSS in internal mode **is the issuer** as far as its
+tax authority is concerned, and the authority asks the ISSUER — not the
+operator's billing department — for a compliant, structured, signed and
+archived electronic invoice. Omantel's external billing seam (§8.10) is one
+configuration of that, not the design.
+
+What existed before this section was a single rate on billing settings, a
+per-customer exemption flag and rate override, and a `tax_snapshot` frozen at
+issue (§9.4). That is enough for a Sovereign selling one kind of service
+inside one country and nothing else. It cannot express a rate that differs by
+category, a rate that changes on a date, reverse charge, an exemption
+certificate that expires, or several rates on one invoice — and each of those
+is an ordinary requirement, not an edge.
+
+**Oman is the FIRST profile, not an assumption baked into the model.** The
+rule engine knows about countries, regions, categories and dates; the
+e-invoicing seam is an interface with one implementation. A second authority
+is a second file.
+
+### 17.1 The rule model
+
+```
+tax_rules(id, name, country, region NULL, category, rate, kind,
+          note, effective_from, effective_to NULL)
+```
+
+- `country` is ISO 3166-1 alpha-2. `region` NULL is the whole country.
+- `category` empty is EVERY category; otherwise it names a category of supply.
+- `kind` is `standard` | `zero_rated` | `exempt` | `reverse_charge` |
+  `out_of_state`. **The kind is not derivable from the rate**: zero-rated and
+  exempt are both 0 % and are different lines on a tax return; reverse charge
+  is 0 % to this issuer and taxable to the buyer. Every kind but `standard`
+  is refused with a non-zero rate.
+- `note` is the sentence the invoice must carry when the rule applies — the
+  reverse-charge wording, the exemption article, the zero-rating provision.
+  It is free text because only the tax authority knows what it must say, and
+  validation REFUSES a zero-rated, exempt or reverse-charge line that has
+  none: a zero tax line with no explanation is the defect a tax auditor looks
+  for first.
+- `(country, region, category, effective_from)` is unique. Two rules starting
+  on the same day for the same supply is an operator mistake the resolver
+  cannot arbitrate, so the schema refuses it.
+
+```
+tax_categories(sku, category, note)
+```
+
+The tax CATEGORY of a supply, per SKU — so storage and compute can differ.
+`sku` is an exact SKU (`k8s.vcpu`) **or a prefix ending in `*`** (`evs.*`),
+so a whole family is categorised in one row. An exact row wins; otherwise the
+LONGEST matching prefix wins, and a SKU nothing matches is the default
+category (empty), which is what a rule with an empty `category` covers.
+
+**The customer** carries its registration country (`tax_country`), an
+optional `tax_region`, whether it is a REGISTERED BUSINESS (`tax_business` —
+reverse charge applies to a business and never to a consumer, which a
+registration number alone cannot say), its `tax_registration_number`, and the
+exemption certificate behind the existing `tax_exempt` flag:
+`tax_exemption_number`, `tax_exemption_expires_on`, `tax_exemption_scan_ref`.
+
+**The Sovereign** carries `billing_settings.tax_country` beside its existing
+legal name, address, registration number and default rate. Without it no
+cross-border determination is made at all — a reverse-charge finding against
+an unknown seller country would be a guess.
+
+### 17.2 Resolution, in this order
+
+At the LAST DAY OF THE PERIOD (the rule in force when the supply completed
+rates the whole period; a mid-period rate change is rated by rating two
+periods, never by splitting a line):
+
+1. **The rule table.** The buyer's registration country decides; a buyer with
+   no country of its own is treated as domestic. Specificity beats recency: a
+   region rule beats a country-wide rule, an exact category beats the
+   catch-all, and only among equally specific rules does the latest
+   `effective_from` win. A rule whose kind is `reverse_charge` is INVISIBLE
+   to this step — see 2.
+2. **Reverse charge.** A registered business (`tax_business` AND a
+   registration number) in a country that is not the issuer's, with both
+   countries known: the line is taxed at zero with kind `reverse_charge` and
+   the legally required note. A stored `reverse_charge` rule for that country
+   supplies the id and the wording when the operator has authored one;
+   otherwise a built-in determination with id `reverse-charge` and a generic
+   sentence applies. This is why such a rule is excluded from step 1: without
+   that exclusion a CONSUMER in the same country would be invoiced at zero —
+   tax the issuer owes and never collected.
+3. **The exemption certificate.** Exempt with a certificate that has NOT
+   expired: zero, kind `exempt`, note quoting the reason and the certificate
+   number. A certificate is valid **THROUGH the day it names** and has lapsed
+   the day after — the column is a DATE, an expiry is announced as a day, and
+   the comparison is made on the DAY rather than on an instant. **An EXPIRED
+   certificate is not an exemption**: the resolved standard rule stands, the
+   customer is charged, and an AUDIT LINE records the certificate number, its
+   expiry and the date it was measured against. Falling back silently is how
+   an issuer quietly carries the liability. The console marks a certificate
+   expired at exactly the same boundary, so the badge and the rate an invoice
+   is actually charged at can never disagree.
+4. **The per-customer rate override** (`customers.tax_rate`) replaces the
+   RATE and keeps the rule, with an audit line. It is never applied to a
+   zero-rated, exempt or reverse-charge line — a rate on those would
+   contradict the determination.
+
+A Sovereign with NO rules and a customer with NO country reach the end of this
+list holding the single default rate, which is exactly what every statement
+rated before §17 was rated at. That is the regression guarantee, and it is
+tested against `TotalsWithDiscount` across a spread of rates and discounts.
+
+### 17.3 The waterfall — one waterfall, now per rule
+
+Tax is still the LAST step: list → commercial terms (§15) → discounts →
+true-up → **tax**. What changes is that tax is no longer one multiplication.
+
+Each rated line is placed in a category, each category resolves to a rule, and
+each rule taxes its OWN base. The discount is a single figure against the
+whole statement and tax must be charged on what the customer actually pays
+(#6862), so the discount is APPORTIONED across the rules pro rata by their
+gross amounts, by the largest-remainder method. The parts therefore sum to the
+discount EXACTLY — never "about" — which makes
+
+```
+sum(base) == gross − discount          sum(tax) == the statement's tax
+```
+
+identities rather than rounding coincidences. With ONE rule the arithmetic
+reduces to exactly what `TotalsWithDiscount` has always done.
+
+The per-rule result is frozen on the statement as `tax_lines`, and each rated
+line carries the `tax_category` and `tax_rule_id` it was taxed under — which
+is what lets an e-invoice state a tax category and a rate PER LINE. The
+statement's single `tax_rate` column carries that rule's rate when one rule
+applied, and the EFFECTIVE rate (tax ÷ net subtotal) when several did: the
+legacy column cannot hold two rates, and leaving it at one of them, or at
+zero, would be a lie. Every surface that can show the summary shows the
+summary; the column is for readers written before §17.
+
+### 17.4 What the snapshot freezes
+
+The `tax_snapshot` (§9.4) already froze the rate, the buyer's registration and
+exemption, and the seller's identity. It now also freezes:
+
+- `lines` — the per-rule summary, **with the RULE ID of each row**, so "under
+  what rule was this line zero-rated" is answerable years later against a
+  rules table that has since been edited. Deleting a rule does not touch the
+  invoices it rated: the frozen id is a record of what happened, not a foreign
+  key that must still resolve.
+- `audit` — every determination that was not the plain reading of the rule
+  table: an expired certificate, a reverse-charge finding, a rate override.
+  The rating run writes it to `statements.tax_audit` and the snapshot copies
+  it at issue, so it survives on the draft and on the invoice alike; the run's
+  own result carries it too, so the operator is told on the run that silently
+  charged an exempt customer.
+- `customer_country` / `seller_country` — the two countries the determination
+  turned on.
+- `customer_exemption_number` / `customer_exemption_expires_on` — the
+  certificate as it stood at issue, INCLUDING one that had expired, which is
+  the state the audit line explains.
+
+### 17.5 The e-invoicing seam
+
+`internal/einvoice` is one interface and one implementation:
+
+```go
+type Profile interface {
+	Name() string
+	Build(in Input) (Document, error)
+	Validate(doc Document) []Problem
+	Sign(doc Document) (Signed, error)
+	Submit(ctx context.Context, s Signed) (Receipt, error)
+}
+```
+
+`Input` is the statement plus the two things a statement cannot carry on its
+own — who the seller is and who the buyer is beyond a name. `Build` NEVER
+computes money: every amount is the decimal string the ledger settled, passed
+through. `Validate` returns EVERY problem at once, so one round of fixes
+clears them. `Submit` returns a receipt; a profile whose authority has
+published no endpoint returns one marked not submitted WITH THE REASON, and
+never invents one.
+
+`EINVOICE_PROFILE` selects it. **Empty (the default) is OFF**: no document is
+built at issue, the two e-invoice routes answer 404 on every statement, and
+nothing about issuing changes.
+
+### 17.6 The Oman profile
+
+**Grounded, and where from.**
+
+- **Format.** Oman's Tax Authority runs its programme as **Fawtara**. The
+  notified formats are XML (**UBL 2.1**) per the **PINT OM** specification,
+  and PDF/A-3. The document this profile renders is therefore UBL-shaped:
+  `cbc`/`cac` element names in the UBL sequence, an `InvoiceLine` per rated
+  line with its own `ClassifiedTaxCategory` and `Percent`, and a `TaxTotal`
+  with one `TaxSubtotal` per rate. Kinds map onto the UN/CEFACT 5305 category
+  codes — `S` standard, `Z` zero-rated, `E` exempt, `AE` reverse charge, `O`
+  outside the scope of tax.
+- **The QR, and its TLV tags.** The Gulf authorities specify the QR payload as
+  a base64 **TLV** stream: a one-byte tag, a one-byte length that is the BYTE
+  length of the value (not its character count — an Arabic seller name is
+  several bytes per character), then the value's UTF-8 bytes, concatenated
+  with no separator. TLV is implemented GENERICALLY (`tlv.go`); the tag table
+  is a value the profile supplies. The numbering used is the five-field set
+  published by **ZATCA (Saudi Arabia)** in its *Guide to Developed FATOORA
+  Compliant QR Code*, which is the numbering the region's implementations
+  follow:
+
+  | Tag | Field |
+  |---|---|
+  | 1 | the seller's legal name |
+  | 2 | the seller's VAT registration number |
+  | 3 | the invoice's issue timestamp (ISO 8601, UTC) |
+  | 4 | the invoice total **including** tax |
+  | 5 | the tax total |
+
+  ZATCA's own clearance extension adds tags 6–9 (XML hash, signature,
+  public key, authority stamp). They are NOT emitted: they are a Saudi
+  clearance artefact and Oman has published no equivalent.
+
+**NOT grounded, and therefore what must be filled in.**
+
+- **Oman's own tag numbering.** The OTA's QR field list is defined in the
+  *Peppol Oman Architecture* document (§4 of v1.0.1), which is not published
+  openly; secondary sources describe **seven** fields for a B2C simplified
+  invoice without naming their tags. This profile emits the five grounded
+  fields and keeps the table as the value `omanTags` in `oman.go`. **To
+  complete it**: add the two further tags to `omanTags`, add their constants
+  beside `TagSellerName`…`TagTaxTotal`, and add their values to the map in
+  `omanQRFields`. Nothing else changes — the encoder, the renderer and the
+  tests are already generic over the table.
+- **The clearance channel.** Oman's model is **five-corner**: an invoice
+  reaches the Tax Authority through an **OTA-accredited service provider**
+  (ASP) on the Peppol network, and there is no endpoint an issuer posts to
+  directly. `Submit` therefore does nothing and returns `not_submitted` with
+  that reason in full. **To complete it** when an accredited provider is
+  engaged: the provider's own endpoint and its authentication (which varies by
+  provider — API key, OAuth 2.0 or mTLS), the Peppol participant identifier of
+  both parties and the scheme it is issued under, and the document type
+  identifier. All four are CONFIGURATION, not constants: none of them is
+  published, and none of them is invented here. `CustomizationID` /
+  `ProfileID` likewise name the specification rather than asserting a
+  registered Peppol identifier.
+
+**Mandate dates, for context**: Tax Authority Decision No. 189/2026 gives
+Fawtara its legal basis; a voluntary pilot began in 2026, and issuing in the
+approved electronic format becomes mandatory from 1 April 2027 for annual
+supplies above OMR 5 million and from 1 October 2027 below it.
+
+### 17.7 Signing, and the key
+
+The signing key comes from a **mounted Secret**, is parsed once at start-up,
+and is held only as a parsed key. `EINVOICE_SIGNER_PATH` names the file
+(the literal `EINVOICE_SIGNING_KEY` exists only for a local run where no file
+is mounted; the file wins). RSA, ECDSA and Ed25519 keys are accepted, in
+PKCS#8, PKCS#1 or SEC1 PEM, and the algorithm is named on the document
+(`RSA-SHA256`, `ECDSA-SHA256`, `Ed25519`) so a verifier does not have to guess
+it. `EINVOICE_SIGNER_ID` names the key on the document so a rotation is
+traceable — it is a NAME, never key material.
+
+**The key is never logged, never returned by any endpoint, and never
+archived.** What is archived is the document and the **SHA-256 hash of exactly
+the bytes that were signed**. "Canonical" here means precisely those bytes:
+the ones this renderer produced, hashed, signed and stored. It is not XML
+C14N — nothing in this build canonicalises XML — and it does not need to be,
+because the archive keeps the exact bytes rather than re-serialising them to
+check a signature. The signature cannot cover itself, so the canonical bytes
+carry no signature element; the ARCHIVAL copy is the same document with the
+signature alongside it.
+
+**No signing key configured is a VALIDATION PROBLEM**, not a surprise at
+signing time: the issue is refused with a sentence naming the variable to set.
+A Sovereign that believes it is issuing compliant invoices and is not is the
+worst of the three outcomes.
+
+### 17.8 The step at issue
+
+The e-invoicing step runs when a profile is configured AND this Sovereign is
+the system of record (§8.10 internal — in external mode the operator's billing
+system issues the legal invoice, and a second signed copy from us would be a
+second invoice).
+
+The order is **build → validate → (issue) → build → sign → archive → submit**.
+Validation runs BEFORE the status flips, because refusing afterwards would be
+refusing something that already happened: the invoice number is gapless per
+year and an issued statement is a document the customer holds. The first build
+therefore uses a provisional number and the second, after the flip, the real
+one. A validation failure answers **400 with every problem listed** — exactly
+as the commercial outbox refuses a malformed export — the statement stays a
+draft, the sequence is not spent, and `statement.einvoice.refused` is audited
+against the customer.
+
+After the flip a failure (a signing or a storage failure; validation has
+already caught the rest) leaves the statement issued and audits
+`statement.einvoice.error`; a re-POST of issue repeats the step, exactly as
+the settlement request does. Success audits `statement.einvoice` with the
+state, the hash, the algorithm and the key id — never the key.
+
+The archive is `einvoice_documents`, one row per statement (a re-issue
+REPLACES it rather than piling up copies of the same document): the structured
+document, the signed XML, the hash, the signature, the QR payload and the
+submission outcome.
+
+### 17.9 The document the customer receives
+
+`internal/docs` (§14) passes the frozen `tax_lines` into the renderer's
+document as `tax.summary`, the notes as `tax.notes`, and the e-invoice's QR
+payload as `tax.qr_payload`. The renderer draws a **tax summary block by
+rate** — rate, what it was charged on, and what it produced — and encodes the
+payload into a **QR symbol** it paints module by module
+(`docrender/internal/qr`, a dependency-free ISO/IEC 18004 encoder). The HTML
+rendition draws the same symbol as an inline SVG. The payload is the ISSUER's:
+the renderer only encodes it, and a payload that fits no symbol is an error
+rather than a blank square on a customer's invoice.
+
+### 17.10 API
+
+| Route | Gate |
+|---|---|
+| `GET /api/v1/tax/rules` | `metering.read` |
+| `POST /api/v1/tax/rules` · `PUT /api/v1/tax/rules/{id}` · `DELETE /api/v1/tax/rules/{id}` | `settings.manage` |
+| `GET /api/v1/tax/categories` | `metering.read` |
+| `PUT /api/v1/tax/categories` · `DELETE /api/v1/tax/categories/{sku}` | `settings.manage` |
+| `PATCH /api/v1/customers/{id}` — the tax block | `customers.manage` |
+| `GET /api/v1/statements/{id}/einvoice` · `GET /api/v1/statements/{id}/einvoice.xml` | follows reading the statement |
+
+Reading a rate is `metering.read` — a rate is not a secret, and every role
+that can read a bill can see why it was taxed. Writing one is
+`settings.manage`, because a tax rule changes what every future invoice
+charges. Every write is audited `tax.rule.*` / `tax.category.*`.
+
+### 17.11 The console
+
+**Configure → Tax** carries the Sovereign's own registration and legal
+identity, the rules table (country, region, category, kind, rate, validity,
+note) and the categories table (SKU or prefix → category). A **customer's tax
+block** carries its country, region, registered-business flag, registration
+number and the exemption certificate with its expiry — shown as EXPIRED when
+it has lapsed, because that is the whole point of recording the date. **A
+statement** shows the tax summary by rate and the e-invoice state: built,
+signed, archived, submitted, or not submitted with the reason in full.
+
+### 17.12 Tests
+
+- **Rating** (`internal/rating/tax_test.go`): two rates on one invoice whose
+  tax is EXACTLY the sum of the per-rule amounts and whose subtotal is exactly
+  the sum of the bases; reverse charge producing a zero line with its note,
+  and a CONSUMER in the same country not being reverse-charged; an expired
+  certificate falling back with the audit entry naming the certificate, and
+  the same certificate still valid exempting; the single-rate regression
+  against `TotalsWithDiscount` across five rate/discount combinations; the
+  discount apportionment summing exactly over three rules and five awkward
+  discounts; rule validity across a rate change.
+- **Store** (`tax_integration_test.go`): the rules a console writes are the
+  rules a run reads; the summary on the statement and the RULE IDS on the
+  snapshot at issue; deleting a rule not changing an issued invoice; a
+  customer with no profile keeping the single rate; validation and the
+  unique-key conflict; category placement by exact row and longest prefix;
+  the archive replacing rather than accumulating.
+- **E-invoice** (`internal/einvoice/einvoice_test.go`): the QR TLV DECODED to
+  five fields with the right tags (decoded, never compared against a blob);
+  the byte-length rule against a multi-byte value; validation catching a
+  missing registration number and naming it; a signature verifying against its
+  own public key for RSA and ECDSA and FAILING over tampered bytes; the hash
+  covering the canonical bytes; the archival copy carrying the signature and
+  never key material; `Submit` reporting not submitted with the reason.
+- **API** (`einvoice_integration_test.go`): the issue refused with the field
+  named and the statement left a draft with the sequence unspent; the happy
+  path archiving a signed document whose QR decodes to the issued invoice's
+  own total; both read routes; no profile leaving issuing exactly as it was.
+- **Renderer** (`docrender/internal/pdf/tax_test.go`,
+  `docrender/internal/html/tax_test.go`): the summary as text pulled back out
+  of the PDF content stream; the QR as the COUNT OF FILLED RECTANGLES matching
+  the encoder's dark-module count, with a document carrying no payload as the
+  control; the same in the HTML rendition as one `<rect>` per dark module; the
+  committed BSS contract fixture carrying and rendering both.
+---
+
+## 18. Finance handover — the journal, the reconciliation and the close (EPIC #6867)
+
+An operator's finance department will not accept a figure it cannot
+reconcile or close. Three things answer that, and all three are standard in
+every billing system:
+
+1. a **journal** — every financial event of a period as double-entry lines
+   against the operator's own account codes, balanced before it is written;
+2. a **reconciliation** — the gateway's settlement against what this product
+   recorded, in four buckets, correcting nothing;
+3. a **period close** — the month stops moving, and what may no longer be
+   done to it is enforced rather than agreed.
+
+Nothing here rates, prices or collects. It reads what already happened — the
+append-only account ledger of §9, the invoices behind it, the allocations
+that applied money to them — and renders it in the vocabulary a general
+ledger speaks.
+
+The code: `internal/store/ledgerexport.go` (the schema and the event reads),
+`internal/finance` (the pure emitter, the balance assertion and the
+settlement matcher — no SQL, no HTTP, no clock) and `internal/api/finance.go`
+(the routes).
+
+### 18.1 Which month an event belongs to
+
+Revenue is recognised in the month it was EARNED and cash in the month it
+MOVED — the ordinary accrual split. So:
+
+- a row tied to a statement — the invoice, a credit note, a write-off —
+  takes the statement's **billing period**: an invoice for August usage
+  issued on 2 September is August revenue;
+- everything else — a payment, a top-up, an application of account credit, a
+  refund, a settlement fee — takes the day the money moved.
+
+Each event's own debit and credit stay together either way, so every period
+balances on its own. The expression is `ledgerPeriodExpr`, one CASE in one
+query, and it is the only place the rule lives.
+
+### 18.2 The journal
+
+**The account map.** Account codes are DATA, never strings in the emitter:
+`account_mappings(key, account_code, description)`, seeded with defaults on
+migration and edited with `settings.manage`. The keys are fixed — this
+product books to them and to nothing else — and the codes are the operator's:
+
+| Key | Default | What posts to it |
+|---|---|---|
+| `receivable` | 1100 | what customers owe |
+| `cash` | 1000 | money that moved, for a transfer or an internal recharge |
+| `gateway_clearing` | 1010 | money a gateway holds between collecting and settling |
+| `customer_advances` | 2100 | money held on account: a top-up, and a payment beyond what it settled |
+| `tax_payable` | 2200 | tax an invoice owes, one line per rule the invoice froze |
+| `revenue` | 4000 | the catch-all revenue account |
+| `revenue.<service>` | — | revenue of one service, added by the operator per service |
+| `discounts` | 4800 | what discounts took off the list price, as contra revenue |
+| `credit_notes` | 4900 | the reduction of an invoice through a credit note |
+| `write_offs` | 6100 | a receivable given up on |
+| `gateway_fees` | 6200 | what a gateway kept, as reconciliation discovered it |
+| `commission` | 6300 | what a partner is owed on a commission statement |
+
+`<service>` is the SKU's first segment — `ecs`, `evs`, `k8s`, `plan` — the
+same split every other surface of this product groups by. A service with no
+account of its own falls back to `revenue`.
+
+**The event-to-journal table.** One row per event kind; both sides of every
+one are emitted together.
+
+| Event | Debit | Credit |
+|---|---|---|
+| Invoice issued | `receivable` (total), `discounts` (discount total) | `revenue.<service>` (list amount, per service), `tax_payable` (per tax rule) |
+| Payment received | `cash` or `gateway_clearing` | `receivable` (what it settled this period), `customer_advances` (the remainder) |
+| Top-up | `cash` or `gateway_clearing` | `customer_advances` |
+| Account credit applied | `customer_advances` | `receivable` |
+| Credit note | `credit_notes` (total) | `receivable` (applied), `customer_advances` (unapplied) |
+| Write-off | `write_offs` (total) | `receivable` (applied), `customer_advances` (unapplied) |
+| Refund | `receivable`, or `customer_advances` for a refunded top-up | `cash` or `gateway_clearing` |
+| Settlement fee | `gateway_fees` | `gateway_clearing` |
+
+Three points that are decisions rather than detail:
+
+- **The discount is a contra line, never apportioned.** An invoice books its
+  LIST revenue per service and the whole discount as one debit, because
+  `total = list − discount + tax` exactly; spreading the discount across
+  services would introduce a rounding remainder into a document whose whole
+  purpose is that it balances.
+- **A payment splits.** What it settled in its own period credits the
+  receivable; what it did not is account credit, and an allocation made in a
+  LATER month is that month's `advance_applied` event. That is what keeps
+  each period local to itself — and a closed one stable.
+- **Multi-rate tax comes from the invoice's own frozen snapshot.** The
+  emitter reads `statements.tax_snapshot` for a `rules` (or `lines`) array
+  and emits one `tax_payable` line per rule; a snapshot with no such array is
+  one rule at the snapshot's rate. Nothing here recomputes tax. When the
+  rules do not sum to the tax the invoice froze, the remainder lands on the
+  last rule, so the journal balances against the INVOICE rather than against
+  the snapshot.
+
+**Traceability.** Every line carries `source_kind` and `source_id` — the
+statement, payment, credit note or reconciliation run it came from — plus
+the invoice or credit-note number. Any figure in the export is followed back
+to the object that produced it in one step.
+
+**The balance rule.** Total debits equal total credits, in every currency and
+overall, asserted in code before anything is written. A batch that does not
+balance is an **error naming the difference** (`finance.ErrUnbalanced`,
+which reads as `store.ErrInvalid` so the API answers 422) and it is never
+exported, never stored, and never closes a period. The refusal also names
+every account key the map had no code for, because that is almost always the
+cause: a key with no code posts nothing, and the batch is short by exactly
+that amount.
+
+**Getting it out.** `GET /api/v1/finance/journal?period=YYYY-MM[&format=csv]`
+— JSON with the lines, the totals and the balance check, or the CSV a finance
+system imports (a fixed header, exact decimal strings, nothing formatted for
+a human; the same batch always renders the same bytes).
+`POST /api/v1/finance/journal/export {period}` queues it as a **TMF-shaped
+document on the commercial outbox** — the same at-least-once lane the bills
+leave by (§8.10), so an operator receives the month's journal through the
+transport it already configured. The document type is `journal` and the
+idempotency key is the period and its close state, so re-exporting an
+unchanged period delivers one document.
+
+### 18.3 Gateway settlement reconciliation
+
+A gateway takes money and, days later, pays a batch into the bank with its
+own list of what is in it. Finance will not sign off a cash figure until
+that list and the ledger agree line for line.
+
+`POST /api/v1/finance/reconciliation[?gateway=&from=&to=]` takes the
+settlement either way:
+
+- a **file** — multipart `file`, or a raw `text/csv` body. The header is read
+  in any column order and under the aliases real gateway exports use
+  (`gateway_reference` / `reference` / `transaction_id`, `amount` /
+  `settled_amount`, `currency`, `settled_date` / `value_date`, `fee` /
+  `commission`). A row that cannot be read is an error naming the file line:
+  a settlement file is a cash document, and half of one reconciled silently
+  is worse than none;
+- a **fetch** — through `settle.Gateway.Settlements(ctx, from, to)`, added to
+  the gateway seam exactly as `VerifyCallback` and `SetupMethod` were, with
+  `ErrSettlementsNotSupported` as the default. The built-in manual gateway
+  answers that (a transfer settles at the bank), and the operator uploads the
+  bank's statement instead.
+
+Each settlement line is matched to a payment by **gateway reference**,
+trimmed and case-folded and compared for nothing cleverer than equality. The
+report is four buckets:
+
+| Bucket | What it means |
+|---|---|
+| `matched` | the reference is on both sides for the same amount |
+| `amount-mismatch` | the reference is on both sides for different amounts — BOTH figures are reported, and neither is believed |
+| `missing-in-ledger` | the gateway settled something no payment records |
+| `missing-in-settlement` | a payment is recorded the gateway has not settled |
+
+A fifth, `duplicate`, catches a settlement file that names one gateway
+reference twice: the later line is **reported** rather than matched against
+the same payment again — which is how a reconciliation quietly doubles a
+cash figure — and it raises neither the matched count, the settled total nor
+the fee total.
+
+**Fees** ride on the line that matched and become their own pair of journal
+lines (`gateway_fees` / `gateway_clearing`) dated on the settlement day.
+That is the only way a gateway's fee ever enters the books: discovered by
+reconciliation, never guessed.
+
+**Nothing is auto-corrected.** No payment is created, amended, reallocated or
+re-statused by a run. `GET /api/v1/finance/reconciliation/{id}` returns the
+stored run with its rows so the operator can act on it, and
+`GET /api/v1/finance/reconciliations` lists the runs.
+
+### 18.4 Period close
+
+`POST /api/v1/finance/periods/{period}/close` (`settings.manage`):
+
+1. **It refuses while anything in the period is still moving** — any
+   statement in it that is still a draft, and any open dispute on an invoice
+   in it — answering 409 and NAMING each one. A draft is a bill nobody has
+   decided on and an open dispute is a figure the customer says is wrong;
+   closing over either freezes a number that is still changing.
+   `GET /api/v1/finance/periods/{period}` reports the same list, plus the
+   balance check as a figure, BEFORE the operator presses the button.
+2. **It asserts the balance** and refuses (422) if the journal does not
+   balance. The balance assertion is a hard refusal, not a warning.
+3. **It stamps the period closed and freezes the journal it closed on**, in
+   one transaction (`finance_periods` + `finance_journal_lines`).
+
+After that, `GET /finance/journal` for that period is served from the frozen
+lines, not re-derived. That is what makes a closed period's export stable by
+construction: the same period exports byte-identically however many later
+events land, and a test proves it against an unrelated later-period invoice,
+payment and top-up.
+
+**What a closed period forbids.** No statement in it may be:
+
+- **issued** — `POST /statements/{id}/issue`
+- **re-run** — `POST /statements/run {period}`, the rating run
+- **cancelled** — `POST /statements/{id}/cancel`
+- **credited** — `POST /statements/{id}/credit-notes` and
+  `POST /contracts/{id}/sla-credit`
+
+Each answers 409 with a message saying the period is closed, **who closed it
+and when**, and that reopening with a reason is the way through. The check is
+one helper (`refuseClosedPeriod`) called from the existing handlers rather
+than a rule buried in the store: the store records what happened, and "this
+month is shut" is a policy the operator sets and lifts.
+
+`POST /api/v1/finance/periods/{period}/reopen {reason}` (`settings.manage`)
+lifts it. The reason is required, who reopened it and why are recorded on the
+row, and the whole thing is audited as `finance.period.reopen` carrying the
+reason and who had closed it. The frozen journal is KEPT: the reopened period
+derives live again, and the lines the close asserted stay readable as what
+the books said at the time.
+
+### 18.5 Permissions
+
+| Surface | Needs |
+|---|---|
+| Read the journal, the periods, the account map, the runs; export; reconcile | `audit.read` AND `metering.read`, both at the **Sovereign** |
+| Close, reopen, edit the account map | `settings.manage` at the Sovereign |
+
+Two permissions rather than one for the read, because this surface is the
+whole ledger of every customer in one document: a principal that may read one
+customer's costs has not thereby been given the books. In the role matrix
+that makes it the **finance-viewer** bundle and everything above it; a
+billing-operator reads and reconciles but closes nothing.
+
+**A customer and a partner reach none of it.** Every route is gated at the
+Sovereign scope, so a customer-scoped or partner-scoped binding is refused
+(403) on every one of them — read, write and upload alike — and the tests
+walk each route as a customer owner, a partner owner and an anonymous caller.
+
+### 18.6 The console
+
+A **Finance** group in the Sovereign lens:
+
+- **Journal** — a period picker, the strip (total debits, total credits, the
+  balance check as a FIGURE with its difference, the accounts posted to), the
+  by-account summary a ledger is posted from, the lines with their account
+  codes and what each traces back to, and a CSV download.
+- **Reconciliation** — upload a settlement file or fetch from the gateway,
+  the four buckets with counts and amounts, a bucket filter and the
+  row-level view showing both figures on a mismatch, and the list of runs.
+  The page says in as many words that it reports and the operator decides.
+- **Period close** — the status of each month, what blocks a close named row
+  by row, Close (disabled while anything blocks it, with the reason on the
+  control) and Reopen with its required reason.
+- **Account mapping** — the key-to-code table with what each key is for, the
+  per-service revenue accounts and how to add one, and a banner naming any
+  key with no code and what that costs.
+
+### 18.7 Tests
+
+Pure (`internal/finance`): each event type against the MAPPED accounts, an
+unmapped service falling back to `revenue`, multi-rate tax emitting one
+payable line per rule, a commission statement booking to `commission`, a
+deliberately unbalanced mapping refused naming the difference AND the missing
+account, per-currency balance, and two renders of one batch being the same
+bytes. Reconciliation: the four buckets on a seeded file, a duplicate
+reference reported rather than double-matched (and not counted in the matched,
+settled or fee totals), fees on the matched lines only, the alias-tolerant
+parser and the rubbish it refuses, and a run leaving its input payments
+untouched.
+
+Integration (`internal/api`, against Postgres): the journal balancing and
+every line tracing back, the account map driving the codes, a multi-rate tax
+snapshot on a real statement, the close refused by name over a draft and over
+an open dispute, issue / re-run / cancel / credit all refused after the close
+with who closed it, reopen audited with who and why and the same writes
+allowed again afterwards, **a closed period exporting byte-identically before
+and after an unrelated later-period event**, the four buckets end to end with
+the fees journaled and the payments unchanged, the journal reaching the
+commercial outbox once per period, and the permission matrix per route.
