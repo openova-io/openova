@@ -287,3 +287,10 @@ tbody tr.expand:hover td { background: var(--panel-2); }
 .chip.toggle.on { background: var(--accent-2); border-color: var(--accent); color: var(--accent); font-weight: 600; }
 .chip.toggle .n { color: var(--muted); font-size: 11px; font-weight: 400; }
 .records-table td { font-size: 12px; white-space: nowrap; }
+
+/* Public cost calculator (DESIGN.md §11) — the one page served without the
+   console shell: a centred column that also reads well inside an iframe. */
+.single-wide { max-width: 1180px; margin: 0 auto; padding: 20px 20px 48px; }
+.single-wide .kv { display: flex; flex-direction: column; gap: 4px; }
+.single-wide .kv .num { font-variant-numeric: tabular-nums; }
+@media (max-width: 900px) { .single-wide { padding: 14px 12px 32px; } }

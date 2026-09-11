@@ -34,6 +34,7 @@ const SOVEREIGN_NAV: readonly NavGroup[] = [
     'Configure',
     [
       ['/customers', 'Customers', '⌂'],
+      ['/leads', 'Leads', '✦', 'customers.manage'],
       ['/pricebooks', 'Price books', '¤'],
       ['/discounts', 'Discounts', '%'],
       ['/allocation', 'Allocation', '⇶'],

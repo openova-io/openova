@@ -2153,9 +2153,20 @@ configured origins: the page answers `Content-Security-Policy: frame-ancestors
 'self' <origins>` and every other path, the console included, keeps
 `X-Frame-Options: DENY`.
 
-Configure → **Price books** carries the `Public` toggle per cloud book with a
-link to the public catalog preview; Configure → **Leads** is the read-only
-list (date, address, monthly, lines, link) under `customers.manage`.
+Configure → **Price books** carries the `Public` toggle per cloud book — a
+platform book reads "with the list" instead, because the plans and
+pay-per-use cards are published alongside the cloud book and never on their
+own — beside a **Public catalog preview** link to `/estimate`. Configure →
+**Leads** is the read-only list (received, address, per month, per year, what
+they priced, region, link) under `customers.manage`.
+
+The page is mounted ABOVE the session provider in `src/App.tsx`: `/estimate`
+and `/estimate/{id}` render outside the console tree, so a visitor's browser
+makes no `/auth/me` call at all and the sidebar cannot appear. The cart module
+(`src/pages/Estimate.tsx`) holds the cart STATE and the request it becomes —
+never money arithmetic: a total computed in the browser would be the second
+pricing path §11.2 forbids, so every figure on the page comes from
+`?preview=1`.
 
 ### 11.6 Tests
 
@@ -2176,4 +2187,12 @@ in the body), estimate math equals invoice math to the digit, the discount
 control, plans and pay-per-use lines, the refusals, the 30-day validity, the
 shareable link, leads and their permission, the `429`, CORS and preflight, and
 that no public route ever reads or sets the session cookie.
-`ui/src/pages/Estimate.test.ts` — the cart's arithmetic and the embed mode.
+`ui/src/pages/Estimate.test.ts` — the cart model: a second add bumps the
+quantity instead of duplicating a row, a plan line carries months and never
+hours (and an SKU line the reverse, which is what the API refuses), every
+row-level refusal is worded as the server words it, a half-typed row is left
+out of the request while the rest still prices, and the embed predicate and
+height message. `ui/src/pages/EstimatePublic.render.test.tsx` — the page
+renders the list prices, the plans, the pay-per-use rates, the tax line and
+the price-book footer with no console shell and no sign-out, drops its header
+under `?embed=1`, and shows a shared estimate read-only.
