@@ -3,10 +3,10 @@ import type { Me, Permission } from '../api/types'
 import { useSession } from '../auth/session'
 import { can, customerIds, displayRole, isSovereign, roleLabel } from '../lib/access'
 
-// Sovereign-admin lens: Analyse · Bill · Configure (DESIGN.md §2). Every
-// item may name the permission it needs (DESIGN.md §10.9); items without one
-// are readable by any principal on the lens, and the server still filters
-// every row by the session's scope.
+// Sovereign-admin lens: Analyse · Plan · Bill · Configure (DESIGN.md §2, §11).
+// Every item may name the permission it needs (DESIGN.md §10.9); items
+// without one are readable by any principal on the lens, and the server
+// still filters every row by the session's scope.
 type NavItem = readonly [to: string, label: string, icon: string, needs?: Permission]
 type NavGroup = readonly [title: string, items: readonly NavItem[]]
 
@@ -21,6 +21,10 @@ const SOVEREIGN_NAV: readonly NavGroup[] = [
       ['/recommendations', 'Recommendations', '✓'],
     ],
   ],
+  // Plan (DESIGN.md §11): the operator's picture of the cloud underneath.
+  // Readable by any Sovereign principal (metering.read at the Sovereign);
+  // totals, footprints and caps are edited with capacity.manage inside.
+  ['Plan', [['/capacity', 'Capacity', '▥']]],
   [
     'Bill',
     [

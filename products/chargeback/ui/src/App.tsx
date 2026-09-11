@@ -26,6 +26,7 @@ import { Recommendations } from './pages/Recommendations'
 import { Collections } from './pages/Collections'
 import { Billing } from './pages/Billing'
 import { Access } from './pages/Access'
+import { Capacity } from './pages/Capacity'
 
 function Home() {
   const { me, loading } = useSession()
@@ -68,6 +69,7 @@ export function App() {
             <Route path="/resources/:sourceId/:resourceId" element={<ResourceDetail />} />
             <Route path="/anomalies" element={<Anomalies />} />
             <Route path="/recommendations" element={<Recommendations />} />
+            <Route path="/capacity" element={<Capacity />} />
             {/* Visual regression page for the chart library (#6867); not in the nav. */}
             <Route path="/dev/charts" element={<ChartGallery />} />
           </Route>

@@ -13,8 +13,8 @@ export type Role = 'operator' | 'customer-admin' | 'customer-viewer' | BindingRo
 /** The six roles of the access model (DESIGN.md §10.3). */
 export type BindingRole = 'sovereign-admin' | 'billing-operator' | 'finance-viewer' | 'customer-owner' | 'customer-billing' | 'customer-viewer'
 export type ScopeKind = 'sovereign' | 'customer'
-/** The nine permissions (DESIGN.md §10.2). */
-export type Permission = 'metering.read' | 'rating.manage' | 'customers.manage' | 'billing.issue' | 'billing.collect' | 'account.topup' | 'settings.manage' | 'audit.read' | 'customer.self.manage'
+/** The ten permissions (DESIGN.md §10.2; `capacity.manage` is §11). */
+export type Permission = 'metering.read' | 'rating.manage' | 'customers.manage' | 'billing.issue' | 'billing.collect' | 'account.topup' | 'settings.manage' | 'audit.read' | 'customer.self.manage' | 'capacity.manage'
 
 /** One binding as /me reports it: where it came from is `source`. */
 export interface SessionBinding {
@@ -1136,4 +1136,206 @@ export interface ReportSendResult {
   window_to: string
   delivery?: ReportDelivery
   error?: string
+}
+
+// ---------------------------------------------------------------------------
+// Capacity (DESIGN.md §11, founder requirement 2026-09-11). Static-first: a
+// region holds zones, a zone one pool per family whose TOTAL the operator
+// enters; CONSUMED is derived from the latest complete hour of metering
+// through the SKU footprints; RESERVED is 0 until proposals fill it. Every
+// quantity is an exact JSON number; utilisation, growth and exhaustion are
+// floats (estimates).
+// ---------------------------------------------------------------------------
+
+/** The seven pooled resource families (`internal/capacity.Families`). */
+export type CapacityFamily = 'vcpu' | 'memory_gib' | 'block_ssd_gib' | 'block_hdd_gib' | 'object_gib' | 'eip_addresses' | 'bandwidth_mbps'
+
+export interface CapacityFamilyDef {
+  family: CapacityFamily | string
+  label: string
+  /** What a total and a footprint amount count in (vCPU, GiB, addresses, Mbps). */
+  unit: string
+}
+
+/** unset = no total entered yet · ok · warn (≥ 70 %) · critical (≥ 85 %). */
+export type CapacityPoolStatus = 'unset' | 'ok' | 'warn' | 'critical'
+
+export interface CapacityRegion {
+  id: string
+  code: string
+  name: string
+  /** Which cloud collector will fill this region's totals later. */
+  cloud_source_kind: string
+  created_at?: string
+  zones: CapacityZone[]
+}
+
+export interface CapacityZone {
+  id: string
+  region_id: string
+  region_code?: string
+  code: string
+  name: string
+  /** The default zone receives usage whose zone the inventory does not carry. */
+  is_default: boolean
+  created_at?: string
+  pools?: CapacityPool[]
+}
+
+export interface CapacityPool {
+  id: string
+  zone_id: string
+  family: CapacityFamily | string
+  total: number | string
+  reserved: number | string
+  /** manual (the console) or a collector's name. */
+  source: string
+  note: string
+  updated_by: string
+  updated_at: string
+}
+
+/** One entry of a pool's total history (GET /capacity/zones/{id}/pools). */
+export interface CapacityPoolChange {
+  id: number
+  pool_id: string
+  total: number | string
+  source: string
+  note: string
+  changed_by: string
+  changed_at: string
+}
+
+export interface CapacityDayPoint {
+  day: string
+  consumed: number | string
+}
+
+/** A pool with the derived figures (GET /capacity/overview). */
+export interface CapacityPoolView extends CapacityPool {
+  label: string
+  unit: string
+  consumed: number | string
+  /** total − reserved − consumed, never below 0. */
+  available: number | string
+  utilisation_pct: number | null
+  status: CapacityPoolStatus | string
+  /** True when the arithmetic went negative; overcommit is the shortfall. */
+  clamped: boolean
+  overcommit: number | string
+  /** The part of consumed attributed here because the resource's zone is unknown. */
+  zone_unknown: number | string
+  /** Units per day, the 7-day run-rate trend; null with too little history. */
+  growth_per_day: number | null
+  /** available ÷ growth; null when not growing or no total. */
+  exhaustion_days: number | null
+  history_days: number
+  series: CapacityDayPoint[]
+}
+
+/** One SKU's headroom in one zone. */
+export interface CapacitySKUView {
+  sku: string
+  footprint: Record<string, number | string>
+  /** seed · manual · derived (from the SKU name, no stored row). */
+  footprint_source: string
+  consumed_units: number | string
+  resources: number
+  /** null when no family in the footprint has a total yet. */
+  headroom_units: number | string | null
+  /** The family that limits headroom, or "cap". */
+  binding_family: string
+  cap: number | string | null
+}
+
+export interface CapacityZoneView {
+  id: string
+  code: string
+  name: string
+  is_default: boolean
+  pools: CapacityPoolView[]
+  skus: CapacitySKUView[]
+}
+
+export interface CapacityRegionView {
+  id: string
+  code: string
+  name: string
+  cloud_source_kind: string
+  zones: CapacityZoneView[]
+}
+
+/** A metered SKU with no footprint — counts against no pool. */
+export interface CapacityUnmappedSKU {
+  sku: string
+  unit: string
+  quantity: number | string
+  resources: number
+  regions: string[]
+}
+
+/** Metered usage in a region not configured here (or configured without zones). */
+export interface CapacityUnmappedRegion {
+  region: string
+  reason: 'no-region' | 'no-zones' | string
+  skus: number
+  quantity: number | string
+  resources: number
+}
+
+export interface CapacityThresholds {
+  warn_pct: number
+  critical_pct: number
+}
+
+export interface CapacitySummary {
+  regions: number
+  zones: number
+  pools: number
+  pools_with_total: number
+  pools_warn: number
+  pools_critical: number
+  /** warn + critical: pools past the 70 % line. */
+  pools_below_threshold: number
+  skus: number
+  unmapped_skus: number
+}
+
+/** GET /capacity/overview */
+export interface CapacityOverview {
+  /** The latest complete hour consumption was measured in; null with no cloud usage. */
+  as_of: string | null
+  sources: number
+  lagging_sources: number
+  thresholds: CapacityThresholds
+  families: CapacityFamilyDef[]
+  regions: CapacityRegionView[]
+  unmapped_skus: CapacityUnmappedSKU[]
+  unmapped_regions: CapacityUnmappedRegion[]
+  summary: CapacitySummary
+}
+
+export interface SKUFootprint {
+  sku: string
+  families: Record<string, number | string>
+  source: string
+  updated_at?: string
+}
+
+/** GET /capacity/footprints */
+export interface SKUFootprints {
+  footprints: SKUFootprint[]
+  families: CapacityFamilyDef[]
+  /** List-price SKUs with no per-unit footprint in any family (elb, nat.<spec>, vpc). */
+  unseeded_skus: string[]
+}
+
+export interface SKUCap {
+  zone_id: string
+  zone_code?: string
+  region_code?: string
+  sku: string
+  total: number | string
+  updated_by?: string
+  updated_at?: string
 }
