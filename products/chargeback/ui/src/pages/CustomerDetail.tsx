@@ -24,6 +24,7 @@ import { StatementsPanel } from '../panels/StatementsPanel'
 import { UsersPanel } from '../panels/UsersPanel'
 import { CustomerCostExplorer } from './CostExplorer'
 import { CustomerOverview } from './Overview'
+import { CustomerPartnerCard } from './Partners'
 import { ResourcesBody } from './Resources'
 
 const TABS = ['Overview', 'Account', 'Cost', 'Resources', 'Statements', 'Discounts', 'Budgets', 'Sources', 'Users', 'Settings', 'Audit']
@@ -98,6 +99,12 @@ export function CustomerDetail() {
         sub={
           <>
             <span className="mono">{c.slug}</span> · {c.kind === 'organization' ? 'Organization' : 'external'} · {commercialLabel(c)}
+            {c.partner_id ? (
+              <>
+                {' · via '}
+                <Link to={`/partners/${c.partner_id}`}>{c.partner_name || 'its partner'}</Link>
+              </>
+            ) : ''}
             {planLabel(c.plan_slug) ? ` · ${planLabel(c.plan_slug)}` : ''} ·{' '}
             {/* The price book is a property of each SOURCE (DESIGN.md §2), so
                 the header counts the sources per layer and links to the tab
@@ -213,14 +220,19 @@ export function CustomerDetail() {
       ) : null}
       {tab === 'users' ? <UsersPanel customerId={id} users={users} adminEmail={c.admin_email} canManage={canManageUsers} onChanged={usr.reload} /> : null}
       {tab === 'settings' ? (
-        <SettingsPanel
-          key={c.id}
-          customer={c}
-          onSaved={(next) => {
-            cust.setData({ ...c, ...next })
-            return sum.reload()
-          }}
-        />
+        <div className="stack">
+          <SettingsPanel
+            key={c.id}
+            customer={c}
+            onSaved={(next) => {
+              cust.setData({ ...c, ...next })
+              return sum.reload()
+            }}
+          />
+          {/* DESIGN.md §11.3 — which partner this customer buys through.
+              Assigning it needs partners.manage; everyone else reads it. */}
+          <CustomerPartnerCard customer={c} canManage={can(me, 'partners.manage')} onChanged={cust.reload} />
+        </div>
       ) : null}
       {tab === 'audit' ? <AuditPanel customerId={id} /> : null}
       {!TABS.some((t) => t.toLowerCase() === tab) ? <Notice kind="warn">Unknown tab "{tab}".</Notice> : null}

@@ -1,7 +1,7 @@
 import { Navigate, NavLink, Outlet, useNavigate } from 'react-router-dom'
 import type { Me, Permission } from '../api/types'
 import { useSession } from '../auth/session'
-import { can, customerIds, displayRole, isSovereign, roleLabel } from '../lib/access'
+import { can, canPartner, customerIds, displayRole, isPartner, isSovereign, primaryPartnerId, roleLabel } from '../lib/access'
 
 // Sovereign-admin lens: Analyse · Plan · Bill · Configure (DESIGN.md §2, §11).
 // Every item may name the permission it needs (DESIGN.md §10.9); items
@@ -39,6 +39,7 @@ const SOVEREIGN_NAV: readonly NavGroup[] = [
     [
       ['/customers', 'Customers', '⌂'],
       ['/leads', 'Leads', '✦', 'customers.manage'],
+      ['/partners', 'Partners', '⇋'],
       ['/pricebooks', 'Price books', '¤'],
       ['/discounts', 'Discounts', '%'],
       ['/allocation', 'Allocation', '⇶'],
@@ -79,11 +80,38 @@ const CUSTOMER_NAV: readonly NavGroup[] = [
   ],
 ] as const
 
-export type Lens = 'sovereign' | 'customer'
+// The PARTNER lens (DESIGN.md §11.5): a principal bound to a partner reads
+// its own customers, its own and their statements, its account, its margin
+// and its users — and none of the Sovereign's pages.
+const PARTNER_NAV: readonly NavGroup[] = [
+  ['Analyse', [['/partner/overview', 'My customers', '⌂']]],
+  [
+    'Bill',
+    [
+      ['/partner/statements', 'Statements', '≡'],
+      ['/partner/account', 'Account', '◎'],
+      ['/partner/margin', 'Margin', '⧉'],
+    ],
+  ],
+  [
+    'Configure',
+    [
+      ['/partner/retail', 'Retail prices', '¤', 'partner.self.manage'],
+      ['/partner/users', 'Users', '☺', 'partner.self.manage'],
+    ],
+  ],
+] as const
+
+export type Lens = 'sovereign' | 'partner' | 'customer'
 
 /** The groups a principal sees, with the items it lacks permission for removed. */
 export function navFor(me: Me): readonly NavGroup[] {
   const sovereign = isSovereign(me)
+  const partner = isPartner(me)
+  if (partner) {
+    const partnerId = primaryPartnerId(me)
+    return PARTNER_NAV.map(([title, items]) => [title, items.filter(([, , , needs]) => !needs || canPartner(me, needs, partnerId))] as const).filter(([, items]) => items.length > 0)
+  }
   const customerId = sovereign ? null : (customerIds(me)[0] ?? null)
   const groups = sovereign ? SOVEREIGN_NAV : CUSTOMER_NAV
   return groups
@@ -96,7 +124,7 @@ export function Shell({ lens }: { lens?: Lens }) {
   const nav = useNavigate()
   if (loading) return <div className="single muted">Loading…</div>
   if (!me) return <Navigate to="/signin" replace />
-  const mine: Lens = isSovereign(me) ? 'sovereign' : 'customer'
+  const mine: Lens = isSovereign(me) ? 'sovereign' : isPartner(me) ? 'partner' : 'customer'
   if (lens && lens !== mine) return <Navigate to="/" replace />
 
   const groups = navFor(me)

@@ -441,6 +441,47 @@ export function StatementView() {
         </div>
       </div>
 
+      {/* DESIGN.md §11 — the partner block: what the partner pays us and what
+          it keeps. The server sends buy_total and margin_total to Sovereign
+          roles and to that partner's roles only, so the block is simply
+          absent for anyone else. */}
+      {s.buy_total !== undefined && s.buy_total !== null ? (
+        <div className="card">
+          <h2>Partner</h2>
+          <p className="muted">
+            {s.statement_kind === 'wholesale'
+              ? 'This is the wholesale statement of a reseller: its customers’ usage at the price it pays us, grouped by end customer.'
+              : s.statement_kind === 'commission'
+                ? 'This is an agent’s commission statement: what we owe the partner on the invoices we issued to its customers.'
+                : `Rated through ${s.partner_name || 'a partner'}: the customer pays the net below, the partner pays us the buy price, and the difference is its margin.`}
+          </p>
+          <table aria-label="Partner block">
+            <tbody>
+              <tr>
+                <td>{s.statement_kind === 'commission' ? 'Customer net' : 'Customer net'}</td>
+                <td className="num">{money(net)}</td>
+              </tr>
+              <tr>
+                <td>Partner buy</td>
+                <td className="num">{money(toNumber(s.buy_total))}</td>
+              </tr>
+              <tr style={{ fontWeight: 600 }}>
+                <td>Margin</td>
+                <td className={`num ${toNumber(s.margin_total ?? 0) < 0 ? 'bad' : 'ok'}`}>
+                  {money(toNumber(s.margin_total ?? 0))}
+                  {net > 0 ? <span className="sub">{formatPct((toNumber(s.margin_total ?? 0) / net) * 100)} of the net</span> : null}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          {s.partner_id ? (
+            <p className="muted tiny">
+              <Link to={`/partners/${s.partner_id}`}>{s.partner_name || 'the partner'}</Link> — margin is derived per line from the list price, the customer's discounts and the partner's tier; it is never entered.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
       {detail.length ? (
         <div className="card pad-0">
           <div className="card-head" style={{ padding: '12px 12px 0' }}>

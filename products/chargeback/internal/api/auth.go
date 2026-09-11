@@ -136,6 +136,26 @@ func (h *Handler) resolveBindings(r *http.Request, email string, groups []string
 		}
 		out = append(out, viaGroups...)
 	}
+	// A PARTNER binding is resolved into the customers it covers — the
+	// partner's customers plus its own party (DESIGN.md §13) — here,
+	// with the session, so a customer assigned to or taken from a partner
+	// takes effect at the principal's next request and nothing about who
+	// reads what is stored at sign-in.
+	expanded := map[string][]string{}
+	for i := range out {
+		b := &out[i]
+		if b.ScopeKind != store.ScopeKindPartner || b.PartnerID == nil {
+			continue
+		}
+		ids, ok := expanded[*b.PartnerID]
+		if !ok {
+			if ids, err = h.Store.ExpandPartnerScope(r.Context(), *b.PartnerID); err != nil {
+				return nil, err
+			}
+			expanded[*b.PartnerID] = ids
+		}
+		b.Customers = ids
+	}
 	return out, nil
 }
 
@@ -198,6 +218,17 @@ func (h *Handler) mePayload(r *http.Request, s store.Session) map[string]any {
 			row["customer_id"] = *b.CustomerID
 			if b.CustomerName != "" {
 				row["customer_name"] = b.CustomerName
+			}
+		}
+		// A partner binding names its partner and the customers it covers,
+		// so the console can draw the partner lens without a second call.
+		if b.PartnerID != nil {
+			row["partner_id"] = *b.PartnerID
+			if b.PartnerName != "" {
+				row["partner_name"] = b.PartnerName
+			}
+			if len(b.Customers) > 0 {
+				row["customer_ids"] = b.Customers
 			}
 		}
 		roles = append(roles, row)

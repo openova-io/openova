@@ -10,11 +10,32 @@
  */
 export type Role = 'operator' | 'customer-admin' | 'customer-viewer' | BindingRole | string
 
-/** The six roles of the access model (DESIGN.md §10.3). */
-export type BindingRole = 'sovereign-admin' | 'billing-operator' | 'finance-viewer' | 'customer-owner' | 'customer-billing' | 'customer-viewer'
-export type ScopeKind = 'sovereign' | 'customer'
-/** The ten permissions (DESIGN.md §10.2; `capacity.manage` is §11). */
-export type Permission = 'metering.read' | 'rating.manage' | 'customers.manage' | 'billing.issue' | 'billing.collect' | 'account.topup' | 'settings.manage' | 'audit.read' | 'customer.self.manage' | 'capacity.manage'
+/** The eight roles of the access model (DESIGN.md §10.3, §13.5). */
+export type BindingRole =
+  | 'sovereign-admin'
+  | 'billing-operator'
+  | 'finance-viewer'
+  | 'partner-owner'
+  | 'partner-viewer'
+  | 'customer-owner'
+  | 'customer-billing'
+  | 'customer-viewer'
+/** A partner binding expands to its customers plus its own party (DESIGN.md §13.5). */
+export type ScopeKind = 'sovereign' | 'partner' | 'customer'
+/** The twelve permissions (DESIGN.md §10.2, §11 capacity, §13.5 partners). */
+export type Permission =
+  | 'metering.read'
+  | 'rating.manage'
+  | 'customers.manage'
+  | 'billing.issue'
+  | 'billing.collect'
+  | 'account.topup'
+  | 'settings.manage'
+  | 'audit.read'
+  | 'customer.self.manage'
+  | 'capacity.manage'
+  | 'partners.manage'
+  | 'partner.self.manage'
 
 /** One binding as /me reports it: where it came from is `source`. */
 export interface SessionBinding {
@@ -22,6 +43,11 @@ export interface SessionBinding {
   scope_kind: ScopeKind | string
   customer_id?: string | null
   customer_name?: string | null
+  /** The partner a partner-scoped binding is bound to (DESIGN.md §11.5). */
+  partner_id?: string | null
+  partner_name?: string | null
+  /** What a partner binding expands to: its customers plus its own party. */
+  customer_ids?: string[]
   /** 'config' (OPERATOR_EMAILS) · 'binding' (role_bindings) · 'group:<name>'. */
   source?: string
 }
@@ -50,6 +76,8 @@ export interface RoleBinding {
   scope_kind: ScopeKind | string
   customer_id?: string | null
   customer_name?: string
+  partner_id?: string | null
+  partner_name?: string
   granted_by?: string
   granted_at?: string | null
   source?: string
@@ -63,6 +91,8 @@ export interface GroupRoleMapping {
   scope_kind?: ScopeKind | string
   customer_id?: string | null
   customer_name?: string
+  partner_id?: string | null
+  partner_name?: string
   created_at?: string
 }
 
@@ -220,6 +250,14 @@ export interface Customer {
   last_statement_period?: string | null
   /** Active AND at least one verified source — why nothing flows otherwise. */
   collecting?: boolean
+  /**
+   * DESIGN.md §11.3 — what this row IS: a customer, or the account (party) of
+   * a partner. A party row is never in the customer directory.
+   */
+  party_kind?: 'customer' | 'partner' | string
+  /** The partner this customer buys through (null = direct). */
+  partner_id?: string | null
+  partner_name?: string
 }
 
 export interface UsageRow {
@@ -286,6 +324,13 @@ export interface PriceBook {
   /** Moves with the header AND the items: "prices as of" on the public catalog. */
   updated_at?: string
   items?: PriceItem[] | null
+  /**
+   * DESIGN.md §11.4 — a partner's DERIVED retail book: materialised from the
+   * list book it names by the partner's retail rule, and read-only here.
+   */
+  partner_id?: string | null
+  derived_from_rule?: boolean
+  derived_from_book_id?: string | null
 }
 
 export interface RatedLine {
@@ -296,6 +341,21 @@ export interface RatedLine {
   amount: number | string
   resource_count?: number
   source_id?: string | null
+  /**
+   * The partner waterfall per line (DESIGN.md §11.1). On a customer's
+   * statement: the Sovereign's list figures beside the amount the customer
+   * is billed, what the partner pays for the line (buy) and what the
+   * customer pays after its own discounts (net). On a wholesale or
+   * commission statement, `end_customer_*` names the customer it belongs to.
+   * All absent for a direct customer, and stripped for a principal that may
+   * not see the buy price.
+   */
+  end_customer_id?: string | null
+  end_customer_name?: string
+  list_unit_price?: number | string | null
+  list_amount?: number | string | null
+  buy_amount?: number | string | null
+  net_amount?: number | string | null
 }
 
 /**
@@ -567,7 +627,23 @@ export interface Statement {
   }> | null
   /** DESIGN.md §2.11 — the combination rule the run applied; absent on statements rated before it existed. */
   discount_rule?: DiscountRule | string | null
+  /**
+   * The partner keys (DESIGN.md §11): the partner of this statement's
+   * customer, or the partner whose party this statement bills. `buy_total`
+   * is what the partner pays us and `margin_total` the customer net less
+   * that — shown to Sovereign roles and to that partner's roles only, and
+   * absent from the document for anyone else.
+   */
+  partner_id?: string | null
+  partner_name?: string
+  party_kind?: 'customer' | 'partner' | string
+  statement_kind?: StatementKind | string
+  buy_total?: number | string | null
+  margin_total?: number | string | null
 }
+
+/** What a statement IS (DESIGN.md §11.2). */
+export type StatementKind = 'customer' | 'wholesale' | 'commission'
 
 export interface Invite {
   token?: string
@@ -1439,4 +1515,109 @@ export interface Estimate {
   created_at: string
   valid_until: string
   share_url?: string
+}
+
+// ---------------------------------------------------------------------------
+// Partners — resellers and agents (DESIGN.md §13)
+// ---------------------------------------------------------------------------
+
+/** How a partner is billed: resell (the partner) or agent (its customer). */
+export type BillTo = 'partner' | 'customer'
+
+/** GET /partners · GET /partners/{id} */
+export interface Partner {
+  id: string
+  slug: string
+  name: string
+  /** The tier whose discounts set the buy price; null = none. */
+  tier_id?: string | null
+  tier_name?: string
+  bill_to: BillTo | string
+  /** The agent commission as a percent of the customer net (used with no tier). */
+  commission_pct?: number | string | null
+  status: string
+  contact_email?: string
+  /** The partner's own account row — its balance, invoices and collections. */
+  party_customer_id?: string
+  customer_count?: number
+  /** The party's ledger figures: positive is owed by the partner. */
+  balance?: number | string
+  available_credit?: number | string
+  has_retail_rule?: boolean
+  created_at?: string
+  updated_at?: string
+}
+
+/** GET /partners/tiers — a tier and the discounts that make it. */
+export interface PartnerTier {
+  id: string
+  name: string
+  description?: string
+  partners?: number
+  discounts?: Discount[]
+  created_at?: string
+}
+
+/** A markup narrowed to one service (a SKU's first segment) or one SKU. */
+export interface RetailOverride {
+  scope: 'service' | 'sku' | string
+  key: string
+  markup_pct: number | string
+}
+
+/** The rule a resell partner's retail book is derived from. */
+export interface RetailRule {
+  partner_id?: string
+  base: 'list' | 'buy' | string
+  markup_pct: number | string
+  overrides?: RetailOverride[]
+  updated_at?: string
+}
+
+/** A derived retail price below the partner's own buy price — warned, never refused. */
+export interface BelowBuyLine {
+  sku: string
+  unit?: string
+  list_unit_price: number | string
+  buy_unit_price: number | string
+  retail_unit_price: number | string
+}
+
+/** One materialised retail book with what it derives from. */
+export interface DerivedBook {
+  book: PriceBook
+  list_book_id: string
+  list_book_name: string
+  below_buy?: BelowBuyLine[]
+}
+
+/** PUT /partners/{id}/retail-rule · GET /partners/{id}/retail-book */
+export interface RetailDocument {
+  partner_id: string
+  bill_to: BillTo | string
+  retail_rule?: RetailRule | null
+  books: DerivedBook[]
+  below_buy: BelowBuyLine[]
+  /** Why there is no retail book, when there is none. */
+  note?: string
+}
+
+/** One (end customer, service) line of the margin report. */
+export interface MarginRow {
+  customer_id: string
+  customer_name: string
+  service: string
+  customer_net: number | string
+  partner_buy: number | string
+  margin: number | string
+  margin_pct?: number | null
+}
+
+/** GET /partners/{id}/margin?period= */
+export interface MarginReport {
+  partner_id: string
+  period: string
+  currency: string
+  rows: MarginRow[]
+  totals: MarginRow
 }

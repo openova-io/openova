@@ -127,32 +127,38 @@ func (sess Session) Scope() Scope {
 	if sess.Role == RoleOperator {
 		return OperatorScope
 	}
+	var ids []string
 	for _, b := range sess.Roles {
 		if b.ScopeKind == ScopeKindSovereign {
 			return OperatorScope
 		}
+		if b.CustomerID != nil && *b.CustomerID != "" {
+			ids = append(ids, *b.CustomerID)
+		}
+		// A partner binding reads the customers assigned to the partner and
+		// the partner's own party (DESIGN.md §13) — resolved onto the
+		// binding with the session, never stored.
+		ids = append(ids, b.Customers...)
 	}
-	if sess.CustomerID != nil {
+	if len(ids) == 0 && sess.CustomerID != nil {
 		return CustomerScope(*sess.CustomerID)
 	}
-	return Scope{}
+	if len(ids) == 0 {
+		return Scope{}
+	}
+	if sess.CustomerID != nil && *sess.CustomerID != "" {
+		// The legacy primary customer stays first, so a reader that takes
+		// one customer lands on the same one the session reports.
+		ids = append([]string{*sess.CustomerID}, ids...)
+	}
+	return CustomersScope(ids)
 }
 
 // HasCustomer reports whether the session holds any binding on the customer
-// (a Sovereign binding counts for every customer).
+// (a Sovereign binding counts for every customer; a partner binding for
+// every customer it expands to).
 func (sess Session) HasCustomer(customerID string) bool {
-	if sess.Scope().Operator {
-		return true
-	}
-	if sess.CustomerID != nil && *sess.CustomerID == customerID {
-		return true
-	}
-	for _, b := range sess.Roles {
-		if b.CustomerID != nil && *b.CustomerID == customerID {
-			return true
-		}
-	}
-	return false
+	return sess.Scope().Allows(customerID)
 }
 
 // CreateInvite issues an activation link token for a customer.

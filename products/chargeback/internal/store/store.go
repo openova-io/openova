@@ -416,6 +416,10 @@ ALTER TABLE cost_sources ADD CONSTRAINT cost_sources_status_check CHECK (status 
 	// estimates. Appended at the very END: migrations are positional
 	// (located by content in MigrationEstimates, estimates.go).
 	estimatesMigrationSQL,
+	// EPIC #6867 — partners (resellers): tiers as discount rows, partners as
+	// parties, derived retail books, the partner scope (DESIGN.md
+	// §13). Located by content as MigrationPartners.
+	partnersMigrationSQL,
 }
 
 // MigrationBackfillIssuedInvoices is the schema_migrations version of the

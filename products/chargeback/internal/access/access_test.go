@@ -14,9 +14,11 @@ func ptr(s string) *string { return &s }
 // table on purpose.
 func TestMatrixEveryRoleEveryPermission(t *testing.T) {
 	want := map[string]map[Permission]bool{
-		RoleSovereignAdmin:  {MeteringRead: true, RatingManage: true, CustomersManage: true, BillingIssue: true, BillingCollect: true, AccountTopup: true, SettingsManage: true, AuditRead: true, CustomerSelfManage: true, CapacityManage: true},
-		RoleBillingOperator: {MeteringRead: true, RatingManage: true, CustomersManage: true, BillingIssue: true, BillingCollect: true, AuditRead: true, CustomerSelfManage: true, CapacityManage: true},
+		RoleSovereignAdmin:  {MeteringRead: true, RatingManage: true, CustomersManage: true, BillingIssue: true, BillingCollect: true, AccountTopup: true, SettingsManage: true, AuditRead: true, CustomerSelfManage: true, CapacityManage: true, PartnersManage: true, PartnerSelfManage: true},
+		RoleBillingOperator: {MeteringRead: true, RatingManage: true, CustomersManage: true, BillingIssue: true, BillingCollect: true, AuditRead: true, CustomerSelfManage: true, CapacityManage: true, PartnersManage: true, PartnerSelfManage: true},
 		RoleFinanceViewer:   {MeteringRead: true, AuditRead: true},
+		RolePartnerOwner:    {MeteringRead: true, AccountTopup: true, PartnerSelfManage: true},
+		RolePartnerViewer:   {MeteringRead: true},
 		RoleCustomerOwner:   {MeteringRead: true, AccountTopup: true, CustomerSelfManage: true},
 		RoleCustomerBilling: {MeteringRead: true, AccountTopup: true},
 		RoleCustomerViewer:  {MeteringRead: true},
@@ -65,12 +67,18 @@ func TestScopesSovereignCoversEveryCustomerCustomerCoversOnlyItsOwn(t *testing.T
 // TestDiscriminatingCasePerRole names the one decision that tells each role
 // from its neighbours.
 func TestDiscriminatingCasePerRole(t *testing.T) {
-	a := "aaaaaaaa-0000-0000-0000-000000000001"
+	a, b := "aaaaaaaa-0000-0000-0000-000000000001", "bbbbbbbb-0000-0000-0000-000000000002"
+	p := "pppppppp-0000-0000-0000-000000000003"
 	sov := func(role string) []store.RoleBinding {
 		return []store.RoleBinding{{Role: role, ScopeKind: ScopeSovereign}}
 	}
 	cust := func(role string) []store.RoleBinding {
 		return []store.RoleBinding{{Role: role, ScopeKind: ScopeCustomer, CustomerID: ptr(a)}}
+	}
+	// A partner binding carries its EXPANSION: the customers of the partner
+	// plus the partner's own party (DESIGN.md §13).
+	partner := func(role, customer string) []store.RoleBinding {
+		return []store.RoleBinding{{Role: role, ScopeKind: ScopePartner, PartnerID: ptr(p), Customers: []string{customer}}}
 	}
 	cases := []struct {
 		name     string
@@ -94,6 +102,15 @@ func TestDiscriminatingCasePerRole(t *testing.T) {
 		{"customer-billing cannot manage users", cust(RoleCustomerBilling), CustomerSelfManage, a, false},
 		{"customer-viewer reads", cust(RoleCustomerViewer), MeteringRead, a, true},
 		{"customer-viewer cannot top up", cust(RoleCustomerViewer), AccountTopup, a, false},
+		{"partner-owner reads its customer", partner(RolePartnerOwner, a), MeteringRead, a, true},
+		{"partner-owner cannot read another partner's customer", partner(RolePartnerOwner, a), MeteringRead, b, false},
+		{"partner-owner cannot manage partners Sovereign-wide", partner(RolePartnerOwner, a), PartnersManage, a, false},
+		{"partner-owner cannot change a rate", partner(RolePartnerOwner, a), RatingManage, a, false},
+		{"partner-owner cannot issue", partner(RolePartnerOwner, a), BillingIssue, a, false},
+		{"partner-viewer reads", partner(RolePartnerViewer, a), MeteringRead, a, true},
+		{"partner-viewer cannot edit the retail rule", partner(RolePartnerViewer, a), PartnerSelfManage, a, false},
+		{"partner-viewer cannot top up", partner(RolePartnerViewer, a), AccountTopup, a, false},
+		{"billing-operator manages any partner's rule through partners.manage", sov(RoleBillingOperator), PartnerSelfManage, a, true},
 		{"no bindings hold nothing", nil, MeteringRead, a, false},
 		{"an unknown role holds nothing", []store.RoleBinding{{Role: "root", ScopeKind: ScopeSovereign}}, MeteringRead, "", false},
 	}
@@ -201,7 +218,7 @@ func TestEffectiveAndScopes(t *testing.T) {
 func TestEveryRoleHasExactlyOneScopeKind(t *testing.T) {
 	for _, role := range store.Roles {
 		kind := store.ScopeKindOfRole(role)
-		if kind != ScopeSovereign && kind != ScopeCustomer {
+		if kind != ScopeSovereign && kind != ScopeCustomer && kind != ScopePartner {
 			t.Fatalf("%s has no scope kind", role)
 		}
 		if _, ok := Describe[role]; !ok {

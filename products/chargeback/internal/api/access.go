@@ -86,6 +86,9 @@ type bindingBody struct {
 	Email        string  `json:"email"` // alias accepted for symmetry with /customers/{id}/users
 	Role         string  `json:"role"`
 	CustomerID   *string `json:"customer_id"`
+	// PartnerID is what a partner role is bound to (DESIGN.md §13);
+	// the role fixes which of the two ids the binding takes.
+	PartnerID *string `json:"partner_id"`
 }
 
 // createBinding — POST /access/bindings. Idempotent: granting what is
@@ -119,12 +122,18 @@ func (h *Handler) createBinding(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if in.PartnerID != nil && *in.PartnerID != "" {
+		if _, err := h.Store.GetPartner(r.Context(), *in.PartnerID); err != nil {
+			storeErr(w, err)
+			return
+		}
+	}
 	before, err := h.Store.ListRoleBindings(r.Context(), store.RoleBindingFilter{SubjectEmail: email})
 	if err != nil {
 		storeErr(w, err)
 		return
 	}
-	b, err := h.Store.UpsertRoleBinding(r.Context(), store.RoleBinding{SubjectEmail: email, Role: role, CustomerID: in.CustomerID, GrantedBy: s.Email})
+	b, err := h.Store.UpsertRoleBinding(r.Context(), store.RoleBinding{SubjectEmail: email, Role: role, CustomerID: in.CustomerID, PartnerID: in.PartnerID, GrantedBy: s.Email})
 	switch {
 	case errors.Is(err, store.ErrInvalid):
 		writeErr(w, http.StatusBadRequest, invalidMessage(err))
@@ -140,7 +149,7 @@ func (h *Handler) createBinding(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if status == http.StatusCreated {
-		h.audit(r, b.CustomerID, "access.binding", map[string]any{"op": "grant", "binding_id": b.ID, "subject_email": b.SubjectEmail, "role": b.Role, "scope_kind": b.ScopeKind, "customer_id": b.CustomerID})
+		h.audit(r, b.CustomerID, "access.binding", map[string]any{"op": "grant", "binding_id": b.ID, "subject_email": b.SubjectEmail, "role": b.Role, "scope_kind": b.ScopeKind, "customer_id": b.CustomerID, "partner_id": b.PartnerID})
 	}
 	writeJSON(w, status, b)
 }
@@ -173,7 +182,7 @@ func (h *Handler) deleteBinding(w http.ResponseWriter, r *http.Request) {
 		storeErr(w, err)
 		return
 	}
-	h.audit(r, b.CustomerID, "access.binding", map[string]any{"op": "revoke", "binding_id": b.ID, "subject_email": b.SubjectEmail, "role": b.Role, "scope_kind": b.ScopeKind, "customer_id": b.CustomerID})
+	h.audit(r, b.CustomerID, "access.binding", map[string]any{"op": "revoke", "binding_id": b.ID, "subject_email": b.SubjectEmail, "role": b.Role, "scope_kind": b.ScopeKind, "customer_id": b.CustomerID, "partner_id": b.PartnerID})
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": true, "id": id})
 }
 
@@ -203,6 +212,8 @@ type groupMappingBody struct {
 	GroupName  string  `json:"group_name"`
 	Role       string  `json:"role"`
 	CustomerID *string `json:"customer_id"`
+	// PartnerID is what a partner role's mapping is bound to.
+	PartnerID *string `json:"partner_id"`
 }
 
 // putGroupMappings — PUT /access/group-mappings {mappings: [...]}. The given
@@ -230,7 +241,17 @@ func (h *Handler) putGroupMappings(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		mappings = append(mappings, store.GroupRoleMapping{GroupName: m.GroupName, Role: strings.ToLower(strings.TrimSpace(m.Role)), CustomerID: m.CustomerID})
+		if m.PartnerID != nil && *m.PartnerID != "" {
+			if _, err := h.Store.GetPartner(r.Context(), *m.PartnerID); err != nil {
+				if errors.Is(err, store.ErrNotFound) {
+					writeErr(w, http.StatusBadRequest, "group "+strings.TrimSpace(m.GroupName)+": partner "+*m.PartnerID+" does not exist")
+					return
+				}
+				storeErr(w, err)
+				return
+			}
+		}
+		mappings = append(mappings, store.GroupRoleMapping{GroupName: m.GroupName, Role: strings.ToLower(strings.TrimSpace(m.Role)), CustomerID: m.CustomerID, PartnerID: m.PartnerID})
 	}
 	list, err := h.Store.ReplaceGroupRoleMappings(r.Context(), mappings)
 	switch {
@@ -243,7 +264,7 @@ func (h *Handler) putGroupMappings(w http.ResponseWriter, r *http.Request) {
 	}
 	names := make([]map[string]any, 0, len(list))
 	for _, m := range list {
-		names = append(names, map[string]any{"group_name": m.GroupName, "role": m.Role, "scope_kind": m.ScopeKind, "customer_id": m.CustomerID})
+		names = append(names, map[string]any{"group_name": m.GroupName, "role": m.Role, "scope_kind": m.ScopeKind, "customer_id": m.CustomerID, "partner_id": m.PartnerID})
 	}
 	h.audit(r, nil, "access.mapping", map[string]any{"op": "replace", "count": len(list), "mappings": names})
 	writeJSON(w, http.StatusOK, map[string]any{"mappings": list, "groups_header": h.groupsHeaderName()})

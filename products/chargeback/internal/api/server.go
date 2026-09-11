@@ -202,6 +202,27 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/access/group-mappings", h.listGroupMappings)
 	mux.HandleFunc("PUT /api/v1/access/group-mappings", h.putGroupMappings)
 
+	// Partners — resellers and agents (DESIGN.md §13). Sovereign
+	// writes need partners.manage; a partner owner holds partner.self.manage
+	// on its OWN partner. `tiers` is registered before `{id}` so the literal
+	// path wins over the wildcard.
+	mux.HandleFunc("GET /api/v1/partners", h.listPartners)
+	mux.HandleFunc("POST /api/v1/partners", h.createPartner)
+	mux.HandleFunc("GET /api/v1/partners/tiers", h.listPartnerTiers)
+	mux.HandleFunc("POST /api/v1/partners/tiers", h.createPartnerTier)
+	mux.HandleFunc("PUT /api/v1/partners/tiers/{id}/discounts", h.putTierDiscounts)
+	mux.HandleFunc("GET /api/v1/partners/{id}", h.getPartner)
+	mux.HandleFunc("PATCH /api/v1/partners/{id}", h.patchPartner)
+	mux.HandleFunc("PUT /api/v1/partners/{id}/retail-rule", h.putRetailRule)
+	mux.HandleFunc("GET /api/v1/partners/{id}/retail-book", h.getRetailBook)
+	mux.HandleFunc("GET /api/v1/partners/{id}/customers", h.listPartnerCustomers)
+	mux.HandleFunc("GET /api/v1/partners/{id}/statements", h.listPartnerStatements)
+	mux.HandleFunc("GET /api/v1/partners/{id}/margin", h.partnerMargin)
+	mux.HandleFunc("GET /api/v1/partners/{id}/account", h.partnerAccount)
+	mux.HandleFunc("GET /api/v1/partners/{id}/users", h.listPartnerUsers)
+	mux.HandleFunc("POST /api/v1/partners/{id}/users", h.addPartnerUser)
+	mux.HandleFunc("DELETE /api/v1/partners/{id}/users/{email}", h.deletePartnerUser)
+
 	// Customers.
 	mux.HandleFunc("GET /api/v1/customers", h.listCustomers)
 	mux.HandleFunc("POST /api/v1/customers", h.createCustomer)

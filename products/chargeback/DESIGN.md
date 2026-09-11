@@ -2369,3 +2369,237 @@ height message. `ui/src/pages/EstimatePublic.render.test.tsx` — the page
 renders the list prices, the plans, the pay-per-use rates, the tax line and
 the price-book footer with no console shell and no sign-out, drops its header
 under `?embed=1`, and shows a shared estimate read-only.
+## 13. Partners — resellers and agents (founder direction 2026-09-11)
+
+A Sovereign does not only sell direct. It sells **through** partners: a
+reseller that buys capacity at a wholesale price and bills its own customers,
+and an agent that introduces customers we bill ourselves and earns a
+commission. Both were expressible only as "another customer with a discount",
+which cannot say what a partner actually is — a party that owes us money for
+somebody else's usage, or that we owe money to.
+
+### 13.1 The waterfall — one list price, two independent steps
+
+The whole model is three lines, and everything below follows from them:
+
+    list  −  customer discounts  →  CUSTOMER NET   what the end customer pays
+    list  −  partner tier        →  PARTNER BUY    what the partner pays us
+                                    MARGIN = customer net − partner buy
+
+**There is one list price per SKU** — the Sovereign's list book, assigned to
+the source as always (§2). The two reductions off it are **independent**: a
+customer's negotiated discount does not change what the partner pays us, and
+a partner's tier does not change what the customer is billed. **Margin is
+derived per line and never entered.** There is no markup typed per SKU
+anywhere in the product, because a typed markup is a second price that drifts
+from the first the moment either side moves.
+
+Both steps run through **the same discount engine** — `rating.ApplyDiscounts`
+and its per-meter sibling `rating.DiscountBySKU`, under the operator's
+combination rule (§2.11). A tier discount IS a discount: a row of the
+`discounts` table with `tier_id` set, `customer_id` NULL and `kind =
+percent`. Most-specific, highest, stack and compound decide two tier
+percentages exactly as they decide two customer percentages, and the table in
+§2.11 is the table for a tier. There is no second pricing path to keep in
+step with the first.
+
+Worked, to the decimal, and pinned by
+`TestIntegrationPartnerWaterfallResellAndAgent`:
+
+| | figure |
+|---|---|
+| list (1 unit at 100) | **100.000000** |
+| customer discount 10 % | −10.000000 |
+| **customer net** | **90.000000** |
+| tier discount 30 % off list | −30.000000 |
+| **partner buy** | **70.000000** |
+| **margin** (net − buy) | **20.000000** |
+
+Tax is charged on what the customer pays, as everywhere else: 5 % of 90 is
+4.500000 and the invoice total is 94.500000.
+
+### 13.2 The two billing models
+
+`partners.bill_to` selects one, and it is a value in the rating run
+(`billingModel`), not a conditional sprinkled through it. Both are
+first-class; neither is a special case of the other.
+
+**`partner` — RESELL.** The partner is invoiced a **wholesale statement**: every
+one of its customers' lines at list, less the tier, grouped by end customer.
+Its customers are rated at the partner's **derived retail book** (§13.3) for
+informational showback — they are the partner's customers to bill. The
+wholesale statement is a real invoice on the partner's account: issued,
+numbered, due on terms, collected like any other.
+
+**`customer` — AGENT.** We invoice the end customer ourselves, at **our own
+books** — nothing about the bill changes because an agent introduced it. The
+partner is credited a **commission statement**: one line per end customer,
+`customer net − partner buy`, or `commission_pct × customer net` when the
+partner has no tier. Issuing it posts a ledger **credit** of kind
+`commission` on the partner's account: money we owe, so the balance reads in
+credit. Nothing is collected on it.
+
+**One run produces both.** `POST /statements/run` rates every customer as
+before — a partner's customer additionally carrying its per-line waterfall —
+and then writes each affected partner's own statement from the lines the
+customer pass just froze. A partner's statement is therefore always
+reconcilable to its customers' statements, line for line, and a customer
+whose period is already issued still contributes to it.
+
+### 13.3 A partner is a PARTY — it reuses the customer ledger
+
+A partner owes money, pays it, gets credit notes, is chased by collections
+and can be suspended. All of that already exists for a customer, and
+duplicating it for a partner would mean two ledgers that must agree.
+
+So each partner owns one `customers` row flagged `party_kind = 'partner'`
+(`partners.party_customer_id`), created in the same transaction as the
+partner and billed `postpaid` by `transfer`. The partner's balance, invoices,
+payments, allocations, credit notes and aging are the ones that row already
+has — **zero new ledger code**. `GET /partners/{id}/account` is the customer
+account handler pointed at the party.
+
+A party row is not a customer: `ListCustomers` and the status counts exclude
+it, the rating run never rates it as one, and it can never be assigned to a
+partner itself. `customers.partner_id` assigns an END customer to a partner —
+one partner per customer, nullable, and clearing it makes the customer direct
+again.
+
+### 13.4 The derived retail book
+
+Under resell the partner sets its own prices, and it must be able to do that
+without hand-maintaining a rate card that has to track ours. So it states a
+**rule**, and the book is **materialised from it**:
+
+    partner_retail_rules(partner_id, base ∈ {list, buy}, markup_pct, overrides[])
+
+Per SKU: `buy = list − tier` (through the combination engine),
+`base = list | buy`, `retail = base × (1 + markup)`. The markup is the most
+specific override that matches — `sku`, then `service` (the SKU's first
+segment: `ecs`, `evs`, `plan`, `k8s`), then the rule's default — the same
+"most specific wins" the discount engine uses.
+
+The result is a **real `price_books` row** owned by the partner
+(`partner_id`, `derived_from_rule`, `derived_from_book_id`), one per list
+book its customers are priced by, so every reader that knows a price book —
+rating, coverage, export — reads it unchanged. It is **read-only in the
+editor**: an item write answers 409 naming what to change instead. It is
+re-derived on a **list change, a tier change, a rule change, a billing-model
+change and a customer assignment**, and it is removed when the partner
+becomes an agent or loses its rule.
+
+A retail price **below the partner's own buy price** is reported, in the API
+response and on the console, as a `below_buy` line — never refused. Selling
+at a loss is the partner's decision to make; hiding it from them is not ours.
+
+    base = buy (70) + 5 %  → 73.50000000, no warning
+    base = list (100) + 5 % → 105.00000000
+    base = buy (70) − 10 % → 63.00000000, below the buy price of 70 → warned
+
+### 13.5 The partner scope
+
+A third scope kind joins `sovereign` and `customer:<id>`: **`partner:<id>`**.
+A binding there **expands**, with the session and never stored, to the
+customers assigned to that partner plus the partner's own party — so a
+partner principal reads its customers' explorer, resources, statements and
+accounts through the surfaces that already exist, each of which now filters
+by a SET of customers rather than one (`store.Scope.CustomerIDs`). A customer
+assigned to or taken from a partner takes effect at the principal's next
+request.
+
+Two roles, bound at that scope:
+
+| Role | Permissions |
+|---|---|
+| `partner-owner` | `metering.read`, `account.topup`, `partner.self.manage` — reads its customers and its own account, edits its retail rule, manages its own users, tops up its account |
+| `partner-viewer` | `metering.read` |
+
+and two permissions join the nine:
+
+| Permission | Grants |
+|---|---|
+| `partners.manage` | Create and edit partners, tiers and their discounts; assign a customer to a partner; set any partner's retail rule. Sovereign-only (`sovereign-admin`, `billing-operator`). Implies `partner.self.manage` on every partner. |
+| `partner.self.manage` | The partner-scoped subset an owner holds on its OWN partner: its retail rule and its users. |
+
+**What a partner never sees**: another partner, another partner's customers
+or margin, the provider's list books (403 — it reads its own retail book
+instead), and the tier catalogue. **What a customer never sees**: the partner
+directory (403), any partner-scoped route (404), and the buy price or margin
+on its own bill — `buy_total`, `margin_total` and the per-line `buy_amount`,
+`list_amount` and `list_unit_price` are stripped for any principal that is
+neither Sovereign nor bound to that partner. The partner it buys through
+stays named on its own customer record: that is its own commercial
+relationship, not a secret.
+
+### 13.6 The API
+
+| Route | Permission |
+|---|---|
+| `GET /api/v1/partners` | `metering.read` (sovereign) — a partner principal gets its own only; a customer principal 403 |
+| `POST /api/v1/partners` | `partners.manage` — creates the partner AND its party, and grants the contact `partner-owner` |
+| `GET /api/v1/partners/{id}` | `metering.read` (partner) |
+| `PATCH /api/v1/partners/{id}` | `partners.manage` — a tier or model change re-derives the retail books |
+| `GET /api/v1/partners/tiers` | `metering.read` (sovereign) |
+| `POST /api/v1/partners/tiers` | `partners.manage` |
+| `PUT /api/v1/partners/tiers/{id}/discounts` | `partners.manage` — replaces the set; re-derives every partner on the tier |
+| `PUT /api/v1/partners/{id}/retail-rule` | `partner.self.manage` (partner) — re-derives; the response carries the books and the below-buy lines |
+| `GET /api/v1/partners/{id}/retail-book` | `metering.read` (partner) |
+| `GET /api/v1/partners/{id}/customers` | `metering.read` (partner) |
+| `GET /api/v1/partners/{id}/statements` | `metering.read` (partner) — its wholesale / commission statements |
+| `GET /api/v1/partners/{id}/margin?period=` | `metering.read` (partner) — per customer per service: net, buy, margin, margin % |
+| `GET /api/v1/partners/{id}/account` | `metering.read` (partner) — the party's ledger |
+| `GET /api/v1/partners/{id}/users` | `metering.read` (partner) |
+| `POST /api/v1/partners/{id}/users` · `DELETE …/users/{email}` | `partner.self.manage` (partner) |
+| `PATCH /api/v1/customers/{id}` (`partner_id`) | `partners.manage` — never `customers.manage` alone, and never the customer itself |
+
+Every write is audited: `partner.create`, `partner.update`, `partner.tier`,
+`partner.retail_rule`, and `access.binding` for the partner-scoped grants.
+
+Statement documents gain `partner_id`, `party_kind`, `statement_kind`
+(`customer` | `wholesale` | `commission`), `buy_total` and `margin_total`;
+rated lines gain `end_customer_id`, `list_unit_price`, `list_amount`,
+`buy_amount` and `net_amount`. Every key is additive — a reader written
+before partners existed is unchanged, and a direct customer's statement
+carries none of them.
+
+### 13.7 The console
+
+**Configure → Partners** lists every partner with its tier, billing model,
+customer count and account balance; opens one for its customers, its
+statements, its margin, its retail rule (with the derived book preview and
+the below-buy warnings) and its users; and creates and edits both partners
+and tiers, tier discounts included. The customer page gains a **Partner**
+block: which partner this customer buys through, and the assignment.
+
+The **partner lens** is the third lens beside the Sovereign's and the
+customer's. When the caller's bindings are partner-scoped the menu shows
+**Analyse** (its customers' cost), **Bill** (its customers' statements and
+its own wholesale or commission statements), **Account** (its party),
+**Margin** and **Users** — and nothing else. The statement view shows the
+partner block — buy total, margin, margin % — to Sovereign roles and partner
+roles only.
+
+### 13.8 Tests
+
+`internal/rating/partners_test.go` pins the engine: `DiscountBySKU` allocates
+exactly the total `ApplyDiscounts` reports, per meter, under all four
+combination rules; a tier obeys that same table (most-specific 20, highest
+30, stack 50, compound 44 on one 100 line); the derived book's 73.5 / 105 /
+63-with-a-warning; the override precedence; and that a split of a figure
+across lines sums back to it exactly.
+`internal/store/partners_integration_test.go` walks the waterfall against
+Postgres: 100 → net 90 / buy 70 / margin 20 on the customer statement and its
+line, the resell wholesale statement summing at 70 with the lines grouped by
+end customer, the agent commission of 20 posted as a ledger credit that takes
+the partner's balance to −20, the margin report, the derived book re-derived
+on a list change (200 − 30 % + 5 % = 147) and removed when the partner
+becomes an agent, the scope expansion, and that a tier discount never reaches
+a customer's list or bill.
+`internal/api/partners_integration_test.go` proves the routes: the documents
+the console reads, the retail-rule response with its below-buy lines, the 409
+on editing a derived book, a partner owner reading its own customer (200) and
+another partner's (404), 403 on the provider books and the tier catalogue,
+403 on every Sovereign write, a partner-viewer refused its own retail rule, a
+revoked partner user out at the next request, and a customer principal
+refused the partner directory with the buy price and margin stripped from its
+own statement.

@@ -219,7 +219,24 @@ type Customer struct {
 	// all: the customer is active AND at least one source is verified. It
 	// exists so the UI can say why nothing flows for a pending customer.
 	Collecting bool `json:"collecting"`
+
+	// PartyKind says what this row IS (DESIGN.md §13): a customer, or
+	// the account (party) of a partner — the row that gives a partner a
+	// balance, payments, invoices and collections through the one ledger.
+	// A party row is never listed in the customer directory and is never
+	// rated by the customer pass of a run.
+	PartyKind string `json:"party_kind"`
+	// PartnerID assigns this customer to a partner (nil = direct). One
+	// partner per customer; a party row never carries one.
+	PartnerID   *string `json:"partner_id,omitempty"`
+	PartnerName string  `json:"partner_name,omitempty"`
 }
+
+// Party kinds of a customers row.
+const (
+	PartyKindCustomer = "customer"
+	PartyKindPartner  = "partner"
+)
 
 // CustomerUser grants an email a role on a customer. It is the customer-
 // scoped view of a RoleBinding: Role is the LEGACY name an older reader
@@ -344,11 +361,17 @@ type PriceBook struct {
 	Description string    `json:"description,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
 	// Public marks the ONE cloud book the unauthenticated calculator prices
-	// from (DESIGN.md §11); UpdatedAt moves with the header and the items,
+	// from (DESIGN.md §12); UpdatedAt moves with the header and the items,
 	// and dates the public catalog.
 	Public    bool        `json:"public"`
 	UpdatedAt time.Time   `json:"updated_at"`
 	Items     []PriceItem `json:"items,omitempty"`
+	// A partner's DERIVED retail book (DESIGN.md §13): owned by the
+	// partner, materialised from one list book by its retail rule, read-only
+	// in the editor and re-derived on every list, tier or rule change.
+	PartnerID         *string `json:"partner_id,omitempty"`
+	DerivedFromRule   bool    `json:"derived_from_rule"`
+	DerivedFromBookID *string `json:"derived_from_book_id,omitempty"`
 }
 
 // PriceItem prices one SKU. UnitPrice is derived from AnnualPrice and the
@@ -398,6 +421,12 @@ type Discount struct {
 	// percent instead of competing with it. No effect under stack/compound.
 	Stackable bool      `json:"stackable"`
 	CreatedAt time.Time `json:"created_at"`
+	// TierID makes this a PARTNER TIER discount (DESIGN.md §13): a
+	// percent off list that sets the partner buy price, decided by the same
+	// combination engine as every other discount. Never on a customer's
+	// list; never on a customer's bill.
+	TierID   *string `json:"tier_id,omitempty"`
+	TierName string  `json:"tier_name,omitempty"`
 }
 
 // AppliesAt reports whether the discount is live at t. A campaign that has not
@@ -494,6 +523,39 @@ type Statement struct {
 	// Payments is the ledger behind Paid; present on the single-statement
 	// document, absent from list documents.
 	Payments []StatementPayment `json:"payments,omitempty"`
+
+	// The partner keys (DESIGN.md §13), all additive. PartnerID is the
+	// partner of the statement's customer (a customer statement) or the
+	// partner whose party this statement bills (wholesale / commission);
+	// PartyKind says which; Kind is customer | wholesale | commission.
+	// BuyTotal is what the partner pays us for these lines and MarginTotal
+	// what the end customers pay minus that — derived, never entered, and
+	// shown to Sovereign and partner roles only (RedactPartner).
+	PartnerID   *string  `json:"partner_id,omitempty"`
+	PartnerName string   `json:"partner_name,omitempty"`
+	PartyKind   string   `json:"party_kind,omitempty"`
+	Kind        string   `json:"statement_kind,omitempty"`
+	BuyTotal    *Decimal `json:"buy_total,omitempty"`
+	MarginTotal *Decimal `json:"margin_total,omitempty"`
+}
+
+// Statement kinds (statements.statement_kind).
+const (
+	StatementKindCustomer   = "customer"
+	StatementKindWholesale  = "wholesale"
+	StatementKindCommission = "commission"
+)
+
+// RedactPartner strips what a customer principal must not see about its
+// partner: the buy figures and the margin. The partner assignment itself
+// stays — it is the customer's own commercial relationship.
+func (st *Statement) RedactPartner() {
+	st.BuyTotal, st.MarginTotal = nil, nil
+	for i := range st.Lines {
+		st.Lines[i].BuyAmount = nil
+		st.Lines[i].ListUnitPrice = nil
+		st.Lines[i].ListAmount = nil
+	}
 }
 
 // RatedLine is one priced aggregate on a statement.
@@ -508,6 +570,20 @@ type RatedLine struct {
 	UnitPrice     Decimal `json:"unit_price"`
 	Amount        Decimal `json:"amount"`
 	ResourceCount int     `json:"resource_count"`
+
+	// The partner waterfall per line (DESIGN.md §13), set only on the
+	// lines of a customer that has a partner and on partner statements. On
+	// a customer statement: ListUnitPrice / ListAmount are the Sovereign's
+	// list figures (Amount is the retail figure under resell), BuyAmount
+	// what the partner pays for the line, NetAmount what the customer pays
+	// after its own discounts. On a wholesale or commission statement
+	// EndCustomerID names the end customer the line belongs to.
+	EndCustomerID   *string  `json:"end_customer_id,omitempty"`
+	EndCustomerName string   `json:"end_customer_name,omitempty"`
+	ListUnitPrice   *Decimal `json:"list_unit_price,omitempty"`
+	ListAmount      *Decimal `json:"list_amount,omitempty"`
+	BuyAmount       *Decimal `json:"buy_amount,omitempty"`
+	NetAmount       *Decimal `json:"net_amount,omitempty"`
 }
 
 // Invite is a one-time activation link.
@@ -566,18 +642,26 @@ const (
 	RoleFinanceViewer   = "finance-viewer"
 	RoleCustomerOwner   = "customer-owner"
 	RoleCustomerBilling = "customer-billing"
+	// The two partner roles (DESIGN.md §13), bound at one partner: an
+	// owner reads its customers, edits its retail rule, manages its users
+	// and tops up its own account; a viewer reads.
+	RolePartnerOwner  = "partner-owner"
+	RolePartnerViewer = "partner-viewer"
 )
 
 // Scope kinds a role is bound at.
 const (
 	ScopeKindSovereign = "sovereign"
 	ScopeKindCustomer  = "customer"
+	// ScopeKindPartner is one partner: the binding expands to the set of
+	// customers assigned to it plus the partner's own party.
+	ScopeKindPartner = "partner"
 )
 
-// Roles lists the six roles in power order, highest first.
-var Roles = []string{RoleSovereignAdmin, RoleBillingOperator, RoleFinanceViewer, RoleCustomerOwner, RoleCustomerBilling, RoleCustomerViewer}
+// Roles lists the eight roles in power order, highest first.
+var Roles = []string{RoleSovereignAdmin, RoleBillingOperator, RoleFinanceViewer, RolePartnerOwner, RolePartnerViewer, RoleCustomerOwner, RoleCustomerBilling, RoleCustomerViewer}
 
-// ValidRole reports whether r is one of the six roles.
+// ValidRole reports whether r is one of the roles.
 func ValidRole(r string) bool {
 	for _, x := range Roles {
 		if x == r {
@@ -588,11 +672,14 @@ func ValidRole(r string) bool {
 }
 
 // ScopeKindOfRole is the scope kind a role is bound at: the three operator
-// roles at the Sovereign, the three customer roles at one customer.
+// roles at the Sovereign, the two partner roles at one partner, the three
+// customer roles at one customer.
 func ScopeKindOfRole(r string) string {
 	switch r {
 	case RoleSovereignAdmin, RoleBillingOperator, RoleFinanceViewer:
 		return ScopeKindSovereign
+	case RolePartnerOwner, RolePartnerViewer:
+		return ScopeKindPartner
 	case RoleCustomerOwner, RoleCustomerBilling, RoleCustomerViewer:
 		return ScopeKindCustomer
 	}
@@ -614,6 +701,13 @@ type RoleBinding struct {
 	GrantedBy    string     `json:"granted_by,omitempty"`
 	GrantedAt    *time.Time `json:"granted_at,omitempty"`
 	Source       string     `json:"source,omitempty"`
+	// PartnerID is set on a partner-scoped binding (DESIGN.md §13).
+	// Customers is its expansion — the customers assigned to that partner
+	// plus the partner's own party — resolved with the session and never
+	// stored: it is what access.Has consults for a customer-scoped question.
+	PartnerID   *string  `json:"partner_id,omitempty"`
+	PartnerName string   `json:"partner_name,omitempty"`
+	Customers   []string `json:"-"`
 }
 
 // GroupRoleMapping grants every member of a directory group (as forwarded
@@ -625,6 +719,8 @@ type GroupRoleMapping struct {
 	ScopeKind    string    `json:"scope_kind"`
 	CustomerID   *string   `json:"customer_id,omitempty"`
 	CustomerName string    `json:"customer_name,omitempty"`
+	PartnerID    *string   `json:"partner_id,omitempty"`
+	PartnerName  string    `json:"partner_name,omitempty"`
 	CreatedAt    time.Time `json:"created_at,omitempty"`
 }
 
@@ -637,10 +733,17 @@ const (
 )
 
 // Scope is the authorization boundary every query is filtered by: the operator
-// sees everything, a customer principal sees only its own customer.
+// sees everything, a customer principal sees only its own customer, and a
+// PARTNER principal (DESIGN.md §13) sees the SET of customers assigned to
+// its partner plus the partner's own party — CustomerIDs, with CustomerID the
+// first of them for readers that take one.
 type Scope struct {
 	Operator   bool
 	CustomerID string
+	// CustomerIDs is the full set a multi-customer (partner) scope may read;
+	// empty for the operator and for a single-customer scope, whose one id
+	// is CustomerID.
+	CustomerIDs []string
 }
 
 // OperatorScope sees all rows.
@@ -649,10 +752,63 @@ var OperatorScope = Scope{Operator: true}
 // CustomerScope sees one customer.
 func CustomerScope(id string) Scope { return Scope{CustomerID: id} }
 
+// CustomersScope sees a set of customers (a partner principal). One id
+// collapses to CustomerScope so every single-customer reader keeps working.
+func CustomersScope(ids []string) Scope {
+	var clean []string
+	seen := map[string]bool{}
+	for _, id := range ids {
+		if id != "" && !seen[id] {
+			seen[id] = true
+			clean = append(clean, id)
+		}
+	}
+	if len(clean) == 0 {
+		return Scope{}
+	}
+	if len(clean) == 1 {
+		return CustomerScope(clean[0])
+	}
+	return Scope{CustomerID: clean[0], CustomerIDs: clean}
+}
+
 // Allows reports whether the scope may see a row of the given customer.
 func (s Scope) Allows(customerID string) bool {
-	return s.Operator || (s.CustomerID != "" && s.CustomerID == customerID)
+	if s.Operator {
+		return true
+	}
+	if customerID == "" {
+		return false
+	}
+	if s.CustomerID == customerID {
+		return true
+	}
+	for _, id := range s.CustomerIDs {
+		if id == customerID {
+			return true
+		}
+	}
+	return false
 }
+
+// Set is every customer id a non-operator scope may read (nil for the
+// operator, whose reads are not filtered). Readers that filter by
+// `customer_id = ANY($n)` take this.
+func (s Scope) Set() []string {
+	if s.Operator {
+		return nil
+	}
+	if len(s.CustomerIDs) > 0 {
+		return s.CustomerIDs
+	}
+	if s.CustomerID != "" {
+		return []string{s.CustomerID}
+	}
+	return []string{}
+}
+
+// Multi reports whether the scope spans more than one customer.
+func (s Scope) Multi() bool { return !s.Operator && len(s.CustomerIDs) > 1 }
 
 // ErrNotFound is returned for absent rows and for rows outside the caller's scope.
 var ErrNotFound = errors.New("not found")
