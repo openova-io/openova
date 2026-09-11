@@ -144,6 +144,38 @@ type Tax struct {
 	// Rule names the discount combination rule in force, when the issuer
 	// wants it stated.
 	DiscountRule string `json:"discount_rule,omitempty"`
+	// Summary is the per-rate tax summary block. An invoice that carries
+	// SEVERAL rates has to show what each rate was charged on — the single
+	// "Tax (5%)" line of the waterfall cannot say it. Empty = one rate, and
+	// the waterfall line is the whole story.
+	Summary []TaxRate `json:"summary,omitempty"`
+	// Notes are the sentences a zero-rated, exempt or reverse-charge line
+	// must carry. They are a LEGAL REQUIREMENT of the document, not a
+	// courtesy: an invoice with a zero tax line and no explanation is the
+	// defect a tax auditor looks for first.
+	Notes []string `json:"notes,omitempty"`
+	// QRPayload is the base64 payload of the QR code the tax authority
+	// requires on the printed invoice. The renderer ENCODES it into a QR
+	// symbol; it never invents or re-derives the payload.
+	QRPayload string `json:"qr_payload,omitempty"`
+}
+
+// TaxRate is one row of the tax summary: what was taxed, at what rate, and
+// how much tax that produced.
+type TaxRate struct {
+	// Label names the rule ("Oman VAT standard"). Optional; the rate
+	// carries the row when it is absent.
+	Label string `json:"label,omitempty"`
+	// Kind is standard | zero_rated | exempt | reverse_charge |
+	// out_of_state. Optional; it selects the wording, never the arithmetic.
+	Kind string `json:"kind,omitempty"`
+	// Rate is a FRACTION (0.05), rendered as a percentage.
+	Rate string `json:"rate"`
+	// Base is the taxable amount AFTER discounts; Amount is the tax on it.
+	Base   string `json:"base"`
+	Amount string `json:"amount"`
+	// Note is the sentence this row requires on the document.
+	Note string `json:"note,omitempty"`
 }
 
 // Payment is one received payment against the document.
@@ -168,6 +200,14 @@ const (
 	MaxLogoBytes    = 512 << 10
 	MaxFieldLength  = 2000
 	MaxNumberLength = 64
+	// MaxTaxRates bounds the tax summary block. A dozen rates on one
+	// invoice is already extraordinary; a hundred is a caller mistake.
+	MaxTaxRates = 64
+	// MaxQRPayload bounds the QR payload. The largest QR symbol this
+	// renderer can draw holds 2331 bytes of data, and a base64 payload past
+	// that cannot be encoded at all — so it is refused here, with a message,
+	// rather than at draw time.
+	MaxQRPayload = 2331
 )
 
 // ValidationError lists every problem found, by JSON path.
@@ -298,6 +338,23 @@ func (r *Request) Validate() error {
 	if d.Terms.PaymentTermsDays < 0 || d.Terms.PaymentTermsDays > 3650 {
 		add("document.terms.payment_terms_days: out of range")
 	}
+	if len(d.Tax.Summary) > MaxTaxRates {
+		add("document.tax.summary: more than %d rows", MaxTaxRates)
+	}
+	for i, t := range d.Tax.Summary {
+		for name, v := range map[string]string{"rate": t.Rate, "base": t.Base, "amount": t.Amount} {
+			if _, err := money.Parse(v); err != nil {
+				add("document.tax.summary[%d].%s: %v", i, name, err)
+			}
+		}
+	}
+	if d.Tax.QRPayload != "" {
+		if len(d.Tax.QRPayload) > MaxQRPayload {
+			add("document.tax.qr_payload: longer than %d characters", MaxQRPayload)
+		} else if _, err := base64.StdEncoding.DecodeString(d.Tax.QRPayload); err != nil {
+			add("document.tax.qr_payload: must be base64 (%v)", err)
+		}
+	}
 
 	if len(p) > 0 {
 		sort.Strings(p)
@@ -376,6 +433,45 @@ func DecodeLogo(uri string) ([]byte, string, error) {
 	return raw, format, nil
 }
 
+// sampleQRPayload is the TLV stream of the sample invoice's five QR fields,
+// base64. It is BUILT here rather than pasted as a blob, so it always
+// decodes to the five fields the sample states.
+var sampleQRPayload = func() string {
+	fields := []struct {
+		tag   byte
+		value string
+	}{
+		{1, "Sovereign Cloud Operator LLC"},
+		{2, "OM1100012345"},
+		{3, "2026-09-01T00:00:00Z"},
+		{4, "91.740600"},
+		{5, "4.368600"},
+	}
+	var raw []byte
+	for _, f := range fields {
+		raw = append(raw, f.tag, byte(len(f.value)))
+		raw = append(raw, f.value...)
+	}
+	return base64.StdEncoding.EncodeToString(raw)
+}()
+
+// SampleTax is the tax block of the sample invoice: the per-rate summary and
+// the QR payload. Used by the readiness self-render and as the base of the
+// test fixtures.
+func SampleTax() Tax {
+	return Tax{
+		// One row, and it agrees with the waterfall exactly: the base is the
+		// net subtotal and the amount is the tax. A summary that did not add
+		// up to the waterfall would be a document that contradicts itself.
+		Summary: []TaxRate{
+			{Label: "Oman VAT standard", Kind: "standard", Rate: "0.05", Base: "87.372000", Amount: "4.368600"},
+		},
+		// The TLV payload of the seller name, registration, timestamp, total
+		// and tax — base64, exactly as the issuer computed it.
+		QRPayload: sampleQRPayload,
+	}
+}
+
 // Sample is a small valid invoice used by the readiness self-render and as
 // the base of the test fixtures. Names are fictional; the domain is the
 // test canon.
@@ -420,6 +516,7 @@ func Sample() Request {
 				Paid:          "50.000000",
 				Balance:       "41.740600",
 			},
+			Tax:       SampleTax(),
 			Discounts: []Discount{{Label: "Launch campaign (10%)", Amount: "9.708000"}},
 			Payments:  []Payment{{PaidAt: "2026-09-05", Method: "transfer", Reference: "TRF-88213", Amount: "50.000000"}},
 			Terms:     Terms{PaymentTermsDays: 30},

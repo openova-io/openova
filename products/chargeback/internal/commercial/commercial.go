@@ -234,8 +234,17 @@ func (p External) Issue(ctx context.Context, id string) (store.Statement, bool, 
 	st.PORef, st.PaymentTermsDays, st.IssuedAt, st.DueAt = poRef, &terms, &issuedAt, &due
 	// The buyer's tax profile as it stands, so the exported documents and
 	// the frozen snapshot agree.
+	// The per-rule summary and the determination audit ride along (DESIGN.md
+	// §17): the exported bill and the frozen snapshot must state the same
+	// rates, or the operator's billing system books something the invoice
+	// does not say.
 	st.TaxSnapshot = &store.TaxSnapshot{Rate: st.TaxRate, Exempt: c.TaxExempt, ExemptReason: c.TaxExemptReason, CustomerName: c.Name, CustomerTaxNumber: c.TaxRegistrationNumber,
-		SellerLegalName: settings.LegalName, SellerTaxNumber: settings.TaxRegistrationNumber, SellerAddress: settings.Address}
+		SellerLegalName: settings.LegalName, SellerTaxNumber: settings.TaxRegistrationNumber, SellerAddress: settings.Address,
+		Lines: st.TaxLines, Audit: st.TaxAudit, CustomerCountry: c.TaxCountry, SellerCountry: settings.TaxCountry,
+		CustomerExemptionNumber: c.TaxExemptionNumber}
+	if c.TaxExemptionExpiresOn != nil {
+		st.TaxSnapshot.CustomerExemptionExpiresOn = *c.TaxExemptionExpiresOn
+	}
 	// The rated-bill document is validated up front — a customer with no
 	// billing-account id is refused before the transaction opens.
 	if _, err := BuildInvoiceDocument(st, c); err != nil {

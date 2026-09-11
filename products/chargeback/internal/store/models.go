@@ -178,6 +178,23 @@ type Customer struct {
 	TaxExempt             bool     `json:"tax_exempt"`
 	TaxExemptReason       string   `json:"tax_exempt_reason,omitempty"`
 	TaxRate               *Decimal `json:"tax_rate,omitempty"`
+	// DESIGN.md §17 — what a tax RULE needs on top of the §9.4 profile.
+	// TaxCountry is the country the customer is registered in (ISO 3166-1
+	// alpha-2; empty = treated as domestic). TaxRegion narrows it where a
+	// country taxes by region. TaxBusiness marks a registered BUSINESS
+	// buyer: reverse charge applies to a business and never to a consumer,
+	// which a registration number alone cannot say. The three exemption
+	// certificate fields are what make TaxExempt auditable — an expired
+	// certificate falls back to the standard rate and says so in the audit.
+	// TaxExemptionExpiresOn is a DAY (YYYY-MM-DD), not an instant — the
+	// column is a DATE and an expiry is announced as a day. It reads back in
+	// the same shape the patch writes, like StartDate.
+	TaxCountry            string  `json:"tax_country,omitempty"`
+	TaxRegion             string  `json:"tax_region,omitempty"`
+	TaxBusiness           bool    `json:"tax_business"`
+	TaxExemptionNumber    string  `json:"tax_exemption_number,omitempty"`
+	TaxExemptionExpiresOn *string `json:"tax_exemption_expires_on,omitempty"`
+	TaxExemptionScanRef   string  `json:"tax_exemption_scan_ref,omitempty"`
 	// Account credit (DESIGN.md §9.5). AutoApplyCredit applies available
 	// credit to every invoice at issue; LowBalanceThreshold and
 	// SuspendAtZero are what payment_model = prepaid adds: an alert when the
@@ -540,6 +557,24 @@ type Statement struct {
 	// the rate applied, the customer's registration and exemption, and the
 	// seller's identity. Absent on a draft (DESIGN.md §9.4).
 	TaxSnapshot *TaxSnapshot `json:"tax_snapshot,omitempty"`
+	// TaxLines is the per-rule tax summary (DESIGN.md §17): one row per tax
+	// rule that applied, with the taxable base after discounts and the tax
+	// on it. Written by the rating run and never recomputed, so an invoice
+	// with two rates keeps showing the two rates it was issued with. Absent
+	// on a statement rated before §17, whose only reading is the single
+	// TaxRate — which is exactly what makes those statements reproducible.
+	TaxLines []TaxLine `json:"tax_lines,omitempty"`
+	// TaxAudit is every tax determination that was NOT the plain reading of
+	// the rule table: an expired exemption certificate, a reverse-charge
+	// finding, a per-customer rate override. Frozen with the statement,
+	// because "why was this customer charged when it holds an exemption" is
+	// a question asked years later by someone who was not there.
+	TaxAudit []string `json:"tax_audit,omitempty"`
+	// EInvoice is the e-invoicing state of this statement (DESIGN.md §17):
+	// built, signed, archived, submitted or not submitted with the reason.
+	// Present on the single-statement document, like Payments; absent
+	// entirely on a Sovereign with no e-invoicing profile configured.
+	EInvoice *EInvoiceState `json:"einvoice,omitempty"`
 	// CreditNotes are the notes issued against this invoice; present on the
 	// single-statement document like Payments.
 	CreditNotes []CreditNote `json:"credit_notes,omitempty"`
@@ -604,6 +639,15 @@ type RatedLine struct {
 	UnitPrice     Decimal `json:"unit_price"`
 	Amount        Decimal `json:"amount"`
 	ResourceCount int     `json:"resource_count"`
+
+	// The line's tax position (DESIGN.md §17): the CATEGORY the SKU was
+	// placed in and the RULE that priced it. An e-invoice carries the tax
+	// category and rate PER LINE, so both are frozen with the line rather
+	// than re-derived from the SKU later — a category rule edited next
+	// month must not change an invoice already issued. Both empty on lines
+	// rated before §17.
+	TaxCategory string `json:"tax_category,omitempty"`
+	TaxRuleID   string `json:"tax_rule_id,omitempty"`
 
 	// The partner waterfall per line (DESIGN.md §13), set only on the
 	// lines of a customer that has a partner and on partner statements. On

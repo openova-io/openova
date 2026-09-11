@@ -2,6 +2,7 @@ package docs
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -61,8 +62,43 @@ func issuedStatement() store.Statement {
 			SellerAddress:     "Knowledge Oasis Muscat\nMuscat 130, Oman",
 		},
 		DiscountDetail: json.RawMessage(`[{"discount_id":"d1","name":"Launch campaign","kind":"percent","value":"10","amount":"9.708000"}]`),
+		// DESIGN.md §17 — the frozen per-rule summary and the e-invoice that
+		// was built at issue. The summary AGREES with the waterfall: its one
+		// base is the net subtotal and its one amount is the tax.
+		TaxLines: []store.TaxLine{
+			{RuleID: "b6b2f2b8-2f1e-4c2a-9a1e-0d4c6f1b7a10", RuleName: "Oman VAT standard", Kind: store.TaxKindStandard,
+				Rate: "0.0500", Base: "87.372000", Tax: "4.368600"},
+		},
+		EInvoice: &store.EInvoiceState{
+			Profile:            "oman",
+			InvoiceNumber:      "INV-2026-00042",
+			State:              store.EInvoiceArchived,
+			SignatureAlgorithm: "ECDSA-SHA256",
+			QRPayload:          sampleQRPayload,
+		},
 	}
 }
+
+// sampleQRPayload is the TLV stream of the five QR fields, base64. Built
+// here rather than pasted so it always decodes to what it claims.
+var sampleQRPayload = func() string {
+	fields := []struct {
+		tag   byte
+		value string
+	}{
+		{1, "Sovereign Cloud Operator LLC"},
+		{2, "OM1100012345"},
+		{3, "2026-09-01T00:00:00Z"},
+		{4, "91.740600"},
+		{5, "4.368600"},
+	}
+	var raw []byte
+	for _, f := range fields {
+		raw = append(raw, f.tag, byte(len(f.value)))
+		raw = append(raw, f.value...)
+	}
+	return base64.StdEncoding.EncodeToString(raw)
+}()
 
 func customer() store.Customer {
 	return store.Customer{ID: "c1", Slug: "acme", Name: "Acme Trading LLC", AdminEmail: "finance@acme.omani.homes"}

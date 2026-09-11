@@ -13,6 +13,7 @@ import (
 const customerColumns = `c.id, c.slug, c.name, c.admin_email, c.kind, c.org_slug, c.price_book_id, c.billing_mode, c.status, c.start_date, c.plan_slug,
 	c.charging, COALESCE(c.payment_model, ''), COALESCE(c.payment_method, ''), c.gateway_name, c.po_reference, c.payment_terms_days, c.external_account_id,
 	c.tax_registration_number, c.tax_exempt, c.tax_exempt_reason, c.tax_rate::text, c.auto_apply_credit, c.low_balance_threshold::text, c.suspend_at_zero,
+	c.tax_country, c.tax_region, c.tax_business, c.tax_exemption_number, c.tax_exemption_expires_on, c.tax_exemption_scan_ref,
 	c.platform_suspended_at, c.suspension_reason, c.suspension_source, c.external_balance::text, c.external_balance_at, c.created_at, c.updated_at,
 	COALESCE((SELECT b.balance FROM customer_balances b WHERE b.customer_id = c.id), 0)::numeric(20,6)::text,
 	COALESCE((SELECT b.available_credit FROM customer_balances b WHERE b.customer_id = c.id), 0)::numeric(20,6)::text,
@@ -34,12 +35,14 @@ func scanCustomer(row interface{ Scan(...any) error }) (Customer, error) {
 	var start, lastCollected sql.NullTime
 	var lastPeriod sql.NullString
 	var taxRate, lowBalance, extBalance sql.NullString
+	var exemptionExpires sql.NullTime
 	var platformSuspended, extBalanceAt sql.NullTime
 	var balance, credit string
 	var partner sql.NullString
 	err := row.Scan(&c.ID, &c.Slug, &c.Name, &c.AdminEmail, &c.Kind, &orgSlug, &pb, &c.BillingMode, &c.Status, &start, &c.PlanSlug,
 		&c.Charging, &c.PaymentModel, &c.PaymentMethod, &c.GatewayName, &c.PORef, &c.PaymentTermsDays, &c.ExternalAccountID,
 		&c.TaxRegistrationNumber, &c.TaxExempt, &c.TaxExemptReason, &taxRate, &c.AutoApplyCredit, &lowBalance, &c.SuspendAtZero,
+		&c.TaxCountry, &c.TaxRegion, &c.TaxBusiness, &c.TaxExemptionNumber, &exemptionExpires, &c.TaxExemptionScanRef,
 		&platformSuspended, &c.SuspensionReason, &c.SuspensionSource, &extBalance, &extBalanceAt, &c.CreatedAt, &c.UpdatedAt,
 		&balance, &credit,
 		&c.SourceCount, &c.VerifiedSourceCount, &c.CloudSourceCount, &c.PlatformSourceCount, &lastCollected, &lastPeriod,
@@ -52,6 +55,7 @@ func scanCustomer(row interface{ Scan(...any) error }) (Customer, error) {
 	c.OrgSlug = strPtr(orgSlug)
 	c.PriceBookID = strPtr(pb)
 	c.TaxRate = decPtr(taxRate)
+	c.TaxExemptionExpiresOn = datePtr(exemptionExpires)
 	c.LowBalanceThreshold = decPtr(lowBalance)
 	c.ExternalBalance = decPtr(extBalance)
 	c.PlatformSuspendedAt = timePtr(platformSuspended)
@@ -200,14 +204,18 @@ func (s *Store) CreateCustomer(ctx context.Context, in CustomerInput) (Customer,
 	var id string
 	err = tx.QueryRowContext(ctx, `INSERT INTO customers (slug, name, admin_email, kind, org_slug, billing_mode, start_date, plan_slug,
 		charging, payment_model, payment_method, gateway_name, po_reference, payment_terms_days, external_account_id,
-		tax_registration_number, tax_exempt, tax_exempt_reason, tax_rate, auto_apply_credit, low_balance_threshold, suspend_at_zero)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::numeric, $20, $21::numeric, $22) RETURNING id`,
+		tax_registration_number, tax_exempt, tax_exempt_reason, tax_rate, auto_apply_credit, low_balance_threshold, suspend_at_zero,
+		tax_country, tax_region, tax_business, tax_exemption_number, tax_exemption_expires_on, tax_exemption_scan_ref)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::numeric, $20, $21::numeric, $22,
+		$23, $24, $25, $26, $27::date, $28) RETURNING id`,
 		strings.ToLower(strings.TrimSpace(in.Slug)), strings.TrimSpace(in.Name), strings.ToLower(strings.TrimSpace(in.AdminEmail)), in.Kind,
 		nullStr(&in.OrgSlug), com.BillingMode(), nullStr(&in.StartDate), NormalizePlanSlug(in.PlanSlug),
 		com.Charging, nullStr(&com.PaymentModel), nullStr(&com.PaymentMethod), com.GatewayName,
 		strings.TrimSpace(in.PORef), terms, strings.TrimSpace(in.ExternalAccountID),
 		strings.TrimSpace(in.Tax.TaxRegistrationNumber), in.Tax.TaxExempt, strings.TrimSpace(in.Tax.TaxExemptReason), nullDec(in.Tax.TaxRate),
-		in.AutoApplyCredit, nullDec(in.LowBalanceThreshold), in.SuspendAtZero).Scan(&id)
+		in.AutoApplyCredit, nullDec(in.LowBalanceThreshold), in.SuspendAtZero,
+		strings.ToUpper(strings.TrimSpace(in.Tax.TaxCountry)), strings.TrimSpace(in.Tax.TaxRegion), in.Tax.TaxBusiness,
+		strings.TrimSpace(in.Tax.TaxExemptionNumber), nullIfEmpty(in.Tax.TaxExemptionExpiresOn), strings.TrimSpace(in.Tax.TaxExemptionScanRef)).Scan(&id)
 	if err != nil {
 		return Customer{}, mapErr(err)
 	}
@@ -252,6 +260,15 @@ type CustomerPatch struct {
 	TaxExempt             *bool
 	TaxExemptReason       *string
 	TaxRate               *Decimal
+	// DESIGN.md §17 — the rule side of the profile. A
+	// TaxExemptionExpiresOn pointing at an empty string clears the expiry
+	// back to "no expiry recorded".
+	TaxCountry            *string
+	TaxRegion             *string
+	TaxBusiness           *bool
+	TaxExemptionNumber    *string
+	TaxExemptionExpiresOn *string
+	TaxExemptionScanRef   *string
 	// The account-credit knobs (DESIGN.md §9.5); a LowBalanceThreshold
 	// pointing at an empty Decimal turns the alert off.
 	AutoApplyCredit     *bool
@@ -360,6 +377,35 @@ func (s *Store) UpdateCustomer(ctx context.Context, id string, p CustomerPatch) 
 			return Customer{}, fmt.Errorf("%w: tax_rate must be a fraction between 0 and 1 (0.05 is 5%%)", ErrInvalid)
 		}
 		add("tax_rate", nullDec(p.TaxRate))
+	}
+	// DESIGN.md §17 — the rule side of the profile.
+	if p.TaxCountry != nil {
+		country := strings.ToUpper(strings.TrimSpace(*p.TaxCountry))
+		if country != "" && (len(country) != 2 || !lettersOnly(country)) {
+			return Customer{}, fmt.Errorf("%w: tax_country must be a two-letter ISO 3166-1 alpha-2 code, or empty", ErrInvalid)
+		}
+		add("tax_country", country)
+	}
+	if p.TaxRegion != nil {
+		add("tax_region", strings.TrimSpace(*p.TaxRegion))
+	}
+	if p.TaxBusiness != nil {
+		add("tax_business", *p.TaxBusiness)
+	}
+	if p.TaxExemptionNumber != nil {
+		add("tax_exemption_number", strings.TrimSpace(*p.TaxExemptionNumber))
+	}
+	if p.TaxExemptionExpiresOn != nil {
+		expiry := strings.TrimSpace(*p.TaxExemptionExpiresOn)
+		if expiry != "" {
+			if _, err := time.Parse("2006-01-02", expiry); err != nil {
+				return Customer{}, fmt.Errorf("%w: tax_exemption_expires_on must be YYYY-MM-DD, or empty", ErrInvalid)
+			}
+		}
+		add("tax_exemption_expires_on", nullIfEmpty(expiry))
+	}
+	if p.TaxExemptionScanRef != nil {
+		add("tax_exemption_scan_ref", strings.TrimSpace(*p.TaxExemptionScanRef))
 	}
 	if p.AutoApplyCredit != nil {
 		add("auto_apply_credit", *p.AutoApplyCredit)
