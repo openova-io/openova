@@ -170,6 +170,14 @@ spec:
               value: {{ .Values.config.ctsPollInterval | quote }}
             - name: PROFILE
               value: {{ .Values.config.profile | quote }}
+            {{- with .Values.publicCalculator.origins }}
+            - name: PUBLIC_CALCULATOR_ORIGINS
+              value: {{ join "," . | quote }}
+            {{- end }}
+            {{- with .Values.publicCalculator.ratePerMinute }}
+            - name: PUBLIC_CALCULATOR_RATE_PER_MINUTE
+              value: {{ . | toString | quote }}
+            {{- end }}
             {{- if .Values.adapter.enabled }}
             - name: ADAPTER_ENABLED
               value: "true"

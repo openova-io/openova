@@ -281,6 +281,19 @@ otel:
   # Prometheus scrape above.
   instrumentation: opentelemetry/default
 
+# The public cost calculator (DESIGN.md §12) serves an unauthenticated,
+# rate-limited catalog and estimate surface from the price book an operator
+# marked public. It is inert until such a book exists, so these values are
+# safe to carry on every Sovereign.
+publicCalculator:
+  # Origins allowed to EMBED /estimate in an iframe (frame-ancestors) and to
+  # call the public routes cross-origin — the operator's marketing site.
+  # Empty = same origin only; every other path keeps X-Frame-Options: DENY.
+  origins: []
+  # Token bucket per client address on the public routes; 429 + Retry-After
+  # above it. Behind the gateway the address is the last X-Forwarded-For hop.
+  ratePerMinute: 60
+
 # topology-spread / workload-must-declare-spread: a >=2-replica Deployment
 # must declare a spread across kubernetes.io/hostname or
 # topology.kubernetes.io/zone. ScheduleAnyway keeps a single-node Sovereign
