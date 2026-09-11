@@ -4,7 +4,8 @@ import { api } from '../api/client'
 import type { AgingReport, AgingRow, BillingSettings, CollectionsRun } from '../api/types'
 import { DataTable, type Column } from '../components/DataTable'
 import { Badge, Confirm, Field, KPI, Notice, PageHeader, Skeleton } from '../components/ui'
-import { AGING_BUCKETS, agingKPIs, oldestDueText, overdueShare, reminderScheduleText } from '../lib/account'
+import { AGING_BUCKETS, agingKPIs, oldestDueText, overdueShare, reminderScheduleText, type AgingKPIs } from '../lib/account'
+import { t } from '../i18n'
 import { day, when } from '../lib/format'
 import { formatMoney, formatPct } from '../lib/money'
 import { toNumber } from '../lib/num'
@@ -21,6 +22,37 @@ import { useQuery } from '../lib/useQuery'
  */
 
 type Dialog = { kind: 'run' } | { kind: 'suspend' | 'resume'; row: AgingRow } | null
+
+/** A money formatter bound to a fallback currency, as the page builds one. */
+type Money = (v: number | string | null | undefined, cur?: string) => string
+
+/**
+ * The three sentences this page composes out of several counts. Each was an
+ * inline template with its own `=== 1 ? '' : 's'`; each is now catalogue
+ * entries joined with the punctuation that separates them, which is what lets
+ * a locale spell the counted nouns its own way without owning the layout.
+ */
+function subtitle(rep: AgingReport, k: AgingKPIs, schedule: string, settings: BillingSettings | null): string {
+  const parts = [t('collections.agingAsOf', { day: day(rep.as_of) }), `${t('collections.openInvoices', { count: k.invoices })} ${t('collections.acrossCustomers', { count: k.customers })}`]
+  if (schedule) parts.push(t('collections.remindersAt', { schedule }))
+  if (settings?.escalation_days) parts.push(t('collections.escalateAfter', { days: settings.escalation_days, action: t(settings.escalation_action === 'suspend' ? 'collections.actionSuspend' : 'collections.actionNotify') }))
+  return parts.join(' · ')
+}
+
+function runSummary(run: CollectionsRun): string {
+  const parts = [t('collections.reminders', { count: run.reminders }), t('collections.escalations', { count: run.escalations }), t('collections.suspendedCount', { count: run.suspended }), t('collections.resumedCount', { count: run.resumed })]
+  if (run.mails) parts.push(t('collections.mailsSent', { count: run.mails }))
+  if (run.errors) parts.push(t('collections.runErrors', { count: run.errors }))
+  return `${t('collections.evaluated', { count: run.invoices })}: ${parts.join(', ')}.`
+}
+
+function resumeBody(row: AgingRow, money: Money): string {
+  let held = t('collections.resumeHolds')
+  if (row.suspended_at) held += ` ${t('collections.resumeSince', { when: when(row.suspended_at) })}`
+  if (row.suspension_source) held += ` ${t('collections.resumeBy', { source: row.suspension_source })}`
+  const owing = toNumber(row.overdue) > 0 ? t('collections.resumeStillOverdue', { amount: money(row.overdue, row.currency) }) : t('collections.resumeNothingOverdue')
+  return `${held}. ${owing}`
+}
 
 export function Collections() {
   const rep = useQuery<AgingReport>('/collections/aging')
@@ -45,12 +77,12 @@ export function Collections() {
   const money = (v: number | string | null | undefined, cur = currency) => formatMoney(toNumber(v), cur)
 
   const runNow = async () => {
-    const ok = await act.run('collections run', async () => setRun(await api.post<CollectionsRun>('/collections/run', {})), rep.reload)
+    const ok = await act.run(t('collections.ranLabel'), async () => setRun(await api.post<CollectionsRun>('/collections/run', {})), rep.reload)
     if (ok) setDialog(null)
   }
 
   const enforce = async (kind: 'suspend' | 'resume', row: AgingRow) => {
-    const ok = await act.run(`${row.customer_name} ${kind === 'suspend' ? 'suspended' : 'resumed'} at the platform`, () => api.post(`/customers/${row.customer_id}/${kind}`, { reason: reason.trim() }), rep.reload)
+    const ok = await act.run(t(kind === 'suspend' ? 'collections.suspendedLabel' : 'collections.resumedLabel', { customer: row.customer_name }), () => api.post(`/customers/${row.customer_id}/${kind}`, { reason: reason.trim() }), rep.reload)
     if (ok) {
       setDialog(null)
       setReason('')
@@ -60,13 +92,13 @@ export function Collections() {
   const columns: Column<AgingRow>[] = [
     {
       key: 'customer',
-      header: 'Customer',
+      header: t('collections.col.customer'),
       value: (r) => r.customer_name,
       render: (r) => (
         <>
           <Link to={`/customers/${r.customer_id}?tab=account`}>{r.customer_name}</Link>
           <span className="sub">
-            <span className="mono">{r.customer_slug}</span> · {r.invoices} open invoice{r.invoices === 1 ? '' : 's'}
+            <span className="mono">{r.customer_slug}</span> · {t('collections.openInvoices', { count: r.invoices })}
             {r.suspended ? (
               <>
                 {' '}
@@ -95,7 +127,7 @@ export function Collections() {
     ),
     {
       key: 'total',
-      header: 'Total owed',
+      header: t('collections.col.totalOwed'),
       numeric: true,
       value: (r) => toNumber(r.total),
       render: (r) => <b>{money(r.total, r.currency)}</b>,
@@ -103,19 +135,19 @@ export function Collections() {
     },
     {
       key: 'overdue',
-      header: 'Overdue',
+      header: t('collections.col.overdue'),
       numeric: true,
       value: (r) => toNumber(r.overdue),
-      render: (r) => (toNumber(r.overdue) > 0 ? <span className="bad">{money(r.overdue, r.currency)}</span> : <span className="ok">none</span>),
+      render: (r) => (toNumber(r.overdue) > 0 ? <span className="bad">{money(r.overdue, r.currency)}</span> : <span className="ok">{t('collections.nothingOverdue')}</span>),
       total: (rs) => money(rs.reduce((n, r) => n + toNumber(r.overdue), 0)),
     },
-    { key: 'oldest', header: 'Oldest due', numeric: true, value: (r) => r.oldest_days, render: (r) => <span className={r.oldest_days > 0 ? 'bad' : 'muted'}>{oldestDueText(r.oldest_days)}</span> },
+    { key: 'oldest', header: t('collections.col.oldestDue'), numeric: true, value: (r) => r.oldest_days, render: (r) => <span className={r.oldest_days > 0 ? 'bad' : 'muted'}>{oldestDueText(r.oldest_days)}</span> },
     {
       key: 'credit',
-      header: 'Credit available',
+      header: t('collections.col.creditAvailable'),
       numeric: true,
       value: (r) => toNumber(r.available_credit),
-      render: (r) => (toNumber(r.available_credit) > 0 ? <span className="ok">{money(r.available_credit, r.currency)}</span> : <span className="muted">—</span>),
+      render: (r) => (toNumber(r.available_credit) > 0 ? <span className="ok">{money(r.available_credit, r.currency)}</span> : <span className="muted">{t('common.none')}</span>),
     },
     {
       key: 'actions',
@@ -132,7 +164,7 @@ export function Collections() {
               setOpen(open === r.customer_id ? null : r.customer_id)
             }}
           >
-            {open === r.customer_id ? 'Hide invoices' : 'Invoices'}
+            {open === r.customer_id ? t('collections.hideInvoices') : t('collections.showInvoices')}
           </button>
           {!canCollect ? null : r.suspended ? (
             <button
@@ -144,7 +176,7 @@ export function Collections() {
                 setDialog({ kind: 'resume', row: r })
               }}
             >
-              Resume
+              {t('collections.resume')}
             </button>
           ) : (
             <button
@@ -156,7 +188,7 @@ export function Collections() {
                 setDialog({ kind: 'suspend', row: r })
               }}
             >
-              Suspend
+              {t('collections.suspend')}
             </button>
           )}
         </span>
@@ -167,26 +199,16 @@ export function Collections() {
   return (
     <div className="stack">
       <PageHeader
-        title="Collections"
-        sub={
-          rep.data ? (
-            <>
-              aging as of {day(rep.data.as_of)} · {k.invoices} open invoice{k.invoices === 1 ? '' : 's'} across {k.customers} customer{k.customers === 1 ? '' : 's'}
-              {schedule ? ` · reminders ${schedule}` : ''}
-              {settings.data?.escalation_days ? ` · escalate ${settings.data.escalation_days} days after, ${settings.data.escalation_action === 'suspend' ? 'suspend' : 'notify'}` : ''}
-            </>
-          ) : (
-            'the aging report'
-          )
-        }
+        title={t('collections.title')}
+        sub={rep.data ? subtitle(rep.data, k, schedule, settings.data) : t('collections.subFallback')}
         actions={
           <>
             <Link to="/billing">
-              <button>Reminder schedule</button>
+              <button>{t('collections.reminderSchedule')}</button>
             </Link>
             {canCollect ? (
               <button className="primary" onClick={() => setDialog({ kind: 'run' })} disabled={act.busy}>
-                Run collections now
+                {t('collections.runNow')}
               </button>
             ) : null}
           </>
@@ -197,22 +219,18 @@ export function Collections() {
       {act.ok && !run ? <Notice kind="ok">{act.ok}</Notice> : null}
       {run ? (
         run.skipped ? (
-          <Notice kind="warn">Collections did not run{run.skip_reason ? ` — ${run.skip_reason}` : ''}.</Notice>
+          <Notice kind="warn">{run.skip_reason ? t('collections.didNotRunBecause', { reason: run.skip_reason }) : t('collections.didNotRun')}</Notice>
         ) : (
-          <Notice kind={run.errors ? 'warn' : 'ok'}>
-            Evaluated {run.invoices} open invoice{run.invoices === 1 ? '' : 's'}: {run.reminders} reminder{run.reminders === 1 ? '' : 's'}, {run.escalations} escalation{run.escalations === 1 ? '' : 's'}, {run.suspended} suspended, {run.resumed} resumed
-            {run.mails ? `, ${run.mails} mail${run.mails === 1 ? '' : 's'} sent` : ''}
-            {run.errors ? `, ${run.errors} error${run.errors === 1 ? '' : 's'}` : ''}.
-          </Notice>
+          <Notice kind={run.errors ? 'warn' : 'ok'}>{runSummary(run)}</Notice>
         )
       ) : null}
-      {external ? <Notice kind="info">This Sovereign invoices through the operator's billing system: collections are theirs. The report still reads from our invoice copy, and suspend / resume here execute an explicit command.</Notice> : null}
+      {external ? <Notice kind="info">{t('collections.externalNotice')}</Notice> : null}
 
       <div className="kpis">
-        <KPI label="Total owed" value={money(k.total)} note={`${k.invoices} open invoice${k.invoices === 1 ? '' : 's'}`} />
-        <KPI label="Overdue" value={money(k.overdue)} note={share === null ? 'nothing owed' : `${formatPct(share * 100)} of what is owed`} tone={k.overdue > 0 ? 'bad' : undefined} />
-        <KPI label="Customers overdue" value={k.customersOverdue} note={k.customersOverdue ? `of ${k.customers} with an open invoice` : 'everyone is within terms'} tone={k.customersOverdue ? 'warn' : undefined} />
-        <KPI label="Suspended" value={rows.filter((r) => r.suspended).length} note="held at the platform by this product" tone={rows.some((r) => r.suspended) ? 'bad' : undefined} />
+        <KPI label={t('collections.kpi.totalOwed')} value={money(k.total)} note={t('collections.openInvoices', { count: k.invoices })} />
+        <KPI label={t('collections.kpi.overdue')} value={money(k.overdue)} note={share === null ? t('collections.nothingOwed') : t('collections.shareOfOwed', { pct: formatPct(share * 100) })} tone={k.overdue > 0 ? 'bad' : undefined} />
+        <KPI label={t('collections.kpi.customersOverdue')} value={k.customersOverdue} note={k.customersOverdue ? t('collections.ofWithOpenInvoice', { count: k.customers }) : t('collections.everyoneWithinTerms')} tone={k.customersOverdue ? 'warn' : undefined} />
+        <KPI label={t('collections.kpi.suspended')} value={rows.filter((r) => r.suspended).length} note={t('collections.heldAtPlatform')} tone={rows.some((r) => r.suspended) ? 'bad' : undefined} />
       </div>
 
       <div className="card pad-0">
@@ -225,23 +243,23 @@ export function Collections() {
             columns={columns}
             rows={rows}
             rowKey={(r) => r.customer_id}
-            label="Aging"
+            label={t('collections.tableLabel')}
             defaultSort={{ key: 'overdue', dir: 'desc' }}
             csvName="aging"
             selectedKey={open}
-            emptyTitle="Nothing is owed"
-            emptyBody="Every issued invoice is settled. The report fills as invoices are sent and fall due."
-            footNote="buckets are days past the due date; current is not yet due"
+            emptyTitle={t('collections.emptyTitle')}
+            emptyBody={t('collections.emptyBody')}
+            footNote={t('collections.footNote')}
             expanded={(r) =>
               open === r.customer_id ? (
-                <table aria-label={`Open invoices of ${r.customer_name}`}>
+                <table aria-label={t('collections.invoicesOf', { customer: r.customer_name })}>
                   <thead>
                     <tr>
-                      <th>Invoice</th>
-                      <th>Due</th>
-                      <th>Bucket</th>
-                      <th>Status</th>
-                      <th className="num">Outstanding</th>
+                      <th>{t('collections.col.invoice')}</th>
+                      <th>{t('collections.col.due')}</th>
+                      <th>{t('collections.col.bucket')}</th>
+                      <th>{t('common.status')}</th>
+                      <th className="num">{t('collections.col.outstanding')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -274,18 +292,16 @@ export function Collections() {
 
       {dialog?.kind === 'run' ? (
         <Confirm
-          title="Run collections now?"
-          confirmLabel="Run collections"
+          title={t('collections.runTitle')}
+          confirmLabel={t('collections.runConfirm')}
           busy={act.busy}
           onClose={() => setDialog(null)}
           onConfirm={runNow}
           body={
             <div className="stack tight">
-              <p>
-                One evaluator pass as of today: every open invoice is checked against the reminder schedule{schedule ? ` (${schedule})` : ''} and the escalation rule. Reminders are emailed, escalations executed, and a settled customer this product suspended is resumed.
-              </p>
+              <p>{schedule ? t('collections.runBodyWithSchedule', { schedule }) : t('collections.runBody')}</p>
               <p className="muted small" style={{ margin: 0 }}>
-                The same pass runs daily; this only brings it forward. A reminder already sent for a step is not sent again.
+                {t('collections.runNote')}
               </p>
             </div>
           }
@@ -293,26 +309,21 @@ export function Collections() {
       ) : null}
       {dialog?.kind === 'suspend' || dialog?.kind === 'resume' ? (
         <Confirm
-          title={`${dialog.kind === 'suspend' ? 'Suspend' : 'Resume'} ${dialog.row.customer_name} at the platform?`}
+          title={t(dialog.kind === 'suspend' ? 'collections.suspendTitle' : 'collections.resumeTitle', { customer: dialog.row.customer_name })}
           danger={dialog.kind === 'suspend'}
-          confirmLabel={dialog.kind === 'suspend' ? 'Suspend' : 'Resume'}
+          confirmLabel={t(dialog.kind === 'suspend' ? 'collections.suspend' : 'collections.resume')}
           busy={act.busy}
           onClose={() => setDialog(null)}
           onConfirm={() => enforce(dialog.kind, dialog.row)}
           body={
             <div className="stack tight">
               {dialog.kind === 'suspend' ? (
-                <p>
-                  The Organization is suspended at the platform — its Applications stop — until you resume it. {money(dialog.row.overdue, dialog.row.currency)} is overdue, oldest {oldestDueText(dialog.row.oldest_days)}.
-                </p>
+                <p>{t('collections.suspendBody', { amount: money(dialog.row.overdue, dialog.row.currency), oldest: oldestDueText(dialog.row.oldest_days) })}</p>
               ) : (
-                <p>
-                  Lifts the suspension this product holds{dialog.row.suspended_at ? ` since ${when(dialog.row.suspended_at)}` : ''}
-                  {dialog.row.suspension_source ? ` (by ${dialog.row.suspension_source})` : ''}. {toNumber(dialog.row.overdue) > 0 ? `${money(dialog.row.overdue, dialog.row.currency)} is still overdue.` : 'Nothing is overdue.'}
-                </p>
+                <p>{resumeBody(dialog.row, money)}</p>
               )}
-              <Field label="Reason" help="Kept on the suspension record and shown to the customer.">
-                <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder={dialog.kind === 'suspend' ? 'invoice 60 days overdue, no response' : 'payment received'} autoFocus />
+              <Field label={t('collections.reason')} help={t('collections.reasonHelp')}>
+                <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t(dialog.kind === 'suspend' ? 'collections.reasonSuspendPlaceholder' : 'collections.reasonResumePlaceholder')} autoFocus />
               </Field>
             </div>
           }

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { api, errorText } from '../api/client'
 import type { ImportResult } from '../api/types'
 import { Notice } from '../components/ui'
+import { t } from '../i18n'
 import { CUSTOMER_CSV_SAMPLE, dataUrl, parseCustomersCsv, type CustomerImportPreview } from '../lib/csv'
 
 /**
@@ -43,18 +44,19 @@ export function CustomerImport() {
   return (
     <div className="stack" style={{ maxWidth: 960 }}>
       <div className="row between">
-        <h1>Import customers</h1>
+        <h1>{t('customerImport.title')}</h1>
         <a href={dataUrl(CUSTOMER_CSV_SAMPLE)} download="customers-sample.csv">
-          Download sample CSV
+          {t('customerImport.downloadSample')}
         </a>
       </div>
       <div className="card stack">
         <p className="muted small">
-          Columns: <code>slug,name,admin_email,region,project_ids,price_book,billing_mode,start_date</code> — several
-          project ids are separated by <code>;</code>. Existing slugs are updated; new slugs are created pending.
+          {t('customerImport.columns')} <code>slug,name,admin_email,region,project_ids,price_book,billing_mode,start_date</code>{' '}
+          {t('customerImport.columnsSeparator')} <code>;</code>
+          {t('customerImport.columnsTail')}
         </p>
         <input type="file" accept=".csv,text/csv" onChange={(e) => onFile(e.target.files?.[0])} />
-        <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="…or paste CSV here" />
+        <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder={t('customerImport.paste')} />
         <div className="row">
           <button
             onClick={() => {
@@ -62,10 +64,10 @@ export function CustomerImport() {
               setResult(null)
             }}
           >
-            Preview
+            {t('customerImport.preview')}
           </button>
           <button className="primary" disabled={busy || !preview || preview.rows.length === 0} onClick={() => void send()}>
-            Import {preview ? preview.rows.length : 0} valid row(s)
+            {t('customerImport.import', { count: preview ? preview.rows.length : 0 })}
           </button>
         </div>
       </div>
@@ -74,12 +76,10 @@ export function CustomerImport() {
         <div className="stack">
           {preview.errors.length ? (
             <Notice kind="warn">
-              {preview.errors.length} line(s) will be skipped:
+              {t('customerImport.skipped', { count: preview.errors.length })}
               <ul style={{ margin: '4px 0 0 18px' }}>
                 {preview.errors.map((e) => (
-                  <li key={e.line}>
-                    line {e.line}: {e.message}
-                  </li>
+                  <li key={e.line}>{t('customerImport.lineError', { line: e.line, message: e.message })}</li>
                 ))}
               </ul>
             </Notice>
@@ -89,15 +89,15 @@ export function CustomerImport() {
               <table>
                 <thead>
                   <tr>
-                    <th>Line</th>
-                    <th>Slug</th>
-                    <th>Name</th>
-                    <th>Admin email</th>
-                    <th>Region</th>
-                    <th>Projects</th>
-                    <th>Price book</th>
-                    <th>Billing</th>
-                    <th>Start</th>
+                    <th>{t('customerImport.col.line')}</th>
+                    <th>{t('customerImport.col.slug')}</th>
+                    <th>{t('customerImport.col.name')}</th>
+                    <th>{t('customerImport.col.adminEmail')}</th>
+                    <th>{t('common.region')}</th>
+                    <th>{t('customerImport.col.projects')}</th>
+                    <th>{t('customerImport.col.priceBook')}</th>
+                    <th>{t('customerImport.col.billing')}</th>
+                    <th>{t('customerImport.col.start')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -107,11 +107,11 @@ export function CustomerImport() {
                       <td className="mono">{r.slug}</td>
                       <td>{r.name}</td>
                       <td>{r.admin_email}</td>
-                      <td>{r.region || '—'}</td>
-                      <td className="mono small">{r.project_ids.join(', ') || '—'}</td>
-                      <td>{r.price_book || '—'}</td>
+                      <td>{r.region || t('common.none')}</td>
+                      <td className="mono small">{r.project_ids.join(', ') || t('common.none')}</td>
+                      <td>{r.price_book || t('common.none')}</td>
                       <td>{r.billing_mode}</td>
-                      <td>{r.start_date || '—'}</td>
+                      <td>{r.start_date || t('common.none')}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -124,13 +124,13 @@ export function CustomerImport() {
       {error ? <Notice kind="bad">{error}</Notice> : null}
       {result ? (
         <Notice kind={result.errors && result.errors.length ? 'warn' : 'ok'}>
-          Created {result.created}, updated {result.updated}
-          {result.errors && result.errors.length ? `, ${result.errors.length} error(s)` : ''}.{' '}
-          <Link to="/customers">Back to customers</Link>
+          {t('customerImport.created', { created: result.created, updated: result.updated })}
+          {result.errors && result.errors.length ? t('customerImport.errorCount', { count: result.errors.length }) : ''}.{' '}
+          <Link to="/customers">{t('customerImport.back')}</Link>
           {result.errors && result.errors.length ? (
             <ul style={{ margin: '4px 0 0 18px' }}>
               {result.errors.map((e, i) => (
-                <li key={i}>{typeof e === 'string' ? e : `${e.line ? `line ${e.line}: ` : ''}${e.slug ? `${e.slug}: ` : ''}${e.message}`}</li>
+                <li key={i}>{typeof e === 'string' ? e : [e.line ? t('customerImport.lineNo', { line: e.line }) : '', e.slug ?? '', e.message].filter(Boolean).join(': ')}</li>
               ))}
             </ul>
           ) : null}

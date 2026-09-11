@@ -1,37 +1,49 @@
 import { Navigate, NavLink, Outlet, useNavigate } from 'react-router-dom'
 import type { Me, Permission } from '../api/types'
 import { useSession } from '../auth/session'
+import { t, type Key } from '../i18n'
 import { can, canPartner, customerIds, displayRole, isPartner, isSovereign, primaryPartnerId, roleLabel } from '../lib/access'
 
 // Sovereign-admin lens: Analyse · Plan · Bill · Configure (DESIGN.md §2, §11).
 // Every item may name the permission it needs (DESIGN.md §10.9); items
 // without one are readable by any principal on the lens, and the server
 // still filters every row by the session's scope.
-type NavItem = readonly [to: string, label: string, icon: string, needs?: Permission]
-type NavGroup = readonly [title: string, items: readonly NavItem[]]
+//
+// A nav item carries a catalogue KEY, not a word: navFor resolves it at the
+// moment it is read, so the sidebar follows the active locale rather than
+// whichever one happened to be set when this module was first imported. The
+// `nav.` prefix is what keeps `t(label)` type-safe — every key under it is a
+// plain string with no values to interpolate.
+type NavKey = Extract<Key, `nav.${string}`>
+type NavItemSpec = readonly [to: string, label: NavKey, icon: string, needs?: Permission]
+type NavGroupSpec = readonly [title: NavKey, items: readonly NavItemSpec[]]
 
-const SOVEREIGN_NAV: readonly NavGroup[] = [
+/** One resolved item: the label is the word the sidebar shows. */
+export type NavItem = readonly [to: string, label: string, icon: string, needs?: Permission]
+export type NavGroup = readonly [title: string, items: readonly NavItem[]]
+
+const SOVEREIGN_NAV: readonly NavGroupSpec[] = [
   [
-    'Analyse',
+    'nav.group.analyse',
     [
-      ['/overview', 'Overview', '◐'],
-      ['/explore', 'Cost explorer', '▤'],
-      ['/resources', 'Resources', '▦'],
-      ['/anomalies', 'Anomalies', '△'],
-      ['/recommendations', 'Recommendations', '✓'],
+      ['/overview', 'nav.overview', '◐'],
+      ['/explore', 'nav.explore', '▤'],
+      ['/resources', 'nav.resources', '▦'],
+      ['/anomalies', 'nav.anomalies', '△'],
+      ['/recommendations', 'nav.recommendations', '✓'],
     ],
   ],
   // Plan (DESIGN.md §11): the operator's picture of the cloud underneath.
   // Readable by any Sovereign principal (metering.read at the Sovereign);
   // totals, footprints and caps are edited with capacity.manage inside.
-  ['Plan', [['/capacity', 'Capacity', '▥']]],
+  ['nav.group.plan', [['/capacity', 'nav.capacity', '▥']]],
   [
-    'Bill',
+    'nav.group.bill',
     [
-      ['/statements', 'Statements', '≡'],
-      ['/collections', 'Collections', '⧗'],
-      ['/budgets', 'Budgets', '◔'],
-      ['/reports', 'Reports', '✉'],
+      ['/statements', 'nav.statements', '≡'],
+      ['/collections', 'nav.collections', '⧗'],
+      ['/budgets', 'nav.budgets', '◔'],
+      ['/reports', 'nav.reports', '✉'],
     ],
   ],
   // Finance (DESIGN.md §18) — the handover an operator's finance department
@@ -40,32 +52,32 @@ const SOVEREIGN_NAV: readonly NavGroup[] = [
   // every Sovereign role carries); closing, reopening and editing the map
   // need settings.manage, and the pages render those controls accordingly.
   [
-    'Finance',
+    'nav.group.finance',
     [
-      ['/finance/journal', 'Journal', '⎘', 'audit.read'],
-      ['/finance/reconciliation', 'Reconciliation', '⇄', 'audit.read'],
-      ['/finance/periods', 'Period close', '⊟', 'audit.read'],
-      ['/finance/accounts', 'Account mapping', '#', 'audit.read'],
+      ['/finance/journal', 'nav.journal', '⎘', 'audit.read'],
+      ['/finance/reconciliation', 'nav.reconciliation', '⇄', 'audit.read'],
+      ['/finance/periods', 'nav.periods', '⊟', 'audit.read'],
+      ['/finance/accounts', 'nav.accountMapping', '#', 'audit.read'],
     ],
   ],
   [
-    'Configure',
+    'nav.group.configure',
     [
-      ['/customers', 'Customers', '⌂'],
-      ['/leads', 'Leads', '✦', 'customers.manage'],
-      ['/partners', 'Partners', '⇋'],
-      ['/contracts', 'Contracts', '§'],
-      ['/pricebooks', 'Price books', '¤'],
-      ['/discounts', 'Discounts', '%'],
-      ['/allocation', 'Allocation', '⇶'],
-      ['/billing', 'Billing', '¶'],
-      ['/tax', 'Tax', '⚖', 'metering.read'],
+      ['/customers', 'nav.customers', '⌂'],
+      ['/leads', 'nav.leads', '✦', 'customers.manage'],
+      ['/partners', 'nav.partners', '⇋'],
+      ['/contracts', 'nav.contracts', '§'],
+      ['/pricebooks', 'nav.pricebooks', '¤'],
+      ['/discounts', 'nav.discounts', '%'],
+      ['/allocation', 'nav.allocation', '⇶'],
+      ['/billing', 'nav.billing', '¶'],
+      ['/tax', 'nav.tax', '⚖', 'metering.read'],
       // Notification management (DESIGN.md §21). Reading the catalogue is
       // metering.read — what the product sends is not a secret and every
       // Sovereign role may see it; the Sovereign-wide switches on the page
       // are rendered by settings.manage inside.
-      ['/notifications', 'Notifications', '✉', 'metering.read'],
-      ['/access', 'Access', '⚿', 'settings.manage'],
+      ['/notifications', 'nav.notifications', '✉', 'metering.read'],
+      ['/access', 'nav.access', '⚿', 'settings.manage'],
     ],
   ],
 ] as const
@@ -73,43 +85,43 @@ const SOVEREIGN_NAV: readonly NavGroup[] = [
 // The customer lens (DESIGN.md §10.9). A customer never sees the Sovereign's
 // Bill / Configure groups; its own are its statements, its account and its
 // users — each gated by the permission the customer role holds.
-const CUSTOMER_NAV: readonly NavGroup[] = [
+const CUSTOMER_NAV: readonly NavGroupSpec[] = [
   [
-    'Analyse',
+    'nav.group.analyse',
     [
-      ['/my/overview', 'Overview', '◐'],
-      ['/my/explore', 'Cost explorer', '▤'],
-      ['/my/resources', 'Resources', '▦'],
+      ['/my/overview', 'nav.overview', '◐'],
+      ['/my/explore', 'nav.explore', '▤'],
+      ['/my/resources', 'nav.resources', '▦'],
       // DESIGN.md §19 — the customer's own spend by cost centre. Reading is
       // metering.read, which every customer role carries; the edits on the
       // page are customers.manage and are simply not rendered here.
-      ['/my/cost-centres', 'Cost centres', '⊞'],
+      ['/my/cost-centres', 'nav.costCentres', '⊞'],
     ],
   ],
   [
-    'Bill',
+    'nav.group.bill',
     [
-      ['/my/statements', 'Statements', '≡'],
-      ['/my/account', 'Account', '◎'],
+      ['/my/statements', 'nav.statements', '≡'],
+      ['/my/account', 'nav.account', '◎'],
       // DESIGN.md §16 — the card kept on file. Adding or removing one is
       // account.topup, the same permission a top-up needs; a viewer sees
       // the page and is offered nothing on it.
-      ['/my/payment-methods', 'Payment methods', '▭'],
-      ['/my/budgets', 'Budgets', '◔'],
-      ['/my/reports', 'Reports', '✉'],
+      ['/my/payment-methods', 'nav.paymentMethods', '▭'],
+      ['/my/budgets', 'nav.budgets', '◔'],
+      ['/my/reports', 'nav.reports', '✉'],
     ],
   ],
   [
-    'Configure',
+    'nav.group.configure',
     [
-      ['/my/sources', 'Cost sources', '⇄'],
-      ['/my/discounts', 'Discounts', '%'],
-      ['/my/users', 'Users', '☺', 'customer.self.manage'],
+      ['/my/sources', 'nav.sources', '⇄'],
+      ['/my/discounts', 'nav.discounts', '%'],
+      ['/my/users', 'nav.users', '☺', 'customer.self.manage'],
       // DESIGN.md §21 — which messages this account receives, and what
       // happened to each one. Readable by any customer role (metering.read);
       // the switches are rendered by customer.self.manage inside, and an
       // invoice or a dunning notice offers no switch at all.
-      ['/my/notifications', 'Notifications', '✉'],
+      ['/my/notifications', 'nav.notifications', '✉'],
     ],
   ],
 ] as const
@@ -122,35 +134,43 @@ const CUSTOMER_NAV: readonly NavGroup[] = [
 // recommendation set the operator has; the server confines every one of them
 // to the customers assigned to the partner, so a reseller answers "what is
 // each of my customers costing" without a page of its own.
-const PARTNER_NAV: readonly NavGroup[] = [
+const PARTNER_NAV: readonly NavGroupSpec[] = [
   [
-    'Analyse',
+    'nav.group.analyse',
     [
-      ['/partner/overview', 'My customers', '⌂'],
-      ['/partner/explore', 'Cost explorer', '▤'],
-      ['/partner/resources', 'Resources', '▦'],
-      ['/partner/anomalies', 'Anomalies', '△'],
-      ['/partner/recommendations', 'Recommendations', '✓'],
+      ['/partner/overview', 'nav.myCustomers', '⌂'],
+      ['/partner/explore', 'nav.explore', '▤'],
+      ['/partner/resources', 'nav.resources', '▦'],
+      ['/partner/anomalies', 'nav.anomalies', '△'],
+      ['/partner/recommendations', 'nav.recommendations', '✓'],
     ],
   ],
   [
-    'Bill',
+    'nav.group.bill',
     [
-      ['/partner/statements', 'Statements', '≡'],
-      ['/partner/account', 'Account', '◎'],
-      ['/partner/margin', 'Margin', '⧉'],
+      ['/partner/statements', 'nav.statements', '≡'],
+      ['/partner/account', 'nav.account', '◎'],
+      ['/partner/margin', 'nav.margin', '⧉'],
     ],
   ],
   [
-    'Configure',
+    'nav.group.configure',
     [
-      ['/partner/retail', 'Retail prices', '¤', 'partner.self.manage'],
-      ['/partner/users', 'Users', '☺', 'partner.self.manage'],
+      ['/partner/retail', 'nav.retail', '¤', 'partner.self.manage'],
+      ['/partner/users', 'nav.users', '☺', 'partner.self.manage'],
     ],
   ],
 ] as const
 
 export type Lens = 'sovereign' | 'partner' | 'customer'
+
+/** One group with its keys resolved against the active locale. */
+function resolve([title, items]: readonly [NavKey, readonly NavItemSpec[]]): NavGroup {
+  // An item without a permission keeps a THREE-element tuple, exactly as the
+  // inline table produced: the arity is part of the shape callers read.
+  const resolved = items.map(([to, label, icon, needs]) => (needs === undefined ? ([to, t(label), icon] as const) : ([to, t(label), icon, needs] as const)))
+  return [t(title), resolved] as const
+}
 
 /** The groups a principal sees, with the items it lacks permission for removed. */
 export function navFor(me: Me): readonly NavGroup[] {
@@ -158,19 +178,22 @@ export function navFor(me: Me): readonly NavGroup[] {
   const partner = isPartner(me)
   if (partner) {
     const partnerId = primaryPartnerId(me)
-    return PARTNER_NAV.map(([title, items]) => [title, items.filter(([, , , needs]) => !needs || canPartner(me, needs, partnerId))] as const).filter(([, items]) => items.length > 0)
+    return PARTNER_NAV.map(([title, items]) => [title, items.filter(([, , , needs]) => !needs || canPartner(me, needs, partnerId))] as const)
+      .filter(([, items]) => items.length > 0)
+      .map(resolve)
   }
   const customerId = sovereign ? null : (customerIds(me)[0] ?? null)
   const groups = sovereign ? SOVEREIGN_NAV : CUSTOMER_NAV
   return groups
     .map(([title, items]) => [title, items.filter(([, , , needs]) => !needs || can(me, needs, customerId))] as const)
     .filter(([, items]) => items.length > 0)
+    .map(resolve)
 }
 
 export function Shell({ lens }: { lens?: Lens }) {
   const { me, loading, logout } = useSession()
   const nav = useNavigate()
-  if (loading) return <div className="single muted">Loading…</div>
+  if (loading) return <div className="single muted">{t('shell.loading')}</div>
   if (!me) return <Navigate to="/signin" replace />
   const mine: Lens = isSovereign(me) ? 'sovereign' : isPartner(me) ? 'partner' : 'customer'
   if (lens && lens !== mine) return <Navigate to="/" replace />
@@ -182,7 +205,7 @@ export function Shell({ lens }: { lens?: Lens }) {
       <aside className="side">
         <div className="brand">
           <span className="dot" />
-          Chargeback
+          {t('common.product')}
           {me.profile && me.profile !== 'sovereign' ? <span className="env">{me.profile}</span> : null}
         </div>
         {groups.map(([title, items]) => (
@@ -213,11 +236,11 @@ export function Shell({ lens }: { lens?: Lens }) {
             nav('/signin')
           }}
         >
-          Sign out
+          {t('shell.signOut')}
         </button>
       </aside>
       <main className="main">
-        {me.profile && me.profile !== 'sovereign' ? <div className="banner">profile: {me.profile}</div> : null}
+        {me.profile && me.profile !== 'sovereign' ? <div className="banner">{t('shell.profileBanner', { profile: me.profile })}</div> : null}
         <div className="main-inner">
           <Outlet />
         </div>

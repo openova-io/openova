@@ -3,6 +3,7 @@ import { Navigate, useNavigate } from 'react-router-dom'
 import { api, errorText } from '../api/client'
 import { homeFor, useSession } from '../auth/session'
 import { Field, Notice } from '../components/ui'
+import { t } from '../i18n'
 
 export function SignIn() {
   const { me, loading, refresh } = useSession()
@@ -46,31 +47,31 @@ export function SignIn() {
 
   return (
     <div className="single">
-      <h1>Chargeback</h1>
+      <h1>{t('common.product')}</h1>
       <div className="card">
         {!sent ? (
           <form onSubmit={request}>
-            <Field label="Email">
+            <Field label={t('common.email')}>
               <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus required />
             </Field>
             {error ? <Notice kind="bad">{error}</Notice> : null}
             <button className="primary" disabled={busy}>
-              Send sign-in PIN
+              {t('signin.sendPin')}
             </button>
           </form>
         ) : (
           <form onSubmit={verify}>
-            <p className="muted">A PIN was sent to {email}.</p>
-            <Field label="PIN">
+            <p className="muted">{t('signin.pinSent', { email })}</p>
+            <Field label={t('signin.pin')}>
               <input value={code} onChange={(e) => setCode(e.target.value)} inputMode="numeric" autoFocus required />
             </Field>
             {error ? <Notice kind="bad">{error}</Notice> : null}
             <div className="row">
               <button className="primary" disabled={busy}>
-                Sign in
+                {t('signin.submit')}
               </button>
               <button type="button" onClick={() => setSent(false)}>
-                Use another address
+                {t('signin.another')}
               </button>
             </div>
           </form>
