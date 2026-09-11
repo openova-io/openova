@@ -51,6 +51,12 @@ var costDims = map[string]costDim{
 	// The cloud's enterprise project (Huawei's cost-centre grouping), read
 	// off labels.enterprise_project; records without one group as "(none)".
 	"enterprise_project": {expr: "enterprise_project", label: "enterprise_project"},
+	// The customer's OWN cost centre (DESIGN.md §19), resolved from the
+	// per-resource override and then the tag rules; records neither names
+	// group as "(unassigned)". It is a dimension like any other here, which
+	// is what makes group-by, filtering and the CSV export work on it
+	// without a second code path.
+	CostCentreDimension: {expr: "cost_centre", label: "cost_centre_name"},
 }
 
 // CostDimensions lists the valid STATIC group_by / filter dimensions. Tag
@@ -342,11 +348,13 @@ SELECT u.customer_id, COALESCE(c.slug, '') AS customer_slug, COALESCE(c.name, ''
        COALESCE(NULLIF(u.labels->>'name', ''), u.resource_id) AS resource_label,
        u.labels->'tags' AS tags,
        COALESCE(NULLIF(u.labels->>'enterprise_project', ''), '(none)') AS enterprise_project,
+       ` + costCentreCodeExpr + ` AS cost_centre,
+       ` + costCentreNameExpr + ` AS cost_centre_name,
        p.unit_price,
        COALESCE(b.currency, '') AS currency,
        ` + costPricedExpr + ` AS cost,
        ` + costBaseExpr + ` AS cost_base
-  FROM usage_records u` + costPriceJoinSQL + `
+  FROM usage_records u` + costPriceJoinSQL + costCentreJoinSQL + `
  WHERE u.window_start >= $1 AND u.window_start < $2 AND ` + costMeterFilter
 
 type costArgs struct{ args []any }
@@ -383,6 +391,11 @@ func filteredCTE(q CostQuery, from, to time.Time) (string, *costArgs, error) {
 		"tier":               "CASE WHEN s.internal THEN 'platform-overhead' ELSE COALESCE(NULLIF(u.labels->>'tier', ''), 'organization') END",
 		"namespace":          "COALESCE(u.labels->>'namespace', '')",
 		"enterprise_project": "COALESCE(NULLIF(u.labels->>'enterprise_project', ''), '(none)')",
+		// The cost centre reads the aliases costCentreJoinSQL introduces,
+		// which the CTE's FROM already carries — the same expression the
+		// projection uses, so a filter and a group-by can never disagree
+		// about which centre a record belongs to.
+		CostCentreDimension: costCentreCodeExpr,
 	}
 	// column resolves a filter dimension to its expression; a tag dimension
 	// binds its key as a parameter (never text in the query).

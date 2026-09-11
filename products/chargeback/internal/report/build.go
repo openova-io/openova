@@ -109,6 +109,16 @@ func Build(ctx context.Context, r Reader, sched store.ReportSchedule, from, to, 
 		}
 		in.Services, in.ServicesOther = groupsOf(res)
 	}
+	// DESIGN.md §19 — the window by COST CENTRE, for a customer schedule.
+	// It is the explorer's own dimension, read exactly as the services
+	// section reads the kind, so the mail can never disagree with the page.
+	if in.has(SectionCostCentres) && customerID != "" {
+		res, err := r.Explore(ctx, scope, base(in.From, in.To, "month", store.CostCentreDimension, TopN))
+		if err != nil {
+			return in, err
+		}
+		in.CostCentres, in.CostCentresOther = groupsOf(res)
+	}
 	if in.has(SectionCustomers) && scope.Operator {
 		res, err := r.Explore(ctx, scope, base(in.From, in.To, "month", "customer", TopN))
 		if err != nil {

@@ -324,6 +324,7 @@ highest-power binding.
 | Finance handover (DESIGN.md §18; reads need `audit.read` **and** `metering.read` at the Sovereign, writes `settings.manage`, every write audited `finance.*`) | `GET /finance/journal?period=YYYY-MM[&format=csv]` (double-entry lines against the operator's account codes, the totals and the balance check; a CLOSED period is served from the journal the close froze, so it exports byte-identically for ever) · `POST /finance/journal/export {period}` (queues the same journal as a TMF-shaped `journal` document on the commercial outbox, delivered like the bills) · `GET/PUT /finance/accounts {mappings:[{key, account_code, description}]}` (the chart of accounts; an unknown key is refused by name) · `GET /finance/periods` · `GET /finance/periods/{period}` (status, what blocks a close named row by row, and the balance check as a figure) · `POST /finance/periods/{period}/close` (409 naming every draft statement and open dispute; 422 if the journal does not balance; on success the period is stamped and its journal frozen) · `POST /finance/periods/{period}/reopen {reason}` (reason required, audited) · `POST /finance/reconciliation[?gateway=&from=&to=]` (a settlement file as multipart `file` or a `text/csv` body, or a fetch through `settle.Gateway.Settlements`; four buckets, nothing auto-corrected) · `GET /finance/reconciliations` · `GET /finance/reconciliation/{id}` |
 | Capacity (DESIGN.md §11; reads `metering.read` at the Sovereign, writes `capacity.manage`, every write audited `capacity.*`) | `GET /capacity/overview[?region=]` (regions → zones → pools with total / reserved / consumed / available / utilisation / exhaustion, SKU headroom with the binding family, `unmapped_skus`, `unmapped_regions`) · `GET/POST /capacity/regions` · `DELETE /capacity/regions/{id}` · `POST /capacity/regions/{id}/zones` · `DELETE /capacity/zones/{id}` · `GET /capacity/zones/{id}/pools` (+ total history) · `PUT /capacity/pools/{id} {total, note}` · `GET /capacity/footprints` · `PUT /capacity/footprints/{sku} {families}` · `GET/PUT /capacity/caps {zone_id, sku, total}` |
 | Tax + e-invoicing (DESIGN.md §17; reads `metering.read`, writes `settings.manage`, every write audited `tax.rule.*` / `tax.category.*`) | `GET/POST /tax/rules` · `PUT/DELETE /tax/rules/{id}` — a rule is (country, region, category, kind, rate, validity, note); a kind other than `standard` must carry rate 0, and a second rule for the same country+region+category starting on the same date is `409`. `GET /tax/categories` · `PUT /tax/categories {sku, category}` · `DELETE /tax/categories/{sku}` — `sku` is an exact SKU or a prefix ending in `*` (`evs.*`). A customer's tax block is `PATCH /customers/{id}` (`customers.manage`): `tax_country`, `tax_region`, `tax_business`, `tax_registration_number`, `tax_exempt(+reason)`, `tax_rate`, and the certificate `tax_exemption_number` / `tax_exemption_expires_on` / `tax_exemption_scan_ref`. **`GET /statements/{id}/einvoice`** (the structured UBL-shaped document + its state) · **`GET /statements/{id}/einvoice.xml`** (the signed archival copy) — both follow reading the statement |
+| Cost centres (DESIGN.md §19; reads `metering.read` at the scope — a customer owner reads its own — writes `customers.manage`, every write audited `costcentre.*`) | `GET/POST /customers/{id}/cost-centres` · `PUT/DELETE /cost-centres/{id}` · `GET /customers/{id}/cost-centres/rules` · `PUT /customers/{id}/cost-centres/rules {cost_centre_id\|code, tag_key, tag_value, priority?}` (one tag value names one centre, so re-pointing a value EDITS its rule) · `DELETE /cost-centres/rules/{id}` · `GET /customers/{id}/cost-centres/resources` · `PUT/DELETE /customers/{id}/cost-centres/resources/{resource_id}` (the per-resource override, which beats every rule) · **`GET /customers/{id}/cost-centres/report?period=YYYY-MM`** (`source: statement` = the invoice's own frozen figures with `agrees` stating the identity; `source: usage` = a period not rated yet) · `GET /customers/{id}/cost-centres/report.csv?period=` |
 | Ops (root) | `GET /healthz` · `GET /readyz` · `GET /metrics` |
 
 **Capacity** (DESIGN.md §11, founder requirement 2026-09-11). Console menu
@@ -404,6 +405,38 @@ adds a step to the daily collections evaluator (`contracts_renewed` /
 discounts, true-up, tax — and then handed to the same discount engine and the
 same partner waterfall, whose margin-is-buy-times-markup invariant is pinned
 on a tiered line.
+
+**Cost centres** (DESIGN.md §19, founder direction 2026-09-11). Console tab
+**Customer → Cost centres**, and `/my/cost-centres` in the customer lens. A
+cost centre is a **LABEL on one customer's spend — not a sub-account**: there
+is no parent column, no ledger, no invoice and no users of its own, and it
+enters the price waterfall at no point. Usage is attributed by the tag data
+the collector ALREADY records (`labels.tags`, the same field the `tag:<key>`
+explorer dimension reads): a **rule** maps one tag value onto one centre, a
+**per-resource override** beats every rule, and everything neither names goes
+to the visible `(unassigned)` bucket — never dropped, never spread over the
+named centres. Two rules on different tag keys are ordered by `priority`
+(then key, then value), so the answer never depends on row order.
+
+`cost_centre` is a first-class explorer dimension, so
+`GET /cost/explore?group_by=cost_centre`, the CSV export, the drill-in and a
+**cost-centres section** on a customer's scheduled report all work through the
+one code path.
+
+An invoice gains a **per-cost-centre breakdown** frozen on the statement by
+the rating run, exactly as the per-rule tax summary is. **The invoice's own
+total does not change**: the breakdown apportions the statement's OWN net,
+discount and tax across the centres pro rata by the period's usage, by the
+largest-remainder method (`rating.ApportionWeights`, shared with the §17.3
+tax split), so `sum(net) == subtotal`, `sum(discount) == discount_total`,
+`sum(tax) == tax` and `sum(total) == total` are identities rather than
+rounding coincidences, and every row satisfies `list = net + discount` and
+`total = net + tax`. A charge that is not usage (a §15.4 true-up) is spread by
+the same weights, and each row carries the `usage` weight so the basis is
+visible. Deleting a centre or a rule never touches an invoice already issued —
+the column stores codes, not foreign keys. Nothing here writes money, so a
+**closed period** (§18.4) stays closed by construction: the only thing that
+writes a breakdown is the rating run, which a closed period already refuses.
 
 **Two layers, one book per source** (DESIGN.md §2, founder direction
 2026-09-08). Every cost source belongs to the **cloud** layer (a cloud

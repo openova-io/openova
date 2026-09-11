@@ -23,6 +23,7 @@ export const DIM_LABEL: Record<StaticDim, string> = {
   tier: 'Tier',
   namespace: 'Namespace',
   enterprise_project: 'Enterprise project',
+  cost_centre: 'Cost centre',
 }
 
 /** Display name of any dimension: static ones by table, `tag:<key>` as "Tag <key>". */

@@ -207,69 +207,17 @@ func ApplyTax(lines []store.RatedLine, discount store.Decimal, engine *store.Tax
 	return out, res, nil
 }
 
-// apportion splits total across the groups pro rata by gross. The parts are
-// floored to the money scale and the remainder is handed out one unit at a
-// time, largest fractional part first — so they sum to total EXACTLY, and a
-// group with no gross receives nothing.
+// apportion splits the discount across the groups pro rata by gross, by the
+// largest-remainder method — ApportionWeights, the one implementation this
+// product has (apportion.go), with the groups' gross amounts as the weights.
+// A statement whose groups are all zero puts the whole discount on the first
+// group, which is where a single-group statement puts it.
 func apportion(total store.Decimal, groups []*taxGroup) ([]*big.Rat, error) {
-	want, err := parseRat(string(total))
-	if err != nil {
-		return nil, fmt.Errorf("discount: %w", err)
-	}
-	shares := make([]*big.Rat, len(groups))
-	for i := range shares {
-		shares[i] = new(big.Rat)
-	}
-	if want.Sign() <= 0 {
-		return shares, nil
-	}
-	gross := new(big.Rat)
-	for _, g := range groups {
-		gross.Add(gross, g.gross)
-	}
-	if gross.Sign() <= 0 {
-		// Nothing to apportion against: the whole discount lands on the
-		// first group, which is where a single-group statement puts it.
-		shares[0] = want
-		return shares, nil
-	}
-	// unit is the money scale (10^-6): every share is a whole number of
-	// units, so the parts can be made to sum exactly.
-	unit := big.NewRat(1, 1000000)
-	inUnits := new(big.Rat).Quo(want, unit)
-	totalUnits := new(big.Int).Quo(inUnits.Num(), inUnits.Denom())
-	type rem struct {
-		i    int
-		frac *big.Rat
-	}
-	var rems []rem
-	assigned := new(big.Int)
+	weights := make([]*big.Rat, len(groups))
 	for i, g := range groups {
-		exact := new(big.Rat).Quo(new(big.Rat).Mul(new(big.Rat).SetInt(totalUnits), g.gross), gross)
-		floor := new(big.Int).Quo(exact.Num(), exact.Denom())
-		shares[i] = new(big.Rat).Mul(new(big.Rat).SetInt(floor), unit)
-		assigned.Add(assigned, floor)
-		rems = append(rems, rem{i: i, frac: new(big.Rat).Sub(exact, new(big.Rat).SetInt(floor))})
+		weights[i] = g.gross
 	}
-	left := new(big.Int).Sub(totalUnits, assigned)
-	sort.SliceStable(rems, func(a, b int) bool { return rems[a].frac.Cmp(rems[b].frac) > 0 })
-	for k := 0; left.Sign() > 0 && k < len(rems); k++ {
-		shares[rems[k].i].Add(shares[rems[k].i], unit)
-		left.Sub(left, big.NewInt(1))
-	}
-	// A discount that is not a whole number of units (it always is — every
-	// money column is NUMERIC(20,6)) would leave a sliver; it goes to the
-	// largest group so the identity still holds.
-	if slack := new(big.Rat).Sub(want, sumRats(shares)); slack.Sign() != 0 {
-		biggest := 0
-		for i := range groups {
-			if groups[i].gross.Cmp(groups[biggest].gross) > 0 {
-				biggest = i
-			}
-		}
-		shares[biggest].Add(shares[biggest], slack)
-	}
-	return shares, nil
+	return ApportionWeights(total, weights)
 }
 
 func sumRats(in []*big.Rat) *big.Rat {

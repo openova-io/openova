@@ -3790,3 +3790,263 @@ allowed again afterwards, **a closed period exporting byte-identically before
 and after an unrelated later-period event**, the four buckets end to end with
 the fees journaled and the payments unchanged, the journal reaching the
 commercial outbox once per period, and the permission matrix per route.
+
+---
+
+## 19. Cost centres — one customer's spend, labelled (founder direction 2026-09-11)
+
+The need is an account HIERARCHY: a customer with several departments wants
+its one invoice read by department, and wants next month's tagging to change
+that reading without changing what it pays. The answer is a **cost-centre
+LABEL, not sub-accounts**.
+
+**No new entity types.** A cost centre is a DIMENSION — of exactly the same
+kind as the region, the namespace or the resource tag the explorer already
+groups by. It is never a party: it has no ledger, no invoice, no users, no
+account, no price book and no discounts, and nothing in the price waterfall
+knows it exists. The alternative — a second customers-like table with a
+parent — is a second PARTY, and a second party is a second bill, a second
+tax determination and a second collections track. The model stays
+Sovereign → Organization: what is added is a LABEL carried by spend that
+already has an owner, never a second owner for it.
+
+The whole capability is therefore three tables, one dimension and one
+apportionment, and it adds **no permission of its own**.
+
+### 19.1 The model
+
+```
+cost_centres(id, customer_id, code, name, active, created_at, updated_at)
+              UNIQUE (customer_id, code)
+```
+
+Flat by construction: **there is no parent column**, so a hierarchy cannot be
+expressed even by accident. `code` is what a tag value matches and what a
+report and an invoice breakdown print; it satisfies
+`^[A-Za-z0-9][A-Za-z0-9_.:/@-]{0,63}$` and is unique WITHIN its customer —
+two customers may both book to `ENG` and they are not the same thing. `name`
+is for people.
+
+`active` retires a label. An inactive centre **keeps every figure it already
+carries** — a report does not move because a label was retired — and simply
+cannot be chosen for a new rule or override; attempting it is 400 naming the
+centre. Deleting one is allowed and takes its rules and overrides with it;
+what it does NOT touch is an invoice already issued (19.4).
+
+```
+cost_centre_rules(id, customer_id, cost_centre_id, tag_key, tag_value,
+                  priority, created_at)
+                  UNIQUE (customer_id, tag_key, tag_value)
+```
+
+The attribution rule: a resource tagged `tag_key = tag_value` belongs to this
+cost centre. It reads the tag data the collector **already captures** — no
+collector integration is invented here. Huawei returns tags in three
+different shapes per service and `internal/collector/huawei/tags.go` already
+folds all three into one `labels.tags` map on every usage record, which is the
+same field the `tag:<key>` explorer dimension reads. A pod's own
+`app.kubernetes.io/*` labels arrive by the same path.
+
+One tag value names at most ONE centre per customer — that is what the unique
+key says, and it is why re-pointing a value (`team=platform` now belongs to
+engineering) EDITS that rule rather than adding a second. Two rules on
+DIFFERENT keys can both match one resource; `priority` (then the key, then the
+value) decides, so the answer never depends on the order rows come back in.
+Lower is matched first; the default is 100.
+
+```
+cost_centre_resources(customer_id, resource_id, cost_centre_id, set_by, set_at)
+                      PRIMARY KEY (customer_id, resource_id)
+```
+
+The per-resource OVERRIDE — the answer for the resource nobody tagged and for
+the one tagged wrongly. It beats every rule.
+
+### 19.2 Resolution, in this order
+
+For one usage record:
+
+1. **The per-resource override** on (customer, resource id).
+2. **The first matching rule** by (priority, tag key, tag value), matched
+   against `labels.tags`.
+3. **`(unassigned)`** — the named bucket.
+
+It is ONE SQL fragment (`costCentreJoinSQL`), a LEFT JOIN and a LATERAL with
+`LIMIT 1`, so it can never multiply a usage row: adding it to a query changes
+what that query may GROUP BY and changes no total the query already produced.
+
+**Usage that matches nothing is never dropped and never spread.** It goes to
+`(unassigned)`, whose parentheses put it outside the code rule so no real
+cost centre can ever collide with it — the same device `(untagged)` and the
+`(none)` enterprise project already use. An unattributed figure the operator
+can SEE is a tagging job; an unattributed figure quietly shared out over the
+named centres is a report that reconciles and is wrong.
+
+### 19.3 It is a dimension, so everything else is free
+
+`cost_centre` joins `costDims` beside `region`, `namespace`, `tier` and
+`enterprise_project`. That is the whole integration: **group by** it, **filter**
+on it, drill into it, and export it — `GET /cost/explore?group_by=cost_centre`,
+`GET /cost/export.csv?group_by=cost_centre`, the customer lens of both, and a
+**cost-centres section** on a scheduled report, which reads the same
+`Explore` call the services section reads so the mail can never disagree with
+the page. The section renders on a CUSTOMER-scoped schedule only: a code is
+unique within its customer, so grouping several customers' spend by code would
+add together two centres that merely share a name.
+
+### 19.4 The invoice breakdown, and the identity it guarantees
+
+An invoice gains a per-cost-centre breakdown, frozen on the statement by the
+rating run exactly as the per-rule tax summary is (`statements.cost_centre_lines`).
+
+**The invoice's own total does not change.** Cost centre does not enter the
+waterfall — list → commercial terms (§15) → discounts → true-up → tax (§17) —
+at any point. It is an attribution of an amount ALREADY COMPUTED, so the
+breakdown is not a second rating run: it apportions the statement's OWN net,
+discount and tax across the centres, pro rata by the period's usage under
+each, by the **largest-remainder** method (§17.3's discipline, and literally
+§17.3's code — `rating.ApportionWeights` is one implementation with two
+callers). That makes four identities hold by construction rather than by
+luck:
+
+```
+sum(net)      == statement subtotal        sum(discount) == discount total
+sum(tax)      == statement tax             sum(total)    == statement total
+```
+
+and, on every row, `list == net + discount` and `total == net + tax`, so a
+reader can check one line against its own columns. Apportioning NET rather
+than gross is deliberate: the parts of a largest-remainder split are never
+negative, so a row's net can never come out below zero — which apportioning
+gross and subtracting an apportioned discount could do at a 100 % discount.
+
+The weight itself is `costPricedExpr` — the single definition of what one
+usage record costs, the one the explorer and the rating run already share, so
+a breakdown and a bill can never disagree about what a record is worth. On a
+partner's customer under resell (§13.2) the weights are therefore the
+SOVEREIGN's list cost of the usage rather than the retail figure the lines
+carry; the split is a proportion, the identities above hold exactly either
+way, and list is the figure both sides of that relationship can read.
+
+A charge that is not usage — a §15.4 true-up, a minimum commitment — raises
+the statement's net and is therefore shared out by the same usage weights.
+That is the standard showback treatment of an unattributable charge, and it
+is STATED rather than hidden: each row carries the `usage` weight the split
+used, so the basis is on the page. A period with no usage at all produces one
+row under `(unassigned)`: the figure is visible, not spread over centres no
+usage supports.
+
+**Frozen.** The column stores CODES, not foreign keys — deleting a cost
+centre or a rule next month does not touch the invoices they attributed, in
+the same way that deleting a tax rule does not touch the invoices it rated.
+
+### 19.5 The report
+
+`GET /customers/{id}/cost-centres/report?period=YYYY-MM` is one document with
+two provenances, and it says which:
+
+- `source: statement` — the period has been rated, and the rows are the
+  invoice's OWN frozen figures. `invoice` carries the statement's subtotal,
+  tax and total and `agrees` states the identity rather than assuming it, so
+  a reader is TOLD when the rows and the invoice disagree.
+- `source: usage` — the period has not been rated yet. The rows carry the
+  period's usage alone and every money column is zero, which is honest rather
+  than a guess at a bill.
+
+It never recomputes an invoice that already exists, which is what keeps the
+report and the bill from disagreeing. `…/report.csv` is the same document as
+a file, with the TOTAL row that is what a finance reader checks it by.
+
+### 19.6 The closed period
+
+Nothing here writes money. The only thing that writes a breakdown is the
+rating run, and **a closed period already refuses the run** (§18.4) — so no
+cost-centre route can make a closed month editable, and the tests walk that
+rather than asserting it: after a close, editing the rules leaves the issued
+invoice's breakdown exactly as it was, and a re-run answers 409 naming the
+period. Configuring cost centres stays allowed while a month is shut, because
+it changes no figure and refusing it would make the NEXT month unmanageable.
+
+### 19.7 Permissions
+
+| Surface | Needs |
+|---|---|
+| Read the centres, the rules, the overrides, the report and its CSV | `metering.read` at the scope |
+| Create, edit and delete a centre, a rule or an override | `customers.manage` |
+
+Reading is `metering.read` on the customer, so a **customer owner reads its
+own** — which is the entire point of showback. Writing is `customers.manage`,
+exactly where a customer's budgets and report schedules already sit (§10.2):
+a cost centre decides how a bill is read by the people who pay it, and that is
+the operator's configuration of the account rather than a self-service
+setting. **No new permission is introduced.** A centre addressed by its own
+id, from a principal with no binding on its customer, answers 404 — ids of
+other customers are not confirmed. Every write is audited `costcentre.*`.
+
+### 19.8 API
+
+| Route | Gate |
+|---|---|
+| `GET /api/v1/customers/{id}/cost-centres` | `metering.read` (customer) |
+| `POST /api/v1/customers/{id}/cost-centres` | `customers.manage` |
+| `PUT /api/v1/cost-centres/{id}` · `DELETE /api/v1/cost-centres/{id}` | `customers.manage` |
+| `GET /api/v1/customers/{id}/cost-centres/rules` | `metering.read` (customer) |
+| `PUT /api/v1/customers/{id}/cost-centres/rules` | `customers.manage` |
+| `DELETE /api/v1/cost-centres/rules/{id}` | `customers.manage` |
+| `GET /api/v1/customers/{id}/cost-centres/resources` | `metering.read` (customer) |
+| `PUT|DELETE /api/v1/customers/{id}/cost-centres/resources/{resource_id}` | `customers.manage` |
+| `GET /api/v1/customers/{id}/cost-centres/report?period=YYYY-MM` | `metering.read` (customer) |
+| `GET /api/v1/customers/{id}/cost-centres/report.csv?period=YYYY-MM` | `metering.read` (customer) |
+
+### 19.9 The console
+
+**A customer's Cost centres tab** (and `/my/cost-centres` in the customer
+lens) carries four things and no fifth: the period read by centre with its
+share, every money column and the sentence that says the rows add up to the
+invoice; the centres themselves, with a line saying in as many words that a
+cost centre is a label and not a sub-account; the rules, in the order a
+resource is matched against them; and the per-resource overrides, each with
+who set it, pinnable and clearable here. **A statement** shows the same breakdown frozen on it, with
+`(unassigned)` as a visible row explaining that no rule and no override named
+it. Every edit is rendered only with `customers.manage`; a customer reads the
+whole page and is offered nothing on it.
+
+### 19.10 Tests
+
+- **Pure** (`internal/rating/costcentre_test.go`): the breakdown summing to
+  the statement EXACTLY over seven awkward splits — thirds, sevenths, one
+  weight ten orders of magnitude above another, a zero weight among them, no
+  discount, a 100 % discount, a single centre — with every row's `list` and
+  `total` checked against its own columns and no row ever negative; a period
+  with no usage landing wholly in `(unassigned)`; centres with only zero
+  weights putting the unsplittable figure in the bucket rather than the first
+  name; the split being pro rata by USAGE; and the two boundaries of
+  `ApportionWeights` that both its callers depend on.
+- **Store** (`costcentre_integration_test.go`, `costcentre_test.go`): the
+  resolution order — override beats rule beats bucket — with the weights
+  summing to the hours collected so nothing goes missing; clearing an
+  override falling back to the rule and deleting a centre falling back to the
+  bucket; `priority` deciding between two keys, the answer flipping when the
+  ranks flip and an equal-rank tie resolving identically on every run; the
+  code rule, including that `(unassigned)` can never be claimed as a code;
+  and the migration locator resolving to its own entry.
+- **API** (`costcentres_integration_test.go`, against Postgres): rating a
+  period before and after the centres exist and the **subtotal, discount, tax
+  and total being identical**; the breakdown adding up on a split that does
+  not divide; the attribution end to end with the override beating the rule;
+  the explorer's `cost_centre` dimension agreeing; the report naming its
+  source and the CSV's TOTAL row carrying the invoice's own total; deleting
+  the rules and a centre AFTER issue leaving the issued invoice's breakdown
+  unmoved; a closed period refusing the re-run and keeping its breakdown; the
+  permission matrix per route for an owner, a stranger and an anonymous
+  caller; and the validation — the code rule, one centre per tag value, an
+  inactive centre refused by name.
+- **Console** (`ui/src/lib/costcentres.test.ts`,
+  `ui/src/panels/CostCentresPanel.render.test.tsx`,
+  `ui/src/pages/StatementView.costcentre.test.tsx`): the form refusing what
+  the server refuses; the page rendering the centres, the rules, the
+  overrides and the breakdown with the unassigned bucket VISIBLE; the
+  sentence that says the rows add up, and the one that says they do not when
+  they do not; an unrated period read as usage; nothing editable without
+  `customers.manage`; and a statement rated before §19 rendering no block at
+  all.

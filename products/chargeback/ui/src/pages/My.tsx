@@ -9,6 +9,7 @@ import { useQuery } from '../lib/useQuery'
 import { AccountPanel } from '../panels/AccountPanel'
 import { PaymentMethodsPanel } from '../panels/PaymentMethodsPanel'
 import { BudgetsPanel } from '../panels/BudgetsPanel'
+import { CostCentresPanel } from '../panels/CostCentresPanel'
 import { DiscountsPanel } from '../panels/DiscountsPanel'
 import { SourcesPanel } from '../panels/SourcesPanel'
 import { StatementsPanel } from '../panels/StatementsPanel'
@@ -130,6 +131,27 @@ export function MyAccount() {
     <div className="stack">
       <PageHeader title="Account" sub={canTopup ? 'Your balance, the ledger behind it, and a checkout to top it up.' : 'Your balance and the ledger behind it. An owner or billing user of this customer can top it up.'} />
       <AccountPanel customerId={id} customer={cust.data} currency={currency} canRecord={false} canCheckout={canTopup} canApplyCredit={false} onChanged={cust.reload} />
+    </div>
+  )
+}
+
+/**
+ * /my/cost-centres — the customer's own spend by cost centre (DESIGN.md
+ * §19). A customer reads its centres, the rules behind them and the period
+ * broken down; the edits need customers.manage and are the operator's, so
+ * the panel renders them read-only here.
+ */
+export function MyCostCentres() {
+  const { id } = useMy()
+  const currency = useMyCurrency(id)
+  if (!id) return <NoCustomer />
+  return (
+    <div className="stack">
+      <PageHeader
+        title="Cost centres"
+        sub="Your spend read by the cost centre each resource belongs to. On a rated period these are the invoice's own figures, split so they add up to it exactly — a cost centre attributes what you are charged, it never changes it."
+      />
+      <CostCentresPanel customerId={id} canManage={false} currency={currency} />
     </div>
   )
 }
