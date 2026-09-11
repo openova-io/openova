@@ -68,6 +68,17 @@ func (g *recGateway) VerifyCallback(r *http.Request) (settle.Confirmation, error
 	return conf, nil
 }
 
+// The saved-method half of the seam (DESIGN.md §16): this gateway hosts the
+// page the card is entered on and hands back a token — never a number.
+func (g *recGateway) SetupMethod(_ context.Context, req settle.SetupRequest) (settle.SetupResult, error) {
+	return settle.SetupResult{Gateway: "omantel", SetupID: "seti_" + req.Customer.Slug, SetupURL: "https://pay.omantel.example/setup/" + req.Customer.Slug,
+		Detail: "enter the card on the gateway's page"}, nil
+}
+
+func (g *recGateway) ConfirmMethod(_ context.Context, c settle.MethodConfirmation) (settle.SavedMethod, error) {
+	return settle.SavedMethod{Gateway: "omantel", Token: "pm_" + c.SetupID, Brand: "visa", Last4: "4242", ExpMonth: 11, ExpYear: 2030, Label: "Company card"}, nil
+}
+
 func (g *recGateway) purposes() []string {
 	out := []string{}
 	for _, r := range g.requests {

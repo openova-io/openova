@@ -177,8 +177,16 @@ func TestIntegrationStatementPDFCustomerScope(t *testing.T) {
 	owner := &store.Session{Email: "a@mine.example", Role: store.RoleCustomerAdmin, CustomerID: &mine,
 		ExpiresAt: time.Now().Add(time.Hour)}
 
-	if rec := do(t, h, owner, "GET", "/api/v1/statements/"+myStatement.ID+".pdf", ""); rec.Code != 200 {
-		t.Fatalf("a customer could not download its own invoice: %d %s", rec.Code, rec.Body.String())
+	mineIssued := mustDo(t, h, op, "GET", "/api/v1/statements/"+myStatement.ID, 200)
+	mineNumber, _ := mineIssued["invoice_number"].(string)
+	own := do(t, h, owner, "GET", "/api/v1/statements/"+myStatement.ID+".pdf", "")
+	if own.Code != 200 {
+		t.Fatalf("a customer could not download its own invoice: %d %s", own.Code, own.Body.String())
+	}
+	// The file lands under its INVOICE NUMBER, which is what makes it
+	// filable by the customer who downloaded it.
+	if cd := own.Header().Get("Content-Disposition"); !strings.Contains(cd, "attachment") || !strings.Contains(cd, `filename="`+mineNumber+`.pdf"`) {
+		t.Fatalf("Content-Disposition = %q, want an attachment named %s.pdf", cd, mineNumber)
 	}
 	rec := do(t, h, owner, "GET", "/api/v1/statements/"+theirStatement.ID+".pdf", "")
 	if rec.Code != 404 {

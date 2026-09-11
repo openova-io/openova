@@ -2739,3 +2739,157 @@ separate Go modules and cannot import each other, so
 rendered by the renderer's — a field renamed on either side fails one of the
 two suites, rather than surfacing as a 400 on a customer's download months
 later.
+
+## 16. Customer self-service — what a paying customer does without the operator (EPIC #6867)
+
+Everything above is what the operator can do. This is what the **customer**
+can do alone, and it is three things: take the invoice away, keep a payment
+method on file, and say an invoice is wrong. Each of the three was, until
+now, an email to the operator — which is to say, a person's afternoon.
+
+None of the three is a new mechanism. The invoice is the existing document
+route (§14); the payment method rides the existing gateway registry
+(`internal/settle`); the dispute's credit note is the existing credit note
+(§9.3). Anything else would have been a second way to do something this
+product already does, and a second way to do money is a way to disagree with
+yourself.
+
+**Who may act.** A customer principal acts on its OWN customer, and every
+handler proves it the same way: the target is read through the session's
+scope before anything else happens, so another customer's id answers **404**
+— not a filtered list, and not a 403 that would confirm the id exists. A
+partner acts on its customers by the same route, because the scope expands to
+them (§13). Reading is `metering.read`; the two customer-side writes —
+saving a method and raising a dispute — are **`account.topup`**, the
+permission an owner and a billing user hold and a viewer does not, which is
+the same permission that lets a customer ask the gateway for a top-up.
+Resolving a dispute is the operator's **`billing.collect`**.
+
+### 16.1 Download the invoice
+
+`GET /api/v1/statements/{id}.pdf` (§14) is put in the customer's hands: a
+**Download** on the statement view and on every row of its invoice list. The
+route is the same handler and the same scope-filtered store read as fetching
+the statement, so the permission to download the document is exactly the
+permission to read what it is made of.
+
+The response carries `Content-Disposition: attachment; filename="<invoice
+number>.pdf"`, so the file lands in the customer's downloads folder already
+named after the invoice — filable, forwardable, attachable to a payment run
+without being renamed first. The filename is built by `docs.Filename`, which
+keeps letters, digits, dash, underscore and dot and maps everything else to a
+dash: an invoice number can therefore neither escape its directory nor end
+the header and start another one. Both are asserted, on real values, in
+`internal/docs`.
+
+### 16.2 A saved payment method
+
+For a customer whose payment method is a **gateway**, `POST
+/api/v1/customers/{id}/payment-methods` opens a setup through the gateway
+seam. `settle.Gateway` gains the pair `SetupMethod` / `ConfirmMethod`,
+added exactly as `VerifyCallback` was: on the interface, with
+`ErrMethodSetupNotSupported` as the honest answer from a gateway that has no
+such facility — the built-in manual gateway, because a bank transfer and an
+internal recharge have no instrument to keep, and a hook that predates the
+seam. The Stripe-backed billing hook implements it against the billing
+service's own portal session, which is the existing surface on which that
+Organization's payer adds, replaces or removes a card.
+
+**The card is never entered here, and never held here.** The payer enters it
+on the gateway's page. What this product stores is the display record and
+only the display record:
+
+| Stored | Never stored |
+|---|---|
+| the gateway's name | the card number |
+| the gateway's **token id** for the instrument | the security code |
+| brand (`visa`), last four digits, expiry month and year | the full expiry-plus-number pair |
+| the customer's own label, who added it, when | any gateway secret or API key |
+
+Two of those rules are enforced rather than described. `store.PaymentMethod`
+carries the token as `json:"-"`, so it reaches no wire at all: that is how
+"an operator may see that a method exists but not its token" holds, by the
+type rather than by a redaction each handler has to remember. And the
+`last4` column carries `CHECK (last4 ~ '^[0-9]{0,4}$')`, so a gateway
+implementation that mistakenly answered with a whole card number could not
+record it — the INSERT fails. The audit entries (`payment_method.setup`,
+`payment_method.confirm`, `payment_method.remove`) carry the method id, the
+gateway and the display triple, and never the token.
+
+`GET /customers/{id}/payment-methods` lists what is on file; `DELETE
+/customers/{id}/payment-methods/{mid}` (or `DELETE /payment-methods/{id}`)
+takes one off it. Removal keeps the row — who removed what, and when, is part
+of the account's history — and **erases the token in the same statement**, so
+a removed method cannot be charged even by a bug.
+
+### 16.3 Dispute an invoice
+
+`POST /api/v1/statements/{id}/disputes {reason, lines?}` opens a dispute by
+the customer on its own invoice. The statement gains `disputed_at` and
+`dispute_reason`, and the dispute itself is a row with a lifecycle — reason,
+amount, who raised it and when, and the outcome.
+
+**What is disputed.** With no lines named, it is the invoice's **outstanding
+balance** — what is actually being chased. With lines named, it is the share
+of the invoice **total** those rated lines represent, computed as an exact
+rational over their amounts and rendered at the schema's six decimals, so the
+figure agreed here is the figure a credit note later carries. Either way it
+is capped at what the invoice can still be credited (total less credit notes
+already issued), because an upheld dispute must always be creditable. A draft
+is refused — there is no invoice yet — and so is a cancelled invoice, which
+nobody collects on. One open dispute per invoice, enforced by a partial
+unique index.
+
+**What a dispute does, and does not do.** The disputed amount **stays on the
+balance**: a dispute is not a credit and does not move money. What stops is
+**collections chasing**, and both readers of the flag say so:
+
+- `GET /collections/aging` still lists the invoice — the operator must see it
+  — and marks it `disputed` with its reason. Its amount stays in `total` and
+  in the aging buckets and leaves `overdue`; the report gains `disputed` and
+  `disputed_invoices` at both the report and the customer-row level, so the
+  gap between the buckets and the overdue figure is named rather than
+  mysterious. A disputed invoice also stops driving `oldest_days`.
+- The daily evaluator (`internal/collections`) passes over it: no reminder
+  stage, no escalation, no suspension flowing from it. Its report carries
+  `disputed`, the count of invoices it passed over, which is what tells an
+  operator why a reminder did not go out.
+
+**Resolving it.** `POST /api/v1/disputes/{id}/resolve {outcome, note}`,
+`billing.collect`:
+
+- **upheld** — a credit note is issued for the disputed amount through
+  `createCreditNoteTx`, the same function `POST /statements/{id}/credit-notes`
+  calls: the same numbering, the same allocation against the invoice, the same
+  ledger entry as any other credit note. The balance moves by exactly the
+  disputed amount. It runs **inside the transaction that records the
+  outcome**, so a dispute can never end up credited but still open, nor
+  resolved without the credit the customer was promised — a retry after a
+  failure finds the dispute still open and no note issued. In external
+  commercial mode the invoice is the billing system's and so is any correction
+  to it, so this is refused with 409 — the same refusal §9.3 makes.
+- **rejected** — the flag is cleared, nothing is credited, and collections
+  resume from the age the invoice then is.
+
+Either way `disputed_at` and `dispute_reason` are cleared in the same
+transaction that records the outcome, so the one flag the aging report and
+the evaluator read can never be left set behind a resolved dispute. Every
+step is audited: `dispute.open`, `dispute.resolve`, and the credit note's own
+`statement.credit_note` carrying the dispute id.
+
+### 16.4 The console
+
+The customer lens (`/my/...`) gains **Payment methods** beside Account, and
+its statements page is the **Invoices** page: a Download on every row, a
+banner naming any invoice under dispute, and a `disputed` marker beside the
+status. The payment-methods card shows brand, last four and expiry, offers
+`Add a payment method` (which sends the payer to the gateway's own page) and
+`Remove`, and says in as many words that the card is held by the payment
+provider. A viewer sees what is on file and is offered nothing to change.
+
+On the statement view: **Download PDF** for anyone who may read the invoice,
+**Dispute** for a customer that may raise one, and — for an operator with
+`billing.collect` while a dispute is open — a **Resolve** control offering
+the two outcomes with the consequence of each spelled out. A disputed invoice
+carries a banner with the reason, the amount and the sentence that matters:
+it stays on the balance and is not chased.

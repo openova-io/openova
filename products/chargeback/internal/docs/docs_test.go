@@ -342,3 +342,28 @@ func TestFilenameIsSafe(t *testing.T) {
 		t.Fatalf("filename %q escapes its directory", name)
 	}
 }
+
+// The filename goes into a Content-Disposition header, so an invoice number
+// carrying a quote, a newline or a carriage return must not be able to end
+// the header value and start another one. Filename keeps letters, digits,
+// dash, underscore and dot and maps everything else to a dash, which is what
+// makes the header safe by construction rather than by escaping at each
+// call site.
+func TestFilenameCannotInjectAHeader(t *testing.T) {
+	for _, number := range []string{
+		"INV-1\r\nSet-Cookie: a=b",
+		"INV-1\nX-Evil: 1",
+		`INV-1"; filename="evil.exe`,
+		"INV\t1 2",
+	} {
+		st := issuedStatement()
+		st.InvoiceNumber = number
+		name := Filename(InvoiceRequest(st, customer(), settings(), "en"))
+		if strings.ContainsAny(name, "\r\n\"\\;") || strings.Contains(name, " ") {
+			t.Fatalf("invoice number %q yielded filename %q, which can break out of the header", number, name)
+		}
+		if !strings.HasSuffix(name, ".pdf") {
+			t.Fatalf("filename %q is not a document name", name)
+		}
+	}
+}

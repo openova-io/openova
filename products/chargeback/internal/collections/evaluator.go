@@ -42,7 +42,12 @@ type Evaluator struct {
 
 // Report counts what one evaluation did.
 type Report struct {
-	Invoices    int    `json:"invoices"`
+	Invoices int `json:"invoices"`
+	// Disputed counts the open invoices this pass PASSED OVER because the
+	// customer disputes them (DESIGN.md §16). They are still owed; they are
+	// simply not chased until an operator resolves the dispute, and saying
+	// so here is what tells an operator why a reminder did not go out.
+	Disputed    int    `json:"disputed"`
 	Reminders   int    `json:"reminders"`
 	Escalations int    `json:"escalations"`
 	Suspended   int    `json:"suspended"`
@@ -95,7 +100,7 @@ func (e *Evaluator) tick(ctx context.Context) {
 		slog.Warn("collections evaluator", "error", err)
 		return
 	}
-	slog.Info("collections evaluator", "invoices", rep.Invoices, "reminders", rep.Reminders, "escalations", rep.Escalations, "suspended", rep.Suspended, "resumed", rep.Resumed, "mails", rep.Mails, "errors", rep.Errors, "skipped", rep.Skipped)
+	slog.Info("collections evaluator", "invoices", rep.Invoices, "disputed", rep.Disputed, "reminders", rep.Reminders, "escalations", rep.Escalations, "suspended", rep.Suspended, "resumed", rep.Resumed, "mails", rep.Mails, "errors", rep.Errors, "skipped", rep.Skipped)
 }
 
 // RunOnce evaluates every open invoice at the current instant.
@@ -128,6 +133,15 @@ func (e *Evaluator) RunAt(ctx context.Context, now time.Time) (Report, error) {
 	for _, inv := range open {
 		rep.Invoices++
 		touched[inv.CustomerID] = true
+		// DESIGN.md §16 — an invoice the customer disputes is not chased:
+		// no reminder stage, no escalation and no suspension flow from it
+		// while the dispute is open. The money stays outstanding and on the
+		// balance; resolving the dispute (either way) clears the flag and
+		// the schedule picks up from the day it then is.
+		if inv.DisputedAt != nil {
+			rep.Disputed++
+			continue
+		}
 		days := DaysPastDue(inv.DueAt, now)
 		// Reminders: every stage whose day has arrived and was not sent.
 		for _, stage := range settings.ReminderDays {
