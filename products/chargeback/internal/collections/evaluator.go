@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/openova-io/openova/products/chargeback/internal/mail"
+	"github.com/openova-io/openova/products/chargeback/internal/notify"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
 
@@ -24,8 +25,13 @@ import (
 // external billing system every reminder and every escalation is theirs;
 // we suspend on their explicit command alone.
 type Evaluator struct {
-	Store    *store.Store
-	Mail     mail.Sender
+	Store *store.Store
+	Mail  mail.Sender
+	// Notify routes every reminder and escalation through the notification
+	// catalogue (DESIGN.md §21). nil builds one over Mail, so a caller that
+	// wires only a sender keeps exactly the behaviour it had — with the
+	// prose now coming from the template catalogue rather than from here.
+	Notify   *notify.Notifier
 	Enforcer *Enforcer
 	// PublicURL is where the reminder links the invoice.
 	PublicURL string
@@ -163,8 +169,7 @@ func (e *Evaluator) RunAt(ctx context.Context, now time.Time) (Report, error) {
 				continue
 			}
 			rep.Reminders++
-			subject, body := reminderMail(inv, stage, days, e.link(inv))
-			sent := e.send(ctx, inv, subject, body)
+			sent := e.send(ctx, inv, notify.EventCollectionsReminder, reminderPayload(inv, stage, days, e.link(inv)))
 			rep.Mails += len(sent)
 			_ = e.Store.Audit(ctx, &inv.CustomerID, "system", "collections.reminder", map[string]any{"statement_id": inv.StatementID, "invoice_number": inv.InvoiceNumber, "stage": stage, "days_past_due": days, "outstanding": inv.Outstanding, "recipients": sent})
 		}
@@ -177,8 +182,7 @@ func (e *Evaluator) RunAt(ctx context.Context, now time.Time) (Report, error) {
 			}
 			if inserted {
 				rep.Escalations++
-				subject, body := escalationMail(inv, settings.EscalationAction, days, e.link(inv))
-				sent := e.send(ctx, inv, subject, body)
+				sent := e.send(ctx, inv, notify.EventCollectionsEscalation, escalationPayload(inv, settings.EscalationAction, days, e.link(inv)))
 				rep.Mails += len(sent)
 				_ = e.Store.Audit(ctx, &inv.CustomerID, "system", "collections.escalation", map[string]any{"statement_id": inv.StatementID, "invoice_number": inv.InvoiceNumber, "action": settings.EscalationAction, "days_past_due": days, "outstanding": inv.Outstanding, "recipients": sent})
 				if settings.EscalationAction == store.EscalationSuspend && e.Enforcer != nil {
@@ -238,17 +242,30 @@ func (e *Evaluator) link(inv store.OpenInvoice) string {
 	return strings.TrimRight(e.PublicURL, "/") + "/statements/" + inv.StatementID
 }
 
-// send mails the customer's admin and every admin user; it reports who was
-// reached and records the recipients on the reminder row.
-func (e *Evaluator) send(ctx context.Context, inv store.OpenInvoice, subject, body string) []string {
-	recipients := e.recipients(ctx, inv)
+// notifier is the notification path: the one wired in, or one built over
+// Mail for a caller that wired only a sender.
+func (e *Evaluator) notifier() *notify.Notifier {
+	if e.Notify != nil {
+		return e.Notify
+	}
+	return &notify.Notifier{Channels: notify.DefaultChannels(e.Mail)}
+}
+
+// send emits one catalogue event to the customer's admin and every admin
+// user; it reports who was reached and records the recipients on the
+// reminder row. BOTH events it carries are MANDATORY in the catalogue, so a
+// preference can never be the reason a dunning notice did not go out.
+func (e *Evaluator) send(ctx context.Context, inv store.OpenInvoice, event string, payload map[string]any) []string {
+	n := e.notifier()
+	customerID := inv.CustomerID
 	sent := []string{}
-	for _, to := range recipients {
-		if e.Mail == nil {
-			break
+	for _, to := range e.recipients(ctx, inv) {
+		res, err := n.Send(ctx, notify.Request{Event: event, To: to, CustomerID: &customerID, Payload: payload})
+		if err != nil {
+			slog.Warn("collections: send reminder", "statement", inv.StatementID, "event", event, "to", to, "error", err)
+			continue
 		}
-		if err := e.Mail.Send(ctx, to, subject, body); err != nil {
-			slog.Warn("collections: send reminder", "statement", inv.StatementID, "to", to, "error", err)
+		if !res.Sent {
 			continue
 		}
 		sent = append(sent, to)

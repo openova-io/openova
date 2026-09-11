@@ -2134,3 +2134,125 @@ export interface ReconciliationRun {
   ran_by?: string
   lines?: ReconciliationLine[]
 }
+
+// ---------------------------------------------------------------------------
+// Notification management (DESIGN.md §21)
+// ---------------------------------------------------------------------------
+
+/** One value a notification template may reference. */
+export interface NotifyField {
+  name: string
+  description: string
+}
+
+/** One notification the product can emit. */
+export interface NotifyEvent {
+  key: string
+  title: string
+  description: string
+  category: string
+  /** A notice a recipient may NOT switch off — an invoice, a dunning notice. */
+  mandatory: boolean
+  /**
+   * The channels it goes out on when no preference says otherwise. For a
+   * mandatory event they are also the FLOOR: a preference may add a channel
+   * and may never remove one.
+   */
+  channels: string[]
+  default_on: boolean
+  payload?: NotifyField[]
+  /** The code that emits it. */
+  source: string
+}
+
+/** A channel, and whether it has a transport at all. */
+export interface NotifyChannel {
+  name: string
+  available: boolean
+  /** Why it is unavailable — rendered verbatim; it is the honest refusal. */
+  reason?: string
+}
+
+export interface NotifyTemplate {
+  event: string
+  locale: string
+  subject: string
+  body: string
+}
+
+export interface NotifyCatalogue {
+  events: NotifyEvent[]
+  channels: NotifyChannel[]
+  templates: NotifyTemplate[]
+  locales: string[]
+  default_locale: string
+  statuses: string[]
+}
+
+/** One stored preference row. */
+export interface NotifyPreference {
+  id?: string
+  event: string
+  enabled: boolean
+  channels: string[]
+  locale?: string
+  customer_id?: string | null
+  email?: string
+  updated_at?: string
+}
+
+/** One event as a scope actually receives it, and what decided that. */
+export interface NotifyEffective {
+  event: string
+  title: string
+  category: string
+  mandatory: boolean
+  enabled: boolean
+  channels: string[]
+  locale: string
+  source: string
+  /** The preference tried to weaken a mandatory notice and was overridden. */
+  forced?: boolean
+  forced_reason?: string
+}
+
+export interface NotifyPreferencesDoc {
+  scope: string
+  customer_id?: string | null
+  email?: string
+  preferences: NotifyPreference[]
+  effective: NotifyEffective[]
+  channels: NotifyChannel[]
+  locales: string[]
+  events: NotifyEvent[]
+}
+
+export type NotifyStatus = 'sent' | 'retrying' | 'failed' | 'suppressed' | 'unavailable' | string
+
+/** One recorded delivery ATTEMPT — not one notification. */
+export interface NotifyDelivery {
+  id: string
+  event: string
+  customer_id?: string | null
+  channel: string
+  recipient: string
+  locale?: string
+  subject?: string
+  attempt: number
+  status: NotifyStatus
+  reason?: string
+  at: string
+}
+
+export interface NotifyDeliveryCount {
+  status: NotifyStatus
+  count: number
+}
+
+export interface NotifyDeliveriesDoc {
+  deliveries: NotifyDelivery[]
+  stats: NotifyDeliveryCount[]
+  since: string
+  limit: number
+  statuses: string[]
+}

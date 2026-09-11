@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/openova-io/openova/products/chargeback/internal/access"
+	"github.com/openova-io/openova/products/chargeback/internal/notify"
 	"github.com/openova-io/openova/products/chargeback/internal/rating"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
@@ -512,8 +513,20 @@ func (h *Handler) inviteCustomer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	url := fmt.Sprintf("%s/activate/%s", h.Config.PublicURL, inv.Token)
-	body := fmt.Sprintf("Hello %s,\n\nActivate your chargeback account and connect your cloud projects:\n\n%s\n\nThe link expires on %s.\n", c.Name, url, inv.ExpiresAt.Format("2006-01-02 15:04 UTC"))
-	if err := h.Mail.Send(r.Context(), c.AdminEmail, "Activate your chargeback account", body); err != nil {
+	// DESIGN.md §21 — customer.invite, a MANDATORY event: a customer that
+	// never receives its activation link cannot be onboarded at all. A send
+	// failure is logged and does NOT fail the request: the link is minted
+	// either way and the response carries it, exactly as before.
+	if _, err := h.notifier().Send(r.Context(), notify.Request{
+		Event:      notify.EventCustomerInvite,
+		To:         c.AdminEmail,
+		CustomerID: &c.ID,
+		Payload: map[string]any{
+			"customer_name": c.Name,
+			"url":           url,
+			"expires":       inv.ExpiresAt.Format("2006-01-02 15:04 UTC"),
+		},
+	}); err != nil {
 		slog.Error("send invite mail", "error", err)
 	}
 	h.audit(r, &c.ID, "customer.invite", map[string]any{"email": c.AdminEmail, "expires_at": inv.ExpiresAt})

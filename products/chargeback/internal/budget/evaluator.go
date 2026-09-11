@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/openova-io/openova/products/chargeback/internal/mail"
+	"github.com/openova-io/openova/products/chargeback/internal/notify"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
 
@@ -30,6 +31,9 @@ type Store interface {
 type Evaluator struct {
 	Store Store
 	Mail  mail.Sender
+	// Notify routes the crossing alert through the notification catalogue
+	// (DESIGN.md §21); nil builds one over Mail.
+	Notify *notify.Notifier
 	// Now defaults to time.Now.
 	Now func() time.Time
 	// Interval between evaluations; default one hour.
@@ -134,14 +138,16 @@ func (e *Evaluator) RunOnce(ctx context.Context) (Report, error) {
 				slog.Warn("audit budget threshold", "budget_id", b.ID, "error", err)
 				rep.Errors++
 			}
-			subject, body := crossingMail(b, st, th.Pct)
+			payload := crossingPayload(b, st, th.Pct)
+			n := e.notifier()
 			for _, to := range b.NotifyEmails {
-				if e.Mail == nil {
-					break
-				}
-				if err := e.Mail.Send(ctx, to, subject, body); err != nil {
+				res, err := n.Send(ctx, notify.Request{Event: notify.EventBudgetThreshold, To: to, CustomerID: b.CustomerID, Payload: payload})
+				if err != nil {
 					slog.Warn("send budget mail", "budget_id", b.ID, "to", to, "error", err)
 					rep.Errors++
+					continue
+				}
+				if !res.Sent {
 					continue
 				}
 				rep.Mails++
@@ -151,27 +157,50 @@ func (e *Evaluator) RunOnce(ctx context.Context) (Report, error) {
 	return rep, nil
 }
 
-// crossingMail renders the notification for one threshold crossing.
-func crossingMail(b store.Budget, st Status, pct int) (subject, body string) {
-	subject = fmt.Sprintf("Budget %s: %d%% of %s %s reached for %s", b.Name, pct, trimDec(b.Amount), b.Currency, st.Period)
+// notifier is the notification path: the one wired in, or one built over
+// Mail for a caller that wired only a sender.
+func (e *Evaluator) notifier() *notify.Notifier {
+	if e.Notify != nil {
+		return e.Notify
+	}
+	return &notify.Notifier{Channels: notify.DefaultChannels(e.Mail)}
+}
+
+// crossingPayload is what the budget.threshold template renders from
+// (DESIGN.md §21). The prose that used to be here is now the English
+// template; what stayed is the reading of the budget — which customer it
+// covers, and the money formatted the way the rest of the product formats
+// it. `forecast` and `pct_forecast` are EMPTY STRINGS when there is no
+// forecast, which is what the template's {{if}} turns on: a float of 0.00
+// is a forecast and must print, and only a distinct empty value can say
+// "there is none".
+func crossingPayload(b store.Budget, st Status, pct int) map[string]any {
 	scope := "all customers"
 	if b.CustomerName != nil && *b.CustomerName != "" {
 		scope = *b.CustomerName
 	} else if b.CustomerID != nil {
 		scope = "customer " + *b.CustomerID
 	}
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "Budget %q (%s) has reached %d%% of its %s %s cap for %s.\n\n", b.Name, scope, pct, trimDec(b.Amount), b.Currency, st.Period)
-	fmt.Fprintf(&sb, "Actual so far: %s %s (%.1f%% of the budget)\n", trimDec(st.Actual), b.Currency, st.PctActual)
+	forecast, pctForecast := "", ""
 	if st.Forecast != nil {
-		fmt.Fprintf(&sb, "Month-end forecast: %.2f %s", *st.Forecast, b.Currency)
+		forecast = fmt.Sprintf("%.2f", *st.Forecast)
 		if st.PctForecast != nil {
-			fmt.Fprintf(&sb, " (%.1f%% of the budget)", *st.PctForecast)
+			pctForecast = fmt.Sprintf("%.1f", *st.PctForecast)
 		}
-		sb.WriteString("\n")
 	}
-	fmt.Fprintf(&sb, "Status: %s\n", st.Status)
-	return subject, sb.String()
+	return map[string]any{
+		"budget_name":  b.Name,
+		"scope":        scope,
+		"threshold":    pct,
+		"amount":       trimDec(b.Amount),
+		"currency":     b.Currency,
+		"period":       st.Period,
+		"actual":       trimDec(st.Actual),
+		"pct_actual":   fmt.Sprintf("%.1f", st.PctActual),
+		"forecast":     forecast,
+		"pct_forecast": pctForecast,
+		"status":       st.Status,
+	}
 }
 
 // trimDec drops trailing zeros from a 6-decimal money string for prose:
