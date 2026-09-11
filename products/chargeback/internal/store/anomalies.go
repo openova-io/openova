@@ -36,7 +36,7 @@ func (s *Store) DailyCostByCustomerKind(ctx context.Context, scope Scope, custom
 	if !to.After(from) {
 		return nil, fmt.Errorf("from must be before to")
 	}
-	cte, a, err := filteredCTE(CostQuery{CustomerIDs: ids}, from.UTC(), to.UTC())
+	cte, a, err := s.filteredCTE(ctx, CostQuery{CustomerIDs: ids}, from.UTC(), to.UTC(), grainDay)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +94,7 @@ func (s *Store) DayDrivers(ctx context.Context, scope Scope, customerID, kind, d
 		return nil, fmt.Errorf("day must be YYYY-MM-DD: %w", err)
 	}
 	q := CostQuery{CustomerIDs: ids, Include: map[string][]string{"kind": {kind}}}
-	cte, a, err := filteredCTE(q, d.AddDate(0, 0, -driverLookbackDays), d.AddDate(0, 0, 1))
+	cte, a, err := s.filteredCTE(ctx, q, d.AddDate(0, 0, -driverLookbackDays), d.AddDate(0, 0, 1), grainDay)
 	if err != nil {
 		return nil, err
 	}

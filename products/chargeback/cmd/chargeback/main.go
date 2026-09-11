@@ -30,6 +30,7 @@ import (
 	"github.com/openova-io/openova/products/chargeback/internal/metrics"
 	"github.com/openova-io/openova/products/chargeback/internal/platform"
 	"github.com/openova-io/openova/products/chargeback/internal/report"
+	"github.com/openova-io/openova/products/chargeback/internal/rollup"
 	"github.com/openova-io/openova/products/chargeback/internal/settle"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 	"github.com/openova-io/openova/products/chargeback/ui"
@@ -75,6 +76,11 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("database ready")
+	// DESIGN.md §20 — the daily cost rollup. The switch governs the READ as
+	// well as the build: with it off every window is rated over the hourly
+	// usage_records instead. The answers are the same either way; §20.8
+	// measures what the cache is worth.
+	st.SetCostRollupEnabled(cfg.CostRollupEnabled)
 
 	reg := metrics.Default
 	client := huawei.NewClient(cfg.HuaweiEndpointTemplate, cfg.HuaweiInsecureTLS, huawei.DefaultTimeout, reg)
@@ -168,6 +174,17 @@ func main() {
 		slog.Info("collector started", "collect_interval", cfg.CollectInterval, "cts_interval", cfg.CTSPollInterval, "ces_interval", cfg.CESInterval, "endpoint_template", cfg.HuaweiEndpointTemplate, "insecure_tls", cfg.HuaweiInsecureTLS)
 	} else {
 		slog.Info("collector disabled by COLLECTOR_ENABLED=false")
+	}
+	// DESIGN.md §20 — keep the daily cost rollup current: rebuild every
+	// (source, day) partition a usage write has marked, so the Overview's
+	// month is read from the aggregated ledger rather than rated over every
+	// hourly record (#6926). Stale partitions are served live meanwhile, so
+	// this loop can never make a figure wrong — only a page slower.
+	if cfg.CostRollupEnabled {
+		go (&rollup.Builder{Store: st, Interval: cfg.CostRollupInterval, Metrics: reg}).Run(ctx)
+		slog.Info("cost rollup builder started", "interval", cfg.CostRollupInterval)
+	} else {
+		slog.Info("cost rollup disabled by COST_ROLLUP_ENABLED=false: every window is rated over the hourly ledger")
 	}
 	go housekeeping(ctx, st)
 	// DESIGN.md §8.10 — drain the commercial outbox: at-least-once delivery of

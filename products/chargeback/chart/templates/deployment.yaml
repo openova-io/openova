@@ -168,6 +168,10 @@ spec:
               value: {{ .Values.config.collectInterval | quote }}
             - name: CTS_POLL_INTERVAL
               value: {{ .Values.config.ctsPollInterval | quote }}
+            - name: COST_ROLLUP_ENABLED
+              value: {{ .Values.config.costRollupEnabled | toString | quote }}
+            - name: COST_ROLLUP_INTERVAL
+              value: {{ .Values.config.costRollupInterval | quote }}
             - name: PROFILE
               value: {{ .Values.config.profile | quote }}
             {{- with .Values.publicCalculator.origins }}

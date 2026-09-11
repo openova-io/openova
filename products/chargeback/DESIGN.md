@@ -4050,3 +4050,376 @@ whole page and is offered nothing on it.
   they do not; an unrated period read as usage; nothing editable without
   `customers.manage`; and a statement rated before §19 rendering no block at
   all.
+
+---
+
+## 20. The daily cost rollup — why the Overview stopped taking fifty seconds (#6926)
+
+### 20.1 What was measured
+
+On hw307 (`chargeback:0.1.35`), `GET /api/v1/cost/summary` — the endpoint the
+**Overview page is served from** — took about fifty seconds, three runs in a row:
+
+```
+run1 http=200 time=50.892587s
+run2 http=200 time=50.023432s
+run3 http=200 time=49.925041s
+```
+
+The per-customer summary on the same ledger took 16.75 s, and a probe with a
+25-second budget returned `000` — the client gave up first, which is what an
+operator's browser and any gateway timeout also do.
+
+`usage_records` held **742,461 rows / 450 MB**, and the table has no cost
+column: cost is derived at read time by rating each row against the price book
+its source is assigned to. `gatherSummary` already fans its six explorer
+documents out concurrently, so parallelism was not the gap — each document was
+independently rating the same large set, each through the price join and the
+cost-centre LATERAL. The code carried its own measurement from when this was
+fast ("~150 ms over 72k rows"), accurate about its moment and long since
+overtaken: the table was ten times that row count.
+
+This is the ordinary shape of a read path that rates on every request. It
+degrades with the product's own success, so it gets worse from here.
+
+### 20.2 What is cached, and what deliberately is not
+
+**No money is cached.** The price book, the stopped-instance policy, the
+currency rate, the reporting currency, the discount rules, the contract terms,
+the cost-centre attribution, the customer's name and the source's label are
+all still read at the moment the explorer runs, exactly as in §3.1. A price
+change is still visible immediately, and the explorer still cannot disagree
+with a statement for the same window.
+
+What is cached is the **usage** the rating reads, aggregated to one row per
+
+```
+(UTC day, source, resource, SKU, unit, region, labels)
+```
+
+That is the part that cannot change once a day has been collected. The ledger
+above is ~31k daily rows instead of ~742k hourly ones, and the arithmetic
+applied to it is not a new arithmetic — it is the same expression, over fewer
+rows.
+
+Two tables, and nothing else:
+
+```
+cost_usage_daily(day, source_id, customer_id, resource_id, resource_kind,
+                 sku, unit, region, labels, quantity, records)
+cost_rollup_state(source_id, day, version, built_version, built_at, rows_built)
+                 PRIMARY KEY (source_id, day)
+```
+
+`labels` is part of the aggregation KEY, not a column picked from one of the
+rows. That single decision is what makes the aggregate safe: every expression
+the explorer reads off labels — the stopped-instance branch on
+`labels.status` and `labels.server_status`, the tier, the namespace, the
+enterprise project, the tags — resolves for a rollup row exactly as it does for
+each record behind it, because a record whose labels differ from its
+neighbour's lands in its own row. An instance that stops at nine in the
+morning produces two rows for that day, one waived and one charged, which is
+precisely what the per-record path produces.
+
+`records` rides along because one rollup row stands for several usage records,
+and the unconverted-currency list reports how many **records** could not be
+converted, not how many rows the aggregate happened to hold.
+
+### 20.3 The unit of freshness is a partition, and the reader never touches a stale one
+
+A **partition** is one `(source_id, day)`. It is rebuilt WHOLE — `DELETE` then
+`INSERT ... SELECT` in one transaction — so it can never be observed
+half-updated.
+
+`cost_rollup_state` carries `version`, bumped on every usage write, and
+`built_version`, the version the rows were built from. A partition is fresh
+exactly when the two agree.
+
+The reader (`costWindow`) asks which whole UTC days of the requested window
+the state table both KNOWS and calls fresh, serves those days from
+`cost_usage_daily`, and serves everything else — the part-day at each end of
+the window, today, any day a late collection re-opened, and any day the state
+table says nothing about — from `usage_records`. Both branches are unioned
+inside one CTE (`u`) **before anything is aggregated**, so every downstream
+aggregate, including `count(DISTINCT resource_id)` which is not additive, sees
+one coherent relation. There is no merging of two result sets and therefore
+nothing to double-count or drop at the seam.
+
+Four rules make the seam safe, and each is pinned by a test:
+
+1. **A rollup range is always whole UTC days.** A rollup row carries a whole
+   day, so serving it for a window that starts at noon would count the
+   morning. A part-day always goes to the live ledger.
+2. **A day is covered only when no source of it is stale.** One marked source
+   takes the whole day back to the live ledger, so a day is never assembled
+   from a fresh rollup for one source and live rows for another.
+3. **Absence is not emptiness.** A day the state table carries no partition
+   for is served LIVE, never treated as a covered day holding nothing. That
+   distinction is the difference between a slow answer and a silent zero: a
+   day whose partitions were never recorded may hold usage the rollup does not
+   have. A day that genuinely has no usage reads the same either way, so the
+   rule costs an index probe over an empty range and buys the failure mode
+   that matters.
+4. **The live branch aggregates by the same expression to the same grain as
+   the builder.** The live fallback is not a different code path that happens
+   to agree; it is literally the aggregation the rollup caches
+   (`costRollupBuildSQL` and the live branch of `usageBranches` share the
+   projection, the UTC truncation, the meter filter and the GROUP BY).
+
+That fourth rule is what makes exactness a property rather than a hope. Because
+both branches produce the same rows, the rating expression applied to them
+produces the same numbers, and a window served half from each is not a
+different arithmetic from a window served wholly by one.
+
+### 20.4 Invalidation is structural, not a checklist
+
+Every path that can change a figure was enumerated before the design was
+fixed. They fall into exactly two kinds.
+
+**Usage changed — marked by a database trigger.** Four statement-level
+triggers on `usage_records` (insert, update-new, update-old, delete), each
+handed its transition table under the name `chg`, bump the version of every
+partition the statement touched:
+
+| Path | How it reaches the trigger |
+|---|---|
+| Collector upsert (`UpsertUsage`, Huawei and the platform collector) | INSERT / UPDATE |
+| Late or back-dated collection landing in an older day | INSERT, marks that day only |
+| Boundary recompute (`DeleteUsageInRange`) | DELETE |
+| Removing a resource's records (`DeleteUsageForResources`) | DELETE |
+| Detaching a source from its customer (`UPDATE usage_records SET customer_id = NULL`) | UPDATE |
+| The showcase seeder and its neutralise pass | INSERT / DELETE |
+| A customer or source deletion cascading into `usage_records` | DELETE |
+| Anything run by hand in `psql` | whichever it is |
+
+There is no Go-side list to keep in step, which is the point: the failure mode
+of a checklist is a writer nobody remembered, and a forgotten writer here
+would silently under-count a day. A trigger cannot be forgotten.
+
+Because the triggers are STATEMENT-level, `UpsertUsage` writes in batches of
+1,000 rather than one statement per record — one trigger firing per batch
+instead of per row, measured in §20.8 — and de-duplicates a batch on
+(source, resource, SKU, window_start), LAST occurrence winning, because
+`ON CONFLICT DO UPDATE` refuses to touch the same row twice in one command.
+That is what the per-record loop it replaced already did, one exec overwriting
+the one before.
+
+The migration seeds a state row for every `(source, day)` already in the
+ledger, at `built_version = 0` — stale — so a database this is deployed over
+keeps serving those days live until the builder has them. Nothing is ever read
+from a partition that was never built.
+
+**A price changed — no invalidation at all.** A price book edited, an item
+repriced, a book assigned to a different source, a currency rate written, the
+reporting currency changed, a discount or campaign altered, a contract term
+changed, a cost-centre rule or per-resource override added or removed, a
+customer renamed, a source's project id changed, a source disabled:
+**none of these mark anything**, because none of them is stored in the rollup.
+They are joined at read time from small tables, so the figure moves the moment
+the change commits, with the rollup fully fresh.
+
+(Deleting a source is not in that list: it cascades into `usage_records`, so
+it is a USAGE change and the delete trigger marks it, which is the row above.)
+
+`TestIntegrationRollupInvalidationPaths` walks six of these — a price change,
+a currency-rate change, a book reassignment, a new cost-centre rule, a
+per-resource override and a customer rename — and fails if any leaves a
+partition marked (which would mean money had been cached) or fails to move the
+figure (which would mean a cached price was being served). The rest reach the
+explorer through the same read-time joins and are covered by §3's own tests.
+
+**The race.** A usage write that lands while a partition is being built moves
+the version, the build's mark refuses to take (`WHERE version = $4` matches no
+row), and the partition stays stale — so the reader keeps serving that day
+live and the next pass rebuilds it. The race costs a rebuild, never a wrong
+figure.
+
+**No foreign keys.** Neither rollup table references `cost_sources` or
+`customers`. Deleting a source cascades into `usage_records`, and the delete
+trigger fires INSIDE that cascade — a foreign key on `source_id` would make
+its insert fail against a parent row the cascade has already removed. Orphan
+rows are invisible to every read (the explorer inner-joins `cost_sources`) and
+are swept by `PurgeOrphanCostRollup` at the start of each builder pass. The
+cost of having no foreign key is that `TRUNCATE ... CASCADE` cannot reach these
+two tables either, so `internal/testdb` names them explicitly.
+
+### 20.5 Which dimensions the rollup serves
+
+Every explorer dimension is served from the rollup at full accuracy:
+
+| Dimension | Served from | Why it works |
+|---|---|---|
+| `customer`, `source`, `kind`, `sku`, `region`, `resource` | rollup | part of the aggregation key |
+| `namespace`, `tier`, `enterprise_project` | rollup | read off `labels`, which is part of the key |
+| `tag:<key>` | rollup | read off `labels.tags`, likewise |
+| `cost_centre` | rollup | resolved at read time from the override and the tag rules over the rollup's own `customer_id`, `resource_id` and `labels` — never stored, so a rule change is immediate |
+
+**One thing a daily rollup cannot serve: hour granularity.** An hour-grain
+chart is always read from `usage_records`. That is not a degraded answer — it
+is the full per-record answer, at the only grain a daily aggregate has no
+information for. Hour-grain windows are short by their nature, so the live
+path is fast for them.
+
+The rest of an hour-grain REQUEST still uses the rollup: the window total, the
+compare window, the resource count, the unpriced list and the unconverted list
+do not depend on the bucket grain, so they ask for the day grain and are
+served from the cache. Only the bucketed series itself goes to the ledger.
+
+### 20.6 The builder
+
+`internal/rollup.Builder` rebuilds stale partitions on a ticker
+(`COST_ROLLUP_INTERVAL`, default one minute), newest day first — the recent
+days are the ones the Overview reads. Each pass sweeps orphans, takes a batch
+of at most 400 partitions, and drains until nothing is stale.
+
+The reader never waits on the builder. A Sovereign whose builder is stopped,
+crashed, or has not caught up after the migration rates every window over
+`usage_records` instead, and gets the same answers — §20.8 measures what that
+costs. The worst a broken builder can do is make a page slow.
+
+`COST_ROLLUP_ENABLED=false` is the kill switch, and it governs the READ as
+well as the build: with it off no window is served from the rollup at all. It
+exists so that a suspicion about the cache can be settled in one restart
+rather than a rollback. The live branch still aggregates before it rates, so
+turning the cache off does not change a figure — only how long it takes.
+
+Metrics on `/metrics`:
+`chargeback_cost_rollup_partitions`,
+`chargeback_cost_rollup_partitions_stale`,
+`chargeback_cost_rollup_rows`,
+`chargeback_cost_rollup_partitions_built_total`,
+`chargeback_cost_rollup_rows_written_total`,
+`chargeback_cost_rollup_rebuild_races_total`.
+
+### 20.7 Exactness, stated precisely
+
+Within the explorer, the rollup and the live fallback are **bit-identical**,
+because they are the same aggregation followed by the same rating expression.
+Both branches now aggregate before rating, where the code before #6926 rated
+each record and then summed.
+
+That change is exact whenever a book's currency is the reporting currency,
+which is the single-currency case every Sovereign to date runs: the rate is 1,
+`(Σqᵢ)·p / 1` and `Σ(qᵢ·p / 1)` are the same exact number, and the products
+are exact because Postgres `numeric` multiplication does not round.
+
+For a book in a converted currency the two orders differ by at most the
+rounding of the division. Postgres computes `numeric` division to at least
+sixteen decimal places, so each record's quotient is within 5·10⁻¹⁷ of the
+exact value and a window of 742k records is within 4·10⁻¹¹ — four orders of
+magnitude below the 5·10⁻⁷ that could move the sixth decimal the API reports.
+The test set is deliberately multi-currency (OMR and USD at 2.6, a rate whose
+quotients do not terminate) and the results are compared as the rendered
+decimal STRINGS, so the assertion is on the digits the operator sees.
+
+The independent check on all of this is `TestIntegrationExploreReconcilesWithStatement`
+(§3.1's own test, unchanged): it rates a month through the rating run and
+asserts the explorer's window total equals the statement's subtotal as exact
+STRINGS. It still passes. A figure the explorer reports and a figure an
+invoice charges are still the same figure.
+
+### 20.8 What was measured after
+
+Seeded to the hw307 shape — 6 customers, 30 days, hourly records — and timed
+as the six documents `gatherSummary` asks for, run in sequence rather than
+concurrently so the figure is work and not scheduling:
+
+| Ledger | Rows | Six summary documents (two runs) |
+|---|---|---|
+| `usage_records`, rated per request | 717,120 hourly | **27.70 s** / **34.35 s** |
+| `cost_usage_daily` | 29,880 daily | **1.55 s** / **1.55 s** (17.8x / 22.2x) |
+
+Both runs are reported because the uncached figure moves with the machine and
+the cached one does not: 1.551 s and 1.545 s over the same ledger.
+
+Building the whole month took **2.77 s** / **2.92 s** for 180 partitions
+(6 sources x 30 days), so the cache is warm within seconds of a restart and of
+the migration.
+
+**The honest other half.** The live branch now aggregates before it rates,
+where the code before #6926 rated each record and then summed, and that
+aggregation costs something when there is no rollup to save it: grouping
+717,120 rows by the nine-column key takes ~1.5 s, about half of it hashing the
+`labels` jsonb (~1.1 s at `work_mem = 64MB`, ~0.7 s if `labels` is dropped
+from the key). Timed as five aggregates over the same 717,120 rows, the
+pre-#6926 per-record shape ran in **6.86 s** and the day-aggregated shape in
+**11.24 s** — so a window the rollup cannot serve is about 1.6x slower to read
+than it was.
+
+That is a deliberate trade, and it buys the exactness property in §20.7: both
+branches are one aggregation, so a window served half from each cannot be a
+different arithmetic. The cost falls only on windows with no fresh partition —
+the seconds between a restart and the builder's first drain, and
+`COST_ROLLUP_ENABLED=false`. The steady state, which is what an operator
+actually loads, is the 1.55 s above.
+
+**What it costs a WRITE.** The invalidation triggers are statement-level, so
+the shape of the write matters more than the trigger does. `UpsertUsage` now
+sends records in batches of 1,000 rather than one statement each: 30,000
+records take **206 ms** with the triggers and **191 ms** with them disabled —
+an 8% overhead. The same 30,000 as single-row upserts took **17.9 s** with the
+triggers and **2.3 s** without, which is why the batch exists: one statement
+per record fired one trigger per record. Ingest is now about eleven times
+faster than it was before the rollup, with the invalidation no weaker — the
+transition table carries every row of the statement.
+
+The measurement is a test, not a note: `TestIntegrationSummaryAtScale` in
+`internal/store`, skipped unless `CHARGEBACK_SCALE_ROWS` names a row count, so
+it can be repeated on demand:
+
+```
+CHARGEBACK_SCALE_ROWS=720000 \
+CHARGEBACK_TEST_DATABASE_URL=... \
+go test -run SummaryAtScale -timeout 30m ./internal/store
+```
+
+### 20.9 Verification standard
+
+- **Window split** (`costrollup_test.go`, no database): thirteen window shapes
+  — part-days at either end, a hole in the middle, two holes, a window shorter
+  than a day, everything stale, a state table that knows nothing, and one that
+  knows only a prefix — each walked at half-hour steps asserting every instant
+  falls in **exactly one** branch; rollup ranges day-aligned; adjacent fresh
+  days merged into one range; the two CTE branches sharing one projection;
+  hour grain never reading the rollup; the builder's GROUP BY and UTC
+  truncation matching the live branch's.
+- **Exactness** (`costrollup_integration_test.go`, against Postgres): a
+  two-currency ledger with a part-day stopped instance, an unpriced meter, the
+  internal source, tags and a tag-attributed cost centre, read through
+  twenty-four cost surfaces — every explorer dimension, a usage-metric
+  document, a top-N document, a filtered document, a part-day window, two
+  customer-scoped documents, the dimension and tag-key pickers, allocation, the
+  anomaly input, the unpriced report and price-book coverage — **twice**: once
+  with nothing built and once with the rollup built, compared as JSON. A guard
+  fails the test if the rollup is not in fact covering the window, so the
+  comparison cannot pass by being vacuous.
+- **The seam** (same file): a day re-opened in the MIDDLE of a built window, so
+  nine days come from the rollup and one from the ledger, compared against the
+  all-live answer; and the count of covered days asserted, so the hole is where
+  the test thinks it is.
+- **Vacuity** (same file): one rollup row perturbed by **one micro-unit** of
+  quantity — the last digit `usage_records` carries — and the comparison must
+  fail, and must fail on the window TOTAL rather than on some label.
+- **Invalidation** (same file): insert, re-upsert (the collector's own
+  `INSERT ... ON CONFLICT DO UPDATE`, which fires the UPDATE statement trigger
+  rather than the INSERT one), update and delete each marking their own day and
+  no other; the figure being right before the rebuild as well as after;
+  a price change, a currency-rate change, a book reassignment, a cost-centre
+  rule, a per-resource override and a customer rename all moving the answer with
+  **nothing marked**; the build race leaving the partition stale; a deleted
+  source neither leaking rows nor stranding a day; the kill switch returning
+  identical answers; and the sampled measurements never reaching the rollup at
+  all.
+- **The write path** (`usage_test.go`, no database): a batch naming one
+  (source, resource, SKU, window_start) twice collapsing to the LAST record;
+  a different hour, a different source and the same instant written in another
+  time zone each resolving correctly; order preserved.
+- **The migration** (`migration_costrollup_integration_test.go`, against
+  Postgres, in its own schema): a database stood at the shape BEFORE the
+  migration and given a ledger the triggers could not have seen, then
+  migrated — every existing (source, day) marked, marked STALE, and **no**
+  rollup rows built, so nothing is ever read from a partition that was never
+  built; the figure unchanged across the migration and unchanged again once
+  built; the four triggers live afterwards.
+- **Scale** (`costrollup_integration_test.go`, on demand): the before/after
+  above.

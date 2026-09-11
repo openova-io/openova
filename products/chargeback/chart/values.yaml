@@ -54,6 +54,13 @@ config:
   # COLLECT_INTERVAL / CTS_POLL_INTERVAL — Go duration strings (spec §3).
   collectInterval: 15m
   ctsPollInterval: 5m
+  # COST_ROLLUP_ENABLED / COST_ROLLUP_INTERVAL — the daily cost rollup the
+  # explorer and the Overview read (DESIGN.md §20). Off is the kill switch
+  # for reads as well as builds: every window is then rated over the hourly
+  # usage ledger, for the same answers and a slower page (§20.8). No money is
+  # cached either way, so a price change is immediate in both settings.
+  costRollupEnabled: true
+  costRollupInterval: 1m
   # PROFILE — sovereign | operator-central (spec §6; Phase 0 only affects
   # the /auth/me payload and the UI banner).
   profile: sovereign
