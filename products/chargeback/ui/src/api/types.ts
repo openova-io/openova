@@ -281,6 +281,10 @@ export interface PriceBook {
    */
   description?: string
   created_at?: string
+  /** DESIGN.md §11 — the ONE cloud book the public calculator prices from. */
+  public?: boolean
+  /** Moves with the header AND the items: "prices as of" on the public catalog. */
+  updated_at?: string
   items?: PriceItem[] | null
 }
 
@@ -1038,6 +1042,8 @@ export interface BillingSettings {
   reminder_days?: number[]
   escalation_days?: number
   escalation_action?: 'notify' | 'suspend' | string
+  /** DESIGN.md §11 — the designated public price book (null = nothing published). */
+  public_price_book_id?: string | null
   updated_at?: string
 }
 
@@ -1338,4 +1344,97 @@ export interface SKUCap {
   total: number | string
   updated_by?: string
   updated_at?: string
+// ── Public cost calculator (DESIGN.md §11) ──────────────────────────────
+// The unauthenticated surface: list prices only. A negotiated book, a
+// discount and a partner rate never appear in any document below.
+
+/** One priced SKU of the public list book. `monthly` is one unit for 730 h. */
+export interface PublicCatalogSKU {
+  sku: string
+  service: string
+  unit: string
+  unit_price: number | string
+  monthly: number | string
+  description?: string
+}
+
+/** One sized catalog plan (S / M / L / XL) as the plans book prices it. */
+export interface PublicCatalogPlan {
+  slug: string
+  name: string
+  sku: string
+  unit: string
+  unit_price: number | string
+  monthly: number | string
+  vcpu: number
+  memory_gib: number
+}
+
+/** One pay-per-use platform meter. */
+export interface PublicCatalogRate {
+  sku: string
+  unit: string
+  unit_price: number | string
+  monthly: number | string
+  description?: string
+}
+
+/** The book an estimate was priced from, and its date. */
+export interface EstimateBook {
+  id: string
+  name: string
+  updated_at: string
+}
+
+/** GET /public/catalog */
+export interface PublicCatalog {
+  price_book: EstimateBook
+  currency: string
+  tax_rate: number | string
+  regions: string[]
+  skus: PublicCatalogSKU[]
+  plans: PublicCatalogPlan[]
+  payg: PublicCatalogRate[]
+  hours_per_month: number
+  list_prices: boolean
+  notice: string
+  generated_at: string
+}
+
+/** One priced line of an estimate. `plan` is set on a plan line. */
+export interface EstimateLine {
+  sku: string
+  plan?: string
+  description?: string
+  unit: string
+  quantity: number | string
+  hours: number | string
+  months: number
+  rated_quantity: number | string
+  unit_price: number | string
+  amount: number | string
+}
+
+/**
+ * POST /public/estimates · GET /public/estimates/{id} · a row of GET /leads.
+ * `contact_email` is present only on the operator's Leads list.
+ */
+export interface Estimate {
+  id: string
+  lines: EstimateLine[]
+  currency: string
+  region?: string
+  subtotal: number | string
+  tax_rate: number | string
+  tax: number | string
+  total: number | string
+  monthly: number | string
+  yearly: number | string
+  price_book: EstimateBook
+  list_prices: boolean
+  lead: boolean
+  contact_email?: string
+  created_at: string
+  valid_until: string
+  share_url?: string
 }

@@ -27,6 +27,8 @@ import { Collections } from './pages/Collections'
 import { Billing } from './pages/Billing'
 import { Access } from './pages/Access'
 import { Capacity } from './pages/Capacity'
+import { EstimatePublic } from './pages/EstimatePublic'
+import { Leads } from './pages/Leads'
 
 function Home() {
   const { me, loading } = useSession()
@@ -39,10 +41,11 @@ function Home() {
 // lenses (DESIGN.md §10.9): any Sovereign-scoped binding opens the Sovereign
 // pages; a customer-scoped principal its own. Inside a page, every control is
 // rendered by the permission the caller holds (lib/access.ts).
-export function App() {
+// The console: every signed-in surface, under the session provider.
+function ConsoleRoutes() {
   return (
     <SessionProvider>
-      <BrowserRouter>
+      <>
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/signin" element={<SignIn />} />
@@ -55,6 +58,7 @@ export function App() {
             <Route path="/customers/new" element={<CustomerNew />} />
             <Route path="/customers/import" element={<CustomerImport />} />
             <Route path="/customers/:id" element={<CustomerDetail />} />
+            <Route path="/leads" element={<Leads />} />
             <Route path="/allocation" element={<Allocation />} />
             <Route path="/pricebooks" element={<PriceBooks />} />
             <Route path="/pricebooks/:id" element={<PriceBookEdit />} />
@@ -97,7 +101,25 @@ export function App() {
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
-      </BrowserRouter>
+      </>
     </SessionProvider>
+  )
+}
+
+/**
+ * The public cost calculator (DESIGN.md §11) is mounted ABOVE the session
+ * provider: `/estimate` renders with no console shell, no sign-in and no
+ * authenticated call at all — which is what lets the marketplace frame it.
+ * Everything else is the console.
+ */
+export function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/estimate" element={<EstimatePublic />} />
+        <Route path="/estimate/:id" element={<EstimatePublic />} />
+        <Route path="*" element={<ConsoleRoutes />} />
+      </Routes>
+    </BrowserRouter>
   )
 }

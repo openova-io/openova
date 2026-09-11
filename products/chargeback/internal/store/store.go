@@ -411,6 +411,11 @@ ALTER TABLE cost_sources ADD CONSTRAINT cost_sources_status_check CHECK (status 
 	// SKU footprints (seeded from the National Cloud list) and per-SKU caps.
 	// Appended at the very END: migrations are positional.
 	capacityMigrationSQL(),
+	// DESIGN.md §12 — the public calculator: the public flag and updated_at
+	// on price books, the designation on billing_settings, and saved
+	// estimates. Appended at the very END: migrations are positional
+	// (located by content in MigrationEstimates, estimates.go).
+	estimatesMigrationSQL,
 }
 
 // MigrationBackfillIssuedInvoices is the schema_migrations version of the

@@ -296,7 +296,9 @@ highest-power binding.
 | Invites (public by token) | `GET /invites/{token}` · `POST /invites/{token}/activate` |
 | Sources | `GET /sources[?internal=true]` (operator-wide) · `GET/POST /customers/{id}/sources` · `GET/PATCH /customers/{id}/sources/{sid}` · `GET/PATCH /sources/{id}` (region, project_id, scope_token, domain_id, **price_book_id**) · `POST /sources/{id}/credential` (rotate + verify) · `POST /sources/{id}/verify` · `DELETE /sources/{id}` |
 | Usage | `GET /customers/{id}/usage?from&to&group_by=sku\|resource\|day` · `GET /customers/{id}/inventory` |
-| Price books | `GET/POST /pricebooks` (**`scope`**: cloud \| platform) · `GET /pricebooks/template.csv` · `GET/PUT /pricebooks/{id}` · `GET /pricebooks/{id}/coverage` · `PUT /pricebooks/{id}/items` · `POST /pricebooks/{id}/import` |
+| Price books | `GET/POST /pricebooks` (**`scope`**: cloud \| platform) · `GET /pricebooks/template.csv` · `GET/PUT /pricebooks/{id}` · `GET /pricebooks/{id}/coverage` · `PUT /pricebooks/{id}/items` · `POST /pricebooks/{id}/import` · **`PUT /pricebooks/{id}/public`** `{public}` (`rating.manage`; one public book at a time — a second is `409`, a platform book `400`) |
+| Public calculator (**unauthenticated**, rate-limited, DESIGN.md §11) | `GET /public/catalog` (the designated public list book + the catalog plans + the pay-per-use rates + regions + tax rate) · `POST /public/estimates` (`?preview=1` prices without saving) · `GET /public/estimates/{id}` (the shareable link). List prices only — never a negotiated book, a discount or a partner rate; no session is read and no cookie is set |
+| Leads | `GET /leads[?limit]` (`customers.manage`) — the estimates a prospect left an address on, newest first |
 | Statements | `POST /statements/run {period, customer_id?}` · `GET /statements[?period&customer_id]` · `GET /customers/{id}/statements` · `GET /statements/{id}` · `GET /statements/{id}.csv` · `POST /statements/{id}/issue` |
 | Operator | `GET /overview` |
 | Capacity (DESIGN.md §11; reads `metering.read` at the Sovereign, writes `capacity.manage`, every write audited `capacity.*`) | `GET /capacity/overview[?region=]` (regions → zones → pools with total / reserved / consumed / available / utilisation / exhaustion, SKU headroom with the binding family, `unmapped_skus`, `unmapped_regions`) · `GET/POST /capacity/regions` · `DELETE /capacity/regions/{id}` · `POST /capacity/regions/{id}/zones` · `DELETE /capacity/zones/{id}` · `GET /capacity/zones/{id}/pools` (+ total history) · `PUT /capacity/pools/{id} {total, note}` · `GET /capacity/footprints` · `PUT /capacity/footprints/{sku} {families}` · `GET/PUT /capacity/caps {zone_id, sku, total}` |
@@ -386,6 +388,8 @@ Price book CSV columns: `sku,unit,annual_price,description` (template at
 | `PLATFORM_API_TOKEN` | unset | literal bearer for those routes when no file is mounted (a local run against a Sovereign) |
 | `TRUSTED_FORWARD_AUTH_HEADER` | unset | the request header carrying the identity the Sovereign's SSO gate verified (`X-Forwarded-Email`); unset = the header is ignored entirely. Only safe when the gate owns the public hostname — the chart refuses `forwardAuth.header` together with `httpRoute.enabled` |
 | `TRUSTED_FORWARD_GROUPS_HEADER` | `X-Forwarded-Groups` | the header carrying the identity's directory groups (comma-separated), each looked up in `group_role_mappings` (DESIGN.md §10). Honoured only while `TRUSTED_FORWARD_AUTH_HEADER` is set |
+| `PUBLIC_CALCULATOR_ORIGINS` | empty | comma-separated origins allowed to call `/api/v1/public/*` cross-origin and to frame `/estimate` (the marketplace, a partner site); empty = same origin only and the page cannot be framed, `*` = any. Every other path keeps `X-Frame-Options: DENY` |
+| `PUBLIC_CALCULATOR_RATE_PER_MINUTE` | `60` | per-client-address budget on the public calculator routes (token bucket, one minute's burst); beyond it the route answers `429` with `Retry-After` |
 | `LISTEN_ADDR` | `:8080` | |
 
 ## Development

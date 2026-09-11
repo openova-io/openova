@@ -108,6 +108,15 @@ type Config struct {
 	// under exactly the same conditions as the identity header, and is inert
 	// without it. Default X-Forwarded-Groups.
 	TrustedForwardGroupsHeader string
+
+	// The public calculator (DESIGN.md §11). PublicCalculatorOrigins are the
+	// origins allowed to call /api/v1/public/* cross-origin and to frame the
+	// /estimate page (the marketplace, a partner's site); empty (the default)
+	// = same origin only and the page cannot be framed. "*" allows any.
+	// PublicCalculatorRatePerMinute is the per-client-address budget on the
+	// public routes (token bucket; 429 with Retry-After beyond it).
+	PublicCalculatorOrigins       []string
+	PublicCalculatorRatePerMinute int
 }
 
 // FromEnv builds the configuration; it fails only on values that would make
@@ -145,7 +154,9 @@ func FromEnv() (Config, error) {
 		PlatformAPITokenFile: get("PLATFORM_API_BEARER_FILE", strings.TrimSpace(os.Getenv("PLATFORM_API_TOKEN_FILE"))),
 		TrustedForwardAuthHeader: http.CanonicalHeaderKey(
 			strings.TrimSpace(os.Getenv("TRUSTED_FORWARD_AUTH_HEADER"))),
-		TrustedForwardGroupsHeader: http.CanonicalHeaderKey(get("TRUSTED_FORWARD_GROUPS_HEADER", "X-Forwarded-Groups")),
+		TrustedForwardGroupsHeader:    http.CanonicalHeaderKey(get("TRUSTED_FORWARD_GROUPS_HEADER", "X-Forwarded-Groups")),
+		PublicCalculatorOrigins:       splitList(os.Getenv("PUBLIC_CALCULATOR_ORIGINS")),
+		PublicCalculatorRatePerMinute: intEnv("PUBLIC_CALCULATOR_RATE_PER_MINUTE", 60),
 	}
 	if c.PlatformAPITokenFile != "" && strings.TrimSpace(os.Getenv("PLATFORM_API_BEARER_FILE")) == "" {
 		slog.Warn("PLATFORM_API_TOKEN_FILE is a deprecated alias read for one release only; set PLATFORM_API_BEARER_FILE to the same path")
