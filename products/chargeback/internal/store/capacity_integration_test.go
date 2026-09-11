@@ -406,9 +406,10 @@ func TestIntegrationCapacityOverviewDerivesConsumption(t *testing.T) {
 	if bw.ExhaustionDays != nil || bw.GrowthPerDay == nil || *bw.GrowthPerDay != 0 {
 		t.Fatalf("flat bandwidth series must report growth 0 and no exhaustion: %+v", bw)
 	}
-	// Zone b EIPs: metered (1 address) but no total → unset, available 0.
+	// Zone b EIPs: metered (1 address) but no total → unset, available 0 —
+	// and NOT over-committed: nobody sized it, so there is nothing to be over.
 	eip := poolOf(t, b, capacity.FamilyEIP)
-	if string(eip.Consumed) != "1.000000" || eip.Status != capacity.StatusUnset || string(eip.Available) != "0.000000" {
+	if string(eip.Consumed) != "1.000000" || eip.Status != capacity.StatusUnset || string(eip.Available) != "0.000000" || eip.Clamped || string(eip.Overcommit) != "0.000000" || eip.UtilisationPct != nil {
 		t.Fatalf("zone b eip = %+v", eip)
 	}
 

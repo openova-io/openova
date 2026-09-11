@@ -33,6 +33,21 @@ describe('Shell navigation per role', () => {
     expect(nav.Configure).not.toContain('Access')
   })
 
+  // Plan → Capacity (DESIGN.md §11) is a Sovereign page readable by every
+  // Sovereign principal — the viewer reads, the admin edits inside — and
+  // never part of the customer lens.
+  it('Plan → Capacity is on the Sovereign lens for every Sovereign role, between Analyse and Bill', () => {
+    const admin: Me = { email: 'ops@nc.example', role: 'operator', permissions: { sovereign: ['metering.read', 'capacity.manage'] }, roles: [{ role: 'sovereign-admin', scope_kind: 'sovereign' }] }
+    const fin: Me = { email: 'fin@nc.example', role: 'finance-viewer', permissions: { sovereign: ['metering.read'] }, roles: [{ role: 'finance-viewer', scope_kind: 'sovereign' }] }
+    for (const me of [admin, fin]) {
+      expect(labels(me).Plan).toEqual(['Capacity'])
+      expect(navFor(me).map(([title]) => title)).toEqual(['Analyse', 'Plan', 'Bill', 'Configure'])
+    }
+    const owner: Me = { email: 'owner@acme.example', role: 'customer-admin', customer_id: A, permissions: { [`customer:${A}`]: ['metering.read', 'customer.self.manage'] }, roles: [{ role: 'customer-owner', scope_kind: 'customer', customer_id: A }] }
+    expect(labels(owner).Plan).toBeUndefined()
+    for (const group of Object.values(labels(owner))) expect(group).not.toContain('Capacity')
+  })
+
   it('customer-owner sees its own pages, Users and Account included, and none of the operator pages', () => {
     const me: Me = { email: 'owner@acme.example', role: 'customer-admin', customer_id: A, permissions: { [`customer:${A}`]: ['metering.read', 'account.topup', 'customer.self.manage'] }, roles: [{ role: 'customer-owner', scope_kind: 'customer', customer_id: A }], scopes: [`customer:${A}`] }
     const nav = labels(me)
