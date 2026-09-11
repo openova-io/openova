@@ -64,6 +64,7 @@ resolve_chart_deps() {
 
 # The silent-failure mechanism itself: the token mount must follow the flag.
 if command -v helm >/dev/null 2>&1; then
+  resolve_chart_deps "$CHART"
   on=$(helm template cb "$CHART" --set config.sovereignFqdn=t99.omani.works \
         --set adapter.enabled=true 2>/dev/null | grep -c 'automountServiceAccountToken: true' || true)
   off=$(helm template cb "$CHART" --set config.sovereignFqdn=t99.omani.works \
