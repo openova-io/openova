@@ -93,8 +93,13 @@ test.describe('chargeback cost console (#6867)', () => {
     for (const b of (bs.budgets ?? []) as Array<{ id: string; name: string }>) if (b.name === 'E2E ceiling') await page.request.delete(`${BASE}/api/v1/budgets/${b.id}`)
     await page.goto(`${BASE}/customers/${CUSTOMER}?tab=discounts`)
     await expect(page.getByRole('heading', { name: 'Acme E2E' })).toBeVisible()
-    for (const tab of ['Overview', 'Cost', 'Resources', 'Statements', 'Discounts', 'Budgets', 'Sources', 'Users', 'Settings', 'Audit']) {
-      await expect(page.locator('.tabs a').filter({ hasText: new RegExp(`^${tab}`) })).toBeVisible()
+    // A tab may carry a count badge appended as a nested span, so the text is
+    // "Sources3" — hence a prefix rather than an exact match. Anchor the tail
+    // on a digit or end-of-string all the same: a bare `^Cost` prefix also
+    // matches "Cost centres", which resolves to two elements and fails strict
+    // mode (it did, the day that tab landed).
+    for (const tab of ['Overview', 'Cost', 'Cost centres', 'Resources', 'Statements', 'Discounts', 'Budgets', 'Sources', 'Users', 'Settings', 'Audit']) {
+      await expect(page.locator('.tabs a').filter({ hasText: new RegExp(`^${tab}(\\d|$)`) })).toBeVisible()
     }
     // DESIGN.md §2 — the price book is a property of the SOURCE: the Sources
     // tab carries the layer badge and the scoped select, and Settings no
