@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-10T20:15:03Z` |
+| Last refreshed | `2026-09-11T10:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-11T10:29 | [#6921](https://github.com/openova-io/openova/pull/6921) | #6867 | feat(bss): 0.1.33 — capacity, partners, public calculator, d |
 | 2026-09-10T19:46 | [#6920](https://github.com/openova-io/openova/pull/6920) | #6867 | docs(glossary): the chargeback product is Catalyst BSS |
 | 2026-09-10T19:00 | [#6919](https://github.com/openova-io/openova/pull/6919) | #6867 | docs(status): chargeback 0.1.32 live on hw307 |
 | 2026-09-10T18:11 | [#6918](https://github.com/openova-io/openova/pull/6918) | #6902 | feat(organization): 0.1.32 — quota adds the per-Organization |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-08T14:56 | [#6881](https://github.com/openova-io/openova/pull/6881) | #6867 | feat(chargeback): two-layer ownership, discount combination  |
 | 2026-09-07T11:21 | [#6880](https://github.com/openova-io/openova/pull/6880) | #6874 | fix(dr-promoter): clear the divergence marker and release th |
 | 2026-09-07T10:44 | [#6879](https://github.com/openova-io/openova/pull/6879) | #6874 | fix(bp-postgres, cloud-init): shared consumers dial the glob |
-| 2026-09-07T09:48 | [#6878](https://github.com/openova-io/openova/pull/6878) | #6874 | fix(dr-promoter): tell a CNPG local failover apart from a re |
 
 ---
 
