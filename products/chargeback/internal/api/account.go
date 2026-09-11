@@ -466,6 +466,13 @@ func (h *Handler) createCreditNote(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "a credit note carries the reason it was issued")
 		return
 	}
+	// DESIGN.md §18.4 — crediting an invoice in a closed period would move a
+	// month the books were signed off on.
+	if st, err := h.Store.GetStatement(r.Context(), store.OperatorScope, r.PathValue("id")); err == nil {
+		if h.refuseClosedPeriod(w, r, st.PeriodStart, "crediting this invoice") {
+			return
+		}
+	}
 	// The invoice is the billing system's in external mode; so is any
 	// correction to it.
 	if _, settings, err := h.Commercial.For(r.Context()); err != nil {

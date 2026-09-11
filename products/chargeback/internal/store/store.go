@@ -433,6 +433,12 @@ ALTER TABLE cost_sources ADD CONSTRAINT cost_sources_status_check CHECK (status 
 	// END: migrations are positional. Located by content as
 	// MigrationContracts.
 	contractsMigrationSQL,
+	// DESIGN.md §18 — the finance handover (EPIC #6867): the operator's
+	// account map, the closed-period register with the journal each close
+	// froze, and the gateway settlement reconciliation runs. Appended at the
+	// very END: migrations are positional. Located by content as
+	// MigrationFinance (ledgerexport.go).
+	financeMigrationSQL,
 }
 
 // MigrationBackfillIssuedInvoices is the schema_migrations version of the

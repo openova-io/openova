@@ -3138,3 +3138,279 @@ On the statement view: **Download PDF** for anyone who may read the invoice,
 the two outcomes with the consequence of each spelled out. A disputed invoice
 carries a banner with the reason, the amount and the sentence that matters:
 it stays on the balance and is not chased.
+
+---
+
+## 18. Finance handover — the journal, the reconciliation and the close (EPIC #6867)
+
+An operator's finance department will not accept a figure it cannot
+reconcile or close. Three things answer that, and all three are standard in
+every billing system:
+
+1. a **journal** — every financial event of a period as double-entry lines
+   against the operator's own account codes, balanced before it is written;
+2. a **reconciliation** — the gateway's settlement against what this product
+   recorded, in four buckets, correcting nothing;
+3. a **period close** — the month stops moving, and what may no longer be
+   done to it is enforced rather than agreed.
+
+Nothing here rates, prices or collects. It reads what already happened — the
+append-only account ledger of §9, the invoices behind it, the allocations
+that applied money to them — and renders it in the vocabulary a general
+ledger speaks.
+
+The code: `internal/store/ledgerexport.go` (the schema and the event reads),
+`internal/finance` (the pure emitter, the balance assertion and the
+settlement matcher — no SQL, no HTTP, no clock) and `internal/api/finance.go`
+(the routes).
+
+### 18.1 Which month an event belongs to
+
+Revenue is recognised in the month it was EARNED and cash in the month it
+MOVED — the ordinary accrual split. So:
+
+- a row tied to a statement — the invoice, a credit note, a write-off —
+  takes the statement's **billing period**: an invoice for August usage
+  issued on 2 September is August revenue;
+- everything else — a payment, a top-up, an application of account credit, a
+  refund, a settlement fee — takes the day the money moved.
+
+Each event's own debit and credit stay together either way, so every period
+balances on its own. The expression is `ledgerPeriodExpr`, one CASE in one
+query, and it is the only place the rule lives.
+
+### 18.2 The journal
+
+**The account map.** Account codes are DATA, never strings in the emitter:
+`account_mappings(key, account_code, description)`, seeded with defaults on
+migration and edited with `settings.manage`. The keys are fixed — this
+product books to them and to nothing else — and the codes are the operator's:
+
+| Key | Default | What posts to it |
+|---|---|---|
+| `receivable` | 1100 | what customers owe |
+| `cash` | 1000 | money that moved, for a transfer or an internal recharge |
+| `gateway_clearing` | 1010 | money a gateway holds between collecting and settling |
+| `customer_advances` | 2100 | money held on account: a top-up, and a payment beyond what it settled |
+| `tax_payable` | 2200 | tax an invoice owes, one line per rule the invoice froze |
+| `revenue` | 4000 | the catch-all revenue account |
+| `revenue.<service>` | — | revenue of one service, added by the operator per service |
+| `discounts` | 4800 | what discounts took off the list price, as contra revenue |
+| `credit_notes` | 4900 | the reduction of an invoice through a credit note |
+| `write_offs` | 6100 | a receivable given up on |
+| `gateway_fees` | 6200 | what a gateway kept, as reconciliation discovered it |
+| `commission` | 6300 | what a partner is owed on a commission statement |
+
+`<service>` is the SKU's first segment — `ecs`, `evs`, `k8s`, `plan` — the
+same split every other surface of this product groups by. A service with no
+account of its own falls back to `revenue`.
+
+**The event-to-journal table.** One row per event kind; both sides of every
+one are emitted together.
+
+| Event | Debit | Credit |
+|---|---|---|
+| Invoice issued | `receivable` (total), `discounts` (discount total) | `revenue.<service>` (list amount, per service), `tax_payable` (per tax rule) |
+| Payment received | `cash` or `gateway_clearing` | `receivable` (what it settled this period), `customer_advances` (the remainder) |
+| Top-up | `cash` or `gateway_clearing` | `customer_advances` |
+| Account credit applied | `customer_advances` | `receivable` |
+| Credit note | `credit_notes` (total) | `receivable` (applied), `customer_advances` (unapplied) |
+| Write-off | `write_offs` (total) | `receivable` (applied), `customer_advances` (unapplied) |
+| Refund | `receivable`, or `customer_advances` for a refunded top-up | `cash` or `gateway_clearing` |
+| Settlement fee | `gateway_fees` | `gateway_clearing` |
+
+Three points that are decisions rather than detail:
+
+- **The discount is a contra line, never apportioned.** An invoice books its
+  LIST revenue per service and the whole discount as one debit, because
+  `total = list − discount + tax` exactly; spreading the discount across
+  services would introduce a rounding remainder into a document whose whole
+  purpose is that it balances.
+- **A payment splits.** What it settled in its own period credits the
+  receivable; what it did not is account credit, and an allocation made in a
+  LATER month is that month's `advance_applied` event. That is what keeps
+  each period local to itself — and a closed one stable.
+- **Multi-rate tax comes from the invoice's own frozen snapshot.** The
+  emitter reads `statements.tax_snapshot` for a `rules` (or `lines`) array
+  and emits one `tax_payable` line per rule; a snapshot with no such array is
+  one rule at the snapshot's rate. Nothing here recomputes tax. When the
+  rules do not sum to the tax the invoice froze, the remainder lands on the
+  last rule, so the journal balances against the INVOICE rather than against
+  the snapshot.
+
+**Traceability.** Every line carries `source_kind` and `source_id` — the
+statement, payment, credit note or reconciliation run it came from — plus
+the invoice or credit-note number. Any figure in the export is followed back
+to the object that produced it in one step.
+
+**The balance rule.** Total debits equal total credits, in every currency and
+overall, asserted in code before anything is written. A batch that does not
+balance is an **error naming the difference** (`finance.ErrUnbalanced`,
+which reads as `store.ErrInvalid` so the API answers 422) and it is never
+exported, never stored, and never closes a period. The refusal also names
+every account key the map had no code for, because that is almost always the
+cause: a key with no code posts nothing, and the batch is short by exactly
+that amount.
+
+**Getting it out.** `GET /api/v1/finance/journal?period=YYYY-MM[&format=csv]`
+— JSON with the lines, the totals and the balance check, or the CSV a finance
+system imports (a fixed header, exact decimal strings, nothing formatted for
+a human; the same batch always renders the same bytes).
+`POST /api/v1/finance/journal/export {period}` queues it as a **TMF-shaped
+document on the commercial outbox** — the same at-least-once lane the bills
+leave by (§8.10), so an operator receives the month's journal through the
+transport it already configured. The document type is `journal` and the
+idempotency key is the period and its close state, so re-exporting an
+unchanged period delivers one document.
+
+### 18.3 Gateway settlement reconciliation
+
+A gateway takes money and, days later, pays a batch into the bank with its
+own list of what is in it. Finance will not sign off a cash figure until
+that list and the ledger agree line for line.
+
+`POST /api/v1/finance/reconciliation[?gateway=&from=&to=]` takes the
+settlement either way:
+
+- a **file** — multipart `file`, or a raw `text/csv` body. The header is read
+  in any column order and under the aliases real gateway exports use
+  (`gateway_reference` / `reference` / `transaction_id`, `amount` /
+  `settled_amount`, `currency`, `settled_date` / `value_date`, `fee` /
+  `commission`). A row that cannot be read is an error naming the file line:
+  a settlement file is a cash document, and half of one reconciled silently
+  is worse than none;
+- a **fetch** — through `settle.Gateway.Settlements(ctx, from, to)`, added to
+  the gateway seam exactly as `VerifyCallback` and `SetupMethod` were, with
+  `ErrSettlementsNotSupported` as the default. The built-in manual gateway
+  answers that (a transfer settles at the bank), and the operator uploads the
+  bank's statement instead.
+
+Each settlement line is matched to a payment by **gateway reference**,
+trimmed and case-folded and compared for nothing cleverer than equality. The
+report is four buckets:
+
+| Bucket | What it means |
+|---|---|
+| `matched` | the reference is on both sides for the same amount |
+| `amount-mismatch` | the reference is on both sides for different amounts — BOTH figures are reported, and neither is believed |
+| `missing-in-ledger` | the gateway settled something no payment records |
+| `missing-in-settlement` | a payment is recorded the gateway has not settled |
+
+A fifth, `duplicate`, catches a settlement file that names one gateway
+reference twice: the later line is **reported** rather than matched against
+the same payment again — which is how a reconciliation quietly doubles a
+cash figure — and it raises neither the matched count, the settled total nor
+the fee total.
+
+**Fees** ride on the line that matched and become their own pair of journal
+lines (`gateway_fees` / `gateway_clearing`) dated on the settlement day.
+That is the only way a gateway's fee ever enters the books: discovered by
+reconciliation, never guessed.
+
+**Nothing is auto-corrected.** No payment is created, amended, reallocated or
+re-statused by a run. `GET /api/v1/finance/reconciliation/{id}` returns the
+stored run with its rows so the operator can act on it, and
+`GET /api/v1/finance/reconciliations` lists the runs.
+
+### 18.4 Period close
+
+`POST /api/v1/finance/periods/{period}/close` (`settings.manage`):
+
+1. **It refuses while anything in the period is still moving** — any
+   statement in it that is still a draft, and any open dispute on an invoice
+   in it — answering 409 and NAMING each one. A draft is a bill nobody has
+   decided on and an open dispute is a figure the customer says is wrong;
+   closing over either freezes a number that is still changing.
+   `GET /api/v1/finance/periods/{period}` reports the same list, plus the
+   balance check as a figure, BEFORE the operator presses the button.
+2. **It asserts the balance** and refuses (422) if the journal does not
+   balance. The balance assertion is a hard refusal, not a warning.
+3. **It stamps the period closed and freezes the journal it closed on**, in
+   one transaction (`finance_periods` + `finance_journal_lines`).
+
+After that, `GET /finance/journal` for that period is served from the frozen
+lines, not re-derived. That is what makes a closed period's export stable by
+construction: the same period exports byte-identically however many later
+events land, and a test proves it against an unrelated later-period invoice,
+payment and top-up.
+
+**What a closed period forbids.** No statement in it may be:
+
+- **issued** — `POST /statements/{id}/issue`
+- **re-run** — `POST /statements/run {period}`, the rating run
+- **cancelled** — `POST /statements/{id}/cancel`
+- **credited** — `POST /statements/{id}/credit-notes` and
+  `POST /contracts/{id}/sla-credit`
+
+Each answers 409 with a message saying the period is closed, **who closed it
+and when**, and that reopening with a reason is the way through. The check is
+one helper (`refuseClosedPeriod`) called from the existing handlers rather
+than a rule buried in the store: the store records what happened, and "this
+month is shut" is a policy the operator sets and lifts.
+
+`POST /api/v1/finance/periods/{period}/reopen {reason}` (`settings.manage`)
+lifts it. The reason is required, who reopened it and why are recorded on the
+row, and the whole thing is audited as `finance.period.reopen` carrying the
+reason and who had closed it. The frozen journal is KEPT: the reopened period
+derives live again, and the lines the close asserted stay readable as what
+the books said at the time.
+
+### 18.5 Permissions
+
+| Surface | Needs |
+|---|---|
+| Read the journal, the periods, the account map, the runs; export; reconcile | `audit.read` AND `metering.read`, both at the **Sovereign** |
+| Close, reopen, edit the account map | `settings.manage` at the Sovereign |
+
+Two permissions rather than one for the read, because this surface is the
+whole ledger of every customer in one document: a principal that may read one
+customer's costs has not thereby been given the books. In the role matrix
+that makes it the **finance-viewer** bundle and everything above it; a
+billing-operator reads and reconciles but closes nothing.
+
+**A customer and a partner reach none of it.** Every route is gated at the
+Sovereign scope, so a customer-scoped or partner-scoped binding is refused
+(403) on every one of them — read, write and upload alike — and the tests
+walk each route as a customer owner, a partner owner and an anonymous caller.
+
+### 18.6 The console
+
+A **Finance** group in the Sovereign lens:
+
+- **Journal** — a period picker, the strip (total debits, total credits, the
+  balance check as a FIGURE with its difference, the accounts posted to), the
+  by-account summary a ledger is posted from, the lines with their account
+  codes and what each traces back to, and a CSV download.
+- **Reconciliation** — upload a settlement file or fetch from the gateway,
+  the four buckets with counts and amounts, a bucket filter and the
+  row-level view showing both figures on a mismatch, and the list of runs.
+  The page says in as many words that it reports and the operator decides.
+- **Period close** — the status of each month, what blocks a close named row
+  by row, Close (disabled while anything blocks it, with the reason on the
+  control) and Reopen with its required reason.
+- **Account mapping** — the key-to-code table with what each key is for, the
+  per-service revenue accounts and how to add one, and a banner naming any
+  key with no code and what that costs.
+
+### 18.7 Tests
+
+Pure (`internal/finance`): each event type against the MAPPED accounts, an
+unmapped service falling back to `revenue`, multi-rate tax emitting one
+payable line per rule, a commission statement booking to `commission`, a
+deliberately unbalanced mapping refused naming the difference AND the missing
+account, per-currency balance, and two renders of one batch being the same
+bytes. Reconciliation: the four buckets on a seeded file, a duplicate
+reference reported rather than double-matched (and not counted in the matched,
+settled or fee totals), fees on the matched lines only, the alias-tolerant
+parser and the rubbish it refuses, and a run leaving its input payments
+untouched.
+
+Integration (`internal/api`, against Postgres): the journal balancing and
+every line tracing back, the account map driving the codes, a multi-rate tax
+snapshot on a real statement, the close refused by name over a draft and over
+an open dispute, issue / re-run / cancel / credit all refused after the close
+with who closed it, reopen audited with who and why and the same writes
+allowed again afterwards, **a closed period exporting byte-identically before
+and after an unrelated later-period event**, the four buckets end to end with
+the fees journaled and the payments unchanged, the journal reaching the
+commercial outbox once per period, and the permission matrix per route.

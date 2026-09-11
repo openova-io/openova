@@ -14,9 +14,10 @@ import (
 // fake is a second gateway implementation — the shape "adding Omantel's
 // gateway" takes: two methods and one Register call.
 type fake struct {
-	name   string
-	calls  int
-	setups int
+	name        string
+	calls       int
+	setups      int
+	settlements int
 }
 
 func (f *fake) VerifyCallback(*http.Request) (Confirmation, error) {
@@ -40,6 +41,13 @@ func (f *fake) SetupMethod(_ context.Context, req SetupRequest) (SetupResult, er
 
 func (f *fake) ConfirmMethod(_ context.Context, c MethodConfirmation) (SavedMethod, error) {
 	return SavedMethod{Gateway: f.name, Token: "pm_" + c.SetupID, Brand: "visa", Last4: "4242", ExpMonth: 11, ExpYear: 2030}, nil
+}
+
+// The reconciliation half (DESIGN.md §18.3): this gateway publishes what it
+// paid out, so an operator reconciles without a file.
+func (f *fake) Settlements(_ context.Context, from, _ time.Time) ([]Settlement, error) {
+	f.settlements++
+	return []Settlement{{Reference: "SET-1", Amount: "100.000000", Currency: "OMR", SettledAt: from, Fee: "2.500000"}}, nil
 }
 
 func billed(model, method, gateway string) store.Customer {

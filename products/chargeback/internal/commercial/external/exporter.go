@@ -120,6 +120,22 @@ func csvRows(env Envelope) ([][]string, error) {
 			rows = append(rows, []string{ref, "allocation", d.ID, d.BillingAccount.ID, d.BillingAccount.Name, d.BillingAccount.Slug, d.PaymentDate, d.Status, d.PaymentMethod, d.Reference, d.Purpose, it.Amount.Unit, string(it.Amount.Value), it.InvoiceRef, it.InvoiceNumber})
 		}
 		return rows, nil
+	case DocJournal:
+		var d JournalDocument
+		if err := json.Unmarshal(env.Document, &d); err != nil {
+			return nil, err
+		}
+		rows := [][]string{{"external_ref", "record", "period", "period_status", "seq", "date", "event", "account_key", "account_code", "account_name",
+			"debit", "credit", "currency", "customer_slug", "customer_name", "source_kind", "source_id", "reference", "memo"}}
+		for _, l := range d.Lines {
+			rows = append(rows, []string{ref, "line", d.Period, d.Status, fmt.Sprint(l.Seq), l.Date, l.Event, l.AccountKey, l.AccountCode, l.AccountName,
+				string(l.Debit.Value), string(l.Credit.Value), l.Debit.Unit, l.CustomerSlug, l.CustomerName, l.SourceKind, l.SourceID, l.Reference, l.Memo})
+		}
+		// The totals the balance assertion checked, as their own record, so
+		// the far end can assert them again without re-summing.
+		rows = append(rows, []string{ref, "total", d.Period, d.Status, "", "", "", "", "", "",
+			string(d.TotalDebit.Value), string(d.TotalCredit.Value), d.TotalDebit.Unit, "", "", "", "", "", "debits and credits"})
+		return rows, nil
 	case DocAccount:
 		var d AccountDocument
 		if err := json.Unmarshal(env.Document, &d); err != nil {

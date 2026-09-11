@@ -121,6 +121,13 @@ func (h *Handler) cancelStatement(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid body: "+err.Error())
 		return
 	}
+	// DESIGN.md §18.4 — a closed period does not move: voiding an invoice in
+	// one would take a receivable back off books already signed off.
+	if st, err := h.Store.GetStatement(r.Context(), store.OperatorScope, r.PathValue("id")); err == nil {
+		if h.refuseClosedPeriod(w, r, st.PeriodStart, "cancelling this invoice") {
+			return
+		}
+	}
 	provider, _, err := h.Commercial.For(r.Context())
 	if err != nil {
 		storeErr(w, err)
