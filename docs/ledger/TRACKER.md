@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-11T17:45:03Z` |
+| Last refreshed | `2026-09-11T18:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6194](https://github.com/openova-io/openova/issues/6194) | Wizard StepOrg still says "All fields are pre-filled" after #5401 emptied them � | Other |
 | [#6197](https://github.com/openova-io/openova/issues/6197) | P0: mothership Stalwart is killed by its own liveness probe every ~15min — mai | Other |
 | [#6200](https://github.com/openova-io/openova/issues/6200) | active-hot-standby preview renders BOTH regions as primary — the role switch m | Other |
 | [#6202](https://github.com/openova-io/openova/issues/6202) | Cutover engine re-adopts a prior attempt's FAILED step Job instead of recreating | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6867](https://github.com/openova-io/openova/issues/6867) | chargeback: bring cost analysis to cloud-provider level — overview renders zer | Other |
 | [#6870](https://github.com/openova-io/openova/issues/6870) | Sovereign console sign-out redirects the browser to keycloak.keycloak.svc.cluste | Other |
 | [#6874](https://github.com/openova-io/openova/issues/6874) | shared-pg DR failback: the divergence re-clone never re-renders (helm in-sync),  | Other |
+| [#6926](https://github.com/openova-io/openova/issues/6926) | Catalyst BSS: the Overview's cost summary takes ~50s on hw307 — cost is rated  | Other |
 
 ---
 
