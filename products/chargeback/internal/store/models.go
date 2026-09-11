@@ -524,6 +524,13 @@ type Statement struct {
 	// document, absent from list documents.
 	Payments []StatementPayment `json:"payments,omitempty"`
 
+	// DESIGN.md §16 — the customer disputed this invoice, and why. The
+	// disputed amount STAYS on the balance: a dispute is not a credit, it
+	// is a pause on chasing, and the aging report and the collections
+	// evaluator both read this flag. Cleared when an operator resolves it.
+	DisputedAt    *time.Time `json:"disputed_at,omitempty"`
+	DisputeReason string     `json:"dispute_reason,omitempty"`
+
 	// The partner keys (DESIGN.md §13), all additive. PartnerID is the
 	// partner of the statement's customer (a customer statement) or the
 	// partner whose party this statement bills (wholesale / commission);

@@ -4,6 +4,7 @@ import { API_BASE, api, asList, errorText } from '../api/client'
 import type { Statement } from '../api/types'
 import { Badge, Confirm, Empty, Notice } from '../components/ui'
 import { day, money, when } from '../lib/format'
+import { invoiceDownloadURL } from '../lib/selfservice'
 
 export function StatementsPanel({
   customerId,
@@ -99,6 +100,7 @@ export function StatementTable({
               </td>
               <td>
                 <Badge status={s.status} />
+                {s.disputed_at ? <Badge status="disputed" kind="warn" /> : null}
               </td>
               <td className="num">{money(s.subtotal, s.currency)}</td>
               <td className="num">{Number(s.discount_total ?? 0) > 0 ? `−${money(s.discount_total, s.currency)}` : '—'}</td>
@@ -106,6 +108,12 @@ export function StatementTable({
               <td className="num">{money(s.total, s.currency)}</td>
               <td>{when(s.issued_at)}</td>
               <td className="row">
+                {/* DESIGN.md §16 — the invoice in the customer's hands. Same
+                    route, same scope check, as reading the statement; it
+                    lands under its invoice number. */}
+                <a href={invoiceDownloadURL(s.id)} title={`Download ${s.invoice_number ?? 'this statement'} as a PDF`}>
+                  Download
+                </a>
                 <a href={`${API_BASE}/statements/${s.id}.csv`}>CSV</a>
                 {canIssue && s.status === 'draft' ? (
                   <>

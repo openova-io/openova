@@ -14,8 +14,9 @@ import (
 // fake is a second gateway implementation — the shape "adding Omantel's
 // gateway" takes: two methods and one Register call.
 type fake struct {
-	name  string
-	calls int
+	name   string
+	calls  int
+	setups int
 }
 
 func (f *fake) VerifyCallback(*http.Request) (Confirmation, error) {
@@ -29,6 +30,16 @@ func (f *fake) RequestSettlement(_ context.Context, req Request) (Result, error)
 
 func (f *fake) ConfirmSettlement(_ context.Context, c Confirmation) (Payment, error) {
 	return Normalise(c, f.name)
+}
+
+// The saved-method half: this gateway hosts a page and hands back a token.
+func (f *fake) SetupMethod(_ context.Context, req SetupRequest) (SetupResult, error) {
+	f.setups++
+	return SetupResult{Gateway: f.name, SetupID: "seti_" + req.Customer.Slug, SetupURL: "https://pay.example/setup/" + req.Customer.Slug}, nil
+}
+
+func (f *fake) ConfirmMethod(_ context.Context, c MethodConfirmation) (SavedMethod, error) {
+	return SavedMethod{Gateway: f.name, Token: "pm_" + c.SetupID, Brand: "visa", Last4: "4242", ExpMonth: 11, ExpYear: 2030}, nil
 }
 
 func billed(model, method, gateway string) store.Customer {

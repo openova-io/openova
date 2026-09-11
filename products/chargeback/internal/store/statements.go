@@ -18,7 +18,8 @@ const statementColumns = `st.id, st.customer_id, to_char(st.period_start, 'YYYY-
 	COALESCE((SELECT sum(a.amount) FROM invoice_allocations a JOIN payments p ON p.id = a.payment_id WHERE a.statement_id = st.id AND p.status = 'received'), 0)::numeric(20,6)::text,
 	COALESCE((SELECT sum(a.amount) FROM invoice_allocations a WHERE a.statement_id = st.id AND a.credit_note_id IS NOT NULL), 0)::numeric(20,6)::text,
 	st.tax_snapshot,
-	st.partner_id, COALESCE(p.name, ''), c.party_kind, st.statement_kind, st.buy_total::text, st.margin_total::text`
+	st.partner_id, COALESCE(p.name, ''), c.party_kind, st.statement_kind, st.buy_total::text, st.margin_total::text,
+	st.disputed_at, st.dispute_reason`
 
 // statementFrom is the FROM every statement query shares: the customer (or
 // the partner's party) the statement bills and, when there is one, the
@@ -35,11 +36,13 @@ func scanStatement(row interface{ Scan(...any) error }) (Statement, error) {
 	var due, sent, paidAt, cancelled sql.NullTime
 	var paid, credited string
 	var partner, buy, margin sql.NullString
+	var disputed sql.NullTime
 	if err := row.Scan(&st.ID, &st.CustomerID, &st.PeriodStart, &st.PeriodEnd, &st.Currency, &sub, &rate, &tax, &total, &st.Status, &issued, &st.CreatedAt, &st.CustomerName, &disc, &detail, &rule,
 		&invoiceNo, &externalRef, &st.PORef, &terms, &due, &sent, &paidAt, &cancelled, &st.CancelReason, &paid, &credited, &snapshot,
-		&partner, &st.PartnerName, &st.PartyKind, &st.Kind, &buy, &margin); err != nil {
+		&partner, &st.PartnerName, &st.PartyKind, &st.Kind, &buy, &margin, &disputed, &st.DisputeReason); err != nil {
 		return st, mapErr(err)
 	}
+	st.DisputedAt = timePtr(disputed)
 	st.PartnerID = strPtr(partner)
 	st.BuyTotal, st.MarginTotal = decPtr(buy), decPtr(margin)
 	if st.PartnerID == nil {

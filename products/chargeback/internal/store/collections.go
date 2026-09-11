@@ -551,6 +551,10 @@ type OpenInvoice struct {
 	DueAt         time.Time
 	PeriodStart   string
 	PeriodEnd     string
+	// DESIGN.md §16 — set while the customer disputes this invoice. It is
+	// still outstanding and still on the balance; it is simply not chased.
+	DisputedAt    *time.Time
+	DisputeReason string
 }
 
 // ---------------------------------------------------------------------------
@@ -1473,7 +1477,7 @@ func (s *Store) ListOpenInvoices(ctx context.Context, scope Scope) ([]OpenInvoic
 		(st.total
 		  - COALESCE((SELECT sum(a.amount) FROM invoice_allocations a JOIN payments p ON p.id = a.payment_id WHERE a.statement_id = st.id AND p.status = 'received'), 0)
 		  - COALESCE((SELECT sum(a.amount) FROM invoice_allocations a WHERE a.statement_id = st.id AND a.credit_note_id IS NOT NULL), 0))::numeric(20,6)::text,
-		st.status, st.issued_at, st.due_at, to_char(st.period_start, 'YYYY-MM-DD'), to_char(st.period_end, 'YYYY-MM-DD')
+		st.status, st.issued_at, st.due_at, to_char(st.period_start, 'YYYY-MM-DD'), to_char(st.period_end, 'YYYY-MM-DD'), st.disputed_at, st.dispute_reason
 		FROM statements st JOIN customers c ON c.id = st.customer_id
 		WHERE st.status IN ('issued','sent') AND st.due_at IS NOT NULL AND st.issued_at IS NOT NULL`
 	var args []any
@@ -1491,9 +1495,11 @@ func (s *Store) ListOpenInvoices(ctx context.Context, scope Scope) ([]OpenInvoic
 	for rows.Next() {
 		var o OpenInvoice
 		var total, outstanding string
-		if err := rows.Scan(&o.StatementID, &o.InvoiceNumber, &o.CustomerID, &o.CustomerName, &o.CustomerSlug, &o.CustomerKind, &o.AdminEmail, &o.Currency, &total, &outstanding, &o.Status, &o.IssuedAt, &o.DueAt, &o.PeriodStart, &o.PeriodEnd); err != nil {
+		var disputed sql.NullTime
+		if err := rows.Scan(&o.StatementID, &o.InvoiceNumber, &o.CustomerID, &o.CustomerName, &o.CustomerSlug, &o.CustomerKind, &o.AdminEmail, &o.Currency, &total, &outstanding, &o.Status, &o.IssuedAt, &o.DueAt, &o.PeriodStart, &o.PeriodEnd, &disputed, &o.DisputeReason); err != nil {
 			return nil, err
 		}
+		o.DisputedAt = timePtr(disputed)
 		o.Total, o.Outstanding = Decimal(total), Decimal(outstanding)
 		if ratOf(o.Outstanding).Sign() <= 0 {
 			continue

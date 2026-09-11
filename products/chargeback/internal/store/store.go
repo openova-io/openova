@@ -420,6 +420,12 @@ ALTER TABLE cost_sources ADD CONSTRAINT cost_sources_status_check CHECK (status 
 	// parties, derived retail books, the partner scope (DESIGN.md
 	// §13). Located by content as MigrationPartners.
 	partnersMigrationSQL,
+	// DESIGN.md §16 — customer self-service: saved payment methods (display
+	// record only; the instrument stays with the gateway) and invoice
+	// disputes, with the two dispute columns collections reads on statements.
+	// Appended at the very END: migrations are positional (located by
+	// content as MigrationSelfService, selfservice.go).
+	selfServiceMigrationSQL,
 }
 
 // MigrationBackfillIssuedInvoices is the schema_migrations version of the

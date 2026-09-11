@@ -1,5 +1,5 @@
 import { asList } from '../api/client'
-import type { CostSource, Customer, CustomerUser, Summary } from '../api/types'
+import type { CostSource, Customer, CustomerUser, Dispute, Summary } from '../api/types'
 import { useSession } from '../auth/session'
 import { Notice, PageHeader, Skeleton } from '../components/ui'
 import { can, customerIds } from '../lib/access'
@@ -7,6 +7,7 @@ import { lensFor } from '../lib/scope'
 import { readKPIs } from '../lib/summary'
 import { useQuery } from '../lib/useQuery'
 import { AccountPanel } from '../panels/AccountPanel'
+import { PaymentMethodsPanel } from '../panels/PaymentMethodsPanel'
 import { BudgetsPanel } from '../panels/BudgetsPanel'
 import { DiscountsPanel } from '../panels/DiscountsPanel'
 import { SourcesPanel } from '../panels/SourcesPanel'
@@ -67,11 +68,40 @@ export const MyUsage = MyExplore
 
 export function MyStatements() {
   const { id } = useMy()
+  const dis = useQuery<unknown>(id ? `/customers/${id}/disputes` : null)
+  if (!id) return <NoCustomer />
+  const open = asList<Dispute>(dis.data, 'disputes').filter((d) => d.status === 'open')
+  return (
+    <div className="stack">
+      <PageHeader title="Invoices" sub="Every billing period rated for your account; issued statements are final. Download any of them as a PDF, and open a dispute from the invoice itself." />
+      {open.length > 0 ? (
+        <Notice kind="warn">
+          {open.length === 1 ? 'One invoice is under dispute' : `${open.length} invoices are under dispute`} — the amount stays owed and is not chased while the operator reviews it.
+        </Notice>
+      ) : null}
+      <StatementsPanel customerId={id} canIssue={false} />
+    </div>
+  )
+}
+
+/**
+ * /my/payment-methods — the card kept on file (DESIGN.md §16). Adding one
+ * sends the payer to the gateway's own page; what this console shows is the
+ * brand, the last four digits and the expiry. An owner or a billing user
+ * (account.topup) adds and removes; a viewer sees what is on file.
+ */
+export function MyPaymentMethods() {
+  const { id, canTopup } = useMy()
+  const cust = useQuery<Customer>(id ? `/customers/${id}` : null)
   if (!id) return <NoCustomer />
   return (
     <div className="stack">
-      <PageHeader title="Statements" sub="Every billing period rated for your account; issued statements are final." />
-      <StatementsPanel customerId={id} canIssue={false} />
+      <PageHeader
+        title="Payment methods"
+        sub={canTopup ? 'The card your invoices are collected on. It is entered on the payment provider’s page and held there.' : 'The card your invoices are collected on. An owner or billing user of this account can add or remove one.'}
+      />
+      {cust.error ? <Notice kind="bad">{cust.error}</Notice> : null}
+      <PaymentMethodsPanel customerId={id} canManage={canTopup} gatewayName={cust.data?.gateway_name ?? undefined} />
     </div>
   )
 }

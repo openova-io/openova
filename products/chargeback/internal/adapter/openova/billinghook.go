@@ -200,6 +200,114 @@ func (b *BillingHook) ConfirmSettlement(_ context.Context, c settle.Confirmation
 	return settle.Normalise(c, "billing")
 }
 
+// ---------------------------------------------------------------------------
+// saved payment methods (DESIGN.md §16)
+// ---------------------------------------------------------------------------
+
+// SetupMethod implements settle.Gateway's saved-method half for the
+// Stripe-backed billing service. It opens that service's OWN portal session
+// for the Organization — `POST /billing/portal/{slug}`, the existing
+// surface on which a payer adds, replaces or removes the card Stripe keeps —
+// and returns the URL to send them to.
+//
+// No card detail crosses this process at any point: the payer enters it on
+// the gateway's page, and what comes back here is a link.
+func (b *BillingHook) SetupMethod(ctx context.Context, req settle.SetupRequest) (settle.SetupResult, error) {
+	if b == nil || b.URL == "" {
+		return settle.SetupResult{}, fmt.Errorf("%w: the billing hook is not configured", settle.ErrMethodSetupNotSupported)
+	}
+	if !applies(req.Customer) {
+		return settle.SetupResult{}, fmt.Errorf("%w: only a billed Organization collected through the stripe gateway keeps a method with the billing service", settle.ErrMethodSetupNotSupported)
+	}
+	slug := orgSlugOf(req.Customer)
+	url, err := b.portalSession(ctx, slug)
+	if err != nil {
+		return settle.SetupResult{}, err
+	}
+	return settle.SetupResult{
+		Gateway:  "billing",
+		SetupID:  slug,
+		SetupURL: url,
+		Detail:   "enter the card on the billing portal; it is kept by the payment processor, never here",
+	}, nil
+}
+
+// ConfirmMethod implements the other half: the payer has returned from the
+// portal and this says what is now on file.
+//
+// The billing service reports no card detail back — its subscription
+// document carries none — so the method is recorded as MANAGED BY THE
+// GATEWAY: the gateway's name and the Organization handle, and no brand, last four
+// or expiry invented for a card nobody in this process has seen. Fabricating
+// a display triple here would be a guess printed to a customer as fact. When
+// the billing service grows an endpoint that reports them, this function is
+// the only place that changes.
+func (b *BillingHook) ConfirmMethod(_ context.Context, c settle.MethodConfirmation) (settle.SavedMethod, error) {
+	if b == nil || b.URL == "" {
+		return settle.SavedMethod{}, fmt.Errorf("%w: the billing hook is not configured", settle.ErrMethodSetupNotSupported)
+	}
+	if !applies(c.Customer) {
+		return settle.SavedMethod{}, fmt.Errorf("%w: only a billed Organization collected through the stripe gateway keeps a method with the billing service", settle.ErrMethodSetupNotSupported)
+	}
+	return settle.SavedMethod{Gateway: "billing", Label: "card on file in the payment portal"}, nil
+}
+
+// portalSession asks the billing service for a portal URL for one Organization.
+func (b *BillingHook) portalSession(ctx context.Context, slug string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.URL+"/billing/portal/"+slug, bytes.NewReader([]byte("{}")))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if b.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+b.Token)
+	}
+	resp, err := b.client().Do(req)
+	if err != nil {
+		return "", fmt.Errorf("open the billing portal: %w", err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return "", fmt.Errorf("billing answered %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+	}
+	url := stringField(raw, "portal_url")
+	if url == "" {
+		return "", errors.New("billing returned no portal url")
+	}
+	return url, nil
+}
+
+// orgSlugOf is the identifier the billing service knows an Organization by —
+// its Organization slug, falling back to the customer slug, exactly as the
+// metering post does.
+func orgSlugOf(c store.Customer) string {
+	if c.OrgSlug != nil && *c.OrgSlug != "" {
+		return *c.OrgSlug
+	}
+	return c.Slug
+}
+
+// stringField reads a string field of billing's response, at the top level
+// or nested one level (respond-wrapper tolerant), like duplicateFlag.
+func stringField(raw []byte, key string) string {
+	var top map[string]any
+	if err := json.Unmarshal(raw, &top); err != nil {
+		return ""
+	}
+	if v, ok := top[key].(string); ok {
+		return v
+	}
+	for _, v := range top {
+		if m, ok := v.(map[string]any); ok {
+			if s, ok := m[key].(string); ok {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
 // StatementIssued implements the api.StatementHook seam. Only issued
 // statements of an Organization collected through the stripe gateway reach
 // billing; everything else is a silent no-op (D6 is adapter-only).

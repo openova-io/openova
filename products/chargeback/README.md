@@ -311,7 +311,8 @@ highest-power binding.
 | Leads | `GET /leads[?limit]` (`customers.manage`) — the estimates a prospect left an address on, newest first |
 | Price books | `GET/POST /pricebooks` (**`scope`**: cloud \| platform) · `GET /pricebooks/template.csv` · `GET/PUT /pricebooks/{id}` · `GET /pricebooks/{id}/coverage` · `PUT /pricebooks/{id}/items` · `POST /pricebooks/{id}/import` |
 | Partners (`partners.manage`; a partner owner holds `partner.self.manage` on its own) | `GET/POST /partners` · `GET/PATCH /partners/{id}` · `GET/POST /partners/tiers` · `PUT /partners/tiers/{id}/discounts` · `PUT /partners/{id}/retail-rule` (re-derives; the response lists the below-buy lines) · `GET /partners/{id}/retail-book` · `GET /partners/{id}/customers` · `GET /partners/{id}/statements` · `GET /partners/{id}/margin?period=` · `GET /partners/{id}/account` · `GET/POST /partners/{id}/users` · `DELETE /partners/{id}/users/{email}` · `PATCH /customers/{id} {partner_id}` |
-| Statements | `POST /statements/run {period, customer_id?}` · `GET /statements[?period&customer_id]` · `GET /customers/{id}/statements` · `GET /statements/{id}` · `GET /statements/{id}.csv` · `POST /statements/{id}/issue` |
+| Statements | `POST /statements/run {period, customer_id?}` · `GET /statements[?period&customer_id]` · `GET /customers/{id}/statements` · `GET /statements/{id}` · `GET /statements/{id}.csv` · **`GET /statements/{id}.pdf`** (the invoice as a document, `Content-Disposition: attachment; filename="<invoice number>.pdf"`; 503 with no renderer configured) · `POST /statements/{id}/issue` |
+| Customer self-service (DESIGN.md §16; writes need `account.topup` on the customer — an owner or a billing user — or `billing.collect`) | `GET/POST /customers/{id}/payment-methods` · `POST /customers/{id}/payment-methods/{mid}/confirm` · `DELETE /customers/{id}/payment-methods/{mid}` · `GET/DELETE /payment-methods/{id}` — the card is entered on the GATEWAY's page; what is stored is brand, last four, expiry and the gateway's token id, and the token reaches no wire (`json:"-"`) and no audit entry. `POST /statements/{id}/disputes {reason, lines?}` · `GET /statements/{id}/disputes` · `GET /customers/{id}/disputes` · `GET /disputes/{id}` · **`POST /disputes/{id}/resolve {outcome: upheld\|rejected, note}`** (`billing.collect`) — upheld issues a credit note for the disputed amount through the §9.3 machinery, rejected clears the flag. Audited `payment_method.*` / `dispute.*` |
 | Operator | `GET /overview` |
 | Capacity (DESIGN.md §11; reads `metering.read` at the Sovereign, writes `capacity.manage`, every write audited `capacity.*`) | `GET /capacity/overview[?region=]` (regions → zones → pools with total / reserved / consumed / available / utilisation / exhaustion, SKU headroom with the binding family, `unmapped_skus`, `unmapped_regions`) · `GET/POST /capacity/regions` · `DELETE /capacity/regions/{id}` · `POST /capacity/regions/{id}/zones` · `DELETE /capacity/zones/{id}` · `GET /capacity/zones/{id}/pools` (+ total history) · `PUT /capacity/pools/{id} {total, note}` · `GET /capacity/footprints` · `PUT /capacity/footprints/{sku} {families}` · `GET/PUT /capacity/caps {zone_id, sku, total}` |
 | Ops (root) | `GET /healthz` · `GET /readyz` · `GET /metrics` |
@@ -353,6 +354,27 @@ payments and collections through the existing ledger. A third scope kind,
 `partner:<id>`, expands to the partner's customers plus its party; the roles
 are `partner-owner` and `partner-viewer`. One `POST /statements/run` writes
 the customer statements and the partner statements together.
+
+**Customer self-service** (DESIGN.md §16). Three things a paying customer
+does without the operator. **Download the invoice** — the existing document
+route, put on the statement view and on every row of the customer's invoice
+list, landing under its invoice number. **Keep a payment method** — for a
+customer collected through a gateway, `settle.Gateway` gains
+`SetupMethod`/`ConfirmMethod` beside `VerifyCallback`, with
+`ErrMethodSetupNotSupported` as the answer from the built-in manual gateway
+(a bank transfer has no instrument to keep); the card is entered on the
+gateway's own page and this product keeps the display record alone — brand,
+last four, expiry, the gateway's token id — with the token unexposed by the
+type and `CHECK (last4 ~ '^[0-9]{0,4}$')` on the column so a whole card
+number cannot be recorded, and removal erases the token in the same
+statement. **Dispute an invoice** — the statement gains `disputed_at` and
+`dispute_reason`; the amount STAYS on the balance and leaves the aging
+report's `overdue` figure (the invoice is still listed, marked `disputed`,
+and the report and the evaluator both report a `disputed` count), until an
+operator resolves it: upheld issues a credit note for the disputed amount
+through the existing credit-note machinery and rejected clears the flag so
+collections resume. A customer principal acts on its own customer only —
+another customer's id is `404`.
 
 **Two layers, one book per source** (DESIGN.md §2, founder direction
 2026-09-08). Every cost source belongs to the **cloud** layer (a cloud

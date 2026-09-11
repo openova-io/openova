@@ -65,11 +65,20 @@ type AgingRow struct {
 	Currency     string                   `json:"currency"`
 	Buckets      map[string]store.Decimal `json:"buckets"`
 	Total        store.Decimal            `json:"total"`
-	// Overdue is everything past due (the four late buckets).
+	// Overdue is everything past due (the four late buckets) that is being
+	// CHASED: a disputed invoice is excluded from it, and from OldestDays,
+	// because it is not pursued while the dispute is open (DESIGN.md §16).
 	Overdue store.Decimal `json:"overdue"`
-	// OldestDays is how far past due the oldest open invoice is.
+	// Disputed is how much of Total the customer is disputing. It is still
+	// owed and still in Buckets — a dispute is a pause on chasing, not a
+	// credit — and it is named separately so the operator can see why the
+	// overdue figure is lower than the bucket totals.
+	Disputed store.Decimal `json:"disputed"`
+	// OldestDays is how far past due the oldest CHASED open invoice is.
 	OldestDays int `json:"oldest_days"`
 	Invoices   int `json:"invoices"`
+	// DisputedInvoices counts the invoices of this customer under dispute.
+	DisputedInvoices int `json:"disputed_invoices"`
 	// Suspended reports the platform suspension this product holds.
 	Suspended        bool       `json:"suspended"`
 	SuspendedAt      *time.Time `json:"suspended_at,omitempty"`
@@ -91,17 +100,27 @@ type AgingInvoice struct {
 	Bucket        string        `json:"bucket"`
 	Outstanding   store.Decimal `json:"outstanding"`
 	Status        string        `json:"status"`
+	// DESIGN.md §16 — the customer disputes this invoice, and why. It is
+	// listed (the operator must see it) and not chased: no reminder, no
+	// escalation, and its amount is out of the overdue figure until the
+	// dispute is resolved.
+	Disputed      bool   `json:"disputed,omitempty"`
+	DisputeReason string `json:"dispute_reason,omitempty"`
 }
 
 // AgingReport is GET /collections/aging.
 type AgingReport struct {
-	AsOf     time.Time                `json:"as_of"`
-	Buckets  []string                 `json:"buckets"`
-	Rows     []AgingRow               `json:"rows"`
-	Totals   map[string]store.Decimal `json:"totals"`
-	Total    store.Decimal            `json:"total"`
-	Overdue  store.Decimal            `json:"overdue"`
-	Invoices []AgingInvoice           `json:"invoices"`
+	AsOf    time.Time                `json:"as_of"`
+	Buckets []string                 `json:"buckets"`
+	Rows    []AgingRow               `json:"rows"`
+	Totals  map[string]store.Decimal `json:"totals"`
+	Total   store.Decimal            `json:"total"`
+	Overdue store.Decimal            `json:"overdue"`
+	// Disputed is the part of Total under dispute and so not chased
+	// (DESIGN.md §16), with the count of invoices it came from.
+	Disputed         store.Decimal  `json:"disputed"`
+	DisputedInvoices int            `json:"disputed_invoices"`
+	Invoices         []AgingInvoice `json:"invoices"`
 	// Owned says who runs collections on this Sovereign: internal, or the
 	// external billing system (in which case the report is informational).
 	Owner string `json:"collections_owner"`
@@ -124,8 +143,9 @@ func BuildAging(open []store.OpenInvoice, now time.Time, facts map[string]custom
 	for _, b := range Buckets {
 		totals[b] = new(big.Rat)
 	}
-	grand, overdue := new(big.Rat), new(big.Rat)
+	grand, overdue, disputed := new(big.Rat), new(big.Rat), new(big.Rat)
 	rowSums := map[string]map[string]*big.Rat{}
+	rowDisputed := map[string]*big.Rat{}
 	for _, inv := range open {
 		days := DaysPastDue(inv.DueAt, now)
 		bucket := Bucket(days)
@@ -133,8 +153,14 @@ func BuildAging(open []store.OpenInvoice, now time.Time, facts map[string]custom
 		if amt.Sign() <= 0 {
 			continue
 		}
+		// DESIGN.md §16 — a disputed invoice is REPORTED and not CHASED.
+		// It keeps its bucket and its place in the totals, because the
+		// money is still owed; what it leaves is the overdue figure, the
+		// oldest-days age and the evaluator's reminder schedule.
+		inDispute := inv.DisputedAt != nil
 		rep.Invoices = append(rep.Invoices, AgingInvoice{StatementID: inv.StatementID, InvoiceNumber: inv.InvoiceNumber, CustomerID: inv.CustomerID, CustomerName: inv.CustomerName,
-			Currency: inv.Currency, DueAt: inv.DueAt, DaysPastDue: days, Bucket: bucket, Outstanding: inv.Outstanding, Status: inv.Status})
+			Currency: inv.Currency, DueAt: inv.DueAt, DaysPastDue: days, Bucket: bucket, Outstanding: inv.Outstanding, Status: inv.Status,
+			Disputed: inDispute, DisputeReason: inv.DisputeReason})
 		row, ok := rows[inv.CustomerID]
 		if !ok {
 			row = &AgingRow{CustomerID: inv.CustomerID, CustomerName: inv.CustomerName, CustomerSlug: inv.CustomerSlug, Currency: inv.Currency, Buckets: map[string]store.Decimal{}}
@@ -147,6 +173,7 @@ func BuildAging(open []store.OpenInvoice, now time.Time, facts map[string]custom
 			}
 			rows[inv.CustomerID] = row
 			rowSums[inv.CustomerID] = map[string]*big.Rat{}
+			rowDisputed[inv.CustomerID] = new(big.Rat)
 			for _, b := range Buckets {
 				rowSums[inv.CustomerID][b] = new(big.Rat)
 			}
@@ -154,10 +181,17 @@ func BuildAging(open []store.OpenInvoice, now time.Time, facts map[string]custom
 		rowSums[inv.CustomerID][bucket].Add(rowSums[inv.CustomerID][bucket], amt)
 		totals[bucket].Add(totals[bucket], amt)
 		grand.Add(grand, amt)
+		row.Invoices++
+		if inDispute {
+			rowDisputed[inv.CustomerID].Add(rowDisputed[inv.CustomerID], amt)
+			disputed.Add(disputed, amt)
+			row.DisputedInvoices++
+			rep.DisputedInvoices++
+			continue
+		}
 		if days > 0 {
 			overdue.Add(overdue, amt)
 		}
-		row.Invoices++
 		if days > row.OldestDays {
 			row.OldestDays = days
 		}
@@ -172,7 +206,13 @@ func BuildAging(open []store.OpenInvoice, now time.Time, facts map[string]custom
 				late.Add(late, v)
 			}
 		}
-		row.Total, row.Overdue = decOf(sum), decOf(late)
+		// What is chased is the late buckets LESS what is under dispute:
+		// the money is in Total and in the buckets, and out of Overdue.
+		late.Sub(late, rowDisputed[id])
+		if late.Sign() < 0 {
+			late = new(big.Rat)
+		}
+		row.Total, row.Overdue, row.Disputed = decOf(sum), decOf(late), decOf(rowDisputed[id])
 		rep.Rows = append(rep.Rows, *row)
 	}
 	sort.Slice(rep.Rows, func(i, j int) bool {
@@ -185,7 +225,7 @@ func BuildAging(open []store.OpenInvoice, now time.Time, facts map[string]custom
 	for _, b := range Buckets {
 		rep.Totals[b] = decOf(totals[b])
 	}
-	rep.Total, rep.Overdue = decOf(grand), decOf(overdue)
+	rep.Total, rep.Overdue, rep.Disputed = decOf(grand), decOf(overdue), decOf(disputed)
 	return rep
 }
 
