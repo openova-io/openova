@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-11T19:15:04Z` |
+| Last refreshed | `2026-09-11T19:30:11Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-11T19:23 | [#6927](https://github.com/openova-io/openova/pull/6927) | #6926 | fix(bss): Catalyst BSS 0.1.38 — daily cost rollup, Overview  |
 | 2026-09-11T17:09 | [#6925](https://github.com/openova-io/openova/pull/6925) | #6867 | feat(bss): Catalyst BSS 0.1.37 — cost-centre labelling |
 | 2026-09-11T14:41 | [#6924](https://github.com/openova-io/openova/pull/6924) | #6867 | feat(bss): Catalyst BSS 0.1.36 — tax rules, e-invoicing and  |
 | 2026-09-11T12:53 | [#6923](https://github.com/openova-io/openova/pull/6923) | #6867 | feat(bss): 0.1.35 — contracts and commercial terms, customer |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-10T08:55 | [#6899](https://github.com/openova-io/openova/pull/6899) | #6867 | feat(chargeback): bill flexi Organizations per use instead o |
 | 2026-09-10T08:16 | [#6898](https://github.com/openova-io/openova/pull/6898) | #6867 | fix(chargeback): showcase continuity, the 1 September hole,  |
 | 2026-09-08T18:08 | [#6884](https://github.com/openova-io/openova/pull/6884) | #6867 | docs(ledger): hw307 explorer capture after 0.1.23 |
-| 2026-09-08T17:41 | [#6883](https://github.com/openova-io/openova/pull/6883) | #6867 | docs(ledger): hw307 showcase screenshots for the rebuilt cha |
 
 ---
 
