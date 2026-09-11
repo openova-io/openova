@@ -61,6 +61,18 @@ command -v "$helm" >/dev/null 2>&1 || die "helm is not on PATH"
 command -v "$kyverno" >/dev/null 2>&1 || die "the kyverno CLI is not on PATH. This gate does not silently skip: a compliance check that reports green because it did not run is the fail-open family this repo keeps finding (#6235). Install it (https://github.com/kyverno/kyverno/releases) or set KYVERNO_BIN."
 command -v python3 >/dev/null 2>&1 || die "python3 is not on PATH"
 
+# The parent chart declares this one as a file:// dependency, so `helm template`
+# on it fails with "missing in charts/ directory" until the dependency is
+# resolved. blueprint-release.yaml and chart-tests-pr.yaml both run
+# `helm dependency build` before the suites, but a fresh clone has not — so
+# resolve it here too rather than fail with a message about a directory nobody
+# deleted. This is the platform/openbao/chart/tests idiom; the file:// URL
+# resolves from the LOCAL committed bytes, with no network.
+if ! ls "$PARENT_CHART"/charts/docrender-*.tgz >/dev/null 2>&1; then
+  "$helm" dependency build "$PARENT_CHART" >/dev/null 2>&1 || \
+    die "could not resolve the docrender dependency of $PARENT_CHART"
+fi
+
 # ── the filter, shared by every invocation below ──────────────────────────
 cat > "$work/filter.py" <<'PYEOF'
 """Split a helm render into the documents this gate reasons about.

@@ -37,6 +37,17 @@ chart_dir="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
 helm="${HELM_BIN:-helm}"
 FQDN=hw305.omani.works
 
+# This chart declares the docrender sub-chart as a file:// dependency (#6867),
+# so `helm template` fails with "missing in charts/ directory" until it is
+# resolved. blueprint-release.yaml and chart-tests-pr.yaml both run
+# `helm dependency build` before these suites; a fresh clone has not, so
+# resolve it here rather than fail with a message about a directory nobody
+# deleted. The file:// URL resolves from the LOCAL committed bytes, no network.
+if ! ls "$chart_dir"/charts/docrender-*.tgz >/dev/null 2>&1; then
+  "$helm" dependency build "$chart_dir" >/dev/null 2>&1 || {
+    echo "FAIL: could not resolve the docrender dependency of $chart_dir" >&2; exit 1; }
+fi
+
 render() {
   "$helm" template chargeback "$chart_dir" --namespace chargeback \
     --api-versions "cilium.io/v2" --api-versions "postgresql.cnpg.io/v1" "$@" 2>/dev/null

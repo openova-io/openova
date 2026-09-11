@@ -36,6 +36,18 @@ version="$(awk '/^appVersion:/{gsub(/"/,"",$2); print $2}' "$chart_dir/Chart.yam
 [ -n "$version" ] || { echo "FAIL: could not read appVersion from $chart_dir/Chart.yaml"; exit 1; }
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
+
+# The parent chart declares this one as a file:// dependency, so `helm template`
+# on it fails with "missing in charts/ directory" until the dependency is
+# resolved. blueprint-release.yaml and chart-tests-pr.yaml both run
+# `helm dependency build` before the suites, but a fresh clone has not — so
+# resolve it here too rather than fail with a message about a directory nobody
+# deleted. This is the platform/openbao/chart/tests idiom; the file:// URL
+# resolves from the LOCAL committed bytes, with no network.
+if ! ls "$PARENT_CHART"/charts/docrender-*.tgz >/dev/null 2>&1; then
+  "$helm" dependency build "$PARENT_CHART" >/dev/null 2>&1 || \
+    fail "could not resolve the docrender dependency of $PARENT_CHART"
+fi
 has()   { grep -q -- "$2" <<<"$1" || fail "$3"; }
 lacks() { grep -q -- "$2" <<<"$1" && fail "$3"; return 0; }
 
