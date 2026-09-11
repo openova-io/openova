@@ -146,6 +146,16 @@ type Result struct {
 	PartnerID   string `json:"partner_id,omitempty"`
 	PartnerName string `json:"partner_name,omitempty"`
 	Kind        string `json:"statement_kind,omitempty"`
+
+	// The commercial terms (DESIGN.md §15) the period was rated under.
+	// ContractID / ContractName name the agreement; AppliedTerms is what the
+	// allowances, tiers and commitments did, per SKU; TrueUp is the
+	// shortfall line a minimum commitment produced, absent when the period
+	// met its minimum.
+	ContractID   string      `json:"contract_id,omitempty"`
+	ContractName string      `json:"contract_name,omitempty"`
+	AppliedTerms []Breakdown `json:"applied_terms,omitempty"`
+	TrueUp       string      `json:"true_up,omitempty"`
 }
 
 // Run rates every (or one) customer's usage for a period into draft
@@ -229,6 +239,8 @@ func Run(ctx context.Context, st *store.Store, period, customerID string) ([]Res
 		res.NotSoldPerUse = detail.notSold
 		res.UnbookedSources = detail.unbooked
 		res.Kind = stmt.Kind
+		res.ContractID, res.ContractName = detail.contractID, detail.contractName
+		res.AppliedTerms, res.TrueUp = detail.terms, detail.trueUp
 		results = append(results, res)
 	}
 	if customerID != "" && len(results) == 0 {
@@ -261,6 +273,10 @@ func Run(ctx context.Context, st *store.Store, period, customerID string) ([]Res
 // rateDetail is what a run reports besides the statement.
 type rateDetail struct {
 	unpriced, notSold, unbooked []string
+	// The commercial terms (DESIGN.md §15): the contract in force, what the
+	// shapes did per SKU, and the true-up the minimum commitment produced.
+	contractID, contractName, trueUp string
+	terms                            []Breakdown
 }
 
 // rateCustomer rates one customer: its usage grouped per source, each
@@ -304,6 +320,10 @@ func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, pc *pa
 	}
 	books := map[string]store.PriceBook{}
 	bookOf := map[string]string{} // source id → list book id
+	// shapeItems names each SKU's commercial shape, and bookItem the LIST
+	// unit price of a (book, SKU) — the figure a partner's retail price is
+	// derived from, which a tiered line's own unit price is not.
+	shapeItems := map[string]store.PriceItem{}
 	currency := ""
 	var lines []store.RatedLine
 	unpricedSet, notSoldSet := map[string]bool{}, map[string]bool{}
@@ -343,6 +363,13 @@ func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, pc *pa
 			if store.IsPlatformMeter(it.SKU) {
 				pricesPlatformMeter = true
 			}
+			// The commercial shape of a SKU (DESIGN.md §15.1) belongs to the
+			// agreement, not to one project: the FIRST booked source in
+			// source order that prices the SKU names its shape for the whole
+			// statement, so an allowance is the customer's month.
+			if _, seen := shapeItems[it.SKU]; !seen {
+				shapeItems[it.SKU] = it
+			}
 		}
 		srcLines, unpriced, err := Rate(rows, items, pb.BillStopped)
 		if err != nil {
@@ -362,6 +389,26 @@ func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, pc *pa
 	}
 	detail.unpriced = sortedKeys(unpricedSet)
 	detail.notSold = sortedKeys(notSoldSet)
+	// DESIGN.md §15 — the commercial terms, BEFORE the discounts: the
+	// allowance comes off the quantity, the tiers price what is left, the
+	// commitment reprices the head of it. One engine, one pass, and lines
+	// whose SKU carries no shape come back untouched.
+	terms, err := LoadTerms(ctx, st, c.ID, from, shapeItems)
+	if err != nil {
+		return store.Statement{}, detail, err
+	}
+	if terms.Contract != nil {
+		detail.contractID, detail.contractName = terms.Contract.ID, terms.Contract.Name
+	}
+	// ALWAYS applied, contract or not: an allowance and a tier ladder belong
+	// to the PLAN — the price-book item — and a customer that has signed
+	// nothing is still on a plan. ApplyTerms no-ops on a SKU whose item
+	// carries no shape, which is every item of every book written before §15.
+	var appliedTerms []Breakdown
+	if lines, appliedTerms, err = ApplyTerms(lines, shapeItems, terms); err != nil {
+		return store.Statement{}, detail, err
+	}
+	detail.terms = appliedTerms
 	// #6862 — discounts reduce the subtotal BEFORE tax. Taxing the list price
 	// and then discounting would overcharge tax on money the customer never
 	// paid.
@@ -380,6 +427,25 @@ func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, pc *pa
 		TaxRate:      taxRate,
 		DiscountRule: discountRule,
 	}
+	if terms.Contract != nil {
+		id := terms.Contract.ID
+		draft.ContractID = &id
+	}
+	// The LIST unit price of a (book, SKU): what a partner's retail price is
+	// derived from. A line reshaped by a tier or an allowance no longer
+	// carries it, so the waterfall reads it from the book itself.
+	listUnitPrice := func(bookID, sku string) store.Decimal {
+		pb, ok := books[bookID]
+		if !ok {
+			return ""
+		}
+		for _, it := range pb.Items {
+			if it.SKU == sku {
+				return it.UnitPrice
+			}
+		}
+		return ""
+	}
 	if pc == nil {
 		// A direct customer: list, customer discounts, net — as always.
 		discountTotal, applied, err := ApplyDiscounts(lines, discounts, discountRule)
@@ -392,7 +458,7 @@ func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, pc *pa
 		// customer-facing lines are priced the way the partner's model shows
 		// them (retail under resell, list under agent); the customer
 		// discounts give the net, the tier the buy, per line.
-		customerLines, err := pc.customerLines(lines, bookOf)
+		customerLines, err := pc.customerLines(lines, bookOf, listUnitPrice)
 		if err != nil {
 			return store.Statement{}, detail, err
 		}
@@ -404,6 +470,27 @@ func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, pc *pa
 		buy, margin := w.buyTotal, w.margin
 		draft.Lines, draft.Discount, draft.AppliedDiscounts = w.lines, w.discount, w.applied
 		draft.PartnerID, draft.Kind, draft.BuyTotal, draft.MarginTotal = &pid, store.StatementKindCustomer, &buy, &margin
+	}
+	// DESIGN.md §15.4 — the TRUE-UP, after the discounts and before the tax:
+	// a period whose net falls below the contract's monthly minimum carries
+	// a named line for the shortfall. Never a silent adjustment of the
+	// totals — the customer has to be able to read why it is charged.
+	if terms.Contract != nil && terms.Contract.MinimumCommitment != nil {
+		line, ok, err := TrueUp(draft.Lines, draft.Discount, *terms.Contract.MinimumCommitment)
+		if err != nil {
+			return store.Statement{}, detail, err
+		}
+		if ok {
+			if pc != nil {
+				// A true-up is the SOVEREIGN's charge under its own
+				// contract, not usage the partner resold: it carries no
+				// margin, so buy and net are the same figure.
+				amount := line.Amount
+				line.BuyAmount, line.NetAmount = &amount, &amount
+			}
+			draft.Lines = append(draft.Lines, line)
+			detail.trueUp = string(line.Amount)
+		}
 	}
 	subtotal, tax, total, err := TotalsWithDiscount(draft.Lines, draft.Discount, taxRate)
 	if err != nil {

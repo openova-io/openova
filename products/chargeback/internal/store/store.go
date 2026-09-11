@@ -420,6 +420,13 @@ ALTER TABLE cost_sources ADD CONSTRAINT cost_sources_status_check CHECK (status 
 	// parties, derived retail books, the partner scope (DESIGN.md
 	// §13). Located by content as MigrationPartners.
 	partnersMigrationSQL,
+	// DESIGN.md §15 — contracts and commercial terms (EPIC #6867): the three
+	// rating shapes on a price-book item (allowance, volume tiers, committed
+	// use), contracts and their items, the minimum commitment the true-up
+	// line answers, and the SLA keys on a credit note. Appended at the very
+	// END: migrations are positional. Located by content as
+	// MigrationContracts.
+	contractsMigrationSQL,
 }
 
 // MigrationBackfillIssuedInvoices is the schema_migrations version of the

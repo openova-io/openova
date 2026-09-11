@@ -298,11 +298,22 @@ type waterfall struct {
 
 // customerLines prices the list lines the way the partner's model shows
 // them to the end customer: the derived retail price under resell, list
-// under agent. bookOf names the list book of each line's source.
-func (pc *partnerContext) customerLines(listLines []store.RatedLine, bookOf map[string]string) ([]store.RatedLine, error) {
+// under agent. bookOf names the list book of each line's source, and
+// bookUnitPrice the BOOK's list rate for a (book, SKU).
+//
+// The retail price is applied as a RATIO of the book's list rate, not by
+// re-multiplying quantity × retail rate. For a line the price book alone
+// rated the two are identical — amount = quantity × list rate, so scaling by
+// retail ÷ list gives quantity × retail exactly as before. For a line an
+// ALLOWANCE, a TIER or a COMMITMENT reshaped (DESIGN.md §15) they are not:
+// re-multiplying would throw the shape away and bill the customer for volume
+// its plan included, while the ratio carries the shape through untouched and
+// keeps margin equal to buy × markup on a tiered line. That invariant is
+// pinned by a test.
+func (pc *partnerContext) customerLines(listLines []store.RatedLine, bookOf map[string]string, bookUnitPrice func(bookID, sku string) store.Decimal) ([]store.RatedLine, error) {
 	out := make([]store.RatedLine, len(listLines))
 	for i, l := range listLines {
-		listUP, err := parseRat(string(l.UnitPrice))
+		lineUP, err := parseRat(string(l.UnitPrice))
 		if err != nil {
 			return nil, fmt.Errorf("line %s: %w", l.SKU, err)
 		}
@@ -310,14 +321,34 @@ func (pc *partnerContext) customerLines(listLines []store.RatedLine, bookOf map[
 		if l.SourceID != nil {
 			bookID = bookOf[*l.SourceID]
 		}
+		listUP := lineUP
+		if bookUnitPrice != nil {
+			if d := bookUnitPrice(bookID, l.SKU); strings.TrimSpace(string(d)) != "" {
+				if r, err := parseRat(string(d)); err == nil {
+					listUP = r
+				}
+			}
+		}
 		up := pc.model.customerUnitPrice(pc, bookID, l.SKU, listUP)
-		qty, err := parseRat(string(l.Quantity))
+		amount, err := parseRat(string(l.Amount))
 		if err != nil {
 			return nil, fmt.Errorf("line %s: %w", l.SKU, err)
 		}
 		c := l
-		c.UnitPrice = store.Decimal(roundRat(up, 8))
-		c.Amount = store.Decimal(roundRat(new(big.Rat).Mul(qty, up), 6))
+		if listUP.Sign() > 0 {
+			ratio := new(big.Rat).Quo(up, listUP)
+			c.Amount = store.Decimal(roundRat(new(big.Rat).Mul(amount, ratio), 6))
+			c.UnitPrice = store.Decimal(roundRat(new(big.Rat).Mul(lineUP, ratio), 8))
+		} else {
+			// A SKU the book prices at zero: there is no ratio to take, so
+			// the retail rate applies to the quantity directly.
+			qty, err := parseRat(string(l.Quantity))
+			if err != nil {
+				return nil, fmt.Errorf("line %s: %w", l.SKU, err)
+			}
+			c.UnitPrice = store.Decimal(roundRat(up, 8))
+			c.Amount = store.Decimal(roundRat(new(big.Rat).Mul(qty, up), 6))
+		}
 		lup, lam := l.UnitPrice, l.Amount
 		c.ListUnitPrice, c.ListAmount = &lup, &lam
 		out[i] = c

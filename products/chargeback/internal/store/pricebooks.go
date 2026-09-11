@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -145,7 +146,7 @@ func (s *Store) UpdatePriceBook(ctx context.Context, id string, in PriceBookInpu
 
 // ListPriceItems returns a rate card's SKUs.
 func (s *Store) ListPriceItems(ctx context.Context, priceBookID string) ([]PriceItem, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT price_book_id, sku, unit, unit_price::text, annual_price::text, description FROM price_items WHERE price_book_id = $1 ORDER BY sku`, priceBookID)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+priceItemColumns+` FROM price_items WHERE price_book_id = $1 ORDER BY sku`, priceBookID)
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -153,15 +154,8 @@ func (s *Store) ListPriceItems(ctx context.Context, priceBookID string) ([]Price
 	out := []PriceItem{}
 	for rows.Next() {
 		var it PriceItem
-		var up string
-		var ap sql.NullString
-		if err := rows.Scan(&it.PriceBookID, &it.SKU, &it.Unit, &up, &ap, &it.Description); err != nil {
+		if err := scanPriceItemInto(rows, &it); err != nil {
 			return nil, err
-		}
-		it.UnitPrice = Decimal(up)
-		if ap.Valid {
-			d := Decimal(ap.String)
-			it.AnnualPrice = &d
 		}
 		out = append(out, it)
 	}
@@ -190,13 +184,12 @@ func (s *Store) PutPriceItems(ctx context.Context, priceBookID string, items []P
 	}
 	n := 0
 	for _, it := range items {
-		var annual sql.NullString
-		if it.AnnualPrice != nil && *it.AnnualPrice != "" {
-			annual = sql.NullString{String: string(*it.AnnualPrice), Valid: true}
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO price_items (price_book_id, sku, unit, unit_price, annual_price, description) VALUES ($1, $2, $3, $4, $5, $6)
-			ON CONFLICT (price_book_id, sku) DO UPDATE SET unit = EXCLUDED.unit, unit_price = EXCLUDED.unit_price, annual_price = EXCLUDED.annual_price, description = EXCLUDED.description`,
-			priceBookID, strings.TrimSpace(it.SKU), strings.TrimSpace(it.Unit), string(it.UnitPrice), annual, it.Description); err != nil {
+		annual, tiers, allowance, mode := priceItemWriteArgs(it)
+		if _, err := tx.ExecContext(ctx, `INSERT INTO price_items (price_book_id, sku, unit, unit_price, annual_price, description, tier_mode, tiers, allowance, allowance_rollover)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::numeric, $10)
+			ON CONFLICT (price_book_id, sku) DO UPDATE SET unit = EXCLUDED.unit, unit_price = EXCLUDED.unit_price, annual_price = EXCLUDED.annual_price, description = EXCLUDED.description,
+				tier_mode = EXCLUDED.tier_mode, tiers = EXCLUDED.tiers, allowance = EXCLUDED.allowance, allowance_rollover = EXCLUDED.allowance_rollover`,
+			priceBookID, strings.TrimSpace(it.SKU), strings.TrimSpace(it.Unit), string(it.UnitPrice), annual, it.Description, mode, tiers, allowance, it.AllowanceRollover); err != nil {
 			return n, mapErr(err)
 		}
 		n++
@@ -303,8 +296,8 @@ func (s *Store) ClonePriceBook(ctx context.Context, id, name string) (PriceBook,
 	if err != nil {
 		return PriceBook{}, mapErr(err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO price_items (price_book_id, sku, unit, unit_price, annual_price, description)
-		SELECT $2, sku, unit, unit_price, annual_price, description FROM price_items WHERE price_book_id = $1`, id, newID); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO price_items (price_book_id, sku, unit, unit_price, annual_price, description, tier_mode, tiers, allowance, allowance_rollover)
+		SELECT $2, sku, unit, unit_price, annual_price, description, tier_mode, tiers, allowance, allowance_rollover FROM price_items WHERE price_book_id = $1`, id, newID); err != nil {
 		return PriceBook{}, mapErr(err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -313,21 +306,62 @@ func (s *Store) ClonePriceBook(ctx context.Context, id, name string) (PriceBook,
 	return s.GetPriceBook(ctx, newID)
 }
 
-const priceItemColumns = `price_book_id, sku, unit, unit_price::text, annual_price::text, description`
+// priceItemColumns is the ONE column list every item read shares, so the
+// rating shapes (DESIGN.md §15.1) can never reach one reader and not another.
+const priceItemColumns = `price_book_id, sku, unit, unit_price::text, annual_price::text, description, tier_mode, tiers, allowance::text, allowance_rollover`
 
-func scanPriceItem(row interface{ Scan(...any) error }) (PriceItem, error) {
-	var it PriceItem
+// scanPriceItemInto reads one row of priceItemColumns.
+func scanPriceItemInto(row interface{ Scan(...any) error }, it *PriceItem) error {
 	var up string
-	var ap sql.NullString
-	if err := row.Scan(&it.PriceBookID, &it.SKU, &it.Unit, &up, &ap, &it.Description); err != nil {
-		return it, mapErr(err)
+	var ap, allowance sql.NullString
+	var tiers []byte
+	if err := row.Scan(&it.PriceBookID, &it.SKU, &it.Unit, &up, &ap, &it.Description, &it.TierMode, &tiers, &allowance, &it.AllowanceRollover); err != nil {
+		return mapErr(err)
 	}
 	it.UnitPrice = Decimal(up)
 	if ap.Valid {
 		d := Decimal(ap.String)
 		it.AnnualPrice = &d
 	}
-	return it, nil
+	it.Allowance = decPtr(allowance)
+	it.Tiers = nil
+	if len(tiers) > 0 && string(tiers) != "null" {
+		if err := json.Unmarshal(tiers, &it.Tiers); err != nil {
+			return fmt.Errorf("price item %s: tiers: %w", it.SKU, err)
+		}
+	}
+	return nil
+}
+
+// priceItemWriteArgs is the value list every item INSERT shares.
+func priceItemWriteArgs(it PriceItem) (annual any, tiers any, allowance any, mode string) {
+	if it.AnnualPrice != nil && *it.AnnualPrice != "" {
+		annual = string(*it.AnnualPrice)
+	}
+	if len(it.Tiers) > 0 {
+		b, _ := json.Marshal(it.Tiers)
+		tiers = b
+	}
+	if it.Allowance != nil && *it.Allowance != "" {
+		allowance = string(*it.Allowance)
+	}
+	mode = it.TierMode
+	if !ValidTierMode(mode) {
+		mode = TierModeNone
+	}
+	if len(it.Tiers) == 0 {
+		mode = TierModeNone
+	} else if mode == TierModeNone {
+		// Bands with no mode named are GRADUATED, the industry default.
+		mode = TierModeGraduated
+	}
+	return annual, tiers, allowance, mode
+}
+
+func scanPriceItem(row interface{ Scan(...any) error }) (PriceItem, error) {
+	var it PriceItem
+	err := scanPriceItemInto(row, &it)
+	return it, err
 }
 
 // GetPriceItem returns one SKU of a rate card.
@@ -338,13 +372,10 @@ func (s *Store) GetPriceItem(ctx context.Context, priceBookID, sku string) (Pric
 // AddPriceItem inserts one SKU. An existing SKU is ErrConflict (the caller
 // meant PATCH); a missing book is ErrNotFound.
 func (s *Store) AddPriceItem(ctx context.Context, priceBookID string, it PriceItem) (PriceItem, error) {
-	var annual sql.NullString
-	if it.AnnualPrice != nil && *it.AnnualPrice != "" {
-		annual = sql.NullString{String: string(*it.AnnualPrice), Valid: true}
-	}
-	return scanPriceItem(s.db.QueryRowContext(ctx, `INSERT INTO price_items (price_book_id, sku, unit, unit_price, annual_price, description)
-		VALUES ($1, $2, $3, $4, $5, $6) RETURNING `+priceItemColumns,
-		priceBookID, strings.TrimSpace(it.SKU), strings.TrimSpace(it.Unit), string(it.UnitPrice), annual, it.Description))
+	annual, tiers, allowance, mode := priceItemWriteArgs(it)
+	return scanPriceItem(s.db.QueryRowContext(ctx, `INSERT INTO price_items (price_book_id, sku, unit, unit_price, annual_price, description, tier_mode, tiers, allowance, allowance_rollover)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::numeric, $10) RETURNING `+priceItemColumns,
+		priceBookID, strings.TrimSpace(it.SKU), strings.TrimSpace(it.Unit), string(it.UnitPrice), annual, it.Description, mode, tiers, allowance, it.AllowanceRollover))
 }
 
 // PriceItemPatch carries optional item updates; nil means unchanged. When
@@ -356,6 +387,14 @@ type PriceItemPatch struct {
 	Description *string
 	UnitPrice   *Decimal
 	AnnualPrice *Decimal
+	// The rating shapes (DESIGN.md §15.1). Tiers and TierMode move
+	// together: an empty band list clears the tiers and the mode with them,
+	// so an item can never carry a mode with nothing to apply it to.
+	TierMode          *string
+	Tiers             *[]PriceTier
+	Allowance         *Decimal
+	ClearAllowance    bool
+	AllowanceRollover *bool
 }
 
 // UpdatePriceItem applies a patch to one SKU; ErrNotFound when the SKU is not
@@ -380,6 +419,39 @@ func (s *Store) UpdatePriceItem(ctx context.Context, priceBookID, sku string, p 
 			annual = sql.NullString{String: string(*p.AnnualPrice), Valid: true}
 		}
 		add("annual_price", annual)
+	}
+	if p.Tiers != nil {
+		bands := *p.Tiers
+		mode := TierModeGraduated
+		if p.TierMode != nil && ValidTierMode(*p.TierMode) && *p.TierMode != TierModeNone {
+			mode = *p.TierMode
+		}
+		if len(bands) == 0 {
+			add("tiers", nil)
+			add("tier_mode", TierModeNone)
+		} else {
+			b, err := json.Marshal(bands)
+			if err != nil {
+				return PriceItem{}, err
+			}
+			add("tiers", b)
+			add("tier_mode", mode)
+		}
+	} else if p.TierMode != nil {
+		if !ValidTierMode(*p.TierMode) {
+			return PriceItem{}, fmt.Errorf("%w: tier_mode must be graduated or all_units", ErrInvalid)
+		}
+		add("tier_mode", *p.TierMode)
+	}
+	switch {
+	case p.ClearAllowance:
+		add("allowance", nil)
+	case p.Allowance != nil:
+		args = append(args, string(*p.Allowance))
+		sets = append(sets, fmt.Sprintf("allowance = $%d::numeric", len(args)))
+	}
+	if p.AllowanceRollover != nil {
+		add("allowance_rollover", *p.AllowanceRollover)
 	}
 	if len(sets) == 0 {
 		return s.GetPriceItem(ctx, priceBookID, sku)
