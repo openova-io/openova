@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -64,6 +65,31 @@ func decode(r *http.Request, v any) error {
 		return err
 	}
 	return nil
+}
+
+// decodeKeys is decode plus the set of top-level keys the caller actually
+// SENT. A PATCH needs the difference between an absent key ("leave it") and
+// an explicit null ("clear it"): `minimum_commitment: null` removes a
+// contract's minimum, while omitting it keeps whatever is there.
+func decodeKeys(r *http.Request, v any) (map[string]bool, error) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxBodyBytes))
+	if err != nil {
+		return nil, err
+	}
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		return nil, err
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, err
+	}
+	sent := make(map[string]bool, len(raw))
+	for k := range raw {
+		sent[k] = true
+	}
+	return sent, nil
 }
 
 func normEmail(s string) string {

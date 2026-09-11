@@ -309,10 +309,12 @@ highest-power binding.
 | Price books | `GET/POST /pricebooks` (**`scope`**: cloud \| platform) · `GET /pricebooks/template.csv` · `GET/PUT /pricebooks/{id}` · `GET /pricebooks/{id}/coverage` · `PUT /pricebooks/{id}/items` · `POST /pricebooks/{id}/import` · **`PUT /pricebooks/{id}/public`** `{public}` (`rating.manage`; one public book at a time — a second is `409`, a platform book `400`) |
 | Public calculator (**unauthenticated**, rate-limited, DESIGN.md §11) | `GET /public/catalog` (the designated public list book + the catalog plans + the pay-per-use rates + regions + tax rate) · `POST /public/estimates` (`?preview=1` prices without saving) · `GET /public/estimates/{id}` (the shareable link). List prices only — never a negotiated book, a discount or a partner rate; no session is read and no cookie is set |
 | Leads | `GET /leads[?limit]` (`customers.manage`) — the estimates a prospect left an address on, newest first |
-| Price books | `GET/POST /pricebooks` (**`scope`**: cloud \| platform) · `GET /pricebooks/template.csv` · `GET/PUT /pricebooks/{id}` · `GET /pricebooks/{id}/coverage` · `PUT /pricebooks/{id}/items` · `POST /pricebooks/{id}/import` |
+| Price books | `GET/POST /pricebooks` (**`scope`**: cloud \| platform) · `GET /pricebooks/template.csv` · `GET/PUT /pricebooks/{id}` · `GET /pricebooks/{id}/coverage` · `PUT /pricebooks/{id}/items` · `POST /pricebooks/{id}/import` · items carry the rating shapes of DESIGN.md §15 — `tier_mode` (`graduated` \| `all_units`) + `tiers[{up_to, price}]`, `allowance` and `allowance_rollover` — on `POST /pricebooks/{id}/items` and `PATCH /pricebooks/{id}/items/{sku}`; an out-of-order ladder is refused with the reason |
 | Partners (`partners.manage`; a partner owner holds `partner.self.manage` on its own) | `GET/POST /partners` · `GET/PATCH /partners/{id}` · `GET/POST /partners/tiers` · `PUT /partners/tiers/{id}/discounts` · `PUT /partners/{id}/retail-rule` (re-derives; the response lists the below-buy lines) · `GET /partners/{id}/retail-book` · `GET /partners/{id}/customers` · `GET /partners/{id}/statements` · `GET /partners/{id}/margin?period=` · `GET /partners/{id}/account` · `GET/POST /partners/{id}/users` · `DELETE /partners/{id}/users/{email}` · `PATCH /customers/{id} {partner_id}` |
 | Statements | `POST /statements/run {period, customer_id?}` · `GET /statements[?period&customer_id]` · `GET /customers/{id}/statements` · `GET /statements/{id}` · `GET /statements/{id}.csv` · **`GET /statements/{id}.pdf`** (the invoice as a document, `Content-Disposition: attachment; filename="<invoice number>.pdf"`; 503 with no renderer configured) · `POST /statements/{id}/issue` |
 | Customer self-service (DESIGN.md §16; writes need `account.topup` on the customer — an owner or a billing user — or `billing.collect`) | `GET/POST /customers/{id}/payment-methods` · `POST /customers/{id}/payment-methods/{mid}/confirm` · `DELETE /customers/{id}/payment-methods/{mid}` · `GET/DELETE /payment-methods/{id}` — the card is entered on the GATEWAY's page; what is stored is brand, last four, expiry and the gateway's token id, and the token reaches no wire (`json:"-"`) and no audit entry. `POST /statements/{id}/disputes {reason, lines?}` · `GET /statements/{id}/disputes` · `GET /customers/{id}/disputes` · `GET /disputes/{id}` · **`POST /disputes/{id}/resolve {outcome: upheld\|rejected, note}`** (`billing.collect`) — upheld issues a credit note for the disputed amount through the §9.3 machinery, rejected clears the flag. Audited `payment_method.*` / `dispute.*` |
+| Statements | `POST /statements/run {period, customer_id?}` · `GET /statements[?period&customer_id]` · `GET /customers/{id}/statements` · `GET /statements/{id}` · `GET /statements/{id}.csv` · `POST /statements/{id}/issue` |
+| Contracts (DESIGN.md §15; writes `customers.manage`, reads `metering.read` at the scope, SLA credits `billing.issue`, every write audited `contract.*`) | `GET/POST /contracts[?customer_id&status]` · `GET /contracts/renewals[?on=YYYY-MM-DD]` (the notice window) · `GET/PATCH/DELETE /contracts/{id}` · `PUT /contracts/{id}/items` (committed-use and allowance lines; the list sent is the whole list) · `POST /contracts/{id}/sla-credit {statement_id, pct, measured_availability, reason}` (a real credit note, numbered and posted to the ledger) · `GET /customers/{id}/contracts` |
 | Operator | `GET /overview` |
 | Capacity (DESIGN.md §11; reads `metering.read` at the Sovereign, writes `capacity.manage`, every write audited `capacity.*`) | `GET /capacity/overview[?region=]` (regions → zones → pools with total / reserved / consumed / available / utilisation / exhaustion, SKU headroom with the binding family, `unmapped_skus`, `unmapped_regions`) · `GET/POST /capacity/regions` · `DELETE /capacity/regions/{id}` · `POST /capacity/regions/{id}/zones` · `DELETE /capacity/zones/{id}` · `GET /capacity/zones/{id}/pools` (+ total history) · `PUT /capacity/pools/{id} {total, note}` · `GET /capacity/footprints` · `PUT /capacity/footprints/{sku} {families}` · `GET/PUT /capacity/caps {zone_id, sku, total}` |
 | Ops (root) | `GET /healthz` · `GET /readyz` · `GET /metrics` |
@@ -375,6 +377,26 @@ operator resolves it: upheld issues a credit note for the disputed amount
 through the existing credit-note machinery and rejected clears the flag so
 collections resume. A customer principal acts on its own customer only —
 another customer's id is `404`.
+**Contracts and commercial terms** (DESIGN.md §15, founder direction
+2026-09-11). Console menu **Configure → Contracts**. A price-book item can
+now carry an **allowance** (N units of the SKU included per billing period;
+the excess at the item price, lapsing unless it says `rollover`), **volume
+tiers** in the two industry modes — `graduated`, each band at its own price,
+and `all_units`, the whole volume at the band the total reaches — and a
+contract can carry **committed use** (a quantity for a term at a negotiated
+rate; the committed quantity at that rate, the excess at list). A
+**contract** holds the term, the auto-renewal and its notice period, a
+monthly **minimum commitment** whose shortfall is invoiced as a named
+`true-up` line, and its committed-use and allowance lines. **SLA credits**
+(`POST /contracts/{id}/sla-credit`) go through the existing credit-note
+machinery — same numbering, same allocation, same ledger entry — with the
+percentage and the measured availability recorded on the note. **Renewal**
+adds a step to the daily collections evaluator (`contracts_renewed` /
+`contracts_expired`), not a scheduler of its own. All of it is computed in
+`internal/rating` in one stated order — allowance, tiers, commitments,
+discounts, true-up, tax — and then handed to the same discount engine and the
+same partner waterfall, whose margin-is-buy-times-markup invariant is pinned
+on a tiered line.
 
 **Two layers, one book per source** (DESIGN.md §2, founder direction
 2026-09-08). Every cost source belongs to the **cloud** layer (a cloud

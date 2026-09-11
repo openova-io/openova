@@ -29,6 +29,8 @@ import { Access } from './pages/Access'
 import { Capacity } from './pages/Capacity'
 import { EstimatePublic } from './pages/EstimatePublic'
 import { Leads } from './pages/Leads'
+import { Contracts } from './pages/Contracts'
+import { ContractDetail } from './pages/ContractDetail'
 import { Partners } from './pages/Partners'
 import { PartnerDetail } from './pages/PartnerDetail'
 import { PartnerBill, PartnerHome, PartnerMyAccount, PartnerMyMargin, PartnerMyRetail, PartnerMyUsers } from './pages/Partner'
@@ -65,6 +67,8 @@ function ConsoleRoutes() {
             <Route path="/partners" element={<Partners />} />
             <Route path="/partners/:id" element={<PartnerDetail />} />
             <Route path="/allocation" element={<Allocation />} />
+            <Route path="/contracts" element={<Contracts />} />
+            <Route path="/contracts/:id" element={<ContractDetail />} />
             <Route path="/pricebooks" element={<PriceBooks />} />
             <Route path="/pricebooks/:id" element={<PriceBookEdit />} />
             <Route path="/discounts" element={<Discounts />} />

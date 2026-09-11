@@ -206,6 +206,14 @@ func (h *Handler) putPriceItems(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, it.SKU+": unit_price or annual_price is required")
 			return
 		}
+		mode := it.TierMode
+		tiers := it.Tiers
+		m, bands, msg := tierShape(&mode, &tiers, it.SKU)
+		if msg != "" {
+			writeErr(w, http.StatusBadRequest, it.SKU+": "+msg)
+			return
+		}
+		it.TierMode, it.Tiers = m, bands
 	}
 	n, err := h.Store.PutPriceItems(r.Context(), id, in.Items, r.URL.Query().Get("merge") != "true")
 	if err != nil {
@@ -342,6 +350,66 @@ type priceItemBody struct {
 	UnitPrice   *store.Decimal `json:"unit_price"`
 	AnnualPrice *store.Decimal `json:"annual_price"`
 	Description *string        `json:"description"`
+
+	// The RATING SHAPES (DESIGN.md §15.1). Absent keys leave the shape
+	// unchanged on a PATCH; an empty `tiers` array clears the bands and the
+	// mode with them, and `allowance: null` clears the allowance.
+	TierMode          *string            `json:"tier_mode"`
+	Tiers             *[]store.PriceTier `json:"tiers"`
+	Allowance         *store.Decimal     `json:"allowance"`
+	AllowanceRollover *bool              `json:"allowance_rollover"`
+}
+
+// tierShape validates the bands an item carries and reports the mode to
+// store. The engine refuses an overlapping ladder at rating time; refusing it
+// HERE means the operator hears about it while typing, not on the bill.
+func tierShape(mode *string, tiers *[]store.PriceTier, sku string) (string, []store.PriceTier, string) {
+	bands := []store.PriceTier{}
+	if tiers != nil {
+		bands = *tiers
+	}
+	m := store.TierModeNone
+	if mode != nil {
+		m = strings.TrimSpace(*mode)
+		if !store.ValidTierMode(m) {
+			return "", nil, "tier_mode must be graduated or all_units"
+		}
+	}
+	if len(bands) == 0 {
+		return store.TierModeNone, bands, ""
+	}
+	if m == store.TierModeNone {
+		m = store.TierModeGraduated
+	}
+	if _, err := rating.ValidateTiers(store.PriceItem{SKU: sku, TierMode: m, Tiers: bands}); err != nil {
+		return "", nil, err.Error()
+	}
+	return m, bands, ""
+}
+
+// applyItemShape copies the shape keys of a body onto a patch.
+func applyItemShape(p *store.PriceItemPatch, in priceItemBody, sku string) string {
+	if in.Tiers != nil || in.TierMode != nil {
+		mode, bands, msg := tierShape(in.TierMode, in.Tiers, sku)
+		if msg != "" {
+			return msg
+		}
+		p.TierMode = &mode
+		if in.Tiers != nil {
+			p.Tiers = &bands
+		}
+	}
+	if in.Allowance != nil {
+		if strings.TrimSpace(string(*in.Allowance)) == "" {
+			p.ClearAllowance = true
+		} else if strings.HasPrefix(strings.TrimSpace(string(*in.Allowance)), "-") {
+			return "allowance must not be negative"
+		} else {
+			p.Allowance = in.Allowance
+		}
+	}
+	p.AllowanceRollover = in.AllowanceRollover
+	return ""
 }
 
 // resolvePrice returns the (unit, annual) pair to store from a body: annual
@@ -400,6 +468,16 @@ func (h *Handler) addPriceItem(w http.ResponseWriter, r *http.Request) {
 	if in.Description != nil {
 		item.Description = *in.Description
 	}
+	mode, bands, msg := tierShape(in.TierMode, in.Tiers, in.SKU)
+	if msg != "" {
+		writeErr(w, http.StatusBadRequest, in.SKU+": "+msg)
+		return
+	}
+	item.TierMode, item.Tiers = mode, bands
+	if in.Allowance != nil && strings.TrimSpace(string(*in.Allowance)) != "" {
+		item.Allowance = in.Allowance
+	}
+	item.AllowanceRollover = in.AllowanceRollover != nil && *in.AllowanceRollover
 	if h.derivedBookWriteRefused(w, r, id) {
 		return
 	}
@@ -456,8 +534,12 @@ func (h *Handler) patchPriceItem(w http.ResponseWriter, r *http.Request) {
 	if ok {
 		p.UnitPrice, p.AnnualPrice = &unit, annual
 	}
-	if p.Unit == nil && p.Description == nil && p.UnitPrice == nil {
-		writeErr(w, http.StatusBadRequest, "nothing to update: give unit, unit_price, annual_price or description")
+	if msg := applyItemShape(&p, in, sku); msg != "" {
+		writeErr(w, http.StatusBadRequest, sku+": "+msg)
+		return
+	}
+	if p.Unit == nil && p.Description == nil && p.UnitPrice == nil && p.TierMode == nil && p.Tiers == nil && p.Allowance == nil && !p.ClearAllowance && p.AllowanceRollover == nil {
+		writeErr(w, http.StatusBadRequest, "nothing to update: give unit, unit_price, annual_price, description, tiers, tier_mode or allowance")
 		return
 	}
 	if h.derivedBookWriteRefused(w, r, id) {

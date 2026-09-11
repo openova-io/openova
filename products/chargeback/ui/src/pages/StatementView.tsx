@@ -429,7 +429,16 @@ export function StatementView() {
                     <span className="mono">{n.number}</span>
                     <span className="sub">{n.kind === 'full' ? 'whole invoice' : n.kind === 'write_off' ? 'write-off' : 'partial'}</span>
                   </td>
-                  <td>{n.reason || <span className="muted">—</span>}</td>
+                  <td>
+                    {n.reason || <span className="muted">—</span>}
+                    {/* DESIGN.md §15.5 — an SLA credit says what it answers. */}
+                    {n.sla_pct ? (
+                      <span className="sub">
+                        SLA credit{n.contract_name ? ` under ${n.contract_name}` : ''} · {n.sla_pct} % of the period
+                        {n.measured_availability ? ` · availability measured ${n.measured_availability} %` : ''}
+                      </span>
+                    ) : null}
+                  </td>
                   <td>{creditNoteEffect(n, cur, (v, c) => formatMoney(v, c))}</td>
                   <td>
                     {when(n.issued_at)}
@@ -593,7 +602,13 @@ export function StatementView() {
                   </tr>
                   {g.lines.map((l, i) => (
                     <tr key={`${g.key}-${l.sku}-${l.source_id ?? ''}-${i}`}>
-                      <td className="mono">{l.sku}</td>
+                      {/* DESIGN.md §15.4 — the true-up is a LINE, named and
+                          explained on the invoice: a customer charged for
+                          usage it did not have has to be able to read why. */}
+                      <td className="mono">
+                        {l.sku}
+                        {l.sku === 'true-up' ? <span className="sub">the shortfall against the contract's monthly minimum</span> : null}
+                      </td>
                       <td>{l.unit ?? '—'}</td>
                       <td className="num">{num(l.quantity, 4)}</td>
                       <td className="num">{formatMoney(l.unit_price, cur, { digits: 8 })}</td>

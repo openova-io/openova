@@ -17,6 +17,7 @@ import { useQuery } from '../lib/useQuery'
 import { AccountPanel } from '../panels/AccountPanel'
 import { AuditPanel } from '../panels/AuditPanel'
 import { BudgetsPanel } from '../panels/BudgetsPanel'
+import { ContractPanel } from '../panels/ContractPanel'
 import { DiscountsPanel } from '../panels/DiscountsPanel'
 import { DeleteCustomerConfirm, SettingsPanel } from '../panels/SettingsPanel'
 import { SourcesPanel } from '../panels/SourcesPanel'
@@ -27,7 +28,7 @@ import { CustomerOverview } from './Overview'
 import { CustomerPartnerCard } from './Partners'
 import { ResourcesBody } from './Resources'
 
-const TABS = ['Overview', 'Account', 'Cost', 'Resources', 'Statements', 'Discounts', 'Budgets', 'Sources', 'Users', 'Settings', 'Audit']
+const TABS = ['Overview', 'Account', 'Cost', 'Resources', 'Statements', 'Contract', 'Discounts', 'Budgets', 'Sources', 'Users', 'Settings', 'Audit']
 
 /**
  * Customer detail — the account view (#6867, DESIGN.md §2.4): header with
@@ -200,6 +201,10 @@ export function CustomerDetail() {
       {tab === 'cost' ? <CustomerCostExplorer customerId={id} /> : null}
       {tab === 'resources' ? <ResourcesBody lens={customerLens(id)} /> : null}
       {tab === 'statements' ? <StatementsPanel customerId={id} canIssue={can(me, 'billing.issue', id)} /> : null}
+      {/* DESIGN.md §15.9 — the agreement where the customer is. Reading is
+          metering.read at the scope, so the customer's own principal sees
+          the terms it signed; writing is customers.manage. */}
+      {tab === 'contract' ? <ContractPanel customer={c} canManage={canManageCustomer} /> : null}
       {tab === 'discounts' ? <DiscountsPanel customerId={id} canManage={can(me, 'rating.manage', id)} currency={currency} /> : null}
       {tab === 'budgets' ? <BudgetsPanel customerId={id} canManage={canManageCustomer} currency={currency} /> : null}
       {tab === 'sources' ? (

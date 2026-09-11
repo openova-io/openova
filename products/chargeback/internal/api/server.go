@@ -275,6 +275,18 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("DELETE /api/v1/discounts/{id}", h.deleteDiscount)
 	// DESIGN.md §2.11 — the discount combination rule. Operator-only; read at
 	// statement run time and recorded on every statement the run writes.
+	// Contracts and commercial terms (DESIGN.md §15). `/contracts/renewals`
+	// is a literal path and so wins over `/contracts/{id}` in the mux.
+	mux.HandleFunc("GET /api/v1/contracts", h.listContracts)
+	mux.HandleFunc("POST /api/v1/contracts", h.createContract)
+	mux.HandleFunc("GET /api/v1/contracts/renewals", h.renewalsDue)
+	mux.HandleFunc("GET /api/v1/contracts/{id}", h.getContract)
+	mux.HandleFunc("PATCH /api/v1/contracts/{id}", h.patchContract)
+	mux.HandleFunc("DELETE /api/v1/contracts/{id}", h.deleteContract)
+	mux.HandleFunc("PUT /api/v1/contracts/{id}/items", h.putContractItems)
+	mux.HandleFunc("POST /api/v1/contracts/{id}/sla-credit", h.issueSLACredit)
+	mux.HandleFunc("GET /api/v1/customers/{id}/contracts", h.customerContracts)
+
 	mux.HandleFunc("GET /api/v1/billing-settings", h.getBillingSettings)
 	mux.HandleFunc("PUT /api/v1/billing-settings", h.putBillingSettings)
 	mux.HandleFunc("POST /api/v1/customers/{id}/sources", h.createSource)

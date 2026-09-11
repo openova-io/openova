@@ -13,6 +13,13 @@ export const PLATFORM_SERVICE: Service = { key: 'k8s', label: 'Platform (Kuberne
 /** The catalog plan line (`plan.<slug>`, DESIGN.md §2.8 "Plan revenue"). */
 export const PLAN_SERVICE: Service = { key: 'plan', label: 'Subscription plan' }
 export const OTHER_SERVICE: Service = { key: 'other', label: 'Other' }
+/**
+ * The shortfall against a contract's monthly minimum (DESIGN.md §15.4). It is
+ * not usage of anything, so it gets its own heading rather than being filed
+ * under "Other" beside a storage line — an invoice that hides a charge for
+ * unused commitment among the meters is the one a customer disputes.
+ */
+export const TRUE_UP_SERVICE: Service = { key: 'true-up', label: 'Contract minimum (true-up)' }
 
 const SERVICES: ReadonlyArray<Service> = [
   { key: 'ecs', label: 'Elastic Cloud Server' },
@@ -45,6 +52,7 @@ const BY_KEY = new Map(SERVICES.map((s) => [s.key, s]))
 export function serviceOfSKU(sku: string): Service {
   const s = sku.trim().toLowerCase()
   if (!s) return OTHER_SERVICE
+  if (s === TRUE_UP_SERVICE.key) return TRUE_UP_SERVICE
   const head = s.split(/[.\-_/:]/, 1)[0]
   if (head === 'k8s') return PLATFORM_SERVICE
   const svc = BY_KEY.get(head)

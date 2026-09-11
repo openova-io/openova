@@ -47,15 +47,19 @@ type Report struct {
 	// customer disputes them (DESIGN.md §16). They are still owed; they are
 	// simply not chased until an operator resolves the dispute, and saying
 	// so here is what tells an operator why a reminder did not go out.
-	Disputed    int    `json:"disputed"`
-	Reminders   int    `json:"reminders"`
-	Escalations int    `json:"escalations"`
-	Suspended   int    `json:"suspended"`
-	Resumed     int    `json:"resumed"`
-	Mails       int    `json:"mails"`
-	Errors      int    `json:"errors"`
-	Skipped     bool   `json:"skipped"`
-	SkipReason  string `json:"skip_reason,omitempty"`
+	Disputed    int `json:"disputed"`
+	Reminders   int `json:"reminders"`
+	Escalations int `json:"escalations"`
+	Suspended   int `json:"suspended"`
+	Resumed     int `json:"resumed"`
+	// Contracts (DESIGN.md §15.6): the agreements this pass renewed for
+	// another term and the ones it expired.
+	ContractsRenewed int    `json:"contracts_renewed"`
+	ContractsExpired int    `json:"contracts_expired"`
+	Mails            int    `json:"mails"`
+	Errors           int    `json:"errors"`
+	Skipped          bool   `json:"skipped"`
+	SkipReason       string `json:"skip_reason,omitempty"`
 }
 
 func (e *Evaluator) now() time.Time {
@@ -101,6 +105,8 @@ func (e *Evaluator) tick(ctx context.Context) {
 		return
 	}
 	slog.Info("collections evaluator", "invoices", rep.Invoices, "disputed", rep.Disputed, "reminders", rep.Reminders, "escalations", rep.Escalations, "suspended", rep.Suspended, "resumed", rep.Resumed, "mails", rep.Mails, "errors", rep.Errors, "skipped", rep.Skipped)
+	slog.Info("collections evaluator", "invoices", rep.Invoices, "reminders", rep.Reminders, "escalations", rep.Escalations, "suspended", rep.Suspended, "resumed", rep.Resumed, "mails", rep.Mails,
+		"contracts_renewed", rep.ContractsRenewed, "contracts_expired", rep.ContractsExpired, "errors", rep.Errors, "skipped", rep.Skipped)
 }
 
 // RunOnce evaluates every open invoice at the current instant.
@@ -184,6 +190,23 @@ func (e *Evaluator) RunAt(ctx context.Context, now time.Time) (Report, error) {
 					}
 				}
 			}
+		}
+	}
+	// CONTRACT RENEWAL (DESIGN.md §15.6) — a STEP of this daily pass, not a
+	// scheduler of its own: every active contract whose end date has passed
+	// either renews for another term (auto_renew) or expires. The
+	// renewals-due list is what an operator acts on before this ever fires,
+	// during the notice window; this is only the end of the term arriving.
+	if renewals, err := e.Store.RunContractRenewals(ctx, now); err != nil {
+		rep.Errors++
+		slog.Warn("collections evaluator: contract renewals", "error", err)
+	} else {
+		rep.ContractsRenewed, rep.ContractsExpired = len(renewals.Renewed), len(renewals.Expired)
+		for _, id := range renewals.Renewed {
+			_ = e.Store.Audit(ctx, nil, "system", "contract.renewed", map[string]any{"contract_id": id})
+		}
+		for _, id := range renewals.Expired {
+			_ = e.Store.Audit(ctx, nil, "system", "contract.expired", map[string]any{"contract_id": id})
 		}
 	}
 	// Resumption: every customer this product suspended is re-checked, not
