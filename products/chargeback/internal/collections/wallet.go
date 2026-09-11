@@ -8,20 +8,24 @@ import (
 	"time"
 
 	"github.com/openova-io/openova/products/chargeback/internal/mail"
+	"github.com/openova-io/openova/products/chargeback/internal/notify"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
 
 // Wallet is what payment_model = prepaid adds on top of universal account
 // credit (DESIGN.md §9.5): service depends on the balance. After an issue
 // or any change to the account it checks two things for a prepaid
-// customer — the low-balance alert, mailed once per crossing through the
-// same mail path the budget alerts use, and suspend-at-zero, executed
+// customer — the low-balance alert, emitted once per crossing as the
+// account.low_balance event (DESIGN.md §21), and suspend-at-zero, executed
 // through the Enforcer — and lifts a wallet suspension once the balance is
 // back. A postpaid customer is never touched here: its service depends on
 // terms, not on the balance.
 type Wallet struct {
-	Store     *store.Store
-	Mail      mail.Sender
+	Store *store.Store
+	Mail  mail.Sender
+	// Notify routes the low-balance alert through the notification
+	// catalogue; nil builds one over Mail.
+	Notify    *notify.Notifier
 	Enforcer  *Enforcer
 	PublicURL string
 	// Owns reports whether this product owns the account; nil = always.
@@ -69,16 +73,19 @@ func (w *Wallet) Check(ctx context.Context, customerID string, now time.Time) (O
 			if err := w.Store.SetLowBalanceAlerted(ctx, c.ID, &now); err != nil {
 				return out, err
 			}
-			subject, body := LowBalanceMail(c, available, *c.LowBalanceThreshold, currency, strings.TrimRight(w.PublicURL, "/")+"/my/statements")
+			payload := LowBalancePayload(c, available, *c.LowBalanceThreshold, currency, strings.TrimRight(w.PublicURL, "/")+"/my/statements")
 			sent := []string{}
-			if w.Mail != nil {
-				for _, to := range w.recipients(ctx, c) {
-					if err := w.Mail.Send(ctx, to, subject, body); err != nil {
-						slog.Warn("wallet: low-balance mail", "customer", c.Slug, "to", to, "error", err)
-						continue
-					}
-					sent = append(sent, to)
+			n := w.notifier()
+			for _, to := range w.recipients(ctx, c) {
+				res, err := n.Send(ctx, notify.Request{Event: notify.EventAccountLowBalance, To: to, CustomerID: &c.ID, Payload: payload})
+				if err != nil {
+					slog.Warn("wallet: low-balance mail", "customer", c.Slug, "to", to, "error", err)
+					continue
 				}
+				if !res.Sent {
+					continue
+				}
+				sent = append(sent, to)
 			}
 			_ = w.Store.Audit(ctx, &c.ID, "system", "account.low_balance", map[string]any{"available_credit": available, "threshold": *c.LowBalanceThreshold, "currency": currency, "recipients": sent})
 			out.Alerted = true
@@ -105,6 +112,15 @@ func (w *Wallet) Check(ctx context.Context, customerID string, now time.Time) (O
 		out.Resumed = resumed
 	}
 	return out, nil
+}
+
+// notifier is the notification path: the one wired in, or one built over
+// Mail for a caller that wired only a sender.
+func (w *Wallet) notifier() *notify.Notifier {
+	if w.Notify != nil {
+		return w.Notify
+	}
+	return &notify.Notifier{Channels: notify.DefaultChannels(w.Mail)}
 }
 
 func (w *Wallet) lowBalanceAlerted(ctx context.Context, customerID string) (bool, error) {

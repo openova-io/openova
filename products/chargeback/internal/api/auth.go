@@ -9,6 +9,7 @@ import (
 	"sort"
 
 	"github.com/openova-io/openova/products/chargeback/internal/access"
+	"github.com/openova-io/openova/products/chargeback/internal/notify"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
 
@@ -59,8 +60,14 @@ func (h *Handler) pinRequest(w http.ResponseWriter, r *http.Request) {
 			storeErr(w, err)
 			return
 		}
-		body := fmt.Sprintf("Your chargeback sign-in code is %s. It expires in %d minutes.", code, int(pinTTL.Minutes()))
-		if err := h.Mail.Send(r.Context(), email, "Your sign-in code", body); err != nil {
+		// DESIGN.md §21 — auth.pin, a MANDATORY event: it is the only way
+		// in, so no preference can switch it off and Send can never come
+		// back suppressed here.
+		if _, err := h.notifier().Send(r.Context(), notify.Request{
+			Event:   notify.EventAuthPIN,
+			To:      email,
+			Payload: map[string]any{"code": code, "minutes": int(pinTTL.Minutes())},
+		}); err != nil {
 			slog.Error("send PIN mail", "error", err)
 			writeErr(w, http.StatusBadGateway, "could not send the code")
 			return

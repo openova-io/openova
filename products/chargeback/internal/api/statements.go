@@ -13,6 +13,7 @@ import (
 
 	"github.com/openova-io/openova/products/chargeback/internal/access"
 	"github.com/openova-io/openova/products/chargeback/internal/einvoice"
+	"github.com/openova-io/openova/products/chargeback/internal/notify"
 	"github.com/openova-io/openova/products/chargeback/internal/rating"
 	"github.com/openova-io/openova/products/chargeback/internal/report"
 	"github.com/openova-io/openova/products/chargeback/internal/settle"
@@ -272,7 +273,10 @@ func (h *Handler) issueStatement(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid body: "+err.Error())
 		return
 	}
-	notify := in.Notify == nil || *in.Notify
+	// Named notifyCustomer, not notify: the notify PACKAGE is imported in
+	// this file, and a local that shadows it would make every later
+	// notify.X in this function fail to compile for a puzzling reason.
+	notifyCustomer := in.Notify == nil || *in.Notify
 	// DESIGN.md §18.4 — issuing an invoice INTO a closed period would post a
 	// receivable the books have already been signed off without.
 	if st, err := h.Store.GetStatement(r.Context(), store.OperatorScope, r.PathValue("id")); err == nil {
@@ -321,9 +325,9 @@ func (h *Handler) issueStatement(w http.ResponseWriter, r *http.Request) {
 	if settings.ExternalCommercial() {
 		// The billing system sends its own invoice and collects on it; a
 		// second copy from us would confuse the customer it reached.
-		notify = false
+		notifyCustomer = false
 	}
-	h.audit(r, &st.CustomerID, "statement.issue", map[string]any{"statement_id": st.ID, "period": st.PeriodStart[:7], "total": st.Total, "transitioned": transitioned, "notify": notify,
+	h.audit(r, &st.CustomerID, "statement.issue", map[string]any{"statement_id": st.ID, "period": st.PeriodStart[:7], "total": st.Total, "transitioned": transitioned, "notify": notifyCustomer,
 		"invoice_number": st.InvoiceNumber, "po_reference": st.PORef, "due_at": st.DueAt, "commercial_provider": provider.Name()})
 	c, cerr := h.Store.GetCustomer(r.Context(), store.OperatorScope, st.CustomerID)
 	if cerr != nil {
@@ -374,7 +378,7 @@ func (h *Handler) issueStatement(w http.ResponseWriter, r *http.Request) {
 			st.EInvoice = &rec.EInvoiceState
 		}
 	}
-	if transitioned && notify && cerr == nil {
+	if transitioned && notifyCustomer && cerr == nil {
 		h.notifyStatement(r, st, c)
 	}
 	// DESIGN.md §9.5 — a prepaid customer's service depends on the balance
@@ -411,17 +415,24 @@ func (h *Handler) notifyStatement(r *http.Request, st store.Statement, c store.C
 		}
 	}
 	link := strings.TrimRight(h.Config.PublicURL, "/") + "/statements/" + st.ID
+	// DESIGN.md §21 — statement.issued, a MANDATORY event. The DOCUMENT is
+	// still report.RenderStatement's: the waterfall, the ranked lines and
+	// the currency's minor unit belong to the renderer. The template carries
+	// it, which puts the send on the catalogue, the delivery log and the
+	// preference rule without changing one byte of the invoice.
 	subject, body := report.RenderStatement(st, link)
+	payload := map[string]any{"subject": subject, "document": body, "statement_id": st.ID, "period": st.PeriodStart[:7]}
+	n := h.notifier()
 	sent := []string{}
 	var failed []string
 	for _, to := range recipients {
-		if h.Mail == nil {
-			failed = append(failed, to+": no mail sender configured")
-			continue
-		}
-		if err := h.Mail.Send(r.Context(), to, subject, body); err != nil {
+		res, err := n.Send(r.Context(), notify.Request{Event: notify.EventStatementIssued, To: to, CustomerID: &st.CustomerID, Payload: payload})
+		if err != nil {
 			slog.Warn("statement notify: send", "statement", st.ID, "to", to, "error", err)
 			failed = append(failed, to+": "+err.Error())
+			continue
+		}
+		if !res.Sent {
 			continue
 		}
 		sent = append(sent, to)

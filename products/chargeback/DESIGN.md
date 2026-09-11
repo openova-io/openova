@@ -4423,3 +4423,342 @@ go test -run SummaryAtScale -timeout 30m ./internal/store
   built; the four triggers live afterwards.
 - **Scale** (`costrollup_integration_test.go`, on demand): the before/after
   above.
+
+## 21. Notification management — what the product sends, to whom, and whether it arrived
+
+Every message this product sent was, until this section, composed at its call
+site: a subject string and a body string built by whichever function happened
+to need one, handed to `mail.Sender.Send`, and forgotten. Eight such sends
+existed. There was no list of them, no way for a recipient to choose what it
+received, no second channel, and — the one that matters commercially — **no
+answer to "was the customer told"**. A dunning reminder that bounced left
+nothing behind but a line in a log nobody reads.
+
+The shape below is the ordinary one for a BSS, and it is built whole:
+
+```
+EVENT       a stable key and a documented payload      internal/notify/catalogue.go
+TEMPLATE    subject and body per (event, LOCALE)       internal/notify/template.go, locale_en.go
+PREFERENCE  which events reach whom, on which channel  notification_preferences, resolve.go
+CHANNEL     how a message is carried                   internal/notify/channel.go
+DELIVERY    ONE ROW PER ATTEMPT, with its outcome      notification_deliveries, notify.go
+```
+
+`notify.Notifier.Send` is the only way this product sends anything. Nothing
+composes a subject and a body of its own any more, which is what makes the
+catalogue an inventory rather than a wish.
+
+### 21.1 The catalogue
+
+Eight events, one per send that already existed. The catalogue does not
+describe what the product *might* send one day; it is the exhaustive list of
+what it *does* send, and `Send` refuses a key that is not in it.
+
+| Key | What it is | Mandatory | Emitted by |
+|---|---|---|---|
+| `auth.pin` | The one-time sign-in code | yes | `internal/api/auth.go` — `POST /auth/pin/request` |
+| `customer.invite` | The activation link | yes | `internal/api/customers.go` — `POST /customers/{id}/invite` |
+| `statement.issued` | The invoice | yes | `internal/api/statements.go` — issue, and `POST /statements/{id}/send` |
+| `collections.reminder` | One dunning stage | yes | `internal/collections/evaluator.go` — the daily pass |
+| `collections.escalation` | The overdue escalation | yes | `internal/collections/evaluator.go` — the daily pass |
+| `account.low_balance` | The prepaid low-balance warning | no | `internal/collections/wallet.go` — after any account change |
+| `budget.threshold` | A budget threshold crossing | no | `internal/budget/evaluator.go` — the hourly pass |
+| `report.scheduled` | A scheduled cost report | no | `internal/report/scheduler.go` — the five-minute poll |
+
+A key is **stable**. It is written into preference rows and into the delivery
+log; renaming one silently re-enables an event a customer switched off. Add
+events; do not rename them.
+
+Each event documents its **payload** — the fields a template may reference,
+with what each one means. That is a contract, not a comment:
+`TestTemplatesOnlyReferenceDeclaredFields` fails the build if a template
+reaches for a field no call site supplies, which is the defect that would
+otherwise ship as a blank where a figure should be.
+
+Every event ships `default_on`. Deliberately: each was being sent
+unconditionally the day before this section existed, a fresh Sovereign has no
+preference rows at all, and anything else would silently stop mail that was
+going out. The catalogue test refuses a default-off event for exactly that
+reason.
+
+### 21.2 What moved, and how each move is pinned
+
+The eight call sites were moved onto the catalogue. **No message changed by
+one byte**, and that is asserted rather than asserted-to:
+
+| Moved from | Now | Pinned by |
+|---|---|---|
+| `api/auth.go` inline `fmt.Sprintf` | `auth.pin` | `notify` golden case + the api suite's `signIn` helper, which reads the PIN out of the mail on every integration test |
+| `api/customers.go` inline `fmt.Sprintf` | `customer.invite` | `notify` golden case + `TestIntegrationMovedSendsStillGoOutAndAreRecorded` |
+| `api/statements.go` `report.RenderStatement` | `statement.issued` | `notify` golden case (the document passes through verbatim) + the statement suites |
+| `collections/mail.go` `reminderMail` | `collections.reminder` | `TestReminderRendersExactlyWhatTheOldRendererDid`, four day-offsets incl. the singular |
+| `collections/mail.go` `escalationMail` | `collections.escalation` | `TestEscalationRendersExactlyWhatTheOldRendererDid`, both escalation actions |
+| `collections/mail.go` `LowBalanceMail` | `account.low_balance` | `TestLowBalanceRendersExactlyWhatTheOldRendererDid`, both suspend-at-zero states |
+| `budget/evaluator.go` `crossingMail` | `budget.threshold` | `TestCrossingRendersExactlyWhatTheOldRendererDid`, with and without a forecast |
+| `report/scheduler.go` `Render` | `report.scheduled` | `notify` golden case + `TestIntegrationReportSchedulerOnceOnly`, which already read the rendered body |
+
+Each golden expectation is **transcribed from the renderer it replaced**, not
+read back out of the template it now renders. A test that took its
+expectation from the template would pass on any wording at all.
+
+What stayed at the call site is the part that is genuinely the call site's
+job: reading the invoice, naming it, and formatting money and dates the way
+the rest of the product formats them. What moved is the prose.
+
+### 21.3 Templates, and the locale key
+
+A template is a **subject and a body per (event, locale)**, as
+`text/template` source over the event's declared payload. The helper set is
+deliberately two functions — `plural` and `abs` — because a template that can
+compute is a second place money is formatted.
+
+The locale key is what makes a second language **additive**: `locale_ar.go`
+would be one new file calling `RegisterLocale("ar", …)` with the same event
+keys, and not one line of the catalogue, the notifier, a call site or the
+schema changes. An event the new locale does not translate falls back to
+English, and the delivery log records **the locale actually used**, so "we had
+no Arabic for this one" is readable afterwards.
+`TestASecondLocaleIsPurelyAdditiveAndFallsBackToEnglish` registers a test-only
+tag and proves both halves.
+
+**Only English ships.** No Arabic is written here; none has been provided, and
+inventing a translation of a legally-worded dunning notice would be worse than
+having none.
+
+**The one honest limit.** Two events — `statement.issued` and
+`report.scheduled` — carry a `document` field their template renders whole
+(`{{.document}}`). Those two documents are built by `internal/report`: a money
+waterfall, a ranked line table, a column-aligned summary and a currency's
+minor unit are a renderer, not a mail template. A second locale can translate
+the wrapper around them; translating the documents themselves is a change to
+`internal/report`. That is stated here rather than hidden behind a template
+that pretends to own text it does not.
+
+### 21.4 Preferences — the rule, whole
+
+```
+notification_preferences(id, event_key, customer_id NULL, email, enabled,
+                         channels TEXT[], locale, updated_at)
+```
+
+Four scopes live in one table, told apart by which identifying columns are
+set. **The most specific row that names the recipient wins**, and specificity
+is arithmetic rather than a list of cases — `rank = 2·(names a person) +
+(names a customer)`:
+
+| `customer_id` | `email` | what it is | rank |
+|---|---|---|---|
+| set | set | one person, on one customer | 3 |
+| NULL | set | one person, Sovereign-wide | 2 |
+| set | `''` | one customer's policy | 1 |
+| NULL | `''` | the Sovereign default | 0 |
+
+A row naming **you** beats a row naming only your organisation, because a
+preference is a person's choice; between two rows naming you, the one that
+also names the customer wins, because it is the narrower statement.
+
+**The default for an unset preference is the event's `default_on`** — and
+every shipped event is `default_on`, so a Sovereign that has never touched
+this page receives exactly what it received before §21 existed.
+
+A preference read that FAILS does not stop a send: the catalogue default
+applies and the failure is logged. Falling back to "send it" is the safe
+direction; falling back silently is not.
+
+**Mandatory notices cannot be switched off.** An invoice and a dunning notice
+are notices the operator is obliged to send, and the catalogue marks them.
+The guarantee is enforced in **two places, deliberately**:
+
+- the **write** path (`ValidatePreference`) refuses to store a row that would
+  disable one, so an operator is told the switch would do nothing instead of
+  saving one that is then ignored; and
+- the **read** path (`Resolve`) ignores such a row *however it got there* — an
+  import, a restored backup, a hand-written `UPDATE`. The resolver is what
+  actually decides whether a customer is told it owes money, so the guarantee
+  has to live there and not only at the API.
+
+There is a back door and it is closed too: leaving a mandatory notice
+*enabled* but moving it to a channel that cannot carry it would switch it off
+in everything but name. A mandatory event's channels are therefore a **floor**
+— a preference may add a channel and may never remove one. Both halves are
+tested at the resolver, at the store and over HTTP
+(`TestACustomerCannotSwitchOffAMandatoryNotice`,
+`TestAMandatoryNoticeKeepsItsChannelWhenAPreferenceNamesAnotherOne`,
+`TestIntegrationAMandatoryNoticeCannotBeSwitchedOffOverTheAPI`).
+
+### 21.5 Channels — one interface, and one honest refusal
+
+```go
+type Channel interface {
+    Name() string
+    Available() bool
+    Unavailable() string
+    Send(ctx context.Context, to string, m Message) error
+}
+```
+
+**EMAIL** is implemented over the existing `mail.Sender` — the only transport
+this product has ever had.
+
+**SMS is DECLARED and has NO TRANSPORT.** Omantel's gateway specification has
+not been provided: there is no endpoint, no credential shape, no payload and
+no delivery-receipt semantics published to this build. So the channel exists
+in the interface, can be named in a preference and in the console, and
+**refuses at send time with the reason** — exactly the posture §17.5 takes
+when `Submit` returns `not_submitted` with `omanSubmitReason` rather than
+posting an invoice at an endpoint nobody published.
+
+Nothing here pretends to send. There is no stub returning `nil`, no queue that
+swallows the message, no fabricated API. `SMSChannel.Send` returns an error
+wrapping `ErrChannelUnavailable` (which wraps `ErrPermanent`, so it is never
+retried — no number of attempts publishes a specification), the attempt is
+recorded with status `unavailable` and the reason, and the console renders
+that reason verbatim. Wiring it is **one `Channel` implementation registered
+in `DefaultChannels`**, once the specification exists.
+
+### 21.6 The delivery log
+
+```
+notification_deliveries(id, event_key, customer_id NULL, channel, recipient,
+                        locale, subject, attempt, status, reason, at)
+```
+
+**One row per ATTEMPT**, not per notification. A transient SMTP failure
+followed by a success is two rows, and that is the point: reading only the
+last row for a (event, recipient) pair still tells you the mail took two goes.
+
+| status | what it means |
+|---|---|
+| `sent` | the channel accepted it |
+| `retrying` | this attempt failed and another follows |
+| `failed` | this attempt failed and no more follow — **the visible one** |
+| `suppressed` | a preference switched the event off for this recipient |
+| `unavailable` | the channel is declared but has no transport (§21.5) |
+
+A **suppressed** event is recorded rather than dropped silently: "we chose not
+to tell them" is an answer, and an unrecorded non-send is not. The row names
+the preference that decided it.
+
+**Retry is bounded.** Three attempts by default with a doubling backoff from
+250 ms; a failure wrapping `ErrPermanent` — a malformed address, a channel
+with no transport — is not retried at all. The bound is in code, not in
+configuration, so no deployment can turn a failed delivery into an unbounded
+loop.
+
+**A permanently failed delivery is VISIBLE, not silent.** It is a `failed` row
+the console's Deliveries card opens on, a
+`chargeback_notifications_total{event,channel,status}` counter, and an
+`slog.Error` naming the event, the channel, the recipient and the attempt
+count. The API's error names the event and the recipient too, so the caller
+that owed the message knows it did not go.
+
+Retention is `NOTIFICATION_RETENTION_DAYS`, default 180 — long enough that
+"did they get the August invoice" is answerable when it is asked in December.
+How long a record of what was sent to whom may be held is a data-retention
+decision the operator's policy makes, not this product's, which is why it is
+configuration and the retry ladder is not. Zero keeps the log for ever. The
+purge runs in the hourly housekeeping pass.
+
+A **deleted customer keeps its delivery history** (`ON DELETE SET NULL`): "was
+the customer told" is a question asked after an account is closed. Its
+*preference* rows do cascade away with it — they described a choice that no
+longer has anyone to apply to.
+
+### 21.7 Permissions, and the closed period
+
+| Route | Permission |
+|---|---|
+| `GET /notifications/events` | `metering.read` (Sovereign) |
+| `GET /notifications/preferences` | `metering.read` (Sovereign) |
+| `PUT /notifications/preferences` | `settings.manage` |
+| `DELETE /notifications/preferences/{event}` | `settings.manage` |
+| `GET /notifications/deliveries` | `audit.read` (Sovereign) |
+| `GET /customers/{id}/notifications/preferences` | `metering.read` on the customer |
+| `PUT /customers/{id}/notifications/preferences` | `customer.self.manage` |
+| `DELETE /customers/{id}/notifications/preferences/{event}` | `customer.self.manage` |
+| `GET /customers/{id}/notifications/deliveries` | `metering.read` on the customer |
+
+Reading the catalogue is `metering.read`: what the product sends is not a
+secret, and every role that receives a notice may see which notices exist.
+Writing a Sovereign-wide preference is `settings.manage` — it changes what
+every customer receives. A customer's own preferences sit behind
+`customer.self.manage`, the same permission its users and its PO reference sit
+behind, and the Sovereign-wide `customers.manage` implies it (§10), so an
+operator needs no customer-scoped binding to set one.
+
+The **delivery log** is `audit.read` at the Sovereign — it is an audit trail
+and it carries subject lines. A customer reads its own under `metering.read`,
+confined by the store scope; a delivery that belongs to no customer (an
+operator's sign-in code) is visible to no customer at all. On the customer
+routes the **path pins the customer**: a `customer_id` in the query cannot
+redirect the read, and another customer's id answers 404 rather than
+confirming it exists.
+
+**The §18 closed-period guard does not apply here, and its absence is
+deliberate.** A notification writes nothing to the journal and moves no money,
+so a closed period has nothing to protect against: editing a preference in
+January cannot alter what December's ledger says.
+
+### 21.8 The console
+
+**Configure → Notifications** (Sovereign lens) answers the three questions
+this product could not answer before, in that order:
+
+- **What does it send?** The event table: title and key, group, whether it can
+  be switched off, its channels, the Sovereign default and what set it, and
+  the template subject — clicking it opens the template source and the payload
+  the event renders from.
+- **Who gets it?** The Sovereign default per event, editable with
+  `settings.manage`. A mandatory notice offers no switch and says why.
+- **Did it arrive?** The Deliveries card, **opening on Problems** — failed and
+  refused attempts first, with the reason on the row — and a tile counting
+  them. `All attempts` widens it.
+
+A declared channel with no transport is a standing notice on the page,
+carrying its own reason verbatim. It is not an error state to hide: it is what
+an operator has to read before offering anyone that channel.
+
+**My → Notifications** (customer lens) is the same preference editor scoped to
+the customer, plus its own deliveries. An invoice and a payment reminder show
+as **Always · required — cannot be switched off** and offer no control; a
+customer *viewer* reads the page and is offered nothing at all.
+
+### 21.9 Tests
+
+- **The catalogue** (`notify/template_test.go`): every event well-formed, with
+  a declared payload, declared channels and an English template; every
+  template referencing only declared fields; every declared field read by a
+  template or listed as a deliberate exception; no event shipping default-off.
+- **The golden set** (same file): one case per event — thirteen in all,
+  covering both escalation actions, both suspend-at-zero states, a budget with
+  and without a forecast, and the three day-offsets a reminder takes including
+  the singular — each transcribed from the renderer it replaced. A missing
+  golden case for a new event fails the suite.
+- **The call sites** (`collections/notify_test.go`, `budget/notify_test.go`):
+  the payload the call site builds rendered through the real notifier and
+  compared against those same bytes, so the two halves cannot drift apart.
+- **The notifier** (`notify/notify_test.go`): the retry ladder walked with an
+  injected clock (three attempts, 100 ms then 200 ms, one log row each); a
+  permanent failure not retried once; a failed delivery visible in the log and
+  in the error; a suppressed event recorded; a failed preference read still
+  sending; the SMS channel refusing with its reason and never being retried.
+- **The preference rule** (same file): all four ranks, with a row for another
+  customer and a row for another event present and correctly ignored; the
+  mandatory guarantee at both the write and the read; the channel floor.
+- **The store** (`store/notify_integration_test.go`, against Postgres): one row
+  per scope and the upsert that keeps it that way; the resolver's single read;
+  the delivery log's filters, the `problems` shorthand, the tallies, the
+  retention purge; scope confinement on both tables; a deleted customer losing
+  its preferences and keeping its delivery history; the migration appended and
+  located by content.
+- **The API** (`api/notifications_integration_test.go`): the catalogue served
+  with SMS declared unavailable; every event resolving to ON with no rows; a
+  preference set, read back through both lenses, and deleted; the mandatory
+  refusal on both routes and for the channel replacement; a row written under
+  the API still ignored by the resolver; the moved sends going out and landing
+  in the log; a customer reading only its own deliveries.
+- **The console** (`ui/src/pages/Notifications.render.test.tsx`): eleven cases
+  over the documents the Go side produces — the mandatory badge and its
+  wording, the SMS reason rendered verbatim, the failure tile and the
+  problems-first table, a read-only principal offered no control, the nav on
+  both lenses, and the customer view where a required notice offers no switch.

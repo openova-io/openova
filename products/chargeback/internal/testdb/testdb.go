@@ -55,7 +55,12 @@ func Open(t *testing.T) *store.Store {
 // cost_usage_daily and cost_rollup_state carry no foreign key either (see
 // store/costrollup.go for why), so CASCADE cannot reach them: named here, or
 // one test's rollup would be read as another test's cost.
-const wipeSQL = `TRUNCATE TABLE audit_log, sessions, pins, invites, rated_lines, cost_usage_daily, cost_rollup_state, invoice_allocations, account_entries, credit_notes, credit_note_sequences, payment_intents, collection_reminders, customer_suspensions, payments, commercial_outbox, statements, invoice_sequences, usage_records, resource_inventory, cost_sources, credentials, role_bindings, group_role_mappings, cost_centre_resources, cost_centre_rules, cost_centres, discounts, budgets, budget_alerts, saved_views, report_deliveries, report_schedules, currency_rates, customers, price_items, price_books, capacity_pool_history, capacity_pools, sku_caps, capacity_zones, capacity_regions, estimates, contract_items, contracts, partner_retail_rules, partners, partner_tiers, einvoice_documents, tax_rules, tax_categories, finance_journal_lines, finance_periods, finance_reconciliation_lines, finance_reconciliations, account_mappings RESTART IDENTITY CASCADE;
+//
+// notification_deliveries (DESIGN.md §21) carries a NULLABLE customer_id —
+// a sign-in code mailed to an operator address belongs to no customer — so a
+// cascade from customers leaves exactly those rows behind. Named here, or
+// one test's failed delivery would be read as another test's.
+const wipeSQL = `TRUNCATE TABLE audit_log, notification_deliveries, notification_preferences, sessions, pins, invites, rated_lines, cost_usage_daily, cost_rollup_state, invoice_allocations, account_entries, credit_notes, credit_note_sequences, payment_intents, collection_reminders, customer_suspensions, payments, commercial_outbox, statements, invoice_sequences, usage_records, resource_inventory, cost_sources, credentials, role_bindings, group_role_mappings, cost_centre_resources, cost_centre_rules, cost_centres, discounts, budgets, budget_alerts, saved_views, report_deliveries, report_schedules, currency_rates, customers, price_items, price_books, capacity_pool_history, capacity_pools, sku_caps, capacity_zones, capacity_regions, estimates, contract_items, contracts, partner_retail_rules, partners, partner_tiers, einvoice_documents, tax_rules, tax_categories, finance_journal_lines, finance_periods, finance_reconciliation_lines, finance_reconciliations, account_mappings RESTART IDENTITY CASCADE;
 DELETE FROM sku_footprints;
 INSERT INTO allocation_settings (id, weights, overhead_policy, pool, manual_amount, currency, sovereign_customer_id)
 VALUES (1, '{"vcpu":1,"mem_gib":1,"pvc_gb":1}'::jsonb, 'separate', 'sovereign-cost', 0, 'OMR', NULL)
