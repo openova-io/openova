@@ -198,6 +198,30 @@ var ErrCallbackRejected = errors.New("gateway callback rejected")
 // to save) and a hook that predates the seam.
 var ErrMethodSetupNotSupported = errors.New("this gateway cannot save a payment method")
 
+// ErrSettlementsNotSupported is answered by a gateway that publishes no
+// settlement feed: the built-in Manual gateway (a bank transfer settles at
+// the bank, and the operator uploads that statement) and a hook that
+// predates the seam. Reconciliation then reads a FILE instead — the same
+// four buckets, a different way in (DESIGN.md §18.3).
+var ErrSettlementsNotSupported = errors.New("this gateway publishes no settlement feed")
+
+// Settlement is one line of a gateway's settlement: what it settled, for how
+// much, on what day, and the fee it kept. It is exactly what a settlement
+// CSV carries, so a gateway with a feed and one with only a file reconcile
+// through the same comparison.
+type Settlement struct {
+	// Reference is the gateway's own id for the collection — the value the
+	// payment carries, which is what the two sides are joined on.
+	Reference string
+	Amount    store.Decimal
+	Currency  string
+	// SettledAt is the day the money reached the bank.
+	SettledAt time.Time
+	// Fee is what the gateway kept out of Amount; zero when it bills its
+	// fees separately.
+	Fee store.Decimal
+}
+
 // SetupRequest asks a gateway to begin saving a payment method for a
 // customer (DESIGN.md §16). It carries no card details and never will: the
 // card is entered on the GATEWAY's page, not on ours, which is the whole
@@ -302,6 +326,12 @@ type Gateway interface {
 	VerifyCallback(r *http.Request) (Confirmation, error)
 	SetupMethod(ctx context.Context, req SetupRequest) (SetupResult, error)
 	ConfirmMethod(ctx context.Context, c MethodConfirmation) (SavedMethod, error)
+	// Settlements is the RECONCILIATION half (DESIGN.md §18.3): what the
+	// gateway says it actually paid out between two days. A gateway with no
+	// such feed returns ErrSettlementsNotSupported, exactly as one with no
+	// callback returns ErrCallbackNotSupported, and the operator uploads the
+	// settlement file instead.
+	Settlements(ctx context.Context, from, to time.Time) ([]Settlement, error)
 }
 
 // ErrNoGateway is returned when a customer's gateway_name has no
@@ -476,6 +506,19 @@ func (r *Registry) ConfirmMethod(ctx context.Context, c MethodConfirmation) (Sav
 	return m, err
 }
 
+// Settlements asks ONE registered gateway what it settled between two days
+// (DESIGN.md §18.3). It is addressed by gateway NAME rather than by customer
+// because a settlement batch spans every customer that gateway collected
+// for. An unregistered name is ErrNoGateway; a registered one with no feed
+// is ErrSettlementsNotSupported, and the operator uploads the file instead.
+func (r *Registry) Settlements(ctx context.Context, gatewayName string, from, to time.Time) ([]Settlement, error) {
+	g, ok := r.Gateway(gatewayName)
+	if !ok || g == nil {
+		return nil, fmt.Errorf("%w: %s", ErrNoGateway, strings.ToLower(strings.TrimSpace(gatewayName)))
+	}
+	return g.Settlements(ctx, from, to)
+}
+
 // ---------------------------------------------------------------------------
 // the built-in manual gateway
 // ---------------------------------------------------------------------------
@@ -533,6 +576,12 @@ func (Manual) SetupMethod(context.Context, SetupRequest) (SetupResult, error) {
 
 func (Manual) ConfirmMethod(context.Context, MethodConfirmation) (SavedMethod, error) {
 	return SavedMethod{}, ErrMethodSetupNotSupported
+}
+
+// Settlements: a transfer settles at the BANK, and the bank's statement is
+// the operator's to upload. Nothing here publishes a feed.
+func (Manual) Settlements(context.Context, time.Time, time.Time) ([]Settlement, error) {
+	return nil, ErrSettlementsNotSupported
 }
 
 // normalise is the shared validation every gateway's ConfirmSettlement wants:
@@ -640,4 +689,20 @@ func (g hookGateway) ConfirmMethod(ctx context.Context, c MethodConfirmation) (S
 		return v.ConfirmMethod(ctx, c)
 	}
 	return SavedMethod{}, ErrMethodSetupNotSupported
+}
+
+// SettlementReporter is the one method a legacy hook may add to publish a
+// settlement feed through the adapter, exactly as CallbackVerifier is the
+// one it may add to accept callbacks.
+type SettlementReporter interface {
+	Settlements(ctx context.Context, from, to time.Time) ([]Settlement, error)
+}
+
+// Settlements delegates to the hook when it reports settlements itself; a
+// hook that predates the seam reports none.
+func (g hookGateway) Settlements(ctx context.Context, from, to time.Time) ([]Settlement, error) {
+	if v, ok := g.h.(SettlementReporter); ok {
+		return v.Settlements(ctx, from, to)
+	}
+	return nil, ErrSettlementsNotSupported
 }

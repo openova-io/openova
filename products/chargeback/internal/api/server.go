@@ -441,6 +441,24 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/disputes/{id}", h.getDispute)
 	mux.HandleFunc("POST /api/v1/disputes/{id}/resolve", h.resolveDispute)
 
+	// The FINANCE HANDOVER (DESIGN.md §18) — the journal an operator's
+	// finance department posts, the gateway settlement reconciliation, and
+	// the period close. Every route is at the SOVEREIGN scope: reading and
+	// reconciling need audit.read AND metering.read there, closing,
+	// reopening and editing the account map need settings.manage. A customer
+	// or partner principal reaches none of it.
+	mux.HandleFunc("GET /api/v1/finance/journal", h.journal)
+	mux.HandleFunc("POST /api/v1/finance/journal/export", h.exportJournal)
+	mux.HandleFunc("GET /api/v1/finance/accounts", h.listAccountMappings)
+	mux.HandleFunc("PUT /api/v1/finance/accounts", h.putAccountMappings)
+	mux.HandleFunc("GET /api/v1/finance/periods", h.listFinancePeriods)
+	mux.HandleFunc("GET /api/v1/finance/periods/{period}", h.getFinancePeriod)
+	mux.HandleFunc("POST /api/v1/finance/periods/{period}/close", h.closePeriod)
+	mux.HandleFunc("POST /api/v1/finance/periods/{period}/reopen", h.reopenPeriod)
+	mux.HandleFunc("GET /api/v1/finance/reconciliations", h.listReconciliations)
+	mux.HandleFunc("POST /api/v1/finance/reconciliation", h.runReconciliation)
+	mux.HandleFunc("GET /api/v1/finance/reconciliation/{id}", h.getReconciliation)
+
 	// Currency rates (#6867 follow-up, DESIGN.md §3.10) — operator-only.
 	// per_base of a price-book currency relative to the reporting currency
 	// (allocation_settings.currency); every cost surface converts with them.

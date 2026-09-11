@@ -34,6 +34,12 @@ func (h *Handler) runStatements(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "period must be YYYY-MM")
 		return
 	}
+	// DESIGN.md §18.4 — a closed period does not move. Re-rating one would
+	// write new drafts over figures the books were closed on, so the run is
+	// refused here, before the rating engine is entered at all.
+	if h.refuseClosedPeriod(w, r, in.Period, "re-running the statements for "+in.Period) {
+		return
+	}
 	results, err := rating.Run(r.Context(), h.Store, in.Period, in.CustomerID)
 	if err != nil {
 		if errors.Is(err, rating.ErrMixedCurrency) {
@@ -267,6 +273,13 @@ func (h *Handler) issueStatement(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	notify := in.Notify == nil || *in.Notify
+	// DESIGN.md §18.4 — issuing an invoice INTO a closed period would post a
+	// receivable the books have already been signed off without.
+	if st, err := h.Store.GetStatement(r.Context(), store.OperatorScope, r.PathValue("id")); err == nil {
+		if h.refuseClosedPeriod(w, r, st.PeriodStart, "issuing this invoice") {
+			return
+		}
+	}
 	// DESIGN.md §8.10 — WHO invoices. Internally this numbers the invoice and
 	// runs our own lifecycle; externally it queues the rated bill for the
 	// operator's billing system and takes no number at all.

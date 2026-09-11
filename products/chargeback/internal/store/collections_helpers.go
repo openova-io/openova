@@ -51,16 +51,21 @@ func (s *Store) QueueOutbox(ctx context.Context, customerID, statementID string,
 		return err
 	}
 	defer tx.Rollback()
-	var stmt any
+	var stmt, customer any
 	if statementID != "" {
 		stmt = statementID
+	}
+	// A document about no single customer — the period journal of DESIGN.md
+	// §18 — queues with a NULL customer rather than an empty uuid.
+	if customerID != "" {
+		customer = customerID
 	}
 	for _, e := range docs {
 		if len(e.Document) == 0 || !json.Valid(e.Document) || e.IdempotencyKey == "" {
 			continue
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO commercial_outbox (doc_type, idempotency_key, statement_id, customer_id, document)
-			VALUES ($1, $2, $3, $4, $5::jsonb) ON CONFLICT (doc_type, idempotency_key) DO NOTHING`, e.DocType, e.IdempotencyKey, stmt, customerID, string(e.Document)); err != nil {
+			VALUES ($1, $2, $3, $4, $5::jsonb) ON CONFLICT (doc_type, idempotency_key) DO NOTHING`, e.DocType, e.IdempotencyKey, stmt, customer, string(e.Document)); err != nil {
 			return mapErr(err)
 		}
 	}
