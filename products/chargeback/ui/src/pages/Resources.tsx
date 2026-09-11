@@ -11,7 +11,7 @@ import { day } from '../lib/format'
 import { resourceHref } from '../lib/links'
 import { formatMoney } from '../lib/money'
 import { PAGE_SIZES, STATUS_OPTIONS, isSort, kindLabel, pageRange, paramsFromResourcesState, resourcesQuery, resourcesStateFromParams, type ResourceStatus, type ResourcesState } from '../lib/resources'
-import { customerLens, lensFor, type Lens } from '../lib/scope'
+import { customerHref, customerLens, lensFor, type Lens } from '../lib/scope'
 import { useQuery } from '../lib/useQuery'
 
 /**
@@ -76,7 +76,7 @@ export function ResourcesBody({ lens, embedded }: { lens: Lens; embedded?: boole
   const sum = d?.sum_cost ?? 0
   const total = d?.total ?? 0
   const rows = d?.rows ?? []
-  const showCustomer = lens.operator && !lens.customerId
+  const showCustomer = lens.crossCustomer
   const filtered = Boolean(state.kind || state.region || state.status !== 'all' || state.q)
   const kinds = optionsWith(dims.data?.dimensions.kind ?? [], state.kind, (k) => kindLabel(k, dims.data))
   const regions = optionsWith(dims.data?.dimensions.region ?? [], state.region, (r) => r)
@@ -103,7 +103,7 @@ export function ResourcesBody({ lens, embedded }: { lens: Lens; embedded?: boole
             value: (r: ResourceRow) => r.customer_name || r.customer_id,
             sortable: false,
             render: (r: ResourceRow) => (
-              <Link to={`/customers/${r.customer_id}`} onClick={(e) => e.stopPropagation()}>
+              <Link to={customerHref(lens, r.customer_id)} onClick={(e) => e.stopPropagation()}>
                 {r.customer_name || r.customer_id}
               </Link>
             ),

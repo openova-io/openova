@@ -160,7 +160,10 @@ export function actionFor(r: Recommendation, lens: Lens): Action | null {
     case 'unpriced-sku':
       return lens.operator ? { to: '/pricebooks', label: meta.action } : null
     case 'stale-source':
-      return lens.operator ? { to: `/customers/${r.customer_id}?tab=sources`, label: meta.action } : { to: '/my/sources', label: meta.action }
+      if (lens.operator) return { to: `/customers/${r.customer_id}?tab=sources`, label: meta.action }
+      // A partner does not own its customers' cost sources, so it gets no
+      // link — only the row's detail, which says whom to ask.
+      return lens.crossCustomer ? null : { to: '/my/sources', label: meta.action }
     case 'no-price-book':
       return lens.operator ? { to: `/customers/${r.customer_id}?tab=settings`, label: meta.action } : null
   }

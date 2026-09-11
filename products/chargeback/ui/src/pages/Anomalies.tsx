@@ -53,7 +53,7 @@ export function AnomaliesBody({ lens, embedded }: { lens: Lens; embedded?: boole
   const currency = envelope?.currency ?? sum.data?.currency ?? ''
   const money = (v: number | null | undefined, compact = false) => formatMoney(v, currency, { compact })
   const kpis = useMemo(() => anomalyKPIs(rows), [rows])
-  const showCustomer = lens.operator && !lens.customerId
+  const showCustomer = lens.crossCustomer
 
   const [open, setOpen] = useState<Set<string>>(() => new Set())
   useEffect(() => {

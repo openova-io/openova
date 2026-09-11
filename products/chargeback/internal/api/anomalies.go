@@ -162,7 +162,7 @@ func (h *Handler) summaryAnomalies(ctx context.Context, scope store.Scope, custo
 func round6(f float64) float64 { return math.Round(f*1e6) / 1e6 }
 
 func (h *Handler) anomalies(w http.ResponseWriter, r *http.Request) {
-	s, ok := h.requireSovereign(w, r, access.MeteringRead)
+	s, ok := h.requireCrossCustomer(w, r, access.MeteringRead)
 	if !ok {
 		return
 	}

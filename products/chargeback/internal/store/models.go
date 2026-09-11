@@ -810,6 +810,41 @@ func (s Scope) Set() []string {
 // Multi reports whether the scope spans more than one customer.
 func (s Scope) Multi() bool { return !s.Operator && len(s.CustomerIDs) > 1 }
 
+// Confine is THE customer predicate of this application: the set of customer
+// ids a read may touch, given the scope and the one customer the caller asked
+// for. Every scoped query filters on `customer_id = ANY(<this>)` and nothing
+// else, so a customer principal is the one-element case of what a partner
+// principal does with several — one predicate, not two code paths.
+//
+//	operator, no customer asked for → nil, no predicate at all
+//	operator, one customer asked for → that one
+//	customer principal → its own customer
+//	partner principal → its partner's customers and its party
+//	either of those naming ONE of their own → that one alone
+//
+// A customer OUTSIDE the scope, and a non-operator scope that expands to
+// nothing, are ErrNotFound. nil therefore means "the operator, unfiltered"
+// and can never mean "everything, for someone who may not see everything".
+func (s Scope) Confine(customerID string) ([]string, error) {
+	if s.Operator {
+		if customerID == "" {
+			return nil, nil
+		}
+		return []string{customerID}, nil
+	}
+	ids := s.Set()
+	if len(ids) == 0 {
+		return nil, ErrNotFound
+	}
+	if customerID != "" {
+		if !s.Allows(customerID) {
+			return nil, ErrNotFound
+		}
+		return []string{customerID}, nil
+	}
+	return ids, nil
+}
+
 // ErrNotFound is returned for absent rows and for rows outside the caller's scope.
 var ErrNotFound = errors.New("not found")
 

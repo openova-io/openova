@@ -279,6 +279,20 @@ func HasPartner(bindings []store.RoleBinding, perm Permission, partnerID string)
 	return false
 }
 
+// HasAnyPartner reports whether the set holds a PARTNER-scoped binding that
+// carries the permission — the question a CROSS-CUSTOMER read asks when the
+// reader is a partner (DESIGN.md §13.5). It does not widen what the reader
+// sees: the store scope still confines every query to that partner's own
+// customers, which is what makes the cost explorer safe to hand a partner.
+func HasAnyPartner(bindings []store.RoleBinding, perm Permission) bool {
+	for _, b := range bindings {
+		if b.ScopeKind == ScopePartner && b.PartnerID != nil && store.ValidRole(b.Role) && RoleGrants(b.Role, perm) {
+			return true
+		}
+	}
+	return false
+}
+
 // HasAny reports whether any of the permissions is held at the scope.
 func HasAny(bindings []store.RoleBinding, customerID string, perms ...Permission) bool {
 	for _, p := range perms {

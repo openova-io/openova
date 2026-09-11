@@ -625,6 +625,28 @@ func (h *Handler) requireSovereign(w http.ResponseWriter, r *http.Request, perm 
 	return h.requirePermission(w, r, perm, "")
 }
 
+// requireCrossCustomer guards the surfaces that read ACROSS customers — the
+// cost explorer, the summary, resources, anomalies, recommendations. Two
+// principals pass: a Sovereign one, which sees every customer, and a PARTNER
+// one, which sees the customers assigned to its partner (DESIGN.md §13.5)
+// because store.Scope.Confine narrows every query underneath to exactly that
+// set. A customer principal is refused: its lens is /customers/{id}/… .
+//
+// This is requireSovereign plus one clause, not a second authorization path:
+// the permission asked for is the same, and the narrowing is the store's.
+func (h *Handler) requireCrossCustomer(w http.ResponseWriter, r *http.Request, perm access.Permission) (store.Session, bool) {
+	s, ok := h.requireAuth(w, r)
+	if !ok {
+		return s, false
+	}
+	bindings := access.Bindings(s)
+	if access.Has(bindings, perm, "") || access.HasAnyPartner(bindings, perm) {
+		return s, true
+	}
+	writeErr(w, http.StatusForbidden, "permission "+string(perm)+" required at the Sovereign")
+	return s, false
+}
+
 // requireCustomer answers 401/403/404 unless the session may act on the
 // customer: a read needs metering.read on it, a write customer.self.manage
 // (the owner on its own customer, or customers.manage Sovereign-wide).

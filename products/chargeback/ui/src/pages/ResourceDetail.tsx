@@ -11,7 +11,7 @@ import { day, when } from '../lib/format'
 import { explorerHref, resourcesHref } from '../lib/links'
 import { formatMoney, formatQty } from '../lib/money'
 import { flattenAttrs, kindLabel, transitionRows, unitCost } from '../lib/resources'
-import { lensFor, type Lens } from '../lib/scope'
+import { customerHref, lensFor, type Lens } from '../lib/scope'
 import { tagDim, tagEntries } from '../lib/tags'
 import { useQuery } from '../lib/useQuery'
 
@@ -104,10 +104,10 @@ export function ResourceDetailBody({ lens, sourceId, resourceId }: { lens: Lens;
         sub={
           <>
             {kindLabel(d.kind)} · {d.region || 'no region'}
-            {lens.operator ? (
+            {lens.crossCustomer ? (
               <>
                 {' '}
-                · <Link to={`/customers/${d.customer_id}`}>{d.customer_name || d.customer_id}</Link>
+                · <Link to={customerHref(lens, d.customer_id)}>{d.customer_name || d.customer_id}</Link>
               </>
             ) : null}{' '}
             · first seen {day(d.first_seen)} · last seen {day(d.last_seen)}

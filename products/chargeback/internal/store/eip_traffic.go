@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"time"
+
+	"github.com/lib/pq"
 )
 
 // Observed Elastic-IP traffic (#6867, DESIGN.md §8).
@@ -38,7 +40,7 @@ type EIPTrafficWindow struct {
 // [from, to). Traffic is a measurement, not money, so it is a float — the
 // same rule CPUUtilMeans follows.
 func (s *Store) EIPTrafficWindows(ctx context.Context, scope Scope, customerID string, from, to time.Time) ([]EIPTrafficWindow, error) {
-	cid, err := scopedCustomer(scope, customerID)
+	ids, err := scope.Confine(customerID)
 	if err != nil {
 		return nil, err
 	}
@@ -48,9 +50,9 @@ func (s *Store) EIPTrafficWindows(ctx context.Context, scope Scope, customerID s
 	         AND customer_id IS NOT NULL
 	         AND window_start >= $1 AND window_start < $2`
 	args := []any{from.UTC(), to.UTC()}
-	if cid != "" {
-		q += ` AND customer_id::text = $3`
-		args = append(args, cid)
+	if ids != nil {
+		q += ` AND customer_id::text = ANY($3)`
+		args = append(args, pq.Array(ids))
 	}
 	q += ` GROUP BY 1, 2, 3, 4 ORDER BY 1, 2, 3`
 	rows, err := s.db.QueryContext(ctx, q, args...)
