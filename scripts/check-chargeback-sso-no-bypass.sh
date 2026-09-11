@@ -54,8 +54,30 @@ else
   fail=1
 fi
 
+# ── the chart's declared dependencies must be resolved before it renders ──
+# bp-chargeback ships the document renderer as an optional sub-chart
+# (`docrender.enabled`, DESIGN.md §14) declared with a file:// repository, so
+# resolution is purely local — no network, no registry. Without it every
+# `helm template` below dies with "found in Chart.yaml, but missing in
+# charts/", which is how this gate failed the moment the sub-chart landed:
+# `set -e` killed the script at the command substitution, printing nothing.
+# scripts/check-chart-probes-satisfy-policy.py already does exactly this.
+resolve_chart_deps() {
+  local chart="$1"
+  grep -qE '^dependencies:' "$chart/Chart.yaml" || return 0
+  compgen -G "$chart/charts/*.tgz" >/dev/null && return 0
+  compgen -G "$chart/charts/*/Chart.yaml" >/dev/null && return 0
+  if ! helm dependency build "$chart" >/dev/null 2>&1; then
+    echo "FAIL: helm dependency build failed for $chart — the chart cannot render,"
+    echo "      so every assertion below would be vacuous."
+    exit 1
+  fi
+}
+
+
 # --- the chart itself must refuse the spoofable pair ---------------------
 if command -v helm >/dev/null 2>&1; then
+  resolve_chart_deps "$CHART"
   if helm template cb "$CHART" --set config.sovereignFqdn=t99.omani.works \
        --set forwardAuth.header=X-Forwarded-Email --set httpRoute.enabled=true \
        >/dev/null 2>&1; then
