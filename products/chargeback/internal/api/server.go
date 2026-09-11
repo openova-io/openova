@@ -103,6 +103,9 @@ type Deps struct {
 // Handler serves the API.
 type Handler struct {
 	Deps
+	// limiter is the per-address budget of the public calculator routes
+	// (DESIGN.md §11), sized from Config.PublicCalculatorRatePerMinute.
+	limiter *ipLimiter
 }
 
 const (
@@ -156,8 +159,22 @@ func New(d Deps) http.Handler {
 	if d.Importer != nil && d.Importer.Enforcer == nil {
 		d.Importer.Enforcer = d.Enforcer
 	}
-	h := &Handler{Deps: d}
+	h := &Handler{Deps: d, limiter: newIPLimiter(d.Config.PublicCalculatorRatePerMinute, d.Now)}
 	mux := http.NewServeMux()
+
+	// The public calculator (DESIGN.md §11): unauthenticated, rate-limited,
+	// CORS for the configured origins, no cookie, no principal. The session
+	// middleware skips this prefix (chain). The catalog is the ONE public
+	// list book plus the two platform books; estimates are priced through
+	// rating.PriceEstimate — the same Rate and Totals a statement uses.
+	mux.HandleFunc("GET /api/v1/public/catalog", h.publicRoute(h.publicCatalog))
+	mux.HandleFunc("POST /api/v1/public/estimates", h.publicRoute(h.publicCreateEstimate))
+	mux.HandleFunc("GET /api/v1/public/estimates/{id}", h.publicRoute(h.publicGetEstimate))
+	mux.HandleFunc("OPTIONS /api/v1/public/", h.publicRoute(func(http.ResponseWriter, *http.Request) {}))
+	// Its operator side: the public toggle on a cloud book (rating.manage)
+	// and the read-only Leads list (customers.manage).
+	mux.HandleFunc("PUT /api/v1/pricebooks/{id}/public", h.setPriceBookPublic)
+	mux.HandleFunc("GET /api/v1/leads", h.listLeads)
 
 	// Ops.
 	mux.HandleFunc("GET /healthz", h.healthz)
@@ -393,9 +410,11 @@ func (h *Handler) chain(next http.Handler) http.Handler {
 			}
 		}()
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("X-Frame-Options", "DENY")
+		h.frameHeaders(w, r)
 		w.Header().Set("Referrer-Policy", "same-origin")
-		if strings.HasPrefix(r.URL.Path, "/api/") {
+		// The public calculator routes resolve no principal at all
+		// (DESIGN.md §11): a cookie sent to them is ignored, not looked up.
+		if strings.HasPrefix(r.URL.Path, "/api/") && !isPublicPath(r.URL.Path) {
 			r = r.WithContext(h.loadSession(r))
 		}
 		sw := &statusWriter{ResponseWriter: w, status: 200}

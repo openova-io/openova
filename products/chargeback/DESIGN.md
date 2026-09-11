@@ -2003,3 +2003,177 @@ stands a database before the migration, writes `customer_users` rows and
 proves the backfill, the view, the widened sessions CHECK and the unique
 indexes. `internal/adapter/openova/orgsync_access_test.go` proves the sync
 grants the owner binding once and never revokes.
+
+---
+
+## 11. Public cost calculator (founder requirement 2026-09-11)
+
+> *"we'll provide a cost calculator publicly."*
+
+A prospect who has never signed in can price a month of the Sovereign's
+services, share the result as a link, and ask us to mail it to them. It is the
+shape of the AWS and Azure pricing calculators, with one rule the cloud
+calculators do not have to state: **the public surface shows list prices and
+nothing else**.
+
+### 11.1 What is public, and what never is
+
+Public — the whole of it:
+
+| Published | Where it comes from |
+|---|---|
+| One **cloud list book** | the book flagged `price_books.public`, designated in `billing_settings.public_price_book_id` |
+| The **catalog plans** (S / M / L / XL, monthly, vCPU, memory) | the `OpenOva plans` book (§2.8) |
+| The **pay-per-use rates** (`k8s.vcpu` / `k8s.mem_gb` / `k8s.pvc_gb`) | the `Organization PAYG` book (§2.9a) |
+| The Sovereign **default tax rate** | `billing_settings.tax_rate`, shown as its own line |
+| The **regions** | `capacity_regions` when that table exists, else the regions the sources and usage carry |
+
+Never, by construction rather than by filtering:
+
+- **A negotiated book.** The catalog is assembled from exactly three books by
+  id and by name. A clone made for one customer carries neither the flag nor
+  the designation, and `SetPriceBookPublic` refuses a second public book
+  (`409`, naming the one in force) and refuses a platform book (`400`).
+- **A discount, a campaign or a partner tier.** The estimate path never reads
+  `discounts` at all: `rating.PriceEstimate` calls `Rate` and `Totals`, not
+  `ApplyDiscounts`. A 20 % campaign that moves an invoice moves no estimate —
+  pinned by the control in `public_calculator_integration_test.go`.
+- **Any customer data.** The public routes read three books, the settings row,
+  the region list and the caller's own submission. Nothing else is reachable
+  from them.
+- **A principal.** The session middleware skips `/api/v1/public/`; a cookie
+  sent there is ignored, never looked up, and no route under it sets one.
+
+Both books the Organization sync owns are published only when they exist on
+this Sovereign **and are priced in the public book's currency** — an estimate
+is issued in one currency and nothing here converts money, the same rule §2.9
+gives a statement.
+
+### 11.2 One pricing function, two callers
+
+The calculator has no arithmetic of its own. `rating.PriceEstimate` turns each
+requested line into the `store.RatableUsage` aggregate a month of hourly
+records would leave in the ledger — quantity × hours × months, at the six
+decimals `usage_records` carries — and hands the batch to **`rating.Rate`**,
+the function the statement run calls, with the book's stopped-instance policy;
+the totals come from **`rating.Totals`**, taxed exactly as an invoice is taxed.
+
+The proof is a measurement, not an assertion.
+`TestIntegrationPublicCalculator` seeds 730 hourly records of one instance and
+of 100 GB of SSD, runs the statement, then prices an estimate of the same
+shape, and compares the **text** of every decimal on the wire (the bodies are
+re-read with `json.Number`, so a float64 that happens to print the same cannot
+pass):
+
+```
+invoice line ecs.s6.large.2  730.000000 × 0.10000000 = 73.000000
+estimate line ecs.s6.large.2 730.000000 × 0.10000000 = 73.000000
+invoice  subtotal 83.000270  tax 4.150014  total 87.150284
+estimate subtotal 83.000270  tax 4.150014  total 87.150284
+```
+
+`rating.TestPriceEstimateEqualsRate` pins the same equality at the unit level
+on a deliberately awkward case — an 8-decimal rate and 100.5 hours — where a
+second rounding rule would show.
+
+**Monthly, yearly and the term.** `subtotal` / `tax` / `total` cover the whole
+term of every line, so a plan taken for three months counts three times.
+`monthly` is the recurring month — each line divided by its months, then taxed
+the way `Totals` taxes the term, so an estimate whose lines are all one month
+has `monthly == total` to the digit. `yearly` is 12 × `monthly`.
+
+### 11.3 API
+
+Unauthenticated, rate-limited, under `/api/v1/public/`:
+
+| Route | What it answers |
+|---|---|
+| `GET /public/catalog` | the priced SKUs of the public book (sku, service, unit, unit price, the monthly price of one unit), the plans, the pay-per-use rates, the regions, the currency, the tax rate, the book's name and `updated_at`, and the list-price notice. `404` with *"the public price list is not published yet"* when nothing is designated |
+| `POST /public/estimates` | prices `{currency?, region?, lines:[{sku, quantity, hours_per_month?} \| {plan, months?}], contact_email?}` and saves it → `{id, lines, subtotal, tax, total, monthly, yearly, currency, price_book, valid_until, share_url, lead, created_at}`. `?preview=1` prices without saving (the cart's live total) |
+| `GET /public/estimates/{id}` | the saved estimate — the shareable link. The address a prospect left is **never** in this document |
+
+Defaults and limits: `hours_per_month` 730 (`rating.HoursPerMonth` = 8760 / 12,
+the figure the platform books derive a monthly price from), `quantity` 1,
+`months` 1. At most 200 lines; quantity in (0, 1e9]; hours in (0, 744];
+months in [1, 12]; an unknown SKU is `400` naming it and the line; a plan and
+an SKU on one line is `400`; `flexi` is `400` pointing at the pay-per-use
+meters, because it has no plan line to sell (§2.9a). An estimate quotes its
+prices for **30 days** (`valid_until`).
+
+Rate limit: a token bucket per client address — `PUBLIC_CALCULATOR_RATE_PER_MINUTE`
+(default 60) tokens a minute, one minute's burst — answering `429` with
+`Retry-After` in whole seconds. Behind the Sovereign's gateway the address is
+the **last** `X-Forwarded-For` hop, the one the gateway appended, which a
+caller cannot forge by prepending its own; reached directly, it is the peer.
+An estimate records `client_hash`, a digest of that address, never the address.
+
+CORS: `PUBLIC_CALCULATOR_ORIGINS` (comma-separated; empty = same origin only,
+`*` = any) is the allow-list for cross-origin calls and preflights.
+
+Operator side, on the authenticated API:
+
+| Route | Permission |
+|---|---|
+| `PUT /pricebooks/{id}/public` `{public}` | `rating.manage` — audited `pricebook.public`; `409` on a second public book, `400` on a platform book |
+| `GET /leads[?limit]` | `customers.manage` — the estimates a prospect left an address on, newest first, with the address and the shareable link |
+
+### 11.4 Data model
+
+`estimatesMigrationSQL`, appended last (migrations are positional) and located
+by content in `store.MigrationEstimates`:
+
+- `price_books.public BOOLEAN NOT NULL DEFAULT false`, with a **partial unique
+  index** on `(public) WHERE public` — the backstop behind the store's check,
+  so a second public book cannot be written even directly.
+- `price_books.updated_at`, moved by a trigger on the book **and on its items**:
+  "prices as of" must change when a rate changes, not only when the header does.
+- `billing_settings.public_price_book_id` — the designation, `ON DELETE SET NULL`.
+- `estimates(id, price_book_id, price_book_name, price_book_updated_at,
+  currency, region, payload JSONB, subtotal, tax_rate, tax, total, monthly,
+  yearly, contact_email, lead, client_hash, created_at, valid_until)`, with a
+  partial index on the leads. The book's **name** is copied onto the row so a
+  shared estimate still says what it was priced from after the book is deleted.
+
+An estimate belongs to nobody: no customer, no session, no cookie. `lead` is
+simply "an address was left", and the proposals module reads those rows later.
+
+### 11.5 The page
+
+`/estimate` in the same React app, outside the console shell and outside
+sign-in: a cart (search the catalog by service or SKU, quantity, hours; a plan
+picker), a region selector, a live total from `?preview=1`, tax on its own
+line, **Share estimate** (saves it and shows the link), **Send me this
+estimate** (an address, which makes it a lead), and a footer naming the price
+book and its date beside the list-price notice.
+
+`/estimate?embed=1` drops the page header and posts its height to the parent
+on every change (`{type: 'openova-estimate-height', height}`), for the
+marketplace or a partner site to frame. Framing is allowed only for the
+configured origins: the page answers `Content-Security-Policy: frame-ancestors
+'self' <origins>` and every other path, the console included, keeps
+`X-Frame-Options: DENY`.
+
+Configure → **Price books** carries the `Public` toggle per cloud book with a
+link to the public catalog preview; Configure → **Leads** is the read-only
+list (date, address, monthly, lines, link) under `customers.manage`.
+
+### 11.6 Tests
+
+`internal/rating/estimate_test.go` — the estimate line equals the rated usage
+line for the same SKU, quantity and hours (8-decimal rate, fractional hours),
+the totals equal `Totals`, plan months, `monthly == total` for a one-month
+estimate, `yearly == 12 × monthly`, and every refusal names its line.
+`internal/store/estimates_integration_test.go` — the flag and the designation
+move together, only one public book (store check **and** unique index), never
+a platform book, the resolver's two paths, `updated_at` following header and
+items, the estimate round-trip with its 30-day validity, the lead flag, and
+the region fallback with and without `capacity_regions`.
+`internal/api/public_calculator_test.go` — the token bucket's budget, refill
+and `Retry-After`; the trusted forwarded hop; every line-validation message;
+the framing and origin rules. `internal/api/public_calculator_integration_test.go`
+— the catalog carries only the public book (the negotiated clone's rate is not
+in the body), estimate math equals invoice math to the digit, the discount
+control, plans and pay-per-use lines, the refusals, the 30-day validity, the
+shareable link, leads and their permission, the `429`, CORS and preflight, and
+that no public route ever reads or sets the session cookie.
+`ui/src/pages/Estimate.test.ts` — the cart's arithmetic and the embed mode.

@@ -8,15 +8,16 @@ import (
 	"time"
 )
 
-const priceBookColumns = `id, name, scope, currency, annual_divisor, bill_stopped, effective_from, description, created_at`
+const priceBookColumns = `id, name, scope, currency, annual_divisor, bill_stopped, effective_from, description, created_at, public, updated_at`
 
 func scanPriceBook(row interface{ Scan(...any) error }) (PriceBook, error) {
 	var pb PriceBook
 	var eff sql.NullTime
-	if err := row.Scan(&pb.ID, &pb.Name, &pb.Scope, &pb.Currency, &pb.AnnualDivisor, &pb.BillStopped, &eff, &pb.Description, &pb.CreatedAt); err != nil {
+	if err := row.Scan(&pb.ID, &pb.Name, &pb.Scope, &pb.Currency, &pb.AnnualDivisor, &pb.BillStopped, &eff, &pb.Description, &pb.CreatedAt, &pb.Public, &pb.UpdatedAt); err != nil {
 		return pb, mapErr(err)
 	}
 	pb.EffectiveFrom = datePtr(eff)
+	pb.UpdatedAt = pb.UpdatedAt.UTC()
 	return pb, nil
 }
 

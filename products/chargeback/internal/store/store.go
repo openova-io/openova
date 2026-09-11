@@ -406,6 +406,11 @@ ALTER TABLE cost_sources ADD CONSTRAINT cost_sources_status_check CHECK (status 
 	// into role_bindings and left behind as a view. Appended at the very
 	// END: migrations are positional.
 	accessMigrationSQL,
+	// DESIGN.md §11 — the public calculator: the public flag and updated_at
+	// on price books, the designation on billing_settings, and saved
+	// estimates. Appended at the very END: migrations are positional
+	// (located by content in MigrationEstimates, estimates.go).
+	estimatesMigrationSQL,
 }
 
 // MigrationBackfillIssuedInvoices is the schema_migrations version of the

@@ -341,9 +341,14 @@ type PriceBook struct {
 	// is for and, for the two books the Organization sync owns, where every
 	// rate in it came from. Before it existed the only place to write that
 	// was an item description, which cannot explain a book as a whole.
-	Description string      `json:"description,omitempty"`
-	CreatedAt   time.Time   `json:"created_at"`
-	Items       []PriceItem `json:"items,omitempty"`
+	Description string    `json:"description,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	// Public marks the ONE cloud book the unauthenticated calculator prices
+	// from (DESIGN.md §11); UpdatedAt moves with the header and the items,
+	// and dates the public catalog.
+	Public    bool        `json:"public"`
+	UpdatedAt time.Time   `json:"updated_at"`
+	Items     []PriceItem `json:"items,omitempty"`
 }
 
 // PriceItem prices one SKU. UnitPrice is derived from AnnualPrice and the
