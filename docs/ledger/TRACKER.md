@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-12T00:45:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-09-12T01:00:10Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-12T00:53 | [#6930](https://github.com/openova-io/openova/pull/6930) | #6867 | fix(bss): Catalyst BSS 0.1.41 — an unrated period claimed ev |
 | 2026-09-11T22:45 | [#6929](https://github.com/openova-io/openova/pull/6929) | #6867 | feat(bss): Catalyst BSS 0.1.40 — console translation seam, E |
 | 2026-09-11T21:15 | [#6928](https://github.com/openova-io/openova/pull/6928) | #6867 | feat(bss): Catalyst BSS 0.1.39 — notification management |
 | 2026-09-11T19:23 | [#6927](https://github.com/openova-io/openova/pull/6927) | #6926 | fix(bss): Catalyst BSS 0.1.38 — daily cost rollup, Overview  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-10T15:55 | [#6902](https://github.com/openova-io/openova/pull/6902) | #4292 | refactor(organization): every Organization gets a dedicated  |
 | 2026-09-10T10:47 | [#6901](https://github.com/openova-io/openova/pull/6901) | #6867 | feat(chargeback): retire the billing modes, post-paid invoic |
 | 2026-09-10T09:44 | [#6900](https://github.com/openova-io/openova/pull/6900) | #6867 | feat(chargeback): meter in-place resizes and Elastic IP traf |
-| 2026-09-10T08:55 | [#6899](https://github.com/openova-io/openova/pull/6899) | #6867 | feat(chargeback): bill flexi Organizations per use instead o |
 
 ---
 
