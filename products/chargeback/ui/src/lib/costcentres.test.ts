@@ -10,6 +10,7 @@ import {
   costCentreRuleBody,
   isUnassigned,
   ruleMatchText,
+  reportMetric,
   shareOf,
   sourceText,
   validateCostCentre,
@@ -122,5 +123,53 @@ describe('the breakdown as the page reads it', () => {
     expect(sourceText({ ...usageOnly, source: 'statement', status: 'issued' })).toMatch(/issued invoice/)
     expect(sourceText({ ...usageOnly, source: 'statement', status: 'draft' })).toMatch(/draft statement/)
     expect(sourceText(null)).toBe('')
+  })
+})
+
+// A period the rating run has not confirmed has 0 in every money column. Reading
+// `total` there reports nothing, and the panel rendered that as "everything is
+// attributed" while its own table showed 859.620 OMR of unassigned usage —
+// measured on hw307, 2026-09. Absence of measurement must not render as a
+// positive claim.
+describe('an unrated period measures the figure its rows actually carry', () => {
+  const unrated = {
+    customer_id: '9692021e-ce13-4bbd-9429-292e5f9218cd',
+    period: '2026-09',
+    currency: 'OMR',
+    source: 'usage' as const,
+    lines: [
+      { code: '(unassigned)', name: 'Unassigned', usage: '859.620', list: '0', discount: '0', net: '0', tax: '0', total: '0' },
+      { code: 'ENG', name: 'Engineering', usage: '158.289', list: '0', discount: '0', net: '0', tax: '0', total: '0' },
+      { code: 'OPS', name: 'Operations', usage: '79.141', list: '0', discount: '0', net: '0', tax: '0', total: '0' },
+    ],
+    totals: { usage: '1097.050', list: '0', discount: '0', net: '0', tax: '0', total: '0' },
+  }
+  const rated = {
+    ...unrated,
+    source: 'statement' as const,
+    lines: [
+      { code: '(unassigned)', name: 'Unassigned', usage: '1889.378', list: '1889.378', discount: '0', net: '1889.378', tax: '82.544', total: '1971.922' },
+      { code: 'ENG', name: 'Engineering', usage: '446.159', list: '446.159', discount: '0', net: '446.159', tax: '19.492', total: '465.651' },
+    ],
+    totals: { usage: '2335.537', list: '2335.537', discount: '0', net: '2335.537', tax: '102.036', total: '2437.573' },
+  }
+
+  it('picks usage for an unrated period and total for a rated one', () => {
+    expect(reportMetric(unrated)).toBe('usage')
+    expect(reportMetric(rated)).toBe('total')
+    expect(reportMetric(null)).toBe('usage')
+  })
+
+  it('reports the unassigned share of an unrated period instead of zero', () => {
+    const m = reportMetric(unrated)
+    const share = shareOf(unrated.lines[0], 1097.05, m)
+    expect(Math.round(share)).toBe(78)
+    // The defect: measuring `total` on this period says nothing is unassigned.
+    expect(shareOf(unrated.lines[0], 1097.05, 'total')).toBe(0)
+  })
+
+  it('still measures money once an invoice has confirmed the period', () => {
+    const m = reportMetric(rated)
+    expect(Math.round(shareOf(rated.lines[0], 2437.573, m))).toBe(81)
   })
 })

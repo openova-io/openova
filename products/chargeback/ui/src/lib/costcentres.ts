@@ -91,9 +91,20 @@ export function ruleMatchText(r: { tag_key: string; tag_value: string }): string
 }
 
 /** A row's share of the breakdown's total, 0-100; 0 when the total is 0. */
-export function shareOf(line: CostCentreLine, totalValue: number): number {
+/**
+ * Which figure a report is actually carrying. A period the rating run has not
+ * confirmed has zero in every money column, so reading `total` there reports
+ * nothing at all — and "nothing" is indistinguishable from "attributed". The
+ * usage column is what those rows do carry, so that is what the page measures
+ * until an invoice confirms them.
+ */
+export function reportMetric(doc: CostCentreReport | null | undefined): 'total' | 'usage' {
+  return doc?.source === 'statement' ? 'total' : 'usage'
+}
+
+export function shareOf(line: CostCentreLine, totalValue: number, metric: 'total' | 'usage' = 'total'): number {
   if (!Number.isFinite(totalValue) || totalValue === 0) return 0
-  return (toNumber(line.total) / totalValue) * 100
+  return (toNumber(line[metric]) / totalValue) * 100
 }
 
 /**

@@ -14,6 +14,7 @@ import {
   emptyCostCentreRuleForm,
   isUnassigned,
   ruleMatchText,
+  reportMetric,
   shareOf,
   sourceText,
   validateCostCentre,
@@ -66,7 +67,12 @@ export function CostCentresPanel({ customerId, canManage, currency }: { customer
   const doc = reportQ.data ?? null
   const cur = doc?.currency || currency
   const lines = doc?.lines ?? []
-  const totalValue = toNumber(doc?.totals?.total)
+  // A period the rating run has not confirmed carries usage and nothing else,
+  // so measure what the rows actually hold. Reading `total` on an unrated
+  // period reports 0 everywhere, which renders as "everything is attributed"
+  // while the table below shows otherwise.
+  const metric = reportMetric(doc)
+  const totalValue = toNumber(doc?.totals?.[metric])
   const unassigned = lines.find((l) => isUnassigned(l.code)) ?? null
   const money = (v: number | string | null | undefined) => formatMoney(v ?? 0, cur)
 
@@ -219,14 +225,14 @@ export function CostCentresPanel({ customerId, canManage, currency }: { customer
     {
       key: 'share',
       header: 'Share',
-      value: (l) => shareOf(l, totalValue),
+      value: (l) => shareOf(l, totalValue, metric),
       numeric: true,
       sortable: false,
       width: 140,
       render: (l) => (
         <span className="nowrap">
-          <ShareBar share={shareOf(l, totalValue) / 100} />
-          <span className="muted small"> {formatPct(shareOf(l, totalValue), { digits: 0 })}</span>
+          <ShareBar share={shareOf(l, totalValue, metric) / 100} />
+          <span className="muted small"> {formatPct(shareOf(l, totalValue, metric), { digits: 0 })}</span>
         </span>
       ),
     },
@@ -259,9 +265,9 @@ export function CostCentresPanel({ customerId, canManage, currency }: { customer
         <KPI label="Overrides" value={overrides.length} note="resources pinned to a centre by hand" />
         <KPI
           label={`Unassigned · ${period}`}
-          value={money(unassigned?.total ?? 0)}
-          tone={unassigned && toNumber(unassigned.total) > 0 ? 'warn' : undefined}
-          note={unassigned && toNumber(unassigned.total) > 0 ? `${formatPct(shareOf(unassigned, totalValue), { digits: 0 })} of the period` : 'everything is attributed'}
+          value={money(unassigned?.[metric] ?? 0)}
+          tone={unassigned && toNumber(unassigned[metric]) > 0 ? 'warn' : undefined}
+          note={unassigned && toNumber(unassigned[metric]) > 0 ? `${formatPct(shareOf(unassigned, totalValue, metric), { digits: 0 })} of the period` : 'everything is attributed'}
         />
       </div>
 
