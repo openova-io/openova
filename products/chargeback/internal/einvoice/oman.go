@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/xml"
 	"fmt"
+	"github.com/openova-io/openova/products/chargeback/internal/word"
 	"strings"
 	"time"
 )
@@ -195,7 +196,7 @@ func (p *omanProfile) Validate(doc Document) []Problem {
 	// looks for first.
 	for i, t := range doc.TaxSubtotals {
 		if (t.Kind == "reverse_charge" || t.Kind == "exempt" || t.Kind == "zero_rated") && strings.TrimSpace(t.Note) == "" {
-			add(fmt.Sprintf("tax_subtotals[%d].note", i), "a %s line must carry the note the tax authority requires; set it on the tax rule", t.Kind)
+			add(fmt.Sprintf("tax_subtotals[%d].note", i), word.Article(t.Kind)+" %s line must carry the note the tax authority requires; set it on the tax rule", t.Kind)
 		}
 	}
 	if doc.QRPayload == "" {

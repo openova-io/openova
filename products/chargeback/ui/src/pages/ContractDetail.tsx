@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { article } from '../lib/word'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, asList, errorText } from '../api/client'
 import type { Contract, ContractItem, CreditNote, Statement } from '../api/types'
@@ -355,7 +356,7 @@ function EditItemsModal({ contract, onClose, onSaved }: { contract: Contract; on
     const seen = new Set<string>()
     for (const r of rows) {
       const key = `${r.kind}:${r.sku.trim()}`
-      if (seen.has(key)) return `${r.sku.trim()} appears twice as a ${r.kind} line.`
+      if (seen.has(key)) return `${r.sku.trim()} appears twice as ${article(r.kind)} ${r.kind} line.`
       seen.add(key)
     }
     return ''

@@ -1,4 +1,5 @@
 import { API_BASE } from '../api/client'
+import { Article } from './word'
 import type { Customer, EInvoiceState, TaxCategoryRule, TaxLine, TaxRule } from '../api/types'
 import { fractionToPercent, percentToFraction } from './billing'
 import { isDay, type Errors } from './forms'
@@ -160,7 +161,7 @@ export function validateTaxRule(f: TaxRuleForm): Errors<TaxRuleForm> {
     else if (!PCT.test(rate)) e.rate = 'A percentage, e.g. 5 or 5.5.'
     else if (Number(rate) > 100) e.rate = 'At most 100 %.'
   } else if (rate && Number(rate) !== 0) {
-    e.rate = `A ${taxKindLabel(f.kind).toLowerCase()} rule charges nothing, so its rate must be 0.`
+    e.rate = `${Article(taxKindLabel(f.kind))} ${taxKindLabel(f.kind).toLowerCase()} rule charges nothing, so its rate must be 0.`
   }
   if (!f.effective_from.trim()) e.effective_from = 'The day the rule starts applying is required.'
   else if (!isDay(f.effective_from.trim())) e.effective_from = 'Use YYYY-MM-DD.'
