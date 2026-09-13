@@ -14,34 +14,50 @@ import (
 	"github.com/openova-io/openova/products/chargeback/internal/testdb"
 )
 
-// Capacity management (DESIGN.md §11). The seed below is built so every
-// derived number is exact and every rule has a control:
+// Capacity management (DESIGN.md §11). The seed below IS the founder's worked
+// example, so every figure the pure arithmetic is pinned on is derived here
+// end to end from metered usage rather than handed in:
 //
 //	now = 2026-09-09 10:30Z → the latest complete hour is 09:00 (a record at
 //	10:00, the hour in progress, is written and must be ignored).
 //
-//	region me-east-215, zones a (default) and b; region eu-west-101 is NOT
-//	configured (its usage lands in unmapped_regions).
+//	POOL m7n-a, zone me-east-215a: 10 servers × 64 vCPU / 512 GiB, N+1 reserve
+//	(one server's worth), vCPU 4:1, RAM 1:1, 45 days' lead time.
+//	  ecs.m7n.2xlarge.8        guaranteed   40/h now, 32 on 09-01 (+1 a day)
+//	  ecs.m7n.2xlarge.8.burst  burstable    32/h flat (the SAME shape, a
+//	                                        second SKU at a second price —
+//	                                        the class is the placement's)
+//	  ecs.s7n.2xlarge.2        spot          4/h, NO availability zone, so it
+//	                                        lands in the default zone and is
+//	                                        flagged as such
+//	→ guaranteed 320 vCPU / 2,560 GiB · burstable 256 / 2,048 · spot 32 / 64
+//	→ RAM binds, the pool is full, 192 physical vCPU are stranded, and 64 GiB
+//	  of spot must be reclaimed.
 //
-//	vm-1   ecs.m7n.2xlarge.8 (8 vCPU, 64 GiB)   AZ a        all hours 09-01 .. 09-09 09:00
-//	vm-2   ecs.s7n.2xlarge.2 (8 vCPU, 16 GiB)   AZ unknown  from 09-05 → default zone a, flagged zone_unknown
-//	vol-1  evs.ssd.gb                            AZ b        100 GB on 09-01, +10 GB each day → 180 GB on 09-09
-//	eip-1  eip + eip.bandwidth_mbps 10           AZ b
-//	nat-1  nat.1                                 no footprint → unmapped_skus (control: counts against no pool)
-//	ecs.cpu_util samples on vm-1                 a metric, never a meter (control)
-//	k8s.vcpu on a platform source                the platform layer (control)
-//	eip-eu on the eu-west-101 source             unmapped region (control)
+//	POOL blk-b, zone me-east-215b: 1 × 1,000 GiB block SSD, 10 days' lead time.
+//	  evs.ssd.gb  guaranteed  180 GB now, +10 a day → 82 days to the wall,
+//	                          order by day 72.
+//	  eip + eip.bandwidth_mbps are metered here and NO pool holds their
+//	  resources → unplaced, listed by name (the control that a SKU counted
+//	  against nothing never reads as spare capacity).
 //
-// Pool totals: zone a vcpu 20 (→ 16 consumed, 80 %, warn), memory_gib 100
-// (→ 80 consumed, 80 %, warn); zone b block_ssd_gib 1000 (→ 180, ok,
-// growing 10/day → 82.0 days to exhaustion), bandwidth_mbps 5 (→ 10
-// consumed: clamped to 0 available, overcommit 5, critical), eip_addresses
-// left at 0 (unset).
+//	POOL gpu-c, zone me-east-215c: 2 × 4 gpu_cards — a resource kind NOBODY
+//	  SEEDED, which is the whole point of resource kinds being data.
+//	  ecs.gpu.large {gpu_cards 1, vcpu 8} guaranteed 3/h → the cards land, the
+//	  vCPU has no pool in that zone and is reported as resource-unplaced.
+//
+//	CONTROLS: nat.1 has no shape at all (unshaped); ecs.cpu_util is a metric
+//	and never a meter; k8s.vcpu is the platform layer and would double-count
+//	the same hardware; eu-west-101 is a region nobody configured.
 
 type capacitySeed struct {
 	region store.CapacityRegion
 	zoneA  store.CapacityZone
 	zoneB  store.CapacityZone
+	zoneC  store.CapacityZone
+	poolA  store.CapacityPool
+	poolB  store.CapacityPool
+	poolC  store.CapacityPool
 	now    time.Time
 	src    store.CostSource
 }
@@ -57,6 +73,14 @@ func growthLikeAPI(days []store.CapacityDayPoint) (float64, bool) {
 	_, trend, ok := rating.RunRate(serie)
 	return trend, ok
 }
+
+const (
+	skuGuaranteed = "ecs.m7n.2xlarge.8"
+	skuBurstable  = "ecs.m7n.2xlarge.8.burst"
+	skuSpot       = "ecs.s7n.2xlarge.2"
+	skuGPU        = "ecs.gpu.large"
+	resGPU        = "gpu_cards"
+)
 
 func seedCapacity(t *testing.T, st *store.Store) capacitySeed {
 	t.Helper()
@@ -80,10 +104,12 @@ func seedCapacity(t *testing.T, st *store.Store) capacitySeed {
 	}
 	seen := now
 	if _, err := st.UpsertInventory(ctx, src.ID, []store.InventoryUpsert{
-		{ResourceID: "vm-1", Kind: "ecs", Name: "web-1", Attrs: map[string]any{"flavor": "m7n.2xlarge.8", "availability_zone": "me-east-215a"}, SeenAt: seen},
-		{ResourceID: "vm-2", Kind: "ecs", Name: "web-2", Attrs: map[string]any{"flavor": "s7n.2xlarge.2"}, SeenAt: seen},
-		{ResourceID: "vol-1", Kind: "evs", Name: "data", Attrs: map[string]any{"availability_zone": "ME-EAST-215B"}, SeenAt: seen},
+		{ResourceID: "vm-g", Kind: "ecs", Name: "guaranteed", Attrs: map[string]any{"flavor": "m7n.2xlarge.8", "availability_zone": "me-east-215a"}, SeenAt: seen},
+		{ResourceID: "vm-b", Kind: "ecs", Name: "burstable", Attrs: map[string]any{"flavor": "m7n.2xlarge.8", "availability_zone": "ME-EAST-215A"}, SeenAt: seen},
+		{ResourceID: "vm-s", Kind: "ecs", Name: "spot", Attrs: map[string]any{"flavor": "s7n.2xlarge.2"}, SeenAt: seen},
+		{ResourceID: "vol-1", Kind: "evs", Name: "data", Attrs: map[string]any{"availability_zone": "me-east-215b"}, SeenAt: seen},
 		{ResourceID: "eip-1", Kind: "eip", Name: "gw", Attrs: map[string]any{"availability_zone": "me-east-215b"}, SeenAt: seen},
+		{ResourceID: "gpu-1", Kind: "ecs", Name: "trainer", Attrs: map[string]any{"availability_zone": "me-east-215c"}, SeenAt: seen},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -101,22 +127,31 @@ func seedCapacity(t *testing.T, st *store.Store) capacitySeed {
 		}
 		for h := 0; h < hours; h++ {
 			at := day(2026, 9, d).Add(time.Duration(h) * time.Hour)
-			rec(src, "vm-1", "ecs", "ecs.m7n.2xlarge.8", "instance-hour", 1, at)
-			rec(src, "vm-1", "ecs", store.SKUCPUUtil, "pct-hour-avg", 55, at)
-			if d >= 5 {
-				rec(src, "vm-2", "ecs", "ecs.s7n.2xlarge.2", "instance-hour", 1, at)
-			}
+			rec(src, "vm-g", "ecs", skuGuaranteed, "instance-hour", float64(31+d), at)
+			rec(src, "vm-b", "ecs", skuBurstable, "instance-hour", 32, at)
+			rec(src, "vm-s", "ecs", skuSpot, "instance-hour", 4, at)
+			rec(src, "vm-g", "ecs", store.SKUCPUUtil, "pct-hour-avg", 55, at)
 			rec(src, "vol-1", "evs", "evs.ssd.gb", "gb-hour", float64(100+10*(d-1)), at)
 			rec(src, "eip-1", "eip", "eip", "hour", 1, at)
 			rec(src, "eip-1", "eip", "eip.bandwidth_mbps", "mbps-hour", 10, at)
+			rec(src, "gpu-1", "ecs", skuGPU, "instance-hour", 3, at)
 			rec(src, "nat-1", "nat", "nat.1", "hour", 1, at)
 			rec(eu, "eip-eu", "eip", "eip", "hour", 1, at)
 			rec(plat, "acme/pod-1", "k8s-pod", store.SKUVCPU, store.UnitVCPU, 40, at)
 		}
 	}
 	// The hour in progress.
-	rec(src, "vm-1", "ecs", "ecs.m7n.2xlarge.8", "instance-hour", 1, day(2026, 9, 9).Add(10*time.Hour))
+	rec(src, "vm-g", "ecs", skuGuaranteed, "instance-hour", 999, day(2026, 9, 9).Add(10*time.Hour))
 	if _, err := st.UpsertUsage(ctx, recs); err != nil {
+		t.Fatal(err)
+	}
+
+	// The shapes that are not seeded: the burstable twin of the guaranteed
+	// SKU, and a GPU flavour whose vector names a resource kind nobody seeded.
+	if _, err := st.PutCapacityShape(ctx, skuBurstable, map[string]store.Decimal{capacity.ResourceVCPU: "8", capacity.ResourceMemoryGiB: "64"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PutCapacityShape(ctx, skuGPU, map[string]store.Decimal{resGPU: "1", capacity.ResourceVCPU: "8"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -132,45 +167,47 @@ func seedCapacity(t *testing.T, st *store.Store) capacitySeed {
 	if err != nil {
 		t.Fatal(err)
 	}
-	set := func(z store.CapacityZone, fam, total string) {
-		t.Helper()
-		for _, p := range z.Pools {
-			if p.Family == fam {
-				if _, _, err := st.SetCapacityPoolTotal(ctx, p.ID, store.Decimal(total), "seed", "", "ops@nc.example"); err != nil {
-					t.Fatal(err)
-				}
-				return
-			}
-		}
-		t.Fatalf("zone %s has no %s pool", z.Code, fam)
+	zoneC, err := st.CreateCapacityZone(ctx, region.ID, "me-east-215c", "AZ 3", false)
+	if err != nil {
+		t.Fatal(err)
 	}
-	set(zoneA, capacity.FamilyVCPU, "20")
-	set(zoneA, capacity.FamilyMemoryGiB, "100")
-	set(zoneB, capacity.FamilyBlockSSD, "1000")
-	set(zoneB, capacity.FamilyBandwidth, "5")
-	return capacitySeed{region: region, zoneA: zoneA, zoneB: zoneB, now: now, src: src}
-}
 
-func poolOf(t *testing.T, z store.CapacityZoneView, fam string) store.CapacityPoolView {
-	t.Helper()
-	for _, p := range z.Pools {
-		if p.Family == fam {
-			return p
+	poolA, err := st.CreateCapacityPool(ctx, zoneA.ID, store.CapacityPoolInput{
+		Name: "m7n-a", Machines: "10", LeadTimeDays: 45, Note: "batch one",
+		Resources: []store.CapacityPoolResource{
+			{Resource: capacity.ResourceVCPU, PerMachine: "64", Reserve: "64", OvercommitRatio: "4"},
+			{Resource: capacity.ResourceMemoryGiB, PerMachine: "512", Reserve: "512", OvercommitRatio: "1"},
+		},
+	}, "ops@nc.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	poolB, err := st.CreateCapacityPool(ctx, zoneB.ID, store.CapacityPoolInput{
+		Name: "blk-b", Machines: "1", LeadTimeDays: 10,
+		Resources: []store.CapacityPoolResource{{Resource: capacity.ResourceBlockSSD, PerMachine: "1000", OvercommitRatio: "1"}},
+	}, "ops@nc.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	poolC, err := st.CreateCapacityPool(ctx, zoneC.ID, store.CapacityPoolInput{
+		Name: "gpu-c", Machines: "2", LeadTimeDays: 90,
+		Resources: []store.CapacityPoolResource{{Resource: resGPU, PerMachine: "4", OvercommitRatio: "1"}},
+	}, "ops@nc.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, pl := range []struct{ pool, sku, class string }{
+		{poolA.ID, skuGuaranteed, capacity.ClassGuaranteed},
+		{poolA.ID, skuBurstable, capacity.ClassBurstable},
+		{poolA.ID, skuSpot, capacity.ClassSpot},
+		{poolB.ID, "evs.ssd.gb", capacity.ClassGuaranteed},
+		{poolC.ID, skuGPU, capacity.ClassGuaranteed},
+	} {
+		if _, err := st.PutCapacityPlacement(ctx, pl.pool, pl.sku, pl.class, "ops@nc.example"); err != nil {
+			t.Fatalf("place %s on %s: %v", pl.sku, pl.pool, err)
 		}
 	}
-	t.Fatalf("zone %s: no %s pool in %+v", z.Code, fam, z.Pools)
-	return store.CapacityPoolView{}
-}
-
-func skuOf(t *testing.T, z store.CapacityZoneView, sku string) store.CapacitySKUView {
-	t.Helper()
-	for _, s := range z.SKUs {
-		if s.SKU == sku {
-			return s
-		}
-	}
-	t.Fatalf("zone %s: no sku %s", z.Code, sku)
-	return store.CapacitySKUView{}
+	return capacitySeed{region: region, zoneA: zoneA, zoneB: zoneB, zoneC: zoneC, poolA: poolA, poolB: poolB, poolC: poolC, now: now, src: src}
 }
 
 func zoneOf(t *testing.T, ov store.CapacityOverview, region, zone string) store.CapacityZoneView {
@@ -189,11 +226,39 @@ func zoneOf(t *testing.T, ov store.CapacityOverview, region, zone string) store.
 	return store.CapacityZoneView{}
 }
 
-// TestIntegrationCapacityRegionsZonesPools: codes are normalised, the first
-// zone is the region's default, a zone is born with the seven pools at 0,
-// a total change writes history and reports the previous total, and a bad
-// total is refused.
-func TestIntegrationCapacityRegionsZonesPools(t *testing.T) {
+func poolOf(t *testing.T, z store.CapacityZoneView, name string) store.CapacityPoolView {
+	t.Helper()
+	for _, p := range z.Pools {
+		if p.Name == name {
+			return p
+		}
+	}
+	t.Fatalf("zone %s: no pool %s in %+v", z.Code, name, z.Pools)
+	return store.CapacityPoolView{}
+}
+
+func resOf(t *testing.T, p store.CapacityPoolView, resource string) store.CapacityResourceView {
+	t.Helper()
+	for _, r := range p.Resources {
+		if r.Resource == resource {
+			return r
+		}
+	}
+	t.Fatalf("pool %s: no resource %s", p.Name, resource)
+	return store.CapacityResourceView{}
+}
+
+func capDec(t *testing.T, name string, got store.Decimal, want string) {
+	t.Helper()
+	if string(got) != want {
+		t.Errorf("%s = %s, want %s", name, got, want)
+	}
+}
+
+// A pool is a NAMED SET OF MACHINES: it is created whole, several pools of
+// the same resource kind live in one zone, a zone is born with NO pools, and
+// every size change writes one history row per resource.
+func TestIntegrationCapacityPoolsAreNamedSetsOfMachines(t *testing.T) {
 	st := testdb.Open(t)
 	s := seedCapacity(t, st)
 	ctx := context.Background()
@@ -204,136 +269,140 @@ func TestIntegrationCapacityRegionsZonesPools(t *testing.T) {
 	if !s.zoneA.IsDefault || s.zoneB.IsDefault {
 		t.Fatalf("first zone must be the default: a=%v b=%v", s.zoneA.IsDefault, s.zoneB.IsDefault)
 	}
-	if len(s.zoneA.Pools) != len(capacity.Families) {
-		t.Fatalf("zone a has %d pools, want %d", len(s.zoneA.Pools), len(capacity.Families))
-	}
-	for i, p := range s.zoneA.Pools {
-		if p.Family != capacity.Families[i].Key || string(p.Total) != "0.000000" || string(p.Reserved) != "0.000000" || p.Source != capacity.SourceManual {
-			t.Fatalf("pool %d = %+v", i, p)
-		}
-	}
-	if _, err := st.CreateCapacityRegion(ctx, "me-east-215", "", ""); !errors.Is(err, store.ErrConflict) {
-		t.Fatalf("duplicate region = %v, want conflict", err)
-	}
-	if _, err := st.CreateCapacityZone(ctx, s.region.ID, "ME-EAST-215A", "", false); !errors.Is(err, store.ErrConflict) {
-		t.Fatalf("duplicate zone = %v, want conflict", err)
-	}
-	if _, err := st.CreateCapacityRegion(ctx, "x", "", store.SourceKindOrg); !errors.Is(err, store.ErrInvalid) {
-		t.Fatalf("a platform kind cannot fill cloud capacity: %v", err)
-	}
-	list, err := st.ListCapacityRegions(ctx)
-	if err != nil || len(list) != 1 || len(list[0].Zones) != 2 || list[0].Zones[0].Code != "me-east-215a" {
-		t.Fatalf("list = %+v, %v", list, err)
-	}
-
-	// Totals: history and the previous value.
-	var vcpu store.CapacityPool
-	for _, p := range s.zoneA.Pools {
-		if p.Family == capacity.FamilyVCPU {
-			vcpu = p
-		}
-	}
-	pool, prev, err := st.SetCapacityPoolTotal(ctx, vcpu.ID, "24", "two more hosts", "", "ops@nc.example")
+	// A ZONE IS BORN EMPTY. The old model made seven pools per zone whether
+	// or not anybody had bought a machine, which is what made "unset" read
+	// like a defect instead of a fact.
+	fresh, err := st.CreateCapacityZone(ctx, s.region.ID, "me-east-215z", "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(prev) != "20.000000" || string(pool.Total) != "24.000000" || pool.Note != "two more hosts" || pool.UpdatedBy != "ops@nc.example" || pool.Source != capacity.SourceManual {
-		t.Fatalf("set total = %+v prev %s", pool, prev)
-	}
-	hist, err := st.ListCapacityPoolHistory(ctx, vcpu.ID, 0)
-	if err != nil || len(hist) != 2 || string(hist[0].Total) != "24.000000" || string(hist[1].Total) != "20.000000" || hist[0].ChangedBy != "ops@nc.example" {
-		t.Fatalf("history = %+v, %v", hist, err)
-	}
-	for _, bad := range []string{"-1", "abc", "", "1e3"} {
-		if _, _, err := st.SetCapacityPoolTotal(ctx, vcpu.ID, store.Decimal(bad), "", "", "x"); !errors.Is(err, store.ErrInvalid) {
-			t.Fatalf("total %q = %v, want invalid", bad, err)
-		}
-	}
-	if _, _, err := st.SetCapacityPoolTotal(ctx, "00000000-0000-0000-0000-000000000000", "1", "", "", "x"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("unknown pool = %v", err)
+	if len(fresh.Pools) != 0 {
+		t.Fatalf("a new zone must hold no pools, got %+v", fresh.Pools)
 	}
 
-	// Deleting the default zone promotes the other; deleting the region
-	// cascades everything.
+	if string(s.poolA.Machines) != "10.000000" || s.poolA.LeadTimeDays != 45 || s.poolA.Note != "batch one" || len(s.poolA.Resources) != 2 {
+		t.Fatalf("pool m7n-a = %+v", s.poolA)
+	}
+	cpu := s.poolA.Resources[0]
+	if cpu.Resource != capacity.ResourceVCPU || string(cpu.PerMachine) != "64.000000" || string(cpu.Reserve) != "64.000000" || string(cpu.OvercommitRatio) != "4.000000" || cpu.Label != "vCPU" || cpu.Unit != "vCPU" {
+		t.Fatalf("m7n-a vcpu = %+v", cpu)
+	}
+
+	// SEVERAL POOLS OF THE SAME RESOURCE KIND COEXIST IN ONE ZONE. This is
+	// the constraint the old UNIQUE (zone_id, family) forbade outright.
+	second, err := st.CreateCapacityPool(ctx, s.zoneA.ID, store.CapacityPoolInput{
+		Name: "m7n-b", Machines: "5",
+		Resources: []store.CapacityPoolResource{
+			{Resource: capacity.ResourceVCPU, PerMachine: "64", OvercommitRatio: "4"},
+			{Resource: capacity.ResourceMemoryGiB, PerMachine: "512", OvercommitRatio: "1"},
+		},
+	}, "ops@nc.example")
+	if err != nil {
+		t.Fatalf("a second vCPU pool in the same zone must be allowed: %v", err)
+	}
+	pools, err := st.ListCapacityPools(ctx, s.zoneA.ID)
+	if err != nil || len(pools) != 2 {
+		t.Fatalf("zone a pools = %+v, %v", pools, err)
+	}
+	// The NAME is what is unique in a zone, not the resource kind.
+	if _, err := st.CreateCapacityPool(ctx, s.zoneA.ID, store.CapacityPoolInput{
+		Name: "M7N-A", Machines: "1", Resources: []store.CapacityPoolResource{{Resource: capacity.ResourceVCPU, PerMachine: "8"}},
+	}, "x"); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("a duplicate pool name = %v, want conflict", err)
+	}
+
+	// Resizing: "add two servers" is one field, and every resource moves with
+	// it because they are in the same chassis.
+	grown, prev, err := st.SetCapacityPool(ctx, s.poolA.ID, store.CapacityPoolInput{
+		Name: "m7n-a", Machines: "12", LeadTimeDays: 45, Note: "two more hosts",
+		Resources: []store.CapacityPoolResource{
+			{Resource: capacity.ResourceVCPU, PerMachine: "64", Reserve: "64", OvercommitRatio: "4"},
+			{Resource: capacity.ResourceMemoryGiB, PerMachine: "512", Reserve: "512", OvercommitRatio: "1.5"},
+		},
+	}, "ops@nc.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(prev.Machines) != "10.000000" || string(grown.Machines) != "12.000000" || grown.Note != "two more hosts" {
+		t.Fatalf("resize = %+v (was %+v)", grown, prev)
+	}
+	if string(resOfPool(t, grown, capacity.ResourceMemoryGiB).OvercommitRatio) != "1.500000" {
+		t.Fatalf("the RAM ratio must be per (pool, resource): %+v", grown.Resources)
+	}
+	hist, err := st.ListCapacityPoolHistory(ctx, s.poolA.ID, 0)
+	if err != nil || len(hist) != 4 {
+		t.Fatalf("history = %d rows, want 4 (two resources at create, two at resize): %+v %v", len(hist), hist, err)
+	}
+	byRes := map[string][]store.CapacityPoolChange{}
+	for _, h := range hist {
+		byRes[h.Resource] = append(byRes[h.Resource], h)
+	}
+	if got := byRes[capacity.ResourceVCPU]; len(got) != 2 || string(got[0].Total) != "768.000000" || string(got[1].Total) != "640.000000" {
+		t.Fatalf("vcpu history (newest first) = %+v", got)
+	}
+
+	// Refusals.
+	bad := []struct {
+		name string
+		in   store.CapacityPoolInput
+	}{
+		{"no name", store.CapacityPoolInput{Machines: "1", Resources: []store.CapacityPoolResource{{Resource: "vcpu", PerMachine: "1"}}}},
+		{"no resources", store.CapacityPoolInput{Name: "x", Machines: "1"}},
+		{"negative machines", store.CapacityPoolInput{Name: "x", Machines: "-1", Resources: []store.CapacityPoolResource{{Resource: "vcpu", PerMachine: "1"}}}},
+		{"machines not a number", store.CapacityPoolInput{Name: "x", Machines: "lots", Resources: []store.CapacityPoolResource{{Resource: "vcpu", PerMachine: "1"}}}},
+		{"ratio zero", store.CapacityPoolInput{Name: "x", Machines: "1", Resources: []store.CapacityPoolResource{{Resource: "vcpu", PerMachine: "1", OvercommitRatio: "0"}}}},
+		{"resource twice", store.CapacityPoolInput{Name: "x", Machines: "1", Resources: []store.CapacityPoolResource{{Resource: "vcpu", PerMachine: "1"}, {Resource: "VCPU", PerMachine: "2"}}}},
+		{"resource with no key", store.CapacityPoolInput{Name: "x", Machines: "1", Resources: []store.CapacityPoolResource{{PerMachine: "1"}}}},
+	}
+	for _, c := range bad {
+		if _, err := st.CreateCapacityPool(ctx, s.zoneA.ID, c.in, "x"); !errors.Is(err, store.ErrInvalid) {
+			t.Errorf("%s = %v, want invalid", c.name, err)
+		}
+	}
+	if _, err := st.CreateCapacityPool(ctx, "00000000-0000-0000-0000-000000000000", store.CapacityPoolInput{
+		Name: "x", Machines: "1", Resources: []store.CapacityPoolResource{{Resource: "vcpu", PerMachine: "1"}},
+	}, "x"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("unknown zone = %v", err)
+	}
+
+	// Deleting the pool takes its resources, placements and history; deleting
+	// the default zone promotes the next; deleting the region cascades.
+	if err := st.DeleteCapacityPool(ctx, second.ID); err != nil {
+		t.Fatal(err)
+	}
 	if err := st.DeleteCapacityZone(ctx, s.zoneA.ID); err != nil {
 		t.Fatal(err)
 	}
 	zb, err := st.GetCapacityZone(ctx, s.zoneB.ID)
-	if err != nil || !zb.IsDefault || len(zb.Pools) != len(capacity.Families) {
+	if err != nil || !zb.IsDefault {
 		t.Fatalf("zone b after deleting a = %+v, %v", zb, err)
 	}
 	if err := st.DeleteCapacityRegion(ctx, s.region.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.GetCapacityZone(ctx, s.zoneB.ID); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("zone survived its region: %v", err)
-	}
-	var n int
-	if err := st.DB().QueryRowContext(ctx, `SELECT count(*) FROM capacity_pools`).Scan(&n); err != nil || n != 0 {
-		t.Fatalf("pools after cascade = %d, %v", n, err)
-	}
-}
-
-// TestIntegrationCapacityFootprints: the seed is in place, a manual
-// footprint replaces the SKU's rows (PUT semantics), an unknown family and a
-// negative amount are refused, and an empty map removes the footprint.
-func TestIntegrationCapacityFootprints(t *testing.T) {
-	st := testdb.Open(t)
-	ctx := context.Background()
-	list, err := st.ListSKUFootprints(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(list) != 6 {
-		t.Fatalf("seeded footprints = %d SKUs, want 6: %+v", len(list), list)
-	}
-	byS := map[string]store.SKUFootprint{}
-	for _, fp := range list {
-		byS[fp.SKU] = fp
-	}
-	if fp := byS["ecs.m7n.2xlarge.8"]; fp.Source != capacity.SourceSeed || string(fp.Families[capacity.FamilyVCPU]) != "8.000000" || string(fp.Families[capacity.FamilyMemoryGiB]) != "64.000000" {
-		t.Fatalf("seeded m7n.2xlarge.8 = %+v", fp)
-	}
-	if fp := byS["eip.bandwidth_mbps"]; string(fp.Families[capacity.FamilyBandwidth]) != "1.000000" {
-		t.Fatalf("seeded eip.bandwidth_mbps = %+v", fp)
-	}
-	fp, err := st.PutSKUFootprint(ctx, "ecs.m7n.2xlarge.8", map[string]store.Decimal{capacity.FamilyVCPU: "8", capacity.FamilyMemoryGiB: "64", capacity.FamilyBlockSSD: "40", capacity.FamilyEIP: "0"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if fp.Source != capacity.SourceManual || len(fp.Families) != 3 || string(fp.Families[capacity.FamilyBlockSSD]) != "40" {
-		t.Fatalf("put = %+v", fp)
-	}
-	list, _ = st.ListSKUFootprints(ctx)
-	for _, x := range list {
-		if x.SKU == "ecs.m7n.2xlarge.8" && (x.Source != capacity.SourceManual || len(x.Families) != 3) {
-			t.Fatalf("stored after put = %+v", x)
+	for _, table := range []string{"capacity_pools", "capacity_pool_resources", "capacity_placements", "capacity_pool_history"} {
+		var n int
+		if err := st.DB().QueryRowContext(ctx, `SELECT count(*) FROM `+table).Scan(&n); err != nil || n != 0 {
+			t.Fatalf("%s after cascade = %d, %v", table, n, err)
 		}
 	}
-	if _, err := st.PutSKUFootprint(ctx, "x", map[string]store.Decimal{"gpu": "1"}); !errors.Is(err, store.ErrInvalid) {
-		t.Fatalf("unknown family = %v", err)
-	}
-	if _, err := st.PutSKUFootprint(ctx, "x", map[string]store.Decimal{capacity.FamilyVCPU: "-1"}); !errors.Is(err, store.ErrInvalid) {
-		t.Fatalf("negative amount = %v", err)
-	}
-	if _, err := st.PutSKUFootprint(ctx, " ", map[string]store.Decimal{}); !errors.Is(err, store.ErrInvalid) {
-		t.Fatalf("empty sku = %v", err)
-	}
-	if _, err := st.PutSKUFootprint(ctx, "eip", map[string]store.Decimal{}); err != nil {
-		t.Fatal(err)
-	}
-	list, _ = st.ListSKUFootprints(ctx)
-	if len(list) != 5 {
-		t.Fatalf("after removing eip: %d SKUs, want 5", len(list))
-	}
 }
 
-// TestIntegrationCapacityOverviewDerivesConsumption is the derivation
-// (DESIGN.md §11): the latest complete hour through the footprints, zone
-// attribution by the inventory's availability zone with the default zone
-// for the unknown, the clamp, the thresholds, headroom with its binding
-// family, the cap, time to exhaustion by the run rate, and every control.
-func TestIntegrationCapacityOverviewDerivesConsumption(t *testing.T) {
+func resOfPool(t *testing.T, p store.CapacityPool, resource string) store.CapacityPoolResource {
+	t.Helper()
+	for _, r := range p.Resources {
+		if r.Resource == resource {
+			return r
+		}
+	}
+	t.Fatalf("pool %s: no resource %s", p.Name, resource)
+	return store.CapacityPoolResource{}
+}
+
+// The worked example, derived end to end from the usage ledger: the vector,
+// the class split, sellable, the binding resource, the stranded vCPU, the
+// spot that must be reclaimed, and the basket that answers 0.
+func TestIntegrationCapacityOverviewIsTheWorkedExample(t *testing.T) {
 	st := testdb.Open(t)
 	s := seedCapacity(t, st)
 	ctx := context.Background()
@@ -348,244 +417,539 @@ func TestIntegrationCapacityOverviewDerivesConsumption(t *testing.T) {
 	if ov.Sources != 2 || ov.LaggingSources != 0 {
 		t.Fatalf("sources = %d lagging %d, want 2 / 0 (the platform source is not cloud)", ov.Sources, ov.LaggingSources)
 	}
-	if ov.Thresholds.WarnPct != 70 || ov.Thresholds.CriticalPct != 85 || len(ov.Families) != 7 {
-		t.Fatalf("thresholds/families = %+v %d", ov.Thresholds, len(ov.Families))
+	if len(ov.Classes) != 3 || len(ov.ResourceKinds) < 8 {
+		t.Fatalf("classes = %d, kinds = %d (7 seeded + gpu_cards)", len(ov.Classes), len(ov.ResourceKinds))
 	}
-	if len(ov.Regions) != 1 || len(ov.Regions[0].Zones) != 2 {
-		t.Fatalf("regions = %+v", ov.Regions)
-	}
+
 	a := zoneOf(t, ov, "me-east-215", "me-east-215a")
-	b := zoneOf(t, ov, "me-east-215", "me-east-215b")
-	if !a.IsDefault || b.IsDefault {
-		t.Fatalf("default flags a=%v b=%v", a.IsDefault, b.IsDefault)
+	p := poolOf(t, a, "m7n-a")
+	cpu, ram := resOf(t, p, capacity.ResourceVCPU), resOf(t, p, capacity.ResourceMemoryGiB)
+
+	// The hardware.
+	capDec(t, "vcpu raw", cpu.Raw, "640.000000")
+	capDec(t, "vcpu usable", cpu.Usable, "576.000000")
+	capDec(t, "ram usable", ram.Usable, "4608.000000")
+
+	// The class split, derived from three SKUs on three placements.
+	capDec(t, "vcpu guaranteed", cpu.Guaranteed, "320.000000")
+	capDec(t, "vcpu burstable", cpu.Burstable, "256.000000")
+	capDec(t, "vcpu burstable physical", cpu.BurstablePhysical, "64.000000")
+	capDec(t, "vcpu spot", cpu.Spot, "32.000000")
+	capDec(t, "ram guaranteed", ram.Guaranteed, "2560.000000")
+	capDec(t, "ram burstable", ram.Burstable, "2048.000000")
+	capDec(t, "ram spot", ram.Spot, "64.000000")
+
+	// sellable = G + (usable − G) × ratio.
+	capDec(t, "vcpu sellable", cpu.Sellable, "1344.000000")
+	capDec(t, "ram sellable", ram.Sellable, "4608.000000")
+	capDec(t, "vcpu physical used", cpu.PhysicalUsed, "384.000000")
+	capDec(t, "vcpu physical free", cpu.PhysicalFree, "192.000000")
+	capDec(t, "ram physical free", ram.PhysicalFree, "0.000000")
+
+	// RAM BINDS AND THE POOL IS FULL; the 192 free vCPU are STRANDED.
+	if p.Binding != capacity.ResourceMemoryGiB {
+		t.Fatalf("binding resource = %q, want memory_gib", p.Binding)
+	}
+	if !cpu.Stranded || ram.Stranded {
+		t.Fatalf("stranded: vcpu=%v ram=%v — free vCPU behind a bound RAM is stranded, and the binding resource itself never is", cpu.Stranded, ram.Stranded)
+	}
+	if p.Status != capacity.StatusCritical || p.UtilisationPct == nil || *p.UtilisationPct != 100 {
+		t.Fatalf("pool status = %s at %v %%, want critical at 100 (the binding resource's)", p.Status, p.UtilisationPct)
+	}
+	// Spot never refused anything, and 64 GiB of it is now reclaimable.
+	capDec(t, "ram spot room", ram.SpotRoom, "0.000000")
+	capDec(t, "ram spot to reclaim", ram.SpotReclaim, "64.000000")
+	capDec(t, "vcpu spot to reclaim", cpu.SpotReclaim, "0.000000")
+	if ov.Summary.SpotToReclaim != 1 {
+		t.Fatalf("spot_to_reclaim = %d, want 1", ov.Summary.SpotToReclaim)
 	}
 
-	// Zone a vCPU: vm-1 (8, known zone) + vm-2 (8, unknown zone → default).
-	vcpu := poolOf(t, a, capacity.FamilyVCPU)
-	if string(vcpu.Total) != "20.000000" || string(vcpu.Consumed) != "16.000000" || string(vcpu.Available) != "4.000000" || string(vcpu.ZoneUnknown) != "8.000000" {
-		t.Fatalf("zone a vcpu = %+v", vcpu)
+	// The zone of vm-s was never recorded, so its usage landed in the default
+	// zone and the pool says so rather than pretending it was measured.
+	if !p.ZoneUnknown {
+		t.Fatal("a pool fed by usage with no availability zone must say so")
 	}
-	if vcpu.UtilisationPct == nil || *vcpu.UtilisationPct != 80 || vcpu.Status != capacity.StatusWarn || vcpu.Clamped || string(vcpu.Reserved) != "0.000000" || vcpu.Label != "vCPU" || vcpu.Unit != "vCPU" {
-		t.Fatalf("zone a vcpu derived = %+v", vcpu)
+
+	// The basket: the mix currently selling, scaled to its largest line.
+	// Nothing more fits, and the binding resource is named.
+	if p.Basket.Units == nil || *p.Basket.Units != 0 || p.Basket.Binding != capacity.ResourceMemoryGiB {
+		t.Fatalf("basket = %v on %q, want 0 on memory_gib: %+v", p.Basket.Units, p.Basket.Binding, p.Basket)
 	}
-	mem := poolOf(t, a, capacity.FamilyMemoryGiB)
-	if string(mem.Consumed) != "80.000000" || string(mem.Available) != "20.000000" || mem.Status != capacity.StatusWarn {
-		t.Fatalf("zone a memory = %+v", mem)
+	if len(p.Basket.Items) != 3 {
+		t.Fatalf("the default basket is the mix selling: %+v", p.Basket.Items)
 	}
-	// vm-2 joined on the 5th: the vCPU series steps 8 → 16, so its trend is
-	// positive and finite; the exact figure is the run rate's business.
-	if vcpu.HistoryDays != 8 || vcpu.GrowthPerDay == nil || *vcpu.GrowthPerDay <= 0 || vcpu.ExhaustionDays == nil || *vcpu.ExhaustionDays <= 0 {
-		t.Fatalf("zone a vcpu growth = %+v", vcpu)
-	}
-	if len(vcpu.Series) != 8 || vcpu.Series[0].Day != "2026-09-01" || string(vcpu.Series[0].Consumed) != "8.000000" || vcpu.Series[7].Day != "2026-09-08" || string(vcpu.Series[7].Consumed) != "16.000000" {
-		t.Fatalf("zone a vcpu series = %+v", vcpu.Series)
-	}
-	// Nothing metered against these families: consumed 0, and with no
-	// total the status is unset, not ok.
-	for _, fam := range []string{capacity.FamilyBlockSSD, capacity.FamilyBlockHDD, capacity.FamilyObject, capacity.FamilyEIP, capacity.FamilyBandwidth} {
-		p := poolOf(t, a, fam)
-		if string(p.Consumed) != "0.000000" || p.Status != capacity.StatusUnset || p.UtilisationPct != nil || p.ExhaustionDays != nil {
-			t.Fatalf("zone a %s = %+v", fam, p)
+	for _, it := range p.Basket.Items {
+		if it.SKU == skuGuaranteed && string(it.Units) != "1.000000" {
+			t.Fatalf("the largest line of the default basket is one unit: %+v", it)
+		}
+		if it.SKU == skuBurstable && string(it.Units) != "0.800000" { // 32 of 40
+			t.Fatalf("the mix keeps its proportions: %+v", it)
 		}
 	}
 
-	// Zone b block SSD: 180 GB now, +10 GB a day → 820 available, 82 days.
-	ssd := poolOf(t, b, capacity.FamilyBlockSSD)
-	if string(ssd.Consumed) != "180.000000" || string(ssd.Available) != "820.000000" || ssd.Status != capacity.StatusOK {
-		t.Fatalf("zone b ssd = %+v", ssd)
+	// The placements, with what each is consuming here.
+	if len(p.Placements) != 3 {
+		t.Fatalf("placements = %+v", p.Placements)
 	}
-	if ssd.GrowthPerDay == nil || *ssd.GrowthPerDay < 9.999999 || *ssd.GrowthPerDay > 10.000001 || ssd.ExhaustionDays == nil || *ssd.ExhaustionDays != 82 {
-		t.Fatalf("zone b ssd growth = %v exhaustion = %v, want 10/day, 82.0 days", ssd.GrowthPerDay, ssd.ExhaustionDays)
-	}
-	// Zone b bandwidth: 10 Mbps reserved against a total of 5 → clamped.
-	bw := poolOf(t, b, capacity.FamilyBandwidth)
-	if string(bw.Consumed) != "10.000000" || string(bw.Available) != "0.000000" || !bw.Clamped || string(bw.Overcommit) != "5.000000" || bw.Status != capacity.StatusCritical || bw.UtilisationPct == nil || *bw.UtilisationPct != 200 {
-		t.Fatalf("zone b bandwidth = %+v", bw)
-	}
-	// A flat series has no growth: exhaustion is not a number.
-	if bw.ExhaustionDays != nil || bw.GrowthPerDay == nil || *bw.GrowthPerDay != 0 {
-		t.Fatalf("flat bandwidth series must report growth 0 and no exhaustion: %+v", bw)
-	}
-	// Zone b EIPs: metered (1 address) but no total → unset, available 0 —
-	// and NOT over-committed: nobody sized it, so there is nothing to be over.
-	eip := poolOf(t, b, capacity.FamilyEIP)
-	if string(eip.Consumed) != "1.000000" || eip.Status != capacity.StatusUnset || string(eip.Available) != "0.000000" || eip.Clamped || string(eip.Overcommit) != "0.000000" || eip.UtilisationPct != nil {
-		t.Fatalf("zone b eip = %+v", eip)
-	}
-
-	// Headroom. Zone a: m7n.2xlarge.8 needs 8 vCPU (4 left → 0) and 64 GiB
-	// (20 left → 0): 0, bound by vCPU (first in family order at the tie).
-	// m7n.xlarge.8 needs 4 vCPU (→ 1) and 32 GiB (→ 0): memory binds.
-	big := skuOf(t, a, "ecs.m7n.2xlarge.8")
-	if big.HeadroomUnits == nil || string(*big.HeadroomUnits) != "0" || big.BindingFamily != capacity.FamilyVCPU || string(big.ConsumedUnits) != "1.000000" || big.Resources != 1 || big.FootprintSource != capacity.SourceSeed {
-		t.Fatalf("zone a m7n.2xlarge.8 = %+v", big)
-	}
-	small := skuOf(t, a, "ecs.m7n.xlarge.8")
-	if small.HeadroomUnits == nil || string(*small.HeadroomUnits) != "0" || small.BindingFamily != capacity.FamilyMemoryGiB || string(small.ConsumedUnits) != "0" {
-		t.Fatalf("zone a m7n.xlarge.8 = %+v", small)
-	}
-	// s7n.2xlarge.2 (8 vCPU, 16 GiB): vCPU 0, memory 1 → 0 by vCPU; and its
-	// one instance is the unknown-zone vm-2.
-	s7 := skuOf(t, a, "ecs.s7n.2xlarge.2")
-	if string(*s7.HeadroomUnits) != "0" || s7.BindingFamily != capacity.FamilyVCPU || string(s7.ConsumedUnits) != "1.000000" {
-		t.Fatalf("zone a s7n.2xlarge.2 = %+v", s7)
-	}
-	// Zone b: 820 GiB left → 820 more GB of SSD; a family with no total
-	// (eip) gives nil headroom.
-	ssdSKU := skuOf(t, b, "evs.ssd.gb")
-	if ssdSKU.HeadroomUnits == nil || string(*ssdSKU.HeadroomUnits) != "820" || ssdSKU.BindingFamily != capacity.FamilyBlockSSD || string(ssdSKU.ConsumedUnits) != "180.000000" || ssdSKU.Cap != nil {
-		t.Fatalf("zone b evs.ssd.gb = %+v", ssdSKU)
-	}
-	if e := skuOf(t, b, "eip"); e.HeadroomUnits != nil || e.BindingFamily != "" {
-		t.Fatalf("zone b eip headroom must be unknown without a total: %+v", e)
-	}
-	// Zone b m7n.2xlarge.8: no vCPU/memory totals there → nil.
-	if x := skuOf(t, b, "ecs.m7n.2xlarge.8"); x.HeadroomUnits != nil {
-		t.Fatalf("zone b m7n.2xlarge.8 headroom = %v, want nil (no totals)", *x.HeadroomUnits)
-	}
-
-	// Unmapped: nat.1 has no footprint (stored or derived) and counts against
-	// no pool; eu-west-101 is not a configured region.
-	if len(ov.UnmappedSKUs) != 1 || ov.UnmappedSKUs[0].SKU != "nat.1" || string(ov.UnmappedSKUs[0].Quantity) != "1.000000" || ov.UnmappedSKUs[0].Resources != 1 || len(ov.UnmappedSKUs[0].Regions) != 1 || ov.UnmappedSKUs[0].Regions[0] != "me-east-215" {
-		t.Fatalf("unmapped skus = %+v", ov.UnmappedSKUs)
-	}
-	if len(ov.UnmappedRegion) != 1 || ov.UnmappedRegion[0].Region != "eu-west-101" || ov.UnmappedRegion[0].Reason != "no-region" || ov.UnmappedRegion[0].SKUs != 1 || string(ov.UnmappedRegion[0].Quantity) != "1.000000" {
-		t.Fatalf("unmapped regions = %+v", ov.UnmappedRegion)
-	}
-	// The metric sample and the platform meter reached no pool: zone a's
-	// vCPU is 16, not 16 + 40, and cpu_util is neither a SKU nor unmapped.
-	for _, sk := range a.SKUs {
-		if sk.SKU == store.SKUCPUUtil || sk.SKU == store.SKUVCPU {
-			t.Fatalf("%s must not be listed as a capacity SKU", sk.SKU)
+	for _, pl := range p.Placements {
+		switch pl.SKU {
+		case skuGuaranteed:
+			if pl.Class != capacity.ClassGuaranteed || string(pl.Units) != "40.000000" || pl.ShapeSource != capacity.SourceSeed {
+				t.Fatalf("guaranteed placement = %+v", pl)
+			}
+		case skuBurstable:
+			if pl.Class != capacity.ClassBurstable || string(pl.Units) != "32.000000" || pl.ShapeSource != capacity.SourceManual {
+				t.Fatalf("burstable placement = %+v", pl)
+			}
+		case skuSpot:
+			if pl.Class != capacity.ClassSpot || string(pl.Units) != "4.000000" {
+				t.Fatalf("spot placement = %+v", pl)
+			}
 		}
-	}
-	if ov.Summary.Regions != 1 || ov.Summary.Zones != 2 || ov.Summary.Pools != 14 || ov.Summary.PoolsWithTotal != 4 || ov.Summary.PoolsWarn != 2 || ov.Summary.PoolsCritical != 1 || ov.Summary.PoolsBelowThreshold != 3 || ov.Summary.UnmappedSKUs != 1 || ov.Summary.SKUs != 6 {
-		t.Fatalf("summary = %+v", ov.Summary)
-	}
-
-	// A cap below the pool headroom binds; equal or above it does not.
-	if _, err := st.PutSKUCap(ctx, s.zoneB.ID, "evs.ssd.gb", "500", "ops@nc.example"); err != nil {
-		t.Fatal(err)
-	}
-	ov, _ = st.CapacityOverview(ctx, s.now, "", growthLikeAPI)
-	capped := skuOf(t, zoneOf(t, ov, "me-east-215", "me-east-215b"), "evs.ssd.gb")
-	if capped.Cap == nil || string(*capped.Cap) != "500.000000" || string(*capped.HeadroomUnits) != "320" || capped.BindingFamily != "cap" {
-		t.Fatalf("capped evs.ssd.gb = %+v", capped)
-	}
-	if _, err := st.PutSKUCap(ctx, s.zoneB.ID, "evs.ssd.gb", "5000", "ops@nc.example"); err != nil {
-		t.Fatal(err)
-	}
-	ov, _ = st.CapacityOverview(ctx, s.now, "", growthLikeAPI)
-	loose := skuOf(t, zoneOf(t, ov, "me-east-215", "me-east-215b"), "evs.ssd.gb")
-	if string(*loose.HeadroomUnits) != "820" || loose.BindingFamily != capacity.FamilyBlockSSD {
-		t.Fatalf("cap above the pool must not bind: %+v", loose)
-	}
-	caps, _ := st.ListSKUCaps(ctx)
-	if len(caps) != 1 || caps[0].ZoneCode != "me-east-215b" || caps[0].RegionCode != "me-east-215" || string(caps[0].Total) != "5000.000000" {
-		t.Fatalf("caps = %+v", caps)
-	}
-	if err := st.DeleteSKUCap(ctx, s.zoneB.ID, "evs.ssd.gb"); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.DeleteSKUCap(ctx, s.zoneB.ID, "evs.ssd.gb"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("second delete = %v", err)
-	}
-	if _, err := st.PutSKUCap(ctx, "00000000-0000-0000-0000-000000000000", "x", "1", ""); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("cap on unknown zone = %v", err)
-	}
-
-	// A manual footprint for nat.1 moves it from unmapped into the pools.
-	if _, err := st.PutSKUFootprint(ctx, "nat.1", map[string]store.Decimal{capacity.FamilyEIP: "1"}); err != nil {
-		t.Fatal(err)
-	}
-	ov, _ = st.CapacityOverview(ctx, s.now, "", growthLikeAPI)
-	if len(ov.UnmappedSKUs) != 0 {
-		t.Fatalf("nat.1 still unmapped: %+v", ov.UnmappedSKUs)
-	}
-	// nat-1 has no inventory row → default zone a → its address counts there.
-	if p := poolOf(t, zoneOf(t, ov, "me-east-215", "me-east-215a"), capacity.FamilyEIP); string(p.Consumed) != "1.000000" || string(p.ZoneUnknown) != "1.000000" {
-		t.Fatalf("zone a eip after nat.1 footprint = %+v", p)
-	}
-	if n := skuOf(t, zoneOf(t, ov, "me-east-215", "me-east-215a"), "nat.1"); n.FootprintSource != capacity.SourceManual {
-		t.Fatalf("nat.1 source = %+v", n)
-	}
-
-	// Region filter lists one region; the unmapped lists stay complete.
-	ov, _ = st.CapacityOverview(ctx, s.now, "ME-EAST-215", growthLikeAPI)
-	if len(ov.Regions) != 1 || len(ov.UnmappedRegion) != 1 {
-		t.Fatalf("filtered = %d regions, %d unmapped regions", len(ov.Regions), len(ov.UnmappedRegion))
-	}
-	ov, _ = st.CapacityOverview(ctx, s.now, "nowhere", growthLikeAPI)
-	if len(ov.Regions) != 0 || ov.Summary.Regions != 0 {
-		t.Fatalf("unknown filter must list nothing: %+v", ov.Summary)
-	}
-	// Without a growth function nothing is projected, and nothing else changes.
-	ov, _ = st.CapacityOverview(ctx, s.now, "", nil)
-	if p := poolOf(t, zoneOf(t, ov, "me-east-215", "me-east-215b"), capacity.FamilyBlockSSD); p.ExhaustionDays != nil || p.GrowthPerDay != nil || string(p.Consumed) != "180.000000" || len(p.Series) != 8 {
-		t.Fatalf("no growth func: %+v", p)
 	}
 }
 
-// TestIntegrationCapacityOverviewEmpty: with no regions the document is
-// still complete — empty lists, not nulls — and with no cloud usage as_of
-// is null.
-func TestIntegrationCapacityOverviewEmpty(t *testing.T) {
+// The trend view: the series is SPLIT BY CLASS, both walls are projected from
+// the classes that reach them, and the ORDER-BY DATE is the wall minus the
+// procurement lead time — the date an alert must actually fire on.
+func TestIntegrationCapacityWallsAndOrderByDate(t *testing.T) {
 	st := testdb.Open(t)
-	ov, err := st.CapacityOverview(context.Background(), time.Date(2026, 9, 9, 10, 0, 0, 0, time.UTC), "", growthLikeAPI)
+	s := seedCapacity(t, st)
+	ctx := context.Background()
+
+	ov, err := st.CapacityOverview(ctx, s.now, "", growthLikeAPI)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ov.AsOf != nil || ov.Sources != 0 || len(ov.Regions) != 0 || len(ov.UnmappedSKUs) != 0 || len(ov.UnmappedRegion) != 0 {
-		t.Fatalf("empty overview = %+v", ov)
+	a := zoneOf(t, ov, "me-east-215", "me-east-215a")
+	p := poolOf(t, a, "m7n-a")
+	cpu := resOf(t, p, capacity.ResourceVCPU)
+
+	// Three classes, three series, eight complete days each.
+	if len(cpu.Series) != 3 || cpu.HistoryDays != 8 {
+		t.Fatalf("series = %d classes over %d days, want 3 / 8: %+v", len(cpu.Series), cpu.HistoryDays, cpu.Series)
 	}
-	// The seeded footprints are listed even before anything is metered.
-	if ov.Summary.SKUs != 6 || ov.Summary.Pools != 0 {
-		t.Fatalf("summary = %+v", ov.Summary)
+	byClass := map[string]store.CapacityClassSeries{}
+	for _, c := range cpu.Series {
+		byClass[c.Class] = c
 	}
-	b, _ := json.Marshal(ov)
-	var m map[string]any
-	_ = json.Unmarshal(b, &m)
-	for _, k := range []string{"as_of", "sources", "lagging_sources", "thresholds", "families", "regions", "unmapped_skus", "unmapped_regions", "summary"} {
-		if _, ok := m[k]; !ok {
-			t.Fatalf("overview lacks %q", k)
-		}
+	g := byClass[capacity.ClassGuaranteed]
+	if g.Days[0].Day != "2026-09-01" || string(g.Days[0].Consumed) != "256.000000" || string(g.Days[7].Consumed) != "312.000000" {
+		t.Fatalf("guaranteed series = %+v", g.Days)
 	}
-	if m["regions"] == nil || m["unmapped_skus"] == nil {
-		t.Fatalf("lists must be [] not null: %s", b)
+	if g.GrowthPerDay == nil || *g.GrowthPerDay < 7.999999 || *g.GrowthPerDay > 8.000001 {
+		t.Fatalf("guaranteed growth = %v, want 8 vCPU/day (one 2xlarge a day)", g.GrowthPerDay)
+	}
+	if b := byClass[capacity.ClassBurstable]; b.GrowthPerDay == nil || *b.GrowthPerDay != 0 {
+		t.Fatalf("burstable is flat: %v", b.GrowthPerDay)
+	}
+	// A BLENDED line would have hidden this: guaranteed is growing while
+	// burstable and spot are flat, and only the first of those buys hardware.
+	if sp := byClass[capacity.ClassSpot]; sp.GrowthPerDay == nil || *sp.GrowthPerDay != 0 {
+		t.Fatalf("spot is flat: %v", sp.GrowthPerDay)
+	}
+
+	// soft: remaining 768 ÷ (0 + 8 × 4) = 24 days — guaranteed growth pulls
+	// the soft wall in FOUR TIMES its own size, because each guaranteed vCPU
+	// removes ratio × worth of oversubscribed room.
+	// hard: (576 − 320) ÷ 8 = 32 days.
+	if cpu.SoftWallDays == nil || *cpu.SoftWallDays != 24 || cpu.HardWallDays == nil || *cpu.HardWallDays != 32 {
+		t.Fatalf("vcpu walls = soft %v / hard %v, want 24 / 32", cpu.SoftWallDays, cpu.HardWallDays)
+	}
+	if cpu.SoftWallDate == nil || *cpu.SoftWallDate != "2026-10-03" {
+		t.Fatalf("soft wall date = %v, want 2026-10-03 (24 days after the measured hour)", cpu.SoftWallDate)
+	}
+	// 24 days to the wall against 45 days of lead time: the order is already
+	// 21 days late, and an alert on the wall itself would fire 21 days after
+	// it was too late.
+	if cpu.OrderByDays == nil || *cpu.OrderByDays != -21 || !cpu.Late || cpu.OrderByWall != capacity.WallSoft {
+		t.Fatalf("vcpu order-by = %v days late=%v wall=%s", cpu.OrderByDays, cpu.Late, cpu.OrderByWall)
+	}
+	if cpu.OrderByDate == nil || *cpu.OrderByDate != "2026-08-19" {
+		t.Fatalf("order-by date = %v, want 2026-08-19", cpu.OrderByDate)
+	}
+	// The pool reports its NEAREST order-by and which resource owes it. RAM is
+	// already at the wall, so it owes the order 45 days ago.
+	if p.OrderByResource != capacity.ResourceMemoryGiB || p.OrderByDays == nil || *p.OrderByDays != -45 || !p.Late {
+		t.Fatalf("pool order-by = %v on %q late=%v", p.OrderByDays, p.OrderByResource, p.Late)
+	}
+	// Two pools owe an order — m7n-a and blk-b. gpu-c is flat, so it has no
+	// wall at all and owes nothing: a pool that is not growing must not be
+	// given a date.
+	if ov.Summary.PoolsToOrder != 2 || ov.Summary.PoolsOrderLate != 1 {
+		t.Fatalf("summary orders = %d to order, %d late; want 2 / 1", ov.Summary.PoolsToOrder, ov.Summary.PoolsOrderLate)
+	}
+	if gpu := poolOf(t, zoneOf(t, ov, "me-east-215", "me-east-215c"), "gpu-c"); gpu.OrderByDays != nil {
+		t.Fatalf("a flat pool has no order-by date: %v", gpu.OrderByDays)
+	}
+
+	// Zone b: 180 GiB growing 10 a day against 1,000 usable → 82 days, and
+	// with 10 days' lead time the order goes in on day 72.
+	b := zoneOf(t, ov, "me-east-215", "me-east-215b")
+	ssd := resOf(t, poolOf(t, b, "blk-b"), capacity.ResourceBlockSSD)
+	capDec(t, "ssd guaranteed", ssd.Guaranteed, "180.000000")
+	capDec(t, "ssd remaining", ssd.Remaining, "820.000000")
+	if ssd.Status != capacity.StatusOK {
+		t.Fatalf("18 %% used is ok, got %s", ssd.Status)
+	}
+	if ssd.SoftWallDays == nil || *ssd.SoftWallDays != 82 {
+		t.Fatalf("ssd soft wall = %v, want 82 days", ssd.SoftWallDays)
+	}
+	if ssd.OrderByDays == nil || *ssd.OrderByDays != 72 || ssd.Late {
+		t.Fatalf("ssd order-by = %v days, late=%v; want 72 and not late", ssd.OrderByDays, ssd.Late)
+	}
+	if ssd.OrderByDate == nil || *ssd.OrderByDate != "2026-11-20" {
+		t.Fatalf("ssd order-by date = %v, want 2026-11-20", ssd.OrderByDate)
 	}
 }
 
-// TestIntegrationCapacityMigrationVersion pins the capacity locator: it
-// resolves to an APPLIED version that comes after role bindings and at which
-// the capacity tables exist. It deliberately does NOT assert that capacity is
-// the last migration — migrations are positional and every later module
-// appends after it, which is exactly what the estimates migration did.
-func TestIntegrationCapacityMigrationVersion(t *testing.T) {
+// Everything the derivation must REFUSE to attribute, listed by name rather
+// than summed away: a SKU with no shape, a SKU no pool takes, a resource of a
+// placed SKU that the pool does not hold, usage in a region nobody
+// configured, a metric that is not a meter, and the platform layer.
+func TestIntegrationCapacityUnplacedAndUnshapedAreNamed(t *testing.T) {
+	st := testdb.Open(t)
+	s := seedCapacity(t, st)
+	ctx := context.Background()
+
+	ov, err := st.CapacityOverview(ctx, s.now, "", growthLikeAPI)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// nat.1 has no shape, stored or derived: it counts against nothing, and
+	// the page names it instead of quietly losing it.
+	if len(ov.UnshapedSKUs) != 1 || ov.UnshapedSKUs[0].SKU != "nat.1" || ov.UnshapedSKUs[0].Resources != 1 {
+		t.Fatalf("unshaped = %+v, want nat.1 only", ov.UnshapedSKUs)
+	}
+	if ov.UnshapedSKUs[0].Regions[0] != "me-east-215" {
+		t.Fatalf("unshaped regions = %+v", ov.UnshapedSKUs[0].Regions)
+	}
+
+	// eip and eip.bandwidth_mbps are metered in zone b, have shapes, and no
+	// pool there holds their resources.
+	b := zoneOf(t, ov, "me-east-215", "me-east-215b")
+	got := map[string]store.CapacityUnplacedSKU{}
+	for _, u := range b.UnplacedSKUs {
+		got[u.SKU] = u
+	}
+	if len(got) != 2 || got["eip"].Reason != "no-placement" || got["eip.bandwidth_mbps"].Reason != "no-placement" {
+		t.Fatalf("zone b unplaced = %+v", b.UnplacedSKUs)
+	}
+	if string(got["eip.bandwidth_mbps"].Units) != "10.000000" {
+		t.Fatalf("an unplaced SKU carries its quantity: %+v", got["eip.bandwidth_mbps"])
+	}
+
+	// The GPU flavour IS placed, on a pool that holds its cards but not its
+	// vCPU: the cards land and the vCPU is reported as unplaced against that
+	// resource, by name.
+	c := zoneOf(t, ov, "me-east-215", "me-east-215c")
+	gpu := poolOf(t, c, "gpu-c")
+	capDec(t, "gpu cards guaranteed", resOf(t, gpu, resGPU).Guaranteed, "3.000000")
+	if len(c.UnplacedSKUs) != 1 || c.UnplacedSKUs[0].Reason != "resource-unplaced" || c.UnplacedSKUs[0].Resource != capacity.ResourceVCPU {
+		t.Fatalf("zone c unplaced = %+v", c.UnplacedSKUs)
+	}
+	if string(c.UnplacedSKUs[0].Units) != "24.000000" { // 3 instances × 8 vCPU
+		t.Fatalf("the unplaced amount is in the resource's units: %+v", c.UnplacedSKUs[0])
+	}
+	// gpu_cards is a resource kind NOBODY SEEDED, and it works exactly like
+	// the seeded ones: that is what "resource kinds are data" buys.
+	kinds := map[string]bool{}
+	for _, k := range ov.ResourceKinds {
+		kinds[k.Key] = true
+	}
+	if !kinds[resGPU] {
+		t.Fatalf("a pool's own resource kind must appear in the catalogue: %+v", ov.ResourceKinds)
+	}
+
+	// A region nobody added; a metric that is not a meter; the platform layer.
+	if len(ov.UnmappedRegion) != 1 || ov.UnmappedRegion[0].Region != "eu-west-101" || ov.UnmappedRegion[0].Reason != "no-region" {
+		t.Fatalf("unmapped regions = %+v", ov.UnmappedRegion)
+	}
+	for _, u := range ov.UnshapedSKUs {
+		if u.SKU == store.SKUCPUUtil || u.SKU == store.SKUVCPU {
+			t.Fatalf("%s is not a meter and must never reach capacity at all", u.SKU)
+		}
+	}
+
+	// The region filter narrows what is listed but never what is attributed.
+	filtered, err := st.CapacityOverview(ctx, s.now, "ME-EAST-215", growthLikeAPI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(filtered.Regions) != 1 || len(filtered.UnmappedRegion) != 1 {
+		t.Fatalf("filtered = %d regions, %d unmapped", len(filtered.Regions), len(filtered.UnmappedRegion))
+	}
+}
+
+// A pool nobody has sized NEVER reads ok, and a basket with no sized resource
+// SAYS so instead of showing a number. This is the defect class this module
+// already shipped once: a figure read from a structurally empty field renders
+// as good news.
+func TestIntegrationCapacityUnsizedNeverReadsOK(t *testing.T) {
+	st := testdb.Open(t)
+	s := seedCapacity(t, st)
+	ctx := context.Background()
+
+	empty, err := st.CreateCapacityPool(ctx, s.zoneB.ID, store.CapacityPoolInput{
+		Name: "planned-c", Machines: "0",
+		Resources: []store.CapacityPoolResource{{Resource: capacity.ResourceBlockSSD, PerMachine: "0", OvercommitRatio: "1"}},
+	}, "ops@nc.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PutCapacityPlacement(ctx, empty.ID, "evs.ssd.gb", capacity.ClassGuaranteed, "ops@nc.example"); err != nil {
+		t.Fatal(err)
+	}
+	ov, err := st.CapacityOverview(ctx, s.now, "", growthLikeAPI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := zoneOf(t, ov, "me-east-215", "me-east-215b")
+	p := poolOf(t, b, "planned-c")
+	r := resOf(t, p, capacity.ResourceBlockSSD)
+	if r.Sized || r.Status != capacity.StatusUnset || r.UtilisationPct != nil {
+		t.Fatalf("an unsized resource = %+v, want unset with no percentage", r)
+	}
+	if p.Status != capacity.StatusUnset || p.UtilisationPct != nil || p.Binding != "" {
+		t.Fatalf("an unsized pool = status %s, %v %%, binding %q — it must never read ok", p.Status, p.UtilisationPct, p.Binding)
+	}
+	if r.SoftWallDays != nil || r.HardWallDays != nil || r.OrderByDays != nil {
+		t.Fatalf("an unsized resource has no wall and no order-by: %+v", r)
+	}
+	// The basket must SAY why, not print 0.
+	if p.Basket.Units != nil {
+		t.Fatalf("a basket with no sized resource must report nothing, got %v", *p.Basket.Units)
+	}
+	if p.Basket.Reason == "" {
+		t.Fatal("a basket that cannot be measured must say why in words")
+	}
+	if ov.Summary.PoolsSized != 3 {
+		t.Fatalf("pools_sized = %d, want 3 of 4", ov.Summary.PoolsSized)
+	}
+}
+
+// A basket the operator names: how many more of THAT mix fit, with the
+// binding resource — never a per-SKU maximum per resource, which is the
+// answer that silently assumes everything else sells zero.
+func TestIntegrationCapacityNamedBasket(t *testing.T) {
+	st := testdb.Open(t)
+	s := seedCapacity(t, st)
+	ctx := context.Background()
+
+	// blk-b: 1,000 GiB usable, 180 sold guaranteed, so 820 left and a 1 GiB
+	// shape — 820 more.
+	pv, err := st.CapacityPoolBasket(ctx, s.poolB.ID, s.now, store.ParseBasket("evs.ssd.gb:1"), growthLikeAPI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pv.Basket.Units == nil || *pv.Basket.Units != 820 || pv.Basket.Binding != capacity.ResourceBlockSSD {
+		t.Fatalf("basket = %v on %q, want 820 on block_ssd_gib", pv.Basket.Units, pv.Basket.Binding)
+	}
+	// Ten at a time: 82 baskets, and the per-basket cost is on the wire.
+	pv, err = st.CapacityPoolBasket(ctx, s.poolB.ID, s.now, store.ParseBasket("evs.ssd.gb:10"), growthLikeAPI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pv.Basket.Units == nil || *pv.Basket.Units != 82 {
+		t.Fatalf("ten-at-a-time basket = %v, want 82", pv.Basket.Units)
+	}
+	if len(pv.Basket.Resources) != 1 || string(pv.Basket.Resources[0].PerBasket) != "10.000000" {
+		t.Fatalf("basket working = %+v", pv.Basket.Resources)
+	}
+
+	// A SKU with no shape cannot be priced into a basket, and the basket says
+	// which one rather than quietly leaving it out of the arithmetic.
+	pv, err = st.CapacityPoolBasket(ctx, s.poolB.ID, s.now, store.ParseBasket("nat.1:1"), growthLikeAPI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pv.Basket.Units != nil || len(pv.Basket.UnshapedSKUs) != 1 || pv.Basket.UnshapedSKUs[0] != "nat.1" {
+		t.Fatalf("an unshaped basket = %+v", pv.Basket)
+	}
+
+	// On m7n-a nothing more fits, of any mix that needs RAM.
+	pv, err = st.CapacityPoolBasket(ctx, s.poolA.ID, s.now, store.ParseBasket(skuGuaranteed), growthLikeAPI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pv.Basket.Units == nil || *pv.Basket.Units != 0 || pv.Basket.Binding != capacity.ResourceMemoryGiB {
+		t.Fatalf("one more 2xlarge on a full pool = %v on %q", pv.Basket.Units, pv.Basket.Binding)
+	}
+
+	if _, err := st.CapacityPoolBasket(ctx, "00000000-0000-0000-0000-000000000000", s.now, nil, growthLikeAPI); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("unknown pool = %v", err)
+	}
+}
+
+// Two pools of the same resource kind in one zone, which the old model could
+// not express at all. A SKU placed on both is attributed BY POOL SIZE: BSS
+// does not know which machine an instance landed on, and pool size is the
+// only weighting the operator's own data supports.
+func TestIntegrationCapacityTwoPoolsOfTheSameKindSplitBySize(t *testing.T) {
+	st := testdb.Open(t)
+	s := seedCapacity(t, st)
+	ctx := context.Background()
+
+	// Zone c holds only GPU cards so far. Give it two vCPU pools, 2:1 in size.
+	big, err := st.CreateCapacityPool(ctx, s.zoneC.ID, store.CapacityPoolInput{
+		Name: "cpu-big", Machines: "2",
+		Resources: []store.CapacityPoolResource{{Resource: capacity.ResourceVCPU, PerMachine: "64", OvercommitRatio: "1"}},
+	}, "ops@nc.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	small, err := st.CreateCapacityPool(ctx, s.zoneC.ID, store.CapacityPoolInput{
+		Name: "cpu-small", Machines: "1",
+		Resources: []store.CapacityPoolResource{{Resource: capacity.ResourceVCPU, PerMachine: "64", OvercommitRatio: "1"}},
+	}, "ops@nc.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{big.ID, small.ID} {
+		if _, err := st.PutCapacityPlacement(ctx, id, skuGPU, capacity.ClassGuaranteed, "ops@nc.example"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ov, err := st.CapacityOverview(ctx, s.now, "", growthLikeAPI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := zoneOf(t, ov, "me-east-215", "me-east-215c")
+	// 3 instances × 8 vCPU = 24, split 128:64 usable → 16 and 8.
+	capDec(t, "cpu-big vcpu", resOf(t, poolOf(t, c, "cpu-big"), capacity.ResourceVCPU).Guaranteed, "16.000000")
+	capDec(t, "cpu-small vcpu", resOf(t, poolOf(t, c, "cpu-small"), capacity.ResourceVCPU).Guaranteed, "8.000000")
+	// The cards still land whole on the one pool that holds them.
+	capDec(t, "gpu cards", resOf(t, poolOf(t, c, "gpu-c"), resGPU).Guaranteed, "3.000000")
+	// And nothing is unplaced any more: every resource of the shape has a home.
+	if len(c.UnplacedSKUs) != 0 {
+		t.Fatalf("zone c unplaced = %+v", c.UnplacedSKUs)
+	}
+}
+
+// Shapes and placements: PUT semantics on a shape, and the two refusals that
+// would otherwise read as a silent zero.
+func TestIntegrationCapacityShapesAndPlacementRefusals(t *testing.T) {
+	st := testdb.Open(t)
+	s := seedCapacity(t, st)
+	ctx := context.Background()
+
+	list, err := st.ListCapacityShapes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byS := map[string]store.CapacityShape{}
+	for _, sh := range list {
+		byS[sh.SKU] = sh
+	}
+	// Six seeded + the two the test wrote.
+	if len(list) != 8 {
+		t.Fatalf("shapes = %d SKUs, want 8: %+v", len(list), list)
+	}
+	if sh := byS[skuGuaranteed]; sh.Source != capacity.SourceSeed || string(sh.Resources[capacity.ResourceVCPU]) != "8.000000" || string(sh.Resources[capacity.ResourceMemoryGiB]) != "64.000000" {
+		t.Fatalf("seeded m7n.2xlarge.8 = %+v", sh)
+	}
+
+	// PUT semantics: the given resources become THE shape; 0 removes one.
+	sh, err := st.PutCapacityShape(ctx, skuGuaranteed, map[string]store.Decimal{
+		capacity.ResourceVCPU: "8", capacity.ResourceMemoryGiB: "64", capacity.ResourceBlockSSD: "40", capacity.ResourceEIP: "0",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sh.Source != capacity.SourceManual || len(sh.Resources) != 3 || string(sh.Resources[capacity.ResourceBlockSSD]) != "40" {
+		t.Fatalf("put = %+v", sh)
+	}
+	if _, err := st.PutCapacityShape(ctx, "x", map[string]store.Decimal{capacity.ResourceVCPU: "-1"}); !errors.Is(err, store.ErrInvalid) {
+		t.Fatalf("negative amount = %v", err)
+	}
+	if _, err := st.PutCapacityShape(ctx, " ", map[string]store.Decimal{}); !errors.Is(err, store.ErrInvalid) {
+		t.Fatalf("empty sku = %v", err)
+	}
+	// A resource nobody seeded is a perfectly good resource: no enum refuses it.
+	if _, err := st.PutCapacityShape(ctx, "x", map[string]store.Decimal{"fpga_slots": "2"}); err != nil {
+		t.Fatalf("an operator's own resource kind must be accepted: %v", err)
+	}
+	if _, err := st.PutCapacityShape(ctx, "eip", map[string]store.Decimal{}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Placement refusals.
+	// 1. The shape and the pool share no resource: it would consume nothing.
+	if _, err := st.PutCapacityPlacement(ctx, s.poolB.ID, "eip", capacity.ClassGuaranteed, "x"); err == nil || !errors.Is(err, store.ErrInvalid) {
+		t.Fatalf("placing an EIP on a block-storage pool = %v, want invalid", err)
+	}
+	// 2. A SKU with no shape says nothing about what it consumes.
+	if _, err := st.PutCapacityPlacement(ctx, s.poolB.ID, "nat.1", capacity.ClassGuaranteed, "x"); !errors.Is(err, store.ErrInvalid) {
+		t.Fatalf("placing an unshaped SKU = %v, want invalid", err)
+	}
+	// 3. A SKU is ONE product at ONE price and carries ONE class.
+	second, err := st.CreateCapacityPool(ctx, s.zoneA.ID, store.CapacityPoolInput{
+		Name: "m7n-b", Machines: "5",
+		Resources: []store.CapacityPoolResource{{Resource: capacity.ResourceVCPU, PerMachine: "64", OvercommitRatio: "4"}},
+	}, "ops@nc.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PutCapacityPlacement(ctx, second.ID, skuGuaranteed, capacity.ClassSpot, "x"); !errors.Is(err, store.ErrInvalid) {
+		t.Fatalf("the same SKU at two classes = %v, want invalid", err)
+	}
+	if _, err := st.PutCapacityPlacement(ctx, second.ID, skuGuaranteed, capacity.ClassGuaranteed, "x"); err != nil {
+		t.Fatalf("the same SKU on a second pool at its own class must be allowed: %v", err)
+	}
+	if _, err := st.PutCapacityPlacement(ctx, s.poolA.ID, skuGuaranteed, "reserved", "x"); !errors.Is(err, store.ErrInvalid) {
+		t.Fatalf("an unknown class = %v, want invalid", err)
+	}
+
+	pls, err := st.ListCapacityPlacements(ctx)
+	if err != nil || len(pls) != 6 {
+		t.Fatalf("placements = %d, want 6: %v", len(pls), err)
+	}
+	if err := st.DeleteCapacityPlacement(ctx, second.ID, skuGuaranteed); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DeleteCapacityPlacement(ctx, second.ID, skuGuaranteed); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("removing a placement twice = %v", err)
+	}
+
+	// Resource kinds carry words, and an operator can supply them.
+	k, err := st.PutCapacityResourceKind(ctx, " FPGA_slots ", "FPGA slots", "slots")
+	if err != nil || k.Key != "fpga_slots" || k.Label != "FPGA slots" || k.Unit != "slots" {
+		t.Fatalf("resource kind = %+v, %v", k, err)
+	}
+	if _, err := st.PutCapacityResourceKind(ctx, "  ", "x", "y"); !errors.Is(err, store.ErrInvalid) {
+		t.Fatalf("an empty resource key = %v", err)
+	}
+}
+
+// The migration is positional and comes after the first capacity migration.
+func TestIntegrationCapacityPoolsMigrationVersion(t *testing.T) {
 	st := testdb.Open(t)
 	var n int
 	if err := st.DB().QueryRowContext(context.Background(), `SELECT max(version) FROM schema_migrations`).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
-	if store.MigrationCapacity > n {
-		t.Fatalf("MigrationCapacity = %d is beyond the applied version %d", store.MigrationCapacity, n)
+	if store.MigrationCapacityPools > n {
+		t.Fatalf("MigrationCapacityPools = %d is beyond the applied version %d", store.MigrationCapacityPools, n)
+	}
+	if store.MigrationCapacityPools <= store.MigrationCapacity {
+		t.Fatalf("the pool migration (%d) must come after the first capacity migration (%d)", store.MigrationCapacityPools, store.MigrationCapacity)
 	}
 	var applied bool
-	if err := st.DB().QueryRowContext(context.Background(), `SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version = $1)`, store.MigrationCapacity).Scan(&applied); err != nil {
-		t.Fatal(err)
+	if err := st.DB().QueryRowContext(context.Background(), `SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version = $1)`, store.MigrationCapacityPools).Scan(&applied); err != nil || !applied {
+		t.Fatalf("version %d is not recorded as applied: %v", store.MigrationCapacityPools, err)
 	}
-	if !applied {
-		t.Fatalf("version %d (MigrationCapacity) is not recorded as applied", store.MigrationCapacity)
-	}
-	for _, tbl := range []string{"capacity_regions", "capacity_zones", "capacity_pools", "sku_footprints"} {
+	// The retired table is gone and the renamed one is here.
+	for _, q := range []struct {
+		table string
+		want  bool
+	}{{"sku_caps", false}, {"sku_footprints", false}, {"sku_shapes", true}, {"capacity_placements", true}, {"capacity_pool_resources", true}, {"capacity_resource_kinds", true}} {
 		var exists bool
-		if err := st.DB().QueryRowContext(context.Background(), `SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = $1)`, tbl).Scan(&exists); err != nil {
+		if err := st.DB().QueryRowContext(context.Background(), `SELECT to_regclass($1) IS NOT NULL`, q.table).Scan(&exists); err != nil {
 			t.Fatal(err)
 		}
-		if !exists {
-			t.Fatalf("%s absent after the capacity migration", tbl)
+		if exists != q.want {
+			t.Errorf("table %s exists = %v, want %v", q.table, exists, q.want)
 		}
-	}
-	if store.MigrationCapacity <= store.MigrationRoleBindings {
-		t.Fatalf("capacity (%d) must come after role bindings (%d)", store.MigrationCapacity, store.MigrationRoleBindings)
 	}
 }

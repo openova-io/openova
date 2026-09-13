@@ -1491,32 +1491,52 @@ export interface ReportSendResult {
 }
 
 // ---------------------------------------------------------------------------
-// Capacity (DESIGN.md §11, founder requirement 2026-09-11). Static-first: a
-// region holds zones, a zone one pool per family whose TOTAL the operator
-// enters; CONSUMED is derived from the latest complete hour of metering
-// through the SKU footprints; RESERVED is 0 until proposals fill it. Every
-// quantity is an exact JSON number; utilisation, growth and exhaustion are
-// floats (estimates).
+// Capacity (DESIGN.md §11, rewritten on founder direction 2026-09-13).
+//
+// THREE STORED THINGS AND NOTHING ELSE:
+//   POOL       a named set of identical machines in a zone — a machine count
+//              and a PER-MACHINE vector, with a reserve and an overcommit
+//              ratio PER RESOURCE (vCPU may run 4:1 while the RAM in the same
+//              chassis runs 1:1 or 1.5:1 with ballooning).
+//   SHAPE      a SKU's vector: how much of each resource ONE unit consumes.
+//   PLACEMENT  (sku, pool, class). The CLASS is here, not on the shape: the
+//              same shape sold guaranteed and sold spot is two SKUs at two
+//              prices on the same pool.
+//
+// Consumption is never entered — it is the usage ledger read through the
+// shapes onto the pools the placements name. Every quantity is an exact JSON
+// number; the percentages and day counts are floats (they are estimates).
 // ---------------------------------------------------------------------------
 
-/** The seven pooled resource families (`internal/capacity.Families`). */
-export type CapacityFamily = 'vcpu' | 'memory_gib' | 'block_ssd_gib' | 'block_hdd_gib' | 'object_gib' | 'eip_addresses' | 'bandwidth_mbps'
-
-export interface CapacityFamilyDef {
-  family: CapacityFamily | string
+/**
+ * A resource kind is DATA, not an enum: a pool declares what it holds, and
+ * this row only carries the label and the unit. The keys below are the ones
+ * this product meters; an operator's own key works exactly the same way.
+ */
+export interface CapacityResourceKind {
+  resource: string
   label: string
-  /** What a total and a footprint amount count in (vCPU, GiB, addresses, Mbps). */
   unit: string
+  position: number
 }
 
-/** unset = no total entered yet · ok · warn (≥ 70 %) · critical (≥ 85 %). */
+/** guaranteed (1:1, physically backed) · burstable (throttled) · spot (reclaimed). */
+export type CapacityClass = 'guaranteed' | 'burstable' | 'spot'
+
+export interface CapacityClassDef {
+  class: CapacityClass | string
+  label: string
+  note: string
+}
+
+/** unset = nobody has sized it · ok · warn (>= 70 %) · critical (>= 85 %). */
 export type CapacityPoolStatus = 'unset' | 'ok' | 'warn' | 'critical'
 
 export interface CapacityRegion {
   id: string
   code: string
   name: string
-  /** Which cloud collector will fill this region's totals later. */
+  /** Which cloud collector will fill this region's pools later. */
   cloud_source_kind: string
   created_at?: string
   zones: CapacityZone[]
@@ -1531,26 +1551,60 @@ export interface CapacityZone {
   /** The default zone receives usage whose zone the inventory does not carry. */
   is_default: boolean
   created_at?: string
-  pools?: CapacityPool[]
+  /** Always present, empty included: a zone with no pools is the ordinary state. */
+  pools: CapacityPool[]
+}
+
+/** One resource of a pool's per-machine vector, with the policy on it. */
+export interface CapacityPoolResource {
+  resource: string
+  label: string
+  unit: string
+  /** How much ONE machine holds; raw is this multiplied by the machine count. */
+  per_machine: number | string
+  /** Held back for redundancy and maintenance — N+1 is one machine's worth. */
+  reserve: number | string
+  /** Per (pool, resource); 1 is no oversubscription. */
+  overcommit_ratio: number | string
 }
 
 export interface CapacityPool {
   id: string
   zone_id: string
-  family: CapacityFamily | string
-  total: number | string
-  reserved: number | string
+  zone_code?: string
+  region_code?: string
+  name: string
+  machines: number | string
+  /** Procurement lead time — what turns a wall into an ORDER-BY date. */
+  lead_time_days: number
   /** manual (the console) or a collector's name. */
   source: string
   note: string
   updated_by: string
   updated_at: string
+  created_at?: string
+  resources: CapacityPoolResource[]
 }
 
-/** One entry of a pool's total history (GET /capacity/zones/{id}/pools). */
+/** A pool as the editor states it (POST/PUT). */
+export interface CapacityPoolInput {
+  name: string
+  machines: string
+  lead_time_days: number
+  note: string
+  resources: Array<{ resource: string; per_machine: string; reserve: string; overcommit_ratio: string }>
+}
+
+/** One entry of a pool's size history: one row per resource per change. */
 export interface CapacityPoolChange {
   id: number
   pool_id: string
+  resource: string
+  machines: number | string
+  per_machine: number | string
+  reserve: number | string
+  overcommit_ratio: number | string
+  /** machines x per_machine: the raw total of that resource at the time. */
   total: number | string
   source: string
   note: string
@@ -1563,41 +1617,146 @@ export interface CapacityDayPoint {
   consumed: number | string
 }
 
-/** A pool with the derived figures (GET /capacity/overview). */
-export interface CapacityPoolView extends CapacityPool {
+/** One class's daily consumption of one resource, and its fitted trend. */
+export interface CapacityClassSeries {
+  class: CapacityClass | string
   label: string
-  unit: string
-  consumed: number | string
-  /** total − reserved − consumed, never below 0. */
-  available: number | string
-  utilisation_pct: number | null
-  status: CapacityPoolStatus | string
-  /** True when the arithmetic went negative; overcommit is the shortfall. */
-  clamped: boolean
-  overcommit: number | string
-  /** The part of consumed attributed here because the resource's zone is unknown. */
-  zone_unknown: number | string
-  /** Units per day, the 7-day run-rate trend; null with too little history. */
+  days: CapacityDayPoint[]
   growth_per_day: number | null
-  /** available ÷ growth; null when not growing or no total. */
-  exhaustion_days: number | null
-  history_days: number
-  series: CapacityDayPoint[]
 }
 
-/** One SKU's headroom in one zone. */
-export interface CapacitySKUView {
+/** One resource of one pool, fully derived (GET /capacity/overview). */
+export interface CapacityResourceView {
+  resource: string
+  label: string
+  unit: string
+
+  machines: number | string
+  per_machine: number | string
+  reserve: number | string
+  overcommit_ratio: number | string
+  /** machines x per_machine. */
+  raw: number | string
+  /** raw - reserve. */
+  usable: number | string
+  /** G + (usable - G) x ratio. NOT usable x ratio - G. */
+  sellable: number | string
+
+  guaranteed: number | string
+  burstable: number | string
+  burstable_physical: number | string
+  spot: number | string
+  spot_physical: number | string
+
+  /** G + B. Spot is not sold capacity and is not in it. */
+  sold_nominal: number | string
+  /** sellable - sold, floored at 0. */
+  remaining: number | string
+  /** usable - G: the admission test for a guaranteed order, at 1:1. */
+  guaranteed_ceiling: number | string
+  physical_used: number | string
+  /** usable - (G + B/ratio). STRANDED when another resource binds. */
+  physical_free: number | string
+  stranded: boolean
+  spot_room: number | string
+  /** How much nominal spot must be freed; the platform picks which instances. */
+  spot_reclaim: number | string
+
+  /** False when nobody has sized it: the percentage is then null, never 0 %. */
+  sized: boolean
+  utilisation_pct: number | null
+  status: CapacityPoolStatus | string
+  overcommitted: boolean
+  over: number | string
+
+  series: CapacityClassSeries[]
+  history_days: number
+
+  /** The pool reaches `sellable`: spot is reclaimed, burstable throttled. */
+  soft_wall_days: number | null
+  soft_wall_date: string | null
+  /** Guaranteed alone reaches `usable`: buy hardware, no policy avoids it. */
+  hard_wall_days: number | null
+  hard_wall_date: string | null
+  /** The nearer wall minus the lead time — the date that actually matters. */
+  order_by_days: number | null
+  order_by_date: string | null
+  order_by_wall: 'soft' | 'hard' | string
+  /** The order-by date has already passed. */
+  late: boolean
+}
+
+/** One line of a basket: units of a SKU, at the class its placement carries. */
+export interface CapacityBasketItem {
   sku: string
-  footprint: Record<string, number | string>
-  /** seed · manual · derived (from the SKU name, no stored row). */
-  footprint_source: string
-  consumed_units: number | string
+  units: number | string
+  class: CapacityClass | string
+  shape: Record<string, number | string>
+}
+
+export interface CapacityBasketResource {
+  resource: string
+  label: string
+  unit: string
+  per_basket: number | string
+  remaining: number | string
+  units: number | null
+}
+
+/**
+ * How many MORE of a named mix fit. This replaces the per-SKU headroom
+ * column, which was a wrong answer rather than a missing feature: "50 large
+ * fit" and "200 small fit" side by side are mutually exclusive.
+ */
+export interface CapacityBasket {
+  items: CapacityBasketItem[]
+  /** null when nothing could be measured; `reason` then says why in words. */
+  units: number | null
+  reason: string
+  binding_resource: string
+  resources: CapacityBasketResource[]
+  /** SKUs in the mix with no shape, so nothing says what they consume. */
+  unshaped_skus: string[]
+}
+
+export interface CapacityPlacementView {
+  sku: string
+  class: CapacityClass | string
+  shape: Record<string, number | string>
+  shape_source: string
+  units: number | string
   resources: number
-  /** null when no family in the footprint has a total yet. */
-  headroom_units: number | string | null
-  /** The family that limits headroom, or "cap". */
-  binding_family: string
-  cap: number | string | null
+}
+
+export interface CapacityPoolView extends CapacityPool {
+  status: CapacityPoolStatus | string
+  /** The resource with the least room, as a fraction of what it could sell. */
+  binding_resource: string
+  utilisation_pct: number | null
+  resources_view: CapacityResourceView[]
+  placements: CapacityPlacementView[]
+  basket: CapacityBasket
+  /** Some of this pool's consumption arrived with no availability zone. */
+  zone_unknown: boolean
+
+  order_by_days: number | null
+  order_by_date: string | null
+  order_by_resource: string
+  order_by_wall: 'soft' | 'hard' | string
+  late: boolean
+}
+
+/** Metered usage in a zone that no pool received. */
+export interface CapacityUnplacedSKU {
+  sku: string
+  units: number | string
+  /**
+   * no-placement: nothing places it here. resource-unplaced: no pool it is
+   * placed on holds `resource`.
+   */
+  reason: 'no-placement' | 'resource-unplaced' | string
+  resource?: string
+  resources: number
 }
 
 export interface CapacityZoneView {
@@ -1606,7 +1765,7 @@ export interface CapacityZoneView {
   name: string
   is_default: boolean
   pools: CapacityPoolView[]
-  skus: CapacitySKUView[]
+  unplaced_skus: CapacityUnplacedSKU[]
 }
 
 export interface CapacityRegionView {
@@ -1617,8 +1776,8 @@ export interface CapacityRegionView {
   zones: CapacityZoneView[]
 }
 
-/** A metered SKU with no footprint — counts against no pool. */
-export interface CapacityUnmappedSKU {
+/** A metered SKU with no shape at all — nothing knows what it consumes. */
+export interface CapacityUnshapedSKU {
   sku: string
   unit: string
   quantity: number | string
@@ -1644,13 +1803,17 @@ export interface CapacitySummary {
   regions: number
   zones: number
   pools: number
-  pools_with_total: number
+  pools_sized: number
   pools_warn: number
   pools_critical: number
-  /** warn + critical: pools past the 70 % line. */
-  pools_below_threshold: number
-  skus: number
-  unmapped_skus: number
+  pools_past_threshold: number
+  pools_to_order: number
+  pools_order_late: number
+  placements: number
+  shapes: number
+  unplaced_skus: number
+  unshaped_skus: number
+  spot_to_reclaim: number
 }
 
 /** GET /capacity/overview */
@@ -1660,36 +1823,61 @@ export interface CapacityOverview {
   sources: number
   lagging_sources: number
   thresholds: CapacityThresholds
-  families: CapacityFamilyDef[]
+  classes: CapacityClassDef[]
+  resource_kinds: CapacityResourceKind[]
   regions: CapacityRegionView[]
-  unmapped_skus: CapacityUnmappedSKU[]
+  unshaped_skus: CapacityUnshapedSKU[]
   unmapped_regions: CapacityUnmappedRegion[]
   summary: CapacitySummary
 }
 
-export interface SKUFootprint {
+export interface CapacityShape {
   sku: string
-  families: Record<string, number | string>
+  resources: Record<string, number | string>
+  /** seed - manual - derived (from the SKU name, no stored row). */
   source: string
   updated_at?: string
 }
 
-/** GET /capacity/footprints */
-export interface SKUFootprints {
-  footprints: SKUFootprint[]
-  families: CapacityFamilyDef[]
-  /** List-price SKUs with no per-unit footprint in any family (elb, nat.<spec>, vpc). */
+/** GET /capacity/shapes */
+export interface CapacityShapes {
+  shapes: CapacityShape[]
+  resource_kinds: CapacityResourceKind[]
+  /** List-price SKUs with no per-unit shape at all (elb, nat.<spec>, vpc). */
   unseeded_skus: string[]
 }
 
-export interface SKUCap {
-  zone_id: string
+export interface CapacityPlacement {
+  pool_id: string
+  pool_name?: string
+  zone_id?: string
   zone_code?: string
   region_code?: string
   sku: string
-  total: number | string
-  updated_by?: string
-  updated_at?: string
+  class: CapacityClass | string
+  updated_by: string
+  updated_at: string
+}
+
+/** GET /capacity/placements */
+export interface CapacityPlacements {
+  placements: CapacityPlacement[]
+  classes: CapacityClassDef[]
+}
+
+/** GET /capacity/zones/{id}/pools */
+export interface CapacityZonePools {
+  zone: CapacityZone
+  pools: CapacityPool[]
+  history: Record<string, CapacityPoolChange[]>
+  resource_kinds: CapacityResourceKind[]
+  classes: CapacityClassDef[]
+}
+
+/** GET /capacity/pools/{id}/headroom?basket=sku:units,... */
+export interface CapacityHeadroom {
+  pool: CapacityPoolView
+  basket: CapacityBasket
 }
 
 // ── Public cost calculator (DESIGN.md §12) ──────────────────────────────

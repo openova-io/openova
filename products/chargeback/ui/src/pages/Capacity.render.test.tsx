@@ -2,23 +2,65 @@ import { createElement } from 'react'
 import { renderToString } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
-import type { CapacityOverview, Me, SKUFootprints } from '../api/types'
+import type { CapacityOverview, CapacityResourceView, CapacityShapes, Me } from '../api/types'
 
 /**
  * Plan → Capacity rendered with the document the Go integration test derives
- * (DESIGN.md §11): the heatmap cell per zone × family coloured at 70 / 85 %,
- * the available amount and time to exhaustion in the cell, the SKU headroom
- * table with the binding family, the footprints, the unmapped-SKU notice
- * with its one-click form, and the read-only variant without
- * capacity.manage. Effects do not run under renderToString, so every
- * follow-up fetch shows its initial state.
+ * (DESIGN.md §11) — the founder's worked example: a pool of ten servers at
+ * 64 vCPU / 512 GiB with N+1 held back, vCPU 4:1 and RAM 1:1, selling 40
+ * guaranteed and 32 burstable m7n.2xlarge with a little spot alongside.
+ *
+ * What the page has to get right, and what these assertions are for:
+ *
+ *   RAM BINDS and the pool is full, while 192 physical vCPU are STRANDED —
+ *   the main procurement signal, and the case a blended average erases.
+ *   THE ORDER-BY DATE, not the wall: 24 days of room against 45 days of lead
+ *   time reads "order was due 21 days ago", never "—" and never "in 24 days".
+ *   THE CLASS SPLIT, named, because guaranteed growth is a hardware order and
+ *   spot growth is a reclaim.
+ *   ONE BASKET headroom, not a per-SKU maximum per resource.
+ *   THE HONEST EMPTY STATE: an unsized pool reads "not sized", never ok, and
+ *   a basket that could not be measured prints its reason rather than a 0.
+ *
+ * Effects do not run under renderToString, so every follow-up fetch shows its
+ * initial state.
  */
 
-const pool = (over: Partial<CapacityOverview['regions'][0]['zones'][0]['pools'][0]>) => ({
-  id: 'p', zone_id: 'z', family: 'vcpu', total: 0, reserved: 0, source: 'manual', note: '', updated_by: '', updated_at: '2026-09-09T08:00:00Z',
-  label: 'vCPU', unit: 'vCPU', consumed: 0, available: 0, utilisation_pct: null, status: 'unset', clamped: false, overcommit: 0, zone_unknown: 0,
-  growth_per_day: null, exhaustion_days: null, history_days: 0, series: [],
+const res = (over: Partial<CapacityResourceView>): CapacityResourceView => ({
+  resource: 'vcpu', label: 'vCPU', unit: 'vCPU',
+  machines: 10, per_machine: 64, reserve: 64, overcommit_ratio: 4,
+  raw: 640, usable: 576, sellable: 1344,
+  guaranteed: 320, burstable: 256, burstable_physical: 64, spot: 32, spot_physical: 8,
+  sold_nominal: 576, remaining: 768, guaranteed_ceiling: 256,
+  physical_used: 384, physical_free: 192, stranded: false, spot_room: 768, spot_reclaim: 0,
+  sized: true, utilisation_pct: 42.9, status: 'ok', overcommitted: false, over: 0,
+  series: [], history_days: 8,
+  soft_wall_days: null, soft_wall_date: null, hard_wall_days: null, hard_wall_date: null,
+  order_by_days: null, order_by_date: null, order_by_wall: '', late: false,
   ...over,
+})
+
+const vcpu = res({
+  stranded: true,
+  series: [
+    { class: 'guaranteed', label: 'Guaranteed', days: [{ day: '2026-09-01', consumed: 256 }, { day: '2026-09-08', consumed: 312 }], growth_per_day: 8 },
+    { class: 'burstable', label: 'Burstable', days: [{ day: '2026-09-01', consumed: 256 }, { day: '2026-09-08', consumed: 256 }], growth_per_day: 0 },
+  ],
+  soft_wall_days: 24, soft_wall_date: '2026-10-03', hard_wall_days: 32, hard_wall_date: '2026-10-11',
+  order_by_days: -21, order_by_date: '2026-08-19', order_by_wall: 'soft', late: true,
+})
+
+const ram = res({
+  resource: 'memory_gib', label: 'Memory', unit: 'GiB',
+  per_machine: 512, reserve: 512, overcommit_ratio: 1,
+  raw: 5120, usable: 4608, sellable: 4608,
+  guaranteed: 2560, burstable: 2048, burstable_physical: 2048, spot: 64, spot_physical: 64,
+  sold_nominal: 4608, remaining: 0, guaranteed_ceiling: 2048,
+  physical_used: 4608, physical_free: 0, spot_room: 0, spot_reclaim: 64,
+  utilisation_pct: 100, status: 'critical',
+  series: [{ class: 'guaranteed', label: 'Guaranteed', days: [{ day: '2026-09-01', consumed: 2048 }, { day: '2026-09-08', consumed: 2496 }], growth_per_day: 64 }],
+  soft_wall_days: 0, soft_wall_date: '2026-09-09', hard_wall_days: 32, hard_wall_date: '2026-10-11',
+  order_by_days: -45, order_by_date: '2026-07-26', order_by_wall: 'soft', late: true,
 })
 
 const overview: CapacityOverview = {
@@ -26,14 +68,15 @@ const overview: CapacityOverview = {
   sources: 2,
   lagging_sources: 0,
   thresholds: { warn_pct: 70, critical_pct: 85 },
-  families: [
-    { family: 'vcpu', label: 'vCPU', unit: 'vCPU' },
-    { family: 'memory_gib', label: 'Memory', unit: 'GiB' },
-    { family: 'block_ssd_gib', label: 'Block SSD', unit: 'GiB' },
-    { family: 'block_hdd_gib', label: 'Block HDD', unit: 'GiB' },
-    { family: 'object_gib', label: 'Object storage', unit: 'GiB' },
-    { family: 'eip_addresses', label: 'Elastic IPs', unit: 'addresses' },
-    { family: 'bandwidth_mbps', label: 'Bandwidth', unit: 'Mbps' },
+  classes: [
+    { class: 'guaranteed', label: 'Guaranteed', note: 'physically backed at 1:1' },
+    { class: 'burstable', label: 'Burstable', note: 'throttled at the soft wall' },
+    { class: 'spot', label: 'Spot', note: 'reclaimed when the room shrinks' },
+  ],
+  resource_kinds: [
+    { resource: 'vcpu', label: 'vCPU', unit: 'vCPU', position: 10 },
+    { resource: 'memory_gib', label: 'Memory', unit: 'GiB', position: 20 },
+    { resource: 'block_ssd_gib', label: 'Block SSD', unit: 'GiB', position: 30 },
   ],
   regions: [
     {
@@ -47,20 +90,39 @@ const overview: CapacityOverview = {
           code: 'me-east-215a',
           name: 'AZ 1',
           is_default: true,
+          unplaced_skus: [],
           pools: [
-            pool({ id: 'pa-vcpu', zone_id: 'za', family: 'vcpu', total: 20, consumed: 16, available: 4, utilisation_pct: 80, status: 'warn', zone_unknown: 8, growth_per_day: 1.14, exhaustion_days: 3.5, history_days: 8, note: 'two hosts', updated_by: 'ops@nc.example' }),
-            pool({ id: 'pa-mem', zone_id: 'za', family: 'memory_gib', label: 'Memory', unit: 'GiB', total: 100, consumed: 80, available: 20, utilisation_pct: 80, status: 'warn', growth_per_day: 0, history_days: 8 }),
-            pool({ id: 'pa-ssd', zone_id: 'za', family: 'block_ssd_gib', label: 'Block SSD', unit: 'GiB' }),
-            pool({ id: 'pa-hdd', zone_id: 'za', family: 'block_hdd_gib', label: 'Block HDD', unit: 'GiB' }),
-            pool({ id: 'pa-obj', zone_id: 'za', family: 'object_gib', label: 'Object storage', unit: 'GiB' }),
-            pool({ id: 'pa-eip', zone_id: 'za', family: 'eip_addresses', label: 'Elastic IPs', unit: 'addresses' }),
-            pool({ id: 'pa-bw', zone_id: 'za', family: 'bandwidth_mbps', label: 'Bandwidth', unit: 'Mbps' }),
-          ],
-          skus: [
-            { sku: 'ecs.m7n.2xlarge.8', footprint: { vcpu: 8, memory_gib: 64 }, footprint_source: 'seed', consumed_units: 1, resources: 1, headroom_units: 0, binding_family: 'vcpu', cap: null },
-            { sku: 'ecs.m7n.xlarge.8', footprint: { vcpu: 4, memory_gib: 32 }, footprint_source: 'seed', consumed_units: 0, resources: 0, headroom_units: 0, binding_family: 'memory_gib', cap: null },
-            { sku: 'ecs.c7n.large.2', footprint: { vcpu: 2, memory_gib: 4 }, footprint_source: 'derived', consumed_units: 0, resources: 0, headroom_units: 2, binding_family: 'vcpu', cap: null },
-            { sku: 'evs.ssd.gb', footprint: { block_ssd_gib: 1 }, footprint_source: 'seed', consumed_units: 0, resources: 0, headroom_units: null, binding_family: '', cap: null },
+            {
+              id: 'pa', zone_id: 'za', name: 'm7n-a', machines: 10, lead_time_days: 45, source: 'manual', note: 'batch one',
+              updated_by: 'ops@nc.example', updated_at: '2026-09-09T08:00:00Z',
+              resources: [
+                { resource: 'vcpu', label: 'vCPU', unit: 'vCPU', per_machine: 64, reserve: 64, overcommit_ratio: 4 },
+                { resource: 'memory_gib', label: 'Memory', unit: 'GiB', per_machine: 512, reserve: 512, overcommit_ratio: 1 },
+              ],
+              status: 'critical', binding_resource: 'memory_gib', utilisation_pct: 100,
+              resources_view: [vcpu, ram],
+              placements: [
+                { sku: 'ecs.m7n.2xlarge.8', class: 'guaranteed', shape: { vcpu: 8, memory_gib: 64 }, shape_source: 'seed', units: 40, resources: 1 },
+                { sku: 'ecs.m7n.2xlarge.8.burst', class: 'burstable', shape: { vcpu: 8, memory_gib: 64 }, shape_source: 'manual', units: 32, resources: 1 },
+                { sku: 'ecs.s7n.2xlarge.2', class: 'spot', shape: { vcpu: 8, memory_gib: 16 }, shape_source: 'derived', units: 4, resources: 1 },
+              ],
+              basket: {
+                items: [
+                  { sku: 'ecs.m7n.2xlarge.8', units: 1, class: 'guaranteed', shape: { vcpu: 8, memory_gib: 64 } },
+                  { sku: 'ecs.m7n.2xlarge.8.burst', units: 0.8, class: 'burstable', shape: { vcpu: 8, memory_gib: 64 } },
+                ],
+                units: 0,
+                reason: '',
+                binding_resource: 'memory_gib',
+                resources: [
+                  { resource: 'vcpu', label: 'vCPU', unit: 'vCPU', per_basket: 14.4, remaining: 768, units: 20 },
+                  { resource: 'memory_gib', label: 'Memory', unit: 'GiB', per_basket: 115.2, remaining: 0, units: 0 },
+                ],
+                unshaped_skus: [],
+              },
+              zone_unknown: true,
+              order_by_days: -45, order_by_date: '2026-07-26', order_by_resource: 'memory_gib', order_by_wall: 'soft', late: true,
+            },
           ],
         },
         {
@@ -68,40 +130,50 @@ const overview: CapacityOverview = {
           code: 'me-east-215b',
           name: '',
           is_default: false,
-          pools: [
-            pool({ id: 'pb-vcpu', zone_id: 'zb', family: 'vcpu' }),
-            pool({ id: 'pb-mem', zone_id: 'zb', family: 'memory_gib', label: 'Memory', unit: 'GiB' }),
-            pool({ id: 'pb-ssd', zone_id: 'zb', family: 'block_ssd_gib', label: 'Block SSD', unit: 'GiB', total: 1000, consumed: 180, available: 820, utilisation_pct: 18, status: 'ok', growth_per_day: 10, exhaustion_days: 82, history_days: 8 }),
-            pool({ id: 'pb-hdd', zone_id: 'zb', family: 'block_hdd_gib', label: 'Block HDD', unit: 'GiB' }),
-            pool({ id: 'pb-obj', zone_id: 'zb', family: 'object_gib', label: 'Object storage', unit: 'GiB' }),
-            pool({ id: 'pb-eip', zone_id: 'zb', family: 'eip_addresses', label: 'Elastic IPs', unit: 'addresses', consumed: 1 }),
-            pool({ id: 'pb-bw', zone_id: 'zb', family: 'bandwidth_mbps', label: 'Bandwidth', unit: 'Mbps', total: 5, consumed: 10, available: 0, utilisation_pct: 200, status: 'critical', clamped: true, overcommit: 5, growth_per_day: 0, history_days: 8 }),
+          unplaced_skus: [
+            { sku: 'eip', units: 1, reason: 'no-placement', resources: 1 },
+            { sku: 'ecs.gpu.large', units: 24, reason: 'resource-unplaced', resource: 'vcpu', resources: 3 },
           ],
-          skus: [{ sku: 'evs.ssd.gb', footprint: { block_ssd_gib: 1 }, footprint_source: 'seed', consumed_units: 180, resources: 1, headroom_units: 320, binding_family: 'cap', cap: 500 }],
+          pools: [
+            {
+              id: 'pb', zone_id: 'zb', name: 'planned-c', machines: 0, lead_time_days: 0, source: 'manual', note: '',
+              updated_by: 'ops@nc.example', updated_at: '2026-09-09T08:00:00Z',
+              resources: [{ resource: 'block_ssd_gib', label: 'Block SSD', unit: 'GiB', per_machine: 0, reserve: 0, overcommit_ratio: 1 }],
+              status: 'unset', binding_resource: '', utilisation_pct: null,
+              resources_view: [res({ resource: 'block_ssd_gib', label: 'Block SSD', unit: 'GiB', machines: 0, per_machine: 0, reserve: 0, overcommit_ratio: 1, raw: 0, usable: 0, sellable: 0, guaranteed: 0, burstable: 0, burstable_physical: 0, spot: 0, spot_physical: 0, sold_nominal: 0, remaining: 0, guaranteed_ceiling: 0, physical_used: 0, physical_free: 0, spot_room: 0, spot_reclaim: 0, sized: false, utilisation_pct: null, status: 'unset', history_days: 0 })],
+              placements: [],
+              basket: { items: [], units: null, reason: 'no resource this mix consumes is sized on this pool: enter the machines and the per-machine vector first', binding_resource: '', resources: [], unshaped_skus: [] },
+              zone_unknown: false,
+              order_by_days: null, order_by_date: null, order_by_resource: '', order_by_wall: '', late: false,
+            },
+          ],
         },
       ],
     },
   ],
-  unmapped_skus: [{ sku: 'nat.1', unit: 'hour', quantity: 1, resources: 1, regions: ['me-east-215'] }],
+  unshaped_skus: [{ sku: 'nat.1', unit: 'hour', quantity: 1, resources: 1, regions: ['me-east-215'] }],
   unmapped_regions: [{ region: 'eu-west-101', reason: 'no-region', skus: 1, quantity: 1, resources: 1 }],
-  summary: { regions: 1, zones: 2, pools: 14, pools_with_total: 4, pools_warn: 2, pools_critical: 1, pools_below_threshold: 3, skus: 6, unmapped_skus: 1 },
+  summary: {
+    regions: 1, zones: 2, pools: 2, pools_sized: 1, pools_warn: 0, pools_critical: 1, pools_past_threshold: 1,
+    pools_to_order: 1, pools_order_late: 1, placements: 3, shapes: 8, unplaced_skus: 2, unshaped_skus: 1, spot_to_reclaim: 1,
+  },
 }
 
-const footprints: SKUFootprints = {
-  footprints: [
-    { sku: 'ecs.m7n.2xlarge.8', families: { vcpu: 8, memory_gib: 64 }, source: 'seed', updated_at: '2026-09-09T00:00:00Z' },
-    { sku: 'evs.ssd.gb', families: { block_ssd_gib: 1 }, source: 'seed' },
-    { sku: 'nat.2', families: { eip_addresses: 1, bandwidth_mbps: 100 }, source: 'manual' },
+const shapes: CapacityShapes = {
+  shapes: [
+    { sku: 'ecs.m7n.2xlarge.8', resources: { vcpu: 8, memory_gib: 64 }, source: 'seed', updated_at: '2026-09-09T00:00:00Z' },
+    { sku: 'evs.ssd.gb', resources: { block_ssd_gib: 1 }, source: 'seed' },
+    { sku: 'ecs.m7n.2xlarge.8.burst', resources: { vcpu: 8, memory_gib: 64 }, source: 'manual' },
   ],
-  families: overview.families,
+  resource_kinds: overview.resource_kinds,
   unseeded_skus: ['elb', 'nat.1', 'vpc'],
 }
 
-let docs: { overview: CapacityOverview | null; footprints: SKUFootprints | null } = { overview, footprints }
+let docs: { overview: CapacityOverview | null; shapes: CapacityShapes | null } = { overview, shapes }
 
 vi.mock('../lib/useQuery', () => ({
   useQuery: (path: string | null) => {
-    const data = path === '/capacity/overview' ? docs.overview : path === '/capacity/footprints' ? docs.footprints : null
+    const data = path === '/capacity/overview' ? docs.overview : path === '/capacity/shapes' ? docs.shapes : null
     return { data, error: '', loading: false, reload: async () => {}, setData: () => {} }
   },
 }))
@@ -120,96 +192,138 @@ function render(): string {
 }
 
 describe('Capacity page', () => {
-  it('renders the KPI strip, the heatmap with thresholds, available and exhaustion per cell, and the unmapped notices for a sovereign-admin', () => {
+  it('renders the pool as a set of machines, the class split, the stranded vCPU, the walls and the order-by date', () => {
     const html = render()
-    // KPIs.
+
+    // The KPI strip: how many pools, how many are past the line, and how many
+    // orders are owed — with the late count, which is the actionable one.
     expect(html).toContain('Pools past 70 %')
-    expect(html).toContain('1 critical · 4 of 14 pools sized')
-    expect(html).toContain('SKUs without a footprint')
+    expect(html).toContain('1 of 2 sized')
+    expect(html).toContain('Orders owed')
+    expect(html).toContain('1 already past the order-by date')
     expect(html).toContain('2026-09-09 09:00Z')
     expect(html).toContain('2 cloud sources')
-    // Heatmap: both zones, every family column, the default badge.
-    expect(html).toContain('aria-label="Capacity by zone and family"')
-    expect(html).toContain('me-east-215a')
-    expect(html).toContain('me-east-215b')
-    for (const f of ['vCPU', 'Memory', 'Block SSD', 'Block HDD', 'Object storage', 'Elastic IPs', 'Bandwidth']) expect(html).toContain(`>${f}<`)
-    expect(html).toContain('badge info">default')
-    // Cells coloured by status, with the figures in them.
-    expect(html).toContain('heat warn editable')
-    expect(html).toContain('heat critical editable')
-    expect(html).toContain('heat ok editable')
-    expect(html).toContain('heat unset editable')
-    expect(html).toContain('80.0 %')
-    expect(html).toContain('<b>4</b> vCPU left of 20')
-    expect(html).toContain('runs out in 4 days')
-    expect(html).toContain('8 zone unknown')
-    expect(html).toContain('<b>820</b> GiB left of 1,000')
-    expect(html).toContain('runs out in 2.7 months')
+
+    // THE POOL IS A SET OF MACHINES, and says what one of them holds.
+    expect(html).toContain('m7n-a')
+    expect(html).toContain('10 machines')
+    expect(html).toContain('64 vCPU · 512 GiB')
+    expect(html).toContain('45 days to procure')
+    expect(html).toContain('me-east-215 / me-east-215a')
+    expect(html).toContain('batch one')
+
+    // THE BINDING RESOURCE IS NAMED, and the free vCPU behind it is reported
+    // as STRANDED rather than as headroom.
+    expect(html).toContain('Binds first')
+    expect(html).toContain('badge bad">Memory')
+    expect(html).toContain('192 vCPU stranded')
+    expect(html).toContain('because Memory ran out')
+
+    // The vector, per resource, with the ratio that produced sellable.
+    expect(html).toContain('4:1')
+    expect(html).toContain('1:1')
+    expect(html).toContain('1,344') // vCPU sellable
+    expect(html).toContain('4,608') // RAM usable and sellable
+    expect(html).toContain('sellable = guaranteed + (usable − guaranteed) × ratio')
+
+    // THE CLASS SPLIT, named — and the spot that has to be freed, with the
+    // line that says whose decision the WHICH is.
+    expect(html).toContain('Guaranteed 320')
+    expect(html).toContain('Burstable 256')
+    expect(html).toContain('Spot 32')
+    expect(html).toContain('64 GiB of spot must be freed')
+    expect(html).toContain('the platform decides which instances')
+
+    // THE ORDER-BY DATE, and the fact it has passed. Both walls are on the
+    // row so the reader can see which one drove it.
+    expect(html).toContain('2026-07-26')
+    expect(html).toContain('45 days ago')
+    expect(html).toContain('2026-08-19')
+    expect(html).toContain('21 days ago')
+    expect(html).toContain('Soft wall 2026-10-03')
+    expect(html).toContain('8 vCPU a day')
     expect(html).toContain('not growing')
-    expect(html).toContain('200.0 %')
-    expect(html).toContain('badge bad">over')
-    expect(html).toContain('no total · <b>1</b> addresses in use')
-    expect(html).toContain('click to set')
-    // Legend and the filter.
-    expect(html).toContain('70 – 85 %')
-    expect(html).toContain('aria-label="Region filter"')
-    expect(html).toContain('me-east-215 · Muscat')
-    // SKU headroom for the first zone: headroom and the binding family.
-    expect(html).toContain('SKU headroom in me-east-215a')
-    expect(html).toContain('ecs.m7n.2xlarge.8')
-    expect(html).toContain('8 vCPU · 64 GiB')
-    expect(html).toContain('badge ">vCPU')
-    expect(html).toContain('badge ">Memory')
+
+    // ONE BASKET, not a per-SKU maximum. The answer is 0 and the resource
+    // that produced it is named.
+    expect(html).toContain('How many more fit')
+    expect(html).toContain('0 more of this mix')
+    expect(html).toContain('limited by Memory')
+    expect(html).toContain('1 × ecs.m7n.2xlarge.8')
+    expect(html).toContain('0.8 × ecs.m7n.2xlarge.8.burst')
+
+    // The placements, with the class on each — the same shape at two classes
+    // is two SKUs, and the page shows exactly that.
+    expect(html).toContain('ecs.m7n.2xlarge.8.burst')
+    expect(html).toContain('badge ok">Guaranteed')
+    expect(html).toContain('badge warn">Burstable')
+    expect(html).toContain('badge info">Spot')
     expect(html).toContain('derived from the name')
-    expect(html).toContain('no family of this footprint has a total in this zone yet')
-    expect(html).toContain('aria-label="Cap a SKU"')
-    // Unmapped SKU with its one-click form; unmapped region with its one-click add.
-    expect(html).toContain('aria-label="Unmapped SKUs"')
+
+    // Usage that landed nowhere, BY NAME rather than summed away.
+    expect(html).toContain('Metered here, counted against nothing')
+    expect(html).toContain('no pool in this zone takes it')
+    expect(html).toContain('placed, but no pool it is placed on holds vCPU')
+    expect(html).toContain('SKUs with no shape')
     expect(html).toContain('nat.1')
-    expect(html).toContain('>Add footprint<')
-    expect(html).toContain('eu-west-101')
     expect(html).toContain('Add region eu-west-101')
-    // Footprints card: the seeded rows, the manual one, the unseeded list.
-    expect(html).toContain('aria-label="SKU footprints"')
+
+    // The shapes card and the editors.
+    expect(html).toContain('SKU shapes')
     expect(html).toContain('badge info">seed')
-    expect(html).toContain('badge ">manual')
-    expect(html).toContain('no per-unit footprint on the list: elb, nat.1, vpc')
-    // Regions card with its forms.
-    expect(html).toContain('aria-label="Add a region"')
-    expect(html).toContain('>Add zone<')
+    expect(html).toContain('no per-unit shape on the list: elb, nat.1, vpc')
+    expect(html).toContain('Add region')
+    expect(html).toContain('Add zone')
     expect(html).not.toContain('Read-only')
   })
 
-  it('is read-only without capacity.manage: no forms, no editable cells, the permission named', () => {
+  it('never reads ok on a pool nobody has sized, and says WHY the basket has no number', () => {
+    const html = render()
+    expect(html).toContain('planned-c')
+    // The unsized resource says it is unsized; it does not print 0 % or "ok".
+    expect(html).toContain('not sized — enter the machines and what one holds')
+    expect(html).toContain('heat unset')
+    // And the basket prints the server's reason in words, never a figure.
+    expect(html).toContain('Not measured')
+    expect(html).toContain('no resource this mix consumes is sized on this pool')
+    expect(html).toContain('Nothing is placed on this pool yet')
+  })
+
+  it('is read-only without capacity.manage: no forms, the permission named, every figure still there', () => {
     who = { email: 'fin@nc.example', role: 'finance-viewer', permissions: { sovereign: ['metering.read', 'audit.read'] }, roles: [{ role: 'finance-viewer', scope_kind: 'sovereign' }] }
     const html = render()
     expect(html).toContain('capacity.manage')
     expect(html).toContain('Read-only')
-    expect(html).not.toContain('editable')
+    expect(html).not.toContain('>Edit pool<')
     expect(html).not.toContain('aria-label="Add a region"')
-    expect(html).not.toContain('aria-label="Cap a SKU"')
-    expect(html).not.toContain('>Add footprint<')
+    expect(html).not.toContain('>Place<')
     expect(html).not.toContain('Add region eu-west-101')
-    expect(html).not.toContain('click to set')
     // Still every figure.
-    expect(html).toContain('80.0 %')
-    expect(html).toContain('runs out in 2.7 months')
-    expect(html).toContain('SKU headroom in me-east-215a')
+    expect(html).toContain('192 vCPU stranded')
+    expect(html).toContain('0 more of this mix')
+    expect(html).toContain('2026-07-26')
   })
 
-  it('explains the static-first model when no region exists', () => {
+  it('explains what a pool is when no region exists', () => {
     who = { email: 'ops@nc.example', role: 'operator', permissions: { sovereign: ['metering.read', 'capacity.manage'] }, roles: [{ role: 'sovereign-admin', scope_kind: 'sovereign' }] }
     docs = {
-      overview: { ...overview, as_of: null, sources: 0, regions: [], unmapped_skus: [], unmapped_regions: [], summary: { regions: 0, zones: 0, pools: 0, pools_with_total: 0, pools_warn: 0, pools_critical: 0, pools_below_threshold: 0, skus: 6, unmapped_skus: 0 } },
-      footprints,
+      overview: {
+        ...overview,
+        as_of: null,
+        sources: 0,
+        regions: [],
+        unshaped_skus: [],
+        unmapped_regions: [],
+        summary: { ...overview.summary, regions: 0, zones: 0, pools: 0, pools_sized: 0, pools_critical: 0, pools_past_threshold: 0, pools_to_order: 0, pools_order_late: 0, unplaced_skus: 0, unshaped_skus: 0, spot_to_reclaim: 0 },
+      },
+      shapes,
     }
     const html = render()
     expect(html).toContain('No regions yet')
-    expect(html).toContain('static-first')
-    expect(html).toContain('capacity collector')
-    expect(html).toContain('aria-label="Add a region"')
+    expect(html).toContain('a POOL for each set of identical machines')
+    expect(html).toContain('aria-label="Add region"')
     expect(html).toContain('no cloud usage metered yet')
-    expect(html).not.toContain('aria-label="Capacity by zone and family"')
-    expect(html).toContain('6 SKUs carry a footprint')
+    expect(html).toContain('no pool is growing towards a wall yet')
+    expect(html).not.toContain('m7n-a')
   })
 })

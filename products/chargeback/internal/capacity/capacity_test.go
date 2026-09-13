@@ -45,13 +45,13 @@ func TestParseECSFlavor(t *testing.T) {
 // Derive covers exactly the unambiguous shapes; a platform meter and a
 // storage SKU whose class is not in its name derive nothing (the control).
 func TestDerive(t *testing.T) {
-	cases := map[string]Footprint{
-		"ecs.m7n.2xlarge.8":  {FamilyVCPU: "8", FamilyMemoryGiB: "64"},
-		"ECS.S6.Large.2":     {FamilyVCPU: "2", FamilyMemoryGiB: "4"},
-		"evs.ssd.gb":         {FamilyBlockSSD: "1"},
-		"evs.hdd.gb":         {FamilyBlockHDD: "1"},
-		"eip":                {FamilyEIP: "1"},
-		"eip.bandwidth_mbps": {FamilyBandwidth: "1"},
+	cases := map[string]Shape{
+		"ecs.m7n.2xlarge.8":  {ResourceVCPU: "8", ResourceMemoryGiB: "64"},
+		"ECS.S6.Large.2":     {ResourceVCPU: "2", ResourceMemoryGiB: "4"},
+		"evs.ssd.gb":         {ResourceBlockSSD: "1"},
+		"evs.hdd.gb":         {ResourceBlockHDD: "1"},
+		"eip":                {ResourceEIP: "1"},
+		"eip.bandwidth_mbps": {ResourceBandwidth: "1"},
 		"ecs.unknown":        nil,
 		"ecs.cpu_util":       nil,
 		"k8s.vcpu":           nil, // platform meter: runs on instances the ecs.* SKUs already count
@@ -84,41 +84,66 @@ func TestSeedCoversNationalCloudList(t *testing.T) {
 		t.Fatalf("SeedSKUs = %v, want the National Cloud list %v", SeedSKUs, want)
 	}
 	rows := Seed()
-	// 3 ECS × 2 families + evs.ssd.gb + eip + eip.bandwidth_mbps = 9 rows.
+	// 3 ECS × 2 resources + evs.ssd.gb + eip + eip.bandwidth_mbps = 9 rows.
 	if len(rows) != 9 {
 		t.Fatalf("Seed() = %d rows, want 9: %+v", len(rows), rows)
 	}
-	if rows[0] != (SeedRow{SKU: "ecs.m7n.xlarge.8", Family: FamilyVCPU, Amount: "4"}) || rows[1] != (SeedRow{SKU: "ecs.m7n.xlarge.8", Family: FamilyMemoryGiB, Amount: "32"}) {
+	if rows[0] != (SeedRow{SKU: "ecs.m7n.xlarge.8", Resource: ResourceVCPU, Amount: "4"}) || rows[1] != (SeedRow{SKU: "ecs.m7n.xlarge.8", Resource: ResourceMemoryGiB, Amount: "32"}) {
 		t.Fatalf("first rows = %+v", rows[:2])
 	}
-	for _, r := range rows {
-		if !ValidFamily(r.Family) {
-			t.Fatalf("seed row %+v has an unknown family", r)
-		}
-	}
-	// 6 of 9 SKUs mapped; elb, nat.1 and vpc have no per-unit footprint.
+	// 6 of 9 SKUs mapped; elb, nat.1 and vpc have no per-unit shape.
 	if got := Unseeded(); !reflect.DeepEqual(got, []string{"elb", "nat.1", "vpc"}) {
 		t.Fatalf("Unseeded() = %v", got)
 	}
 }
 
-func TestFamiliesAndStatus(t *testing.T) {
-	if len(Families) != 7 || len(FamilyKeys()) != 7 {
-		t.Fatalf("Families = %v", Families)
+// Resource kinds are DATA: the seeds carry labels and units, and a key
+// nobody seeded is still a resource — it simply reads as its own name. There
+// is no ValidResource, by design: a fixed list is what stopped two vCPU pools
+// coexisting in one zone.
+func TestResourceKindsAreDataNotAnEnum(t *testing.T) {
+	if len(SeedResourceKinds) != 7 {
+		t.Fatalf("SeedResourceKinds = %+v", SeedResourceKinds)
 	}
-	for _, f := range Families {
-		if !ValidFamily(f.Key) || f.Label == "" || f.Unit == "" {
-			t.Fatalf("family %+v", f)
+	for _, k := range SeedResourceKinds {
+		if k.Key == "" || k.Label == "" || k.Unit == "" || k.Position == 0 {
+			t.Fatalf("seeded kind %+v is incomplete", k)
 		}
 	}
-	if ValidFamily("gpu") {
-		t.Fatal("gpu is not a family")
+	gpu := KindOf("gpu_cards")
+	if gpu.Key != "gpu_cards" || gpu.Label != "gpu_cards" || gpu.Position != 1000 {
+		t.Fatalf("an unseeded kind must still be a kind: %+v", gpu)
+	}
+	// Ordering: seeded kinds in their order, everything else after, by key.
+	keys := []string{"gpu_cards", "memory_gib", "accel", "vcpu"}
+	SortResources(keys)
+	if !reflect.DeepEqual(keys, []string{"vcpu", "memory_gib", "accel", "gpu_cards"}) {
+		t.Fatalf("SortResources = %v", keys)
+	}
+	if NormResource("  VCPU ") != "vcpu" {
+		t.Fatal("resource keys are compared lower-cased and trimmed")
+	}
+}
+
+func TestClassesAndStatus(t *testing.T) {
+	if len(Classes) != 3 || !reflect.DeepEqual(ClassKeys(), []string{ClassGuaranteed, ClassBurstable, ClassSpot}) {
+		t.Fatalf("Classes = %+v", Classes)
+	}
+	for _, c := range Classes {
+		if !ValidClass(c.Key) || c.Label == "" || c.Note == "" {
+			t.Fatalf("class %+v", c)
+		}
+	}
+	if ValidClass("reserved") || ValidClass("") {
+		t.Fatal("only the three classes are classes")
 	}
 	cases := []struct {
-		pct      float64
-		hasTotal bool
-		want     string
+		pct   float64
+		sized bool
+		want  string
 	}{
+		// An UNSIZED resource never reads ok, at any percentage: a figure
+		// read from a structurally empty field would render as good news.
 		{0, false, StatusUnset},
 		{99, false, StatusUnset},
 		{0, true, StatusOK},
@@ -129,8 +154,17 @@ func TestFamiliesAndStatus(t *testing.T) {
 		{140, true, StatusCritical},
 	}
 	for _, c := range cases {
-		if got := Status(c.pct, c.hasTotal); got != c.want {
-			t.Errorf("Status(%v, %v) = %s, want %s", c.pct, c.hasTotal, got, c.want)
+		if got := Status(c.pct, c.sized); got != c.want {
+			t.Errorf("Status(%v, %v) = %s, want %s", c.pct, c.sized, got, c.want)
 		}
+	}
+	if WorstStatus(nil) != StatusUnset {
+		t.Fatal("a pool with no resource is unset")
+	}
+	if got := WorstStatus([]string{StatusOK, StatusCritical, StatusWarn, StatusUnset}); got != StatusCritical {
+		t.Fatalf("WorstStatus = %s", got)
+	}
+	if got := WorstStatus([]string{StatusUnset, StatusOK}); got != StatusOK {
+		t.Fatalf("WorstStatus = %s", got)
 	}
 }

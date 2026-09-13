@@ -2028,164 +2028,281 @@ proves the backfill, the view, the widened sessions CHECK and the unique
 indexes. `internal/adapter/openova/orgsync_access_test.go` proves the sync
 grants the owner binding once and never revokes.
 
-## 11. Capacity — regions, zones, pools and SKU footprints (founder requirement 2026-09-11)
+## 11. Capacity — pools of machines, shapes, placements and the order-by date (founder direction 2026-09-13)
 
-The founder's requirement, verbatim: *"capacity management for the underlying
-regions — overall capacity information of underlying AZs and regions as well
-for each SKU; initially static, the admin defines the capacity; later from
-integrations"*. The module answers three questions for a sovereign-admin: how
-much of each kind of capacity does each availability zone hold; how much of it
-is in use right now; and how many more of a given SKU could still be sold in
-that zone before something runs out — and when, at the present rate, it will.
+The founder's original requirement, verbatim: *"capacity management for the
+underlying regions — overall capacity information of underlying AZs and
+regions as well for each SKU; initially static, the admin defines the
+capacity; later from integrations"*. The first cut of this module answered it
+with one pool per (zone, family) over a fixed seven-family list, a per-SKU
+headroom column and a `sku_caps` table. That shipped, ran on hw307, and was
+**wrong in three ways** — each of which is why the model below looks nothing
+like it.
 
-### 11.1 The model
+**1. A pool is a set of identical machines, and its capacity is a VECTOR, not
+a number.** vCPU and RAM in the same server are not independently sellable.
+Separate vCPU and RAM pools let the product "sell" vCPU with no RAM behind it.
+Founder, verbatim: *"supply is not just simply vcpu… you may have m7n demand
+pool fullfiled by a specifc server type and s7n wiht another server tyoe, so
+their pools are edifferetn"*.
+
+**2. Several pools of the SAME resource kind must coexist in one zone** —
+`m7n-a` and `m7n-b`, different batches or different server types. `UNIQUE
+(zone_id, family)` forbade exactly that, which is why resource kinds are now
+**data** and never a CHECK constraint.
+
+**3. Per-SKU headroom was a wrong answer, not a missing feature.** "50 L fit"
+and "200 S fit" printed side by side are mutually exclusive: each silently
+assumes the others sell zero. Founder: *"it can be consume with 50 L size or
+60 small + 40 medium"*. Free room is now ONE basket headroom over a named mix,
+with the binding resource.
+
+### 11.1 The model — three stored things
 
 ```
-capacity_regions  ─┬─ capacity_zones (one is_default per region) ─┬─ capacity_pools, one per family
-                   │                                              ├─ sku_caps (optional direct ceiling per SKU)
-                   │                                              └─ (consumption lands here, see 11.2)
-                   └─ code = usage_records.region, e.g. me-east-215
-sku_footprints    how much of each family ONE unit of a SKU consumes
-capacity_pool_history   every total ever entered, by whom, with the note
+capacity_regions ─ capacity_zones (one is_default per region) ─ capacity_pools
+                                                                  │
+capacity_resource_kinds  label + unit only; NO constraint          ├─ capacity_pool_resources
+sku_shapes               (sku, resource, amount_per_unit)          └─ capacity_placements
+capacity_pool_history    every size ever entered, per resource, by whom
 ```
 
-**Families** (`internal/capacity.Families`) are the seven pooled kinds a zone
-is measured in: `vcpu`, `memory_gib`, `block_ssd_gib`, `block_hdd_gib`,
-`object_gib`, `eip_addresses`, `bandwidth_mbps`. The list is the CHECK
-constraint on `capacity_pools.family` and `sku_footprints.family`, generated
-from the Go list so the two cannot drift.
+**POOL** — a named set of identical machines in a zone: `machines`, a
+**per-machine vector** of resources, and per resource a `reserve` and an
+`overcommit_ratio`, plus a `lead_time_days`.
 
-**Static first.** A pool's `total` is what the sovereign-admin types, with a
-note, under `capacity.manage`; `source` reads `manual`. Every change writes
-`capacity_pool_history` and an audit entry `capacity.pool` with the previous
-and new total. A capacity collector — the integration the requirement defers —
-plugs into exactly this shape later: it writes the same pools with its own
-`source`, and nothing downstream changes. Until it exists a pool without a
-total reads `status: unset`, never `ok`, so an empty page is honest about
-what has not been entered. **Reserved** is carried at 0, column and wire key
-present, for proposals and plans to fill.
+*Machines × a per-machine vector, not a raw total vector,* and deliberately:
+it is what a pool IS. "Add two servers" is then a change to ONE field and
+every resource moves together, which is the honest behaviour — you cannot buy
+vCPU without the RAM in the same chassis. A raw total would let the two drift
+apart silently, which is precisely the defect the family pools had.
 
-**Footprints.** `sku_footprints(sku, family, amount)` says how much of each
-family one unit of the SKU consumes: `ecs.m7n.2xlarge.8` → `vcpu 8,
-memory_gib 64`; `evs.ssd.gb` → `block_ssd_gib 1`; `eip` → `eip_addresses 1`;
-`eip.bandwidth_mbps` → `bandwidth_mbps 1`. The migration seeds the SKUs of the
-National Cloud list price book whose footprint the name states —
-`capacity.Seed()`, pinned equal to `synth.NationalCloudRates` — six of its
-nine SKUs (`elb`, `nat.1`, `vpc` have no per-unit footprint in any family and
-are reported as such). At read time a metered SKU with no row takes what its
-name implies (`capacity.Derive`, source `derived`): an ECS flavour
-`<family>.<size>.<ratio>` is `size` vCPU (small/medium 1, large 2, xlarge 4,
-Nxlarge 4N) and vCPU × ratio GiB — the convention the ECS lister's
-`vcpus`/`ram_mb` attributes and the list-price descriptions both follow.
-Platform meters (`k8s.*`, `plan.*`) derive nothing: they run on the cloud's
-instances, which the `ecs.*` SKUs already count, and deriving them too would
-consume the same vCPU twice. A SKU whose storage class is not in its name
-(`rds.storage.ha.gb`, `cbr.gb`, `ims.gb`) derives nothing and is listed as
-unmapped until the operator writes its footprint. A stored row always wins
-over derivation.
+`reserve` is redundancy and maintenance headroom in the resource's own units;
+N+1 is one machine's worth, and the editor has a one-click button for it.
+`overcommit_ratio` is **per (pool, resource) and never global**: vCPU may run
+4:1 while the RAM in the same machines runs 1:1, or 1.5:1 with ballooning.
 
-### 11.2 Derivations — consumed, available, headroom, exhaustion
+**SHAPE** — a SKU's vector: `(sku, resource, amount_per_unit)`. It replaces
+`sku_footprints`, renamed in place so every row an operator entered survives.
+Derivation from the flavour name (`capacity.Derive`) **stays, and earns its
+place harder than before**: a Sovereign meters whatever flavours its customers
+run, and under the pool model an unshaped SKU cannot be PLACED either, so it
+would vanish from the pool it is genuinely running on. Derived, it shows up as
+an unplaced SKU *that has a shape*, which the console asks the operator to
+place — visible, rather than nothing at all.
 
-Nothing about consumption is entered. It is the usage ledger this product
-already keeps (§2), read one way:
+**PLACEMENT** — `(sku, pool, class)`, class one of `guaranteed` | `burstable`
+| `spot`. **The class lives here, not on the SKU**: the same shape sold
+guaranteed and sold spot is two SKUs at two prices, both placed on the same
+pool. Two things are validated, because both would otherwise read as a silent
+zero: the shape must name at least one resource the pool holds, and a SKU
+carries ONE class across all its placements (a SKU is one product at one
+price).
 
-- **Current hour.** For every cloud-layer source that is not disabled, its
-  latest metered hour before the current one (`window_start < date_trunc(hour,
-  now)`). Per source rather than one global hour, so a collector that lags a
-  few hours still contributes its last fact instead of reading as zero;
-  `as_of` is the newest of those hours, `lagging_sources` counts sources more
-  than six hours behind it. Sampled measurements (`ecs.cpu_util`,
-  `eip.traffic_gb.observed`) are excluded exactly as rating excludes them.
-- **Region** is `usage_records.region`, matched to `capacity_regions.code`.
-  Usage in a region the admin has not added — or has added without a zone —
-  is `unmapped_regions[]` with the reason.
-- **Zone** is the inventory row's `availability_zone` (or `az`) attribute
-  when present, matched to `capacity_zones.code` within the region; otherwise
-  the region's **default zone**, and that share is reported on the pool as
-  `zone_unknown`. (The Huawei ECS lister does not yet record the zone; when it
-  does, attribution sharpens with no change here.)
-- **Consumed** per (zone, family) = Σ over SKUs of quantity × footprint, in
-  exact rationals; a SKU with no footprint contributes to no pool and is
-  listed once under `unmapped_skus[]` with its quantity, resources and regions.
-- **Available** = total − reserved − consumed, never below 0: when the
-  arithmetic goes negative the pool reads `available 0`, `clamped true`,
-  `overcommit` = the shortfall. **Utilisation** = (consumed + reserved) ÷
-  total, null without a total. **Status** is `unset` (no total), `ok`, `warn`
-  (≥ 70 %) or `critical` (≥ 85 %); the thresholds ride on the document.
-- **Headroom per SKU, per zone** = min over the SKU's families of
-  ⌊available ÷ footprint⌋, over the families that have a total — a family the
-  admin has not sized carries no information and is skipped; when none has a
-  total the headroom is null. The family that produced the minimum is the
-  `binding_family`. A direct `sku_caps` row (units of the SKU) bounds it
-  further: ⌊cap − consumed units⌋, binding as `cap` when it is the lower one.
-- **Time to exhaustion per pool** = available ÷ growth per day, where growth
-  is the least-squares trend over the last seven complete days of consumed
-  (each day's value: the sources' last metered hour of that day) — the
-  explorer's own run-rate arithmetic, `rating.RunRate`, the trend
-  `ForecastMonth` projects with. The store cannot import `rating` (which
-  imports `store`), so the API supplies the function
+**Resource kinds are DATA.** `capacity_resource_kinds` carries a label, a unit
+and a display position — a description, never a constraint. There is no CHECK
+on any resource key anywhere: a fixed list is what stopped two vCPU pools
+coexisting. A pool that declares `gpu_cards` gets a catalogue row with the key
+as its label, and the operator can name it later.
+
+### 11.2 The arithmetic — the whole module
+
+Per pool, per resource, in exact rationals (`internal/capacity/arithmetic.go`):
+
+```
+raw      = machines × per_machine
+usable   = raw − reserve
+G        = Σ guaranteed placements' consumption, AT 1:1, ALWAYS
+sellable = G + (usable − G) × ratio
+```
+
+**It is NOT `usable × ratio − G`.** Guaranteed capacity consumes PHYSICAL
+capacity; only what physically remains is multiplied. Every guaranteed unit
+sold therefore removes `ratio ×` worth of oversubscribed room, which is what
+makes the guarantee real rather than a label.
+`TestSellableIsNotUsableTimesRatioMinusG` pins the two apart on a pool where
+they differ (1,344 against 1,984).
+
+- **Admission.** A guaranteed order is accepted only if it fits `usable` at
+  1:1 (`GuaranteedCeiling`): never sell a guaranteed unit that is not
+  physically backed. A burstable order is accepted while `G + B` is within
+  `sellable`.
+- **Spot is EXCLUDED from admission accounting on both sides.** It holds no
+  reservation, so it appears neither in `G` nor in the nominal sold, and a
+  guaranteed or burstable order is never refused on account of it. Its own
+  room is `physical_free × ratio`, and when that shrinks the excess is
+  `spot_reclaim`. **This product decides HOW MUCH must be freed; the platform
+  decides WHICH instances** — the requirement is recorded, no eviction is
+  implemented.
+- **The binding resource** is the one whose remaining room is smallest **as a
+  fraction of what it could sell**: 768 vCPU and 0 GiB is not a comparison of
+  numbers. It is reported by name, and it is the main procurement signal — a
+  pool can be RAM-bound with a third of its vCPU `stranded` and unsellable,
+  and that case must render correctly rather than average away.
+- **Headroom for a basket.** The operator names a mix (default: the mix
+  currently selling, scaled so its largest line is one unit) and gets how many
+  MORE of that basket fit, with the binding resource. **No independent per-SKU
+  maxima.** Per resource, with `g`, `b`, `s` the basket's per-basket demand by
+  class: `k ≤ Remaining / (b + g·ratio)`, and for a spot line
+  `k ≤ (SpotRoom − S)/s`.
+
+One identity collapses the arithmetic: `Remaining = sellable − (G + B) =
+physical_free × ratio`. The nominal envelope and the physical hardware run out
+at the same instant, which is why a basket's fit needs one division and why
+the soft wall is also the moment the hardware is fully committed.
+
+### 11.3 Trend, the two walls, and the date that matters
+
+Founder: *"trend analysis reporting view is one of the key points"*.
+
+Per pool, per resource, **split by class** — a blended line hides which class
+is moving, and guaranteed growth (a hardware order) means something completely
+different from spot growth (a reclaim):
+
+- **consumption history by class**: the last hour of each complete day before
+  the measured one, per class.
+- **projection per class**: the explorer's own run-rate arithmetic,
+  `rating.RunRate`'s least-squares trend. The store cannot import `rating`
+  (which imports `store`), so the API supplies the function
   (`api.capacityGrowth`) and `TestCapacityGrowthIsTheRunRateTrend` pins it to
-  `RunRate`; there is no second run rate. Null when consumption is not
-  growing, when the history is shorter than three days, or when the pool has
-  no total. The daily series rides on the pool as `series[]`.
+  `RunRate`; there is no second run rate.
+- **soft wall** — the projected total reaches `sellable`: spot starts being
+  reclaimed and burstable starts throttling.
+  `t = Remaining / (b + g·ratio)`. Guaranteed growth pulls it in *faster than
+  its own size*, because each guaranteed unit removes `ratio ×` of the
+  envelope.
+- **hard wall** — projected guaranteed alone reaches `usable`. Buy hardware;
+  no policy avoids it. `t = GuaranteedCeiling / g`.
+- **order-by date = the nearer wall − `lead_time_days`.** This is the date
+  that matters. An alert keyed on the wall itself fires too late by
+  construction, by exactly the time it takes to procure. It is surfaced as a
+  date, per resource and per pool, and a NEGATIVE one renders as "45 days ago"
+  rather than as a dash — that is the only reading that requires action today.
 
-Every quantity on the wire is an exact Postgres numeric rendered as a JSON
-number; only the ratios (utilisation, growth, exhaustion) are floats, because
-they are estimates and have no exact form.
+A wall beyond a century is reported as none: "runs out in 4,000 years" is
+arithmetic, not a plan.
 
-### 11.3 API (`/api/v1`, DESIGN.md §10.8 for the gates)
+### 11.4 API (`/api/v1`, DESIGN.md §10.8 for the gates)
 
 | Method and path | Body / answer |
 |---|---|
-| `GET /capacity/overview[?region=<code>]` | `{as_of, sources, lagging_sources, thresholds{warn_pct, critical_pct}, families[], regions[{id, code, name, cloud_source_kind, zones[{id, code, name, is_default, pools[{…pool, label, unit, consumed, available, utilisation_pct, status, clamped, overcommit, zone_unknown, growth_per_day, exhaustion_days, history_days, series[]}], skus[{sku, footprint, footprint_source, consumed_units, resources, headroom_units, binding_family, cap}]}]}], unmapped_skus[], unmapped_regions[], summary{regions, zones, pools, pools_with_total, pools_warn, pools_critical, pools_below_threshold, skus, unmapped_skus}}` |
-| `GET /capacity/regions` | `{regions[{…, zones[]}]}` |
-| `POST /capacity/regions` | `{code, name, cloud_source_kind?}` → 201 the region; 409 on a duplicate code |
-| `DELETE /capacity/regions/{id}` | cascades zones, pools, history, caps |
-| `POST /capacity/regions/{id}/zones` | `{code, name, default?}` → 201 the zone with its seven pools at 0; the first zone is the default |
+| `GET /capacity/overview[?region=<code>]` | `{as_of, sources, lagging_sources, thresholds, classes[], resource_kinds[], regions[{…, zones[{…, pools[{…pool, status, binding_resource, utilisation_pct, resources_view[], placements[], basket, zone_unknown, order_by_*}], unplaced_skus[]}]}], unshaped_skus[], unmapped_regions[], summary{…}}` |
+| `GET /capacity/regions` · `POST /capacity/regions` · `DELETE /capacity/regions/{id}` | as before |
+| `POST /capacity/regions/{id}/zones` | `{code, name, default?}` → 201. **It creates NO pools**: a pool is machines somebody bought |
 | `DELETE /capacity/zones/{id}` | the oldest remaining zone becomes default |
-| `GET /capacity/zones/{id}/pools` | `{zone, pools[], history{pool_id: [changes]}, families[]}` |
-| `PUT /capacity/pools/{id}` | `{total, note}` → the pool; audited `capacity.pool` with `from` / `to` |
-| `GET /capacity/footprints` | `{footprints[{sku, families{family: amount}, source, updated_at}], families[], unseeded_skus[]}` |
-| `PUT /capacity/footprints/{sku}` | `{families: {family: amount}}` — PUT semantics: absent or 0 removes a family, `{}` removes the footprint; 400 names an unknown family |
-| `GET /capacity/caps` · `PUT /capacity/caps` | `{zone_id, sku, total}`; `total: null` removes the cap |
+| `GET /capacity/zones/{id}/pools` | `{zone, pools[], history{pool_id: [changes]}, resource_kinds[], classes[]}` |
+| `POST /capacity/zones/{id}/pools` · `PUT /capacity/pools/{id}` | `{name, machines, lead_time_days, note, resources[{resource, per_machine, reserve, overcommit_ratio}]}`; audited `capacity.pool` with the whole vector `from` / `to` |
+| `DELETE /capacity/pools/{id}` | takes its resources, placements and history |
+| `GET /capacity/pools/{id}/headroom?basket=sku:units,…` | `{pool, basket}` — how many more of a named mix fit; without a basket, the mix currently selling |
+| `GET /capacity/shapes` · `PUT /capacity/shapes/{sku}` | `{resources: {resource: amount}}` — PUT semantics; `{}` removes |
+| `GET /capacity/placements` · `PUT /capacity/placements` | `{pool_id, sku, class}`; `class: null` removes |
+| `GET /capacity/resources` · `PUT /capacity/resources/{resource}` | `{label, unit}` — names a kind; it never gates one |
 
 Reads need `metering.read` at the Sovereign — a customer principal is 403,
 not a filtered view: capacity is the operator's picture of the cloud, never a
 customer's bill. Writes need `capacity.manage` (`sovereign-admin`,
-`billing-operator`); every write is audited as `capacity.region` /
-`capacity.zone` / `capacity.pool` / `capacity.footprint` / `capacity.cap`.
+`billing-operator`); every write is audited as `capacity.region` / `.zone` /
+`.pool` / `.shape` / `.placement` / `.resource`.
 
-### 11.4 The console — Plan → Capacity
+### 11.5 What a zone could not attribute, by name
 
-A new menu group **Plan** holds **Capacity**. The page: a KPI strip (regions,
-zones, pools past the 70 % line, SKUs without a footprint, as-of hour); a
-heatmap table per zone × family — utilisation coloured at 70 / 85 %, the
-available amount and the time to exhaustion in each cell, an inline editor for
-the total with its note where the principal holds `capacity.manage`; a SKU
-headroom table per zone with the binding family; the footprints editor; and an
-"unmapped SKUs" notice with a one-click footprint form. The empty state
-explains the static-first model: add the region and its zones, enter totals,
-and a capacity collector fills them later. `ui/src/lib/capacity.ts` carries
-the threshold colouring and the headroom arithmetic the page renders with,
-pinned by vitest against the same figures the Go tests derive.
+A SKU counted against nothing reads as spare capacity, so nothing is summed
+away:
 
-### 11.5 Tests
+- **`unshaped_skus[]`** — metered, but no shape stored or derived says what it
+  consumes.
+- **`unplaced_skus[]`** per zone — it has a shape, and either no pool there
+  takes it (`no-placement`) or no pool it is placed on holds one of the
+  resources it consumes (`resource-unplaced`, with the resource named).
+- **`unmapped_regions[]`** — usage in a region the operator has not added, or
+  has added without a zone.
+- **`zone_unknown`** on a pool — some of its consumption arrived with no
+  availability zone on the inventory row and landed in the default zone.
 
-`internal/capacity/capacity_test.go` pins the flavour convention, `Derive`
-(with the platform-meter and storage-class controls) and the seed against the
-National Cloud list. `internal/store/capacity_integration_test.go` derives
-consumption from seeded records: known-zone and unknown-zone instances, a
-volume growing 10 GB a day (82.0 days to exhaustion against 1000 GiB), a
-bandwidth reservation past its total (clamped, overcommit, critical), an
-address with no total (unset), a SKU without a footprint (unmapped, counts
-against no pool), a metric sample and a platform meter (neither counts), an
-unconfigured region, headroom with the binding family and the cap, region
-filtering, history, and the default-zone hand-over on delete.
-`internal/api/capacity_integration_test.go` proves the permissions (viewer
-reads, 403 naming `capacity.manage` on writes; customer 403 naming
-`metering.read` at the Sovereign), the overview's keys, and the audit rows
-of every write; `internal/api/authz_roles_test.go` proves the refusals
-against a nil store.
+When a SKU is placed on SEVERAL pools that hold the same resource, its
+consumption of that resource is split **in proportion to each pool's usable
+amount of it**. This product does not know which machine an instance landed on
+— the platform decides that, exactly as it decides which spot instance to
+reclaim — and pool size is the only weighting the operator's own data
+supports. With one placement, the ordinary case, the share is 1 and the
+attribution is exact.
+
+### 11.6 Migration — this module is live on hw307
+
+`capacityPoolsMigrationSQL` ALTERs, never recreates:
+
+- **Pool IDs survive**, so every `capacity_pool_history` row still points at
+  its pool.
+- **A per-(zone, family) row becomes a single-resource pool named for its
+  family**, which is exactly what it was: `machines 1`, `per_machine` = the
+  total the operator entered, `reserve` = what was reserved, `ratio 1` (the
+  old model had no oversubscription, so everything it counted was guaranteed
+  at 1:1). Raw is unchanged to the last decimal.
+- **Pools nobody ever sized are deleted** — `CreateCapacityZone` made seven
+  per zone whether or not an operator wanted them, and a row at total 0 with
+  no reserve, no note and no history carries nothing to lose.
+- **History is kept and widened**: each row gains the resource it was about
+  and the machines / per_machine / reserve / ratio behind its total.
+- **Placements are seeded from the stored shapes**: every SKU whose shape
+  names a migrated pool's resource is placed on it as `guaranteed`, which
+  reproduces the old attribution exactly, so no zone reads empty afterwards.
+- **`sku_footprints` → `sku_shapes`**, renamed in place with its family enum
+  dropped.
+- **`sku_caps` is RETIRED**, every row copied into the audit trail first as
+  `capacity.cap` / `op: retired` with the reason. A per-SKU ceiling is
+  capacity expressed a second time and **it does not compose**: two flavours
+  sharing the same machines carried independent caps that never deducted from
+  each other, so the caps could exceed the hardware twice over and nothing
+  noticed. An operator can read back what they had entered and place the SKU
+  on a pool instead.
+
+The FIRST capacity migration is frozen verbatim in
+`internal/store/capacity_legacy_migration.go` with its constants copied beside
+it. It used to be generated from `internal/capacity`'s live family list, which
+meant editing that list silently rewrote a migration other databases had
+already applied — a fresh database and hw307 would then have diverged, and the
+ALTERs above would be running against two different schemas.
+
+### 11.7 The console — Plan → Capacity
+
+One card per pool: its machine count and per-machine vector, the **binding
+resource named**, and per resource the usable / ratio / sellable figures, the
+**class split** (with the spot that must be freed and the line saying whose
+decision the WHICH is), what is left — flagged **stranded** when another
+resource binds — the per-class trend with a sparkline, and the **order-by
+date** with the wall that drove it. Under it, the basket headroom with an
+editable mix, and the placements with their class. Then the unplaced and
+unshaped SKUs by name, the regions and zones, and the shapes editor.
+
+The honest-empty-state discipline is unchanged and extended: `unset` never
+reads as `ok`, a basket that could not be measured prints its REASON rather
+than a number, and a negative order-by renders as "45 days ago". New strings
+go through the locale seam (`src/i18n`) as `capacity.*` catalogue keys.
+
+### 11.8 Tests
+
+`internal/capacity/arithmetic_test.go` pins the formula on the founder's two
+worked cases — 10 × 64 vCPU / 512 GiB with N+1 held back, 40 guaranteed and 32
+burstable m7n.2xlarge: **RAM binds, the pool is full, 192 physical vCPU are
+stranded**; and the same pool at 1,024 GiB with RAM ballooning 1.5:1, where
+**vCPU binds instead** — the binding resource moves with the ratios. Plus
+`sellable ≠ usable × ratio − G`, spot excluded from admission on both sides,
+the fractional binding rule, a basket that reports nothing rather than 0, and
+the two walls with the order-by date.
+
+`internal/store/capacity_integration_test.go` derives all of it end to end
+from metered usage, with every control: an unshaped SKU, a SKU no pool takes,
+a resource of a placed SKU no pool holds, a resource kind nobody seeded, two
+pools of the same kind splitting by size, a metric that is not a meter, the
+platform layer, and an unconfigured region.
+`internal/store/capacity_migration_integration_test.go` stands a database at
+the pre-rewrite shape and proves the entered totals, the history and the
+attribution survive and that the cap is in the audit trail.
+`internal/api/capacity_integration_test.go` proves the permissions, the wire
+shape, the basket endpoint and the audit rows.
+`ui/src/lib/capacity.test.ts` and `ui/src/pages/Capacity.render.test.tsx` pin
+the rendered page against the same figures.
+
 ---
 
 ## 12. Public cost calculator (founder requirement 2026-09-11)

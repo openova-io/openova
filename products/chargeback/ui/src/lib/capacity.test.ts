@@ -1,12 +1,68 @@
 import { describe, expect, it } from 'vitest'
-import type { CapacityOverview } from '../api/types'
-import { asOfLabel, familyDef, footprintSummary, formatAmount, formatExhaustion, formatUtilisation, hasTotal, headroom, heatClass, parseFootprintForm, parseTotal, utilisationStatus, zoneRows } from './capacity'
+import type { CapacityBasket, CapacityOverview, CapacityPoolView, CapacityResourceKind } from '../api/types'
+import {
+  asOfLabel,
+  basketAnswer,
+  basketQuery,
+  basketSummary,
+  bindingOf,
+  classLabel,
+  formatAmount,
+  formatDays,
+  formatRatio,
+  formatUtilisation,
+  heatClass,
+  isSized,
+  kindOf,
+  parseBasketQuery,
+  parsePoolForm,
+  parseShapeForm,
+  poolRows,
+  reserveForMachines,
+  shapeSummary,
+  sortedResourceKeys,
+  sparkPath,
+  utilisationStatus,
+  vectorSummary,
+  zoneRows,
+} from './capacity'
 
-// The threshold colouring is the server's rule (capacity.Status): unset
-// without a total, warn from 70 %, critical from 85 %, and the boundaries
-// belong to the higher class.
-describe('utilisation thresholds', () => {
-  it('classifies the boundaries like the server', () => {
+/**
+ * The display arithmetic of Plan → Capacity (DESIGN.md §11), pinned against
+ * the same figures the Go tests derive.
+ *
+ * The property that runs through all of it: A FIGURE READ FROM A FIELD THAT
+ * IS STRUCTURALLY EMPTY MUST NEVER RENDER AS GOOD NEWS. An unsized pool is
+ * `unset`, not `ok`; a basket with nothing measurable returns its reason, not
+ * a number; a negative order-by is "21 days ago", not "—" and not 0.
+ */
+
+const kinds: CapacityResourceKind[] = [
+  { resource: 'vcpu', label: 'vCPU', unit: 'vCPU', position: 10 },
+  { resource: 'memory_gib', label: 'Memory', unit: 'GiB', position: 20 },
+  { resource: 'gpu_cards', label: 'GPU cards', unit: 'cards', position: 1000 },
+]
+
+describe('resource kinds are data, not an enum', () => {
+  it('reads a kind from the server, falls back to the built-ins, and still answers for a key nobody named', () => {
+    expect(kindOf('vcpu', kinds).label).toBe('vCPU')
+    expect(kindOf('block_ssd_gib', kinds).unit).toBe('GiB') // built-in fallback
+    expect(kindOf('fpga_slots', kinds)).toEqual({ resource: 'fpga_slots', label: 'fpga_slots', unit: '', position: 1000 })
+  })
+
+  it('orders resources by the catalogue, then by key', () => {
+    expect(sortedResourceKeys(['gpu_cards', 'memory_gib', 'accel', 'vcpu'], kinds)).toEqual(['vcpu', 'memory_gib', 'accel', 'gpu_cards'])
+  })
+
+  it('names the three classes', () => {
+    expect(classLabel('guaranteed')).toBe('Guaranteed')
+    expect(classLabel('spot')).toBe('Spot')
+    expect(classLabel('whatever')).toBe('whatever')
+  })
+})
+
+describe('status never reads ok on an empty field', () => {
+  it('classifies a percentage of sellable, and unset without one', () => {
     expect(utilisationStatus(null)).toBe('unset')
     expect(utilisationStatus(undefined)).toBe('unset')
     expect(utilisationStatus(Number.NaN)).toBe('unset')
@@ -15,123 +71,278 @@ describe('utilisation thresholds', () => {
     expect(utilisationStatus(70)).toBe('warn')
     expect(utilisationStatus(84.9)).toBe('warn')
     expect(utilisationStatus(85)).toBe('critical')
-    expect(utilisationStatus(200)).toBe('critical')
+    expect(utilisationStatus(220)).toBe('critical')
+    expect(utilisationStatus(50, { warn_pct: 40, critical_pct: 45 })).toBe('critical')
   })
-  it('follows the thresholds the document ships', () => {
-    const t = { warn_pct: 50, critical_pct: 90 }
-    expect(utilisationStatus(55, t)).toBe('warn')
-    expect(utilisationStatus(89.9, t)).toBe('warn')
-    expect(utilisationStatus(90, t)).toBe('critical')
-  })
-  it('maps a status onto the heat cell class', () => {
-    expect(heatClass('ok')).toBe('heat ok')
+
+  it('colours a cell by status, and an unknown status as unset', () => {
     expect(heatClass('warn')).toBe('heat warn')
-    expect(heatClass('critical')).toBe('heat critical')
     expect(heatClass('unset')).toBe('heat unset')
-    expect(heatClass('anything-else')).toBe('heat unset')
+    expect(heatClass('something-else')).toBe('heat unset')
   })
-})
 
-// The headroom rule, on the figures the Go integration test derives: zone a
-// has 4 vCPU and 20 GiB left; m7n.2xlarge.8 (8 vCPU, 64 GiB) fits 0 more,
-// bound by vCPU (first at the tie); m7n.xlarge.8 (4 vCPU, 32 GiB) fits 0,
-// bound by memory; a family without a total is skipped; no totals → null.
-describe('headroom', () => {
-  const avail = { vcpu: 4, memory_gib: 20, block_ssd_gib: 820 }
-  const totals = { vcpu: true, memory_gib: true, block_ssd_gib: true }
-  it('takes the fewest units over the sized families and names the binding one', () => {
-    expect(headroom({ vcpu: 8, memory_gib: 64 }, avail, totals)).toEqual({ units: 0, binding: 'vcpu' })
-    expect(headroom({ vcpu: 4, memory_gib: 32 }, avail, totals)).toEqual({ units: 0, binding: 'memory_gib' })
-    expect(headroom({ vcpu: 2, memory_gib: 4 }, avail, totals)).toEqual({ units: 2, binding: 'vcpu' })
-    expect(headroom({ vcpu: '1', memory_gib: '8' }, avail, totals)).toEqual({ units: 2, binding: 'memory_gib' })
-    expect(headroom({ block_ssd_gib: 1 }, avail, totals)).toEqual({ units: 820, binding: 'block_ssd_gib' })
-  })
-  it('skips a family without a total and is null when none has one', () => {
-    expect(headroom({ vcpu: 8, memory_gib: 64 }, avail, { vcpu: true })).toEqual({ units: 0, binding: 'vcpu' })
-    expect(headroom({ vcpu: 1, eip_addresses: 1 }, { vcpu: 40 }, { vcpu: true })).toEqual({ units: 40, binding: 'vcpu' })
-    expect(headroom({ vcpu: 8, memory_gib: 64 }, avail, {})).toEqual({ units: null, binding: '' })
-    expect(headroom({ eip_addresses: 1 }, { eip_addresses: 0 }, {})).toEqual({ units: null, binding: '' })
-  })
-  it('lets a cap bind only when it is the lower bound', () => {
-    expect(headroom({ block_ssd_gib: 1 }, avail, totals, { total: 500, consumed: 180 })).toEqual({ units: 320, binding: 'cap' })
-    expect(headroom({ block_ssd_gib: 1 }, avail, totals, { total: 5000, consumed: 180 })).toEqual({ units: 820, binding: 'block_ssd_gib' })
-    expect(headroom({ block_ssd_gib: 1 }, avail, totals, { total: 100, consumed: 180 })).toEqual({ units: 0, binding: 'cap' })
-    // A cap alone, with no sized family, still yields a number.
-    expect(headroom({ eip_addresses: 1 }, {}, {}, { total: 10, consumed: 3 })).toEqual({ units: 7, binding: 'cap' })
-  })
-  it('never goes negative on a clamped pool', () => {
-    expect(headroom({ vcpu: 2 }, { vcpu: -6 }, { vcpu: true })).toEqual({ units: 0, binding: 'vcpu' })
-  })
-})
-
-describe('formatting', () => {
-  it('footprints read in words, in family order', () => {
-    expect(footprintSummary({ memory_gib: 64, vcpu: 8 })).toBe('8 vCPU · 64 GiB')
-    expect(footprintSummary({ block_ssd_gib: '1.000000' })).toBe('1 GiB')
-    expect(footprintSummary({ eip_addresses: 1, bandwidth_mbps: 0 })).toBe('1 addresses')
-    expect(footprintSummary(null)).toBe('')
-    expect(familyDef('vcpu').label).toBe('vCPU')
-    expect(familyDef('vcpu', [{ family: 'vcpu', label: 'Cores', unit: 'core' }]).label).toBe('Cores')
-    expect(familyDef('gpu').label).toBe('gpu')
-  })
-  it('amounts, utilisation and exhaustion', () => {
-    expect(formatAmount('820.000000')).toBe('820')
-    expect(formatAmount(1234.5678)).toBe('1,234.568')
-    expect(formatAmount(null)).toBe('—')
-    expect(formatUtilisation(80)).toBe('80.0 %')
-    expect(formatUtilisation(33.333)).toBe('33.3 %')
+  it('renders a missing percentage as an em dash, never as 0 %', () => {
     expect(formatUtilisation(null)).toBe('—')
-    expect(formatExhaustion(null)).toBe('—')
-    expect(formatExhaustion(0)).toBe('now')
-    expect(formatExhaustion(0.4)).toBe('< 1 day')
-    expect(formatExhaustion(1)).toBe('1 day')
-    expect(formatExhaustion(12.4)).toBe('12 days')
-    expect(formatExhaustion(82)).toBe('2.7 months')
-    expect(formatExhaustion(800)).toBe('2.2 years')
+    expect(formatUtilisation(80)).toBe('80.0 %')
+    expect(formatUtilisation(100)).toBe('100.0 %')
+  })
+})
+
+describe('amounts, ratios and vectors', () => {
+  it('formats exact decimals with grouping and no trailing zeros', () => {
+    expect(formatAmount('4608.000000')).toBe('4,608')
+    expect(formatAmount(0)).toBe('0')
+    expect(formatAmount(null)).toBe('—')
+    expect(formatAmount('')).toBe('—')
+    expect(formatAmount('1.5')).toBe('1.5')
+  })
+
+  it('reads a ratio the way an operator says it', () => {
+    expect(formatRatio('4.000000')).toBe('4:1')
+    expect(formatRatio('1.500000')).toBe('1.5:1')
+    expect(formatRatio(0)).toBe('1:1') // no ratio is 1:1, never 0:1
+    expect(formatRatio(null)).toBe('1:1')
+  })
+
+  it('says what one machine holds, and what one unit of a SKU consumes', () => {
+    expect(
+      vectorSummary(
+        [
+          { resource: 'vcpu', label: 'vCPU', unit: 'vCPU', per_machine: 64, reserve: 64, overcommit_ratio: 4 },
+          { resource: 'memory_gib', label: 'Memory', unit: 'GiB', per_machine: 512, reserve: 512, overcommit_ratio: 1 },
+        ],
+        kinds,
+      ),
+    ).toBe('64 vCPU · 512 GiB')
+    expect(vectorSummary([], kinds)).toBe('')
+    expect(shapeSummary({ memory_gib: 64, vcpu: 8 }, kinds)).toBe('8 vCPU · 64 GiB')
+    expect(shapeSummary({ vcpu: 0 }, kinds)).toBe('')
+    expect(shapeSummary(null, kinds)).toBe('')
+  })
+})
+
+describe('the order-by date is the one that matters', () => {
+  it('says how far off a wall is, and says a date has PASSED rather than hiding it', () => {
+    expect(formatDays(null)).toBe('—')
+    expect(formatDays(0)).toBe('today')
+    expect(formatDays(24)).toBe('24 days')
+    expect(formatDays(1)).toBe('1 day')
+    expect(formatDays(82)).toBe('2.7 months')
+    expect(formatDays(800)).toBe('2.2 years')
+    // THE CASE THE WHOLE FEATURE EXISTS FOR: the lead time is longer than the
+    // time left, so the order is already late. Rendering this as "—" or as 0
+    // would hide the only reading that requires action today.
+    expect(formatDays(-21)).toBe('21 days ago')
+    expect(formatDays(-45)).toBe('45 days ago')
+  })
+
+  it('renders the measured hour', () => {
     expect(asOfLabel('2026-09-09T09:00:00Z')).toBe('2026-09-09 09:00Z')
     expect(asOfLabel(null)).toBe('')
+    expect(asOfLabel('not a date')).toBe('not a date')
   })
 })
 
-describe('forms', () => {
-  it('parses the footprint editor: blanks and zeros drop, bad input names the family', () => {
-    expect(parseFootprintForm({ vcpu: ' 8 ', memory_gib: '64', block_ssd_gib: '', eip_addresses: '0' })).toEqual({ families: { vcpu: '8', memory_gib: '64' }, error: '' })
-    expect(parseFootprintForm({ vcpu: '1,024' })).toEqual({ families: { vcpu: '1024' }, error: '' })
-    expect(parseFootprintForm({ vcpu: '-1' }).error).toContain('vCPU')
-    expect(parseFootprintForm({ memory_gib: 'lots' }).error).toContain('Memory')
-    expect(parseFootprintForm({})).toEqual({ families: {}, error: '' })
+describe('a basket answers with a number or with a reason, never with a silent zero', () => {
+  const measured: CapacityBasket = {
+    items: [{ sku: 'ecs.m7n.2xlarge.8', units: 1, class: 'guaranteed', shape: { vcpu: 8, memory_gib: 64 } }],
+    units: 24,
+    reason: '',
+    binding_resource: 'vcpu',
+    resources: [],
+    unshaped_skus: [],
+  }
+
+  it('reports the count and the binding resource when it was measured', () => {
+    expect(basketAnswer(measured, kinds)).toEqual({ units: 24, text: '24 more', binding: 'vCPU' })
   })
-  it('parses a pool total', () => {
-    expect(parseTotal('20')).toEqual({ total: '20', error: '' })
-    expect(parseTotal(' 1,000.5 ')).toEqual({ total: '1000.5', error: '' })
-    expect(parseTotal('').error).toBeTruthy()
-    expect(parseTotal('-3').error).toBeTruthy()
-    expect(parseTotal('abc').error).toBeTruthy()
+
+  it('reports ZERO as zero — a full pool is a measurement, not an absence', () => {
+    expect(basketAnswer({ ...measured, units: 0, binding_resource: 'memory_gib' }, kinds)).toEqual({ units: 0, text: '0 more', binding: 'Memory' })
+  })
+
+  it('reports the REASON, in words, when nothing could be measured', () => {
+    const unmeasured: CapacityBasket = { ...measured, units: null, binding_resource: '', reason: 'no resource this mix consumes is sized on this pool' }
+    expect(basketAnswer(unmeasured, kinds)).toEqual({ units: null, text: 'no resource this mix consumes is sized on this pool', binding: '' })
+    // And with no basket at all, still words rather than a figure.
+    expect(basketAnswer(null, kinds).units).toBeNull()
+  })
+
+  it('round-trips a mix through the query form the server parses', () => {
+    expect(basketQuery([{ sku: 'ecs.m7n.2xlarge.8', units: '2' }, { sku: 'evs.ssd.gb', units: 100 }])).toBe('ecs.m7n.2xlarge.8:2,evs.ssd.gb:100')
+    expect(basketQuery([{ sku: ' ', units: 1 }, { sku: 'x', units: 0 }])).toBe('')
+    expect(parseBasketQuery('ecs.m7n.2xlarge.8:2, evs.ssd.gb')).toEqual([
+      { sku: 'ecs.m7n.2xlarge.8', units: '2' },
+      { sku: 'evs.ssd.gb', units: '1' },
+    ])
+    expect(parseBasketQuery(' , : , ')).toEqual([])
+  })
+
+  it('says a mix in words', () => {
+    expect(basketSummary(measured.items)).toBe('1 × ecs.m7n.2xlarge.8')
+    expect(basketSummary([])).toBe('')
   })
 })
 
-describe('zone rows', () => {
+describe('the pool editor refuses what the server refuses, before the round trip', () => {
+  const good = {
+    name: ' m7n-a ',
+    machines: '10',
+    lead_time_days: '45',
+    note: 'batch one',
+    resources: [
+      { resource: 'VCPU', per_machine: '64', reserve: '64', overcommit_ratio: '4' },
+      { resource: 'memory_gib', per_machine: '512', reserve: '512', overcommit_ratio: '1' },
+    ],
+  }
+
+  it('builds the body, lower-casing and trimming the keys', () => {
+    const { body, error } = parsePoolForm(good)
+    expect(error).toBe('')
+    expect(body).toEqual({
+      name: 'm7n-a',
+      machines: '10',
+      lead_time_days: 45,
+      note: 'batch one',
+      resources: [
+        { resource: 'vcpu', per_machine: '64', reserve: '64', overcommit_ratio: '4' },
+        { resource: 'memory_gib', per_machine: '512', reserve: '512', overcommit_ratio: '1' },
+      ],
+    })
+  })
+
+  it('defaults a blank reserve to 0 and a blank ratio to 1 — never to nothing', () => {
+    const { body } = parsePoolForm({ ...good, resources: [{ resource: 'vcpu', per_machine: '64', reserve: '', overcommit_ratio: '' }] })
+    expect(body?.resources[0]).toEqual({ resource: 'vcpu', per_machine: '64', reserve: '0', overcommit_ratio: '1' })
+  })
+
+  it('refuses a pool with no name, no resource, a bad number or a zero ratio', () => {
+    expect(parsePoolForm({ ...good, name: '  ' }).error).toMatch(/name the pool/)
+    expect(parsePoolForm({ ...good, resources: [] }).error).toMatch(/a machine with nothing in it is not capacity/)
+    expect(parsePoolForm({ ...good, resources: [{ resource: '  ', per_machine: '1', reserve: '', overcommit_ratio: '' }] }).error).toMatch(/at least one resource/)
+    expect(parsePoolForm({ ...good, machines: '-1' }).error).toMatch(/machines must be a non-negative number/)
+    expect(parsePoolForm({ ...good, machines: 'lots' }).error).toMatch(/machines must be/)
+    expect(parsePoolForm({ ...good, lead_time_days: '3.5' }).error).toMatch(/whole number of days/)
+    expect(parsePoolForm({ ...good, resources: [{ resource: 'vcpu', per_machine: 'x', reserve: '', overcommit_ratio: '' }] }).error).toMatch(/per machine/)
+    expect(parsePoolForm({ ...good, resources: [{ resource: 'vcpu', per_machine: '1', reserve: '-2', overcommit_ratio: '' }] }).error).toMatch(/reserve/)
+    expect(parsePoolForm({ ...good, resources: [{ resource: 'vcpu', per_machine: '1', reserve: '', overcommit_ratio: '0' }] }).error).toMatch(/positive number/)
+    expect(parsePoolForm({ ...good, resources: [good.resources[0], { ...good.resources[0], resource: 'vcpu' }] }).error).toMatch(/listed twice/)
+    // Every refusal returns NO body: a half-built pool never reaches the API.
+    expect(parsePoolForm({ ...good, name: '' }).body).toBeNull()
+  })
+
+  it('N+1 is one machine’s worth of the resource', () => {
+    expect(reserveForMachines('512', 1)).toBe('512')
+    expect(reserveForMachines('64', 2)).toBe('128')
+    expect(reserveForMachines('', 1)).toBe('0')
+    expect(reserveForMachines('64', 0)).toBe('0')
+  })
+})
+
+describe('the shape editor', () => {
+  it('drops blanks and zeros (they remove the resource) and lower-cases the keys', () => {
+    expect(parseShapeForm({ VCPU: '8', memory_gib: '64', block_ssd_gib: '', eip_addresses: '0' })).toEqual({ resources: { vcpu: '8', memory_gib: '64' }, error: '' })
+    expect(parseShapeForm({})).toEqual({ resources: {}, error: '' })
+  })
+
+  it('names the resource in the refusal', () => {
+    expect(parseShapeForm({ vcpu: '-1' }).error).toMatch(/^vcpu:/)
+    expect(parseShapeForm({ gpu_cards: 'two' }).error).toMatch(/^gpu_cards:/)
+  })
+})
+
+describe('reading the overview', () => {
+  const pool = (over: Partial<CapacityPoolView>): CapacityPoolView => ({
+    id: 'p',
+    zone_id: 'z',
+    name: 'm7n-a',
+    machines: 10,
+    lead_time_days: 45,
+    source: 'manual',
+    note: '',
+    updated_by: '',
+    updated_at: '2026-09-09T08:00:00Z',
+    resources: [],
+    status: 'unset',
+    binding_resource: '',
+    utilisation_pct: null,
+    resources_view: [],
+    placements: [],
+    basket: { items: [], units: null, reason: 'nothing is selling on this pool yet', binding_resource: '', resources: [], unshaped_skus: [] },
+    zone_unknown: false,
+    order_by_days: null,
+    order_by_date: null,
+    order_by_resource: '',
+    order_by_wall: '',
+    late: false,
+    ...over,
+  })
+
   const ov = {
-    as_of: null,
-    sources: 0,
+    as_of: '2026-09-09T09:00:00Z',
+    sources: 1,
     lagging_sources: 0,
     thresholds: { warn_pct: 70, critical_pct: 85 },
-    families: [],
+    classes: [],
+    resource_kinds: kinds,
     regions: [
-      { id: 'r1', code: 'me-east-215', name: 'Muscat', cloud_source_kind: 'huawei-project', zones: [{ id: 'z1', code: 'a', name: '', is_default: true, pools: [{ id: 'p', zone_id: 'z1', family: 'vcpu', total: 20, reserved: 0, source: 'manual', note: '', updated_by: '', updated_at: '', label: 'vCPU', unit: 'vCPU', consumed: 16, available: 4, utilisation_pct: 80, status: 'warn', clamped: false, overcommit: 0, zone_unknown: 8, growth_per_day: null, exhaustion_days: null, history_days: 0, series: [] }], skus: [] }] },
-      { id: 'r2', code: 'eu-west-101', name: '', cloud_source_kind: 'huawei-project', zones: [{ id: 'z2', code: 'b', name: '', is_default: true, pools: [], skus: [] }] },
+      {
+        id: 'r1',
+        code: 'me-east-215',
+        name: 'Muscat',
+        cloud_source_kind: 'huawei-project',
+        zones: [
+          { id: 'za', code: 'me-east-215a', name: 'AZ 1', is_default: true, pools: [pool({ id: 'pa' }), pool({ id: 'pb', name: 'm7n-b' })], unplaced_skus: [] },
+          { id: 'zb', code: 'me-east-215b', name: '', is_default: false, pools: [], unplaced_skus: [] },
+        ],
+      },
+      { id: 'r2', code: 'eu-west-101', name: '', cloud_source_kind: 'huawei-project', zones: [{ id: 'zc', code: 'eu-west-101a', name: '', is_default: true, pools: [pool({ id: 'pc' })], unplaced_skus: [] }] },
     ],
-    unmapped_skus: [],
+    unshaped_skus: [],
     unmapped_regions: [],
-    summary: { regions: 2, zones: 2, pools: 1, pools_with_total: 1, pools_warn: 1, pools_critical: 0, pools_below_threshold: 1, skus: 0, unmapped_skus: 0 },
+    summary: {
+      regions: 2, zones: 3, pools: 3, pools_sized: 0, pools_warn: 0, pools_critical: 0, pools_past_threshold: 0,
+      pools_to_order: 0, pools_order_late: 0, placements: 0, shapes: 6, unplaced_skus: 0, unshaped_skus: 0, spot_to_reclaim: 0,
+    },
   } satisfies CapacityOverview
-  it('flattens zones with their region and filters by region', () => {
-    expect(zoneRows(ov).map((r) => `${r.region}/${r.zone.code}`)).toEqual(['me-east-215/a', 'eu-west-101/b'])
-    expect(zoneRows(ov, 'eu-west-101').map((r) => r.zone.code)).toEqual(['b'])
-    expect(zoneRows(ov, 'all')).toHaveLength(2)
+
+  it('flattens zones and pools in the server’s order, and filters by region', () => {
+    expect(zoneRows(ov).map((r) => r.zone.code)).toEqual(['me-east-215a', 'me-east-215b', 'eu-west-101a'])
+    expect(zoneRows(ov, 'eu-west-101').map((r) => r.zone.code)).toEqual(['eu-west-101a'])
+    expect(poolRows(ov).map((r) => r.pool.id)).toEqual(['pa', 'pb', 'pc'])
+    expect(poolRows(ov, 'me-east-215').map((r) => r.pool.id)).toEqual(['pa', 'pb'])
+    // A zone with no pools contributes no rows but is still a zone: the page
+    // shows it under Regions so an operator can add one.
+    expect(poolRows(ov).some((r) => r.zone.code === 'me-east-215b')).toBe(false)
     expect(zoneRows(null)).toEqual([])
-    expect(hasTotal(ov.regions[0].zones[0].pools[0])).toBe(true)
-    expect(hasTotal({ total: '0.000000' })).toBe(false)
-    expect(hasTotal(undefined)).toBe(false)
+    expect(poolRows(undefined)).toEqual([])
+  })
+
+  it('finds the binding resource of a pool, and reports an unsized pool as unsized', () => {
+    const sized = pool({
+      binding_resource: 'memory_gib',
+      resources_view: [
+        { resource: 'vcpu', label: 'vCPU', unit: 'vCPU', machines: 10, per_machine: 64, reserve: 64, overcommit_ratio: 4, raw: 640, usable: 576, sellable: 1344, guaranteed: 320, burstable: 256, burstable_physical: 64, spot: 0, spot_physical: 0, sold_nominal: 576, remaining: 768, guaranteed_ceiling: 256, physical_used: 384, physical_free: 192, stranded: true, spot_room: 768, spot_reclaim: 0, sized: true, utilisation_pct: 42.9, status: 'ok', overcommitted: false, over: 0, series: [], history_days: 0, soft_wall_days: null, soft_wall_date: null, hard_wall_days: null, hard_wall_date: null, order_by_days: null, order_by_date: null, order_by_wall: '', late: false },
+        { resource: 'memory_gib', label: 'Memory', unit: 'GiB', machines: 10, per_machine: 512, reserve: 512, overcommit_ratio: 1, raw: 5120, usable: 4608, sellable: 4608, guaranteed: 2560, burstable: 2048, burstable_physical: 2048, spot: 0, spot_physical: 0, sold_nominal: 4608, remaining: 0, guaranteed_ceiling: 2048, physical_used: 4608, physical_free: 0, stranded: false, spot_room: 0, spot_reclaim: 0, sized: true, utilisation_pct: 100, status: 'critical', overcommitted: false, over: 0, series: [], history_days: 0, soft_wall_days: null, soft_wall_date: null, hard_wall_days: null, hard_wall_date: null, order_by_days: null, order_by_date: null, order_by_wall: '', late: false },
+      ],
+    })
+    expect(bindingOf(sized)?.label).toBe('Memory')
+    // The binding resource is full while the OTHER one still has 192 free:
+    // that free hardware is stranded, and the flag says so.
+    expect(bindingOf(sized)?.remaining).toBe(0)
+    expect(sized.resources_view[0].stranded).toBe(true)
+    expect(isSized(sized)).toBe(true)
+    expect(isSized(pool({}))).toBe(false)
+    expect(bindingOf(pool({}))).toBeUndefined()
+  })
+})
+
+describe('the sparkline', () => {
+  it('draws a path over the points, and nothing at all for a series too short to have a shape', () => {
+    expect(sparkPath([])).toBe('')
+    expect(sparkPath([5])).toBe('')
+    const p = sparkPath([0, 10], 100, 20)
+    expect(p.startsWith('M0.0,')).toBe(true)
+    expect(p).toContain('L100.0,')
   })
 })

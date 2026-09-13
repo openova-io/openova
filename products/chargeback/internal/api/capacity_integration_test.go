@@ -14,8 +14,8 @@ import (
 
 // Capacity through the API (DESIGN.md §11): the permission model — a
 // finance-viewer reads, a billing-operator and the sovereign-admin write, a
-// customer principal sees nothing — the overview's wire shape, and the
-// audit trail every write leaves.
+// customer principal sees nothing — the overview's wire shape, the basket
+// endpoint, and the audit trail every write leaves.
 
 // capacityGrowth is rating.RunRate's trend and nothing else: the same
 // arithmetic the explorer's forecast reports as run rate + trend.
@@ -59,16 +59,17 @@ func TestIntegrationCapacityPermissionsAndOverviewShape(t *testing.T) {
 
 	// Empty state reads for every Sovereign principal; a customer is refused
 	// with the permission named, at the Sovereign.
+	reads := []string{"/api/v1/capacity/overview", "/api/v1/capacity/regions", "/api/v1/capacity/shapes", "/api/v1/capacity/placements", "/api/v1/capacity/resources"}
 	for _, c := range []*client{op, fin, bo} {
 		ov := c.must("GET", "/api/v1/capacity/overview", 200)
 		if ov["as_of"] != nil || len(ov["regions"].([]any)) != 0 {
 			t.Fatalf("empty overview = %v", ov)
 		}
-		c.must("GET", "/api/v1/capacity/regions", 200)
-		c.must("GET", "/api/v1/capacity/footprints", 200)
-		c.must("GET", "/api/v1/capacity/caps", 200)
+		for _, path := range reads[1:] {
+			c.must("GET", path, 200)
+		}
 	}
-	for _, path := range []string{"/api/v1/capacity/overview", "/api/v1/capacity/regions", "/api/v1/capacity/footprints", "/api/v1/capacity/caps"} {
+	for _, path := range reads {
 		rec, _ := owner.do("GET", path, "", nil)
 		if rec.Code != 403 || !strings.Contains(rec.Body.String(), "metering.read") || !strings.Contains(rec.Body.String(), "Sovereign") {
 			t.Fatalf("customer-owner GET %s = %d %s, want 403 naming metering.read at the Sovereign", path, rec.Code, rec.Body.String())
@@ -94,93 +95,131 @@ func TestIntegrationCapacityPermissionsAndOverviewShape(t *testing.T) {
 	}
 	zoneA := bo.mustJSON("POST", "/api/v1/capacity/regions/"+regionID+"/zones", map[string]any{"code": "me-east-215a", "name": "AZ 1"}, 201)
 	zoneB := op.mustJSON("POST", "/api/v1/capacity/regions/"+regionID+"/zones", map[string]any{"code": "me-east-215b"}, 201)
-	if zoneA["is_default"] != true || zoneB["is_default"] != false || len(zoneA["pools"].([]any)) != len(capacity.Families) {
+	// A ZONE IS BORN EMPTY: a pool is machines somebody bought.
+	if zoneA["is_default"] != true || zoneB["is_default"] != false || len(zoneA["pools"].([]any)) != 0 {
 		t.Fatalf("zones = %v / %v", zoneA, zoneB)
 	}
-	if rec, _ := fin.json("POST", "/api/v1/capacity/regions/"+regionID+"/zones", map[string]any{"code": "x"}); rec.Code != 403 {
-		t.Fatalf("finance-viewer creates a zone = %d", rec.Code)
+	zoneAID, zoneBID := zoneA["id"].(string), zoneB["id"].(string)
+
+	poolBody := map[string]any{
+		"name": "m7n-a", "machines": "10", "lead_time_days": 45, "note": "batch one",
+		"resources": []any{
+			map[string]any{"resource": "vcpu", "per_machine": "64", "reserve": "64", "overcommit_ratio": "4"},
+			map[string]any{"resource": "memory_gib", "per_machine": "512", "reserve": "512", "overcommit_ratio": "1"},
+		},
 	}
-	zoneAID := zoneA["id"].(string)
-	pools := fin.must("GET", "/api/v1/capacity/zones/"+zoneAID+"/pools", 200)
-	poolList := pools["pools"].([]any)
-	if len(poolList) != len(capacity.Families) || pools["zone"].(map[string]any)["code"] != "me-east-215a" {
-		t.Fatalf("pools = %v", pools)
+	if rec, _ := fin.json("POST", "/api/v1/capacity/zones/"+zoneAID+"/pools", poolBody); rec.Code != 403 || !strings.Contains(rec.Body.String(), "capacity.manage") {
+		t.Fatalf("finance-viewer POST pool = %d %s", rec.Code, rec.Body.String())
 	}
-	var vcpuPool string
-	for _, p := range poolList {
-		if p.(map[string]any)["family"] == capacity.FamilyVCPU {
-			vcpuPool = p.(map[string]any)["id"].(string)
+	pool := op.mustJSON("POST", "/api/v1/capacity/zones/"+zoneAID+"/pools", poolBody, 201)
+	poolID := pool["id"].(string)
+	if pool["name"] != "m7n-a" || pool["machines"] != 10.0 || pool["lead_time_days"] != 45.0 || len(pool["resources"].([]any)) != 2 {
+		t.Fatalf("pool = %v", pool)
+	}
+	// A SECOND POOL OF THE SAME RESOURCE KIND in the same zone: the whole
+	// reason the family pools had to go.
+	second := bo.mustJSON("POST", "/api/v1/capacity/zones/"+zoneAID+"/pools", map[string]any{
+		"name": "m7n-b", "machines": "5",
+		"resources": []any{map[string]any{"resource": "vcpu", "per_machine": "64", "overcommit_ratio": "4"}},
+	}, 201)
+	if rec, _ := op.json("POST", "/api/v1/capacity/zones/"+zoneAID+"/pools", poolBody); rec.Code != 409 {
+		t.Fatalf("a duplicate pool NAME = %d, want 409", rec.Code)
+	}
+	for _, bad := range []map[string]any{
+		{"machines": "1", "resources": []any{map[string]any{"resource": "vcpu", "per_machine": "1"}}},
+		{"name": "x", "machines": "1"},
+		{"name": "x", "machines": "-1", "resources": []any{map[string]any{"resource": "vcpu", "per_machine": "1"}}},
+	} {
+		if rec, _ := op.json("POST", "/api/v1/capacity/zones/"+zoneAID+"/pools", bad); rec.Code != 400 {
+			t.Fatalf("POST pool %v = %d, want 400", bad, rec.Code)
 		}
 	}
-	rec, _ = fin.json("PUT", "/api/v1/capacity/pools/"+vcpuPool, map[string]any{"total": 20, "note": "x"})
-	if rec.Code != 403 || !strings.Contains(rec.Body.String(), "capacity.manage") {
-		t.Fatalf("finance-viewer PUT pool = %d %s", rec.Code, rec.Body.String())
-	}
-	if rec, _ := owner.json("PUT", "/api/v1/capacity/pools/"+vcpuPool, map[string]any{"total": 20}); rec.Code != 403 {
+
+	// Resizing: two more servers, and the RAM ratio changes with them.
+	if rec, _ := owner.json("PUT", "/api/v1/capacity/pools/"+poolID, poolBody); rec.Code != 403 {
 		t.Fatalf("customer-owner PUT pool = %d", rec.Code)
 	}
-	set := op.mustJSON("PUT", "/api/v1/capacity/pools/"+vcpuPool, map[string]any{"total": "20", "note": "two hosts of 10 vCPU"}, 200)
-	if set["total"] != 20.0 || set["note"] != "two hosts of 10 vCPU" || set["updated_by"] != opEmail || set["source"] != capacity.SourceManual {
-		t.Fatalf("set pool = %v", set)
+	grown := map[string]any{
+		"name": "m7n-a", "machines": "12", "lead_time_days": 45, "note": "two more hosts",
+		"resources": []any{
+			map[string]any{"resource": "vcpu", "per_machine": "64", "reserve": "64", "overcommit_ratio": "4"},
+			map[string]any{"resource": "memory_gib", "per_machine": "512", "reserve": "512", "overcommit_ratio": "1.5"},
+		},
 	}
-	bo.mustJSON("PUT", "/api/v1/capacity/pools/"+vcpuPool, map[string]any{"total": 24}, 200)
-	for _, bad := range []map[string]any{{"note": "no total"}, {"total": "-5"}, {"total": "abc"}} {
-		if rec, _ := op.json("PUT", "/api/v1/capacity/pools/"+vcpuPool, bad); rec.Code != 400 {
-			t.Fatalf("PUT pool %v = %d, want 400", bad, rec.Code)
-		}
+	set := bo.mustJSON("PUT", "/api/v1/capacity/pools/"+poolID, grown, 200)
+	if set["machines"] != 12.0 || set["note"] != "two more hosts" || set["updated_by"] != "bo@nc.example" || set["source"] != capacity.SourceManual {
+		t.Fatalf("resized pool = %v", set)
 	}
-	if rec, _ := op.json("PUT", "/api/v1/capacity/pools/00000000-0000-0000-0000-000000000000", map[string]any{"total": 1}); rec.Code != 404 {
+	if rec, _ := op.json("PUT", "/api/v1/capacity/pools/00000000-0000-0000-0000-000000000000", poolBody); rec.Code != 404 {
 		t.Fatalf("unknown pool = %d", rec.Code)
 	}
-	// History on the pools document, newest first.
-	pools = op.must("GET", "/api/v1/capacity/zones/"+zoneAID+"/pools", 200)
-	hist := pools["history"].(map[string]any)[vcpuPool].([]any)
-	if len(hist) != 2 || hist[0].(map[string]any)["total"] != 24.0 || hist[1].(map[string]any)["note"] != "two hosts of 10 vCPU" {
-		t.Fatalf("history = %v", hist)
+	// Put it back at ten servers with RAM at 1:1 — the worked example.
+	op.mustJSON("PUT", "/api/v1/capacity/pools/"+poolID, poolBody, 200)
+
+	// The pools document carries the zone, the pools, the history per pool
+	// (one row per resource per change) and the vocabulary the editor needs.
+	pools := fin.must("GET", "/api/v1/capacity/zones/"+zoneAID+"/pools", 200)
+	if len(pools["pools"].([]any)) != 2 || pools["zone"].(map[string]any)["code"] != "me-east-215a" {
+		t.Fatalf("pools = %v", pools)
+	}
+	if len(pools["resource_kinds"].([]any)) < 7 || len(pools["classes"].([]any)) != 3 {
+		t.Fatalf("pools vocabulary = %v / %v", pools["resource_kinds"], pools["classes"])
+	}
+	hist := pools["history"].(map[string]any)[poolID].([]any)
+	if len(hist) != 6 { // 2 resources × (create + resize + put back)
+		t.Fatalf("history = %d rows: %v", len(hist), hist)
+	}
+	if h0 := hist[0].(map[string]any); h0["resource"] == nil || h0["total"] == nil || h0["machines"] == nil {
+		t.Fatalf("a history row names the resource and its size: %v", h0)
 	}
 
-	// Footprints: seeded rows listed; PUT replaces; the viewer is refused.
-	fps := fin.must("GET", "/api/v1/capacity/footprints", 200)
-	if len(fps["footprints"].([]any)) != 6 || len(fps["families"].([]any)) != 7 {
-		t.Fatalf("footprints = %v", fps)
+	// Shapes: seeded rows listed, PUT replaces, an operator's own resource
+	// kind is accepted because there is no list to be on.
+	shapes := fin.must("GET", "/api/v1/capacity/shapes", 200)
+	if len(shapes["shapes"].([]any)) != 6 || len(shapes["resource_kinds"].([]any)) < 7 {
+		t.Fatalf("shapes = %v", shapes)
 	}
-	if un := fps["unseeded_skus"].([]any); len(un) != 3 || un[0] != "elb" {
+	if un := shapes["unseeded_skus"].([]any); len(un) != 3 || un[0] != "elb" {
 		t.Fatalf("unseeded = %v", un)
 	}
-	if rec, _ := fin.json("PUT", "/api/v1/capacity/footprints/nat.1", map[string]any{"families": map[string]any{"eip_addresses": 1}}); rec.Code != 403 {
-		t.Fatalf("finance-viewer PUT footprint = %d", rec.Code)
+	if rec, _ := fin.json("PUT", "/api/v1/capacity/shapes/nat.1", map[string]any{"resources": map[string]any{"eip_addresses": 1}}); rec.Code != 403 {
+		t.Fatalf("finance-viewer PUT shape = %d", rec.Code)
 	}
-	fp := op.mustJSON("PUT", "/api/v1/capacity/footprints/nat.1", map[string]any{"families": map[string]any{"eip_addresses": "1", "bandwidth_mbps": 0}}, 200)
-	if fams := fp["families"].(map[string]any); len(fams) != 1 || fams["eip_addresses"] != 1.0 || fp["source"] != capacity.SourceManual {
-		t.Fatalf("put footprint = %v", fp)
+	sh := op.mustJSON("PUT", "/api/v1/capacity/shapes/nat.1", map[string]any{"resources": map[string]any{"eip_addresses": "1", "bandwidth_mbps": 0}}, 200)
+	if res := sh["resources"].(map[string]any); len(res) != 1 || res["eip_addresses"] != 1.0 || sh["source"] != capacity.SourceManual {
+		t.Fatalf("put shape = %v", sh)
 	}
-	if rec, _ := op.json("PUT", "/api/v1/capacity/footprints/nat.1", map[string]any{"families": map[string]any{"gpu": 1}}); rec.Code != 400 || !strings.Contains(rec.Body.String(), "gpu") {
-		t.Fatalf("unknown family = %d %s", rec.Code, rec.Body.String())
-	}
-	if rec, _ := op.json("PUT", "/api/v1/capacity/footprints/nat.1", map[string]any{}); rec.Code != 400 {
-		t.Fatalf("missing families = %d", rec.Code)
+	op.mustJSON("PUT", "/api/v1/capacity/shapes/ecs.gpu.large", map[string]any{"resources": map[string]any{"gpu_cards": "1", "vcpu": "8"}}, 200)
+	if rec, _ := op.json("PUT", "/api/v1/capacity/shapes/nat.1", map[string]any{}); rec.Code != 400 {
+		t.Fatalf("missing resources = %d", rec.Code)
 	}
 
-	// Caps: PUT upserts, null total removes, the viewer is refused.
-	zoneBID := zoneB["id"].(string)
-	if rec, _ := fin.json("PUT", "/api/v1/capacity/caps", map[string]any{"zone_id": zoneBID, "sku": "evs.ssd.gb", "total": 500}); rec.Code != 403 {
-		t.Fatalf("finance-viewer PUT cap = %d", rec.Code)
+	// Resource kinds carry words an operator can supply.
+	kind := op.mustJSON("PUT", "/api/v1/capacity/resources/gpu_cards", map[string]any{"label": "GPU cards", "unit": "cards"}, 200)
+	if kind["resource"] != "gpu_cards" || kind["label"] != "GPU cards" || kind["unit"] != "cards" {
+		t.Fatalf("resource kind = %v", kind)
 	}
-	capDoc := op.mustJSON("PUT", "/api/v1/capacity/caps", map[string]any{"zone_id": zoneBID, "sku": "evs.ssd.gb", "total": 500}, 200)
-	if capDoc["zone_code"] != "me-east-215b" || capDoc["region_code"] != "me-east-215" || capDoc["total"] != 500.0 {
-		t.Fatalf("cap = %v", capDoc)
+	if rec, _ := fin.json("PUT", "/api/v1/capacity/resources/gpu_cards", map[string]any{"label": "x"}); rec.Code != 403 {
+		t.Fatalf("finance-viewer PUT resource kind = %d", rec.Code)
 	}
-	if caps := op.must("GET", "/api/v1/capacity/caps", 200)["caps"].([]any); len(caps) != 1 {
-		t.Fatalf("caps = %v", caps)
+
+	// Placements: the class lives here.
+	if rec, _ := fin.json("PUT", "/api/v1/capacity/placements", map[string]any{"pool_id": poolID, "sku": "ecs.m7n.2xlarge.8", "class": "guaranteed"}); rec.Code != 403 {
+		t.Fatalf("finance-viewer PUT placement = %d", rec.Code)
 	}
-	if rec, _ := op.json("PUT", "/api/v1/capacity/caps", map[string]any{"zone_id": zoneBID, "sku": "evs.ssd.gb", "total": nil}); rec.Code != 200 {
-		t.Fatalf("remove cap = %d %s", rec.Code, rec.Body.String())
+	pl := op.mustJSON("PUT", "/api/v1/capacity/placements", map[string]any{"pool_id": poolID, "sku": "ecs.m7n.2xlarge.8", "class": "guaranteed"}, 200)
+	if pl["class"] != capacity.ClassGuaranteed || pl["pool_name"] != "m7n-a" || pl["zone_code"] != "me-east-215a" {
+		t.Fatalf("placement = %v", pl)
 	}
-	if caps := op.must("GET", "/api/v1/capacity/caps", 200)["caps"].([]any); len(caps) != 0 {
-		t.Fatalf("caps after remove = %v", caps)
+	// A shape that shares no resource with the pool would consume nothing.
+	if rec, _ := op.json("PUT", "/api/v1/capacity/placements", map[string]any{"pool_id": second["id"], "sku": "evs.ssd.gb", "class": "guaranteed"}); rec.Code != 409 && rec.Code != 400 {
+		t.Fatalf("placing a block SKU on a vCPU pool = %d %s", rec.Code, rec.Body.String())
 	}
-	if rec, _ := op.json("PUT", "/api/v1/capacity/caps", map[string]any{"sku": "x", "total": 1}); rec.Code != 400 {
-		t.Fatalf("cap without zone = %d", rec.Code)
+	if rec, _ := op.json("PUT", "/api/v1/capacity/placements", map[string]any{"sku": "x", "class": "spot"}); rec.Code != 400 {
+		t.Fatalf("placement without a pool = %d", rec.Code)
+	}
+	if pls := op.must("GET", "/api/v1/capacity/placements", 200); len(pls["placements"].([]any)) != 1 || len(pls["classes"].([]any)) != 3 {
+		t.Fatalf("placements = %v", pls)
 	}
 
 	// Some metering, then the overview's shape.
@@ -195,7 +234,7 @@ func TestIntegrationCapacityPermissionsAndOverviewShape(t *testing.T) {
 	for d := 1; d <= 9; d++ {
 		for hh := 0; hh < 24 && (d < 9 || hh < 10); hh++ {
 			at := time.Date(2026, 9, d, hh, 0, 0, 0, time.UTC)
-			recs = append(recs, store.UsageRecord{CustomerID: custID, SourceID: src.ID, ResourceID: "vm-1", ResourceKind: "ecs", SKU: "ecs.m7n.2xlarge.8", Quantity: "1", Unit: "instance-hour", WindowStart: at, WindowEnd: at.Add(time.Hour), Region: "me-east-215"})
+			recs = append(recs, store.UsageRecord{CustomerID: custID, SourceID: src.ID, ResourceID: "vm-1", ResourceKind: "ecs", SKU: "ecs.m7n.2xlarge.8", Quantity: "40", Unit: "instance-hour", WindowStart: at, WindowEnd: at.Add(time.Hour), Region: "me-east-215"})
 			recs = append(recs, store.UsageRecord{CustomerID: custID, SourceID: src.ID, ResourceID: "nat-1", ResourceKind: "nat", SKU: "nat.2", Quantity: "1", Unit: "hour", WindowStart: at, WindowEnd: at.Add(time.Hour), Region: "me-east-215"})
 		}
 	}
@@ -203,7 +242,7 @@ func TestIntegrationCapacityPermissionsAndOverviewShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	ov := fin.must("GET", "/api/v1/capacity/overview", 200)
-	for _, k := range []string{"as_of", "sources", "lagging_sources", "thresholds", "families", "regions", "unmapped_skus", "unmapped_regions", "summary"} {
+	for _, k := range []string{"as_of", "sources", "lagging_sources", "thresholds", "classes", "resource_kinds", "regions", "unshaped_skus", "unmapped_regions", "summary"} {
 		if _, ok := ov[k]; !ok {
 			t.Fatalf("overview lacks %q", k)
 		}
@@ -215,11 +254,7 @@ func TestIntegrationCapacityPermissionsAndOverviewShape(t *testing.T) {
 	if th["warn_pct"] != 70.0 || th["critical_pct"] != 85.0 {
 		t.Fatalf("thresholds = %v", th)
 	}
-	regions := ov["regions"].([]any)
-	if len(regions) != 1 {
-		t.Fatalf("regions = %v", regions)
-	}
-	zones := regions[0].(map[string]any)["zones"].([]any)
+	zones := ov["regions"].([]any)[0].(map[string]any)["zones"].([]any)
 	if len(zones) != 2 {
 		t.Fatalf("zones = %v", zones)
 	}
@@ -227,58 +262,85 @@ func TestIntegrationCapacityPermissionsAndOverviewShape(t *testing.T) {
 	if za["code"] != "me-east-215a" || za["is_default"] != true {
 		t.Fatalf("zone a = %v", za)
 	}
-	var vcpu map[string]any
-	for _, p := range za["pools"].([]any) {
-		if p.(map[string]any)["family"] == capacity.FamilyVCPU {
-			vcpu = p.(map[string]any)
-		}
-	}
-	for _, k := range []string{"id", "zone_id", "family", "label", "unit", "total", "reserved", "consumed", "available", "utilisation_pct", "status", "clamped", "overcommit", "zone_unknown", "growth_per_day", "exhaustion_days", "history_days", "series", "source", "note", "updated_by", "updated_at"} {
-		if _, ok := vcpu[k]; !ok {
-			t.Fatalf("pool lacks %q: %v", k, vcpu)
-		}
-	}
-	// 24 vCPU total, one m7n.2xlarge.8 (8 vCPU) running: 16 available, 33 %.
-	if vcpu["total"] != 24.0 || vcpu["consumed"] != 8.0 || vcpu["available"] != 16.0 || vcpu["reserved"] != 0.0 || vcpu["status"] != capacity.StatusOK || vcpu["clamped"] != false {
-		t.Fatalf("vcpu pool = %v", vcpu)
-	}
-	if pct := vcpu["utilisation_pct"].(float64); pct < 33.3 || pct > 33.4 {
-		t.Fatalf("utilisation = %v", pct)
-	}
-	// A flat series: growth 0 and no exhaustion date, on the wire as null.
-	if vcpu["exhaustion_days"] != nil || vcpu["growth_per_day"] != 0.0 || vcpu["history_days"] != 8.0 {
-		t.Fatalf("vcpu growth = %v / %v / %v", vcpu["growth_per_day"], vcpu["exhaustion_days"], vcpu["history_days"])
-	}
-	skus := za["skus"].([]any)
 	var m7 map[string]any
-	for _, s := range skus {
-		if s.(map[string]any)["sku"] == "ecs.m7n.2xlarge.8" {
-			m7 = s.(map[string]any)
+	for _, p := range za["pools"].([]any) {
+		if p.(map[string]any)["name"] == "m7n-a" {
+			m7 = p.(map[string]any)
 		}
 	}
-	for _, k := range []string{"sku", "footprint", "footprint_source", "consumed_units", "resources", "headroom_units", "binding_family", "cap"} {
+	for _, k := range []string{"id", "zone_id", "name", "machines", "lead_time_days", "resources", "resources_view", "placements", "basket", "status", "binding_resource", "utilisation_pct", "order_by_days", "order_by_date", "order_by_resource", "order_by_wall", "late", "zone_unknown"} {
 		if _, ok := m7[k]; !ok {
-			t.Fatalf("sku lacks %q: %v", k, m7)
+			t.Fatalf("pool lacks %q: %v", k, m7)
 		}
 	}
-	// 16 vCPU left → 2 more; memory has no total, so vCPU binds.
-	if m7["headroom_units"] != 2.0 || m7["binding_family"] != capacity.FamilyVCPU || m7["consumed_units"] != 1.0 || m7["cap"] != nil {
-		t.Fatalf("m7n.2xlarge.8 = %v", m7)
+	var cpu map[string]any
+	for _, r := range m7["resources_view"].([]any) {
+		if r.(map[string]any)["resource"] == "vcpu" {
+			cpu = r.(map[string]any)
+		}
 	}
-	// nat.2 has no footprint: listed as unmapped with quantity and region.
-	un := ov["unmapped_skus"].([]any)
+	for _, k := range []string{"raw", "usable", "sellable", "guaranteed", "burstable", "burstable_physical", "spot", "spot_physical", "sold_nominal",
+		"remaining", "guaranteed_ceiling", "physical_used", "physical_free", "stranded", "spot_room", "spot_reclaim", "sized", "utilisation_pct",
+		"status", "overcommitted", "over", "series", "history_days", "soft_wall_days", "soft_wall_date", "hard_wall_days", "hard_wall_date",
+		"order_by_days", "order_by_date", "order_by_wall", "late", "per_machine", "reserve", "overcommit_ratio", "label", "unit"} {
+		if _, ok := cpu[k]; !ok {
+			t.Fatalf("resource lacks %q: %v", k, cpu)
+		}
+	}
+	// 40 guaranteed m7n.2xlarge: 320 of 576 usable vCPU, sellable 1,344.
+	if cpu["usable"] != 576.0 || cpu["guaranteed"] != 320.0 || cpu["sellable"] != 1344.0 || cpu["burstable"] != 0.0 {
+		t.Fatalf("vcpu = %v", cpu)
+	}
+	// RAM: 2,560 of 4,608 at 1:1 — 55 %, the binding resource.
+	if m7["binding_resource"] != "memory_gib" {
+		t.Fatalf("binding resource = %v", m7["binding_resource"])
+	}
+	// A flat series: growth 0 on every class, so no wall and no order-by.
+	if cpu["soft_wall_days"] != nil || cpu["order_by_date"] != nil || cpu["history_days"] != 8.0 {
+		t.Fatalf("vcpu walls on a flat series = %v / %v / %v", cpu["soft_wall_days"], cpu["order_by_date"], cpu["history_days"])
+	}
+	series := cpu["series"].([]any)
+	if len(series) != 1 || series[0].(map[string]any)["class"] != capacity.ClassGuaranteed {
+		t.Fatalf("the series is split by class: %v", series)
+	}
+	// The basket: the mix selling, and how many more of it fit.
+	basket := m7["basket"].(map[string]any)
+	for _, k := range []string{"items", "units", "reason", "binding_resource", "resources", "unshaped_skus"} {
+		if _, ok := basket[k]; !ok {
+			t.Fatalf("basket lacks %q: %v", k, basket)
+		}
+	}
+	// 1,024 nominal vCPU left ÷ (8 × 4) = 32 baskets; 2,048 GiB left ÷ 64 =
+	// 32 as well, so the two tie and the first in display order is reported.
+	if basket["units"] != 32.0 || basket["binding_resource"] != "vcpu" {
+		t.Fatalf("basket = %v", basket)
+	}
+	// nat.2 has no shape: listed by name, counted against nothing.
+	un := ov["unshaped_skus"].([]any)
 	if len(un) != 1 || un[0].(map[string]any)["sku"] != "nat.2" || un[0].(map[string]any)["quantity"] != 1.0 {
-		t.Fatalf("unmapped = %v", un)
+		t.Fatalf("unshaped = %v", un)
 	}
 	sum := ov["summary"].(map[string]any)
-	for _, k := range []string{"regions", "zones", "pools", "pools_with_total", "pools_warn", "pools_critical", "pools_below_threshold", "skus", "unmapped_skus"} {
+	for _, k := range []string{"regions", "zones", "pools", "pools_sized", "pools_warn", "pools_critical", "pools_past_threshold", "pools_to_order", "pools_order_late", "placements", "shapes", "unplaced_skus", "unshaped_skus", "spot_to_reclaim"} {
 		if _, ok := sum[k]; !ok {
 			t.Fatalf("summary lacks %q: %v", k, sum)
 		}
 	}
-	if sum["pools"] != 14.0 || sum["pools_with_total"] != 1.0 || sum["unmapped_skus"] != 1.0 {
+	if sum["pools"] != 2.0 || sum["pools_sized"] != 2.0 || sum["unshaped_skus"] != 1.0 || sum["placements"] != 1.0 {
 		t.Fatalf("summary = %v", sum)
 	}
+
+	// The basket endpoint: a mix the operator names, with the binding
+	// resource. Two more 2xlarge per basket → 16 baskets.
+	hr := fin.must("GET", "/api/v1/capacity/pools/"+poolID+"/headroom?basket=ecs.m7n.2xlarge.8:2", 200)
+	b2 := hr["basket"].(map[string]any)
+	if b2["units"] != 16.0 || b2["binding_resource"] != "vcpu" {
+		t.Fatalf("named basket = %v", b2)
+	}
+	if rec, _ := owner.do("GET", "/api/v1/capacity/pools/"+poolID+"/headroom", "", nil); rec.Code != 403 {
+		t.Fatalf("customer-owner headroom = %d", rec.Code)
+	}
+
 	// The region filter.
 	if f := op.must("GET", "/api/v1/capacity/overview?region=me-east-215", 200); len(f["regions"].([]any)) != 1 {
 		t.Fatalf("filtered = %v", f["regions"])
@@ -305,21 +367,30 @@ func TestIntegrationCapacityPermissionsAndOverviewShape(t *testing.T) {
 	}
 	want := []string{
 		"capacity.region@" + opEmail, "capacity.zone@bo@nc.example", "capacity.zone@" + opEmail,
-		"capacity.pool@" + opEmail, "capacity.pool@bo@nc.example",
-		"capacity.footprint@" + opEmail,
-		"capacity.cap@" + opEmail, "capacity.cap@" + opEmail,
+		"capacity.pool@" + opEmail, "capacity.pool@bo@nc.example", "capacity.pool@bo@nc.example", "capacity.pool@" + opEmail,
+		"capacity.shape@" + opEmail, "capacity.shape@" + opEmail,
+		"capacity.resource@" + opEmail,
+		"capacity.placement@" + opEmail,
 	}
 	if strings.Join(actions, ",") != strings.Join(want, ",") {
 		t.Fatalf("audit actions = %v, want %v", actions, want)
 	}
-	if d := details["capacity.pool"][0]; !strings.Contains(d, `"from": "0.000000"`) && !strings.Contains(d, `"from":"0.000000"`) || !strings.Contains(d, "two hosts of 10 vCPU") {
+	// A pool audit carries what it was and what it became, vector and all.
+	if d := details["capacity.pool"][2]; !strings.Contains(d, `"from"`) || !strings.Contains(d, "two more hosts") || !strings.Contains(d, "overcommit_ratio") {
 		t.Fatalf("pool audit detail = %s", d)
 	}
-	if d := details["capacity.cap"][1]; !strings.Contains(d, `"delete"`) {
-		t.Fatalf("cap removal audit detail = %s", d)
+	if d := details["capacity.placement"][0]; !strings.Contains(d, "guaranteed") {
+		t.Fatalf("placement audit detail = %s", d)
 	}
 
-	// Zone and region deletion, audited; the viewer is refused.
+	// Deletion, audited; the viewer is refused.
+	if rec, _ := fin.do("DELETE", "/api/v1/capacity/pools/"+second["id"].(string), "", nil); rec.Code != 403 {
+		t.Fatalf("finance-viewer DELETE pool = %d", rec.Code)
+	}
+	op.must("DELETE", "/api/v1/capacity/pools/"+second["id"].(string), 200)
+	if rec, _ := op.json("PUT", "/api/v1/capacity/placements", map[string]any{"pool_id": poolID, "sku": "ecs.m7n.2xlarge.8", "class": nil}); rec.Code != 200 {
+		t.Fatalf("removing a placement = %d %s", rec.Code, rec.Body.String())
+	}
 	if rec, _ := fin.do("DELETE", "/api/v1/capacity/zones/"+zoneBID, "", nil); rec.Code != 403 {
 		t.Fatalf("finance-viewer DELETE zone = %d", rec.Code)
 	}
