@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-13T11:15:03Z` |
+| Last refreshed | `2026-09-13T11:30:11Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-13T11:21 | [#6933](https://github.com/openova-io/openova/pull/6933) | #6867 | fix(bss): Catalyst BSS 0.1.44 — creating a pool blanked the  |
 | 2026-09-13T10:44 | [#6932](https://github.com/openova-io/openova/pull/6932) | #6867 | fix(bss): Catalyst BSS 0.1.43 — a stale tab failed saves sil |
 | 2026-09-13T09:38 | [#6931](https://github.com/openova-io/openova/pull/6931) | #6867 | feat(bss): Catalyst BSS 0.1.42 — capacity as pools of machin |
 | 2026-09-12T00:53 | [#6930](https://github.com/openova-io/openova/pull/6930) | #6867 | fix(bss): Catalyst BSS 0.1.41 — an unrated period claimed ev |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-10T14:12 | [#6905](https://github.com/openova-io/openova/pull/6905) | #6867 | feat(org): suspend and resume an Organization on an explicit |
 | 2026-09-10T12:06 | [#6904](https://github.com/openova-io/openova/pull/6904) | #6867 | feat(chargeback): 0.1.28 — account ledger, balance, top-up,  |
 | 2026-09-10T11:11 | [#6903](https://github.com/openova-io/openova/pull/6903) | #6867 | docs(chargeback): 0.1.27 live evidence on hw307 — commercial |
-| 2026-09-10T15:55 | [#6902](https://github.com/openova-io/openova/pull/6902) | #4292 | refactor(organization): every Organization gets a dedicated  |
 
 ---
 
