@@ -2,6 +2,8 @@
 // HttpOnly `cb_session` cookie the server sets on PIN verify — every call
 // sends it with `credentials: 'include'` and nothing is stored in the page.
 
+import { BUILD_HEADER, noteServerBuild } from '../lib/build'
+
 export const API_BASE = '/api/v1'
 
 export class ApiError extends Error {
@@ -49,6 +51,10 @@ async function request<T>(method: string, path: string, body?: unknown, raw?: Bo
     body: payload,
     credentials: 'include',
   })
+  // Every response names the build that answered it, so a page that has been
+  // open across a deploy learns it is stale from a call it was making anyway
+  // — including the one that is about to throw (lib/build.ts).
+  noteServerBuild(res.headers.get(BUILD_HEADER))
   const parsed = await parse(res)
   if (!res.ok) throw new ApiError(res.status, messageFrom(res.status, parsed), parsed)
   return parsed as T

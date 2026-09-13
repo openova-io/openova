@@ -609,6 +609,14 @@ func (h *Handler) chain(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		h.frameHeaders(w, r)
 		w.Header().Set("Referrer-Policy", "same-origin")
+		// Every API response names the build that answered it (build.go).
+		// The console compares it against the build stamped into its own
+		// shell, so a tab left open across a deploy learns it is stale from
+		// a call it was making anyway — including the write that just
+		// failed — instead of from a poller.
+		if h.Version != "" && strings.HasPrefix(r.URL.Path, "/api/") {
+			w.Header().Set(BuildHeader, h.Version)
+		}
 		// The public calculator routes resolve no principal at all
 		// (DESIGN.md §11): a cookie sent to them is ignored, not looked up.
 		if strings.HasPrefix(r.URL.Path, "/api/") && !isPublicPath(r.URL.Path) {
