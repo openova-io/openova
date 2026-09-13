@@ -45,7 +45,11 @@ func storeErr(w http.ResponseWriter, err error) {
 	case errors.Is(err, store.ErrNotFound):
 		writeErr(w, http.StatusNotFound, "not found")
 	case errors.Is(err, store.ErrConflict):
-		writeErr(w, http.StatusConflict, err.Error())
+		// The 409 status already says "conflict"; repeating it in front of
+		// the sentence makes a readable message read like a machine
+		// ("conflict: that cost-centre code is already used by this
+		// customer"). Strip the sentinel prefix, exactly as ErrInvalid does.
+		writeErr(w, http.StatusConflict, conflictMessage(err))
 	case errors.Is(err, store.ErrInvalid):
 		// A value the store validated and refused is the caller's mistake,
 		// not a server fault; handlers that want a tailored message check

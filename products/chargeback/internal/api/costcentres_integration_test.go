@@ -589,6 +589,13 @@ func TestIntegrationDuplicateCostCentreCodeIsReadable(t *testing.T) {
 			t.Errorf("the 409 body leaks %q: %s", leak, rec.Body.String())
 		}
 	}
+	// The 409 status already carries the word; the body must be the sentence
+	// alone, not "conflict: that code is already used". Asserted HERE rather
+	// than only on conflictMessage, because a helper test passes whether or
+	// not storeErr actually calls it — seeded and confirmed.
+	if strings.HasPrefix(msg, "conflict:") {
+		t.Errorf("the 409 body repeats its own status: %q", msg)
+	}
 	if !strings.Contains(msg, "already used") {
 		t.Errorf("the 409 does not say what went wrong: %q", msg)
 	}
