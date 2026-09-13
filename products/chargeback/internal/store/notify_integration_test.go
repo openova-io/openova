@@ -263,6 +263,69 @@ func TestIntegrationDeliveryLogRecordsEveryAttemptAndIsScoped(t *testing.T) {
 	}
 }
 
+// The console's Subject column shows the line a person really received where
+// the log holds one (DESIGN.md §21.8). That is this read: the most recent
+// attempt per event that carried a subject, inside the scope.
+func TestIntegrationTheLastSubjectPerEventIsReadBackAndScoped(t *testing.T) {
+	st := testdb.Open(t)
+	ctx := context.Background()
+	a := notifyCustomer(t, st, "acme2")
+	b := notifyCustomer(t, st, "beta2")
+	now := time.Date(2026, 9, 12, 10, 0, 0, 0, time.UTC)
+
+	write := func(event string, cust *string, subject, status string, at time.Time) {
+		t.Helper()
+		if _, err := st.RecordNotificationDelivery(ctx, store.NotificationDeliveryInput{
+			Event: event, CustomerID: cust, Channel: "email", Recipient: "ap@acme2.example", Locale: "en",
+			Subject: subject, Attempt: 1, Status: status, At: at,
+		}); err != nil {
+			t.Fatalf("record: %v", err)
+		}
+	}
+	write("statement.issued", &a.ID, "Statement for ACME2 — July 2026: 2670.399 OMR", store.NotifyStatusSent, now.AddDate(0, -1, 0))
+	write("statement.issued", &a.ID, "Statement for ACME2 — August 2026: 1234.560 OMR", store.NotifyStatusSent, now)
+	// A FAILED attempt still composed a real subject for a real recipient,
+	// and it is exactly the line that was owed — so it counts.
+	write("collections.reminder", &a.ID, "Overdue: Invoice INV-000123 for 1000 OMR, 7 days past due", store.NotifyStatusFailed, now)
+	// A SUPPRESSED event was never rendered: it has nothing to show, and
+	// must not answer the column with a blank.
+	write("budget.threshold", &a.ID, "", store.NotifyStatusSuppressed, now)
+	write("account.low_balance", &b.ID, "Low balance: 12.5 OMR left on your account", store.NotifyStatusSent, now)
+
+	got, err := st.LatestNotificationSubjects(ctx, store.OperatorScope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("events with a subject = %d, want 3: %+v", len(got), got)
+	}
+	// The MOST RECENT one, not the first — last month's invoice is not
+	// what the page is describing.
+	if v := got["statement.issued"]; v.Subject != "Statement for ACME2 — August 2026: 1234.560 OMR" || !v.At.Equal(now) {
+		t.Errorf("statement subject = %+v", v)
+	}
+	if v := got["collections.reminder"]; v.Subject != "Overdue: Invoice INV-000123 for 1000 OMR, 7 days past due" {
+		t.Errorf("reminder subject = %+v", v)
+	}
+	if _, ok := got["budget.threshold"]; ok {
+		t.Errorf("an attempt with no subject answered the column: %+v", got["budget.threshold"])
+	}
+
+	// Scope confinement, the same as the log itself: a customer principal
+	// reads its own rows and nothing else.
+	mine, err := st.LatestNotificationSubjects(ctx, store.CustomerScope(b.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(mine) != 1 || mine["account.low_balance"].Subject != "Low balance: 12.5 OMR left on your account" {
+		t.Fatalf("customer scope = %+v", mine)
+	}
+	none, err := st.LatestNotificationSubjects(ctx, store.CustomerScope("00000000-0000-0000-0000-000000000000"))
+	if err != nil || len(none) != 0 {
+		t.Fatalf("a scope bound to no delivery read %+v (%v)", none, err)
+	}
+}
+
 // The migration is APPENDED, and the locator finds it by content rather than
 // by position — the invariant every migration in this package rests on.
 func TestIntegrationNotificationMigrationIsAppendedAndLocatedByContent(t *testing.T) {

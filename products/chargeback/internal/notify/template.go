@@ -165,6 +165,46 @@ func Render(event, locale string, payload map[string]any) (Message, error) {
 	return Message{Subject: collapse(subject.String()), Body: body.String(), Locale: used}, nil
 }
 
+// ExampleSubject renders an event's subject from the catalogue's EXAMPLE
+// payload — the subject a person would receive, rather than the template
+// source, which is what the console's event table has to show. It is the
+// LAST resort: where the delivery log holds a real subject for the event,
+// the console shows that one instead, because a real send invents nothing.
+//
+// The second return is the locale actually rendered in, the third whether
+// there was anything to render. A subject that references no field renders
+// its own fixed text and needs no example at all.
+func ExampleSubject(event, locale string) (string, string, bool) {
+	e, ok := Lookup(event)
+	if !ok {
+		return "", "", false
+	}
+	t, used, ok := TemplateFor(event, locale)
+	if !ok {
+		return "", "", false
+	}
+	var subject strings.Builder
+	if err := t.subject.Execute(&subject, e.Example); err != nil {
+		return "", "", false
+	}
+	out := collapse(subject.String())
+	if out == "" {
+		return "", "", false
+	}
+	return out, used, true
+}
+
+// SubjectFields lists the payload fields an event's SUBJECT references in a
+// locale. It is what holds the catalogue's example payload to the subject it
+// has to render: a subject field with no example value renders as a hole.
+func SubjectFields(event, locale string) []string {
+	t, _, ok := TemplateFor(event, locale)
+	if !ok {
+		return nil
+	}
+	return referencedFields(t.Subject)
+}
+
 // collapse turns every run of whitespace containing a line break into one
 // space and trims the ends.
 func collapse(s string) string {

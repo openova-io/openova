@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/openova-io/openova/products/chargeback/internal/budget"
+	"github.com/openova-io/openova/products/chargeback/internal/notify"
 	"github.com/openova-io/openova/products/chargeback/internal/rating"
 	"github.com/openova-io/openova/products/chargeback/internal/recommend"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
@@ -207,6 +208,48 @@ func TestMoneyFormatting(t *testing.T) {
 	}
 	if pct(nil, true) != "n/a" || pct(pctp(5.84), true) != "+5.8%" || pct(pctp(-3.14), true) != "-3.1%" || pctF(52, false) != "52.0%" {
 		t.Error("pct formatting")
+	}
+}
+
+// The console's Subject column shows what a person RECEIVES, and for an
+// event nothing has sent yet it shows the catalogue's example (DESIGN.md
+// §21.8). Two of those examples — the statement and the scheduled report —
+// stand in for a subject line THIS package composes, because their template
+// is a pass-through ({{.subject}}) and a translator never sees the words.
+//
+// An example that does not look like what the renderer produces is a small
+// lie told to every operator who reads the page, and nothing else would
+// catch it: notify cannot import report (report imports notify), so the two
+// are held together from this side, with the REAL renderers.
+func TestTheExampleSubjectsMatchWhatTheRenderersProduce(t *testing.T) {
+	issued := at(2026, 9, 1, 8, 0)
+	st := store.Statement{
+		ID: "st-1", CustomerID: "c-1", CustomerName: "Acme Org",
+		PeriodStart: "2026-08-01", PeriodEnd: "2026-08-31",
+		Currency: "OMR", Subtotal: "1234.560000", Total: "1234.560000",
+		Status: "issued", IssuedAt: &issued,
+	}
+	subject, _ := RenderStatement(st, "https://billing.t99.omani.works/statements/st-1")
+	e, ok := notify.Lookup(notify.EventStatementIssued)
+	if !ok {
+		t.Fatal("the catalogue has no statement event")
+	}
+	if got := e.Example["subject"]; got != subject {
+		t.Errorf("the catalogue's example statement subject\n got %q\nwant %q — what RenderStatement produces for the same figures", got, subject)
+	}
+
+	in := Input{
+		Name: "Monthly", Scope: "All customers", Operator: true, Cadence: CadenceMonthly,
+		From: at(2026, 8, 1, 0, 0), To: at(2026, 9, 1, 0, 0),
+		Currency: "OMR", Sections: Sections(), Total: "9876.540000",
+	}
+	subject, _ = Render(in)
+	e, ok = notify.Lookup(notify.EventReportScheduled)
+	if !ok {
+		t.Fatal("the catalogue has no scheduled-report event")
+	}
+	if got := e.Example["subject"]; got != subject {
+		t.Errorf("the catalogue's example report subject\n got %q\nwant %q — what Render produces for the same window", got, subject)
 	}
 }
 

@@ -66,6 +66,14 @@ const catalogue: NotifyCatalogue = {
     { event: 'collections.reminder', locale: 'en', subject: 'Overdue: {{.invoice_title}}', body: 'Hello {{.customer_name}},' },
     { event: 'account.low_balance', locale: 'en', subject: 'Low balance: {{.available}} {{.currency}} left on your account', body: 'Hello {{.customer_name}},' },
   ],
+  // What a PERSON reads, which is what the column shows: the last real send
+  // where the log has one, the template rendered over the catalogue's example
+  // payload where it does not.
+  subjects: [
+    { event: 'statement.issued', locale: 'en', subject: 'Statement for Acme Org — July 2026: 2670.399 OMR', source: 'delivery', at: '2026-09-11T09:20:00Z' },
+    { event: 'collections.reminder', locale: 'en', subject: 'Overdue: Invoice INV-000123 for 1000 OMR, 7 days past due', source: 'example' },
+    { event: 'account.low_balance', locale: 'en', subject: 'Low balance: 12.5 OMR left on your account', source: 'example' },
+  ],
 }
 
 const sovereignPrefs: NotifyPreferencesDoc = {
@@ -195,7 +203,7 @@ function render(Page: ComponentType, path = '/notifications', url = path): strin
 }
 
 describe('Configure → Notifications lists what the product sends', () => {
-  it('shows each event with its channels, whether it can be switched off, and its template subject', () => {
+  it('shows each event with its channels, whether it can be switched off, and the subject a recipient reads', () => {
     session = sovereign
     const html = render(Notifications)
     expect(html).toContain('Statement issued')
@@ -206,12 +214,39 @@ describe('Configure → Notifications lists what the product sends', () => {
     expect(html).toContain('Mandatory')
     expect(html).toContain('cannot be switched off')
     expect(html).toContain('a recipient may switch it off')
-    // The template subject is on the row, as its source.
-    expect(html).toContain('{{.subject}}')
-    expect(html).toContain('Low balance: {{.available}} {{.currency}}')
+    // THE SUBJECT COLUMN carries what a person receives — never the
+    // template source, which says nothing to an operator and is cut
+    // mid-expression by the column width.
+    expect(html).toContain('Statement for Acme Org — July 2026: 2670.399 OMR')
+    expect(html).toContain('Low balance: 12.5 OMR left on your account')
+    expect(html).not.toContain('{{')
+    expect(html).not.toContain('}}')
     // The effective setting, and what decided it.
     expect(html).toContain('no preference set')
     expect(html).toContain('set at sovereign')
+  })
+
+  it('labels a rendered example and dates a real send, so the two are never confused', () => {
+    session = sovereign
+    const html = render(Notifications)
+    // The statement row is a line that really went out, with when.
+    expect(html).toContain('last sent 2026-09-11 09:20Z')
+    // The two that have never been sent are examples, and say so.
+    expect(html).toContain('>Example<')
+    expect(html).toContain('an example — nothing has been sent yet')
+  })
+
+  it('offers Edit on EVERY event: mandatory means it cannot be switched off, not that it cannot be configured', () => {
+    session = sovereign
+    const html = render(Notifications)
+    // One Edit per event, none of them disabled — including the invoice
+    // and the dunning reminder, the two that matter commercially.
+    expect(html.match(/>Edit</g)?.length).toBe(catalogue.events.length)
+    expect(html).not.toMatch(/<button[^>]*disabled[^>]*>Edit</)
+    // The old tooltip refused the whole entry point for the wrong reason.
+    expect(html).not.toContain('A mandatory notice cannot be switched off')
+    // What it says now is what is actually true of a mandatory notice.
+    expect(html).toContain('A mandatory notice is always sent. Its channels and its language are still yours to set.')
   })
 
   it('renders the SMS channel as declared and unavailable, with the reason verbatim', () => {
@@ -276,6 +311,11 @@ describe("the customer's own notifications", () => {
     // An optional one is switchable, and says so.
     expect(html).toContain('Low balance')
     expect(html).toContain('>Change<')
+    // A required notice is still an account's to configure — its language,
+    // and a second channel. What it may not do is switch it off or take
+    // the carrying channel away, and the dialog is what refuses that.
+    expect(html.match(/>Change</g)?.length).toBe(customerPrefs.effective.length)
+    expect(html).toContain('A mandatory notice is always sent. Its channels and its language are still yours to set.')
   })
 
   it('offers a customer VIEWER no switch at all', () => {
@@ -326,6 +366,48 @@ describe('the dialogs', () => {
     expect(html).toContain('cannot be switched off')
     expect(html).toContain('you may add a channel to it')
     expect(html).toMatch(/aria-label="Receive this message"[^>]*disabled|disabled[^>]*aria-label="Receive this message"/)
+  })
+
+  it('a mandatory notice keeps the channel that carries it, and still takes another', () => {
+    session = sovereign
+    const Page: ComponentType = () =>
+      createElement(PreferenceModal, {
+        event: catalogue.events[0],
+        effective: sovereignPrefs.effective[0],
+        channels: catalogue.channels,
+        locales: ['en'],
+        path: '/notifications/preferences',
+        onClose: () => {},
+        onDone: () => {},
+      })
+    const html = render(Page)
+    // EMAIL is the floor: checked, not removable, and it says why HERE
+    // rather than by refusing to open the form at all.
+    expect(html).toMatch(/aria-label="Channel email"[^>]*checked/)
+    expect(html).toMatch(/aria-label="Channel email"[^>]*disabled/)
+    expect(html).toContain('required — a mandatory notice keeps this channel')
+    // Adding one is exactly what the server permits, so the form does too.
+    expect(html).toContain('aria-label="Channel sms"')
+    expect(html).not.toMatch(/aria-label="Channel sms"[^>]*disabled/)
+    // And the language is a plain choice on a mandatory notice.
+    expect(html).toContain('aria-label="Language"')
+  })
+
+  it('an optional notice locks no channel at all', () => {
+    session = sovereign
+    const Page: ComponentType = () =>
+      createElement(PreferenceModal, {
+        event: catalogue.events[2],
+        effective: sovereignPrefs.effective[2],
+        channels: catalogue.channels,
+        locales: ['en'],
+        path: '/notifications/preferences',
+        onClose: () => {},
+        onDone: () => {},
+      })
+    const html = render(Page)
+    expect(html).not.toContain('required — a mandatory notice keeps this channel')
+    expect(html).not.toMatch(/aria-label="Channel email"[^>]*disabled/)
   })
 
   it('an optional notice offers a real switch, and names the channel with no transport', () => {
