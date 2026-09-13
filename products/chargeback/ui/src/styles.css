@@ -134,6 +134,11 @@ aside.side button.ghost:hover { background: #172036; }
 .toolbar .field label { margin-bottom: 3px; }
 .toolbar .grow { flex: 1; }
 .toolbar .sep { width: 1px; align-self: stretch; background: var(--line); margin: 0 2px; }
+/* Each zone's own strip above its pool cards: the zone, how many pools sit on
+   it, and the control that adds one — beside the pools it adds to, which is
+   the one place it was missing (pages/Capacity.tsx, ZoneSection). */
+.zone-head { align-items: center; }
+.zone-head .sub { color: var(--muted); font-size: 12px; margin-left: 8px; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: #fff; }
 .seg button { border: 0; border-radius: 0; padding: 6px 10px; font-size: 12.5px; background: #fff; color: var(--ink-2); }
 .seg button + button { border-left: 1px solid var(--line); }
@@ -246,6 +251,11 @@ button.link.danger { color: var(--bad); }
 .steps span.done { color: var(--ok); border-color: var(--ok-line); }
 
 .banner { background: var(--warn-bg); border-bottom: 1px solid var(--warn-line); color: #92400e; padding: 6px 28px; font-size: 12px; }
+/* The stale-build strip (components/BuildNotice.tsx): it STAYS on screen —
+   the point is that it cannot be missed or scrolled past — and it never
+   covers the form underneath, so a half-typed pool survives reading it. */
+.banner.build { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 28px; font-size: 12.5px; }
+.banner.build button { font-size: 12px; padding: 3px 10px; }
 pre.details { white-space: pre-wrap; word-break: break-all; margin: 0; font-size: 12px; }
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; font-size: 13px; }
 .kv dt { color: var(--muted); }

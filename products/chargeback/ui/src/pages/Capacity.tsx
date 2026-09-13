@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react'
+import { useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { api } from '../api/client'
 import type {
   CapacityBasket,
@@ -30,12 +30,12 @@ import {
   kindOf,
   parsePoolForm,
   parseShapeForm,
-  poolRows,
   reserveForMachines,
   shapeSummary,
   sortedResourceKeys,
   sparkPath,
   vectorSummary,
+  zoneRows,
   type PoolForm,
 } from '../lib/capacity'
 import { toNumber } from '../lib/num'
@@ -93,7 +93,18 @@ export function Capacity() {
 
   const ov = overview.data
   const kinds = ov?.resource_kinds ?? []
-  const rows = useMemo(() => poolRows(ov, region), [ov, region])
+  // The page is organised BY ZONE, not by a flat list of pools: a pool
+  // belongs to a zone, and a zone with none still needs somewhere to add one.
+  const zones = useMemo(() => zoneRows(ov, region), [ov, region])
+  // Every zone the Sovereign has, for the editor's zone picker. The region
+  // filter narrows what is SHOWN; it never narrows where a pool may be added.
+  const zoneOptions = useMemo(
+    () =>
+      (ov?.regions ?? []).flatMap((r) =>
+        r.zones.map((z) => ({ id: z.id, label: `${r.code} / ${z.code}${z.is_default ? ` (${t('capacity.regions.defaultZone')})` : ''}` })),
+      ),
+    [ov],
+  )
   const summary = ov?.summary
   const asOf = asOfLabel(ov?.as_of)
 
@@ -116,12 +127,40 @@ export function Capacity() {
             {asOf ? <> · {t('capacity.asOf', { when: asOf })}</> : null}
           </>
         }
+        actions={
+          canManage && zoneOptions.length > 0 ? (
+            <button className="small primary" onClick={() => setEditing({ zoneID: zones[0]?.zone.id ?? zoneOptions[0].id, pool: null })}>
+              {t('capacity.pool.add')}
+            </button>
+          ) : null
+        }
       />
       {overview.error ? <Notice kind="bad">{overview.error}</Notice> : null}
       {shapes.error ? <Notice kind="bad">{shapes.error}</Notice> : null}
       {act.error ? <Notice kind="bad">{act.error}</Notice> : null}
       {act.ok ? <Notice kind="ok">{act.ok}</Notice> : null}
       {!canManage ? <Notice kind="info">{t('capacity.readOnly')}</Notice> : null}
+
+      {/* One editor, opened from the page header, from a zone's own header,
+          from a zone with no pools, or from a pool's Edit — always here, at
+          the top, with the cursor already in it, so the control that opened
+          it is never somewhere the reader has to go looking for. The key
+          remounts it when it is pointed at a different pool or zone. */}
+      {editing ? (
+        <PoolEditor
+          key={`${editing.pool?.id ?? 'new'}-${editing.zoneID}`}
+          zoneID={editing.zoneID}
+          zones={zoneOptions}
+          pool={editing.pool}
+          kinds={kinds}
+          act={act}
+          onClose={() => setEditing(null)}
+          onSaved={async () => {
+            setEditing(null)
+            await reload()
+          }}
+        />
+      ) : null}
 
       <div className="kpis">
         <KPI
@@ -208,37 +247,34 @@ export function Capacity() {
             </div>
           </div>
 
-          {rows.length === 0 ? (
-            <div className="card">
-              <EmptyState title={t('capacity.empty.noPools')}>{t('capacity.empty.noPoolsBody')}</EmptyState>
-            </div>
-          ) : null}
-
-          {rows.map(({ region: rc, zone, pool }) => (
-            <PoolCard
-              key={pool.id}
-              regionCode={rc}
-              zone={zone}
-              pool={pool}
-              kinds={kinds}
-              classes={ov.classes}
-              canManage={canManage}
-              act={act}
-              onSaved={reload}
-              onEdit={() => setEditing({ zoneID: zone.id, pool })}
-              onDelete={() => setConfirm({ kind: 'pool', pool })}
-            />
+          {zones.map(({ region: rc, zone }) => (
+            <ZoneSection key={zone.id} regionCode={rc} zone={zone} canManage={canManage} onAddPool={() => setEditing({ zoneID: zone.id, pool: null })}>
+              {zone.pools.map((pool) => (
+                <PoolCard
+                  key={pool.id}
+                  regionCode={rc}
+                  zone={zone}
+                  pool={pool}
+                  kinds={kinds}
+                  classes={ov.classes}
+                  canManage={canManage}
+                  act={act}
+                  onSaved={reload}
+                  onEdit={() => setEditing({ zoneID: zone.id, pool })}
+                  onDelete={() => setConfirm({ kind: 'pool', pool })}
+                />
+              ))}
+            </ZoneSection>
           ))}
 
           {/* Everything a zone could not attribute, by name. */}
-          {rows.some(({ zone }) => zone.unplaced_skus.length > 0) ? (
+          {zones.some(({ zone }) => zone.unplaced_skus.length > 0) ? (
             <div className="card">
               <div className="card-head">
                 <h2>{t('capacity.unplaced.title')}</h2>
               </div>
               <div className="stack tight">
-                {rows
-                  .filter((r, i, all) => all.findIndex((x) => x.zone.id === r.zone.id) === i)
+                {zones
                   .flatMap(({ zone }) => zone.unplaced_skus.map((u) => ({ zone, u })))
                   .map(({ zone, u }) => (
                     <div key={`${zone.id}-${u.sku}-${u.reason}-${u.resource ?? ''}`} className="row between">
@@ -291,20 +327,6 @@ export function Capacity() {
       ) : null}
 
       <ShapesCard doc={shapes.data} loading={shapes.loading} canManage={canManage} act={act} onSaved={reload} seedSku={shapeSeed} onSeedConsumed={() => setShapeSeed(null)} />
-
-      {editing ? (
-        <PoolEditor
-          zoneID={editing.zoneID}
-          pool={editing.pool}
-          kinds={kinds}
-          act={act}
-          onClose={() => setEditing(null)}
-          onSaved={async () => {
-            setEditing(null)
-            await reload()
-          }}
-        />
-      ) : null}
 
       {confirm?.kind === 'pool' ? (
         <Confirm
@@ -373,6 +395,74 @@ function classText(key: string, classes: CapacityOverview['classes']): string {
 function sourcesNote(ov: CapacityOverview): string {
   const base = ov.sources === 1 ? t('capacity.kpi.sourcesOne') : t('capacity.kpi.sources', { count: ov.sources })
   return ov.lagging_sources ? `${base} · ${t('capacity.kpi.lagging', { count: ov.lagging_sources })}` : base
+}
+
+/**
+ * One zone, and its pools.
+ *
+ * ADDING A POOL LIVES WHERE THE POOLS ARE. It used to live only at the foot
+ * of the page, inside the regions-and-zones administration block: the founder,
+ * who had commissioned the feature and knew it existed, still asked "where is
+ * the add pool". A control nobody can find is a control nobody has. So the
+ * zone's own header offers it, a zone with no pools offers it in the space
+ * where its pools would be, and the page header offers it too — all three
+ * open the SAME editor, and the zones block below still works exactly as it
+ * did. One dialog, four ways in, no second way of creating a pool.
+ */
+function ZoneSection({
+  regionCode,
+  zone,
+  canManage,
+  onAddPool,
+  children,
+}: {
+  regionCode: string
+  zone: CapacityZoneView
+  canManage: boolean
+  onAddPool: () => void
+  children: ReactNode
+}) {
+  const count = zone.pools.length
+  return (
+    <>
+      <div className="toolbar zone-head" role="region" aria-label={`Zone ${zone.code}`}>
+        <span>
+          <b>
+            {regionCode} / {zone.code}
+          </b>
+          {zone.is_default ? (
+            <>
+              {' '}
+              <Badge status="default" kind="info" />
+            </>
+          ) : null}
+          <span className="sub">{count === 0 ? t('capacity.zone.poolsNone') : count === 1 ? t('capacity.zone.poolsOne') : t('capacity.zone.pools', { count })}</span>
+        </span>
+        <div className="grow" />
+        {canManage ? (
+          <button className="small primary" onClick={onAddPool}>
+            {t('capacity.pool.add')}
+          </button>
+        ) : null}
+      </div>
+      {count === 0 ? (
+        <div className="card">
+          <EmptyState title={t('capacity.empty.noPools')}>
+            {t('capacity.empty.noPoolsBody')}
+            {canManage ? (
+              <div style={{ marginTop: 10 }}>
+                <button className="small primary" onClick={onAddPool}>
+                  {t('capacity.pool.add')}
+                </button>
+              </div>
+            ) : null}
+          </EmptyState>
+        </div>
+      ) : (
+        children
+      )}
+    </>
+  )
 }
 
 /** One pool: the vector, the class split per resource, the walls, the basket. */
@@ -791,9 +881,19 @@ function PlacementsPanel({
 
 const emptyResource = { resource: '', per_machine: '', reserve: '', overcommit_ratio: '1' }
 
-/** The pool editor: a machine count and a per-machine vector. */
+/**
+ * The pool editor: a machine count and a per-machine vector.
+ *
+ * THE ONLY WAY A POOL IS CREATED OR CHANGED, from every entry point. When it
+ * is creating, it asks which zone — the page header's button cannot know, and
+ * making the reader go and find the right zone's button first is the defect
+ * this is fixing. When it is editing, the zone is the pool's own and is shown
+ * rather than offered: moving a pool between zones is a different operation
+ * from re-sizing one, and PUT /capacity/pools/{id} does not do it.
+ */
 function PoolEditor({
   zoneID,
+  zones,
   pool,
   kinds,
   act,
@@ -801,12 +901,14 @@ function PoolEditor({
   onSaved,
 }: {
   zoneID: string
+  zones: Array<{ id: string; label: string }>
   pool: CapacityPoolView | null
   kinds: CapacityResourceKind[]
   act: Act
   onClose: () => void
   onSaved: () => Promise<void>
 }) {
+  const [zone, setZone] = useState(zoneID)
   const [form, setForm] = useState<PoolForm>(() => ({
     name: pool?.name ?? '',
     machines: pool ? String(toNumber(pool.machines)) : '',
@@ -832,7 +934,7 @@ function PoolEditor({
     }
     setErr('')
     const label = pool ? t('capacity.form.saved', { name: parsed.body.name }) : t('capacity.form.created', { name: parsed.body.name })
-    const ok = await act.run(label, () => (pool ? api.put(`/capacity/pools/${pool.id}`, parsed.body) : api.post(`/capacity/zones/${zoneID}/pools`, parsed.body)), onSaved)
+    const ok = await act.run(label, () => (pool ? api.put(`/capacity/pools/${pool.id}`, parsed.body) : api.post(`/capacity/zones/${zone}/pools`, parsed.body)), onSaved)
     if (!ok) setErr('')
   }
 
@@ -844,8 +946,21 @@ function PoolEditor({
       <form onSubmit={submit} className="stack tight" style={{ padding: '0 16px 16px' }}>
         {err ? <Notice kind="bad">{err}</Notice> : null}
         <div className="inline">
+          {pool ? null : (
+            <Field label={t('capacity.form.zone')} help={t('capacity.form.zoneHelp')}>
+              <select value={zone} onChange={(e) => setZone(e.target.value)}>
+                {zones.map((z) => (
+                  <option key={z.id} value={z.id}>
+                    {z.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
           <Field label={t('capacity.form.poolName')} help={t('capacity.form.poolNameHelp')}>
-            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="m7n-a" />
+            {/* The editor is at the top of the page; the focus is what tells
+                a reader who clicked "Add a pool" further down that it opened. */}
+            <input autoFocus value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="m7n-a" />
           </Field>
           <Field label={t('capacity.form.machines')} help={t('capacity.form.machinesHelp')}>
             <input value={form.machines} onChange={(e) => setForm({ ...form, machines: e.target.value })} placeholder="10" />

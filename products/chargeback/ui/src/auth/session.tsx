@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { api, ApiError } from '../api/client'
 import type { Me } from '../api/types'
+import { noteServerBuild } from '../lib/build'
 
 interface SessionState {
   me: Me | null
@@ -23,6 +24,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async () => {
     try {
       const m = await api.get<Me>('/auth/me')
+      // The session document has carried the server's version since it was
+      // written; it is the same value the response header carries, and this
+      // is the first call the console makes (lib/build.ts).
+      noteServerBuild(m.version)
       setMe(m)
       return m
     } catch (e) {
