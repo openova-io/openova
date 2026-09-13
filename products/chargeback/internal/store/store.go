@@ -726,7 +726,10 @@ func jsonOrEmpty(v any) []byte {
 	return b
 }
 
-// mapErr translates driver errors into the store's sentinel errors.
+// mapErr translates driver errors into the store's sentinel errors. The
+// classification is what callers switch on; the message is written for the
+// person reading it and never carries the driver's own text — see dberr.go
+// for why, and for the sentence each constraint gets.
 func mapErr(err error) error {
 	if err == nil {
 		return nil
@@ -734,15 +737,22 @@ func mapErr(err error) error {
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	}
+	// A method that already refused the write in its own words has said
+	// something better than any sentence a constraint name can produce
+	// ("%q is already the public price book; withdraw it first"). Those
+	// errors pass through untouched.
+	if errors.Is(err, ErrConflict) || errors.Is(err, ErrNotFound) || errors.Is(err, ErrInvalid) {
+		return err
+	}
 	var pqe *pq.Error
 	if errors.As(err, &pqe) {
 		switch pqe.Code {
 		case "23505": // unique_violation
-			return fmt.Errorf("%w: %s", ErrConflict, pqe.Detail)
+			return constraintErr(ErrConflict, pqe, conflictFallback)
 		case "23503": // foreign_key_violation
-			return fmt.Errorf("%w: %s", ErrNotFound, pqe.Detail)
+			return constraintErr(ErrNotFound, pqe, referenceFallback)
 		case "23514": // check_violation
-			return fmt.Errorf("%w: %s", ErrConflict, pqe.Constraint)
+			return constraintErr(ErrConflict, pqe, checkValueFallback)
 		case "22P02": // invalid_text_representation (bad uuid etc.)
 			return ErrNotFound
 		}

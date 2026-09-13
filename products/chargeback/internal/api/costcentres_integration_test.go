@@ -562,3 +562,34 @@ func TestIntegrationCostCentreReportBeforeTheRun(t *testing.T) {
 		t.Fatalf("bad period = %d", rec.Code)
 	}
 }
+
+// A code that is already taken is refused with a sentence the person who
+// typed it can act on — and with nothing else. Before the fix this route
+// answered 409 with the driver's own text,
+//
+//	conflict: Key (customer_id, code)=(9692021e-…, ENG) already exists.
+//
+// putting two column names, the table's key and another row's UUID on the
+// screen of whoever tripped it. The assertions are on the ABSENCE of that
+// payload: a leak behind a friendly prefix still fails here.
+func TestIntegrationDuplicateCostCentreCodeIsReadable(t *testing.T) {
+	e := setupCostCentres(t)
+	path := "/api/v1/customers/" + e.cust.ID + "/cost-centres"
+	e.mustJSON(t, e.op, "POST", path, `{"code":"ENG","name":"Engineering"}`, http.StatusCreated)
+	rec, out := e.call(t, e.op, "POST", path, `{"code":"ENG","name":"Engineering again"}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("a duplicate code = %d, want 409: %s", rec.Code, rec.Body.String())
+	}
+	msg, _ := out["error"].(string)
+	if msg == "" {
+		t.Fatalf("the 409 carried no message: %s", rec.Body.String())
+	}
+	for _, leak := range []string{"Key", "=(", "customer_id", "cost_centres", "_key", e.cust.ID} {
+		if strings.Contains(rec.Body.String(), leak) {
+			t.Errorf("the 409 body leaks %q: %s", leak, rec.Body.String())
+		}
+	}
+	if !strings.Contains(msg, "already used") {
+		t.Errorf("the 409 does not say what went wrong: %q", msg)
+	}
+}
