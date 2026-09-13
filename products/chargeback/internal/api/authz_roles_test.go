@@ -55,14 +55,19 @@ func TestAuthorizationRefusalsPerRole(t *testing.T) {
 		{"customer-viewer adds a user", viewer, "POST", "/api/v1/customers/" + a + "/users", 403, "customer.self.manage"},
 		{"customer-viewer reads another customer's account", viewer, "GET", "/api/v1/customers/" + b + "/account", 404, ""},
 		// Capacity (DESIGN.md §11): Sovereign reads only, capacity.manage to write.
-		{"finance-viewer sets a pool total", finance, "PUT", "/api/v1/capacity/pools/x", 403, "capacity.manage"},
+		{"finance-viewer resizes a pool", finance, "PUT", "/api/v1/capacity/pools/x", 403, "capacity.manage"},
+		{"finance-viewer adds a pool", finance, "POST", "/api/v1/capacity/zones/x/pools", 403, "capacity.manage"},
+		{"finance-viewer deletes a pool", finance, "DELETE", "/api/v1/capacity/pools/x", 403, "capacity.manage"},
 		{"finance-viewer creates a region", finance, "POST", "/api/v1/capacity/regions", 403, "capacity.manage"},
-		{"finance-viewer writes a footprint", finance, "PUT", "/api/v1/capacity/footprints/ecs.x", 403, "capacity.manage"},
-		{"finance-viewer sets a cap", finance, "PUT", "/api/v1/capacity/caps", 403, "capacity.manage"},
+		{"finance-viewer writes a shape", finance, "PUT", "/api/v1/capacity/shapes/ecs.x", 403, "capacity.manage"},
+		{"finance-viewer places a SKU", finance, "PUT", "/api/v1/capacity/placements", 403, "capacity.manage"},
+		{"finance-viewer names a resource kind", finance, "PUT", "/api/v1/capacity/resources/gpu_cards", 403, "capacity.manage"},
 		{"customer-owner reads capacity", owner, "GET", "/api/v1/capacity/overview", 403, "metering.read"},
 		{"customer-owner lists regions", owner, "GET", "/api/v1/capacity/regions", 403, "metering.read"},
-		{"customer-owner sets a pool total", owner, "PUT", "/api/v1/capacity/pools/x", 403, "capacity.manage"},
-		{"customer-viewer reads footprints", viewer, "GET", "/api/v1/capacity/footprints", 403, "metering.read"},
+		{"customer-owner reads a pool's headroom", owner, "GET", "/api/v1/capacity/pools/x/headroom", 403, "metering.read"},
+		{"customer-owner resizes a pool", owner, "PUT", "/api/v1/capacity/pools/x", 403, "capacity.manage"},
+		{"customer-viewer reads shapes", viewer, "GET", "/api/v1/capacity/shapes", 403, "metering.read"},
+		{"customer-viewer reads placements", viewer, "GET", "/api/v1/capacity/placements", 403, "metering.read"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
