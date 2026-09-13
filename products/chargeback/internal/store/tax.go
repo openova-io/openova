@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/openova-io/openova/products/chargeback/internal/word"
 	"sort"
 	"strings"
 	"time"
@@ -600,7 +601,7 @@ func (r TaxRule) Validate() error {
 		return fmt.Errorf("%w: rate must be a fraction between 0 and 1 (0.05 is 5%%)", ErrInvalid)
 	}
 	if r.Kind != TaxKindStandard && ratOf(r.Rate).Sign() != 0 {
-		return fmt.Errorf("%w: a %s rule charges nothing, so its rate must be 0", ErrInvalid, r.Kind)
+		return fmt.Errorf("%w: %s %s rule charges nothing, so its rate must be 0", ErrInvalid, word.Article(r.Kind), r.Kind)
 	}
 	if _, err := time.Parse("2006-01-02", r.EffectiveFrom); err != nil {
 		return fmt.Errorf("%w: effective_from must be YYYY-MM-DD", ErrInvalid)

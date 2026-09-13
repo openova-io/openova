@@ -1,4 +1,5 @@
 import { useMemo, useState, type FormEvent } from 'react'
+import { Article } from '../lib/word'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import type { BillingSettings, TaxCategoryRule, TaxRule, TaxRulesDoc } from '../api/types'
@@ -433,7 +434,7 @@ export function TaxRuleModal({
           <Field
             label="Rate (%)"
             error={errors.rate}
-            help={standard ? 'Applied to the taxable base of this category, after discounts. Type 5 for 5 %.' : `A ${taxKindLabel(form.kind).toLowerCase()} rule charges nothing, so its rate is 0.`}
+            help={standard ? 'Applied to the taxable base of this category, after discounts. Type 5 for 5 %.' : `${Article(taxKindLabel(form.kind))} ${taxKindLabel(form.kind).toLowerCase()} rule charges nothing, so its rate is 0.`}
           >
             <input value={form.rate} onChange={(e) => set('rate', e.target.value)} inputMode="decimal" placeholder="5" disabled={!standard} aria-label="Rate" />
           </Field>
