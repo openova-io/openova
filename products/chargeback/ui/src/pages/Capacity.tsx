@@ -712,7 +712,7 @@ function BasketPanel({ pool, kinds }: { pool: CapacityPoolView; kinds: CapacityR
       {basket.unshaped_skus.length > 0 ? <Notice kind="warn">{t('capacity.basket.unshaped', { skus: basket.unshaped_skus.join(', ') })}</Notice> : null}
       <div className="row between">
         <span className="muted small">
-          {applied ? applied : `${t('capacity.basket.current')}: ${basket.items.map((i) => `${formatAmount(i.units)} × ${i.sku}`).join(' · ') || t('common.none')}`}
+          {applied ? applied : `${t('capacity.basket.current')}: ${(basket.items ?? []).map((i) => `${formatAmount(i.units)} × ${i.sku}`).join(' · ') || t('common.none')}`}
         </span>
       </div>
       <form
@@ -724,7 +724,7 @@ function BasketPanel({ pool, kinds }: { pool: CapacityPoolView; kinds: CapacityR
         }}
       >
         <Field label={t('capacity.basket.edit')} help={t('capacity.basket.help')}>
-          <input value={mix} onChange={(e) => setMix(e.target.value)} placeholder={basketQuery(pool.basket.items.map((i) => ({ sku: i.sku, units: i.units })))} />
+          <input value={mix} onChange={(e) => setMix(e.target.value)} placeholder={basketQuery((pool.basket.items ?? []).map((i) => ({ sku: i.sku, units: i.units })))} />
         </Field>
         <button type="submit" className="small">
           {t('capacity.basket.apply')}
@@ -754,7 +754,7 @@ function BasketPanel({ pool, kinds }: { pool: CapacityPoolView; kinds: CapacityR
               </tr>
             </thead>
             <tbody>
-              {basket.resources.map((br) => (
+              {(basket.resources ?? []).map((br) => (
                 <tr key={br.resource}>
                   <td>{br.label}</td>
                   <td>

@@ -929,7 +929,11 @@ func defaultBasket(placements []CapacityPlacementView) []CapacityBasketItem {
 		}
 	}
 	if largest.Sign() == 0 {
-		return nil
+		// An empty basket is an EMPTY LIST, never an absent one. Returning nil
+		// here marshals as JSON null, and a reader that maps over it crashes
+		// rather than rendering "nothing is selling yet" — which is exactly
+		// what a brand-new pool, or one with no placements, always looks like.
+		return []CapacityBasketItem{}
 	}
 	out := []CapacityBasketItem{}
 	for _, pl := range placements {
