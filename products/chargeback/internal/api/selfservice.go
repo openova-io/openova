@@ -133,7 +133,7 @@ func (h *Handler) confirmPaymentMethod(w http.ResponseWriter, r *http.Request) {
 	got, err := h.Settlement.ConfirmMethod(r.Context(), settle.MethodConfirmation{Customer: c, SetupID: m.SetupID, Actor: s.Email})
 	switch {
 	case errors.Is(err, settle.ErrMethodSetupNotSupported):
-		writeErr(w, http.StatusConflict, err.Error())
+		writeErr(w, http.StatusConflict, conflictMessage(err))
 		return
 	case err != nil:
 		writeErr(w, http.StatusBadGateway, "the gateway did not confirm the method: "+err.Error())

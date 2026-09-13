@@ -492,6 +492,56 @@ func (s *Store) ListNotificationDeliveries(ctx context.Context, sc Scope, f Noti
 	return out, mapErr(rows.Err())
 }
 
+// NotificationSubject is the subject line one event most recently ACTUALLY
+// went out with — a fact out of the delivery log, not a rendering.
+type NotificationSubject struct {
+	Event   string    `json:"event"`
+	Subject string    `json:"subject"`
+	At      time.Time `json:"at"`
+}
+
+// LatestNotificationSubjects returns, per event, the most recent recorded
+// attempt that carried a subject, inside the scope. It answers the console's
+// "what does a person actually receive" with a message the product really
+// composed, which is truer than any example rendered from the template.
+//
+// Every recorded attempt counts, not only a delivered one: the subject was
+// composed for a real recipient whether or not the channel then accepted it,
+// and a failed attempt shows exactly the line that was owed. Rows with no
+// subject — a suppressed event, which was never rendered — carry nothing to
+// show and are skipped.
+//
+// It is read under audit.read at the API: a subject line is delivery-log
+// content (§21.7), and this is the same content by another route.
+func (s *Store) LatestNotificationSubjects(ctx context.Context, sc Scope) (map[string]NotificationSubject, error) {
+	q := `SELECT DISTINCT ON (event_key) event_key, subject, at FROM notification_deliveries WHERE subject <> ''`
+	var args []any
+	if !sc.Operator {
+		set := sc.Set()
+		if len(set) == 0 {
+			return map[string]NotificationSubject{}, nil
+		}
+		args = append(args, pq.Array(set))
+		q += fmt.Sprintf(" AND customer_id = ANY($%d)", len(args))
+	}
+	q += ` ORDER BY event_key, at DESC, id DESC`
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	defer rows.Close()
+	out := map[string]NotificationSubject{}
+	for rows.Next() {
+		var v NotificationSubject
+		if err := rows.Scan(&v.Event, &v.Subject, &v.At); err != nil {
+			return nil, mapErr(err)
+		}
+		v.At = v.At.UTC()
+		out[v.Event] = v
+	}
+	return out, mapErr(rows.Err())
+}
+
 // NotificationDeliveryCount is one status's tally over a window.
 type NotificationDeliveryCount struct {
 	Status string `json:"status"`

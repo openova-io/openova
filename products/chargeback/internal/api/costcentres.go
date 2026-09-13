@@ -238,7 +238,7 @@ func (h *Handler) costCentreErr(w http.ResponseWriter, err error) bool {
 	case errors.Is(err, store.ErrInvalid):
 		writeErr(w, http.StatusBadRequest, invalidMessage(err))
 	case errors.Is(err, store.ErrConflict):
-		writeErr(w, http.StatusConflict, invalidMessage(err))
+		writeErr(w, http.StatusConflict, conflictMessage(err))
 	default:
 		storeErr(w, err)
 	}

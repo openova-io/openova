@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/openova-io/openova/products/chargeback/internal/notify"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
@@ -102,6 +103,107 @@ func TestIntegrationNotificationCatalogueIsServedWithItsChannelsAndTemplates(t *
 	}
 	if rec, _ := owner.do("GET", "/api/v1/notifications/deliveries", "", nil); rec.Code != 403 {
 		t.Fatalf("customer GET deliveries = %d, want 403", rec.Code)
+	}
+}
+
+// THE SUBJECT COLUMN (DESIGN.md §21.8). The page's own purpose is "every
+// message this product can send", so the column has to carry the line a
+// PERSON reads. Template source answers nothing — an operator shown
+// "{{.subject}}" learns nothing about the invoice it stands for — so the
+// route serves a rendered subject per event, and says whether it came from a
+// real send or from the catalogue's example.
+func TestIntegrationTheCatalogueAnswersWithTheSubjectAPersonReceives(t *testing.T) {
+	op, _, _, _, _ := notifySetup(t)
+
+	doc := op.must("GET", "/api/v1/notifications/events", 200)
+	rows, _ := doc["subjects"].([]any)
+	if len(rows) != len(notify.Events()) {
+		t.Fatalf("subjects = %d, want one per event (%d)", len(rows), len(notify.Events()))
+	}
+	subjects := map[string]map[string]any{}
+	for _, r := range rows {
+		m, _ := r.(map[string]any)
+		key, _ := m["event"].(string)
+		subjects[key] = m
+	}
+	for key, m := range subjects {
+		line, _ := m["subject"].(string)
+		if line == "" {
+			t.Errorf("%s has no subject to show", key)
+		}
+		// Nothing rendered may still carry its own source, and nothing
+		// may be clipped mid-expression: both are the unreadable cell
+		// this column exists to stop showing.
+		for _, bad := range []string{"{{", "}}", "<no value>"} {
+			if strings.Contains(line, bad) {
+				t.Errorf("%s subject %q carries %q", key, line, bad)
+			}
+		}
+		if src, _ := m["source"].(string); src != "delivery" && src != "example" {
+			t.Errorf("%s source = %q; the console has to be able to label an example", key, src)
+		}
+	}
+
+	// The sign-in code HAS gone out — notifySetup signed two principals in
+	// — so its row is the real thing, dated, and not an example.
+	pin := subjects[notify.EventAuthPIN]
+	if src, _ := pin["source"].(string); src != "delivery" {
+		t.Errorf("%s source = %q, want delivery: the log holds a real send of it", notify.EventAuthPIN, src)
+	}
+	if at, _ := pin["at"].(string); at == "" {
+		t.Errorf("a real send must carry when it happened: %v", pin)
+	}
+	if line, _ := pin["subject"].(string); line != "Your sign-in code" {
+		t.Errorf("%s subject = %q", notify.EventAuthPIN, line)
+	}
+
+	// Nothing has issued a statement here, so that row is the catalogue's
+	// example — labelled as one, and undated, so it can never be read as a
+	// send that happened.
+	st := subjects[notify.EventStatementIssued]
+	if src, _ := st["source"].(string); src != "example" {
+		t.Errorf("%s source = %q, want example: nothing has sent one", notify.EventStatementIssued, src)
+	}
+	if _, dated := st["at"]; dated {
+		t.Errorf("an example must not be dated: %v", st)
+	}
+	if line, _ := st["subject"].(string); !strings.HasPrefix(line, "Statement for ") {
+		t.Errorf("%s example subject = %q, want the line internal/report composes", notify.EventStatementIssued, line)
+	}
+}
+
+// The fallback, on its own: with nothing in the delivery log — which is also
+// what a caller that may not READ the log is served, since a subject line is
+// log content (§21.7) — every row is the catalogue's example, labelled.
+func TestNotificationSubjectsFallBackToAnExampleWithNoRealSend(t *testing.T) {
+	for _, row := range notificationSubjects(nil) {
+		if row.Source != subjectFromExample {
+			t.Errorf("%s source = %q with no log to read", row.Event, row.Source)
+		}
+		if row.At != nil {
+			t.Errorf("%s is dated with no send behind it: %v", row.Event, row.At)
+		}
+		if row.Subject == "" || strings.Contains(row.Subject, "{{") {
+			t.Errorf("%s subject = %q", row.Event, row.Subject)
+		}
+	}
+	// And a real send wins over the example, carrying its own date.
+	at := time.Date(2026, 9, 12, 10, 0, 0, 0, time.UTC)
+	real := map[string]store.NotificationSubject{
+		notify.EventStatementIssued: {Event: notify.EventStatementIssued, Subject: "Statement for Acme Org — July 2026: 2670.399 OMR", At: at},
+		// An attempt that recorded no subject has nothing to show, and
+		// must not blank the column.
+		notify.EventBudgetThreshold: {Event: notify.EventBudgetThreshold, Subject: "", At: at},
+	}
+	seen := map[string]notificationSubjectDoc{}
+	for _, row := range notificationSubjects(real) {
+		seen[row.Event] = row
+	}
+	if got := seen[notify.EventStatementIssued]; got.Source != subjectFromDelivery || got.Subject != "Statement for Acme Org — July 2026: 2670.399 OMR" || got.At == nil || !got.At.Equal(at) {
+		t.Errorf("the real send did not win: %+v", got)
+	}
+	if got := seen[notify.EventBudgetThreshold]; got.Source != subjectFromExample || got.Subject == "" {
+		t.Errorf("an empty recorded subject must fall back to the example: %+v", got)
 	}
 }
 
@@ -216,6 +318,69 @@ func TestIntegrationAMandatoryNoticeCannotBeSwitchedOffOverTheAPI(t *testing.T) 
 		if reason, _ := e["forced_reason"].(string); !strings.Contains(reason, "cannot be switched off") {
 			t.Fatalf("forced_reason = %q", reason)
 		}
+	}
+}
+
+// THE OTHER HALF of the mandatory rule, and the reason the console may not
+// refuse to open the form: mandatory means a notice cannot be switched OFF
+// and keeps the channel that carries it — it has never meant the notice
+// cannot be CONFIGURED. Adding a channel and setting a language are ordinary
+// edits the server accepts on an invoice and on a dunning reminder.
+func TestIntegrationAMandatoryNoticeIsStillConfigurableBothWays(t *testing.T) {
+	op, owner, _, _, cust := notifySetup(t)
+
+	for _, key := range []string{notify.EventStatementIssued, notify.EventCollectionsReminder} {
+		// ADD a channel: accepted, and the floor is still there.
+		op.mustJSON("PUT", "/api/v1/notifications/preferences", map[string]any{
+			"event": key, "customer_id": cust.ID, "enabled": true,
+			"channels": []string{notify.ChannelEmail, notify.ChannelSMS},
+		}, 200)
+		// A language is a plain choice on a mandatory notice too.
+		owner.mustJSON("PUT", "/api/v1/customers/"+cust.ID+"/notifications/preferences", map[string]any{
+			"event": key, "enabled": true,
+			"channels": []string{notify.ChannelEmail, notify.ChannelSMS}, "locale": notify.DefaultLocale,
+		}, 200)
+	}
+
+	doc := op.must("GET", "/api/v1/customers/"+cust.ID+"/notifications/preferences", 200)
+	for _, key := range []string{notify.EventStatementIssued, notify.EventCollectionsReminder} {
+		var row map[string]any
+		for _, e := range effectiveRows(t, doc) {
+			if e["event"] == key {
+				row = e
+			}
+		}
+		if row == nil {
+			t.Fatalf("no effective row for %s", key)
+		}
+		if on, _ := row["enabled"].(bool); !on {
+			t.Errorf("%s resolved to off after an ordinary edit: %v", key, row)
+		}
+		names := map[string]bool{}
+		raw, _ := row["channels"].([]any)
+		for _, c := range raw {
+			name, _ := c.(string)
+			names[name] = true
+		}
+		if !names[notify.ChannelEmail] || !names[notify.ChannelSMS] {
+			t.Errorf("%s channels = %v, want the added one AND the floor kept", raw, key)
+		}
+	}
+
+	// And the two refusals are exactly where they were: switching it off,
+	// and replacing the channel that carries it.
+	off := op.mustJSON("PUT", "/api/v1/notifications/preferences", map[string]any{
+		"event": notify.EventStatementIssued, "customer_id": cust.ID, "enabled": false,
+	}, 400)
+	if msg, _ := off["error"].(string); !strings.Contains(msg, "cannot be switched off") {
+		t.Errorf("switch-off refusal = %q", msg)
+	}
+	replaced := op.mustJSON("PUT", "/api/v1/notifications/preferences", map[string]any{
+		"event": notify.EventStatementIssued, "customer_id": cust.ID, "enabled": true,
+		"channels": []string{notify.ChannelSMS},
+	}, 400)
+	if msg, _ := replaced["error"].(string); !strings.Contains(msg, "add a channel rather than replacing it") {
+		t.Errorf("channel-replacement refusal = %q", msg)
 	}
 }
 

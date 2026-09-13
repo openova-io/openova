@@ -2370,10 +2370,27 @@ export interface NotifyTemplate {
   body: string
 }
 
+/**
+ * The subject a PERSON receives for one event — never the template source,
+ * which says nothing to an operator and reads as broken when it is clipped
+ * mid-expression. `delivery` is the line really sent, out of the delivery
+ * log; `example` is the template rendered over the catalogue's example
+ * payload, for an event nothing has sent yet, and the console labels it.
+ */
+export interface NotifySubject {
+  event: string
+  locale: string
+  subject: string
+  source: 'delivery' | 'example' | string
+  /** When that delivery was attempted; absent for an example. */
+  at?: string
+}
+
 export interface NotifyCatalogue {
   events: NotifyEvent[]
   channels: NotifyChannel[]
   templates: NotifyTemplate[]
+  subjects?: NotifySubject[]
   locales: string[]
   default_locale: string
   statuses: string[]

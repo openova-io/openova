@@ -308,7 +308,7 @@ func (h *Handler) deletePriceBook(w http.ResponseWriter, r *http.Request) {
 					names = append(names, s.CustomerName)
 				}
 			}
-			writeErrDetails(w, http.StatusConflict, err.Error(), map[string]any{"customers": names, "sources": assigned})
+			writeErrDetails(w, http.StatusConflict, conflictMessage(err), map[string]any{"customers": names, "sources": assigned})
 			return
 		}
 		storeErr(w, err)

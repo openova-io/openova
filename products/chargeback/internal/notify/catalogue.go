@@ -99,6 +99,17 @@ type Event struct {
 	DefaultOn bool `json:"default_on"`
 	// Payload documents the fields a template may reference.
 	Payload []Field `json:"payload"`
+	// Example is a representative value for every field the SUBJECT
+	// references, so the console can show an operator the subject a
+	// person RECEIVES rather than the template source. It is example
+	// data and the console labels it as such; where the delivery log
+	// holds a real subject for the event, that one is shown instead
+	// because it invents nothing at all. An event whose subject is a
+	// fixed string needs no example, and carries none.
+	//
+	// It is not served: the console reads the RENDERED subject, and
+	// shipping the raw values would invite a second renderer.
+	Example map[string]any `json:"-"`
 	// Source names the code that emits the event, so the catalogue points
 	// at the call site rather than describing it.
 	Source string `json:"source"`
@@ -156,6 +167,13 @@ var catalogue = []Event{
 			{Name: "statement_id", Desc: "the statement's id"},
 			{Name: "period", Desc: "the period the statement covers, as YYYY-MM"},
 		},
+		Example: map[string]any{
+			// internal/report.RenderStatement composes this line, and
+			// TestTheExampleSubjectsMatchWhatTheRenderersProduce there
+			// holds the shape, so the example cannot drift away from
+			// the real subject unnoticed.
+			"subject": "Statement for Acme Org — August 2026: 1234.560 OMR",
+		},
 	},
 	{
 		Key:       EventCollectionsReminder,
@@ -179,6 +197,10 @@ var catalogue = []Event{
 			{Name: "stage", Desc: "the reminder stage this send belongs to, as configured days from due"},
 			{Name: "link", Desc: "the link to the invoice"},
 		},
+		Example: map[string]any{
+			"invoice_title": "Invoice INV-000123", "amount": "1000 OMR",
+			"due_date": "2 February 2026", "days": 7,
+		},
 	},
 	{
 		Key:       EventCollectionsEscalation,
@@ -199,6 +221,9 @@ var catalogue = []Event{
 			{Name: "suspending", Desc: "true when the escalation action is to suspend"},
 			{Name: "link", Desc: "the link to the invoice"},
 		},
+		Example: map[string]any{
+			"invoice_name": "invoice INV-000123", "amount": "1000 OMR", "days": 45,
+		},
 	},
 	{
 		Key:       EventAccountLowBalance,
@@ -216,6 +241,9 @@ var catalogue = []Event{
 			{Name: "currency", Desc: "the account currency"},
 			{Name: "suspend_at_zero", Desc: "true when service is suspended once the balance reaches zero"},
 			{Name: "link", Desc: "the link to top up"},
+		},
+		Example: map[string]any{
+			"available": "12.5", "currency": "OMR",
 		},
 	},
 	{
@@ -240,6 +268,10 @@ var catalogue = []Event{
 			{Name: "pct_forecast", Desc: "the forecast as a percentage of the cap to one decimal, EMPTY when there is none"},
 			{Name: "status", Desc: "the budget's status word"},
 		},
+		Example: map[string]any{
+			"budget_name": "Acme cap", "threshold": 80, "amount": "100",
+			"currency": "OMR", "period": "2026-09",
+		},
 	},
 	{
 		Key:       EventReportScheduled,
@@ -256,6 +288,10 @@ var catalogue = []Event{
 			{Name: "schedule_id", Desc: "the schedule's id"},
 			{Name: "schedule_name", Desc: "the schedule's name"},
 			{Name: "cadence", Desc: "daily, weekly or monthly"},
+		},
+		Example: map[string]any{
+			// internal/report.Render composes this line; same guard.
+			"subject": "Cost report: Monthly — 1–31 Aug 2026: 9876.540 OMR",
 		},
 	},
 }

@@ -41,6 +41,12 @@ func invalidMessage(err error) string {
 	return strings.TrimPrefix(err.Error(), store.ErrInvalid.Error()+": ")
 }
 
+// conflictMessage is invalidMessage for a 409: the status carries the word
+// "conflict" already, so the body should be the sentence alone.
+func conflictMessage(err error) string {
+	return strings.TrimPrefix(err.Error(), store.ErrConflict.Error()+": ")
+}
+
 func (h *Handler) listCurrencies(w http.ResponseWriter, r *http.Request) {
 	if _, ok := h.requireSovereign(w, r, access.MeteringRead); !ok {
 		return

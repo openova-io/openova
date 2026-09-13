@@ -1,9 +1,10 @@
 import { Fragment, useMemo, useState } from 'react'
 import { api } from '../api/client'
-import type { NotifyCatalogue, NotifyChannel, NotifyDeliveriesDoc, NotifyDelivery, NotifyEffective, NotifyEvent, NotifyPreferencesDoc, NotifyStatus } from '../api/types'
+import type { NotifyCatalogue, NotifyChannel, NotifyDeliveriesDoc, NotifyDelivery, NotifyEffective, NotifyEvent, NotifyPreferencesDoc, NotifyStatus, NotifySubject } from '../api/types'
 import { useSession } from '../auth/session'
 import { DataTable, type Column } from '../components/DataTable'
 import { Badge, Confirm, EmptyState, Field, KPI, Modal, Notice, PageHeader, Segmented, Skeleton } from '../components/ui'
+import { t } from '../i18n'
 import { can, customerIds } from '../lib/access'
 import { when } from '../lib/format'
 import { useAction } from '../lib/useAction'
@@ -57,10 +58,25 @@ function statusTone(s: NotifyStatus): 'ok' | 'warn' | 'bad' | 'info' {
   return STATUS_TONE[s] ?? 'info'
 }
 
-/** The first line of a template body, for a one-line preview. */
-function firstLine(s: string): string {
-  const line = s.split('\n').find((l) => l.trim() !== '')
-  return line ?? ''
+/** A subject clipped to fit its column, never mid-word where it can be helped. */
+function clip(s: string, max = 72): string {
+  const line = s.trim()
+  if (line.length <= max) return line
+  const cut = line.slice(0, max)
+  const space = cut.lastIndexOf(' ')
+  return (space > max - 16 ? cut.slice(0, space) : cut).trimEnd() + '…'
+}
+
+/**
+ * Does a preference for this event have to keep this channel? A MANDATORY
+ * event's declared channels are a FLOOR: a preference may add a channel and
+ * may never remove one, because "receive it by SMS only" would switch off an
+ * invoice by the back door. The server refuses it at the write path and the
+ * resolver ignores it at the read path (DESIGN.md §21.4); the form says so
+ * where the control is, rather than refusing to open at all.
+ */
+function channelIsRequired(event: NotifyEvent, name: string): boolean {
+  return event.mandatory && event.channels.includes(name)
 }
 
 function channelText(names: string[], channels: NotifyChannel[]): string {
@@ -222,7 +238,8 @@ function EventTable({ catalogue, prefs, canManage, onDone }: { catalogue: Notify
   const close = () => setDialog(null)
 
   const effectiveFor = (key: string) => effective.find((e) => e.event === key)
-  const templateFor = (key: string) => (catalogue?.templates ?? []).find((t) => t.event === key && t.locale === defaultLocale)
+  const subjects = catalogue?.subjects ?? []
+  const subjectFor = (key: string): NotifySubject | undefined => subjects.find((s) => s.event === key && s.locale === defaultLocale) ?? subjects.find((s) => s.event === key)
 
   const columns: Column<NotifyEvent>[] = [
     {
@@ -268,15 +285,25 @@ function EventTable({ catalogue, prefs, canManage, onDone }: { catalogue: Notify
       },
     },
     {
+      // WHAT A PERSON READS — never the template source. "{{.subject}}"
+      // tells an operator nothing about the invoice it stands for, and a
+      // source string clipped to fit a column is cut mid-expression, which
+      // reads as a broken product. The source is still one click away, in
+      // the template dialog, where it is the thing being read.
       key: 'subject',
       header: 'Subject',
-      value: (e) => templateFor(e.key)?.subject ?? '',
+      value: (e) => subjectFor(e.key)?.subject ?? '',
       render: (e) => {
-        const t = templateFor(e.key)
-        if (!t) return <span className="warn">no template</span>
+        const s = subjectFor(e.key)
+        if (!s) return <span className="warn">no template</span>
+        const example = s.source !== 'delivery'
         return (
-          <button className="link small" onClick={() => setDialog({ kind: 'template', event: e })} title="Show the template">
-            <span className="mono">{firstLine(t.subject).slice(0, 60)}</span>
+          <button className="link small" onClick={() => setDialog({ kind: 'template', event: e })} title={`${s.subject}\n\nShow the template`}>
+            <span>
+              {example ? <Badge status={t('notifications.subjectExample')} kind="info" /> : null}
+              {clip(s.subject)}
+              <span className="sub">{example ? t('notifications.subjectExampleNote') : t('notifications.subjectLastSent', { when: when(s.at ?? '') })}</span>
+            </span>
           </button>
         )
       },
@@ -291,7 +318,13 @@ function EventTable({ catalogue, prefs, canManage, onDone }: { catalogue: Notify
       render: (e) =>
         canManage ? (
           <span className="btn-row">
-            <button className="link small" disabled={act.busy || e.mandatory} title={e.mandatory ? 'A mandatory notice cannot be switched off' : undefined} onClick={() => setDialog({ kind: 'edit', event: e, effective: effectiveFor(e.key) })}>
+            {/* EVERY event is editable. Mandatory means it cannot be
+                switched off and keeps the channel that carries it — it has
+                never meant it cannot be configured, and the notices that
+                matter commercially, the invoice and the dunning chain, are
+                exactly these. The dialog refuses the two things the server
+                refuses, in place, and permits the rest. */}
+            <button className="link small" disabled={act.busy} title={e.mandatory ? t('notifications.alwaysSent') : undefined} onClick={() => setDialog({ kind: 'edit', event: e, effective: effectiveFor(e.key) })}>
               Edit
             </button>
             <button className="link small" disabled={act.busy || effectiveFor(e.key)?.source === 'catalogue default'} onClick={() => setDialog({ kind: 'reset', event: e })}>
@@ -377,9 +410,13 @@ function PreferenceTable({ doc, customerID, canManage, onDone }: { doc: NotifyPr
       value: () => '',
       sortable: false,
       className: 'nowrap actions',
+      // A required notice still has a language and a channel, and both are
+      // this account's to set: what it may NOT do is switch the notice off
+      // or take away the channel that carries it, which is what the dialog
+      // refuses. Hiding the way in refused far more than the rule does.
       render: (e) =>
-        canManage && !e.mandatory ? (
-          <button className="link small" disabled={act.busy} onClick={() => setEditing(e)}>
+        canManage ? (
+          <button className="link small" disabled={act.busy} title={e.mandatory ? t('notifications.alwaysSent') : undefined} onClick={() => setEditing(e)}>
             Change
           </button>
         ) : null,
@@ -467,7 +504,8 @@ function DeliveryTable({ rows, emptyTitle, showCustomer }: { rows: NotifyDeliver
 
 /** The template an event renders from, as the operator can read it. */
 export function TemplateModal({ event, catalogue, onClose }: { event: NotifyEvent; catalogue: NotifyCatalogue | null; onClose: () => void }) {
-  const templates = (catalogue?.templates ?? []).filter((t) => t.event === event.key)
+  const templates = (catalogue?.templates ?? []).filter((x) => x.event === event.key)
+  const subjectFor = (locale: string) => (catalogue?.subjects ?? []).find((s) => s.event === event.key && s.locale === locale)
   return (
     <Modal title={`Template — ${event.title}`} wide onClose={onClose} footer={<button onClick={onClose}>Close</button>}>
       <div className="stack tight">
@@ -475,21 +513,34 @@ export function TemplateModal({ event, catalogue, onClose }: { event: NotifyEven
         <p className="muted small">
           Emitted by <span className="mono">{event.source}</span>. A second language is one more template file for these same event keys; nothing else changes.
         </p>
-        {templates.map((t) => (
-          <div key={t.locale} className="stack tight">
-            <h3>
-              Locale <span className="mono">{t.locale}</span>
-            </h3>
-            <div>
-              <div className="muted small">Subject</div>
-              <pre className="details">{t.subject}</pre>
+        {templates.map((tpl) => {
+          // The SOURCE belongs here, where it is the thing being read — and
+          // next to it what it renders as, so the two are legible together
+          // rather than the source standing in for the message on a page
+          // whose subject is "every message this product can send".
+          const rendered = subjectFor(tpl.locale)
+          return (
+            <div key={tpl.locale} className="stack tight">
+              <h3>
+                Locale <span className="mono">{tpl.locale}</span>
+              </h3>
+              <div>
+                <div className="muted small">Subject</div>
+                <pre className="details">{tpl.subject}</pre>
+                {rendered ? (
+                  <p className="muted small">
+                    {t('notifications.subjectRendersAs')} {rendered.subject}
+                    {rendered.source === 'delivery' ? ` (${t('notifications.subjectLastSent', { when: when(rendered.at ?? '') })})` : ` (${t('notifications.subjectExampleNote')})`}
+                  </p>
+                ) : null}
+              </div>
+              <div>
+                <div className="muted small">Body</div>
+                <pre className="details">{tpl.body}</pre>
+              </div>
             </div>
-            <div>
-              <div className="muted small">Body</div>
-              <pre className="details">{t.body}</pre>
-            </div>
-          </div>
-        ))}
+          )
+        })}
         {event.payload?.length ? (
           <div>
             <h3>Payload</h3>
@@ -531,10 +582,17 @@ export function PreferenceModal({
   const [locale, setLocale] = useState(effective?.locale ?? '')
   const act = useAction()
 
-  const toggle = (name: string) => setSelected((cur) => (cur.includes(name) ? cur.filter((c) => c !== name) : [...cur, name]))
+  // A required channel is not toggleable, so it is never toggled off here;
+  // the guard is what keeps that true if the resolution this opened on
+  // arrived without it (an imported row, a restored backup).
+  const toggle = (name: string) => {
+    if (channelIsRequired(event, name)) return
+    setSelected((cur) => (cur.includes(name) ? cur.filter((c) => c !== name) : [...cur, name]))
+  }
 
   const submit = async () => {
-    const ok = await act.run(`${event.title} saved`, () => api.put(path, { event: event.key, enabled, channels: selected, locale }), onDone)
+    const channels = [...new Set([...(event.mandatory ? event.channels : []), ...selected])]
+    const ok = await act.run(`${event.title} saved`, () => api.put(path, { event: event.key, enabled: event.mandatory ? true : enabled, channels, locale }), onDone)
     if (ok) onClose()
   }
 
@@ -565,13 +623,17 @@ export function PreferenceModal({
         </Field>
         <Field label="Channels" help="A channel with no transport refuses at send time and records the refusal — it never silently drops the message.">
           <div className="stack tight">
-            {channels.map((c) => (
-              <label key={c.name} className="row">
-                <input type="checkbox" aria-label={`Channel ${c.name}`} checked={selected.includes(c.name)} onChange={() => toggle(c.name)} />
-                <span className="mono">{c.name}</span>
-                {c.available ? null : <span className="warn small">no transport — {c.reason}</span>}
-              </label>
-            ))}
+            {channels.map((c) => {
+              const required = channelIsRequired(event, c.name)
+              return (
+                <label key={c.name} className="row">
+                  <input type="checkbox" aria-label={`Channel ${c.name}`} checked={required || selected.includes(c.name)} disabled={required} onChange={() => toggle(c.name)} />
+                  <span className="mono">{c.name}</span>
+                  {required ? <span className="small muted">{t('notifications.channelRequired')}</span> : null}
+                  {c.available ? null : <span className="warn small">no transport — {c.reason}</span>}
+                </label>
+              )
+            })}
           </div>
         </Field>
         <Field label="Language" help="Empty uses the default language. An event with no template in the chosen language falls back to the default.">

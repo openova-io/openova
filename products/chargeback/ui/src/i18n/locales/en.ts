@@ -431,6 +431,21 @@ export const EN = {
   'capacity.legend.critical': '85 % and above',
   'capacity.legend.unset': 'not sized',
 
+  // ---- notifications (pages/Notifications.tsx, DESIGN.md §21) ----------
+  // The Subject column shows what a PERSON receives. Where the delivery log
+  // holds a real send, it is that line and the date it went; otherwise it is
+  // the template rendered over the catalogue's example payload, and it says
+  // so — an example must never be read as a message somebody was sent.
+  'notifications.subjectExample': 'Example',
+  'notifications.subjectExampleNote': 'an example — nothing has been sent yet',
+  'notifications.subjectLastSent': 'last sent {when}',
+  'notifications.subjectRendersAs': 'A recipient reads:',
+  // What a MANDATORY notice refuses, said where the control is rather than by
+  // disabling the way in. Mandatory means it cannot be switched off and keeps
+  // the channel that carries it — it has never meant it cannot be configured.
+  'notifications.alwaysSent': 'A mandatory notice is always sent. Its channels and its language are still yours to set.',
+  'notifications.channelRequired': 'required — a mandatory notice keeps this channel',
+
   // ---- build identity --------------------------------------------------
   // What a tab left open across a deploy is told. It names BOTH builds: the
   // operator who reads it is the one who deployed, and the pair is what makes
