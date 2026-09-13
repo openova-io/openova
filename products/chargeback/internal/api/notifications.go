@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -46,28 +47,108 @@ import (
 
 // notificationCatalogueDoc is everything the console needs to render the
 // catalogue without a second call: the events, the channels with their
-// availability, the templates, the locales and the delivery statuses.
+// availability, the templates, the SUBJECT each event is read as, the
+// locales and the delivery statuses.
 type notificationCatalogueDoc struct {
-	Events        []notify.Event       `json:"events"`
-	Channels      []notify.ChannelDoc  `json:"channels"`
-	Templates     []notify.TemplateDoc `json:"templates"`
-	Locales       []string             `json:"locales"`
-	DefaultLocale string               `json:"default_locale"`
-	Statuses      []string             `json:"statuses"`
+	Events        []notify.Event           `json:"events"`
+	Channels      []notify.ChannelDoc      `json:"channels"`
+	Templates     []notify.TemplateDoc     `json:"templates"`
+	Subjects      []notificationSubjectDoc `json:"subjects"`
+	Locales       []string                 `json:"locales"`
+	DefaultLocale string                   `json:"default_locale"`
+	Statuses      []string                 `json:"statuses"`
+}
+
+// Subject sources, in order of truth.
+const (
+	// subjectFromDelivery is the line the product really sent, out of the
+	// delivery log. It invents nothing, so it wins wherever it exists.
+	subjectFromDelivery = "delivery"
+	// subjectFromExample is the template rendered over the catalogue's
+	// example payload, for an event nothing has sent yet. The console
+	// labels it as an example; it is never presented as a real send.
+	subjectFromExample = "example"
+)
+
+// notificationSubjectDoc is what a PERSON receives in the subject line of
+// one event — never the template source, which says nothing at all to an
+// operator ("{{.subject}}") and reads as broken when it is clipped
+// mid-expression. The raw template stays in the template dialog, where it is
+// the thing being read and edited.
+type notificationSubjectDoc struct {
+	Event   string `json:"event"`
+	Locale  string `json:"locale"`
+	Subject string `json:"subject"`
+	// Source is subjectFromDelivery or subjectFromExample — which the
+	// console MUST show, so an example is never mistaken for a send.
+	Source string `json:"source"`
+	// At is when that delivery was attempted; absent for an example.
+	At *time.Time `json:"at,omitempty"`
 }
 
 func (h *Handler) notificationEvents(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireSovereign(w, r, access.MeteringRead); !ok {
+	s, ok := h.requireSovereign(w, r, access.MeteringRead)
+	if !ok {
 		return
+	}
+	// A real subject is DELIVERY-LOG content and carries what one customer
+	// was told, so it is offered only to a caller that may read the log
+	// (§21.7). Everyone else reads the rendered example, which discloses
+	// nothing: reading the catalogue is metering.read precisely because
+	// what the product CAN send is not a secret.
+	//
+	// Every Sovereign role in today's matrix that holds metering.read also
+	// holds audit.read (§10.3), so this branch does not divide any shipped
+	// principal — it is the floor for the next read-only role, and it is
+	// stated that way rather than tested as a distinction that cannot
+	// currently happen. What IS tested is the fallback it selects:
+	// TestNotificationSubjectsFallBackToAnExampleWithNoRealSend.
+	var latest map[string]store.NotificationSubject
+	if access.Has(access.Bindings(s), access.AuditRead, "") {
+		found, err := h.Store.LatestNotificationSubjects(r.Context(), s.Scope())
+		if err != nil {
+			// The catalogue is the answer this route owes; a failed
+			// lookup of a nicety may not withhold it. Every row then
+			// falls back to its example, which SAYS it is an example —
+			// the reader is not told a send happened that did not.
+			slog.Warn("notification subjects", "error", err)
+		} else {
+			latest = found
+		}
 	}
 	writeJSON(w, http.StatusOK, notificationCatalogueDoc{
 		Events:        notify.Events(),
 		Channels:      h.notifier().Channels.Docs(),
 		Templates:     notify.TemplateDocs(),
+		Subjects:      notificationSubjects(latest),
 		Locales:       notify.Locales(),
 		DefaultLocale: notify.DefaultLocale,
 		Statuses:      store.NotifyStatuses,
 	})
+}
+
+// notificationSubjects answers, per event, the truest subject available: the
+// last one really sent, else the template rendered over the catalogue's
+// example payload. An event with neither — no template at all — is omitted
+// rather than given an empty line to show.
+func notificationSubjects(latest map[string]store.NotificationSubject) []notificationSubjectDoc {
+	out := []notificationSubjectDoc{}
+	for _, e := range notify.Events() {
+		if sent, ok := latest[e.Key]; ok && strings.TrimSpace(sent.Subject) != "" {
+			at := sent.At
+			out = append(out, notificationSubjectDoc{
+				Event: e.Key, Locale: notify.DefaultLocale, Subject: sent.Subject,
+				Source: subjectFromDelivery, At: &at,
+			})
+			continue
+		}
+		subject, locale, ok := notify.ExampleSubject(e.Key, notify.DefaultLocale)
+		if !ok {
+			continue
+		}
+		out = append(out, notificationSubjectDoc{Event: e.Key, Locale: locale, Subject: subject, Source: subjectFromExample})
+	}
+	return out
 }
 
 // effectivePreference is one event as this scope actually receives it: the

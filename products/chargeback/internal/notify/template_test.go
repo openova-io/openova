@@ -326,6 +326,80 @@ func TestEnglishTemplatesRenderTheMessageTheProductAlreadySent(t *testing.T) {
 	}
 }
 
+// THE SUBJECT COLUMN (DESIGN.md §21.8). The console lists what the product
+// sends, so it has to show the subject a PERSON receives. Template source
+// answers nothing — "{{.subject}}" tells an operator precisely nothing about
+// the invoice it stands for — and clipping that source to fit a column cuts
+// it mid-expression, which reads as a broken product.
+//
+// So every event renders an EXAMPLE subject, and these are the exact strings
+// an operator reads for each one. They are transcribed here rather than read
+// back out of ExampleSubject: an expectation taken from the renderer it is
+// testing passes on any wording at all.
+func TestEveryEventRendersAnExampleSubjectAnOperatorCanRead(t *testing.T) {
+	want := map[string]string{
+		EventAuthPIN:               "Your sign-in code",
+		EventCustomerInvite:        "Activate your chargeback account",
+		EventStatementIssued:       "Statement for Acme Org — August 2026: 1234.560 OMR",
+		EventCollectionsReminder:   "Overdue: Invoice INV-000123 for 1000 OMR, 7 days past due",
+		EventCollectionsEscalation: "Action required: invoice INV-000123 for 1000 OMR is 45 days overdue",
+		EventAccountLowBalance:     "Low balance: 12.5 OMR left on your account",
+		EventBudgetThreshold:       "Budget Acme cap: 80% of 100 OMR reached for 2026-09",
+		EventReportScheduled:       "Cost report: Monthly — 1–31 Aug 2026: 9876.540 OMR",
+	}
+	for _, e := range Events() {
+		got, locale, ok := ExampleSubject(e.Key, DefaultLocale)
+		if !ok {
+			t.Errorf("%s renders no example subject; the console has nothing to show but template source", e.Key)
+			continue
+		}
+		if locale != DefaultLocale {
+			t.Errorf("%s example rendered in %q, want %q", e.Key, locale, DefaultLocale)
+		}
+		if exp, ok := want[e.Key]; !ok {
+			t.Errorf("%s has no expected example subject here; an event added without one is one whose subject column nothing is watching", e.Key)
+		} else if got != exp {
+			t.Errorf("%s example subject\n got %q\nwant %q", e.Key, got, exp)
+		}
+		// A HOLE is the whole failure mode: a subject that still carries
+		// its own source, or a field the example forgot, is exactly the
+		// unreadable cell this column exists to stop showing.
+		for _, bad := range []string{"{{", "}}", "<no value>"} {
+			if strings.Contains(got, bad) {
+				t.Errorf("%s example subject %q carries %q", e.Key, got, bad)
+			}
+		}
+	}
+}
+
+// The example payload and the SUBJECT have to agree, the same way the
+// declared payload and the templates do: a subject field with no example
+// value renders as a hole, and an example value no field declares is data
+// nobody reads. An event whose subject is a fixed string needs no example,
+// and carrying one would be exactly that dead data.
+func TestTheExamplePayloadCoversEverySubjectFieldAndNothingElse(t *testing.T) {
+	for _, e := range Events() {
+		declared := map[string]bool{}
+		for _, f := range e.Payload {
+			declared[f.Name] = true
+		}
+		for name := range e.Example {
+			if !declared[name] {
+				t.Errorf("%s gives an example for .%s, which the catalogue does not declare", e.Key, name)
+			}
+		}
+		fields := SubjectFields(e.Key, DefaultLocale)
+		for _, f := range fields {
+			if _, ok := e.Example[f]; !ok {
+				t.Errorf("%s subject reads .%s and the example has no value for it", e.Key, f)
+			}
+		}
+		if len(fields) == 0 && len(e.Example) > 0 {
+			t.Errorf("%s subject reads no field, so its example is never rendered", e.Key)
+		}
+	}
+}
+
 // A subject is a header; a line break in one is a header injection. The
 // templates have none today, and this is what stops one being added.
 func TestSubjectNeverCarriesALineBreak(t *testing.T) {

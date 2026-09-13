@@ -4823,13 +4823,42 @@ this product could not answer before, in that order:
 
 - **What does it send?** The event table: title and key, group, whether it can
   be switched off, its channels, the Sovereign default and what set it, and
-  the template subject — clicking it opens the template source and the payload
-  the event renders from.
+  **the subject a person receives** — clicking it opens the template source
+  and the payload the event renders from.
 - **Who gets it?** The Sovereign default per event, editable with
-  `settings.manage`. A mandatory notice offers no switch and says why.
+  `settings.manage`, **on every event**.
 - **Did it arrive?** The Deliveries card, **opening on Problems** — failed and
   refused attempts first, with the reason on the row — and a tile counting
   them. `All attempts` widens it.
+
+**The SUBJECT column shows a rendered subject, never template source.** A
+column that reads `{{.subject}}` tells an operator nothing about the invoice
+it stands for, and the source clipped to a column width is cut mid-expression,
+which reads as a broken product. In order of truth:
+
+- the **last subject the event really went out with**, out of the delivery
+  log, with the date it went — it invents nothing, so it wins; it is offered
+  only to a caller that may read the log, because a subject line is log
+  content (§21.7); and
+- otherwise the template rendered over the catalogue's **example payload**
+  (`Event.Example`), shown behind an **Example** badge and undated, so it can
+  never be read as a message somebody was sent.
+
+Every event ships an example value for each field its subject reads, and the
+two pass-through subjects — a statement and a scheduled report, whose template
+is `{{.subject}}` — are held against what `internal/report` actually composes,
+from the report side, since `notify` cannot import it.
+
+**A mandatory notice is EDITABLE.** Mandatory means the notice cannot be
+switched off and keeps the channel that carries it (§21.4). It has never meant
+it cannot be configured — and the notices it covers are the ones that matter
+commercially, the invoice and the dunning chain. So the way in is never
+refused: the dialog opens on every event and refuses, in place, exactly what
+the model refuses — the switch is fixed on and says why, the required channel
+is checked and not removable and says why, and adding a second channel or
+choosing a language is an ordinary edit the server accepts. A disabled control
+is kept only where the action is genuinely impossible. The form is never more
+restrictive than `ValidatePreference`, and never less.
 
 A declared channel with no transport is a standing notice on the page,
 carrying its own reason verbatim. It is not an error state to hide: it is what
@@ -4837,7 +4866,8 @@ an operator has to read before offering anyone that channel.
 
 **My → Notifications** (customer lens) is the same preference editor scoped to
 the customer, plus its own deliveries. An invoice and a payment reminder show
-as **Always · required — cannot be switched off** and offer no control; a
+as **Always · required — cannot be switched off** and still open for the two
+things an account may set on them — a second channel, and the language; a
 customer *viewer* reads the page and is offered nothing at all.
 
 ### 21.9 Tests
@@ -4845,7 +4875,12 @@ customer *viewer* reads the page and is offered nothing at all.
 - **The catalogue** (`notify/template_test.go`): every event well-formed, with
   a declared payload, declared channels and an English template; every
   template referencing only declared fields; every declared field read by a
-  template or listed as a deliberate exception; no event shipping default-off.
+  template or listed as a deliberate exception; no event shipping default-off;
+  every event rendering an example subject — pinned to the exact string an
+  operator reads, with no `{{`, `}}` or `<no value>` left in it — and an
+  example payload that covers every field its subject reads and nothing else.
+  `report/render_test.go` holds the two pass-through examples against what
+  `RenderStatement` and `Render` really compose.
 - **The golden set** (same file): one case per event — thirteen in all,
   covering both escalation actions, both suspend-at-zero states, a budget with
   and without a forecast, and the three day-offsets a reminder takes including
@@ -4867,15 +4902,26 @@ customer *viewer* reads the page and is offered nothing at all.
   the delivery log's filters, the `problems` shorthand, the tallies, the
   retention purge; scope confinement on both tables; a deleted customer losing
   its preferences and keeping its delivery history; the migration appended and
-  located by content.
+  located by content; and the last subject per event — the newest attempt that
+  carried one, a failed attempt included, an unrendered one skipped, confined
+  by scope.
 - **The API** (`api/notifications_integration_test.go`): the catalogue served
   with SMS declared unavailable; every event resolving to ON with no rows; a
   preference set, read back through both lenses, and deleted; the mandatory
-  refusal on both routes and for the channel replacement; a row written under
-  the API still ignored by the resolver; the moved sends going out and landing
-  in the log; a customer reading only its own deliveries.
-- **The console** (`ui/src/pages/Notifications.render.test.tsx`): eleven cases
+  refusal on both routes and for the channel replacement, **and the other
+  direction — a mandatory notice taking a second channel and a language, which
+  is what the console may not refuse**; a row written under the API still
+  ignored by the resolver; the moved sends going out and landing in the log; a
+  customer reading only its own deliveries; a rendered subject per event, the
+  sign-in code's real send beating its example and the statement's example
+  labelled and undated.
+- **The console** (`ui/src/pages/Notifications.render.test.tsx`): fifteen cases
   over the documents the Go side produces — the mandatory badge and its
   wording, the SMS reason rendered verbatim, the failure tile and the
   problems-first table, a read-only principal offered no control, the nav on
-  both lenses, and the customer view where a required notice offers no switch.
+  both lenses, and the customer view where a required notice is always sent.
+  Four of them hold §21.8's two halves: the Subject column carrying a rendered
+  subject and no `{{`, an example labelled and a real send dated; Edit offered
+  on every event with no disabled entry point; and the dialog keeping the
+  switch fixed on and the required channel checked-and-locked while the second
+  channel stays free.
