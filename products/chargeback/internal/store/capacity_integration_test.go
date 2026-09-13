@@ -248,6 +248,15 @@ func resOf(t *testing.T, p store.CapacityPoolView, resource string) store.Capaci
 	return store.CapacityResourceView{}
 }
 
+// days renders a *float64 day count for a failure message: the VALUE, never
+// the pointer — a message that reads "0xc00021e518" says nothing.
+func days(p *float64) any {
+	if p == nil {
+		return "nil"
+	}
+	return *p
+}
+
 func capDec(t *testing.T, name string, got store.Decimal, want string) {
 	t.Helper()
 	if string(got) != want {
@@ -554,7 +563,7 @@ func TestIntegrationCapacityWallsAndOrderByDate(t *testing.T) {
 	// removes ratio × worth of oversubscribed room.
 	// hard: (576 − 320) ÷ 8 = 32 days.
 	if cpu.SoftWallDays == nil || *cpu.SoftWallDays != 24 || cpu.HardWallDays == nil || *cpu.HardWallDays != 32 {
-		t.Fatalf("vcpu walls = soft %v / hard %v, want 24 / 32", cpu.SoftWallDays, cpu.HardWallDays)
+		t.Fatalf("vcpu walls = soft %v / hard %v, want 24 / 32", days(cpu.SoftWallDays), days(cpu.HardWallDays))
 	}
 	if cpu.SoftWallDate == nil || *cpu.SoftWallDate != "2026-10-03" {
 		t.Fatalf("soft wall date = %v, want 2026-10-03 (24 days after the measured hour)", cpu.SoftWallDate)
@@ -563,7 +572,7 @@ func TestIntegrationCapacityWallsAndOrderByDate(t *testing.T) {
 	// 21 days late, and an alert on the wall itself would fire 21 days after
 	// it was too late.
 	if cpu.OrderByDays == nil || *cpu.OrderByDays != -21 || !cpu.Late || cpu.OrderByWall != capacity.WallSoft {
-		t.Fatalf("vcpu order-by = %v days late=%v wall=%s", cpu.OrderByDays, cpu.Late, cpu.OrderByWall)
+		t.Fatalf("vcpu order-by = %v days late=%v wall=%s", days(cpu.OrderByDays), cpu.Late, cpu.OrderByWall)
 	}
 	if cpu.OrderByDate == nil || *cpu.OrderByDate != "2026-08-19" {
 		t.Fatalf("order-by date = %v, want 2026-08-19", cpu.OrderByDate)
@@ -571,7 +580,7 @@ func TestIntegrationCapacityWallsAndOrderByDate(t *testing.T) {
 	// The pool reports its NEAREST order-by and which resource owes it. RAM is
 	// already at the wall, so it owes the order 45 days ago.
 	if p.OrderByResource != capacity.ResourceMemoryGiB || p.OrderByDays == nil || *p.OrderByDays != -45 || !p.Late {
-		t.Fatalf("pool order-by = %v on %q late=%v", p.OrderByDays, p.OrderByResource, p.Late)
+		t.Fatalf("pool order-by = %v on %q late=%v", days(p.OrderByDays), p.OrderByResource, p.Late)
 	}
 	// Two pools owe an order — m7n-a and blk-b. gpu-c is flat, so it has no
 	// wall at all and owes nothing: a pool that is not growing must not be
@@ -580,7 +589,7 @@ func TestIntegrationCapacityWallsAndOrderByDate(t *testing.T) {
 		t.Fatalf("summary orders = %d to order, %d late; want 2 / 1", ov.Summary.PoolsToOrder, ov.Summary.PoolsOrderLate)
 	}
 	if gpu := poolOf(t, zoneOf(t, ov, "me-east-215", "me-east-215c"), "gpu-c"); gpu.OrderByDays != nil {
-		t.Fatalf("a flat pool has no order-by date: %v", gpu.OrderByDays)
+		t.Fatalf("a flat pool has no order-by date: %v", days(gpu.OrderByDays))
 	}
 
 	// Zone b: 180 GiB growing 10 a day against 1,000 usable → 82 days, and
@@ -593,10 +602,10 @@ func TestIntegrationCapacityWallsAndOrderByDate(t *testing.T) {
 		t.Fatalf("18 %% used is ok, got %s", ssd.Status)
 	}
 	if ssd.SoftWallDays == nil || *ssd.SoftWallDays != 82 {
-		t.Fatalf("ssd soft wall = %v, want 82 days", ssd.SoftWallDays)
+		t.Fatalf("ssd soft wall = %v, want 82 days", days(ssd.SoftWallDays))
 	}
 	if ssd.OrderByDays == nil || *ssd.OrderByDays != 72 || ssd.Late {
-		t.Fatalf("ssd order-by = %v days, late=%v; want 72 and not late", ssd.OrderByDays, ssd.Late)
+		t.Fatalf("ssd order-by = %v days, late=%v; want 72 and not late", days(ssd.OrderByDays), ssd.Late)
 	}
 	if ssd.OrderByDate == nil || *ssd.OrderByDate != "2026-11-20" {
 		t.Fatalf("ssd order-by date = %v, want 2026-11-20", ssd.OrderByDate)

@@ -22,6 +22,15 @@ func rat(s string) *big.Rat {
 	return r
 }
 
+// derefOrNil renders a *float64 for a failure message: the VALUE, never the
+// pointer — a test whose message reads "0xc000010460" says nothing.
+func derefOrNil(p *float64) any {
+	if p == nil {
+		return "nil"
+	}
+	return *p
+}
+
 func eq(t *testing.T, name string, got *big.Rat, want string) {
 	t.Helper()
 	if got.Cmp(rat(want)) != 0 {
@@ -289,10 +298,10 @@ func TestProjectWallsAndTheOrderByDate(t *testing.T) {
 	w := Project(m, &g, &b, 45)
 	// soft: 768 ÷ (16 + 8×4) = 16 days. hard: 256 ÷ 8 = 32 days.
 	if w.Soft == nil || *w.Soft != 16 {
-		t.Fatalf("soft wall = %v, want 16 days", w.Soft)
+		t.Fatalf("soft wall = %v, want 16 days", derefOrNil(w.Soft))
 	}
 	if w.Hard == nil || *w.Hard != 32 {
-		t.Fatalf("hard wall = %v, want 32 days", w.Hard)
+		t.Fatalf("hard wall = %v, want 32 days", derefOrNil(w.Hard))
 	}
 	if w.Wall != WallSoft || *w.Days != 16 {
 		t.Fatalf("the nearer wall is the soft one: %+v", w)
@@ -301,7 +310,7 @@ func TestProjectWallsAndTheOrderByDate(t *testing.T) {
 	// order is already late by 29 days — an alert keyed on the wall itself
 	// would fire 29 days after it was too late.
 	if w.OrderBy == nil || *w.OrderBy != -29 {
-		t.Fatalf("order-by = %v days, want -29", w.OrderBy)
+		t.Fatalf("order-by = %v days, want -29", derefOrNil(w.OrderBy))
 	}
 
 	// GUARANTEED GROWTH ALONE STILL MOVES THE SOFT WALL, and faster than its
@@ -318,7 +327,7 @@ func TestProjectWallsAndTheOrderByDate(t *testing.T) {
 		t.Fatalf("burstable growth alone cannot exhaust the guarantee: %+v", onlyB)
 	}
 	if onlyB.Soft == nil || *onlyB.Soft != 48 { // 768 ÷ 16
-		t.Fatalf("burstable-only soft wall = %v, want 48", onlyB.Soft)
+		t.Fatalf("burstable-only soft wall = %v, want 48", derefOrNil(onlyB.Soft))
 	}
 
 	// Nothing growing, nothing to say — and an unsized resource says nothing
