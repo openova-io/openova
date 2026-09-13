@@ -1,5 +1,6 @@
 import { Navigate, NavLink, Outlet, useNavigate } from 'react-router-dom'
 import type { Me, Permission } from '../api/types'
+import { BuildNotice } from '../components/BuildNotice'
 import { useSession } from '../auth/session'
 import { t, type Key } from '../i18n'
 import { can, canPartner, customerIds, displayRole, isPartner, isSovereign, primaryPartnerId, roleLabel } from '../lib/access'
@@ -240,6 +241,9 @@ export function Shell({ lens }: { lens?: Lens }) {
         </button>
       </aside>
       <main className="main">
+        {/* A tab open across a deploy is running the previous bundle; it says
+            so here, above everything, and stays until the page is reloaded. */}
+        <BuildNotice />
         {me.profile && me.profile !== 'sovereign' ? <div className="banner">{t('shell.profileBanner', { profile: me.profile })}</div> : null}
         <div className="main-inner">
           <Outlet />

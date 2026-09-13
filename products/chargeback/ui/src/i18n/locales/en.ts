@@ -18,6 +18,7 @@
  *	customerImport.*  pages/CustomerImport.tsx
  *	collections.*     pages/Collections.tsx
  *	capacity.*        pages/Capacity.tsx
+ *	build.*           components/BuildNotice.tsx + lib/useAction.ts
  *
  * A key is STABLE: it is what a translation is written against, and renaming
  * one silently drops that translation back to English. Add keys; do not
@@ -265,6 +266,11 @@ export const EN = {
   'capacity.empty.noPools': 'No pools in this zone',
   'capacity.empty.noPoolsBody': 'A pool is a set of identical machines somebody bought: give it a name, a machine count and what one machine holds.',
 
+  // The zone strip that carries each zone's pools, and its own Add a pool.
+  'capacity.zone.pools': '{count} pools',
+  'capacity.zone.poolsOne': '1 pool',
+  'capacity.zone.poolsNone': 'no pools yet',
+
   'capacity.filter.region': 'Region',
   'capacity.filter.all': 'All ({count})',
 
@@ -350,6 +356,8 @@ export const EN = {
   'capacity.unmapped.noZones': 'has a region here but no zone to land in.',
   'capacity.unmapped.addRegion': 'Add region {region}',
 
+  'capacity.form.zone': 'Zone',
+  'capacity.form.zoneHelp': 'the availability zone these machines sit in',
   'capacity.form.poolName': 'Pool name',
   'capacity.form.poolNameHelp': 'what this set of machines is called, e.g. m7n-a',
   'capacity.form.machines': 'Machines',
@@ -422,6 +430,15 @@ export const EN = {
   'capacity.legend.warn': '70 – 85 %',
   'capacity.legend.critical': '85 % and above',
   'capacity.legend.unset': 'not sized',
+
+  // ---- build identity --------------------------------------------------
+  // What a tab left open across a deploy is told. It names BOTH builds: the
+  // operator who reads it is the one who deployed, and the pair is what makes
+  // the message checkable rather than a generic "something changed".
+  'build.stale.title': 'This page is out of date.',
+  'build.stale.body': 'It is running build {page} and the server is now running build {server}. Anything you save from here may be refused until you reload — you can finish what you are typing first.',
+  'build.stale.reload': 'Reload the page',
+  'build.writeFailed': 'That did not save: this page is running build {page} and the server is now running build {server}, so what it sent is no longer what the server accepts. Reload the page and make the change again. The server said: {error}',
 } as const
 
 /** The shape every other locale is typed and checked against. */

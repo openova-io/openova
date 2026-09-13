@@ -169,6 +169,17 @@ const shapes: CapacityShapes = {
   unseeded_skus: ['elb', 'nat.1', 'vpc'],
 }
 
+/** The same Sovereign with a zone nobody has put a pool in yet. */
+const withEmptyZone: CapacityOverview = {
+  ...overview,
+  regions: [
+    {
+      ...overview.regions[0],
+      zones: [...overview.regions[0].zones, { id: 'zc', code: 'me-east-215c', name: '', is_default: false, unplaced_skus: [], pools: [] }],
+    },
+  ],
+}
+
 let docs: { overview: CapacityOverview | null; shapes: CapacityShapes | null } = { overview, shapes }
 
 vi.mock('../lib/useQuery', () => ({
@@ -302,6 +313,51 @@ describe('Capacity page', () => {
     expect(html).toContain('192 vCPU stranded')
     expect(html).toContain('0 more of this mix')
     expect(html).toContain('2026-07-26')
+  })
+
+  // DEFECT 2, the founder on 0.1.42: "where is the add pool". It existed, at
+  // the very bottom of the page inside the regions-and-zones administration
+  // block, and the person who commissioned it could not find it. These hold
+  // that it is now offered WHERE THE POOLS ARE — and still offered where it
+  // always was, so nobody's muscle memory breaks and there is one dialog.
+  it('offers Add a pool from the page header, from every zone, and from a zone that has none', () => {
+    who = { email: 'ops@nc.example', role: 'operator', permissions: { sovereign: ['metering.read', 'capacity.manage'] }, roles: [{ role: 'sovereign-admin', scope_kind: 'sovereign' }] }
+    docs = { overview: withEmptyZone, shapes }
+    const html = render()
+
+    // The page header carries the action, where this console's page-level
+    // actions live.
+    expect(html).toContain('<div class="actions"><button class="small primary">Add a pool</button></div>')
+
+    // Every zone has its own strip, naming the zone and how many pools are on
+    // it, with the button beside the pools it adds to.
+    expect(html).toContain('aria-label="Zone me-east-215a"')
+    expect(html).toContain('aria-label="Zone me-east-215c"')
+    expect(html).toContain('1 pool')
+
+    // A ZONE WITH NO POOLS still offers one, in the space its pools would
+    // occupy — the case where there is no pool card to look beside.
+    expect(html).toContain('no pools yet')
+    expect(html).toContain('No pools in this zone')
+    expect(html).toContain('A pool is a set of identical machines somebody bought')
+
+    // One control per zone plus the page header, and the zones block below
+    // keeps its own entry: four ways in, no second way of creating a pool.
+    expect(html.split('>Add a pool<').length - 1).toBe(5)
+    expect(html).toContain('Add a pool — me-east-215c')
+
+    docs = { overview, shapes }
+  })
+
+  it('offers none of them without capacity.manage', () => {
+    who = { email: 'fin@nc.example', role: 'finance-viewer', permissions: { sovereign: ['metering.read', 'audit.read'] }, roles: [{ role: 'finance-viewer', scope_kind: 'sovereign' }] }
+    docs = { overview: withEmptyZone, shapes }
+    const html = render()
+    expect(html).not.toContain('Add a pool')
+    // The zone is still there, still counted, still honest about being empty.
+    expect(html).toContain('aria-label="Zone me-east-215c"')
+    expect(html).toContain('No pools in this zone')
+    docs = { overview, shapes }
   })
 
   it('explains what a pool is when no region exists', () => {

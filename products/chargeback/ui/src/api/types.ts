@@ -66,6 +66,8 @@ export interface Me {
   customer?: { id: string; slug: string; name: string; status: string; billing_mode?: string; payment_method?: string; gateway_name?: string } | null
   /** PROFILE env: 'sovereign' | 'operator-central' (spec §6). */
   profile?: string | null
+  /** The build serving this session — compared against the page's own (lib/build.ts). */
+  version?: string | null
 }
 
 /** A role binding row (GET /access/bindings). */
