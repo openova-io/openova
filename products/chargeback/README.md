@@ -165,7 +165,8 @@ products/chargeback/
 │   ├── adapter/openova/          OpenOva adapter (lane D): Organization → Customer sync,
 │   │                             platform collector (pods/PVCs → k8s.* usage), billing hook (D6)
 │   ├── api/                      /api/v1 handlers, session + PIN auth, authorization, UI serving
-│   ├── capacity/                 capacity families + SKU footprints derived from SKU names (DESIGN.md §11); pure
+│   ├── capacity/                 pools of machines: the sellable arithmetic, the binding resource, the two
+│   │                             walls and SKU shapes derived from SKU names (DESIGN.md §11); pure
 │   ├── collector/huawei/         SDK-HMAC-SHA256 signer, gateway client, ECS/EVS/EIP/ELB/NAT listers,
 │   │                             CTS change-log poller, CES sampler, kind → SKU mapping
 │   ├── config/                   environment → Config
@@ -322,30 +323,46 @@ highest-power binding.
 | Contracts (DESIGN.md §15; writes `customers.manage`, reads `metering.read` at the scope, SLA credits `billing.issue`, every write audited `contract.*`) | `GET/POST /contracts[?customer_id&status]` · `GET /contracts/renewals[?on=YYYY-MM-DD]` (the notice window) · `GET/PATCH/DELETE /contracts/{id}` · `PUT /contracts/{id}/items` (committed-use and allowance lines; the list sent is the whole list) · `POST /contracts/{id}/sla-credit {statement_id, pct, measured_availability, reason}` (a real credit note, numbered and posted to the ledger) · `GET /customers/{id}/contracts` |
 | Operator | `GET /overview` |
 | Finance handover (DESIGN.md §18; reads need `audit.read` **and** `metering.read` at the Sovereign, writes `settings.manage`, every write audited `finance.*`) | `GET /finance/journal?period=YYYY-MM[&format=csv]` (double-entry lines against the operator's account codes, the totals and the balance check; a CLOSED period is served from the journal the close froze, so it exports byte-identically for ever) · `POST /finance/journal/export {period}` (queues the same journal as a TMF-shaped `journal` document on the commercial outbox, delivered like the bills) · `GET/PUT /finance/accounts {mappings:[{key, account_code, description}]}` (the chart of accounts; an unknown key is refused by name) · `GET /finance/periods` · `GET /finance/periods/{period}` (status, what blocks a close named row by row, and the balance check as a figure) · `POST /finance/periods/{period}/close` (409 naming every draft statement and open dispute; 422 if the journal does not balance; on success the period is stamped and its journal frozen) · `POST /finance/periods/{period}/reopen {reason}` (reason required, audited) · `POST /finance/reconciliation[?gateway=&from=&to=]` (a settlement file as multipart `file` or a `text/csv` body, or a fetch through `settle.Gateway.Settlements`; four buckets, nothing auto-corrected) · `GET /finance/reconciliations` · `GET /finance/reconciliation/{id}` |
-| Capacity (DESIGN.md §11; reads `metering.read` at the Sovereign, writes `capacity.manage`, every write audited `capacity.*`) | `GET /capacity/overview[?region=]` (regions → zones → pools with total / reserved / consumed / available / utilisation / exhaustion, SKU headroom with the binding family, `unmapped_skus`, `unmapped_regions`) · `GET/POST /capacity/regions` · `DELETE /capacity/regions/{id}` · `POST /capacity/regions/{id}/zones` · `DELETE /capacity/zones/{id}` · `GET /capacity/zones/{id}/pools` (+ total history) · `PUT /capacity/pools/{id} {total, note}` · `GET /capacity/footprints` · `PUT /capacity/footprints/{sku} {families}` · `GET/PUT /capacity/caps {zone_id, sku, total}` |
+| Capacity (DESIGN.md §11; reads `metering.read` at the Sovereign, writes `capacity.manage`, every write audited `capacity.*`) | `GET /capacity/overview[?region=]` (regions → zones → pools with their per-machine vector, the class split, sellable, the binding resource, the two walls and the order-by date, the basket headroom, `unplaced_skus`, `unshaped_skus`, `unmapped_regions`) · `GET/POST /capacity/regions` · `DELETE /capacity/regions/{id}` · `POST /capacity/regions/{id}/zones` · `DELETE /capacity/zones/{id}` · `GET/POST /capacity/zones/{id}/pools` · `PUT/DELETE /capacity/pools/{id}` · `GET /capacity/pools/{id}/headroom?basket=sku:units,…` · `GET /capacity/shapes` · `PUT /capacity/shapes/{sku} {resources}` · `GET/PUT /capacity/placements {pool_id, sku, class}` · `GET /capacity/resources` · `PUT /capacity/resources/{resource} {label, unit}` |
 | Tax + e-invoicing (DESIGN.md §17; reads `metering.read`, writes `settings.manage`, every write audited `tax.rule.*` / `tax.category.*`) | `GET/POST /tax/rules` · `PUT/DELETE /tax/rules/{id}` — a rule is (country, region, category, kind, rate, validity, note); a kind other than `standard` must carry rate 0, and a second rule for the same country+region+category starting on the same date is `409`. `GET /tax/categories` · `PUT /tax/categories {sku, category}` · `DELETE /tax/categories/{sku}` — `sku` is an exact SKU or a prefix ending in `*` (`evs.*`). A customer's tax block is `PATCH /customers/{id}` (`customers.manage`): `tax_country`, `tax_region`, `tax_business`, `tax_registration_number`, `tax_exempt(+reason)`, `tax_rate`, and the certificate `tax_exemption_number` / `tax_exemption_expires_on` / `tax_exemption_scan_ref`. **`GET /statements/{id}/einvoice`** (the structured UBL-shaped document + its state) · **`GET /statements/{id}/einvoice.xml`** (the signed archival copy) — both follow reading the statement |
 | Cost centres (DESIGN.md §19; reads `metering.read` at the scope — a customer owner reads its own — writes `customers.manage`, every write audited `costcentre.*`) | `GET/POST /customers/{id}/cost-centres` · `PUT/DELETE /cost-centres/{id}` · `GET /customers/{id}/cost-centres/rules` · `PUT /customers/{id}/cost-centres/rules {cost_centre_id\|code, tag_key, tag_value, priority?}` (one tag value names one centre, so re-pointing a value EDITS its rule) · `DELETE /cost-centres/rules/{id}` · `GET /customers/{id}/cost-centres/resources` · `PUT/DELETE /customers/{id}/cost-centres/resources/{resource_id}` (the per-resource override, which beats every rule) · **`GET /customers/{id}/cost-centres/report?period=YYYY-MM`** (`source: statement` = the invoice's own frozen figures with `agrees` stating the identity; `source: usage` = a period not rated yet) · `GET /customers/{id}/cost-centres/report.csv?period=` |
 | Ops (root) | `GET /healthz` · `GET /readyz` · `GET /metrics` |
 
-**Capacity** (DESIGN.md §11, founder requirement 2026-09-11). Console menu
+**Capacity** (DESIGN.md §11, founder direction 2026-09-13). Console menu
 group **Plan → Capacity**. A region holds availability zones; a zone holds
-one pool per resource family (`vcpu`, `memory_gib`, `block_ssd_gib`,
-`block_hdd_gib`, `object_gib`, `eip_addresses`, `bandwidth_mbps`) whose
-**total** the sovereign-admin enters — static-first; a capacity collector
-fills it later through the same `PUT /capacity/pools/{id}` shape with its own
-`source`. **Consumed** is not entered: it is the latest complete hour of the
-usage ledger multiplied through the **SKU footprints** (how much of each
-family one unit of a SKU consumes — `ecs.m7n.2xlarge.8` is 8 vCPU and 64
-GiB, read from the flavour name; `evs.ssd.gb` is 1 GiB of block SSD), zone
-by the inventory's `availability_zone`, else the region's default zone
-(reported as `zone_unknown`). `available = total − reserved − consumed`,
-never below 0 (`clamped`, `overcommit`); `reserved` is 0 until proposals
-fill it. Per SKU the page shows **headroom** — the fewest more units any of
-its families allows, with the binding family — and per pool **time to
-exhaustion** = available ÷ the 7-day run-rate trend of consumed
-(`rating.RunRate`, the explorer's own arithmetic). A metered SKU with no
-footprint is listed under `unmapped_skus` and counts against no pool; a
-metered region the admin has not added is `unmapped_regions`.
+**POOLS**, and a pool is a named set of identical machines: a machine count
+and a **per-machine vector** of resources, with a `reserve` and an
+`overcommit_ratio` **per resource** (vCPU may run 4:1 while the RAM in the
+same chassis runs 1:1), plus a procurement `lead_time_days`. Resource kinds
+are **data**, never an enum, so two vCPU pools coexist in one zone. A **SHAPE**
+says how much of each resource one unit of a SKU consumes
+(`ecs.m7n.2xlarge.8` is 8 vCPU and 64 GiB, read from the flavour name); a
+**PLACEMENT** says a SKU sells out of a pool at a **class** — `guaranteed`,
+`burstable` or `spot` — and the class lives there, not on the SKU, because
+the same shape sold guaranteed and sold spot is two SKUs at two prices.
+
+Consumption is never entered: it is the latest complete hour of the usage
+ledger read through the shapes onto the pools the placements name, split by
+class. Per pool, per resource: `usable = machines × per_machine − reserve`
+and `sellable = G + (usable − G) × ratio` — **not** `usable × ratio − G`,
+because guaranteed capacity consumes PHYSICAL capacity and only what
+physically remains is multiplied, so every guaranteed unit sold removes
+`ratio ×` of oversubscribed room. **Spot is excluded from admission
+accounting on both sides**: it never refuses another class, and when the room
+it runs in shrinks this product says HOW MUCH must be freed while the
+platform decides WHICH instances. The **binding resource** is the one with
+the least room as a fraction of what it could sell — a pool can be RAM-bound
+with a third of its vCPU **stranded** — and free room is ONE **basket**
+headroom over a named mix, never a per-SKU maximum. The trend view splits
+history and projection by class and reports two walls, the **soft** one where
+the pool reaches `sellable` and the **hard** one where guaranteed alone
+reaches `usable`, each minus the lead time to give the **order-by date** —
+the date that matters, since an alert on the wall itself fires too late by
+exactly the time it takes to procure. A metered SKU with no shape is listed
+under `unshaped_skus`; one no pool takes is listed per zone under
+`unplaced_skus`; a metered region the admin has not added is
+`unmapped_regions`. None of them is summed away, because usage counted
+against nothing would otherwise read as spare capacity.
 **Partners — resellers and agents** (DESIGN.md §11, founder direction
 2026-09-11). ONE list price per SKU, two independent discount steps off it,
 both decided by the one discount engine and its combination rule: the

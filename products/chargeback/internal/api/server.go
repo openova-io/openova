@@ -516,7 +516,7 @@ func New(d Deps) http.Handler {
 	// Capacity (DESIGN.md §11, EPIC #6867). Reads need metering.read at the
 	// Sovereign — a customer never sees capacity — writes capacity.manage;
 	// every write is audited as capacity.region / .zone / .pool /
-	// .footprint / .cap.
+	// .shape / .placement / .resource.
 	mux.HandleFunc("GET /api/v1/capacity/overview", h.capacityOverview)
 	mux.HandleFunc("GET /api/v1/capacity/regions", h.listCapacityRegions)
 	mux.HandleFunc("POST /api/v1/capacity/regions", h.createCapacityRegion)
@@ -524,11 +524,16 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/capacity/regions/{id}/zones", h.createCapacityZone)
 	mux.HandleFunc("DELETE /api/v1/capacity/zones/{id}", h.deleteCapacityZone)
 	mux.HandleFunc("GET /api/v1/capacity/zones/{id}/pools", h.listCapacityPools)
+	mux.HandleFunc("POST /api/v1/capacity/zones/{id}/pools", h.createCapacityPool)
 	mux.HandleFunc("PUT /api/v1/capacity/pools/{id}", h.putCapacityPool)
-	mux.HandleFunc("GET /api/v1/capacity/footprints", h.listFootprints)
-	mux.HandleFunc("PUT /api/v1/capacity/footprints/{sku}", h.putFootprint)
-	mux.HandleFunc("GET /api/v1/capacity/caps", h.listCaps)
-	mux.HandleFunc("PUT /api/v1/capacity/caps", h.putCap)
+	mux.HandleFunc("DELETE /api/v1/capacity/pools/{id}", h.deleteCapacityPool)
+	mux.HandleFunc("GET /api/v1/capacity/pools/{id}/headroom", h.capacityHeadroom)
+	mux.HandleFunc("GET /api/v1/capacity/shapes", h.listCapacityShapes)
+	mux.HandleFunc("PUT /api/v1/capacity/shapes/{sku}", h.putCapacityShape)
+	mux.HandleFunc("GET /api/v1/capacity/placements", h.listCapacityPlacements)
+	mux.HandleFunc("PUT /api/v1/capacity/placements", h.putCapacityPlacement)
+	mux.HandleFunc("GET /api/v1/capacity/resources", h.listCapacityResourceKinds)
+	mux.HandleFunc("PUT /api/v1/capacity/resources/{resource}", h.putCapacityResourceKind)
 
 	// Cost analysis (#6867, DESIGN.md §3.1-3.3).
 	mux.HandleFunc("GET /api/v1/cost/explore", h.explore)

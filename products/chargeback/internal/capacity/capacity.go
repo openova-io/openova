@@ -1,13 +1,32 @@
 // Package capacity is the pure part of capacity management (DESIGN.md §11,
-// EPIC #6867, founder requirement 2026-09-11): the resource families a
-// region's availability zones are measured in, and how much of each family
-// one unit of a SKU consumes — its FOOTPRINT — derived from the SKU name
-// where the name encodes it.
+// EPIC #6867): what a POOL is, what a SKU's SHAPE is, the three CLASSES a
+// shape can be sold at, and the arithmetic that turns those into what can
+// still be sold and when it runs out (arithmetic.go).
 //
-// It has no database and no HTTP. The store keeps the regions, zones, pools
-// and the explicit footprint rows and computes consumption; the API turns a
-// request into store calls. Everything here is deterministic on its input,
-// so it is pinned by plain unit tests.
+// It has no database and no HTTP. The store keeps the pools, their resource
+// vectors, the shapes and the placements and derives consumption; the API
+// turns a request into store calls. Everything here is deterministic on its
+// input, so it is pinned by plain unit tests.
+//
+// WHAT CHANGED AND WHY (founder direction 2026-09-13). The first cut of this
+// module modelled capacity as ONE POOL PER (zone, family) over a fixed
+// seven-family enum, with a per-SKU headroom column and a sku_caps table.
+// Three things were wrong with that, and all three are why the model below
+// looks nothing like it:
+//
+//  1. A POOL IS A SET OF IDENTICAL MACHINES AND ITS CAPACITY IS A VECTOR,
+//     NOT A NUMBER. vCPU and RAM in the same server are not independently
+//     sellable; separate vCPU and RAM pools let you "sell" vCPU with no RAM
+//     behind it. A pool therefore holds a per-machine vector and a machine
+//     count.
+//  2. SEVERAL POOLS OF THE SAME RESOURCE KIND MUST COEXIST IN ONE ZONE
+//     (m7n-a and m7n-b, different batches or server types). UNIQUE (zone,
+//     family) forbade exactly that, which is why the resource kinds here are
+//     DATA — a row a pool declares — and never a CHECK constraint.
+//  3. PER-SKU HEADROOM IS A WRONG ANSWER, NOT A MISSING FEATURE. "50 large
+//     fit" and "200 small fit" side by side are mutually exclusive: each
+//     silently assumes the others sell zero. A pool's free room is reported
+//     as ONE basket headroom over a named mix, with the binding resource.
 package capacity
 
 import (
@@ -16,73 +35,141 @@ import (
 	"strings"
 )
 
-// Family is one kind of pooled capacity an availability zone holds.
-type Family struct {
-	Key   string `json:"family"`
-	Label string `json:"label"`
-	// Unit is what a pool total and a footprint amount count in.
-	Unit string `json:"unit"`
+// ---------------------------------------------------------------------------
+// resource kinds — DATA, never an enum
+// ---------------------------------------------------------------------------
+
+// ResourceKind is one kind of resource a machine holds, with the label and
+// unit the console renders it in. The set is a TABLE the operator can add to
+// (capacity_resource_kinds), not a constraint: a CHECK over a fixed list is
+// what stopped two vCPU pools coexisting, and nothing here reintroduces one.
+// The seeds below are the kinds this product already meters; a pool that
+// declares a kind nobody listed gets a row with its key as the label.
+type ResourceKind struct {
+	Key      string `json:"resource"`
+	Label    string `json:"label"`
+	Unit     string `json:"unit"`
+	Position int    `json:"position"`
 }
 
-// The seven families. Totals are entered per (zone, family) by the operator
-// until a capacity collector fills them; consumption is derived from
-// metering through the footprints.
+// The resource keys the shapes derived from SKU names use. They are ordinary
+// strings: a pool may hold any key at all, and these are simply the ones
+// Derive and the seed write.
 const (
-	FamilyVCPU      = "vcpu"
-	FamilyMemoryGiB = "memory_gib"
-	FamilyBlockSSD  = "block_ssd_gib"
-	FamilyBlockHDD  = "block_hdd_gib"
-	FamilyObject    = "object_gib"
-	FamilyEIP       = "eip_addresses"
-	FamilyBandwidth = "bandwidth_mbps"
+	ResourceVCPU      = "vcpu"
+	ResourceMemoryGiB = "memory_gib"
+	ResourceBlockSSD  = "block_ssd_gib"
+	ResourceBlockHDD  = "block_hdd_gib"
+	ResourceObject    = "object_gib"
+	ResourceEIP       = "eip_addresses"
+	ResourceBandwidth = "bandwidth_mbps"
 )
 
-// Families lists every family in a stable, display order. The set is also
-// the CHECK constraint on capacity_pools.family and sku_footprints.family
-// (store.capacityMigrationSQL is generated from it).
-var Families = []Family{
-	{Key: FamilyVCPU, Label: "vCPU", Unit: "vCPU"},
-	{Key: FamilyMemoryGiB, Label: "Memory", Unit: "GiB"},
-	{Key: FamilyBlockSSD, Label: "Block SSD", Unit: "GiB"},
-	{Key: FamilyBlockHDD, Label: "Block HDD", Unit: "GiB"},
-	{Key: FamilyObject, Label: "Object storage", Unit: "GiB"},
-	{Key: FamilyEIP, Label: "Elastic IPs", Unit: "addresses"},
-	{Key: FamilyBandwidth, Label: "Bandwidth", Unit: "Mbps"},
+// SeedResourceKinds are the kinds the migration writes so a fresh console
+// has labels and units for what this product meters. Position is the display
+// order; a kind an operator adds later sorts after them by key.
+var SeedResourceKinds = []ResourceKind{
+	{Key: ResourceVCPU, Label: "vCPU", Unit: "vCPU", Position: 10},
+	{Key: ResourceMemoryGiB, Label: "Memory", Unit: "GiB", Position: 20},
+	{Key: ResourceBlockSSD, Label: "Block SSD", Unit: "GiB", Position: 30},
+	{Key: ResourceBlockHDD, Label: "Block HDD", Unit: "GiB", Position: 40},
+	{Key: ResourceObject, Label: "Object storage", Unit: "GiB", Position: 50},
+	{Key: ResourceEIP, Label: "Elastic IPs", Unit: "addresses", Position: 60},
+	{Key: ResourceBandwidth, Label: "Bandwidth", Unit: "Mbps", Position: 70},
 }
 
-// ValidFamily reports whether key is one of Families.
-func ValidFamily(key string) bool {
-	for _, f := range Families {
-		if f.Key == key {
-			return true
+// NormResource lower-cases and trims a resource key. Keys are compared
+// case-insensitively so "vCPU" typed into the pool editor is the same
+// resource as the one a shape derives.
+func NormResource(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
+
+// KindOf returns the seeded kind for a key, or a kind carrying the key as
+// its label and no unit — what an operator's own resource reads as until
+// they name it.
+func KindOf(key string) ResourceKind {
+	for _, k := range SeedResourceKinds {
+		if k.Key == key {
+			return k
 		}
+	}
+	return ResourceKind{Key: key, Label: key, Position: 1000}
+}
+
+// ---------------------------------------------------------------------------
+// classes
+// ---------------------------------------------------------------------------
+
+// A PLACEMENT's class. It lives on the placement, NOT on the SKU's shape:
+// the same shape sold guaranteed and sold spot is two SKUs at two prices,
+// both placed on the same pool.
+const (
+	// ClassGuaranteed is backed by physical capacity at 1:1. It is admitted
+	// only if it fits `usable`, and every unit sold removes ratio × worth of
+	// oversubscribed room — that is what makes the guarantee real.
+	ClassGuaranteed = "guaranteed"
+	// ClassBurstable is sold against the oversubscribed envelope and is
+	// throttled when the pool reaches it.
+	ClassBurstable = "burstable"
+	// ClassSpot holds no reservation. It is EXCLUDED from admission
+	// accounting on both sides: a guaranteed or burstable order is never
+	// refused on account of spot, and spot is reclaimed when the room it is
+	// running in shrinks.
+	ClassSpot = "spot"
+)
+
+// ClassDef is a class with the words the console explains it in.
+type ClassDef struct {
+	Key   string `json:"class"`
+	Label string `json:"label"`
+	Note  string `json:"note"`
+}
+
+// Classes lists the three classes in the order the console shows them.
+var Classes = []ClassDef{
+	{Key: ClassGuaranteed, Label: "Guaranteed", Note: "physically backed at 1:1; admitted only if it fits usable capacity"},
+	{Key: ClassBurstable, Label: "Burstable", Note: "sold against the oversubscribed envelope; throttled at the soft wall"},
+	{Key: ClassSpot, Label: "Spot", Note: "no reservation; reclaimed when the room it runs in shrinks, and never refuses another class"},
+}
+
+// ValidClass reports whether s is one of the three classes.
+func ValidClass(s string) bool {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case ClassGuaranteed, ClassBurstable, ClassSpot:
+		return true
 	}
 	return false
 }
 
-// FamilyKeys is Families as keys, in the same order.
-func FamilyKeys() []string {
-	out := make([]string, len(Families))
-	for i, f := range Families {
-		out[i] = f.Key
+// ClassKeys is Classes as keys, in the same order.
+func ClassKeys() []string {
+	out := make([]string, len(Classes))
+	for i, c := range Classes {
+		out[i] = c.Key
 	}
 	return out
 }
 
-// Footprint is how much of each family ONE unit of a SKU consumes, as exact
-// decimal text keyed by family (store.Decimal is a string too, so the store
-// converts without arithmetic). An ECS instance-hour of m7n.2xlarge.8 is
-// {vcpu: 8, memory_gib: 64}; a GB-hour of evs.ssd.gb is {block_ssd_gib: 1}.
-type Footprint map[string]string
+// ---------------------------------------------------------------------------
+// shapes
+// ---------------------------------------------------------------------------
 
-// Sources a footprint can come from, reported on the wire so the page can
-// say which rows an operator typed and which the name implied.
+// Shape is how much of each resource ONE unit of a SKU consumes, as exact
+// decimal text keyed by resource (store.Decimal is a string too, so the
+// store converts without arithmetic). An instance-hour of m7n.2xlarge.8 is
+// {vcpu: 8, memory_gib: 64}; a GB-hour of evs.ssd.gb is {block_ssd_gib: 1}.
+//
+// A shape says WHAT a unit costs the hardware. It never says where it runs
+// or at which class — that is the placement.
+type Shape map[string]string
+
+// Sources a shape can come from, reported on the wire so the page can say
+// which rows an operator typed and which the name implied.
 const (
 	// SourceManual is a row the operator wrote or edited.
 	SourceManual = "manual"
 	// SourceSeed is a row the migration seeded from the National Cloud list.
 	SourceSeed = "seed"
-	// SourceDerived is not a row at all: the footprint the SKU name implies,
+	// SourceDerived is not a row at all: the shape the SKU name implies,
 	// computed at read time for a metered SKU that has no row.
 	SourceDerived = "derived"
 )
@@ -102,7 +189,7 @@ var ecsSizes = map[string]int{
 
 // ParseECSFlavor reads vCPU and memory out of a Huawei ECS flavour name.
 // ok is false for any name the convention does not cover — the caller then
-// reports the SKU as "no footprint" rather than guessing.
+// reports the SKU as "no shape" rather than guessing.
 func ParseECSFlavor(name string) (vcpus, memoryGiB int, ok bool) {
 	parts := strings.Split(strings.ToLower(strings.TrimSpace(name)), ".")
 	if len(parts) != 3 || parts[0] == "" {
@@ -127,8 +214,19 @@ func ParseECSFlavor(name string) (vcpus, memoryGiB int, ok bool) {
 	return vcpus, vcpus * ratio, true
 }
 
-// Derive is the footprint a SKU name implies, or nil when the name does not
-// say. Only unambiguous shapes derive:
+// Derive is the shape a SKU name implies, or nil when the name does not say.
+//
+// IT STILL EARNS ITS PLACE under the pool model, for the reason it did under
+// the family model and one more. A Sovereign meters whatever flavours its
+// customers run, and the operator cannot type a row for every ECS flavour
+// before the first of them is billed; without derivation that usage would
+// silently count against nothing. Under the pool model the stake is higher,
+// not lower: an unshaped SKU cannot be PLACED either, so it would vanish
+// from the pool it is genuinely running on. Derivation keeps it visible — as
+// an unplaced SKU that HAS a shape, which the console asks the operator to
+// place, rather than as nothing at all.
+//
+// Only unambiguous shapes derive:
 //
 //	ecs.<flavour>        vcpu + memory_gib from the flavour name
 //	evs.ssd.gb           block_ssd_gib 1
@@ -140,32 +238,32 @@ func ParseECSFlavor(name string) (vcpus, memoryGiB int, ok bool) {
 // instances, which the cloud SKUs already count — deriving them too would
 // consume the same vCPU twice. Database storage, backup and image SKUs
 // derive nothing either: their storage class is not in the name.
-func Derive(sku string) Footprint {
+func Derive(sku string) Shape {
 	s := strings.ToLower(strings.TrimSpace(sku))
 	switch {
 	case s == "eip":
-		return Footprint{FamilyEIP: "1"}
+		return Shape{ResourceEIP: "1"}
 	case s == "eip.bandwidth_mbps":
-		return Footprint{FamilyBandwidth: "1"}
+		return Shape{ResourceBandwidth: "1"}
 	case s == "evs.ssd.gb":
-		return Footprint{FamilyBlockSSD: "1"}
+		return Shape{ResourceBlockSSD: "1"}
 	case s == "evs.hdd.gb":
-		return Footprint{FamilyBlockHDD: "1"}
+		return Shape{ResourceBlockHDD: "1"}
 	case strings.HasPrefix(s, "ecs."):
 		v, m, ok := ParseECSFlavor(strings.TrimPrefix(s, "ecs."))
 		if !ok {
 			return nil
 		}
-		return Footprint{FamilyVCPU: strconv.Itoa(v), FamilyMemoryGiB: strconv.Itoa(m)}
+		return Shape{ResourceVCPU: strconv.Itoa(v), ResourceMemoryGiB: strconv.Itoa(m)}
 	}
 	return nil
 }
 
 // SeedSKUs are the SKUs of the National Cloud list price book
 // (internal/synth NationalCloudRates — TestSeedCoversNationalCloudList pins
-// the two equal). The migration seeds a footprint row for each one Derive
-// covers; the rest (elb, nat.<spec>, vpc) have no per-unit footprint in any
-// of the seven families and are reported as such.
+// the two equal). The migration seeds a shape row for each one Derive
+// covers; the rest (elb, nat.<spec>, vpc) have no per-unit shape in any
+// resource and are reported as such.
 var SeedSKUs = []string{
 	"ecs.m7n.xlarge.8",
 	"ecs.m7n.2xlarge.8",
@@ -178,31 +276,31 @@ var SeedSKUs = []string{
 	"vpc",
 }
 
-// SeedRow is one (sku, family, amount) the migration writes.
+// SeedRow is one (sku, resource, amount) the migration writes.
 type SeedRow struct {
-	SKU    string
-	Family string
-	Amount string
+	SKU      string
+	Resource string
+	Amount   string
 }
 
-// Seed is every footprint row the migration writes, in a stable order:
-// the SeedSKUs Derive covers, one row per family.
+// Seed is every shape row the migration writes, in a stable order: the
+// SeedSKUs Derive covers, one row per resource.
 func Seed() []SeedRow {
 	var out []SeedRow
 	for _, sku := range SeedSKUs {
-		fp := Derive(sku)
-		if fp == nil {
+		sh := Derive(sku)
+		if sh == nil {
 			continue
 		}
-		for _, fam := range sortedFamilies(fp) {
-			out = append(out, SeedRow{SKU: sku, Family: fam, Amount: fp[fam]})
+		for _, res := range SortedResources(sh) {
+			out = append(out, SeedRow{SKU: sku, Resource: res, Amount: sh[res]})
 		}
 	}
 	return out
 }
 
 // Unseeded lists the SeedSKUs that derive nothing — what the page shows as
-// "no footprint" until the operator writes one.
+// "no shape" until the operator writes one.
 func Unseeded() []string {
 	var out []string
 	for _, sku := range SeedSKUs {
@@ -213,50 +311,55 @@ func Unseeded() []string {
 	return out
 }
 
-// sortedFamilies orders a footprint's families in Families order.
-func sortedFamilies(fp Footprint) []string {
-	keys := make([]string, 0, len(fp))
-	for k := range fp {
+// SortedResources orders a shape's resources by the seeded display order,
+// then by key — the order the console lists a vector in.
+func SortedResources(sh Shape) []string {
+	keys := make([]string, 0, len(sh))
+	for k := range sh {
 		keys = append(keys, k)
 	}
-	idx := map[string]int{}
-	for i, f := range Families {
-		idx[f.Key] = i
-	}
-	sort.Slice(keys, func(i, j int) bool {
-		a, aok := idx[keys[i]]
-		b, bok := idx[keys[j]]
-		if aok != bok {
-			return aok
-		}
-		if a != b {
-			return a < b
-		}
-		return keys[i] < keys[j]
-	})
+	SortResources(keys)
 	return keys
 }
 
-// Thresholds are the utilisation percentages the page colours at:
-// warn at 70 %, critical at 85 % (founder requirement 2026-09-11).
+// SortResources sorts resource keys in place by seeded position, then key.
+func SortResources(keys []string) {
+	sort.Slice(keys, func(i, j int) bool {
+		a, b := KindOf(keys[i]), KindOf(keys[j])
+		if a.Position != b.Position {
+			return a.Position < b.Position
+		}
+		return keys[i] < keys[j]
+	})
+}
+
+// ---------------------------------------------------------------------------
+// status
+// ---------------------------------------------------------------------------
+
+// Thresholds are the utilisation percentages the console colours at: warn at
+// 70 %, critical at 85 % of what is SELLABLE.
 const (
 	ThresholdWarnPct     = 70
 	ThresholdCriticalPct = 85
 )
 
-// Pool statuses.
+// Pool and resource statuses.
 const (
-	StatusUnset    = "unset" // total is 0: nothing to measure against
+	// StatusUnset is a resource nobody has sized (no machines, or no amount
+	// per machine). It NEVER reads ok: a figure read from a field that is
+	// structurally empty would render as good news.
+	StatusUnset    = "unset"
 	StatusOK       = "ok"
 	StatusWarn     = "warn"
 	StatusCritical = "critical"
 )
 
-// Status classifies a utilisation percentage; ok=false (StatusUnset) when
-// the pool has no total.
-func Status(utilisationPct float64, hasTotal bool) string {
+// Status classifies a utilisation percentage; StatusUnset when the resource
+// carries no capacity to measure against.
+func Status(utilisationPct float64, sized bool) string {
 	switch {
-	case !hasTotal:
+	case !sized:
 		return StatusUnset
 	case utilisationPct >= ThresholdCriticalPct:
 		return StatusCritical
@@ -264,4 +367,17 @@ func Status(utilisationPct float64, hasTotal bool) string {
 		return StatusWarn
 	}
 	return StatusOK
+}
+
+// WorstStatus is the status a pool takes from its resources: the most severe
+// of them, and unset when none is sized.
+func WorstStatus(all []string) string {
+	rank := map[string]int{StatusUnset: 0, StatusOK: 1, StatusWarn: 2, StatusCritical: 3}
+	best, out := -1, StatusUnset
+	for _, s := range all {
+		if r, ok := rank[s]; ok && r > best {
+			best, out = r, s
+		}
+	}
+	return out
 }

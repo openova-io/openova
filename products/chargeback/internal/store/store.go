@@ -474,6 +474,15 @@ ALTER TABLE cost_sources ADD CONSTRAINT cost_sources_status_check CHECK (status 
 	// Appended at the very END: migrations are positional. Located by
 	// content as MigrationNotifications (notify.go).
 	notifyMigrationSQL,
+	// DESIGN.md §11 (rewritten, founder direction 2026-09-13) — capacity as
+	// POOLS OF MACHINES: a machine count and a per-machine resource vector
+	// with a reserve and an overcommit ratio per resource, SKU shapes in
+	// place of footprints, and placements carrying the class. It ALTERs the
+	// per-(zone, family) pools rather than recreating them, so every
+	// capacity_pool_history row keeps its pool; sku_caps is retired into the
+	// audit trail. Appended at the very END: migrations are positional.
+	// Located by content as MigrationCapacityPools (capacity.go).
+	capacityPoolsMigrationSQL(),
 }
 
 // MigrationBackfillIssuedInvoices is the schema_migrations version of the

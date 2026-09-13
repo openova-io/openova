@@ -2,127 +2,258 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
-	"math"
 	"math/big"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/lib/pq"
+
 	"github.com/openova-io/openova/products/chargeback/internal/capacity"
 )
 
-// Capacity management (DESIGN.md §11, EPIC #6867, founder requirement
-// 2026-09-11: "capacity management for the underlying regions — overall
-// capacity information of underlying AZs and regions as well for each SKU;
-// initially static, the admin defines the capacity; later from integrations").
+// Capacity management (DESIGN.md §11, EPIC #6867).
 //
-// The model is static-first: a REGION holds ZONES, a zone holds one POOL per
-// resource family (capacity.Families) whose TOTAL the operator types until a
-// capacity collector fills it. Everything else is DERIVED from what this
-// product already meters: a SKU FOOTPRINT says how much of each family one
-// unit of the SKU consumes, so the latest complete hour's usage records,
-// multiplied through the footprints, are the zone's CONSUMED capacity —
-// there is no second meter and no capacity ledger to keep in step with the
-// usage ledger. RESERVED is carried at 0 with its column and wire key in
-// place for proposals and plans to fill later.
+// THE MODEL IS THREE STORED THINGS AND NOTHING ELSE.
 //
-// Every change of a pool total is audited (the API writes capacity.pool)
-// and kept in capacity_pool_history, so a total can be read back to the day
-// it was entered.
+//	POOL       a named set of identical machines in a zone: a machine count,
+//	           a PER-MACHINE vector of resources, a reserve and an overcommit
+//	           ratio per resource, and a procurement lead time.
+//	SHAPE      a SKU's vector: how much of each resource ONE unit consumes.
+//	PLACEMENT  (sku, pool, class): this SKU sells out of that pool, at that
+//	           class. The CLASS lives here, not on the SKU's shape — the same
+//	           shape sold guaranteed and sold spot is two SKUs at two prices,
+//	           both placed on the same pool.
+//
+// Consumption is never entered. It is the usage ledger this product already
+// keeps (§2), read one way: the latest metered hour, through the shapes, onto
+// the pools the placements name.
+//
+// WHY THIS REPLACED THE FAMILY POOLS (founder direction 2026-09-13):
+//
+//  1. A pool's capacity is a VECTOR, not a number. vCPU and RAM in the same
+//     server are not independently sellable; one pool per (zone, family) let
+//     the product "sell" vCPU with no RAM behind it.
+//  2. Several pools of the SAME resource kind must coexist in one zone (two
+//     batches, two server types). UNIQUE (zone_id, family) forbade it, which
+//     is why resource kinds are now DATA and never a CHECK constraint.
+//  3. Per-SKU headroom was a wrong answer, not a missing feature: "50 large
+//     fit" and "200 small fit" side by side are mutually exclusive, each
+//     silently assuming the others sell zero. Free room is now ONE basket
+//     headroom over a named mix, with the binding resource.
+//
+// Every change to a pool is audited (the API writes capacity.pool) and kept
+// in capacity_pool_history, one row per resource, so a pool's size can be
+// read back to the day it was entered.
 
-// capacityFamilyCheckSQL is the family list as a SQL CHECK, built from
-// capacity.Families so the constraint and the Go list cannot disagree.
-func capacityFamilyCheckSQL() string {
-	keys := capacity.FamilyKeys()
-	for i, k := range keys {
-		keys[i] = sqlQuote(k)
-	}
-	return "CHECK (family IN (" + strings.Join(keys, ",") + "))"
-}
+// ---------------------------------------------------------------------------
+// migration
+// ---------------------------------------------------------------------------
 
-// CapacityFootprintSeedSQL inserts the seed footprints (capacity.Seed): the
-// National Cloud list SKUs whose footprint the name states. ON CONFLICT DO
-// NOTHING, so a footprint the operator has since edited is never overwritten.
-// The test database helper re-runs it after wiping sku_footprints, so every
-// test starts from the seeded rows.
-func CapacityFootprintSeedSQL() string {
+// CapacityResourceKindSeedSQL inserts the resource kinds this product meters.
+// It carries the LABEL and UNIT only: the row is a description, never a
+// constraint, and a pool may declare a kind that is not in it (the store adds
+// the row with the key as its label). The test database helper re-runs it
+// after wiping the table.
+func CapacityResourceKindSeedSQL() string {
 	var b strings.Builder
-	for _, r := range capacity.Seed() {
-		fmt.Fprintf(&b, "INSERT INTO sku_footprints (sku, family, amount, source) VALUES (%s, %s, %s, %s) ON CONFLICT (sku, family) DO NOTHING;\n",
-			sqlQuote(r.SKU), sqlQuote(r.Family), r.Amount, sqlQuote(capacity.SourceSeed))
+	for _, k := range capacity.SeedResourceKinds {
+		fmt.Fprintf(&b, "INSERT INTO capacity_resource_kinds (resource, label, unit, position) VALUES (%s, %s, %s, %d) ON CONFLICT (resource) DO NOTHING;\n",
+			sqlQuote(k.Key), sqlQuote(k.Label), sqlQuote(k.Unit), k.Position)
 	}
 	return b.String()
 }
 
-// capacityMigrationSQL is the capacity schema, one transaction. Appended at
-// the END of migrations: they are positional.
-func capacityMigrationSQL() string {
-	check := capacityFamilyCheckSQL()
-	return `
-CREATE TABLE IF NOT EXISTS capacity_regions (
-	id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-	code TEXT NOT NULL UNIQUE CHECK (code <> '' AND code = lower(code)),
-	name TEXT NOT NULL DEFAULT '',
-	cloud_source_kind TEXT NOT NULL DEFAULT 'huawei-project' CHECK (cloud_source_kind IN ('huawei-project','file')),
-	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE TABLE IF NOT EXISTS capacity_zones (
-	id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-	region_id UUID NOT NULL REFERENCES capacity_regions(id) ON DELETE CASCADE,
-	code TEXT NOT NULL CHECK (code <> '' AND code = lower(code)),
-	name TEXT NOT NULL DEFAULT '',
-	is_default BOOLEAN NOT NULL DEFAULT false,
-	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-	UNIQUE (region_id, code)
-);
-CREATE UNIQUE INDEX IF NOT EXISTS capacity_zones_default_uniq ON capacity_zones (region_id) WHERE is_default;
-CREATE TABLE IF NOT EXISTS capacity_pools (
-	id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-	zone_id UUID NOT NULL REFERENCES capacity_zones(id) ON DELETE CASCADE,
-	family TEXT NOT NULL ` + check + `,
-	total NUMERIC(20,6) NOT NULL DEFAULT 0 CHECK (total >= 0),
-	reserved NUMERIC(20,6) NOT NULL DEFAULT 0 CHECK (reserved >= 0),
-	source TEXT NOT NULL DEFAULT 'manual',
-	note TEXT NOT NULL DEFAULT '',
-	updated_by TEXT NOT NULL DEFAULT '',
-	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-	UNIQUE (zone_id, family)
-);
-CREATE TABLE IF NOT EXISTS capacity_pool_history (
-	id BIGSERIAL PRIMARY KEY,
-	pool_id UUID NOT NULL REFERENCES capacity_pools(id) ON DELETE CASCADE,
-	total NUMERIC(20,6) NOT NULL,
-	source TEXT NOT NULL,
-	note TEXT NOT NULL DEFAULT '',
-	changed_by TEXT NOT NULL DEFAULT '',
-	changed_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS capacity_pool_history_pool_idx ON capacity_pool_history (pool_id, changed_at DESC);
-CREATE TABLE IF NOT EXISTS sku_footprints (
-	sku TEXT NOT NULL CHECK (sku <> ''),
-	family TEXT NOT NULL ` + check + `,
-	amount NUMERIC(20,6) NOT NULL CHECK (amount > 0),
-	source TEXT NOT NULL DEFAULT 'manual',
-	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-	PRIMARY KEY (sku, family)
-);
-CREATE TABLE IF NOT EXISTS sku_caps (
-	zone_id UUID NOT NULL REFERENCES capacity_zones(id) ON DELETE CASCADE,
-	sku TEXT NOT NULL CHECK (sku <> ''),
-	total NUMERIC(20,6) NOT NULL CHECK (total >= 0),
-	updated_by TEXT NOT NULL DEFAULT '',
-	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-	PRIMARY KEY (zone_id, sku)
-);
-` + CapacityFootprintSeedSQL()
+// CapacityShapeSeedSQL inserts the seed shapes (capacity.Seed): the National
+// Cloud list SKUs whose vector the name states. ON CONFLICT DO NOTHING, so a
+// shape the operator has since edited is never overwritten. The test database
+// helper re-runs it after wiping sku_shapes, so every test starts from the
+// seeded rows.
+func CapacityShapeSeedSQL() string {
+	var b strings.Builder
+	for _, r := range capacity.Seed() {
+		fmt.Fprintf(&b, "INSERT INTO sku_shapes (sku, resource, amount_per_unit, source) VALUES (%s, %s, %s, %s) ON CONFLICT (sku, resource) DO NOTHING;\n",
+			sqlQuote(r.SKU), sqlQuote(r.Resource), r.Amount, sqlQuote(capacity.SourceSeed))
+	}
+	return b.String()
 }
 
-// MigrationCapacity is the schema_migrations version of the capacity
-// migration, located by content like the others so a migration appended
+// capacityPoolsMigrationSQL turns the per-(zone, family) pools into pools of
+// machines, renames sku_footprints to sku_shapes, adds placements and retires
+// sku_caps. ONE transaction, appended at the END of migrations: they are
+// positional.
+//
+// WHAT HAPPENS TO WHAT IS ALREADY THERE — this module is live on hw307:
+//
+//   - Pool IDS SURVIVE. The table is ALTERed, never recreated, so every
+//     capacity_pool_history row still points at its pool.
+//   - A per-(zone, family) row BECOMES A SINGLE-RESOURCE POOL NAMED FOR ITS
+//     FAMILY, which is exactly what it was: machines 1, per_machine = the
+//     total the operator entered, reserve = what was reserved, ratio 1 (the
+//     old model had no oversubscription, so everything it counted was
+//     guaranteed at 1:1).
+//   - The pools NOBODY EVER SIZED are deleted. CreateCapacityZone made seven
+//     per zone whether or not an operator wanted them; a row at total 0 with
+//     no reserve, no note and no history carries nothing to lose.
+//   - HISTORY IS KEPT AND WIDENED: each row gains the resource it was about
+//     and the machines / per_machine / reserve / ratio behind its total.
+//   - PLACEMENTS ARE SEEDED from the stored shapes: every SKU whose shape
+//     names a migrated pool's resource is placed on it as `guaranteed`. That
+//     reproduces the old attribution exactly — the old model counted every
+//     SKU with vcpu in its footprint against the zone's vcpu pool — so no
+//     zone reads empty after the migration.
+//   - sku_caps IS RETIRED, its rows copied into the audit trail first (see
+//     the INSERT below for the reason it does not compose).
+func capacityPoolsMigrationSQL() string {
+	return `
+-- Resource kinds are DATA. This table carries a label and a unit for display
+-- and nothing else; there is no CHECK constraint anywhere on a resource key,
+-- because a fixed list is exactly what stopped two vCPU pools coexisting.
+CREATE TABLE IF NOT EXISTS capacity_resource_kinds (
+	resource TEXT PRIMARY KEY CHECK (resource <> '' AND resource = lower(resource)),
+	label TEXT NOT NULL DEFAULT '',
+	unit TEXT NOT NULL DEFAULT '',
+	position INT NOT NULL DEFAULT 1000
+);
+` + CapacityResourceKindSeedSQL() + `
+-- Shapes: sku_footprints, renamed and freed of its family enum.
+DO $cap$ BEGIN
+	IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'sku_footprints') THEN
+		ALTER TABLE sku_footprints RENAME TO sku_shapes;
+	END IF;
+	IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'sku_shapes' AND column_name = 'family') THEN
+		ALTER TABLE sku_shapes RENAME COLUMN family TO resource;
+	END IF;
+	IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'sku_shapes' AND column_name = 'amount') THEN
+		ALTER TABLE sku_shapes RENAME COLUMN amount TO amount_per_unit;
+	END IF;
+END $cap$;
+CREATE TABLE IF NOT EXISTS sku_shapes (
+	sku TEXT NOT NULL CHECK (sku <> ''),
+	resource TEXT NOT NULL CHECK (resource <> ''),
+	amount_per_unit NUMERIC(20,6) NOT NULL CHECK (amount_per_unit > 0),
+	source TEXT NOT NULL DEFAULT 'manual',
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (sku, resource)
+);
+-- The seven-kind CHECK goes. Postgres rewrites "family IN (...)" as
+-- "= ANY (ARRAY[...])", so the sweep matches BOTH spellings — matching only
+-- the one that was written is how this survived its first rename.
+DO $cap$ DECLARE c TEXT; BEGIN
+	FOR c IN SELECT conname FROM pg_constraint
+		WHERE conrelid = 'sku_shapes'::regclass AND contype = 'c'
+		  AND (pg_get_constraintdef(oid) LIKE '%ANY (ARRAY[%' OR pg_get_constraintdef(oid) LIKE '%IN (%') LOOP
+		EXECUTE format('ALTER TABLE sku_shapes DROP CONSTRAINT %I', c);
+	END LOOP;
+END $cap$;
+
+-- Pools: ALTER, never recreate, so capacity_pool_history keeps its target.
+ALTER TABLE capacity_pools ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT '';
+ALTER TABLE capacity_pools ADD COLUMN IF NOT EXISTS machines NUMERIC(20,6) NOT NULL DEFAULT 1 CHECK (machines >= 0);
+ALTER TABLE capacity_pools ADD COLUMN IF NOT EXISTS lead_time_days INT NOT NULL DEFAULT 0 CHECK (lead_time_days >= 0);
+ALTER TABLE capacity_pools ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
+-- A pool nobody ever sized carries nothing to lose: no total, no reserve, no
+-- note, no history. CreateCapacityZone made seven of these per zone.
+DELETE FROM capacity_pools p
+ WHERE p.total = 0 AND p.reserved = 0 AND p.note = ''
+   AND NOT EXISTS (SELECT 1 FROM capacity_pool_history h WHERE h.pool_id = p.id);
+
+CREATE TABLE IF NOT EXISTS capacity_pool_resources (
+	pool_id UUID NOT NULL REFERENCES capacity_pools(id) ON DELETE CASCADE,
+	resource TEXT NOT NULL REFERENCES capacity_resource_kinds(resource) ON UPDATE CASCADE,
+	per_machine NUMERIC(20,6) NOT NULL DEFAULT 0 CHECK (per_machine >= 0),
+	reserve NUMERIC(20,6) NOT NULL DEFAULT 0 CHECK (reserve >= 0),
+	overcommit_ratio NUMERIC(20,6) NOT NULL DEFAULT 1 CHECK (overcommit_ratio > 0),
+	PRIMARY KEY (pool_id, resource)
+);
+
+-- A family the seed does not know (none today, but the column was free text
+-- in practice) still needs a kind row before the foreign key will take it.
+INSERT INTO capacity_resource_kinds (resource, label, unit, position)
+	SELECT DISTINCT lower(family), lower(family), '', 1000 FROM capacity_pools
+	ON CONFLICT (resource) DO NOTHING;
+
+-- The row becomes a single-resource pool of ONE machine: per_machine is the
+-- total that was entered, so raw is unchanged to the last decimal.
+INSERT INTO capacity_pool_resources (pool_id, resource, per_machine, reserve, overcommit_ratio)
+	SELECT id, lower(family), total, reserved, 1 FROM capacity_pools
+	ON CONFLICT (pool_id, resource) DO NOTHING;
+UPDATE capacity_pools SET name = lower(family) WHERE name = '';
+
+-- History keeps every total ever entered and gains the resource it was about.
+ALTER TABLE capacity_pool_history ADD COLUMN IF NOT EXISTS resource TEXT NOT NULL DEFAULT '';
+ALTER TABLE capacity_pool_history ADD COLUMN IF NOT EXISTS machines NUMERIC(20,6) NOT NULL DEFAULT 1;
+ALTER TABLE capacity_pool_history ADD COLUMN IF NOT EXISTS per_machine NUMERIC(20,6) NOT NULL DEFAULT 0;
+ALTER TABLE capacity_pool_history ADD COLUMN IF NOT EXISTS reserve NUMERIC(20,6) NOT NULL DEFAULT 0;
+ALTER TABLE capacity_pool_history ADD COLUMN IF NOT EXISTS overcommit_ratio NUMERIC(20,6) NOT NULL DEFAULT 1;
+UPDATE capacity_pool_history h
+   SET resource = p.name, per_machine = h.total, machines = 1
+  FROM capacity_pools p
+ WHERE p.id = h.pool_id AND h.resource = '';
+
+ALTER TABLE capacity_pools DROP CONSTRAINT IF EXISTS capacity_pools_zone_id_family_key;
+ALTER TABLE capacity_pools DROP COLUMN IF EXISTS family;
+ALTER TABLE capacity_pools DROP COLUMN IF EXISTS total;
+ALTER TABLE capacity_pools DROP COLUMN IF EXISTS reserved;
+DO $cap$ BEGIN
+	IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'capacity_pools'::regclass AND conname = 'capacity_pools_name_check') THEN
+		ALTER TABLE capacity_pools ADD CONSTRAINT capacity_pools_name_check CHECK (name <> '');
+	END IF;
+END $cap$;
+CREATE UNIQUE INDEX IF NOT EXISTS capacity_pools_zone_name_uniq ON capacity_pools (zone_id, lower(name));
+
+-- Placements. The class is here and not on the shape: the same shape sold
+-- guaranteed and sold spot is two SKUs at two prices on the same pool.
+CREATE TABLE IF NOT EXISTS capacity_placements (
+	pool_id UUID NOT NULL REFERENCES capacity_pools(id) ON DELETE CASCADE,
+	sku TEXT NOT NULL CHECK (sku <> ''),
+	class TEXT NOT NULL CHECK (class IN ('guaranteed','burstable','spot')),
+	updated_by TEXT NOT NULL DEFAULT '',
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (pool_id, sku)
+);
+CREATE INDEX IF NOT EXISTS capacity_placements_sku_idx ON capacity_placements (sku);
+
+-- Seeded from the stored shapes so the migrated zones read as they did: the
+-- old model counted every SKU whose footprint named a family against that
+-- family's pool, at 1:1 — which is guaranteed.
+INSERT INTO capacity_placements (pool_id, sku, class, updated_by)
+	SELECT DISTINCT pr.pool_id, s.sku, 'guaranteed', 'migration'
+	  FROM capacity_pool_resources pr JOIN sku_shapes s ON s.resource = pr.resource
+	ON CONFLICT (pool_id, sku) DO NOTHING;
+
+-- sku_caps is RETIRED. A per-SKU ceiling is capacity expressed a second time
+-- and it does not compose: two flavours sharing the same hardware carried
+-- independent caps that never deducted from each other, so the sum of the
+-- caps could exceed the machines twice over and nothing noticed. Every row
+-- is copied into the audit trail, with the reason, before the table goes —
+-- an operator can read back what they had entered and place the SKU instead.
+INSERT INTO audit_log (customer_id, actor, action, details)
+	SELECT NULL, COALESCE(NULLIF(c.updated_by, ''), 'migration'), 'capacity.cap',
+		jsonb_build_object(
+			'op', 'retired',
+			'zone_id', c.zone_id::text,
+			'zone', z.code,
+			'region', r.code,
+			'sku', c.sku,
+			'total', c.total::text,
+			'why', 'a per-SKU ceiling is capacity expressed a second time and does not compose: two SKUs sharing the same machines carried independent caps that never deducted from each other. Place the SKU on a pool and read its basket headroom instead.')
+	  FROM sku_caps c
+	  JOIN capacity_zones z ON z.id = c.zone_id
+	  JOIN capacity_regions r ON r.id = z.region_id;
+DROP TABLE IF EXISTS sku_caps;
+`
+}
+
+// MigrationCapacityPools is the schema_migrations version of the capacity
+// pool migration, located by content like the others so a migration appended
 // after it cannot move this version.
-var MigrationCapacity = func() int {
-	want := capacityMigrationSQL()
+var MigrationCapacityPools = func() int {
+	want := capacityPoolsMigrationSQL()
 	for i, m := range migrations {
 		if m == want {
 			return i + 1
@@ -138,7 +269,7 @@ var MigrationCapacity = func() int {
 // CapacityRegion is a cloud region whose capacity is managed here. Code is
 // the region as usage records carry it (cost_sources.region /
 // usage_records.region, e.g. "me-east-215"), which is how consumption finds
-// its region. CloudSourceKind says which collector will fill its totals.
+// its region. CloudSourceKind says which collector will fill its pools.
 type CapacityRegion struct {
 	ID              string         `json:"id"`
 	Code            string         `json:"code"`
@@ -149,66 +280,104 @@ type CapacityRegion struct {
 }
 
 // CapacityZone is one availability zone of a region. The DEFAULT zone of a
-// region receives the consumption of records whose zone is not known —
-// the inventory row carries no availability_zone — flagged as such.
+// region receives the consumption of records whose zone is not known — the
+// inventory row carries no availability_zone — flagged as such.
 type CapacityZone struct {
-	ID         string         `json:"id"`
-	RegionID   string         `json:"region_id"`
-	RegionCode string         `json:"region_code,omitempty"`
-	Code       string         `json:"code"`
-	Name       string         `json:"name"`
-	IsDefault  bool           `json:"is_default"`
-	CreatedAt  time.Time      `json:"created_at"`
-	Pools      []CapacityPool `json:"pools,omitempty"`
+	ID         string    `json:"id"`
+	RegionID   string    `json:"region_id"`
+	RegionCode string    `json:"region_code,omitempty"`
+	Code       string    `json:"code"`
+	Name       string    `json:"name"`
+	IsDefault  bool      `json:"is_default"`
+	CreatedAt  time.Time `json:"created_at"`
+	// Pools is ALWAYS on the wire, empty included: a zone with no pools is the
+	// ordinary state now, and an absent key would read as "not loaded".
+	Pools []CapacityPool `json:"pools"`
 }
 
-// CapacityPool is a zone's total of one family. Total is what the operator
-// entered (source manual) or a collector reported; Reserved is 0 until
-// proposals and plans fill it.
+// CapacityPoolResource is one resource of a pool's per-machine vector, with
+// the policy that applies to it. Ratios are per (pool, resource) and never
+// global: vCPU may run 4:1 on the same machines whose RAM runs 1:1.
+type CapacityPoolResource struct {
+	Resource string `json:"resource"`
+	Label    string `json:"label"`
+	Unit     string `json:"unit"`
+	// PerMachine is how much of this resource ONE machine holds; Raw is
+	// PerMachine × the pool's machine count.
+	PerMachine Decimal `json:"per_machine"`
+	// Reserve is held back for redundancy and maintenance, in the resource's
+	// own units — N+1 is one machine's worth.
+	Reserve         Decimal `json:"reserve"`
+	OvercommitRatio Decimal `json:"overcommit_ratio"`
+}
+
+// CapacityPool is a named set of identical machines in a zone.
+//
+// MACHINES × A PER-MACHINE VECTOR, not a raw total vector, and deliberately:
+// it is what a pool IS. "Add two servers" is then a change to one field and
+// every resource moves together, which is the honest behaviour — you cannot
+// buy vCPU without the RAM in the same chassis. A raw total would let the two
+// drift apart silently, which is the defect the family pools had.
 type CapacityPool struct {
-	ID        string    `json:"id"`
-	ZoneID    string    `json:"zone_id"`
-	Family    string    `json:"family"`
-	Total     Decimal   `json:"total"`
-	Reserved  Decimal   `json:"reserved"`
-	Source    string    `json:"source"`
-	Note      string    `json:"note"`
-	UpdatedBy string    `json:"updated_by"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID         string  `json:"id"`
+	ZoneID     string  `json:"zone_id"`
+	ZoneCode   string  `json:"zone_code,omitempty"`
+	RegionCode string  `json:"region_code,omitempty"`
+	Name       string  `json:"name"`
+	Machines   Decimal `json:"machines"`
+	// LeadTimeDays is how long procurement takes. It is what turns a wall
+	// into an ORDER-BY date, which is the date that matters.
+	LeadTimeDays int                    `json:"lead_time_days"`
+	Source       string                 `json:"source"`
+	Note         string                 `json:"note"`
+	UpdatedBy    string                 `json:"updated_by"`
+	UpdatedAt    time.Time              `json:"updated_at"`
+	CreatedAt    time.Time              `json:"created_at"`
+	Resources    []CapacityPoolResource `json:"resources"`
 }
 
-// CapacityPoolChange is one entry of a pool's total history.
+// CapacityPoolChange is one entry of a pool's size history, one row per
+// resource per change, so "vcpu went from 512 to 576" reads directly.
 type CapacityPoolChange struct {
-	ID        int64     `json:"id"`
-	PoolID    string    `json:"pool_id"`
-	Total     Decimal   `json:"total"`
-	Source    string    `json:"source"`
-	Note      string    `json:"note"`
-	ChangedBy string    `json:"changed_by"`
-	ChangedAt time.Time `json:"changed_at"`
+	ID              int64     `json:"id"`
+	PoolID          string    `json:"pool_id"`
+	Resource        string    `json:"resource"`
+	Machines        Decimal   `json:"machines"`
+	PerMachine      Decimal   `json:"per_machine"`
+	Reserve         Decimal   `json:"reserve"`
+	OvercommitRatio Decimal   `json:"overcommit_ratio"`
+	Total           Decimal   `json:"total"` // machines × per_machine, the raw
+	Source          string    `json:"source"`
+	Note            string    `json:"note"`
+	ChangedBy       string    `json:"changed_by"`
+	ChangedAt       time.Time `json:"changed_at"`
 }
 
-// SKUFootprint is how much of each family ONE unit of a SKU consumes.
-// Source is manual / seed for stored rows, derived for a footprint the SKU
-// name implies that has no row (capacity.Derive).
-type SKUFootprint struct {
+// CapacityShape is how much of each resource ONE unit of a SKU consumes.
+// Source is manual / seed for stored rows, derived for a shape the SKU name
+// implies that has no row (capacity.Derive).
+type CapacityShape struct {
 	SKU       string             `json:"sku"`
-	Families  map[string]Decimal `json:"families"`
+	Resources map[string]Decimal `json:"resources"`
 	Source    string             `json:"source"`
 	UpdatedAt *time.Time         `json:"updated_at,omitempty"`
 }
 
-// SKUCap is an optional direct ceiling on one SKU in one zone, in units of
-// the SKU, on top of what the family pools allow.
-type SKUCap struct {
-	ZoneID     string    `json:"zone_id"`
+// CapacityPlacement says a SKU sells out of a pool, at a class.
+type CapacityPlacement struct {
+	PoolID     string    `json:"pool_id"`
+	PoolName   string    `json:"pool_name,omitempty"`
+	ZoneID     string    `json:"zone_id,omitempty"`
 	ZoneCode   string    `json:"zone_code,omitempty"`
 	RegionCode string    `json:"region_code,omitempty"`
 	SKU        string    `json:"sku"`
-	Total      Decimal   `json:"total"`
+	Class      string    `json:"class"`
 	UpdatedBy  string    `json:"updated_by"`
 	UpdatedAt  time.Time `json:"updated_at"`
 }
+
+// CapacityResourceKind is a resource key with its label and unit.
+type CapacityResourceKind = capacity.ResourceKind
 
 // ---------------------------------------------------------------------------
 // regions and zones
@@ -318,7 +487,8 @@ func (s *Store) CreateCapacityRegion(ctx context.Context, code, name, cloudSourc
 	return s.GetCapacityRegion(ctx, id)
 }
 
-// DeleteCapacityRegion removes a region, its zones, pools, history and caps.
+// DeleteCapacityRegion removes a region, its zones, pools, resources,
+// placements and history.
 func (s *Store) DeleteCapacityRegion(ctx context.Context, id string) error {
 	res, err := s.db.ExecContext(ctx, `DELETE FROM capacity_regions WHERE id = $1`, id)
 	if err != nil {
@@ -340,9 +510,11 @@ func (s *Store) GetCapacityZone(ctx context.Context, id string) (CapacityZone, e
 	return z, err
 }
 
-// CreateCapacityZone adds a zone to a region and creates its seven pools at
-// total 0. The first zone of a region is its default; makeDefault moves the
-// default onto this zone.
+// CreateCapacityZone adds a zone to a region. It creates NO pools: a pool is
+// a set of machines somebody bought, with a name and a vector, and inventing
+// seven empty ones is what made "unset" look like a defect instead of a fact.
+// The first zone of a region is its default; makeDefault moves the default
+// onto this zone.
 func (s *Store) CreateCapacityZone(ctx context.Context, regionID, code, name string, makeDefault bool) (CapacityZone, error) {
 	code = normCode(code)
 	if code == "" {
@@ -374,20 +546,16 @@ func (s *Store) CreateCapacityZone(ctx context.Context, regionID, code, name str
 	if err := tx.QueryRowContext(ctx, `INSERT INTO capacity_zones (region_id, code, name, is_default) VALUES ($1, $2, $3, $4) RETURNING id`, regionID, code, strings.TrimSpace(name), isDefault).Scan(&id); err != nil {
 		return CapacityZone{}, mapErr(err)
 	}
-	for _, fam := range capacity.FamilyKeys() {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO capacity_pools (zone_id, family) VALUES ($1, $2)`, id, fam); err != nil {
-			return CapacityZone{}, mapErr(err)
-		}
-	}
 	if err := tx.Commit(); err != nil {
 		return CapacityZone{}, err
 	}
 	return s.GetCapacityZone(ctx, id)
 }
 
-// DeleteCapacityZone removes a zone with its pools, history and caps. When
-// it was the region's default, the oldest remaining zone becomes default so
-// unknown-zone consumption always has somewhere to land.
+// DeleteCapacityZone removes a zone with its pools, their resources,
+// placements and history. When it was the region's default, the oldest
+// remaining zone becomes default so unknown-zone consumption always has
+// somewhere to land.
 func (s *Store) DeleteCapacityZone(ctx context.Context, id string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -408,34 +576,111 @@ func (s *Store) DeleteCapacityZone(ctx context.Context, id string) error {
 }
 
 // ---------------------------------------------------------------------------
+// resource kinds
+// ---------------------------------------------------------------------------
+
+// ListCapacityResourceKinds returns every resource kind in display order.
+func (s *Store) ListCapacityResourceKinds(ctx context.Context) ([]CapacityResourceKind, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT resource, label, unit, position FROM capacity_resource_kinds ORDER BY position, resource`)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	defer rows.Close()
+	out := []CapacityResourceKind{}
+	for rows.Next() {
+		var k CapacityResourceKind
+		if err := rows.Scan(&k.Key, &k.Label, &k.Unit, &k.Position); err != nil {
+			return nil, err
+		}
+		out = append(out, k)
+	}
+	return out, rows.Err()
+}
+
+// PutCapacityResourceKind names a resource kind: its label and the unit its
+// amounts count in. A kind a pool declared without one exists already with
+// the key as its label; this is how an operator gives it words.
+func (s *Store) PutCapacityResourceKind(ctx context.Context, resource, label, unit string) (CapacityResourceKind, error) {
+	key := capacity.NormResource(resource)
+	if key == "" {
+		return CapacityResourceKind{}, fmt.Errorf("%w: resource is required", ErrInvalid)
+	}
+	label, unit = strings.TrimSpace(label), strings.TrimSpace(unit)
+	if label == "" {
+		label = key
+	}
+	var k CapacityResourceKind
+	err := s.db.QueryRowContext(ctx, `INSERT INTO capacity_resource_kinds (resource, label, unit, position) VALUES ($1, $2, $3, 1000)
+		ON CONFLICT (resource) DO UPDATE SET label = EXCLUDED.label, unit = EXCLUDED.unit
+		RETURNING resource, label, unit, position`, key, label, unit).Scan(&k.Key, &k.Label, &k.Unit, &k.Position)
+	if err != nil {
+		return CapacityResourceKind{}, mapErr(err)
+	}
+	return k, nil
+}
+
+// ---------------------------------------------------------------------------
 // pools
 // ---------------------------------------------------------------------------
 
-const capacityPoolColumns = `p.id, p.zone_id, p.family, p.total::text, p.reserved::text, p.source, p.note, p.updated_by, p.updated_at`
+// CapacityPoolInput is a pool as the operator states it.
+type CapacityPoolInput struct {
+	Name         string                 `json:"name"`
+	Machines     Decimal                `json:"machines"`
+	LeadTimeDays int                    `json:"lead_time_days"`
+	Note         string                 `json:"note"`
+	Resources    []CapacityPoolResource `json:"resources"`
+}
+
+const capacityPoolColumns = `p.id, p.zone_id, z.code, r.code, p.name, p.machines::text, p.lead_time_days, p.source, p.note, p.updated_by, p.updated_at, p.created_at`
 
 func scanCapacityPool(row interface{ Scan(...any) error }) (CapacityPool, error) {
 	var p CapacityPool
-	var total, reserved string
-	if err := row.Scan(&p.ID, &p.ZoneID, &p.Family, &total, &reserved, &p.Source, &p.Note, &p.UpdatedBy, &p.UpdatedAt); err != nil {
+	var machines string
+	if err := row.Scan(&p.ID, &p.ZoneID, &p.ZoneCode, &p.RegionCode, &p.Name, &machines, &p.LeadTimeDays, &p.Source, &p.Note, &p.UpdatedBy, &p.UpdatedAt, &p.CreatedAt); err != nil {
 		return p, mapErr(err)
 	}
-	p.Total, p.Reserved = Decimal(total), Decimal(reserved)
-	p.UpdatedAt = p.UpdatedAt.UTC()
+	p.Machines = Decimal(machines)
+	p.UpdatedAt, p.CreatedAt = p.UpdatedAt.UTC(), p.CreatedAt.UTC()
+	p.Resources = []CapacityPoolResource{}
 	return p, nil
 }
 
-// familyOrder sorts pools in capacity.Families order.
-func familyOrder(fam string) int {
-	for i, f := range capacity.Families {
-		if f.Key == fam {
-			return i
+// loadPoolResources fills the Resources of the given pools in one query.
+func (s *Store) loadPoolResources(ctx context.Context, pools []CapacityPool) error {
+	if len(pools) == 0 {
+		return nil
+	}
+	idx := map[string]int{}
+	ids := make([]string, 0, len(pools))
+	for i := range pools {
+		idx[pools[i].ID] = i
+		ids = append(ids, pools[i].ID)
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT pr.pool_id, pr.resource, k.label, k.unit, pr.per_machine::text, pr.reserve::text, pr.overcommit_ratio::text
+		FROM capacity_pool_resources pr JOIN capacity_resource_kinds k ON k.resource = pr.resource
+		WHERE pr.pool_id = ANY($1) ORDER BY k.position, pr.resource`, pq.Array(ids))
+	if err != nil {
+		return mapErr(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var poolID string
+		var r CapacityPoolResource
+		var per, reserve, ratio string
+		if err := rows.Scan(&poolID, &r.Resource, &r.Label, &r.Unit, &per, &reserve, &ratio); err != nil {
+			return err
+		}
+		r.PerMachine, r.Reserve, r.OvercommitRatio = Decimal(per), Decimal(reserve), Decimal(ratio)
+		if i, ok := idx[poolID]; ok {
+			pools[i].Resources = append(pools[i].Resources, r)
 		}
 	}
-	return len(capacity.Families)
+	return rows.Err()
 }
 
-// ListCapacityPools returns a zone's pools in family order; ErrNotFound for
-// an unknown zone.
+// ListCapacityPools returns a zone's pools with their resource vectors, by
+// name; ErrNotFound for an unknown zone.
 func (s *Store) ListCapacityPools(ctx context.Context, zoneID string) ([]CapacityPool, error) {
 	var exists bool
 	if err := s.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM capacity_zones WHERE id = $1)`, zoneID).Scan(&exists); err != nil {
@@ -444,7 +689,9 @@ func (s *Store) ListCapacityPools(ctx context.Context, zoneID string) ([]Capacit
 	if !exists {
 		return nil, ErrNotFound
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT `+capacityPoolColumns+` FROM capacity_pools p WHERE p.zone_id = $1`, zoneID)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+capacityPoolColumns+` FROM capacity_pools p
+		JOIN capacity_zones z ON z.id = p.zone_id JOIN capacity_regions r ON r.id = z.region_id
+		WHERE p.zone_id = $1 ORDER BY p.name`, zoneID)
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -460,217 +707,193 @@ func (s *Store) ListCapacityPools(ctx context.Context, zoneID string) ([]Capacit
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	sort.SliceStable(out, func(i, j int) bool { return familyOrder(out[i].Family) < familyOrder(out[j].Family) })
-	return out, nil
+	return out, s.loadPoolResources(ctx, out)
 }
 
-// GetCapacityPool returns one pool.
+// GetCapacityPool returns one pool with its resources.
 func (s *Store) GetCapacityPool(ctx context.Context, id string) (CapacityPool, error) {
-	return scanCapacityPool(s.db.QueryRowContext(ctx, `SELECT `+capacityPoolColumns+` FROM capacity_pools p WHERE p.id = $1`, id))
+	p, err := scanCapacityPool(s.db.QueryRowContext(ctx, `SELECT `+capacityPoolColumns+` FROM capacity_pools p
+		JOIN capacity_zones z ON z.id = p.zone_id JOIN capacity_regions r ON r.id = z.region_id WHERE p.id = $1`, id))
+	if err != nil {
+		return p, err
+	}
+	one := []CapacityPool{p}
+	if err := s.loadPoolResources(ctx, one); err != nil {
+		return p, err
+	}
+	return one[0], nil
 }
 
-// validNonNegativeDecimal reports whether s is a numeric literal ≥ 0.
+// validNonNegativeDecimal reports whether s is a numeric literal >= 0.
 func validNonNegativeDecimal(s string) bool {
 	s = strings.TrimSpace(s)
 	return s != "" && decimalShape.MatchString(s) && !strings.HasPrefix(s, "-")
 }
 
-// SetCapacityPoolTotal writes a pool's total with the operator's note,
-// records the change in capacity_pool_history and returns the pool with the
-// total it had before (for the audit entry). source names who set it:
-// "manual" for the console, a collector's name later.
-func (s *Store) SetCapacityPoolTotal(ctx context.Context, id string, total Decimal, note, source, actor string) (pool CapacityPool, previous Decimal, err error) {
-	if !validNonNegativeDecimal(string(total)) {
-		return CapacityPool{}, "", fmt.Errorf("%w: total must be a non-negative number", ErrInvalid)
+// cleanPoolInput validates a pool as stated and returns it normalised.
+func cleanPoolInput(in CapacityPoolInput) (CapacityPoolInput, error) {
+	out := CapacityPoolInput{Name: strings.TrimSpace(in.Name), LeadTimeDays: in.LeadTimeDays, Note: strings.TrimSpace(in.Note)}
+	if out.Name == "" {
+		return out, fmt.Errorf("%w: name is required: what this set of machines is called, e.g. m7n-a", ErrInvalid)
 	}
-	if source = strings.TrimSpace(source); source == "" {
-		source = capacity.SourceManual
+	machines := strings.TrimSpace(string(in.Machines))
+	if machines == "" {
+		machines = "0"
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return CapacityPool{}, "", err
+	if !validNonNegativeDecimal(machines) {
+		return out, fmt.Errorf("%w: machines must be a non-negative number", ErrInvalid)
 	}
-	defer tx.Rollback()
-	var prev string
-	if err := tx.QueryRowContext(ctx, `SELECT total::text FROM capacity_pools WHERE id = $1 FOR UPDATE`, id).Scan(&prev); err != nil {
-		return CapacityPool{}, "", mapErr(err)
+	out.Machines = Decimal(machines)
+	if out.LeadTimeDays < 0 {
+		return out, fmt.Errorf("%w: lead_time_days must be a non-negative number of days", ErrInvalid)
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE capacity_pools SET total = $2, source = $3, note = $4, updated_by = $5, updated_at = now() WHERE id = $1`,
-		id, strings.TrimSpace(string(total)), source, strings.TrimSpace(note), actor); err != nil {
-		return CapacityPool{}, "", mapErr(err)
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO capacity_pool_history (pool_id, total, source, note, changed_by) VALUES ($1, $2, $3, $4, $5)`,
-		id, strings.TrimSpace(string(total)), source, strings.TrimSpace(note), actor); err != nil {
-		return CapacityPool{}, "", mapErr(err)
-	}
-	if err := tx.Commit(); err != nil {
-		return CapacityPool{}, "", err
-	}
-	pool, err = s.GetCapacityPool(ctx, id)
-	return pool, Decimal(prev), err
-}
-
-// ListCapacityPoolHistory returns a pool's total changes, newest first.
-func (s *Store) ListCapacityPoolHistory(ctx context.Context, poolID string, limit int) ([]CapacityPoolChange, error) {
-	if limit <= 0 || limit > 500 {
-		limit = 50
-	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id, pool_id, total::text, source, note, changed_by, changed_at FROM capacity_pool_history WHERE pool_id = $1 ORDER BY changed_at DESC, id DESC LIMIT $2`, poolID, limit)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	defer rows.Close()
-	out := []CapacityPoolChange{}
-	for rows.Next() {
-		var c CapacityPoolChange
-		var total string
-		if err := rows.Scan(&c.ID, &c.PoolID, &total, &c.Source, &c.Note, &c.ChangedBy, &c.ChangedAt); err != nil {
-			return nil, err
+	seen := map[string]bool{}
+	for _, r := range in.Resources {
+		key := capacity.NormResource(r.Resource)
+		if key == "" {
+			return out, fmt.Errorf("%w: every resource needs a key, e.g. vcpu or memory_gib", ErrInvalid)
 		}
-		c.Total = Decimal(total)
-		c.ChangedAt = c.ChangedAt.UTC()
-		out = append(out, c)
-	}
-	return out, rows.Err()
-}
-
-// ---------------------------------------------------------------------------
-// footprints and caps
-// ---------------------------------------------------------------------------
-
-// ListSKUFootprints returns the stored footprints, one per SKU, by SKU.
-func (s *Store) ListSKUFootprints(ctx context.Context) ([]SKUFootprint, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT sku, family, amount::text, source, updated_at FROM sku_footprints ORDER BY sku, family`)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	defer rows.Close()
-	out := []SKUFootprint{}
-	idx := map[string]int{}
-	for rows.Next() {
-		var sku, fam, amount, source string
-		var at time.Time
-		if err := rows.Scan(&sku, &fam, &amount, &source, &at); err != nil {
-			return nil, err
+		if seen[key] {
+			return out, fmt.Errorf("%w: resource %s is listed twice", ErrInvalid, key)
 		}
-		i, ok := idx[sku]
-		if !ok {
-			i = len(out)
-			idx[sku] = i
-			out = append(out, SKUFootprint{SKU: sku, Families: map[string]Decimal{}, Source: source})
+		seen[key] = true
+		per := strings.TrimSpace(string(r.PerMachine))
+		if per == "" {
+			per = "0"
 		}
-		out[i].Families[fam] = Decimal(amount)
-		at = at.UTC()
-		if out[i].UpdatedAt == nil || at.After(*out[i].UpdatedAt) {
-			out[i].UpdatedAt = &at
+		reserve := strings.TrimSpace(string(r.Reserve))
+		if reserve == "" {
+			reserve = "0"
 		}
-		// A SKU with one edited family reads as manual.
-		if source == capacity.SourceManual {
-			out[i].Source = source
+		ratio := strings.TrimSpace(string(r.OvercommitRatio))
+		if ratio == "" {
+			ratio = "1"
 		}
-	}
-	return out, rows.Err()
-}
-
-// PutSKUFootprint makes the given families THE footprint of a SKU (PUT
-// semantics): families absent or 0 are removed, the rest written as manual.
-// An empty map removes the footprint. ErrInvalid names a bad family or amount.
-func (s *Store) PutSKUFootprint(ctx context.Context, sku string, families map[string]Decimal) (SKUFootprint, error) {
-	sku = strings.TrimSpace(sku)
-	if sku == "" {
-		return SKUFootprint{}, fmt.Errorf("%w: sku is required", ErrInvalid)
-	}
-	clean := map[string]string{}
-	for fam, amount := range families {
-		fam = strings.TrimSpace(fam)
-		if !capacity.ValidFamily(fam) {
-			return SKUFootprint{}, fmt.Errorf("%w: unknown family %q; families are %s", ErrInvalid, fam, strings.Join(capacity.FamilyKeys(), ", "))
+		if !validNonNegativeDecimal(per) {
+			return out, fmt.Errorf("%w: %s per_machine must be a non-negative number", ErrInvalid, key)
 		}
-		a := strings.TrimSpace(string(amount))
-		if a == "" || ratOf(Decimal(a)).Sign() == 0 {
-			continue
+		if !validNonNegativeDecimal(reserve) {
+			return out, fmt.Errorf("%w: %s reserve must be a non-negative number", ErrInvalid, key)
 		}
-		if !validNonNegativeDecimal(a) {
-			return SKUFootprint{}, fmt.Errorf("%w: %s amount must be a non-negative number", ErrInvalid, fam)
+		if !validNonNegativeDecimal(ratio) || ratOf(Decimal(ratio)).Sign() == 0 {
+			return out, fmt.Errorf("%w: %s overcommit_ratio must be a positive number (1 is no oversubscription)", ErrInvalid, key)
 		}
-		clean[fam] = a
+		out.Resources = append(out.Resources, CapacityPoolResource{Resource: key, PerMachine: Decimal(per), Reserve: Decimal(reserve), OvercommitRatio: Decimal(ratio)})
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return SKUFootprint{}, err
+	if len(out.Resources) == 0 {
+		return out, fmt.Errorf("%w: a pool holds at least one resource: a machine with nothing in it is not capacity", ErrInvalid)
 	}
-	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM sku_footprints WHERE sku = $1`, sku); err != nil {
-		return SKUFootprint{}, mapErr(err)
-	}
-	for fam, a := range clean {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO sku_footprints (sku, family, amount, source) VALUES ($1, $2, $3, $4)`, sku, fam, a, capacity.SourceManual); err != nil {
-			return SKUFootprint{}, mapErr(err)
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return SKUFootprint{}, err
-	}
-	out := SKUFootprint{SKU: sku, Families: map[string]Decimal{}, Source: capacity.SourceManual}
-	for fam, a := range clean {
-		out.Families[fam] = Decimal(a)
-	}
-	now := time.Now().UTC()
-	out.UpdatedAt = &now
 	return out, nil
 }
 
-// ListSKUCaps returns every direct per-SKU cap with its zone and region.
-func (s *Store) ListSKUCaps(ctx context.Context) ([]SKUCap, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT c.zone_id, z.code, r.code, c.sku, c.total::text, c.updated_by, c.updated_at
-		FROM sku_caps c JOIN capacity_zones z ON z.id = c.zone_id JOIN capacity_regions r ON r.id = z.region_id ORDER BY r.code, z.code, c.sku`)
+// CreateCapacityPool adds a pool to a zone and records its first size.
+func (s *Store) CreateCapacityPool(ctx context.Context, zoneID string, in CapacityPoolInput, actor string) (CapacityPool, error) {
+	clean, err := cleanPoolInput(in)
 	if err != nil {
-		return nil, mapErr(err)
+		return CapacityPool{}, err
 	}
-	defer rows.Close()
-	out := []SKUCap{}
-	for rows.Next() {
-		var c SKUCap
-		var total string
-		if err := rows.Scan(&c.ZoneID, &c.ZoneCode, &c.RegionCode, &c.SKU, &total, &c.UpdatedBy, &c.UpdatedAt); err != nil {
-			return nil, err
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return CapacityPool{}, err
+	}
+	defer tx.Rollback()
+	var zoneExists bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM capacity_zones WHERE id = $1)`, zoneID).Scan(&zoneExists); err != nil {
+		return CapacityPool{}, mapErr(err)
+	}
+	if !zoneExists {
+		return CapacityPool{}, ErrNotFound
+	}
+	var id string
+	if err := tx.QueryRowContext(ctx, `INSERT INTO capacity_pools (zone_id, name, machines, lead_time_days, source, note, updated_by) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+		zoneID, clean.Name, string(clean.Machines), clean.LeadTimeDays, capacity.SourceManual, clean.Note, actor).Scan(&id); err != nil {
+		return CapacityPool{}, mapErr(err)
+	}
+	if err := writePoolResources(ctx, tx, id, clean, actor); err != nil {
+		return CapacityPool{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return CapacityPool{}, err
+	}
+	return s.GetCapacityPool(ctx, id)
+}
+
+// SetCapacityPool replaces a pool's size and policy, records one history row
+// per resource and returns the pool as it was before (for the audit entry).
+func (s *Store) SetCapacityPool(ctx context.Context, id string, in CapacityPoolInput, actor string) (pool, previous CapacityPool, err error) {
+	clean, err := cleanPoolInput(in)
+	if err != nil {
+		return CapacityPool{}, CapacityPool{}, err
+	}
+	previous, err = s.GetCapacityPool(ctx, id)
+	if err != nil {
+		return CapacityPool{}, CapacityPool{}, err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return CapacityPool{}, previous, err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `UPDATE capacity_pools SET name = $2, machines = $3, lead_time_days = $4, source = $5, note = $6, updated_by = $7, updated_at = now() WHERE id = $1`,
+		id, clean.Name, string(clean.Machines), clean.LeadTimeDays, capacity.SourceManual, clean.Note, actor)
+	if err != nil {
+		return CapacityPool{}, previous, mapErr(err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return CapacityPool{}, previous, ErrNotFound
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM capacity_pool_resources WHERE pool_id = $1`, id); err != nil {
+		return CapacityPool{}, previous, mapErr(err)
+	}
+	if err := writePoolResources(ctx, tx, id, clean, actor); err != nil {
+		return CapacityPool{}, previous, err
+	}
+	if err := tx.Commit(); err != nil {
+		return CapacityPool{}, previous, err
+	}
+	pool, err = s.GetCapacityPool(ctx, id)
+	return pool, previous, err
+}
+
+// writePoolResources inserts the resource vector and one history row per
+// resource. It is the only place a pool's size is written.
+func writePoolResources(ctx context.Context, tx txExec, poolID string, clean CapacityPoolInput, actor string) error {
+	keys := make([]string, 0, len(clean.Resources))
+	for _, r := range clean.Resources {
+		keys = append(keys, r.Resource)
+	}
+	for _, k := range keys {
+		kind := capacity.KindOf(k)
+		if _, err := tx.ExecContext(ctx, `INSERT INTO capacity_resource_kinds (resource, label, unit, position) VALUES ($1, $2, $3, $4) ON CONFLICT (resource) DO NOTHING`,
+			k, kind.Label, kind.Unit, kind.Position); err != nil {
+			return mapErr(err)
 		}
-		c.Total = Decimal(total)
-		c.UpdatedAt = c.UpdatedAt.UTC()
-		out = append(out, c)
 	}
-	return out, rows.Err()
+	machines := ratOf(clean.Machines)
+	for _, r := range clean.Resources {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO capacity_pool_resources (pool_id, resource, per_machine, reserve, overcommit_ratio) VALUES ($1, $2, $3, $4, $5)`,
+			poolID, r.Resource, string(r.PerMachine), string(r.Reserve), string(r.OvercommitRatio)); err != nil {
+			return mapErr(err)
+		}
+		raw := decOf(new(big.Rat).Mul(machines, ratOf(r.PerMachine)))
+		if _, err := tx.ExecContext(ctx, `INSERT INTO capacity_pool_history (pool_id, resource, machines, per_machine, reserve, overcommit_ratio, total, source, note, changed_by)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+			poolID, r.Resource, string(clean.Machines), string(r.PerMachine), string(r.Reserve), string(r.OvercommitRatio), string(raw), capacity.SourceManual, clean.Note, actor); err != nil {
+			return mapErr(err)
+		}
+	}
+	return nil
 }
 
-// PutSKUCap upserts a direct cap on a SKU in a zone; ErrNotFound for an
-// unknown zone.
-func (s *Store) PutSKUCap(ctx context.Context, zoneID, sku string, total Decimal, actor string) (SKUCap, error) {
-	sku = strings.TrimSpace(sku)
-	if sku == "" {
-		return SKUCap{}, fmt.Errorf("%w: sku is required", ErrInvalid)
-	}
-	if !validNonNegativeDecimal(string(total)) {
-		return SKUCap{}, fmt.Errorf("%w: total must be a non-negative number", ErrInvalid)
-	}
-	var c SKUCap
-	var t string
-	err := s.db.QueryRowContext(ctx, `INSERT INTO sku_caps (zone_id, sku, total, updated_by) VALUES ($1, $2, $3, $4)
-		ON CONFLICT (zone_id, sku) DO UPDATE SET total = EXCLUDED.total, updated_by = EXCLUDED.updated_by, updated_at = now()
-		RETURNING zone_id, sku, total::text, updated_by, updated_at`, zoneID, sku, strings.TrimSpace(string(total)), actor).Scan(&c.ZoneID, &c.SKU, &t, &c.UpdatedBy, &c.UpdatedAt)
-	if err != nil {
-		return SKUCap{}, mapErr(err)
-	}
-	c.Total = Decimal(t)
-	c.UpdatedAt = c.UpdatedAt.UTC()
-	if err := s.db.QueryRowContext(ctx, `SELECT z.code, r.code FROM capacity_zones z JOIN capacity_regions r ON r.id = z.region_id WHERE z.id = $1`, zoneID).Scan(&c.ZoneCode, &c.RegionCode); err != nil {
-		return SKUCap{}, mapErr(err)
-	}
-	return c, nil
+// txExec is the part of *sql.Tx writePoolResources uses.
+type txExec interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
-// DeleteSKUCap removes a cap; ErrNotFound when there was none.
-func (s *Store) DeleteSKUCap(ctx context.Context, zoneID, sku string) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM sku_caps WHERE zone_id = $1 AND sku = $2`, zoneID, strings.TrimSpace(sku))
+// DeleteCapacityPool removes a pool with its resources, placements and
+// history.
+func (s *Store) DeleteCapacityPool(ctx context.Context, id string) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM capacity_pools WHERE id = $1`, id)
 	if err != nil {
 		return mapErr(err)
 	}
@@ -680,628 +903,273 @@ func (s *Store) DeleteSKUCap(ctx context.Context, zoneID, sku string) error {
 	return nil
 }
 
-// ---------------------------------------------------------------------------
-// the overview: consumption derived from metering
-// ---------------------------------------------------------------------------
-
-// CapacityOverview is GET /capacity/overview: every region → zone → pool
-// with total / reserved / consumed / available, the SKU headroom per zone,
-// and what could not be attributed.
-type CapacityOverview struct {
-	// AsOf is the latest complete hour consumption was measured in; nil when
-	// the ledger holds no cloud usage at all.
-	AsOf *time.Time `json:"as_of"`
-	// Sources is how many cloud sources contributed to Consumed;
-	// LaggingSources how many of them last metered more than six hours
-	// before AsOf (their last hour is still counted, as the best fact held).
-	Sources        int                      `json:"sources"`
-	LaggingSources int                      `json:"lagging_sources"`
-	Thresholds     CapacityThresholds       `json:"thresholds"`
-	Families       []capacity.Family        `json:"families"`
-	Regions        []CapacityRegionView     `json:"regions"`
-	UnmappedSKUs   []CapacityUnmappedSKU    `json:"unmapped_skus"`
-	UnmappedRegion []CapacityUnmappedRegion `json:"unmapped_regions"`
-	Summary        CapacitySummary          `json:"summary"`
-}
-
-// CapacityThresholds are the utilisation percentages pools are coloured at.
-type CapacityThresholds struct {
-	WarnPct     int `json:"warn_pct"`
-	CriticalPct int `json:"critical_pct"`
-}
-
-// CapacitySummary is the KPI strip.
-type CapacitySummary struct {
-	Regions        int `json:"regions"`
-	Zones          int `json:"zones"`
-	Pools          int `json:"pools"`
-	PoolsWithTotal int `json:"pools_with_total"`
-	PoolsWarn      int `json:"pools_warn"`
-	PoolsCritical  int `json:"pools_critical"`
-	// PoolsBelowThreshold is warn + critical: pools past the 70 % line.
-	PoolsBelowThreshold int `json:"pools_below_threshold"`
-	SKUs                int `json:"skus"`
-	UnmappedSKUs        int `json:"unmapped_skus"`
-}
-
-// CapacityRegionView is one region of the overview.
-type CapacityRegionView struct {
-	ID              string             `json:"id"`
-	Code            string             `json:"code"`
-	Name            string             `json:"name"`
-	CloudSourceKind string             `json:"cloud_source_kind"`
-	Zones           []CapacityZoneView `json:"zones"`
-}
-
-// CapacityZoneView is one zone with its pools and SKU headroom.
-type CapacityZoneView struct {
-	ID        string             `json:"id"`
-	Code      string             `json:"code"`
-	Name      string             `json:"name"`
-	IsDefault bool               `json:"is_default"`
-	Pools     []CapacityPoolView `json:"pools"`
-	SKUs      []CapacitySKUView  `json:"skus"`
-}
-
-// CapacityPoolView is a pool with its derived figures. Consumed is the
-// latest complete hour's metered usage through the footprints; Available is
-// total − reserved − consumed, never below 0 (Clamped is true and Overcommit
-// is the shortfall when the arithmetic went negative). ExhaustionDays is
-// available ÷ the 7-day growth of consumed per day (rating.RunRate); nil
-// when consumption is not growing or the history is shorter than three days.
-type CapacityPoolView struct {
-	CapacityPool
-	Label          string   `json:"label"`
-	Unit           string   `json:"unit"`
-	Consumed       Decimal  `json:"consumed"`
-	Available      Decimal  `json:"available"`
-	UtilisationPct *float64 `json:"utilisation_pct"`
-	Status         string   `json:"status"`
-	Clamped        bool     `json:"clamped"`
-	Overcommit     Decimal  `json:"overcommit"`
-	// ZoneUnknown is the part of Consumed attributed to this (default) zone
-	// because the inventory carried no availability zone for the resource.
-	ZoneUnknown    Decimal  `json:"zone_unknown"`
-	GrowthPerDay   *float64 `json:"growth_per_day"`
-	ExhaustionDays *float64 `json:"exhaustion_days"`
-	HistoryDays    int      `json:"history_days"`
-	// Series is consumed at the end of each complete day before the current
-	// one, oldest first — what GrowthPerDay was fitted on.
-	Series []CapacityDayPoint `json:"series"`
-}
-
-// CapacityDayPoint is one complete day's consumption of a pool.
-type CapacityDayPoint struct {
-	Day      string  `json:"day"`
-	Consumed Decimal `json:"consumed"`
-}
-
-// CapacityGrowth fits a daily series and returns its growth in units per
-// day; ok is false when the series is too short to fit. The API passes the
-// explorer's run-rate arithmetic (rating.RunRate), which this package cannot
-// import — rating imports store — so the store never invents a second one.
-type CapacityGrowth func(days []CapacityDayPoint) (perDay float64, ok bool)
-
-// CapacitySKUView is one SKU's headroom in one zone: how many more units
-// the pools (and a cap, when set) allow, and which family binds first.
-type CapacitySKUView struct {
-	SKU             string             `json:"sku"`
-	Footprint       map[string]Decimal `json:"footprint"`
-	FootprintSource string             `json:"footprint_source"`
-	ConsumedUnits   Decimal            `json:"consumed_units"`
-	Resources       int                `json:"resources"`
-	// HeadroomUnits is nil when no family in the footprint has a total yet.
-	HeadroomUnits *Decimal `json:"headroom_units"`
-	// BindingFamily is the family that limits HeadroomUnits, or "cap" when
-	// the direct cap does.
-	BindingFamily string   `json:"binding_family"`
-	Cap           *Decimal `json:"cap"`
-}
-
-// CapacityUnmappedSKU is a metered SKU with no footprint, stored or derived,
-// so its consumption counts against no pool.
-type CapacityUnmappedSKU struct {
-	SKU       string   `json:"sku"`
-	Unit      string   `json:"unit"`
-	Quantity  Decimal  `json:"quantity"`
-	Resources int      `json:"resources"`
-	Regions   []string `json:"regions"`
-	// Suggested is the footprint the name implies when it does — always nil
-	// here by construction, kept on the wire for a reader that expects it.
-	Suggested map[string]Decimal `json:"suggested,omitempty"`
-}
-
-// CapacityUnmappedRegion is metered usage in a region the operator has not
-// added (or has added without a zone), so nothing could receive it.
-type CapacityUnmappedRegion struct {
-	Region    string  `json:"region"`
-	Reason    string  `json:"reason"` // no-region | no-zones
-	SKUs      int     `json:"skus"`
-	Quantity  Decimal `json:"quantity"`
-	Resources int     `json:"resources"`
-}
-
-// capacityUsageRow is one (source, day, region, az, sku) of the last metered
-// hour of that source on that day.
-type capacityUsageRow struct {
-	sourceID  string
-	day       string
-	hour      time.Time
-	region    string
-	az        string
-	sku       string
-	unit      string
-	quantity  *big.Rat
-	resources int
-}
-
-// capacityHistoryDays is how many complete days of consumption feed the
-// growth trend: the run rate's window (7) plus one so seven complete days
-// precede the current one.
-const capacityHistoryDays = 8
-
-// capacityLagging is how far behind AsOf a source's last hour may be before
-// it is reported as lagging.
-const capacityLagging = 6 * time.Hour
-
-// queryCapacityUsage reads, per cloud source and per UTC day inside the
-// history window, the source's LAST metered hour of that day, grouped by
-// region, availability zone (from the inventory row) and SKU. The last hour
-// of the latest day is the current consumption; the last hour of each
-// earlier day is that day's point in the growth series.
-func (s *Store) queryCapacityUsage(ctx context.Context, now time.Time) ([]capacityUsageRow, error) {
-	cutoff := now.UTC().Truncate(time.Hour)
-	from := time.Date(cutoff.Year(), cutoff.Month(), cutoff.Day(), 0, 0, 0, 0, time.UTC).AddDate(0, 0, -capacityHistoryDays)
-	rows, err := s.db.QueryContext(ctx, `
-WITH recs AS (
-  SELECT u.source_id, u.resource_id, u.sku, u.unit, u.quantity, lower(u.region) AS region, u.window_start,
-         (u.window_start AT TIME ZONE 'UTC')::date AS day,
-         lower(COALESCE(NULLIF(i.attrs->>'availability_zone', ''), NULLIF(i.attrs->>'az', ''), '')) AS az
-    FROM usage_records u
-    JOIN cost_sources s ON s.id = u.source_id AND s.layer = '`+LayerCloud+`' AND s.status <> '`+StatusDisabled+`'
-    LEFT JOIN resource_inventory i ON i.source_id = u.source_id AND i.resource_id = u.resource_id
-   WHERE u.window_start >= $1 AND u.window_start < $2 AND u.`+metricSKUFilter+`
-),
-last_hours AS (SELECT source_id, day, max(window_start) AS ws FROM recs GROUP BY source_id, day)
-SELECT r.source_id, to_char(r.day, 'YYYY-MM-DD'), r.window_start, r.region, r.az, r.sku, min(r.unit), sum(r.quantity)::text, count(DISTINCT r.resource_id)
-  FROM recs r JOIN last_hours l ON l.source_id = r.source_id AND l.day = r.day AND l.ws = r.window_start
- GROUP BY r.source_id, r.day, r.window_start, r.region, r.az, r.sku
- ORDER BY 1, 2, 4, 5, 6`, from, cutoff)
+// ListCapacityPoolHistory returns a pool's size changes, newest first.
+func (s *Store) ListCapacityPoolHistory(ctx context.Context, poolID string, limit int) ([]CapacityPoolChange, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 50
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT id, pool_id, resource, machines::text, per_machine::text, reserve::text, overcommit_ratio::text, total::text, source, note, changed_by, changed_at
+		FROM capacity_pool_history WHERE pool_id = $1 ORDER BY changed_at DESC, id DESC LIMIT $2`, poolID, limit)
 	if err != nil {
 		return nil, mapErr(err)
 	}
 	defer rows.Close()
-	var out []capacityUsageRow
+	out := []CapacityPoolChange{}
 	for rows.Next() {
-		var r capacityUsageRow
-		var qty string
-		if err := rows.Scan(&r.sourceID, &r.day, &r.hour, &r.region, &r.az, &r.sku, &r.unit, &qty, &r.resources); err != nil {
+		var c CapacityPoolChange
+		var machines, per, reserve, ratio, total string
+		if err := rows.Scan(&c.ID, &c.PoolID, &c.Resource, &machines, &per, &reserve, &ratio, &total, &c.Source, &c.Note, &c.ChangedBy, &c.ChangedAt); err != nil {
 			return nil, err
 		}
-		r.hour = r.hour.UTC()
-		r.quantity = ratOf(Decimal(qty))
-		out = append(out, r)
+		c.Machines, c.PerMachine, c.Reserve, c.OvercommitRatio, c.Total = Decimal(machines), Decimal(per), Decimal(reserve), Decimal(ratio), Decimal(total)
+		c.ChangedAt = c.ChangedAt.UTC()
+		out = append(out, c)
 	}
 	return out, rows.Err()
 }
 
-// zoneFamilyKey keys per-zone, per-family accumulators.
-type zoneFamilyKey struct{ zone, family string }
+// ---------------------------------------------------------------------------
+// shapes
+// ---------------------------------------------------------------------------
 
-// CapacityOverview derives the capacity picture at now (DESIGN.md §11).
-// regionFilter narrows the regions listed (a code; "" = all); consumption is
-// always attributed over every region so the unmapped lists are complete.
-// growth fits each pool's daily series for time-to-exhaustion; nil reports
-// no growth and no exhaustion.
-func (s *Store) CapacityOverview(ctx context.Context, now time.Time, regionFilter string, growth CapacityGrowth) (CapacityOverview, error) {
-	out := CapacityOverview{
-		Thresholds:     CapacityThresholds{WarnPct: capacity.ThresholdWarnPct, CriticalPct: capacity.ThresholdCriticalPct},
-		Families:       capacity.Families,
-		Regions:        []CapacityRegionView{},
-		UnmappedSKUs:   []CapacityUnmappedSKU{},
-		UnmappedRegion: []CapacityUnmappedRegion{},
-	}
-	regions, err := s.ListCapacityRegions(ctx)
+// ListCapacityShapes returns the stored shapes, one per SKU, by SKU.
+func (s *Store) ListCapacityShapes(ctx context.Context) ([]CapacityShape, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT sku, resource, amount_per_unit::text, source, updated_at FROM sku_shapes ORDER BY sku, resource`)
 	if err != nil {
-		return out, err
+		return nil, mapErr(err)
 	}
-	// Pools of every zone, keyed by zone id.
-	poolsByZone := map[string][]CapacityPool{}
-	prow, err := s.db.QueryContext(ctx, `SELECT `+capacityPoolColumns+` FROM capacity_pools p`)
-	if err != nil {
-		return out, mapErr(err)
-	}
-	for prow.Next() {
-		p, err := scanCapacityPool(prow)
-		if err != nil {
-			prow.Close()
-			return out, err
+	defer rows.Close()
+	out := []CapacityShape{}
+	idx := map[string]int{}
+	for rows.Next() {
+		var sku, res, amount, source string
+		var at time.Time
+		if err := rows.Scan(&sku, &res, &amount, &source, &at); err != nil {
+			return nil, err
 		}
-		poolsByZone[p.ZoneID] = append(poolsByZone[p.ZoneID], p)
-	}
-	prow.Close()
-	if err := prow.Err(); err != nil {
-		return out, err
-	}
-	stored, err := s.ListSKUFootprints(ctx)
-	if err != nil {
-		return out, err
-	}
-	caps, err := s.ListSKUCaps(ctx)
-	if err != nil {
-		return out, err
-	}
-	usage, err := s.queryCapacityUsage(ctx, now)
-	if err != nil {
-		return out, err
-	}
-
-	// Region and zone lookups by code (lower-cased, as the query returns).
-	regionByCode := map[string]int{}
-	zoneByCode := map[string]map[string]string{} // region code → zone code → zone id
-	defaultZone := map[string]string{}           // region code → default zone id
-	for i, r := range regions {
-		regionByCode[r.Code] = i
-		zoneByCode[r.Code] = map[string]string{}
-		for _, z := range r.Zones {
-			zoneByCode[r.Code][z.Code] = z.ID
-			if z.IsDefault {
-				defaultZone[r.Code] = z.ID
-			}
-		}
-		if _, ok := defaultZone[r.Code]; !ok && len(r.Zones) > 0 {
-			defaultZone[r.Code] = r.Zones[0].ID
-		}
-	}
-	// The footprint universe: stored rows win; a metered SKU without a row
-	// takes what its name implies.
-	footprints := map[string]SKUFootprint{}
-	for _, fp := range stored {
-		footprints[fp.SKU] = fp
-	}
-	footprintOf := func(sku string) (SKUFootprint, bool) {
-		if fp, ok := footprints[sku]; ok {
-			return fp, len(fp.Families) > 0
-		}
-		d := capacity.Derive(sku)
-		if d == nil {
-			return SKUFootprint{}, false
-		}
-		fp := SKUFootprint{SKU: sku, Families: map[string]Decimal{}, Source: capacity.SourceDerived}
-		for fam, a := range d {
-			fp.Families[fam] = Decimal(a)
-		}
-		footprints[sku] = fp
-		return fp, true
-	}
-	capOf := map[zoneFamilyKey]Decimal{} // (zone, sku) → cap total
-	for _, c := range caps {
-		capOf[zoneFamilyKey{c.ZoneID, c.SKU}] = c.Total
-	}
-
-	// Current = each source's latest hour; the series = each (source, day)
-	// last hour, summed over sources per day.
-	latestBySource := map[string]time.Time{}
-	for _, r := range usage {
-		if r.hour.After(latestBySource[r.sourceID]) {
-			latestBySource[r.sourceID] = r.hour
-		}
-	}
-	var asOf time.Time
-	for _, h := range latestBySource {
-		if h.After(asOf) {
-			asOf = h
-		}
-	}
-	if !asOf.IsZero() {
-		t := asOf
-		out.AsOf = &t
-		out.Sources = len(latestBySource)
-		for _, h := range latestBySource {
-			if asOf.Sub(h) > capacityLagging {
-				out.LaggingSources++
-			}
-		}
-	}
-	today := ""
-	if out.AsOf != nil {
-		today = asOf.Format("2006-01-02")
-	}
-
-	consumed := map[zoneFamilyKey]*big.Rat{}    // current consumption per zone × family
-	zoneUnknown := map[zoneFamilyKey]*big.Rat{} // the part attributed by default
-	series := map[zoneFamilyKey]map[string]*big.Rat{}
-	type skuAcc struct {
-		units     *big.Rat
-		resources int
-	}
-	skuUnits := map[zoneFamilyKey]*skuAcc{} // (zone, sku) → current units
-	unmappedSKU := map[string]*CapacityUnmappedSKU{}
-	unmappedSKURegions := map[string]map[string]bool{}
-	unmappedRegion := map[string]*CapacityUnmappedRegion{}
-	unmappedRegionSKUs := map[string]map[string]bool{}
-	add := func(m map[zoneFamilyKey]*big.Rat, k zoneFamilyKey, v *big.Rat) {
-		if m[k] == nil {
-			m[k] = new(big.Rat)
-		}
-		m[k].Add(m[k], v)
-	}
-	for _, r := range usage {
-		current := r.hour.Equal(latestBySource[r.sourceID])
-		ri, regionKnown := regionByCode[r.region]
-		var zoneID string
-		unknownZone := false
-		if regionKnown {
-			code := regions[ri].Code
-			if id, ok := zoneByCode[code][r.az]; ok && r.az != "" {
-				zoneID = id
-			} else {
-				zoneID = defaultZone[code]
-				unknownZone = true
-			}
-		}
-		if zoneID == "" {
-			if current {
-				reason := "no-region"
-				if regionKnown {
-					reason = "no-zones"
-				}
-				u := unmappedRegion[r.region]
-				if u == nil {
-					u = &CapacityUnmappedRegion{Region: r.region, Reason: reason, Quantity: "0"}
-					unmappedRegion[r.region] = u
-					unmappedRegionSKUs[r.region] = map[string]bool{}
-				}
-				unmappedRegionSKUs[r.region][r.sku] = true
-				u.Quantity = addDec(u.Quantity, decOf(r.quantity))
-				u.Resources += r.resources
-			}
-			continue
-		}
-		fp, ok := footprintOf(r.sku)
+		i, ok := idx[sku]
 		if !ok {
-			if current {
-				u := unmappedSKU[r.sku]
-				if u == nil {
-					u = &CapacityUnmappedSKU{SKU: r.sku, Unit: r.unit, Quantity: "0"}
-					unmappedSKU[r.sku] = u
-					unmappedSKURegions[r.sku] = map[string]bool{}
-				}
-				unmappedSKURegions[r.sku][r.region] = true
-				u.Quantity = addDec(u.Quantity, decOf(r.quantity))
-				u.Resources += r.resources
-			}
+			i = len(out)
+			idx[sku] = i
+			out = append(out, CapacityShape{SKU: sku, Resources: map[string]Decimal{}, Source: source})
+		}
+		out[i].Resources[res] = Decimal(amount)
+		at = at.UTC()
+		if out[i].UpdatedAt == nil || at.After(*out[i].UpdatedAt) {
+			out[i].UpdatedAt = &at
+		}
+		// A SKU with one edited resource reads as manual.
+		if source == capacity.SourceManual {
+			out[i].Source = source
+		}
+	}
+	return out, rows.Err()
+}
+
+// PutCapacityShape makes the given resources THE shape of a SKU (PUT
+// semantics): resources absent or 0 are removed, the rest written as manual.
+// An empty map removes the shape. ErrInvalid names a bad amount.
+func (s *Store) PutCapacityShape(ctx context.Context, sku string, resources map[string]Decimal) (CapacityShape, error) {
+	sku = strings.TrimSpace(sku)
+	if sku == "" {
+		return CapacityShape{}, fmt.Errorf("%w: sku is required", ErrInvalid)
+	}
+	clean := map[string]string{}
+	for res, amount := range resources {
+		key := capacity.NormResource(res)
+		if key == "" {
+			return CapacityShape{}, fmt.Errorf("%w: every resource needs a key, e.g. vcpu or memory_gib", ErrInvalid)
+		}
+		a := strings.TrimSpace(string(amount))
+		if a == "" || (decimalShape.MatchString(a) && ratOf(Decimal(a)).Sign() == 0) {
 			continue
 		}
-		for fam, amount := range fp.Families {
-			v := new(big.Rat).Mul(r.quantity, ratOf(amount))
-			k := zoneFamilyKey{zoneID, fam}
-			if current {
-				add(consumed, k, v)
-				if unknownZone {
-					add(zoneUnknown, k, v)
-				}
-			}
-			if r.day != today {
-				if series[k] == nil {
-					series[k] = map[string]*big.Rat{}
-				}
-				if series[k][r.day] == nil {
-					series[k][r.day] = new(big.Rat)
-				}
-				series[k][r.day].Add(series[k][r.day], v)
-			}
+		if !validNonNegativeDecimal(a) {
+			return CapacityShape{}, fmt.Errorf("%w: %s amount must be a non-negative number", ErrInvalid, key)
 		}
-		if current {
-			sk := zoneFamilyKey{zoneID, r.sku}
-			acc := skuUnits[sk]
-			if acc == nil {
-				acc = &skuAcc{units: new(big.Rat)}
-				skuUnits[sk] = acc
-			}
-			acc.units.Add(acc.units, r.quantity)
-			acc.resources += r.resources
+		clean[key] = a
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return CapacityShape{}, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM sku_shapes WHERE sku = $1`, sku); err != nil {
+		return CapacityShape{}, mapErr(err)
+	}
+	for res, a := range clean {
+		kind := capacity.KindOf(res)
+		if _, err := tx.ExecContext(ctx, `INSERT INTO capacity_resource_kinds (resource, label, unit, position) VALUES ($1, $2, $3, $4) ON CONFLICT (resource) DO NOTHING`,
+			res, kind.Label, kind.Unit, kind.Position); err != nil {
+			return CapacityShape{}, mapErr(err)
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO sku_shapes (sku, resource, amount_per_unit, source) VALUES ($1, $2, $3, $4)`, sku, res, a, capacity.SourceManual); err != nil {
+			return CapacityShape{}, mapErr(err)
 		}
 	}
-
-	// The SKU universe every zone lists: stored footprints plus derived ones
-	// for metered SKUs (footprintOf added those), sorted.
-	skuList := make([]string, 0, len(footprints))
-	for sku, fp := range footprints {
-		if len(fp.Families) > 0 {
-			skuList = append(skuList, sku)
-		}
+	if err := tx.Commit(); err != nil {
+		return CapacityShape{}, err
 	}
-	sort.Strings(skuList)
-	out.Summary.SKUs = len(skuList)
-
-	filter := normCode(regionFilter)
-	for _, r := range regions {
-		if filter != "" && r.Code != filter {
-			continue
-		}
-		rv := CapacityRegionView{ID: r.ID, Code: r.Code, Name: r.Name, CloudSourceKind: r.CloudSourceKind, Zones: []CapacityZoneView{}}
-		for _, z := range r.Zones {
-			zv := CapacityZoneView{ID: z.ID, Code: z.Code, Name: z.Name, IsDefault: z.IsDefault, Pools: []CapacityPoolView{}, SKUs: []CapacitySKUView{}}
-			pools := poolsByZone[z.ID]
-			sort.SliceStable(pools, func(i, j int) bool { return familyOrder(pools[i].Family) < familyOrder(pools[j].Family) })
-			available := map[string]*big.Rat{} // family → available (clamped)
-			hasTotal := map[string]bool{}
-			for _, p := range pools {
-				pv := poolView(p, consumed[zoneFamilyKey{z.ID, p.Family}], zoneUnknown[zoneFamilyKey{z.ID, p.Family}], series[zoneFamilyKey{z.ID, p.Family}], growth)
-				available[p.Family] = ratOf(pv.Available)
-				hasTotal[p.Family] = ratOf(p.Total).Sign() > 0
-				out.Summary.Pools++
-				switch pv.Status {
-				case capacity.StatusWarn:
-					out.Summary.PoolsWarn++
-				case capacity.StatusCritical:
-					out.Summary.PoolsCritical++
-				}
-				if hasTotal[p.Family] {
-					out.Summary.PoolsWithTotal++
-				}
-				zv.Pools = append(zv.Pools, pv)
-			}
-			for _, sku := range skuList {
-				fp := footprints[sku]
-				sv := CapacitySKUView{SKU: sku, Footprint: fp.Families, FootprintSource: fp.Source, ConsumedUnits: "0"}
-				if acc := skuUnits[zoneFamilyKey{z.ID, sku}]; acc != nil {
-					sv.ConsumedUnits = decOf(acc.units)
-					sv.Resources = acc.resources
-				}
-				sv.HeadroomUnits, sv.BindingFamily = headroom(fp.Families, available, hasTotal)
-				if c, ok := capOf[zoneFamilyKey{z.ID, sku}]; ok {
-					cc := c
-					sv.Cap = &cc
-					left := new(big.Rat).Sub(ratOf(c), ratOf(sv.ConsumedUnits))
-					if left.Sign() < 0 {
-						left = new(big.Rat)
-					}
-					capUnits := floorRat(left)
-					if sv.HeadroomUnits == nil || capUnits.Cmp(floorRat(ratOf(*sv.HeadroomUnits))) < 0 {
-						d := decOfInt(capUnits)
-						sv.HeadroomUnits, sv.BindingFamily = &d, "cap"
-					}
-				}
-				zv.SKUs = append(zv.SKUs, sv)
-			}
-			out.Summary.Zones++
-			rv.Zones = append(rv.Zones, zv)
-		}
-		out.Summary.Regions++
-		out.Regions = append(out.Regions, rv)
+	out := CapacityShape{SKU: sku, Resources: map[string]Decimal{}, Source: capacity.SourceManual}
+	for res, a := range clean {
+		out.Resources[res] = Decimal(a)
 	}
-	out.Summary.PoolsBelowThreshold = out.Summary.PoolsWarn + out.Summary.PoolsCritical
-
-	for sku, u := range unmappedSKU {
-		for region := range unmappedSKURegions[sku] {
-			u.Regions = append(u.Regions, region)
-		}
-		sort.Strings(u.Regions)
-		out.UnmappedSKUs = append(out.UnmappedSKUs, *u)
-	}
-	sort.Slice(out.UnmappedSKUs, func(i, j int) bool { return out.UnmappedSKUs[i].SKU < out.UnmappedSKUs[j].SKU })
-	out.Summary.UnmappedSKUs = len(out.UnmappedSKUs)
-	for region, u := range unmappedRegion {
-		u.SKUs = len(unmappedRegionSKUs[region])
-		out.UnmappedRegion = append(out.UnmappedRegion, *u)
-	}
-	sort.Slice(out.UnmappedRegion, func(i, j int) bool { return out.UnmappedRegion[i].Region < out.UnmappedRegion[j].Region })
+	now := time.Now().UTC()
+	out.UpdatedAt = &now
 	return out, nil
 }
 
-// poolView derives one pool's figures from its total, its current
-// consumption and its daily series.
-func poolView(p CapacityPool, cons, unknown *big.Rat, days map[string]*big.Rat, growth CapacityGrowth) CapacityPoolView {
-	if cons == nil {
-		cons = new(big.Rat)
-	}
-	if unknown == nil {
-		unknown = new(big.Rat)
-	}
-	fam := capacity.Family{Key: p.Family, Label: p.Family, Unit: ""}
-	for _, f := range capacity.Families {
-		if f.Key == p.Family {
-			fam = f
-		}
-	}
-	total, reserved := ratOf(p.Total), ratOf(p.Reserved)
-	pv := CapacityPoolView{CapacityPool: p, Label: fam.Label, Unit: fam.Unit, Consumed: decOf(cons), ZoneUnknown: decOf(unknown), Overcommit: "0.000000", Series: []CapacityDayPoint{}}
-	hasTotal := total.Sign() > 0
-	avail := new(big.Rat).Sub(total, reserved)
-	avail.Sub(avail, cons)
-	if avail.Sign() < 0 {
-		// Over-committed only against a total that was entered: a pool
-		// nobody has sized yet reads unset with 0 available, not "over".
-		if hasTotal {
-			pv.Clamped = true
-			pv.Overcommit = decOf(new(big.Rat).Neg(avail))
-		}
-		avail = new(big.Rat)
-	}
-	pv.Available = decOf(avail)
-	if hasTotal {
-		used := new(big.Rat).Add(cons, reserved)
-		pct, _ := new(big.Rat).Quo(used, total).Float64()
-		pct *= 100
-		pv.UtilisationPct = &pct
-	}
-	pv.Status = capacity.Status(derefFloat(pv.UtilisationPct), hasTotal)
+// ---------------------------------------------------------------------------
+// placements
+// ---------------------------------------------------------------------------
 
-	// Growth: the fitted trend over the complete days before the current
-	// one, in family units per day; exhaustion is available ÷ growth.
-	keys := make([]string, 0, len(days))
-	for d := range days {
-		keys = append(keys, d)
+const capacityPlacementColumns = `pl.pool_id, p.name, p.zone_id, z.code, r.code, pl.sku, pl.class, pl.updated_by, pl.updated_at`
+
+func scanCapacityPlacement(row interface{ Scan(...any) error }) (CapacityPlacement, error) {
+	var pl CapacityPlacement
+	if err := row.Scan(&pl.PoolID, &pl.PoolName, &pl.ZoneID, &pl.ZoneCode, &pl.RegionCode, &pl.SKU, &pl.Class, &pl.UpdatedBy, &pl.UpdatedAt); err != nil {
+		return pl, mapErr(err)
 	}
-	sort.Strings(keys)
-	for _, d := range keys {
-		pv.Series = append(pv.Series, CapacityDayPoint{Day: d, Consumed: decOf(days[d])})
-	}
-	pv.HistoryDays = len(pv.Series)
-	if growth != nil && len(pv.Series) > 0 {
-		if trend, ok := growth(pv.Series); ok {
-			g := trend
-			pv.GrowthPerDay = &g
-			if hasTotal && trend > 0 {
-				a, _ := avail.Float64()
-				d := math.Round(a/trend*10) / 10
-				pv.ExhaustionDays = &d
-			}
-		}
-	}
-	return pv
+	pl.UpdatedAt = pl.UpdatedAt.UTC()
+	return pl, nil
 }
 
-// headroom is min over the footprint's families of floor(available ÷
-// amount), over the families that have a total; nil when none has.
-func headroom(fp map[string]Decimal, available map[string]*big.Rat, hasTotal map[string]bool) (*Decimal, string) {
-	var best *big.Int
-	binding := ""
-	fams := make([]string, 0, len(fp))
-	for fam := range fp {
-		fams = append(fams, fam)
+// ListCapacityPlacements returns every placement with its pool, zone and
+// region, by region / zone / pool / SKU.
+func (s *Store) ListCapacityPlacements(ctx context.Context) ([]CapacityPlacement, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+capacityPlacementColumns+` FROM capacity_placements pl
+		JOIN capacity_pools p ON p.id = pl.pool_id
+		JOIN capacity_zones z ON z.id = p.zone_id
+		JOIN capacity_regions r ON r.id = z.region_id
+		ORDER BY r.code, z.code, p.name, pl.sku`)
+	if err != nil {
+		return nil, mapErr(err)
 	}
-	sort.SliceStable(fams, func(i, j int) bool { return familyOrder(fams[i]) < familyOrder(fams[j]) })
-	for _, fam := range fams {
-		if !hasTotal[fam] {
-			continue
+	defer rows.Close()
+	out := []CapacityPlacement{}
+	for rows.Next() {
+		pl, err := scanCapacityPlacement(rows)
+		if err != nil {
+			return nil, err
 		}
-		amount := ratOf(fp[fam])
-		if amount.Sign() <= 0 {
-			continue
-		}
-		avail := available[fam]
-		if avail == nil {
-			avail = new(big.Rat)
-		}
-		units := floorRat(new(big.Rat).Quo(avail, amount))
-		if best == nil || units.Cmp(best) < 0 {
-			best, binding = units, fam
-		}
+		out = append(out, pl)
 	}
-	if best == nil {
-		return nil, ""
-	}
-	d := decOfInt(best)
-	return &d, binding
+	return out, rows.Err()
 }
 
-// floorRat is the integer floor of a non-negative rational.
-func floorRat(r *big.Rat) *big.Int {
-	if r.Sign() <= 0 {
-		return new(big.Int)
+// PutCapacityPlacement places a SKU on a pool at a class.
+//
+// Two things are validated, and both are the kind of mistake that otherwise
+// reads as a silent zero:
+//
+//   - THE SHAPE MUST TOUCH THE POOL. A SKU whose vector names no resource the
+//     pool holds would consume nothing there, which is never what the
+//     operator meant.
+//   - THE CLASS IS THE SKU'S, NOT THE PLACEMENT'S ALONE. A SKU is a product
+//     at a price, and a price is quoted for one class; placing the same SKU
+//     as guaranteed on one pool and spot on another would split its
+//     consumption across two classes whose arithmetic means opposite things.
+//     A second placement must carry the same class.
+func (s *Store) PutCapacityPlacement(ctx context.Context, poolID, sku, class, actor string) (CapacityPlacement, error) {
+	sku = strings.TrimSpace(sku)
+	class = strings.ToLower(strings.TrimSpace(class))
+	if sku == "" {
+		return CapacityPlacement{}, fmt.Errorf("%w: sku is required", ErrInvalid)
 	}
-	return new(big.Int).Quo(r.Num(), r.Denom())
+	if !capacity.ValidClass(class) {
+		return CapacityPlacement{}, fmt.Errorf("%w: class must be one of %s", ErrInvalid, strings.Join(capacity.ClassKeys(), ", "))
+	}
+	pool, err := s.GetCapacityPool(ctx, poolID)
+	if err != nil {
+		return CapacityPlacement{}, err
+	}
+	shape, err := s.shapeOf(ctx, sku)
+	if err != nil {
+		return CapacityPlacement{}, err
+	}
+	if len(shape.Resources) == 0 {
+		return CapacityPlacement{}, fmt.Errorf("%w: %s has no shape: say how much of each resource one unit consumes before placing it", ErrInvalid, sku)
+	}
+	held := map[string]bool{}
+	for _, r := range pool.Resources {
+		held[r.Resource] = true
+	}
+	touches := false
+	for res := range shape.Resources {
+		if held[res] {
+			touches = true
+			break
+		}
+	}
+	if !touches {
+		want := make([]string, 0, len(shape.Resources))
+		for res := range shape.Resources {
+			want = append(want, res)
+		}
+		sort.Strings(want)
+		has := make([]string, 0, len(pool.Resources))
+		for _, r := range pool.Resources {
+			has = append(has, r.Resource)
+		}
+		return CapacityPlacement{}, fmt.Errorf("%w: %s consumes %s and pool %s holds %s: the shape and the pool share no resource", ErrInvalid, sku, strings.Join(want, ", "), pool.Name, strings.Join(has, ", "))
+	}
+	var otherClass, otherPool string
+	err = s.db.QueryRowContext(ctx, `SELECT pl.class, p.name FROM capacity_placements pl JOIN capacity_pools p ON p.id = pl.pool_id
+		WHERE pl.sku = $1 AND pl.pool_id <> $2 LIMIT 1`, sku, poolID).Scan(&otherClass, &otherPool)
+	switch {
+	case err == nil && otherClass != class:
+		return CapacityPlacement{}, fmt.Errorf("%w: %s is already placed on %s as %s; a SKU is one product at one price and carries one class", ErrInvalid, sku, otherPool, otherClass)
+	case err != nil && !errors.Is(err, sql.ErrNoRows):
+		return CapacityPlacement{}, mapErr(err)
+	}
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO capacity_placements (pool_id, sku, class, updated_by) VALUES ($1, $2, $3, $4)
+		ON CONFLICT (pool_id, sku) DO UPDATE SET class = EXCLUDED.class, updated_by = EXCLUDED.updated_by, updated_at = now()`, poolID, sku, class, actor); err != nil {
+		return CapacityPlacement{}, mapErr(err)
+	}
+	return scanCapacityPlacement(s.db.QueryRowContext(ctx, `SELECT `+capacityPlacementColumns+` FROM capacity_placements pl
+		JOIN capacity_pools p ON p.id = pl.pool_id JOIN capacity_zones z ON z.id = p.zone_id JOIN capacity_regions r ON r.id = z.region_id
+		WHERE pl.pool_id = $1 AND pl.sku = $2`, poolID, sku))
 }
 
-// decOfInt renders an integer as a Decimal.
-func decOfInt(i *big.Int) Decimal { return Decimal(i.String()) }
-
-func derefFloat(p *float64) float64 {
-	if p == nil {
-		return 0
+// DeleteCapacityPlacement removes a placement; ErrNotFound when there was none.
+func (s *Store) DeleteCapacityPlacement(ctx context.Context, poolID, sku string) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM capacity_placements WHERE pool_id = $1 AND sku = $2`, poolID, strings.TrimSpace(sku))
+	if err != nil {
+		return mapErr(err)
 	}
-	return *p
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// shapeOf is the stored shape of a SKU, or the one its name implies.
+func (s *Store) shapeOf(ctx context.Context, sku string) (CapacityShape, error) {
+	out := CapacityShape{SKU: sku, Resources: map[string]Decimal{}}
+	rows, err := s.db.QueryContext(ctx, `SELECT resource, amount_per_unit::text, source FROM sku_shapes WHERE sku = $1`, sku)
+	if err != nil {
+		return out, mapErr(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var res, amount, source string
+		if err := rows.Scan(&res, &amount, &source); err != nil {
+			return out, err
+		}
+		out.Resources[res] = Decimal(amount)
+		out.Source = source
+	}
+	if err := rows.Err(); err != nil {
+		return out, err
+	}
+	if len(out.Resources) > 0 {
+		return out, nil
+	}
+	if d := capacity.Derive(sku); d != nil {
+		out.Source = capacity.SourceDerived
+		for res, a := range d {
+			out.Resources[res] = Decimal(a)
+		}
+	}
+	return out, nil
 }

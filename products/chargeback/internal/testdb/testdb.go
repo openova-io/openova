@@ -60,8 +60,8 @@ func Open(t *testing.T) *store.Store {
 // a sign-in code mailed to an operator address belongs to no customer — so a
 // cascade from customers leaves exactly those rows behind. Named here, or
 // one test's failed delivery would be read as another test's.
-const wipeSQL = `TRUNCATE TABLE audit_log, notification_deliveries, notification_preferences, sessions, pins, invites, rated_lines, cost_usage_daily, cost_rollup_state, invoice_allocations, account_entries, credit_notes, credit_note_sequences, payment_intents, collection_reminders, customer_suspensions, payments, commercial_outbox, statements, invoice_sequences, usage_records, resource_inventory, cost_sources, credentials, role_bindings, group_role_mappings, cost_centre_resources, cost_centre_rules, cost_centres, discounts, budgets, budget_alerts, saved_views, report_deliveries, report_schedules, currency_rates, customers, price_items, price_books, capacity_pool_history, capacity_pools, sku_caps, capacity_zones, capacity_regions, estimates, contract_items, contracts, partner_retail_rules, partners, partner_tiers, einvoice_documents, tax_rules, tax_categories, finance_journal_lines, finance_periods, finance_reconciliation_lines, finance_reconciliations, account_mappings RESTART IDENTITY CASCADE;
-DELETE FROM sku_footprints;
+const wipeSQL = `TRUNCATE TABLE audit_log, notification_deliveries, notification_preferences, sessions, pins, invites, rated_lines, cost_usage_daily, cost_rollup_state, invoice_allocations, account_entries, credit_notes, credit_note_sequences, payment_intents, collection_reminders, customer_suspensions, payments, commercial_outbox, statements, invoice_sequences, usage_records, resource_inventory, cost_sources, credentials, role_bindings, group_role_mappings, cost_centre_resources, cost_centre_rules, cost_centres, discounts, budgets, budget_alerts, saved_views, report_deliveries, report_schedules, currency_rates, customers, price_items, price_books, capacity_pool_history, capacity_placements, capacity_pool_resources, capacity_pools, capacity_resource_kinds, capacity_zones, capacity_regions, estimates, contract_items, contracts, partner_retail_rules, partners, partner_tiers, einvoice_documents, tax_rules, tax_categories, finance_journal_lines, finance_periods, finance_reconciliation_lines, finance_reconciliations, account_mappings RESTART IDENTITY CASCADE;
+DELETE FROM sku_shapes;
 INSERT INTO allocation_settings (id, weights, overhead_policy, pool, manual_amount, currency, sovereign_customer_id)
 VALUES (1, '{"vcpu":1,"mem_gib":1,"pvc_gb":1}'::jsonb, 'separate', 'sovereign-cost', 0, 'OMR', NULL)
 ON CONFLICT (id) DO UPDATE SET weights = EXCLUDED.weights, overhead_policy = EXCLUDED.overhead_policy, pool = EXCLUDED.pool, manual_amount = EXCLUDED.manual_amount, currency = EXCLUDED.currency, sovereign_customer_id = NULL, updated_at = now();
@@ -76,10 +76,15 @@ func wipe(t *testing.T, db *sql.DB) {
 	if _, err := db.ExecContext(ctx, wipeSQL); err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
-	// sku_footprints is seeded by the capacity migration; the wipe above
-	// emptied it, so the seed rows go back and every test starts from them.
-	if _, err := db.ExecContext(ctx, store.CapacityFootprintSeedSQL()); err != nil {
-		t.Fatalf("reseed footprints: %v", err)
+	// capacity_resource_kinds and sku_shapes are seeded by the capacity
+	// migrations; the wipe above emptied them, so the seed rows go back and
+	// every test starts from them. The kinds go FIRST: capacity_pool_resources
+	// references them.
+	if _, err := db.ExecContext(ctx, store.CapacityResourceKindSeedSQL()); err != nil {
+		t.Fatalf("reseed resource kinds: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, store.CapacityShapeSeedSQL()); err != nil {
+		t.Fatalf("reseed shapes: %v", err)
 	}
 	// account_mappings is seeded by the finance migration (DESIGN.md §18) and
 	// the wipe emptied it; the defaults go back so every test starts from the
