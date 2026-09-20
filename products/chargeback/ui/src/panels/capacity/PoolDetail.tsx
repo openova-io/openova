@@ -13,7 +13,7 @@ import type {
 import { DataTable, type Column } from '../../components/DataTable'
 import { Field, Notice, Skeleton } from '../../components/ui'
 import { t } from '../../i18n'
-import { basketQuery, formatAmount, formatDays, formatRatio, heatClass, kindOf, orderedClasses, shapeSummary, sparkPath } from '../../lib/capacity'
+import { basketQuery, formatAmount, formatDays, formatRatio, heatClass, kindOf, orderedClasses, poolFingerprint, shapeSummary, sparkPath } from '../../lib/capacity'
 import { toNumber } from '../../lib/num'
 import { useQuery } from '../../lib/useQuery'
 import { ClassBadge, classText, type Act } from './shared'
@@ -229,7 +229,10 @@ function BasketPanel({ pool, kinds, classes, skus }: { pool: CapacityPoolView; k
   const [draft, setDraft] = useState<MixLine>({ sku: '', units: '1', cls: '' })
   const [err, setErr] = useState('')
   const applied = basketQuery(lines.map((l) => ({ sku: l.sku, units: l.units, class: l.cls })))
-  const named = useQuery<{ basket: CapacityBasket }>(applied ? `/capacity/pools/${pool.id}/headroom?basket=${encodeURIComponent(applied)}` : null, [applied])
+  // Re-asked whenever the pool changes under it (poolFingerprint), not only
+  // when the mix does: the same mix fits a different number of times on a
+  // resized pool.
+  const named = useQuery<{ basket: CapacityBasket }>(applied ? `/capacity/pools/${pool.id}/headroom?basket=${encodeURIComponent(applied)}` : null, [applied, poolFingerprint(pool)])
   const basket = applied && named.data ? named.data.basket : pool.basket
   const bindingLabel = basket.binding_resource ? kindOf(basket.binding_resource, kinds).label : ''
 
@@ -358,7 +361,10 @@ function BasketPanel({ pool, kinds, classes, skus }: { pool: CapacityPoolView; k
  * else the most conservative class its SKU is placed at.
  */
 function RunningPanel({ pool, kinds, classes, canManage, act, onSaved }: { pool: CapacityPoolView; kinds: CapacityResourceKind[]; classes: CapacityClassDef[]; canManage: boolean; act: Act; onSaved: () => Promise<void> }) {
-  const running = useQuery<CapacityPoolRunning>(`/capacity/pools/${pool.id}/resources`, [pool.id])
+  // Keyed on the pool's fingerprint, never its id alone: a resize, a new
+  // placement or a resource changing class all change what is running here
+  // and which spot has to be given back.
+  const running = useQuery<CapacityPoolRunning>(`/capacity/pools/${pool.id}/resources`, [poolFingerprint(pool)])
   const doc = running.data
   const setClass = (r: CapacityRunningResource, cls: string) => {
     const label = cls ? t('capacity.running.classSet', { resource: r.name || r.resource_id, class: classText(cls, classes) }) : t('capacity.running.classCleared', { resource: r.name || r.resource_id })

@@ -399,3 +399,23 @@ export function floorEffect(machines: string, perMachine: string, reserve: strin
   if (!Number.isFinite(usable) || !Number.isFinite(r) || !Number.isFinite(f) || usable <= 0) return null
   return { usable, floor: f, envelope: (usable - f) * r }
 }
+
+/**
+ * A pool's FINGERPRINT: everything a follow-up read about the pool depends
+ * on — when it was last edited, what is placed on it, and what each class
+ * holds of each resource.
+ *
+ * The drill-in's follow-up reads (what is running, a named mix's headroom) are
+ * fetched once the row is opened and used to be keyed on the pool's id alone.
+ * The id does not change when the pool is resized or a resource changes
+ * class, so both kept showing the answer to the PREVIOUS pool: a resize that
+ * left spot over its room showed no reclaim at all until the page was
+ * reloaded. Found by the live walk, which did not reload between the edit and
+ * the read; the local walk had, and that masked it. They are keyed on this
+ * now.
+ */
+export function poolFingerprint(pool: CapacityPoolView): string {
+  const figures = (pool.resources_view ?? []).map((r) => [r.resource, r.usable, r.overcommit_ratio, r.guaranteed_floor, r.guaranteed, r.burstable, r.spot, r.spot_reclaim].join(':'))
+  const placed = (pool.placements ?? []).map((p) => `${p.sku}@${p.class}`)
+  return [pool.id, pool.updated_at, (pool.classes ?? []).join(','), placed.join(','), figures.join(',')].join('|')
+}
