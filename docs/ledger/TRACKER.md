@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-20T14:30:06Z` |
+| Last refreshed | `2026-09-20T14:45:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-20T14:39 | [#6943](https://github.com/openova-io/openova/pull/6943) | #6867 | fix(bss): an open pool row refreshes what is running when th |
 | 2026-09-20T14:03 | [#6942](https://github.com/openova-io/openova/pull/6942) | #6937 | feat(bss): Capacity in four tabs — classes per pool, one SKU |
 | 2026-09-13T14:21 | [#6935](https://github.com/openova-io/openova/pull/6935) | #6867 | fix(bss): Catalyst BSS 0.1.46 — notification lockout, templa |
 | 2026-09-13T12:27 | [#6934](https://github.com/openova-io/openova/pull/6934) | #6867 | fix(bss): Catalyst BSS 0.1.45 — "A exempt rule": the article |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-10T14:12 | [#6909](https://github.com/openova-io/openova/pull/6909) | #6867 | docs(status): chargeback live on hw307 at 0.1.29 |
 | 2026-09-10T12:58 | [#6908](https://github.com/openova-io/openova/pull/6908) | #6867 | docs(chargeback): 0.1.29 live evidence on hw307 — traffic-mo |
 | 2026-09-10T12:24 | [#6907](https://github.com/openova-io/openova/pull/6907) | #6867 | docs(chargeback): 0.1.28 live evidence on hw307 — balances,  |
-| 2026-09-10T12:40 | [#6906](https://github.com/openova-io/openova/pull/6906) | #6867 | fix(chargeback): landlord backfill on the traffic model; neu |
 
 ---
 
