@@ -3,6 +3,8 @@ import type {
   CapacityBasketItem,
   CapacityClassDef,
   CapacityOverview,
+  CapacityPlacementView,
+  CapacityPoolInput,
   CapacityPoolResource,
   CapacityPoolStatus,
   CapacityPoolView,
@@ -30,6 +32,23 @@ import { toNumber } from './num'
 export const DEFAULT_THRESHOLDS: CapacityThresholds = { warn_pct: 70, critical_pct: 85 }
 
 /** The three classes, in the order the console shows them. */
+/** The order the three classes are always listed in. */
+export const CLASS_ORDER: ReadonlyArray<string> = ['guaranteed', 'burstable', 'spot']
+
+/** What a new pool enforces until the operator says otherwise: burstable is opted into. */
+export const DEFAULT_POOL_CLASSES: ReadonlyArray<string> = ['guaranteed', 'spot']
+
+/** A pool's classes in canonical order, whatever order they arrived in. */
+export function orderedClasses(classes: ReadonlyArray<string> | null | undefined): string[] {
+  const set = new Set((classes ?? []).map((c) => c.toLowerCase()))
+  return CLASS_ORDER.filter((c) => set.has(c))
+}
+
+/** Whether a placement SKU is a family pattern ("ecs.m7n.*"). */
+export function isFamily(sku: string): boolean {
+  return sku.trim().endsWith('.*')
+}
+
 export const CLASSES: ReadonlyArray<CapacityClassDef> = [
   { class: 'guaranteed', label: 'Guaranteed', note: 'physically backed at 1:1; admitted only if it fits usable capacity' },
   { class: 'burstable', label: 'Burstable', note: 'sold against the oversubscribed envelope; throttled at the soft wall' },
@@ -202,25 +221,26 @@ export function basketSummary(items: CapacityBasketItem[] | null | undefined): s
   return items.map((i) => `${formatAmount(i.units)} × ${i.sku}`).join(' · ')
 }
 
-/** The basket form text a mix round-trips through: "sku:units,sku:units". */
-export function basketQuery(items: Array<{ sku: string; units: number | string }>): string {
+/**
+ * The basket form text a mix round-trips through:
+ * "sku:units[:class],sku:units[:class]". A line without a class takes the
+ * pool's default for that SKU.
+ */
+export function basketQuery(items: Array<{ sku: string; units: number | string; class?: string }>): string {
   return items
     .filter((i) => i.sku.trim() !== '' && toNumber(i.units) > 0)
-    .map((i) => `${i.sku.trim()}:${String(i.units).trim()}`)
+    .map((i) => `${i.sku.trim()}:${String(i.units).trim()}${i.class ? `:${i.class}` : ''}`)
     .join(',')
 }
 
 /** parseBasketQuery is the reverse, matching store.ParseBasket. */
-export function parseBasketQuery(s: string): Array<{ sku: string; units: string }> {
-  const out: Array<{ sku: string; units: string }> = []
+export function parseBasketQuery(s: string): Array<{ sku: string; units: string; class: string }> {
+  const out: Array<{ sku: string; units: string; class: string }> = []
   for (const part of s.split(',')) {
-    const trimmed = part.trim()
-    if (!trimmed) continue
-    const idx = trimmed.indexOf(':')
-    const sku = (idx === -1 ? trimmed : trimmed.slice(0, idx)).trim()
+    const fields = part.trim().split(':')
+    const sku = (fields[0] ?? '').trim()
     if (!sku) continue
-    const units = idx === -1 ? '1' : trimmed.slice(idx + 1).trim() || '1'
-    out.push({ sku, units })
+    out.push({ sku, units: (fields[1] ?? '').trim() || '1', class: (fields[2] ?? '').trim().toLowerCase() })
   }
   return out
 }
@@ -230,24 +250,21 @@ export interface PoolFormResource {
   per_machine: string
   reserve: string
   overcommit_ratio: string
+  guaranteed_floor: string
 }
 
 export interface PoolForm {
   name: string
   machines: string
+  /** The classes this pool enforces. */
+  classes: string[]
   lead_time_days: string
   note: string
   resources: PoolFormResource[]
 }
 
 export interface ParsedPool {
-  body: {
-    name: string
-    machines: string
-    lead_time_days: number
-    note: string
-    resources: Array<{ resource: string; per_machine: string; reserve: string; overcommit_ratio: string }>
-  } | null
+  body: CapacityPoolInput | null
   error: string
 }
 
@@ -267,8 +284,15 @@ export function parsePoolForm(form: PoolForm): ParsedPool {
   const lead = form.lead_time_days.trim() || '0'
   if (!/^\d+$/.test(lead)) return { body: null, error: 'the lead time is a whole number of days' }
 
+  const classes = orderedClasses(form.classes)
+  if (classes.length === 0) return { body: null, error: 'a pool enforces at least one class: tick guaranteed, burstable or spot' }
+  // Overcommit and the floor are BURSTABLE's two numbers. Without burstable
+  // the editor does not show them, and what is sent is 1 and 0 whatever the
+  // form still holds from before the box was unticked.
+  const burstable = classes.includes('burstable')
+
   const seen = new Set<string>()
-  const resources: Array<{ resource: string; per_machine: string; reserve: string; overcommit_ratio: string }> = []
+  const resources: CapacityPoolInput['resources'] = []
   for (const r of form.resources) {
     const key = r.resource.trim().toLowerCase()
     if (!key) continue
@@ -276,14 +300,18 @@ export function parsePoolForm(form: PoolForm): ParsedPool {
     seen.add(key)
     const per = r.per_machine.trim().replace(/,/g, '') || '0'
     const reserve = r.reserve.trim().replace(/,/g, '') || '0'
-    const ratio = r.overcommit_ratio.trim().replace(/,/g, '') || '1'
+    const ratio = burstable ? r.overcommit_ratio.trim().replace(/,/g, '') || '1' : '1'
+    const floor = burstable ? r.guaranteed_floor.trim().replace(/,/g, '') || '0' : '0'
     if (!NUMBER.test(per)) return { body: null, error: `${key}: the amount per machine must be a non-negative number` }
     if (!NUMBER.test(reserve)) return { body: null, error: `${key}: the reserve must be a non-negative number` }
     if (!NUMBER.test(ratio) || Number(ratio) === 0) return { body: null, error: `${key}: the overcommit ratio must be a positive number (1 is no oversubscription)` }
-    resources.push({ resource: key, per_machine: per, reserve, overcommit_ratio: ratio })
+    if (!NUMBER.test(floor)) return { body: null, error: `${key}: the guaranteed floor must be a non-negative number` }
+    const usable = Math.max(0, Number(machines) * Number(per) - Number(reserve))
+    if (Number(floor) > usable) return { body: null, error: `${key}: the guaranteed floor is ${floor} but only ${formatAmount(usable)} is usable (machines × per machine, less the reserve)` }
+    resources.push({ resource: key, per_machine: per, reserve, overcommit_ratio: ratio, guaranteed_floor: floor })
   }
   if (resources.length === 0) return { body: null, error: 'a pool holds at least one resource: a machine with nothing in it is not capacity' }
-  return { body: { name, machines, lead_time_days: Number(lead), note: form.note.trim(), resources }, error: '' }
+  return { body: { name, machines, classes, lead_time_days: Number(lead), note: form.note.trim(), resources }, error: '' }
 }
 
 /** The reserve one machine's worth of a resource comes to — the N+1 button. */
@@ -336,4 +364,38 @@ export function sparkPath(values: number[], width = 120, height = 28): string {
   return values
     .map((v, i) => `${i === 0 ? 'M' : 'L'}${(i * step).toFixed(1)},${(height - ((v - min) / span) * height).toFixed(1)}`)
     .join(' ')
+}
+
+/** One placement with the pool and zone it belongs to — a row of the Placements tab. */
+export interface PlacementRow {
+  key: string
+  region: string
+  zone: string
+  pool: CapacityPoolView
+  placement: CapacityPlacementView
+}
+
+/** Every placement of every pool, flat, in region / zone / pool / SKU / class order. */
+export function placementRows(ov: CapacityOverview | null | undefined, region: string | 'all' = 'all'): PlacementRow[] {
+  const out: PlacementRow[] = []
+  for (const { region: rc, zone, pool } of poolRows(ov, region)) {
+    for (const placement of pool.placements ?? []) {
+      out.push({ key: `${pool.id}|${placement.sku}|${placement.class}`, region: rc, zone: zone.code, pool, placement })
+    }
+  }
+  return out
+}
+
+/**
+ * What a guaranteed floor of F does to a resource, in the words the editor
+ * shows under the input: how much burstable can ever be sold, and how much
+ * stays guaranteed's whatever burstable does.
+ */
+export function floorEffect(machines: string, perMachine: string, reserve: string, ratio: string, floor: string): { usable: number; envelope: number; floor: number } | null {
+  const n = (v: string) => Number(v.trim().replace(/,/g, '') || '0')
+  const usable = Math.max(0, n(machines) * n(perMachine) - n(reserve))
+  const r = n(ratio) || 1
+  const f = Math.min(n(floor), usable)
+  if (!Number.isFinite(usable) || !Number.isFinite(r) || !Number.isFinite(f) || usable <= 0) return null
+  return { usable, floor: f, envelope: (usable - f) * r }
 }

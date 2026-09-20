@@ -101,8 +101,11 @@ func TestIntegrationCapacityPermissionsAndOverviewShape(t *testing.T) {
 	}
 	zoneAID, zoneBID := zoneA["id"].(string), zoneB["id"].(string)
 
+	// m7n-a overcommits its vCPU, and overcommit is only ever sold as
+	// burstable, so the pool says it enforces all three classes.
+	allClasses := []any{"guaranteed", "burstable", "spot"}
 	poolBody := map[string]any{
-		"name": "m7n-a", "machines": "10", "lead_time_days": 45, "note": "batch one",
+		"name": "m7n-a", "machines": "10", "lead_time_days": 45, "note": "batch one", "classes": allClasses,
 		"resources": []any{
 			map[string]any{"resource": "vcpu", "per_machine": "64", "reserve": "64", "overcommit_ratio": "4"},
 			map[string]any{"resource": "memory_gib", "per_machine": "512", "reserve": "512", "overcommit_ratio": "1"},
@@ -113,13 +116,27 @@ func TestIntegrationCapacityPermissionsAndOverviewShape(t *testing.T) {
 	}
 	pool := op.mustJSON("POST", "/api/v1/capacity/zones/"+zoneAID+"/pools", poolBody, 201)
 	poolID := pool["id"].(string)
-	if pool["name"] != "m7n-a" || pool["machines"] != 10.0 || pool["lead_time_days"] != 45.0 || len(pool["resources"].([]any)) != 2 {
+	if pool["name"] != "m7n-a" || pool["machines"] != 10.0 || pool["lead_time_days"] != 45.0 || len(pool["resources"].([]any)) != 2 || len(pool["classes"].([]any)) != 3 {
 		t.Fatalf("pool = %v", pool)
+	}
+	// A pool that does not say enforces guaranteed and spot — what every
+	// substrate can honour — and is refused an overcommit ratio, with the
+	// reason in words a person can act on.
+	plainBody := map[string]any{"name": "ecs-plain", "machines": "2", "resources": []any{map[string]any{"resource": "vcpu", "per_machine": "64"}}}
+	plain := op.mustJSON("POST", "/api/v1/capacity/zones/"+zoneAID+"/pools", plainBody, 201)
+	if cl := plain["classes"].([]any); len(cl) != 2 || cl[0] != "guaranteed" || cl[1] != "spot" {
+		t.Fatalf("default classes = %v", plain["classes"])
+	}
+	plainID := plain["id"].(string)
+	rec, _ = op.json("PUT", "/api/v1/capacity/pools/"+plainID, map[string]any{"name": "ecs-plain", "machines": "2",
+		"resources": []any{map[string]any{"resource": "vcpu", "per_machine": "64", "overcommit_ratio": "4"}}})
+	if rec.Code != 400 || !strings.Contains(rec.Body.String(), "does not enforce burstable") {
+		t.Fatalf("overcommit without burstable = %d %s", rec.Code, rec.Body.String())
 	}
 	// A SECOND POOL OF THE SAME RESOURCE KIND in the same zone: the whole
 	// reason the family pools had to go.
 	second := bo.mustJSON("POST", "/api/v1/capacity/zones/"+zoneAID+"/pools", map[string]any{
-		"name": "m7n-b", "machines": "5",
+		"name": "m7n-b", "machines": "5", "classes": allClasses,
 		"resources": []any{map[string]any{"resource": "vcpu", "per_machine": "64", "overcommit_ratio": "4"}},
 	}, 201)
 	if rec, _ := op.json("POST", "/api/v1/capacity/zones/"+zoneAID+"/pools", poolBody); rec.Code != 409 {
@@ -140,7 +157,7 @@ func TestIntegrationCapacityPermissionsAndOverviewShape(t *testing.T) {
 		t.Fatalf("customer-owner PUT pool = %d", rec.Code)
 	}
 	grown := map[string]any{
-		"name": "m7n-a", "machines": "12", "lead_time_days": 45, "note": "two more hosts",
+		"name": "m7n-a", "machines": "12", "lead_time_days": 45, "note": "two more hosts", "classes": allClasses,
 		"resources": []any{
 			map[string]any{"resource": "vcpu", "per_machine": "64", "reserve": "64", "overcommit_ratio": "4"},
 			map[string]any{"resource": "memory_gib", "per_machine": "512", "reserve": "512", "overcommit_ratio": "1.5"},
@@ -159,7 +176,7 @@ func TestIntegrationCapacityPermissionsAndOverviewShape(t *testing.T) {
 	// The pools document carries the zone, the pools, the history per pool
 	// (one row per resource per change) and the vocabulary the editor needs.
 	pools := fin.must("GET", "/api/v1/capacity/zones/"+zoneAID+"/pools", 200)
-	if len(pools["pools"].([]any)) != 2 || pools["zone"].(map[string]any)["code"] != "me-east-215a" {
+	if len(pools["pools"].([]any)) != 3 || pools["zone"].(map[string]any)["code"] != "me-east-215a" {
 		t.Fatalf("pools = %v", pools)
 	}
 	if len(pools["resource_kinds"].([]any)) < 7 || len(pools["classes"].([]any)) != 3 {
@@ -268,7 +285,7 @@ func TestIntegrationCapacityPermissionsAndOverviewShape(t *testing.T) {
 			m7 = p.(map[string]any)
 		}
 	}
-	for _, k := range []string{"id", "zone_id", "name", "machines", "lead_time_days", "resources", "resources_view", "placements", "basket", "status", "binding_resource", "utilisation_pct", "order_by_days", "order_by_date", "order_by_resource", "order_by_wall", "late", "zone_unknown"} {
+	for _, k := range []string{"id", "zone_id", "name", "machines", "lead_time_days", "resources", "resources_view", "placements", "basket", "status", "binding_resource", "utilisation_pct", "order_by_days", "order_by_date", "order_by_resource", "order_by_wall", "late", "zone_unknown", "classes"} {
 		if _, ok := m7[k]; !ok {
 			t.Fatalf("pool lacks %q: %v", k, m7)
 		}
@@ -282,7 +299,8 @@ func TestIntegrationCapacityPermissionsAndOverviewShape(t *testing.T) {
 	for _, k := range []string{"raw", "usable", "sellable", "guaranteed", "burstable", "burstable_physical", "spot", "spot_physical", "sold_nominal",
 		"remaining", "guaranteed_ceiling", "physical_used", "physical_free", "stranded", "spot_room", "spot_reclaim", "sized", "utilisation_pct",
 		"status", "overcommitted", "over", "series", "history_days", "soft_wall_days", "soft_wall_date", "hard_wall_days", "hard_wall_date",
-		"order_by_days", "order_by_date", "order_by_wall", "late", "per_machine", "reserve", "overcommit_ratio", "label", "unit"} {
+		"order_by_days", "order_by_date", "order_by_wall", "late", "per_machine", "reserve", "overcommit_ratio", "label", "unit",
+		"guaranteed_floor", "floor_free", "burstable_envelope", "burstable_room"} {
 		if _, ok := cpu[k]; !ok {
 			t.Fatalf("resource lacks %q: %v", k, cpu)
 		}
@@ -321,12 +339,15 @@ func TestIntegrationCapacityPermissionsAndOverviewShape(t *testing.T) {
 		t.Fatalf("unshaped = %v", un)
 	}
 	sum := ov["summary"].(map[string]any)
-	for _, k := range []string{"regions", "zones", "pools", "pools_sized", "pools_warn", "pools_critical", "pools_past_threshold", "pools_to_order", "pools_order_late", "placements", "shapes", "unplaced_skus", "unshaped_skus", "spot_to_reclaim"} {
+	for _, k := range []string{"regions", "zones", "pools", "pools_sized", "pools_warn", "pools_critical", "pools_past_threshold", "pools_to_order", "pools_order_late", "placements", "shapes", "unplaced_skus", "unshaped_skus", "spot_to_reclaim", "class_mismatches"} {
 		if _, ok := sum[k]; !ok {
 			t.Fatalf("summary lacks %q: %v", k, sum)
 		}
 	}
-	if sum["pools"] != 2.0 || sum["pools_sized"] != 2.0 || sum["unshaped_skus"] != 1.0 || sum["placements"] != 1.0 {
+	if _, ok := za["class_mismatches"].([]any); !ok {
+		t.Fatalf("a zone always carries class_mismatches, empty included: %v", za["class_mismatches"])
+	}
+	if sum["pools"] != 3.0 || sum["pools_sized"] != 3.0 || sum["unshaped_skus"] != 1.0 || sum["placements"] != 1.0 {
 		t.Fatalf("summary = %v", sum)
 	}
 
@@ -367,7 +388,7 @@ func TestIntegrationCapacityPermissionsAndOverviewShape(t *testing.T) {
 	}
 	want := []string{
 		"capacity.region@" + opEmail, "capacity.zone@bo@nc.example", "capacity.zone@" + opEmail,
-		"capacity.pool@" + opEmail, "capacity.pool@bo@nc.example", "capacity.pool@bo@nc.example", "capacity.pool@" + opEmail,
+		"capacity.pool@" + opEmail, "capacity.pool@" + opEmail, "capacity.pool@bo@nc.example", "capacity.pool@bo@nc.example", "capacity.pool@" + opEmail,
 		"capacity.shape@" + opEmail, "capacity.shape@" + opEmail,
 		"capacity.resource@" + opEmail,
 		"capacity.placement@" + opEmail,
@@ -376,11 +397,78 @@ func TestIntegrationCapacityPermissionsAndOverviewShape(t *testing.T) {
 		t.Fatalf("audit actions = %v, want %v", actions, want)
 	}
 	// A pool audit carries what it was and what it became, vector and all.
-	if d := details["capacity.pool"][2]; !strings.Contains(d, `"from"`) || !strings.Contains(d, "two more hosts") || !strings.Contains(d, "overcommit_ratio") {
+	if d := details["capacity.pool"][3]; !strings.Contains(d, `"from"`) || !strings.Contains(d, "two more hosts") || !strings.Contains(d, "overcommit_ratio") {
 		t.Fatalf("pool audit detail = %s", d)
 	}
 	if d := details["capacity.placement"][0]; !strings.Contains(d, "guaranteed") {
 		t.Fatalf("placement audit detail = %s", d)
+	}
+
+	// ONE SKU AT A SECOND CLASS on the same pool, and only at a class the pool
+	// enforces.
+	op.mustJSON("PUT", "/api/v1/capacity/placements", map[string]any{"pool_id": poolID, "sku": "ecs.m7n.2xlarge.8", "class": "spot"}, 200)
+	if pls := op.must("GET", "/api/v1/capacity/placements", 200); len(pls["placements"].([]any)) != 2 {
+		t.Fatalf("the same SKU at two classes is two placements: %v", pls["placements"])
+	}
+	rec, _ = op.json("PUT", "/api/v1/capacity/placements", map[string]any{"pool_id": plainID, "sku": "ecs.m7n.2xlarge.8", "class": "burstable"})
+	if rec.Code != 400 || !strings.Contains(rec.Body.String(), "does not enforce burstable") {
+		t.Fatalf("burstable on a pool that cannot enforce it = %d %s", rec.Code, rec.Body.String())
+	}
+	// A family places every flavour of it in one row.
+	fam := op.mustJSON("PUT", "/api/v1/capacity/placements", map[string]any{"pool_id": plainID, "sku": "ecs.s7n.*", "class": "guaranteed"}, 200)
+	if fam["sku"] != "ecs.s7n.*" {
+		t.Fatalf("family placement = %v", fam)
+	}
+
+	// The SKUs a console may offer: nothing is typed by hand.
+	skus := fin.must("GET", "/api/v1/capacity/skus", 200)
+	if len(skus["skus"].([]any)) == 0 || len(skus["families"].([]any)) == 0 {
+		t.Fatalf("skus = %v", skus)
+	}
+	if rec, _ := owner.do("GET", "/api/v1/capacity/skus", "", nil); rec.Code != 403 {
+		t.Fatalf("customer-owner GET skus = %d", rec.Code)
+	}
+
+	// What is RUNNING on the pool, and which class each resource counts at.
+	running := fin.must("GET", "/api/v1/capacity/pools/"+poolID+"/resources", 200)
+	rr := running["resources"].([]any)
+	if len(rr) != 1 || rr[0].(map[string]any)["resource_id"] != "vm-1" || rr[0].(map[string]any)["class"] != "guaranteed" || rr[0].(map[string]any)["class_source"] != "default" {
+		t.Fatalf("running = %v", running)
+	}
+	if _, ok := running["reclaim"].([]any); !ok {
+		t.Fatalf("reclaim is always a list: %v", running["reclaim"])
+	}
+	if rec, _ := owner.do("GET", "/api/v1/capacity/pools/"+poolID+"/resources", "", nil); rec.Code != 403 {
+		t.Fatalf("customer-owner GET running = %d", rec.Code)
+	}
+	// An operator says vm-1 was sold spot: the overview moves with it.
+	classBody := map[string]any{"source_id": src.ID, "resource_id": "vm-1", "class": "spot"}
+	if rec, _ := fin.json("PUT", "/api/v1/capacity/resource-classes", classBody); rec.Code != 403 {
+		t.Fatalf("finance-viewer PUT resource class = %d", rec.Code)
+	}
+	op.mustJSON("PUT", "/api/v1/capacity/resource-classes", classBody, 200)
+	running = fin.must("GET", "/api/v1/capacity/pools/"+poolID+"/resources", 200)
+	if r0 := running["resources"].([]any)[0].(map[string]any); r0["class"] != "spot" || r0["class_source"] != "override" {
+		t.Fatalf("after the override = %v", r0)
+	}
+	if rec, _ := op.json("PUT", "/api/v1/capacity/resource-classes", map[string]any{"source_id": src.ID, "resource_id": "vm-nope", "class": "spot"}); rec.Code != 404 {
+		t.Fatalf("override on an unknown resource = %d", rec.Code)
+	}
+	op.mustJSON("PUT", "/api/v1/capacity/resource-classes", map[string]any{"source_id": src.ID, "resource_id": "vm-1", "class": nil}, 200)
+
+	// Removing ONE class leaves the other.
+	if rec, _ := fin.do("DELETE", "/api/v1/capacity/placements?pool_id="+poolID+"&sku=ecs.m7n.2xlarge.8&class=spot", "", nil); rec.Code != 403 {
+		t.Fatalf("finance-viewer DELETE placement = %d", rec.Code)
+	}
+	gone := op.must("DELETE", "/api/v1/capacity/placements?pool_id="+poolID+"&sku=ecs.m7n.2xlarge.8&class=spot", 200)
+	if gone["removed"] != 1.0 {
+		t.Fatalf("removed = %v", gone)
+	}
+	if rec, _ := op.do("DELETE", "/api/v1/capacity/placements?pool_id="+poolID+"&sku=ecs.m7n.2xlarge.8&class=spot", "", nil); rec.Code != 404 {
+		t.Fatalf("removing it twice = %d", rec.Code)
+	}
+	if rec, _ := op.do("DELETE", "/api/v1/capacity/placements?sku=x", "", nil); rec.Code != 400 {
+		t.Fatalf("DELETE placement without a pool = %d", rec.Code)
 	}
 
 	// Deletion, audited; the viewer is refused.

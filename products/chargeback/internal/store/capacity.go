@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"math/big"
 	"sort"
@@ -13,6 +12,7 @@ import (
 	"github.com/lib/pq"
 
 	"github.com/openova-io/openova/products/chargeback/internal/capacity"
+	"github.com/openova-io/openova/products/chargeback/internal/word"
 )
 
 // Capacity management (DESIGN.md §11, EPIC #6867).
@@ -262,6 +262,76 @@ var MigrationCapacityPools = func() int {
 	return len(migrations)
 }()
 
+// capacityClassesMigrationSQL teaches the pool which classes it can enforce,
+// lets ONE SKU sit on a pool at several classes, adds the guaranteed floor
+// and the per-resource class override (founder direction 2026-09-20). ONE
+// transaction, appended at the END of migrations: they are positional.
+//
+// WHAT HAPPENS TO WHAT IS ALREADY THERE:
+//
+//   - EVERY EXISTING POOL KEEPS EVERY CLASS IT ALREADY USES. The new default
+//     is {guaranteed, spot} — burstable is opted into — but a pool that
+//     already carries a burstable placement, or an overcommit ratio other
+//     than 1 (overcommit IS burstable), gains burstable too. Nothing an
+//     operator entered is refused by the migration that introduced the rule.
+//   - PLACEMENTS KEEP THEIR ROWS; only the key widens from (pool, sku) to
+//     (pool, sku, class), so nothing can collide.
+//   - THE FLOOR STARTS AT 0, which is the arithmetic every pool had until
+//     now, to the last decimal.
+func capacityClassesMigrationSQL() string {
+	return `
+ALTER TABLE capacity_pools ADD COLUMN IF NOT EXISTS classes TEXT[] NOT NULL DEFAULT ARRAY['guaranteed','spot'];
+UPDATE capacity_pools p SET classes = ARRAY(
+	SELECT v.c FROM (VALUES ('guaranteed', 1), ('burstable', 2), ('spot', 3)) AS v(c, ord)
+	 WHERE v.c IN ('guaranteed', 'spot')
+	    OR EXISTS (SELECT 1 FROM capacity_placements pl WHERE pl.pool_id = p.id AND pl.class = v.c)
+	    OR (v.c = 'burstable' AND EXISTS (SELECT 1 FROM capacity_pool_resources pr WHERE pr.pool_id = p.id AND pr.overcommit_ratio <> 1))
+	 ORDER BY v.ord);
+DO $cap$ BEGIN
+	IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'capacity_pools'::regclass AND conname = 'capacity_pools_classes_check') THEN
+		ALTER TABLE capacity_pools ADD CONSTRAINT capacity_pools_classes_check
+			CHECK (cardinality(classes) > 0 AND classes <@ ARRAY['guaranteed','burstable','spot']);
+	END IF;
+END $cap$;
+
+ALTER TABLE capacity_pool_resources ADD COLUMN IF NOT EXISTS guaranteed_floor NUMERIC(20,6) NOT NULL DEFAULT 0;
+DO $cap$ BEGIN
+	IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'capacity_pool_resources'::regclass AND conname = 'capacity_pool_resources_guaranteed_floor_check') THEN
+		ALTER TABLE capacity_pool_resources ADD CONSTRAINT capacity_pool_resources_guaranteed_floor_check CHECK (guaranteed_floor >= 0);
+	END IF;
+END $cap$;
+ALTER TABLE capacity_pool_history ADD COLUMN IF NOT EXISTS guaranteed_floor NUMERIC(20,6) NOT NULL DEFAULT 0;
+
+-- One SKU, one pool, up to three classes.
+ALTER TABLE capacity_placements DROP CONSTRAINT IF EXISTS capacity_placements_pkey;
+ALTER TABLE capacity_placements ADD CONSTRAINT capacity_placements_pkey PRIMARY KEY (pool_id, sku, class);
+
+-- Which class ONE running resource was sold at, when an operator says so.
+-- It outranks the resource's own lifecycle tag; with neither, the resource
+-- counts at the most conservative class its SKU is placed at.
+CREATE TABLE IF NOT EXISTS capacity_resource_classes (
+	source_id UUID NOT NULL REFERENCES cost_sources(id) ON DELETE CASCADE,
+	resource_id TEXT NOT NULL CHECK (resource_id <> ''),
+	class TEXT NOT NULL CHECK (class IN ('guaranteed','burstable','spot')),
+	set_by TEXT NOT NULL DEFAULT '',
+	set_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (source_id, resource_id)
+);
+`
+}
+
+// MigrationCapacityClasses is the schema_migrations version of the class
+// migration, located by content like the others.
+var MigrationCapacityClasses = func() int {
+	want := capacityClassesMigrationSQL()
+	for i, m := range migrations {
+		if m == want {
+			return i + 1
+		}
+	}
+	return len(migrations)
+}()
+
 // ---------------------------------------------------------------------------
 // types
 // ---------------------------------------------------------------------------
@@ -309,6 +379,10 @@ type CapacityPoolResource struct {
 	// own units — N+1 is one machine's worth.
 	Reserve         Decimal `json:"reserve"`
 	OvercommitRatio Decimal `json:"overcommit_ratio"`
+	// GuaranteedFloor is physical capacity burstable may never be sold into,
+	// in the resource's own units. It exists only where the pool enforces
+	// burstable; spot may still run in it while it is idle.
+	GuaranteedFloor Decimal `json:"guaranteed_floor"`
 }
 
 // CapacityPool is a named set of identical machines in a zone.
@@ -325,6 +399,9 @@ type CapacityPool struct {
 	RegionCode string  `json:"region_code,omitempty"`
 	Name       string  `json:"name"`
 	Machines   Decimal `json:"machines"`
+	// Classes is what this pool can ENFORCE, in canonical order. A placement
+	// may only use one of these. Always on the wire, never empty.
+	Classes []string `json:"classes"`
 	// LeadTimeDays is how long procurement takes. It is what turns a wall
 	// into an ORDER-BY date, which is the date that matters.
 	LeadTimeDays int                    `json:"lead_time_days"`
@@ -346,6 +423,7 @@ type CapacityPoolChange struct {
 	PerMachine      Decimal   `json:"per_machine"`
 	Reserve         Decimal   `json:"reserve"`
 	OvercommitRatio Decimal   `json:"overcommit_ratio"`
+	GuaranteedFloor Decimal   `json:"guaranteed_floor"`
 	Total           Decimal   `json:"total"` // machines × per_machine, the raw
 	Source          string    `json:"source"`
 	Note            string    `json:"note"`
@@ -363,7 +441,9 @@ type CapacityShape struct {
 	UpdatedAt *time.Time         `json:"updated_at,omitempty"`
 }
 
-// CapacityPlacement says a SKU sells out of a pool, at a class.
+// CapacityPlacement says a SKU — or a FAMILY of SKUs, "ecs.m7n.*" — sells out
+// of a pool, at a class. The key is (pool, sku, class): one SKU may sit on a
+// pool once per class the pool enforces.
 type CapacityPlacement struct {
 	PoolID     string    `json:"pool_id"`
 	PoolName   string    `json:"pool_name,omitempty"`
@@ -625,22 +705,33 @@ func (s *Store) PutCapacityResourceKind(ctx context.Context, resource, label, un
 
 // CapacityPoolInput is a pool as the operator states it.
 type CapacityPoolInput struct {
-	Name         string                 `json:"name"`
-	Machines     Decimal                `json:"machines"`
+	Name     string  `json:"name"`
+	Machines Decimal `json:"machines"`
+	// Classes is what the pool can enforce. Absent on a create it is
+	// capacity.DefaultPoolClasses; absent on an update it is left as it was.
+	Classes      []string               `json:"classes"`
 	LeadTimeDays int                    `json:"lead_time_days"`
 	Note         string                 `json:"note"`
 	Resources    []CapacityPoolResource `json:"resources"`
 }
 
-const capacityPoolColumns = `p.id, p.zone_id, z.code, r.code, p.name, p.machines::text, p.lead_time_days, p.source, p.note, p.updated_by, p.updated_at, p.created_at`
+const capacityPoolColumns = `p.id, p.zone_id, z.code, r.code, p.name, p.machines::text, p.classes, p.lead_time_days, p.source, p.note, p.updated_by, p.updated_at, p.created_at`
 
 func scanCapacityPool(row interface{ Scan(...any) error }) (CapacityPool, error) {
 	var p CapacityPool
 	var machines string
-	if err := row.Scan(&p.ID, &p.ZoneID, &p.ZoneCode, &p.RegionCode, &p.Name, &machines, &p.LeadTimeDays, &p.Source, &p.Note, &p.UpdatedBy, &p.UpdatedAt, &p.CreatedAt); err != nil {
+	var classes pq.StringArray
+	if err := row.Scan(&p.ID, &p.ZoneID, &p.ZoneCode, &p.RegionCode, &p.Name, &machines, &classes, &p.LeadTimeDays, &p.Source, &p.Note, &p.UpdatedBy, &p.UpdatedAt, &p.CreatedAt); err != nil {
 		return p, mapErr(err)
 	}
 	p.Machines = Decimal(machines)
+	// Canonical order whatever the row holds, and never an absent key.
+	p.Classes = []string{}
+	for _, c := range capacity.ClassKeys() {
+		if capacity.HasClass(classes, c) {
+			p.Classes = append(p.Classes, c)
+		}
+	}
 	p.UpdatedAt, p.CreatedAt = p.UpdatedAt.UTC(), p.CreatedAt.UTC()
 	p.Resources = []CapacityPoolResource{}
 	return p, nil
@@ -657,7 +748,7 @@ func (s *Store) loadPoolResources(ctx context.Context, pools []CapacityPool) err
 		idx[pools[i].ID] = i
 		ids = append(ids, pools[i].ID)
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT pr.pool_id, pr.resource, k.label, k.unit, pr.per_machine::text, pr.reserve::text, pr.overcommit_ratio::text
+	rows, err := s.db.QueryContext(ctx, `SELECT pr.pool_id, pr.resource, k.label, k.unit, pr.per_machine::text, pr.reserve::text, pr.overcommit_ratio::text, pr.guaranteed_floor::text
 		FROM capacity_pool_resources pr JOIN capacity_resource_kinds k ON k.resource = pr.resource
 		WHERE pr.pool_id = ANY($1) ORDER BY k.position, pr.resource`, pq.Array(ids))
 	if err != nil {
@@ -667,11 +758,11 @@ func (s *Store) loadPoolResources(ctx context.Context, pools []CapacityPool) err
 	for rows.Next() {
 		var poolID string
 		var r CapacityPoolResource
-		var per, reserve, ratio string
-		if err := rows.Scan(&poolID, &r.Resource, &r.Label, &r.Unit, &per, &reserve, &ratio); err != nil {
+		var per, reserve, ratio, floor string
+		if err := rows.Scan(&poolID, &r.Resource, &r.Label, &r.Unit, &per, &reserve, &ratio, &floor); err != nil {
 			return err
 		}
-		r.PerMachine, r.Reserve, r.OvercommitRatio = Decimal(per), Decimal(reserve), Decimal(ratio)
+		r.PerMachine, r.Reserve, r.OvercommitRatio, r.GuaranteedFloor = Decimal(per), Decimal(reserve), Decimal(ratio), Decimal(floor)
 		if i, ok := idx[poolID]; ok {
 			pools[i].Resources = append(pools[i].Resources, r)
 		}
@@ -731,11 +822,23 @@ func validNonNegativeDecimal(s string) bool {
 }
 
 // cleanPoolInput validates a pool as stated and returns it normalised.
-func cleanPoolInput(in CapacityPoolInput) (CapacityPoolInput, error) {
+// fallbackClasses is what the pool enforces when the input does not say: the
+// default on a create, what the pool already enforces on an update.
+func cleanPoolInput(in CapacityPoolInput, fallbackClasses []string) (CapacityPoolInput, error) {
 	out := CapacityPoolInput{Name: strings.TrimSpace(in.Name), LeadTimeDays: in.LeadTimeDays, Note: strings.TrimSpace(in.Note)}
 	if out.Name == "" {
 		return out, fmt.Errorf("%w: name is required: what this set of machines is called, e.g. m7n-a", ErrInvalid)
 	}
+	stated := in.Classes
+	if len(stated) == 0 {
+		stated = fallbackClasses
+	}
+	classes, err := capacity.NormClasses(stated)
+	if err != nil {
+		return out, fmt.Errorf("%w: %s", ErrInvalid, err.Error())
+	}
+	out.Classes = classes
+	burstable := capacity.HasClass(classes, capacity.ClassBurstable)
 	machines := strings.TrimSpace(string(in.Machines))
 	if machines == "" {
 		machines = "0"
@@ -778,7 +881,33 @@ func cleanPoolInput(in CapacityPoolInput) (CapacityPoolInput, error) {
 		if !validNonNegativeDecimal(ratio) || ratOf(Decimal(ratio)).Sign() == 0 {
 			return out, fmt.Errorf("%w: %s overcommit_ratio must be a positive number (1 is no oversubscription)", ErrInvalid, key)
 		}
-		out.Resources = append(out.Resources, CapacityPoolResource{Resource: key, PerMachine: Decimal(per), Reserve: Decimal(reserve), OvercommitRatio: Decimal(ratio)})
+		floor := strings.TrimSpace(string(r.GuaranteedFloor))
+		if floor == "" {
+			floor = "0"
+		}
+		if !validNonNegativeDecimal(floor) {
+			return out, fmt.Errorf("%w: %s guaranteed_floor must be a non-negative number", ErrInvalid, key)
+		}
+		// Overcommit and the floor are BURSTABLE's two numbers: the ratio is
+		// how far burstable is oversold and the floor is what it is kept out
+		// of. On a pool that cannot enforce burstable both would be figures
+		// about a class nobody can buy, so they are refused rather than kept.
+		if !burstable {
+			if ratOf(Decimal(ratio)).Cmp(big.NewRat(1, 1)) != 0 {
+				return out, fmt.Errorf("%w: %s overcommit_ratio is %s, but this pool does not enforce burstable, and overcommit is only ever sold as burstable: leave the ratio at 1, or add burstable to the pool's classes", ErrInvalid, key, ratio)
+			}
+			if ratOf(Decimal(floor)).Sign() != 0 {
+				return out, fmt.Errorf("%w: %s guaranteed_floor is %s, but this pool does not enforce burstable, so there is nothing to keep out of it: leave the floor at 0, or add burstable to the pool's classes", ErrInvalid, key, floor)
+			}
+		}
+		usable := new(big.Rat).Sub(new(big.Rat).Mul(ratOf(Decimal(machines)), ratOf(Decimal(per))), ratOf(Decimal(reserve)))
+		if usable.Sign() < 0 {
+			usable = new(big.Rat)
+		}
+		if ratOf(Decimal(floor)).Cmp(usable) > 0 {
+			return out, fmt.Errorf("%w: %s guaranteed_floor is %s but only %s is usable (machines x per machine, less the reserve): a floor cannot ring-fence more than the pool holds", ErrInvalid, key, floor, decOf(usable))
+		}
+		out.Resources = append(out.Resources, CapacityPoolResource{Resource: key, PerMachine: Decimal(per), Reserve: Decimal(reserve), OvercommitRatio: Decimal(ratio), GuaranteedFloor: Decimal(floor)})
 	}
 	if len(out.Resources) == 0 {
 		return out, fmt.Errorf("%w: a pool holds at least one resource: a machine with nothing in it is not capacity", ErrInvalid)
@@ -788,7 +917,7 @@ func cleanPoolInput(in CapacityPoolInput) (CapacityPoolInput, error) {
 
 // CreateCapacityPool adds a pool to a zone and records its first size.
 func (s *Store) CreateCapacityPool(ctx context.Context, zoneID string, in CapacityPoolInput, actor string) (CapacityPool, error) {
-	clean, err := cleanPoolInput(in)
+	clean, err := cleanPoolInput(in, capacity.DefaultPoolClasses)
 	if err != nil {
 		return CapacityPool{}, err
 	}
@@ -805,8 +934,8 @@ func (s *Store) CreateCapacityPool(ctx context.Context, zoneID string, in Capaci
 		return CapacityPool{}, ErrNotFound
 	}
 	var id string
-	if err := tx.QueryRowContext(ctx, `INSERT INTO capacity_pools (zone_id, name, machines, lead_time_days, source, note, updated_by) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-		zoneID, clean.Name, string(clean.Machines), clean.LeadTimeDays, capacity.SourceManual, clean.Note, actor).Scan(&id); err != nil {
+	if err := tx.QueryRowContext(ctx, `INSERT INTO capacity_pools (zone_id, name, machines, classes, lead_time_days, source, note, updated_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+		zoneID, clean.Name, string(clean.Machines), pq.Array(clean.Classes), clean.LeadTimeDays, capacity.SourceManual, clean.Note, actor).Scan(&id); err != nil {
 		return CapacityPool{}, mapErr(err)
 	}
 	if err := writePoolResources(ctx, tx, id, clean, actor); err != nil {
@@ -821,21 +950,36 @@ func (s *Store) CreateCapacityPool(ctx context.Context, zoneID string, in Capaci
 // SetCapacityPool replaces a pool's size and policy, records one history row
 // per resource and returns the pool as it was before (for the audit entry).
 func (s *Store) SetCapacityPool(ctx context.Context, id string, in CapacityPoolInput, actor string) (pool, previous CapacityPool, err error) {
-	clean, err := cleanPoolInput(in)
-	if err != nil {
-		return CapacityPool{}, CapacityPool{}, err
-	}
 	previous, err = s.GetCapacityPool(ctx, id)
 	if err != nil {
 		return CapacityPool{}, CapacityPool{}, err
+	}
+	clean, err := cleanPoolInput(in, previous.Classes)
+	if err != nil {
+		return CapacityPool{}, previous, err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return CapacityPool{}, previous, err
 	}
 	defer tx.Rollback()
-	res, err := tx.ExecContext(ctx, `UPDATE capacity_pools SET name = $2, machines = $3, lead_time_days = $4, source = $5, note = $6, updated_by = $7, updated_at = now() WHERE id = $1`,
-		id, clean.Name, string(clean.Machines), clean.LeadTimeDays, capacity.SourceManual, clean.Note, actor)
+	// A class cannot be withdrawn from under the placements that use it: the
+	// SKUs sold at it would silently start counting at another class. Name
+	// them, so the operator knows exactly what to move first.
+	for _, c := range previous.Classes {
+		if capacity.HasClass(clean.Classes, c) {
+			continue
+		}
+		var skus pq.StringArray
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(array_agg(sku ORDER BY sku), '{}') FROM capacity_placements WHERE pool_id = $1 AND class = $2`, id, c).Scan(&skus); err != nil {
+			return CapacityPool{}, previous, mapErr(err)
+		}
+		if len(skus) > 0 {
+			return CapacityPool{}, previous, fmt.Errorf("%w: this pool still has %s placed as %s (%s): remove those placements before it stops enforcing %s", ErrConflict, word.Count(len(skus), "SKU"), c, strings.Join(skus, ", "), c)
+		}
+	}
+	res, err := tx.ExecContext(ctx, `UPDATE capacity_pools SET name = $2, machines = $3, classes = $8, lead_time_days = $4, source = $5, note = $6, updated_by = $7, updated_at = now() WHERE id = $1`,
+		id, clean.Name, string(clean.Machines), clean.LeadTimeDays, capacity.SourceManual, clean.Note, actor, pq.Array(clean.Classes))
 	if err != nil {
 		return CapacityPool{}, previous, mapErr(err)
 	}
@@ -871,14 +1015,14 @@ func writePoolResources(ctx context.Context, tx txExec, poolID string, clean Cap
 	}
 	machines := ratOf(clean.Machines)
 	for _, r := range clean.Resources {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO capacity_pool_resources (pool_id, resource, per_machine, reserve, overcommit_ratio) VALUES ($1, $2, $3, $4, $5)`,
-			poolID, r.Resource, string(r.PerMachine), string(r.Reserve), string(r.OvercommitRatio)); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO capacity_pool_resources (pool_id, resource, per_machine, reserve, overcommit_ratio, guaranteed_floor) VALUES ($1, $2, $3, $4, $5, $6)`,
+			poolID, r.Resource, string(r.PerMachine), string(r.Reserve), string(r.OvercommitRatio), string(r.GuaranteedFloor)); err != nil {
 			return mapErr(err)
 		}
 		raw := decOf(new(big.Rat).Mul(machines, ratOf(r.PerMachine)))
-		if _, err := tx.ExecContext(ctx, `INSERT INTO capacity_pool_history (pool_id, resource, machines, per_machine, reserve, overcommit_ratio, total, source, note, changed_by)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-			poolID, r.Resource, string(clean.Machines), string(r.PerMachine), string(r.Reserve), string(r.OvercommitRatio), string(raw), capacity.SourceManual, clean.Note, actor); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO capacity_pool_history (pool_id, resource, machines, per_machine, reserve, overcommit_ratio, guaranteed_floor, total, source, note, changed_by)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+			poolID, r.Resource, string(clean.Machines), string(r.PerMachine), string(r.Reserve), string(r.OvercommitRatio), string(r.GuaranteedFloor), string(raw), capacity.SourceManual, clean.Note, actor); err != nil {
 			return mapErr(err)
 		}
 	}
@@ -908,7 +1052,7 @@ func (s *Store) ListCapacityPoolHistory(ctx context.Context, poolID string, limi
 	if limit <= 0 || limit > 500 {
 		limit = 50
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id, pool_id, resource, machines::text, per_machine::text, reserve::text, overcommit_ratio::text, total::text, source, note, changed_by, changed_at
+	rows, err := s.db.QueryContext(ctx, `SELECT id, pool_id, resource, machines::text, per_machine::text, reserve::text, overcommit_ratio::text, guaranteed_floor::text, total::text, source, note, changed_by, changed_at
 		FROM capacity_pool_history WHERE pool_id = $1 ORDER BY changed_at DESC, id DESC LIMIT $2`, poolID, limit)
 	if err != nil {
 		return nil, mapErr(err)
@@ -917,11 +1061,11 @@ func (s *Store) ListCapacityPoolHistory(ctx context.Context, poolID string, limi
 	out := []CapacityPoolChange{}
 	for rows.Next() {
 		var c CapacityPoolChange
-		var machines, per, reserve, ratio, total string
-		if err := rows.Scan(&c.ID, &c.PoolID, &c.Resource, &machines, &per, &reserve, &ratio, &total, &c.Source, &c.Note, &c.ChangedBy, &c.ChangedAt); err != nil {
+		var machines, per, reserve, ratio, floor, total string
+		if err := rows.Scan(&c.ID, &c.PoolID, &c.Resource, &machines, &per, &reserve, &ratio, &floor, &total, &c.Source, &c.Note, &c.ChangedBy, &c.ChangedAt); err != nil {
 			return nil, err
 		}
-		c.Machines, c.PerMachine, c.Reserve, c.OvercommitRatio, c.Total = Decimal(machines), Decimal(per), Decimal(reserve), Decimal(ratio), Decimal(total)
+		c.Machines, c.PerMachine, c.Reserve, c.OvercommitRatio, c.GuaranteedFloor, c.Total = Decimal(machines), Decimal(per), Decimal(reserve), Decimal(ratio), Decimal(floor), Decimal(total)
 		c.ChangedAt = c.ChangedAt.UTC()
 		out = append(out, c)
 	}
@@ -1041,7 +1185,8 @@ func (s *Store) ListCapacityPlacements(ctx context.Context) ([]CapacityPlacement
 		JOIN capacity_pools p ON p.id = pl.pool_id
 		JOIN capacity_zones z ON z.id = p.zone_id
 		JOIN capacity_regions r ON r.id = z.region_id
-		ORDER BY r.code, z.code, p.name, pl.sku`)
+		ORDER BY r.code, z.code, p.name, pl.sku,
+			CASE pl.class WHEN 'guaranteed' THEN 1 WHEN 'burstable' THEN 2 ELSE 3 END`)
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -1057,24 +1202,32 @@ func (s *Store) ListCapacityPlacements(ctx context.Context) ([]CapacityPlacement
 	return out, rows.Err()
 }
 
-// PutCapacityPlacement places a SKU on a pool at a class.
+// PutCapacityPlacement places a SKU — or a family, "ecs.m7n.*" — on a pool at
+// a class. It is idempotent on (pool, sku, class), and the same SKU may be
+// placed on the same pool once per class: guaranteed, burstable and spot are
+// three placements of one SKU at three prices.
 //
 // Two things are validated, and both are the kind of mistake that otherwise
 // reads as a silent zero:
 //
+//   - THE POOL MUST ENFORCE THE CLASS. A burstable placement on a pool whose
+//     substrate cannot throttle is a product nobody can deliver.
 //   - THE SHAPE MUST TOUCH THE POOL. A SKU whose vector names no resource the
 //     pool holds would consume nothing there, which is never what the
-//     operator meant.
-//   - THE CLASS IS THE SKU'S, NOT THE PLACEMENT'S ALONE. A SKU is a product
-//     at a price, and a price is quoted for one class; placing the same SKU
-//     as guaranteed on one pool and spot on another would split its
-//     consumption across two classes whose arithmetic means opposite things.
-//     A second placement must carry the same class.
+//     operator meant. A FAMILY is checked at read time instead — what it
+//     matches is not known until it is metered — and a member that touches
+//     nothing here is listed by name as resource-unplaced.
 func (s *Store) PutCapacityPlacement(ctx context.Context, poolID, sku, class, actor string) (CapacityPlacement, error) {
 	sku = strings.TrimSpace(sku)
 	class = strings.ToLower(strings.TrimSpace(class))
 	if sku == "" {
 		return CapacityPlacement{}, fmt.Errorf("%w: sku is required", ErrInvalid)
+	}
+	if !capacity.ValidPlacementSKU(sku) {
+		return CapacityPlacement{}, fmt.Errorf("%w: %q is neither a SKU nor a family: a family is a dotted prefix ending in .*, e.g. ecs.m7n.*", ErrInvalid, sku)
+	}
+	if capacity.IsFamily(sku) {
+		sku = strings.ToLower(sku)
 	}
 	if !capacity.ValidClass(class) {
 		return CapacityPlacement{}, fmt.Errorf("%w: class must be one of %s", ErrInvalid, strings.Join(capacity.ClassKeys(), ", "))
@@ -1083,64 +1236,67 @@ func (s *Store) PutCapacityPlacement(ctx context.Context, poolID, sku, class, ac
 	if err != nil {
 		return CapacityPlacement{}, err
 	}
-	shape, err := s.shapeOf(ctx, sku)
-	if err != nil {
-		return CapacityPlacement{}, err
+	if !capacity.HasClass(pool.Classes, class) {
+		return CapacityPlacement{}, fmt.Errorf("%w: pool %s does not enforce %s (it enforces %s): a class nothing can enforce is a label, not a product. Add %s to the pool's classes if its substrate really can", ErrInvalid, pool.Name, class, strings.Join(pool.Classes, ", "), class)
 	}
-	if len(shape.Resources) == 0 {
-		return CapacityPlacement{}, fmt.Errorf("%w: %s has no shape: say how much of each resource one unit consumes before placing it", ErrInvalid, sku)
-	}
-	held := map[string]bool{}
-	for _, r := range pool.Resources {
-		held[r.Resource] = true
-	}
-	touches := false
-	for res := range shape.Resources {
-		if held[res] {
-			touches = true
-			break
+	if !capacity.IsFamily(sku) {
+		shape, err := s.shapeOf(ctx, sku)
+		if err != nil {
+			return CapacityPlacement{}, err
 		}
-	}
-	if !touches {
-		want := make([]string, 0, len(shape.Resources))
-		for res := range shape.Resources {
-			want = append(want, res)
+		if len(shape.Resources) == 0 {
+			return CapacityPlacement{}, fmt.Errorf("%w: %s has no shape: say how much of each resource one unit consumes before placing it", ErrInvalid, sku)
 		}
-		sort.Strings(want)
-		has := make([]string, 0, len(pool.Resources))
+		held := map[string]bool{}
 		for _, r := range pool.Resources {
-			has = append(has, r.Resource)
+			held[r.Resource] = true
 		}
-		return CapacityPlacement{}, fmt.Errorf("%w: %s consumes %s and pool %s holds %s: the shape and the pool share no resource", ErrInvalid, sku, strings.Join(want, ", "), pool.Name, strings.Join(has, ", "))
-	}
-	var otherClass, otherPool string
-	err = s.db.QueryRowContext(ctx, `SELECT pl.class, p.name FROM capacity_placements pl JOIN capacity_pools p ON p.id = pl.pool_id
-		WHERE pl.sku = $1 AND pl.pool_id <> $2 LIMIT 1`, sku, poolID).Scan(&otherClass, &otherPool)
-	switch {
-	case err == nil && otherClass != class:
-		return CapacityPlacement{}, fmt.Errorf("%w: %s is already placed on %s as %s; a SKU is one product at one price and carries one class", ErrInvalid, sku, otherPool, otherClass)
-	case err != nil && !errors.Is(err, sql.ErrNoRows):
-		return CapacityPlacement{}, mapErr(err)
+		touches := false
+		for res := range shape.Resources {
+			if held[res] {
+				touches = true
+				break
+			}
+		}
+		if !touches {
+			want := make([]string, 0, len(shape.Resources))
+			for res := range shape.Resources {
+				want = append(want, res)
+			}
+			sort.Strings(want)
+			has := make([]string, 0, len(pool.Resources))
+			for _, r := range pool.Resources {
+				has = append(has, r.Resource)
+			}
+			return CapacityPlacement{}, fmt.Errorf("%w: %s consumes %s and pool %s holds %s: the shape and the pool share no resource", ErrInvalid, sku, strings.Join(want, ", "), pool.Name, strings.Join(has, ", "))
+		}
 	}
 	if _, err := s.db.ExecContext(ctx, `INSERT INTO capacity_placements (pool_id, sku, class, updated_by) VALUES ($1, $2, $3, $4)
-		ON CONFLICT (pool_id, sku) DO UPDATE SET class = EXCLUDED.class, updated_by = EXCLUDED.updated_by, updated_at = now()`, poolID, sku, class, actor); err != nil {
+		ON CONFLICT (pool_id, sku, class) DO UPDATE SET updated_by = EXCLUDED.updated_by, updated_at = now()`, poolID, sku, class, actor); err != nil {
 		return CapacityPlacement{}, mapErr(err)
 	}
 	return scanCapacityPlacement(s.db.QueryRowContext(ctx, `SELECT `+capacityPlacementColumns+` FROM capacity_placements pl
 		JOIN capacity_pools p ON p.id = pl.pool_id JOIN capacity_zones z ON z.id = p.zone_id JOIN capacity_regions r ON r.id = z.region_id
-		WHERE pl.pool_id = $1 AND pl.sku = $2`, poolID, sku))
+		WHERE pl.pool_id = $1 AND pl.sku = $2 AND pl.class = $3`, poolID, sku, class))
 }
 
-// DeleteCapacityPlacement removes a placement; ErrNotFound when there was none.
-func (s *Store) DeleteCapacityPlacement(ctx context.Context, poolID, sku string) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM capacity_placements WHERE pool_id = $1 AND sku = $2`, poolID, strings.TrimSpace(sku))
+// DeleteCapacityPlacement removes ONE (pool, sku, class); with class "" it
+// removes the SKU from the pool at every class. It returns how many rows
+// went; ErrNotFound when there was none.
+func (s *Store) DeleteCapacityPlacement(ctx context.Context, poolID, sku, class string) (int, error) {
+	class = strings.ToLower(strings.TrimSpace(class))
+	if class != "" && !capacity.ValidClass(class) {
+		return 0, fmt.Errorf("%w: class must be one of %s", ErrInvalid, strings.Join(capacity.ClassKeys(), ", "))
+	}
+	res, err := s.db.ExecContext(ctx, `DELETE FROM capacity_placements WHERE pool_id = $1 AND lower(sku) = lower($2) AND ($3 = '' OR class = $3)`, poolID, strings.TrimSpace(sku), class)
 	if err != nil {
-		return mapErr(err)
+		return 0, mapErr(err)
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNotFound
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return 0, ErrNotFound
 	}
-	return nil
+	return int(n), nil
 }
 
 // shapeOf is the stored shape of a SKU, or the one its name implies.

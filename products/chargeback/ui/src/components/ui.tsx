@@ -53,17 +53,22 @@ export function Tabs({
   counts,
 }: {
   base: string
-  tabs: string[]
+  /**
+   * A tab is its label, whose lower-cased text is also its key — or, when the
+   * label is not fit to sit in a URL ("Regions & zones"), a key and a label.
+   */
+  tabs: Array<string | { key: string; label: string }>
   current: string
   counts?: Record<string, number | undefined>
 }) {
   return (
     <nav className="tabs">
-      {tabs.map((t) => {
-        const key = t.toLowerCase()
+      {tabs.map((tab) => {
+        const key = typeof tab === 'string' ? tab.toLowerCase() : tab.key
+        const t = typeof tab === 'string' ? tab : tab.label
         const n = counts?.[key]
         return (
-          <NavLink key={t} to={`${base}?tab=${key}`} className={current === key ? 'active' : ''}>
+          <NavLink key={key} to={`${base}?tab=${key}`} className={current === key ? 'active' : ''}>
             {t}
             {typeof n === 'number' ? <span className="count">{n}</span> : null}
           </NavLink>

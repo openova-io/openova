@@ -14,7 +14,23 @@ import (
 //	raw      = machines × per_machine
 //	usable   = raw − reserve
 //	G        = Σ guaranteed placements' consumption, AT 1:1, ALWAYS
-//	sellable = G + (usable − G) × ratio
+//	F        = the guaranteed FLOOR: physical capacity burstable may never
+//	           draw on (0 when the operator ring-fences nothing)
+//	held     = max(G, F)                  what guaranteed holds or is held for it
+//	envelope = (usable − held) × ratio    ALL the burstable there is to sell
+//	sellable = held + envelope
+//
+// WHY THE FLOOR EXISTS. Without it the envelope is computed from what is
+// sold TODAY: usable 100 at 2.5:1 with nothing guaranteed yet reads 250
+// burstable, burstable arrives first and takes every physical unit, and the
+// guaranteed order that comes later has nowhere to land. A floor of 60 caps
+// the envelope at (100 − 60) × 2.5 = 100 whatever order the sales arrive in,
+// and guaranteed keeps its 60. TestFloorKeepsBurstableOutOfGuaranteedRoom
+// pins exactly that case.
+//
+// The floor binds BURSTABLE ONLY. Spot may run in idle floor capacity,
+// because spot is reclaimed the moment a guarantee wants the room — that is
+// what spot is for — so an idle floor is not wasted hardware.
 //
 // IT IS NOT usable × ratio − G. Guaranteed capacity consumes PHYSICAL
 // capacity; only what physically remains is multiplied. Every guaranteed unit
@@ -65,6 +81,11 @@ type ResourceState struct {
 	// run 4:1 while RAM on the same machines runs 1:1 or 1.5:1 with
 	// ballooning; a ratio is never global.
 	Ratio *big.Rat
+	// Floor is the guaranteed floor of this resource on this pool, in
+	// PHYSICAL units: capacity burstable may never be sold into. nil is 0.
+	// It is clamped to usable — a floor larger than the hardware ring-fences
+	// all of it and no more.
+	Floor *big.Rat
 	// Guaranteed, Burstable and Spot are the current consumption of this
 	// resource by class, in NOMINAL units — what was sold, before any
 	// oversubscription is undone.
@@ -91,11 +112,22 @@ type ResourceMath struct {
 	Spot              *big.Rat
 	SpotPhysical      *big.Rat
 
+	// Floor is the guaranteed floor after clamping to usable; FloorFree is
+	// how much of it no guaranteed unit holds yet (F − G, floored at 0) —
+	// room a guaranteed order takes WITHOUT costing burstable anything.
+	Floor     *big.Rat
+	FloorFree *big.Rat
+	// BurstableEnvelope is (usable − max(G, F)) × ratio: every nominal
+	// burstable unit this pool can sell. BurstableRoom is what is left of it,
+	// floored at 0.
+	BurstableEnvelope *big.Rat
+	BurstableRoom     *big.Rat
+
 	// SoldNominal is G + B. Spot is not sold capacity and is not in it.
 	SoldNominal *big.Rat
-	// Remaining is sellable − SoldNominal, floored at 0: how much more
-	// nominal capacity this pool can take before anything is throttled or
-	// reclaimed. It is what the basket headroom divides.
+	// Remaining is FloorFree + BurstableRoom: how much more nominal capacity
+	// this pool can take before anything is throttled or reclaimed. With no
+	// floor it is sellable − SoldNominal, as it always was.
 	Remaining *big.Rat
 	// GuaranteedCeiling is usable − G, floored at 0: the ADMISSION test for a
 	// guaranteed order, at 1:1, against nothing else. Burstable is throttled
@@ -122,8 +154,11 @@ type ResourceMath struct {
 	Sized          bool
 	UtilisationPct *float64
 	Status         string
-	// Overcommitted is true when SoldNominal already exceeds sellable: the
-	// pool is past its envelope, not merely near it. Over is by how much.
+	// Overcommitted is true when burstable already exceeds its envelope: the
+	// pool is past what it can honour, not merely near it. Over is by how
+	// much. It is judged on the ENVELOPE and not on the total, because with a
+	// floor the total can look roomy (idle floor) while burstable has long
+	// since run past everything it was allowed.
 	Overcommitted bool
 	Over          *big.Rat
 }
@@ -164,13 +199,29 @@ func Compute(s ResourceState) ResourceMath {
 	// sellable is G itself — which is the state "oversold on the guarantee",
 	// not "there is still oversubscribed room".
 	ceiling := floor0(new(big.Rat).Sub(usable, g))
-	sellable := new(big.Rat).Add(g, new(big.Rat).Mul(ceiling, rat))
+	floor := nz(s.Floor)
+	if floor.Sign() < 0 {
+		floor = new(big.Rat)
+	}
+	if floor.Cmp(usable) > 0 {
+		floor = new(big.Rat).Set(usable)
+	}
+	// held is what guaranteed holds, or what is held for it: the larger of
+	// the two. Burstable is sold out of what is left, and nothing else.
+	held := new(big.Rat).Set(g)
+	if floor.Cmp(held) > 0 {
+		held = new(big.Rat).Set(floor)
+	}
+	floorFree := floor0(new(big.Rat).Sub(floor, g))
+	envelope := new(big.Rat).Mul(floor0(new(big.Rat).Sub(usable, held)), rat)
+	sellable := new(big.Rat).Add(held, envelope)
 
 	bPhys := new(big.Rat).Quo(b, rat)
 	spPhys := new(big.Rat).Quo(sp, rat)
 
 	sold := new(big.Rat).Add(g, b)
-	remaining := floor0(new(big.Rat).Sub(sellable, sold))
+	burstRoom := floor0(new(big.Rat).Sub(envelope, b))
+	remaining := new(big.Rat).Add(floorFree, burstRoom)
 
 	physUsed := new(big.Rat).Add(g, bPhys)
 	physFree := floor0(new(big.Rat).Sub(usable, physUsed))
@@ -184,6 +235,7 @@ func Compute(s ResourceState) ResourceMath {
 	out := ResourceMath{
 		Raw: raw, Usable: usable, Ratio: rat, Sellable: sellable,
 		Guaranteed: g, Burstable: b, BurstablePhysical: bPhys, Spot: sp, SpotPhysical: spPhys,
+		Floor: floor, FloorFree: floorFree, BurstableEnvelope: envelope, BurstableRoom: burstRoom,
 		SoldNominal: sold, Remaining: remaining, GuaranteedCeiling: ceiling,
 		PhysicalUsed: physUsed, PhysicalFree: physFree,
 		SpotRoom: spotRoom, SpotReclaim: spotReclaim,
@@ -205,15 +257,21 @@ func Compute(s ResourceState) ResourceMath {
 		full := 100.0
 		out.UtilisationPct = &full
 	}
-	if sold.Cmp(sellable) > 0 {
+	if b.Cmp(envelope) > 0 {
 		out.Overcommitted = true
-		out.Over = new(big.Rat).Sub(sold, sellable)
+		out.Over = new(big.Rat).Sub(b, envelope)
 	}
 	pct := 0.0
 	if out.UtilisationPct != nil {
 		pct = *out.UtilisationPct
 	}
 	out.Status = Status(pct, out.Sized)
+	if out.Overcommitted && out.Sized {
+		// Past the envelope is critical whatever the percentage reads: an
+		// idle floor keeps the total looking roomy while burstable is already
+		// beyond everything it was sold against.
+		out.Status = StatusCritical
+	}
 	return out
 }
 
@@ -225,9 +283,10 @@ func AdmitGuaranteed(m ResourceMath, amount *big.Rat) bool {
 }
 
 // AdmitBurstable reports whether `amount` more nominal burstable fits within
-// the envelope. Spot is on neither side of this test.
+// the envelope — never the floor, however idle it is. Spot is on neither
+// side of this test.
 func AdmitBurstable(m ResourceMath, amount *big.Rat) bool {
-	return nz(amount).Cmp(m.Remaining) <= 0
+	return nz(amount).Cmp(m.BurstableRoom) <= 0
 }
 
 // ---------------------------------------------------------------------------
@@ -301,17 +360,15 @@ type BasketFit struct {
 // Per resource, with g, b, s the basket's per-basket nominal demand by class
 // and k baskets:
 //
-//	envelope   (G + k·g) + (B + k·b) ≤ sellable(G + k·g)
-//	           → k·(b + g·ratio) ≤ (usable − G)·ratio − B = Remaining
-//	           → k ≤ Remaining / (b + g·ratio)
+//	envelope   B + k·b ≤ (usable − max(G + k·g, F))·ratio      (envelopeLimit)
 //	spot room  S + k·s ≤ SpotRoom      → k ≤ (SpotRoom − S)/s
 //
-// The first line is BOTH the nominal envelope and the physical hardware:
-// Remaining = PhysicalFree × ratio, so dividing by (b + g·ratio) is the same
-// as dividing PhysicalFree by (g + b/ratio). A guaranteed unit costs g·ratio
-// of the envelope, not g, because it takes g physically AND removes
-// g·(ratio−1) of oversubscribed room — that is the whole point of the
-// guarantee, expressed as a division.
+// With no floor the first line is k ≤ ((usable − G)·ratio − B)/(b + g·ratio):
+// a guaranteed unit costs g·ratio of the envelope, not g, because it takes g
+// physically AND removes g·(ratio−1) of oversubscribed room — that is the
+// whole point of the guarantee, expressed as a division. With a floor the
+// first F − G of guaranteed costs the envelope NOTHING (it lands in room that
+// was never burstable's), and only what goes past the floor costs ratio.
 //
 // The second line is the only place spot appears, and it constrains SPOT
 // ONLY: a basket with no spot in it is never limited by spot, and spot never
@@ -341,7 +398,12 @@ func Fit(all map[string]ResourceMath, demand map[string]BasketDemand) BasketFit 
 				limit = k
 			}
 		}
-		take(new(big.Rat).Set(m.Remaining), new(big.Rat).Add(b, new(big.Rat).Mul(g, m.Ratio)))
+		if k := envelopeLimit(m, g, b); k != nil {
+			n := floorRat(k)
+			if limit == nil || n.Cmp(limit) < 0 {
+				limit = n
+			}
+		}
 		if s.Sign() > 0 {
 			take(new(big.Rat).Sub(m.SpotRoom, m.Spot), s)
 		}
@@ -355,6 +417,49 @@ func Fit(all map[string]ResourceMath, demand map[string]BasketDemand) BasketFit 
 	}
 	out.Units = best
 	return out
+}
+
+// envelopeLimit is the largest k with
+//
+//	B + k·b ≤ (usable − max(G + k·g, F))·ratio
+//
+// or nil when nothing bounds k (the basket asks for neither class). It is
+// piecewise in k, because guaranteed is free of the envelope up to the floor
+// and costs ratio past it:
+//
+//	inside the floor   k ≤ (envelope − B)/b       and   k ≤ (F − G)/g
+//	past the floor     k ≤ ((usable − G)·ratio − B)/(b + g·ratio)
+//
+// The two meet exactly at k = (F − G)/g, so the answer is the first line
+// when burstable binds before the floor is used up, and the second otherwise.
+//
+// A basket with NO burstable in it is never limited by a burstable overrun:
+// guaranteed landing in its own floor throttles nothing further, so it runs to
+// the edge of the floor and stops there only if the envelope is already gone.
+func envelopeLimit(m ResourceMath, g, b *big.Rat) *big.Rat {
+	if g.Sign() <= 0 && b.Sign() <= 0 {
+		return nil
+	}
+	room := new(big.Rat).Sub(m.BurstableEnvelope, m.Burstable) // signed
+	var inFloorB, inFloorG *big.Rat                            // nil = unbounded
+	if b.Sign() > 0 {
+		inFloorB = new(big.Rat).Quo(floor0(new(big.Rat).Set(room)), b)
+	}
+	if g.Sign() > 0 {
+		inFloorG = new(big.Rat).Quo(m.FloorFree, g)
+	}
+	if inFloorG == nil {
+		return inFloorB
+	}
+	if inFloorB != nil && inFloorB.Cmp(inFloorG) <= 0 {
+		return inFloorB
+	}
+	past := new(big.Rat).Sub(new(big.Rat).Mul(m.GuaranteedCeiling, m.Ratio), m.Burstable)
+	k := new(big.Rat).Quo(floor0(past), new(big.Rat).Add(b, new(big.Rat).Mul(g, m.Ratio)))
+	if k.Cmp(inFloorG) < 0 {
+		return inFloorG
+	}
+	return k
 }
 
 // floorRat is the integer floor of a rational, floored at 0.
@@ -399,7 +504,8 @@ const (
 // Project computes the walls of one resource from the growth of each class,
 // in nominal resource units per day.
 //
-//	soft: B + b·t = (usable − G − g·t)·ratio  → t = Remaining/(b + g·ratio)
+//	soft: B + b·t = (usable − max(G + g·t, F))·ratio   (the same piecewise
+//	      line as envelopeLimit, in days instead of baskets)
 //	hard: G + g·t = usable                    → t = GuaranteedCeiling/g
 //
 // The soft wall moves when GUARANTEED grows, not only when burstable does:
@@ -420,9 +526,8 @@ func Project(m ResourceMath, growthGuaranteed, growthBurstable *float64, leadTim
 	g, b := deref(growthGuaranteed), deref(growthBurstable)
 	rat, _ := m.Ratio.Float64()
 
-	if den := b + g*rat; den > 0 {
-		room, _ := m.Remaining.Float64()
-		out.Soft = days(room / den)
+	if b > 0 || g > 0 {
+		out.Soft = days(softWall(m, g, b, rat))
 	}
 	if g > 0 {
 		room, _ := m.GuaranteedCeiling.Float64()
@@ -445,6 +550,35 @@ func Project(m ResourceMath, growthGuaranteed, growthBurstable *float64, leadTim
 		out.OrderBy = &d
 	}
 	return out
+}
+
+// softWall is envelopeLimit in days: when growth g (guaranteed) and b
+// (burstable), in nominal units per day, exhaust the burstable envelope.
+// +Inf when they never do — guaranteed growing inside an idle floor with no
+// burstable growth moves no wall until the floor is used up.
+func softWall(m ResourceMath, g, b, rat float64) float64 {
+	room, _ := new(big.Rat).Sub(m.BurstableEnvelope, m.Burstable).Float64()
+	if room < 0 {
+		room = 0
+	}
+	floorFree, _ := m.FloorFree.Float64()
+	inFloorB, inFloorG := math.Inf(1), math.Inf(1)
+	if b > 0 {
+		inFloorB = room / b
+	}
+	if g > 0 {
+		inFloorG = floorFree / g
+	}
+	if inFloorB <= inFloorG {
+		return inFloorB
+	}
+	ceiling, _ := m.GuaranteedCeiling.Float64()
+	burst, _ := m.Burstable.Float64()
+	past := ceiling*rat - burst
+	if past < 0 {
+		past = 0
+	}
+	return math.Max(inFloorG, past/(b+g*rat))
 }
 
 // maxProjectionDays is how far ahead a wall is worth reporting: beyond a

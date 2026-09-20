@@ -1501,9 +1501,17 @@ export interface ReportSendResult {
 //              ratio PER RESOURCE (vCPU may run 4:1 while the RAM in the same
 //              chassis runs 1:1 or 1.5:1 with ballooning).
 //   SHAPE      a SKU's vector: how much of each resource ONE unit consumes.
-//   PLACEMENT  (sku, pool, class). The CLASS is here, not on the shape: the
-//              same shape sold guaranteed and sold spot is two SKUs at two
-//              prices on the same pool.
+//   PLACEMENT  (sku, pool, class). The CLASS is here, not on the shape, and
+//              ONE SKU MAY SIT ON A POOL ONCE PER CLASS: the same flavour
+//              sold guaranteed, burstable and spot is three placements at
+//              three prices. `sku` may be a FAMILY ("ecs.m7n.*").
+//
+// A POOL LISTS THE CLASSES IT CAN ENFORCE, and a placement may only use one
+// of those: guaranteed and spot need nothing of the substrate (a fixed
+// allocation; the right to delete), burstable needs the HOST to throttle at
+// runtime — Kubernetes the platform operates does, a resold fixed-vCPU cloud
+// flavour does not. Overcommit and the guaranteed FLOOR are burstable's two
+// numbers and exist only where burstable is enforced.
 //
 // Consumption is never entered — it is the usage ledger read through the
 // shapes onto the pools the placements name. Every quantity is an exact JSON
@@ -1529,6 +1537,8 @@ export interface CapacityClassDef {
   class: CapacityClass | string
   label: string
   note: string
+  /** What the substrate under a pool must be able to do for this class. */
+  requires?: string
 }
 
 /** unset = nobody has sized it · ok · warn (>= 70 %) · critical (>= 85 %). */
@@ -1568,6 +1578,11 @@ export interface CapacityPoolResource {
   reserve: number | string
   /** Per (pool, resource); 1 is no oversubscription. */
   overcommit_ratio: number | string
+  /**
+   * Physical capacity burstable may never be sold into. 0 on a pool that does
+   * not enforce burstable; spot may still run in it while it is idle.
+   */
+  guaranteed_floor: number | string
 }
 
 export interface CapacityPool {
@@ -1577,6 +1592,8 @@ export interface CapacityPool {
   region_code?: string
   name: string
   machines: number | string
+  /** What this pool can ENFORCE, in canonical order. Never empty. */
+  classes: Array<CapacityClass | string>
   /** Procurement lead time — what turns a wall into an ORDER-BY date. */
   lead_time_days: number
   /** manual (the console) or a collector's name. */
@@ -1592,9 +1609,10 @@ export interface CapacityPool {
 export interface CapacityPoolInput {
   name: string
   machines: string
+  classes: string[]
   lead_time_days: number
   note: string
-  resources: Array<{ resource: string; per_machine: string; reserve: string; overcommit_ratio: string }>
+  resources: Array<{ resource: string; per_machine: string; reserve: string; overcommit_ratio: string; guaranteed_floor: string }>
 }
 
 /** One entry of a pool's size history: one row per resource per change. */
@@ -1606,6 +1624,7 @@ export interface CapacityPoolChange {
   per_machine: number | string
   reserve: number | string
   overcommit_ratio: number | string
+  guaranteed_floor: number | string
   /** machines x per_machine: the raw total of that resource at the time. */
   total: number | string
   source: string
@@ -1641,8 +1660,17 @@ export interface CapacityResourceView {
   raw: number | string
   /** raw - reserve. */
   usable: number | string
-  /** G + (usable - G) x ratio. NOT usable x ratio - G. */
+  /** max(G, floor) + burstable_envelope. NOT usable x ratio - G. */
   sellable: number | string
+
+  /** The ratio and floor the arithmetic USED: 1 and 0 without burstable. */
+  guaranteed_floor: number | string
+  /** floor - G, floored at 0: room a guaranteed order takes at no cost to burstable. */
+  floor_free: number | string
+  /** (usable - max(G, floor)) x ratio: every burstable unit there is to sell. */
+  burstable_envelope: number | string
+  /** burstable_envelope - B, floored at 0. */
+  burstable_room: number | string
 
   guaranteed: number | string
   burstable: number | string
@@ -1652,7 +1680,7 @@ export interface CapacityResourceView {
 
   /** G + B. Spot is not sold capacity and is not in it. */
   sold_nominal: number | string
-  /** sellable - sold, floored at 0. */
+  /** floor_free + burstable_room: what can still be sold before anything is throttled. */
   remaining: number | string
   /** usable - G: the admission test for a guaranteed order, at 1:1. */
   guaranteed_ceiling: number | string
@@ -1722,12 +1750,18 @@ export interface CapacityBasket {
 }
 
 export interface CapacityPlacementView {
+  /** A SKU, or a family ("ecs.m7n.*") when `family` is true. */
   sku: string
+  family: boolean
   class: CapacityClass | string
+  /** Empty for a family: its members each have their own. */
   shape: Record<string, number | string>
   shape_source: string
+  /** What is running through THIS placement, at THIS class, now. */
   units: number | string
   resources: number
+  /** The metered SKUs a family took. Always present. */
+  matched_skus: string[]
 }
 
 export interface CapacityPoolView extends CapacityPool {
@@ -1761,6 +1795,19 @@ export interface CapacityUnplacedSKU {
   resources: number
 }
 
+/**
+ * Running resources that SAY they are one class (a lifecycle tag, or an
+ * operator's override) where their SKU is not placed at it. They still count
+ * — at `counted_as` — and are named rather than absorbed.
+ */
+export interface CapacityClassMismatch {
+  sku: string
+  asked: CapacityClass | string
+  counted_as: CapacityClass | string
+  units: number | string
+  resources: number
+}
+
 export interface CapacityZoneView {
   id: string
   code: string
@@ -1768,6 +1815,7 @@ export interface CapacityZoneView {
   is_default: boolean
   pools: CapacityPoolView[]
   unplaced_skus: CapacityUnplacedSKU[]
+  class_mismatches: CapacityClassMismatch[]
 }
 
 export interface CapacityRegionView {
@@ -1816,6 +1864,7 @@ export interface CapacitySummary {
   unplaced_skus: number
   unshaped_skus: number
   spot_to_reclaim: number
+  class_mismatches: number
 }
 
 /** GET /capacity/overview */
@@ -1865,6 +1914,78 @@ export interface CapacityPlacement {
 export interface CapacityPlacements {
   placements: CapacityPlacement[]
   classes: CapacityClassDef[]
+}
+
+/** One SKU the console offers wherever a SKU is chosen — never typed by hand. */
+export interface CapacitySKUOption {
+  sku: string
+  in_price_book: boolean
+  metered: boolean
+  /** A stored or derivable shape exists; without one the SKU cannot be placed. */
+  has_shape: boolean
+  shape: Record<string, number | string>
+  /** seed - manual - derived - '' */
+  shape_source: string
+  description: string
+}
+
+export interface CapacitySKUFamily {
+  /** "ecs.m7n.*" */
+  pattern: string
+  /** How many known SKUs it takes. */
+  skus: number
+}
+
+/** GET /capacity/skus */
+export interface CapacitySKUOptions {
+  skus: CapacitySKUOption[]
+  families: CapacitySKUFamily[]
+}
+
+/** One resource running on a pool now (GET /capacity/pools/{id}/resources). */
+export interface CapacityRunningResource {
+  source_id: string
+  resource_id: string
+  name: string
+  sku: string
+  /** The placement it arrived through: its SKU, or the family that took it. */
+  via: string
+  units: number | string
+  unit: string
+  class: CapacityClass | string
+  /** override (an operator said) - tag (lifecycle=...) - default (most conservative placed class). */
+  class_source: 'override' | 'tag' | 'default' | string
+  override_class: string
+  tag_class: string
+  /** Set when the override or tag named a class the SKU is not placed at. */
+  asked: string
+  /** The classes the operator may choose between for this resource. */
+  placed_classes: string[]
+  consumes: Record<string, number | string>
+  first_seen: string | null
+  /** Other pools the same SKU sells out of at this class. */
+  shared_with: string[]
+  /** On the reclaim list below. */
+  reclaim: boolean
+}
+
+export interface CapacityReclaim {
+  resource: string
+  label: string
+  unit: string
+  needed: number | string
+  covered: number | string
+  resources: number
+  /** Every spot resource together does not cover what is needed. */
+  short: boolean
+}
+
+export interface CapacityPoolRunning {
+  pool_id: string
+  pool_name: string
+  as_of: string | null
+  resources: CapacityRunningResource[]
+  reclaim: CapacityReclaim[]
 }
 
 /** GET /capacity/zones/{id}/pools */

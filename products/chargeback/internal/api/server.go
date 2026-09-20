@@ -532,6 +532,10 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("PUT /api/v1/capacity/shapes/{sku}", h.putCapacityShape)
 	mux.HandleFunc("GET /api/v1/capacity/placements", h.listCapacityPlacements)
 	mux.HandleFunc("PUT /api/v1/capacity/placements", h.putCapacityPlacement)
+	mux.HandleFunc("DELETE /api/v1/capacity/placements", h.deleteCapacityPlacement)
+	mux.HandleFunc("GET /api/v1/capacity/skus", h.listCapacitySKUs)
+	mux.HandleFunc("GET /api/v1/capacity/pools/{id}/resources", h.capacityPoolResources)
+	mux.HandleFunc("PUT /api/v1/capacity/resource-classes", h.putCapacityResourceClass)
 	mux.HandleFunc("GET /api/v1/capacity/resources", h.listCapacityResourceKinds)
 	mux.HandleFunc("PUT /api/v1/capacity/resources/{resource}", h.putCapacityResourceKind)
 

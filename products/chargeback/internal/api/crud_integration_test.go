@@ -260,10 +260,12 @@ func TestIntegrationPriceBookCloneItemsExportCoverageDelete(t *testing.T) {
 			t.Fatalf("round trip changed %s: %v vs %v", m["sku"], m["unit_price"], want[m["sku"].(string)])
 		}
 	}
-	// Unpriced 404 for an unknown book; any signed-in role may export.
+	// Unpriced 404 for an unknown book. Exporting is a Sovereign read like
+	// the book itself (#6937): a customer is refused, and refused before the
+	// id is resolved, so the 403 does not confirm the book exists.
 	op.must("GET", "/api/v1/pricebooks/00000000-0000-0000-0000-000000000000/export.csv", 404)
-	if rec, _ := acme.do("GET", "/api/v1/pricebooks/"+cloneID+"/export.csv", "", nil); rec.Code != 200 {
-		t.Fatalf("customer export = %d", rec.Code)
+	if rec, _ := acme.do("GET", "/api/v1/pricebooks/"+cloneID+"/export.csv", "", nil); rec.Code != 403 {
+		t.Fatalf("customer export = %d, want 403", rec.Code)
 	}
 
 	// Delete item.

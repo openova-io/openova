@@ -19,14 +19,18 @@ import (
 //	POST   /capacity/regions/{id}/zones        {code, name, default?}
 //	DELETE /capacity/zones/{id}
 //	GET    /capacity/zones/{id}/pools          the zone, its pools and each pool's history
-//	POST   /capacity/zones/{id}/pools          {name, machines, lead_time_days, note, resources[]}
+//	POST   /capacity/zones/{id}/pools          {name, machines, classes[], lead_time_days, note, resources[{…, guaranteed_floor}]}
 //	PUT    /capacity/pools/{id}                the same body; replaces the pool's size and policy
 //	DELETE /capacity/pools/{id}
 //	GET    /capacity/pools/{id}/headroom?basket=sku:units,... how many more of a mix fit
 //	GET    /capacity/shapes                    stored shapes + resource kinds + the unseeded list-price SKUs
 //	PUT    /capacity/shapes/{sku}              {resources: {resource: amount}} — PUT semantics; {} removes
 //	GET    /capacity/placements                every (sku, pool, class)
-//	PUT    /capacity/placements                {pool_id, sku, class} — class null removes the placement
+//	PUT    /capacity/placements                {pool_id, sku, class} — adds that class; sku may be a family (ecs.m7n.*)
+//	DELETE /capacity/placements?pool_id=&sku=&class=  removes ONE class; without class, every class of the SKU on the pool
+//	GET    /capacity/skus                      every SKU the product knows (price books ∪ metered ∪ shapes) and their families
+//	GET    /capacity/pools/{id}/resources      what is running on the pool, each resource's class and why, and the spot to reclaim
+//	PUT    /capacity/resource-classes          {source_id, resource_id, class} — class null clears the override
 //	GET    /capacity/resources                 the resource kinds
 //	PUT    /capacity/resources/{resource}      {label, unit}
 //
@@ -203,13 +207,14 @@ func (h *Handler) listCapacityPools(w http.ResponseWriter, r *http.Request) {
 }
 
 // poolSummary is what an audit entry records about a pool: its name, machine
-// count, lead time and the per-machine vector with its policy.
+// count, the classes it enforces, lead time and the per-machine vector with
+// its policy — floor included.
 func poolSummary(p store.CapacityPool) map[string]any {
 	res := map[string]any{}
 	for _, r := range p.Resources {
-		res[r.Resource] = map[string]string{"per_machine": string(r.PerMachine), "reserve": string(r.Reserve), "overcommit_ratio": string(r.OvercommitRatio)}
+		res[r.Resource] = map[string]string{"per_machine": string(r.PerMachine), "reserve": string(r.Reserve), "overcommit_ratio": string(r.OvercommitRatio), "guaranteed_floor": string(r.GuaranteedFloor)}
 	}
-	return map[string]any{"name": p.Name, "machines": string(p.Machines), "lead_time_days": p.LeadTimeDays, "resources": res}
+	return map[string]any{"name": p.Name, "machines": string(p.Machines), "classes": p.Classes, "lead_time_days": p.LeadTimeDays, "resources": res}
 }
 
 func (h *Handler) createCapacityPool(w http.ResponseWriter, r *http.Request) {
@@ -363,8 +368,10 @@ type placementBody struct {
 	Class  *string `json:"class"`
 }
 
-// putCapacityPlacement places a SKU on a pool at a class; class null (or
-// absent) removes the placement.
+// putCapacityPlacement places a SKU (or a family) on a pool at a class. The
+// same SKU may be placed once per class the pool enforces. class null (or
+// absent) removes the SKU from the pool at EVERY class — what a console built
+// before classes were per-placement still sends; DELETE removes one.
 func (h *Handler) putCapacityPlacement(w http.ResponseWriter, r *http.Request) {
 	s, ok := h.requireSovereign(w, r, access.CapacityManage)
 	if !ok {
@@ -381,12 +388,7 @@ func (h *Handler) putCapacityPlacement(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if in.Class == nil || strings.TrimSpace(*in.Class) == "" {
-		if err := h.Store.DeleteCapacityPlacement(r.Context(), in.PoolID, in.SKU); err != nil {
-			storeErr(w, err)
-			return
-		}
-		h.audit(r, nil, "capacity.placement", map[string]any{"op": "delete", "pool_id": in.PoolID, "sku": in.SKU})
-		writeJSON(w, http.StatusOK, map[string]any{"deleted": true, "pool_id": in.PoolID, "sku": in.SKU})
+		h.removeCapacityPlacement(w, r, in.PoolID, in.SKU, "")
 		return
 	}
 	pl, err := h.Store.PutCapacityPlacement(r.Context(), in.PoolID, in.SKU, *in.Class, s.Email)
@@ -396,6 +398,102 @@ func (h *Handler) putCapacityPlacement(w http.ResponseWriter, r *http.Request) {
 	}
 	h.audit(r, nil, "capacity.placement", map[string]any{"op": "put", "pool_id": pl.PoolID, "pool": pl.PoolName, "zone": pl.ZoneCode, "region": pl.RegionCode, "sku": pl.SKU, "class": pl.Class})
 	writeJSON(w, http.StatusOK, pl)
+}
+
+// removeCapacityPlacement is the one place a placement is removed and audited.
+func (h *Handler) removeCapacityPlacement(w http.ResponseWriter, r *http.Request, poolID, sku, class string) {
+	n, err := h.Store.DeleteCapacityPlacement(r.Context(), poolID, sku, class)
+	if err != nil {
+		storeErr(w, err)
+		return
+	}
+	h.audit(r, nil, "capacity.placement", map[string]any{"op": "delete", "pool_id": poolID, "sku": sku, "class": class, "removed": n})
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": true, "pool_id": poolID, "sku": sku, "class": class, "removed": n})
+}
+
+// deleteCapacityPlacement removes one (pool, sku, class); without a class,
+// the SKU at every class on that pool.
+func (h *Handler) deleteCapacityPlacement(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireSovereign(w, r, access.CapacityManage); !ok {
+		return
+	}
+	q := r.URL.Query()
+	poolID, sku := strings.TrimSpace(q.Get("pool_id")), strings.TrimSpace(q.Get("sku"))
+	if poolID == "" || sku == "" {
+		writeErr(w, http.StatusBadRequest, "pool_id and sku are required")
+		return
+	}
+	h.removeCapacityPlacement(w, r, poolID, sku, q.Get("class"))
+}
+
+// listCapacitySKUs returns every SKU the console may offer where one is
+// chosen, so no SKU is ever typed by hand.
+func (h *Handler) listCapacitySKUs(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireSovereign(w, r, access.MeteringRead); !ok {
+		return
+	}
+	out, err := h.Store.ListCapacitySKUOptions(r.Context(), h.Now())
+	if err != nil {
+		storeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// capacityPoolResources lists what is running on a pool, the class of each
+// resource and why, and which spot to give back.
+func (h *Handler) capacityPoolResources(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireSovereign(w, r, access.MeteringRead); !ok {
+		return
+	}
+	out, err := h.Store.CapacityPoolResources(r.Context(), r.PathValue("id"), h.Now())
+	if err != nil {
+		storeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+type resourceClassBody struct {
+	SourceID   string  `json:"source_id"`
+	ResourceID string  `json:"resource_id"`
+	Class      *string `json:"class"`
+}
+
+// putCapacityResourceClass says which class one running resource was sold at;
+// class null clears it, so the resource falls back to its tag, then the
+// default.
+func (h *Handler) putCapacityResourceClass(w http.ResponseWriter, r *http.Request) {
+	s, ok := h.requireSovereign(w, r, access.CapacityManage)
+	if !ok {
+		return
+	}
+	var in resourceClassBody
+	if err := decode(r, &in); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body: "+err.Error())
+		return
+	}
+	in.SourceID, in.ResourceID = strings.TrimSpace(in.SourceID), strings.TrimSpace(in.ResourceID)
+	if in.SourceID == "" || in.ResourceID == "" {
+		writeErr(w, http.StatusBadRequest, "source_id and resource_id are required")
+		return
+	}
+	if in.Class == nil || strings.TrimSpace(*in.Class) == "" {
+		if err := h.Store.ClearCapacityResourceClass(r.Context(), in.SourceID, in.ResourceID); err != nil {
+			storeErr(w, err)
+			return
+		}
+		h.audit(r, nil, "capacity.resource_class", map[string]any{"op": "clear", "source_id": in.SourceID, "resource_id": in.ResourceID})
+		writeJSON(w, http.StatusOK, map[string]any{"cleared": true, "source_id": in.SourceID, "resource_id": in.ResourceID})
+		return
+	}
+	out, err := h.Store.SetCapacityResourceClass(r.Context(), in.SourceID, in.ResourceID, *in.Class, s.Email)
+	if err != nil {
+		storeErr(w, err)
+		return
+	}
+	h.audit(r, nil, "capacity.resource_class", map[string]any{"op": "set", "source_id": out.SourceID, "resource_id": out.ResourceID, "class": out.Class})
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (h *Handler) listCapacityResourceKinds(w http.ResponseWriter, r *http.Request) {

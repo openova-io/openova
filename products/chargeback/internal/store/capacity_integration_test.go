@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -173,7 +174,7 @@ func seedCapacity(t *testing.T, st *store.Store) capacitySeed {
 	}
 
 	poolA, err := st.CreateCapacityPool(ctx, zoneA.ID, store.CapacityPoolInput{
-		Name: "m7n-a", Machines: "10", LeadTimeDays: 45, Note: "batch one",
+		Name: "m7n-a", Machines: "10", LeadTimeDays: 45, Note: "batch one", Classes: allClasses,
 		Resources: []store.CapacityPoolResource{
 			{Resource: capacity.ResourceVCPU, PerMachine: "64", Reserve: "64", OvercommitRatio: "4"},
 			{Resource: capacity.ResourceMemoryGiB, PerMachine: "512", Reserve: "512", OvercommitRatio: "1"},
@@ -209,6 +210,10 @@ func seedCapacity(t *testing.T, st *store.Store) capacitySeed {
 	}
 	return capacitySeed{region: region, zoneA: zoneA, zoneB: zoneB, zoneC: zoneC, poolA: poolA, poolB: poolB, poolC: poolC, now: now, src: src}
 }
+
+// allClasses is a pool whose substrate enforces all three — Kubernetes the
+// platform operates. A pool created without it enforces guaranteed and spot.
+var allClasses = []string{capacity.ClassGuaranteed, capacity.ClassBurstable, capacity.ClassSpot}
 
 func zoneOf(t *testing.T, ov store.CapacityOverview, region, zone string) store.CapacityZoneView {
 	t.Helper()
@@ -300,7 +305,7 @@ func TestIntegrationCapacityPoolsAreNamedSetsOfMachines(t *testing.T) {
 	// SEVERAL POOLS OF THE SAME RESOURCE KIND COEXIST IN ONE ZONE. This is
 	// the constraint the old UNIQUE (zone_id, family) forbade outright.
 	second, err := st.CreateCapacityPool(ctx, s.zoneA.ID, store.CapacityPoolInput{
-		Name: "m7n-b", Machines: "5",
+		Name: "m7n-b", Machines: "5", Classes: allClasses,
 		Resources: []store.CapacityPoolResource{
 			{Resource: capacity.ResourceVCPU, PerMachine: "64", OvercommitRatio: "4"},
 			{Resource: capacity.ResourceMemoryGiB, PerMachine: "512", OvercommitRatio: "1"},
@@ -892,33 +897,109 @@ func TestIntegrationCapacityShapesAndPlacementRefusals(t *testing.T) {
 	if _, err := st.PutCapacityPlacement(ctx, s.poolB.ID, "nat.1", capacity.ClassGuaranteed, "x"); !errors.Is(err, store.ErrInvalid) {
 		t.Fatalf("placing an unshaped SKU = %v, want invalid", err)
 	}
-	// 3. A SKU is ONE product at ONE price and carries ONE class.
+	// 3. ONE SKU MAY SIT ON A POOL ONCE PER CLASS — the same flavour sold
+	// guaranteed, burstable and spot is three placements at three prices — but
+	// only at a class the pool can actually ENFORCE.
 	second, err := st.CreateCapacityPool(ctx, s.zoneA.ID, store.CapacityPoolInput{
-		Name: "m7n-b", Machines: "5",
+		Name: "m7n-b", Machines: "5", Classes: allClasses,
 		Resources: []store.CapacityPoolResource{{Resource: capacity.ResourceVCPU, PerMachine: "64", OvercommitRatio: "4"}},
 	}, "ops@nc.example")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.PutCapacityPlacement(ctx, second.ID, skuGuaranteed, capacity.ClassSpot, "x"); !errors.Is(err, store.ErrInvalid) {
-		t.Fatalf("the same SKU at two classes = %v, want invalid", err)
+	for _, class := range allClasses {
+		if _, err := st.PutCapacityPlacement(ctx, second.ID, skuGuaranteed, class, "x"); err != nil {
+			t.Fatalf("the same SKU at %s on one pool must be allowed: %v", class, err)
+		}
 	}
-	if _, err := st.PutCapacityPlacement(ctx, second.ID, skuGuaranteed, capacity.ClassGuaranteed, "x"); err != nil {
-		t.Fatalf("the same SKU on a second pool at its own class must be allowed: %v", err)
+	// Placing it again at a class it already has is idempotent, not a fourth row.
+	if _, err := st.PutCapacityPlacement(ctx, second.ID, skuGuaranteed, capacity.ClassSpot, "y"); err != nil {
+		t.Fatalf("re-placing at the same class = %v", err)
+	}
+	// poolB was created with no classes stated, so it enforces the default:
+	// guaranteed and spot. Burstable there is a product nobody can deliver.
+	if got := s.poolB.Classes; len(got) != 2 || got[0] != capacity.ClassGuaranteed || got[1] != capacity.ClassSpot {
+		t.Fatalf("default pool classes = %v, want [guaranteed spot]", got)
+	}
+	_, err = st.PutCapacityPlacement(ctx, s.poolB.ID, "evs.ssd.gb", capacity.ClassBurstable, "x")
+	if !errors.Is(err, store.ErrInvalid) || !strings.Contains(err.Error(), "does not enforce burstable") {
+		t.Fatalf("burstable on a pool that cannot enforce it = %v, want invalid naming the class", err)
+	}
+	if _, err := st.PutCapacityPlacement(ctx, s.poolB.ID, "evs.ssd.gb", capacity.ClassSpot, "x"); err != nil {
+		t.Fatalf("spot on a default pool must be allowed — spot needs only the right to delete: %v", err)
+	}
+	// A family is placed without a shape check, and only a well-formed one.
+	if _, err := st.PutCapacityPlacement(ctx, second.ID, "ECS.m7n.*", capacity.ClassGuaranteed, "x"); err != nil {
+		t.Fatalf("placing a family = %v", err)
+	}
+	for _, bad := range []string{"*", "ecs*", "ecs.*.large"} {
+		if _, err := st.PutCapacityPlacement(ctx, second.ID, bad, capacity.ClassGuaranteed, "x"); !errors.Is(err, store.ErrInvalid) {
+			t.Fatalf("placing %q = %v, want invalid", bad, err)
+		}
 	}
 	if _, err := st.PutCapacityPlacement(ctx, s.poolA.ID, skuGuaranteed, "reserved", "x"); !errors.Is(err, store.ErrInvalid) {
 		t.Fatalf("an unknown class = %v, want invalid", err)
 	}
 
 	pls, err := st.ListCapacityPlacements(ctx)
-	if err != nil || len(pls) != 6 {
-		t.Fatalf("placements = %d, want 6: %v", len(pls), err)
+	// 5 seeded + 3 classes of one SKU on m7n-b + spot on blk-b + the family.
+	if err != nil || len(pls) != 10 {
+		t.Fatalf("placements = %d, want 10: %v", len(pls), err)
 	}
-	if err := st.DeleteCapacityPlacement(ctx, second.ID, skuGuaranteed); err != nil {
-		t.Fatal(err)
+	// Removing ONE class leaves the other two.
+	if n, err := st.DeleteCapacityPlacement(ctx, second.ID, skuGuaranteed, capacity.ClassSpot); err != nil || n != 1 {
+		t.Fatalf("removing one class = %d, %v", n, err)
 	}
-	if err := st.DeleteCapacityPlacement(ctx, second.ID, skuGuaranteed); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("removing a placement twice = %v", err)
+	if n, err := st.DeleteCapacityPlacement(ctx, second.ID, skuGuaranteed, capacity.ClassSpot); !errors.Is(err, store.ErrNotFound) || n != 0 {
+		t.Fatalf("removing a placement twice = %d, %v", n, err)
+	}
+	// A pool cannot stop enforcing a class that placements still use, and the
+	// refusal names them.
+	_, _, err = st.SetCapacityPool(ctx, second.ID, store.CapacityPoolInput{
+		Name: "m7n-b", Machines: "5", Classes: []string{capacity.ClassGuaranteed, capacity.ClassSpot},
+		Resources: []store.CapacityPoolResource{{Resource: capacity.ResourceVCPU, PerMachine: "64", OvercommitRatio: "1"}},
+	}, "x")
+	if !errors.Is(err, store.ErrConflict) || !strings.Contains(err.Error(), skuGuaranteed) || !strings.Contains(err.Error(), "burstable") {
+		t.Fatalf("withdrawing a class in use = %v, want a conflict naming the SKU and the class", err)
+	}
+	// Without a class, the SKU leaves the pool at every class it still has.
+	if n, err := st.DeleteCapacityPlacement(ctx, second.ID, skuGuaranteed, ""); err != nil || n != 2 {
+		t.Fatalf("removing every class = %d, %v, want 2", n, err)
+	}
+	// ...after which burstable can be withdrawn, and an update that does not
+	// state the classes leaves them as they are.
+	narrowed, _, err := st.SetCapacityPool(ctx, second.ID, store.CapacityPoolInput{
+		Name: "m7n-b", Machines: "5", Classes: []string{capacity.ClassSpot, capacity.ClassGuaranteed},
+		Resources: []store.CapacityPoolResource{{Resource: capacity.ResourceVCPU, PerMachine: "64", OvercommitRatio: "1"}},
+	}, "x")
+	if err != nil || len(narrowed.Classes) != 2 || narrowed.Classes[0] != capacity.ClassGuaranteed {
+		t.Fatalf("narrowed = %+v, %v", narrowed.Classes, err)
+	}
+	kept, _, err := st.SetCapacityPool(ctx, second.ID, store.CapacityPoolInput{
+		Name: "m7n-b", Machines: "6",
+		Resources: []store.CapacityPoolResource{{Resource: capacity.ResourceVCPU, PerMachine: "64", OvercommitRatio: "1"}},
+	}, "x")
+	if err != nil || len(kept.Classes) != 2 {
+		t.Fatalf("an update that states no classes must keep them: %+v, %v", kept.Classes, err)
+	}
+	// Overcommit and the floor are burstable's numbers: refused where
+	// burstable is not enforced, with the reason.
+	for name, res := range map[string]store.CapacityPoolResource{
+		"ratio": {Resource: capacity.ResourceVCPU, PerMachine: "64", OvercommitRatio: "4"},
+		"floor": {Resource: capacity.ResourceVCPU, PerMachine: "64", OvercommitRatio: "1", GuaranteedFloor: "100"},
+	} {
+		_, _, err := st.SetCapacityPool(ctx, second.ID, store.CapacityPoolInput{Name: "m7n-b", Machines: "6", Resources: []store.CapacityPoolResource{res}}, "x")
+		if !errors.Is(err, store.ErrInvalid) || !strings.Contains(err.Error(), "does not enforce burstable") {
+			t.Fatalf("%s on a pool without burstable = %v, want invalid with the reason", name, err)
+		}
+	}
+	// A floor cannot ring-fence more than the pool holds.
+	_, _, err = st.SetCapacityPool(ctx, s.poolA.ID, store.CapacityPoolInput{
+		Name: "m7n-a", Machines: "10",
+		Resources: []store.CapacityPoolResource{{Resource: capacity.ResourceVCPU, PerMachine: "64", Reserve: "64", OvercommitRatio: "4", GuaranteedFloor: "577"}},
+	}, "x")
+	if !errors.Is(err, store.ErrInvalid) || !strings.Contains(err.Error(), "576") {
+		t.Fatalf("a floor above usable = %v, want invalid naming the 576 usable", err)
 	}
 
 	// Resource kinds carry words, and an operator can supply them.

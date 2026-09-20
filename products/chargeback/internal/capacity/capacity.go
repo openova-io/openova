@@ -99,9 +99,12 @@ func KindOf(key string) ResourceKind {
 // classes
 // ---------------------------------------------------------------------------
 
-// A PLACEMENT's class. It lives on the placement, NOT on the SKU's shape:
-// the same shape sold guaranteed and sold spot is two SKUs at two prices,
-// both placed on the same pool.
+// A PLACEMENT's class. It lives on the placement, NOT on the SKU's shape, and
+// ONE SKU MAY BE PLACED ON A POOL AT SEVERAL CLASSES: the same flavour sold
+// guaranteed, burstable and spot is three placements of one SKU, three
+// prices, and which of them a RUNNING resource counts at is said by the
+// resource itself (ResolveClass, classes.go). A pool lists the classes it can
+// actually enforce, and a placement may only use one of those.
 const (
 	// ClassGuaranteed is backed by physical capacity at 1:1. It is admitted
 	// only if it fits `usable`, and every unit sold removes ratio × worth of
@@ -122,13 +125,17 @@ type ClassDef struct {
 	Key   string `json:"class"`
 	Label string `json:"label"`
 	Note  string `json:"note"`
+	// Requires is what the substrate under a pool must be able to do for
+	// this class to be more than a label — the sentence the pool editor
+	// shows beside the checkbox.
+	Requires string `json:"requires"`
 }
 
 // Classes lists the three classes in the order the console shows them.
 var Classes = []ClassDef{
-	{Key: ClassGuaranteed, Label: "Guaranteed", Note: "physically backed at 1:1; admitted only if it fits usable capacity"},
-	{Key: ClassBurstable, Label: "Burstable", Note: "sold against the oversubscribed envelope; throttled at the soft wall"},
-	{Key: ClassSpot, Label: "Spot", Note: "no reservation; reclaimed when the room it runs in shrinks, and never refuses another class"},
+	{Key: ClassGuaranteed, Label: "Guaranteed", Note: "physically backed at 1:1; admitted only if it fits usable capacity", Requires: "a fixed allocation — every substrate has it"},
+	{Key: ClassBurstable, Label: "Burstable", Note: "sold against the oversubscribed envelope, never the guaranteed floor; throttled at the soft wall", Requires: "the host throttling at runtime — Kubernetes the platform operates; a resold fixed-vCPU cloud flavour cannot"},
+	{Key: ClassSpot, Label: "Spot", Note: "no reservation; reclaimed when the room it runs in shrinks, and never refuses another class", Requires: "the right to delete the resource, with notice — the platform creates and deletes what it sells, so every substrate has it"},
 }
 
 // ValidClass reports whether s is one of the three classes.
