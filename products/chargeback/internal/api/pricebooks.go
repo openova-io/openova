@@ -27,12 +27,62 @@ func (h *Handler) refuseProviderBooks(w http.ResponseWriter, s store.Session) bo
 	return true
 }
 
-func (h *Handler) listPriceBooks(w http.ResponseWriter, r *http.Request) {
+// requireBookReader is the guard of the three price-book READ routes — the
+// list, one book, and its CSV export.
+//
+// Reading a price book is metering.read AT THE SOVEREIGN SCOPE: DESIGN.md
+// §10.2 lists price books among that permission's read surfaces, §13.7 says
+// the operator lens "alone opens the provider's price books", and the
+// coverage route at the bottom of this file already asks for exactly this.
+// requireAuth, which these three asked for until #6937, proves only that the
+// caller is SIGNED IN. A customer principal holds metering.read on its own
+// customer and never at the Sovereign, so under requireAuth it read every
+// book — the unit prices of a partner's derived retail book, which are that
+// reseller's position, included. It is refused here now.
+//
+// The partner lens keeps the refusal that names the route its own book is
+// served from; every other principal is put through
+// requireSovereign(metering.read), the same call and the same body the
+// sibling routes answer with.
+func (h *Handler) requireBookReader(w http.ResponseWriter, r *http.Request) (store.Session, bool) {
 	s, ok := h.requireAuth(w, r)
 	if !ok {
-		return
+		return s, false
 	}
 	if h.refuseProviderBooks(w, s) {
+		return s, false
+	}
+	return h.requireSovereign(w, r, access.MeteringRead)
+}
+
+// bookForRead resolves the book of GET /pricebooks/{id} and of its CSV
+// export against the reader. A non-partner is authorised BEFORE the id is
+// looked up, so a refusal never tells a caller whether a book exists; a
+// partner is authorised against the book itself, because which book it is
+// decides — the retail book derived for its own partner, and nothing else.
+func (h *Handler) bookForRead(w http.ResponseWriter, r *http.Request) (store.PriceBook, bool) {
+	s, ok := h.requireAuth(w, r)
+	if !ok {
+		return store.PriceBook{}, false
+	}
+	if !access.IsPartner(access.Bindings(s)) {
+		if _, ok := h.requireSovereign(w, r, access.MeteringRead); !ok {
+			return store.PriceBook{}, false
+		}
+	}
+	pb, err := h.Store.GetPriceBook(r.Context(), r.PathValue("id"))
+	if err != nil {
+		storeErr(w, err)
+		return store.PriceBook{}, false
+	}
+	if h.refuseOthersBook(w, s, pb) {
+		return store.PriceBook{}, false
+	}
+	return pb, true
+}
+
+func (h *Handler) listPriceBooks(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireBookReader(w, r); !ok {
 		return
 	}
 	list, err := h.Store.ListPriceBooks(r.Context())
@@ -105,16 +155,8 @@ func (h *Handler) createPriceBook(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getPriceBook(w http.ResponseWriter, r *http.Request) {
-	s, ok := h.requireAuth(w, r)
+	pb, ok := h.bookForRead(w, r)
 	if !ok {
-		return
-	}
-	pb, err := h.Store.GetPriceBook(r.Context(), r.PathValue("id"))
-	if err != nil {
-		storeErr(w, err)
-		return
-	}
-	if h.refuseOthersBook(w, s, pb) {
 		return
 	}
 	writeJSON(w, http.StatusOK, pb)
@@ -582,16 +624,8 @@ func (h *Handler) deletePriceItem(w http.ResponseWriter, r *http.Request) {
 // (sku,unit,annual_price,unit_price,description), so a file exported here
 // round-trips through POST /pricebooks/{id}/import unchanged.
 func (h *Handler) exportPriceBook(w http.ResponseWriter, r *http.Request) {
-	s, ok := h.requireAuth(w, r)
+	pb, ok := h.bookForRead(w, r)
 	if !ok {
-		return
-	}
-	pb, err := h.Store.GetPriceBook(r.Context(), r.PathValue("id"))
-	if err != nil {
-		storeErr(w, err)
-		return
-	}
-	if h.refuseOthersBook(w, s, pb) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
