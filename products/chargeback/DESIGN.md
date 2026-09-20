@@ -2788,9 +2788,11 @@ relationship, not a secret.
 | `POST /api/v1/partners` | `partners.manage` — creates the partner AND its party, and grants the contact `partner-owner` |
 | `GET /api/v1/partners/{id}` | `metering.read` (partner) |
 | `PATCH /api/v1/partners/{id}` | `partners.manage` — a tier or model change re-derives the retail books |
+| `DELETE /api/v1/partners/{id}` | `partners.manage` — 409 naming what still depends on it (§13.9) |
 | `GET /api/v1/partners/tiers` | `metering.read` (sovereign) |
 | `POST /api/v1/partners/tiers` | `partners.manage` |
 | `PUT /api/v1/partners/tiers/{id}/discounts` | `partners.manage` — replaces the set; re-derives every partner on the tier |
+| `DELETE /api/v1/partners/tiers/{id}` | `partners.manage` — 409 naming the partners still on it (§13.9) |
 | `PUT /api/v1/partners/{id}/retail-rule` | `partner.self.manage` (partner) — re-derives; the response carries the books and the below-buy lines |
 | `GET /api/v1/partners/{id}/retail-book` | `metering.read` (partner) |
 | `GET /api/v1/partners/{id}/customers` | `metering.read` (partner) |
@@ -2802,7 +2804,8 @@ relationship, not a secret.
 | `PATCH /api/v1/customers/{id}` (`partner_id`) | `partners.manage` — never `customers.manage` alone, and never the customer itself |
 | `GET /api/v1/cost/explore` · `cost/summary` · `cost/export.csv` · `cost/dimensions` · `resources` · `resources.csv` · `anomalies` · `recommendations` · `overview` | `metering.read` at the Sovereign OR at a partner — the cross-customer read (§13.5). A partner's answer covers its customers and nothing else; a customer principal is 403 |
 
-Every write is audited: `partner.create`, `partner.update`, `partner.tier`,
+Every write is audited: `partner.create`, `partner.update`, `partner.delete`,
+`partner.tier` (`op` = `create` | `discounts` | `delete`),
 `partner.retail_rule`, and `access.binding` for the partner-scoped grants.
 
 Statement documents gain `partner_id`, `party_kind`, `statement_kind`
@@ -2818,8 +2821,12 @@ carries none of them.
 customer count and account balance; opens one for its customers, its
 statements, its margin, its retail rule (with the derived book preview and
 the below-buy warnings) and its users; and creates and edits both partners
-and tiers, tier discounts included. The customer page gains a **Partner**
-block: which partner this customer buys through, and the assignment.
+and tiers, tier discounts included. A tier row carries **Delete**, and the
+partner page **Suspend** / **Resume** and **Delete**, for `partners.manage`
+only; each asks first with the consequence spelled out, and a refusal is shown
+in that dialog in the server's own words (§13.9). The customer page gains a
+**Partner** block: which partner this customer buys through, and the
+assignment.
 
 The **partner lens** (`/partner/…`) is the third lens beside the Sovereign's
 and the customer's. When the caller's bindings are partner-scoped the menu
@@ -2883,6 +2890,66 @@ explorer and resource list (the Customer group-by offered, its customers on
 the page, every link inside `/partner`, no price-book link);
 `ui/src/layout/Shell.test.ts` and `ui/src/lib/scope.test.ts` pin the menu and
 the lens's paths.
+
+### 13.9 Deleting a tier, deleting a partner (#6936)
+
+Partners shipped with create and edit and no delete: a tier made by typo, or
+a probe partner, stayed in every picker until somebody removed the row with
+`psql`. Both can now be deleted — and both are refused while anything would
+be left hanging, **with a sentence that names what is in the way**, because
+every foreign key here was written to clear or cascade quietly, and quietly is
+the wrong answer for a price.
+
+**A tier** goes together with its discounts, which exist only to make it, in
+one transaction. It is refused while any partner is on it:
+
+    tier Gold sets the buy price of 2 partners (Other Co, Resell Co); move
+    them to another tier, or clear their tier, before deleting it
+
+`partners.tier_id` is `ON DELETE SET NULL`, so without the refusal those
+partners would start buying at list from the next run — a price change nobody
+made. Deleting an unused tier moves no buy price, so nothing is re-derived.
+
+**A partner** goes together with what exists only for it — its retail rule,
+its derived retail books, its partner-scoped users and its party (§13.3), and
+with the party any DRAFT statement on it — in one transaction. It is refused
+while any of these holds, and the answer lists every one that does:
+
+| Refused while | Why | What the person does |
+|---|---|---|
+| end customers still buy through it | `customers.partner_id` clears itself, so they would turn direct — priced and billed by us — without anybody deciding that | make them direct, or assign them to another partner |
+| a statement past draft names it: its own wholesale or commission statement, or a customer statement rated through it | the first is an invoice somebody received; the second carries its buy price and margin and is the only record of them — `statements.partner_id` would clear itself and the margin report would have nothing left to read | nothing undoes this: **suspend** the partner |
+| its account holds ledger entries | the party row IS the partner's ledger (§13.3); deleting it cascades the payments, top-ups and commission credits on it | nothing undoes this: **suspend** the partner |
+| one of its derived retail books is assigned to a source | the source would be left priced by nothing | assign that source another price book |
+
+Names are spelled out up to five and counted after that. A draft is not a
+record: the party's drafts go with it, and a customer's draft that named the
+partner stops naming it and is re-rated as direct by the next run.
+
+The partner's party cannot be deleted as a customer either:
+`DELETE /customers/{party}` answers 409 *"that account belongs to a partner;
+delete the partner, not its account"*. That sentence comes from
+`mapDeleteErr` (`store/dberr.go`): on a DELETE a foreign-key violation means
+"still referred to", which `mapErr` classifies as not-found — and the API then
+answers 404 for a row that is right there. The three deletes here go through
+it, so a reference their own checks did not count still answers 409, in a
+sentence, and never 404.
+
+The tier row, the partner row and the derived books are locked before their
+dependants are counted, so an assignment racing the delete waits and is then
+told the tier or partner does not exist, rather than slipping in between the
+count and the delete.
+
+`internal/api/partners_delete_integration_test.go` walks every refusal through
+HTTP — one blocking condition per test, each also asserting that the OTHER
+conditions are not named — then the delete going through once the condition
+is cleared, with what is left in the database; 404 for an unknown and for a
+malformed id; 403 naming `partners.manage` for a finance-viewer, a partner
+owner and a customer owner; and the `partner.delete` / `partner.tier` audit
+rows. `internal/store/partners_integration_test.go` pins the five-name cap and
+that a delete takes nothing of another partner's.
+`ui/src/pages/Partners.render.test.tsx` renders the controls for a manager and
+their absence for a read-only role, both dialogs, and the refusal inside them.
 ---
 
 ## 14. Documents — the invoice the customer actually receives (EPIC #6867)

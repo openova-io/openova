@@ -511,8 +511,10 @@ func (s *Store) DeleteCustomer(ctx context.Context, id string) error {
 	if issued > 0 {
 		return fmt.Errorf("%w: customer has %d issued statement(s); issued statements are permanent records, suspend the customer instead of deleting it", ErrConflict, issued)
 	}
+	// A partner's party is a customers row the partner still points at, and
+	// that reference RESTRICTs: mapDeleteErr says so instead of "not found".
 	if _, err := tx.ExecContext(ctx, `DELETE FROM customers WHERE id = $1`, id); err != nil {
-		return mapErr(err)
+		return mapDeleteErr(err)
 	}
 	return tx.Commit()
 }

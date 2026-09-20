@@ -2,6 +2,9 @@ package store_test
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -520,5 +523,144 @@ func TestIntegrationTierDiscountsNeverReachACustomersBill(t *testing.T) {
 	}
 	if _, err := st.ReplaceTierDiscounts(ctx, tier.ID, []store.DiscountInput{{Name: "too much", Kind: "percent", Value: "120"}}); err == nil {
 		t.Fatal("a 120 % tier discount was accepted")
+	}
+}
+
+// Deleting a tier (DESIGN.md §13.9, #6936): refused while a partner is on
+// it, with the partners named; an unused tier goes with its discounts.
+func TestIntegrationDeletePartnerTier(t *testing.T) {
+	st := testdb.Open(t)
+	ctx := context.Background()
+	gold, err := st.CreatePartnerTier(ctx, "Gold", "30 % off list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.ReplaceTierDiscounts(ctx, gold.ID, []store.DiscountInput{{Name: "Gold 30 %", Kind: "percent", Value: "30"}, {Name: "Gold ecs 35 %", Kind: "percent", Value: "35", SKU: partnerSKU}}); err != nil {
+		t.Fatal(err)
+	}
+	silver, err := st.CreatePartnerTier(ctx, "Silver", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.ReplaceTierDiscounts(ctx, silver.ID, []store.DiscountInput{{Name: "Silver 10 %", Kind: "percent", Value: "10"}}); err != nil {
+		t.Fatal(err)
+	}
+	// Seven partners on Gold: the refusal names five and counts the rest.
+	var last store.Partner
+	for i := 1; i <= 7; i++ {
+		if last, err = st.CreatePartner(ctx, store.PartnerInput{Slug: fmt.Sprintf("p-%d", i), Name: fmt.Sprintf("Partner %d", i), TierID: &gold.ID}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	err = st.DeletePartnerTier(ctx, gold.ID)
+	if !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("deleting a tier seven partners are on = %v, want ErrConflict", err)
+	}
+	for _, want := range []string{"tier Gold", "7 partners", "Partner 1, Partner 2, Partner 3, Partner 4, Partner 5 and 2 more"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("the refusal does not say %q: %v", want, err)
+		}
+	}
+	// Refused means untouched: the tier, its two discounts, the assignments.
+	if got, err := st.GetPartnerTier(ctx, gold.ID); err != nil || got.Partners != 7 || len(got.Discounts) != 2 {
+		t.Fatalf("after the refusal the tier reads %+v (%v)", got, err)
+	}
+	if p, _ := st.GetPartner(ctx, last.ID); p.TierID == nil || *p.TierID != gold.ID {
+		t.Fatalf("a refused delete cleared a partner's tier: %+v", p.TierID)
+	}
+
+	// Silver has nobody on it: it goes, its discount goes, Gold's stay.
+	if err := st.DeletePartnerTier(ctx, silver.ID); err != nil {
+		t.Fatalf("deleting an unused tier: %v", err)
+	}
+	if _, err := st.GetPartnerTier(ctx, silver.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("the deleted tier reads %v, want ErrNotFound", err)
+	}
+	if ds, _ := st.TierDiscounts(ctx, silver.ID); len(ds) != 0 {
+		t.Fatalf("%d discount(s) outlived their tier", len(ds))
+	}
+	if ds, _ := st.TierDiscounts(ctx, gold.ID); len(ds) != 2 {
+		t.Fatalf("deleting Silver took Gold's discounts: %d left", len(ds))
+	}
+	if err := st.DeletePartnerTier(ctx, silver.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("deleting it twice = %v, want ErrNotFound", err)
+	}
+	if err := st.DeletePartnerTier(ctx, "not-an-id"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("deleting a malformed id = %v, want ErrNotFound", err)
+	}
+}
+
+// Deleting a partner nothing depends on takes what exists only for it: the
+// retail rule, a derived retail book, its users and its party — and nothing
+// of anybody else's. The refusals are walked through HTTP in
+// internal/api/partners_delete_integration_test.go.
+func TestIntegrationDeletePartnerTakesWhatIsItsOwn(t *testing.T) {
+	st := testdb.Open(t)
+	ctx := context.Background()
+	book, err := st.CreatePriceBook(ctx, store.PriceBookInput{Name: "NC list 2026", Currency: "OMR", AnnualDivisor: 8760})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PutPriceItems(ctx, book.ID, []store.PriceItem{{SKU: partnerSKU, Unit: "instance-hour", UnitPrice: "100"}}, true); err != nil {
+		t.Fatal(err)
+	}
+	mk := func(slug, name, email string) store.Partner {
+		t.Helper()
+		p, err := st.CreatePartner(ctx, store.PartnerInput{Slug: slug, Name: name, BillTo: store.BillToPartner, ContactEmail: email})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.PutRetailRule(ctx, p.ID, store.RetailRule{Base: store.RetailBaseList, MarkupPct: "5"}); err != nil {
+			t.Fatal(err)
+		}
+		// A derived book with no customer behind it — what a partner is left
+		// holding when its last customer's re-derivation did not run.
+		if _, err := st.UpsertDerivedBook(ctx, p.ID, book, name+" · retail · "+book.Name, "", []store.PriceItem{{SKU: partnerSKU, Unit: "instance-hour", UnitPrice: "105"}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.UpsertPartnerUser(ctx, p.ID, "viewer@"+slug+".example", store.RolePartnerViewer, "test"); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	goes, stays := mk("goes-co", "Goes Co", "ap@goes.example"), mk("stays-co", "Stays Co", "ap@stays.example")
+
+	if err := st.DeletePartner(ctx, goes.ID); err != nil {
+		t.Fatalf("deleting a partner nothing depends on: %v", err)
+	}
+	if _, err := st.GetPartner(ctx, goes.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("the deleted partner reads %v, want ErrNotFound", err)
+	}
+	if _, err := st.GetCustomer(ctx, store.OperatorScope, goes.PartyCustomerID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("its party reads %v, want ErrNotFound", err)
+	}
+	if _, ok, _ := st.GetRetailRule(ctx, goes.ID); ok {
+		t.Fatal("its retail rule outlived it")
+	}
+	if books, _ := st.DerivedBooks(ctx, goes.ID); len(books) != 0 {
+		t.Fatalf("%d derived book(s) outlived it", len(books))
+	}
+	if users, _ := st.PartnerUsers(ctx, goes.ID); len(users) != 0 {
+		t.Fatalf("%d partner user(s) outlived it", len(users))
+	}
+
+	// The other partner is whole, and so is the list book both derived from.
+	if p, err := st.GetPartner(ctx, stays.ID); err != nil || !p.HasRetailRule {
+		t.Fatalf("the other partner = %+v (%v)", p, err)
+	}
+	if books, _ := st.DerivedBooks(ctx, stays.ID); len(books) != 1 || len(books[0].Items) != 1 {
+		t.Fatalf("the other partner's derived books = %+v", books)
+	}
+	if users, _ := st.PartnerUsers(ctx, stays.ID); len(users) != 2 {
+		t.Fatalf("the other partner's users = %+v, want its owner and its viewer", users)
+	}
+	if got, err := st.GetPriceBook(ctx, book.ID); err != nil || len(got.Items) != 1 {
+		t.Fatalf("the list book = %+v (%v)", got, err)
+	}
+	if err := st.DeletePartner(ctx, goes.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("deleting it twice = %v, want ErrNotFound", err)
+	}
+	if err := st.DeletePartner(ctx, "not-an-id"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("deleting a malformed id = %v, want ErrNotFound", err)
 	}
 }

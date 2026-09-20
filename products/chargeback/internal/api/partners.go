@@ -14,8 +14,10 @@ import (
 //
 //	GET|POST   /partners                       the directory · create
 //	GET|PATCH  /partners/{id}                  one partner
+//	DELETE     /partners/{id}                  refused while anything depends on it
 //	GET|POST   /partners/tiers                 the tiers and their discounts
 //	PUT        /partners/tiers/{id}/discounts  replace a tier's discounts
+//	DELETE     /partners/tiers/{id}            refused while a partner is on it
 //	PUT        /partners/{id}/retail-rule      re-derives the retail book
 //	GET        /partners/{id}/retail-book      the derived book(s) + below-buy
 //	GET        /partners/{id}/customers        the end customers assigned
@@ -217,6 +219,30 @@ func (h *Handler) patchPartner(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, p)
 }
 
+// deletePartner — DELETE /partners/{id} (DESIGN.md §13.9). The store refuses
+// while end customers buy through the partner, while a statement past draft
+// names it, while its account holds ledger entries, or while one of its
+// retail books is assigned to a source — 409, naming what blocks it. What
+// goes with an unused partner is its retail rule, its derived books, its
+// partner-scoped users and its party.
+func (h *Handler) deletePartner(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if _, ok := h.requireSovereign(w, r, access.PartnersManage); !ok {
+		return
+	}
+	p, err := h.Store.GetPartner(r.Context(), id)
+	if err != nil {
+		storeErr(w, err)
+		return
+	}
+	if err := h.Store.DeletePartner(r.Context(), id); err != nil {
+		storeErr(w, err)
+		return
+	}
+	h.audit(r, &p.PartyCustomerID, "partner.delete", partnerAudit(p))
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": true, "id": id, "slug": p.Slug})
+}
+
 // ---------------------------------------------------------------------------
 // tiers
 // ---------------------------------------------------------------------------
@@ -317,6 +343,29 @@ func (h *Handler) putTierDiscounts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, t)
+}
+
+// deletePartnerTier — DELETE /partners/tiers/{id}. Refused (409, naming the
+// partners) while any partner is on the tier: it would otherwise lose its buy
+// price without anybody deciding that. An unused tier goes with its discounts,
+// which exist only to make it — so no retail book moves and nothing is
+// re-derived.
+func (h *Handler) deletePartnerTier(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireSovereign(w, r, access.PartnersManage); !ok {
+		return
+	}
+	id := r.PathValue("id")
+	t, err := h.Store.GetPartnerTier(r.Context(), id)
+	if err != nil {
+		storeErr(w, err)
+		return
+	}
+	if err := h.Store.DeletePartnerTier(r.Context(), id); err != nil {
+		storeErr(w, err)
+		return
+	}
+	h.audit(r, nil, "partner.tier", map[string]any{"op": "delete", "tier_id": id, "name": t.Name, "discounts": len(t.Discounts)})
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": true, "id": id, "name": t.Name})
 }
 
 // ---------------------------------------------------------------------------
