@@ -20,6 +20,7 @@ import {
   orderedClasses,
   parseBasketQuery,
   parsePoolForm,
+  poolFingerprint,
   parseShapeForm,
   poolRows,
   reserveForMachines,
@@ -409,5 +410,27 @@ describe('classes, families and the class-aware mix', () => {
     // A floor above usable is clamped, and an unsized row says nothing.
     expect(floorEffect('1', '100', '10', '4', '500')).toEqual({ usable: 90, floor: 90, envelope: 0 })
     expect(floorEffect('', '', '', '', '')).toBeNull()
+  })
+})
+
+describe('the pool fingerprint that the follow-up reads of an open pool are keyed on', () => {
+  const base = {
+    id: 'p', zone_id: 'z', name: 'm7n-a', machines: 1, classes: ['guaranteed', 'spot'], lead_time_days: 0, source: 'manual', note: '', updated_by: '', updated_at: '2026-09-20T10:00:00Z',
+    resources: [], status: 'ok', binding_resource: 'vcpu', utilisation_pct: 10, placements: [], zone_unknown: false,
+    basket: { items: [], units: null, reason: '', binding_resource: '', resources: [], unshaped_skus: [] },
+    order_by_days: null, order_by_date: null, order_by_resource: '', order_by_wall: '', late: false,
+    resources_view: [{ resource: 'vcpu', usable: 256, overcommit_ratio: 1, guaranteed_floor: 0, guaranteed: 80, burstable: 0, spot: 16, spot_reclaim: 0 }],
+  } as unknown as CapacityPoolView
+
+  it('is stable for the same pool, so an unrelated re-render refetches nothing', () => {
+    expect(poolFingerprint(base)).toBe(poolFingerprint({ ...base }))
+  })
+
+  it('changes when the pool is resized, when a resource changes class, and when a placement is added — the three things the id alone never saw', () => {
+    const resized = { ...base, updated_at: '2026-09-20T10:05:00Z', resources_view: [{ ...base.resources_view[0], usable: 66, spot_reclaim: 7 }] } as CapacityPoolView
+    const reclassed = { ...base, resources_view: [{ ...base.resources_view[0], guaranteed: 72, spot: 24 }] } as CapacityPoolView
+    const placed = { ...base, placements: [{ sku: 'ecs.m7n.2xlarge.8', family: false, class: 'spot', shape: {}, shape_source: 'seed', units: 0, resources: 0, matched_skus: [] }] } as CapacityPoolView
+    const all = [base, resized, reclassed, placed].map(poolFingerprint)
+    expect(new Set(all).size).toBe(4)
   })
 })
