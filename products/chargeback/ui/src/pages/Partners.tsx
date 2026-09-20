@@ -19,7 +19,7 @@ import { useQuery } from '../lib/useQuery'
  * there is no second rate card and no markup typed per SKU.
  */
 
-type Dialog = { kind: 'partner'; p?: Partner } | { kind: 'tier'; t?: PartnerTier } | { kind: 'discounts'; t: PartnerTier } | null
+type Dialog = { kind: 'partner'; p?: Partner } | { kind: 'tier'; t?: PartnerTier } | { kind: 'discounts'; t: PartnerTier } | { kind: 'delete-tier'; t: PartnerTier } | null
 
 export function Partners() {
   const nav = useNavigate()
@@ -27,6 +27,13 @@ export function Partners() {
   const canManage = can(me, 'partners.manage')
   const list = useQuery<unknown>('/partners')
   const tiers = useQuery<unknown>('/partners/tiers')
+  // The two lists show each other's facts — a partner's row names its tier, a
+  // tier's row counts its partners — so a change to either reloads BOTH. A
+  // renamed tier used to keep its old name on every partner's row until the
+  // page was reloaded.
+  const reloadBoth = async () => {
+    await Promise.all([tiers.reload(), list.reload()])
+  }
   const rows = useMemo(() => asList<Partner>(list.data, 'partners'), [list.data])
   const tierRows = useMemo(() => asList<PartnerTier>(tiers.data, 'tiers'), [tiers.data])
   const [dialog, setDialog] = useState<Dialog>(null)
@@ -163,7 +170,14 @@ export function Partners() {
         </div>
       )}
 
-      <TiersCard tiers={tierRows} error={tiers.error} canManage={canManage} onEdit={(t) => setDialog({ kind: 'tier', t })} onDiscounts={(t) => setDialog({ kind: 'discounts', t })} />
+      <TiersCard
+        tiers={tierRows}
+        error={tiers.error}
+        canManage={canManage}
+        onEdit={(t) => setDialog({ kind: 'tier', t })}
+        onDiscounts={(t) => setDialog({ kind: 'discounts', t })}
+        onDelete={(t) => setDialog({ kind: 'delete-tier', t })}
+      />
 
       {dialog?.kind === 'partner' ? (
         <PartnerModal
@@ -173,7 +187,7 @@ export function Partners() {
           onSaved={async (name) => {
             setDialog(null)
             setFlash(`${name} saved`)
-            await list.reload()
+            await reloadBoth()
           }}
         />
       ) : null}
@@ -184,7 +198,7 @@ export function Partners() {
           onSaved={async (name) => {
             setDialog(null)
             setFlash(`${name} saved`)
-            await tiers.reload()
+            await reloadBoth()
           }}
         />
       ) : null}
@@ -195,7 +209,18 @@ export function Partners() {
           onSaved={async (name) => {
             setDialog(null)
             setFlash(`${name} discounts saved — every partner on the tier was re-derived`)
-            await Promise.all([tiers.reload(), list.reload()])
+            await reloadBoth()
+          }}
+        />
+      ) : null}
+      {dialog?.kind === 'delete-tier' ? (
+        <DeleteTierConfirm
+          tier={dialog.t}
+          onClose={() => setDialog(null)}
+          onDone={async (name) => {
+            setDialog(null)
+            setFlash(`${name} deleted`)
+            await reloadBoth()
           }}
         />
       ) : null}
@@ -209,12 +234,14 @@ function TiersCard({
   canManage,
   onEdit,
   onDiscounts,
+  onDelete,
 }: {
   tiers: PartnerTier[]
   error?: string
   canManage: boolean
   onEdit: (t: PartnerTier) => void
   onDiscounts: (t: PartnerTier) => void
+  onDelete: (t: PartnerTier) => void
 }) {
   if (error) return <Notice kind="bad">{error}</Notice>
   return (
@@ -264,6 +291,9 @@ function TiersCard({
                       </button>
                       <button className="small" onClick={() => onDiscounts(t)}>
                         Discounts
+                      </button>
+                      <button className="small danger" onClick={() => onDelete(t)} aria-label={`Delete ${t.name}`}>
+                        Delete
                       </button>
                     </span>
                   ) : null}
@@ -356,7 +386,10 @@ function TierModal({ tier, onClose, onSaved }: { tier?: PartnerTier; onClose: ()
   const [description, setDescription] = useState(tier?.description ?? '')
   const act = useAction()
   const submit = async () => {
-    const ok = await act.run(`${name} saved`, () => api.post('/partners/tiers', { name: name.trim(), description: description.trim() }))
+    // Editing RENAMES the tier it was opened on; only a new tier is a create.
+    // This used to POST in both cases, so Rename made a second tier.
+    const body = { name: name.trim(), description: description.trim() }
+    const ok = await act.run(`${name} saved`, () => (tier ? api.patch(`/partners/tiers/${tier.id}`, body) : api.post('/partners/tiers', body)))
     if (ok) await onSaved(name.trim())
   }
   return (
@@ -497,6 +530,86 @@ export function CustomerPartnerCard({ customer, canManage, onChanged }: { custom
   )
 }
 
+/**
+ * Deleting a tier (DESIGN.md §13.9). The server refuses while a partner is on
+ * it and names them; that sentence is shown as it came, in the dialog the
+ * person is looking at, and the dialog stays open.
+ */
+export function DeleteTierConfirm({ tier, onClose, onDone }: { tier: PartnerTier; onClose: () => void; onDone: (name: string) => void | Promise<void> }) {
+  const act = useAction()
+  const on = tier.partners ?? 0
+  const discounts = (tier.discounts ?? []).length
+  return (
+    <Confirm
+      title={`Delete ${tier.name}`}
+      danger
+      confirmLabel="Delete tier"
+      busy={act.busy}
+      onClose={onClose}
+      onConfirm={async () => {
+        const ok = await act.run(`${tier.name} deleted`, () => api.del(`/partners/tiers/${tier.id}`))
+        if (ok) await onDone(tier.name)
+      }}
+      body={
+        <div className="stack tight">
+          {act.error ? <Notice kind="bad">{act.error}</Notice> : null}
+          <p>
+            <b>{tier.name}</b> is removed
+            {discounts > 0 ? ` together with the ${discounts === 1 ? 'discount that makes' : `${discounts} discounts that make`} it` : ''}, and it is no longer offered when a partner is given a tier. This cannot be undone.
+          </p>
+          {on > 0 ? (
+            <p className="warn">
+              {on === 1 ? '1 partner buys' : `${on} partners buy`} at this tier. It cannot be deleted until {on === 1 ? 'that partner is' : 'they are'} moved to another tier, or {on === 1 ? 'its' : 'their'} tier is cleared —
+              otherwise {on === 1 ? 'it' : 'they'} would start buying at the list price without anybody deciding that.
+            </p>
+          ) : (
+            <p className="muted small">No partner is on this tier, so no buy price moves and no statement changes.</p>
+          )}
+        </div>
+      }
+    />
+  )
+}
+
+/**
+ * Deleting a partner (DESIGN.md §13.9). What goes with it is spelled out, and
+ * so is what stops it — the server's refusal names the customers, statements,
+ * ledger entries or retail book in the way, and is shown as it came.
+ */
+export function DeletePartnerConfirm({ partner, onClose, onDone }: { partner: Partner; onClose: () => void; onDone: (name: string) => void | Promise<void> }) {
+  const act = useAction()
+  const customers = partner.customer_count ?? 0
+  return (
+    <Confirm
+      title={`Delete ${partner.name}`}
+      danger
+      confirmLabel="Delete partner"
+      busy={act.busy}
+      onClose={onClose}
+      onConfirm={async () => {
+        const ok = await act.run(`${partner.name} deleted`, () => api.del(`/partners/${partner.id}`))
+        if (ok) await onDone(partner.name)
+      }}
+      body={
+        <div className="stack tight">
+          {act.error ? <Notice kind="bad">{act.error}</Notice> : null}
+          <p>
+            This removes <b>{partner.name}</b> (<span className="mono">{partner.slug}</span>) together with its retail rule, its derived retail book, its own account and any draft statement on it, and everyone who signs in as this partner loses access at their next request. This cannot be undone.
+          </p>
+          {customers > 0 ? (
+            <p className="warn">
+              {customers === 1 ? '1 customer still buys' : `${customers} customers still buy`} through it. Make {customers === 1 ? 'it' : 'them'} direct, or assign {customers === 1 ? 'it' : 'them'} to another partner, first.
+            </p>
+          ) : null}
+          <p className="muted small">
+            The server refuses a partner that has been issued a statement, whose customers were invoiced through it, or whose account holds payments or credits — those are permanent records. In that case suspend the partner instead.
+          </p>
+        </div>
+      }
+    />
+  )
+}
+
 /** A confirm used when a partner is switched off; kept beside its page. */
 export function SuspendPartnerConfirm({ partner, onClose, onDone }: { partner: Partner; onClose: () => void; onDone: () => void | Promise<void> }) {
   const act = useAction()
@@ -511,7 +624,12 @@ export function SuspendPartnerConfirm({ partner, onClose, onDone }: { partner: P
         const ok = await act.run('suspended', () => api.patch(`/partners/${partner.id}`, { status: 'suspended' }), onDone)
         if (ok) onClose()
       }}
-      body={<>Its users can no longer sign in. Its customers keep being collected and billed; nothing about their statements changes.</>}
+      body={
+        <>
+          {act.error ? <Notice kind="bad">{act.error}</Notice> : null}
+          Its users can no longer sign in. Its customers keep being collected and billed; nothing about their statements changes.
+        </>
+      }
     />
   )
 }

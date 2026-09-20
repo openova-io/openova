@@ -175,9 +175,63 @@ func TestMapErrPrefersTheCallersOwnMessage(t *testing.T) {
 	}
 }
 
+// On a DELETE a foreign-key violation means "still referred to", and the
+// answer is a conflict — never the "not found" mapErr gives the same code,
+// which the API turns into a 404 for a row that is right there (#6936).
+// Everything that is not a 23503 still goes through mapErr unchanged.
+func TestMapDeleteErrCallsAStillReferencedRowAConflict(t *testing.T) {
+	cases := []struct {
+		name string
+		pqe  *pq.Error
+		want string
+	}{
+		{
+			name: "a reference this package names",
+			pqe: &pq.Error{Code: "23503", Table: "cost_sources", Constraint: "cost_sources_price_book_id_fkey",
+				Detail: `Key (id)=(9692021e-ce13-4bbd-9429-292e5f9218cd) is still referenced from table "cost_sources".`},
+			want: "conflict: a cost source is still assigned to that price book; assign it another book first",
+		},
+		{
+			name: "a reference nothing names",
+			pqe: &pq.Error{Code: "23503", Table: "gizmos", Constraint: "gizmos_widget_id_fkey",
+				Detail: `Key (id)=(9692021e-ce13-4bbd-9429-292e5f9218cd) is still referenced from table "gizmos".`},
+			want: "conflict: " + stillReferencedFallback,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			err := mapDeleteErr(c.pqe)
+			if !errors.Is(err, ErrConflict) || errors.Is(err, ErrNotFound) {
+				t.Fatalf("err = %v, want ErrConflict and not ErrNotFound", err)
+			}
+			if err.Error() != c.want {
+				t.Errorf("message = %q, want %q", err.Error(), c.want)
+			}
+			assertNoLeak(t, err.Error(), c.pqe)
+		})
+	}
+	if mapDeleteErr(nil) != nil {
+		t.Error("nil must stay nil")
+	}
+	if err := mapDeleteErr(sql.ErrNoRows); !errors.Is(err, ErrNotFound) {
+		t.Errorf("no rows = %v, want ErrNotFound", err)
+	}
+	if err := mapDeleteErr(duplicateCostCentre()); err.Error() != mapErr(duplicateCostCentre()).Error() {
+		t.Errorf("a unique violation was rewritten on the delete path: %v", err)
+	}
+}
+
 // No sentence may itself contain what it was written to keep out.
 func TestConstraintMessagesCarryNoIdentifiers(t *testing.T) {
+	all := map[string]string{}
 	for name, msg := range constraintMessages {
+		all[name] = msg
+	}
+	for name, msg := range deleteConstraintMessages {
+		all["delete:"+name] = msg
+	}
+	for name, msg := range all {
+		name = strings.TrimPrefix(name, "delete:")
 		if strings.Contains(msg, name) {
 			t.Errorf("%s: the message repeats the constraint name: %s", name, msg)
 		}
@@ -188,7 +242,7 @@ func TestConstraintMessagesCarryNoIdentifiers(t *testing.T) {
 			t.Errorf("%s: message %q does not match the style of the store's other sentences", name, msg)
 		}
 	}
-	for _, msg := range []string{conflictFallback, referenceFallback, checkValueFallback} {
+	for _, msg := range []string{conflictFallback, referenceFallback, checkValueFallback, stillReferencedFallback} {
 		if snakeIdent.MatchString(msg) {
 			t.Errorf("fallback %q reads like an identifier", msg)
 		}
@@ -242,6 +296,11 @@ func TestConstraintMessagesNameLiveConstraints(t *testing.T) {
 	for name := range constraintMessages {
 		if !live[name] {
 			t.Errorf("constraintMessages names %q, which no constraint or unique index in the schema has", name)
+		}
+	}
+	for name := range deleteConstraintMessages {
+		if !live[name] {
+			t.Errorf("deleteConstraintMessages names %q, which no constraint in the schema has", name)
 		}
 	}
 }

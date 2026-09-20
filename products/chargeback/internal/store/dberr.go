@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -177,6 +178,46 @@ const (
 	referenceFallback  = "something this record refers to does not exist"
 	checkValueFallback = "one of the values is not allowed for this record"
 )
+
+// A foreign-key violation on a DELETE means the opposite of what it means on a
+// write: not "this refers to something that does not exist" but "something
+// still refers to this". mapErr classifies every 23503 as ErrNotFound, and the
+// API then answers 404 for a row that is right there — which reads like "that
+// does not exist" when the truth is "that is still in use" (#6936).
+//
+// DeletePartner and DeletePartnerTier count their own dependants first, under
+// a row lock, and refuse in their own words with the names; these are the
+// sentences for a reference that gets past that, and for the one DeleteCustomer
+// leaves to the schema — a partner's party, which the partner RESTRICTs. They
+// are keyed by the constraint of the REFERRING table, and held to the live
+// schema by the same test as the map above.
+var deleteConstraintMessages = map[string]string{
+	"cost_sources_price_book_id_fkey": "a cost source is still assigned to that price book; assign it another book first",
+	"customers_price_book_id_fkey":    "a customer is still assigned to that price book; assign it another book first",
+	"partners_party_customer_id_fkey": "that account belongs to a partner; delete the partner, not its account",
+}
+
+// stillReferencedFallback is the delete-side counterpart of referenceFallback.
+const stillReferencedFallback = "something else still refers to this record, so it cannot be deleted"
+
+// mapDeleteErr is mapErr for a DELETE statement: a foreign-key violation is
+// a conflict with what still refers to the row, never a missing row.
+func mapDeleteErr(err error) error {
+	var pqe *pq.Error
+	if errors.As(err, &pqe) && pqe.Code == "23503" {
+		slog.Warn("database refused a delete",
+			"code", string(pqe.Code),
+			"table", pqe.Table,
+			"constraint", pqe.Constraint,
+			"detail", pqe.Detail)
+		msg := stillReferencedFallback
+		if m, ok := deleteConstraintMessages[pqe.Constraint]; ok {
+			msg = m
+		}
+		return fmt.Errorf("%w: %s", ErrConflict, msg)
+	}
+	return mapErr(err)
+}
 
 // constraintErr logs what the driver said and returns sentinel carrying a
 // sentence written for a person. The raw Detail — the only place the offending

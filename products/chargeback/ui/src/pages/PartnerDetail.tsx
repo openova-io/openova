@@ -1,11 +1,11 @@
 import { useMemo, useState, type FormEvent } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, asList, errorText } from '../api/client'
 import type { Customer, MarginReport, Partner, PriceBook, RetailDocument, RetailOverride, RoleBinding, Statement } from '../api/types'
 import { useSession } from '../auth/session'
 import { DataTable, type Column } from '../components/DataTable'
 import { Badge, Confirm, EmptyState, Field, KPI, Notice, PageHeader, Segmented, Skeleton, Tabs } from '../components/ui'
-import { canPartner } from '../lib/access'
+import { can, canPartner } from '../lib/access'
 import { day, when } from '../lib/format'
 import { formatMoney, formatPct } from '../lib/money'
 import { toNumber } from '../lib/num'
@@ -29,6 +29,7 @@ import { statementPeriod, statementStatus } from '../lib/statements'
 import { useAction } from '../lib/useAction'
 import { useQuery } from '../lib/useQuery'
 import { AccountPanel } from '../panels/AccountPanel'
+import { DeletePartnerConfirm, SuspendPartnerConfirm } from './Partners'
 
 /**
  * One partner (DESIGN.md §11) — the same bodies under both lenses: the
@@ -41,10 +42,17 @@ const TABS = ['Overview', 'Customers', 'Statements', 'Margin', 'Retail rule', 'U
 
 export function PartnerDetail() {
   const { id = '' } = useParams()
+  const nav = useNavigate()
+  const { me } = useSession()
   const [params] = useSearchParams()
   const tab = (params.get('tab') ?? 'overview').toLowerCase()
   const q = useQuery<Partner>(`/partners/${id}`)
   const p = q.data
+  // Suspending, resuming and deleting are the Sovereign's (partners.manage);
+  // a partner owner opens these bodies through its own lens, never this page.
+  const canManage = can(me, 'partners.manage')
+  const [asking, setAsking] = useState<'suspend' | 'delete' | null>(null)
+  const act = useAction()
 
   if (q.error && !p) {
     return (
@@ -71,7 +79,25 @@ export function PartnerDetail() {
             {p.contact_email ? ` · ${p.contact_email}` : ''}
           </>
         }
+        actions={
+          canManage ? (
+            <>
+              {p.status === 'suspended' ? (
+                <button disabled={act.busy} onClick={() => void act.run(`${p.name} resumed`, () => api.patch(`/partners/${id}`, { status: 'active' }), q.reload)}>
+                  Resume
+                </button>
+              ) : (
+                <button onClick={() => setAsking('suspend')}>Suspend</button>
+              )}
+              <button className="danger" onClick={() => setAsking('delete')}>
+                Delete
+              </button>
+            </>
+          ) : null
+        }
       />
+      {act.error ? <Notice kind="bad">{act.error}</Notice> : null}
+      {act.ok ? <Notice kind="ok">{act.ok}</Notice> : null}
       <PartnerKPIs partner={p} />
       <Tabs base={base} tabs={TABS} current={tab} counts={{ customers: p.customer_count }} />
       {tab === 'overview' ? <PartnerOverview partner={p} /> : null}
@@ -82,6 +108,8 @@ export function PartnerDetail() {
       {tab === 'users' ? <PartnerUsers partnerId={id} /> : null}
       {tab === 'account' ? <PartnerAccount partner={p} /> : null}
       {!TABS.some((t) => t.toLowerCase() === tab) ? <Notice kind="warn">Unknown tab "{tab}".</Notice> : null}
+      {asking === 'suspend' ? <SuspendPartnerConfirm partner={p} onClose={() => setAsking(null)} onDone={q.reload} /> : null}
+      {asking === 'delete' ? <DeletePartnerConfirm partner={p} onClose={() => setAsking(null)} onDone={() => nav('/partners', { replace: true })} /> : null}
     </div>
   )
 }

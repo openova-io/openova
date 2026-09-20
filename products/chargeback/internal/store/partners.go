@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/lib/pq"
+
+	"github.com/openova-io/openova/products/chargeback/internal/word"
 )
 
 // partnersMigrationSQL is the PARTNERS (resellers) model — DESIGN.md
@@ -340,6 +342,68 @@ func (s *Store) UpdatePartnerTier(ctx context.Context, id, name, description str
 	return s.GetPartnerTier(ctx, id)
 }
 
+// DeletePartnerTier removes a tier and the discounts that make it, in one
+// transaction (DESIGN.md §13.9). A tier a partner is still assigned to is
+// refused, naming the partners: partners.tier_id clears itself when the tier
+// goes, so without this the partner would quietly start buying at list — a
+// price change nobody made. The tier row is locked first, so a partner being
+// assigned to it at the same moment waits and is then told it does not exist.
+func (s *Store) DeletePartnerTier(ctx context.Context, id string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var name string
+	if err := tx.QueryRowContext(ctx, `SELECT name FROM partner_tiers WHERE id = $1 FOR UPDATE`, id).Scan(&name); err != nil {
+		return mapErr(err)
+	}
+	on, err := txNames(ctx, tx, `SELECT name FROM partners WHERE tier_id = $1 ORDER BY name`, id)
+	if err != nil {
+		return err
+	}
+	if len(on) > 0 {
+		return fmt.Errorf("%w: tier %s sets the buy price of %s (%s); move them to another tier, or clear their tier, before deleting it", ErrConflict, name, word.Count(len(on), "partner"), nameList(on))
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM discounts WHERE tier_id = $1`, id); err != nil {
+		return mapDeleteErr(err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM partner_tiers WHERE id = $1`, id); err != nil {
+		return mapDeleteErr(err)
+	}
+	return tx.Commit()
+}
+
+// txNames reads one text column inside a transaction.
+func txNames(ctx context.Context, tx *sql.Tx, q string, args ...any) ([]string, error) {
+	rows, err := tx.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+// nameListMax is how many names a refusal spells out before it counts the
+// rest: enough to recognise the set, short enough to stay a sentence.
+const nameListMax = 5
+
+// nameList is "Alpha, Beta" — or "A, B, C, D, E and 7 more" past nameListMax.
+func nameList(names []string) string {
+	if len(names) <= nameListMax {
+		return strings.Join(names, ", ")
+	}
+	return fmt.Sprintf("%s and %d more", strings.Join(names[:nameListMax], ", "), len(names)-nameListMax)
+}
+
 // TierDiscounts lists a tier's discounts (the rows of the ONE discounts
 // table that carry this tier_id), newest first.
 func (s *Store) TierDiscounts(ctx context.Context, tierID string) ([]Discount, error) {
@@ -659,6 +723,169 @@ func (s *Store) UpdatePartner(ctx context.Context, id string, p PartnerPatch) (P
 	return s.GetPartner(ctx, id)
 }
 
+// DeletePartner removes a partner nothing depends on (DESIGN.md §13.9): its
+// retail rule, its derived retail books, the partner — and with it its
+// partner-scoped bindings — and its party, the account row CreatePartner made
+// with it, in one transaction. It refuses, naming what blocks it, while
+//
+//   - end customers still buy through it. customers.partner_id clears itself
+//     when the partner goes, so they would turn direct — priced and billed by
+//     us from the next run — without anybody having decided that;
+//   - a statement past draft names it: its own wholesale or commission
+//     statements, or a customer statement rated through it, which carries its
+//     buy price and margin. Those are documents somebody received, exactly
+//     as in DeleteCustomer, and only drafts go;
+//   - its account holds ledger entries. The party row IS the partner's ledger
+//     (§13.3), and deleting it would take money received or owed with it;
+//   - one of its derived retail books is assigned to a source or a customer,
+//     which would be left priced by nothing.
+//
+// The first and the last the operator can undo, and the delete then goes
+// through. The middle two are permanent: the answer there is to suspend.
+//
+// The partner row is locked first, so a customer being assigned to it at the
+// same moment waits and is then told the partner does not exist; the party
+// and the derived books are locked before what refers to them is counted,
+// for the same reason.
+func (s *Store) DeletePartner(ctx context.Context, id string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var name string
+	var party sql.NullString
+	if err := tx.QueryRowContext(ctx, `SELECT name, party_customer_id::text FROM partners WHERE id = $1 FOR UPDATE`, id).Scan(&name, &party); err != nil {
+		return mapErr(err)
+	}
+	// The party too: a payment posted on it while its ledger is being counted
+	// would otherwise be cascaded away with the row a moment later.
+	if _, err := tx.ExecContext(ctx, `SELECT 1 FROM customers WHERE id = $1 FOR UPDATE`, party); err != nil {
+		return mapErr(err)
+	}
+	var blocked []string
+
+	customers, err := txNames(ctx, tx, `SELECT name FROM customers WHERE partner_id = $1 AND party_kind = 'customer' ORDER BY name`, id)
+	if err != nil {
+		return err
+	}
+	if n := len(customers); n > 0 {
+		blocked = append(blocked, fmt.Sprintf("%s still %s through it (%s), so make them direct or assign them to another partner first",
+			word.Count(n, "customer"), agree(n, "buys", "buy"), nameList(customers)))
+	}
+
+	// Anything past draft is a document somebody received; only drafts go.
+	own, err := txNames(ctx, tx, `SELECT COALESCE(NULLIF(invoice_number, ''), to_char(period_start, 'YYYY-MM')) FROM statements
+		WHERE status <> 'draft' AND statement_kind <> 'customer' AND (partner_id = $1 OR customer_id = $2) ORDER BY period_start`, id, party)
+	if err != nil {
+		return err
+	}
+	rated, err := txNames(ctx, tx, `SELECT c.name FROM statements st JOIN customers c ON c.id = st.customer_id
+		WHERE st.partner_id = $1 AND st.statement_kind = 'customer' AND st.status <> 'draft' ORDER BY c.name, st.period_start`, id)
+	if err != nil {
+		return err
+	}
+	var entries int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM account_entries WHERE customer_id = $1`, party).Scan(&entries); err != nil {
+		return mapErr(err)
+	}
+	if n := len(own); n > 0 {
+		blocked = append(blocked, fmt.Sprintf("it has %s of its own (%s)", word.Count(n, "issued statement"), nameList(own)))
+	}
+	if n := len(rated); n > 0 {
+		blocked = append(blocked, fmt.Sprintf("%s of its customers %s its buy price and margin (%s)",
+			word.Count(n, "issued statement"), agree(n, "carries", "carry"), nameList(distinct(rated))))
+	}
+	if entries > 0 {
+		blocked = append(blocked, fmt.Sprintf("its account holds %d ledger %s", entries, agree(entries, "entry", "entries")))
+	}
+	records := []string{}
+	if len(own)+len(rated) > 0 {
+		records = append(records, "issued statements")
+	}
+	if entries > 0 {
+		records = append(records, "ledger entries")
+	}
+	if len(records) > 0 {
+		blocked = append(blocked, strings.Join(records, " and ")+" are permanent records, so suspend the partner instead of deleting it")
+	}
+
+	books, err := tx.QueryContext(ctx, `SELECT id, name FROM price_books WHERE partner_id = $1 AND derived_from_rule ORDER BY name FOR UPDATE`, id)
+	if err != nil {
+		return mapErr(err)
+	}
+	derived := [][2]string{}
+	for books.Next() {
+		var b [2]string
+		if err := books.Scan(&b[0], &b[1]); err != nil {
+			books.Close()
+			return err
+		}
+		derived = append(derived, b)
+	}
+	books.Close()
+	if err := books.Err(); err != nil {
+		return err
+	}
+	for _, b := range derived {
+		// The same question DeletePriceBook asks of any book.
+		srcs, err := s.assignedSources(ctx, tx, b[0])
+		if err != nil {
+			return err
+		}
+		if len(srcs) > 0 {
+			priced := []string{}
+			for _, c := range coverageCustomers(srcs) {
+				priced = append(priced, c.Name)
+			}
+			blocked = append(blocked, fmt.Sprintf("its retail book %s is assigned to %s (%s), so assign them another price book first",
+				b[1], word.Count(len(srcs), "source"), nameList(priced)))
+		}
+	}
+
+	if len(blocked) > 0 {
+		return fmt.Errorf("%w: partner %s cannot be deleted: %s", ErrConflict, name, strings.Join(blocked, "; "))
+	}
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM partner_retail_rules WHERE partner_id = $1`, id); err != nil {
+		return mapDeleteErr(err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM price_books WHERE partner_id = $1 AND derived_from_rule`, id); err != nil {
+		return mapDeleteErr(err)
+	}
+	// The partner before its party: partners.party_customer_id RESTRICTs.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM partners WHERE id = $1`, id); err != nil {
+		return mapDeleteErr(err)
+	}
+	if party.Valid {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM customers WHERE id = $1 AND party_kind = 'partner'`, party.String); err != nil {
+			return mapDeleteErr(err)
+		}
+	}
+	return tx.Commit()
+}
+
+// agree picks the singular or the plural form of a word for a count.
+func agree(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
+}
+
+// distinct drops repeats from a sorted-or-not list, keeping first-seen order.
+func distinct(in []string) []string {
+	out := make([]string, 0, len(in))
+	seen := map[string]bool{}
+	for _, v := range in {
+		if !seen[v] {
+			seen[v] = true
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
 // PartnerCustomers lists the end customers assigned to a partner.
 func (s *Store) PartnerCustomers(ctx context.Context, partnerID string) ([]Customer, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+customerColumns+customerFrom+` WHERE c.partner_id = $1 AND c.party_kind = 'customer' ORDER BY c.name`, partnerID)
@@ -964,8 +1191,18 @@ func (s *Store) DeleteDerivedBooks(ctx context.Context, partnerID string, keep [
 	if keep == nil {
 		keep = []string{}
 	}
-	_, err := s.db.ExecContext(ctx, `DELETE FROM price_books WHERE partner_id = $1 AND derived_from_rule AND NOT (derived_from_book_id::text = ANY($2))`, partnerID, pq.Array(keep))
-	return mapErr(err)
+	// A derived book a SOURCE (or, on rows from before books moved to the
+	// source, a customer) IS PRICED FROM is kept, whether or not it is
+	// still derivable. SetSourcePriceBook accepts a derived book, so once the
+	// partner's last customer on that list book went direct this DELETE hit
+	// the source's foreign key — and it runs AFTER the change that caused the
+	// re-derivation has committed, so a PATCH that had been saved answered
+	// 404 "not found". Keeping the book keeps the source priced; the next
+	// re-derivation after the source moves to another book takes it away.
+	_, err := s.db.ExecContext(ctx, `DELETE FROM price_books b WHERE b.partner_id = $1 AND b.derived_from_rule AND NOT (b.derived_from_book_id::text = ANY($2))
+		AND NOT EXISTS (SELECT 1 FROM cost_sources cs WHERE cs.price_book_id = b.id)
+		AND NOT EXISTS (SELECT 1 FROM customers c WHERE c.price_book_id = b.id)`, partnerID, pq.Array(keep))
+	return mapDeleteErr(err)
 }
 
 // PartnersDerivingFrom lists the resell partners whose retail books derive
