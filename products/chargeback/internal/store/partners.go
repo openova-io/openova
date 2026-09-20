@@ -1191,8 +1191,18 @@ func (s *Store) DeleteDerivedBooks(ctx context.Context, partnerID string, keep [
 	if keep == nil {
 		keep = []string{}
 	}
-	_, err := s.db.ExecContext(ctx, `DELETE FROM price_books WHERE partner_id = $1 AND derived_from_rule AND NOT (derived_from_book_id::text = ANY($2))`, partnerID, pq.Array(keep))
-	return mapErr(err)
+	// A derived book a SOURCE (or, on rows from before books moved to the
+	// source, a customer) IS PRICED FROM is kept, whether or not it is
+	// still derivable. SetSourcePriceBook accepts a derived book, so once the
+	// partner's last customer on that list book went direct this DELETE hit
+	// the source's foreign key — and it runs AFTER the change that caused the
+	// re-derivation has committed, so a PATCH that had been saved answered
+	// 404 "not found". Keeping the book keeps the source priced; the next
+	// re-derivation after the source moves to another book takes it away.
+	_, err := s.db.ExecContext(ctx, `DELETE FROM price_books b WHERE b.partner_id = $1 AND b.derived_from_rule AND NOT (b.derived_from_book_id::text = ANY($2))
+		AND NOT EXISTS (SELECT 1 FROM cost_sources cs WHERE cs.price_book_id = b.id)
+		AND NOT EXISTS (SELECT 1 FROM customers c WHERE c.price_book_id = b.id)`, partnerID, pq.Array(keep))
+	return mapDeleteErr(err)
 }
 
 // PartnersDerivingFrom lists the resell partners whose retail books derive

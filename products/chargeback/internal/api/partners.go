@@ -17,6 +17,7 @@ import (
 //	DELETE     /partners/{id}                  refused while anything depends on it
 //	GET|POST   /partners/tiers                 the tiers and their discounts
 //	PUT        /partners/tiers/{id}/discounts  replace a tier's discounts
+//	PATCH      /partners/tiers/{id}            {name?, description?} — rename; moves no price
 //	DELETE     /partners/tiers/{id}            refused while a partner is on it
 //	PUT        /partners/{id}/retail-rule      re-derives the retail book
 //	GET        /partners/{id}/retail-book      the derived book(s) + below-buy
@@ -284,6 +285,40 @@ func (h *Handler) createPartnerTier(w http.ResponseWriter, r *http.Request) {
 	}
 	h.audit(r, nil, "partner.tier", map[string]any{"op": "create", "tier_id": t.ID, "name": t.Name})
 	writeJSON(w, http.StatusCreated, t)
+}
+
+// patchPartnerTier — PATCH /partners/tiers/{id} {name?, description?}. A
+// blank field is left as it was. Renaming a tier moves no price: a tier's
+// discounts are keyed by its id, so no retail book is re-derived.
+//
+// The console's Rename had no route to call until this one: it POSTed the
+// create, which made a SECOND tier under the new name — or answered 409 when
+// only the description had changed — and left the old one where it was.
+func (h *Handler) patchPartnerTier(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireSovereign(w, r, access.PartnersManage); !ok {
+		return
+	}
+	var in struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	}
+	if err := decode(r, &in); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body: "+err.Error())
+		return
+	}
+	id := r.PathValue("id")
+	before, err := h.Store.GetPartnerTier(r.Context(), id)
+	if err != nil {
+		storeErr(w, err)
+		return
+	}
+	t, err := h.Store.UpdatePartnerTier(r.Context(), id, in.Name, in.Description)
+	if err != nil {
+		storeErr(w, err)
+		return
+	}
+	h.audit(r, nil, "partner.tier", map[string]any{"op": "rename", "tier_id": t.ID, "from": before.Name, "name": t.Name})
+	writeJSON(w, http.StatusOK, t)
 }
 
 // putTierDiscounts — PUT /partners/tiers/{id}/discounts. The given percent

@@ -297,6 +297,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/partners/tiers", h.listPartnerTiers)
 	mux.HandleFunc("POST /api/v1/partners/tiers", h.createPartnerTier)
 	mux.HandleFunc("PUT /api/v1/partners/tiers/{id}/discounts", h.putTierDiscounts)
+	mux.HandleFunc("PATCH /api/v1/partners/tiers/{id}", h.patchPartnerTier)
 	mux.HandleFunc("DELETE /api/v1/partners/tiers/{id}", h.deletePartnerTier)
 	mux.HandleFunc("GET /api/v1/partners/{id}", h.getPartner)
 	mux.HandleFunc("PATCH /api/v1/partners/{id}", h.patchPartner)

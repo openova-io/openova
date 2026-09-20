@@ -27,6 +27,13 @@ export function Partners() {
   const canManage = can(me, 'partners.manage')
   const list = useQuery<unknown>('/partners')
   const tiers = useQuery<unknown>('/partners/tiers')
+  // The two lists show each other's facts — a partner's row names its tier, a
+  // tier's row counts its partners — so a change to either reloads BOTH. A
+  // renamed tier used to keep its old name on every partner's row until the
+  // page was reloaded.
+  const reloadBoth = async () => {
+    await Promise.all([tiers.reload(), list.reload()])
+  }
   const rows = useMemo(() => asList<Partner>(list.data, 'partners'), [list.data])
   const tierRows = useMemo(() => asList<PartnerTier>(tiers.data, 'tiers'), [tiers.data])
   const [dialog, setDialog] = useState<Dialog>(null)
@@ -180,7 +187,7 @@ export function Partners() {
           onSaved={async (name) => {
             setDialog(null)
             setFlash(`${name} saved`)
-            await list.reload()
+            await reloadBoth()
           }}
         />
       ) : null}
@@ -191,7 +198,7 @@ export function Partners() {
           onSaved={async (name) => {
             setDialog(null)
             setFlash(`${name} saved`)
-            await tiers.reload()
+            await reloadBoth()
           }}
         />
       ) : null}
@@ -202,7 +209,7 @@ export function Partners() {
           onSaved={async (name) => {
             setDialog(null)
             setFlash(`${name} discounts saved — every partner on the tier was re-derived`)
-            await Promise.all([tiers.reload(), list.reload()])
+            await reloadBoth()
           }}
         />
       ) : null}
@@ -213,7 +220,7 @@ export function Partners() {
           onDone={async (name) => {
             setDialog(null)
             setFlash(`${name} deleted`)
-            await tiers.reload()
+            await reloadBoth()
           }}
         />
       ) : null}
@@ -379,7 +386,10 @@ function TierModal({ tier, onClose, onSaved }: { tier?: PartnerTier; onClose: ()
   const [description, setDescription] = useState(tier?.description ?? '')
   const act = useAction()
   const submit = async () => {
-    const ok = await act.run(`${name} saved`, () => api.post('/partners/tiers', { name: name.trim(), description: description.trim() }))
+    // Editing RENAMES the tier it was opened on; only a new tier is a create.
+    // This used to POST in both cases, so Rename made a second tier.
+    const body = { name: name.trim(), description: description.trim() }
+    const ok = await act.run(`${name} saved`, () => (tier ? api.patch(`/partners/tiers/${tier.id}`, body) : api.post('/partners/tiers', body)))
     if (ok) await onSaved(name.trim())
   }
   return (

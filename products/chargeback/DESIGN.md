@@ -2952,6 +2952,24 @@ that a delete takes nothing of another partner's.
 their absence for a read-only role, both dialogs, and the refusal inside them.
 ---
 
+**Renaming a tier** is `PATCH /partners/tiers/{id} {name?, description?}` (a
+blank field is left as it was). A tier's discounts are keyed by its id, so a
+rename moves no price and re-derives nothing. The console's Rename had no route
+to call before this and POSTed the create, which made a second tier under the
+new name and left the old one where it was.
+
+**Re-derivation never deletes a book something is priced from.** A derived
+retail book may be assigned to a source. Once the partner's last customer on
+its list book goes direct the book is no longer derivable, and the
+re-derivation — which runs AFTER the change that caused it has committed —
+used to try to delete it, hit the source's foreign key, and answer 404 for a
+PATCH that had been saved. Such a book is kept; the first re-derivation after
+the source moves to another book takes it away.
+
+**The two lists reload together.** A partner's row names its tier and a tier's
+row counts its partners, so a change to either reloads both; a renamed tier
+used to keep its old name on every partner's row until the page was reloaded.
+
 ## 14. Documents — the invoice the customer actually receives (EPIC #6867)
 
 Everything above settles what a customer owes. This settles what they are

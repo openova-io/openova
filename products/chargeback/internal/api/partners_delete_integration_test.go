@@ -300,3 +300,89 @@ func TestIntegrationPartnerDeleteIsSovereignManageOnly(t *testing.T) {
 	op.must("DELETE", "/api/v1/partners/00000000-0000-0000-0000-000000000000", 404)
 	op.must("DELETE", "/api/v1/partners/not-an-id", 404)
 }
+
+// Renaming a tier (#6936, found while building its delete): the console's
+// Rename POSTed the CREATE, so it made a second tier under the new name — or
+// answered 409 when only the description had changed — and left the old one
+// where it was. PATCH /partners/tiers/{id} is the route it had no way to call.
+func TestIntegrationPartnerTierRenameChangesTheTierItWasAskedTo(t *testing.T) {
+	h, st, mail, _, _ := setupAPI(t)
+	s, op := seedPartners(t, h, st, mail)
+	path := "/api/v1/partners/tiers/" + s.tierID
+
+	got := op.mustJSON("PATCH", path, map[string]any{"name": "Platinum", "description": "top of the range"}, 200)
+	if got["id"] != s.tierID || got["name"] != "Platinum" || got["description"] != "top of the range" {
+		t.Fatalf("renamed tier = %v", got)
+	}
+	// ONE tier, the same one, with its discount and its partner still on it.
+	tiers := op.must("GET", "/api/v1/partners/tiers", 200)["tiers"].([]any)
+	if len(tiers) != 1 {
+		t.Fatalf("a rename must never make a second tier: %v", tiers)
+	}
+	if tier := tiers[0].(map[string]any); tier["id"] != s.tierID || tier["name"] != "Platinum" || tier["partners"] != 1.0 || len(tier["discounts"].([]any)) != 1 {
+		t.Fatalf("after the rename the tier reads %v", tier)
+	}
+	// A blank field is left as it was.
+	kept := op.mustJSON("PATCH", path, map[string]any{"description": "still the top"}, 200)
+	if kept["name"] != "Platinum" || kept["description"] != "still the top" {
+		t.Fatalf("a PATCH with no name = %v", kept)
+	}
+	// Renaming onto another tier's name is a conflict a person can read.
+	op.mustJSON("POST", "/api/v1/partners/tiers", map[string]any{"name": "Silver"}, 201)
+	rec, out := op.json("PATCH", path, map[string]any{"name": "Silver"})
+	if rec.Code != http.StatusConflict || strings.Contains(out["error"].(string), "partner_tiers") {
+		t.Fatalf("renaming onto a taken name = %d %s, want 409 without the schema in it", rec.Code, rec.Body.String())
+	}
+	op.mustJSON("PATCH", "/api/v1/partners/tiers/00000000-0000-0000-0000-000000000000", map[string]any{"name": "Nobody"}, 404)
+
+	// partners.manage at the Sovereign, like every other partner write.
+	op.mustJSON("POST", "/api/v1/access/bindings", map[string]any{"subject_email": "fin@nc.example", "role": store.RoleFinanceViewer}, 201)
+	for _, email := range []string{"fin@nc.example", resellContact, alphaAdmin} {
+		c := &client{t: t, h: h}
+		c.signIn(email, mail)
+		if rec, out := c.json("PATCH", path, map[string]any{"name": "Mine"}); rec.Code != http.StatusForbidden || !strings.Contains(out["error"].(string), "partners.manage") {
+			t.Fatalf("%s PATCH tier = %d %s, want 403 naming partners.manage", email, rec.Code, rec.Body.String())
+		}
+	}
+	var audited int
+	if err := st.DB().QueryRow(`SELECT count(*) FROM audit_log WHERE action = 'partner.tier' AND details->>'op' = 'rename' AND details->>'from' = 'Gold'`).Scan(&audited); err != nil || audited != 1 {
+		t.Fatalf("the rename from Gold is audited once: %d, %v", audited, err)
+	}
+}
+
+// Re-deriving a partner's retail books must never fail AFTER the change that
+// caused it has been saved. A derived book may be assigned to a source; once
+// the partner's last customer on that list book is made direct, the book is
+// no longer derivable and the re-derivation tried to delete it, hit the
+// source's foreign key, and answered 404 "not found" for a PATCH that had
+// already committed. A book a source is priced from is kept instead: the
+// source stays priced, and the caller is told the truth.
+func TestIntegrationDetachingTheLastCustomerKeepsARetailBookASourceIsPricedFrom(t *testing.T) {
+	h, st, mail, _, _ := setupAPI(t)
+	s, op := seedPartners(t, h, st, mail)
+	ctx := context.Background()
+	doc := op.mustJSON("PUT", "/api/v1/partners/"+s.resellID+"/retail-rule", map[string]any{"base": "buy", "markup_pct": "5"}, 200)
+	derivedID := doc["books"].([]any)[0].(map[string]any)["book"].(map[string]any)["id"].(string)
+	direct := op.mustJSON("POST", "/api/v1/customers", map[string]any{"slug": "direct", "name": "Direct", "admin_email": "d@direct.example"}, 201)
+	src, _, err := st.UpsertSource(ctx, direct["id"].(string), "huawei-project", "me-east-215", "ok-direct")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assignBook(t, st, src.ID, derivedID)
+
+	// The partner's only customer goes direct: the PATCH is saved AND says so.
+	got := op.mustJSON("PATCH", "/api/v1/customers/"+s.alphaID, map[string]any{"partner_id": ""}, 200)
+	if got["partner_id"] != nil && got["partner_id"] != "" {
+		t.Fatalf("the customer is still on the partner: %v", got["partner_id"])
+	}
+	// The book the Direct source is priced from is still there, items and all.
+	if book := op.must("GET", "/api/v1/pricebooks/"+derivedID, 200); book["id"] != derivedID {
+		t.Fatalf("the assigned retail book = %v", book)
+	}
+	// Once nothing is priced from it, the next re-derivation takes it away.
+	assignBook(t, st, src.ID, s.bookID)
+	if err := st.DeleteDerivedBooks(ctx, s.resellID, nil); err != nil {
+		t.Fatal(err)
+	}
+	op.must("GET", "/api/v1/pricebooks/"+derivedID, 404)
+}
