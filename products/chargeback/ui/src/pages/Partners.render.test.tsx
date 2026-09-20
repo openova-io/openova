@@ -1,6 +1,6 @@
 import { createElement, type ComponentType } from 'react'
 import { renderToString } from 'react-dom/server'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import type { Me } from '../api/types'
 
@@ -187,8 +187,39 @@ vi.mock('../auth/session', () => ({
   useSession: () => ({ me: who, loading: false, refresh: async () => who, logout: async () => {} }),
 }))
 
-import { Partners } from './Partners'
-import { PartnerCustomers, PartnerMargin, PartnerStatements, PartnerUsers, RetailRuleEditor } from './PartnerDetail'
+// What a failed mutation left on screen. Empty is what the real hook starts
+// with, so every other test here sees exactly what it saw before; the delete
+// tests set it to the server's own 409 sentence.
+let refusal = ''
+vi.mock('../lib/useAction', () => ({
+  useAction: () => ({ busy: false, error: refusal, ok: '', run: async () => refusal === '', clear: () => {}, setError: () => {} }),
+}))
+
+import { DeletePartnerConfirm, DeleteTierConfirm, Partners } from './Partners'
+import { PartnerCustomers, PartnerDetail, PartnerMargin, PartnerStatements, PartnerUsers, RetailRuleEditor } from './PartnerDetail'
+
+const financeViewer: Me = { email: 'fin@nc.example', role: 'finance-viewer', permissions: { sovereign: ['metering.read'] }, roles: [{ role: 'finance-viewer', scope_kind: 'sovereign' }] }
+const partnerOwner: Me = {
+  email: 'ap@resell.example',
+  role: 'partner-owner',
+  permissions: { 'partner:p1': ['metering.read', 'partner.self.manage', 'account.topup'] },
+  roles: [{ role: 'partner-owner', scope_kind: 'partner', partner_id: 'p1', partner_name: 'Resell Co', customer_ids: ['party-1', 'c1'] }],
+  scopes: ['partner:p1'],
+}
+
+/** Render as somebody else, and put the operator back whatever happens. */
+function as<T>(me: Me, fn: () => T): T {
+  const was = who
+  who = me
+  try {
+    return fn()
+  } finally {
+    who = was
+  }
+}
+
+/** The Sovereign's page for one partner, on its route so :id resolves. */
+const DetailPage: ComponentType = () => createElement(Routes, null, createElement(Route, { path: '/partners/:id', element: createElement(PartnerDetail) }))
 
 function render(Page: ComponentType, url = '/partners'): string {
   const html = renderToString(createElement(MemoryRouter, { initialEntries: [url] }, createElement(Page))).replace(/<!-- -->/g, '')
@@ -336,5 +367,90 @@ describe('the partner tabs', () => {
     expect(html).toContain('Partner owner')
     expect(html).toContain('Partner viewer')
     expect(html).toContain('aria-label="Add a partner user"')
+  })
+})
+
+describe('deleting a tier and a partner (#6936)', () => {
+  it('puts Delete on every tier row for partners.manage, and on none without it', () => {
+    const html = render(Partners)
+    expect(html).toContain('aria-label="Delete Gold"')
+    expect(html).toContain('aria-label="Delete Silver"')
+    // A read-only Sovereign role sees the tiers and no way to remove one.
+    const readOnly = as(financeViewer, () => render(Partners))
+    expect(readOnly).toContain('aria-label="Partner tiers"')
+    expect(readOnly).not.toContain('aria-label="Delete ')
+    expect(readOnly).not.toContain('>Delete<')
+    expect(readOnly).not.toContain('>Rename<')
+  })
+
+  it('puts Suspend and Delete on the partner page for partners.manage only', () => {
+    const html = render(DetailPage, '/partners/p1')
+    expect(html).toContain('Resell Co')
+    expect(html).toMatch(/<button class="danger"[^>]*>Delete<\/button>/)
+    expect(html).toContain('>Suspend<')
+    for (const me of [financeViewer, partnerOwner]) {
+      const readOnly = as(me, () => render(DetailPage, '/partners/p1'))
+      expect(readOnly).toContain('Resell Co')
+      expect(readOnly).not.toContain('>Delete<')
+      expect(readOnly).not.toContain('>Suspend<')
+      expect(readOnly).not.toContain('>Resume<')
+    }
+  })
+
+  it('offers Resume, not Suspend, on a partner that is already suspended', () => {
+    const was = partners.partners[0].status
+    partners.partners[0].status = 'suspended'
+    try {
+      const html = render(DetailPage, '/partners/p1')
+      expect(html).toContain('>Resume<')
+      expect(html).not.toContain('>Suspend<')
+      expect(html).toContain('>Delete<')
+    } finally {
+      partners.partners[0].status = was
+    }
+  })
+
+  it('spells out what deleting a tier takes with it, and what stops it', () => {
+    const Used: ComponentType = () => createElement(DeleteTierConfirm, { tier: tiers.tiers[0], onClose: () => {}, onDone: () => {} })
+    const used = render(Used)
+    expect(used).toContain('Delete Gold')
+    expect(used).toContain('>Delete tier<')
+    expect(used).toContain('together with the discount that makes it')
+    expect(used).toContain('This cannot be undone')
+    expect(used).toContain('1 partner buys at this tier')
+    expect(used).toContain('would start buying at the list price')
+    const Unused: ComponentType = () => createElement(DeleteTierConfirm, { tier: tiers.tiers[1], onClose: () => {}, onDone: () => {} })
+    const unused = render(Unused)
+    expect(unused).toContain('No partner is on this tier')
+    expect(unused).not.toContain('together with')
+    expect(unused).not.toContain('buys at this tier')
+  })
+
+  it('spells out what deleting a partner takes with it, and what stops it', () => {
+    const Page: ComponentType = () => createElement(DeletePartnerConfirm, { partner: partners.partners[0], onClose: () => {}, onDone: () => {} })
+    const html = render(Page)
+    expect(html).toContain('Delete Resell Co')
+    expect(html).toContain('>Delete partner<')
+    expect(html).toContain('its retail rule, its derived retail book, its own account')
+    expect(html).toContain('This cannot be undone')
+    expect(html).toContain('2 customers still buy through it')
+    expect(html).toContain('permanent records')
+    expect(html).toContain('suspend the partner instead')
+  })
+
+  it('shows the server’s refusal as it came, inside the dialog', () => {
+    const tierRefusal = 'tier Gold sets the buy price of 1 partner (Resell Co); move them to another tier, or clear their tier, before deleting it'
+    const partnerRefusal = 'partner Resell Co cannot be deleted: 2 customers still buy through it (Alpha, Bravo), so make them direct or assign them to another partner first'
+    const T: ComponentType = () => createElement(DeleteTierConfirm, { tier: tiers.tiers[0], onClose: () => {}, onDone: () => {} })
+    const P: ComponentType = () => createElement(DeletePartnerConfirm, { partner: partners.partners[0], onClose: () => {}, onDone: () => {} })
+    expect(render(T)).not.toContain('sets the buy price of')
+    try {
+      refusal = tierRefusal
+      expect(render(T)).toMatch(new RegExp(`role="dialog".*class="notice bad"[^>]*>[^<]*${tierRefusal.replace(/[()]/g, '\\$&')}`, 's'))
+      refusal = partnerRefusal
+      expect(render(P)).toMatch(new RegExp(`role="dialog".*class="notice bad"[^>]*>[^<]*${partnerRefusal.replace(/[()]/g, '\\$&')}`, 's'))
+    } finally {
+      refusal = ''
+    }
   })
 })

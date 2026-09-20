@@ -42,6 +42,11 @@ func TestAuthorizationRefusalsPerRole(t *testing.T) {
 		{"finance-viewer sets a currency rate", finance, "PUT", "/api/v1/currencies/USD", 403, "rating.manage"},
 		{"finance-viewer creates a budget", finance, "POST", "/api/v1/budgets", 403, "customers.manage"},
 		{"finance-viewer lists bindings", finance, "GET", "/api/v1/access/bindings", 403, "settings.manage"},
+		// Partners (DESIGN.md §13.9): a delete is a partners.manage write.
+		{"finance-viewer deletes a partner", finance, "DELETE", "/api/v1/partners/" + b, 403, "partners.manage"},
+		{"finance-viewer deletes a partner tier", finance, "DELETE", "/api/v1/partners/tiers/" + b, 403, "partners.manage"},
+		{"customer-owner deletes a partner", owner, "DELETE", "/api/v1/partners/" + b, 403, "partners.manage"},
+		{"customer-owner deletes a partner tier", owner, "DELETE", "/api/v1/partners/tiers/" + b, 403, "partners.manage"},
 		{"customer-owner records a payment on itself", owner, "POST", "/api/v1/customers/" + a + "/payments", 403, "billing.collect"},
 		{"customer-owner applies credit", owner, "POST", "/api/v1/customers/" + a + "/account/apply-credit", 403, "billing.collect"},
 		{"customer-owner issues a statement", owner, "POST", "/api/v1/statements/x/issue", 403, "billing.issue"},
