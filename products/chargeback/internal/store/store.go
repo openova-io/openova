@@ -483,6 +483,14 @@ ALTER TABLE cost_sources ADD CONSTRAINT cost_sources_status_check CHECK (status 
 	// audit trail. Appended at the very END: migrations are positional.
 	// Located by content as MigrationCapacityPools (capacity.go).
 	capacityPoolsMigrationSQL(),
+	// DESIGN.md §11 (founder direction 2026-09-20) — a pool lists the CLASSES
+	// it can enforce (burstable only where the host throttles), one SKU may
+	// be placed on a pool once per class, a GUARANTEED FLOOR per resource
+	// keeps burstable out of guaranteed room, and an operator may say which
+	// class one running resource was sold at. Every existing pool keeps every
+	// class it already uses. Appended at the very END: migrations are
+	// positional. Located by content as MigrationCapacityClasses.
+	capacityClassesMigrationSQL(),
 }
 
 // MigrationBackfillIssuedInvoices is the schema_migrations version of the

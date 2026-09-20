@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"math/big"
 	"sort"
@@ -71,6 +72,16 @@ type CapacityResourceView struct {
 	BurstablePhysical Decimal `json:"burstable_physical"`
 	Spot              Decimal `json:"spot"`
 	SpotPhysical      Decimal `json:"spot_physical"`
+
+	// GuaranteedFloor is physical capacity burstable may never be sold into
+	// (0 on a pool that does not enforce burstable); FloorFree is how much of
+	// it no guaranteed unit holds yet. BurstableEnvelope is every nominal
+	// burstable unit the pool can sell — (usable − max(G, floor)) × ratio —
+	// and BurstableRoom what is left of it.
+	GuaranteedFloor   Decimal `json:"guaranteed_floor"`
+	FloorFree         Decimal `json:"floor_free"`
+	BurstableEnvelope Decimal `json:"burstable_envelope"`
+	BurstableRoom     Decimal `json:"burstable_room"`
 
 	SoldNominal       Decimal `json:"sold_nominal"`
 	Remaining         Decimal `json:"remaining"`
@@ -178,12 +189,20 @@ type CapacityPoolView struct {
 // CapacityPlacementView is one SKU selling out of a pool, with what it is
 // consuming there now.
 type CapacityPlacementView struct {
-	SKU         string             `json:"sku"`
-	Class       string             `json:"class"`
+	// SKU is a SKU or a family ("ecs.m7n.*"); Family says which.
+	SKU    string `json:"sku"`
+	Family bool   `json:"family"`
+	Class  string `json:"class"`
+	// Shape is the SKU's vector; empty for a family, whose members each have
+	// their own.
 	Shape       map[string]Decimal `json:"shape"`
 	ShapeSource string             `json:"shape_source"`
-	Units       Decimal            `json:"units"`
-	Resources   int                `json:"resources"`
+	// Units and Resources are what is running through THIS placement now, at
+	// THIS class. MatchedSKUs names the metered SKUs a family took — always
+	// present, empty for an exact placement.
+	Units       Decimal  `json:"units"`
+	Resources   int      `json:"resources"`
+	MatchedSKUs []string `json:"matched_skus"`
 }
 
 // CapacityZoneView is one zone with its pools.
@@ -198,6 +217,21 @@ type CapacityZoneView struct {
 	// hold a resource they consume. They are LISTED BY NAME, never summed
 	// away, because a SKU counted against nothing reads as spare capacity.
 	UnplacedSKUs []CapacityUnplacedSKU `json:"unplaced_skus"`
+	// ClassMismatches are running resources that SAY they are one class (a
+	// tag or an operator's override) where their SKU is not placed at it.
+	// They still count — at CountedAs — and are named so the disagreement is
+	// fixed rather than absorbed. Always present, empty included.
+	ClassMismatches []CapacityClassMismatch `json:"class_mismatches"`
+}
+
+// CapacityClassMismatch is usage that asked for a class its SKU is not
+// placed at in this zone.
+type CapacityClassMismatch struct {
+	SKU       string  `json:"sku"`
+	Asked     string  `json:"asked"`
+	CountedAs string  `json:"counted_as"`
+	Units     Decimal `json:"units"`
+	Resources int     `json:"resources"`
 }
 
 // CapacityUnplacedSKU is metered usage in a zone that no pool received.
@@ -263,6 +297,8 @@ type CapacitySummary struct {
 	// SpotToReclaim counts (pool, resource) pairs holding more spot than the
 	// room left for it.
 	SpotToReclaim int `json:"spot_to_reclaim"`
+	// ClassMismatches counts (zone, sku, asked class) rows.
+	ClassMismatches int `json:"class_mismatches"`
 }
 
 // CapacityOverview is GET /capacity/overview.
@@ -299,7 +335,17 @@ type capacityUsageRow struct {
 	unit      string
 	quantity  *big.Rat
 	resources int
+	// tagClass is the resource's own lifecycle tag when it names a class,
+	// overrideClass what an operator said for it; "" when neither did.
+	tagClass      string
+	overrideClass string
 }
+
+// capacityClassSQL is the lifecycle tag of a usage record, kept only when it
+// names a class — every other value of the tag is somebody else's business
+// and would only fragment the grouping.
+const capacityClassSQL = `CASE WHEN lower(COALESCE(u.labels->'tags'->>'` + capacity.ClassTagKey + `', '')) IN ('guaranteed','burstable','spot')
+	THEN lower(u.labels->'tags'->>'` + capacity.ClassTagKey + `') ELSE '' END`
 
 // capacityHistoryDays is how many complete days of consumption feed the
 // growth trend: the run rate's window (7) plus one so seven complete days
@@ -322,17 +368,20 @@ func (s *Store) queryCapacityUsage(ctx context.Context, now time.Time) ([]capaci
 WITH recs AS (
   SELECT u.source_id, u.resource_id, u.sku, u.unit, u.quantity, lower(u.region) AS region, u.window_start,
          (u.window_start AT TIME ZONE 'UTC')::date AS day,
-         lower(COALESCE(NULLIF(i.attrs->>'availability_zone', ''), NULLIF(i.attrs->>'az', ''), '')) AS az
+         lower(COALESCE(NULLIF(i.attrs->>'availability_zone', ''), NULLIF(i.attrs->>'az', ''), '')) AS az,
+         `+capacityClassSQL+` AS tag_class,
+         COALESCE(oc.class, '') AS override_class
     FROM usage_records u
     JOIN cost_sources s ON s.id = u.source_id AND s.layer = '`+LayerCloud+`' AND s.status <> '`+StatusDisabled+`'
     LEFT JOIN resource_inventory i ON i.source_id = u.source_id AND i.resource_id = u.resource_id
+    LEFT JOIN capacity_resource_classes oc ON oc.source_id = u.source_id AND oc.resource_id = u.resource_id
    WHERE u.window_start >= $1 AND u.window_start < $2 AND u.`+metricSKUFilter+`
 ),
 last_hours AS (SELECT source_id, day, max(window_start) AS ws FROM recs GROUP BY source_id, day)
-SELECT r.source_id, to_char(r.day, 'YYYY-MM-DD'), r.window_start, r.region, r.az, r.sku, min(r.unit), sum(r.quantity)::text, count(DISTINCT r.resource_id)
+SELECT r.source_id, to_char(r.day, 'YYYY-MM-DD'), r.window_start, r.region, r.az, r.sku, min(r.unit), sum(r.quantity)::text, count(DISTINCT r.resource_id), r.tag_class, r.override_class
   FROM recs r JOIN last_hours l ON l.source_id = r.source_id AND l.day = r.day AND l.ws = r.window_start
- GROUP BY r.source_id, r.day, r.window_start, r.region, r.az, r.sku
- ORDER BY 1, 2, 4, 5, 6`, from, cutoff)
+ GROUP BY r.source_id, r.day, r.window_start, r.region, r.az, r.sku, r.tag_class, r.override_class
+ ORDER BY 1, 2, 4, 5, 6, 10, 11`, from, cutoff)
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -341,7 +390,7 @@ SELECT r.source_id, to_char(r.day, 'YYYY-MM-DD'), r.window_start, r.region, r.az
 	for rows.Next() {
 		var r capacityUsageRow
 		var qty string
-		if err := rows.Scan(&r.sourceID, &r.day, &r.hour, &r.region, &r.az, &r.sku, &r.unit, &qty, &r.resources); err != nil {
+		if err := rows.Scan(&r.sourceID, &r.day, &r.hour, &r.region, &r.az, &r.sku, &r.unit, &qty, &r.resources, &r.tagClass, &r.overrideClass); err != nil {
 			return nil, err
 		}
 		r.hour = r.hour.UTC()
@@ -361,8 +410,8 @@ type poolResourceKey struct{ pool, resource string }
 // poolResourceClassKey adds the class.
 type poolResourceClassKey struct{ pool, resource, class string }
 
-// poolSKUKey keys per-pool, per-SKU unit counts.
-type poolSKUKey struct{ pool, sku string }
+// poolSKUKey keys per-pool unit counts of one METERED SKU at one class.
+type poolSKUKey struct{ pool, sku, class string }
 
 // CapacityOverview derives the capacity picture at now (DESIGN.md §11).
 // regionFilter narrows the regions listed (a code; "" = all); consumption is
@@ -421,34 +470,16 @@ func (s *Store) CapacityOverview(ctx context.Context, now time.Time, regionFilte
 			usable[k] = u
 		}
 	}
-	// Placements by (zone, sku): which pools take this SKU here, and at which
-	// class. A SKU carries ONE class (PutCapacityPlacement enforces it), so
-	// the class of the first placement is the class of all of them.
-	placedIn := map[string]map[string][]CapacityPlacement{}
+	// Placements by zone. One SKU may be placed at several classes, and a
+	// placement may be a FAMILY, so which of them a usage row lands on is
+	// decided per row (resolvePlacements), never looked up by SKU alone.
+	placedIn := map[string][]CapacityPlacement{}
 	for _, pl := range placements {
-		if placedIn[pl.ZoneID] == nil {
-			placedIn[pl.ZoneID] = map[string][]CapacityPlacement{}
-		}
-		placedIn[pl.ZoneID][pl.SKU] = append(placedIn[pl.ZoneID][pl.SKU], pl)
+		placedIn[pl.ZoneID] = append(placedIn[pl.ZoneID], pl)
 	}
 	out.Summary.Placements = len(placements)
 
-	regionByCode := map[string]int{}
-	zoneByCode := map[string]map[string]string{}
-	defaultZone := map[string]string{}
-	for i, r := range regions {
-		regionByCode[r.Code] = i
-		zoneByCode[r.Code] = map[string]string{}
-		for _, z := range r.Zones {
-			zoneByCode[r.Code][z.Code] = z.ID
-			if z.IsDefault {
-				defaultZone[r.Code] = z.ID
-			}
-		}
-		if _, ok := defaultZone[r.Code]; !ok && len(r.Zones) > 0 {
-			defaultZone[r.Code] = r.Zones[0].ID
-		}
-	}
+	zones := newCapacityZoneIndex(regions)
 
 	// The shape universe: stored rows win; a metered SKU without a row takes
 	// what its name implies.
@@ -505,6 +536,7 @@ func (s *Store) CapacityOverview(ctx context.Context, now time.Time, regionFilte
 	zoneUnknownPool := map[string]bool{}
 	skuUnits := map[poolSKUKey]*capacityUnits{}
 	unplaced := map[string]map[string]*CapacityUnplacedSKU{} // zone → key → row
+	mismatched := map[string]map[string]*CapacityClassMismatch{}
 	unshaped := map[string]*CapacityUnshapedSKU{}
 	unshapedRegions := map[string]map[string]bool{}
 	unmappedRegion := map[string]*CapacityUnmappedRegion{}
@@ -532,18 +564,7 @@ func (s *Store) CapacityOverview(ctx context.Context, now time.Time, regionFilte
 
 	for _, r := range usage {
 		current := r.hour.Equal(latestBySource[r.sourceID])
-		ri, regionKnown := regionByCode[r.region]
-		var zoneID string
-		unknownZone := false
-		if regionKnown {
-			code := regions[ri].Code
-			if id, ok := zoneByCode[code][r.az]; ok && r.az != "" {
-				zoneID = id
-			} else {
-				zoneID = defaultZone[code]
-				unknownZone = true
-			}
-		}
+		zoneID, regionKnown, unknownZone := zones.zoneFor(r.region, r.az)
 		if zoneID == "" {
 			if current {
 				reason := "no-region"
@@ -577,14 +598,27 @@ func (s *Store) CapacityOverview(ctx context.Context, now time.Time, regionFilte
 			}
 			continue
 		}
-		here := placedIn[zoneID][r.sku]
-		if len(here) == 0 {
+		here, via, resolved, placed := resolvePlacements(placedIn[zoneID], r.sku, r.overrideClass, r.tagClass)
+		if !placed {
 			if current {
 				noteUnplaced(zoneID, r.sku, "no-placement", "", r.quantity, r.resources)
 			}
 			continue
 		}
-		class := here[0].Class
+		class := resolved.Class
+		if current && resolved.Asked != "" {
+			if mismatched[zoneID] == nil {
+				mismatched[zoneID] = map[string]*CapacityClassMismatch{}
+			}
+			key := r.sku + "|" + resolved.Asked
+			m := mismatched[zoneID][key]
+			if m == nil {
+				m = &CapacityClassMismatch{SKU: r.sku, Asked: resolved.Asked, CountedAs: class, Units: "0"}
+				mismatched[zoneID][key] = m
+			}
+			m.Units = addDec(m.Units, decOf(r.quantity))
+			m.Resources += r.resources
+		}
 		// The unit share of a pool is the share it takes of the FIRST resource
 		// of the shape it holds; with one placement (the ordinary case) that is
 		// 1, and with several identical pools it is each pool's size share.
@@ -628,10 +662,10 @@ func (s *Store) CapacityOverview(ctx context.Context, now time.Time, regionFilte
 		}
 		if current {
 			for poolID, share := range unitShare {
-				k := poolSKUKey{poolID, r.sku}
+				k := poolSKUKey{poolID, r.sku, class}
 				acc := skuUnits[k]
 				if acc == nil {
-					acc = &capacityUnits{units: new(big.Rat)}
+					acc = &capacityUnits{units: new(big.Rat), via: via}
 					skuUnits[k] = acc
 				}
 				acc.units.Add(acc.units, new(big.Rat).Mul(r.quantity, share))
@@ -647,7 +681,7 @@ func (s *Store) CapacityOverview(ctx context.Context, now time.Time, regionFilte
 		}
 		rv := CapacityRegionView{ID: reg.ID, Code: reg.Code, Name: reg.Name, CloudSourceKind: reg.CloudSourceKind, Zones: []CapacityZoneView{}}
 		for _, z := range reg.Zones {
-			zv := CapacityZoneView{ID: z.ID, Code: z.Code, Name: z.Name, IsDefault: z.IsDefault, Pools: []CapacityPoolView{}, UnplacedSKUs: []CapacityUnplacedSKU{}}
+			zv := CapacityZoneView{ID: z.ID, Code: z.Code, Name: z.Name, IsDefault: z.IsDefault, Pools: []CapacityPoolView{}, UnplacedSKUs: []CapacityUnplacedSKU{}, ClassMismatches: []CapacityClassMismatch{}}
 			for _, p := range poolsByZone[z.ID] {
 				pv := s.poolView(p, placedIn[z.ID], shapes, consumed, series, skuUnits, growth, asOf)
 				pv.ZoneUnknown = zoneUnknownPool[p.ID]
@@ -684,6 +718,16 @@ func (s *Store) CapacityOverview(ctx context.Context, now time.Time, regionFilte
 				return zv.UnplacedSKUs[i].Resource < zv.UnplacedSKUs[j].Resource
 			})
 			out.Summary.UnplacedSKUs += len(zv.UnplacedSKUs)
+			for _, m := range mismatched[z.ID] {
+				zv.ClassMismatches = append(zv.ClassMismatches, *m)
+			}
+			sort.Slice(zv.ClassMismatches, func(i, j int) bool {
+				if zv.ClassMismatches[i].SKU != zv.ClassMismatches[j].SKU {
+					return zv.ClassMismatches[i].SKU < zv.ClassMismatches[j].SKU
+				}
+				return zv.ClassMismatches[i].Asked < zv.ClassMismatches[j].Asked
+			})
+			out.Summary.ClassMismatches += len(zv.ClassMismatches)
 			out.Summary.Zones++
 			rv.Zones = append(rv.Zones, zv)
 		}
@@ -729,6 +773,102 @@ func (s *Store) listAllCapacityPools(ctx context.Context) ([]CapacityPool, error
 		return nil, err
 	}
 	return out, s.loadPoolResources(ctx, out)
+}
+
+// capacityZoneIndex finds the zone a usage row belongs to. It is ONE function
+// because the overview and the per-resource list must agree on it to the row:
+// a resource the list shows under a pool is one the overview counted there.
+type capacityZoneIndex struct {
+	zoneByCode  map[string]map[string]string
+	defaultZone map[string]string
+}
+
+func newCapacityZoneIndex(regions []CapacityRegion) capacityZoneIndex {
+	ix := capacityZoneIndex{zoneByCode: map[string]map[string]string{}, defaultZone: map[string]string{}}
+	for _, r := range regions {
+		ix.zoneByCode[r.Code] = map[string]string{}
+		for _, z := range r.Zones {
+			ix.zoneByCode[r.Code][z.Code] = z.ID
+			if z.IsDefault {
+				ix.defaultZone[r.Code] = z.ID
+			}
+		}
+		if _, ok := ix.defaultZone[r.Code]; !ok && len(r.Zones) > 0 {
+			ix.defaultZone[r.Code] = r.Zones[0].ID
+		}
+	}
+	return ix
+}
+
+// zoneFor returns the zone a (region, availability zone) lands in: the named
+// zone, else the region's default with unknownZone set. zoneID is "" when the
+// region is not configured (regionKnown false) or has no zones.
+func (ix capacityZoneIndex) zoneFor(region, az string) (zoneID string, regionKnown, unknownZone bool) {
+	byCode, ok := ix.zoneByCode[region]
+	if !ok {
+		return "", false, false
+	}
+	if id, found := byCode[az]; found && az != "" {
+		return id, true, false
+	}
+	return ix.defaultZone[region], true, true
+}
+
+// resolvePlacements decides where one usage row lands in a zone: WHICH
+// placement SKU takes it (the exact one, else the longest family —
+// capacity.BestMatches), and AT WHICH CLASS (the resource's override, else its
+// lifecycle tag, else the most conservative class the SKU is placed at —
+// capacity.ResolveClass). It returns the placements of that SKU at that
+// class, the placement SKU the row arrived through, and the resolution.
+// placed is false when nothing in the zone takes the SKU at all.
+func resolvePlacements(zone []CapacityPlacement, sku, override, tag string) (here []CapacityPlacement, via string, res capacity.ClassResolution, placed bool) {
+	if len(zone) == 0 {
+		return nil, "", res, false
+	}
+	names := make([]string, 0, len(zone))
+	for _, pl := range zone {
+		names = append(names, pl.SKU)
+	}
+	via = capacity.BestMatches(names, sku)
+	if via == "" {
+		return nil, "", res, false
+	}
+	var matched []CapacityPlacement
+	var classes []string
+	for _, pl := range zone {
+		if strings.EqualFold(pl.SKU, via) {
+			matched = append(matched, pl)
+			classes = append(classes, pl.Class)
+		}
+	}
+	res, placed = capacity.ResolveClass(override, tag, classes)
+	if !placed {
+		return nil, via, res, false
+	}
+	for _, pl := range matched {
+		if pl.Class == res.Class {
+			here = append(here, pl)
+		}
+	}
+	return here, via, res, true
+}
+
+// poolResourceState is the arithmetic's input for one resource of one pool.
+// THE POOL'S CLASSES DECIDE TWO OF ITS NUMBERS: overcommit and the guaranteed
+// floor are burstable's — the ratio is how far burstable is oversold, the
+// floor what it is kept out of — so on a pool that does not enforce burstable
+// the ratio is 1 and the floor 0 whatever the row holds. cleanPoolInput
+// refuses anything else on a write; this covers the rows written before the
+// rule existed.
+func poolResourceState(p CapacityPool, r CapacityPoolResource, g, b, sp *big.Rat) capacity.ResourceState {
+	st := capacity.ResourceState{
+		Machines: ratOf(p.Machines), PerMachine: ratOf(r.PerMachine), Reserve: ratOf(r.Reserve),
+		Ratio: big.NewRat(1, 1), Guaranteed: g, Burstable: b, Spot: sp,
+	}
+	if capacity.HasClass(p.Classes, capacity.ClassBurstable) {
+		st.Ratio, st.Floor = ratOf(r.OvercommitRatio), ratOf(r.GuaranteedFloor)
+	}
+	return st
 }
 
 // shareByUsable splits an amount across the pools that hold a resource, in
@@ -783,7 +923,7 @@ func shapeToShape(sh CapacityShape) capacity.Shape {
 // poolView derives one pool's figures.
 func (s *Store) poolView(
 	p CapacityPool,
-	placedHere map[string][]CapacityPlacement,
+	placedHere []CapacityPlacement,
 	shapes map[string]CapacityShape,
 	consumed map[poolResourceClassKey]*big.Rat,
 	series map[poolResourceClassKey]map[string]*big.Rat,
@@ -794,22 +934,22 @@ func (s *Store) poolView(
 	pv := CapacityPoolView{CapacityPool: p, Resources: []CapacityResourceView{}, Placements: []CapacityPlacementView{}}
 	maths := map[string]capacity.ResourceMath{}
 	statuses := make([]string, 0, len(p.Resources))
-	machines := ratOf(p.Machines)
 
 	for _, r := range p.Resources {
 		g := consumed[poolResourceClassKey{p.ID, r.Resource, capacity.ClassGuaranteed}]
 		b := consumed[poolResourceClassKey{p.ID, r.Resource, capacity.ClassBurstable}]
 		sp := consumed[poolResourceClassKey{p.ID, r.Resource, capacity.ClassSpot}]
-		m := capacity.Compute(capacity.ResourceState{
-			Machines: machines, PerMachine: ratOf(r.PerMachine), Reserve: ratOf(r.Reserve), Ratio: ratOf(r.OvercommitRatio),
-			Guaranteed: g, Burstable: b, Spot: sp,
-		})
+		m := capacity.Compute(poolResourceState(p, r, g, b, sp))
 		maths[r.Resource] = m
 		statuses = append(statuses, m.Status)
 
 		rv := CapacityResourceView{
 			Resource: r.Resource, Label: r.Label, Unit: r.Unit,
-			Machines: p.Machines, PerMachine: r.PerMachine, Reserve: r.Reserve, OvercommitRatio: r.OvercommitRatio,
+			// The ratio and the floor are the ones the arithmetic USED: 1 and 0
+			// on a pool that does not enforce burstable, whatever is stored.
+			Machines: p.Machines, PerMachine: r.PerMachine, Reserve: r.Reserve, OvercommitRatio: decOf(m.Ratio),
+			GuaranteedFloor: decOf(m.Floor), FloorFree: decOf(m.FloorFree),
+			BurstableEnvelope: decOf(m.BurstableEnvelope), BurstableRoom: decOf(m.BurstableRoom),
 			Raw: decOf(m.Raw), Usable: decOf(m.Usable), Sellable: decOf(m.Sellable),
 			Guaranteed: decOf(m.Guaranteed), Burstable: decOf(m.Burstable), BurstablePhysical: decOf(m.BurstablePhysical),
 			Spot: decOf(m.Spot), SpotPhysical: decOf(m.SpotPhysical),
@@ -880,33 +1020,51 @@ func (s *Store) poolView(
 		}
 	}
 
-	// The placements, with what each is consuming here now.
-	skus := make([]string, 0, len(placedHere))
-	for sku, list := range placedHere {
-		for _, pl := range list {
-			if pl.PoolID == p.ID {
-				skus = append(skus, sku)
-			}
+	// The placements, with what is running through each of them now. A
+	// family's row carries the metered SKUs it took; what is SELLING is kept
+	// per metered SKU and class, because that — not the placement row — is
+	// what a basket is a mix of.
+	selling := []CapacityPlacementView{}
+	for k, acc := range skuUnits {
+		if k.pool != p.ID {
+			continue
 		}
+		sh := shapes[k.sku]
+		selling = append(selling, CapacityPlacementView{SKU: k.sku, Class: k.class, Shape: sh.Resources, ShapeSource: sh.Source, Units: decOf(acc.units), Resources: acc.resources})
 	}
-	sort.Strings(skus)
-	for _, sku := range skus {
-		var class string
-		for _, pl := range placedHere[sku] {
-			if pl.PoolID == p.ID {
-				class = pl.Class
+	sort.Slice(selling, func(i, j int) bool {
+		if selling[i].SKU != selling[j].SKU {
+			return selling[i].SKU < selling[j].SKU
+		}
+		return selling[i].Class < selling[j].Class
+	})
+	for _, pl := range placedHere {
+		if pl.PoolID != p.ID {
+			continue
+		}
+		pvw := CapacityPlacementView{SKU: pl.SKU, Family: capacity.IsFamily(pl.SKU), Class: pl.Class, Shape: map[string]Decimal{}, Units: "0", MatchedSKUs: []string{}}
+		if !pvw.Family {
+			sh := shapes[pl.SKU]
+			if sh.Resources != nil {
+				pvw.Shape = sh.Resources
+			}
+			pvw.ShapeSource = sh.Source
+		}
+		for k, acc := range skuUnits {
+			if k.pool != p.ID || k.class != pl.Class || !strings.EqualFold(acc.via, pl.SKU) {
+				continue
+			}
+			pvw.Units = addDec(pvw.Units, decOf(acc.units))
+			pvw.Resources += acc.resources
+			if pvw.Family {
+				pvw.MatchedSKUs = append(pvw.MatchedSKUs, k.sku)
 			}
 		}
-		sh := shapes[sku]
-		pvw := CapacityPlacementView{SKU: sku, Class: class, Shape: sh.Resources, ShapeSource: sh.Source, Units: "0"}
-		if acc := skuUnits[poolSKUKey{p.ID, sku}]; acc != nil {
-			pvw.Units = decOf(acc.units)
-			pvw.Resources = acc.resources
-		}
+		sort.Strings(pvw.MatchedSKUs)
 		pv.Placements = append(pv.Placements, pvw)
 	}
 
-	pv.Basket = basketFit(maths, defaultBasket(pv.Placements), shapes)
+	pv.Basket = basketFit(maths, defaultBasket(selling), shapes)
 	return pv
 }
 
@@ -914,6 +1072,9 @@ func (s *Store) poolView(
 type capacityUnits struct {
 	units     *big.Rat
 	resources int
+	// via is the placement SKU the usage arrived through: the SKU itself, or
+	// the family that took it.
+	via string
 }
 
 // defaultBasket is THE MIX CURRENTLY SELLING on a pool, scaled so the largest
@@ -1048,10 +1209,15 @@ func dateAfter(asOf time.Time, days *float64) *string {
 type CapacityBasketRequest struct {
 	SKU   string  `json:"sku"`
 	Units Decimal `json:"units"`
+	// Class is the class the line is sold at; "" takes the most conservative
+	// class the SKU is placed at on the pool, or guaranteed when it is not
+	// placed there yet.
+	Class string `json:"class"`
 }
 
-// ParseBasket reads a basket from the query form "sku:units,sku:units". An
-// entry without a count is one unit.
+// ParseBasket reads a basket from the query form
+// "sku:units[:class],sku:units[:class]". An entry without a count is one
+// unit; one without a class takes the pool's default for that SKU.
 func ParseBasket(s string) []CapacityBasketRequest {
 	out := []CapacityBasketRequest{}
 	for _, part := range strings.Split(s, ",") {
@@ -1059,18 +1225,21 @@ func ParseBasket(s string) []CapacityBasketRequest {
 		if part == "" {
 			continue
 		}
-		sku, units, ok := strings.Cut(part, ":")
-		sku = strings.TrimSpace(sku)
+		fields := strings.Split(part, ":")
+		sku := strings.TrimSpace(fields[0])
 		if sku == "" {
 			continue
 		}
-		u := "1"
-		if ok {
-			if v := strings.TrimSpace(units); v != "" {
+		u, class := "1", ""
+		if len(fields) > 1 {
+			if v := strings.TrimSpace(fields[1]); v != "" {
 				u = v
 			}
 		}
-		out = append(out, CapacityBasketRequest{SKU: sku, Units: Decimal(u)})
+		if len(fields) > 2 {
+			class = strings.ToLower(strings.TrimSpace(fields[2]))
+		}
+		out = append(out, CapacityBasketRequest{SKU: sku, Units: Decimal(u), Class: class})
 	}
 	return out
 }
@@ -1083,29 +1252,14 @@ func (s *Store) CapacityPoolBasket(ctx context.Context, poolID string, now time.
 	if err != nil {
 		return CapacityPoolView{}, err
 	}
-	ov, err := s.CapacityOverview(ctx, now, "", growth)
+	pv, err := s.capacityPoolView(ctx, pool.ID, now, growth)
 	if err != nil {
 		return CapacityPoolView{}, err
-	}
-	var pv CapacityPoolView
-	found := false
-	for _, r := range ov.Regions {
-		for _, z := range r.Zones {
-			for _, p := range z.Pools {
-				if p.ID == pool.ID {
-					pv, found = p, true
-				}
-			}
-		}
-	}
-	if !found {
-		return CapacityPoolView{}, ErrNotFound
 	}
 	if len(req) == 0 {
 		return pv, nil
 	}
 	maths := map[string]capacity.ResourceMath{}
-	machines := ratOf(pool.Machines)
 	for _, r := range pool.Resources {
 		var g, b, sp *big.Rat
 		for _, rv := range pv.Resources {
@@ -1113,15 +1267,24 @@ func (s *Store) CapacityPoolBasket(ctx context.Context, poolID string, now time.
 				g, b, sp = ratOf(rv.Guaranteed), ratOf(rv.Burstable), ratOf(rv.Spot)
 			}
 		}
-		maths[r.Resource] = capacity.Compute(capacity.ResourceState{
-			Machines: machines, PerMachine: ratOf(r.PerMachine), Reserve: ratOf(r.Reserve), Ratio: ratOf(r.OvercommitRatio),
-			Guaranteed: g, Burstable: b, Spot: sp,
-		})
+		maths[r.Resource] = capacity.Compute(poolResourceState(pool, r, g, b, sp))
 	}
-	classOf := map[string]string{}
 	shapeMap := map[string]CapacityShape{}
+	// The classes a SKU is placed at HERE, through the exact placement or the
+	// family that takes it — the same match the attribution uses.
+	placedSKUs := make([]string, 0, len(pv.Placements))
 	for _, pl := range pv.Placements {
-		classOf[pl.SKU] = pl.Class
+		placedSKUs = append(placedSKUs, pl.SKU)
+	}
+	classesOf := func(sku string) []string {
+		via := capacity.BestMatches(placedSKUs, sku)
+		var out []string
+		for _, pl := range pv.Placements {
+			if via != "" && strings.EqualFold(pl.SKU, via) {
+				out = append(out, pl.Class)
+			}
+		}
+		return out
 	}
 	items := make([]CapacityBasketItem, 0, len(req))
 	for _, r := range req {
@@ -1130,13 +1293,22 @@ func (s *Store) CapacityPoolBasket(ctx context.Context, poolID string, now time.
 			return CapacityPoolView{}, err
 		}
 		shapeMap[r.SKU] = sh
-		class := classOf[r.SKU]
+		class := strings.ToLower(strings.TrimSpace(r.Class))
 		if class == "" {
-			// A SKU the operator is considering but has not placed yet is
-			// priced as GUARANTEED: it is the class that must be physically
-			// backed, so it is the honest default for a "would this fit?"
-			// question. Placing it says otherwise.
+			// No class stated: the most conservative one the SKU is placed at
+			// here, and GUARANTEED for a SKU the operator is only considering
+			// — it is the class that must be physically backed, so it is the
+			// honest default for a "would this fit?" question.
 			class = capacity.ClassGuaranteed
+			if res, ok := capacity.ResolveClass("", "", classesOf(r.SKU)); ok {
+				class = res.Class
+			}
+		}
+		if !capacity.ValidClass(class) {
+			return CapacityPoolView{}, fmt.Errorf("%w: class must be one of %s", ErrInvalid, strings.Join(capacity.ClassKeys(), ", "))
+		}
+		if !capacity.HasClass(pool.Classes, class) {
+			return CapacityPoolView{}, fmt.Errorf("%w: pool %s does not enforce %s, so nothing sold at it can fit here", ErrInvalid, pool.Name, class)
 		}
 		units := strings.TrimSpace(string(r.Units))
 		if !validNonNegativeDecimal(units) {
