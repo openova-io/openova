@@ -78,8 +78,11 @@ func TestFamilies(t *testing.T) {
 		}
 	}
 
-	got := Families([]string{"ecs.m7n.xlarge.8", "ecs.m7n.2xlarge.8", "ecs.s7n.2xlarge.2", "evs.ssd.gb", "eip", "eip.bandwidth_mbps"})
-	want := []Family{{"ecs.*", 3}, {"ecs.m7n.*", 2}, {"eip.*", 1}, {"evs.*", 1}}
+	got := Families([]string{"ecs.m7n.xlarge.8", "ecs.m7n.2xlarge.8", "ecs.m7n.2xlarge.2", "ecs.s7n.2xlarge.2", "evs.ssd.gb", "eip", "eip.bandwidth_mbps", "dds.mongodb.c7.large.2", "dds.mongodb.c7.xlarge.4"})
+	// First-level families always; a series only when it takes two or more and
+	// is not the whole of its service (dds.mongodb.* IS dds.*); nothing deeper
+	// — ecs.m7n.2xlarge.* takes two here and is still not offered.
+	want := []Family{{"dds.*", 2}, {"ecs.*", 4}, {"ecs.m7n.*", 3}, {"eip.*", 1}, {"evs.*", 1}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Families = %+v, want %+v", got, want)
 	}

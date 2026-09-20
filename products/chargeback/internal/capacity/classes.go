@@ -210,31 +210,43 @@ type Family struct {
 	SKUs    int    `json:"skus"`
 }
 
+// familyDepth is how many dotted segments a family offered by the console may
+// have: "ecs.*" and "ecs.m7n.*", never "ecs.m7n.2xlarge.*". A real price book
+// carries well over a hundred SKUs, and every deeper prefix of every one of
+// them is a family in the strict sense — seventy-five of them on the National
+// Cloud list — which is a list nobody can choose from. A service and a series
+// are the two levels hardware is actually bought and pooled at. (A deeper
+// family still WORKS as a placement; it is only not offered.)
+const familyDepth = 2
+
 // Families lists the families worth offering for a set of known SKUs: every
-// dotted prefix that takes at least two of them, and every FIRST-level prefix
-// whatever it takes (evs.* is a family of one today and the obvious thing to
-// place). Sorted by pattern.
+// FIRST-level prefix whatever it takes (evs.* is a family of one today and the
+// obvious thing to place), and every second-level prefix that takes at least
+// two SKUs and fewer than its parent — a series that IS its whole service
+// says nothing the service does not. Sorted by pattern.
 func Families(skus []string) []Family {
 	count := map[string]int{}
-	first := map[string]bool{}
+	parent := map[string]string{}
 	for _, sku := range skus {
 		parts := strings.Split(strings.ToLower(strings.TrimSpace(sku)), ".")
 		if len(parts) < 2 {
 			continue
 		}
-		for i := 1; i < len(parts); i++ {
+		for i := 1; i < len(parts) && i <= familyDepth; i++ {
 			pattern := strings.Join(parts[:i], ".") + ".*"
 			count[pattern]++
-			if i == 1 {
-				first[pattern] = true
+			if i > 1 {
+				parent[pattern] = strings.Join(parts[:i-1], ".") + ".*"
 			}
 		}
 	}
 	out := []Family{}
 	for pattern, n := range count {
-		if n >= 2 || first[pattern] {
-			out = append(out, Family{Pattern: pattern, SKUs: n})
+		up, nested := parent[pattern]
+		if nested && (n < 2 || n == count[up]) {
+			continue
 		}
+		out = append(out, Family{Pattern: pattern, SKUs: n})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Pattern < out[j].Pattern })
 	return out

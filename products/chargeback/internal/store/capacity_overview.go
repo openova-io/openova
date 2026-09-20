@@ -1049,6 +1049,15 @@ func (s *Store) poolView(
 				pvw.Shape = sh.Resources
 			}
 			pvw.ShapeSource = sh.Source
+			// A SKU that is placed but neither stored nor metered right now
+			// is not in the shape universe; its name still says what it is,
+			// and a blank cell would read as "consumes nothing".
+			if len(pvw.Shape) == 0 {
+				for res, a := range capacity.Derive(pl.SKU) {
+					pvw.Shape[res] = Decimal(a)
+					pvw.ShapeSource = capacity.SourceDerived
+				}
+			}
 		}
 		for k, acc := range skuUnits {
 			if k.pool != p.ID || k.class != pl.Class || !strings.EqualFold(acc.via, pl.SKU) {

@@ -1,19 +1,23 @@
 import { describe, expect, it } from 'vitest'
 import type { CapacityBasket, CapacityOverview, CapacityPoolView, CapacityResourceKind } from '../api/types'
 import {
+  DEFAULT_POOL_CLASSES,
   asOfLabel,
   basketAnswer,
   basketQuery,
   basketSummary,
   bindingOf,
   classLabel,
+  floorEffect,
   formatAmount,
   formatDays,
   formatRatio,
   formatUtilisation,
   heatClass,
+  isFamily,
   isSized,
   kindOf,
+  orderedClasses,
   parseBasketQuery,
   parsePoolForm,
   parseShapeForm,
@@ -108,8 +112,8 @@ describe('amounts, ratios and vectors', () => {
     expect(
       vectorSummary(
         [
-          { resource: 'vcpu', label: 'vCPU', unit: 'vCPU', per_machine: 64, reserve: 64, overcommit_ratio: 4 },
-          { resource: 'memory_gib', label: 'Memory', unit: 'GiB', per_machine: 512, reserve: 512, overcommit_ratio: 1 },
+          { resource: 'vcpu', label: 'vCPU', unit: 'vCPU', per_machine: 64, reserve: 64, overcommit_ratio: 4, guaranteed_floor: 0 },
+          { resource: 'memory_gib', label: 'Memory', unit: 'GiB', per_machine: 512, reserve: 512, overcommit_ratio: 1, guaranteed_floor: 0 },
         ],
         kinds,
       ),
@@ -172,8 +176,8 @@ describe('a basket answers with a number or with a reason, never with a silent z
     expect(basketQuery([{ sku: 'ecs.m7n.2xlarge.8', units: '2' }, { sku: 'evs.ssd.gb', units: 100 }])).toBe('ecs.m7n.2xlarge.8:2,evs.ssd.gb:100')
     expect(basketQuery([{ sku: ' ', units: 1 }, { sku: 'x', units: 0 }])).toBe('')
     expect(parseBasketQuery('ecs.m7n.2xlarge.8:2, evs.ssd.gb')).toEqual([
-      { sku: 'ecs.m7n.2xlarge.8', units: '2' },
-      { sku: 'evs.ssd.gb', units: '1' },
+      { sku: 'ecs.m7n.2xlarge.8', units: '2', class: '' },
+      { sku: 'evs.ssd.gb', units: '1', class: '' },
     ])
     expect(parseBasketQuery(' , : , ')).toEqual([])
   })
@@ -190,9 +194,10 @@ describe('the pool editor refuses what the server refuses, before the round trip
     machines: '10',
     lead_time_days: '45',
     note: 'batch one',
+    classes: ['spot', 'Burstable', 'guaranteed'],
     resources: [
-      { resource: 'VCPU', per_machine: '64', reserve: '64', overcommit_ratio: '4' },
-      { resource: 'memory_gib', per_machine: '512', reserve: '512', overcommit_ratio: '1' },
+      { resource: 'VCPU', per_machine: '64', reserve: '64', overcommit_ratio: '4', guaranteed_floor: '200' },
+      { resource: 'memory_gib', per_machine: '512', reserve: '512', overcommit_ratio: '1', guaranteed_floor: '' },
     ],
   }
 
@@ -202,30 +207,49 @@ describe('the pool editor refuses what the server refuses, before the round trip
     expect(body).toEqual({
       name: 'm7n-a',
       machines: '10',
+      classes: ['guaranteed', 'burstable', 'spot'],
       lead_time_days: 45,
       note: 'batch one',
       resources: [
-        { resource: 'vcpu', per_machine: '64', reserve: '64', overcommit_ratio: '4' },
-        { resource: 'memory_gib', per_machine: '512', reserve: '512', overcommit_ratio: '1' },
+        { resource: 'vcpu', per_machine: '64', reserve: '64', overcommit_ratio: '4', guaranteed_floor: '200' },
+        { resource: 'memory_gib', per_machine: '512', reserve: '512', overcommit_ratio: '1', guaranteed_floor: '0' },
       ],
     })
   })
 
+  it('sends ratio 1 and floor 0 when the pool does not enforce burstable, whatever the form still holds', () => {
+    // The editor hides both columns once burstable is unticked; what was typed
+    // before must not reach the API, which would refuse it.
+    const { body, error } = parsePoolForm({ ...good, classes: ['guaranteed', 'spot'] })
+    expect(error).toBe('')
+    expect(body?.classes).toEqual(['guaranteed', 'spot'])
+    expect(body?.resources.map((r) => [r.overcommit_ratio, r.guaranteed_floor])).toEqual([['1', '0'], ['1', '0']])
+  })
+
+  it('refuses a pool that enforces nothing, and a floor above what is usable', () => {
+    expect(parsePoolForm({ ...good, classes: [] }).error).toMatch(/at least one class/)
+    // 10 machines x 64 less a reserve of 64 = 576 usable.
+    const over = parsePoolForm({ ...good, resources: [{ ...good.resources[0], guaranteed_floor: '577' }] })
+    expect(over.body).toBeNull()
+    expect(over.error).toMatch(/guaranteed floor is 577 but only 576 is usable/)
+    expect(parsePoolForm({ ...good, resources: [{ ...good.resources[0], guaranteed_floor: '576' }] }).error).toBe('')
+  })
+
   it('defaults a blank reserve to 0 and a blank ratio to 1 — never to nothing', () => {
-    const { body } = parsePoolForm({ ...good, resources: [{ resource: 'vcpu', per_machine: '64', reserve: '', overcommit_ratio: '' }] })
-    expect(body?.resources[0]).toEqual({ resource: 'vcpu', per_machine: '64', reserve: '0', overcommit_ratio: '1' })
+    const { body } = parsePoolForm({ ...good, resources: [{ resource: 'vcpu', per_machine: '64', reserve: '', overcommit_ratio: '', guaranteed_floor: '' }] })
+    expect(body?.resources[0]).toEqual({ resource: 'vcpu', per_machine: '64', reserve: '0', overcommit_ratio: '1', guaranteed_floor: '0' })
   })
 
   it('refuses a pool with no name, no resource, a bad number or a zero ratio', () => {
     expect(parsePoolForm({ ...good, name: '  ' }).error).toMatch(/name the pool/)
     expect(parsePoolForm({ ...good, resources: [] }).error).toMatch(/a machine with nothing in it is not capacity/)
-    expect(parsePoolForm({ ...good, resources: [{ resource: '  ', per_machine: '1', reserve: '', overcommit_ratio: '' }] }).error).toMatch(/at least one resource/)
+    expect(parsePoolForm({ ...good, resources: [{ resource: '  ', per_machine: '1', reserve: '', overcommit_ratio: '', guaranteed_floor: '' }] }).error).toMatch(/at least one resource/)
     expect(parsePoolForm({ ...good, machines: '-1' }).error).toMatch(/machines must be a non-negative number/)
     expect(parsePoolForm({ ...good, machines: 'lots' }).error).toMatch(/machines must be/)
     expect(parsePoolForm({ ...good, lead_time_days: '3.5' }).error).toMatch(/whole number of days/)
-    expect(parsePoolForm({ ...good, resources: [{ resource: 'vcpu', per_machine: 'x', reserve: '', overcommit_ratio: '' }] }).error).toMatch(/per machine/)
-    expect(parsePoolForm({ ...good, resources: [{ resource: 'vcpu', per_machine: '1', reserve: '-2', overcommit_ratio: '' }] }).error).toMatch(/reserve/)
-    expect(parsePoolForm({ ...good, resources: [{ resource: 'vcpu', per_machine: '1', reserve: '', overcommit_ratio: '0' }] }).error).toMatch(/positive number/)
+    expect(parsePoolForm({ ...good, resources: [{ resource: 'vcpu', per_machine: 'x', reserve: '', overcommit_ratio: '', guaranteed_floor: '' }] }).error).toMatch(/per machine/)
+    expect(parsePoolForm({ ...good, resources: [{ resource: 'vcpu', per_machine: '1', reserve: '-2', overcommit_ratio: '', guaranteed_floor: '' }] }).error).toMatch(/reserve/)
+    expect(parsePoolForm({ ...good, resources: [{ resource: 'vcpu', per_machine: '1', reserve: '', overcommit_ratio: '0', guaranteed_floor: '' }] }).error).toMatch(/positive number/)
     expect(parsePoolForm({ ...good, resources: [good.resources[0], { ...good.resources[0], resource: 'vcpu' }] }).error).toMatch(/listed twice/)
     // Every refusal returns NO body: a half-built pool never reaches the API.
     expect(parsePoolForm({ ...good, name: '' }).body).toBeNull()
@@ -257,6 +281,7 @@ describe('reading the overview', () => {
     zone_id: 'z',
     name: 'm7n-a',
     machines: 10,
+    classes: ['guaranteed', 'spot'],
     lead_time_days: 45,
     source: 'manual',
     note: '',
@@ -292,17 +317,17 @@ describe('reading the overview', () => {
         name: 'Muscat',
         cloud_source_kind: 'huawei-project',
         zones: [
-          { id: 'za', code: 'me-east-215a', name: 'AZ 1', is_default: true, pools: [pool({ id: 'pa' }), pool({ id: 'pb', name: 'm7n-b' })], unplaced_skus: [] },
-          { id: 'zb', code: 'me-east-215b', name: '', is_default: false, pools: [], unplaced_skus: [] },
+          { id: 'za', code: 'me-east-215a', name: 'AZ 1', is_default: true, pools: [pool({ id: 'pa' }), pool({ id: 'pb', name: 'm7n-b' })], unplaced_skus: [], class_mismatches: [] },
+          { id: 'zb', code: 'me-east-215b', name: '', is_default: false, pools: [], unplaced_skus: [], class_mismatches: [] },
         ],
       },
-      { id: 'r2', code: 'eu-west-101', name: '', cloud_source_kind: 'huawei-project', zones: [{ id: 'zc', code: 'eu-west-101a', name: '', is_default: true, pools: [pool({ id: 'pc' })], unplaced_skus: [] }] },
+      { id: 'r2', code: 'eu-west-101', name: '', cloud_source_kind: 'huawei-project', zones: [{ id: 'zc', code: 'eu-west-101a', name: '', is_default: true, pools: [pool({ id: 'pc' })], unplaced_skus: [], class_mismatches: [] }] },
     ],
     unshaped_skus: [],
     unmapped_regions: [],
     summary: {
       regions: 2, zones: 3, pools: 3, pools_sized: 0, pools_warn: 0, pools_critical: 0, pools_past_threshold: 0,
-      pools_to_order: 0, pools_order_late: 0, placements: 0, shapes: 6, unplaced_skus: 0, unshaped_skus: 0, spot_to_reclaim: 0,
+      pools_to_order: 0, pools_order_late: 0, placements: 0, shapes: 6, unplaced_skus: 0, unshaped_skus: 0, spot_to_reclaim: 0, class_mismatches: 0,
     },
   } satisfies CapacityOverview
 
@@ -322,8 +347,8 @@ describe('reading the overview', () => {
     const sized = pool({
       binding_resource: 'memory_gib',
       resources_view: [
-        { resource: 'vcpu', label: 'vCPU', unit: 'vCPU', machines: 10, per_machine: 64, reserve: 64, overcommit_ratio: 4, raw: 640, usable: 576, sellable: 1344, guaranteed: 320, burstable: 256, burstable_physical: 64, spot: 0, spot_physical: 0, sold_nominal: 576, remaining: 768, guaranteed_ceiling: 256, physical_used: 384, physical_free: 192, stranded: true, spot_room: 768, spot_reclaim: 0, sized: true, utilisation_pct: 42.9, status: 'ok', overcommitted: false, over: 0, series: [], history_days: 0, soft_wall_days: null, soft_wall_date: null, hard_wall_days: null, hard_wall_date: null, order_by_days: null, order_by_date: null, order_by_wall: '', late: false },
-        { resource: 'memory_gib', label: 'Memory', unit: 'GiB', machines: 10, per_machine: 512, reserve: 512, overcommit_ratio: 1, raw: 5120, usable: 4608, sellable: 4608, guaranteed: 2560, burstable: 2048, burstable_physical: 2048, spot: 0, spot_physical: 0, sold_nominal: 4608, remaining: 0, guaranteed_ceiling: 2048, physical_used: 4608, physical_free: 0, stranded: false, spot_room: 0, spot_reclaim: 0, sized: true, utilisation_pct: 100, status: 'critical', overcommitted: false, over: 0, series: [], history_days: 0, soft_wall_days: null, soft_wall_date: null, hard_wall_days: null, hard_wall_date: null, order_by_days: null, order_by_date: null, order_by_wall: '', late: false },
+        { resource: 'vcpu', label: 'vCPU', unit: 'vCPU', machines: 10, per_machine: 64, reserve: 64, overcommit_ratio: 4, guaranteed_floor: 0, floor_free: 0, burstable_envelope: 1024, burstable_room: 768, raw: 640, usable: 576, sellable: 1344, guaranteed: 320, burstable: 256, burstable_physical: 64, spot: 0, spot_physical: 0, sold_nominal: 576, remaining: 768, guaranteed_ceiling: 256, physical_used: 384, physical_free: 192, stranded: true, spot_room: 768, spot_reclaim: 0, sized: true, utilisation_pct: 42.9, status: 'ok', overcommitted: false, over: 0, series: [], history_days: 0, soft_wall_days: null, soft_wall_date: null, hard_wall_days: null, hard_wall_date: null, order_by_days: null, order_by_date: null, order_by_wall: '', late: false },
+        { resource: 'memory_gib', label: 'Memory', unit: 'GiB', machines: 10, per_machine: 512, reserve: 512, overcommit_ratio: 1, guaranteed_floor: 0, floor_free: 0, burstable_envelope: 2048, burstable_room: 0, raw: 5120, usable: 4608, sellable: 4608, guaranteed: 2560, burstable: 2048, burstable_physical: 2048, spot: 0, spot_physical: 0, sold_nominal: 4608, remaining: 0, guaranteed_ceiling: 2048, physical_used: 4608, physical_free: 0, stranded: false, spot_room: 0, spot_reclaim: 0, sized: true, utilisation_pct: 100, status: 'critical', overcommitted: false, over: 0, series: [], history_days: 0, soft_wall_days: null, soft_wall_date: null, hard_wall_days: null, hard_wall_date: null, order_by_days: null, order_by_date: null, order_by_wall: '', late: false },
       ],
     })
     expect(bindingOf(sized)?.label).toBe('Memory')
@@ -344,5 +369,45 @@ describe('the sparkline', () => {
     const p = sparkPath([0, 10], 100, 20)
     expect(p.startsWith('M0.0,')).toBe(true)
     expect(p).toContain('L100.0,')
+  })
+})
+
+describe('classes, families and the class-aware mix', () => {
+  it('orders a pool’s classes canonically and never invents one', () => {
+    expect(orderedClasses(['spot', 'Guaranteed'])).toEqual(['guaranteed', 'spot'])
+    expect(orderedClasses(['reserved'])).toEqual([])
+    expect(orderedClasses(null)).toEqual([])
+    // Burstable is opted into: a new pool does not enforce it.
+    expect(DEFAULT_POOL_CLASSES).toEqual(['guaranteed', 'spot'])
+  })
+
+  it('tells a family from a SKU', () => {
+    expect(isFamily('ecs.m7n.*')).toBe(true)
+    expect(isFamily('ecs.m7n.xlarge.8')).toBe(false)
+  })
+
+  it('round-trips a mix with a class on a line, and without one', () => {
+    const q = basketQuery([
+      { sku: 'ecs.m7n.2xlarge.8', units: '2', class: 'burstable' },
+      { sku: 'evs.ssd.gb', units: 100 },
+      { sku: '', units: 1 },
+      { sku: 'eip', units: 0 },
+    ])
+    expect(q).toBe('ecs.m7n.2xlarge.8:2:burstable,evs.ssd.gb:100')
+    expect(parseBasketQuery(q)).toEqual([
+      { sku: 'ecs.m7n.2xlarge.8', units: '2', class: 'burstable' },
+      { sku: 'evs.ssd.gb', units: '100', class: '' },
+    ])
+  })
+
+  it('says what a floor does — the founder’s 60 / 40 case', () => {
+    // 100 usable at 2.5:1 with 60 kept for guaranteed: burstable is capped at
+    // 40 physical, which is 100 nominal, whatever order the sales arrive in.
+    expect(floorEffect('1', '100', '0', '2.5', '60')).toEqual({ usable: 100, floor: 60, envelope: 100 })
+    // No floor: burstable can take every physical unit.
+    expect(floorEffect('1', '100', '0', '2.5', '')).toEqual({ usable: 100, floor: 0, envelope: 250 })
+    // A floor above usable is clamped, and an unsized row says nothing.
+    expect(floorEffect('1', '100', '10', '4', '500')).toEqual({ usable: 90, floor: 90, envelope: 0 })
+    expect(floorEffect('', '', '', '', '')).toBeNull()
   })
 })

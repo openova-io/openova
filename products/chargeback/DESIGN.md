@@ -2265,19 +2265,33 @@ ALTERs above would be running against two different schemas.
 
 ### 11.7 The console — Plan → Capacity
 
-One card per pool: its machine count and per-machine vector, the **binding
-resource named**, and per resource the usable / ratio / sellable figures, the
-**class split** (with the spot that must be freed and the line saying whose
-decision the WHICH is), what is left — flagged **stranded** when another
-resource binds — the per-class trend with a sparkline, and the **order-by
-date** with the wall that drove it. Under it, the basket headroom with an
-editable mix, and the placements with their class. Then the unplaced and
-unshaped SKUs by name, the regions and zones, and the shapes editor.
+**Four tabs, one question each** (founder direction 2026-09-20 — the single
+scroll had three questions competing for one screen, and three pools were
+three screens):
+
+| tab | answers |
+|---|---|
+| **Pools** | how much have I got, what binds first, when do I order — **one line per pool**: machines, the classes it enforces, the binding resource, sold / sellable, the order-by date. Opening a line shows why it binds (the per-resource table with the class split, the floor, the walls), how many more fit, and what is running on it resource by resource. |
+| **Placements** | which SKU sells out of which pool at which class — one table; then what is metered and counted against nothing, and what runs at a class it is not placed at, by name. |
+| **Shapes** | what one unit of a SKU consumes; the metered SKUs with no shape come first. |
+| **Regions & zones** | where the pools live; a zone per line. |
+
+Above the tabs is what is true whichever tab is open: the KPIs, and a list of
+what needs attention where each line names the tab that fixes it and goes there.
+
+**Nothing is typed that can be chosen.** A SKU is a select over price-book
+items ∪ metered SKUs ∪ stored shapes (`GET /capacity/skus`), grouped as metered
+now / has a shape / no shape yet; a family is a select over the families those
+SKUs form; a resource is a select over the kinds (with "a kind of my own" as
+the way to name a new one); a class is a select over **the classes the chosen
+pool enforces**, so burstable is never offered on a pool that cannot deliver
+it. The mix for "how many more fit" is built line by line from the same
+selects.
 
 The honest-empty-state discipline is unchanged and extended: `unset` never
 reads as `ok`, a basket that could not be measured prints its REASON rather
-than a number, and a negative order-by renders as "45 days ago". New strings
-go through the locale seam (`src/i18n`) as `capacity.*` catalogue keys.
+than a number, and a negative order-by renders as "45 days ago". Strings go
+through the locale seam (`src/i18n`) as `capacity.*` catalogue keys.
 
 ### 11.8 Tests
 
@@ -2302,6 +2316,88 @@ attribution survive and that the cap is in the audit trail.
 shape, the basket endpoint and the audit rows.
 `ui/src/lib/capacity.test.ts` and `ui/src/pages/Capacity.render.test.tsx` pin
 the rendered page against the same figures.
+
+§11.9 is pinned by `internal/capacity/floor_test.go` (the founder's 60 / 40
+case verbatim, the piecewise fit and soft wall, and that with no floor the fit
+is the old single division to the unit), `classes_test.go` (class sets, class
+resolution, families), `internal/store/capacity_classes_integration_test.go`
+(one SKU at three classes split by tag / override / default, a family, the
+reclaim proposal, the SKU options, and the migration against the shape hw307
+was in) and the API test's new-route block. Rendering is not the validation of
+this page: the write flows are walked in a browser against a copy of the live
+database before every release.
+
+### 11.9 Classes per pool, one SKU at three classes, and the guaranteed floor (founder direction 2026-09-20)
+
+**A pool lists the classes it can ENFORCE** (`capacity_pools.classes`), and a
+placement may only use one of those. The three classes need three different
+things from the substrate, and a class nothing can enforce is a label, not a
+product:
+
+| class | what it requires | resold cloud flavour (fixed vCPU) | Kubernetes the platform operates |
+|---|---|---|---|
+| guaranteed | a fixed allocation | yes | yes — requests = limits |
+| spot | the right to **delete** the resource, with notice | yes — the platform creates and deletes what it sells | yes — PriorityClass preemption |
+| burstable | the **host** throttling at runtime | **no** — nothing would ever claw a burst back | yes — requests below limits |
+
+Spot is a cheaper price plus a reclaim right; neither asks the host for
+anything. Burstable is the only class that needs the host to arbitrate, so it
+is **opted into**: a new pool enforces `{guaranteed, spot}`. Overcommit and the
+floor are burstable's two numbers, so on a pool without burstable the ratio is
+1 and the floor 0 — refused on a write, and ignored on a read for rows written
+before the rule. A class cannot be withdrawn while placements use it; the
+refusal names them.
+
+**One SKU may sit on a pool once per class.** The placement key is
+`(pool, sku, class)`: the same flavour sold guaranteed, burstable and spot is
+three placements at three prices. `sku` may be a **family** (`ecs.m7n.*`); an
+exact placement wins over a family and the longer family over the shorter.
+Which class a RUNNING resource counts at is said by the resource
+(`capacity.ResolveClass`):
+
+1. an operator's per-resource override (`capacity_resource_classes`), else
+2. its `lifecycle` tag (`lifecycle=spot`), else
+3. the **most conservative class its SKU is placed at** — an untagged resource
+   counted as spot would understate committed hardware; counted as guaranteed
+   it can only overstate it, and an overstated wall is an early order, never an
+   oversold guarantee.
+
+A tag or override naming a class the SKU is NOT placed at still counts, at the
+default, and is listed as a class mismatch rather than absorbed.
+
+**The guaranteed floor** (`capacity_pool_resources.guaranteed_floor`) is
+physical capacity burstable may never be sold into:
+
+    held     = max(G, floor)
+    envelope = (usable − held) × ratio        every burstable unit there is
+    sellable = held + envelope
+
+Without it the envelope is computed from what is sold TODAY: usable 100 at
+2.5:1 with nothing guaranteed yet reads 250 burstable, burstable arrives first
+and takes every physical unit, and the guarantee that comes later has nowhere
+to land. A floor of 60 caps the envelope at 40 × 2.5 = 100 whatever order the
+sales arrive in. Guaranteed landing inside its own floor costs burstable
+nothing; past it each unit costs `ratio`, so the basket fit and the soft wall
+are piecewise around the floor. Spot may run in the idle floor — it gives way
+the moment a guarantee wants the room. Burstable past its envelope reads
+critical even while an idle floor keeps the total looking roomy.
+
+**What BSS does and does not do.** It accounts: what may be sold, what is
+running at which class, and — when a pool holds more spot than room — HOW MUCH
+must be given back and a proposal of WHICH, newest first
+(`GET /capacity/pools/{id}/resources`). It deletes nothing; the platform does.
+Runtime contention between classes is the substrate's job, which is exactly why
+a pool only lists the classes its substrate can enforce.
+
+API added: `DELETE /capacity/placements?pool_id=&sku=&class=`,
+`GET /capacity/skus`, `GET /capacity/pools/{id}/resources`,
+`PUT /capacity/resource-classes {source_id, resource_id, class|null}` — reads
+`metering.read`, writes `capacity.manage`, every write audited.
+
+Migration (`MigrationCapacityClasses`): every existing pool keeps every class
+its placements already use, and gains burstable if it already overcommits;
+placements keep their rows under the wider key; the floor starts at 0, which is
+the arithmetic every pool had until now.
 
 ---
 
