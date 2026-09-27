@@ -40,12 +40,23 @@ const account: AccountDocument = {
 
 const empty: AccountDocument = { ...account, balance: '0', available_credit: '0', outstanding: '0', overdue: '0', entries: [], payments: [], credit_notes: [], payment_model: 'postpaid', suspend_at_zero: false }
 
+/** The same account with an invoice still open, so the unallocated payment has somewhere to go. */
+const owing: AccountDocument = {
+  ...account,
+  balance: '300.000000',
+  outstanding: '500.000000',
+  open_invoices: 1,
+  payments: [...account.payments, { id: 9, amount: 50, paid_at: '2026-09-02T00:00:00Z', status: 'pending', method: 'gateway', reference: 'GW-9', allocated: 0, unallocated: 0 }],
+}
+
 const docs: Record<string, unknown> = {
   '/customers/c1/account': account,
   '/customers/c1/suspensions': { suspensions: [{ id: 1, customer_id: 'c1', action: 'suspend', source: 'wallet', reason: 'balance reached zero', ok: true, actor: 'wallet', at: '2026-07-01T00:00:00Z' }, { id: 2, customer_id: 'c1', action: 'resume', source: 'operator', ok: false, error: 'organization not found', actor: 'ops@sovereign.example', at: '2026-07-02T00:00:00Z' }] },
   '/customers/c1/payment-intents': { intents: [{ id: 'pi1', customer_id: 'c1', purpose: 'checkout', amount: 200, currency: 'OMR', gateway: 'stripe', status: 'awaiting-transfer', reference: 'pi_123', pay_url: 'https://pay.example/pi_123', created_at: '2026-09-01T00:00:00Z', updated_at: '2026-09-01T00:00:00Z' }] },
   '/customers/c2/account': empty,
   '/customers/c2/suspensions': { suspensions: [] },
+  '/customers/c3/account': owing,
+  '/customers/c3/suspensions': { suspensions: [] },
 }
 
 vi.mock('../lib/useQuery', () => ({
@@ -56,8 +67,8 @@ import { AccountPanel } from './AccountPanel'
 
 const customer = (over: Partial<Customer>): Customer => ({ id: 'c1', slug: 'acme', name: 'ACME LLC', admin_email: 'ops@acme.example', billing_mode: 'chargeback', charging: 'billed', payment_model: 'prepaid', payment_method: 'transfer', status: 'active', ...over })
 
-function render(c: Customer): string {
-  const html = renderToString(createElement(MemoryRouter, null, createElement(AccountPanel, { customerId: c.id, customer: c, currency: 'OMR' }))).replace(/<!-- -->/g, '')
+function render(c: Customer, canRecord = true): string {
+  const html = renderToString(createElement(MemoryRouter, null, createElement(AccountPanel, { customerId: c.id, customer: c, currency: 'OMR', canRecord, canCheckout: canRecord }))).replace(/<!-- -->/g, '')
   expect(html).not.toMatch(/NaN|undefined|\[object Object\]/)
   return html
 }
@@ -123,8 +134,47 @@ describe('AccountPanel renders the account', () => {
     expect(html).toContain('No account activity yet')
     expect(html).toContain('The first issued invoice or top-up opens the ledger.')
     expect(html).toContain('No credit notes')
+    expect(html).toContain('No payments yet')
     expect(html).toContain('Never suspended at the platform')
     expect(html).toContain('>settled<')
     expect(html).not.toContain('suspends at zero')
+  })
+})
+
+// #6946 — a payment is allocated or refunded FROM ITS OWN ROW, billing.collect
+// only, and every row that cannot be says why in the store's words.
+describe('AccountPanel lists the payments with Allocate and Refund per row', () => {
+  it('shows every payment, its status and where it went, with a Refund per settled row', () => {
+    const html = render(customer({}))
+    expect(html).toContain('aria-label="Payments"')
+    expect(html).toContain('>Where it went<')
+    expect(html).toContain('TRF-1')
+    expect(html).toContain('600.000 OMR to INV-2026-00001')
+    expect(html).toContain('200.000 OMR on account')
+    expect(html.match(/>Refund</g)?.length).toBe(2)
+    expect(html.match(/>Allocate</g)?.length).toBe(2)
+    // TRF-1 is fully allocated: Allocate stays and says so.
+    expect(html).toContain('title="The payment is fully allocated"')
+    // TRF-2 has 200 on account and nothing open to apply it to.
+    expect(html).toContain('title="No open invoice to apply it to"')
+    expect(html).not.toContain('id="allocate-form"')
+    expect(html).not.toContain('id="refund-form"')
+  })
+  it('makes Allocate live when an invoice is open, and refuses a pending payment in the store’s words', () => {
+    const html = render(customer({ id: 'c3' }))
+    expect(html).toContain('title="Apply up to 200.000 OMR of this payment to the open invoices"')
+    expect(html).not.toMatch(/<button class="small" disabled=""[^>]*title="Apply up to 200.000 OMR/)
+    // A pending payment: neither allocated nor refunded, each with the reason.
+    expect(html).toContain('GW-9')
+    expect(html).toContain('title="A pending payment settles nothing and cannot be allocated"')
+    expect(html).toContain('title="Only a settled payment can be refunded; this one is pending"')
+  })
+  it('offers neither Allocate nor Refund without billing.collect, and keeps the table', () => {
+    const html = render(customer({ id: 'c3' }), false)
+    expect(html).toContain('aria-label="Payments"')
+    expect(html).toContain('TRF-1')
+    expect(html).not.toContain('>Allocate<')
+    expect(html).not.toContain('>Refund<')
+    expect(html).not.toContain('>Top up<')
   })
 })

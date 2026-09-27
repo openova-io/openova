@@ -69,6 +69,7 @@ export const EN = {
   'nav.reconciliation': 'Reconciliation',
   'nav.periods': 'Period close',
   'nav.accountMapping': 'Account mapping',
+  'nav.outbox': 'Outbox',
   'nav.customers': 'Customers',
   'nav.leads': 'Leads',
   'nav.partners': 'Partners',
@@ -384,6 +385,24 @@ export const EN = {
   'capacity.shapes.removed': 'Shape of {sku} removed',
   'capacity.shapes.none': 'No shapes',
   'capacity.shapes.noneBody': 'Without shapes nothing counts against the pools.',
+
+  // The resource kinds the shapes are measured in (#6946). A kind is a KEY
+  // with a label and a unit; the key is what shapes and pools are keyed on
+  // and is never renamed, the label and unit are the operator's to word.
+  'capacity.kinds.title': 'Resource kinds',
+  'capacity.kinds.sub': 'what the shapes and pool vectors are measured in · the label and unit are yours to word, the key is what everything is keyed on',
+  'capacity.kinds.col.key': 'Key',
+  'capacity.kinds.col.label': 'Label',
+  'capacity.kinds.col.unit': 'Unit',
+  'capacity.kinds.edit': 'Edit',
+  'capacity.kinds.editNamed': 'Edit resource kind {resource}',
+  'capacity.kinds.save': 'Save',
+  'capacity.kinds.saved': 'Resource kind {resource} saved',
+  'capacity.kinds.keyFixed': 'the key is fixed: shapes, pool vectors and class overrides are keyed on it',
+  'capacity.kinds.labelHelp': 'a label is required — it is what every column and chart names this resource',
+  'capacity.kinds.unitHelp': 'what its amounts count in — vCPU, GiB, cards; empty shows bare numbers',
+  'capacity.kinds.none': 'No resource kinds',
+  'capacity.kinds.noneBody': 'The metered keys and the seeded list appear here once a shape or a pool names one.',
 
   'capacity.regions.title': 'Regions and zones',
   'capacity.regions.sub': 'a region is the code the ledger carries; usage whose zone is unknown lands in the default zone',

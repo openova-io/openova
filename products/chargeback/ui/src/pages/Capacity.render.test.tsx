@@ -237,6 +237,7 @@ import { PlacementDialog, type PlaceSeed } from '../panels/capacity/PlacementsTa
 import { PoolDetail } from '../panels/capacity/PoolDetail'
 import { PoolEditor } from '../panels/capacity/PoolEditor'
 import { RegionEditor, ZoneEditor } from '../panels/capacity/RegionsTab'
+import { KindEditor } from '../panels/capacity/ShapesTab'
 import { Capacity } from './Capacity'
 
 const clean = (html: string): string => {
@@ -435,6 +436,41 @@ describe('Capacity page', () => {
     expect(html).toContain('SKU shapes')
     expect(html).toContain('aria-label="Edit the shape of evs.ssd.gb"')
     expect(html).not.toContain('aria-label="Pools"')
+  })
+
+  // #6946 — a resource kind's label and unit are edited on the kind's own
+  // row, under the shapes they measure; the key is shown and never renamed.
+  it('lists the resource kinds under the shapes, one Edit per kind, and no Edit without capacity.manage', () => {
+    const html = render('shapes')
+    expect(html).toContain('aria-label="Resource kinds"')
+    expect(html).toContain('>Key<')
+    expect(html).toContain('>Label<')
+    expect(html).toContain('>Unit<')
+    expect(html).toContain('<code>memory_gib</code>')
+    expect(html).toContain('>Memory<')
+    expect(html).toContain('>GiB<')
+    for (const k of overview.resource_kinds) expect(html).toContain(`aria-label="Edit resource kind ${k.resource}"`)
+    // The dialog is closed until a row opens it.
+    expect(html).not.toContain('id="kind-editor"')
+    const before = who
+    who = { ...who, permissions: { sovereign: ['metering.read'] } }
+    try {
+      const ro = render('shapes')
+      expect(ro).toContain('aria-label="Resource kinds"')
+      expect(ro).toContain('<code>memory_gib</code>')
+      expect(ro).not.toContain('Edit resource kind')
+    } finally {
+      who = before
+    }
+  })
+
+  it('the kind editor shows the key read-only and takes a label and a unit', () => {
+    const html = clean(renderToString(createElement(KindEditor, { kind: overview.resource_kinds[1], act: noAct, onClose: () => {}, onSaved: async () => {} })))
+    expect(html).toContain('Edit resource kind memory_gib')
+    expect(html).toMatch(/<input[^>]*value="memory_gib"[^>]*readOnly=""|<input[^>]*readOnly=""[^>]*value="memory_gib"/)
+    expect(html).toMatch(/<input[^>]*value="Memory"/)
+    expect(html).toMatch(/<input[^>]*value="GiB"/)
+    expect(html).toContain('the key is fixed')
   })
 
   it('keeps regions and zones on their own tab: a row per region open to its zones, and Edit on every row', () => {

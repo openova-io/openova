@@ -364,14 +364,27 @@ function EventTable({ catalogue, prefs, canManage, onDone }: { catalogue: Notify
   )
 }
 
+/**
+ * Whether an effective setting was decided by THIS customer's own row — the
+ * only case its Reset removes anything. A Sovereign-wide row or the catalogue
+ * default is not the customer's to reset, and the button says so instead of
+ * offering a delete that would change nothing. (The page resolves for the
+ * whole account, so a row set for one person never decides a line here.)
+ */
+function setByCustomer(e: NotifyEffective, customerID: string): boolean {
+  return e.source === `customer:${customerID}`
+}
+
 /** The preference list a CUSTOMER sees and edits for itself. */
 function PreferenceTable({ doc, customerID, canManage, onDone }: { doc: NotifyPreferencesDoc | null; customerID: string; canManage: boolean; onDone: () => void }) {
   const [editing, setEditing] = useState<NotifyEffective | null>(null)
+  const [resetting, setResetting] = useState<NotifyEffective | null>(null)
   const act = useAction()
   const rows = doc?.effective ?? []
   const events = doc?.events ?? []
   const channels = doc?.channels ?? []
   const eventFor = (key: string) => events.find((e) => e.key === key)
+  const path = `/customers/${customerID}/notifications/preferences`
 
   const columns: Column<NotifyEffective>[] = [
     {
@@ -416,9 +429,22 @@ function PreferenceTable({ doc, customerID, canManage, onDone }: { doc: NotifyPr
       // refuses. Hiding the way in refused far more than the rule does.
       render: (e) =>
         canManage ? (
-          <button className="link small" disabled={act.busy} title={e.mandatory ? t('notifications.alwaysSent') : undefined} onClick={() => setEditing(e)}>
-            Change
-          </button>
+          <span className="btn-row">
+            <button className="link small" disabled={act.busy} title={e.mandatory ? t('notifications.alwaysSent') : undefined} onClick={() => setEditing(e)}>
+              Change
+            </button>
+            {/* Reset removes THIS account's own row (#6946). When the setting
+                came from the Sovereign or the catalogue there is no row of
+                ours to remove, and the button says so rather than vanishing. */}
+            <button
+              className="link small"
+              disabled={act.busy || !setByCustomer(e, customerID)}
+              title={setByCustomer(e, customerID) ? undefined : e.source === 'catalogue default' ? 'nothing to reset — this is the default' : `nothing to reset — set at ${e.source}, not by this account`}
+              onClick={() => setResetting(e)}
+            >
+              Reset
+            </button>
+          </span>
         ) : null,
     },
   ]
@@ -434,15 +460,23 @@ function PreferenceTable({ doc, customerID, canManage, onDone }: { doc: NotifyPr
       ) : (
         <DataTable label="Notification preferences" columns={columns} rows={rows} rowKey={(e) => e.event} defaultSort={{ key: 'category', dir: 'asc' }} pageSize={25} emptyTitle="No messages" />
       )}
-      {editing && ev ? (
-        <PreferenceModal
-          event={ev}
-          effective={editing}
-          channels={channels}
-          locales={doc?.locales ?? []}
-          path={`/customers/${customerID}/notifications/preferences`}
-          onClose={() => setEditing(null)}
-          onDone={onDone}
+      {editing && ev ? <PreferenceModal event={ev} effective={editing} channels={channels} locales={doc?.locales ?? []} path={path} onClose={() => setEditing(null)} onDone={onDone} /> : null}
+      {resetting ? (
+        <Confirm
+          title={`Reset ${resetting.title}`}
+          confirmLabel="Reset to the default"
+          busy={act.busy}
+          onClose={() => setResetting(null)}
+          onConfirm={async () => {
+            const ok = await act.run(`${resetting.title} reset`, () => api.del(`${path}/${encodeURIComponent(resetting.event)}`), onDone)
+            if (ok) setResetting(null)
+          }}
+          body={
+            <p>
+              This account&apos;s own preference for <b>{resetting.title}</b> is removed, so it follows the Sovereign&apos;s setting again{eventFor(resetting.event)?.default_on === false ? ' (not sent unless the Sovereign says otherwise)' : ' (sent unless the Sovereign says otherwise)'}.
+              A preference set on one person of this account is untouched.
+            </p>
+          }
         />
       ) : null}
     </>

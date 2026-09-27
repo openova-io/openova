@@ -75,6 +75,20 @@ func TestAuthorizationRefusalsPerRole(t *testing.T) {
 		{"customer-owner resizes a pool", owner, "PUT", "/api/v1/capacity/pools/x", 403, "capacity.manage"},
 		{"customer-viewer reads shapes", viewer, "GET", "/api/v1/capacity/shapes", 403, "metering.read"},
 		{"customer-viewer reads placements", viewer, "GET", "/api/v1/capacity/placements", 403, "metering.read"},
+		// The five controls the #6946 sweep added, each refused by the
+		// permission its route asks for: a draft's terms and an outbox retry
+		// are billing.issue, allocating and refunding a payment are
+		// billing.collect, a customer's own preference reset is
+		// customer.self.manage, and the outbox is a Sovereign read.
+		{"finance-viewer edits a draft's terms", finance, "PATCH", "/api/v1/statements/x", 403, "billing.issue"},
+		{"finance-viewer retries an outbox document", finance, "POST", "/api/v1/commercial/outbox/1/retry", 403, "billing.issue"},
+		{"finance-viewer allocates a payment", finance, "POST", "/api/v1/payments/1/allocate", 403, "billing.collect"},
+		{"finance-viewer refunds a payment", finance, "POST", "/api/v1/payments/1/refund", 403, "billing.collect"},
+		{"customer-owner allocates its own payment", owner, "POST", "/api/v1/payments/1/allocate", 403, "billing.collect"},
+		{"customer-owner refunds its own payment", owner, "POST", "/api/v1/payments/1/refund", 403, "billing.collect"},
+		{"customer-owner lists the outbox", owner, "GET", "/api/v1/commercial/outbox", 403, "metering.read"},
+		{"customer-viewer resets its own preference", viewer, "DELETE", "/api/v1/customers/" + a + "/notifications/preferences/account.low_balance", 403, "customer.self.manage"},
+		{"customer-owner resets another customer's preference", owner, "DELETE", "/api/v1/customers/" + b + "/notifications/preferences/account.low_balance", 404, ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
