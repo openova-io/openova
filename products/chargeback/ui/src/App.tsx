@@ -40,6 +40,7 @@ import { FinanceAccounts } from './pages/FinanceAccounts'
 import { FinanceJournal } from './pages/FinanceJournal'
 import { FinancePeriods } from './pages/FinancePeriods'
 import { FinanceReconciliation } from './pages/FinanceReconciliation'
+import { CommercialOutbox } from './pages/CommercialOutbox'
 
 function Home() {
   const { me, loading } = useSession()
@@ -93,6 +94,9 @@ function ConsoleRoutes() {
             <Route path="/finance/reconciliation" element={<FinanceReconciliation />} />
             <Route path="/finance/periods" element={<FinancePeriods />} />
             <Route path="/finance/accounts" element={<FinanceAccounts />} />
+            {/* The commercial outbox (DESIGN.md §8.10): what is queued for the
+                operator's billing system, with Retry and the journal export. */}
+            <Route path="/finance/outbox" element={<CommercialOutbox />} />
             <Route path="/access" element={<Access />} />
             <Route path="/resources" element={<Resources />} />
             <Route path="/resources/:sourceId/:resourceId" element={<ResourceDetail />} />

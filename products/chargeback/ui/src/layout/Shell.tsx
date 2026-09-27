@@ -48,10 +48,12 @@ const SOVEREIGN_NAV: readonly NavGroupSpec[] = [
     ],
   ],
   // Finance (DESIGN.md §18) — the handover an operator's finance department
-  // posts from: the journal, the settlement reconciliation, the period close
-  // and the account map. Reading needs audit.read (with metering.read, which
-  // every Sovereign role carries); closing, reopening and editing the map
-  // need settings.manage, and the pages render those controls accordingly.
+  // posts from: the journal, the settlement reconciliation, the period close,
+  // the account map and the commercial outbox the documents leave by (§8.10).
+  // Reading needs audit.read (with metering.read, which every Sovereign role
+  // carries); closing, reopening and editing the map need settings.manage,
+  // retrying a document billing.issue, and the pages render those controls
+  // accordingly.
   [
     'nav.group.finance',
     [
@@ -59,6 +61,7 @@ const SOVEREIGN_NAV: readonly NavGroupSpec[] = [
       ['/finance/reconciliation', 'nav.reconciliation', '⇄', 'audit.read'],
       ['/finance/periods', 'nav.periods', '⊟', 'audit.read'],
       ['/finance/accounts', 'nav.accountMapping', '#', 'audit.read'],
+      ['/finance/outbox', 'nav.outbox', '⇪', 'audit.read'],
     ],
   ],
   [

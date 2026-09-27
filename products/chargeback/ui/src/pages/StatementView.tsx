@@ -41,7 +41,25 @@ import { useQuery } from '../lib/useQuery'
 // DESIGN.md §8 — the invoice lifecycle, from this page: issue, send it to
 // the customer, record what they paid, or void it. §9.3 — reduce an issued
 // invoice with a credit note, the only way one is ever reduced.
-type Dialog = { kind: 'issue' } | { kind: 'delete' } | { kind: 'send' } | { kind: 'pay' } | { kind: 'cancel' } | { kind: 'credit' } | { kind: 'dispute' } | { kind: 'resolve' } | null
+type Dialog = { kind: 'issue' } | { kind: 'delete' } | { kind: 'send' } | { kind: 'pay' } | { kind: 'cancel' } | { kind: 'credit' } | { kind: 'dispute' } | { kind: 'resolve' } | { kind: 'terms' } | null
+
+/**
+ * The payment terms a draft may be given, in days (PATCH /statements/{id}).
+ * Chosen, not typed: these are the terms invoices are written on; a draft
+ * that already carries another figure keeps it as an extra option.
+ */
+const PAYMENT_TERMS: ReadonlyArray<{ days: number; label: string }> = [
+  { days: 0, label: 'due on receipt' },
+  { days: 7, label: 'net 7' },
+  { days: 14, label: 'net 14' },
+  { days: 30, label: 'net 30' },
+  { days: 45, label: 'net 45' },
+  { days: 60, label: 'net 60' },
+  { days: 90, label: 'net 90' },
+]
+
+/** The sentence the store refuses a non-draft edit with; shown before the round trip. */
+const TERMS_FROZEN = 'The purchase-order reference and payment terms are frozen once a statement is issued.'
 
 export function StatementView() {
   const { id = '' } = useParams()
@@ -268,18 +286,31 @@ export function StatementView() {
         </Notice>
       ) : null}
 
-      {s.invoice_number || s.external_invoice_ref || s.po_reference || s.due_at || s.tax_snapshot ? (
+      {/* A draft shows the block too (#6946): its purchase order and payment
+          terms are what an operator sets BEFORE issue, and this is where they
+          are read afterwards. */}
+      {s.status === 'draft' || s.invoice_number || s.external_invoice_ref || s.po_reference || s.due_at || s.tax_snapshot ? (
         <div className="card">
           <div className="card-head">
             <h2>Invoice</h2>
-            <span className="hint">
-              {s.invoice_number ? (
-                <span className="mono">{s.invoice_number}</span>
-              ) : s.external_invoice_ref ? (
-                <span className="mono">{s.external_invoice_ref}</span>
-              ) : (
-                'not yet numbered'
-              )}
+            <span className="btn-row">
+              <span className="hint">
+                {s.invoice_number ? (
+                  <span className="mono">{s.invoice_number}</span>
+                ) : s.external_invoice_ref ? (
+                  <span className="mono">{s.external_invoice_ref}</span>
+                ) : (
+                  'not yet numbered'
+                )}
+              </span>
+              {/* PATCH /statements/{id} — a draft's PO reference and terms,
+                  billing.issue. Past draft the control stays and says why it
+                  is refused, which is the store's own rule. */}
+              {canIssue ? (
+                <button className="small" disabled={s.status !== 'draft'} title={s.status === 'draft' ? 'Set the purchase-order reference and the payment terms this invoice is written on' : `${TERMS_FROZEN} This one is ${s.status}.`} onClick={() => setDialog({ kind: 'terms' })}>
+                  Edit
+                </button>
+              ) : null}
             </span>
           </div>
           <table>
@@ -1015,7 +1046,90 @@ export function StatementView() {
           }}
         />
       ) : null}
+      {dialog?.kind === 'terms' ? (
+        <InvoiceTermsModal
+          statement={s}
+          onClose={() => setDialog(null)}
+          onDone={async () => {
+            setDialog(null)
+            setFlash('purchase order and payment terms saved on the draft')
+            await q.reload()
+          }}
+        />
+      ) : null}
     </div>
+  )
+}
+
+/**
+ * The invoice fields of a DRAFT (DESIGN.md §8): the purchase-order reference
+ * the invoice must quote, and the payment terms its due date is computed
+ * from at issue. Both are frozen once issued — the store refuses the write
+ * and this dialog is only reachable on a draft.
+ */
+function InvoiceTermsModal({ statement, onClose, onDone }: { statement: Statement; onClose: () => void; onDone: () => void | Promise<void> }) {
+  const [poRef, setPoRef] = useState(statement.po_reference ?? '')
+  const current = typeof statement.payment_terms_days === 'number' ? statement.payment_terms_days : null
+  const [terms, setTerms] = useState(current === null ? '' : String(current))
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  // A draft carrying terms no option lists keeps them selectable, so opening
+  // the dialog never silently changes what it shows.
+  const options = current !== null && !PAYMENT_TERMS.some((o) => o.days === current) ? [...PAYMENT_TERMS, { days: current, label: `net ${current}` }].sort((a, b) => a.days - b.days) : PAYMENT_TERMS
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    setBusy(true)
+    setError('')
+    try {
+      const body: Record<string, unknown> = { po_reference: poRef.trim() }
+      if (terms !== '') body.payment_terms_days = Number(terms)
+      await api.patch(`/statements/${statement.id}`, body)
+      await onDone()
+    } catch (err) {
+      setError(errorText(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal
+      title="Purchase order and payment terms"
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+          <button className="primary" form="invoice-terms-form" disabled={busy}>
+            {busy ? 'Saving…' : 'Save'}
+          </button>
+        </>
+      }
+    >
+      <form id="invoice-terms-form" onSubmit={(e) => void submit(e)} className="stack tight" aria-label="Purchase order and payment terms">
+        <p className="muted small" style={{ margin: 0 }}>
+          Set on the draft, printed on the invoice at issue. {TERMS_FROZEN}
+        </p>
+        <div className="grid2">
+          <Field label="Purchase order" help="The customer's PO the invoice quotes; empty quotes none.">
+            <input value={poRef} onChange={(e) => setPoRef(e.target.value)} className="mono" placeholder="PO-2026-0142" autoFocus />
+          </Field>
+          <Field label="Payment terms" help="The due date is the issue date plus these days.">
+            <select aria-label="Payment terms" value={terms} onChange={(e) => setTerms(e.target.value)}>
+              {current === null ? <option value="">the customer&apos;s standing terms</option> : null}
+              {options.map((o) => (
+                <option key={o.days} value={String(o.days)}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+        {error ? <Notice kind="bad">{error}</Notice> : null}
+      </form>
+    </Modal>
   )
 }
 

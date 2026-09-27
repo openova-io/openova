@@ -2,7 +2,7 @@ import { createElement, type ReactElement } from 'react'
 import { renderToString } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
-import type { FinancePeriodDetail, JournalResponse, ReconciliationRun } from '../api/types'
+import type { FinancePeriodDetail, JournalResponse, OutboxDocument, ReconciliationRun } from '../api/types'
 
 /**
  * The four Finance pages rendered (DESIGN.md §18): the journal with its
@@ -107,25 +107,50 @@ vi.mock('../lib/useQuery', () => ({
                   ? periodDetail
                   : path === '/finance/accounts'
                     ? accounts
-                    : null
+                    : path?.startsWith('/commercial/outbox')
+                      ? outbox
+                      : null
     return { data, error: '', loading: false, reload: async () => {}, setData: () => {} }
   },
 }))
 
+// DESIGN.md §8.10 — the outbox in external mode: a bill the far end refused
+// twice, a rated-usage row still waiting for its first attempt, a journal
+// delivered with the reference the billing system answered.
+const outbox: OutboxDocument = {
+  pending: 2,
+  failed: 1,
+  commercial_provider: 'external',
+  entries: [
+    { id: 1, doc_type: 'invoice', idempotency_key: 'st1', statement_id: 'st1', customer_id: 'c1', customer_name: 'ACME LLC', attempts: 2, next_attempt_at: '2026-09-27T10:02:00Z', last_error: 'billing system answered 503 Service Unavailable', created_at: '2026-09-27T10:00:00Z', updated_at: '2026-09-27T10:01:00Z' },
+    { id: 2, doc_type: 'rated-usage', idempotency_key: 'st1:usage', statement_id: 'st1', customer_id: 'c1', customer_name: 'ACME LLC', attempts: 0, next_attempt_at: '2026-09-27T10:00:00Z', created_at: '2026-09-27T10:00:00Z', updated_at: '2026-09-27T10:00:00Z' },
+    { id: 3, doc_type: 'journal', idempotency_key: 'journal:2026-08', attempts: 1, next_attempt_at: '2026-09-01T00:00:00Z', delivered_at: '2026-09-01T00:00:05Z', external_ref: 'JNL-778', created_at: '2026-09-01T00:00:00Z', updated_at: '2026-09-01T00:00:05Z' },
+  ],
+}
+
+const cfo = {
+  email: 'cfo@sovereign.example',
+  role: 'operator',
+  permissions: { sovereign: ['metering.read', 'audit.read', 'settings.manage'] },
+  roles: [{ role: 'sovereign-admin', scope_kind: 'sovereign' }],
+}
+const billingOperator = {
+  email: 'bill@sovereign.example',
+  role: 'billing-operator',
+  permissions: { sovereign: ['metering.read', 'billing.issue', 'billing.collect'] },
+  roles: [{ role: 'billing-operator', scope_kind: 'sovereign' }],
+}
+let who: unknown = cfo
 vi.mock('../auth/session', () => ({
   useSession: () => ({
-    me: {
-      email: 'cfo@sovereign.example',
-      role: 'operator',
-      permissions: { sovereign: ['metering.read', 'audit.read', 'settings.manage'] },
-      roles: [{ role: 'sovereign-admin', scope_kind: 'sovereign' }],
-    },
+    me: who,
     loading: false,
     refresh: async () => null,
     logout: async () => {},
   }),
 }))
 
+import { CommercialOutbox } from './CommercialOutbox'
 import { FinanceAccounts } from './FinanceAccounts'
 import { FinanceJournal } from './FinanceJournal'
 import { FinancePeriods } from './FinancePeriods'
@@ -230,5 +255,53 @@ describe('Finance → Account mapping', () => {
     const html = render(FinanceAccounts, '/finance/accounts')
     expect(html).toContain('No code is mapped for tax_payable')
     expect(html).toContain('the export is refused')
+  })
+})
+
+// DESIGN.md §8.10, #6946 — a stuck delivery is visible with the far end's
+// refusal verbatim, retryable by the permission that raised the bill, and
+// the journal export leaves by the same lane.
+describe('Finance → Outbox', () => {
+  it('lists the queued documents with status, attempts and the last error verbatim', () => {
+    who = cfo
+    const html = render(CommercialOutbox, '/finance/outbox')
+    expect(html).toContain('aria-label="Commercial outbox"')
+    expect(html).toContain('>Queued<')
+    expect(html).toContain('>Failed<')
+    expect(html).toContain('>Attempts<')
+    expect(html).toContain('>Last error<')
+    expect(html).toContain('billing system answered 503 Service Unavailable')
+    expect(html).toContain('>failed<')
+    expect(html).toContain('>queued<')
+    expect(html).toContain('>delivered<')
+    expect(html).toContain('ref JNL-778')
+    expect(html).toContain('>Invoice<')
+    expect(html).toContain('>Rated usage<')
+    expect(html).toContain('>Journal<')
+    expect(html).toContain('href="/customers/c1"')
+    expect(html).toContain('href="/statements/st1"')
+    expect(html).toContain('>Not delivered<')
+    expect(html).toContain('>All<')
+  })
+  it('offers Retry only with billing.issue, and only on an undelivered row', () => {
+    who = cfo
+    const readOnly = render(CommercialOutbox, '/finance/outbox')
+    expect(readOnly).not.toContain('>Retry<')
+    expect(readOnly).toContain('billing.issue')
+    who = billingOperator
+    const html = render(CommercialOutbox, '/finance/outbox')
+    // Two undelivered rows, a Retry each; the delivered journal gets none.
+    expect(html.match(/>Retry</g)?.length).toBe(2)
+    expect(html).not.toContain('Read-only')
+    // The confirm is closed until a row opens it.
+    expect(html).not.toContain('Retry now')
+    who = cfo
+  })
+  it('offers the journal export to the finance handover and not to a billing operator', () => {
+    who = cfo
+    expect(render(CommercialOutbox, '/finance/outbox')).toContain('>Export journal<')
+    who = billingOperator
+    expect(render(CommercialOutbox, '/finance/outbox')).not.toContain('>Export journal<')
+    who = cfo
   })
 })
