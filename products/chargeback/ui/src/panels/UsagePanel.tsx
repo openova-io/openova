@@ -3,7 +3,7 @@ import { keyOfUsageRow } from '../lib/usageKey'
 import { useCallback, useEffect, useState } from 'react'
 import { api, asList, errorText } from '../api/client'
 import type { InventoryItem, UsageRow } from '../api/types'
-import { Empty, Field, Notice } from '../components/ui'
+import { Empty, Field, FormRow, Notice } from '../components/ui'
 import { monthStart, num, today, when } from '../lib/format'
 
 type GroupBy = 'sku' | 'resource' | 'day'
@@ -63,28 +63,29 @@ export function UsagePanel({ customerId }: { customerId: string }) {
         <TrendChart points={series} title="Usage per day" format={(v) => String(Math.round(v * 100) / 100)} />
       )}
       <form
-        className="inline"
         onSubmit={(e) => {
           e.preventDefault()
           void load()
         }}
       >
-        <Field label="From">
-          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-        </Field>
-        <Field label="To">
-          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
-        </Field>
-        <Field label="Group by">
-          <select value={groupBy} onChange={(e) => setGroupBy(e.target.value as GroupBy)}>
-            <option value="sku">SKU</option>
-            <option value="resource">Resource</option>
-            <option value="day">Day</option>
-          </select>
-        </Field>
-        <button className="primary" disabled={busy}>
-          Refresh
-        </button>
+        <FormRow>
+          <Field label="From">
+            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+          </Field>
+          <Field label="To">
+            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+          </Field>
+          <Field label="Group by">
+            <select value={groupBy} onChange={(e) => setGroupBy(e.target.value as GroupBy)}>
+              <option value="sku">SKU</option>
+              <option value="resource">Resource</option>
+              <option value="day">Day</option>
+            </select>
+          </Field>
+          <button className="primary" disabled={busy}>
+            Refresh
+          </button>
+        </FormRow>
       </form>
       {error ? <Notice kind="bad">{error}</Notice> : null}
       {rows.length === 0 ? (

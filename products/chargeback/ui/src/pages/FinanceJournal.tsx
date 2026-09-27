@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { API_BASE } from '../api/client'
 import type { JournalLine, JournalResponse } from '../api/types'
 import { DataTable, type Column } from '../components/DataTable'
-import { Badge, KPI, Notice, PageHeader, Skeleton } from '../components/ui'
+import { Badge, Field, FormRow, KPI, Notice, PageHeader, Skeleton } from '../components/ui'
 import { accountTotals, balanceOf, eventLabel, periodLabel, recentPeriods, statusTone, type AccountTotal } from '../lib/finance'
 import { day } from '../lib/format'
 import { formatMoney } from '../lib/money'
@@ -88,9 +88,8 @@ export function FinanceJournal() {
           </>
         }
         actions={
-          <span className="btn-row">
-            <label className="inline">
-              <span className="muted">Period</span>{' '}
+          <FormRow>
+            <Field label="Period">
               <select value={period} onChange={(e) => setPeriod(e.target.value)} aria-label="Period">
                 {periods.map((p) => (
                   <option key={p} value={p}>
@@ -98,11 +97,11 @@ export function FinanceJournal() {
                   </option>
                 ))}
               </select>
-            </label>
+            </Field>
             <a className="button" href={`${API_BASE}/finance/journal?period=${period}&format=csv`}>
               Download CSV
             </a>
-          </span>
+          </FormRow>
         }
       />
 

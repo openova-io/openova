@@ -206,8 +206,20 @@ input:disabled, select:disabled { background: var(--panel-2); color: var(--muted
 .field .help { color: var(--muted); font-size: 11.5px; margin-top: 3px; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
-form.inline { display: flex; gap: 8px; align-items: end; flex-wrap: wrap; }
-form.inline .field { margin: 0; min-width: 140px; }
+/* Form row (components/ui.tsx FormRow): label above, control and action on ONE
+   baseline. Every control and button is the same height, a checkbox sits
+   centred in that height, and a Field's help or error hangs BELOW the line so
+   a field with help does not lift its control above its neighbours. */
+.form-row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+.form-row:has(.field .help, .field .err) { padding-bottom: 18px; }
+.form-row .field { position: relative; margin: 0; min-width: 140px; flex: 1 1 140px; }
+.form-row .field label { height: 16px; line-height: 16px; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.form-row .field input, .form-row .field select { height: 32px; }
+.form-row .field .help, .form-row .field .err { position: absolute; left: 0; top: 100%; margin-top: 3px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.form-row .check { height: 32px; margin: 0; align-items: center; white-space: nowrap; }
+.form-row > button, .form-row > .btn-row > button, .form-row > a.button { height: 32px; padding-top: 0; padding-bottom: 0; }
+.form-row > button.small, .form-row > .btn-row > button.small { font-size: 12.5px; padding: 0 10px; }
+.form-row > .grow { flex: 1 1 auto; }
 .check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink); }
 .check input { width: auto; margin: 0; }
 
@@ -239,11 +251,16 @@ button.link.danger { color: var(--bad); }
 .notice.warn { border-color: var(--warn-line); background: var(--warn-bg); color: var(--warn); }
 .notice.info { border-color: #bfdbfe; background: var(--accent-2); color: #1e3a8a; }
 
-.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin: 12px 0 14px; overflow-x: auto; }
-.tabs a { padding: 8px 12px; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; font-size: 13px; }
-.tabs a.active { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
-.tabs a:hover { text-decoration: none; color: var(--ink); }
-.tabs a .count { margin-left: 5px; color: var(--muted-2); font-size: 11px; }
+/* Tab strip (components/ui.tsx Tabs): a bordered container of segments, the
+   current one FILLED — background and ink, not an underline — and the count a
+   pill. Scrolls sideways when the strip is wider than the page. */
+.tabs { display: flex; gap: 2px; width: fit-content; max-width: 100%; padding: 3px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); margin: 12px 0 14px; overflow-x: auto; }
+.tabs .tab { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border: 1px solid transparent; border-radius: 6px; color: var(--muted); font-size: 13px; font-weight: 500; line-height: 18px; white-space: nowrap; }
+.tabs .tab:hover { color: var(--ink); background: var(--panel); text-decoration: none; }
+.tabs .tab.active { color: var(--accent); background: var(--accent-2); border-color: #bfdbfe; font-weight: 600; }
+.tabs .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tabs .tab .count { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--panel); color: var(--ink-2); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.tabs .tab.active .count { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
 
 .steps { display: flex; gap: 6px; margin-bottom: 14px; font-size: 12px; }
 .steps span { padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }

@@ -567,6 +567,54 @@ func (s *Store) CreateCapacityRegion(ctx context.Context, code, name, cloudSourc
 	return s.GetCapacityRegion(ctx, id)
 }
 
+// CapacityRegionPatch is what SetCapacityRegion may change. A nil field is
+// left as it is, so a caller sends only what it edited.
+type CapacityRegionPatch struct {
+	Code            *string
+	Name            *string
+	CloudSourceKind *string
+}
+
+// SetCapacityRegion changes a region's code, name or cloud source kind and
+// returns the region as it now is and as it was, for the audit row.
+//
+// A CODE CHANGE IS ALLOWED. Nothing references a region by its code: zones,
+// pools, placements and history hang off the id. The code is only matched
+// against the region a usage record carries when the overview attributes
+// consumption (capacity_overview.go), so a rename re-points which metered
+// usage lands here from the next read on — the old code's usage reads as
+// unmapped unless another region takes it. The same normalisation as
+// CreateCapacityRegion: a lower-cased, trimmed code, a cloud kind or
+// ErrInvalid, a duplicate code ErrConflict through the unique constraint.
+func (s *Store) SetCapacityRegion(ctx context.Context, id string, in CapacityRegionPatch) (region, previous CapacityRegion, err error) {
+	previous, err = s.GetCapacityRegion(ctx, id)
+	if err != nil {
+		return CapacityRegion{}, CapacityRegion{}, err
+	}
+	code, name, kind := previous.Code, previous.Name, previous.CloudSourceKind
+	if in.Code != nil {
+		if code = normCode(*in.Code); code == "" {
+			return CapacityRegion{}, CapacityRegion{}, fmt.Errorf("%w: code is required", ErrInvalid)
+		}
+	}
+	if in.Name != nil {
+		name = strings.TrimSpace(*in.Name)
+	}
+	if in.CloudSourceKind != nil {
+		if kind = strings.TrimSpace(*in.CloudSourceKind); kind == "" {
+			kind = SourceKindHuaweiProject
+		}
+		if LayerOfKind(kind) != LayerCloud {
+			return CapacityRegion{}, CapacityRegion{}, fmt.Errorf("%w: cloud_source_kind must be one of %s", ErrInvalid, strings.Join(CloudSourceKinds, ", "))
+		}
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE capacity_regions SET code = $2, name = $3, cloud_source_kind = $4 WHERE id = $1`, id, code, name, kind); err != nil {
+		return CapacityRegion{}, CapacityRegion{}, mapErr(err)
+	}
+	region, err = s.GetCapacityRegion(ctx, id)
+	return region, previous, err
+}
+
 // DeleteCapacityRegion removes a region, its zones, pools, resources,
 // placements and history.
 func (s *Store) DeleteCapacityRegion(ctx context.Context, id string) error {
@@ -630,6 +678,73 @@ func (s *Store) CreateCapacityZone(ctx context.Context, regionID, code, name str
 		return CapacityZone{}, err
 	}
 	return s.GetCapacityZone(ctx, id)
+}
+
+// CapacityZonePatch is what SetCapacityZone may change; a nil field is left
+// as it is.
+type CapacityZonePatch struct {
+	Code    *string
+	Name    *string
+	Default *bool
+}
+
+// SetCapacityZone changes a zone's code, name or default flag and returns the
+// zone as it now is and as it was, for the audit row.
+//
+// THE DEFAULT MOVES IN ONE TRANSACTION. Making this zone the default takes
+// the flag off the region's current default first, under the region's row
+// lock, so the one-default-per-region index is never tripped and no reader
+// ever sees two defaults or none. Taking the flag OFF the current default is
+// refused with ErrConflict: a region always has a default zone, because
+// consumption whose zone is unknown has to land somewhere (DESIGN.md §11.1);
+// the way to move it is to make another zone the default.
+//
+// A CODE CHANGE IS ALLOWED, as for a region: pools hang off the id, nothing
+// references a zone by its code, and the code is only matched against the
+// availability zone an inventory row carries when consumption is attributed.
+func (s *Store) SetCapacityZone(ctx context.Context, id string, in CapacityZonePatch) (zone, previous CapacityZone, err error) {
+	previous, err = s.GetCapacityZone(ctx, id)
+	if err != nil {
+		return CapacityZone{}, CapacityZone{}, err
+	}
+	code, name := previous.Code, previous.Name
+	if in.Code != nil {
+		if code = normCode(*in.Code); code == "" {
+			return CapacityZone{}, CapacityZone{}, fmt.Errorf("%w: code is required", ErrInvalid)
+		}
+	}
+	if in.Name != nil {
+		name = strings.TrimSpace(*in.Name)
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return CapacityZone{}, CapacityZone{}, err
+	}
+	defer tx.Rollback()
+	var regionID string
+	var isDefault bool
+	if err := tx.QueryRowContext(ctx, `SELECT z.region_id, z.is_default FROM capacity_zones z JOIN capacity_regions r ON r.id = z.region_id WHERE z.id = $1 FOR UPDATE OF r, z`, id).Scan(&regionID, &isDefault); err != nil {
+		return CapacityZone{}, CapacityZone{}, mapErr(err)
+	}
+	if in.Default != nil {
+		switch {
+		case *in.Default && !isDefault:
+			if _, err := tx.ExecContext(ctx, `UPDATE capacity_zones SET is_default = false WHERE region_id = $1 AND is_default`, regionID); err != nil {
+				return CapacityZone{}, CapacityZone{}, mapErr(err)
+			}
+			isDefault = true
+		case !*in.Default && isDefault:
+			return CapacityZone{}, CapacityZone{}, fmt.Errorf("%w: %s is the default zone of %s; a region always has a default zone, so make another zone the default instead", ErrConflict, previous.Code, previous.RegionCode)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE capacity_zones SET code = $2, name = $3, is_default = $4 WHERE id = $1`, id, code, name, isDefault); err != nil {
+		return CapacityZone{}, CapacityZone{}, mapErr(err)
+	}
+	if err := tx.Commit(); err != nil {
+		return CapacityZone{}, CapacityZone{}, err
+	}
+	zone, err = s.GetCapacityZone(ctx, id)
+	return zone, previous, err
 }
 
 // DeleteCapacityZone removes a zone with its pools, their resources,

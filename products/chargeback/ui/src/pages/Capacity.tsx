@@ -12,7 +12,7 @@ import { useQuery } from '../lib/useQuery'
 import { PlacementsTab, type PlaceSeed } from '../panels/capacity/PlacementsTab'
 import { PoolEditor } from '../panels/capacity/PoolEditor'
 import { PoolsTab } from '../panels/capacity/PoolsTab'
-import { AddRegionForm, RegionsTab, type RegionDialog } from '../panels/capacity/RegionsTab'
+import { RegionEditor, RegionsTab, ZoneEditor, type RegionDialog, type RegionEditorState } from '../panels/capacity/RegionsTab'
 import { ShapesTab } from '../panels/capacity/ShapesTab'
 
 /**
@@ -70,6 +70,7 @@ export function Capacity() {
   const [region, setRegion] = useState<string>('all')
   const [confirm, setConfirm] = useState<Dialog>(null)
   const [editing, setEditing] = useState<{ zoneID: string; pool: CapacityPoolView | null } | null>(null)
+  const [editor, setEditor] = useState<RegionEditorState | null>(null)
   const [placeSeed, setPlaceSeed] = useState<PlaceSeed | null>(null)
   const clearSeed = useCallback(() => setPlaceSeed(null), [])
 
@@ -126,9 +127,9 @@ export function Capacity() {
       {overview.error ? <Notice kind="bad">{overview.error}</Notice> : null}
       {shapes.error ? <Notice kind="bad">{shapes.error}</Notice> : null}
       {skus.error ? <Notice kind="bad">{skus.error}</Notice> : null}
-      {/* While the editor is open it shows the error itself, next to the
+      {/* While an editor is open it shows the error itself, next to the
           fields it is about. */}
-      {act.error && !editing ? <Notice kind="bad">{act.error}</Notice> : null}
+      {act.error && !editing && !editor ? <Notice kind="bad">{act.error}</Notice> : null}
       {act.ok ? <Notice kind="ok">{act.ok}</Notice> : null}
       {!canManage ? <Notice kind="info">{t('capacity.readOnly')}</Notice> : null}
 
@@ -201,8 +202,16 @@ export function Capacity() {
 
       {ov && ov.regions.length === 0 ? (
         <div className="card">
-          <EmptyState title={t('capacity.empty.title')}>{t('capacity.empty.body')}</EmptyState>
-          {canManage ? <AddRegionForm act={act} onDone={reload} /> : null}
+          <EmptyState title={t('capacity.empty.title')}>
+            {t('capacity.empty.body')}
+            {canManage ? (
+              <div style={{ marginTop: 10 }}>
+                <button type="button" className="small primary" onClick={() => setEditor({ kind: 'region', region: null })}>
+                  {t('capacity.regions.addRegion')}
+                </button>
+              </div>
+            ) : null}
+          </EmptyState>
         </div>
       ) : null}
 
@@ -254,14 +263,7 @@ export function Capacity() {
           ) : null}
           {tab === 'shapes' ? <ShapesTab doc={shapes.data} loading={shapes.loading} unshaped={ov.unshaped_skus} skus={skus.data} canManage={canManage} act={act} onSaved={reload} /> : null}
           {tab === 'regions' ? (
-            <RegionsTab
-              regions={ov.regions}
-              canManage={canManage}
-              act={act}
-              onDone={reload}
-              onDelete={setConfirm}
-              onAddPool={(zoneID) => setEditing({ zoneID, pool: null })}
-            />
+            <RegionsTab regions={ov.regions} canManage={canManage} onOpen={setEditor} onDelete={setConfirm} onAddPool={(zoneID) => setEditing({ zoneID, pool: null })} />
           ) : null}
         </>
       ) : null}
@@ -286,6 +288,43 @@ export function Capacity() {
             setEditing(null)
             await reload()
             go('pools')
+          }}
+        />
+      ) : null}
+
+      {/* A region or a zone is added or edited in a dialog opened from its
+          row (or, for a region, from the list header and the empty state);
+          the key remounts it when it is pointed at another one. */}
+      {editor?.kind === 'region' ? (
+        <RegionEditor
+          key={editor.region?.id ?? 'new-region'}
+          region={editor.region}
+          act={act}
+          onClose={() => {
+            act.setError('')
+            setEditor(null)
+          }}
+          onSaved={async () => {
+            setEditor(null)
+            await reload()
+            go('regions')
+          }}
+        />
+      ) : null}
+      {editor?.kind === 'zone' ? (
+        <ZoneEditor
+          key={`${editor.zone?.id ?? 'new-zone'}-${editor.regionID}`}
+          regions={ov?.regions ?? []}
+          regionID={editor.regionID}
+          zone={editor.zone}
+          act={act}
+          onClose={() => {
+            act.setError('')
+            setEditor(null)
+          }}
+          onSaved={async () => {
+            setEditor(null)
+            await reload()
           }}
         />
       ) : null}

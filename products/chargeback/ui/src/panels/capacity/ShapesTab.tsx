@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useMemo, useState } from 'react'
 import { api } from '../../api/client'
 import type { CapacityShape, CapacityShapes, CapacitySKUOptions, CapacityUnshapedSKU } from '../../api/types'
 import { DataTable, type Column } from '../../components/DataTable'
-import { Badge, Field, Skeleton } from '../../components/ui'
+import { Badge, Field, FormRow, Modal, Notice, Skeleton } from '../../components/ui'
 import { t } from '../../i18n'
 import { formatAmount, kindOf, parseShapeForm, shapeSummary, sortedResourceKeys } from '../../lib/capacity'
 import { toNumber } from '../../lib/num'
@@ -32,27 +32,26 @@ export function ShapesTab({
   onSaved: () => Promise<void>
 }) {
   const kinds = doc?.resource_kinds ?? []
-  const [editing, setEditing] = useState<string | null>(null)
+  // The shape dialog: a fresh shape picks its SKU, an existing one is edited
+  // on the SKU of the row it opened from.
+  const [dialog, setDialog] = useState<{ sku: string; fresh: boolean } | null>(null)
   const [values, setValues] = useState<Record<string, string>>({})
-  const [newSku, setNewSku] = useState('')
-  const [adding, setAdding] = useState(false)
   const columnKeys = useMemo(() => sortedResourceKeys(kinds.map((k) => k.resource), kinds), [kinds])
   const stored = useMemo(() => new Set((doc?.shapes ?? []).map((s) => s.sku)), [doc])
-  useEffect(() => {
-    if (!adding) setNewSku('')
-  }, [adding])
 
   const startEdit = (sh: CapacityShape) => {
     const v: Record<string, string> = {}
     for (const key of columnKeys) v[key] = sh.resources[key] !== undefined ? String(toNumber(sh.resources[key])) : ''
     setValues(v)
-    setEditing(sh.sku)
+    setDialog({ sku: sh.sku, fresh: false })
   }
   const startAdd = (sku: string) => {
-    setEditing(null)
     setValues({})
-    setAdding(true)
-    setNewSku(sku)
+    setDialog({ sku, fresh: true })
+  }
+  const close = () => {
+    act.setError('')
+    setDialog(null)
   }
   const submit = async (sku: string, done: () => void) => {
     const parsed = parseShapeForm(values)
@@ -93,7 +92,7 @@ export function ShapesTab({
       className: 'actions',
       render: (sh) =>
         canManage ? (
-          <button type="button" className="small" aria-label={t('capacity.shapes.editNamed', { sku: sh.sku })} onClick={() => (editing === sh.sku ? setEditing(null) : startEdit(sh))}>
+          <button type="button" className="small" aria-label={t('capacity.shapes.editNamed', { sku: sh.sku })} onClick={() => startEdit(sh)}>
             {t('capacity.shapes.edit')}
           </button>
         ) : null,
@@ -143,38 +142,11 @@ export function ShapesTab({
             {doc?.unseeded_skus?.length ? <> · {t('capacity.shapes.unseeded', { skus: doc.unseeded_skus.join(', ') })}</> : null}
           </span>
           {canManage ? (
-            <button type="button" className="small primary" onClick={() => (adding ? setAdding(false) : startAdd(''))}>
+            <button type="button" className="small primary" onClick={() => startAdd('')}>
               {t('capacity.shapes.add')}
             </button>
           ) : null}
         </div>
-        {adding ? (
-          <form
-            style={{ padding: '12px 16px 16px', borderBottom: '1px solid var(--line)' }}
-            aria-label={t('capacity.shapes.add')}
-            onSubmit={(e: FormEvent) => {
-              e.preventDefault()
-              void submit(newSku, () => {
-                setAdding(false)
-                setValues({})
-              })
-            }}
-          >
-            <div className="inline">
-              {/* Only SKUs with no STORED shape: one that has a row is edited on its row. */}
-              <SkuSelect doc={skus} value={newSku} onChange={setNewSku} only={(o) => !stored.has(o.sku) || o.sku === newSku} label={t('capacity.shapes.col.sku')} id="shape-sku" />
-            </div>
-            {grid}
-            <div className="row end" style={{ marginTop: 8 }}>
-              <button type="button" className="small" onClick={() => setAdding(false)} disabled={act.busy}>
-                {t('common.cancel')}
-              </button>
-              <button type="submit" className="small primary" disabled={act.busy}>
-                {t('capacity.shapes.save')}
-              </button>
-            </div>
-          </form>
-        ) : null}
         {loading && !doc ? (
           <div style={{ padding: 16 }}>
             <Skeleton lines={3} />
@@ -190,31 +162,47 @@ export function ShapesTab({
             csvName="capacity-shapes"
             emptyTitle={t('capacity.shapes.none')}
             emptyBody={t('capacity.shapes.noneBody')}
-            expanded={(sh) =>
-              editing === sh.sku ? (
-                <form
-                  aria-label={t('capacity.shapes.editNamed', { sku: sh.sku })}
-                  onSubmit={(e: FormEvent) => {
-                    e.preventDefault()
-                    void submit(sh.sku, () => setEditing(null))
-                  }}
-                >
-                  {grid}
-                  <div className="row end" style={{ marginTop: 8 }}>
-                    <span className="muted small">{t('capacity.shapes.removeHint')}</span>
-                    <button type="button" className="small" onClick={() => setEditing(null)} disabled={act.busy}>
-                      {t('common.cancel')}
-                    </button>
-                    <button type="submit" className="small primary" disabled={act.busy}>
-                      {t('capacity.shapes.save')}
-                    </button>
-                  </div>
-                </form>
-              ) : null
-            }
           />
         )}
       </div>
+
+      {dialog ? (
+        <Modal
+          title={dialog.fresh ? t('capacity.shapes.add') : t('capacity.shapes.editNamed', { sku: dialog.sku })}
+          onClose={close}
+          wide
+          footer={
+            <>
+              <button type="button" onClick={close} disabled={act.busy}>
+                {t('common.cancel')}
+              </button>
+              <button className="primary" form="shape-editor" disabled={act.busy}>
+                {t('capacity.shapes.save')}
+              </button>
+            </>
+          }
+        >
+          <form
+            id="shape-editor"
+            className="stack tight"
+            aria-label={dialog.fresh ? t('capacity.shapes.add') : t('capacity.shapes.editNamed', { sku: dialog.sku })}
+            onSubmit={(e) => {
+              e.preventDefault()
+              void submit(dialog.sku, () => setDialog(null))
+            }}
+          >
+            {act.error ? <Notice kind="bad">{act.error}</Notice> : null}
+            {dialog.fresh ? (
+              <FormRow>
+                {/* Only SKUs with no STORED shape: one that has a row is edited on its row. */}
+                <SkuSelect doc={skus} value={dialog.sku} onChange={(sku) => setDialog({ sku, fresh: true })} only={(o) => !stored.has(o.sku) || o.sku === dialog.sku} label={t('capacity.shapes.col.sku')} id="shape-sku" />
+              </FormRow>
+            ) : null}
+            {grid}
+            <span className="muted small">{t('capacity.shapes.removeHint')}</span>
+          </form>
+        </Modal>
+      ) : null}
     </div>
   )
 }

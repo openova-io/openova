@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { api } from '../../api/client'
 import type { CapacityClassDef, CapacityResourceKind, CapacitySKUOptions, CapacityZoneView } from '../../api/types'
 import { DataTable, type Column } from '../../components/DataTable'
-import { Field, Notice } from '../../components/ui'
+import { Field, FormRow, Modal, Notice } from '../../components/ui'
 import { t } from '../../i18n'
 import { formatAmount, kindOf, orderedClasses, shapeSummary, type PlacementRow } from '../../lib/capacity'
 import { toNumber } from '../../lib/num'
@@ -47,35 +47,14 @@ export function PlacementsTab({
   seed: PlaceSeed | null
   onSeedConsumed: () => void
 }) {
-  const [sku, setSku] = useState('')
-  const [poolID, setPoolID] = useState('')
-  const [cls, setCls] = useState('')
+  // The place dialog, and what it opens holding: a pool from a pool's row, a
+  // SKU from the unplaced list, nothing from the header button.
+  const [dialog, setDialog] = useState<PlaceSeed | null>(null)
   useEffect(() => {
     if (!seed) return
-    if (seed.sku !== undefined) setSku(seed.sku)
-    if (seed.poolID !== undefined) setPoolID(seed.poolID)
+    setDialog(seed)
     onSeedConsumed()
   }, [seed, onSeedConsumed])
-
-  const pool = pools.find((p) => p.pool.id === poolID)?.pool
-  const offered = orderedClasses(pool?.classes ?? [])
-  // The class follows the pool: it is kept while the pool still enforces it,
-  // and falls to the pool's first class otherwise.
-  const chosenClass = offered.includes(cls) ? cls : (offered[0] ?? '')
-  const already = pool && skuChosen(sku) ? new Set(rows.filter((r) => r.pool.id === pool.id && r.placement.sku.toLowerCase() === sku.toLowerCase()).map((r) => r.placement.class)) : new Set<string>()
-
-  const submit = (e: FormEvent) => {
-    e.preventDefault()
-    if (!skuChosen(sku)) {
-      act.setError(t('capacity.place.chooseSku'))
-      return
-    }
-    if (!pool) {
-      act.setError(t('capacity.place.choosePool'))
-      return
-    }
-    void act.run(t('capacity.place.saved', { sku, pool: pool.name, class: classText(chosenClass, classes) }), () => api.put('/capacity/placements', { pool_id: pool.id, sku, class: chosenClass }), onSaved)
-  }
 
   const columns: Column<PlacementRow>[] = [
     {
@@ -155,48 +134,18 @@ export function PlacementsTab({
 
   return (
     <div className="stack">
-      {canManage ? (
-        <div className="card">
-          <div className="card-head">
-            <h2>{t('capacity.place.heading')}</h2>
-            <span className="hint">{t('capacity.placements.sub')}</span>
-          </div>
-          {pools.length === 0 ? (
-            <Notice kind="info">{t('capacity.place.noPools')}</Notice>
-          ) : (
-            <form className="inline" aria-label={t('capacity.place.heading')} onSubmit={submit}>
-              <SkuSelect doc={skus} value={sku} onChange={setSku} allowFamily needsShape id="place-sku" />
-              <Field label={t('capacity.pools.col.pool')}>
-                <select aria-label={t('capacity.pools.col.pool')} value={poolID} onChange={(e) => setPoolID(e.target.value)}>
-                  <option value="">{t('capacity.place.choosePool')}</option>
-                  {pools.map((p) => (
-                    <option key={p.pool.id} value={p.pool.id}>
-                      {p.pool.name} — {p.region} / {p.zone.code}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label={t('capacity.place.class')} help={pool ? t('capacity.place.classHelp', { pool: pool.name }) : t('capacity.place.classPickPool')}>
-                <select aria-label={t('capacity.place.class')} value={chosenClass} disabled={!pool} onChange={(e) => setCls(e.target.value)}>
-                  {!pool ? <option value="">{t('common.none')}</option> : null}
-                  {offered.map((c) => (
-                    <option key={c} value={c} disabled={already.has(c)}>
-                      {classText(c, classes)}
-                      {already.has(c) ? ` — ${t('capacity.place.alreadyPlaced')}` : ''}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <button type="submit" className="small primary" disabled={act.busy || already.has(chosenClass)}>
-                {t('capacity.place.save')}
-              </button>
-            </form>
-          )}
-          {pool && !pool.classes.includes('burstable') ? <span className="muted small" data-no-burstable>{t('capacity.place.noBurstable', { pool: pool.name })}</span> : null}
-        </div>
-      ) : null}
+      {canManage && pools.length === 0 ? <Notice kind="info">{t('capacity.place.noPools')}</Notice> : null}
 
       <div className="card pad-0">
+        <div className="card-head" style={{ padding: '12px 16px 0' }}>
+          <h2>{t('capacity.tab.placements')}</h2>
+          <span className="hint">{t('capacity.placements.sub')}</span>
+          {canManage && pools.length > 0 ? (
+            <button type="button" className="small primary" onClick={() => setDialog({})}>
+              {t('capacity.place.heading')}
+            </button>
+          ) : null}
+        </div>
         <DataTable
           label={t('capacity.tab.placements')}
           columns={columns}
@@ -226,7 +175,7 @@ export function PlacementsTab({
                   <span className="sub">{u.reason === 'resource-unplaced' ? t('capacity.unplaced.resourceUnplaced', { resource: kindOf(u.resource ?? '', kinds).label }) : t('capacity.unplaced.noPlacement')}</span>
                 </span>
                 {canManage && u.reason !== 'resource-unplaced' ? (
-                  <button type="button" className="small" onClick={() => { setSku(u.sku); document.getElementById('place-sku')?.focus() }}>
+                  <button type="button" className="small" onClick={() => setDialog({ sku: u.sku })}>
                     {t('capacity.unplaced.place')}
                   </button>
                 ) : null}
@@ -252,6 +201,122 @@ export function PlacementsTab({
           </div>
         </div>
       ) : null}
+
+      {dialog ? (
+        <PlacementDialog
+          rows={rows}
+          pools={pools}
+          classes={classes}
+          skus={skus}
+          act={act}
+          seed={dialog}
+          onClose={() => {
+            act.setError('')
+            setDialog(null)
+          }}
+          onSaved={onSaved}
+        />
+      ) : null}
     </div>
+  )
+}
+
+/**
+ * Place a SKU on a pool — a SKU select with the family toggle, a pool select,
+ * and a class select that waits for the pool, because the pool decides which
+ * classes exist. Opens holding whatever the row it came from already knew.
+ */
+export function PlacementDialog({
+  rows,
+  pools,
+  classes,
+  skus,
+  act,
+  seed,
+  onClose,
+  onSaved,
+}: {
+  rows: PlacementRow[]
+  pools: PoolRow[]
+  classes: CapacityClassDef[]
+  skus: CapacitySKUOptions | null
+  act: Act
+  seed: PlaceSeed
+  onClose: () => void
+  onSaved: () => Promise<void>
+}) {
+  const [sku, setSku] = useState(seed.sku ?? '')
+  const [poolID, setPoolID] = useState(seed.poolID ?? '')
+  const [cls, setCls] = useState('')
+  const pool = pools.find((p) => p.pool.id === poolID)?.pool
+  const offered = orderedClasses(pool?.classes ?? [])
+  // The class follows the pool: it is kept while the pool still enforces it,
+  // and falls to the pool's first class otherwise.
+  const chosenClass = offered.includes(cls) ? cls : (offered[0] ?? '')
+  const already = pool && skuChosen(sku) ? new Set(rows.filter((r) => r.pool.id === pool.id && r.placement.sku.toLowerCase() === sku.toLowerCase()).map((r) => r.placement.class)) : new Set<string>()
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!skuChosen(sku)) {
+      act.setError(t('capacity.place.chooseSku'))
+      return
+    }
+    if (!pool) {
+      act.setError(t('capacity.place.choosePool'))
+      return
+    }
+    const ok = await act.run(t('capacity.place.saved', { sku, pool: pool.name, class: classText(chosenClass, classes) }), () => api.put('/capacity/placements', { pool_id: pool.id, sku, class: chosenClass }), onSaved)
+    if (ok) onClose()
+  }
+
+  return (
+    <Modal
+      title={t('capacity.place.heading')}
+      onClose={onClose}
+      wide
+      footer={
+        <>
+          <button type="button" onClick={onClose} disabled={act.busy}>
+            {t('common.cancel')}
+          </button>
+          <button className="primary" form="place-form" disabled={act.busy || already.has(chosenClass)}>
+            {t('capacity.place.save')}
+          </button>
+        </>
+      }
+    >
+      <form id="place-form" className="stack tight" aria-label={t('capacity.place.heading')} onSubmit={(e) => void submit(e)}>
+        {act.error ? <Notice kind="bad">{act.error}</Notice> : null}
+        <FormRow>
+          <SkuSelect doc={skus} value={sku} onChange={setSku} allowFamily needsShape id="place-sku" />
+          <Field label={t('capacity.pools.col.pool')}>
+            <select aria-label={t('capacity.pools.col.pool')} value={poolID} onChange={(e) => setPoolID(e.target.value)}>
+              <option value="">{t('capacity.place.choosePool')}</option>
+              {pools.map((p) => (
+                <option key={p.pool.id} value={p.pool.id}>
+                  {p.pool.name} — {p.region} / {p.zone.code}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label={t('capacity.place.class')} help={pool ? t('capacity.place.classHelp', { pool: pool.name }) : t('capacity.place.classPickPool')}>
+            <select aria-label={t('capacity.place.class')} value={chosenClass} disabled={!pool} onChange={(e) => setCls(e.target.value)}>
+              {!pool ? <option value="">{t('common.none')}</option> : null}
+              {offered.map((c) => (
+                <option key={c} value={c} disabled={already.has(c)}>
+                  {classText(c, classes)}
+                  {already.has(c) ? ` — ${t('capacity.place.alreadyPlaced')}` : ''}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </FormRow>
+        {pool && !pool.classes.includes('burstable') ? (
+          <span className="muted small" data-no-burstable>
+            {t('capacity.place.noBurstable', { pool: pool.name })}
+          </span>
+        ) : null}
+      </form>
+    </Modal>
   )
 }

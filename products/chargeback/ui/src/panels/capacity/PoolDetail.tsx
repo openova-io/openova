@@ -11,7 +11,7 @@ import type {
   CapacitySKUOptions,
 } from '../../api/types'
 import { DataTable, type Column } from '../../components/DataTable'
-import { Field, Notice, Skeleton } from '../../components/ui'
+import { Field, FormRow, Notice, Skeleton } from '../../components/ui'
 import { t } from '../../i18n'
 import { basketQuery, formatAmount, formatDays, formatRatio, heatClass, kindOf, orderedClasses, poolFingerprint, shapeSummary, sparkPath } from '../../lib/capacity'
 import { toNumber } from '../../lib/num'
@@ -302,24 +302,26 @@ function BasketPanel({ pool, kinds, classes, skus }: { pool: CapacityPoolView; k
           </button>
         ) : null}
       </div>
-      <form className="inline" aria-label={t('capacity.basket.editOn', { pool: pool.name })} onSubmit={add}>
-        <SkuSelect doc={skus} value={draft.sku} onChange={(sku) => setDraft({ ...draft, sku })} needsShape id={`mix-sku-${pool.id}`} />
-        <Field label={t('capacity.basket.units')}>
-          <input inputMode="decimal" aria-label={t('capacity.basket.units')} value={draft.units} onChange={(e) => setDraft({ ...draft, units: e.target.value })} style={{ width: 80 }} />
-        </Field>
-        <Field label={t('capacity.place.class')}>
-          <select aria-label={t('capacity.basket.lineClass')} value={draft.cls} onChange={(e) => setDraft({ ...draft, cls: e.target.value })}>
-            <option value="">{t('capacity.basket.defaultClass')}</option>
-            {poolClasses.map((c) => (
-              <option key={c} value={c}>
-                {classText(c, classes)}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <button type="submit" className="small">
-          {t('capacity.basket.addLine')}
-        </button>
+      <form aria-label={t('capacity.basket.editOn', { pool: pool.name })} onSubmit={add}>
+        <FormRow>
+          <SkuSelect doc={skus} value={draft.sku} onChange={(sku) => setDraft({ ...draft, sku })} needsShape id={`mix-sku-${pool.id}`} />
+          <Field label={t('capacity.basket.units')}>
+            <input inputMode="decimal" aria-label={t('capacity.basket.units')} value={draft.units} onChange={(e) => setDraft({ ...draft, units: e.target.value })} style={{ width: 80 }} />
+          </Field>
+          <Field label={t('capacity.place.class')}>
+            <select aria-label={t('capacity.basket.lineClass')} value={draft.cls} onChange={(e) => setDraft({ ...draft, cls: e.target.value })}>
+              <option value="">{t('capacity.basket.defaultClass')}</option>
+              {poolClasses.map((c) => (
+                <option key={c} value={c}>
+                  {classText(c, classes)}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <button type="submit" className="small">
+            {t('capacity.basket.addLine')}
+          </button>
+        </FormRow>
       </form>
       {err ? <Notice kind="bad">{err}</Notice> : null}
       {basket.resources.length > 0 ? (
