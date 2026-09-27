@@ -64,6 +64,8 @@ func TestAuthorizationRefusalsPerRole(t *testing.T) {
 		{"finance-viewer adds a pool", finance, "POST", "/api/v1/capacity/zones/x/pools", 403, "capacity.manage"},
 		{"finance-viewer deletes a pool", finance, "DELETE", "/api/v1/capacity/pools/x", 403, "capacity.manage"},
 		{"finance-viewer creates a region", finance, "POST", "/api/v1/capacity/regions", 403, "capacity.manage"},
+		{"finance-viewer edits a region", finance, "PUT", "/api/v1/capacity/regions/x", 403, "capacity.manage"},
+		{"finance-viewer edits a zone", finance, "PUT", "/api/v1/capacity/zones/x", 403, "capacity.manage"},
 		{"finance-viewer writes a shape", finance, "PUT", "/api/v1/capacity/shapes/ecs.x", 403, "capacity.manage"},
 		{"finance-viewer places a SKU", finance, "PUT", "/api/v1/capacity/placements", 403, "capacity.manage"},
 		{"finance-viewer names a resource kind", finance, "PUT", "/api/v1/capacity/resources/gpu_cards", 403, "capacity.manage"},

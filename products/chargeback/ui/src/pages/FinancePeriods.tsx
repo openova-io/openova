@@ -4,7 +4,7 @@ import { api } from '../api/client'
 import type { FinancePeriod, FinancePeriodDetail } from '../api/types'
 import { DataTable, type Column } from '../components/DataTable'
 import { useSession } from '../auth/session'
-import { Badge, Confirm, Field, KPI, Notice, PageHeader, Skeleton } from '../components/ui'
+import { Badge, Confirm, Field, FormRow, KPI, Notice, PageHeader, Skeleton } from '../components/ui'
 import { can } from '../lib/access'
 import { blockerSummary, closeState, periodLabel, recentPeriods, statusTone } from '../lib/finance'
 import { day, when } from '../lib/format'
@@ -79,9 +79,8 @@ export function FinancePeriods() {
         title="Period close"
         sub={<>once a month is closed, no statement in it may be issued, re-run, cancelled or credited</>}
         actions={
-          <span className="btn-row">
-            <label className="inline">
-              <span className="muted">Period</span>{' '}
+          <FormRow>
+            <Field label="Period">
               <select value={period} onChange={(e) => setPeriod(e.target.value)} aria-label="Period">
                 {periods.map((p) => (
                   <option key={p} value={p}>
@@ -89,7 +88,7 @@ export function FinancePeriods() {
                   </option>
                 ))}
               </select>
-            </label>
+            </Field>
             {mayClose && status !== 'closed' ? (
               <button className="primary" disabled={!state.can || act.busy} title={state.can ? undefined : state.why} onClick={() => setDialog('close')}>
                 Close {periodLabel(period)}
@@ -107,7 +106,7 @@ export function FinancePeriods() {
                 Reopen
               </button>
             ) : null}
-          </span>
+          </FormRow>
         }
       />
 

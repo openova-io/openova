@@ -15,8 +15,10 @@ import (
 //	GET    /capacity/overview[?region=]        regions → zones → pools, by class, with the walls
 //	GET    /capacity/regions                   regions with their zones
 //	POST   /capacity/regions                   {code, name, cloud_source_kind?}
+//	PUT    /capacity/regions/{id}              {code?, name?, cloud_source_kind?} — only what is sent changes
 //	DELETE /capacity/regions/{id}
 //	POST   /capacity/regions/{id}/zones        {code, name, default?}
+//	PUT    /capacity/zones/{id}                {code?, name?, default?} — default:true moves the default here; default:false on the default is refused
 //	DELETE /capacity/zones/{id}
 //	GET    /capacity/zones/{id}/pools          the zone, its pools and each pool's history
 //	POST   /capacity/zones/{id}/pools          {name, machines, classes[], lead_time_days, note, resources[{…, guaranteed_floor}]}
@@ -109,6 +111,42 @@ func (h *Handler) createCapacityRegion(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, reg)
 }
 
+// capacityRegionPatchBody is the PUT body: a field that is absent is left as
+// it is, so the console sends only what was edited.
+type capacityRegionPatchBody struct {
+	Code            *string `json:"code"`
+	Name            *string `json:"name"`
+	CloudSourceKind *string `json:"cloud_source_kind"`
+}
+
+func (h *Handler) putCapacityRegion(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireSovereign(w, r, access.CapacityManage); !ok {
+		return
+	}
+	var in capacityRegionPatchBody
+	if err := decode(r, &in); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body: "+err.Error())
+		return
+	}
+	if in.Code == nil && in.Name == nil && in.CloudSourceKind == nil {
+		writeErr(w, http.StatusBadRequest, "nothing to change: send code, name or cloud_source_kind")
+		return
+	}
+	id := r.PathValue("id")
+	reg, previous, err := h.Store.SetCapacityRegion(r.Context(), id, store.CapacityRegionPatch{Code: in.Code, Name: in.Name, CloudSourceKind: in.CloudSourceKind})
+	if err != nil {
+		// A duplicate code arrives as the schema's own sentence ("a region
+		// with that code already exists", store/dberr.go); nothing here
+		// re-words it.
+		storeErr(w, err)
+		return
+	}
+	h.audit(r, nil, "capacity.region", map[string]any{"op": "set", "id": id,
+		"from": map[string]any{"code": previous.Code, "name": previous.Name, "cloud_source_kind": previous.CloudSourceKind},
+		"to":   map[string]any{"code": reg.Code, "name": reg.Name, "cloud_source_kind": reg.CloudSourceKind}})
+	writeJSON(w, http.StatusOK, reg)
+}
+
 func (h *Handler) deleteCapacityRegion(w http.ResponseWriter, r *http.Request) {
 	if _, ok := h.requireSovereign(w, r, access.CapacityManage); !ok {
 		return
@@ -157,6 +195,41 @@ func (h *Handler) createCapacityZone(w http.ResponseWriter, r *http.Request) {
 	}
 	h.audit(r, nil, "capacity.zone", map[string]any{"op": "create", "id": z.ID, "region": z.RegionCode, "code": z.Code, "name": z.Name, "default": z.IsDefault})
 	writeJSON(w, http.StatusCreated, z)
+}
+
+// capacityZonePatchBody is the PUT body; an absent field is left as it is.
+type capacityZonePatchBody struct {
+	Code    *string `json:"code"`
+	Name    *string `json:"name"`
+	Default *bool   `json:"default"`
+}
+
+// putCapacityZone renames a zone or moves the region's default onto it. The
+// store refuses to take the default OFF the default zone (a region always
+// has one) and says so in a sentence; that arrives here as a 409.
+func (h *Handler) putCapacityZone(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireSovereign(w, r, access.CapacityManage); !ok {
+		return
+	}
+	var in capacityZonePatchBody
+	if err := decode(r, &in); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body: "+err.Error())
+		return
+	}
+	if in.Code == nil && in.Name == nil && in.Default == nil {
+		writeErr(w, http.StatusBadRequest, "nothing to change: send code, name or default")
+		return
+	}
+	id := r.PathValue("id")
+	z, previous, err := h.Store.SetCapacityZone(r.Context(), id, store.CapacityZonePatch{Code: in.Code, Name: in.Name, Default: in.Default})
+	if err != nil {
+		storeErr(w, err)
+		return
+	}
+	h.audit(r, nil, "capacity.zone", map[string]any{"op": "set", "id": id, "region": z.RegionCode,
+		"from": map[string]any{"code": previous.Code, "name": previous.Name, "default": previous.IsDefault},
+		"to":   map[string]any{"code": z.Code, "name": z.Name, "default": z.IsDefault}})
+	writeJSON(w, http.StatusOK, z)
 }
 
 func (h *Handler) deleteCapacityZone(w http.ResponseWriter, r *http.Request) {
