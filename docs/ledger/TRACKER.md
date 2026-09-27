@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-27T08:15:08Z` |
+| Last refreshed | `2026-09-27T08:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-27T08:18 | [#6950](https://github.com/openova-io/openova/pull/6950) | #6949 | docs(bss): STATUS at 0.1.51 and the CRUD-gap screenshots |
 | 2026-09-27T08:05 | [#6949](https://github.com/openova-io/openova/pull/6949) | #6946 | feat(bss): the five CRUD gaps closed — resource kinds, prefe |
 | 2026-09-27T07:09 | [#6948](https://github.com/openova-io/openova/pull/6948) | #6947 | docs(bss): STATUS at 0.1.50 and the console-primitives scree |
 | 2026-09-27T06:58 | [#6947](https://github.com/openova-io/openova/pull/6947) | #6946 | fix(bss): a real tab strip, one form row, regions and zones  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-10T17:33 | [#6915](https://github.com/openova-io/openova/pull/6915) | #6914 | fix(ci): preflight C mirrors the platform — Cilium 1.19.3 an |
 | 2026-09-10T17:23 | [#6914](https://github.com/openova-io/openova/pull/6914) | fix(ci): preflight C writes the kind config to a file (helm/ |  |
 | 2026-09-10T17:08 | [#6913](https://github.com/openova-io/openova/pull/6913) | #6867 | docs(chargeback): 0.1.31 live evidence on hw307 — Access pag |
-| 2026-09-10T16:52 | [#6912](https://github.com/openova-io/openova/pull/6912) | #6867 | feat(chargeback): 0.1.31 — access control (roles, scopes, di |
 
 ---
 
