@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-27T13:45:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Last refreshed | `2026-09-27T14:00:08Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -310,6 +310,7 @@ flowchart LR
 | 2026-09-27T13:07 | [#6957](https://github.com/openova-io/openova/pull/6957) | #6955 | fix(oidc-gate): the calculator's live-pricing call passes th |
 | 2026-09-27T13:15 | [#6956](https://github.com/openova-io/openova/pull/6956) | #6867 | fix(bss): the estimate totals never clip — number on one lin |
 | 2026-09-27T12:57 | [#6955](https://github.com/openova-io/openova/pull/6955) | #6841 | fix(oidc-gate): the public cost calculator is public — skip- |
+| 2026-09-27T13:47 | [#6954](https://github.com/openova-io/openova/pull/6954) | #6867 | docs(bss): the training course — 142 slides, generator and d |
 | 2026-09-27T12:34 | [#6953](https://github.com/openova-io/openova/pull/6953) | #6867 | feat(bss): the public calculator by product family, with con |
 | 2026-09-27T10:54 | [#6952](https://github.com/openova-io/openova/pull/6952) | #6867 | perf(bss): every summary from one read of the priced ledger; |
 | 2026-09-27T09:34 | [#6951](https://github.com/openova-io/openova/pull/6951) | #6867 | fix(bss): the database gets the memory the ledger needs; the |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-11T11:10 | [#6922](https://github.com/openova-io/openova/pull/6922) | #6867 | feat(bss): 0.1.34 — a Sovereign runs the document renderer s |
 | 2026-09-11T10:29 | [#6921](https://github.com/openova-io/openova/pull/6921) | #6867 | feat(bss): 0.1.33 — capacity, partners, public calculator, d |
 | 2026-09-10T19:46 | [#6920](https://github.com/openova-io/openova/pull/6920) | #6867 | docs(glossary): the chargeback product is Catalyst BSS |
-| 2026-09-10T19:00 | [#6919](https://github.com/openova-io/openova/pull/6919) | #6867 | docs(status): chargeback 0.1.32 live on hw307 |
 
 ---
 
