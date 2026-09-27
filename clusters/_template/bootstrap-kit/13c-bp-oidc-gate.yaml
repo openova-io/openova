@@ -284,7 +284,10 @@ spec:
           - "GET=^/estimate(/|$)"
           - "GET=^/assets/"
           - "GET=^/api/v1/public/"
-          - "POST=^/api/v1/public/estimates$"
+          # oauth2-proxy matches the request URI, query string included: the
+          # live-pricing call is POST /api/v1/public/estimates?preview=1 and an
+          # end anchor alone sent it to the sign-in page (observed on hw307).
+          - "POST=^/api/v1/public/estimates(\\?.*)?$"
 
       # ── GENERALITY PROOF (#3374 DoD box 10a) ──────────────────────────
       # A brand-new throwaway app gated with ONLY a name + hostname +
