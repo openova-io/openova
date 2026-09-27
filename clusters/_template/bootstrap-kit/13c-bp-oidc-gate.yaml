@@ -276,6 +276,15 @@ spec:
         skipAuthRoutes:
           # Probes stay reachable without a browser session.
           - "GET=^/(healthz|readyz)$"
+          # The public cost calculator (chargeback DESIGN.md §12) is public by
+          # requirement: the /estimate page (and a shared /estimate/<id>), the
+          # SPA bundle it loads, and the /api/v1/public/ routes, which the app's
+          # session middleware already ignores cookies on. Every other route
+          # stays behind the gate; the fail-closed rule (#6841) is untouched.
+          - "GET=^/estimate(/|$)"
+          - "GET=^/assets/"
+          - "GET=^/api/v1/public/"
+          - "POST=^/api/v1/public/estimates$"
 
       # ── GENERALITY PROOF (#3374 DoD box 10a) ──────────────────────────
       # A brand-new throwaway app gated with ONLY a name + hostname +
