@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"fmt"
-	"math/big"
 	"regexp"
 	"sort"
 	"strings"
@@ -545,103 +544,6 @@ type costRow struct {
 	resources          int
 }
 
-func (s *Store) queryCostRows(ctx context.Context, q CostQuery, from, to time.Time, withBucket bool) ([]costRow, error) {
-	// Only a bucketed read at hour grain needs the hourly ledger; a window
-	// total (the compare window) is the same number at either grain, so it
-	// asks for the day grain the rollup can serve.
-	grain := grainDay
-	if withBucket && q.Granularity == grainHour {
-		grain = grainHour
-	}
-	cte, a, err := s.filteredCTE(ctx, q, from, to, grain)
-	if err != nil {
-		return nil, err
-	}
-	groupExpr, labelExpr, err := groupExprs(a, q.GroupBy)
-	if err != nil {
-		return nil, err
-	}
-	bucket := "''"
-	if withBucket {
-		bucket = bucketExpr(q.Granularity)
-	}
-	// Money is summed as cost_base — the reporting currency — so a group
-	// that spans two books in two currencies is one number, not a mix. The
-	// sum is read at full precision: converted costs are quotients, and
-	// rounding each bucket before adding them up would let a row's total
-	// drift from the exact figure by a micro-unit per bucket. Explore
-	// accumulates rationals and rounds once, on output.
-	sqlText := cte + `
-SELECT ` + bucket + ` AS bucket, ` + groupExpr + ` AS grp, min(` + labelExpr + `),
-       COALESCE(sum(cost_base), 0)::text, sum(quantity)::text,
-       count(DISTINCT resource_id)
-  FROM f GROUP BY 1, 2 ORDER BY 1, 2`
-	rows, err := s.db.QueryContext(ctx, sqlText, a.args...)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	defer rows.Close()
-	var out []costRow
-	for rows.Next() {
-		var r costRow
-		var cost, qty string
-		if err := rows.Scan(&r.bucket, &r.key, &r.label, &cost, &qty, &r.resources); err != nil {
-			return nil, err
-		}
-		r.cost, r.qty = Decimal(cost), Decimal(qty)
-		out = append(out, r)
-	}
-	return out, rows.Err()
-}
-
-// queryUnpriced lists the SKUs in the window that carry no rate in their
-// source's book, split into the genuinely unpriced and the platform meters
-// a platform book deliberately leaves unpriced (not sold per use).
-func (s *Store) queryUnpriced(ctx context.Context, q CostQuery, from, to time.Time) (unpriced, notSold []UnpricedSKU, err error) {
-	cte, a, err := s.filteredCTE(ctx, q, from, to, grainDay)
-	if err != nil {
-		return nil, nil, err
-	}
-	rows, err := s.db.QueryContext(ctx, cte+`
-SELECT sku, unit, round(sum(quantity), 6)::text, count(DISTINCT resource_id), bool_or(`+costNotSoldPerUseExpr+`)
-  FROM f WHERE unit_price IS NULL GROUP BY sku, unit ORDER BY sum(quantity) DESC`, a.args...)
-	if err != nil {
-		return nil, nil, mapErr(err)
-	}
-	defer rows.Close()
-	unpriced, notSold = []UnpricedSKU{}, []UnpricedSKU{}
-	for rows.Next() {
-		var u UnpricedSKU
-		var qty string
-		var ns bool
-		if err := rows.Scan(&u.SKU, &u.Unit, &qty, &u.Resources, &ns); err != nil {
-			return nil, nil, err
-		}
-		u.Quantity = Decimal(qty)
-		if ns {
-			notSold = append(notSold, u)
-		} else {
-			unpriced = append(unpriced, u)
-		}
-	}
-	return unpriced, notSold, rows.Err()
-}
-
-// queryUnconverted lists, per book currency without a rate, the priced
-// records of the window that no total includes.
-func (s *Store) queryUnconverted(ctx context.Context, q CostQuery, from, to time.Time) ([]UnconvertedCurrency, error) {
-	cte, a, err := s.filteredCTE(ctx, q, from, to, grainDay)
-	if err != nil {
-		return nil, err
-	}
-	rows, err := s.db.QueryContext(ctx, cte+unconvertedSQL, a.args...)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	defer rows.Close()
-	return scanUnconverted(rows)
-}
-
 // Explore aggregates cost (or usage) over the window, pivoted by bucket and
 // group, with a compare window for `previous`: the caller's CompareFrom/To
 // when set, else the window of the same length immediately before From.
@@ -649,201 +551,20 @@ func (s *Store) queryUnconverted(ctx context.Context, q CostQuery, from, to time
 // Every money figure is in the reporting currency (Currency); records whose
 // book currency has no stored rate are excluded from every sum and listed
 // in Unconverted, with MixedCurrency set — never silently added.
+//
+// One question is a CostBatch of one (costbatch.go): a freshness read and a
+// single statement that answers the window's five aggregates over one
+// priced CTE. A caller with several questions queues them on one batch.
 func (s *Store) Explore(ctx context.Context, scope Scope, q CostQuery) (ExploreResult, error) {
-	// A customer principal sees its own rows; a partner principal the rows of
-	// its customers, or of the one of them it named. Anything else is
-	// ErrNotFound, never someone else's rows.
-	if err := q.confine(scope); err != nil {
-		return ExploreResult{}, err
-	}
-	if q.Granularity == "" {
-		q.Granularity = "day"
-	}
-	if q.GroupBy == "" {
-		q.GroupBy = "none"
-	}
-	if q.Metric == "" {
-		q.Metric = "cost"
-	}
-	if !q.To.After(q.From) {
-		return ExploreResult{}, fmt.Errorf("from must be before to")
-	}
-	from, to := q.From.UTC(), q.To.UTC()
-	prevFrom, prevTo, compareLabel, err := compareWindow(q, from, to)
+	b := s.NewCostBatch()
+	res, err := b.Explore(scope, q)
 	if err != nil {
 		return ExploreResult{}, err
 	}
-
-	cur, err := s.queryCostRows(ctx, q, from, to, true)
-	if err != nil {
+	if err := b.Run(ctx); err != nil {
 		return ExploreResult{}, err
 	}
-	prev, err := s.queryCostRows(ctx, q, prevFrom, prevTo, false)
-	if err != nil {
-		return ExploreResult{}, err
-	}
-	unpriced, notSold, err := s.queryUnpriced(ctx, q, from, to)
-	if err != nil {
-		return ExploreResult{}, err
-	}
-	unconverted, err := s.queryUnconverted(ctx, q, from, to)
-	if err != nil {
-		return ExploreResult{}, err
-	}
-	reporting, err := s.ReportingCurrency(ctx)
-	if err != nil {
-		return ExploreResult{}, err
-	}
-
-	value := func(r costRow) Decimal {
-		if q.Metric == "usage" {
-			return r.qty
-		}
-		return r.cost
-	}
-
-	buckets := Buckets(from, to, q.Granularity)
-	bucketIdx := map[string]int{}
-	for i, b := range buckets {
-		bucketIdx[b] = i
-	}
-	res := ExploreResult{
-		From: from.Format(bucketFormatDay), To: to.Format(bucketFormatDay),
-		Granularity: q.Granularity, GroupBy: q.GroupBy, Metric: q.Metric,
-		Currency: reporting, MixedCurrency: len(unconverted) > 0,
-		Buckets: buckets, BucketHasData: make([]bool, len(buckets)),
-		TotalsByBucket: make([]Decimal, len(buckets)),
-		Unpriced:       unpriced,
-		NotSoldPerUse:  notSold,
-		Unconverted:    unconverted,
-		Compare:        CompareWindow{From: prevFrom.Format(bucketFormatDay), To: prevTo.Format(bucketFormatDay), Label: compareLabel},
-	}
-
-	// Pivot: one accumulator per group key, values per bucket. Sums are
-	// exact rationals until render, so every Decimal on the wire is the
-	// exact figure rounded ONCE to the 6-decimal scale — the group total is
-	// the rounded exact sum, not the sum of rounded buckets.
-	type acc struct {
-		key, label      string
-		total, previous *big.Rat
-		values          []*big.Rat
-		resources       int
-	}
-	newAcc := func(key, label string) *acc {
-		a := &acc{key: key, label: label, total: new(big.Rat), previous: new(big.Rat), values: make([]*big.Rat, len(buckets))}
-		for i := range a.values {
-			a.values[i] = new(big.Rat)
-		}
-		if q.GroupBy == "kind" {
-			a.label = KindLabel(key)
-		}
-		return a
-	}
-	groups := map[string]*acc{}
-	order := []string{}
-	totalsByBucket := make([]*big.Rat, len(buckets))
-	for i := range totalsByBucket {
-		totalsByBucket[i] = new(big.Rat)
-	}
-	for _, r := range cur {
-		g, ok := groups[r.key]
-		if !ok {
-			g = newAcc(r.key, r.label)
-			groups[r.key] = g
-			order = append(order, r.key)
-		}
-		i, ok := bucketIdx[r.bucket]
-		if !ok {
-			continue
-		}
-		v := ratOf(value(r))
-		g.values[i].Add(g.values[i], v)
-		g.total.Add(g.total, v)
-		totalsByBucket[i].Add(totalsByBucket[i], v)
-		res.BucketHasData[i] = true
-		// Distinct resources per bucket summed over buckets over-counts a
-		// resource alive on many days; take the max bucket count instead,
-		// which is the number alive at the busiest moment of the window.
-		if r.resources > g.resources {
-			g.resources = r.resources
-		}
-	}
-	for _, r := range prev {
-		g, ok := groups[r.key]
-		if !ok {
-			// A group present last period and absent now still belongs in
-			// the comparison: it is the "went to zero" row.
-			g = newAcc(r.key, r.label)
-			groups[r.key] = g
-			order = append(order, r.key)
-		}
-		g.previous.Add(g.previous, ratOf(value(r)))
-	}
-
-	all := make([]*acc, 0, len(order))
-	for _, k := range order {
-		all = append(all, groups[k])
-	}
-	sort.SliceStable(all, func(i, j int) bool {
-		if c := all[i].total.Cmp(all[j].total); c != 0 {
-			return c > 0
-		}
-		return all[i].key < all[j].key
-	})
-
-	totalCur, totalPrev := new(big.Rat), new(big.Rat)
-	for _, g := range all {
-		totalCur.Add(totalCur, g.total)
-		totalPrev.Add(totalPrev, g.previous)
-	}
-	for i := range res.TotalsByBucket {
-		res.TotalsByBucket[i] = decOf(totalsByBucket[i])
-	}
-
-	// Distinct resources for the whole window, not the sum of per-group
-	// maxima (a resource carries several SKUs and would be counted once per
-	// SKU group).
-	totalResources, err := s.countResources(ctx, q, from, to)
-	if err != nil {
-		return ExploreResult{}, err
-	}
-	res.Total = CostTotal{Current: decOf(totalCur), Previous: decOf(totalPrev), DeltaPct: deltaPctRat(totalCur, totalPrev), Resources: totalResources}
-
-	// Top-N folds the tail into Other before anything is rounded.
-	var other *acc
-	if q.Limit > 0 && len(all) > q.Limit {
-		other = &acc{key: "other", label: "Other", total: new(big.Rat), previous: new(big.Rat), values: make([]*big.Rat, len(buckets))}
-		for i := range other.values {
-			other.values[i] = new(big.Rat)
-		}
-		for _, g := range all[q.Limit:] {
-			other.total.Add(other.total, g.total)
-			other.previous.Add(other.previous, g.previous)
-			other.resources += g.resources
-			for i := range g.values {
-				other.values[i].Add(other.values[i], g.values[i])
-			}
-		}
-		all = all[:q.Limit]
-	}
-	render := func(a *acc) CostGroup {
-		g := CostGroup{Key: a.key, Label: a.label, Total: decOf(a.total), Previous: decOf(a.previous), Resources: a.resources, Values: make([]Decimal, len(a.values))}
-		for i, v := range a.values {
-			g.Values[i] = decOf(v)
-		}
-		g.Share = shareRat(a.total, totalCur)
-		g.DeltaPct = deltaPctRat(a.total, a.previous)
-		return g
-	}
-	res.Groups = make([]CostGroup, 0, len(all))
-	for _, a := range all {
-		res.Groups = append(res.Groups, render(a))
-	}
-	if other != nil {
-		o := render(other)
-		res.Other = &o
-	}
-	return res, nil
+	return *res, nil
 }
 
 // compareWindow resolves the window `previous` is summed over. With no
@@ -862,18 +583,6 @@ func compareWindow(q CostQuery, from, to time.Time) (time.Time, time.Time, strin
 		return time.Time{}, time.Time{}, "", fmt.Errorf("compare_from must be before compare_to")
 	}
 	return cf, ct, CompareLabelCustom, nil
-}
-
-func (s *Store) countResources(ctx context.Context, q CostQuery, from, to time.Time) (int, error) {
-	cte, a, err := s.filteredCTE(ctx, q, from, to, grainDay)
-	if err != nil {
-		return 0, err
-	}
-	var n int
-	if err := s.db.QueryRowContext(ctx, cte+` SELECT count(DISTINCT resource_id) FROM f`, a.args...).Scan(&n); err != nil {
-		return 0, mapErr(err)
-	}
-	return n, nil
 }
 
 // customerSet is the customer id set this query filters on — nil for an

@@ -250,17 +250,38 @@ func monthForecast(now time.Time, res store.ExploreResult, from, to time.Time) *
 // the scope still applies, so a customer principal can only ever see its own
 // spend through a budget.
 func StatusFor(ctx context.Context, r Reader, scope store.Scope, b store.Budget, month, now time.Time) (Status, error) {
-	from := MonthStart(month)
-	to := from.AddDate(0, 1, 0)
-	period := from.Format("2006-01")
-	q := store.CostQuery{From: from, To: to, Granularity: "day", GroupBy: "none", Metric: "cost"}
-	if b.CustomerID != nil {
-		q.CustomerID = *b.CustomerID
-	}
-	res, err := r.Explore(ctx, scope, q)
+	res, err := r.Explore(ctx, scope, Query(b, month))
 	if err != nil {
 		return Status{}, err
 	}
+	return StatusFromExplore(ctx, r, b, res, month, now)
+}
+
+// Query is the explorer question StatusFor asks: the calendar month
+// containing month at day grain, narrowed to the budget's customer. The
+// overview queues it on its own ledger read (store.CostBatch) and finishes
+// with StatusFromExplore.
+func Query(b store.Budget, month time.Time) store.CostQuery {
+	from := MonthStart(month)
+	q := store.CostQuery{From: from, To: from.AddDate(0, 1, 0), Granularity: "day", GroupBy: "none", Metric: "cost"}
+	if b.CustomerID != nil {
+		q.CustomerID = *b.CustomerID
+	}
+	return q
+}
+
+// AlertReader is the part of Reader StatusFromExplore still needs once the
+// explorer has answered.
+type AlertReader interface {
+	ListBudgetAlerts(ctx context.Context, budgetID string) ([]store.BudgetAlert, error)
+}
+
+// StatusFromExplore is StatusFor with the answer to Query(b, month) already
+// in hand.
+func StatusFromExplore(ctx context.Context, r AlertReader, b store.Budget, res store.ExploreResult, month, now time.Time) (Status, error) {
+	from := MonthStart(month)
+	to := from.AddDate(0, 1, 0)
+	period := from.Format("2006-01")
 	forecast := monthForecast(now, res, from, to)
 	recorded, err := r.ListBudgetAlerts(ctx, b.ID)
 	if err != nil {

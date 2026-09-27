@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 
@@ -23,10 +24,15 @@ func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
 // blocks to the summary (parts.Budgets / parts.Anomalies). Kept as a method
 // so each lane extends it without touching the composition.
 //
-// Anomalies: the last 7 days, top 5 by impact (DESIGN.md §3.2). A failure
-// here is logged and leaves the block empty rather than failing the whole
-// overview — the KPIs above it are already computed and correct.
-func (h *Handler) enrichSummary(r *http.Request, scope store.Scope, customerID string, parts *summaryParts) {
+// Each lane has two halves around the request's one ledger read
+// (store.CostBatch): here it queues its questions on the batch, and the
+// finisher returned — called after the batch has run — reads the answers
+// back. A lane that cannot ask (a scope that cannot see the budget's
+// customer, a bad window) is logged and leaves its block empty rather than
+// failing the whole overview; the KPIs above it are computed regardless.
+//
+// Anomalies: the last 7 days, top 5 by impact (DESIGN.md §3.2).
+func (h *Handler) enrichSummary(ctx context.Context, batch *store.CostBatch, scope store.Scope, customerID string, parts *summaryParts) func(context.Context) {
 	// Budgets (#6867 §3.5): the current-month status of every active budget
 	// the scope may see. On the customer lens (the operator's
 	// /customers/{id}/cost/summary, or a customer principal's own) only the
@@ -36,16 +42,27 @@ func (h *Handler) enrichSummary(r *http.Request, scope store.Scope, customerID s
 	if customerID != "" {
 		listScope = store.CustomerScope(customerID)
 	}
-	if rows, err := h.budgetStatuses(r.Context(), listScope, scope, parts.Now); err != nil {
+	finishBudgets, err := h.queueBudgetStatuses(ctx, batch, listScope, scope, parts.Now)
+	if err != nil {
 		slog.Warn("summary budgets", "error", err)
-	} else {
-		parts.Budgets = rows
 	}
 	// Anomalies (#6867 §3.6): independent of the budgets block — one failing
 	// must not empty the other.
-	if rows, err := h.summaryAnomalies(r.Context(), scope, customerID); err != nil {
+	finishAnomalies, err := h.queueSummaryAnomalies(batch, scope, customerID)
+	if err != nil {
 		slog.Error("summary anomalies", "error", err)
-	} else {
-		parts.Anomalies = rows
+	}
+	return func(ctx context.Context) {
+		if finishBudgets != nil {
+			parts.Budgets = finishBudgets(ctx)
+		}
+		if finishAnomalies == nil {
+			return
+		}
+		if rows, err := finishAnomalies(ctx); err != nil {
+			slog.Error("summary anomalies", "error", err)
+		} else {
+			parts.Anomalies = rows
+		}
 	}
 }
