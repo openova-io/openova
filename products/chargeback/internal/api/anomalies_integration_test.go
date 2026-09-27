@@ -25,6 +25,14 @@ var walkNow = time.Date(2026, 8, 22, 10, 0, 0, 0, time.UTC)
 func setupAPIAt(t *testing.T, now time.Time) (http.Handler, *store.Store, *recMail) {
 	t.Helper()
 	st := testdb.Open(t)
+	h, mail := newAPIAt(t, st, now)
+	return h, st, mail
+}
+
+// newAPIAt is setupAPIAt over a store the caller opened — a counted one
+// (testdb.OpenCounted) when the test pins what a request costs.
+func newAPIAt(t *testing.T, st *store.Store, now time.Time) (http.Handler, *recMail) {
+	t.Helper()
 	keys, _ := crypto.NewKeyringFromBytes(bytes.Repeat([]byte{3}, 32))
 	mail := &recMail{}
 	var logbuf bytes.Buffer
@@ -41,7 +49,7 @@ func setupAPIAt(t *testing.T, now time.Time) (http.Handler, *store.Store, *recMa
 		Now:      func() time.Time { return now },
 		Version:  "test",
 	})
-	return h, st, mail
+	return h, mail
 }
 
 func dayAt(y, m, d int) time.Time { return time.Date(y, time.Month(m), d, 0, 0, 0, 0, time.UTC) }

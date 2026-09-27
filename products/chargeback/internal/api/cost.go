@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/openova-io/openova/products/chargeback/internal/access"
@@ -431,8 +430,13 @@ func (h *Handler) gatherSummary(r *http.Request, scope store.Scope, customerID s
 	if prevTo.After(ms) {
 		prevTo = ms
 	}
-	// The six explorer documents are independent; measured on hw307 each is
-	// ~150 ms over 72k rows, so they run concurrently (the pool holds 16).
+	// The six explorer documents, every active budget's month and the
+	// anomaly detector's series are ONE read of the priced ledger
+	// (store.CostBatch): a freshness read and one statement per filter set,
+	// the six sharing one. Before the batch each document was five
+	// statements over its own copy of the priced CTE, run concurrently — 41
+	// copies per overview on hw307 and 3–8 s of database time.
+	batch := h.Store.NewCostBatch()
 	type job struct {
 		dst *store.ExploreResult
 		q   store.CostQuery
@@ -445,26 +449,22 @@ func (h *Handler) gatherSummary(r *http.Request, scope store.Scope, customerID s
 		{&p.ByCustomer, base(ms, nextMs, "month", "customer", 10)},
 		{&p.ByKind, base(ms, nextMs, "month", "kind", 10)},
 	}
-	errs := make([]error, len(jobs))
-	var wg sync.WaitGroup
+	slots := make([]*store.ExploreResult, len(jobs))
 	for i, j := range jobs {
-		wg.Add(1)
-		go func(i int, j job) {
-			defer wg.Done()
-			res, err := h.Store.Explore(ctx, scope, j.q)
-			if err != nil {
-				errs[i] = err
-				return
-			}
-			*j.dst = res
-		}(i, j)
-	}
-	wg.Wait()
-	for _, err := range errs {
+		slot, err := batch.Explore(scope, j.q)
 		if err != nil {
 			return p, err
 		}
+		slots[i] = slot
 	}
+	finish := h.enrichSummary(ctx, batch, scope, customerID, &p)
+	if err := batch.Run(ctx); err != nil {
+		return p, err
+	}
+	for i, j := range jobs {
+		*j.dst = *slots[i]
+	}
+	finish(ctx)
 	// The global counts belong to the operator overview alone. A selected
 	// customer — the operator's /customers/{id}/cost/summary as much as a
 	// customer principal's own — counts its own sources and lists its own
@@ -699,6 +699,5 @@ func (h *Handler) writeSummary(w http.ResponseWriter, r *http.Request, scope sto
 		storeErr(w, err)
 		return
 	}
-	h.enrichSummary(r, scope, customerID, &parts)
 	writeJSON(w, http.StatusOK, composeSummary(parts))
 }

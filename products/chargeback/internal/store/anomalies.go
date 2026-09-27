@@ -27,39 +27,18 @@ type DailyKindCost struct {
 // resource kind) for window_start in [from, to), ordered by customer, kind,
 // day. Days with no priced records for a pair are absent, not zero. The scope
 // confines it exactly as it confines the explorer: one customer, a partner's
-// set, or every customer for the operator.
+// set, or every customer for the operator. It is a CostBatch of one
+// (costbatch.go); the overview queues it on the explorer's batch instead.
 func (s *Store) DailyCostByCustomerKind(ctx context.Context, scope Scope, customerID string, from, to time.Time) ([]DailyKindCost, error) {
-	ids, err := scope.Confine(customerID)
+	b := s.NewCostBatch()
+	res, err := b.DailyCostByCustomerKind(scope, customerID, from, to)
 	if err != nil {
 		return nil, err
 	}
-	if !to.After(from) {
-		return nil, fmt.Errorf("from must be before to")
-	}
-	cte, a, err := s.filteredCTE(ctx, CostQuery{CustomerIDs: ids}, from.UTC(), to.UTC(), grainDay)
-	if err != nil {
+	if err := b.Run(ctx); err != nil {
 		return nil, err
 	}
-	rows, err := s.db.QueryContext(ctx, cte+`
-SELECT `+bucketExpr("day")+` AS day, customer_id::text, min(customer_name), resource_kind,
-       COALESCE(round(sum(cost_base), 6), 0)::text
-  FROM f WHERE cost_base IS NOT NULL
- GROUP BY 1, 2, 4 ORDER BY 2, 4, 1`, a.args...)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	defer rows.Close()
-	out := []DailyKindCost{}
-	for rows.Next() {
-		var r DailyKindCost
-		var cost string
-		if err := rows.Scan(&r.Day, &r.CustomerID, &r.CustomerName, &r.ResourceKind, &cost); err != nil {
-			return nil, err
-		}
-		r.Cost = Decimal(cost)
-		out = append(out, r)
-	}
-	return out, rows.Err()
+	return *res, nil
 }
 
 // Driver is one SKU or resource whose change explains a flagged day.

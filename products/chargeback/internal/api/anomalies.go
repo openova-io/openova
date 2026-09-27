@@ -85,6 +85,12 @@ func (h *Handler) detectAnomalies(ctx context.Context, scope store.Scope, custom
 	if err != nil {
 		return nil, err
 	}
+	return h.flagAnomalies(ctx, scope, daily, from, to)
+}
+
+// flagAnomalies is the detector over a daily series already read — the
+// window's days and the anomalyBaselineDays before them.
+func (h *Handler) flagAnomalies(ctx context.Context, scope store.Scope, daily []store.DailyKindCost, from, to time.Time) ([]anomalyRow, error) {
 	type pair struct{ customer, kind string }
 	series := map[pair][]anomaly.DayValue{}
 	actual := map[pair]map[string]store.Decimal{}
@@ -140,23 +146,32 @@ func (h *Handler) detectAnomalies(ctx context.Context, scope store.Scope, custom
 	return rows, nil
 }
 
-// summaryAnomalies is the overview block: the last 7 days, top 5 by impact.
-func (h *Handler) summaryAnomalies(ctx context.Context, scope store.Scope, customerID string) ([]anomalyRow, error) {
+// queueSummaryAnomalies puts the overview block's series — the last 7 days
+// and their baseline — on the request's ledger read; the finisher returned
+// runs the detector once the batch has run and keeps the top 5 by impact.
+func (h *Handler) queueSummaryAnomalies(batch *store.CostBatch, scope store.Scope, customerID string) (func(context.Context) ([]anomalyRow, error), error) {
 	today := dateOnly(h.Now())
-	rows, err := h.detectAnomalies(ctx, scope, customerID, today.AddDate(0, 0, -(anomalySummaryDays-1)), today.AddDate(0, 0, 1))
+	from, to := today.AddDate(0, 0, -(anomalySummaryDays-1)), today.AddDate(0, 0, 1)
+	daily, err := batch.DailyCostByCustomerKind(scope, customerID, from.AddDate(0, 0, -anomalyBaselineDays), to)
 	if err != nil {
 		return nil, err
 	}
-	sort.SliceStable(rows, func(i, j int) bool {
-		if rows[i].Impact != rows[j].Impact {
-			return rows[i].Impact > rows[j].Impact
+	return func(ctx context.Context) ([]anomalyRow, error) {
+		rows, err := h.flagAnomalies(ctx, scope, *daily, from, to)
+		if err != nil {
+			return nil, err
 		}
-		return rows[i].Day > rows[j].Day
-	})
-	if len(rows) > anomalySummaryTop {
-		rows = rows[:anomalySummaryTop]
-	}
-	return rows, nil
+		sort.SliceStable(rows, func(i, j int) bool {
+			if rows[i].Impact != rows[j].Impact {
+				return rows[i].Impact > rows[j].Impact
+			}
+			return rows[i].Day > rows[j].Day
+		})
+		if len(rows) > anomalySummaryTop {
+			rows = rows[:anomalySummaryTop]
+		}
+		return rows, nil
+	}, nil
 }
 
 func round6(f float64) float64 { return math.Round(f*1e6) / 1e6 }

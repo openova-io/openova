@@ -247,6 +247,7 @@ grep -qE '^\s+memory: 2Gi' <<<"$cnpg_res" || fail "resource-limits: CNPG Cluster
 cnpg_params="$(sed -n '/^  postgresql:/,/^  [a-z]/p' <<<"$cnpg_doc")"
 grep -qE '^\s+shared_buffers: "512MB"' <<<"$cnpg_params" || fail "CNPG Cluster spec.postgresql.parameters.shared_buffers missing (the 128 MB default cannot hold the ledger's working set)"
 grep -qE '^\s+work_mem: "32MB"' <<<"$cnpg_params" || fail "CNPG Cluster spec.postgresql.parameters.work_mem missing (at 4 MB every summary aggregate sorts on disk)"
+grep -qE '^\s+random_page_cost: "1.1"' <<<"$cnpg_params" || fail "CNPG Cluster spec.postgresql.parameters.random_page_cost missing (the 4.0 default plans for spinning disks the volume is not)"
 # secret-not-in-env: no env whose NAME matches the policy regex may carry a
 # literal value. Mirror the policy's own predicate over every env entry.
 plain_secret_env="$(awk '

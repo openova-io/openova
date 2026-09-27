@@ -356,26 +356,45 @@ func (h *Handler) budgetStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, st)
 }
 
-// budgetStatuses evaluates, for the current month, every active budget the
-// list scope may see. exploreScope is the session's scope (it bounds the
-// spend a status may reveal); listScope may be narrower, e.g. one customer
-// on the operator's customer-lens summary. Never nil: the summary renders [].
-func (h *Handler) budgetStatuses(ctx context.Context, listScope, exploreScope store.Scope, now time.Time) ([]budget.Status, error) {
+// queueBudgetStatuses evaluates, for the current month, every active budget
+// the list scope may see, in two halves around the summary's one ledger
+// read: each budget's month question goes on the batch here, and the
+// finisher returned evaluates it against its answer once the batch has run.
+// exploreScope is the session's scope (it bounds the spend a status may
+// reveal); listScope may be narrower, e.g. one customer on the operator's
+// customer-lens summary. A budget whose question cannot be asked is skipped
+// with a warning. The finisher's slice is never nil: the summary renders [].
+func (h *Handler) queueBudgetStatuses(ctx context.Context, batch *store.CostBatch, listScope, exploreScope store.Scope, now time.Time) (func(context.Context) []budget.Status, error) {
 	bs, err := h.Store.ListBudgets(ctx, listScope)
 	if err != nil {
 		return nil, err
 	}
-	out := []budget.Status{}
+	type queued struct {
+		b   store.Budget
+		res *store.ExploreResult
+	}
+	var qs []queued
 	for _, b := range bs {
 		if !b.Active {
 			continue
 		}
-		st, err := budget.StatusFor(ctx, h.Store, exploreScope, b, now, now)
+		res, err := batch.Explore(exploreScope, budget.Query(b, now))
 		if err != nil {
 			slog.Warn("budget status", "budget_id", b.ID, "error", err)
 			continue
 		}
-		out = append(out, st)
+		qs = append(qs, queued{b, res})
 	}
-	return out, nil
+	return func(ctx context.Context) []budget.Status {
+		out := []budget.Status{}
+		for _, q := range qs {
+			st, err := budget.StatusFromExplore(ctx, h.Store, q.b, *q.res, now, now)
+			if err != nil {
+				slog.Warn("budget status", "budget_id", q.b.ID, "error", err)
+				continue
+			}
+			out = append(out, st)
+		}
+		return out
+	}, nil
 }

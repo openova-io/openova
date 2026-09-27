@@ -4782,6 +4782,80 @@ go test -run SummaryAtScale -timeout 30m ./internal/store
 - **Scale** (`costrollup_integration_test.go`, on demand): the before/after
   above.
 
+### 20.10 One read of the priced ledger per page (#6867)
+
+The rollup made each explorer document cheap; it did not change how many of
+them a page asked for. Every `Explore` was five statements over its own copy
+of the priced CTE (`WITH u AS (...), f AS (...)`) — the bucketed rows, the
+compare window's rows, the unpriced SKUs, the unconverted currencies, the
+resource count — each preceded by its own freshness read of
+`cost_rollup_state`. The overview asks six such documents, every active
+budget one more and the anomaly detector its daily series. Counted on a
+copy of hw307's database (1.0 M usage rows, rollup fresh, statements logged
+server-side): **98 statements per `/cost/summary`** — 41 priced CTEs, 41
+freshness reads, 8 reporting-currency reads — and **1.71 s of database time**
+for a page that rendered in 0.63 s of wall clock only because the six ran on
+six connections. Live, that was 3–8 s alone and 6–19 s when a page fired
+several such requests together.
+
+`store.CostBatch` (`internal/store/costbatch.go`) answers every question a
+request queues from **one statement per distinct filter set**, plus one
+freshness read for the hull of every window asked about. Each aggregate is
+one arm of a `UNION ALL` over a single `f`, which Postgres materialises once
+because it is referenced more than once; each arm keeps its own window as
+`window_start >= $a AND window_start < $b`. That filter is exact because `u`
+is aggregated to the UTC day (the hour only for the hourly chart) and every
+window the engine is asked about is whole UTC days, so a record's day lies in
+[a, b) exactly when its `window_start` does — the rows an arm selects from the
+hull's `u` are the rows a `u` built for [a, b) alone would hold, from the same
+branch of the same split. A window that is not midnight-aligned still gets a
+`u` of its own. The arms are the SELECTs the five statements were, with the
+same `GROUP BY`; the pivot in Go is the code `Explore` always ran; the order
+each statement relied on is restated once on the whole result. `Explore` and
+`DailyCostByCustomerKind` are now a batch of one, so the explorer page shares
+the mechanism; `gatherSummary` queues its six documents, the budgets lane its
+month questions (`budget.Query` + `budget.StatusFromExplore`) and the
+anomalies lane its series on one batch before it runs.
+
+Measured on the same copy, the same clock, medians of five:
+
+| Request | Statements | of which priced CTEs | DB time | Wall |
+|---|---|---|---|---|
+| `/cost/summary` before | 98 | 41 (+41 freshness) | 1712 ms | 628 ms |
+| `/cost/summary` after | 12 | 2 (+1 freshness) | 401 ms | 381 ms |
+| `/customers/{id}/cost/summary` before | 78 | 31 (+31) | 566 ms | 186 ms |
+| `/customers/{id}/cost/summary` after | 8 | 1 (+1) | 37 ms | 49 ms |
+| `/cost/explore` before | 12 | 5 (+5) | 177 ms | 205 ms |
+| `/cost/explore` after | 3 | 1 (+1) | 123 ms | 125 ms |
+
+The two priced CTEs of the overview are the operator's filter set (six
+documents, the global budget, the anomaly series — 25 arms after the three
+month-to-date documents share one unpriced list, one unconverted list and one
+count) and the customer-scoped budget's. Wall clock falls less than database
+time because the six connections became one backend: the shared statement
+spends ~140 ms building `f` (20.6 k rows for the July–September hull) and
+~10 ms per arm, most of it the collation sort `count(DISTINCT resource_id)`
+needs. The remaining statements of a page are the counts, the statements list,
+the budget alerts and the session.
+
+**Verification standard.** 36 documents captured from the binary before and
+after — the operator summary, the overview, every customer's summary and a
+month-by-kind explore, fourteen explorer shapes (day, month, hour, top-N,
+custom compare, tag group and filter, cost centre, tier, usage metric,
+include and exclude filters), the dimension picker, budgets, anomalies,
+allocation — compared as sorted-key JSON: **0 differences**, the request clock
+`now` excepted. In the suite: `TestCostBatch*` (`costbatch_test.go`, no
+database) pins which questions share a statement, the 25 arms, the hull, the
+window filter on every arm of a whole-day group and its absence in an
+unaligned one, and the hourly chart's separate live read;
+`TestIntegrationCostBatchAnswersAsSeparateReads` compares eight documents and
+the anomaly series batched against each read alone, across a re-opened day,
+with the rollup on and off, and counts the statements; and
+`TestIntegrationSummaryIsOneLedgerRead` (`internal/api`) pins the three
+summary routes at the driver — `testdb.OpenCounted` records every statement
+the service issues — to **3 ledger statements** for the overview and **2** for
+the customer lens, ceiling 6.
+
 ## 21. Notification management — what the product sends, to whom, and whether it arrived
 
 Every message this product sent was, until this section, composed at its call
