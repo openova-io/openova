@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-27T12:30:05Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-09-27T12:45:06Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-27T12:34 | [#6953](https://github.com/openova-io/openova/pull/6953) | #6867 | feat(bss): the public calculator by product family, with con |
 | 2026-09-27T10:54 | [#6952](https://github.com/openova-io/openova/pull/6952) | #6867 | perf(bss): every summary from one read of the priced ledger; |
 | 2026-09-27T09:34 | [#6951](https://github.com/openova-io/openova/pull/6951) | #6867 | fix(bss): the database gets the memory the ledger needs; the |
 | 2026-09-27T08:18 | [#6950](https://github.com/openova-io/openova/pull/6950) | #6949 | docs(bss): STATUS at 0.1.51 and the CRUD-gap screenshots |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-10T18:11 | [#6918](https://github.com/openova-io/openova/pull/6918) | #6902 | feat(organization): 0.1.32 — quota adds the per-Organization |
 | 2026-09-10T17:50 | [#6917](https://github.com/openova-io/openova/pull/6917) | #6916 | fix(ci): preflight C gives the Gateway an LB-IPAM address so |
 | 2026-09-10T17:41 | [#6916](https://github.com/openova-io/openova/pull/6916) | #6915 | fix(ci): preflight C installs Gateway API v1.3.0 experimenta |
-| 2026-09-10T17:33 | [#6915](https://github.com/openova-io/openova/pull/6915) | #6914 | fix(ci): preflight C mirrors the platform — Cilium 1.19.3 an |
 
 ---
 
