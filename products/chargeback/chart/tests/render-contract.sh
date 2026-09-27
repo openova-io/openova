@@ -235,10 +235,18 @@ lacks "$off" 'inject-go' "otel-injected: annotation rendered with otel.instrumen
 lacks "$off" 'topologySpreadConstraints' "topology-spread: constraints rendered with topologySpread.enabled=false"
 # resource-requests (Enforce) evaluates the Pod CNPG creates from the Cluster
 # spec — the render carries the spec, so assert requests AND limits there.
-cnpg_res="$(sed -n '/^kind: Cluster$/,/^---/p' <<<"$sov" | sed -n '/^  resources:/,/^  [a-z]/p')"
-grep -qE '^\s+cpu: 250m' <<<"$cnpg_res" || fail "resource-requests: CNPG Cluster spec.resources.requests.cpu missing (Pod/chargeback-pg-1 would be BestEffort)"
-grep -qE '^\s+memory: 512Mi' <<<"$cnpg_res" || fail "resource-requests: CNPG Cluster spec.resources.requests.memory missing"
-grep -qE '^\s+memory: 1Gi' <<<"$cnpg_res" || fail "resource-limits: CNPG Cluster spec.resources.limits.memory missing"
+# The numbers are the 2026-09-27 sizing: at 1.2 M ledger rows the previous
+# 1 GiB / work_mem 4 MB instance spilled 149 GB of sorts to disk and a
+# customer page took ten seconds. Pin them, and the parameters that go with
+# them, so a values edit cannot quietly starve the database again.
+cnpg_doc="$(sed -n '/^kind: Cluster$/,/^---/p' <<<"$sov")"
+cnpg_res="$(sed -n '/^  resources:/,/^  [a-z]/p' <<<"$cnpg_doc")"
+grep -qE '^\s+cpu: 500m' <<<"$cnpg_res" || fail "resource-requests: CNPG Cluster spec.resources.requests.cpu missing or below 500m (Pod/chargeback-pg-1 would be BestEffort or starved)"
+grep -qE '^\s+memory: 1Gi' <<<"$cnpg_res" || fail "resource-requests: CNPG Cluster spec.resources.requests.memory missing or below 1Gi"
+grep -qE '^\s+memory: 2Gi' <<<"$cnpg_res" || fail "resource-limits: CNPG Cluster spec.resources.limits.memory missing or below 2Gi"
+cnpg_params="$(sed -n '/^  postgresql:/,/^  [a-z]/p' <<<"$cnpg_doc")"
+grep -qE '^\s+shared_buffers: "512MB"' <<<"$cnpg_params" || fail "CNPG Cluster spec.postgresql.parameters.shared_buffers missing (the 128 MB default cannot hold the ledger's working set)"
+grep -qE '^\s+work_mem: "32MB"' <<<"$cnpg_params" || fail "CNPG Cluster spec.postgresql.parameters.work_mem missing (at 4 MB every summary aggregate sorts on disk)"
 # secret-not-in-env: no env whose NAME matches the policy regex may carry a
 # literal value. Mirror the policy's own predicate over every env entry.
 plain_secret_env="$(awk '
