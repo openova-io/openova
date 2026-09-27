@@ -2543,7 +2543,7 @@ Unauthenticated, rate-limited, under `/api/v1/public/`:
 
 | Route | What it answers |
 |---|---|
-| `GET /public/catalog` | the priced SKUs of the public book (sku, service, unit, unit price, the monthly price of one unit), the plans, the pay-per-use rates, the regions, the currency, the tax rate, the book's name and `updated_at`, and the list-price notice. `404` with *"the public price list is not published yet"* when nothing is designated |
+| `GET /public/catalog` | the priced SKUs of the public book (sku, unit, unit price, the monthly price of one unit), the plans, the pay-per-use rates, the regions, the currency, the tax rate, the book's name and `updated_at`, and the list-price notice. Every priced entry — SKU, plan and pay-per-use rate alike — also carries the **facts the page is built from**: `family` / `family_name` (Compute, Storage, Networking, Databases, Containers, Platform plans, Other services), `service` / `service_name` (`ecs` → Elastic Cloud Server, `rds-mysql` → RDS for MySQL …), `display_name` (the option label: *"General purpose · 4 vCPU · 16 GB"*), and where the name carries them `variant` / `variant_name` (ECS class, EVS media, EIP address vs bandwidth, k8s meter, GaussDB topology), `vcpu`, `memory_gb`, `deployment` (`single` / `ha`) and `size` (NAT spec, CCE node count). `404` with *"the public price list is not published yet"* when nothing is designated |
 | `POST /public/estimates` | prices `{currency?, region?, lines:[{sku, quantity, hours_per_month?} \| {plan, months?}], contact_email?}` and saves it → `{id, lines, subtotal, tax, total, monthly, yearly, currency, price_book, valid_until, share_url, lead, created_at}`. `?preview=1` prices without saving (the cart's live total) |
 | `GET /public/estimates/{id}` | the saved estimate — the shareable link. The address a prospect left is **never** in this document |
 
@@ -2592,14 +2592,74 @@ by content in `store.MigrationEstimates`:
 An estimate belongs to nobody: no customer, no session, no cookie. `lead` is
 simply "an address was left", and the proposals module reads those rows later.
 
+The catalog's taxonomy — family, service, display name, shape — is **stored
+nowhere**. `internal/api/publiccatalog.go` reads it off the SKU name on every
+`GET /public/catalog`, so a re-imported list is classified the moment it is
+published and a book edited by hand needs no second column kept in step. A
+prefix the classifier does not know lands in *Other services* under its first
+token; nothing the book prices is ever left out of the catalog.
+
 ### 12.5 The page
 
 `/estimate` in the same React app, outside the console shell and outside
-sign-in: a cart (search the catalog by service or SKU, quantity, hours; a plan
-picker), a region selector, a live total from `?preview=1`, tax on its own
-line, **Share estimate** (saves it and shows the link), **Send me this
-estimate** (an address, which makes it a lead), and a footer naming the price
-book and its date beside the list-price notice.
+sign-in, in the shape of the AWS and Azure pricing calculators (founder,
+2026-09-27: *"make it proper same as AWS, Azure etc, the product families and
+choosing user friendly ways"*) — three parts, left to right:
+
+**The service catalogue.** Product families down the left — Compute, Storage,
+Networking, Databases, Containers, Platform plans, and Other services last —
+each a card headed by a glyph drawn in CSS from the accent tokens (server
+units, a disk, three nodes, a cylinder, a 2×2 of containers, a ring; no icon
+library) and a one-line description of the family, then its services: a
+friendly name (*Elastic Cloud Server*, *RDS for MySQL*, *NAT gateway*), a
+one-line description, the cheapest monthly figure
+the server priced for one unit (*from 11.676 OMR / month*, *per GB* where the
+unit is a gigabyte) and a **Configure** button. A search box narrows the list
+by name, description, family or option. No SKU is a label anywhere on this
+page. Only what the published books price appears: a family with nothing
+priced is not shown, and a companion storage service (`rds-storage`,
+`dds-storage`, `gaussdb-storage`) is folded into the engines that ask for it,
+listed on its own only when none of them is published.
+
+**The configurator.** Choosing a service opens a modal (the console's `Modal`,
+`FormRow` and `Field`; never a form stacked on the page) in which every choice
+is a dropdown or a number and none is a SKU:
+
+| Service | Asks |
+|---|---|
+| Elastic Cloud Server | family (general purpose / compute-optimised / memory-optimised) → size, picked from **chips** — one per size, the shape as labelled numbers (**4** vCPU · **16** GB) with its monthly figure under it, the chosen one filled with the accent → servers → usage (*Always on 730 h*, *Business hours 176 h*, *Custom hours*) → an attached disk (media + GB per server) → an Elastic IP per server with its bandwidth. One form, several lines: server, disk, address, bandwidth |
+| RDS for MySQL / PostgreSQL, MongoDB, GaussDB | deployment (single node / primary + standby) → size with vCPU and GB → storage GB per database (the companion storage SKU of the same deployment) → databases → usage |
+| Block storage, Backup, Images | media where there is a choice, GB, quantity, usage |
+| Elastic IP | addresses, bandwidth per address, usage. NAT gateway and CCE cluster: a size dropdown (*Small … Extra large*, *Up to 50 / 100 / 200 nodes*), quantity, usage |
+| Load balancer, VPC, VPC endpoint, DNS, WAF, Auto Scaling | quantity and usage |
+| Kubernetes capacity | vCPU, GiB, persistent GB, usage — a line per non-zero meter |
+| Platform plans | the plan with its shape and monthly price, months (1–12), Organizations |
+| anything unclassified | the option (its description, or its SKU), quantity, usage |
+
+The form shows the lines it is about to add — label, the SKU as a small mono
+hint, *quantity × hours* — and refuses in the server's words (*"quantity must
+be more than 0"*, *"hours must be more than 0 and at most 744"*) before the
+server has to. The **region** selector sits above both columns and applies to
+every item. The catalogue is BUILT from the facts the API states per entry
+(§12.3); the browser never parses a SKU, so a new prefix is priceable through
+the generic form before anyone has taught the page about it.
+
+**The estimate.** First the two figures a prospect came for, in large type:
+**per month** and **12 months**, tax included, as the server returned them.
+Under them the estimate **by product family** — a gauge (a CSS conic ring)
+of the largest family's share, a stacked bar with one segment per family in
+proportion, and a legend with each family's figure and percentage, in the
+chart palette's colour for that family (colour follows the family, never its
+rank). Then the items grouped by service (*Compute › Elastic Cloud Server*),
+each with its one-line summary (*2 × Compute-optimised · 8 vCPU · 16 GB ·
+business hours*), what its lines came to — the sum of the server's own line
+amounts, per month, or *for the term* when a plan runs several months — its
+lines on request, **Edit** (re-opens the configurator with the item's values)
+and **Remove**; then subtotal, tax on its own line and the term when it
+differs from the month; then the unchanged **Share estimate** and **Send me
+this estimate**. Empty, it says what to do: *Choose a service on the left to
+start an estimate.* A footer names the price book and its date beside the
+list-price notice.
 
 `/estimate?embed=1` drops the page header and posts its height to the parent
 on every change (`{type: 'openova-estimate-height', height}`), for the
@@ -2617,11 +2677,13 @@ they priced, region, link) under `customers.manage`.
 
 The page is mounted ABOVE the session provider in `src/App.tsx`: `/estimate`
 and `/estimate/{id}` render outside the console tree, so a visitor's browser
-makes no `/auth/me` call at all and the sidebar cannot appear. The cart module
-(`src/pages/Estimate.tsx`) holds the cart STATE and the request it becomes —
-never money arithmetic: a total computed in the browser would be the second
-pricing path §12.2 forbids, so every figure on the page comes from
-`?preview=1`.
+makes no `/auth/me` call at all and the sidebar cannot appear. The model
+(`src/panels/estimate/model.ts`) holds the catalogue, the configurator's
+choices and the lines they become, and the request the items make — never
+money arithmetic: a total computed in the browser would be the second pricing
+path §12.2 forbids, so every figure on the page comes from `?preview=1`, and
+the one figure the model adds is an exact sum of the server's line amounts
+(six-decimal integers, no float) so an item can show what its lines came to.
 
 ### 12.6 Tests
 
@@ -2636,21 +2698,43 @@ items, the estimate round-trip with its 30-day validity, the lead flag, and
 the region fallback with and without `capacity_regions`.
 `internal/api/public_calculator_test.go` — the token bucket's budget, refill
 and `Retry-After`; the trusted forwarded hop; every line-validation message;
-the framing and origin rules. `internal/api/public_calculator_integration_test.go`
+the framing and origin rules. `internal/api/publiccatalog_test.go` — the
+classifier over one SKU of every shape in every family and an unknown prefix,
+the size table (large = 2 … 24xlarge = 96, memory = vCPU × ratio), the wire
+shape of the facts, and the whole published National Cloud list: nothing in
+Other services, a shape on every instance SKU, a deployment on every database
+SKU, 22 services. `internal/api/public_calculator_integration_test.go`
 — the catalog carries only the public book (the negotiated clone's rate is not
 in the body), estimate math equals invoice math to the digit, the discount
 control, plans and pay-per-use lines, the refusals, the 30-day validity, the
 shareable link, leads and their permission, the `429`, CORS and preflight, and
 that no public route ever reads or sets the session cookie.
-`ui/src/pages/Estimate.test.ts` — the cart model: a second add bumps the
-quantity instead of duplicating a row, a plan line carries months and never
-hours (and an SKU line the reverse, which is what the API refuses), every
-row-level refusal is worded as the server words it, a half-typed row is left
-out of the request while the rest still prices, and the embed predicate and
-height message. `ui/src/pages/EstimatePublic.render.test.tsx` — the page
-renders the list prices, the plans, the pay-per-use rates, the tax line and
-the price-book footer with no console shell and no sign-out, drops its header
-under `?embed=1`, and shows a shared estimate read-only.
+`ui/src/panels/estimate/model.test.ts` — the catalogue: families in product
+order, companion storage folded into its engines, the cheapest figure per
+service, search; the configurator: friendly first choices and sizes smallest
+first, a server with a disk and an Elastic IP becoming four lines with the
+quantities multiplied out per server, a database becoming its size plus the
+storage of the same deployment, every other kind, every refusal worded as the
+server words it; the estimate: a plan line carries months and never hours
+(and an SKU line the reverse, which is what the API refuses), the priced
+lines read back by position and summed exactly, a stale answer pricing
+nothing. `ui/src/pages/Estimate.test.ts` — the embed predicate, the height
+message and the share link. `ui/src/pages/EstimatePublic.render.test.tsx` —
+the page renders the catalogue by family with no SKU as a label, the empty
+estimate that says what to do, the tax line and the price-book footer with no
+console shell and no sign-out, drops its header under `?embed=1`, and shows a
+shared estimate read-only named from the catalog.
+`ui/src/panels/estimate/Breakdown.render.test.tsx` — the per-family breakdown:
+one bar segment per family as wide as its share in the family's colour, the
+legend's figures and percentages, the gauge ring and its label, nothing until
+there is something to show.
+`ui/src/pages/EstimatePublic.dom.test.tsx` — the page walked in a browser
+document (`happy-dom`): open the Elastic Cloud Server configurator, choose
+family, size, servers, usage and a disk, add it, read the grouped item, its
+lines and the server's figures; Edit re-opens the form with the item's values
+and saves in place; Remove returns the empty state; a database asks for
+deployment, size and storage and a plan for months, grouped under their own
+headings.
 ## 13. Partners — resellers and agents (founder direction 2026-09-11)
 
 A Sovereign does not only sell direct. It sells **through** partners: a

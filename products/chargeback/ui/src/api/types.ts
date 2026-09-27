@@ -2007,10 +2007,35 @@ export interface CapacityHeadroom {
 // The unauthenticated surface: list prices only. A negotiated book, a
 // discount and a partner rate never appear in any document below.
 
-/** One priced SKU of the public list book. `monthly` is one unit for 730 h. */
-export interface PublicCatalogSKU {
-  sku: string
+/**
+ * What the catalog says about a SKU beyond its price (DESIGN.md §12.5): the
+ * product family and the service it sits in, the words a prospect reads,
+ * and the shape the name carries. Decided once on the API side
+ * (internal/api/publiccatalog.go); the page never parses a SKU.
+ */
+export interface CatalogFacts {
+  /** Stable keys the page groups and configures by. */
+  family: string
   service: string
+  /** The words a prospect reads. */
+  family_name: string
+  service_name: string
+  /** The option label inside a configurator: "General purpose · 4 vCPU · 16 GB". */
+  display_name: string
+  /** The first choice within a service: ECS class, EVS media, EIP address vs bandwidth, k8s meter, GaussDB topology. */
+  variant?: string
+  variant_name?: string
+  vcpu?: number
+  memory_gb?: number
+  /** single | ha on a database SKU. */
+  deployment?: string
+  /** NAT gateway spec 1..4, CCE node count. */
+  size?: number
+}
+
+/** One priced SKU of the public list book. `monthly` is one unit for 730 h. */
+export interface PublicCatalogSKU extends CatalogFacts {
+  sku: string
   unit: string
   unit_price: number | string
   monthly: number | string
@@ -2018,7 +2043,7 @@ export interface PublicCatalogSKU {
 }
 
 /** One sized catalog plan (S / M / L / XL) as the plans book prices it. */
-export interface PublicCatalogPlan {
+export interface PublicCatalogPlan extends CatalogFacts {
   slug: string
   name: string
   sku: string
@@ -2030,7 +2055,7 @@ export interface PublicCatalogPlan {
 }
 
 /** One pay-per-use platform meter. */
-export interface PublicCatalogRate {
+export interface PublicCatalogRate extends CatalogFacts {
   sku: string
   unit: string
   unit_price: number | string

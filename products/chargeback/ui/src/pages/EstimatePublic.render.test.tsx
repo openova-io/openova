@@ -2,43 +2,29 @@ import { createElement } from 'react'
 import { renderToString } from 'react-dom/server'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
+import { catalog } from '../panels/estimate/fixture'
 
 /**
- * The public calculator page (DESIGN.md §11) rendered with the catalog in
- * place of the API: the list prices, the plans, the pay-per-use rates and
- * the footer that says what these prices are. It must render with no
- * session — the page never reads one — and `?embed=1` must drop the header
- * so the marketplace can frame it.
+ * The public calculator page (DESIGN.md §12.5) rendered with the catalog in
+ * place of the API: the service catalogue by product family, the empty
+ * estimate that says what to do, and the footer that says what these
+ * prices are. It must render with no session — the page never reads one —
+ * and `?embed=1` must drop the header so the marketplace can frame it.
+ * The click-through (configurator, add, edit, remove) is
+ * EstimatePublic.dom.test.tsx.
  */
-
-const catalog = {
-  price_book: { id: 'pb1', name: 'NC list 2026', updated_at: '2026-09-01T00:00:00Z' },
-  currency: 'OMR',
-  tax_rate: '0.0500',
-  regions: ['me-east-215-a'],
-  skus: [
-    { sku: 'ecs.s6.large.2', service: 'ecs', unit: 'instance-hour', unit_price: '0.10000000', monthly: '73.000000', description: 'General computing 2 vCPU 4 GB' },
-    { sku: 'evs.ssd.gb', service: 'evs', unit: 'gb-hour', unit_price: '0.00013699', monthly: '0.100003', description: 'SSD block storage per GB' },
-  ],
-  plans: [{ slug: 'm', name: 'M', sku: 'plan.m', unit: 'plan-hour', unit_price: '0.01232877', monthly: '9.000002', vcpu: 4, memory_gib: 8 }],
-  payg: [{ sku: 'k8s.vcpu', unit: 'vcpu-hour', unit_price: '0.00273973', monthly: '2.000003' }],
-  hours_per_month: 730,
-  list_prices: true,
-  notice: 'List prices. Taxes are shown separately. A negotiated price, a discount or a partner rate is never part of this estimate; contact us for a proposal.',
-  generated_at: '2026-09-11T10:00:00Z',
-}
 
 const estimate = {
   id: 'e1',
-  lines: [{ sku: 'ecs.s6.large.2', unit: 'instance-hour', quantity: '1', hours: '730', months: 1, rated_quantity: '730.000000', unit_price: '0.10000000', amount: '73.000000' }],
+  lines: [{ sku: 'ecs.s7n.xlarge.4', unit: 'instance-hour', quantity: '1', hours: '730', months: 1, rated_quantity: '730.000000', unit_price: '0.09138567', amount: '66.711539' }],
   currency: 'OMR',
   region: 'me-east-215-a',
-  subtotal: '73.000000',
+  subtotal: '66.711539',
   tax_rate: '0.0500',
-  tax: '3.650000',
-  total: '76.650000',
-  monthly: '76.650000',
-  yearly: '919.800000',
+  tax: '3.335577',
+  total: '70.047116',
+  monthly: '70.047116',
+  yearly: '840.565392',
   price_book: catalog.price_book,
   list_prices: true,
   lead: false,
@@ -66,47 +52,84 @@ function render(entry: string, path = '/estimate') {
 }
 
 describe('the public calculator page', () => {
-  it('shows the list prices, the plans and the pay-per-use rates, with the price book and the notice in the footer', () => {
+  it('shows the service catalogue by product family, an empty estimate that says what to do, and the price book in the footer', () => {
     const html = render('/estimate')
     expect(html).not.toMatch(/NaN|undefined|\[object Object\]/)
     expect(html).toContain('Cost calculator')
-    expect(html).toContain('ecs.s6.large.2')
-    expect(html).toContain('73.000 OMR')
-    expect(html).toContain('M</strong>')
-    expect(html).toContain('9.000 OMR')
-    expect(html).toContain('k8s.vcpu')
+    // Families in product order, each service with a friendly name, a
+    // one-line description, its "from" figure and a Configure button.
+    const at = (s: string) => html.indexOf(s)
+    expect(['Compute', 'Storage', 'Networking', 'Databases', 'Containers', 'Platform plans', 'Other services'].map((f) => at(`<h2>${f}</h2>`))).toEqual(expect.arrayContaining([expect.any(Number)]))
+    expect(at('<h2>Compute</h2>')).toBeGreaterThan(-1)
+    expect(at('<h2>Compute</h2>')).toBeLessThan(at('<h2>Storage</h2>'))
+    expect(at('<h2>Storage</h2>')).toBeLessThan(at('<h2>Networking</h2>'))
+    expect(at('<h2>Networking</h2>')).toBeLessThan(at('<h2>Databases</h2>'))
+    expect(at('<h2>Databases</h2>')).toBeLessThan(at('<h2>Containers</h2>'))
+    expect(at('<h2>Containers</h2>')).toBeLessThan(at('<h2>Platform plans</h2>'))
+    expect(at('<h2>Platform plans</h2>')).toBeLessThan(at('<h2>Other services</h2>'))
+    for (const name of ['Elastic Cloud Server', 'Auto Scaling', 'Block storage', 'Backup', 'Elastic IP', 'Load balancer', 'NAT gateway', 'RDS for MySQL', 'CCE cluster', 'Kubernetes capacity', 'Platform plans', 'OBS']) {
+      expect(html).toContain(`aria-label="Configure ${name}"`)
+    }
+    expect(html).toContain('Virtual servers — general purpose')
+    // Each family card opens with its glyph and a one-line description.
+    for (const fam of ['compute', 'storage', 'networking', 'databases', 'containers', 'plans', 'other']) {
+      expect(html).toContain(`class="fam-glyph" data-family="${fam}"`)
+    }
+    expect(html).toContain('Servers, and the scaling that keeps up with demand.')
+    expect(html).toContain('Disks, backups and images, priced per GB.')
+    // The totals sit in large type above the items, empty until priced.
+    expect(html).toContain('data-testid="estimate-kpis"')
+    expect(html).toContain('<span data-testid="total-monthly">—</span>')
+    expect(html).not.toContain('data-testid="breakdown"')
+    expect(html).toContain('from 11.676 OMR / month')
+    expect(html).toContain('from 0.035 OMR / month per GB')
+    expect(html).toContain('from 5.000 OMR / month')
+    // The companion storage is asked for inside the engine, not listed.
+    expect(html).not.toContain('Configure RDS storage')
+    // No SKU is a label on the page.
+    expect(html).not.toContain('ecs.s7n.small.1')
+    expect(html).not.toContain('rds.mysql.c7')
+    // The region applies to every item and sits above both columns.
+    expect(html).toContain('id="estimate-region"')
+    expect(html).toContain('me-east-215-b')
+    // An empty estimate says what to do, and quotes no total.
+    expect(html).toContain('Choose a service on the left to start an estimate')
+    expect(html).toContain('Tax (5.0 %)')
+    expect(html).toContain('12 months')
     expect(html).toContain('NC list 2026')
     expect(html).toContain('prices as of')
     expect(html).toContain('A negotiated price, a discount or a partner rate is never part of this estimate')
-    // The tax rate is its own line, named as a percentage.
-    expect(html).toContain('Tax (5.0 %)')
+    // The share link and the lead capture are still there.
+    expect(html).toContain('Share estimate')
+    expect(html).toContain('Send me this estimate')
     // Nothing of the console: no sidebar, no sign-out, no operator menu.
     expect(html).not.toContain('Sign out')
     expect(html).not.toContain('aside')
     expect(html).not.toContain('Cost explorer')
-    // An empty cart says what to do, and quotes no total.
-    expect(html).toContain('Add a plan or a service to see what a month costs.')
   })
 
-  it('drops the header in embed mode and keeps the prices', () => {
+  it('drops the header in embed mode and keeps the catalogue', () => {
     const html = render('/estimate?embed=1')
     expect(html).not.toContain('<h1>')
     expect(html).not.toContain('Cost calculator')
-    expect(html).toContain('ecs.s6.large.2')
+    expect(html).toContain('aria-label="Configure Elastic Cloud Server"')
     expect(html).toContain('NC list 2026')
   })
 
-  it('renders a shared estimate read-only, with its validity and the book it was priced from', () => {
+  it('renders a shared estimate read-only, named from the catalog, with its validity and the book it was priced from', () => {
     const html = render('/estimate/e1', '/estimate/:id')
     expect(html).not.toMatch(/NaN|undefined|\[object Object\]/)
     expect(html).toContain('Cost estimate')
+    expect(html).toContain('General purpose · 4 vCPU · 16 GB')
+    expect(html).toContain('ecs.s7n.xlarge.4')
     expect(html).toContain('730.000000')
-    expect(html).toContain('76.650 OMR')
-    expect(html).toContain('919.800 OMR')
+    expect(html).toContain('70.047 OMR')
+    expect(html).toContain('840.565 OMR')
     expect(html).toContain('valid until')
     expect(html).toContain('NC list 2026')
-    // Read-only: no cart controls on a shared estimate.
+    // Read-only: no controls on a shared estimate.
     expect(html).not.toContain('Share estimate')
     expect(html).not.toContain('Send me this estimate')
+    expect(html).not.toContain('Configure ')
   })
 })
