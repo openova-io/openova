@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-27T13:00:04Z` |
+| Last refreshed | `2026-09-27T13:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-27T13:07 | [#6957](https://github.com/openova-io/openova/pull/6957) | #6955 | fix(oidc-gate): the calculator's live-pricing call passes th |
 | 2026-09-27T12:57 | [#6955](https://github.com/openova-io/openova/pull/6955) | #6841 | fix(oidc-gate): the public cost calculator is public — skip- |
 | 2026-09-27T12:34 | [#6953](https://github.com/openova-io/openova/pull/6953) | #6867 | feat(bss): the public calculator by product family, with con |
 | 2026-09-27T10:54 | [#6952](https://github.com/openova-io/openova/pull/6952) | #6867 | perf(bss): every summary from one read of the priced ledger; |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-10T19:46 | [#6920](https://github.com/openova-io/openova/pull/6920) | #6867 | docs(glossary): the chargeback product is Catalyst BSS |
 | 2026-09-10T19:00 | [#6919](https://github.com/openova-io/openova/pull/6919) | #6867 | docs(status): chargeback 0.1.32 live on hw307 |
 | 2026-09-10T18:11 | [#6918](https://github.com/openova-io/openova/pull/6918) | #6902 | feat(organization): 0.1.32 — quota adds the per-Organization |
-| 2026-09-10T17:50 | [#6917](https://github.com/openova-io/openova/pull/6917) | #6916 | fix(ci): preflight C gives the Gateway an LB-IPAM address so |
 
 ---
 
