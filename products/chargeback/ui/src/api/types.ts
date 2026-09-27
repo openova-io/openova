@@ -2395,6 +2395,36 @@ export interface JournalResponse {
   period_state?: FinancePeriod
 }
 
+/**
+ * DESIGN.md §8.10 — one document queued for the operator's billing system:
+ * a bill, a rated-usage row, a payment, a journal. Undelivered rows carry the
+ * last error the far end answered with; `delivered_at` closes a row.
+ */
+export interface OutboxEntry {
+  id: number
+  doc_type: string
+  /** The statement id for a bill — delivering a row twice is one document at the far end. */
+  idempotency_key: string
+  statement_id?: string
+  customer_id?: string
+  customer_name?: string
+  attempts: number
+  next_attempt_at: string
+  delivered_at?: string | null
+  last_error?: string
+  external_ref?: string
+  created_at: string
+  updated_at: string
+}
+
+/** GET /commercial/outbox — the queue, with the counts its tiles read. */
+export interface OutboxDocument {
+  entries: OutboxEntry[]
+  pending: number
+  failed: number
+  commercial_provider: 'internal' | 'external' | string
+}
+
 export interface FinancePeriodDetail {
   period: FinancePeriod
   blockers: PeriodBlocker[]

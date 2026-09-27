@@ -99,7 +99,8 @@ const customerPrefs: NotifyPreferencesDoc = {
   effective: [
     { event: 'statement.issued', title: 'Statement issued', category: 'billing', mandatory: true, enabled: true, channels: ['email'], locale: 'en', source: 'catalogue default' },
     { event: 'collections.reminder', title: 'Payment reminder', category: 'collections', mandatory: true, enabled: true, channels: ['email'], locale: 'en', source: 'catalogue default' },
-    { event: 'account.low_balance', title: 'Low balance', category: 'collections', mandatory: false, enabled: true, channels: ['email'], locale: 'en', source: 'catalogue default' },
+    // Set by THIS account — the one row its Reset removes.
+    { event: 'account.low_balance', title: 'Low balance', category: 'collections', mandatory: false, enabled: true, channels: ['email'], locale: 'en', source: 'customer:c1' },
   ],
 }
 
@@ -318,12 +319,30 @@ describe("the customer's own notifications", () => {
     expect(html).toContain('A mandatory notice is always sent. Its channels and its language are still yours to set.')
   })
 
+  // #6946 — the customer view resets its OWN row, and only its own: a row
+  // the Sovereign or the catalogue decided is not this account's to remove,
+  // and the button says so instead of offering a delete that changes nothing.
+  it('offers Reset on every row, live only where this account set the preference', () => {
+    session = owner
+    const html = render(MyNotifications, '/my/notifications')
+    expect(html.match(/>Reset</g)?.length).toBe(customerPrefs.effective.length)
+    // Two rows come from the catalogue: Reset is there, disabled, with the reason.
+    expect(html.match(/nothing to reset — this is the default/g)?.length).toBe(2)
+    // The one this account set is live.
+    expect(html).toContain('set at customer:c1')
+    expect(html).not.toMatch(/nothing to reset — set at customer:c1/)
+    // The confirm is closed until a row opens it.
+    expect(html).not.toContain('Reset to the default')
+    session = sovereign
+  })
+
   it('offers a customer VIEWER no switch at all', () => {
     session = viewer
     const html = render(MyNotifications, '/my/notifications')
     expect(html).toContain('Statement issued')
     expect(html).toContain('read-only')
     expect(html).not.toContain('>Change<')
+    expect(html).not.toContain('>Reset<')
     session = sovereign
   })
 

@@ -32,6 +32,9 @@ describe('Shell navigation per role', () => {
     expect(nav.Bill).toContain('Statements')
     expect(nav.Configure).toContain('Price books')
     expect(nav.Configure).not.toContain('Access')
+    // The finance handover (DESIGN.md §18) with the outbox the documents
+    // leave by (§8.10, #6946) — audit.read opens the group.
+    expect(nav.Finance).toEqual(['Journal', 'Reconciliation', 'Period close', 'Account mapping', 'Outbox'])
   })
 
   // Plan → Capacity (DESIGN.md §11) is a Sovereign page readable by every

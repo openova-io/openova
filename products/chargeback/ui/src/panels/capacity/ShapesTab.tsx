@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type FormEvent } from 'react'
 import { api } from '../../api/client'
-import type { CapacityShape, CapacityShapes, CapacitySKUOptions, CapacityUnshapedSKU } from '../../api/types'
+import type { CapacityResourceKind, CapacityShape, CapacityShapes, CapacitySKUOptions, CapacityUnshapedSKU } from '../../api/types'
 import { DataTable, type Column } from '../../components/DataTable'
 import { Badge, Field, FormRow, Modal, Notice, Skeleton } from '../../components/ui'
 import { t } from '../../i18n'
@@ -13,6 +13,10 @@ import { SkuSelect, skuChosen } from './SkuSelect'
  * SKU SHAPES: how much of each resource ONE unit of a SKU consumes. The SKUs
  * metered with no shape at all come first — nothing knows what they consume,
  * so they count against nothing — then every stored shape, one row per SKU.
+ * Under them the RESOURCE KINDS the shapes are measured in: a kind is a key
+ * with a label and a unit, and the label and unit are edited here, on the
+ * kind's row (#6946) — the key itself is what the shapes and pools are keyed
+ * on and is never renamed.
  */
 export function ShapesTab({
   doc,
@@ -35,6 +39,8 @@ export function ShapesTab({
   // The shape dialog: a fresh shape picks its SKU, an existing one is edited
   // on the SKU of the row it opened from.
   const [dialog, setDialog] = useState<{ sku: string; fresh: boolean } | null>(null)
+  // The kind dialog, opened from the kind's own row.
+  const [kind, setKind] = useState<CapacityResourceKind | null>(null)
   const [values, setValues] = useState<Record<string, string>>({})
   const columnKeys = useMemo(() => sortedResourceKeys(kinds.map((k) => k.resource), kinds), [kinds])
   const stored = useMemo(() => new Set((doc?.shapes ?? []).map((s) => s.sku)), [doc])
@@ -94,6 +100,24 @@ export function ShapesTab({
         canManage ? (
           <button type="button" className="small" aria-label={t('capacity.shapes.editNamed', { sku: sh.sku })} onClick={() => startEdit(sh)}>
             {t('capacity.shapes.edit')}
+          </button>
+        ) : null,
+    },
+  ]
+  const kindColumns: Column<CapacityResourceKind>[] = [
+    { key: 'resource', header: t('capacity.kinds.col.key'), value: (k) => k.resource, render: (k) => <code>{k.resource}</code> },
+    { key: 'label', header: t('capacity.kinds.col.label'), value: (k) => k.label },
+    { key: 'unit', header: t('capacity.kinds.col.unit'), value: (k) => k.unit, render: (k) => k.unit || <span className="muted">{t('common.none')}</span> },
+    {
+      key: 'act',
+      header: '',
+      value: () => '',
+      sortable: false,
+      className: 'actions',
+      render: (k) =>
+        canManage ? (
+          <button type="button" className="small" aria-label={t('capacity.kinds.editNamed', { resource: k.resource })} onClick={() => setKind(k)}>
+            {t('capacity.kinds.edit')}
           </button>
         ) : null,
     },
@@ -166,6 +190,43 @@ export function ShapesTab({
         )}
       </div>
 
+      <div className="card pad-0">
+        <div className="card-head" style={{ padding: '12px 16px 0' }}>
+          <h2>{t('capacity.kinds.title')}</h2>
+          <span className="hint">{t('capacity.kinds.sub')}</span>
+        </div>
+        {loading && !doc ? (
+          <div style={{ padding: 16 }}>
+            <Skeleton lines={2} />
+          </div>
+        ) : (
+          <DataTable
+            label={t('capacity.kinds.title')}
+            columns={kindColumns}
+            rows={[...kinds].sort((a, b) => a.position - b.position || a.resource.localeCompare(b.resource))}
+            rowKey={(k) => k.resource}
+            emptyTitle={t('capacity.kinds.none')}
+            emptyBody={t('capacity.kinds.noneBody')}
+          />
+        )}
+      </div>
+
+      {kind ? (
+        <KindEditor
+          key={kind.resource}
+          kind={kind}
+          act={act}
+          onClose={() => {
+            act.setError('')
+            setKind(null)
+          }}
+          onSaved={async () => {
+            setKind(null)
+            await onSaved()
+          }}
+        />
+      ) : null}
+
       {dialog ? (
         <Modal
           title={dialog.fresh ? t('capacity.shapes.add') : t('capacity.shapes.editNamed', { sku: dialog.sku })}
@@ -204,5 +265,58 @@ export function ShapesTab({
         </Modal>
       ) : null}
     </div>
+  )
+}
+
+/**
+ * Edit a resource kind's label and unit, in a dialog opened from its row.
+ * The key is shown and not editable: it is what every shape, pool vector and
+ * override is keyed on (PUT /capacity/resources/{resource}).
+ */
+export function KindEditor({ kind, act, onClose, onSaved }: { kind: CapacityResourceKind; act: Act; onClose: () => void; onSaved: () => Promise<void> }) {
+  const [label, setLabel] = useState(kind.label)
+  const [unit, setUnit] = useState(kind.unit)
+  const title = t('capacity.kinds.editNamed', { resource: kind.resource })
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault()
+    const l = label.trim()
+    if (!l) {
+      act.setError(t('capacity.kinds.labelHelp'))
+      return
+    }
+    void act.run(t('capacity.kinds.saved', { resource: kind.resource }), () => api.put<CapacityResourceKind>(`/capacity/resources/${encodeURIComponent(kind.resource)}`, { label: l, unit: unit.trim() }), onSaved)
+  }
+
+  return (
+    <Modal
+      title={title}
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" onClick={onClose} disabled={act.busy}>
+            {t('common.cancel')}
+          </button>
+          <button className="primary" form="kind-editor" disabled={act.busy}>
+            {t('capacity.kinds.save')}
+          </button>
+        </>
+      }
+    >
+      <form id="kind-editor" className="stack tight" aria-label={title} onSubmit={submit}>
+        {act.error ? <Notice kind="bad">{act.error}</Notice> : null}
+        <FormRow>
+          <Field label={t('capacity.kinds.col.key')} help={t('capacity.kinds.keyFixed')}>
+            <input value={kind.resource} readOnly className="mono" />
+          </Field>
+          <Field label={t('capacity.kinds.col.label')} help={t('capacity.kinds.labelHelp')}>
+            <input autoFocus value={label} onChange={(e) => setLabel(e.target.value)} placeholder="GPU cards" />
+          </Field>
+          <Field label={t('capacity.kinds.col.unit')} help={t('capacity.kinds.unitHelp')}>
+            <input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="cards" />
+          </Field>
+        </FormRow>
+      </form>
+    </Modal>
   )
 }

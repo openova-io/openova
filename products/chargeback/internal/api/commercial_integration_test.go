@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -300,6 +301,84 @@ func TestIntegrationOutboxDeliversExactlyOnceAfterFailures(t *testing.T) {
 }
 
 // The import is authenticated by an HMAC over the raw body, and nothing else.
+// The operator's Retry over the API — what the Finance → Outbox page calls
+// (#6946). A role without billing.issue is refused naming it; a failed row is
+// pushed again at once and a second refusal LANDS ON THE ROW, not as a failed
+// request; the pass that succeeds delivers it; a delivered row is refused with
+// the sentence the console shows; each retry that ran leaves an audit row.
+func TestIntegrationOutboxRetryOverTheAPI(t *testing.T) {
+	env := setupCommercialAPI(t)
+	ctx := context.Background()
+	op := operatorSession()
+	setProvider(t, env.st, store.ProviderExternal)
+	env.exporter.FailTimes = 2
+
+	c, err := env.st.CreateCustomer(ctx, store.CustomerInput{Slug: "retry", Name: "Retry", AdminEmail: "ap@retry.example",
+		Commercial: postpaidTransferCommercial(), ExternalAccountID: "BA-2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := draftFor(t, env.st, c.ID, "2026-05-01", "80.000000")
+	mustJSONDo(t, env.h, op, "POST", "/api/v1/statements/"+d.ID+"/issue", map[string]any{"notify": false}, 200)
+	// The first pass: the bill is refused and the rated-usage row beside it
+	// delivers, so the operator's list shows one failed row.
+	if _, err := env.deliverer.DeliverDue(ctx); err != nil {
+		t.Fatal(err)
+	}
+	list := mustDo(t, env.h, op, "GET", "/api/v1/commercial/outbox", 200)
+	if list["pending"] != float64(1) || list["failed"] != float64(1) {
+		t.Fatalf("outbox after the first pass = %+v", list)
+	}
+	entries := list["entries"].([]any)
+	if len(entries) != 1 {
+		t.Fatalf("pending entries = %+v", entries)
+	}
+	row := entries[0].(map[string]any)
+	if row["idempotency_key"] != d.ID || row["attempts"] != float64(1) || !strings.Contains(row["last_error"].(string), "failure 1") {
+		t.Fatalf("the failed row = %+v", row)
+	}
+	path := fmt.Sprintf("/api/v1/commercial/outbox/%v/retry", row["id"])
+
+	// Refused for a role that cannot raise a bill, naming the permission.
+	finance := &store.Session{Email: "cfo@sovereign.example", Roles: []store.RoleBinding{{Role: store.RoleFinanceViewer, ScopeKind: store.ScopeKindSovereign}}}
+	if rec := do(t, env.h, finance, "POST", path, "{}"); rec.Code != 403 || !strings.Contains(rec.Body.String(), "billing.issue") {
+		t.Fatalf("finance-viewer retry = %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Retry while the far end is still down: the request SUCCEEDS, the row
+	// carries the second refusal and one more attempt.
+	entry := mustJSONDo(t, env.h, op, "POST", path, map[string]any{}, 200)
+	if entry["delivered_at"] != nil || entry["attempts"] != float64(2) || !strings.Contains(entry["last_error"].(string), "failure 2") {
+		t.Fatalf("retry against a down far end = %+v", entry)
+	}
+	// It comes back: the next retry delivers, and the row is closed.
+	entry = mustJSONDo(t, env.h, op, "POST", path, map[string]any{}, 200)
+	// last_error is omitempty: a clean row carries none.
+	if entry["delivered_at"] == nil || entry["attempts"] != float64(3) || entry["last_error"] != nil {
+		t.Fatalf("retry once the far end is back = %+v", entry)
+	}
+	if docs := env.exporter.Docs(); len(docs) != 1 || docs[0].IdempotencyKey != d.ID {
+		t.Fatalf("delivered = %+v, want the one bill keyed %s", docs, d.ID)
+	}
+	// A delivered document is not retried — the refusal is the sentence the
+	// console shows on the row, and no audit row is written for it.
+	if rec := do(t, env.h, op, "POST", path, "{}"); rec.Code != 409 || !strings.Contains(rec.Body.String(), "already delivered") {
+		t.Fatalf("retry of a delivered document = %d %s", rec.Code, rec.Body.String())
+	}
+	if n := auditActions(t, env.st, "commercial.outbox.retry"); n != 2 {
+		t.Fatalf("audit rows for the two retries that ran = %d", n)
+	}
+	// And the list is clean: nothing pending, the delivered rows under ?all=1.
+	after := mustDo(t, env.h, op, "GET", "/api/v1/commercial/outbox", 200)
+	if after["pending"] != float64(0) || len(after["entries"].([]any)) != 0 {
+		t.Fatalf("outbox after delivery = %+v", after)
+	}
+	all := mustDo(t, env.h, op, "GET", "/api/v1/commercial/outbox?all=1", 200)
+	if len(all["entries"].([]any)) != 2 {
+		t.Fatalf("outbox ?all=1 = %+v", all)
+	}
+}
+
 func TestIntegrationInvoiceStatusImportRequiresASignature(t *testing.T) {
 	env := setupCommercialAPI(t)
 	setProvider(t, env.st, store.ProviderExternal)

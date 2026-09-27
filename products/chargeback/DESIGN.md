@@ -2430,31 +2430,34 @@ with the sentence's home. Swept 2026-09-27 against `server.go`'s 255 routes.
 | Capacity pools | ✅ | ✅ | ✅ | ✅ | refused: "this pool still has N SKU(s) placed as <class>: remove those placements before it stops enforcing <class>" · `store/capacity.go` |
 | Capacity shapes | ✅ (PUT upsert) | ✅ | ✅ | ✅ (`{}` removes) | — |
 | Capacity placements | ✅ (PUT) | ✅ | ✅ | ✅ | — |
-| Capacity resource kinds | — (keys, no route) | ✅ | **API only** — `PUT /capacity/resources/{resource}` {label, unit} | — | gap: a kind's label and unit are not editable in the console |
+| Capacity resource kinds | — (keys, no route) | ✅ | ✅ **Edit** on the kind's row of the *Resource kinds* table under the Shapes tab (`PUT /capacity/resources/{resource}` {label, unit}; the key is shown read-only) | — | designed: a kind is a key; its label and unit are worded, the key is never renamed |
 | Resource class overrides | ✅ | ✅ | ✅ | ✅ (class null clears) | — |
 | Tax rules | ✅ | ✅ | ✅ | ✅ | refused: "a rule for this country, region and category already starts on that date" · `store/tax.go` |
 | Tax categories | ✅ (PUT upsert) | ✅ | ✅ | ✅ | — |
 | Notification preferences (Sovereign) | ✅ (PUT) | ✅ | ✅ | ✅ (reset) | refused: "<event> is a mandatory notice and cannot be switched off" · `notify/resolve.go` |
-| Notification preferences (per customer) | ✅ (PUT) | ✅ | ✅ | **API only** — `DELETE /customers/{id}/notifications/preferences/{event}` | gap: the Reset control exists only in the Sovereign view (`pages/Notifications.tsx`) |
+| Notification preferences (per customer) | ✅ (PUT) | ✅ | ✅ | ✅ **Reset** on each row of the customer's own *What we send you* table, with a Confirm (`DELETE /customers/{id}/notifications/preferences/{event}`) | Reset is live only where THIS account's row decided the setting; a row the Sovereign or the catalogue decided keeps the button disabled with "nothing to reset — set at …" · `pages/Notifications.tsx` |
 | Currency rates | ✅ (PUT upsert) | ✅ | ✅ | ✅ | refused (400): "reporting currency X: its rate is 1 by definition" · `api/currencies.go` |
 | Saved views | ✅ | ✅ | — (delete + save, by design) | ✅ | refused: "a view named X already exists for this page" · `api/views.go` |
 | Report schedules | ✅ | ✅ | ✅ PUT; send | ✅ | — |
 | Allocation settings · billing settings | singleton | ✅ | ✅ PUT | singleton | 400: "credit_note_prefix must differ from invoice_prefix" · `store/billing_settings.go` |
 | Finance account mappings | — (fixed key set) | ✅ | ✅ PUT | — | designed: an unknown key is refused by name · `store/ledgerexport.go` |
 | Finance periods | — (derived) | ✅ | ✅ close / reopen | — | refused: "<period> cannot be closed: N draft(s)… Issue or cancel the drafts and resolve the disputes first" · `api/finance.go`; "X is already closed" / "X is not closed, so there is nothing to reopen" |
-| Statements / invoices | ✅ (run) | ✅ | issue / send / cancel ✅; **`PATCH /statements/{id}` (PO reference, payment terms on a draft) is API only** | ✅ (drafts) | refused: "statement is X; only drafts can be deleted"; "a X statement cannot become Y"; PO / terms "frozen once a statement is issued"; every write on a closed period · `store/statements.go`, `store/invoicing.go`, `api/finance.go` |
+| Statements / invoices | ✅ (run) | ✅ | issue / send / cancel ✅; ✅ **Edit** in the Invoice block of a draft (`PATCH /statements/{id}` {po_reference, payment_terms_days}; terms are a select of the terms invoices are written on) | ✅ (drafts) | refused: "statement is X; only drafts can be deleted"; "a X statement cannot become Y"; PO / terms "frozen once a statement is issued; this one is X" — the Edit stays on an issued invoice, disabled, carrying that sentence; every write on a closed period · `store/statements.go`, `store/invoicing.go`, `api/finance.go` |
 | Credit notes | ✅ | ✅ (in the statement and the account) | — (numbered document) | — | refused: "a draft has no invoice to credit" / "a cancelled invoice cannot be credited" / "would exceed the invoice" · `store/collections.go` |
-| Payments | ✅ | ✅ | **`POST /payments/{id}/allocate` and `/refund` are API only** | — (ledger) | refused: "payment of X exceeds the outstanding balance of Y"; "only a settled payment can be refunded"; "the payment is fully allocated" · `store/invoicing.go`, `store/collections.go` |
+| Payments | ✅ | ✅ | ✅ **Allocate** and **Refund** on each row of the customer's *Payments* table (Account tab, `billing.collect`): Allocate applies oldest-due-first or the invoices picked with an amount each (`POST /payments/{id}/allocate`); Refund reverses the WHOLE payment with a reason (`POST /payments/{id}/refund`) | — (ledger) | refused: "the allocations (X) exceed the unallocated Y of this payment"; "allocation of X exceeds the outstanding balance of Y"; "a pending payment settles nothing and cannot be allocated"; "the payment is fully allocated"; "only a settled payment can be refunded; this one is X" — each also disables its button with the same sentence before the round trip; there is no partial refund by design (the ledger is append-only: the original credit stays, the refund offsets it) · `store/collections.go` |
 | Payment methods | ✅ | ✅ | confirm ✅ (no PUT) | ✅ | refused: "this customer's payment method cannot keep an instrument on file" · `api/selfservice.go` |
 | Disputes | ✅ | ✅ | resolve ✅ | — | refused: "a draft is not an invoice; there is nothing to dispute" / "this invoice is already disputed" / "this dispute was already X" · `store/selfservice.go` |
 | Estimates (public) · leads | ✅ / — (born from estimates) | ✅ | — | — | designed |
-| Commercial outbox | imports are machine HMAC calls | **API only** — `GET /commercial/outbox` | **API only** — `POST …/retry` | — | gap: a stuck external delivery is neither visible nor retryable from the console; `POST /finance/journal/export` likewise has no caller (the console downloads the CSV) |
+| Commercial outbox | imports are machine HMAC calls; ✅ **Export journal** from the page header, with a Confirm carrying the period select (`POST /finance/journal/export`, `audit.read` + `metering.read`) | ✅ Finance → **Outbox** (`/finance/outbox`, `GET /commercial/outbox`; *Not delivered* / *All*; status, attempts, the far end's last error verbatim) | ✅ **Retry** on each undelivered row, with a Confirm (`POST …/retry`, `billing.issue`) | — (delivered is delivered) | refused: "this document was already delivered on …" · `store/outbox.go`; a journal that does not balance is refused before it is queued (422, the difference named) · `api/finance.go`; a far-end refusal on retry lands on the row, never as a failed request |
 
-**Gaps** (not ✅ and not a designed refusal — listed, not built here):
-a resource kind's label / unit (`PUT /capacity/resources/{resource}`); the
-per-customer notification-preference reset; a draft statement's PO reference
-and payment terms (`PATCH /statements/{id}`); payment allocate / refund; the
-commercial outbox (list + retry) and the journal export to it.
+**Gaps**: none left from this sweep — the five the 2026-09-27 pass found
+(a resource kind's label / unit, the per-customer preference reset, a draft's
+PO reference and payment terms, payment allocate / refund, the commercial
+outbox with its retry and the journal export) are ✅ above, each through the
+shared `Modal` / `Confirm` from the row or header it belongs to, gated on the
+permission its route asks for, and showing the server's sentence verbatim on
+refusal. The one designed absence added by the sweep: a payment is refunded
+in full, never in part.
 
 ---
 
