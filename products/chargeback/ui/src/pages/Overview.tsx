@@ -25,13 +25,20 @@ export function Overview() {
 }
 
 /** The same page pinned to one customer (customer detail → Overview tab). */
-export function CustomerOverview({ customerId }: { customerId: string }) {
-  return <OverviewBody lens={customerLens(customerId)} embedded />
+/**
+ * `summary` is the parent's own read of /customers/{id}/cost/summary when it
+ * has one (the customer page reads it for its header). The panel then reads
+ * nothing itself: that summary is the page's slowest call, and the page used
+ * to request it twice.
+ */
+export function CustomerOverview({ customerId, summary }: { customerId: string; summary?: ReturnType<typeof useQuery<Summary>> }) {
+  return <OverviewBody lens={customerLens(customerId)} summary={summary} embedded />
 }
 
-export function OverviewBody({ lens, title, embedded }: { lens: Lens; title?: string; embedded?: boolean }) {
+export function OverviewBody({ lens, title, embedded, summary }: { lens: Lens; title?: string; embedded?: boolean; summary?: ReturnType<typeof useQuery<Summary>> }) {
   const nav = useNavigate()
-  const sum = useQuery<Summary>(lens.cost('summary'))
+  const own = useQuery<Summary>(summary ? null : lens.cost('summary'))
+  const sum = summary ?? own
   const win = presetWindow('30d')
   const daily = useQuery<ExploreResult>(`${lens.cost('explore')}?${exploreQuery({ from: win.from, to: win.to, granularity: 'day', group_by: 'kind', limit: 6 })}`)
 

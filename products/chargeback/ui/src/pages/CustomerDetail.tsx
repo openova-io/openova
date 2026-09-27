@@ -207,7 +207,7 @@ export function CustomerDetail() {
 
       <Tabs base={base} tabs={TABS} current={tab} counts={{ sources: src.data ? sources.length : undefined, users: usr.data ? users.length : undefined, statements: k ? k.draftStatements + k.issuedStatements : undefined }} />
 
-      {tab === 'overview' ? <CustomerOverview customerId={id} /> : null}
+      {tab === 'overview' ? <CustomerOverview customerId={id} summary={sum} /> : null}
       {tab === 'account' ? <AccountPanel customerId={id} customer={c} currency={currency} canRecord={canCollect} canCheckout={canCollect || can(me, 'account.topup', id)} onChanged={cust.reload} /> : null}
       {tab === 'cost' ? <CustomerCostExplorer customerId={id} /> : null}
       {/* DESIGN.md §19 — the customer's own labelling of its spend. Reading
