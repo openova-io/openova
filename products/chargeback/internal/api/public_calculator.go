@@ -159,10 +159,12 @@ func clientHash(ip string) string {
 
 // catalogSKU is one priced SKU of the public book. Monthly is one unit for
 // HoursPerMonth hours, priced through rating.Amount — the figure a cart shows
-// before any quantity is typed.
+// before any quantity is typed. The embedded skuFacts (publiccatalog.go)
+// are the family, the service and the shape the page's configurators are
+// built from.
 type catalogSKU struct {
-	SKU         string        `json:"sku"`
-	Service     string        `json:"service"`
+	SKU string `json:"sku"`
+	skuFacts
 	Unit        string        `json:"unit"`
 	UnitPrice   store.Decimal `json:"unit_price"`
 	Monthly     store.Decimal `json:"monthly"`
@@ -171,9 +173,10 @@ type catalogSKU struct {
 
 // catalogPlan is one sized catalog plan as the plans book prices it.
 type catalogPlan struct {
-	Slug      string        `json:"slug"`
-	Name      string        `json:"name"`
-	SKU       string        `json:"sku"`
+	Slug string `json:"slug"`
+	Name string `json:"name"`
+	SKU  string `json:"sku"`
+	skuFacts
 	Unit      string        `json:"unit"`
 	UnitPrice store.Decimal `json:"unit_price"`
 	Monthly   store.Decimal `json:"monthly"`
@@ -183,7 +186,8 @@ type catalogPlan struct {
 
 // catalogRate is one pay-per-use platform meter.
 type catalogRate struct {
-	SKU         string        `json:"sku"`
+	SKU string `json:"sku"`
+	skuFacts
 	Unit        string        `json:"unit"`
 	UnitPrice   store.Decimal `json:"unit_price"`
 	Monthly     store.Decimal `json:"monthly"`
@@ -276,18 +280,6 @@ func monthlyOf(it store.PriceItem) store.Decimal {
 	return m
 }
 
-// serviceOf is the SKU family — the first token — the console groups by.
-func serviceOf(sku string) string {
-	s := strings.ToLower(strings.TrimSpace(sku))
-	if i := strings.IndexAny(s, ".-_/:"); i > 0 {
-		s = s[:i]
-	}
-	if strings.HasPrefix(s, "eip") {
-		return "eip"
-	}
-	return s
-}
-
 // publicCatalog — GET /api/v1/public/catalog.
 func (h *Handler) publicCatalog(w http.ResponseWriter, r *http.Request) {
 	c, err := h.calcContext(r)
@@ -314,7 +306,7 @@ func (h *Handler) publicCatalog(w http.ResponseWriter, r *http.Request) {
 		GeneratedAt:   h.Now().UTC(),
 	}
 	for _, it := range c.book.Items {
-		doc.SKUs = append(doc.SKUs, catalogSKU{SKU: it.SKU, Service: serviceOf(it.SKU), Unit: it.Unit, UnitPrice: it.UnitPrice, Monthly: monthlyOf(it), Description: it.Description})
+		doc.SKUs = append(doc.SKUs, catalogSKU{SKU: it.SKU, skuFacts: classifySKU(it.SKU), Unit: it.Unit, UnitPrice: it.UnitPrice, Monthly: monthlyOf(it), Description: it.Description})
 	}
 	if c.plans != nil {
 		for _, it := range c.plans.Items {
@@ -323,7 +315,7 @@ func (h *Handler) publicCatalog(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			vcpu, mem, _ := store.PlanShape(slug)
-			doc.Plans = append(doc.Plans, catalogPlan{Slug: slug, Name: store.PlanName(slug), SKU: it.SKU, Unit: it.Unit, UnitPrice: it.UnitPrice, Monthly: monthlyOf(it), VCPU: vcpu, MemoryGiB: mem})
+			doc.Plans = append(doc.Plans, catalogPlan{Slug: slug, Name: store.PlanName(slug), SKU: it.SKU, skuFacts: classifySKU(it.SKU), Unit: it.Unit, UnitPrice: it.UnitPrice, Monthly: monthlyOf(it), VCPU: vcpu, MemoryGiB: mem})
 		}
 	}
 	if c.payg != nil {
@@ -331,7 +323,7 @@ func (h *Handler) publicCatalog(w http.ResponseWriter, r *http.Request) {
 			if !store.IsPlatformMeter(it.SKU) {
 				continue
 			}
-			doc.PAYG = append(doc.PAYG, catalogRate{SKU: it.SKU, Unit: it.Unit, UnitPrice: it.UnitPrice, Monthly: monthlyOf(it), Description: it.Description})
+			doc.PAYG = append(doc.PAYG, catalogRate{SKU: it.SKU, skuFacts: classifySKU(it.SKU), Unit: it.Unit, UnitPrice: it.UnitPrice, Monthly: monthlyOf(it), Description: it.Description})
 		}
 	}
 	writeJSON(w, http.StatusOK, doc)
