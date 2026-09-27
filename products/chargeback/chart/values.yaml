@@ -135,6 +135,16 @@ cnpg:
       work_mem: 32MB
       maintenance_work_mem: 128MB
       track_io_timing: "on"
+      # The volume is SSD-class cloud block storage: a random read costs about
+      # what a sequential one does, and the default 4.0 steered the planner to
+      # sequential scans of the ledger. Four parallel workers per aggregate is
+      # what two CPUs and a page that fires several summaries at once can use.
+      # Applied live on hw307 2026-09-27 (reload, no restart): Sovereign
+      # summary 4.2 s -> 3.2 s, resources 3.1 s -> 1.5 s.
+      random_page_cost: "1.1"
+      max_parallel_workers_per_gather: "4"
+      max_parallel_workers: "6"
+      parallel_setup_cost: "100"
     affinity: {}
   # Init-container gate: the binary applies migrations at startup (spec §1)
   # so it must not start on the empty placeholder DSN. Polls the mounted
