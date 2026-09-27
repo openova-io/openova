@@ -229,7 +229,9 @@ input:disabled, select:disabled { background: var(--panel-2); color: var(--muted
 .check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink); }
 .check input { width: auto; margin: 0; }
 
-button {
+/* An anchor that acts as a button (a download link) is styled as one, so it
+   never reads as a bare link beside a real button. */
+button, a.button {
   padding: 6px 12px; border-radius: 6px; border: 1px solid var(--line-2);
   background: #fff; color: var(--ink); font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap;
 }
@@ -239,6 +241,8 @@ button.primary:hover { background: #1e40af; }
 button.danger { color: var(--bad); border-color: var(--bad-line); }
 button.danger:hover { background: var(--bad-bg); }
 button.small { padding: 3px 8px; font-size: 12px; }
+a.button { display: inline-flex; align-items: center; text-decoration: none; }
+a.button:hover { text-decoration: none; }
 button:disabled { opacity: .55; cursor: default; }
 button.link { border: 0; background: none; color: var(--accent); padding: 0; }
 button.link:hover { text-decoration: underline; background: none; }
