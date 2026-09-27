@@ -210,13 +210,19 @@ input:disabled, select:disabled { background: var(--panel-2); color: var(--muted
    baseline. Every control and button is the same height, a checkbox sits
    centred in that height, and a Field's help or error hangs BELOW the line so
    a field with help does not lift its control above its neighbours. */
-.form-row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
-.form-row:has(.field .help, .field .err) { padding-bottom: 18px; }
-.form-row .field { position: relative; margin: 0; min-width: 140px; flex: 1 1 140px; }
-.form-row .field label { height: 16px; line-height: 16px; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* One baseline for label, control and action. Fields align at the TOP: a
+   16 px label, then a 32 px control, so every control sits on the same line
+   whether or not its field has help under it. Help WRAPS in normal flow —
+   it is a sentence for a person and is never cut off with an ellipsis; a
+   field with help simply makes the row taller. Checkboxes and buttons skip
+   the label line (margin-top: 20 px = label + gap) to sit beside the controls. */
+.form-row { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; }
+.form-row .field { margin: 0; min-width: 140px; flex: 1 1 140px; }
+.form-row .field label { display: block; height: 16px; line-height: 16px; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .form-row .field input, .form-row .field select { height: 32px; }
-.form-row .field .help, .form-row .field .err { position: absolute; left: 0; top: 100%; margin-top: 3px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.form-row .check { height: 32px; margin: 0; align-items: center; white-space: nowrap; }
+.form-row .field .help, .form-row .field .err { margin-top: 3px; font-size: 12px; line-height: 15px; }
+.form-row .check { height: 32px; margin: 20px 0 0; align-items: center; white-space: nowrap; }
+.form-row > button, .form-row > .btn-row, .form-row > a.button { margin-top: 20px; }
 .form-row > button, .form-row > .btn-row > button, .form-row > a.button { height: 32px; padding-top: 0; padding-bottom: 0; }
 .form-row > button.small, .form-row > .btn-row > button.small { font-size: 12.5px; padding: 0 10px; }
 .form-row > .grow { flex: 1 1 auto; }

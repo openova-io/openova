@@ -93,11 +93,18 @@ describe('the form row', () => {
   })
 
   it('aligns on ONE baseline in the stylesheet: controls and buttons share a height, help hangs below, and the old inline form is gone', () => {
-    expect(css).toMatch(/\.form-row \{[^}]*align-items: flex-end/)
+    // Fields align at the TOP (label 16 px + control 32 px), so a field with
+    // help under it does not lift its control off the line.
+    expect(css).toMatch(/\.form-row \{[^}]*align-items: flex-start/)
     expect(css).toMatch(/\.form-row \.field input, \.form-row \.field select \{[^}]*height: 32px/)
     expect(css).toMatch(/\.form-row \.check \{[^}]*height: 32px/)
     expect(css).toMatch(/\.form-row > button[^{]*\{[^}]*height: 32px/)
-    expect(css).toMatch(/\.form-row \.field \.help, \.form-row \.field \.err \{[^}]*position: absolute/)
+    // Help WRAPS: it is a sentence for a person, never cut off with an ellipsis.
+    const help = css.match(/\.form-row \.field \.help, \.form-row \.field \.err \{([^}]*)\}/)?.[1] ?? ''
+    expect(help).not.toMatch(/position: absolute|text-overflow: ellipsis|white-space: nowrap/)
+    // Buttons and checkboxes skip the label line to sit beside the controls.
+    expect(css).toMatch(/\.form-row \.check \{[^}]*margin: 20px 0 0/)
+    expect(css).toMatch(/\.form-row > button, \.form-row > \.btn-row, \.form-row > a\.button \{[^}]*margin-top: 20px/)
     expect(css).not.toMatch(/form\.inline/)
   })
 })
