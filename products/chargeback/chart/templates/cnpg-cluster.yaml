@@ -46,4 +46,11 @@ spec:
   resources:
     {{- toYaml . | nindent 4 }}
   {{- end }}
+  {{- with .Values.cnpg.cluster.parameters }}
+  postgresql:
+    parameters:
+      {{- range $k, $v := . }}
+      {{ $k }}: {{ $v | quote }}
+      {{- end }}
+  {{- end }}
 {{- end }}

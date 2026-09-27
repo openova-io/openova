@@ -111,13 +111,30 @@ cnpg:
     # BestEffort (`requests-pod` fail) because this was `{}`. Requests size
     # the ledger's steady state; the limits leave the rater's month-end
     # statement pass headroom. Changing them rolls the instance.
+    # hw307 2026-09-27: at 1.2 M ledger rows the 1 GiB limit held 945 MB and
+    # the two big tables hit the cache 65-70 % of the time; every summary
+    # aggregate spilled to disk (31,339 temp files, 149 GB, work_mem 4 MB) and
+    # a customer page took 10 s. The same queries on the same data with room
+    # to breathe take 0.3-0.7 s. Memory is what this database needs; CPU is
+    # for the concurrent aggregates a page fires together.
     resources:
       requests:
-        cpu: 250m
-        memory: 512Mi
-      limits:
-        cpu: "1"
+        cpu: 500m
         memory: 1Gi
+      limits:
+        cpu: "2"
+        memory: 2Gi
+    # postgresql.conf parameters CNPG copies onto the instance. Sized to the
+    # limits above: shared_buffers a quarter of memory, effective_cache_size
+    # three quarters, work_mem large enough that a month's aggregate over the
+    # daily rollup sorts in memory instead of on disk. Changing shared_buffers
+    # restarts the instance (CNPG does it; the app reconnects).
+    parameters:
+      shared_buffers: 512MB
+      effective_cache_size: 1536MB
+      work_mem: 32MB
+      maintenance_work_mem: 128MB
+      track_io_timing: "on"
     affinity: {}
   # Init-container gate: the binary applies migrations at startup (spec §1)
   # so it must not start on the empty placeholder DSN. Polls the mounted
@@ -353,13 +370,15 @@ einvoice:
 
 # requests == limits (Guaranteed QoS, 1:1 ratio) — REQUIRED for a per-Org
 # install under the plan-limits LimitRange (#4362/#4553).
+# hw307 2026-09-27: at 100m the two replicas shared a fifth of a core, and a
+# customer page that fires five aggregates at once queued behind itself.
 resources:
   requests:
-    cpu: 100m
-    memory: 256Mi
+    cpu: 500m
+    memory: 512Mi
   limits:
-    cpu: 100m
-    memory: 256Mi
+    cpu: 500m
+    memory: 512Mi
 
 # Object-name stem. Empty = "chargeback" (the bp- prefix belongs to the
 # chart/catalog, not to the workload names).
