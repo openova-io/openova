@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-09-27T06:45:03Z` |
+| Last refreshed | `2026-09-27T07:00:10Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-09-27T06:58 | [#6947](https://github.com/openova-io/openova/pull/6947) | #6946 | fix(bss): a real tab strip, one form row, regions and zones  |
 | 2026-09-20T15:21 | [#6945](https://github.com/openova-io/openova/pull/6945) | #6942 | docs(bss): STATUS at 0.1.49 and the live-walk screenshots |
 | 2026-09-20T15:10 | [#6944](https://github.com/openova-io/openova/pull/6944) | #6936 | feat(bss): delete a partner and a tier, refused by name; Ren |
 | 2026-09-20T14:39 | [#6943](https://github.com/openova-io/openova/pull/6943) | #6867 | fix(bss): an open pool row refreshes what is running when th |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-10T16:52 | [#6912](https://github.com/openova-io/openova/pull/6912) | #6867 | feat(chargeback): 0.1.31 — access control (roles, scopes, di |
 | 2026-09-10T15:24 | [#6911](https://github.com/openova-io/openova/pull/6911) | #6867 | feat(chargeback): 0.1.30 — enforce suspensions at the platfo |
 | 2026-09-10T14:38 | [#6910](https://github.com/openova-io/openova/pull/6910) | #6867 | fix(catalyst): let the sovereign-admin API patch Organizatio |
-| 2026-09-10T14:12 | [#6909](https://github.com/openova-io/openova/pull/6909) | #6867 | docs(status): chargeback live on hw307 at 0.1.29 |
 
 ---
 
