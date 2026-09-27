@@ -397,7 +397,7 @@ tbody tr.expand:hover td { background: var(--panel-2); }
    largest share beside a stacked bar and its legend. Colours come from the
    chart palette by family, never by rank. */
 .estimate-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.estimate-kpis .kpi .v { font-size: 24px; }
+.estimate-kpis .kpi .v { font-size: 22px; }
 .breakdown { display: flex; gap: 14px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-2); }
 .breakdown-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .breakdown-bar { display: flex; height: 10px; border-radius: 999px; overflow: hidden; background: var(--line); }

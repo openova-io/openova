@@ -51,8 +51,28 @@ export function Summary({
       </div>
 
       <div className="kpis estimate-kpis" data-testid="estimate-kpis">
-        <KPI label="Per month" value={<span data-testid="total-monthly">{totals ? formatMoney(totals.monthly, currency) : '—'}</span>} note="incl. tax" />
-        <KPI label="12 months" value={<span data-testid="total-yearly">{totals ? formatMoney(totals.yearly, currency) : '—'}</span>} note="incl. tax" />
+        {/* The number carries the card; the currency rides as the small unit so a
+            four-figure total never clips behind the KPI's ellipsis. */}
+        <KPI
+          label="Per month"
+          value={
+            <span data-testid="total-monthly">
+              {totals ? formatMoney(totals.monthly, '') : '—'}
+              {totals ? <> <span className="unit">{currency}</span></> : null}
+            </span>
+          }
+          note="incl. tax"
+        />
+        <KPI
+          label="12 months"
+          value={
+            <span data-testid="total-yearly">
+              {totals ? formatMoney(totals.yearly, '') : '—'}
+              {totals ? <> <span className="unit">{currency}</span></> : null}
+            </span>
+          }
+          note="incl. tax"
+        />
       </div>
 
       {items.length === 0 ? (
