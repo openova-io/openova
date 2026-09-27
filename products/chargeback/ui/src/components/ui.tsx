@@ -1,5 +1,5 @@
 import { cloneElement, isValidElement, useEffect, useId, type ReactElement, type ReactNode } from 'react'
-import { Link, NavLink } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { t } from '../i18n'
 import { formatPct } from '../lib/money'
 
@@ -46,6 +46,13 @@ export function Field({ label, error, help, children }: { label: string; error?:
   )
 }
 
+/**
+ * A tab strip: a bordered container of segments, the current one filled, a
+ * count as a pill. The current tab is decided by `current` alone — the tabs
+ * share one pathname and differ only in `?tab=`, which is why this is a Link
+ * and not a NavLink: NavLink matches on the pathname and marked EVERY tab
+ * active, so the strip rendered as a row of underlined links (#6946).
+ */
 export function Tabs({
   base,
   tabs,
@@ -67,15 +74,26 @@ export function Tabs({
         const key = typeof tab === 'string' ? tab.toLowerCase() : tab.key
         const t = typeof tab === 'string' ? tab : tab.label
         const n = counts?.[key]
+        const active = current === key
         return (
-          <NavLink key={key} to={`${base}?tab=${key}`} className={current === key ? 'active' : ''}>
-            {t}
+          <Link key={key} to={`${base}?tab=${key}`} className={active ? 'tab active' : 'tab'} aria-current={active ? 'page' : undefined}>
+            <span>{t}</span>
             {typeof n === 'number' ? <span className="count">{n}</span> : null}
-          </NavLink>
+          </Link>
         )
       })}
     </nav>
   )
+}
+
+/**
+ * One line of a form: label above, control and action on ONE baseline. Put
+ * Fields, .check labels and buttons in it and they line up whatever mix they
+ * are; a Field's help hangs below the line instead of lifting its control.
+ * It is a layout, not a form — wrap it in <form> when it submits.
+ */
+export function FormRow({ children, className }: { children: ReactNode; className?: string }) {
+  return <div className={`form-row ${className ?? ''}`}>{children}</div>
 }
 
 export function Empty({ children }: { children: ReactNode }) {

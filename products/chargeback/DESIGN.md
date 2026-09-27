@@ -2188,7 +2188,9 @@ arithmetic, not a plan.
 |---|---|
 | `GET /capacity/overview[?region=<code>]` | `{as_of, sources, lagging_sources, thresholds, classes[], resource_kinds[], regions[{…, zones[{…, pools[{…pool, status, binding_resource, utilisation_pct, resources_view[], placements[], basket, zone_unknown, order_by_*}], unplaced_skus[]}]}], unshaped_skus[], unmapped_regions[], summary{…}}` |
 | `GET /capacity/regions` · `POST /capacity/regions` · `DELETE /capacity/regions/{id}` | as before |
+| `PUT /capacity/regions/{id}` | `{code?, name?, cloud_source_kind?}` — only what is sent changes (#6946). A code change is allowed: nothing references a region by code, the code is only matched against the region a usage record carries, so a rename re-points which usage lands here from the next read. Duplicate code 409 in the schema's own sentence; audited `capacity.region` op `set` with `from` / `to` |
 | `POST /capacity/regions/{id}/zones` | `{code, name, default?}` → 201. **It creates NO pools**: a pool is machines somebody bought |
+| `PUT /capacity/zones/{id}` | `{code?, name?, default?}` (#6946). `default: true` moves the region's default onto this zone **in one transaction** (the current default loses it first, under the region's row lock, so the one-default-per-region index never trips); `default: false` on the default zone is **409** — *"<zone> is the default zone of <region>; a region always has a default zone, so make another zone the default instead"*. Audited `capacity.zone` op `set` with `from` / `to` |
 | `DELETE /capacity/zones/{id}` | the oldest remaining zone becomes default |
 | `GET /capacity/zones/{id}/pools` | `{zone, pools[], history{pool_id: [changes]}, resource_kinds[], classes[]}` |
 | `POST /capacity/zones/{id}/pools` · `PUT /capacity/pools/{id}` | `{name, machines, lead_time_days, note, resources[{resource, per_machine, reserve, overcommit_ratio}]}`; audited `capacity.pool` with the whole vector `from` / `to` |
@@ -2274,7 +2276,7 @@ three screens):
 | **Pools** | how much have I got, what binds first, when do I order — **one line per pool**: machines, the classes it enforces, the binding resource, sold / sellable, the order-by date. Opening a line shows why it binds (the per-resource table with the class split, the floor, the walls), how many more fit, and what is running on it resource by resource. |
 | **Placements** | which SKU sells out of which pool at which class — one table; then what is metered and counted against nothing, and what runs at a class it is not placed at, by name. |
 | **Shapes** | what one unit of a SKU consumes; the metered SKUs with no shape come first. |
-| **Regions & zones** | where the pools live; a zone per line. |
+| **Regions & zones** | where the pools live — **one row per region** (code, name, cloud source kind, zones, pools), open to its zones. Every add and edit is a dialog from the row it belongs to: *Add zone* from the region's row with the region preselected (and selectable), *Add region* from the list header, *Edit* on every region and zone row; *Delete* keeps its confirmation (#6946). |
 
 Above the tabs is what is true whichever tab is open: the KPIs, and a list of
 what needs attention where each line names the tab that fixes it and goes there.
@@ -2398,6 +2400,61 @@ Migration (`MigrationCapacityClasses`): every existing pool keeps every class
 its placements already use, and gains burstable if it already overcommits;
 placements keep their rows under the wider key; the floor starts at 0, which is
 the arithmetic every pool had until now.
+
+### 11.10 CRUD through the product — the sweep (#6946)
+
+Every entity the console shows, and whether create / read / update / delete is
+reachable **through the product** — an API route AND a console control that
+calls it — or is refused with a sentence. ✅ = both; *API only* = the route
+exists, no control calls it (verified by grepping `ui/src` for every
+`api.post|put|patch|del` caller); — = no route; *refused* = a designed refusal,
+with the sentence's home. Swept 2026-09-27 against `server.go`'s 255 routes.
+
+| Entity | C | R | U | D | Refusals (sentence · where) / gaps |
+|---|---|---|---|---|---|
+| Customers | ✅ (+CSV import) | ✅ | ✅ PATCH; suspend / resume | ✅ | refused: "customer has N issued statement(s); issued statements are permanent records, suspend the customer instead of deleting it" · `store/customers.go`; plan of an Organization customer is read from its CR (400) · `api/customers.go` |
+| Cost sources (+ credential) | ✅ | ✅ | ✅ PATCH; credential; verify; purge-excluded | ✅ | refused: the internal platform source "is maintained by the platform collector and is not edited through the API" · `api/sources.go`; verify on a disabled source / without a credential (409) |
+| Customer users · partner users | ✅ | ✅ | ✅ (upsert POST, same control) | ✅ | — |
+| Role bindings | ✅ | ✅ | — (revoke + grant, by design) | ✅ | refused: "this is the last sovereign-admin binding and OPERATOR_EMAILS is empty; grant another sovereign-admin first" · `api/access.go` |
+| Group mappings | ✅ (replace-all PUT) | ✅ | ✅ | ✅ | — |
+| Price books | ✅ (+clone, import) | ✅ | ✅ PUT; public toggle | ✅ | refused: "assigned to N source(s) of N customer(s); assign them another book first"; scope frozen while assigned; "'X' is already the public price book; withdraw it first"; a derived retail book "is read-only" · `store/pricebooks.go`, `store/estimates.go`, `api/partners.go` |
+| Price-book items | ✅ | ✅ | ✅ PATCH | ✅ | refused: "sku X is already in this price book; PATCH it instead" · `api/pricebooks.go`. Bulk `PUT /pricebooks/{id}/items` is API only (the CSV import does that job) |
+| Discounts | ✅ | ✅ | ✅ PUT; PATCH active | ✅ | — |
+| Budgets | ✅ | ✅ | ✅ | ✅ | 400 when the currency is not the reporting currency |
+| Cost centres · rules · resource overrides | ✅ | ✅ | ✅ | ✅ | — (a cost centre's delete cascades its rules and overrides) |
+| Contracts (+ items, SLA credit) | ✅ | ✅ | ✅ PATCH; items PUT; SLA credit | ✅ | SLA credit refused on a closed period · `api/finance.go` |
+| Partners | ✅ | ✅ | ✅ PATCH | ✅ | refused: "partner X cannot be deleted: <what still refers to it>" — end customers, statements past draft, ledger entries, derived book · `store/partners.go` (§13.9) |
+| Partner tiers (+ discounts, retail rule) | ✅ | ✅ | ✅ PATCH; discounts PUT; retail rule PUT | ✅ | refused: "tier X sets the buy price of N partner(s); move them to another tier, or clear their tier, before deleting it" · `store/partners.go` |
+| Capacity regions | ✅ | ✅ | ✅ **PUT (new)** | ✅ | refused: duplicate code (409, schema sentence) · `store/dberr.go` |
+| Capacity zones | ✅ | ✅ | ✅ **PUT (new)** | ✅ | refused: "X is the default zone of Y; a region always has a default zone, so make another zone the default instead" · `store/capacity.go`; deleting the default promotes the oldest remaining zone |
+| Capacity pools | ✅ | ✅ | ✅ | ✅ | refused: "this pool still has N SKU(s) placed as <class>: remove those placements before it stops enforcing <class>" · `store/capacity.go` |
+| Capacity shapes | ✅ (PUT upsert) | ✅ | ✅ | ✅ (`{}` removes) | — |
+| Capacity placements | ✅ (PUT) | ✅ | ✅ | ✅ | — |
+| Capacity resource kinds | — (keys, no route) | ✅ | **API only** — `PUT /capacity/resources/{resource}` {label, unit} | — | gap: a kind's label and unit are not editable in the console |
+| Resource class overrides | ✅ | ✅ | ✅ | ✅ (class null clears) | — |
+| Tax rules | ✅ | ✅ | ✅ | ✅ | refused: "a rule for this country, region and category already starts on that date" · `store/tax.go` |
+| Tax categories | ✅ (PUT upsert) | ✅ | ✅ | ✅ | — |
+| Notification preferences (Sovereign) | ✅ (PUT) | ✅ | ✅ | ✅ (reset) | refused: "<event> is a mandatory notice and cannot be switched off" · `notify/resolve.go` |
+| Notification preferences (per customer) | ✅ (PUT) | ✅ | ✅ | **API only** — `DELETE /customers/{id}/notifications/preferences/{event}` | gap: the Reset control exists only in the Sovereign view (`pages/Notifications.tsx`) |
+| Currency rates | ✅ (PUT upsert) | ✅ | ✅ | ✅ | refused (400): "reporting currency X: its rate is 1 by definition" · `api/currencies.go` |
+| Saved views | ✅ | ✅ | — (delete + save, by design) | ✅ | refused: "a view named X already exists for this page" · `api/views.go` |
+| Report schedules | ✅ | ✅ | ✅ PUT; send | ✅ | — |
+| Allocation settings · billing settings | singleton | ✅ | ✅ PUT | singleton | 400: "credit_note_prefix must differ from invoice_prefix" · `store/billing_settings.go` |
+| Finance account mappings | — (fixed key set) | ✅ | ✅ PUT | — | designed: an unknown key is refused by name · `store/ledgerexport.go` |
+| Finance periods | — (derived) | ✅ | ✅ close / reopen | — | refused: "<period> cannot be closed: N draft(s)… Issue or cancel the drafts and resolve the disputes first" · `api/finance.go`; "X is already closed" / "X is not closed, so there is nothing to reopen" |
+| Statements / invoices | ✅ (run) | ✅ | issue / send / cancel ✅; **`PATCH /statements/{id}` (PO reference, payment terms on a draft) is API only** | ✅ (drafts) | refused: "statement is X; only drafts can be deleted"; "a X statement cannot become Y"; PO / terms "frozen once a statement is issued"; every write on a closed period · `store/statements.go`, `store/invoicing.go`, `api/finance.go` |
+| Credit notes | ✅ | ✅ (in the statement and the account) | — (numbered document) | — | refused: "a draft has no invoice to credit" / "a cancelled invoice cannot be credited" / "would exceed the invoice" · `store/collections.go` |
+| Payments | ✅ | ✅ | **`POST /payments/{id}/allocate` and `/refund` are API only** | — (ledger) | refused: "payment of X exceeds the outstanding balance of Y"; "only a settled payment can be refunded"; "the payment is fully allocated" · `store/invoicing.go`, `store/collections.go` |
+| Payment methods | ✅ | ✅ | confirm ✅ (no PUT) | ✅ | refused: "this customer's payment method cannot keep an instrument on file" · `api/selfservice.go` |
+| Disputes | ✅ | ✅ | resolve ✅ | — | refused: "a draft is not an invoice; there is nothing to dispute" / "this invoice is already disputed" / "this dispute was already X" · `store/selfservice.go` |
+| Estimates (public) · leads | ✅ / — (born from estimates) | ✅ | — | — | designed |
+| Commercial outbox | imports are machine HMAC calls | **API only** — `GET /commercial/outbox` | **API only** — `POST …/retry` | — | gap: a stuck external delivery is neither visible nor retryable from the console; `POST /finance/journal/export` likewise has no caller (the console downloads the CSV) |
+
+**Gaps** (not ✅ and not a designed refusal — listed, not built here):
+a resource kind's label / unit (`PUT /capacity/resources/{resource}`); the
+per-customer notification-preference reset; a draft statement's PO reference
+and payment terms (`PATCH /statements/{id}`); payment allocate / refund; the
+commercial outbox (list + retry) and the journal export to it.
 
 ---
 

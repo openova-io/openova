@@ -2,7 +2,8 @@ import { createElement } from 'react'
 import { renderToString } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
-import type { CapacityOverview, CapacityPoolRunning, CapacityResourceView, CapacityShapes, CapacitySKUOptions, Me } from '../api/types'
+import type { CapacityOverview, CapacityPoolRunning, CapacityRegionView, CapacityResourceView, CapacityShapes, CapacitySKUOptions, CapacityZoneView, Me } from '../api/types'
+import { placementRows, poolRows } from '../lib/capacity'
 
 /**
  * Plan → Capacity rendered with the document the Go integration test derives
@@ -232,8 +233,10 @@ vi.mock('../auth/session', () => ({
   useSession: () => ({ me: who, loading: false, refresh: async () => who, logout: async () => {} }),
 }))
 
+import { PlacementDialog, type PlaceSeed } from '../panels/capacity/PlacementsTab'
 import { PoolDetail } from '../panels/capacity/PoolDetail'
 import { PoolEditor } from '../panels/capacity/PoolEditor'
+import { RegionEditor, ZoneEditor } from '../panels/capacity/RegionsTab'
 import { Capacity } from './Capacity'
 
 const clean = (html: string): string => {
@@ -266,6 +269,23 @@ function renderEditor(poolIndex: [zone: number, pool: number] | null): string {
       createElement(PoolEditor, { zoneID: 'za', zones: [{ id: 'za', label: 'me-east-215 / me-east-215a' }], pool, kinds: overview.resource_kinds, classes: overview.classes, act: noAct, onClose: () => {}, onSaved: async () => {} }),
     ),
   )
+}
+
+/** The place dialog, opened holding what the row it came from knew. */
+function renderPlaceDialog(seed: PlaceSeed): string {
+  return clean(
+    renderToString(
+      createElement(PlacementDialog, { rows: placementRows(overview, 'all'), pools: poolRows(overview, 'all'), classes: overview.classes, skus: skuOptions, act: noAct, seed, onClose: () => {}, onSaved: async () => {} }),
+    ),
+  )
+}
+
+function renderRegionEditor(region: CapacityRegionView | null): string {
+  return clean(renderToString(createElement(RegionEditor, { region, act: noAct, onClose: () => {}, onSaved: async () => {} })))
+}
+
+function renderZoneEditor(regionID: string, zone: CapacityZoneView | null): string {
+  return clean(renderToString(createElement(ZoneEditor, { regions: overview.regions, regionID, zone, act: noAct, onClose: () => {}, onSaved: async () => {} })))
 }
 
 describe('Capacity page', () => {
@@ -371,20 +391,41 @@ describe('Capacity page', () => {
     expect(html).toContain('aria-label="Remove ecs.m7n.2xlarge.8 as Spot from m7n-a"')
     expect(html).toContain('<code>ecs.s7n.*</code>')
     expect(html).toContain('taking ecs.s7n.2xlarge.2')
-    // The form: a SKU select with a family toggle, a pool select, and a class
-    // select that waits for the pool — no text box anywhere.
-    expect(html).toContain('aria-label="Place a SKU on a pool"')
-    expect(html).toContain('>One SKU<')
-    expect(html).toContain('>A family<')
-    expect(html).toMatch(/<select id="place-sku"/)
-    expect(html).toContain('choose the pool first: it decides which classes exist')
-    expect(html).not.toMatch(/<input[^>]*placeholder="ecs\.m7n/)
+    // Placing is a dialog opened from the list header — not a form stacked
+    // above the table.
+    expect(html).toContain('>Place a SKU on a pool<')
+    expect(html).not.toContain('aria-label="Place a SKU on a pool"')
+    expect(html).not.toMatch(/<select id="place-sku"/)
+    expect(html).not.toContain('<form')
     // What counts against nothing, and what runs at a class it is not placed at.
     expect(html).toContain('data-unplaced="eip"')
     expect(html).toContain('no pool in this zone takes it')
     expect(html).toContain('placed, but no pool it is placed on holds vCPU')
     expect(html).toContain('data-mismatch="ecs.m7n.xlarge.8"')
     expect(html).toContain('says Spot, which this SKU is not placed at here, so it counts as Guaranteed')
+  })
+
+  it('places a SKU from selects — a SKU list with a family toggle, a pool, and only the classes the pool enforces — never from typed text', () => {
+    const fresh = renderPlaceDialog({})
+    expect(fresh).toContain('aria-label="Place a SKU on a pool"')
+    expect(fresh).toContain('>One SKU<')
+    expect(fresh).toContain('>A family<')
+    expect(fresh).toMatch(/<select id="place-sku"/)
+    expect(fresh).toContain('choose the pool first: it decides which classes exist')
+    expect(fresh).not.toMatch(/<input[^>]*placeholder="ecs\.m7n/)
+    // Opened from a pool's row, the pool is already chosen and its classes
+    // are what the class select offers.
+    const seeded = renderPlaceDialog({ poolID: 'pa' })
+    expect(seeded).toMatch(/<option value="pa" selected=""/)
+    expect(seeded).toContain('the classes m7n-a enforces')
+    expect(seeded).toMatch(/<option value="burstable"/)
+    // planned-c enforces guaranteed and spot: burstable is not offered, and
+    // the dialog says why.
+    const plain = renderPlaceDialog({ poolID: 'pb' })
+    expect(plain).not.toMatch(/<option value="burstable"/)
+    expect(plain).toContain('data-no-burstable')
+    // Opened from the unplaced list, the SKU is already chosen.
+    expect(renderPlaceDialog({ sku: 'ecs.s7n.2xlarge.2' })).toMatch(/<option value="ecs\.s7n\.2xlarge\.2" selected=""/)
   })
 
   it('keeps shapes on their own tab, the unshaped SKUs first', () => {
@@ -396,12 +437,79 @@ describe('Capacity page', () => {
     expect(html).not.toContain('aria-label="Pools"')
   })
 
-  it('keeps regions and zones on their own tab, a zone per line', () => {
+  it('keeps regions and zones on their own tab: a row per region open to its zones, and Edit on every row', () => {
     const html = render('regions')
+    // The region row: code, name, cloud source kind, zones, pools.
+    expect(html).toContain('aria-label="Regions and zones"')
+    expect(html).toContain('>Cloud source kind<')
+    expect(html).toMatch(/<b>me-east-215<\/b>/)
+    expect(html).toContain('>Muscat<')
+    expect(html).toContain('>Huawei project<')
+    // Open to its zones, a zone per line with the default badged.
+    expect(html).toContain('data-region="me-east-215"')
     expect(html).toContain('aria-label="Zones of me-east-215"')
     expect(html).toContain('data-zone="me-east-215a"')
+    expect(html).toContain('data-zone="me-east-215b"')
+    expect(html).toContain('>default zone<')
+    // Every add and edit is a dialog opened from its row — a zone from its
+    // region, a region from the list header — and nothing is a form on the page.
+    expect(html).toContain('>Add region<')
+    expect(html).toContain('aria-label="Add zone to me-east-215"')
+    expect(html).toContain('aria-label="Edit region me-east-215"')
+    expect(html).toContain('aria-label="Edit zone me-east-215a"')
+    expect(html).toContain('aria-label="Edit zone me-east-215b"')
     expect(html).toContain('aria-label="Add a pool in me-east-215b"')
+    expect(html).toContain('aria-label="Delete region me-east-215"')
     expect(html).toContain('aria-label="Delete zone me-east-215a"')
+    expect(html).not.toContain('<form')
+  })
+
+  it('shows regions and zones read-only without capacity.manage: the table stays, every control goes', () => {
+    const before = who
+    who = { ...who, permissions: { sovereign: ['metering.read'] } }
+    try {
+      const html = render('regions')
+      expect(html).toContain('data-zone="me-east-215a"')
+      expect(html).toContain('>Huawei project<')
+      for (const control of ['>Add region<', 'aria-label="Add zone to me-east-215"', 'aria-label="Edit region me-east-215"', 'aria-label="Edit zone me-east-215a"', 'aria-label="Delete region me-east-215"', 'aria-label="Delete zone me-east-215a"', '>Add a pool<']) {
+        expect(html).not.toContain(control)
+      }
+    } finally {
+      who = before
+    }
+  })
+
+  it('edits a region or a zone in a dialog: the zone opens with its region chosen, and the default flag is locked on the default zone', () => {
+    const region = renderRegionEditor(overview.regions[0])
+    expect(region).toContain('aria-label="Edit region me-east-215"')
+    expect(region).toMatch(/<input[^>]*value="me-east-215"/)
+    expect(region).toMatch(/<input[^>]*value="Muscat"/)
+    expect(region).toMatch(/<option value="huawei-project" selected=""/)
+    expect(region).toContain('changing the code re-points which metered usage lands here')
+    expect(region).toContain('>Save<')
+    const fresh = renderRegionEditor(null)
+    expect(fresh).toContain('aria-label="Add region"')
+    expect(fresh).toContain('as the ledger names it, e.g. me-east-215')
+
+    // A new zone from the region's row: the region is chosen and still a select.
+    const zone = renderZoneEditor('r1', null)
+    expect(zone).toContain('aria-label="Add zone to me-east-215"')
+    expect(zone).toMatch(/<select aria-label="Region"(?![^>]*disabled)[^>]*>/)
+    expect(zone).toMatch(/<option value="r1" selected=""/)
+    expect(zone).toContain('placeholder="me-east-215a"')
+    expect(zone).toMatch(/<input type="checkbox"(?![^>]*checked)(?![^>]*disabled)[^>]*\/> default zone/)
+    // Editing the default zone: it stays in its region, the flag is locked,
+    // and the dialog says why.
+    const dflt = renderZoneEditor('r1', overview.regions[0].zones[0])
+    expect(dflt).toContain('aria-label="Edit zone me-east-215a"')
+    expect(dflt).toMatch(/<select aria-label="Region"[^>]*disabled=""/)
+    expect(dflt).toMatch(/<input type="checkbox"(?=[^>]*checked="")(?=[^>]*disabled="")[^>]*\/> default zone/)
+    expect(dflt).toContain('A region always has one')
+    // A zone that is not the default may become it.
+    const other = renderZoneEditor('r1', overview.regions[0].zones[1])
+    expect(other).toContain('aria-label="Edit zone me-east-215b"')
+    expect(other).toMatch(/<input type="checkbox"(?![^>]*checked)(?![^>]*disabled)[^>]*\/> default zone/)
+    expect(other).not.toContain('A region always has one')
   })
 
   it('asks which classes a pool enforces FIRST, and hides overcommit and the floor without burstable', () => {
@@ -465,7 +573,9 @@ describe('Capacity page', () => {
     try {
       const html = render()
       expect(html).toContain('No regions yet')
-      expect(html).toContain('Add region')
+      // A button that opens the region dialog, not a form on the page.
+      expect(html).toContain('>Add region<')
+      expect(html).not.toContain('<form')
       expect(html).not.toContain('href="/capacity?tab=pools"')
     } finally {
       docs = before

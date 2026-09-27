@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { api } from '../../api/client'
 import type { CapacityClassDef, CapacityPoolView, CapacityResourceKind } from '../../api/types'
-import { Field, Modal, Notice } from '../../components/ui'
+import { Field, FormRow, Modal, Notice } from '../../components/ui'
 import { t } from '../../i18n'
 import { CLASS_ORDER, DEFAULT_POOL_CLASSES, floorEffect, formatAmount, orderedClasses, parsePoolForm, reserveForMachines, type PoolForm } from '../../lib/capacity'
 import { toNumber } from '../../lib/num'
@@ -99,7 +99,7 @@ export function PoolEditor({
       <form onSubmit={submit} className="stack tight" aria-label={pool ? t('capacity.pool.edit') : t('capacity.pool.add')}>
         {err ? <Notice kind="bad">{err}</Notice> : null}
         {act.error ? <Notice kind="bad">{act.error}</Notice> : null}
-        <div className="inline">
+        <FormRow>
           {pool ? null : (
             <Field label={t('capacity.form.zone')} help={t('capacity.form.zoneHelp')}>
               <select value={zone} onChange={(e) => setZone(e.target.value)}>
@@ -123,7 +123,7 @@ export function PoolEditor({
           <Field label={t('capacity.form.note')} help={t('capacity.form.noteHelp')}>
             <input value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
           </Field>
-        </div>
+        </FormRow>
 
         <fieldset className="stack tight" aria-label={t('capacity.classes.title')}>
           <legend>

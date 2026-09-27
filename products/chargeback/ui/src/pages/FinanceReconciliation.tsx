@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from 'react'
 import { api, errorText } from '../api/client'
 import type { ReconciliationLine, ReconciliationRun } from '../api/types'
 import { DataTable, type Column } from '../components/DataTable'
-import { Badge, Empty, KPI, Notice, PageHeader, Segmented, Skeleton } from '../components/ui'
+import { Badge, Empty, Field, FormRow, KPI, Notice, PageHeader, Segmented, Skeleton } from '../components/ui'
 import { bucketLabel, BUCKETS, bucketSummaries, lineDifference, needsAttention } from '../lib/finance'
 import { day, when } from '../lib/format'
 import { formatMoney } from '../lib/money'
@@ -126,17 +126,17 @@ export function FinanceReconciliation() {
       <section className="card">
         <h2>Run a reconciliation</h2>
         <p className="muted">Upload the gateway's settlement file, or fetch it when that gateway publishes a feed. Nothing is corrected either way.</p>
-        <div className="row">
-          <label className="inline">
-            <span className="muted">Gateway</span> <input value={gateway} onChange={(e) => setGateway(e.target.value)} placeholder="omantel" aria-label="Gateway" />
-          </label>
-          <label className="inline">
-            <span className="muted">From</span> <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} aria-label="From" />
-          </label>
-          <label className="inline">
-            <span className="muted">To</span> <input type="date" value={to} onChange={(e) => setTo(e.target.value)} aria-label="To" />
-          </label>
-        </div>
+        <FormRow>
+          <Field label="Gateway">
+            <input value={gateway} onChange={(e) => setGateway(e.target.value)} placeholder="omantel" aria-label="Gateway" />
+          </Field>
+          <Field label="From">
+            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} aria-label="From" />
+          </Field>
+          <Field label="To">
+            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} aria-label="To" />
+          </Field>
+        </FormRow>
         <div className="btn-row">
           <input
             ref={fileRef}
