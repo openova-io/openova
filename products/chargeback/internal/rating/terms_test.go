@@ -347,6 +347,145 @@ func TestTrueUpMeetsTheMinimumExactly(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// the spend commitment (DESIGN.md §15.3a)
+// ---------------------------------------------------------------------------
+
+// spendContract is a contract whose only line commits 1,000 a month for 50 %
+// off everything — "he is getting 50 % off because he committed to pay 1,000
+// OMR every month whether he uses anything or not".
+func spendContract(amount, pct string, minimum *store.Decimal) store.Contract {
+	a, p := store.Decimal(amount), store.Decimal(pct)
+	return store.Contract{
+		ID: "ct-spend", CustomerID: "c1", Name: "Nizwa 2026", Currency: "OMR", Status: store.ContractActive,
+		MinimumCommitment: minimum,
+		Items:             []store.ContractItem{{ID: "it-spend", Kind: store.ContractItemSpend, Amount: &a, DiscountPct: &p}},
+	}
+}
+
+// ratePeriodUnderSpend runs steps 4 and 5 for one period the way the run
+// does: the spend discount joins the discounts, the one engine takes it off,
+// the floor is trued up. It returns discount, true-up (0 when none) and the
+// net subtotal with the true-up line on it.
+func ratePeriodUnderSpend(t *testing.T, lines []store.RatedLine, c store.Contract) (discount, trueUp, subtotal string) {
+	t.Helper()
+	var discounts []store.Discount
+	if d, ok := SpendDiscount(c); ok {
+		discounts = append(discounts, d)
+	}
+	disc, applied, err := ApplyDiscounts(lines, discounts, store.DefaultDiscountRule)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) > 0 && len(discounts) > 0 && (len(applied) != 1 || applied[0].DiscountID != "it-spend") {
+		t.Fatalf("applied = %+v, want the spend line's discount and nothing else", applied)
+	}
+	all := append([]store.RatedLine{}, lines...)
+	trueUp = "0"
+	if floor := c.MonthlyFloor(); floor != nil {
+		line, ok, err := TrueUp(lines, disc, *floor)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ok {
+			all = append(all, line)
+			trueUp = string(line.Amount)
+		}
+	}
+	sub, _, _, err := TotalsWithDiscount(all, disc, "0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(disc), trueUp, string(sub)
+}
+
+// The three figures the founder's example pins, in the engine's own order:
+// list 1,400 under spend{1,000, 50 %} → 700 off → net 700 → true-up 300 →
+// subtotal exactly 1,000; list 2,600 → 1,300 net, above the floor, no true-up;
+// list 0 → nothing to discount, true-up for the whole 1,000.
+func TestSpendCommitmentDiscountsThenTruesUpToTheAmount(t *testing.T) {
+	c := spendContract("1000", "50", nil)
+	one := func(amount store.Decimal) []store.RatedLine {
+		return []store.RatedLine{{SKU: "plan.l", Quantity: "1", Unit: "plan-hour", UnitPrice: amount, Amount: amount}}
+	}
+	if disc, up, sub := ratePeriodUnderSpend(t, one("1400"), c); disc != "700.000000" || up != "300.000000" || sub != "1000.000000" {
+		t.Fatalf("list 1,400: discount %s, true-up %s, subtotal %s; want 700 / 300 / 1,000", disc, up, sub)
+	}
+	if disc, up, sub := ratePeriodUnderSpend(t, one("2600"), c); disc != "1300.000000" || up != "0" || sub != "1300.000000" {
+		t.Fatalf("list 2,600: discount %s, true-up %s, subtotal %s; want 1,300 / none / 1,300", disc, up, sub)
+	}
+	if disc, up, sub := ratePeriodUnderSpend(t, nil, c); disc != "0" || up != "1000.000000" || sub != "1000.000000" {
+		t.Fatalf("list 0: discount %s, true-up %s, subtotal %s; want 0 / 1,000 / 1,000", disc, up, sub)
+	}
+}
+
+// The spend discount is one more percent through the ONE engine: it stacks on
+// top of a campaign that wins under most-specific rather than competing with
+// it, and it is attributed to the contract line by id and name.
+func TestSpendDiscountGoesThroughTheDiscountEngine(t *testing.T) {
+	c := spendContract("1000", "50", nil)
+	d, ok := SpendDiscount(c)
+	if !ok {
+		t.Fatal("a contract with a spend line produced no discount")
+	}
+	if d.Kind != "percent" || string(d.Value) != "50" || !d.Stackable || !d.Active || d.SKU != "" || d.ID != "it-spend" {
+		t.Fatalf("spend discount = %+v, want a stackable, active, whole-bill 50 percent owned by the line", d)
+	}
+	if d.Name != "Spend commitment of 1000 OMR a month under Nizwa 2026" {
+		t.Fatalf("name = %q", d.Name)
+	}
+	lines := []store.RatedLine{{SKU: "plan.l", Quantity: "1", Unit: "plan-hour", UnitPrice: "1000", Amount: "1000"}}
+	campaign := store.Discount{ID: "camp", Name: "launch 10%", Kind: "percent", Value: "10", Active: true}
+	total, applied, err := ApplyDiscounts(lines, []store.Discount{campaign, d}, store.DiscountRuleMostSpecific)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 10 % wins its scope, the contractual 50 % is added on top against the
+	// untouched base: 100 + 500 = 600, not 50 % of 900.
+	if string(total) != "600.000000" || len(applied) != 2 {
+		t.Fatalf("total %s with %d applied, want 600.000000 from both", total, len(applied))
+	}
+	// No spend line, or a spend line with nothing off, is no discount.
+	if _, ok := SpendDiscount(store.Contract{Items: []store.ContractItem{{Kind: store.ContractItemCommitment, SKU: "x"}}}); ok {
+		t.Fatal("a contract without a spend line produced a discount")
+	}
+	zero := store.Decimal("0")
+	amount := store.Decimal("1000")
+	if _, ok := SpendDiscount(store.Contract{Items: []store.ContractItem{{Kind: store.ContractItemSpend, Amount: &amount, DiscountPct: &zero}}}); ok {
+		t.Fatal("a spend line with 0 percent produced a discount")
+	}
+}
+
+// The floor is the LARGER of the header minimum and the spend amount — two
+// promises of "at least this much" do not add up — and a spend line shapes no
+// SKU: ApplyTerms leaves every line byte for byte.
+func TestSpendCommitmentFloorIsTheLargerOfTheTwoAndShapesNothing(t *testing.T) {
+	min := store.Decimal("1500")
+	if f := spendContract("1000", "50", &min).MonthlyFloor(); f == nil || string(*f) != "1500" {
+		t.Fatalf("floor with minimum 1,500 and spend 1,000 = %v, want 1500", f)
+	}
+	min = "800"
+	if f := spendContract("1000", "50", &min).MonthlyFloor(); f == nil || string(*f) != "1000" {
+		t.Fatalf("floor with minimum 800 and spend 1,000 = %v, want 1000", f)
+	}
+	if f := spendContract("1000", "50", nil).MonthlyFloor(); f == nil || string(*f) != "1000" {
+		t.Fatalf("floor with spend 1,000 alone = %v, want 1000", f)
+	}
+	if f := (store.Contract{}).MonthlyFloor(); f != nil {
+		t.Fatalf("a contract with neither has a floor of %s", *f)
+	}
+	c := spendContract("1000", "50", nil)
+	lines := []store.RatedLine{{SKU: "plan.l", Quantity: "744", Unit: "plan-hour", UnitPrice: "0.02191781", Amount: "16.306849"}}
+	items := map[string]store.PriceItem{"plan.l": {SKU: "plan.l", Unit: "plan-hour", UnitPrice: "0.02191781"}}
+	out, applied, err := ApplyTerms(lines, items, Terms{Contract: &c})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(applied) != 0 || out[0] != lines[0] {
+		t.Fatalf("a spend line reshaped a SKU: applied=%v out=%+v", applied, out[0])
+	}
+}
+
+// ---------------------------------------------------------------------------
 // the shapes meet the rest of the engine
 // ---------------------------------------------------------------------------
 

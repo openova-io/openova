@@ -1,21 +1,28 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { article } from '../lib/word'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, asList, errorText } from '../api/client'
-import type { Contract, ContractItem, CreditNote, Statement } from '../api/types'
-import { Badge, Confirm, EmptyState, Field, KPI, Modal, Notice, PageHeader, Skeleton } from '../components/ui'
+import type { Contract, ContractItem, CreditNote, CustomerSKU, Statement } from '../api/types'
+import { Badge, Confirm, EmptyState, Field, FormRow, KPI, Modal, Notice, PageHeader, Skeleton } from '../components/ui'
 import { useSession } from '../auth/session'
 import { can } from '../lib/access'
-import { CONTRACT_STATUSES, contractItemText, daysToEnd, renewalDue, termEnd, termText } from '../lib/contracts'
+import { CONTRACT_STATUSES, committedUnitPrice, contractFloor, contractItemText, daysToEnd, isCommitmentKind, quantityReading, renewalDue, termEnd, termText } from '../lib/contracts'
 import { day, today, when } from '../lib/format'
 import { formatMoney } from '../lib/money'
 import { toNumber } from '../lib/num'
 import { useQuery } from '../lib/useQuery'
 
 /**
- * One contract (DESIGN.md §15.9): the term and the monthly minimum, the
- * committed-use and allowance lines the rating engine applies, and the SLA
- * credit issued against a named statement.
+ * One contract (DESIGN.md §15.9): the term and the monthly floor, the
+ * committed-use, allowance and spend-commitment lines the rating engine
+ * applies, and the SLA credit issued against a named statement.
+ *
+ * The lines are a table with EDIT and DELETE on every row and one dialog per
+ * line (#6946): "Add committed use", "Add allowance" and "Add spend
+ * commitment" each open a form for ONE line, and a SKU is chosen from what
+ * the customer's price books price, never typed. Under every time-integrated
+ * quantity sits its human reading — "≈ 8 servers all month" beneath
+ * "5,952 instance-hour" — because the raw figure is what the engine uses and
+ * nobody reads it.
  *
  * Everything writable here is `customers.manage`, except the SLA credit,
  * which is `billing.issue` — it issues a real credit note. A principal
@@ -29,18 +36,25 @@ export function ContractDetail() {
   const c = q.data
   const canManage = can(me, 'customers.manage', c?.customer_id ?? null)
   const canIssue = can(me, 'billing.issue', c?.customer_id ?? null)
-  const [dialog, setDialog] = useState<'edit' | 'items' | 'sla' | 'delete' | null>(null)
+  const [dialog, setDialog] = useState<'edit' | 'sla' | 'delete' | null>(null)
+  const [line, setLine] = useState<LineDialog | null>(null)
   const [flash, setFlash] = useState('')
 
   if (q.error && !c) return <Notice kind="bad">{q.error}</Notice>
   if (!c) return <Skeleton lines={6} />
 
   const items = asList<ContractItem>(c.items ?? [], 'items')
-  const commitments = items.filter((it) => it.kind === 'commitment')
+  const commitments = items.filter((it) => isCommitmentKind(it.kind))
   const allowances = items.filter((it) => it.kind === 'allowance')
+  const floor = contractFloor(c)
   const on = today()
   const days = daysToEnd(c, on)
   const due = renewalDue(c, on)
+  const saved = async (what: string) => {
+    setLine(null)
+    setFlash(what)
+    await q.reload()
+  }
 
   return (
     <div className="stack">
@@ -65,7 +79,6 @@ export function ContractDetail() {
         actions={
           <>
             {canManage ? <button onClick={() => setDialog('edit')}>Edit</button> : null}
-            {canManage ? <button onClick={() => setDialog('items')}>Edit lines</button> : null}
             {canIssue ? <button onClick={() => setDialog('sla')}>Issue SLA credit</button> : null}
             {canManage ? (
               <button className="danger" onClick={() => setDialog('delete')}>
@@ -79,11 +92,23 @@ export function ContractDetail() {
 
       <div className="kpis">
         <KPI
-          label="Monthly minimum"
-          value={toNumber(c.minimum_commitment) > 0 ? formatMoney(toNumber(c.minimum_commitment), c.currency) : '—'}
-          note={toNumber(c.minimum_commitment) > 0 ? 'a period whose net falls below it carries a true-up line' : 'no minimum: every period is invoiced at what it rated'}
+          label="Monthly floor"
+          value={floor.amount > 0 ? formatMoney(floor.amount, c.currency) : '—'}
+          note={
+            floor.source === 'none'
+              ? 'no minimum and no spend commitment: every period is invoiced at what it rated'
+              : floor.source === 'minimum'
+                ? 'the contract’s minimum; a period whose net falls below it carries a true-up line'
+                : floor.source === 'spend'
+                  ? 'the spend commitment’s amount; a period whose net falls below it carries a true-up line'
+                  : `the larger of the minimum (${formatMoney(floor.minimum, c.currency)}) and the spend commitment (${formatMoney(floor.spend, c.currency)}); the two do not add up`
+          }
         />
-        <KPI label="Committed lines" value={commitments.length} note={commitments.length ? 'a quantity per period at a negotiated rate' : 'nothing committed'} />
+        <KPI
+          label="Committed lines"
+          value={commitments.length}
+          note={commitments.length ? (commitments.some((it) => it.kind === 'spend') ? 'a quantity at a negotiated rate, or an amount per period for a percentage off' : 'a quantity per period at a negotiated rate') : 'nothing committed'}
+        />
         <KPI label="Allowance lines" value={allowances.length} note={allowances.length ? 'on top of what the plan already includes' : 'the plan’s allowances only'} />
         <KPI
           label={c.auto_renew ? 'Renews' : 'Ends'}
@@ -111,37 +136,81 @@ export function ContractDetail() {
         <div className="card-head">
           <h2>Committed use and allowances</h2>
           <span className="hint">applied before the discounts, by the one rating engine</span>
+          {canManage ? (
+            <span className="btn-row">
+              <button type="button" className="small primary" onClick={() => setLine({ kind: 'commitment', item: null })}>
+                Add committed use
+              </button>
+              <button type="button" className="small primary" onClick={() => setLine({ kind: 'allowance', item: null })}>
+                Add allowance
+              </button>
+              <button type="button" className="small primary" disabled={items.some((it) => it.kind === 'spend')} title={items.some((it) => it.kind === 'spend') ? 'the contract already carries a spend commitment; edit that row' : undefined} onClick={() => setLine({ kind: 'spend', item: null })}>
+                Add spend commitment
+              </button>
+            </span>
+          ) : null}
         </div>
         {items.length === 0 ? (
           <EmptyState title="No lines">
             A committed-use line prices a quantity of a SKU per period at a negotiated rate, with anything above it at list. An allowance line includes a quantity on top of whatever the plan already
-            includes.
+            includes. A spend commitment is an amount per period, whatever is used, for a percentage off everything.
           </EmptyState>
         ) : (
           <div className="table-wrap">
-            <table>
+            <table aria-label="Contract lines">
               <thead>
                 <tr>
                   <th>Kind</th>
                   <th>SKU</th>
                   <th className="num">Quantity</th>
                   <th>What it does</th>
+                  {canManage ? <th className="actions" /> : null}
                 </tr>
               </thead>
               <tbody>
-                {items.map((it, i) => (
-                  <tr key={it.id ?? `${it.kind}-${it.sku}-${i}`}>
-                    <td>
-                      <Badge status={it.kind === 'commitment' ? 'committed' : 'allowance'} kind={it.kind === 'commitment' ? 'info' : undefined} />
-                    </td>
-                    <td className="mono nowrap">{it.sku}</td>
-                    <td className="num nowrap">
-                      {toNumber(it.quantity).toLocaleString(undefined, { maximumFractionDigits: 6 })}
-                      {it.unit ? <span className="sub">{it.unit}</span> : null}
-                    </td>
-                    <td>{contractItemText(it, c.currency)}</td>
-                  </tr>
-                ))}
+                {items.map((it, i) => {
+                  const reading = quantityReading(it.quantity, it.unit)
+                  const label = it.kind === 'spend' ? 'spend commitment' : it.kind === 'commitment' ? `${it.sku} commitment` : `${it.sku} allowance`
+                  return (
+                    <tr key={it.id ?? `${it.kind}-${it.sku}-${i}`} data-line-kind={it.kind}>
+                      <td>
+                        <Badge status={it.kind === 'commitment' ? 'committed' : it.kind === 'spend' ? 'spend' : 'allowance'} kind={it.kind === 'commitment' ? 'info' : it.kind === 'spend' ? 'ok' : undefined} />
+                      </td>
+                      <td className="mono nowrap">{it.kind === 'spend' ? <span className="muted">whole bill</span> : it.sku}</td>
+                      <td className="num nowrap">
+                        {it.kind === 'spend' ? (
+                          <>
+                            {formatMoney(toNumber(it.amount), c.currency)}
+                            <span className="sub">per period</span>
+                          </>
+                        ) : (
+                          <>
+                            {toNumber(it.quantity).toLocaleString(undefined, { maximumFractionDigits: 6 })}
+                            {it.unit ? <span className="sub">{it.unit}</span> : null}
+                            {reading ? (
+                              <div className="muted small" data-reading>
+                                {reading}
+                              </div>
+                            ) : null}
+                          </>
+                        )}
+                      </td>
+                      <td>{contractItemText(it, c.currency)}</td>
+                      {canManage ? (
+                        <td className="actions">
+                          <span className="btn-row">
+                            <button type="button" className="small" aria-label={`Edit ${label}`} onClick={() => setLine({ kind: it.kind === 'spend' ? 'spend' : it.kind === 'allowance' ? 'allowance' : 'commitment', item: it })}>
+                              Edit
+                            </button>
+                            <button type="button" className="small danger" aria-label={`Delete ${label}`} onClick={() => setLine({ kind: 'delete', item: it })}>
+                              Delete
+                            </button>
+                          </span>
+                        </td>
+                      ) : null}
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -170,17 +239,8 @@ export function ContractDetail() {
           }}
         />
       ) : null}
-      {dialog === 'items' ? (
-        <EditItemsModal
-          contract={c}
-          onClose={() => setDialog(null)}
-          onSaved={async () => {
-            setDialog(null)
-            setFlash('lines saved')
-            await q.reload()
-          }}
-        />
-      ) : null}
+      {line && line.kind !== 'delete' ? <LineEditor contract={c} kind={line.kind} item={line.item} onClose={() => setLine(null)} onSaved={() => saved(line.item ? 'line saved' : 'line added')} /> : null}
+      {line && line.kind === 'delete' && line.item ? <DeleteLineConfirm contract={c} item={line.item} onClose={() => setLine(null)} onDeleted={() => saved('line removed')} /> : null}
       {dialog === 'sla' ? (
         <SLACreditModal
           contract={c}
@@ -316,69 +376,95 @@ function EditContractModal({ contract, onClose, onSaved }: { contract: Contract;
   )
 }
 
-type ItemDraft = { kind: 'commitment' | 'allowance'; sku: string; unit: string; quantity: string; rate: 'price' | 'pct'; committed_price: string; discount_pct: string; rollover: boolean }
+type LineKind = 'commitment' | 'allowance' | 'spend'
 
-function draftOf(it: ContractItem): ItemDraft {
-  const hasPrice = it.committed_price !== null && it.committed_price !== undefined && it.committed_price !== ''
+/** What the line dialogs open on: a new line of a kind, an existing line to edit, or one to delete. */
+type LineDialog = { kind: LineKind; item: ContractItem | null } | { kind: 'delete'; item: ContractItem }
+
+type LineForm = { sku: string; unit: string; quantity: string; rate: 'pct' | 'price'; committed_price: string; discount_pct: string; amount: string; rollover: boolean }
+
+function formOf(kind: LineKind, it: ContractItem | null): LineForm {
+  const hasPrice = it?.committed_price !== null && it?.committed_price !== undefined && it?.committed_price !== ''
   return {
-    kind: it.kind === 'allowance' ? 'allowance' : 'commitment',
-    sku: it.sku,
-    unit: it.unit ?? '',
-    quantity: String(toNumber(it.quantity)),
+    sku: it?.sku ?? '',
+    unit: it?.unit ?? '',
+    quantity: it && kind !== 'spend' ? String(toNumber(it.quantity)) : '',
     rate: hasPrice ? 'price' : 'pct',
-    committed_price: hasPrice ? String(toNumber(it.committed_price)) : '',
-    discount_pct: toNumber(it.discount_pct) > 0 ? String(toNumber(it.discount_pct)) : '',
-    rollover: Boolean(it.rollover),
+    committed_price: hasPrice ? String(toNumber(it?.committed_price)) : '',
+    discount_pct: it && toNumber(it.discount_pct) > 0 ? String(toNumber(it.discount_pct)) : '',
+    amount: it && toNumber(it.amount) > 0 ? String(toNumber(it.amount)) : '',
+    rollover: Boolean(it?.rollover),
   }
 }
 
 /**
- * Replace the contract's lines. The list sent IS the whole list — the server
- * takes it as a replacement — so the editor shows every line at once rather
- * than pretending each row is saved on its own.
+ * ONE line, added or edited in a dialog (#6946). The SKU is a select over
+ * what the customer's price books price (`GET /customers/{id}/skus`) — never
+ * a text box: a typed SKU is a typo the engine finds no rate for. Choosing
+ * one fills the unit and shows the list price; the committed price or the
+ * percentage then shows the unit price it results in, live, and the human
+ * reading of the quantity updates under the field as it is typed. A spend
+ * commitment has no SKU and no quantity: an amount per period and the
+ * percentage it buys.
  */
-function EditItemsModal({ contract, onClose, onSaved }: { contract: Contract; onClose: () => void; onSaved: () => void | Promise<void> }) {
-  const [rows, setRows] = useState<ItemDraft[]>(() => (contract.items ?? []).map(draftOf))
+export function LineEditor({ contract, kind, item, onClose, onSaved }: { contract: Contract; kind: LineKind; item: ContractItem | null; onClose: () => void; onSaved: () => void | Promise<void> }) {
+  const skus = useQuery<{ skus: CustomerSKU[] }>(kind === 'spend' ? null : `/customers/${contract.customer_id}/skus`)
+  const options = useMemo(() => {
+    const list = [...(skus.data?.skus ?? [])].sort((a, b) => a.sku.localeCompare(b.sku))
+    // A line whose SKU the books no longer price stays selectable, so an
+    // edit of its quantity does not first demand a different SKU.
+    if (item?.sku && !list.some((o) => o.sku === item.sku)) list.unshift({ sku: item.sku, unit: item.unit ?? '', unit_price: '', price_book_id: '', price_book_name: 'not priced by the customer’s books', currency: contract.currency })
+    return list
+  }, [skus.data, item, contract.currency])
+  const [form, setForm] = useState<LineForm>(() => formOf(kind, item))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const set = (i: number, patch: Partial<ItemDraft>) => setRows((rs) => rs.map((r, k) => (k === i ? { ...r, ...patch } : r)))
-  const add = (kind: 'commitment' | 'allowance') =>
-    setRows((rs) => [...rs, { kind, sku: '', unit: '', quantity: '', rate: 'pct', committed_price: '', discount_pct: '', rollover: false }])
-  const remove = (i: number) => setRows((rs) => rs.filter((_, k) => k !== i))
+  const set = (patch: Partial<LineForm>) => setForm((f) => ({ ...f, ...patch }))
+  const chosen = options.find((o) => o.sku === form.sku)
+  const listPrice = chosen && chosen.unit_price !== '' ? toNumber(chosen.unit_price) : null
+  const resulting = kind === 'commitment' ? committedUnitPrice(listPrice, { committed_price: form.rate === 'price' ? form.committed_price : null, discount_pct: form.rate === 'pct' ? form.discount_pct : null }) : null
+  const reading = kind === 'spend' ? '' : quantityReading(form.quantity, form.unit)
+  const title = item ? (kind === 'spend' ? 'Edit the spend commitment' : `Edit ${item.sku} ${kind === 'commitment' ? 'commitment' : 'allowance'}`) : kind === 'commitment' ? 'Add committed use' : kind === 'allowance' ? 'Add allowance' : 'Add spend commitment'
 
   const problem = useMemo(() => {
-    for (const [i, r] of rows.entries()) {
-      if (!r.sku.trim()) return `Line ${i + 1} needs a SKU.`
-      if (r.quantity.trim() === '' || !(Number(r.quantity) >= 0)) return `Line ${i + 1} needs a quantity.`
-      if (r.kind === 'commitment' && r.rate === 'price' && r.committed_price.trim() === '') return `Line ${i + 1}: a committed-use line needs a committed price — a commitment at list is not a commitment.`
-      if (r.kind === 'commitment' && r.rate === 'pct' && r.discount_pct.trim() === '') return `Line ${i + 1}: a committed-use line needs a discount percentage — a commitment at list is not a commitment.`
+    if (kind === 'spend') {
+      if (!(Number(form.amount) > 0)) return 'A spend commitment needs an amount per period above zero.'
+      if (form.discount_pct.trim() === '' || !(Number(form.discount_pct) >= 0) || Number(form.discount_pct) >= 100) return 'The percentage off is from 0 up to, not including, 100.'
+      return ''
     }
-    const seen = new Set<string>()
-    for (const r of rows) {
-      const key = `${r.kind}:${r.sku.trim()}`
-      if (seen.has(key)) return `${r.sku.trim()} appears twice as ${article(r.kind)} ${r.kind} line.`
-      seen.add(key)
-    }
+    if (!form.sku) return 'Choose the SKU the line is for.'
+    if (form.quantity.trim() === '' || !(Number(form.quantity) >= 0)) return 'A line needs a quantity per period.'
+    if (kind === 'commitment' && form.rate === 'price' && form.committed_price.trim() === '') return 'A committed-use line needs a committed price — a commitment at list is not a commitment.'
+    if (kind === 'commitment' && form.rate === 'pct' && form.discount_pct.trim() === '') return 'A committed-use line needs a percentage off list — a commitment at list is not a commitment.'
     return ''
-  }, [rows])
+  }, [form, kind])
+
+  const chooseSku = (sku: string) => {
+    const o = options.find((x) => x.sku === sku)
+    set({ sku, unit: o?.unit ?? form.unit })
+  }
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     if (problem) return
     setBusy(true)
     setError('')
+    const body: Record<string, unknown> =
+      kind === 'spend'
+        ? { kind, sku: '', quantity: '0', amount: form.amount.trim(), discount_pct: form.discount_pct.trim(), committed_price: null, rollover: false }
+        : {
+            kind,
+            sku: form.sku,
+            unit: form.unit.trim(),
+            quantity: form.quantity.trim(),
+            committed_price: kind === 'commitment' && form.rate === 'price' ? form.committed_price.trim() : null,
+            discount_pct: kind === 'commitment' && form.rate === 'pct' ? form.discount_pct.trim() : null,
+            amount: null,
+            rollover: kind === 'allowance' ? form.rollover : false,
+          }
     try {
-      await api.put(`/contracts/${contract.id}/items`, {
-        items: rows.map((r) => ({
-          kind: r.kind,
-          sku: r.sku.trim(),
-          unit: r.unit.trim(),
-          quantity: r.quantity.trim(),
-          committed_price: r.kind === 'commitment' && r.rate === 'price' ? r.committed_price.trim() : null,
-          discount_pct: r.kind === 'commitment' && r.rate === 'pct' ? r.discount_pct.trim() : null,
-          rollover: r.kind === 'allowance' ? r.rollover : false,
-        })),
-      })
+      if (item?.id) await api.patch(`/contracts/${contract.id}/items/${item.id}`, body)
+      else await api.post(`/contracts/${contract.id}/items`, body)
       await onSaved()
     } catch (err) {
       setError(errorText(err))
@@ -389,87 +475,135 @@ function EditItemsModal({ contract, onClose, onSaved }: { contract: Contract; on
 
   return (
     <Modal
-      title={`Lines of ${contract.name}`}
-      wide
+      title={title}
       onClose={onClose}
       footer={
         <>
           <button type="button" onClick={onClose} disabled={busy}>
             Cancel
           </button>
-          <button className="primary" form="contract-items" disabled={busy || Boolean(problem)}>
-            {busy ? 'Saving…' : 'Save lines'}
+          <button className="primary" form="contract-line" disabled={busy || Boolean(problem)}>
+            {busy ? 'Saving…' : item ? 'Save line' : 'Add line'}
           </button>
         </>
       }
     >
-      <form id="contract-items" onSubmit={(e) => void submit(e)} className="stack tight">
+      <form id="contract-line" onSubmit={(e) => void submit(e)} className="stack tight" aria-label={title}>
         {error ? <Notice kind="bad">{error}</Notice> : null}
-        <p className="muted small" style={{ margin: 0 }}>
-          The list below is the whole list: a line removed here is removed from the contract. Committed use reprices the head of a period&rsquo;s volume; an allowance takes a quantity off it before
-          anything is priced at all.
-        </p>
-        {rows.length === 0 ? <EmptyState title="No lines yet">Add a committed-use line or an allowance.</EmptyState> : null}
-        {rows.map((r, i) => (
-          <div key={i} className="card flat stack tight">
-            <div className="row between">
-              <b>
-                {r.kind === 'commitment' ? 'Committed use' : 'Allowance'} · line {i + 1}
-              </b>
-              <button type="button" className="link small danger" onClick={() => remove(i)}>
-                Remove
-              </button>
-            </div>
-            <div className="grid3">
-              <Field label="SKU">
-                <input className="mono" value={r.sku} onChange={(e) => set(i, { sku: e.target.value })} placeholder="ecs.m7n.2xlarge.8" aria-label={`Line ${i + 1} SKU`} />
+        {kind === 'spend' ? (
+          <>
+            <p className="muted small" style={{ margin: 0 }}>
+              An amount the customer pays every period whether it uses anything or not, in return for a percentage off everything on the bill. A period rated below the amount is trued up to it; the
+              percentage comes off before the true-up, through the same discount engine as any other discount.
+            </p>
+            <FormRow>
+              <Field label={`Amount per period (${contract.currency})`} help="The floor the period is trued up to.">
+                <input autoFocus type="number" step="any" min={0} value={form.amount} onChange={(e) => set({ amount: e.target.value })} aria-label="Amount per period" placeholder="1000" />
               </Field>
-              <Field label="Unit">
-                <input value={r.unit} onChange={(e) => set(i, { unit: e.target.value })} placeholder="instance-hour" aria-label={`Line ${i + 1} unit`} />
+              <Field label="Discount (%)" help="Off every line of the period, on top of any other discount that applies.">
+                <input type="number" step="any" min={0} max={99.9999} value={form.discount_pct} onChange={(e) => set({ discount_pct: e.target.value })} aria-label="Spend discount percent" placeholder="50" />
               </Field>
-              <Field label="Quantity per period">
-                <input type="number" step="any" min={0} value={r.quantity} onChange={(e) => set(i, { quantity: e.target.value })} aria-label={`Line ${i + 1} quantity`} />
+            </FormRow>
+          </>
+        ) : (
+          <>
+            <FormRow>
+              <Field label="SKU" help={skus.error ? skus.error : chosen?.price_book_name ? `priced by ${chosen.price_book_name}` : skus.data && options.length === 0 ? 'none of this customer’s sources has a price book yet' : 'what the customer’s price books price'}>
+                <select value={form.sku} onChange={(e) => chooseSku(e.target.value)} aria-label="SKU" disabled={!skus.data && !item}>
+                  <option value="">{skus.data || item ? 'Choose a SKU…' : 'Loading…'}</option>
+                  {options.map((o) => (
+                    <option key={o.sku} value={o.sku}>
+                      {o.description ? `${o.sku} — ${o.description}` : o.sku}
+                    </option>
+                  ))}
+                </select>
               </Field>
-              {r.kind === 'commitment' ? (
+              <Field label="Unit" help="From the price book.">
+                <input value={form.unit} readOnly aria-label="Unit" placeholder="—" />
+              </Field>
+              <Field label={`List price (${contract.currency})`} help={chosen ? `per ${chosen.unit || 'unit'}` : undefined}>
+                <input value={listPrice === null ? '' : String(listPrice)} readOnly aria-label="List price" placeholder="—" />
+              </Field>
+            </FormRow>
+            <FormRow>
+              <Field label="Quantity per period" help={reading || (form.unit ? `in ${form.unit}` : undefined)}>
+                <input autoFocus type="number" step="any" min={0} value={form.quantity} onChange={(e) => set({ quantity: e.target.value })} aria-label="Quantity per period" />
+              </Field>
+              {kind === 'commitment' ? (
                 <>
                   <Field label="Rate">
-                    <select value={r.rate} onChange={(e) => set(i, { rate: e.target.value === 'price' ? 'price' : 'pct' })} aria-label={`Line ${i + 1} rate kind`}>
+                    <select value={form.rate} onChange={(e) => set({ rate: e.target.value === 'price' ? 'price' : 'pct' })} aria-label="Rate kind">
                       <option value="pct">Percent off list</option>
                       <option value="price">Committed unit price</option>
                     </select>
                   </Field>
-                  {r.rate === 'pct' ? (
-                    <Field label="Discount (%)">
-                      <input type="number" step="any" min={0} max={100} value={r.discount_pct} onChange={(e) => set(i, { discount_pct: e.target.value })} aria-label={`Line ${i + 1} discount percent`} />
+                  {form.rate === 'pct' ? (
+                    <Field label="Discount (%)" help={resulting !== null ? `→ ${resulting} ${contract.currency} per ${form.unit || 'unit'}` : listPrice === null ? 'choose a priced SKU to see the resulting rate' : undefined}>
+                      <input type="number" step="any" min={0} max={100} value={form.discount_pct} onChange={(e) => set({ discount_pct: e.target.value })} aria-label="Discount percent" />
                     </Field>
                   ) : (
-                    <Field label={`Committed price (${contract.currency})`}>
-                      <input type="number" step="any" min={0} value={r.committed_price} onChange={(e) => set(i, { committed_price: e.target.value })} aria-label={`Line ${i + 1} committed price`} />
+                    <Field label={`Committed price (${contract.currency})`} help={resulting !== null && listPrice !== null ? `${listPrice > 0 ? Math.round((1 - resulting / listPrice) * 1000) / 10 : 0} % off the list price` : 'the negotiated unit price'}>
+                      <input type="number" step="any" min={0} value={form.committed_price} onChange={(e) => set({ committed_price: e.target.value })} aria-label="Committed price" />
                     </Field>
                   )}
                 </>
               ) : (
                 <Field label="Carry over">
                   <label className="check">
-                    <input type="checkbox" checked={r.rollover} onChange={(e) => set(i, { rollover: e.target.checked })} aria-label={`Line ${i + 1} rollover`} /> Carry the unused part into the next period
+                    <input type="checkbox" checked={form.rollover} onChange={(e) => set({ rollover: e.target.checked })} aria-label="Carry over" /> Carry the unused part into the next period
                   </label>
                 </Field>
               )}
-            </div>
-            <div className="help">{contractItemText({ kind: r.kind, sku: r.sku || '<sku>', unit: r.unit, quantity: r.quantity || '0', committed_price: r.rate === 'price' ? r.committed_price : null, discount_pct: r.rate === 'pct' ? r.discount_pct : null, rollover: r.rollover }, contract.currency)}</div>
-          </div>
-        ))}
-        {problem ? <Notice kind="bad">{problem}</Notice> : null}
-        <div className="row">
-          <button type="button" onClick={() => add('commitment')}>
-            Add committed use
-          </button>
-          <button type="button" onClick={() => add('allowance')}>
-            Add allowance
-          </button>
+            </FormRow>
+          </>
+        )}
+        <div className="help">
+          {contractItemText(
+            kind === 'spend'
+              ? { kind, sku: '', quantity: '0', amount: form.amount || '0', discount_pct: form.discount_pct || '0' }
+              : { kind, sku: form.sku || '<sku>', unit: form.unit, quantity: form.quantity || '0', committed_price: form.rate === 'price' ? form.committed_price : null, discount_pct: form.rate === 'pct' ? form.discount_pct : null, rollover: form.rollover },
+            contract.currency,
+          )}
         </div>
+        {problem ? <Notice kind="bad">{problem}</Notice> : null}
       </form>
     </Modal>
+  )
+}
+
+/** Remove ONE line. Nothing already invoiced changes; the next run rates without it. */
+function DeleteLineConfirm({ contract, item, onClose, onDeleted }: { contract: Contract; item: ContractItem; onClose: () => void; onDeleted: () => void | Promise<void> }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const what = item.kind === 'spend' ? 'the spend commitment' : `the ${item.sku} ${item.kind === 'commitment' ? 'commitment' : 'allowance'}`
+  return (
+    <Confirm
+      title={`Remove ${what}?`}
+      danger
+      busy={busy}
+      confirmLabel="Remove line"
+      onClose={onClose}
+      onConfirm={async () => {
+        setBusy(true)
+        setError('')
+        try {
+          await api.del(`/contracts/${contract.id}/items/${item.id}`)
+          await onDeleted()
+        } catch (e) {
+          setError(errorText(e))
+        } finally {
+          setBusy(false)
+        }
+      }}
+      body={
+        <div className="stack tight">
+          <p>
+            {contractItemText(item, contract.currency)} Periods already rated under it keep their statements and their numbers; from the next run {contract.customer_name} is rated without this line.
+          </p>
+          {error ? <Notice kind="bad">{error}</Notice> : null}
+        </div>
+      }
+    />
   )
 }
 

@@ -2284,19 +2284,38 @@ export interface Dispute {
 export interface ContractItem {
   id?: string
   contract_id?: string
-  kind: 'commitment' | 'allowance' | string
+  /**
+   * commitment — a quantity of one SKU per period at a negotiated rate;
+   * allowance — a quantity of one SKU included per period;
+   * spend — an AMOUNT per period, whatever is used, for a percentage off
+   * the whole bill (DESIGN.md §15.3a). A spend line names no SKU.
+   */
+  kind: 'commitment' | 'allowance' | 'spend' | string
   sku: string
   unit?: string
   /** Committed quantity per billing period, or allowance units per period. */
   quantity: number | string
   /** A commitment's negotiated unit price… */
   committed_price?: number | string | null
-  /** …or the percentage off list it stands for. One of the two is required. */
+  /** …or the percentage off list it stands for. One of the two is required. On a spend line: the percentage off everything. */
   discount_pct?: number | string | null
+  /** Spend only: the amount per period, in the contract currency — the floor the period is trued up to. */
+  amount?: number | string | null
   /** Allowance only: carry the unused part into the next period. */
   rollover?: boolean
   notes?: string
   created_at?: string
+}
+
+/** GET /customers/{id}/skus — one SKU the customer's price books price, the contract-line dialog's select. */
+export interface CustomerSKU {
+  sku: string
+  unit: string
+  unit_price: number | string
+  description?: string
+  price_book_id: string
+  price_book_name: string
+  currency: string
 }
 
 /** DESIGN.md §15.4 — the agreement a customer's commercial terms hang on. */

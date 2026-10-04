@@ -83,10 +83,114 @@ export function termText(c: Pick<Contract, 'term_months' | 'starts_on' | 'ends_o
   return `${term}${dayOf(c.starts_on) || '?'} → ${dayOf(c.ends_on) || '?'}`
 }
 
+/**
+ * HOURS_PER_MONTH is the product's own convention for a time-integrated
+ * quantity: a monthly price is an hourly price × 730 (store.PlanBook,
+ * "hourly = annual / 8760 = monthly / 730"), so a quantity of unit-hours per
+ * period divided by 730 is "this many, always on".
+ */
+export const HOURS_PER_MONTH = 730
+
+/**
+ * THE HUMAN READING of a time-integrated quantity, under the raw figure the
+ * engine uses: "744,000 gb-hour" is what the rating engine takes off the top,
+ * "≈ 1,019 GB always on" is what a person reads. The raw quantity stays —
+ * it is the contract — and this is the muted line beneath it.
+ *
+ *   gb-hour / gib-hour → "≈ 1,019 GB always on"  (÷ 730, whole GB or GiB)
+ *   mbps-hour          → "≈ 10 Mbps always on"
+ *   instance-hour      → "≈ 8 servers all month" (one decimal when not whole)
+ *   plan-hour          → "≈ 1 plan all month"
+ *   vcpu-hour          → "≈ 4 vCPU always on"
+ *   anything else      → ''  (a unit that is not per hour has no such reading)
+ */
+export function quantityReading(quantity: number | string | null | undefined, unit: string | null | undefined): string {
+  const q = toNumber(quantity)
+  const u = (unit ?? '').trim().toLowerCase()
+  if (!(q > 0) || !u) return ''
+  const per = q / HOURS_PER_MONTH
+  switch (u) {
+    case 'gb-hour':
+      return `≈ ${wholeNumber(per)} GB always on`
+    case 'gib-hour':
+      return `≈ ${wholeNumber(per)} GiB always on`
+    case 'mbps-hour':
+      return `≈ ${wholeNumber(per)} Mbps always on`
+    case 'instance-hour': {
+      const n = oneDecimal(per)
+      return `≈ ${n} ${n === '1' ? 'server' : 'servers'} all month`
+    }
+    case 'plan-hour': {
+      const n = oneDecimal(per)
+      return `≈ ${n} ${n === '1' ? 'plan' : 'plans'} all month`
+    }
+    case 'vcpu-hour':
+      return `≈ ${oneDecimal(per)} vCPU always on`
+    default:
+      return ''
+  }
+}
+
+/** 1019.18 → "1,019"; a whole number of the unit, grouped. */
+function wholeNumber(v: number): string {
+  return Math.round(v).toLocaleString('en-US', { maximumFractionDigits: 0 })
+}
+
+/** 8.15 → "8.2", 8.02 → "8", 1 → "1": one decimal only when the figure is not whole at that precision. */
+function oneDecimal(v: number): string {
+  const r = Math.round(v * 10) / 10
+  return r.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 1 })
+}
+
+/**
+ * The monthly floor a contract is trued up to and where it comes from: the
+ * header minimum, the spend commitment's amount, or — when the contract
+ * carries both — the LARGER of the two (store.Contract.MonthlyFloor). Two
+ * promises of "at least this much" do not add up; the higher one is the
+ * promise, and the page says so.
+ */
+export function contractFloor(c: Pick<Contract, 'minimum_commitment' | 'items'>): { amount: number; source: 'none' | 'minimum' | 'spend' | 'both'; minimum: number; spend: number } {
+  const minimum = Math.max(0, toNumber(c.minimum_commitment))
+  const spendLine = (c.items ?? []).find((it) => it.kind === 'spend')
+  const spend = spendLine ? Math.max(0, toNumber(spendLine.amount)) : 0
+  if (minimum <= 0 && spend <= 0) return { amount: 0, source: 'none', minimum, spend }
+  if (minimum > 0 && spend > 0) return { amount: Math.max(minimum, spend), source: 'both', minimum, spend }
+  return minimum > 0 ? { amount: minimum, source: 'minimum', minimum, spend } : { amount: spend, source: 'spend', minimum, spend }
+}
+
+/** Does the line count as a commitment on the page? A committed quantity or a committed amount. */
+export function isCommitmentKind(kind: string): boolean {
+  return kind === 'commitment' || kind === 'spend'
+}
+
+/**
+ * The unit price a committed-use line results in, given the SKU's list
+ * price: the committed price when one is written, else list less the
+ * percentage. null when there is nothing to compute from yet — the figure the
+ * dialog shows live under the rate field.
+ */
+export function committedUnitPrice(listPrice: number | null | undefined, it: Pick<ContractItem, 'committed_price' | 'discount_pct'>): number | null {
+  const price = it.committed_price
+  if (price !== null && price !== undefined && String(price).trim() !== '') return toNumber(price)
+  const pct = it.discount_pct
+  if (listPrice === null || listPrice === undefined || !Number.isFinite(listPrice)) return null
+  if (pct === null || pct === undefined || String(pct).trim() === '') return null
+  return round8(listPrice * (1 - toNumber(pct) / 100))
+}
+
+function round8(v: number): number {
+  return Math.round(v * 1e8) / 1e8
+}
+
 /** What a contract line is, in words, for the list and the detail page. */
 export function contractItemText(it: ContractItem, currency: string): string {
   const qty = trimZeros(String(toNumber(it.quantity)))
   const unit = it.unit ? ` ${it.unit}` : ''
+  if (it.kind === 'spend') {
+    const amount = trimZeros(String(toNumber(it.amount)))
+    const pct = trimZeros(String(toNumber(it.discount_pct)))
+    return `${amount} ${currency} committed each period, whatever is used, for ${pct} % off everything on the bill; a period below it carries a true-up line.`
+  }
   if (it.kind === 'allowance') {
     const roll = it.rollover ? 'carried into the next period if unused' : 'lapses at the end of each period'
     return `${qty}${unit} of ${it.sku} included each period; ${roll}.`

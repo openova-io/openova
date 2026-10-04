@@ -586,6 +586,91 @@ func TestMonthsCoverTheStory(t *testing.T) {
 	}
 }
 
+// TestShowcaseContractsCoverEveryKind — three customers carry one agreement
+// each, the three agreements between them carry every kind of line the
+// engine rates (a committed quantity at a percentage, a committed quantity at
+// a price, an allowance that lapses, one that carries over, and a spend
+// commitment), every agreement is in force for every showcase month, and the
+// committed head is a figure the usage actually crosses — a commitment the
+// usage never reaches would demonstrate nothing above it.
+func TestShowcaseContractsCoverEveryKind(t *testing.T) {
+	s := defaultScenario()
+	kinds := map[string]int{}
+	withContract := 0
+	for _, c := range s.Customers {
+		if len(c.Contracts) == 0 {
+			continue
+		}
+		withContract++
+		if len(c.Contracts) != 1 {
+			t.Fatalf("%s carries %d agreements, want one", c.Slug, len(c.Contracts))
+		}
+		ct := c.Contracts[0]
+		starts, months := ct.Term(s.Window)
+		ends := starts.AddDate(0, months, 0).AddDate(0, 0, -1)
+		for _, period := range s.Months(c) {
+			from, _, _ := MonthBounds(period)
+			if from.Before(starts) || from.After(ends) {
+				t.Errorf("%s: %q does not cover %s (term %s .. %s)", c.Slug, ct.Name, period, starts.Format("2006-01-02"), ends.Format("2006-01-02"))
+			}
+		}
+		for _, l := range ct.Lines {
+			key := l.Kind
+			switch {
+			case l.Kind == ContractCommitment && l.CommittedPrice > 0:
+				key = "commitment at a price"
+			case l.Kind == ContractCommitment:
+				key = "commitment at a percentage"
+			case l.Kind == ContractAllowance && l.Rollover:
+				key = "allowance with carry-over"
+			case l.Kind == ContractAllowance:
+				key = "allowance"
+			}
+			kinds[key]++
+			if l.Kind == ContractSpend && (l.SKU != "" || l.Amount <= 0 || l.DiscountPct <= 0) {
+				t.Errorf("%s: spend line %+v names a SKU or lacks an amount or a percentage", c.Slug, l)
+			}
+			if l.Kind != ContractSpend && (l.SKU == "" || l.Unit == "" || l.Quantity <= 0) {
+				t.Errorf("%s: line %+v lacks a SKU, a unit or a quantity", c.Slug, l)
+			}
+		}
+	}
+	if withContract != 3 {
+		t.Fatalf("%d customers carry an agreement, want 3", withContract)
+	}
+	for _, want := range []string{"commitment at a percentage", "commitment at a price", "allowance", "allowance with carry-over", "spend"} {
+		if kinds[want] == 0 {
+			t.Errorf("no showcase agreement carries a line of kind %q; kinds seen: %v", want, kinds)
+		}
+	}
+	// Gulf Retail's committed head: eight servers all month (8 × 744), which
+	// its August pool exceeds and its June pool does not — so one month
+	// shows the excess at list and another the head alone.
+	gulf := s.Customer("gulf-retail")
+	var head float64
+	for _, l := range gulf.Contracts[0].Lines {
+		if l.Kind == ContractCommitment && l.SKU == "ecs.m7n.xlarge.8" {
+			head = l.Quantity
+		}
+	}
+	if head != 5952 {
+		t.Fatalf("Gulf Retail commits %.0f instance-hours, want 5952", head)
+	}
+	byMonth := map[string]float64{}
+	for _, r := range s.Generate(gulf).Records {
+		if r.SKU == "ecs.m7n.xlarge.8" {
+			byMonth[r.Start.Format("2006-01")] += r.Quantity
+		}
+	}
+	if byMonth["2026-08"] <= head || byMonth["2026-06"] >= head {
+		t.Fatalf("compute June %.0f / August %.0f against a head of %.0f: the showcase needs one month under and one over", byMonth["2026-06"], byMonth["2026-08"], head)
+	}
+	// Nizwa's floor is the spend line's; the header carries none.
+	if n := s.Customer("nizwa-fintech"); n.Contracts[0].MinimumCommitment != 0 {
+		t.Fatalf("Nizwa carries a header minimum of %.0f beside its spend commitment", n.Contracts[0].MinimumCommitment)
+	}
+}
+
 // TestCSVIsStableAndComplete — the chunk the command uploads round-trips the
 // fields the ledger needs.
 func TestCSVIsStableAndComplete(t *testing.T) {

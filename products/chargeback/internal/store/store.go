@@ -491,6 +491,12 @@ ALTER TABLE cost_sources ADD CONSTRAINT cost_sources_status_check CHECK (status 
 	// class it already uses. Appended at the very END: migrations are
 	// positional. Located by content as MigrationCapacityClasses.
 	capacityClassesMigrationSQL(),
+	// DESIGN.md §15.3a (founder direction 2026-10-04) — the SPEND COMMITMENT
+	// line of a contract: an amount per period with a percentage off the
+	// whole bill, instead of a quantity of one SKU. Adds contract_items.amount
+	// and admits the kind. Appended at the very END: migrations are
+	// positional. Located by content as MigrationContractSpend.
+	contractSpendMigrationSQL,
 }
 
 // MigrationBackfillIssuedInvoices is the schema_migrations version of the

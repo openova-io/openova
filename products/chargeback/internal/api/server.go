@@ -360,8 +360,12 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("PATCH /api/v1/contracts/{id}", h.patchContract)
 	mux.HandleFunc("DELETE /api/v1/contracts/{id}", h.deleteContract)
 	mux.HandleFunc("PUT /api/v1/contracts/{id}/items", h.putContractItems)
+	mux.HandleFunc("POST /api/v1/contracts/{id}/items", h.addContractItem)
+	mux.HandleFunc("PATCH /api/v1/contracts/{id}/items/{item}", h.patchContractItem)
+	mux.HandleFunc("DELETE /api/v1/contracts/{id}/items/{item}", h.deleteContractItem)
 	mux.HandleFunc("POST /api/v1/contracts/{id}/sla-credit", h.issueSLACredit)
 	mux.HandleFunc("GET /api/v1/customers/{id}/contracts", h.customerContracts)
+	mux.HandleFunc("GET /api/v1/customers/{id}/skus", h.customerSKUs)
 
 	mux.HandleFunc("GET /api/v1/billing-settings", h.getBillingSettings)
 	mux.HandleFunc("PUT /api/v1/billing-settings", h.putBillingSettings)

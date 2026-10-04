@@ -155,6 +155,7 @@ import { FinanceAccounts } from './FinanceAccounts'
 import { FinanceJournal } from './FinanceJournal'
 import { FinancePeriods } from './FinancePeriods'
 import { FinanceReconciliation } from './FinanceReconciliation'
+import { periodLabel, recentPeriods } from '../lib/finance'
 
 function render(el: () => ReactElement, at: string): string {
   const html = renderToString(createElement(MemoryRouter, { initialEntries: [at] }, createElement(el))).replace(/<!-- -->/g, '')
@@ -229,8 +230,11 @@ describe('Finance → Period close', () => {
   })
   it('offers the close, disabled while something blocks it', () => {
     const html = render(FinancePeriods, '/finance/periods')
-    expect(html).toContain('Close August 2026')
-    expect(html).toMatch(/Close August 2026<\/button>/)
+    // The page opens on the month BEFORE the current one — the one that can
+    // be closed — so the label follows the clock, as the page does.
+    const label = `Close ${periodLabel(recentPeriods()[1])}`
+    expect(html).toContain(label)
+    expect(html).toMatch(new RegExp(`${label}</button>`))
     expect(html).toContain('disabled=""')
     expect(html).toContain('no statement in it may be issued, re-run, cancelled or credited')
   })

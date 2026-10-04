@@ -173,6 +173,38 @@ type apiBudget struct {
 	Name string `json:"name"`
 }
 
+// apiContract is a contract as GET /contracts/{id} returns it — the fields
+// this command compares a re-run against (contracts.go).
+type apiContract struct {
+	ID                string            `json:"id"`
+	CustomerID        string            `json:"customer_id"`
+	Name              string            `json:"name"`
+	StartsOn          string            `json:"starts_on"`
+	EndsOn            string            `json:"ends_on"`
+	TermMonths        int               `json:"term_months"`
+	AutoRenew         bool              `json:"auto_renew"`
+	RenewalNoticeDays int               `json:"renewal_notice_days"`
+	MinimumCommitment *json.Number      `json:"minimum_commitment"`
+	Currency          string            `json:"currency"`
+	Status            string            `json:"status"`
+	SignedAt          *string           `json:"signed_at"`
+	PORef             string            `json:"po_reference"`
+	Notes             string            `json:"notes"`
+	Items             []apiContractItem `json:"items"`
+}
+
+type apiContractItem struct {
+	ID             string       `json:"id"`
+	Kind           string       `json:"kind"`
+	SKU            string       `json:"sku"`
+	Unit           string       `json:"unit"`
+	Quantity       json.Number  `json:"quantity"`
+	CommittedPrice *json.Number `json:"committed_price"`
+	DiscountPct    *json.Number `json:"discount_pct"`
+	Amount         *json.Number `json:"amount"`
+	Rollover       bool         `json:"rollover"`
+}
+
 type apiStatement struct {
 	ID          string `json:"id"`
 	CustomerID  string `json:"customer_id"`
@@ -304,6 +336,35 @@ func (c *client) listBudgets() ([]apiBudget, error) {
 func (c *client) createBudget(body map[string]any) (apiBudget, error) {
 	var out apiBudget
 	err := c.do("POST", "/api/v1/budgets", body, &out)
+	return out, err
+}
+
+// listContracts returns one customer's contracts, the Contract tab's list.
+func (c *client) listContracts(customerID string) ([]apiContract, error) {
+	var out struct {
+		Contracts []apiContract `json:"contracts"`
+	}
+	err := c.do("GET", "/api/v1/customers/"+url.PathEscape(customerID)+"/contracts", nil, &out)
+	return out.Contracts, err
+}
+
+func (c *client) createContract(body map[string]any) (apiContract, error) {
+	var out apiContract
+	err := c.do("POST", "/api/v1/contracts", body, &out)
+	return out, err
+}
+
+func (c *client) patchContract(id string, body map[string]any) (apiContract, error) {
+	var out apiContract
+	err := c.do("PATCH", "/api/v1/contracts/"+url.PathEscape(id), body, &out)
+	return out, err
+}
+
+// putContractItems replaces a contract's lines: the list sent is the whole
+// list, which is what makes a re-run converge on exactly the scenario's lines.
+func (c *client) putContractItems(id string, items []map[string]any) (apiContract, error) {
+	var out apiContract
+	err := c.do("PUT", "/api/v1/contracts/"+url.PathEscape(id)+"/items", map[string]any{"items": items}, &out)
 	return out, err
 }
 

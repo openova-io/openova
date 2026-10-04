@@ -904,8 +904,9 @@ giving the Sovereign's own landlord customer a past that converges on its real
 present, so the series joins the two instead of jumping between them.
 
 **Where it writes.** Through the product's own surfaces wherever they exist —
-`POST /customers`, sources, price books, discounts, budgets,
-`POST /statements/run`, `POST /statements/{id}/issue` with `notify:false` — so
+`POST /customers`, sources, price books, discounts, budgets, `POST /contracts`
+and `PUT /contracts/{id}/items`, `POST /statements/run`,
+`POST /statements/{id}/issue` with `notify:false` — so
 every invariant, validation and audit entry is the product's own rather than
 this tool's imitation of it. Three things have no endpoint, because the
 collectors write them and nothing else does: the usage ledger, the resource
@@ -960,6 +961,37 @@ OMR budget that reaches 50 % in June, 80 % in July and 100 % in August; plan
 upgrades and a downgrade, each splitting the switch day into exactly 24
 plan-hours; a suspended Organization that pays its plan and meters nothing
 else; and eighteen statements issued on the first of the following month.
+
+**Three contracts, so the Contracts module demonstrates itself.** The seeder
+made customers, sources, price books and three months of usage, but no
+agreement, and the founder opened the only contract on hw307 to an almost
+blank page (2026-10-04: *"is this a proper example?"*). A module whose only
+record on a fresh environment is empty demonstrates nothing, so three of the
+six showcase customers now carry one agreement each, created by name through
+the contracts API before their statements are run and therefore **rating
+those statements**: **Gulf Retail Group** — a twelve-month framework
+agreement, auto-renewing with 60 days' notice, eight `ecs.m7n.xlarge.8`
+committed at 30 % off (5,952 instance-hours; June and July sit under the head,
+August's 6,734 pays the excess at list), 1 TB of SSD and a 10 Mbps pipe as
+allowances, and a 1,500 OMR floor the shaped months fall under, so the
+true-up line appears; **Dhofar Logistics** — storage-led, 4 TB of SSD at a
+committed *price* of 0.00018 per GB-hour, a 4 Mbps allowance that carries
+over, 90 days' notice and **no** auto-renewal, so it is the one the
+renewals-due list will name; **Nizwa Fintech** — a **spend commitment**
+(§15.3a) of 20 OMR a month for 15 % off the whole bill, with no header
+minimum, so every plan month (5 / 9 / 16 OMR) is trued up to the 20 and the
+discount shows beside the true-up. Between them the three carry every kind of
+line the engine rates, which `TestShowcaseContractsCoverEveryKind` pins. Each
+starts 2026-01-01 for twelve months; `synth.Contract.Term` pulls the start
+back to the first month of a `--from` that precedes it and lengthens the term
+past a `--to` that outruns it, so the agreement is active for every month
+generated whatever window is asked for. The contract is matched by name on a
+re-run and written to only when something differs from the scenario — the API
+audits every write, and identical terms re-sent on every run would stack an
+entry each time; `TestShowcaseContractsAreSeededRatedAndPurged` holds that a
+second run leaves `updated_at` and the audit count where they were, that
+August's compute rates 5,952 at the committed price and the rest at list, and
+that `--purge` removes the three with the rest of the showcase.
 
 One deliberate tension is recorded rather than hidden. The founder asked for
 each cloud customer to bill 1,500–4,000 OMR a month *and* for the 1,800 OMR
@@ -3271,8 +3303,56 @@ both pinned by `TestCommitmentUnderAndOver`:
 A committed-use line carries either a **committed price** or a **discount
 percentage** off list; a commitment at list is refused, because it is not a
 commitment. Unused commitment is **not** invoiced by itself — the instrument
-for "you will spend at least X" is the minimum commitment of §15.4, which is
-explicit on the bill rather than hidden inside a rate.
+for "you will spend at least X" is the minimum commitment of §15.4 or the
+spend commitment of §15.3a, both explicit on the bill rather than hidden
+inside a rate.
+
+### 15.3a Spend commitment — an amount bought ahead, for a percentage off everything
+
+The third kind of line (founder direction 2026-10-04, looking at the hw307
+contract page: *"when I want to commit on something it is showing me SKUs"*
+and *"he is getting 50 % discount because he committed to pay 1,000 OMR
+every month no matter he is using anything"*). A customer commits to an
+**amount per period** — not a quantity of one SKU — and in return gets a
+**percentage off every line** of the period. The industry sells it as a
+spend commitment (AWS Savings Plans in their per-dollar form, Azure MACC,
+GCP spend-based CUDs).
+
+    contract_items(kind = 'spend', amount, discount_pct)   — no sku, no quantity
+
+Two things happen in the engine, and both reuse what already exists:
+
+- **the percentage is a discount.** At rating time the active contract's
+  spend line is turned into one `store.Discount` — percent, whole bill,
+  **stackable**, owned by the line (`discount_id` = the line's id) — and fed
+  through the **same** `ApplyDiscounts` a customer discount takes
+  (`rating.SpendDiscount`). It is derived from the contract on every run and
+  never stored as a discount row of its own, so it cannot drift from the
+  agreement's dates, status or renewal, and the statement shows it beside the
+  other discounts as one more applied discount. It is stackable because a
+  contractual percentage is not a campaign competing with campaigns: under the
+  most-specific and highest rules it is added on top of whatever wins, against
+  the untouched base.
+- **the amount is a floor.** It is trued up exactly as §15.4's minimum is:
+  a period whose net falls below it carries the named `true-up` line. When a
+  contract carries both a header minimum and a spend line, **the floor is the
+  larger of the two** (`store.Contract.MonthlyFloor`) — two promises of "at
+  least this much" do not add up — and the page says which one is in force.
+
+Pinned by `TestSpendCommitmentDiscountsThenTruesUpToTheAmount`, with
+spend{1,000, 50 %}:
+
+| list | discount | net | true-up | subtotal |
+|---|---|---|---|---|
+| 1,400 | 700 | 700 | **300** | **1,000.000000** |
+| 2,600 | 1,300 | 1,300 | none | 1,300.000000 |
+| 0 | 0 | 0 | **1,000** | **1,000.000000** |
+
+A spend line needs an amount above zero and a percentage from 0 up to, not
+including, 100; it names no SKU; a contract carries **at most one** (the
+`(contract, kind, sku)` uniqueness, with no SKU on the line). The
+`contract_items_kind_check` and `contract_items_sku_check` constraints are
+re-stated by the migration to admit it (`MigrationContractSpend`).
 
 ### 15.4 The contract, the minimum commitment and the true-up
 
@@ -3280,7 +3360,7 @@ explicit on the bill rather than hidden inside a rate.
               renewal_notice_days, minimum_commitment, currency, status, signed_at,
               po_reference, notes, renewed_at, renewal_count)
     contract_items(id, contract_id, kind, sku, unit, quantity,
-                   committed_price, discount_pct, rollover, notes)
+                   committed_price, discount_pct, amount, rollover, notes)
 
 `status` is `draft | active | expired | cancelled`, and only an **active**
 contract covering the first day of a period rates that period. A term of N
@@ -3346,8 +3426,8 @@ computed inside `internal/rating` and then handed to the **same**
 | 1 | **allowance** — usage up to the included quantity rates to zero | `rating.ApplyTerms` |
 | 2 | **tiers** — the remainder priced by the item's bands, or its flat unit price | `rating.ApplyTerms` |
 | 3 | **commitment** — the committed head of the volume repriced at the committed rate | `rating.ApplyTerms` |
-| 4 | **discounts** — customer discounts, and a partner tier, under the combination rule (§2.11) | `rating.ApplyDiscounts` |
-| 5 | **true-up** — the shortfall against the monthly minimum | `rating.TrueUp` |
+| 4 | **discounts** — customer discounts, the contract's **spend commitment** percentage (§15.3a, `rating.SpendDiscount`, stackable) and a partner tier, under the combination rule (§2.11) | `rating.ApplyDiscounts` |
+| 5 | **true-up** — the shortfall against the monthly floor: the minimum, the spend commitment's amount, or the **larger** of the two | `rating.TrueUp` on `store.Contract.MonthlyFloor` |
 | 6 | **tax** — on the net subtotal, the true-up included | `rating.TotalsWithDiscount` |
 
 The order is **not a detail**, and `TestOrderOfOperations` pins it by
@@ -3398,8 +3478,8 @@ the 640.000000 a flat rate would have produced.
 
 | surface | permission | scope |
 |---|---|---|
-| create / edit / delete a contract, replace its items | `customers.manage` | Sovereign |
-| read contracts, the renewals-due list | `metering.read` | at the scope — a customer principal reads **its own** contract read-only, a partner principal **its customers'**, a Sovereign principal every one |
+| create / edit / delete a contract; replace its items, or add / edit / delete **one** line (`POST /contracts/{id}/items`, `PATCH` / `DELETE /contracts/{id}/items/{item}`) | `customers.manage` | Sovereign |
+| read contracts, the renewals-due list, the SKUs a customer's books price (`GET /customers/{id}/skus`) | `metering.read` | at the scope — a customer principal reads **its own** contract read-only, a partner principal **its customers'**, a Sovereign principal every one |
 | issue an SLA credit | `billing.issue` | Sovereign |
 | edit tiers and allowances on a price-book item | `rating.manage` | Sovereign |
 
@@ -3412,7 +3492,23 @@ else in §10. Every write is audited.
 **Configure → Contracts** lists every contract with its customer, term,
 monthly minimum, status and renewal date, with the **renewals due** inside
 their notice window called out at the top of the page. A contract opens to
-its committed-use and allowance lines, edited in place.
+its lines as a table with **Edit and Delete on every row** and three add
+buttons — *Add committed use*, *Add allowance*, *Add spend commitment* — each
+opening a dialog for **one** line (the console primitive of §11.10 / #6946;
+the former whole-list "Edit lines" editor is gone, and the founder's
+*"instead of CRUD, it says edit line"* with it). In that dialog the **SKU is
+chosen, never typed**: a select over `GET /customers/{id}/skus`, the SKUs the
+books on this customer's sources price; choosing one fills the unit
+read-only, shows the list price, and the committed price or percentage then
+shows the unit price it results in, live. Under every time-integrated
+quantity — in the table and under the field as it is typed — sits its
+**human reading** at the product's 730 h/month convention: `744,000 gb-hour`
+reads *≈ 1,019 GB always on*, `7,440 mbps-hour` *≈ 10 Mbps always on*,
+`5,952 instance-hour` *≈ 8.2 servers all month*, `744 plan-hour` *≈ 1 plan
+all month*, `vcpu-hour` *≈ N vCPU always on*; a unit that is not per hour gets
+no reading. The raw figure stays, because it is what the engine uses. The
+page's **Monthly floor** KPI names which floor is in force — the minimum, the
+spend commitment, or the larger of the two.
 
 The **customer page gains a Contract tab**, so the agreement is where the
 customer is rather than only in a directory.

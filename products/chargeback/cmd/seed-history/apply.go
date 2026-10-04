@@ -546,6 +546,13 @@ func (s *seeder) backdate(customerID, sourceID string, c *synth.Customer) error 
 		customerID, c.Left); err != nil {
 		return fmt.Errorf("backdate audit: %w", err)
 	}
+	// The agreement was recorded the day the customer joined — the same day
+	// it was signed (contracts.go) — not on the day the seeder ran.
+	if _, err := s.db.ExecContext(s.ctx,
+		`UPDATE contracts SET created_at = $2, updated_at = $2 WHERE customer_id = $1`,
+		customerID, c.Joined); err != nil {
+		return fmt.Errorf("backdate contracts: %w", err)
+	}
 	return nil
 }
 
@@ -585,6 +592,12 @@ func (s *seeder) apply(c *synth.Customer) (result, error) {
 		return r, err
 	}
 	if err := s.ensureBudgets(customerID, c.Budgets); err != nil {
+		return r, err
+	}
+	// The agreement BEFORE the statements: a period is rated under the
+	// contract active on its first day, so the contract has to be there
+	// when the run reads it.
+	if err := s.ensureContracts(customerID, c); err != nil {
 		return r, err
 	}
 	totals, issued, err := s.runAndIssueStatements(customerID, c)

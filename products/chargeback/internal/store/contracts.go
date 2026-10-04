@@ -121,6 +121,35 @@ var MigrationContracts = func() int {
 	return len(migrations)
 }()
 
+// contractSpendMigrationSQL is the SPEND COMMITMENT (DESIGN.md §15.3a,
+// founder direction 2026-10-04): a third kind of contract line that commits an
+// AMOUNT per period rather than a quantity of one SKU — "he is getting 50 %
+// off because he committed to pay 1,000 OMR every month whether he uses
+// anything or not". It carries no SKU, so the two CHECKs written for the
+// SKU-bound kinds are re-stated to admit it, and the (contract, kind, sku)
+// uniqueness then allows exactly one spend line per contract. Appended at the
+// END of migrations; located by content as MigrationContractSpend.
+const contractSpendMigrationSQL = `
+ALTER TABLE contract_items ADD COLUMN IF NOT EXISTS amount NUMERIC(20,6);
+ALTER TABLE contract_items DROP CONSTRAINT IF EXISTS contract_items_amount_check;
+ALTER TABLE contract_items ADD CONSTRAINT contract_items_amount_check CHECK (amount IS NULL OR amount > 0);
+ALTER TABLE contract_items DROP CONSTRAINT IF EXISTS contract_items_kind_check;
+ALTER TABLE contract_items ADD CONSTRAINT contract_items_kind_check CHECK (kind IN ('commitment','allowance','spend'));
+ALTER TABLE contract_items DROP CONSTRAINT IF EXISTS contract_items_sku_check;
+ALTER TABLE contract_items ADD CONSTRAINT contract_items_sku_check CHECK (kind = 'spend' OR sku <> '');
+`
+
+// MigrationContractSpend is the schema_migrations version of the spend
+// commitment migration, located by content.
+var MigrationContractSpend = func() int {
+	for i, m := range migrations {
+		if m == contractSpendMigrationSQL {
+			return i + 1
+		}
+	}
+	return len(migrations)
+}()
+
 // Tier modes on a price-book item (DESIGN.md §15.2). The names are the
 // industry's: graduated is Stripe's "graduated" / AWS's tiered pricing, where
 // each band rates at its own price; all_units is Stripe's "volume" /
@@ -159,9 +188,17 @@ var ContractStatuses = []string{ContractDraft, ContractActive, ContractExpired, 
 const (
 	ContractItemCommitment = "commitment"
 	ContractItemAllowance  = "allowance"
+	// ContractItemSpend is a SPEND commitment (DESIGN.md §15.3a): an amount
+	// per period the customer pays whether it uses anything or not, in
+	// return for a percentage off everything on the bill.
+	ContractItemSpend = "spend"
 )
 
-// ContractItem is one committed-use line or one contract allowance.
+// ContractItemKinds is every kind a line can be.
+var ContractItemKinds = []string{ContractItemCommitment, ContractItemAllowance, ContractItemSpend}
+
+// ContractItem is one committed-use line, one contract allowance, or one
+// spend commitment.
 //
 //   - commitment: Quantity of SKU per billing period rates at CommittedPrice
 //     (or at list less DiscountPct when no price is given); the excess rates
@@ -169,6 +206,9 @@ const (
 //   - allowance: Quantity units of SKU are included in every billing period.
 //     Rollover carries what is unused into the next period; without it the
 //     allowance lapses at the end of the period, which is the default.
+//   - spend: Amount per billing period is a floor the period is trued up to,
+//     and DiscountPct comes off every line of the period. It names no SKU;
+//     a contract carries at most one.
 type ContractItem struct {
 	ID         string  `json:"id"`
 	ContractID string  `json:"contract_id"`
@@ -178,11 +218,74 @@ type ContractItem struct {
 	Quantity   Decimal `json:"quantity"`
 	// CommittedPrice is the negotiated unit price of a commitment. nil with
 	// DiscountPct set means "that percent off the list price".
-	CommittedPrice *Decimal  `json:"committed_price,omitempty"`
-	DiscountPct    *Decimal  `json:"discount_pct,omitempty"`
-	Rollover       bool      `json:"rollover"`
-	Notes          string    `json:"notes,omitempty"`
-	CreatedAt      time.Time `json:"created_at"`
+	CommittedPrice *Decimal `json:"committed_price,omitempty"`
+	DiscountPct    *Decimal `json:"discount_pct,omitempty"`
+	// Amount is the spend commitment per period, in the contract currency;
+	// nil on the SKU-bound kinds.
+	Amount    *Decimal  `json:"amount,omitempty"`
+	Rollover  bool      `json:"rollover"`
+	Notes     string    `json:"notes,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// validate is the one rule set every write of a line goes through, whether
+// the whole list is replaced or one row is added or edited. i is the line's
+// position in a list, for the message; -1 for a single line.
+func (it ContractItem) validate(i int) error {
+	at := ""
+	if i >= 0 {
+		at = fmt.Sprintf("line %d: ", i+1)
+	}
+	if !oneOf(it.Kind, ContractItemKinds) {
+		return fmt.Errorf("%w: %skind must be commitment, allowance or spend", ErrInvalid, at)
+	}
+	if it.Kind == ContractItemSpend {
+		if strings.TrimSpace(it.SKU) != "" {
+			return fmt.Errorf("%w: %sa spend commitment names no SKU — it is an amount per period, off the whole bill", ErrInvalid, at)
+		}
+		if it.Amount == nil || ratOf(*it.Amount).Sign() <= 0 {
+			return fmt.Errorf("%w: %sa spend commitment needs an amount per period above zero", ErrInvalid, at)
+		}
+		if it.DiscountPct == nil {
+			return fmt.Errorf("%w: %sa spend commitment needs a discount percentage — the percentage is what the commitment buys", ErrInvalid, at)
+		}
+		if pct := ratOf(*it.DiscountPct); pct.Sign() < 0 || pct.Cmp(ratOf("100")) >= 0 {
+			return fmt.Errorf("%w: %sa spend commitment's discount must be from 0 up to, not including, 100 percent", ErrInvalid, at)
+		}
+		if it.CommittedPrice != nil {
+			return fmt.Errorf("%w: %sa spend commitment has no committed unit price", ErrInvalid, at)
+		}
+		return nil
+	}
+	if strings.TrimSpace(it.SKU) == "" {
+		return fmt.Errorf("%w: %ssku is required", ErrInvalid, at)
+	}
+	if ratOf(it.Quantity).Sign() < 0 {
+		return fmt.Errorf("%w: %squantity must not be negative", ErrInvalid, at)
+	}
+	if it.Amount != nil {
+		return fmt.Errorf("%w: %s(%s) only a spend commitment carries an amount", ErrInvalid, at, it.SKU)
+	}
+	if it.Kind == ContractItemCommitment && it.CommittedPrice == nil && it.DiscountPct == nil {
+		return fmt.Errorf("%w: %s(%s): a committed-use line needs a committed price or a discount percentage — a commitment at list is not a commitment", ErrInvalid, at, it.SKU)
+	}
+	return nil
+}
+
+// normalised is the line as it is written: trimmed, with the fields a kind
+// does not carry cleared, so a spend line never keeps a stray unit or a
+// rollover flag and an allowance never keeps a committed price.
+func (it ContractItem) normalised() ContractItem {
+	it.SKU, it.Unit, it.Notes = strings.TrimSpace(it.SKU), strings.TrimSpace(it.Unit), strings.TrimSpace(it.Notes)
+	switch it.Kind {
+	case ContractItemSpend:
+		it.SKU, it.Unit, it.Quantity, it.CommittedPrice, it.Rollover = "", "", "0", nil, false
+	case ContractItemAllowance:
+		it.CommittedPrice, it.DiscountPct, it.Amount = nil, nil, nil
+	case ContractItemCommitment:
+		it.Rollover, it.Amount = false, nil
+	}
+	return it
 }
 
 // Contract is the agreement a customer's commercial terms hang on
@@ -234,6 +337,37 @@ func (c Contract) itemsOfKind(kind string) []ContractItem {
 		}
 	}
 	return out
+}
+
+// SpendCommitment returns the contract's spend line, if it has one. A
+// contract carries at most one (the (contract, kind, sku) uniqueness, with no
+// SKU on a spend line).
+func (c Contract) SpendCommitment() (ContractItem, bool) {
+	for _, it := range c.Items {
+		if it.Kind == ContractItemSpend {
+			return it, true
+		}
+	}
+	return ContractItem{}, false
+}
+
+// MonthlyFloor is the amount a period is trued up to: the header's minimum
+// commitment, the spend commitment's amount, or — when the contract carries
+// both — the LARGER of the two. Two floors do not add up: each one says "at
+// least this much", and the higher of two such promises is the promise. nil
+// when the contract has neither.
+func (c Contract) MonthlyFloor() *Decimal {
+	floor := c.MinimumCommitment
+	if sp, ok := c.SpendCommitment(); ok && sp.Amount != nil {
+		if floor == nil || ratOf(*sp.Amount).Cmp(ratOf(*floor)) > 0 {
+			a := *sp.Amount
+			floor = &a
+		}
+	}
+	if floor == nil || ratOf(*floor).Sign() <= 0 {
+		return nil
+	}
+	return floor
 }
 
 // CoversDate reports whether the contract's term contains the given day.
@@ -593,25 +727,29 @@ func (s *Store) DeleteContract(ctx context.Context, id string) error {
 // items
 // ---------------------------------------------------------------------------
 
-const contractItemColumns = `id, contract_id, kind, sku, unit, quantity::text, committed_price::text, discount_pct::text, rollover, notes, created_at`
+const contractItemColumns = `id, contract_id, kind, sku, unit, quantity::text, committed_price::text, discount_pct::text, amount::text, rollover, notes, created_at`
 
 func scanContractItem(row interface{ Scan(...any) error }) (ContractItem, error) {
 	var it ContractItem
 	var qty string
-	var price, pct sql.NullString
-	if err := row.Scan(&it.ID, &it.ContractID, &it.Kind, &it.SKU, &it.Unit, &qty, &price, &pct, &it.Rollover, &it.Notes, &it.CreatedAt); err != nil {
+	var price, pct, amount sql.NullString
+	if err := row.Scan(&it.ID, &it.ContractID, &it.Kind, &it.SKU, &it.Unit, &qty, &price, &pct, &amount, &it.Rollover, &it.Notes, &it.CreatedAt); err != nil {
 		return it, mapErr(err)
 	}
 	it.Quantity = Decimal(qty)
-	it.CommittedPrice, it.DiscountPct = decPtr(price), decPtr(pct)
+	it.CommittedPrice, it.DiscountPct, it.Amount = decPtr(price), decPtr(pct), decPtr(amount)
 	it.CreatedAt = it.CreatedAt.UTC()
 	return it, nil
 }
 
+// contractItemOrder lists lines commitments first, then allowances, then the
+// spend commitment, each kind by SKU — the order the page shows them in.
+const contractItemOrder = ` ORDER BY CASE kind WHEN 'commitment' THEN 0 WHEN 'allowance' THEN 1 ELSE 2 END, sku`
+
 // ListContractItems returns a contract's lines, commitments before
-// allowances, then by SKU.
+// allowances before the spend commitment, then by SKU.
 func (s *Store) ListContractItems(ctx context.Context, contractID string) ([]ContractItem, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+contractItemColumns+` FROM contract_items WHERE contract_id = $1 ORDER BY kind, sku`, contractID)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+contractItemColumns+` FROM contract_items WHERE contract_id = $1`+contractItemOrder, contractID)
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -627,22 +765,31 @@ func (s *Store) ListContractItems(ctx context.Context, contractID string) ([]Con
 	return out, rows.Err()
 }
 
+// GetContractItem reads one line of a contract. A line of another contract
+// is not found: the id is addressed through its parent.
+func (s *Store) GetContractItem(ctx context.Context, contractID, itemID string) (ContractItem, error) {
+	return scanContractItem(s.db.QueryRowContext(ctx, `SELECT `+contractItemColumns+` FROM contract_items WHERE contract_id = $1 AND id = $2`, contractID, itemID))
+}
+
+// insertContractItem writes one validated, normalised line.
+func insertContractItem(ctx context.Context, tx *sql.Tx, contractID string, it ContractItem) (string, error) {
+	var id string
+	err := tx.QueryRowContext(ctx, `INSERT INTO contract_items (contract_id, kind, sku, unit, quantity, committed_price, discount_pct, amount, rollover, notes)
+		VALUES ($1, $2, $3, $4, $5::numeric, $6::numeric, $7::numeric, $8::numeric, $9, $10) RETURNING id`,
+		contractID, it.Kind, it.SKU, it.Unit, zeroDec(it.Quantity), nullDec(it.CommittedPrice), nullDec(it.DiscountPct), nullDec(it.Amount), it.Rollover, it.Notes).Scan(&id)
+	if err != nil {
+		return "", mapErr(err)
+	}
+	return id, nil
+}
+
 // PutContractItems REPLACES a contract's lines in one transaction: the list
 // sent is the whole list. A commitment needs either a committed price or a
 // discount percentage — a commitment at list is not a commitment.
 func (s *Store) PutContractItems(ctx context.Context, contractID string, items []ContractItem) ([]ContractItem, error) {
 	for i, it := range items {
-		if !oneOf(it.Kind, []string{ContractItemCommitment, ContractItemAllowance}) {
-			return nil, fmt.Errorf("%w: line %d: kind must be commitment or allowance", ErrInvalid, i+1)
-		}
-		if strings.TrimSpace(it.SKU) == "" {
-			return nil, fmt.Errorf("%w: line %d: sku is required", ErrInvalid, i+1)
-		}
-		if ratOf(it.Quantity).Sign() < 0 {
-			return nil, fmt.Errorf("%w: line %d: quantity must not be negative", ErrInvalid, i+1)
-		}
-		if it.Kind == ContractItemCommitment && it.CommittedPrice == nil && it.DiscountPct == nil {
-			return nil, fmt.Errorf("%w: line %d (%s): a committed-use line needs a committed price or a discount percentage — a commitment at list is not a commitment", ErrInvalid, i+1, it.SKU)
+		if err := it.validate(i); err != nil {
+			return nil, err
 		}
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -661,10 +808,8 @@ func (s *Store) PutContractItems(ctx context.Context, contractID string, items [
 		return nil, mapErr(err)
 	}
 	for _, it := range items {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO contract_items (contract_id, kind, sku, unit, quantity, committed_price, discount_pct, rollover, notes)
-			VALUES ($1, $2, $3, $4, $5::numeric, $6::numeric, $7::numeric, $8, $9)`,
-			contractID, it.Kind, strings.TrimSpace(it.SKU), strings.TrimSpace(it.Unit), zeroDec(it.Quantity), nullDec(it.CommittedPrice), nullDec(it.DiscountPct), it.Rollover, strings.TrimSpace(it.Notes)); err != nil {
-			return nil, mapErr(err)
+		if _, err := insertContractItem(ctx, tx, contractID, it.normalised()); err != nil {
+			return nil, err
 		}
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE contracts SET updated_at = now() WHERE id = $1`, contractID); err != nil {
@@ -674,6 +819,81 @@ func (s *Store) PutContractItems(ctx context.Context, contractID string, items [
 		return nil, err
 	}
 	return s.ListContractItems(ctx, contractID)
+}
+
+// AddContractItem adds ONE line to a contract — the row-level write the
+// console's "Add committed use / allowance / spend commitment" dialogs make
+// (#6946: a child is added from its parent, one at a time). The same rules as
+// the whole-list replacement, and the same uniqueness: a SKU already on the
+// contract as that kind, or a second spend commitment, is a conflict.
+func (s *Store) AddContractItem(ctx context.Context, contractID string, it ContractItem) (ContractItem, error) {
+	if err := it.validate(-1); err != nil {
+		return ContractItem{}, err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ContractItem{}, err
+	}
+	defer tx.Rollback()
+	var exists bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM contracts WHERE id = $1)`, contractID).Scan(&exists); err != nil {
+		return ContractItem{}, mapErr(err)
+	}
+	if !exists {
+		return ContractItem{}, ErrNotFound
+	}
+	id, err := insertContractItem(ctx, tx, contractID, it.normalised())
+	if err != nil {
+		return ContractItem{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE contracts SET updated_at = now() WHERE id = $1`, contractID); err != nil {
+		return ContractItem{}, mapErr(err)
+	}
+	if err := tx.Commit(); err != nil {
+		return ContractItem{}, err
+	}
+	return s.GetContractItem(ctx, contractID, id)
+}
+
+// UpdateContractItem rewrites ONE line with the merged document the caller
+// built over the stored row (the API overlays the keys a PATCH sent). The
+// kind may change — a committed-use line can become an allowance — under the
+// same validation as a new line.
+func (s *Store) UpdateContractItem(ctx context.Context, contractID, itemID string, it ContractItem) (ContractItem, error) {
+	if err := it.validate(-1); err != nil {
+		return ContractItem{}, err
+	}
+	it = it.normalised()
+	res, err := s.db.ExecContext(ctx, `UPDATE contract_items SET kind = $3, sku = $4, unit = $5, quantity = $6::numeric, committed_price = $7::numeric,
+			discount_pct = $8::numeric, amount = $9::numeric, rollover = $10, notes = $11
+		WHERE contract_id = $1 AND id = $2`,
+		contractID, itemID, it.Kind, it.SKU, it.Unit, zeroDec(it.Quantity), nullDec(it.CommittedPrice), nullDec(it.DiscountPct), nullDec(it.Amount), it.Rollover, it.Notes)
+	if err != nil {
+		return ContractItem{}, mapErr(err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ContractItem{}, ErrNotFound
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE contracts SET updated_at = now() WHERE id = $1`, contractID); err != nil {
+		return ContractItem{}, mapErr(err)
+	}
+	return s.GetContractItem(ctx, contractID, itemID)
+}
+
+// DeleteContractItem removes ONE line. The last line may go — a contract with
+// only a minimum is still a contract — and so may a line a frozen statement
+// was rated under: the statement keeps its lines, and the contract simply
+// rates the next period without this one.
+func (s *Store) DeleteContractItem(ctx context.Context, contractID, itemID string) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM contract_items WHERE contract_id = $1 AND id = $2`, contractID, itemID)
+	if err != nil {
+		return mapErr(err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	_, err = s.db.ExecContext(ctx, `UPDATE contracts SET updated_at = now() WHERE id = $1`, contractID)
+	return mapErr(err)
 }
 
 func zeroDec(d Decimal) string {
@@ -828,11 +1048,12 @@ func ContractItemsJSON(items []ContractItem) string {
 		Quantity        Decimal
 		CommittedPrice  *Decimal
 		DiscountPct     *Decimal
+		Amount          *Decimal
 		Rollover        bool
 	}
 	out := make([]line, 0, len(items))
 	for _, it := range items {
-		out = append(out, line{it.Kind, it.SKU, it.Unit, it.Quantity, it.CommittedPrice, it.DiscountPct, it.Rollover})
+		out = append(out, line{it.Kind, it.SKU, it.Unit, it.Quantity, it.CommittedPrice, it.DiscountPct, it.Amount, it.Rollover})
 	}
 	b, _ := json.Marshal(out)
 	return string(b)

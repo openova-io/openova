@@ -14,6 +14,7 @@ type purgeCounts struct {
 	Inventory  int64
 	RatedLines int64
 	Statements int64
+	Contracts  int64
 	Discounts  int64
 	Budgets    int64
 	Sources    int64
@@ -74,6 +75,11 @@ func purge(ctx context.Context, db *sql.DB) (purgeCounts, error) {
 		{"inventory", `DELETE FROM resource_inventory WHERE ` + synth.SQLInventoryPredicate, &c.Inventory},
 		{"rated lines", `DELETE FROM rated_lines WHERE customer_id IN (` + synthCustomers + `)`, &c.RatedLines},
 		{"statements", `DELETE FROM statements WHERE customer_id IN (` + synthCustomers + `)`, &c.Statements},
+		// The showcase agreements (contracts.go) and their lines, which
+		// cascade. They hang off the customer and would go with it below;
+		// they are removed here, by name of step, so the purge reports them
+		// and a reader of this list sees that they are reached.
+		{"contracts", `DELETE FROM contracts WHERE customer_id IN (` + synthCustomers + `)`, &c.Contracts},
 		// Discounts and budgets are matched by NAME so the global campaign,
 		// which belongs to no customer, is removed too.
 		{"discounts", `DELETE FROM discounts WHERE ` + synth.SQLNamePredicate, &c.Discounts},
