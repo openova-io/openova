@@ -3,10 +3,9 @@ import { Link } from 'react-router-dom'
 import { asList } from '../api/client'
 import type { Contract, ContractItem, Customer } from '../api/types'
 import { Badge, EmptyState, Notice, Skeleton } from '../components/ui'
-import { contractItemText, daysToEnd, renewalDue, termText } from '../lib/contracts'
+import { contractFloor, contractItemText, daysToEnd, renewalDue, termText } from '../lib/contracts'
 import { today } from '../lib/format'
 import { formatMoney } from '../lib/money'
-import { toNumber } from '../lib/num'
 import { useQuery } from '../lib/useQuery'
 import { NewContractModal } from '../pages/Contracts'
 
@@ -58,8 +57,10 @@ export function ContractPanel({ customer, canManage }: { customer: Customer; can
                     <span className="muted small nowrap">{termText(c)}</span>
                   </div>
                   <div className="muted small">
-                    {toNumber(c.minimum_commitment) > 0 ? (
-                      <>Monthly minimum {formatMoney(toNumber(c.minimum_commitment), c.currency)} — a period below it carries a true-up line. </>
+                    {contractFloor(c).amount > 0 ? (
+                      <>
+                        Monthly {contractFloor(c).source === 'spend' ? 'spend commitment' : 'minimum'} {formatMoney(contractFloor(c).amount, c.currency)} — a period below it carries a true-up line.{' '}
+                      </>
                     ) : (
                       <>No monthly minimum. </>
                     )}
@@ -76,7 +77,7 @@ export function ContractPanel({ customer, canManage }: { customer: Customer; can
                       ))}
                     </ul>
                   ) : (
-                    <span className="muted small">No committed-use or allowance lines.</span>
+                    <span className="muted small">No committed-use, allowance or spend-commitment lines.</span>
                   )}
                 </div>
               )

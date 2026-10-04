@@ -29,10 +29,15 @@ import (
 //	 3. COMMITMENT  the committed quantity — the head of the remaining volume
 //	                — is repriced at the committed rate; the excess keeps the
 //	                rate step 2 gave it
-//	 4. DISCOUNTS   customer discounts, and a partner tier, through
+//	 4. DISCOUNTS   customer discounts, the contract's SPEND COMMITMENT
+//	                discount (SpendDiscount — a percent off the whole bill,
+//	                fed through the same engine as a customer discount, never
+//	                a second path) and a partner tier, through
 //	                ApplyDiscounts / DiscountBySKU
-//	 5. TRUE-UP     a period below the contract's monthly minimum carries a
-//	                named `true-up` line for the shortfall
+//	 5. TRUE-UP     a period below the contract's monthly floor — the header
+//	                minimum, the spend commitment's amount, or the larger of
+//	                the two (store.Contract.MonthlyFloor) — carries a named
+//	                `true-up` line for the shortfall
 //	 6. TAX         on the net subtotal, the true-up included
 //
 // The order matters and the tests prove it: an allowance applied after the
@@ -264,7 +269,9 @@ func (t Terms) shapeFor(it store.PriceItem) (shape, error) {
 	}
 	if t.Contract != nil {
 		for _, ci := range t.Contract.Items {
-			if ci.SKU != it.SKU {
+			// A spend commitment names no SKU and shapes nothing here: it
+			// is a discount (SpendDiscount) and a floor (MonthlyFloor).
+			if ci.Kind == store.ContractItemSpend || ci.SKU != it.SKU {
 				continue
 			}
 			q, err := parseRat(string(ci.Quantity))
@@ -476,8 +483,44 @@ func LoadTerms(ctx context.Context, st *store.Store, customerID string, from tim
 	return t, nil
 }
 
+// SpendDiscount is the contract's SPEND COMMITMENT as the discount engine
+// sees it (DESIGN.md §15.3a): one percent-off-the-whole-bill discount, owned
+// by the contract line, in force exactly when the contract is — it is derived
+// from the active contract at rating time, never stored as a row of its own,
+// so it cannot drift from the agreement's dates, status or renewal.
+//
+// It is STACKABLE: a contractual percentage is not a campaign competing with
+// campaigns, so under the most-specific and highest rules it is added on top
+// of whatever discount wins, against the untouched base, and under stack and
+// compound it takes part like every other percent. It is a store.Discount
+// because that is what ApplyDiscounts takes — the one engine, one pass.
+// ok is false when the contract has no spend line, or its percentage is zero
+// (an amount with nothing off is only a floor, which MonthlyFloor carries).
+func SpendDiscount(c store.Contract) (store.Discount, bool) {
+	sp, ok := c.SpendCommitment()
+	if !ok || sp.DiscountPct == nil || ratOf(*sp.DiscountPct).Sign() <= 0 {
+		return store.Discount{}, false
+	}
+	customer := c.CustomerID
+	amount := ""
+	if sp.Amount != nil {
+		amount = trimZeros(string(*sp.Amount)) + " " + c.Currency + " "
+	}
+	return store.Discount{
+		ID:         sp.ID,
+		CustomerID: &customer,
+		Name:       fmt.Sprintf("Spend commitment of %sa month under %s", amount, c.Name),
+		Kind:       "percent",
+		Value:      *sp.DiscountPct,
+		Active:     true,
+		Stackable:  true,
+		CreatedAt:  sp.CreatedAt,
+	}, true
+}
+
 // TrueUp is step 5: the shortfall line a period below the contract's monthly
-// MINIMUM COMMITMENT carries.
+// floor carries — the header's MINIMUM COMMITMENT, the spend commitment's
+// amount, or the larger of the two (store.Contract.MonthlyFloor).
 //
 // The comparison is against the NET of the period — the rated lines less the
 // discounts, which is what the customer would otherwise pay — so a discount

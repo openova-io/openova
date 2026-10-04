@@ -285,6 +285,16 @@ func Run(ctx context.Context, st *store.Store, period, customerID string) ([]Res
 	return results, nil
 }
 
+// contractFloor is the monthly floor the period is trued up to, nil without a
+// contract or when the contract carries neither a minimum nor a spend
+// commitment.
+func contractFloor(c *store.Contract) *store.Decimal {
+	if c == nil {
+		return nil
+	}
+	return c.MonthlyFloor()
+}
+
 // rateDetail is what a run reports besides the statement.
 type rateDetail struct {
 	unpriced, notSold, unbooked []string
@@ -439,6 +449,15 @@ func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, pc *pa
 	if err != nil {
 		return store.Statement{}, detail, fmt.Errorf("discounts: %w", err)
 	}
+	// DESIGN.md §15.3a — the contract's SPEND COMMITMENT is a percent off
+	// the whole bill. It joins the customer's discounts here and goes
+	// through the same engine, so a statement shows it beside them as one
+	// more applied discount; there is no second path.
+	if terms.Contract != nil {
+		if d, ok := SpendDiscount(*terms.Contract); ok {
+			discounts = append(discounts, d)
+		}
+	}
 	if discountRule == "" {
 		discountRule = store.DefaultDiscountRule
 	}
@@ -495,11 +514,12 @@ func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, pc *pa
 		draft.PartnerID, draft.Kind, draft.BuyTotal, draft.MarginTotal = &pid, store.StatementKindCustomer, &buy, &margin
 	}
 	// DESIGN.md §15.4 — the TRUE-UP, after the discounts and before the tax:
-	// a period whose net falls below the contract's monthly minimum carries
-	// a named line for the shortfall. Never a silent adjustment of the
-	// totals — the customer has to be able to read why it is charged.
-	if terms.Contract != nil && terms.Contract.MinimumCommitment != nil {
-		line, ok, err := TrueUp(draft.Lines, draft.Discount, *terms.Contract.MinimumCommitment)
+	// a period whose net falls below the contract's monthly floor — the
+	// header minimum, the spend commitment, or the larger of the two —
+	// carries a named line for the shortfall. Never a silent adjustment of
+	// the totals — the customer has to be able to read why it is charged.
+	if floor := contractFloor(terms.Contract); floor != nil {
+		line, ok, err := TrueUp(draft.Lines, draft.Discount, *floor)
 		if err != nil {
 			return store.Statement{}, detail, err
 		}

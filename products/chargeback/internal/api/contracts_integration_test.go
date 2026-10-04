@@ -130,6 +130,133 @@ func TestIntegrationContractsAPI(t *testing.T) {
 	}
 }
 
+// The row-level line routes (#6946): one line added, edited and removed at a
+// time, under the whole-list validation; the SKU select's source; and the
+// SPEND COMMITMENT (DESIGN.md §15.3a) over the wire — the fixture's 2,000 h at
+// 0.50 is 1,000 at list, so spend{600, 50 %} discounts 500, nets 500, trues up
+// 100 to the 600 floor, and taxes that: 630.
+func TestIntegrationContractItemRowCRUDAndSpend(t *testing.T) {
+	h, st, mail, _, _ := setupAPI(t)
+	op, customerID, _ := seedContractFixture(t, h, st, mail)
+	contractID := op.mustJSON("POST", "/api/v1/contracts", map[string]any{
+		"customer_id": customerID, "name": "ACME 2026", "starts_on": "2026-01-01", "currency": "OMR", "status": "active",
+	}, 201)["id"].(string)
+	items := "/api/v1/contracts/" + contractID + "/items"
+
+	// ── the SKU select: what the customer's books price ────────────────
+	skus := op.must("GET", "/api/v1/customers/"+customerID+"/skus", 200)
+	list, _ := skus["skus"].([]any)
+	if len(list) != 1 {
+		t.Fatalf("the customer's SKUs = %v, want the one SKU its book prices", skus["skus"])
+	}
+	sku := list[0].(map[string]any)
+	if sku["sku"] != "ecs.m7n.2xlarge.8" || sku["unit"] != "instance-hour" || sku["price_book_name"] != "Terms 2026" || sku["currency"] != "OMR" {
+		t.Fatalf("sku option = %v", sku)
+	}
+	if p, _ := sku["unit_price"].(float64); p != 0.5 {
+		t.Fatalf("unit_price = %v, want 0.5", sku["unit_price"])
+	}
+
+	// ── add, one line at a time ────────────────────────────────────────
+	commit := op.mustJSON("POST", items, map[string]any{"kind": "commitment", "sku": "ecs.m7n.2xlarge.8", "unit": "instance-hour", "quantity": "1000", "discount_pct": "30"}, 201)
+	commitID := commit["id"].(string)
+	allow := op.mustJSON("POST", items, map[string]any{"kind": "allowance", "sku": "eip.traffic_gb", "unit": "gb", "quantity": "100", "rollover": true}, 201)
+	spend := op.mustJSON("POST", items, map[string]any{"kind": "spend", "amount": "600", "discount_pct": "50"}, 201)
+	if spend["amount"] != 600.0 || spend["discount_pct"] != 50.0 || spend["sku"] != "" {
+		t.Fatalf("spend line = %v", spend)
+	}
+	c := op.must("GET", "/api/v1/contracts/"+contractID, 200)
+	if n := len(c["items"].([]any)); n != 3 {
+		t.Fatalf("the contract carries %d lines after three adds", n)
+	}
+	// The refusals, each with a message: a second spend commitment, a spend
+	// line naming a SKU, a 100 % spend discount, the same SKU twice as the
+	// same kind, and a commitment at list.
+	for _, bad := range []map[string]any{
+		{"kind": "spend", "amount": "700", "discount_pct": "10"},
+		{"kind": "spend", "sku": "ecs.m7n.2xlarge.8", "amount": "700", "discount_pct": "10"},
+		{"kind": "spend", "amount": "700", "discount_pct": "100"},
+		{"kind": "spend", "amount": "0", "discount_pct": "10"},
+		{"kind": "commitment", "sku": "ecs.m7n.2xlarge.8", "quantity": "10", "discount_pct": "5"},
+		{"kind": "commitment", "sku": "ecs.other", "quantity": "10"},
+		{"kind": "allowance", "sku": "x", "quantity": "10", "amount": "5"},
+	} {
+		rec, body := op.json("POST", items, bad)
+		if rec.Code != 400 && rec.Code != 409 {
+			t.Fatalf("adding %v = %d, want a refusal", bad, rec.Code)
+		}
+		if msg, _ := body["error"].(string); msg == "" {
+			t.Fatalf("the refusal of %v carried no message: %v", bad, body)
+		}
+	}
+
+	// ── edit one line: the keys sent overlay the row ───────────────────
+	patched := op.mustJSON("PATCH", items+"/"+commitID, map[string]any{"quantity": "1500", "committed_price": "0.30", "discount_pct": nil}, 200)
+	if patched["quantity"] != 1500.0 || patched["committed_price"] != 0.3 || patched["discount_pct"] != nil || patched["sku"] != "ecs.m7n.2xlarge.8" {
+		t.Fatalf("patched line = %v, want quantity 1500 at 0.30 with the percentage cleared and the SKU kept", patched)
+	}
+	// Clearing the rate without giving another is a commitment at list.
+	if rec, _ := op.json("PATCH", items+"/"+commitID, map[string]any{"committed_price": nil}); rec.Code != 400 {
+		t.Fatalf("a commitment left with no rate = %d, want 400", rec.Code)
+	}
+	// A line of another contract is not found through this one.
+	other := op.mustJSON("POST", "/api/v1/contracts", map[string]any{"customer_id": customerID, "name": "ACME other", "starts_on": "2026-01-01", "currency": "OMR"}, 201)["id"].(string)
+	if rec, _ := op.json("PATCH", "/api/v1/contracts/"+other+"/items/"+commitID, map[string]any{"quantity": "1"}); rec.Code != 404 {
+		t.Fatalf("a line reached through another contract = %d, want 404", rec.Code)
+	}
+
+	// ── the spend commitment rates the period ─────────────────────────
+	run := op.mustJSON("POST", "/api/v1/statements/run", map[string]any{"period": "2026-08", "customer_id": customerID}, 200)
+	res := run["results"].([]any)[0].(map[string]any)
+	if res["error"] != nil && res["error"] != "" {
+		t.Fatalf("run: %v", res["error"])
+	}
+	// 1,000 at list, less the committed head (1,500 > 2,000? no: the
+	// commitment of 1,500 h at 0.30 covers 1,500 of the 2,000 hours and the
+	// rest rates at 0.50): 1,500 × 0.30 + 500 × 0.50 = 700. Then 50 % off
+	// = 350 net, below the 600 floor: true-up 250, subtotal 600, tax 30.
+	if res["true_up"] != "250.000000" {
+		t.Fatalf("true-up = %v, want 250.000000 (net 350 brought to the 600 spend floor)", res["true_up"])
+	}
+	stmt := op.must("GET", "/api/v1/statements/"+res["statement_id"].(string), 200)
+	if stmt["subtotal"] != 600.0 || stmt["discount_total"] != 350.0 || stmt["total"] != 630.0 {
+		t.Fatalf("subtotal/discount/total = %v / %v / %v, want 600 / 350 / 630", stmt["subtotal"], stmt["discount_total"], stmt["total"])
+	}
+	detail, _ := stmt["discount_detail"].([]any)
+	if len(detail) != 1 || detail[0].(map[string]any)["discount_id"] != spend["id"] {
+		t.Fatalf("discount detail = %v, want the spend line's discount, attributed to the line", stmt["discount_detail"])
+	}
+	if name, _ := detail[0].(map[string]any)["name"].(string); name != "Spend commitment of 600 OMR a month under ACME 2026" {
+		t.Fatalf("the applied discount is named %q", name)
+	}
+
+	// ── delete, one line at a time; the last may go ───────────────────
+	op.must("DELETE", items+"/"+allow["id"].(string), 200)
+	op.must("DELETE", items+"/"+spend["id"].(string), 200)
+	op.must("DELETE", items+"/"+commitID, 200)
+	if rec, _ := op.do("DELETE", items+"/"+commitID, "", nil); rec.Code != 404 {
+		t.Fatalf("deleting a deleted line = %d, want 404", rec.Code)
+	}
+	c = op.must("GET", "/api/v1/contracts/"+contractID, 200)
+	if n := len(c["items"].([]any)); n != 0 {
+		t.Fatalf("%d lines survived three deletes", n)
+	}
+	// The statement already rated under the deleted lines is untouched.
+	stmt = op.must("GET", "/api/v1/statements/"+res["statement_id"].(string), 200)
+	if stmt["subtotal"] != 600.0 {
+		t.Fatalf("deleting the lines changed a rated statement to %v", stmt["subtotal"])
+	}
+	// Every write left its entry, as the PUT does.
+	audit := op.must("GET", "/api/v1/customers/"+customerID+"/audit", 200)
+	actions := map[string]int{}
+	for _, e := range audit["entries"].([]any) {
+		actions[e.(map[string]any)["action"].(string)]++
+	}
+	if actions["contract.items.add"] != 3 || actions["contract.items.update"] != 1 || actions["contract.items.delete"] != 3 {
+		t.Fatalf("audit = %v, want 3 adds, 1 update, 3 deletes", actions)
+	}
+}
+
 // The permission table of DESIGN.md §15.7, asserted rather than described:
 // a customer principal READS its own contract and writes nothing; another
 // customer's contract is a 404, not a 403, so its id is not confirmed.

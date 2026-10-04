@@ -161,8 +161,8 @@ func run(o options) error {
 		if err != nil {
 			return err
 		}
-		log.Printf("purged: %d usage records, %d inventory rows, %d rated lines, %d statements, %d discounts, %d budgets, %d sources, %d audit entries, %d customers",
-			counts.Usage, counts.Inventory, counts.RatedLines, counts.Statements, counts.Discounts, counts.Budgets, counts.Sources, counts.Audit, counts.Customers)
+		log.Printf("purged: %d usage records, %d inventory rows, %d rated lines, %d statements, %d contracts, %d discounts, %d budgets, %d sources, %d audit entries, %d customers",
+			counts.Usage, counts.Inventory, counts.RatedLines, counts.Statements, counts.Contracts, counts.Discounts, counts.Budgets, counts.Sources, counts.Audit, counts.Customers)
 		log.Printf("price books were NOT removed: they are shared with real customers")
 		return nil
 	}
@@ -316,6 +316,11 @@ func dryRun(sc *synth.Scenario, customers []*synth.Customer, landlordSlug string
 			r.Months[period] = strconv.FormatFloat(total, 'f', 3, 64)
 		}
 		r.Statements = len(sc.Months(c))
+		for _, ct := range c.Contracts {
+			starts, months := ct.Term(sc.Window)
+			log.Printf("%s: contract %q from %s for %d months, %d line(s); the OMR figures below are LIST — a real run rates the statements under it",
+				c.Slug, ct.Name, starts.Format("2006-01-02"), months, len(ct.Lines))
+		}
 		results = append(results, r)
 	}
 

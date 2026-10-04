@@ -302,8 +302,28 @@ func gulfRetail(seed uint64) *Customer {
 		b.fixed("vpc", "gr-vpc", "vpc", map[string]any{"cidr": "10.20.0.0/16"}),
 	)
 	c.Budgets = []Budget{{Name: NamePrefix + "Gulf Retail monthly cap", Amount: 1800, Thresholds: []int{50, 80, 100}}}
+	// The annual framework agreement (DESIGN.md §7, §15): eight of the
+	// m7n.xlarge.8 workers committed for the year at 30 % off — the pool
+	// runs 6 → 10, so the committed head covers June and July whole and
+	// August pays the excess at list — 1 TB of SSD and a 10 Mbps pipe
+	// included, and a 1,500 OMR monthly floor that June falls under.
+	c.Contracts = []Contract{{
+		Name: "Gulf Retail Group 2026 agreement", StartsOn: contractAnchor, TermMonths: 12,
+		AutoRenew: true, RenewalNoticeDays: 60, MinimumCommitment: 1500, PORef: "PO-GRG-2026-011",
+		Notes: "Annual framework agreement. Eight memory-optimised servers committed for the year; 1 TB of SSD and a 10 Mbps pipe included; 1,500 OMR monthly floor.",
+		Lines: []ContractLine{
+			{Kind: ContractCommitment, SKU: "ecs.m7n.xlarge.8", Unit: "instance-hour", Quantity: 8 * 744, DiscountPct: 30},
+			{Kind: ContractAllowance, SKU: "evs.ssd.gb", Unit: "gb-hour", Quantity: 1000 * 744},
+			{Kind: ContractAllowance, SKU: "eip.bandwidth_mbps", Unit: "mbps-hour", Quantity: 10 * 744},
+		},
+	}}
 	return c
 }
+
+// contractAnchor is the day every showcase agreement starts: the calendar
+// year the showcase trades in, so a twelve-month term covers June to August
+// without a window-driven adjustment (Contract.Term).
+var contractAnchor = date(2026, 1, 1, 0)
 
 // Muscat Health Systems — a migration: four m7n.2xlarge.8 until 17 July,
 // replaced over 15–17 July by eight m7n.xlarge.8 (both generations run
@@ -383,6 +403,19 @@ func dhofarLogistics(seed uint64) *Customer {
 		b.fixed("nat", "dl-nat-01", "nat.1", map[string]any{"spec": "1"}),
 		b.fixed("vpc", "dl-vpc", "vpc", map[string]any{"cidr": "10.40.0.0/16"}),
 	)
+	// A storage-led agreement: 4 TB of SSD committed at a NEGOTIATED unit
+	// price rather than a percentage, a 4 Mbps allowance that carries over,
+	// and no auto-renewal — the one of the three that EXPIRES unless renewed,
+	// so the renewals-due list has something to say.
+	c.Contracts = []Contract{{
+		Name: "Dhofar Logistics 2026 agreement", StartsOn: contractAnchor, TermMonths: 12,
+		AutoRenew: false, RenewalNoticeDays: 90, MinimumCommitment: 1000, PORef: "PO-DHL-7731",
+		Notes: "Storage-led agreement: 4 TB of SSD committed at 0.00018 per GB-hour; 4 Mbps included with carry-over; expires unless renewed.",
+		Lines: []ContractLine{
+			{Kind: ContractCommitment, SKU: "evs.ssd.gb", Unit: "gb-hour", Quantity: 4000 * 744, CommittedPrice: 0.00018},
+			{Kind: ContractAllowance, SKU: "eip.bandwidth_mbps", Unit: "mbps-hour", Quantity: 4 * 744, Rollover: true},
+		},
+	}}
 	return c
 }
 
@@ -444,6 +477,20 @@ func nizwaFintech(seed uint64) *Customer {
 		b.pvc(ns, "data-postgres-0", func(t time.Time) float64 { return stepped(Linear(t, c.Joined, c.Left, 150, 650), 50) }, nil),
 		b.pvc(ns, "data-redis-0", func(t time.Time) float64 { return stepped(Linear(t, c.Joined, c.Left, 50, 250), 25) }, nil),
 	)
+	// A SPEND commitment (DESIGN.md §15.3a): 20 OMR a month for the year,
+	// whatever the plan, for 15 % off the whole bill. The plan bills 5 / 9 /
+	// 16 OMR as it climbs S → M → L, so every showcase month is trued up to
+	// the 20 and the discount shows beside the true-up — the third kind of
+	// line, on the third contract. The floor is the line's; the header
+	// carries no minimum of its own.
+	c.Contracts = []Contract{{
+		Name: "Nizwa Fintech 2026 platform agreement", StartsOn: contractAnchor, TermMonths: 12,
+		AutoRenew: true, RenewalNoticeDays: 30, PORef: "PO-NZF-2026-03",
+		Notes: "Platform agreement: 20 OMR a month committed for the year, whatever the plan, for 15 % off everything on the bill.",
+		Lines: []ContractLine{
+			{Kind: ContractSpend, Amount: 20, DiscountPct: 15},
+		},
+	}}
 	return c
 }
 

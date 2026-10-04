@@ -135,7 +135,10 @@ var constraintMessages = map[string]string{
 	"invoice_allocations_amount_check":                 "an allocation must be for more than zero",
 
 	// contracts, budgets, discounts and saved views
-	"contract_items_contract_id_kind_sku_key":      "that SKU is already on this contract",
+	"contract_items_contract_id_kind_sku_key":      "that line is already on this contract: one line per SKU and kind, and one spend commitment",
+	"contract_items_kind_check":                    "a contract line is a commitment, an allowance or a spend commitment",
+	"contract_items_sku_check":                     "a committed-use line and an allowance each name a SKU",
+	"contract_items_amount_check":                  "a spend commitment must be for more than zero",
 	"budget_alerts_budget_id_period_threshold_key": "that budget alert was already raised for this period",
 	"saved_views_owner_email_page_name_key":        "you already have a saved view with that name on this page",
 	"contracts_check":                              "a contract cannot end before it starts",

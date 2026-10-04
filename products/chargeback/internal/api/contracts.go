@@ -17,8 +17,16 @@ import (
 //	GET|PATCH   /contracts/{id}               one contract · edit
 //	DELETE      /contracts/{id}
 //	PUT         /contracts/{id}/items         replace the committed-use and allowance lines
+//	POST        /contracts/{id}/items         add ONE line
+//	PATCH       /contracts/{id}/items/{item}  edit ONE line
+//	DELETE      /contracts/{id}/items/{item}  remove ONE line
 //	POST        /contracts/{id}/sla-credit    credit an availability breach
 //	GET         /customers/{id}/contracts     one customer's contracts
+//	GET         /customers/{id}/skus          the SKUs the customer's books price (the line dialog's select)
+//
+// The row-level item routes are the console primitive (#6946): a line is
+// added from its contract, edited and deleted from its own row, in a dialog
+// for ONE line. PUT stays for callers that send the whole list.
 //
 // PERMISSIONS (DESIGN.md §15.7). Writing a contract is `customers.manage` at
 // the Sovereign — a contract is a commercial fact about a customer, and the
@@ -257,6 +265,118 @@ func (h *Handler) putContractItems(w http.ResponseWriter, r *http.Request) {
 	}
 	h.audit(r, &c.CustomerID, "contract.items.put", map[string]any{"contract_id": id, "items": len(items), "lines": store.ContractItemsJSON(items)})
 	writeJSON(w, http.StatusOK, c)
+}
+
+// contractItemAudit is what every line write records: which line, as the
+// operator sent it, without the generated ids — the same detail the PUT
+// writes, so the trail reads the same whichever route changed the line.
+func contractItemAudit(contractID string, it store.ContractItem) map[string]any {
+	return map[string]any{"contract_id": contractID, "item_id": it.ID, "kind": it.Kind, "sku": it.SKU, "lines": store.ContractItemsJSON([]store.ContractItem{it})}
+}
+
+// addContractItem — POST /contracts/{id}/items: ONE line, validated as the
+// whole-list write validates it, added to whatever is there.
+func (h *Handler) addContractItem(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireContractWriter(w, r); !ok {
+		return
+	}
+	id := r.PathValue("id")
+	var in store.ContractItem
+	if err := decode(r, &in); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body: "+err.Error())
+		return
+	}
+	c, err := h.Store.GetContract(r.Context(), store.OperatorScope, id)
+	if err != nil {
+		storeErr(w, err)
+		return
+	}
+	it, err := h.Store.AddContractItem(r.Context(), id, in)
+	if err != nil {
+		storeErr(w, err)
+		return
+	}
+	h.audit(r, &c.CustomerID, "contract.items.add", contractItemAudit(id, it))
+	writeJSON(w, http.StatusCreated, it)
+}
+
+// patchContractItem — PATCH /contracts/{id}/items/{item}: the keys sent are
+// laid over the stored line and the result validated as a whole, so a line
+// can change kind, SKU or rate in one edit and an explicit `null` clears a
+// committed price or a discount.
+func (h *Handler) patchContractItem(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireContractWriter(w, r); !ok {
+		return
+	}
+	id, itemID := r.PathValue("id"), r.PathValue("item")
+	c, err := h.Store.GetContract(r.Context(), store.OperatorScope, id)
+	if err != nil {
+		storeErr(w, err)
+		return
+	}
+	current, err := h.Store.GetContractItem(r.Context(), id, itemID)
+	if err != nil {
+		storeErr(w, err)
+		return
+	}
+	merged := current
+	if err := decode(r, &merged); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body: "+err.Error())
+		return
+	}
+	// The identity is the path's, whatever the body echoed back.
+	merged.ID, merged.ContractID, merged.CreatedAt = current.ID, current.ContractID, current.CreatedAt
+	it, err := h.Store.UpdateContractItem(r.Context(), id, itemID, merged)
+	if err != nil {
+		storeErr(w, err)
+		return
+	}
+	h.audit(r, &c.CustomerID, "contract.items.update", contractItemAudit(id, it))
+	writeJSON(w, http.StatusOK, it)
+}
+
+// deleteContractItem — DELETE /contracts/{id}/items/{item}. The last line may
+// go, and so may a line a frozen statement was rated under: nothing already
+// invoiced changes, and the next run rates without it.
+func (h *Handler) deleteContractItem(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireContractWriter(w, r); !ok {
+		return
+	}
+	id, itemID := r.PathValue("id"), r.PathValue("item")
+	c, err := h.Store.GetContract(r.Context(), store.OperatorScope, id)
+	if err != nil {
+		storeErr(w, err)
+		return
+	}
+	it, err := h.Store.GetContractItem(r.Context(), id, itemID)
+	if err != nil {
+		storeErr(w, err)
+		return
+	}
+	if err := h.Store.DeleteContractItem(r.Context(), id, itemID); err != nil {
+		storeErr(w, err)
+		return
+	}
+	h.audit(r, &c.CustomerID, "contract.items.delete", contractItemAudit(id, it))
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": true, "id": itemID})
+}
+
+// customerSKUs — GET /customers/{id}/skus: every SKU the books on this
+// customer's sources price, with its unit, list price and book. It is the
+// select of the contract-line dialog, which is why a customer's own principal
+// may read it too: the list is its own rate card, not anyone else's.
+func (h *Handler) customerSKUs(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	s, ok := h.requireCustomer(w, r, id, false)
+	if !ok {
+		return
+	}
+	list, err := h.Store.CustomerSKUs(r.Context(), s.Scope(), id)
+	if err != nil {
+		storeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"skus": list})
 }
 
 // slaCreditBody is what POST /contracts/{id}/sla-credit carries.

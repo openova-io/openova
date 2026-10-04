@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Contract, PriceItem, PriceTier } from '../api/types'
-import { bandsOf, contractItemText, daysToEnd, explainItem, hasShape, noticeFrom, priceQuantity, renewalDate, renewalDue, termEnd, termText, tierProblem } from './contracts'
+import { bandsOf, committedUnitPrice, contractFloor, contractItemText, daysToEnd, explainItem, hasShape, isCommitmentKind, noticeFrom, priceQuantity, quantityReading, renewalDate, renewalDue, termEnd, termText, tierProblem } from './contracts'
 
 // The console's half of DESIGN.md §15. Two things are load-bearing here and
 // both are asserted against the Go engine's own pinned figures: the WORDS
@@ -152,5 +152,66 @@ describe('a contract line in words', () => {
   it('an allowance states whether it carries over', () => {
     expect(contractItemText({ kind: 'allowance', sku: 'eip.traffic_gb', unit: 'gb', quantity: '100' }, 'OMR')).toContain('lapses at the end of each period')
     expect(contractItemText({ kind: 'allowance', sku: 'eip.traffic_gb', unit: 'gb', quantity: '100', rollover: true }, 'OMR')).toContain('carried into the next period if unused')
+  })
+})
+
+describe('a spend commitment', () => {
+  it('states the amount, the percentage and the true-up, in words', () => {
+    expect(contractItemText({ kind: 'spend', sku: '', quantity: '0', amount: '1000', discount_pct: '50' }, 'OMR')).toBe(
+      '1000 OMR committed each period, whatever is used, for 50 % off everything on the bill; a period below it carries a true-up line.',
+    )
+  })
+
+  it('the floor is the larger of the header minimum and the spend amount, and says which', () => {
+    const spend = { kind: 'spend', sku: '', quantity: '0', amount: '1000', discount_pct: '50' }
+    expect(contractFloor({ minimum_commitment: null, items: [] })).toEqual({ amount: 0, source: 'none', minimum: 0, spend: 0 })
+    expect(contractFloor({ minimum_commitment: '1500', items: [] })).toEqual({ amount: 1500, source: 'minimum', minimum: 1500, spend: 0 })
+    expect(contractFloor({ minimum_commitment: null, items: [spend] })).toEqual({ amount: 1000, source: 'spend', minimum: 0, spend: 1000 })
+    expect(contractFloor({ minimum_commitment: '1500', items: [spend] })).toEqual({ amount: 1500, source: 'both', minimum: 1500, spend: 1000 })
+    expect(contractFloor({ minimum_commitment: '800', items: [spend] })).toEqual({ amount: 1000, source: 'both', minimum: 800, spend: 1000 })
+    expect(isCommitmentKind('spend')).toBe(true)
+    expect(isCommitmentKind('commitment')).toBe(true)
+    expect(isCommitmentKind('allowance')).toBe(false)
+  })
+
+  it('the unit price a committed-use line results in, from the list price', () => {
+    expect(committedUnitPrice(0.15213927, { discount_pct: '30' })).toBe(0.10649749)
+    expect(committedUnitPrice(0.5, { committed_price: '0.3', discount_pct: '30' })).toBe(0.3)
+    expect(committedUnitPrice(null, { discount_pct: '30' })).toBeNull()
+    expect(committedUnitPrice(0.5, { discount_pct: '' })).toBeNull()
+  })
+})
+
+describe('the human reading of a time-integrated quantity', () => {
+  it('reads every per-hour unit as "this many, always on", at 730 hours a month', () => {
+    expect(quantityReading('744000', 'gb-hour')).toBe('≈ 1,019 GB always on')
+    expect(quantityReading(2976000, 'gb-hour')).toBe('≈ 4,077 GB always on')
+    expect(quantityReading('73000', 'gib-hour')).toBe('≈ 100 GiB always on')
+    expect(quantityReading('7440', 'mbps-hour')).toBe('≈ 10 Mbps always on')
+    expect(quantityReading('5952', 'instance-hour')).toBe('≈ 8.2 servers all month')
+    expect(quantityReading('5840', 'instance-hour')).toBe('≈ 8 servers all month')
+    expect(quantityReading('730', 'instance-hour')).toBe('≈ 1 server all month')
+    expect(quantityReading('744', 'plan-hour')).toBe('≈ 1 plan all month')
+    expect(quantityReading('1460', 'plan-hour')).toBe('≈ 2 plans all month')
+    expect(quantityReading('2920', 'vcpu-hour')).toBe('≈ 4 vCPU always on')
+    expect(quantityReading('3285', 'vcpu-hour')).toBe('≈ 4.5 vCPU always on')
+  })
+
+  it('rounds the way a person would: whole GB and Mbps, one decimal on counts only when not whole', () => {
+    expect(quantityReading('365', 'gb-hour')).toBe('≈ 1 GB always on') // 0.5 rounds up
+    expect(quantityReading('100', 'gb-hour')).toBe('≈ 0 GB always on') // 0.137 GB is nothing always on
+    expect(quantityReading('7300.5', 'instance-hour')).toBe('≈ 10 servers all month') // 10.0007 → whole
+    expect(quantityReading('7373', 'instance-hour')).toBe('≈ 10.1 servers all month')
+    expect(quantityReading('1460', 'GB-Hour')).toBe('≈ 2 GB always on') // the unit's case does not matter
+  })
+
+  it('has nothing to say about a unit that is not per hour, or about no quantity', () => {
+    expect(quantityReading('100', 'gb')).toBe('')
+    expect(quantityReading('100', 'hour')).toBe('')
+    expect(quantityReading('100', 'period')).toBe('')
+    expect(quantityReading('100', '')).toBe('')
+    expect(quantityReading('0', 'gb-hour')).toBe('')
+    expect(quantityReading('', 'gb-hour')).toBe('')
+    expect(quantityReading(null, 'gb-hour')).toBe('')
   })
 })

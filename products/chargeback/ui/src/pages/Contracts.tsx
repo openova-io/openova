@@ -6,10 +6,9 @@ import { DataTable, type Column } from '../components/DataTable'
 import { Badge, EmptyState, Field, KPI, Modal, Notice, PageHeader, Skeleton } from '../components/ui'
 import { useSession } from '../auth/session'
 import { can } from '../lib/access'
-import { CONTRACT_STATUSES, daysToEnd, renewalDue, termEnd, termText } from '../lib/contracts'
+import { CONTRACT_STATUSES, contractFloor, daysToEnd, renewalDue, termEnd, termText } from '../lib/contracts'
 import { today } from '../lib/format'
 import { formatMoney } from '../lib/money'
-import { toNumber } from '../lib/num'
 import { useQuery } from '../lib/useQuery'
 
 /**
@@ -45,7 +44,8 @@ export function Contracts() {
   const on = today()
   const due = useMemo(() => contracts.filter((c) => renewalDue(c, on)), [contracts, on])
   const active = contracts.filter((c) => c.status === 'active')
-  const minimums = active.reduce((n, c) => n + toNumber(c.minimum_commitment), 0)
+  // The floor of each: the minimum, the spend commitment, or the larger of the two (§15.3a).
+  const minimums = active.reduce((n, c) => n + contractFloor(c).amount, 0)
   const currency = active.find((c) => c.currency)?.currency ?? ''
   const mixed = new Set(active.map((c) => c.currency)).size > 1
 
@@ -70,15 +70,20 @@ export function Contracts() {
     { key: 'term', header: 'Term', value: (c) => c.starts_on, render: (c) => <span className="nowrap">{termText(c)}</span> },
     {
       key: 'minimum',
-      header: 'Monthly minimum',
-      value: (c) => toNumber(c.minimum_commitment),
+      header: 'Monthly floor',
+      value: (c) => contractFloor(c).amount,
       numeric: true,
-      render: (c) =>
-        toNumber(c.minimum_commitment) > 0 ? (
-          <span title="A period below this carries a true-up line for the shortfall">{formatMoney(toNumber(c.minimum_commitment), c.currency)}</span>
+      render: (c) => {
+        const floor = contractFloor(c)
+        return floor.amount > 0 ? (
+          <span title={floor.source === 'spend' ? 'The spend commitment; a period below it carries a true-up line for the shortfall' : floor.source === 'both' ? 'The larger of the minimum and the spend commitment; a period below it carries a true-up line' : 'A period below this carries a true-up line for the shortfall'}>
+            {formatMoney(floor.amount, c.currency)}
+            {floor.source === 'spend' ? <span className="sub">spend commitment</span> : null}
+          </span>
         ) : (
           <span className="muted">none</span>
-        ),
+        )
+      },
     },
     { key: 'status', header: 'Status', value: (c) => c.status, render: (c) => <Badge status={c.status} kind={statusKind(c.status)} /> },
     {
@@ -101,7 +106,7 @@ export function Contracts() {
     <div className="stack">
       <PageHeader
         title="Contracts"
-        sub="The agreement a customer's commercial terms hang on: the term, the monthly minimum, and the committed-use and allowance lines the rating engine applies."
+        sub="The agreement a customer's commercial terms hang on: the term, the monthly floor, and the committed-use, allowance and spend-commitment lines the rating engine applies."
         actions={
           canManage ? (
             <button className="primary" onClick={() => setCreating(true)}>
@@ -124,7 +129,7 @@ export function Contracts() {
         <KPI
           label="Committed monthly"
           value={mixed ? '—' : formatMoney(minimums, currency)}
-          note={mixed ? 'the active contracts are in more than one currency' : 'the minimums a period is measured against'}
+          note={mixed ? 'the active contracts are in more than one currency' : 'the floors a period is measured against'}
         />
       </div>
 
@@ -163,7 +168,7 @@ export function Contracts() {
           <Skeleton lines={4} />
         ) : contracts.length === 0 ? (
           <EmptyState title="No contracts">
-            A contract carries the term, the monthly minimum whose shortfall is invoiced as a true-up line, and the committed-use and allowance lines the rating engine applies. Without one a customer is
+            A contract carries the term, the monthly floor whose shortfall is invoiced as a true-up line, and the committed-use, allowance and spend-commitment lines the rating engine applies. Without one a customer is
             rated at its price books alone.
           </EmptyState>
         ) : (

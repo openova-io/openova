@@ -197,6 +197,81 @@ type Budget struct {
 	Thresholds []int
 }
 
+// Contract is one commercial agreement the seeding command creates for a
+// showcase customer (DESIGN.md §15): the term, the monthly minimum and the
+// committed-use and allowance lines the rating engine applies. It is matched
+// by Name on a re-run, like a discount or a budget, so a second pass never
+// stacks a second agreement on the same customer.
+type Contract struct {
+	Name string
+	// StartsOn is the agreement's own anchor. Term() may pull it earlier so
+	// the contract is ACTIVE in every month the scenario window generates —
+	// an agreement that does not cover the showcase months would rate none
+	// of them and the module would still demonstrate nothing.
+	StartsOn          time.Time
+	TermMonths        int
+	AutoRenew         bool
+	RenewalNoticeDays int
+	// MinimumCommitment is the monthly floor in the customer's currency; a
+	// period rated below it carries a true-up line. 0 = no minimum.
+	MinimumCommitment float64
+	PORef             string
+	Notes             string
+	Lines             []ContractLine
+}
+
+// ContractLine is one committed-use line, one allowance or one spend
+// commitment of a Contract.
+type ContractLine struct {
+	Kind     string // commitment | allowance | spend
+	SKU      string // empty on a spend commitment
+	Unit     string
+	Quantity float64
+	// CommittedPrice is the negotiated unit price of a commitment; 0 means
+	// the line is priced as DiscountPct off list instead. On a spend
+	// commitment DiscountPct is the percentage off the whole bill.
+	CommittedPrice float64
+	DiscountPct    float64
+	// Amount is a spend commitment's amount per period, in the contract
+	// currency: the floor the period is trued up to.
+	Amount float64
+	// Rollover carries an allowance's unused part into the next period.
+	Rollover bool
+}
+
+// Contract line kinds, the strings the API accepts.
+const (
+	ContractCommitment = "commitment"
+	ContractAllowance  = "allowance"
+	ContractSpend      = "spend"
+)
+
+// Term is the start date and term length to create the contract with so it
+// covers every month of the window: the agreement's own anchor unless the
+// window starts earlier, in which case the first day of the window's month;
+// and TermMonths unless the window runs past the term's end, in which case
+// whole further terms until it does not. The default showcase window (June to
+// August 2026) leaves a 2026-01-01 twelve-month agreement exactly as written.
+func (ct Contract) Term(w Window) (startsOn time.Time, months int) {
+	startsOn = time.Date(ct.StartsOn.Year(), ct.StartsOn.Month(), ct.StartsOn.Day(), 0, 0, 0, 0, time.UTC)
+	if w.From.Before(startsOn) {
+		startsOn = time.Date(w.From.Year(), w.From.Month(), 1, 0, 0, 0, 0, time.UTC)
+	}
+	months = ct.TermMonths
+	if months <= 0 {
+		months = 12
+	}
+	// The window end is exclusive, so the last generated hour is the one
+	// before it; the term has to reach that hour's day. A term ends the day
+	// before its anniversary (store.AddTerm).
+	lastDay := w.To.Add(-time.Hour).Truncate(24 * time.Hour)
+	step := months
+	for startsOn.AddDate(0, months, 0).AddDate(0, 0, -1).Before(lastDay) {
+		months += step
+	}
+	return startsOn, months
+}
+
 // Source is the customer's single synthetic source.
 type Source struct {
 	Name   string // project_id today; the source name in the target model
@@ -224,7 +299,10 @@ type Customer struct {
 	DecommissionNote string
 	Discounts        []Discount
 	Budgets          []Budget
-	Resources        []ResourceSpec
+	// Contracts are the agreements the seeding command creates for the
+	// customer, matched by name on a re-run (DESIGN.md §7, §15).
+	Contracts []Contract
+	Resources []ResourceSpec
 	// PlanSwitches lists the catalog plans in force, ascending by At; the
 	// first entry takes effect at Joined. Empty for cloud customers.
 	PlanSwitches []PlanSwitch

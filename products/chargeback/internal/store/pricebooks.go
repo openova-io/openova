@@ -308,6 +308,51 @@ func (s *Store) ClonePriceBook(ctx context.Context, id, name string) (PriceBook,
 
 // priceItemColumns is the ONE column list every item read shares, so the
 // rating shapes (DESIGN.md §15.1) can never reach one reader and not another.
+// CustomerSKU is one SKU a customer can be billed for: priced by a book one
+// of its sources is assigned to. It is what the contract-line dialog offers in
+// its SKU select (DESIGN.md §15.9) — a SKU is chosen from what the customer's
+// books price, never typed, so a committed-use line can only ever name a
+// meter the rating engine will actually find a rate for.
+type CustomerSKU struct {
+	SKU         string  `json:"sku"`
+	Unit        string  `json:"unit"`
+	UnitPrice   Decimal `json:"unit_price"`
+	Description string  `json:"description,omitempty"`
+	BookID      string  `json:"price_book_id"`
+	BookName    string  `json:"price_book_name"`
+	Currency    string  `json:"currency"`
+}
+
+// CustomerSKUs lists the SKUs priced by the books assigned to the customer's
+// sources, in source order (the order the rating run reads them in, so a SKU
+// two books price is reported from the book that rates it), then by SKU.
+func (s *Store) CustomerSKUs(ctx context.Context, scope Scope, customerID string) ([]CustomerSKU, error) {
+	if !scope.Allows(customerID) {
+		return nil, ErrNotFound
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT ON (pi.sku) pi.sku, pi.unit, pi.unit_price::text, pi.description, b.id, b.name, b.currency
+		FROM cost_sources s
+		JOIN price_books b ON b.id = s.price_book_id
+		JOIN price_items pi ON pi.price_book_id = b.id
+		WHERE s.customer_id = $1
+		ORDER BY pi.sku, s.layer, s.region, s.project_id`, customerID)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	defer rows.Close()
+	out := []CustomerSKU{}
+	for rows.Next() {
+		var k CustomerSKU
+		var price string
+		if err := rows.Scan(&k.SKU, &k.Unit, &price, &k.Description, &k.BookID, &k.BookName, &k.Currency); err != nil {
+			return nil, mapErr(err)
+		}
+		k.UnitPrice = Decimal(price)
+		out = append(out, k)
+	}
+	return out, rows.Err()
+}
+
 const priceItemColumns = `price_book_id, sku, unit, unit_price::text, annual_price::text, description, tier_mode, tiers, allowance::text, allowance_rollover`
 
 // scanPriceItemInto reads one row of priceItemColumns.
