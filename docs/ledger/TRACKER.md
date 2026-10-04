@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-10-04T13:00:03Z` |
+| Last refreshed | `2026-10-04T13:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-10-04T13:12 | [#6964](https://github.com/openova-io/openova/pull/6964) | #6963 | feat(bss): contracts you can read and edit line by line, a s |
 | 2026-09-27T13:07 | [#6957](https://github.com/openova-io/openova/pull/6957) | #6955 | fix(oidc-gate): the calculator's live-pricing call passes th |
 | 2026-09-27T13:15 | [#6956](https://github.com/openova-io/openova/pull/6956) | #6867 | fix(bss): the estimate totals never clip — number on one lin |
 | 2026-09-27T12:57 | [#6955](https://github.com/openova-io/openova/pull/6955) | #6841 | fix(oidc-gate): the public cost calculator is public — skip- |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-11T12:53 | [#6923](https://github.com/openova-io/openova/pull/6923) | #6867 | feat(bss): 0.1.35 — contracts and commercial terms, customer |
 | 2026-09-11T11:10 | [#6922](https://github.com/openova-io/openova/pull/6922) | #6867 | feat(bss): 0.1.34 — a Sovereign runs the document renderer s |
 | 2026-09-11T10:29 | [#6921](https://github.com/openova-io/openova/pull/6921) | #6867 | feat(bss): 0.1.33 — capacity, partners, public calculator, d |
-| 2026-09-10T19:46 | [#6920](https://github.com/openova-io/openova/pull/6920) | #6867 | docs(glossary): the chargeback product is Catalyst BSS |
 
 ---
 
