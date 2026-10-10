@@ -185,6 +185,14 @@ test.describe('grow mode on the wizard (#6971, document v4)', () => {
     await expect(page.getByTestId('package-grow-cheapest')).toHaveText('Bigger packages grow cheaper: an extra vCPU from 1.598 OMR / mo on L.')
     for (const sku of ['plan.s', 'plan.m', 'plan.l']) await expect(page.getByTestId(`package-cell-dr_topology-${sku}`)).toContainText('with Grow')
     await expect(page.getByTestId('package-cell-dr_topology-plan.xl')).toHaveText('active-passive')
+    // The allowance cells follow the customer's mode, not the cell: the
+    // allowance alone, and ONE legend line beside the cards — no "hard cap" /
+    // "then metered" anywhere in the matrix.
+    await expect(page.getByTestId('package-cell-bandwidth-plan.m')).toHaveText('100 Mbps')
+    await expect(page.getByTestId('package-cell-disk-plan.l')).toHaveText('100 GB')
+    await expect(page.getByTestId('package-ladder')).not.toContainText(/hard cap|then metered/)
+    await expect(page.getByTestId('package-grow-legend')).toHaveCount(1)
+    await expect(page.getByTestId('package-grow-legend')).toHaveText('Capped by default · or grow, billed per use')
 
     await page.unrouteAll({ behavior: 'ignoreErrors' })
     await mockCatalog(page)
@@ -193,6 +201,50 @@ test.describe('grow mode on the wizard (#6971, document v4)', () => {
     await page.goto('/plans')
     await expect(page.getByTestId('package-ladder')).toBeVisible({ timeout: 10_000 })
     await expect(page.getByTestId('package-grow-note')).toHaveCount(0)
+    // Without the grow model the cell's own overage word stays, and no legend.
+    await expect(page.getByTestId('package-grow-legend')).toHaveCount(0)
+    await expect(page.getByTestId('package-cell-bandwidth-plan.m').locator('.ld-hint')).toHaveText('hard cap')
+  })
+
+  test('/addons "In your package": the allowance says "· capped" while Capped and "· grows up to N" (the chosen ceiling) in Grow — never the cell\'s word', async ({ page }) => {
+    await mockPackages(page)
+    await seedCart(page, {})
+    await page.goto('/addons')
+    const bw = page.getByTestId('addons-included-value-bandwidth')
+    await expect(bw).toHaveText('100 Mbps · capped', { timeout: 10_000 })
+    await expect(page.getByTestId('addons-included-value-disk')).toHaveText('50 GB · capped')
+    await expect(page.getByTestId('addons-included')).not.toContainText(/hard cap|then metered/)
+    await page.getByTestId('mode-grow').click()
+    // M grows to 250 Mbps / 100 GB by default…
+    await expect(bw).toHaveText('100 Mbps · grows up to 250 Mbps')
+    await expect(page.getByTestId('addons-included-value-disk')).toHaveText('50 GB · grows up to 100 GB')
+    // …and follows the ceiling the customer sets.
+    await page.getByTestId('grow-step-bandwidth_mbps-dec').click()
+    const v = await page.getByTestId('grow-ceiling-bandwidth_mbps').getAttribute('data-value')
+    await expect(bw).toHaveText(`100 Mbps · grows up to ${v} Mbps`)
+    await page.getByTestId('mode-capped').click()
+    await expect(bw).toHaveText('100 Mbps · capped')
+  })
+
+  test('/addons at 1400 px: the Grow card says one sentence — the rates are listed once, in the grid; an add-on name is never squeezed beside its price', async ({ page }) => {
+    await page.setViewportSize({ width: 1400, height: 900 })
+    await mockPackages(page)
+    await seedCart(page, { overageMode: 'grow' })
+    await page.goto('/addons')
+    await expect(page.getByTestId('grow-panel')).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByTestId('mode-grow-rates')).toHaveCount(0)
+    await expect(page.getByTestId('mode-grow')).not.toContainText('per extra')
+    await expect(page.getByTestId('mode-grow')).not.toContainText('1.796')
+    await expect(page.getByTestId('grow-rates').getByText('+1.796 OMR')).toHaveCount(1)
+    await expect(page.getByTestId('addons-grow').getByText(/1\.796/)).toHaveCount(1)
+    // Every add-on name: one line at this width (its price sits under it).
+    const names = page.locator('[data-testid^="addon-tile-"] .addon-card-name')
+    const n = await names.count()
+    expect(n).toBeGreaterThan(3)
+    for (let i = 0; i < n; i++) {
+      const h = await names.nth(i).evaluate((el) => el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight))
+      expect(h, `${await names.nth(i).textContent()} wraps`).toBeLessThan(2.2)
+    }
   })
 
   test('/addons: Capped is the default and promises the package + add-ons; switching to Grow shows M\'s own rates from the document', async ({ page }) => {
@@ -227,7 +279,8 @@ test.describe('grow mode on the wizard (#6971, document v4)', () => {
     await page.goto('/addons')
     await expect(page.getByTestId('grow-rate-vcpu')).toContainText('+2.345 OMR per extra vCPU / mo', { timeout: 10_000 })
     await expect(page.getByTestId('grow-rate-vcpu')).toHaveAttribute('data-price', '2.345')
-    await expect(page.getByTestId('mode-grow-rates')).toContainText('2.345')
+    // The rate is listed once, in the grid — the Grow card no longer repeats it.
+    await expect(page.getByTestId('mode-grow-rates')).toHaveCount(0)
     await expect(page.locator('body')).not.toContainText('1.796')
   })
 
