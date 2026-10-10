@@ -1,18 +1,26 @@
 <script lang="ts">
   // Step 1 of the wizard with a v2 package document (#6971): the LADDER.
-  // Four package cards side by side (name, tagline, price, the annual line,
-  // the shape with its guarantee in small type, the disk), then ONE grouped
-  // comparison — a header row per group, its features under it — and the
-  // floor strip once beneath. Choosing a package is the parent's job
+  // Four package cards side by side (icon, name, badge, tagline, price, the
+  // annual line, the shape with its guarantee in small type, the disk), then
+  // the floor — "Included in every package", a block of tiles right under the
+  // cards — then ONE grouped comparison: a header row per group, its features
+  // under it. Choosing a package is the parent's job
   // (PackageTable.svelte): it stamps the cart exactly as the legacy deck did
   // and continues to Stack. Nothing is ticked here; add-ons are step 3.
+  //
+  // Branding comes from the document only: a package's `icon`, `accent` and
+  // `badge`, a group's / floor item's / feature's `icon` (validated and
+  // resolved by packages.ts::parseIcon). Nothing is keyed by sku or feature
+  // key here; with none published the ladder renders exactly as it did
+  // without branding — no empty box, no placeholder. Every icon sits beside
+  // the name it depicts, so every <img> is decorative (alt="").
   //
   // No <style> block, deliberately: this component is reached only after the
   // document arrives in the browser, never by the server render, so a scoped
   // stylesheet here would be dropped from the production bundle with the
   // unreachable branch. Its classes are styled by src/styles/package-ladder.css,
   // imported by plans.astro as a page stylesheet (bundled unconditionally).
-  import { PACKAGE_STRINGS as S, type LadderModel } from '../lib/packages';
+  import { PACKAGE_STRINGS as S, type LadderCard, type LadderModel } from '../lib/packages';
 
   let {
     model,
@@ -25,7 +33,20 @@
   } = $props();
 
   const colClass = (sku: string) =>
-    `${sku === model.recommendedSku ? 'recommended' : ''} ${sku === selectedSku ? 'selected' : ''}`;
+    `${sku === model.recommendedSku ? 'recommended' : ''} ${sku === selectedSku ? 'selected' : ''} ${accentOf(sku) ? 'has-accent' : ''}`;
+
+  const accentOf = (sku: string): LadderCard | null => {
+    const c = model.cards.find(x => x.sku === sku);
+    return c && c.accent ? c : null;
+  };
+  // The package's brand colour and its readable foreground as custom
+  // properties on every element of its column; the stylesheet decides where
+  // they show (stripe, ring, chip, CTA).
+  const colStyle = (sku: string) => {
+    const c = accentOf(sku);
+    return c ? `--pk-accent: ${c.accent}; --pk-accent-fg: ${c.accentFg};` : '';
+  };
+  const tileStyle = (bg: string | undefined) => (bg ? `background: ${bg}` : '');
 </script>
 
 <div class="ld-page" data-testid="package-ladder">
@@ -34,7 +55,7 @@
 
   <div class="ld-scroll">
     <div
-      class="ld-grid"
+      class="ld-grid {model.rowIcons ? 'with-icons' : ''}"
       role="table"
       aria-label={S.title}
       style="--ld-cols: {model.cards.length}"
@@ -47,6 +68,7 @@
           <div
             role="columnheader"
             class="ld-card {colClass(card.sku)}"
+            style={colStyle(card.sku)}
             data-testid="package-card-{card.sku}"
             data-recommended={card.recommended ? 'true' : 'false'}
             data-selected={card.sku === selectedSku ? 'true' : 'false'}
@@ -56,7 +78,15 @@
                 <span class="ld-hat-pill">{S.recommended}</span>
               {/if}
             </div>
+            {#if card.icon}
+              <span class="ld-card-icon" style={tileStyle(card.icon.bg)}>
+                <img src={card.icon.src} alt="" width="28" height="28" loading="lazy" decoding="async" data-testid="package-icon-{card.sku}" />
+              </span>
+            {/if}
             <div class="ld-name">{card.name}</div>
+            {#if card.badge}
+              <span class="ld-badge" data-testid="package-badge-{card.sku}">{card.badge}</span>
+            {/if}
             {#if card.tagline}
               <div class="ld-tagline">{card.tagline}</div>
             {/if}
@@ -89,21 +119,67 @@
         {/each}
       </div>
 
+      <!-- The floor, first-class: right under the cards, above the
+           comparison — what every package includes, as tiles (icon, name,
+           blurb) rendered from the document's `floor` only. A new floor item
+           appears here without a release. The tiles stick to the visible
+           width when the comparison scrolls sideways on a phone. -->
+      {#if model.floorItems.length > 0}
+        <div role="row" class="ld-row ld-floor-row">
+          <section role="cell" class="ld-floor-band" aria-colspan={model.cards.length + 1} data-testid="package-floor">
+            <div class="ld-floor-inner">
+              <div class="ld-floor-head">
+                <h2 class="ld-floor-title">{S.ladder.floorTitle}</h2>
+                <p class="ld-floor-sub">{S.ladder.floorSub}</p>
+              </div>
+              <ul class="ld-floor-grid">
+                {#each model.floorItems as item (item.key)}
+                  <li class="ld-floor-tile" data-testid="package-floor-{item.key}">
+                    {#if item.icon}
+                      <span class="ld-ico ld-floor-ico" style={tileStyle(item.icon.bg)}>
+                        <img src={item.icon.src} alt="" width="18" height="18" loading="lazy" decoding="async" />
+                      </span>
+                    {/if}
+                    <span class="ld-floor-text">
+                      <span class="ld-floor-item">{item.name}</span>
+                      {#if item.blurb}<small class="ld-floor-blurb">{item.blurb}</small>{/if}
+                    </span>
+                  </li>
+                {/each}
+              </ul>
+            </div>
+          </section>
+        </div>
+      {/if}
+
       <!-- One grouped comparison -->
       {#each model.groups as group (group.key)}
         <div role="row" class="ld-row ld-group-row" data-testid="package-group-{group.key}">
-          <div role="columnheader" class="ld-group" aria-colspan={model.cards.length + 1}>{group.name}</div>
+          <div role="columnheader" class="ld-group" aria-colspan={model.cards.length + 1}>
+            {#if group.icon}
+              <img class="ld-group-icon" src={group.icon.src} alt="" width="16" height="16" loading="lazy" decoding="async" />
+            {/if}
+            <span class="ld-group-name">{group.name}</span>
+          </div>
         </div>
         {#each group.rows as row (row.key)}
           <div role="row" class="ld-row" data-testid="package-row-{row.key}">
-            <div role="rowheader" class="ld-feature">
-              <span class="ld-feature-name">{row.name}</span>
-              {#if row.blurb}<small class="ld-blurb">{row.blurb}</small>{/if}
+            <div role="rowheader" class="ld-feature {row.icon ? 'has-ico' : ''}">
+              {#if row.icon}
+                <span class="ld-ico" style={tileStyle(row.icon.bg)}>
+                  <img src={row.icon.src} alt="" width="16" height="16" loading="lazy" decoding="async" />
+                </span>
+              {/if}
+              <span class="ld-feature-text">
+                <span class="ld-feature-name">{row.name}</span>
+                {#if row.blurb}<small class="ld-blurb">{row.blurb}</small>{/if}
+              </span>
             </div>
             {#each row.cells as cell (cell.sku)}
               <div
                 role="cell"
                 class="ld-cell {cell.state} {colClass(cell.sku)}"
+                style={colStyle(cell.sku)}
                 data-testid="package-cell-{row.key}-{cell.sku}"
                 data-state={cell.state}
               >
@@ -130,7 +206,7 @@
       <div role="row" class="ld-row ld-foot-row" data-testid="package-ladder-foot">
         <div role="cell" class="ld-foot-corner"></div>
         {#each model.cards as card (card.sku)}
-          <div role="cell" class="ld-foot {colClass(card.sku)}">
+          <div role="cell" class="ld-foot {colClass(card.sku)}" style={colStyle(card.sku)}>
             <button
               type="button"
               class="ld-cta {card.sku === selectedSku ? 'primary' : 'ghost'}"
@@ -144,17 +220,6 @@
       </div>
     </div>
   </div>
-
-  <!-- The floor, once -->
-  {#if model.floor.length > 0}
-    <p class="ld-floor" data-testid="package-floor">
-      <span class="ld-floor-lead">{S.ladder.floorLead}</span>
-      {#each model.floor as item, i (item)}
-        {#if i > 0}<span class="ld-floor-sep" aria-hidden="true">·</span>{/if}
-        <span class="ld-floor-item">{item}</span>
-      {/each}
-    </p>
-  {/if}
 
   <p class="ld-meta">
     <span>{S.ladder.addonsNote}</span>

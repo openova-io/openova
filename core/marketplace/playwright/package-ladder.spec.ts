@@ -34,7 +34,8 @@
 // READ-ONLY against clusters: no kubectl, no chart bumps, no Pod ops.
 
 import { test, expect, type Locator, type Page } from '@playwright/test'
-import { readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -293,14 +294,23 @@ test.describe('step 1: the package ladder (/plans, v2 document, #6971)', () => {
     await expect(page.getByTestId('package-cell-gitea_iac-plan.s')).toHaveText('—')
     await expect(page.getByTestId('package-cell-kube_api-plan.l')).toHaveAttribute('data-state', 'not_offered')
 
-    // The floor, once, with every item.
+    // The floor, once, first-class: "Included in every package" as tiles
+    // (name + blurb) right under the cards and ABOVE the comparison — free
+    // SSL among them — rendered from the document's floor[] only.
     const floor = page.getByTestId('package-floor')
     await expect(floor).toHaveCount(1)
-    await expect(floor).toContainText('Every package includes:')
+    await expect(floor).toContainText('Included in every package')
     await expect(floor.locator('.ld-floor-item')).toHaveCount(9)
     await expect(floor.locator('.ld-floor-item').first()).toHaveText('Applications')
+    await expect(floor.getByTestId('package-floor-ssl')).toContainText('Unlimited free SSL')
+    await expect(floor.getByTestId('package-floor-ssl')).toContainText('Certificates for every site, renewed for you')
     await expect(floor).toContainText('Web application firewall')
     await expect(floor).toContainText('24/7 customer support')
+    const floorBox = await boxOf(floor)
+    expect(floorBox.top, 'the floor sits under the cards').toBeGreaterThanOrEqual((await boxOf(page.getByTestId('package-card-plan.m'))).bottom - 1)
+    expect(floorBox.bottom, 'the floor sits above the comparison').toBeLessThanOrEqual((await boxOf(page.locator('.ld-group').first())).top + 1)
+    // No footnote line repeating it under the table.
+    await expect(page.locator('.ld-floor-sep')).toHaveCount(0)
     // A floor item is not also a comparison row.
     await expect(page.locator('[data-testid^="package-row-waf"]')).toHaveCount(0)
     // The live document's internal pricing remark on the Dedicated IP cells
@@ -722,10 +732,14 @@ test.describe('review carries the package, its add-ons and the floor (v2 documen
     await expect(side.getByTestId('review-total-package-addon-addon.backup')).toContainText('+OMR 1.500')
     await expect(side.getByTestId('review-total-package-addon-addon.domain')).toContainText('+OMR 0.500')
     await expect(side.getByTestId('review-total')).toHaveText('OMR 9.990')
-    const floor = side.getByTestId('review-floor')
-    await expect(floor).toContainText('Every package includes:')
-    await expect(floor).toContainText('Applications · Databases · Mail server (unlimited accounts)')
-    await expect(floor).toContainText('24/7 customer support')
+    // The floor is part of the summary now, not a footnote in the sidebar.
+    const floor = page.getByTestId('review-floor')
+    await expect(floor).toContainText('Included in every package')
+    await expect(floor.locator('.sum-floor-item')).toHaveText([
+      'Applications', 'Databases', 'Mail server (unlimited accounts)', 'Unlimited free SSL', 'SSO',
+      'Standard DDoS protection', 'Malware scanner', 'Web application firewall', '24/7 customer support',
+    ])
+    await expect(side.getByTestId('review-floor')).toHaveCount(0)
     expect(quotes[0]).toMatchObject({ plan_id: 'l', package_sku: 'plan.l', addons: ['addon.backup', 'addon.domain'], topology: 'single-region' })
 
     // The plan cards: price and specs from the document's shape.
@@ -744,12 +758,405 @@ test.describe('review carries the package, its add-ons and the floor (v2 documen
     await expect(page.locator('.conc-btn')).toHaveText(['Low', 'Medium', 'High'])
     await expect(page.locator('.conc-row')).not.toContainText('users')
 
-    // Optional extras: the BSS add-ons only, the two in the cart ticked.
-    const extras = page.locator('.addon-tile')
-    await expect(extras).toHaveCount(5)
-    await expect(page.locator('.addon-tile', { hasText: 'Intrusion Prevention' })).toHaveCount(0)
-    await expect(page.locator('.addon-tile.checked')).toHaveCount(2)
+    // The add-ons are SUMMARISED, not re-asked: the package and the two
+    // chosen add-ons with their prices, an Edit link back to step 3, and no
+    // picker (no checkbox, no catalog add-on, no emoji placeholder).
+    const summary = page.getByTestId('review-addons-summary')
+    await expect(summary.getByTestId('review-package-summary')).toContainText('L package')
+    await expect(summary.getByTestId('review-package-summary')).toContainText('7.990')
+    await expect(summary.locator('[data-testid^="review-addon-addon."]')).toHaveCount(2)
+    await expect(summary.getByTestId('review-addon-addon.backup')).toContainText('+OMR 1.500')
+    await expect(summary.getByTestId('review-addons-edit')).toHaveAttribute('href', '/addons')
+    await expect(summary.getByRole('checkbox')).toHaveCount(0)
+    await expect(page.locator('.addon-tile')).toHaveCount(0)
+    await expect(summary).not.toContainText('Intrusion Prevention')
+    await expect(summary).not.toContainText('📦')
 
     await shootTall(page, testInfo.outputPath('ladder-review.png'))
   })
+})
+
+// ────────────────────────────────────────────────────────────────────────
+// Branding from BSS: icons, accent, badge (#6971, document v3 additions)
+// ────────────────────────────────────────────────────────────────────────
+//
+// fixtures/public-packages-v3-icons.json is the v2 document plus an icon on
+// every group / floor item / package and on all but two features (AI website
+// builder and Audit log carry none), an accent on all four packages and a
+// badge on M. Each icon `src` is `/api/v1/public/icons/<sha256>` — the sha256
+// of an SVG under playwright/fixtures/icons/, served below by that hash, the
+// way BSS serves its content-addressed icons. Nothing visual about a feature
+// or package lives in the storefront: every assertion here changes with the
+// document.
+
+const FIXTURE_V3 = JSON.parse(readFileSync(join(HERE, '..', 'fixtures', 'public-packages-v3-icons.json'), 'utf8'))
+const ICON_DIR = join(HERE, 'fixtures', 'icons')
+const ICONS_BY_HASH = new Map<string, string>(
+  readdirSync(ICON_DIR)
+    .filter((f) => f.endsWith('.svg'))
+    .map((f) => {
+      const body = readFileSync(join(ICON_DIR, f), 'utf8')
+      return [createHash('sha256').update(body).digest('hex'), body] as const
+    }),
+)
+const SHOTS = join(HERE, '..', '..', '..', 'docs', 'ledger', 'screenshots')
+
+async function mockIcons(page: Page, seen?: string[]): Promise<void> {
+  await page.route('**/api/v1/public/icons/**', (route) => {
+    const url = new URL(route.request().url())
+    seen?.push(url.href)
+    const body = ICONS_BY_HASH.get(url.pathname.split('/').pop() || '')
+    if (!body) return route.fulfill({ status: 404, body: '' })
+    return route.fulfill({
+      status: 200,
+      contentType: 'image/svg+xml',
+      headers: { 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'public, max-age=31536000, immutable' },
+      body,
+    })
+  })
+}
+
+function clone<T>(v: T): T {
+  return JSON.parse(JSON.stringify(v))
+}
+
+/** Every rendered <img> in `scope` has decoded (naturalWidth > 0); returns how many. (A closed <details> renders nothing, so its images are not counted.) */
+async function expectImagesDecoded(scope: Locator): Promise<number> {
+  const imgs = scope.locator('img:visible')
+  const n = await imgs.count()
+  // loading="lazy": bring each into view so the browser fetches it.
+  for (let i = 0; i < n; i++) await imgs.nth(i).scrollIntoViewIfNeeded()
+  await expect
+    .poll(async () =>
+      imgs.evaluateAll((els) => els.filter((e) => !(e as HTMLImageElement).complete || (e as HTMLImageElement).naturalWidth === 0).length),
+    )
+    .toBe(0)
+  const widths = await imgs.evaluateAll((els) => els.map((e) => (e as HTMLImageElement).naturalWidth))
+  for (const w of widths) expect(w).toBeGreaterThan(0)
+  await page_scrollTop(scope)
+  return n
+}
+
+async function page_scrollTop(scope: Locator): Promise<void> {
+  await scope.page().evaluate(() => window.scrollTo(0, 0))
+}
+
+function hexToRgb(hex: string): string {
+  const n = parseInt(hex.slice(1), 16)
+  return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`
+}
+
+test.describe('branding from the BSS document: icons, accent, badge (#6971)', () => {
+  test.beforeEach(async ({ page }) => {
+    await mockCatalog(page)
+  })
+
+  test('/plans: every package, group, feature and floor icon is a decoded <img> from the document host; a feature without one has no <img> and the same row height', async ({ page }) => {
+    const seen: string[] = []
+    await pointAtChargeback(page)
+    await mockPackages(page, FIXTURE_V3)
+    await mockIcons(page, seen)
+    await page.goto('/plans')
+    await expect(page.getByTestId('package-ladder')).toBeVisible({ timeout: 10_000 })
+
+    // Cards: one icon each, decorative (the name is beside it), lazy.
+    for (const sku of ['plan.s', 'plan.m', 'plan.l', 'plan.xl']) {
+      const img = page.getByTestId(`package-icon-${sku}`)
+      await expect(img).toHaveAttribute('alt', '')
+      await expect(img).toHaveAttribute('loading', 'lazy')
+      await expect(img).toHaveAttribute('src', /^https:\/\/chargeback\.t99\.omani\.works\/api\/v1\/public\/icons\/[0-9a-f]{64}$/)
+    }
+    const ladder = page.getByTestId('package-ladder')
+    // 4 packages + 5 groups shown + 15 features with an icon + 9 floor items.
+    expect(await expectImagesDecoded(ladder)).toBe(4 + 5 + 15 + 9)
+    await expect(page.getByTestId('package-group-capacity').locator('img')).toHaveCount(1)
+    await expect(page.getByTestId('package-floor').locator('img')).toHaveCount(9)
+    expect(seen.length).toBeGreaterThan(0)
+    expect(seen.every((u) => u.startsWith(`${CHARGEBACK}/api/v1/public/icons/`))).toBe(true)
+
+    // No icon in the document → no <img>, no empty box, no placeholder.
+    const noIcon = page.getByTestId('package-row-ai_builder').locator('.ld-feature')
+    const withIcon = page.getByTestId('package-row-ai_seo').locator('.ld-feature')
+    await expect(noIcon.locator('img')).toHaveCount(0)
+    await expect(noIcon.locator('.ld-ico')).toHaveCount(0)
+    await expect(withIcon.locator('img')).toHaveCount(1)
+    const [a, b] = [await boxOf(noIcon), await boxOf(withIcon)]
+    expect(Math.abs((a.bottom - a.top) - (b.bottom - b.top)), 'same row height ±2 px').toBeLessThanOrEqual(2)
+    // …and the name still starts on the same line as its neighbours'.
+    const left = async (l: Locator) => (await boxOf(l.locator('.ld-feature-name'))).left
+    expect(Math.abs((await left(noIcon)) - (await left(withIcon)))).toBeLessThanOrEqual(1)
+    // The feature tile carries the document's bg.
+    await expect(withIcon.locator('.ld-ico')).toHaveCSS('background-color', hexToRgb('#312E81'))
+  })
+
+  test('/plans: the M card takes its accent (stripe, ring, hat, primary CTA with a readable foreground) and the badge text is the document\'s', async ({ page }) => {
+    await pointAtChargeback(page)
+    await mockPackages(page, FIXTURE_V3)
+    await mockIcons(page)
+    await page.goto('/plans')
+    await expect(page.getByTestId('package-ladder')).toBeVisible({ timeout: 10_000 })
+
+    const m = page.getByTestId('package-card-plan.m')
+    const accent = hexToRgb('#4F46E5')
+    await expect(m).toHaveClass(/has-accent/)
+    await expect(m).toHaveCSS('border-top-color', accent)
+    expect(await m.evaluate((el) => getComputedStyle(el).boxShadow)).toContain(accent)
+    await expect(m.locator('.ld-hat-pill')).toHaveCSS('background-color', accent)
+    await expect(m.locator('.ld-hat-pill')).toHaveCSS('color', 'rgb(255, 255, 255)')
+    const cta = page.getByTestId('package-choose-plan.m')
+    await expect(cta).toHaveClass(/primary/)
+    await expect(cta).toHaveCSS('background-color', accent)
+    await expect(cta).toHaveCSS('color', 'rgb(255, 255, 255)')
+    // Amber XL: its stripe in amber; on amber the readable foreground is black.
+    expect(await page.getByTestId('package-card-plan.xl').evaluate((el) => getComputedStyle(el).boxShadow)).toContain('rgb(245, 158, 11)')
+    expect(await page.getByTestId('package-card-plan.xl').evaluate((el) => getComputedStyle(el).getPropertyValue('--pk-accent-fg').trim())).toBe('#000000')
+    // The recommended column's cells carry the ring.
+    await expect(page.getByTestId('package-cell-backup-plan.m')).toHaveCSS('border-left-color', accent)
+
+    // The badge: from the document, on M only, in the accent.
+    await expect(page.locator('.ld-badge')).toHaveCount(1)
+    await expect(page.getByTestId('package-badge-plan.m')).toHaveText('Most popular')
+    await expect(page.getByTestId('package-badge-plan.m')).toHaveCSS('background-color', accent)
+  })
+
+  test('the badge follows the document — a different text, on another package, and none where it is absent', async ({ page }) => {
+    const doc = clone(FIXTURE_V3)
+    for (const p of doc.packages) delete p.badge
+    doc.packages.find((p: any) => p.sku === 'plan.l').badge = 'Best value for teams'
+    await pointAtChargeback(page)
+    await mockPackages(page, doc)
+    await mockIcons(page)
+    await page.goto('/plans')
+    await expect(page.getByTestId('package-ladder')).toBeVisible({ timeout: 10_000 })
+    await expect(page.locator('.ld-badge')).toHaveCount(1)
+    await expect(page.getByTestId('package-badge-plan.l')).toHaveText('Best value for teams')
+    await expect(page.getByTestId('package-badge-plan.m')).toHaveCount(0)
+    // `recommended` still drives the recommended column, independently.
+    await expect(page.getByTestId('package-card-plan.m')).toHaveAttribute('data-recommended', 'true')
+  })
+
+  test('an icon off the document host or outside the icons path, or an accent that is not #RRGGBB, is ignored — never loaded, never styled', async ({ page }) => {
+    const doc = clone(FIXTURE_V3)
+    const pm = doc.packages.find((p: any) => p.sku === 'plan.m')
+    pm.icon = { src: 'https://evil.example/api/v1/public/icons/abc', alt: 'x' }
+    pm.accent = 'red; background: url(https://evil.example/x)'
+    doc.features.find((f: any) => f.key === 'backup').icon = { src: '/api/v1/public/packages', alt: 'x' }
+    const requested: string[] = []
+    page.on('request', (r) => requested.push(r.url()))
+    await pointAtChargeback(page)
+    await mockPackages(page, doc)
+    await mockIcons(page)
+    await page.goto('/plans')
+    await expect(page.getByTestId('package-ladder')).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByTestId('package-icon-plan.m')).toHaveCount(0)
+    await expect(page.getByTestId('package-card-plan.m')).not.toHaveClass(/has-accent/)
+    await expect(page.getByTestId('package-row-backup').locator('img')).toHaveCount(0)
+    expect(requested.filter((u) => u.includes('evil.example'))).toEqual([])
+  })
+
+  test('the v2 document (no branding) renders as before: no <img>, no badge, no accent, the warn-coloured recommended ring, no icon gutter', async ({ page }) => {
+    await pointAtChargeback(page)
+    await mockPackages(page)
+    // Dark theme (the storefront's own default) for fixed token values; S
+    // chosen, so the recommended M column shows its own ring, not the selection's.
+    await page.emulateMedia({ colorScheme: 'dark' })
+    await seedCart(page, { plan: 's', planName: 'S', packageSku: 'plan.s' })
+    await page.goto('/plans')
+    await expect(page.getByTestId('package-ladder')).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByTestId('package-ladder').locator('img')).toHaveCount(0)
+    await expect(page.locator('.ld-badge, .ld-card-icon, .ld-ico, .has-accent')).toHaveCount(0)
+    await expect(page.locator('.ld-grid.with-icons')).toHaveCount(0)
+    await expect(page.getByTestId('package-card-plan.m')).toHaveCSS('border-top-color', 'rgb(245, 158, 11)')
+    await expect(page.getByTestId('package-card-plan.m')).toHaveCSS('box-shadow', 'none')
+    await expect(page.locator('.ld-hat-pill')).toHaveCSS('background-color', 'rgb(245, 158, 11)')
+    await expect(page.getByTestId('package-choose-plan.s')).toHaveCSS('background-color', 'rgb(16, 185, 129)')
+    // The name starts at the cell's padding — no reserved gutter.
+    const f = page.getByTestId('package-row-backup').locator('.ld-feature')
+    expect((await boxOf(f.locator('.ld-feature-name'))).left - (await boxOf(f)).left).toBeLessThan(14)
+  })
+
+  test('/addons: the add-on cards and "In your package" carry the document icons (none for a feature without one, no emoji); the description has the full card width; the floor is folded under "In your package"', async ({ page }) => {
+    await pointAtChargeback(page)
+    await mockPackages(page, FIXTURE_V3)
+    await mockIcons(page)
+    await seedCart(page, { plan: 'm', planName: 'M', packageSku: 'plan.m' })
+    await page.goto('/addons')
+    await expect(page.getByTestId('addons-included')).toBeVisible({ timeout: 10_000 })
+
+    const backup = page.getByTestId('addon-tile-addon.backup')
+    await expect(backup.locator('img')).toHaveCount(1)
+    const builder = page.getByTestId('addon-tile-addon.ai_builder')
+    await expect(builder.locator('img')).toHaveCount(0)
+    await expect(builder.locator('.extra-icon, .ico-tile')).toHaveCount(0)
+    const tilesText = await page.getByTestId('addons-optional').innerText()
+    expect(tilesText).not.toMatch(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u)
+    await expect(page.getByTestId('addons-included-bandwidth').locator('img')).toHaveCount(1)
+    await expect(page.getByTestId('addons-missing-kube_api').locator('img')).toHaveCount(1)
+    expect(await expectImagesDecoded(page.locator('.addons-page'))).toBeGreaterThan(10)
+
+    // The card: name + price + tick on one row, the description beneath at
+    // (nearly) the card's full inner width — never a one-word-per-line column.
+    const desc = backup.locator('.addon-card-desc')
+    const [tile, d] = [await boxOf(backup), await boxOf(desc)]
+    expect(d.right - d.left, 'description spans the card').toBeGreaterThan((tile.right - tile.left) * 0.8)
+    const head = await boxOf(backup.locator('.addon-card-head'))
+    expect(d.top).toBeGreaterThanOrEqual(head.bottom - 1)
+    const [name, price] = [await boxOf(backup.locator('.addon-card-name')), await boxOf(backup.locator('.extra-price'))]
+    expect(Math.abs((name.top + name.bottom) / 2 - (price.top + price.bottom) / 2)).toBeLessThan(6)
+
+    // The floor, folded: every item, free SSL among them, from floor[].
+    const floor = page.getByTestId('addons-included-floor')
+    await expect(floor.locator('summary')).toHaveText('+ everything in every package (9)')
+    await floor.locator('summary').click()
+    await expect(floor.locator('.in-pkg-item')).toHaveCount(9)
+    await expect(floor.getByTestId('addons-floor-ssl')).toHaveText(/Unlimited free SSL/)
+    await expect(floor.getByTestId('addons-floor-ssl').locator('img')).toHaveCount(1)
+  })
+
+  test('/review: the package options carry the document icon and accent; the summary shows the package and the chosen add-ons with their icons', async ({ page }) => {
+    await page.route('**/api/auth/me', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ user: { id: 'user-1', email: 'demo@example.com', name: 'Demo User' } }) }),
+    )
+    await mockQuote(page)
+    await pointAtChargeback(page)
+    await mockPackages(page, FIXTURE_V3)
+    await mockIcons(page)
+    await seedCart(page, { plan: 'm', planName: 'M', packageSku: 'plan.m', addons: ['addon.backup', 'addon.ai_builder'] })
+    await page.goto('/review')
+    const opt = page.getByTestId('review-plan-plan.m')
+    await expect(opt).toBeVisible({ timeout: 10_000 })
+    await expect(opt.locator('img')).toHaveCount(1)
+    await expect(opt).toHaveClass(/checked/)
+    await expect(opt).toHaveCSS('border-top-color', hexToRgb('#4F46E5'))
+    const sum = page.getByTestId('review-package-summary')
+    await expect(sum).toContainText('M package')
+    await expect(sum).toContainText('Most popular')
+    await expect(sum.locator('img')).toHaveCount(1)
+    await expect(page.getByTestId('review-addon-addon.backup').locator('img')).toHaveCount(1)
+    await expect(page.getByTestId('review-addon-addon.ai_builder').locator('img')).toHaveCount(0)
+    await expect(page.getByTestId('review-floor').locator('img')).toHaveCount(9)
+    expect(await expectImagesDecoded(page.locator('.review'))).toBeGreaterThan(10)
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────────
+// The wizard walk defects (hw307, marketplace 6761275)
+// ────────────────────────────────────────────────────────────────────────
+
+test.describe('wizard walk fixes: review total, plans from BSS only, the step bar, DR on XL only (#6971)', () => {
+  test.beforeEach(async ({ page }) => {
+    await mockCatalog(page)
+    await page.route('**/api/auth/me', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ user: { id: 'user-1', email: 'demo@example.com', name: 'Demo User' } }) }),
+    )
+  })
+
+  test('/review: when POST /billing/quote answers 503 "prices unavailable", the total is priced from the document the plans page used — never "Total unavailable"', async ({ page }) => {
+    await page.route('**/api/billing/quote', (route) =>
+      route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'prices unavailable — the price book could not be read; please retry' }) }),
+    )
+    await pointAtChargeback(page)
+    await mockPackages(page)
+    await seedCart(page, { plan: 'l', planName: 'L', packageSku: 'plan.l', addons: ['addon.backup', 'addon.domain'] })
+    await page.goto('/review')
+    const total = page.getByTestId('review-total')
+    await expect(total).toHaveText('OMR 9.990', { timeout: 10_000 })
+    await expect(total).toHaveAttribute('data-source', 'document')
+    await expect(page.getByTestId('review-total-plan')).toContainText('OMR 7.990')
+    await expect(page.getByTestId('review-total-package-addon-addon.backup')).toContainText('+OMR 1.500')
+    await expect(page.getByTestId('review-total-from-document')).toBeVisible()
+    await expect(page.getByTestId('review-quote-error')).toHaveCount(0)
+    await expect(page.locator('.review')).not.toContainText('Total unavailable')
+  })
+
+  test('/review: every plan shown is a package of the document — a catalog-only plan (Flexi) is not shown', async ({ page }) => {
+    await page.route('**/api/catalog/plans**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([
+          ...CATALOG_PLANS,
+          { id: 'flexi', slug: 'flexi', name: 'Flexi', cpu: 'On demand', memory: 'On demand', storage: 'On demand', price_omr: 0, popular: false, features: [], description: '' },
+        ]),
+      }),
+    )
+    await mockQuote(page)
+    await pointAtChargeback(page)
+    await mockPackages(page)
+    await seedCart(page, { plan: 'm', planName: 'M', packageSku: 'plan.m' })
+    await page.goto('/review')
+    await expect(page.locator('.plan-option')).toHaveCount(4, { timeout: 10_000 })
+    await expect(page.locator('.plan-opt-name')).toHaveText(['S', 'M', 'L', 'XL'])
+    await expect(page.locator('.review')).not.toContainText('Flexi')
+    await expect(page.locator('.review')).not.toContainText('OMR/CU/mo')
+  })
+
+  test('/addons: at the foot of the page the fixed step bar covers nothing — "Not on M" included, at 1280 and 400 px — and Continue goes to /bcp', async ({ page }) => {
+    await pointAtChargeback(page)
+    await mockPackages(page)
+    await seedCart(page, { plan: 'm', planName: 'M', packageSku: 'plan.m' })
+    for (const width of [1280, 400]) {
+      await page.setViewportSize({ width, height: 800 })
+      await page.goto('/addons')
+      const missing = page.getByTestId('addons-missing')
+      await expect(missing).toBeVisible({ timeout: 10_000 })
+      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+      await page.waitForTimeout(100)
+      const bar = await boxOf(page.getByTestId('step-bar'))
+      const last = await boxOf(missing.locator('.missing-tile').last())
+      expect(last.bottom, `the last "Not on M" tile ends above the bar at ${width}px`).toBeLessThanOrEqual(bar.top)
+      await expectNothingUnderBar(page, page.locator('.missing-tile, .extra-tile, [data-testid="addons-running-total"]'))
+    }
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await page.getByTestId('step-bar').getByRole('link', { name: /Continue/ }).click()
+    await page.waitForURL(/\/bcp/, { timeout: 10_000 })
+  })
+
+  test('DR only on XL: the document\'s not_offered DR cells read "—" on /plans, and /bcp on L locks hot-standby "Included from XL"', async ({ page }) => {
+    const doc = clone(FIXTURE_V2)
+    const dr = doc.features.find((f: any) => f.key === 'dr_topology')
+    for (const sku of ['plan.s', 'plan.m', 'plan.l']) dr.cells[sku] = { state: 'not_offered', included_from: 'plan.xl' }
+    await pointAtChargeback(page)
+    await mockPackages(page, doc)
+    await seedCart(page, { plan: 'l', planName: 'L', packageSku: 'plan.l' })
+    await page.goto('/plans')
+    await expect(page.getByTestId('package-ladder')).toBeVisible({ timeout: 10_000 })
+    for (const sku of ['plan.s', 'plan.m', 'plan.l']) await expect(page.getByTestId(`package-cell-dr_topology-${sku}`)).toHaveText('—')
+    await expect(page.getByTestId('package-cell-dr_topology-plan.xl')).toHaveText('active-passive')
+    await page.goto('/bcp')
+    const hot = page.getByTestId('topology-card-hot')
+    await expect(hot).toHaveAttribute('data-locked', 'true', { timeout: 10_000 })
+    await expect(hot).toContainText('Included from XL')
+    await expect(hot.getByRole('radio')).toHaveCount(0)
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────────
+// Screenshots for the PR — /plans, /addons, /review at 1400 and 400 px
+// ────────────────────────────────────────────────────────────────────────
+
+test.describe('branding screenshots (#6971)', () => {
+  for (const [width, scheme] of [[1400, 'light'], [400, 'light'], [1400, 'dark'], [400, 'dark']] as const) {
+    test(`plans, addons and review at ${width}px, ${scheme}`, async ({ page }) => {
+      await page.emulateMedia({ colorScheme: scheme })
+      test.setTimeout(60_000)
+      await mockCatalog(page)
+      await page.route('**/api/auth/me', (route) =>
+        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ user: { id: 'user-1', email: 'demo@example.com', name: 'Demo User' } }) }),
+      )
+      await mockQuote(page)
+      await pointAtChargeback(page)
+      await mockPackages(page, FIXTURE_V3)
+      await mockIcons(page)
+      await seedCart(page, { plan: 'm', planName: 'M', packageSku: 'plan.m', addons: ['addon.backup', 'addon.domain'] })
+      await page.setViewportSize({ width, height: 900 })
+      for (const step of ['plans', 'addons', 'review']) {
+        await page.goto(`/${step}`)
+        const ready = step === 'plans' ? 'package-ladder' : step === 'addons' ? 'addons-included' : 'review-package-summary'
+        await expect(page.getByTestId(ready)).toBeVisible({ timeout: 10_000 })
+        await expectImagesDecoded(page.locator('body'))
+        await shootTall(page, join(SHOTS, `marketplace-icons-${step}-${width}${scheme === 'dark' ? '-dark' : ''}.png`))
+      }
+    })
+  }
 })
