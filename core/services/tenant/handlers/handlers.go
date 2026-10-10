@@ -214,6 +214,10 @@ type createOrgRequest struct {
 	OverageMode     string              `json:"overage_mode"`
 	GrowCeiling     *events.GrowCeiling `json:"grow_ceiling"`
 	SpendLimitMonth string              `json:"spend_limit_month"`
+	// PrepaidAmount — what the checkout collected for the package and its
+	// BSS add-ons ("5.990"); like overage_mode, replaced by the settled
+	// order's value at launch. Tolerated empty.
+	PrepaidAmount string `json:"prepaid_amount"`
 	// ParentDomain — the org-pool parent apex the customer chose at
 	// the /addons step (e.g. "omani.works"). #4176/#4179: the per-Org
 	// console lives at `console.<slug>.<parent_domain>`. On a Sovereign
@@ -358,6 +362,7 @@ func (h *Handler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 		OverageMode:     events.NormaliseOverageMode(body.OverageMode),
 		GrowCeiling:     nonZeroCeiling(body.GrowCeiling),
 		SpendLimitMonth: strings.TrimSpace(body.SpendLimitMonth),
+		PrepaidAmount:   strings.TrimSpace(body.PrepaidAmount),
 	}
 
 	if err := h.Store.CreateTenant(r.Context(), tenant); err != nil {
@@ -566,6 +571,7 @@ func (h *Handler) launchTenant(ctx context.Context, t *store.Tenant) {
 			OverageMode:     t.OverageMode,
 			GrowCeiling:     t.GrowCeiling,
 			SpendLimitMonth: t.SpendLimitMonth,
+			PrepaidAmount:   t.PrepaidAmount,
 		})
 	if evt, err := events.NewEvent("tenant.created", "tenant-service", t.ID, tenantCreatedPayload); err == nil {
 		pubCtx, pubCancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -703,6 +709,10 @@ type launchRequest struct {
 	OverageMode     string              `json:"overage_mode"`
 	GrowCeiling     *events.GrowCeiling `json:"grow_ceiling"`
 	SpendLimitMonth string              `json:"spend_limit_month"`
+	// PrepaidAmount — what the checkout collected for the package and its
+	// BSS add-on lines ("5.990"), on a package order; BSS credits it on the
+	// Organization's first statement.
+	PrepaidAmount string `json:"prepaid_amount"`
 }
 
 // nonZeroCeiling copies a ceiling that sets at least one dimension; nil else.
@@ -774,6 +784,10 @@ func applyLaunchCommerce(t *store.Tenant, req launchRequest) store.Commerce {
 			t.GrowCeiling, t.SpendLimitMonth = nil, ""
 			delta.ClearGrow = true
 		}
+	}
+	// The prepaid amount the order collected wins over a create-time value.
+	if amt := strings.TrimSpace(req.PrepaidAmount); amt != "" {
+		t.PrepaidAmount, delta.PrepaidAmount = amt, amt
 	}
 	for _, sku := range events.BSSAddonSKUs(req.Addons) {
 		if containsSlug(t.AddOns, sku) {

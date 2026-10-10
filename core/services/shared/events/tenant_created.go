@@ -26,7 +26,10 @@ package events
 // store.Tenant onto this via NewTenantCreatedPayload; the consumer decodes
 // straight into it.
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // TenantCreatedPayload is the canonical JSON shape of the `tenant.created`
 // event. Field tags match the historical wire shape both the producer
@@ -89,6 +92,15 @@ type TenantCreatedPayload struct {
 	OverageMode     string       `json:"overage_mode,omitempty"`
 	GrowCeiling     *GrowCeiling `json:"grow_ceiling,omitempty"`
 	SpendLimitMonth string       `json:"spend_limit_month,omitempty"`
+
+	// PrepaidAmount is what the checkout collected for the PACKAGE and its
+	// BSS add-on lines (DESIGN.md §22.11 of products/chargeback), a money
+	// string at three decimals ("5.990"): the package's price_month plus the
+	// non-redundant addon.* lines — never the topology surcharge or a catalog
+	// add-on. BSS credits it on the Organization's first statement so the
+	// package the checkout collected is never charged twice. omitempty: a
+	// legacy producer emits the exact pre-change bytes.
+	PrepaidAmount string `json:"prepaid_amount,omitempty"`
 }
 
 // Overage modes an order may carry.
@@ -134,6 +146,8 @@ type TenantCommerce struct {
 	OverageMode     string
 	GrowCeiling     *GrowCeiling
 	SpendLimitMonth string
+	// PrepaidAmount — see TenantCreatedPayload.
+	PrepaidAmount string
 }
 
 // BSSAddonSKUPrefix is what distinguishes a Catalyst BSS add-on SKU
@@ -176,6 +190,7 @@ func (p TenantCreatedPayload) WithCommerce(c TenantCommerce) TenantCreatedPayloa
 		p.GrowCeiling = &g
 	}
 	p.SpendLimitMonth = strings.TrimSpace(c.SpendLimitMonth)
+	p.PrepaidAmount = strings.TrimSpace(c.PrepaidAmount)
 	return p
 }
 
@@ -183,7 +198,18 @@ func (p TenantCreatedPayload) WithCommerce(c TenantCommerce) TenantCreatedPayloa
 // "mint a spec.commerce block or not" test.
 func (p TenantCreatedPayload) HasCommerce() bool {
 	return p.PackageSKU != "" || len(p.Addons) > 0 || p.PriceSource != "" || p.OrderID != "" ||
-		p.OverageMode != "" || !p.GrowCeiling.IsZero() || p.SpendLimitMonth != ""
+		p.OverageMode != "" || !p.GrowCeiling.IsZero() || p.SpendLimitMonth != "" || p.PrepaidAmount != ""
+}
+
+// FormatBaisa renders an amount in baisa (1/1000 OMR) as the money string
+// the hand-over carries — exactly three decimals: 5990 → "5.990",
+// 4490 → "4.490". "" for zero or less, so an order that collected nothing
+// for its package hands nothing over.
+func FormatBaisa(baisa int64) string {
+	if baisa <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d.%03d", baisa/1000, baisa%1000)
 }
 
 // NewTenantCreatedPayload builds a canonical payload from the raw fields a

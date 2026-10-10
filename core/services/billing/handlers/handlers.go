@@ -396,6 +396,7 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 			PromoCode:   req.PromoCode,
 			PriceSource: priced.PriceSource, PackageSKU: priced.PackageSKU, AddonLines: priced.linesJSON(),
 			OverageMode: priced.OverageMode, GrowCeiling: priced.growCeilingJSON(), SpendLimitMonth: priced.SpendLimitMonth,
+			PrepaidBaisa: priced.PrepaidBaisa,
 		}
 		sub := &store.Subscription{
 			CustomerID: cust.ID, TenantID: req.TenantID, PlanID: req.PlanID, Status: "active",
@@ -450,6 +451,7 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 		PromoCode:   req.PromoCode,
 		PriceSource: priced.PriceSource, PackageSKU: priced.PackageSKU, AddonLines: priced.linesJSON(),
 		OverageMode: priced.OverageMode, GrowCeiling: priced.growCeilingJSON(), SpendLimitMonth: priced.SpendLimitMonth,
+		PrepaidBaisa: priced.PrepaidBaisa,
 	}
 	if err := h.Store.CreateOrder(ctx, order); err != nil {
 		slog.Error("checkout: create order", "error", err)
@@ -1294,6 +1296,12 @@ type pricedOrder struct {
 	GrowCeiling     *events.GrowCeiling
 	SpendLimitMonth string
 	OverageRates    []packages.OverageRate
+	// PrepaidBaisa is what the checkout collects for the PACKAGE and its BSS
+	// add-on lines (#6971): PlanBaisa plus every non-redundant addon.* line,
+	// capped at TotalBaisa — never the topology surcharge, never a catalog
+	// add-on. 0 on the catalog path. BSS credits it on the Organization's
+	// first statement (spec.commerce.prepaidAmount).
+	PrepaidBaisa int64
 }
 
 // growCeilingJSON is the resolved ceiling as the orders.grow_ceiling JSONB
@@ -1655,7 +1663,32 @@ func (h *Handler) priceFromPackages(ctx context.Context, req pricingRequest, ov 
 	for _, l := range p.Lines {
 		p.TotalBaisa += l.AmountBaisa
 	}
+	p.PrepaidBaisa = prepaidBaisa(p)
 	return p, nil
+}
+
+// prepaidBaisa is the part of a package order BSS bills as the package and
+// its add-ons — the plan plus every non-redundant BSS addon.* line — capped
+// at the order total. The topology surcharge (billing's own figure) and the
+// catalog add-ons are not BSS lines, so they are not credited there.
+func prepaidBaisa(p *pricedOrder) int64 {
+	if p == nil || p.PackageSKU == "" {
+		return 0
+	}
+	sum := p.PlanBaisa
+	for _, l := range p.Lines {
+		if l.Redundant || !packages.IsAddonSKU(l.SKU) {
+			continue
+		}
+		sum += l.AmountBaisa
+	}
+	if sum > p.TotalBaisa {
+		sum = p.TotalBaisa
+	}
+	if sum < 0 {
+		return 0
+	}
+	return sum
 }
 
 // priceFromCatalog is the pre-#6971 pricing path, unchanged in behaviour:
@@ -1836,6 +1869,9 @@ func (h *Handler) dispatchOrderPlaced(tenantID string, order *store.Order) {
 		"overage_mode":      order.OverageMode,
 		"grow_ceiling":      order.GrowCeiling,
 		"spend_limit_month": order.SpendLimitMonth,
+		// What the checkout collected for the package and its BSS add-ons,
+		// "" when nothing (#6971) — credited on the first BSS statement.
+		"prepaid_amount": events.FormatBaisa(order.PrepaidBaisa),
 	}
 	evt, err := events.NewEvent("order.placed", "billing", tenantID, payload)
 	if err != nil {
@@ -1885,6 +1921,11 @@ type launchBody struct {
 	OverageMode     string              `json:"overage_mode,omitempty"`
 	GrowCeiling     *events.GrowCeiling `json:"grow_ceiling,omitempty"`
 	SpendLimitMonth string              `json:"spend_limit_month,omitempty"`
+	// PrepaidAmount is what the checkout collected for the package and its
+	// BSS add-on lines, three decimals ("5.990"); only on a package order,
+	// omitted when zero. The Organization CR receives it as
+	// spec.commerce.prepaidAmount and BSS credits it on the first statement.
+	PrepaidAmount string `json:"prepaid_amount,omitempty"`
 }
 
 // settlementLaunchBody builds the launch body from an order. Addons carries
@@ -1914,6 +1955,11 @@ func settlementLaunchBody(order *store.Order) launchBody {
 			b.OverageMode = store.OverageModeCapped
 		}
 		b.SpendLimitMonth = strings.TrimSpace(order.SpendLimitMonth)
+		prepaid := order.PrepaidBaisa
+		if order.AmountBaisa > 0 && prepaid > order.AmountBaisa {
+			prepaid = order.AmountBaisa
+		}
+		b.PrepaidAmount = events.FormatBaisa(prepaid)
 		if len(order.GrowCeiling) > 0 {
 			var c events.GrowCeiling
 			if err := json.Unmarshal(order.GrowCeiling, &c); err != nil {

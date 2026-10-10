@@ -362,6 +362,7 @@ func TestCheckout_NoPackageSKU_CatalogPathNeverConsultsBSS(t *testing.T) {
 			sqlmock.AnyArg(), sqlmock.AnyArg(),
 			nil, "catalog", jsonArg{`[]`}, // package_sku NULL, price_source catalog, no lines
 			"capped", nil, nil, // overage_mode capped, no grow ceiling, no spend limit
+			int64(0), // prepaid_baisa: a catalog order prepays nothing BSS credits
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow("order-legacy", time.Now()))
 	mock.ExpectExec(regexp.QuoteMeta(
@@ -420,6 +421,7 @@ func TestCheckout_PackageM_WithBackup_CreditOnly_PersistsProvenance(t *testing.T
 			"plan.m", "bss:OpenOva plans@2026-09-11",
 			jsonArg{`[{"sku":"addon.backup","name":"Backup","amount_baisa":1500}]`},
 			"capped", nil, nil, // overage_mode capped, no grow ceiling, no spend limit
+			int64(10500), // prepaid_baisa: M 9.000 + backup 1.500 = 10.500 (#6971)
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow("order-bss", time.Now()))
 	mock.ExpectExec(regexp.QuoteMeta(

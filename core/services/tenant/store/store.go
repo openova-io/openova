@@ -93,6 +93,10 @@ type Tenant struct {
 	OverageMode     string              `bson:"overage_mode,omitempty" json:"overage_mode,omitempty"`
 	GrowCeiling     *events.GrowCeiling `bson:"grow_ceiling,omitempty" json:"grow_ceiling,omitempty"`
 	SpendLimitMonth string              `bson:"spend_limit_month,omitempty" json:"spend_limit_month,omitempty"`
+	// PrepaidAmount is what the checkout collected for the package and its
+	// BSS add-on lines ("5.990"); BSS credits it on the Organization's first
+	// statement (#6971). Billing's settlement launch body wins.
+	PrepaidAmount string `bson:"prepaid_amount,omitempty" json:"prepaid_amount,omitempty"`
 	// ParentDomain — the org-pool parent apex the customer chose at the
 	// /addons step (e.g. "omani.works"). #4176/#4179: the per-Org console
 	// lives at `console.<subdomain>.<parent_domain>`. On a Sovereign whose
@@ -240,12 +244,15 @@ type Commerce struct {
 	GrowCeiling     *events.GrowCeiling
 	SpendLimitMonth string
 	ClearGrow       bool
+	// PrepaidAmount is $set when non-empty.
+	PrepaidAmount string
 }
 
 // IsZero reports whether the Commerce carries nothing to write.
 func (c Commerce) IsZero() bool {
 	return c.PackageSKU == "" && c.PriceSource == "" && c.OrderID == "" && len(c.Addons) == 0 &&
-		c.OverageMode == "" && c.GrowCeiling.IsZero() && c.SpendLimitMonth == "" && !c.ClearGrow
+		c.OverageMode == "" && c.GrowCeiling.IsZero() && c.SpendLimitMonth == "" && !c.ClearGrow &&
+		c.PrepaidAmount == ""
 }
 
 // commerceUpdate is the targeted update SetCommerce sends. Pure, so the
@@ -270,6 +277,9 @@ func commerceUpdate(c Commerce, now time.Time) bson.D {
 	if c.SpendLimitMonth != "" {
 		setFields = append(setFields, bson.E{Key: "spend_limit_month", Value: c.SpendLimitMonth})
 	}
+	if c.PrepaidAmount != "" {
+		setFields = append(setFields, bson.E{Key: "prepaid_amount", Value: c.PrepaidAmount})
+	}
 	update := bson.D{{Key: "$set", Value: setFields}}
 	if c.ClearGrow {
 		unset := bson.D{}
@@ -293,7 +303,7 @@ func commerceUpdate(c Commerce, now time.Time) bson.D {
 
 // SetCommerce stamps the purchase onto a Tenant record in ONE targeted update:
 // `$set` for each non-empty scalar (package_sku / price_source / order_id /
-// overage_mode / grow_ceiling / spend_limit_month), `$unset` of the grow
+// overage_mode / grow_ceiling / spend_limit_month / prepaid_amount), `$unset` of the grow
 // fields when the order is capped (ClearGrow), and `$addToSet $each` for the
 // add-on SKUs. Targeted rather than the
 // whole-document UpdateTenant so a concurrent day-2 AtomicAppendApps on the

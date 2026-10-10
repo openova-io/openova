@@ -259,6 +259,9 @@ func (h *Handler) createOrganizationCR(ctx context.Context, data tenantCreatedPa
 //	overageMode  ← overage_mode  ("capped" | "grow"; anything else dropped)
 //	growCeiling  ← grow_ceiling  ({vcpu, memoryGB, diskGB, bandwidthMbps}, non-zero only)
 //	spendLimitMonth ← spend_limit_month (trimmed)
+//	prepaidAmount ← prepaid_amount (trimmed; what the checkout collected for
+//	                the package and its BSS add-ons, credited by BSS on the
+//	                first statement)
 //
 // Returns ok=false when nothing is set, so the caller leaves the block
 // absent instead of minting `commerce: {}`. Pure, so the CR shape is
@@ -275,6 +278,7 @@ func organizationCommerceBlock(data tenantCreatedPayload) (map[string]any, bool)
 		OverageMode:     data.OverageMode,
 		GrowCeiling:     data.GrowCeiling,
 		SpendLimitMonth: data.SpendLimitMonth,
+		PrepaidAmount:   data.PrepaidAmount,
 	})
 	if !p.HasCommerce() {
 		return nil, false
@@ -302,6 +306,9 @@ func organizationCommerceBlock(data tenantCreatedPayload) (map[string]any, bool)
 	}
 	if p.SpendLimitMonth != "" {
 		block["spendLimitMonth"] = p.SpendLimitMonth
+	}
+	if p.PrepaidAmount != "" {
+		block["prepaidAmount"] = p.PrepaidAmount
 	}
 	if p.PackageSKU != "" {
 		block["packageSKU"] = p.PackageSKU

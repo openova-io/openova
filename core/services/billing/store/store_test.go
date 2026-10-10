@@ -74,11 +74,11 @@ func TestCreateInvoice_BaisaAndOMRPersisted(t *testing.T) {
 // Stripe webhook callers (who set AmountBaisa) get AmountOMR filled in.
 func TestCreateInvoice_DerivesMissingFields(t *testing.T) {
 	cases := []struct {
-		name           string
-		in             Invoice
-		wantOMR        int
-		wantBaisa      int64
-		wantCurrency   string
+		name         string
+		in           Invoice
+		wantOMR      int
+		wantBaisa    int64
+		wantCurrency string
 	}{
 		{
 			name:         "baisa-only input (Stripe webhook path)",
@@ -253,6 +253,7 @@ func TestCreateOrder_DerivesBaisaFromOMR(t *testing.T) {
 			"capped",         // overage_mode — defaulted when the caller sets none
 			nil,              // grow_ceiling — NULL when capped
 			nil,              // spend_limit_month — NULL when unset
+			int64(0),         // prepaid_baisa — 0 when the caller sets none (#6971)
 		).
 		WillReturnRows(rows)
 
@@ -388,6 +389,7 @@ func TestCreditOnlyCheckout_CommitsAllThreeWrites(t *testing.T) {
 			sqlmock.AnyArg(), sqlmock.AnyArg(), // stripe_session_id (nil), promo_code (nil)
 			sqlmock.AnyArg(), "catalog", sqlmock.AnyArg(), // package_sku, price_source, addon_lines (#6971)
 			"capped", nil, nil, // overage_mode, grow_ceiling, spend_limit_month
+			int64(0), // prepaid_baisa (#6971)
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow("order-id", time.Now()))
 	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO credit_ledger`)).
