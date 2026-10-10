@@ -164,7 +164,10 @@ describe('ReviewStep and CheckoutStep render their totals from the quote (#6971)
   });
 
   it('lines render from quote.lines under the e2e testids', () => {
-    expect(REVIEW).toMatch(/\{#each quote\.lines as line \(line\.sku\)\}/);
+    // Review renders the quote, or — only when the quote failed — the same
+    // shape priced from the document (documentQuote), flagged as such.
+    expect(REVIEW).toMatch(/\{#each shownQuote\.lines as line \(line\.sku\)\}/);
+    expect(REVIEW).toMatch(/const shownQuote = \$derived\(quote \?\? \(quoteError \? docQuote : null\)\);/);
     expect(REVIEW).toMatch(/data-testid="review-total-package-addon-\{line\.sku\}"/);
     expect(CHECKOUT).toMatch(/\{#each quote\.lines as line \(line\.sku\)\}/);
     expect(CHECKOUT).toMatch(/data-testid="checkout-package-addon-\{line\.sku\}"/);

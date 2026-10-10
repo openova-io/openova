@@ -214,22 +214,31 @@
   // OMR here while Review and Checkout used different precision; now every
   // addon price on every step shows the same baisa-precise value.
 
-  // Addon icons by slug
-  const addonIcons: Record<string, string> = {
-    'waf': '🔥', 'ips': '🚨', 'vuln-scan': '🔍',
-    'custom-domain': '🌐', 'log-management': '📋', 'priority-support': '⚡',
-    'daily-backup': '🛡️',
-    // #6971 — BSS feature keys (the `slug` of a document-sourced add-on):
-    // the v1 document's hyphenated keys and the v2 document's underscored ones.
-    'backup': '🛡️', 'domain': '🌐', 'dedicated-ip': '🌍', 'ai-seo': '🔎',
-    'ai-website-builder': '🪄', 'ssl': '🔒', 'sso': '🔑', 'ddos': '🛡️',
-    'malware-scanner': '🔍', 'support': '💬', 'mail': '✉️', 'databases': '🗄️',
-    'applications': '📦',
-    'dedicated_ip': '🌍', 'ai_seo': '🔎', 'ai_builder': '🪄', 'bandwidth': '📶',
-  };
+  // Icons: nothing visual is keyed by feature key in this tree. A BSS add-on
+  // or feature shows the icon the document publishes (`image` / `icon`,
+  // validated and resolved by packages.ts::parseIcon) or none at all; only a
+  // catalog add-on (no document) shows the catalog's own `icon` glyph.
+
+  // The step bar's real height, measured: the page is padded by it and the
+  // document's scroll-padding matches, so the bar never covers the last block
+  // whatever its height at this width (the CSS 4.5rem is the first paint).
+  let stepBar = $state<HTMLElement | null>(null);
+  let stepBarH = $state(0);
+  $effect(() => {
+    const el = stepBar;
+    if (!el || typeof ResizeObserver !== 'function') return;
+    const measure = () => {
+      stepBarH = Math.ceil(el.getBoundingClientRect().height);
+      document.documentElement.style.scrollPaddingBottom = `${stepBarH + 16}px`;
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => { ro.disconnect(); document.documentElement.style.scrollPaddingBottom = ''; };
+  });
 </script>
 
-<div class="addons-page">
+<div class="addons-page" style={stepBarH > 0 ? `--step-bar-h: ${stepBarH + 16}px` : ''}>
   <div class="addons-hero">
     <h1>Setup & extras</h1>
     <p>Pick your domain and optional add-ons</p>
@@ -335,12 +344,39 @@
         <ul class="in-pkg">
           {#each ladder.included as f (f.key)}
             <li class="in-pkg-item" data-testid="addons-included-{f.key}" title={f.blurb}>
-              <span class="in-pkg-tick" aria-hidden="true">✓</span>
+              {#if f.icon}
+                <span class="ico-tile chip" style={f.icon.bg ? `background: ${f.icon.bg}` : ''}>
+                  <img src={f.icon.src} alt="" width="14" height="14" loading="lazy" decoding="async" />
+                </span>
+              {:else}
+                <span class="in-pkg-tick" aria-hidden="true">✓</span>
+              {/if}
               <span class="in-pkg-name">{f.name}</span>
               {#if f.value}<span class="in-pkg-val">{f.value}</span>{/if}
             </li>
           {/each}
         </ul>
+        {#if doc?.floor && doc.floor.length > 0}
+          <!-- What every package includes (the document's floor) — folded,
+               so the package's own features stay the headline. -->
+          <details class="in-pkg-floor" data-testid="addons-included-floor">
+            <summary>{PS.ladder.floorMore(doc.floor.length)}</summary>
+            <ul class="in-pkg">
+              {#each doc.floor as f (f.key)}
+                <li class="in-pkg-item" data-testid="addons-floor-{f.key}" title={f.blurb ?? ''}>
+                  {#if f.icon}
+                    <span class="ico-tile chip" style={f.icon.bg ? `background: ${f.icon.bg}` : ''}>
+                      <img src={f.icon.src} alt="" width="14" height="14" loading="lazy" decoding="async" />
+                    </span>
+                  {:else}
+                    <span class="in-pkg-tick" aria-hidden="true">✓</span>
+                  {/if}
+                  <span class="in-pkg-name">{f.name}</span>
+                </li>
+              {/each}
+            </ul>
+          </details>
+        {/if}
       </section>
     {:else if bssIncluded.length > 0}
       <!-- #6971 — the chosen package's included features, read-only: no price,
@@ -354,7 +390,13 @@
         <div class="extras-grid">
           {#each bssIncluded as f (f.key)}
             <div class="extra-tile svc-tile" data-testid="addons-included-{f.key}">
-              <span class="extra-icon">{addonIcons[f.key] || '✓'}</span>
+              {#if f.icon}
+                <span class="ico-tile" style={f.icon.bg ? `background: ${f.icon.bg}` : ''}>
+                  <img src={f.icon.src} alt="" width="18" height="18" loading="lazy" decoding="async" />
+                </span>
+              {:else}
+                <span class="extra-icon in-pkg-tick" aria-hidden="true">✓</span>
+              {/if}
               <div class="extra-body">
                 <strong>{f.name}</strong>
                 <p>{f.blurb}</p>
@@ -378,23 +420,30 @@
           <button
             type="button"
             onclick={() => toggle(addon.id)}
-            class="extra-tile clickable {isChecked ? 'checked' : ''}"
+            class="extra-tile addon-card clickable {isChecked ? 'checked' : ''}"
             data-testid="addon-tile-{addon.id}"
+            aria-pressed={isChecked}
           >
-            <span class="extra-icon">{addonIcons[addon.slug] || addon.icon || '📦'}</span>
-            <div class="extra-body">
-              <strong>{addon.name}</strong>
-              <p>{addon.tagline}</p>
-              {#if addon.hint}<p class="extra-hint">{addon.hint}</p>{/if}
-            </div>
-            <span class="extra-price">{addon.monthly_price === 0 ? 'Free' : `+${formatOMR(addon.monthly_price)}`}</span>
-            <span class="extra-check">
-              {#if isChecked}
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>
-              {:else}
-                <span class="extra-box"></span>
+            <span class="addon-card-head">
+              {#if addon.image}
+                <span class="ico-tile" style={addon.image.bg ? `background: ${addon.image.bg}` : ''}>
+                  <img src={addon.image.src} alt="" width="18" height="18" loading="lazy" decoding="async" />
+                </span>
+              {:else if !doc && addon.icon}
+                <span class="extra-icon" aria-hidden="true">{addon.icon}</span>
               {/if}
+              <strong class="addon-card-name">{addon.name}</strong>
+              <span class="extra-price">{addon.monthly_price === 0 ? 'Free' : `+${formatOMR(addon.monthly_price)}`}</span>
+              <span class="extra-check">
+                {#if isChecked}
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>
+                {:else}
+                  <span class="extra-box"></span>
+                {/if}
+              </span>
             </span>
+            {#if addon.tagline}<span class="addon-card-desc">{addon.tagline}</span>{/if}
+            {#if addon.hint}<span class="addon-card-hint">{addon.hint}</span>{/if}
           </button>
         {/each}
       </div>
@@ -444,7 +493,13 @@
         <div class="extras-grid">
           {#each ladder.missing as m (m.key)}
             <div class="extra-tile missing-tile" data-testid="addons-missing-{m.key}" data-state={m.state}>
-              <span class="extra-icon missing-icon" aria-hidden="true">—</span>
+              {#if m.icon}
+                <span class="ico-tile missing-ico" style={m.icon.bg ? `background: ${m.icon.bg}` : ''}>
+                  <img src={m.icon.src} alt="" width="18" height="18" loading="lazy" decoding="async" />
+                </span>
+              {:else}
+                <span class="extra-icon missing-icon" aria-hidden="true">—</span>
+              {/if}
               <div class="extra-body">
                 <strong>{m.name}</strong>
                 <p>{m.blurb}</p>
@@ -468,7 +523,7 @@
      by its height (safe-area aware) and the document's scroll-padding keeps
      anything scrolled into view above it, so it never covers the content the
      customer is reading. -->
-<div class="step-bar" data-testid="step-bar">
+<div class="step-bar" data-testid="step-bar" bind:this={stepBar}>
   <div class="step-bar-inner">
     <a href="/apps" class="step-back">&larr; Apps</a>
     <a href="/bcp" class="step-cta">Continue &rarr;</a>
@@ -507,11 +562,13 @@
   }
   .ao-head {
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
     align-items: baseline;
+    gap: 0.25rem 0.75rem;
     margin-bottom: 0.65rem;
   }
-  .ao-head h2 { font-size: 0.95rem; color: var(--color-text-strong); margin: 0; font-weight: 600; }
+  .ao-head h2 { font-size: 0.95rem; color: var(--color-text-strong); margin: 0; font-weight: 600; white-space: nowrap; }
   .ao-badge {
     background: color-mix(in srgb, var(--color-success) 15%, transparent);
     color: var(--color-success);
@@ -542,6 +599,7 @@
   .domain-input-row { display: flex; gap: 0.4rem; }
   .domain-input {
     flex: 1;
+    min-width: 0;
     padding: 0.55rem 0.75rem;
     background: var(--color-bg);
     border: 1px solid var(--color-border);
@@ -583,7 +641,7 @@
   /* Extras tile grid — matches review page style */
   .extras-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
     gap: 0.5rem;
   }
   .extra-tile {
@@ -617,6 +675,32 @@
 
   .bs-hint { color: var(--color-text-dim); font-size: 0.78rem; margin: 0 0 0.55rem; }
 
+  /* An add-on card: the name, price and tick on one row; the description
+     full width beneath — never squeezed beside the price. */
+  .addon-card {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.3rem;
+    padding: 0.7rem 0.8rem 0.75rem;
+  }
+  .addon-card-head { display: flex; align-items: center; gap: 0.55rem; min-width: 0; }
+  .addon-card-name {
+    flex: 1; min-width: 0;
+    color: var(--color-text-strong); font-size: 0.85rem; font-weight: 600; line-height: 1.3;
+  }
+  .addon-card-desc { color: var(--color-text-dim); font-size: 0.74rem; line-height: 1.45; }
+  .addon-card-hint { color: var(--color-text-dimmer); font-size: 0.7rem; font-style: italic; }
+
+  /* A document icon on a rounded tile (the feature's `bg` when it sends one). */
+  .ico-tile {
+    display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+    width: 28px; height: 28px; border-radius: 7px;
+    background: color-mix(in srgb, var(--color-text) 7%, transparent);
+  }
+  .ico-tile img { display: block; }
+  .ico-tile.chip { width: 20px; height: 20px; border-radius: 5px; align-self: center; }
+  .missing-ico { filter: grayscale(1); opacity: 0.55; }
+
   /* #6971, v2 — block A: compact chips */
   .in-pkg {
     list-style: none;
@@ -628,7 +712,7 @@
   }
   .in-pkg-item {
     display: inline-flex;
-    align-items: baseline;
+    align-items: center;
     gap: 0.35rem;
     padding: 0.3rem 0.6rem;
     background: var(--color-bg);
@@ -638,6 +722,15 @@
     color: var(--color-text);
   }
   .in-pkg-tick { color: var(--color-success); font-weight: 700; }
+  .in-pkg-floor { margin-top: 0.6rem; }
+  .in-pkg-floor summary {
+    cursor: pointer;
+    color: var(--color-accent);
+    font-size: 0.78rem;
+    font-weight: 600;
+    list-style-position: inside;
+  }
+  .in-pkg-floor[open] summary { margin-bottom: 0.45rem; }
   .in-pkg-name { font-weight: 500; }
   .in-pkg-val { color: var(--color-text-dim); }
 

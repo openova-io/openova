@@ -1,22 +1,38 @@
 <script lang="ts">
   import { getPlans, getApps, getAddons, getQuote, type Plan, type App, type AddOn, type QuoteResponse } from '../lib/api';
-  import { readCart, toggleAddon, setPlan, setPackage } from '../lib/cart';
+  import { readCart, setPlan, setPackage } from '../lib/cart';
   import { formatOMR, formatOMRAmount } from '../lib/currency';
   import { chargebackBaseURL } from '../lib/config';
-  import { quoteRequestFor, quoteable, lineAmountLabel, QUOTE_STRINGS } from '../lib/quote';
+  import { documentQuote, quoteRequestFor, quoteable, lineAmountLabel, QUOTE_STRINGS } from '../lib/quote';
   import {
     catalogPlanIdForPackage,
     funnelAddonsFor,
     loadPublicPackages,
     packageCapacity,
     packageForCart,
-    packageForPlan,
     packageSpecsLine,
     pruneAddonsForPackage,
+    readableOn,
+    skuTail,
     PACKAGE_STRINGS,
     type PackageCapacity,
+    type PackageIcon,
+    type PublicPackage,
     type PublicPackages,
   } from '../lib/packages';
+
+  // One row of the plan picker. With the BSS document every option IS a
+  // package of the document — in its order, with its price, shape, icon and
+  // accent — and a catalog plan the document does not publish is not shown.
+  // Without the document the options are the catalog plans, as before.
+  type PlanOption = {
+    id: string;
+    slug: string;
+    name: string;
+    popular: boolean;
+    pkg: PublicPackage | null;
+    plan: Plan | null;
+  };
 
   let cart = $state(readCart());
   let plans = $state<Plan[]>([]);
@@ -30,9 +46,25 @@
   let loading = $state(true);
   let concurrency = $state<'small' | 'medium' | 'large'>('small');
 
-  const selectedPlan = $derived(plans.find(p => p.id === cart.plan));
+  const planOptions = $derived.by((): PlanOption[] => {
+    if (doc) {
+      return doc.packages.map(pkg => ({
+        id: catalogPlanIdForPackage(pkg, plans),
+        slug: skuTail(pkg.sku),
+        name: pkg.name,
+        popular: pkg.recommended === true,
+        pkg,
+        plan: plans.find(p => p.id === catalogPlanIdForPackage(pkg, plans)) ?? null,
+      }));
+    }
+    return plans.map(p => ({ id: p.id, slug: p.slug, name: p.name, popular: Boolean(p.popular), pkg: null, plan: p }));
+  });
+  const selectedPlan = $derived(
+    (doc && cart.packageSku ? planOptions.find(o => o.pkg?.sku === cart.packageSku) : undefined)
+      ?? planOptions.find(o => o.id === cart.plan),
+  );
+  const selectedPackage = $derived(selectedPlan?.pkg ?? null);
   const selectedApps = $derived(apps.filter(a => cart.apps.includes(a.id)));
-  const paidAddons = $derived(addons.filter(a => !a.included));
   const selectedAddons = $derived(addons.filter(a => cart.addons.includes(a.id)));
 
   // --- Pillar-2 BCP topology (#4524) ---------------------------------------
@@ -84,7 +116,15 @@
       .catch(e => { if (!stale) { quote = null; quoteError = e instanceof Error ? e.message : String(e); } });
     return () => { stale = true; };
   });
+  // When the quote cannot answer (billing 503s "prices unavailable" while
+  // /plans priced the same cart from the same document a step ago), the
+  // sidebar prices it from that document by the quote's own rules
+  // (quote.ts::documentQuote) and says so; checkout still bills through the
+  // quote. Unavailable only when neither can price it.
   const totalCost = $derived(quote?.amount_baisa ?? 0);
+  const docQuote = $derived(documentQuote(doc, cart));
+  const shownQuote = $derived(quote ?? (quoteError ? docQuote : null));
+  const fromDocument = $derived(!quote && Boolean(shownQuote));
 
   // --- Per-app resource estimates (MiB RAM, milli-CPU, GiB disk) ---
   const appRam: Record<string, number> = {
@@ -138,21 +178,25 @@
   // (packageCapacity) feeds the plan cards' price + specs, the headroom ring
   // and the "fits your N apps" hint alike; the catalog shape is the fallback
   // without a document.
-  function packageOf(plan: Plan) {
-    return doc ? packageForPlan(doc, plan) : null;
+  function capFor(opt: PlanOption): PackageCapacity {
+    const fromDoc = opt.pkg ? packageCapacity(opt.pkg) : null;
+    return fromDoc ?? planCapMap[opt.slug] ?? { ram: 0, cpu: 0, disk: 0 };
   }
-  function capFor(plan: Plan): PackageCapacity {
-    const pkg = packageOf(plan);
-    const fromDoc = pkg ? packageCapacity(pkg) : null;
-    return fromDoc ?? planCapMap[plan.slug] ?? { ram: 0, cpu: 0, disk: 0 };
+  function priceLineFor(opt: PlanOption): string {
+    if (opt.pkg) return opt.pkg.price_month;
+    return opt.plan ? formatOMRAmount(opt.plan.monthly_price) : '';
   }
-  function priceLineFor(plan: Plan): string {
-    const pkg = packageOf(plan);
-    return pkg ? pkg.price_month : formatOMRAmount(plan.monthly_price);
+  function specsLineFor(opt: PlanOption): string {
+    if (opt.pkg) {
+      const line = packageSpecsLine(opt.pkg);
+      if (line) return line;
+    }
+    const r = opt.plan?.resources;
+    return r ? `${r.cpu} · ${r.memory} · ${r.storage}` : '';
   }
-  function specsLineFor(plan: Plan): string {
-    const pkg = packageOf(plan);
-    return (pkg && packageSpecsLine(pkg)) || `${plan.resources.cpu} · ${plan.resources.memory} · ${plan.resources.storage}`;
+  /** The accent custom properties for a package option; empty without one. */
+  function accentStyle(pkg: PublicPackage | null): string {
+    return pkg?.accent ? `--pk-accent: ${pkg.accent}; --pk-accent-fg: ${readableOn(pkg.accent)};` : '';
   }
 
   const multiplier = $derived(concOptions.find(o => o.id === concurrency)?.multiplier ?? 1.0);
@@ -176,9 +220,9 @@
   // Find the smallest plan that fits — the plans in the document's order
   // (by shape) when there is one, else the catalog's fixed ladder.
   const suggestedPlan = $derived.by(() => {
-    const ordered: Plan[] = doc
-      ? [...plans].filter(p => capFor(p).ram > 0).sort((a, b) => capFor(a).ram - capFor(b).ram)
-      : ['s', 'm', 'l', 'xl', 'flexi'].map(slug => plans.find(p => p.slug === slug)).filter((p): p is Plan => Boolean(p));
+    const ordered: PlanOption[] = doc
+      ? [...planOptions].filter(p => capFor(p).ram > 0).sort((a, b) => capFor(a).ram - capFor(b).ram)
+      : ['s', 'm', 'l', 'xl', 'flexi'].map(slug => planOptions.find(p => p.slug === slug)).filter((p): p is PlanOption => Boolean(p));
     for (const plan of ordered) {
       const cap = capFor(plan);
       if (grossRam <= cap.ram && grossCpu <= cap.cpu && grossDisk <= cap.disk) return plan;
@@ -237,12 +281,12 @@
   // the matching package, drop a BSS add-on the new package no longer offers
   // as optional, and re-derive the add-on list. Without the document it is
   // today's setPlan.
-  function changePlan(plan: Plan) {
-    const pkg = doc ? packageForPlan(doc, plan) : null;
+  function changePlan(plan: PlanOption) {
+    const pkg = plan.pkg;
     if (doc && pkg) {
       cart = setPackage({
         planId: plan.id,
-        planName: plan.name,
+        planName: pkg.name,
         packageSku: pkg.sku,
         addons: pruneAddonsForPackage(doc, pkg.sku, cart.addons, catalogAddons),
       });
@@ -250,10 +294,6 @@
     } else {
       cart = setPlan(plan.id, plan.name);
     }
-  }
-
-  function toggleAddonItem(id: string) {
-    cart = toggleAddon(id);
   }
 
   // #85 — shared helper. `formatOMRAmount` is used where the "OMR" label is
@@ -265,12 +305,14 @@
     if (suggestedPlan) changePlan(suggestedPlan);
   }
 
-  // Addon icons by slug
-  const addonIcons: Record<string, string> = {
-    'waf': '🔥', 'ips': '🚨', 'vuln-scan': '🔍',
-    'custom-domain': '🌐', 'log-management': '📋', 'priority-support': '⚡',
-    'daily-backup': '🛡️', 'api-access': '🔌', 'dedicated-ip': '🌍',
-  };
+  // The chosen add-ons, for the summary: from the add-on list the cart's ids
+  // resolve against (the package's BSS add-ons with the document's icons, or
+  // the catalog list without a document). Nothing is picked here — the
+  // summary links back to the Add-ons step.
+  const chosenAddons = $derived(addons.filter(a => !a.included && cart.addons.includes(a.id)));
+  function addonImage(a: AddOn): PackageIcon | null {
+    return a.image ?? null;
+  }
 </script>
 
 <div class="review">
@@ -331,10 +373,14 @@
               <span class="rv-note">Recommended: {recommendedPlan}</span>
             {/if}
           </div>
-          <div class="plan-row">
-            {#each plans as plan}
-              {@const isChecked = cart.plan === plan.id}
-              <label class="plan-option {plan.popular ? 'popular' : ''} {isChecked ? 'checked' : ''} {suggestedPlan?.id === plan.id && maxPct > 100 ? 'suggested' : ''}">
+          <div class="plan-row" style="--plan-cols: {Math.max(planOptions.length, 1)}" data-testid="review-plan-row">
+            {#each planOptions as plan (plan.pkg?.sku ?? plan.id)}
+              {@const isChecked = selectedPlan === plan}
+              <label
+                class="plan-option {plan.popular ? 'popular' : ''} {isChecked ? 'checked' : ''} {suggestedPlan === plan && maxPct > 100 ? 'suggested' : ''} {plan.pkg?.accent ? 'has-accent' : ''}"
+                style={accentStyle(plan.pkg)}
+                data-testid="review-plan-{plan.pkg?.sku ?? plan.id}"
+              >
                 <input
                   type="radio"
                   name="plan"
@@ -343,9 +389,16 @@
                   onchange={() => changePlan(plan)}
                 />
                 <span class="plan-opt-body">
-                  <span class="plan-opt-name">{plan.name}</span>
+                  <span class="plan-opt-head">
+                    {#if plan.pkg?.icon}
+                      <span class="plan-opt-icon" style={plan.pkg.icon.bg ? `background: ${plan.pkg.icon.bg}` : ''}>
+                        <img src={plan.pkg.icon.src} alt="" width="16" height="16" loading="lazy" decoding="async" />
+                      </span>
+                    {/if}
+                    <span class="plan-opt-name">{plan.name}</span>
+                  </span>
                   <span class="plan-opt-price">
-                    {#if plan.slug === 'flexi' || plan.name === 'Flexi'}
+                    {#if !plan.pkg && (plan.slug === 'flexi' || plan.name === 'Flexi')}
                       <strong>2</strong> OMR/CU/mo
                     {:else}
                       <strong>{priceLineFor(plan)}</strong> OMR/mo
@@ -455,7 +508,7 @@
             <div class="bcp-summary-head">
               <strong>{hotStandby ? 'Active-hot-standby' : 'Single-region'}</strong>
               <span class="bcp-summary-price {hotStandby ? '' : 'free'}">
-                {hotStandby ? (quote ? `+${formatOMR(quote.topology_amount_baisa)} / mo` : QUOTE_STRINGS.pending) : 'FREE'}
+                {hotStandby ? (shownQuote ? (shownQuote.topology_amount_baisa > 0 ? `+${formatOMR(shownQuote.topology_amount_baisa)} / mo` : QUOTE_STRINGS.included) : QUOTE_STRINGS.pending) : 'FREE'}
               </span>
             </div>
             {#if hotStandby}
@@ -474,30 +527,61 @@
           </div>
         </section>
 
-        <!-- Optional extras (sme2-style tile grid) -->
-        <section class="rv-section">
+        <!-- The package and its add-ons, summarised: picked on the Add-ons
+             step, so this is a read-back with a way back, not a second picker. -->
+        <section class="rv-section" data-testid="review-addons-summary">
           <div class="rv-head">
-            <h2>Optional extras</h2>
-            <span class="rv-note">Skip any you don't need</span>
+            <h2>Add-ons</h2>
+            <a href="/addons" class="rv-link" data-testid="review-addons-edit">Edit</a>
           </div>
-          <div class="addon-grid">
-            {#each paidAddons as addon}
-              {@const isChecked = cart.addons.includes(addon.id)}
-              <label class="addon-tile {isChecked ? 'checked' : ''}">
-                <input
-                  type="checkbox"
-                  checked={isChecked}
-                  onchange={() => toggleAddonItem(addon.id)}
-                />
-                <span class="addon-icon">{addonIcons[addon.slug] || addon.icon || '📦'}</span>
-                <div class="addon-body">
-                  <strong>{addon.name}</strong>
-                  <p>{addon.tagline}</p>
-                </div>
-                <span class="addon-price">{addon.monthly_price === 0 ? 'Free' : `+${formatOMR(addon.monthly_price)}`}</span>
-              </label>
-            {/each}
-          </div>
+          {#if selectedPackage}
+            <div class="sum-pkg {selectedPackage.accent ? 'has-accent' : ''}" style={accentStyle(selectedPackage)} data-testid="review-package-summary">
+              {#if selectedPackage.icon}
+                <span class="sum-icon" style={selectedPackage.icon.bg ? `background: ${selectedPackage.icon.bg}` : ''}>
+                  <img src={selectedPackage.icon.src} alt="" width="22" height="22" loading="lazy" decoding="async" />
+                </span>
+              {/if}
+              <span class="sum-name">{PACKAGE_STRINGS.ladder.packageLine(selectedPackage.name)}</span>
+              {#if selectedPackage.badge}<span class="sum-badge">{selectedPackage.badge}</span>{/if}
+              <span class="sum-price">{doc?.currency ?? 'OMR'} {selectedPackage.price_month} <small>{PACKAGE_STRINGS.perMonth}</small></span>
+            </div>
+          {/if}
+          {#if chosenAddons.length > 0}
+            <ul class="sum-list">
+              {#each chosenAddons as addon (addon.id)}
+                {@const img = addonImage(addon)}
+                <li class="sum-item" data-testid="review-addon-{addon.id}">
+                  {#if img}
+                    <span class="sum-icon small" style={img.bg ? `background: ${img.bg}` : ''}>
+                      <img src={img.src} alt="" width="16" height="16" loading="lazy" decoding="async" />
+                    </span>
+                  {/if}
+                  <span class="sum-item-name">{addon.name}</span>
+                  <span class="sum-item-price">{addon.monthly_price === 0 ? 'Free' : `+${formatOMR(addon.monthly_price)}`}</span>
+                </li>
+              {/each}
+            </ul>
+          {:else}
+            <p class="sum-empty" data-testid="review-addons-none">No add-ons. <a href="/addons" class="rv-link">Add some</a></p>
+          {/if}
+          {#if doc?.floor && doc.floor.length > 0}
+            <!-- #6971 — what every package includes (the document's floor). -->
+            <div class="sum-floor" data-testid="review-floor">
+              <span class="sum-floor-lead">{PACKAGE_STRINGS.ladder.floorTitle}</span>
+              <ul class="sum-floor-list">
+                {#each doc.floor as f (f.key)}
+                  <li class="sum-floor-item">
+                    {#if f.icon}
+                      <span class="sum-icon tiny" style={f.icon.bg ? `background: ${f.icon.bg}` : ''}>
+                        <img src={f.icon.src} alt="" width="13" height="13" loading="lazy" decoding="async" />
+                      </span>
+                    {/if}
+                    <span>{f.name}</span>
+                  </li>
+                {/each}
+              </ul>
+            </div>
+          {/if}
         </section>
       </div>
 
@@ -512,39 +596,35 @@
                 <span class="free-label">{formatOMR(0)}</span>
               </div>
             {/if}
-            {#if quote}
+            {#if shownQuote}
               <div class="breakdown-row" data-testid="review-total-plan">
                 <span>{selectedPlan?.name || cart.planName || 'Plan'} plan</span>
-                <span>{formatOMR(quote.plan_amount_baisa)}</span>
+                <span>{formatOMR(shownQuote.plan_amount_baisa)}</span>
               </div>
-              {#each quote.lines as line (line.sku)}
+              {#each shownQuote.lines as line (line.sku)}
                 <div class="breakdown-row" data-testid="review-total-package-addon-{line.sku}">
                   <span>{line.name}</span>
                   <span>{lineAmountLabel(line, formatOMR)}</span>
                 </div>
               {/each}
-              {#if quote.topology_amount_baisa > 0}
+              {#if shownQuote.topology_amount_baisa > 0}
                 <div class="breakdown-row">
                   <span>Active-hot-standby</span>
-                  <span>+{formatOMR(quote.topology_amount_baisa)}</span>
+                  <span>+{formatOMR(shownQuote.topology_amount_baisa)}</span>
                 </div>
               {/if}
             {/if}
           </div>
           <div class="total-row">
             <span>Total</span>
-            <strong data-testid="review-total">{quote ? formatOMR(quote.amount_baisa) : QUOTE_STRINGS.pending}</strong>
+            <strong data-testid="review-total" data-source={fromDocument ? 'document' : 'quote'}>{shownQuote ? formatOMR(shownQuote.amount_baisa) : QUOTE_STRINGS.pending}</strong>
           </div>
-          {#if quoteError}
+          {#if fromDocument}
+            <p class="quote-doc" data-testid="review-total-from-document">{QUOTE_STRINGS.fromDocument}</p>
+          {:else if quoteError}
             <p class="quote-error" data-testid="review-quote-error">{QUOTE_STRINGS.unavailable}</p>
           {/if}
           <small>per month · first month prorated · cancel anytime</small>
-          {#if doc?.floor && doc.floor.length > 0}
-            <!-- #6971, v2 — the floor as a footnote: every package includes these. -->
-            <small class="floor-note" data-testid="review-floor">
-              {PACKAGE_STRINGS.ladder.floorLead} {doc.floor.map(f => f.name).join(' · ')}
-            </small>
-          {/if}
           <a href="/checkout" class="checkout-cta">
             Proceed to Checkout &rarr;
           </a>
@@ -647,13 +727,13 @@
   .stack-empty { text-align: center; padding: 2rem; color: var(--color-text-dim); }
   .stack-empty a { color: var(--color-accent); text-decoration: none; font-weight: 600; }
 
-  /* Plan row — all 5 in one line */
+  /* Plan row — one card per package (or catalog plan) in one line */
   .plan-row {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(var(--plan-cols, 5), minmax(0, 1fr));
     gap: 0.4rem;
   }
-  @media (max-width: 700px) { .plan-row { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 700px) { .plan-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   .plan-option {
     display: flex; align-items: center; gap: 0.5rem;
     padding: 0.55rem 0.7rem;
@@ -671,11 +751,28 @@
   }
   .plan-option.popular { border-color: color-mix(in srgb, var(--color-success) 30%, var(--color-border)); }
   .plan-option input { accent-color: var(--color-success); }
-  .plan-opt-body { display: flex; flex-direction: column; gap: 0.1rem; flex: 1; }
+  .plan-opt-body { display: flex; flex-direction: column; gap: 0.1rem; flex: 1; min-width: 0; }
   .plan-opt-name { color: var(--color-text-strong); font-weight: 600; font-size: 0.82rem; }
   .plan-opt-price strong { color: var(--color-text-strong); font-size: 0.95rem; font-weight: 700; }
   .plan-opt-price { font-size: 0.7rem; color: var(--color-text-dim); }
   .plan-opt-specs { color: var(--color-text-dim); font-size: 0.68rem; }
+  /* The package's accent: a top stripe, and the ring when chosen. */
+  .plan-option.has-accent { box-shadow: inset 0 3px 0 var(--pk-accent); }
+  .plan-option.has-accent.checked {
+    border-color: var(--pk-accent);
+    background: color-mix(in srgb, var(--pk-accent) 7%, var(--color-surface));
+    box-shadow: inset 0 3px 0 var(--pk-accent), 0 0 0 2px color-mix(in srgb, var(--pk-accent) 22%, transparent);
+  }
+  .plan-option.has-accent input { accent-color: var(--pk-accent); }
+  .plan-opt-icon, .sum-icon {
+    display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+    width: 30px; height: 30px; border-radius: 8px;
+    background: color-mix(in srgb, var(--color-text) 7%, transparent);
+  }
+  .plan-opt-icon img, .sum-icon img { display: block; }
+  .plan-opt-head { display: flex; align-items: center; gap: 0.4rem; }
+  .plan-opt-icon { width: 24px; height: 24px; border-radius: 6px; }
+  .sum-icon.small { width: 24px; height: 24px; border-radius: 6px; }
   .plan-option.suggested { border-color: var(--color-accent); animation: pulse-border 1.5s ease-in-out infinite; }
   @keyframes pulse-border { 0%, 100% { box-shadow: 0 0 0 0 transparent; } 50% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 20%, transparent); } }
 
@@ -804,32 +901,45 @@
     margin: 0.4rem 0 0; color: var(--color-text-dim); font-size: 0.72rem; line-height: 1.4;
   }
 
-  /* Add-ons grid — sme2 tile style */
-  .addon-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 0.5rem;
-  }
-  .addon-tile {
-    display: flex; align-items: center; gap: 0.6rem;
-    padding: 0.7rem;
+  /* The package + add-ons summary */
+  .sum-pkg {
+    display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+    padding: 0.6rem 0.75rem;
     background: var(--color-bg);
     border: 1px solid var(--color-border);
     border-radius: 8px;
-    cursor: pointer;
-    transition: border-color 0.15s;
   }
-  .addon-tile:hover { border-color: var(--color-text-dim); }
-  .addon-tile.checked {
-    border-color: var(--color-accent);
-    background: color-mix(in srgb, var(--color-accent) 4%, var(--color-bg));
+  .sum-pkg.has-accent { border-left: 3px solid var(--pk-accent); }
+  .sum-name { color: var(--color-text-strong); font-weight: 600; font-size: 0.88rem; }
+  .sum-badge {
+    padding: 0.1rem 0.45rem; border-radius: 999px;
+    font-size: 0.66rem; font-weight: 700; letter-spacing: 0.02em;
+    background: color-mix(in srgb, var(--color-text) 10%, transparent); color: var(--color-text);
   }
-  .addon-tile input { accent-color: var(--color-accent); }
-  .addon-icon { font-size: 1.1rem; }
-  .addon-body { flex: 1; }
-  .addon-body strong { display: block; color: var(--color-text-strong); font-size: 0.85rem; }
-  .addon-body p { margin: 0.1rem 0 0; color: var(--color-text-dim); font-size: 0.72rem; }
-  .addon-price { color: var(--color-text-strong); font-weight: 600; font-size: 0.85rem; white-space: nowrap; }
+  .sum-pkg.has-accent .sum-badge { background: var(--pk-accent); color: var(--pk-accent-fg); }
+  .sum-price { margin-left: auto; color: var(--color-text-strong); font-weight: 700; font-size: 0.88rem; white-space: nowrap; }
+  .sum-price small { color: var(--color-text-dim); font-weight: 500; font-size: 0.72rem; }
+  .sum-list { list-style: none; margin: 0.5rem 0 0; padding: 0; display: flex; flex-direction: column; }
+  .sum-item {
+    display: flex; align-items: center; gap: 0.6rem;
+    padding: 0.45rem 0.75rem;
+    border-bottom: 1px dashed var(--color-border);
+    font-size: 0.82rem;
+  }
+  .sum-item:last-child { border-bottom: 0; }
+  .sum-item-name { flex: 1; min-width: 0; color: var(--color-text); }
+  .sum-item-price { color: var(--color-text-strong); font-weight: 600; white-space: nowrap; }
+  .sum-floor { margin-top: 0.7rem; padding-top: 0.6rem; border-top: 1px dashed var(--color-border); }
+  .sum-floor-lead { display: block; color: var(--color-text-dim); font-size: 0.72rem; font-weight: 600; margin-bottom: 0.4rem; }
+  .sum-floor-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.35rem; }
+  .sum-floor-item {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    padding: 0.2rem 0.55rem 0.2rem 0.3rem;
+    border: 1px solid var(--color-border); border-radius: 999px;
+    background: var(--color-bg); color: var(--color-text); font-size: 0.72rem;
+  }
+  .sum-icon.tiny { width: 18px; height: 18px; border-radius: 999px; }
+  .sum-empty { margin: 0.5rem 0 0; color: var(--color-text-dim); font-size: 0.8rem; }
 
   /* Sidebar */
   .review-side { position: sticky; top: 5rem; }
@@ -853,8 +963,8 @@
   .total-row span { color: var(--color-text-strong); font-weight: 600; }
   .total-row strong { color: var(--color-text-strong); font-size: 1.4rem; font-weight: 800; }
   .side-card small { color: var(--color-text-dim); font-size: 0.78rem; }
+  .quote-doc { margin: 0.4rem 0 0; color: var(--color-text-dim); font-size: 0.72rem; line-height: 1.4; }
   .quote-error { margin: 0.4rem 0 0; color: #EF4444; font-size: 0.75rem; line-height: 1.4; }
-  .side-card .floor-note { display: block; margin-top: 0.5rem; color: var(--color-text-dimmer); font-size: 0.7rem; line-height: 1.4; }
   .checkout-cta {
     display: flex; align-items: center; justify-content: center; gap: 0.5rem;
     margin-top: 1rem; padding: 0.65rem 1rem;
