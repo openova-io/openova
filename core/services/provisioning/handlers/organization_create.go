@@ -256,6 +256,9 @@ func (h *Handler) createOrganizationCR(ctx context.Context, data tenantCreatedPa
 //	addons[]     ← addons        (events.BSSAddonSKUs: BSS SKUs only, no catalog ids)
 //	priceSource  ← price_source  (trimmed)
 //	orderID      ← order_id      (trimmed)
+//	overageMode  ← overage_mode  ("capped" | "grow"; anything else dropped)
+//	growCeiling  ← grow_ceiling  ({vcpu, memoryGB, diskGB, bandwidthMbps}, non-zero only)
+//	spendLimitMonth ← spend_limit_month (trimmed)
 //
 // Returns ok=false when nothing is set, so the caller leaves the block
 // absent instead of minting `commerce: {}`. Pure, so the CR shape is
@@ -268,11 +271,38 @@ func organizationCommerceBlock(data tenantCreatedPayload) (map[string]any, bool)
 		Addons:      data.Addons,
 		PriceSource: data.PriceSource,
 		OrderID:     data.OrderID,
+		// Overage (founder model 2026-10-10).
+		OverageMode:     data.OverageMode,
+		GrowCeiling:     data.GrowCeiling,
+		SpendLimitMonth: data.SpendLimitMonth,
 	})
 	if !p.HasCommerce() {
 		return nil, false
 	}
 	block := map[string]any{}
+	if p.OverageMode != "" {
+		block["overageMode"] = p.OverageMode
+	}
+	if !p.GrowCeiling.IsZero() {
+		ceiling := map[string]any{}
+		for _, d := range []struct {
+			key string
+			v   float64
+		}{
+			{"vcpu", p.GrowCeiling.VCPU},
+			{"memoryGB", p.GrowCeiling.MemoryGB},
+			{"diskGB", p.GrowCeiling.DiskGB},
+			{"bandwidthMbps", p.GrowCeiling.BandwidthMbps},
+		} {
+			if d.v != 0 {
+				ceiling[d.key] = d.v
+			}
+		}
+		block["growCeiling"] = ceiling
+	}
+	if p.SpendLimitMonth != "" {
+		block["spendLimitMonth"] = p.SpendLimitMonth
+	}
 	if p.PackageSKU != "" {
 		block["packageSKU"] = p.PackageSKU
 	}

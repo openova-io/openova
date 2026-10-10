@@ -207,6 +207,13 @@ type createOrgRequest struct {
 	// create) can stamp them at create time. Tolerated empty.
 	PriceSource string `json:"price_source"`
 	OrderID     string `json:"order_id"`
+	// Overage (founder model 2026-10-10) — the mode the customer chose
+	// ("capped" | "grow"), the grow ceiling and the monthly spend limit, like
+	// package_sku: kept on the record, and replaced by the settled order's
+	// values at launch. Billing validates them; tolerated empty.
+	OverageMode     string              `json:"overage_mode"`
+	GrowCeiling     *events.GrowCeiling `json:"grow_ceiling"`
+	SpendLimitMonth string              `json:"spend_limit_month"`
 	// ParentDomain — the org-pool parent apex the customer chose at
 	// the /addons step (e.g. "omani.works"). #4176/#4179: the per-Org
 	// console lives at `console.<slug>.<parent_domain>`. On a Sovereign
@@ -347,6 +354,10 @@ func (h *Handler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 		PackageSKU:  strings.ToLower(strings.TrimSpace(body.PackageSKU)),
 		PriceSource: strings.TrimSpace(body.PriceSource),
 		OrderID:     strings.TrimSpace(body.OrderID),
+		// Overage — normalised the same way the order's values are at launch.
+		OverageMode:     events.NormaliseOverageMode(body.OverageMode),
+		GrowCeiling:     nonZeroCeiling(body.GrowCeiling),
+		SpendLimitMonth: strings.TrimSpace(body.SpendLimitMonth),
 	}
 
 	if err := h.Store.CreateTenant(r.Context(), tenant); err != nil {
@@ -550,6 +561,11 @@ func (h *Handler) launchTenant(ctx context.Context, t *store.Tenant) {
 			Addons:      t.AddOns,
 			PriceSource: t.PriceSource,
 			OrderID:     t.OrderID,
+			// Overage (founder model 2026-10-10) — same rule: legacy records
+			// carry none, so the wire bytes stay as before.
+			OverageMode:     t.OverageMode,
+			GrowCeiling:     t.GrowCeiling,
+			SpendLimitMonth: t.SpendLimitMonth,
 		})
 	if evt, err := events.NewEvent("tenant.created", "tenant-service", t.ID, tenantCreatedPayload); err == nil {
 		pubCtx, pubCancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -682,6 +698,20 @@ type launchRequest struct {
 	PackageSKU  string   `json:"package_sku"`
 	PriceSource string   `json:"price_source"`
 	Addons      []string `json:"addons"`
+	// Overage — billing sends overage_mode on every package order ("capped"
+	// explicit), and grow_ceiling / spend_limit_month in grow mode.
+	OverageMode     string              `json:"overage_mode"`
+	GrowCeiling     *events.GrowCeiling `json:"grow_ceiling"`
+	SpendLimitMonth string              `json:"spend_limit_month"`
+}
+
+// nonZeroCeiling copies a ceiling that sets at least one dimension; nil else.
+func nonZeroCeiling(c *events.GrowCeiling) *events.GrowCeiling {
+	if c.IsZero() {
+		return nil
+	}
+	out := *c
+	return &out
 }
 
 // decodeLaunchRequest reads the optional launch body. Empty body → zero
@@ -725,6 +755,25 @@ func applyLaunchCommerce(t *store.Tenant, req launchRequest) store.Commerce {
 	}
 	if oid := strings.TrimSpace(req.OrderID); oid != "" {
 		t.OrderID, delta.OrderID = oid, oid
+	}
+	// Overage: the order's mode wins. Grow carries its ceiling and spend
+	// limit; capped clears any create-time ones, so the record never says
+	// capped beside a grow ceiling.
+	switch events.NormaliseOverageMode(req.OverageMode) {
+	case events.OverageModeGrow:
+		t.OverageMode, delta.OverageMode = events.OverageModeGrow, events.OverageModeGrow
+		if c := nonZeroCeiling(req.GrowCeiling); c != nil {
+			t.GrowCeiling, delta.GrowCeiling = c, c
+		}
+		if lim := strings.TrimSpace(req.SpendLimitMonth); lim != "" {
+			t.SpendLimitMonth, delta.SpendLimitMonth = lim, lim
+		}
+	case events.OverageModeCapped:
+		t.OverageMode, delta.OverageMode = events.OverageModeCapped, events.OverageModeCapped
+		if t.GrowCeiling != nil || t.SpendLimitMonth != "" {
+			t.GrowCeiling, t.SpendLimitMonth = nil, ""
+			delta.ClearGrow = true
+		}
 	}
 	for _, sku := range events.BSSAddonSKUs(req.Addons) {
 		if containsSlug(t.AddOns, sku) {

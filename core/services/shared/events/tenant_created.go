@@ -77,6 +77,49 @@ type TenantCreatedPayload struct {
 	Addons      []string `json:"addons,omitempty"`
 	PriceSource string   `json:"price_source,omitempty"`
 	OrderID     string   `json:"order_id,omitempty"`
+
+	// Overage (founder model 2026-10-10). A package is a prepaid minimum
+	// commitment; OverageMode says what happens beyond it: "capped" (nothing
+	// billed beyond the package) or "grow" (the Organization's quota is raised
+	// to GrowCeiling and usage above the package allowance is billed in
+	// arrears at pay-per-use rates). GrowCeiling is the resolved ceiling (set
+	// only in grow mode); SpendLimitMonth is the optional monthly overage
+	// spend limit, a money string at three decimals ("25.000"). All
+	// omitempty: a legacy producer emits the exact pre-change bytes.
+	OverageMode     string       `json:"overage_mode,omitempty"`
+	GrowCeiling     *GrowCeiling `json:"grow_ceiling,omitempty"`
+	SpendLimitMonth string       `json:"spend_limit_month,omitempty"`
+}
+
+// Overage modes an order may carry.
+const (
+	OverageModeCapped = "capped"
+	OverageModeGrow   = "grow"
+)
+
+// GrowCeiling is the quota ceiling an Organization in grow mode may reach,
+// per resource dimension. A zero dimension is unset.
+type GrowCeiling struct {
+	VCPU          float64 `json:"vcpu,omitempty" bson:"vcpu,omitempty"`
+	MemoryGB      float64 `json:"memory_gb,omitempty" bson:"memory_gb,omitempty"`
+	DiskGB        float64 `json:"disk_gb,omitempty" bson:"disk_gb,omitempty"`
+	BandwidthMbps float64 `json:"bandwidth_mbps,omitempty" bson:"bandwidth_mbps,omitempty"`
+}
+
+// IsZero reports whether no dimension is set (a nil ceiling is zero).
+func (g *GrowCeiling) IsZero() bool {
+	return g == nil || (g.VCPU == 0 && g.MemoryGB == 0 && g.DiskGB == 0 && g.BandwidthMbps == 0)
+}
+
+// NormaliseOverageMode lower-cases and trims a mode and keeps only the two
+// known values; anything else is "" (not recorded).
+func NormaliseOverageMode(mode string) string {
+	switch m := strings.ToLower(strings.TrimSpace(mode)); m {
+	case OverageModeCapped, OverageModeGrow:
+		return m
+	default:
+		return ""
+	}
 }
 
 // TenantCommerce is the purchase a producer attaches to a
@@ -87,6 +130,10 @@ type TenantCommerce struct {
 	Addons      []string
 	PriceSource string
 	OrderID     string
+	// OverageMode / GrowCeiling / SpendLimitMonth — see TenantCreatedPayload.
+	OverageMode     string
+	GrowCeiling     *GrowCeiling
+	SpendLimitMonth string
 }
 
 // BSSAddonSKUPrefix is what distinguishes a Catalyst BSS add-on SKU
@@ -122,13 +169,21 @@ func (p TenantCreatedPayload) WithCommerce(c TenantCommerce) TenantCreatedPayloa
 	p.Addons = BSSAddonSKUs(c.Addons)
 	p.PriceSource = strings.TrimSpace(c.PriceSource)
 	p.OrderID = strings.TrimSpace(c.OrderID)
+	p.OverageMode = NormaliseOverageMode(c.OverageMode)
+	p.GrowCeiling = nil
+	if !c.GrowCeiling.IsZero() {
+		g := *c.GrowCeiling
+		p.GrowCeiling = &g
+	}
+	p.SpendLimitMonth = strings.TrimSpace(c.SpendLimitMonth)
 	return p
 }
 
 // HasCommerce reports whether any purchase field is set — the consumer's
 // "mint a spec.commerce block or not" test.
 func (p TenantCreatedPayload) HasCommerce() bool {
-	return p.PackageSKU != "" || len(p.Addons) > 0 || p.PriceSource != "" || p.OrderID != ""
+	return p.PackageSKU != "" || len(p.Addons) > 0 || p.PriceSource != "" || p.OrderID != "" ||
+		p.OverageMode != "" || !p.GrowCeiling.IsZero() || p.SpendLimitMonth != ""
 }
 
 // NewTenantCreatedPayload builds a canonical payload from the raw fields a

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/openova-io/openova/core/services/shared/events"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -84,6 +85,14 @@ type Tenant struct {
 	PackageSKU  string `bson:"package_sku,omitempty" json:"package_sku,omitempty"`
 	PriceSource string `bson:"price_source,omitempty" json:"price_source,omitempty"`
 	OrderID     string `bson:"order_id,omitempty" json:"order_id,omitempty"`
+	// Overage (founder model 2026-10-10). OverageMode is "capped" or "grow";
+	// GrowCeiling is the resolved quota ceiling in grow mode; SpendLimitMonth
+	// the optional monthly overage spend limit ("25.000"). Billing's
+	// settlement launch body is the source and wins over create-time values.
+	// omitempty — absent on every record written before them.
+	OverageMode     string              `bson:"overage_mode,omitempty" json:"overage_mode,omitempty"`
+	GrowCeiling     *events.GrowCeiling `bson:"grow_ceiling,omitempty" json:"grow_ceiling,omitempty"`
+	SpendLimitMonth string              `bson:"spend_limit_month,omitempty" json:"spend_limit_month,omitempty"`
 	// ParentDomain — the org-pool parent apex the customer chose at the
 	// /addons step (e.g. "omani.works"). #4176/#4179: the per-Org console
 	// lives at `console.<subdomain>.<parent_domain>`. On a Sovereign whose
@@ -224,16 +233,69 @@ type Commerce struct {
 	PriceSource string
 	OrderID     string
 	Addons      []string
+	// OverageMode / GrowCeiling / SpendLimitMonth are $set when non-empty.
+	// ClearGrow $unsets grow_ceiling and spend_limit_month: the order says
+	// capped, so a create-time grow ceiling or spend limit no longer holds.
+	OverageMode     string
+	GrowCeiling     *events.GrowCeiling
+	SpendLimitMonth string
+	ClearGrow       bool
 }
 
 // IsZero reports whether the Commerce carries nothing to write.
 func (c Commerce) IsZero() bool {
-	return c.PackageSKU == "" && c.PriceSource == "" && c.OrderID == "" && len(c.Addons) == 0
+	return c.PackageSKU == "" && c.PriceSource == "" && c.OrderID == "" && len(c.Addons) == 0 &&
+		c.OverageMode == "" && c.GrowCeiling.IsZero() && c.SpendLimitMonth == "" && !c.ClearGrow
+}
+
+// commerceUpdate is the targeted update SetCommerce sends. Pure, so the
+// update shape is unit-tested without a database.
+func commerceUpdate(c Commerce, now time.Time) bson.D {
+	setFields := bson.D{{Key: "updated_at", Value: now}}
+	if c.PackageSKU != "" {
+		setFields = append(setFields, bson.E{Key: "package_sku", Value: c.PackageSKU})
+	}
+	if c.PriceSource != "" {
+		setFields = append(setFields, bson.E{Key: "price_source", Value: c.PriceSource})
+	}
+	if c.OrderID != "" {
+		setFields = append(setFields, bson.E{Key: "order_id", Value: c.OrderID})
+	}
+	if c.OverageMode != "" {
+		setFields = append(setFields, bson.E{Key: "overage_mode", Value: c.OverageMode})
+	}
+	if !c.GrowCeiling.IsZero() {
+		setFields = append(setFields, bson.E{Key: "grow_ceiling", Value: *c.GrowCeiling})
+	}
+	if c.SpendLimitMonth != "" {
+		setFields = append(setFields, bson.E{Key: "spend_limit_month", Value: c.SpendLimitMonth})
+	}
+	update := bson.D{{Key: "$set", Value: setFields}}
+	if c.ClearGrow {
+		unset := bson.D{}
+		if c.GrowCeiling.IsZero() {
+			unset = append(unset, bson.E{Key: "grow_ceiling", Value: ""})
+		}
+		if c.SpendLimitMonth == "" {
+			unset = append(unset, bson.E{Key: "spend_limit_month", Value: ""})
+		}
+		if len(unset) > 0 {
+			update = append(update, bson.E{Key: "$unset", Value: unset})
+		}
+	}
+	if len(c.Addons) > 0 {
+		update = append(update, bson.E{Key: "$addToSet", Value: bson.D{
+			{Key: "addons", Value: bson.D{{Key: "$each", Value: c.Addons}}},
+		}})
+	}
+	return update
 }
 
 // SetCommerce stamps the purchase onto a Tenant record in ONE targeted update:
-// `$set` for each non-empty scalar (package_sku / price_source / order_id)
-// and `$addToSet $each` for the add-on SKUs. Targeted rather than the
+// `$set` for each non-empty scalar (package_sku / price_source / order_id /
+// overage_mode / grow_ceiling / spend_limit_month), `$unset` of the grow
+// fields when the order is capped (ClearGrow), and `$addToSet $each` for the
+// add-on SKUs. Targeted rather than the
 // whole-document UpdateTenant so a concurrent day-2 AtomicAppendApps on the
 // same record is not overwritten (the lost-update class dod-chaos scenario7
 // found). Idempotent: $addToSet ignores SKUs already present and re-setting
@@ -244,22 +306,7 @@ func (s *Store) SetCommerce(ctx context.Context, id string, c Commerce) error {
 	if id == "" || c.IsZero() {
 		return nil
 	}
-	setFields := bson.D{{Key: "updated_at", Value: time.Now().UTC()}}
-	if c.PackageSKU != "" {
-		setFields = append(setFields, bson.E{Key: "package_sku", Value: c.PackageSKU})
-	}
-	if c.PriceSource != "" {
-		setFields = append(setFields, bson.E{Key: "price_source", Value: c.PriceSource})
-	}
-	if c.OrderID != "" {
-		setFields = append(setFields, bson.E{Key: "order_id", Value: c.OrderID})
-	}
-	update := bson.D{{Key: "$set", Value: setFields}}
-	if len(c.Addons) > 0 {
-		update = append(update, bson.E{Key: "$addToSet", Value: bson.D{
-			{Key: "addons", Value: bson.D{{Key: "$each", Value: c.Addons}}},
-		}})
-	}
+	update := commerceUpdate(c, time.Now().UTC())
 	res, err := s.tenants().UpdateOne(ctx, bson.D{{Key: "_id", Value: id}}, update)
 	if err != nil {
 		return fmt.Errorf("store: set commerce %s: %w", id, err)
