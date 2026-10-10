@@ -4,8 +4,10 @@
 // Renders the REAL pages against `npm run build && npm run preview` with the
 // BSS endpoint mocked via page.route(), in the same hermetic shape as
 // package-table.spec.ts (which keeps the v1-document and no-document paths
-// covered — nothing here replaces those). The fixture is the exact shape BSS
-// publishes, with the workbook's numbers: S 2.490 / M 4.490 / L 7.990 /
+// covered — nothing here replaces those). The fixture IS the live document:
+// fixtures/public-packages-v2.json is what BSS 0.1.61 on hw307 answered at
+// GET /api/v1/public/packages on 2026-10-10, pretty-printed and otherwise
+// untouched — the workbook's numbers: S 2.490 / M 4.490 / L 7.990 /
 // XL 13.990, and the L→XL step-up at a 6.000 gap bundling Backup + AI SEO +
 // AI builder + Domain (1.500 + 2.000 + 2.000 + 0.500). Every price on every
 // page below is one of those; no catalog add-on carries one.
@@ -301,6 +303,10 @@ test.describe('step 1: the package ladder (/plans, v2 document, #6971)', () => {
     await expect(floor).toContainText('24/7 customer support')
     // A floor item is not also a comparison row.
     await expect(page.locator('[data-testid^="package-row-waf"]')).toHaveCount(0)
+    // The live document's internal pricing remark on the Dedicated IP cells
+    // (an optional cell's `note`) is not customer copy and is not on the page.
+    await expect(page.getByTestId('package-ladder')).not.toContainText(/discount to be decided|250 OMR/)
+    await expect(page.getByTestId('package-cell-dedicated_ip-plan.m')).toHaveText(/^\s*ADD-ON\s*\+ 20\.833 \/ mo\s*$/)
 
     // The foot row repeats the Choose per column; the rest of the footer.
     await expect(page.getByTestId('package-ladder-foot').getByRole('button')).toHaveCount(4)
@@ -481,8 +487,11 @@ test.describe('step 3: the three blocks and the step-up hint (/addons, v2 docume
     await expect(missing.locator('[data-testid^="addons-missing-"]')).toHaveCount(2)
     await expect(missing.getByTestId('addons-missing-kube_api')).toContainText('Kube API / shell (Guacamole) + PAM')
     await expect(missing.getByTestId('addons-upgrade-kube_api')).toContainText('Upgrade to XL to get this')
-    await expect(missing.getByTestId('addons-upgrade-proactive')).toHaveAttribute('data-target', 'plan.xl')
+    await expect(missing.getByTestId('addons-upgrade-maintenance')).toHaveAttribute('data-target', 'plan.xl')
     await expect(missing.getByTestId('addons-missing-compliance')).toHaveCount(0)
+    // The live document's internal pricing remark on the Dedicated IP cells
+    // (an optional cell's `note`) is not customer copy and is not on the page.
+    await expect(page.locator('.addons-page')).not.toContainText(/discount to be decided|250 OMR/)
 
     // The running total: the package alone, nothing ticked; no step-up yet.
     const total = page.getByTestId('addons-running-total')
@@ -573,7 +582,7 @@ test.describe('step 3: the three blocks and the step-up hint (/addons, v2 docume
     await expect(missing.getByRole('heading', { name: /Not on M/ })).toBeVisible()
     await expect(missing.getByTestId('addons-missing-compliance')).toHaveAttribute('data-state', 'teaser')
     await expect(missing.getByTestId('addons-upgrade-compliance')).toContainText('Upgrade to L to get this')
-    await expect(missing.getByTestId('addons-upgrade-k8s_ui')).toHaveAttribute('data-target', 'plan.l')
+    await expect(missing.getByTestId('addons-upgrade-patching')).toHaveAttribute('data-target', 'plan.l')
     await expect(missing.getByTestId('addons-upgrade-kube_api')).toContainText('Upgrade to XL to get this')
     await expect(page.getByTestId('addons-included-gitea_iac')).toContainText('read')
 

@@ -317,7 +317,9 @@ function parsePackage(v: unknown): PublicPackage | null {
   if (annual !== undefined && annual >= 0) out.annual_months_free = Math.floor(annual);
   const shape = parseShape(v.shape);
   if (shape) out.shape = shape;
-  if ('step_up' in v) out.step_up = parseStepUp(v.step_up);
+  // A v2 package (one with a shape) always states its step-up: the live
+  // document omits the key on the last rung rather than sending null.
+  if ('step_up' in v || shape) out.step_up = parseStepUp(v.step_up);
   return out;
 }
 
@@ -1135,9 +1137,17 @@ export function drTopologyFor(doc: PublicPackages, sku: string): DrTopology | nu
   const activePassive = level >= apLevel;
   let from: DrTopology['activePassiveFrom'] = null;
   if (!activePassive) {
-    for (const p of doc.packages) {
-      const c = f.cells[p.sku];
-      if (c?.state === 'included' && (c.level ?? 0) >= apLevel) { from = { sku: p.sku, name: p.name }; break; }
+    // The cell's own `included_from` when it names a package that has the
+    // level (the live document states it), else the first rung that does.
+    const stated = cell.included_from ? doc.packages.find(p => p.sku === cell.included_from) : undefined;
+    const statedCell = stated ? f.cells[stated.sku] : undefined;
+    if (stated && statedCell?.state === 'included' && (statedCell.level ?? 0) >= apLevel) {
+      from = { sku: stated.sku, name: stated.name };
+    } else {
+      for (const p of doc.packages) {
+        const c = f.cells[p.sku];
+        if (c?.state === 'included' && (c.level ?? 0) >= apLevel) { from = { sku: p.sku, name: p.name }; break; }
+      }
     }
   }
   return { level, label: levelLabel(f, level), activePassive, activePassiveFrom: from };
@@ -1246,8 +1256,15 @@ function includedValue(f: PublicFeature, cell: PublicCell): string | null {
   return null;
 }
 
-/** The first package, in ladder order, that has a feature at all — included first choice, else optional. */
-function firstRungWith(doc: PublicPackages, f: PublicFeature): LadderMissing['upgrade'] {
+/**
+ * The rung a missing feature points at: the cell's own `included_from` when
+ * it names a package (the live document states it on not-offered cells too),
+ * else the first package, in ladder order, that has the feature at all —
+ * included first choice, else optional.
+ */
+function firstRungWith(doc: PublicPackages, f: PublicFeature, cell?: PublicCell): LadderMissing['upgrade'] {
+  const stated = cell?.included_from ? doc.packages.find(p => p.sku === cell.included_from) : undefined;
+  if (stated) return { sku: stated.sku, name: stated.name, state: 'included', priceMonth: null };
   for (const p of doc.packages) {
     const c = f.cells[p.sku];
     if (!c) continue;
@@ -1294,18 +1311,11 @@ export function addonsLadderFor(doc: PublicPackages, sku: string): AddonsLadder 
     const cell = f.cells[sku];
     const blurb = f.blurb ?? '';
     if (!cell || cell.state === 'not_offered') {
-      missing.push({ key: f.key, name: f.name, blurb, state: 'not_offered', upgrade: firstRungWith(doc, f) });
+      missing.push({ key: f.key, name: f.name, blurb, state: 'not_offered', upgrade: firstRungWith(doc, f, cell) });
       continue;
     }
     if (cell.state === 'teaser') {
-      const from = doc.packages.find(p => p.sku === cell.included_from);
-      missing.push({
-        key: f.key,
-        name: f.name,
-        blurb,
-        state: 'teaser',
-        upgrade: from ? { sku: from.sku, name: from.name, state: 'included', priceMonth: null } : firstRungWith(doc, f),
-      });
+      missing.push({ key: f.key, name: f.name, blurb, state: 'teaser', upgrade: firstRungWith(doc, f, cell) });
       continue;
     }
     if (cell.state === 'optional') {

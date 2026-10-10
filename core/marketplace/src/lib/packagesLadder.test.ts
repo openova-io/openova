@@ -1,11 +1,12 @@
 // packagesLadder.test.ts — #6971: the v2 package document (the ladder).
 //
-// Fed from fixtures/public-packages-v2.json, a body in the exact shape BSS
-// 0.1.61 publishes at GET /api/v1/public/packages: `groups`, `floor`, a
-// package `shape` + `step_up`, cells with `overage` / `level` / `note`, the
-// `teaser` state. Every number is the workbook's (S 2.490 / M 4.490 /
-// L 7.990 / XL 13.990; the L→XL gap 6.000 bundling Backup + AI SEO + AI
-// builder + Domain = 1.500 + 2.000 + 2.000 + 0.500).
+// Fed from fixtures/public-packages-v2.json — the body BSS 0.1.61 on hw307
+// answered at GET /api/v1/public/packages on 2026-10-10, pretty-printed and
+// otherwise untouched: `groups`, `floor`, a package `shape` + `step_up`,
+// cells with `overage` / `level` / `note` / `included_from`, the `teaser`
+// state. Every number is the workbook's (S 2.490 / M 4.490 / L 7.990 /
+// XL 13.990; the L→XL gap 6.000 bundling Backup + AI SEO + AI builder +
+// Domain = 1.500 + 2.000 + 2.000 + 0.500).
 //
 //   1. the document parses, and `isLadderDocument` is what tells v2 from v1;
 //   2. step 1 — the ladder model: cards with the shape and its guarantee, the
@@ -263,9 +264,8 @@ describe('step 3: the three blocks for a package', () => {
     expect(inc).toMatchObject({
       bandwidth: '250 Mbps · then metered',
       disk: '100 GB · then metered',
-      console_install: null,
+      console: null,
       gitea_iac: null,
-      k8s_ui: null,
       vuln_dashboard: null,
       compliance: null,
       patching: null,
@@ -280,19 +280,24 @@ describe('step 3: the three blocks for a package', () => {
     ]);
     expect(l.missing.map(m => [m.key, m.state, m.upgrade?.name, m.upgrade?.state])).toEqual([
       ['kube_api', 'not_offered', 'XL', 'included'],
-      ['proactive', 'not_offered', 'XL', 'included'],
+      ['maintenance', 'not_offered', 'XL', 'included'],
     ]);
   });
 
-  it('for M: block C names the rung for each teaser and not-offered feature — the nearest one that has it', () => {
+  it('for M: block C names the rung for each teaser and not-offered feature — the cell\'s stated included_from, else the nearest one that has it', () => {
     const m = addonsLadderFor(doc, 'plan.m')!;
     expect(m.missing.map(x => [x.key, x.state, x.upgrade?.name])).toEqual([
-      ['k8s_ui', 'not_offered', 'L'],
       ['kube_api', 'not_offered', 'XL'],
       ['compliance', 'teaser', 'L'],
       ['patching', 'not_offered', 'L'],
-      ['proactive', 'not_offered', 'XL'],
+      ['maintenance', 'not_offered', 'XL'],
     ]);
+    // The live document states included_from on its not-offered cells; a
+    // document that does not gets the nearest rung derived from the cells.
+    const raw = fixture('public-packages-v2.json') as any;
+    for (const f of raw.features) for (const c of Object.values<any>(f.cells)) if (c.state === 'not_offered') delete c.included_from;
+    const derived = addonsLadderFor(parsePublicPackages(raw)!, 'plan.m')!;
+    expect(derived.missing.map(x => [x.key, x.upgrade?.name])).toEqual([['kube_api', 'XL'], ['compliance', 'L'], ['patching', 'L'], ['maintenance', 'XL']]);
     expect(m.included.find(i => i.key === 'gitea_iac')?.value).toBe('read');
     expect(m.included.find(i => i.key === 'bandwidth')?.value).toBe('100 Mbps · hard cap');
   });
@@ -301,8 +306,8 @@ describe('step 3: the three blocks for a package', () => {
     const s = addonsLadderFor(doc, 'plan.s')!;
     const up = Object.fromEntries(s.missing.map(x => [x.key, x.upgrade?.name]));
     expect(up).toEqual({
-      gitea_iac: 'M', k8s_ui: 'L', kube_api: 'XL', vuln_dashboard: 'M', compliance: 'L',
-      audit_log: 'M', cost_explorer: 'M', patching: 'L', proactive: 'XL',
+      gitea_iac: 'M', kube_api: 'XL', vuln_dashboard: 'M', compliance: 'L',
+      audit_log: 'M', cost_explorer: 'M', patching: 'L', maintenance: 'XL',
     });
   });
 
@@ -337,9 +342,30 @@ describe('step 3: the three blocks for a package', () => {
   });
 
   it('the fixture blurbs carry no number — every figure in the journey is the price book\'s', () => {
+    // "IPv4" is a protocol name, not a figure.
     const texts = [...doc.features.map(f => f.blurb ?? ''), ...(doc.floor ?? []).map(f => f.blurb ?? '')];
     expect(texts.length).toBeGreaterThan(20);
-    expect(texts.filter(t => /\d/.test(t))).toEqual([]);
+    expect(texts.filter(t => /\d/.test(t.replace(/IPv[46]/g, '')))).toEqual([]);
+  });
+
+  it('a note on an OPTIONAL cell is BSS-internal and reaches neither the ladder cell nor the add-on tile', () => {
+    // The live document carries a pricing remark on the Dedicated IP cells.
+    // Only an ACCESS cell's note is customer copy (the "read" qualifier);
+    // nothing else may put it on the page.
+    const raw = fixture('public-packages-v2.json') as any;
+    const ip = raw.features.find((f: any) => f.key === 'dedicated_ip');
+    for (const c of Object.values<any>(ip.cells)) c.note = 'list price 250 OMR/yr; discount to be decided';
+    const d = parsePublicPackages(raw)!;
+    const row = buildLadder(d).groups.flatMap(g => g.rows).find(r => r.key === 'dedicated_ip')!;
+    for (const c of row.cells) {
+      expect(c.label).toBe('+ 20.833 / mo');
+      expect(c.hint).toBeNull();
+      expect(JSON.stringify(c)).not.toMatch(/discount|250/);
+    }
+    for (const sku of ['plan.s', 'plan.m', 'plan.l', 'plan.xl']) {
+      const l = addonsLadderFor(d, sku)!;
+      expect(JSON.stringify([l.choices, l.addons, l.included, l.missing])).not.toMatch(/discount|250 OMR/);
+    }
   });
 
   it('funnelAddonsFor delegates to the ladder for a v2 document, so Review resolves the same ids', () => {
@@ -496,15 +522,25 @@ describe('the topology step reads the DR level', () => {
     expect(drTopologyFor(doc, 'plan.nope')).toBeNull();
   });
 
-  it('finds the level feature by its "active-passive" level when the key differs', () => {
+  it('finds the level feature by its "active-passive" level when the key differs, deriving the rung when none is stated', () => {
     const raw = fixture('public-packages-v2.json') as any;
     const f = raw.features.find((x: any) => x.key === 'dr_topology');
     f.key = 'resilience_mode';
     f.levels = ['one region', 'active passive · two regions', 'active active'];
     f.cells['plan.l'].level = 1;
+    for (const c of Object.values<any>(f.cells)) delete c.included_from;
     const d = parsePublicPackages(raw)!;
     expect(drTopologyFor(d, 'plan.m')).toMatchObject({ activePassive: false, activePassiveFrom: { sku: 'plan.l', name: 'L' } });
     expect(drTopologyFor(d, 'plan.l')).toMatchObject({ activePassive: true, label: 'active passive · two regions' });
+  });
+
+  it("the cell's stated included_from wins when it names a package that has the level; a stale one falls back to the derivation", () => {
+    const raw = fixture('public-packages-v2.json') as any;
+    const f = raw.features.find((x: any) => x.key === 'dr_topology');
+    f.cells['plan.l'].level = 1; // L now has it too, but the document says XL
+    expect(drTopologyFor(parsePublicPackages(raw)!, 'plan.m')!.activePassiveFrom).toEqual({ sku: 'plan.xl', name: 'XL' });
+    f.cells['plan.m'].included_from = 'plan.s'; // names a rung without the level
+    expect(drTopologyFor(parsePublicPackages(raw)!, 'plan.m')!.activePassiveFrom).toEqual({ sku: 'plan.l', name: 'L' });
   });
 });
 
