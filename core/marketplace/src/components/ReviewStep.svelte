@@ -1,7 +1,8 @@
 <script lang="ts">
   import { getPlans, getApps, getAddons, type Plan, type App, type AddOn } from '../lib/api';
-  import { readCart, toggleAddon, writeCart } from '../lib/cart';
+  import { readCart, toggleAddon, setPlan, packageAddonsBaisa } from '../lib/cart';
   import { formatOMR, formatOMRAmount } from '../lib/currency';
+  import { minorUnits } from '../lib/packages';
 
   let cart = $state(readCart());
   let plans = $state<Plan[]>([]);
@@ -54,7 +55,12 @@
   const replicaRegion = $derived(regionLabel(pgConfig.replica_region));
   const bcpCost = $derived(hotStandby ? HOT_STANDBY_MONTHLY_BAISA : 0);
 
-  const totalCost = $derived(planCost + addonCost + bcpCost);
+  // #6971 — optional features ticked on the package comparison table
+  // (/plans), priced from the BSS price book; listed and summed like the
+  // catalog add-ons.
+  const packageAddonCost = $derived(packageAddonsBaisa(cart));
+
+  const totalCost = $derived(planCost + addonCost + packageAddonCost + bcpCost);
 
   // --- Per-app resource estimates (MiB RAM, milli-CPU, GiB disk) ---
   const appRam: Record<string, number> = {
@@ -156,11 +162,11 @@
   // prefixes "OMR " and is used everywhere else so every baisa figure in the
   // review sidebar matches the checkout and the console.
 
+  // setPlan (not a raw cart write) so a plan change here also drops a package
+  // choice made on /plans — its add-on SKUs are priced per package (#6971).
   function upgradePlan() {
     if (suggestedPlan) {
-      cart.plan = suggestedPlan.id;
-      writeCart(cart);
-      cart = readCart();
+      cart = setPlan(suggestedPlan.id, suggestedPlan.name);
     }
   }
 
@@ -239,7 +245,7 @@
                   name="plan"
                   value={plan.id}
                   checked={isChecked}
-                  onchange={() => { cart.plan = plan.id; writeCart(cart); cart = readCart(); }}
+                  onchange={() => { cart = setPlan(plan.id, plan.name); }}
                 />
                 <span class="plan-opt-body">
                   <span class="plan-opt-name">{plan.name}</span>
@@ -255,6 +261,21 @@
               </label>
             {/each}
           </div>
+          {#if cart.packageAddons.length > 0}
+            <!-- #6971 — add-ons ticked on the package comparison table. Edited
+                 back on /plans, where the per-package prices live. -->
+            <div class="pk-picks" data-testid="review-package-addons">
+              <div class="pk-picks-head">
+                <span>Package add-ons</span>
+                <a href="/plans" class="rv-link">Edit</a>
+              </div>
+              <ul class="pk-picks-list">
+                {#each cart.packageAddons as a (a.sku)}
+                  <li><span>{a.name}</span><span class="pk-picks-price">+{formatOMR(minorUnits(a.price_month))}</span></li>
+                {/each}
+              </ul>
+            </div>
+          {/if}
         </section>
 
         <!-- Expected usage + Workspace — side by side -->
@@ -422,6 +443,12 @@
               <div class="breakdown-row">
                 <span>{addon.name}</span>
                 <span>+{formatOMR(addon.monthly_price)}</span>
+              </div>
+            {/each}
+            {#each cart.packageAddons as a (a.sku)}
+              <div class="breakdown-row" data-testid="review-total-package-addon-{a.sku}">
+                <span>{a.name}</span>
+                <span>+{formatOMR(minorUnits(a.price_month))}</span>
               </div>
             {/each}
             {#if hotStandby}
@@ -781,4 +808,33 @@
     white-space: nowrap;
   }
   .float-back:hover { color: var(--color-text-strong); }
+  /* #6971 — package add-ons picked on /plans */
+  .pk-picks {
+    margin-top: 0.65rem;
+    padding: 0.55rem 0.7rem;
+    background: var(--color-bg);
+    border: 1px dashed var(--color-border);
+    border-radius: 8px;
+  }
+  .pk-picks-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    color: var(--color-text-dim);
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 0.3rem;
+  }
+  .pk-picks-list { list-style: none; margin: 0; padding: 0; }
+  .pk-picks-list li {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.15rem 0;
+    color: var(--color-text);
+    font-size: 0.8rem;
+  }
+  .pk-picks-price { color: var(--color-text-strong); font-weight: 600; white-space: nowrap; }
 </style>
