@@ -97,6 +97,39 @@ describe('the grow additions are parsed at the boundary (#6971)', () => {
     expect(buildLadder(doc()).growNote).toBe(true);
   });
 
+  it('the ladder table: the floor is the first group, "When you reach your package" follows CAPACITY, every row from packages[].grow', () => {
+    const m = buildLadder(doc());
+    expect(m.tableGroups.map(g => g.key).slice(0, 3)).toEqual(['floor', 'capacity', 'grow']);
+    expect(m.floorGroup!.rows.map(r => r.key)).toEqual(doc().floor!.map(f => `floor-${f.key}`));
+    for (const r of m.floorGroup!.rows) expect(r.cells.map(c => c.label)).toEqual(['✓', '✓', '✓', '✓']);
+    const g = m.growGroup!;
+    expect(g.name).toBe('When you reach your package');
+    expect(g.rows.map(r => r.key)).toEqual(['grow-capped', 'grow-ceiling', 'grow-vcpu', 'grow-memory', 'grow-disk-bandwidth']);
+    const row = (k: string) => g.rows.find(r => r.key === k)!.cells.map(c => c.label);
+    expect(g.rows[0].cells.map(c => [c.label, c.hint])).toEqual(Array(4).fill(['✓', 'default']));
+    expect(row('grow-ceiling')).toEqual(['up to 2 vCPU · 4 GB', 'up to 4 vCPU · 8 GB', 'up to 8 vCPU · 16 GB', 'up to 8 vCPU · 16 GB']);
+    expect(row('grow-vcpu')).toEqual(['+1.992 / mo', '+1.796 / mo', '+1.598 / mo', '+1.399 / mo']);
+    expect(row('grow-memory')).toEqual(['+0.374 / mo', '+0.337 / mo', '+0.300 / mo', '+0.263 / mo']);
+    expect(row('grow-disk-bandwidth')).toEqual(Array(4).fill('+0.035 / GB · +1.253 / Mbps'));
+  });
+
+  it('the grow group follows the document: a package without grow reads "—"; a changed rate follows; no grow anywhere, no group', () => {
+    const raw = clone(RAW_V4);
+    delete raw.packages[0].grow;
+    raw.packages[1].grow.overage_rates[0].price_month = '2.500';
+    const g = buildLadder(doc(raw)).growGroup!;
+    const row = (k: string) => g.rows.find(r => r.key === k)!.cells;
+    expect(row('grow-ceiling')[0]).toMatchObject({ label: '—', state: 'not_offered' });
+    expect(row('grow-vcpu').map(c => c.label)).toEqual(['—', '+2.500 / mo', '+1.598 / mo', '+1.399 / mo']);
+    expect(row('grow-capped')[0].label).toBe('✓');
+    for (const r of [RAW_V2, RAW_V3]) {
+      const m = buildLadder(doc(r));
+      expect(m.growGroup).toBeNull();
+      expect(m.tableGroups.map(x => x.key)).not.toContain('grow');
+      expect(m.tableGroups[0].key).toBe('floor');
+    }
+  });
+
   it('"bigger packages grow cheaper" names the lowest vCPU rate among packages that CAN grow (L 1.598 — XL cannot grow here); equal rates say nothing', () => {
     expect(cheapestGrowVcpu(doc())).toEqual({ sku: 'plan.l', name: 'L', priceMonth: '1.598' });
     const raw = clone(RAW_V4);

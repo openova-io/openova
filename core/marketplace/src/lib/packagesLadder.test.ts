@@ -606,7 +606,8 @@ describe('ladder markup contract', () => {
     expect(ladder).not.toMatch(/type="checkbox"/);
     expect(ladder).not.toMatch(/toggleAddon/);
     expect(ladder).not.toMatch(/capsByName|capRows/);
-    expect(ladder).toMatch(/data-testid="package-floor"/);
+    expect(ladder).not.toMatch(/data-testid="package-floor"/);
+    expect(ladder).not.toMatch(/package-grow-note|package-grow-legend/);
     expect(ladder).toMatch(/data-testid="package-group-\{group\.key\}"/);
   });
 

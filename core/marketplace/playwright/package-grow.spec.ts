@@ -175,24 +175,41 @@ test.describe('grow mode on the wizard (#6971, document v4)', () => {
     await pointAtChargeback(page)
   })
 
-  test('/plans: the "every package can grow" line and the cheapest growable vCPU rate from the document; DR on S/M/L reads "with Grow"; a v3 document shows none of it', async ({ page }) => {
+  // The grow information is a GROUP of the table — "When you reach your
+  // package", right after CAPACITY — driven only by packages[].grow. The
+  // banner above the cards and the legend beside them are gone (removed test
+  // ids: package-grow-note, package-grow-cheapest, package-grow-legend).
+  test('/plans: "When you reach your package" follows CAPACITY with Capped, Grow with me and each package\'s own rates; DR on S/M/L reads "with Grow"; a v3 document shows none of it', async ({ page }) => {
     await mockPackages(page)
     await page.goto('/plans')
-    const note = page.getByTestId('package-grow-note')
-    await expect(note).toBeVisible({ timeout: 10_000 })
-    await expect(note).toContainText('Every package can grow with you.')
-    // L is the cheapest package that CAN grow (XL's ceiling is its headline).
-    await expect(page.getByTestId('package-grow-cheapest')).toHaveText('Bigger packages grow cheaper: an extra vCPU from 1.598 OMR / mo on L.')
+    const group = page.getByTestId('package-group-grow')
+    await expect(group).toBeVisible({ timeout: 10_000 })
+    await expect(group).toHaveText('When you reach your package')
+    await expect(page.locator('.ld-group')).toHaveText(['Included in every package', 'Capacity', 'When you reach your package', 'Features', 'Access', 'Managed operations', 'Resilience'])
+    await expect(page.getByTestId('package-grow-note')).toHaveCount(0)
+    await expect(page.getByTestId('package-grow-cheapest')).toHaveCount(0)
+    await expect(page.getByTestId('package-grow-legend')).toHaveCount(0)
+
+    const SKUS = ['plan.s', 'plan.m', 'plan.l', 'plan.xl']
+    const texts = async (row: string) => Promise.all(SKUS.map((sku) => page.getByTestId(`package-cell-${row}-${sku}`).innerText()))
+    await expect(page.getByTestId('package-row-grow-capped').locator('.ld-feature')).toContainText('Never pay more than the package price')
+    expect((await texts('grow-capped')).map((t) => t.replace(/\s+/g, ' ').trim())).toEqual(Array(4).fill('✓ default'))
+    expect(await texts('grow-ceiling')).toEqual(['up to 2 vCPU · 4 GB', 'up to 4 vCPU · 8 GB', 'up to 8 vCPU · 16 GB', 'up to 8 vCPU · 16 GB'])
+    // Bigger packages grow cheaper — said by the rates themselves.
+    expect(await texts('grow-vcpu')).toEqual(['+1.992 / mo', '+1.796 / mo', '+1.598 / mo', '+1.399 / mo'])
+    expect(await texts('grow-memory')).toEqual(['+0.374 / mo', '+0.337 / mo', '+0.300 / mo', '+0.263 / mo'])
+    expect(await texts('grow-disk-bandwidth')).toEqual(Array(4).fill('+0.035 / GB · +1.253 / Mbps'))
+    // The grow group sits right under CAPACITY's last row.
+    const lastCapacity = await boxOf(page.locator('[data-testid="package-group-capacity"] ~ .ld-row').locator('.ld-cell').first())
+    expect((await boxOf(group.locator('.ld-group'))).top).toBeGreaterThan(lastCapacity.top)
+
     for (const sku of ['plan.s', 'plan.m', 'plan.l']) await expect(page.getByTestId(`package-cell-dr_topology-${sku}`)).toContainText('with Grow')
     await expect(page.getByTestId('package-cell-dr_topology-plan.xl')).toHaveText('active-passive')
     // The allowance cells follow the customer's mode, not the cell: the
-    // allowance alone, and ONE legend line beside the cards — no "hard cap" /
-    // "then metered" anywhere in the matrix.
+    // allowance alone — no "hard cap" / "then metered" anywhere in the matrix.
     await expect(page.getByTestId('package-cell-bandwidth-plan.m')).toHaveText('100 Mbps')
     await expect(page.getByTestId('package-cell-disk-plan.l')).toHaveText('100 GB')
     await expect(page.getByTestId('package-ladder')).not.toContainText(/hard cap|then metered/)
-    await expect(page.getByTestId('package-grow-legend')).toHaveCount(1)
-    await expect(page.getByTestId('package-grow-legend')).toHaveText('Capped by default · or grow, billed per use')
 
     await page.unrouteAll({ behavior: 'ignoreErrors' })
     await mockCatalog(page)
@@ -200,10 +217,42 @@ test.describe('grow mode on the wizard (#6971, document v4)', () => {
     await mockPackages(page, FIXTURE_V3)
     await page.goto('/plans')
     await expect(page.getByTestId('package-ladder')).toBeVisible({ timeout: 10_000 })
-    await expect(page.getByTestId('package-grow-note')).toHaveCount(0)
-    // Without the grow model the cell's own overage word stays, and no legend.
-    await expect(page.getByTestId('package-grow-legend')).toHaveCount(0)
+    await expect(page.getByTestId('package-group-floor')).toBeVisible()
+    await expect(page.getByTestId('package-group-grow')).toHaveCount(0)
+    await expect(page.locator('[data-testid^="package-row-grow-"]')).toHaveCount(0)
+    // Without the grow model the cell's own overage word stays.
     await expect(page.getByTestId('package-cell-bandwidth-plan.m').locator('.ld-hint')).toHaveText('hard cap')
+  })
+
+  test('/plans: the grow rows follow the document — change M\'s vCPU rate and drop S\'s grow: the cells say so', async ({ page }) => {
+    const raw = clone(FIXTURE_V4)
+    raw.packages[1].grow.overage_rates.find((r: any) => r.key === 'vcpu').price_month = '2.750'
+    delete raw.packages[0].grow
+    await mockPackages(page, raw)
+    await page.goto('/plans')
+    await expect(page.getByTestId('package-group-grow')).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByTestId('package-cell-grow-vcpu-plan.m')).toHaveText('+2.750 / mo')
+    await expect(page.getByTestId('package-cell-grow-vcpu-plan.s')).toHaveText('—')
+    await expect(page.getByTestId('package-cell-grow-ceiling-plan.s')).toHaveText('—')
+    await expect(page.getByTestId('package-cell-grow-ceiling-plan.m')).toHaveText('up to 4 vCPU · 8 GB')
+  })
+
+  test('/plans: nothing above the cards but the title and subtitle (cards within 140 px of the subtitle) at 1400 and 400 px', async ({ page }) => {
+    await mockPackages(page)
+    for (const width of [1400, 400]) {
+      await page.setViewportSize({ width, height: 900 })
+      await page.goto('/plans')
+      await expect(page.getByTestId('package-group-grow')).toBeAttached({ timeout: 10_000 })
+      const sub = await boxOf(page.locator('.ld-sub'))
+      for (const sku of ['plan.s', 'plan.m']) {
+        const card = await boxOf(page.getByTestId(`package-card-${sku}`))
+        expect(card.top - sub.bottom, `${width}px ${sku}: cards ${card.top} vs subtitle ${sub.bottom}`).toBeLessThanOrEqual(140)
+        expect(card.top).toBeGreaterThanOrEqual(sub.bottom)
+      }
+      // Only the title, the subtitle and the table sit in the page before the meta line.
+      const kids = await page.getByTestId('package-ladder').evaluate((el) => [...el.children].map((c) => c.className))
+      expect(kids).toEqual(['ld-title', 'ld-sub', 'ld-scroll', 'ld-meta'])
+    }
   })
 
   test('/addons "In your package": the allowance says "· capped" while Capped and "· grows up to N" (the chosen ceiling) in Grow — never the cell\'s word', async ({ page }) => {
@@ -451,7 +500,7 @@ test.describe('grow screenshots (#6971)', () => {
       await page.setViewportSize({ width, height: 900 })
       const suffix = `${width}${scheme === 'dark' ? '-dark' : ''}`
       await page.goto('/plans')
-      await expect(page.getByTestId('package-grow-note')).toBeVisible({ timeout: 10_000 })
+      await expect(page.getByTestId('package-group-grow')).toBeVisible({ timeout: 10_000 })
       await page.waitForTimeout(300)
       await page.screenshot({ path: join(SHOTS, `marketplace-grow-plans-${suffix}.png`) })
       await page.goto('/addons')
@@ -477,6 +526,35 @@ test.describe('grow screenshots (#6971)', () => {
       await page.goto('/bcp')
       await expect(page.getByTestId('topology-needs-grow')).toBeVisible({ timeout: 10_000 })
       await shootTall(page, join(SHOTS, `marketplace-grow-bcp-needs-grow-${suffix}.png`))
+    })
+  }
+})
+
+// The founder's walk of /plans: the floor and the grow information are rows
+// of the table, the cards right under the subtitle.
+test.describe('ladder rows screenshots (#6971)', () => {
+  for (const [width, scheme] of [[1400, 'light'], [1400, 'dark'], [1700, 'light'], [1700, 'dark'], [400, 'light']] as const) {
+    test(`plans at ${width}px, ${scheme}: top of page and the grow group`, async ({ page }) => {
+      test.setTimeout(60_000)
+      await page.emulateMedia({ colorScheme: scheme })
+      await mockCatalog(page)
+      await mockIcons(page)
+      await pointAtChargeback(page)
+      await mockPackages(page)
+      await page.setViewportSize({ width, height: 900 })
+      await page.goto('/plans')
+      await expect(page.getByTestId('package-group-grow')).toBeVisible({ timeout: 10_000 })
+      const imgs = page.locator('.ld-page img')
+      for (let i = 0; i < (await imgs.count()); i++) await imgs.nth(i).scrollIntoViewIfNeeded()
+      await page.locator('.ld-scroll').evaluate((el) => el.scrollTo({ left: 0, behavior: 'instant' as ScrollBehavior }))
+      await page.evaluate(() => window.scrollTo(0, 0))
+      await page.waitForTimeout(300)
+      const suffix = `${width}${scheme === 'dark' ? '-dark' : ''}`
+      await page.screenshot({ path: join(SHOTS, `marketplace-ladder-rows-${suffix}.png`) })
+      const y = await page.getByTestId('package-group-grow').locator('.ld-group').evaluate((el) => el.getBoundingClientRect().top + window.scrollY - 180)
+      await page.evaluate((top) => window.scrollTo(0, top), y)
+      await page.waitForTimeout(300)
+      await page.screenshot({ path: join(SHOTS, `marketplace-ladder-rows-${suffix}-grow.png`) })
     })
   }
 })
