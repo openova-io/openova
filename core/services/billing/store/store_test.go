@@ -245,8 +245,10 @@ func TestCreateOrder_DerivesBaisaFromOMR(t *testing.T) {
 			42,              // amount_omr
 			int64(42000),    // amount_baisa
 			"pending",
-			sqlmock.AnyArg(), // stripe_session_id
-			sqlmock.AnyArg(), // promo_code (#91)
+			sqlmock.AnyArg(),   // stripe_session_id
+			sqlmock.AnyArg(),   // promo_code (#91)
+			sqlmock.AnyArg(),   // package_sku (#6971; nil when unset)
+			PriceSourceCatalog, // price_source (#6971; defaults to the catalog)
 		).
 		WillReturnRows(rows)
 
@@ -377,9 +379,10 @@ func TestCreditOnlyCheckout_CommitsAllThreeWrites(t *testing.T) {
 			"cust", "tenant", "plan",
 			sqlmock.AnyArg(), sqlmock.AnyArg(), // apps, addons
 			sqlmock.AnyArg(), // topology
-			9, int64(9000), // amount_omr, amount_baisa
+			9, int64(9000),   // amount_omr, amount_baisa
 			"completed",
 			sqlmock.AnyArg(), sqlmock.AnyArg(), // stripe_session_id (nil), promo_code (nil)
+			sqlmock.AnyArg(), PriceSourceCatalog, // package_sku (nil), price_source (#6971)
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow("order-id", time.Now()))
 	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO credit_ledger`)).

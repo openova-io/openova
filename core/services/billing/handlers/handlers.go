@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -180,6 +181,12 @@ type checkoutRequest struct {
 	// app_configs, so the review page showed plan+surcharge while the order
 	// billed the plan alone and the customer received hot-standby unbilled.
 	Topology string `json:"topology"`
+	// PackageSKU — #6971 item 8. The BSS package sku ("plan.m") the storefront
+	// sends beside the catalog `plan_id` (CheckoutRequest in
+	// core/marketplace/src/lib/api.ts). Persisted on the order and handed to
+	// core/services/tenant at settlement so the launched Organization carries
+	// spec.commerce.packageSKU. Tolerated empty (legacy deck, older clients).
+	PackageSKU string `json:"package_sku"`
 }
 
 type checkoutResponse struct {
@@ -339,13 +346,21 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 	// wrapped in a single transaction via CreditOnlyCheckout so we cannot
 	// leave the customer with debited credit and no subscription (or
 	// vice-versa).
+	// #6971 item 8 — the order row is the source the launched Organization's
+	// spec.commerce is read from. This service prices from the catalog today,
+	// so the provenance is PriceSourceCatalog; the package sku is whatever the
+	// storefront sent beside plan_id (empty on the legacy deck).
+	packageSKU := strings.ToLower(strings.TrimSpace(req.PackageSKU))
+
 	remainingOMR := totalOMR - creditBalance
 	if remainingOMR <= 0 {
 		order := &store.Order{
 			CustomerID: cust.ID, TenantID: req.TenantID, PlanID: req.PlanID,
 			Apps: appsJSON, Addons: addonsJSON, Topology: topology,
 			AmountOMR: totalOMR, Status: "completed",
-			PromoCode: req.PromoCode,
+			PromoCode:   req.PromoCode,
+			PackageSKU:  packageSKU,
+			PriceSource: store.PriceSourceCatalog,
 		}
 		sub := &store.Subscription{
 			CustomerID: cust.ID, TenantID: req.TenantID, PlanID: req.PlanID, Status: "active",
@@ -396,7 +411,9 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 		CustomerID: cust.ID, TenantID: req.TenantID, PlanID: req.PlanID,
 		Apps: appsJSON, Addons: addonsJSON, Topology: topology,
 		AmountOMR: totalOMR, Status: "pending",
-		PromoCode: req.PromoCode,
+		PromoCode:   req.PromoCode,
+		PackageSKU:  packageSKU,
+		PriceSource: store.PriceSourceCatalog,
 	}
 	if err := h.Store.CreateOrder(ctx, order); err != nil {
 		slog.Error("checkout: create order", "error", err)
@@ -1249,6 +1266,10 @@ func (h *Handler) dispatchOrderPlaced(tenantID string, order *store.Order) {
 		"status":           order.Status,
 		"subdomain":        subdomain,
 		"app_configs":      appConfigs,
+		// #6971 item 8 — provenance beside the money, same wire names as the
+		// settlement launch body and the tenant.created payload.
+		"package_sku":  order.PackageSKU,
+		"price_source": order.PriceSource,
 	}
 	evt, err := events.NewEvent("order.placed", "billing", tenantID, payload)
 	if err != nil {
@@ -1277,10 +1298,45 @@ func (h *Handler) dispatchOrderPlaced(tenantID string, order *store.Order) {
 	// purchase did not happen when it did. The recovery is the settlement-launch
 	// reconciler (settlement_launch_reconciler.go), which re-offers this same
 	// call from the durable orders table until it lands.
-	if err := h.launchTenant(context.Background(), tenantID); err != nil {
+	if err := h.launchTenant(context.Background(), order); err != nil {
 		slog.Error("dispatchOrderPlaced: settlement launch did not land — the reconciler will retry it (#6242)",
 			"tenant_id", tenantID, "order_id", order.ID, "error", err)
 	}
+}
+
+// launchBody is the JSON the settlement launch POSTs to core/services/tenant
+// (#6971 item 8): the settled order's purchase, so the Organization launched
+// from it carries spec.commerce. Wire names match that service's
+// launchRequest, the order.placed payload and the tenant.created payload.
+type launchBody struct {
+	OrderID     string   `json:"order_id"`
+	PackageSKU  string   `json:"package_sku,omitempty"`
+	PriceSource string   `json:"price_source,omitempty"`
+	Addons      []string `json:"addons,omitempty"`
+}
+
+// settlementLaunchBody builds the launch body from an order. Addons carries
+// the BSS add-on SKUs ONLY (events.BSSAddonSKUs over the order's `addons`
+// JSON array) — the catalog add-on ids the storefront mixes into the same
+// list are not a purchase BSS can attach a line to, so they stay off the
+// Organization CR. A malformed `addons` column (never written by this
+// service) yields no SKUs rather than a failed launch.
+func settlementLaunchBody(order *store.Order) launchBody {
+	b := launchBody{
+		OrderID:     order.ID,
+		PackageSKU:  strings.ToLower(strings.TrimSpace(order.PackageSKU)),
+		PriceSource: strings.TrimSpace(order.PriceSource),
+	}
+	if len(order.Addons) > 0 {
+		var cart []string
+		if err := json.Unmarshal(order.Addons, &cart); err != nil {
+			slog.Warn("settlementLaunchBody: order addons column is not a JSON string array — launching with no add-on SKUs",
+				"order_id", order.ID, "error", err)
+		} else {
+			b.Addons = events.BSSAddonSKUs(cart)
+		}
+	}
+	return b
 }
 
 // launchTenant asks the tenant service to launch a DEFERRED (pending_payment)
@@ -1297,17 +1353,30 @@ func (h *Handler) dispatchOrderPlaced(tenantID string, order *store.Order) {
 // `pending_payment` with no producer that would ever move it again. The error is
 // still not fatal to settlement — see dispatchOrderPlaced — but it is now
 // observable, which is what the reconciler needs to do its job.
-func (h *Handler) launchTenant(ctx context.Context, tenantID string) error {
-	if h.TenantURL == "" || tenantID == "" {
+//
+// #6971 item 8 — the POST carries the settled order's purchase as its JSON
+// body (settlementLaunchBody) so core/services/tenant persists package sku,
+// BSS add-on SKUs, price provenance and order id BEFORE it emits
+// tenant.created, and the Organization CR minted from that event carries
+// spec.commerce. An older build of that service that does not read the body
+// still launches exactly as before (it never decoded one).
+func (h *Handler) launchTenant(ctx context.Context, order *store.Order) error {
+	if h.TenantURL == "" || order == nil || order.TenantID == "" {
 		return nil
+	}
+	tenantID := order.TenantID
+	body, err := json.Marshal(settlementLaunchBody(order))
+	if err != nil {
+		return fmt.Errorf("marshal launch body for tenant %s: %w", tenantID, err)
 	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	url := h.TenantURL + "/tenant/internal/tenants/" + tenantID + "/launch"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("build launch request for tenant %s: %w", tenantID, err)
 	}
+	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("tenant launch call for %s failed: %w", tenantID, err)

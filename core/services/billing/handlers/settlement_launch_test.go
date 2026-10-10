@@ -120,7 +120,11 @@ func TestLaunchTenant_NoopWhenTenantURLUnset(t *testing.T) {
 	// TenantURL empty → no-op, must not panic. #6242: the no-op reports nil,
 	// not an error — an unwired Catalyst-Zero loop has nothing to retry, and
 	// reporting failure here would make the reconciler log an outage forever.
-	if err := h.launchTenant(context.Background(), "tid"); err != nil {
+	if err := h.launchTenant(context.Background(), &store.Order{ID: "o", TenantID: "tid"}); err != nil {
 		t.Fatalf("launchTenant with empty TenantURL = %v, want nil", err)
+	}
+	// A nil order (nothing settled) is the same no-op, never a panic.
+	if err := (&Handler{TenantURL: "http://tenant.invalid"}).launchTenant(context.Background(), nil); err != nil {
+		t.Fatalf("launchTenant with nil order = %v, want nil", err)
 	}
 }

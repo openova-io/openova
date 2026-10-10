@@ -178,6 +178,74 @@ func (h *Handler) callProvisioning(ctx context.Context, path string, payload any
 // Org behind (#4956). The launch endpoint transitions it to "provisioning".
 const statusPendingPayment = "pending_payment"
 
+// createOrgRequest is the POST /tenant/orgs body. Named (rather than an
+// anonymous struct inside CreateOrg) so the decode contract — in particular
+// the #6971 commerce fields being optional — is unit-testable without a
+// store. Decoded with encoding/json defaults (no DisallowUnknownFields), so
+// a newer storefront talking to an older server is ignored, never 400'd.
+type createOrgRequest struct {
+	Slug     string   `json:"slug"`
+	Name     string   `json:"name"`
+	OrgType  string   `json:"org_type"`
+	Industry string   `json:"industry"`
+	PlanID   string   `json:"plan_id"`
+	Apps     []string `json:"apps"`
+	// AddOns is the cart's ONE add-on list: catalog add-on ids, or BSS
+	// add-on SKUs ("addon.backup") when the Add-ons step offered the
+	// package's optional features (#6971). Kept verbatim on the store.Tenant record.
+	AddOns []string `json:"addons"`
+	// PackageSKU — #6971 item 8. The BSS package sku ("plan.m") the
+	// storefront sends beside `plan_id` (which stays the catalog plan id
+	// billing resolves). Persisted so the Organization CR minted on launch
+	// carries spec.commerce.packageSKU. Tolerated empty (legacy deck, older
+	// clients) — then no commerce block is minted.
+	PackageSKU string `json:"package_sku"`
+	// PriceSource + OrderID — order provenance. Normally EMPTY on this
+	// request (the storefront creates the Org shell BEFORE checkout) and
+	// supplied by billing's settlement launch body, which wins; accepted
+	// here so a caller that already holds an order (a replay, a BSS-side
+	// create) can stamp them at create time. Tolerated empty.
+	PriceSource string `json:"price_source"`
+	OrderID     string `json:"order_id"`
+	// ParentDomain — the org-pool parent apex the customer chose at
+	// the /addons step (e.g. "omani.works"). #4176/#4179: the per-Org
+	// console lives at `console.<slug>.<parent_domain>`. On a Sovereign
+	// whose marketplace runs on the Sovereign domain (omantel.biz) while
+	// Orgs provision on a SEPARATE pool domain (omani.works), this is the
+	// ONLY signal that carries the chosen pool apex — without it the
+	// console_host is mis-derived to console.<slug>.omantel.biz, an
+	// unreachable host that breaks EVERY org-create redirect. Tolerated
+	// empty (legacy / single-domain Sovereigns fall back to the
+	// Sovereign FQDN in deriveConsoleHost).
+	ParentDomain string `json:"parent_domain"`
+	// Wave 4 Sandbox — coding-agent picks from the marketplace
+	// detail page. Only acted on when `Apps` contains "sandbox":
+	// CreateOrg publishes an extra `tenant.sandbox_requested`
+	// event the sandbox-controller consumes to mint a Sandbox CR
+	// with `spec.agentCatalogue` = these slugs. Tolerated empty.
+	Agents []string `json:"agents"`
+	// TBD-V18-D follow-up to PR #2038 — per-app configSchema
+	// values, keyed by app SLUG. Each inner map is `ConfigField.Key`
+	// → field-typed primitive (int / string / bool). Persisted on
+	// `store.Tenant.AppConfigs`; round-trips on the `tenant.created`
+	// event payload via the *store.Tenant embed (no separate
+	// wrapper field needed). The downstream HelmRelease-values
+	// binding is gated on TBD-V26 (#2040) Path A/B; this field
+	// threads the SHAPE end-to-end so flipping the binding switch
+	// works without a second upstream change. Tolerated empty.
+	AppConfigs map[string]map[string]any `json:"app_configs"`
+	// DeferLaunch (#4956) — when true, CreateOrg persists the Org shell
+	// but does NOT fire the provisioning triggers (tenant.created →
+	// Organization CR, funnel cart-install, sandbox request). The Org
+	// stays `pending_payment` until billing settlement calls the internal
+	// launch endpoint. The marketplace funnel sets this so a checkout that
+	// 400s (bad/unseeded voucher, payment declined) can NEVER leave a
+	// provisioned Org behind — the integrity gap from the hw235 walk. All
+	// other callers (BSS door, direct API) omit it and keep launching
+	// immediately, so this change is inert for every non-funnel path.
+	DeferLaunch bool `json:"defer_launch"`
+}
+
 // CreateOrg creates a new organization for the authenticated user.
 func (h *Handler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserIDFromContext(r.Context())
@@ -186,52 +254,7 @@ func (h *Handler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var body struct {
-		Slug     string   `json:"slug"`
-		Name     string   `json:"name"`
-		OrgType  string   `json:"org_type"`
-		Industry string   `json:"industry"`
-		PlanID   string   `json:"plan_id"`
-		Apps     []string `json:"apps"`
-		AddOns   []string `json:"addons"`
-		// ParentDomain — the org-pool parent apex the customer chose at
-		// the /addons step (e.g. "omani.works"). #4176/#4179: the per-Org
-		// console lives at `console.<slug>.<parent_domain>`. On a Sovereign
-		// whose marketplace runs on the Sovereign domain (omantel.biz) while
-		// Orgs provision on a SEPARATE pool domain (omani.works), this is the
-		// ONLY signal that carries the chosen pool apex — without it the
-		// console_host is mis-derived to console.<slug>.omantel.biz, an
-		// unreachable host that breaks EVERY org-create redirect. Tolerated
-		// empty (legacy / single-domain Sovereigns fall back to the
-		// Sovereign FQDN in deriveConsoleHost).
-		ParentDomain string `json:"parent_domain"`
-		// Wave 4 Sandbox — coding-agent picks from the marketplace
-		// detail page. Only acted on when `Apps` contains "sandbox":
-		// CreateOrg publishes an extra `tenant.sandbox_requested`
-		// event the sandbox-controller consumes to mint a Sandbox CR
-		// with `spec.agentCatalogue` = these slugs. Tolerated empty.
-		Agents []string `json:"agents"`
-		// TBD-V18-D follow-up to PR #2038 — per-app configSchema
-		// values, keyed by app SLUG. Each inner map is `ConfigField.Key`
-		// → field-typed primitive (int / string / bool). Persisted on
-		// `store.Tenant.AppConfigs`; round-trips on the `tenant.created`
-		// event payload via the *store.Tenant embed (no separate
-		// wrapper field needed). The downstream HelmRelease-values
-		// binding is gated on TBD-V26 (#2040) Path A/B; this field
-		// threads the SHAPE end-to-end so flipping the binding switch
-		// works without a second upstream change. Tolerated empty.
-		AppConfigs map[string]map[string]any `json:"app_configs"`
-		// DeferLaunch (#4956) — when true, CreateOrg persists the Org shell
-		// but does NOT fire the provisioning triggers (tenant.created →
-		// Organization CR, funnel cart-install, sandbox request). The Org
-		// stays `pending_payment` until billing settlement calls the internal
-		// launch endpoint. The marketplace funnel sets this so a checkout that
-		// 400s (bad/unseeded voucher, payment declined) can NEVER leave a
-		// provisioned Org behind — the integrity gap from the hw235 walk. All
-		// other callers (BSS door, direct API) omit it and keep launching
-		// immediately, so this change is inert for every non-funnel path.
-		DeferLaunch bool `json:"defer_launch"`
-	}
+	var body createOrgRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		respond.Error(w, http.StatusBadRequest, "invalid JSON body")
 		return
@@ -318,6 +341,12 @@ func (h *Handler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 		Subdomain:    body.Slug,
 		ParentDomain: parentDomain,
 		Status:       initialStatus,
+		// #6971 item 8 — persisted now so the launch (inline, or deferred to
+		// billing settlement) emits them on tenant.created and the Organization
+		// CR carries spec.commerce. Empty on legacy callers → no block minted.
+		PackageSKU:  strings.ToLower(strings.TrimSpace(body.PackageSKU)),
+		PriceSource: strings.TrimSpace(body.PriceSource),
+		OrderID:     strings.TrimSpace(body.OrderID),
 	}
 
 	if err := h.Store.CreateTenant(r.Context(), tenant); err != nil {
@@ -505,9 +534,23 @@ func (h *Handler) launchTenant(ctx context.Context, t *store.Tenant) {
 	//
 	// #4176/#4179: ParentDomain is carried through so the provisioning consumer
 	// can create the per-Org `console.<slug>.<parent_domain>` record + HTTPRoute.
+	//
+	// #6971 item 8: the purchase rides along — package sku, the BSS add-on
+	// SKUs (events.BSSAddonSKUs filters the catalog ids out of the cart's one
+	// list), price provenance and the order id — so the provisioning consumer
+	// stamps spec.commerce on the Organization CR. All read off the PERSISTED
+	// store.Tenant record: on the deferred path billing's settlement body landed them via
+	// SetCommerce before this runs. Legacy records carry none → `omitempty`
+	// keeps the wire bytes identical to before.
 	tenantCreatedPayload := events.NewTenantCreatedPayload(
 		t.ID, t.Slug, t.Name, t.OwnerID, t.OwnerEmail,
-		t.PlanID, "", "", t.ParentDomain)
+		t.PlanID, "", "", t.ParentDomain).
+		WithCommerce(events.TenantCommerce{
+			PackageSKU:  t.PackageSKU,
+			Addons:      t.AddOns,
+			PriceSource: t.PriceSource,
+			OrderID:     t.OrderID,
+		})
 	if evt, err := events.NewEvent("tenant.created", "tenant-service", t.ID, tenantCreatedPayload); err == nil {
 		pubCtx, pubCancel := context.WithTimeout(context.Background(), 3*time.Second)
 		if pubErr := h.Producer.Publish(pubCtx, "org.tenant.events", evt); pubErr != nil {
@@ -561,12 +604,25 @@ func (h *Handler) launchTenant(ctx context.Context, t *store.Tenant) {
 // (immediate-launch caller, or a second settlement) is a benign 200 no-op. The
 // downstream tenant.created (409 AlreadyExists) + cart-install (idempotency-key)
 // dedups are the defence-in-depth backstop.
+//
+// #6971 item 8 — the body is OPTIONAL and carries the settled order's
+// purchase (launchRequest). Billing is the only caller and the order is the
+// source, so when present these WIN over whatever POST /tenant/orgs stamped
+// at create time; they are persisted (SetCommerce) BEFORE launchTenant runs
+// so the tenant.created payload — and the Organization CR minted from it —
+// carry spec.commerce. An absent or empty body is the pre-#6971 call and
+// launches exactly as before. A malformed body is logged and IGNORED, never
+// 400'd: the launch is the money-critical action, and refusing it would park
+// a PAID Org at pending_payment for the reconciler to retry against the same
+// malformed body forever.
 func (h *Handler) InternalLaunchTenant(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
 		respond.Error(w, http.StatusBadRequest, "tenant id is required")
 		return
 	}
+	launch := decodeLaunchRequest(r.Body, id)
+
 	t, err := h.Store.GetTenant(r.Context(), id)
 	if err != nil {
 		respond.Error(w, http.StatusInternalServerError, "failed to fetch tenant")
@@ -595,13 +651,89 @@ func (h *Handler) InternalLaunchTenant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Stamp the order's purchase onto the record first, so the launch below
+	// emits it. A persist failure is logged loud and does NOT stop the launch —
+	// the in-memory store.Tenant already carries the fields, so the CR still gets
+	// them; only the Mongo record lags, and the next settlement redelivery
+	// re-offers the same idempotent write.
+	if delta := applyLaunchCommerce(t, launch); !delta.IsZero() {
+		if err := h.Store.SetCommerce(r.Context(), id, delta); err != nil {
+			slog.Error("internal launch: persisting the order's purchase failed — launching anyway, record lags the CR (#6971)",
+				"tenant_id", id, "order_id", launch.OrderID, "error", err)
+		}
+	}
+
 	t.Status = "provisioning"
 	slog.Info("internal launch: billing settlement — launching deferred Org (#4956)",
-		"tenant_id", id, "slug", t.Slug, "apps", t.Apps)
+		"tenant_id", id, "slug", t.Slug, "apps", t.Apps,
+		"order_id", t.OrderID, "package_sku", t.PackageSKU)
 	h.launchTenant(r.Context(), t)
 	respond.JSON(w, http.StatusOK, map[string]any{
 		"id": id, "launched": true, "status": "provisioning",
 	})
+}
+
+// launchRequest is the optional POST /tenant/internal/tenants/{id}/launch
+// body billing sends at settlement (#6971 item 8): the settled order's
+// purchase. Wire names match the order.placed event and the tenant.created
+// payload so the same four fields read the same everywhere.
+type launchRequest struct {
+	OrderID     string   `json:"order_id"`
+	PackageSKU  string   `json:"package_sku"`
+	PriceSource string   `json:"price_source"`
+	Addons      []string `json:"addons"`
+}
+
+// decodeLaunchRequest reads the optional launch body. Empty body → zero
+// value (the pre-#6971 call). Malformed → zero value + a loud log; see
+// InternalLaunchTenant for why that is never a 400.
+func decodeLaunchRequest(body io.Reader, tenantID string) launchRequest {
+	var req launchRequest
+	if body == nil {
+		return req
+	}
+	raw, err := io.ReadAll(io.LimitReader(body, 64<<10))
+	if err != nil || len(bytes.TrimSpace(raw)) == 0 {
+		return launchRequest{}
+	}
+	if err := json.Unmarshal(raw, &req); err != nil {
+		slog.Warn("internal launch: malformed settlement body — launching without the order's purchase (#6971)",
+			"tenant_id", tenantID, "error", err)
+		return launchRequest{}
+	}
+	return req
+}
+
+// applyLaunchCommerce stamps the settled order's purchase onto the in-memory
+// store.Tenant and returns the delta SetCommerce must persist. The order is the
+// source, so a non-empty body value REPLACES the create-time value; an empty
+// body value leaves the record's value alone (a legacy call changes
+// nothing). Add-on SKUs are normalised through events.BSSAddonSKUs and MERGED
+// into the cart list — the storefront's catalog ids stay, the priced
+// `addon.*` SKUs are added once. Pure: no I/O, so the decode→apply contract
+// is unit-tested without a store.
+func applyLaunchCommerce(t *store.Tenant, req launchRequest) store.Commerce {
+	var delta store.Commerce
+	if t == nil {
+		return delta
+	}
+	if sku := strings.ToLower(strings.TrimSpace(req.PackageSKU)); sku != "" {
+		t.PackageSKU, delta.PackageSKU = sku, sku
+	}
+	if src := strings.TrimSpace(req.PriceSource); src != "" {
+		t.PriceSource, delta.PriceSource = src, src
+	}
+	if oid := strings.TrimSpace(req.OrderID); oid != "" {
+		t.OrderID, delta.OrderID = oid, oid
+	}
+	for _, sku := range events.BSSAddonSKUs(req.Addons) {
+		if containsSlug(t.AddOns, sku) {
+			continue
+		}
+		t.AddOns = append(t.AddOns, sku)
+		delta.Addons = append(delta.Addons, sku)
+	}
+	return delta
 }
 
 // resolveOrgParentDomain picks the org-pool parent zone the Tenant's

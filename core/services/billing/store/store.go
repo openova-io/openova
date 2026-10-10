@@ -73,6 +73,34 @@ type Order struct {
 	// redemptions remain auditable without any stale reference appearing
 	// "active". See #91.
 	PromoDeleted bool `json:"promo_deleted,omitempty"`
+
+	// #6971 item 8 — what was bought and where the price came from, so the
+	// Organization launched from this order can carry it (spec.commerce)
+	// and BSS can attach the Organization's platform Source to its package
+	// and add-on lines. The order row is THE source for that hand-over.
+	//
+	// PriceSource is "catalog" (the catalog service's plan/add-on prices —
+	// the only pricing this service does today) or
+	// "bss:<price_book>@<prices_as_of>" once an order is priced from the
+	// Catalyst BSS public packages document. PackageSKU is the BSS package
+	// the customer chose ("plan.m"); empty on legacy-deck orders. The BSS
+	// add-on SKUs ride in Addons (the cart's one list) and are filtered by
+	// prefix at the hand-over (events.BSSAddonSKUs).
+	PriceSource string `json:"price_source,omitempty"`
+	PackageSKU  string `json:"package_sku,omitempty"`
+}
+
+// PriceSourceCatalog is the PriceSource of an order priced from the catalog
+// service (no BSS price book consulted) — and of every order that predates
+// the column.
+const PriceSourceCatalog = "catalog"
+
+// orderPriceSource defaults an empty PriceSource to the catalog.
+func orderPriceSource(s string) string {
+	if s == "" {
+		return PriceSourceCatalog
+	}
+	return s
 }
 
 // Invoice represents a billing invoice.
@@ -221,6 +249,11 @@ func (s *Store) Migrate(ctx context.Context) error {
 		// The column is nullable because most orders have no promo.
 		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS promo_code TEXT`,
 		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS topology TEXT NOT NULL DEFAULT 'single-region'`,
+		// #6971 item 8 — price provenance + the BSS package. Every row that
+		// predates these columns was priced from the catalog, so the default
+		// is the truthful backfill; package_sku is nullable (legacy deck).
+		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS price_source TEXT NOT NULL DEFAULT 'catalog'`,
+		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS package_sku TEXT`,
 		`CREATE TABLE IF NOT EXISTS invoices (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			customer_id UUID NOT NULL REFERENCES customers(id),
@@ -417,11 +450,13 @@ func (s *Store) CreateOrder(ctx context.Context, o *Order) error {
 	if o.AmountBaisa == 0 && o.AmountOMR > 0 {
 		o.AmountBaisa = OMRToBaisa(o.AmountOMR)
 	}
+	o.PriceSource = orderPriceSource(o.PriceSource)
 	err := s.db.QueryRowContext(ctx,
-		`INSERT INTO orders (customer_id, tenant_id, plan_id, apps, addons, topology, amount_omr, amount_baisa, status, stripe_session_id, promo_code)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		`INSERT INTO orders (customer_id, tenant_id, plan_id, apps, addons, topology, amount_omr, amount_baisa, status, stripe_session_id, promo_code, package_sku, price_source)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		 RETURNING id, created_at`,
 		o.CustomerID, o.TenantID, o.PlanID, o.Apps, o.Addons, orderTopology(o.Topology), o.AmountOMR, o.AmountBaisa, o.Status, nilIfEmpty(o.StripeSessionID), nilIfEmpty(o.PromoCode),
+		nilIfEmpty(o.PackageSKU), o.PriceSource,
 	).Scan(&o.ID, &o.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("store: create order: %w", err)
@@ -439,16 +474,17 @@ func (s *Store) GetOrder(ctx context.Context, id string) (*Order, error) {
 	var sessionID sql.NullString
 	var promoCode sql.NullString
 	var promoDeletedAt sql.NullTime
+	var packageSKU sql.NullString
 	err := s.db.QueryRowContext(ctx,
 		`SELECT o.id, o.customer_id, o.tenant_id, o.plan_id, o.apps, o.addons, o.topology,
 		        o.amount_omr, o.amount_baisa, o.status, o.stripe_session_id, o.created_at,
-		        o.promo_code, pc.deleted_at
+		        o.promo_code, pc.deleted_at, o.package_sku, o.price_source
 		   FROM orders o
 		   LEFT JOIN promo_codes pc ON pc.code = o.promo_code
 		  WHERE o.id = $1`, id,
 	).Scan(&o.ID, &o.CustomerID, &o.TenantID, &o.PlanID, &o.Apps, &o.Addons, &o.Topology,
 		&o.AmountOMR, &o.AmountBaisa, &o.Status, &sessionID, &o.CreatedAt,
-		&promoCode, &promoDeletedAt)
+		&promoCode, &promoDeletedAt, &packageSKU, &o.PriceSource)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -458,6 +494,7 @@ func (s *Store) GetOrder(ctx context.Context, id string) (*Order, error) {
 	o.StripeSessionID = sessionID.String
 	o.PromoCode = promoCode.String
 	o.PromoDeleted = promoDeletedAt.Valid
+	o.PackageSKU = packageSKU.String
 	return &o, nil
 }
 
@@ -485,7 +522,7 @@ func (s *Store) ListRecentOrders(ctx context.Context) ([]Order, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT o.id, o.customer_id, o.tenant_id, o.plan_id, o.apps, o.addons, o.topology,
 		        o.amount_omr, o.amount_baisa, o.status, o.stripe_session_id, o.created_at,
-		        o.promo_code, pc.deleted_at
+		        o.promo_code, pc.deleted_at, o.package_sku, o.price_source
 		   FROM orders o
 		   LEFT JOIN promo_codes pc ON pc.code = o.promo_code
 		  ORDER BY o.created_at DESC LIMIT 50`,
@@ -501,14 +538,16 @@ func (s *Store) ListRecentOrders(ctx context.Context) ([]Order, error) {
 		var sessionID sql.NullString
 		var promoCode sql.NullString
 		var promoDeletedAt sql.NullTime
+		var packageSKU sql.NullString
 		if err := rows.Scan(&o.ID, &o.CustomerID, &o.TenantID, &o.PlanID, &o.Apps, &o.Addons, &o.Topology,
 			&o.AmountOMR, &o.AmountBaisa, &o.Status, &sessionID, &o.CreatedAt,
-			&promoCode, &promoDeletedAt); err != nil {
+			&promoCode, &promoDeletedAt, &packageSKU, &o.PriceSource); err != nil {
 			return nil, fmt.Errorf("store: scan order: %w", err)
 		}
 		o.StripeSessionID = sessionID.String
 		o.PromoCode = promoCode.String
 		o.PromoDeleted = promoDeletedAt.Valid
+		o.PackageSKU = packageSKU.String
 		orders = append(orders, o)
 	}
 	if orders == nil {
@@ -545,7 +584,7 @@ func (s *Store) ListOrdersAwaitingLaunch(ctx context.Context, lookback time.Dura
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT o.id, o.customer_id, o.tenant_id, o.plan_id, o.apps, o.addons, o.topology,
 		        o.amount_omr, o.amount_baisa, o.status, o.stripe_session_id, o.created_at,
-		        o.promo_code, pc.deleted_at
+		        o.promo_code, pc.deleted_at, o.package_sku, o.price_source
 		   FROM orders o
 		   LEFT JOIN promo_codes pc ON pc.code = o.promo_code
 		  WHERE o.status = 'completed'
@@ -565,14 +604,16 @@ func (s *Store) ListOrdersAwaitingLaunch(ctx context.Context, lookback time.Dura
 		var sessionID sql.NullString
 		var promoCode sql.NullString
 		var promoDeletedAt sql.NullTime
+		var packageSKU sql.NullString
 		if err := rows.Scan(&o.ID, &o.CustomerID, &o.TenantID, &o.PlanID, &o.Apps, &o.Addons, &o.Topology,
 			&o.AmountOMR, &o.AmountBaisa, &o.Status, &sessionID, &o.CreatedAt,
-			&promoCode, &promoDeletedAt); err != nil {
+			&promoCode, &promoDeletedAt, &packageSKU, &o.PriceSource); err != nil {
 			return nil, fmt.Errorf("store: scan order awaiting launch: %w", err)
 		}
 		o.StripeSessionID = sessionID.String
 		o.PromoCode = promoCode.String
 		o.PromoDeleted = promoDeletedAt.Valid
+		o.PackageSKU = packageSKU.String
 		orders = append(orders, o)
 	}
 	if orders == nil {
@@ -1429,13 +1470,15 @@ func (s *Store) CreditOnlyCheckout(ctx context.Context, order *Order, sub *Subsc
 	defer tx.Rollback()
 
 	// 1. Persist the order.
+	order.PriceSource = orderPriceSource(order.PriceSource)
 	if err := tx.QueryRowContext(ctx,
-		`INSERT INTO orders (customer_id, tenant_id, plan_id, apps, addons, topology, amount_omr, amount_baisa, status, stripe_session_id, promo_code)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		`INSERT INTO orders (customer_id, tenant_id, plan_id, apps, addons, topology, amount_omr, amount_baisa, status, stripe_session_id, promo_code, package_sku, price_source)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		 RETURNING id, created_at`,
 		order.CustomerID, order.TenantID, order.PlanID, order.Apps, order.Addons,
 		orderTopology(order.Topology), order.AmountOMR, order.AmountBaisa, order.Status,
 		nilIfEmpty(order.StripeSessionID), nilIfEmpty(order.PromoCode),
+		nilIfEmpty(order.PackageSKU), order.PriceSource,
 	).Scan(&order.ID, &order.CreatedAt); err != nil {
 		return fmt.Errorf("store: credit-only create order: %w", err)
 	}
