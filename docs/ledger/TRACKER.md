@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-10-10T19:15:03Z` |
+| Last refreshed | `2026-10-10T19:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-10-10T19:25 | [#7003](https://github.com/openova-io/openova/pull/7003) | #6971 | feat(bss): the package prepaid at a flat monthly price, the  |
 | 2026-10-10T18:53 | [#7002](https://github.com/openova-io/openova/pull/7002) | #6971 | fix(storefront): /plans as one continuous table + allowances |
 | 2026-10-10T17:55 | [#7001](https://github.com/openova-io/openova/pull/7001) | #6971 | feat(bss): capped or grow — package as prepaid commitment, u |
 | 2026-10-10T17:27 | [#7000](https://github.com/openova-io/openova/pull/7000) | #6971 | feat(storefront): capped or grow with me — growth billed aft |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-27T13:47 | [#6954](https://github.com/openova-io/openova/pull/6954) | #6867 | docs(bss): the training course — 142 slides, generator and d |
 | 2026-09-27T12:34 | [#6953](https://github.com/openova-io/openova/pull/6953) | #6867 | feat(bss): the public calculator by product family, with con |
 | 2026-09-27T10:54 | [#6952](https://github.com/openova-io/openova/pull/6952) | #6867 | perf(bss): every summary from one read of the priced ledger; |
-| 2026-09-27T09:34 | [#6951](https://github.com/openova-io/openova/pull/6951) | #6867 | fix(bss): the database gets the memory the ledger needs; the |
 
 ---
 
