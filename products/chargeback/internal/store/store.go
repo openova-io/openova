@@ -497,6 +497,15 @@ ALTER TABLE cost_sources ADD CONSTRAINT cost_sources_status_check CHECK (status 
 	// and admits the kind. Appended at the very END: migrations are
 	// positional. Located by content as MigrationContractSpend.
 	contractSpendMigrationSQL,
+	// DESIGN.md §22 (founder direction 2026-10-10) — packages and the
+	// entitlement matrix: the features the marketplace lists, the state of
+	// each feature on each plan item of a book (included / optional / not
+	// offered, with the quantity an included quantity feature carries), the
+	// add-ons a Source has taken, and the description a rated line carries so
+	// an invoice can name the value a package includes. Appended at the very
+	// END: migrations are positional. Located by content as MigrationPackages
+	// (packages.go).
+	packagesMigrationSQL,
 }
 
 // MigrationBackfillIssuedInvoices is the schema_migrations version of the

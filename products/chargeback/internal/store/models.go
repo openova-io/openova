@@ -305,6 +305,12 @@ type CostSource struct {
 	// is a bug, but silently dropping a customer's own resources because a
 	// scope was never configured would be a worse one.
 	ScopeToken string `json:"scope_token,omitempty"`
+	// Addons are the OPTIONAL features of the Source's package the
+	// Organization has taken, by feature key (DESIGN.md §22). Always present
+	// on the wire (empty for a cloud source), so a reader can tell "none" from
+	// "field missing". Written by SetSourceAddons, which refuses a feature the
+	// package includes already or does not offer.
+	Addons []string `json:"addons"`
 }
 
 // Credential is the API view of a stored AK/SK: the secret never leaves the
@@ -647,6 +653,11 @@ type RatedLine struct {
 	UnitPrice     Decimal `json:"unit_price"`
 	Amount        Decimal `json:"amount"`
 	ResourceCount int     `json:"resource_count"`
+	// Description names the line in words where the SKU alone cannot
+	// (DESIGN.md §22): "Backup — included in XL plan" on the 0.000 line a
+	// package's included feature renders, "Backup — add-on to M plan" on an
+	// add-on line. Empty on a metered line, whose SKU says what it is.
+	Description string `json:"description,omitempty"`
 
 	// The line's tax position (DESIGN.md §17): the CATEGORY the SKU was
 	// placed in and the RULE that priced it. An e-invoice carries the tax

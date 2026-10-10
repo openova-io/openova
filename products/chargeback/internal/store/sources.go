@@ -7,21 +7,29 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/lib/pq"
 )
 
 const sourceColumns = `s.id, s.customer_id, COALESCE((SELECT c.name FROM customers c WHERE c.id = s.customer_id), ''), s.kind, s.layer, s.price_book_id,
 	COALESCE((SELECT b.name FROM price_books b WHERE b.id = s.price_book_id), ''), s.internal,
 	s.region, s.project_id, s.domain_id, s.credential_id, s.status, s.verified_at, s.last_collected_at, s.last_error, s.scope_token,
-	COALESCE((SELECT c.access_key FROM credentials c WHERE c.id = s.credential_id), '')`
+	COALESCE((SELECT c.access_key FROM credentials c WHERE c.id = s.credential_id), ''),
+	ARRAY(SELECT f.key FROM source_addons sa JOIN features f ON f.id = sa.feature_id WHERE sa.source_id = s.id ORDER BY f.sort_order, f.key)::text[]`
 
 func scanSource(row interface{ Scan(...any) error }) (CostSource, error) {
 	var src CostSource
 	var customer, book, domain, cred, lastErr sql.NullString
 	var verified, collected sql.NullTime
+	var addons []string
 	err := row.Scan(&src.ID, &customer, &src.CustomerName, &src.Kind, &src.Layer, &book, &src.PriceBookName, &src.Internal,
-		&src.Region, &src.ProjectID, &domain, &cred, &src.Status, &verified, &collected, &lastErr, &src.ScopeToken, &src.AccessKey)
+		&src.Region, &src.ProjectID, &domain, &cred, &src.Status, &verified, &collected, &lastErr, &src.ScopeToken, &src.AccessKey, pq.Array(&addons))
 	if err != nil {
 		return src, mapErr(err)
+	}
+	src.Addons = addons
+	if src.Addons == nil {
+		src.Addons = []string{}
 	}
 	src.CustomerID = customer.String
 	src.PriceBookID = strPtr(book)

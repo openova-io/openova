@@ -1237,7 +1237,7 @@ func (s *Store) IsDerivedBook(ctx context.Context, bookID string) (bool, error) 
 // that later moves to another partner keeps its old periods here.
 func (s *Store) PartnerPeriodLines(ctx context.Context, partnerID string, periodStart time.Time) ([]RatedLine, []string, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT l.id, l.statement_id, l.customer_id, l.source_id, l.sku, l.quantity::text, l.unit, l.unit_price::text, l.amount::text, l.resource_count,
-			l.list_unit_price::text, l.list_amount::text, l.buy_amount::text, l.net_amount::text, c.name, st.currency
+			l.list_unit_price::text, l.list_amount::text, l.buy_amount::text, l.net_amount::text, c.name, st.currency, l.description
 		FROM rated_lines l JOIN statements st ON st.id = l.statement_id JOIN customers c ON c.id = l.customer_id
 		WHERE st.statement_kind = 'customer' AND st.partner_id = $1 AND st.period_start = $2 AND st.status <> 'cancelled'
 		ORDER BY c.name, l.sku, l.source_id`, partnerID, periodStart)
@@ -1252,7 +1252,7 @@ func (s *Store) PartnerPeriodLines(ctx context.Context, partnerID string, period
 		var l RatedLine
 		var src, lup, lam, buy, net sql.NullString
 		var q, up, amt, cur string
-		if err := rows.Scan(&l.ID, &l.StatementID, &l.CustomerID, &src, &l.SKU, &q, &l.Unit, &up, &amt, &l.ResourceCount, &lup, &lam, &buy, &net, &l.EndCustomerName, &cur); err != nil {
+		if err := rows.Scan(&l.ID, &l.StatementID, &l.CustomerID, &src, &l.SKU, &q, &l.Unit, &up, &amt, &l.ResourceCount, &lup, &lam, &buy, &net, &l.EndCustomerName, &cur, &l.Description); err != nil {
 			return nil, nil, err
 		}
 		l.SourceID = strPtr(src)

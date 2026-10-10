@@ -156,6 +156,11 @@ export interface CostSource {
   scope_token?: string | null
   /** Whether the collector picks this source up (customer active + verified). */
   collecting?: boolean
+  /**
+   * DESIGN.md §22 — the OPTIONAL features of the Source's package the
+   * Organization has taken, by feature key. Empty on a cloud source.
+   */
+  addons?: string[]
 }
 
 export interface CustomerUser {
@@ -386,6 +391,12 @@ export interface RatedLine {
   amount: number | string
   resource_count?: number
   source_id?: string | null
+  /**
+   * DESIGN.md §22 — the line in words where the SKU alone cannot say it:
+   * "Backup — included in XL plan" on a package's 0.000 included line,
+   * "Backup — add-on to M plan" on an add-on line. Absent on a metered line.
+   */
+  description?: string
   /**
    * The partner waterfall per line (DESIGN.md §11.1). On a customer's
    * statement: the Sovereign's list figures beside the amount the customer
@@ -2083,6 +2094,86 @@ export interface PublicCatalog {
   list_prices: boolean
   notice: string
   generated_at: string
+  /**
+   * DESIGN.md §22 — the packages document (GET /public/packages), merged
+   * onto the catalog by the page so the plans family can draw the
+   * comparison table and price the add-ons. Absent until it has loaded, or
+   * when the Sovereign publishes no packages.
+   */
+  packages?: PackagesDoc | null
+}
+
+// ── packages and the entitlement matrix (DESIGN.md §22) ──────────────
+
+export type FeatureKind = 'boolean' | 'quantity'
+export type EntitlementState = 'included' | 'optional' | 'not_offered'
+
+/** One row of the matrix, as GET /features lists it. */
+export interface Feature {
+  id: string
+  key: string
+  name: string
+  blurb: string
+  kind: FeatureKind | string
+  /** The quantity's unit on a quantity feature ("Mbps"). */
+  unit?: string
+  /** The SKU billed when the feature is an add-on; the metered SKU of a quantity feature. */
+  addon_sku?: string
+  sort_order: number
+  created_at?: string
+  updated_at?: string
+}
+
+/** One cell of the published matrix: a feature on a package. */
+export interface PackageCell {
+  state: EntitlementState | string
+  addon_sku?: string
+  /** The add-on's price per month, at the currency's minor unit, when priced. */
+  price_month?: string
+  /** The cheapest package that includes the feature, when any does. */
+  included_from?: string
+  /** A quantity feature's included quantity. */
+  quantity?: number | string
+  note?: string
+}
+
+export interface PackageFeature {
+  key: string
+  name: string
+  blurb?: string
+  kind: FeatureKind | string
+  unit?: string
+  /** Keyed by plan SKU (plan.s …); every package has a cell. */
+  cells: Record<string, PackageCell>
+}
+
+export interface PackageInfo {
+  sku: string
+  name: string
+  /** Price per month at the currency's minor unit. */
+  price_month: string
+  /** vcpu, memory_gb and every included quantity feature (bandwidth_mbps …). */
+  includes: Record<string, number | string>
+}
+
+/** GET /public/packages and GET /pricebooks/{id}/packages — the same document. */
+export interface PackagesDoc {
+  currency: string
+  price_book: string
+  prices_as_of: string
+  /** Ordered by price. */
+  packages: PackageInfo[]
+  /** Ordered by the features' sort order; only features with a cell in the book. */
+  features: PackageFeature[]
+}
+
+/** PUT /pricebooks/{id}/packages/{plan}/features/{feature} */
+export interface PackageCellWrite {
+  state: EntitlementState
+  included_quantity?: string | null
+  note?: string
+  /** Prices the feature's add-on SKU in the book per month, in the same write. */
+  addon_monthly?: string
 }
 
 /** One priced line of an estimate. `plan` is set on a plan line. */

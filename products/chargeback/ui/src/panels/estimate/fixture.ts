@@ -1,4 +1,4 @@
-import type { PublicCatalog, PublicCatalogPlan, PublicCatalogRate, PublicCatalogSKU } from '../../api/types'
+import type { PackagesDoc, PublicCatalog, PublicCatalogPlan, PublicCatalogRate, PublicCatalogSKU } from '../../api/types'
 
 /**
  * Test data: a cut of the National Cloud 2026 list as GET /public/catalog
@@ -69,5 +69,59 @@ export const catalog: PublicCatalog = {
   generated_at: '2026-09-11T10:00:00Z',
 }
 
+/** The two larger plans, for a catalog that publishes the whole S / M / L / XL ladder. */
+export const morePlans: PublicCatalogPlan[] = [
+  { slug: 'l', name: 'L', sku: 'plan.l', family: 'plans', family_name: 'Platform plans', service: 'plan', service_name: 'Platform plans', display_name: 'L plan · 8 vCPU · 16 GB', variant: 'l', variant_name: 'L', vcpu: 8, memory_gib: 16, memory_gb: 16, unit: 'plan-hour', unit_price: '0.02191781', monthly: '16.000001' },
+  { slug: 'xl', name: 'XL', sku: 'plan.xl', family: 'plans', family_name: 'Platform plans', service: 'plan', service_name: 'Platform plans', display_name: 'XL plan · 16 vCPU · 32 GB', variant: 'xl', variant_name: 'XL', vcpu: 16, memory_gib: 32, memory_gb: 32, unit: 'plan-hour', unit_price: '0.04109589', monthly: '30.000000' },
+]
+
+/**
+ * The packages document as GET /public/packages answers it for the showcase
+ * book (DESIGN.md §22): the four packages with their price and included
+ * quantities, and a cut of the feature matrix with all three states.
+ */
+export const packages: PackagesDoc = {
+  currency: 'OMR',
+  price_book: 'OpenOva plans',
+  prices_as_of: '2026-09-11',
+  packages: [
+    { sku: 'plan.s', name: 'S', price_month: '5.000', includes: { vcpu: 2, memory_gb: 4, bandwidth_mbps: 50 } },
+    { sku: 'plan.m', name: 'M', price_month: '9.000', includes: { vcpu: 4, memory_gb: 8, bandwidth_mbps: 100 } },
+    { sku: 'plan.l', name: 'L', price_month: '16.000', includes: { vcpu: 8, memory_gb: 16, bandwidth_mbps: 250 } },
+    { sku: 'plan.xl', name: 'XL', price_month: '30.000', includes: { vcpu: 16, memory_gb: 32, bandwidth_mbps: 1000 } },
+  ],
+  features: [
+    { key: 'ssl', name: 'Unlimited free SSL', blurb: 'Certificates for every site, renewed for you', kind: 'boolean', cells: { 'plan.s': { state: 'included' }, 'plan.m': { state: 'included' }, 'plan.l': { state: 'included' }, 'plan.xl': { state: 'included' } } },
+    {
+      key: 'backup',
+      name: 'Backup',
+      blurb: 'Daily backups of your sites and databases, kept 30 days',
+      kind: 'boolean',
+      cells: {
+        'plan.s': { state: 'optional', addon_sku: 'addon.backup', price_month: '1.500', included_from: 'plan.xl' },
+        'plan.m': { state: 'optional', addon_sku: 'addon.backup', price_month: '1.500', included_from: 'plan.xl' },
+        'plan.l': { state: 'optional', addon_sku: 'addon.backup', price_month: '1.500', included_from: 'plan.xl' },
+        'plan.xl': { state: 'included' },
+      },
+    },
+    {
+      key: 'dedicated_ip',
+      name: 'Dedicated IP address',
+      blurb: 'A public address of your own',
+      kind: 'boolean',
+      cells: {
+        'plan.s': { state: 'optional', addon_sku: 'addon.dedicated_ip', price_month: '2.000' },
+        'plan.m': { state: 'optional', addon_sku: 'addon.dedicated_ip', price_month: '2.000' },
+        'plan.l': { state: 'not_offered' },
+        'plan.xl': { state: 'optional', addon_sku: 'addon.dedicated_ip', price_month: '2.000' },
+      },
+    },
+    { key: 'bandwidth', name: 'Bandwidth', kind: 'quantity', unit: 'Mbps', cells: { 'plan.s': { state: 'included', quantity: 50 }, 'plan.m': { state: 'included', quantity: 100 }, 'plan.l': { state: 'included', quantity: 250 }, 'plan.xl': { state: 'included', quantity: 1000 } } },
+  ],
+}
+
+/** The add-on SKUs per plan-hour: monthly ÷ 730. */
+export const addonUnitPrices: Record<string, number> = { 'addon.backup': 0.00205479, 'addon.dedicated_ip': 0.0027397 }
+
 /** The unit price of every priced entry, for a fake server in a test. */
-export const unitPrices: Record<string, number> = Object.fromEntries([...skus, ...payg, ...plans].map((e) => [e.sku, Number(e.unit_price)]))
+export const unitPrices: Record<string, number> = { ...Object.fromEntries([...skus, ...payg, ...plans, ...morePlans].map((e) => [e.sku, Number(e.unit_price)])), ...addonUnitPrices }

@@ -1,12 +1,15 @@
+import type { PackagesDoc } from '../../api/types'
 import { formatMoney } from '../../lib/money'
 import { unitHint, type CatalogFamily, type CatalogService } from './model'
+import { PackageTable } from './Packages'
 
 /**
  * The service catalogue (DESIGN.md §12.5): product families down the left,
  * each a card with a glyph and a one-line description, its services a row
  * each with a friendly name, a one-line description, the cheapest monthly
  * figure the server priced for one unit, and the button that opens its
- * configurator. No SKU is shown here.
+ * configurator. No SKU is shown here. The Platform plans family is the
+ * package comparison table (DESIGN.md §22) when the Sovereign publishes one.
  */
 export function Catalogue({
   families,
@@ -14,12 +17,17 @@ export function Catalogue({
   query,
   onQuery,
   onChoose,
+  packages,
+  onChoosePackage,
 }: {
   families: CatalogFamily[]
   currency: string
   query: string
   onQuery: (q: string) => void
   onChoose: (service: CatalogService) => void
+  /** GET /public/packages, when published; the plans family then draws the comparison table. */
+  packages?: PackagesDoc | null
+  onChoosePackage?: (slug: string, addons: string[]) => void
 }) {
   return (
     <div className="stack">
@@ -45,9 +53,20 @@ export function Catalogue({
               </div>
             </div>
             <span className="hint">
-              {fam.services.length} service{fam.services.length === 1 ? '' : 's'}
+              {fam.key === 'plans' && packages && onChoosePackage ? `${packages.packages.length} package${packages.packages.length === 1 ? '' : 's'}` : `${fam.services.length} service${fam.services.length === 1 ? '' : 's'}`}
             </span>
           </div>
+          {fam.key === 'plans' && packages && packages.packages.length && onChoosePackage ? (
+            <PackageTable
+              doc={packages}
+              currency={currency}
+              onChoose={onChoosePackage}
+              onConfigure={() => {
+                const plan = fam.services.find((s) => s.key === 'plan')
+                if (plan) onChoose(plan)
+              }}
+            />
+          ) : (
           <div className="strip">
             {fam.services.map((svc) => (
               <div key={svc.key} className="strip-row" data-testid={`service-${svc.key}`}>
@@ -66,6 +85,7 @@ export function Catalogue({
               </div>
             ))}
           </div>
+          )}
         </div>
       ))}
     </div>

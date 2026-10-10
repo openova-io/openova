@@ -491,6 +491,10 @@ func nizwaFintech(seed uint64) *Customer {
 			{Kind: ContractSpend, Amount: 20, DiscountPct: 15},
 		},
 	}}
+	// The BACKUP add-on (DESIGN.md §22): optional on S, M and L, so every
+	// showcase month of Nizwa carries the add-on line beside the plan's
+	// included 0.000 lines — the matrix on an invoice, not only on a page.
+	c.Source.Addons = []string{"backup"}
 	return c
 }
 

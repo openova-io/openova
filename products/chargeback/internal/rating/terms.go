@@ -242,6 +242,12 @@ type Terms struct {
 	// CarryIn is the unused allowance carried into this period per SKU, for
 	// the items and contract lines that roll over (DESIGN.md §15.1).
 	CarryIn map[string]store.Decimal
+	// Included is the allowance per SKU the Source's PACKAGE carries into the
+	// period (DESIGN.md §22): a quantity feature the plan includes, as
+	// ApplyPackage computed it. It adds to the plan's and the contract's
+	// allowances exactly as a contract allowance adds to the plan's — one
+	// allowance path, three origins — and it never rolls over.
+	Included map[string]store.Decimal
 }
 
 // shapeFor builds one SKU's shape from its price-book item, the contract's
@@ -298,6 +304,13 @@ func (t Terms) shapeFor(it store.PriceItem) (shape, error) {
 		r, err := parseRat(string(c))
 		if err != nil {
 			return s, fmt.Errorf("sku %s: carried allowance: %w", it.SKU, err)
+		}
+		allowance.Add(allowance, r)
+	}
+	if inc, ok := t.Included[it.SKU]; ok {
+		r, err := parseRat(string(inc))
+		if err != nil {
+			return s, fmt.Errorf("sku %s: package allowance: %w", it.SKU, err)
 		}
 		allowance.Add(allowance, r)
 	}

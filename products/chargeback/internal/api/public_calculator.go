@@ -413,6 +413,25 @@ func parseEstimateLines(in []estimateLineBody, items map[string]store.PriceItem)
 				line.Months = *l.Months
 			}
 		case sku != "":
+			item, known := items[sku]
+			if !known {
+				return nil, nil, fmt.Sprintf("%s: unknown sku %q — it is not in the public price list", at, sku)
+			}
+			if item.Unit == store.PlanUnit {
+				// A package ADD-ON (DESIGN.md §22) is priced per plan-hour
+				// like the plan it extends: a whole month, for the plan's
+				// months, never a count of hours.
+				if l.HoursPerMonth != nil {
+					return nil, nil, at + ": an add-on is a whole month, like the plan it extends; hours_per_month does not apply"
+				}
+				if l.Months != nil {
+					if *l.Months < 1 || *l.Months > estimateMaxMonths {
+						return nil, nil, fmt.Sprintf("%s: months must be between 1 and %d", at, estimateMaxMonths)
+					}
+					line.Months = *l.Months
+				}
+				break
+			}
 			if l.Months != nil && *l.Months != 1 {
 				return nil, nil, at + ": months applies to a plan line; an SKU line is one month of hours_per_month hours"
 			}
