@@ -16,7 +16,6 @@
 // components do no arithmetic on money.
 
 import type { CartState } from './cart';
-import { orderAddonIds } from './cart';
 import type { QuoteLine, QuoteRequest } from './api';
 
 export type Topology = 'single-region' | 'active-hot-standby';
@@ -42,15 +41,16 @@ export function topologyFor(cart: CartState): Topology {
 /**
  * The quote body — byte-for-byte the pricing fields of the checkout POST
  * (CheckoutStep.svelte handleCheckout): the catalog plan id, the apps, the
- * merged add-on list (catalog ids + BSS SKUs, orderAddonIds), the package
- * sku and the topology. Keeping them identical is what makes the quoted
- * total the billed total.
+ * cart's one add-on list (catalog ids, or the chosen package's optional
+ * features as BSS `addon.*` SKUs — the Add-ons step writes both into the
+ * same list), the package sku and the topology. Keeping them identical is
+ * what makes the quoted total the billed total.
  */
 export function quoteRequestFor(cart: CartState): QuoteRequest {
   return {
     plan_id: cart.plan || '',
     apps: cart.apps || [],
-    addons: orderAddonIds(cart),
+    addons: [...(cart.addons || [])],
     package_sku: cart.packageSku || undefined,
     topology: topologyFor(cart),
   };

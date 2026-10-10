@@ -1,4 +1,4 @@
-// packages.ts — the package comparison table, fed from Catalyst BSS.
+// packages.ts — the BSS package document, feeding the existing six-step wizard.
 //
 // #6971. The SME storefront sells hosting-style packages S / M / L / XL. Every
 // feature exists for every Organization technically; commercially each one is,
@@ -7,18 +7,31 @@
 //
 //     GET https://chargeback.<sovereign-fqdn>/api/v1/public/packages
 //
-// This module is the storefront's half of that contract: it validates the
-// payload, turns it into a render model (one column per package, one row per
-// feature, three cell states + the "Included from XL" up-sell hint), decides
-// the recommended column, and shapes the customer's choice for the cart.
+// The wizard already has the steps this needs, so the document FEEDS them
+// rather than adding a flow of its own:
 //
-// There is deliberately NO feature list in this tree. When the endpoint is
-// unreachable or publishes no packages, `loadPublicPackages` resolves to null
-// and the page renders the legacy plan deck (PlanStep.svelte) unchanged.
+//   Step 1 Plan     — the comparison table (PackageTable.svelte): one column per
+//                     package, one row per feature, ✓ / "add-on + price" / —.
+//                     Choosing a package sets the cart plan exactly as the
+//                     legacy deck did (catalog plan id mapped from the sku) and
+//                     continues to Stack. Nothing else is picked here.
+//   Step 3 Add-ons  — the chosen package's OPTIONAL features ARE the add-ons
+//                     (funnelAddonsFor: BSS `addon.*` SKUs in the AddOn shape the
+//                     step already renders), its INCLUDED boolean features show
+//                     read-only, not-offered ones never appear, and a catalog
+//                     add-on that twins a BSS feature yields to it.
+//   Review/Checkout — unchanged in structure; the same merged add-on list
+//                     resolves whatever ids the cart holds to name + price.
+//
+// There is deliberately NO feature list in this tree. When the document is
+// unreachable or publishes no packages, `loadPublicPackages` resolves to null,
+// logs once, and every step behaves exactly as it does today.
 //
 // Every customer-visible string lives in PACKAGE_STRINGS. The storefront has
 // no i18n mechanism today (`<html lang="en">`, no locale switch anywhere in
 // src/), so this is English, kept in one place for the day one arrives.
+
+import type { AddOn } from './api';
 
 export type CellState = 'included' | 'optional' | 'not_offered';
 export type FeatureKind = 'boolean' | 'quantity';
@@ -85,8 +98,10 @@ export const PACKAGE_STRINGS = {
   includedLabel: 'Included',
   notOfferedGlyph: '—',
   notOfferedLabel: 'Not offered',
+  /** The muted word on an optional cell; the price sits beside it. */
+  addonTag: 'add-on',
   optional: (price: string, currency: string) => `+ ${price} ${currency}`,
-  optionalNoPrice: 'Optional',
+  optionalNoPrice: 'priced on Add-ons',
   optionalLabel: 'Optional add-on',
   includedFrom: (name: string) => `Included from ${name}`,
   includes: {
@@ -96,9 +111,12 @@ export const PACKAGE_STRINGS = {
     bandwidth_mbps: (n: number) => `${n} Mbps`,
   },
   pricesAsOf: (date: string) => `Prices as of ${date}`,
-  addonsNote: 'Ticked add-ons are added to your monthly total and carried to checkout.',
+  addonsNote: 'Optional features are picked on the Add-ons step and added to your monthly total.',
   continueCta: 'Continue to Stack →',
   loadFailed: 'Could not load packages',
+  // Step 3 — the read-only group above the optional extras.
+  includedInPackage: 'Included in your package',
+  includedHint: 'Part of your package at no extra cost — nothing to pick.',
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -181,8 +199,8 @@ function parseFeature(v: unknown): PublicFeature | null {
 
 /**
  * Validate a `GET /api/v1/public/packages` body. Returns null when the body is
- * not the contract or publishes no packages — the caller then falls back to
- * the legacy presentation rather than drawing an empty table.
+ * not the contract or publishes no packages — the wizard then behaves exactly
+ * as it does without BSS.
  */
 export function parsePublicPackages(raw: unknown): PublicPackages | null {
   if (!isRecord(raw)) return null;
@@ -205,7 +223,7 @@ export function parsePublicPackages(raw: unknown): PublicPackages | null {
 }
 
 // ---------------------------------------------------------------------------
-// Loading — one fetch, one warning, never a blank table.
+// Loading — one fetch, one warning, never a blank step.
 // ---------------------------------------------------------------------------
 
 let warnedThisPage = false;
@@ -218,7 +236,7 @@ export function resetPackagesLogOnce(): void {
 function warnOnce(warn: (msg: string) => void, reason: string): void {
   if (warnedThisPage) return;
   warnedThisPage = true;
-  warn(`[packages] ${PACKAGE_STRINGS.loadFailed} — ${reason}; rendering the plan deck instead.`);
+  warn(`[packages] ${PACKAGE_STRINGS.loadFailed} — ${reason}; this step uses the catalog alone, as before.`);
 }
 
 export interface LoadPackagesDeps {
@@ -228,7 +246,7 @@ export interface LoadPackagesDeps {
 }
 
 /**
- * Fetch and validate the public packages matrix from the chargeback host.
+ * Fetch and validate the public packages document from the chargeback host.
  *
  * Resolves to null — and logs ONCE per page — when there is no chargeback
  * base URL, the request fails or times out, the status is not 2xx, or the body
@@ -279,7 +297,7 @@ export async function loadPublicPackages(
 }
 
 // ---------------------------------------------------------------------------
-// Render model.
+// Step 1 — the comparison table's render model.
 // ---------------------------------------------------------------------------
 
 export interface TableColumn {
@@ -292,7 +310,7 @@ export interface TableColumn {
 export interface TableCell {
   sku: string;
   state: CellState;
-  /** What the cell shows: "✓", "+ 1.500 OMR", "—", or "50 Mbps". */
+  /** What the cell shows: "✓", "+ 1.500 OMR" (beside the muted add-on tag), "—", or "50 Mbps". */
   label: string;
   /** Screen-reader name for the state. */
   stateLabel: string;
@@ -353,7 +371,7 @@ function stateLabel(state: CellState): string {
 
 /**
  * "Included from XL" — only for an optional cell whose `included_from` names a
- * package in this response. Nothing is invented for a dangling sku.
+ * package in this document. Nothing is invented for a dangling sku.
  */
 export function includedFromHint(cell: PublicCell | undefined, packages: PublicPackage[]): string | null {
   if (!cell || cell.state !== 'optional' || !cell.included_from) return null;
@@ -363,7 +381,7 @@ export function includedFromHint(cell: PublicCell | undefined, packages: PublicP
 
 /**
  * Which column to highlight: `?recommended=<sku>` when it names a package in
- * this response, otherwise the middle one (the lower middle for an even count,
+ * this document, otherwise the middle one (the lower middle for an even count,
  * so S/M/L/XL highlights M).
  */
 export function recommendedSku(packages: PublicPackage[], query: string | null | undefined): string | null {
@@ -415,23 +433,12 @@ export function buildPackageTable(
 }
 
 // ---------------------------------------------------------------------------
-// The customer's choice → the funnel.
+// The package ↔ catalog plan bridge.
 // ---------------------------------------------------------------------------
-
-/** A ticked optional feature, snapshotted so Review and Checkout can show it. */
-export interface PackageAddonPick {
-  /** The add-on SKU BSS bills, e.g. "addon.backup". */
-  sku: string;
-  /** The feature key it belongs to, e.g. "backup". */
-  feature: string;
-  name: string;
-  price_month: string;
-  currency: string;
-}
 
 /**
  * Money string at the currency's minor unit → integer minor units ("1.500" →
- * 1500), so package prices can flow through the storefront's baisa-based
+ * 1500), so package prices flow through the storefront's baisa-based
  * `formatOMR`. Non-numeric input is 0; never NaN.
  */
 export function minorUnits(price: string | null | undefined, decimals = 3): number {
@@ -448,7 +455,8 @@ export function skuTail(sku: string): string {
 }
 
 /**
- * The catalog plan id the funnel's billing POSTs require for a package.
+ * The catalog plan id the funnel's billing POSTs require for a package —
+ * exactly what the legacy deck put in `cart.plan`.
  *
  * `/billing/checkout` resolves `plan_id` against `/catalog/plans` by id
  * (core/services/billing/handlers/handlers.go computeOrderTotal) and 400s on a
@@ -469,25 +477,140 @@ export function catalogPlanIdForPackage(
   return hit ? hit.id : tail;
 }
 
+/** The reverse bridge: the package a catalog plan stands for, or null. */
+export function packageForPlan(
+  doc: PublicPackages,
+  plan: { id: string; slug?: string; name?: string },
+): PublicPackage | null {
+  const slug = (plan.slug ?? '').toLowerCase();
+  const name = (plan.name ?? '').toLowerCase();
+  const id = plan.id.toLowerCase();
+  return (slug ? doc.packages.find(p => skuTail(p.sku) === slug) : undefined)
+    ?? (name ? doc.packages.find(p => p.name.toLowerCase() === name) : undefined)
+    ?? doc.packages.find(p => skuTail(p.sku) === id)
+    ?? null;
+}
+
 /**
- * The add-on picks for a package from the ticked feature keys. Only optional
- * cells with an add-on SKU count — a ticked key whose cell is included or not
- * offered on this package contributes nothing, so switching columns can never
- * carry a stale add-on along.
+ * The package the cart stands on: the stamped `packageSku` when it is in this
+ * document, else the package the cart's catalog plan maps to, else null (the
+ * step then behaves as it does without BSS).
  */
-export function addonPicksFor(data: PublicPackages, sku: string, tickedFeatureKeys: ReadonlyArray<string>): PackageAddonPick[] {
-  const out: PackageAddonPick[] = [];
-  for (const key of tickedFeatureKeys) {
-    const feature = data.features.find(f => f.key === key);
-    const cell = feature?.cells[sku];
-    if (!feature || !cell || cell.state !== 'optional' || !cell.addon_sku) continue;
-    out.push({
-      sku: cell.addon_sku,
-      feature: feature.key,
-      name: feature.name,
-      price_month: cell.price_month ?? '0.000',
-      currency: data.currency,
-    });
+export function packageForCart(
+  doc: PublicPackages,
+  cart: { packageSku: string | null; plan: string | null; planName?: string },
+): PublicPackage | null {
+  if (cart.packageSku) {
+    const stamped = doc.packages.find(p => p.sku === cart.packageSku);
+    if (stamped) return stamped;
+  }
+  if (cart.plan) return packageForPlan(doc, { id: cart.plan, name: cart.planName });
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Step 3 — the chosen package's features become the add-ons list.
+// ---------------------------------------------------------------------------
+
+/**
+ * Catalog add-ons that duplicate a BSS feature. When the document is present,
+ * only the BSS one is shown. Keyed by the catalog add-on SLUG (what
+ * /catalog/addons calls it), valued by the BSS feature KEY. Kept small and
+ * explicit; an exact (normalised) NAME match covers any other twin.
+ */
+export const CATALOG_ADDON_TWINS: Readonly<Record<string, string>> = {
+  'daily-backup': 'backup',
+  'custom-domain': 'domain',
+  'dedicated-ip': 'dedicated-ip',
+  'waf': 'waf',
+};
+
+function normalizeName(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+/** The BSS feature key a catalog add-on twins in this document, or null. */
+export function twinFeatureKey(
+  addon: { slug: string; name: string },
+  features: ReadonlyArray<PublicFeature>,
+): string | null {
+  const explicit = CATALOG_ADDON_TWINS[addon.slug];
+  if (explicit && features.some(f => f.key === explicit)) return explicit;
+  const n = normalizeName(addon.name);
+  if (!n) return null;
+  const byName = features.find(f => normalizeName(f.name) === n);
+  return byName ? byName.key : null;
+}
+
+/** A feature the package includes as standard — rendered read-only on step 3. */
+export interface IncludedFeature {
+  key: string;
+  name: string;
+  blurb: string;
+}
+
+export interface FunnelAddons {
+  /** What the Add-ons step offers: BSS optional features first, then catalog add-ons with no BSS twin. */
+  addons: AddOn[];
+  /** The package's included boolean features (quantities belong to the table). */
+  included: IncludedFeature[];
+  packageName: string;
+}
+
+/**
+ * The Add-ons step's list for a package. BSS optional features arrive in the
+ * AddOn shape the step, Review and Checkout already render — `id` is the BSS
+ * add-on SKU, so `cart.addons` stays one list and the POSTs are unchanged.
+ */
+export function funnelAddonsFor(doc: PublicPackages, sku: string, catalog: ReadonlyArray<AddOn>): FunnelAddons {
+  const pkg = doc.packages.find(p => p.sku === sku);
+  const bss: AddOn[] = [];
+  const included: IncludedFeature[] = [];
+  for (const f of doc.features) {
+    const cell = f.cells[sku];
+    if (!cell) continue;
+    if (cell.state === 'optional' && cell.addon_sku) {
+      const hint = includedFromHint(cell, doc.packages);
+      bss.push({
+        id: cell.addon_sku,
+        slug: f.key,
+        name: f.name,
+        tagline: f.blurb ?? '',
+        icon: '',
+        monthly_price: minorUnits(cell.price_month),
+        included: false,
+        ...(hint ? { hint } : {}),
+      });
+    } else if (cell.state === 'included' && f.kind === 'boolean') {
+      included.push({ key: f.key, name: f.name, blurb: f.blurb ?? '' });
+    }
+  }
+  const rest = catalog.filter(a => twinFeatureKey(a, doc.features) === null);
+  return { addons: [...bss, ...rest], included, packageName: pkg?.name ?? '' };
+}
+
+/** Every add-on SKU this document can bill — the cart ids that are BSS, not catalog. */
+export function bssAddonSkus(doc: PublicPackages): Set<string> {
+  const out = new Set<string>();
+  for (const f of doc.features) {
+    for (const cell of Object.values(f.cells)) {
+      if (cell.addon_sku) out.add(cell.addon_sku);
+    }
   }
   return out;
+}
+
+/**
+ * The cart's add-on ids after a package change: catalog ids are untouched,
+ * BSS SKUs survive only where the new package still offers them as optional
+ * (Backup is included on XL — the add-on would be refused as redundant there).
+ */
+export function pruneAddonsForPackage(doc: PublicPackages, sku: string, addons: ReadonlyArray<string>): string[] {
+  const all = bssAddonSkus(doc);
+  const optionalHere = new Set<string>();
+  for (const f of doc.features) {
+    const cell = f.cells[sku];
+    if (cell?.state === 'optional' && cell.addon_sku) optionalHere.add(cell.addon_sku);
+  }
+  return addons.filter(id => !all.has(id) || optionalHere.has(id));
 }

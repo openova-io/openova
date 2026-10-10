@@ -1,6 +1,6 @@
 <script lang="ts">
   import { sendMagicLink, verifyMagicLink, getMe, createTenant, getMyOrgs, createCheckout, getQuote, startProvisioning, getProvisionByTenant, checkSlug, getPlans, getCreditBalance, redeemVoucherPreview, setAuthTokens, setActiveOrg, setActiveOrgSlug, setActiveOrgConsoleHost, type User, type Provision, type Plan, type QuoteResponse } from '../lib/api';
-  import { readCart, clearCart, orderAddonIds } from '../lib/cart';
+  import { readCart, clearCart } from '../lib/cart';
   import { formatOMR } from '../lib/currency';
   import { quoteRequestFor, quoteable, topologyFor, QUOTE_STRINGS } from '../lib/quote';
   import { consoleHandoffHref, consoleLaunchHref } from '../lib/config';
@@ -19,11 +19,13 @@
 
   // #6971 — the order summary and the total come from POST /billing/quote,
   // the pricing seam /billing/checkout bills through: the plan from the BSS
-  // package (or the catalog), one line per add-on from the package's cells
-  // (or /catalog/addons), the #5104 topology surcharge. Nothing here sums
-  // money. Until the quote answers — or when it cannot — the total reads as
-  // unavailable and the purchase button stays disabled: the amount is what
-  // the customer is agreeing to.
+  // package (or the catalog), one line per add-on in the cart's one list
+  // (the chosen package's optional features as BSS SKUs, catalog ids from
+  // /catalog/addons), the #5104 topology surcharge. Nothing here sums money
+  // and no add-on list is resolved client-side — the server names and prices
+  // every line. Until the quote answers — or when it cannot — the total
+  // reads as unavailable and the purchase button stays disabled: the amount
+  // is what the customer is agreeing to.
   let quote = $state<QuoteResponse | null>(null);
   let quoteError = $state<string | null>(null);
   $effect(() => {
@@ -342,9 +344,9 @@
           name,
           plan_id: cart.plan || '',
           apps: cart.apps,
-          // #6971 — catalog add-on ids + the BSS add-on SKUs ticked on the
-          // package table, one list; the package sku rides beside plan_id.
-          addons: orderAddonIds(cart),
+          addons: cart.addons,
+          // #6971 — the BSS package sku rides beside plan_id; `addons` above
+          // may already hold BSS add-on SKUs picked on the Add-ons step.
           package_sku: cart.packageSku || undefined,
           // #4176/#4179 — forward the customer-chosen org-pool parent apex
           // (e.g. "omani.works") so the tenant-service composes + returns the
@@ -437,9 +439,9 @@
       const billing = await createCheckout({
         plan_id: cart.plan || '',
         apps: cart.apps,
-        // #6971 — same merged list + sku as the Organization create above, so
-        // the order row persists the ticked package add-ons.
-        addons: orderAddonIds(cart),
+        addons: cart.addons,
+        // #6971 — same sku as the Organization create above, so the order row
+        // records the package beside the plan.
         package_sku: cart.packageSku || undefined,
         // #5104 facet B — the topology must reach billing explicitly; it
         // used to travel only inside the tenant-create app_configs, so the

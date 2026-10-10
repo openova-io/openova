@@ -1,19 +1,34 @@
 <script lang="ts">
   import { getPlans, getApps, getAddons, getQuote, type Plan, type App, type AddOn, type QuoteResponse } from '../lib/api';
-  import { readCart, toggleAddon, setPlan } from '../lib/cart';
+  import { readCart, toggleAddon, setPlan, setPackage } from '../lib/cart';
   import { formatOMR, formatOMRAmount } from '../lib/currency';
+  import { chargebackBaseURL } from '../lib/config';
   import { quoteRequestFor, quoteable, lineAmountLabel, QUOTE_STRINGS } from '../lib/quote';
+  import {
+    funnelAddonsFor,
+    loadPublicPackages,
+    packageForCart,
+    packageForPlan,
+    pruneAddonsForPackage,
+    type PublicPackages,
+  } from '../lib/packages';
 
   let cart = $state(readCart());
   let plans = $state<Plan[]>([]);
   let apps = $state<App[]>([]);
   let addons = $state<AddOn[]>([]);
+  // #6971 — the raw catalog list and the BSS package document, kept so a plan
+  // change here can re-derive the add-on list for the new package. Null
+  // document → `addons` is the catalog list, exactly as before.
+  let catalogAddons = $state<AddOn[]>([]);
+  let doc = $state<PublicPackages | null>(null);
   let loading = $state(true);
   let concurrency = $state<'small' | 'medium' | 'large'>('small');
 
   const selectedPlan = $derived(plans.find(p => p.id === cart.plan));
   const selectedApps = $derived(apps.filter(a => cart.apps.includes(a.id)));
   const paidAddons = $derived(addons.filter(a => !a.included));
+  const selectedAddons = $derived(addons.filter(a => cart.addons.includes(a.id)));
 
   // --- Pillar-2 BCP topology (#4524) ---------------------------------------
   // The /bcp step persists the customer's database business-continuity choice
@@ -46,12 +61,13 @@
 
   // #6971 — every figure in the cost sidebar comes from POST /billing/quote,
   // the pricing seam /billing/checkout bills through: the plan (from the BSS
-  // package or the catalog), one line per add-on (a BSS SKU from the
-  // package's cell, a catalog id from /catalog/addons, "Included" when the
-  // package already has it), the topology surcharge and the total. The
-  // package table, this page, the checkout and the receipt therefore show
-  // ONE number; nothing here sums money. Re-quoted whenever a priced input
-  // changes; when the quote is unavailable the total says so.
+  // package or the catalog), one line per add-on in the cart's list (a BSS
+  // SKU from the package's cell, a catalog id from /catalog/addons,
+  // "Included" when the package already has it), the topology surcharge and
+  // the total. The package table, this page, the checkout and the receipt
+  // therefore show ONE number; nothing here sums money. Re-quoted whenever a
+  // priced input changes (changePlan / toggleAddon rewrite `cart`); when the
+  // quote is unavailable the total says so.
   let quote = $state<QuoteResponse | null>(null);
   let quoteError = $state<string | null>(null);
   $effect(() => {
@@ -64,9 +80,6 @@
     return () => { stale = true; };
   });
   const totalCost = $derived(quote?.amount_baisa ?? 0);
-  function quoteLine(sku: string) {
-    return quote?.lines.find(l => l.sku === sku) ?? null;
-  }
 
   // --- Per-app resource estimates (MiB RAM, milli-CPU, GiB disk) ---
   const appRam: Record<string, number> = {
@@ -153,11 +166,46 @@
     return 'XL';
   });
 
+  // #6971 — the add-on list the cart's ids resolve against: the catalog list,
+  // or, with the BSS document and a package to stand on, that package's
+  // optional features plus the catalog add-ons with no BSS twin. Same shape,
+  // same arithmetic below.
+  function addonsForCart(catalog: AddOn[], d: PublicPackages | null): AddOn[] {
+    const pkg = d ? packageForCart(d, cart) : null;
+    return d && pkg ? funnelAddonsFor(d, pkg.sku, catalog).addons : catalog;
+  }
+
   $effect(() => {
-    Promise.all([getPlans(), getApps(), getAddons()])
-      .then(([p, a, ad]) => { plans = p; apps = a.filter(x => !x.system); addons = ad; loading = false; })
+    Promise.all([getPlans(), getApps(), getAddons(), loadPublicPackages(chargebackBaseURL())])
+      .then(([p, a, ad, d]) => {
+        plans = p;
+        apps = a.filter(x => !x.system);
+        catalogAddons = ad;
+        doc = d;
+        addons = addonsForCart(ad, d);
+        loading = false;
+      })
       .catch(() => { loading = false; });
   });
+
+  // A plan change here is a package change when the document is in hand: stamp
+  // the matching package, drop a BSS add-on the new package no longer offers
+  // as optional, and re-derive the add-on list. Without the document it is
+  // today's setPlan.
+  function changePlan(plan: Plan) {
+    const pkg = doc ? packageForPlan(doc, plan) : null;
+    if (doc && pkg) {
+      cart = setPackage({
+        planId: plan.id,
+        planName: plan.name,
+        packageSku: pkg.sku,
+        addons: pruneAddonsForPackage(doc, pkg.sku, cart.addons),
+      });
+      addons = funnelAddonsFor(doc, pkg.sku, catalogAddons).addons;
+    } else {
+      cart = setPlan(plan.id, plan.name);
+    }
+  }
 
   function toggleAddonItem(id: string) {
     cart = toggleAddon(id);
@@ -168,12 +216,8 @@
   // prefixes "OMR " and is used everywhere else so every baisa figure in the
   // review sidebar matches the checkout and the console.
 
-  // setPlan (not a raw cart write) so a plan change here also drops a package
-  // choice made on /plans — its add-on SKUs are priced per package (#6971).
   function upgradePlan() {
-    if (suggestedPlan) {
-      cart = setPlan(suggestedPlan.id, suggestedPlan.name);
-    }
+    if (suggestedPlan) changePlan(suggestedPlan);
   }
 
   // Addon icons by slug
@@ -251,7 +295,7 @@
                   name="plan"
                   value={plan.id}
                   checked={isChecked}
-                  onchange={() => { cart = setPlan(plan.id, plan.name); }}
+                  onchange={() => changePlan(plan)}
                 />
                 <span class="plan-opt-body">
                   <span class="plan-opt-name">{plan.name}</span>
@@ -267,22 +311,6 @@
               </label>
             {/each}
           </div>
-          {#if cart.packageAddons.length > 0}
-            <!-- #6971 — add-ons ticked on the package comparison table. Edited
-                 back on /plans, where the per-package prices live. -->
-            <div class="pk-picks" data-testid="review-package-addons">
-              <div class="pk-picks-head">
-                <span>Package add-ons</span>
-                <a href="/plans" class="rv-link">Edit</a>
-              </div>
-              <ul class="pk-picks-list">
-                {#each cart.packageAddons as a (a.sku)}
-                  {@const line = quoteLine(a.sku)}
-                  <li><span>{a.name}</span><span class="pk-picks-price">{line ? lineAmountLabel(line, formatOMR) : QUOTE_STRINGS.pending}</span></li>
-                {/each}
-              </ul>
-            </div>
-          {/if}
         </section>
 
         <!-- Expected usage + Workspace — side by side -->
@@ -813,33 +841,4 @@
     white-space: nowrap;
   }
   .float-back:hover { color: var(--color-text-strong); }
-  /* #6971 — package add-ons picked on /plans */
-  .pk-picks {
-    margin-top: 0.65rem;
-    padding: 0.55rem 0.7rem;
-    background: var(--color-bg);
-    border: 1px dashed var(--color-border);
-    border-radius: 8px;
-  }
-  .pk-picks-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    color: var(--color-text-dim);
-    font-size: 0.72rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    margin-bottom: 0.3rem;
-  }
-  .pk-picks-list { list-style: none; margin: 0; padding: 0; }
-  .pk-picks-list li {
-    display: flex;
-    justify-content: space-between;
-    gap: 0.75rem;
-    padding: 0.15rem 0;
-    color: var(--color-text);
-    font-size: 0.8rem;
-  }
-  .pk-picks-price { color: var(--color-text-strong); font-weight: 600; white-space: nowrap; }
 </style>

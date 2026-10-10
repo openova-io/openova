@@ -1,19 +1,22 @@
 <script lang="ts">
-  // The package comparison table (#6971). Columns are the packages BSS
-  // publishes, rows are its features, cells are ✓ / "+ price" / — with the
-  // "Included from XL" hint under optional cells. Fed ONLY from
-  // GET /api/v1/public/packages on the Sovereign's chargeback host; when that
-  // is unreachable or empty the legacy deck (PlanStep) renders unchanged.
+  // Step 1 of the wizard — the package comparison table (#6971). Columns are
+  // the packages BSS publishes, rows are its features, cells are ✓ / a muted
+  // "add-on" with its price and the "Included from XL" hint / —. Choosing a
+  // package does exactly what the legacy deck did: it sets the cart plan
+  // (catalog plan id mapped from the sku, plus the sku for billing) and
+  // continues to Stack. Add-ons are picked on step 3, where they always were.
+  // Fed ONLY from GET /api/v1/public/packages on the Sovereign's chargeback
+  // host; when that is unreachable or empty the legacy deck renders unchanged.
   import PlanStep from './PlanStep.svelte';
   import { getPlans, type Plan } from '../lib/api';
   import { readCart, setPackage } from '../lib/cart';
   import { chargebackBaseURL } from '../lib/config';
   import {
-    addonPicksFor,
     buildPackageTable,
     catalogPlanIdForPackage,
     includesLines,
     loadPublicPackages,
+    pruneAddonsForPackage,
     PACKAGE_STRINGS as S,
     type PackageTableModel,
     type PublicPackages,
@@ -23,13 +26,7 @@
   let data = $state<PublicPackages | null>(null);
   let model = $state<PackageTableModel | null>(null);
   let plans = $state<Plan[]>([]);
-
-  const initial = readCart();
-  let selectedSku = $state<string | null>(initial.packageSku);
-  // Feature keys ticked on the selected column. Re-derived into add-on SKUs
-  // on every change, so a column switch can never carry another package's
-  // add-on along (addonPicksFor drops keys that are not optional there).
-  let ticked = $state<string[]>(initial.packageAddons.map(a => a.feature));
+  let selectedSku = $state<string | null>(readCart().packageSku);
 
   $effect(() => {
     let cancelled = false;
@@ -51,54 +48,31 @@
         // Same posture as the legacy deck, which pre-selects the popular plan:
         // land with the recommended package in the cart so "Continue" works.
         selectedSku = model.recommendedSku;
-        ticked = [];
-        if (selectedSku) persist();
-      } else {
-        persist();
       }
+      if (selectedSku) persist(selectedSku);
       status = 'table';
     })();
     return () => { cancelled = true; };
   });
 
-  function persist() {
-    if (!data || !selectedSku) return;
-    const pkg = data.packages.find(p => p.sku === selectedSku);
+  function persist(sku: string) {
+    if (!data) return;
+    const pkg = data.packages.find(p => p.sku === sku);
     if (!pkg) return;
     setPackage({
       planId: catalogPlanIdForPackage(pkg, plans),
       planName: pkg.name,
       packageSku: pkg.sku,
-      addons: addonPicksFor(data, pkg.sku, ticked),
+      // A BSS add-on picked on step 3 for another package stays only where this
+      // package still offers it as optional; catalog add-ons are untouched.
+      addons: pruneAddonsForPackage(data, pkg.sku, readCart().addons),
     });
   }
 
-  function select(sku: string) {
-    if (sku !== selectedSku) {
-      selectedSku = sku;
-      ticked = [];
-    }
-    persist();
-  }
-
   function choose(sku: string) {
-    select(sku);
+    selectedSku = sku;
+    persist(sku);
     window.location.assign('/apps');
-  }
-
-  function toggleAddon(sku: string, featureKey: string) {
-    if (sku !== selectedSku) {
-      selectedSku = sku;
-      ticked = [];
-    }
-    ticked = ticked.includes(featureKey)
-      ? ticked.filter(k => k !== featureKey)
-      : [...ticked, featureKey];
-    persist();
-  }
-
-  function isTicked(sku: string, featureKey: string): boolean {
-    return selectedSku === sku && ticked.includes(featureKey);
   }
 </script>
 
@@ -164,17 +138,11 @@
                   data-testid="package-cell-{row.key}-{cell.sku}"
                   data-state={cell.state}
                 >
-                  {#if cell.state === 'optional' && cell.addonSku}
-                    <label class="pk-addon {isTicked(cell.sku, row.key) ? 'ticked' : ''}">
-                      <input
-                        type="checkbox"
-                        data-testid="package-addon-{cell.sku}-{row.key}"
-                        checked={isTicked(cell.sku, row.key)}
-                        onchange={() => toggleAddon(cell.sku, row.key)}
-                        aria-label="{row.name}: {cell.label}"
-                      />
+                  {#if cell.state === 'optional'}
+                    <span class="pk-addon" aria-label="{cell.stateLabel}: {cell.label}">
+                      <span class="pk-addon-tag">{S.addonTag}</span>
                       <span class="pk-addon-price">{cell.label}</span>
-                    </label>
+                    </span>
                   {:else}
                     <span class="pk-glyph" role="img" aria-label="{cell.stateLabel}{cell.quantity !== null ? `: ${cell.label}` : ''}">{cell.label}</span>
                   {/if}
@@ -333,30 +301,25 @@
   .pk-cell.not_offered .pk-glyph { color: var(--color-text-dimmer); }
   .pk-glyph { display: inline-block; min-width: 1.2em; }
 
+  /* Optional: a muted "add-on" tag with the price beside it — nothing to tick
+     here; the pick happens on the Add-ons step. */
   .pk-addon {
     display: inline-flex;
-    align-items: center;
+    align-items: baseline;
     gap: 0.4rem;
-    padding: 0.2rem 0.55rem;
-    border: 1px solid var(--color-border-strong, var(--color-border));
-    border-radius: 999px;
-    cursor: pointer;
-    color: var(--color-text);
-    font-weight: 600;
     white-space: nowrap;
-    transition: border-color 0.15s, background 0.15s;
   }
-  .pk-addon:hover { border-color: var(--color-accent); }
-  .pk-addon.ticked {
-    border-color: var(--color-accent);
-    background: color-mix(in srgb, var(--color-accent) 10%, transparent);
-    color: var(--color-text-strong);
+  .pk-addon-tag {
+    color: var(--color-text-dimmer);
+    font-size: 0.66rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
   }
-  .pk-addon input { accent-color: var(--color-accent); margin: 0; }
-  .pk-addon-price { font-size: 0.78rem; }
+  .pk-addon-price { color: var(--color-text); font-size: 0.78rem; font-weight: 600; }
 
   .pk-hint {
-    margin-top: 0.2rem;
+    margin-top: 0.15rem;
     color: var(--color-text-dimmer);
     font-size: 0.68rem;
     font-style: italic;

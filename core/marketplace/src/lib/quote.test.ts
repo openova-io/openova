@@ -23,8 +23,6 @@ const ROOT = join(__dirname, '..', '..');
 const REVIEW = readFileSync(join(ROOT, 'src', 'components', 'ReviewStep.svelte'), 'utf8');
 const CHECKOUT = readFileSync(join(ROOT, 'src', 'components', 'CheckoutStep.svelte'), 'utf8');
 
-const BACKUP = { sku: 'addon.backup', feature: 'backup', name: 'Backup', price_month: '1.500', currency: 'OMR' };
-
 const SERVER_QUOTE: QuoteResponse = {
   currency: 'OMR',
   price_source: 'bss:OpenOva plans@2026-09-11',
@@ -59,8 +57,11 @@ function response(status: number, body: unknown) {
 describe('quoteRequestFor mirrors the pricing fields of the checkout POST', () => {
   beforeEach(() => localStorage.clear());
 
-  it('carries plan_id, the merged addons, package_sku and the topology', () => {
-    setPackage({ planId: 'm', planName: 'M', packageSku: 'plan.m', addons: [BACKUP] });
+  it('carries plan_id, the cart\'s one addons list (catalog ids + BSS SKUs), package_sku and the topology', () => {
+    // The step-1 table stamps the package; the Add-ons step writes the chosen
+    // package's optional features (BSS SKUs) and the catalog add-ons into the
+    // same list.
+    setPackage({ planId: 'm', planName: 'M', packageSku: 'plan.m', addons: ['addon.backup'] });
     toggleAddon('waf');
     toggleApp('1');
     const cart = readCart();
@@ -71,11 +72,14 @@ describe('quoteRequestFor mirrors the pricing fields of the checkout POST', () =
     expect(req).toEqual({
       plan_id: 'm',
       apps: ['1'],
-      addons: ['waf', 'addon.backup'],
+      addons: ['addon.backup', 'waf'],
       package_sku: 'plan.m',
       topology: 'active-hot-standby',
     });
     expect(quoteable(req)).toBe(true);
+    // The quote body's addons IS the checkout body's addons — the same array
+    // contents, so the quoted total is the billed total.
+    expect(req.addons).toEqual(readCart().addons);
   });
 
   it('the legacy deck quotes without a package_sku and single-region by default', () => {
