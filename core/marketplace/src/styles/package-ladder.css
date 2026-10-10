@@ -9,9 +9,24 @@
  * same way). A page-level CSS import is bundled unconditionally. The
  * Playwright spec asserts this layout by computed style against
  * `astro build && astro preview`, never the dev server.
+ *
+ * Layout: the floor strip and the grow line sit ABOVE the table, outside the
+ * column flow. The table is ONE grid — cards, group headers, feature rows,
+ * foot — and each package column is painted once by its rail (`.ld-col`),
+ * so its border, ring and tint run unbroken from card to foot. A compact
+ * header (`.ld-sticky`) on the same column template sticks under the site
+ * header once the cards have scrolled away.
  */
 
-.ld-page { max-width: 1280px; margin: 0 auto; padding: 0 1.25rem 2.5rem; }
+.ld-page {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 1.25rem 2.5rem;
+  /* The site header (Header.svelte: h-14 + a 1 px rule) is sticky at the top;
+     the ladder's compact header sticks right under it. */
+  --ld-site-header: calc(3.5rem + 1px);
+  --ld-sticky-h: 3.4rem;
+}
 .ld-title {
   text-align: center;
   font-size: clamp(1.2rem, 2.2vw, 1.5rem);
@@ -27,24 +42,122 @@
   margin: 0 0 0.9rem;
 }
 
-/* The comparison may be wider than a phone; it scrolls inside its own box so
-   the page body never scrolls sideways. */
-.ld-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 0.25rem; container-type: inline-size; }
+/* ── The floor: "Included in every package", above the table ──────────── */
+/* A compact strip outside the column flow: its heading takes the width of
+   the feature gutter, so the items start on the first package column. */
+.ld-floor {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.6rem 1.5rem;
+  margin: 0 0 0.85rem;
+  padding: 0.85rem 1rem;
+  background: color-mix(in srgb, var(--color-success) 4%, var(--color-surface));
+  border: 1px solid color-mix(in srgb, var(--color-success) 22%, var(--color-border));
+  border-radius: 14px;
+}
+.ld-floor-head { flex: 0 0 188px; min-width: 0; display: flex; flex-direction: column; gap: 0.2rem; }
+.ld-floor-title { margin: 0; color: var(--color-text-strong); font-size: 0.95rem; font-weight: 700; letter-spacing: -0.005em; line-height: 1.25; }
+.ld-floor-sub { margin: 0; color: var(--color-text-dim); font-size: 0.74rem; line-height: 1.35; }
+.ld-floor-grid {
+  flex: 1 1 18rem;
+  min-width: 0;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 11rem), 1fr));
+  gap: 0.5rem 1rem;
+}
+.ld-floor-tile { display: flex; align-items: flex-start; gap: 0.55rem; min-width: 0; }
+.ld-floor-ico { width: 28px; height: 28px; border-radius: 7px; }
+.ld-floor-text { display: flex; flex-direction: column; gap: 0.05rem; min-width: 0; }
+.ld-floor-item { color: var(--color-text-strong); font-size: 0.8rem; font-weight: 600; line-height: 1.3; }
+.ld-floor-blurb { color: var(--color-text-dim); font-size: 0.7rem; line-height: 1.35; }
+
+/* ── #6971: "Every package can grow with you" — one light line ─────────── */
+.ld-grow-band { display: flex; justify-content: center; margin: 0 0 1rem; }
+.ld-grow-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem 0.5rem;
+  padding: 0.5rem 0.9rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-success) 8%, var(--color-surface));
+  border: 1px solid color-mix(in srgb, var(--color-success) 25%, var(--color-border));
+  color: var(--color-text-dim);
+  font-size: 0.8rem;
+  text-align: center;
+}
+.ld-grow-inner strong { color: var(--color-text-strong); font-weight: 600; }
+.ld-grow-ico { color: var(--color-success); flex-shrink: 0; }
+.ld-grow-cheaper { color: var(--color-text); font-weight: 600; }
+
+/* ── The table ─────────────────────────────────────────────────────────── */
+/* Narrow screens: the table is wider than the screen and scrolls sideways
+   inside its own box, so the page body never does. Wide screens (below):
+   it fits, and the box is not a scroll container, so the compact header can
+   stick to the viewport. */
+.ld-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 0.25rem; }
+
+/* The column template, shared by the grid and the compact header so the
+   header's columns sit exactly over the cells. */
+.ld-table {
+  position: relative;
+  --ld-gutter: 220px;
+  --ld-template: 220px repeat(var(--ld-cols, 4), minmax(170px, 1fr));
+  --ld-gap: 0.5rem;
+  --ld-min: 900px;
+}
 
 /* One grid: the gutter column, then one column per package. Rows are
    `display: contents` wrappers, so every cell is a direct grid item and the
    row elements keep their test ids and ARIA roles. */
 .ld-grid {
   display: grid;
-  grid-template-columns: 220px repeat(var(--ld-cols, 4), minmax(170px, 1fr));
-  column-gap: 0.5rem;
-  min-width: 900px;
+  grid-template-columns: var(--ld-template);
+  column-gap: var(--ld-gap);
+  min-width: var(--ld-min);
   align-items: stretch;
+  position: relative;
+  isolation: isolate;
 }
 .ld-row { display: contents; }
 
+/* The column rail: absolutely positioned in its grid column (`N / span 1`
+   — an `auto` end line would run to the grid's edge), top to bottom of the
+   grid (its `auto` row lines are the grid's padding edges), under every
+   cell. Out of the auto-placement, so the rows place exactly as without it. */
+.ld-col {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--color-surface);
+  border: 1.5px solid var(--color-border);
+  border-radius: 12px;
+}
+.ld-col.recommended { border-color: var(--pk-accent, var(--color-warn, #f59e0b)); }
+.ld-col.selected {
+  border-color: var(--color-success);
+  background: color-mix(in srgb, var(--color-success) 5%, var(--color-surface));
+}
+.ld-col.has-accent.selected {
+  border-color: var(--pk-accent);
+  background: color-mix(in srgb, var(--pk-accent) 6%, var(--color-surface));
+}
+
 /* ── Cards ─────────────────────────────────────────────────────────────── */
-.ld-corner { align-self: end; }
+.ld-corner { display: flex; flex-direction: column; justify-content: flex-end; }
+/* The allowance legend (grow model): in the gutter beside the cards' foot,
+   right above the comparison it explains. */
+.ld-legend {
+  margin: 0 0.6rem 0.95rem;
+  color: var(--color-text-dim);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
 .ld-card {
   display: flex;
   flex-direction: column;
@@ -94,20 +207,29 @@
   white-space: nowrap;
 }
 .ld-name { color: var(--color-text-strong); font-size: 1.15rem; font-weight: 700; line-height: 1.2; }
-.ld-card-icon {
+.ld-card-icon,
+.ld-card-icon-slot {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
   width: 44px;
   height: 44px;
   margin-bottom: 0.35rem;
   border-radius: 12px;
-  background: color-mix(in srgb, var(--pk-accent, var(--color-text)) 14%, transparent);
 }
+.ld-card-icon { background: color-mix(in srgb, var(--pk-accent, var(--color-text)) 14%, transparent); }
 .ld-card-icon img { display: block; }
+/* The badge line is reserved on every card when any card has a badge, so
+   the badge never pushes one card's price and Choose below the others. */
+.ld-badge-slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.45rem;
+}
 .ld-badge {
   display: inline-block;
-  margin: 0.2rem 0 0.05rem;
   padding: 0.12rem 0.55rem;
   border-radius: 999px;
   background: color-mix(in srgb, var(--color-text) 10%, transparent);
@@ -119,6 +241,9 @@
 }
 .ld-card.has-accent .ld-badge { background: var(--pk-accent); color: var(--pk-accent-fg); }
 .ld-tagline { color: var(--color-text-dim); font-size: 0.78rem; }
+.ld-line-slot { visibility: hidden; }
+.ld-line-slot-tagline { font-size: 0.78rem; }
+.ld-line-slot-annual { font-size: 0.72rem; }
 .ld-price {
   display: flex;
   align-items: baseline;
@@ -133,12 +258,17 @@
 .ld-shape { color: var(--color-text); font-size: 0.86rem; font-weight: 600; margin-top: 0.4rem; }
 .ld-guarantee { color: var(--color-text-dimmer); font-size: 0.68rem; line-height: 1.3; }
 .ld-disk { color: var(--color-text-dim); font-size: 0.78rem; }
+/* Cards share their row's height; the filler takes the slack, so every
+   card's Choose sits on the same line at its foot. */
+.ld-card-fill { flex: 1 0 0.7rem; }
 .ld-cta {
   margin-top: 0.7rem;
   width: 100%;
   padding: 0.55rem 0.5rem;
   border-radius: 7px;
-  border: none;
+  /* Every CTA carries the same 1.5 px border (transparent unless ghost), so
+     a primary and a ghost Choose are the same height and sit on one line. */
+  border: 1.5px solid transparent;
   font: inherit;
   font-weight: 600;
   font-size: 0.82rem;
@@ -147,6 +277,7 @@
   white-space: nowrap;
   transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
+.ld-card > .ld-cta { margin-top: 0; }
 .ld-cta.primary {
   background: var(--color-success);
   color: #fff;
@@ -175,6 +306,8 @@
 }
 
 /* ── Group headers and feature rows ────────────────────────────────────── */
+/* A group header spans the table but paints nothing over the columns: it
+   is transparent, so the rails run through it, and only its rule crosses. */
 .ld-group {
   grid-column: 1 / -1;
   padding: 0.95rem 0.6rem 0.3rem;
@@ -186,8 +319,8 @@
   border-bottom: 1px solid var(--color-border);
   display: flex;
   align-items: center;
-  gap: 0.45rem;
 }
+.ld-group-label { display: inline-flex; align-items: center; gap: 0.45rem; position: sticky; left: 0.6rem; }
 .ld-group-icon { display: block; flex-shrink: 0; }
 .ld-feature {
   display: flex;
@@ -263,10 +396,11 @@
   white-space: nowrap;
 }
 
-/* The foot row closes each package column with its Choose. */
+/* The foot row closes each package column with its Choose; the rail under
+   it carries the column's colour and its rounded foot. */
 .ld-foot {
   padding: 0.7rem 0.6rem 0.8rem;
-  background: var(--color-bg);
+  background: transparent;
   border: 1.5px solid var(--color-border);
   border-top: 0;
   border-radius: 0 0 12px 12px;
@@ -276,83 +410,81 @@
 .ld-foot.has-accent.selected { border-color: var(--pk-accent); border-top: 0; }
 .ld-foot > .ld-cta { margin-top: 0; }
 
-/* ── #6971: "Every package can grow with you" — one light line ─────────── */
-.ld-grow-band {
-  grid-column: 1 / -1;
-  display: flex;
-  margin: 0.7rem 0 0;
-}
-.ld-grow-inner {
+/* ── The compact header ────────────────────────────────────────────────── */
+/* In flow right above the grid with a negative margin of its own height, so
+   it takes no room; sticky within the table, so it lets go at the foot.
+   Shown (`.stuck`) only once the cards' Choose has gone under it. */
+.ld-sticky {
   position: sticky;
-  left: 0;
-  box-sizing: border-box;
-  width: 100%;
-  max-width: 100cqw;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: 0.25rem 0.5rem;
-  padding: 0.55rem 0.9rem;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--color-success) 8%, var(--color-surface));
-  border: 1px solid color-mix(in srgb, var(--color-success) 25%, var(--color-border));
-  color: var(--color-text-dim);
-  font-size: 0.8rem;
-  text-align: center;
-}
-.ld-grow-inner strong { color: var(--color-text-strong); font-weight: 600; }
-.ld-grow-ico { color: var(--color-success); flex-shrink: 0; }
-.ld-grow-cheaper { color: var(--color-text); font-weight: 600; }
-@media (max-width: 700px) { .ld-grow-inner { border-radius: 12px; } }
-
-/* ── The floor: "Included in every package", under the cards ───────────── */
-/* A full-width row of the grid. Its content sticks to the visible width of
-   the scroller, so on a phone (where the comparison scrolls sideways) the
-   tiles stay in view and wrap instead of running off the right edge. */
-.ld-floor-band {
-  grid-column: 1 / -1;
-  display: flex;
-  margin: 0.9rem 0 0.4rem;
-  padding: 0;
-}
-.ld-floor-inner {
-  position: sticky;
-  left: 0;
-  box-sizing: border-box;
-  width: 100%;
-  max-width: 100cqw; /* the scroller's visible width */
-  padding: 1rem 1.1rem 1.1rem;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--color-success) 6%, var(--color-surface)), var(--color-surface));
-  border: 1px solid color-mix(in srgb, var(--color-success) 25%, var(--color-border));
-  border-radius: 14px;
-}
-.ld-floor-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.75rem; margin-bottom: 0.75rem; }
-.ld-floor-title { margin: 0; color: var(--color-text-strong); font-size: 0.98rem; font-weight: 700; letter-spacing: -0.005em; }
-.ld-floor-sub { margin: 0; color: var(--color-text-dim); font-size: 0.78rem; }
-.ld-floor-grid {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+  top: calc(var(--ld-site-header) + env(safe-area-inset-top, 0px));
+  z-index: 40;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr));
-  gap: 0.5rem;
-}
-.ld-floor-tile {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.6rem;
-  padding: 0.6rem 0.7rem;
+  grid-template-columns: var(--ld-template);
+  column-gap: var(--ld-gap);
+  min-width: var(--ld-min);
+  height: var(--ld-sticky-h);
+  margin-bottom: calc(-1 * var(--ld-sticky-h));
   background: var(--color-bg);
-  border: 1px solid var(--color-border);
-  border-radius: 10px;
-  min-width: 0;
+  box-shadow: 0 1px 0 var(--color-border), 0 10px 18px -12px rgb(0 0 0 / 0.35);
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, visibility 0s linear 0.15s;
 }
-.ld-floor-ico { width: 30px; height: 30px; border-radius: 8px; }
-.ld-floor-text { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
-.ld-floor-item { color: var(--color-text-strong); font-size: 0.82rem; font-weight: 600; line-height: 1.3; }
-.ld-floor-blurb { color: var(--color-text-dim); font-size: 0.72rem; line-height: 1.35; }
+.ld-sticky.stuck {
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+  transition: opacity 0.15s ease;
+}
+.ld-sticky-cell {
+  --ld-stripe: var(--color-border-strong, var(--color-border));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 3px 0.6rem 0;
+  background: var(--color-surface);
+  border-left: 1.5px solid var(--color-border);
+  border-right: 1.5px solid var(--color-border);
+  box-shadow: inset 0 3px 0 var(--ld-stripe);
+}
+.ld-sticky-cell.recommended { --ld-stripe: var(--pk-accent, var(--color-warn, #f59e0b)); border-color: var(--pk-accent, var(--color-warn, #f59e0b)); }
+.ld-sticky-cell.has-accent { --ld-stripe: var(--pk-accent); }
+.ld-sticky-cell.selected {
+  --ld-stripe: var(--color-success);
+  border-color: var(--color-success);
+  background: color-mix(in srgb, var(--color-success) 5%, var(--color-surface));
+}
+.ld-sticky-cell.has-accent.selected {
+  --ld-stripe: var(--pk-accent);
+  border-color: var(--pk-accent);
+  background: color-mix(in srgb, var(--pk-accent) 6%, var(--color-surface));
+}
+.ld-sticky-id { display: flex; flex-direction: column; min-width: 0; overflow: hidden; line-height: 1.2; }
+.ld-sticky-name { color: var(--color-text-strong); font-size: 0.9rem; font-weight: 700; }
+.ld-sticky-price { color: var(--color-text-dim); font-size: 0.68rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ld-sticky-price strong { color: var(--color-text-strong); font-size: 0.8rem; font-weight: 700; }
+.ld-sticky-cta {
+  flex-shrink: 0;
+  padding: 0.32rem 0.6rem;
+  border-radius: 6px;
+  border: 1.5px solid transparent;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ld-sticky-cta.primary { background: var(--color-success); color: #fff; }
+.has-accent > .ld-sticky-cta.primary { background: var(--pk-accent); color: var(--pk-accent-fg); }
+.ld-sticky-cta.ghost {
+  background: transparent;
+  color: var(--color-text);
+  border: 1.5px solid var(--color-border-strong, var(--color-border));
+}
+.ld-sticky-cta.ghost:hover { border-color: var(--pk-accent, var(--color-success)); color: var(--color-text-strong); }
 
 .ld-meta {
   margin: 0.8rem 0 0;
@@ -362,14 +494,65 @@
 }
 .ld-meta-sep { margin: 0 0.4rem; }
 
-/* No floating bar on this step: the per-column Choose (top and foot) is the
-   only CTA, so nothing fixed ever covers a cell. */
+/* No floating bar on this step: the per-column Choose (top, foot, and the
+   compact header, which is sticky inside the table) is the only CTA, so
+   nothing fixed ever covers a cell. */
 
 @media (max-width: 1000px) {
-  .ld-grid { grid-template-columns: 170px repeat(var(--ld-cols, 4), minmax(150px, 1fr)); min-width: 780px; }
+  .ld-table { --ld-gutter: 170px; --ld-template: 170px repeat(var(--ld-cols, 4), minmax(150px, 1fr)); --ld-min: 780px; }
+  .ld-floor-head { flex-basis: 100%; }
   .ld-name { font-size: 0.98rem; }
   .ld-price strong { font-size: 1.4rem; }
   .ld-cta { font-size: 0.74rem; padding: 0.45rem 0.35rem; }
   .ld-cell { font-size: 0.74rem; padding: 0.4rem 0.3rem; }
   .ld-shape { font-size: 0.78rem; }
+  .ld-sticky-cta { font-size: 0.66rem; padding: 0.28rem 0.45rem; }
+}
+
+/* Wide enough for the whole table: no inner scroll box, so the compact
+   header sticks to the viewport. */
+@media (min-width: 860px) {
+  .ld-scroll { overflow: visible; }
+}
+
+/* Narrower: the table scrolls sideways in its box. The feature names stay
+   pinned on the left (with the page colour under them, covering the gap),
+   so every row still says what it is; a swipe settles on a package. The
+   compact header cannot stick inside a scroll box, so it is not drawn. */
+@media (max-width: 859px) {
+  .ld-sticky { display: none; }
+  .ld-corner,
+  .ld-feature,
+  .ld-foot-corner {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: var(--color-bg);
+    box-shadow: var(--ld-gap) 0 0 var(--color-bg);
+  }
+  /* A group header's label covers the gutter too, so no column scrolls
+     visibly under it. */
+  .ld-group { padding: 0; }
+  .ld-group-label {
+    left: 0;
+    z-index: 2;
+    align-self: stretch;
+    box-sizing: border-box;
+    width: calc(var(--ld-gutter) + var(--ld-gap));
+    padding: 0.95rem 0.6rem 0.3rem;
+    background: var(--color-bg);
+  }
+  .ld-scroll { scroll-snap-type: x proximity; scroll-padding-left: calc(var(--ld-gutter) + var(--ld-gap)); }
+  .ld-card { scroll-snap-align: start; }
+}
+
+@media (max-width: 700px) {
+  .ld-table { --ld-gutter: 118px; --ld-template: 118px repeat(var(--ld-cols, 4), minmax(148px, 1fr)); --ld-min: 740px; }
+  .ld-feature { padding: 0.45rem 0.4rem 0.45rem 0; gap: 0.4rem; }
+  /* On a phone the name says it; the blurb would stack every row into a column of words. */
+  .ld-blurb { display: none; }
+  .ld-feature-name { font-size: 0.76rem; }
+  .ld-grid.with-icons .ld-feature:not(.has-ico) .ld-feature-text { margin-left: calc(24px + 0.4rem); }
+  .ld-floor { padding: 0.75rem 0.8rem; }
+  .ld-grow-inner { border-radius: 12px; }
 }

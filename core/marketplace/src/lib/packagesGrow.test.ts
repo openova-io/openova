@@ -22,7 +22,9 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
+  addonsLadderFor,
   buildLadder,
+  hasGrowModel,
   cheapestGrowVcpu,
   clampGrowCeiling,
   drTopologyFor,
@@ -326,5 +328,27 @@ describe('DR grow_only and the order body (#6971)', () => {
       'spend limit OMR 25.000 / mo',
       'usage above the package billed after the month',
     ]);
+  });
+});
+
+describe('with the grow model the allowance follows the customer\'s mode, not the cell (#6971)', () => {
+  it('/plans: the quantity cells carry the allowance alone; without the model the cell\'s overage word stays', () => {
+    expect(hasGrowModel(doc())).toBe(true);
+    const row = (d: PublicPackages, key: string) => buildLadder(d).groups.flatMap(g => g.rows).find(r => r.key === key)!;
+    expect(row(doc(), 'bandwidth').cells.map(c => [c.label, c.hint])).toEqual([
+      ['50 Mbps', null], ['100 Mbps', null], ['250 Mbps', null], ['1000 Mbps', null],
+    ]);
+    expect(hasGrowModel(doc(RAW_V3))).toBe(false);
+    expect(row(doc(RAW_V3), 'bandwidth').cells.map(c => c.hint)).toEqual(['hard cap', 'hard cap', 'then metered', 'then metered']);
+  });
+
+  it('/addons: an included allowance is its value plus the dimension it grows in — the step adds the mode', () => {
+    const m = addonsLadderFor(doc(), 'plan.m')!;
+    const byKey = Object.fromEntries(m.included.map(i => [i.key, [i.value, i.growKey]]));
+    expect(byKey.bandwidth).toEqual(['100 Mbps', 'bandwidth_mbps']);
+    expect(byKey.disk).toEqual(['50 GB', 'disk_gb']);
+    expect(byKey.gitea_iac).toEqual(['read', null]);
+    const v3 = addonsLadderFor(doc(RAW_V3), 'plan.m')!;
+    expect(v3.included.find(i => i.key === 'bandwidth')).toMatchObject({ value: '100 Mbps · hard cap', growKey: null });
   });
 });
