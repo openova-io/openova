@@ -47,6 +47,9 @@ const (
 	StateIncluded   = "included"
 	StateOptional   = "optional"
 	StateNotOffered = "not_offered"
+	// StateTeaser is shown greyed on the storefront with an upgrade prompt
+	// (DESIGN.md §22.1); like not_offered it cannot be bought on the package.
+	StateTeaser = "teaser"
 )
 
 // ErrUnavailable is returned when the price book cannot be read: no base URL,
@@ -256,7 +259,7 @@ func Parse(body []byte) (*Document, error) {
 		for sku, c := range f.Cells {
 			cell := Cell{State: c.State, AddonSKU: c.AddonSKU, IncludedFrom: c.IncludedFrom, Level: c.Level}
 			switch c.State {
-			case StateIncluded, StateNotOffered:
+			case StateIncluded, StateNotOffered, StateTeaser:
 			case StateOptional:
 				if c.AddonSKU == "" {
 					return nil, fmt.Errorf("price book: feature %q on %q is optional but names no addon_sku", f.Key, sku)

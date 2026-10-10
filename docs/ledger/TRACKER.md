@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-10-10T15:15:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-10-10T16:15:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,9 +307,12 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-10-10T15:58 | [#6998](https://github.com/openova-io/openova/pull/6998) | #6971 | fix(billing): accept the teaser cell state — storefront quot |
+| 2026-10-10T16:12 | [#6997](https://github.com/openova-io/openova/pull/6997) | #6971 | feat(storefront): package icons, accent and badge from BSS;  |
 | 2026-10-10T14:37 | [#6995](https://github.com/openova-io/openova/pull/6995) | #6971 | fix(billing): the active-passive topology is priced from the |
 | 2026-10-10T14:29 | [#6994](https://github.com/openova-io/openova/pull/6994) | #6971 | feat(bss): the package ladder — groups, levels, overage poli |
 | 2026-10-10T14:51 | [#6993](https://github.com/openova-io/openova/pull/6993) | #6974 | feat(plans): the package numbers from the National Cloud wor |
+| 2026-10-10T15:16 | [#6992](https://github.com/openova-io/openova/pull/6992) | #6993 | feat(storefront): the package ladder journey — grouped cards |
 | 2026-10-10T13:08 | [#6991](https://github.com/openova-io/openova/pull/6991) | #6963 | docs(ledger): hw307 evidence for the contract page's rated p |
 | 2026-10-10T12:34 | [#6990](https://github.com/openova-io/openova/pull/6990) | #6971 | docs(ledger): hw307 evidence for packages 0.1.58–0.1.59 |
 | 2026-10-10T11:53 | [#6989](https://github.com/openova-io/openova/pull/6989) | #6987 | test(bootstrap-api): the resource-tree test waits for every  |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-09-27T08:05 | [#6949](https://github.com/openova-io/openova/pull/6949) | #6946 | feat(bss): the five CRUD gaps closed — resource kinds, prefe |
 | 2026-09-27T07:09 | [#6948](https://github.com/openova-io/openova/pull/6948) | #6947 | docs(bss): STATUS at 0.1.50 and the console-primitives scree |
 | 2026-09-27T06:58 | [#6947](https://github.com/openova-io/openova/pull/6947) | #6946 | fix(bss): a real tab strip, one form row, regions and zones  |
-| 2026-09-20T15:21 | [#6945](https://github.com/openova-io/openova/pull/6945) | #6942 | docs(bss): STATUS at 0.1.49 and the live-walk screenshots |
-| 2026-09-20T15:10 | [#6944](https://github.com/openova-io/openova/pull/6944) | #6936 | feat(bss): delete a partner and a tier, refused by name; Ren |
-| 2026-09-20T14:39 | [#6943](https://github.com/openova-io/openova/pull/6943) | #6867 | fix(bss): an open pool row refreshes what is running when th |
 
 ---
 

@@ -81,6 +81,24 @@ export interface PackageStepUp {
   rule_holds: boolean;
 }
 
+/**
+ * An icon BSS publishes on a group, floor item, feature or package (DESIGN
+ * §22.4). On the wire `src` is a PATH on the chargeback host
+ * (`/api/v1/public/icons/<sha256>`); parsePublicPackages resolves it against
+ * the URL the document was fetched from, so `src` here is always absolute and
+ * always on that host. Nothing visual about a feature or package lives in this
+ * tree — no icon, colour or badge is keyed by sku or feature key here; when the
+ * document carries none, the storefront renders none.
+ */
+export interface PackageIcon {
+  /** Absolute URL on the document's own host, path under /api/v1/public/icons/. */
+  src: string;
+  /** The document's alt text (the entity's name when it sends none). */
+  alt: string;
+  /** "#RRGGBB" — a tile background behind the icon (features). */
+  bg?: string;
+}
+
 export interface PublicPackage {
   sku: string;
   name: string;
@@ -93,6 +111,12 @@ export interface PublicPackage {
   annual_months_free?: number;
   shape?: PackageShape;
   step_up?: PackageStepUp | null;
+  // Branding — each absent when BSS publishes none.
+  icon?: PackageIcon;
+  /** "#RRGGBB" — the package's brand colour. */
+  accent?: string;
+  /** A short label, e.g. "Most popular". Independent of `recommended`. */
+  badge?: string;
 }
 
 export interface NextLevelAddon {
@@ -129,11 +153,13 @@ export interface PublicFeature {
   levels?: string[];
   addon_sku?: string;
   teaser?: boolean;
+  icon?: PackageIcon;
 }
 
 export interface PackageGroup {
   key: string;
   name: string;
+  icon?: PackageIcon;
 }
 
 /** Something every package includes — rendered once, under the comparison. */
@@ -141,6 +167,7 @@ export interface FloorItem {
   key: string;
   name: string;
   blurb?: string;
+  icon?: PackageIcon;
 }
 
 export interface PublicPackages {
@@ -215,6 +242,9 @@ export const PACKAGE_STRINGS = {
     unlimitedLabel: 'Unlimited',
     otherGroup: 'More',
     floorLead: 'Every package includes:',
+    floorTitle: 'Included in every package',
+    floorSub: 'Standard on every package — no add-on, no upgrade.',
+    floorMore: (n: number) => `+ everything in every package (${n})`,
     addonsNote: 'Optional add-ons are picked on the Add-ons step.',
     // Step 3 blocks.
     inYourPackage: 'In your package',
@@ -265,6 +295,88 @@ function strList(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.trim() !== '') : [];
 }
 
+// ── Branding: icons, accent, badge — validated, never trusted ─────────────
+
+/** The only path an icon may live under, on the document's own host. */
+export const PUBLIC_ICONS_PATH = '/api/v1/public/icons/';
+const ICON_PATH_RE = /^\/api\/v1\/public\/icons\/[A-Za-z0-9._-]+$/;
+const HEX_COLOUR_RE = /^#[0-9A-Fa-f]{6}$/;
+const BADGE_MAX = 32;
+
+/** "#RRGGBB" or null — anything else (a name, rgb(), a short hex, CSS) is ignored. */
+export function hexColour(v: unknown): string | null {
+  return typeof v === 'string' && HEX_COLOUR_RE.test(v) ? v : null;
+}
+
+/**
+ * An icon object from the document, or null when it is not one we will load.
+ * `src` must be a path under /api/v1/public/icons/ (resolved against the
+ * document's URL) or an https URL on the document's own host with that path.
+ * A protocol-relative URL, another host, another scheme, a data: or
+ * javascript: URL, or a path that escapes the icons directory (`..`) is
+ * dropped. Without the document's URL there is nothing to resolve against,
+ * so every icon is dropped.
+ */
+export function parseIcon(v: unknown, base: URL | null, fallbackAlt: string): PackageIcon | null {
+  if (!base || !isRecord(v) || typeof v.src !== 'string') return null;
+  const raw = v.src.trim();
+  let url: URL;
+  try {
+    if (raw.startsWith(PUBLIC_ICONS_PATH)) {
+      url = new URL(raw, base);
+    } else if (/^https:\/\//i.test(raw)) {
+      url = new URL(raw);
+      if (url.host !== base.host) return null;
+    } else {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+  // The resolved path, after `..` normalisation, must still be an icon.
+  if (url.host !== base.host || !ICON_PATH_RE.test(url.pathname)) return null;
+  if (url.username || url.password) return null;
+  const alt = typeof v.alt === 'string' && v.alt.trim() ? v.alt.trim() : fallbackAlt;
+  const out: PackageIcon = { src: url.href, alt };
+  const bg = hexColour(v.bg);
+  if (bg) out.bg = bg;
+  return out;
+}
+
+function badgeText(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const t = v.trim().replace(/\s+/g, ' ');
+  if (!t) return null;
+  return t.length > BADGE_MAX ? `${t.slice(0, BADGE_MAX - 1).trimEnd()}…` : t;
+}
+
+function channel(c: number): number {
+  const s = c / 255;
+  return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+}
+
+/** WCAG relative luminance of a "#RRGGBB" colour. */
+export function relativeLuminance(hex: string): number {
+  const n = parseInt(hex.slice(1), 16);
+  return 0.2126 * channel((n >> 16) & 255) + 0.7152 * channel((n >> 8) & 255) + 0.0722 * channel(n & 255);
+}
+
+/** WCAG contrast ratio between two "#RRGGBB" colours (1 … 21). */
+export function contrastRatio(a: string, b: string): number {
+  const la = relativeLuminance(a);
+  const lb = relativeLuminance(b);
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+
+/**
+ * The text colour to set on a brand-colour background: white or black,
+ * whichever contrasts more. One of the two always reaches 4.5:1 against any
+ * sRGB colour (the worst case, a mid grey, still gives ~4.6:1 with black).
+ */
+export function readableOn(hex: string): '#ffffff' | '#000000' {
+  return contrastRatio(hex, '#ffffff') >= contrastRatio(hex, '#000000') ? '#ffffff' : '#000000';
+}
+
 function parseIncludes(v: unknown): PackageIncludes {
   if (!isRecord(v)) return {};
   const out: PackageIncludes = {};
@@ -304,7 +416,7 @@ function parseStepUp(v: unknown): PackageStepUp | null {
   };
 }
 
-function parsePackage(v: unknown): PublicPackage | null {
+function parsePackage(v: unknown, base: URL | null = null): PublicPackage | null {
   if (!isRecord(v)) return null;
   const sku = str(v.sku);
   const name = str(v.name);
@@ -320,6 +432,12 @@ function parsePackage(v: unknown): PublicPackage | null {
   // A v2 package (one with a shape) always states its step-up: the live
   // document omits the key on the last rung rather than sending null.
   if ('step_up' in v || shape) out.step_up = parseStepUp(v.step_up);
+  const icon = parseIcon(v.icon, base, name);
+  const accent = hexColour(v.accent);
+  const badge = badgeText(v.badge);
+  if (icon) out.icon = icon;
+  if (accent) out.accent = accent;
+  if (badge) out.badge = badge;
   return out;
 }
 
@@ -354,7 +472,7 @@ function parseCell(v: unknown): PublicCell | null {
   return cell;
 }
 
-function parseFeature(v: unknown): PublicFeature | null {
+function parseFeature(v: unknown, base: URL | null = null): PublicFeature | null {
   if (!isRecord(v)) return null;
   const key = str(v.key);
   const name = str(v.name);
@@ -379,17 +497,23 @@ function parseFeature(v: unknown): PublicFeature | null {
   if (addon) out.addon_sku = addon;
   if (levels.length > 0) out.levels = levels;
   if (v.teaser === true) out.teaser = true;
+  const icon = parseIcon(v.icon, base, name);
+  if (icon) out.icon = icon;
   return out;
 }
 
-function parseGroup(v: unknown): PackageGroup | null {
+function parseGroup(v: unknown, base: URL | null = null): PackageGroup | null {
   if (!isRecord(v)) return null;
   const key = str(v.key);
   const name = str(v.name);
-  return key && name ? { key, name } : null;
+  if (!key || !name) return null;
+  const out: PackageGroup = { key, name };
+  const icon = parseIcon(v.icon, base, name);
+  if (icon) out.icon = icon;
+  return out;
 }
 
-function parseFloorItem(v: unknown): FloorItem | null {
+function parseFloorItem(v: unknown, base: URL | null = null): FloorItem | null {
   if (!isRecord(v)) return null;
   const key = str(v.key);
   const name = str(v.name);
@@ -397,7 +521,19 @@ function parseFloorItem(v: unknown): FloorItem | null {
   const out: FloorItem = { key, name };
   const blurb = str(v.blurb);
   if (blurb) out.blurb = blurb;
+  const icon = parseIcon(v.icon, base, name);
+  if (icon) out.icon = icon;
   return out;
+}
+
+function baseURL(documentURL: string | null | undefined): URL | null {
+  if (!documentURL) return null;
+  try {
+    const u = new URL(documentURL);
+    return u.protocol === 'https:' || u.protocol === 'http:' ? u : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -405,14 +541,19 @@ function parseFloorItem(v: unknown): FloorItem | null {
  * not the contract or publishes no packages — the wizard then behaves exactly
  * as it does without BSS. A v1 body (no `groups`) and a v2 body both parse;
  * `isLadderDocument` tells them apart.
+ *
+ * `documentURL` is the URL the body was fetched from: icon paths resolve
+ * against it, and only icons on its host are kept. Without it every icon is
+ * dropped (accent and badge, which load nothing, still parse).
  */
-export function parsePublicPackages(raw: unknown): PublicPackages | null {
+export function parsePublicPackages(raw: unknown, documentURL?: string | null): PublicPackages | null {
   if (!isRecord(raw)) return null;
   if (!Array.isArray(raw.packages)) return null;
-  const packages = raw.packages.map(parsePackage).filter((p): p is PublicPackage => p !== null);
+  const base = baseURL(documentURL);
+  const packages = raw.packages.map(p => parsePackage(p, base)).filter((p): p is PublicPackage => p !== null);
   if (packages.length === 0) return null;
   const features = Array.isArray(raw.features)
-    ? raw.features.map(parseFeature).filter((f): f is PublicFeature => f !== null)
+    ? raw.features.map(f => parseFeature(f, base)).filter((f): f is PublicFeature => f !== null)
     : [];
   const out: PublicPackages = {
     currency: str(raw.currency) ?? 'OMR',
@@ -424,11 +565,11 @@ export function parsePublicPackages(raw: unknown): PublicPackages | null {
   if (book) out.price_book = book;
   if (asOf) out.prices_as_of = asOf;
   if (Array.isArray(raw.groups)) {
-    const groups = raw.groups.map(parseGroup).filter((g): g is PackageGroup => g !== null);
+    const groups = raw.groups.map(g => parseGroup(g, base)).filter((g): g is PackageGroup => g !== null);
     if (groups.length > 0) out.groups = groups;
   }
   if (Array.isArray(raw.floor)) {
-    out.floor = raw.floor.map(parseFloorItem).filter((f): f is FloorItem => f !== null);
+    out.floor = raw.floor.map(f => parseFloorItem(f, base)).filter((f): f is FloorItem => f !== null);
   }
   return out;
 }
@@ -493,7 +634,8 @@ export async function loadPublicPackages(
       return null;
     }
     const body: unknown = await res.json();
-    const parsed = parsePublicPackages(body);
+    // Icon paths resolve against where the document actually came from.
+    const parsed = parsePublicPackages(body, res.url || url);
     if (!parsed) {
       warnOnce(warn, `${url} published no packages`);
       return null;
@@ -673,6 +815,12 @@ export interface LadderCard {
   shapeGuarantee: string | null;
   /** "50 GB disk" */
   diskLine: string | null;
+  /** Branding from the document; null when it publishes none. */
+  icon: PackageIcon | null;
+  accent: string | null;
+  /** Black or white — the text colour on `accent`, ≥ 4.5:1. */
+  accentFg: string | null;
+  badge: string | null;
 }
 
 export interface LadderCell {
@@ -694,13 +842,22 @@ export interface LadderRow {
   name: string;
   blurb: string;
   kind: FeatureKind;
+  icon: PackageIcon | null;
   cells: LadderCell[];
 }
 
 export interface LadderGroup {
   key: string;
   name: string;
+  icon: PackageIcon | null;
   rows: LadderRow[];
+}
+
+export interface LadderFloorItem {
+  key: string;
+  name: string;
+  blurb: string;
+  icon: PackageIcon | null;
 }
 
 export interface LadderModel {
@@ -712,6 +869,12 @@ export interface LadderModel {
   groups: LadderGroup[];
   /** The floor strip's names, in order. */
   floor: string[];
+  /** The floor items with their icons, in order. */
+  floorItems: LadderFloorItem[];
+  /** True when any comparison row has an icon: the name column then keeps an icon gutter on every row, so names line up. */
+  rowIcons: boolean;
+  /** True when any floor item has an icon: the floor then renders as a chip grid. */
+  floorIcons: boolean;
   recommendedSku: string | null;
 }
 
@@ -792,6 +955,10 @@ export function ladderCard(p: PublicPackage, recommended: boolean): LadderCard {
       ? S.guaranteed(sh.vcpu_guaranteed, sh.memory_gb_guaranteed)
       : null,
     diskLine: disk !== undefined ? S.disk(disk) : null,
+    icon: p.icon ?? null,
+    accent: p.accent ?? null,
+    accentFg: p.accent ? readableOn(p.accent) : null,
+    badge: p.badge ?? null,
   };
 }
 
@@ -818,6 +985,7 @@ export function buildLadder(
     name: f.name,
     blurb: f.blurb ?? '',
     kind: f.kind,
+    icon: f.icon ?? null,
     cells: data.packages.map(p => ladderCell(f.cells[p.sku], f, data.packages, p.sku)),
   });
   const declared = data.groups ?? [];
@@ -833,16 +1001,22 @@ export function buildLadder(
   }
   // A declared group with no feature is not a header over nothing.
   const groups: LadderGroup[] = declared
-    .map(g => ({ key: g.key, name: g.name, rows: byGroup.get(g.key) ?? [] }))
+    .map(g => ({ key: g.key, name: g.name, icon: g.icon ?? null, rows: byGroup.get(g.key) ?? [] }))
     .filter(g => g.rows.length > 0);
-  if (other.length > 0) groups.push({ key: 'other', name: PACKAGE_STRINGS.ladder.otherGroup, rows: other });
+  if (other.length > 0) groups.push({ key: 'other', name: PACKAGE_STRINGS.ladder.otherGroup, icon: null, rows: other });
+  const floorItems: LadderFloorItem[] = (data.floor ?? []).map(f => ({
+    key: f.key, name: f.name, blurb: f.blurb ?? '', icon: f.icon ?? null,
+  }));
   return {
     currency: data.currency,
     priceBook: data.price_book ?? null,
     pricesAsOf: data.prices_as_of ?? null,
     cards,
     groups,
-    floor: (data.floor ?? []).map(f => f.name),
+    floor: floorItems.map(f => f.name),
+    floorItems,
+    rowIcons: groups.some(g => g.rows.some(r => r.icon !== null)),
+    floorIcons: floorItems.some(f => f.icon !== null),
     recommendedSku: recommended,
   };
 }
@@ -976,6 +1150,7 @@ export interface IncludedFeature {
   key: string;
   name: string;
   blurb: string;
+  icon?: PackageIcon | null;
 }
 
 export interface FunnelAddons {
@@ -1007,7 +1182,7 @@ export function funnelAddonsFor(doc: PublicPackages, sku: string, catalog: Reado
     if (ladder) {
       return {
         addons: ladder.addons,
-        included: ladder.included.map(i => ({ key: i.key, name: i.name, blurb: i.value ?? i.blurb })),
+        included: ladder.included.map(i => ({ key: i.key, name: i.name, blurb: i.value ?? i.blurb, icon: i.icon })),
         packageName: ladder.packageName,
       };
     }
@@ -1029,9 +1204,10 @@ export function funnelAddonsFor(doc: PublicPackages, sku: string, catalog: Reado
         monthly_price: minorUnits(cell.price_month),
         included: false,
         ...(hint ? { hint } : {}),
+        ...(f.icon ? { image: f.icon } : {}),
       });
     } else if (cell.state === 'included' && f.kind === 'boolean') {
-      included.push({ key: f.key, name: f.name, blurb: f.blurb ?? '' });
+      included.push({ key: f.key, name: f.name, blurb: f.blurb ?? '', icon: f.icon ?? null });
     }
   }
   return { addons: bss, included, packageName: pkg?.name ?? '' };
@@ -1129,10 +1305,23 @@ export function drTopologyFor(doc: PublicPackages, sku: string): DrTopology | nu
   const f = doc.features.find(x => x.key === 'dr_topology' && x.kind === 'level')
     ?? doc.features.find(x => x.kind === 'level' && (x.levels ?? []).some(l => ACTIVE_PASSIVE.test(l)));
   if (!f || !f.levels || f.levels.length === 0) return null;
+  if (!doc.packages.some(p => p.sku === sku)) return null;
   const cell = f.cells[sku];
-  if (!cell || cell.state !== 'included') return null;
   let apLevel = f.levels.findIndex(l => ACTIVE_PASSIVE.test(l));
   if (apLevel < 0) apLevel = f.levels.length - 1;
+  if (!cell || cell.state !== 'included') {
+    // The package has no DR topology at all (the live document since the
+    // founder's 2026-10-10 call: DR only on XL — S/M/L read not_offered).
+    // The hot-standby card is then locked, pointing at the first rung that
+    // includes the active-passive level; it is never offered "as without a
+    // document".
+    let from: DrTopology['activePassiveFrom'] = null;
+    for (const p of doc.packages) {
+      const c = f.cells[p.sku];
+      if (c?.state === 'included' && (c.level ?? 0) >= apLevel) { from = { sku: p.sku, name: p.name }; break; }
+    }
+    return { level: -1, label: PACKAGE_STRINGS.notOfferedGlyph, activePassive: false, activePassiveFrom: from };
+  }
   const level = cell.level ?? 0;
   const activePassive = level >= apLevel;
   let from: DrTopology['activePassiveFrom'] = null;
@@ -1201,6 +1390,7 @@ export interface LadderIncluded {
   blurb: string;
   /** "100 Mbps · hard cap", "single region", "read" — null for a plain ✓. */
   value: string | null;
+  icon: PackageIcon | null;
 }
 
 /** Block B — an add-on the package offers: an optional cell, or the next level of a level cell. */
@@ -1216,6 +1406,7 @@ export interface LadderChoice {
   includedFrom: string | null;
   /** For a next-level add-on: the level index it buys; null for a plain optional. */
   targetLevel: number | null;
+  icon: PackageIcon | null;
 }
 
 /** Block C — something this package does not have, and the rung that does. */
@@ -1223,6 +1414,7 @@ export interface LadderMissing {
   key: string;
   name: string;
   blurb: string;
+  icon: PackageIcon | null;
   state: 'teaser' | 'not_offered';
   upgrade: {
     sku: string;
@@ -1293,6 +1485,7 @@ function choiceAsAddon(c: LadderChoice): AddOn {
     monthly_price: c.priceBaisa,
     included: false,
     ...(c.includedFrom ? { hint: PACKAGE_STRINGS.includedFrom(c.includedFrom) } : {}),
+    ...(c.icon ? { image: c.icon } : {}),
   };
 }
 
@@ -1310,12 +1503,13 @@ export function addonsLadderFor(doc: PublicPackages, sku: string): AddonsLadder 
   for (const f of doc.features) {
     const cell = f.cells[sku];
     const blurb = f.blurb ?? '';
+    const icon = f.icon ?? null;
     if (!cell || cell.state === 'not_offered') {
-      missing.push({ key: f.key, name: f.name, blurb, state: 'not_offered', upgrade: firstRungWith(doc, f, cell) });
+      missing.push({ key: f.key, name: f.name, blurb, icon, state: 'not_offered', upgrade: firstRungWith(doc, f, cell) });
       continue;
     }
     if (cell.state === 'teaser') {
-      missing.push({ key: f.key, name: f.name, blurb, state: 'teaser', upgrade: firstRungWith(doc, f, cell) });
+      missing.push({ key: f.key, name: f.name, blurb, icon, state: 'teaser', upgrade: firstRungWith(doc, f, cell) });
       continue;
     }
     if (cell.state === 'optional') {
@@ -1329,11 +1523,12 @@ export function addonsLadderFor(doc: PublicPackages, sku: string): AddonsLadder 
         priceBaisa: minorUnits(cell.price_month),
         includedFrom: packageName(doc.packages, cell.included_from),
         targetLevel: null,
+        icon,
       });
       continue;
     }
     // included
-    included.push({ key: f.key, name: f.name, blurb, value: includedValue(f, cell) });
+    included.push({ key: f.key, name: f.name, blurb, value: includedValue(f, cell), icon });
     if (cell.next_level_addon && f.kind === 'level') {
       const current = cell.level ?? 0;
       const target = current + 1;
@@ -1347,6 +1542,7 @@ export function addonsLadderFor(doc: PublicPackages, sku: string): AddonsLadder 
         priceBaisa: minorUnits(cell.next_level_addon.price_month),
         includedFrom: firstRungAtLevel(doc, f, target),
         targetLevel: target,
+        icon,
       });
     }
   }

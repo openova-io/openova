@@ -571,6 +571,10 @@ export interface AddOn {
   // (packages.ts::funnelAddonsFor), where `id` is the BSS add-on SKU: the
   // muted "Included from XL" up-sell line the Add-ons step shows under it.
   hint?: string;
+  // The feature's icon from the BSS document (validated and resolved by
+  // packages.ts::parseIcon). Absent when the document publishes none — the
+  // step then shows no icon at all; nothing is looked up by key.
+  image?: { src: string; alt: string; bg?: string };
   // #6971 — a catalog add-on that is an application the Sovereign installs
   // (CrowdSec, Trivy, Loki, the Coraza WAF) rather than a commercial
   // entitlement; listed with the applications, never beside a price.
