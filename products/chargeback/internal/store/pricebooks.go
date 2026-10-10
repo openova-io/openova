@@ -300,6 +300,13 @@ func (s *Store) ClonePriceBook(ctx context.Context, id, name string) (PriceBook,
 		SELECT $2, sku, unit, unit_price, annual_price, description, tier_mode, tiers, allowance, allowance_rollover FROM price_items WHERE price_book_id = $1`, id, newID); err != nil {
 		return PriceBook{}, mapErr(err)
 	}
+	// The package matrix (DESIGN.md §22) travels with the book: a negotiated
+	// clone of the plans book offers the same packages until the operator
+	// edits its own cells.
+	if _, err := tx.ExecContext(ctx, `INSERT INTO package_entitlements (price_book_id, plan_sku, feature_id, state, included_quantity, note)
+		SELECT $2, plan_sku, feature_id, state, included_quantity, note FROM package_entitlements WHERE price_book_id = $1`, id, newID); err != nil {
+		return PriceBook{}, mapErr(err)
+	}
 	if err := tx.Commit(); err != nil {
 		return PriceBook{}, err
 	}

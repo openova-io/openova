@@ -161,8 +161,8 @@ func run(o options) error {
 		if err != nil {
 			return err
 		}
-		log.Printf("purged: %d usage records, %d inventory rows, %d rated lines, %d statements, %d contracts, %d discounts, %d budgets, %d sources, %d audit entries, %d customers",
-			counts.Usage, counts.Inventory, counts.RatedLines, counts.Statements, counts.Contracts, counts.Discounts, counts.Budgets, counts.Sources, counts.Audit, counts.Customers)
+		log.Printf("purged: %d usage records, %d inventory rows, %d rated lines, %d statements, %d contracts, %d discounts, %d budgets, %d sources, %d audit entries, %d customers, %d package cells, %d add-on rates, %d features",
+			counts.Usage, counts.Inventory, counts.RatedLines, counts.Statements, counts.Contracts, counts.Discounts, counts.Budgets, counts.Sources, counts.Audit, counts.Customers, counts.PackageCells, counts.AddonRates, counts.Features)
 		log.Printf("price books were NOT removed: they are shared with real customers")
 		return nil
 	}
@@ -204,6 +204,13 @@ func run(o options) error {
 	}
 	if err := s.ensureBooks(needCloud, needPlan, o.cloudBook, landlordBookID); err != nil {
 		return err
+	}
+	// The package matrix on the plans book (DESIGN.md §22), BEFORE any
+	// platform customer is rated: the run reads the cells and the add-ons.
+	if needPlan {
+		if err := s.ensurePackages(s.books[sc.PlanBookName]); err != nil {
+			return err
+		}
 	}
 	if landlordBookID != "" && s.cloudBook.ID != "" && s.cloudBook.ID != landlordBookID {
 		log.Printf("note: the showcase is priced from %q while the landlord is billed on another card; the two halves of the console will not be comparable", s.cloudBook.Name)

@@ -7,6 +7,19 @@
   // continues to Stack. Add-ons are picked on step 3, where they always were.
   // Fed ONLY from GET /api/v1/public/packages on the Sovereign's chargeback
   // host; when that is unreachable or empty the legacy deck renders unchanged.
+  //
+  // The legacy deck is this step's FIRST render — server-rendered into the page
+  // and hydrated exactly as plans.astro mounted it before the table existed —
+  // and the table replaces it only once the document has arrived. That order
+  // is load-bearing, not cosmetic: the production build renders this component
+  // on the server with its initial state only (`$effect` never runs there), so
+  // a branch the initial state cannot reach is dead code to Rollup. With a
+  // spinner as the first render, PlanStep was tree-shaken out of the server
+  // bundle, its component-scoped stylesheet (which Vite keeps only while the
+  // component is rendered) never reached /_astro/plans.*.css, and the fallback
+  // on a Sovereign without the endpoint drew the deck completely unstyled. The
+  // Playwright spec asserts the deck's computed layout against the production
+  // build with the request failing, so that cannot come back unnoticed.
   import PlanStep from './PlanStep.svelte';
   import { getPlans, type Plan } from '../lib/api';
   import { readCart, setPackage } from '../lib/cart';
@@ -22,7 +35,9 @@
     type PublicPackages,
   } from '../lib/packages';
 
-  let status = $state<'loading' | 'table' | 'fallback'>('loading');
+  // 'deck' until the document is in hand; it stays 'deck' when the document
+  // never comes (loadPublicPackages has already warned once by then).
+  let status = $state<'deck' | 'table'>('deck');
   let data = $state<PublicPackages | null>(null);
   let model = $state<PackageTableModel | null>(null);
   let plans = $state<Plan[]>([]);
@@ -36,10 +51,8 @@
         getPlans().catch(() => [] as Plan[]),
       ]);
       if (cancelled) return;
-      if (!pk) {
-        status = 'fallback';
-        return;
-      }
+      // No document: the deck already on screen is the step, as before #6971.
+      if (!pk) return;
       plans = pl;
       data = pk;
       const query = new URLSearchParams(window.location.search).get('recommended');
@@ -76,11 +89,9 @@
   }
 </script>
 
-{#if status === 'loading'}
-  <div class="flex justify-center py-20">
-    <div class="h-8 w-8 animate-spin rounded-full border-2 border-[var(--color-accent)] border-t-transparent"></div>
-  </div>
-{:else if status === 'fallback' || !model}
+{#if status !== 'table' || !model}
+  <!-- The legacy deck: the server-rendered first paint, the whole step when
+       the document is unreachable, and replaced in place once it arrives. -->
   <PlanStep />
 {:else}
   <div class="pk-page">

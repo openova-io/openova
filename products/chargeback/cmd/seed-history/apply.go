@@ -600,6 +600,11 @@ func (s *seeder) apply(c *synth.Customer) (result, error) {
 	if err := s.ensureContracts(customerID, c); err != nil {
 		return r, err
 	}
+	// The package add-ons too (DESIGN.md §22): the run bills an add-on the
+	// Source has taken, so it has to be taken before the statements run.
+	if err := s.ensureAddons(customerID, sourceID, c); err != nil {
+		return r, err
+	}
 	totals, issued, err := s.runAndIssueStatements(customerID, c)
 	if err != nil {
 		return r, err

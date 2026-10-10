@@ -229,6 +229,7 @@ export function CustomerDetail() {
           books={bookRows}
           canManage={canManageCustomer}
           canRotate={canManageUsers}
+          planSlug={c.plan_slug ?? ''}
           // The new-customer flow lands here with the add-source modal open:
           // defining a customer means defining where its cost comes from.
           autoAdd={params.get('add') === '1'}

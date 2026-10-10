@@ -279,6 +279,9 @@ type Source struct {
 	Layer  string // cloud | platform
 	Region string
 	Book   string // price book name to assign
+	// Addons are the optional features of the package the Organization has
+	// taken (DESIGN.md §22), by feature key — the add-on lines on its bill.
+	Addons []string
 }
 
 // Customer is one showcase customer and everything to be created for it.

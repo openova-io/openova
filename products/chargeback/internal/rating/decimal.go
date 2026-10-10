@@ -112,3 +112,16 @@ func Sum(values ...store.Decimal) (store.Decimal, error) {
 func Tax(subtotal, rate store.Decimal) (store.Decimal, error) {
 	return Amount(subtotal, rate)
 }
+
+// CompareDecimals orders two decimals exactly: -1, 0 or +1.
+func CompareDecimals(a, b store.Decimal) (int, error) {
+	x, err := parseRat(string(a))
+	if err != nil {
+		return 0, err
+	}
+	y, err := parseRat(string(b))
+	if err != nil {
+		return 0, err
+	}
+	return x.Cmp(y), nil
+}

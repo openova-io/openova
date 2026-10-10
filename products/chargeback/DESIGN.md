@@ -5420,3 +5420,264 @@ customer *viewer* reads the page and is offered nothing at all.
   on every event with no disabled entry point; and the dialog keeping the
   switch fixed on and the required channel checked-and-locked while the second
   channel stays free.
+
+## 22. Packages and the entitlement matrix (founder direction 2026-10-10)
+
+The SME marketplace sells the catalog plans as hosting-style **packages** —
+S, M, L, XL. Technically every feature exists for every Organization: SSL,
+SSO, the web application firewall, backups, a mail server. Commercially,
+marketing wants each feature to be, **per package**, either **included**,
+**optional** (a paid add-on) or **not offered**, so that the larger package is
+visibly the better deal. The baseline is the matrix in the pricing workbook
+sent to the National Cloud team:
+
+| Feature | S | M | L | XL |
+|---|---|---|---|---|
+| Applications · Databases · Mail server · Unlimited free SSL · SSO · Standard DDoS protection · Malware scanner · Web application firewall · 24/7 customer support | Included | Included | Included | Included |
+| Backup · AI SEO ready · AI website builder · Domain | Optional | Optional | Optional | Included |
+| Dedicated IP address | Optional | Optional | Optional | Optional |
+| Bandwidth (Mbps, included) | 50 | 100 | 250 | 1000 |
+
+BSS holds that matrix **in one place**, bills from it, and publishes it, so
+the storefront's comparison table, the public calculator, the statement run
+and the invoice are four readers of the same rows and cannot drift apart.
+
+### 22.1 The model
+
+    features(id, key, name, blurb, kind boolean|quantity, unit, addon_sku, sort_order)
+    package_entitlements(price_book_id, plan_sku, feature_id,
+                         state included|optional|not_offered, included_quantity, note)
+    source_addons(source_id, feature_id)
+    rated_lines.description
+
+A **feature** is one row of the matrix. A *boolean* feature is carried by a
+package or not (backup, SSL); a *quantity* feature comes with a quantity the
+package includes (50 Mbps of bandwidth) and a `unit`. `addon_sku` is the SKU
+that prices the feature when a package offers it as an add-on — and, for a
+quantity feature, the metered SKU its included quantity is an allowance on
+and its excess is billed at. The key is stable and lower-case; the matrix,
+the add-ons and the invoices name it, so it cannot be renamed.
+
+A **cell** is one feature on one package of one **price book**: the matrix
+hangs off the book, per `plan.<slug>` item, because the plans book is where
+the packages are priced and because a negotiated clone must be able to carry
+its own packages — `ClonePriceBook` copies the cells, deleting a book removes
+them. One row per (book, plan, feature); a plan with no row for a feature
+reads **not offered**.
+
+Three rules are enforced in the store, not by convention:
+
+- a feature marked **optional** on a package **requires its add-on SKU to be
+  priced in that book**; the write is refused naming the SKU and the book
+  (*"backup is optional on S but its add-on SKU addon.backup is not priced in
+  OpenOva plans; price addon.backup first"*). An optional feature with no
+  price would be a promise the invoice cannot keep;
+- a **quantity** feature marked included **needs the quantity** it includes;
+- a feature is **deleted only while nothing depends on it** — no cell of any
+  book, no Source that has taken it as an add-on — refused with 409 naming
+  both counts and the books (`DeleteFeature`; the foreign keys RESTRICT as the
+  backstop). Its kind cannot change while a package carries it, and its add-on
+  SKU cannot be cleared or changed while a package offers it as optional and
+  the new SKU is not priced there.
+
+`source_addons` is the set of optional features a platform **Source** has
+taken, replaced as one set by `SetSourceAddons`, which checks every key
+against the Source's book and its customer's plan: an optional feature is
+taken; an **included** one is refused as redundant (*"Unlimited free SSL is
+included in the M package; there is nothing to add"*); one the package does
+not offer is refused as **not offered**. The Source document carries
+`addons: [...]` from then on, always present so a reader can tell "none" from
+"field missing".
+
+`rated_lines.description` is the one column the invoice needed: a 0.000 line
+has to say *what* it is, and the SKU alone cannot.
+
+### 22.2 The three states on the bill
+
+When a platform Source is on a plan, the plan segments of the period are
+read off its own `plan.<slug>` rows (`rating.PlanSegments` — one per plan,
+the longest first; a plan change inside the month gives two), each plan's
+cells are loaded from the Source's book, and `rating.ApplyPackage` does the
+rest, BEFORE the terms, the discounts, the true-up and the tax — the order of
+operations of §15.7 is unchanged:
+
+| state | boolean feature | quantity feature |
+|---|---|---|
+| **included** | a **0.000 line** per period per feature — SKU `plan.<slug>.<key>`, unit `period`, quantity 1, description *"Backup — included in XL plan"* — so the invoice shows the value the package carries. It files under the plan on the statement. | an **allowance** of `included_quantity` on the feature's SKU (§22.3); no line of its own |
+| **optional**, taken | an **add-on line** at the add-on SKU's price for the **plan-hours** the package ran — the add-on is priced per plan-hour exactly as the plan is (1.500 OMR/month → 18/yr → 0.00205479 per plan-hour) — description *"Backup — add-on to M plan"*. An add-on whose SKU the book does not price is reported as an unpriced SKU on the run, never silently billed at nothing | the metered SKU rates as the book prices it; there is nothing to take |
+| **optional**, not taken | nothing | nothing |
+| **not offered** | nothing — taking it was refused at the Source | nothing |
+
+An add-on recorded on a Source whose package has since come to **include**
+the feature is not billed twice: the included line wins and no add-on line
+is written (`TestIncludedOnXLRendersZeroLineAndNoAddon`). Across a plan
+change, an included feature is named once after the plan that ran longest,
+and an add-on is billed for the hours of every segment that offered it
+(`TestPlanChangeInsideThePeriod`).
+
+Pinned: **S with backup taken** → `addon.backup` 744 plan-hour × 0.00205479 =
+**1.528764**; **XL** → `plan.xl.backup` at 0.000 and no add-on line; **50 Mbps
+included on S with 70 Mbps used** → 20 Mbps-hours priced for every hour, a
+month of it 14,880 mbps-hours = **255.440050** at the plans book's bandwidth
+rate (`internal/rating/packages_test.go`, and the same numbers end to end in
+`TestIntegrationPackagesMatrixAddonsAndBilling`).
+
+### 22.3 Quantity features ARE allowances
+
+A quantity feature that is included is not a second mechanism beside §15.1.
+`ApplyPackage` turns the included quantity into an allowance per SKU
+(`Terms.Included`), and `shapeFor` adds it to the plan item's allowance and
+the contract's allowance exactly as a contract allowance adds to the plan's —
+one allowance path, three origins (`TestPackageAllowanceAddsToPlanAndContractAllowances`:
+10 + 20 + 30 = 60). Step 1 of the order of operations then takes it off the
+top of the quantity, the tiers price the rest, the breakdown reports
+`allowance` / `allowance_used` / `excess` as it does for any allowance.
+
+The included quantity is a **rate** for a per-hour SKU: 50 Mbps on S for 744
+plan-hours is 50 × 744 = 37,200 mbps-hours, the arithmetic a contract's
+"10 Mbps pipe" already uses (`7,440 mbps-hour` on Gulf Retail's agreement).
+A SKU whose unit is not per hour (a GB kept) is included once per period. It
+never rolls over. For the excess to be billed, the metered SKU has to be
+priced in the plans book — which is why the seeder prices `eip.bandwidth_mbps`
+there, at the National Cloud list rate, borrowed rather than minted (§7.2).
+
+### 22.4 The API
+
+| Route | Permission | What it does |
+|---|---|---|
+| `GET /features` · `GET /features/{id or key}` | `metering.read` at the Sovereign (a partner is refused like the provider's books) | the features in matrix order |
+| `POST /features` · `PATCH /features/{id}` · `DELETE /features/{id}` | `rating.manage` | create (key, name, blurb, kind, unit, addon_sku, sort_order); edit everything but the key; delete, `409` with `{cells, books, sources}` while depended on |
+| `GET /pricebooks/{id}/packages` | the book's read guard | **the packages document** below, for the console |
+| `PUT /pricebooks/{id}/packages/{plan_sku}/features/{feature}` | `rating.manage` | one cell: `{state, included_quantity?, note?, addon_monthly?}`. `addon_monthly` prices the feature's add-on SKU in the book in the same write (annual = × 12, unit through the book's divisor), so *"optional at 1.500 a month"* is one save and the optional-needs-a-price rule is checked against what was just priced. A note left out keeps the one that is there |
+| `DELETE /pricebooks/{id}/packages/{plan_sku}/features/{feature}` | `rating.manage` | removes the cell; the package reads not offered |
+| `PUT /customers/{id}/sources/{sid}/addons` `{addons: [key…]}` | `customers.manage` on the customer, like the Source's price book | replaces the set; refusals as §22.1 |
+| `GET /public/packages` | none — the session middleware skips `/api/v1/public/`, CORS and the rate limit as the catalog's | the same document, `Cache-Control: public, max-age=60` |
+
+**The packages document** is the storefront's contract, and the console reads
+the identical bytes (`TestIntegrationPackagesMatrixAddonsAndBilling` compares
+the two bodies):
+
+    {"currency": "OMR", "price_book": "OpenOva plans", "prices_as_of": "2026-09-11",
+     "packages": [{"sku": "plan.s", "name": "S", "price_month": "5.000",
+                   "includes": {"vcpu": 2, "memory_gb": 4, "bandwidth_mbps": 50}}, …],
+     "features": [{"key": "backup", "name": "Backup", "blurb": "…", "kind": "boolean",
+                   "cells": {"plan.s": {"state": "optional", "addon_sku": "addon.backup",
+                                        "price_month": "1.500", "included_from": "plan.xl"},
+                             …, "plan.xl": {"state": "included"}}},
+                  {"key": "bandwidth", "name": "Bandwidth", "kind": "quantity", "unit": "Mbps",
+                   "cells": {"plan.s": {"state": "included", "quantity": 50}, …}}]}
+
+Money is a **string at the currency's minor unit** — `price_month` is the
+unit price × 730 rounded **once** (`rating.MonthlyAt`), 5.000 for S, 1.500
+for the backup add-on; packages are ordered by price and features by their
+sort order; every package has a cell for every feature (not offered when the
+book has no row); `included_from` names the cheapest package that includes
+the feature and is omitted when none does; `includes` carries the plan's
+shape and every quantity feature the package includes, keyed
+`<feature key>_<unit>` (bandwidth_mbps). Only features with at least one cell
+in the book are published. The document is built by `api.packagesDocument`
+from the book, its cells and the features, pure, and pinned by
+`TestPackagesDocumentShape`.
+
+**The public estimate** takes an add-on as an SKU line **by the month**:
+`{"sku": "addon.backup", "quantity": 1, "months": 3}` — an item priced per
+plan-hour is a whole month like the plan it extends, so `hours_per_month` is
+refused on it and `months` is allowed (every other SKU keeps refusing
+`months`). Rated quantity = quantity × 730 × months, through the same
+`rating.PriceEstimate`.
+
+### 22.5 The console
+
+**Price book → Packages tab** (the book page gained a two-tab strip, Items
+and Packages; Items is the default and unchanged): the book's plan items as
+columns headed by their price per month, the features as rows — every
+feature, including one not yet in this book, which reads not offered on each
+package and says so — each cell a chip: *Included*, *+ 1.500 OMR / month*
+with *included from XL* under it, *50 Mbps* on a quantity feature, *Not
+offered*. Clicking a cell opens the cell modal: the state as a segmented
+control, the included quantity on a quantity feature, the add-on price per
+month on a boolean one marked optional, the note, and *Remove cell*. **Add
+feature** opens the feature modal (key, name, blurb, kind, unit, add-on SKU,
+sort order); every row has **Edit** and **Delete**, the delete refused with
+the server's sentence naming what still depends on the feature. No form sits
+on the page; every write is a modal from the row or the cell (#6946).
+
+**Customer → Sources tab**: an **Add-ons** column on every platform source —
+the keys taken as chips, *none* otherwise — and **Manage add-ons**, which opens
+a modal listing the optional features of the customer's package (read from
+the Source's own book's packages document) with their price and the
+*included from XL* hint, the taken ones ticked, a *Taking: Backup (+ 1.500
+OMR / month)* summary, and a warning for an add-on taken earlier that the
+package no longer offers. A customer on no sized package is told so. A cloud
+source shows no control.
+
+**Statement view**: the included 0.000 lines carry a `plan.<slug>.` SKU and
+file under *Subscription plan*; the add-on lines under *Package add-ons*;
+both show their description under the SKU, exactly as the true-up shows its
+explanation.
+
+### 22.6 The public calculator
+
+The **Platform plans** family of `/estimate` is the **package comparison
+table** when the Sovereign publishes packages (`GET /public/packages`;
+without it the family stays the plain row it was): S / M / L / XL as columns
+with the price per month and a *Choose* button, the included quantities
+(vCPU, memory, bandwidth), then the matrix — ✓ Included, a tick box with
+*+ 1.500 OMR / month* and *included from XL* on an optional feature, — where
+not offered. **Choosing a package adds its plan line at once; the add-ons
+ticked under it add their add-on lines**, by the month like the plan. Edit
+opens the plan configurator, which carries the same add-on tick boxes beside
+months and Organizations, so a term of three months with backup is three
+months of the plan and three months of the add-on. The page merges the
+packages document onto the catalog (`PublicCatalog.packages`); the model
+(`addonLines`) drops a ticked feature the chosen package includes, so moving
+an item from M to XL drops the backup line by itself. The other families are
+untouched.
+
+### 22.7 The seeder
+
+`cmd/seed-history` writes the baseline onto the showcase plans book,
+through the API and idempotently (`ensurePackages`): the five add-on SKUs
+priced at 1.500 / 2.000 / 3.000 / 4.000 / 1.000 OMR a month as plan-hour
+items (merged — an item the operator priced is never re-priced), the
+bandwidth meter at the National Cloud list rate, the fifteen features by key
+(created, or brought back to the matrix when they differ, else left alone),
+and every cell written only when it differs from the baseline — a second run
+writes nothing, which `TestShowcasePackagesAreSeededBilledAndPurged` holds
+on the audit log and on `updated_at`. **Nizwa Fintech**'s platform Source
+takes the **backup** add-on (optional on S, M and L, which are its showcase
+plans), so each of its showcase statements carries the add-on line beside the
+plan's nine included 0.000 lines. `--purge` removes the cells, the add-on
+rates and the features it made — a feature an operator's other book still
+carries, or a real Source has taken, stays
+(`TestPurgeKeepsAFeatureAnotherBookStillCarries`); the plans themselves are
+the product's and stay priced.
+
+### 22.8 Tests
+
+`internal/rating/packages_test.go` — the plan segments read off a Source's
+rows; S with backup taken priced for its plan-hours and named; XL rendering
+the 0.000 line and never the add-on; 50 Mbps included with 70 used leaving 20
+per hour and 14,880 a month, through `ApplyTerms`; the package allowance
+adding to the plan's and the contract's; a plan change inside the period; the
+unpriced add-on reported; `MonthlyAt` rounding once at the minor unit.
+`internal/api/packages_test.go` — the published document's shape, ordering,
+money strings, `included_from`, `includes` and the trimming of quantities.
+`internal/api/packages_integration_test.go` — features created, refused on a
+duplicate key, a quantity without a unit, a bad key; every cell rule; the
+add-on priced by the cell write; the console and public documents byte for
+byte the same with their cache headers; the Source's add-ons taken and
+refused as redundant or not offered; the July bill with the plan line, the
+add-on line, the included 0.000 line and the bandwidth allowance to the
+digit; the feature in use refused on delete and allowed once free; the clone
+carrying the matrix; who may; the public estimate pricing an add-on by the
+month and refusing hours on it. `cmd/seed-history/packages_integration_test.go`
+— §22.7. `ui/src/lib/packages.test.ts` — every pure rule the pages draw by.
+`ui/src/pages/PriceBookEdit.packages.render.test.tsx` — the matrix with the
+three states, the hint, the quantity, the feature not yet in the book, the
+tab strip. `ui/src/panels/SourcesPanel.addons.render.test.tsx` — the Add-ons
+column and the modal. `ui/src/pages/EstimatePublic.packages.dom.test.tsx` —
+the comparison table walked: the columns and states, choosing M with Backup
+ticked producing the two lines and the request by the month, the hint beside
+the add-on, Edit re-opening the configurator with the add-on ticked, XL
+offering no backup tick.

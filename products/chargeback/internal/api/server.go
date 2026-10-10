@@ -229,6 +229,10 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/public/catalog", h.publicRoute(h.publicCatalog))
 	mux.HandleFunc("POST /api/v1/public/estimates", h.publicRoute(h.publicCreateEstimate))
 	mux.HandleFunc("GET /api/v1/public/estimates/{id}", h.publicRoute(h.publicGetEstimate))
+	// The packages and their entitlement matrix (DESIGN.md §22): the same
+	// document the console's Packages tab edits, published for the storefront
+	// comparison table and the calculator; cacheable for a minute.
+	mux.HandleFunc("GET /api/v1/public/packages", h.publicRoute(h.publicPackages))
 	mux.HandleFunc("OPTIONS /api/v1/public/", h.publicRoute(func(http.ResponseWriter, *http.Request) {}))
 	// Its operator side: the public toggle on a cloud book (rating.manage)
 	// and the read-only Leads list (customers.manage).
@@ -410,6 +414,20 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("PATCH /api/v1/pricebooks/{id}/items/{sku}", h.patchPriceItem)
 	mux.HandleFunc("DELETE /api/v1/pricebooks/{id}/items/{sku}", h.deletePriceItem)
 	mux.HandleFunc("POST /api/v1/pricebooks/{id}/import", h.importPriceBook)
+	// Packages (DESIGN.md §22): the features of the matrix, a book's matrix
+	// (the public document, behind the book's read guard) and one cell of it
+	// — plan × feature — written with its state, included quantity and the
+	// add-on's monthly price. Writes are rating.manage. A Source's add-ons
+	// are set under its customer, like its price book.
+	mux.HandleFunc("GET /api/v1/features", h.listFeatures)
+	mux.HandleFunc("POST /api/v1/features", h.createFeature)
+	mux.HandleFunc("GET /api/v1/features/{id}", h.getFeature)
+	mux.HandleFunc("PATCH /api/v1/features/{id}", h.patchFeature)
+	mux.HandleFunc("DELETE /api/v1/features/{id}", h.deleteFeature)
+	mux.HandleFunc("GET /api/v1/pricebooks/{id}/packages", h.getPackages)
+	mux.HandleFunc("PUT /api/v1/pricebooks/{id}/packages/{plan}/features/{feature}", h.putPackageCell)
+	mux.HandleFunc("DELETE /api/v1/pricebooks/{id}/packages/{plan}/features/{feature}", h.deletePackageCell)
+	mux.HandleFunc("PUT /api/v1/customers/{id}/sources/{sid}/addons", h.putSourceAddons)
 
 	// Statements.
 	mux.HandleFunc("POST /api/v1/statements/run", h.runStatements)
