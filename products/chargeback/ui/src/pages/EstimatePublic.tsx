@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useParams } from 'react-router-dom'
 import { api, errorText } from '../api/client'
-import type { Estimate, PublicCatalog } from '../api/types'
+import type { Estimate, PackagesDoc, PublicCatalog } from '../api/types'
 import { Notice, Skeleton } from '../components/ui'
 import { day } from '../lib/format'
 import { formatMoney, formatPct } from '../lib/money'
@@ -12,6 +12,7 @@ import { Summary } from '../panels/estimate/Summary'
 import {
   buildCatalogue,
   catalogEntries,
+  defaultConfig,
   estimateReady,
   findService,
   makeItem,
@@ -48,6 +49,10 @@ export function EstimatePublic() {
   const location = useLocation()
   const embed = isEmbed(location.search)
   const catalog = useQuery<PublicCatalog>('/public/catalog')
+  // The packages document (DESIGN.md §22): the plans family draws the
+  // comparison table from it and the add-on lines are priced off it. A
+  // Sovereign that publishes none answers 404 and the plans stay a plain row.
+  const packages = useQuery<PackagesDoc>('/public/packages')
   const saved = useQuery<Estimate>(id ? `/public/estimates/${id}` : null)
 
   const [items, setItems] = useState<EstimateItem[]>([])
@@ -65,7 +70,7 @@ export function EstimatePublic() {
   const root = useRef<HTMLDivElement>(null)
   const nextId = useRef(0)
 
-  const cat = catalog.data
+  const cat = useMemo<PublicCatalog | null>(() => (catalog.data ? { ...catalog.data, packages: packages.data ?? null } : null), [catalog.data, packages.data])
   const currency = cat?.currency ?? ''
   const families = useMemo(() => buildCatalogue(cat), [cat])
   const shown = useMemo(() => searchCatalogue(families, query), [families, query])
@@ -161,6 +166,18 @@ export function EstimatePublic() {
     const service = findService(cat, item.service)
     if (service) setEditing({ service, item })
   }
+  // Choosing a package in the comparison table adds its plan line at once,
+  // with the add-ons ticked under it (DESIGN.md §22); Edit opens the plan
+  // configurator for months and Organizations.
+  const choosePackage = (slug: string, addons: string[]) => {
+    const service = findService(cat, 'plan')
+    if (!service) return
+    const itemId = `i${++nextId.current}`
+    setItems((v) => upsertItem(v, makeItem(cat, itemId, { ...defaultConfig(cat, service), plan: slug, addons })))
+    setExpanded((v) => ({ ...v, [itemId]: true }))
+    setShared(null)
+    setSent('')
+  }
   const remove = (itemId: string) => {
     setItems((v) => removeItem(v, itemId))
     setShared(null)
@@ -224,7 +241,7 @@ export function EstimatePublic() {
             ) : null}
 
             <div className="grid side">
-              <Catalogue families={shown} currency={currency} query={query} onQuery={setQuery} onChoose={(service) => setEditing({ service, item: null })} />
+              <Catalogue families={shown} currency={currency} query={query} onQuery={setQuery} onChoose={(service) => setEditing({ service, item: null })} packages={cat.packages} onChoosePackage={choosePackage} />
 
               <div className="stack">
                 <Summary

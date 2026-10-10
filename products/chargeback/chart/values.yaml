@@ -202,6 +202,16 @@ networkPolicy:
   ingress:
     allowGatewayEntity: true
     allowClusterEntity: true
+    # In-cluster readers of the PUBLIC document only (#6971): the marketplace
+    # billing service prices an order from GET /api/v1/public/packages. With
+    # forwardAuth on, these pods are admitted by an L7 rule limited to
+    # GET ^/api/v1/public/ — routes the app's session middleware ignores the
+    # identity header on by construction (public_calculator.go), so the
+    # #6841 no-bypass rule holds: no reader here can assume an identity.
+    publicReaders:
+      - namespace: org-services
+        matchLabels:
+          app: org-billing
   egress:
     # world:443 — the Huawei HCSO endpoints (spec §3) + PUBLIC_URL self
     # checks; cluster/host/remote-node:443/8080/5432 — CNPG in this

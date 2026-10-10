@@ -175,10 +175,10 @@ func (s *Store) WriteDraftStatement(ctx context.Context, d StatementDraft) (Stat
 		}
 	}
 	for _, l := range d.Lines {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO rated_lines (statement_id, customer_id, source_id, sku, quantity, unit, unit_price, amount, resource_count, end_customer_id, list_unit_price, list_amount, buy_amount, net_amount, tax_category, tax_rule_id)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::numeric, $12::numeric, $13::numeric, $14::numeric, $15, $16)`,
+		if _, err := tx.ExecContext(ctx, `INSERT INTO rated_lines (statement_id, customer_id, source_id, sku, quantity, unit, unit_price, amount, resource_count, end_customer_id, list_unit_price, list_amount, buy_amount, net_amount, tax_category, tax_rule_id, description)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::numeric, $12::numeric, $13::numeric, $14::numeric, $15, $16, $17)`,
 			existingID, d.CustomerID, nullStr(l.SourceID), l.SKU, string(l.Quantity), l.Unit, string(l.UnitPrice), string(l.Amount), l.ResourceCount,
-			nullStr(l.EndCustomerID), nullDec(l.ListUnitPrice), nullDec(l.ListAmount), nullDec(l.BuyAmount), nullDec(l.NetAmount), l.TaxCategory, l.TaxRuleID); err != nil {
+			nullStr(l.EndCustomerID), nullDec(l.ListUnitPrice), nullDec(l.ListAmount), nullDec(l.BuyAmount), nullDec(l.NetAmount), l.TaxCategory, l.TaxRuleID, l.Description); err != nil {
 			return Statement{}, mapErr(err)
 		}
 	}
@@ -274,7 +274,7 @@ func (s *Store) GetStatement(ctx context.Context, scope Scope, id string) (State
 		return Statement{}, ErrNotFound
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT l.id, l.statement_id, l.customer_id, l.source_id, l.sku, l.quantity::text, l.unit, l.unit_price::text, l.amount::text, l.resource_count,
-			l.end_customer_id, COALESCE(ec.name, ''), l.list_unit_price::text, l.list_amount::text, l.buy_amount::text, l.net_amount::text, l.tax_category, l.tax_rule_id
+			l.end_customer_id, COALESCE(ec.name, ''), l.list_unit_price::text, l.list_amount::text, l.buy_amount::text, l.net_amount::text, l.tax_category, l.tax_rule_id, l.description
 		FROM rated_lines l LEFT JOIN customers ec ON ec.id = l.end_customer_id WHERE l.statement_id = $1 ORDER BY ec.name, l.sku, l.source_id`, id)
 	if err != nil {
 		return st, mapErr(err)
@@ -285,7 +285,7 @@ func (s *Store) GetStatement(ctx context.Context, scope Scope, id string) (State
 		var l RatedLine
 		var src, endCustomer, lup, lam, buy, net sql.NullString
 		var q, up, amt string
-		if err := rows.Scan(&l.ID, &l.StatementID, &l.CustomerID, &src, &l.SKU, &q, &l.Unit, &up, &amt, &l.ResourceCount, &endCustomer, &l.EndCustomerName, &lup, &lam, &buy, &net, &l.TaxCategory, &l.TaxRuleID); err != nil {
+		if err := rows.Scan(&l.ID, &l.StatementID, &l.CustomerID, &src, &l.SKU, &q, &l.Unit, &up, &amt, &l.ResourceCount, &endCustomer, &l.EndCustomerName, &lup, &lam, &buy, &net, &l.TaxCategory, &l.TaxRuleID, &l.Description); err != nil {
 			return st, err
 		}
 		l.SourceID = strPtr(src)

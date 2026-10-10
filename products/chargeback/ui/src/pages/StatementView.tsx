@@ -880,6 +880,9 @@ export function StatementView() {
                       <td className="mono">
                         {l.sku}
                         {l.sku === 'true-up' ? <span className="sub">the shortfall against the contract's monthly minimum</span> : null}
+                        {/* DESIGN.md §22 — a package's included feature at 0.000 and
+                            an add-on say in words what the SKU alone cannot. */}
+                        {l.description ? <span className="sub">{l.description}</span> : null}
                       </td>
                       <td>{l.unit ?? '—'}</td>
                       <td className="num">{num(l.quantity, 4)}</td>

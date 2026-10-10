@@ -39,6 +39,10 @@ const SERVICES: ReadonlyArray<Service> = [
   { key: 'as', label: 'Auto scaling' },
   { key: 'vpcep', label: 'VPC endpoint' },
   PLAN_SERVICE,
+  // The paid add-ons of a package (DESIGN.md §22): `addon.backup` and the
+  // like, billed per plan-hour beside the plan they extend. The included
+  // features of a package file under the plan itself (`plan.m.ssl`).
+  { key: 'addon', label: 'Package add-ons' },
 ]
 const BY_KEY = new Map(SERVICES.map((s) => [s.key, s]))
 

@@ -144,6 +144,12 @@ has "$sov" 'kind: CiliumNetworkPolicy' "CNP: none rendered with cilium.io/v2 pre
 has "$sov" 'name: chargeback-ingress' "CNP: ingress policy missing"
 has "$sov" 'name: chargeback-egress' "CNP: egress policy missing"
 has "$sov" '- ingress$' "CNP: gateway ingress ENTITY admit missing (#4180)"
+# #6971 — the marketplace billing pod reads the public packages document in-cluster,
+# admitted by an L7 rule on GET ^/api/v1/public/ only (no identity door, #6841).
+has "$sov" 'app: org-billing' "CNP: public-reader (billing) admit missing (#6971)"
+has "$sov" 'k8s:io.kubernetes.pod.namespace: org-services' "CNP: public-reader namespace missing (#6971)"
+has "$sov" 'path: "\^/api/v1/public/\.\*"' "CNP: public-reader L7 path scope missing (#6971)"
+has "$sov" 'method: "GET"' "CNP: public-reader L7 method scope missing (#6971)"
 has "$sov" '- world$' "CNP: world egress missing"
 has "$sov" '- remote-node$' "CNP: remote-node egress missing"
 has "$sov" 'port: "443"' "CNP: 443 egress missing"

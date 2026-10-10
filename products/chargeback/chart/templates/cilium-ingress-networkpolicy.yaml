@@ -50,5 +50,23 @@ spec:
             - port: {{ .Values.service.port | quote }}
               protocol: TCP
     {{- end }}
+    {{- range .Values.networkPolicy.ingress.publicReaders }}
+    # #6971 — an in-cluster reader of the public document (the marketplace
+    # billing service pricing an order). L7-scoped to GET ^/api/v1/public/:
+    # those routes ignore the identity header by construction, so admitting
+    # this pod opens no identity door — #6841 holds with forwardAuth on.
+    - fromEndpoints:
+        - matchLabels:
+            {{- toYaml .matchLabels | nindent 12 }}
+            k8s:io.kubernetes.pod.namespace: {{ .namespace }}
+      toPorts:
+        - ports:
+            - port: {{ $.Values.service.port | quote }}
+              protocol: TCP
+          rules:
+            http:
+              - method: "GET"
+                path: "^/api/v1/public/.*"
+    {{- end }}
 {{- end }}
 {{- end }}

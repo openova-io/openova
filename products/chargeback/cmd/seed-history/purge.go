@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 
+	"github.com/lib/pq"
+
 	"github.com/openova-io/openova/products/chargeback/internal/synth"
 )
 
@@ -20,6 +22,13 @@ type purgeCounts struct {
 	Sources    int64
 	Audit      int64
 	Customers  int64
+	// The package matrix this tool made (DESIGN.md §22): the cells of the
+	// showcase features on the plans book, the add-on rates it priced there,
+	// and the features themselves — the last only where nothing else still
+	// refers to them.
+	PackageCells int64
+	AddonRates   int64
+	Features     int64
 }
 
 // purge removes everything seed-history created and nothing else.
@@ -116,5 +125,30 @@ func purge(ctx context.Context, db *sql.DB) (purgeCounts, error) {
 		n, _ := res.RowsAffected()
 		*s.count = n
 	}
+	// The package matrix (DESIGN.md §22), after the customers so no showcase
+	// Source still holds an add-on. The plans book itself stays — it is the
+	// product's — but the cells this tool wrote on it, the add-on rates it
+	// priced there and the features it created go. A feature an operator's
+	// OTHER book still carries in its matrix, or a real Source has taken, is
+	// left in place: the matrix explains that book's invoices.
+	keys := pq.Array(synth.FeatureKeys())
+	plan := `SELECT id FROM price_books WHERE lower(name) = lower('` + synth.PlanBookName + `')`
+	res, err := tx.ExecContext(ctx, `DELETE FROM package_entitlements WHERE price_book_id IN (`+plan+`) AND feature_id IN (SELECT id FROM features WHERE key = ANY($1))`, keys)
+	if err != nil {
+		return c, fmt.Errorf("purge package cells: %w", err)
+	}
+	c.PackageCells, _ = res.RowsAffected()
+	res, err = tx.ExecContext(ctx, `DELETE FROM price_items WHERE price_book_id IN (`+plan+`) AND sku = ANY($1)`, pq.Array(append(synth.AddonSKUs(), synth.BandwidthSKU)))
+	if err != nil {
+		return c, fmt.Errorf("purge add-on rates: %w", err)
+	}
+	c.AddonRates, _ = res.RowsAffected()
+	res, err = tx.ExecContext(ctx, `DELETE FROM features f WHERE f.key = ANY($1)
+		AND NOT EXISTS (SELECT 1 FROM package_entitlements e WHERE e.feature_id = f.id)
+		AND NOT EXISTS (SELECT 1 FROM source_addons sa WHERE sa.feature_id = f.id)`, keys)
+	if err != nil {
+		return c, fmt.Errorf("purge features: %w", err)
+	}
+	c.Features, _ = res.RowsAffected()
 	return c, tx.Commit()
 }
