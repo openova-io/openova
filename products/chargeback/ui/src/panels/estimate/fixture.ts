@@ -154,7 +154,7 @@ export const packages: PackagesDoc = {
     {
       key: 'bandwidth',
       name: 'Bandwidth',
-      blurb: 'Included bandwidth; above it the package’s overage rule applies',
+      blurb: 'Bandwidth included in your package',
       group: 'capacity',
       kind: 'quantity',
       unit: 'Mbps',

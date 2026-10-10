@@ -274,7 +274,7 @@ var Features = []Feature{
 	// CAPACITY — the two quantity rows. Their overage is METERED on every
 	// package: since §22.11 the customer's mode decides — capped bills
 	// nothing beyond the package whatever the cell says, grow meters it.
-	{Key: "bandwidth", Name: "Bandwidth", Blurb: "Included bandwidth; above it the package's overage rule applies", Kind: FeatureQuantity, Group: GroupCapacity, Unit: "Mbps", AddonSKU: BandwidthSKU,
+	{Key: "bandwidth", Name: "Bandwidth", Blurb: "Bandwidth included in your package", Kind: FeatureQuantity, Group: GroupCapacity, Unit: "Mbps", AddonSKU: BandwidthSKU,
 		Cells: cells(qty(50, OverageMetered), qty(100, OverageMetered), qty(250, OverageMetered), qty(1000, OverageMetered))},
 	{Key: "disk", Name: "Disk", Blurb: "Persistent storage for apps and databases", Kind: FeatureQuantity, Group: GroupCapacity, Unit: "GB", AddonSKU: DiskSKU,
 		Cells: cells(qty(25, OverageMetered), qty(50, OverageMetered), qty(100, OverageMetered), qty(250, OverageMetered))},
