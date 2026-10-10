@@ -88,9 +88,9 @@ func TestRetiredProductHasNoPlanTiersOnAFreshSovereign(t *testing.T) {
 	retired := RetiredAppSlugs()
 	for _, p := range plans {
 		if why, bad := retired[p.ProductSlug]; bad {
-			t.Errorf("seedPlanRows still seeds plan %q at %d OMR for retired product %q (%s) — "+
+			t.Errorf("seedPlanRows still seeds plan %q at %d baisa for retired product %q (%s) — "+
 				"a fresh Sovereign would create the tier and GET /catalog/plans would serve it",
-				p.Slug, p.PriceOMR, p.ProductSlug, why)
+				p.Slug, p.PriceBaisa, p.ProductSlug, why)
 		}
 		// Belt and braces: catch a tier named for the retired product even if
 		// its ProductSlug were cleared, which would make it look like a generic
@@ -127,7 +127,7 @@ func TestRetiredPlanExclusionIsNotVacuous(t *testing.T) {
 				"filter keys on ProductSlug and would not catch this row",
 				p.Slug, p.ProductSlug, "sandbox")
 		}
-		if p.PriceOMR > 0 {
+		if p.PriceBaisa > 0 {
 			priced++
 		}
 	}
@@ -157,7 +157,7 @@ func TestLiveComputeTiersAreStillSeeded(t *testing.T) {
 	plans := seedPlanRows()
 	seeded := make(map[string]int, len(plans))
 	for _, p := range plans {
-		seeded[p.Slug] = p.PriceOMR
+		seeded[p.Slug] = p.PriceBaisa
 	}
 	// The generic compute ladder a customer actually buys.
 	for _, slug := range []string{"s", "m", "l", "xl", "flexi"} {
@@ -167,9 +167,10 @@ func TestLiveComputeTiersAreStillSeeded(t *testing.T) {
 		}
 	}
 	// Assert on a VALUE, not just presence: an empty/zeroed ladder would still
-	// have the keys. M is the Popular default at 9 OMR.
-	if got := seeded["m"]; got != 9 {
-		t.Errorf("tier m PriceOMR = %d, want 9 — the live price ladder was damaged", got)
+	// have the keys. M is the Popular default at 4.490 OMR (NC-OO-Pricing.xlsx,
+	// 2026-06-28); the full ladder is pinned in seed_plans_upsert_test.go.
+	if got := seeded["m"]; got != 4490 {
+		t.Errorf("tier m PriceBaisa = %d, want 4490 — the live price ladder was damaged", got)
 	}
 	var popular []string
 	for _, p := range plans {

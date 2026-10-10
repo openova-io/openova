@@ -32,16 +32,22 @@ type App struct {
 }
 
 // Plan mirrors the subset of the catalog Plan document this service cares
-// about. CPU/Memory/Storage are human-formatted strings ("4 vCPU", "8 GB",
+// about. CPU/Memory/Storage are human-formatted strings ("2 vCPU", "4 GB",
 // "50 GB") — use ParsedLimits() to get integer caps for capacity math.
+//
+// Money (#6971): the catalog prices the packages in baisa (price_baisa,
+// 1 OMR = 1000 baisa) and mirrors the decimal price_omr (4.49) beside it.
+// price_omr is a float on the wire now, so it is decoded as one; anything
+// that needs the amount works from PriceBaisa.
 type Plan struct {
-	ID       string `json:"id"`
-	Slug     string `json:"slug"`
-	Name     string `json:"name"`
-	CPU      string `json:"cpu"`
-	Memory   string `json:"memory"`
-	Storage  string `json:"storage"`
-	PriceOMR int    `json:"price_omr"`
+	ID         string  `json:"id"`
+	Slug       string  `json:"slug"`
+	Name       string  `json:"name"`
+	CPU        string  `json:"cpu"`
+	Memory     string  `json:"memory"`
+	Storage    string  `json:"storage"`
+	PriceOMR   float64 `json:"price_omr"`
+	PriceBaisa int64   `json:"price_baisa"`
 }
 
 // Limits is the numeric capacity of a plan. 0 in any field means "unmetered"

@@ -211,56 +211,60 @@ func TestRender_VClusterImageRegistryOverride(t *testing.T) {
 
 // ---- #4292 Workstream B: plan-templated quota / LimitRange / np-sync / QoS ----
 
-// TestPlanQuota_CatalogSlugMapping asserts the plan-slug → host-ns cap table
-// (the seed.go target: S=2/4Gi, M=4/8, L=8/16, XL=16/32, Flexi=on-demand).
+// TestPlanQuota_CatalogSlugMapping asserts the plan-slug → host-ns cap table:
+// the headline (limit) mirrors the seeded plan rows (seed.go seedPlanRows,
+// NC-OO-Pricing.xlsx 2026-06-28: S 1/2Gi, M 2/4Gi, L 4/8Gi, XL 8/16Gi,
+// Flexi on demand) and the guaranteed share (request) is the headline over
+// the 6× / 3× overcommit, rounded up.
 func TestPlanQuota_CatalogSlugMapping(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		slug, cpu, mem string
-		burstable      bool
+		slug, cpuLim, memLim, cpuReq, memReq string
+		burstable                            bool
 	}{
-		{"s", "2", "4Gi", false},
-		{"m", "4", "8Gi", false},
-		{"l", "8", "16Gi", false},
-		{"xl", "16", "32Gi", false},
-		{"flexi", "", "", true},
-		{"", "2", "4Gi", false},      // empty → smallest paid cap, never uncapped
-		{"bogus", "2", "4Gi", false}, // unknown → smallest paid cap
-		{"M", "4", "8Gi", false},     // case-insensitive
+		{"s", "1", "2Gi", "167m", "683Mi", false},
+		{"m", "2", "4Gi", "334m", "1366Mi", false},
+		{"l", "4", "8Gi", "667m", "2731Mi", false},
+		{"xl", "8", "16Gi", "1334m", "5462Mi", false},
+		{"flexi", "", "", "", "", true},
+		{"", "1", "2Gi", "167m", "683Mi", false},      // empty → smallest paid cap, never uncapped
+		{"bogus", "1", "2Gi", "167m", "683Mi", false}, // unknown → smallest paid cap
+		{"M", "2", "4Gi", "334m", "1366Mi", false},    // case-insensitive
 	}
 	for _, c := range cases {
 		q := planQuota(c.slug)
-		if q.CPU != c.cpu || q.Mem != c.mem || q.Burstable != c.burstable {
-			t.Errorf("planQuota(%q) = {%s,%s,burstable=%v}, want {%s,%s,burstable=%v}",
-				c.slug, q.CPU, q.Mem, q.Burstable, c.cpu, c.mem, c.burstable)
+		if q.CPULimit != c.cpuLim || q.MemLimit != c.memLim || q.CPURequest != c.cpuReq || q.MemRequest != c.memReq || q.Burstable != c.burstable {
+			t.Errorf("planQuota(%q) = {limit %s/%s, request %s/%s, burstable=%v}, want {limit %s/%s, request %s/%s, burstable=%v}",
+				c.slug, q.CPULimit, q.MemLimit, q.CPURequest, q.MemRequest, q.Burstable, c.cpuLim, c.memLim, c.cpuReq, c.memReq, c.burstable)
 		}
 	}
 }
 
-// TestRender_ResourceQuotaPerPlan proves the ResourceQuota renders the
-// purchased plan's cap PLUS the vCluster control-plane overhead PLUS the
-// per-Organization platform-stack overhead, in the exact canonical spellings
-// an operator sees on the live object (#6902 follow-ups). The plan is
-// requests==limits (S 2/4Gi, M 4/8Gi, L 8/16Gi, XL 16/32Gi); the control
-// plane adds 520m/1088Mi to requests and 1500m/1194Mi to limits (vcluster-0
-// syncer 500m/1Gi + coredns 20m/64Mi requests, 1000m/170Mi limits); the
-// platform stack adds 3840m/6064Mi to requests and 4550m/7168Mi to limits on
-// S/M/L (bp-keycloak 1/2Gi + its postgresql 500m/512Mi + the bp-newapi pod
+// TestRender_ResourceQuotaPerPlan proves the ResourceQuota renders the plan
+// term PLUS the vCluster control-plane overhead PLUS the per-Organization
+// platform-stack overhead, in the exact canonical spellings an operator sees
+// on the live object (#6902 follow-ups, #6971 overcommit model). The plan
+// term is the GUARANTEED share on requests (S 167m/683Mi, M 334m/1366Mi,
+// L 667m/2731Mi, XL 1334m/5462Mi — headline ÷ 6 / ÷ 3) and the HEADLINE on
+// limits (S 1/2Gi, M 2/4Gi, L 4/8Gi, XL 8/16Gi); the control plane adds
+// 520m/1088Mi to requests and 1500m/1194Mi to limits (vcluster-0 syncer
+// 500m/1Gi + coredns 20m/64Mi requests, 1000m/170Mi limits); the platform
+// stack adds 3840m/6064Mi to requests and 4550m/7168Mi to limits on every
+// plan (bp-keycloak 1/2Gi + its postgresql 500m/512Mi + the bp-newapi pod
 // 535m/352Mi requests, 1200m/1408Mi limits + its CNPG 500m/512Mi + bp-openclaw
 // 250m/512Mi + bp-agenity 1005m/2064Mi requests, 1050m/2112Mi limits +
-// oidc-gate 50m/64Mi), and 4835m/8096Mi requests, 5500m/9152Mi limits on XL,
-// where the 2-CPU/4Gi LimitRange default sizes agenity's unsized init
-// container above its app containers. The arithmetic itself is asserted
-// plan-by-plan against the live table in
+// oidc-gate 50m/64Mi; with the #6971 headlines no plan's LimitRange default
+// sizes agenity's unsized init container above its app containers any more).
+// The arithmetic itself is asserted plan-by-plan against the live table in
 // TestRender_ResourceQuotaIsPlanPlusBothOverheads; this test pins the rendered
 // strings so a change in any term is visible here by name.
 func TestRender_ResourceQuotaPerPlan(t *testing.T) {
 	t.Parallel()
 	cases := map[string]struct{ reqCPU, reqMem, limCPU, limMem string }{
-		"s":  {"6360m", "11248Mi", "8050m", "12458Mi"},
-		"m":  {"8360m", "15344Mi", "10050m", "16554Mi"},
-		"l":  {"12360m", "23536Mi", "14050m", "24746Mi"},
-		"xl": {"21355m", "41952Mi", "23", "43114Mi"},
+		"s":  {"4527m", "7835Mi", "7050m", "10410Mi"},
+		"m":  {"4694m", "8518Mi", "8050m", "12458Mi"},
+		"l":  {"5027m", "9883Mi", "10050m", "16554Mi"},
+		"xl": {"5694m", "12614Mi", "14050m", "24746Mi"},
 	}
 	for slug, want := range cases {
 		out, err := Render(Inputs{Slug: "acme", DisplayName: "Acme", Tier: "org",
@@ -314,13 +318,13 @@ func TestRender_FlexiNoResourceQuota(t *testing.T) {
 	}
 }
 
-// TestRender_LimitRangeGuaranteedRatio proves fixed tiers pin the
-// maxLimitRequestRatio {cpu:1,memory:1} + defaultRequest==default → Guaranteed.
-// #4758 — the vcluster-Org host-namespace LimitRange must NOT set
-// maxLimitRequestRatio: the vcluster syncer reflects the vcluster's own
-// (non-Guaranteed) system pods (coredns, ratio 50:1) into this ns, and a
-// ratio=1 forbids every synced pod at admission → vcluster runs nothing →
-// customer app 404. defaultRequest/default stay (quota admission), ratio goes.
+// TestRender_LimitRangeNoRatioForVclusterOrg — #4758: the vcluster-Org
+// host-namespace LimitRange must NOT set maxLimitRequestRatio (neither the
+// old 1 nor the plan's 6/3 overcommit, #6971): the vcluster syncer reflects
+// the vcluster's own system pods (coredns, ratio 50:1) into this ns and the
+// platform stack's sidecars run at 20:1, so any ratio forbids those pods at
+// admission → vcluster runs nothing → customer app 404. defaultRequest/default
+// stay (quota admission), the ratio is stated as annotations instead.
 func TestRender_LimitRangeNoRatioForVclusterOrg(t *testing.T) {
 	t.Parallel()
 	out, err := Render(Inputs{Slug: "acme", DisplayName: "Acme", Tier: "org",

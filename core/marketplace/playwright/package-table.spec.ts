@@ -30,10 +30,10 @@ const HERE = fileURLToPath(new URL('.', import.meta.url))
 const FIXTURE = JSON.parse(readFileSync(join(HERE, '..', 'fixtures', 'public-packages.json'), 'utf8'))
 
 const CATALOG_PLANS = [
-  { id: 's', slug: 's', name: 'S', cpu: '2 vCPU', memory: '4 GB', storage: '25 GB', price_omr: 5, popular: false, features: [], description: '' },
-  { id: 'm', slug: 'm', name: 'M', cpu: '4 vCPU', memory: '8 GB', storage: '50 GB', price_omr: 9, popular: true, features: [], description: '' },
-  { id: 'l', slug: 'l', name: 'L', cpu: '8 vCPU', memory: '16 GB', storage: '100 GB', price_omr: 16, popular: false, features: [], description: '' },
-  { id: 'xl', slug: 'xl', name: 'XL', cpu: '16 vCPU', memory: '32 GB', storage: '200 GB', price_omr: 30, popular: false, features: [], description: '' },
+  { id: 's', slug: 's', name: 'S', cpu: '1 vCPU', memory: '2 GB', storage: '25 GB', price_omr: 2.49, price_baisa: 2490, popular: false, features: [], description: '' },
+  { id: 'm', slug: 'm', name: 'M', cpu: '2 vCPU', memory: '4 GB', storage: '50 GB', price_omr: 4.49, price_baisa: 4490, popular: true, features: [], description: '' },
+  { id: 'l', slug: 'l', name: 'L', cpu: '4 vCPU', memory: '8 GB', storage: '100 GB', price_omr: 7.99, price_baisa: 7990, popular: false, features: [], description: '' },
+  { id: 'xl', slug: 'xl', name: 'XL', cpu: '8 vCPU', memory: '16 GB', storage: '250 GB', price_omr: 13.99, price_baisa: 13990, popular: false, features: [], description: '' },
 ]
 
 // /api/catalog/addons wire shape (api.ts::getAddons: description → tagline,
@@ -270,7 +270,13 @@ test.describe('step 1: package comparison table (/plans, #6971)', () => {
 
     await expect(page.locator('.pcard')).toHaveCount(4, { timeout: 10_000 })
     await expect(page.getByRole('heading', { name: /Pick a plan/i })).toBeVisible()
-    await expect(page.locator('.pd-g-row', { hasText: 'Backup retention' })).toBeVisible()
+    // The deck's gutter rows are the workbook's (NC-OO-Pricing.xlsx, 2026-06-28):
+    // the shape, the per-package bandwidth and the included features. The
+    // invented rows ("Backup retention", "Response SLA", "Support") are gone.
+    await expect(page.locator('.pd-g-row', { hasText: 'Bandwidth' })).toBeVisible()
+    await expect(page.locator('.pd-g-row', { hasText: '24/7 support' })).toBeVisible()
+    await expect(page.locator('.pd-g-row', { hasText: 'Backup retention' })).toHaveCount(0)
+    await expect(page.locator('.pd-g-row', { hasText: 'Response SLA' })).toHaveCount(0)
     await expect(page.getByTestId('package-table')).toHaveCount(0)
     expect(warnings, 'one warning, not zero and not one per retry').toHaveLength(1)
     expect(warnings[0]).toMatch(/answered 503/)

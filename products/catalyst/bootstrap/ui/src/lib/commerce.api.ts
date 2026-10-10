@@ -40,7 +40,12 @@ export interface CommercePlan {
   cpu: string
   memory: string
   storage: string
+  /** Decimal OMR mirror of price_baisa (4.49) — the editor's input field;
+   *  the catalog derives price_baisa from it on save (#6971). */
   price_omr: number
+  /** The authoritative monthly price in baisa (1 OMR = 1000 baisa, #6971).
+   *  Format money from this, never from price_omr arithmetic. */
+  price_baisa?: number
   popular: boolean
   sort_order: number
   features: string[]
@@ -56,9 +61,15 @@ export interface CommerceAddOn {
   slug: string
   name: string
   description: string
+  /** Decimal OMR mirror of price_baisa; every catalog add-on is free (#6971). */
   price_omr: number
+  /** The authoritative price in baisa (1 OMR = 1000 baisa, #6971). */
+  price_baisa?: number
   included: boolean
   category: string
+  /** An application the Sovereign installs (CrowdSec, Trivy, Loki, WAF)
+   *  rather than a commercial entitlement (#6971). */
+  app?: boolean
 }
 
 export interface CommerceBundle {

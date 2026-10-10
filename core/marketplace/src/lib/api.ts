@@ -4,6 +4,7 @@ import {
   retryAfterSeconds,
   type HeaderBag,
 } from './rateLimitNotice';
+import { omrToBaisa } from './currency';
 
 const API_BASE = '/api';
 
@@ -198,7 +199,11 @@ export const getPlans = async (): Promise<Plan[]> => {
     name: p.name,
     tagline: p.description || '',
     resources: { cpu: p.cpu || '', memory: p.memory || '', storage: p.storage || '' },
-    monthly_price: (p.price_omr || 0) * 1000,
+    // Money is price_baisa (#6971: the packages cost 2.490 / 4.490 / 7.990 /
+    // 13.990 OMR, and the catalog prices them in baisa). price_omr is the
+    // decimal mirror; it is only used when the catalog predates the baisa
+    // field, and then rounded — never multiplied in floating point.
+    monthly_price: typeof p.price_baisa === 'number' ? p.price_baisa : omrToBaisa(p.price_omr),
     features: p.features?.length ? p.features : [p.cpu, p.memory, p.storage].filter(Boolean),
     popular: p.popular || false,
   }));
@@ -246,8 +251,12 @@ export const getAddons = async (): Promise<AddOn[]> => {
   const raw = await request<any[]>('/catalog/addons');
   return raw.map(a => ({
     id: a.id, name: a.name, slug: a.slug || '', tagline: a.description || '',
-    icon: a.icon || '', monthly_price: (a.price_omr || 0) * 1000,
+    icon: a.icon || '',
+    // Catalog add-ons are free since #6971 (the priced add-ons are the BSS
+    // package SKUs); the money still comes from price_baisa, by the plan rule.
+    monthly_price: typeof a.price_baisa === 'number' ? a.price_baisa : omrToBaisa(a.price_omr),
     included: a.included ?? false,
+    app: a.app === true,
   }));
 };
 
@@ -562,6 +571,10 @@ export interface AddOn {
   // (packages.ts::funnelAddonsFor), where `id` is the BSS add-on SKU: the
   // muted "Included from XL" up-sell line the Add-ons step shows under it.
   hint?: string;
+  // #6971 — a catalog add-on that is an application the Sovereign installs
+  // (CrowdSec, Trivy, Loki, the Coraza WAF) rather than a commercial
+  // entitlement; listed with the applications, never beside a price.
+  app?: boolean;
 }
 
 export interface User {

@@ -7,25 +7,34 @@
   let selected = $state<string | null>(readCart().plan);
   let loading = $state(true);
 
-  // Extended capability rows — hardcoded per tier
+  // Rows below the shape — the National Cloud workbook's per-package figures
+  // (NC-OO-Pricing.xlsx, 2026-06-28, #6971). Bandwidth is per package; the
+  // included features are the same on every package; Backup is XL only.
+  // Nothing here is invented: no SLA hours, no support tiers, no user counts.
   const capsByName: Record<string, Record<string, string>> = {
-    'S':     { bandwidth: '500 GB / mo', backupRetention: '7 days', responseSla: '—', support: 'Email' },
-    'M':     { bandwidth: '2 TB / mo', backupRetention: '15 days', responseSla: '8h', support: 'Email + Chat' },
-    'L':     { bandwidth: '10 TB / mo', backupRetention: '30 days', responseSla: '4h', support: 'Email + Chat + Phone' },
-    'XL':    { bandwidth: 'Unlimited', backupRetention: '90 days', responseSla: '1h', support: 'Dedicated account manager' },
-    'Flexi': { bandwidth: 'Metered', backupRetention: 'Configurable', responseSla: 'Configurable', support: 'Email + Chat' },
+    'S':     { bandwidth: '50 Mbps', backup: '—' },
+    'M':     { bandwidth: '100 Mbps', backup: '—' },
+    'L':     { bandwidth: '250 Mbps', backup: '—' },
+    'XL':    { bandwidth: '1000 Mbps', backup: '✓' },
+    'Flexi': { bandwidth: 'Metered', backup: '—' },
   };
+
+  // Included on every package (S/M/L/XL). Flexi keeps SSL + SSO only.
+  const includedKeys = new Set(['mail', 'ssl', 'sso', 'ddos', 'waf', 'malware', 'support']);
 
   const capRows = [
     { label: 'vCPU', key: 'cpu' },
     { label: 'RAM', key: 'memory' },
     { label: 'Disk', key: 'storage' },
     { label: 'Bandwidth', key: 'bandwidth' },
-    { label: 'Backup retention', key: 'backupRetention' },
+    { label: 'Mail server', key: 'mail' },
     { label: 'SSL certificates', key: 'ssl' },
-    { label: 'SSO (SAML / OIDC)', key: 'sso' },
-    { label: 'Response SLA', key: 'responseSla' },
-    { label: 'Support', key: 'support' },
+    { label: 'SSO', key: 'sso' },
+    { label: 'DDoS protection', key: 'ddos' },
+    { label: 'Web application firewall', key: 'waf' },
+    { label: 'Malware scanner', key: 'malware' },
+    { label: '24/7 support', key: 'support' },
+    { label: 'Backup', key: 'backup' },
   ];
 
   $effect(() => {
@@ -50,11 +59,13 @@
       })
       .catch(() => {
         if (!alive) return;
+        // Catalog unreachable — the National Cloud ladder, in baisa
+        // (NC-OO-Pricing.xlsx, 2026-06-28), mirroring seedPlanRows.
         plans = [
-          { id: 's', slug: 's', name: 'S', tagline: '', resources: { cpu: '2 vCPU', memory: '4 GB', storage: '25 GB' }, monthly_price: 5000, features: [], popular: false },
-          { id: 'm', slug: 'm', name: 'M', tagline: '', resources: { cpu: '4 vCPU', memory: '8 GB', storage: '50 GB' }, monthly_price: 9000, features: [], popular: true },
-          { id: 'l', slug: 'l', name: 'L', tagline: '', resources: { cpu: '8 vCPU', memory: '16 GB', storage: '100 GB' }, monthly_price: 16000, features: [], popular: false },
-          { id: 'xl', slug: 'xl', name: 'XL', tagline: '', resources: { cpu: '16 vCPU', memory: '32 GB', storage: '200 GB' }, monthly_price: 30000, features: [], popular: false },
+          { id: 's', slug: 's', name: 'S', tagline: '', resources: { cpu: '1 vCPU', memory: '2 GB', storage: '25 GB' }, monthly_price: 2490, features: [], popular: false },
+          { id: 'm', slug: 'm', name: 'M', tagline: '', resources: { cpu: '2 vCPU', memory: '4 GB', storage: '50 GB' }, monthly_price: 4490, features: [], popular: true },
+          { id: 'l', slug: 'l', name: 'L', tagline: '', resources: { cpu: '4 vCPU', memory: '8 GB', storage: '100 GB' }, monthly_price: 7990, features: [], popular: false },
+          { id: 'xl', slug: 'xl', name: 'XL', tagline: '', resources: { cpu: '8 vCPU', memory: '16 GB', storage: '250 GB' }, monthly_price: 13990, features: [], popular: false },
           { id: 'flexi', slug: 'flexi', name: 'Flexi', tagline: '', resources: { cpu: 'On demand', memory: 'On demand', storage: 'On demand' }, monthly_price: 0, features: [], popular: false },
         ];
         if (!selected) { selected = 'm'; setPlan('m', 'M'); }
@@ -69,11 +80,18 @@
     setPlan(id, plan?.name);
   }
 
+  function isFlexiPlan(plan: Plan): boolean {
+    return plan.slug === 'flexi' || plan.name === 'Flexi';
+  }
+
   function cellValue(plan: Plan, key: string): string {
     if (key === 'cpu') return plan.resources.cpu;
     if (key === 'memory') return plan.resources.memory;
     if (key === 'storage') return plan.resources.storage;
-    if (key === 'ssl' || key === 'sso') return '✓';
+    if (includedKeys.has(key)) {
+      if (isFlexiPlan(plan)) return key === 'ssl' || key === 'sso' ? '✓' : '—';
+      return '✓';
+    }
     return capsByName[plan.name]?.[key] ?? '—';
   }
 
@@ -138,7 +156,7 @@
               </div>
 
               {#each capRows as row}
-                <div class="pcard-cell {(row.key === 'ssl' || row.key === 'sso') ? 'included' : ''}">{cellValue(plan, row.key)}</div>
+                <div class="pcard-cell {cellValue(plan, row.key) === '✓' ? 'included' : ''}">{cellValue(plan, row.key)}</div>
               {/each}
 
               <div class="pcard-foot">

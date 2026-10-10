@@ -58,17 +58,17 @@ func TestExpectedSandboxPlans_Shape(t *testing.T) {
 		}
 	}
 
-	// Price ladder: Free=0, Pro=9, Ent=49 OMR/mo. Locked in so a
-	// future "Sandbox Lite" swap doesn't silently dump the founder's
-	// pricing intent.
+	// Price ladder: Free=0, Pro=9, Ent=49 OMR/mo — in baisa, the field the
+	// money is computed from (#6971). Locked in so a future "Sandbox Lite"
+	// swap doesn't silently dump the founder's pricing intent.
 	priceBySlug := map[string]int{}
 	for _, p := range plans {
-		priceBySlug[p.Slug] = p.PriceOMR
+		priceBySlug[p.Slug] = p.PriceBaisa
 	}
-	wantPrices := map[string]int{"sandbox-free": 0, "sandbox-pro": 9, "sandbox-ent": 49}
+	wantPrices := map[string]int{"sandbox-free": 0, "sandbox-pro": 9000, "sandbox-ent": 49000}
 	for slug, want := range wantPrices {
 		if got := priceBySlug[slug]; got != want {
-			t.Errorf("plan %q PriceOMR = %d, want %d", slug, got, want)
+			t.Errorf("plan %q PriceBaisa = %d, want %d", slug, got, want)
 		}
 	}
 

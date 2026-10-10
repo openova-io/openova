@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"reflect"
 	"time"
 
 	"github.com/openova-io/openova/core/services/catalog/store"
@@ -132,23 +134,65 @@ func (h *Handler) seedAllData(ctx context.Context) {
 	slog.Info("seed: catalog seeding complete")
 }
 
-// seedPlanRows returns the plan rows a FRESH Sovereign is seeded with.
+// packageIncludedFeatures is what EVERY package includes, in the order the
+// National Cloud workbook lists them (NC-OO-Pricing.xlsx, Packages sheet,
+// 2026-06-28). Nothing here is invented: no user counts, no SLA figures, no
+// support tiers beyond what the sheet names.
+var packageIncludedFeatures = []string{
+	"Applications",
+	"Databases",
+	"Mail server (unlimited accounts)",
+	"Unlimited free SSL",
+	"SSO",
+	"Standard DDoS protection",
+	"Malware scanner",
+	"Web application firewall",
+	"24/7 customer support",
+}
+
+// packageXLFeatures is what XL includes on top of packageIncludedFeatures.
+var packageXLFeatures = []string{
+	"Backup",
+	"AI SEO ready",
+	"AI website builder",
+	"Domain",
+}
+
+func withXLFeatures() []string {
+	out := make([]string, 0, len(packageIncludedFeatures)+len(packageXLFeatures))
+	out = append(out, packageIncludedFeatures...)
+	return append(out, packageXLFeatures...)
+}
+
+// seedPlanRows returns the plan rows a FRESH Sovereign is seeded with, and the
+// rows an EXISTING Sovereign is converged onto on every start (upsertSeedPlans).
+//
+// The numbers are the founder-approved SME packages from the National Cloud
+// workbook (NC-OO-Pricing.xlsx, 2026-06-28) \u2014 the same sheet the
+// organization-controller's planQuotaTable (core/controllers/organization/
+// internal/gitops/manifests.go) takes its headline shapes from: S 1 vCPU /
+// 2 GB / 25 GB at 2.490 OMR, M 2 / 4 / 50 at 4.490, L 4 / 8 / 100 at 7.990,
+// XL 8 / 16 / 250 at 13.990. Prices are set in baisa (PriceBaisa); the
+// decimal price_omr on the wire is derived by NormalizePrice.
 //
 // Extracted from seedAllData (#5920) to mirror seedAppRows: a pure function
 // with no store, so the retired-product assertions in retired_products_test.go
 // can read what a fresh Sovereign would actually be sold.
 func seedPlanRows() []store.Plan {
 	plans := []store.Plan{
-		{Slug: "s", Name: "S", Description: "For personal projects and small teams", CPU: "2 vCPU", Memory: "4 GB", Storage: "25 GB", PriceOMR: 5, Popular: false, SortOrder: 1,
-			Features: []string{"Unlimited apps", "SSO included", "API access", "TLS certificates", "Daily snapshots"}},
-		{Slug: "m", Name: "M", Description: "For growing businesses up to 30 users", CPU: "4 vCPU", Memory: "8 GB", Storage: "50 GB", PriceOMR: 9, Popular: true, SortOrder: 2,
-			Features: []string{"Unlimited apps", "SSO included", "API access", "TLS certificates", "Daily backups", "Priority support", "Custom domain"}},
-		{Slug: "l", Name: "L", Description: "For teams with 30\u2013100 users", CPU: "8 vCPU", Memory: "16 GB", Storage: "100 GB", PriceOMR: 16, Popular: false, SortOrder: 3,
-			Features: []string{"Unlimited apps", "SSO included", "API access", "TLS certificates", "Hourly backups", "Priority support", "Custom domain", "WAF/IPS", "Dedicated support"}},
-		{Slug: "xl", Name: "XL", Description: "For enterprises with 100+ users", CPU: "16 vCPU", Memory: "32 GB", Storage: "200 GB", PriceOMR: 30, Popular: false, SortOrder: 4,
-			Features: []string{"Unlimited apps", "SSO included", "API access", "TLS certificates", "Continuous backups", "Priority support", "Custom domain", "WAF/IPS", "Dedicated support", "SLA 99.9%", "Audit logs"}},
-		{Slug: "flexi", Name: "Flexi", Description: "Pay as you go \u2014 scale resources on demand", CPU: "On demand", Memory: "On demand", Storage: "On demand", PriceOMR: 0, Popular: false, SortOrder: 5,
+		{Slug: "s", Name: "S", Description: "For a first site or a small team", CPU: "1 vCPU", Memory: "2 GB", Storage: "25 GB", PriceBaisa: 2490, Popular: false, SortOrder: 1,
+			Features: append([]string(nil), packageIncludedFeatures...)},
+		{Slug: "m", Name: "M", Description: "For a growing business", CPU: "2 vCPU", Memory: "4 GB", Storage: "50 GB", PriceBaisa: 4490, Popular: true, SortOrder: 2,
+			Features: append([]string(nil), packageIncludedFeatures...)},
+		{Slug: "l", Name: "L", Description: "For a busy business running several applications", CPU: "4 vCPU", Memory: "8 GB", Storage: "100 GB", PriceBaisa: 7990, Popular: false, SortOrder: 3,
+			Features: append([]string(nil), packageIncludedFeatures...)},
+		{Slug: "xl", Name: "XL", Description: "For the largest workloads, with backup and a domain included", CPU: "8 vCPU", Memory: "16 GB", Storage: "250 GB", PriceBaisa: 13990, Popular: false, SortOrder: 4,
+			Features: withXLFeatures()},
+		{Slug: "flexi", Name: "Flexi", Description: "Pay as you go \u2014 scale resources on demand", CPU: "On demand", Memory: "On demand", Storage: "On demand", PriceBaisa: 0, Popular: false, SortOrder: 5,
 			Features: []string{"Unlimited apps", "SSO included", "API access", "TLS certificates", "Pay per use", "Scale on demand"}},
+	}
+	for i := range plans {
+		plans[i].NormalizePrice()
 	}
 
 	// Sandbox product plans \u2014 PR #1633 added the Sandbox app to seedApps but
@@ -194,7 +238,7 @@ func expectedSandboxPlans() []store.Plan {
 			Slug: "sandbox-free", Name: "Sandbox Free",
 			Description: "1 session, 1 agent — bring your own LLM key",
 			CPU:         "0.5 vCPU", Memory: "1 GB", Storage: "5 GB",
-			PriceOMR:    0,
+			PriceBaisa:  0,
 			SortOrder:   10,
 			ProductSlug: "sandbox",
 			Features: []string{
@@ -217,7 +261,7 @@ func expectedSandboxPlans() []store.Plan {
 			Slug: "sandbox-pro", Name: "Sandbox Pro",
 			Description: "3 sessions, all 6 agents, 50 GB — for working developers",
 			CPU:         "2 vCPU", Memory: "4 GB", Storage: "50 GB",
-			PriceOMR:    9,
+			PriceBaisa:  9000,
 			Popular:     true,
 			SortOrder:   11,
 			ProductSlug: "sandbox",
@@ -242,7 +286,7 @@ func expectedSandboxPlans() []store.Plan {
 			Slug: "sandbox-ent", Name: "Sandbox Ent",
 			Description: "Unlimited sessions, all agents, 500 GB — for teams",
 			CPU:         "8 vCPU", Memory: "16 GB", Storage: "500 GB",
-			PriceOMR:    49,
+			PriceBaisa:  49000,
 			SortOrder:   12,
 			ProductSlug: "sandbox",
 			Features: []string{
@@ -266,18 +310,35 @@ func expectedSandboxPlans() []store.Plan {
 	}
 }
 
-// expectedAddOns returns the canonical set of add-ons.
+// expectedAddOns returns the canonical set of catalog add-ons \u2014 the rows a
+// fresh Sovereign is seeded with and an existing one is converged onto
+// (upsertSeedAddOns).
+//
+// Every row is FREE (#6971). The prices these rows used to carry (Daily
+// Backup 3 OMR, Dedicated IP 5, Log Management 3, \u2026) were invented: the
+// National Cloud workbook (NC-OO-Pricing.xlsx, 2026-06-28) prices add-ons per
+// PACKAGE, and those prices live in Catalyst BSS and reach the storefront as
+// the `addon.*` SKUs of the public packages document \u2014 the catalog's rows
+// are twinned to them by slug (core/marketplace/src/lib/packages.ts
+// CATALOG_ADDON_TWINS) and hidden when the document is present. A catalog
+// add-on therefore never carries a number, and its description names no
+// retention, response time or SLA either. "Priority Support \u2014 4h response
+// SLA" is gone with its number: the workbook's support line is "24/7 customer
+// support", included on every package (packageIncludedFeatures).
+//
+// App marks the rows that are applications the Sovereign installs (the
+// Coraza WAF, CrowdSec, Trivy, Grafana Loki) rather than commercial
+// entitlements; the storefront lists those with the applications.
 func expectedAddOns() []store.AddOn {
 	return []store.AddOn{
-		{Slug: "daily-backup", Name: "Daily Backup", Description: "Automated daily backups with 30-day retention", PriceOMR: 3, Included: false, Category: "reliability"},
-		{Slug: "priority-support", Name: "Priority Support", Description: "Get help fast when it matters \u2014 4h response SLA", PriceOMR: 5, Included: false, Category: "support"},
-		{Slug: "custom-domain", Name: "Custom Domain", Description: "Bring your own domain \u2014 free DNS configuration with automatic TLS", PriceOMR: 0, Included: true, Category: "networking"},
-		{Slug: "api-access", Name: "API Access", Description: "Full REST API for integration, automation, and custom workflows", PriceOMR: 5, Included: false, Category: "developer"},
-		{Slug: "dedicated-ip", Name: "Dedicated IP", Description: "Dedicated IPv4 address with reverse DNS (PTR) registration", PriceOMR: 5, Included: false, Category: "networking"},
-		{Slug: "waf", Name: "Web Application Firewall", Description: "Block attacks before they reach your apps \u2014 OWASP Core Rule Set", PriceOMR: 0, Included: true, Category: "security"},
-		{Slug: "ips", Name: "Intrusion Prevention", Description: "Community-powered threat intelligence \u2014 CrowdSec", PriceOMR: 0, Included: true, Category: "security"},
-		{Slug: "vuln-scan", Name: "Vulnerability Scanning", Description: "Find vulnerabilities before attackers do \u2014 Trivy", PriceOMR: 0, Included: true, Category: "security"},
-		{Slug: "log-management", Name: "Log Management", Description: "Search and analyze all your app logs \u2014 Grafana Loki", PriceOMR: 3, Included: false, Category: "monitoring"},
+		{Slug: "daily-backup", Name: "Daily Backup", Description: "Automated daily backups of your applications and data", Included: false, Category: "reliability"},
+		{Slug: "custom-domain", Name: "Custom Domain", Description: "Bring your own domain \u2014 DNS configuration with automatic TLS", Included: true, Category: "networking"},
+		{Slug: "api-access", Name: "API Access", Description: "Full REST API for integration, automation, and custom workflows", Included: false, Category: "developer"},
+		{Slug: "dedicated-ip", Name: "Dedicated IP", Description: "Dedicated IPv4 address with reverse DNS (PTR) registration", Included: false, Category: "networking"},
+		{Slug: "waf", Name: "Web Application Firewall", Description: "Block attacks before they reach your apps \u2014 OWASP Core Rule Set", Included: true, Category: "security", App: true},
+		{Slug: "ips", Name: "Intrusion Prevention", Description: "Community-powered threat intelligence \u2014 CrowdSec", Included: true, Category: "security", App: true},
+		{Slug: "vuln-scan", Name: "Vulnerability Scanning", Description: "Find vulnerabilities before attackers do \u2014 Trivy", Included: true, Category: "security", App: true},
+		{Slug: "log-management", Name: "Log Management", Description: "Search and analyze all your app logs \u2014 Grafana Loki", Included: false, Category: "monitoring", App: true},
 	}
 }
 
@@ -347,213 +408,206 @@ func (h *Handler) migrateAppsTo27(ctx context.Context) {
 	h.seedAllData(ctx)
 }
 
-// seedMissingAddOns checks existing add-ons and inserts any that are missing
-// from the expected set. Also updates pricing/included status and removes stale ones.
-func (h *Handler) seedMissingAddOns(ctx context.Context) {
-	existing, err := h.Store.ListAddOns(ctx)
+// addonUpserter is the slice of the store upsertSeedAddOns needs, so the
+// convergence can be proven against an in-memory store without FerretDB.
+type addonUpserter interface {
+	ListAddOns(ctx context.Context) ([]store.AddOn, error)
+	CreateAddOn(ctx context.Context, a *store.AddOn) error
+	UpdateAddOn(ctx context.Context, id string, a *store.AddOn) error
+	DeleteAddOn(ctx context.Context, id string) error
+}
+
+// seedOwnedAddOnFields is the projection of an add-on row the seed OWNS:
+// everything but the row identity. Two rows equal through it need no write.
+func seedOwnedAddOnFields(a store.AddOn) store.AddOn {
+	a.ID = ""
+	a.NormalizePrice()
+	return a
+}
+
+// upsertSeedAddOns converges the live add-on rows onto `want` BY SLUG: a
+// missing slug is created, a row whose seed-owned fields differ (price,
+// description, included, category, app) is rewritten under its ID, a row
+// that matches is left alone, and a row for a slug the seed no longer
+// carries is DELETED — the catalog add-on list is wholly seed-owned (unlike
+// the plan ladder, where an operator-created plan is kept). It runs on every
+// catalog start (SeedIfEmpty → seedMissingAddOns), so the #6971 change — every
+// add-on free, Priority Support withdrawn — reaches an already-seeded
+// Sovereign on its next roll. Idempotent on converged rows.
+func upsertSeedAddOns(ctx context.Context, s addonUpserter, want []store.AddOn) (created, updated, deleted int, err error) {
+	existing, err := s.ListAddOns(ctx)
 	if err != nil {
-		slog.Error("seed: failed to list addons", "error", err)
+		return 0, 0, 0, fmt.Errorf("list addons: %w", err)
+	}
+	bySlug := make(map[string]*store.AddOn, len(existing))
+	for i := range existing {
+		bySlug[existing[i].Slug] = &existing[i]
+	}
+	wanted := make(map[string]bool, len(want))
+	for i := range want {
+		w := want[i]
+		w.NormalizePrice()
+		wanted[w.Slug] = true
+		cur, ok := bySlug[w.Slug]
+		if !ok {
+			if cerr := s.CreateAddOn(ctx, &w); cerr != nil {
+				slog.Error("seed: failed to add missing addon", "slug", w.Slug, "error", cerr)
+				continue
+			}
+			created++
+			slog.Info("seed: added missing addon", "slug", w.Slug)
+			continue
+		}
+		if reflect.DeepEqual(seedOwnedAddOnFields(*cur), seedOwnedAddOnFields(w)) {
+			continue
+		}
+		next := w
+		next.ID = cur.ID
+		if uerr := s.UpdateAddOn(ctx, cur.ID, &next); uerr != nil {
+			slog.Error("seed: failed to update addon", "slug", w.Slug, "error", uerr)
+			continue
+		}
+		updated++
+		slog.Info("seed: updated addon to the seeded row", "slug", w.Slug,
+			"price_baisa", fmt.Sprintf("%d -> %d", cur.PriceBaisa, next.PriceBaisa),
+			"included", next.Included, "app", next.App)
+	}
+	for _, a := range existing {
+		if wanted[a.Slug] {
+			continue
+		}
+		if derr := s.DeleteAddOn(ctx, a.ID); derr != nil {
+			slog.Error("seed: failed to remove stale addon", "slug", a.Slug, "error", derr)
+			continue
+		}
+		deleted++
+		slog.Info("seed: removed stale addon", "slug", a.Slug)
+	}
+	return created, updated, deleted, nil
+}
+
+// seedMissingAddOns converges the add-on rows onto expectedAddOns on every
+// start (upsertSeedAddOns).
+func (h *Handler) seedMissingAddOns(ctx context.Context) {
+	created, updated, deleted, err := upsertSeedAddOns(ctx, h.Store, expectedAddOns())
+	if err != nil {
+		slog.Error("seed: addon convergence failed", "error", err)
 		return
 	}
-
-	slugs := make(map[string]bool)
-	for _, a := range existing {
-		slugs[a.Slug] = true
-	}
-
-	expected := expectedAddOns()
-
-	added := 0
-	for i := range expected {
-		if !slugs[expected[i].Slug] {
-			if err := h.Store.CreateAddOn(ctx, &expected[i]); err != nil {
-				slog.Error("seed: failed to add missing addon", "slug", expected[i].Slug, "error", err)
-			} else {
-				added++
-				slog.Info("seed: added missing addon", "slug", expected[i].Slug)
-			}
-		}
-	}
-	if added > 0 {
-		slog.Info("seed: added missing addons", "count", added)
-	}
-
-	// Update existing addons that have changed pricing/included status.
-	expectedBySlug := make(map[string]store.AddOn)
-	for _, a := range expected {
-		expectedBySlug[a.Slug] = a
-	}
-	for _, a := range existing {
-		if exp, ok := expectedBySlug[a.Slug]; ok {
-			if a.PriceOMR != exp.PriceOMR || a.Included != exp.Included || a.Description != exp.Description {
-				a.PriceOMR = exp.PriceOMR
-				a.Included = exp.Included
-				a.Description = exp.Description
-				if err := h.Store.UpdateAddOn(ctx, a.ID, &a); err != nil {
-					slog.Error("seed: failed to update addon", "slug", a.Slug, "error", err)
-				} else {
-					slog.Info("seed: updated addon", "slug", a.Slug, "price", exp.PriceOMR, "included", exp.Included)
-				}
-			}
-		}
-	}
-
-	// Remove stale addons not in expected list.
-	expectedSlugs := make(map[string]bool)
-	for _, a := range expected {
-		expectedSlugs[a.Slug] = true
-	}
-	for _, a := range existing {
-		if !expectedSlugs[a.Slug] {
-			if err := h.Store.DeleteAddOn(ctx, a.ID); err != nil {
-				slog.Error("seed: failed to remove stale addon", "slug", a.Slug, "error", err)
-			} else {
-				slog.Info("seed: removed stale addon", "slug", a.Slug)
-			}
-		}
+	if created > 0 || updated > 0 || deleted > 0 {
+		slog.Info("seed: addon convergence complete", "created", created, "updated", updated, "deleted", deleted)
 	}
 }
 
-// migratePlans checks the current plan set and migrates from the old
-// XS/S/M/L tiers to the new S/M/L/XL/Flexi tiers if needed.
+// planUpserter is the slice of the store upsertSeedPlans needs, so the
+// convergence can be proven against an in-memory store (seed_plans_upsert_test.go)
+// without FerretDB.
+type planUpserter interface {
+	ListPlans(ctx context.Context) ([]store.Plan, error)
+	CreatePlan(ctx context.Context, p *store.Plan) error
+	UpdatePlan(ctx context.Context, id string, p *store.Plan) error
+}
+
+// seedOwnedPlanFields is the projection of a plan row the seed OWNS: every
+// field except the row identity (ID) and the operator-wired Stripe price id,
+// which the seed never sets and must never erase. Comparing two rows through
+// it decides whether an UpdatePlan is needed.
+func seedOwnedPlanFields(p store.Plan) store.Plan {
+	p.ID = ""
+	p.StripePriceID = ""
+	p.NormalizePrice()
+	if len(p.Features) == 0 {
+		p.Features = nil
+	}
+	if len(p.IncludedQuotas) == 0 {
+		p.IncludedQuotas = nil
+	}
+	return p
+}
+
+// upsertSeedPlans converges the live plan rows onto `want` BY SLUG: a slug
+// with no row is created; a row whose seed-owned fields differ (price, shape,
+// description, features, popularity, order) is rewritten in place, keeping
+// its ID (the plan UUID orders and subscriptions are keyed on) and its
+// StripePriceID; a row that already matches is left alone. Rows for slugs the
+// seed does not know (operator-created plans) are never touched.
+//
+// It runs on EVERY catalog start (SeedIfEmpty → migratePlans), so a price or
+// shape change in seedPlanRows reaches an already-seeded Sovereign on its next
+// roll — this is what carries the National Cloud package numbers (#6971) onto
+// Sovereigns seeded with the previous ladder. Idempotent: a second pass over
+// converged rows writes nothing (created == updated == 0).
+func upsertSeedPlans(ctx context.Context, s planUpserter, want []store.Plan) (created, updated int, err error) {
+	existing, err := s.ListPlans(ctx)
+	if err != nil {
+		return 0, 0, fmt.Errorf("list plans: %w", err)
+	}
+	bySlug := make(map[string]*store.Plan, len(existing))
+	for i := range existing {
+		bySlug[existing[i].Slug] = &existing[i]
+	}
+	for i := range want {
+		w := want[i]
+		w.NormalizePrice()
+		cur, ok := bySlug[w.Slug]
+		if !ok {
+			if cerr := s.CreatePlan(ctx, &w); cerr != nil {
+				slog.Error("seed: failed to create plan", "slug", w.Slug, "error", cerr)
+				continue
+			}
+			created++
+			slog.Info("seed: created plan", "slug", w.Slug, "price_baisa", w.PriceBaisa)
+			continue
+		}
+		if reflect.DeepEqual(seedOwnedPlanFields(*cur), seedOwnedPlanFields(w)) {
+			continue
+		}
+		next := w
+		next.ID = cur.ID
+		next.StripePriceID = cur.StripePriceID
+		if uerr := s.UpdatePlan(ctx, cur.ID, &next); uerr != nil {
+			slog.Error("seed: failed to update plan", "slug", w.Slug, "error", uerr)
+			continue
+		}
+		updated++
+		slog.Info("seed: updated plan to the seeded row", "slug", w.Slug,
+			"price_baisa", fmt.Sprintf("%d -> %d", cur.PriceBaisa, next.PriceBaisa),
+			"cpu", fmt.Sprintf("%q -> %q", cur.CPU, next.CPU),
+			"memory", fmt.Sprintf("%q -> %q", cur.Memory, next.Memory))
+	}
+	return created, updated, nil
+}
+
+// migratePlans converges an existing Sovereign's plan ladder onto
+// seedPlanRows on every start (upsertSeedPlans), after retiring the
+// pre-2026 XS tier the ladder no longer carries. It replaced three ad-hoc
+// passes (the XS→S/M/L/XL rename, a RAM-ratio fixer and a features
+// backfill) that each pinned their own copy of the numbers and could not
+// carry a price change: the seed rows are now the single source and every
+// seed-owned field converges, not only the ones a past migration remembered.
 func (h *Handler) migratePlans(ctx context.Context) {
 	existing, err := h.Store.ListPlans(ctx)
 	if err != nil {
 		slog.Error("seed: failed to list plans for migration", "error", err)
 		return
 	}
-
-	slugs := make(map[string]*store.Plan)
-	for i := range existing {
-		slugs[existing[i].Slug] = &existing[i]
-	}
-
-	// If we already have xl/flexi, just check RAM ratios and features.
-	if _, ok := slugs["xl"]; ok {
-		h.migrateRamRatios(ctx)
-		h.migratePlanFeatures(ctx)
-		return
-	}
-
-	slog.Info("seed: migrating plans from XS/S/M/L to S/M/L/XL/Flexi")
-
-	if xs, ok := slugs["xs"]; ok {
-		if err := h.Store.DeletePlan(ctx, xs.ID); err != nil {
+	for _, p := range existing {
+		if p.Slug != "xs" {
+			continue
+		}
+		if err := h.Store.DeletePlan(ctx, p.ID); err != nil {
 			slog.Error("seed: failed to delete XS plan", "error", err)
 		} else {
 			slog.Info("seed: deleted XS plan")
 		}
 	}
-
-	if s, ok := slugs["s"]; ok {
-		s.Description = "For personal projects and small teams"
-		s.PriceOMR = 5
-		s.SortOrder = 1
-		if err := h.Store.UpdatePlan(ctx, s.ID, s); err != nil {
-			slog.Error("seed: failed to update S plan", "error", err)
-		}
-	}
-
-	if m, ok := slugs["m"]; ok {
-		m.Description = "For growing businesses up to 30 users"
-		m.PriceOMR = 9
-		m.Popular = true
-		m.SortOrder = 2
-		if err := h.Store.UpdatePlan(ctx, m.ID, m); err != nil {
-			slog.Error("seed: failed to update M plan", "error", err)
-		}
-	}
-
-	if l, ok := slugs["l"]; ok {
-		l.Description = "For teams with 30\u2013100 users"
-		l.CPU = "8 vCPU"
-		l.Memory = "16 GB"
-		l.Storage = "100 GB"
-		l.PriceOMR = 16
-		l.SortOrder = 3
-		if err := h.Store.UpdatePlan(ctx, l.ID, l); err != nil {
-			slog.Error("seed: failed to update L plan", "error", err)
-		}
-	}
-
-	xl := store.Plan{Slug: "xl", Name: "XL", Description: "For enterprises with 100+ users", CPU: "16 vCPU", Memory: "32 GB", Storage: "200 GB", PriceOMR: 30, Popular: false, SortOrder: 4}
-	if err := h.Store.CreatePlan(ctx, &xl); err != nil {
-		slog.Error("seed: failed to create XL plan", "error", err)
-	}
-
-	flexi := store.Plan{Slug: "flexi", Name: "Flexi", Description: "Pay as you go \u2014 scale resources on demand", CPU: "On demand", Memory: "On demand", Storage: "On demand", PriceOMR: 0, Popular: false, SortOrder: 5}
-	if err := h.Store.CreatePlan(ctx, &flexi); err != nil {
-		slog.Error("seed: failed to create Flexi plan", "error", err)
-	}
-
-	slog.Info("seed: plan migration complete")
-	h.migrateRamRatios(ctx)
-	h.migratePlanFeatures(ctx)
-}
-
-// migrateRamRatios ensures all plans use the correct 1:2 vCPU:RAM ratio.
-func (h *Handler) migrateRamRatios(ctx context.Context) {
-	existing, err := h.Store.ListPlans(ctx)
+	created, updated, err := upsertSeedPlans(ctx, h.Store, seedPlanRows())
 	if err != nil {
-		slog.Error("seed: failed to list plans for RAM migration", "error", err)
+		slog.Error("seed: plan convergence failed", "error", err)
 		return
 	}
-
-	expectedRam := map[string]string{
-		"s": "4 GB", "m": "8 GB", "l": "16 GB", "xl": "32 GB",
-	}
-
-	updated := 0
-	for i := range existing {
-		want, ok := expectedRam[existing[i].Slug]
-		if !ok || existing[i].Memory == want {
-			continue
-		}
-		existing[i].Memory = want
-		if err := h.Store.UpdatePlan(ctx, existing[i].ID, &existing[i]); err != nil {
-			slog.Error("seed: failed to update RAM ratio", "slug", existing[i].Slug, "error", err)
-		} else {
-			updated++
-			slog.Info("seed: fixed RAM ratio", "slug", existing[i].Slug, "memory", want)
-		}
-	}
-	if updated > 0 {
-		slog.Info("seed: RAM ratio migration complete", "updated", updated)
-	}
-}
-
-// migratePlanFeatures ensures all plans have their features populated.
-func (h *Handler) migratePlanFeatures(ctx context.Context) {
-	existing, err := h.Store.ListPlans(ctx)
-	if err != nil {
-		slog.Error("seed: failed to list plans for features migration", "error", err)
-		return
-	}
-
-	expectedFeatures := map[string][]string{
-		"s":     {"Unlimited apps", "SSO included", "API access", "TLS certificates", "Daily snapshots"},
-		"m":     {"Unlimited apps", "SSO included", "API access", "TLS certificates", "Daily backups", "Priority support", "Custom domain"},
-		"l":     {"Unlimited apps", "SSO included", "API access", "TLS certificates", "Hourly backups", "Priority support", "Custom domain", "WAF/IPS", "Dedicated support"},
-		"xl":    {"Unlimited apps", "SSO included", "API access", "TLS certificates", "Continuous backups", "Priority support", "Custom domain", "WAF/IPS", "Dedicated support", "SLA 99.9%", "Audit logs"},
-		"flexi": {"Unlimited apps", "SSO included", "API access", "TLS certificates", "Pay per use", "Scale on demand"},
-	}
-
-	updated := 0
-	for i := range existing {
-		want, ok := expectedFeatures[existing[i].Slug]
-		if !ok || len(existing[i].Features) > 0 {
-			continue
-		}
-		existing[i].Features = want
-		if err := h.Store.UpdatePlan(ctx, existing[i].ID, &existing[i]); err != nil {
-			slog.Error("seed: failed to update plan features", "slug", existing[i].Slug, "error", err)
-		} else {
-			updated++
-			slog.Info("seed: added features to plan", "slug", existing[i].Slug)
-		}
-	}
-	if updated > 0 {
-		slog.Info("seed: plan features migration complete", "updated", updated)
+	if created > 0 || updated > 0 {
+		slog.Info("seed: plan convergence complete", "created", created, "updated", updated)
 	}
 }
 

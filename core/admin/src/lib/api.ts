@@ -185,7 +185,10 @@ export const getPlans = async (): Promise<Plan[]> => {
   const raw = await request<any[]>('/catalog/plans');
   return raw.map(p => ({
     id: p.id, slug: p.slug || '', name: p.name, description: p.description || '',
-    monthly_price: p.price_omr || 0,
+    // OMR for the admin form, derived from the catalog's authoritative
+    // price_baisa (#6971: 2490 → 2.49); price_omr only when the catalog
+    // predates the baisa field.
+    monthly_price: typeof p.price_baisa === 'number' ? p.price_baisa / 1000 : (p.price_omr || 0),
     resources: { cpu: p.cpu || '', memory: p.memory || '', storage: p.storage || '' },
     popular: p.popular || false, sort_order: p.sort_order || 0,
     features: p.features || [], stripe_price_id: p.stripe_price_id || '',
@@ -217,7 +220,7 @@ export const getAddons = async (): Promise<AddOn[]> => {
   const raw = await request<any[]>('/catalog/addons');
   return raw.map(a => ({
     id: a.id, slug: a.slug || '', name: a.name, description: a.description || '',
-    monthly_price: a.price_omr || 0, included: a.included ?? false,
+    monthly_price: typeof a.price_baisa === 'number' ? a.price_baisa / 1000 : (a.price_omr || 0), included: a.included ?? false,
     category: a.category || '',
   }));
 };

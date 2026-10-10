@@ -124,9 +124,10 @@ the stack is 3840m / 6064Mi of requests and 4550m / 7168Mi of limits before a
 single customer application — larger than the S plan by itself.
 The org-controller now sizes the quota as **plan + vCluster control plane +
 platform stack** (`manifests.go` `platformStack`; requests 3840m / 6064Mi and
-limits 4550m / 7168Mi on S/M/L, 4835m / 8096Mi and 5500m / 9152Mi on XL,
-where the 2-CPU / 4Gi LimitRange default sizes agenity's unsized init
-container above its app containers), and the collector draws the same line:
+limits 4550m / 7168Mi on every plan — under the National Cloud headlines
+(NC-OO-Pricing.xlsx, 2026-06-28: S 1 vCPU / 2 GiB … XL 8 / 16) no plan's
+LimitRange default sizes agenity's unsized init container above its app
+containers), and the collector draws the same line:
 `isPlatformStack` keeps those pods and their labelled PVCs off a customer
 Organization's `k8s.*` meters, by `app.kubernetes.io/instance` ∈
 {bp-keycloak, bp-newapi, bp-openclaw, bp-agenity}, by the chart-fixed
@@ -303,7 +304,7 @@ structurally impossible rather than merely avoided.
 
 | | Committed plan (`s` / `m` / `l` / `xl`) | Pay per use (`flexi`) |
 |---|---|---|
-| What the Organization buys | a fixed shape, enforced by a ResourceQuota (S 2 vCPU / 4 GiB, M 4/8, L 8/16, XL 16/32, all Guaranteed; the namespace quota is that plan **plus** the vCluster control-plane overhead — 520m / 1088Mi requests, 1500m / 1194Mi limits — **plus** the per-Organization platform-stack overhead — 3840m / 6064Mi requests, 4550m / 7168Mi limits on S/M/L; 4835m / 8096Mi and 5500m / 9152Mi on XL — so neither eats the plan (S renders `requests.cpu: 6360m`, `limits.cpu: 8050m`), §2.0a) | nothing fixed: `planQuotaTable` gives flexi no CPU/memory ceiling and Burstable QoS |
+| What the Organization buys | a fixed shape, enforced by a ResourceQuota (the National Cloud packages, NC-OO-Pricing.xlsx 2026-06-28: S 1 vCPU / 2 GiB, M 2/4, L 4/8, XL 8/16 as the headline LIMIT, over a guaranteed REQUEST of headline ÷ 6 CPU / ÷ 3 memory — S 167m / 683Mi, M 334m / 1366Mi, L 667m / 2731Mi, XL 1334m / 5462Mi; the namespace quota is that plan term **plus** the vCluster control-plane overhead — 520m / 1088Mi requests, 1500m / 1194Mi limits — **plus** the per-Organization platform-stack overhead — 3840m / 6064Mi requests, 4550m / 7168Mi limits on every plan — so neither eats the plan (S renders `requests.cpu: 4527m`, `limits.cpu: 7050m`), §2.0a) | nothing fixed: `planQuotaTable` gives flexi no CPU/memory ceiling and Burstable QoS |
 | What the collector emits | one `plan.<slug>` record per hour **plus** the `k8s.*` meters | the `k8s.*` meters only — `billablePlan` returns "" for flexi, so there is no plan line to emit |
 | Which book rates its source | **"OpenOva plans"** | **"Organization PAYG"** |
 | What that book prices | `plan.s` / `plan.m` / `plan.l` / `plan.xl` — the meters are deliberately unpriced | `k8s.vcpu` / `k8s.mem_gb` / `k8s.pvc_gb` — no plan line is priced |

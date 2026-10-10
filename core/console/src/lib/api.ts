@@ -460,7 +460,9 @@ export interface UninstallPreview {
   retained_services: UninstallPreviewService[];
   dependents: string[];
 }
-export interface Plan { id: string; slug: string; name: string; price_omr: number; }
+// price_baisa is the catalog's authoritative price (1 OMR = 1000 baisa, #6971);
+// price_omr is its decimal mirror (4.49). Format money from price_baisa.
+export interface Plan { id: string; slug: string; name: string; price_omr: number; price_baisa?: number; }
 export interface ConfigField {
   key: string;
   label: string;

@@ -1170,15 +1170,48 @@ func last4(s string) string {
 }
 
 // catalogPlan / catalogApp / catalogAddon are minimal subsets of catalog data.
+//
+// A plan's money is price_baisa (#6971: the National Cloud packages are
+// 2.490 / 4.490 / 7.990 / 13.990 OMR, which the old integer price_omr could
+// not carry). price_omr is still on the wire as a decimal mirror, decoded as
+// the float it now is; PlanBaisa() is the only way the amount leaves this
+// struct.
 type catalogPlan struct {
-	ID            string `json:"id"`
-	StripePriceID string `json:"stripe_price_id"`
-	PriceOMR      int    `json:"price_omr"`
+	ID            string  `json:"id"`
+	StripePriceID string  `json:"stripe_price_id"`
+	PriceOMR      float64 `json:"price_omr"`
+	PriceBaisa    int64   `json:"price_baisa"`
 }
+
+// PlanBaisa is the plan's monthly price in baisa. price_baisa is
+// authoritative; a catalog that predates the field (price_omr only, an
+// integer or a decimal) is rounded to the nearest baisa ONCE here — the one
+// float-to-money conversion on the billing side, and only for that older
+// catalog — so the order's money is never a product of float arithmetic
+// downstream.
+func (p catalogPlan) PlanBaisa() int64 {
+	if p.PriceBaisa != 0 {
+		return p.PriceBaisa
+	}
+	return int64(math.Round(p.PriceOMR * 1000))
+}
+
 type catalogAddon struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	PriceOMR int    `json:"price_omr"`
+	ID         string  `json:"id"`
+	Name       string  `json:"name"`
+	PriceOMR   float64 `json:"price_omr"`
+	PriceBaisa int64   `json:"price_baisa"`
+}
+
+// AddonBaisa is the add-on's monthly price in baisa, by the same rule as
+// catalogPlan.PlanBaisa. Every catalog add-on is free since #6971 (the priced
+// add-ons are the BSS `addon.*` SKUs, which never reach this reader); the rule
+// is kept so an older catalog still prices correctly.
+func (a catalogAddon) AddonBaisa() int64 {
+	if a.PriceBaisa != 0 {
+		return a.PriceBaisa
+	}
+	return int64(math.Round(a.PriceOMR * 1000))
 }
 
 // Canonical BCP topology vocabulary (docs/GLOSSARY + catalog store.go #3648)
@@ -1409,11 +1442,11 @@ func (h *Handler) priceFromCatalog(ctx context.Context, req pricingRequest) (*pr
 	if err != nil {
 		return nil, err
 	}
-	var planPrice int
+	var planBaisa int64
 	found := false
 	for _, p := range plans {
 		if p.ID == req.PlanID {
-			planPrice = p.PriceOMR
+			planBaisa = p.PlanBaisa()
 			found = true
 			break
 		}
@@ -1425,7 +1458,7 @@ func (h *Handler) priceFromCatalog(ctx context.Context, req pricingRequest) (*pr
 		Currency:    packages.Currency,
 		PriceSource: store.PriceSourceCatalog,
 		Topology:    req.Topology,
-		PlanBaisa:   store.OMRToBaisa(planPrice),
+		PlanBaisa:   planBaisa,
 		Lines:       h.catalogAddonLines(ctx, req.Addons),
 	}
 	if p.Lines == nil {
@@ -1471,7 +1504,7 @@ func (h *Handler) catalogAddonLines(ctx context.Context, ids []string) []store.O
 		if name == "" {
 			name = id
 		}
-		out = append(out, store.OrderLine{SKU: id, Name: name, AmountBaisa: store.OMRToBaisa(a.PriceOMR)})
+		out = append(out, store.OrderLine{SKU: id, Name: name, AmountBaisa: a.AddonBaisa()})
 	}
 	return out
 }

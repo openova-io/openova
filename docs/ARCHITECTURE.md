@@ -572,6 +572,12 @@ All in `apps.openova.io/v1`, `orgs.openova.io/v1`, `catalyst.openova.io/v1`, or 
 
 The SME marketplace sells packages S/M/L/XL with per-package add-ons
 (Included / Optional / Not offered — the matrix lives in Catalyst BSS). The
+package numbers are the National Cloud workbook's (NC-OO-Pricing.xlsx,
+2026-06-28): S 1 vCPU / 2 GB / 25 GB at 2.490 OMR a month, M 2 / 4 / 50 at
+4.490, L 4 / 8 / 100 at 7.990, XL 8 / 16 / 250 at 13.990 — seeded by the
+catalog (`seedPlanRows`, priced in baisa) and materialised by the
+organization-controller as the Organization's **limit** (the headline) over a
+**guaranteed request** of headline ÷ 6 CPU / ÷ 3 memory (`planQuotaTable`). The
 Organization that a purchase creates records that purchase on itself, as
 **optional fields**, never as a new entity type (`feedback_no_new_entity_types`:
 the model is Sovereign → Organization only):
