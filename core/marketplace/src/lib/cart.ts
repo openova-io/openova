@@ -14,6 +14,16 @@ export interface CartState {
   // the sku travels beside it as `package_sku`. Null when the legacy deck (no
   // BSS) made the choice.
   packageSku: string | null;
+  // #6971 — what happens when the Organization reaches its package, chosen on
+  // /addons ("When you reach your package"). `capped` (the default): the
+  // package is a hard limit. `grow`: resources grow above the allowance up to
+  // `growCeiling` (null = the package's own ceiling from the document) and
+  // the usage above it is billed after the month, optionally bounded by
+  // `spendLimitMonth` ("25.000"). Sent as overage_mode / grow_ceiling /
+  // spend_limit_month on the quote and checkout POSTs.
+  overageMode: 'capped' | 'grow';
+  growCeiling: { vcpu: number; memory_gb: number; disk_gb: number; bandwidth_mbps: number } | null;
+  spendLimitMonth: string | null;
   orgName: string;
   subdomain: string;
   // Parent domain (TLD) chosen on /addons. Persisted across wizard steps
@@ -67,6 +77,9 @@ const defaultCart: CartState = {
   agents: [],
   appConfigs: {},
   packageSku: null,
+  overageMode: 'capped',
+  growCeiling: null,
+  spendLimitMonth: null,
 };
 
 // The 6 agents the Sandbox CRD (sandbox.openova.io/v1) accepts in
@@ -140,10 +153,32 @@ export function setPackage(sel: {
   addons?: string[];
 }): CartState {
   const cart = readCart();
+  // A grow ceiling is a range of ONE package; it does not survive a switch
+  // (the mode and the spend limit do — the steps re-check the mode against
+  // the new package with packages.ts::growSelectionFor).
+  if (cart.packageSku !== sel.packageSku) cart.growCeiling = null;
   cart.plan = sel.planId;
   cart.planName = sel.planName;
   cart.packageSku = sel.packageSku;
   if (sel.addons) cart.addons = [...sel.addons];
+  writeCart(cart);
+  return cart;
+}
+
+/**
+ * #6971 — persist the "When you reach your package" choice. Fields left out
+ * keep their value; `growCeiling: null` means the package's own ceiling and
+ * `spendLimitMonth: null` no limit.
+ */
+export function setOverage(sel: {
+  mode?: CartState['overageMode'];
+  growCeiling?: CartState['growCeiling'];
+  spendLimitMonth?: string | null;
+}): CartState {
+  const cart = readCart();
+  if (sel.mode) cart.overageMode = sel.mode;
+  if (sel.growCeiling !== undefined) cart.growCeiling = sel.growCeiling ? { ...sel.growCeiling } : null;
+  if (sel.spendLimitMonth !== undefined) cart.spendLimitMonth = sel.spendLimitMonth;
   writeCart(cart);
   return cart;
 }

@@ -119,6 +119,25 @@
         {/each}
       </div>
 
+      <!-- #6971 — one light line under the cards: every package can grow
+           (chosen on Add-ons), and — when the document's per-package rates
+           differ — that bigger packages grow cheaper. Absent when no
+           package in the document can grow. -->
+      {#if model.growNote}
+        <div role="row" class="ld-row ld-grow-row">
+          <div role="cell" class="ld-grow-band" aria-colspan={model.cards.length + 1} data-testid="package-grow-note">
+            <span class="ld-grow-inner">
+              <svg class="ld-grow-ico" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg>
+              <strong>{S.grow.plansNote}</strong>
+              <span>{S.grow.plansNoteBody}</span>
+              {#if model.growCheapest}
+                <span class="ld-grow-cheaper" data-testid="package-grow-cheapest">{S.grow.plansCheaper(model.growCheapest.priceMonth, model.currency, model.growCheapest.name)}</span>
+              {/if}
+            </span>
+          </div>
+        </div>
+      {/if}
+
       <!-- The floor, first-class: right under the cards, above the
            comparison — what every package includes, as tiles (icon, name,
            blurb) rendered from the document's `floor` only. A new floor item

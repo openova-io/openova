@@ -75,6 +75,7 @@ describe('quoteRequestFor mirrors the pricing fields of the checkout POST', () =
       addons: ['addon.backup', 'waf'],
       package_sku: 'plan.m',
       topology: 'active-hot-standby',
+      overage_mode: 'capped',
     });
     expect(quoteable(req)).toBe(true);
     // The quote body's addons IS the checkout body's addons — the same array
@@ -147,7 +148,7 @@ describe('ReviewStep and CheckoutStep render their totals from the quote (#6971)
   it('both quote through getQuote with the shared request and bind the total to amount_baisa', () => {
     for (const [name, src] of components) {
       expect(src, `${name} imports getQuote`).toMatch(/\bgetQuote\b/);
-      expect(src, `${name} builds the body with quoteRequestFor(cart)`).toMatch(/quoteRequestFor\(cart\)/);
+      expect(src, `${name} builds the body with quoteRequestFor(cart)`).toMatch(/quoteRequestFor\(cart[,)]/);
       expect(src, `${name} binds the total to the server's amount_baisa`)
         .toMatch(/const totalCost = \$derived\(quote\?\.amount_baisa \?\? 0\);/);
     }

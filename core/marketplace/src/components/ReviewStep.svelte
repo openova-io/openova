@@ -1,12 +1,15 @@
 <script lang="ts">
   import { getPlans, getApps, getAddons, getQuote, type Plan, type App, type AddOn, type QuoteResponse } from '../lib/api';
-  import { readCart, setPlan, setPackage } from '../lib/cart';
+  import { readCart, setPlan, setPackage, setOverage } from '../lib/cart';
   import { formatOMR, formatOMRAmount } from '../lib/currency';
   import { chargebackBaseURL } from '../lib/config';
-  import { documentQuote, quoteRequestFor, quoteable, lineAmountLabel, QUOTE_STRINGS } from '../lib/quote';
+  import { documentQuote, overageSummary, quoteRequestFor, quoteable, lineAmountLabel, QUOTE_STRINGS } from '../lib/quote';
   import {
     catalogPlanIdForPackage,
+    drTopologyFor,
     funnelAddonsFor,
+    growModelFor,
+    growSelectionFor,
     loadPublicPackages,
     packageCapacity,
     packageForCart,
@@ -108,7 +111,9 @@
   let quote = $state<QuoteResponse | null>(null);
   let quoteError = $state<string | null>(null);
   $effect(() => {
-    const req = quoteRequestFor(cart);
+    // With the document in hand the grow fields are made consistent with the
+    // package first (a package that cannot grow is quoted capped).
+    const req = quoteRequestFor(cart, doc);
     if (!quoteable(req)) { quote = null; quoteError = null; return; }
     let stale = false;
     getQuote(req)
@@ -125,6 +130,16 @@
   const docQuote = $derived(documentQuote(doc, cart));
   const shownQuote = $derived(quote ?? (quoteError ? docQuote : null));
   const fromDocument = $derived(!quote && Boolean(shownQuote));
+
+  // #6971 — "When you reach your package", read back: the quote's echo when
+  // it answered (overage_mode / grow_ceiling / spend_limit_month), else the
+  // cart's choice. Shown when the package can grow or the cart chose grow.
+  const canGrow = $derived(Boolean(doc && cart.packageSku && growModelFor(doc, cart.packageSku)));
+  const overage = $derived(overageSummary(shownQuote, cart, doc, formatOMR));
+  // Active-passive on a grow_only package: the standby is usage, not a line.
+  const standbyAsUsage = $derived(
+    overage.mode === 'grow' && Boolean(doc && cart.packageSku && drTopologyFor(doc, cart.packageSku)?.growOnly),
+  );
 
   // --- Per-app resource estimates (MiB RAM, milli-CPU, GiB disk) ---
   const appRam: Record<string, number> = {
@@ -272,6 +287,12 @@
           }
         }
         addons = addonsForCart(ad, d);
+        // A grow choice the package cannot honour (XL, or a package switched
+        // to since) is capped here, so the checkout POST — built from the
+        // cart — carries what this page quoted.
+        if (cart.overageMode === 'grow' && growSelectionFor(d, cart.packageSku, cart).mode === 'capped' && d) {
+          cart = setOverage({ mode: 'capped' });
+        }
         loading = false;
       })
       .catch(() => { loading = false; });
@@ -313,9 +334,26 @@
   function addonImage(a: AddOn): PackageIcon | null {
     return a.image ?? null;
   }
+
+  // The step bar's measured height pads the page (and the document's
+  // scroll-padding), the same as the Add-ons step.
+  let stepBar = $state<HTMLElement | null>(null);
+  let stepBarH = $state(0);
+  $effect(() => {
+    const el = stepBar;
+    if (!el || typeof ResizeObserver !== 'function') return;
+    const measure = () => {
+      stepBarH = Math.ceil(el.getBoundingClientRect().height);
+      document.documentElement.style.scrollPaddingBottom = `${stepBarH + 16}px`;
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => { ro.disconnect(); document.documentElement.style.scrollPaddingBottom = ''; };
+  });
 </script>
 
-<div class="review">
+<div class="review" style={stepBarH > 0 ? `--step-bar-h: ${stepBarH + 16}px` : ''}>
   <h1 class="review-title">Review & launch</h1>
 
   {#if loading}
@@ -508,7 +546,7 @@
             <div class="bcp-summary-head">
               <strong>{hotStandby ? 'Active-hot-standby' : 'Single-region'}</strong>
               <span class="bcp-summary-price {hotStandby ? '' : 'free'}">
-                {hotStandby ? (shownQuote ? (shownQuote.topology_amount_baisa > 0 ? `+${formatOMR(shownQuote.topology_amount_baisa)} / mo` : QUOTE_STRINGS.included) : QUOTE_STRINGS.pending) : 'FREE'}
+                {hotStandby && standbyAsUsage ? PACKAGE_STRINGS.grow.billedAsUsage : hotStandby ? (shownQuote ? (shownQuote.topology_amount_baisa > 0 ? `+${formatOMR(shownQuote.topology_amount_baisa)} / mo` : QUOTE_STRINGS.included) : QUOTE_STRINGS.pending) : 'FREE'}
               </span>
             </div>
             {#if hotStandby}
@@ -526,6 +564,31 @@
             {/if}
           </div>
         </section>
+
+        {#if canGrow || overage.mode === 'grow'}
+          <!-- #6971 — what happens when the Organization reaches its package. -->
+          <section class="rv-section" data-testid="review-overage" data-mode={overage.mode}>
+            <div class="rv-head">
+              <h2>{PACKAGE_STRINGS.grow.title}</h2>
+              <a href="/addons#grow" class="rv-link" data-testid="review-overage-edit">Edit</a>
+            </div>
+            <div class="ov-summary {overage.mode === 'grow' ? 'grow' : ''}">
+              <span class="ov-ico" aria-hidden="true">
+                {#if overage.mode === 'grow'}
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg>
+                {:else}
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8.3-7 9.9-4-1.6-7-5.4-7-9.9V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>
+                {/if}
+              </span>
+              <span class="ov-text">
+                <strong data-testid="review-overage-title">{overage.title}</strong>
+                {#if overage.detail.length > 0}
+                  <span class="ov-detail" data-testid="review-overage-detail">{overage.detail.join(' · ')}</span>
+                {/if}
+              </span>
+            </div>
+          </section>
+        {/if}
 
         <!-- The package and its add-ons, summarised: picked on the Add-ons
              step, so this is a read-back with a way back, not a second picker. -->
@@ -614,6 +677,12 @@
                 </div>
               {/if}
             {/if}
+            {#if overage.mode === 'grow'}
+              <div class="breakdown-row usage" data-testid="review-total-usage">
+                <span class="usage-label">{PACKAGE_STRINGS.grow.sidebarUsage}<small>{PACKAGE_STRINGS.grow.sidebarUsageValue}</small></span>
+                <span>{PACKAGE_STRINGS.grow.sidebarUsagePer}</span>
+              </div>
+            {/if}
           </div>
           <div class="total-row">
             <span>Total</span>
@@ -632,14 +701,26 @@
       </aside>
     </div>
 
-    <div class="float-nav">
-      <a href="/bcp" class="float-back">&larr; Topology</a>
-    </div>
   {/if}
 </div>
 
+<!-- The step bar, docked like every other step's: the page is padded by its
+     measured height, so it never covers the last row (the floating
+     "← Topology" pill used to sit over the last add-on line). -->
+<div class="step-bar" data-testid="step-bar" bind:this={stepBar}>
+  <div class="step-bar-inner">
+    <a href="/bcp" class="step-back" data-testid="review-back">&larr; Topology</a>
+    <a href="/checkout" class="step-cta">Checkout &rarr;</a>
+  </div>
+</div>
+
 <style>
-  .review { max-width: 1100px; margin: 0 auto; padding: 0.5rem 1.25rem 4.5rem; }
+  .review {
+    --step-bar-h: 4.5rem;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0.5rem 1.25rem calc(var(--step-bar-h) + env(safe-area-inset-bottom, 0px));
+  }
   .review-title {
     font-size: clamp(1.2rem, 2.2vw, 1.5rem);
     color: var(--color-text-strong);
@@ -975,30 +1056,72 @@
   }
   .checkout-cta:hover { filter: brightness(0.9); }
 
-  /* Floating nav pill */
-  .float-nav {
+  /* #6971 — "When you reach your package", read back */
+  .ov-summary {
+    display: flex; align-items: flex-start; gap: 0.65rem;
+    padding: 0.65rem 0.8rem;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+  }
+  .ov-summary.grow {
+    border-color: color-mix(in srgb, var(--color-success) 35%, var(--color-border));
+    background: color-mix(in srgb, var(--color-success) 5%, var(--color-bg));
+  }
+  .ov-ico {
+    display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+    width: 28px; height: 28px; border-radius: 8px;
+    color: var(--color-accent); background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  }
+  .ov-summary.grow .ov-ico { color: var(--color-success); background: color-mix(in srgb, var(--color-success) 13%, transparent); }
+  .ov-ico svg { width: 16px; height: 16px; }
+  .ov-text { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+  .ov-text strong { color: var(--color-text-strong); font-size: 0.88rem; }
+  .ov-detail { color: var(--color-text-dim); font-size: 0.76rem; line-height: 1.45; }
+  .breakdown-row.usage span:last-child { color: var(--color-success); font-weight: 600; white-space: nowrap; }
+  .usage-label { display: flex; flex-direction: column; }
+  .usage-label small { color: var(--color-text-dimmer); font-size: 0.7rem; }
+
+  /* The step bar — the same chrome as the Add-ons and Topology steps. */
+  .step-bar {
     position: fixed;
-    bottom: 1.25rem;
-    left: 50%;
-    transform: translateX(-50%);
+    left: 0;
+    right: 0;
+    bottom: 0;
     z-index: 100;
+    padding: 0.6rem 1.25rem calc(0.6rem + env(safe-area-inset-bottom, 0px));
+    background: color-mix(in srgb, var(--color-surface) 96%, transparent);
+    backdrop-filter: blur(12px);
+    border-top: 1px solid var(--color-border);
+    box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.08);
+  }
+  .step-bar-inner {
+    max-width: 1100px;
+    margin: 0 auto;
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    background: color-mix(in srgb, var(--color-surface) 95%, transparent);
-    backdrop-filter: blur(12px);
-    border: 1px solid var(--color-border);
-    border-radius: 999px;
-    padding: 0.35rem 0.4rem 0.35rem 0.6rem;
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+    justify-content: space-between;
+    gap: 0.75rem;
   }
-  .float-back {
+  .step-back {
     color: var(--color-text-dim);
     text-decoration: none;
-    font-size: 0.82rem;
+    font-size: 0.85rem;
     font-weight: 500;
-    padding: 0.4rem 0.6rem;
+    padding: 0.4rem 0.2rem;
     white-space: nowrap;
   }
-  .float-back:hover { color: var(--color-text-strong); }
+  .step-back:hover { color: var(--color-text-strong); }
+  .step-cta {
+    padding: 0.6rem 1.5rem;
+    background: var(--color-accent);
+    color: #fff;
+    border-radius: 999px;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.88rem;
+    white-space: nowrap;
+    box-shadow: 0 2px 8px color-mix(in srgb, var(--color-accent) 25%, transparent);
+  }
+  .step-cta:hover { filter: brightness(0.9); }
 </style>

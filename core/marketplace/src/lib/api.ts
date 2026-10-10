@@ -675,15 +675,47 @@ export interface CheckoutRequest {
   // → 422); catalog ids keep catalog pricing. Without it the order is
   // catalog-priced as before.
   package_sku?: string;
+  // #6971 — the grow choice (see OverageFields).
+  overage_mode?: 'capped' | 'grow';
+  grow_ceiling?: GrowCeilingBody;
+  spend_limit_month?: string;
+}
+
+/** A grow ceiling on the wire: each ≥ the package's allowance, ≤ its grow ceiling. */
+export interface GrowCeilingBody {
+  vcpu: number;
+  memory_gb: number;
+  disk_gb: number;
+  bandwidth_mbps: number;
+}
+
+/**
+ * #6971 — what happens when the Organization reaches its package. `capped`
+ * (the default) keeps the package a hard limit; `grow` lets it grow up to
+ * `grow_ceiling` (omitted = the package's own) with the usage above the
+ * allowance billed after the month, bounded by `spend_limit_month` when set.
+ */
+export interface OverageFields {
+  overage_mode?: 'capped' | 'grow';
+  grow_ceiling?: GrowCeilingBody;
+  spend_limit_month?: string;
 }
 
 /** The body `POST /billing/quote` prices — the checkout body minus the order. */
-export interface QuoteRequest {
+export interface QuoteRequest extends OverageFields {
   plan_id: string;
   apps?: string[];
   addons: string[];
   package_sku?: string;
   topology?: string;
+}
+
+/** An overage rate the quote echoes (the document's `overage_rates[]` entry). */
+export interface QuoteOverageRate {
+  key: string;
+  sku: string;
+  unit: string;
+  price_month: string;
 }
 
 /** One priced add-on (a BSS `addon.*` SKU or a catalog add-on id). */
@@ -713,6 +745,11 @@ export interface QuoteResponse {
   lines: QuoteLine[];
   amount_baisa: number;
   amount_omr: number;
+  /** #6971 — echoed: the mode priced, the ceiling it carries, the rates the usage is billed at. */
+  overage_mode?: 'capped' | 'grow';
+  grow_ceiling?: GrowCeilingBody;
+  spend_limit_month?: string;
+  overage_rates?: QuoteOverageRate[];
 }
 
 // #6971 — the checkout response carries the priced lines the order row

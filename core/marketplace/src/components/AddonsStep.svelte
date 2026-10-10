@@ -1,20 +1,31 @@
 <script lang="ts">
   import { getAddons, getApps, getPlans, checkSlug, type AddOn, type App, type Plan } from '../lib/api';
-  import { readCart, toggleAddon, setOrgDetails, setPackage, setTLD, writeCart, DEFAULT_TLD } from '../lib/cart';
+  import { readCart, toggleAddon, setOrgDetails, setPackage, setTLD, setOverage, setAppConfig, writeCart, DEFAULT_TLD } from '../lib/cart';
   import { formatOMR } from '../lib/currency';
   import { chargebackBaseURL } from '../lib/config';
   import {
     addonsLadderFor,
     catalogPlanIdForPackage,
+    clampGrowCeiling,
+    drTopologyFor,
     funnelAddonsFor,
+    growModelFor,
+    growSelectionFor,
+    growUpgradeHint,
     isLadderDocument,
+    isPackageCeiling,
     loadPublicPackages,
+    minorUnits,
+    normalizeSpendLimit,
     packageForCart,
     pruneAddonsForPackage,
+    stepGrow,
     stepUpHint,
     PACKAGE_STRINGS as PS,
     type AddonsLadder,
+    type GrowDim,
     type IncludedFeature,
+    type OverageMode,
     type PublicPackages,
   } from '../lib/packages';
 
@@ -200,6 +211,66 @@
 
   function toggle(id: string) {
     cart = toggleAddon(id);
+  }
+
+  // #6971 — "When you reach your package": Capped (the default; the bill never
+  // exceeds the package + add-ons) or Grow with me (usage above the allowance
+  // billed after the month at the package's own rates, up to a ceiling, with
+  // an optional monthly spend limit). Everything shown comes from the
+  // document: the rates, the allowance, the ceiling, the "the next package is
+  // cheaper" arithmetic. No grow on the package (or no document) → no block,
+  // and the order stays capped.
+  const cartSku = $derived(doc ? packageForCart(doc, cart)?.sku ?? null : null);
+  const growModel = $derived(doc && cartSku ? growModelFor(doc, cartSku) : null);
+  const growSel = $derived(growSelectionFor(doc, cartSku, cart));
+  const growMode = $derived<OverageMode>(growSel.mode);
+  const shownCeiling = $derived(growModel ? (growSel.ceiling ?? growModel.ceiling) : null);
+  const growHint = $derived(doc && cartSku && growModel ? growUpgradeHint(doc, cartSku) : null);
+  // What "Capped" promises: the package + the ticked add-ons, from the
+  // document's own prices (the quote on Review is the billed figure).
+  const cappedBaisa = $derived(
+    (doc && cartSku ? minorUnits(doc.packages.find(p => p.sku === cartSku)?.price_month) : 0) + tickedBaisa,
+  );
+  let spendText = $state(cart.spendLimitMonth ?? '');
+  let spendError = $state(false);
+
+  function chooseMode(mode: OverageMode) {
+    cart = setOverage({ mode });
+    // Active-passive on a package where it exists only with Grow cannot stay
+    // in the cart once the customer goes back to Capped.
+    if (mode === 'capped' && doc && cartSku && drTopologyFor(doc, cartSku)?.growOnly) {
+      const pg = (cart.appConfigs ?? {}).postgres ?? {};
+      if (pg.active_hot_standby) {
+        const next: Record<string, number | string | boolean> = { ...pg, active_hot_standby: false };
+        delete (next as Record<string, unknown>).primary_region;
+        delete (next as Record<string, unknown>).replica_region;
+        cart = setAppConfig('postgres', next);
+      }
+    }
+  }
+
+  function stepCeiling(dim: GrowDim, direction: 1 | -1) {
+    if (!growModel || !shownCeiling) return;
+    const next = clampGrowCeiling(growModel, { ...shownCeiling, [dim.key]: stepGrow(dim, shownCeiling[dim.key], direction) });
+    cart = setOverage({ growCeiling: isPackageCeiling(growModel, next) ? null : next });
+  }
+
+  function onSpendInput(value: string) {
+    spendText = value;
+    const n = normalizeSpendLimit(value);
+    spendError = n === undefined;
+    if (n !== undefined) cart = setOverage({ spendLimitMonth: n });
+  }
+  function onSpendBlur() {
+    const n = normalizeSpendLimit(spendText);
+    if (typeof n === 'string') spendText = n;
+  }
+
+  function rateLine(r: { price_month: string; key: string }): string {
+    return PS.grow.rateLine(r.price_month, doc?.currency ?? 'OMR', PS.grow.unitWord[r.key as keyof typeof PS.grow.unitWord] ?? r.key);
+  }
+  function hintExtra(h: NonNullable<typeof growHint>): string {
+    return PS.grow.upgradeExtra(h.deltas.map(d => PS.grow.upgradeDelta(d.delta, d.unit)));
   }
 
   function saveSubdomain() {
@@ -480,6 +551,138 @@
         </div>
       {/if}
     </section>
+
+    {#if growModel && shownCeiling}
+      <!-- #6971 — "When you reach your package": the package is a monthly
+           allowance; Capped keeps it a hard limit, Grow lets it grow and bills
+           the usage above it after the month. Every number is the document's. -->
+      <section class="ao-section grow-section" id="grow" data-testid="addons-grow" data-mode={growMode}>
+        <div class="ao-head">
+          <h2>{PS.grow.title}</h2>
+          <span class="ao-note">{PS.grow.hint}</span>
+        </div>
+        <div class="mode-grid" role="radiogroup" aria-label={PS.grow.title}>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={growMode === 'capped'}
+            class="mode-card {growMode === 'capped' ? 'on' : ''}"
+            data-testid="mode-capped"
+            onclick={() => chooseMode('capped')}
+          >
+            <span class="mode-top">
+              <span class="mode-ico" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8.3-7 9.9-4-1.6-7-5.4-7-9.9V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>
+              </span>
+              <strong class="mode-title">{PS.grow.cappedTitle}</strong>
+              <span class="mode-tag">{PS.grow.cappedTag}</span>
+              <span class="mode-dot" aria-hidden="true"></span>
+            </span>
+            <span class="mode-body" data-testid="mode-capped-body">{PS.grow.cappedBody(formatOMR(cappedBaisa))}</span>
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={growMode === 'grow'}
+            class="mode-card grow {growMode === 'grow' ? 'on' : ''}"
+            data-testid="mode-grow"
+            onclick={() => chooseMode('grow')}
+          >
+            <span class="mode-top">
+              <span class="mode-ico" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg>
+              </span>
+              <strong class="mode-title">{PS.grow.growTitle}</strong>
+              <span class="mode-tag">{PS.grow.growTag}</span>
+              <span class="mode-dot" aria-hidden="true"></span>
+            </span>
+            <span class="mode-body">{PS.grow.growBody}</span>
+            <span class="mode-rates" data-testid="mode-grow-rates">
+              {#each growModel.rates.slice(0, 2) as r (r.key)}<span>{rateLine(r)}</span>{/each}
+            </span>
+          </button>
+        </div>
+
+        {#if growMode === 'grow'}
+          <div class="grow-panel" data-testid="grow-panel">
+            <div class="grow-block">
+              <span class="grow-label">{PS.grow.ratesOn(growModel.packageName)}</span>
+              <ul class="grow-rates" data-testid="grow-rates">
+                {#each growModel.rates as r (r.key)}
+                  <li class="grow-rate" data-testid="grow-rate-{r.key}" data-price={r.price_month}>
+                    <span class="grow-rate-name">{PS.grow.rateName[r.key]}</span>
+                    <span class="grow-rate-val"><strong>+{r.price_month} {doc?.currency ?? 'OMR'}</strong> <small>per extra {PS.grow.unitWord[r.key]} / mo</small></span>
+                  </li>
+                {/each}
+              </ul>
+            </div>
+
+            <div class="grow-block">
+              <span class="grow-label">{PS.grow.ceilingTitle}</span>
+              <p class="grow-sub">{PS.grow.ceilingHint(growModel.packageName)}</p>
+              <div class="grow-steppers">
+                {#each growModel.dims as d (d.key)}
+                  {@const v = shownCeiling[d.key]}
+                  <div class="stepper-row" data-testid="grow-ceiling-row-{d.key}">
+                    <span class="stepper-name">
+                      <strong>{d.label}</strong>
+                      <small>{PS.grow.included(d.allowance, d.unit)}</small>
+                    </span>
+                    <span class="stepper">
+                      <button type="button" class="step-btn" aria-label={PS.grow.decrease(d.label)} data-testid="grow-step-{d.key}-dec" disabled={v <= d.allowance} onclick={() => stepCeiling(d, -1)}>&minus;</button>
+                      <output class="step-val" data-testid="grow-ceiling-{d.key}" data-value={v}>{v} <small>{d.unit}</small></output>
+                      <button type="button" class="step-btn" aria-label={PS.grow.increase(d.label)} data-testid="grow-step-{d.key}-inc" disabled={v >= d.max} onclick={() => stepCeiling(d, 1)}>+</button>
+                    </span>
+                    <span class="stepper-bar" aria-hidden="true">
+                      <span style="width: {d.max > d.allowance ? ((v - d.allowance) / (d.max - d.allowance)) * 100 : 0}%"></span>
+                    </span>
+                  </div>
+                {/each}
+              </div>
+            </div>
+
+            <div class="grow-block">
+              <label class="grow-label" for="grow-spend">{PS.grow.spendTitle} <span class="grow-optional">({PS.grow.spendOptional})</span></label>
+              <div class="spend-row">
+                <span class="spend-cur">{doc?.currency ?? 'OMR'}</span>
+                <input
+                  id="grow-spend"
+                  type="text"
+                  inputmode="decimal"
+                  placeholder="25.000"
+                  class="spend-input {spendError ? 'invalid' : ''}"
+                  data-testid="grow-spend"
+                  aria-invalid={spendError}
+                  bind:value={spendText}
+                  oninput={(e) => onSpendInput(e.currentTarget.value)}
+                  onblur={onSpendBlur}
+                />
+                <span class="spend-per">{PS.perMonth}</span>
+              </div>
+              <p class="grow-sub {spendError ? 'err' : ''}" data-testid="grow-spend-hint">{spendError ? PS.grow.spendInvalid : PS.grow.spendHint}</p>
+            </div>
+
+            {#if growModel.unlocksDr}
+              <p class="grow-dr" data-testid="grow-dr-note">{PS.grow.drUnlocked}</p>
+            {/if}
+          </div>
+        {/if}
+
+        {#if growHint}
+          <!-- The upgrade is the better deal when growth is regular: computed
+               from the document, shown only when it is true. -->
+          <div class="grow-upgrade" data-testid="grow-upgrade" data-next={growHint.nextSku} data-grown={growHint.grownBaisa}>
+            <div class="grow-upgrade-body">
+              <strong>{PS.grow.upgradeTitle(hintExtra(growHint), growHint.nextName)}</strong>
+              <p>{PS.grow.upgradeBody(growModel.packageName, formatOMR(growHint.grownBaisa), growHint.nextName, formatOMR(growHint.nextPriceBaisa))}</p>
+            </div>
+            <button type="button" class="grow-upgrade-cta" data-testid="grow-upgrade-switch" onclick={() => switchPackage(growHint!.nextSku)}>
+              {PS.grow.upgradeCta(growHint.nextName)} &rarr;
+            </button>
+          </div>
+        {/if}
+      </section>
+    {/if}
 
     {#if ladder && ladder.missing.length > 0}
       <!-- #6971, v2 — block C: what this package does not have, and the rung
@@ -784,6 +987,165 @@
   .rt-sep { color: var(--color-text-dimmer); }
   .rt-total { color: var(--color-text-strong); font-size: 1.05rem; font-weight: 800; margin-left: auto; }
   .rt-total small { color: var(--color-text-dim); font-size: 0.72rem; font-weight: 600; }
+
+  /* #6971 — "When you reach your package": two radio cards, the grow panel */
+  .grow-section { scroll-margin-top: 5rem; }
+  .mode-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.6rem;
+  }
+  @media (max-width: 640px) { .mode-grid { grid-template-columns: 1fr; } }
+  .mode-card {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.45rem;
+    padding: 0.9rem 1rem 1rem;
+    background: var(--color-bg);
+    border: 1.5px solid var(--color-border);
+    border-radius: 12px;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+  }
+  .mode-card:hover { border-color: var(--color-text-dim); }
+  .mode-card:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+  .mode-card.on {
+    border-color: var(--color-accent);
+    background: color-mix(in srgb, var(--color-accent) 6%, var(--color-bg));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 16%, transparent);
+  }
+  .mode-card.grow.on {
+    border-color: var(--color-success);
+    background: color-mix(in srgb, var(--color-success) 6%, var(--color-bg));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-success) 16%, transparent);
+  }
+  .mode-top { display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap; }
+  .mode-ico {
+    display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+    width: 32px; height: 32px; border-radius: 9px;
+    color: var(--color-accent);
+    background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  }
+  .mode-card.grow .mode-ico { color: var(--color-success); background: color-mix(in srgb, var(--color-success) 13%, transparent); }
+  .mode-ico svg { width: 18px; height: 18px; }
+  .mode-title { color: var(--color-text-strong); font-size: 0.98rem; font-weight: 700; }
+  .mode-tag {
+    padding: 0.1rem 0.45rem; border-radius: 999px;
+    font-size: 0.66rem; font-weight: 600;
+    color: var(--color-text-dim);
+    background: color-mix(in srgb, var(--color-text) 8%, transparent);
+  }
+  .mode-dot {
+    margin-left: auto; flex-shrink: 0;
+    width: 18px; height: 18px; border-radius: 999px;
+    border: 1.5px solid var(--color-border-strong, var(--color-border));
+  }
+  .mode-card.on .mode-dot { border: 5px solid var(--color-accent); }
+  .mode-card.grow.on .mode-dot { border-color: var(--color-success); }
+  .mode-body { color: var(--color-text); font-size: 0.8rem; line-height: 1.45; }
+  .mode-rates { display: flex; flex-wrap: wrap; gap: 0.25rem 0.8rem; color: var(--color-text-dim); font-size: 0.74rem; font-weight: 600; }
+
+  .grow-panel {
+    margin-top: 0.75rem;
+    padding: 0.9rem 1rem;
+    border: 1px solid color-mix(in srgb, var(--color-success) 30%, var(--color-border));
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--color-success) 4%, var(--color-bg));
+    display: grid;
+    gap: 1rem;
+  }
+  .grow-block { display: flex; flex-direction: column; gap: 0.4rem; min-width: 0; }
+  .grow-label { color: var(--color-text-strong); font-size: 0.84rem; font-weight: 600; }
+  .grow-optional { color: var(--color-text-dim); font-weight: 400; }
+  .grow-sub { margin: 0; color: var(--color-text-dim); font-size: 0.74rem; line-height: 1.4; }
+  .grow-sub.err { color: var(--color-danger); }
+  .grow-rates {
+    list-style: none; margin: 0; padding: 0;
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.4rem;
+  }
+  @media (max-width: 760px) { .grow-rates { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .grow-rate {
+    display: flex; flex-direction: column; gap: 0.1rem;
+    padding: 0.5rem 0.65rem;
+    border: 1px solid var(--color-border); border-radius: 8px;
+    background: var(--color-surface);
+  }
+  .grow-rate-name { color: var(--color-text-dim); font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+  .grow-rate-val { display: flex; flex-direction: column; gap: 0.05rem; }
+  .grow-rate-val strong { color: var(--color-text-strong); font-size: 0.95rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .grow-rate-val small { color: var(--color-text-dim); font-size: 0.7rem; line-height: 1.3; }
+  .grow-steppers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; }
+  @media (max-width: 640px) { .grow-steppers { grid-template-columns: 1fr; } }
+  .stepper-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 0.3rem 0.6rem;
+    padding: 0.55rem 0.7rem 0.6rem;
+    border: 1px solid var(--color-border); border-radius: 8px;
+    background: var(--color-surface);
+  }
+  .stepper-name { display: flex; flex-direction: column; min-width: 0; }
+  .stepper-name strong { color: var(--color-text-strong); font-size: 0.82rem; }
+  .stepper-name small { color: var(--color-text-dim); font-size: 0.7rem; }
+  .stepper { display: inline-flex; align-items: center; border: 1px solid var(--color-border); border-radius: 8px; overflow: hidden; }
+  .step-btn {
+    width: 32px; height: 32px;
+    border: 0; background: var(--color-bg); color: var(--color-text-strong);
+    font: inherit; font-size: 1.05rem; font-weight: 600; cursor: pointer;
+  }
+  .step-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--color-accent) 10%, var(--color-bg)); }
+  .step-btn:disabled { color: var(--color-text-dimmer); cursor: not-allowed; opacity: 0.55; }
+  .step-btn:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+  .step-val {
+    min-width: 5.2rem; text-align: center;
+    color: var(--color-text-strong); font-size: 0.85rem; font-weight: 700; font-variant-numeric: tabular-nums;
+    border-left: 1px solid var(--color-border); border-right: 1px solid var(--color-border);
+    padding: 0 0.4rem; line-height: 32px;
+  }
+  .step-val small { color: var(--color-text-dim); font-weight: 500; font-size: 0.7rem; }
+  .stepper-bar { grid-column: 1 / -1; height: 4px; border-radius: 999px; background: color-mix(in srgb, var(--color-text) 9%, transparent); overflow: hidden; }
+  .stepper-bar span { display: block; height: 100%; background: var(--color-success); border-radius: 999px; transition: width 0.15s; }
+  .spend-row {
+    display: inline-flex; align-items: center; max-width: 260px;
+    border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-surface);
+  }
+  .spend-row:focus-within { outline: 2px solid var(--color-accent); border-color: transparent; }
+  .spend-cur, .spend-per { color: var(--color-text-dim); font-size: 0.78rem; padding: 0 0.6rem; white-space: nowrap; }
+  .spend-input {
+    flex: 1; min-width: 0; width: 7rem;
+    padding: 0.5rem 0.2rem;
+    border: 0; outline: none; background: transparent;
+    color: var(--color-text-strong); font: inherit; font-size: 0.88rem; font-weight: 600; font-variant-numeric: tabular-nums;
+  }
+  .spend-input.invalid { color: var(--color-danger); }
+  .grow-dr {
+    margin: 0; padding: 0.5rem 0.7rem; border-radius: 8px;
+    color: var(--color-text); font-size: 0.76rem;
+    background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+  }
+  .grow-upgrade {
+    display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+    margin-top: 0.75rem; padding: 0.8rem 1rem;
+    border: 1.5px dashed color-mix(in srgb, var(--color-warn, #f59e0b) 70%, var(--color-border));
+    background: color-mix(in srgb, var(--color-warn, #f59e0b) 8%, var(--color-bg));
+    border-radius: 10px;
+  }
+  .grow-upgrade-body { flex: 1; min-width: 0; }
+  .grow-upgrade-body strong { display: block; color: var(--color-text-strong); font-size: 0.88rem; }
+  .grow-upgrade-body p { margin: 0.2rem 0 0; color: var(--color-text-dim); font-size: 0.76rem; line-height: 1.45; }
+  .grow-upgrade-cta {
+    flex-shrink: 0; padding: 0.5rem 0.95rem;
+    border: 1.5px solid var(--color-accent); border-radius: 7px;
+    background: transparent; color: var(--color-accent);
+    font: inherit; font-size: 0.8rem; font-weight: 700; cursor: pointer; white-space: nowrap;
+  }
+  .grow-upgrade-cta:hover { background: color-mix(in srgb, var(--color-accent) 10%, transparent); }
+  @media (max-width: 640px) { .grow-upgrade { flex-direction: column; align-items: stretch; } }
 
   /* #6971, v2 — block C */
   .missing-tile { cursor: default; opacity: 0.92; }
