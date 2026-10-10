@@ -241,7 +241,7 @@ describe('DR topology a package does not have at all (DR only on XL)', () => {
     const f = r.features.find((x: any) => x.key === 'dr_topology');
     for (const sku of ['plan.s', 'plan.m', 'plan.l']) f.cells[sku] = { state: 'not_offered', included_from: 'plan.xl' };
     const doc = parsePublicPackages(r, DOC_URL)!;
-    expect(drTopologyFor(doc, 'plan.m')).toEqual({ level: -1, label: '—', activePassive: false, activePassiveFrom: { sku: 'plan.xl', name: 'XL' } });
+    expect(drTopologyFor(doc, 'plan.m')).toEqual({ level: -1, label: '—', activePassive: false, activePassiveFrom: { sku: 'plan.xl', name: 'XL' }, growOnly: false });
     expect(drTopologyFor(doc, 'plan.xl')!.activePassive).toBe(true);
     // The matrix renders the dash for those cells.
     const row = buildLadder(doc).groups.flatMap(g => g.rows).find(x => x.key === 'dr_topology')!;

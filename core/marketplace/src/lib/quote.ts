@@ -16,8 +16,16 @@
 // components do no arithmetic on money.
 
 import type { CartState } from './cart';
-import type { QuoteLine, QuoteRequest, QuoteResponse } from './api';
-import { drTopologyFor, minorUnits, PACKAGE_STRINGS, type PublicPackages } from './packages';
+import type { OverageFields, QuoteLine, QuoteRequest, QuoteResponse } from './api';
+import {
+  drTopologyFor,
+  growCeilingLine,
+  growModelFor,
+  growSelectionFor,
+  minorUnits,
+  PACKAGE_STRINGS,
+  type PublicPackages,
+} from './packages';
 
 export type Topology = 'single-region' | 'active-hot-standby';
 
@@ -49,14 +57,69 @@ export function topologyFor(cart: CartState): Topology {
  * same list), the package sku and the topology. Keeping them identical is
  * what makes the quoted total the billed total.
  */
-export function quoteRequestFor(cart: CartState): QuoteRequest {
+export function quoteRequestFor(cart: CartState, doc: PublicPackages | null = null): QuoteRequest {
   return {
     plan_id: cart.plan || '',
     apps: cart.apps || [],
     addons: [...(cart.addons || [])],
     package_sku: cart.packageSku || undefined,
     topology: topologyFor(cart),
+    ...overageFieldsFor(cart, doc),
   };
+}
+
+/**
+ * The grow choice as the quote and checkout bodies carry it: `overage_mode`
+ * always ("capped" by default), `grow_ceiling` and `spend_limit_month` only
+ * in grow mode and only when set. With the document in hand the choice is
+ * first made consistent with the package (growSelectionFor: a package that
+ * cannot grow is capped, a ceiling is clamped into its range); without it
+ * the cart's values go as the Add-ons step wrote them.
+ */
+export function overageFieldsFor(cart: CartState, doc: PublicPackages | null = null): OverageFields {
+  if (doc) {
+    const sel = growSelectionFor(doc, cart.packageSku, cart);
+    if (sel.mode !== 'grow') return { overage_mode: 'capped' };
+    return {
+      overage_mode: 'grow',
+      ...(sel.ceiling ? { grow_ceiling: { ...sel.ceiling } } : {}),
+      ...(sel.spendLimit ? { spend_limit_month: sel.spendLimit } : {}),
+    };
+  }
+  if (cart.overageMode !== 'grow') return { overage_mode: 'capped' };
+  return {
+    overage_mode: 'grow',
+    ...(cart.growCeiling ? { grow_ceiling: { ...cart.growCeiling } } : {}),
+    ...(cart.spendLimitMonth ? { spend_limit_month: cart.spendLimitMonth } : {}),
+  };
+}
+
+/**
+ * The Review / Checkout line for the mode, from the quote's echo when it has
+ * one, else from the cart: "Capped at OMR 6.490 / mo", or "Grow with me" with
+ * the ceiling, the spend limit and how the usage is billed.
+ */
+export function overageSummary(
+  quote: QuoteResponse | null,
+  cart: CartState,
+  doc: PublicPackages | null,
+  format: (baisa: number) => string,
+): { mode: 'capped' | 'grow'; title: string; detail: string[] } {
+  const S = PACKAGE_STRINGS.grow;
+  const fields = overageFieldsFor(cart, doc);
+  const mode = quote?.overage_mode ?? fields.overage_mode ?? 'capped';
+  if (mode !== 'grow') {
+    return { mode: 'capped', title: quote ? S.reviewCapped(format(quote.amount_baisa)) : S.cappedTitle, detail: [] };
+  }
+  const ceiling = quote?.grow_ceiling ?? fields.grow_ceiling
+    ?? (doc && cart.packageSku ? growModelFor(doc, cart.packageSku)?.ceiling : undefined);
+  const spend = quote?.spend_limit_month ?? fields.spend_limit_month;
+  const currency = quote?.currency ?? doc?.currency ?? 'OMR';
+  const detail: string[] = [];
+  if (ceiling) detail.push(S.reviewUpTo(growCeilingLine(ceiling)));
+  detail.push(spend ? S.reviewSpend(`${currency} ${spend}`) : S.reviewNoSpend);
+  detail.push(S.reviewBilled);
+  return { mode: 'grow', title: S.reviewGrow, detail };
 }
 
 /** A cart with neither a plan nor a package has nothing to price. */
@@ -112,10 +175,18 @@ export function documentQuote(doc: PublicPackages | null, cart: CartState): Quot
     lines.push(line);
   }
   const topology = topologyFor(cart);
-  if (topology === 'active-hot-standby' && !drTopologyFor(doc, pkg.sku)?.activePassive) return null;
+  const overage = overageFieldsFor(cart, doc);
+  if (topology === 'active-hot-standby') {
+    // Included on the package, or — on a grow_only cell — in grow mode, the
+    // standby billed as usage after the month (nothing on the monthly total).
+    const dr = drTopologyFor(doc, pkg.sku);
+    if (!dr?.activePassive && !(dr?.growOnly && overage.overage_mode === 'grow')) return null;
+  }
   const plan = minorUnits(pkg.price_month);
   const total = plan + lines.reduce((s, l) => s + l.amount_baisa, 0);
   return {
+    ...overage,
+    ...(overage.overage_mode === 'grow' && pkg.grow ? { overage_rates: pkg.grow.overage_rates.map(r => ({ ...r })) } : {}),
     currency: doc.currency,
     price_source: `document:${doc.price_book ?? ''}@${doc.prices_as_of ?? ''}`,
     package_sku: pkg.sku,

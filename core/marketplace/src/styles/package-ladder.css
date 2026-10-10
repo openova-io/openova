@@ -276,6 +276,36 @@
 .ld-foot.has-accent.selected { border-color: var(--pk-accent); border-top: 0; }
 .ld-foot > .ld-cta { margin-top: 0; }
 
+/* ── #6971: "Every package can grow with you" — one light line ─────────── */
+.ld-grow-band {
+  grid-column: 1 / -1;
+  display: flex;
+  margin: 0.7rem 0 0;
+}
+.ld-grow-inner {
+  position: sticky;
+  left: 0;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100cqw;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem 0.5rem;
+  padding: 0.55rem 0.9rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-success) 8%, var(--color-surface));
+  border: 1px solid color-mix(in srgb, var(--color-success) 25%, var(--color-border));
+  color: var(--color-text-dim);
+  font-size: 0.8rem;
+  text-align: center;
+}
+.ld-grow-inner strong { color: var(--color-text-strong); font-weight: 600; }
+.ld-grow-ico { color: var(--color-success); flex-shrink: 0; }
+.ld-grow-cheaper { color: var(--color-text); font-weight: 600; }
+@media (max-width: 700px) { .ld-grow-inner { border-radius: 12px; } }
+
 /* ── The floor: "Included in every package", under the cards ───────────── */
 /* A full-width row of the grid. Its content sticks to the visible width of
    the scroller, so on a phone (where the comparison scrolls sideways) the

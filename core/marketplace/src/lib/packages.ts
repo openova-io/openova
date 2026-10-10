@@ -57,6 +57,8 @@ export interface PackageIncludes {
   vcpu?: number;
   memory_gb?: number;
   storage_gb?: number;
+  /** The v2 document keys a quantity feature `<key>_<unit>`: disk_gb. */
+  disk_gb?: number;
   bandwidth_mbps?: number;
 }
 
@@ -117,6 +119,49 @@ export interface PublicPackage {
   accent?: string;
   /** A short label, e.g. "Most popular". Independent of `recommended`. */
   badge?: string;
+  /** Grow mode: absent when the package cannot grow above its allowance. */
+  grow?: PackageGrow;
+}
+
+/**
+ * The four resources a package's allowance is measured in, keyed the way the
+ * document's `grow.ceiling` and the order's `grow_ceiling` key them.
+ */
+export interface GrowCeiling {
+  vcpu: number;
+  memory_gb: number;
+  disk_gb: number;
+  bandwidth_mbps: number;
+}
+
+export type GrowDimension = keyof GrowCeiling;
+
+/**
+ * `packages[].grow` — the package may grow above its allowance, up to
+ * `ceiling`, the usage above the allowance billed at the package's OWN
+ * `overage_rates` (bigger packages grow cheaper).
+ */
+export interface PackageGrow {
+  allowed: true;
+  ceiling: GrowCeiling;
+  /** This package's per-unit rates; empty when BSS publishes none (the package then cannot grow). */
+  overage_rates: OverageRate[];
+}
+
+export type OverageRateKey = 'vcpu' | 'memory' | 'disk' | 'bandwidth';
+export type OverageUnit = 'vCPU' | 'GB' | 'Mbps';
+
+/**
+ * A `packages[].grow.overage_rates[]` entry: what one unit above the
+ * allowance costs for a month on that package, billed after the month in grow
+ * mode. Money is a string at the currency's minor unit, like every price in
+ * the document.
+ */
+export interface OverageRate {
+  key: OverageRateKey;
+  sku: string;
+  unit: OverageUnit;
+  price_month: string;
 }
 
 export interface NextLevelAddon {
@@ -139,6 +184,11 @@ export interface PublicCell {
   next_level_addon?: NextLevelAddon;
   /** A short qualifier on an access cell, e.g. "read". */
   note?: string;
+  /**
+   * An optional cell with no price that is available on this package only in
+   * grow mode, billed as usage (active-passive DR on S / M / L).
+   */
+  grow_only?: true;
 }
 
 export interface PublicFeature {
@@ -269,6 +319,62 @@ export const PACKAGE_STRINGS = {
     packageLine: (name: string) => `${name} package`,
     addonsLine: 'Add-ons',
   },
+  // Grow mode — what happens when the Organization reaches its package.
+  grow: {
+    plansNote: 'Every package can grow with you.',
+    plansNoteBody: 'Keep it capped at the package price, or let it grow when you get busy and pay per use above it. You choose on Add-ons.',
+    title: 'When you reach your package',
+    hint: 'Your package is a monthly allowance. Choose what happens at its edge.',
+    cappedTitle: 'Capped',
+    cappedTag: 'Default',
+    cappedBody: (total: string) => `Never pay more than ${total} / mo. Your apps stay within the package; nothing is billed above it.`,
+    growTitle: 'Grow with me',
+    growTag: 'Pay per use above the package',
+    growBody: 'Keep running when you get busy. Usage above your package is billed after the month, at these rates:',
+    ratesOn: (name: string) => `Usage rates on ${name}, billed after the month`,
+    rateLine: (price: string, currency: string, unit: string) => `+${price} ${currency} per extra ${unit} / mo`,
+    rateName: { vcpu: 'vCPU', memory: 'Memory', disk: 'Disk', bandwidth: 'Bandwidth' } as Record<OverageRateKey, string>,
+    unitWord: { vcpu: 'vCPU', memory: 'GB of memory', disk: 'GB of disk', bandwidth: 'Mbps' } as Record<OverageRateKey, string>,
+    ceilingTitle: 'Grow up to',
+    ceilingHint: (name: string) => `From your ${name} allowance up to the most ${name} can grow to.`,
+    dimension: { vcpu: 'vCPU', memory_gb: 'Memory', disk_gb: 'Disk', bandwidth_mbps: 'Bandwidth' } as Record<GrowDimension, string>,
+    unit: { vcpu: 'vCPU', memory_gb: 'GB', disk_gb: 'GB', bandwidth_mbps: 'Mbps' } as Record<GrowDimension, string>,
+    included: (n: number, unit: string) => `${n} ${unit} included`,
+    decrease: (dim: string) => `Less ${dim}`,
+    increase: (dim: string) => `More ${dim}`,
+    spendTitle: 'Monthly spend limit',
+    spendOptional: 'optional',
+    spendHint: 'Usage charges stop growing at this amount in a month. Leave empty for no limit.',
+    spendInvalid: 'Enter an amount such as 25 or 25.500.',
+    drUnlocked: 'Also unlocks active-passive DR on the Topology step, the standby billed as usage.',
+    upgradeTitle: (extra: string, next: string) => `If you regularly use ${extra}, ${next} is cheaper`,
+    upgradeBody: (pkg: string, grown: string, next: string, nextPrice: string) =>
+      `${pkg} plus that usage comes to ${grown} / mo. ${next} includes it for ${nextPrice} / mo, and grows at lower rates.`,
+    upgradeExtra: (parts: string[]) => parts.join(' and '),
+    upgradeDelta: (delta: number, unit: string) => `${delta} extra ${unit}`,
+    plansCheaper: (price: string, currency: string, name: string) => `Bigger packages grow cheaper: an extra vCPU from ${price} ${currency} / mo on ${name}.`,
+    upgradeCta: (next: string) => `Switch to ${next}`,
+    // Review / Checkout.
+    reviewCapped: (total: string) => `Capped at ${total} / mo`,
+    reviewGrow: 'Grow with me',
+    reviewUpTo: (parts: string) => `up to ${parts}`,
+    reviewSpend: (amount: string) => `spend limit ${amount} / mo`,
+    reviewNoSpend: 'no spend limit',
+    reviewBilled: 'usage above the package billed after the month',
+    sidebarUsage: 'Usage above your package',
+    sidebarUsageValue: 'billed after the month',
+    sidebarUsagePer: 'per use',
+    // /bcp.
+    needsGrow: 'Needs Grow — standby billed as usage',
+    needsGrowBody: (name: string) => `On ${name}, active-passive runs with Grow: the standby is billed as usage after the month.`,
+    switchToGrow: 'Switch to Grow',
+    orSwitchTo: (name: string) => `or switch to ${name}, where it is included`,
+    billedAsUsage: 'Billed as usage',
+    // /plans cells.
+    cellLabel: 'with Grow',
+    cellHint: 'billed as usage',
+    cellStateLabel: 'Available with Grow, billed as usage',
+  },
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -384,7 +490,9 @@ function parseIncludes(v: unknown): PackageIncludes {
   const memory = num(v.memory_gb);
   const storage = num(v.storage_gb);
   const bandwidth = num(v.bandwidth_mbps);
+  const disk = num(v.disk_gb);
   if (vcpu !== undefined) out.vcpu = vcpu;
+  if (disk !== undefined) out.disk_gb = disk;
   if (memory !== undefined) out.memory_gb = memory;
   if (storage !== undefined) out.storage_gb = storage;
   if (bandwidth !== undefined) out.bandwidth_mbps = bandwidth;
@@ -438,6 +546,45 @@ function parsePackage(v: unknown, base: URL | null = null): PublicPackage | null
   if (icon) out.icon = icon;
   if (accent) out.accent = accent;
   if (badge) out.badge = badge;
+  const grow = parseGrow(v.grow);
+  if (grow) out.grow = grow;
+  return out;
+}
+
+const GROW_DIMENSIONS: ReadonlyArray<GrowDimension> = ['vcpu', 'memory_gb', 'disk_gb', 'bandwidth_mbps'];
+
+/** `{allowed: true, ceiling: {…four non-negative numbers}}`, or null — a partial ceiling is no ceiling. */
+function parseGrow(v: unknown): PackageGrow | null {
+  if (!isRecord(v) || v.allowed !== true || !isRecord(v.ceiling)) return null;
+  const c = v.ceiling;
+  const ceiling = {} as GrowCeiling;
+  for (const k of GROW_DIMENSIONS) {
+    const n = num(c[k]);
+    if (n === undefined || n < 0) return null;
+    ceiling[k] = n;
+  }
+  return { allowed: true, ceiling, overage_rates: parseOverageRates(v.overage_rates) };
+}
+
+const RATE_KEYS: ReadonlySet<string> = new Set<OverageRateKey>(['vcpu', 'memory', 'disk', 'bandwidth']);
+const RATE_UNITS: ReadonlySet<string> = new Set<OverageUnit>(['vCPU', 'GB', 'Mbps']);
+const MONEY_RE = /^\d+(\.\d+)?$/;
+
+/** A package's overage rates, each checked; one entry per key, the first kept. */
+export function parseOverageRates(v: unknown): OverageRate[] {
+  if (!Array.isArray(v)) return [];
+  const out: OverageRate[] = [];
+  for (const raw of v) {
+    if (!isRecord(raw)) continue;
+    const key = str(raw.key);
+    const sku = str(raw.sku);
+    const unit = str(raw.unit);
+    const price = str(raw.price_month);
+    if (!key || !RATE_KEYS.has(key) || !sku || !unit || !RATE_UNITS.has(unit)) continue;
+    if (!price || !MONEY_RE.test(price.trim())) continue;
+    if (out.some(r => r.key === key)) continue;
+    out.push({ key: key as OverageRateKey, sku, unit: unit as OverageUnit, price_month: price.trim() });
+  }
   return out;
 }
 
@@ -469,6 +616,7 @@ function parseCell(v: unknown): PublicCell | null {
   if (level !== undefined && level >= 0) cell.level = Math.floor(level);
   if (nla) cell.next_level_addon = nla;
   if (note) cell.note = note;
+  if (v.grow_only === true && cell.state === 'optional') cell.grow_only = true;
   return cell;
 }
 
@@ -876,6 +1024,10 @@ export interface LadderModel {
   /** True when any floor item has an icon: the floor then renders as a chip grid. */
   floorIcons: boolean;
   recommendedSku: string | null;
+  /** True when at least one package can grow (growModelFor): the "grow with you" line shows. */
+  growNote: boolean;
+  /** The lowest extra-vCPU rate among the packages that can grow, when the rates differ — "bigger packages grow cheaper". */
+  growCheapest: { sku: string; name: string; priceMonth: string } | null;
 }
 
 function overageHint(overage: Overage | undefined): string | null {
@@ -912,6 +1064,9 @@ function ladderCell(cell: PublicCell | undefined, feature: PublicFeature, packag
       hint: null,
       stateLabel: stateLabel('teaser', from),
     };
+  }
+  if (state === 'optional' && cell.grow_only) {
+    return { ...base, label: PACKAGE_STRINGS.grow.cellLabel, hint: PACKAGE_STRINGS.grow.cellHint, stateLabel: PACKAGE_STRINGS.grow.cellStateLabel };
   }
   if (state === 'optional') {
     return {
@@ -1018,6 +1173,8 @@ export function buildLadder(
     rowIcons: groups.some(g => g.rows.some(r => r.icon !== null)),
     floorIcons: floorItems.some(f => f.icon !== null),
     recommendedSku: recommended,
+    growNote: data.packages.some(p => growModelFor(data, p.sku) !== null),
+    growCheapest: cheapestGrowVcpu(data),
   };
 }
 
@@ -1290,6 +1447,12 @@ export interface DrTopology {
   activePassive: boolean;
   /** The first package that includes it, when this one does not. */
   activePassiveFrom: { sku: string; name: string } | null;
+  /**
+   * True when this package offers active-passive only in grow mode, the
+   * standby billed as usage (a `grow_only` optional cell). `activePassive` is
+   * then false: whether the card is selectable depends on the cart's mode.
+   */
+  growOnly: boolean;
 }
 
 const ACTIVE_PASSIVE = /active[\s_-]?(passive|hot[\s_-]?standby)/i;
@@ -1309,18 +1472,25 @@ export function drTopologyFor(doc: PublicPackages, sku: string): DrTopology | nu
   const cell = f.cells[sku];
   let apLevel = f.levels.findIndex(l => ACTIVE_PASSIVE.test(l));
   if (apLevel < 0) apLevel = f.levels.length - 1;
+  const firstIncluding = (): DrTopology['activePassiveFrom'] => {
+    for (const p of doc.packages) {
+      const c = f.cells[p.sku];
+      if (c?.state === 'included' && (c.level ?? 0) >= apLevel) return { sku: p.sku, name: p.name };
+    }
+    return null;
+  };
+  if (cell?.state === 'optional' && cell.grow_only) {
+    // Active-passive here only with Grow, the standby billed as usage; the
+    // rung that includes it is still named for the "or switch" path.
+    return { level: -1, label: PACKAGE_STRINGS.notOfferedGlyph, activePassive: false, activePassiveFrom: firstIncluding(), growOnly: true };
+  }
   if (!cell || cell.state !== 'included') {
     // The package has no DR topology at all (the live document since the
     // founder's 2026-10-10 call: DR only on XL — S/M/L read not_offered).
     // The hot-standby card is then locked, pointing at the first rung that
     // includes the active-passive level; it is never offered "as without a
     // document".
-    let from: DrTopology['activePassiveFrom'] = null;
-    for (const p of doc.packages) {
-      const c = f.cells[p.sku];
-      if (c?.state === 'included' && (c.level ?? 0) >= apLevel) { from = { sku: p.sku, name: p.name }; break; }
-    }
-    return { level: -1, label: PACKAGE_STRINGS.notOfferedGlyph, activePassive: false, activePassiveFrom: from };
+    return { level: -1, label: PACKAGE_STRINGS.notOfferedGlyph, activePassive: false, activePassiveFrom: firstIncluding(), growOnly: false };
   }
   const level = cell.level ?? 0;
   const activePassive = level >= apLevel;
@@ -1333,13 +1503,10 @@ export function drTopologyFor(doc: PublicPackages, sku: string): DrTopology | nu
     if (stated && statedCell?.state === 'included' && (statedCell.level ?? 0) >= apLevel) {
       from = { sku: stated.sku, name: stated.name };
     } else {
-      for (const p of doc.packages) {
-        const c = f.cells[p.sku];
-        if (c?.state === 'included' && (c.level ?? 0) >= apLevel) { from = { sku: p.sku, name: p.name }; break; }
-      }
+      from = firstIncluding();
     }
   }
-  return { level, label: levelLabel(f, level), activePassive, activePassiveFrom: from };
+  return { level, label: levelLabel(f, level), activePassive, activePassiveFrom: from, growOnly: false };
 }
 
 // ---------------------------------------------------------------------------
@@ -1606,4 +1773,272 @@ export function stepUpHint(doc: PublicPackages, ladder: AddonsLadder, ticked: Re
     bundledSumBaisa: sum,
     bundledSumMonth: moneyString(sum),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Grow mode — capped (the package is a hard limit) or grow (usage above the
+// allowance billed after the month at the document's overage rates).
+// ---------------------------------------------------------------------------
+
+export type OverageMode = 'capped' | 'grow';
+
+/** Which overage rate prices growth in a dimension. */
+export const GROW_RATE_KEY: Readonly<Record<GrowDimension, OverageRateKey>> = {
+  vcpu: 'vcpu',
+  memory_gb: 'memory',
+  disk_gb: 'disk',
+  bandwidth_mbps: 'bandwidth',
+};
+
+/** The stepper's increment per dimension. */
+export const GROW_STEP: Readonly<Record<GrowDimension, number>> = {
+  vcpu: 1,
+  memory_gb: 1,
+  disk_gb: 10,
+  bandwidth_mbps: 10,
+};
+
+/**
+ * A package's allowance in the four grow dimensions: the shape's headline
+ * (vCPU, memory, disk), else the v1 `includes`; bandwidth from `includes`,
+ * else the bandwidth quantity feature's cell. A dimension the document does
+ * not state is absent.
+ */
+export function packageAllowance(doc: PublicPackages, pkg: PublicPackage): Partial<GrowCeiling> {
+  const sh = pkg.shape ?? {};
+  const out: Partial<GrowCeiling> = {};
+  const vcpu = sh.vcpu ?? pkg.includes.vcpu;
+  const memory = sh.memory_gb ?? pkg.includes.memory_gb;
+  const disk = sh.disk_gb ?? pkg.includes.disk_gb ?? pkg.includes.storage_gb;
+  let bandwidth = pkg.includes.bandwidth_mbps;
+  if (bandwidth === undefined) {
+    const f = doc.features.find(x => x.kind === 'quantity' && (x.key === 'bandwidth' || (x.unit ?? '').toLowerCase() === 'mbps'));
+    const c = f?.cells[pkg.sku];
+    if (c?.state === 'included' && c.quantity !== undefined) bandwidth = c.quantity;
+  }
+  if (vcpu !== undefined) out.vcpu = vcpu;
+  if (memory !== undefined) out.memory_gb = memory;
+  if (disk !== undefined) out.disk_gb = disk;
+  if (bandwidth !== undefined) out.bandwidth_mbps = bandwidth;
+  return out;
+}
+
+/** One stepper on the grow card: a dimension the package can grow in and the rate that prices it. */
+export interface GrowDim {
+  key: GrowDimension;
+  label: string;
+  unit: string;
+  /** The package's allowance — the stepper's floor. */
+  allowance: number;
+  /** The package's grow ceiling — the stepper's top. */
+  max: number;
+  step: number;
+  rate: OverageRate;
+  rateBaisa: number;
+}
+
+export interface GrowModel {
+  packageSku: string;
+  packageName: string;
+  currency: string;
+  /** The package's own rates, in the document's order — what the grow card lists. */
+  rates: OverageRate[];
+  /** The dimensions with an allowance, a rate and room above the allowance. */
+  dims: GrowDim[];
+  allowance: Partial<GrowCeiling>;
+  /** The package's grow ceiling, as published. */
+  ceiling: GrowCeiling;
+  /** True when the package's DR (active-passive) is available only with Grow. */
+  unlocksDr: boolean;
+}
+
+/**
+ * The grow card's model for a package, or null when the package cannot grow:
+ * the package carries no `grow`, its `grow.overage_rates` are empty, or its
+ * ceiling leaves no room above the allowance in any priced dimension (XL in a
+ * book whose XL ceiling is its headline). Null → the step shows no mode block
+ * and the order is capped, as before.
+ */
+export function growModelFor(doc: PublicPackages, sku: string): GrowModel | null {
+  const pkg = doc.packages.find(p => p.sku === sku);
+  const rates = pkg?.grow?.overage_rates ?? [];
+  if (!pkg || !pkg.grow || rates.length === 0) return null;
+  const allowance = packageAllowance(doc, pkg);
+  const dims: GrowDim[] = [];
+  for (const key of GROW_DIMENSIONS) {
+    const base = allowance[key];
+    const rate = rates.find(r => r.key === GROW_RATE_KEY[key]);
+    const max = pkg.grow.ceiling[key];
+    if (base === undefined || !rate || max <= base) continue;
+    dims.push({
+      key,
+      label: PACKAGE_STRINGS.grow.dimension[key],
+      unit: PACKAGE_STRINGS.grow.unit[key],
+      allowance: base,
+      max,
+      step: GROW_STEP[key],
+      rate,
+      rateBaisa: minorUnits(rate.price_month),
+    });
+  }
+  if (dims.length === 0) return null;
+  return {
+    packageSku: pkg.sku,
+    packageName: pkg.name,
+    currency: doc.currency,
+    rates,
+    dims,
+    allowance,
+    ceiling: { ...pkg.grow.ceiling },
+    unlocksDr: drTopologyFor(doc, pkg.sku)?.growOnly === true,
+  };
+}
+
+/**
+ * The package with the lowest extra-vCPU rate among those that can actually
+ * grow, or null when fewer than two such rates differ (nothing to say).
+ */
+export function cheapestGrowVcpu(doc: PublicPackages): LadderModel['growCheapest'] {
+  const offers = doc.packages.flatMap(p => {
+    const m = growModelFor(doc, p.sku);
+    const d = m?.dims.find(x => x.key === 'vcpu');
+    return d ? [{ sku: p.sku, name: p.name, priceMonth: d.rate.price_month, baisa: d.rateBaisa }] : [];
+  });
+  if (new Set(offers.map(o => o.baisa)).size < 2) return null;
+  const best = offers.reduce((a, b) => (b.baisa < a.baisa ? b : a));
+  return { sku: best.sku, name: best.name, priceMonth: best.priceMonth };
+}
+
+/** One stepper press: the next value on the step grid from the allowance, clamped to [allowance, max]. */
+export function stepGrow(dim: Pick<GrowDim, 'allowance' | 'max' | 'step'>, value: number, direction: 1 | -1): number {
+  const v = Number.isFinite(value) ? value : dim.max;
+  const pos = (v - dim.allowance) / dim.step;
+  const k = direction > 0 ? Math.floor(pos + 1e-9) + 1 : Math.ceil(pos - 1e-9) - 1;
+  const next = Math.round((dim.allowance + k * dim.step) * 1000) / 1000;
+  return Math.min(dim.max, Math.max(dim.allowance, next));
+}
+
+/**
+ * The ceiling an order may carry for this package: every stepper dimension
+ * within [allowance, package ceiling]; a dimension with no stepper holds the
+ * package's own ceiling.
+ */
+export function clampGrowCeiling(model: GrowModel, wanted: Partial<GrowCeiling> | null | undefined): GrowCeiling {
+  const out = { ...model.ceiling };
+  if (!wanted) return out;
+  for (const d of model.dims) {
+    const w = wanted[d.key];
+    if (typeof w === 'number' && Number.isFinite(w)) out[d.key] = Math.min(d.max, Math.max(d.allowance, w));
+  }
+  return out;
+}
+
+/** True when a ceiling is exactly the package's own — the order then need not carry one. */
+export function isPackageCeiling(model: GrowModel, c: GrowCeiling): boolean {
+  return GROW_DIMENSIONS.every(k => c[k] === model.ceiling[k]);
+}
+
+const SPEND_RE = /^\d{1,7}(\.\d{1,3})?$/;
+
+/**
+ * A monthly spend limit as typed: "25" / "25.5" / "25.500" → "25.000" (the
+ * currency's minor unit), "" → null (no limit), anything else, zero included,
+ * → undefined (invalid: the field says so and the cart keeps its last valid
+ * limit).
+ */
+export function normalizeSpendLimit(raw: string): string | null | undefined {
+  const t = raw.trim();
+  if (t === '') return null;
+  if (!SPEND_RE.test(t)) return undefined;
+  const minor = minorUnits(t);
+  if (minor <= 0) return undefined;
+  return moneyString(minor);
+}
+
+export interface GrowUpgradeHint {
+  nextSku: string;
+  nextName: string;
+  /** What growing to the next package's headline costs above this one, per month, at this package's rates. */
+  overageBaisa: number;
+  /** This package's price + that overage. */
+  grownBaisa: number;
+  nextPriceBaisa: number;
+  /** The headline deltas priced, e.g. [{key: vcpu, delta: 2, unit: vCPU}, {key: memory_gb, delta: 4, unit: GB}]. */
+  deltas: { key: GrowDimension; delta: number; unit: string }[];
+}
+
+/** The dimensions a package's HEADLINE names ("4 vCPU · 8 GB RAM") — what the upgrade hint compares. */
+const HEADLINE_DIMENSIONS: ReadonlyArray<GrowDimension> = ['vcpu', 'memory_gb'];
+
+/**
+ * "If you regularly use 2 extra vCPU and 4 GB, L is cheaper": this package's
+ * price plus the overage, at THIS package's rates, for the next package's
+ * headline (vCPU and memory) above this one, against the next package's
+ * price. Null unless growing really costs more — the hint never claims a
+ * saving the document's own numbers do not show — or when there is no next
+ * package or this one cannot grow.
+ */
+export function growUpgradeHint(doc: PublicPackages, sku: string): GrowUpgradeHint | null {
+  const i = doc.packages.findIndex(p => p.sku === sku);
+  if (i < 0) return null;
+  const pkg = doc.packages[i];
+  const stated = pkg.step_up ? doc.packages.find(p => p.sku === pkg.step_up!.next_sku) : undefined;
+  const next = stated ?? doc.packages[i + 1];
+  if (!next) return null;
+  if (!growModelFor(doc, pkg.sku)) return null;
+  const rates = pkg.grow?.overage_rates ?? [];
+  const here = packageAllowance(doc, pkg);
+  const there = packageAllowance(doc, next);
+  let overage = 0;
+  const deltas: GrowUpgradeHint['deltas'] = [];
+  for (const key of HEADLINE_DIMENSIONS) {
+    const a = here[key];
+    const b = there[key];
+    const rate = rates.find(r => r.key === GROW_RATE_KEY[key]);
+    if (a === undefined || b === undefined || !rate || b <= a) continue;
+    const delta = b - a;
+    overage += Math.round(delta * minorUnits(rate.price_month));
+    deltas.push({ key, delta, unit: PACKAGE_STRINGS.grow.unit[key] });
+  }
+  if (deltas.length === 0) return null;
+  const priceNext = minorUnits(next.price_month);
+  const grown = minorUnits(pkg.price_month) + overage;
+  if (grown <= priceNext) return null;
+  return { nextSku: next.sku, nextName: next.name, overageBaisa: overage, grownBaisa: grown, nextPriceBaisa: priceNext, deltas };
+}
+
+/** "8 vCPU · 16 GB memory · 250 GB disk · 1000 Mbps" — a ceiling for Review and Checkout. */
+export function growCeilingLine(c: Partial<GrowCeiling>): string {
+  const parts: string[] = [];
+  if (c.vcpu !== undefined) parts.push(`${c.vcpu} vCPU`);
+  if (c.memory_gb !== undefined) parts.push(`${c.memory_gb} GB memory`);
+  if (c.disk_gb !== undefined) parts.push(`${c.disk_gb} GB disk`);
+  if (c.bandwidth_mbps !== undefined) parts.push(`${c.bandwidth_mbps} Mbps`);
+  return parts.join(' · ');
+}
+
+export interface GrowSelection {
+  mode: OverageMode;
+  /** The ceiling the order carries; null = the package's own (the field is omitted). */
+  ceiling: GrowCeiling | null;
+  /** "25.000", or null for no limit. */
+  spendLimit: string | null;
+}
+
+/**
+ * The cart's grow choice made consistent with the package it stands on: a
+ * package that cannot grow is capped; a ceiling is clamped into the package's
+ * range and dropped when it is the package's own; a spend limit that is not
+ * a valid amount is dropped. The order body carries exactly this.
+ */
+export function growSelectionFor(
+  doc: PublicPackages | null,
+  sku: string | null,
+  cart: { overageMode?: string | null; growCeiling?: Partial<GrowCeiling> | null; spendLimitMonth?: string | null },
+): GrowSelection {
+  const model = doc && sku ? growModelFor(doc, sku) : null;
+  if (!model || cart.overageMode !== 'grow') return { mode: 'capped', ceiling: null, spendLimit: null };
+  const c = clampGrowCeiling(model, cart.growCeiling ?? null);
+  const spend = typeof cart.spendLimitMonth === 'string' ? normalizeSpendLimit(cart.spendLimitMonth) ?? null : null;
+  return { mode: 'grow', ceiling: isPackageCeiling(model, c) ? null : c, spendLimit: spend };
 }
