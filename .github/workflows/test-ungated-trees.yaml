@@ -110,7 +110,7 @@ jobs:
       # this repo use, because these eight modules do NOT agree: 1.22 for six
       # of them, 1.23 for pool-domain-manager, 1.26.0 for services/tenant.
       # Pinning one literal would build two of them under the wrong toolchain.
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: ${{ matrix.module }}/go.mod
           cache-dependency-path: ${{ matrix.module }}/go.sum
@@ -194,7 +194,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: core/pool-domain-manager/go.mod
           cache-dependency-path: core/pool-domain-manager/go.sum
