@@ -13,6 +13,7 @@ on:
       - 'products/chargeback/**'
       - 'tests/e2e/chargeback/**'
       - 'tests/e2e/playwright/tests/chargeback-console.spec.ts'
+      - 'tests/e2e/playwright/tests/chargeback-calculator-ladder.spec.ts'
       - '.github/workflows/chargeback-e2e.yaml'
   push:
     branches: [main]
@@ -20,6 +21,7 @@ on:
       - 'products/chargeback/**'
       - 'tests/e2e/chargeback/**'
       - 'tests/e2e/playwright/tests/chargeback-console.spec.ts'
+      - 'tests/e2e/playwright/tests/chargeback-calculator-ladder.spec.ts'
       - '.github/workflows/chargeback-e2e.yaml'
   workflow_dispatch:
 
@@ -104,7 +106,9 @@ jobs:
           CHARGEBACK_BASE_URL: ${{ env.CB_BASE }}
           CHARGEBACK_OPERATOR_EMAIL: ${{ env.CB_OPERATOR }}
           CHARGEBACK_FORWARD_AUTH_HEADER: ${{ env.CB_HEADER }}
-        run: npx playwright test tests/chargeback-console.spec.ts --reporter=list
+        # The console walk, then the calculator ladder's layout proof (#6971,
+        # 0.1.62) against the same binary.
+        run: npx playwright test tests/chargeback-console.spec.ts tests/chargeback-calculator-ladder.spec.ts --reporter=list
 
       - name: Binary log on failure
         if: failure()

@@ -16,6 +16,14 @@ import { cellOf, floorItems, groupedFeatures, includedFromText, levelLabel, next
  * package adds its plan line; the add-ons ticked under it add their add-on
  * lines. Every figure is the server's document; the only arithmetic here
  * adds the ticked add-on prices for the hint.
+ *
+ * Layout (0.1.62): the table sits in the family card at a fixed layout —
+ * the feature column takes 28 %, the four packages share the rest — so all
+ * four columns are inside the card from 1280 px up (seen live at 0.1.61:
+ * the auto layout let the no-wrap headers push XL past the card's edge).
+ * Under 1100 px the table keeps a 900 px floor inside its own scroll
+ * container; the floor strip and the footer stay outside it, full width.
+ * Measured in tests/e2e/playwright/tests/chargeback-calculator-ladder.spec.ts.
  */
 export function PackageTable({
   doc,
@@ -48,58 +56,66 @@ export function PackageTable({
     onChoose(slugOf(nextSku), keep)
   }
   return (
-    <div className="table-wrap" data-testid="package-table">
-      <table className="pkg-table compare" aria-label="Package comparison">
-        <thead>
-          <tr>
-            <th></th>
-            {doc.packages.map((p) => {
-              const guaranteed = shapeGuaranteed(p)
-              return (
-                <th key={p.sku} className={`pkg-head${p.recommended ? ' recommended' : ''}`}>
-                  {p.recommended ? <div className="badge ok pkg-recommended">Recommended</div> : null}
-                  <div className="pkg-name">{p.name}</div>
-                  {p.tagline ? <div className="tiny muted pkg-tagline">{p.tagline}</div> : null}
-                  <div className="pkg-price num">
-                    <b>{p.price_month}</b>
-                  </div>
-                  <div className="tiny muted">{currency} / month</div>
-                  <div className="tiny pkg-shape">{shapeHeadline(p)}</div>
-                  {guaranteed ? <div className="tiny muted pkg-guaranteed">{guaranteed}</div> : null}
-                  <button type="button" className="primary small" onClick={() => onChoose(slugOf(p.sku), picked[p.sku] ?? [])} aria-label={`Choose ${p.name}`}>
-                    Choose
-                  </button>
-                </th>
-              )
-            })}
-          </tr>
-        </thead>
-        <tbody>
-          {groups.map((g) => (
-            <GroupBody key={g.group.key} name={g.group.name} groupKey={g.group.key} features={g.features} doc={doc} currency={currency} picked={picked} onToggle={toggle} />
-          ))}
-          <tr className="pkg-stepup-row" data-testid="step-up-hints">
-            <td></td>
-            {doc.packages.map((p) => {
-              const hint = stepUpHint(doc, p.sku, picked[p.sku] ?? [])
-              return (
-                <td key={p.sku} className="center">
-                  {hint ? (
-                    <div className="pkg-stepup-hint" data-testid={`step-up-hint-${p.sku}`}>
-                      <div className="tiny">
-                        {hint.next_name} includes all of this for {hint.gap_month} {currency} more
-                      </div>
-                      <button type="button" className="small" onClick={() => chooseNext(p.sku, hint.next_sku)} aria-label={`Choose ${hint.next_name} instead of ${p.name}`}>
-                        Choose {hint.next_name} instead
-                      </button>
+    <div className="pkg-compare" data-testid="package-table">
+      <div className="table-wrap pkg-compare-scroll" data-testid="package-table-scroll">
+        <table className="pkg-table compare" aria-label="Package comparison">
+          <colgroup>
+            <col className="pkg-col-feature" />
+            {doc.packages.map((p) => (
+              <col key={p.sku} className="pkg-col-package" />
+            ))}
+          </colgroup>
+          <thead>
+            <tr>
+              <th></th>
+              {doc.packages.map((p) => {
+                const guaranteed = shapeGuaranteed(p)
+                return (
+                  <th key={p.sku} className={`pkg-head${p.recommended ? ' recommended' : ''}`}>
+                    {p.recommended ? <div className="badge ok pkg-recommended">Recommended</div> : null}
+                    <div className="pkg-name">{p.name}</div>
+                    {p.tagline ? <div className="tiny muted pkg-tagline">{p.tagline}</div> : null}
+                    <div className="pkg-price num">
+                      <b>{p.price_month}</b>
                     </div>
-                  ) : null}
-                </td>
-              )
-            })}
-          </tr>
-        </tbody>
-      </table>
+                    <div className="tiny muted">{currency} / month</div>
+                    <div className="tiny pkg-shape">{shapeHeadline(p)}</div>
+                    {guaranteed ? <div className="tiny muted pkg-guaranteed">{guaranteed}</div> : null}
+                    <button type="button" className="primary small" onClick={() => onChoose(slugOf(p.sku), picked[p.sku] ?? [])} aria-label={`Choose ${p.name}`}>
+                      Choose
+                    </button>
+                  </th>
+                )
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {groups.map((g) => (
+              <GroupBody key={g.group.key} name={g.group.name} groupKey={g.group.key} features={g.features} doc={doc} currency={currency} picked={picked} onToggle={toggle} />
+            ))}
+            <tr className="pkg-stepup-row" data-testid="step-up-hints">
+              <td></td>
+              {doc.packages.map((p) => {
+                const hint = stepUpHint(doc, p.sku, picked[p.sku] ?? [])
+                return (
+                  <td key={p.sku} className="center">
+                    {hint ? (
+                      <div className="pkg-stepup-hint" data-testid={`step-up-hint-${p.sku}`}>
+                        <div className="tiny">
+                          {hint.next_name} includes all of this for {hint.gap_month} {currency} more
+                        </div>
+                        <button type="button" className="small" onClick={() => chooseNext(p.sku, hint.next_sku)} aria-label={`Choose ${hint.next_name} instead of ${p.name}`}>
+                          Choose {hint.next_name} instead
+                        </button>
+                      </div>
+                    ) : null}
+                  </td>
+                )
+              })}
+            </tr>
+          </tbody>
+        </table>
+      </div>
       {floor.length ? (
         <div className="pkg-floor-strip" data-testid="floor-strip">
           <span className="muted small">On every package:</span>{' '}
@@ -165,19 +181,23 @@ function Cell({ feature, cell, planName, doc, currency, on, onToggle }: { featur
   const f = feature
   // A purchasable next level on a level feature is a tick like any add-on.
   const addon = f.kind === 'level' ? cell.next_level_addon : cell.state === 'optional' && cell.addon_sku ? { addon_sku: cell.addon_sku, price_month: cell.price_month } : undefined
+  // One compact line, "+ 1.500 / mo": the currency is the column header's
+  // ("OMR / month") and the tooltip's, so four add-on tiles fit the card.
+  const addonLine = addon ? (addon.price_month ? `+ ${addon.price_month} / mo` : 'ask us') : ''
+  const addonTitle = addon?.price_month ? `${addon.price_month} ${currency} a month` : undefined
   if (f.kind === 'level' && cell.level !== undefined && cell.level !== null) {
     const hint = includedFromText(doc, cell)
     return (
       <td className="center pkg-level">
         <div>{levelLabel(f, cell)}</div>
         {addon ? (
-          <label className="check pkg-tick">
+          <label className="check pkg-tick" title={addonTitle}>
             <input type="checkbox" checked={on} onChange={onToggle} aria-label={`${f.name} — ${nextLevelLabel(f, cell)} on ${planName}`} disabled={!addon.price_month} />
-            <span className="num">{addon.price_month ? `+ ${addon.price_month}` : 'ask us'}</span>
+            <span className="num">{addonLine}</span>
           </label>
         ) : null}
         <div className="tiny muted pkg-hint">
-          {addon ? <div>{nextLevelLabel(f, cell)}{addon.price_month ? ` · ${currency} / month` : ''}</div> : null}
+          {addon ? <div>{nextLevelLabel(f, cell)}</div> : null}
           {!addon && hint ? <div>{hint}</div> : null}
         </div>
       </td>
@@ -205,14 +225,11 @@ function Cell({ feature, cell, planName, doc, currency, on, onToggle }: { featur
     const hint = includedFromText(doc, cell)
     return (
       <td className="center pkg-optional">
-        <label className="check pkg-tick">
+        <label className="check pkg-tick" title={addonTitle}>
           <input type="checkbox" checked={on} onChange={onToggle} aria-label={`${f.name} on ${planName}`} disabled={!addon.price_month} />
-          <span className="num">{addon.price_month ? `+ ${addon.price_month}` : 'ask us'}</span>
+          <span className="num">{addonLine}</span>
         </label>
-        <div className="tiny muted pkg-hint">
-          {addon.price_month ? <div>{currency} / month</div> : null}
-          {hint ? <div>{hint}</div> : null}
-        </div>
+        {hint ? <div className="tiny muted pkg-hint">{hint}</div> : null}
       </td>
     )
   }

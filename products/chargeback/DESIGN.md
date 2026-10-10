@@ -5717,7 +5717,7 @@ the two bodies). The storefront builds against exactly this:
      "features": [{"key": "backup", "name": "Backup", "blurb": "…", "group": "resilience", "kind": "boolean",
                    "addon_sku": "addon.backup", "teaser": false,
                    "cells": {"plan.s": {"state": "optional", "addon_sku": "addon.backup", "price_month": "1.500",
-                                        "included_from": "plan.xl", "note": "derived from the step-up rule; confirm"},
+                                        "included_from": "plan.xl"},
                              …, "plan.xl": {"state": "included"}}},
                   {"key": "bandwidth", "name": "Bandwidth", "group": "capacity", "kind": "quantity", "unit": "Mbps",
                    "addon_sku": "eip.bandwidth_mbps", "teaser": false,
@@ -5843,14 +5843,20 @@ The document is read **from the browser**, cross-origin: the storefront is `http
 the API and idempotently (`ensurePackages`, the rows in
 `internal/synth/packages.go` — every number from the workbook, and the four
 add-on prices that are **derived** from the step-up rule rather than read
-from a cell say so on the cell: *"derived from the step-up rule; confirm"*):
+from a cell are flagged *"derived from the step-up rule; confirm"* in the
+seeder's source comment and here, **never on the cell**: a cell note is
+published with the document (§22.4) and would reach the storefront, which
+at 0.1.61 it did; since 0.1.62 the seeder writes these cells with no note
+and its integration test fails on any published note that says "confirm"
+or "to be decided"):
 
 - the five add-on SKUs priced as plan-hour items — backup 1.500, AI SEO
   2.000, AI website builder 2.000, domain 0.500 a month (so that L → XL, gap
   6.000, holds: 1.5 + 2 + 2 + 0.5 = 6.000; S → M and M → L bundle nothing
   and hold), and the dedicated IP at the rate card's **Elastic IP list, 250
-  OMR a year** (20.833 a month, discount 0 — cost-based, flagged on each
-  cell *"EIP list price; discount to be decided"*) — merged, an item the
+  OMR a year** (20.833 a month, discount 0 — cost-based; the remark *"EIP
+  list price; discount to be decided"* is the seeder's and this section's,
+  not a cell note) — merged, an item the
   operator priced is never re-priced; the two meters, `eip.bandwidth_mbps`
   and `k8s.pvc_gb`, at the National Cloud list rates (150.38 and 2.00 a year
   per unit);

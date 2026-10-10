@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -68,11 +69,23 @@ func TestShowcasePackagesAreSeededBilledAndPurged(t *testing.T) {
 	if l := scalar[int](t, db, `SELECT e.level FROM package_entitlements e JOIN features f ON f.id = e.feature_id WHERE e.price_book_id = $1 AND e.plan_sku = 'plan.xl' AND f.key = 'dr_topology'`, planBook); l != 1 {
 		t.Fatalf("DR on XL level = %d, want 1 (active-passive)", l)
 	}
-	if n := scalar[string](t, db, `SELECT e.note FROM package_entitlements e JOIN features f ON f.id = e.feature_id WHERE e.price_book_id = $1 AND e.plan_sku = 'plan.s' AND f.key = 'ai_seo'`, planBook); n != synth.DerivedNote {
-		t.Fatalf("ai_seo on S note = %q, want the derived-price note", n)
+	// A cell note is published with the document (DESIGN.md §22.4), so no
+	// cell carries an operator remark: at 0.1.61 the derived-price cells
+	// said "derived from the step-up rule; confirm" and the dedicated IP
+	// "EIP list price; discount to be decided", and both reached the
+	// storefront. The remarks live in internal/synth/packages.go and
+	// DESIGN.md §22.7 now; the customer-facing "read" on Gitea + IaC for M
+	// is the control that notes as such still land.
+	if n := scalar[int](t, db, `SELECT count(*) FROM package_entitlements e WHERE e.price_book_id = $1 AND (e.note ILIKE '%confirm%' OR e.note ILIKE '%to be decided%')`, planBook); n != 0 {
+		t.Fatalf("%d cell(s) carry an operator remark in their note; a note is published to the storefront", n)
 	}
-	if n := scalar[string](t, db, `SELECT e.note FROM package_entitlements e JOIN features f ON f.id = e.feature_id WHERE e.price_book_id = $1 AND e.plan_sku = 'plan.xl' AND f.key = 'dedicated_ip'`, planBook); n != synth.DedicatedIPNote {
-		t.Fatalf("dedicated IP on XL note = %q", n)
+	for _, key := range []string{"ai_seo", "ai_builder", "domain", "backup", "dedicated_ip"} {
+		if n := scalar[string](t, db, `SELECT e.note FROM package_entitlements e JOIN features f ON f.id = e.feature_id WHERE e.price_book_id = $1 AND e.plan_sku = 'plan.s' AND f.key = $2`, planBook, key); n != "" {
+			t.Fatalf("%s on S note = %q, want none", key, n)
+		}
+	}
+	if n := scalar[string](t, db, `SELECT e.note FROM package_entitlements e JOIN features f ON f.id = e.feature_id WHERE e.price_book_id = $1 AND e.plan_sku = 'plan.m' AND f.key = 'gitea_iac'`, planBook); n != "read" {
+		t.Fatalf("gitea_iac on M note = %q, want the customer-facing \"read\"", n)
 	}
 	// The plan prices, converged to the workbook: 2.490 / 4.490 / 7.990 /
 	// 13.990 a month = 29.88 / 53.88 / 95.88 / 167.88 a year.
@@ -116,6 +129,22 @@ func TestShowcasePackagesAreSeededBilledAndPurged(t *testing.T) {
 	}
 	if len(doc.Packages) != 4 {
 		t.Fatalf("packages = %+v", doc.Packages)
+	}
+	// The published cells carry no operator remark — this is the document
+	// the storefront and the public calculator read.
+	published := 0
+	for _, f := range doc.Features {
+		for plan, c := range f.Cells {
+			if c.Note != "" {
+				published++
+			}
+			if lower := strings.ToLower(c.Note); strings.Contains(lower, "confirm") || strings.Contains(lower, "to be decided") {
+				t.Fatalf("published note on %s / %s = %q: an operator remark on the public document", f.Key, plan, c.Note)
+			}
+		}
+	}
+	if published != 1 {
+		t.Fatalf("%d published cell notes, want exactly the one customer-facing note (Gitea + IaC on M: read)", published)
 	}
 	for i, want := range []struct {
 		sku, price, gap, sum string

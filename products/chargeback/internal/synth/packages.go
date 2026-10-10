@@ -125,12 +125,21 @@ func (a AddonRate) AnnualPrice() float64 {
 	return a.Monthly * 12
 }
 
-// The note on every cell whose price is derived from the step-up rule rather
-// than read from the sheet, and on the cost-based dedicated IP.
-const (
-	DerivedNote     = "derived from the step-up rule; confirm"
-	DedicatedIPNote = "EIP list price; discount to be decided"
-)
+// Two remarks for whoever owns the price list, kept HERE and in DESIGN.md
+// §22.7 — never on a cell. A cell's note is published with the document
+// (§22.4: "shown under the cell and published with it"), so a remark on a
+// cell reaches the storefront and the public calculator; at 0.1.61 these
+// two did, as "derived from the step-up rule; confirm" and "EIP list price;
+// discount to be decided". Since 0.1.62 the seeder writes those cells with
+// no note, and the seeder's integration test fails on any published note
+// that carries "confirm" or "to be decided".
+//
+//   - backup, ai_seo, ai_builder and domain are Optional on S / M / L at
+//     prices DERIVED from the step-up rule (the sheet prices none of them;
+//     the four were set so that L → XL holds) — to be confirmed against
+//     the next pricing workbook.
+//   - the dedicated IP is at the rate card's Elastic IP list price, 250
+//     OMR a year, with its discount still to be decided.
 
 // AddonRates are the five add-ons of the sheet's Optional rows.
 var AddonRates = []AddonRate{
@@ -168,7 +177,7 @@ var MeterRates = []Rate{BandwidthRate, DiskRate}
 func inc() Cell                { return Cell{State: Included} }
 func incNote(note string) Cell { return Cell{State: Included, Note: note} }
 func no() Cell                 { return Cell{State: NotOffered} }
-func opt(note string) Cell     { return Cell{State: Optional, Note: note} }
+func opt() Cell                { return Cell{State: Optional} }
 func qty(q float64, overage string) Cell {
 	return Cell{State: Included, Quantity: q, HasQuantity: true, Overage: overage}
 }
@@ -200,9 +209,9 @@ var Features = []Feature{
 
 	// FEATURES — the sheet's Optional rows, priced by the step-up rule.
 	{Key: "ai_seo", Name: "AI SEO ready", Blurb: "Search-engine readiness checked and tuned by AI", Kind: FeatureBoolean, Group: GroupFeatures, AddonSKU: "addon.ai_seo",
-		Cells: cells(opt(DerivedNote), opt(DerivedNote), opt(DerivedNote), inc())},
+		Cells: cells(opt(), opt(), opt(), inc())},
 	{Key: "ai_builder", Name: "AI website builder", Blurb: "Build and edit your site with an AI assistant", Kind: FeatureBoolean, Group: GroupFeatures, AddonSKU: "addon.ai_builder",
-		Cells: cells(opt(DerivedNote), opt(DerivedNote), opt(DerivedNote), inc())},
+		Cells: cells(opt(), opt(), opt(), inc())},
 
 	// ACCESS — the platform doors.
 	{Key: "console", Name: "Console click-install", Blurb: "The Catalyst console: install and run applications by clicking", Kind: FeatureAccess, Group: GroupAccess,
@@ -230,13 +239,13 @@ var Features = []Feature{
 
 	// SCOPE — the domain and the address.
 	{Key: "domain", Name: "Domain", Blurb: "A domain name registered for you", Kind: FeatureBoolean, Group: GroupScope, AddonSKU: "addon.domain",
-		Cells: cells(opt(DerivedNote), opt(DerivedNote), opt(DerivedNote), inc())},
+		Cells: cells(opt(), opt(), opt(), inc())},
 	{Key: "dedicated_ip", Name: "Dedicated IP address", Blurb: "A public IPv4 reserved for your Organization", Kind: FeatureBoolean, Group: GroupScope, AddonSKU: "addon.dedicated_ip",
-		Cells: cells(opt(DedicatedIPNote), opt(DedicatedIPNote), opt(DedicatedIPNote), opt(DedicatedIPNote))},
+		Cells: cells(opt(), opt(), opt(), opt())},
 
 	// RESILIENCE — backups and the DR topology.
 	{Key: "backup", Name: "Backup", Blurb: "Scheduled backups of your sites and databases", Kind: FeatureBoolean, Group: GroupResilience, AddonSKU: "addon.backup",
-		Cells: cells(opt(DerivedNote), opt(DerivedNote), opt(DerivedNote), inc())},
+		Cells: cells(opt(), opt(), opt(), inc())},
 	{Key: "dr_topology", Name: "DR topology", Blurb: "Where your applications run, and where they fail over to", Kind: FeatureLevel, Group: GroupResilience, Levels: []string{"single region", "active-passive"},
 		Cells: cells(lvl(0), lvl(0), lvl(0), lvl(1))},
 }
