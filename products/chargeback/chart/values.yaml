@@ -61,6 +61,12 @@ config:
   # cached either way, so a price change is immediate in both settings.
   costRollupEnabled: true
   costRollupInterval: 1m
+  # PACKAGE_INCLUDED_LINES — a 0.000 line per boolean feature a package
+  # INCLUDES on every statement of an Organization on a plan (DESIGN.md
+  # §22.2), so the invoice shows the value the package carries. false keeps
+  # the included features on the published document and the console only;
+  # add-on lines, allowances and caps are unaffected.
+  packageIncludedLines: true
   # PROFILE — sovereign | operator-central (spec §6; Phase 0 only affects
   # the /auth/me payload and the UI banner).
   profile: sovereign

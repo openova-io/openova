@@ -22,7 +22,27 @@ type Store struct {
 	// on every window split and flipped by SetCostRollupEnabled. Zero — the
 	// value a fresh Store has — means the rollup is on.
 	rollupOff atomic.Int32
+	// packageLinesOff is the PACKAGE_INCLUDED_LINES switch (DESIGN.md
+	// §22.2): zero — a fresh Store — writes a 0.000 line per boolean feature
+	// a package includes; set, the included features are published on the
+	// document and the console only, and the statement carries no 0.000
+	// lines for them.
+	packageLinesOff atomic.Int32
 }
+
+// SetPackageIncludedLines turns the included 0.000 lines of a package on a
+// statement on or off (PACKAGE_INCLUDED_LINES, default on).
+func (s *Store) SetPackageIncludedLines(on bool) {
+	var v int32
+	if !on {
+		v = 1
+	}
+	s.packageLinesOff.Store(v)
+}
+
+// PackageIncludedLines reports whether a statement carries a 0.000 line per
+// boolean feature the package includes.
+func (s *Store) PackageIncludedLines() bool { return s.packageLinesOff.Load() == 0 }
 
 // New returns a Store over an open connection pool.
 func New(db *sql.DB) *Store { return &Store{db: db} }
@@ -506,6 +526,13 @@ ALTER TABLE cost_sources ADD CONSTRAINT cost_sources_status_check CHECK (status 
 	// END: migrations are positional. Located by content as MigrationPackages
 	// (packages.go).
 	packagesMigrationSQL,
+	// DESIGN.md §22.1 (the package LADDER, approved 2026-10-10, 0.1.61) —
+	// the level and access kinds, the group a feature sits in, its levels
+	// and teaser flag, the overage policy and level on a cell (every
+	// existing quantity cell reads metered), and the package settings per
+	// (book, plan). Appended at the very END: migrations are positional.
+	// Located by content as MigrationPackageLadder (packages.go).
+	packageLadderMigrationSQL,
 }
 
 // MigrationBackfillIssuedInvoices is the schema_migrations version of the

@@ -291,12 +291,17 @@ const costPriceJoinSQL = `
 const costExcludeInternalSQL = ` AND NOT s.internal`
 
 // costNotSoldPerUseExpr is true for a record of the filtered CTE `f` that is
-// a k8s.* platform meter on a platform source whose book prices NONE of the
-// platform meters: "not sold per use" (the allocation basis), never
-// "unpriced". Requires the CTE columns layer, book_id and sku.
+// a k8s.* platform meter on a platform source whose book SELLS PLANS (prices
+// a plan.<slug> item) and does not price that meter: "not sold per use" (the
+// allocation basis), never "unpriced". Per SKU since the package ladder
+// (DESIGN.md §22.2): the plans book prices k8s.pvc_gb so a package's disk
+// overage can be metered, and k8s.vcpu / k8s.mem_gb stay the basis beside
+// it. A pay-per-use book sells no plan, so a meter it forgot is still a
+// hole. Requires the CTE columns layer, book_id and sku.
 const costNotSoldPerUseExpr = `(layer = 'platform' AND book_id IS NOT NULL
          AND sku IN (` + platformMeterSKUListSQL + `)
-         AND NOT EXISTS (SELECT 1 FROM price_items pm WHERE pm.price_book_id = book_id AND pm.sku IN (` + platformMeterSKUListSQL + `)))`
+         AND NOT EXISTS (SELECT 1 FROM price_items pm WHERE pm.price_book_id = book_id AND pm.sku = f.sku)
+         AND EXISTS (SELECT 1 FROM price_items pp WHERE pp.price_book_id = book_id AND pp.sku LIKE 'plan.%'))`
 
 // platformMeterSKUListSQL is PlatformMeterSKUs as a SQL literal list, so the
 // "not sold per use" test and the pay-per-use rate card can never disagree

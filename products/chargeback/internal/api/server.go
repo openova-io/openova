@@ -428,6 +428,9 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/pricebooks/{id}/packages", h.getPackages)
 	mux.HandleFunc("PUT /api/v1/pricebooks/{id}/packages/{plan}/features/{feature}", h.putPackageCell)
 	mux.HandleFunc("DELETE /api/v1/pricebooks/{id}/packages/{plan}/features/{feature}", h.deletePackageCell)
+	// The package settings (DESIGN.md §22.1): tagline, recommended, the
+	// term rule and the shape, per (book, plan).
+	mux.HandleFunc("PUT /api/v1/pricebooks/{id}/packages/{plan}/settings", h.putPackageSettings)
 	mux.HandleFunc("PUT /api/v1/customers/{id}/sources/{sid}/addons", h.putSourceAddons)
 
 	// Statements.

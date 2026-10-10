@@ -172,6 +172,8 @@ spec:
               value: {{ .Values.config.costRollupEnabled | toString | quote }}
             - name: COST_ROLLUP_INTERVAL
               value: {{ .Values.config.costRollupInterval | quote }}
+            - name: PACKAGE_INCLUDED_LINES
+              value: {{ .Values.config.packageIncludedLines | toString | quote }}
             - name: PROFILE
               value: {{ .Values.config.profile | quote }}
             {{- with include "chargeback.publicOrigins" . }}

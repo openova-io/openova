@@ -184,6 +184,20 @@ type catalogPlan struct {
 	MemoryGiB int           `json:"memory_gib"`
 }
 
+// wholeNumber reads a shape value as a positive whole number; ok is false
+// when it is absent, fractional or not a number — the catalog's integer
+// fields then keep the constants.
+func wholeNumber(d *store.Decimal) (int, bool) {
+	if d == nil {
+		return 0, false
+	}
+	r := ratOf(*d)
+	if !r.IsInt() || r.Sign() <= 0 {
+		return 0, false
+	}
+	return int(r.Num().Int64()), true
+}
+
 // catalogRate is one pay-per-use platform meter.
 type catalogRate struct {
 	SKU string `json:"sku"`
@@ -309,13 +323,34 @@ func (h *Handler) publicCatalog(w http.ResponseWriter, r *http.Request) {
 		doc.SKUs = append(doc.SKUs, catalogSKU{SKU: it.SKU, skuFacts: classifySKU(it.SKU), Unit: it.Unit, UnitPrice: it.UnitPrice, Monthly: monthlyOf(it), Description: it.Description})
 	}
 	if c.plans != nil {
+		// The package settings (DESIGN.md §22.1) name a plan's shape where
+		// written; the catalog's constants are the fallback — so the plan
+		// deck and the package table on the same page say the same vCPU.
+		settings, err := h.Store.PackageSettingsOf(r.Context(), c.plans.ID)
+		if err != nil {
+			publicStoreErr(w, err)
+			return
+		}
 		for _, it := range c.plans.Items {
 			slug := strings.TrimPrefix(it.SKU, store.PlanSKUPrefix)
 			if !strings.HasPrefix(it.SKU, store.PlanSKUPrefix) || !store.PlanBillable(slug) {
 				continue
 			}
 			vcpu, mem, _ := store.PlanShape(slug)
-			doc.Plans = append(doc.Plans, catalogPlan{Slug: slug, Name: store.PlanName(slug), SKU: it.SKU, skuFacts: classifySKU(it.SKU), Unit: it.Unit, UnitPrice: it.UnitPrice, Monthly: monthlyOf(it), VCPU: vcpu, MemoryGiB: mem})
+			facts := classifySKU(it.SKU)
+			if ps, ok := settings[it.SKU]; ok {
+				if v, ok := wholeNumber(ps.VCPU); ok {
+					vcpu = v
+				}
+				if m, ok := wholeNumber(ps.MemoryGB); ok {
+					mem = m
+				}
+				if vcpu > 0 && mem > 0 {
+					facts.VCPU, facts.MemoryGB = vcpu, mem
+					facts.DisplayName = store.PlanName(slug) + " plan · " + shapeLabel(vcpu, mem)
+				}
+			}
+			doc.Plans = append(doc.Plans, catalogPlan{Slug: slug, Name: store.PlanName(slug), SKU: it.SKU, skuFacts: facts, Unit: it.Unit, UnitPrice: it.UnitPrice, Monthly: monthlyOf(it), VCPU: vcpu, MemoryGiB: mem})
 		}
 	}
 	if c.payg != nil {

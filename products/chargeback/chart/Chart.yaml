@@ -25,11 +25,23 @@ type: application
 # 0.1.58 (#6971): chart only — the Sovereign's storefront origin
 # (https://marketplace.<sovereignFqdn>) is always among the public-route
 # CORS origins, so the storefront's package table can read the document.
-version: 0.1.60
+# 0.1.61 (#6971, DESIGN.md §22): the package LADDER — a feature is boolean,
+# quantity (with a metered / hard-cap / unlimited overage policy), level (an
+# ordered list of labels, the next purchasable as an add-on) or access (a
+# platform door); every feature sits in a group (capacity · features · access
+# · ops · scope · resilience · service) over a FLOOR of platform-wide items;
+# a not-offered cell can tease the first package that has it; package
+# settings per (book, plan) carry tagline, recommended, the term rule and
+# the shape with guaranteed floors; the step-up rule is computed and
+# published; PACKAGE_INCLUDED_LINES (config.packageIncludedLines) turns the
+# included 0.000 lines off; the seeder writes the ladder at the pricing
+# workbook's numbers. Migration: features.feature_group / levels / teaser,
+# package_entitlements.overage / level, package_settings.
+version: 0.1.61
 # appVersion is the default image tag (chargeback.image in _helpers.tpl);
 # build-chargeback.yaml derives the pushed tag from this field so the two
 # can never drift.
-appVersion: 0.1.60
+appVersion: 0.1.61
 # The document renderer (EPIC #6867) ships as an OPTIONAL sub-chart, gated on
 # `docrender.enabled` (default false), so a Sovereign that does not offer
 # invoice downloads runs no second workload. The repository is a `file://`

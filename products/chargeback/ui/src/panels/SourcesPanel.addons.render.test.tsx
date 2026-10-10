@@ -50,16 +50,19 @@ describe('the Add-ons control', () => {
     expect(html).toContain('Add-ons — nizwa')
     expect(html).toContain('<b>M</b> package offers these')
     // Backup: ticked, priced, with the hint. Dedicated IP: offered, not ticked.
-    const backup = html.slice(html.indexOf('aria-label="Backup"'), html.indexOf('aria-label="Dedicated IP address"'))
-    expect(backup).toContain('checked=""')
+    // The modal lists the add-ons in matrix order: AI SEO, dedicated IP, backup.
+    const backup = html.slice(html.indexOf('aria-label="Backup"'))
+    expect(backup.slice(0, backup.indexOf('</label>'))).toContain('checked=""')
     expect(backup).toContain('+ 1.500 OMR / month')
     expect(backup).toContain('included from XL')
-    const ip = html.slice(html.indexOf('aria-label="Dedicated IP address"'))
+    const ip = html.slice(html.indexOf('aria-label="Dedicated IP address"'), html.indexOf('aria-label="Backup"'))
     expect(ip.slice(0, ip.indexOf('</label>'))).not.toContain('checked=""')
     expect(ip).toContain('+ 2.000 OMR / month')
-    // What the package includes is not on offer.
+    // What the package includes, the floor, a door and a level with no next level are not on offer.
     expect(html).not.toContain('aria-label="Unlimited free SSL"')
     expect(html).not.toContain('aria-label="Bandwidth"')
+    expect(html).not.toContain('aria-label="Gitea + IaC"')
+    expect(html).not.toContain('aria-label="DR topology"')
     expect(html).toContain('Taking: Backup (+ 1.500 OMR / month)')
     expect(html).toContain('>Save add-ons<')
   })

@@ -82,6 +82,7 @@ func main() {
 	// usage_records instead. The answers are the same either way; §20.8
 	// measures what the cache is worth.
 	st.SetCostRollupEnabled(cfg.CostRollupEnabled)
+	st.SetPackageIncludedLines(cfg.PackageIncludedLines)
 
 	reg := metrics.Default
 	client := huawei.NewClient(cfg.HuaweiEndpointTemplate, cfg.HuaweiInsecureTLS, huawei.DefaultTimeout, reg)

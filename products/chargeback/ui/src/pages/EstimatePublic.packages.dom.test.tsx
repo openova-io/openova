@@ -129,29 +129,69 @@ const table = () => document.querySelector('[data-testid=package-table]') as HTM
 const dialog = () => document.querySelector('[role=dialog]')
 
 describe('the package comparison table, walked', () => {
-  it('draws S / M / L / XL with their prices, the included quantities and the three states', async () => {
+  it('draws S / M / L / XL with price, shape and the Recommended badge, the rows grouped, every kind of cell, and the floor once', async () => {
     await mount()
     const t = table()
     expect(t).not.toBeNull()
     // The plans family is the table, not a Configure row.
     expect(document.querySelector('[data-testid=family-plans] .strip-row')).toBeNull()
     const heads = [...t.querySelectorAll('th.pkg-head')].map((h) => h.textContent)
-    expect(heads).toEqual(['S5.000OMR / monthChoose', 'M9.000OMR / monthChoose', 'L16.000OMR / monthChoose', 'XL30.000OMR / monthChoose'])
-    expect([...t.querySelectorAll('th.pkg-head button')].map((b) => b.getAttribute('aria-label'))).toEqual(['Choose S', 'Choose M', 'Choose L', 'Choose XL'])
-    expect([...t.querySelectorAll('[data-testid=includes-vcpu] td')].map((c) => c.textContent)).toEqual(['vCPU', '2', '4', '8', '16'])
-    expect([...t.querySelectorAll('[data-testid=includes-bandwidth_mbps] td')].map((c) => c.textContent)).toEqual(['Bandwidth (Mbps)', '50', '100', '250', '1000'])
-    const ssl = [...t.querySelectorAll('[data-testid=compare-ssl] td')].map((c) => c.textContent)
-    expect(ssl.slice(1)).toEqual(['✓ Included', '✓ Included', '✓ Included', '✓ Included'])
+    expect(heads).toEqual([
+      'S5.000OMR / month1 vCPU · 2 GB · 25 GB disk0.17 vCPU · 0.67 GB guaranteedChoose',
+      'RecommendedM9.000OMR / month2 vCPU · 4 GB · 50 GB disk0.33 vCPU · 1.33 GB guaranteedChoose',
+      'L16.000OMR / month4 vCPU · 8 GB · 100 GB disk0.67 vCPU · 2.67 GB guaranteedChoose',
+      'XL30.000OMR / month8 vCPU · 16 GB · 250 GB disk1.33 vCPU · 5.33 GB guaranteedChoose',
+    ])
+    expect(t.querySelector('th.pkg-head.recommended .pkg-recommended')?.textContent).toBe('Recommended')
+    expect([...t.querySelectorAll('th.pkg-head > button')].map((b) => b.getAttribute('aria-label'))).toEqual(['Choose S', 'Choose M', 'Choose L', 'Choose XL'])
+    // The rows grouped under their headings, in the document's order.
+    const order = [...t.querySelectorAll('tbody tr')].map((r) => r.getAttribute('data-testid'))
+    expect(order).toEqual(['compare-group-capacity', 'compare-bandwidth', 'compare-disk', 'compare-group-features', 'compare-ai_seo', 'compare-group-access', 'compare-gitea_iac', 'compare-group-ops', 'compare-vuln_dashboard', 'compare-group-scope', 'compare-dedicated_ip', 'compare-group-resilience', 'compare-backup', 'compare-dr_topology', 'step-up-hints'])
+    expect(t.querySelector('[data-testid=compare-group-ops] th')?.textContent).toBe('Managed operations')
+    // A quantity with what happens above it.
+    const bw = [...t.querySelectorAll('[data-testid=compare-bandwidth] td')].map((c) => c.textContent)
+    expect(bw.slice(1)).toEqual(['50 Mbpshard cap', '100 Mbpshard cap', '250 Mbpsmore billed per use', '1000 Mbpsmore billed per use'])
+    // A boolean add-on with its price and hint; included on XL.
     const backup = [...t.querySelectorAll('[data-testid=compare-backup] td')].map((c) => c.textContent)
     expect(backup[0]).toBe('Backup')
-    expect(t.querySelector('[data-testid=compare-backup] td')?.getAttribute('title')).toBe('Daily backups of your sites and databases, kept 30 days')
+    expect(t.querySelector('[data-testid=compare-backup] td')?.getAttribute('title')).toBe('Scheduled backups of your sites and databases')
     expect(backup[1]).toBe('+ 1.500OMR / monthincluded from XL')
     expect(backup[4]).toBe('✓ Included')
     const ip = [...t.querySelectorAll('[data-testid=compare-dedicated_ip] td')].map((c) => c.textContent)
     expect(ip[3]).toBe('—')
     expect(ip[4]).toBe('+ 2.000OMR / month')
-    const bw = [...t.querySelectorAll('[data-testid=compare-bandwidth] td')].map((c) => c.textContent)
-    expect(bw.slice(1)).toEqual(['50 Mbps', '100 Mbps', '250 Mbps', '1000 Mbps'])
+    // An access door: ✓ / —, with its note.
+    const gitea = [...t.querySelectorAll('[data-testid=compare-gitea_iac] td')].map((c) => c.textContent)
+    expect(gitea.slice(1)).toEqual(['—', '✓read', '✓', '✓'])
+    // A teaser says where it starts instead of a dash.
+    const vuln = [...t.querySelectorAll('[data-testid=compare-vuln_dashboard] td')].map((c) => c.textContent)
+    expect(vuln.slice(1)).toEqual(['from M', '✓ Included', '✓ Included', '✓ Included'])
+    // A level shows its label; the purchasable next level is a tick with its price.
+    const dr = [...t.querySelectorAll('[data-testid=compare-dr_topology] td')].map((c) => c.textContent)
+    expect(dr.slice(1)).toEqual(['single region+ 8.000active-passive · OMR / month', 'active-passive', 'active-passive', 'active-passive'])
+    // The floor, once, under the table.
+    expect(document.querySelector('[data-testid=floor-strip]')?.textContent).toBe('On every package: Unlimited free SSL · Standard DDoS protection')
+    // No step-up hint until something is ticked.
+    expect(document.querySelector('[data-testid=step-up-hint-plan\\.s]')).toBeNull()
+  })
+
+  it('hints the step up when the ticked add-ons are worth it, and the button chooses the next package', async () => {
+    await mount()
+    await click(byAria('DR topology — active-passive on S'))
+    const hint = document.querySelector('[data-testid=step-up-hint-plan\\.s]')
+    expect(hint).not.toBeNull()
+    expect(hint!.textContent).toBe('M includes all of this for 4.000 OMR moreChoose M instead')
+    // Backup on S is not included on M: the hint goes.
+    await click(byAria('Backup on S'))
+    expect(document.querySelector('[data-testid=step-up-hint-plan\\.s]')).toBeNull()
+    await click(byAria('Backup on S'))
+    await click(byAria('Choose M instead of S'))
+    const group = summary().querySelector('[data-testid=group-plan]')!
+    expect(group).not.toBeNull()
+    const lines = [...group.querySelectorAll('[data-testid=item-lines] .row')].map((l) => l.textContent)
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toContain('plan.m')
+    expect(group.textContent).not.toContain('DR topology')
   })
 
   it('choosing M with Backup ticked adds the plan line and the add-on line, priced by the month, with the hint beside the add-on', async () => {

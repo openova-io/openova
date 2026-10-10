@@ -74,12 +74,18 @@ type shape struct {
 	allowance      *big.Rat
 	committed      *big.Rat
 	committedPrice *big.Rat
+	// capped: the package's overage policy is a HARD CAP (DESIGN.md §22.2)
+	// — the excess above the allowance is reported and billed at nothing.
+	// unlimited: the package leaves the SKU unlimited — no allowance,
+	// nothing billed, the quantity reported.
+	capped    bool
+	unlimited bool
 }
 
 // inert reports whether the shape does nothing a flat unit price would not
 // already do — the case for every item of every book written before §15.
 func (s shape) inert() bool {
-	return len(s.bands) == 0 && (s.allowance == nil || s.allowance.Sign() == 0) && (s.committed == nil || s.committed.Sign() == 0)
+	return len(s.bands) == 0 && (s.allowance == nil || s.allowance.Sign() == 0) && (s.committed == nil || s.committed.Sign() == 0) && !s.capped && !s.unlimited
 }
 
 // Breakdown is what the shapes did to one SKU's quantity in one period. It is
@@ -97,6 +103,11 @@ type Breakdown struct {
 	CommittedPrice store.Decimal `json:"committed_price,omitempty"`
 	Excess         store.Decimal `json:"excess,omitempty"`
 	TierMode       string        `json:"tier_mode,omitempty"`
+	// Capped: the package hard-caps this SKU — the excess above the
+	// allowance is reported here and billed at nothing. Unlimited: the
+	// package leaves it unlimited — no allowance, nothing billed.
+	Capped    bool `json:"capped,omitempty"`
+	Unlimited bool `json:"unlimited,omitempty"`
 	// Amount is what the SKU rated to, and EffectiveUnitPrice the amount
 	// divided by the metered quantity — the rate the customer actually paid,
 	// which is the number to put in front of a customer.
@@ -197,8 +208,10 @@ func (s shape) tierAmount(lo, hi *big.Rat) *big.Rat {
 
 // rate applies the order of operations to one SKU's metered quantity.
 func (s shape) rate(qty *big.Rat) (*big.Rat, Breakdown) {
-	br := Breakdown{SKU: s.sku, Quantity: store.Decimal(roundRat(qty, 6)), TierMode: s.mode}
-	if qty.Sign() <= 0 {
+	br := Breakdown{SKU: s.sku, Quantity: store.Decimal(roundRat(qty, 6)), TierMode: s.mode, Capped: s.capped, Unlimited: s.unlimited}
+	if qty.Sign() <= 0 || s.unlimited {
+		// Unlimited under the package: the quantity is reported, nothing
+		// is allowed against and nothing is billed.
 		br.Amount, br.EffectiveUnitPrice = "0.000000", "0.00000000"
 		return new(big.Rat), br
 	}
@@ -213,6 +226,13 @@ func (s shape) rate(qty *big.Rat) (*big.Rat, Breakdown) {
 		br.AllowanceUsed = store.Decimal(roundRat(used, 6))
 	}
 	billable := new(big.Rat).Sub(qty, used)
+	if s.capped {
+		// A hard cap: what the allowance did not cover is the excess the
+		// platform should have refused — reported, never billed.
+		br.Excess = store.Decimal(roundRat(billable, 6))
+		br.Amount, br.EffectiveUnitPrice = "0.000000", "0.00000000"
+		return new(big.Rat), br
+	}
 	// 3. the commitment covers the head of what remains.
 	committed := new(big.Rat)
 	if s.committed != nil && s.committed.Sign() > 0 && s.committedPrice != nil {
@@ -248,6 +268,12 @@ type Terms struct {
 	// allowances exactly as a contract allowance adds to the plan's — one
 	// allowance path, three origins — and it never rolls over.
 	Included map[string]store.Decimal
+	// Capped names the SKUs the Source's package HARD-CAPS (DESIGN.md
+	// §22.2): the allowance applies, the excess is reported, nothing above
+	// it is billed. Unlimited names the SKUs the package leaves unlimited:
+	// no allowance, nothing billed.
+	Capped    map[string]bool
+	Unlimited map[string]bool
 }
 
 // shapeFor builds one SKU's shape from its price-book item, the contract's
@@ -317,6 +343,7 @@ func (t Terms) shapeFor(it store.PriceItem) (shape, error) {
 	if allowance.Sign() > 0 {
 		s.allowance = allowance
 	}
+	s.capped, s.unlimited = t.Capped[it.SKU], t.Unlimited[it.SKU]
 	return s, nil
 }
 
