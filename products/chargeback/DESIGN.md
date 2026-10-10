@@ -5505,10 +5505,12 @@ published. The workbook's rows, as the ladder reads them:
 | Price per month (Target) | 2.490 | 4.490 (recommended) | 7.990 | 13.990 |
 | Shape (Tier vCPU · RAM · Storage) | 1 · 2 GB · 25 GB | 2 · 4 GB · 50 GB | 4 · 8 GB · 100 GB | 8 · 16 GB · 250 GB |
 | Guaranteed (headline ÷ overcommit, CPU 6×, RAM 3×) | 0.17 · 0.67 GB | 0.33 · 1.33 GB | 0.67 · 2.67 GB | 1.33 · 5.33 GB |
-| Applications · Databases · Mail server · Unlimited free SSL · SSO · Standard DDoS protection · Malware scanner · Web application firewall · 24/7 customer support | the FLOOR — on every package, never priced, no cell |
+| Applications · Databases · Mail server · Unlimited free SSL · SSO · Standard DDoS protection · Malware scanner · 24/7 customer support | the FLOOR — on every package, never priced, no cell |
 | Bandwidth (Mbps) · Disk (GB) | 50 · 25, hard cap | 100 · 50, hard cap | 250 · 100, metered | 1000 · 250, metered |
 | Backup · AI SEO ready · AI website builder · Domain | Optional | Optional | Optional | Included |
 | Dedicated IP address | Optional | Optional | Optional | Optional |
+| Web application firewall (founder decision 2026-10-11: off the floor; the S and M add-on at 3.500 a month, the M → L gap, so M's step-up holds at 3.500 bundled = 3.500 gap) | Optional | Optional | Included | Included |
+| APM · deep observability (founder decision 2026-10-11; ops, a teaser on S and M) | — (teaser) | — (teaser) | Included | Included |
 
 BSS holds that ladder **in one place**, bills from it, and publishes it, so
 the storefront's comparison table, the public calculator, the statement run
@@ -5904,11 +5906,15 @@ or "to be decided"):
   a price differs, logged when it is, and **not restored by `--purge`** —
   the plans are the product's. Aligning the catalog's own seed is a
   follow-up outside this module;
-- the **27 features** by key (created, or brought back to the ladder when
-  they differ, else left alone): the **nine floor items** the sheet marks
+- the **28 features** by key (created, or brought back to the ladder when
+  they differ, else left alone): the **eight floor items** the sheet marks
   Included everywhere — applications, databases, mail, ssl, sso, ddos,
-  malware_scanner, waf, support — which lose any cell an earlier baseline
-  gave them and move to the floor; **capacity** bandwidth 50 / 100 / 250 /
+  malware_scanner, support — which lose any cell an earlier baseline
+  gave them and move to the floor; since 2026-10-11 the web application
+  firewall (`waf`, group features, `addon.waf` at 3.500 a month, sort order
+  7) is optional on S and M and included on L and XL, and APM (`apm`, ops,
+  a teaser, sort order 15) is included on L and XL — a feature's
+  `synth.Feature.SortOrder` pins its sort order where it is not its place; **capacity** bandwidth 50 / 100 / 250 /
   1000 Mbps and disk 25 / 50 / 100 / 250 GB, metered on all four since
   §22.11 (the customer's capped or grow mode decides); **features** AI SEO and AI website builder, optional
   on S / M / L and included on XL; **access** console click-install on all,

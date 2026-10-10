@@ -82,8 +82,23 @@ type Feature struct {
 	AddonSKU string
 	Levels   []string
 	Teaser   bool
+	// SortOrder pins the feature's sort_order when it is not its place in
+	// Features (index + 1). Zero means the place. It exists so a feature can
+	// move groups, or join the ladder, at the sort order the live book was
+	// given (founder decision 2026-10-11: waf at 7, apm at 15) without
+	// renumbering every feature after it.
+	SortOrder int
 	// Cells is the cell per plan slug (s, m, l, xl); a floor item has none.
 	Cells map[string]Cell
+}
+
+// SortOrderAt is the sort_order the feature at index i of Features is
+// written with: its pinned SortOrder, else its place.
+func (f Feature) SortOrderAt(i int) int {
+	if f.SortOrder > 0 {
+		return f.SortOrder
+	}
+	return i + 1
 }
 
 // Package is one of the four packages: its price per month (the sheet's
@@ -181,6 +196,10 @@ func (a AddonRate) AnnualPrice() float64 {
 // AddonRates are the five add-ons of the sheet's Optional rows.
 var AddonRates = []AddonRate{
 	{SKU: "addon.backup", Name: "Backup", Monthly: 1.5},
+	// The web application firewall on S and M, at the M → L gap (7.990 −
+	// 4.490 = 3.500), so the step-up rule holds on M exactly: the one add-on
+	// M offers and L includes sums to the gap (founder decision 2026-10-11).
+	{SKU: "addon.waf", Name: "Web application firewall", Monthly: 3.5},
 	{SKU: "addon.ai_seo", Name: "AI SEO ready", Monthly: 2},
 	{SKU: "addon.ai_builder", Name: "AI website builder", Monthly: 2},
 	{SKU: "addon.domain", Name: "Domain", Monthly: 0.5},
@@ -244,7 +263,12 @@ var Features = []Feature{
 	{Key: "sso", Name: "SSO", Blurb: "One sign-in for every application", Kind: FeatureBoolean, Group: GroupFloor},
 	{Key: "ddos", Name: "Standard DDoS protection", Blurb: "Volumetric attacks absorbed at the edge", Kind: FeatureBoolean, Group: GroupFloor},
 	{Key: "malware_scanner", Name: "Malware scanner", Blurb: "Your sites scanned for malware", Kind: FeatureBoolean, Group: GroupFloor},
-	{Key: "waf", Name: "Web application firewall", Blurb: "Common web attacks blocked before they reach you", Kind: FeatureBoolean, Group: GroupFloor},
+	// The web application firewall left the floor on 2026-10-11 (founder
+	// decision): an add-on on S and M, included on L and XL. It keeps its
+	// place in this list — so every feature after it keeps the sort order
+	// the live book has — and is pinned at sort order 7 in its own group.
+	{Key: "waf", Name: "Web application firewall", Blurb: "Common web attacks blocked before they reach your sites", Kind: FeatureBoolean, Group: GroupFeatures, AddonSKU: "addon.waf", SortOrder: 7,
+		Cells: cells(opt(), opt(), inc(), inc())},
 	{Key: "support", Name: "24/7 customer support", Blurb: "Someone to talk to, any hour", Kind: FeatureBoolean, Group: GroupFloor},
 
 	// CAPACITY — the two quantity rows. Their overage is METERED on every
@@ -298,6 +322,12 @@ var Features = []Feature{
 		// Active-passive is included on XL; on S, M and L it comes with grow
 		// mode only — no upfront price, the standby billed as overage.
 		Cells: cells(growLvl(0), growLvl(0), growLvl(0), lvl(1))},
+
+	// OPS, added 2026-10-11 (founder decision): APM on L and XL, a teaser on
+	// S and M ("available on L"). Last in this list so no feature before it
+	// is renumbered; pinned at sort order 15, which puts it first in ops.
+	{Key: "apm", Name: "APM · deep observability", Blurb: "Traces, metrics and logs for every app, with service maps", Kind: FeatureBoolean, Group: GroupOps, Teaser: true, SortOrder: 15,
+		Cells: cells(no(), no(), inc(), inc())},
 }
 
 // FeatureKeys lists the keys of the showcase features, in order — the purge

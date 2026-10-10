@@ -297,7 +297,7 @@ func (s *seeder) ensurePackages(planBookID string) error {
 			levels = []string{}
 		}
 		wantIcon, wantBG := iconIDs[icons.Features[f.Key].Icon], icons.Features[f.Key].BG
-		want := map[string]any{"name": f.Name, "blurb": f.Blurb, "kind": f.Kind, "group": f.Group, "unit": f.Unit, "addon_sku": f.AddonSKU, "levels": levels, "teaser": f.Teaser, "sort_order": i + 1, "icon_id": wantIcon, "icon_bg": wantBG}
+		want := map[string]any{"name": f.Name, "blurb": f.Blurb, "kind": f.Kind, "group": f.Group, "unit": f.Unit, "addon_sku": f.AddonSKU, "levels": levels, "teaser": f.Teaser, "sort_order": f.SortOrderAt(i), "icon_id": wantIcon, "icon_bg": wantBG}
 		cur, ok := byKey[f.Key]
 		if !ok {
 			body := map[string]any{"key": f.Key}
@@ -320,7 +320,7 @@ func (s *seeder) ensurePackages(planBookID string) error {
 			delete(have, f.Key)
 			delete(rowsOf, f.Key)
 		}
-		if cur.Name != f.Name || cur.Blurb != f.Blurb || cur.Kind != f.Kind || cur.Group != f.Group || cur.Unit != f.Unit || cur.AddonSKU != f.AddonSKU || !sameStrings(cur.Levels, f.Levels) || cur.Teaser != f.Teaser || cur.SortOrder != i+1 || cur.IconID != wantIcon || cur.IconBG != wantBG {
+		if cur.Name != f.Name || cur.Blurb != f.Blurb || cur.Kind != f.Kind || cur.Group != f.Group || cur.Unit != f.Unit || cur.AddonSKU != f.AddonSKU || !sameStrings(cur.Levels, f.Levels) || cur.Teaser != f.Teaser || cur.SortOrder != f.SortOrderAt(i) || cur.IconID != wantIcon || cur.IconBG != wantBG {
 			if _, err := s.api.patchFeature(cur.ID, want); err != nil {
 				return fmt.Errorf("converge feature %q: %w", f.Key, err)
 			}
