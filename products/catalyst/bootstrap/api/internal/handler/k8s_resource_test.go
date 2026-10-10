@@ -737,11 +737,21 @@ func TestHandleK8sResourceTree_DeploymentChainWalksDown(t *testing.T) {
 	pod := newPodWithRSOwner("default", "wp-67-abc", "wp-67", map[string]string{"app": "wp"})
 	rig := newResourceRig(t, dep, rs, pod)
 	defer rig.stop()
-	// Wait for indexer.
-	deadline := time.Now().Add(2 * time.Second)
+	// Wait for EVERY indexer the tree walks — the deployment alone is not
+	// enough: on a loaded runner the ReplicaSet and Pod informers can sync
+	// after the deployment's, and the walk then finds no children (the
+	// 2026-10-10 flake on #6987, "expected at least one child, got []").
+	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		items, _, _ := rig.h.k8sCache.List("alpha", "deployment", labels.Everything())
-		if len(items) == 1 {
+		synced := true
+		for _, kind := range []string{"deployment", "replicaset", "pod"} {
+			items, _, _ := rig.h.k8sCache.List("alpha", kind, labels.Everything())
+			if len(items) != 1 {
+				synced = false
+				break
+			}
+		}
+		if synced {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
