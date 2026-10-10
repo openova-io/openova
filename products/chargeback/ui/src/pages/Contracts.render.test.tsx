@@ -2,7 +2,7 @@ import { createElement, type ComponentType } from 'react'
 import { renderToString } from 'react-dom/server'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
-import type { Contract, ContractItem, Me, PriceBook } from '../api/types'
+import type { Contract, ContractItem, ContractPeriods, Me, PriceBook } from '../api/types'
 
 /**
  * The contracts surfaces rendered with the documents the Go side produces
@@ -93,10 +93,60 @@ const acmeSKUs = {
   ],
 }
 
+// What the ACME contract DID (DESIGN.md §15.10): August under the floor
+// with a true-up, July above it without one — the document the Go side
+// derives from the statements' frozen lines, newest first.
+const acmePeriods: ContractPeriods = {
+  contract_id: 'ct1',
+  currency: 'OMR',
+  floor: '6000',
+  periods: [
+    {
+      period: '2026-08',
+      period_start: '2026-08-01',
+      period_end: '2026-08-31',
+      statement_id: 'st-aug',
+      invoice_number: 'INV-2026-000007',
+      status: 'overdue',
+      currency: 'OMR',
+      subtotal: '6000.000000',
+      discount_total: '350.000000',
+      total: '6300.000000',
+      net: '350.000000',
+      true_up: '5650.000000',
+      floor: '6000.000000',
+      allowances: [{ sku: 'eip.traffic_gb', unit: 'gb', quantity: '60', included: '100', used: '60', excess: '0' }],
+      commitments: [{ sku: 'ecs.m7n.2xlarge.8', unit: 'instance-hour', quantity: '2000', committed: '7440', delivered: '2000', shortfall: '5440', excess: '0', discount_pct: '30', amount: '700.000000' }],
+      discounts: [{ discount_id: 'i4', name: 'Spend commitment of 1000 OMR a month under ACME 2026', kind: 'percent', value: '50', amount: '350.000000', from_contract: true }],
+    },
+    {
+      period: '2026-07',
+      period_start: '2026-07-01',
+      period_end: '2026-07-31',
+      statement_id: 'st-jul',
+      invoice_number: 'INV-2026-000004',
+      status: 'paid',
+      currency: 'OMR',
+      subtotal: '7101.500000',
+      discount_total: '7101.500000',
+      total: '7456.575000',
+      net: '7101.500000',
+      true_up: '0.000000',
+      floor: '6000',
+      allowances: [{ sku: 'eip.traffic_gb', unit: 'gb', quantity: '160', included: '100', used: '100', excess: '60' }],
+      commitments: [{ sku: 'ecs.m7n.2xlarge.8', unit: 'instance-hour', quantity: '9000', committed: '7440', delivered: '7440', shortfall: '0', excess: '1560', discount_pct: '30', amount: '14203.000000' }],
+      discounts: [{ discount_id: 'i4', name: 'Spend commitment of 1000 OMR a month under ACME 2026', kind: 'percent', value: '50', amount: '7101.500000', from_contract: true }],
+    },
+  ],
+}
+
 vi.mock('../lib/useQuery', () => {
   const docFor = (path: string): unknown => {
     if (path === '/contracts') return { contracts: [acmeContract, globexContract] }
     if (path === '/contracts/ct1') return acmeContract
+    if (path === '/contracts/ct1/periods') return acmePeriods
+    if (path === '/contracts/ct2') return globexContract
+    if (path === '/contracts/ct2/periods') return { contract_id: 'ct2', currency: 'OMR', periods: [] }
     if (path === '/customers') return { customers: [{ id: 'c1', slug: 'acme', name: 'ACME LLC', admin_email: 'fin@acme.example', status: 'active' }] }
     if (path === '/customers/c1/contracts') return { contracts: [acmeContract] }
     if (path === '/customers/c1/skus') return acmeSKUs
@@ -239,6 +289,67 @@ describe('one contract', () => {
     expect(html).not.toContain('aria-label="Edit ')
     expect(html).not.toContain('aria-label="Delete ')
     session = sovereign
+  })
+})
+
+describe('what the contract did — the rated periods (DESIGN.md §15.10)', () => {
+  it('lists every statement rated under the contract, newest first, with the floor and the true-up', () => {
+    session = sovereign
+    const html = render(ContractDetail, '/contracts/:id', '/contracts/ct1')
+    expect(html).toContain('Rated periods')
+    expect(html).toContain('aria-label="Rated periods"')
+    // Two rows, August before July, each linking to its statement.
+    expect(html).toMatch(/data-period="2026-08".*data-period="2026-07"/s)
+    expect(html).toContain('href="/statements/st-aug"')
+    expect(html).toContain('INV-2026-000007')
+    expect(html).toContain('href="/statements/st-jul"')
+    expect(html).toContain('INV-2026-000004')
+    // August: under the floor — the true-up, and the net it brought up.
+    expect(html).toContain('5,650.000 OMR')
+    expect(html).toContain('net 350.000 OMR brought to the floor')
+    expect(html).toContain('after 350.000 OMR of discounts')
+    expect(html).toContain('overdue')
+    // July: above the floor — no true-up, said in words rather than as 0.
+    expect(html).toContain('net 7,101.500 OMR met the floor')
+    expect(html).toMatch(/data-true-up="yes".*data-true-up="no"/s)
+    // The floor on every row.
+    expect(html).toContain('6,000.000 OMR')
+    // No table of its own is editable: a period is what a run did.
+    expect(html).not.toContain('aria-label="Edit 2026-08')
+  })
+
+  it('opens the newest period by itself and reads each line as used / included with a bar', () => {
+    session = sovereign
+    const html = render(ContractDetail, '/contracts/:id', '/contracts/ct1')
+    // The newest period is open on arrival; the older one is not.
+    expect(html).toContain('data-period-detail="2026-08"')
+    expect(html).not.toContain('data-period-detail="2026-07"')
+    expect(html).toContain('aria-expanded="true"')
+    expect(html).toContain('aria-expanded="false"')
+    // The allowance: 60 of 100 GB used, 60 % — a bar beside the figures.
+    expect(html).toContain('data-consumption="eip.traffic_gb allowance"')
+    expect(html).toContain('60 / 100 gb')
+    expect(html).toContain('60 % used')
+    expect(html).toContain('class="share-bar"')
+    // The commitment: 2,000 of the 7,440 committed hours delivered, the
+    // rest named as committed but not used, and what the SKU rated to.
+    expect(html).toContain('data-consumption="ecs.m7n.2xlarge.8 commitment"')
+    expect(html).toContain('2,000 / 7,440 instance-hour')
+    expect(html).toContain('26.9 % used, 5,440 instance-hour committed but not used')
+    expect(html).toContain('700.000 OMR')
+    // The spend commitment's discount, marked as the contract's own.
+    expect(html).toContain('data-discount="contract"')
+    expect(html).toContain('Spend commitment of 1000 OMR a month under ACME 2026')
+    expect(html).toContain('− 350.000 OMR')
+  })
+
+  it('says so when no statement has been rated under the contract yet', () => {
+    session = sovereign
+    const html = render(ContractDetail, '/contracts/:id', '/contracts/ct2')
+    expect(html).toContain('Globex 2026')
+    expect(html).toContain('Rated periods')
+    expect(html).toContain('No statement has been rated under this contract yet')
+    expect(html).not.toContain('aria-label="Rated periods"')
   })
 })
 

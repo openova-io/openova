@@ -273,28 +273,7 @@ func (s *Store) GetStatement(ctx context.Context, scope Scope, id string) (State
 	if !scope.Allows(st.CustomerID) {
 		return Statement{}, ErrNotFound
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT l.id, l.statement_id, l.customer_id, l.source_id, l.sku, l.quantity::text, l.unit, l.unit_price::text, l.amount::text, l.resource_count,
-			l.end_customer_id, COALESCE(ec.name, ''), l.list_unit_price::text, l.list_amount::text, l.buy_amount::text, l.net_amount::text, l.tax_category, l.tax_rule_id, l.description
-		FROM rated_lines l LEFT JOIN customers ec ON ec.id = l.end_customer_id WHERE l.statement_id = $1 ORDER BY ec.name, l.sku, l.source_id`, id)
-	if err != nil {
-		return st, mapErr(err)
-	}
-	defer rows.Close()
-	st.Lines = []RatedLine{}
-	for rows.Next() {
-		var l RatedLine
-		var src, endCustomer, lup, lam, buy, net sql.NullString
-		var q, up, amt string
-		if err := rows.Scan(&l.ID, &l.StatementID, &l.CustomerID, &src, &l.SKU, &q, &l.Unit, &up, &amt, &l.ResourceCount, &endCustomer, &l.EndCustomerName, &lup, &lam, &buy, &net, &l.TaxCategory, &l.TaxRuleID, &l.Description); err != nil {
-			return st, err
-		}
-		l.SourceID = strPtr(src)
-		l.Quantity, l.UnitPrice, l.Amount = Decimal(q), Decimal(up), Decimal(amt)
-		l.EndCustomerID = strPtr(endCustomer)
-		l.ListUnitPrice, l.ListAmount, l.BuyAmount, l.NetAmount = decPtr(lup), decPtr(lam), decPtr(buy), decPtr(net)
-		st.Lines = append(st.Lines, l)
-	}
-	if err := rows.Err(); err != nil {
+	if st.Lines, err = s.statementLines(ctx, id); err != nil {
 		return st, err
 	}
 	// The payment history behind Paid/Balance (DESIGN.md §8). Only the
@@ -322,6 +301,68 @@ func (s *Store) GetStatement(ctx context.Context, scope Scope, id string) (State
 		st.CreditNotes = notes
 	}
 	return st, nil
+}
+
+// statementLines reads a statement's rated lines, in the order the invoice
+// prints them: the end customer (on a partner statement), then the SKU, then
+// the source.
+func (s *Store) statementLines(ctx context.Context, id string) ([]RatedLine, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT l.id, l.statement_id, l.customer_id, l.source_id, l.sku, l.quantity::text, l.unit, l.unit_price::text, l.amount::text, l.resource_count,
+			l.end_customer_id, COALESCE(ec.name, ''), l.list_unit_price::text, l.list_amount::text, l.buy_amount::text, l.net_amount::text, l.tax_category, l.tax_rule_id, l.description
+		FROM rated_lines l LEFT JOIN customers ec ON ec.id = l.end_customer_id WHERE l.statement_id = $1 ORDER BY ec.name, l.sku, l.source_id`, id)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	defer rows.Close()
+	lines := []RatedLine{}
+	for rows.Next() {
+		var l RatedLine
+		var src, endCustomer, lup, lam, buy, net sql.NullString
+		var q, up, amt string
+		if err := rows.Scan(&l.ID, &l.StatementID, &l.CustomerID, &src, &l.SKU, &q, &l.Unit, &up, &amt, &l.ResourceCount, &endCustomer, &l.EndCustomerName, &lup, &lam, &buy, &net, &l.TaxCategory, &l.TaxRuleID, &l.Description); err != nil {
+			return nil, err
+		}
+		l.SourceID = strPtr(src)
+		l.Quantity, l.UnitPrice, l.Amount = Decimal(q), Decimal(up), Decimal(amt)
+		l.EndCustomerID = strPtr(endCustomer)
+		l.ListUnitPrice, l.ListAmount, l.BuyAmount, l.NetAmount = decPtr(lup), decPtr(lam), decPtr(buy), decPtr(net)
+		lines = append(lines, l)
+	}
+	return lines, rows.Err()
+}
+
+// StatementsUnderContract returns every statement rated under the contract
+// (DESIGN.md §15.10), newest period first, each with its rated lines — what
+// the contract page derives the period's consumption and true-up from. The
+// payments, credit notes and e-invoice state of each statement are left to
+// GetStatement: the contract page reads what the agreement did to the
+// numbers, not how the invoice was settled.
+func (s *Store) StatementsUnderContract(ctx context.Context, scope Scope, contractID string) ([]Statement, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+statementColumns+statementFrom+` WHERE st.contract_id = $1 ORDER BY st.period_start DESC`, contractID)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	defer rows.Close()
+	out := []Statement{}
+	for rows.Next() {
+		st, err := scanStatement(rows)
+		if err != nil {
+			return nil, err
+		}
+		if !scope.Allows(st.CustomerID) {
+			return nil, ErrNotFound
+		}
+		out = append(out, st)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i := range out {
+		if out[i].Lines, err = s.statementLines(ctx, out[i].ID); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 // IssueStatement flips a draft to issued (idempotent on already-issued).

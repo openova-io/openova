@@ -2439,6 +2439,81 @@ export interface Contract {
   notice_from?: string
 }
 
+/** DESIGN.md §15.10 — one contract allowance line against the period's metered quantity of its SKU. */
+export interface ContractPeriodAllowance {
+  sku: string
+  unit?: string
+  /** The period's metered total of the SKU. */
+  quantity: number | string
+  /** The contract line's quantity, how much of it the usage consumed, and the metered quantity above it. */
+  included: number | string
+  used: number | string
+  excess: number | string
+}
+
+/** DESIGN.md §15.10 — one committed-use line against the period's metered quantity of its SKU. */
+export interface ContractPeriodCommitment {
+  sku: string
+  unit?: string
+  quantity: number | string
+  /** The committed head, how much of it the usage filled, what it did not reach, and the quantity above it at list. */
+  committed: number | string
+  delivered: number | string
+  shortfall: number | string
+  excess: number | string
+  committed_price?: number | string | null
+  discount_pct?: number | string | null
+  /** What the SKU rated to in the period. */
+  amount: number | string
+}
+
+/** DESIGN.md §15.10 — one discount that applied to the period; `from_contract` marks the spend commitment's own percentage. */
+export interface ContractPeriodDiscount {
+  discount_id?: string
+  name: string
+  kind?: string
+  value?: number | string
+  amount: number | string
+  from_contract?: boolean
+}
+
+/**
+ * DESIGN.md §15.10 — what the contract did in ONE statement rated under it:
+ * the statement, the floor in force, the true-up it produced, and the
+ * consumption of every line, derived from the lines the statement froze.
+ */
+export interface ContractPeriod {
+  /** YYYY-MM, and the statement's own dates. */
+  period: string
+  period_start: string
+  period_end: string
+  statement_id: string
+  invoice_number?: string
+  /** The statement's effective status (overdue included). */
+  status: string
+  currency: string
+  subtotal: number | string
+  discount_total: number | string
+  total: number | string
+  /** The subtotal less the true-up: what the usage rated to after the discounts. */
+  net: number | string
+  /** The shortfall line the period carried; 0 when it met the floor or there is none. */
+  true_up: number | string
+  /** The floor the period was trued up to, or the contract's as it stands; absent without one. */
+  floor?: number | string | null
+  allowances: ContractPeriodAllowance[]
+  commitments: ContractPeriodCommitment[]
+  discounts: ContractPeriodDiscount[]
+}
+
+/** GET /contracts/{id}/periods — newest period first. */
+export interface ContractPeriods {
+  contract_id: string
+  currency: string
+  floor?: number | string | null
+  periods: ContractPeriod[]
+}
+
 // ---------------------------------------------------------------------------
 // The finance handover (DESIGN.md §18)
 // ---------------------------------------------------------------------------

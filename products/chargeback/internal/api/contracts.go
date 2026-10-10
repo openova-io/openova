@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/openova-io/openova/products/chargeback/internal/access"
+	"github.com/openova-io/openova/products/chargeback/internal/rating"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
 
@@ -21,6 +22,7 @@ import (
 //	PATCH       /contracts/{id}/items/{item}  edit ONE line
 //	DELETE      /contracts/{id}/items/{item}  remove ONE line
 //	POST        /contracts/{id}/sla-credit    credit an availability breach
+//	GET         /contracts/{id}/periods       what the contract did: the periods rated under it
 //	GET         /customers/{id}/contracts     one customer's contracts
 //	GET         /customers/{id}/skus          the SKUs the customer's books price (the line dialog's select)
 //
@@ -173,6 +175,39 @@ func (h *Handler) getContract(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, c)
+}
+
+// contractPeriods — GET /contracts/{id}/periods: what the contract DID
+// (DESIGN.md §15.10). One row per statement rated under it, newest period
+// first — the statement, its status and subtotal, the floor in force and the
+// true-up it produced, and per line how much of each allowance was used and
+// how much of each committed head the usage filled, derived from the lines
+// the statement froze. The same read permission as the contract, so a
+// customer principal reads its own agreement's periods and nothing else.
+func (h *Handler) contractPeriods(w http.ResponseWriter, r *http.Request) {
+	s, ok := h.requireAuth(w, r)
+	if !ok {
+		return
+	}
+	c, err := h.Store.GetContract(r.Context(), s.Scope(), r.PathValue("id"))
+	if err != nil {
+		storeErr(w, err)
+		return
+	}
+	if _, ok := h.requirePermission(w, r, access.MeteringRead, c.CustomerID); !ok {
+		return
+	}
+	statements, err := h.Store.StatementsUnderContract(r.Context(), s.Scope(), c.ID)
+	if err != nil {
+		storeErr(w, err)
+		return
+	}
+	periods, err := rating.ContractPeriods(c, statements)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"contract_id": c.ID, "currency": c.Currency, "floor": c.MonthlyFloor(), "periods": periods})
 }
 
 // createContract — POST /contracts.

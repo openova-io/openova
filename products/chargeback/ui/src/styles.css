@@ -318,6 +318,15 @@ pre.details { white-space: pre-wrap; word-break: break-all; margin: 0; font-size
 tbody tr.open td { background: var(--panel-2); border-bottom-color: transparent; }
 tbody tr.expand td { background: var(--panel-2); padding: 6px 14px 14px 36px; }
 tbody tr.expand:hover td { background: var(--panel-2); }
+
+/* A contract's rated periods (DESIGN.md §15.10): one line's consumption per
+   row — the line, a thin used/included bar, the figures in words, and what
+   the SKU rated to. */
+.consumption { display: grid; gap: 8px; }
+.consumption-row { display: grid; grid-template-columns: minmax(180px, 1fr) auto minmax(220px, 2fr) minmax(90px, auto); gap: 14px; align-items: center; }
+.consumption-row .share-bar { margin-right: 0; }
+.consumption-row .sub { color: var(--muted); font-size: 11.5px; display: block; }
+.consumption-row .num { text-align: right; }
 .caret { display: inline-block; width: 12px; color: var(--muted-2); font-size: 11px; }
 .chip.toggle { cursor: pointer; background: #fff; color: var(--ink-2); font: inherit; font-size: 12px; }
 .chip.toggle:hover { border-color: var(--accent); color: var(--accent); }
