@@ -1,0 +1,672 @@
+{
+  "currency": "OMR",
+  "price_book": "OpenOva plans",
+  "prices_as_of": "2026-10-10",
+  "groups": [
+    {
+      "key": "capacity",
+      "name": "Capacity"
+    },
+    {
+      "key": "features",
+      "name": "Features"
+    },
+    {
+      "key": "access",
+      "name": "Access"
+    },
+    {
+      "key": "ops",
+      "name": "Managed operations"
+    },
+    {
+      "key": "scope",
+      "name": "Scope"
+    },
+    {
+      "key": "resilience",
+      "name": "Resilience"
+    },
+    {
+      "key": "service",
+      "name": "Service level"
+    }
+  ],
+  "floor": [
+    {
+      "key": "applications",
+      "name": "Applications",
+      "blurb": "Install any application from the catalog"
+    },
+    {
+      "key": "databases",
+      "name": "Databases",
+      "blurb": "Managed databases for your applications"
+    },
+    {
+      "key": "mail",
+      "name": "Mail server (unlimited accounts)",
+      "blurb": "Your own mail server, as many mailboxes as you need"
+    },
+    {
+      "key": "ssl",
+      "name": "Unlimited free SSL",
+      "blurb": "Certificates for every site, renewed for you"
+    },
+    {
+      "key": "sso",
+      "name": "SSO",
+      "blurb": "One sign-in for every application"
+    },
+    {
+      "key": "ddos",
+      "name": "Standard DDoS protection",
+      "blurb": "Volumetric attacks absorbed at the edge"
+    },
+    {
+      "key": "malware_scanner",
+      "name": "Malware scanner",
+      "blurb": "Your sites scanned for malware"
+    },
+    {
+      "key": "waf",
+      "name": "Web application firewall",
+      "blurb": "Common web attacks blocked before they reach you"
+    },
+    {
+      "key": "support",
+      "name": "24/7 customer support",
+      "blurb": "Someone to talk to, any hour"
+    }
+  ],
+  "packages": [
+    {
+      "sku": "plan.s",
+      "name": "S",
+      "tagline": "",
+      "price_month": "2.490",
+      "recommended": false,
+      "annual_months_free": 0,
+      "shape": {
+        "vcpu": 1,
+        "memory_gb": 2,
+        "vcpu_guaranteed": 0.17,
+        "memory_gb_guaranteed": 0.67,
+        "disk_gb": 25
+      },
+      "step_up": {
+        "next_sku": "plan.m",
+        "next_name": "M",
+        "gap_month": "2.000",
+        "bundled_addon_keys": [],
+        "bundled_addons_sum_month": "0.000",
+        "rule_holds": true
+      },
+      "includes": {
+        "bandwidth_mbps": 50,
+        "disk_gb": 25,
+        "memory_gb": 2,
+        "vcpu": 1
+      }
+    },
+    {
+      "sku": "plan.m",
+      "name": "M",
+      "tagline": "",
+      "price_month": "4.490",
+      "recommended": true,
+      "annual_months_free": 0,
+      "shape": {
+        "vcpu": 2,
+        "memory_gb": 4,
+        "vcpu_guaranteed": 0.33,
+        "memory_gb_guaranteed": 1.33,
+        "disk_gb": 50
+      },
+      "step_up": {
+        "next_sku": "plan.l",
+        "next_name": "L",
+        "gap_month": "3.500",
+        "bundled_addon_keys": [],
+        "bundled_addons_sum_month": "0.000",
+        "rule_holds": true
+      },
+      "includes": {
+        "bandwidth_mbps": 100,
+        "disk_gb": 50,
+        "memory_gb": 4,
+        "vcpu": 2
+      }
+    },
+    {
+      "sku": "plan.l",
+      "name": "L",
+      "tagline": "",
+      "price_month": "7.990",
+      "recommended": false,
+      "annual_months_free": 0,
+      "shape": {
+        "vcpu": 4,
+        "memory_gb": 8,
+        "vcpu_guaranteed": 0.67,
+        "memory_gb_guaranteed": 2.67,
+        "disk_gb": 100
+      },
+      "step_up": {
+        "next_sku": "plan.xl",
+        "next_name": "XL",
+        "gap_month": "6.000",
+        "bundled_addon_keys": [
+          "backup",
+          "ai_seo",
+          "ai_builder",
+          "domain"
+        ],
+        "bundled_addons_sum_month": "6.000",
+        "rule_holds": true
+      },
+      "includes": {
+        "bandwidth_mbps": 250,
+        "disk_gb": 100,
+        "memory_gb": 8,
+        "vcpu": 4
+      }
+    },
+    {
+      "sku": "plan.xl",
+      "name": "XL",
+      "tagline": "",
+      "price_month": "13.990",
+      "recommended": false,
+      "annual_months_free": 0,
+      "shape": {
+        "vcpu": 8,
+        "memory_gb": 16,
+        "vcpu_guaranteed": 1.33,
+        "memory_gb_guaranteed": 5.33,
+        "disk_gb": 250
+      },
+      "includes": {
+        "bandwidth_mbps": 1000,
+        "disk_gb": 250,
+        "memory_gb": 16,
+        "vcpu": 8
+      }
+    }
+  ],
+  "features": [
+    {
+      "key": "bandwidth",
+      "name": "Bandwidth",
+      "blurb": "Included bandwidth; above it the package's overage rule applies",
+      "group": "capacity",
+      "kind": "quantity",
+      "unit": "Mbps",
+      "addon_sku": "eip.bandwidth_mbps",
+      "teaser": false,
+      "cells": {
+        "plan.l": {
+          "state": "included",
+          "quantity": 250,
+          "overage": "metered"
+        },
+        "plan.m": {
+          "state": "included",
+          "quantity": 100,
+          "overage": "hard_cap"
+        },
+        "plan.s": {
+          "state": "included",
+          "quantity": 50,
+          "overage": "hard_cap"
+        },
+        "plan.xl": {
+          "state": "included",
+          "quantity": 1000,
+          "overage": "metered"
+        }
+      }
+    },
+    {
+      "key": "disk",
+      "name": "Disk",
+      "blurb": "Persistent storage for apps and databases",
+      "group": "capacity",
+      "kind": "quantity",
+      "unit": "GB",
+      "addon_sku": "k8s.pvc_gb",
+      "teaser": false,
+      "cells": {
+        "plan.l": {
+          "state": "included",
+          "quantity": 100,
+          "overage": "metered"
+        },
+        "plan.m": {
+          "state": "included",
+          "quantity": 50,
+          "overage": "hard_cap"
+        },
+        "plan.s": {
+          "state": "included",
+          "quantity": 25,
+          "overage": "hard_cap"
+        },
+        "plan.xl": {
+          "state": "included",
+          "quantity": 250,
+          "overage": "metered"
+        }
+      }
+    },
+    {
+      "key": "backup",
+      "name": "Backup",
+      "blurb": "Scheduled backups of your sites and databases",
+      "group": "features",
+      "kind": "boolean",
+      "addon_sku": "addon.backup",
+      "teaser": false,
+      "cells": {
+        "plan.l": {
+          "state": "optional",
+          "addon_sku": "addon.backup",
+          "price_month": "1.500",
+          "included_from": "plan.xl"
+        },
+        "plan.m": {
+          "state": "optional",
+          "addon_sku": "addon.backup",
+          "price_month": "1.500",
+          "included_from": "plan.xl"
+        },
+        "plan.s": {
+          "state": "optional",
+          "addon_sku": "addon.backup",
+          "price_month": "1.500",
+          "included_from": "plan.xl"
+        },
+        "plan.xl": {
+          "state": "included"
+        }
+      }
+    },
+    {
+      "key": "ai_seo",
+      "name": "AI SEO ready",
+      "blurb": "Search-engine readiness checked and tuned by AI",
+      "group": "features",
+      "kind": "boolean",
+      "addon_sku": "addon.ai_seo",
+      "teaser": false,
+      "cells": {
+        "plan.l": {
+          "state": "optional",
+          "addon_sku": "addon.ai_seo",
+          "price_month": "2.000",
+          "included_from": "plan.xl"
+        },
+        "plan.m": {
+          "state": "optional",
+          "addon_sku": "addon.ai_seo",
+          "price_month": "2.000",
+          "included_from": "plan.xl"
+        },
+        "plan.s": {
+          "state": "optional",
+          "addon_sku": "addon.ai_seo",
+          "price_month": "2.000",
+          "included_from": "plan.xl"
+        },
+        "plan.xl": {
+          "state": "included"
+        }
+      }
+    },
+    {
+      "key": "ai_builder",
+      "name": "AI website builder",
+      "blurb": "Build and edit your site with an AI assistant",
+      "group": "features",
+      "kind": "boolean",
+      "addon_sku": "addon.ai_builder",
+      "teaser": false,
+      "cells": {
+        "plan.l": {
+          "state": "optional",
+          "addon_sku": "addon.ai_builder",
+          "price_month": "2.000",
+          "included_from": "plan.xl"
+        },
+        "plan.m": {
+          "state": "optional",
+          "addon_sku": "addon.ai_builder",
+          "price_month": "2.000",
+          "included_from": "plan.xl"
+        },
+        "plan.s": {
+          "state": "optional",
+          "addon_sku": "addon.ai_builder",
+          "price_month": "2.000",
+          "included_from": "plan.xl"
+        },
+        "plan.xl": {
+          "state": "included"
+        }
+      }
+    },
+    {
+      "key": "domain",
+      "name": "Domain",
+      "blurb": "A domain name registered for you",
+      "group": "features",
+      "kind": "boolean",
+      "addon_sku": "addon.domain",
+      "teaser": false,
+      "cells": {
+        "plan.l": {
+          "state": "optional",
+          "addon_sku": "addon.domain",
+          "price_month": "0.500",
+          "included_from": "plan.xl"
+        },
+        "plan.m": {
+          "state": "optional",
+          "addon_sku": "addon.domain",
+          "price_month": "0.500",
+          "included_from": "plan.xl"
+        },
+        "plan.s": {
+          "state": "optional",
+          "addon_sku": "addon.domain",
+          "price_month": "0.500",
+          "included_from": "plan.xl"
+        },
+        "plan.xl": {
+          "state": "included"
+        }
+      }
+    },
+    {
+      "key": "dedicated_ip",
+      "name": "Dedicated IP address",
+      "blurb": "A public IPv4 reserved for your Organization",
+      "group": "features",
+      "kind": "boolean",
+      "addon_sku": "addon.dedicated_ip",
+      "teaser": false,
+      "cells": {
+        "plan.l": {
+          "state": "optional",
+          "addon_sku": "addon.dedicated_ip",
+          "price_month": "20.833",
+          "note": "EIP list price 250 OMR/yr; discount to be decided"
+        },
+        "plan.m": {
+          "state": "optional",
+          "addon_sku": "addon.dedicated_ip",
+          "price_month": "20.833",
+          "note": "EIP list price 250 OMR/yr; discount to be decided"
+        },
+        "plan.s": {
+          "state": "optional",
+          "addon_sku": "addon.dedicated_ip",
+          "price_month": "20.833",
+          "note": "EIP list price 250 OMR/yr; discount to be decided"
+        },
+        "plan.xl": {
+          "state": "optional",
+          "addon_sku": "addon.dedicated_ip",
+          "price_month": "20.833",
+          "note": "EIP list price 250 OMR/yr; discount to be decided"
+        }
+      }
+    },
+    {
+      "key": "console",
+      "name": "Console click-install",
+      "blurb": "Install and manage apps from the console",
+      "group": "access",
+      "kind": "access",
+      "teaser": false,
+      "cells": {
+        "plan.l": {
+          "state": "included"
+        },
+        "plan.m": {
+          "state": "included"
+        },
+        "plan.s": {
+          "state": "included"
+        },
+        "plan.xl": {
+          "state": "included"
+        }
+      }
+    },
+    {
+      "key": "gitea_iac",
+      "name": "Gitea + IaC",
+      "blurb": "Your Organization's manifests in Git, with edit and apply",
+      "group": "access",
+      "kind": "access",
+      "teaser": false,
+      "cells": {
+        "plan.l": {
+          "state": "included"
+        },
+        "plan.m": {
+          "state": "included",
+          "note": "read"
+        },
+        "plan.s": {
+          "state": "not_offered",
+          "included_from": "plan.m"
+        },
+        "plan.xl": {
+          "state": "included"
+        }
+      }
+    },
+    {
+      "key": "kube_api",
+      "name": "Kube API / shell (Guacamole) + PAM",
+      "blurb": "Direct cluster access through a recorded session",
+      "group": "access",
+      "kind": "access",
+      "teaser": false,
+      "cells": {
+        "plan.l": {
+          "state": "not_offered",
+          "included_from": "plan.xl"
+        },
+        "plan.m": {
+          "state": "not_offered",
+          "included_from": "plan.xl"
+        },
+        "plan.s": {
+          "state": "not_offered",
+          "included_from": "plan.xl"
+        },
+        "plan.xl": {
+          "state": "included"
+        }
+      }
+    },
+    {
+      "key": "vuln_dashboard",
+      "name": "Vulnerability dashboard",
+      "blurb": "Findings across every workload image",
+      "group": "ops",
+      "kind": "boolean",
+      "teaser": true,
+      "cells": {
+        "plan.l": {
+          "state": "included"
+        },
+        "plan.m": {
+          "state": "included"
+        },
+        "plan.s": {
+          "state": "teaser",
+          "included_from": "plan.m"
+        },
+        "plan.xl": {
+          "state": "included"
+        }
+      }
+    },
+    {
+      "key": "compliance",
+      "name": "Compliance / SRE checks",
+      "blurb": "Continuous checks against the baseline",
+      "group": "ops",
+      "kind": "boolean",
+      "teaser": true,
+      "cells": {
+        "plan.l": {
+          "state": "included"
+        },
+        "plan.m": {
+          "state": "teaser",
+          "included_from": "plan.l"
+        },
+        "plan.s": {
+          "state": "teaser",
+          "included_from": "plan.l"
+        },
+        "plan.xl": {
+          "state": "included"
+        }
+      }
+    },
+    {
+      "key": "audit_log",
+      "name": "Audit log · uptime reports",
+      "blurb": "Who did what, and how long you were up",
+      "group": "ops",
+      "kind": "boolean",
+      "teaser": false,
+      "cells": {
+        "plan.l": {
+          "state": "included"
+        },
+        "plan.m": {
+          "state": "included"
+        },
+        "plan.s": {
+          "state": "not_offered",
+          "included_from": "plan.m"
+        },
+        "plan.xl": {
+          "state": "included"
+        }
+      }
+    },
+    {
+      "key": "cost_explorer",
+      "name": "Cost explorer · anomaly alerts",
+      "blurb": "Spend by app and day, with alerts on spikes",
+      "group": "ops",
+      "kind": "boolean",
+      "teaser": false,
+      "cells": {
+        "plan.l": {
+          "state": "included"
+        },
+        "plan.m": {
+          "state": "included"
+        },
+        "plan.s": {
+          "state": "not_offered",
+          "included_from": "plan.m"
+        },
+        "plan.xl": {
+          "state": "included"
+        }
+      }
+    },
+    {
+      "key": "patching",
+      "name": "Automated patching",
+      "blurb": "Security updates applied on a schedule",
+      "group": "ops",
+      "kind": "boolean",
+      "teaser": false,
+      "cells": {
+        "plan.l": {
+          "state": "included"
+        },
+        "plan.m": {
+          "state": "not_offered",
+          "included_from": "plan.l"
+        },
+        "plan.s": {
+          "state": "not_offered",
+          "included_from": "plan.l"
+        },
+        "plan.xl": {
+          "state": "included"
+        }
+      }
+    },
+    {
+      "key": "maintenance",
+      "name": "Proactive maintenance · auto-remediation",
+      "blurb": "Issues fixed before you notice them",
+      "group": "ops",
+      "kind": "boolean",
+      "teaser": false,
+      "cells": {
+        "plan.l": {
+          "state": "not_offered",
+          "included_from": "plan.xl"
+        },
+        "plan.m": {
+          "state": "not_offered",
+          "included_from": "plan.xl"
+        },
+        "plan.s": {
+          "state": "not_offered",
+          "included_from": "plan.xl"
+        },
+        "plan.xl": {
+          "state": "included"
+        }
+      }
+    },
+    {
+      "key": "dr_topology",
+      "name": "DR topology",
+      "blurb": "Where your databases run",
+      "group": "resilience",
+      "kind": "level",
+      "levels": [
+        "single region",
+        "active-passive"
+      ],
+      "teaser": false,
+      "cells": {
+        "plan.l": {
+          "state": "included",
+          "included_from": "plan.xl",
+          "level": 0
+        },
+        "plan.m": {
+          "state": "included",
+          "included_from": "plan.xl",
+          "level": 0
+        },
+        "plan.s": {
+          "state": "included",
+          "included_from": "plan.xl",
+          "level": 0
+        },
+        "plan.xl": {
+          "state": "included",
+          "level": 1
+        }
+      }
+    }
+  ]
+}
