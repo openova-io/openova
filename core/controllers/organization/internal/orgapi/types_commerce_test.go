@@ -99,6 +99,7 @@ func TestOrganizationCommerce_OverageJSONKeys(t *testing.T) {
 		OverageMode:     OverageModeGrow,
 		GrowCeiling:     &OrganizationGrowCeiling{VCPU: 4, MemoryGB: 8, DiskGB: 120, BandwidthMbps: 500},
 		SpendLimitMonth: "25.000",
+		PrepaidAmount:   "4.490",
 	}
 	wire, err := json.Marshal(c)
 	if err != nil {
@@ -108,6 +109,7 @@ func TestOrganizationCommerce_OverageJSONKeys(t *testing.T) {
 		`"overageMode":"grow"`,
 		`"growCeiling":{"vcpu":4,"memoryGB":8,"diskGB":120,"bandwidthMbps":500}`,
 		`"spendLimitMonth":"25.000"`,
+		`"prepaidAmount":"4.490"`,
 	} {
 		if !strings.Contains(string(wire), frag) {
 			t.Errorf("wire missing %s: %s", frag, wire)
@@ -130,7 +132,7 @@ func TestOrganizationCommerce_OverageAbsentRoundTripsAsAbsent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, k := range []string{`"overageMode"`, `"growCeiling"`, `"spendLimitMonth"`} {
+	for _, k := range []string{`"overageMode"`, `"growCeiling"`, `"spendLimitMonth"`, `"prepaidAmount"`} {
 		if strings.Contains(string(wire), k) {
 			t.Errorf("absent %s leaked onto the wire: %s", k, wire)
 		}
@@ -164,5 +166,27 @@ func TestOrganizationCommerce_DeepCopyOwnsItsGrowCeiling(t *testing.T) {
 	nc := (&Organization{Spec: OrganizationSpec{Commerce: &OrganizationCommerce{}}}).DeepCopyObject().(*Organization)
 	if nc.Spec.Commerce.GrowCeiling != nil {
 		t.Error("DeepCopy of a nil GrowCeiling produced a non-nil one")
+	}
+}
+
+// The BSS spend-limit stop is a top-level spec field next to suspended: the
+// JSON keys are the paths the sovereign-admin API patches and the
+// controller reads; absent stays absent on the wire.
+func TestOrganizationSpec_OverageStopJSONKeys(t *testing.T) {
+	wire, err := json.Marshal(OrganizationSpec{Slug: "acme", OverageStoppedUntil: "2026-11-01T00:00:00Z", OverageStopReason: "spend limit reached"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, frag := range []string{`"overageStoppedUntil":"2026-11-01T00:00:00Z"`, `"overageStopReason":"spend limit reached"`} {
+		if !strings.Contains(string(wire), frag) {
+			t.Errorf("wire missing %s: %s", frag, wire)
+		}
+	}
+	bare, err := json.Marshal(OrganizationSpec{Slug: "acme"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(bare), "overageStop") {
+		t.Errorf("absent stop leaked onto the wire: %s", bare)
 	}
 }

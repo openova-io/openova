@@ -38,6 +38,7 @@ func TestReconcile_SpecCommerceSurvivesTheTypedRoundTrip(t *testing.T) {
 				VCPU: 4, MemoryGB: 8, DiskGB: 120, BandwidthMbps: 500,
 			},
 			SpendLimitMonth: "25.000",
+			PrepaidAmount:   "4.490",
 		}
 	}
 	want := purchase()

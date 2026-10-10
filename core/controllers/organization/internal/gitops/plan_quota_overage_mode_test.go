@@ -98,7 +98,7 @@ func TestRender_CappedIsThePreOverageRender(t *testing.T) {
 		}
 		return []byte(strings.Join(keep, "\n"))
 	}
-	for _, plan := range []string{"s", "m", "l", "xl", "flexi"} {
+	for _, plan := range []string{"s", "m", "l", "xl"} {
 		empty := renderOverage(t, plan, "", "", "")
 		for _, mode := range []string{OverageModeCapped, "CAPPED-typo"} {
 			other := renderOverage(t, plan, mode, "4", "8Gi")
@@ -123,13 +123,6 @@ func TestRender_CappedIsThePreOverageRender(t *testing.T) {
 			}
 			if err != nil {
 				t.Fatal(err)
-			}
-			if plan == "flexi" {
-				// Burstable: no quota, so no mode — literally unchanged.
-				if !bytes.Equal(got, want) {
-					t.Errorf("plan flexi %s changed:\n%s", f, got)
-				}
-				continue
 			}
 			if !bytes.Contains(got, []byte(`openova.io/overage-mode: "capped"`)) {
 				t.Errorf("plan %s %s lacks openova.io/overage-mode: \"capped\"", plan, f)
@@ -249,7 +242,7 @@ func TestQuotaLimitsFor_Clamps(t *testing.T) {
 		{"xl grows to twice xl by default", "xl", OverageModeGrow, "", "", "16", "32Gi", true},
 		{"xl chosen", "xl", OverageModeGrow, "12", "24Gi", "12", "24Gi", true},
 		{"xl above twice xl lowers", "xl", OverageModeGrow, "64", "128Gi", "16", "32Gi", true},
-		{"flexi has no limits term", "flexi", OverageModeGrow, "4", "8Gi", "", "", false},
+		{"flexi is S in grow, whatever the mode", "flexi", "", "4", "8Gi", "4", "8Gi", true},
 	} {
 		cpu, mem, grow := QuotaLimitsFor(c.plan, c.mode, c.cpu, c.mem)
 		if cpu != c.wantCPU || mem != c.wantMem || grow != c.wantGrow {
@@ -281,17 +274,18 @@ func TestRender_GrowCeilingClampsOnTheRenderedQuota(t *testing.T) {
 	}
 }
 
-// Flexi is Burstable: grow changes nothing — still no ResourceQuota, and the
-// LimitRange is byte-identical to the capped one (no mode annotation).
-func TestRender_FlexiGrowStillHasNoQuota(t *testing.T) {
+// Flexi retired: whatever mode the CR states, it renders as S in grow — the
+// mode on a flexi Organization cannot make it capped (it never committed to a
+// package it could be held at) and every flexi render is the same.
+func TestRender_FlexiIsSGrowInEveryMode(t *testing.T) {
 	t.Parallel()
-	grow := renderOverage(t, "flexi", OverageModeGrow, "4", "8Gi")
-	capped := renderOverage(t, "flexi", "", "", "")
-	if _, ok := grow["vcluster/resourcequota.yaml"]; ok {
-		t.Fatal("flexi + grow rendered a ResourceQuota")
+	grow := renderOverage(t, "flexi", OverageModeGrow, "", "")
+	capped := renderOverage(t, "flexi", OverageModeCapped, "", "")
+	if !PlanRendersResourceQuota("flexi") {
+		t.Fatal("PlanRendersResourceQuota(flexi) = false; flexi renders as S grow")
 	}
-	if PlanRendersResourceQuota("flexi") {
-		t.Fatal("PlanRendersResourceQuota(flexi) = true; the overage mode must not change it")
+	if got := parseRQ(t, grow).Metadata.Annotations["openova.io/overage-mode"]; got != OverageModeGrow {
+		t.Errorf("flexi overage-mode = %q, want grow", got)
 	}
 	for k, v := range capped {
 		if !bytes.Equal(v, grow[k]) {

@@ -128,8 +128,12 @@ export function kindDefaults(kind: OrgKind): {
  * is silently coerced to `s`. Kept as a single exported constant so the create
  * form's picker and any future plan surface offer exactly the set the server
  * accepts — a hand-typed subset would render options that vanish on submit.
+ *
+ * flexi is not offered (#6971, founder model 2026-10-10): pay as you go is
+ * grow mode on a package. An Organization already on flexi still reads its
+ * plan (`plan_slug: "flexi"`) and is rendered as S in grow mode.
  */
-export const ORG_PLAN_SLUGS = ['s', 'm', 'l', 'xl', 'flexi'] as const
+export const ORG_PLAN_SLUGS = ['s', 'm', 'l', 'xl'] as const
 
 export type OrgPlanSlug = (typeof ORG_PLAN_SLUGS)[number]
 

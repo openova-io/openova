@@ -97,9 +97,10 @@ func TestLimitRangeDefaults_HeadlineOverEightThenOvercommit(t *testing.T) {
 			t.Errorf("plan %q: default/defaultRequest memory = %.3f, want within (%d-0.1, %d]", slug, r, planOvercommitMemory, planOvercommitMemory)
 		}
 	}
-	// Flexi keeps the small symmetric floor — no headline to derive from.
-	if got := limitRangeDefaults(planQuota("flexi")); got != (containerShape{RequestsCPU: "100m", RequestsMemory: "128Mi", LimitsCPU: "100m", LimitsMemory: "128Mi"}) {
-		t.Errorf("flexi defaults = %+v, want the 100m / 128Mi floor on both sides", got)
+	// A Burstable plan (none in the table since flexi retired) keeps the
+	// small symmetric floor — no headline to derive from.
+	if got := limitRangeDefaults(PlanQuota{Burstable: true}); got != (containerShape{RequestsCPU: "100m", RequestsMemory: "128Mi", LimitsCPU: "100m", LimitsMemory: "128Mi"}) {
+		t.Errorf("burstable defaults = %+v, want the 100m / 128Mi floor on both sides", got)
 	}
 }
 

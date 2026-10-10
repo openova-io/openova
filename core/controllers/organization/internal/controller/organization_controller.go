@@ -99,6 +99,10 @@ type Reconciler struct {
 	client.Client
 	Log logr.Logger
 
+	// Now is the clock the BSS spend-limit stop is read against
+	// (spec.overageStoppedUntil, overageStop); nil = time.Now. Tests pin it.
+	Now func() time.Time
+
 	// Keycloak is the Keycloak Admin client (interface for testability).
 	Keycloak KeycloakClient
 
@@ -666,7 +670,19 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	// The overage mode + grow ceiling the customer chose at order time
 	// (spec.commerce, founder model 2026-10-10) size the ResourceQuota limits;
 	// absent → capped, the headline.
-	overageMode, growCPU, growMem := overageInputs(org.Spec.Commerce)
+	overageMode, growCPU, growMem, growDisk := overageInputs(org.Spec.Commerce)
+	// The BSS spend-limit stop (spec.overageStoppedUntil): while in force a
+	// grow Organization renders capped; the reconcile requeues at the
+	// instant it lifts (see the return below) so grow comes back at the
+	// period start on its own.
+	now := time.Now()
+	if r.Now != nil {
+		now = r.Now()
+	}
+	stoppedUntil, stopLifts := overageStop(org.Spec, now)
+	if _, effMode, _ := gitops.EffectivePlan(org.Spec.PlanSlug, overageMode); effMode != gitops.OverageModeGrow {
+		stoppedUntil, stopLifts = "", 0
+	}
 	manifests, err := gitops.Render(gitops.Inputs{
 		Slug:                      org.Spec.Slug,
 		DisplayName:               org.Spec.DisplayName,
@@ -675,6 +691,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		OverageMode:               overageMode,
 		GrowCeilingCPU:            growCPU,
 		GrowCeilingMemory:         growMem,
+		GrowCeilingDisk:           growDisk,
+		OverageStoppedUntil:       stoppedUntil,
 		SovereignFQDN:             org.Spec.SovereignRef,
 		HostCluster:               r.HostCluster,
 		VClusterChartVersion:      r.VClusterChartVersion,
@@ -991,6 +1009,13 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if !vcReady || consoleServingDegraded ||
 		!postconditions.complete() || len(postconditions.Unverifiable) > 0 {
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	}
+	// #6971 - a BSS spend-limit stop in force lifts at a known instant (the
+	// next billing-period start). Nothing else would wake this Org then, so
+	// requeue exactly at it (plus a second, so the clock is past it) and the
+	// next render returns the quota to the grow ceiling.
+	if stopLifts > 0 {
+		return ctrl.Result{RequeueAfter: stopLifts + time.Second}, nil
 	}
 	return ctrl.Result{}, nil
 }

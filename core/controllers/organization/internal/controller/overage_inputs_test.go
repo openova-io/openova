@@ -7,6 +7,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -18,28 +19,51 @@ import (
 func TestOverageInputs_MapsSpecCommerce(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
-		name           string
-		in             *orgapi.OrganizationCommerce
-		mode, cpu, mem string
+		name                 string
+		in                   *orgapi.OrganizationCommerce
+		mode, cpu, mem, disk string
 	}{
-		{"absent commerce is capped", nil, "capped", "", ""},
-		{"no mode is capped", &orgapi.OrganizationCommerce{PackageSKU: "plan.m"}, "capped", "", ""},
+		{"absent commerce is capped", nil, "capped", "", "", ""},
+		{"no mode is capped", &orgapi.OrganizationCommerce{PackageSKU: "plan.m"}, "capped", "", "", ""},
 		{"capped ignores a ceiling", &orgapi.OrganizationCommerce{OverageMode: "capped",
-			GrowCeiling: &orgapi.OrganizationGrowCeiling{VCPU: 4, MemoryGB: 8}}, "capped", "4", "8Gi"},
-		{"grow without ceiling", &orgapi.OrganizationCommerce{OverageMode: "grow"}, "grow", "", ""},
+			GrowCeiling: &orgapi.OrganizationGrowCeiling{VCPU: 4, MemoryGB: 8}}, "capped", "4", "8Gi", ""},
+		{"grow without ceiling", &orgapi.OrganizationCommerce{OverageMode: "grow"}, "grow", "", "", ""},
 		{"grow integral", &orgapi.OrganizationCommerce{OverageMode: "grow",
-			GrowCeiling: &orgapi.OrganizationGrowCeiling{VCPU: 4, MemoryGB: 8, DiskGB: 120, BandwidthMbps: 500}}, "grow", "4", "8Gi"},
+			GrowCeiling: &orgapi.OrganizationGrowCeiling{VCPU: 4, MemoryGB: 8, DiskGB: 120, BandwidthMbps: 500}}, "grow", "4", "8Gi", "120Gi"},
 		{"grow fractional", &orgapi.OrganizationCommerce{OverageMode: "grow",
-			GrowCeiling: &orgapi.OrganizationGrowCeiling{VCPU: 2.5, MemoryGB: 6.5}}, "grow", "2.5", "6656Mi"},
+			GrowCeiling: &orgapi.OrganizationGrowCeiling{VCPU: 2.5, MemoryGB: 6.5, DiskGB: 60.5}}, "grow", "2.5", "6656Mi", "61952Mi"},
 		{"grow MiB rounding", &orgapi.OrganizationCommerce{OverageMode: "grow",
-			GrowCeiling: &orgapi.OrganizationGrowCeiling{MemoryGB: 4.0004}}, "grow", "", "4096Mi"},
+			GrowCeiling: &orgapi.OrganizationGrowCeiling{MemoryGB: 4.0004}}, "grow", "", "4096Mi", ""},
 		{"grow zero / negative = default", &orgapi.OrganizationCommerce{OverageMode: "grow",
-			GrowCeiling: &orgapi.OrganizationGrowCeiling{VCPU: 0, MemoryGB: -2}}, "grow", "", ""},
+			GrowCeiling: &orgapi.OrganizationGrowCeiling{VCPU: 0, MemoryGB: -2, DiskGB: -1}}, "grow", "", "", ""},
 	} {
-		mode, cpu, mem := overageInputs(c.in)
+		mode, cpu, mem, disk := overageInputs(c.in)
 		// A capped mode passes its ceiling through; the renderer ignores it.
-		if mode != c.mode || cpu != c.cpu || mem != c.mem {
-			t.Errorf("%s: overageInputs = (%q,%q,%q), want (%q,%q,%q)", c.name, mode, cpu, mem, c.mode, c.cpu, c.mem)
+		if mode != c.mode || cpu != c.cpu || mem != c.mem || disk != c.disk {
+			t.Errorf("%s: overageInputs = (%q,%q,%q,%q), want (%q,%q,%q,%q)", c.name, mode, cpu, mem, disk, c.mode, c.cpu, c.mem, c.disk)
+		}
+	}
+}
+
+// overageStop reads spec.overageStoppedUntil against the clock: in force only
+// for a parseable instant after now, and it says how long until it lifts.
+func TestOverageStop_InForceOnlyBeforeTheInstant(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	for _, c := range []struct {
+		name, raw, want string
+		after           time.Duration
+	}{
+		{"absent", "", "", 0},
+		{"in force", "2026-11-01T00:00:00Z", "2026-11-01T00:00:00Z", 11*24*time.Hour + 12*time.Hour},
+		{"offset normalised to UTC", "2026-11-01T04:00:00+04:00", "2026-11-01T00:00:00Z", 11*24*time.Hour + 12*time.Hour},
+		{"past lifts", "2026-10-01T00:00:00Z", "", 0},
+		{"the instant itself lifts", "2026-10-20T12:00:00Z", "", 0},
+		{"unparseable never stops", "next month", "", 0},
+	} {
+		until, after := overageStop(orgapi.OrganizationSpec{OverageStoppedUntil: c.raw}, now)
+		if until != c.want || after != c.after {
+			t.Errorf("%s: overageStop(%q) = (%q, %v), want (%q, %v)", c.name, c.raw, until, after, c.want, c.after)
 		}
 	}
 }

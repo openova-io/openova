@@ -340,52 +340,48 @@ func TestReconcile_5395_HardCappedPlanWithoutQuota_MustNotReadReady(t *testing.T
 	}
 }
 
-// TestReconcile_5395_FlexiWithoutQuotaIsNotAGap — the disambiguation that makes
-// "no ResourceQuota" a DECIDED outcome. Flexi is the on-demand soft-cap plan;
-// gitops.Render deliberately emits no ResourceQuota for it, so a quota-less
-// Flexi namespace is correct and the Org must stay green. The LimitRange —
-// which Render emits for EVERY plan — is what still has to be there.
-func TestReconcile_5395_FlexiWithoutQuotaIsNotAGap(t *testing.T) {
+// TestReconcile_5395_RetiredFlexiNeedsTheSQuota — flexi retired on 2026-10-10
+// (#6971): an Organization still carrying spec.planSlug "flexi" renders as S
+// in grow mode (gitops.EffectivePlan), so its boundary namespace MUST carry
+// the plan-quota like any package. Before the retirement a quota-less flexi
+// namespace was correct by design; now it is a delivery gap, and with the
+// quota present the Org reads Ready.
+func TestReconcile_5395_RetiredFlexiNeedsTheSQuota(t *testing.T) {
 	t.Parallel()
+	if !gitops.PlanRendersResourceQuota("flexi") {
+		t.Fatal("PlanRendersResourceQuota(flexi) = false; flexi renders as S grow and must carry the quota")
+	}
 	org := sampleOrg()
 	org.Spec.PlanSlug = "flexi"
-
 	r, _, _ := makeReconciler(t, org,
 		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "acme"}},
 		readyVClusterHR("acme"),
 		boundaryLimitRange("acme"),
-		// No ResourceQuota — correct for Flexi.
+		// No ResourceQuota — a gap now.
 	)
-
 	res, got := reconcileToStatus(t, r, "acme")
-
 	cond := mustReadyCondition(t, got)
-	if cond.Status != "True" {
-		t.Errorf("a Flexi Org renders no ResourceQuota by design — it must still read Ready, got %+v", cond)
+	if cond.Status != "False" || !strings.Contains(cond.Message, gitops.BoundaryResourceQuotaName) {
+		t.Errorf("a retired-flexi Org without the S quota must not read Ready and must name the quota, got %+v", cond)
 	}
-	if res.RequeueAfter != 0 {
-		t.Errorf("a fully provisioned Flexi Org must stop requeueing, got %v", res)
+	if res.RequeueAfter == 0 {
+		t.Errorf("a missing quota must keep the requeue alive, got %v", res)
 	}
 
-	// Same Org, LimitRange also gone → now it IS a delivery gap, because the
-	// LimitRange has no per-plan gate. This asymmetry is the whole diagnostic:
-	// quota absent alone == Flexi; both absent == the boundary tree never landed.
 	org2 := sampleOrg()
 	org2.Spec.PlanSlug = "flexi"
 	r2, _, _ := makeReconciler(t, org2,
 		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "acme"}},
 		readyVClusterHR("acme"),
+		boundaryLimitRange("acme"),
+		boundaryResourceQuota("acme"),
 	)
-	_, got2 := reconcileToStatus(t, r2, "acme")
-	cond2 := mustReadyCondition(t, got2)
-	if cond2.Status != "False" || cond2.Reason != "ProvisioningIncomplete" {
-		t.Errorf("a Flexi Org missing the always-rendered LimitRange IS a delivery gap and must not read Ready, got %+v", cond2)
+	res2, got2 := reconcileToStatus(t, r2, "acme")
+	if cond2 := mustReadyCondition(t, got2); cond2.Status != "True" {
+		t.Errorf("a retired-flexi Org with its boundary in place must read Ready, got %+v", cond2)
 	}
-	if !strings.Contains(cond2.Message, gitops.BoundaryLimitRangeName) {
-		t.Errorf("Ready message must name the missing LimitRange, got %q", cond2.Message)
-	}
-	if strings.Contains(cond2.Message, gitops.BoundaryResourceQuotaName) {
-		t.Errorf("a Flexi Org must NEVER be reported as missing a ResourceQuota it is not supposed to have, got %q", cond2.Message)
+	if res2.RequeueAfter != 0 {
+		t.Errorf("a fully provisioned Org must stop requeueing, got %v", res2)
 	}
 }
 

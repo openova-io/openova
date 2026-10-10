@@ -118,7 +118,7 @@ func TestCreateOrganization_DeclaredIsolationThatAgreesIsAccepted_6135(t *testin
 		{"row G7: vcluster declared, no plan (the hw293 body)", ""},
 		{"vcluster declared on plan s", "s"},
 		{"vcluster declared on plan m", "m"},
-		{"vcluster declared on plan flexi", "flexi"},
+		{"vcluster declared on plan xl", "xl"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h, _ := newOrgPipelineHandlerWithCRs(t)

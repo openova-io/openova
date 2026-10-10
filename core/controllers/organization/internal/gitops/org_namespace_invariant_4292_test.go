@@ -186,8 +186,10 @@ func TestRender_BoundaryFileSetIsPlanIndependent(t *testing.T) {
 			t.Fatalf("plan s does not render %q — the plan-independence check below would be vacuous", must)
 		}
 	}
-	if PlanRendersResourceQuota("flexi") {
-		t.Fatal("flexi renders a ResourceQuota — the one declared plan difference does not exist, so this test would assert identity by accident")
+	// Flexi retired (#6971): it renders as S in grow mode, so it now carries
+	// the quota like every package — the file set is identical across plans.
+	if !PlanRendersResourceQuota("flexi") {
+		t.Fatal("flexi renders no ResourceQuota — it must render as S in grow mode")
 	}
 
 	for _, plan := range []string{"", "free", "s", "S", "m", "l", "xl", "flexi", "enterprise-2027"} {

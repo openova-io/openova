@@ -82,3 +82,26 @@ spec:
       vcpu: 4
       memoryGB: 8
     spendLimitMonth: "25,50"
+---
+# Fifth invalid case — #6971 prepaid amount and the spend-limit stop with the
+# wrong shapes. Everything else is valid so the ONLY error vectors are:
+#   commerce.prepaidAmount: "4.4900"   — four decimals, not a money string
+#   overageStoppedUntil: "next month"   — not a date-time
+apiVersion: orgs.openova.io/v1
+kind: Organization
+metadata:
+  name: bad-prepaid
+spec:
+  slug: bad-prepaid
+  displayName: Bad Prepaid
+  kind: customer
+  tier: org
+  billingMode: real
+  sovereignRef: omantel.omani.works
+  owners:
+    - email: owner@bad-prepaid.example
+      role: owner
+  commerce:
+    packageSKU: plan.m
+    prepaidAmount: "4.4900"
+  overageStoppedUntil: "next month"

@@ -46,6 +46,13 @@ spec:
       diskGB: 120
       bandwidthMbps: 500
     spendLimitMonth: "25.000"
+    # What the checkout collected (package + BSS add-ons), credited by BSS on
+    # the first statement.
+    prepaidAmount: "4.490"
+  # #6971 — the BSS spend limit was reached this period: grow is held at the
+  # package headline until the next billing-period start.
+  overageStoppedUntil: "2026-11-01T00:00:00Z"
+  overageStopReason: "spend limit 25.000 OMR reached for 2026-10"
   owners:
     - email: ceo@acme.com
       role: owner
