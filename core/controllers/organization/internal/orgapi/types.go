@@ -100,8 +100,9 @@ type OrganizationSpec struct {
 	// package and add-on lines. No new entity type — the Organization is
 	// the entity, these are optional fields on it. A POINTER so an absent
 	// block round-trips as absent through the typed client (the #4471
-	// value-struct lesson); the organization-controller does NOT reconcile
-	// it. Absent on the sovereign-admin door (no order) and on every
+	// value-struct lesson); the organization-controller never writes it and
+	// reads only overageMode + growCeiling (they size the ResourceQuota
+	// limits). Absent on the sovereign-admin door (no order) and on every
 	// Organization that predates the field.
 	Commerce *OrganizationCommerce `json:"commerce,omitempty"`
 
@@ -232,11 +233,52 @@ type OrganizationCostSourceCredentialRef struct {
 // have mixed into the same cart list are filtered out by the emitters
 // (events.BSSAddonSKUs), so a reader can attach every entry to a BSS
 // add-on line without a second lookup.
+//
+// The overage fields (founder model, 2026-10-10) record what the package
+// does when the Organization's usage passes its headline:
+//
+//	spec.commerce.overageMode     — "capped" (the default when empty: the
+//	                                ResourceQuota limits are the headline) or
+//	                                "grow" (the limits are raised to
+//	                                growCeiling; usage above the headline is
+//	                                billed in arrears by BSS)
+//	spec.commerce.growCeiling     — the grow ceiling; absent = the XL shape
+//	spec.commerce.spendLimitMonth — OMR per month the customer allows the
+//	                                overage to reach, a money string
+//	                                ("25.000"); stored and published here,
+//	                                read and enforced by BSS
+//
+// The organization-controller DOES read overageMode + growCeiling: they size
+// the ResourceQuota limits it renders (gitops.Inputs.OverageMode /
+// GrowCeilingCPU / GrowCeilingMemory). It does not read spendLimitMonth.
 type OrganizationCommerce struct {
-	PackageSKU  string   `json:"packageSKU,omitempty"`
-	Addons      []string `json:"addons,omitempty"`
-	PriceSource string   `json:"priceSource,omitempty"`
-	OrderID     string   `json:"orderID,omitempty"`
+	PackageSKU      string                   `json:"packageSKU,omitempty"`
+	Addons          []string                 `json:"addons,omitempty"`
+	PriceSource     string                   `json:"priceSource,omitempty"`
+	OrderID         string                   `json:"orderID,omitempty"`
+	OverageMode     string                   `json:"overageMode,omitempty"`
+	GrowCeiling     *OrganizationGrowCeiling `json:"growCeiling,omitempty"`
+	SpendLimitMonth string                   `json:"spendLimitMonth,omitempty"`
+}
+
+// Overage modes for spec.commerce.overageMode. Empty reads as
+// OverageModeCapped.
+const (
+	OverageModeCapped = "capped"
+	OverageModeGrow   = "grow"
+)
+
+// OrganizationGrowCeiling is spec.commerce.growCeiling — the most a "grow"
+// package may reach. Each value is >= the package headline (the order path
+// validates that; the renderer clamps again). A zero field means "not set":
+// the renderer uses the XL headline for it. DiskGB and BandwidthMbps are
+// stored and published for BSS; the ResourceQuota renders no storage or
+// bandwidth cap in either mode.
+type OrganizationGrowCeiling struct {
+	VCPU          float64 `json:"vcpu,omitempty"`
+	MemoryGB      float64 `json:"memoryGB,omitempty"`
+	DiskGB        float64 `json:"diskGB,omitempty"`
+	BandwidthMbps float64 `json:"bandwidthMbps,omitempty"`
 }
 
 // OrganizationOwner is an entry in spec.owners.
@@ -464,6 +506,10 @@ func (s *OrganizationSpec) DeepCopyInto(out *OrganizationSpec) {
 		if s.Commerce.Addons != nil {
 			c.Addons = make([]string, len(s.Commerce.Addons))
 			copy(c.Addons, s.Commerce.Addons)
+		}
+		if s.Commerce.GrowCeiling != nil {
+			g := *s.Commerce.GrowCeiling
+			c.GrowCeiling = &g
 		}
 		out.Commerce = &c
 	}

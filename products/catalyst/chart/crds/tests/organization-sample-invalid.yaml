@@ -56,3 +56,29 @@ spec:
   commerce:
     packageSKU: 7
     addons: addon.backup
+---
+# Fourth invalid case — the overage fields with the wrong shapes. Everything
+# else (growCeiling included) is valid so the ONLY error vectors are:
+#   commerce.overageMode: "unlimited"   — not in enum (capped|grow)
+#   commerce.spendLimitMonth: "25,50"   — not a money string (^[0-9]+(\.[0-9]{1,3})?$)
+apiVersion: orgs.openova.io/v1
+kind: Organization
+metadata:
+  name: bad-overage
+spec:
+  slug: bad-overage
+  displayName: Bad Overage
+  kind: customer
+  tier: org
+  billingMode: real
+  sovereignRef: omantel.omani.works
+  owners:
+    - email: owner@bad-overage.example
+      role: owner
+  commerce:
+    packageSKU: plan.m
+    overageMode: unlimited
+    growCeiling:
+      vcpu: 4
+      memoryGB: 8
+    spendLimitMonth: "25,50"

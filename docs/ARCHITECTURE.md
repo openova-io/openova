@@ -588,6 +588,25 @@ the model is Sovereign → Organization only):
 | `spec.commerce.addons[]` | BSS add-on SKUs bought with it — BSS SKUs **only**, catalog add-on ids are filtered out by the emitters (`events.BSSAddonSKUs`) | `addon.backup` |
 | `spec.commerce.priceSource` | where the order's prices came from | `catalog` · `bss:<price_book>@<prices_as_of>` |
 | `spec.commerce.orderID` | the billing `orders.id` the Organization was launched from (provenance) | UUID |
+| `spec.commerce.overageMode` | what the package does above its headline: `capped` (default when absent) or `grow` | `grow` |
+| `spec.commerce.growCeiling` | the most a `grow` package may reach — `vcpu`, `memoryGB`, `diskGB`, `bandwidthMbps`; absent = the XL shape (8 / 16 / 250 / 1000) | `{vcpu: 4, memoryGB: 8}` |
+| `spec.commerce.spendLimitMonth` | OMR per month the overage may reach, a money string; stored here, enforced by BSS | `25.000` |
+
+**Overage and the quota.** A package is a prepaid commitment. In `capped` the
+ResourceQuota limits are the headline, exactly as above. In `grow` the
+organization-controller raises the limits plan term to the grow ceiling
+(`gitops.QuotaLimitsFor`): `vcpu` / `memoryGB`, defaulting to the XL headline
+read from `planQuotaTable["xl"]`, raised to the package headline if set below
+it and lowered to the XL headline if set above it. The requests side (the
+guaranteed share) and both overheads are the same in both modes, and the
+LimitRange per-container defaults stay headline-derived. Plan M grow at the
+default ceiling therefore renders `limits.cpu` 8 + 1500m + 4550m = 14050m
+against capped M's 8050m, with `requests.*` unchanged. Usage above the headline
+is billed in arrears by BSS, up to `spendLimitMonth`. There is no storage cap
+in either mode (the platform stack's own volumes share the namespace); disk
+above the package is metered by BSS from the PVC meter. The ResourceQuota and
+LimitRange carry `openova.io/overage-mode` and, in grow,
+`openova.io/grow-ceiling`. Flexi renders no ResourceQuota in either mode.
 
 `spec.planSlug` is unchanged: it stays the catalog plan slug that **sizes** the
 boundary (ResourceQuota + LimitRange). `spec.commerce` is the commercial record
@@ -611,8 +630,9 @@ Flow, order → Organization → BSS:
    (`events.TenantCreatedPayload`: `package_sku`, `addons`, `price_source`, `order_id`).
 5. The provisioning consumer (`core/services/provisioning/handlers/organization_create.go`)
    stamps `spec.commerce` on the Organization CR it mints.
-6. The organization-controller carries the block through its typed round-trips
-   and does not reconcile it. The chargeback OpenOva adapter
+6. The organization-controller carries the block through its typed round-trips,
+   never writes it, and reads only `overageMode` + `growCeiling` (to size the
+   ResourceQuota limits). The chargeback OpenOva adapter
    (`products/chargeback/internal/adapter/openova/orgsync.go`, `readOrg`) reads
    `spec.commerce.*` to attach the Organization's platform Source to its package
    and add-on lines, so the add-on lines reach the statement.

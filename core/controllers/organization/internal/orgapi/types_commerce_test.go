@@ -90,3 +90,79 @@ func TestOrganizationCommerce_DeepCopyOwnsItsSlice(t *testing.T) {
 		t.Error("DeepCopy of a nil Commerce produced a non-nil block")
 	}
 }
+
+// The overage fields (founder model 2026-10-10): the JSON keys are the field
+// paths the provisioning consumer writes and the renderer + BSS read.
+func TestOrganizationCommerce_OverageJSONKeys(t *testing.T) {
+	c := OrganizationCommerce{
+		PackageSKU:      "plan.m",
+		OverageMode:     OverageModeGrow,
+		GrowCeiling:     &OrganizationGrowCeiling{VCPU: 4, MemoryGB: 8, DiskGB: 120, BandwidthMbps: 500},
+		SpendLimitMonth: "25.000",
+	}
+	wire, err := json.Marshal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, frag := range []string{
+		`"overageMode":"grow"`,
+		`"growCeiling":{"vcpu":4,"memoryGB":8,"diskGB":120,"bandwidthMbps":500}`,
+		`"spendLimitMonth":"25.000"`,
+	} {
+		if !strings.Contains(string(wire), frag) {
+			t.Errorf("wire missing %s: %s", frag, wire)
+		}
+	}
+	var got OrganizationCommerce
+	if err := json.Unmarshal([]byte(`{"overageMode":"grow","growCeiling":{"vcpu":2.5,"memoryGB":6},"spendLimitMonth":"10.5"}`), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.OverageMode != "grow" || got.SpendLimitMonth != "10.5" || got.GrowCeiling == nil ||
+		*got.GrowCeiling != (OrganizationGrowCeiling{VCPU: 2.5, MemoryGB: 6}) {
+		t.Errorf("decoded = %+v ceiling=%+v", got, got.GrowCeiling)
+	}
+}
+
+// A capped order (or one that predates the overage fields) carries none of
+// the three keys, and decodes with a nil ceiling.
+func TestOrganizationCommerce_OverageAbsentRoundTripsAsAbsent(t *testing.T) {
+	wire, err := json.Marshal(OrganizationCommerce{PackageSKU: "plan.s"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{`"overageMode"`, `"growCeiling"`, `"spendLimitMonth"`} {
+		if strings.Contains(string(wire), k) {
+			t.Errorf("absent %s leaked onto the wire: %s", k, wire)
+		}
+	}
+	var got OrganizationCommerce
+	if err := json.Unmarshal([]byte(`{"packageSKU":"plan.s"}`), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.OverageMode != "" || got.GrowCeiling != nil || got.SpendLimitMonth != "" {
+		t.Errorf("absent overage fields decoded as %+v", got)
+	}
+}
+
+func TestOrganizationCommerce_DeepCopyOwnsItsGrowCeiling(t *testing.T) {
+	src := &Organization{Spec: OrganizationSpec{
+		Slug: "acme",
+		Commerce: &OrganizationCommerce{
+			OverageMode: OverageModeGrow,
+			GrowCeiling: &OrganizationGrowCeiling{VCPU: 4, MemoryGB: 8},
+		},
+	}}
+	cp := src.DeepCopyObject().(*Organization)
+	if cp.Spec.Commerce.GrowCeiling == src.Spec.Commerce.GrowCeiling {
+		t.Fatal("DeepCopy shared the GrowCeiling pointer")
+	}
+	cp.Spec.Commerce.GrowCeiling.VCPU = 8
+	if src.Spec.Commerce.GrowCeiling.VCPU != 4 {
+		t.Errorf("mutating the copy's ceiling changed the original: %+v", src.Spec.Commerce.GrowCeiling)
+	}
+	// nil ceiling stays nil.
+	nc := (&Organization{Spec: OrganizationSpec{Commerce: &OrganizationCommerce{}}}).DeepCopyObject().(*Organization)
+	if nc.Spec.Commerce.GrowCeiling != nil {
+		t.Error("DeepCopy of a nil GrowCeiling produced a non-nil one")
+	}
+}

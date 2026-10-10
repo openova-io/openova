@@ -254,6 +254,48 @@ spec:
                         The billing order row (core/services/billing
                         `orders.id`) this Organization was launched from
                         — the provenance link back to the source.
+                    overageMode:
+                      type: string
+                      enum: [capped, grow]
+                      description: |
+                        What the package does when usage passes its
+                        headline. "capped" (the default when absent): the
+                        ResourceQuota limits are the package headline.
+                        "grow": the limits are raised to growCeiling and
+                        usage above the headline is billed in arrears by
+                        BSS. The requests side (the guaranteed share) is
+                        the same in both. The organization-controller
+                        reads this to size the ResourceQuota.
+                    growCeiling:
+                      type: object
+                      description: |
+                        The most a "grow" package may reach. Absent (or a
+                        zero field) = the XL shape: 8 vCPU / 16 GB / 250 GB
+                        disk / 1000 Mbps. Each value is >= the package
+                        headline; the organization-controller clamps vcpu
+                        and memoryGB to [package headline, XL headline].
+                        diskGB and bandwidthMbps are read by BSS only — the
+                        ResourceQuota renders no storage or bandwidth cap.
+                      properties:
+                        vcpu:
+                          type: number
+                          minimum: 0
+                        memoryGB:
+                          type: number
+                          minimum: 0
+                        diskGB:
+                          type: number
+                          minimum: 0
+                        bandwidthMbps:
+                          type: number
+                          minimum: 0
+                    spendLimitMonth:
+                      type: string
+                      pattern: '^[0-9]+(\.[0-9]{1,3})?$'
+                      description: |
+                        OMR per month the customer allows the overage to
+                        reach, as a money string ("25.000"). Stored and
+                        published here; read and enforced by BSS.
                 sovereignRef:
                   type: string
                   description: |

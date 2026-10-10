@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: plan-limits
+  namespace: acme
+  labels:
+    openova.io/organization: acme
+    openova.io/plan: xl
+    openova.io/managed-by: catalyst
+  annotations:
+    openova.io/plan-cap: "cpu=8 memory=16Gi"
+    openova.io/plan-guaranteed-cpu: "1334m"
+    openova.io/plan-guaranteed-memory: "5462Mi"
+    openova.io/plan-overcommit-cpu: "6"
+    openova.io/plan-overcommit-memory: "3"
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: "167m"
+        memory: "683Mi"
+      default:
+        cpu: "1"
+        memory: "2Gi"

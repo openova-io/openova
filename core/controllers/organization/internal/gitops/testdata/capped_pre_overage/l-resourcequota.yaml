@@ -1,0 +1,36 @@
+# The hard cap below is NOT the plan alone. It is the purchased plan PLUS the
+# per-Org vCluster control plane (vcluster-0 syncer + the synced coredns) PLUS
+# the per-Organization platform stack (bp-keycloak + its postgresql, bp-newapi
+# + its postgresql, bp-openclaw, bp-agenity + its oidc-gate), all of which run
+# in this same namespace and are charged to this quota at admission, so neither
+# eats into what the customer bought. The plan term is the headline on limits
+# and the guaranteed share (headline over the CPU 6x / memory 3x overcommit)
+# on requests.
+#   plan l headline (limits): cpu=4 memory=8Gi
+#   plan l guaranteed (requests): cpu=667m memory=2731Mi
+#   vcluster control plane: requests cpu=520m memory=1088Mi; limits cpu=1500m memory=1194Mi; storage=5Gi
+#   per-Organization platform stack: requests cpu=3840m memory=6064Mi; limits cpu=4550m memory=7Gi
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: plan-quota
+  namespace: acme
+  labels:
+    openova.io/organization: acme
+    openova.io/plan: l
+    openova.io/managed-by: catalyst
+  annotations:
+    openova.io/quota-formula: "purchased plan + vcluster control plane + per-Organization platform stack"
+    openova.io/plan-cap: "cpu=4 memory=8Gi"
+    openova.io/plan-guaranteed-cpu: "667m"
+    openova.io/plan-guaranteed-memory: "2731Mi"
+    openova.io/plan-overcommit-cpu: "6"
+    openova.io/plan-overcommit-memory: "3"
+    openova.io/vcluster-control-plane-overhead: "requests cpu=520m memory=1088Mi; limits cpu=1500m memory=1194Mi; storage=5Gi"
+    openova.io/platform-stack-overhead: "requests cpu=3840m memory=6064Mi; limits cpu=4550m memory=7Gi"
+spec:
+  hard:
+    requests.cpu: "5027m"
+    requests.memory: "9883Mi"
+    limits.cpu: "10050m"
+    limits.memory: "16554Mi"
