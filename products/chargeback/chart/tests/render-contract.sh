@@ -90,6 +90,8 @@ lim_cpu="$(grep -A2 'limits:' <<<"$def" | grep -m1 'cpu:' | awk '{print $2}')"
 [ "$req_cpu" = "$lim_cpu" ] || fail "defaults: cpu requests ($req_cpu) != limits ($lim_cpu)"
 # no route without a hostname (fail-closed)
 lacks "$def" 'kind: HTTPRoute' "fail-closed broken: HTTPRoute rendered with no hostname"
+# no origin and no FQDN → the public routes answer same-origin only
+lacks "$def" 'name: PUBLIC_CALCULATOR_ORIGINS' "defaults: PUBLIC_CALCULATOR_ORIGINS rendered with no origin and no FQDN"
 
 # ── 2. sovereign placement ────────────────────────────────────────────────
 sov="$(render --set "sovereignFqdn=$FQDN")"
@@ -101,6 +103,11 @@ has "$sov" "value: \"https://chargeback.$FQDN\"" "sovereign: PUBLIC_URL not deri
 has "$sov" 'type: ClusterIP' "sovereign: Service is not ClusterIP"
 lacks "$sov" 'kind: Ingress' "an Ingress rendered — product charts use HTTPRoute ONLY"
 grep -qi 'nodeport' <<<"$sov" && fail "NodePort rendered — §854 ABSOLUTE BAN"
+# the Sovereign's own storefront is always a public-route CORS origin (0.1.58):
+# alone when the operator set none, after the operator's list otherwise
+has "$sov" "value: \"https://marketplace.$FQDN\"" "sovereign: PUBLIC_CALCULATOR_ORIGINS does not carry the storefront origin https://marketplace.$FQDN"
+cors="$(render --set "sovereignFqdn=$FQDN" --set "publicCalculator.origins[0]=https://www.example.om")"
+has "$cors" "value: \"https://www.example.om,https://marketplace.$FQDN\"" "sovereign: operator origins must precede the storefront origin in PUBLIC_CALCULATOR_ORIGINS"
 
 # ── 3. per-Org placement ──────────────────────────────────────────────────
 org="$(render --set "httpRoute.hostnames[0]=chargeback.demo.omani.homes" \

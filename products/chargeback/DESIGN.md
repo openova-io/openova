@@ -5634,6 +5634,8 @@ packages document onto the catalog (`PublicCatalog.packages`); the model
 an item from M to XL drops the backup line by itself. The other families are
 untouched.
 
+The document is read **from the browser**, cross-origin: the storefront is `https://marketplace.<fqdn>` and the API is `https://chargeback.<fqdn>`, so the public routes must answer the storefront's `Origin` or the fetch is blocked and the storefront silently falls back to the catalog deck — which is exactly what hw307 showed on 2026-10-10 with 0.1.57: the document was live, the table never rendered. Since 0.1.58 the chart always adds the Sovereign's own storefront origin to `PUBLIC_CALCULATOR_ORIGINS` (`chargeback.publicOrigins` in `_helpers.tpl`, after the operator's `publicCalculator.origins`), and the render contract pins it. The storefront fetch is a simple GET (`mode: cors`, `credentials: omit`, `Accept` only), so no preflight is involved; `OPTIONS /api/v1/public/` is answered all the same.
+
 ### 22.7 The seeder
 
 `cmd/seed-history` writes the baseline onto the showcase plans book,
