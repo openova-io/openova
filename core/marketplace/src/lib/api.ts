@@ -334,6 +334,19 @@ export const createCheckout = (data: CheckoutRequest) =>
     body: JSON.stringify(data),
   });
 
+// #6971 — price a cart WITHOUT creating an order. Public (no session): the
+// /review and /checkout pages render every figure in their totals from this
+// answer — the same pricing seam `POST /billing/checkout` bills through — so
+// the package table, the review, the checkout and the receipt show one
+// number and the storefront sums no money itself. A 422 (an add-on the
+// chosen package does not offer) and a 503 (price book unreadable) reject,
+// with the server's message.
+export const getQuote = (data: QuoteRequest) =>
+  request<QuoteResponse>('/billing/quote', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+
 // #85 — canonicalise on baisa at the API boundary. The billing service now
 // emits both legacy `credit_omr` (whole OMR) and `credit_baisa` (canonical
 // baisa), and likewise for each ledger entry. We normalise to baisa here so
@@ -639,14 +652,55 @@ export interface CheckoutRequest {
   // #6971 — the BSS package sku (`plan.m`) beside the catalog `plan_id`.
   // `addons` is the cart's one list: catalog add-on ids, or BSS add-on SKUs
   // (`addon.backup`) when the Add-ons step offered the package's optional
-  // features. computeOrderTotal prices only the ids it finds in
-  // /catalog/addons and persists the whole list on the order's `addons`
-  // column unchanged, so the SKUs reach the order record either way; the
-  // server-side quote from the same document is a sibling change.
+  // features. When package_sku is set, billing prices the plan from the BSS
+  // package and every `addon.*` SKU from that package's feature cell
+  // (optional → its price, included → 0 and redundant, not offered / unknown
+  // → 422); catalog ids keep catalog pricing. Without it the order is
+  // catalog-priced as before.
   package_sku?: string;
 }
 
-export interface CheckoutResponse {
+/** The body `POST /billing/quote` prices — the checkout body minus the order. */
+export interface QuoteRequest {
+  plan_id: string;
+  apps?: string[];
+  addons: string[];
+  package_sku?: string;
+  topology?: string;
+}
+
+/** One priced add-on (a BSS `addon.*` SKU or a catalog add-on id). */
+export interface QuoteLine {
+  sku: string;
+  name: string;
+  /** Monthly price in baisa. 0 when `redundant`. */
+  amount_baisa: number;
+  /** The chosen package already includes this feature; kept so the receipt shows the tick. */
+  redundant?: boolean;
+}
+
+/**
+ * The server-priced cart. `price_source` is "bss:<price_book>@<prices_as_of>"
+ * when priced from the BSS packages document (the order carried a package
+ * sku) or "catalog". `amount_baisa` is the exact total; `amount_omr` the
+ * whole-OMR view the credit ledger settles in.
+ */
+export interface QuoteResponse {
+  currency: string;
+  price_source: string;
+  package_sku?: string;
+  plan_id?: string;
+  plan_amount_baisa: number;
+  topology: string;
+  topology_amount_baisa: number;
+  lines: QuoteLine[];
+  amount_baisa: number;
+  amount_omr: number;
+}
+
+// #6971 — the checkout response carries the priced lines the order row
+// persisted (the QuoteResponse fields), so the receipt shows what was billed.
+export interface CheckoutResponse extends Partial<QuoteResponse> {
   session_url?: string;
   order_id?: string;
   paid_by_credit?: boolean;

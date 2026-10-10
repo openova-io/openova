@@ -103,6 +103,16 @@ spec:
               value: "http://notification.org-services.svc.cluster.local:8087/notification/send"
             - name: SOVEREIGN_FQDN
               value: {{ .Values.global.sovereignFQDN | default "" | quote }}
+            # #6971 — the Catalyst BSS price book (bp-chargeback,
+            # GET /api/v1/public/packages) that prices every order carrying a
+            # package_sku. Default = the Sovereign placement's in-cluster
+            # Service (bootstrap-kit slot 13f: release `chargeback`, namespace
+            # `chargeback`, values.service.port 8080). Overlay via
+            # orgServices.billing.chargebackPublicURL (an unset or empty value
+            # renders this default — the binary's "BSS pricing off" is an
+            # explicitly empty env, which this template never emits).
+            - name: CHARGEBACK_PUBLIC_URL
+              value: {{ (((.Values.orgServices).billing).chargebackPublicURL) | default "http://chargeback.chargeback.svc.cluster.local:8080" | quote }}
           resources:
             requests:
               cpu: 25m

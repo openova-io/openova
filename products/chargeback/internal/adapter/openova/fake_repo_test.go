@@ -29,6 +29,120 @@ type fakeRepo struct {
 	paygCalls int                          // EnsurePAYGBook invocations
 	retired   []string                     // RetireOrganizationCustomer calls
 	bindings  []store.RoleBinding          // UpsertRoleBinding grants, deduplicated
+	// The entitlement matrix (DESIGN.md §22): the features in matrix order
+	// and each cell's state keyed bookID|plan.<slug>|featureKey. A missing
+	// cell reads not_offered, exactly as the store reads it.
+	features     []store.Feature
+	entitlements map[string]string
+	addonWrites  int // SetSourceAddons calls that reached the write
+}
+
+// addFeature registers a feature of the matrix with its add-on SKU ("" for
+// one that can only be included or not offered).
+func (f *fakeRepo) addFeature(key, addonSKU string) store.Feature {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	ft := store.Feature{ID: f.nextID("feat"), Key: key, Name: strings.ToUpper(key[:1]) + key[1:], Kind: store.FeatureKindBoolean, AddonSKU: addonSKU, SortOrder: len(f.features)}
+	f.features = append(f.features, ft)
+	return ft
+}
+
+// entitle writes one cell of a book's matrix.
+func (f *fakeRepo) entitle(bookID, planSlug, featureKey, state string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.entitlements == nil {
+		f.entitlements = map[string]string{}
+	}
+	f.entitlements[bookID+"|"+store.PlanSKU(planSlug)+"|"+featureKey] = state
+}
+
+func (f *fakeRepo) ListFeatures(_ context.Context) ([]store.Feature, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]store.Feature, len(f.features))
+	copy(out, f.features)
+	return out, nil
+}
+
+// SetSourceAddons mirrors store.SetSourceAddons' contract: a platform source
+// (never the internal one) on a book, its customer on a billable plan, every
+// key a feature the package offers as OPTIONAL — an included one is refused
+// as redundant, a missing or not_offered cell as not offered, an unknown key
+// as no feature. All-or-nothing: a refusal writes nothing.
+func (f *fakeRepo) SetSourceAddons(_ context.Context, sourceID string, keys []string) (store.CostSource, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	s, ok := f.sources[sourceID]
+	if !ok {
+		return store.CostSource{}, store.ErrNotFound
+	}
+	if s.Internal {
+		return store.CostSource{}, fmt.Errorf("%w: the internal platform source is never billed and takes no add-ons", store.ErrInvalid)
+	}
+	if s.Layer != store.LayerPlatform {
+		return store.CostSource{}, fmt.Errorf("%w: add-ons belong to a platform source on a package; %s is a %s source", store.ErrInvalid, s.Label(), s.Layer)
+	}
+	clean := []string{}
+	seen := map[string]bool{}
+	for _, k := range keys {
+		k = strings.ToLower(strings.TrimSpace(k))
+		if k == "" || seen[k] {
+			continue
+		}
+		seen[k] = true
+		clean = append(clean, k)
+	}
+	resolved := []string{}
+	if len(clean) > 0 {
+		if s.PriceBookID == nil {
+			return store.CostSource{}, fmt.Errorf("%w: %s has no price book, so no package offers it an add-on; assign the plans book first", store.ErrInvalid, s.Label())
+		}
+		c, ok := f.customers[s.CustomerID]
+		if !ok {
+			return store.CostSource{}, store.ErrNotFound
+		}
+		plan := store.NormalizePlanSlug(c.PlanSlug)
+		if !store.PlanBillable(plan) {
+			return store.CostSource{}, fmt.Errorf("%w: %s is not on a sized package (plan %q); add-ons are offered per package", store.ErrInvalid, s.Label(), plan)
+		}
+		for _, key := range clean {
+			var ft *store.Feature
+			for i := range f.features {
+				if f.features[i].Key == key || f.features[i].ID == key {
+					ft = &f.features[i]
+					break
+				}
+			}
+			if ft == nil {
+				return store.CostSource{}, fmt.Errorf("%w: there is no feature %q", store.ErrInvalid, key)
+			}
+			state, ok := f.entitlements[*s.PriceBookID+"|"+store.PlanSKU(plan)+"|"+ft.Key]
+			if !ok {
+				state = store.EntitlementNotOffered
+			}
+			switch state {
+			case store.EntitlementOptional:
+				resolved = append(resolved, ft.Key)
+			case store.EntitlementIncluded:
+				return store.CostSource{}, fmt.Errorf("%w: %s is included in the %s package; there is nothing to add", store.ErrInvalid, ft.Name, store.PlanName(plan))
+			default:
+				return store.CostSource{}, fmt.Errorf("%w: %s is not offered on the %s package", store.ErrInvalid, ft.Name, store.PlanName(plan))
+			}
+		}
+	}
+	// Matrix order, as the store lists a Source's add-ons.
+	ordered := []string{}
+	for _, ft := range f.features {
+		for _, k := range resolved {
+			if k == ft.Key {
+				ordered = append(ordered, k)
+			}
+		}
+	}
+	s.Addons = ordered
+	f.addonWrites++
+	return *s, nil
 }
 
 // internalSource returns the internal platform source for a slug, if ensured.
@@ -127,7 +241,7 @@ func (f *fakeRepo) UpsertSource(_ context.Context, customerID, kind, region, pro
 		}
 	}
 	id := f.nextID("src")
-	s := &store.CostSource{ID: id, CustomerID: customerID, Kind: kind, Layer: store.LayerOfKind(kind), Region: region, ProjectID: projectID, Status: "pending"}
+	s := &store.CostSource{ID: id, CustomerID: customerID, Kind: kind, Layer: store.LayerOfKind(kind), Region: region, ProjectID: projectID, Status: "pending", Addons: []string{}}
 	f.sources[id] = s
 	return *s, true, nil
 }

@@ -49,6 +49,15 @@ type Repository interface {
 	// §10). The sync uses it to make the Organization's owner the
 	// customer-owner of its customer; it never revokes anything.
 	UpsertRoleBinding(ctx context.Context, b store.RoleBinding) (store.RoleBinding, error)
+	// ListFeatures is the entitlement matrix's feature list in matrix order
+	// (DESIGN.md §22). The sync resolves an order's add-on SKUs
+	// (spec.commerce.addons[]) to feature keys through Feature.AddonSKU.
+	ListFeatures(ctx context.Context) ([]store.Feature, error)
+	// SetSourceAddons replaces the add-ons a platform Source has taken, by
+	// feature key (DESIGN.md §22.9). It refuses a feature the package
+	// includes already, one it does not offer, and a key no feature carries;
+	// the write is all-or-nothing.
+	SetSourceAddons(ctx context.Context, sourceID string, keys []string) (store.CostSource, error)
 }
 
 var _ Repository = (*store.Store)(nil)

@@ -217,6 +217,28 @@ async function installMocks(page: Page): Promise<MockState> {
     })
   )
 
+  // /api/billing/quote — #6971: the checkout page renders its order summary
+  // and total from the SERVER's quote (the same pricing seam the checkout
+  // POST bills through) and keeps the purchase button disabled until it
+  // answers. The seeded cart is plan M with no add-ons: 9.000 OMR.
+  await page.route('**/api/billing/quote', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        currency: 'OMR',
+        price_source: 'catalog',
+        plan_id: 'm',
+        plan_amount_baisa: 9000,
+        topology: 'single-region',
+        topology_amount_baisa: 0,
+        lines: [],
+        amount_baisa: 9000,
+        amount_omr: 9,
+      }),
+    })
+  )
+
   // /api/billing/checkout — step 11 (start of provisioning panel).
   await page.route('**/api/billing/checkout', (route) =>
     route.fulfill({
