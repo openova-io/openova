@@ -38,9 +38,10 @@ async function parse(res: Response): Promise<unknown> {
   }
 }
 
-async function request<T>(method: string, path: string, body?: unknown, raw?: BodyInit): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown, raw?: BodyInit, rawType?: string): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' }
   let payload: BodyInit | undefined = raw
+  if (rawType) headers['Content-Type'] = rawType
   if (body !== undefined) {
     headers['Content-Type'] = 'application/json'
     payload = JSON.stringify(body)
@@ -68,6 +69,8 @@ export const api = {
   del: <T>(path: string) => request<T>('DELETE', path),
   /** multipart upload (CSV imports). */
   upload: <T>(path: string, form: FormData) => request<T>('POST', path, undefined, form),
+  /** A raw body under its own content type (an icon: POST /icons). */
+  postRaw: <T>(path: string, body: Blob | ArrayBuffer, contentType: string) => request<T>('POST', path, undefined, body, contentType),
 }
 
 /**

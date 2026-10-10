@@ -493,3 +493,23 @@ tbody tr.expand:hover td { background: var(--panel-2); }
 .pkg-floor-item { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel-2); font-size: 12.5px; }
 .pkg-floor-strip { margin-top: 8px; padding: 6px 10px; border: 1px dashed var(--line); border-radius: 8px; font-size: 12.5px; }
 .pkg-floor-strip .pkg-floor-item { border: 0; padding: 0; background: transparent; display: inline; }
+/* Icons and branding (DESIGN.md §22.10). An icon sits inline before its
+   name; an item without one renders nothing, so its name starts where it
+   always did. The tile is the item's own colour from the document. */
+.pkg-icon { display: inline-flex; align-items: center; justify-content: center; flex: none; vertical-align: middle; margin-right: 6px; line-height: 0; }
+.pkg-icon img { display: block; object-fit: contain; }
+.pkg-icon.tiled { padding: 3px; border-radius: 6px; }
+.pkg-feature-name, .pkg-group-name { display: inline-flex; align-items: center; }
+.pkg-table .pkg-name { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; }
+.pkg-floor-strip .pkg-icon { margin-right: 4px; }
+.pkg-table th.pkg-head.accented { border-top: 4px solid transparent; }
+.pkg-badge { display: inline-block; margin: 0 0 4px; padding: 1px 8px; border-radius: 999px; background: var(--accent); color: #fff; font-size: 10.5px; font-weight: 650; letter-spacing: .02em; text-transform: none; }
+.pkg-table tr.pkg-group th .pkg-group-edit { margin-left: 8px; text-transform: none; letter-spacing: 0; font-weight: 500; }
+.icon-field { align-items: center; gap: 10px; flex-wrap: wrap; }
+.icon-preview { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border: 1px dashed var(--line); border-radius: 8px; background: var(--panel-2); }
+.icon-preview.tiled { border-style: solid; }
+.icon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(40px, 1fr)); gap: 6px; margin-top: 8px; max-height: 180px; overflow-y: auto; padding: 6px; border: 1px solid var(--line); border-radius: 8px; }
+.icon-choice { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.icon-choice.chosen { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-2); }
+.colour-field { align-items: center; gap: 8px; }
+.colour-field input[type="color"] { width: 36px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: transparent; }

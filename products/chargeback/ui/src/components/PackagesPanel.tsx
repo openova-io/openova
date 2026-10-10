@@ -1,8 +1,10 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { api, asList, errorText } from '../api/client'
-import type { EntitlementState, Feature, FeatureKind, Overage, PackageCell, PackageCellWrite, PackageInfo, PackageSettingsWrite, PackagesDoc, PriceBook } from '../api/types'
+import type { EntitlementState, Feature, FeatureGroup, FeatureKind, Overage, PackageCell, PackageCellWrite, PackageInfo, PackageSettingsWrite, PackagesDoc, PriceBook } from '../api/types'
+import { BADGE_MAX, badgeProblem, iconIdOf, iconRefOf, isColour, normalizeColour } from '../lib/icons'
 import { DEFAULT_GROUPS, KINDS, OVERAGES, STATES, cellOf, cellSubText, cellText, floorRows, groupedRows, includedFromText, shapeGuaranteed, shapeHeadline, stepUpText, type MatrixRow } from '../lib/packages'
 import { useQuery } from '../lib/useQuery'
+import { ColourField, IconField, PackageIcon } from './Icons'
 import { Confirm, EmptyState, Field, FormRow, Modal, Notice, Segmented, Skeleton } from './ui'
 
 /**
@@ -26,7 +28,7 @@ export function PackagesPanel({ book, canManage }: { book: PriceBook; canManage:
   const features = useMemo(() => asList<Feature>(feats.data, 'features'), [feats.data])
   const groups = useMemo(() => groupedRows(doc.data, features), [doc.data, features])
   const floor = useMemo(() => floorRows(features), [features])
-  const [dialog, setDialog] = useState<{ kind: 'cell'; row: MatrixRow; planSku: string } | { kind: 'feature'; feature: Feature | null; floor?: boolean } | { kind: 'delete'; feature: Feature } | { kind: 'settings'; pkg: PackageInfo } | null>(null)
+  const [dialog, setDialog] = useState<{ kind: 'cell'; row: MatrixRow; planSku: string } | { kind: 'feature'; feature: Feature | null; floor?: boolean } | { kind: 'delete'; feature: Feature } | { kind: 'settings'; pkg: PackageInfo } | { kind: 'group'; group: FeatureGroup } | null>(null)
   const [flash, setFlash] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -96,8 +98,14 @@ export function PackagesPanel({ book, canManage }: { book: PriceBook; canManage:
                   {plans.map((p) => {
                     const guaranteed = shapeGuaranteed(p)
                     return (
-                      <th key={p.sku} className="pkg-head" data-testid={`pkg-head-${p.sku}`}>
+                      <th key={p.sku} className={`pkg-head${p.accent ? ' accented' : ''}`} style={p.accent ? { borderTopColor: p.accent } : undefined} data-testid={`pkg-head-${p.sku}`}>
+                        {p.badge ? (
+                          <div className="pkg-badge" style={p.accent ? { background: p.accent } : undefined} data-testid={`pkg-badge-${p.sku}`}>
+                            {p.badge}
+                          </div>
+                        ) : null}
                         <div className="pkg-name">
+                          <PackageIcon icon={p.icon} size={18} />
                           {p.name}
                           {p.recommended ? <span className="badge ok pkg-recommended">Recommended</span> : null}
                         </div>
@@ -132,7 +140,7 @@ export function PackagesPanel({ book, canManage }: { book: PriceBook; canManage:
               </thead>
               <tbody>
                 {groups.map((g) => (
-                  <GroupRows key={g.group.key} group={g} plans={plans} doc={doc.data!} currency={currency} canManage={canManage} onCell={(row, planSku) => setDialog({ kind: 'cell', row, planSku })} onEdit={(f) => setDialog({ kind: 'feature', feature: f })} onDelete={(f) => setDialog({ kind: 'delete', feature: f })} />
+                  <GroupRows key={g.group.key} group={g} plans={plans} doc={doc.data!} currency={currency} canManage={canManage} onCell={(row, planSku) => setDialog({ kind: 'cell', row, planSku })} onEdit={(f) => setDialog({ kind: 'feature', feature: f })} onDelete={(f) => setDialog({ kind: 'delete', feature: f })} onGroupIcon={(group) => setDialog({ kind: 'group', group })} />
                 ))}
               </tbody>
             </table>
@@ -151,6 +159,7 @@ export function PackagesPanel({ book, canManage }: { book: PriceBook; canManage:
           <div className="pkg-floor">
             {floor.map((f) => (
               <span key={f.id} className="pkg-floor-item" data-testid={`floor-${f.key}`}>
+                <PackageIcon icon={iconRefOf(f.icon_id, f.name, f.icon_bg)} size={16} />
                 <b>{f.name}</b>
                 {f.blurb ? <span className="muted small"> — {f.blurb}</span> : null}
                 {canManage ? (
@@ -182,6 +191,7 @@ export function PackagesPanel({ book, canManage }: { book: PriceBook; canManage:
       ) : null}
       {dialog?.kind === 'feature' ? <FeatureModal feature={dialog.feature} floor={dialog.floor} groups={doc.data.groups?.length ? doc.data.groups : DEFAULT_GROUPS} onClose={() => setDialog(null)} onSaved={(f) => done(`${f.name} saved`)} /> : null}
       {dialog?.kind === 'settings' ? <PackageSettingsModal book={book} pkg={dialog.pkg} currency={currency} onClose={() => setDialog(null)} onSaved={() => done(`${dialog.pkg.name} settings saved`)} /> : null}
+      {dialog?.kind === 'group' ? <GroupIconModal group={dialog.group} onClose={() => setDialog(null)} onSaved={() => done(`${dialog.group.name} icon saved`)} /> : null}
       {dialog?.kind === 'delete' ? (
         <Confirm
           title={`Delete ${dialog.feature.name}?`}
@@ -210,8 +220,9 @@ function GroupRows({
   onCell,
   onEdit,
   onDelete,
+  onGroupIcon,
 }: {
-  group: { group: { key: string; name: string }; rows: MatrixRow[] }
+  group: { group: FeatureGroup; rows: MatrixRow[] }
   plans: PackageInfo[]
   doc: PackagesDoc
   currency: string
@@ -219,16 +230,31 @@ function GroupRows({
   onCell: (row: MatrixRow, planSku: string) => void
   onEdit: (f: Feature) => void
   onDelete: (f: Feature) => void
+  onGroupIcon?: (g: FeatureGroup) => void
 }) {
+  // "other" collects rows whose group the document does not list; it has no
+  // settings of its own to carry an icon.
+  const editable = canManage && onGroupIcon && group.group.key !== 'other'
   return (
     <>
       <tr className="pkg-group" data-testid={`group-${group.group.key}`}>
-        <th colSpan={plans.length + 2}>{group.group.name}</th>
+        <th colSpan={plans.length + 2}>
+          <span className="pkg-group-name">
+            <PackageIcon icon={group.group.icon} size={14} />
+            {group.group.name}
+          </span>
+          {editable ? (
+            <button type="button" className="link small pkg-group-edit" onClick={() => onGroupIcon(group.group)} aria-label={`Icon of ${group.group.name}`}>
+              Icon
+            </button>
+          ) : null}
+        </th>
       </tr>
       {group.rows.map((r) => (
         <tr key={r.feature.id} data-testid={`feature-row-${r.feature.key}`}>
           <td>
-            <div>
+            <div className="pkg-feature-name">
+              <PackageIcon icon={iconRefOf(r.feature.icon_id, r.feature.name, r.feature.icon_bg)} size={16} />
               <b>{r.feature.name}</b> <span className="mono muted tiny">{r.feature.key}</span>
             </div>
             {r.feature.blurb ? <div className="small muted">{r.feature.blurb}</div> : null}
@@ -466,6 +492,8 @@ export function FeatureModal({ feature, floor, groups, onClose, onSaved }: { fea
   const [levelsText, setLevelsText] = useState((feature?.levels ?? []).join('\n'))
   const [teaser, setTeaser] = useState(Boolean(feature?.teaser))
   const [sortOrder, setSortOrder] = useState(String(feature?.sort_order ?? 0))
+  const [iconId, setIconId] = useState(feature?.icon_id ?? '')
+  const [iconBg, setIconBg] = useState(feature?.icon_bg ?? '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const isFloor = group === 'floor'
@@ -481,6 +509,7 @@ export function FeatureModal({ feature, floor, groups, onClose, onSaved }: { fea
     if (!isFloor && kind === 'level' && levels.length < 2) return 'a level feature needs at least two levels, one per line, in order'
     if (!isFloor && kind === 'access' && addonSku.trim()) return 'an access door is never priced; it has no add-on SKU'
     if (sortOrder.trim() !== '' && !Number.isInteger(Number(sortOrder))) return 'the sort order is a whole number'
+    if (!isColour(iconBg)) return 'the icon background is a colour written #RRGGBB'
     return ''
   })()
 
@@ -491,6 +520,8 @@ export function FeatureModal({ feature, floor, groups, onClose, onSaved }: { fea
     setError('')
     try {
       const body = {
+        icon_id: iconId,
+        icon_bg: normalizeColour(iconBg),
         name: name.trim(),
         blurb: blurb.trim(),
         kind: isFloor ? 'boolean' : kind,
@@ -586,13 +617,17 @@ export function FeatureModal({ feature, floor, groups, onClose, onSaved }: { fea
             <textarea value={levelsText} onChange={(e) => setLevelsText(e.target.value)} rows={4} aria-label="Levels" placeholder={'weekly · 7 days\ndaily · 14 days\ndaily · 30 days'} />
           </Field>
         ) : null}
+        <FormRow>
+          <IconField value={iconId} onChange={setIconId} bg={iconBg} help="Shown beside the name on the storefront, the calculator and here. SVG, PNG or WebP, up to 64 KiB." />
+          <ColourField label="Icon background" value={iconBg} onChange={setIconBg} help="The tile behind the icon; empty = none." />
+        </FormRow>
         {problem ? <div className="err small">{problem}</div> : null}
       </form>
     </Modal>
   )
 }
 
-/** The settings of one package: tagline, recommended, the term rule and the shape, written whole. */
+/** The settings of one package: tagline, recommended, the term rule, the shape and the column's branding (icon, accent, badge), written whole. */
 export function PackageSettingsModal({ book, pkg, currency, onClose, onSaved }: { book: PriceBook; pkg: PackageInfo; currency: string; onClose: () => void; onSaved: () => void | Promise<void> }) {
   const sh = pkg.shape ?? {}
   const str = (v: number | string | undefined | null) => (v === undefined || v === null ? '' : String(v))
@@ -604,6 +639,9 @@ export function PackageSettingsModal({ book, pkg, currency, onClose, onSaved }: 
   const [vcpuG, setVcpuG] = useState(str(sh.vcpu_guaranteed))
   const [memG, setMemG] = useState(str(sh.memory_gb_guaranteed))
   const [disk, setDisk] = useState(str(sh.disk_gb))
+  const [iconId, setIconId] = useState(iconIdOf(pkg.icon))
+  const [accent, setAccent] = useState(pkg.accent ?? '')
+  const [badge, setBadge] = useState(pkg.badge ?? '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const nonNeg = (v: string) => v.trim() === '' || (Number.isFinite(Number(v)) && Number(v) >= 0)
@@ -611,13 +649,14 @@ export function PackageSettingsModal({ book, pkg, currency, onClose, onSaved }: 
     const m = Number(months)
     if (months.trim() === '' || !Number.isInteger(m) || m < 0 || m > 12) return 'the months free on an annual term are a whole number between 0 and 12'
     if (![vcpu, mem, vcpuG, memG, disk].every(nonNeg)) return 'every shape value is a non-negative number, or empty'
-    return ''
+    if (!isColour(accent)) return 'the accent is a colour written #RRGGBB'
+    return badgeProblem(badge)
   })()
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     if (problem) return
     const num = (v: string) => (v.trim() === '' ? null : v.trim())
-    const body: PackageSettingsWrite = { tagline: tagline.trim(), recommended, annual_months_free: Number(months), vcpu: num(vcpu), memory_gb: num(mem), vcpu_guaranteed: num(vcpuG), memory_gb_guaranteed: num(memG), disk_gb: num(disk) }
+    const body: PackageSettingsWrite = { tagline: tagline.trim(), recommended, annual_months_free: Number(months), vcpu: num(vcpu), memory_gb: num(mem), vcpu_guaranteed: num(vcpuG), memory_gb_guaranteed: num(memG), disk_gb: num(disk), icon_id: iconId, accent: normalizeColour(accent), badge: badge.trim() }
     setBusy(true)
     setError('')
     try {
@@ -679,7 +718,55 @@ export function PackageSettingsModal({ book, pkg, currency, onClose, onSaved }: 
             <input type="number" min={0} step="any" inputMode="decimal" value={memG} onChange={(e) => setMemG(e.target.value)} aria-label="Memory GB guaranteed" />
           </Field>
         </FormRow>
+        <FormRow>
+          <IconField value={iconId} onChange={setIconId} help="Beside the package's name in its column." />
+          <ColourField label="Accent" value={accent} onChange={setAccent} help="The column's top border and its badge." />
+          <Field label="Badge" help={`A short chip over the column — “Most popular”. At most ${BADGE_MAX} characters; empty = none.`}>
+            <input value={badge} onChange={(e) => setBadge(e.target.value)} maxLength={BADGE_MAX} aria-label="Badge" />
+          </Field>
+        </FormRow>
         {problem ? <div className="err small">{problem}</div> : null}
+      </form>
+    </Modal>
+  )
+}
+
+/** The icon of one group heading (PUT /feature-groups/{key}); the group's name stays the product's. */
+export function GroupIconModal({ group, onClose, onSaved }: { group: FeatureGroup; onClose: () => void; onSaved: () => void | Promise<void> }) {
+  const [iconId, setIconId] = useState(iconIdOf(group.icon) || group.icon_id || '')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    setBusy(true)
+    setError('')
+    try {
+      await api.put(`/feature-groups/${encodeURIComponent(group.key)}`, { icon_id: iconId })
+      await onSaved()
+    } catch (err) {
+      setError(errorText(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Modal
+      title={`${group.name} — group icon`}
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+          <button className="primary" form="group-icon-form" disabled={busy}>
+            Save
+          </button>
+        </>
+      }
+    >
+      <form id="group-icon-form" onSubmit={(e) => void submit(e)} className="stack tight" data-testid="group-icon-editor">
+        {error ? <Notice kind="bad">{error}</Notice> : null}
+        <IconField value={iconId} onChange={setIconId} help="Shown beside the group's heading on the storefront, the calculator and here." />
       </form>
     </Modal>
   )

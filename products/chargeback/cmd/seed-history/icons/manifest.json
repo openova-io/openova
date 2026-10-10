@@ -1,0 +1,47 @@
+{
+  "comment": "The showcase package ladder's icons and branding (DESIGN.md §22.10). Read by cmd/seed-history (ensurePackages) and by scripts/apply-package-icons.py, so the two can never disagree. Each icon is a file in this directory; LICENSES.md names its source.",
+  "features": {
+    "applications": {"icon": "layout-grid.svg", "bg": "#F1F5F9"},
+    "databases": {"icon": "database.svg", "bg": "#F1F5F9"},
+    "mail": {"icon": "mail.svg", "bg": "#F1F5F9"},
+    "ssl": {"icon": "lock.svg", "bg": "#F1F5F9"},
+    "sso": {"icon": "key-round.svg", "bg": "#F1F5F9"},
+    "ddos": {"icon": "shield.svg", "bg": "#F1F5F9"},
+    "malware_scanner": {"icon": "bug.svg", "bg": "#F1F5F9"},
+    "waf": {"icon": "shield-check.svg", "bg": "#F1F5F9"},
+    "support": {"icon": "life-buoy.svg", "bg": "#F1F5F9"},
+    "bandwidth": {"icon": "gauge.svg", "bg": "#E0F2FE"},
+    "disk": {"icon": "hard-drive.svg", "bg": "#E0F2FE"},
+    "ai_seo": {"icon": "search.svg", "bg": "#F3E8FF"},
+    "ai_builder": {"icon": "sparkles.svg", "bg": "#F3E8FF"},
+    "console": {"icon": "layout-dashboard.svg", "bg": "#DCFCE7"},
+    "gitea_iac": {"icon": "gitea.svg", "bg": "#DCFCE7"},
+    "k8s_ui": {"icon": "kubernetes.svg", "bg": "#DCFCE7"},
+    "kube_api": {"icon": "terminal.svg", "bg": "#DCFCE7"},
+    "vuln_dashboard": {"icon": "shield-alert.svg", "bg": "#FEF3C7"},
+    "compliance": {"icon": "scale.svg", "bg": "#FEF3C7"},
+    "audit_log": {"icon": "activity.svg", "bg": "#FEF3C7"},
+    "cost_explorer": {"icon": "trending-up.svg", "bg": "#FEF3C7"},
+    "patching": {"icon": "wrench.svg", "bg": "#FEF3C7"},
+    "maintenance": {"icon": "refresh-cw.svg", "bg": "#FEF3C7"},
+    "domain": {"icon": "globe.svg", "bg": "#E0E7FF"},
+    "dedicated_ip": {"icon": "network.svg", "bg": "#E0E7FF"},
+    "backup": {"icon": "archive.svg", "bg": "#FFE4E6"},
+    "dr_topology": {"icon": "server.svg", "bg": "#FFE4E6"}
+  },
+  "groups": {
+    "capacity": "cpu.svg",
+    "features": "puzzle.svg",
+    "access": "key-round.svg",
+    "ops": "settings.svg",
+    "scope": "globe.svg",
+    "resilience": "database-backup.svg",
+    "service": "users.svg"
+  },
+  "packages": {
+    "plan.s": {"accent": "#93C5FD"},
+    "plan.m": {"accent": "#3B82F6", "badge": "Most popular"},
+    "plan.l": {"accent": "#1D4ED8"},
+    "plan.xl": {"accent": "#1E3A8A"}
+  }
+}

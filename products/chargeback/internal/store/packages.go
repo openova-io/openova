@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/lib/pq"
 )
@@ -302,8 +303,13 @@ type Feature struct {
 	Levels []string `json:"levels,omitempty"`
 	// Teaser publishes a not-offered cell as "available on <first package
 	// that includes it>" instead of a dash.
-	Teaser    bool      `json:"teaser"`
-	SortOrder int       `json:"sort_order"`
+	Teaser    bool `json:"teaser"`
+	SortOrder int  `json:"sort_order"`
+	// IconID is the icon shown beside the feature (DESIGN.md §22.10), the
+	// SHA-256 id of a stored icon; IconBG the "#RRGGBB" tile behind it.
+	// Empty = none.
+	IconID    string    `json:"icon_id,omitempty"`
+	IconBG    string    `json:"icon_bg,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -320,6 +326,8 @@ type FeatureInput struct {
 	Levels    []string
 	Teaser    bool
 	SortOrder int
+	IconID    string
+	IconBG    string
 }
 
 // FeaturePatch carries optional edits; nil means unchanged. An AddonSKU of
@@ -335,6 +343,9 @@ type FeaturePatch struct {
 	Levels    *[]string
 	Teaser    *bool
 	SortOrder *int
+	// IconID and IconBG: "" clears.
+	IconID *string
+	IconBG *string
 }
 
 var featureKeyShape = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]*$`)
@@ -342,11 +353,11 @@ var featureKeyShape = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]*$`)
 // ValidFeatureKey reports whether key is a lower-case identifier.
 func ValidFeatureKey(key string) bool { return featureKeyShape.MatchString(key) }
 
-const featureColumns = `f.id, f.key, f.name, f.blurb, f.kind, f.feature_group, f.unit, COALESCE(f.addon_sku, ''), f.levels::text, f.teaser, f.sort_order, f.created_at, f.updated_at`
+const featureColumns = `f.id, f.key, f.name, f.blurb, f.kind, f.feature_group, f.unit, COALESCE(f.addon_sku, ''), f.levels::text, f.teaser, f.sort_order, f.created_at, f.updated_at, COALESCE(f.icon_id, ''), COALESCE(f.icon_bg, '')`
 
 func scanFeatureInto(row interface{ Scan(...any) error }, f *Feature, rest ...any) error {
 	var levels string
-	dest := []any{&f.ID, &f.Key, &f.Name, &f.Blurb, &f.Kind, &f.Group, &f.Unit, &f.AddonSKU, &levels, &f.Teaser, &f.SortOrder, &f.CreatedAt, &f.UpdatedAt}
+	dest := []any{&f.ID, &f.Key, &f.Name, &f.Blurb, &f.Kind, &f.Group, &f.Unit, &f.AddonSKU, &levels, &f.Teaser, &f.SortOrder, &f.CreatedAt, &f.UpdatedAt, &f.IconID, &f.IconBG}
 	if err := row.Scan(append(rest, dest...)...); err != nil {
 		return mapErr(err)
 	}
@@ -478,9 +489,17 @@ func (s *Store) CreateFeature(ctx context.Context, in FeatureInput) (Feature, er
 	if f.AddonSKU != "" {
 		addon = f.AddonSKU
 	}
-	return scanFeature(s.db.QueryRowContext(ctx, `INSERT INTO features AS f (key, name, blurb, kind, feature_group, unit, addon_sku, levels, teaser, sort_order)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10) RETURNING `+featureColumns,
-		f.Key, f.Name, f.Blurb, f.Kind, f.Group, f.Unit, addon, levelsJSON(f.Levels), f.Teaser, f.SortOrder))
+	icon, err := iconRef(ctx, s.db, in.IconID)
+	if err != nil {
+		return Feature{}, err
+	}
+	bg, err := colourArg("icon_bg", in.IconBG)
+	if err != nil {
+		return Feature{}, err
+	}
+	return scanFeature(s.db.QueryRowContext(ctx, `INSERT INTO features AS f (key, name, blurb, kind, feature_group, unit, addon_sku, levels, teaser, sort_order, icon_id, icon_bg)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12) RETURNING `+featureColumns,
+		f.Key, f.Name, f.Blurb, f.Kind, f.Group, f.Unit, addon, levelsJSON(f.Levels), f.Teaser, f.SortOrder, icon, bg))
 }
 
 // UpdateFeature applies a patch. The kind may change only while no package
@@ -587,8 +606,22 @@ func (s *Store) UpdateFeature(ctx context.Context, id string, p FeaturePatch) (F
 	if next.AddonSKU != "" {
 		addon = next.AddonSKU
 	}
-	out, err := scanFeature(tx.QueryRowContext(ctx, `UPDATE features AS f SET name = $2, blurb = $3, kind = $4, feature_group = $5, unit = $6, addon_sku = $7, levels = $8::jsonb, teaser = $9, sort_order = $10, updated_at = now()
-		WHERE f.id = $1 RETURNING `+featureColumns, cur.ID, next.Name, next.Blurb, next.Kind, next.Group, next.Unit, addon, levelsJSON(next.Levels), next.Teaser, next.SortOrder))
+	if p.IconID != nil {
+		next.IconID = *p.IconID
+	}
+	if p.IconBG != nil {
+		next.IconBG = *p.IconBG
+	}
+	icon, err := iconRef(ctx, tx, next.IconID)
+	if err != nil {
+		return Feature{}, err
+	}
+	bg, err := colourArg("icon_bg", next.IconBG)
+	if err != nil {
+		return Feature{}, err
+	}
+	out, err := scanFeature(tx.QueryRowContext(ctx, `UPDATE features AS f SET name = $2, blurb = $3, kind = $4, feature_group = $5, unit = $6, addon_sku = $7, levels = $8::jsonb, teaser = $9, sort_order = $10, icon_id = $11, icon_bg = $12, updated_at = now()
+		WHERE f.id = $1 RETURNING `+featureColumns, cur.ID, next.Name, next.Blurb, next.Kind, next.Group, next.Unit, addon, levelsJSON(next.Levels), next.Teaser, next.SortOrder, icon, bg))
 	if err != nil {
 		return Feature{}, err
 	}
@@ -896,17 +929,23 @@ func (s *Store) DeleteEntitlement(ctx context.Context, priceBookID, planSKU, fea
 // the disk. A shape value left nil falls back to the catalog's constants
 // (PlanShape) in the published document.
 type PackageSettings struct {
-	PriceBookID        string    `json:"price_book_id"`
-	PlanSKU            string    `json:"plan_sku"`
-	Tagline            string    `json:"tagline"`
-	Recommended        bool      `json:"recommended"`
-	AnnualMonthsFree   int       `json:"annual_months_free"`
-	VCPU               *Decimal  `json:"vcpu,omitempty"`
-	MemoryGB           *Decimal  `json:"memory_gb,omitempty"`
-	VCPUGuaranteed     *Decimal  `json:"vcpu_guaranteed,omitempty"`
-	MemoryGBGuaranteed *Decimal  `json:"memory_gb_guaranteed,omitempty"`
-	DiskGB             *Decimal  `json:"disk_gb,omitempty"`
-	UpdatedAt          time.Time `json:"updated_at"`
+	PriceBookID        string   `json:"price_book_id"`
+	PlanSKU            string   `json:"plan_sku"`
+	Tagline            string   `json:"tagline"`
+	Recommended        bool     `json:"recommended"`
+	AnnualMonthsFree   int      `json:"annual_months_free"`
+	VCPU               *Decimal `json:"vcpu,omitempty"`
+	MemoryGB           *Decimal `json:"memory_gb,omitempty"`
+	VCPUGuaranteed     *Decimal `json:"vcpu_guaranteed,omitempty"`
+	MemoryGBGuaranteed *Decimal `json:"memory_gb_guaranteed,omitempty"`
+	DiskGB             *Decimal `json:"disk_gb,omitempty"`
+	// IconID, Accent and Badge brand the package's column (DESIGN.md
+	// §22.10): an icon, a "#RRGGBB" accent colour, a short badge ("Most
+	// popular"). Empty = none.
+	IconID    string    `json:"icon_id,omitempty"`
+	Accent    string    `json:"accent,omitempty"`
+	Badge     string    `json:"badge,omitempty"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // PackageSettingsInput is the settings as the console writes them, whole.
@@ -919,14 +958,17 @@ type PackageSettingsInput struct {
 	VCPUGuaranteed     *Decimal
 	MemoryGBGuaranteed *Decimal
 	DiskGB             *Decimal
+	IconID             string
+	Accent             string
+	Badge              string
 }
 
-const packageSettingsColumns = `price_book_id, plan_sku, tagline, recommended, annual_months_free, vcpu::text, memory_gb::text, vcpu_guaranteed::text, memory_gb_guaranteed::text, disk_gb::text, updated_at`
+const packageSettingsColumns = `price_book_id, plan_sku, tagline, recommended, annual_months_free, vcpu::text, memory_gb::text, vcpu_guaranteed::text, memory_gb_guaranteed::text, disk_gb::text, COALESCE(icon_id, ''), COALESCE(accent, ''), badge, updated_at`
 
 func scanPackageSettings(row interface{ Scan(...any) error }) (PackageSettings, error) {
 	var ps PackageSettings
 	var vcpu, mem, vcpuG, memG, disk sql.NullString
-	if err := row.Scan(&ps.PriceBookID, &ps.PlanSKU, &ps.Tagline, &ps.Recommended, &ps.AnnualMonthsFree, &vcpu, &mem, &vcpuG, &memG, &disk, &ps.UpdatedAt); err != nil {
+	if err := row.Scan(&ps.PriceBookID, &ps.PlanSKU, &ps.Tagline, &ps.Recommended, &ps.AnnualMonthsFree, &vcpu, &mem, &vcpuG, &memG, &disk, &ps.IconID, &ps.Accent, &ps.Badge, &ps.UpdatedAt); err != nil {
 		return ps, mapErr(err)
 	}
 	ps.VCPU, ps.MemoryGB, ps.VCPUGuaranteed, ps.MemoryGBGuaranteed, ps.DiskGB = decPtr(vcpu), decPtr(mem), decPtr(vcpuG), decPtr(memG), decPtr(disk)
@@ -985,6 +1027,14 @@ func (s *Store) PutPackageSettings(ctx context.Context, priceBookID, planSKU str
 		}
 		vals[i] = x
 	}
+	accent, err := colourArg("accent", in.Accent)
+	if err != nil {
+		return PackageSettings{}, err
+	}
+	badge := strings.TrimSpace(in.Badge)
+	if utf8.RuneCountInString(badge) > BadgeMaxRunes {
+		return PackageSettings{}, fmt.Errorf("%w: a badge is at most %d characters (\"Most popular\"); %q is %d", ErrInvalid, BadgeMaxRunes, badge, utf8.RuneCountInString(badge))
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return PackageSettings{}, err
@@ -993,12 +1043,17 @@ func (s *Store) PutPackageSettings(ctx context.Context, priceBookID, planSKU str
 	if _, _, err := packagePlan(ctx, tx, priceBookID, planSKU); err != nil {
 		return PackageSettings{}, err
 	}
-	ps, err := scanPackageSettings(tx.QueryRowContext(ctx, `INSERT INTO package_settings (price_book_id, plan_sku, tagline, recommended, annual_months_free, vcpu, memory_gb, vcpu_guaranteed, memory_gb_guaranteed, disk_gb)
-		VALUES ($1, $2, $3, $4, $5, $6::numeric, $7::numeric, $8::numeric, $9::numeric, $10::numeric)
+	icon, err := iconRef(ctx, tx, in.IconID)
+	if err != nil {
+		return PackageSettings{}, err
+	}
+	ps, err := scanPackageSettings(tx.QueryRowContext(ctx, `INSERT INTO package_settings (price_book_id, plan_sku, tagline, recommended, annual_months_free, vcpu, memory_gb, vcpu_guaranteed, memory_gb_guaranteed, disk_gb, icon_id, accent, badge)
+		VALUES ($1, $2, $3, $4, $5, $6::numeric, $7::numeric, $8::numeric, $9::numeric, $10::numeric, $11, $12, $13)
 		ON CONFLICT (price_book_id, plan_sku) DO UPDATE SET tagline = EXCLUDED.tagline, recommended = EXCLUDED.recommended, annual_months_free = EXCLUDED.annual_months_free,
-			vcpu = EXCLUDED.vcpu, memory_gb = EXCLUDED.memory_gb, vcpu_guaranteed = EXCLUDED.vcpu_guaranteed, memory_gb_guaranteed = EXCLUDED.memory_gb_guaranteed, disk_gb = EXCLUDED.disk_gb, updated_at = now()
+			vcpu = EXCLUDED.vcpu, memory_gb = EXCLUDED.memory_gb, vcpu_guaranteed = EXCLUDED.vcpu_guaranteed, memory_gb_guaranteed = EXCLUDED.memory_gb_guaranteed, disk_gb = EXCLUDED.disk_gb,
+			icon_id = EXCLUDED.icon_id, accent = EXCLUDED.accent, badge = EXCLUDED.badge, updated_at = now()
 		RETURNING `+packageSettingsColumns,
-		priceBookID, planSKU, strings.TrimSpace(in.Tagline), in.Recommended, in.AnnualMonthsFree, vals[0], vals[1], vals[2], vals[3], vals[4]))
+		priceBookID, planSKU, strings.TrimSpace(in.Tagline), in.Recommended, in.AnnualMonthsFree, vals[0], vals[1], vals[2], vals[3], vals[4], icon, accent, badge))
 	if err != nil {
 		return PackageSettings{}, err
 	}
@@ -1098,3 +1153,13 @@ func (s *Store) SetSourceAddons(ctx context.Context, sourceID string, keys []str
 // for the rial and the dinars, two elsewhere) — what a published price per
 // month is rounded to.
 func MinorUnitDigits(currency string) int { return minorUnitDigits(currency) }
+
+// colourArg is a "#RRGGBB" colour as a column value: nil when empty, the
+// upper-case colour otherwise, ErrInvalid naming the field when malformed.
+func colourArg(field, c string) (any, error) {
+	n, err := NormalizeColour(field, c)
+	if err != nil || n == "" {
+		return nil, err
+	}
+	return n, nil
+}

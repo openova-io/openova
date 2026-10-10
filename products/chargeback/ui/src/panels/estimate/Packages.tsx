@@ -1,5 +1,7 @@
 import { useState } from 'react'
-import type { PackageCell, PackageFeature, PackagesDoc } from '../../api/types'
+import type { IconRef, PackageCell, PackageFeature, PackagesDoc } from '../../api/types'
+import { PackageIcon } from '../../components/Icons'
+import { packagesDocumentUrl } from '../../lib/icons'
 import { cellOf, floorItems, groupedFeatures, includedFromText, levelLabel, nextLevelLabel, shapeGuaranteed, shapeHeadline, stepUpHint, teaserText } from '../../lib/packages'
 
 /**
@@ -24,18 +26,27 @@ import { cellOf, floorItems, groupedFeatures, includedFromText, levelLabel, next
  * Under 1100 px the table keeps a 900 px floor inside its own scroll
  * container; the floor strip and the footer stay outside it, full width.
  * Measured in tests/e2e/playwright/tests/chargeback-calculator-ladder.spec.ts.
+ *
+ * Icons and branding (0.1.63, DESIGN.md §22.10): the icons, the tile
+ * colours, each package's accent (the column's top border) and badge come
+ * from the document and nothing else; every `src` is resolved against the
+ * URL the document was read from. An item without an icon draws nothing in
+ * its place.
  */
 export function PackageTable({
   doc,
   currency,
   onChoose,
   onConfigure,
+  documentUrl = packagesDocumentUrl(),
 }: {
   doc: PackagesDoc
   currency: string
   onChoose: (slug: string, addons: string[]) => void
   /** Opens the plans configurator (months, Organizations), for the prospect who wants more than one or a term. */
   onConfigure?: () => void
+  /** The URL the document was read from; every icon `src` is resolved against it. */
+  documentUrl?: string
 }) {
   const [picked, setPicked] = useState<Record<string, string[]>>({})
   const toggle = (planSku: string, key: string) =>
@@ -71,9 +82,17 @@ export function PackageTable({
               {doc.packages.map((p) => {
                 const guaranteed = shapeGuaranteed(p)
                 return (
-                  <th key={p.sku} className={`pkg-head${p.recommended ? ' recommended' : ''}`}>
+                  <th key={p.sku} className={`pkg-head${p.recommended ? ' recommended' : ''}${p.accent ? ' accented' : ''}`} style={p.accent ? { borderTopColor: p.accent } : undefined} data-testid={`compare-head-${p.sku}`}>
+                    {p.badge ? (
+                      <div className="pkg-badge" style={p.accent ? { background: p.accent } : undefined} data-testid={`compare-badge-${p.sku}`}>
+                        {p.badge}
+                      </div>
+                    ) : null}
                     {p.recommended ? <div className="badge ok pkg-recommended">Recommended</div> : null}
-                    <div className="pkg-name">{p.name}</div>
+                    <div className="pkg-name">
+                      <PackageIcon icon={p.icon} size={18} documentUrl={documentUrl} />
+                      {p.name}
+                    </div>
                     {p.tagline ? <div className="tiny muted pkg-tagline">{p.tagline}</div> : null}
                     <div className="pkg-price num">
                       <b>{p.price_month}</b>
@@ -91,7 +110,7 @@ export function PackageTable({
           </thead>
           <tbody>
             {groups.map((g) => (
-              <GroupBody key={g.group.key} name={g.group.name} groupKey={g.group.key} features={g.features} doc={doc} currency={currency} picked={picked} onToggle={toggle} />
+              <GroupBody key={g.group.key} name={g.group.name} groupKey={g.group.key} icon={g.group.icon} documentUrl={documentUrl} features={g.features} doc={doc} currency={currency} picked={picked} onToggle={toggle} />
             ))}
             <tr className="pkg-stepup-row" data-testid="step-up-hints">
               <td></td>
@@ -120,8 +139,9 @@ export function PackageTable({
         <div className="pkg-floor-strip" data-testid="floor-strip">
           <span className="muted small">On every package:</span>{' '}
           {floor.map((f, i) => (
-            <span key={f.key} className="pkg-floor-item" title={f.blurb || undefined}>
+            <span key={f.key} className="pkg-floor-item" title={f.blurb || undefined} data-testid={`compare-floor-${f.key}`}>
               {i > 0 ? ' · ' : ''}
+              <PackageIcon icon={f.icon} size={14} documentUrl={documentUrl} />
               {f.name}
             </span>
           ))}
@@ -142,6 +162,8 @@ export function PackageTable({
 function GroupBody({
   name,
   groupKey,
+  icon,
+  documentUrl,
   features,
   doc,
   currency,
@@ -150,6 +172,8 @@ function GroupBody({
 }: {
   name: string
   groupKey: string
+  icon?: IconRef
+  documentUrl: string
   features: PackageFeature[]
   doc: PackagesDoc
   currency: string
@@ -159,14 +183,22 @@ function GroupBody({
   return (
     <>
       <tr className="pkg-group" data-testid={`compare-group-${groupKey}`}>
-        <th colSpan={doc.packages.length + 1}>{name}</th>
+        <th colSpan={doc.packages.length + 1}>
+          <span className="pkg-group-name">
+            <PackageIcon icon={icon} size={14} documentUrl={documentUrl} />
+            {name}
+          </span>
+        </th>
       </tr>
       {features.map((f) => (
         <tr key={f.key} data-testid={`compare-${f.key}`}>
           {/* The blurb is the tooltip: four package columns leave the
               feature column no room for a sentence under every name. */}
           <td className="pkg-feature" title={f.blurb || undefined}>
-            {f.name}
+            <span className="pkg-feature-name">
+              <PackageIcon icon={f.icon} size={16} documentUrl={documentUrl} />
+              {f.name}
+            </span>
           </td>
           {doc.packages.map((p) => (
             <Cell key={p.sku} feature={f} cell={cellOf(f, p.sku)} planSku={p.sku} planName={p.name} doc={doc} currency={currency} on={(picked[p.sku] ?? []).includes(f.key)} onToggle={() => onToggle(p.sku, f.key)} />

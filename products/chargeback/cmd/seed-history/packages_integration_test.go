@@ -28,6 +28,51 @@ func TestShowcasePackagesAreSeededBilledAndPurged(t *testing.T) {
 		t.Fatalf("packages: %v", err)
 	}
 
+	// ── the icons and branding (DESIGN.md §22.10) ──────────────────────
+	manifest, err := loadIconManifest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := scalar[int](t, db, `SELECT count(*) FROM icons`); n != len(manifest.files()) || n != 32 {
+		t.Fatalf("%d icons stored, want the manifest's %d distinct files (32)", n, len(manifest.files()))
+	}
+	if n := scalar[int](t, db, `SELECT count(*) FROM features WHERE icon_id IS NOT NULL AND icon_bg IS NOT NULL`); n != 27 {
+		t.Fatalf("%d features with an icon and a tile colour, want all 27", n)
+	}
+	if n := scalar[int](t, db, `SELECT count(*) FROM feature_group_settings WHERE icon_id IS NOT NULL`); n != 7 {
+		t.Fatalf("%d groups with an icon, want all 7", n)
+	}
+	var pub map[string]any
+	if err := s.api.do("GET", "/api/v1/public/packages", nil, &pub); err != nil {
+		t.Fatalf("public document: %v", err)
+	}
+	for _, section := range []string{"groups", "floor", "features"} {
+		for _, it := range pub[section].([]any) {
+			m := it.(map[string]any)
+			ic, ok := m["icon"].(map[string]any)
+			if !ok || !strings.HasPrefix(ic["src"].(string), "/api/v1/public/icons/") || ic["alt"] != m["name"] {
+				t.Fatalf("%s %v has no icon in the published document: %v", section, m["key"], m)
+			}
+			if _, hasBG := ic["bg"]; hasBG == (section == "groups") {
+				t.Fatalf("%s %v: bg = %v; a feature or floor item carries its tile colour, a group none", section, m["key"], ic["bg"])
+			}
+		}
+	}
+	accents := []string{}
+	for _, it := range pub["packages"].([]any) {
+		p := it.(map[string]any)
+		accents = append(accents, p["accent"].(string))
+		if badge, has := p["badge"]; has != (p["sku"] == "plan.m") || (has && badge != "Most popular") {
+			t.Fatalf("%v badge = %v; only the recommended M says Most popular", p["sku"], badge)
+		}
+		if _, has := p["icon"]; has {
+			t.Fatalf("%v carries an icon; the showcase packages are branded by accent and badge only", p["sku"])
+		}
+	}
+	if strings.Join(accents, " ") != "#93C5FD #3B82F6 #1D4ED8 #1E3A8A" {
+		t.Fatalf("accents = %v, want the S → XL ramp", accents)
+	}
+
 	// ── the ladder, exactly ────────────────────────────────────────────
 	if n := scalar[int](t, db, `SELECT count(*) FROM features`); n != 27 {
 		t.Fatalf("%d features, want 27 (9 on the floor, 18 with cells)", n)
@@ -174,7 +219,7 @@ func TestShowcasePackagesAreSeededBilledAndPurged(t *testing.T) {
 	}
 
 	// ── a second run writes nothing ────────────────────────────────────
-	auditFilter := `action LIKE 'feature.%' OR action LIKE 'pricebook.package.%' OR action = 'pricebook.items.put' OR action = 'pricebook.item.update'`
+	auditFilter := `action LIKE 'feature.%' OR action LIKE 'feature_group.%' OR action LIKE 'icon.%' OR action LIKE 'pricebook.package.%' OR action = 'pricebook.items.put' OR action = 'pricebook.item.update'`
 	audits := scalar[int](t, db, `SELECT count(*) FROM audit_log WHERE `+auditFilter)
 	updated := scalar[time.Time](t, db, `SELECT max(updated_at) FROM package_entitlements`)
 	settingsAt := scalar[time.Time](t, db, `SELECT max(updated_at) FROM package_settings`)
@@ -278,6 +323,9 @@ func TestShowcasePackagesAreSeededBilledAndPurged(t *testing.T) {
 	}
 	if counts.PackageCells != 72 || counts.AddonRates != 7 || counts.Features != 27 || counts.Customers != 1 {
 		t.Fatalf("purge removed %d cells, %d rates, %d features, %d customers; want 72, 7, 27, 1", counts.PackageCells, counts.AddonRates, counts.Features, counts.Customers)
+	}
+	if counts.GroupIcons != 7 || counts.Icons != 32 || scalar[int](t, db, `SELECT count(*) FROM icons`) != 0 {
+		t.Fatalf("purge removed %d group icons and %d icons; want 7 and all 32", counts.GroupIcons, counts.Icons)
 	}
 	if n := scalar[int](t, db, `SELECT count(*) FROM features`) + scalar[int](t, db, `SELECT count(*) FROM package_entitlements`) + scalar[int](t, db, `SELECT count(*) FROM source_addons`) + scalar[int](t, db, `SELECT count(*) FROM package_settings`); n != 0 {
 		t.Fatalf("%d package rows survived the purge", n)

@@ -275,6 +275,29 @@ export const packages: PackagesDoc = {
   ],
 }
 
+/** Content addresses of the icons the branded document names (DESIGN.md §22.10). */
+export const ICON_BACKUP = '1'.repeat(64)
+export const ICON_SSL = '2'.repeat(64)
+export const ICON_RESILIENCE = '3'.repeat(64)
+export const ICON_PLAN_M = '4'.repeat(64)
+
+/**
+ * The same document with icons and branding, as BSS publishes them once an
+ * operator has set them: Backup with an icon on a tile, the SSL floor item
+ * with an icon and no tile, the Resilience group with an icon, M with an
+ * icon, an accent and a badge, S with an accent only. Everything else carries
+ * none of it — every key absent, the document's rule.
+ */
+export const brandedPackages: PackagesDoc = {
+  ...packages,
+  groups: packages.groups!.map((g) => (g.key === 'resilience' ? { ...g, icon: { src: `/api/v1/public/icons/${ICON_RESILIENCE}`, alt: g.name } } : g)),
+  floor: packages.floor!.map((f) => (f.key === 'ssl' ? { ...f, icon: { src: `/api/v1/public/icons/${ICON_SSL}`, alt: f.name } } : f)),
+  packages: packages.packages.map((p) =>
+    p.sku === 'plan.m' ? { ...p, icon: { src: `/api/v1/public/icons/${ICON_PLAN_M}`, alt: p.name }, accent: '#3B82F6', badge: 'Most popular' } : p.sku === 'plan.s' ? { ...p, accent: '#93C5FD' } : p,
+  ),
+  features: packages.features.map((f) => (f.key === 'backup' ? { ...f, icon: { src: `/api/v1/public/icons/${ICON_BACKUP}`, alt: f.name, bg: '#FFE4E6' } } : f)),
+}
+
 /** The add-on SKUs per plan-hour: monthly ÷ 730. */
 export const addonUnitPrices: Record<string, number> = { 'addon.backup': 0.00205479, 'addon.dedicated_ip': 0.0027397, 'addon.ai_seo': 0.00273973, 'addon.dr': 0.0109589 }
 

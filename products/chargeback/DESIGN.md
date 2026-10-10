@@ -5689,11 +5689,14 @@ not.
 | Route | Permission | What it does |
 |---|---|---|
 | `GET /features` · `GET /features/{id or key}` | `metering.read` at the Sovereign (a partner is refused like the provider's books) | the features in matrix order, with the `groups` |
-| `POST /features` · `PATCH /features/{id}` · `DELETE /features/{id}` | `rating.manage` | create (key, name, blurb, kind, group, unit, addon_sku, levels[], teaser, sort_order); edit everything but the key; delete, `409` with `{cells, books, sources}` while depended on |
+| `POST /features` · `PATCH /features/{id}` · `DELETE /features/{id}` | `rating.manage` | create (key, name, blurb, kind, group, unit, addon_sku, levels[], teaser, sort_order, icon_id, icon_bg); edit everything but the key (`icon_id` / `icon_bg` `""` clears, §22.10); delete, `409` with `{cells, books, sources}` while depended on |
 | `GET /pricebooks/{id}/packages` | the book's read guard | **the packages document** below, for the console |
 | `PUT /pricebooks/{id}/packages/{plan_sku}/features/{feature}` | `rating.manage` | one cell: `{state, included_quantity?, overage?, level?, note?, addon_monthly?}`. `addon_monthly` prices the feature's add-on SKU in the book in the same write (annual = × 12, unit through the book's divisor) — for a boolean add-on and for the next level of a level feature; a quantity feature's SKU is priced per unit on the Items tab. A note, quantity, overage or level left out keeps the one that is there |
 | `DELETE /pricebooks/{id}/packages/{plan_sku}/features/{feature}` | `rating.manage` | removes the cell; the package reads not offered |
-| `PUT /pricebooks/{id}/packages/{plan_sku}/settings` | `rating.manage` | the package settings, whole: `{tagline, recommended, annual_months_free, vcpu, memory_gb, vcpu_guaranteed, memory_gb_guaranteed, disk_gb}`; months free 0–12, every shape value a non-negative number or absent |
+| `PUT /pricebooks/{id}/packages/{plan_sku}/settings` | `rating.manage` | the package settings, whole: `{tagline, recommended, annual_months_free, vcpu, memory_gb, vcpu_guaranteed, memory_gb_guaranteed, disk_gb, icon_id, accent, badge}`; months free 0–12, every shape value a non-negative number or absent; `accent` `#RRGGBB`, `badge` at most 24 characters, `icon_id` a stored icon (§22.10) — each absent = none |
+| `PUT /feature-groups/{key}` | `rating.manage` | `{icon_id}` — the group's icon (`""` clears); the group names stay the product's (§22.10) |
+| `POST /icons` · `GET /icons` · `DELETE /icons/{id}` | `rating.manage` · `metering.read` · `rating.manage` | the icon store (§22.10): upload the raw bytes under their content type, list without the bytes, delete — `409` with `{features, groups, packages}` while anything shows it |
+| `GET /public/icons/{id}` | none — public like the document, its own rate budget | the bytes, `Cache-Control: public, max-age=31536000, immutable`, `X-Content-Type-Options: nosniff`, a sandboxing CSP; `404` for an unknown id |
 | `PUT /customers/{id}/sources/{sid}/addons` `{addons: [key…]}` | `customers.manage` on the customer, like the Source's price book | replaces the set; refusals as §22.1 |
 | `GET /public/packages` | none — the session middleware skips `/api/v1/public/`, CORS and the rate limit as the catalog's | the same document, `Cache-Control: public, max-age=60` |
 
@@ -5732,6 +5735,15 @@ the two bodies). The storefront builds against exactly this:
                   {"key": "gitea_iac", "group": "access", "kind": "access",
                    "cells": {"plan.s": {"state": "not_offered", "included_from": "plan.m"},
                              "plan.m": {"state": "included", "note": "read"}, "plan.l": {"state": "included"}, …}}]}
+
+Icons and branding (§22.10) are additive and every key is **omitted when
+unset — never `null`, never `""`**: `groups[].icon`, `floor[].icon`,
+`features[].icon` = `{"src": "/api/v1/public/icons/<sha256>", "alt": "<the
+item's name>", "bg": "#RRGGBB"}` (`bg` only on a feature or floor item, and
+only when set), `packages[].icon` (alt = the package's name), and
+`packages[].accent` / `packages[].badge`. `src` is a **path** relative to
+the origin that serves the document; a reader resolves it against the
+document's URL.
 
 A level cell with a purchasable next level carries it:
 `{"state": "included", "level": 0, "next_level_addon": {"addon_sku": "addon.backup_daily", "price_month": "1.500"}}`
@@ -5795,6 +5807,17 @@ has is shown, including one not yet in this book, which reads not offered on
 each package and says so. No form sits on the page; every write is a modal
 from the row, the cell or the column (#6946).
 
+**Icons and branding** (§22.10): each feature row and floor item shows its
+icon on its tile before the name, each group heading its icon and an
+**Icon** button (the group-icon modal), each column its accent as a top
+border, its badge as a chip in the accent and its icon beside the name;
+nothing is drawn where nothing is set. The feature modal and the package
+settings modal carry the **icon field** — a preview, **Upload** (a file input
+whose file is POSTed raw to `/icons`, refused before sending when it is not
+an SVG / PNG / WebP or is over 64 KiB), **Choose existing** (a grid of
+`GET /icons` inside the same modal) and **Remove** — and the colour inputs
+(the feature's icon background; the package's accent) and the badge text.
+
 **Customer → Sources tab**: an **Add-ons** column on every platform source —
 the keys taken as chips, *none* otherwise — and **Manage add-ons**, which opens
 a modal listing what the customer's package offers as a paid add-on (read
@@ -5833,7 +5856,9 @@ Organizations. The page merges the packages document onto the catalog
 (`PublicCatalog.packages`); the model (`addonLines`) drops a ticked feature
 the chosen package includes, so moving an item from M to XL drops the backup
 line by itself. The estimate lines are unchanged. The other families are
-untouched.
+untouched. The table draws the document's icons, tiles, accents and badges
+(§22.10) exactly as the console does, every `src` resolved against the
+document's URL; an item without an icon draws no box.
 
 The document is read **from the browser**, cross-origin: the storefront is `https://marketplace.<fqdn>` and the API is `https://chargeback.<fqdn>`, so the public routes must answer the storefront's `Origin` or the fetch is blocked and the storefront silently falls back to the catalog deck — which is exactly what hw307 showed on 2026-10-10 with 0.1.57: the document was live, the table never rendered. Since 0.1.58 the chart always adds the Sovereign's own storefront origin to `PUBLIC_CALCULATOR_ORIGINS` (`chargeback.publicOrigins` in `_helpers.tpl`, after the operator's `publicCalculator.origins`), and the render contract pins it. The storefront fetch is a simple GET (`mode: cors`, `credentials: omit`, `Accept` only), so no preflight is involved; `OPTIONS /api/v1/public/` is answered all the same.
 
@@ -5894,7 +5919,18 @@ or "to be decided"):
   so the matrix is complete: 18 features × 4 = 72 cells). A second run
   writes nothing, which `TestShowcasePackagesAreSeededBilledAndPurged`
   holds on the audit log and on `updated_at` of the cells and the settings;
-  a converged earlier baseline is `TestLadderConvergesTheEarlierBaseline`.
+  a converged earlier baseline is `TestLadderConvergesTheEarlierBaseline`;
+- the **icons and branding** (§22.10) from
+  `cmd/seed-history/icons/manifest.json`: the 32 vendored SVGs uploaded
+  where BSS does not hold them (content-addressed, so a second run uploads
+  nothing), every one of the 27 features and floor items given its icon and
+  a tile colour per group (in the feature's create or PATCH), the seven
+  groups their icon, and the four packages an accent ramp — S `#93C5FD`,
+  M `#3B82F6`, L `#1D4ED8`, XL `#1E3A8A` — with the badge *Most popular* on
+  M, the recommended one (in the settings, written whole). The same
+  manifest drives `scripts/apply-package-icons.py`, which brands a running
+  BSS through its API (`--base`, `--email` for the trusted header,
+  `--dry-run`), writing only what differs.
 
 **Nizwa Fintech**'s platform Source takes the **backup** add-on (optional on
 S, M and L, which are its showcase plans), so each of its showcase statements
@@ -5904,7 +5940,9 @@ hard-capped disk at 0. `--purge` removes the cells, the settings, the add-on
 and meter rates and the features it made — a feature an operator's other
 book still carries, or a real Source has taken, stays
 (`TestPurgeKeepsAFeatureAnotherBookStillCarries`); the plans themselves are
-the product's and stay priced, at the workbook's prices.
+the product's and stay priced, at the workbook's prices. It removes the
+group icons that name a vendored icon, then every vendored icon nothing
+still shows — a feature an operator kept keeps its icon.
 
 ### 22.8 Tests
 
@@ -5953,7 +5991,8 @@ comparison table walked: the grouped rows and every kind of cell, the floor,
 the step-up hint appearing when the ticked add-ons are worth the step and
 choosing the next package, choosing M with Backup ticked producing the two
 lines and the request by the month, Edit re-opening the configurator with
-the add-on ticked, XL offering no backup tick.
+the add-on ticked, XL offering no backup tick. The icon tests are listed in
+§22.10.
 
 ### 22.9 The hand-over — what the adapter reads off the Organization (0.1.59, #6971 item 8)
 
@@ -6033,3 +6072,100 @@ which mirrors `SetSourceAddons`' refusals; `adapter_integration_test.go`
 `TestIntegrationCommerceAddonsAgainstStore` on real SQL — the `source_addons`
 row written once, a resync leaving its `taken_at` untouched, the XL refusal
 not failing the sync.
+
+### 22.10 Icons and branding (founder direction 2026-10-10, 0.1.63)
+
+The storefront's package table shows a logo or an icon beside every feature,
+floor item, group and package, a coloured tile under a feature's icon, an
+accent and a badge on a package's column — and **none of it is hardcoded in
+the storefront**. BSS defines every visual and publishes it through the
+packages document; the storefront, the public calculator and the console
+render what the document names.
+
+    icons(id text PK = lower-case hex SHA-256 of the bytes, content_type, bytes bytea, created_at)
+    features.icon_id → icons, features.icon_bg "#RRGGBB"
+    feature_group_settings(key PK, icon_id → icons)
+    package_settings.icon_id → icons, .accent "#RRGGBB", .badge ≤ 24 characters
+
+**Content-addressed.** An icon's id is the hash of its bytes, so the same
+file always lands on the same id, an upload is idempotent (`201` the first
+time, `200` after, nothing written) and a URL never changes meaning — which
+is what lets the public GET say `immutable` for a year. Every reference is a
+foreign key that RESTRICTs, and `DeleteIcon` refuses first with `409`
+naming how many features, groups and packages still show the icon. An
+unknown `icon_id` on any write is `400` (*"there is no icon …; upload it
+first"*), never a broken image on the storefront.
+
+**The gate** (`store.ValidateIcon`). At most 64 KiB (`413` above it at the
+route). `image/png` and `image/webp` must start with their own magic bytes
+(`\x89PNG…`, `RIFF….WEBP`). `image/svg+xml` must be UTF-8 and parse as XML
+with one `<svg>` root, and is refused for a `<!DOCTYPE` or `<!ENTITY` (the
+entity-expansion and external-entity doors), a processing instruction other
+than the XML declaration, a `<script>` or `<foreignObject>` anywhere, any
+`on*` attribute, any `href` / `xlink:href` that does not start with `#`, and
+any `javascript:` value. Any other content type is `415`.
+
+**Served public** at `GET /api/v1/public/icons/{id}` — under the
+`/api/v1/public/` prefix the session middleware skips, the OIDC gate lets
+through and the CNP admits, with the document's CORS — and with
+`Content-Type` as stored, `Cache-Control: public, max-age=31536000,
+immutable`, `ETag`, `X-Content-Type-Options: nosniff`,
+`Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline';
+sandbox` (an SVG opened directly runs nothing) and
+`Cross-Origin-Resource-Policy: cross-origin`. The route charges its **own**
+per-address budget, ten times the calculator's: one storefront page loads
+every icon of the table at once, and must not spend the budget the document
+and the estimates need.
+
+**In the document**: see §22.4 — `icon` on groups, floor items, features and
+packages, `accent` and `badge` on packages, every key omitted when unset.
+`alt` is the item's own name; `bg` only on a feature or floor item. The
+console and the storefront resolve `src` against the document's URL
+(`ui/src/lib/icons.ts` `resolveIconSrc`).
+
+**Writes**: a feature's icon and tile ride on `POST` / `PATCH /features`
+(`""` clears); a group's on `PUT /feature-groups/{key}`; a package's icon,
+accent and badge on its settings, written whole (left out = none). Colours
+are stored upper-case. A clone of the book carries the package branding
+with the rest of its settings.
+
+**Seed data**: the SVGs under `cmd/seed-history/icons/` — brand logos from
+Simple Icons (CC0: `gitea`, `kubernetes`; Let's Encrypt and Keycloak are NOT
+vendored, their Simple Icons entries are CC-BY-NC-4.0 and a custom trademark
+licence) and generic icons from Lucide (ISC, some MIT via Feather), each
+named with its source in `icons/LICENSES.md`. Lucide's `currentColor`
+renders black inside an `<img>`, so the vendored copies draw in the mid-tone `#475569`, which reads on a light and a dark page alike (every feature also has a light tile);
+the Simple Icons copies carry the brand colour as `fill`.
+`icons/manifest.json` maps every feature, group and package (§22.7).
+
+Tests: `internal/store/icons_test.go` (`TestValidateIcon` — every refusal
+above and the shapes that pass, `TestIconIDAndColour`);
+`internal/api/icons_integration_test.go`
+(`TestIntegrationIconsUploadServeReferenceAndPublish` — the upload twice,
+one row and one audit entry, the size cap, `415`, every SVG refusal, an
+in-document `#id` accepted, a PNG declared and refused as WebP and an SVG as
+PNG, who may, the public GET's headers without a session, `404` for an
+unknown or malformed id, the list with its references, an unknown icon and a
+malformed colour refused on a feature, a group and a package, a long badge
+refused, the console and public documents byte for byte the same with the
+icons present where set and absent where not, the delete refused with the
+counts, then allowed once every reference is cleared;
+`TestIntegrationPublicIconCORSAndBudget` — the storefront origin answered, an
+unlisted one not, the icon budget spent at twenty while the document still
+answers); `internal/api/packages_test.go` `TestPackagesDocumentShape` (a
+group, a floor item, a feature with a tile, a package with icon, accent and
+badge; the keys absent everywhere else, never `null` or `""`);
+`cmd/seed-history/icons_test.go` `TestShowcaseIconsPassTheValidator` (each
+vendored SVG passes the gate, carries no `currentColor`, is named in
+LICENSES.md; the manifest covers every feature, group and package, the
+badge on the recommended one only) and the seeder integration test (32
+icons, 27 features with an icon and a tile, 7 groups, the accent ramp, the
+badge on M, nothing written on a second run, the purge removing them);
+`ui/src/lib/icons.test.ts`; `ui/src/panels/estimate/Packages.icons.render.test.tsx`
+(the calculator draws each icon from the API's origin, the tile, the accent
+border and the badge, and nothing from an unbranded document);
+`ui/src/components/PackagesPanel.icons.dom.test.tsx` (the tab shows every
+icon, tile, accent and badge and nothing where unset; a stored icon and a
+tile picked and PATCHed; an upload POSTed raw under its type, a GIF refused
+before sending, Remove; the settings saved whole with icon, accent and
+badge; a malformed accent refused; a group's icon set from its heading).

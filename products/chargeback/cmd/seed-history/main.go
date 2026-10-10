@@ -161,8 +161,8 @@ func run(o options) error {
 		if err != nil {
 			return err
 		}
-		log.Printf("purged: %d usage records, %d inventory rows, %d rated lines, %d statements, %d contracts, %d discounts, %d budgets, %d sources, %d audit entries, %d customers, %d package cells, %d add-on rates, %d features",
-			counts.Usage, counts.Inventory, counts.RatedLines, counts.Statements, counts.Contracts, counts.Discounts, counts.Budgets, counts.Sources, counts.Audit, counts.Customers, counts.PackageCells, counts.AddonRates, counts.Features)
+		log.Printf("purged: %d usage records, %d inventory rows, %d rated lines, %d statements, %d contracts, %d discounts, %d budgets, %d sources, %d audit entries, %d customers, %d package cells, %d add-on rates, %d features, %d group icons, %d icons",
+			counts.Usage, counts.Inventory, counts.RatedLines, counts.Statements, counts.Contracts, counts.Discounts, counts.Budgets, counts.Sources, counts.Audit, counts.Customers, counts.PackageCells, counts.AddonRates, counts.Features, counts.GroupIcons, counts.Icons)
 		log.Printf("price books were NOT removed: they are shared with real customers")
 		return nil
 	}

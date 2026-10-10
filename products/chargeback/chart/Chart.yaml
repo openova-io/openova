@@ -51,11 +51,28 @@ type: application
 # the storefront; the remarks live in the seeder's source and DESIGN.md
 # §22.7, and the seeder's integration test refuses any published note that
 # says so. The image is the appVersion; no chart template changed.
-version: 0.1.62
+# 0.1.63 (#6971, DESIGN.md §22.10): icons and branding, defined in BSS and
+# published through the packages document — the storefront hardcodes none.
+# A content-addressed icon store (POST/GET/DELETE /api/v1/icons, the bytes
+# public at GET /api/v1/public/icons/{sha256}, immutable, nosniff, a
+# sandboxing CSP; an SVG with script, foreignObject, an on* handler, an
+# external href or a DTD is refused, a PNG / WebP must carry its magic); an
+# icon and tile colour on a feature, an icon per group (PUT
+# /feature-groups/{key}), an icon, accent and badge on a package's settings;
+# groups[] / floor[] / features[] / packages[] carry `icon` {src, alt, bg}
+# and packages[] `accent` / `badge`, each omitted when unset. The console
+# edits them from the feature, settings and group modals and draws them on
+# the Packages tab; the calculator's comparison table draws them. The
+# seeder uploads the vendored Lucide / Simple Icons SVGs and writes the
+# ladder's icons, tiles, accents and the recommended package's badge;
+# scripts/apply-package-icons.py does the same to a running BSS.
+# Migration: icons, feature_group_settings, features.icon_id / icon_bg,
+# package_settings.icon_id / accent / badge. No chart template changed.
+version: 0.1.63
 # appVersion is the default image tag (chargeback.image in _helpers.tpl);
 # build-chargeback.yaml derives the pushed tag from this field so the two
 # can never drift.
-appVersion: 0.1.62
+appVersion: 0.1.63
 # The document renderer (EPIC #6867) ships as an OPTIONAL sub-chart, gated on
 # `docrender.enabled` (default false), so a Sovereign that does not offer
 # invoice downloads runs no second workload. The repository is a `file://`

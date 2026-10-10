@@ -29,6 +29,10 @@ type purgeCounts struct {
 	PackageCells int64
 	AddonRates   int64
 	Features     int64
+	// The showcase icons it uploaded (DESIGN.md §22.10) and the group icons
+	// it set with them — an icon only where nothing else still shows it.
+	GroupIcons int64
+	Icons      int64
 }
 
 // purge removes everything seed-history created and nothing else.
@@ -156,5 +160,29 @@ func purge(ctx context.Context, db *sql.DB) (purgeCounts, error) {
 		return c, fmt.Errorf("purge features: %w", err)
 	}
 	c.Features, _ = res.RowsAffected()
+	// The icons this tool uploaded, matched by content address: the group
+	// icons that name one of them, then every one of them nothing still
+	// shows. A feature an operator kept (above) keeps its icon with it.
+	vendored, err := showcaseIconIDs()
+	if err != nil {
+		return c, fmt.Errorf("purge icons: %w", err)
+	}
+	ids := make([]string, 0, len(vendored))
+	for _, id := range vendored {
+		ids = append(ids, id)
+	}
+	res, err = tx.ExecContext(ctx, `DELETE FROM feature_group_settings WHERE icon_id = ANY($1)`, pq.Array(ids))
+	if err != nil {
+		return c, fmt.Errorf("purge group icons: %w", err)
+	}
+	c.GroupIcons, _ = res.RowsAffected()
+	res, err = tx.ExecContext(ctx, `DELETE FROM icons i WHERE i.id = ANY($1)
+		AND NOT EXISTS (SELECT 1 FROM features f WHERE f.icon_id = i.id)
+		AND NOT EXISTS (SELECT 1 FROM feature_group_settings g WHERE g.icon_id = i.id)
+		AND NOT EXISTS (SELECT 1 FROM package_settings p WHERE p.icon_id = i.id)`, pq.Array(ids))
+	if err != nil {
+		return c, fmt.Errorf("purge icons: %w", err)
+	}
+	c.Icons, _ = res.RowsAffected()
 	return c, tx.Commit()
 }

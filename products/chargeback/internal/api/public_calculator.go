@@ -93,6 +93,23 @@ func (h *Handler) originAllowed(origin string) bool {
 // (a preflight is answered here), then the per-address budget. Nothing
 // under it may set a cookie or read the session.
 func (h *Handler) publicRoute(next http.HandlerFunc) http.HandlerFunc {
+	return h.publicRouteWith(h.limiter, next)
+}
+
+// assetRatePerMinute is the icon route's budget: ten times the calculator's.
+func assetRatePerMinute(calculator int) int {
+	if calculator <= 0 {
+		calculator = 60
+	}
+	return calculator * 10
+}
+
+// publicRouteWith is publicRoute charging its own budget — the icons have
+// theirs, so a page full of them never starves the document or an estimate.
+func (h *Handler) publicRouteWith(limiter *ipLimiter, next http.HandlerFunc) http.HandlerFunc {
+	if limiter == nil {
+		limiter = h.limiter
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		if origin := r.Header.Get("Origin"); origin != "" && h.originAllowed(origin) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
@@ -105,7 +122,7 @@ func (h *Handler) publicRoute(next http.HandlerFunc) http.HandlerFunc {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		if ok, wait := h.limiter.allow(clientIP(r)); !ok {
+		if ok, wait := limiter.allow(clientIP(r)); !ok {
 			secs := int(wait / time.Second)
 			if secs < 1 {
 				secs = 1
