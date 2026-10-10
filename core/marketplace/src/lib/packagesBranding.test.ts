@@ -286,7 +286,7 @@ describe('markup contract — nothing visual is keyed by feature key or sku in t
     expect(seen).toBeGreaterThanOrEqual(10);
   });
 
-  it('the floor is first-class on /plans (from floor[], under the cards, above the comparison) and listed on /addons and /review', () => {
+  it('the floor is first-class on /plans (from floor[], above the cards, outside the package columns) and listed on /addons and /review', () => {
     expect(files.PackageLadder).toMatch(/model\.floorItems as item/);
     expect(files.PackageLadder.indexOf('data-testid="package-floor"')).toBeLessThan(files.PackageLadder.indexOf('<!-- One grouped comparison'));
     expect(files.AddonsStep).toMatch(/data-testid="addons-included-floor"/);

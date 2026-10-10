@@ -14,7 +14,9 @@
 //
 //   step 1 /plans   — four cards (price, shape, guarantee, disk), ONE grouped
 //                     comparison with the group headers in order, level /
-//                     teaser / add-on / access cells, the floor strip once;
+//                     teaser / add-on / access cells, the floor strip once
+//                     (above the cards); ONE continuous table — unbroken
+//                     column rails, aligned cards, the compact sticky header;
 //                     computed-style assertions against the PRODUCTION build
 //                     (the ladder's CSS is a page import — the 2026-10-10
 //                     lesson); no floating bar over any cell; choosing M
@@ -295,8 +297,8 @@ test.describe('step 1: the package ladder (/plans, v2 document, #6971)', () => {
     await expect(page.getByTestId('package-cell-kube_api-plan.l')).toHaveAttribute('data-state', 'not_offered')
 
     // The floor, once, first-class: "Included in every package" as tiles
-    // (name + blurb) right under the cards and ABOVE the comparison — free
-    // SSL among them — rendered from the document's floor[] only.
+    // (name + blurb) ABOVE the cards, outside the package columns — free SSL
+    // among them — rendered from the document's floor[] only.
     const floor = page.getByTestId('package-floor')
     await expect(floor).toHaveCount(1)
     await expect(floor).toContainText('Included in every package')
@@ -307,8 +309,10 @@ test.describe('step 1: the package ladder (/plans, v2 document, #6971)', () => {
     await expect(floor).toContainText('Web application firewall')
     await expect(floor).toContainText('24/7 customer support')
     const floorBox = await boxOf(floor)
-    expect(floorBox.top, 'the floor sits under the cards').toBeGreaterThanOrEqual((await boxOf(page.getByTestId('package-card-plan.m'))).bottom - 1)
-    expect(floorBox.bottom, 'the floor sits above the comparison').toBeLessThanOrEqual((await boxOf(page.locator('.ld-group').first())).top + 1)
+    // (Moved: it sat between the cards and the comparison and cut the
+    // package columns in two; it now sits entirely above the cards.)
+    expect(floorBox.bottom, 'the floor sits above the cards').toBeLessThanOrEqual((await boxOf(page.getByTestId('package-card-plan.m'))).top + 1)
+    expect(await page.getByTestId('package-ladder-grid').getByTestId('package-floor').count(), 'the floor is not a row of the table').toBe(0)
     // No footnote line repeating it under the table.
     await expect(page.locator('.ld-floor-sep')).toHaveCount(0)
     // A floor item is not also a comparison row.
@@ -1001,8 +1005,12 @@ test.describe('branding from the BSS document: icons, accent, badge (#6971)', ()
     expect(d.right - d.left, 'description spans the card').toBeGreaterThan((tile.right - tile.left) * 0.8)
     const head = await boxOf(backup.locator('.addon-card-head'))
     expect(d.top).toBeGreaterThanOrEqual(head.bottom - 1)
+    // The price sits on its own line right under the name (so a long name
+    // has the width), aligned with it on the left.
     const [name, price] = [await boxOf(backup.locator('.addon-card-name')), await boxOf(backup.locator('.extra-price'))]
-    expect(Math.abs((name.top + name.bottom) / 2 - (price.top + price.bottom) / 2)).toBeLessThan(6)
+    expect(price.top).toBeGreaterThanOrEqual(name.bottom - 1)
+    expect(price.top - name.bottom).toBeLessThan(6)
+    expect(Math.abs(price.left - name.left)).toBeLessThanOrEqual(1)
 
     // The floor, folded: every item, free SSL among them, from floor[].
     const floor = page.getByTestId('addons-included-floor')
@@ -1157,6 +1165,199 @@ test.describe('branding screenshots (#6971)', () => {
         await expectImagesDecoded(page.locator('body'))
         await shootTall(page, join(SHOTS, `marketplace-icons-${step}-${width}${scheme === 'dark' ? '-dark' : ''}.png`))
       }
+    })
+  }
+})
+
+// ────────────────────────────────────────────────────────────────────────
+// One continuous table (#6971): the founder's /plans read "fragmented and
+// cut" at 1630 px — the floor block cut the package columns in two, the M
+// badge pushed M's price and Choose ~32 px below the others, and down in the
+// matrix nothing said which column was which. Each assertion below is one of
+// those, measured on the rendered page.
+// ────────────────────────────────────────────────────────────────────────
+
+/** The topmost element at (x, y) that paints a background, with its classes. */
+async function paintedAt(page: Page, x: number, y: number): Promise<{ cls: string; bg: string } | null> {
+  return page.evaluate(([px, py]) => {
+    for (const el of document.elementsFromPoint(px, py)) {
+      const bg = getComputedStyle(el).backgroundColor
+      if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') return { cls: (el as HTMLElement).className, bg }
+    }
+    return null
+  }, [x, y] as const)
+}
+
+const SKUS = ['plan.s', 'plan.m', 'plan.l', 'plan.xl']
+const firstCellOf = (page: Page, sku: string) => page.locator(`.ld-cell[data-testid$="-${sku}"]`).first()
+
+test.describe('one continuous table: unbroken columns, aligned cards, a sticky header (#6971)', () => {
+  test.beforeEach(async ({ page }) => {
+    await mockCatalog(page)
+    await mockIcons(page)
+    await pointAtChargeback(page)
+    await mockPackages(page, FIXTURE_V3)
+  })
+
+  for (const scheme of ['light', 'dark'] as const) {
+    test(`at 1400 px (${scheme}): each column rail runs unbroken from card to foot, the four Choose buttons and prices align, the floor is above the cards`, async ({ page }) => {
+      await page.emulateMedia({ colorScheme: scheme })
+      await page.setViewportSize({ width: 1400, height: 900 })
+      await page.goto('/plans')
+      await expect(page.getByTestId('package-ladder')).toBeVisible({ timeout: 10_000 })
+
+      // Aligned cards: M carries the badge, yet every Choose, every price and
+      // every shape line sits on the same line (±1 px).
+      await expect(page.getByTestId('package-badge-plan.m')).toBeVisible()
+      const tops = async (sel: string) => page.locator(sel).evaluateAll((els) => els.map((e) => e.getBoundingClientRect().top))
+      for (const sel of ['.ld-card > .ld-cta', '.ld-card .ld-price', '.ld-card .ld-shape', '.ld-card .ld-name']) {
+        const t = await tops(sel)
+        expect(t, sel).toHaveLength(4)
+        expect(Math.max(...t) - Math.min(...t), `${sel} tops ${t.join(', ')}`).toBeLessThanOrEqual(1)
+      }
+
+      // The floor block is entirely above the cards or entirely below the
+      // last row — never across the span from card header to matrix rows.
+      const floor = await boxOf(page.getByTestId('package-floor'))
+      const card = await boxOf(page.getByTestId('package-card-plan.m'))
+      const lastCell = await boxOf(page.locator('.ld-cell[data-testid$="-plan.m"]').last())
+      expect(floor.bottom <= card.top + 1 || floor.top >= lastCell.bottom - 1, `floor ${JSON.stringify(floor)} vs table ${card.top}..${lastCell.bottom}`).toBe(true)
+
+      // Continuity, per column: ONE rail from the top of the card to the
+      // foot, exactly the card's column.
+      for (const sku of SKUS) {
+        const rail = await boxOf(page.getByTestId(`package-col-${sku}`))
+        const c = await boxOf(page.getByTestId(`package-card-${sku}`))
+        const foot = await boxOf(page.getByTestId(`package-choose-foot-${sku}`).locator('..'))
+        expect(Math.abs(rail.top - c.top), `${sku}: the rail starts at the card`).toBeLessThanOrEqual(1)
+        expect(Math.abs(rail.left - c.left) + Math.abs(rail.right - c.right), `${sku}: the rail is the card's column`).toBeLessThanOrEqual(1)
+        expect(rail.bottom, `${sku}: the rail reaches the foot`).toBeGreaterThanOrEqual(foot.bottom - 1)
+      }
+      // The selected (M) column: no vertical gap between the card header and
+      // the first matrix row — the card meets the first group header, which
+      // meets the first row (≤ 1 px each).
+      const group = await boxOf(page.locator('.ld-group').first())
+      const firstCell = await boxOf(firstCellOf(page, 'plan.m'))
+      expect(Math.abs(group.top - card.bottom), 'card → first group header').toBeLessThanOrEqual(1)
+      expect(Math.abs(firstCell.top - group.bottom), 'first group header → first matrix row').toBeLessThanOrEqual(1)
+      // …and inside EVERY group header the M column is painted by its rail,
+      // in the card's own tint: a group header is a thin rule, not a cut.
+      const cardBg = await page.getByTestId('package-card-plan.m').evaluate((el) => getComputedStyle(el).backgroundColor)
+      const x = (card.left + card.right) / 2
+      const groups = page.locator('.ld-group')
+      const n = await groups.count()
+      expect(n).toBeGreaterThan(3)
+      for (let i = 0; i < n; i++) {
+        await groups.nth(i).scrollIntoViewIfNeeded()
+        const g = await boxOf(groups.nth(i))
+        const hit = await paintedAt(page, x, (g.top + g.bottom) / 2)
+        expect(hit?.cls, `group ${i}: the M column is painted by its rail`).toMatch(/\bld-col\b/)
+        expect(hit?.bg, `group ${i}: in the card's tint`).toBe(cardBg)
+      }
+      await page.evaluate(() => window.scrollTo(0, 0))
+
+      // The compact header is not shown while the cards are.
+      const bar = page.getByTestId('package-sticky-head')
+      await expect(bar).toHaveAttribute('data-stuck', 'false')
+      await expect(bar).toBeHidden()
+    })
+  }
+
+  test('after scrolling 1200 px the compact header sticks under the site header, its columns over the matrix columns (±2 px); its Choose continues', async ({ page }) => {
+    await page.setViewportSize({ width: 1400, height: 900 })
+    await page.goto('/plans')
+    await expect(page.getByTestId('package-ladder')).toBeVisible({ timeout: 10_000 })
+    const bar = page.getByTestId('package-sticky-head')
+    await expect(bar).toBeHidden()
+    await page.evaluate(() => window.scrollTo(0, 1200))
+    await expect(bar).toHaveAttribute('data-stuck', 'true')
+    await expect(bar).toBeVisible()
+    const header = await boxOf(page.locator('header').first())
+    const b = await boxOf(bar)
+    expect(Math.abs(b.top - header.bottom), `bar top ${b.top} vs site header bottom ${header.bottom}`).toBeLessThanOrEqual(1)
+
+    // A matrix row in view under the bar: the bar's columns sit over its cells.
+    const rows = page.locator('.ld-row[data-testid^="package-row-"]')
+    let row: Locator | null = null
+    for (let i = 0; i < (await rows.count()); i++) {
+      const r = await boxOf(rows.nth(i).locator('.ld-cell').first())
+      if (r.top >= b.bottom && r.bottom < 900) {
+        row = rows.nth(i)
+        break
+      }
+    }
+    expect(row, 'a matrix row is in view under the bar').not.toBeNull()
+    const prices: Record<string, string> = { 'plan.s': '2.490', 'plan.m': '4.490', 'plan.l': '7.990', 'plan.xl': '13.990' }
+    for (const sku of SKUS) {
+      const head = await boxOf(page.getByTestId(`package-sticky-${sku}`))
+      const cell = await boxOf(row!.locator(`.ld-cell[data-testid$="-${sku}"]`))
+      expect(Math.abs(head.left - cell.left), `${sku} left`).toBeLessThanOrEqual(2)
+      expect(Math.abs(head.right - cell.right), `${sku} right`).toBeLessThanOrEqual(2)
+      await expect(page.getByTestId(`package-sticky-${sku}`)).toContainText(prices[sku])
+    }
+    await expect(page.getByTestId('package-sticky-choose-plan.m')).toHaveText('Continue →')
+
+    // Back at the top it goes away again.
+    await page.evaluate(() => window.scrollTo(0, 0))
+    await expect(bar).toHaveAttribute('data-stuck', 'false')
+    await expect(bar).toBeHidden()
+
+    // Choose from the bar continues exactly as the card's Choose does.
+    await page.evaluate(() => window.scrollTo(0, 1200))
+    await expect(bar).toHaveAttribute('data-stuck', 'true')
+    await page.getByTestId('package-sticky-choose-plan.l').click()
+    await page.waitForURL(/\/apps/, { timeout: 10_000 })
+    expect((await readCart(page)).packageSku).toBe('plan.l')
+  })
+
+  test('at 400 px: the floor is above the table, each column still runs unbroken in its scroll box, the feature names stay pinned, and the page body never scrolls sideways', async ({ page }) => {
+    await page.setViewportSize({ width: 400, height: 860 })
+    await page.goto('/plans')
+    await expect(page.getByTestId('package-ladder')).toBeVisible({ timeout: 10_000 })
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    const floor = await boxOf(page.getByTestId('package-floor'))
+    const card = await boxOf(page.getByTestId('package-card-plan.s'))
+    expect(floor.bottom).toBeLessThanOrEqual(card.top + 1)
+    const rail = await boxOf(page.getByTestId('package-col-plan.s'))
+    const foot = await boxOf(page.getByTestId('package-choose-foot-plan.s').locator('..'))
+    expect(Math.abs(rail.top - card.top)).toBeLessThanOrEqual(1)
+    expect(rail.bottom).toBeGreaterThanOrEqual(foot.bottom - 1)
+    const name = page.getByTestId('package-row-backup').locator('.ld-feature')
+    const before = await boxOf(name)
+    await page.locator('.ld-scroll').evaluate((el) => {
+      el.scrollLeft = 300
+    })
+    await expect.poll(async () => page.locator('.ld-scroll').evaluate((el) => el.scrollLeft)).toBeGreaterThan(100)
+    const after = await boxOf(name)
+    expect(Math.abs(after.left - before.left), 'the feature column stays put').toBeLessThanOrEqual(1)
+  })
+})
+
+test.describe('continuous table screenshots (#6971)', () => {
+  for (const [width, scheme] of [[1400, 'light'], [1400, 'dark'], [1630, 'light'], [1630, 'dark'], [400, 'light'], [400, 'dark']] as const) {
+    test(`plans at ${width}px, ${scheme}: full page and mid-matrix`, async ({ page }) => {
+      test.setTimeout(60_000)
+      await page.emulateMedia({ colorScheme: scheme })
+      await mockCatalog(page)
+      await mockIcons(page)
+      await pointAtChargeback(page)
+      await mockPackages(page, FIXTURE_V3)
+      await page.setViewportSize({ width, height: 900 })
+      await page.goto('/plans')
+      await expect(page.getByTestId('package-ladder')).toBeVisible({ timeout: 10_000 })
+      await expectImagesDecoded(page.locator('body'))
+      // Bringing each lazy icon into view scrolls a phone's table sideways;
+      // the shot shows it as a customer first sees it.
+      await page.locator('.ld-scroll').evaluate((el) => el.scrollTo({ left: 0, behavior: 'instant' as ScrollBehavior }))
+      const suffix = `${width}${scheme === 'dark' ? '-dark' : ''}`
+      await shootTall(page, join(SHOTS, `marketplace-ladder-continuous-${suffix}-full.png`))
+      // The middle of the matrix — on a wide screen the compact header is
+      // stuck over its columns.
+      const y = await page.getByTestId('package-group-access').locator('.ld-group').evaluate((el) => el.getBoundingClientRect().top + window.scrollY - 300)
+      await page.evaluate((top) => window.scrollTo(0, top), y)
+      if (width > 860) await expect(page.getByTestId('package-sticky-head')).toHaveAttribute('data-stuck', 'true')
+      await page.waitForTimeout(250)
+      await page.screenshot({ path: join(SHOTS, `marketplace-ladder-continuous-${suffix}-mid.png`) })
     })
   }
 })

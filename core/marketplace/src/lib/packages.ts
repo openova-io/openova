@@ -253,6 +253,8 @@ export const PACKAGE_STRINGS = {
   recommended: 'Recommended',
   continueWith: (name: string) => `Continue with ${name} →`,
   choose: (name: string) => `Choose ${name}`,
+  /** The compact sticky header's CTA on the chosen package (its name is beside it). */
+  continueShort: 'Continue →',
   includedGlyph: '✓',
   includedLabel: 'Included',
   notOfferedGlyph: '—',
@@ -330,7 +332,7 @@ export const PACKAGE_STRINGS = {
     cappedBody: (total: string) => `Never pay more than ${total} / mo. Your apps stay within the package; nothing is billed above it.`,
     growTitle: 'Grow with me',
     growTag: 'Pay per use above the package',
-    growBody: 'Keep running when you get busy. Usage above your package is billed after the month, at these rates:',
+    growBody: 'Keep running when you get busy. Usage above your package is billed after the month, at your package\'s own rates.',
     ratesOn: (name: string) => `Usage rates on ${name}, billed after the month`,
     rateLine: (price: string, currency: string, unit: string) => `+${price} ${currency} per extra ${unit} / mo`,
     rateName: { vcpu: 'vCPU', memory: 'Memory', disk: 'Disk', bandwidth: 'Bandwidth' } as Record<OverageRateKey, string>,
@@ -374,6 +376,12 @@ export const PACKAGE_STRINGS = {
     cellLabel: 'with Grow',
     cellHint: 'billed as usage',
     cellStateLabel: 'Available with Grow, billed as usage',
+    // The ladder's one legend line for the allowance cells: what happens at
+    // an allowance is the customer's choice on Add-ons, not the cell's.
+    plansLegend: 'Capped by default · or grow, billed per use',
+    // "In your package" on Add-ons: the allowance, then the chosen mode.
+    inPkgCapped: 'capped',
+    inPkgGrows: (n: number, unit: string) => `grows up to ${n} ${unit}`,
   },
 } as const;
 
@@ -1050,7 +1058,17 @@ export function quantityLabel(feature: PublicFeature, cell: PublicCell): string 
   return PACKAGE_STRINGS.includedGlyph;
 }
 
-function ladderCell(cell: PublicCell | undefined, feature: PublicFeature, packages: ReadonlyArray<PublicPackage>, sku: string): LadderCell {
+/**
+ * True when the document carries the capped/grow model (any package can
+ * grow). Then what happens at an allowance is the CUSTOMER'S mode, chosen on
+ * Add-ons — the cell's own `overage` ("hard cap" / "then metered") is not
+ * shown: /plans gives the allowance plus one legend line, Add-ons the mode.
+ */
+export function hasGrowModel(doc: PublicPackages): boolean {
+  return doc.packages.some(p => growModelFor(doc, p.sku) !== null);
+}
+
+function ladderCell(cell: PublicCell | undefined, feature: PublicFeature, packages: ReadonlyArray<PublicPackage>, sku: string, growDoc = false): LadderCell {
   const state: CellState = cell?.state ?? 'not_offered';
   const base = { sku, state, kind: feature.kind };
   if (!cell || state === 'not_offered') {
@@ -1079,7 +1097,7 @@ function ladderCell(cell: PublicCell | undefined, feature: PublicFeature, packag
   // included
   if (feature.kind === 'quantity') {
     const label = quantityLabel(feature, cell);
-    const hint = label === PACKAGE_STRINGS.ladder.unlimitedLabel ? null : overageHint(cell.overage);
+    const hint = growDoc || label === PACKAGE_STRINGS.ladder.unlimitedLabel ? null : overageHint(cell.overage);
     return { ...base, label, hint, stateLabel: PACKAGE_STRINGS.includedLabel };
   }
   if (feature.kind === 'level') {
@@ -1135,13 +1153,14 @@ export function buildLadder(
 ): LadderModel {
   const recommended = ladderRecommendedSku(data.packages, opts.recommended);
   const cards = data.packages.map(p => ladderCard(p, p.sku === recommended));
+  const growDoc = hasGrowModel(data);
   const rowFor = (f: PublicFeature): LadderRow => ({
     key: f.key,
     name: f.name,
     blurb: f.blurb ?? '',
     kind: f.kind,
     icon: f.icon ?? null,
-    cells: data.packages.map(p => ladderCell(f.cells[p.sku], f, data.packages, p.sku)),
+    cells: data.packages.map(p => ladderCell(f.cells[p.sku], f, data.packages, p.sku, growDoc)),
   });
   const declared = data.groups ?? [];
   const known = new Set(declared.map(g => g.key));
@@ -1173,7 +1192,7 @@ export function buildLadder(
     rowIcons: groups.some(g => g.rows.some(r => r.icon !== null)),
     floorIcons: floorItems.some(f => f.icon !== null),
     recommendedSku: recommended,
-    growNote: data.packages.some(p => growModelFor(data, p.sku) !== null),
+    growNote: growDoc,
     growCheapest: cheapestGrowVcpu(data),
   };
 }
@@ -1555,8 +1574,15 @@ export interface LadderIncluded {
   key: string;
   name: string;
   blurb: string;
-  /** "100 Mbps · hard cap", "single region", "read" — null for a plain ✓. */
+  /** "100 Mbps · hard cap", "single region", "read" — null for a plain ✓. With the grow model a quantity is the allowance alone ("100 Mbps"). */
   value: string | null;
+  /**
+   * With the grow model, the dimension an allowance grows in (its feature
+   * key is the overage rate key: bandwidth → bandwidth_mbps), or 'fixed' for
+   * an allowance that does not; the step then adds "· capped" or "· grows up
+   * to N" from the customer's mode. Null otherwise: `value` is shown as is.
+   */
+  growKey: GrowDimension | 'fixed' | null;
   icon: PackageIcon | null;
 }
 
@@ -1604,15 +1630,22 @@ export interface AddonsLadder {
   addons: AddOn[];
 }
 
-function includedValue(f: PublicFeature, cell: PublicCell): string | null {
+function includedValue(f: PublicFeature, cell: PublicCell, growDoc = false): string | null {
   if (f.kind === 'quantity') {
     const label = quantityLabel(f, cell);
-    const hint = label === PACKAGE_STRINGS.ladder.unlimitedLabel ? null : overageHint(cell.overage);
+    const hint = growDoc || label === PACKAGE_STRINGS.ladder.unlimitedLabel ? null : overageHint(cell.overage);
     return hint ? `${label} · ${hint}` : label;
   }
   if (f.kind === 'level') return levelLabel(f, cell.level);
   if (f.kind === 'access') return cell.note ?? null;
   return null;
+}
+
+/** The grow dimension of an included allowance (see LadderIncluded.growKey). */
+function includedGrowKey(f: PublicFeature, cell: PublicCell): GrowDimension | 'fixed' | null {
+  if (f.kind !== 'quantity' || quantityLabel(f, cell) === PACKAGE_STRINGS.ladder.unlimitedLabel) return null;
+  const dim = (Object.keys(GROW_RATE_KEY) as GrowDimension[]).find(d => GROW_RATE_KEY[d] === f.key);
+  return dim ?? 'fixed';
 }
 
 /**
@@ -1664,6 +1697,7 @@ export function addonsLadderFor(doc: PublicPackages, sku: string): AddonsLadder 
   const pkg = doc.packages.find(p => p.sku === sku);
   if (!pkg) return null;
   const S = PACKAGE_STRINGS.ladder;
+  const growDoc = hasGrowModel(doc);
   const included: LadderIncluded[] = [];
   const choices: LadderChoice[] = [];
   const missing: LadderMissing[] = [];
@@ -1695,7 +1729,7 @@ export function addonsLadderFor(doc: PublicPackages, sku: string): AddonsLadder 
       continue;
     }
     // included
-    included.push({ key: f.key, name: f.name, blurb, value: includedValue(f, cell), icon });
+    included.push({ key: f.key, name: f.name, blurb, value: includedValue(f, cell, growDoc), icon, growKey: growDoc ? includedGrowKey(f, cell) : null });
     if (cell.next_level_addon && f.kind === 'level') {
       const current = cell.level ?? 0;
       const target = current + 1;

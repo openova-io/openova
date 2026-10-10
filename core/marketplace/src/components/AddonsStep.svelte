@@ -24,6 +24,7 @@
     PACKAGE_STRINGS as PS,
     type AddonsLadder,
     type GrowDim,
+    type GrowDimension,
     type IncludedFeature,
     type OverageMode,
     type PublicPackages,
@@ -266,8 +267,16 @@
     if (typeof n === 'string') spendText = n;
   }
 
-  function rateLine(r: { price_month: string; key: string }): string {
-    return PS.grow.rateLine(r.price_month, doc?.currency ?? 'OMR', PS.grow.unitWord[r.key as keyof typeof PS.grow.unitWord] ?? r.key);
+  // "In your package": with the grow model an allowance follows the
+  // customer's mode — "· capped", or "· grows up to N" (the chosen ceiling,
+  // else the package's own) — never the cell's own overage word.
+  function inPkgValue(f: { value: string | null; growKey: GrowDimension | 'fixed' | null }): string | null {
+    if (!f.value || f.growKey === null) return f.value;
+    const dim = f.growKey !== 'fixed' && growMode === 'grow' && growModel && shownCeiling
+      ? growModel.dims.find(d => d.key === f.growKey)
+      : undefined;
+    if (dim && shownCeiling) return `${f.value} · ${PS.grow.inPkgGrows(shownCeiling[dim.key], dim.unit)}`;
+    return `${f.value} · ${PS.grow.inPkgCapped}`;
   }
   function hintExtra(h: NonNullable<typeof growHint>): string {
     return PS.grow.upgradeExtra(h.deltas.map(d => PS.grow.upgradeDelta(d.delta, d.unit)));
@@ -423,7 +432,7 @@
                 <span class="in-pkg-tick" aria-hidden="true">✓</span>
               {/if}
               <span class="in-pkg-name">{f.name}</span>
-              {#if f.value}<span class="in-pkg-val">{f.value}</span>{/if}
+              {#if inPkgValue(f)}<span class="in-pkg-val" data-testid="addons-included-value-{f.key}">{inPkgValue(f)}</span>{/if}
             </li>
           {/each}
         </ul>
@@ -503,8 +512,12 @@
               {:else if !doc && addon.icon}
                 <span class="extra-icon" aria-hidden="true">{addon.icon}</span>
               {/if}
-              <strong class="addon-card-name">{addon.name}</strong>
-              <span class="extra-price">{addon.monthly_price === 0 ? 'Free' : `+${formatOMR(addon.monthly_price)}`}</span>
+              <!-- The name takes the row's width; the price sits on its own
+                   line under it, so a long name never wraps beside it. -->
+              <span class="addon-card-title">
+                <strong class="addon-card-name">{addon.name}</strong>
+                <span class="extra-price">{addon.monthly_price === 0 ? 'Free' : `+${formatOMR(addon.monthly_price)}`}</span>
+              </span>
               <span class="extra-check">
                 {#if isChecked}
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>
@@ -596,10 +609,8 @@
               <span class="mode-tag">{PS.grow.growTag}</span>
               <span class="mode-dot" aria-hidden="true"></span>
             </span>
-            <span class="mode-body">{PS.grow.growBody}</span>
-            <span class="mode-rates" data-testid="mode-grow-rates">
-              {#each growModel.rates.slice(0, 2) as r (r.key)}<span>{rateLine(r)}</span>{/each}
-            </span>
+            <!-- One sentence; the rates themselves are the grid below, once. -->
+            <span class="mode-body" data-testid="mode-grow-body">{PS.grow.growBody}</span>
           </button>
         </div>
 
@@ -878,7 +889,7 @@
 
   .bs-hint { color: var(--color-text-dim); font-size: 0.78rem; margin: 0 0 0.55rem; }
 
-  /* An add-on card: the name, price and tick on one row; the description
+  /* An add-on card: the name (the price under it) and the tick on one row; the description
      full width beneath — never squeezed beside the price. */
   .addon-card {
     flex-direction: column;
@@ -887,8 +898,10 @@
     padding: 0.7rem 0.8rem 0.75rem;
   }
   .addon-card-head { display: flex; align-items: center; gap: 0.55rem; min-width: 0; }
+  .addon-card-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+  .addon-card-title .extra-price { font-size: 0.78rem; color: var(--color-text); }
   .addon-card-name {
-    flex: 1; min-width: 0;
+    min-width: 0;
     color: var(--color-text-strong); font-size: 0.85rem; font-weight: 600; line-height: 1.3;
   }
   .addon-card-desc { color: var(--color-text-dim); font-size: 0.74rem; line-height: 1.45; }
@@ -1047,7 +1060,6 @@
   .mode-card.on .mode-dot { border: 5px solid var(--color-accent); }
   .mode-card.grow.on .mode-dot { border-color: var(--color-success); }
   .mode-body { color: var(--color-text); font-size: 0.8rem; line-height: 1.45; }
-  .mode-rates { display: flex; flex-wrap: wrap; gap: 0.25rem 0.8rem; color: var(--color-text-dim); font-size: 0.74rem; font-weight: 600; }
 
   .grow-panel {
     margin-top: 0.75rem;
