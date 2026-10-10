@@ -248,27 +248,164 @@ func newapiCNPGCPUMillis(t *testing.T) int {
 	return m * n
 }
 
-// smallestPlanCPUMillisFromController derives the plan-"s" ResourceQuota cap
-// from the ONE table the org-controller drives it off — planQuotaTable in
+// smallestPlanCPUFromController derives the plan-"s" figures from the ONE table
+// the org-controller drives the ResourceQuota off — planQuotaTable in
 // core/controllers/organization/internal/gitops/manifests.go. planQuota()
-// resolves an empty or unknown plan slug to "s", so this is the cap a fresh
-// funnel Org gets. Restating "2000" as a local constant would let a LOWERED cap
-// pass this guard unnoticed.
-func smallestPlanCPUMillisFromController(t *testing.T) int {
+// resolves an empty or unknown plan slug to "s", so this is what a fresh funnel
+// Org gets. Since #6971 the row carries two CPU figures: CPULimit, the package
+// HEADLINE (the ResourceQuota's limits.cpu plan term — what the customer may
+// burst to and pays for; S is 1 vCPU, NC-OO-Pricing.xlsx 2026-06-28), and
+// CPURequest, the GUARANTEED share the Sovereign provisions for it (the
+// requests.cpu plan term, headline ÷ 6). Restating either as a local constant
+// would let a LOWERED cap pass this guard unnoticed.
+func smallestPlanCPUFromController(t *testing.T) (limitMillis, requestMillis int) {
 	t.Helper()
 	src := readRepoFile(t, "core", "controllers", "organization", "internal", "gitops", "manifests.go")
-	re := regexp.MustCompile(`"s":\s*\{Slug:\s*"s",\s*CPU:\s*"([^"]*)"`)
+	re := regexp.MustCompile(`"s":\s*\{Slug:\s*"s",\s*CPULimit:\s*"([^"]*)",\s*MemLimit:\s*"[^"]*",\s*CPURequest:\s*"([^"]*)"`)
 	m := re.FindStringSubmatch(src)
 	if m == nil {
 		t.Fatalf(`planQuotaTable["s"] not found in ` +
 			`core/controllers/organization/internal/gitops/manifests.go — the plan table was ` +
 			`restructured and this guard can no longer see the cap it asserts against. Re-point it.`)
 	}
-	millis, err := cpuToMillis(m[1])
+	limitMillis, err := cpuToMillis(m[1])
 	if err != nil {
-		t.Fatalf(`planQuotaTable["s"].CPU = %q is not a parseable CPU quantity: %v`, m[1], err)
+		t.Fatalf(`planQuotaTable["s"].CPULimit = %q is not a parseable CPU quantity: %v`, m[1], err)
 	}
-	return millis
+	requestMillis, err = cpuToMillis(m[2])
+	if err != nil {
+		t.Fatalf(`planQuotaTable["s"].CPURequest = %q is not a parseable CPU quantity: %v`, m[2], err)
+	}
+	if requestMillis <= 0 || requestMillis >= limitMillis {
+		t.Fatalf(`planQuotaTable["s"]: CPURequest %dm is not strictly between 0 and CPULimit %dm — `+
+			`the #6971 overcommit model has the guaranteed share under the headline`, requestMillis, limitMillis)
+	}
+	return limitMillis, requestMillis
+}
+
+// smallestPlanCPUMillisFromController is the plan-"s" HEADLINE — the limits.cpu
+// plan term of the ResourceQuota, the ceiling the row-232 assertions compare
+// the overlay's own limit against.
+func smallestPlanCPUMillisFromController(t *testing.T) int {
+	t.Helper()
+	limit, _ := smallestPlanCPUFromController(t)
+	return limit
+}
+
+// platformStackLimitsCPUFromController reads, out of the org-controller's
+// platformStack table (manifests.go), the limits.cpu the ResourceQuota adds ON
+// TOP of the plan for the named pod: the sum of its app containers' LimitsCPU
+// — the pod-usage rule, where the plain init containers are the smaller branch
+// for every pod modelled here, exactly as newapiPodCPUMillis leaves
+// wait-for-sql-dsn out. Since the #6902 follow-ups THIS term, not the plan, is
+// what admits the per-Organization platform pods; the controller's own pin test
+// (plan_quota_plus_platform_stack_test.go) re-reads the chart and door sources
+// it is derived from, and this reader lets each door check it is one of them.
+func platformStackLimitsCPUFromController(t *testing.T, podName string) (millis, containers int) {
+	t.Helper()
+	src := readRepoFile(t, "core", "controllers", "organization", "internal", "gitops", "manifests.go")
+	const open = "var platformStack = []platformStackWorkload{"
+	start := strings.Index(src, open)
+	if start < 0 {
+		t.Fatalf("platformStack table not found in manifests.go — the per-Organization platform-stack " +
+			"overhead was restructured and this guard can no longer see the term that admits the pod. Re-point it.")
+	}
+	block := src[start+len(open):]
+	if end := strings.Index(block, "\n}\n"); end > 0 {
+		block = block[:end]
+	}
+	tag := `Name: "` + podName + `"`
+	i := strings.Index(block, tag)
+	if i < 0 {
+		t.Fatalf("platformStack has no entry %s — the pod this door renders is not carried as quota "+
+			"overhead, so it is charged to the customer's plan: the #6324 refusal one layer up", tag)
+	}
+	entry := block[i+len(tag):]
+	if j := strings.Index(entry, `Name: "`); j >= 0 {
+		entry = entry[:j]
+	}
+	if j := strings.Index(entry, "Inits:"); j >= 0 {
+		entry = entry[:j]
+	}
+	re := regexp.MustCompile(`LimitsCPU:\s*"([^"]*)"`)
+	for _, m := range re.FindAllStringSubmatch(entry, -1) {
+		n, err := cpuToMillis(m[1])
+		if err != nil {
+			t.Fatalf("platformStack %s: LimitsCPU %q is not a parseable CPU quantity: %v", tag, m[1], err)
+		}
+		millis += n
+		containers++
+	}
+	if containers == 0 || millis <= 0 {
+		t.Fatalf("platformStack %s: no app-container LimitsCPU parsed — the reader missed and the "+
+			"lockstep below would compare against zero", tag)
+	}
+	return millis, containers
+}
+
+// assertOrgBundleCarriedAboveThePlan is the headroom statement row 232 / #6324
+// turn on, re-made for the #6971 package numbers, and shared by the row-232 and
+// 6324 guards so the two cannot drift apart.
+//
+// THE FINDING. The per-Organization bundle rendered beside the customer's
+// first app — the bp-newapi Pod (1200m), the openclaw controller (250m) and
+// newapi's CNPG (500m) — is 1950m of limits. The smallest package is 1 vCPU
+// (planQuotaTable["s"].CPULimit; NC-OO-Pricing.xlsx 2026-06-28). The bundle
+// therefore does NOT fit the plan the customer bought — nor did it leave more
+// than 50m of the old 2 vCPU row. It is admitted ONLY because the
+// org-controller sizes the ResourceQuota as plan + vCluster control plane +
+// per-Organization platform stack (#6902 follow-ups), and the stack term is
+// these very pods, carried as the Sovereign's overhead on top of the plan: the
+// S quota renders limits.cpu 7050m = 1000m plan + 1500m control plane + 4550m
+// stack, and the customer's catalog applications have the 1000m. Under the
+// plan alone the Pod is refused at admission — the hw296 failure verbatim.
+//
+// Both halves are asserted. (1) The finding is pinned as stated, so a plan
+// that grows past the bundle, or a bundle that shrinks under the plan, forces
+// it to be re-made rather than silently inverting. (2) The invariant that
+// makes the quota admit the bundle: the controller's platformStack carries each
+// pod at EXACTLY the limits this door renders. A door that moves a limit
+// without the table moving puts the difference back inside the customer's plan
+// — #6324 again, one layer up — and the controller's own pin test fails from
+// the other side.
+func assertOrgBundleCarriedAboveThePlan(t *testing.T, pod podCPU, openclaw, cnpg int) {
+	t.Helper()
+	headline, guaranteed := smallestPlanCPUFromController(t)
+	bundle := pod.total + openclaw + cnpg
+
+	if bundle <= headline {
+		t.Fatalf("the Org bundle (%dm) now FITS the smallest plan headline (%dm). Since #6971 this "+
+			"guard states the opposite — the bundle rides on the quota's platform-stack term, not the "+
+			"plan. Re-make the statement (and the pins below) before changing it:\n%s", bundle, headline, pod)
+	}
+	const wantBundle, wantHeadline, wantGuaranteed = 1950, 1000, 167
+	if bundle != wantBundle || headline != wantHeadline || guaranteed != wantGuaranteed {
+		t.Fatalf("the Org bundle totals %dm against a %dm headline / %dm guaranteed plan; this guard was "+
+			"written against %dm / %dm / %dm, measured from the same files. A term moved — name it and "+
+			"re-derive:\n  bp-newapi POD  %dm\n  openclaw ctrl  %dm\n  newapi CNPG    %dm\n%s",
+			bundle, headline, guaranteed, wantBundle, wantHeadline, wantGuaranteed, pod.total, openclaw, cnpg, pod)
+	}
+
+	for _, tc := range []struct {
+		name string
+		door int
+	}{
+		{"bp-newapi-<hash>", pod.total},
+		{"bp-newapi-newapi-pg-1", cnpg},
+		{"bp-openclaw-<hash>", openclaw},
+	} {
+		carried, containers := platformStackLimitsCPUFromController(t, tc.name)
+		if carried != tc.door {
+			t.Fatalf("%s: this door renders %dm of limits.cpu but the org-controller's platformStack "+
+				"carries %dm as quota overhead — the %dm difference is charged to the customer's %dm "+
+				"plan instead (the #6324 refusal, one layer up). Move the two in lockstep.\n%s",
+				tc.name, tc.door, carried, tc.door-carried, headline, pod)
+		}
+		if tc.name == "bp-newapi-<hash>" && containers < 2 {
+			t.Fatalf("VACUITY: platformStack models bp-newapi-<hash> as %d container(s) — the Pod has "+
+				"sidecars, and a one-container table would be the exact model #6324 replaced", containers)
+		}
+	}
 }
 
 // ─── The assertions ──────────────────────────────────────────────────────
@@ -408,50 +545,35 @@ func TestNewAPIPodCPU_6324_PlainInitDoesNotDominate(t *testing.T) {
 	}
 }
 
-// TestNewAPIPodCPU_6324_OrgBundleFitsSmallestPlan is the headroom assertion the
-// row actually turns on, restated at Pod granularity and with every term
-// derived from the file the platform reads.
-func TestNewAPIPodCPU_6324_OrgBundleFitsSmallestPlan(t *testing.T) {
+// TestNewAPIPodCPU_6324_OrgBundleIsCarriedAboveThePlanByTheQuota is the
+// headroom statement the row actually turns on, at Pod granularity, with every
+// term derived from the file the platform reads — re-made for the #6971
+// package numbers: see assertOrgBundleCarriedAboveThePlan.
+func TestNewAPIPodCPU_6324_OrgBundleIsCarriedAboveThePlanByTheQuota(t *testing.T) {
 	pod := newapiPodCPUMillis(t, funnelOverlay(t))
 	openclaw := openclawControllerPodCPUMillis(t)
 	cnpg := newapiCNPGCPUMillis(t)
-	cap := smallestPlanCPUMillisFromController(t)
-
-	bundle := pod.total + openclaw + cnpg
-	if bundle > cap {
-		t.Fatalf("bp-newapi POD %dm + openclaw controller %dm + newapi CNPG %dm = %dm exceeds the "+
-			"smallest-plan cap %dm — the Pod is refused at admission, which is the live hw296 "+
-			"failure verbatim:\n%s", pod.total, openclaw, cnpg, bundle, cap, pod)
-	}
-
-	// The headroom is the number the issue turns on and it is ALARMING: 50m of
-	// a 2000m Org cap for everything else the Org will ever install. Pinning it
-	// means any term that grows — in either chart, or in the plan table — turns
-	// this red instead of quietly consuming the last of the margin.
-	const wantBundle, wantHeadroom = 1950, 50
-	if bundle != wantBundle || cap-bundle != wantHeadroom {
-		t.Fatalf("the Org bundle now totals %dm of the %dm cap (headroom %dm); this guard was "+
-			"written against %dm / %dm headroom, measured from the same files. A term moved — "+
-			"name it and re-derive:\n  bp-newapi POD  %dm\n  openclaw ctrl  %dm\n  newapi CNPG    %dm\n%s",
-			bundle, cap, cap-bundle, wantBundle, wantHeadroom, pod.total, openclaw, cnpg, pod)
-	}
+	assertOrgBundleCarriedAboveThePlan(t, pod, openclaw, cnpg)
 }
 
 // TestNewAPIPodCPU_6324_VacuityCheck_TheOldModelWouldHavePassed is the proof
 // that this whole file is load-bearing. It reconstructs the PRE-FIX
-// single-container arithmetic from the same derived terms and shows it reported
-// 750m of headroom where the truth is 50m — i.e. the old guard was green over a
-// Pod the cluster was refusing. If a future edit collapses the Pod model back
-// to one container, these two numbers converge and this test fails.
+// single-container arithmetic from the same derived terms and shows it
+// understates the bundle by the sidecar cost (700m): against the old 2 vCPU
+// row it reported 750m of headroom where the truth was 50m — the old guard was
+// green over a Pod the cluster was refusing. Against the #6971 1 vCPU headline
+// both models are short (−250m and −950m), and the 700m gap between them is
+// the same sidecar cost. If a future edit collapses the Pod model back to one
+// container, the two numbers converge and this test fails.
 func TestNewAPIPodCPU_6324_VacuityCheck_TheOldModelWouldHavePassed(t *testing.T) {
 	pod := newapiPodCPUMillis(t, funnelOverlay(t))
 	openclaw := openclawControllerPodCPUMillis(t)
 	cnpg := newapiCNPGCPUMillis(t)
-	cap := smallestPlanCPUMillisFromController(t)
+	headline := smallestPlanCPUMillisFromController(t)
 
 	container := pod.byTerm["newapi"]
-	oldHeadroom := cap - (container + openclaw + cnpg)
-	newHeadroom := cap - (pod.total + openclaw + cnpg)
+	oldHeadroom := headline - (container + openclaw + cnpg)
+	newHeadroom := headline - (pod.total + openclaw + cnpg)
 
 	if oldHeadroom == newHeadroom {
 		t.Fatalf("VACUITY: the single-container model and the Pod model report the SAME headroom "+
@@ -463,11 +585,15 @@ func TestNewAPIPodCPU_6324_VacuityCheck_TheOldModelWouldHavePassed(t *testing.T)
 			"model (%dm), which is arithmetically impossible while the sidecars cost anything:\n%s",
 			oldHeadroom, newHeadroom, pod)
 	}
-	const wantOld, wantNew = 750, 50
+	if gap := oldHeadroom - newHeadroom; gap != pod.total-container {
+		t.Fatalf("the understatement (%dm) is not the sidecar cost (%dm) — the arithmetic lost a term:\n%s",
+			gap, pod.total-container, pod)
+	}
+	const wantOld, wantNew = -250, -950
 	if oldHeadroom != wantOld || newHeadroom != wantNew {
-		t.Fatalf("the understatement changed: the single-container model now reports %dm of "+
-			"headroom and the Pod model %dm (this file was written against %dm vs %dm). Re-derive "+
-			"and restate the defect before adjusting these:\n%s",
+		t.Fatalf("the understatement changed: against the smallest plan headline the single-container "+
+			"model now reports %dm of headroom and the Pod model %dm (this file was written against "+
+			"%dm vs %dm). Re-derive and restate the defect before adjusting these:\n%s",
 			oldHeadroom, newHeadroom, wantOld, wantNew, pod)
 	}
 }

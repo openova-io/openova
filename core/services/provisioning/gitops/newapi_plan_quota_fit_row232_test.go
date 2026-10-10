@@ -38,17 +38,25 @@ func cpuToMillis(v string) (int, error) {
 //
 //	platform/newapi/chart/values.yaml:153   newapi.resources.limits.cpu: 2
 //	                              :150      newapi.resources.requests.cpu: 100m
-//	core/controllers/.../gitops/manifests.go  planQuotaTable["s"].CPU = "2"
+//	core/controllers/.../gitops/manifests.go  planQuotaTable["s"].CPULimit = "1"
+//	    (2 when this row was walked; 1 vCPU since #6971, NC-OO-Pricing.xlsx)
 //	    hard["limits.cpu"] = that plan + the vCluster control-plane overhead
-//	    (#6902 follow-up), which the control plane itself consumes — so the
-//	    customer's usable share of the cap is exactly the plan's 2000m
+//	    + the per-Organization platform-stack overhead (#6902 follow-ups) —
+//	    the control plane and the stack consume their own terms, so the
+//	    customer's usable share of the cap is exactly the plan's headline
 //
 // A ResourceQuota counts LIMITS, not requests. So one bp-newapi app container
-// reserves 2000m of a 2000m cap before openclaw's own controller (250m,
-// platform/openclaw/chart/values.yaml:79-85) or bp-newapi's own CNPG (500m,
-// platform/newapi/chart/values.yaml:340-346) ask for anything. Every later pod
-// is refused at admission, and a User sees only an opaque Helm
-// `context deadline exceeded`.
+// at the chart default reserves 2000m — twice the S headline — before
+// openclaw's own controller (250m, platform/openclaw/chart/values.yaml:79-85)
+// or bp-newapi's own CNPG (500m, platform/newapi/chart/values.yaml:340-346)
+// ask for anything. Every later pod is refused at admission, and a User sees
+// only an opaque Helm `context deadline exceeded`.
+//
+// Since #6971 the bundle (1950m) is larger than the S headline (1000m) even
+// with the overlay's pin, and is admitted only because the org-controller
+// carries it as platform-stack overhead ON TOP of the plan — see
+// assertOrgBundleCarriedAboveThePlan for the statement and the lockstep that
+// keeps it true.
 //
 // It became a fresh-Org regression in two merged steps, neither wrong alone:
 // 70f6b07aa (#5969) added `"openclaw": {"newapi"}` to impliedHelmReleaseApps
@@ -68,15 +76,16 @@ func cpuToMillis(v string) (int, error) {
 // the vcluster syncer's own pods can never satisfy it. A guard asserting a
 // ratio violation would be asserting a rule the platform does not have.
 
-// smallestPlanCPUMillis mirrors planQuotaTable["s"].CPU ("2") from
-// core/controllers/organization/internal/gitops/manifests.go:121, which is the
-// cap an Org gets when its plan slug is empty or unknown (planQuota(), :132).
+// smallestPlanCPUMillis mirrors planQuotaTable["s"].CPULimit ("1" — the S
+// package headline, NC-OO-Pricing.xlsx 2026-06-28, #6971) from
+// core/controllers/organization/internal/gitops/manifests.go, which is the cap
+// an Org gets when its plan slug is empty or unknown (planQuota()).
 //
 // It is a MIRROR, and a mirror can go stale: a LOWERED cap would leave this
 // guard asserting against a ceiling the platform no longer grants, and pass.
 // TestNewAPIHR_Row232_VacuityCheck_HelperSeesTheChartDefault therefore pins it
 // against the real table via smallestPlanCPUMillisFromController (#6324).
-const smallestPlanCPUMillis = 2000
+const smallestPlanCPUMillis = 1000
 
 // TestNewAPIHR_Row232_FitsSmallestPlanQuota is the RED test: the per-Org
 // bp-newapi HelmRelease must pin its own CPU limit, and that limit must leave
@@ -132,25 +141,19 @@ func TestNewAPIHR_Row232_FitsSmallestPlanQuota(t *testing.T) {
 					req, reqMillis, limit, limitMillis)
 			}
 
-			// The headroom assertion the row actually turns on, at POD
+			// The headroom statement the row actually turns on, at POD
 			// granularity (#6324). It sums the whole bp-newapi Pod — the
 			// container pinned above PLUS the two chart-default containers this
 			// overlay never mentions — because a ResourceQuota admits a Pod,
 			// not a container. Summing only `limitMillis` here understated the
 			// cost by 700m and left this guard green while the live cluster
-			// refused the Pod. See newapi_pod_quota_arithmetic_6324_test.go for
-			// the full derivation, the term list, and the live refusal.
+			// refused the Pod. Since #6971 the bundle no longer fits the plan
+			// headline at all and is admitted as quota overhead; the statement
+			// and the lockstep that keeps it true live in
+			// assertOrgBundleCarriedAboveThePlan
+			// (newapi_pod_quota_arithmetic_6324_test.go).
 			pod := newapiPodCPUMillis(t, values)
-			openclawControllerMillis := openclawControllerPodCPUMillis(t)
-			newapiCNPGMillis := newapiCNPGCPUMillis(t)
-			if pod.total+openclawControllerMillis+newapiCNPGMillis > smallestPlanCPUMillis {
-				t.Fatalf("bp-newapi POD %dm + openclaw controller %dm + newapi CNPG %dm = %dm "+
-					"exceeds the smallest-plan cap %dm — row 232's pod is refused at admission.\n"+
-					"(the POD costs %dm; this overlay pins only %dm, on the `newapi` container)\n%s",
-					pod.total, openclawControllerMillis, newapiCNPGMillis,
-					pod.total+openclawControllerMillis+newapiCNPGMillis, smallestPlanCPUMillis,
-					pod.total, limitMillis, pod)
-			}
+			assertOrgBundleCarriedAboveThePlan(t, pod, openclawControllerPodCPUMillis(t), newapiCNPGCPUMillis(t))
 		})
 	}
 }
@@ -185,7 +188,7 @@ func TestNewAPIHR_Row232_VacuityCheck_HelperSeesTheChartDefault(t *testing.T) {
 	// above conservative-but-wrong; one that drifted ABOVE would let a Pod the
 	// cluster refuses pass here.
 	if derived := smallestPlanCPUMillisFromController(t); derived != smallestPlanCPUMillis {
-		t.Fatalf("smallestPlanCPUMillis = %dm but planQuotaTable[\"s\"].CPU in "+
+		t.Fatalf("smallestPlanCPUMillis = %dm but planQuotaTable[\"s\"].CPULimit in "+
 			"core/controllers/organization/internal/gitops/manifests.go now grants %dm. "+
 			"This guard is asserting against a ceiling the platform no longer has — "+
 			"update the mirror and re-check every headroom number that depends on it.",

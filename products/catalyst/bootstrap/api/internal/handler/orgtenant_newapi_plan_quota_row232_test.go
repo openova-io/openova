@@ -47,8 +47,10 @@ func cpuMillisFromYAML(v string) (int, bool) {
 	return int(f * 1000), true
 }
 
-// smallestPlanCPUMillisBSS mirrors planQuotaTable["s"].CPU ("2").
-const smallestPlanCPUMillisBSS = 2000
+// smallestPlanCPUMillisBSS mirrors planQuotaTable["s"].CPULimit ("1" — the S
+// package headline, NC-OO-Pricing.xlsx 2026-06-28, #6971). Pinned against the
+// real table by TestOrgTenantBPNewAPI_6324_OrgBundleIsCarriedAboveThePlanByTheQuota.
+const smallestPlanCPUMillisBSS = 1000
 
 func TestOrgTenantBPNewAPI_Row232_PinsCPUInsideThePlanQuota(t *testing.T) {
 	tmpl := orgTenantBPNewAPI
@@ -93,18 +95,13 @@ func TestOrgTenantBPNewAPI_Row232_PinsCPUInsideThePlanQuota(t *testing.T) {
 	// PLUS the two chart-default containers this overlay never mentions —
 	// because a ResourceQuota admits a Pod, not a container. Summing only
 	// `limMillis` here understated the cost by 700m and left this guard green
-	// while the live cluster refused the Pod. Terms derived in
-	// orgtenant_newapi_pod_quota_arithmetic_6324_test.go.
+	// while the live cluster refused the Pod. Since #6971 the bundle no longer
+	// fits the plan headline at all and is admitted as quota overhead; the
+	// statement and the lockstep that keeps it true live in
+	// assertOrgBundleCarriedAboveThePlanBSS
+	// (orgtenant_newapi_pod_quota_arithmetic_6324_test.go).
 	pod := newapiPodCPUMillisBSS(t)
-	openclaw := openclawControllerPodCPUMillisBSS(t)
-	cnpg := newapiCNPGCPUMillisBSS(t)
-	if pod.total+openclaw+cnpg > smallestPlanCPUMillisBSS {
-		t.Fatalf("bp-newapi POD %dm + openclaw controller %dm + newapi CNPG %dm = %dm exceeds "+
-			"the %dm cap.\n(the POD costs %dm; this overlay pins only %dm, on the `newapi` "+
-			"container)\n%s",
-			pod.total, openclaw, cnpg, pod.total+openclaw+cnpg, smallestPlanCPUMillisBSS,
-			pod.total, limMillis, pod)
-	}
+	assertOrgBundleCarriedAboveThePlanBSS(t, pod, openclawControllerPodCPUMillisBSS(t), newapiCNPGCPUMillisBSS(t))
 }
 
 // TestOrgTenantBPNewAPI_Row232_VacuityCheck proves the regexes above CAN fail:
