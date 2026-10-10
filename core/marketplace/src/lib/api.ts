@@ -545,6 +545,10 @@ export interface AddOn {
   icon: string;
   monthly_price: number;
   included: boolean;
+  // #6971 — set only on an add-on that comes from the BSS package document
+  // (packages.ts::funnelAddonsFor), where `id` is the BSS add-on SKU: the
+  // muted "Included from XL" up-sell line the Add-ons step shows under it.
+  hint?: string;
 }
 
 export interface User {
@@ -598,6 +602,12 @@ export interface CreateTenantRequest {
   // this; omitting it preserves the immediate-launch behaviour for every other
   // caller.
   defer_launch?: boolean;
+  // #6971 — the BSS package sku chosen on the comparison table (`plan.m`).
+  // `plan_id` stays the catalog id this service and billing resolve today;
+  // the sku rides beside it so BSS can attach the Organization's platform
+  // Source to the right package. The handler decodes with encoding/json
+  // defaults (no DisallowUnknownFields), so an older server ignores it.
+  package_sku?: string;
 }
 
 export interface Tenant {
@@ -626,6 +636,14 @@ export interface CheckoutRequest {
   // ('single-region' | 'active-hot-standby'). Billing prices the
   // hot-standby surcharge server-side; omitting it bills single-region.
   topology?: string;
+  // #6971 — the BSS package sku (`plan.m`) beside the catalog `plan_id`.
+  // `addons` is the cart's one list: catalog add-on ids, or BSS add-on SKUs
+  // (`addon.backup`) when the Add-ons step offered the package's optional
+  // features. computeOrderTotal prices only the ids it finds in
+  // /catalog/addons and persists the whole list on the order's `addons`
+  // column unchanged, so the SKUs reach the order record either way; the
+  // server-side quote from the same document is a sibling change.
+  package_sku?: string;
 }
 
 export interface CheckoutResponse {

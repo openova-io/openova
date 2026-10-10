@@ -1,8 +1,19 @@
 export interface CartState {
   plan: string | null;
   planName: string;
+  // One list for every add-on the customer picked on /addons. Ids are catalog
+  // add-on ids, or — when the Sovereign's BSS publishes the package document
+  // (#6971) — BSS add-on SKUs such as `addon.backup`, since the chosen
+  // package's optional features ARE that step's add-ons. Review, Checkout and
+  // both POSTs treat the list the same either way.
   apps: string[];
   addons: string[];
+  // #6971 — the BSS package chosen on the step-1 comparison table (`plan.m`).
+  // `plan` above stays the CATALOG plan id billing resolves
+  // (packages.ts::catalogPlanIdForPackage), exactly as the legacy deck set it;
+  // the sku travels beside it as `package_sku`. Null when the legacy deck (no
+  // BSS) made the choice.
+  packageSku: string | null;
   orgName: string;
   subdomain: string;
   // Parent domain (TLD) chosen on /addons. Persisted across wizard steps
@@ -55,6 +66,7 @@ const defaultCart: CartState = {
   email: '',
   agents: [],
   appConfigs: {},
+  packageSku: null,
 };
 
 // The 6 agents the Sandbox CRD (sandbox.openova.io/v1) accepts in
@@ -101,8 +113,37 @@ export function toggleApp(appId: string): CartState {
 
 export function setPlan(planId: string, planName?: string): CartState {
   const cart = readCart();
+  if (cart.plan !== planId) {
+    // #6971 — a plan change made without the package document in hand (the
+    // legacy deck) cannot know which package the new plan stands for, so the
+    // stamp is dropped rather than left pointing at the old package. Steps
+    // that hold the document use setPackage instead.
+    cart.packageSku = null;
+  }
   cart.plan = planId;
   if (planName) cart.planName = planName;
+  writeCart(cart);
+  return cart;
+}
+
+/**
+ * #6971 — persist a package choice: the catalog plan id billing needs and the
+ * display name (exactly what setPlan writes), plus the BSS package sku. Pass
+ * `addons` to replace the add-on list in the same write — the step-1 table
+ * and the Review radios use it to drop a BSS add-on the new package no longer
+ * offers as optional (packages.ts::pruneAddonsForPackage).
+ */
+export function setPackage(sel: {
+  planId: string;
+  planName: string;
+  packageSku: string;
+  addons?: string[];
+}): CartState {
+  const cart = readCart();
+  cart.plan = sel.planId;
+  cart.planName = sel.planName;
+  cart.packageSku = sel.packageSku;
+  if (sel.addons) cart.addons = [...sel.addons];
   writeCart(cart);
   return cart;
 }

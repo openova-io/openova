@@ -2,8 +2,22 @@
   import { getAddons, getApps, checkSlug, type AddOn, type App } from '../lib/api';
   import { readCart, toggleAddon, setOrgDetails, setTLD, writeCart, DEFAULT_TLD } from '../lib/cart';
   import { formatOMR } from '../lib/currency';
+  import { chargebackBaseURL } from '../lib/config';
+  import {
+    funnelAddonsFor,
+    loadPublicPackages,
+    packageForCart,
+    PACKAGE_STRINGS as PS,
+    type IncludedFeature,
+  } from '../lib/packages';
 
   let addons = $state<AddOn[]>([]);
+  // #6971 — when the Sovereign's BSS publishes the package document, the
+  // chosen package's INCLUDED boolean features render here read-only, above
+  // the optional extras (which are then its OPTIONAL features). Empty without
+  // the document, so this step is exactly today's.
+  let bssIncluded = $state<IncludedFeature[]>([]);
+  let packageName = $state('');
   let allApps = $state<App[]>([]);
   let cart = $state(readCart());
   let loading = $state(true);
@@ -73,21 +87,39 @@
     getApps().then(apps => { allApps = apps; }).catch(() => {});
   });
 
+  // Today's stand-in when the catalog is down — unchanged.
+  const FALLBACK_ADDONS: AddOn[] = [
+    { id: 'daily-backup', name: 'Daily Backup', slug: 'daily-backup', tagline: 'Automated daily backups with 30-day retention', icon: '🛡️', monthly_price: 3000, included: false },
+    { id: 'waf', name: 'Web Application Firewall', slug: 'waf', tagline: 'Coraza WAF — OWASP CRS protection', icon: '🔥', monthly_price: 4000, included: false },
+    { id: 'ips', name: 'Intrusion Prevention', slug: 'ips', tagline: 'Community-powered threat intelligence — CrowdSec', icon: '🚨', monthly_price: 3000, included: false },
+    { id: 'vuln-scan', name: 'Vulnerability Scanner', slug: 'vuln-scan', tagline: 'Weekly CVE scans + remediation reports', icon: '🔍', monthly_price: 2000, included: false },
+    { id: 'custom-domain', name: 'Custom Domain', slug: 'custom-domain', tagline: 'Your brand, your domain — with automatic TLS', icon: '🌐', monthly_price: 2000, included: false },
+    { id: 'log-management', name: 'Log Management', slug: 'log-management', tagline: 'Search and analyze all your app logs — Grafana Loki', icon: '📋', monthly_price: 3000, included: false },
+    { id: 'priority-support', name: 'Priority Support', slug: 'priority-support', tagline: '4-hour response SLA + dedicated channel', icon: '⚡', monthly_price: 5000, included: false },
+  ];
+
+  // #6971 — the catalog list as today; then, when the BSS package document is
+  // available and the cart stands on one of its packages, that package's
+  // OPTIONAL features become the add-ons (BSS `addon.*` SKUs, same AddOn shape),
+  // its INCLUDED boolean features render read-only, not-offered ones never
+  // appear, and a catalog add-on that twins a BSS feature yields to it. No
+  // document → `addons` is the catalog list, exactly as before.
   $effect(() => {
-    getAddons()
-      .then((data) => { addons = data; loading = false; })
-      .catch(() => {
-        addons = [
-          { id: 'daily-backup', name: 'Daily Backup', slug: 'daily-backup', tagline: 'Automated daily backups with 30-day retention', icon: '🛡️', monthly_price: 3000, included: false },
-          { id: 'waf', name: 'Web Application Firewall', slug: 'waf', tagline: 'Coraza WAF — OWASP CRS protection', icon: '🔥', monthly_price: 4000, included: false },
-          { id: 'ips', name: 'Intrusion Prevention', slug: 'ips', tagline: 'Community-powered threat intelligence — CrowdSec', icon: '🚨', monthly_price: 3000, included: false },
-          { id: 'vuln-scan', name: 'Vulnerability Scanner', slug: 'vuln-scan', tagline: 'Weekly CVE scans + remediation reports', icon: '🔍', monthly_price: 2000, included: false },
-          { id: 'custom-domain', name: 'Custom Domain', slug: 'custom-domain', tagline: 'Your brand, your domain — with automatic TLS', icon: '🌐', monthly_price: 2000, included: false },
-          { id: 'log-management', name: 'Log Management', slug: 'log-management', tagline: 'Search and analyze all your app logs — Grafana Loki', icon: '📋', monthly_price: 3000, included: false },
-          { id: 'priority-support', name: 'Priority Support', slug: 'priority-support', tagline: '4-hour response SLA + dedicated channel', icon: '⚡', monthly_price: 5000, included: false },
-        ];
-        loading = false;
-      });
+    Promise.all([
+      getAddons().catch(() => FALLBACK_ADDONS),
+      loadPublicPackages(chargebackBaseURL()),
+    ]).then(([catalog, doc]) => {
+      const pkg = doc ? packageForCart(doc, cart) : null;
+      if (doc && pkg) {
+        const merged = funnelAddonsFor(doc, pkg.sku, catalog);
+        addons = merged.addons;
+        bssIncluded = merged.included;
+        packageName = merged.packageName;
+      } else {
+        addons = catalog;
+      }
+      loading = false;
+    });
   });
 
   const paidAddons = $derived(addons.filter(a => !a.included));
@@ -113,6 +145,11 @@
     'waf': '🔥', 'ips': '🚨', 'vuln-scan': '🔍',
     'custom-domain': '🌐', 'log-management': '📋', 'priority-support': '⚡',
     'daily-backup': '🛡️',
+    // #6971 — BSS feature keys (the `slug` of a document-sourced add-on).
+    'backup': '🛡️', 'domain': '🌐', 'dedicated-ip': '🌍', 'ai-seo': '🔎',
+    'ai-website-builder': '🪄', 'ssl': '🔒', 'sso': '🔑', 'ddos': '🛡️',
+    'malware-scanner': '🔍', 'support': '💬', 'mail': '✉️', 'databases': '🗄️',
+    'applications': '📦',
   };
 </script>
 
@@ -211,6 +248,30 @@
       </section>
     {/if}
 
+    {#if bssIncluded.length > 0}
+      <!-- #6971 — the chosen package's included features, read-only: no price,
+           no toggle. Rendered only when the BSS document is available. -->
+      <section class="ao-section" data-testid="addons-included">
+        <div class="ao-head">
+          <h2>{PS.includedInPackage}</h2>
+          <span class="ao-badge">{packageName ? `${packageName} · INCLUDED` : 'INCLUDED'}</span>
+        </div>
+        <p class="bs-hint">{PS.includedHint}</p>
+        <div class="extras-grid">
+          {#each bssIncluded as f (f.key)}
+            <div class="extra-tile svc-tile" data-testid="addons-included-{f.key}">
+              <span class="extra-icon">{addonIcons[f.key] || '✓'}</span>
+              <div class="extra-body">
+                <strong>{f.name}</strong>
+                <p>{f.blurb}</p>
+              </div>
+              <span class="extra-price svc-price">Included</span>
+            </div>
+          {/each}
+        </div>
+      </section>
+    {/if}
+
     <!-- Optional extras — tile grid -->
     <section class="ao-section">
       <div class="ao-head">
@@ -218,17 +279,19 @@
         <span class="ao-note">Skip any you don't need</span>
       </div>
       <div class="extras-grid">
-        {#each paidAddons as addon}
+        {#each paidAddons as addon (addon.id)}
           {@const isChecked = cart.addons.includes(addon.id)}
           <button
             type="button"
             onclick={() => toggle(addon.id)}
             class="extra-tile clickable {isChecked ? 'checked' : ''}"
+            data-testid="addon-tile-{addon.id}"
           >
             <span class="extra-icon">{addonIcons[addon.slug] || addon.icon || '📦'}</span>
             <div class="extra-body">
               <strong>{addon.name}</strong>
               <p>{addon.tagline}</p>
+              {#if addon.hint}<p class="extra-hint">{addon.hint}</p>{/if}
             </div>
             <span class="extra-price">+{formatOMR(addon.monthly_price)}</span>
             <span class="extra-check">
@@ -378,6 +441,7 @@
   .extra-body { flex: 1; min-width: 0; }
   .extra-body strong { display: block; color: var(--color-text-strong); font-size: 0.82rem; }
   .extra-body p { margin: 0.1rem 0 0; color: var(--color-text-dim); font-size: 0.7rem; line-height: 1.3; }
+  .extra-body .extra-hint { color: var(--color-text-dimmer); font-style: italic; }
   .extra-price { color: var(--color-text-strong); font-weight: 600; font-size: 0.82rem; white-space: nowrap; flex-shrink: 0; }
   .extra-check { flex-shrink: 0; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; }
   .extra-check svg { width: 20px; height: 20px; background: var(--color-accent); color: #fff; border-radius: 4px; padding: 2px; }
