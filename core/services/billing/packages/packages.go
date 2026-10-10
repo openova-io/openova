@@ -164,10 +164,13 @@ type Package struct {
 
 // Feature is one row of the table; Cells is keyed by package SKU.
 type Feature struct {
-	Key   string
-	Name  string
-	Kind  string
-	Cells map[string]Cell
+	Key  string
+	Name string
+	Kind string
+	// Levels is the ordered label list of a `kind: level` feature (0.1.61,
+	// DESIGN.md §22.1): a cell's Level indexes into it.
+	Levels []string
+	Cells  map[string]Cell
 }
 
 // Cell is how one feature is sold on one package.
@@ -176,6 +179,9 @@ type Cell struct {
 	AddonSKU     string
 	PriceMinor   int64
 	IncludedFrom string
+	// Level is the index into Feature.Levels on a level feature; nil when the
+	// document does not carry one (a v1 document, or a non-level feature).
+	Level *int
 }
 
 // wire mirrors the JSON contract one-for-one; Parse converts it.
@@ -189,14 +195,16 @@ type wire struct {
 		PriceMonth string `json:"price_month"`
 	} `json:"packages"`
 	Features []struct {
-		Key   string `json:"key"`
-		Name  string `json:"name"`
-		Kind  string `json:"kind"`
-		Cells map[string]struct {
+		Key    string   `json:"key"`
+		Name   string   `json:"name"`
+		Kind   string   `json:"kind"`
+		Levels []string `json:"levels"`
+		Cells  map[string]struct {
 			State        string `json:"state"`
 			AddonSKU     string `json:"addon_sku"`
 			PriceMonth   string `json:"price_month"`
 			IncludedFrom string `json:"included_from"`
+			Level        *int   `json:"level"`
 		} `json:"cells"`
 	} `json:"features"`
 }
@@ -241,12 +249,12 @@ func Parse(body []byte) (*Document, error) {
 		if f.Key == "" {
 			return nil, fmt.Errorf("price book: a feature has no key")
 		}
-		feat := Feature{Key: f.Key, Name: f.Name, Kind: f.Kind, Cells: make(map[string]Cell, len(f.Cells))}
+		feat := Feature{Key: f.Key, Name: f.Name, Kind: f.Kind, Cells: make(map[string]Cell, len(f.Cells)), Levels: f.Levels}
 		if feat.Name == "" {
 			feat.Name = f.Key
 		}
 		for sku, c := range f.Cells {
-			cell := Cell{State: c.State, AddonSKU: c.AddonSKU, IncludedFrom: c.IncludedFrom}
+			cell := Cell{State: c.State, AddonSKU: c.AddonSKU, IncludedFrom: c.IncludedFrom, Level: c.Level}
 			switch c.State {
 			case StateIncluded, StateNotOffered:
 			case StateOptional:
@@ -343,6 +351,13 @@ type RefusedError struct {
 }
 
 func (e *RefusedError) Error() string { return e.msg }
+
+// Refused builds a RefusedError from outside the package (the handler refuses
+// a topology the package does not carry with the same error the add-on path
+// uses, so the same 422 mapping applies).
+func Refused(packageSKU, addonSKU, msg string) *RefusedError {
+	return &RefusedError{PackageSKU: packageSKU, AddonSKU: addonSKU, msg: msg}
+}
 
 // Price prices package packageSKU with the given BSS add-on SKUs.
 //
@@ -495,4 +510,31 @@ func (c *Client) httpClient() *http.Client {
 		return http.DefaultClient
 	}
 	return c.HTTP
+}
+
+// DRTopologyKey is the key of the resilience level feature that says which
+// disaster-recovery topology a package carries (0.1.61 seeder / DESIGN.md
+// §22.7): levels "single region" and "active-passive".
+const DRTopologyKey = "dr_topology"
+
+// DRActivePassive is the level label of the two-region topology.
+const DRActivePassive = "active-passive"
+
+// DRTopology returns the DR level label a package carries, and whether the
+// document says anything about it at all. A v1 document (no dr_topology
+// feature, or no level on the cell) reports false and billing keeps its own
+// surcharge; a v2 document is the authority — the package either includes the
+// topology or does not offer it, and no surcharge exists beside the package.
+func (d *Document) DRTopology(packageSKU string) (string, bool) {
+	for _, f := range d.Features {
+		if f.Key != DRTopologyKey || f.Kind != "level" {
+			continue
+		}
+		c, has := f.Cells[packageSKU]
+		if !has || c.Level == nil || *c.Level < 0 || *c.Level >= len(f.Levels) {
+			return "", false
+		}
+		return f.Levels[*c.Level], true
+	}
+	return "", false
 }

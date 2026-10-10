@@ -1372,7 +1372,25 @@ func (h *Handler) priceFromPackages(ctx context.Context, req pricingRequest) (*p
 	p.Lines = append(p.Lines, h.catalogAddonLines(ctx, catalogIDs)...)
 	// Apps are free for now (catalog app records have no price field).
 	_ = req.Apps
-	p.TopologyBaisa = topologySurchargeBaisa(req.Topology)
+	// The DR topology comes from the package when the document carries it
+	// (0.1.61): active-passive is included on the packages whose dr_topology
+	// level says so and is not offered on the others — never a surcharge
+	// beside the package price. A v1 document says nothing, and billing keeps
+	// its own surcharge for it (the catalog path's number).
+	if req.Topology == topologyActiveHotStandby {
+		if label, known := doc.DRTopology(req.PackageSKU); known {
+			if label != packages.DRActivePassive {
+				pkgName := req.PackageSKU
+				if pkg, ok := doc.Package(req.PackageSKU); ok {
+					pkgName = pkg.Name
+				}
+				return nil, packages.Refused(req.PackageSKU, "", fmt.Sprintf("the active-passive topology is not offered on package %q (%s); it is included from the package whose DR topology is active-passive", req.PackageSKU, pkgName))
+			}
+			p.TopologyBaisa = 0
+		} else {
+			p.TopologyBaisa = topologySurchargeBaisa(req.Topology)
+		}
+	}
 	p.TotalBaisa = p.PlanBaisa + p.TopologyBaisa
 	for _, l := range p.Lines {
 		p.TotalBaisa += l.AmountBaisa
