@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-10-10T17:45:04Z` |
+| Last refreshed | `2026-10-10T18:00:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-10-10T17:55 | [#7001](https://github.com/openova-io/openova/pull/7001) | #6971 | feat(bss): capped or grow — package as prepaid commitment, u |
 | 2026-10-10T17:27 | [#7000](https://github.com/openova-io/openova/pull/7000) | #6971 | feat(storefront): capped or grow with me — growth billed aft |
 | 2026-10-10T16:47 | [#6999](https://github.com/openova-io/openova/pull/6999) | #6996 | feat(bss): icons and branding defined in BSS and published b |
 | 2026-10-10T15:58 | [#6998](https://github.com/openova-io/openova/pull/6998) | #6971 | fix(billing): accept the teaser cell state — storefront quot |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-27T10:54 | [#6952](https://github.com/openova-io/openova/pull/6952) | #6867 | perf(bss): every summary from one read of the priced ledger; |
 | 2026-09-27T09:34 | [#6951](https://github.com/openova-io/openova/pull/6951) | #6867 | fix(bss): the database gets the memory the ledger needs; the |
 | 2026-09-27T08:18 | [#6950](https://github.com/openova-io/openova/pull/6950) | #6949 | docs(bss): STATUS at 0.1.51 and the CRUD-gap screenshots |
-| 2026-09-27T08:05 | [#6949](https://github.com/openova-io/openova/pull/6949) | #6946 | feat(bss): the five CRUD gaps closed — resource kinds, prefe |
 
 ---
 
