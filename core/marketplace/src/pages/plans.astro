@@ -1,12 +1,18 @@
 ---
 import Layout from '../layouts/Layout.astro';
 import PackageTable from '../components/PackageTable.svelte';
+// The ladder's stylesheet is a PAGE import so it is bundled whether or not
+// the server render reaches PackageLadder (it never does — the ladder mounts
+// only once the BSS document arrives in the browser). See the note at the top
+// of src/styles/package-ladder.css.
+import '../styles/package-ladder.css';
 ---
 <Layout title="Choose a Plan" step={1}>
-  <!-- #6971 — the package comparison table fed from the Sovereign's BSS at
+  <!-- #6971 — the package comparison fed from the Sovereign's BSS at
        GET /api/v1/public/packages. PackageTable renders the legacy PlanStep
        deck first (server-rendered, as this page mounted it before) and swaps
-       in the table once the document arrives; when the endpoint is
-       unreachable or empty the deck simply stays. -->
+       in the table (v1 document) or the ladder (v2 document) once the
+       document arrives; when the endpoint is unreachable or empty the deck
+       simply stays. -->
   <PackageTable client:load />
 </Layout>

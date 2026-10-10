@@ -2,26 +2,35 @@
 //
 // #6971. The SME storefront sells hosting-style packages S / M / L / XL. Every
 // feature exists for every Organization technically; commercially each one is,
-// per package, Included, Optional (a paid add-on) or Not offered. That matrix
-// is OWNED by BSS and published, public and CORS-enabled, at
+// per package, Included, Optional (a paid add-on), a Teaser (not available
+// here — a larger package has it) or Not offered. That matrix is OWNED by BSS
+// and published, public and CORS-enabled, at
 //
 //     GET https://chargeback.<sovereign-fqdn>/api/v1/public/packages
 //
 // The wizard already has the steps this needs, so the document FEEDS them
 // rather than adding a flow of its own:
 //
-//   Step 1 Plan     — the comparison table (PackageTable.svelte): one column per
-//                     package, one row per feature, ✓ / "add-on + price" / —.
+//   Step 1 Plan     — the comparison (PackageTable.svelte). With a v1 document
+//                     (no `groups`) it is the flat table: one column per
+//                     package, one row per feature. With a v2 document
+//                     (`groups`, `floor`, a package `shape` and `step_up`) it
+//                     is the LADDER (PackageLadder.svelte): four package
+//                     cards, one grouped comparison, the floor strip once.
 //                     Choosing a package sets the cart plan exactly as the
-//                     legacy deck did (catalog plan id mapped from the sku) and
-//                     continues to Stack. Nothing else is picked here.
+//                     legacy deck did and continues to Stack. Nothing else is
+//                     picked here.
 //   Step 3 Add-ons  — the chosen package's OPTIONAL features ARE the add-ons
-//                     (funnelAddonsFor: BSS `addon.*` SKUs in the AddOn shape the
-//                     step already renders), its INCLUDED boolean features show
-//                     read-only, not-offered ones never appear, and a catalog
-//                     add-on that twins a BSS feature yields to it.
+//                     (funnelAddonsFor / addonsLadderFor: BSS `addon.*` SKUs in
+//                     the AddOn shape the step already renders), its INCLUDED
+//                     features show read-only, and with a v2 document the
+//                     teaser / not-offered ones list under "Not on <pkg>" with
+//                     the rung that has them, plus the STEP-UP hint when the
+//                     ticked add-ons the next package bundles cost at least
+//                     the price gap to it (stepUpHint).
 //   Review/Checkout — unchanged in structure; the same merged add-on list
-//                     resolves whatever ids the cart holds to name + price.
+//                     resolves whatever ids the cart holds to name + price,
+//                     and the floor is a footnote under the Review total.
 //
 // There is deliberately NO feature list in this tree. When the document is
 // unreachable or publishes no packages, `loadPublicPackages` resolves to null,
@@ -33,15 +42,38 @@
 
 import type { AddOn } from './api';
 
-export type CellState = 'included' | 'optional' | 'not_offered';
-export type FeatureKind = 'boolean' | 'quantity';
+export type CellState = 'included' | 'optional' | 'teaser' | 'not_offered';
+export type FeatureKind = 'boolean' | 'quantity' | 'level' | 'access';
+/** What happens above a quantity cell's allowance. */
+export type Overage = 'hard_cap' | 'metered' | 'unlimited';
 
-/** Quantities a package ships with, per the contract's `includes` object. */
+/** Quantities a package ships with, per the v1 contract's `includes` object. */
 export interface PackageIncludes {
   vcpu?: number;
   memory_gb?: number;
   storage_gb?: number;
   bandwidth_mbps?: number;
+}
+
+/** The v2 contract's `shape`: the headline sizing and the guaranteed share. */
+export interface PackageShape {
+  vcpu?: number;
+  memory_gb?: number;
+  vcpu_guaranteed?: number;
+  memory_gb_guaranteed?: number;
+  disk_gb?: number;
+}
+
+/** The v2 contract's `step_up`: the next rung and what it bundles. */
+export interface PackageStepUp {
+  next_sku: string;
+  next_name: string;
+  /** Money string: the next package's price minus this one's. */
+  gap_month: string;
+  /** Feature keys the next package includes that are add-ons here. */
+  bundled_addon_keys: string[];
+  bundled_addons_sum_month: string;
+  rule_holds: boolean;
 }
 
 export interface PublicPackage {
@@ -50,6 +82,17 @@ export interface PublicPackage {
   /** Money is a string at the currency's minor unit, e.g. "9.000". */
   price_month: string;
   includes: PackageIncludes;
+  // v2 — absent on a v1 document.
+  tagline?: string;
+  recommended?: boolean;
+  annual_months_free?: number;
+  shape?: PackageShape;
+  step_up?: PackageStepUp | null;
+}
+
+export interface NextLevelAddon {
+  addon_sku: string;
+  price_month: string;
 }
 
 export interface PublicCell {
@@ -59,6 +102,14 @@ export interface PublicCell {
   /** The sku of the cheapest package that includes this feature as standard. */
   included_from?: string;
   quantity?: number;
+  // v2
+  overage?: Overage;
+  /** Index into the feature's `levels`. */
+  level?: number;
+  /** The add-on that lifts an included level cell to the next level. */
+  next_level_addon?: NextLevelAddon;
+  /** A short qualifier on an access cell, e.g. "read". */
+  note?: string;
 }
 
 export interface PublicFeature {
@@ -68,6 +119,23 @@ export interface PublicFeature {
   kind: FeatureKind;
   unit?: string;
   cells: Record<string, PublicCell>;
+  // v2
+  group?: string;
+  levels?: string[];
+  addon_sku?: string;
+  teaser?: boolean;
+}
+
+export interface PackageGroup {
+  key: string;
+  name: string;
+}
+
+/** Something every package includes — rendered once, under the comparison. */
+export interface FloorItem {
+  key: string;
+  name: string;
+  blurb?: string;
 }
 
 export interface PublicPackages {
@@ -78,9 +146,18 @@ export interface PublicPackages {
   packages: PublicPackage[];
   /** Ordered by the server's sort order; rendered in that order. */
   features: PublicFeature[];
+  /** v2 only: the comparison's groups, in render order. Its presence IS the version. */
+  groups?: PackageGroup[];
+  /** v2 only: the floor strip. */
+  floor?: FloorItem[];
 }
 
 export const PUBLIC_PACKAGES_PATH = '/api/v1/public/packages';
+
+/** A v2 document publishes `groups`; everything the ladder needs hangs off that. */
+export function isLadderDocument(doc: PublicPackages): boolean {
+  return Array.isArray(doc.groups) && doc.groups.length > 0;
+}
 
 // ---------------------------------------------------------------------------
 // Strings — the one place.
@@ -117,13 +194,51 @@ export const PACKAGE_STRINGS = {
   // Step 3 — the read-only group above the optional extras.
   includedInPackage: 'Included in your package',
   includedHint: 'Part of your package at no extra cost — nothing to pick.',
+  // The ladder (document v2).
+  ladder: {
+    annualFree: (n: number) => `Annual: ${n} month${n === 1 ? '' : 's'} free`,
+    shape: (vcpu: number, memoryGb: number) => `${vcpu} vCPU · ${memoryGb} GB RAM`,
+    guaranteed: (vcpu: number, memoryGb: number) => `${vcpu} vCPU · ${memoryGb} GB guaranteed`,
+    disk: (gb: number) => `${gb} GB disk`,
+    addonTag: 'ADD-ON',
+    addonPrice: (price: string) => `+ ${price} / mo`,
+    from: (name: string) => `from ${name}`,
+    teaserLabel: (name: string) => `Not on this package — included from ${name}`,
+    hardCap: 'hard cap',
+    metered: 'then metered',
+    unlimited: 'unlimited',
+    unlimitedLabel: 'Unlimited',
+    otherGroup: 'More',
+    floorLead: 'Every package includes:',
+    addonsNote: 'Optional add-ons are picked on the Add-ons step.',
+    // Step 3 blocks.
+    inYourPackage: 'In your package',
+    inYourPackageHint: 'Part of your package — nothing to pick.',
+    addons: 'Add-ons',
+    addonsHint: 'Tick what you need; each is added to your monthly total.',
+    notOn: (name: string) => `Not on ${name}`,
+    notOnHint: 'Larger packages include these. Switching keeps your apps.',
+    upgradeTo: (name: string) => `Upgrade to ${name} to get this`,
+    availableOn: (name: string, price: string) => `Available on ${name} as an add-on (+ ${price} / mo)`,
+    levelUp: (feature: string, level: string) => `${feature} · ${level}`,
+    levelFrom: (level: string) => `Upgrade from ${level}`,
+    stepUpTitle: (next: string, gap: string, currency: string) => `${next} includes all of this for ${gap} ${currency} more`,
+    stepUpBody: (sum: string, currency: string, next: string) =>
+      `You are adding ${sum} ${currency} / mo of add-ons that ${next} includes as standard.`,
+    stepUpCta: (next: string) => `Switch to ${next}`,
+    runningTotal: 'Your monthly total',
+    packageLine: (name: string) => `${name} package`,
+    addonsLine: 'Add-ons',
+  },
 } as const;
 
 // ---------------------------------------------------------------------------
 // Validation — the contract, checked at the boundary.
 // ---------------------------------------------------------------------------
 
-const STATES: ReadonlySet<string> = new Set<CellState>(['included', 'optional', 'not_offered']);
+const STATES: ReadonlySet<string> = new Set<CellState>(['included', 'optional', 'teaser', 'not_offered']);
+const KINDS: ReadonlySet<string> = new Set<FeatureKind>(['boolean', 'quantity', 'level', 'access']);
+const OVERAGES: ReadonlySet<string> = new Set<Overage>(['hard_cap', 'metered', 'unlimited']);
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -135,6 +250,10 @@ function str(v: unknown): string | null {
 
 function num(v: unknown): number | undefined {
   return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+}
+
+function strList(v: unknown): string[] {
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.trim() !== '') : [];
 }
 
 function parseIncludes(v: unknown): PackageIncludes {
@@ -151,13 +270,53 @@ function parseIncludes(v: unknown): PackageIncludes {
   return out;
 }
 
+function parseShape(v: unknown): PackageShape | undefined {
+  if (!isRecord(v)) return undefined;
+  const out: PackageShape = {};
+  for (const k of ['vcpu', 'memory_gb', 'vcpu_guaranteed', 'memory_gb_guaranteed', 'disk_gb'] as const) {
+    const n = num(v[k]);
+    if (n !== undefined) out[k] = n;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function parseStepUp(v: unknown): PackageStepUp | null {
+  if (!isRecord(v)) return null;
+  const next_sku = str(v.next_sku);
+  const gap = str(v.gap_month);
+  if (!next_sku || !gap) return null;
+  return {
+    next_sku,
+    next_name: str(v.next_name) ?? next_sku,
+    gap_month: gap,
+    bundled_addon_keys: strList(v.bundled_addon_keys),
+    bundled_addons_sum_month: str(v.bundled_addons_sum_month) ?? '0.000',
+    rule_holds: v.rule_holds === true,
+  };
+}
+
 function parsePackage(v: unknown): PublicPackage | null {
   if (!isRecord(v)) return null;
   const sku = str(v.sku);
   const name = str(v.name);
   const price = str(v.price_month);
   if (!sku || !name || !price) return null;
-  return { sku, name, price_month: price, includes: parseIncludes(v.includes) };
+  const out: PublicPackage = { sku, name, price_month: price, includes: parseIncludes(v.includes) };
+  if (typeof v.tagline === 'string') out.tagline = v.tagline.trim();
+  if (v.recommended === true) out.recommended = true;
+  const annual = num(v.annual_months_free);
+  if (annual !== undefined && annual >= 0) out.annual_months_free = Math.floor(annual);
+  const shape = parseShape(v.shape);
+  if (shape) out.shape = shape;
+  if ('step_up' in v) out.step_up = parseStepUp(v.step_up);
+  return out;
+}
+
+function parseNextLevelAddon(v: unknown): NextLevelAddon | undefined {
+  if (!isRecord(v)) return undefined;
+  const sku = str(v.addon_sku);
+  const price = str(v.price_month);
+  return sku && price ? { addon_sku: sku, price_month: price } : undefined;
 }
 
 function parseCell(v: unknown): PublicCell | null {
@@ -169,10 +328,18 @@ function parseCell(v: unknown): PublicCell | null {
   const price = str(v.price_month);
   const from = str(v.included_from);
   const qty = num(v.quantity);
+  const overage = str(v.overage);
+  const level = num(v.level);
+  const nla = parseNextLevelAddon(v.next_level_addon);
+  const note = str(v.note);
   if (addon) cell.addon_sku = addon;
   if (price) cell.price_month = price;
   if (from) cell.included_from = from;
   if (qty !== undefined) cell.quantity = qty;
+  if (overage && OVERAGES.has(overage)) cell.overage = overage as Overage;
+  if (level !== undefined && level >= 0) cell.level = Math.floor(level);
+  if (nla) cell.next_level_addon = nla;
+  if (note) cell.note = note;
   return cell;
 }
 
@@ -181,7 +348,7 @@ function parseFeature(v: unknown): PublicFeature | null {
   const key = str(v.key);
   const name = str(v.name);
   if (!key || !name) return null;
-  const kind: FeatureKind = v.kind === 'quantity' ? 'quantity' : 'boolean';
+  const kind: FeatureKind = typeof v.kind === 'string' && KINDS.has(v.kind) ? (v.kind as FeatureKind) : 'boolean';
   const cells: Record<string, PublicCell> = {};
   if (isRecord(v.cells)) {
     for (const [sku, raw] of Object.entries(v.cells)) {
@@ -192,15 +359,41 @@ function parseFeature(v: unknown): PublicFeature | null {
   const out: PublicFeature = { key, name, kind, cells };
   const blurb = str(v.blurb);
   const unit = str(v.unit);
+  const group = str(v.group);
+  const addon = str(v.addon_sku);
+  const levels = strList(v.levels);
   if (blurb) out.blurb = blurb;
   if (unit) out.unit = unit;
+  if (group) out.group = group;
+  if (addon) out.addon_sku = addon;
+  if (levels.length > 0) out.levels = levels;
+  if (v.teaser === true) out.teaser = true;
+  return out;
+}
+
+function parseGroup(v: unknown): PackageGroup | null {
+  if (!isRecord(v)) return null;
+  const key = str(v.key);
+  const name = str(v.name);
+  return key && name ? { key, name } : null;
+}
+
+function parseFloorItem(v: unknown): FloorItem | null {
+  if (!isRecord(v)) return null;
+  const key = str(v.key);
+  const name = str(v.name);
+  if (!key || !name) return null;
+  const out: FloorItem = { key, name };
+  const blurb = str(v.blurb);
+  if (blurb) out.blurb = blurb;
   return out;
 }
 
 /**
  * Validate a `GET /api/v1/public/packages` body. Returns null when the body is
  * not the contract or publishes no packages — the wizard then behaves exactly
- * as it does without BSS.
+ * as it does without BSS. A v1 body (no `groups`) and a v2 body both parse;
+ * `isLadderDocument` tells them apart.
  */
 export function parsePublicPackages(raw: unknown): PublicPackages | null {
   if (!isRecord(raw)) return null;
@@ -219,6 +412,13 @@ export function parsePublicPackages(raw: unknown): PublicPackages | null {
   const asOf = str(raw.prices_as_of);
   if (book) out.price_book = book;
   if (asOf) out.prices_as_of = asOf;
+  if (Array.isArray(raw.groups)) {
+    const groups = raw.groups.map(parseGroup).filter((g): g is PackageGroup => g !== null);
+    if (groups.length > 0) out.groups = groups;
+  }
+  if (Array.isArray(raw.floor)) {
+    out.floor = raw.floor.map(parseFloorItem).filter((f): f is FloorItem => f !== null);
+  }
   return out;
 }
 
@@ -297,7 +497,7 @@ export async function loadPublicPackages(
 }
 
 // ---------------------------------------------------------------------------
-// Step 1 — the comparison table's render model.
+// Step 1 (v1 document) — the flat comparison table's render model.
 // ---------------------------------------------------------------------------
 
 export interface TableColumn {
@@ -349,9 +549,19 @@ export function includesLines(inc: PackageIncludes): string[] {
   return out;
 }
 
+function packageName(packages: ReadonlyArray<PublicPackage>, sku: string | undefined): string | null {
+  if (!sku) return null;
+  const hit = packages.find(p => p.sku === sku);
+  return hit ? hit.name : null;
+}
+
 /** The text a cell renders. A missing cell is read as not offered. */
-export function cellLabel(cell: PublicCell | undefined, feature: PublicFeature, currency: string): string {
+export function cellLabel(cell: PublicCell | undefined, feature: PublicFeature, currency: string, packages: ReadonlyArray<PublicPackage> = []): string {
   if (!cell || cell.state === 'not_offered') return PACKAGE_STRINGS.notOfferedGlyph;
+  if (cell.state === 'teaser') {
+    const from = packageName(packages, cell.included_from);
+    return from ? PACKAGE_STRINGS.ladder.from(from) : PACKAGE_STRINGS.notOfferedGlyph;
+  }
   if (cell.state === 'included') {
     if (feature.kind === 'quantity' && cell.quantity !== undefined) {
       return `${cell.quantity}${feature.unit ? ` ${feature.unit}` : ''}`;
@@ -363,9 +573,10 @@ export function cellLabel(cell: PublicCell | undefined, feature: PublicFeature, 
     : PACKAGE_STRINGS.optionalNoPrice;
 }
 
-function stateLabel(state: CellState): string {
+function stateLabel(state: CellState, from: string | null = null): string {
   if (state === 'included') return PACKAGE_STRINGS.includedLabel;
   if (state === 'optional') return PACKAGE_STRINGS.optionalLabel;
+  if (state === 'teaser') return from ? PACKAGE_STRINGS.ladder.teaserLabel(from) : PACKAGE_STRINGS.notOfferedLabel;
   return PACKAGE_STRINGS.notOfferedLabel;
 }
 
@@ -373,7 +584,7 @@ function stateLabel(state: CellState): string {
  * "Included from XL" — only for an optional cell whose `included_from` names a
  * package in this document. Nothing is invented for a dangling sku.
  */
-export function includedFromHint(cell: PublicCell | undefined, packages: PublicPackage[]): string | null {
+export function includedFromHint(cell: PublicCell | undefined, packages: ReadonlyArray<PublicPackage>): string | null {
   if (!cell || cell.state !== 'optional' || !cell.included_from) return null;
   const target = packages.find(p => p.sku === cell.included_from);
   return target ? PACKAGE_STRINGS.includedFrom(target.name) : null;
@@ -384,7 +595,7 @@ export function includedFromHint(cell: PublicCell | undefined, packages: PublicP
  * this document, otherwise the middle one (the lower middle for an even count,
  * so S/M/L/XL highlights M).
  */
-export function recommendedSku(packages: PublicPackage[], query: string | null | undefined): string | null {
+export function recommendedSku(packages: ReadonlyArray<PublicPackage>, query: string | null | undefined): string | null {
   if (packages.length === 0) return null;
   const q = (query ?? '').trim();
   if (q && packages.some(p => p.sku === q)) return q;
@@ -413,8 +624,8 @@ export function buildPackageTable(
       return {
         sku: p.sku,
         state,
-        label: cellLabel(cell, f, data.currency),
-        stateLabel: stateLabel(state),
+        label: cellLabel(cell, f, data.currency, data.packages),
+        stateLabel: stateLabel(state, packageName(data.packages, cell?.included_from)),
         hint: includedFromHint(cell, data.packages),
         addonSku: cell?.state === 'optional' && cell.addon_sku ? cell.addon_sku : null,
         priceMonth: cell?.price_month ?? null,
@@ -433,6 +644,199 @@ export function buildPackageTable(
 }
 
 // ---------------------------------------------------------------------------
+// Step 1 (v2 document) — the ladder's render model: cards, grouped rows, floor.
+// ---------------------------------------------------------------------------
+
+export interface LadderCard {
+  sku: string;
+  name: string;
+  /** Empty when the package has none — the card then shows no tagline line. */
+  tagline: string;
+  priceMonth: string;
+  recommended: boolean;
+  /** "Annual: 2 months free", or null when there is nothing to say. */
+  annualLine: string | null;
+  /** "4 vCPU · 8 GB RAM" */
+  shapeHeadline: string | null;
+  /** "1 vCPU · 4 GB guaranteed" — in small type under the headline. */
+  shapeGuarantee: string | null;
+  /** "50 GB disk" */
+  diskLine: string | null;
+}
+
+export interface LadderCell {
+  sku: string;
+  state: CellState;
+  kind: FeatureKind;
+  /**
+   * The cell's main text: "✓", "100 Mbps", "daily · 14 days", "from L", "—";
+   * on an optional cell the price ("+ 2.000 / mo") beside the ADD-ON tag.
+   */
+  label: string;
+  /** The small line under it: "hard cap" / "then metered" / "Included from XL" / an access note. */
+  hint: string | null;
+  stateLabel: string;
+}
+
+export interface LadderRow {
+  key: string;
+  name: string;
+  blurb: string;
+  kind: FeatureKind;
+  cells: LadderCell[];
+}
+
+export interface LadderGroup {
+  key: string;
+  name: string;
+  rows: LadderRow[];
+}
+
+export interface LadderModel {
+  currency: string;
+  priceBook: string | null;
+  pricesAsOf: string | null;
+  cards: LadderCard[];
+  /** Groups with at least one feature, in the document's order; unknown-group features last. */
+  groups: LadderGroup[];
+  /** The floor strip's names, in order. */
+  floor: string[];
+  recommendedSku: string | null;
+}
+
+function overageHint(overage: Overage | undefined): string | null {
+  if (overage === 'hard_cap') return PACKAGE_STRINGS.ladder.hardCap;
+  if (overage === 'metered') return PACKAGE_STRINGS.ladder.metered;
+  if (overage === 'unlimited') return PACKAGE_STRINGS.ladder.unlimited;
+  return null;
+}
+
+/** A level cell's label, from the feature's `levels` list; "✓" when it has none. */
+export function levelLabel(feature: PublicFeature, level: number | undefined): string {
+  if (level === undefined || !feature.levels) return PACKAGE_STRINGS.includedGlyph;
+  return feature.levels[level] ?? PACKAGE_STRINGS.includedGlyph;
+}
+
+/** An included quantity cell's label: "100 Mbps", or "Unlimited" when that is the overage rule and there is no number. */
+export function quantityLabel(feature: PublicFeature, cell: PublicCell): string {
+  if (cell.quantity !== undefined) return `${cell.quantity}${feature.unit ? ` ${feature.unit}` : ''}`;
+  if (cell.overage === 'unlimited') return PACKAGE_STRINGS.ladder.unlimitedLabel;
+  return PACKAGE_STRINGS.includedGlyph;
+}
+
+function ladderCell(cell: PublicCell | undefined, feature: PublicFeature, packages: ReadonlyArray<PublicPackage>, sku: string): LadderCell {
+  const state: CellState = cell?.state ?? 'not_offered';
+  const base = { sku, state, kind: feature.kind };
+  if (!cell || state === 'not_offered') {
+    return { ...base, label: PACKAGE_STRINGS.notOfferedGlyph, hint: null, stateLabel: PACKAGE_STRINGS.notOfferedLabel };
+  }
+  if (state === 'teaser') {
+    const from = packageName(packages, cell.included_from);
+    return {
+      ...base,
+      label: from ? PACKAGE_STRINGS.ladder.from(from) : PACKAGE_STRINGS.notOfferedGlyph,
+      hint: null,
+      stateLabel: stateLabel('teaser', from),
+    };
+  }
+  if (state === 'optional') {
+    return {
+      ...base,
+      label: cell.price_month ? PACKAGE_STRINGS.ladder.addonPrice(cell.price_month) : PACKAGE_STRINGS.optionalNoPrice,
+      hint: includedFromHint(cell, packages),
+      stateLabel: PACKAGE_STRINGS.optionalLabel,
+    };
+  }
+  // included
+  if (feature.kind === 'quantity') {
+    const label = quantityLabel(feature, cell);
+    const hint = label === PACKAGE_STRINGS.ladder.unlimitedLabel ? null : overageHint(cell.overage);
+    return { ...base, label, hint, stateLabel: PACKAGE_STRINGS.includedLabel };
+  }
+  if (feature.kind === 'level') {
+    return { ...base, label: levelLabel(feature, cell.level), hint: null, stateLabel: PACKAGE_STRINGS.includedLabel };
+  }
+  if (feature.kind === 'access') {
+    return { ...base, label: PACKAGE_STRINGS.includedGlyph, hint: cell.note ?? null, stateLabel: PACKAGE_STRINGS.includedLabel };
+  }
+  return { ...base, label: PACKAGE_STRINGS.includedGlyph, hint: null, stateLabel: PACKAGE_STRINGS.includedLabel };
+}
+
+/** The card's lines for a package: shape from `shape`, else from the v1 `includes`. */
+export function ladderCard(p: PublicPackage, recommended: boolean): LadderCard {
+  const sh = p.shape ?? {};
+  const vcpu = sh.vcpu ?? p.includes.vcpu;
+  const memory = sh.memory_gb ?? p.includes.memory_gb;
+  const disk = sh.disk_gb ?? p.includes.storage_gb;
+  const S = PACKAGE_STRINGS.ladder;
+  return {
+    sku: p.sku,
+    name: p.name,
+    tagline: p.tagline ?? '',
+    priceMonth: p.price_month,
+    recommended,
+    annualLine: p.annual_months_free && p.annual_months_free > 0 ? S.annualFree(p.annual_months_free) : null,
+    shapeHeadline: vcpu !== undefined && memory !== undefined ? S.shape(vcpu, memory) : null,
+    shapeGuarantee: sh.vcpu_guaranteed !== undefined && sh.memory_gb_guaranteed !== undefined
+      ? S.guaranteed(sh.vcpu_guaranteed, sh.memory_gb_guaranteed)
+      : null,
+    diskLine: disk !== undefined ? S.disk(disk) : null,
+  };
+}
+
+/**
+ * The ladder's highlighted column: `?recommended=<sku>` when it names a
+ * package, else the package the document flags `recommended`, else the middle.
+ */
+export function ladderRecommendedSku(packages: ReadonlyArray<PublicPackage>, query: string | null | undefined): string | null {
+  if (packages.length === 0) return null;
+  const q = (query ?? '').trim();
+  if (q && packages.some(p => p.sku === q)) return q;
+  const flagged = packages.find(p => p.recommended);
+  return flagged ? flagged.sku : recommendedSku(packages, null);
+}
+
+export function buildLadder(
+  data: PublicPackages,
+  opts: { recommended?: string | null } = {},
+): LadderModel {
+  const recommended = ladderRecommendedSku(data.packages, opts.recommended);
+  const cards = data.packages.map(p => ladderCard(p, p.sku === recommended));
+  const rowFor = (f: PublicFeature): LadderRow => ({
+    key: f.key,
+    name: f.name,
+    blurb: f.blurb ?? '',
+    kind: f.kind,
+    cells: data.packages.map(p => ladderCell(f.cells[p.sku], f, data.packages, p.sku)),
+  });
+  const declared = data.groups ?? [];
+  const known = new Set(declared.map(g => g.key));
+  const byGroup = new Map<string, LadderRow[]>();
+  const other: LadderRow[] = [];
+  for (const f of data.features) {
+    const key = f.group && known.has(f.group) ? f.group : null;
+    if (!key) { other.push(rowFor(f)); continue; }
+    const rows = byGroup.get(key) ?? [];
+    rows.push(rowFor(f));
+    byGroup.set(key, rows);
+  }
+  // A declared group with no feature is not a header over nothing.
+  const groups: LadderGroup[] = declared
+    .map(g => ({ key: g.key, name: g.name, rows: byGroup.get(g.key) ?? [] }))
+    .filter(g => g.rows.length > 0);
+  if (other.length > 0) groups.push({ key: 'other', name: PACKAGE_STRINGS.ladder.otherGroup, rows: other });
+  return {
+    currency: data.currency,
+    priceBook: data.price_book ?? null,
+    pricesAsOf: data.prices_as_of ?? null,
+    cards,
+    groups,
+    floor: (data.floor ?? []).map(f => f.name),
+    recommendedSku: recommended,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // The package ↔ catalog plan bridge.
 // ---------------------------------------------------------------------------
 
@@ -446,6 +850,12 @@ export function minorUnits(price: string | null | undefined, decimals = 3): numb
   const n = Number(price.trim());
   if (!Number.isFinite(n)) return 0;
   return Math.round(n * 10 ** decimals);
+}
+
+/** The reverse of minorUnits: 6000 → "6.000", for strings built from sums. */
+export function moneyString(minor: number, decimals = 3): string {
+  const n = Number.isFinite(minor) ? minor : 0;
+  return (n / 10 ** decimals).toFixed(decimals);
 }
 
 /** The part of a sku after its last dot: "plan.m" → "m". */
@@ -529,16 +939,22 @@ function normalizeName(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
-/** The BSS feature key a catalog add-on twins in this document, or null. */
+/**
+ * The BSS feature key a catalog add-on twins in this document, or null. A v2
+ * document's FLOOR counts too: a catalog add-on for something every package
+ * includes (the WAF, say) must not be offered for money beside the strip that
+ * says it is included.
+ */
 export function twinFeatureKey(
   addon: { slug: string; name: string },
   features: ReadonlyArray<PublicFeature>,
+  floor: ReadonlyArray<FloorItem> = [],
 ): string | null {
   const explicit = CATALOG_ADDON_TWINS[addon.slug];
-  if (explicit && features.some(f => f.key === explicit)) return explicit;
+  if (explicit && (features.some(f => f.key === explicit) || floor.some(f => f.key === explicit))) return explicit;
   const n = normalizeName(addon.name);
   if (!n) return null;
-  const byName = features.find(f => normalizeName(f.name) === n);
+  const byName = features.find(f => normalizeName(f.name) === n) ?? floor.find(f => normalizeName(f.name) === n);
   return byName ? byName.key : null;
 }
 
@@ -561,8 +977,20 @@ export interface FunnelAddons {
  * The Add-ons step's list for a package. BSS optional features arrive in the
  * AddOn shape the step, Review and Checkout already render — `id` is the BSS
  * add-on SKU, so `cart.addons` stays one list and the POSTs are unchanged.
+ * With a v2 document the list is the ladder's (addonsLadderFor): the optional
+ * cells plus the next-level add-ons, then the catalog add-ons with no twin.
  */
 export function funnelAddonsFor(doc: PublicPackages, sku: string, catalog: ReadonlyArray<AddOn>): FunnelAddons {
+  if (isLadderDocument(doc)) {
+    const ladder = addonsLadderFor(doc, sku, catalog);
+    if (ladder) {
+      return {
+        addons: ladder.addons,
+        included: ladder.included.map(i => ({ key: i.key, name: i.name, blurb: i.value ?? i.blurb })),
+        packageName: ladder.packageName,
+      };
+    }
+  }
   const pkg = doc.packages.find(p => p.sku === sku);
   const bss: AddOn[] = [];
   const included: IncludedFeature[] = [];
@@ -585,7 +1013,7 @@ export function funnelAddonsFor(doc: PublicPackages, sku: string, catalog: Reado
       included.push({ key: f.key, name: f.name, blurb: f.blurb ?? '' });
     }
   }
-  const rest = catalog.filter(a => twinFeatureKey(a, doc.features) === null);
+  const rest = catalog.filter(a => twinFeatureKey(a, doc.features, doc.floor ?? []) === null);
   return { addons: [...bss, ...rest], included, packageName: pkg?.name ?? '' };
 }
 
@@ -593,24 +1021,257 @@ export function funnelAddonsFor(doc: PublicPackages, sku: string, catalog: Reado
 export function bssAddonSkus(doc: PublicPackages): Set<string> {
   const out = new Set<string>();
   for (const f of doc.features) {
+    if (f.addon_sku) out.add(f.addon_sku);
     for (const cell of Object.values(f.cells)) {
       if (cell.addon_sku) out.add(cell.addon_sku);
+      if (cell.next_level_addon) out.add(cell.next_level_addon.addon_sku);
     }
+  }
+  return out;
+}
+
+/** The add-on SKUs a package offers for purchase: its optional cells and its next-level add-ons. */
+export function purchasableAddonSkus(doc: PublicPackages, sku: string): Set<string> {
+  const out = new Set<string>();
+  for (const f of doc.features) {
+    const cell = f.cells[sku];
+    if (!cell) continue;
+    if (cell.state === 'optional' && cell.addon_sku) out.add(cell.addon_sku);
+    if (cell.state === 'included' && cell.next_level_addon) out.add(cell.next_level_addon.addon_sku);
   }
   return out;
 }
 
 /**
  * The cart's add-on ids after a package change: catalog ids are untouched,
- * BSS SKUs survive only where the new package still offers them as optional
- * (Backup is included on XL — the add-on would be refused as redundant there).
+ * BSS SKUs survive only where the new package still offers them (Backup is
+ * included on XL — the add-on would be refused as redundant there).
  */
 export function pruneAddonsForPackage(doc: PublicPackages, sku: string, addons: ReadonlyArray<string>): string[] {
   const all = bssAddonSkus(doc);
-  const optionalHere = new Set<string>();
+  const here = purchasableAddonSkus(doc, sku);
+  return addons.filter(id => !all.has(id) || here.has(id));
+}
+
+// ---------------------------------------------------------------------------
+// Step 3 (v2 document) — the three blocks and the step-up hint.
+// ---------------------------------------------------------------------------
+
+/** Block A — something the package has: a boolean, a quantity with its rule, a level, an access. */
+export interface LadderIncluded {
+  key: string;
+  name: string;
+  blurb: string;
+  /** "100 Mbps · hard cap", "single region", "read" — null for a plain ✓. */
+  value: string | null;
+}
+
+/** Block B — an add-on the package offers: an optional cell, or the next level of a level cell. */
+export interface LadderChoice {
+  /** The BSS add-on SKU — what the cart holds and billing prices. */
+  id: string;
+  featureKey: string;
+  name: string;
+  blurb: string;
+  priceMonth: string;
+  priceBaisa: number;
+  /** The name of the first package that includes this (the muted "Included from XL"). */
+  includedFrom: string | null;
+  /** For a next-level add-on: the level index it buys; null for a plain optional. */
+  targetLevel: number | null;
+}
+
+/** Block C — something this package does not have, and the rung that does. */
+export interface LadderMissing {
+  key: string;
+  name: string;
+  blurb: string;
+  state: 'teaser' | 'not_offered';
+  upgrade: {
+    sku: string;
+    name: string;
+    /** included: "Upgrade to L to get this"; optional: "Available on L as an add-on". */
+    state: 'included' | 'optional';
+    priceMonth: string | null;
+  } | null;
+}
+
+export interface AddonsLadder {
+  packageSku: string;
+  packageName: string;
+  packagePriceMonth: string;
+  packagePriceBaisa: number;
+  included: LadderIncluded[];
+  choices: LadderChoice[];
+  missing: LadderMissing[];
+  /** The step's offer list: the choices in the AddOn shape, then catalog add-ons with no BSS twin. */
+  addons: AddOn[];
+}
+
+function includedValue(f: PublicFeature, cell: PublicCell): string | null {
+  if (f.kind === 'quantity') {
+    const label = quantityLabel(f, cell);
+    const hint = label === PACKAGE_STRINGS.ladder.unlimitedLabel ? null : overageHint(cell.overage);
+    return hint ? `${label} · ${hint}` : label;
+  }
+  if (f.kind === 'level') return levelLabel(f, cell.level);
+  if (f.kind === 'access') return cell.note ?? null;
+  return null;
+}
+
+/** The first package, in ladder order, that has a feature at all — included first choice, else optional. */
+function firstRungWith(doc: PublicPackages, f: PublicFeature): LadderMissing['upgrade'] {
+  for (const p of doc.packages) {
+    const c = f.cells[p.sku];
+    if (!c) continue;
+    if (c.state === 'included') return { sku: p.sku, name: p.name, state: 'included', priceMonth: null };
+    if (c.state === 'optional') return { sku: p.sku, name: p.name, state: 'optional', priceMonth: c.price_month ?? null };
+  }
+  return null;
+}
+
+/** The first package that includes a level feature at `level` or above. */
+function firstRungAtLevel(doc: PublicPackages, f: PublicFeature, level: number): string | null {
+  for (const p of doc.packages) {
+    const c = f.cells[p.sku];
+    if (c?.state === 'included' && (c.level ?? -1) >= level) return p.name;
+  }
+  return null;
+}
+
+function choiceAsAddon(c: LadderChoice): AddOn {
+  return {
+    id: c.id,
+    slug: c.featureKey,
+    name: c.name,
+    tagline: c.blurb,
+    icon: '',
+    monthly_price: c.priceBaisa,
+    included: false,
+    ...(c.includedFrom ? { hint: PACKAGE_STRINGS.includedFrom(c.includedFrom) } : {}),
+  };
+}
+
+/**
+ * The Add-ons step's three blocks for a package of a v2 document, plus the
+ * offer list in the AddOn shape. Null when the sku is not in the document.
+ */
+export function addonsLadderFor(doc: PublicPackages, sku: string, catalog: ReadonlyArray<AddOn>): AddonsLadder | null {
+  const pkg = doc.packages.find(p => p.sku === sku);
+  if (!pkg) return null;
+  const S = PACKAGE_STRINGS.ladder;
+  const included: LadderIncluded[] = [];
+  const choices: LadderChoice[] = [];
+  const missing: LadderMissing[] = [];
   for (const f of doc.features) {
     const cell = f.cells[sku];
-    if (cell?.state === 'optional' && cell.addon_sku) optionalHere.add(cell.addon_sku);
+    const blurb = f.blurb ?? '';
+    if (!cell || cell.state === 'not_offered') {
+      missing.push({ key: f.key, name: f.name, blurb, state: 'not_offered', upgrade: firstRungWith(doc, f) });
+      continue;
+    }
+    if (cell.state === 'teaser') {
+      const from = doc.packages.find(p => p.sku === cell.included_from);
+      missing.push({
+        key: f.key,
+        name: f.name,
+        blurb,
+        state: 'teaser',
+        upgrade: from ? { sku: from.sku, name: from.name, state: 'included', priceMonth: null } : firstRungWith(doc, f),
+      });
+      continue;
+    }
+    if (cell.state === 'optional') {
+      if (!cell.addon_sku) continue;
+      choices.push({
+        id: cell.addon_sku,
+        featureKey: f.key,
+        name: f.name,
+        blurb,
+        priceMonth: cell.price_month ?? '',
+        priceBaisa: minorUnits(cell.price_month),
+        includedFrom: packageName(doc.packages, cell.included_from),
+        targetLevel: null,
+      });
+      continue;
+    }
+    // included
+    included.push({ key: f.key, name: f.name, blurb, value: includedValue(f, cell) });
+    if (cell.next_level_addon && f.kind === 'level') {
+      const current = cell.level ?? 0;
+      const target = current + 1;
+      const targetName = f.levels?.[target] ?? '';
+      choices.push({
+        id: cell.next_level_addon.addon_sku,
+        featureKey: f.key,
+        name: targetName ? S.levelUp(f.name, targetName) : f.name,
+        blurb: S.levelFrom(levelLabel(f, current)),
+        priceMonth: cell.next_level_addon.price_month,
+        priceBaisa: minorUnits(cell.next_level_addon.price_month),
+        includedFrom: firstRungAtLevel(doc, f, target),
+        targetLevel: target,
+      });
+    }
   }
-  return addons.filter(id => !all.has(id) || optionalHere.has(id));
+  const rest = catalog.filter(a => twinFeatureKey(a, doc.features, doc.floor ?? []) === null);
+  return {
+    packageSku: pkg.sku,
+    packageName: pkg.name,
+    packagePriceMonth: pkg.price_month,
+    packagePriceBaisa: minorUnits(pkg.price_month),
+    included,
+    choices,
+    missing,
+    addons: [...choices.map(choiceAsAddon), ...rest],
+  };
+}
+
+/** True when `next` includes what this choice buys (a plain feature, or the level it reaches). */
+export function bundledOn(doc: PublicPackages, nextSku: string, choice: LadderChoice): boolean {
+  const f = doc.features.find(x => x.key === choice.featureKey);
+  const cell = f?.cells[nextSku];
+  if (!cell || cell.state !== 'included') return false;
+  if (choice.targetLevel === null) return true;
+  return (cell.level ?? -1) >= choice.targetLevel;
+}
+
+export interface StepUpHint {
+  nextSku: string;
+  nextName: string;
+  gapMonth: string;
+  gapBaisa: number;
+  /** The ticked add-ons the next package includes — what switching clears. */
+  bundled: LadderChoice[];
+  bundledSumBaisa: number;
+  bundledSumMonth: string;
+}
+
+/**
+ * The step-up hint: when the ticked add-ons that the NEXT package includes as
+ * standard add up to at least the price gap to it, the customer is better off
+ * one rung up. The sum counts only what the next rung bundles — a ticked add-on
+ * it does not include (Dedicated IP is optional on every package) neither
+ * triggers the hint nor is cleared by the switch — so the card's claim,
+ * "<next> includes all of this", is always true of what it lists.
+ */
+export function stepUpHint(doc: PublicPackages, ladder: AddonsLadder, ticked: ReadonlyArray<string>): StepUpHint | null {
+  const pkg = doc.packages.find(p => p.sku === ladder.packageSku);
+  const su = pkg?.step_up;
+  if (!su) return null;
+  const next = doc.packages.find(p => p.sku === su.next_sku);
+  if (!next) return null;
+  const bundled = ladder.choices.filter(c => ticked.includes(c.id) && bundledOn(doc, next.sku, c));
+  if (bundled.length === 0) return null;
+  const sum = bundled.reduce((s, c) => s + c.priceBaisa, 0);
+  const gap = minorUnits(su.gap_month);
+  if (sum < gap) return null;
+  return {
+    nextSku: next.sku,
+    nextName: next.name,
+    gapMonth: su.gap_month,
+    gapBaisa: gap,
+    bundled,
+    bundledSumBaisa: sum,
+    bundledSumMonth: moneyString(sum),
+  };
 }

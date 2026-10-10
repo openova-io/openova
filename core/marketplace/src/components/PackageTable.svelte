@@ -1,12 +1,16 @@
 <script lang="ts">
-  // Step 1 of the wizard — the package comparison table (#6971). Columns are
-  // the packages BSS publishes, rows are its features, cells are ✓ / a muted
-  // "add-on" with its price and the "Included from XL" hint / —. Choosing a
-  // package does exactly what the legacy deck did: it sets the cart plan
-  // (catalog plan id mapped from the sku, plus the sku for billing) and
+  // Step 1 of the wizard — the package comparison (#6971). Fed ONLY from
+  // GET /api/v1/public/packages on the Sovereign's chargeback host, and the
+  // document's shape picks the rendering:
+  //   - no document (unreachable / empty)  → the legacy PlanStep deck, unchanged;
+  //   - a v1 document (no `groups`)        → the flat table below: columns are
+  //     the packages, rows its features, cells ✓ / a muted "add-on" with its
+  //     price and the "Included from XL" hint / —;
+  //   - a v2 document (`groups` present)   → the ladder (PackageLadder.svelte):
+  //     four cards, one grouped comparison, the floor strip once.
+  // Choosing a package does exactly what the legacy deck did: it sets the cart
+  // plan (catalog plan id mapped from the sku, plus the sku for billing) and
   // continues to Stack. Add-ons are picked on step 3, where they always were.
-  // Fed ONLY from GET /api/v1/public/packages on the Sovereign's chargeback
-  // host; when that is unreachable or empty the legacy deck renders unchanged.
   //
   // The legacy deck is this step's FIRST render — server-rendered into the page
   // and hydrated exactly as plans.astro mounted it before the table existed —
@@ -21,25 +25,30 @@
   // Playwright spec asserts the deck's computed layout against the production
   // build with the request failing, so that cannot come back unnoticed.
   import PlanStep from './PlanStep.svelte';
+  import PackageLadder from './PackageLadder.svelte';
   import { getPlans, type Plan } from '../lib/api';
   import { readCart, setPackage } from '../lib/cart';
   import { chargebackBaseURL } from '../lib/config';
   import {
+    buildLadder,
     buildPackageTable,
     catalogPlanIdForPackage,
     includesLines,
+    isLadderDocument,
     loadPublicPackages,
     pruneAddonsForPackage,
     PACKAGE_STRINGS as S,
+    type LadderModel,
     type PackageTableModel,
     type PublicPackages,
   } from '../lib/packages';
 
   // 'deck' until the document is in hand; it stays 'deck' when the document
   // never comes (loadPublicPackages has already warned once by then).
-  let status = $state<'deck' | 'table'>('deck');
+  let status = $state<'deck' | 'table' | 'ladder'>('deck');
   let data = $state<PublicPackages | null>(null);
   let model = $state<PackageTableModel | null>(null);
+  let ladder = $state<LadderModel | null>(null);
   let plans = $state<Plan[]>([]);
   let selectedSku = $state<string | null>(readCart().packageSku);
 
@@ -56,14 +65,21 @@
       plans = pl;
       data = pk;
       const query = new URLSearchParams(window.location.search).get('recommended');
-      model = buildPackageTable(pk, { recommended: query });
+      let recommended: string | null;
+      if (isLadderDocument(pk)) {
+        ladder = buildLadder(pk, { recommended: query });
+        recommended = ladder.recommendedSku;
+      } else {
+        model = buildPackageTable(pk, { recommended: query });
+        recommended = model.recommendedSku;
+      }
       if (!selectedSku || !pk.packages.some(p => p.sku === selectedSku)) {
         // Same posture as the legacy deck, which pre-selects the popular plan:
         // land with the recommended package in the cart so "Continue" works.
-        selectedSku = model.recommendedSku;
+        selectedSku = recommended;
       }
       if (selectedSku) persist(selectedSku);
-      status = 'table';
+      status = ladder ? 'ladder' : 'table';
     })();
     return () => { cancelled = true; };
   });
@@ -89,7 +105,11 @@
   }
 </script>
 
-{#if status !== 'table' || !model}
+{#if status === 'ladder' && ladder}
+  <!-- v2 document: the ladder. Styled by src/styles/package-ladder.css, a
+       page stylesheet plans.astro imports — see the note in the component. -->
+  <PackageLadder model={ladder} {selectedSku} onchoose={choose} />
+{:else if status !== 'table' || !model}
   <!-- The legacy deck: the server-rendered first paint, the whole step when
        the document is unreachable, and replaced in place once it arrives. -->
   <PlanStep />

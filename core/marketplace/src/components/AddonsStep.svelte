@@ -1,14 +1,21 @@
 <script lang="ts">
-  import { getAddons, getApps, checkSlug, type AddOn, type App } from '../lib/api';
-  import { readCart, toggleAddon, setOrgDetails, setTLD, writeCart, DEFAULT_TLD } from '../lib/cart';
+  import { getAddons, getApps, getPlans, checkSlug, type AddOn, type App, type Plan } from '../lib/api';
+  import { readCart, toggleAddon, setOrgDetails, setPackage, setTLD, writeCart, DEFAULT_TLD } from '../lib/cart';
   import { formatOMR } from '../lib/currency';
   import { chargebackBaseURL } from '../lib/config';
   import {
+    addonsLadderFor,
+    catalogPlanIdForPackage,
     funnelAddonsFor,
+    isLadderDocument,
     loadPublicPackages,
     packageForCart,
+    pruneAddonsForPackage,
+    stepUpHint,
     PACKAGE_STRINGS as PS,
+    type AddonsLadder,
     type IncludedFeature,
+    type PublicPackages,
   } from '../lib/packages';
 
   let addons = $state<AddOn[]>([]);
@@ -18,6 +25,16 @@
   // the document, so this step is exactly today's.
   let bssIncluded = $state<IncludedFeature[]>([]);
   let packageName = $state('');
+  // #6971, v2 document — the ladder's three blocks for the chosen package:
+  // "In your package" (block A), "Add-ons" (block B: the optional cells and
+  // the next-level add-ons, the tiles below), "Not on <pkg>" (block C: the
+  // teaser / not-offered features with the rung that has them), plus the
+  // step-up hint and the running total. Null with a v1 document or none, so
+  // this step is then exactly as before.
+  let doc = $state<PublicPackages | null>(null);
+  let catalogAddons = $state<AddOn[]>([]);
+  let plans = $state<Plan[]>([]);
+  let ladder = $state<AddonsLadder | null>(null);
   let allApps = $state<App[]>([]);
   let cart = $state(readCart());
   let loading = $state(true);
@@ -108,13 +125,14 @@
     Promise.all([
       getAddons().catch(() => FALLBACK_ADDONS),
       loadPublicPackages(chargebackBaseURL()),
-    ]).then(([catalog, doc]) => {
-      const pkg = doc ? packageForCart(doc, cart) : null;
-      if (doc && pkg) {
-        const merged = funnelAddonsFor(doc, pkg.sku, catalog);
-        addons = merged.addons;
-        bssIncluded = merged.included;
-        packageName = merged.packageName;
+      getPlans().catch(() => [] as Plan[]),
+    ]).then(([catalog, d, pl]) => {
+      catalogAddons = catalog;
+      doc = d;
+      plans = pl;
+      const pkg = d ? packageForCart(d, cart) : null;
+      if (d && pkg) {
+        applyPackage(d, pkg.sku, catalog);
       } else {
         addons = catalog;
       }
@@ -122,7 +140,47 @@
     });
   });
 
+  // The step's lists for a package of the document in hand. A v2 document
+  // yields the ladder blocks; a v1 one the included group + the merged list.
+  function applyPackage(d: PublicPackages, sku: string, catalog: AddOn[]) {
+    const l = isLadderDocument(d) ? addonsLadderFor(d, sku, catalog) : null;
+    if (l) {
+      ladder = l;
+      addons = l.addons;
+      bssIncluded = l.included.map(i => ({ key: i.key, name: i.name, blurb: i.value ?? i.blurb }));
+      packageName = l.packageName;
+      return;
+    }
+    ladder = null;
+    const merged = funnelAddonsFor(d, sku, catalog);
+    addons = merged.addons;
+    bssIncluded = merged.included;
+    packageName = merged.packageName;
+  }
+
+  // Block C's "Upgrade to L" and the step-up card both switch the package in
+  // the cart the way step 1 does — catalog plan id + sku — keeping the chosen
+  // apps and every add-on the new package still offers (a BSS add-on it
+  // includes as standard is dropped: billing would refuse it as redundant).
+  function switchPackage(sku: string) {
+    if (!doc) return;
+    const pkg = doc.packages.find(p => p.sku === sku);
+    if (!pkg) return;
+    cart = setPackage({
+      planId: catalogPlanIdForPackage(pkg, plans),
+      planName: pkg.name,
+      packageSku: pkg.sku,
+      addons: pruneAddonsForPackage(doc, pkg.sku, cart.addons),
+    });
+    applyPackage(doc, pkg.sku, catalogAddons);
+  }
+
   const paidAddons = $derived(addons.filter(a => !a.included));
+  const stepUp = $derived(doc && ladder ? stepUpHint(doc, ladder, cart.addons) : null);
+  // The running total here is a preview from the document's own prices; the
+  // figure the customer agrees to is the server's quote on Review / Checkout.
+  const tickedBaisa = $derived(addons.filter(a => !a.included && cart.addons.includes(a.id)).reduce((s, a) => s + a.monthly_price, 0));
+  const runningTotalBaisa = $derived(ladder ? ladder.packagePriceBaisa + tickedBaisa : 0);
 
   function toggle(id: string) {
     cart = toggleAddon(id);
@@ -145,11 +203,13 @@
     'waf': '🔥', 'ips': '🚨', 'vuln-scan': '🔍',
     'custom-domain': '🌐', 'log-management': '📋', 'priority-support': '⚡',
     'daily-backup': '🛡️',
-    // #6971 — BSS feature keys (the `slug` of a document-sourced add-on).
+    // #6971 — BSS feature keys (the `slug` of a document-sourced add-on):
+    // the v1 document's hyphenated keys and the v2 document's underscored ones.
     'backup': '🛡️', 'domain': '🌐', 'dedicated-ip': '🌍', 'ai-seo': '🔎',
     'ai-website-builder': '🪄', 'ssl': '🔒', 'sso': '🔑', 'ddos': '🛡️',
     'malware-scanner': '🔍', 'support': '💬', 'mail': '✉️', 'databases': '🗄️',
     'applications': '📦',
+    'dedicated_ip': '🌍', 'ai_seo': '🔎', 'ai_builder': '🪄', 'bandwidth': '📶',
   };
 </script>
 
@@ -248,7 +308,25 @@
       </section>
     {/if}
 
-    {#if bssIncluded.length > 0}
+    {#if ladder}
+      <!-- #6971, v2 — block A: what the package has, compact and read-only. -->
+      <section class="ao-section" data-testid="addons-included">
+        <div class="ao-head">
+          <h2>{PS.ladder.inYourPackage}</h2>
+          <span class="ao-badge">{ladder.packageName} · INCLUDED</span>
+        </div>
+        <p class="bs-hint">{PS.ladder.inYourPackageHint}</p>
+        <ul class="in-pkg">
+          {#each ladder.included as f (f.key)}
+            <li class="in-pkg-item" data-testid="addons-included-{f.key}" title={f.blurb}>
+              <span class="in-pkg-tick" aria-hidden="true">✓</span>
+              <span class="in-pkg-name">{f.name}</span>
+              {#if f.value}<span class="in-pkg-val">{f.value}</span>{/if}
+            </li>
+          {/each}
+        </ul>
+      </section>
+    {:else if bssIncluded.length > 0}
       <!-- #6971 — the chosen package's included features, read-only: no price,
            no toggle. Rendered only when the BSS document is available. -->
       <section class="ao-section" data-testid="addons-included">
@@ -272,11 +350,11 @@
       </section>
     {/if}
 
-    <!-- Optional extras — tile grid -->
-    <section class="ao-section">
+    <!-- Optional extras — tile grid (block B, "Add-ons", with a v2 document) -->
+    <section class="ao-section" data-testid="addons-optional">
       <div class="ao-head">
-        <h2>Optional extras</h2>
-        <span class="ao-note">Skip any you don't need</span>
+        <h2>{ladder ? PS.ladder.addons : 'Optional extras'}</h2>
+        <span class="ao-note">{ladder ? PS.ladder.addonsHint : "Skip any you don't need"}</span>
       </div>
       <div class="extras-grid">
         {#each paidAddons as addon (addon.id)}
@@ -304,7 +382,69 @@
           </button>
         {/each}
       </div>
+
+      {#if ladder}
+        <!-- The step-up hint: the ticked add-ons the next rung includes cost
+             at least the gap to it. Switching keeps the apps, drops only what
+             the next package bundles. -->
+        {#if stepUp}
+          <div class="step-up" data-testid="addons-stepup" data-next={stepUp.nextSku}>
+            <div class="step-up-body">
+              <strong class="step-up-title">{PS.ladder.stepUpTitle(stepUp.nextName, stepUp.gapMonth, doc?.currency ?? 'OMR')}</strong>
+              <p class="step-up-text">{PS.ladder.stepUpBody(stepUp.bundledSumMonth, doc?.currency ?? 'OMR', stepUp.nextName)}</p>
+              <p class="step-up-list">
+                {#each stepUp.bundled as b, i (b.id)}{#if i > 0}{' · '}{/if}<span>{b.name}</span>{/each}
+              </p>
+            </div>
+            <button type="button" class="step-up-cta" data-testid="addons-stepup-switch" onclick={() => switchPackage(stepUp.nextSku)}>
+              {PS.ladder.stepUpCta(stepUp.nextName)} &rarr;
+            </button>
+          </div>
+        {/if}
+
+        <!-- The running total: package + ticked add-ons, from the document's
+             own prices. The quoted total on Review / Checkout is the one billed. -->
+        <div class="running-total" data-testid="addons-running-total" data-baisa={runningTotalBaisa}>
+          <span class="rt-label">{PS.ladder.runningTotal}</span>
+          <span class="rt-parts">
+            <span>{PS.ladder.packageLine(ladder.packageName)} {formatOMR(ladder.packagePriceBaisa)}</span>
+            <span class="rt-sep">+</span>
+            <span>{PS.ladder.addonsLine} {formatOMR(tickedBaisa)}</span>
+          </span>
+          <strong class="rt-total">{formatOMR(runningTotalBaisa)} <small>{PS.perMonth}</small></strong>
+        </div>
+      {/if}
     </section>
+
+    {#if ladder && ladder.missing.length > 0}
+      <!-- #6971, v2 — block C: what this package does not have, and the rung
+           that does. The link switches the package in the cart and keeps the
+           chosen apps. -->
+      <section class="ao-section" data-testid="addons-missing">
+        <div class="ao-head">
+          <h2>{PS.ladder.notOn(ladder.packageName)}</h2>
+          <span class="ao-note">{PS.ladder.notOnHint}</span>
+        </div>
+        <div class="extras-grid">
+          {#each ladder.missing as m (m.key)}
+            <div class="extra-tile missing-tile" data-testid="addons-missing-{m.key}" data-state={m.state}>
+              <span class="extra-icon missing-icon" aria-hidden="true">—</span>
+              <div class="extra-body">
+                <strong>{m.name}</strong>
+                <p>{m.blurb}</p>
+                {#if m.upgrade}
+                  <button type="button" class="missing-upgrade" data-testid="addons-upgrade-{m.key}" data-target={m.upgrade.sku} onclick={() => switchPackage(m.upgrade!.sku)}>
+                    {m.upgrade.state === 'included'
+                      ? PS.ladder.upgradeTo(m.upgrade.name)
+                      : PS.ladder.availableOn(m.upgrade.name, m.upgrade.priceMonth ?? '')} &rarr;
+                  </button>
+                {/if}
+              </div>
+            </div>
+          {/each}
+        </div>
+      </section>
+    {/if}
   {/if}
 </div>
 
@@ -448,6 +588,99 @@
   .extra-box { display: block; width: 18px; height: 18px; border: 1.5px solid var(--color-border); border-radius: 4px; }
 
   .bs-hint { color: var(--color-text-dim); font-size: 0.78rem; margin: 0 0 0.55rem; }
+
+  /* #6971, v2 — block A: compact chips */
+  .in-pkg {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+  .in-pkg-item {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.35rem;
+    padding: 0.3rem 0.6rem;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: 999px;
+    font-size: 0.76rem;
+    color: var(--color-text);
+  }
+  .in-pkg-tick { color: var(--color-success); font-weight: 700; }
+  .in-pkg-name { font-weight: 500; }
+  .in-pkg-val { color: var(--color-text-dim); }
+
+  /* #6971, v2 — the step-up card */
+  .step-up {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-top: 0.75rem;
+    padding: 0.85rem 1rem;
+    border: 1.5px solid var(--color-warn, #f59e0b);
+    background: color-mix(in srgb, var(--color-warn, #f59e0b) 10%, var(--color-bg));
+    border-radius: 10px;
+  }
+  .step-up-body { flex: 1; min-width: 0; }
+  .step-up-title { display: block; color: var(--color-text-strong); font-size: 0.92rem; }
+  .step-up-text { margin: 0.2rem 0 0; color: var(--color-text-dim); font-size: 0.76rem; }
+  .step-up-list { margin: 0.2rem 0 0; color: var(--color-text); font-size: 0.74rem; font-weight: 500; }
+  .step-up-cta {
+    flex-shrink: 0;
+    padding: 0.55rem 1rem;
+    border: none;
+    border-radius: 7px;
+    background: var(--color-accent);
+    color: #fff;
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .step-up-cta:hover { filter: brightness(0.92); }
+  @media (max-width: 640px) { .step-up { flex-direction: column; align-items: stretch; } }
+
+  /* #6971, v2 — the running total */
+  .running-total {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.4rem 1rem;
+    margin-top: 0.75rem;
+    padding: 0.6rem 0.8rem;
+    border-top: 1px dashed var(--color-border);
+    font-size: 0.8rem;
+    color: var(--color-text-dim);
+  }
+  .rt-label { font-weight: 600; color: var(--color-text-strong); }
+  .rt-parts { display: inline-flex; gap: 0.4rem; flex-wrap: wrap; }
+  .rt-sep { color: var(--color-text-dimmer); }
+  .rt-total { color: var(--color-text-strong); font-size: 1.05rem; font-weight: 800; margin-left: auto; }
+  .rt-total small { color: var(--color-text-dim); font-size: 0.72rem; font-weight: 600; }
+
+  /* #6971, v2 — block C */
+  .missing-tile { cursor: default; opacity: 0.92; }
+  .missing-icon { color: var(--color-text-dimmer); }
+  .missing-upgrade {
+    margin-top: 0.3rem;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--color-accent);
+    font: inherit;
+    font-size: 0.74rem;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: left;
+  }
+  .missing-upgrade:hover { text-decoration: underline; }
+
   .svc-tile { cursor: default; }
   .svc-tile:hover { border-color: var(--color-border); }
   .svc-logo { width: 22px; height: 22px; border-radius: 4px; flex-shrink: 0; }

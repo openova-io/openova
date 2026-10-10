@@ -10,6 +10,7 @@
     packageForCart,
     packageForPlan,
     pruneAddonsForPackage,
+    PACKAGE_STRINGS,
     type PublicPackages,
   } from '../lib/packages';
 
@@ -495,6 +496,12 @@
             <p class="quote-error" data-testid="review-quote-error">{QUOTE_STRINGS.unavailable}</p>
           {/if}
           <small>per month · first month prorated · cancel anytime</small>
+          {#if doc?.floor && doc.floor.length > 0}
+            <!-- #6971, v2 — the floor as a footnote: every package includes these. -->
+            <small class="floor-note" data-testid="review-floor">
+              {PACKAGE_STRINGS.ladder.floorLead} {doc.floor.map(f => f.name).join(' · ')}
+            </small>
+          {/if}
           <a href="/checkout" class="checkout-cta">
             Proceed to Checkout &rarr;
           </a>
@@ -805,6 +812,7 @@
   .total-row strong { color: var(--color-text-strong); font-size: 1.4rem; font-weight: 800; }
   .side-card small { color: var(--color-text-dim); font-size: 0.78rem; }
   .quote-error { margin: 0.4rem 0 0; color: #EF4444; font-size: 0.75rem; line-height: 1.4; }
+  .side-card .floor-note { display: block; margin-top: 0.5rem; color: var(--color-text-dimmer); font-size: 0.7rem; line-height: 1.4; }
   .checkout-cta {
     display: flex; align-items: center; justify-content: center; gap: 0.5rem;
     margin-top: 1rem; padding: 0.65rem 1rem;
