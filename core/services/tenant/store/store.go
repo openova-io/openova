@@ -55,8 +55,35 @@ type Tenant struct {
 	// SHAPE end-to-end so the binding lights up without a second
 	// upstream change.
 	AppConfigs map[string]map[string]any `bson:"app_configs,omitempty" json:"app_configs,omitempty"`
-	AddOns     []string                  `bson:"addons" json:"addons"`
-	Subdomain  string                    `bson:"subdomain" json:"subdomain"`
+	// AddOns is the cart's ONE add-on list exactly as the storefront sent it
+	// (core/marketplace/src/lib/cart.ts): catalog add-on ids, or BSS add-on
+	// SKUs such as "addon.backup" when the Sovereign's BSS published the
+	// package document (#6971). Billing's settlement launch merges the priced
+	// `addon.*` SKUs into it (SetCommerce). The `tenant.created` emitter
+	// filters it through events.BSSAddonSKUs so the Organization CR carries
+	// BSS SKUs only.
+	AddOns    []string `bson:"addons" json:"addons"`
+	Subdomain string   `bson:"subdomain" json:"subdomain"`
+
+	// Commerce provenance — #6971 item 8. What was bought and where the
+	// price came from, so the Organization CR minted from `tenant.created`
+	// carries `spec.commerce` and the chargeback adapter can attach the
+	// Organization's platform Source to its package + add-on lines.
+	//
+	// PackageSKU is the BSS package ("plan.m") the storefront sends beside
+	// `plan_id` on POST /tenant/orgs; PlanID stays the catalog plan id the
+	// provisioning consumer resolves to spec.planSlug. PriceSource ("catalog"
+	// | "bss:<price_book>@<prices_as_of>") and OrderID (billing `orders.id`)
+	// arrive from billing's settlement launch body (#4956 deferred path) and
+	// WIN over whatever the create request carried — the order is the source.
+	//
+	// Migration: FerretDB is schemaless, so the `omitempty` bson tags ARE the
+	// migration — a record written before these fields decodes with empty
+	// values and the emitter leaves `spec.commerce` absent (legacy behaviour
+	// byte-for-byte).
+	PackageSKU  string `bson:"package_sku,omitempty" json:"package_sku,omitempty"`
+	PriceSource string `bson:"price_source,omitempty" json:"price_source,omitempty"`
+	OrderID     string `bson:"order_id,omitempty" json:"order_id,omitempty"`
 	// ParentDomain — the org-pool parent apex the customer chose at the
 	// /addons step (e.g. "omani.works"). #4176/#4179: the per-Org console
 	// lives at `console.<subdomain>.<parent_domain>`. On a Sovereign whose
@@ -186,6 +213,61 @@ func (s *Store) TryTransitionTenantStatus(ctx context.Context, id, from, to stri
 		return false, fmt.Errorf("store: transition tenant status %s (%s→%s): %w", id, from, to, err)
 	}
 	return res.ModifiedCount > 0, nil
+}
+
+// Commerce is the purchase billing hands this service at settlement
+// (#6971 item 8): the fields SetCommerce writes onto a Tenant record. Empty scalars
+// are left untouched (never cleared); Addons are ADDED to the cart list, never
+// removed, so a re-delivered settlement is a no-op.
+type Commerce struct {
+	PackageSKU  string
+	PriceSource string
+	OrderID     string
+	Addons      []string
+}
+
+// IsZero reports whether the Commerce carries nothing to write.
+func (c Commerce) IsZero() bool {
+	return c.PackageSKU == "" && c.PriceSource == "" && c.OrderID == "" && len(c.Addons) == 0
+}
+
+// SetCommerce stamps the purchase onto a Tenant record in ONE targeted update:
+// `$set` for each non-empty scalar (package_sku / price_source / order_id)
+// and `$addToSet $each` for the add-on SKUs. Targeted rather than the
+// whole-document UpdateTenant so a concurrent day-2 AtomicAppendApps on the
+// same record is not overwritten (the lost-update class dod-chaos scenario7
+// found). Idempotent: $addToSet ignores SKUs already present and re-setting
+// the same scalar is a no-op, so billing's redelivered settlement (credit +
+// Stripe-retry, #4956) leaves the record unchanged. A zero Commerce returns
+// nil without a round-trip.
+func (s *Store) SetCommerce(ctx context.Context, id string, c Commerce) error {
+	if id == "" || c.IsZero() {
+		return nil
+	}
+	setFields := bson.D{{Key: "updated_at", Value: time.Now().UTC()}}
+	if c.PackageSKU != "" {
+		setFields = append(setFields, bson.E{Key: "package_sku", Value: c.PackageSKU})
+	}
+	if c.PriceSource != "" {
+		setFields = append(setFields, bson.E{Key: "price_source", Value: c.PriceSource})
+	}
+	if c.OrderID != "" {
+		setFields = append(setFields, bson.E{Key: "order_id", Value: c.OrderID})
+	}
+	update := bson.D{{Key: "$set", Value: setFields}}
+	if len(c.Addons) > 0 {
+		update = append(update, bson.E{Key: "$addToSet", Value: bson.D{
+			{Key: "addons", Value: bson.D{{Key: "$each", Value: c.Addons}}},
+		}})
+	}
+	res, err := s.tenants().UpdateOne(ctx, bson.D{{Key: "_id", Value: id}}, update)
+	if err != nil {
+		return fmt.Errorf("store: set commerce %s: %w", id, err)
+	}
+	if res.MatchedCount == 0 {
+		return fmt.Errorf("store: set commerce: organization %s not found", id)
+	}
+	return nil
 }
 
 // SetAppState sets AppStates[appID] = state on the given tenant.

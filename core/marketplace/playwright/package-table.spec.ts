@@ -84,6 +84,54 @@ async function mockCatalog(page: Page): Promise<void> {
   )
 }
 
+// #6971 — the /review and /checkout totals are the SERVER's: both pages POST
+// the checkout body's pricing fields to /billing/quote and render the lines
+// and total it answers with, summing nothing themselves. This stand-in prices
+// the request the way billing does from the same document mockPackages
+// serves (plan from the package, `addon.*` from its cells — 0 and redundant
+// when the package includes it — catalog ids from CATALOG_ADDONS) so the
+// assertions below are about what the pages RENDER from a quote, not about a
+// hand-typed total. `capture` receives every body the pages sent.
+const QUOTE_PLAN_BAISA: Record<string, number> = { 'plan.s': 5000, 'plan.m': 9000, 'plan.l': 15000, 'plan.xl': 30000 }
+const QUOTE_ADDON_BAISA: Record<string, { name: string; amount: number; includedOn?: string[] }> = {
+  'addon.backup': { name: 'Backup', amount: 1500, includedOn: ['plan.xl'] },
+  'addon.dedicated-ip': { name: 'Dedicated IP address', amount: 2000 },
+  ips: { name: 'Intrusion Prevention', amount: 3000 },
+  waf: { name: 'Web Application Firewall', amount: 2000 },
+}
+async function mockQuote(page: Page, capture?: (body: any) => void): Promise<void> {
+  await page.route('**/api/billing/quote', (route) => {
+    const body = JSON.parse(route.request().postData() || '{}')
+    capture?.(body)
+    const pkg: string = body.package_sku || ''
+    const planAmount = QUOTE_PLAN_BAISA[pkg] ?? 9000
+    const lines = (body.addons || []).flatMap((sku: string) => {
+      const a = QUOTE_ADDON_BAISA[sku]
+      if (!a) return []
+      const redundant = Boolean(a.includedOn?.includes(pkg))
+      return [{ sku, name: a.name, amount_baisa: redundant ? 0 : a.amount, ...(redundant ? { redundant: true } : {}) }]
+    })
+    const topologyAmount = body.topology === 'active-hot-standby' ? 5000 : 0
+    const total = planAmount + topologyAmount + lines.reduce((s: number, l: any) => s + l.amount_baisa, 0)
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        currency: 'OMR',
+        price_source: pkg ? 'bss:OpenOva plans@2026-09-11' : 'catalog',
+        package_sku: pkg || undefined,
+        plan_id: body.plan_id,
+        plan_amount_baisa: planAmount,
+        topology: body.topology || 'single-region',
+        topology_amount_baisa: topologyAmount,
+        lines,
+        amount_baisa: total,
+        amount_omr: Math.ceil(total / 1000),
+      }),
+    })
+  })
+}
+
 async function seedCart(page: Page, overrides: Record<string, unknown>): Promise<void> {
   const cart = {
     plan: 'm',
@@ -410,6 +458,8 @@ test.describe('review and checkout carry the package and its add-ons (#6971)', (
   })
 
   test('/review lists the BSS add-on like any add-on and a plan change to XL prunes it', async ({ page }) => {
+    const quotes: any[] = []
+    await mockQuote(page, (b) => quotes.push(b))
     await pointAtChargeback(page)
     await mockPackages(page)
     await page.route('**/api/tenant/orgs', (route) =>
@@ -435,10 +485,17 @@ test.describe('review and checkout carry the package and its add-ons (#6971)', (
     expect(cart.plan).toBe('xl')
     expect(cart.packageSku).toBe('plan.xl')
     expect(cart.addons).toEqual(['ips'])
+
+    // Every figure above came from /billing/quote, re-asked with the cart as
+    // it stood: first M with both add-ons, then XL with the pruned list.
+    expect(quotes.length).toBeGreaterThanOrEqual(2)
+    expect(quotes[0]).toMatchObject({ plan_id: 'm', package_sku: 'plan.m', addons: ['ips', 'addon.backup'], topology: 'single-region' })
+    expect(quotes[quotes.length - 1]).toMatchObject({ plan_id: 'xl', package_sku: 'plan.xl', addons: ['ips'] })
   })
 
   test('/checkout shows the add-on line, the total, and both POSTs carry addons + package_sku', async ({ page }) => {
     const bodies: Record<string, any> = {}
+    await mockQuote(page, (b) => { bodies.quote = b })
     await pointAtChargeback(page)
     await mockPackages(page)
     await page.route('**/api/tenant/orgs', (route) => {
@@ -467,7 +524,11 @@ test.describe('review and checkout carry the package and its add-ons (#6971)', (
     await expect(summary).toContainText('+ Backup')
     await expect(summary).toContainText('OMR 1.500')
     await expect(summary).toContainText('+ Intrusion Prevention')
-    await expect(page.getByText('Total (monthly)').locator('..')).toContainText('OMR 13.500')
+    await expect(page.getByTestId('checkout-total')).toContainText('OMR 13.500')
+
+    // The summary is the server's quote of the checkout body's pricing fields.
+    expect(bodies.quote, 'billing quote body captured').toBeTruthy()
+    expect(bodies.quote).toMatchObject({ plan_id: 'm', package_sku: 'plan.m', addons: ['ips', 'addon.backup'], topology: 'single-region' })
 
     const purchase = page.getByRole('button', { name: /Purchase|Launch my Organization/i }).first()
     await expect(purchase).toBeVisible()

@@ -39,6 +39,10 @@ spec:
         - name: Billing
           type: string
           jsonPath: .spec.billingMode
+        - name: Package
+          type: string
+          jsonPath: .spec.commerce.packageSKU
+          priority: 1
         - name: Sovereign
           type: string
           jsonPath: .spec.sovereignRef
@@ -198,6 +202,58 @@ spec:
                             type: string
                           key:
                             type: string
+                commerce:
+                  type: object
+                  description: |
+                    Optional record of the marketplace purchase this
+                    Organization was created from (#6971 item 8). The
+                    billing order is the source; core/services/tenant
+                    carries it on `tenant.created`; the provisioning
+                    consumer stamps it here; the chargeback OpenOva
+                    adapter (PROFILE=sovereign) reads it to attach the
+                    Organization's platform Source to its package and
+                    add-on lines. Absent when the Organization was not
+                    created from an order (the sovereign-admin door, or
+                    any Organization that predates the field). The
+                    organization-controller does not reconcile it. No
+                    new entity type — these are optional fields on the
+                    Organization.
+                  properties:
+                    packageSKU:
+                      type: string
+                      maxLength: 64
+                      description: |
+                        BSS package sku the customer chose on the S/M/L/XL
+                        comparison table, e.g. "plan.m". spec.planSlug
+                        stays the catalog plan slug that sizes the
+                        boundary; this is the commercial package it maps
+                        to.
+                    addons:
+                      type: array
+                      description: |
+                        BSS add-on SKUs bought with the package, e.g.
+                        "addon.backup". BSS SKUs only — the emitters
+                        filter out the catalog add-on ids the storefront
+                        mixes into the same cart list, so every entry
+                        here attaches to a BSS add-on line directly.
+                      items:
+                        type: string
+                        maxLength: 64
+                    priceSource:
+                      type: string
+                      maxLength: 128
+                      description: |
+                        Where the order's prices came from: "catalog"
+                        (core/services/catalog plan + add-on prices) or
+                        "bss:<price_book>@<prices_as_of>" (the Catalyst
+                        BSS public packages document).
+                    orderID:
+                      type: string
+                      maxLength: 64
+                      description: |
+                        The billing order row (core/services/billing
+                        `orders.id`) this Organization was launched from
+                        — the provenance link back to the source.
                 sovereignRef:
                   type: string
                   description: |

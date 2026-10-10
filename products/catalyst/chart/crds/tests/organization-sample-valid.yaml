@@ -27,6 +27,16 @@ spec:
     - kind: huawei-project
       region: me-east-215
       projectId: 1cba321fed6543210cba321fed654321
+  # #6971 item 8 — the marketplace purchase this Organization was created
+  # from: BSS package sku + BSS add-on SKUs + price provenance + the billing
+  # order row. Optional; the sovereign-admin door mints without it.
+  commerce:
+    packageSKU: plan.m
+    addons:
+      - addon.backup
+      - addon.dedicated-ip
+    priceSource: "bss:OpenOva plans@2026-09-11"
+    orderID: 4f7c2a1e-9b3d-4c5e-8f6a-1d2e3f4a5b6c
   owners:
     - email: ceo@acme.com
       role: owner

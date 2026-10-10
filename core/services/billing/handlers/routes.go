@@ -20,6 +20,13 @@ func (h *Handler) Routes() http.Handler {
 	// full wire contract.
 	mux.HandleFunc("POST /billing/purchase", h.Checkout)
 
+	// Quote — prices the same body as /billing/checkout without creating an
+	// order (#6971). PUBLIC (no JWT; see main.go publicBillingPaths and the
+	// gateway route table): the marketplace /review and /checkout pages
+	// render their totals from this answer, before the customer signs in,
+	// so the table, the review, the checkout and the receipt show one number.
+	mux.HandleFunc("POST /billing/quote", h.Quote)
+
 	// Webhook — Stripe callback (PUBLIC, no JWT; verified via signature).
 	mux.HandleFunc("POST /billing/webhook", h.Webhook)
 

@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-10-10T10:45:05Z` |
+| Last refreshed | `2026-10-10T11:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -308,6 +308,7 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-10-10T09:25 | [#6986](https://github.com/openova-io/openova/pull/6986) | #6971 | docs(ledger): hw307 BSS walk evidence 0.1.27–0.1.57 |
+| 2026-10-10T10:53 | [#6984](https://github.com/openova-io/openova/pull/6984) | #6971 | fix(bss): the storefront reads the package document — its or |
 | 2026-10-10T08:19 | [#6982](https://github.com/openova-io/openova/pull/6982) | #6972 | fix(marketplace): the plan deck keeps its styles when the pa |
 | 2026-10-10T07:07 | [#6975](https://github.com/openova-io/openova/pull/6975) | #6973 | ci(docrender): refresh the apt index before installing poppl |
 | 2026-10-10T08:51 | [#6973](https://github.com/openova-io/openova/pull/6973) | #6971 | feat(bss): packages and the entitlement matrix — Included /  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-13T09:38 | [#6931](https://github.com/openova-io/openova/pull/6931) | #6867 | feat(bss): Catalyst BSS 0.1.42 — capacity as pools of machin |
 | 2026-09-12T00:53 | [#6930](https://github.com/openova-io/openova/pull/6930) | #6867 | fix(bss): Catalyst BSS 0.1.41 — an unrated period claimed ev |
 | 2026-09-11T22:45 | [#6929](https://github.com/openova-io/openova/pull/6929) | #6867 | feat(bss): Catalyst BSS 0.1.40 — console translation seam, E |
-| 2026-09-11T21:15 | [#6928](https://github.com/openova-io/openova/pull/6928) | #6867 | feat(bss): Catalyst BSS 0.1.39 — notification management |
 
 ---
 

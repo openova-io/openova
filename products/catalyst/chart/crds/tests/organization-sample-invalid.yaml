@@ -34,3 +34,25 @@ spec:
   kind: customer
   tier: org
   billingMode: real
+---
+# Third invalid case — #6971 commerce block with the wrong shapes. Everything
+# else is valid so the ONLY error vectors are:
+#   commerce.addons: "addon.backup"   — a string where the schema wants an array
+#   commerce.packageSKU: 7            — an integer where the schema wants a string
+apiVersion: orgs.openova.io/v1
+kind: Organization
+metadata:
+  name: bad-commerce
+spec:
+  slug: bad-commerce
+  displayName: Bad Commerce
+  kind: customer
+  tier: org
+  billingMode: real
+  sovereignRef: omantel.omani.works
+  owners:
+    - email: owner@bad-commerce.example
+      role: owner
+  commerce:
+    packageSKU: 7
+    addons: addon.backup

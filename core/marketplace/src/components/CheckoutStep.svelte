@@ -1,9 +1,8 @@
 <script lang="ts">
-  import { sendMagicLink, verifyMagicLink, getMe, createTenant, getMyOrgs, createCheckout, startProvisioning, getProvisionByTenant, checkSlug, getPlans, getAddons, getCreditBalance, redeemVoucherPreview, setAuthTokens, setActiveOrg, setActiveOrgSlug, setActiveOrgConsoleHost, type User, type Provision, type Plan, type AddOn } from '../lib/api';
+  import { sendMagicLink, verifyMagicLink, getMe, createTenant, getMyOrgs, createCheckout, getQuote, startProvisioning, getProvisionByTenant, checkSlug, getPlans, getCreditBalance, redeemVoucherPreview, setAuthTokens, setActiveOrg, setActiveOrgSlug, setActiveOrgConsoleHost, type User, type Provision, type Plan, type QuoteResponse } from '../lib/api';
   import { readCart, clearCart } from '../lib/cart';
   import { formatOMR } from '../lib/currency';
-  import { chargebackBaseURL } from '../lib/config';
-  import { funnelAddonsFor, loadPublicPackages, packageForCart } from '../lib/packages';
+  import { quoteRequestFor, quoteable, topologyFor, QUOTE_STRINGS } from '../lib/quote';
   import { consoleHandoffHref, consoleLaunchHref } from '../lib/config';
   import { creditCoversOrder, chargesCustomer } from '../lib/checkoutPaymentGate';
   import { codeExpiryNotice, needsFreshCode } from '../lib/checkoutSignIn';
@@ -11,34 +10,37 @@
 
   let cart = $state(readCart());
   let plans = $state<Plan[]>([]);
-  let addons = $state<AddOn[]>([]);
   const selectedPlan = $derived(plans.find(p => p.id === cart.plan));
-  const selectedAddons = $derived(addons.filter(a => cart.addons.includes(a.id)));
-  const planCost = $derived(selectedPlan?.monthly_price ?? 0);
-  const addonCost = $derived(selectedAddons.reduce((sum, a) => sum + a.monthly_price, 0));
   // #5104 facet B — the BCP step stores the choice at
-  // cart.appConfigs.postgres.active_hot_standby; it must be a priced line
-  // item HERE too, or the checkout total silently under-states what /review
-  // showed and (before the billing fix) under-billed the order. 5000 baisa
-  // mirrors billing's activeHotStandbyPriceOMR — the server remains the
-  // authority; this is display only.
-  const hotStandby = $derived(Boolean((cart.appConfigs ?? {})['postgres']?.['active_hot_standby']));
-  const topologyCost = $derived(hotStandby ? 5000 : 0);
-  const totalCost = $derived(planCost + addonCost + topologyCost);
+  // cart.appConfigs.postgres.active_hot_standby; the same derivation feeds
+  // the quote and the checkout POST (topologyFor), so what is shown is what
+  // is billed.
+  const hotStandby = $derived(topologyFor(cart) === 'active-hot-standby');
+
+  // #6971 — the order summary and the total come from POST /billing/quote,
+  // the pricing seam /billing/checkout bills through: the plan from the BSS
+  // package (or the catalog), one line per add-on in the cart's one list
+  // (the chosen package's optional features as BSS SKUs, catalog ids from
+  // /catalog/addons), the #5104 topology surcharge. Nothing here sums money
+  // and no add-on list is resolved client-side — the server names and prices
+  // every line. Until the quote answers — or when it cannot — the total
+  // reads as unavailable and the purchase button stays disabled: the amount
+  // is what the customer is agreeing to.
+  let quote = $state<QuoteResponse | null>(null);
+  let quoteError = $state<string | null>(null);
+  $effect(() => {
+    const req = quoteRequestFor(cart);
+    if (!quoteable(req)) { quote = null; quoteError = null; return; }
+    let stale = false;
+    getQuote(req)
+      .then(q => { if (!stale) { quote = q; quoteError = null; } })
+      .catch(e => { if (!stale) { quote = null; quoteError = e instanceof Error ? e.message : String(e); } });
+    return () => { stale = true; };
+  });
+  const totalCost = $derived(quote?.amount_baisa ?? 0);
 
   $effect(() => {
     getPlans().then(p => { plans = p; }).catch(() => {});
-    // #6971 — the list the cart's add-on ids resolve against: the catalog, or,
-    // with the BSS document and a package to stand on, that package's optional
-    // features (BSS SKUs) plus the catalog add-ons with no BSS twin. Same
-    // shape; the lines and arithmetic above are unchanged.
-    Promise.all([
-      getAddons().catch(() => [] as AddOn[]),
-      loadPublicPackages(chargebackBaseURL()),
-    ]).then(([ad, doc]) => {
-      const pkg = doc ? packageForCart(doc, cart) : null;
-      addons = doc && pkg ? funnelAddonsFor(doc, pkg.sku, ad).addons : ad;
-    });
   });
 
   // #85 — checkout renders all OMR values via the shared helper so they
@@ -444,7 +446,7 @@
         // #5104 facet B — the topology must reach billing explicitly; it
         // used to travel only inside the tenant-create app_configs, so the
         // order billed the plan alone while the Org got hot-standby free.
-        topology: hotStandby ? 'active-hot-standby' : 'single-region',
+        topology: topologyFor(cart),
         tenant_id: tenant.id,
         promo_code: trimmedPromo || undefined,
       });
@@ -782,28 +784,33 @@
           <div class="flex flex-col gap-2 text-sm">
             <div class="flex justify-between">
               <span class="text-[var(--color-text-dim)]">Plan · {selectedPlan?.name || cart.planName || '—'}</span>
-              <span class="text-[var(--color-text)]">{formatOMR(planCost)}</span>
+              <span class="text-[var(--color-text)]" data-testid="checkout-plan-amount">{quote ? formatOMR(quote.plan_amount_baisa) : QUOTE_STRINGS.pending}</span>
             </div>
             <div class="flex justify-between">
               <span class="text-[var(--color-text-dim)]">Apps ({cart.apps.length})</span>
               <span class="text-[var(--color-text-dim)]">Free</span>
             </div>
-            {#each selectedAddons as a}
-              <div class="flex justify-between">
-                <span class="text-[var(--color-text-dim)]">+ {a.name}</span>
-                <span class="text-[var(--color-text)]">{formatOMR(a.monthly_price)}</span>
-              </div>
-            {/each}
-            {#if hotStandby}
-              <div class="flex justify-between">
-                <span class="text-[var(--color-text-dim)]">+ Active hot-standby (BCP)</span>
-                <span class="text-[var(--color-text)]">{formatOMR(topologyCost)}</span>
-              </div>
+            {#if quote}
+              {#each quote.lines as line (line.sku)}
+                <div class="flex justify-between" data-testid="checkout-package-addon-{line.sku}">
+                  <span class="text-[var(--color-text-dim)]">+ {line.name}</span>
+                  <span class="text-[var(--color-text)]">{line.redundant ? QUOTE_STRINGS.included : formatOMR(line.amount_baisa)}</span>
+                </div>
+              {/each}
+              {#if quote.topology_amount_baisa > 0}
+                <div class="flex justify-between">
+                  <span class="text-[var(--color-text-dim)]">+ Active hot-standby (BCP)</span>
+                  <span class="text-[var(--color-text)]">{formatOMR(quote.topology_amount_baisa)}</span>
+                </div>
+              {/if}
             {/if}
             <div class="mt-1 flex justify-between border-t border-dashed border-[var(--color-border)] pt-2 font-semibold">
               <span class="text-[var(--color-text-strong)]">Total (monthly)</span>
-              <span class="text-[var(--color-text-strong)]">{formatOMR(totalCost)}</span>
+              <span class="text-[var(--color-text-strong)]" data-testid="checkout-total">{quote ? formatOMR(quote.amount_baisa) : QUOTE_STRINGS.pending}</span>
             </div>
+            {#if quoteError}
+              <p class="text-xs text-[var(--color-danger)]" data-testid="checkout-quote-error">{QUOTE_STRINGS.unavailable}</p>
+            {/if}
             {#if creditBaisa > 0}
               <div class="flex justify-between text-[var(--color-success)]">
                 <span>Credit available</span>
@@ -916,12 +923,14 @@
 
         <button
           onclick={handleCheckout}
-          disabled={checkoutLoading || !cart.plan || cart.apps.length === 0}
+          disabled={checkoutLoading || !cart.plan || cart.apps.length === 0 || !quote}
           class="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-accent)] px-6 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:cursor-not-allowed disabled:opacity-50"
         >
           {#if checkoutLoading}
             <div class="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
             Processing…
+          {:else if !quote}
+            {QUOTE_STRINGS.pricing}
           {:else if totalCost === 0 || creditCovers}
             Launch my Organization
             <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">

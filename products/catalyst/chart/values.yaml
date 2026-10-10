@@ -554,9 +554,9 @@ images:
     # new chart emits only the new name, so handoverSigner never
     # initialises and /api/v1/auth/pin/issue returns 503 "handover
     # signer unavailable". ff778a36 reads both names with fallback.
-    tag: "e8a8c69"
+    tag: "e4a87b3"
   catalystUi:
-    tag: "e8a8c69"
+    tag: "e4a87b3"
   # 2026-08-11 (#5451): marketplaceApi / console / admin were ALL frozen at
   # "3c2f7e4" (2026-04-28) for three and a half months. Their build workflows
   # sed-ed the `image:` line of their chart template; 83ec889f0 (PR #580,
@@ -2058,6 +2058,18 @@ orgServices:
     # wire a different NATS endpoint (e.g. a leaf-node connection) or
     # set explicitly empty to force NATS-disabled mode.
     natsURL: ""
+  billing:
+    # #6971 — base URL of the Catalyst BSS (bp-chargeback) whose public price
+    # book, GET /api/v1/public/packages, the billing service prices every
+    # order carrying a `package_sku` from (the S/M/L/XL table the marketplace
+    # renders from the same document). Empty = the template's default, the
+    # Sovereign placement's in-cluster Service — bootstrap-kit slot 13f
+    # installs release `chargeback` into namespace `chargeback` on
+    # values.service.port 8080. Overlays MAY point at another chargeback
+    # placement; empty here always renders the default (the binary's "BSS
+    # pricing off" — package orders answer 503, never catalog-priced — is an
+    # explicitly empty CHARGEBACK_PUBLIC_URL env, which the chart never emits).
+    chargebackPublicURL: ""
   ferretdb:
     namespace: org-services          # #3383: was `sme`
     # FerretDB v1.24 — works against vanilla CNPG postgres:16. v2.x

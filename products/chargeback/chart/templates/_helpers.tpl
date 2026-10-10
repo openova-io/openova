@@ -90,6 +90,29 @@ the image pulls from the local Harbor under the deny-egress hold.
 {{- end -}}
 
 {{- /*
+chargeback.publicOrigins — the origins answered cross-origin on the public
+routes and allowed to frame /estimate (PUBLIC_CALCULATOR_ORIGINS): the
+operator's list, then — on a Sovereign — its own storefront
+https://marketplace.<sovereignFqdn>, whose package table reads
+GET /api/v1/public/packages from the browser (DESIGN.md §22.6). Without the
+CORS answer that fetch is blocked and the storefront silently falls back to
+the catalog deck (found live on hw307, 0.1.58). "" when there is nothing.
+*/ -}}
+{{- define "chargeback.publicOrigins" -}}
+{{- $origins := list -}}
+{{- range .Values.publicCalculator.origins -}}
+{{- $origins = append $origins . -}}
+{{- end -}}
+{{- if .Values.sovereignFqdn -}}
+{{- $store := printf "https://marketplace.%s" .Values.sovereignFqdn -}}
+{{- if not (has $store $origins) -}}
+{{- $origins = append $origins $store -}}
+{{- end -}}
+{{- end -}}
+{{- join "," $origins -}}
+{{- end -}}
+
+{{- /*
 chargeback.hostname — the public HTTPRoute host. Explicit hostnames[0]
 wins; else chargeback.<sovereignFqdn>; else "" (fail-closed — the route
 renders nothing, Inviolable #4).
