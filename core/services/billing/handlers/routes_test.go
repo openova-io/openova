@@ -36,6 +36,25 @@ func TestRoutes_PurchaseAliasResolves(t *testing.T) {
 	// DB / catalog deps; that's fine, the route exists and dispatches.
 }
 
+// TestRoutes_QuoteResolves — `POST /billing/quote` (#6971) MUST be
+// registered; the marketplace /review and /checkout pages render their
+// totals from it. A non-404 is the assertion (a bare Handler{} prices
+// nothing, so a 4xx/5xx is expected here).
+func TestRoutes_QuoteResolves(t *testing.T) {
+	h := &Handler{}
+	mux := h.Routes()
+
+	req := httptest.NewRequest(http.MethodPost, "/billing/quote", strings.NewReader("{}"))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code == http.StatusNotFound {
+		t.Fatalf("/billing/quote MUST be registered (#6971); got 404")
+	}
+}
+
 // TestRoutes_CheckoutCanonicalStillWorks — the canonical
 // `/billing/checkout` route MUST keep resolving to the same handler.
 // Guards against an accidental rename / removal.

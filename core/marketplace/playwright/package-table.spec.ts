@@ -207,6 +207,18 @@ test.describe('package choice reaches checkout (#6971)', () => {
       }
       return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
     })
+    // #6971 — the order summary renders the SERVER's quote, not a client-side
+    // sum: the same body the checkout POST carries goes to /billing/quote and
+    // the page shows the lines + total it answers with.
+    await page.route('**/api/billing/quote', (route) => {
+      bodies.quote = JSON.parse(route.request().postData() || '{}')
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+        currency: 'OMR', price_source: 'bss:OpenOva plans@2026-09-11', package_sku: 'plan.m', plan_id: 'm',
+        plan_amount_baisa: 9000, topology: 'single-region', topology_amount_baisa: 0,
+        lines: [{ sku: 'addon.backup', name: 'Backup', amount_baisa: 1500 }],
+        amount_baisa: 10500, amount_omr: 11,
+      }) })
+    })
     await page.route('**/api/billing/checkout', (route) => {
       bodies.checkout = JSON.parse(route.request().postData() || '{}')
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ order_id: 'order-1', paid_by_credit: true }) })
@@ -240,12 +252,20 @@ test.describe('package choice reaches checkout (#6971)', () => {
     })
     await page.goto('/checkout')
 
-    // The add-on is a priced line and is in the total: 9.000 (plan M) + 1.500.
+    // The add-on is a priced line and is in the total — both from the server's
+    // quote: 9.000 (plan M) + 1.500 (backup) = 10.500.
     await expect(page.getByText(/Order summary/i)).toBeVisible({ timeout: 10_000 })
     const line = page.getByTestId('checkout-package-addon-addon.backup')
     await expect(line).toContainText('Backup')
     await expect(line).toContainText('OMR 1.500')
-    await expect(page.getByText('Total (monthly)').locator('..')).toContainText('OMR 10.500')
+    await expect(page.getByTestId('checkout-total')).toContainText('OMR 10.500')
+
+    // The quote was asked with the checkout body's pricing fields.
+    expect(bodies.quote, 'billing quote body captured').toBeTruthy()
+    expect(bodies.quote.plan_id).toBe('m')
+    expect(bodies.quote.package_sku).toBe('plan.m')
+    expect(bodies.quote.addons).toEqual(['waf', 'addon.backup'])
+    expect(bodies.quote.topology).toBe('single-region')
 
     const purchase = page.getByRole('button', { name: /Purchase|Launch my Organization/i }).first()
     await expect(purchase).toBeVisible()

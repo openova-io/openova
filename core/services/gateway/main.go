@@ -96,6 +96,10 @@ func main() {
 		{PathPrefix: "/api/billing/vouchers/redeem-preview", Upstream: billingURL, StripPrefix: "/api", Public: true},
 		{PathPrefix: "/api/billing/plans", Upstream: billingURL, StripPrefix: "/api", Public: true},
 		{PathPrefix: "/api/billing/addons", Upstream: billingURL, StripPrefix: "/api", Public: true},
+		// #6971 — POST /billing/quote prices a cart without creating an
+		// order; the marketplace /review page calls it before sign-in so its
+		// total is the server's, not client-side arithmetic.
+		{PathPrefix: "/api/billing/quote", Upstream: billingURL, StripPrefix: "/api", Public: true},
 		{PathPrefix: "/api/billing/", Upstream: billingURL, StripPrefix: "/api", Public: false},
 		// Domain (requires auth).
 		{PathPrefix: "/api/domain/", Upstream: domainURL, StripPrefix: "/api", Public: false},

@@ -21,6 +21,7 @@ import (
 	stripecustomer "github.com/stripe/stripe-go/v81/customer"
 	"github.com/stripe/stripe-go/v81/webhook"
 
+	"github.com/openova-io/openova/core/services/billing/packages"
 	"github.com/openova-io/openova/core/services/billing/store"
 	"github.com/openova-io/openova/core/services/shared/events"
 	"github.com/openova-io/openova/core/services/shared/middleware"
@@ -109,6 +110,14 @@ type Handler struct {
 	CatalogURL string // internal URL to catalog service, e.g. http://catalog.org-services.svc.cluster.local:8082
 	TenantURL  string // internal URL to tenant service (to dispatch provisioning without broker)
 
+	// Packages reads the Catalyst BSS public price book (#6971) —
+	// GET <CHARGEBACK_PUBLIC_URL>/api/v1/public/packages — that an order
+	// carrying `package_sku` is priced from. nil or unconfigured means BSS
+	// pricing is off: such an order is refused with 503 "prices unavailable",
+	// never priced from the catalog instead. Orders without a package_sku
+	// never consult it.
+	Packages *packages.Client
+
 	// NotificationURL is the internal URL of the notification service's
 	// POST /notification/send endpoint. Default in main.go is
 	// `http://notification.org-services.svc.cluster.local:8087/notification/send`.
@@ -180,6 +189,13 @@ type checkoutRequest struct {
 	// app_configs, so the review page showed plan+surcharge while the order
 	// billed the plan alone and the customer received hot-standby unbilled.
 	Topology string `json:"topology"`
+	// PackageSKU is the BSS package chosen on the marketplace comparison
+	// table ("plan.m"), beside the catalog plan_id the subscription is keyed
+	// on. When set, the order is priced from the BSS public packages document
+	// (#6971): plan price = the package's price_month, every `addon.*` entry
+	// in Addons = that package's feature cell. Empty = legacy deck / older
+	// clients → catalog pricing, unchanged.
+	PackageSKU string `json:"package_sku"`
 }
 
 type checkoutResponse struct {
@@ -187,6 +203,9 @@ type checkoutResponse struct {
 	OrderID       string `json:"order_id,omitempty"`
 	PaidByCredit  bool   `json:"paid_by_credit,omitempty"`
 	CreditBalance int    `json:"credit_balance,omitempty"`
+	// The priced lines the order row persisted (#6971) — price_source,
+	// package_sku, lines, amount_baisa — so the receipt shows what was billed.
+	*QuoteResponse
 }
 
 // Checkout creates an order and either (a) covers it fully from credit, or
@@ -266,12 +285,21 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	totalOMR, err := h.computeOrderTotal(ctx, req.PlanID, req.Apps, req.Addons, topology)
+	priced, err := h.priceOrder(ctx, pricingRequest{
+		PlanID: req.PlanID, PackageSKU: req.PackageSKU, Apps: req.Apps, Addons: req.Addons, Topology: topology,
+	})
 	if err != nil {
-		slog.Error("checkout: compute total", "error", err)
-		respond.Error(w, http.StatusBadRequest, "failed to compute order total: "+err.Error())
+		status, body := pricingErrorResponse(err)
+		slog.Error("checkout: price order", "error", err, "status", status,
+			"plan_id", req.PlanID, "package_sku", req.PackageSKU)
+		respond.JSON(w, status, body)
 		return
 	}
+	// totalOMR is the whole-OMR view the credit ledger settles in (see
+	// pricedOrder.WholeOMR for the rounding rule); priced.TotalBaisa is the
+	// exact total the order row and the response carry.
+	totalOMR := priced.WholeOMR()
+	quote := priced.response(req.PlanID)
 
 	// Redeem promo code → credit (if one was provided and valid). Runs only
 	// after the total has been computed successfully, so a catalog failure
@@ -339,13 +367,18 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 	// wrapped in a single transaction via CreditOnlyCheckout so we cannot
 	// leave the customer with debited credit and no subscription (or
 	// vice-versa).
-	remainingOMR := totalOMR - creditBalance
-	if remainingOMR <= 0 {
+	//
+	// #6971 — compared in baisa: a BSS-priced order can carry a sub-OMR total
+	// (plan M + backup = 10.500) and the whole-OMR ledger balance covers it
+	// only when balance × 1000 ≥ total.
+	remainingBaisa := priced.TotalBaisa - store.OMRToBaisa(creditBalance)
+	if remainingBaisa <= 0 {
 		order := &store.Order{
 			CustomerID: cust.ID, TenantID: req.TenantID, PlanID: req.PlanID,
 			Apps: appsJSON, Addons: addonsJSON, Topology: topology,
-			AmountOMR: totalOMR, Status: "completed",
-			PromoCode: req.PromoCode,
+			AmountOMR: totalOMR, AmountBaisa: priced.TotalBaisa, Status: "completed",
+			PromoCode:   req.PromoCode,
+			PriceSource: priced.PriceSource, PackageSKU: priced.PackageSKU, AddonLines: priced.linesJSON(),
 		}
 		sub := &store.Subscription{
 			CustomerID: cust.ID, TenantID: req.TenantID, PlanID: req.PlanID, Status: "active",
@@ -367,6 +400,7 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 
 		respond.OK(w, checkoutResponse{
 			OrderID: order.ID, PaidByCredit: true, CreditBalance: creditBalance - totalOMR,
+			QuoteResponse: quote,
 		})
 		return
 	}
@@ -395,8 +429,9 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 	order := &store.Order{
 		CustomerID: cust.ID, TenantID: req.TenantID, PlanID: req.PlanID,
 		Apps: appsJSON, Addons: addonsJSON, Topology: topology,
-		AmountOMR: totalOMR, Status: "pending",
-		PromoCode: req.PromoCode,
+		AmountOMR: totalOMR, AmountBaisa: priced.TotalBaisa, Status: "pending",
+		PromoCode:   req.PromoCode,
+		PriceSource: priced.PriceSource, PackageSKU: priced.PackageSKU, AddonLines: priced.linesJSON(),
 	}
 	if err := h.Store.CreateOrder(ctx, order); err != nil {
 		slog.Error("checkout: create order", "error", err)
@@ -462,7 +497,45 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 	// are conventionally handled.
 	_ = h.Store.UpdateOrderStatus(ctx, order.ID, "pending", sess.ID)
 
-	respond.OK(w, checkoutResponse{SessionURL: sess.URL, OrderID: order.ID, CreditBalance: creditBalance})
+	respond.OK(w, checkoutResponse{SessionURL: sess.URL, OrderID: order.ID, CreditBalance: creditBalance, QuoteResponse: quote})
+}
+
+// ---------------------------------------------------------------------------
+// POST /billing/quote
+// ---------------------------------------------------------------------------
+
+// Quote prices an order without creating one. Public — the marketplace
+// /review page quotes before the customer has signed in — and it never
+// touches the store: same body as /billing/checkout (tenant_id and
+// promo_code are ignored), same pricing seam (priceOrder), same 422 / 503
+// answers, so the number the customer sees on /review and /checkout is the
+// number Checkout bills (#6971).
+func (h *Handler) Quote(w http.ResponseWriter, r *http.Request) {
+	var req checkoutRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respond.Error(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if req.PlanID == "" && req.PackageSKU == "" {
+		respond.Error(w, http.StatusBadRequest, "plan_id or package_sku is required")
+		return
+	}
+	topology, err := normalizeTopology(req.Topology)
+	if err != nil {
+		respond.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	priced, err := h.priceOrder(r.Context(), pricingRequest{
+		PlanID: req.PlanID, PackageSKU: req.PackageSKU, Apps: req.Apps, Addons: req.Addons, Topology: topology,
+	})
+	if err != nil {
+		status, body := pricingErrorResponse(err)
+		slog.Warn("quote: price order", "error", err, "status", status,
+			"plan_id", req.PlanID, "package_sku", req.PackageSKU)
+		respond.JSON(w, status, body)
+		return
+	}
+	respond.OK(w, priced.response(req.PlanID))
 }
 
 // ---------------------------------------------------------------------------
@@ -1103,6 +1176,7 @@ type catalogPlan struct {
 }
 type catalogAddon struct {
 	ID       string `json:"id"`
+	Name     string `json:"name"`
 	PriceOMR int    `json:"price_omr"`
 }
 
@@ -1131,50 +1205,274 @@ func normalizeTopology(t string) (string, error) {
 	}
 }
 
-func (h *Handler) computeOrderTotal(ctx context.Context, planID string, apps, addons []string, topology string) (int, error) {
+// ---------------------------------------------------------------------------
+// Pricing (#6971) — one source of money per order.
+// ---------------------------------------------------------------------------
+
+// pricingRequest is what an order is priced from: the catalog plan id the
+// subscription is keyed on, the optional BSS package sku, the add-on
+// identifiers (catalog ids and/or BSS `addon.*` SKUs) and the canonical
+// topology.
+type pricingRequest struct {
+	PlanID     string
+	PackageSKU string
+	Apps       []string
+	Addons     []string
+	Topology   string
+}
+
+// pricedOrder is an order with every amount settled, in baisa.
+type pricedOrder struct {
+	Currency      string
+	PriceSource   string
+	PackageSKU    string
+	Topology      string
+	PlanBaisa     int64
+	TopologyBaisa int64
+	Lines         []store.OrderLine
+	TotalBaisa    int64
+}
+
+// WholeOMR is the legacy whole-OMR view of the total. orders.amount_omr and
+// the credit ledger (credit_omr INT, whole OMR per row) predate sub-OMR
+// prices; a BSS total can be fractional (plan M + backup = 10.500). It is
+// rounded UP so a credit balance that covers the order in whole OMR can never
+// fall short of it in baisa. The exact figure is TotalBaisa — what the order
+// row (amount_baisa) and the response (amount_baisa) carry.
+func (p *pricedOrder) WholeOMR() int { return int((p.TotalBaisa + 999) / 1000) }
+
+// linesJSON is the add-on lines as the orders.addon_lines JSONB column takes them.
+func (p *pricedOrder) linesJSON() json.RawMessage {
+	b, err := json.Marshal(p.lines())
+	if err != nil {
+		return json.RawMessage(`[]`)
+	}
+	return b
+}
+
+func (p *pricedOrder) lines() []store.OrderLine {
+	if p.Lines == nil {
+		return []store.OrderLine{}
+	}
+	return p.Lines
+}
+
+// QuoteResponse is a priced order as the API returns it — alone on
+// POST /billing/quote and embedded in the checkout response — so the
+// storefront renders exactly the lines the order row persisted.
+type QuoteResponse struct {
+	Currency string `json:"currency"`
+	// PriceSource is "bss:<price_book>@<prices_as_of>" or "catalog".
+	PriceSource         string            `json:"price_source"`
+	PackageSKU          string            `json:"package_sku,omitempty"`
+	PlanID              string            `json:"plan_id,omitempty"`
+	PlanAmountBaisa     int64             `json:"plan_amount_baisa"`
+	Topology            string            `json:"topology"`
+	TopologyAmountBaisa int64             `json:"topology_amount_baisa"`
+	Lines               []store.OrderLine `json:"lines"`
+	// AmountBaisa is the exact total; AmountOMR the whole-OMR view (WholeOMR).
+	AmountBaisa int64 `json:"amount_baisa"`
+	AmountOMR   int   `json:"amount_omr"`
+}
+
+func (p *pricedOrder) response(planID string) *QuoteResponse {
+	return &QuoteResponse{
+		Currency:            p.Currency,
+		PriceSource:         p.PriceSource,
+		PackageSKU:          p.PackageSKU,
+		PlanID:              planID,
+		PlanAmountBaisa:     p.PlanBaisa,
+		Topology:            p.Topology,
+		TopologyAmountBaisa: p.TopologyBaisa,
+		Lines:               p.lines(),
+		AmountBaisa:         p.TotalBaisa,
+		AmountOMR:           p.WholeOMR(),
+	}
+}
+
+// errPricesUnavailable: the order carries a package_sku but BSS pricing is
+// not configured. The reachable-but-unreadable case is packages.ErrUnavailable.
+// Both answer 503 — an order is never priced from the catalog instead.
+var errPricesUnavailable = errors.New("prices unavailable")
+
+// pricingErrorResponse maps a pricing failure to its HTTP status and body:
+//   - *packages.RefusedError (add-on not offered on the package, add-on or
+//     package unknown to the price book) → 422, naming the add-on and the
+//     package in both the message and structured fields;
+//   - errPricesUnavailable / packages.ErrUnavailable → 503 "prices unavailable";
+//   - anything else (catalog unreachable, unknown plan) → 400, as before.
+func pricingErrorResponse(err error) (int, map[string]any) {
+	var refused *packages.RefusedError
+	switch {
+	case errors.As(err, &refused):
+		return http.StatusUnprocessableEntity, map[string]any{
+			"error":       refused.Error(),
+			"addon_sku":   refused.AddonSKU,
+			"package_sku": refused.PackageSKU,
+		}
+	case errors.Is(err, errPricesUnavailable), errors.Is(err, packages.ErrUnavailable):
+		return http.StatusServiceUnavailable, map[string]any{
+			"error": "prices unavailable — the price book could not be read; please retry",
+		}
+	default:
+		return http.StatusBadRequest, map[string]any{
+			"error": "failed to compute order total: " + err.Error(),
+		}
+	}
+}
+
+// priceOrder is the single pricing seam Checkout and Quote share. An order
+// that carries a package_sku is priced from the BSS public packages document;
+// one that does not is priced from the catalog exactly as before #6971.
+func (h *Handler) priceOrder(ctx context.Context, req pricingRequest) (*pricedOrder, error) {
+	if req.PackageSKU == "" {
+		return h.priceFromCatalog(ctx, req)
+	}
+	return h.priceFromPackages(ctx, req)
+}
+
+// priceFromPackages prices from the BSS document: plan price = the package's
+// price_month; each `addon.*` SKU from that package's feature cell
+// (optional → its price, included → 0 and redundant, not_offered / unknown →
+// *packages.RefusedError). Add-on ids that are not BSS SKUs keep catalog
+// pricing. The topology surcharge is billing's own, as on the catalog path.
+func (h *Handler) priceFromPackages(ctx context.Context, req pricingRequest) (*pricedOrder, error) {
+	if !h.Packages.Configured() {
+		return nil, fmt.Errorf("%w: order carries package_sku %q but no price book URL is configured (CHARGEBACK_PUBLIC_URL)",
+			errPricesUnavailable, req.PackageSKU)
+	}
+	doc, err := h.Packages.Get(ctx)
+	if err != nil {
+		return nil, err // wraps packages.ErrUnavailable
+	}
+	var bssSKUs, catalogIDs []string
+	for _, id := range req.Addons {
+		if packages.IsAddonSKU(id) {
+			bssSKUs = append(bssSKUs, id)
+		} else {
+			catalogIDs = append(catalogIDs, id)
+		}
+	}
+	q, err := doc.Price(req.PackageSKU, bssSKUs)
+	if err != nil {
+		return nil, err // *packages.RefusedError
+	}
+	p := &pricedOrder{
+		Currency:    q.Currency,
+		PriceSource: q.PriceSource,
+		PackageSKU:  q.PackageSKU,
+		Topology:    req.Topology,
+		PlanBaisa:   q.PlanMinor,
+		Lines:       []store.OrderLine{},
+	}
+	for _, l := range q.Lines {
+		p.Lines = append(p.Lines, store.OrderLine{SKU: l.SKU, Name: l.Name, AmountBaisa: l.PriceMinor, Redundant: l.Redundant})
+	}
+	p.Lines = append(p.Lines, h.catalogAddonLines(ctx, catalogIDs)...)
+	// Apps are free for now (catalog app records have no price field).
+	_ = req.Apps
+	p.TopologyBaisa = topologySurchargeBaisa(req.Topology)
+	p.TotalBaisa = p.PlanBaisa + p.TopologyBaisa
+	for _, l := range p.Lines {
+		p.TotalBaisa += l.AmountBaisa
+	}
+	return p, nil
+}
+
+// priceFromCatalog is the pre-#6971 pricing path, unchanged in behaviour:
+// plan from /catalog/plans (an unknown plan is an error), add-ons from
+// /catalog/addons, the topology surcharge from billing's own constant.
+func (h *Handler) priceFromCatalog(ctx context.Context, req pricingRequest) (*pricedOrder, error) {
 	if h.CatalogURL == "" {
-		return 0, fmt.Errorf("catalog URL not configured")
+		return nil, fmt.Errorf("catalog URL not configured")
 	}
 	plans, err := getCatalog[catalogPlan](ctx, h.CatalogURL+"/catalog/plans")
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	var planPrice int
 	found := false
 	for _, p := range plans {
-		if p.ID == planID {
+		if p.ID == req.PlanID {
 			planPrice = p.PriceOMR
 			found = true
 			break
 		}
 	}
 	if !found {
-		return 0, fmt.Errorf("plan %q not found", planID)
+		return nil, fmt.Errorf("plan %q not found", req.PlanID)
 	}
-
-	addonTotal := 0
-	if len(addons) > 0 {
-		cats, err := getCatalog[catalogAddon](ctx, h.CatalogURL+"/catalog/addons")
-		if err == nil {
-			byID := make(map[string]int, len(cats))
-			for _, a := range cats {
-				byID[a.ID] = a.PriceOMR
-			}
-			for _, id := range addons {
-				addonTotal += byID[id]
-			}
-		}
+	p := &pricedOrder{
+		Currency:    packages.Currency,
+		PriceSource: store.PriceSourceCatalog,
+		Topology:    req.Topology,
+		PlanBaisa:   store.OMRToBaisa(planPrice),
+		Lines:       h.catalogAddonLines(ctx, req.Addons),
+	}
+	if p.Lines == nil {
+		p.Lines = []store.OrderLine{}
 	}
 	// Apps are free for now (catalog app records have no price field).
-	_ = apps
-
+	_ = req.Apps
 	// BCP topology surcharge (#5104 facet B) — priced here, the server
 	// authority, never trusted from the client-side review total.
-	topologyTotal := 0
-	if topology == topologyActiveHotStandby {
-		topologyTotal = activeHotStandbyPriceOMR
+	p.TopologyBaisa = topologySurchargeBaisa(req.Topology)
+	p.TotalBaisa = p.PlanBaisa + p.TopologyBaisa
+	for _, l := range p.Lines {
+		p.TotalBaisa += l.AmountBaisa
 	}
-	return planPrice + addonTotal + topologyTotal, nil
+	return p, nil
+}
+
+// catalogAddonLines prices add-on ids from /catalog/addons — today's
+// behaviour, kept: an id the catalog does not list contributes nothing, and a
+// failed catalog read leaves the add-ons unpriced rather than failing the
+// order. BSS `addon.*` SKUs never reach here (priceFromPackages splits them
+// off first).
+func (h *Handler) catalogAddonLines(ctx context.Context, ids []string) []store.OrderLine {
+	if len(ids) == 0 {
+		return nil
+	}
+	cats, err := getCatalog[catalogAddon](ctx, h.CatalogURL+"/catalog/addons")
+	if err != nil {
+		slog.Warn("pricing: catalog add-ons unreadable — add-ons left unpriced", "error", err, "ids", ids)
+		return nil
+	}
+	byID := make(map[string]catalogAddon, len(cats))
+	for _, a := range cats {
+		byID[a.ID] = a
+	}
+	var out []store.OrderLine
+	for _, id := range ids {
+		a, ok := byID[id]
+		if !ok {
+			continue
+		}
+		name := a.Name
+		if name == "" {
+			name = id
+		}
+		out = append(out, store.OrderLine{SKU: id, Name: name, AmountBaisa: store.OMRToBaisa(a.PriceOMR)})
+	}
+	return out
+}
+
+// topologySurchargeBaisa is the BCP topology surcharge (#5104 facet B) in baisa.
+func topologySurchargeBaisa(topology string) int64 {
+	if topology == topologyActiveHotStandby {
+		return store.OMRToBaisa(activeHotStandbyPriceOMR)
+	}
+	return 0
+}
+
+// computeOrderTotal is the catalog pricing path's whole-OMR total — the entry
+// point the pre-#6971 tests pin. Checkout and Quote price through priceOrder.
+func (h *Handler) computeOrderTotal(ctx context.Context, planID string, apps, addons []string, topology string) (int, error) {
+	p, err := h.priceFromCatalog(ctx, pricingRequest{PlanID: planID, Apps: apps, Addons: addons, Topology: topology})
+	if err != nil {
+		return 0, err
+	}
+	return p.WholeOMR(), nil
 }
 
 func (h *Handler) resolvePlanStripePriceID(ctx context.Context, planID string) (string, error) {
@@ -1237,18 +1535,23 @@ func (h *Handler) dispatchOrderPlaced(tenantID string, order *store.Order) {
 	// the consumer treats absence as "use defaults" without erroring.
 	appConfigs := h.lookupTenantAppConfigs(tenantID)
 	payload := map[string]any{
-		"id":               order.ID,
-		"customer_id":      order.CustomerID,
-		"tenant_id":        order.TenantID,
-		"plan_id":          order.PlanID,
-		"apps":             order.Apps,
-		"addons":           order.Addons,
-		"topology":         order.Topology,
-		"amount_omr":       order.AmountOMR,
-		"amount_baisa":     order.AmountBaisa,
-		"status":           order.Status,
-		"subdomain":        subdomain,
-		"app_configs":      appConfigs,
+		"id":           order.ID,
+		"customer_id":  order.CustomerID,
+		"tenant_id":    order.TenantID,
+		"plan_id":      order.PlanID,
+		"apps":         order.Apps,
+		"addons":       order.Addons,
+		"topology":     order.Topology,
+		"amount_omr":   order.AmountOMR,
+		"amount_baisa": order.AmountBaisa,
+		"status":       order.Status,
+		"subdomain":    subdomain,
+		"app_configs":  appConfigs,
+		// #6971 — price provenance, so a downstream BSS hand-over can match
+		// the order's lines against the price book it was priced from.
+		"price_source": order.PriceSource,
+		"package_sku":  order.PackageSKU,
+		"addon_lines":  order.AddonLines,
 	}
 	evt, err := events.NewEvent("order.placed", "billing", tenantID, payload)
 	if err != nil {
