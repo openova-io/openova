@@ -1,12 +1,15 @@
 <script lang="ts">
   // Step 1 of the wizard with a v2 package document (#6971): the LADDER.
-  // From the top: the floor — "Included in every package", a compact strip
-  // rendered from the document's `floor` only — and the "grow with you"
-  // line; then ONE continuous table. Its first row is the four package cards
+  // Under the title and subtitle, nothing but ONE continuous table — no box
+  // or banner above the cards. Its first row is the four package cards
   // (icon, name, badge, tagline, price, the annual line, the shape with its
   // guarantee in small type, the disk, Choose); the rows under it are the
   // grouped comparison (a header row per group, its features under it); the
-  // last row repeats Choose. Nothing spans the package columns except a
+  // last row repeats Choose. The groups are model.tableGroups: first
+  // "Included in every package" (the document's `floor`, ✓ in every column),
+  // then the document's groups with "When you reach your package" after
+  // CAPACITY (Capped, Grow with me, each package's own rates — from
+  // `packages[].grow` only, absent when no package carries grow). Nothing spans the package columns except a
   // group header, and that one is transparent: each column is drawn ONCE, by
   // its rail (`ld-col`), from the top of its card to its foot, so the
   // border, the recommended ring and the selected tint run unbroken.
@@ -102,51 +105,6 @@
   <h1 class="ld-title">{S.title}</h1>
   <p class="ld-sub">{S.subtitle}</p>
 
-  <!-- The floor, first-class and OUT of the column flow: above the table, so
-       it never cuts the package columns — what every package includes, as a
-       compact strip (icon, name, blurb) rendered from the document's `floor`
-       only. A new floor item appears here without a release. -->
-  {#if model.floorItems.length > 0}
-    <section class="ld-floor" aria-label={S.ladder.floorTitle} data-testid="package-floor">
-      <div class="ld-floor-head">
-        <h2 class="ld-floor-title">{S.ladder.floorTitle}</h2>
-        <p class="ld-floor-sub">{S.ladder.floorSub}</p>
-      </div>
-      <ul class="ld-floor-grid">
-        {#each model.floorItems as item (item.key)}
-          <li class="ld-floor-tile" data-testid="package-floor-{item.key}">
-            {#if item.icon}
-              <span class="ld-ico ld-floor-ico" style={tileStyle(item.icon.bg)}>
-                <img src={item.icon.src} alt="" width="18" height="18" loading="lazy" decoding="async" />
-              </span>
-            {/if}
-            <span class="ld-floor-text">
-              <span class="ld-floor-item">{item.name}</span>
-              {#if item.blurb}<small class="ld-floor-blurb">{item.blurb}</small>{/if}
-            </span>
-          </li>
-        {/each}
-      </ul>
-    </section>
-  {/if}
-
-  <!-- #6971 — one light line above the table: every package can grow
-       (chosen on Add-ons), and — when the document's per-package rates
-       differ — that bigger packages grow cheaper. Absent when no package in
-       the document can grow. -->
-  {#if model.growNote}
-    <div class="ld-grow-band" data-testid="package-grow-note">
-      <span class="ld-grow-inner">
-        <svg class="ld-grow-ico" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg>
-        <strong>{S.grow.plansNote}</strong>
-        <span>{S.grow.plansNoteBody}</span>
-        {#if model.growCheapest}
-          <span class="ld-grow-cheaper" data-testid="package-grow-cheapest">{S.grow.plansCheaper(model.growCheapest.priceMonth, model.currency, model.growCheapest.name)}</span>
-        {/if}
-      </span>
-    </div>
-  {/if}
-
   <div class="ld-scroll">
     <div class="ld-table" style="--ld-cols: {model.cards.length}">
       <!-- The compact header: sticks under the site header while the table
@@ -200,14 +158,7 @@
 
         <!-- The cards -->
         <div role="row" class="ld-row ld-head-row" bind:this={headRow}>
-          <div role="columnheader" class="ld-corner" aria-label={S.featureColumn}>
-            <!-- With the capped/grow model the allowance cells show the
-                 allowance only; this one line says what happens at it — the
-                 customer's choice on Add-ons, not the cell's. -->
-            {#if model.growNote}
-              <p class="ld-legend" data-testid="package-grow-legend">{S.grow.plansLegend}</p>
-            {/if}
-          </div>
+          <div role="columnheader" class="ld-corner" aria-label={S.featureColumn}></div>
           {#each model.cards as card (card.sku)}
             <div
               role="columnheader"
@@ -275,8 +226,8 @@
           {/each}
         </div>
 
-        <!-- One grouped comparison -->
-        {#each model.groups as group (group.key)}
+        <!-- One grouped comparison: the floor first, the grow rows after CAPACITY -->
+        {#each model.tableGroups as group (group.key)}
           <div role="row" class="ld-row ld-group-row" data-testid="package-group-{group.key}">
             <div role="columnheader" class="ld-group" aria-colspan={model.cards.length + 1}>
               <span class="ld-group-label">
@@ -288,7 +239,7 @@
             </div>
           </div>
           {#each group.rows as row (row.key)}
-            <div role="row" class="ld-row" data-testid="package-row-{row.key}">
+            <div role="row" class="ld-row ld-row-{group.key}" data-testid="package-row-{row.key}">
               <div role="rowheader" class="ld-feature {row.icon ? 'has-ico' : ''}">
                 {#if row.icon}
                   <span class="ld-ico" style={tileStyle(row.icon.bg)}>
@@ -314,7 +265,7 @@
                       <span class="ld-addon-price">{cell.label}</span>
                     </span>
                   {:else}
-                    <span class="ld-glyph" role="img" aria-label="{cell.stateLabel}{cell.label !== S.includedGlyph && cell.label !== S.notOfferedGlyph ? `: ${cell.label}` : ''}">{cell.label}</span>
+                    <span class="ld-glyph {cell.label !== S.includedGlyph && cell.label !== S.notOfferedGlyph ? 'is-text' : ''}" role="img" aria-label="{cell.stateLabel}{cell.label !== S.includedGlyph && cell.label !== S.notOfferedGlyph ? `: ${cell.label}` : ''}">{#each cell.label.split(' · ') as part, i}{#if i > 0}{' · '}{/if}<span class="ld-part">{part}</span>{/each}</span>
                   {/if}
                   {#if cell.hint}
                     <div class="ld-hint">{cell.hint}</div>

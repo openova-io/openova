@@ -379,6 +379,20 @@ export const PACKAGE_STRINGS = {
     // The ladder's one legend line for the allowance cells: what happens at
     // an allowance is the customer's choice on Add-ons, not the cell's.
     plansLegend: 'Capped by default · or grow, billed per use',
+    // /plans — the "When you reach your package" group of the ladder table,
+    // rows driven only by the document's packages[].grow.
+    rowCapped: 'Capped',
+    rowCappedBlurb: 'Never pay more than the package price',
+    rowCappedHint: 'default',
+    rowGrow: 'Grow with me',
+    rowGrowBlurb: 'Pay per use above the package, billed after the month',
+    rowGrowUpTo: (vcpu: number, memoryGb: number) => `up to ${vcpu} vCPU · ${memoryGb} GB`,
+    rowVcpu: 'Extra vCPU',
+    rowMemory: 'Extra memory (GB)',
+    rowDiskBandwidth: 'Extra disk · bandwidth',
+    rowRate: (price: string) => `+${price} / mo`,
+    rowRatePer: (price: string, unit: string) => `+${price} / ${unit}`,
+    rowRatesBlurb: (currency: string, what: string) => `${currency} per extra ${what} a month`,
     // "In your package" on Add-ons: the allowance, then the chosen mode.
     inPkgCapped: 'capped',
     inPkgGrows: (n: number, unit: string) => `grows up to ${n} ${unit}`,
@@ -1036,6 +1050,95 @@ export interface LadderModel {
   growNote: boolean;
   /** The lowest extra-vCPU rate among the packages that can grow, when the rates differ — "bigger packages grow cheaper". */
   growCheapest: { sku: string; name: string; priceMonth: string } | null;
+  /** The floor as a table group ("Included in every package", ✓ in every column); null when the document has no floor. */
+  floorGroup: LadderGroup | null;
+  /** "When you reach your package" as a table group, from packages[].grow only; null when no package carries grow. */
+  growGroup: LadderGroup | null;
+  /**
+   * Every group the table renders, in order: the floor first (right under the
+   * cards), then the document's groups with the grow group after CAPACITY.
+   */
+  tableGroups: LadderGroup[];
+}
+
+/** A package's `grow`, when it carries one with at least one rate (a grow with no rate cannot grow). */
+function growOf(p: PublicPackage): PackageGrow | null {
+  return p.grow && p.grow.overage_rates.length > 0 ? p.grow : null;
+}
+
+/**
+ * The floor as a group of the table: one row per `floor[]` item, ✓ in every
+ * package column. Nothing above the cards.
+ */
+export function floorGroupFor(data: PublicPackages): LadderGroup | null {
+  const floor = data.floor ?? [];
+  if (floor.length === 0) return null;
+  const S = PACKAGE_STRINGS;
+  return {
+    key: 'floor',
+    name: S.ladder.floorTitle,
+    icon: null,
+    rows: floor.map(f => ({
+      key: `floor-${f.key}`,
+      name: f.name,
+      blurb: f.blurb ?? '',
+      kind: 'boolean' as FeatureKind,
+      icon: f.icon ?? null,
+      cells: data.packages.map(p => ({
+        sku: p.sku, state: 'included' as CellState, kind: 'boolean' as FeatureKind,
+        label: S.includedGlyph, hint: null, stateLabel: S.includedLabel,
+      })),
+    })),
+  };
+}
+
+/**
+ * "When you reach your package" as a group of the table, driven only by the
+ * document's `packages[].grow`: Capped (the default everywhere), Grow with me
+ * (up to the package's ceiling, "—" without grow), then each package's OWN
+ * rates — the falling vCPU and memory rates say "bigger packages grow
+ * cheaper" by themselves. Null when no package carries grow.
+ */
+export function growGroupFor(data: PublicPackages): LadderGroup | null {
+  if (!data.packages.some(p => growOf(p))) return null;
+  const S = PACKAGE_STRINGS;
+  const G = S.grow;
+  const none = (sku: string): LadderCell => ({
+    sku, state: 'not_offered', kind: 'quantity', label: S.notOfferedGlyph, hint: null, stateLabel: S.notOfferedLabel,
+  });
+  const value = (sku: string, label: string, hint: string | null = null): LadderCell => ({
+    sku, state: 'included', kind: 'quantity', label, hint, stateLabel: S.includedLabel,
+  });
+  const rate = (p: PublicPackage, key: OverageRateKey) => growOf(p)?.overage_rates.find(r => r.key === key) ?? null;
+  const row = (key: string, name: string, blurb: string, cell: (p: PublicPackage) => LadderCell): LadderRow => ({
+    key, name, blurb, kind: 'quantity', icon: null, cells: data.packages.map(cell),
+  });
+  const rows: LadderRow[] = [
+    row('grow-capped', G.rowCapped, G.rowCappedBlurb, p => value(p.sku, S.includedGlyph, G.rowCappedHint)),
+    row('grow-ceiling', G.rowGrow, G.rowGrowBlurb, p => {
+      const g = growOf(p);
+      return g ? value(p.sku, G.rowGrowUpTo(g.ceiling.vcpu, g.ceiling.memory_gb)) : none(p.sku);
+    }),
+  ];
+  const rateRow = (key: OverageRateKey, name: string) => {
+    if (!data.packages.some(p => rate(p, key))) return;
+    rows.push(row(`grow-${key}`, name, G.rowRatesBlurb(data.currency, G.unitWord[key]), p => {
+      const r = rate(p, key);
+      return r ? value(p.sku, G.rowRate(r.price_month)) : none(p.sku);
+    }));
+  };
+  rateRow('vcpu', G.rowVcpu);
+  rateRow('memory', G.rowMemory);
+  if (data.packages.some(p => rate(p, 'disk') || rate(p, 'bandwidth'))) {
+    rows.push(row('grow-disk-bandwidth', G.rowDiskBandwidth, G.rowRatesBlurb(data.currency, 'GB of disk · Mbps'), p => {
+      const parts = (['disk', 'bandwidth'] as const)
+        .map(k => rate(p, k))
+        .filter((r): r is OverageRate => r !== null)
+        .map(r => G.rowRatePer(r.price_month, r.unit));
+      return parts.length > 0 ? value(p.sku, parts.join(' · ')) : none(p.sku);
+    }));
+  }
+  return { key: 'grow', name: G.title, icon: null, rows };
 }
 
 function overageHint(overage: Overage | undefined): string | null {
@@ -1181,6 +1284,16 @@ export function buildLadder(
   const floorItems: LadderFloorItem[] = (data.floor ?? []).map(f => ({
     key: f.key, name: f.name, blurb: f.blurb ?? '', icon: f.icon ?? null,
   }));
+  const floorGroup = floorGroupFor(data);
+  const growGroup = growGroupFor(data);
+  const tableGroups: LadderGroup[] = floorGroup ? [floorGroup] : [];
+  const capacityAt = groups.findIndex(g => g.key === 'capacity');
+  groups.forEach((g, i) => {
+    tableGroups.push(g);
+    if (growGroup && i === capacityAt) tableGroups.push(growGroup);
+  });
+  // No CAPACITY group: the grow rows follow the floor.
+  if (growGroup && capacityAt < 0) tableGroups.splice(floorGroup ? 1 : 0, 0, growGroup);
   return {
     currency: data.currency,
     priceBook: data.price_book ?? null,
@@ -1189,11 +1302,14 @@ export function buildLadder(
     groups,
     floor: floorItems.map(f => f.name),
     floorItems,
-    rowIcons: groups.some(g => g.rows.some(r => r.icon !== null)),
+    rowIcons: tableGroups.some(g => g.rows.some(r => r.icon !== null)),
     floorIcons: floorItems.some(f => f.icon !== null),
     recommendedSku: recommended,
     growNote: growDoc,
     growCheapest: cheapestGrowVcpu(data),
+    floorGroup,
+    growGroup,
+    tableGroups,
   };
 }
 

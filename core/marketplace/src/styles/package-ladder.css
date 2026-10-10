@@ -10,12 +10,13 @@
  * Playwright spec asserts this layout by computed style against
  * `astro build && astro preview`, never the dev server.
  *
- * Layout: the floor strip and the grow line sit ABOVE the table, outside the
- * column flow. The table is ONE grid — cards, group headers, feature rows,
- * foot — and each package column is painted once by its rail (`.ld-col`),
- * so its border, ring and tint run unbroken from card to foot. A compact
- * header (`.ld-sticky`) on the same column template sticks under the site
- * header once the cards have scrolled away.
+ * Layout: nothing between the subtitle and the cards. The table is ONE
+ * grid — cards, group headers, feature rows, foot; "Included in every
+ * package" and "When you reach your package" are ordinary groups of it — and
+ * each package column is painted once by its rail (`.ld-col`), so its
+ * border, ring and tint run unbroken from card to foot. A compact header
+ * (`.ld-sticky`) on the same column template sticks under the site header
+ * once the cards have scrolled away.
  */
 
 .ld-page {
@@ -41,59 +42,6 @@
   font-size: 0.85rem;
   margin: 0 0 0.9rem;
 }
-
-/* ── The floor: "Included in every package", above the table ──────────── */
-/* A compact strip outside the column flow: its heading takes the width of
-   the feature gutter, so the items start on the first package column. */
-.ld-floor {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 0.6rem 1.5rem;
-  margin: 0 0 0.85rem;
-  padding: 0.85rem 1rem;
-  background: color-mix(in srgb, var(--color-success) 4%, var(--color-surface));
-  border: 1px solid color-mix(in srgb, var(--color-success) 22%, var(--color-border));
-  border-radius: 14px;
-}
-.ld-floor-head { flex: 0 0 188px; min-width: 0; display: flex; flex-direction: column; gap: 0.2rem; }
-.ld-floor-title { margin: 0; color: var(--color-text-strong); font-size: 0.95rem; font-weight: 700; letter-spacing: -0.005em; line-height: 1.25; }
-.ld-floor-sub { margin: 0; color: var(--color-text-dim); font-size: 0.74rem; line-height: 1.35; }
-.ld-floor-grid {
-  flex: 1 1 18rem;
-  min-width: 0;
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 11rem), 1fr));
-  gap: 0.5rem 1rem;
-}
-.ld-floor-tile { display: flex; align-items: flex-start; gap: 0.55rem; min-width: 0; }
-.ld-floor-ico { width: 28px; height: 28px; border-radius: 7px; }
-.ld-floor-text { display: flex; flex-direction: column; gap: 0.05rem; min-width: 0; }
-.ld-floor-item { color: var(--color-text-strong); font-size: 0.8rem; font-weight: 600; line-height: 1.3; }
-.ld-floor-blurb { color: var(--color-text-dim); font-size: 0.7rem; line-height: 1.35; }
-
-/* ── #6971: "Every package can grow with you" — one light line ─────────── */
-.ld-grow-band { display: flex; justify-content: center; margin: 0 0 1rem; }
-.ld-grow-inner {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: 0.25rem 0.5rem;
-  padding: 0.5rem 0.9rem;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--color-success) 8%, var(--color-surface));
-  border: 1px solid color-mix(in srgb, var(--color-success) 25%, var(--color-border));
-  color: var(--color-text-dim);
-  font-size: 0.8rem;
-  text-align: center;
-}
-.ld-grow-inner strong { color: var(--color-text-strong); font-weight: 600; }
-.ld-grow-ico { color: var(--color-success); flex-shrink: 0; }
-.ld-grow-cheaper { color: var(--color-text); font-weight: 600; }
 
 /* ── The table ─────────────────────────────────────────────────────────── */
 /* Narrow screens: the table is wider than the screen and scrolls sideways
@@ -150,14 +98,6 @@
 
 /* ── Cards ─────────────────────────────────────────────────────────────── */
 .ld-corner { display: flex; flex-direction: column; justify-content: flex-end; }
-/* The allowance legend (grow model): in the gutter beside the cards' foot,
-   right above the comparison it explains. */
-.ld-legend {
-  margin: 0 0.6rem 0.95rem;
-  color: var(--color-text-dim);
-  font-size: 0.72rem;
-  line-height: 1.4;
-}
 .ld-card {
   display: flex;
   flex-direction: column;
@@ -378,6 +318,12 @@
 .ld-cell.not_offered .ld-glyph { color: var(--color-text-dimmer); }
 .ld-cell.teaser .ld-glyph { color: var(--color-text-dimmer); font-style: italic; font-size: 0.74rem; }
 
+/* "When you reach your package": a limit or a rate is a value, not a tick —
+   in the text colour; the Capped ✓ stays green. A narrow column breaks a
+   value only between its " · " parts, never inside one. */
+.ld-row-grow .ld-cell.included .ld-glyph.is-text { color: var(--color-text); font-weight: 600; }
+.ld-part { white-space: nowrap; }
+
 /* Optional: the ADD-ON tag over the price — nothing to tick here; the pick
    happens on the Add-ons step. */
 .ld-addon { display: inline-flex; flex-direction: column; align-items: center; gap: 0.05rem; }
@@ -500,7 +446,6 @@
 
 @media (max-width: 1000px) {
   .ld-table { --ld-gutter: 170px; --ld-template: 170px repeat(var(--ld-cols, 4), minmax(150px, 1fr)); --ld-min: 780px; }
-  .ld-floor-head { flex-basis: 100%; }
   .ld-name { font-size: 0.98rem; }
   .ld-price strong { font-size: 1.4rem; }
   .ld-cta { font-size: 0.74rem; padding: 0.45rem 0.35rem; }
@@ -553,6 +498,4 @@
   .ld-blurb { display: none; }
   .ld-feature-name { font-size: 0.76rem; }
   .ld-grid.with-icons .ld-feature:not(.has-ico) .ld-feature-text { margin-left: calc(24px + 0.4rem); }
-  .ld-floor { padding: 0.75rem 0.8rem; }
-  .ld-grow-inner { border-radius: 12px; }
 }

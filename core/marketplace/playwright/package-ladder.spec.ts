@@ -271,7 +271,8 @@ test.describe('step 1: the package ladder (/plans, v2 document, #6971)', () => {
 
     // ONE grouped comparison: the group headers in the document's order, a
     // declared group with no feature (Scope, Service level) not shown.
-    await expect(page.locator('.ld-group')).toHaveText(['Capacity', 'Features', 'Access', 'Managed operations', 'Resilience'])
+    // The floor is the FIRST group, right under the cards.
+    await expect(page.locator('.ld-group')).toHaveText(['Included in every package', 'Capacity', 'Features', 'Access', 'Managed operations', 'Resilience'])
 
     // Cell kinds.
     await expect(page.getByTestId('package-cell-dr_topology-plan.xl')).toHaveText('active-passive')
@@ -296,27 +297,37 @@ test.describe('step 1: the package ladder (/plans, v2 document, #6971)', () => {
     await expect(page.getByTestId('package-cell-gitea_iac-plan.s')).toHaveText('—')
     await expect(page.getByTestId('package-cell-kube_api-plan.l')).toHaveAttribute('data-state', 'not_offered')
 
-    // The floor, once, first-class: "Included in every package" as tiles
-    // (name + blurb) ABOVE the cards, outside the package columns — free SSL
-    // among them — rendered from the document's floor[] only.
-    const floor = page.getByTestId('package-floor')
-    await expect(floor).toHaveCount(1)
-    await expect(floor).toContainText('Included in every package')
-    await expect(floor.locator('.ld-floor-item')).toHaveCount(9)
-    await expect(floor.locator('.ld-floor-item').first()).toHaveText('Applications')
-    await expect(floor.getByTestId('package-floor-ssl')).toContainText('Unlimited free SSL')
-    await expect(floor.getByTestId('package-floor-ssl')).toContainText('Certificates for every site, renewed for you')
-    await expect(floor).toContainText('Web application firewall')
-    await expect(floor).toContainText('24/7 customer support')
-    const floorBox = await boxOf(floor)
-    // (Moved: it sat between the cards and the comparison and cut the
-    // package columns in two; it now sits entirely above the cards.)
-    expect(floorBox.bottom, 'the floor sits above the cards').toBeLessThanOrEqual((await boxOf(page.getByTestId('package-card-plan.m'))).top + 1)
-    expect(await page.getByTestId('package-ladder-grid').getByTestId('package-floor').count(), 'the floor is not a row of the table').toBe(0)
+    // The floor, once, first-class: "Included in every package" is a GROUP of
+    // the table like any other — one row per floor[] item (name + blurb on
+    // the left), ✓ in every package column — rendered from floor[] only. No
+    // box above the cards (removed: package-floor / package-floor-<key>).
+    await expect(page.getByTestId('package-floor')).toHaveCount(0)
+    const floorGroup = page.getByTestId('package-group-floor')
+    await expect(floorGroup).toHaveCount(1)
+    await expect(floorGroup).toHaveText('Included in every package')
+    const floorRows = page.locator('[data-testid^="package-row-floor-"]')
+    await expect(floorRows).toHaveCount(9)
+    await expect(floorRows.first().locator('.ld-feature-name')).toHaveText('Applications')
+    const ssl = page.getByTestId('package-row-floor-ssl')
+    await expect(ssl.locator('.ld-feature')).toContainText('Unlimited free SSL')
+    await expect(ssl.locator('.ld-feature')).toContainText('Certificates for every site, renewed for you')
+    for (const sku of ['plan.s', 'plan.m', 'plan.l', 'plan.xl']) {
+      for (const key of ['applications', 'ssl', 'waf', 'support']) {
+        await expect(page.getByTestId(`package-cell-floor-${key}-${sku}`)).toHaveText('✓')
+      }
+    }
+    await expect(page.getByTestId('package-row-floor-waf')).toContainText('Web application firewall')
+    await expect(page.getByTestId('package-row-floor-support')).toContainText('24/7 customer support')
+    // The floor group sits right under the cards, before CAPACITY.
+    const cardBottom = (await boxOf(page.getByTestId('package-card-plan.m'))).bottom
+    const floorTop = (await boxOf(floorGroup.locator('.ld-group'))).top
+    expect(floorTop - cardBottom, 'the floor group follows the cards').toBeLessThan(4)
+    expect(floorTop).toBeLessThan((await boxOf(page.getByTestId('package-group-capacity').locator('.ld-group'))).top)
     // No footnote line repeating it under the table.
     await expect(page.locator('.ld-floor-sep')).toHaveCount(0)
-    // A floor item is not also a comparison row.
+    // A floor item is not also a comparison row of another group.
     await expect(page.locator('[data-testid^="package-row-waf"]')).toHaveCount(0)
+    await expect(page.locator('[data-testid="package-row-floor-waf"]')).toHaveCount(1)
     // The live document's internal pricing remark on the Dedicated IP cells
     // (an optional cell's `note`) is not customer copy and is not on the page.
     await expect(page.getByTestId('package-ladder')).not.toContainText(/discount to be decided|250 OMR/)
@@ -339,7 +350,7 @@ test.describe('step 1: the package ladder (/plans, v2 document, #6971)', () => {
   // and a component-scoped stylesheet on an unreachable branch is dropped from
   // the production bundle (the 2026-10-10 /plans regression). This asserts
   // the COMPUTED layout against `astro build` + `astro preview`.
-  test('the ladder is styled in the production build: a five-column grid, cards as flex columns side by side, the floor a flex strip — and no fixed bar over any cell', async ({ page }, testInfo) => {
+  test('the ladder is styled in the production build: a five-column grid, cards as flex columns side by side, the floor a group of rows — and no fixed bar over any cell', async ({ page }, testInfo) => {
     await pointAtChargeback(page)
     await mockPackages(page)
     await page.goto('/plans')
@@ -359,7 +370,7 @@ test.describe('step 1: the package ladder (/plans, v2 document, #6971)', () => {
     await expect(first).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     await expect(page.locator('.ld-cta.primary').first()).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     await expect(page.locator('.ld-hat-pill')).toHaveCSS('display', 'block')
-    await expect(page.getByTestId('package-floor')).toHaveCSS('display', 'flex')
+    await expect(page.getByTestId('package-row-floor-ssl')).toHaveCSS('display', 'contents')
     await expect(page.locator('.ld-foot').first()).toHaveCSS('border-bottom-left-radius', '12px')
     // A row wrapper contributes its cells straight to the grid.
     await expect(page.getByTestId('package-row-bandwidth')).toHaveCSS('display', 'contents')
@@ -874,7 +885,7 @@ test.describe('branding from the BSS document: icons, accent, badge (#6971)', ()
     // 4 packages + 5 groups shown + 15 features with an icon + 9 floor items.
     expect(await expectImagesDecoded(ladder)).toBe(4 + 5 + 15 + 9)
     await expect(page.getByTestId('package-group-capacity').locator('img')).toHaveCount(1)
-    await expect(page.getByTestId('package-floor').locator('img')).toHaveCount(9)
+    await expect(page.locator('[data-testid^="package-row-floor-"] .ld-feature img')).toHaveCount(9)
     expect(seen.length).toBeGreaterThan(0)
     expect(seen.every((u) => u.startsWith(`${CHARGEBACK}/api/v1/public/icons/`))).toBe(true)
 
@@ -1200,7 +1211,7 @@ test.describe('one continuous table: unbroken columns, aligned cards, a sticky h
   })
 
   for (const scheme of ['light', 'dark'] as const) {
-    test(`at 1400 px (${scheme}): each column rail runs unbroken from card to foot, the four Choose buttons and prices align, the floor is above the cards`, async ({ page }) => {
+    test(`at 1400 px (${scheme}): each column rail runs unbroken from card to foot, the four Choose buttons and prices align, nothing above the cards but the title`, async ({ page }) => {
       await page.emulateMedia({ colorScheme: scheme })
       await page.setViewportSize({ width: 1400, height: 900 })
       await page.goto('/plans')
@@ -1216,12 +1227,12 @@ test.describe('one continuous table: unbroken columns, aligned cards, a sticky h
         expect(Math.max(...t) - Math.min(...t), `${sel} tops ${t.join(', ')}`).toBeLessThanOrEqual(1)
       }
 
-      // The floor block is entirely above the cards or entirely below the
-      // last row — never across the span from card header to matrix rows.
-      const floor = await boxOf(page.getByTestId('package-floor'))
+      // Nothing between the subtitle and the cards: no floor box, no grow
+      // banner — the cards start right under the page subtitle.
       const card = await boxOf(page.getByTestId('package-card-plan.m'))
-      const lastCell = await boxOf(page.locator('.ld-cell[data-testid$="-plan.m"]').last())
-      expect(floor.bottom <= card.top + 1 || floor.top >= lastCell.bottom - 1, `floor ${JSON.stringify(floor)} vs table ${card.top}..${lastCell.bottom}`).toBe(true)
+      const sub = await boxOf(page.locator('.ld-sub'))
+      expect(card.top - sub.bottom, `cards ${card.top} vs subtitle ${sub.bottom}`).toBeLessThanOrEqual(140)
+      await expect(page.getByTestId('package-floor')).toHaveCount(0)
 
       // Continuity, per column: ONE rail from the top of the card to the
       // foot, exactly the card's column.
@@ -1310,14 +1321,13 @@ test.describe('one continuous table: unbroken columns, aligned cards, a sticky h
     expect((await readCart(page)).packageSku).toBe('plan.l')
   })
 
-  test('at 400 px: the floor is above the table, each column still runs unbroken in its scroll box, the feature names stay pinned, and the page body never scrolls sideways', async ({ page }) => {
+  test('at 400 px: the cards follow the subtitle, each column still runs unbroken in its scroll box, the feature names stay pinned, and the page body never scrolls sideways', async ({ page }) => {
     await page.setViewportSize({ width: 400, height: 860 })
     await page.goto('/plans')
     await expect(page.getByTestId('package-ladder')).toBeVisible({ timeout: 10_000 })
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
-    const floor = await boxOf(page.getByTestId('package-floor'))
     const card = await boxOf(page.getByTestId('package-card-plan.s'))
-    expect(floor.bottom).toBeLessThanOrEqual(card.top + 1)
+    expect(card.top - (await boxOf(page.locator('.ld-sub'))).bottom, 'nothing above the cards').toBeLessThanOrEqual(140)
     const rail = await boxOf(page.getByTestId('package-col-plan.s'))
     const foot = await boxOf(page.getByTestId('package-choose-foot-plan.s').locator('..'))
     expect(Math.abs(rail.top - card.top)).toBeLessThanOrEqual(1)
