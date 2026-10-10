@@ -127,27 +127,89 @@ func TestGrowOverageWithoutARateIsUnpriced(t *testing.T) {
 	}
 }
 
-func TestSpendLimitCapsTheUsageAboveThePackageOnly(t *testing.T) {
-	sid, other := "src", "cloud"
-	lines := []store.RatedLine{
-		{SourceID: &sid, SKU: "plan.m", Amount: "4.576106"},
-		{SourceID: &sid, SKU: store.SKUVCPU, Amount: "1.830441"},
-		{SourceID: &sid, SKU: store.SKUMem, Amount: "0.686920"},
-		{SourceID: &sid, SKU: store.SKUPVC, Amount: "0.718555"},
-		{SourceID: &other, SKU: store.SKUBandwidth, Amount: "9.000000"},
+// A downgrade inside a period takes effect at the next one (DESIGN.md
+// §22.11): M was paid for the month, the Source moved to S for the last 504
+// hours. Those hours keep M's 2 vCPU headline as their allowance — 2 × 240
+// + 2 × 504 = 1,488 vcpu-h — so 2 vCPU of limits all month is no overage;
+// without the commitment the S hours would allow 1 × 504 and bill 504.
+func TestDowngradeKeepsThePaidPackagesAllowanceForThePeriod(t *testing.T) {
+	src := store.CostSource{ID: "src", OverageMode: store.OverageModeGrow}
+	segs := []PlanSegment{{Slug: "s", Hours: hours(504)}, {Slug: "m", Hours: hours(240)}}
+	in := GrowInput{Limits: map[string]*big.Rat{store.SKUVCPULimit: hours(2 * 744)}, Packages: mLimits(), Divisor: 8760, Currency: "OMR"}
+	lines, _, err := GrowOverage(src, segs, in)
+	if err != nil || len(lines) != 1 || lines[0].Quantity != "504.000000" {
+		t.Fatalf("without the commitment: %+v %v, want 504 vcpu-h above S", lines, err)
 	}
+	in.Committed = "m"
+	lines, _, err = GrowOverage(src, segs, in)
+	if err != nil || len(lines) != 0 {
+		t.Fatalf("with M paid for the period: %+v %v, want no overage", lines, err)
+	}
+}
+
+// The spend limit bills the usage above the package EXACTLY up to the limit,
+// in the fixed order vCPU, memory, disk, bandwidth; the line that crosses
+// it is billed for what fits, the lines after it at 0; the package and
+// another Source are never touched; no negative line is written.
+func TestSpendLimitBillsTheUsageAboveThePackageUpToTheLimit(t *testing.T) {
+	sid, other := "src", "cloud"
+	mk := func() []store.RatedLine {
+		return []store.RatedLine{
+			{SourceID: &sid, SKU: "plan.m", Quantity: "1", UnitPrice: "4.49000000", Amount: "4.490000"},
+			{SourceID: &sid, SKU: store.SKUVCPU, Quantity: "744", UnitPrice: "0.00246027", Amount: "1.830441"},
+			{SourceID: &sid, SKU: store.SKUMem, Quantity: "1488", UnitPrice: "0.00046164", Amount: "0.686920"},
+			{SourceID: &sid, SKU: store.SKUPVC, Quantity: "52080", Amount: "0.718555"},
+			{SourceID: &other, SKU: store.SKUBandwidth, Amount: "9.000000"},
+		}
+	}
+	amounts := func(ls []store.RatedLine) []string {
+		var out []string
+		for _, l := range ls {
+			out = append(out, string(l.Amount))
+		}
+		return out
+	}
+	// Limit 3.000: vCPU 1.830441 (1.169559 left), memory 0.686920
+	// (0.482639 left), disk rated 0.718555 → billed 0.482639; total above
+	// the package 1.830441 + 0.686920 + 0.482639 = 3.000000 exactly.
+	lines := mk()
 	src := store.CostSource{ID: sid, OverageMode: store.OverageModeGrow, SpendLimitMonth: d("3.000")}
-	l, ok, err := SpendLimitLine(src, lines, "OMR")
-	if err != nil || !ok || string(l.Amount) != "-0.235916" || l.SKU != SpendLimitSKU || *l.SourceID != sid {
-		t.Fatalf("line %+v ok %v err %v, want −0.235916 (3.235916 − 3)", l, ok, err)
+	clipped, err := ClipToSpendLimit(src, lines, "OMR")
+	if err != nil || !clipped {
+		t.Fatalf("clipped %v err %v", clipped, err)
+	}
+	if got, want := amounts(lines), []string{"4.490000", "1.830441", "0.686920", "0.482639", "9.000000"}; strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("amounts %v, want %v", got, want)
+	}
+	if !strings.Contains(lines[3].Description, "billed up to the 3 OMR spend limit: 0.482639 of 0.718555") || lines[3].Quantity != "52080" {
+		t.Fatalf("disk line %+v", lines[3])
+	}
+	used, _ := OverageOf(sid, lines)
+	if used.FloatString(6) != "3.000000" {
+		t.Fatalf("billed above the package %s, want 3.000000", used.FloatString(6))
+	}
+	// Limit 1.000: the vCPU line crosses it — billed 1.000000, its quantity
+	// what that buys, 1 ÷ 0.00246027 = 406.459454 vcpu-h; memory and disk
+	// billed at 0.
+	lines = mk()
+	src.SpendLimitMonth = d("1.000")
+	if _, err := ClipToSpendLimit(src, lines, "OMR"); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := amounts(lines), []string{"4.490000", "1.000000", "0.000000", "0.000000", "9.000000"}; strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("amounts %v, want %v", got, want)
+	}
+	if lines[1].Quantity != "406.459454" || !strings.Contains(lines[2].Description, "not billed — the 1 OMR spend limit was reached (0.68692 rated)") {
+		t.Fatalf("vcpu %+v mem %+v", lines[1], lines[2])
 	}
 	for _, s := range []store.CostSource{
 		{ID: sid, OverageMode: store.OverageModeGrow, SpendLimitMonth: d("5")},
 		{ID: sid, OverageMode: store.OverageModeGrow},
 		{ID: sid, OverageMode: store.OverageModeCapped, SpendLimitMonth: d("1")},
 	} {
-		if _, ok, _ := SpendLimitLine(s, lines, "OMR"); ok {
-			t.Fatalf("%+v wrote a spend-limit line", s)
+		lines := mk()
+		if clipped, _ := ClipToSpendLimit(s, lines, "OMR"); clipped || strings.Join(amounts(lines), " ") != strings.Join(amounts(mk()), " ") {
+			t.Fatalf("%+v clipped the bill", s)
 		}
 	}
 }

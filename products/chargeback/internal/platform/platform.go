@@ -175,6 +175,8 @@ type FakeCall struct {
 	Action string
 	Slug   string
 	Reason string
+	// Until is the instant an overage stop lasts to (overage-stop only).
+	Until time.Time
 }
 
 func (f *Fake) SuspendOrganization(_ context.Context, slug, reason string) error {
@@ -198,4 +200,53 @@ func (f *Fake) Recorded() []FakeCall {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]FakeCall{}, f.Calls...)
+}
+
+// OverageClient holds a grow Organization at its package headline while its
+// spend limit is reached (DESIGN.md §22.11), through the same
+// ServiceAccount-authenticated door as suspension:
+//
+//	POST /api/v1/internal/organizations/{slug}/overage-stop    {"until": RFC3339, "reason": "..."}
+//	POST /api/v1/internal/organizations/{slug}/overage-resume  {}
+//
+// which merge-patch spec.overageStoppedUntil (and spec.overageStopReason) on
+// the Organization CR. The org-controller renders the ResourceQuota and the
+// application storage quota as capped while now < spec.overageStoppedUntil,
+// and requeues itself at that instant, so grow returns at the period start
+// even if the resume never arrives.
+type OverageClient interface {
+	StopOverage(ctx context.Context, slug string, until time.Time, reason string) error
+	ResumeOverage(ctx context.Context, slug string) error
+}
+
+func (Nop) StopOverage(_ context.Context, slug string, _ time.Time, _ string) error {
+	slog.Warn("platform enforcement: no platform API configured; the spend limit is recorded but the Organization's quota is not lowered", "org", slug)
+	return ErrNotConfigured
+}
+
+func (Nop) ResumeOverage(_ context.Context, slug string) error {
+	slog.Warn("platform enforcement: no platform API configured; the Organization's grow quota is not restored at the platform", "org", slug)
+	return ErrNotConfigured
+}
+
+func (h *HTTP) StopOverage(ctx context.Context, slug string, until time.Time, reason string) error {
+	return h.post(ctx, slug, "overage-stop", map[string]string{"until": until.UTC().Format(time.RFC3339), "reason": reason})
+}
+
+func (h *HTTP) ResumeOverage(ctx context.Context, slug string) error {
+	return h.post(ctx, slug, "overage-resume", map[string]string{})
+}
+
+func (f *Fake) StopOverage(_ context.Context, slug string, until time.Time, reason string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.Calls = append(f.Calls, FakeCall{Action: "overage-stop", Slug: slug, Reason: reason, Until: until.UTC()})
+	return f.Err
+}
+
+func (f *Fake) ResumeOverage(_ context.Context, slug string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.Calls = append(f.Calls, FakeCall{Action: "overage-resume", Slug: slug})
+	return f.Err
 }

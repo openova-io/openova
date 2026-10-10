@@ -302,6 +302,15 @@ measured and charged"*. There are **two** platform billing shapes, and an
 Organization is on exactly one of them — which is what makes double charging
 structurally impossible rather than merely avoided.
 
+> **Flexi is retired (0.1.65, §22.11).** Grow mode on any package is pay as
+> you go above a commitment, so nothing sells flexi any more: an
+> Organization still on `spec.planSlug: flexi` is mapped to **S in grow
+> mode** on reconcile — by the organization-controller (the S quota with the
+> grow ceiling) and by the adapter (customer plan `s`, `overageMode: grow`,
+> the Source moved back to the plans book). The table below describes the
+> two shapes as they were; the pay-per-use book stays for the history rated
+> on it.
+
 | | Committed plan (`s` / `m` / `l` / `xl`) | Pay per use (`flexi`) |
 |---|---|---|
 | What the Organization buys | a fixed shape, enforced by a ResourceQuota (the National Cloud packages, NC-OO-Pricing.xlsx 2026-06-28: S 1 vCPU / 2 GiB, M 2/4, L 4/8, XL 8/16 as the headline LIMIT, over a guaranteed REQUEST of headline ÷ 6 CPU / ÷ 3 memory — S 167m / 683Mi, M 334m / 1366Mi, L 667m / 2731Mi, XL 1334m / 5462Mi; the namespace quota is that plan term **plus** the vCluster control-plane overhead — 520m / 1088Mi requests, 1500m / 1194Mi limits — **plus** the per-Organization platform-stack overhead — 3840m / 6064Mi requests, 4550m / 7168Mi limits on every plan — so neither eats the plan (S renders `requests.cpu: 4527m`, `limits.cpu: 7050m`), §2.0a) | nothing fixed: `planQuotaTable` gives flexi no CPU/memory ceiling and Burstable QoS |
@@ -5625,7 +5634,7 @@ operations of §15.7 is unchanged:
 | kind · state | what the bill carries |
 |---|---|
 | **boolean, included** | a **0.000 line** per period per feature — SKU `plan.<slug>.<key>`, unit `period`, quantity 1, description *"Backup — included in XL plan"* — so the invoice shows the value the package carries. It files under the plan on the statement. **`PACKAGE_INCLUDED_LINES=false`** (chart `config.packageIncludedLines`) turns these lines off for an operator who finds them noise: the included features stay on the published document and the console, nothing else below changes |
-| **boolean, optional, taken** | an **add-on line** at the add-on SKU's price for the **plan-hours** the package ran — the add-on is priced per plan-hour exactly as the plan is (1.500 OMR/month → 18/yr → 0.00205479 per plan-hour) — description *"Backup — add-on to M plan"*. An add-on whose SKU the book does not price is reported as an unpriced SKU on the run, never silently billed at nothing |
+| **boolean, optional, taken** | an **add-on line** at the add-on SKU's price for the **plan-hours** the package ran — the add-on is priced per plan-hour, in arrears (1.500 OMR/month → 18/yr → 0.00205479 per plan-hour; the package itself is a flat monthly price billed in advance since 0.1.65, §22.11) — description *"Backup — add-on to M plan"*. An add-on whose SKU the book does not price is reported as an unpriced SKU on the run, never silently billed at nothing |
 | **boolean, optional, not taken** · **not offered** · **teaser** | nothing — taking a not-offered feature was refused at the Source |
 | **quantity, included, metered** | an **allowance** of `included_quantity` on the feature's SKU (§22.3); the excess rates at the book's price; the breakdown reports `allowance` / `allowance_used` / `excess` |
 | **quantity, included, hard_cap** | the allowance applies, the **excess is reported** in the breakdown with **`capped: true`** and **billed at nothing** — the platform should have refused it. The line is on the statement at 0 |
@@ -6171,26 +6180,34 @@ tile picked and PATCHed; an upload POSTed raw under its type, a GIF refused
 before sending, Remove; the settings saved whole with icon, accent and
 badge; a malformed accent refused; a group's icon set from its heading).
 
-### 22.11 Capped or grow — the commitment and the usage above it (founder direction 2026-10-10, 0.1.64)
+### 22.11 Capped or grow — the commitment and the usage above it (founder direction 2026-10-10, 0.1.64; prepaid, flat, the spend stop and the disk cap 0.1.65)
 
-A package is a **prepaid minimum commitment**: its price is the plan line, and
-its shape — vCPU, memory, disk, bandwidth — is an **allowance** consumed first
-(§22.3, §15.1). What happens at the allowance is the **customer's** choice,
-per subscription — per platform Source — and no longer a property of a cell:
+A package is a **prepaid monthly commitment** — S 2.490, M 4.490, L 7.990,
+XL 13.990 OMR **a month**, whatever the month's length — and its shape —
+vCPU, memory, disk, bandwidth — is an **allowance** consumed first (§22.3,
+§15.1). The package is billed **in advance**, one period ahead; what happens
+at the allowance is the **customer's** choice, per subscription — per
+platform Source — and no longer a property of a cell:
 
 | Mode | The quota | Above the allowance |
 |---|---|---|
-| **`capped`** (the default) | the package headline (§2.0a, unchanged) | **nothing is billed**: every quantity feature reads as a hard cap whatever its cell's overage says; the excess is reported `capped` and billed at 0 (§22.2) |
-| **`grow`** | raised to a **ceiling** (limits.cpu / limits.memory; requests stay the guaranteed share) | billed **in arrears** at the package's **overage rates** |
+| **`capped`** (the default) | the package headline (§2.0a): limits.cpu / limits.memory, and the **application disk** (the in-vCluster `app-storage` quota, below) | **nothing is billed**: every quantity feature reads as a hard cap whatever its cell's overage says; the excess is reported `capped` and billed at 0 (§22.2) |
+| **`grow`** | raised to a **ceiling** (limits.cpu / limits.memory and the application disk; requests stay the guaranteed share) | billed **in arrears** at the package's **overage rates**, at most up to the monthly **spend limit**, which **stops** the usage above the package when reached |
 
 The package says only **whether grow is allowed**, its **ceiling** and its two
 **compute rates** (`package_settings`). The cell's `overage` (`metered` /
 `hard_cap` / `unlimited`) is kept for compatibility: an `unlimited` cell stays
 unlimited in both modes; `metered` and `hard_cap` are decided by the mode.
-**"Flexi" stops being a plan in the commercial model**: grow on any package IS
-pay as you go above a commitment. The flexi plan slug and the "Organization
-PAYG" book (§2.9a) stay in the code for the Organizations already on them;
-nothing in this change moves one.
+**"Flexi" is retired**: grow on any package IS pay as you go above a
+commitment. An Organization still on `spec.planSlug: flexi` is mapped to
+**S in grow mode on reconcile** — the organization-controller renders the S
+quota with the grow ceiling, and the adapter (`readOrg`) syncs the customer
+as plan `s` with `overageMode: grow` (unless the order states a mode), so the
+Source moves from the "Organization PAYG" book back to the plans book
+(`assignPlatformBook` re-points a source on the other managed book) and is
+rated as S grow from then on. Nothing sells or rates flexi any more; the
+pay-per-use book stays ensured for the history rated on it
+(`TestSyncMapsTheRetiredFlexiPlanToSGrow`, `TestReadOrgMapsTheRetiredFlexiPlanToSGrow`).
 
 **The rates** (founder pricing sheet 2026-10-10). Pay per use is the package's
 own unit price plus 10 % (§2.9a's rule, now per package), a unit being 1 vCPU
@@ -6240,36 +6257,148 @@ them as not sold per use. Then, per period:
 Disk and bandwidth use the one allowance path they always had (§22.3): grow
 meters their excess at the book's price; capped reports it and bills 0.
 
-**Where the package and the usage land on the statement — today, exactly.**
-The collector writes one `plan.<slug>` record per plan-hour while the customer
-is active; the statement of period N rates the usage records whose window lies
-in N — the plan-hours **and** the usage — and is drafted and issued after N
-closes. So the package line of N is on statement N **in arrears**, pro rata to
-the plan-hours (a 744-hour month bills 744 × 0.00615068 = 4.576106 for M, a
-plan change inside N gives two segments, a suspension stops the plan-hours),
-and the grow usage of N is on the **same** statement N. The billing service
-separately collects the order's first price **upfront** at checkout (the
-`orders` row, §22.9). Moving the BSS package line to "period N+1 billed on
-statement N" would conflict with those existing invoice semantics — per-hour
-pro-rating, two segments on a plan change, the suspend stamp, the
-one-period-per-statement rule that the true-up, the contract floor, the
-partner waterfall and the e-invoice all read — so it is **kept as it is**:
-the commitment is honoured as a **floor** (the package's plan-hours bill
-whether or not anything ran), and the usage above it is billed in the same
-period's statement after the period closes.
+**The package is prepaid, at a flat monthly price** (founder model
+2026-10-10, 0.1.65; `rating.Commitment`, `internal/rating/commitment.go`).
+The collector still writes one `plan.<slug>` record per plan-hour while the
+customer is active: those rows are the RECORD of which package ran when, not
+the bill. On a book that sells plans, the plan-hours leave the rows `Rate`
+prices; the statement issued for period N carries:
 
-**The spend limit** (`spend_limit_month`, grow only) caps the **usage charges
-above the package** — the compute overage lines and the disk and bandwidth
-excess of that Source — **never the whole bill**: the package line and its
-add-ons are always billed. When the usage above the package rates to more
-than the limit, the statement carries ONE named line,
-`overage.spend_limit`, unit `period`, that takes the difference off
-(*"Spend limit — the usage above the package rated 3.235916 OMR this period,
-capped at the 3 OMR limit; 0.235916 not billed"*), after the allowances and
-before the discounts, the true-up and the tax (`rating.SpendLimitLine`). It is
-a cap on the **bill**: nothing stops the usage while it happens — the quota
-stays at the grow ceiling, and there is no suspend or notify on the limit
-(the budget alerts of §2.8 are a separate, operator-set instrument).
+| Line | When | Quantity × unit price |
+|---|---|---|
+| `plan.<slug>` **in advance** for N+1 — *"M package — November 2026, billed in advance"* | the Source was on a package in the last hour of N, its customer is active when N is rated, the Source is not disabled | 1 `month` × the **flat monthly price** = the book's annual price ÷ 12 (M 53.88 ÷ 12 = 4.490) — never hours × an hourly rate, so a 31-day and a 28-day month both bill M at exactly 4.490 |
+| `plan.<slug>` for N itself, **not paid in advance** — the Source's first period, a period resumed after a suspension, or the first statement of a Source rated before 0.1.65 | each plan span of N | one package for the whole of N: 1 `month` × the flat price, *"M package — October 2026 (not billed in advance)"*; otherwise per span `hour` × (monthly ÷ the hours of N, rounded to 8) |
+| `plan.<slug>` **upgrade** — *"Upgrade M → L — 16 to 31 December 2026, 384 of 744 hours at the 3.500 monthly difference"* | N was paid in advance and the Source moved to a dearer package inside N | the hours on the dearer package × (the monthly **difference** ÷ the hours of N, rounded to 8) |
+| `checkout.credit` — *"Paid at checkout — 4.490 OMR for the M package, credited"* | the Source's FIRST period (no plan-hour before N) and the checkout collected an amount (`spec.commerce.prepaidAmount`) | 1 `period` × −(that amount), at most the package lines above it on the statement, so the package is never charged twice |
+| the usage above the package for N — `k8s.vcpu`, `k8s.mem_gb`, `k8s.pvc_gb`, `eip.bandwidth_mbps` | grow | in arrears, as below |
+
+The rules, in order: the plan **paid** for N is the advance line an earlier
+statement wrote for it (`rated_lines.service_period_start = N`, any status
+but cancelled; `store.PrepaidFor`). Walking N's plan spans in time order
+(`store.PlanTimeline` — consecutive plan-hours of one package, a mid-hour
+change splits at the instant, a gap starts a new span), a span is billed
+only for what it costs **above** what is already paid: `max(0, monthly(span)
+− paid) × hours ÷ hours(N)`, and the paid figure becomes the larger of the
+two. So:
+
+- an **upgrade** takes effect at once and bills the **difference only**,
+  prorated **by the hour** for what is left of N; up, down and up again
+  inside N bills the second upgrade nothing (the higher package was paid);
+- a **downgrade** takes effect at the **next period start** — the gym model:
+  nothing refunded, nothing billed for N, N+1 billed in advance at the
+  lower package; for grow, the hours on the lower package keep the paid
+  package's headline as their allowance (`GrowInput.Committed`);
+- a **cancellation** stops at the period end: N was paid, nothing is
+  refunded, and a customer suspended or cancelled when N is rated gets no
+  advance line;
+- a **suspended** Source has no plan-hours at the end of N, so no advance
+  line; resumed inside N+1, N+1 was not paid in advance and its statement
+  bills the hours it ran, prorated, and N+2 in advance.
+
+**Proration is by the HOUR**, everywhere it happens (the first period, a
+resumed period, an upgrade): the monthly price over the hours of that month
+(744 in October, 720 in November, 672 in February) is the unit price,
+rounded to 8 decimals like every unit price in BSS, and the plan-hours are
+the quantity; the amount is quantity × unit price at 6. The flat lines are
+never hourly. The grow allowances stay hourly: headline × the plan-hours of
+the period.
+
+**One period per statement** still holds for usage: statement N rates the
+usage records whose window lies in N, and nothing else. The advance line is
+the one line that pays for another period, and it says so twice — in its
+description and in `service_period_start` / `service_period_end`
+(`rated_lines`, new columns, also on the API) — which is how the next
+statement finds it. The true-up, the contract floor, the partner waterfall,
+the tax and the e-invoice read it as one more line of statement N.
+
+The **explorer** (§20) shows the same package as an **accrual**: a plan-hour
+costs the flat monthly price over the hours of ITS month (`costPricedExpr`,
+for the catalog packages `plan.s` … `plan.xl` only), so a whole month of
+plan-hours sums to exactly 4.490 for M. The statement bills the package as a
+commitment one period ahead, so the explorer and a statement meet over whole
+months, not on one statement.
+
+**Transition**: a Source rated before 0.1.65 has no advance line for the
+period in which this version first rates it, so its next statement bills
+that period at the flat price ("not billed in advance") AND the following
+period in advance — two packages on one statement, once; from then on, one.
+
+**The spend limit stops the usage, it does not give it away**
+(`spend_limit_month`, grow only; `internal/spendlimit`). Every hour the
+spend-limit evaluator rates the current period so far for each customer
+with a spend-limited grow Source — through `rating.AccruedOverage`, the
+statement's own pipeline up to the allowances — and when a Source's usage
+above its package reaches the limit:
+
+1. it records the stop once per (Source, period) in `spend_stops` (an insert
+   no second replica or overlapping tick can repeat), with the instant, the
+   accrued figure and the limit;
+2. it holds the Organization at its **package headline** (capped) until the
+   **next period start**: `POST /api/v1/internal/organizations/{slug}/
+   overage-stop {"until", "reason"}` on the sovereign-admin API — the same
+   ServiceAccount-authenticated door, allow-list and projected token as
+   suspension (§9.6, `platform.OverageClient`) — merge-patches
+   `spec.overageStoppedUntil` on the Organization CR, and the
+   org-controller renders the ResourceQuota limits and the `app-storage`
+   quota at the package headline while now is before it, annotated
+   `openova.io/overage-stopped-until`, and requeues itself at that instant,
+   so grow returns at the period start even if nothing else happens. This
+   is how `spec.commerce` flows today turned around: the order reaches the
+   CR through billing → the Organization-record service → provisioning; a BSS decision reaches it
+   through the one reverse door BSS already uses. A failed call is recorded
+   (`last_error`) and retried every tick;
+3. it tells the customer: `overage.spend_limit_reached` (§21, mandatory,
+   e-mail to the customer's admin), an audit entry, and the Source document
+   carries `overage_stopped_until`, which the console's Overage column shows
+   (*"… · spend limit 25 OMR / month · limit reached — held at the package
+   until 2026-11-01"*).
+
+At the next period start the stop is lifted (`overage-resume`, which clears
+the two fields; `cleared_at`). A customer who raises the limit above what
+has accrued, or leaves grow, is lifted at once, and the period may stop again
+at the new limit.
+
+**On the statement the usage above the package is billed exactly up to the
+limit** (`rating.ClipToSpendLimit`): the overage lines are taken in a fixed
+order — vCPU, memory, disk, bandwidth — and the line that crosses the limit
+is billed only for the part that fits under it (its amount the remainder; a
+compute line's quantity that remainder over its unit price, to 6 decimals);
+every line after it is billed at 0. **The hour that crosses the limit is
+billed at most up to the limit**, and the usage measured after the stop — the
+minutes between the evaluator's tick and the quota landing — is never
+billed. Each line says what it billed (*"…; billed up to the 3 OMR spend
+limit: 0.482639 of 0.718555"*); **no negative line is written** (the
+`overage.spend_limit` line of 0.1.64 is gone). The package and its add-ons
+are always billed.
+
+**The disk is capped in Capped mode, and only the customer's application
+disk.** The per-Organization platform stack — bp-keycloak and its
+PostgreSQL, bp-newapi and its CNPG cluster, bp-openclaw, bp-agenity — and
+the vCluster's own `data-vcluster-0` volume are HOST objects in the host
+`<slug>` namespace, installed by HelmReleases without a kubeConfig. The
+customer's Applications are installed INSIDE the Org vCluster (the apps
+Flux Kustomization carries `spec.kubeConfig` and `targetNamespace: <slug>`).
+So the cap is a ResourceQuota `app-storage` the org-controller renders into
+the apps tree (`vcluster/apps/storagequota.yaml`), applied inside the
+vCluster in the Applications' namespace: `requests.storage` = the package
+disk in capped mode (S 25Gi, M 50Gi, L 100Gi, XL 250Gi), the ceiling disk in
+grow (`spec.commerce.growCeiling.diskGB`, default and top the XL disk, twice
+it on XL, clamped to [headline, top]), the headline while the spend limit
+holds. The host `plan-quota` still carries no `requests.storage`, so the
+Organization's own databases are never refused. A customer with kube-API
+access could create a second namespace inside the vCluster that this quota
+does not cover; BSS still meters every PVC of the Organization
+(`k8s.pvc_gb`). Pinned by the rendered-manifest tests in
+`core/controllers/organization/internal/gitops`.
+
+**The checkout's prepaid amount.** Billing computes, on a package order, what
+the checkout collected for the package and its BSS add-ons (the package's
+`price_month` + each non-redundant `addon.*` line, never the topology
+surcharge, at most the order total) and hands it over as
+`spec.commerce.prepaidAmount` (billing → `order.placed` / the settlement
+launch body `prepaid_amount` → the Organization-record service → provisioning); the adapter records it
+on the platform Source (`cost_sources.prepaid_amount`, `attachPrepaid`, only
+when it differs) and the Source's first statement credits it.
 
 **The DR topology.** XL includes active-passive (level 1). On S, M and L the
 `dr_topology` cell is **optional and grow-only** at "single region": the
@@ -6285,6 +6414,10 @@ instead"*), and never bundled by the step-up rule.
     package_entitlements.grow_only   (CHECK: only on an optional cell)
     cost_sources.overage_mode capped|grow (default capped), grow_ceiling_vcpu / _memory_gb /
                  _disk_gb / _bandwidth_mbps, spend_limit_month   (CHECK: ceiling and limit in grow only)
+    cost_sources.prepaid_amount                                   (0.1.65; CHECK > 0)
+    rated_lines.service_period_start / service_period_end         (0.1.65; the period a line pays for)
+    spend_stops(source_id, period_start, stopped_at, until, accrued, spend_limit,
+                applied_at, notified_at, cleared_at, last_error)  (0.1.65)
 
 **The rules** (`store.PutPackageSettings`, `store.PutEntitlement`,
 `store.SetSourceOverage`): grow allowed needs the four ceilings and both
@@ -6326,12 +6459,15 @@ a ceiling outside [headline, the package's ceiling] → 400, active-passive on
 S/M/L only with grow, at 0 upfront), echoes them with the chosen package's
 `overage_rates`, persists them on the order and hands them over:
 `spec.commerce.overageMode`, `spec.commerce.growCeiling{vcpu, memoryGB,
-diskGB, bandwidthMbps}`, `spec.commerce.spendLimitMonth`. The
-organization-controller raises the ResourceQuota's `limits.cpu` /
-`limits.memory` plan term to the ceiling in grow (default: the XL headline,
-twice it on XL; clamped to [headline, that ceiling]) and annotates
-`openova.io/overage-mode`; no storage cap is rendered in either mode (the
-platform stack's volumes share the namespace). The adapter
+diskGB, bandwidthMbps}`, `spec.commerce.spendLimitMonth`,
+`spec.commerce.prepaidAmount`. The organization-controller raises the
+ResourceQuota's `limits.cpu` / `limits.memory` plan term to the ceiling in
+grow (default: the XL headline, twice it on XL; clamped to [headline, that
+ceiling]) and the in-vCluster `app-storage` quota to the ceiling disk,
+annotates `openova.io/overage-mode`, and holds both at the headline while
+`spec.overageStoppedUntil` is in the future; the host quota renders no
+storage cap in either mode (the platform stack's volumes share the host
+namespace). The adapter
 (`attachOverage`) sets the Source's mode from the block through
 `SetSourceOverage`, only when it differs, a refusal a WARN; a block that
 names no mode drives nothing, so a mode set by hand on the console stays.
@@ -6346,22 +6482,64 @@ of a level or boolean feature a **grow mode only** tick; the chip reads *In
 grow mode* (boolean) or the level with *active-passive in grow mode, billed as
 usage* under it.
 
-**Worked example** — M in grow for October (744 h), one vCPU and 2 GB of
-limits above the headline all month, 20 GB of disk above the 50 included,
-bandwidth at its 100 Mbps:
+**Worked example** — three months of one Organization on M in grow, to the
+digit (`internal/api/prepaid_integration_test.go`,
+`TestIntegrationPrepaidPackageWorkedExample`). Unit prices are monthly × 12
+÷ 8760 rounded to 8 (vCPU 1.796 → 0.00246027, GB 0.337 → 0.00046164, disk
+0.423 a GB-year → 0.00004829); proration is the monthly figure over the
+hours of the month, rounded to 8.
+
+*Month 1 — October (744 h).* The M package is ordered on **10 October**; the
+checkout collects **4.490** (`spec.commerce.prepaidAmount: "4.490"`). The
+Organization runs within its package (2 vCPU / 4 GB of limits, 30 GB of
+disk). The statement for October:
 
 | Line | arithmetic | amount |
 |---|---|---|
-| `plan.m` | 744 plan-h × 0.00615068 (53.88 ÷ 8760) | 4.576106 |
-| `k8s.vcpu` | (2,232 − 2 × 744) = 744 vcpu-h × 0.00246027 (1.796 × 12 ÷ 8760) | 1.830441 |
-| `k8s.mem_gb` | (4,464 − 4 × 744) = 1,488 gib-h × 0.00046164 (0.337 × 12 ÷ 8760) | 0.686920 |
-| `k8s.pvc_gb` | (52,080 − 50 × 744) = 14,880 gb-h × 0.00004829 (0.423 ÷ 8760) | 0.718555 |
-| `eip.bandwidth_mbps` | 74,400 − 100 × 744 = 0 | 0.000000 |
-| **subtotal** | | **7.812022** |
+| `plan.m` *M package — 10 to 31 October 2026, 528 of 744 hours* | 528 h × (4.490 ÷ 744 = 0.00603495) | 3.186454 |
+| `plan.m` *M package — November 2026, billed in advance* | 1 month × 4.490 | 4.490000 |
+| `checkout.credit` *Paid at checkout — 4.490 OMR for the M package, credited* | −4.490, at most the 7.676454 of package lines | −4.490000 |
+| `k8s.pvc_gb` | 15,840 gb-h used (30 × 528) − 26,400 allowed (50 × 528) → no excess | 0.000000 |
+| **subtotal** | | **3.186454** |
 
-The same usage in capped mode: `plan.m` 4.576106 and nothing else (the disk
-excess reported, billed 0). With a spend limit of 3.000: the three usage lines
-(3.235916) plus `overage.spend_limit` −0.235916 → subtotal 7.576106.
+*Month 2 — November (720 h), growing:* 3 vCPU / 6 GB of limits all month
+(1 vCPU and 2 GB above the headline), 70 GB of disk (20 above the 50).
+November was paid on October's statement, so the statement for November
+carries December in advance and November's usage above the package:
+
+| Line | arithmetic | amount |
+|---|---|---|
+| `plan.m` *M package — December 2026, billed in advance* | 1 month × 4.490 | 4.490000 |
+| `k8s.vcpu` | 2,160 − 2 × 720 = 720 vcpu-h × 0.00246027 | 1.771394 |
+| `k8s.mem_gb` | 4,320 − 4 × 720 = 1,440 gib-h × 0.00046164 | 0.664762 |
+| `k8s.pvc_gb` | 50,400 − 50 × 720 = 14,400 gb-h × 0.00004829 | 0.695376 |
+| **subtotal** | | **7.621532** |
+
+With a spend limit of 3.000 the usage above the package (3.131532) would
+have reached it on 28 November — the evaluator holds the Organization at M
+until 1 December — and the statement bills it up to 3.000: vCPU 1.771394,
+memory 0.664762, disk 0.563844 of 0.695376 → 7.490000.
+
+*Month 3 — December (744 h):* the same usage, and an **upgrade to L on 16
+December**. December was paid at M; the difference is billed for the 384
+hours left, and January in advance at L. L's headline (4 / 8 / 100) absorbs
+the usage — the allowances 2 × 360 + 4 × 384 = 2,256 vcpu-h ≥ 2,232 used,
+4 × 360 + 8 × 384 = 4,512 gib-h ≥ 4,464, 50 × 360 + 100 × 384 = 56,400
+gb-h ≥ 52,080:
+
+| Line | arithmetic | amount |
+|---|---|---|
+| `plan.l` *Upgrade M → L — 16 to 31 December 2026, 384 of 744 hours at the 3.500 monthly difference* | 384 h × (3.500 ÷ 744 = 0.00470430) | 1.806451 |
+| `plan.l` *L package — January 2027, billed in advance* | 1 month × 7.990 | 7.990000 |
+| usage above the package | none | 0.000000 |
+| **subtotal** | | **9.796451** |
+
+Had the Organization moved DOWN to S on 16 December instead, December's
+statement would carry nothing for December (paid at M, no refund; the S
+hours keep M's allowance) and January in advance at S, 2.490.
+
+The same October usage in **capped** mode: the package lines alone, no
+compute line, the disk excess reported and billed 0.
 
 **Seeder and script.** `cmd/seed-history` writes all of it onto the showcase
 plans book (grow on every package at the table above, every quantity cell
@@ -6370,16 +6548,30 @@ metered, the DR cells on S/M/L grow-only, the disk and bandwidth meters at
 (stdlib) applies the same to a running BSS through its API (`--base`,
 `--email`, `--dry-run`), writing only what differs.
 
-Tests: `internal/rating/grow_test.go` (the mode over the cell, grow-only never
+Tests: `internal/rating/commitment_test.go` (the flat monthly price, the
+first statement and its checkout credit, a steady month, an upgrade, up-down-
+up, a downgrade, a cancellation, a suspension and a resumption, a whole
+month not paid in advance in February, an unpriced plan);
+`internal/rating/grow_test.go` (the mode over the cell, grow-only never
 an add-on, the limits above the headline at the package rate to the digit,
-capped billing no compute, a plan change, an unpriced rate, the spend limit);
+capped billing no compute, a plan change, an unpriced rate, the paid
+package's allowance across a downgrade, the spend limit billed exactly up to
+the limit with no negative line); `internal/spendlimit/
+evaluator_integration_test.go` (the stop recorded once, applied through the
+platform door until the next period start, the notice, the Source document,
+an early lift on a raised limit, the lift at the period start);
+`internal/api/prepaid_integration_test.go` (the worked example above);
+`internal/store/commitment_internal_test.go`;
 `internal/api/packages_grow_test.go` (the grow block byte for byte, omitted
 where not allowed, XL's doubled ceiling, the grow-only cells, nothing
 bundled); `internal/api/grow_integration_test.go` (the settings and cell
 refusals, the document, the overage route's refusals and the resolved
-ceiling, the grow-only DR refused as an add-on, October billed in grow, under
-a spend limit and capped, to the digit); `internal/adapter/openova/
-orgsync_overage_test.go` and `collector_limits_test.go`;
+ceiling, the grow-only DR refused as an add-on, October billed in grow —
+4.490 flat + November in advance 4.490 + 3.235916 of usage = 12.215916 —
+under a 3.000 spend limit 11.980000, and capped 8.980000, to the digit);
+`internal/adapter/openova/orgsync_overage_test.go`,
+`orgsync_prepaid_test.go`, `orgsync_payg_test.go` and
+`collector_limits_test.go`;
 `internal/synth/grow_test.go`; `cmd/seed-history/packages_integration_test.go`;
 `ui/src/panels/SourcesPanel.overage.dom.test.tsx`,
 `ui/src/components/PackagesPanel.cell.dom.test.tsx`,

@@ -185,10 +185,13 @@ func TestIntegrationSizedAndFlexiAreNeverDoubleCharged(t *testing.T) {
 	money := func(r *big.Rat) string { return r.FloatString(6) }
 
 	// ---- the sized Organization: its plan and nothing else ---------------
-	wantPlan := new(big.Rat).Mul(rateOf(plans.ID, "plan.m"), hours)
+	// A package is a flat monthly price (DESIGN.md §22.11): a plan-hour
+	// accrues the monthly price over the hours of its month, 9 ÷ 720 in
+	// September, so 168 plan-hours = 9 × 168 ÷ 720 = 2.1.
+	wantPlan := new(big.Rat).Mul(big.NewRat(9, 720), hours)
 	bySKU := skuTotals(t, st, sized.ID, from, to)
 	if got := bySKU["plan.m"]; got != money(wantPlan) {
-		t.Fatalf("plan.m = %s, want %s (7 × 24 × 9/730)", got, money(wantPlan))
+		t.Fatalf("plan.m = %s, want %s (7 × 24 × 9/720)", got, money(wantPlan))
 	}
 	for _, sku := range store.PlatformMeterSKUs {
 		if got, ok := bySKU[sku]; ok && got != "0.000000" {

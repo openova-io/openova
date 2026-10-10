@@ -357,13 +357,26 @@ func TestIntegrationPackagesMatrixAddonsAndBilling(t *testing.T) {
 	stID := res["statement_id"].(string)
 	_, stmt := getExact(t, op, "/api/v1/statements/"+stID, 200)
 	lines := map[string]map[string]any{}
+	var planLines []map[string]any
 	for _, l := range stmt["lines"].([]any) {
 		m := l.(map[string]any)
 		lines[m["sku"].(string)] = m
+		if m["sku"] == "plan.m" {
+			planLines = append(planLines, m)
+		}
 	}
-	// The plan line: 744 × 0.01232877 = 9.172605.
-	if l := lines["plan.m"]; l == nil || dec(t, l["amount"]) != "9.172605" {
-		t.Fatalf("plan line = %v", l)
+	// The package is a FLAT monthly price, prepaid (DESIGN.md §22.11): July
+	// was not paid in advance (the Source's first month), so it is billed
+	// whole at 9.000 — not 744 h × 0.01232877 = 9.172605 — and August in
+	// advance at 9.000.
+	if len(planLines) != 2 {
+		t.Fatalf("plan lines = %v, want July and August in advance", planLines)
+	}
+	for i, want := range []string{"M package — July 2026 (not billed in advance)", "M package — August 2026, billed in advance"} {
+		l := planLines[i]
+		if dec(t, l["amount"]) != "9.000000" || dec(t, l["quantity"]) != "1.000000" || l["unit"] != "month" || l["description"] != want {
+			t.Fatalf("plan line %d = %v, want %q at 9.000000", i, l, want)
+		}
 	}
 	// The add-on: 744 plan-hours at 0.00205479 = 1.528764, named.
 	if l := lines["addon.backup"]; l == nil || dec(t, l["amount"]) != "1.528764" || dec(t, l["quantity"]) != "744.000000" || l["unit"] != store.PlanUnit || l["description"] != "Backup — add-on to M plan" {
@@ -419,9 +432,9 @@ func TestIntegrationPackagesMatrixAddonsAndBilling(t *testing.T) {
 	if ns := res["not_sold_per_use"]; ns == nil || len(ns.([]any)) != 1 || ns.([]any)[0] != "k8s.vcpu" {
 		t.Fatalf("not sold per use = %v, want k8s.vcpu", ns)
 	}
-	// 9.172605 + 1.528764 + 0 + 0 + 0 = 10.701369 — capped: the package
-	// and its add-on, nothing beyond.
-	if dec(t, stmt["subtotal"]) != "10.701369" {
+	// 9.000 (July) + 9.000 (August, in advance) + 1.528764 + 0 + 0 + 0 =
+	// 19.528764 — capped: the package and its add-on, nothing beyond.
+	if dec(t, stmt["subtotal"]) != "19.528764" {
 		t.Fatalf("subtotal = %s", dec(t, stmt["subtotal"]))
 	}
 

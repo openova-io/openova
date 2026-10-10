@@ -307,9 +307,15 @@ func TestShowcasePackagesAreSeededBilledAndPurged(t *testing.T) {
 		t.Fatalf("unpriced %v, want none: the vCPU and memory meters are the basis under a plans book that prices the disk meter", up)
 	}
 	stID := run.Results[0].StatementID
-	// The plan at the workbook's price: 744 × 0.00615068 = 4.576106.
-	if a := scalar[string](t, db, `SELECT amount::text FROM rated_lines WHERE statement_id = $1 AND sku = 'plan.m'`, stID); !near(f(t, a), 4.576106) {
-		t.Fatalf("plan line = %s, want 4.576106 (744 h at 4.490 a month)", a)
+	// The package at the workbook's FLAT monthly price (DESIGN.md §22.11):
+	// July is the Source's first month here and was not paid in advance, so
+	// it is billed whole at 4.490 (not 744 h × 0.00615068 = 4.576106), and
+	// August in advance at 4.490.
+	if a := scalar[string](t, db, `SELECT amount::text FROM rated_lines WHERE statement_id = $1 AND sku = 'plan.m' AND service_period_start = '2026-07-01'`, stID); !near(f(t, a), 4.49) {
+		t.Fatalf("July's plan line = %s, want 4.490 (the flat monthly price)", a)
+	}
+	if a := scalar[string](t, db, `SELECT amount::text FROM rated_lines WHERE statement_id = $1 AND sku = 'plan.m' AND service_period_start = '2026-08-01'`, stID); !near(f(t, a), 4.49) {
+		t.Fatalf("August's advance line = %s, want 4.490", a)
 	}
 	// 744 plan-hours on M × 0.00205479 = 1.528764, the add-on named.
 	var addonAmount, addonDesc string

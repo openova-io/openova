@@ -349,6 +349,15 @@ type CostSource struct {
 	// SpendLimitMonth is the customer's monthly spend limit in the source's
 	// currency, grow mode only; absent when none is set.
 	SpendLimitMonth *Decimal `json:"spend_limit_month,omitempty"`
+	// PrepaidAmount is what the checkout collected for the Source's package
+	// and its add-ons (spec.commerce.prepaidAmount), credited on the
+	// Source's first statement so it is never charged twice (DESIGN.md
+	// §22.11); absent when the Organization came through no checkout.
+	PrepaidAmount *Decimal `json:"prepaid_amount,omitempty"`
+	// OverageStoppedUntil is set while the grow spend limit is reached: the
+	// Organization is held at its package headline until this instant, the
+	// next period start (DESIGN.md §22.11); absent otherwise.
+	OverageStoppedUntil *time.Time `json:"overage_stopped_until,omitempty"`
 }
 
 // Credential is the API view of a stored AK/SK: the secret never leaves the
@@ -696,6 +705,13 @@ type RatedLine struct {
 	// package's included feature renders, "Backup — add-on to M plan" on an
 	// add-on line. Empty on a metered line, whose SKU says what it is.
 	Description string `json:"description,omitempty"`
+	// ServiceFrom / ServiceTo are the first and last day of the period the
+	// line PAYS FOR when that is not simply the statement's own period: the
+	// package billed in advance for the next period, a prorated package
+	// charge for part of this one (DESIGN.md §22.11). nil on every other
+	// line.
+	ServiceFrom *time.Time `json:"service_period_start,omitempty"`
+	ServiceTo   *time.Time `json:"service_period_end,omitempty"`
 
 	// The line's tax position (DESIGN.md §17): the CATEGORY the SKU was
 	// placed in and the RULE that priced it. An e-invoice carries the tax

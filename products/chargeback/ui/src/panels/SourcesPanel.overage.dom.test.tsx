@@ -101,7 +101,13 @@ describe('the overage mode', () => {
   it('names capped and grow in words', () => {
     expect(overageText(capped)).toBe('capped')
     expect(overageText({})).toBe('capped')
-    expect(overageText(grown, 'OMR')).toBe('grow · up to 4 vCPU / 16 GB / 250 GB disk / 1000 Mbps · usage capped at 25 OMR / month')
+    expect(overageText(grown, 'OMR')).toBe('grow · up to 4 vCPU / 16 GB / 250 GB disk / 1000 Mbps · spend limit 25 OMR / month')
+  })
+
+  it('says when the spend limit is reached and until when the package holds', () => {
+    expect(overageText({ ...grown, overage_stopped_until: '2026-11-01T00:00:00Z' }, 'OMR')).toBe(
+      'grow · up to 4 vCPU / 16 GB / 250 GB disk / 1000 Mbps · spend limit 25 OMR / month · limit reached — held at the package until 2026-11-01',
+    )
   })
 
   it('shows each platform source’s mode with a Change button', async () => {

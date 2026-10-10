@@ -62,6 +62,10 @@ type Repository interface {
 	// and spend limit (DESIGN.md §22.11), refusing grow on a package that
 	// does not offer it and a ceiling outside the package's range.
 	SetSourceOverage(ctx context.Context, sourceID string, in store.OverageInput) (store.CostSource, error)
+	// SetSourcePrepaid records what the checkout collected for the Source's
+	// package (spec.commerce.prepaidAmount), credited on its first
+	// statement (DESIGN.md §22.11).
+	SetSourcePrepaid(ctx context.Context, sourceID string, amount store.Decimal) error
 }
 
 var _ Repository = (*store.Store)(nil)

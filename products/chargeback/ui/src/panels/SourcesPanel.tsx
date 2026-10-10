@@ -16,17 +16,21 @@ export const BOOK_HELP = 'The rate card that prices THIS source. A cloud source 
 
 export const ADDONS_HELP = 'The optional features of the package the Organization has taken (DESIGN.md §22). Each is billed at its add-on SKU per plan-hour, beside the plan; what the package includes is on the invoice at 0.000 and cannot be taken.'
 
-export const OVERAGE_HELP = 'What happens at the package’s allowance (DESIGN.md §22.11). Capped: nothing is billed beyond the package. Grow: the quota rises to the ceiling and the usage above the allowance is billed in arrears at the package’s overage rates; the spend limit caps those usage charges, not the whole bill.'
+export const OVERAGE_HELP = 'What happens at the package’s allowance (DESIGN.md §22.11). Capped: nothing is billed beyond the package. Grow: the quota rises to the ceiling and the usage above the allowance is billed in arrears at the package’s overage rates; the spend limit stops that usage: once the usage above the package reaches it, the Organization is held at its package until the next period, and nothing above the limit is billed.'
 
 type Dialog = { kind: 'add' } | { kind: 'edit'; source: CostSource } | { kind: 'rotate'; source: CostSource } | { kind: 'delete'; source: CostSource } | { kind: 'purge'; source: CostSource } | { kind: 'addons'; source: CostSource } | { kind: 'overage'; source: CostSource } | null
 
 /** "grow · 4 vCPU / 16 GB / 250 GB / 1000 Mbps · limit 25 OMR" — the Overage column's words. */
-export function overageText(s: Pick<CostSource, 'overage_mode' | 'grow_ceiling' | 'spend_limit_month'>, currency = ''): string {
+export function overageText(s: Pick<CostSource, 'overage_mode' | 'grow_ceiling' | 'spend_limit_month' | 'overage_stopped_until'>, currency = ''): string {
   if ((s.overage_mode ?? 'capped') !== 'grow') return 'capped'
   const g = s.grow_ceiling ?? {}
   const parts = [`${g.vcpu ?? '?'} vCPU`, `${g.memory_gb ?? '?'} GB`, `${g.disk_gb ?? '?'} GB disk`, `${g.bandwidth_mbps ?? '?'} Mbps`]
-  const limit = s.spend_limit_month !== undefined && s.spend_limit_month !== null && s.spend_limit_month !== '' ? ` · usage capped at ${s.spend_limit_month}${currency ? ` ${currency}` : ''} / month` : ''
-  return `grow · up to ${parts.join(' / ')}${limit}`
+  const limit = s.spend_limit_month !== undefined && s.spend_limit_month !== null && s.spend_limit_month !== '' ? ` · spend limit ${s.spend_limit_month}${currency ? ` ${currency}` : ''} / month` : ''
+  // DESIGN.md §22.11 — the spend limit STOPS the usage above the package:
+  // while it is reached the Organization is held at its package until the
+  // next period start.
+  const stopped = s.overage_stopped_until ? ` · limit reached — held at the package until ${s.overage_stopped_until.slice(0, 10)}` : ''
+  return `grow · up to ${parts.join(' / ')}${limit}${stopped}`
 }
 
 /**
@@ -675,7 +679,7 @@ export function OverageModal({ customerId, source, planSlug, onClose, onDone }: 
                 </Field>
               ))}
             </div>
-            <Field label={`Spend limit (${currency || 'currency'} / month)`} help="Caps the usage charges above the package on each statement — the package itself is always billed. Empty = none. It does not stop usage while it happens.">
+            <Field label={`Spend limit (${currency || 'currency'} / month)`} help="Stops the usage above the package: when it reaches the limit the Organization is held at its package until the next period, and nothing above the limit is billed. The package itself is always billed. Empty = none.">
               <input type="number" min={0} step="any" inputMode="decimal" value={limit} onChange={(e) => setLimit(e.target.value)} aria-label="Spend limit" />
             </Field>
           </>

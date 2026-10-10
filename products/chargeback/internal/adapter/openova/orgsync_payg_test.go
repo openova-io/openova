@@ -11,10 +11,11 @@ import (
 )
 
 // Which rate card an Organization's platform source is put on is decided by
-// its PLAN (EPIC #6867, founder direction 2026-09-10): the plans book for a
-// committed size, the pay-per-use book for flexi. Getting this wrong is what
-// made a flexi Organization free — it sat on the plans book, which prices no
-// k8s.* meter, while the collector emitted no plan line for it either.
+// its PLAN (EPIC #6867, founder direction 2026-09-10). Since the flexi plan
+// was retired (DESIGN.md §22.11, founder direction 2026-10-10) every
+// Organization is on a package and on the plans book: an Organization still
+// on flexi is billed as S in grow mode — pay as you go above a commitment —
+// and a source an earlier version left on the pay-per-use book is moved back.
 
 // orgSourceOf returns the Organization's platform source.
 func orgSourceOf(t *testing.T, repo *fakeRepo, slug string) store.CostSource {
@@ -53,8 +54,8 @@ func TestSyncAssignsTheBookThePlanCallsFor(t *testing.T) {
 		{"m", store.PlanBookName},
 		{"l", store.PlanBookName},
 		{"xl", store.PlanBookName},
-		{"flexi", store.PAYGBookName},
-		{"FLEXI", store.PAYGBookName},
+		{"flexi", store.PlanBookName}, // retired: billed as S in grow mode
+		{"FLEXI", store.PlanBookName},
 		{"", store.PlanBookName},         // absent → the controller's default "s"
 		{"platinum", store.PlanBookName}, // unknown → today's fallback, never invented
 	} {
@@ -74,12 +75,12 @@ func TestSyncAssignsTheBookThePlanCallsFor(t *testing.T) {
 	}
 }
 
-// TestSyncRepointsTheSourceWhenThePlanChanges: switching between flexi and a
-// sized plan moves the source between the two books on the next sync. Without
-// that the bill would not follow the plan — an Organization that moved to
-// flexi would keep paying a plan line it no longer has, and one that moved
-// off flexi would keep being metered per vCPU on top of its new plan.
-func TestSyncRepointsTheSourceWhenThePlanChanges(t *testing.T) {
+// TestSyncMapsTheRetiredFlexiPlanToSGrow: an Organization still on flexi is
+// synced as S in grow mode on the plans book, and a source an earlier
+// version put on the pay-per-use book for flexi is moved back to the plans
+// book — the bill follows the S package the controller renders, and nothing
+// rates flexi any more.
+func TestSyncMapsTheRetiredFlexiPlanToSGrow(t *testing.T) {
 	repo := newFakeRepo()
 	s := &OrgSync{Core: k8sfake.NewSimpleClientset(), Repo: repo, Keys: testKeys(t), Metrics: metrics.New()}
 	ctx := context.Background()
@@ -93,24 +94,27 @@ func TestSyncRepointsTheSourceWhenThePlanChanges(t *testing.T) {
 	if got := bookNameOf(t, repo, "acme"); got != store.PlanBookName {
 		t.Fatalf("plan m is on the %q book", got)
 	}
+	// The flexi era: the source sat on the pay-per-use book.
+	src := orgSourceOf(t, repo, "acme")
+	if err := repo.SetSourcePriceBook(ctx, src.ID, repo.paygBook.ID); err != nil {
+		t.Fatal(err)
+	}
+	repo.growPackages = map[string]store.PackageLimits{repo.planBook.ID + "|s": {PlanSlug: "s", GrowAllowed: true,
+		Headline: store.GrowCeiling{VCPU: dp("1"), MemoryGB: dp("2")}, Ceiling: store.GrowCeiling{VCPU: dp("8"), MemoryGB: dp("16"), DiskGB: dp("250"), BandwidthMbps: dp("1000")}}}
 	sync("flexi")
-	if got := bookNameOf(t, repo, "acme"); got != store.PAYGBookName {
-		t.Fatalf("after moving to flexi the source is still on the %q book — pay-per-use would never be charged", got)
+	if got := bookNameOf(t, repo, "acme"); got != store.PlanBookName {
+		t.Fatalf("a flexi Organization is on the %q book, want the plans book (S in grow mode)", got)
 	}
 	c, _ := repo.customerBySlug("acme")
-	if c.PlanSlug != store.PlanFlexi {
-		t.Fatalf("customer plan = %q", c.PlanSlug)
+	if c.PlanSlug != "s" {
+		t.Fatalf("customer plan = %q, want s — flexi is retired", c.PlanSlug)
 	}
-	sync("l")
-	if got := bookNameOf(t, repo, "acme"); got != store.PlanBookName {
-		t.Fatalf("after moving off flexi the source is still on the %q book — the Organization would pay its plan AND per vCPU", got)
+	if got := orgSourceOf(t, repo, "acme"); got.OverageMode != store.OverageModeGrow {
+		t.Fatalf("overage mode = %q, want grow", got.OverageMode)
 	}
 	// Books are ensured once per sync and created once each.
-	if repo.planCalls != 3 || repo.paygCalls != 3 {
-		t.Fatalf("ensure calls = plans %d payg %d, want one of each per sync (3)", repo.planCalls, repo.paygCalls)
-	}
-	if repo.planBook == nil || repo.paygBook == nil || repo.planBook.ID == repo.paygBook.ID {
-		t.Fatalf("the two platform books were not created as two books: %v / %v", repo.planBook, repo.paygBook)
+	if repo.planCalls != 2 || repo.paygCalls != 2 {
+		t.Fatalf("ensure calls = plans %d payg %d, want one of each per sync (2)", repo.planCalls, repo.paygCalls)
 	}
 }
 
@@ -144,16 +148,16 @@ func TestSyncNeverOverwritesAnOperatorsBook(t *testing.T) {
 	if err := s.SyncOrganization(ctx, orgUnstructured("acme", func(spec map[string]any) { spec["planSlug"] = "flexi" })); err != nil {
 		t.Fatal(err)
 	}
-	if got := bookNameOf(t, repo, "acme"); got != store.PAYGBookName {
-		t.Fatalf("a bookless flexi source went to the %q book", got)
+	if got := bookNameOf(t, repo, "acme"); got != store.PlanBookName {
+		t.Fatalf("a bookless flexi source went to the %q book, want the plans book (flexi is S in grow mode)", got)
 	}
 }
 
 // TestSyncSkipsAPlatformBookOfTheWrongScope: the "Organization PAYG" book
-// shipped at CLOUD scope, which SetSourcePriceBook refuses for a platform
-// source. Returning that error from the sync would wedge the Organization on
-// every event - customer updates, cost sources and the resume stamp all stop
-// - so the book is skipped with a warning and everything else still syncs.
+// shipped at CLOUD scope. It is still ensured on every sync (Organizations
+// rated before flexi was retired keep their history on it), and a bad book
+// must never wedge the Organization sync: customer updates, cost sources and
+// the resume stamp all go on, and the Organization lands on the plans book.
 func TestSyncSkipsAPlatformBookOfTheWrongScope(t *testing.T) {
 	repo := newFakeRepo()
 	repo.paygBook = &store.PriceBook{ID: "book-cloud-scoped", Name: store.PAYGBookName, Scope: store.LayerCloud, Currency: "OMR", AnnualDivisor: store.PAYGBookDivisor}
@@ -163,18 +167,10 @@ func TestSyncSkipsAPlatformBookOfTheWrongScope(t *testing.T) {
 		t.Fatalf("a wrong-scope book must not wedge the Organization sync: %v", err)
 	}
 	c, ok := repo.customerBySlug("acme")
-	if !ok || c.Status != "active" || c.PlanSlug != store.PlanFlexi {
-		t.Fatalf("customer = %+v, want an active flexi Organization synced regardless", c)
+	if !ok || c.Status != "active" || c.PlanSlug != "s" {
+		t.Fatalf("customer = %+v, want an active Organization synced as S regardless", c)
 	}
-	if src := orgSourceOf(t, repo, "acme"); src.PriceBookID != nil {
-		t.Fatalf("the unassignable book was assigned anyway: %v", src.PriceBookID)
-	}
-	// Fixing the scope assigns it on the next sync, with no other change.
-	repo.paygBook.Scope = store.LayerPlatform
-	if err := s.SyncOrganization(ctx, orgUnstructured("acme", func(spec map[string]any) { spec["planSlug"] = "flexi" })); err != nil {
-		t.Fatal(err)
-	}
-	if got := bookNameOf(t, repo, "acme"); got != store.PAYGBookName {
-		t.Fatalf("after the scope was fixed the source is on the %q book", got)
+	if got := bookNameOf(t, repo, "acme"); got != store.PlanBookName {
+		t.Fatalf("the Organization is on the %q book", got)
 	}
 }

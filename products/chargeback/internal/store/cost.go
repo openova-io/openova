@@ -318,6 +318,15 @@ const platformLimitSKUListSQL = `'` + SKUVCPULimit + `', '` + SKUMemLimit + `'`
 // rate, 0 when the policy waives a stopped instance (or its volume), else
 // quantity × unit price — exactly what the rating run charges.
 //
+// A PACKAGE's plan-hours are the one exception (DESIGN.md §22.11): the
+// package is a flat monthly price, never hours × an hourly rate, so a
+// plan-hour costs the monthly price (annual ÷ 12) over the hours of ITS
+// month — 4.490 ÷ 744 in October, ÷ 672 in February — and a whole month of
+// plan-hours sums to the flat price exactly. This is the accrual the
+// explorer shows; the statement bills the same package as a commitment
+// (the next month in advance), so the two meet over a whole month, not on
+// any one statement.
+//
 // It is the single definition every cost surface uses (the explorer via
 // costBaseSQL, the per-resource views in resources.go). Two copies of this
 // CASE would be two bills that can disagree; factoring it is what makes
@@ -330,8 +339,18 @@ const costPricedExpr = `CASE
               AND ((COALESCE(b.bill_stopped, 'compute') = 'none' AND (u.sku LIKE 'ecs.%' OR u.sku LIKE 'evs.%'))
                    OR (COALESCE(b.bill_stopped, 'compute') = 'storage-only' AND u.sku LIKE 'ecs.%'))
            THEN 0
+         WHEN u.resource_kind = '` + PlanKind + `' AND s.layer = 'platform' AND u.sku IN (` + packagePlanSKUListSQL + `)
+           THEN u.quantity * (COALESCE(p.annual_price, p.unit_price * b.annual_divisor) / 12)
+                / (EXTRACT(EPOCH FROM (date_trunc('month', u.window_start AT TIME ZONE 'UTC') + interval '1 month')
+                                    - date_trunc('month', u.window_start AT TIME ZONE 'UTC')) / 3600)
          ELSE u.quantity * p.unit_price
        END`
+
+// packagePlanSKUListSQL is the plan.<slug> SKU of every catalog package — the
+// plans a commitment is sold for (flexi has none) — as a SQL literal list.
+// A constant because the cost expressions built on it are constants;
+// TestPackagePlanSKUListMatchesTheCatalog holds it to catalogPlans.
+const packagePlanSKUListSQL = `'plan.s', 'plan.m', 'plan.l', 'plan.xl'`
 
 // costBaseExpr is costPricedExpr in the REPORTING currency: the record's
 // cost divided by its book currency's per_base (currency.go). NULL when the

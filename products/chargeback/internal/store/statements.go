@@ -175,10 +175,11 @@ func (s *Store) WriteDraftStatement(ctx context.Context, d StatementDraft) (Stat
 		}
 	}
 	for _, l := range d.Lines {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO rated_lines (statement_id, customer_id, source_id, sku, quantity, unit, unit_price, amount, resource_count, end_customer_id, list_unit_price, list_amount, buy_amount, net_amount, tax_category, tax_rule_id, description)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::numeric, $12::numeric, $13::numeric, $14::numeric, $15, $16, $17)`,
+		if _, err := tx.ExecContext(ctx, `INSERT INTO rated_lines (statement_id, customer_id, source_id, sku, quantity, unit, unit_price, amount, resource_count, end_customer_id, list_unit_price, list_amount, buy_amount, net_amount, tax_category, tax_rule_id, description, service_period_start, service_period_end)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::numeric, $12::numeric, $13::numeric, $14::numeric, $15, $16, $17, $18::date, $19::date)`,
 			existingID, d.CustomerID, nullStr(l.SourceID), l.SKU, string(l.Quantity), l.Unit, string(l.UnitPrice), string(l.Amount), l.ResourceCount,
-			nullStr(l.EndCustomerID), nullDec(l.ListUnitPrice), nullDec(l.ListAmount), nullDec(l.BuyAmount), nullDec(l.NetAmount), l.TaxCategory, l.TaxRuleID, l.Description); err != nil {
+			nullStr(l.EndCustomerID), nullDec(l.ListUnitPrice), nullDec(l.ListAmount), nullDec(l.BuyAmount), nullDec(l.NetAmount), l.TaxCategory, l.TaxRuleID, l.Description,
+			nullDay(l.ServiceFrom), nullDay(l.ServiceTo)); err != nil {
 			return Statement{}, mapErr(err)
 		}
 	}
@@ -308,7 +309,7 @@ func (s *Store) GetStatement(ctx context.Context, scope Scope, id string) (State
 // the source.
 func (s *Store) statementLines(ctx context.Context, id string) ([]RatedLine, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT l.id, l.statement_id, l.customer_id, l.source_id, l.sku, l.quantity::text, l.unit, l.unit_price::text, l.amount::text, l.resource_count,
-			l.end_customer_id, COALESCE(ec.name, ''), l.list_unit_price::text, l.list_amount::text, l.buy_amount::text, l.net_amount::text, l.tax_category, l.tax_rule_id, l.description
+			l.end_customer_id, COALESCE(ec.name, ''), l.list_unit_price::text, l.list_amount::text, l.buy_amount::text, l.net_amount::text, l.tax_category, l.tax_rule_id, l.description, l.service_period_start, l.service_period_end
 		FROM rated_lines l LEFT JOIN customers ec ON ec.id = l.end_customer_id WHERE l.statement_id = $1 ORDER BY ec.name, l.sku, l.source_id`, id)
 	if err != nil {
 		return nil, mapErr(err)
@@ -319,9 +320,11 @@ func (s *Store) statementLines(ctx context.Context, id string) ([]RatedLine, err
 		var l RatedLine
 		var src, endCustomer, lup, lam, buy, net sql.NullString
 		var q, up, amt string
-		if err := rows.Scan(&l.ID, &l.StatementID, &l.CustomerID, &src, &l.SKU, &q, &l.Unit, &up, &amt, &l.ResourceCount, &endCustomer, &l.EndCustomerName, &lup, &lam, &buy, &net, &l.TaxCategory, &l.TaxRuleID, &l.Description); err != nil {
+		var svcFrom, svcTo sql.NullTime
+		if err := rows.Scan(&l.ID, &l.StatementID, &l.CustomerID, &src, &l.SKU, &q, &l.Unit, &up, &amt, &l.ResourceCount, &endCustomer, &l.EndCustomerName, &lup, &lam, &buy, &net, &l.TaxCategory, &l.TaxRuleID, &l.Description, &svcFrom, &svcTo); err != nil {
 			return nil, err
 		}
+		l.ServiceFrom, l.ServiceTo = timePtr(svcFrom), timePtr(svcTo)
 		l.SourceID = strPtr(src)
 		l.Quantity, l.UnitPrice, l.Amount = Decimal(q), Decimal(up), Decimal(amt)
 		l.EndCustomerID = strPtr(endCustomer)
@@ -556,4 +559,12 @@ func (s *Store) DeleteDraftStatement(ctx context.Context, id string) error {
 		return mapErr(err)
 	}
 	return tx.Commit()
+}
+
+// nullDay renders an optional day for a DATE column.
+func nullDay(t *time.Time) any {
+	if t == nil {
+		return nil
+	}
+	return t.UTC().Format("2006-01-02")
 }

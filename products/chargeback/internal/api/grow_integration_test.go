@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/openova-io/openova/products/chargeback/internal/rating"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
 
@@ -227,22 +226,25 @@ func TestIntegrationGrowModeBillsAboveTheAllowance(t *testing.T) {
 		return lines, stmt, res
 	}
 
-	// GROW. The arithmetic (unit = monthly × 12 ÷ 8760, rounded to 8):
-	//   plan.m        744 plan-h  × 0.00615068              = 4.576106
+	// GROW. October is the Source's first period and nothing paid for it in
+	// advance, so the whole month is billed at the FLAT package price, and
+	// November in advance (DESIGN.md §22.11). The usage above the package
+	// is October's, in arrears (unit = monthly × 12 ÷ 8760, rounded to 8):
+	//   plan.m        October, 1 month × 4.490 (flat, not 744 h × a rate) = 4.490000
+	//   plan.m        November, in advance, 1 month × 4.490               = 4.490000
 	//   k8s.vcpu      2,232 used − 2 × 744 = 744 vcpu-h
-	//                 × (1.796 × 12 ÷ 8760 =) 0.00246027    = 1.830441
+	//                 × (1.796 × 12 ÷ 8760 =) 0.00246027                  = 1.830441
 	//   k8s.mem_gb    4,464 used − 4 × 744 = 1,488 gib-h
-	//                 × (0.337 × 12 ÷ 8760 =) 0.00046164    = 0.686920
+	//                 × (0.337 × 12 ÷ 8760 =) 0.00046164                  = 0.686920
 	//   k8s.pvc_gb    52,080 used − 50 × 744 = 14,880 gb-h
-	//                 × (0.423 ÷ 8760 =) 0.00004829         = 0.718555
-	//   eip.bandwidth 74,400 used − 100 × 744 = 0           = 0.000000
-	//   subtotal                                            = 7.812022
+	//                 × (0.423 ÷ 8760 =) 0.00004829                       = 0.718555
+	//   eip.bandwidth 74,400 used − 100 × 744 = 0                         = 0.000000
+	//   subtotal                                                          = 12.215916
 	// (The disk and bandwidth lines carry the whole quantity; the allowance
 	// path takes the included part off and the line's amount is the excess
 	// at the book's price — its unit price then reads as the average.)
 	lines, stmt, res := bill(growCID)
 	for sku, w := range map[string][3]string{
-		"plan.m":           {"744.000000", "0.00615068", "4.576106"},
 		store.SKUVCPU:      {"744.000000", "0.00246027", "1.830441"},
 		store.SKUMem:       {"1488.000000", "0.00046164", "0.686920"},
 		store.SKUPVC:       {"52080.000000", "", "0.718555"},
@@ -253,37 +255,65 @@ func TestIntegrationGrowModeBillsAboveTheAllowance(t *testing.T) {
 			t.Fatalf("grow %s = %v, want qty %s × %s = %s", sku, l, w[0], w[1], w[2])
 		}
 	}
+	planLines := func(stmt map[string]any) []map[string]any {
+		var out []map[string]any
+		for _, l := range stmt["lines"].([]any) {
+			if lm := l.(map[string]any); lm["sku"] == "plan.m" {
+				out = append(out, lm)
+			}
+		}
+		return out
+	}
+	pl := planLines(stmt)
+	if len(pl) != 2 {
+		t.Fatalf("plan lines = %v, want October and November", pl)
+	}
+	for _, l := range pl {
+		if dec(t, l["quantity"]) != "1.000000" || l["unit"] != "month" || dec(t, l["amount"]) != "4.490000" {
+			t.Fatalf("plan line = %v, want 1 month × 4.490", l)
+		}
+	}
+	advance := map[string]bool{}
+	for _, l := range pl {
+		advance[l["service_period_start"].(string)[:10]] = true
+	}
+	if !advance["2026-10-01"] || !advance["2026-11-01"] {
+		t.Fatalf("service periods = %v, want October and November (in advance)", advance)
+	}
 	if d, _ := lines[store.SKUVCPU]["description"].(string); !strings.Contains(d, "vCPU above the M package, grow") || !strings.Contains(d, "1.796 OMR per vCPU a month") {
 		t.Fatalf("vcpu line description = %q", d)
 	}
 	if lines[store.SKUVCPULimit] != nil || lines[store.SKUMemLimit] != nil {
 		t.Fatal("a limit meter reached the statement; it is a measurement, never a line")
 	}
-	if dec(t, stmt["subtotal"]) != "7.812022" {
-		t.Fatalf("grow subtotal = %s, want 7.812022", dec(t, stmt["subtotal"]))
+	if dec(t, stmt["subtotal"]) != "12.215916" {
+		t.Fatalf("grow subtotal = %s, want 12.215916", dec(t, stmt["subtotal"]))
 	}
 	if up := res["unpriced_skus"]; up != nil && len(up.([]any)) != 0 {
 		t.Fatalf("unpriced = %v, want none", up)
 	}
 
-	if lines[rating.SpendLimitSKU] != nil {
-		t.Fatalf("a 25.000 limit above 3.235916 of usage wrote %v", lines[rating.SpendLimitSKU])
-	}
-
-	// THE SPEND LIMIT caps the usage above the package, not the bill: at
-	// 3.000 the usage (1.830441 + 0.686920 + 0.718555 = 3.235916) is
-	// brought down by one named line of −0.235916; the plan is untouched.
+	// THE SPEND LIMIT bills the usage above the package exactly up to the
+	// limit, in the order vCPU, memory, disk: at 3.000 the vCPU 1.830441
+	// and memory 0.686920 fit (0.482639 left), the disk rated 0.718555 is
+	// billed 0.482639. No negative line; the package is untouched.
+	//   4.490 + 4.490 + 3.000 = 11.980000
 	op.mustJSON("PUT", overagePath, map[string]any{"overage_mode": "grow", "grow_ceiling": map[string]any{"vcpu": 4}, "spend_limit_month": "3.000"}, 200)
 	lines, stmt, _ = bill(growCID)
-	if l := lines[rating.SpendLimitSKU]; l == nil || dec(t, l["amount"]) != "-0.235916" || !strings.Contains(l["description"].(string), "capped at the 3 OMR limit") {
-		t.Fatalf("spend limit line = %v", l)
+	if l := lines[store.SKUPVC]; l == nil || dec(t, l["amount"]) != "0.482639" || !strings.Contains(l["description"].(string), "billed up to the 3 OMR spend limit: 0.482639 of 0.718555") {
+		t.Fatalf("disk line under the limit = %v", l)
 	}
-	if dec(t, stmt["subtotal"]) != "7.576106" {
-		t.Fatalf("subtotal under the limit = %s, want 4.576106 + 3.000 = 7.576106", dec(t, stmt["subtotal"]))
+	for _, l := range stmt["lines"].([]any) {
+		if a := dec(t, l.(map[string]any)["amount"]); strings.HasPrefix(a, "-") {
+			t.Fatalf("a negative line under the spend limit: %v", l)
+		}
+	}
+	if dec(t, stmt["subtotal"]) != "11.980000" {
+		t.Fatalf("subtotal under the limit = %s, want 4.490 + 4.490 + 3.000 = 11.980000", dec(t, stmt["subtotal"]))
 	}
 
 	// CAPPED. The package and nothing beyond: no compute line at all, the
-	// disk excess reported and billed at nothing.
+	// disk excess reported and billed at nothing. 4.490 + 4.490 = 8.980000.
 	lines, stmt, _ = bill(capCID)
 	if lines[store.SKUVCPU] != nil || lines[store.SKUMem] != nil {
 		t.Fatalf("capped billed compute: %v %v", lines[store.SKUVCPU], lines[store.SKUMem])
@@ -291,8 +321,8 @@ func TestIntegrationGrowModeBillsAboveTheAllowance(t *testing.T) {
 	if l := lines[store.SKUPVC]; l == nil || dec(t, l["amount"]) != "0.000000" {
 		t.Fatalf("capped disk = %v", l)
 	}
-	if dec(t, stmt["subtotal"]) != "4.576106" {
-		t.Fatalf("capped subtotal = %s, want the plan alone, 4.576106", dec(t, stmt["subtotal"]))
+	if dec(t, stmt["subtotal"]) != "8.980000" {
+		t.Fatalf("capped subtotal = %s, want October and November at 4.490, 8.980000", dec(t, stmt["subtotal"]))
 	}
 
 	// Back to capped clears the ceiling and the spend limit.

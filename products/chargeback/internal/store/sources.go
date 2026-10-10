@@ -16,17 +16,20 @@ const sourceColumns = `s.id, s.customer_id, COALESCE((SELECT c.name FROM custome
 	s.region, s.project_id, s.domain_id, s.credential_id, s.status, s.verified_at, s.last_collected_at, s.last_error, s.scope_token,
 	COALESCE((SELECT c.access_key FROM credentials c WHERE c.id = s.credential_id), ''),
 	ARRAY(SELECT f.key FROM source_addons sa JOIN features f ON f.id = sa.feature_id WHERE sa.source_id = s.id ORDER BY f.sort_order, f.key)::text[],
-	s.overage_mode, s.grow_ceiling_vcpu::text, s.grow_ceiling_memory_gb::text, s.grow_ceiling_disk_gb::text, s.grow_ceiling_bandwidth_mbps::text, s.spend_limit_month::text`
+	s.overage_mode, s.grow_ceiling_vcpu::text, s.grow_ceiling_memory_gb::text, s.grow_ceiling_disk_gb::text, s.grow_ceiling_bandwidth_mbps::text, s.spend_limit_month::text,
+	s.prepaid_amount::text,
+	(SELECT ss.until FROM spend_stops ss WHERE ss.source_id = s.id AND ss.cleared_at IS NULL AND ss.until > now() ORDER BY ss.period_start DESC LIMIT 1)`
 
 func scanSource(row interface{ Scan(...any) error }) (CostSource, error) {
 	var src CostSource
 	var customer, book, domain, cred, lastErr sql.NullString
 	var verified, collected sql.NullTime
 	var addons []string
-	var gV, gM, gD, gB, spend sql.NullString
+	var gV, gM, gD, gB, spend, prepaid sql.NullString
+	var stoppedUntil sql.NullTime
 	err := row.Scan(&src.ID, &customer, &src.CustomerName, &src.Kind, &src.Layer, &book, &src.PriceBookName, &src.Internal,
 		&src.Region, &src.ProjectID, &domain, &cred, &src.Status, &verified, &collected, &lastErr, &src.ScopeToken, &src.AccessKey, pq.Array(&addons),
-		&src.OverageMode, &gV, &gM, &gD, &gB, &spend)
+		&src.OverageMode, &gV, &gM, &gD, &gB, &spend, &prepaid, &stoppedUntil)
 	if err != nil {
 		return src, mapErr(err)
 	}
@@ -34,6 +37,11 @@ func scanSource(row interface{ Scan(...any) error }) (CostSource, error) {
 		src.GrowCeiling = &GrowCeiling{VCPU: trimDecimalPtr(decPtr(gV)), MemoryGB: trimDecimalPtr(decPtr(gM)), DiskGB: trimDecimalPtr(decPtr(gD)), BandwidthMbps: trimDecimalPtr(decPtr(gB))}
 	}
 	src.SpendLimitMonth = decPtr(spend)
+	src.PrepaidAmount = trimDecimalPtr(decPtr(prepaid))
+	if stoppedUntil.Valid {
+		u := stoppedUntil.Time.UTC()
+		src.OverageStoppedUntil = &u
+	}
 	src.Addons = addons
 	if src.Addons == nil {
 		src.Addons = []string{}

@@ -327,191 +327,18 @@ func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, pc *pa
 	// no longer the only answer, but it is still the answer for everyone
 	// who was on the single-rate model.
 	taxRate := store.EffectiveTaxRate(c, settings)
-	sources, err := st.ListSources(ctx, store.OperatorScope, c.ID)
-	if err != nil {
-		return store.Statement{}, detail, fmt.Errorf("sources: %w", err)
-	}
-	byID := map[string]store.CostSource{}
-	booked := 0
-	for _, s := range sources {
-		byID[s.ID] = s
-		if s.PriceBookID != nil {
-			booked++
-		}
-	}
-	if booked == 0 {
-		return store.Statement{}, detail, ErrNoPriceBook
-	}
-	usage, err := st.UsageForRating(ctx, c.ID, from, to)
+	pl, err := ratePeriodLines(ctx, st, c, from, to, &detail)
 	if err != nil {
 		return store.Statement{}, detail, err
 	}
-	// Usage per source, in source order (ListSources orders by layer, then
-	// location), so the lines of a statement are stable across runs.
-	perSource := map[string][]store.RatableUsage{}
-	for _, u := range usage {
-		perSource[u.SourceID] = append(perSource[u.SourceID], u)
-	}
-	books := map[string]store.PriceBook{}
-	bookOf := map[string]string{} // source id → list book id
-	// shapeItems names each SKU's commercial shape, and bookItem the LIST
-	// unit price of a (book, SKU) — the figure a partner's retail price is
-	// derived from, which a tiered line's own unit price is not.
-	shapeItems := map[string]store.PriceItem{}
-	currency := ""
-	var lines []store.RatedLine
-	unpricedSet, notSoldSet := map[string]bool{}, map[string]bool{}
-	// The allowances the Sources' PACKAGES carry into the period (DESIGN.md
-	// §22), per SKU, summed across sources — fed to the one allowance path —
-	// and the SKUs a package caps (the excess is reported, never billed) or
-	// leaves unlimited (no allowance, nothing billed).
-	included := map[string]store.Decimal{}
-	capped, unlimited := map[string]bool{}, map[string]bool{}
+	lines, sources, books, bookOf, currency, terms := pl.lines, pl.sources, pl.books, pl.bookOf, pl.currency, pl.terms
+	// DESIGN.md §22.11 — a grow Source's usage above its package is billed
+	// at most up to its spend limit (after the allowances, before the
+	// discounts): the line that crosses the limit is billed for what fits,
+	// the lines after it at 0. No negative line.
 	for _, src := range sources {
-		rows := perSource[src.ID]
-		if src.PriceBookID == nil {
-			if len(rows) > 0 {
-				detail.unbooked = append(detail.unbooked, src.Label())
-				for _, u := range rows {
-					unpricedSet[u.SKU] = true
-				}
-			}
-			continue
-		}
-		pb, ok := books[*src.PriceBookID]
-		if !ok {
-			if pb, err = st.GetPriceBook(ctx, *src.PriceBookID); err != nil {
-				return store.Statement{}, detail, fmt.Errorf("price book of source %s: %w", src.Label(), err)
-			}
-			books[pb.ID] = pb
-		}
-		bookOf[src.ID] = pb.ID
-		// The statement's currency is the one every booked source shares;
-		// the first booked source (usage or not) sets it.
-		if currency == "" {
-			currency = pb.Currency
-		} else if pb.Currency != currency {
-			return store.Statement{}, detail, fmt.Errorf("%w: source %s is priced in %s while another source of %s is priced in %s; a statement is issued in one currency — assign books of one currency", ErrMixedCurrency, src.Label(), pb.Currency, c.Name, currency)
-		}
-		if len(rows) == 0 {
-			continue
-		}
-		items := map[string]store.PriceItem{}
-		sellsPlans := false
-		for _, it := range pb.Items {
-			items[it.SKU] = it
-			if strings.HasPrefix(it.SKU, store.PlanSKUPrefix) {
-				sellsPlans = true
-			}
-			// The commercial shape of a SKU (DESIGN.md §15.1) belongs to the
-			// agreement, not to one project: the FIRST booked source in
-			// source order that prices the SKU names its shape for the whole
-			// statement, so an allowance is the customer's month.
-			if _, seen := shapeItems[it.SKU]; !seen {
-				shapeItems[it.SKU] = it
-			}
-		}
-		// DESIGN.md §22.11 — the LIMIT meters are a measurement, never a
-		// sale: they leave the rows Rate prices and go to the package, which
-		// bills the compute above the allowance in grow mode.
-		var limitRows []store.RatableUsage
-		if src.Layer == store.LayerPlatform {
-			kept := rows[:0:0]
-			for _, u := range rows {
-				if store.IsPlatformLimitMeter(u.SKU) {
-					limitRows = append(limitRows, u)
-					continue
-				}
-				kept = append(kept, u)
-			}
-			rows = kept
-		}
-		srcLines, unpriced, err := Rate(rows, items, pb.BillStopped)
-		if err != nil {
+		if _, err := ClipToSpendLimit(src, lines, currency); err != nil {
 			return store.Statement{}, detail, fmt.Errorf("source %s: %w", src.Label(), err)
-		}
-		lines = append(lines, srcLines...)
-		for _, sku := range unpriced {
-			// A platform book that sells plans prices bundles, not
-			// vCPU-hours: a k8s.* meter it does not price is the allocation
-			// basis, not a gap in the book. Per SKU, the same rule as
-			// store.costNotSoldPerUseExpr: the plans book prices k8s.pvc_gb
-			// so a package's disk overage can be metered (DESIGN.md §22.2)
-			// while k8s.vcpu / k8s.mem_gb stay the basis beside it.
-			if src.Layer == store.LayerPlatform && store.IsPlatformMeter(sku) && sellsPlans {
-				notSoldSet[sku] = true
-				continue
-			}
-			unpricedSet[sku] = true
-		}
-		// DESIGN.md §22 — the PACKAGE of a platform Source: the included
-		// features as 0.000 lines, the add-ons it took at their price, and
-		// the included quantities as allowances for the terms below.
-		if src.Layer == store.LayerPlatform {
-			pkg, err := packageOf(ctx, st, src, pb, rows, limitRows, items)
-			if err != nil {
-				return store.Statement{}, detail, fmt.Errorf("source %s: package: %w", src.Label(), err)
-			}
-			lines = append(lines, pkg.Lines...)
-			for sku, q := range pkg.Included {
-				sum, err := Sum(included[sku], q)
-				if err != nil {
-					return store.Statement{}, detail, err
-				}
-				included[sku] = sum
-			}
-			for sku := range pkg.Capped {
-				capped[sku] = true
-			}
-			for sku := range pkg.Unlimited {
-				unlimited[sku] = true
-			}
-			for _, sku := range pkg.Unpriced {
-				unpricedSet[sku] = true
-			}
-		}
-	}
-	detail.unpriced = sortedKeys(unpricedSet)
-	detail.notSold = sortedKeys(notSoldSet)
-	// DESIGN.md §15 — the commercial terms, BEFORE the discounts: the
-	// allowance comes off the quantity, the tiers price what is left, the
-	// commitment reprices the head of it. One engine, one pass, and lines
-	// whose SKU carries no shape come back untouched.
-	terms, err := LoadTerms(ctx, st, c.ID, from, shapeItems)
-	if err != nil {
-		return store.Statement{}, detail, err
-	}
-	if terms.Contract != nil {
-		detail.contractID, detail.contractName = terms.Contract.ID, terms.Contract.Name
-	}
-	if len(included) > 0 {
-		terms.Included = included
-	}
-	if len(capped) > 0 {
-		terms.Capped = capped
-	}
-	if len(unlimited) > 0 {
-		terms.Unlimited = unlimited
-	}
-	// ALWAYS applied, contract or not: an allowance and a tier ladder belong
-	// to the PLAN — the price-book item — and a customer that has signed
-	// nothing is still on a plan. ApplyTerms no-ops on a SKU whose item
-	// carries no shape, which is every item of every book written before §15.
-	var appliedTerms []Breakdown
-	if lines, appliedTerms, err = ApplyTerms(lines, shapeItems, terms); err != nil {
-		return store.Statement{}, detail, err
-	}
-	detail.terms = appliedTerms
-	// DESIGN.md §22.11 — a grow Source's spend limit caps the usage charges
-	// above its package (after the allowances, before the discounts), as one
-	// named line per Source.
-	for _, src := range sources {
-		line, ok, err := SpendLimitLine(src, lines, currency)
-		if err != nil {
-			return store.Statement{}, detail, fmt.Errorf("source %s: %w", src.Label(), err)
-		}
-		if ok {
-			lines = append(lines, line)
 		}
 	}
 	// #6862 — discounts reduce the subtotal BEFORE tax. Taxing the list price
@@ -641,10 +468,238 @@ func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, pc *pa
 	return stmt, detail, err
 }
 
+// periodLines is a customer's period rated up to and including the
+// commercial terms — every Source by its own book, the packages and their
+// commitment lines, the grow overage and the allowances — before the spend
+// limit, the discounts, the true-up and the tax. The statement run continues
+// from it; the spend-limit evaluator reads the usage above each package off
+// it (AccruedOverage).
+type periodLines struct {
+	lines    []store.RatedLine
+	sources  []store.CostSource
+	books    map[string]store.PriceBook
+	bookOf   map[string]string
+	currency string
+	terms    Terms
+}
+
+// ratePeriodLines rates [from, to) of one customer up to the terms.
+func ratePeriodLines(ctx context.Context, st *store.Store, c store.Customer, from, to time.Time, detail *rateDetail) (periodLines, error) {
+	sources, err := st.ListSources(ctx, store.OperatorScope, c.ID)
+	if err != nil {
+		return periodLines{}, fmt.Errorf("sources: %w", err)
+	}
+	byID := map[string]store.CostSource{}
+	booked := 0
+	for _, s := range sources {
+		byID[s.ID] = s
+		if s.PriceBookID != nil {
+			booked++
+		}
+	}
+	if booked == 0 {
+		return periodLines{}, ErrNoPriceBook
+	}
+	usage, err := st.UsageForRating(ctx, c.ID, from, to)
+	if err != nil {
+		return periodLines{}, err
+	}
+	// Usage per source, in source order (ListSources orders by layer, then
+	// location), so the lines of a statement are stable across runs.
+	perSource := map[string][]store.RatableUsage{}
+	for _, u := range usage {
+		perSource[u.SourceID] = append(perSource[u.SourceID], u)
+	}
+	books := map[string]store.PriceBook{}
+	bookOf := map[string]string{} // source id → list book id
+	// shapeItems names each SKU's commercial shape, and bookItem the LIST
+	// unit price of a (book, SKU) — the figure a partner's retail price is
+	// derived from, which a tiered line's own unit price is not.
+	shapeItems := map[string]store.PriceItem{}
+	currency := ""
+	var lines []store.RatedLine
+	unpricedSet, notSoldSet := map[string]bool{}, map[string]bool{}
+	// The allowances the Sources' PACKAGES carry into the period (DESIGN.md
+	// §22), per SKU, summed across sources — fed to the one allowance path —
+	// and the SKUs a package caps (the excess is reported, never billed) or
+	// leaves unlimited (no allowance, nothing billed).
+	included := map[string]store.Decimal{}
+	capped, unlimited := map[string]bool{}, map[string]bool{}
+	for _, src := range sources {
+		rows := perSource[src.ID]
+		if src.PriceBookID == nil {
+			if len(rows) > 0 {
+				detail.unbooked = append(detail.unbooked, src.Label())
+				for _, u := range rows {
+					unpricedSet[u.SKU] = true
+				}
+			}
+			continue
+		}
+		pb, ok := books[*src.PriceBookID]
+		if !ok {
+			if pb, err = st.GetPriceBook(ctx, *src.PriceBookID); err != nil {
+				return periodLines{}, fmt.Errorf("price book of source %s: %w", src.Label(), err)
+			}
+			books[pb.ID] = pb
+		}
+		bookOf[src.ID] = pb.ID
+		// The statement's currency is the one every booked source shares;
+		// the first booked source (usage or not) sets it.
+		if currency == "" {
+			currency = pb.Currency
+		} else if pb.Currency != currency {
+			return periodLines{}, fmt.Errorf("%w: source %s is priced in %s while another source of %s is priced in %s; a statement is issued in one currency — assign books of one currency", ErrMixedCurrency, src.Label(), pb.Currency, c.Name, currency)
+		}
+		if len(rows) == 0 {
+			continue
+		}
+		items := map[string]store.PriceItem{}
+		sellsPlans := false
+		for _, it := range pb.Items {
+			items[it.SKU] = it
+			if strings.HasPrefix(it.SKU, store.PlanSKUPrefix) {
+				sellsPlans = true
+			}
+			// The commercial shape of a SKU (DESIGN.md §15.1) belongs to the
+			// agreement, not to one project: the FIRST booked source in
+			// source order that prices the SKU names its shape for the whole
+			// statement, so an allowance is the customer's month.
+			if _, seen := shapeItems[it.SKU]; !seen {
+				shapeItems[it.SKU] = it
+			}
+		}
+		// DESIGN.md §22.11 — the LIMIT meters are a measurement, never a
+		// sale: they leave the rows Rate prices and go to the package, which
+		// bills the compute above the allowance in grow mode.
+		var limitRows []store.RatableUsage
+		if src.Layer == store.LayerPlatform {
+			kept := rows[:0:0]
+			for _, u := range rows {
+				if store.IsPlatformLimitMeter(u.SKU) {
+					limitRows = append(limitRows, u)
+					continue
+				}
+				kept = append(kept, u)
+			}
+			rows = kept
+		}
+		// DESIGN.md §22.11 — the package is a prepaid monthly commitment: a
+		// platform Source on a book that sells plans is not billed its
+		// plan-hours by the hour any more. The plan.<slug> rows stay the
+		// record of which package ran when (the plan segments and the
+		// timeline read them); the package lines are the commitment's.
+		rateRows := rows
+		if src.Layer == store.LayerPlatform && sellsPlans {
+			rateRows = rows[:0:0]
+			for _, u := range rows {
+				if isPlanRow(u.SKU) {
+					continue
+				}
+				rateRows = append(rateRows, u)
+			}
+		}
+		srcLines, unpriced, err := Rate(rateRows, items, pb.BillStopped)
+		if err != nil {
+			return periodLines{}, fmt.Errorf("source %s: %w", src.Label(), err)
+		}
+		lines = append(lines, srcLines...)
+		for _, sku := range unpriced {
+			// A platform book that sells plans prices bundles, not
+			// vCPU-hours: a k8s.* meter it does not price is the allocation
+			// basis, not a gap in the book. Per SKU, the same rule as
+			// store.costNotSoldPerUseExpr: the plans book prices k8s.pvc_gb
+			// so a package's disk overage can be metered (DESIGN.md §22.2)
+			// while k8s.vcpu / k8s.mem_gb stay the basis beside it.
+			if src.Layer == store.LayerPlatform && store.IsPlatformMeter(sku) && sellsPlans {
+				notSoldSet[sku] = true
+				continue
+			}
+			unpricedSet[sku] = true
+		}
+		// DESIGN.md §22 — the PACKAGE of a platform Source: the included
+		// features as 0.000 lines, the add-ons it took at their price, and
+		// the included quantities as allowances for the terms below.
+		if src.Layer == store.LayerPlatform {
+			committedSlug := ""
+			if sellsPlans {
+				in, err := commitmentInputOf(ctx, st, c, src, pb, items, from, to)
+				if err != nil {
+					return periodLines{}, fmt.Errorf("source %s: commitment: %w", src.Label(), err)
+				}
+				commit, unpricedPlans, err := Commitment(in)
+				if err != nil {
+					return periodLines{}, fmt.Errorf("source %s: commitment: %w", src.Label(), err)
+				}
+				lines = append(lines, commit...)
+				for _, sku := range unpricedPlans {
+					unpricedSet[sku] = true
+				}
+				if in.Prepaid != nil {
+					committedSlug = in.Prepaid.PlanSlug
+				}
+			}
+			pkg, err := packageOf(ctx, st, src, pb, rows, limitRows, items, committedSlug)
+			if err != nil {
+				return periodLines{}, fmt.Errorf("source %s: package: %w", src.Label(), err)
+			}
+			lines = append(lines, pkg.Lines...)
+			for sku, q := range pkg.Included {
+				sum, err := Sum(included[sku], q)
+				if err != nil {
+					return periodLines{}, err
+				}
+				included[sku] = sum
+			}
+			for sku := range pkg.Capped {
+				capped[sku] = true
+			}
+			for sku := range pkg.Unlimited {
+				unlimited[sku] = true
+			}
+			for _, sku := range pkg.Unpriced {
+				unpricedSet[sku] = true
+			}
+		}
+	}
+	detail.unpriced = sortedKeys(unpricedSet)
+	detail.notSold = sortedKeys(notSoldSet)
+	// DESIGN.md §15 — the commercial terms, BEFORE the discounts: the
+	// allowance comes off the quantity, the tiers price what is left, the
+	// commitment reprices the head of it. One engine, one pass, and lines
+	// whose SKU carries no shape come back untouched.
+	terms, err := LoadTerms(ctx, st, c.ID, from, shapeItems)
+	if err != nil {
+		return periodLines{}, err
+	}
+	if terms.Contract != nil {
+		detail.contractID, detail.contractName = terms.Contract.ID, terms.Contract.Name
+	}
+	if len(included) > 0 {
+		terms.Included = included
+	}
+	if len(capped) > 0 {
+		terms.Capped = capped
+	}
+	if len(unlimited) > 0 {
+		terms.Unlimited = unlimited
+	}
+	// ALWAYS applied, contract or not: an allowance and a tier ladder belong
+	// to the PLAN — the price-book item — and a customer that has signed
+	// nothing is still on a plan. ApplyTerms no-ops on a SKU whose item
+	// carries no shape, which is every item of every book written before §15.
+	var appliedTerms []Breakdown
+	if lines, appliedTerms, err = ApplyTerms(lines, shapeItems, terms); err != nil {
+		return periodLines{}, err
+	}
+	detail.terms = appliedTerms
+	return periodLines{lines: lines, sources: sources, books: books, bookOf: bookOf, currency: currency, terms: terms}, nil
+}
+
 // packageOf applies the Source's package to the period (DESIGN.md §22): the
 // plan segments are read off the Source's own plan.<slug> rows, each plan's
 // cells are loaded from the Source's book, and ApplyPackage does the rest.
-func packageOf(ctx context.Context, st *store.Store, src store.CostSource, pb store.PriceBook, rows, limitRows []store.RatableUsage, items map[string]store.PriceItem) (PackageResult, error) {
+func packageOf(ctx context.Context, st *store.Store, src store.CostSource, pb store.PriceBook, rows, limitRows []store.RatableUsage, items map[string]store.PriceItem, committedSlug string) (PackageResult, error) {
 	segments, err := PlanSegments(rows)
 	if err != nil {
 		return PackageResult{}, err
@@ -666,6 +721,13 @@ func packageOf(ctx context.Context, st *store.Store, src store.CostSource, pb st
 			}
 		}
 	}
+	if committedSlug != "" && src.OverageMode == store.OverageModeGrow {
+		if _, ok := limits[committedSlug]; !ok {
+			if limits[committedSlug], err = st.PackageLimitsOf(ctx, pb.ID, committedSlug); err != nil {
+				return PackageResult{}, fmt.Errorf("package %s: %w", committedSlug, err)
+			}
+		}
+	}
 	res, err := ApplyPackageWith(PackageOptions{IncludedLines: st.PackageIncludedLines()}, src, segments, ents, items)
 	if err != nil {
 		return res, err
@@ -681,7 +743,7 @@ func packageOf(ctx context.Context, st *store.Store, src store.CostSource, pb st
 		}
 		used[u.SKU].Add(used[u.SKU], q)
 	}
-	lines, unpriced, err := GrowOverage(src, segments, GrowInput{Limits: used, Packages: limits, Divisor: pb.AnnualDivisor, Currency: pb.Currency})
+	lines, unpriced, err := GrowOverage(src, segments, GrowInput{Limits: used, Packages: limits, Committed: committedSlug, Divisor: pb.AnnualDivisor, Currency: pb.Currency})
 	if err != nil {
 		return res, err
 	}
@@ -729,4 +791,36 @@ func sortedKeys(m map[string]bool) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// isPlanRow reports whether a usage SKU is the plan-hour record of a catalog
+// package, plan.<slug>.
+func isPlanRow(sku string) bool {
+	if !strings.HasPrefix(sku, store.PlanSKUPrefix) {
+		return false
+	}
+	slug := strings.TrimPrefix(sku, store.PlanSKUPrefix)
+	return store.ValidPlanSlug(slug) && store.PlanBillable(slug)
+}
+
+// commitmentInputOf loads what the commitment lines of one platform Source
+// in [from, to) are computed from (DESIGN.md §22.11): the timeline of its
+// plans, the advance line an earlier statement wrote for this period,
+// whether this is its first period on a package, and whether its customer
+// is active now.
+func commitmentInputOf(ctx context.Context, st *store.Store, c store.Customer, src store.CostSource, pb store.PriceBook, items map[string]store.PriceItem, from, to time.Time) (CommitmentInput, error) {
+	in := CommitmentInput{Source: src, From: from, To: to, Items: items, Divisor: pb.AnnualDivisor, Currency: pb.Currency, Active: c.Status == "active"}
+	var err error
+	if in.Timeline, err = st.PlanTimeline(ctx, src.ID, from, to); err != nil {
+		return in, err
+	}
+	if in.Prepaid, err = st.PrepaidFor(ctx, src.ID, from); err != nil {
+		return in, err
+	}
+	before, err := st.HasPlanBefore(ctx, src.ID, from)
+	if err != nil {
+		return in, err
+	}
+	in.FirstPeriod = !before
+	return in, nil
 }

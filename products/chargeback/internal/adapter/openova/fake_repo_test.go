@@ -3,6 +3,7 @@ package openova
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"strings"
 	"sync"
 	"time"
@@ -40,6 +41,26 @@ type fakeRepo struct {
 	// SetSourceOverage calls that reached the write.
 	growPackages  map[string]store.PackageLimits
 	overageWrites int
+	prepaidWrites int // SetSourcePrepaid calls that reached the write
+}
+
+// SetSourcePrepaid mirrors store.SetSourcePrepaid: a positive amount on a
+// platform source.
+func (f *fakeRepo) SetSourcePrepaid(_ context.Context, sourceID string, amount store.Decimal) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	s, ok := f.sources[sourceID]
+	if !ok || s.Internal || s.Layer != store.LayerPlatform {
+		return store.ErrNotFound
+	}
+	if r, ok := new(big.Rat).SetString(string(amount)); !ok || r.Sign() <= 0 {
+		return fmt.Errorf("%w: a prepaid amount is a positive money string", store.ErrInvalid)
+	}
+	a := amount
+	s.PrepaidAmount = &a
+	f.sources[sourceID] = s
+	f.prepaidWrites++
+	return nil
 }
 
 // SetSourceOverage mirrors store.SetSourceOverage's contract: a platform

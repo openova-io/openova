@@ -169,8 +169,16 @@ export interface CostSource {
   overage_mode?: OverageMode | string
   /** The grow ceiling, resolved per dimension; absent in capped mode. */
   grow_ceiling?: GrowCeiling
-  /** Caps the usage charges ABOVE the package per month (not the whole bill); grow only. */
+  /**
+   * The monthly spend limit on the usage ABOVE the package; grow only. When
+   * it is reached the Organization is held at its package until the next
+   * period (DESIGN.md §22.11) — overage_stopped_until says until when.
+   */
   spend_limit_month?: number | string
+  /** Set while the spend limit is reached: the instant grow returns (the next period start). */
+  overage_stopped_until?: string
+  /** What the checkout collected for the package, credited on the first statement. */
+  prepaid_amount?: number | string
 }
 
 export interface CustomerUser {
