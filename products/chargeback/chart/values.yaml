@@ -332,7 +332,13 @@ otel:
 publicCalculator:
   # Origins allowed to EMBED /estimate in an iframe (frame-ancestors) and to
   # call the public routes cross-origin — the operator's marketing site.
-  # Empty = same origin only; every other path keeps X-Frame-Options: DENY.
+  # On a Sovereign (sovereignFqdn set) the Sovereign's own storefront,
+  # https://marketplace.<sovereignFqdn>, is always added after these: its
+  # package table reads GET /api/v1/public/packages from the browser
+  # (DESIGN.md §22.6), and without the CORS answer the storefront silently
+  # falls back to the catalog deck (found live on hw307, 0.1.58).
+  # Empty and no FQDN = same origin only; every other path keeps
+  # X-Frame-Options: DENY.
   origins: []
   # Token bucket per client address on the public routes; 429 + Retry-After
   # above it. Behind the gateway the address is the last X-Forwarded-For hop.

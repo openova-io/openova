@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-10-10T08:45:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-10-10T10:45:05Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,8 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-10-10T09:25 | [#6986](https://github.com/openova-io/openova/pull/6986) | #6971 | docs(ledger): hw307 BSS walk evidence 0.1.27–0.1.57 |
 | 2026-10-10T08:19 | [#6982](https://github.com/openova-io/openova/pull/6982) | #6972 | fix(marketplace): the plan deck keeps its styles when the pa |
 | 2026-10-10T07:07 | [#6975](https://github.com/openova-io/openova/pull/6975) | #6973 | ci(docrender): refresh the apt index before installing poppl |
+| 2026-10-10T08:51 | [#6973](https://github.com/openova-io/openova/pull/6973) | #6971 | feat(bss): packages and the entitlement matrix — Included /  |
 | 2026-10-10T07:01 | [#6972](https://github.com/openova-io/openova/pull/6972) | #6971 | feat(marketplace): the package table — S/M/L/XL with include |
 | 2026-10-04T13:24 | [#6965](https://github.com/openova-io/openova/pull/6965) | #6964 | docs(ledger): hw307 evidence for the contract page at 0.1.56 |
 | 2026-10-04T13:12 | [#6964](https://github.com/openova-io/openova/pull/6964) | #6963 | feat(bss): contracts you can read and edit line by line, a s |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-09-12T00:53 | [#6930](https://github.com/openova-io/openova/pull/6930) | #6867 | fix(bss): Catalyst BSS 0.1.41 — an unrated period claimed ev |
 | 2026-09-11T22:45 | [#6929](https://github.com/openova-io/openova/pull/6929) | #6867 | feat(bss): Catalyst BSS 0.1.40 — console translation seam, E |
 | 2026-09-11T21:15 | [#6928](https://github.com/openova-io/openova/pull/6928) | #6867 | feat(bss): Catalyst BSS 0.1.39 — notification management |
-| 2026-09-11T19:23 | [#6927](https://github.com/openova-io/openova/pull/6927) | #6926 | fix(bss): Catalyst BSS 0.1.38 — daily cost rollup, Overview  |
-| 2026-09-11T17:09 | [#6925](https://github.com/openova-io/openova/pull/6925) | #6867 | feat(bss): Catalyst BSS 0.1.37 — cost-centre labelling |
 
 ---
 
