@@ -241,6 +241,9 @@ jobs:
           [ "$size" -gt 1200 ] || { echo "FAIL: the rendered document is only $size bytes"; exit 1; }
           # The TEXT LAYER carries the invoice: a blank page of the right size
           # would pass every check above.
+          # Refresh the index first: the runner image's apt lists go stale and the
+          # mirror answers 404 for a package it has since rebuilt (seen 2026-10-10).
+          sudo apt-get update -qq >/dev/null
           sudo apt-get install -y -qq poppler-utils >/dev/null
           pdftotext /tmp/smoke.pdf /tmp/smoke.txt
           grep -q 'INV-2026-00042' /tmp/smoke.txt || { echo "FAIL: the invoice number is not in the document's text layer"; cat /tmp/smoke.txt; exit 1; }
