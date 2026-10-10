@@ -27,12 +27,15 @@ import {
   bssAddonSkus,
   buildLadder,
   bundledOn,
+  drTopologyFor,
   funnelAddonsFor,
   isLadderDocument,
   ladderCard,
   ladderRecommendedSku,
   moneyString,
   PACKAGE_STRINGS,
+  packageCapacity,
+  packageSpecsLine,
   parsePublicPackages,
   pruneAddonsForPackage,
   purchasableAddonSkus,
@@ -253,7 +256,7 @@ describe('step 3: the three blocks for a package', () => {
   const doc = v2();
 
   it('for L: block A has the included items with their value, block B the five optional add-ons, block C the two XL-only features', () => {
-    const l = addonsLadderFor(doc, 'plan.l', CATALOG_ADDONS)!;
+    const l = addonsLadderFor(doc, 'plan.l')!;
     expect(l.packageName).toBe('L');
     expect(l.packagePriceBaisa).toBe(7990);
     const inc = Object.fromEntries(l.included.map(i => [i.key, i.value]));
@@ -282,7 +285,7 @@ describe('step 3: the three blocks for a package', () => {
   });
 
   it('for M: block C names the rung for each teaser and not-offered feature — the nearest one that has it', () => {
-    const m = addonsLadderFor(doc, 'plan.m', CATALOG_ADDONS)!;
+    const m = addonsLadderFor(doc, 'plan.m')!;
     expect(m.missing.map(x => [x.key, x.state, x.upgrade?.name])).toEqual([
       ['k8s_ui', 'not_offered', 'L'],
       ['kube_api', 'not_offered', 'XL'],
@@ -295,7 +298,7 @@ describe('step 3: the three blocks for a package', () => {
   });
 
   it('for S: the teaser names its included_from (M), the not-offered its first rung', () => {
-    const s = addonsLadderFor(doc, 'plan.s', CATALOG_ADDONS)!;
+    const s = addonsLadderFor(doc, 'plan.s')!;
     const up = Object.fromEntries(s.missing.map(x => [x.key, x.upgrade?.name]));
     expect(up).toEqual({
       gitea_iac: 'M', k8s_ui: 'L', kube_api: 'XL', vuln_dashboard: 'M', compliance: 'L',
@@ -304,30 +307,43 @@ describe('step 3: the three blocks for a package', () => {
   });
 
   it('for XL: nothing is missing, Backup is in the package, Dedicated IP is still an add-on', () => {
-    const xl = addonsLadderFor(doc, 'plan.xl', CATALOG_ADDONS)!;
+    const xl = addonsLadderFor(doc, 'plan.xl')!;
     expect(xl.missing).toEqual([]);
     expect(xl.included.some(i => i.key === 'backup')).toBe(true);
     expect(xl.choices.map(c => c.id)).toEqual(['addon.dedicated_ip']);
   });
 
   it('an unknown sku yields null', () => {
-    expect(addonsLadderFor(doc, 'plan.xxl', CATALOG_ADDONS)).toBeNull();
+    expect(addonsLadderFor(doc, 'plan.xxl')).toBeNull();
   });
 
-  it('the offer list is the choices in the AddOn shape, then catalog add-ons with no twin — the floor hides twins too', () => {
-    const l = addonsLadderFor(doc, 'plan.l', CATALOG_ADDONS)!;
-    expect(l.addons.slice(0, 5).map(a => a.id)).toEqual(l.choices.map(c => c.id));
+  it('the offer list is the choices in the AddOn shape — BSS add-ons only, no catalog entry and no catalog price', () => {
+    const l = addonsLadderFor(doc, 'plan.l')!;
+    expect(l.addons.map(a => a.id)).toEqual(l.choices.map(c => c.id));
     expect(l.addons[0]).toMatchObject({ id: 'addon.backup', slug: 'backup', name: 'Backup', monthly_price: 1500, included: false, hint: 'Included from XL' });
-    // Daily Backup twins the backup feature; WAF and 24/7 support twin FLOOR
-    // items (every package includes them); IPS has no twin and stays.
-    expect(l.addons.slice(5).map(a => a.id)).toEqual(['a-ips']);
+    expect(l.addons.every(a => a.id.startsWith('addon.'))).toBe(true);
+  });
+
+  it('a stale catalog id in the cart is carried over to its BSS twin where the package sells it, else dropped — the floor counts as a twin too', () => {
+    // Daily Backup → addon.backup on L; on XL (included) it is dropped.
+    expect(pruneAddonsForPackage(doc, 'plan.l', ['a-backup'], CATALOG_ADDONS)).toEqual(['addon.backup']);
+    expect(pruneAddonsForPackage(doc, 'plan.xl', ['a-backup'], CATALOG_ADDONS)).toEqual([]);
+    // The WAF and 24/7 support are FLOOR items — every package includes them,
+    // nothing is sold, so the catalog entries are dropped, not offered.
     expect(twinFeatureKey(CATALOG_ADDONS[1], doc.features, doc.floor)).toBe('waf');
     expect(twinFeatureKey(CATALOG_ADDONS[3], doc.features, doc.floor)).toBe('support');
     expect(twinFeatureKey(CATALOG_ADDONS[1], doc.features)).toBeNull();
+    expect(pruneAddonsForPackage(doc, 'plan.l', ['a-waf', 'a-support', 'a-ips'], CATALOG_ADDONS)).toEqual([]);
+  });
+
+  it('the fixture blurbs carry no number — every figure in the journey is the price book\'s', () => {
+    const texts = [...doc.features.map(f => f.blurb ?? ''), ...(doc.floor ?? []).map(f => f.blurb ?? '')];
+    expect(texts.length).toBeGreaterThan(20);
+    expect(texts.filter(t => /\d/.test(t))).toEqual([]);
   });
 
   it('funnelAddonsFor delegates to the ladder for a v2 document, so Review resolves the same ids', () => {
-    const l = addonsLadderFor(doc, 'plan.l', CATALOG_ADDONS)!;
+    const l = addonsLadderFor(doc, 'plan.l')!;
     const f = funnelAddonsFor(doc, 'plan.l', CATALOG_ADDONS);
     expect(f.addons.map(a => a.id)).toEqual(l.addons.map(a => a.id));
     expect(f.packageName).toBe('L');
@@ -347,7 +363,7 @@ describe('step 3: the three blocks for a package', () => {
       },
     });
     const d = parsePublicPackages(raw)!;
-    const s = addonsLadderFor(d, 'plan.s', [])!;
+    const s = addonsLadderFor(d, 'plan.s')!;
     const choice = s.choices.find(c => c.id === 'addon.backup_daily')!;
     expect(choice).toMatchObject({
       featureKey: 'backups_level', name: 'Backups · daily · 14 days', blurb: 'Upgrade from weekly · 7 days',
@@ -372,14 +388,14 @@ describe('step 3: the three blocks for a package', () => {
       },
     });
     const d = parsePublicPackages(raw)!;
-    const m = addonsLadderFor(d, 'plan.m', [])!;
+    const m = addonsLadderFor(d, 'plan.m')!;
     expect(m.missing.find(x => x.key === 'gpu')?.upgrade).toEqual({ sku: 'plan.l', name: 'L', state: 'optional', priceMonth: '9.000' });
   });
 });
 
 describe('the step-up hint', () => {
   const doc = v2();
-  const onL = addonsLadderFor(doc, 'plan.l', CATALOG_ADDONS)!;
+  const onL = addonsLadderFor(doc, 'plan.l')!;
 
   it('fires on L when Backup + AI SEO + AI builder + Domain are ticked: 6.000 ≥ the 6.000 gap to XL', () => {
     const h = stepUpHint(doc, onL, ['addon.backup', 'addon.ai_seo', 'addon.ai_builder', 'addon.domain'])!;
@@ -409,9 +425,9 @@ describe('the step-up hint', () => {
   });
 
   it('never fires on S or M (their next rung bundles nothing) nor on XL (no next rung)', () => {
-    const onS = addonsLadderFor(doc, 'plan.s', CATALOG_ADDONS)!;
-    const onM = addonsLadderFor(doc, 'plan.m', CATALOG_ADDONS)!;
-    const onXL = addonsLadderFor(doc, 'plan.xl', CATALOG_ADDONS)!;
+    const onS = addonsLadderFor(doc, 'plan.s')!;
+    const onM = addonsLadderFor(doc, 'plan.m')!;
+    const onXL = addonsLadderFor(doc, 'plan.xl')!;
     const all = ['addon.backup', 'addon.ai_seo', 'addon.ai_builder', 'addon.domain', 'addon.dedicated_ip'];
     expect(stepUpHint(doc, onS, all)).toBeNull();
     expect(stepUpHint(doc, onM, all)).toBeNull();
@@ -421,7 +437,7 @@ describe('the step-up hint', () => {
   it("agrees with the document's own bundled_addon_keys for every rung", () => {
     for (const p of doc.packages) {
       if (!p.step_up) continue;
-      const l = addonsLadderFor(doc, p.sku, [])!;
+      const l = addonsLadderFor(doc, p.sku)!;
       const bundledKeys = l.choices.filter(c => bundledOn(doc, p.step_up!.next_sku, c)).map(c => c.featureKey);
       expect(bundledKeys, p.sku).toEqual(p.step_up.bundled_addon_keys);
     }
@@ -441,9 +457,9 @@ describe('the step-up hint', () => {
 describe('switching the package prunes what the new rung bundles and keeps the rest', () => {
   const doc = v2();
 
-  it('L → XL drops the four XL includes, keeps Dedicated IP and the catalog id', () => {
+  it('L → XL drops the four XL includes and the catalog id (not in the journey), keeps Dedicated IP', () => {
     const before = ['a-ips', 'addon.backup', 'addon.ai_seo', 'addon.ai_builder', 'addon.domain', 'addon.dedicated_ip'];
-    expect(pruneAddonsForPackage(doc, 'plan.xl', before)).toEqual(['a-ips', 'addon.dedicated_ip']);
+    expect(pruneAddonsForPackage(doc, 'plan.xl', before, CATALOG_ADDONS)).toEqual(['addon.dedicated_ip']);
   });
 
   it('M → L keeps every add-on (L sells the same five)', () => {
@@ -451,8 +467,68 @@ describe('switching the package prunes what the new rung bundles and keeps the r
     expect(pruneAddonsForPackage(doc, 'plan.l', before)).toEqual(before);
   });
 
-  it('the v1 fixture behaves exactly as before: Backup dropped on XL, catalog ids kept', () => {
-    expect(pruneAddonsForPackage(v1(), 'plan.xl', ['ips', 'addon.backup'])).toEqual(['ips']);
+  it('the v1 fixture: Backup dropped on XL; a catalog id with no twin is not in the journey', () => {
+    expect(pruneAddonsForPackage(v1(), 'plan.xl', ['ips', 'addon.backup'])).toEqual([]);
+    expect(pruneAddonsForPackage(v1(), 'plan.l', ['ips', 'addon.backup'])).toEqual(['addon.backup']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 5. Step 4 — the topology the package's DR level allows.
+// ---------------------------------------------------------------------------
+
+describe('the topology step reads the DR level', () => {
+  const doc = v2();
+
+  it('S, M and L are single region: hot-standby is locked, included from XL', () => {
+    for (const sku of ['plan.s', 'plan.m', 'plan.l']) {
+      const t = drTopologyFor(doc, sku)!;
+      expect(t, sku).toEqual({ level: 0, label: 'single region', activePassive: false, activePassiveFrom: { sku: 'plan.xl', name: 'XL' } });
+    }
+  });
+
+  it('XL includes active-passive', () => {
+    expect(drTopologyFor(doc, 'plan.xl')).toEqual({ level: 1, label: 'active-passive', activePassive: true, activePassiveFrom: null });
+  });
+
+  it('a document with no DR level feature (the v1 fixture) gates nothing', () => {
+    expect(drTopologyFor(v1(), 'plan.s')).toBeNull();
+    expect(drTopologyFor(doc, 'plan.nope')).toBeNull();
+  });
+
+  it('finds the level feature by its "active-passive" level when the key differs', () => {
+    const raw = fixture('public-packages-v2.json') as any;
+    const f = raw.features.find((x: any) => x.key === 'dr_topology');
+    f.key = 'resilience_mode';
+    f.levels = ['one region', 'active passive · two regions', 'active active'];
+    f.cells['plan.l'].level = 1;
+    const d = parsePublicPackages(raw)!;
+    expect(drTopologyFor(d, 'plan.m')).toMatchObject({ activePassive: false, activePassiveFrom: { sku: 'plan.l', name: 'L' } });
+    expect(drTopologyFor(d, 'plan.l')).toMatchObject({ activePassive: true, label: 'active passive · two regions' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6. Review — one shape source for the cards, the headroom ring and the hint.
+// ---------------------------------------------------------------------------
+
+describe('the review step sizes from the document shape', () => {
+  const doc = v2();
+
+  it('capacity and specs come from the v2 shape', () => {
+    const l = doc.packages.find(p => p.sku === 'plan.l')!;
+    expect(packageCapacity(l)).toEqual({ ram: 8192, cpu: 4000, disk: 100 });
+    expect(packageSpecsLine(l)).toBe('4 vCPU · 8 GB · 100 GB');
+    expect(packageCapacity(doc.packages[0])).toEqual({ ram: 2048, cpu: 1000, disk: 25 });
+    expect(packageSpecsLine(doc.packages[3])).toBe('8 vCPU · 16 GB · 250 GB');
+  });
+
+  it('falls back to the v1 includes, and to null when a package publishes neither', () => {
+    const s = v1().packages[0];
+    expect(packageCapacity(s)).toEqual({ ram: 2048, cpu: 1000, disk: 25 });
+    expect(packageSpecsLine(s)).toBe('1 vCPU · 2 GB · 25 GB');
+    expect(packageCapacity({ sku: 'plan.x', name: 'X', price_month: '1.000', includes: {} })).toBeNull();
+    expect(packageSpecsLine({ sku: 'plan.x', name: 'X', price_month: '1.000', includes: {} })).toBeNull();
   });
 });
 
@@ -498,7 +574,27 @@ describe('ladder markup contract', () => {
     expect(ladder).toMatch(/data-testid="package-group-\{group\.key\}"/);
   });
 
-  it('the Add-ons step renders the three blocks, the step-up card and the running total, and switches through setPackage', () => {
+  it('the ladder has no floating bar — the per-column Choose, top and foot, is the only CTA, so nothing fixed covers a cell', () => {
+    expect(ladder).not.toMatch(/ld-nav|float-nav|position:\s*fixed/);
+    expect(css).not.toMatch(/position:\s*fixed/);
+    expect(ladder).toMatch(/data-testid="package-ladder-foot"/);
+    expect(ladder).toMatch(/data-testid="package-choose-foot-\{card\.sku\}"/);
+  });
+
+  it('the Add-ons and Topology steps use a fixed bottom bar with the page padded by its height and scroll-padding to match', () => {
+    const bcp = readFileSync(join(ROOT, 'src', 'components', 'BCPStep.svelte'), 'utf8');
+    for (const [name, src] of [['AddonsStep', addonsStep], ['BCPStep', bcp]] as const) {
+      expect(src, name).toMatch(/data-testid="step-bar"/);
+      expect(src, name).not.toMatch(/class="float-nav"/);
+      expect(src, name).toMatch(/--step-bar-h:\s*4\.5rem/);
+      expect(src, name).toMatch(/padding:\s*0 1\.25rem calc\(var\(--step-bar-h\) \+ env\(safe-area-inset-bottom, 0px\)\)/);
+      expect(src, name).toMatch(/:global\(html\)\s*\{\s*scroll-padding-bottom:\s*calc\(4\.5rem \+ env\(safe-area-inset-bottom, 0px\)\)/);
+      expect(src, name).toMatch(/\.step-bar\s*\{[^}]*position:\s*fixed[^}]*bottom:\s*0/);
+      expect(src, name).toMatch(/env\(safe-area-inset-bottom, 0px\)\);\s*\n\s*background/);
+    }
+  });
+
+  it('the Add-ons step renders the three blocks, the step-up card and the running total, switches through setPackage, and offers no priced catalog add-on', () => {
     expect(addonsStep).toMatch(/addonsLadderFor\(/);
     expect(addonsStep).toMatch(/stepUpHint\(/);
     expect(addonsStep).toMatch(/pruneAddonsForPackage\(/);
@@ -509,10 +605,30 @@ describe('ladder markup contract', () => {
     expect(addonsStep).toMatch(/data-testid="addons-stepup-switch"/);
     expect(addonsStep).toMatch(/data-testid="addons-running-total"/);
     expect(addonsStep).toMatch(/setPackage\(\{/);
+    // The no-catalog stand-in list carries no price: only a BSS add-on shows one.
+    const fallback = addonsStep.match(/const FALLBACK_ADDONS[\s\S]*?\];/)![0];
+    expect(fallback).not.toMatch(/monthly_price:\s*[1-9]/);
+    expect(fallback).not.toMatch(/priority-support/);
   });
 
-  it('Review carries the floor as a footnote under the server-quoted total', () => {
+  it('the Topology step gates hot-standby on the DR level and switches through setPackage', () => {
+    const bcp = readFileSync(join(ROOT, 'src', 'components', 'BCPStep.svelte'), 'utf8');
+    expect(bcp).toMatch(/drTopologyFor\(/);
+    expect(bcp).toMatch(/data-testid="topology-card-hot"/);
+    expect(bcp).toMatch(/data-locked=\{?"?true/);
+    expect(bcp).toMatch(/data-testid="topology-switch-\{dr\.activePassiveFrom\.sku\}"/);
+    expect(bcp).toMatch(/setPackage\(\{/);
+    expect(bcp).toMatch(/pruneAddonsForPackage\(/);
+  });
+
+  it('Review sizes the cards, the ring and the hint from one shape source, labels the usage buckets without user counts, and carries the floor footnote', () => {
     expect(review).toMatch(/data-testid="review-floor"/);
     expect(review).toMatch(/\bgetQuote\b/);
+    expect(review).toMatch(/packageCapacity\(/);
+    expect(review).toMatch(/packageSpecsLine\(/);
+    expect(review).toMatch(/const planCap = \$derived\(selectedPlan \? capFor\(selectedPlan\)/);
+    expect(review).toMatch(/capFor\(plan\)/);
+    expect(review).not.toMatch(/range:/);
+    expect(review).not.toMatch(/\d+–\d+ users/);
   });
 });

@@ -104,15 +104,18 @@
     getApps().then(apps => { allApps = apps; }).catch(() => {});
   });
 
-  // Today's stand-in when the catalog is down — unchanged.
+  // The stand-in when BOTH the catalog and the package document are down.
+  // Price-free: a catalog add-on carries no price of its own (the catalog's
+  // add-ons are free; only a BSS add-on from the package document shows a
+  // price anywhere in the journey), so nothing here can put a number on the
+  // page that is not in the price book.
   const FALLBACK_ADDONS: AddOn[] = [
-    { id: 'daily-backup', name: 'Daily Backup', slug: 'daily-backup', tagline: 'Automated daily backups with 30-day retention', icon: '🛡️', monthly_price: 3000, included: false },
-    { id: 'waf', name: 'Web Application Firewall', slug: 'waf', tagline: 'Coraza WAF — OWASP CRS protection', icon: '🔥', monthly_price: 4000, included: false },
-    { id: 'ips', name: 'Intrusion Prevention', slug: 'ips', tagline: 'Community-powered threat intelligence — CrowdSec', icon: '🚨', monthly_price: 3000, included: false },
-    { id: 'vuln-scan', name: 'Vulnerability Scanner', slug: 'vuln-scan', tagline: 'Weekly CVE scans + remediation reports', icon: '🔍', monthly_price: 2000, included: false },
-    { id: 'custom-domain', name: 'Custom Domain', slug: 'custom-domain', tagline: 'Your brand, your domain — with automatic TLS', icon: '🌐', monthly_price: 2000, included: false },
-    { id: 'log-management', name: 'Log Management', slug: 'log-management', tagline: 'Search and analyze all your app logs — Grafana Loki', icon: '📋', monthly_price: 3000, included: false },
-    { id: 'priority-support', name: 'Priority Support', slug: 'priority-support', tagline: '4-hour response SLA + dedicated channel', icon: '⚡', monthly_price: 5000, included: false },
+    { id: 'daily-backup', name: 'Daily Backup', slug: 'daily-backup', tagline: 'Scheduled backups of your sites and databases', icon: '🛡️', monthly_price: 0, included: false },
+    { id: 'waf', name: 'Web Application Firewall', slug: 'waf', tagline: 'Coraza WAF — OWASP CRS protection', icon: '🔥', monthly_price: 0, included: false },
+    { id: 'ips', name: 'Intrusion Prevention', slug: 'ips', tagline: 'Community-powered threat intelligence — CrowdSec', icon: '🚨', monthly_price: 0, included: false },
+    { id: 'vuln-scan', name: 'Vulnerability Scanner', slug: 'vuln-scan', tagline: 'Scheduled CVE scans + remediation reports', icon: '🔍', monthly_price: 0, included: false },
+    { id: 'custom-domain', name: 'Custom Domain', slug: 'custom-domain', tagline: 'Your brand, your domain — with automatic TLS', icon: '🌐', monthly_price: 0, included: false },
+    { id: 'log-management', name: 'Log Management', slug: 'log-management', tagline: 'Search and analyze all your app logs — Grafana Loki', icon: '📋', monthly_price: 0, included: false },
   ];
 
   // #6971 — the catalog list as today; then, when the BSS package document is
@@ -132,7 +135,20 @@
       plans = pl;
       const pkg = d ? packageForCart(d, cart) : null;
       if (d && pkg) {
-        applyPackage(d, pkg.sku, catalog);
+        // With a document the cart's add-ons are BSS SKUs this package sells;
+        // a catalog id left from a session before the document existed is
+        // carried over to its BSS twin or dropped — it is not in the price
+        // book, so it is not in the journey.
+        const pruned = pruneAddonsForPackage(d, pkg.sku, cart.addons, catalog);
+        if (pruned.join('\u0000') !== cart.addons.join('\u0000')) {
+          cart = setPackage({
+            planId: cart.plan || catalogPlanIdForPackage(pkg, pl),
+            planName: pkg.name,
+            packageSku: pkg.sku,
+            addons: pruned,
+          });
+        }
+        applyPackage(d, pkg.sku);
       } else {
         addons = catalog;
       }
@@ -141,9 +157,9 @@
   });
 
   // The step's lists for a package of the document in hand. A v2 document
-  // yields the ladder blocks; a v1 one the included group + the merged list.
-  function applyPackage(d: PublicPackages, sku: string, catalog: AddOn[]) {
-    const l = isLadderDocument(d) ? addonsLadderFor(d, sku, catalog) : null;
+  // yields the ladder blocks; a v1 one the included group + the BSS list.
+  function applyPackage(d: PublicPackages, sku: string) {
+    const l = isLadderDocument(d) ? addonsLadderFor(d, sku) : null;
     if (l) {
       ladder = l;
       addons = l.addons;
@@ -152,7 +168,7 @@
       return;
     }
     ladder = null;
-    const merged = funnelAddonsFor(d, sku, catalog);
+    const merged = funnelAddonsFor(d, sku);
     addons = merged.addons;
     bssIncluded = merged.included;
     packageName = merged.packageName;
@@ -170,9 +186,9 @@
       planId: catalogPlanIdForPackage(pkg, plans),
       planName: pkg.name,
       packageSku: pkg.sku,
-      addons: pruneAddonsForPackage(doc, pkg.sku, cart.addons),
+      addons: pruneAddonsForPackage(doc, pkg.sku, cart.addons, catalogAddons),
     });
-    applyPackage(doc, pkg.sku, catalogAddons);
+    applyPackage(doc, pkg.sku);
   }
 
   const paidAddons = $derived(addons.filter(a => !a.included));
@@ -371,7 +387,7 @@
               <p>{addon.tagline}</p>
               {#if addon.hint}<p class="extra-hint">{addon.hint}</p>{/if}
             </div>
-            <span class="extra-price">+{formatOMR(addon.monthly_price)}</span>
+            <span class="extra-price">{addon.monthly_price === 0 ? 'Free' : `+${formatOMR(addon.monthly_price)}`}</span>
             <span class="extra-check">
               {#if isChecked}
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>
@@ -448,13 +464,25 @@
   {/if}
 </div>
 
-<div class="float-nav">
-  <a href="/apps" class="float-back">&larr; Apps</a>
-  <a href="/bcp" class="float-cta">Continue &rarr;</a>
+<!-- The step bar: a fixed bottom bar with its own space — the page is padded
+     by its height (safe-area aware) and the document's scroll-padding keeps
+     anything scrolled into view above it, so it never covers the content the
+     customer is reading. -->
+<div class="step-bar" data-testid="step-bar">
+  <div class="step-bar-inner">
+    <a href="/apps" class="step-back">&larr; Apps</a>
+    <a href="/bcp" class="step-cta">Continue &rarr;</a>
+  </div>
 </div>
 
 <style>
-  .addons-page { max-width: 900px; margin: 0 auto; padding: 0 1.25rem 4.5rem; }
+  .addons-page {
+    --step-bar-h: 4.5rem;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 0 1.25rem calc(var(--step-bar-h) + env(safe-area-inset-bottom, 0px));
+  }
+  :global(html) { scroll-padding-bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px)); }
 
   .addons-hero { text-align: center; margin-bottom: 0.75rem; }
   .addons-hero h1 {
@@ -694,34 +722,38 @@
     letter-spacing: 0.04em;
   }
 
-  /* Floating nav pill */
-  .float-nav {
+  /* The step bar */
+  .step-bar {
     position: fixed;
-    bottom: 1.25rem;
-    left: 50%;
-    transform: translateX(-50%);
+    left: 0;
+    right: 0;
+    bottom: 0;
     z-index: 100;
+    padding: 0.6rem 1.25rem calc(0.6rem + env(safe-area-inset-bottom, 0px));
+    background: color-mix(in srgb, var(--color-surface) 96%, transparent);
+    backdrop-filter: blur(12px);
+    border-top: 1px solid var(--color-border);
+    box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.08);
+  }
+  .step-bar-inner {
+    max-width: 900px;
+    margin: 0 auto;
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    background: color-mix(in srgb, var(--color-surface) 95%, transparent);
-    backdrop-filter: blur(12px);
-    border: 1px solid var(--color-border);
-    border-radius: 999px;
-    padding: 0.35rem 0.4rem 0.35rem 0.6rem;
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+    justify-content: space-between;
+    gap: 0.75rem;
   }
-  .float-back {
+  .step-back {
     color: var(--color-text-dim);
     text-decoration: none;
-    font-size: 0.82rem;
+    font-size: 0.85rem;
     font-weight: 500;
-    padding: 0.4rem 0.6rem;
+    padding: 0.4rem 0.2rem;
     white-space: nowrap;
   }
-  .float-back:hover { color: var(--color-text-strong); }
-  .float-cta {
-    padding: 0.55rem 1.4rem;
+  .step-back:hover { color: var(--color-text-strong); }
+  .step-cta {
+    padding: 0.6rem 1.5rem;
     background: var(--color-accent);
     color: #fff;
     border-radius: 999px;
@@ -732,5 +764,5 @@
     box-shadow: 0 2px 8px color-mix(in srgb, var(--color-accent) 25%, transparent);
     transition: filter 0.15s;
   }
-  .float-cta:hover { filter: brightness(0.9); }
+  .step-cta:hover { filter: brightness(0.9); }
 </style>

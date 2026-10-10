@@ -416,19 +416,22 @@ describe('step 3: the add-ons list is the chosen package\'s optional features', 
     expect(included.find(f => f.key === 'dedicated-ip')).toBeUndefined();
   });
 
-  it('catalog add-ons that twin a BSS feature yield to it; the rest keep their catalog id and price', () => {
+  it('with a document, no catalog add-on is offered at all — only the BSS add-ons carry a price', () => {
     const { addons } = funnelAddonsFor(p, 'plan.m', CATALOG_ADDONS);
     const ids = addons.map(a => a.id);
-    // Twins (explicit table): Daily Backup, Custom Domain, Dedicated IP, WAF.
-    expect(ids).not.toContain('a-backup');
-    expect(ids).not.toContain('a-domain');
-    expect(ids).not.toContain('a-ip');
-    expect(ids).not.toContain('a-waf');
-    // No twin: today's behaviour.
-    expect(addons.find(a => a.id === 'a-ips')).toMatchObject({ name: 'Intrusion Prevention', monthly_price: 3000 });
-    expect(addons.find(a => a.id === 'a-logs')).toMatchObject({ name: 'Log Management', monthly_price: 3000 });
-    // BSS first, then the catalog remainder.
-    expect(ids.slice(-2)).toEqual(['a-ips', 'a-logs']);
+    expect(ids.every(id => id.startsWith('addon.'))).toBe(true);
+    for (const a of CATALOG_ADDONS) expect(ids).not.toContain(a.id);
+  });
+
+  it('a catalog id already in the cart is carried over to the BSS add-on it twins, or dropped', () => {
+    // Daily Backup → addon.backup on M (optional there); Dedicated IP → its
+    // BSS add-on on M, dropped on S where it is not offered; IPS has no twin.
+    expect(pruneAddonsForPackage(p, 'plan.m', ['a-backup', 'a-ips', 'a-ip'], CATALOG_ADDONS)).toEqual(['addon.backup', 'addon.dedicated-ip']);
+    expect(pruneAddonsForPackage(p, 'plan.s', ['a-backup', 'a-ip'], CATALOG_ADDONS)).toEqual(['addon.backup']);
+    // The twin and its BSS sku both in the cart: one entry.
+    expect(pruneAddonsForPackage(p, 'plan.m', ['addon.backup', 'a-backup'], CATALOG_ADDONS)).toEqual(['addon.backup']);
+    // Without the catalog list the id cannot be resolved and is dropped.
+    expect(pruneAddonsForPackage(p, 'plan.m', ['a-backup'])).toEqual([]);
   });
 
   it('the twin mapping is the explicit table, then an exact normalised name match', () => {
@@ -444,23 +447,23 @@ describe('step 3: the add-ons list is the chosen package\'s optional features', 
     expect(twinFeatureKey({ slug: 'waf', name: 'Something Else' }, p.features.filter(f => f.key !== 'waf'))).toBeNull();
   });
 
-  it('a package change keeps catalog ids and only the BSS add-ons the new package still offers', () => {
+  it('a package change keeps only the BSS add-ons the new package still offers; a catalog id with no twin is not in the journey', () => {
     const picked = ['a-ips', 'addon.backup', 'addon.dedicated-ip'];
     // M → XL: Backup is included on XL (dropped), Dedicated IP still optional (kept).
-    expect(pruneAddonsForPackage(p, 'plan.xl', picked)).toEqual(['a-ips', 'addon.dedicated-ip']);
+    expect(pruneAddonsForPackage(p, 'plan.xl', picked, CATALOG_ADDONS)).toEqual(['addon.dedicated-ip']);
     // M → S: Dedicated IP is not offered on S (dropped), Backup still optional (kept).
-    expect(pruneAddonsForPackage(p, 'plan.s', picked)).toEqual(['a-ips', 'addon.backup']);
-    // M → M: nothing changes.
-    expect(pruneAddonsForPackage(p, 'plan.m', picked)).toEqual(picked);
+    expect(pruneAddonsForPackage(p, 'plan.s', picked, CATALOG_ADDONS)).toEqual(['addon.backup']);
+    // M → M: the BSS add-ons stay as they were.
+    expect(pruneAddonsForPackage(p, 'plan.m', picked, CATALOG_ADDONS)).toEqual(['addon.backup', 'addon.dedicated-ip']);
   });
 
   it('setPackage with addons replaces the list in the same write', () => {
     localStorage.clear();
     localStorage.setItem('org-cart', JSON.stringify({ plan: 'm', planName: 'M', apps: ['1'], addons: ['a-ips', 'addon.backup'], packageSku: 'plan.m' }));
     const cart = setPackage({ planId: 'xl', planName: 'XL', packageSku: 'plan.xl', addons: pruneAddonsForPackage(p, 'plan.xl', ['a-ips', 'addon.backup']) });
-    expect(cart.addons).toEqual(['a-ips']);
+    expect(cart.addons).toEqual([]);
     expect(cart.packageSku).toBe('plan.xl');
-    expect(readCart().addons).toEqual(['a-ips']);
+    expect(readCart().addons).toEqual([]);
   });
 });
 

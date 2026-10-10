@@ -14,7 +14,7 @@
   "floor": [
     { "key": "applications", "name": "Applications", "blurb": "Install any Blueprint from the catalog." },
     { "key": "databases", "name": "Databases", "blurb": "Managed PostgreSQL for every app." },
-    { "key": "mail", "name": "Mail server (unlimited accounts)", "blurb": "Unlimited mailboxes on your domain." },
+    { "key": "mail", "name": "Mail server (unlimited accounts)", "blurb": "Mailboxes on your own domain." },
     { "key": "ssl", "name": "Unlimited free SSL", "blurb": "Automatic TLS certificates for every host." },
     { "key": "sso", "name": "SSO", "blurb": "SAML / OIDC single sign-on across your apps." },
     { "key": "ddos", "name": "Standard DDoS protection", "blurb": "Volumetric attack mitigation at the edge." },
@@ -46,7 +46,7 @@
   ],
   "features": [
     {
-      "key": "bandwidth", "name": "Bandwidth", "blurb": "Guaranteed egress; above the allowance the package's overage rule applies.",
+      "key": "bandwidth", "name": "Bandwidth", "blurb": "Included bandwidth; above it the package's overage rule applies.",
       "group": "capacity", "kind": "quantity", "unit": "Mbps", "addon_sku": "eip.bandwidth_mbps", "teaser": false,
       "cells": {
         "plan.s": { "state": "included", "quantity": 50, "overage": "hard_cap" },
@@ -56,7 +56,7 @@
       }
     },
     {
-      "key": "disk", "name": "Disk", "blurb": "Persistent storage for apps and databases.",
+      "key": "disk", "name": "Disk", "blurb": "Included storage; above it the package's overage rule applies.",
       "group": "capacity", "kind": "quantity", "unit": "GB", "teaser": false,
       "cells": {
         "plan.s": { "state": "included", "quantity": 25, "overage": "hard_cap" },
@@ -66,7 +66,7 @@
       }
     },
     {
-      "key": "backup", "name": "Backup", "blurb": "Daily snapshots with 30-day retention.",
+      "key": "backup", "name": "Backup", "blurb": "Scheduled backups of your sites and databases.",
       "group": "features", "kind": "boolean", "addon_sku": "addon.backup", "teaser": false,
       "cells": {
         "plan.s": { "state": "optional", "addon_sku": "addon.backup", "price_month": "1.500", "included_from": "plan.xl" },
@@ -96,7 +96,7 @@
       }
     },
     {
-      "key": "domain", "name": "Domain", "blurb": "One registered domain per year.",
+      "key": "domain", "name": "Domain", "blurb": "A registered domain for your Organization.",
       "group": "features", "kind": "boolean", "addon_sku": "addon.domain", "teaser": false,
       "cells": {
         "plan.s": { "state": "optional", "addon_sku": "addon.domain", "price_month": "0.500", "included_from": "plan.xl" },
@@ -106,7 +106,7 @@
       }
     },
     {
-      "key": "dedicated_ip", "name": "Dedicated IP address", "blurb": "A public IPv4 reserved for your Organization.",
+      "key": "dedicated_ip", "name": "Dedicated IP address", "blurb": "A public IP address reserved for your Organization.",
       "group": "features", "kind": "boolean", "addon_sku": "addon.dedicated_ip", "teaser": false,
       "cells": {
         "plan.s": { "state": "optional", "addon_sku": "addon.dedicated_ip", "price_month": "20.833" },

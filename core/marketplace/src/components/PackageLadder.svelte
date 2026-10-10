@@ -123,6 +123,25 @@
           </div>
         {/each}
       {/each}
+
+      <!-- The foot: the same Choose per column, so the customer who read the
+           whole comparison need not scroll back up. There is no floating bar
+           on this step — nothing ever covers a cell. -->
+      <div role="row" class="ld-row ld-foot-row" data-testid="package-ladder-foot">
+        <div role="cell" class="ld-foot-corner"></div>
+        {#each model.cards as card (card.sku)}
+          <div role="cell" class="ld-foot {colClass(card.sku)}">
+            <button
+              type="button"
+              class="ld-cta {card.sku === selectedSku ? 'primary' : 'ghost'}"
+              data-testid="package-choose-foot-{card.sku}"
+              onclick={() => onchoose(card.sku)}
+            >
+              {card.sku === selectedSku ? S.continueWith(card.name) : S.choose(card.name)}
+            </button>
+          </div>
+        {/each}
+      </div>
     </div>
   </div>
 
@@ -144,8 +163,4 @@
       <span>{S.pricesAsOf(model.pricesAsOf)}{model.priceBook ? ` — ${model.priceBook}` : ''}</span>
     {/if}
   </p>
-</div>
-
-<div class="ld-nav">
-  <a href="/apps" class="ld-nav-cta">{S.continueCta}</a>
 </div>

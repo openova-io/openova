@@ -28,9 +28,14 @@
 //                     the rung that has them, plus the STEP-UP hint when the
 //                     ticked add-ons the next package bundles cost at least
 //                     the price gap to it (stepUpHint).
-//   Review/Checkout — unchanged in structure; the same merged add-on list
-//                     resolves whatever ids the cart holds to name + price,
-//                     and the floor is a footnote under the Review total.
+//   Step 4 Topology — the package's DR level decides whether the hot-standby
+//                     topology is selectable here or "Included from XL" with
+//                     a switch (drTopologyFor).
+//   Review/Checkout — unchanged in structure; the same add-on list resolves
+//                     whatever ids the cart holds to name + price, the plan
+//                     cards and the headroom estimate size from the package
+//                     shape (packageCapacity), and the floor is a footnote
+//                     under the Review total.
 //
 // There is deliberately NO feature list in this tree. When the document is
 // unreachable or publishes no packages, `loadPublicPackages` resolves to null,
@@ -219,6 +224,10 @@ export const PACKAGE_STRINGS = {
     notOn: (name: string) => `Not on ${name}`,
     notOnHint: 'Larger packages include these. Switching keeps your apps.',
     upgradeTo: (name: string) => `Upgrade to ${name} to get this`,
+    switchTo: (name: string) => `Switch to ${name}`,
+    includedBadge: 'INCLUDED',
+    // Step 4 — the topology the package allows.
+    topologyLocked: (name: string) => `Included from ${name}. Switching keeps your apps and add-ons.`,
     availableOn: (name: string, price: string) => `Available on ${name} as an add-on (+ ${price} / mo)`,
     levelUp: (feature: string, level: string) => `${feature} · ${level}`,
     levelFrom: (level: string) => `Upgrade from ${level}`,
@@ -923,8 +932,10 @@ export function packageForCart(
 // ---------------------------------------------------------------------------
 
 /**
- * Catalog add-ons that duplicate a BSS feature. When the document is present,
- * only the BSS one is shown. Keyed by the catalog add-on SLUG (what
+ * Catalog add-ons that duplicate a BSS feature. With a document in hand the
+ * catalog list is not offered at all; the twin table is how a catalog id
+ * already in a cart is carried over to the BSS add-on it stands for
+ * (pruneAddonsForPackage). Keyed by the catalog add-on SLUG (what
  * /catalog/addons calls it), valued by the BSS feature KEY. Kept small and
  * explicit; an exact (normalised) NAME match covers any other twin.
  */
@@ -978,11 +989,19 @@ export interface FunnelAddons {
  * AddOn shape the step, Review and Checkout already render — `id` is the BSS
  * add-on SKU, so `cart.addons` stays one list and the POSTs are unchanged.
  * With a v2 document the list is the ladder's (addonsLadderFor): the optional
- * cells plus the next-level add-ons, then the catalog add-ons with no twin.
+ * cells plus the next-level add-ons.
+ *
+ * With a document in hand the list is BSS add-ons ONLY. A `/catalog/addons`
+ * entry carries a price that is not in the price book, so it is not offered
+ * beside the document's (founder: every number in the journey is real); the
+ * catalog list is the step's offer only when there is no document at all. The
+ * `catalog` parameter is kept so a stale catalog id already in the cart can be
+ * carried over to its BSS twin (pruneAddonsForPackage).
  */
-export function funnelAddonsFor(doc: PublicPackages, sku: string, catalog: ReadonlyArray<AddOn>): FunnelAddons {
+export function funnelAddonsFor(doc: PublicPackages, sku: string, catalog: ReadonlyArray<AddOn> = []): FunnelAddons {
+  void catalog;
   if (isLadderDocument(doc)) {
-    const ladder = addonsLadderFor(doc, sku, catalog);
+    const ladder = addonsLadderFor(doc, sku);
     if (ladder) {
       return {
         addons: ladder.addons,
@@ -1013,8 +1032,7 @@ export function funnelAddonsFor(doc: PublicPackages, sku: string, catalog: Reado
       included.push({ key: f.key, name: f.name, blurb: f.blurb ?? '' });
     }
   }
-  const rest = catalog.filter(a => twinFeatureKey(a, doc.features, doc.floor ?? []) === null);
-  return { addons: [...bss, ...rest], included, packageName: pkg?.name ?? '' };
+  return { addons: bss, included, packageName: pkg?.name ?? '' };
 }
 
 /** Every add-on SKU this document can bill — the cart ids that are BSS, not catalog. */
@@ -1042,15 +1060,124 @@ export function purchasableAddonSkus(doc: PublicPackages, sku: string): Set<stri
   return out;
 }
 
+/** The BSS add-on SKU a package sells for a feature key, or null. */
+function optionalSkuFor(doc: PublicPackages, sku: string, featureKey: string): string | null {
+  const f = doc.features.find(x => x.key === featureKey);
+  const cell = f?.cells[sku];
+  return cell?.state === 'optional' && cell.addon_sku ? cell.addon_sku : null;
+}
+
 /**
- * The cart's add-on ids after a package change: catalog ids are untouched,
- * BSS SKUs survive only where the new package still offers them (Backup is
- * included on XL — the add-on would be refused as redundant there).
+ * The cart's add-on ids for a package, with the document in hand: a BSS SKU
+ * survives only where the package offers it (Backup is included on XL — the
+ * add-on would be refused as redundant there); a catalog id is not part of
+ * the journey once there is a document — it is carried over to the BSS add-on
+ * it twins when the package sells that (a stale "daily-backup" becomes
+ * `addon.backup`, the customer's intent kept), otherwise dropped. Pass the
+ * catalog list when it is in hand so the twin can be resolved; without it
+ * every non-BSS id is dropped.
  */
-export function pruneAddonsForPackage(doc: PublicPackages, sku: string, addons: ReadonlyArray<string>): string[] {
+export function pruneAddonsForPackage(
+  doc: PublicPackages,
+  sku: string,
+  addons: ReadonlyArray<string>,
+  catalog: ReadonlyArray<AddOn> = [],
+): string[] {
   const all = bssAddonSkus(doc);
   const here = purchasableAddonSkus(doc, sku);
-  return addons.filter(id => !all.has(id) || here.has(id));
+  const out: string[] = [];
+  for (const id of addons) {
+    let keep: string | null = null;
+    if (all.has(id)) {
+      if (here.has(id)) keep = id;
+    } else {
+      const entry = catalog.find(a => a.id === id);
+      const twin = entry ? twinFeatureKey(entry, doc.features, doc.floor ?? []) : null;
+      if (twin) keep = optionalSkuFor(doc, sku, twin);
+    }
+    if (keep && !out.includes(keep)) out.push(keep);
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Step 4 — the topology the package's DR level allows.
+// ---------------------------------------------------------------------------
+
+export interface DrTopology {
+  /** The package's level index into the feature's `levels`, and its label. */
+  level: number;
+  label: string;
+  /** True when the package includes the active-passive (hot-standby) topology. */
+  activePassive: boolean;
+  /** The first package that includes it, when this one does not. */
+  activePassiveFrom: { sku: string; name: string } | null;
+}
+
+const ACTIVE_PASSIVE = /active[\s_-]?(passive|hot[\s_-]?standby)/i;
+
+/**
+ * What the Topology step may offer for a package: the document's DR level
+ * feature (`dr_topology`, or any level feature with an "active-passive"
+ * level) decides whether the hot-standby topology is included here or only
+ * from a larger package. Null when the document has no such feature — the
+ * step then offers both topologies as it does without a document.
+ */
+export function drTopologyFor(doc: PublicPackages, sku: string): DrTopology | null {
+  const f = doc.features.find(x => x.key === 'dr_topology' && x.kind === 'level')
+    ?? doc.features.find(x => x.kind === 'level' && (x.levels ?? []).some(l => ACTIVE_PASSIVE.test(l)));
+  if (!f || !f.levels || f.levels.length === 0) return null;
+  const cell = f.cells[sku];
+  if (!cell || cell.state !== 'included') return null;
+  let apLevel = f.levels.findIndex(l => ACTIVE_PASSIVE.test(l));
+  if (apLevel < 0) apLevel = f.levels.length - 1;
+  const level = cell.level ?? 0;
+  const activePassive = level >= apLevel;
+  let from: DrTopology['activePassiveFrom'] = null;
+  if (!activePassive) {
+    for (const p of doc.packages) {
+      const c = f.cells[p.sku];
+      if (c?.state === 'included' && (c.level ?? 0) >= apLevel) { from = { sku: p.sku, name: p.name }; break; }
+    }
+  }
+  return { level, label: levelLabel(f, level), activePassive, activePassiveFrom: from };
+}
+
+// ---------------------------------------------------------------------------
+// Review — the capacity a package stands for, from the document's shape.
+// ---------------------------------------------------------------------------
+
+export interface PackageCapacity {
+  /** MiB */
+  ram: number;
+  /** millicores */
+  cpu: number;
+  /** GiB */
+  disk: number;
+}
+
+/**
+ * The sizing the Review step's headroom estimate measures against: the v2
+ * `shape` (headline vCPU / RAM / disk), else the v1 `includes`. Null when the
+ * package publishes neither — the caller then falls back to its catalog shape.
+ */
+export function packageCapacity(pkg: PublicPackage): PackageCapacity | null {
+  const sh = pkg.shape ?? {};
+  const vcpu = sh.vcpu ?? pkg.includes.vcpu;
+  const memory = sh.memory_gb ?? pkg.includes.memory_gb;
+  const disk = sh.disk_gb ?? pkg.includes.storage_gb;
+  if (vcpu === undefined || memory === undefined || disk === undefined) return null;
+  return { ram: Math.round(memory * 1024), cpu: Math.round(vcpu * 1000), disk };
+}
+
+/** The specs line a Review plan card shows for a package: "4 vCPU · 8 GB · 100 GB". */
+export function packageSpecsLine(pkg: PublicPackage): string | null {
+  const sh = pkg.shape ?? {};
+  const vcpu = sh.vcpu ?? pkg.includes.vcpu;
+  const memory = sh.memory_gb ?? pkg.includes.memory_gb;
+  const disk = sh.disk_gb ?? pkg.includes.storage_gb;
+  if (vcpu === undefined || memory === undefined || disk === undefined) return null;
+  return `${vcpu} vCPU · ${memory} GB · ${disk} GB`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1104,7 +1231,7 @@ export interface AddonsLadder {
   included: LadderIncluded[];
   choices: LadderChoice[];
   missing: LadderMissing[];
-  /** The step's offer list: the choices in the AddOn shape, then catalog add-ons with no BSS twin. */
+  /** The step's offer list: the choices in the AddOn shape — BSS add-ons only. */
   addons: AddOn[];
 }
 
@@ -1156,7 +1283,7 @@ function choiceAsAddon(c: LadderChoice): AddOn {
  * The Add-ons step's three blocks for a package of a v2 document, plus the
  * offer list in the AddOn shape. Null when the sku is not in the document.
  */
-export function addonsLadderFor(doc: PublicPackages, sku: string, catalog: ReadonlyArray<AddOn>): AddonsLadder | null {
+export function addonsLadderFor(doc: PublicPackages, sku: string): AddonsLadder | null {
   const pkg = doc.packages.find(p => p.sku === sku);
   if (!pkg) return null;
   const S = PACKAGE_STRINGS.ladder;
@@ -1213,7 +1340,6 @@ export function addonsLadderFor(doc: PublicPackages, sku: string, catalog: Reado
       });
     }
   }
-  const rest = catalog.filter(a => twinFeatureKey(a, doc.features, doc.floor ?? []) === null);
   return {
     packageSku: pkg.sku,
     packageName: pkg.name,
@@ -1222,7 +1348,7 @@ export function addonsLadderFor(doc: PublicPackages, sku: string, catalog: Reado
     included,
     choices,
     missing,
-    addons: [...choices.map(choiceAsAddon), ...rest],
+    addons: choices.map(choiceAsAddon),
   };
 }
 

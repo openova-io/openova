@@ -255,8 +255,9 @@ test.describe('step 1: package comparison table (/plans, #6971)', () => {
     expect(cart.plan).toBe('xl')
     expect(cart.planName).toBe('XL')
     expect(cart.packageSku).toBe('plan.xl')
-    // Catalog add-on kept; the BSS add-on XL includes is dropped.
-    expect(cart.addons).toEqual(['ips'])
+    // The BSS add-on XL includes is dropped; a catalog id is not part of the
+    // journey once there is a document (its price is not in the price book).
+    expect(cart.addons).toEqual([])
   })
 
   test('falls back to the legacy plan deck, unchanged, and logs once when the endpoint fails', async ({ page }) => {
@@ -390,13 +391,14 @@ test.describe('step 3: add-ons are the chosen package\'s optional features (/add
     await expect(backup).toContainText('Included from XL')
     await expect(page.getByTestId('addon-tile-addon.dedicated-ip')).toContainText('+OMR 2.000')
 
-    // Catalog twins (Daily Backup, Custom Domain, WAF) yield to the BSS feature;
-    // the catalog add-on with no twin (IPS) keeps today's behaviour.
+    // With the document no catalog add-on is offered — only the BSS add-ons
+    // carry a price. The twins (Daily Backup, Custom Domain, WAF) and the one
+    // with no twin (IPS) are all absent.
     await expect(page.getByTestId('addon-tile-daily-backup')).toHaveCount(0)
     await expect(page.getByTestId('addon-tile-custom-domain')).toHaveCount(0)
     await expect(page.getByTestId('addon-tile-waf')).toHaveCount(0)
-    await expect(page.getByTestId('addon-tile-ips')).toContainText('Intrusion Prevention')
-    await expect(page.getByTestId('addon-tile-ips')).toContainText('+OMR 3.000')
+    await expect(page.getByTestId('addon-tile-ips')).toHaveCount(0)
+    await expect(page.locator('[data-testid^="addon-tile-"]:not([data-testid^="addon-tile-addon."])')).toHaveCount(0)
 
     // Ticking writes the BSS SKU into the cart's one add-on list.
     await backup.click()
@@ -471,6 +473,9 @@ test.describe('review and checkout carry the package and its add-ons (#6971)', (
     await page.route('**/api/tenant/orgs', (route) =>
       route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
     )
+    // A catalog id (IPS) left in the cart from before the document existed:
+    // it is not in the price book, so the page drops it on load and the
+    // quote is re-asked without it.
     await seedCart(page, { plan: 'm', planName: 'M', packageSku: 'plan.m', addons: ['ips', 'addon.backup'] })
     await page.goto('/review')
 
@@ -478,25 +483,26 @@ test.describe('review and checkout carry the package and its add-ons (#6971)', (
     await expect(side).toBeVisible({ timeout: 10_000 })
     await expect(side).toContainText('Backup')
     await expect(side).toContainText('+OMR 1.500')
-    await expect(side).toContainText('Intrusion Prevention')
-    // 9.000 (plan M) + 3.000 (IPS) + 1.500 (Backup).
-    await expect(side.locator('.total-row')).toContainText('OMR 13.500')
+    // 9.000 (plan M) + 1.500 (Backup); nothing for the catalog id.
+    await expect(side.locator('.total-row')).toContainText('OMR 10.500')
+    await expect(side).not.toContainText('Intrusion Prevention')
+    expect((await readCart(page)).addons).toEqual(['addon.backup'])
 
     // Change the plan to XL on this step: Backup is included there, so the
-    // BSS add-on is dropped and the catalog one stays.
+    // BSS add-on is dropped.
     await page.locator('input[type="radio"][name="plan"][value="xl"]').check()
-    await expect(side.locator('.total-row')).toContainText('OMR 33.000')
+    await expect(side.locator('.total-row')).toContainText('OMR 30.000')
     await expect(side).not.toContainText('Backup')
     const cart = await readCart(page)
     expect(cart.plan).toBe('xl')
     expect(cart.packageSku).toBe('plan.xl')
-    expect(cart.addons).toEqual(['ips'])
+    expect(cart.addons).toEqual([])
 
     // Every figure above came from /billing/quote, re-asked with the cart as
-    // it stood: first M with both add-ons, then XL with the pruned list.
+    // it stood: M with the BSS add-on, then XL with the pruned list.
     expect(quotes.length).toBeGreaterThanOrEqual(2)
-    expect(quotes[0]).toMatchObject({ plan_id: 'm', package_sku: 'plan.m', addons: ['ips', 'addon.backup'], topology: 'single-region' })
-    expect(quotes[quotes.length - 1]).toMatchObject({ plan_id: 'xl', package_sku: 'plan.xl', addons: ['ips'] })
+    expect(quotes.some((q) => q.plan_id === 'm' && q.package_sku === 'plan.m' && JSON.stringify(q.addons) === JSON.stringify(['addon.backup']) && q.topology === 'single-region')).toBe(true)
+    expect(quotes[quotes.length - 1]).toMatchObject({ plan_id: 'xl', package_sku: 'plan.xl', addons: [] })
   })
 
   test('/checkout shows the add-on line, the total, and both POSTs carry addons + package_sku', async ({ page }) => {
@@ -522,19 +528,19 @@ test.describe('review and checkout carry the package and its add-ons (#6971)', (
     // The post-checkout redirect leaves the storefront; sink it so the test stays hermetic.
     await page.route('https://console.**', (route) => route.fulfill({ status: 200, contentType: 'text/html', body: '<title>console</title>' }))
 
-    await seedCart(page, { plan: 'm', planName: 'M', packageSku: 'plan.m', addons: ['ips', 'addon.backup'] })
+    await seedCart(page, { plan: 'm', planName: 'M', packageSku: 'plan.m', addons: ['addon.backup', 'addon.dedicated-ip'] })
     await page.goto('/checkout')
 
     await expect(page.getByText(/Order summary/i)).toBeVisible({ timeout: 10_000 })
     const summary = page.getByText(/Order summary/i).locator('..')
     await expect(summary).toContainText('+ Backup')
     await expect(summary).toContainText('OMR 1.500')
-    await expect(summary).toContainText('+ Intrusion Prevention')
-    await expect(page.getByTestId('checkout-total')).toContainText('OMR 13.500')
+    await expect(summary).toContainText('+ Dedicated IP address')
+    await expect(page.getByTestId('checkout-total')).toContainText('OMR 12.500')
 
     // The summary is the server's quote of the checkout body's pricing fields.
     expect(bodies.quote, 'billing quote body captured').toBeTruthy()
-    expect(bodies.quote).toMatchObject({ plan_id: 'm', package_sku: 'plan.m', addons: ['ips', 'addon.backup'], topology: 'single-region' })
+    expect(bodies.quote).toMatchObject({ plan_id: 'm', package_sku: 'plan.m', addons: ['addon.backup', 'addon.dedicated-ip'], topology: 'single-region' })
 
     const purchase = page.getByRole('button', { name: /Purchase|Launch my Organization/i }).first()
     await expect(purchase).toBeVisible()
@@ -546,11 +552,11 @@ test.describe('review and checkout carry the package and its add-ons (#6971)', (
     expect(bodies.org, 'Organization create body captured').toBeTruthy()
     expect(bodies.org.plan_id).toBe('m')
     expect(bodies.org.package_sku).toBe('plan.m')
-    expect(bodies.org.addons).toEqual(['ips', 'addon.backup'])
+    expect(bodies.org.addons).toEqual(['addon.backup', 'addon.dedicated-ip'])
 
     expect(bodies.checkout, 'billing checkout body captured').toBeTruthy()
     expect(bodies.checkout.plan_id).toBe('m')
     expect(bodies.checkout.package_sku).toBe('plan.m')
-    expect(bodies.checkout.addons).toEqual(['ips', 'addon.backup'])
+    expect(bodies.checkout.addons).toEqual(['addon.backup', 'addon.dedicated-ip'])
   })
 })

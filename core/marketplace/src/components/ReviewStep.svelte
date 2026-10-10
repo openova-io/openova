@@ -5,12 +5,16 @@
   import { chargebackBaseURL } from '../lib/config';
   import { quoteRequestFor, quoteable, lineAmountLabel, QUOTE_STRINGS } from '../lib/quote';
   import {
+    catalogPlanIdForPackage,
     funnelAddonsFor,
     loadPublicPackages,
+    packageCapacity,
     packageForCart,
     packageForPlan,
+    packageSpecsLine,
     pruneAddonsForPackage,
     PACKAGE_STRINGS,
+    type PackageCapacity,
     type PublicPackages,
   } from '../lib/packages';
 
@@ -112,20 +116,44 @@
   };
   const overheadRam = 500, overheadCpu = 250, overheadDisk = 3;
 
+  // Three usage buckets, labelled only — no user counts, which were not
+  // measured anywhere.
   const concOptions = [
-    { id: 'small' as const, label: 'Low', range: '1–10 users', multiplier: 1.0 },
-    { id: 'medium' as const, label: 'Medium', range: '10–30 users', multiplier: 1.5 },
-    { id: 'large' as const, label: 'High', range: '30–100 users', multiplier: 2.2 },
+    { id: 'small' as const, label: 'Low', multiplier: 1.0 },
+    { id: 'medium' as const, label: 'Medium', multiplier: 1.5 },
+    { id: 'large' as const, label: 'High', multiplier: 2.2 },
   ];
 
-  // Plan slug → capacity in numeric units
-  const planCapMap: Record<string, { ram: number; cpu: number; disk: number }> = {
+  // Plan slug → capacity in numeric units: the catalog's shape, used ONLY when
+  // there is no package document (today's fallback).
+  const planCapMap: Record<string, PackageCapacity> = {
     s: { ram: 4096, cpu: 2000, disk: 25 },
     m: { ram: 8192, cpu: 4000, disk: 50 },
     l: { ram: 16384, cpu: 8000, disk: 100 },
     xl: { ram: 32768, cpu: 16000, disk: 200 },
     flexi: { ram: 65536, cpu: 32000, disk: 500 },
   };
+
+  // #6971 — ONE shape source for this page: the package document's `shape`
+  // (packageCapacity) feeds the plan cards' price + specs, the headroom ring
+  // and the "fits your N apps" hint alike; the catalog shape is the fallback
+  // without a document.
+  function packageOf(plan: Plan) {
+    return doc ? packageForPlan(doc, plan) : null;
+  }
+  function capFor(plan: Plan): PackageCapacity {
+    const pkg = packageOf(plan);
+    const fromDoc = pkg ? packageCapacity(pkg) : null;
+    return fromDoc ?? planCapMap[plan.slug] ?? { ram: 0, cpu: 0, disk: 0 };
+  }
+  function priceLineFor(plan: Plan): string {
+    const pkg = packageOf(plan);
+    return pkg ? pkg.price_month : formatOMRAmount(plan.monthly_price);
+  }
+  function specsLineFor(plan: Plan): string {
+    const pkg = packageOf(plan);
+    return (pkg && packageSpecsLine(pkg)) || `${plan.resources.cpu} · ${plan.resources.memory} · ${plan.resources.storage}`;
+  }
 
   const multiplier = $derived(concOptions.find(o => o.id === concurrency)?.multiplier ?? 1.0);
 
@@ -139,20 +167,21 @@
     selectedApps.reduce((s, a) => s + (appDisk[a.slug] ?? 2), 0) + overheadDisk
   );
 
-  const planCap = $derived(planCapMap[selectedPlan?.slug ?? ''] ?? { ram: 0, cpu: 0, disk: 0 });
+  const planCap = $derived(selectedPlan ? capFor(selectedPlan) : { ram: 0, cpu: 0, disk: 0 });
   const ramPct = $derived(planCap.ram > 0 ? Math.round((grossRam / planCap.ram) * 100) : 0);
   const cpuPct = $derived(planCap.cpu > 0 ? Math.round((grossCpu / planCap.cpu) * 100) : 0);
   const diskPct = $derived(planCap.disk > 0 ? Math.round((grossDisk / planCap.disk) * 100) : 0);
   const maxPct = $derived(Math.max(ramPct, cpuPct, diskPct));
 
-  // Find the smallest plan that fits
+  // Find the smallest plan that fits — the plans in the document's order
+  // (by shape) when there is one, else the catalog's fixed ladder.
   const suggestedPlan = $derived.by(() => {
-    const order = ['s', 'm', 'l', 'xl', 'flexi'];
-    for (const slug of order) {
-      const cap = planCapMap[slug];
-      if (grossRam <= cap.ram && grossCpu <= cap.cpu && grossDisk <= cap.disk) {
-        return plans.find(p => p.slug === slug) ?? null;
-      }
+    const ordered: Plan[] = doc
+      ? [...plans].filter(p => capFor(p).ram > 0).sort((a, b) => capFor(a).ram - capFor(b).ram)
+      : ['s', 'm', 'l', 'xl', 'flexi'].map(slug => plans.find(p => p.slug === slug)).filter((p): p is Plan => Boolean(p));
+    for (const plan of ordered) {
+      const cap = capFor(plan);
+      if (grossRam <= cap.ram && grossCpu <= cap.cpu && grossDisk <= cap.disk) return plan;
     }
     return null; // nothing fits — contact sales
   });
@@ -173,7 +202,7 @@
   // same arithmetic below.
   function addonsForCart(catalog: AddOn[], d: PublicPackages | null): AddOn[] {
     const pkg = d ? packageForCart(d, cart) : null;
-    return d && pkg ? funnelAddonsFor(d, pkg.sku, catalog).addons : catalog;
+    return d && pkg ? funnelAddonsFor(d, pkg.sku).addons : catalog;
   }
 
   $effect(() => {
@@ -183,6 +212,21 @@
         apps = a.filter(x => !x.system);
         catalogAddons = ad;
         doc = d;
+        const pkg = d ? packageForCart(d, cart) : null;
+        if (d && pkg) {
+          // With a document the cart's add-ons are BSS SKUs this package
+          // sells; a catalog id from before the document existed is carried
+          // over to its BSS twin or dropped (it is not in the price book).
+          const pruned = pruneAddonsForPackage(d, pkg.sku, cart.addons, ad);
+          if (pruned.join('\u0000') !== cart.addons.join('\u0000')) {
+            cart = setPackage({
+              planId: cart.plan || catalogPlanIdForPackage(pkg, p),
+              planName: pkg.name,
+              packageSku: pkg.sku,
+              addons: pruned,
+            });
+          }
+        }
         addons = addonsForCart(ad, d);
         loading = false;
       })
@@ -200,9 +244,9 @@
         planId: plan.id,
         planName: plan.name,
         packageSku: pkg.sku,
-        addons: pruneAddonsForPackage(doc, pkg.sku, cart.addons),
+        addons: pruneAddonsForPackage(doc, pkg.sku, cart.addons, catalogAddons),
       });
-      addons = funnelAddonsFor(doc, pkg.sku, catalogAddons).addons;
+      addons = funnelAddonsFor(doc, pkg.sku).addons;
     } else {
       cart = setPlan(plan.id, plan.name);
     }
@@ -304,10 +348,10 @@
                     {#if plan.slug === 'flexi' || plan.name === 'Flexi'}
                       <strong>2</strong> OMR/CU/mo
                     {:else}
-                      <strong>{formatOMRAmount(plan.monthly_price)}</strong> OMR/mo
+                      <strong>{priceLineFor(plan)}</strong> OMR/mo
                     {/if}
                   </span>
-                  <span class="plan-opt-specs">{plan.resources.cpu} · {plan.resources.memory} · {plan.resources.storage}</span>
+                  <span class="plan-opt-specs" data-testid="review-plan-specs-{plan.id}">{specsLineFor(plan)}</span>
                 </span>
               </label>
             {/each}
@@ -330,7 +374,6 @@
                   onclick={() => concurrency = opt.id}
                 >
                   <strong>{opt.label}</strong>
-                  <span>{opt.range}</span>
                 </button>
               {/each}
             </div>
@@ -353,15 +396,15 @@
                   </div>
                 </div>
                 <div class="cap-details">
-                  <div class="cap-row">
+                  <div class="cap-row" data-testid="review-cap-ram">
                     <span class="cap-metric">RAM</span>
                     <span class="cap-val">{grossRam} / {planCap.ram} MiB</span>
                   </div>
-                  <div class="cap-row">
+                  <div class="cap-row" data-testid="review-cap-cpu">
                     <span class="cap-metric">CPU</span>
                     <span class="cap-val">{grossCpu} / {planCap.cpu} m</span>
                   </div>
-                  <div class="cap-row">
+                  <div class="cap-row" data-testid="review-cap-disk">
                     <span class="cap-metric">Disk</span>
                     <span class="cap-val">{grossDisk} / {planCap.disk} GiB</span>
                   </div>
@@ -654,7 +697,6 @@
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 18%, transparent);
   }
   .conc-btn strong { color: var(--color-text-strong); font-size: 0.82rem; }
-  .conc-btn span { color: var(--color-text-dim); font-size: 0.72rem; }
 
   /* Capacity — compact donut gauge */
   .capacity-compact {

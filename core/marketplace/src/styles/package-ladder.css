@@ -11,7 +11,7 @@
  * `astro build && astro preview`, never the dev server.
  */
 
-.ld-page { max-width: 1280px; margin: 0 auto; padding: 0 1.25rem 4.5rem; }
+.ld-page { max-width: 1280px; margin: 0 auto; padding: 0 1.25rem 2.5rem; }
 .ld-title {
   text-align: center;
   font-size: clamp(1.2rem, 2.2vw, 1.5rem);
@@ -195,15 +195,17 @@
   white-space: nowrap;
 }
 
-/* The last feature row closes each package column. */
-.ld-grid > .ld-row:last-child > .ld-cell {
-  border-bottom: 1.5px solid var(--color-border);
+/* The foot row closes each package column with its Choose. */
+.ld-foot {
+  padding: 0.7rem 0.6rem 0.8rem;
+  background: var(--color-bg);
+  border: 1.5px solid var(--color-border);
+  border-top: 0;
   border-radius: 0 0 12px 12px;
-  padding-bottom: 0.7rem;
 }
-.ld-grid > .ld-row:last-child > .ld-cell.recommended { border-bottom-color: var(--color-warn, #f59e0b); }
-.ld-grid > .ld-row:last-child > .ld-cell.selected { border-bottom-color: var(--color-success); }
-.ld-grid > .ld-row:last-child > .ld-feature { border-bottom: 0; }
+.ld-foot.recommended { border-color: var(--color-warn, #f59e0b); border-top: 0; }
+.ld-foot.selected { border-color: var(--color-success); border-top: 0; }
+.ld-foot > .ld-cta { margin-top: 0; }
 
 /* ── The floor strip, once ─────────────────────────────────────────────── */
 .ld-floor {
@@ -234,36 +236,8 @@
 }
 .ld-meta-sep { margin: 0 0.4rem; }
 
-/* Floating navigation pill — same as the other funnel steps */
-.ld-nav {
-  position: fixed;
-  bottom: 1.25rem;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 100;
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  background: color-mix(in srgb, var(--color-surface) 95%, transparent);
-  backdrop-filter: blur(12px);
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  padding: 0.35rem 0.4rem;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
-}
-.ld-nav-cta {
-  padding: 0.55rem 1.4rem;
-  background: var(--color-accent);
-  color: #fff;
-  border-radius: 999px;
-  text-decoration: none;
-  font-weight: 600;
-  font-size: 0.88rem;
-  white-space: nowrap;
-  box-shadow: 0 2px 8px color-mix(in srgb, var(--color-accent) 25%, transparent);
-  transition: filter 0.15s;
-}
-.ld-nav-cta:hover { filter: brightness(0.9); }
+/* No floating bar on this step: the per-column Choose (top and foot) is the
+   only CTA, so nothing fixed ever covers a cell. */
 
 @media (max-width: 1000px) {
   .ld-grid { grid-template-columns: 170px repeat(var(--ld-cols, 4), minmax(150px, 1fr)); min-width: 780px; }

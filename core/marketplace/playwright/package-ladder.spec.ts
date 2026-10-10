@@ -7,23 +7,31 @@
 // covered — nothing here replaces those). The fixture is the exact shape BSS
 // publishes, with the workbook's numbers: S 2.490 / M 4.490 / L 7.990 /
 // XL 13.990, and the L→XL step-up at a 6.000 gap bundling Backup + AI SEO +
-// AI builder + Domain (1.500 + 2.000 + 2.000 + 0.500).
+// AI builder + Domain (1.500 + 2.000 + 2.000 + 0.500). Every price on every
+// page below is one of those; no catalog add-on carries one.
 //
 //   step 1 /plans   — four cards (price, shape, guarantee, disk), ONE grouped
 //                     comparison with the group headers in order, level /
 //                     teaser / add-on / access cells, the floor strip once;
 //                     computed-style assertions against the PRODUCTION build
 //                     (the ladder's CSS is a page import — the 2026-10-10
-//                     lesson); choosing M continues to Stack with the sku
+//                     lesson); no floating bar over any cell; choosing M
+//                     continues to Stack with the sku
 //   step 3 /addons  — "In your package" / "Add-ons" / "Not on <pkg>", the
 //                     running total, the step-up card and what switching
-//                     clears, "Upgrade to L" keeping the apps
-//   /review         — package line + add-on lines from the quote, the floor
+//                     clears, "Upgrade to L" keeping the apps, a stale
+//                     catalog id carried over to its BSS twin; the step bar
+//                     never covers the content
+//   step 4 /bcp     — hot-standby locked on L ("Included from XL", switch
+//                     keeps the apps), selectable and INCLUDED on XL
+//   /review         — package line + add-on lines from the quote, the plan
+//                     cards and the headroom ring sized from the document's
+//                     shape, the usage buckets without user counts, the floor
 //                     as a footnote
 //
 // READ-ONLY against clusters: no kubectl, no chart bumps, no Pod ops.
 
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type Locator, type Page } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -41,13 +49,15 @@ const CATALOG_PLANS = [
   { id: 'xl', slug: 'xl', name: 'XL', cpu: '8 vCPU', memory: '16 GB', storage: '250 GB', price_omr: 13.99, popular: false, features: [], description: '' },
 ]
 
-// /api/catalog/addons wire shape. Daily Backup twins the Backup feature,
-// Custom Domain the Domain feature, WAF a FLOOR item; IPS has no twin.
+// /api/catalog/addons wire shape — free, as the catalog lane ships them. With
+// a document none of these is offered; Daily Backup twins the Backup feature
+// (a stale cart id is carried over to `addon.backup`), WAF twins a FLOOR item,
+// IPS has no twin.
 const CATALOG_ADDONS = [
-  { id: 'daily-backup', slug: 'daily-backup', name: 'Daily Backup', description: 'Automated daily backups with 30-day retention', price_omr: 3, included: false },
-  { id: 'waf', slug: 'waf', name: 'Web Application Firewall', description: 'Coraza WAF — OWASP CRS protection', price_omr: 4, included: false },
-  { id: 'ips', slug: 'ips', name: 'Intrusion Prevention', description: 'Community-powered threat intelligence — CrowdSec', price_omr: 3, included: false },
-  { id: 'custom-domain', slug: 'custom-domain', name: 'Custom Domain', description: 'Your brand, your domain — with automatic TLS', price_omr: 2, included: false },
+  { id: 'daily-backup', slug: 'daily-backup', name: 'Daily Backup', description: 'Scheduled backups of your sites and databases', price_omr: 0, included: false },
+  { id: 'waf', slug: 'waf', name: 'Web Application Firewall', description: 'Coraza WAF — OWASP CRS protection', price_omr: 0, included: false },
+  { id: 'ips', slug: 'ips', name: 'Intrusion Prevention', description: 'Community-powered threat intelligence — CrowdSec', price_omr: 0, included: false },
+  { id: 'custom-domain', slug: 'custom-domain', name: 'Custom Domain', description: 'Your brand, your domain — with automatic TLS', price_omr: 0, included: false },
 ]
 
 const APPS = [
@@ -84,6 +94,9 @@ async function mockCatalog(page: Page): Promise<void> {
   await page.route('**/api/catalog/industries', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
   )
+  await page.route('**/api/catalog/regions', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ key: 'me-east-215-a', label: 'Region A' }, { key: 'me-east-215-b', label: 'Region B' }]) }),
+  )
   await page.route('**/api/tenant/check-slug/**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ available: true }) }),
   )
@@ -99,7 +112,6 @@ const QUOTE_ADDON_BAISA: Record<string, { name: string; amount: number; included
   'addon.ai_builder': { name: 'AI website builder', amount: 2000, includedOn: ['plan.xl'] },
   'addon.domain': { name: 'Domain', amount: 500, includedOn: ['plan.xl'] },
   'addon.dedicated_ip': { name: 'Dedicated IP address', amount: 20833 },
-  ips: { name: 'Intrusion Prevention', amount: 3000 },
 }
 async function mockQuote(page: Page, capture?: (body: any) => void): Promise<void> {
   await page.route('**/api/billing/quote', (route) => {
@@ -113,7 +125,7 @@ async function mockQuote(page: Page, capture?: (body: any) => void): Promise<voi
       const redundant = Boolean(a.includedOn?.includes(pkg))
       return [{ sku, name: a.name, amount_baisa: redundant ? 0 : a.amount, ...(redundant ? { redundant: true } : {}) }]
     })
-    const topologyAmount = body.topology === 'active-hot-standby' ? 5000 : 0
+    const topologyAmount = 0
     const total = planAmount + topologyAmount + lines.reduce((s: number, l: any) => s + l.amount_baisa, 0)
     return route.fulfill({
       status: 200,
@@ -162,6 +174,48 @@ async function seedCart(page: Page, overrides: Record<string, unknown>): Promise
 
 async function readCart(page: Page): Promise<any> {
   return page.evaluate(() => JSON.parse(localStorage.getItem('org-cart') || 'null'))
+}
+
+type Box = { top: number; left: number; right: number; bottom: number }
+async function boxOf(l: Locator): Promise<Box> {
+  const b = await l.boundingBox()
+  if (!b) throw new Error('no bounding box')
+  return { top: b.y, left: b.x, right: b.x + b.width, bottom: b.y + b.height }
+}
+function intersects(a: Box, b: Box): boolean {
+  return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom
+}
+
+/** No element of `items` overlaps the fixed step bar, in the viewport as it stands. */
+async function expectNothingUnderBar(page: Page, items: Locator): Promise<void> {
+  const bar = await boxOf(page.getByTestId('step-bar'))
+  const boxes = await items.evaluateAll((els) =>
+    els.map((el) => {
+      const r = el.getBoundingClientRect()
+      return { top: r.top, left: r.left, right: r.right, bottom: r.bottom, text: (el.textContent || '').trim().slice(0, 40) }
+    }),
+  )
+  const vh = page.viewportSize()!.height
+  for (const b of boxes) {
+    if (b.bottom <= 0 || b.top >= vh) continue // off-screen: not under anything
+    expect(intersects(b, bar), `"${b.text}" sits under the step bar (${JSON.stringify(b)} vs ${JSON.stringify(bar)})`).toBe(false)
+  }
+}
+
+/**
+ * A screenshot of the whole page as a tall screen would show it: the viewport
+ * is grown to the page height, so a fixed bar lands at the page's foot and a
+ * sticky header at its head — a `fullPage` capture paints both at the scroll
+ * position of the moment instead, which misreads as an overlap.
+ */
+async function shootTall(page: Page, path: string): Promise<void> {
+  const original = page.viewportSize() ?? { width: 1280, height: 720 }
+  await page.evaluate(() => window.scrollTo(0, 0))
+  const h = await page.evaluate(() => Math.min(document.documentElement.scrollHeight, 4000))
+  await page.setViewportSize({ width: original.width, height: Math.max(original.height, Math.ceil(h)) })
+  await page.waitForTimeout(150)
+  await page.screenshot({ path, fullPage: false })
+  await page.setViewportSize(original)
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -248,7 +302,9 @@ test.describe('step 1: the package ladder (/plans, v2 document, #6971)', () => {
     // A floor item is not also a comparison row.
     await expect(page.locator('[data-testid^="package-row-waf"]')).toHaveCount(0)
 
-    // Footer: the book, and where add-ons are picked.
+    // The foot row repeats the Choose per column; the rest of the footer.
+    await expect(page.getByTestId('package-ladder-foot').getByRole('button')).toHaveCount(4)
+    await expect(page.getByTestId('package-choose-foot-plan.m')).toHaveText('Continue with M →')
     await expect(page.locator('.ld-meta')).toContainText('Prices as of 2026-10-10 — OpenOva plans')
     await expect(page.locator('.ld-meta')).toContainText('Optional add-ons are picked on the Add-ons step.')
 
@@ -263,7 +319,7 @@ test.describe('step 1: the package ladder (/plans, v2 document, #6971)', () => {
   // and a component-scoped stylesheet on an unreachable branch is dropped from
   // the production bundle (the 2026-10-10 /plans regression). This asserts
   // the COMPUTED layout against `astro build` + `astro preview`.
-  test('the ladder is styled in the production build: a five-column grid, cards as flex columns side by side, the floor a flex strip', async ({ page }, testInfo) => {
+  test('the ladder is styled in the production build: a five-column grid, cards as flex columns side by side, the floor a flex strip — and no fixed bar over any cell', async ({ page }, testInfo) => {
     await pointAtChargeback(page)
     await mockPackages(page)
     await page.goto('/plans')
@@ -281,10 +337,10 @@ test.describe('step 1: the package ladder (/plans, v2 document, #6971)', () => {
     await expect(first).toHaveCSS('flex-direction', 'column')
     await expect(first).toHaveCSS('border-top-left-radius', '12px')
     await expect(first).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
-    await expect(page.locator('.ld-cta.primary')).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    await expect(page.locator('.ld-cta.primary').first()).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     await expect(page.locator('.ld-hat-pill')).toHaveCSS('display', 'block')
     await expect(page.getByTestId('package-floor')).toHaveCSS('display', 'flex')
-    await expect(page.locator('.ld-nav')).toHaveCSS('position', 'fixed')
+    await expect(page.locator('.ld-foot').first()).toHaveCSS('border-bottom-left-radius', '12px')
     // A row wrapper contributes its cells straight to the grid.
     await expect(page.getByTestId('package-row-bandwidth')).toHaveCSS('display', 'contents')
 
@@ -301,25 +357,53 @@ test.describe('step 1: the package ladder (/plans, v2 document, #6971)', () => {
     }
     expect(Math.min(...boxes.map((b) => b.width))).toBeGreaterThan(150)
 
-    await page.screenshot({ path: testInfo.outputPath('ladder-plans.png'), fullPage: true })
+    // No fixed element anywhere in the lower half of the viewport, at the top
+    // of the page and at its foot: the per-column Choose is the only CTA, so
+    // no cell is ever covered.
+    const fixedLow = async () =>
+      page.evaluate(() => {
+        const vh = window.innerHeight
+        return Array.from(document.querySelectorAll('body *'))
+          .filter((el) => getComputedStyle(el).position === 'fixed')
+          .map((el) => el.getBoundingClientRect())
+          .filter((r) => r.width > 0 && r.height > 0 && r.bottom > vh / 2)
+          .map((r) => ({ top: r.top, left: r.left, right: r.right, bottom: r.bottom }))
+      })
+    expect(await fixedLow()).toEqual([])
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+    expect(await fixedLow()).toEqual([])
+    const cellBoxes = await page.locator('.ld-cell').evaluateAll((els) => els.map((el) => el.getBoundingClientRect().toJSON()))
+    const fixedAll = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('body *'))
+        .filter((el) => getComputedStyle(el).position === 'fixed')
+        .map((el) => el.getBoundingClientRect().toJSON()),
+    )
+    for (const c of cellBoxes) {
+      for (const f of fixedAll) {
+        expect(intersects(c, f), `a cell is under a fixed element: ${JSON.stringify(c)} vs ${JSON.stringify(f)}`).toBe(false)
+      }
+    }
+
+    await shootTall(page, testInfo.outputPath('ladder-plans.png'))
   })
 
-  test('choosing M continues to Stack with the catalog plan id and the sku stamped', async ({ page }) => {
+  test('choosing M (from the foot row) continues to Stack with the catalog plan id and the sku stamped', async ({ page }) => {
     await pointAtChargeback(page)
     await mockPackages(page)
-    await seedCart(page, { plan: 's', planName: 'S', packageSku: 'plan.s', addons: ['ips'] })
+    await seedCart(page, { plan: 's', planName: 'S', packageSku: 'plan.s', addons: ['addon.domain'] })
     await page.goto('/plans')
     await expect(page.getByTestId('package-ladder')).toBeVisible({ timeout: 10_000 })
     await expect(page.getByTestId('package-card-plan.s')).toHaveAttribute('data-selected', 'true')
     await expect(page.getByTestId('package-choose-plan.m')).toHaveText('Choose M')
 
-    await page.getByTestId('package-choose-plan.m').click()
+    await page.getByTestId('package-choose-foot-plan.m').click()
     await page.waitForURL(/\/apps/, { timeout: 10_000 })
     const cart = await readCart(page)
     expect(cart.plan).toBe('m')
     expect(cart.planName).toBe('M')
     expect(cart.packageSku).toBe('plan.m')
-    expect(cart.addons).toEqual(['ips'])
+    // Domain is still optional on M, so the pick survives; the apps do too.
+    expect(cart.addons).toEqual(['addon.domain'])
     expect(cart.apps).toEqual(['1'])
   })
 
@@ -351,7 +435,7 @@ test.describe('step 3: the three blocks and the step-up hint (/addons, v2 docume
     await mockCatalog(page)
   })
 
-  test('for L: "In your package", the five add-ons with prices and hints, "Not on L" with the XL rung, the running total', async ({ page }) => {
+  test('for L: "In your package", the five BSS add-ons with prices and hints and nothing from the catalog, "Not on L" with the XL rung, the running total; the step bar covers nothing', async ({ page }) => {
     await pointAtChargeback(page)
     await mockPackages(page)
     await seedCart(page, { plan: 'l', planName: 'L', packageSku: 'plan.l' })
@@ -369,9 +453,12 @@ test.describe('step 3: the three blocks and the step-up hint (/addons, v2 docume
     await expect(included.getByRole('button')).toHaveCount(0)
     await expect(included.getByTestId('addons-included-backup')).toHaveCount(0)
 
-    // Block B — the optional cells as choices, with price and the hint.
+    // Block B — the optional cells as choices, with price and the hint; the
+    // five BSS add-ons and nothing else: no catalog entry, no catalog price.
     const optional = page.getByTestId('addons-optional')
     await expect(optional.getByRole('heading', { name: /^Add-ons$/ })).toBeVisible()
+    await expect(optional.locator('[data-testid^="addon-tile-"]')).toHaveCount(5)
+    await expect(optional.locator('[data-testid^="addon-tile-"]:not([data-testid^="addon-tile-addon."])')).toHaveCount(0)
     const backup = page.getByTestId('addon-tile-addon.backup')
     await expect(backup).toContainText('Backup')
     await expect(backup).toContainText('+OMR 1.500')
@@ -382,12 +469,10 @@ test.describe('step 3: the three blocks and the step-up hint (/addons, v2 docume
     const ip = page.getByTestId('addon-tile-addon.dedicated_ip')
     await expect(ip).toContainText('+OMR 20.833')
     await expect(ip).not.toContainText('Included from')
-    // Catalog twins (Daily Backup, Custom Domain, and the WAF the floor
-    // includes) yield; the catalog add-on with no twin (IPS) stays.
+    await expect(page.getByTestId('addon-tile-ips')).toHaveCount(0)
     await expect(page.getByTestId('addon-tile-daily-backup')).toHaveCount(0)
-    await expect(page.getByTestId('addon-tile-custom-domain')).toHaveCount(0)
     await expect(page.getByTestId('addon-tile-waf')).toHaveCount(0)
-    await expect(page.getByTestId('addon-tile-ips')).toContainText('+OMR 3.000')
+    await expect(page.getByTestId('addon-tile-custom-domain')).toHaveCount(0)
 
     // Block C — what L does not have, and the rung that does.
     const missing = page.getByTestId('addons-missing')
@@ -404,28 +489,48 @@ test.describe('step 3: the three blocks and the step-up hint (/addons, v2 docume
     await expect(total).toHaveAttribute('data-baisa', '7990')
     await expect(total).toContainText('OMR 7.990')
     await expect(page.getByTestId('addons-stepup')).toHaveCount(0)
+
+    // The step bar has its own space: fixed at the foot, the page padded by
+    // its height; the document's scroll-padding keeps what is scrolled into
+    // view above it, and at the page's end nothing sits under it.
+    const bar = page.getByTestId('step-bar')
+    await expect(bar).toHaveCSS('position', 'fixed')
+    const barBox = await boxOf(bar)
+    expect(Math.round(barBox.bottom), 'the bar sits on the viewport floor').toBe(page.viewportSize()!.height)
+    const padding = await page.locator('.addons-page').evaluate((el) => parseFloat(getComputedStyle(el).paddingBottom))
+    expect(padding).toBeGreaterThanOrEqual(barBox.bottom - barBox.top)
+    const scrollPad = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).scrollPaddingBottom))
+    expect(scrollPad).toBeGreaterThanOrEqual(barBox.bottom - barBox.top)
+    await total.scrollIntoViewIfNeeded()
+    await expectNothingUnderBar(page, total)
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+    await expectNothingUnderBar(page, page.locator('.extra-tile, .in-pkg-item, [data-testid="addons-running-total"], .step-up'))
   })
 
   test('on L, ticking Backup + AI SEO + AI builder + Domain (6.000 ≥ the 6.000 gap) shows the step-up card for XL; switching clears those four and keeps the rest', async ({ page }, testInfo) => {
     await pointAtChargeback(page)
     await mockPackages(page)
-    await seedCart(page, { plan: 'l', planName: 'L', packageSku: 'plan.l', addons: ['ips'] })
+    // A stale catalog id from before the document existed: Daily Backup is
+    // the twin of the Backup feature, so it is carried over to the BSS
+    // add-on on load — the customer's intent kept, the catalog price gone.
+    await seedCart(page, { plan: 'l', planName: 'L', packageSku: 'plan.l', addons: ['daily-backup'] })
     await page.goto('/addons')
     await expect(page.getByTestId('addons-included')).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByTestId('addon-tile-addon.backup')).toHaveClass(/checked/)
+    expect((await readCart(page)).addons).toEqual(['addon.backup'])
     const total = page.getByTestId('addons-running-total')
-    await expect(total).toHaveAttribute('data-baisa', '10990') // 7.990 + IPS 3.000
+    await expect(total).toHaveAttribute('data-baisa', '9490') // 7.990 + Backup 1.500
 
-    // One short of the gap: 1.500 + 2.000 + 2.000 = 5.500 — no card.
-    await page.getByTestId('addon-tile-addon.backup').click()
+    // Two more, one short of the gap: 1.500 + 2.000 + 2.000 = 5.500 — no card.
     await page.getByTestId('addon-tile-addon.ai_seo').click()
     await page.getByTestId('addon-tile-addon.ai_builder').click()
     await expect(page.getByTestId('addon-tile-addon.ai_builder')).toHaveClass(/checked/)
-    await expect(total).toHaveAttribute('data-baisa', '16490')
+    await expect(total).toHaveAttribute('data-baisa', '13490')
     await expect(page.getByTestId('addons-stepup')).toHaveCount(0)
 
     // The fourth closes the gap: 6.000 ≥ 6.000.
     await page.getByTestId('addon-tile-addon.domain').click()
-    await expect(total).toHaveAttribute('data-baisa', '16990')
+    await expect(total).toHaveAttribute('data-baisa', '13990')
     const card = page.getByTestId('addons-stepup')
     await expect(card).toBeVisible()
     await expect(card).toHaveAttribute('data-next', 'plan.xl')
@@ -433,12 +538,13 @@ test.describe('step 3: the three blocks and the step-up hint (/addons, v2 docume
     await expect(card).toContainText('6.000 OMR / mo of add-ons')
     await expect(card.locator('.step-up-list')).toHaveText('Backup · AI SEO ready · AI website builder · Domain')
     await expect(card.getByTestId('addons-stepup-switch')).toContainText('Switch to XL')
-    expect((await readCart(page)).addons).toEqual(['ips', 'addon.backup', 'addon.ai_seo', 'addon.ai_builder', 'addon.domain'])
-    await page.screenshot({ path: testInfo.outputPath('ladder-addons-stepup.png'), fullPage: true })
+    expect((await readCart(page)).addons).toEqual(['addon.backup', 'addon.ai_seo', 'addon.ai_builder', 'addon.domain'])
+    await card.scrollIntoViewIfNeeded()
+    await expectNothingUnderBar(page, card)
+    await shootTall(page, testInfo.outputPath('ladder-addons-stepup.png'))
 
-    // Switch: the package is XL, the four bundled add-ons are gone, the
-    // catalog add-on and the apps stay — no reload between the click and
-    // the read.
+    // Switch: the package is XL, the four bundled add-ons are gone, the apps
+    // stay — no reload between the click and the read.
     await card.getByTestId('addons-stepup-switch').click()
     await expect(page.getByTestId('addons-stepup')).toHaveCount(0)
     await expect(page.getByTestId('addons-included')).toContainText('XL · INCLUDED')
@@ -447,14 +553,13 @@ test.describe('step 3: the three blocks and the step-up hint (/addons, v2 docume
     await expect(page.getByTestId('addon-tile-addon.backup')).toHaveCount(0)
     await expect(page.getByTestId('addon-tile-addon.domain')).toHaveCount(0)
     await expect(page.getByTestId('addon-tile-addon.dedicated_ip')).toBeVisible()
-    await expect(page.getByTestId('addon-tile-ips')).toHaveClass(/checked/)
     await expect(page.getByTestId('addons-missing')).toHaveCount(0)
-    await expect(total).toHaveAttribute('data-baisa', '16990') // 13.990 + IPS 3.000
+    await expect(total).toHaveAttribute('data-baisa', '13990') // XL alone
     const cart = await readCart(page)
     expect(cart.packageSku).toBe('plan.xl')
     expect(cart.plan).toBe('xl')
     expect(cart.planName).toBe('XL')
-    expect(cart.addons).toEqual(['ips'])
+    expect(cart.addons).toEqual([])
     expect(cart.apps).toEqual(['1'])
   })
 
@@ -502,6 +607,74 @@ test.describe('step 3: the three blocks and the step-up hint (/addons, v2 docume
 })
 
 // ────────────────────────────────────────────────────────────────────────
+// Step 4 — /bcp
+// ────────────────────────────────────────────────────────────────────────
+
+test.describe('step 4: the topology the package allows (/bcp, v2 document, #6971)', () => {
+  test.beforeEach(async ({ page }) => {
+    await mockCatalog(page)
+  })
+
+  test('on L hot-standby is locked — "Included from XL" with a switch that keeps the apps; a stale hot-standby pick is reset; single-region is free', async ({ page }, testInfo) => {
+    await pointAtChargeback(page)
+    await mockPackages(page)
+    await seedCart(page, {
+      plan: 'l', planName: 'L', packageSku: 'plan.l', addons: ['addon.backup'],
+      // Picked on a larger package earlier, then switched down to L.
+      appConfigs: { postgres: { active_hot_standby: true, primary_region: 'me-east-215-a', replica_region: 'me-east-215-b' } },
+    })
+    await page.goto('/bcp')
+
+    const hot = page.getByTestId('topology-card-hot')
+    await expect(hot).toHaveAttribute('data-locked', 'true', { timeout: 10_000 })
+    await expect(hot).toContainText('Included from XL')
+    await expect(hot).not.toContainText('5.000')
+    await expect(hot.getByRole('radio')).toHaveCount(0)
+    await expect(page.getByTestId('topology-card-single')).toContainText('FREE')
+    await expect(page.getByTestId('topology-card-single').getByRole('radio')).toBeChecked()
+    // The pick this package cannot honour is gone from the cart.
+    expect((await readCart(page)).appConfigs.postgres.active_hot_standby).toBe(false)
+
+    // The step bar sits at the foot and covers neither card.
+    const bar = page.getByTestId('step-bar')
+    await expect(bar).toHaveCSS('position', 'fixed')
+    await expectNothingUnderBar(page, page.locator('.topology-card'))
+    await shootTall(page, testInfo.outputPath('ladder-topology-locked.png'))
+
+    // Switch to XL: the card becomes selectable and reads INCLUDED; the apps
+    // stay; the Backup add-on XL includes is dropped.
+    await hot.getByTestId('topology-switch-plan.xl').click()
+    await expect(page.getByTestId('topology-card-hot')).toHaveAttribute('data-locked', 'false')
+    await expect(page.getByTestId('topology-card-hot')).toContainText('XL · INCLUDED')
+    await expect(page.getByTestId('topology-card-hot')).not.toContainText('5.000')
+    let cart = await readCart(page)
+    expect(cart.packageSku).toBe('plan.xl')
+    expect(cart.plan).toBe('xl')
+    expect(cart.apps).toEqual(['1'])
+    expect(cart.addons).toEqual([])
+
+    // Now it can be chosen, and the region pickers appear.
+    await page.getByTestId('topology-card-hot').getByRole('radio').check()
+    await expect(page.locator('#primary-region')).toBeVisible()
+    cart = await readCart(page)
+    expect(cart.appConfigs.postgres.active_hot_standby).toBe(true)
+    await shootTall(page, testInfo.outputPath('ladder-topology-xl.png'))
+  })
+
+  test('on XL hot-standby is selectable from the start and reads INCLUDED', async ({ page }) => {
+    await pointAtChargeback(page)
+    await mockPackages(page)
+    await seedCart(page, { plan: 'xl', planName: 'XL', packageSku: 'plan.xl' })
+    await page.goto('/bcp')
+    const hot = page.getByTestId('topology-card-hot')
+    await expect(hot).toContainText('XL · INCLUDED', { timeout: 10_000 })
+    await expect(hot).toHaveAttribute('data-locked', 'false')
+    await hot.getByRole('radio').check()
+    expect((await readCart(page)).appConfigs.postgres.active_hot_standby).toBe(true)
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────────
 // Review
 // ────────────────────────────────────────────────────────────────────────
 
@@ -525,7 +698,7 @@ test.describe('review carries the package, its add-ons and the floor (v2 documen
     })
   })
 
-  test('/review lists the package line and the add-on lines from the quote, with the floor as a footnote', async ({ page }, testInfo) => {
+  test('/review lists the package line and the add-on lines from the quote, sizes the cards, the ring and the hint from the document shape, labels the buckets without user counts, and carries the floor footnote', async ({ page }, testInfo) => {
     const quotes: any[] = []
     await mockQuote(page, (b) => quotes.push(b))
     await pointAtChargeback(page)
@@ -546,6 +719,28 @@ test.describe('review carries the package, its add-ons and the floor (v2 documen
     await expect(floor).toContainText('24/7 customer support')
     expect(quotes[0]).toMatchObject({ plan_id: 'l', package_sku: 'plan.l', addons: ['addon.backup', 'addon.domain'], topology: 'single-region' })
 
-    await page.screenshot({ path: testInfo.outputPath('ladder-review.png'), fullPage: true })
+    // The plan cards: price and specs from the document's shape.
+    await expect(page.getByTestId('review-plan-specs-l')).toHaveText('4 vCPU · 8 GB · 100 GB')
+    await expect(page.getByTestId('review-plan-specs-xl')).toHaveText('8 vCPU · 16 GB · 250 GB')
+    await expect(page.locator('.plan-option', { hasText: 'L' }).first().locator('.plan-opt-price strong')).toHaveText('7.990')
+
+    // The headroom ring measures against the SAME shape (L = 8 GB · 4 vCPU ·
+    // 100 GB), not the old catalog figures (16384 MiB / 8000 m).
+    await expect(page.getByTestId('review-cap-ram')).toContainText('/ 8192 MiB')
+    await expect(page.getByTestId('review-cap-cpu')).toContainText('/ 4000 m')
+    await expect(page.getByTestId('review-cap-disk')).toContainText('/ 100 GiB')
+    // The hint names the smallest package that fits, by that shape.
+    await expect(page.locator('.rv-note', { hasText: /fits your 1 app/ })).toHaveText('S fits your 1 app')
+    // The usage buckets are labelled only.
+    await expect(page.locator('.conc-btn')).toHaveText(['Low', 'Medium', 'High'])
+    await expect(page.locator('.conc-row')).not.toContainText('users')
+
+    // Optional extras: the BSS add-ons only, the two in the cart ticked.
+    const extras = page.locator('.addon-tile')
+    await expect(extras).toHaveCount(5)
+    await expect(page.locator('.addon-tile', { hasText: 'Intrusion Prevention' })).toHaveCount(0)
+    await expect(page.locator('.addon-tile.checked')).toHaveCount(2)
+
+    await shootTall(page, testInfo.outputPath('ladder-review.png'))
   })
 })
