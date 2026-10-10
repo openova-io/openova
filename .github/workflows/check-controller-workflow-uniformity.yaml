@@ -43,7 +43,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Run controller-workflow uniformity check
         run: bash scripts/check-controller-workflow-uniformity.sh

@@ -85,7 +85,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           # Need both sides of the PR diff to enumerate changed charts.
           # PR runs already get `refs/pull/N/merge` with 2 commits; push
@@ -136,7 +136,7 @@ jobs:
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             base_sha="${{ github.event.pull_request.base.sha }}"
             head_sha="${{ github.event.pull_request.head.sha }}"
-            # actions/checkout@v4 doesn't fetch the base by default for
+            # actions/checkout@v7 doesn't fetch the base by default for
             # shallow clones; fetch just enough to diff.
             git fetch --no-tags --depth=1 origin "$base_sha" 2>/dev/null || true
             range="${base_sha}...${head_sha}"

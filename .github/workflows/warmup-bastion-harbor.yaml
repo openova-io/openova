@@ -109,7 +109,7 @@ jobs:
       PREWARM_SKOPEO_TIMEOUT: '1200s'
     steps:
       - name: Checkout openova (public source — the catalyst + component charts)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: openova-io/openova
           path: openova-src

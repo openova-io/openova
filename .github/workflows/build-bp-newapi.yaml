@@ -72,7 +72,7 @@ jobs:
       upstream_version: ${{ steps.vars.outputs.upstream_version }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 

@@ -66,7 +66,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Write the kind config (helm/kind-action takes a file path, not inline YAML)
         # The former inline `config: |` was read by the action as a PATH named
