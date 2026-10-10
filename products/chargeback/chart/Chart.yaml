@@ -84,11 +84,26 @@ type: application
 # grow_ceiling_* / overage_vcpu_month / overage_mem_gb_month,
 # package_entitlements.grow_only. scripts/apply-grow-model.py applies the
 # model to a running BSS. No chart template changed.
-version: 0.1.64
+# 0.1.65 (#6971, DESIGN.md §22.11): the package is a prepaid monthly
+# commitment at a FLAT monthly price. Statement N carries the package for
+# N+1 in advance (service_period_start/end on the line), an upgrade's
+# prorated difference, the first period prorated by the hour with the
+# checkout's prepaidAmount credited, and N's usage above the package in
+# arrears. The spend limit STOPS the usage: an hourly evaluator holds the
+# Organization at its package until the next period start through the
+# sovereign-admin API's overage-stop door (spec.overageStoppedUntil),
+# records spend_stops and mails overage.spend_limit_reached; the statement
+# bills the usage above the package exactly up to the limit, no negative
+# line. Flexi Organizations are synced as S in grow mode. The explorer
+# accrues a package at its monthly price over the hours of its month.
+# Migration: rated_lines.service_period_start/end, cost_sources.
+# prepaid_amount, spend_stops. No chart template changed (the platform door
+# and its projected token are the suspension's).
+version: 0.1.65
 # appVersion is the default image tag (chargeback.image in _helpers.tpl);
 # build-chargeback.yaml derives the pushed tag from this field so the two
 # can never drift.
-appVersion: 0.1.64
+appVersion: 0.1.65
 # The document renderer (EPIC #6867) ships as an OPTIONAL sub-chart, gated on
 # `docrender.enabled` (default false), so a Sovereign that does not offer
 # invoice downloads runs no second workload. The repository is a `file://`
