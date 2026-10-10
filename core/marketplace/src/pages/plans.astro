@@ -4,7 +4,9 @@ import PackageTable from '../components/PackageTable.svelte';
 ---
 <Layout title="Choose a Plan" step={1}>
   <!-- #6971 — the package comparison table fed from the Sovereign's BSS at
-       GET /api/v1/public/packages. PackageTable falls back to the legacy
-       PlanStep deck itself when that endpoint is unreachable or empty. -->
+       GET /api/v1/public/packages. PackageTable renders the legacy PlanStep
+       deck first (server-rendered, as this page mounted it before) and swaps
+       in the table once the document arrives; when the endpoint is
+       unreachable or empty the deck simply stays. -->
   <PackageTable client:load />
 </Layout>
