@@ -3523,6 +3523,63 @@ allowance, with **the item's effective price explained in words underneath** —
 gb-month." That sentence is produced by `rating.ExplainItem`, the same
 package that does the arithmetic, so the words and the price cannot drift.
 
+### 15.10 What a contract did — the rated periods (founder, 2026-10-04: "the contract page shows no effect")
+
+Until 0.1.60 the contract page showed the agreement and nothing of its
+effect: an operator could read that 5,952 instance-hours were committed at
+30 % off and a 1,500 OMR floor applied, and not find anywhere which
+statements that produced, how much of the committed head each month filled,
+how much of each allowance was used, or which month was trued up and by how
+much. The statement said what it was rated under; the contract did not say
+what it had done.
+
+**`GET /contracts/{id}/periods`** answers that: one row per statement rated
+under the contract, newest period first, with the same read permission as
+the contract (a customer principal reads its own agreement's periods, a
+partner principal its customers', a Sovereign principal every one; a
+contract outside the scope is a 404). Each row carries:
+
+| field | what it is |
+|---|---|
+| `period`, `statement_id`, `invoice_number`, `status` | the statement, its number once issued, and its effective status (overdue included) |
+| `subtotal`, `discount_total`, `total`, `net` | the statement's figures; `net` is the subtotal less the true-up — what the usage rated to after the discounts, the figure the floor was compared against |
+| `true_up` | the shortfall line the period carried, `0` when it met the floor or there is none |
+| `floor` | the floor in force: the figure the period was trued up to when it carried a true-up (the subtotal is that floor exactly, by construction of `rating.TrueUp`), else the contract's floor as it stands; absent when the contract has neither a minimum nor a spend commitment |
+| `allowances[]` | per contract allowance line: `included` (the line's quantity), `quantity` (the period's metered total of the SKU), `used` (the smaller of the two) and `excess` (what was metered above the included quantity) |
+| `commitments[]` | per committed-use line: `committed`, `delivered` (how much of the head the usage filled, after the contract's own allowance on the same SKU, which comes off first), `shortfall` (what it did not reach — never invoiced by itself, the floor is the instrument for that), `excess` (above the commitment, at list), the line's rate and `amount` (what the SKU rated to) |
+| `discounts[]` | every discount that took money off the period, from the breakdown the statement froze, with `from_contract` on the spend commitment's own percentage; a superseded discount did nothing and is left out |
+
+**Derived, not stored.** The per-SKU `Breakdown` a run reports
+(`applied_terms`) is not frozen with the statement, and §15.10 adds no table
+for it: a second record of what the first already determines would have to
+be kept in step with it, and the day the two disagreed nobody could say which
+was the bill. `rating.ContractPeriodOf` reads the contract's lines against the
+statement's rated lines — the metered quantity of each SKU summed across
+sources, since the shapes are per SKU per period (§15.7) — and the true-up
+from the named `true-up` line. The figures are the **contract's own share**:
+the plan's own allowance, where the price book carries one, sits in front of
+the contract's and is the plan's; the page is what the agreement did.
+Pinned by `TestContractPeriodsAcrossTwoPeriods` (August under the floor with
+a true-up of 250 against a 600 floor, July above it with none) and
+`TestContractPeriodWithNoFloorAndACommitmentNotFilled` (900 of 1,500 hours
+delivered, 600 short, no floor and no true-up); over the wire by
+`TestIntegrationContractPeriodsAPI`.
+
+**The console.** The contract page gains a **Rated periods** card beneath the
+lines: a table of period · statement (a link to it) · status · subtotal,
+with the discounts it is after · floor · true-up, with the net the true-up
+brought to the floor — or, when the floor was met, said so in words rather
+than as a zero. Each row opens to its consumption, and the newest period is
+open on arrival: every allowance and every commitment as **used / included**
+with a thin bar and the share in words, what went above it, what a
+commitment did not reach ("5,440 instance-hour committed but not used"),
+what the SKU rated to, and the discounts that applied with the spend
+commitment marked as the contract's own. Nothing on it is editable — a
+period is what a run did. The empty state reads *"No statement has been
+rated under this contract yet"*. The showcase's three contracts (§7) are
+rated under by the seeder's statement runs, so the card is never blank on a
+fresh environment.
+
 ## 16. Customer self-service — what a paying customer does without the operator (EPIC #6867)
 
 Everything above is what the operator can do. This is what the **customer**

@@ -1,13 +1,13 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { Fragment, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, asList, errorText } from '../api/client'
-import type { Contract, ContractItem, CreditNote, CustomerSKU, Statement } from '../api/types'
-import { Badge, Confirm, EmptyState, Field, FormRow, KPI, Modal, Notice, PageHeader, Skeleton } from '../components/ui'
+import type { Contract, ContractItem, ContractPeriods, CreditNote, CustomerSKU, Statement } from '../api/types'
+import { Badge, Confirm, EmptyState, Field, FormRow, KPI, Modal, Notice, PageHeader, ShareBar, Skeleton } from '../components/ui'
 import { useSession } from '../auth/session'
 import { can } from '../lib/access'
 import { CONTRACT_STATUSES, committedUnitPrice, contractFloor, contractItemText, daysToEnd, isCommitmentKind, quantityReading, renewalDue, termEnd, termText } from '../lib/contracts'
 import { day, today, when } from '../lib/format'
-import { formatMoney } from '../lib/money'
+import { formatMoney, formatNumber } from '../lib/money'
 import { toNumber } from '../lib/num'
 import { useQuery } from '../lib/useQuery'
 
@@ -24,6 +24,11 @@ import { useQuery } from '../lib/useQuery'
  * "5,952 instance-hour" — because the raw figure is what the engine uses and
  * nobody reads it.
  *
+ * Beneath the lines sit the RATED PERIODS (DESIGN.md §15.10): what the
+ * contract did — one row per statement rated under it with the floor in
+ * force and the true-up it produced, and under each row how much of every
+ * allowance was used and how much of every committed head the usage filled.
+ *
  * Everything writable here is `customers.manage`, except the SLA credit,
  * which is `billing.issue` — it issues a real credit note. A principal
  * without them reads the page.
@@ -33,6 +38,7 @@ export function ContractDetail() {
   const nav = useNavigate()
   const { me } = useSession()
   const q = useQuery<Contract>(`/contracts/${id}`)
+  const periods = useQuery<ContractPeriods>(`/contracts/${id}/periods`)
   const c = q.data
   const canManage = can(me, 'customers.manage', c?.customer_id ?? null)
   const canIssue = can(me, 'billing.issue', c?.customer_id ?? null)
@@ -217,6 +223,8 @@ export function ContractDetail() {
         )}
       </div>
 
+      <RatedPeriods contract={c} doc={periods.data} error={periods.error} />
+
       {c.notes ? (
         <div className="card">
           <div className="card-head">
@@ -258,6 +266,175 @@ export function ContractDetail() {
           onDeleted={() => nav('/contracts')}
         />
       ) : null}
+    </div>
+  )
+}
+
+/**
+ * What the contract did (DESIGN.md §15.10): one row per statement rated
+ * under it, newest first — the period, the statement it produced, its
+ * status, the subtotal, the floor in force and the true-up — and, opened
+ * from the row, the consumption of every line as "used / included" with a
+ * bar, plus the discounts that applied. The newest period opens by itself:
+ * the founder's "the contract page shows no effect" is answered on arrival,
+ * not after a click. Nothing here is editable — a period is what a run did.
+ */
+export function RatedPeriods({ contract, doc, error }: { contract: Contract; doc: ContractPeriods | null; error: string }) {
+  const rows = doc?.periods ?? []
+  // undefined = nothing chosen yet, so the newest period is the open one.
+  const [chosen, setChosen] = useState<string | null | undefined>(undefined)
+  const openID = chosen === undefined ? (rows[0]?.statement_id ?? null) : chosen
+  const cur = contract.currency
+  const money = (v: number | string | null | undefined) => formatMoney(toNumber(v), cur)
+  return (
+    <div className="card">
+      <div className="card-head">
+        <h2>Rated periods</h2>
+        <span className="hint">what the contract did — one row per statement rated under it, newest first</span>
+      </div>
+      {error ? (
+        <Notice kind="bad">{error}</Notice>
+      ) : !doc ? (
+        <Skeleton lines={3} />
+      ) : rows.length === 0 ? (
+        <EmptyState title="No statement has been rated under this contract yet">
+          A statement run for a period inside the term rates it under these lines; the period then appears here with how much of each allowance and commitment it used, the floor in force and any true-up.
+        </EmptyState>
+      ) : (
+        <div className="table-wrap">
+          <table aria-label="Rated periods">
+            <thead>
+              <tr>
+                <th>Period</th>
+                <th>Statement</th>
+                <th>Status</th>
+                <th className="num">Subtotal</th>
+                <th className="num">Floor</th>
+                <th className="num">True-up</th>
+                <th className="actions" />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((p) => {
+                const open = openID === p.statement_id
+                const trueUp = toNumber(p.true_up)
+                const hasFloor = p.floor !== null && p.floor !== undefined && toNumber(p.floor) > 0
+                const detail = p.allowances.length + p.commitments.length + p.discounts.length > 0
+                return (
+                  <Fragment key={p.statement_id}>
+                    <tr data-period={p.period} className={open ? 'open' : undefined}>
+                      <td className="mono nowrap">
+                        {p.period}
+                        <span className="sub">
+                          {p.period_start} to {p.period_end}
+                        </span>
+                      </td>
+                      <td>
+                        <Link to={`/statements/${p.statement_id}`}>{p.invoice_number || 'draft statement'}</Link>
+                      </td>
+                      <td>
+                        <Badge status={p.status} kind={p.status === 'overdue' || p.status === 'cancelled' ? 'bad' : p.status === 'paid' ? 'ok' : p.status === 'draft' ? 'warn' : undefined} />
+                      </td>
+                      <td className="num nowrap">
+                        {money(p.subtotal)}
+                        {toNumber(p.discount_total) > 0 ? <span className="sub">after {money(p.discount_total)} of discounts</span> : null}
+                      </td>
+                      <td className="num nowrap">{hasFloor ? money(p.floor) : <span className="muted">—</span>}</td>
+                      <td className="num nowrap" data-true-up={trueUp > 0 ? 'yes' : 'no'}>
+                        {trueUp > 0 ? (
+                          <>
+                            {money(p.true_up)}
+                            <span className="sub">net {money(p.net)} brought to the floor</span>
+                          </>
+                        ) : hasFloor ? (
+                          <span className="muted">
+                            none
+                            <span className="sub">net {money(p.net)} met the floor</span>
+                          </span>
+                        ) : (
+                          <span className="muted">—</span>
+                        )}
+                      </td>
+                      <td className="actions">
+                        {detail ? (
+                          <button type="button" className="small" aria-expanded={open} aria-label={`${open ? 'Hide' : 'Show'} consumption for ${p.period}`} onClick={() => setChosen(open ? null : p.statement_id)}>
+                            {open ? 'Hide' : 'Consumption'}
+                          </button>
+                        ) : null}
+                      </td>
+                    </tr>
+                    {open && detail ? (
+                      <tr className="expand" data-period-detail={p.period}>
+                        <td colSpan={7}>
+                          <div className="consumption">
+                            {p.allowances.map((a) => (
+                              <Consumption key={`a-${a.sku}`} label={`${a.sku} allowance`} used={a.used} included={a.included} unit={a.unit} excess={a.excess} excessWord="above it, priced by the plan" />
+                            ))}
+                            {p.commitments.map((m) => (
+                              <Consumption
+                                key={`c-${m.sku}`}
+                                label={`${m.sku} commitment`}
+                                used={m.delivered}
+                                included={m.committed}
+                                unit={m.unit}
+                                excess={m.excess}
+                                excessWord="above it at list"
+                                shortfall={m.shortfall}
+                                amount={money(m.amount)}
+                              />
+                            ))}
+                            {p.discounts.map((d, i) => (
+                              <div className="consumption-row" key={d.discount_id ?? `d-${i}`} data-discount={d.from_contract ? 'contract' : 'other'}>
+                                <span className="nowrap">{d.from_contract ? 'spend commitment' : 'discount'}</span>
+                                <span />
+                                <span className="muted small">{d.name}</span>
+                                <span className="num nowrap">− {money(d.amount)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * One line's consumption in a period: "used / included" with a thin bar,
+ * the share in words, what went above it, and — on a commitment — what the
+ * usage did not reach and what the SKU rated to.
+ */
+function Consumption({ label, used, included, unit, excess, excessWord, shortfall, amount }: { label: string; used: number | string; included: number | string; unit?: string; excess: number | string; excessWord: string; shortfall?: number | string; amount?: string }) {
+  const u = toNumber(used)
+  const inc = toNumber(included)
+  const over = toNumber(excess)
+  const short = toNumber(shortfall)
+  const share = inc > 0 ? u / inc : 0
+  const pct = Math.round(share * 1000) / 10
+  const u2 = unit ? ` ${unit}` : ''
+  return (
+    <div className="consumption-row" data-consumption={label}>
+      <span className="mono nowrap">{label}</span>
+      <ShareBar share={share} width={120} />
+      <span className="nowrap">
+        <span data-used>
+          {formatNumber(u, 3)} / {formatNumber(inc, 3)}
+          {u2}
+        </span>
+        <span className="sub">
+          {pct.toLocaleString('en-US')} % used
+          {over > 0 ? `, ${formatNumber(over, 3)}${u2} ${excessWord}` : ''}
+          {short > 0 ? `, ${formatNumber(short, 3)}${u2} committed but not used` : ''}
+        </span>
+      </span>
+      {amount ? <span className="num nowrap">{amount}</span> : <span />}
     </div>
   )
 }

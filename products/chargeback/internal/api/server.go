@@ -368,6 +368,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("PATCH /api/v1/contracts/{id}/items/{item}", h.patchContractItem)
 	mux.HandleFunc("DELETE /api/v1/contracts/{id}/items/{item}", h.deleteContractItem)
 	mux.HandleFunc("POST /api/v1/contracts/{id}/sla-credit", h.issueSLACredit)
+	mux.HandleFunc("GET /api/v1/contracts/{id}/periods", h.contractPeriods)
 	mux.HandleFunc("GET /api/v1/customers/{id}/contracts", h.customerContracts)
 	mux.HandleFunc("GET /api/v1/customers/{id}/skus", h.customerSKUs)
 

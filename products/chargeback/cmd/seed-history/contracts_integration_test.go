@@ -307,6 +307,52 @@ func TestShowcaseContractsAreSeededRatedAndPurged(t *testing.T) {
 	if sub := f(t, scalar[string](t, db, `SELECT subtotal::text FROM statements WHERE id = $1`, res.StatementID)); !near(sub, 1500) {
 		t.Fatalf("August subtotal %.6f, want the 1,500 floor exactly (true-up %s)", sub, res.TrueUp)
 	}
+	// And the contract page's reading of it (DESIGN.md §15.10): the one
+	// period rated under the agreement, derived from the statement's frozen
+	// lines — the showcase contract is never blank once the seeder has run.
+	var periods struct {
+		Periods []struct {
+			Period      string      `json:"period"`
+			StatementID string      `json:"statement_id"`
+			TrueUp      json.Number `json:"true_up"`
+			Floor       json.Number `json:"floor"`
+			Subtotal    json.Number `json:"subtotal"`
+			Allowances  []struct {
+				SKU      string      `json:"sku"`
+				Included json.Number `json:"included"`
+				Used     json.Number `json:"used"`
+			} `json:"allowances"`
+			Commitments []struct {
+				SKU       string      `json:"sku"`
+				Committed json.Number `json:"committed"`
+				Delivered json.Number `json:"delivered"`
+				Excess    json.Number `json:"excess"`
+			} `json:"commitments"`
+		} `json:"periods"`
+	}
+	if err := s.api.do("GET", "/api/v1/contracts/"+g.id+"/periods", nil, &periods); err != nil {
+		t.Fatalf("periods: %v", err)
+	}
+	if len(periods.Periods) != 1 || periods.Periods[0].Period != "2026-08" || periods.Periods[0].StatementID != res.StatementID {
+		t.Fatalf("periods under the Gulf Retail agreement = %+v, want August's statement alone", periods.Periods)
+	}
+	p := periods.Periods[0]
+	if !near(f(t, p.Floor.String()), 1500) || !near(f(t, p.Subtotal.String()), 1500) || f(t, p.TrueUp.String()) <= 0 {
+		t.Fatalf("August reads floor %s, subtotal %s, true-up %s; want the 1,500 floor met by a true-up", p.Floor, p.Subtotal, p.TrueUp)
+	}
+	if len(p.Commitments) != 1 || p.Commitments[0].SKU != "ecs.m7n.xlarge.8" || !near(f(t, p.Commitments[0].Delivered.String()), 5952) || f(t, p.Commitments[0].Excess.String()) <= 0 {
+		t.Fatalf("August commitment = %+v, want the 5,952 head delivered with an excess above it", p.Commitments)
+	}
+	// The lines come in the contract's own order; find the SSD line by SKU.
+	ssd := -1
+	for i, a := range p.Allowances {
+		if a.SKU == "evs.ssd.gb" {
+			ssd = i
+		}
+	}
+	if len(p.Allowances) != 2 || ssd < 0 || !near(f(t, p.Allowances[ssd].Included.String()), 744000) || f(t, p.Allowances[ssd].Used.String()) <= 0 {
+		t.Fatalf("August allowances = %+v, want the SSD line used against its 744,000 and the bandwidth line", p.Allowances)
+	}
 
 	// ── the purge removes the agreements with the rest ─────────────────
 	counts, err := purge(context.Background(), db)

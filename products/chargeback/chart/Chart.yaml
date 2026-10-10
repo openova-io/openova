@@ -25,11 +25,11 @@ type: application
 # 0.1.58 (#6971): chart only — the Sovereign's storefront origin
 # (https://marketplace.<sovereignFqdn>) is always among the public-route
 # CORS origins, so the storefront's package table can read the document.
-version: 0.1.59
+version: 0.1.60
 # appVersion is the default image tag (chargeback.image in _helpers.tpl);
 # build-chargeback.yaml derives the pushed tag from this field so the two
 # can never drift.
-appVersion: 0.1.59
+appVersion: 0.1.60
 # The document renderer (EPIC #6867) ships as an OPTIONAL sub-chart, gated on
 # `docrender.enabled` (default false), so a Sovereign that does not offer
 # invoice downloads runs no second workload. The repository is a `file://`
