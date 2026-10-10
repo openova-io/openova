@@ -98,7 +98,12 @@ type settlementLaunchStore interface {
 // launchTenant, so the reconciler exercises the SAME call site the settlement
 // path uses — not a parallel re-implementation that could drift from it.
 type settlementLauncher interface {
-	launchTenant(ctx context.Context, tenantID string) error
+	// launchTenant launches the Organization the settled order paid for.
+	// It takes the ORDER (not just its TenantID) because the launch body
+	// carries the order's purchase — package sku, BSS add-on SKUs, price
+	// provenance, order id (#6971 item 8) — so a reconciler-recovered launch
+	// mints the same spec.commerce as the settlement-time one.
+	launchTenant(ctx context.Context, order *store.Order) error
 }
 
 // SettlementLaunchReconciler re-offers the tenant launch for every settled order
@@ -200,7 +205,10 @@ func (r *SettlementLaunchReconciler) Sweep(ctx context.Context) int {
 			continue
 		}
 		seen[o.TenantID] = true
-		if err := r.Launcher.launchTenant(ctx, o.TenantID); err != nil {
+		// The whole row goes over, not just its TenantID: the launch body
+		// carries the order's purchase (#6971 item 8), so a recovered launch
+		// mints the same spec.commerce a first-time settlement would.
+		if err := r.Launcher.launchTenant(ctx, &o); err != nil {
 			// Not an error verdict about the Organization — only about this
 			// attempt. The next tick tries again.
 			slog.Warn("settlement-launch sweep: launch call did not land, will retry next pass (#6242)",

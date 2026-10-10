@@ -2,6 +2,7 @@ package events
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 )
 
@@ -46,7 +47,9 @@ func TestTenantCreatedPayload_WireCompat(t *testing.T) {
 	if err := json.Unmarshal(b, &back); err != nil {
 		t.Fatalf("round-trip unmarshal: %v", err)
 	}
-	if back != p {
+	// #6971 added a []string (Addons) to the payload, so the struct is no
+	// longer `==`-comparable; DeepEqual is the same assertion.
+	if !reflect.DeepEqual(back, p) {
 		t.Errorf("round-trip mismatch: got %+v want %+v", back, p)
 	}
 }

@@ -568,6 +568,51 @@ All in `apps.openova.io/v1`, `orgs.openova.io/v1`, `catalyst.openova.io/v1`, or 
 > `spec.topology` exclusively — the CI admission gate (`blueprint-admission-
 > validate`) rejects a blueprint without it (G116).
 
+#### §5.4.1 `Organization.spec.commerce` — what was bought (optional, #6971)
+
+The SME marketplace sells packages S/M/L/XL with per-package add-ons
+(Included / Optional / Not offered — the matrix lives in Catalyst BSS). The
+Organization that a purchase creates records that purchase on itself, as
+**optional fields**, never as a new entity type (`feedback_no_new_entity_types`:
+the model is Sovereign → Organization only):
+
+| Field | Meaning | Example |
+|---|---|---|
+| `spec.commerce.packageSKU` | BSS package sku chosen on the comparison table | `plan.m` |
+| `spec.commerce.addons[]` | BSS add-on SKUs bought with it — BSS SKUs **only**, catalog add-on ids are filtered out by the emitters (`events.BSSAddonSKUs`) | `addon.backup` |
+| `spec.commerce.priceSource` | where the order's prices came from | `catalog` · `bss:<price_book>@<prices_as_of>` |
+| `spec.commerce.orderID` | the billing `orders.id` the Organization was launched from (provenance) | UUID |
+
+`spec.planSlug` is unchanged: it stays the catalog plan slug that **sizes** the
+boundary (ResourceQuota + LimitRange). `spec.commerce` is the commercial record
+beside it. The block is absent — not `{}` — when the Organization was not
+created from an order (the sovereign-admin door, every Organization that
+predates the field).
+
+Flow, order → Organization → BSS:
+
+1. The storefront sends `package_sku` + the cart's one `addons` list on both
+   `POST /tenant/orgs` (the Org shell, `defer_launch`) and `POST /billing/checkout`.
+2. Billing persists `package_sku` and `price_source` on the **order row**
+   (`core/services/billing/store`, columns `package_sku`, `price_source`) — the
+   order is the source.
+3. On settlement (credit-only, Stripe webhook, or the settlement-launch
+   reconciler) billing `POST`s `/tenant/internal/tenants/{id}/launch` with the
+   body `{order_id, package_sku, price_source, addons[addon.* SKUs]}`.
+4. `core/services/tenant` persists them on the record (`store.Tenant.PackageSKU /
+   PriceSource / OrderID`, SKUs merged into `AddOns`; the order wins over the
+   create-time values) and emits them on `tenant.created`
+   (`events.TenantCreatedPayload`: `package_sku`, `addons`, `price_source`, `order_id`).
+5. The provisioning consumer (`core/services/provisioning/handlers/organization_create.go`)
+   stamps `spec.commerce` on the Organization CR it mints.
+6. The organization-controller carries the block through its typed round-trips
+   and does not reconcile it. The chargeback OpenOva adapter
+   (`products/chargeback/internal/adapter/openova/orgsync.go`, `readOrg`) reads
+   `spec.commerce.*` to attach the Organization's platform Source to its package
+   and add-on lines, so the add-on lines reach the statement.
+
+A request without any of these fields behaves exactly as before at every hop.
+
 ### §5.5 Controllers
 
 All Go binaries under `core/controllers/<name>/cmd/main.go`, `controller-runtime` + `client-go`. Containers signed via cosign in CI; deployed via Flux HelmReleases.

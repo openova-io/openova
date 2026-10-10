@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -1580,10 +1581,45 @@ func (h *Handler) dispatchOrderPlaced(tenantID string, order *store.Order) {
 	// purchase did not happen when it did. The recovery is the settlement-launch
 	// reconciler (settlement_launch_reconciler.go), which re-offers this same
 	// call from the durable orders table until it lands.
-	if err := h.launchTenant(context.Background(), tenantID); err != nil {
+	if err := h.launchTenant(context.Background(), order); err != nil {
 		slog.Error("dispatchOrderPlaced: settlement launch did not land — the reconciler will retry it (#6242)",
 			"tenant_id", tenantID, "order_id", order.ID, "error", err)
 	}
+}
+
+// launchBody is the JSON the settlement launch POSTs to core/services/tenant
+// (#6971 item 8): the settled order's purchase, so the Organization launched
+// from it carries spec.commerce. Wire names match that service's
+// launchRequest, the order.placed payload and the tenant.created payload.
+type launchBody struct {
+	OrderID     string   `json:"order_id"`
+	PackageSKU  string   `json:"package_sku,omitempty"`
+	PriceSource string   `json:"price_source,omitempty"`
+	Addons      []string `json:"addons,omitempty"`
+}
+
+// settlementLaunchBody builds the launch body from an order. Addons carries
+// the BSS add-on SKUs ONLY (events.BSSAddonSKUs over the order's `addons`
+// JSON array) — the catalog add-on ids the storefront mixes into the same
+// list are not a purchase BSS can attach a line to, so they stay off the
+// Organization CR. A malformed `addons` column (never written by this
+// service) yields no SKUs rather than a failed launch.
+func settlementLaunchBody(order *store.Order) launchBody {
+	b := launchBody{
+		OrderID:     order.ID,
+		PackageSKU:  strings.ToLower(strings.TrimSpace(order.PackageSKU)),
+		PriceSource: strings.TrimSpace(order.PriceSource),
+	}
+	if len(order.Addons) > 0 {
+		var cart []string
+		if err := json.Unmarshal(order.Addons, &cart); err != nil {
+			slog.Warn("settlementLaunchBody: order addons column is not a JSON string array — launching with no add-on SKUs",
+				"order_id", order.ID, "error", err)
+		} else {
+			b.Addons = events.BSSAddonSKUs(cart)
+		}
+	}
+	return b
 }
 
 // launchTenant asks the tenant service to launch a DEFERRED (pending_payment)
@@ -1600,17 +1636,30 @@ func (h *Handler) dispatchOrderPlaced(tenantID string, order *store.Order) {
 // `pending_payment` with no producer that would ever move it again. The error is
 // still not fatal to settlement — see dispatchOrderPlaced — but it is now
 // observable, which is what the reconciler needs to do its job.
-func (h *Handler) launchTenant(ctx context.Context, tenantID string) error {
-	if h.TenantURL == "" || tenantID == "" {
+//
+// #6971 item 8 — the POST carries the settled order's purchase as its JSON
+// body (settlementLaunchBody) so core/services/tenant persists package sku,
+// BSS add-on SKUs, price provenance and order id BEFORE it emits
+// tenant.created, and the Organization CR minted from that event carries
+// spec.commerce. An older build of that service that does not read the body
+// still launches exactly as before (it never decoded one).
+func (h *Handler) launchTenant(ctx context.Context, order *store.Order) error {
+	if h.TenantURL == "" || order == nil || order.TenantID == "" {
 		return nil
+	}
+	tenantID := order.TenantID
+	body, err := json.Marshal(settlementLaunchBody(order))
+	if err != nil {
+		return fmt.Errorf("marshal launch body for tenant %s: %w", tenantID, err)
 	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	url := h.TenantURL + "/tenant/internal/tenants/" + tenantID + "/launch"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("build launch request for tenant %s: %w", tenantID, err)
 	}
+	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("tenant launch call for %s failed: %w", tenantID, err)

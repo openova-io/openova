@@ -1494,6 +1494,7 @@ func (s *Store) CreditOnlyCheckout(ctx context.Context, order *Order, sub *Subsc
 	order.AddonLines = orderAddonLines(order.AddonLines)
 
 	// 1. Persist the order.
+	order.PriceSource = orderPriceSource(order.PriceSource)
 	if err := tx.QueryRowContext(ctx,
 		`INSERT INTO orders (customer_id, tenant_id, plan_id, apps, addons, topology, amount_omr, amount_baisa, status, stripe_session_id, promo_code, package_sku, price_source, addon_lines)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)

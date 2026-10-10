@@ -187,6 +187,13 @@ func (h *Handler) createOrganizationCR(ctx context.Context, data tenantCreatedPa
 			"subdomain":    slug,
 		}
 	}
+	// #6971 item 8 — the purchase the Organization was created from. Only
+	// when the payload carries one: a legacy producer (or the sovereign-admin
+	// door, which mints without an order) leaves spec.commerce absent, so the
+	// CR is byte-identical to before.
+	if block, ok := organizationCommerceBlock(data); ok {
+		org["spec"].(map[string]any)["commerce"] = block
+	}
 
 	payload, err := json.Marshal(org)
 	if err != nil {
@@ -225,16 +232,60 @@ func (h *Handler) createOrganizationCR(ctx context.Context, data tenantCreatedPa
 		"parent_domain", parentDomain,
 		"tier", tier,
 		"plan_slug", planSlug,
+		"package_sku", data.PackageSKU,
+		"order_id", data.OrderID,
 		"sovereign", h.SovereignFQDN,
 	)
 	h.publishEvent(ctx, "provision.org_created", data.ID, map[string]string{
 		"slug":          slug,
 		"tier":          tier,
 		"plan_slug":     planSlug,
+		"package_sku":   strings.ToLower(strings.TrimSpace(data.PackageSKU)),
+		"order_id":      strings.TrimSpace(data.OrderID),
 		"parent_domain": parentDomain,
 		"sovereign":     h.SovereignFQDN,
 	})
 	return nil
+}
+
+// organizationCommerceBlock renders the payload's purchase (#6971 item 8)
+// as the Organization CR's `spec.commerce` object — the field paths the
+// chargeback OpenOva adapter reads:
+//
+//	packageSKU   ← package_sku   (lower-cased, trimmed)
+//	addons[]     ← addons        (events.BSSAddonSKUs: BSS SKUs only, no catalog ids)
+//	priceSource  ← price_source  (trimmed)
+//	orderID      ← order_id      (trimmed)
+//
+// Returns ok=false when nothing is set, so the caller leaves the block
+// absent instead of minting `commerce: {}`. Pure, so the CR shape is
+// unit-tested without an apiserver (k8sRequest is env-gated).
+func organizationCommerceBlock(data tenantCreatedPayload) (map[string]any, bool) {
+	// Normalise through the shared helper so the consumer and every producer
+	// agree on exactly one shape (WithCommerce is the producer-side twin).
+	p := events.TenantCreatedPayload{}.WithCommerce(events.TenantCommerce{
+		PackageSKU:  data.PackageSKU,
+		Addons:      data.Addons,
+		PriceSource: data.PriceSource,
+		OrderID:     data.OrderID,
+	})
+	if !p.HasCommerce() {
+		return nil, false
+	}
+	block := map[string]any{}
+	if p.PackageSKU != "" {
+		block["packageSKU"] = p.PackageSKU
+	}
+	if len(p.Addons) > 0 {
+		block["addons"] = p.Addons
+	}
+	if p.PriceSource != "" {
+		block["priceSource"] = p.PriceSource
+	}
+	if p.OrderID != "" {
+		block["orderID"] = p.OrderID
+	}
+	return block, true
 }
 
 // resolveOrgParentDomain picks the org-pool parent zone the Organization CR's

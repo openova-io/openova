@@ -90,6 +90,21 @@ type OrganizationSpec struct {
 	// class of trap #4471 documented on clientSecretRef.
 	CostSources []OrganizationCostSource `json:"costSources,omitempty"`
 
+	// Commerce optionally records WHAT WAS BOUGHT for this Organization on
+	// the SME marketplace (#6971 item 8): the BSS package sku, the BSS
+	// add-on SKUs, and the provenance of the price (the billing order).
+	// The order row in core/services/billing is the source;
+	// core/services/tenant carries it onto `tenant.created`; the provisioning consumer
+	// stamps it here; the chargeback OpenOva adapter (PROFILE=sovereign)
+	// reads it to attach the Organization's platform Source to its
+	// package and add-on lines. No new entity type — the Organization is
+	// the entity, these are optional fields on it. A POINTER so an absent
+	// block round-trips as absent through the typed client (the #4471
+	// value-struct lesson); the organization-controller does NOT reconcile
+	// it. Absent on the sovereign-admin door (no order) and on every
+	// Organization that predates the field.
+	Commerce *OrganizationCommerce `json:"commerce,omitempty"`
+
 	// SovereignRef is the FQDN of the Sovereign hosting this Org.
 	SovereignRef string `json:"sovereignRef"`
 
@@ -201,6 +216,27 @@ type OrganizationCostSource struct {
 type OrganizationCostSourceCredentialRef struct {
 	Name string `json:"name,omitempty"`
 	Key  string `json:"key,omitempty"`
+}
+
+// OrganizationCommerce is spec.commerce — the purchase an Organization was
+// created from (#6971 item 8). Every field is optional; the block itself
+// is absent when the Organization was not created from a marketplace
+// order. Field paths the chargeback OpenOva adapter reads:
+//
+//	spec.commerce.packageSKU   — BSS package sku, e.g. "plan.m"
+//	spec.commerce.addons[]     — BSS add-on SKUs, e.g. "addon.backup"
+//	spec.commerce.priceSource  — "catalog" | "bss:<price_book>@<prices_as_of>"
+//	spec.commerce.orderID      — the billing order row (provenance)
+//
+// Addons carries BSS SKUs ONLY — catalog add-on ids the storefront may
+// have mixed into the same cart list are filtered out by the emitters
+// (events.BSSAddonSKUs), so a reader can attach every entry to a BSS
+// add-on line without a second lookup.
+type OrganizationCommerce struct {
+	PackageSKU  string   `json:"packageSKU,omitempty"`
+	Addons      []string `json:"addons,omitempty"`
+	PriceSource string   `json:"priceSource,omitempty"`
+	OrderID     string   `json:"orderID,omitempty"`
 }
 
 // OrganizationOwner is an entry in spec.owners.
@@ -422,6 +458,14 @@ func (s *OrganizationSpec) DeepCopyInto(out *OrganizationSpec) {
 				out.CostSources[i].CredentialRef = &ref
 			}
 		}
+	}
+	if s.Commerce != nil {
+		c := *s.Commerce
+		if s.Commerce.Addons != nil {
+			c.Addons = make([]string, len(s.Commerce.Addons))
+			copy(c.Addons, s.Commerce.Addons)
+		}
+		out.Commerce = &c
 	}
 	s.Identity.DeepCopyInto(&out.Identity)
 }
