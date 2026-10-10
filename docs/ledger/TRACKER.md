@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-10-10T11:45:05Z` |
+| Last refreshed | `2026-10-10T12:00:11Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-10-10T11:53 | [#6989](https://github.com/openova-io/openova/pull/6989) | #6987 | test(bootstrap-api): the resource-tree test waits for every  |
+| 2026-10-10T11:52 | [#6987](https://github.com/openova-io/openova/pull/6987) | #6971 | feat(bss): packages reach the order, the Organization and th |
 | 2026-10-10T09:25 | [#6986](https://github.com/openova-io/openova/pull/6986) | #6971 | docs(ledger): hw307 BSS walk evidence 0.1.27–0.1.57 |
 | 2026-10-10T10:53 | [#6984](https://github.com/openova-io/openova/pull/6984) | #6971 | fix(bss): the storefront reads the package document — its or |
 | 2026-10-10T08:19 | [#6982](https://github.com/openova-io/openova/pull/6982) | #6972 | fix(marketplace): the plan deck keeps its styles when the pa |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-09-13T11:21 | [#6933](https://github.com/openova-io/openova/pull/6933) | #6867 | fix(bss): Catalyst BSS 0.1.44 — creating a pool blanked the  |
 | 2026-09-13T10:44 | [#6932](https://github.com/openova-io/openova/pull/6932) | #6867 | fix(bss): Catalyst BSS 0.1.43 — a stale tab failed saves sil |
 | 2026-09-13T09:38 | [#6931](https://github.com/openova-io/openova/pull/6931) | #6867 | feat(bss): Catalyst BSS 0.1.42 — capacity as pools of machin |
-| 2026-09-12T00:53 | [#6930](https://github.com/openova-io/openova/pull/6930) | #6867 | fix(bss): Catalyst BSS 0.1.41 — an unrated period claimed ev |
-| 2026-09-11T22:45 | [#6929](https://github.com/openova-io/openova/pull/6929) | #6867 | feat(bss): Catalyst BSS 0.1.40 — console translation seam, E |
 
 ---
 
