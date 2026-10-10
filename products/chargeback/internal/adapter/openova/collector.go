@@ -265,9 +265,15 @@ type trackedResource struct {
 	Kind      string // "pod" | "pvc"
 	VCPU      float64
 	MemGiB    float64
-	PVCGB     float64
-	Created   time.Time
-	Deleted   time.Time // zero = alive
+	// LimitVCPU / LimitMemGiB are the pod's CPU and memory LIMITS (a
+	// container without a limit counts its request), the quantity a
+	// package's headline is defined in (DESIGN.md §22.11). Emitted as the
+	// limit meters for an Organization on a sized package only.
+	LimitVCPU   float64
+	LimitMemGiB float64
+	PVCGB       float64
+	Created     time.Time
+	Deleted     time.Time // zero = alive
 	// Transitions are the moments the resource's BILLABLE SIZE changed, in
 	// the same shape the cloud collector records an ECS resize
 	// (window.Transition, carrying the size in Flavor). Without them a pod
@@ -405,13 +411,29 @@ func (c *PlatformCollector) ObservePod(pod *corev1.Pod) {
 	if !ok || skip {
 		return
 	}
-	var cores, gib float64
+	var cores, gib, limCores, limGib float64
 	for _, ct := range pod.Spec.Containers {
+		var reqC, reqM float64
 		if q, ok := ct.Resources.Requests[corev1.ResourceCPU]; ok {
-			cores += float64(q.MilliValue()) / 1000
+			reqC = float64(q.MilliValue()) / 1000
+			cores += reqC
 		}
 		if q, ok := ct.Resources.Requests[corev1.ResourceMemory]; ok {
-			gib += float64(q.Value()) / (1 << 30)
+			reqM = float64(q.Value()) / (1 << 30)
+			gib += reqM
+		}
+		// The limit is what the package headline caps; a container with no
+		// limit is counted at its request (in a quota'd namespace the
+		// LimitRange gives every container a limit, so this is the edge).
+		if q, ok := ct.Resources.Limits[corev1.ResourceCPU]; ok {
+			limCores += float64(q.MilliValue()) / 1000
+		} else {
+			limCores += reqC
+		}
+		if q, ok := ct.Resources.Limits[corev1.ResourceMemory]; ok {
+			limGib += float64(q.Value()) / (1 << 30)
+		} else {
+			limGib += reqM
 		}
 	}
 	key := resourceKey("pod", pod.Namespace, pod.Name, string(pod.UID))
@@ -426,6 +448,7 @@ func (c *PlatformCollector) ObservePod(pod *corev1.Pod) {
 		c.res[key] = tr
 	}
 	tr.VCPU, tr.MemGiB = cores, gib
+	tr.LimitVCPU, tr.LimitMemGiB = limCores, limGib
 	c.noteSize(tr, c.now())
 	tr.Tags = platformTags(pod.Labels)
 	if pod.DeletionTimestamp != nil {
@@ -724,6 +747,11 @@ func (c *PlatformCollector) EmitOrg(ctx context.Context, org string) (int, error
 	}
 	c.mu.Unlock()
 
+	// The limit meters (DESIGN.md §22.11) are written for an Organization on
+	// a sized package only: its headline is a limit, and grow mode bills the
+	// limits above it. A flexi Organization (billed off the request meters)
+	// and the Sovereign's own footprint carry none.
+	limits := !internal && billablePlan(cust) != ""
 	var batch []store.UsageRecord
 	written := 0
 	flush := func() error {
@@ -745,7 +773,7 @@ func (c *PlatformCollector) EmitOrg(ctx context.Context, org string) (int, error
 		// a resize and hands each slice the size that was in force for it.
 		lc := window.Lifecycle{Created: tr.Created, Deleted: tr.Deleted, Flavor: shapeOf(tr), Transitions: tr.Transitions}
 		for _, sl := range window.HourSlices(from, now, lc) {
-			for _, line := range platformSKUs(tr, sl.Flavor) {
+			for _, line := range platformSKUs(tr, sl.Flavor, limits && !overhead[keys[i]]) {
 				qty := window.Quantity(sl.Hours(), line.factor)
 				if qty <= 0 {
 					continue
@@ -867,19 +895,30 @@ type skuLine struct {
 // factors come from the size in force for that slice (shape), falling back
 // to the last observed size when the slice carries no shape — which is what
 // a resource tracked before this collector recorded sizes looks like.
-func platformSKUs(tr *trackedResource, shape string) []skuLine {
-	vcpu, mem, pvc := tr.VCPU, tr.MemGiB, tr.PVCGB
+func platformSKUs(tr *trackedResource, shape string, withLimits bool) []skuLine {
+	sz := size{vcpu: tr.VCPU, mem: tr.MemGiB, pvc: tr.PVCGB, lvcpu: tr.LimitVCPU, lmem: tr.LimitMemGiB, hasLimits: tr.LimitVCPU != 0 || tr.LimitMemGiB != 0}
 	if f, ok := parseShape(shape); ok {
-		vcpu, mem, pvc = f.vcpu, f.mem, f.pvc
+		sz = f
 	}
 	switch tr.Kind {
 	case "pod":
-		return []skuLine{
-			{SKUVCPU, UnitVCPU, vcpu},
-			{SKUMem, UnitMem, mem},
+		out := []skuLine{
+			{SKUVCPU, UnitVCPU, sz.vcpu},
+			{SKUMem, UnitMem, sz.mem},
 		}
+		if withLimits {
+			// DESIGN.md §22.11 — the LIMIT meters, for an Organization on
+			// a sized package: what grow mode bills above the headline is
+			// measured in the unit the headline is defined in.
+			lv, lm := sz.lvcpu, sz.lmem
+			if !sz.hasLimits {
+				lv, lm = sz.vcpu, sz.mem
+			}
+			out = append(out, skuLine{store.SKUVCPULimit, UnitVCPU, lv}, skuLine{store.SKUMemLimit, UnitMem, lm})
+		}
+		return out
 	case "pvc":
-		return []skuLine{{SKUPVC, UnitPVC, pvc}}
+		return []skuLine{{SKUPVC, UnitPVC, sz.pvc}}
 	}
 	return nil
 }
@@ -889,7 +928,13 @@ func platformSKUs(tr *trackedResource, shape string) []skuLine {
 // than adding numeric fields to window.Transition is what lets the platform
 // collector reuse the cloud collector's window math unchanged: to that math
 // a pod growing from 500m to 1 CPU is exactly an ECS changing flavour.
-type size struct{ vcpu, mem, pvc float64 }
+type size struct {
+	vcpu, mem, pvc float64
+	// lvcpu / lmem are the limits; hasLimits is false when the token carries
+	// none, which means the limits equal the requests.
+	lvcpu, lmem float64
+	hasLimits   bool
+}
 
 // shapeOf renders the resource's current billable size as a shape token.
 // Two sizes that bill identically render identically, so an informer update
@@ -898,7 +943,14 @@ func shapeOf(tr *trackedResource) string {
 	if tr.Kind == "pvc" {
 		return "gb=" + fmtFactor(tr.PVCGB)
 	}
-	return "cpu=" + fmtFactor(tr.VCPU) + ",mem=" + fmtFactor(tr.MemGiB)
+	tok := "cpu=" + fmtFactor(tr.VCPU) + ",mem=" + fmtFactor(tr.MemGiB)
+	// The limits ride the token only where they differ from the requests,
+	// so a pod sized requests == limits keeps exactly the token it had
+	// before the limit meters (DESIGN.md §22.11).
+	if (tr.LimitVCPU != 0 || tr.LimitMemGiB != 0) && (tr.LimitVCPU != tr.VCPU || tr.LimitMemGiB != tr.MemGiB) {
+		tok += ",lcpu=" + fmtFactor(tr.LimitVCPU) + ",lmem=" + fmtFactor(tr.LimitMemGiB)
+	}
+	return tok
 }
 
 // parseShape decodes a shape token. ok is false for an empty or unreadable
@@ -924,6 +976,10 @@ func parseShape(shape string) (size, bool) {
 			out.mem = f
 		case "gb":
 			out.pvc = f
+		case "lcpu":
+			out.lvcpu, out.hasLimits = f, true
+		case "lmem":
+			out.lmem, out.hasLimits = f, true
 		default:
 			return size{}, false
 		}

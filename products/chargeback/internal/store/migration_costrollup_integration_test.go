@@ -103,11 +103,15 @@ func TestIntegrationRollupMigrationMarksEveryExistingDay(t *testing.T) {
 	lb, _ := json.Marshal(map[string]any{"name": "1.2.3.4"})
 	var recs []store.UsageRecord
 	for s := range 2 {
-		src, _, err := st.UpsertSource(ctx, cust.ID, "huawei-project", "me-east-1", "proj-"+string(rune('a'+s)))
-		if err != nil {
+		// Raw SQL rather than UpsertSource: the store's source read names
+		// columns a LATER migration adds (the §22.11 overage mode), which
+		// this pre-rollup schema cannot have.
+		var src store.CostSource
+		if err := db.QueryRowContext(ctx, `INSERT INTO cost_sources (customer_id, kind, region, project_id) VALUES ($1, 'huawei-project', 'me-east-1', $2) RETURNING id`,
+			cust.ID, "proj-"+string(rune('a'+s))).Scan(&src.ID); err != nil {
 			t.Fatal(err)
 		}
-		if err := st.SetSourcePriceBook(ctx, src.ID, book.ID); err != nil {
+		if _, err := db.ExecContext(ctx, `UPDATE cost_sources SET price_book_id = $2 WHERE id = $1`, src.ID, book.ID); err != nil {
 			t.Fatal(err)
 		}
 		for d := 1; d <= 3; d++ {

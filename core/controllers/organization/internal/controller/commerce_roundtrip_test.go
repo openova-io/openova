@@ -1,5 +1,6 @@
 // commerce_roundtrip_test.go — #6971 item 8. The organization-controller does
-// NOT reconcile spec.commerce, but it MUST tolerate it: the first reconcile
+// NOT write spec.commerce (it reads only overageMode + growCeiling, to size
+// the ResourceQuota limits), but it MUST preserve it: the first reconcile
 // pass adds finalizers through a typed `r.Update(ctx, &org)`, and a typed
 // round-trip erases every spec field the Go type does not model (the #4471
 // clientSecretRef trap, repeated for costSources). This pins that an
@@ -32,6 +33,11 @@ func TestReconcile_SpecCommerceSurvivesTheTypedRoundTrip(t *testing.T) {
 			Addons:      []string{"addon.backup", "addon.dedicated-ip"},
 			PriceSource: "bss:OpenOva plans@2026-09-11",
 			OrderID:     "4f7c2a1e-9b3d-4c5e-8f6a-1d2e3f4a5b6c",
+			OverageMode: orgapi.OverageModeGrow,
+			GrowCeiling: &orgapi.OrganizationGrowCeiling{
+				VCPU: 4, MemoryGB: 8, DiskGB: 120, BandwidthMbps: 500,
+			},
+			SpendLimitMonth: "25.000",
 		}
 	}
 	want := purchase()

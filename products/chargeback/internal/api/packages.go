@@ -131,6 +131,28 @@ type packageDoc struct {
 	Icon   *iconDoc `json:"icon,omitempty"`
 	Accent string   `json:"accent,omitempty"`
 	Badge  string   `json:"badge,omitempty"`
+	// Grow is the package's grow mode (DESIGN.md §22.11), omitted when the
+	// package does not allow it.
+	Grow *growDoc `json:"grow,omitempty"`
+}
+
+// growDoc is what grow mode means on one package: the ceiling the quota may
+// be raised to and the rates the usage above the allowance is billed at —
+// the package's own compute rates, the book's flat disk and bandwidth meter
+// prices.
+type growDoc struct {
+	Allowed      bool              `json:"allowed"`
+	Ceiling      store.GrowCeiling `json:"ceiling"`
+	OverageRates []overageRateDoc  `json:"overage_rates"`
+}
+
+// overageRateDoc is one rate above the allowance, per unit per month at the
+// currency's minor unit — the hourly unit price × 730, rounded once.
+type overageRateDoc struct {
+	Key        string `json:"key"`
+	SKU        string `json:"sku"`
+	Unit       string `json:"unit"`
+	PriceMonth string `json:"price_month"`
 }
 
 type packageFeature struct {
@@ -164,6 +186,10 @@ type packageCell struct {
 	Level          *int            `json:"level,omitempty"`
 	NextLevelAddon *nextLevelAddon `json:"next_level_addon,omitempty"`
 	Note           string          `json:"note,omitempty"`
+	// GrowOnly: the feature (or, on a level, the next level) is available
+	// on this package only in grow mode, billed as usage — state optional,
+	// no add-on, no price (DESIGN.md §22.11).
+	GrowOnly bool `json:"grow_only,omitempty"`
 }
 
 // CellStateTeaser is the published state of a not-offered cell on a teaser
@@ -365,6 +391,12 @@ func packagesDocument(pb store.PriceBook, features []store.Feature, cells []stor
 				if has && c.State != store.EntitlementNotOffered && c.Level != nil {
 					lvl := *c.Level
 					cell.Level = &lvl
+					if c.GrowOnly {
+						// The next level comes with grow mode: published
+						// optional, grow-only, with no add-on and no price.
+						cell.State, cell.GrowOnly = store.EntitlementOptional, true
+						break
+					}
 					if c.State == store.EntitlementOptional && f.AddonSKU != "" {
 						pm, err := monthly(f.AddonSKU)
 						if err != nil {
@@ -377,7 +409,9 @@ func packagesDocument(pb store.PriceBook, features []store.Feature, cells []stor
 					cell.State = store.EntitlementIncluded
 				}
 			default: // boolean, access
-				if has && c.State == store.EntitlementOptional && f.AddonSKU != "" {
+				if has && c.State == store.EntitlementOptional && c.GrowOnly {
+					cell.GrowOnly = true
+				} else if has && c.State == store.EntitlementOptional && f.AddonSKU != "" {
 					cell.AddonSKU = f.AddonSKU
 					pm, err := monthly(f.AddonSKU)
 					if err != nil {
@@ -409,6 +443,11 @@ func packagesDocument(pb store.PriceBook, features []store.Feature, cells []stor
 		if s, ok := settings[p.sku]; ok {
 			pd.Tagline, pd.Recommended, pd.AnnualMonthsFree = s.Tagline, s.Recommended, s.AnnualMonthsFree
 			pd.Icon, pd.Accent, pd.Badge = iconOf(s.IconID, pd.Name, ""), s.Accent, s.Badge
+			g, err := growDocOf(s, pb, items, digits)
+			if err != nil {
+				return doc, fmt.Errorf("package %s: %w", p.sku, err)
+			}
+			pd.Grow = g
 		}
 		if i+1 < len(plans) {
 			n := plans[i+1]
@@ -421,7 +460,9 @@ func packagesDocument(pb store.PriceBook, features []store.Feature, cells []stor
 				bundled, price := false, ""
 				switch f.Kind {
 				case store.FeatureKindBoolean:
-					bundled = cp.State == store.EntitlementOptional && cn.State == store.EntitlementIncluded
+					// A grow-only feature is not an add-on: nothing is
+					// bundled by the step.
+					bundled = cp.State == store.EntitlementOptional && !cp.GrowOnly && cn.State == store.EntitlementIncluded
 					price = cp.PriceMonth
 				case store.FeatureKindLevel:
 					if cp.NextLevelAddon != nil && cp.Level != nil && cn.Level != nil && *cn.Level > *cp.Level {
@@ -450,6 +491,57 @@ func packagesDocument(pb store.PriceBook, features []store.Feature, cells []stor
 		doc.Packages = append(doc.Packages, pd)
 	}
 	return doc, nil
+}
+
+// growDocOf is a package's grow block, nil when the package does not allow
+// grow. The compute rates are the package's own (its settings, per unit per
+// month, converted as every book item is: annual = × 12, unit through the
+// book's divisor); disk and bandwidth are the book's flat meter prices. Each
+// price_month is the unit price × 730 rounded once, so the storefront shows
+// the figure the statement rates at.
+func growDocOf(s store.PackageSettings, pb store.PriceBook, items map[string]store.PriceItem, digits int) (*growDoc, error) {
+	if !s.GrowAllowed {
+		return nil, nil
+	}
+	g := &growDoc{Allowed: true, OverageRates: []overageRateDoc{},
+		Ceiling: store.GrowCeiling{VCPU: s.GrowCeilingVCPU, MemoryGB: s.GrowCeilingMemoryGB, DiskGB: s.GrowCeilingDiskGB, BandwidthMbps: s.GrowCeilingBandwidthMbps}}
+	compute := func(key, sku, unit string, monthly *store.Decimal) error {
+		if monthly == nil {
+			return nil
+		}
+		annual, err := rating.Amount(*monthly, "12")
+		if err != nil {
+			return err
+		}
+		up, err := rating.UnitPrice(string(annual), pb.AnnualDivisor)
+		if err != nil {
+			return err
+		}
+		m, err := rating.MonthlyAt(up, digits)
+		if err != nil {
+			return err
+		}
+		g.OverageRates = append(g.OverageRates, overageRateDoc{Key: key, SKU: sku, Unit: unit, PriceMonth: string(m)})
+		return nil
+	}
+	if err := compute("vcpu", store.SKUVCPU, "vCPU", s.OverageVCPUMonth); err != nil {
+		return nil, err
+	}
+	if err := compute("memory", store.SKUMem, "GB", s.OverageMemGBMonth); err != nil {
+		return nil, err
+	}
+	for _, m := range []struct{ key, sku, unit string }{{"disk", store.SKUPVC, "GB"}, {"bandwidth", store.SKUBandwidth, "Mbps"}} {
+		it, ok := items[m.sku]
+		if !ok {
+			continue
+		}
+		pm, err := rating.MonthlyAt(it.UnitPrice, digits)
+		if err != nil {
+			return nil, err
+		}
+		g.OverageRates = append(g.OverageRates, overageRateDoc{Key: m.key, SKU: m.sku, Unit: m.unit, PriceMonth: string(pm)})
+	}
+	return g, nil
 }
 
 func ratOf(d store.Decimal) *big.Rat {
@@ -706,6 +798,10 @@ type packageCellBody struct {
 	Level            *int           `json:"level"`
 	Note             *string        `json:"note"`
 	AddonMonthly     *store.Decimal `json:"addon_monthly"`
+	// GrowOnly marks an optional boolean or level cell as available on the
+	// package only in grow mode, billed as usage (DESIGN.md §22.11). Left
+	// out keeps the one that is there.
+	GrowOnly *bool `json:"grow_only"`
 }
 
 func (h *Handler) putPackageCell(w http.ResponseWriter, r *http.Request) {
@@ -803,12 +899,22 @@ func (h *Handler) putPackageCell(w http.ResponseWriter, r *http.Request) {
 	if in.Level == nil && curErr == nil {
 		ei.Level = cur.Level
 	}
+	if in.GrowOnly != nil {
+		ei.GrowOnly = *in.GrowOnly
+	} else if curErr == nil {
+		ei.GrowOnly = cur.GrowOnly
+	}
+	if in.GrowOnly == nil && !strings.EqualFold(strings.TrimSpace(in.State), store.EntitlementOptional) {
+		// grow-only is a kind of optional: a cell moved to another state
+		// without naming it drops it (one that names it is refused).
+		ei.GrowOnly = false
+	}
 	cell, err := h.Store.PutEntitlement(r.Context(), pb.ID, planSKU, f.ID, ei)
 	if err != nil {
 		storeErr(w, err)
 		return
 	}
-	h.audit(r, nil, "pricebook.package.put", map[string]any{"id": pb.ID, "plan": planSKU, "feature": f.Key, "state": cell.State, "included_quantity": cell.IncludedQuantity, "overage": cell.Overage, "level": cell.Level})
+	h.audit(r, nil, "pricebook.package.put", map[string]any{"id": pb.ID, "plan": planSKU, "feature": f.Key, "state": cell.State, "included_quantity": cell.IncludedQuantity, "overage": cell.Overage, "level": cell.Level, "grow_only": cell.GrowOnly})
 	writeJSON(w, http.StatusOK, cell)
 }
 
@@ -849,6 +955,17 @@ type packageSettingsBody struct {
 	IconID string `json:"icon_id"`
 	Accent string `json:"accent"`
 	Badge  string `json:"badge"`
+	// Grow (DESIGN.md §22.11): whether a customer may choose grow mode, the
+	// most it raises the quota to per dimension, and the package's compute
+	// overage rates per unit per month. Whole, like the rest: when
+	// grow_allowed, all six are required.
+	GrowAllowed              bool           `json:"grow_allowed"`
+	GrowCeilingVCPU          *store.Decimal `json:"grow_ceiling_vcpu"`
+	GrowCeilingMemoryGB      *store.Decimal `json:"grow_ceiling_memory_gb"`
+	GrowCeilingDiskGB        *store.Decimal `json:"grow_ceiling_disk_gb"`
+	GrowCeilingBandwidthMbps *store.Decimal `json:"grow_ceiling_bandwidth_mbps"`
+	OverageVCPUMonth         *store.Decimal `json:"overage_vcpu_month"`
+	OverageMemGBMonth        *store.Decimal `json:"overage_mem_gb_month"`
 }
 
 func (h *Handler) putPackageSettings(w http.ResponseWriter, r *http.Request) {
@@ -868,12 +985,16 @@ func (h *Handler) putPackageSettings(w http.ResponseWriter, r *http.Request) {
 		Tagline: in.Tagline, Recommended: in.Recommended, AnnualMonthsFree: in.AnnualMonthsFree,
 		VCPU: in.VCPU, MemoryGB: in.MemoryGB, VCPUGuaranteed: in.VCPUGuaranteed, MemoryGBGuaranteed: in.MemoryGBGuaranteed, DiskGB: in.DiskGB,
 		IconID: in.IconID, Accent: in.Accent, Badge: in.Badge,
+		GrowAllowed: in.GrowAllowed, GrowCeilingVCPU: in.GrowCeilingVCPU, GrowCeilingMemoryGB: in.GrowCeilingMemoryGB,
+		GrowCeilingDiskGB: in.GrowCeilingDiskGB, GrowCeilingBandwidthMbps: in.GrowCeilingBandwidthMbps,
+		OverageVCPUMonth: in.OverageVCPUMonth, OverageMemGBMonth: in.OverageMemGBMonth,
 	})
 	if err != nil {
 		storeErr(w, err)
 		return
 	}
-	h.audit(r, nil, "pricebook.package.settings", map[string]any{"id": id, "plan": planSKU, "recommended": ps.Recommended, "annual_months_free": ps.AnnualMonthsFree, "vcpu": ps.VCPU, "memory_gb": ps.MemoryGB, "disk_gb": ps.DiskGB, "icon_id": ps.IconID, "accent": ps.Accent, "badge": ps.Badge})
+	h.audit(r, nil, "pricebook.package.settings", map[string]any{"id": id, "plan": planSKU, "recommended": ps.Recommended, "annual_months_free": ps.AnnualMonthsFree, "vcpu": ps.VCPU, "memory_gb": ps.MemoryGB, "disk_gb": ps.DiskGB, "icon_id": ps.IconID, "accent": ps.Accent, "badge": ps.Badge,
+		"grow_allowed": ps.GrowAllowed, "overage_vcpu_month": ps.OverageVCPUMonth, "overage_mem_gb_month": ps.OverageMemGBMonth})
 	writeJSON(w, http.StatusOK, ps)
 }
 
@@ -917,6 +1038,52 @@ func (h *Handler) putSourceAddons(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.audit(r, &cid, "source.addons", map[string]any{"source_id": src.ID, "addons": updated.Addons})
+	writeJSON(w, http.StatusOK, struct {
+		store.CostSource
+		Collecting bool `json:"collecting"`
+	}{updated, h.collectingFor(r, updated)})
+}
+
+// putSourceOverage — PUT /api/v1/customers/{id}/sources/{sid}/overage
+// {"overage_mode": "grow", "grow_ceiling": {"vcpu": "4", …}, "spend_limit_month":
+// "25.000"}: the customer's choice at the package's allowance (DESIGN.md
+// §22.11), written whole. customers.manage on the customer, the permission
+// the add-ons route takes. The store refuses grow on a package that does not
+// offer it, a ceiling outside [headline, the package's ceiling], and a
+// ceiling or a spend limit in capped mode, naming the reason.
+func (h *Handler) putSourceOverage(w http.ResponseWriter, r *http.Request) {
+	cid := r.PathValue("id")
+	if _, ok := h.requirePermission(w, r, access.CustomersManage, cid); !ok {
+		return
+	}
+	src, err := h.Store.GetSource(r.Context(), store.OperatorScope, r.PathValue("sid"))
+	if err != nil {
+		storeErr(w, err)
+		return
+	}
+	if src.CustomerID != cid {
+		writeErr(w, http.StatusNotFound, "not found")
+		return
+	}
+	var in struct {
+		OverageMode     string             `json:"overage_mode"`
+		GrowCeiling     *store.GrowCeiling `json:"grow_ceiling"`
+		SpendLimitMonth *store.Decimal     `json:"spend_limit_month"`
+	}
+	if err := decode(r, &in); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body: "+err.Error())
+		return
+	}
+	if strings.TrimSpace(in.OverageMode) == "" {
+		writeErr(w, http.StatusBadRequest, `body must name {"overage_mode": "capped" | "grow"}`)
+		return
+	}
+	updated, err := h.Store.SetSourceOverage(r.Context(), src.ID, store.OverageInput{Mode: in.OverageMode, Ceiling: in.GrowCeiling, SpendLimitMonth: in.SpendLimitMonth})
+	if err != nil {
+		storeErr(w, err)
+		return
+	}
+	h.audit(r, &cid, "source.overage", map[string]any{"source_id": src.ID, "overage_mode": updated.OverageMode, "grow_ceiling": updated.GrowCeiling, "spend_limit_month": updated.SpendLimitMonth})
 	writeJSON(w, http.StatusOK, struct {
 		store.CostSource
 		Collecting bool `json:"collecting"`

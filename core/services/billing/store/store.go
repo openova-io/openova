@@ -47,27 +47,27 @@ type Subscription struct {
 // Stripe emits smallest-unit amounts and a 1 OMR invoice arrives as 1000
 // baisa. See store.BaisaToOMR / store.OMRToBaisa for safe conversion.
 type Order struct {
-	ID              string          `json:"id"`
-	CustomerID      string          `json:"customer_id"`
-	TenantID        string          `json:"tenant_id"`
-	PlanID          string          `json:"plan_id"`
-	Apps            json.RawMessage `json:"apps"`
-	Addons          json.RawMessage `json:"addons"`
+	ID         string          `json:"id"`
+	CustomerID string          `json:"customer_id"`
+	TenantID   string          `json:"tenant_id"`
+	PlanID     string          `json:"plan_id"`
+	Apps       json.RawMessage `json:"apps"`
+	Addons     json.RawMessage `json:"addons"`
 	// Topology is the billed BCP topology ("single-region" |
 	// "active-hot-standby") — a priced order dimension, persisted so
 	// invoices/BSS views show what the surcharge bought (#5104 facet B).
-	Topology        string          `json:"topology"`
-	AmountOMR       int             `json:"amount_omr"`
-	AmountBaisa     int64           `json:"amount_baisa"`
-	Status          string          `json:"status"`
-	StripeSessionID string          `json:"stripe_session_id,omitempty"`
-	CreatedAt       time.Time       `json:"created_at"`
+	Topology        string    `json:"topology"`
+	AmountOMR       int       `json:"amount_omr"`
+	AmountBaisa     int64     `json:"amount_baisa"`
+	Status          string    `json:"status"`
+	StripeSessionID string    `json:"stripe_session_id,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
 
 	// PromoCode is the voucher applied at checkout, if any. Stored in the
 	// orders row (not the promo_redemptions table) so the value survives
 	// soft-deletion of the promo — admin views need to show which code was
 	// used even after the admin retired the promo. See #91.
-	PromoCode    string `json:"promo_code,omitempty"`
+	PromoCode string `json:"promo_code,omitempty"`
 	// PromoDeleted is populated on read by joining promo_codes.deleted_at;
 	// the admin UI shows a "deleted" badge next to the code so historical
 	// redemptions remain auditable without any stale reference appearing
@@ -87,6 +87,49 @@ type Order struct {
 	PriceSource string          `json:"price_source,omitempty"`
 	PackageSKU  string          `json:"package_sku,omitempty"`
 	AddonLines  json.RawMessage `json:"addon_lines,omitempty"`
+
+	// Overage (founder model 2026-10-10). A package is a prepaid minimum
+	// commitment; OverageMode is "capped" (nothing billed beyond the package —
+	// the default, and every row that predates the column) or "grow" (the
+	// Organization's quota is raised to GrowCeiling and usage above the
+	// package allowance is billed in arrears). GrowCeiling is the RESOLVED
+	// ceiling as a JSON object {vcpu, memory_gb, disk_gb, bandwidth_mbps},
+	// NULL when capped. SpendLimitMonth is the optional monthly overage spend
+	// limit as a money string ("25.000"), NULL when unset.
+	OverageMode     string          `json:"overage_mode,omitempty"`
+	GrowCeiling     json.RawMessage `json:"grow_ceiling,omitempty"`
+	SpendLimitMonth string          `json:"spend_limit_month,omitempty"`
+}
+
+// Overage modes an order carries.
+const (
+	OverageModeCapped = "capped"
+	OverageModeGrow   = "grow"
+)
+
+// orderOverageMode defaults an empty OverageMode to capped.
+func orderOverageMode(s string) string {
+	if s == "" {
+		return OverageModeCapped
+	}
+	return s
+}
+
+// orderGrowCeiling turns a scanned grow_ceiling column into the Order field:
+// NULL (or JSON null) is no ceiling.
+func orderGrowCeiling(b []byte) json.RawMessage {
+	if len(b) == 0 || string(b) == "null" {
+		return nil
+	}
+	return json.RawMessage(append([]byte(nil), b...))
+}
+
+// nilIfEmptyJSON maps an empty JSON column value to SQL NULL.
+func nilIfEmptyJSON(b json.RawMessage) any {
+	if len(b) == 0 || string(b) == "null" {
+		return nil
+	}
+	return []byte(b)
 }
 
 // PriceSourceCatalog is the PriceSource of an order priced from the catalog
@@ -274,6 +317,12 @@ func (s *Store) Migrate(ctx context.Context) error {
 		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS price_source TEXT NOT NULL DEFAULT 'catalog'`,
 		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS package_sku TEXT`,
 		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS addon_lines JSONB NOT NULL DEFAULT '[]'`,
+		// Overage mode (founder model 2026-10-10). Every row that predates the
+		// column was sold capped, so the default is the truthful backfill; the
+		// grow ceiling and the spend limit are NULL unless the order set them.
+		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS overage_mode TEXT NOT NULL DEFAULT 'capped'`,
+		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS grow_ceiling JSONB`,
+		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS spend_limit_month TEXT`,
 		`CREATE TABLE IF NOT EXISTS invoices (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			customer_id UUID NOT NULL REFERENCES customers(id),
@@ -472,12 +521,14 @@ func (s *Store) CreateOrder(ctx context.Context, o *Order) error {
 	}
 	o.PriceSource = orderPriceSource(o.PriceSource)
 	o.AddonLines = orderAddonLines(o.AddonLines)
+	o.OverageMode = orderOverageMode(o.OverageMode)
 	err := s.db.QueryRowContext(ctx,
-		`INSERT INTO orders (customer_id, tenant_id, plan_id, apps, addons, topology, amount_omr, amount_baisa, status, stripe_session_id, promo_code, package_sku, price_source, addon_lines)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		`INSERT INTO orders (customer_id, tenant_id, plan_id, apps, addons, topology, amount_omr, amount_baisa, status, stripe_session_id, promo_code, package_sku, price_source, addon_lines, overage_mode, grow_ceiling, spend_limit_month)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 		 RETURNING id, created_at`,
 		o.CustomerID, o.TenantID, o.PlanID, o.Apps, o.Addons, orderTopology(o.Topology), o.AmountOMR, o.AmountBaisa, o.Status, nilIfEmpty(o.StripeSessionID), nilIfEmpty(o.PromoCode),
 		nilIfEmpty(o.PackageSKU), o.PriceSource, o.AddonLines,
+		o.OverageMode, nilIfEmptyJSON(o.GrowCeiling), nilIfEmpty(o.SpendLimitMonth),
 	).Scan(&o.ID, &o.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("store: create order: %w", err)
@@ -495,17 +546,20 @@ func (s *Store) GetOrder(ctx context.Context, id string) (*Order, error) {
 	var sessionID sql.NullString
 	var promoCode sql.NullString
 	var promoDeletedAt sql.NullTime
-	var packageSKU sql.NullString
+	var packageSKU, spendLimit sql.NullString
+	var growCeiling []byte
 	err := s.db.QueryRowContext(ctx,
 		`SELECT o.id, o.customer_id, o.tenant_id, o.plan_id, o.apps, o.addons, o.topology,
 		        o.amount_omr, o.amount_baisa, o.status, o.stripe_session_id, o.created_at,
-		        o.promo_code, pc.deleted_at, o.package_sku, o.price_source, o.addon_lines
+		        o.promo_code, pc.deleted_at, o.package_sku, o.price_source, o.addon_lines,
+		        o.overage_mode, o.grow_ceiling, o.spend_limit_month
 		   FROM orders o
 		   LEFT JOIN promo_codes pc ON pc.code = o.promo_code
 		  WHERE o.id = $1`, id,
 	).Scan(&o.ID, &o.CustomerID, &o.TenantID, &o.PlanID, &o.Apps, &o.Addons, &o.Topology,
 		&o.AmountOMR, &o.AmountBaisa, &o.Status, &sessionID, &o.CreatedAt,
-		&promoCode, &promoDeletedAt, &packageSKU, &o.PriceSource, &o.AddonLines)
+		&promoCode, &promoDeletedAt, &packageSKU, &o.PriceSource, &o.AddonLines,
+		&o.OverageMode, &growCeiling, &spendLimit)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -516,6 +570,8 @@ func (s *Store) GetOrder(ctx context.Context, id string) (*Order, error) {
 	o.PromoCode = promoCode.String
 	o.PromoDeleted = promoDeletedAt.Valid
 	o.PackageSKU = packageSKU.String
+	o.SpendLimitMonth = spendLimit.String
+	o.GrowCeiling = orderGrowCeiling(growCeiling)
 	return &o, nil
 }
 
@@ -543,7 +599,8 @@ func (s *Store) ListRecentOrders(ctx context.Context) ([]Order, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT o.id, o.customer_id, o.tenant_id, o.plan_id, o.apps, o.addons, o.topology,
 		        o.amount_omr, o.amount_baisa, o.status, o.stripe_session_id, o.created_at,
-		        o.promo_code, pc.deleted_at, o.package_sku, o.price_source, o.addon_lines
+		        o.promo_code, pc.deleted_at, o.package_sku, o.price_source, o.addon_lines,
+		        o.overage_mode, o.grow_ceiling, o.spend_limit_month
 		   FROM orders o
 		   LEFT JOIN promo_codes pc ON pc.code = o.promo_code
 		  ORDER BY o.created_at DESC LIMIT 50`,
@@ -559,16 +616,20 @@ func (s *Store) ListRecentOrders(ctx context.Context) ([]Order, error) {
 		var sessionID sql.NullString
 		var promoCode sql.NullString
 		var promoDeletedAt sql.NullTime
-		var packageSKU sql.NullString
+		var packageSKU, spendLimit sql.NullString
+		var growCeiling []byte
 		if err := rows.Scan(&o.ID, &o.CustomerID, &o.TenantID, &o.PlanID, &o.Apps, &o.Addons, &o.Topology,
 			&o.AmountOMR, &o.AmountBaisa, &o.Status, &sessionID, &o.CreatedAt,
-			&promoCode, &promoDeletedAt, &packageSKU, &o.PriceSource, &o.AddonLines); err != nil {
+			&promoCode, &promoDeletedAt, &packageSKU, &o.PriceSource, &o.AddonLines,
+			&o.OverageMode, &growCeiling, &spendLimit); err != nil {
 			return nil, fmt.Errorf("store: scan order: %w", err)
 		}
 		o.StripeSessionID = sessionID.String
 		o.PromoCode = promoCode.String
 		o.PromoDeleted = promoDeletedAt.Valid
 		o.PackageSKU = packageSKU.String
+		o.SpendLimitMonth = spendLimit.String
+		o.GrowCeiling = orderGrowCeiling(growCeiling)
 		orders = append(orders, o)
 	}
 	if orders == nil {
@@ -605,7 +666,8 @@ func (s *Store) ListOrdersAwaitingLaunch(ctx context.Context, lookback time.Dura
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT o.id, o.customer_id, o.tenant_id, o.plan_id, o.apps, o.addons, o.topology,
 		        o.amount_omr, o.amount_baisa, o.status, o.stripe_session_id, o.created_at,
-		        o.promo_code, pc.deleted_at, o.package_sku, o.price_source, o.addon_lines
+		        o.promo_code, pc.deleted_at, o.package_sku, o.price_source, o.addon_lines,
+		        o.overage_mode, o.grow_ceiling, o.spend_limit_month
 		   FROM orders o
 		   LEFT JOIN promo_codes pc ON pc.code = o.promo_code
 		  WHERE o.status = 'completed'
@@ -625,16 +687,20 @@ func (s *Store) ListOrdersAwaitingLaunch(ctx context.Context, lookback time.Dura
 		var sessionID sql.NullString
 		var promoCode sql.NullString
 		var promoDeletedAt sql.NullTime
-		var packageSKU sql.NullString
+		var packageSKU, spendLimit sql.NullString
+		var growCeiling []byte
 		if err := rows.Scan(&o.ID, &o.CustomerID, &o.TenantID, &o.PlanID, &o.Apps, &o.Addons, &o.Topology,
 			&o.AmountOMR, &o.AmountBaisa, &o.Status, &sessionID, &o.CreatedAt,
-			&promoCode, &promoDeletedAt, &packageSKU, &o.PriceSource, &o.AddonLines); err != nil {
+			&promoCode, &promoDeletedAt, &packageSKU, &o.PriceSource, &o.AddonLines,
+			&o.OverageMode, &growCeiling, &spendLimit); err != nil {
 			return nil, fmt.Errorf("store: scan order awaiting launch: %w", err)
 		}
 		o.StripeSessionID = sessionID.String
 		o.PromoCode = promoCode.String
 		o.PromoDeleted = promoDeletedAt.Valid
 		o.PackageSKU = packageSKU.String
+		o.SpendLimitMonth = spendLimit.String
+		o.GrowCeiling = orderGrowCeiling(growCeiling)
 		orders = append(orders, o)
 	}
 	if orders == nil {
@@ -774,11 +840,11 @@ func (s *Store) GetSubscriptionByTenant(ctx context.Context, tenantID string) (*
 func (s *Store) UpdateSubscription(ctx context.Context, id string, fields map[string]any) error {
 	// Build SET clause dynamically from allowed fields.
 	allowed := map[string]bool{
-		"status":                  true,
-		"stripe_subscription_id":  true,
-		"plan_id":                 true,
-		"current_period_start":    true,
-		"current_period_end":      true,
+		"status":                 true,
+		"stripe_subscription_id": true,
+		"plan_id":                true,
+		"current_period_start":   true,
+		"current_period_end":     true,
 	}
 
 	setClauses := "updated_at = now()"
@@ -1350,11 +1416,11 @@ func (s *Store) ListCreditEntries(ctx context.Context, customerID string, limit 
 // is the raw envelope (model, tokens_used, tenant_id, latency_ms,
 // completed_at) preserved for downstream analytics.
 type UsageEntry struct {
-	CustomerID    string
+	CustomerID     string
 	AmountMicroOMR int64
-	Reason        string
-	ExternalRef   string
-	Metadata      json.RawMessage
+	Reason         string
+	ExternalRef    string
+	Metadata       json.RawMessage
 }
 
 // RecordUsage inserts a metering ledger row and returns the new balance
@@ -1495,14 +1561,16 @@ func (s *Store) CreditOnlyCheckout(ctx context.Context, order *Order, sub *Subsc
 
 	// 1. Persist the order.
 	order.PriceSource = orderPriceSource(order.PriceSource)
+	order.OverageMode = orderOverageMode(order.OverageMode)
 	if err := tx.QueryRowContext(ctx,
-		`INSERT INTO orders (customer_id, tenant_id, plan_id, apps, addons, topology, amount_omr, amount_baisa, status, stripe_session_id, promo_code, package_sku, price_source, addon_lines)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		`INSERT INTO orders (customer_id, tenant_id, plan_id, apps, addons, topology, amount_omr, amount_baisa, status, stripe_session_id, promo_code, package_sku, price_source, addon_lines, overage_mode, grow_ceiling, spend_limit_month)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 		 RETURNING id, created_at`,
 		order.CustomerID, order.TenantID, order.PlanID, order.Apps, order.Addons,
 		orderTopology(order.Topology), order.AmountOMR, order.AmountBaisa, order.Status,
 		nilIfEmpty(order.StripeSessionID), nilIfEmpty(order.PromoCode),
 		nilIfEmpty(order.PackageSKU), order.PriceSource, order.AddonLines,
+		order.OverageMode, nilIfEmptyJSON(order.GrowCeiling), nilIfEmpty(order.SpendLimitMonth),
 	).Scan(&order.ID, &order.CreatedAt); err != nil {
 		return fmt.Errorf("store: credit-only create order: %w", err)
 	}
@@ -1596,7 +1664,7 @@ func (s *Store) DeleteWebhookEvent(ctx context.Context, eventID string) error {
 // ---------------------------------------------------------------------------
 
 // orderTopology defends the orders.topology NOT NULL invariant: an empty
-// struct field persists as the canonical default, never as ''.
+// struct field persists as the canonical default, never as ”.
 func orderTopology(t string) string {
 	if t == "" {
 		return "single-region"

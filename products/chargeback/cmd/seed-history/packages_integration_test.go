@@ -96,14 +96,40 @@ func TestShowcasePackagesAreSeededBilledAndPurged(t *testing.T) {
 		{"plan.s", "bandwidth", "included"}, {"plan.s", "disk", "included"},
 		{"plan.s", "gitea_iac", "not_offered"}, {"plan.m", "gitea_iac", "included"}, {"plan.xl", "kube_api", "included"}, {"plan.l", "kube_api", "not_offered"},
 		{"plan.s", "vuln_dashboard", "not_offered"}, {"plan.m", "vuln_dashboard", "included"},
-		{"plan.s", "dr_topology", "included"}, {"plan.xl", "dr_topology", "included"},
+		// DESIGN.md §22.11: active-passive comes with grow mode on S, M, L.
+		{"plan.s", "dr_topology", "optional"}, {"plan.l", "dr_topology", "optional"}, {"plan.xl", "dr_topology", "included"},
 	} {
 		if got := state(tc.plan, tc.key); got != tc.want {
 			t.Fatalf("%s on %s = %s, want %s", tc.key, tc.plan, got, tc.want)
 		}
 	}
-	if o := scalar[string](t, db, `SELECT e.overage FROM package_entitlements e JOIN features f ON f.id = e.feature_id WHERE e.price_book_id = $1 AND e.plan_sku = 'plan.m' AND f.key = 'bandwidth'`, planBook); o != "hard_cap" {
-		t.Fatalf("bandwidth on M overage = %s, want hard_cap", o)
+	// §22.11: every quantity cell is metered — the customer's mode decides.
+	if o := scalar[string](t, db, `SELECT e.overage FROM package_entitlements e JOIN features f ON f.id = e.feature_id WHERE e.price_book_id = $1 AND e.plan_sku = 'plan.m' AND f.key = 'bandwidth'`, planBook); o != "metered" {
+		t.Fatalf("bandwidth on M overage = %s, want metered", o)
+	}
+	if g := scalar[bool](t, db, `SELECT e.grow_only FROM package_entitlements e JOIN features f ON f.id = e.feature_id WHERE e.price_book_id = $1 AND e.plan_sku = 'plan.m' AND f.key = 'dr_topology'`, planBook); !g {
+		t.Fatal("DR on M is not grow-only")
+	}
+	// Grow on every package: S, M, L up to the XL shape, XL up to twice it,
+	// each at its own compute rates (the package's unit price + 10 %).
+	for _, tc := range []struct {
+		plan      string
+		vcpu, mem float64
+		rv, rm    float64
+	}{{"plan.s", 8, 16, 1.992, 0.374}, {"plan.m", 8, 16, 1.796, 0.337}, {"plan.l", 8, 16, 1.598, 0.300}, {"plan.xl", 16, 32, 1.399, 0.263}} {
+		var allowed bool
+		var v, m, rv, rm string
+		if err := db.QueryRow(`SELECT grow_allowed, grow_ceiling_vcpu::text, grow_ceiling_memory_gb::text, overage_vcpu_month::text, overage_mem_gb_month::text FROM package_settings WHERE price_book_id = $1 AND plan_sku = $2`, planBook, tc.plan).Scan(&allowed, &v, &m, &rv, &rm); err != nil {
+			t.Fatal(err)
+		}
+		if !allowed || !near(f(t, v), tc.vcpu) || !near(f(t, m), tc.mem) || !near(f(t, rv), tc.rv) || !near(f(t, rm), tc.rm) {
+			t.Fatalf("%s grow = %v %s/%s at %s/%s", tc.plan, allowed, v, m, rv, rm)
+		}
+	}
+	// k8s.vcpu / k8s.mem_gb stay unpriced in the plans book: on a plans book
+	// the request meters are the allocation basis.
+	if n := scalar[int](t, db, `SELECT count(*) FROM price_items WHERE price_book_id = $1 AND sku IN ('k8s.vcpu', 'k8s.mem_gb')`, planBook); n != 0 {
+		t.Fatalf("%d request meter(s) priced in the plans book", n)
 	}
 	if o := scalar[string](t, db, `SELECT e.overage FROM package_entitlements e JOIN features f ON f.id = e.feature_id WHERE e.price_book_id = $1 AND e.plan_sku = 'plan.l' AND f.key = 'disk'`, planBook); o != "metered" {
 		t.Fatalf("disk on L overage = %s, want metered", o)

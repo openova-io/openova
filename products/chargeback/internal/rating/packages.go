@@ -195,7 +195,7 @@ func ApplyPackageWith(opts PackageOptions, src store.CostSource, segments []Plan
 						Amount:      "0.000000",
 						Description: fmt.Sprintf("%s — included in %s plan", f.Name, store.PlanName(seg.Slug)),
 					})
-				case e.State == store.EntitlementOptional && taken[f.Key]:
+				case e.State == store.EntitlementOptional && taken[f.Key] && !e.GrowOnly:
 					addon(f, seg, -1)
 				}
 			case store.FeatureKindQuantity:
@@ -205,6 +205,20 @@ func ApplyPackageWith(opts PackageOptions, src store.CostSource, segments []Plan
 				overage := e.Overage
 				if overage == "" {
 					overage = store.OverageMetered
+				}
+				// DESIGN.md §22.11 — the CUSTOMER's mode decides what happens
+				// at the allowance, not the cell: capped bills nothing beyond
+				// the package (the excess is reported, as a hard cap), grow
+				// meters the excess at the SKU's price. An unlimited cell
+				// stays unlimited in both. A Source that states no mode (a
+				// pure call that predates §22.11) keeps the cell's policy.
+				if overage != store.OverageUnlimited {
+					switch src.OverageMode {
+					case store.OverageModeCapped:
+						overage = store.OverageHardCap
+					case store.OverageModeGrow:
+						overage = store.OverageMetered
+					}
 				}
 				if overage == store.OverageUnlimited {
 					res.Unlimited[f.AddonSKU] = true
@@ -239,7 +253,7 @@ func ApplyPackageWith(opts PackageOptions, src store.CostSource, segments []Plan
 			case store.FeatureKindLevel:
 				// The level a package is at bills nothing. The next level,
 				// purchasable and taken, is an add-on.
-				if e.State == store.EntitlementOptional && taken[f.Key] && e.Level != nil {
+				if e.State == store.EntitlementOptional && taken[f.Key] && !e.GrowOnly && e.Level != nil {
 					addon(f, seg, *e.Level+1)
 				}
 			}

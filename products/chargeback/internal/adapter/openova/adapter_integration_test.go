@@ -76,8 +76,10 @@ func TestIntegrationOrgSyncAgainstStore(t *testing.T) {
 		t.Fatal(err)
 	}
 	nRecords, err := st.UsageCount(ctx, orgSrc.ID)
-	if err != nil || nRecords != 2 {
-		t.Fatalf("usage rows = %d err=%v, want 2 (one 30-minute slice × vcpu + mem)", nRecords, err)
+	// Four: the request meters (vcpu, mem) and, the Organization being on a
+	// sized package, the limit meters beside them (DESIGN.md §22.11).
+	if err != nil || nRecords != 4 {
+		t.Fatalf("usage rows = %d err=%v, want 4 (one 30-minute slice × vcpu + mem, requests and limits)", nRecords, err)
 	}
 
 	// Delete suspends; the usage rows stay.

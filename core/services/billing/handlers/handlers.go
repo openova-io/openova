@@ -197,6 +197,23 @@ type checkoutRequest struct {
 	// in Addons = that package's feature cell. Empty = legacy deck / older
 	// clients → catalog pricing, unchanged.
 	PackageSKU string `json:"package_sku"`
+	// Overage (founder model 2026-10-10) — only on a package order.
+	// OverageMode is "capped" (default when empty: nothing billed beyond the
+	// package) or "grow" (quota raised to a ceiling, usage above the package
+	// allowance billed in arrears). GrowCeiling: per dimension, 0 or omitted
+	// means the package's grow ceiling; only with grow. SpendLimitMonth: an
+	// optional monthly overage spend limit (money string, > 0); only with grow.
+	OverageMode     string              `json:"overage_mode"`
+	GrowCeiling     *events.GrowCeiling `json:"grow_ceiling"`
+	SpendLimitMonth string              `json:"spend_limit_month"`
+}
+
+// pricing builds the pricing request from the body.
+func (req checkoutRequest) pricing(topology string) pricingRequest {
+	return pricingRequest{
+		PlanID: req.PlanID, PackageSKU: req.PackageSKU, Apps: req.Apps, Addons: req.Addons, Topology: topology,
+		OverageMode: req.OverageMode, GrowCeiling: req.GrowCeiling, SpendLimitMonth: req.SpendLimitMonth,
+	}
 }
 
 type checkoutResponse struct {
@@ -286,9 +303,7 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	priced, err := h.priceOrder(ctx, pricingRequest{
-		PlanID: req.PlanID, PackageSKU: req.PackageSKU, Apps: req.Apps, Addons: req.Addons, Topology: topology,
-	})
+	priced, err := h.priceOrder(ctx, req.pricing(topology))
 	if err != nil {
 		status, body := pricingErrorResponse(err)
 		slog.Error("checkout: price order", "error", err, "status", status,
@@ -380,6 +395,7 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 			AmountOMR: totalOMR, AmountBaisa: priced.TotalBaisa, Status: "completed",
 			PromoCode:   req.PromoCode,
 			PriceSource: priced.PriceSource, PackageSKU: priced.PackageSKU, AddonLines: priced.linesJSON(),
+			OverageMode: priced.OverageMode, GrowCeiling: priced.growCeilingJSON(), SpendLimitMonth: priced.SpendLimitMonth,
 		}
 		sub := &store.Subscription{
 			CustomerID: cust.ID, TenantID: req.TenantID, PlanID: req.PlanID, Status: "active",
@@ -433,6 +449,7 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 		AmountOMR: totalOMR, AmountBaisa: priced.TotalBaisa, Status: "pending",
 		PromoCode:   req.PromoCode,
 		PriceSource: priced.PriceSource, PackageSKU: priced.PackageSKU, AddonLines: priced.linesJSON(),
+		OverageMode: priced.OverageMode, GrowCeiling: priced.growCeilingJSON(), SpendLimitMonth: priced.SpendLimitMonth,
 	}
 	if err := h.Store.CreateOrder(ctx, order); err != nil {
 		slog.Error("checkout: create order", "error", err)
@@ -526,9 +543,7 @@ func (h *Handler) Quote(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	priced, err := h.priceOrder(r.Context(), pricingRequest{
-		PlanID: req.PlanID, PackageSKU: req.PackageSKU, Apps: req.Apps, Addons: req.Addons, Topology: topology,
-	})
+	priced, err := h.priceOrder(r.Context(), req.pricing(topology))
 	if err != nil {
 		status, body := pricingErrorResponse(err)
 		slog.Warn("quote: price order", "error", err, "status", status,
@@ -1253,6 +1268,10 @@ type pricingRequest struct {
 	Apps       []string
 	Addons     []string
 	Topology   string
+	// Overage — as the checkout body carries them, not yet validated.
+	OverageMode     string
+	GrowCeiling     *events.GrowCeiling
+	SpendLimitMonth string
 }
 
 // pricedOrder is an order with every amount settled, in baisa.
@@ -1265,6 +1284,38 @@ type pricedOrder struct {
 	TopologyBaisa int64
 	Lines         []store.OrderLine
 	TotalBaisa    int64
+	// OverageMode is "capped" or "grow", always set. GrowCeiling is the
+	// RESOLVED ceiling (all four dimensions), nil when capped.
+	// SpendLimitMonth is normalised to three decimals, "" when unset.
+	// OverageRates are the chosen package's grow rates (both modes, so the
+	// storefront can show what grow would cost); nil when the package offers
+	// no grow, and on the catalog path.
+	OverageMode     string
+	GrowCeiling     *events.GrowCeiling
+	SpendLimitMonth string
+	OverageRates    []packages.OverageRate
+}
+
+// growCeilingJSON is the resolved ceiling as the orders.grow_ceiling JSONB
+// column takes it; nil (SQL NULL) when capped.
+func (p *pricedOrder) growCeilingJSON() json.RawMessage {
+	if p.GrowCeiling == nil {
+		return nil
+	}
+	b, err := json.Marshal(p.GrowCeiling)
+	if err != nil {
+		return nil
+	}
+	return b
+}
+
+// overageRateJSON is one overage rate on the quote response — the document's
+// own shape, so the storefront reads the same object from either.
+type overageRateJSON struct {
+	Key        string `json:"key"`
+	SKU        string `json:"sku"`
+	Unit       string `json:"unit"`
+	PriceMonth string `json:"price_month"`
 }
 
 // WholeOMR is the legacy whole-OMR view of the total. orders.amount_omr and
@@ -1307,10 +1358,30 @@ type QuoteResponse struct {
 	// AmountBaisa is the exact total; AmountOMR the whole-OMR view (WholeOMR).
 	AmountBaisa int64 `json:"amount_baisa"`
 	AmountOMR   int   `json:"amount_omr"`
+	// OverageMode is always present ("capped" by default). GrowCeiling is the
+	// resolved ceiling (omitted when capped); SpendLimitMonth omitted when
+	// unset; OverageRates the chosen package's rates (omitted when the
+	// package offers no grow, and on the catalog path).
+	OverageMode     string              `json:"overage_mode"`
+	GrowCeiling     *events.GrowCeiling `json:"grow_ceiling,omitempty"`
+	SpendLimitMonth string              `json:"spend_limit_month,omitempty"`
+	OverageRates    []overageRateJSON   `json:"overage_rates,omitempty"`
 }
 
 func (p *pricedOrder) response(planID string) *QuoteResponse {
+	var rates []overageRateJSON
+	for _, r := range p.OverageRates {
+		rates = append(rates, overageRateJSON{Key: r.Key, SKU: r.SKU, Unit: r.Unit, PriceMonth: r.PriceMonth()})
+	}
+	mode := p.OverageMode
+	if mode == "" {
+		mode = store.OverageModeCapped
+	}
 	return &QuoteResponse{
+		OverageMode:         mode,
+		GrowCeiling:         p.GrowCeiling,
+		SpendLimitMonth:     p.SpendLimitMonth,
+		OverageRates:        rates,
 		Currency:            p.Currency,
 		PriceSource:         p.PriceSource,
 		PackageSKU:          p.PackageSKU,
@@ -1329,7 +1400,21 @@ func (p *pricedOrder) response(planID string) *QuoteResponse {
 // Both answer 503 — an order is never priced from the catalog instead.
 var errPricesUnavailable = errors.New("prices unavailable")
 
+// orderInvalidError is an order body that breaks the overage rules: an
+// unknown overage mode, a grow ceiling or spend limit without grow, grow
+// without a package or on a package that does not offer it, a ceiling
+// outside the package's range, a malformed spend limit. The customer's
+// request is wrong, not the price book: 400 with the sentence as `error`.
+type orderInvalidError struct{ msg string }
+
+func (e *orderInvalidError) Error() string { return e.msg }
+
+func invalidOrder(format string, args ...any) error {
+	return &orderInvalidError{msg: fmt.Sprintf(format, args...)}
+}
+
 // pricingErrorResponse maps a pricing failure to its HTTP status and body:
+//   - *orderInvalidError (the overage rules) → 400 with the sentence alone;
 //   - *packages.RefusedError (add-on not offered on the package, add-on or
 //     package unknown to the price book) → 422, naming the add-on and the
 //     package in both the message and structured fields;
@@ -1337,7 +1422,10 @@ var errPricesUnavailable = errors.New("prices unavailable")
 //   - anything else (catalog unreachable, unknown plan) → 400, as before.
 func pricingErrorResponse(err error) (int, map[string]any) {
 	var refused *packages.RefusedError
+	var invalid *orderInvalidError
 	switch {
+	case errors.As(err, &invalid):
+		return http.StatusBadRequest, map[string]any{"error": invalid.Error()}
 	case errors.As(err, &refused):
 		return http.StatusUnprocessableEntity, map[string]any{
 			"error":       refused.Error(),
@@ -1358,11 +1446,123 @@ func pricingErrorResponse(err error) (int, map[string]any) {
 // priceOrder is the single pricing seam Checkout and Quote share. An order
 // that carries a package_sku is priced from the BSS public packages document;
 // one that does not is priced from the catalog exactly as before #6971.
+//
+// The overage fields are checked first, before any price book is read: they
+// are the customer's request, and a wrong one is a 400 whatever BSS says.
 func (h *Handler) priceOrder(ctx context.Context, req pricingRequest) (*pricedOrder, error) {
-	if req.PackageSKU == "" {
-		return h.priceFromCatalog(ctx, req)
+	ov, err := checkOverage(req)
+	if err != nil {
+		return nil, err
 	}
-	return h.priceFromPackages(ctx, req)
+	if req.PackageSKU == "" {
+		p, err := h.priceFromCatalog(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		p.OverageMode = store.OverageModeCapped
+		return p, nil
+	}
+	return h.priceFromPackages(ctx, req, ov)
+}
+
+// overageRequest is the overage part of an order after the body-level rules:
+// mode is "capped" or "grow", ceiling is what the body gave (nil when it gave
+// nothing), spendLimit is normalised to three decimals ("" when unset).
+type overageRequest struct {
+	mode       string
+	ceiling    *events.GrowCeiling
+	spendLimit string
+}
+
+// checkOverage applies the rules that need no price book:
+//   - overage_mode is "capped" (or empty) or "grow";
+//   - grow, a grow ceiling or a spend limit need a package (package_sku);
+//   - a grow ceiling and a spend limit need grow mode;
+//   - a spend limit is a money amount above zero.
+func checkOverage(req pricingRequest) (overageRequest, error) {
+	ov := overageRequest{mode: strings.ToLower(strings.TrimSpace(req.OverageMode))}
+	switch ov.mode {
+	case "":
+		ov.mode = store.OverageModeCapped
+	case store.OverageModeCapped, store.OverageModeGrow:
+	default:
+		return ov, invalidOrder("overage_mode %q is not one of \"capped\" or \"grow\"", req.OverageMode)
+	}
+	ceilingGiven := !req.GrowCeiling.IsZero()
+	spend := strings.TrimSpace(req.SpendLimitMonth)
+	if req.PackageSKU == "" && (ov.mode == store.OverageModeGrow || ceilingGiven || spend != "") {
+		return ov, invalidOrder("grow mode needs a package: overage_mode grow, grow_ceiling and spend_limit_month apply only to an order with a package_sku")
+	}
+	if ov.mode == store.OverageModeCapped && ceilingGiven {
+		return ov, invalidOrder("grow_ceiling applies only in grow mode; this order is capped")
+	}
+	if ov.mode == store.OverageModeCapped && spend != "" {
+		return ov, invalidOrder("spend_limit_month applies only in grow mode; this order is capped")
+	}
+	if spend != "" {
+		minor, err := packages.MinorUnits(spend, packages.Decimals)
+		if err != nil {
+			return ov, invalidOrder("spend_limit_month %q is not an amount in %s with at most %d decimals", req.SpendLimitMonth, packages.Currency, packages.Decimals)
+		}
+		if minor <= 0 {
+			return ov, invalidOrder("spend_limit_month must be more than zero")
+		}
+		ov.spendLimit = packages.FormatMinor(minor, packages.Decimals)
+	}
+	if ceilingGiven {
+		c := *req.GrowCeiling
+		ov.ceiling = &c
+	}
+	return ov, nil
+}
+
+// ceilingDim reads / writes one dimension of a GrowCeiling by its document key.
+func ceilingDim(c *events.GrowCeiling, dim string) *float64 {
+	switch dim {
+	case packages.DimVCPU:
+		return &c.VCPU
+	case packages.DimMemoryGB:
+		return &c.MemoryGB
+	case packages.DimDiskGB:
+		return &c.DiskGB
+	default:
+		return &c.BandwidthMbps
+	}
+}
+
+func formatQuantity(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }
+
+// resolveGrowCeiling validates the ceiling the order gave against the
+// package and fills every dimension: a given value must be at least the
+// package headline (when the document states it) and at most the package's
+// grow ceiling; an omitted (0) value is the package's grow ceiling.
+func resolveGrowCeiling(pkg packages.Package, given *events.GrowCeiling) (*events.GrowCeiling, error) {
+	out := &events.GrowCeiling{}
+	if given == nil {
+		given = &events.GrowCeiling{}
+	}
+	for _, dim := range packages.Dimensions {
+		max := pkg.Grow.Ceiling[dim]
+		v := *ceilingDim(given, dim)
+		switch {
+		case v == 0:
+			v = max
+		case v < 0:
+			return nil, invalidOrder("grow ceiling %s %s on the %s package cannot be negative", dim, formatQuantity(v), pkg.Name)
+		default:
+			head, hasHead := pkg.Includes[dim]
+			if hasHead && (v < head || v > max) {
+				return nil, invalidOrder("grow ceiling %s %s on the %s package must be between %s (the package allowance) and %s",
+					dim, formatQuantity(v), pkg.Name, formatQuantity(head), formatQuantity(max))
+			}
+			if v > max {
+				return nil, invalidOrder("grow ceiling %s %s on the %s package must be at most %s",
+					dim, formatQuantity(v), pkg.Name, formatQuantity(max))
+			}
+		}
+		*ceilingDim(out, dim) = v
+	}
+	return out, nil
 }
 
 // priceFromPackages prices from the BSS document: plan price = the package's
@@ -1370,7 +1570,7 @@ func (h *Handler) priceOrder(ctx context.Context, req pricingRequest) (*pricedOr
 // (optional → its price, included → 0 and redundant, not_offered / unknown →
 // *packages.RefusedError). Add-on ids that are not BSS SKUs keep catalog
 // pricing. The topology surcharge is billing's own, as on the catalog path.
-func (h *Handler) priceFromPackages(ctx context.Context, req pricingRequest) (*pricedOrder, error) {
+func (h *Handler) priceFromPackages(ctx context.Context, req pricingRequest, ov overageRequest) (*pricedOrder, error) {
 	if !h.Packages.Configured() {
 		return nil, fmt.Errorf("%w: order carries package_sku %q but no price book URL is configured (CHARGEBACK_PUBLIC_URL)",
 			errPricesUnavailable, req.PackageSKU)
@@ -1405,19 +1605,46 @@ func (h *Handler) priceFromPackages(ctx context.Context, req pricingRequest) (*p
 	p.Lines = append(p.Lines, h.catalogAddonLines(ctx, catalogIDs)...)
 	// Apps are free for now (catalog app records have no price field).
 	_ = req.Apps
+
+	// Overage (founder model 2026-10-10). The package's rates ride on the
+	// quote in both modes when it offers grow, so the storefront can show
+	// what grow would cost; grow itself must be offered, and the ceiling is
+	// resolved against the package.
+	pkg, _ := doc.Package(req.PackageSKU) // Price above proved it exists
+	p.OverageMode = ov.mode
+	if pkg.Grow != nil {
+		p.OverageRates = pkg.Grow.OverageRates
+	}
+	if ov.mode == store.OverageModeGrow {
+		if pkg.Grow == nil {
+			return nil, invalidOrder("the %s package does not offer grow mode", pkg.Name)
+		}
+		ceiling, err := resolveGrowCeiling(pkg, ov.ceiling)
+		if err != nil {
+			return nil, err
+		}
+		p.GrowCeiling = ceiling
+		p.SpendLimitMonth = ov.spendLimit
+	}
+
 	// The DR topology comes from the package when the document carries it
 	// (0.1.61): active-passive is included on the packages whose dr_topology
 	// level says so and is not offered on the others — never a surcharge
-	// beside the package price. A v1 document says nothing, and billing keeps
-	// its own surcharge for it (the catalog path's number).
+	// beside the package price. A grow_only cell offers it in grow mode only,
+	// at no upfront price: the standby's resources are billed as overage. A
+	// v1 document says nothing, and billing keeps its own surcharge for it
+	// (the catalog path's number).
 	if req.Topology == topologyActiveHotStandby {
-		if label, known := doc.DRTopology(req.PackageSKU); known {
+		if label, growOnly, known := doc.DRTopologyCell(req.PackageSKU); known {
 			if label != packages.DRActivePassive {
-				pkgName := req.PackageSKU
-				if pkg, ok := doc.Package(req.PackageSKU); ok {
-					pkgName = pkg.Name
+				switch {
+				case growOnly && ov.mode == store.OverageModeGrow:
+					// available — the standby is billed as usage, in arrears
+				case growOnly:
+					return nil, packages.Refused(req.PackageSKU, "", fmt.Sprintf("the active-passive topology is available on package %q (%s) only in grow mode, where the standby's resources are billed as overage; choose grow mode or the package that includes it", req.PackageSKU, pkg.Name))
+				default:
+					return nil, packages.Refused(req.PackageSKU, "", fmt.Sprintf("the active-passive topology is not offered on package %q (%s); it is included from the package whose DR topology is active-passive", req.PackageSKU, pkg.Name))
 				}
-				return nil, packages.Refused(req.PackageSKU, "", fmt.Sprintf("the active-passive topology is not offered on package %q (%s); it is included from the package whose DR topology is active-passive", req.PackageSKU, pkgName))
 			}
 			p.TopologyBaisa = 0
 		} else {
@@ -1604,6 +1831,11 @@ func (h *Handler) dispatchOrderPlaced(tenantID string, order *store.Order) {
 		"price_source": order.PriceSource,
 		"package_sku":  order.PackageSKU,
 		"addon_lines":  order.AddonLines,
+		// Overage (founder model 2026-10-10): the mode, the resolved grow
+		// ceiling (null when capped) and the spend limit ("" when unset).
+		"overage_mode":      order.OverageMode,
+		"grow_ceiling":      order.GrowCeiling,
+		"spend_limit_month": order.SpendLimitMonth,
 	}
 	evt, err := events.NewEvent("order.placed", "billing", tenantID, payload)
 	if err != nil {
@@ -1647,6 +1879,12 @@ type launchBody struct {
 	PackageSKU  string   `json:"package_sku,omitempty"`
 	PriceSource string   `json:"price_source,omitempty"`
 	Addons      []string `json:"addons,omitempty"`
+	// OverageMode is set whenever the order carries a package ("capped" made
+	// explicit); omitted for a legacy catalog order. GrowCeiling and
+	// SpendLimitMonth only in grow mode.
+	OverageMode     string              `json:"overage_mode,omitempty"`
+	GrowCeiling     *events.GrowCeiling `json:"grow_ceiling,omitempty"`
+	SpendLimitMonth string              `json:"spend_limit_month,omitempty"`
 }
 
 // settlementLaunchBody builds the launch body from an order. Addons carries
@@ -1668,6 +1906,22 @@ func settlementLaunchBody(order *store.Order) launchBody {
 				"order_id", order.ID, "error", err)
 		} else {
 			b.Addons = events.BSSAddonSKUs(cart)
+		}
+	}
+	if b.PackageSKU != "" {
+		b.OverageMode = events.NormaliseOverageMode(order.OverageMode)
+		if b.OverageMode == "" {
+			b.OverageMode = store.OverageModeCapped
+		}
+		b.SpendLimitMonth = strings.TrimSpace(order.SpendLimitMonth)
+		if len(order.GrowCeiling) > 0 {
+			var c events.GrowCeiling
+			if err := json.Unmarshal(order.GrowCeiling, &c); err != nil {
+				slog.Warn("settlementLaunchBody: order grow_ceiling column is not a ceiling object — launching without it",
+					"order_id", order.ID, "error", err)
+			} else if !c.IsZero() {
+				b.GrowCeiling = &c
+			}
 		}
 	}
 	return b

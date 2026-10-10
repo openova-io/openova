@@ -66,6 +66,7 @@ that is not exactly representable (`"1.5001"`) is refused.
 | add-on not offered on the package / unknown add-on / unknown package | 422 | `{"error": "...names both...", "addon_sku": "...", "package_sku": "..."}` |
 | price book unreadable or BSS pricing off, request carries `package_sku` | 503 | `{"error": "prices unavailable — ..."}` |
 | catalog unreachable / unknown plan (catalog path) | 400 | `{"error": "failed to compute order total: ..."}` |
+| overage fields break a rule (see "Overage mode" below) | 400 | `{"error": "<sentence>"}` |
 
 Pricing runs BEFORE the voucher is redeemed and before any row is written, so
 a 422 or a 503 burns no redemption slot and leaves no order behind.
@@ -88,6 +89,55 @@ prices; a BSS total can be fractional (plan M 9.000 + backup 1.500 =
 credit balance that covers the order in whole OMR can never fall short of it
 in baisa, and the credit comparison itself is done in baisa. Carrying the
 ledger to baisa precision is the open seam; it is not changed here.
+
+### Overage mode — capped or grow
+
+A package is a prepaid minimum commitment. Each order chooses what happens
+beyond it (founder model, 2026-10-10):
+
+- **`capped`** (default) — nothing is billed beyond the package.
+- **`grow`** — the Organization's quota is raised to a ceiling, and usage above
+  the package allowance is billed in arrears at the package's pay-per-use
+  overage rates. Nothing extra is charged upfront.
+
+`POST /billing/quote` and `POST /billing/checkout` accept three optional
+fields, all only on a package order:
+
+| Field | Shape | Rule |
+|---|---|---|
+| `overage_mode` | `"capped"` \| `"grow"` | empty = capped; anything else → 400 |
+| `grow_ceiling` | `{vcpu, memory_gb, disk_gb, bandwidth_mbps}` numbers | only with grow; a value omitted or 0 is the package's grow ceiling |
+| `spend_limit_month` | money string, e.g. `"25.000"` | only with grow; more than zero, at most 3 decimals |
+
+They are checked against the price book document:
+
+- grow, a ceiling or a spend limit on an order without `package_sku` → 400
+  "grow mode needs a package";
+- grow on a package whose document has no `grow` block → 400 ("the M package
+  does not offer grow mode");
+- each ceiling value must be at least the package headline (`includes`) and at
+  most the package's grow ceiling → 400 naming the dimension, the value and
+  the range. A headline the document does not state leaves only the upper
+  bound;
+- DR `active-hot-standby` on a package whose `dr_topology` cell is
+  `grow_only` (S/M/L): allowed in grow mode at 0 upfront (the standby's
+  resources are billed as overage), refused with 422 in capped mode. XL
+  includes it at 0 as before; a v1 document keeps billing's surcharge.
+
+The quote (and the checkout response) echoes `overage_mode` (always),
+`grow_ceiling` (the resolved ceiling, all four values, omitted when capped),
+`spend_limit_month` (omitted when unset) and `overage_rates` — the chosen
+package's `grow.overage_rates` as `{key, sku, unit, price_month}`, echoed in
+both modes when the package offers grow, so the storefront can show what grow
+would cost.
+
+The order row persists `overage_mode` (TEXT, default `'capped'` — the backfill
+for every older row), `grow_ceiling` (JSONB, NULL when capped) and
+`spend_limit_month` (TEXT, NULL when unset). `order.placed` carries the same
+three keys. The settlement launch body hands them to core/services/tenant:
+`overage_mode` on every package order (so `capped` is explicit), the other two
+only in grow mode; the Organization CR receives them as
+`spec.commerce.overageMode` / `growCeiling` / `spendLimitMonth`.
 
 ### Configuration
 

@@ -37,6 +37,15 @@ spec:
       - addon.dedicated-ip
     priceSource: "bss:OpenOva plans@2026-09-11"
     orderID: 4f7c2a1e-9b3d-4c5e-8f6a-1d2e3f4a5b6c
+    # Overage: grow above the M headline up to a 4 vCPU / 8 GB ceiling,
+    # overage billed in arrears by BSS up to 25.000 OMR a month.
+    overageMode: grow
+    growCeiling:
+      vcpu: 4
+      memoryGB: 8
+      diskGB: 120
+      bandwidthMbps: 500
+    spendLimitMonth: "25.000"
   owners:
     - email: ceo@acme.com
       role: owner

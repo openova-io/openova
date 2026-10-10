@@ -35,6 +35,61 @@ type fakeRepo struct {
 	features     []store.Feature
 	entitlements map[string]string
 	addonWrites  int // SetSourceAddons calls that reached the write
+	// growPackages are the packages' grow settings and headline, keyed
+	// bookID|<slug> (DESIGN.md §22.11); overageWrites counts the
+	// SetSourceOverage calls that reached the write.
+	growPackages  map[string]store.PackageLimits
+	overageWrites int
+}
+
+// SetSourceOverage mirrors store.SetSourceOverage's contract: a platform
+// source; capped refuses a ceiling or a spend limit and clears both; grow
+// needs the source on a book, its customer on a billable plan whose package
+// allows grow, and a ceiling the package admits (store.ResolveGrowCeiling,
+// the store's own rule). All-or-nothing.
+func (f *fakeRepo) SetSourceOverage(_ context.Context, sourceID string, in store.OverageInput) (store.CostSource, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	s, ok := f.sources[sourceID]
+	if !ok {
+		return store.CostSource{}, store.ErrNotFound
+	}
+	if s.Internal || s.Layer != store.LayerPlatform {
+		return store.CostSource{}, fmt.Errorf("%w: the overage mode belongs to a platform source on a package", store.ErrInvalid)
+	}
+	mode := strings.ToLower(strings.TrimSpace(in.Mode))
+	if mode == "" {
+		mode = store.OverageModeCapped
+	}
+	switch mode {
+	case store.OverageModeCapped:
+		if in.Ceiling != nil || in.SpendLimitMonth != nil {
+			return store.CostSource{}, fmt.Errorf("%w: a grow ceiling and a spend limit apply in grow mode", store.ErrInvalid)
+		}
+		s.OverageMode, s.GrowCeiling, s.SpendLimitMonth = mode, nil, nil
+	case store.OverageModeGrow:
+		if s.PriceBookID == nil {
+			return store.CostSource{}, fmt.Errorf("%w: %s has no price book", store.ErrInvalid, s.Label())
+		}
+		c, ok := f.customers[s.CustomerID]
+		if !ok {
+			return store.CostSource{}, store.ErrNotFound
+		}
+		plan := store.NormalizePlanSlug(c.PlanSlug)
+		lim, ok := f.growPackages[*s.PriceBookID+"|"+plan]
+		if !ok || !lim.GrowAllowed {
+			return store.CostSource{}, fmt.Errorf("%w: the %s package does not offer grow mode", store.ErrInvalid, store.PlanName(plan))
+		}
+		ceil, err := store.ResolveGrowCeiling(lim, in.Ceiling)
+		if err != nil {
+			return store.CostSource{}, err
+		}
+		s.OverageMode, s.GrowCeiling, s.SpendLimitMonth = mode, &ceil, in.SpendLimitMonth
+	default:
+		return store.CostSource{}, fmt.Errorf("%w: the overage mode is capped or grow", store.ErrInvalid)
+	}
+	f.overageWrites++
+	return *s, nil
 }
 
 // addFeature registers a feature of the matrix with its add-on SKU ("" for

@@ -440,6 +440,7 @@ func New(d Deps) http.Handler {
 	// term rule and the shape, per (book, plan).
 	mux.HandleFunc("PUT /api/v1/pricebooks/{id}/packages/{plan}/settings", h.putPackageSettings)
 	mux.HandleFunc("PUT /api/v1/customers/{id}/sources/{sid}/addons", h.putSourceAddons)
+	mux.HandleFunc("PUT /api/v1/customers/{id}/sources/{sid}/overage", h.putSourceOverage)
 	// Icons and branding (DESIGN.md §22.10): the icon store, and the icon of
 	// a group. A feature's icon rides on PATCH /features, a package's icon,
 	// accent and badge on its settings.

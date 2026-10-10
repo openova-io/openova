@@ -663,11 +663,18 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return r.fail(ctx, &org, "GiteaRepoFailed", err.Error())
 	}
 
+	// The overage mode + grow ceiling the customer chose at order time
+	// (spec.commerce, founder model 2026-10-10) size the ResourceQuota limits;
+	// absent → capped, the headline.
+	overageMode, growCPU, growMem := overageInputs(org.Spec.Commerce)
 	manifests, err := gitops.Render(gitops.Inputs{
 		Slug:                      org.Spec.Slug,
 		DisplayName:               org.Spec.DisplayName,
 		Tier:                      org.Spec.Tier,
 		PlanSlug:                  org.Spec.PlanSlug,
+		OverageMode:               overageMode,
+		GrowCeilingCPU:            growCPU,
+		GrowCeilingMemory:         growMem,
 		SovereignFQDN:             org.Spec.SovereignRef,
 		HostCluster:               r.HostCluster,
 		VClusterChartVersion:      r.VClusterChartVersion,

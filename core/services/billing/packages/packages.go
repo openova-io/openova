@@ -163,7 +163,54 @@ type Package struct {
 	SKU        string
 	Name       string
 	PriceMinor int64
+	// Includes is the package HEADLINE — the resources the package price
+	// buys, keyed by dimension (DimVCPU …). A key the document does not state
+	// is absent (an older document may carry none, or name a dimension
+	// differently).
+	Includes Resources
+	// Grow is the package's grow-mode offer; nil when the document omits it
+	// (grow is not offered on this package).
+	Grow *Grow
 }
+
+// Resource dimensions, as the document's `includes` and `grow.ceiling` key
+// them. Dimensions is their canonical order.
+const (
+	DimVCPU          = "vcpu"
+	DimMemoryGB      = "memory_gb"
+	DimDiskGB        = "disk_gb"
+	DimBandwidthMbps = "bandwidth_mbps"
+)
+
+// Dimensions lists every resource dimension a grow ceiling carries.
+var Dimensions = []string{DimVCPU, DimMemoryGB, DimDiskGB, DimBandwidthMbps}
+
+// Resources is a quantity per dimension. A missing key is "not stated".
+type Resources map[string]float64
+
+// Grow is how a package is sold in grow mode (founder model 2026-10-10): the
+// Organization's quota may be raised up to Ceiling, and usage above the
+// package allowance is billed in arrears at OverageRates.
+type Grow struct {
+	Allowed bool
+	// Ceiling carries all four Dimensions (Parse refuses a grow block that
+	// does not).
+	Ceiling Resources
+	// OverageRates are the pay-per-use rates this package's overage is billed
+	// at, in document order. Empty when the document states none.
+	OverageRates []OverageRate
+}
+
+// OverageRate is one pay-per-use rate a grow-mode overage is billed at.
+type OverageRate struct {
+	Key        string
+	SKU        string
+	Unit       string
+	PriceMinor int64
+}
+
+// PriceMonth is the rate as the contract's money string ("1.796").
+func (r OverageRate) PriceMonth() string { return FormatMinor(r.PriceMinor, Decimals) }
 
 // Feature is one row of the table; Cells is keyed by package SKU.
 type Feature struct {
@@ -185,6 +232,10 @@ type Cell struct {
 	// Level is the index into Feature.Levels on a level feature; nil when the
 	// document does not carry one (a v1 document, or a non-level feature).
 	Level *int
+	// GrowOnly marks a feature available on this package ONLY in grow mode,
+	// billed as usage (overage) and never as an add-on: the cell is
+	// `optional` with no addon_sku and no price (dr_topology on S/M/L).
+	GrowOnly bool
 }
 
 // wire mirrors the JSON contract one-for-one; Parse converts it.
@@ -193,9 +244,20 @@ type wire struct {
 	PriceBook  string `json:"price_book"`
 	PricesAsOf string `json:"prices_as_of"`
 	Packages   []struct {
-		SKU        string `json:"sku"`
-		Name       string `json:"name"`
-		PriceMonth string `json:"price_month"`
+		SKU        string                     `json:"sku"`
+		Name       string                     `json:"name"`
+		PriceMonth string                     `json:"price_month"`
+		Includes   map[string]json.RawMessage `json:"includes"`
+		Grow       *struct {
+			Allowed      bool               `json:"allowed"`
+			Ceiling      map[string]float64 `json:"ceiling"`
+			OverageRates []struct {
+				Key        string `json:"key"`
+				SKU        string `json:"sku"`
+				Unit       string `json:"unit"`
+				PriceMonth string `json:"price_month"`
+			} `json:"overage_rates"`
+		} `json:"grow"`
 	} `json:"packages"`
 	Features []struct {
 		Key    string   `json:"key"`
@@ -208,6 +270,7 @@ type wire struct {
 			PriceMonth   string `json:"price_month"`
 			IncludedFrom string `json:"included_from"`
 			Level        *int   `json:"level"`
+			GrowOnly     bool   `json:"grow_only"`
 		} `json:"cells"`
 	} `json:"features"`
 }
@@ -216,7 +279,9 @@ type wire struct {
 // to minor units. A body that is not the contract — no packages, a package
 // without a price, an unknown cell state, an optional cell with no SKU or
 // price, a currency billing cannot settle — is an error, never a partial
-// document.
+// document. A grow_only cell is the one optional cell that names no SKU and
+// no price; a grow block must state a positive ceiling for every dimension
+// and well-formed overage rates.
 func Parse(body []byte) (*Document, error) {
 	var w wire
 	if err := json.Unmarshal(body, &w); err != nil {
@@ -246,7 +311,42 @@ func Parse(body []byte) (*Document, error) {
 		if err != nil {
 			return nil, fmt.Errorf("price book: package %q: %w", p.SKU, err)
 		}
-		doc.Packages = append(doc.Packages, Package{SKU: p.SKU, Name: p.Name, PriceMinor: price})
+		pkg := Package{SKU: p.SKU, Name: p.Name, PriceMinor: price, Includes: Resources{}}
+		// The headline is read tolerantly: only the four dimensions, only
+		// when they are JSON numbers. It bounds a grow ceiling from below; a
+		// dimension the document does not state leaves that bound unchecked.
+		for _, dim := range Dimensions {
+			raw, ok := p.Includes[dim]
+			if !ok {
+				continue
+			}
+			var v float64
+			if err := json.Unmarshal(raw, &v); err == nil {
+				pkg.Includes[dim] = v
+			}
+		}
+		if p.Grow != nil && p.Grow.Allowed {
+			g := &Grow{Allowed: true, Ceiling: Resources{}}
+			for _, dim := range Dimensions {
+				v, ok := p.Grow.Ceiling[dim]
+				if !ok || v <= 0 {
+					return nil, fmt.Errorf("price book: package %q offers grow but its ceiling has no positive %s", p.SKU, dim)
+				}
+				g.Ceiling[dim] = v
+			}
+			for _, r := range p.Grow.OverageRates {
+				if r.Key == "" || r.SKU == "" {
+					return nil, fmt.Errorf("price book: package %q has an overage rate with no key or sku", p.SKU)
+				}
+				minor, err := MinorUnits(r.PriceMonth, Decimals)
+				if err != nil {
+					return nil, fmt.Errorf("price book: package %q overage rate %q: %w", p.SKU, r.Key, err)
+				}
+				g.OverageRates = append(g.OverageRates, OverageRate{Key: r.Key, SKU: r.SKU, Unit: r.Unit, PriceMinor: minor})
+			}
+			pkg.Grow = g
+		}
+		doc.Packages = append(doc.Packages, pkg)
 	}
 	for _, f := range w.Features {
 		if f.Key == "" {
@@ -257,10 +357,14 @@ func Parse(body []byte) (*Document, error) {
 			feat.Name = f.Key
 		}
 		for sku, c := range f.Cells {
-			cell := Cell{State: c.State, AddonSKU: c.AddonSKU, IncludedFrom: c.IncludedFrom, Level: c.Level}
-			switch c.State {
-			case StateIncluded, StateNotOffered, StateTeaser:
-			case StateOptional:
+			cell := Cell{State: c.State, AddonSKU: c.AddonSKU, IncludedFrom: c.IncludedFrom, Level: c.Level, GrowOnly: c.GrowOnly}
+			switch {
+			case c.State == StateIncluded, c.State == StateNotOffered, c.State == StateTeaser:
+			case c.State == StateOptional && c.GrowOnly:
+				// Available on this package only in grow mode, billed as
+				// usage: never an add-on, so no SKU and no price.
+				cell.AddonSKU = ""
+			case c.State == StateOptional:
 				if c.AddonSKU == "" {
 					return nil, fmt.Errorf("price book: feature %q on %q is optional but names no addon_sku", f.Key, sku)
 				}
@@ -396,7 +500,7 @@ func (d *Document) Price(packageSKU string, addonSKUs []string) (*Quote, error) 
 		}
 		cell, has := feat.Cells[packageSKU]
 		switch {
-		case has && cell.State == StateOptional && cell.AddonSKU == sku:
+		case has && cell.State == StateOptional && !cell.GrowOnly && cell.AddonSKU == sku:
 			q.Lines = append(q.Lines, Line{SKU: sku, Name: feat.Name, PriceMinor: cell.PriceMinor})
 		case has && cell.State == StateIncluded:
 			q.Lines = append(q.Lines, Line{SKU: sku, Name: feat.Name, PriceMinor: 0, Redundant: true})
@@ -529,15 +633,24 @@ const DRActivePassive = "active-passive"
 // surcharge; a v2 document is the authority — the package either includes the
 // topology or does not offer it, and no surcharge exists beside the package.
 func (d *Document) DRTopology(packageSKU string) (string, bool) {
+	label, _, known := d.DRTopologyCell(packageSKU)
+	return label, known
+}
+
+// DRTopologyCell is DRTopology plus whether the package's dr_topology cell is
+// grow_only: the package's own level is below active-passive, yet
+// active-passive is available on it in grow mode, the standby's resources
+// billed as overage (founder model 2026-10-10).
+func (d *Document) DRTopologyCell(packageSKU string) (label string, growOnly bool, known bool) {
 	for _, f := range d.Features {
 		if f.Key != DRTopologyKey || f.Kind != "level" {
 			continue
 		}
 		c, has := f.Cells[packageSKU]
 		if !has || c.Level == nil || *c.Level < 0 || *c.Level >= len(f.Levels) {
-			return "", false
+			return "", false, false
 		}
-		return f.Levels[*c.Level], true
+		return f.Levels[*c.Level], c.GrowOnly, true
 	}
-	return "", false
+	return "", false, false
 }

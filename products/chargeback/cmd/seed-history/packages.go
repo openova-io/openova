@@ -80,6 +80,15 @@ type apiPackages struct {
 		} `json:"icon"`
 		Accent string `json:"accent"`
 		Badge  string `json:"badge"`
+		Grow   *struct {
+			Allowed bool `json:"allowed"`
+			Ceiling struct {
+				VCPU          *json_number `json:"vcpu"`
+				MemoryGB      *json_number `json:"memory_gb"`
+				DiskGB        *json_number `json:"disk_gb"`
+				BandwidthMbps *json_number `json:"bandwidth_mbps"`
+			} `json:"ceiling"`
+		} `json:"grow"`
 	} `json:"packages"`
 	Features []struct {
 		Key   string `json:"key"`
@@ -89,6 +98,7 @@ type apiPackages struct {
 			Overage        string       `json:"overage"`
 			Level          *int         `json:"level"`
 			Note           string       `json:"note"`
+			GrowOnly       bool         `json:"grow_only"`
 			NextLevelAddon *struct {
 				AddonSKU string `json:"addon_sku"`
 			} `json:"next_level_addon"`
@@ -251,7 +261,7 @@ func (s *seeder) ensurePackages(planBookID string) error {
 	type haveCell struct {
 		state, qty, overage, note string
 		level                     *int
-		nextLevel                 bool
+		nextLevel, growOnly       bool
 	}
 	have := map[string]map[string]haveCell{}
 	for _, f := range doc.Features {
@@ -262,7 +272,7 @@ func (s *seeder) ensurePackages(planBookID string) error {
 				// A teaser is a not-offered cell published with its hint.
 				state = synth.NotOffered
 			}
-			have[f.Key][plan] = haveCell{state: state, qty: c.Quantity.text(), overage: c.Overage, note: c.Note, level: c.Level, nextLevel: c.NextLevelAddon != nil}
+			have[f.Key][plan] = haveCell{state: state, qty: c.Quantity.text(), overage: c.Overage, note: c.Note, level: c.Level, nextLevel: c.NextLevelAddon != nil, growOnly: c.GrowOnly}
 		}
 	}
 	// The rows the book really carries: the document reads "not offered"
@@ -327,6 +337,7 @@ func (s *seeder) ensurePackages(planBookID string) error {
 		sku := "plan." + p.Slug
 		brand := icons.Packages[sku]
 		wantIcon := iconIDs[brand.Icon]
+		ceil := synth.GrowCeilingOf(p)
 		same := false
 		for _, dp := range doc.Packages {
 			if dp.SKU != sku {
@@ -336,14 +347,20 @@ func (s *seeder) ensurePackages(planBookID string) error {
 				numEqText(dp.Shape.VCPU.text(), ftoa(p.VCPU)) && numEqText(dp.Shape.MemoryGB.text(), ftoa(p.MemoryGB)) &&
 				numEqText(dp.Shape.VCPUGuaranteed.text(), ftoa(p.VCPUGuaranteed)) && numEqText(dp.Shape.MemoryGBGuaranteed.text(), ftoa(p.MemoryGBGuaranteed)) &&
 				numEqText(dp.Shape.DiskGB.text(), ftoa(p.DiskGB)) &&
-				dp.Accent == brand.Accent && dp.Badge == brand.Badge && ((dp.Icon == nil && wantIcon == "") || (dp.Icon != nil && dp.Icon.Src == "/api/v1/public/icons/"+wantIcon))
+				dp.Accent == brand.Accent && dp.Badge == brand.Badge && ((dp.Icon == nil && wantIcon == "") || (dp.Icon != nil && dp.Icon.Src == "/api/v1/public/icons/"+wantIcon)) &&
+				dp.Grow != nil && dp.Grow.Allowed && numEqText(dp.Grow.Ceiling.VCPU.text(), ftoa(ceil.VCPU)) && numEqText(dp.Grow.Ceiling.MemoryGB.text(), ftoa(ceil.MemoryGB)) &&
+				numEqText(dp.Grow.Ceiling.DiskGB.text(), ftoa(ceil.DiskGB)) && numEqText(dp.Grow.Ceiling.BandwidthMbps.text(), ftoa(ceil.BandwidthMbps)) &&
+				growRatesAre(s, planBookID, sku, p)
 		}
 		if same {
 			continue
 		}
 		body := map[string]any{"tagline": p.Tagline, "recommended": p.Recommended, "annual_months_free": p.AnnualMonthsFree,
 			"vcpu": ftoa(p.VCPU), "memory_gb": ftoa(p.MemoryGB), "vcpu_guaranteed": ftoa(p.VCPUGuaranteed), "memory_gb_guaranteed": ftoa(p.MemoryGBGuaranteed), "disk_gb": ftoa(p.DiskGB),
-			"icon_id": wantIcon, "accent": brand.Accent, "badge": brand.Badge}
+			"icon_id": wantIcon, "accent": brand.Accent, "badge": brand.Badge,
+			"grow_allowed": true, "grow_ceiling_vcpu": ftoa(ceil.VCPU), "grow_ceiling_memory_gb": ftoa(ceil.MemoryGB),
+			"grow_ceiling_disk_gb": ftoa(ceil.DiskGB), "grow_ceiling_bandwidth_mbps": ftoa(ceil.BandwidthMbps),
+			"overage_vcpu_month": ftoa(p.OverageVCPUMonth), "overage_mem_gb_month": ftoa(p.OverageMemGBMonth)}
 		if err := s.api.putPackageSettings(planBookID, sku, body); err != nil {
 			return fmt.Errorf("settings of %s: %w", sku, err)
 		}
@@ -371,17 +388,17 @@ func (s *seeder) ensurePackages(planBookID string) error {
 			// A level cell is published as included with its level (optional
 			// = the next level purchasable); compare on what the document says.
 			wantState := want.State
-			if f.Kind == synth.FeatureLevel && want.State == synth.Optional {
+			if f.Kind == synth.FeatureLevel && want.State == synth.Optional && !want.GrowOnly {
 				wantState = synth.Included
 			}
-			same := has && rowsOf[f.Key][planSKU] && cur.state == wantState && numEqText(cur.qty, wantQty) && cur.overage == wantOverage && cur.note == want.Note
+			same := has && rowsOf[f.Key][planSKU] && cur.state == wantState && numEqText(cur.qty, wantQty) && cur.overage == wantOverage && cur.note == want.Note && cur.growOnly == want.GrowOnly
 			if f.Kind == synth.FeatureLevel && want.State != synth.NotOffered {
-				same = same && cur.level != nil && *cur.level == want.Level && cur.nextLevel == (want.State == synth.Optional)
+				same = same && cur.level != nil && *cur.level == want.Level && cur.nextLevel == (want.State == synth.Optional && !want.GrowOnly)
 			}
 			if same {
 				continue
 			}
-			body := map[string]any{"state": want.State, "note": want.Note}
+			body := map[string]any{"state": want.State, "note": want.Note, "grow_only": want.GrowOnly}
 			if wantQty != "" {
 				body["included_quantity"] = wantQty
 				body["overage"] = wantOverage
@@ -480,4 +497,15 @@ func (s *seeder) ensureAddons(customerID, sourceID string, c *synth.Customer) er
 	}
 	s.infof("  add-ons set to %v", want)
 	return nil
+}
+
+// growRatesAre reports whether a package's stored compute overage rates are
+// the ladder's — read off the settings row, since the document publishes
+// them as monthly figures rounded through the book's divisor.
+func growRatesAre(s *seeder, bookID, planSKU string, p synth.Package) bool {
+	var v, m *string
+	if err := s.db.QueryRowContext(s.ctx, `SELECT overage_vcpu_month::text, overage_mem_gb_month::text FROM package_settings WHERE price_book_id = $1 AND plan_sku = $2`, bookID, planSKU).Scan(&v, &m); err != nil {
+		return false
+	}
+	return v != nil && m != nil && numEqText(*v, ftoa(p.OverageVCPUMonth)) && numEqText(*m, ftoa(p.OverageMemGBMonth))
 }

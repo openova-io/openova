@@ -307,14 +307,16 @@ func (s *Store) ClonePriceBook(ctx context.Context, id, name string) (PriceBook,
 		SELECT $2, plan_sku, feature_id, state, included_quantity, note FROM package_entitlements WHERE price_book_id = $1`, id, newID); err != nil {
 		return PriceBook{}, mapErr(err)
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE package_entitlements c SET overage = o.overage, level = o.level
+	if _, err := tx.ExecContext(ctx, `UPDATE package_entitlements c SET overage = o.overage, level = o.level, grow_only = o.grow_only
 		FROM package_entitlements o WHERE c.price_book_id = $2 AND o.price_book_id = $1 AND o.plan_sku = c.plan_sku AND o.feature_id = c.feature_id`, id, newID); err != nil {
 		return PriceBook{}, mapErr(err)
 	}
 	// The package settings (tagline, recommended, term rule, shape) travel
 	// with the cells.
-	if _, err := tx.ExecContext(ctx, `INSERT INTO package_settings (price_book_id, plan_sku, tagline, recommended, annual_months_free, vcpu, memory_gb, vcpu_guaranteed, memory_gb_guaranteed, disk_gb, icon_id, accent, badge)
-		SELECT $2, plan_sku, tagline, recommended, annual_months_free, vcpu, memory_gb, vcpu_guaranteed, memory_gb_guaranteed, disk_gb, icon_id, accent, badge FROM package_settings WHERE price_book_id = $1`, id, newID); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO package_settings (price_book_id, plan_sku, tagline, recommended, annual_months_free, vcpu, memory_gb, vcpu_guaranteed, memory_gb_guaranteed, disk_gb, icon_id, accent, badge,
+		grow_allowed, grow_ceiling_vcpu, grow_ceiling_memory_gb, grow_ceiling_disk_gb, grow_ceiling_bandwidth_mbps, overage_vcpu_month, overage_mem_gb_month)
+		SELECT $2, plan_sku, tagline, recommended, annual_months_free, vcpu, memory_gb, vcpu_guaranteed, memory_gb_guaranteed, disk_gb, icon_id, accent, badge,
+		grow_allowed, grow_ceiling_vcpu, grow_ceiling_memory_gb, grow_ceiling_disk_gb, grow_ceiling_bandwidth_mbps, overage_vcpu_month, overage_mem_gb_month FROM package_settings WHERE price_book_id = $1`, id, newID); err != nil {
 		return PriceBook{}, mapErr(err)
 	}
 	if err := tx.Commit(); err != nil {

@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { api, errorText } from '../api/client'
-import type { CostSource, PackagesDoc, PriceBook } from '../api/types'
+import type { CostSource, GrowCeiling, OverageMode, PackagesDoc, PriceBook, SourceOverageWrite } from '../api/types'
 import { DataTable, type Column } from '../components/DataTable'
 import { Badge, Confirm, Field, Modal, Notice, Skeleton } from '../components/ui'
 import { when } from '../lib/format'
@@ -16,7 +16,18 @@ export const BOOK_HELP = 'The rate card that prices THIS source. A cloud source 
 
 export const ADDONS_HELP = 'The optional features of the package the Organization has taken (DESIGN.md §22). Each is billed at its add-on SKU per plan-hour, beside the plan; what the package includes is on the invoice at 0.000 and cannot be taken.'
 
-type Dialog = { kind: 'add' } | { kind: 'edit'; source: CostSource } | { kind: 'rotate'; source: CostSource } | { kind: 'delete'; source: CostSource } | { kind: 'purge'; source: CostSource } | { kind: 'addons'; source: CostSource } | null
+export const OVERAGE_HELP = 'What happens at the package’s allowance (DESIGN.md §22.11). Capped: nothing is billed beyond the package. Grow: the quota rises to the ceiling and the usage above the allowance is billed in arrears at the package’s overage rates; the spend limit caps those usage charges, not the whole bill.'
+
+type Dialog = { kind: 'add' } | { kind: 'edit'; source: CostSource } | { kind: 'rotate'; source: CostSource } | { kind: 'delete'; source: CostSource } | { kind: 'purge'; source: CostSource } | { kind: 'addons'; source: CostSource } | { kind: 'overage'; source: CostSource } | null
+
+/** "grow · 4 vCPU / 16 GB / 250 GB / 1000 Mbps · limit 25 OMR" — the Overage column's words. */
+export function overageText(s: Pick<CostSource, 'overage_mode' | 'grow_ceiling' | 'spend_limit_month'>, currency = ''): string {
+  if ((s.overage_mode ?? 'capped') !== 'grow') return 'capped'
+  const g = s.grow_ceiling ?? {}
+  const parts = [`${g.vcpu ?? '?'} vCPU`, `${g.memory_gb ?? '?'} GB`, `${g.disk_gb ?? '?'} GB disk`, `${g.bandwidth_mbps ?? '?'} Mbps`]
+  const limit = s.spend_limit_month !== undefined && s.spend_limit_month !== null && s.spend_limit_month !== '' ? ` · usage capped at ${s.spend_limit_month}${currency ? ` ${currency}` : ''} / month` : ''
+  return `grow · up to ${parts.join(' / ')}${limit}`
+}
 
 /**
  * Cost sources of one customer (#6867, DESIGN.md §2). Each source carries
@@ -158,6 +169,25 @@ export function SourcesPanel({
       },
     },
     {
+      // DESIGN.md §22.11 — capped or grow.
+      key: 'overage',
+      header: 'Overage',
+      value: (s) => (s.internal || layerOf(s) !== 'platform' ? '' : overageText(s)),
+      render: (s) => {
+        if (s.internal || layerOf(s) !== 'platform') return <span className="muted">—</span>
+        return (
+          <span className="btn-row" title={OVERAGE_HELP}>
+            <span className="small" data-testid={`overage-${s.id}`}>{overageText(s)}</span>
+            {canManage && s.price_book_id ? (
+              <button className="link small" disabled={act.busy} onClick={() => setDialog({ kind: 'overage', source: s })}>
+                Change
+              </button>
+            ) : null}
+          </span>
+        )
+      },
+    },
+    {
       key: 'status',
       header: 'Status',
       value: (s) => s.status,
@@ -271,6 +301,7 @@ export function SourcesPanel({
       {dialog?.kind === 'add' ? <SourceFormModal title="Add cost source" customerId={customerId} books={catalogue} editable={['kind', 'region', 'project_id', 'scope_token']} onClose={close} onDone={onChanged} /> : null}
       {dialog?.kind === 'edit' ? <SourceFormModal title={`Edit source ${dialog.source.project_id || dialog.source.id}`} customerId={customerId} books={catalogue} source={dialog.source} editable={editable} onClose={close} onDone={onChanged} /> : null}
       {dialog?.kind === 'rotate' ? <RotateKeyModal source={dialog.source} onClose={close} onDone={onChanged} /> : null}
+      {dialog?.kind === 'overage' ? <OverageModal customerId={customerId} source={dialog.source} planSlug={planSlug ?? ''} onClose={close} onDone={onChanged} /> : null}
       {dialog?.kind === 'addons' ? <AddonsModal customerId={customerId} source={dialog.source} planSlug={planSlug ?? ''} onClose={close} onDone={onChanged} /> : null}
       {dialog?.kind === 'purge' ? (
         <Confirm
@@ -546,6 +577,110 @@ export function AddonsModal({ customerId, source, planSlug, onClose, onDone }: {
             </div>
           </>
         )}
+      </div>
+    </Modal>
+  )
+}
+
+/**
+ * The overage mode of one platform source (DESIGN.md §22.11): capped, or grow
+ * with a ceiling per dimension (each between the package headline and the
+ * package's ceiling; empty = the package's) and a monthly spend limit on the
+ * usage above the package. Written whole; the server refuses grow on a
+ * package that does not offer it and a ceiling outside its range.
+ */
+export function OverageModal({ customerId, source, planSlug, onClose, onDone }: { customerId: string; source: CostSource; planSlug: string; onClose: () => void; onDone: () => void | Promise<void> }) {
+  const doc = useQuery<PackagesDoc>(source.price_book_id ? `/pricebooks/${source.price_book_id}/packages` : null)
+  const str = (v: number | string | undefined | null) => (v === undefined || v === null ? '' : String(v))
+  const [mode, setMode] = useState<OverageMode>((source.overage_mode as OverageMode) === 'grow' ? 'grow' : 'capped')
+  const [ceil, setCeil] = useState<Record<keyof GrowCeiling, string>>({
+    vcpu: str(source.grow_ceiling?.vcpu),
+    memory_gb: str(source.grow_ceiling?.memory_gb),
+    disk_gb: str(source.grow_ceiling?.disk_gb),
+    bandwidth_mbps: str(source.grow_ceiling?.bandwidth_mbps),
+  })
+  const [limit, setLimit] = useState(str(source.spend_limit_month))
+  const act = useAction()
+  const sku = planSlug ? planSku(planSlug) : ''
+  const pkg = doc.data?.packages.find((p) => p.sku === sku)
+  const grow = pkg?.grow
+  const currency = doc.data?.currency ?? ''
+  const dims: { key: keyof GrowCeiling; label: string; head: number | string | undefined }[] = [
+    { key: 'vcpu', label: 'vCPU', head: pkg?.includes?.vcpu },
+    { key: 'memory_gb', label: 'Memory (GB)', head: pkg?.includes?.memory_gb },
+    { key: 'disk_gb', label: 'Disk (GB)', head: pkg?.includes?.disk_gb },
+    { key: 'bandwidth_mbps', label: 'Bandwidth (Mbps)', head: pkg?.includes?.bandwidth_mbps },
+  ]
+  const problem = (() => {
+    if (mode !== 'grow') return ''
+    if (doc.data && !grow) return `the ${pkg?.name ?? 'customer’s'} package does not offer grow mode`
+    for (const d of dims) {
+      const v = ceil[d.key].trim()
+      if (v === '') continue
+      const n = Number(v)
+      const top = Number(grow?.ceiling?.[d.key])
+      if (!Number.isFinite(n) || n < 0) return `${d.label}: a non-negative number, or empty for the package’s ceiling`
+      if (d.head !== undefined && n < Number(d.head)) return `${d.label}: at least the package’s ${d.head}`
+      if (Number.isFinite(top) && n > top) return `${d.label}: at most the package’s ceiling, ${top}`
+    }
+    if (limit.trim() !== '' && (!Number.isFinite(Number(limit)) || Number(limit) <= 0)) return 'the spend limit is an amount above zero, or empty for none'
+    return ''
+  })()
+  const submit = async () => {
+    const body: SourceOverageWrite = { overage_mode: mode }
+    if (mode === 'grow') {
+      const g: GrowCeiling = {}
+      for (const d of dims) if (ceil[d.key].trim() !== '') g[d.key] = ceil[d.key].trim()
+      if (Object.keys(g).length) body.grow_ceiling = g
+      if (limit.trim() !== '') body.spend_limit_month = limit.trim()
+    }
+    const ok = await act.run(`${source.project_id || source.id} is ${mode}`, () => api.put(`/customers/${customerId}/sources/${source.id}/overage`, body), onDone)
+    if (ok) onClose()
+  }
+  return (
+    <Modal
+      title={`Overage — ${source.project_id || source.id}`}
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" onClick={onClose} disabled={act.busy}>
+            Cancel
+          </button>
+          <button className="primary" disabled={act.busy || Boolean(problem)} onClick={() => void submit()}>
+            Save
+          </button>
+        </>
+      }
+    >
+      <div className="stack tight" data-testid="overage-modal">
+        {act.error ? <Notice kind="bad">{act.error}</Notice> : null}
+        <p className="muted small" style={{ margin: 0 }}>{OVERAGE_HELP}</p>
+        <label className="check">
+          <input type="radio" name="overage-mode" checked={mode === 'capped'} onChange={() => setMode('capped')} aria-label="Capped" /> <b>Capped</b> — the quota is the package; nothing is billed beyond it
+        </label>
+        <label className="check">
+          <input type="radio" name="overage-mode" checked={mode === 'grow'} onChange={() => setMode('grow')} aria-label="Grow" /> <b>Grow</b> — the quota rises to the ceiling; the usage above the package is billed in arrears
+        </label>
+        {mode === 'grow' ? (
+          <>
+            {grow?.overage_rates?.length ? (
+              <div className="small" data-testid="overage-rates">
+                Above the package: {grow.overage_rates.map((r) => `${r.price_month} ${currency} per ${r.unit} / month`).join(' · ')}
+              </div>
+            ) : null}
+            <div className="btn-row">
+              {dims.map((d) => (
+                <Field key={d.key} label={`Ceiling ${d.label}`} help={grow?.ceiling?.[d.key] !== undefined ? `${d.head ?? 0} to ${grow.ceiling[d.key]}; empty = ${grow.ceiling[d.key]}` : undefined}>
+                  <input type="number" min={0} step="any" inputMode="decimal" value={ceil[d.key]} onChange={(e) => setCeil((c) => ({ ...c, [d.key]: e.target.value }))} aria-label={`Ceiling ${d.label}`} />
+                </Field>
+              ))}
+            </div>
+            <Field label={`Spend limit (${currency || 'currency'} / month)`} help="Caps the usage charges above the package on each statement — the package itself is always billed. Empty = none. It does not stop usage while it happens.">
+              <input type="number" min={0} step="any" inputMode="decimal" value={limit} onChange={(e) => setLimit(e.target.value)} aria-label="Spend limit" />
+            </Field>
+          </>
+        ) : null}
+        {problem ? <div className="err small">{problem}</div> : null}
       </div>
     </Modal>
   )

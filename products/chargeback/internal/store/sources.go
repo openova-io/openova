@@ -15,18 +15,25 @@ const sourceColumns = `s.id, s.customer_id, COALESCE((SELECT c.name FROM custome
 	COALESCE((SELECT b.name FROM price_books b WHERE b.id = s.price_book_id), ''), s.internal,
 	s.region, s.project_id, s.domain_id, s.credential_id, s.status, s.verified_at, s.last_collected_at, s.last_error, s.scope_token,
 	COALESCE((SELECT c.access_key FROM credentials c WHERE c.id = s.credential_id), ''),
-	ARRAY(SELECT f.key FROM source_addons sa JOIN features f ON f.id = sa.feature_id WHERE sa.source_id = s.id ORDER BY f.sort_order, f.key)::text[]`
+	ARRAY(SELECT f.key FROM source_addons sa JOIN features f ON f.id = sa.feature_id WHERE sa.source_id = s.id ORDER BY f.sort_order, f.key)::text[],
+	s.overage_mode, s.grow_ceiling_vcpu::text, s.grow_ceiling_memory_gb::text, s.grow_ceiling_disk_gb::text, s.grow_ceiling_bandwidth_mbps::text, s.spend_limit_month::text`
 
 func scanSource(row interface{ Scan(...any) error }) (CostSource, error) {
 	var src CostSource
 	var customer, book, domain, cred, lastErr sql.NullString
 	var verified, collected sql.NullTime
 	var addons []string
+	var gV, gM, gD, gB, spend sql.NullString
 	err := row.Scan(&src.ID, &customer, &src.CustomerName, &src.Kind, &src.Layer, &book, &src.PriceBookName, &src.Internal,
-		&src.Region, &src.ProjectID, &domain, &cred, &src.Status, &verified, &collected, &lastErr, &src.ScopeToken, &src.AccessKey, pq.Array(&addons))
+		&src.Region, &src.ProjectID, &domain, &cred, &src.Status, &verified, &collected, &lastErr, &src.ScopeToken, &src.AccessKey, pq.Array(&addons),
+		&src.OverageMode, &gV, &gM, &gD, &gB, &spend)
 	if err != nil {
 		return src, mapErr(err)
 	}
+	if gV.Valid || gM.Valid || gD.Valid || gB.Valid {
+		src.GrowCeiling = &GrowCeiling{VCPU: trimDecimalPtr(decPtr(gV)), MemoryGB: trimDecimalPtr(decPtr(gM)), DiskGB: trimDecimalPtr(decPtr(gD)), BandwidthMbps: trimDecimalPtr(decPtr(gB))}
+	}
+	src.SpendLimitMonth = decPtr(spend)
 	src.Addons = addons
 	if src.Addons == nil {
 		src.Addons = []string{}

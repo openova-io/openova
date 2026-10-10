@@ -89,7 +89,31 @@ type Inputs struct {
 	// uncapped. 5-pillar Pillar 1: the cap the customer pays for IS the cap
 	// that materializes.
 	PlanSlug string
+
+	// OverageMode is the package's overage mode, from the Organization CR
+	// spec.commerce.overageMode (founder model, 2026-10-10): "capped" — the
+	// ResourceQuota limits are the plan headline, exactly the render before
+	// the field existed — or "grow" — the limits are raised to the grow
+	// ceiling and usage above the headline is billed in arrears by BSS.
+	// Empty (no spec.commerce, or a block without the field) and any other
+	// value read as "capped". Ignored for Burstable plans (Flexi renders no
+	// ResourceQuota in either mode).
+	OverageMode string
+
+	// GrowCeilingCPU / GrowCeilingMemory are the grow ceiling as Kubernetes
+	// quantities ("8", "16Gi"), from spec.commerce.growCeiling.vcpu /
+	// .memoryGB. Read only when OverageMode is "grow". Empty (or
+	// unparseable) = the default ceiling, the XL headline. See
+	// quotaLimitsFor for the clamps.
+	GrowCeilingCPU    string
+	GrowCeilingMemory string
 }
+
+// Overage modes Inputs.OverageMode carries (spec.commerce.overageMode).
+const (
+	OverageModeCapped = "capped"
+	OverageModeGrow   = "grow"
+)
 
 // PlanQuota is the per-plan resource cap the org-controller materializes on
 // the Org boundary host namespace (#4292). It REPLACES both the retired
@@ -413,6 +437,84 @@ func planPlusOverhead(q PlanQuota, cp ControlPlaneOverhead, ps PlatformStackOver
 		LimitsCPU:      add(q.CPULimit, cp.LimitsCPU, ps.LimitsCPU),
 		LimitsMemory:   add(q.MemLimit, cp.LimitsMemory, ps.LimitsMemory),
 	}
+}
+
+// growCeilingPlan is the plan whose headline is the DEFAULT grow ceiling and
+// the HIGHEST ceiling of S, M and L: the XL shape. XL itself grows to TWICE
+// its headline (founder decision 2026-10-10 — otherwise the largest package
+// could not grow at all). Both are read from planQuotaTable, never restated
+// as a literal, so a change to the XL headline moves the ceilings with it.
+const growCeilingPlan = "xl"
+
+// growTop is a plan's grow ceiling — the default and the most a customer may
+// choose: the XL headline for S, M and L; twice it for XL.
+func growTop(q PlanQuota) (cpu, mem string) {
+	top := planQuotaTable[growCeilingPlan]
+	if q.Slug != growCeilingPlan {
+		return top.CPULimit, top.MemLimit
+	}
+	c, m := mustQuantity(top.CPULimit), mustQuantity(top.MemLimit)
+	c.Add(mustQuantity(top.CPULimit))
+	m.Add(mustQuantity(top.MemLimit))
+	return c.String(), m.String()
+}
+
+// quotaLimitsFor is the plan term on the ResourceQuota LIMITS side for a
+// fixed-tier plan, per overage mode (founder model, 2026-10-10):
+//
+//   - capped (also empty or any unknown mode): the headline, q.CPULimit /
+//     q.MemLimit, returned as the table's own strings so the render is
+//     byte-for-byte the pre-overage one.
+//   - grow: the grow ceiling. An empty, unparseable or non-positive value is
+//     the default ceiling, the XL headline. Two clamps, per resource:
+//     a ceiling BELOW the plan headline is raised to the headline (grow can
+//     never cap tighter than the package the customer paid for); a ceiling
+//     ABOVE the plan's grow ceiling (growTop: the XL headline for S, M and L,
+//     twice it for XL) is lowered to it. The order
+//     path validates the same bounds upstream; these clamps keep a CR that
+//     reached the controller another way inside them.
+//
+// The REQUESTS side is not this function's: it stays the guaranteed share
+// (headline ÷ overcommit) in both modes. grow reports whether the ceiling was
+// applied. Burstable plans have no limits term (they render no quota).
+func quotaLimitsFor(q PlanQuota, mode, ceilCPU, ceilMem string) (cpu, mem string, grow bool) {
+	if q.Burstable {
+		return "", "", false
+	}
+	if mode != OverageModeGrow {
+		return q.CPULimit, q.MemLimit, false
+	}
+	topCPU, topMem := growTop(q)
+	return clampCeiling(ceilCPU, q.CPULimit, topCPU),
+		clampCeiling(ceilMem, q.MemLimit, topMem), true
+}
+
+// clampCeiling resolves one grow-ceiling value into [floor, top] (both this
+// file's own literals), defaulting to top when v is empty, unparseable or not
+// positive. It returns the canonical Quantity spelling.
+func clampCeiling(v, floor, top string) string {
+	t := mustQuantity(top)
+	c, err := resource.ParseQuantity(strings.TrimSpace(v))
+	if err != nil || c.Sign() <= 0 {
+		return t.String()
+	}
+	if f := mustQuantity(floor); c.Cmp(f) < 0 {
+		return f.String()
+	}
+	if c.Cmp(t) > 0 {
+		return t.String()
+	}
+	return c.String()
+}
+
+// QuotaLimitsFor is the exported form of quotaLimitsFor keyed by plan slug:
+// the cpu / memory plan term the ResourceQuota renders on its limits side
+// (before the control-plane and platform-stack overheads are added), and
+// whether the grow ceiling replaced the headline. Burstable plans return
+// empty strings. PlanRendersResourceQuota still answers whether a quota
+// renders at all — the overage mode never changes that.
+func QuotaLimitsFor(planSlug, overageMode, growCeilingCPU, growCeilingMemory string) (cpu, memory string, grow bool) {
+	return quotaLimitsFor(planQuota(planSlug), overageMode, growCeilingCPU, growCeilingMemory)
 }
 
 // String renders the overhead the way the ResourceQuota annotation carries it,
@@ -915,6 +1017,12 @@ spec:
 // plus the overheads' request/limit gap. Flexi renders NO ResourceQuota
 // (on-demand, soft cap) — the controller skips this file for Burstable plans.
 //
+// Overage mode (spec.commerce.overageMode, founder model 2026-10-10): in
+// "capped" the limits plan term is the headline as above; in "grow" it is the
+// grow ceiling (quotaLimitsFor) and the requests side does not move. The mode
+// and, in grow, the ceiling are stamped as openova.io/overage-mode and
+// openova.io/grow-ceiling.
+//
 // The split is stamped as annotations so an operator reading the LIVE object
 // (`kubectl get resourcequota plan-quota -o yaml`) can reconcile the number to
 // the plan without this source: annotations survive apply, the YAML comment
@@ -937,6 +1045,12 @@ const resourceQuotaTemplate = `# The hard cap below is NOT the plan alone. It is
 #   plan {{ .PlanSlug }} guaranteed (requests): {{ .PlanGuaranteedText }}
 #   vcluster control plane: {{ .OverheadText }}
 #   per-Organization platform stack: {{ .PlatformStackText }}
+#   overage mode: {{ .EffectiveOverageMode }}
+{{- if .GrowCeilingText }}
+#   grow ceiling (limits, in place of the headline): {{ .GrowCeilingText }}
+#   usage above the headline is billed in arrears by BSS; no storage cap in
+#   either mode (the platform stack's own volumes share this namespace)
+{{- end }}
 apiVersion: v1
 kind: ResourceQuota
 metadata:
@@ -955,6 +1069,10 @@ metadata:
     openova.io/plan-overcommit-memory: "{{ .OvercommitMemory }}"
     openova.io/vcluster-control-plane-overhead: {{ .OverheadText | quote }}
     openova.io/platform-stack-overhead: {{ .PlatformStackText | quote }}
+    openova.io/overage-mode: {{ .EffectiveOverageMode | quote }}
+{{- if .GrowCeilingText }}
+    openova.io/grow-ceiling: {{ .GrowCeilingText | quote }}
+{{- end }}
 spec:
   hard:
     requests.cpu: "{{ .Hard.RequestsCPU }}"
@@ -997,6 +1115,12 @@ metadata:
     openova.io/plan-guaranteed-memory: {{ .Quota.MemRequest | quote }}
     openova.io/plan-overcommit-cpu: "{{ .OvercommitCPU }}"
     openova.io/plan-overcommit-memory: "{{ .OvercommitMemory }}"
+{{- if .EffectiveOverageMode }}
+    openova.io/overage-mode: {{ .EffectiveOverageMode | quote }}
+{{- end }}
+{{- if .GrowCeilingText }}
+    openova.io/grow-ceiling: {{ .GrowCeilingText | quote }}
+{{- end }}
 spec:
   limits:
     - type: Container
@@ -1418,8 +1542,16 @@ type renderView struct {
 	// Defaults are the LimitRange per-container defaults (limitRangeDefaults):
 	// default limit = headline / 8, default request = that over the overcommit
 	// ratio for fixed tiers; a small fixed floor for Flexi which has no
-	// ceiling.
+	// ceiling. Derived from the HEADLINE in both overage modes.
 	Defaults containerShape
+	// EffectiveOverageMode is the overage mode the quota was sized with —
+	// "capped" or "grow" for a fixed tier, stamped as openova.io/overage-mode
+	// on the ResourceQuota and the LimitRange; empty for Burstable plans,
+	// which carry no quota and so no mode annotation.
+	EffectiveOverageMode string
+	// GrowCeilingText is the clamped grow ceiling ("cpu=8 memory=16Gi"),
+	// stamped as openova.io/grow-ceiling; empty unless the mode is grow.
+	GrowCeilingText string
 	// AppNamespace is the in-vcluster namespace the funnel installs the
 	// customer's Applications into (= "apps", matching the provisioning
 	// funnel's appNS). The default-deny + same-Org NetworkPolicy targets it
@@ -1551,7 +1683,35 @@ func Render(in Inputs) (map[string][]byte, error) {
 	// chart-unsized container takes this plan's LimitRange defaults.
 	if PlanRendersResourceQuota(in.PlanSlug) {
 		ps := platformStackOverheadFor(quota)
-		view.Hard = planPlusOverhead(quota, vclusterControlPlaneOverhead, ps)
+		// Overage mode. capped: the limits plan term is the headline — the
+		// table's own strings, so the hard cap is byte-identical to the
+		// render before the mode existed. grow: the limits plan term is the
+		// grow ceiling (default the XL headline; clamped to [plan headline,
+		// XL headline] — see quotaLimitsFor). Either way the requests plan
+		// term stays the guaranteed share (headline ÷ overcommit), and both
+		// overheads are added exactly as before; the platform-stack term is
+		// still sized from the HEADLINE (its chart-unsized containers take
+		// the LimitRange defaults, which stay headline-derived in both
+		// modes).
+		//
+		// Storage: NO requests.storage in either mode, deliberately. The
+		// per-Organization platform stack's PVCs (the keycloak and newapi
+		// postgresql volumes) share this namespace with the customer's own
+		// and are not sized in this controller, so a storage cap
+		// would refuse the Organization's own databases (see "Storage is
+		// not counted" above platformStackWorkload). Disk above the package
+		// is metered by BSS from the PVC meter and billed in arrears; the
+		// growCeiling.diskGB / bandwidthMbps values are BSS's, not this
+		// quota's.
+		limCPU, limMem, grow := quotaLimitsFor(quota, in.OverageMode, in.GrowCeilingCPU, in.GrowCeilingMemory)
+		limitsQuota := quota
+		limitsQuota.CPULimit, limitsQuota.MemLimit = limCPU, limMem
+		view.Hard = planPlusOverhead(limitsQuota, vclusterControlPlaneOverhead, ps)
+		view.EffectiveOverageMode = OverageModeCapped
+		if grow {
+			view.EffectiveOverageMode = OverageModeGrow
+			view.GrowCeilingText = fmt.Sprintf("cpu=%s memory=%s", limCPU, limMem)
+		}
 		view.PlanCapText = fmt.Sprintf("cpu=%s memory=%s", quota.CPULimit, quota.MemLimit)
 		view.PlanGuaranteedText = fmt.Sprintf("cpu=%s memory=%s", quota.CPURequest, quota.MemRequest)
 		view.PlatformStackText = ps.String()

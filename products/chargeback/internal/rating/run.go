@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/big"
 	"sort"
 	"strings"
 	"time"
@@ -410,6 +411,21 @@ func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, pc *pa
 				shapeItems[it.SKU] = it
 			}
 		}
+		// DESIGN.md §22.11 — the LIMIT meters are a measurement, never a
+		// sale: they leave the rows Rate prices and go to the package, which
+		// bills the compute above the allowance in grow mode.
+		var limitRows []store.RatableUsage
+		if src.Layer == store.LayerPlatform {
+			kept := rows[:0:0]
+			for _, u := range rows {
+				if store.IsPlatformLimitMeter(u.SKU) {
+					limitRows = append(limitRows, u)
+					continue
+				}
+				kept = append(kept, u)
+			}
+			rows = kept
+		}
 		srcLines, unpriced, err := Rate(rows, items, pb.BillStopped)
 		if err != nil {
 			return store.Statement{}, detail, fmt.Errorf("source %s: %w", src.Label(), err)
@@ -432,7 +448,7 @@ func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, pc *pa
 		// features as 0.000 lines, the add-ons it took at their price, and
 		// the included quantities as allowances for the terms below.
 		if src.Layer == store.LayerPlatform {
-			pkg, err := packageOf(ctx, st, src, pb, rows, items)
+			pkg, err := packageOf(ctx, st, src, pb, rows, limitRows, items)
 			if err != nil {
 				return store.Statement{}, detail, fmt.Errorf("source %s: package: %w", src.Label(), err)
 			}
@@ -486,6 +502,18 @@ func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, pc *pa
 		return store.Statement{}, detail, err
 	}
 	detail.terms = appliedTerms
+	// DESIGN.md §22.11 — a grow Source's spend limit caps the usage charges
+	// above its package (after the allowances, before the discounts), as one
+	// named line per Source.
+	for _, src := range sources {
+		line, ok, err := SpendLimitLine(src, lines, currency)
+		if err != nil {
+			return store.Statement{}, detail, fmt.Errorf("source %s: %w", src.Label(), err)
+		}
+		if ok {
+			lines = append(lines, line)
+		}
+	}
 	// #6862 — discounts reduce the subtotal BEFORE tax. Taxing the list price
 	// and then discounting would overcharge tax on money the customer never
 	// paid.
@@ -616,7 +644,7 @@ func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, pc *pa
 // packageOf applies the Source's package to the period (DESIGN.md §22): the
 // plan segments are read off the Source's own plan.<slug> rows, each plan's
 // cells are loaded from the Source's book, and ApplyPackage does the rest.
-func packageOf(ctx context.Context, st *store.Store, src store.CostSource, pb store.PriceBook, rows []store.RatableUsage, items map[string]store.PriceItem) (PackageResult, error) {
+func packageOf(ctx context.Context, st *store.Store, src store.CostSource, pb store.PriceBook, rows, limitRows []store.RatableUsage, items map[string]store.PriceItem) (PackageResult, error) {
 	segments, err := PlanSegments(rows)
 	if err != nil {
 		return PackageResult{}, err
@@ -625,14 +653,41 @@ func packageOf(ctx context.Context, st *store.Store, src store.CostSource, pb st
 		return PackageResult{Included: map[string]store.Decimal{}}, nil
 	}
 	ents := map[string][]store.Entitlement{}
+	limits := map[string]store.PackageLimits{}
 	for _, seg := range segments {
 		cells, err := st.PackageEntitlements(ctx, pb.ID, store.PlanSKU(seg.Slug))
 		if err != nil {
 			return PackageResult{}, fmt.Errorf("package %s: %w", seg.Slug, err)
 		}
 		ents[seg.Slug] = cells
+		if src.OverageMode == store.OverageModeGrow {
+			if limits[seg.Slug], err = st.PackageLimitsOf(ctx, pb.ID, seg.Slug); err != nil {
+				return PackageResult{}, fmt.Errorf("package %s: %w", seg.Slug, err)
+			}
+		}
 	}
-	return ApplyPackageWith(PackageOptions{IncludedLines: st.PackageIncludedLines()}, src, segments, ents, items)
+	res, err := ApplyPackageWith(PackageOptions{IncludedLines: st.PackageIncludedLines()}, src, segments, ents, items)
+	if err != nil {
+		return res, err
+	}
+	used := map[string]*big.Rat{}
+	for _, u := range limitRows {
+		q, err := parseRat(string(u.Quantity))
+		if err != nil {
+			return res, fmt.Errorf("sku %s: %w", u.SKU, err)
+		}
+		if used[u.SKU] == nil {
+			used[u.SKU] = new(big.Rat)
+		}
+		used[u.SKU].Add(used[u.SKU], q)
+	}
+	lines, unpriced, err := GrowOverage(src, segments, GrowInput{Limits: used, Packages: limits, Divisor: pb.AnnualDivisor, Currency: pb.Currency})
+	if err != nil {
+		return res, err
+	}
+	res.Lines = append(res.Lines, lines...)
+	res.Unpriced = append(res.Unpriced, unpriced...)
+	return res, nil
 }
 
 // ratePartner writes a partner's own statement for the period — wholesale
