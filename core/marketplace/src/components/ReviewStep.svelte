@@ -1,12 +1,26 @@
 <script lang="ts">
   import { getPlans, getApps, getAddons, type Plan, type App, type AddOn } from '../lib/api';
-  import { readCart, toggleAddon, writeCart } from '../lib/cart';
+  import { readCart, toggleAddon, setPlan, setPackage } from '../lib/cart';
   import { formatOMR, formatOMRAmount } from '../lib/currency';
+  import { chargebackBaseURL } from '../lib/config';
+  import {
+    funnelAddonsFor,
+    loadPublicPackages,
+    packageForCart,
+    packageForPlan,
+    pruneAddonsForPackage,
+    type PublicPackages,
+  } from '../lib/packages';
 
   let cart = $state(readCart());
   let plans = $state<Plan[]>([]);
   let apps = $state<App[]>([]);
   let addons = $state<AddOn[]>([]);
+  // #6971 — the raw catalog list and the BSS package document, kept so a plan
+  // change here can re-derive the add-on list for the new package. Null
+  // document → `addons` is the catalog list, exactly as before.
+  let catalogAddons = $state<AddOn[]>([]);
+  let doc = $state<PublicPackages | null>(null);
   let loading = $state(true);
   let concurrency = $state<'small' | 'medium' | 'large'>('small');
 
@@ -141,11 +155,46 @@
     return 'XL';
   });
 
+  // #6971 — the add-on list the cart's ids resolve against: the catalog list,
+  // or, with the BSS document and a package to stand on, that package's
+  // optional features plus the catalog add-ons with no BSS twin. Same shape,
+  // same arithmetic below.
+  function addonsForCart(catalog: AddOn[], d: PublicPackages | null): AddOn[] {
+    const pkg = d ? packageForCart(d, cart) : null;
+    return d && pkg ? funnelAddonsFor(d, pkg.sku, catalog).addons : catalog;
+  }
+
   $effect(() => {
-    Promise.all([getPlans(), getApps(), getAddons()])
-      .then(([p, a, ad]) => { plans = p; apps = a.filter(x => !x.system); addons = ad; loading = false; })
+    Promise.all([getPlans(), getApps(), getAddons(), loadPublicPackages(chargebackBaseURL())])
+      .then(([p, a, ad, d]) => {
+        plans = p;
+        apps = a.filter(x => !x.system);
+        catalogAddons = ad;
+        doc = d;
+        addons = addonsForCart(ad, d);
+        loading = false;
+      })
       .catch(() => { loading = false; });
   });
+
+  // A plan change here is a package change when the document is in hand: stamp
+  // the matching package, drop a BSS add-on the new package no longer offers
+  // as optional, and re-derive the add-on list. Without the document it is
+  // today's setPlan.
+  function changePlan(plan: Plan) {
+    const pkg = doc ? packageForPlan(doc, plan) : null;
+    if (doc && pkg) {
+      cart = setPackage({
+        planId: plan.id,
+        planName: plan.name,
+        packageSku: pkg.sku,
+        addons: pruneAddonsForPackage(doc, pkg.sku, cart.addons),
+      });
+      addons = funnelAddonsFor(doc, pkg.sku, catalogAddons).addons;
+    } else {
+      cart = setPlan(plan.id, plan.name);
+    }
+  }
 
   function toggleAddonItem(id: string) {
     cart = toggleAddon(id);
@@ -157,11 +206,7 @@
   // review sidebar matches the checkout and the console.
 
   function upgradePlan() {
-    if (suggestedPlan) {
-      cart.plan = suggestedPlan.id;
-      writeCart(cart);
-      cart = readCart();
-    }
+    if (suggestedPlan) changePlan(suggestedPlan);
   }
 
   // Addon icons by slug
@@ -239,7 +284,7 @@
                   name="plan"
                   value={plan.id}
                   checked={isChecked}
-                  onchange={() => { cart.plan = plan.id; writeCart(cart); cart = readCart(); }}
+                  onchange={() => changePlan(plan)}
                 />
                 <span class="plan-opt-body">
                   <span class="plan-opt-name">{plan.name}</span>

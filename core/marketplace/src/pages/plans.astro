@@ -1,7 +1,10 @@
 ---
 import Layout from '../layouts/Layout.astro';
-import PlanStep from '../components/PlanStep.svelte';
+import PackageTable from '../components/PackageTable.svelte';
 ---
 <Layout title="Choose a Plan" step={1}>
-  <PlanStep client:load />
+  <!-- #6971 — the package comparison table fed from the Sovereign's BSS at
+       GET /api/v1/public/packages. PackageTable falls back to the legacy
+       PlanStep deck itself when that endpoint is unreachable or empty. -->
+  <PackageTable client:load />
 </Layout>
