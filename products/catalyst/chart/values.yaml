@@ -554,9 +554,9 @@ images:
     # new chart emits only the new name, so handoverSigner never
     # initialises and /api/v1/auth/pin/issue returns 503 "handover
     # signer unavailable". ff778a36 reads both names with fallback.
-    tag: "ba851ef"
+    tag: "c53d2d6"
   catalystUi:
-    tag: "ba851ef"
+    tag: "c53d2d6"
   # 2026-08-11 (#5451): marketplaceApi / console / admin were ALL frozen at
   # "3c2f7e4" (2026-04-28) for three and a half months. Their build workflows
   # sed-ed the `image:` line of their chart template; 83ec889f0 (PR #580,
@@ -628,7 +628,7 @@ images:
   # templates/org-services/marketplace.yaml, which now honours global.imageRegistry
   # for the #4885 cutover step-07 pivot (mirrors the 9 templated org-services
   # siblings + ui-deployment.yaml's #4563 split).
-  marketplaceTag: "7d0b73e"
+  marketplaceTag: "c53d2d6"
 
 # ─── Runtime service coordinates (qa-loop iter-1, cluster
 # `catalyst-runtime-config-missing`) ────────────────────────────────────
