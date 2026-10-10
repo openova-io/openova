@@ -589,20 +589,21 @@ the model is Sovereign → Organization only):
 | `spec.commerce.priceSource` | where the order's prices came from | `catalog` · `bss:<price_book>@<prices_as_of>` |
 | `spec.commerce.orderID` | the billing `orders.id` the Organization was launched from (provenance) | UUID |
 | `spec.commerce.overageMode` | what the package does above its headline: `capped` (default when absent) or `grow` | `grow` |
-| `spec.commerce.growCeiling` | the most a `grow` package may reach — `vcpu`, `memoryGB`, `diskGB`, `bandwidthMbps`; absent = the XL shape (8 / 16 / 250 / 1000) | `{vcpu: 4, memoryGB: 8}` |
-| `spec.commerce.spendLimitMonth` | OMR per month the overage may reach, a money string; stored here, enforced by BSS | `25.000` |
+| `spec.commerce.growCeiling` | the most a `grow` package may reach — `vcpu`, `memoryGB`, `diskGB`, `bandwidthMbps`; absent = the package ceiling: the XL shape (8 / 16 / 250 / 1000) for S, M and L, twice it (16 / 32 / 500 / 2000) for XL | `{vcpu: 4, memoryGB: 8}` |
+| `spec.commerce.spendLimitMonth` | OMR per month the usage charges ABOVE the package may reach (not the whole bill), a money string; stored here, applied by BSS on the statement | `25.000` |
 
 **Overage and the quota.** A package is a prepaid commitment. In `capped` the
 ResourceQuota limits are the headline, exactly as above. In `grow` the
 organization-controller raises the limits plan term to the grow ceiling
-(`gitops.QuotaLimitsFor`): `vcpu` / `memoryGB`, defaulting to the XL headline
-read from `planQuotaTable["xl"]`, raised to the package headline if set below
-it and lowered to the XL headline if set above it. The requests side (the
+(`gitops.QuotaLimitsFor`): `vcpu` / `memoryGB`, defaulting to the package's
+grow ceiling — the XL headline read from `planQuotaTable["xl"]` for S, M and L,
+twice it for XL — raised to the package headline if set below it and lowered
+to that grow ceiling if set above it. The requests side (the
 guaranteed share) and both overheads are the same in both modes, and the
 LimitRange per-container defaults stay headline-derived. Plan M grow at the
 default ceiling therefore renders `limits.cpu` 8 + 1500m + 4550m = 14050m
 against capped M's 8050m, with `requests.*` unchanged. Usage above the headline
-is billed in arrears by BSS, up to `spendLimitMonth`. There is no storage cap
+is billed in arrears by BSS; `spendLimitMonth` caps those usage charges on the statement. There is no storage cap
 in either mode (the platform stack's own volumes share the namespace); disk
 above the package is metered by BSS from the PVC meter. The ResourceQuota and
 LimitRange carry `openova.io/overage-mode` and, in grow,

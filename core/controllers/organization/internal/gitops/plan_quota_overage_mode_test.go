@@ -246,7 +246,9 @@ func TestQuotaLimitsFor_Clamps(t *testing.T) {
 		{"per resource", "m", OverageModeGrow, "1", "32Gi", "2", "16Gi", true},
 		{"fractional vcpu", "m", OverageModeGrow, "2.5", "5120Mi", "2500m", "5Gi", true},
 		{"unparseable / zero default", "m", OverageModeGrow, "lots", "0", "8", "16Gi", true},
-		{"xl grow is xl", "xl", OverageModeGrow, "", "", "8", "16Gi", true},
+		{"xl grows to twice xl by default", "xl", OverageModeGrow, "", "", "16", "32Gi", true},
+		{"xl chosen", "xl", OverageModeGrow, "12", "24Gi", "12", "24Gi", true},
+		{"xl above twice xl lowers", "xl", OverageModeGrow, "64", "128Gi", "16", "32Gi", true},
 		{"flexi has no limits term", "flexi", OverageModeGrow, "4", "8Gi", "", "", false},
 	} {
 		cpu, mem, grow := QuotaLimitsFor(c.plan, c.mode, c.cpu, c.mem)

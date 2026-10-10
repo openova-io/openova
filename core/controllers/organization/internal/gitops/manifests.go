@@ -440,10 +440,24 @@ func planPlusOverhead(q PlanQuota, cp ControlPlaneOverhead, ps PlatformStackOver
 }
 
 // growCeilingPlan is the plan whose headline is the DEFAULT grow ceiling and
-// the HIGHEST ceiling a grow package may choose: the XL shape. It is read from
-// planQuotaTable, never restated as a literal, so a change to the XL headline
-// moves the grow ceiling with it.
+// the HIGHEST ceiling of S, M and L: the XL shape. XL itself grows to TWICE
+// its headline (founder decision 2026-10-10 — otherwise the largest package
+// could not grow at all). Both are read from planQuotaTable, never restated
+// as a literal, so a change to the XL headline moves the ceilings with it.
 const growCeilingPlan = "xl"
+
+// growTop is a plan's grow ceiling — the default and the most a customer may
+// choose: the XL headline for S, M and L; twice it for XL.
+func growTop(q PlanQuota) (cpu, mem string) {
+	top := planQuotaTable[growCeilingPlan]
+	if q.Slug != growCeilingPlan {
+		return top.CPULimit, top.MemLimit
+	}
+	c, m := mustQuantity(top.CPULimit), mustQuantity(top.MemLimit)
+	c.Add(mustQuantity(top.CPULimit))
+	m.Add(mustQuantity(top.MemLimit))
+	return c.String(), m.String()
+}
 
 // quotaLimitsFor is the plan term on the ResourceQuota LIMITS side for a
 // fixed-tier plan, per overage mode (founder model, 2026-10-10):
@@ -455,8 +469,8 @@ const growCeilingPlan = "xl"
 //     the default ceiling, the XL headline. Two clamps, per resource:
 //     a ceiling BELOW the plan headline is raised to the headline (grow can
 //     never cap tighter than the package the customer paid for); a ceiling
-//     ABOVE the XL headline is lowered to it (XL is the largest shape the
-//     Sovereign sells, and a grow package may not outgrow it). The order
+//     ABOVE the plan's grow ceiling (growTop: the XL headline for S, M and L,
+//     twice it for XL) is lowered to it. The order
 //     path validates the same bounds upstream; these clamps keep a CR that
 //     reached the controller another way inside them.
 //
@@ -470,9 +484,9 @@ func quotaLimitsFor(q PlanQuota, mode, ceilCPU, ceilMem string) (cpu, mem string
 	if mode != OverageModeGrow {
 		return q.CPULimit, q.MemLimit, false
 	}
-	top := planQuotaTable[growCeilingPlan]
-	return clampCeiling(ceilCPU, q.CPULimit, top.CPULimit),
-		clampCeiling(ceilMem, q.MemLimit, top.MemLimit), true
+	topCPU, topMem := growTop(q)
+	return clampCeiling(ceilCPU, q.CPULimit, topCPU),
+		clampCeiling(ceilMem, q.MemLimit, topMem), true
 }
 
 // clampCeiling resolves one grow-ceiling value into [floor, top] (both this
