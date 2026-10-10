@@ -545,6 +545,10 @@ export interface AddOn {
   icon: string;
   monthly_price: number;
   included: boolean;
+  // #6971 — set only on an add-on that comes from the BSS package document
+  // (packages.ts::funnelAddonsFor), where `id` is the BSS add-on SKU: the
+  // muted "Included from XL" up-sell line the Add-ons step shows under it.
+  hint?: string;
 }
 
 export interface User {
@@ -633,11 +637,12 @@ export interface CheckoutRequest {
   // hot-standby surcharge server-side; omitting it bills single-region.
   topology?: string;
   // #6971 — the BSS package sku (`plan.m`) beside the catalog `plan_id`.
-  // `addons` carries BOTH the catalog add-on ids and the BSS add-on SKUs
-  // (`addon.backup`) ticked on the package table: computeOrderTotal prices
-  // only the ids it finds in /catalog/addons and persists the whole list on
-  // the order's `addons` column unchanged, so the SKUs reach the order
-  // record either way.
+  // `addons` is the cart's one list: catalog add-on ids, or BSS add-on SKUs
+  // (`addon.backup`) when the Add-ons step offered the package's optional
+  // features. computeOrderTotal prices only the ids it finds in
+  // /catalog/addons and persists the whole list on the order's `addons`
+  // column unchanged, so the SKUs reach the order record either way; the
+  // server-side quote from the same document is a sibling change.
   package_sku?: string;
 }
 

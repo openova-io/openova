@@ -1,8 +1,9 @@
 <script lang="ts">
   import { sendMagicLink, verifyMagicLink, getMe, createTenant, getMyOrgs, createCheckout, startProvisioning, getProvisionByTenant, checkSlug, getPlans, getAddons, getCreditBalance, redeemVoucherPreview, setAuthTokens, setActiveOrg, setActiveOrgSlug, setActiveOrgConsoleHost, type User, type Provision, type Plan, type AddOn } from '../lib/api';
-  import { readCart, clearCart, orderAddonIds, packageAddonsBaisa } from '../lib/cart';
+  import { readCart, clearCart } from '../lib/cart';
   import { formatOMR } from '../lib/currency';
-  import { minorUnits } from '../lib/packages';
+  import { chargebackBaseURL } from '../lib/config';
+  import { funnelAddonsFor, loadPublicPackages, packageForCart } from '../lib/packages';
   import { consoleHandoffHref, consoleLaunchHref } from '../lib/config';
   import { creditCoversOrder, chargesCustomer } from '../lib/checkoutPaymentGate';
   import { codeExpiryNotice, needsFreshCode } from '../lib/checkoutSignIn';
@@ -15,10 +16,6 @@
   const selectedAddons = $derived(addons.filter(a => cart.addons.includes(a.id)));
   const planCost = $derived(selectedPlan?.monthly_price ?? 0);
   const addonCost = $derived(selectedAddons.reduce((sum, a) => sum + a.monthly_price, 0));
-  // #6971 — optional features ticked on the package comparison table, priced
-  // from the BSS price book the table rendered. They are listed and summed
-  // here exactly like the catalog add-ons above.
-  const packageAddonCost = $derived(packageAddonsBaisa(cart));
   // #5104 facet B — the BCP step stores the choice at
   // cart.appConfigs.postgres.active_hot_standby; it must be a priced line
   // item HERE too, or the checkout total silently under-states what /review
@@ -27,11 +24,21 @@
   // authority; this is display only.
   const hotStandby = $derived(Boolean((cart.appConfigs ?? {})['postgres']?.['active_hot_standby']));
   const topologyCost = $derived(hotStandby ? 5000 : 0);
-  const totalCost = $derived(planCost + addonCost + packageAddonCost + topologyCost);
+  const totalCost = $derived(planCost + addonCost + topologyCost);
 
   $effect(() => {
     getPlans().then(p => { plans = p; }).catch(() => {});
-    getAddons().then(a => { addons = a; }).catch(() => {});
+    // #6971 — the list the cart's add-on ids resolve against: the catalog, or,
+    // with the BSS document and a package to stand on, that package's optional
+    // features (BSS SKUs) plus the catalog add-ons with no BSS twin. Same
+    // shape; the lines and arithmetic above are unchanged.
+    Promise.all([
+      getAddons().catch(() => [] as AddOn[]),
+      loadPublicPackages(chargebackBaseURL()),
+    ]).then(([ad, doc]) => {
+      const pkg = doc ? packageForCart(doc, cart) : null;
+      addons = doc && pkg ? funnelAddonsFor(doc, pkg.sku, ad).addons : ad;
+    });
   });
 
   // #85 — checkout renders all OMR values via the shared helper so they
@@ -335,9 +342,9 @@
           name,
           plan_id: cart.plan || '',
           apps: cart.apps,
-          // #6971 — catalog add-on ids + the BSS add-on SKUs ticked on the
-          // package table, one list; the package sku rides beside plan_id.
-          addons: orderAddonIds(cart),
+          addons: cart.addons,
+          // #6971 — the BSS package sku rides beside plan_id; `addons` above
+          // may already hold BSS add-on SKUs picked on the Add-ons step.
           package_sku: cart.packageSku || undefined,
           // #4176/#4179 — forward the customer-chosen org-pool parent apex
           // (e.g. "omani.works") so the tenant-service composes + returns the
@@ -430,9 +437,9 @@
       const billing = await createCheckout({
         plan_id: cart.plan || '',
         apps: cart.apps,
-        // #6971 — same merged list + sku as the Organization create above, so
-        // the order row persists the ticked package add-ons.
-        addons: orderAddonIds(cart),
+        addons: cart.addons,
+        // #6971 — same sku as the Organization create above, so the order row
+        // records the package beside the plan.
         package_sku: cart.packageSku || undefined,
         // #5104 facet B — the topology must reach billing explicitly; it
         // used to travel only inside the tenant-create app_configs, so the
@@ -785,12 +792,6 @@
               <div class="flex justify-between">
                 <span class="text-[var(--color-text-dim)]">+ {a.name}</span>
                 <span class="text-[var(--color-text)]">{formatOMR(a.monthly_price)}</span>
-              </div>
-            {/each}
-            {#each cart.packageAddons as a (a.sku)}
-              <div class="flex justify-between" data-testid="checkout-package-addon-{a.sku}">
-                <span class="text-[var(--color-text-dim)]">+ {a.name}</span>
-                <span class="text-[var(--color-text)]">{formatOMR(minorUnits(a.price_month))}</span>
               </div>
             {/each}
             {#if hotStandby}
