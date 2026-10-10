@@ -55,6 +55,12 @@ const SourceKindPlatform = store.SourceKindPlatform
 // an Organization's openova-org SOURCE is pointed at the one its plan calls
 // for. Neither is ever re-created or re-priced, and a source an operator put
 // on some other book is never re-assigned.
+//
+// When the Organization was created from a marketplace order it carries
+// spec.commerce (#6971 item 8, DESIGN.md §22.9): the package SKU, the add-on
+// SKUs bought with it, and the order's provenance. The sync attaches the
+// platform source to those add-ons through the entitlement matrix and, when
+// spec.planSlug is absent, takes the plan from the package.
 type OrgSync struct {
 	Dyn      dynamic.Interface
 	Core     kubernetes.Interface
@@ -182,10 +188,91 @@ type orgFields struct {
 	// than a tenant Org row, and this is the discriminator (#6850).
 	Internal bool
 	// PlanSlug is spec.planSlug lower-cased; empty defaults to "s" exactly as
-	// the org-controller's planQuota renderer does. The Sovereign's own
-	// Organization buys no plan from itself, so Internal forces "" (no plan
-	// line, and the pool it feeds is never inflated by a plan).
+	// the org-controller's planQuota renderer does — unless spec.commerce
+	// names a package, in which case the package's plan is used (DESIGN.md
+	// §22.9: an Organization the storefront created with only the commerce
+	// block still bills what it bought). The Sovereign's own Organization
+	// buys no plan from itself, so Internal forces "" (no plan line, and the
+	// pool it feeds is never inflated by a plan).
 	PlanSlug string
+	// PlanFromPackage reports that PlanSlug came from spec.commerce.packageSKU
+	// because spec.planSlug was absent.
+	PlanFromPackage bool
+	// Commerce is spec.commerce, the order the Organization was created from.
+	Commerce commerceSpec
+}
+
+// commerceSpec is spec.commerce — the marketplace purchase an Organization
+// was created from (#6971 item 8). The block is OPTIONAL: absent on the
+// sovereign-admin door (no order) and on every Organization that predates
+// the field, and the organization-controller does not reconcile it. Every
+// field inside it is optional too. The sync reads it tolerantly — a missing
+// or malformed block is "nothing to attach", never an error.
+type commerceSpec struct {
+	// Present is true when spec.commerce exists on the CR at all.
+	Present bool
+	// PackageSKU is the BSS package the customer chose, e.g. "plan.m".
+	PackageSKU string
+	// Addons are the BSS add-on SKUs bought with the package, e.g.
+	// "addon.backup" — trimmed, deduplicated, in CR order. The emitters put
+	// BSS SKUs only here (catalog add-on ids are filtered out upstream).
+	Addons []string
+	// PriceSource says what priced the order: "catalog" or
+	// "bss:<price_book>@<prices_as_of>". Provenance only.
+	PriceSource string
+	// OrderID is the billing order row the Organization came from.
+	// Provenance only.
+	OrderID string
+}
+
+// readCommerce reads spec.commerce without ever failing: a block that is not
+// a map, or a field of the wrong type, reads as absent.
+func readCommerce(u *unstructured.Unstructured) commerceSpec {
+	var c commerceSpec
+	raw, found, err := unstructured.NestedFieldNoCopy(u.Object, "spec", "commerce")
+	if err != nil || !found {
+		return c
+	}
+	block, ok := raw.(map[string]any)
+	if !ok {
+		return c
+	}
+	c.Present = true
+	pkg, _ := block["packageSKU"].(string)
+	c.PackageSKU = strings.TrimSpace(pkg)
+	src, _ := block["priceSource"].(string)
+	c.PriceSource = strings.TrimSpace(src)
+	order, _ := block["orderID"].(string)
+	c.OrderID = strings.TrimSpace(order)
+	addons, _ := block["addons"].([]any)
+	seen := map[string]bool{}
+	for _, a := range addons {
+		sku, _ := a.(string)
+		sku = strings.TrimSpace(sku)
+		if sku == "" || seen[sku] {
+			continue
+		}
+		seen[sku] = true
+		c.Addons = append(c.Addons, sku)
+	}
+	return c
+}
+
+// planSlugOfPackage reads the plan a BSS package SKU names: "plan.m" → "m".
+// Only a catalog plan that produces a plan line is a package — flexi is pay
+// per use and has none, and a SKU naming no catalog plan is not a package —
+// so anything else reports false and the caller keeps the controller's
+// default.
+func planSlugOfPackage(sku string) (string, bool) {
+	sku = strings.ToLower(strings.TrimSpace(sku))
+	if !strings.HasPrefix(sku, store.PlanSKUPrefix) {
+		return "", false
+	}
+	slug := strings.TrimPrefix(sku, store.PlanSKUPrefix)
+	if !store.ValidPlanSlug(slug) || !store.PlanBillable(slug) {
+		return "", false
+	}
+	return slug, true
 }
 
 type costSourceSpec struct {
@@ -215,13 +302,21 @@ func readOrg(u *unstructured.Unstructured) (orgFields, error) {
 	}
 	orgKind, _, _ := unstructured.NestedString(u.Object, "spec", "kind")
 	f.Internal = orgKind == "internal"
+	f.Commerce = readCommerce(u)
 	planSlug, _, _ := unstructured.NestedString(u.Object, "spec", "planSlug")
 	f.PlanSlug = store.NormalizePlanSlug(planSlug)
 	if f.PlanSlug == "" {
-		f.PlanSlug = "s" // the org-controller's default for a CR without spec.planSlug
+		// spec.planSlug stays the source of the plan. Only when it is absent
+		// does the package the order names stand in for it (DESIGN.md
+		// §22.9); otherwise the org-controller's default applies.
+		if slug, ok := planSlugOfPackage(f.Commerce.PackageSKU); ok {
+			f.PlanSlug, f.PlanFromPackage = slug, true
+		} else {
+			f.PlanSlug = "s" // the org-controller's default for a CR without spec.planSlug
+		}
 	}
 	if f.Internal {
-		f.PlanSlug = ""
+		f.PlanSlug, f.PlanFromPackage = "", false
 	}
 	f.BillingMode, _, _ = unstructured.NestedString(u.Object, "spec", "billingMode")
 	switch f.BillingMode {
@@ -285,6 +380,14 @@ func (s *OrgSync) SyncOrganization(ctx context.Context, u *unstructured.Unstruct
 	if f.Internal {
 		return s.syncInternalOrganization(ctx, f)
 	}
+	// spec.planSlug sizes the boundary and IS the plan; spec.commerce.
+	// packageSKU is the package the order says it bought. When the two
+	// disagree the plan slug wins and the disagreement is said once per sync
+	// — never corrected here, because the controller's quota is rendered
+	// from the plan slug and the bill must follow the same number.
+	if sku := f.Commerce.PackageSKU; sku != "" && !strings.EqualFold(store.PlanSKU(f.PlanSlug), sku) {
+		slog.Warn("openova adapter: spec.commerce.packageSKU disagrees with spec.planSlug; the plan slug stays the plan", "org", f.Slug, "plan", f.PlanSlug, "package_sku", sku, "order", f.Commerce.OrderID)
+	}
 	// The two platform rate cards, one per billing shape: the plans book
 	// prices the plan.<slug> line a sized Organization carries, the
 	// pay-per-use book prices the k8s.* meters a flexi Organization carries
@@ -312,7 +415,14 @@ func (s *OrgSync) SyncOrganization(ctx context.Context, u *unstructured.Unstruct
 		if err := s.Repo.SetCustomerStatus(ctx, c.ID, "active"); err != nil {
 			return fmt.Errorf("activate customer: %w", err)
 		}
-		slog.Info("openova adapter: organization synced as new customer", "org", f.Slug, "customer", c.ID, "billing_mode", f.BillingMode, "plan", f.PlanSlug)
+		if f.Commerce.Present {
+			// Provenance of the purchase. The store has no free field on
+			// the customer or its Source for an order id, so the order is
+			// recorded here, once, when the customer first appears.
+			slog.Info("openova adapter: organization synced as new customer", "org", f.Slug, "customer", c.ID, "billing_mode", f.BillingMode, "plan", f.PlanSlug, "plan_from_package", f.PlanFromPackage, "package_sku", f.Commerce.PackageSKU, "price_source", f.Commerce.PriceSource, "order", f.Commerce.OrderID)
+		} else {
+			slog.Info("openova adapter: organization synced as new customer", "org", f.Slug, "customer", c.ID, "billing_mode", f.BillingMode, "plan", f.PlanSlug)
+		}
 	case err != nil:
 		return fmt.Errorf("get customer: %w", err)
 	default:
@@ -397,6 +507,10 @@ func (s *OrgSync) SyncOrganization(ctx context.Context, u *unstructured.Unstruct
 		}
 		slog.Info("openova adapter: organization resumed; platform collection restarts now", "org", f.Slug, "customer", c.ID)
 	}
+	// What the order bought, attached to the Source now that it is on its
+	// book and its customer is on its plan — both of which SetSourceAddons
+	// checks every key against. Never a sync failure.
+	s.attachCommerce(ctx, f, c, src)
 
 	for _, cs := range f.CostSources {
 		if err := s.syncCostSource(ctx, c, f.Slug, cs); err != nil {
@@ -500,6 +614,90 @@ func (s *OrgSync) assignPlatformBook(ctx context.Context, f orgFields, src store
 	}
 	slog.Info("openova adapter: platform source assigned its plan's price book", "org", f.Slug, "source", src.ID, "plan", f.PlanSlug, "book", name, "id", want)
 	return nil
+}
+
+// attachCommerce attaches the Organization's platform Source to the add-ons
+// its order bought (#6971 item 8, DESIGN.md §22.9). Every SKU in
+// spec.commerce.addons[] is mapped to the feature whose add-on SKU it is, and
+// the Source's add-on set is replaced with those feature keys — ONLY when the
+// resolved set differs from what the Source already has, so a resync writes
+// nothing when nothing changed.
+//
+// The rule that keeps the console authoritative: an Organization whose block
+// is absent, or whose addons list is absent or empty, drives NOTHING here —
+// the add-ons a sovereign-admin set by hand through
+// PUT /customers/{id}/sources/{sid}/addons stay exactly as they are. Only an
+// explicit, non-empty spec.commerce.addons replaces the set. The same holds
+// when none of the listed SKUs names a feature: there is nothing to apply, so
+// nothing is written.
+//
+// Failures are WARNs, never a sync failure — the customer and its Source have
+// already synced and billing must not hinge on an add-on. A SKU no feature
+// carries is skipped and the rest applied. A key the store refuses — the
+// package includes the feature already (redundant), does not offer it, or the
+// Source is not yet on a book — is logged with the store's own sentence; the
+// store's write is all-or-nothing, so the Source keeps the add-ons it had and
+// the hourly resync tries again once the matrix or the plan has been fixed.
+func (s *OrgSync) attachCommerce(ctx context.Context, f orgFields, c store.Customer, src store.CostSource) {
+	cm := f.Commerce
+	if len(cm.Addons) == 0 {
+		return
+	}
+	features, err := s.Repo.ListFeatures(ctx)
+	if err != nil {
+		slog.Warn("openova adapter: features unavailable; the order's add-ons are not attached this sync", "org", f.Slug, "customer", c.ID, "addon_skus", cm.Addons, "error", err)
+		return
+	}
+	bySKU := map[string]store.Feature{}
+	for _, ft := range features {
+		if ft.AddonSKU == "" {
+			continue
+		}
+		// Matrix order (sort order, then key) is the store's order, so a SKU
+		// two features share resolves to the same one every sync.
+		if _, dup := bySKU[ft.AddonSKU]; !dup {
+			bySKU[ft.AddonSKU] = ft
+		}
+	}
+	var want []string
+	for _, sku := range cm.Addons {
+		ft, ok := bySKU[sku]
+		if !ok {
+			slog.Warn("openova adapter: add-on SKU names no feature; skipped, the rest are applied", "org", f.Slug, "customer", c.ID, "addon_sku", sku, "order", cm.OrderID)
+			continue
+		}
+		want = append(want, ft.Key)
+	}
+	if len(want) == 0 {
+		return
+	}
+	if sameKeySet(src.Addons, want) {
+		return
+	}
+	updated, err := s.Repo.SetSourceAddons(ctx, src.ID, want)
+	if err != nil {
+		slog.Warn("openova adapter: add-ons not attached; the customer and its Source still sync", "org", f.Slug, "customer", c.ID, "source", src.ID, "plan", f.PlanSlug, "addon_skus", cm.Addons, "features", want, "order", cm.OrderID, "error", err)
+		return
+	}
+	slog.Info("openova adapter: platform source attached to the Organization's order", "org", f.Slug, "customer", c.ID, "source", src.ID, "plan", f.PlanSlug, "package_sku", cm.PackageSKU, "addons", updated.Addons, "price_source", cm.PriceSource, "order", cm.OrderID)
+}
+
+// sameKeySet reports whether two key lists name the same set, whatever their
+// order (the Source lists its add-ons in matrix order, the CR in cart order).
+func sameKeySet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	set := make(map[string]bool, len(a))
+	for _, k := range a {
+		set[k] = true
+	}
+	for _, k := range b {
+		if !set[k] {
+			return false
+		}
+	}
+	return len(set) == len(b)
 }
 
 // syncInternalOrganization handles the Sovereign's OWN Organization

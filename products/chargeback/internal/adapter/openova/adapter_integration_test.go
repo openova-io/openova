@@ -214,3 +214,88 @@ func TestIntegrationPlanLineAgainstStore(t *testing.T) {
 		t.Fatalf("rateable usage = %+v, want one plan.m line of 1.5 plan-hours", usage)
 	}
 }
+
+// TestIntegrationCommerceAddonsAgainstStore (DESIGN.md §22.9): on real SQL
+// an Organization created from an order attaches its platform source to the
+// add-on the order names through the matrix — the source_addons row is
+// written once, a resync writes nothing, and a package that includes the
+// feature already is refused by the store without failing the sync.
+func TestIntegrationCommerceAddonsAgainstStore(t *testing.T) {
+	st := testdb.Open(t)
+	ctx := context.Background()
+	plans, _, err := st.EnsurePlanBook(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The matrix: backup is an add-on priced in the plans book, optional on
+	// M and included in XL.
+	if _, err := st.AddPriceItem(ctx, plans.ID, store.PriceItem{SKU: "addon.backup", Unit: store.PlanUnit, UnitPrice: "0.00205479", Description: "Backup add-on"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateFeature(ctx, store.FeatureInput{Key: "backup", Name: "Backup", Kind: store.FeatureKindBoolean, AddonSKU: "addon.backup", SortOrder: 4}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PutEntitlement(ctx, plans.ID, store.PlanSKU("m"), "backup", store.EntitlementInput{State: store.EntitlementOptional}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PutEntitlement(ctx, plans.ID, store.PlanSKU("xl"), "backup", store.EntitlementInput{State: store.EntitlementIncluded}); err != nil {
+		t.Fatal(err)
+	}
+
+	s := &OrgSync{Core: k8sfake.NewSimpleClientset(), Repo: st, Keys: testKeys(t), Metrics: metrics.New()}
+	// Created by the storefront: no spec.planSlug, the package and the add-on
+	// in spec.commerce.
+	org := orgUnstructured("agshop", func(spec map[string]any) {
+		delete(spec, "planSlug")
+		spec["commerce"] = map[string]any{"packageSKU": "plan.m", "addons": []any{"addon.backup"}, "priceSource": "bss:OpenOva plans@2026-10-01", "orderID": "ord-int-1"}
+	})
+	if err := s.SyncOrganization(ctx, org); err != nil {
+		t.Fatal(err)
+	}
+	c, err := st.GetCustomerBySlug(ctx, "agshop")
+	if err != nil || c.PlanSlug != "m" || c.Status != "active" {
+		t.Fatalf("customer = %+v err=%v, want active on plan m from plan.m", c, err)
+	}
+	srcs, err := st.ListSources(ctx, store.OperatorScope, c.ID)
+	if err != nil || len(srcs) != 1 || srcs[0].PriceBookID == nil || *srcs[0].PriceBookID != plans.ID {
+		t.Fatalf("platform source = %+v err=%v, want one on the plans book", srcs, err)
+	}
+	if len(srcs[0].Addons) != 1 || srcs[0].Addons[0] != "backup" {
+		t.Fatalf("addons = %v, want backup from addon.backup", srcs[0].Addons)
+	}
+	// The row the rating run reads.
+	var rows int
+	if err := st.DB().QueryRowContext(ctx, `SELECT count(*) FROM source_addons WHERE source_id = $1`, srcs[0].ID).Scan(&rows); err != nil || rows != 1 {
+		t.Fatalf("source_addons rows = %d err=%v, want 1", rows, err)
+	}
+	var takenAt time.Time
+	if err := st.DB().QueryRowContext(ctx, `SELECT taken_at FROM source_addons WHERE source_id = $1`, srcs[0].ID).Scan(&takenAt); err != nil {
+		t.Fatal(err)
+	}
+	// Resync: the same order writes nothing — the row keeps its taken_at.
+	if err := s.SyncOrganization(ctx, org); err != nil {
+		t.Fatalf("resync: %v", err)
+	}
+	var takenAgain time.Time
+	if err := st.DB().QueryRowContext(ctx, `SELECT taken_at FROM source_addons WHERE source_id = $1`, srcs[0].ID).Scan(&takenAgain); err != nil || !takenAgain.Equal(takenAt) {
+		t.Fatalf("resync rewrote the add-on row: taken_at %v → %v err=%v", takenAt, takenAgain, err)
+	}
+
+	// An XL order carrying backup: included already, refused by the store,
+	// the customer and its source still sync.
+	big := orgUnstructured("agbig", func(spec map[string]any) {
+		spec["planSlug"] = "xl"
+		spec["commerce"] = map[string]any{"packageSKU": "plan.xl", "addons": []any{"addon.backup"}, "orderID": "ord-int-2"}
+	})
+	if err := s.SyncOrganization(ctx, big); err != nil {
+		t.Fatalf("a refused add-on must not fail the sync: %v", err)
+	}
+	cb, err := st.GetCustomerBySlug(ctx, "agbig")
+	if err != nil || cb.PlanSlug != "xl" || cb.Status != "active" {
+		t.Fatalf("customer = %+v err=%v", cb, err)
+	}
+	bigSrcs, err := st.ListSources(ctx, store.OperatorScope, cb.ID)
+	if err != nil || len(bigSrcs) != 1 || len(bigSrcs[0].Addons) != 0 || bigSrcs[0].PriceBookID == nil {
+		t.Fatalf("XL source = %+v err=%v, want on its book with no add-on", bigSrcs, err)
+	}
+}
