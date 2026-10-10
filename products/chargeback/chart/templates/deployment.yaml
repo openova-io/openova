@@ -174,9 +174,9 @@ spec:
               value: {{ .Values.config.costRollupInterval | quote }}
             - name: PROFILE
               value: {{ .Values.config.profile | quote }}
-            {{- with .Values.publicCalculator.origins }}
+            {{- with include "chargeback.publicOrigins" . }}
             - name: PUBLIC_CALCULATOR_ORIGINS
-              value: {{ join "," . | quote }}
+              value: {{ . | quote }}
             {{- end }}
             {{- with .Values.publicCalculator.ratePerMinute }}
             - name: PUBLIC_CALCULATOR_RATE_PER_MINUTE

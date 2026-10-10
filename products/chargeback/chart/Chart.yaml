@@ -22,7 +22,10 @@ type: application
 # Image = ghcr.io/openova-io/chargeback:<appVersion>
 # (build-chargeback.yaml; plain image repo per the #4706 chart-repo-collision
 # lesson — never the bp-chargeback chart OCI repo).
-version: 0.1.57
+# 0.1.58 (#6971): chart only — the Sovereign's storefront origin
+# (https://marketplace.<sovereignFqdn>) is always among the public-route
+# CORS origins, so the storefront's package table can read the document.
+version: 0.1.58
 # appVersion is the default image tag (chargeback.image in _helpers.tpl);
 # build-chargeback.yaml derives the pushed tag from this field so the two
 # can never drift.
