@@ -1,0 +1,103 @@
+{
+  "currency": "OMR",
+  "price_book": "OpenOva plans",
+  "prices_as_of": "2026-09-11",
+  "packages": [
+    { "sku": "plan.s", "name": "S", "price_month": "9.000", "includes": { "vcpu": 1, "memory_gb": 2, "storage_gb": 25, "bandwidth_mbps": 50 } },
+    { "sku": "plan.m", "name": "M", "price_month": "18.000", "includes": { "vcpu": 2, "memory_gb": 4, "storage_gb": 50, "bandwidth_mbps": 100 } },
+    { "sku": "plan.l", "name": "L", "price_month": "36.000", "includes": { "vcpu": 4, "memory_gb": 8, "storage_gb": 100, "bandwidth_mbps": 250 } },
+    { "sku": "plan.xl", "name": "XL", "price_month": "72.000", "includes": { "vcpu": 8, "memory_gb": 16, "storage_gb": 200, "bandwidth_mbps": 1000 } }
+  ],
+  "features": [
+    {
+      "key": "applications", "name": "Applications", "blurb": "Install any Blueprint from the catalog.", "kind": "boolean",
+      "cells": { "plan.s": { "state": "included" }, "plan.m": { "state": "included" }, "plan.l": { "state": "included" }, "plan.xl": { "state": "included" } }
+    },
+    {
+      "key": "databases", "name": "Databases", "blurb": "Managed PostgreSQL for every app.", "kind": "boolean",
+      "cells": { "plan.s": { "state": "included" }, "plan.m": { "state": "included" }, "plan.l": { "state": "included" }, "plan.xl": { "state": "included" } }
+    },
+    {
+      "key": "mail", "name": "Mail server", "blurb": "Unlimited mailboxes on your domain.", "kind": "boolean",
+      "cells": { "plan.s": { "state": "included" }, "plan.m": { "state": "included" }, "plan.l": { "state": "included" }, "plan.xl": { "state": "included" } }
+    },
+    {
+      "key": "backup", "name": "Backup", "blurb": "Daily snapshots with 30-day retention.", "kind": "boolean",
+      "cells": {
+        "plan.s": { "state": "optional", "addon_sku": "addon.backup", "price_month": "1.500", "included_from": "plan.xl" },
+        "plan.m": { "state": "optional", "addon_sku": "addon.backup", "price_month": "1.500", "included_from": "plan.xl" },
+        "plan.l": { "state": "optional", "addon_sku": "addon.backup", "price_month": "1.500", "included_from": "plan.xl" },
+        "plan.xl": { "state": "included" }
+      }
+    },
+    {
+      "key": "dedicated-ip", "name": "Dedicated IP address", "blurb": "A public IPv4 reserved for your Organization.", "kind": "boolean",
+      "cells": {
+        "plan.s": { "state": "not_offered" },
+        "plan.m": { "state": "optional", "addon_sku": "addon.dedicated-ip", "price_month": "2.000" },
+        "plan.l": { "state": "optional", "addon_sku": "addon.dedicated-ip", "price_month": "2.000" },
+        "plan.xl": { "state": "optional", "addon_sku": "addon.dedicated-ip", "price_month": "2.000" }
+      }
+    },
+    {
+      "key": "ssl", "name": "Unlimited free SSL", "blurb": "Automatic TLS certificates for every host.", "kind": "boolean",
+      "cells": { "plan.s": { "state": "included" }, "plan.m": { "state": "included" }, "plan.l": { "state": "included" }, "plan.xl": { "state": "included" } }
+    },
+    {
+      "key": "ai-seo", "name": "AI SEO ready", "blurb": "Search-engine metadata generated for your sites.", "kind": "boolean",
+      "cells": {
+        "plan.s": { "state": "optional", "addon_sku": "addon.ai-seo", "price_month": "3.000", "included_from": "plan.xl" },
+        "plan.m": { "state": "optional", "addon_sku": "addon.ai-seo", "price_month": "3.000", "included_from": "plan.xl" },
+        "plan.l": { "state": "optional", "addon_sku": "addon.ai-seo", "price_month": "3.000", "included_from": "plan.xl" },
+        "plan.xl": { "state": "included" }
+      }
+    },
+    {
+      "key": "ai-website-builder", "name": "AI website builder", "blurb": "Draft a site from a short brief.", "kind": "boolean",
+      "cells": {
+        "plan.s": { "state": "optional", "addon_sku": "addon.ai-website-builder", "price_month": "4.000", "included_from": "plan.xl" },
+        "plan.m": { "state": "optional", "addon_sku": "addon.ai-website-builder", "price_month": "4.000", "included_from": "plan.xl" },
+        "plan.l": { "state": "optional", "addon_sku": "addon.ai-website-builder", "price_month": "4.000", "included_from": "plan.xl" },
+        "plan.xl": { "state": "included" }
+      }
+    },
+    {
+      "key": "domain", "name": "Domain", "blurb": "One registered domain per year.", "kind": "boolean",
+      "cells": {
+        "plan.s": { "state": "optional", "addon_sku": "addon.domain", "price_month": "2.000", "included_from": "plan.xl" },
+        "plan.m": { "state": "optional", "addon_sku": "addon.domain", "price_month": "2.000", "included_from": "plan.xl" },
+        "plan.l": { "state": "optional", "addon_sku": "addon.domain", "price_month": "2.000", "included_from": "plan.xl" },
+        "plan.xl": { "state": "included" }
+      }
+    },
+    {
+      "key": "sso", "name": "SSO", "blurb": "SAML / OIDC single sign-on across your apps.", "kind": "boolean",
+      "cells": { "plan.s": { "state": "included" }, "plan.m": { "state": "included" }, "plan.l": { "state": "included" }, "plan.xl": { "state": "included" } }
+    },
+    {
+      "key": "ddos", "name": "Standard DDoS protection", "blurb": "Volumetric attack mitigation at the edge.", "kind": "boolean",
+      "cells": { "plan.s": { "state": "included" }, "plan.m": { "state": "included" }, "plan.l": { "state": "included" }, "plan.xl": { "state": "included" } }
+    },
+    {
+      "key": "malware-scanner", "name": "Malware scanner", "blurb": "Scheduled scans of every workload image.", "kind": "boolean",
+      "cells": { "plan.s": { "state": "included" }, "plan.m": { "state": "included" }, "plan.l": { "state": "included" }, "plan.xl": { "state": "included" } }
+    },
+    {
+      "key": "waf", "name": "Web application firewall", "blurb": "OWASP core rule set in front of every app.", "kind": "boolean",
+      "cells": { "plan.s": { "state": "included" }, "plan.m": { "state": "included" }, "plan.l": { "state": "included" }, "plan.xl": { "state": "included" } }
+    },
+    {
+      "key": "support", "name": "24/7 customer support", "blurb": "Chat and email, around the clock.", "kind": "boolean",
+      "cells": { "plan.s": { "state": "included" }, "plan.m": { "state": "included" }, "plan.l": { "state": "included" }, "plan.xl": { "state": "included" } }
+    },
+    {
+      "key": "bandwidth", "name": "Bandwidth", "blurb": "Guaranteed egress, metered above the allowance.", "kind": "quantity", "unit": "Mbps",
+      "cells": {
+        "plan.s": { "state": "included", "quantity": 50 },
+        "plan.m": { "state": "included", "quantity": 100 },
+        "plan.l": { "state": "included", "quantity": 250 },
+        "plan.xl": { "state": "included", "quantity": 1000 }
+      }
+    }
+  ]
+}

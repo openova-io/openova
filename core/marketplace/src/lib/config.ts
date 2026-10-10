@@ -366,3 +366,73 @@ export const consoleLaunchHref = (
 
 /** Prepend base to an internal marketplace route (strip leading '/'). */
 export const path = (p: string): string => `${BASE}${p.replace(/^\//, '')}`;
+
+/**
+ * #6971 — the Catalyst BSS (chargeback) base URL the storefront reads its
+ * package comparison table from (`GET <base>/api/v1/public/packages`).
+ *
+ * The marketplace container carries no runtime configuration (the chart's
+ * Deployment sets no env; the bundle is the same build on every Sovereign), so
+ * the host is DERIVED the same way the console host is above: the storefront
+ * runs at `marketplace.<sov-fqdn>` and the chargeback placement is published
+ * at `chargeback.<sov-fqdn>` (products/catalyst/chart/templates/catalog-seed/
+ * blueprints.yaml — bp-chargeback `hostnameTemplate: chargeback.{{.SovereignFQDN}}`).
+ *
+ * Two overrides, checked first, in this order:
+ *   1. `window.__ORG_CHARGEBACK_URL__` — a runtime value a Sovereign may seed
+ *      from its own config (the same mechanism as `window.__ORG_BRANDS__`).
+ *   2. `import.meta.env.PUBLIC_CHARGEBACK_URL` — a build-time value for dev /
+ *      preview against a local stub. Unset in the shipped image.
+ *
+ * Returns null on a host with no `marketplace.` prefix and no override
+ * (dev `localhost`): the page then renders the legacy plan deck.
+ */
+export const CHARGEBACK_RUNTIME_KEY = '__ORG_CHARGEBACK_URL__';
+
+function normalizeHttpURL(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const s = v.trim();
+  if (!s) return null;
+  try {
+    const u = new URL(s);
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+  } catch {
+    return null;
+  }
+  return s.replace(/\/+$/, '');
+}
+
+/**
+ * `marketplace.<sov-fqdn>` → `https://chargeback.<sov-fqdn>`; null for any
+ * other host. Pure, so the unit test asserts the exact wire shape.
+ */
+export function composeChargebackURL(host: string | null | undefined): string | null {
+  const h = (host || '').toLowerCase().trim();
+  if (!h.startsWith('marketplace.')) return null;
+  const sovFqdn = h.slice('marketplace.'.length);
+  if (!sovFqdn) return null;
+  return `https://chargeback.${sovFqdn}`;
+}
+
+/** Override precedence, pure: runtime → build-time → derived from the host. */
+export function resolveChargebackURL(src: {
+  runtime?: unknown;
+  build?: unknown;
+  hostname?: string | null;
+}): string | null {
+  return normalizeHttpURL(src.runtime)
+    ?? normalizeHttpURL(src.build)
+    ?? composeChargebackURL(src.hostname);
+}
+
+/** The chargeback base URL for THIS page load, or null when there is none. */
+export function chargebackBaseURL(): string | null {
+  const build = import.meta.env.PUBLIC_CHARGEBACK_URL;
+  if (typeof window === 'undefined') return resolveChargebackURL({ build });
+  const w = window as unknown as Record<string, unknown>;
+  return resolveChargebackURL({
+    runtime: w[CHARGEBACK_RUNTIME_KEY],
+    build,
+    hostname: window.location.hostname,
+  });
+}

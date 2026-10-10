@@ -1,8 +1,21 @@
+import { minorUnits, type PackageAddonPick } from './packages';
+
+export type { PackageAddonPick } from './packages';
+
 export interface CartState {
   plan: string | null;
   planName: string;
   apps: string[];
   addons: string[];
+  // #6971 — the BSS package chosen on the comparison table (`plan.m`) and the
+  // optional features ticked on it, snapshotted with name + price so /review
+  // and /checkout render them without a second fetch. `plan` above stays the
+  // CATALOG plan id billing resolves (packages.ts::catalogPlanIdForPackage);
+  // the sku travels beside it as `package_sku`, and the add-on SKUs are
+  // merged into the `addons` the funnel already POSTs (orderAddonIds).
+  // Null / empty when the legacy deck (no BSS) made the choice.
+  packageSku: string | null;
+  packageAddons: PackageAddonPick[];
   orgName: string;
   subdomain: string;
   // Parent domain (TLD) chosen on /addons. Persisted across wizard steps
@@ -55,6 +68,8 @@ const defaultCart: CartState = {
   email: '',
   agents: [],
   appConfigs: {},
+  packageSku: null,
+  packageAddons: [],
 };
 
 // The 6 agents the Sandbox CRD (sandbox.openova.io/v1) accepts in
@@ -101,10 +116,56 @@ export function toggleApp(appId: string): CartState {
 
 export function setPlan(planId: string, planName?: string): CartState {
   const cart = readCart();
+  if (cart.plan !== planId) {
+    // #6971 — a package's add-on SKUs are priced per package, so a plan change
+    // made outside the comparison table (legacy deck, /review radios) drops
+    // the package choice rather than carrying another package's add-ons.
+    cart.packageSku = null;
+    cart.packageAddons = [];
+  }
   cart.plan = planId;
   if (planName) cart.planName = planName;
   writeCart(cart);
   return cart;
+}
+
+/**
+ * #6971 — persist a choice made on the package comparison table: the catalog
+ * plan id billing needs, the display name, the BSS package sku and the ticked
+ * add-ons, atomically.
+ */
+export function setPackage(sel: {
+  planId: string;
+  planName: string;
+  packageSku: string;
+  addons: PackageAddonPick[];
+}): CartState {
+  const cart = readCart();
+  cart.plan = sel.planId;
+  cart.planName = sel.planName;
+  cart.packageSku = sel.packageSku;
+  cart.packageAddons = sel.addons.map(a => ({ ...a }));
+  writeCart(cart);
+  return cart;
+}
+
+/**
+ * #6971 — every add-on identifier the order carries: the catalog add-on ids
+ * picked on /addons plus the BSS add-on SKUs ticked on the package table, in
+ * that order, de-duplicated. This is what both the Organization create POST
+ * and `POST /billing/checkout` receive as `addons`.
+ */
+export function orderAddonIds(cart: CartState): string[] {
+  const out: string[] = [];
+  for (const id of [...(cart.addons || []), ...(cart.packageAddons || []).map(a => a.sku)]) {
+    if (id && !out.includes(id)) out.push(id);
+  }
+  return out;
+}
+
+/** #6971 — the ticked package add-ons' monthly price, in baisa, for display totals. */
+export function packageAddonsBaisa(cart: CartState): number {
+  return (cart.packageAddons || []).reduce((sum, a) => sum + minorUnits(a.price_month), 0);
 }
 
 export function toggleAddon(addonId: string): CartState {
