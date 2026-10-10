@@ -35,8 +35,69 @@
   // offers a region the Sovereign cannot honor (which would route the
   // customer's choice into the gitops InvalidRegionPair single-cluster
   // fallback silently).
+  //
+  // #6971 — with the BSS package document in hand, the package's DR level
+  // decides what this step offers (packages.ts::drTopologyFor): on a package
+  // whose level is "single region" the hot-standby card is locked — "Included
+  // from XL" with a switch that keeps the apps and add-ons — and on a package
+  // that includes it the card is selectable and reads INCLUDED. Single-region
+  // is free everywhere. Without a document (or a document with no DR level
+  // feature) the step is exactly as before.
   import { onMount } from 'svelte';
-  import { readCart, setAppConfig } from '../lib/cart';
+  import { getPlans, type Plan } from '../lib/api';
+  import { readCart, setAppConfig, setPackage } from '../lib/cart';
+  import { chargebackBaseURL } from '../lib/config';
+  import {
+    catalogPlanIdForPackage,
+    drTopologyFor,
+    loadPublicPackages,
+    packageForCart,
+    pruneAddonsForPackage,
+    PACKAGE_STRINGS as PS,
+    type DrTopology,
+    type PublicPackages,
+  } from '../lib/packages';
+
+  let doc = $state<PublicPackages | null>(null);
+  let plans = $state<Plan[]>([]);
+  let dr = $state<DrTopology | null>(null);
+  let packageName = $state('');
+
+  function applyDocument(d: PublicPackages) {
+    const pkg = packageForCart(d, readCart());
+    if (!pkg) { dr = null; packageName = ''; return; }
+    packageName = pkg.name;
+    dr = drTopologyFor(d, pkg.sku);
+    // A topology this package does not include cannot stay in the cart — it
+    // was picked on a larger package the customer has since switched off.
+    if (dr && !dr.activePassive && enabled) enabled = false;
+  }
+
+  onMount(async () => {
+    const [d, pl] = await Promise.all([
+      loadPublicPackages(chargebackBaseURL()),
+      getPlans().catch(() => [] as Plan[]),
+    ]);
+    plans = pl;
+    doc = d;
+    if (d) applyDocument(d);
+  });
+
+  // "Switch to XL" on the locked card — the same move as the Add-ons step's
+  // "Upgrade to": catalog plan id + sku, apps untouched, add-ons the new
+  // package still sells kept.
+  function switchPackage(sku: string) {
+    if (!doc) return;
+    const pkg = doc.packages.find(p => p.sku === sku);
+    if (!pkg) return;
+    cart = setPackage({
+      planId: catalogPlanIdForPackage(pkg, plans),
+      planName: pkg.name,
+      packageSku: pkg.sku,
+      addons: pruneAddonsForPackage(doc, pkg.sku, cart.addons),
+    });
+    applyDocument(doc);
+  }
 
   // Fallback Sovereign region keys — matches the values gitops
   // appconfigs_test.go::TestPostgres_AppConfigs_ActiveHotStandby_GenericApp
@@ -157,7 +218,7 @@
       <span class="bcp-note">Optional</span>
     </div>
     <div class="topology-grid">
-      <label class="topology-card {!enabled ? 'selected' : ''}">
+      <label class="topology-card {!enabled ? 'selected' : ''}" data-testid="topology-card-single">
         <input
           type="radio"
           name="topology"
@@ -169,25 +230,56 @@
             <strong>Single-region</strong>
             <span class="topology-price free">FREE</span>
           </div>
-          <p>One Postgres cluster in your primary region. Daily backups via the optional add-on. Recovery time after a regional outage: hours.</p>
+          <p>One Postgres cluster in your primary region. Backups via the optional add-on. Recovery time after a regional outage: hours.</p>
         </div>
       </label>
 
-      <label class="topology-card {enabled ? 'selected' : ''}">
-        <input
-          type="radio"
-          name="topology"
-          checked={enabled}
-          onchange={() => { enabled = true; }}
-        />
-        <div class="topology-body">
-          <div class="topology-title-row">
-            <strong>Active-hot-standby</strong>
-            <span class="topology-price">+OMR 5.000 / mo</span>
+      {#if dr && !dr.activePassive}
+        <!-- Locked: this package's DR level is single region. -->
+        <div class="topology-card locked" data-testid="topology-card-hot" data-locked="true">
+          <span class="topology-lock" aria-hidden="true">—</span>
+          <div class="topology-body">
+            <div class="topology-title-row">
+              <strong>Active-hot-standby</strong>
+              {#if dr.activePassiveFrom}
+                <span class="topology-price from">Included from {dr.activePassiveFrom.name}</span>
+              {/if}
+            </div>
+            <p>Primary + synchronous replica across two distinct regions over Cilium ClusterMesh. Zero-tx-loss failover when a region goes dark.</p>
+            {#if dr.activePassiveFrom}
+              <p class="topology-locked-note">{PS.ladder.topologyLocked(dr.activePassiveFrom.name)}</p>
+              <button
+                type="button"
+                class="topology-switch"
+                data-testid="topology-switch-{dr.activePassiveFrom.sku}"
+                onclick={() => switchPackage(dr!.activePassiveFrom!.sku)}
+              >
+                {PS.ladder.switchTo(dr.activePassiveFrom.name)} &rarr;
+              </button>
+            {/if}
           </div>
-          <p>Primary + synchronous replica across two distinct regions over Cilium ClusterMesh. RTO 30s, RPO 5s. Zero-tx-loss failover when a region goes dark.</p>
         </div>
-      </label>
+      {:else}
+        <label class="topology-card {enabled ? 'selected' : ''}" data-testid="topology-card-hot" data-locked="false">
+          <input
+            type="radio"
+            name="topology"
+            checked={enabled}
+            onchange={() => { enabled = true; }}
+          />
+          <div class="topology-body">
+            <div class="topology-title-row">
+              <strong>Active-hot-standby</strong>
+              {#if dr?.activePassive}
+                <span class="topology-price free">{packageName ? `${packageName} · ` : ''}{PS.ladder.includedBadge}</span>
+              {:else}
+                <span class="topology-price">+OMR 5.000 / mo</span>
+              {/if}
+            </div>
+            <p>Primary + synchronous replica across two distinct regions over Cilium ClusterMesh. RTO 30s, RPO 5s. Zero-tx-loss failover when a region goes dark.</p>
+          </div>
+        </label>
+      {/if}
     </div>
   </section>
 
@@ -233,20 +325,30 @@
   {/if}
 </div>
 
-<div class="float-nav">
-  <a href="/addons" class="float-back">&larr; Add-ons</a>
-  <a
-    href={regionsValid ? '/review' : '#'}
-    class="float-cta {regionsValid ? '' : 'disabled'}"
-    aria-disabled={!regionsValid}
-    onclick={(e) => { if (!regionsValid) e.preventDefault(); }}
-  >
-    Review Order &rarr;
-  </a>
+<!-- The step bar — the same fixed bottom bar as the Add-ons step: the page is
+     padded by its height, so it never covers the cards. -->
+<div class="step-bar" data-testid="step-bar">
+  <div class="step-bar-inner">
+    <a href="/addons" class="step-back">&larr; Add-ons</a>
+    <a
+      href={regionsValid ? '/review' : '#'}
+      class="step-cta {regionsValid ? '' : 'disabled'}"
+      aria-disabled={!regionsValid}
+      onclick={(e) => { if (!regionsValid) e.preventDefault(); }}
+    >
+      Review Order &rarr;
+    </a>
+  </div>
 </div>
 
 <style>
-  .bcp-page { max-width: 900px; margin: 0 auto; padding: 0 1.25rem 4.5rem; }
+  .bcp-page {
+    --step-bar-h: 4.5rem;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 0 1.25rem calc(var(--step-bar-h) + env(safe-area-inset-bottom, 0px));
+  }
+  :global(html) { scroll-padding-bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px)); }
 
   .bcp-hero { text-align: center; margin-bottom: 0.75rem; }
   .bcp-hero h1 {
@@ -338,6 +440,29 @@
     background: color-mix(in srgb, var(--color-success) 15%, transparent);
     color: var(--color-success);
   }
+  .topology-price.from {
+    background: color-mix(in srgb, var(--color-warn, #f59e0b) 15%, transparent);
+    color: var(--color-text);
+  }
+
+  /* #6971 — the locked hot-standby card: not a choice on this package. */
+  .topology-card.locked { cursor: default; opacity: 0.92; }
+  .topology-card.locked:hover { border-color: var(--color-border); }
+  .topology-lock { margin-top: 0.1rem; color: var(--color-text-dimmer); flex-shrink: 0; }
+  .topology-locked-note { margin-top: 0.4rem !important; color: var(--color-text-dimmer) !important; font-style: italic; }
+  .topology-switch {
+    margin-top: 0.45rem;
+    padding: 0.4rem 0.9rem;
+    border: none;
+    border-radius: 7px;
+    background: var(--color-accent);
+    color: #fff;
+    font: inherit;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .topology-switch:hover { filter: brightness(0.92); }
 
   /* Region pickers */
   .region-grid {
@@ -376,35 +501,38 @@
     font-weight: 500;
   }
 
-  /* Floating nav pill — duplicated from AddonsStep so this surface
-     inherits the same chrome. No new tokens. */
-  .float-nav {
+  /* The step bar — the same chrome as the Add-ons step. */
+  .step-bar {
     position: fixed;
-    bottom: 1.25rem;
-    left: 50%;
-    transform: translateX(-50%);
+    left: 0;
+    right: 0;
+    bottom: 0;
     z-index: 100;
+    padding: 0.6rem 1.25rem calc(0.6rem + env(safe-area-inset-bottom, 0px));
+    background: color-mix(in srgb, var(--color-surface) 96%, transparent);
+    backdrop-filter: blur(12px);
+    border-top: 1px solid var(--color-border);
+    box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.08);
+  }
+  .step-bar-inner {
+    max-width: 900px;
+    margin: 0 auto;
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    background: color-mix(in srgb, var(--color-surface) 95%, transparent);
-    backdrop-filter: blur(12px);
-    border: 1px solid var(--color-border);
-    border-radius: 999px;
-    padding: 0.35rem 0.4rem 0.35rem 0.6rem;
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+    justify-content: space-between;
+    gap: 0.75rem;
   }
-  .float-back {
+  .step-back {
     color: var(--color-text-dim);
     text-decoration: none;
-    font-size: 0.82rem;
+    font-size: 0.85rem;
     font-weight: 500;
-    padding: 0.4rem 0.6rem;
+    padding: 0.4rem 0.2rem;
     white-space: nowrap;
   }
-  .float-back:hover { color: var(--color-text-strong); }
-  .float-cta {
-    padding: 0.55rem 1.4rem;
+  .step-back:hover { color: var(--color-text-strong); }
+  .step-cta {
+    padding: 0.6rem 1.5rem;
     background: var(--color-accent);
     color: #fff;
     border-radius: 999px;
@@ -415,13 +543,13 @@
     box-shadow: 0 2px 8px color-mix(in srgb, var(--color-accent) 25%, transparent);
     transition: filter 0.15s;
   }
-  .float-cta:hover { filter: brightness(0.9); }
-  .float-cta.disabled {
+  .step-cta:hover { filter: brightness(0.9); }
+  .step-cta.disabled {
     background: color-mix(in srgb, var(--color-text-dim) 35%, transparent);
     color: var(--color-text-dim);
     cursor: not-allowed;
     box-shadow: none;
     pointer-events: auto;
   }
-  .float-cta.disabled:hover { filter: none; }
+  .step-cta.disabled:hover { filter: none; }
 </style>

@@ -1,14 +1,21 @@
 <script lang="ts">
-  import { getAddons, getApps, checkSlug, type AddOn, type App } from '../lib/api';
-  import { readCart, toggleAddon, setOrgDetails, setTLD, writeCart, DEFAULT_TLD } from '../lib/cart';
+  import { getAddons, getApps, getPlans, checkSlug, type AddOn, type App, type Plan } from '../lib/api';
+  import { readCart, toggleAddon, setOrgDetails, setPackage, setTLD, writeCart, DEFAULT_TLD } from '../lib/cart';
   import { formatOMR } from '../lib/currency';
   import { chargebackBaseURL } from '../lib/config';
   import {
+    addonsLadderFor,
+    catalogPlanIdForPackage,
     funnelAddonsFor,
+    isLadderDocument,
     loadPublicPackages,
     packageForCart,
+    pruneAddonsForPackage,
+    stepUpHint,
     PACKAGE_STRINGS as PS,
+    type AddonsLadder,
     type IncludedFeature,
+    type PublicPackages,
   } from '../lib/packages';
 
   let addons = $state<AddOn[]>([]);
@@ -18,6 +25,16 @@
   // the document, so this step is exactly today's.
   let bssIncluded = $state<IncludedFeature[]>([]);
   let packageName = $state('');
+  // #6971, v2 document — the ladder's three blocks for the chosen package:
+  // "In your package" (block A), "Add-ons" (block B: the optional cells and
+  // the next-level add-ons, the tiles below), "Not on <pkg>" (block C: the
+  // teaser / not-offered features with the rung that has them), plus the
+  // step-up hint and the running total. Null with a v1 document or none, so
+  // this step is then exactly as before.
+  let doc = $state<PublicPackages | null>(null);
+  let catalogAddons = $state<AddOn[]>([]);
+  let plans = $state<Plan[]>([]);
+  let ladder = $state<AddonsLadder | null>(null);
   let allApps = $state<App[]>([]);
   let cart = $state(readCart());
   let loading = $state(true);
@@ -87,15 +104,18 @@
     getApps().then(apps => { allApps = apps; }).catch(() => {});
   });
 
-  // Today's stand-in when the catalog is down — unchanged.
+  // The stand-in when BOTH the catalog and the package document are down.
+  // Price-free: a catalog add-on carries no price of its own (the catalog's
+  // add-ons are free; only a BSS add-on from the package document shows a
+  // price anywhere in the journey), so nothing here can put a number on the
+  // page that is not in the price book.
   const FALLBACK_ADDONS: AddOn[] = [
-    { id: 'daily-backup', name: 'Daily Backup', slug: 'daily-backup', tagline: 'Automated daily backups with 30-day retention', icon: '🛡️', monthly_price: 3000, included: false },
-    { id: 'waf', name: 'Web Application Firewall', slug: 'waf', tagline: 'Coraza WAF — OWASP CRS protection', icon: '🔥', monthly_price: 4000, included: false },
-    { id: 'ips', name: 'Intrusion Prevention', slug: 'ips', tagline: 'Community-powered threat intelligence — CrowdSec', icon: '🚨', monthly_price: 3000, included: false },
-    { id: 'vuln-scan', name: 'Vulnerability Scanner', slug: 'vuln-scan', tagline: 'Weekly CVE scans + remediation reports', icon: '🔍', monthly_price: 2000, included: false },
-    { id: 'custom-domain', name: 'Custom Domain', slug: 'custom-domain', tagline: 'Your brand, your domain — with automatic TLS', icon: '🌐', monthly_price: 2000, included: false },
-    { id: 'log-management', name: 'Log Management', slug: 'log-management', tagline: 'Search and analyze all your app logs — Grafana Loki', icon: '📋', monthly_price: 3000, included: false },
-    { id: 'priority-support', name: 'Priority Support', slug: 'priority-support', tagline: '4-hour response SLA + dedicated channel', icon: '⚡', monthly_price: 5000, included: false },
+    { id: 'daily-backup', name: 'Daily Backup', slug: 'daily-backup', tagline: 'Scheduled backups of your sites and databases', icon: '🛡️', monthly_price: 0, included: false },
+    { id: 'waf', name: 'Web Application Firewall', slug: 'waf', tagline: 'Coraza WAF — OWASP CRS protection', icon: '🔥', monthly_price: 0, included: false },
+    { id: 'ips', name: 'Intrusion Prevention', slug: 'ips', tagline: 'Community-powered threat intelligence — CrowdSec', icon: '🚨', monthly_price: 0, included: false },
+    { id: 'vuln-scan', name: 'Vulnerability Scanner', slug: 'vuln-scan', tagline: 'Scheduled CVE scans + remediation reports', icon: '🔍', monthly_price: 0, included: false },
+    { id: 'custom-domain', name: 'Custom Domain', slug: 'custom-domain', tagline: 'Your brand, your domain — with automatic TLS', icon: '🌐', monthly_price: 0, included: false },
+    { id: 'log-management', name: 'Log Management', slug: 'log-management', tagline: 'Search and analyze all your app logs — Grafana Loki', icon: '📋', monthly_price: 0, included: false },
   ];
 
   // #6971 — the catalog list as today; then, when the BSS package document is
@@ -108,13 +128,27 @@
     Promise.all([
       getAddons().catch(() => FALLBACK_ADDONS),
       loadPublicPackages(chargebackBaseURL()),
-    ]).then(([catalog, doc]) => {
-      const pkg = doc ? packageForCart(doc, cart) : null;
-      if (doc && pkg) {
-        const merged = funnelAddonsFor(doc, pkg.sku, catalog);
-        addons = merged.addons;
-        bssIncluded = merged.included;
-        packageName = merged.packageName;
+      getPlans().catch(() => [] as Plan[]),
+    ]).then(([catalog, d, pl]) => {
+      catalogAddons = catalog;
+      doc = d;
+      plans = pl;
+      const pkg = d ? packageForCart(d, cart) : null;
+      if (d && pkg) {
+        // With a document the cart's add-ons are BSS SKUs this package sells;
+        // a catalog id left from a session before the document existed is
+        // carried over to its BSS twin or dropped — it is not in the price
+        // book, so it is not in the journey.
+        const pruned = pruneAddonsForPackage(d, pkg.sku, cart.addons, catalog);
+        if (pruned.join('\u0000') !== cart.addons.join('\u0000')) {
+          cart = setPackage({
+            planId: cart.plan || catalogPlanIdForPackage(pkg, pl),
+            planName: pkg.name,
+            packageSku: pkg.sku,
+            addons: pruned,
+          });
+        }
+        applyPackage(d, pkg.sku);
       } else {
         addons = catalog;
       }
@@ -122,7 +156,47 @@
     });
   });
 
+  // The step's lists for a package of the document in hand. A v2 document
+  // yields the ladder blocks; a v1 one the included group + the BSS list.
+  function applyPackage(d: PublicPackages, sku: string) {
+    const l = isLadderDocument(d) ? addonsLadderFor(d, sku) : null;
+    if (l) {
+      ladder = l;
+      addons = l.addons;
+      bssIncluded = l.included.map(i => ({ key: i.key, name: i.name, blurb: i.value ?? i.blurb }));
+      packageName = l.packageName;
+      return;
+    }
+    ladder = null;
+    const merged = funnelAddonsFor(d, sku);
+    addons = merged.addons;
+    bssIncluded = merged.included;
+    packageName = merged.packageName;
+  }
+
+  // Block C's "Upgrade to L" and the step-up card both switch the package in
+  // the cart the way step 1 does — catalog plan id + sku — keeping the chosen
+  // apps and every add-on the new package still offers (a BSS add-on it
+  // includes as standard is dropped: billing would refuse it as redundant).
+  function switchPackage(sku: string) {
+    if (!doc) return;
+    const pkg = doc.packages.find(p => p.sku === sku);
+    if (!pkg) return;
+    cart = setPackage({
+      planId: catalogPlanIdForPackage(pkg, plans),
+      planName: pkg.name,
+      packageSku: pkg.sku,
+      addons: pruneAddonsForPackage(doc, pkg.sku, cart.addons, catalogAddons),
+    });
+    applyPackage(doc, pkg.sku);
+  }
+
   const paidAddons = $derived(addons.filter(a => !a.included));
+  const stepUp = $derived(doc && ladder ? stepUpHint(doc, ladder, cart.addons) : null);
+  // The running total here is a preview from the document's own prices; the
+  // figure the customer agrees to is the server's quote on Review / Checkout.
+  const tickedBaisa = $derived(addons.filter(a => !a.included && cart.addons.includes(a.id)).reduce((s, a) => s + a.monthly_price, 0));
+  const runningTotalBaisa = $derived(ladder ? ladder.packagePriceBaisa + tickedBaisa : 0);
 
   function toggle(id: string) {
     cart = toggleAddon(id);
@@ -145,11 +219,13 @@
     'waf': '🔥', 'ips': '🚨', 'vuln-scan': '🔍',
     'custom-domain': '🌐', 'log-management': '📋', 'priority-support': '⚡',
     'daily-backup': '🛡️',
-    // #6971 — BSS feature keys (the `slug` of a document-sourced add-on).
+    // #6971 — BSS feature keys (the `slug` of a document-sourced add-on):
+    // the v1 document's hyphenated keys and the v2 document's underscored ones.
     'backup': '🛡️', 'domain': '🌐', 'dedicated-ip': '🌍', 'ai-seo': '🔎',
     'ai-website-builder': '🪄', 'ssl': '🔒', 'sso': '🔑', 'ddos': '🛡️',
     'malware-scanner': '🔍', 'support': '💬', 'mail': '✉️', 'databases': '🗄️',
     'applications': '📦',
+    'dedicated_ip': '🌍', 'ai_seo': '🔎', 'ai_builder': '🪄', 'bandwidth': '📶',
   };
 </script>
 
@@ -248,7 +324,25 @@
       </section>
     {/if}
 
-    {#if bssIncluded.length > 0}
+    {#if ladder}
+      <!-- #6971, v2 — block A: what the package has, compact and read-only. -->
+      <section class="ao-section" data-testid="addons-included">
+        <div class="ao-head">
+          <h2>{PS.ladder.inYourPackage}</h2>
+          <span class="ao-badge">{ladder.packageName} · INCLUDED</span>
+        </div>
+        <p class="bs-hint">{PS.ladder.inYourPackageHint}</p>
+        <ul class="in-pkg">
+          {#each ladder.included as f (f.key)}
+            <li class="in-pkg-item" data-testid="addons-included-{f.key}" title={f.blurb}>
+              <span class="in-pkg-tick" aria-hidden="true">✓</span>
+              <span class="in-pkg-name">{f.name}</span>
+              {#if f.value}<span class="in-pkg-val">{f.value}</span>{/if}
+            </li>
+          {/each}
+        </ul>
+      </section>
+    {:else if bssIncluded.length > 0}
       <!-- #6971 — the chosen package's included features, read-only: no price,
            no toggle. Rendered only when the BSS document is available. -->
       <section class="ao-section" data-testid="addons-included">
@@ -272,11 +366,11 @@
       </section>
     {/if}
 
-    <!-- Optional extras — tile grid -->
-    <section class="ao-section">
+    <!-- Optional extras — tile grid (block B, "Add-ons", with a v2 document) -->
+    <section class="ao-section" data-testid="addons-optional">
       <div class="ao-head">
-        <h2>Optional extras</h2>
-        <span class="ao-note">Skip any you don't need</span>
+        <h2>{ladder ? PS.ladder.addons : 'Optional extras'}</h2>
+        <span class="ao-note">{ladder ? PS.ladder.addonsHint : "Skip any you don't need"}</span>
       </div>
       <div class="extras-grid">
         {#each paidAddons as addon (addon.id)}
@@ -293,7 +387,7 @@
               <p>{addon.tagline}</p>
               {#if addon.hint}<p class="extra-hint">{addon.hint}</p>{/if}
             </div>
-            <span class="extra-price">+{formatOMR(addon.monthly_price)}</span>
+            <span class="extra-price">{addon.monthly_price === 0 ? 'Free' : `+${formatOMR(addon.monthly_price)}`}</span>
             <span class="extra-check">
               {#if isChecked}
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>
@@ -304,17 +398,91 @@
           </button>
         {/each}
       </div>
+
+      {#if ladder}
+        <!-- The step-up hint: the ticked add-ons the next rung includes cost
+             at least the gap to it. Switching keeps the apps, drops only what
+             the next package bundles. -->
+        {#if stepUp}
+          <div class="step-up" data-testid="addons-stepup" data-next={stepUp.nextSku}>
+            <div class="step-up-body">
+              <strong class="step-up-title">{PS.ladder.stepUpTitle(stepUp.nextName, stepUp.gapMonth, doc?.currency ?? 'OMR')}</strong>
+              <p class="step-up-text">{PS.ladder.stepUpBody(stepUp.bundledSumMonth, doc?.currency ?? 'OMR', stepUp.nextName)}</p>
+              <p class="step-up-list">
+                {#each stepUp.bundled as b, i (b.id)}{#if i > 0}{' · '}{/if}<span>{b.name}</span>{/each}
+              </p>
+            </div>
+            <button type="button" class="step-up-cta" data-testid="addons-stepup-switch" onclick={() => switchPackage(stepUp.nextSku)}>
+              {PS.ladder.stepUpCta(stepUp.nextName)} &rarr;
+            </button>
+          </div>
+        {/if}
+
+        <!-- The running total: package + ticked add-ons, from the document's
+             own prices. The quoted total on Review / Checkout is the one billed. -->
+        <div class="running-total" data-testid="addons-running-total" data-baisa={runningTotalBaisa}>
+          <span class="rt-label">{PS.ladder.runningTotal}</span>
+          <span class="rt-parts">
+            <span>{PS.ladder.packageLine(ladder.packageName)} {formatOMR(ladder.packagePriceBaisa)}</span>
+            <span class="rt-sep">+</span>
+            <span>{PS.ladder.addonsLine} {formatOMR(tickedBaisa)}</span>
+          </span>
+          <strong class="rt-total">{formatOMR(runningTotalBaisa)} <small>{PS.perMonth}</small></strong>
+        </div>
+      {/if}
     </section>
+
+    {#if ladder && ladder.missing.length > 0}
+      <!-- #6971, v2 — block C: what this package does not have, and the rung
+           that does. The link switches the package in the cart and keeps the
+           chosen apps. -->
+      <section class="ao-section" data-testid="addons-missing">
+        <div class="ao-head">
+          <h2>{PS.ladder.notOn(ladder.packageName)}</h2>
+          <span class="ao-note">{PS.ladder.notOnHint}</span>
+        </div>
+        <div class="extras-grid">
+          {#each ladder.missing as m (m.key)}
+            <div class="extra-tile missing-tile" data-testid="addons-missing-{m.key}" data-state={m.state}>
+              <span class="extra-icon missing-icon" aria-hidden="true">—</span>
+              <div class="extra-body">
+                <strong>{m.name}</strong>
+                <p>{m.blurb}</p>
+                {#if m.upgrade}
+                  <button type="button" class="missing-upgrade" data-testid="addons-upgrade-{m.key}" data-target={m.upgrade.sku} onclick={() => switchPackage(m.upgrade!.sku)}>
+                    {m.upgrade.state === 'included'
+                      ? PS.ladder.upgradeTo(m.upgrade.name)
+                      : PS.ladder.availableOn(m.upgrade.name, m.upgrade.priceMonth ?? '')} &rarr;
+                  </button>
+                {/if}
+              </div>
+            </div>
+          {/each}
+        </div>
+      </section>
+    {/if}
   {/if}
 </div>
 
-<div class="float-nav">
-  <a href="/apps" class="float-back">&larr; Apps</a>
-  <a href="/bcp" class="float-cta">Continue &rarr;</a>
+<!-- The step bar: a fixed bottom bar with its own space — the page is padded
+     by its height (safe-area aware) and the document's scroll-padding keeps
+     anything scrolled into view above it, so it never covers the content the
+     customer is reading. -->
+<div class="step-bar" data-testid="step-bar">
+  <div class="step-bar-inner">
+    <a href="/apps" class="step-back">&larr; Apps</a>
+    <a href="/bcp" class="step-cta">Continue &rarr;</a>
+  </div>
 </div>
 
 <style>
-  .addons-page { max-width: 900px; margin: 0 auto; padding: 0 1.25rem 4.5rem; }
+  .addons-page {
+    --step-bar-h: 4.5rem;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 0 1.25rem calc(var(--step-bar-h) + env(safe-area-inset-bottom, 0px));
+  }
+  :global(html) { scroll-padding-bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px)); }
 
   .addons-hero { text-align: center; margin-bottom: 0.75rem; }
   .addons-hero h1 {
@@ -448,6 +616,99 @@
   .extra-box { display: block; width: 18px; height: 18px; border: 1.5px solid var(--color-border); border-radius: 4px; }
 
   .bs-hint { color: var(--color-text-dim); font-size: 0.78rem; margin: 0 0 0.55rem; }
+
+  /* #6971, v2 — block A: compact chips */
+  .in-pkg {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+  .in-pkg-item {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.35rem;
+    padding: 0.3rem 0.6rem;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: 999px;
+    font-size: 0.76rem;
+    color: var(--color-text);
+  }
+  .in-pkg-tick { color: var(--color-success); font-weight: 700; }
+  .in-pkg-name { font-weight: 500; }
+  .in-pkg-val { color: var(--color-text-dim); }
+
+  /* #6971, v2 — the step-up card */
+  .step-up {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-top: 0.75rem;
+    padding: 0.85rem 1rem;
+    border: 1.5px solid var(--color-warn, #f59e0b);
+    background: color-mix(in srgb, var(--color-warn, #f59e0b) 10%, var(--color-bg));
+    border-radius: 10px;
+  }
+  .step-up-body { flex: 1; min-width: 0; }
+  .step-up-title { display: block; color: var(--color-text-strong); font-size: 0.92rem; }
+  .step-up-text { margin: 0.2rem 0 0; color: var(--color-text-dim); font-size: 0.76rem; }
+  .step-up-list { margin: 0.2rem 0 0; color: var(--color-text); font-size: 0.74rem; font-weight: 500; }
+  .step-up-cta {
+    flex-shrink: 0;
+    padding: 0.55rem 1rem;
+    border: none;
+    border-radius: 7px;
+    background: var(--color-accent);
+    color: #fff;
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .step-up-cta:hover { filter: brightness(0.92); }
+  @media (max-width: 640px) { .step-up { flex-direction: column; align-items: stretch; } }
+
+  /* #6971, v2 — the running total */
+  .running-total {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.4rem 1rem;
+    margin-top: 0.75rem;
+    padding: 0.6rem 0.8rem;
+    border-top: 1px dashed var(--color-border);
+    font-size: 0.8rem;
+    color: var(--color-text-dim);
+  }
+  .rt-label { font-weight: 600; color: var(--color-text-strong); }
+  .rt-parts { display: inline-flex; gap: 0.4rem; flex-wrap: wrap; }
+  .rt-sep { color: var(--color-text-dimmer); }
+  .rt-total { color: var(--color-text-strong); font-size: 1.05rem; font-weight: 800; margin-left: auto; }
+  .rt-total small { color: var(--color-text-dim); font-size: 0.72rem; font-weight: 600; }
+
+  /* #6971, v2 — block C */
+  .missing-tile { cursor: default; opacity: 0.92; }
+  .missing-icon { color: var(--color-text-dimmer); }
+  .missing-upgrade {
+    margin-top: 0.3rem;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--color-accent);
+    font: inherit;
+    font-size: 0.74rem;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: left;
+  }
+  .missing-upgrade:hover { text-decoration: underline; }
+
   .svc-tile { cursor: default; }
   .svc-tile:hover { border-color: var(--color-border); }
   .svc-logo { width: 22px; height: 22px; border-radius: 4px; flex-shrink: 0; }
@@ -461,34 +722,38 @@
     letter-spacing: 0.04em;
   }
 
-  /* Floating nav pill */
-  .float-nav {
+  /* The step bar */
+  .step-bar {
     position: fixed;
-    bottom: 1.25rem;
-    left: 50%;
-    transform: translateX(-50%);
+    left: 0;
+    right: 0;
+    bottom: 0;
     z-index: 100;
+    padding: 0.6rem 1.25rem calc(0.6rem + env(safe-area-inset-bottom, 0px));
+    background: color-mix(in srgb, var(--color-surface) 96%, transparent);
+    backdrop-filter: blur(12px);
+    border-top: 1px solid var(--color-border);
+    box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.08);
+  }
+  .step-bar-inner {
+    max-width: 900px;
+    margin: 0 auto;
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    background: color-mix(in srgb, var(--color-surface) 95%, transparent);
-    backdrop-filter: blur(12px);
-    border: 1px solid var(--color-border);
-    border-radius: 999px;
-    padding: 0.35rem 0.4rem 0.35rem 0.6rem;
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+    justify-content: space-between;
+    gap: 0.75rem;
   }
-  .float-back {
+  .step-back {
     color: var(--color-text-dim);
     text-decoration: none;
-    font-size: 0.82rem;
+    font-size: 0.85rem;
     font-weight: 500;
-    padding: 0.4rem 0.6rem;
+    padding: 0.4rem 0.2rem;
     white-space: nowrap;
   }
-  .float-back:hover { color: var(--color-text-strong); }
-  .float-cta {
-    padding: 0.55rem 1.4rem;
+  .step-back:hover { color: var(--color-text-strong); }
+  .step-cta {
+    padding: 0.6rem 1.5rem;
     background: var(--color-accent);
     color: #fff;
     border-radius: 999px;
@@ -499,5 +764,5 @@
     box-shadow: 0 2px 8px color-mix(in srgb, var(--color-accent) 25%, transparent);
     transition: filter 0.15s;
   }
-  .float-cta:hover { filter: brightness(0.9); }
+  .step-cta:hover { filter: brightness(0.9); }
 </style>
