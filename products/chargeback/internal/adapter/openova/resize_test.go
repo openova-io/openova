@@ -243,7 +243,7 @@ func TestResizeSplitUsesTheSharedWindowMath(t *testing.T) {
 	if _, ok := parseShape(""); ok {
 		t.Fatal("an empty token must not decode")
 	}
-	lines := platformSKUs(tr, "not a shape")
+	lines := platformSKUs(tr, "not a shape", false)
 	if len(lines) != 2 || lines[0].factor != 0.5 || lines[1].factor != 1.5 {
 		t.Fatalf("fallback lines = %+v", lines)
 	}

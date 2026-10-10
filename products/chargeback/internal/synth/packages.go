@@ -66,6 +66,9 @@ type Cell struct {
 	Level int
 	// Note is published under the cell.
 	Note string
+	// GrowOnly marks an optional cell available only in grow mode, billed
+	// as usage (DESIGN.md §22.11) — no add-on, no price.
+	GrowOnly bool
 }
 
 // Feature is one row of the ladder.
@@ -95,15 +98,49 @@ type Package struct {
 	VCPUGuaranteed      float64
 	MemoryGBGuaranteed  float64
 	DiskGB              float64
+	// Grow (DESIGN.md §22.11): every package allows it, up to GrowCeiling,
+	// and bills the compute above its allowance at its OWN rates — the
+	// package's unit price (1 vCPU + 2 GB) plus 10 %, split like the
+	// pay-per-use rule (§2.9a).
+	OverageVCPUMonth  float64
+	OverageMemGBMonth float64
+}
+
+// Ceiling is a grow ceiling: vCPU, memory (GB), disk (GB), bandwidth (Mbps).
+type Ceiling struct{ VCPU, MemoryGB, DiskGB, BandwidthMbps float64 }
+
+// GrowCeilingOf is a package's grow ceiling (founder decisions 2026-10-10):
+// the XL shape — 8 vCPU, 16 GB, 250 GB, 1000 Mbps — for S, M and L, and
+// twice it for XL, which could otherwise not grow at all.
+func GrowCeilingOf(p Package) Ceiling {
+	xl := Ceiling{8, 16, 250, 1000}
+	if p.Slug == "xl" {
+		return Ceiling{2 * xl.VCPU, 2 * xl.MemoryGB, 2 * xl.DiskGB, 2 * xl.BandwidthMbps}
+	}
+	return xl
 }
 
 // Packages are the four packages at the sheet's prices and shapes.
 var Packages = []Package{
-	{Slug: "s", Name: "S", Monthly: 2.49, VCPU: 1, MemoryGB: 2, VCPUGuaranteed: 0.17, MemoryGBGuaranteed: 0.67, DiskGB: 25},
-	{Slug: "m", Name: "M", Monthly: 4.49, Recommended: true, VCPU: 2, MemoryGB: 4, VCPUGuaranteed: 0.33, MemoryGBGuaranteed: 1.33, DiskGB: 50},
-	{Slug: "l", Name: "L", Monthly: 7.99, VCPU: 4, MemoryGB: 8, VCPUGuaranteed: 0.67, MemoryGBGuaranteed: 2.67, DiskGB: 100},
-	{Slug: "xl", Name: "XL", Monthly: 13.99, VCPU: 8, MemoryGB: 16, VCPUGuaranteed: 1.33, MemoryGBGuaranteed: 5.33, DiskGB: 250},
+	{Slug: "s", Name: "S", Monthly: 2.49, VCPU: 1, MemoryGB: 2, VCPUGuaranteed: 0.17, MemoryGBGuaranteed: 0.67, DiskGB: 25, OverageVCPUMonth: 1.992, OverageMemGBMonth: 0.374},
+	{Slug: "m", Name: "M", Monthly: 4.49, Recommended: true, VCPU: 2, MemoryGB: 4, VCPUGuaranteed: 0.33, MemoryGBGuaranteed: 1.33, DiskGB: 50, OverageVCPUMonth: 1.796, OverageMemGBMonth: 0.337},
+	{Slug: "l", Name: "L", Monthly: 7.99, VCPU: 4, MemoryGB: 8, VCPUGuaranteed: 0.67, MemoryGBGuaranteed: 2.67, DiskGB: 100, OverageVCPUMonth: 1.598, OverageMemGBMonth: 0.300},
+	{Slug: "xl", Name: "XL", Monthly: 13.99, VCPU: 8, MemoryGB: 16, VCPUGuaranteed: 1.33, MemoryGBGuaranteed: 5.33, DiskGB: 250, OverageVCPUMonth: 1.399, OverageMemGBMonth: 0.263},
 }
+
+// The compute overage rates above, per package (founder pricing sheet,
+// 2026-10-10): the package's price per unit of 1 vCPU + 2 GB, plus 10 %,
+// split into a vCPU part and a GB part —
+//
+//	S  2.490 / 1 unit  = 2.490 → × 1.1 = 2.739 = 1.992 + 2 × 0.374 (2.740)
+//	M  4.490 / 2 units = 2.245 → × 1.1 = 2.470 = 1.796 + 2 × 0.337
+//	L  7.990 / 4 units = 1.998 → × 1.1 = 2.197 = 1.598 + 2 × 0.300 (2.198)
+//	XL 13.990 / 8 units = 1.749 → × 1.1 = 1.924 = 1.399 + 2 × 0.263 (1.925)
+//
+// Each package's overage unit stays ABOVE the next package's own unit price
+// (S 2.740 > M 2.245, M 2.470 > L 1.998, L 2.198 > XL 1.749): growing past a
+// package must never be cheaper than stepping up to the next one, the
+// step-up rule for growth (TestGrowOverageRatesStayAboveTheNextPackage).
 
 // AddonRate is one add-on SKU and its price per month in OMR; the seeder
 // prices it in the plans book per plan-hour exactly as the plans are priced
@@ -160,16 +197,21 @@ const BandwidthSKU = "eip.bandwidth_mbps"
 // on: the PVC capacity the platform collector reports per GB-hour.
 const DiskSKU = "k8s.pvc_gb"
 
-// BandwidthRate prices the excess bandwidth in the plans book: the National
-// Cloud list rate for a Mbps-hour, borrowed rather than minted (§7.2).
-var BandwidthRate = Rate{SKU: BandwidthSKU, Unit: "mbps-hour", Annual: 150.38, Description: "EIP bandwidth per Mbps above what the package includes (National Cloud list rate)"}
+// BandwidthRate prices the excess bandwidth in the plans book: 15.038 OMR a
+// year per Mbps, the founder's pricing sheet of 2026-10-10 (1.253 a month),
+// flat on every package. The seeder prices it only where the book does not
+// yet (merge), so an operator's own rate is never overwritten.
+var BandwidthRate = Rate{SKU: BandwidthSKU, Unit: "mbps-hour", Annual: 15.038, Description: "EIP bandwidth per Mbps above what the package includes (pricing sheet 2026-10-10)"}
 
 // DiskRate prices the excess disk in the plans book: the National Cloud list
 // rate for EVS SSD block storage per GB, borrowed like the bandwidth. The
 // plans book otherwise prices no k8s.* meter — under a plan they are the
 // allocation basis — and pricing this one is what lets the L and XL
 // packages meter disk above what they include (DESIGN.md §22.2).
-var DiskRate = Rate{SKU: DiskSKU, Unit: "gb-hour", Annual: 2.00, Description: "Disk per GB above what the package includes (National Cloud list rate for EVS SSD)"}
+//
+// The rate is 0.423 OMR a year per GB (0.035 a month), the founder's pricing
+// sheet of 2026-10-10, flat on every package.
+var DiskRate = Rate{SKU: DiskSKU, Unit: "gb-hour", Annual: 0.423, Description: "Disk per GB above what the package includes (pricing sheet 2026-10-10)"}
 
 // MeterRates are the two meters the seeder prices in the plans book.
 var MeterRates = []Rate{BandwidthRate, DiskRate}
@@ -182,6 +224,10 @@ func qty(q float64, overage string) Cell {
 	return Cell{State: Included, Quantity: q, HasQuantity: true, Overage: overage}
 }
 func lvl(n int) Cell { return Cell{State: Included, Level: n} }
+
+// growLvl is a level cell at level n whose next level comes with grow mode,
+// billed as usage (DESIGN.md §22.11).
+func growLvl(n int) Cell { return Cell{State: Optional, Level: n, GrowOnly: true} }
 
 func cells(s, m, l, xl Cell) map[string]Cell {
 	return map[string]Cell{"s": s, "m": m, "l": l, "xl": xl}
@@ -201,11 +247,13 @@ var Features = []Feature{
 	{Key: "waf", Name: "Web application firewall", Blurb: "Common web attacks blocked before they reach you", Kind: FeatureBoolean, Group: GroupFloor},
 	{Key: "support", Name: "24/7 customer support", Blurb: "Someone to talk to, any hour", Kind: FeatureBoolean, Group: GroupFloor},
 
-	// CAPACITY — the two quantity rows, hard-capped on S and M, metered above.
+	// CAPACITY — the two quantity rows. Their overage is METERED on every
+	// package: since §22.11 the customer's mode decides — capped bills
+	// nothing beyond the package whatever the cell says, grow meters it.
 	{Key: "bandwidth", Name: "Bandwidth", Blurb: "Included bandwidth; above it the package's overage rule applies", Kind: FeatureQuantity, Group: GroupCapacity, Unit: "Mbps", AddonSKU: BandwidthSKU,
-		Cells: cells(qty(50, OverageHardCap), qty(100, OverageHardCap), qty(250, OverageMetered), qty(1000, OverageMetered))},
+		Cells: cells(qty(50, OverageMetered), qty(100, OverageMetered), qty(250, OverageMetered), qty(1000, OverageMetered))},
 	{Key: "disk", Name: "Disk", Blurb: "Persistent storage for apps and databases", Kind: FeatureQuantity, Group: GroupCapacity, Unit: "GB", AddonSKU: DiskSKU,
-		Cells: cells(qty(25, OverageHardCap), qty(50, OverageHardCap), qty(100, OverageMetered), qty(250, OverageMetered))},
+		Cells: cells(qty(25, OverageMetered), qty(50, OverageMetered), qty(100, OverageMetered), qty(250, OverageMetered))},
 
 	// FEATURES — the sheet's Optional rows, priced by the step-up rule.
 	{Key: "ai_seo", Name: "AI SEO ready", Blurb: "Search-engine readiness checked and tuned by AI", Kind: FeatureBoolean, Group: GroupFeatures, AddonSKU: "addon.ai_seo",
@@ -247,7 +295,9 @@ var Features = []Feature{
 	{Key: "backup", Name: "Backup", Blurb: "Scheduled backups of your sites and databases", Kind: FeatureBoolean, Group: GroupResilience, AddonSKU: "addon.backup",
 		Cells: cells(opt(), opt(), opt(), inc())},
 	{Key: "dr_topology", Name: "DR topology", Blurb: "Where your applications run, and where they fail over to", Kind: FeatureLevel, Group: GroupResilience, Levels: []string{"single region", "active-passive"},
-		Cells: cells(lvl(0), lvl(0), lvl(0), lvl(1))},
+		// Active-passive is included on XL; on S, M and L it comes with grow
+		// mode only — no upfront price, the standby billed as overage.
+		Cells: cells(growLvl(0), growLvl(0), growLvl(0), lvl(1))},
 }
 
 // FeatureKeys lists the keys of the showcase features, in order — the purge

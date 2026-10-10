@@ -691,8 +691,12 @@ type Entitlement struct {
 	// metered, hard_cap or unlimited. Empty on the other kinds.
 	Overage string `json:"overage,omitempty"`
 	// Level is the index into the feature's levels on a level cell.
-	Level     *int      `json:"level,omitempty"`
-	Note      string    `json:"note,omitempty"`
+	Level *int   `json:"level,omitempty"`
+	Note  string `json:"note,omitempty"`
+	// GrowOnly marks an optional cell whose feature is available on the
+	// package only in grow mode, billed as usage — no add-on, no price
+	// (DESIGN.md §22.11: active-passive on S, M and L).
+	GrowOnly  bool      `json:"grow_only,omitempty"`
 	UpdatedAt time.Time `json:"updated_at"`
 	Feature   Feature   `json:"feature"`
 }
@@ -706,15 +710,18 @@ type EntitlementInput struct {
 	Overage string
 	Level   *int
 	Note    string
+	// GrowOnly: optional only in grow mode, billed as usage; a boolean or a
+	// level cell, state optional, no add-on price needed.
+	GrowOnly bool
 }
 
-const entitlementColumns = `e.price_book_id, e.plan_sku, e.feature_id, e.state, e.included_quantity::text, COALESCE(e.overage, ''), e.level, e.note, e.updated_at, ` + featureColumns
+const entitlementColumns = `e.price_book_id, e.plan_sku, e.feature_id, e.state, e.included_quantity::text, COALESCE(e.overage, ''), e.level, e.note, e.updated_at, e.grow_only, ` + featureColumns
 
 func scanEntitlement(row interface{ Scan(...any) error }) (Entitlement, error) {
 	var e Entitlement
 	var qty sql.NullString
 	var level sql.NullInt64
-	if err := scanFeatureInto(row, &e.Feature, &e.PriceBookID, &e.PlanSKU, &e.FeatureID, &e.State, &qty, &e.Overage, &level, &e.Note, &e.UpdatedAt); err != nil {
+	if err := scanFeatureInto(row, &e.Feature, &e.PriceBookID, &e.PlanSKU, &e.FeatureID, &e.State, &qty, &e.Overage, &level, &e.Note, &e.UpdatedAt, &e.GrowOnly); err != nil {
 		return e, err
 	}
 	e.IncludedQuantity = decPtr(qty)
@@ -817,6 +824,14 @@ func (s *Store) PutEntitlement(ctx context.Context, priceBookID, planSKU, featur
 		err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM price_items WHERE price_book_id = $1 AND sku = $2)`, priceBookID, sku).Scan(&priced)
 		return priced, mapErr(err)
 	}
+	if in.GrowOnly {
+		if in.State != EntitlementOptional {
+			return Entitlement{}, fmt.Errorf("%w: a grow-only cell is optional — available on %s only in grow mode", ErrInvalid, PlanName(slug))
+		}
+		if f.Kind != FeatureKindBoolean && f.Kind != FeatureKindLevel {
+			return Entitlement{}, fmt.Errorf("%w: %s is a %s feature; only a boolean or a level feature can be grow-only", ErrInvalid, f.Key, f.Kind)
+		}
+	}
 	var qty, overage, level any
 	switch f.Kind {
 	case FeatureKindAccess:
@@ -824,7 +839,7 @@ func (s *Store) PutEntitlement(ctx context.Context, priceBookID, planSKU, featur
 			return Entitlement{}, fmt.Errorf("%w: %s is a platform door; it is included or not offered, never an add-on", ErrInvalid, f.Key)
 		}
 	case FeatureKindBoolean:
-		if in.State == EntitlementOptional {
+		if in.State == EntitlementOptional && !in.GrowOnly {
 			if f.AddonSKU == "" {
 				return Entitlement{}, fmt.Errorf("%w: %s has no add-on SKU; set one on the feature before offering it as an add-on", ErrInvalid, f.Key)
 			}
@@ -884,6 +899,11 @@ func (s *Store) PutEntitlement(ctx context.Context, priceBookID, planSKU, featur
 			if *in.Level+1 >= len(f.Levels) {
 				return Entitlement{}, fmt.Errorf("%w: %s on %s is already at the top level (%s); there is no next level to offer", ErrInvalid, f.Key, PlanName(slug), f.Levels[*in.Level])
 			}
+			if in.GrowOnly {
+				// The next level comes with grow mode, billed as usage: no
+				// add-on to price.
+				break
+			}
 			if f.AddonSKU == "" {
 				return Entitlement{}, fmt.Errorf("%w: %s has no add-on SKU; set one on the feature before offering its next level as an add-on", ErrInvalid, f.Key)
 			}
@@ -896,10 +916,10 @@ func (s *Store) PutEntitlement(ctx context.Context, priceBookID, planSKU, featur
 			}
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO package_entitlements (price_book_id, plan_sku, feature_id, state, included_quantity, overage, level, note)
-		VALUES ($1, $2, $3, $4, $5::numeric, $6, $7, $8)
-		ON CONFLICT (price_book_id, plan_sku, feature_id) DO UPDATE SET state = EXCLUDED.state, included_quantity = EXCLUDED.included_quantity, overage = EXCLUDED.overage, level = EXCLUDED.level, note = EXCLUDED.note, updated_at = now()`,
-		priceBookID, planSKU, f.ID, in.State, qty, overage, level, strings.TrimSpace(in.Note)); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO package_entitlements (price_book_id, plan_sku, feature_id, state, included_quantity, overage, level, note, grow_only)
+		VALUES ($1, $2, $3, $4, $5::numeric, $6, $7, $8, $9)
+		ON CONFLICT (price_book_id, plan_sku, feature_id) DO UPDATE SET state = EXCLUDED.state, included_quantity = EXCLUDED.included_quantity, overage = EXCLUDED.overage, level = EXCLUDED.level, note = EXCLUDED.note, grow_only = EXCLUDED.grow_only, updated_at = now()`,
+		priceBookID, planSKU, f.ID, in.State, qty, overage, level, strings.TrimSpace(in.Note), in.GrowOnly); err != nil {
 		return Entitlement{}, mapErr(err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -942,10 +962,23 @@ type PackageSettings struct {
 	// IconID, Accent and Badge brand the package's column (DESIGN.md
 	// §22.10): an icon, a "#RRGGBB" accent colour, a short badge ("Most
 	// popular"). Empty = none.
-	IconID    string    `json:"icon_id,omitempty"`
-	Accent    string    `json:"accent,omitempty"`
-	Badge     string    `json:"badge,omitempty"`
-	UpdatedAt time.Time `json:"updated_at"`
+	IconID string `json:"icon_id,omitempty"`
+	Accent string `json:"accent,omitempty"`
+	Badge  string `json:"badge,omitempty"`
+	// GrowAllowed says whether a customer of this package may choose grow
+	// mode (DESIGN.md §22.11); GrowCeiling* the most grow raises the quota
+	// to, per dimension; OverageVCPUMonth / OverageMemGBMonth the package's
+	// compute overage rates per vCPU and per GB per month — the package's
+	// own unit price plus 10 %. Disk and bandwidth above the allowance are
+	// rated at the book's flat meter prices.
+	GrowAllowed              bool      `json:"grow_allowed"`
+	GrowCeilingVCPU          *Decimal  `json:"grow_ceiling_vcpu,omitempty"`
+	GrowCeilingMemoryGB      *Decimal  `json:"grow_ceiling_memory_gb,omitempty"`
+	GrowCeilingDiskGB        *Decimal  `json:"grow_ceiling_disk_gb,omitempty"`
+	GrowCeilingBandwidthMbps *Decimal  `json:"grow_ceiling_bandwidth_mbps,omitempty"`
+	OverageVCPUMonth         *Decimal  `json:"overage_vcpu_month,omitempty"`
+	OverageMemGBMonth        *Decimal  `json:"overage_mem_gb_month,omitempty"`
+	UpdatedAt                time.Time `json:"updated_at"`
 }
 
 // PackageSettingsInput is the settings as the console writes them, whole.
@@ -961,16 +994,29 @@ type PackageSettingsInput struct {
 	IconID             string
 	Accent             string
 	Badge              string
+	// The grow settings (DESIGN.md §22.11): when GrowAllowed, the four
+	// ceilings and the two compute rates are required.
+	GrowAllowed              bool
+	GrowCeilingVCPU          *Decimal
+	GrowCeilingMemoryGB      *Decimal
+	GrowCeilingDiskGB        *Decimal
+	GrowCeilingBandwidthMbps *Decimal
+	OverageVCPUMonth         *Decimal
+	OverageMemGBMonth        *Decimal
 }
 
-const packageSettingsColumns = `price_book_id, plan_sku, tagline, recommended, annual_months_free, vcpu::text, memory_gb::text, vcpu_guaranteed::text, memory_gb_guaranteed::text, disk_gb::text, COALESCE(icon_id, ''), COALESCE(accent, ''), badge, updated_at`
+const packageSettingsColumns = `price_book_id, plan_sku, tagline, recommended, annual_months_free, vcpu::text, memory_gb::text, vcpu_guaranteed::text, memory_gb_guaranteed::text, disk_gb::text, COALESCE(icon_id, ''), COALESCE(accent, ''), badge, updated_at,
+	grow_allowed, grow_ceiling_vcpu::text, grow_ceiling_memory_gb::text, grow_ceiling_disk_gb::text, grow_ceiling_bandwidth_mbps::text, overage_vcpu_month::text, overage_mem_gb_month::text`
 
 func scanPackageSettings(row interface{ Scan(...any) error }) (PackageSettings, error) {
 	var ps PackageSettings
-	var vcpu, mem, vcpuG, memG, disk sql.NullString
-	if err := row.Scan(&ps.PriceBookID, &ps.PlanSKU, &ps.Tagline, &ps.Recommended, &ps.AnnualMonthsFree, &vcpu, &mem, &vcpuG, &memG, &disk, &ps.IconID, &ps.Accent, &ps.Badge, &ps.UpdatedAt); err != nil {
+	var vcpu, mem, vcpuG, memG, disk, gV, gM, gD, gB, oV, oM sql.NullString
+	if err := row.Scan(&ps.PriceBookID, &ps.PlanSKU, &ps.Tagline, &ps.Recommended, &ps.AnnualMonthsFree, &vcpu, &mem, &vcpuG, &memG, &disk, &ps.IconID, &ps.Accent, &ps.Badge, &ps.UpdatedAt,
+		&ps.GrowAllowed, &gV, &gM, &gD, &gB, &oV, &oM); err != nil {
 		return ps, mapErr(err)
 	}
+	ps.GrowCeilingVCPU, ps.GrowCeilingMemoryGB, ps.GrowCeilingDiskGB, ps.GrowCeilingBandwidthMbps = trimDecimalPtr(decPtr(gV)), trimDecimalPtr(decPtr(gM)), trimDecimalPtr(decPtr(gD)), trimDecimalPtr(decPtr(gB))
+	ps.OverageVCPUMonth, ps.OverageMemGBMonth = trimDecimalPtr(decPtr(oV)), trimDecimalPtr(decPtr(oM))
 	ps.VCPU, ps.MemoryGB, ps.VCPUGuaranteed, ps.MemoryGBGuaranteed, ps.DiskGB = decPtr(vcpu), decPtr(mem), decPtr(vcpuG), decPtr(memG), decPtr(disk)
 	ps.UpdatedAt = ps.UpdatedAt.UTC()
 	return ps, nil
@@ -1027,6 +1073,35 @@ func (s *Store) PutPackageSettings(ctx context.Context, priceBookID, planSKU str
 		}
 		vals[i] = x
 	}
+	grow := make([]any, 6)
+	for i, v := range []struct {
+		d    *Decimal
+		what string
+	}{{in.GrowCeilingVCPU, "grow_ceiling_vcpu"}, {in.GrowCeilingMemoryGB, "grow_ceiling_memory_gb"}, {in.GrowCeilingDiskGB, "grow_ceiling_disk_gb"},
+		{in.GrowCeilingBandwidthMbps, "grow_ceiling_bandwidth_mbps"}, {in.OverageVCPUMonth, "overage_vcpu_month"}, {in.OverageMemGBMonth, "overage_mem_gb_month"}} {
+		x, err := shapeValue(v.d, v.what)
+		if err != nil {
+			return PackageSettings{}, err
+		}
+		if in.GrowAllowed && x == nil {
+			return PackageSettings{}, fmt.Errorf("%w: grow is allowed, so %s is needed — the four ceilings and the two compute overage rates", ErrInvalid, v.what)
+		}
+		grow[i] = x
+	}
+	if in.GrowAllowed {
+		// A ceiling is never below the shape the same settings state.
+		for _, c := range []struct {
+			ceiling, head *Decimal
+			what          string
+		}{{in.GrowCeilingVCPU, in.VCPU, "vcpu"}, {in.GrowCeilingMemoryGB, in.MemoryGB, "memory_gb"}, {in.GrowCeilingDiskGB, in.DiskGB, "disk_gb"}} {
+			if c.head != nil && strings.TrimSpace(string(*c.head)) != "" && ratOf(*c.ceiling).Cmp(ratOf(*c.head)) < 0 {
+				return PackageSettings{}, fmt.Errorf("%w: the grow ceiling for %s (%s) is below the package's own %s (%s)", ErrInvalid, c.what, string(*c.ceiling), c.what, string(*c.head))
+			}
+		}
+		if ratOf(*in.OverageVCPUMonth).Sign() <= 0 || ratOf(*in.OverageMemGBMonth).Sign() <= 0 {
+			return PackageSettings{}, fmt.Errorf("%w: grow bills compute above the allowance; the overage rates must be above zero", ErrInvalid)
+		}
+	}
 	accent, err := colourArg("accent", in.Accent)
 	if err != nil {
 		return PackageSettings{}, err
@@ -1043,17 +1118,31 @@ func (s *Store) PutPackageSettings(ctx context.Context, priceBookID, planSKU str
 	if _, _, err := packagePlan(ctx, tx, priceBookID, planSKU); err != nil {
 		return PackageSettings{}, err
 	}
+	if in.GrowAllowed {
+		bw, err := cellQuantityOn(ctx, tx, priceBookID, planSKU, SKUBandwidth)
+		if err != nil {
+			return PackageSettings{}, err
+		}
+		if bw != nil && ratOf(*in.GrowCeilingBandwidthMbps).Cmp(ratOf(*bw)) < 0 {
+			return PackageSettings{}, fmt.Errorf("%w: the grow ceiling for bandwidth_mbps (%s) is below the %s Mbps the package includes", ErrInvalid, string(*in.GrowCeilingBandwidthMbps), string(*bw))
+		}
+	}
 	icon, err := iconRef(ctx, tx, in.IconID)
 	if err != nil {
 		return PackageSettings{}, err
 	}
-	ps, err := scanPackageSettings(tx.QueryRowContext(ctx, `INSERT INTO package_settings (price_book_id, plan_sku, tagline, recommended, annual_months_free, vcpu, memory_gb, vcpu_guaranteed, memory_gb_guaranteed, disk_gb, icon_id, accent, badge)
-		VALUES ($1, $2, $3, $4, $5, $6::numeric, $7::numeric, $8::numeric, $9::numeric, $10::numeric, $11, $12, $13)
+	ps, err := scanPackageSettings(tx.QueryRowContext(ctx, `INSERT INTO package_settings (price_book_id, plan_sku, tagline, recommended, annual_months_free, vcpu, memory_gb, vcpu_guaranteed, memory_gb_guaranteed, disk_gb, icon_id, accent, badge,
+			grow_allowed, grow_ceiling_vcpu, grow_ceiling_memory_gb, grow_ceiling_disk_gb, grow_ceiling_bandwidth_mbps, overage_vcpu_month, overage_mem_gb_month)
+		VALUES ($1, $2, $3, $4, $5, $6::numeric, $7::numeric, $8::numeric, $9::numeric, $10::numeric, $11, $12, $13, $14, $15::numeric, $16::numeric, $17::numeric, $18::numeric, $19::numeric, $20::numeric)
 		ON CONFLICT (price_book_id, plan_sku) DO UPDATE SET tagline = EXCLUDED.tagline, recommended = EXCLUDED.recommended, annual_months_free = EXCLUDED.annual_months_free,
 			vcpu = EXCLUDED.vcpu, memory_gb = EXCLUDED.memory_gb, vcpu_guaranteed = EXCLUDED.vcpu_guaranteed, memory_gb_guaranteed = EXCLUDED.memory_gb_guaranteed, disk_gb = EXCLUDED.disk_gb,
-			icon_id = EXCLUDED.icon_id, accent = EXCLUDED.accent, badge = EXCLUDED.badge, updated_at = now()
+			icon_id = EXCLUDED.icon_id, accent = EXCLUDED.accent, badge = EXCLUDED.badge,
+			grow_allowed = EXCLUDED.grow_allowed, grow_ceiling_vcpu = EXCLUDED.grow_ceiling_vcpu, grow_ceiling_memory_gb = EXCLUDED.grow_ceiling_memory_gb,
+			grow_ceiling_disk_gb = EXCLUDED.grow_ceiling_disk_gb, grow_ceiling_bandwidth_mbps = EXCLUDED.grow_ceiling_bandwidth_mbps,
+			overage_vcpu_month = EXCLUDED.overage_vcpu_month, overage_mem_gb_month = EXCLUDED.overage_mem_gb_month, updated_at = now()
 		RETURNING `+packageSettingsColumns,
-		priceBookID, planSKU, strings.TrimSpace(in.Tagline), in.Recommended, in.AnnualMonthsFree, vals[0], vals[1], vals[2], vals[3], vals[4], icon, accent, badge))
+		priceBookID, planSKU, strings.TrimSpace(in.Tagline), in.Recommended, in.AnnualMonthsFree, vals[0], vals[1], vals[2], vals[3], vals[4], icon, accent, badge,
+		in.GrowAllowed, grow[0], grow[1], grow[2], grow[3], grow[4], grow[5]))
 	if err != nil {
 		return PackageSettings{}, err
 	}
@@ -1116,16 +1205,19 @@ func (s *Store) SetSourceAddons(ctx context.Context, sourceID string, keys []str
 			}
 			var state string
 			var level sql.NullInt64
-			err = tx.QueryRowContext(ctx, `SELECT state, level FROM package_entitlements WHERE price_book_id = $1 AND plan_sku = $2 AND feature_id = $3`, *src.PriceBookID, planSKU, f.ID).Scan(&state, &level)
+			var growOnly bool
+			err = tx.QueryRowContext(ctx, `SELECT state, level, grow_only FROM package_entitlements WHERE price_book_id = $1 AND plan_sku = $2 AND feature_id = $3`, *src.PriceBookID, planSKU, f.ID).Scan(&state, &level, &growOnly)
 			if errors.Is(err, sql.ErrNoRows) {
 				state = EntitlementNotOffered
 			} else if err != nil {
 				return CostSource{}, mapErr(err)
 			}
-			switch state {
-			case EntitlementOptional:
+			switch {
+			case state == EntitlementOptional && growOnly:
+				return CostSource{}, fmt.Errorf("%w: %s comes with grow mode on the %s package and is billed as usage; there is nothing to add — choose grow instead", ErrInvalid, f.Name, PlanName(planSlug))
+			case state == EntitlementOptional:
 				ids = append(ids, f.ID)
-			case EntitlementIncluded:
+			case state == EntitlementIncluded:
 				if f.Kind == FeatureKindLevel && level.Valid && int(level.Int64) < len(f.Levels) {
 					return CostSource{}, fmt.Errorf("%w: the %s package has %s at %s and offers no level above it", ErrInvalid, PlanName(planSlug), f.Name, f.Levels[level.Int64])
 				}

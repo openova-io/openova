@@ -539,6 +539,12 @@ ALTER TABLE cost_sources ADD CONSTRAINT cost_sources_status_check CHECK (status 
 	// package's settings. Appended at the very END: migrations are
 	// positional. Located by content as MigrationIcons (icons.go).
 	iconsMigrationSQL,
+	// DESIGN.md §22.11 (founder direction 2026-10-10) — capped or grow: a
+	// Source's overage mode, its grow ceiling and spend limit; a package's
+	// grow setting, ceiling and compute overage rates; a grow-only cell.
+	// Appended at the very END: migrations are positional. Located by
+	// content as MigrationGrowModel (grow.go).
+	growModelMigrationSQL,
 }
 
 // MigrationBackfillIssuedInvoices is the schema_migrations version of the

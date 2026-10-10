@@ -299,7 +299,7 @@ const costExcludeInternalSQL = ` AND NOT s.internal`
 // it. A pay-per-use book sells no plan, so a meter it forgot is still a
 // hole. Requires the CTE columns layer, book_id and sku.
 const costNotSoldPerUseExpr = `(layer = 'platform' AND book_id IS NOT NULL
-         AND sku IN (` + platformMeterSKUListSQL + `)
+         AND sku IN (` + platformMeterSKUListSQL + `, ` + platformLimitSKUListSQL + `)
          AND NOT EXISTS (SELECT 1 FROM price_items pm WHERE pm.price_book_id = book_id AND pm.sku = f.sku)
          AND EXISTS (SELECT 1 FROM price_items pp WHERE pp.price_book_id = book_id AND pp.sku LIKE 'plan.%'))`
 
@@ -307,6 +307,11 @@ const costNotSoldPerUseExpr = `(layer = 'platform' AND book_id IS NOT NULL
 // "not sold per use" test and the pay-per-use rate card can never disagree
 // about which meters are the platform meters.
 const platformMeterSKUListSQL = `'` + SKUVCPU + `', '` + SKUMem + `', '` + SKUPVC + `'`
+
+// platformLimitSKUListSQL is PlatformLimitSKUs as a SQL literal list: the
+// limit meters (DESIGN.md §22.11) are a measurement under a plans book, never
+// a sale, so the explorer reads them as not sold per use like the basis.
+const platformLimitSKUListSQL = `'` + SKUVCPULimit + `', '` + SKUMemLimit + `'`
 
 // costPricedExpr is the cost of ONE usage record after its source's
 // price book and its stopped-instance policy: NULL when the SKU carries no

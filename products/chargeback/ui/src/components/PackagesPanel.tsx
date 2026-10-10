@@ -346,6 +346,9 @@ export function CellModal({
   const [overage, setOverage] = useState<Overage>((cell.overage as Overage) || 'metered')
   const [level, setLevel] = useState(cell.level === undefined || cell.level === null ? 0 : cell.level)
   const [nextPurchasable, setNextPurchasable] = useState(Boolean(cell.next_level_addon))
+  // DESIGN.md §22.11 — optional only in grow mode, billed as usage: no
+  // add-on SKU, no price (active-passive on S, M and L).
+  const [growOnly, setGrowOnly] = useState(Boolean(cell.grow_only))
   const [price, setPrice] = useState(cell.price_month ?? cell.next_level_addon?.price_month ?? '')
   const [note, setNote] = useState(cell.note ?? '')
   const [busy, setBusy] = useState(false)
@@ -353,17 +356,19 @@ export function CellModal({
 
   // The states each kind offers.
   const states = kind === 'access' ? STATES.filter((s) => s.value !== 'optional') : kind === 'quantity' ? STATES.filter((s) => s.value !== 'optional') : kind === 'level' ? STATES.filter((s) => s.value !== 'optional') : STATES
-  const effectiveState: EntitlementState = kind === 'level' ? (state === 'not_offered' ? 'not_offered' : nextPurchasable ? 'optional' : 'included') : state
+  const effectiveState: EntitlementState = kind === 'level' ? (state === 'not_offered' ? 'not_offered' : nextPurchasable || growOnly ? 'optional' : 'included') : state
+  const growOnlyOn = growOnly && effectiveState === 'optional' && (kind === 'boolean' || kind === 'level')
   const nextLabel = kind === 'level' ? (levels[level + 1] ?? '') : ''
 
   const problem = (() => {
     if (kind === 'quantity' && state === 'included' && overage !== 'unlimited' && (quantity.trim() === '' || !Number.isFinite(Number(quantity)) || Number(quantity) < 0)) return `say how much ${feature.name} the ${plan?.name ?? planSku} package includes (${feature.unit ?? ''})`
     if (kind === 'quantity' && state === 'included' && overage === 'metered' && !feature.addon_sku) return `${feature.name} has no SKU to meter above the included quantity; set one on the feature, or cap it`
-    if (kind === 'boolean' && state === 'optional' && !feature.addon_sku) return `${feature.name} has no add-on SKU; set one on the feature before offering it as an add-on`
+    if (kind === 'level' && growOnly && !nextLabel) return `${levels[level] ?? 'this'} is the top level; there is nothing above it for grow mode to bring`
+    if (kind === 'boolean' && state === 'optional' && !growOnly && !feature.addon_sku) return `${feature.name} has no add-on SKU; set one on the feature before offering it as an add-on`
     if (kind === 'level' && state !== 'not_offered' && (level < 0 || level >= levels.length)) return `choose one of the ${levels.length} levels`
     if (kind === 'level' && nextPurchasable && !nextLabel) return `${levels[level] ?? 'this'} is the top level; there is no next level to offer`
     if (kind === 'level' && nextPurchasable && !feature.addon_sku) return `${feature.name} has no add-on SKU; set one on the feature before offering its next level`
-    if ((kind === 'boolean' || kind === 'level') && effectiveState === 'optional' && price.trim() !== '' && (!Number.isFinite(Number(price)) || Number(price) < 0)) return 'the add-on price must be a non-negative number'
+    if ((kind === 'boolean' || kind === 'level') && effectiveState === 'optional' && !growOnlyOn && price.trim() !== '' && (!Number.isFinite(Number(price)) || Number(price) < 0)) return 'the add-on price must be a non-negative number'
     return ''
   })()
 
@@ -376,12 +381,15 @@ export function CellModal({
       body.overage = overage
     }
     if (kind === 'level' && state !== 'not_offered') body.level = level
-    if ((kind === 'boolean' || kind === 'level') && effectiveState === 'optional' && price.trim() !== '') body.addon_monthly = price.trim()
+    if ((kind === 'boolean' || kind === 'level') && effectiveState === 'optional' && !growOnlyOn && price.trim() !== '') body.addon_monthly = price.trim()
+    if (kind === 'boolean' || kind === 'level') body.grow_only = growOnlyOn
     setBusy(true)
     setError('')
     try {
       await api.put(`/pricebooks/${book.id}/packages/${encodeURIComponent(planSku)}/features/${encodeURIComponent(feature.key)}`, body)
-      const said = kind === 'level' && state !== 'not_offered' ? `${levels[level]}${nextPurchasable ? `, ${nextLabel} purchasable` : ''}` : STATES.find((s) => s.value === effectiveState)?.label.toLowerCase()
+      const said = growOnlyOn
+        ? `${kind === 'level' ? `${levels[level]}, ${nextLabel}` : 'optional'} in grow mode only`
+        : kind === 'level' && state !== 'not_offered' ? `${levels[level]}${nextPurchasable ? `, ${nextLabel} purchasable` : ''}` : STATES.find((s) => s.value === effectiveState)?.label.toLowerCase()
       await onSaved(`${feature.name} on ${plan?.name ?? planSku}: ${said}`)
     } catch (err) {
       setError(errorText(err))
@@ -464,13 +472,21 @@ export function CellModal({
                 </select>
               </Field>
               <label className="check">
-                <input type="checkbox" checked={nextPurchasable} disabled={!nextLabel} onChange={(e) => setNextPurchasable(e.target.checked)} aria-label="Next level purchasable" /> {nextLabel ? `${nextLabel} purchasable as an add-on` : 'top level — nothing above it'}
+                <input type="checkbox" checked={nextPurchasable} disabled={!nextLabel || growOnly} onChange={(e) => setNextPurchasable(e.target.checked)} aria-label="Next level purchasable" /> {nextLabel ? `${nextLabel} purchasable as an add-on` : 'top level — nothing above it'}
+              </label>
+              <label className="check">
+                <input type="checkbox" checked={growOnly} disabled={!nextLabel || nextPurchasable} onChange={(e) => setGrowOnly(e.target.checked)} aria-label="Next level in grow mode only" /> {nextLabel ? `${nextLabel} in grow mode only — no upfront price, billed as usage` : 'top level'}
               </label>
             </FormRow>
-            {nextPurchasable ? priceField('Next level', feature.addon_sku ? `Prices ${feature.addon_sku} in ${book.name} per plan-hour, like the plan: monthly × 12 ÷ ${book.annual_divisor.toLocaleString()}.` : 'Set an add-on SKU on the feature first.') : null}
+            {nextPurchasable && !growOnly ? priceField('Next level', feature.addon_sku ? `Prices ${feature.addon_sku} in ${book.name} per plan-hour, like the plan: monthly × 12 ÷ ${book.annual_divisor.toLocaleString()}.` : 'Set an add-on SKU on the feature first.') : null}
           </>
         ) : null}
-        {kind === 'boolean' && state === 'optional' ? priceField('Add-on price', feature.addon_sku ? `Prices ${feature.addon_sku} in ${book.name} per plan-hour, like the plan: monthly × 12 ÷ ${book.annual_divisor.toLocaleString()}.` : 'Set an add-on SKU on the feature first.') : null}
+        {kind === 'boolean' && state === 'optional' ? (
+          <label className="check">
+            <input type="checkbox" checked={growOnly} onChange={(e) => setGrowOnly(e.target.checked)} aria-label="In grow mode only" /> In grow mode only — no add-on, billed as usage
+          </label>
+        ) : null}
+        {kind === 'boolean' && state === 'optional' && !growOnly ? priceField('Add-on price', feature.addon_sku ? `Prices ${feature.addon_sku} in ${book.name} per plan-hour, like the plan: monthly × 12 ÷ ${book.annual_divisor.toLocaleString()}.` : 'Set an add-on SKU on the feature first.') : null}
         <Field label="Note" help="Shown under the cell and published with it (retention, limits, “read”).">
           <input value={note} onChange={(e) => setNote(e.target.value)} aria-label="Note" />
         </Field>
@@ -642,6 +658,18 @@ export function PackageSettingsModal({ book, pkg, currency, onClose, onSaved }: 
   const [iconId, setIconId] = useState(iconIdOf(pkg.icon))
   const [accent, setAccent] = useState(pkg.accent ?? '')
   const [badge, setBadge] = useState(pkg.badge ?? '')
+  // DESIGN.md §22.11 — grow: allowed, the ceiling per dimension and the
+  // package's own compute overage rates. Part of the whole write: a save
+  // that left them out would switch grow off.
+  const grow = pkg.grow
+  const rateOf = (key: string) => grow?.overage_rates?.find((r) => r.key === key)?.price_month ?? ''
+  const [growAllowed, setGrowAllowed] = useState(Boolean(grow?.allowed))
+  const [gVcpu, setGVcpu] = useState(str(grow?.ceiling?.vcpu))
+  const [gMem, setGMem] = useState(str(grow?.ceiling?.memory_gb))
+  const [gDisk, setGDisk] = useState(str(grow?.ceiling?.disk_gb))
+  const [gBw, setGBw] = useState(str(grow?.ceiling?.bandwidth_mbps))
+  const [oVcpu, setOVcpu] = useState(rateOf('vcpu'))
+  const [oMem, setOMem] = useState(rateOf('memory'))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const nonNeg = (v: string) => v.trim() === '' || (Number.isFinite(Number(v)) && Number(v) >= 0)
@@ -650,13 +678,16 @@ export function PackageSettingsModal({ book, pkg, currency, onClose, onSaved }: 
     if (months.trim() === '' || !Number.isInteger(m) || m < 0 || m > 12) return 'the months free on an annual term are a whole number between 0 and 12'
     if (![vcpu, mem, vcpuG, memG, disk].every(nonNeg)) return 'every shape value is a non-negative number, or empty'
     if (!isColour(accent)) return 'the accent is a colour written #RRGGBB'
+    if (growAllowed && ![gVcpu, gMem, gDisk, gBw, oVcpu, oMem].every((v) => v.trim() !== '' && nonNeg(v))) return 'grow needs the four ceilings and the two overage rates'
     return badgeProblem(badge)
   })()
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     if (problem) return
     const num = (v: string) => (v.trim() === '' ? null : v.trim())
-    const body: PackageSettingsWrite = { tagline: tagline.trim(), recommended, annual_months_free: Number(months), vcpu: num(vcpu), memory_gb: num(mem), vcpu_guaranteed: num(vcpuG), memory_gb_guaranteed: num(memG), disk_gb: num(disk), icon_id: iconId, accent: normalizeColour(accent), badge: badge.trim() }
+    const body: PackageSettingsWrite = { tagline: tagline.trim(), recommended, annual_months_free: Number(months), vcpu: num(vcpu), memory_gb: num(mem), vcpu_guaranteed: num(vcpuG), memory_gb_guaranteed: num(memG), disk_gb: num(disk), icon_id: iconId, accent: normalizeColour(accent), badge: badge.trim(),
+      grow_allowed: growAllowed,
+      ...(growAllowed ? { grow_ceiling_vcpu: num(gVcpu), grow_ceiling_memory_gb: num(gMem), grow_ceiling_disk_gb: num(gDisk), grow_ceiling_bandwidth_mbps: num(gBw), overage_vcpu_month: num(oVcpu), overage_mem_gb_month: num(oMem) } : {}) }
     setBusy(true)
     setError('')
     try {
@@ -725,6 +756,35 @@ export function PackageSettingsModal({ book, pkg, currency, onClose, onSaved }: 
             <input value={badge} onChange={(e) => setBadge(e.target.value)} maxLength={BADGE_MAX} aria-label="Badge" />
           </Field>
         </FormRow>
+        <label className="check">
+          <input type="checkbox" checked={growAllowed} onChange={(e) => setGrowAllowed(e.target.checked)} aria-label="Grow allowed" /> Grow allowed — a customer may raise the quota to the ceiling and pay the usage above the package in arrears
+        </label>
+        {growAllowed ? (
+          <>
+            <FormRow>
+              <Field label="Ceiling vCPU" help="The most grow raises the quota to.">
+                <input type="number" min={0} step="any" inputMode="decimal" value={gVcpu} onChange={(e) => setGVcpu(e.target.value)} aria-label="Ceiling vCPU" />
+              </Field>
+              <Field label="Ceiling memory (GB)">
+                <input type="number" min={0} step="any" inputMode="decimal" value={gMem} onChange={(e) => setGMem(e.target.value)} aria-label="Ceiling memory GB" />
+              </Field>
+              <Field label="Ceiling disk (GB)">
+                <input type="number" min={0} step="any" inputMode="decimal" value={gDisk} onChange={(e) => setGDisk(e.target.value)} aria-label="Ceiling disk GB" />
+              </Field>
+              <Field label="Ceiling bandwidth (Mbps)">
+                <input type="number" min={0} step="any" inputMode="decimal" value={gBw} onChange={(e) => setGBw(e.target.value)} aria-label="Ceiling bandwidth Mbps" />
+              </Field>
+            </FormRow>
+            <FormRow>
+              <Field label={`vCPU above the package (${currency} / vCPU / month)`} help="The package's own rate; disk and bandwidth are the book's meter prices.">
+                <input type="number" min={0} step="any" inputMode="decimal" value={oVcpu} onChange={(e) => setOVcpu(e.target.value)} aria-label="Overage vCPU per month" />
+              </Field>
+              <Field label={`Memory above the package (${currency} / GB / month)`}>
+                <input type="number" min={0} step="any" inputMode="decimal" value={oMem} onChange={(e) => setOMem(e.target.value)} aria-label="Overage memory per GB per month" />
+              </Field>
+            </FormRow>
+          </>
+        ) : null}
         {problem ? <div className="err small">{problem}</div> : null}
       </form>
     </Modal>

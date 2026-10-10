@@ -161,6 +161,16 @@ export interface CostSource {
    * Organization has taken, by feature key. Empty on a cloud source.
    */
   addons?: string[]
+  /**
+   * DESIGN.md §22.11 — the customer's choice at the package's allowance:
+   * capped (nothing billed beyond the package) or grow (the quota raised to
+   * grow_ceiling, the usage above billed in arrears).
+   */
+  overage_mode?: OverageMode | string
+  /** The grow ceiling, resolved per dimension; absent in capped mode. */
+  grow_ceiling?: GrowCeiling
+  /** Caps the usage charges ABOVE the package per month (not the whole bill); grow only. */
+  spend_limit_month?: number | string
 }
 
 export interface CustomerUser {
@@ -2180,6 +2190,39 @@ export interface NextLevelAddon {
 }
 
 /** One cell of the published matrix: a feature on a package. */
+/** DESIGN.md §22.11 — a Source's overage mode. */
+export type OverageMode = 'capped' | 'grow'
+
+/** A grow ceiling per dimension. */
+export interface GrowCeiling {
+  vcpu?: number | string
+  memory_gb?: number | string
+  disk_gb?: number | string
+  bandwidth_mbps?: number | string
+}
+
+/** One rate above the allowance, per unit per month. */
+export interface OverageRate {
+  key: 'vcpu' | 'memory' | 'disk' | 'bandwidth' | string
+  sku: string
+  unit: string
+  price_month: string
+}
+
+/** A package's grow block — absent when the package does not allow grow. */
+export interface PackageGrow {
+  allowed: boolean
+  ceiling: GrowCeiling
+  overage_rates: OverageRate[]
+}
+
+/** PUT /customers/{id}/sources/{sid}/overage — written whole. */
+export interface SourceOverageWrite {
+  overage_mode: OverageMode
+  grow_ceiling?: GrowCeiling
+  spend_limit_month?: string
+}
+
 export interface PackageCell {
   state: CellState | string
   addon_sku?: string
@@ -2196,6 +2239,8 @@ export interface PackageCell {
   /** The next level, when purchasable on this package. */
   next_level_addon?: NextLevelAddon
   note?: string
+  /** Available on this package only in grow mode, billed as usage — no add-on, no price. */
+  grow_only?: boolean
 }
 
 export interface PackageFeature {
@@ -2251,6 +2296,8 @@ export interface PackageInfo {
   accent?: string
   /** A short chip over the column ("Most popular"). */
   badge?: string
+  /** DESIGN.md §22.11 — absent when the package does not allow grow. */
+  grow?: PackageGrow
 }
 
 /** A floor item: on every package, never priced, never a cell. */
@@ -2285,6 +2332,8 @@ export interface PackageCellWrite {
   note?: string
   /** Prices the feature's add-on SKU in the book per month, in the same write. */
   addon_monthly?: string
+  /** Optional only in grow mode, billed as usage (a boolean or a level cell). */
+  grow_only?: boolean
 }
 
 /** PUT /pricebooks/{id}/packages/{plan}/settings — written whole. */
@@ -2301,6 +2350,14 @@ export interface PackageSettingsWrite {
   icon_id?: string
   accent?: string
   badge?: string
+  /** DESIGN.md §22.11 — when grow_allowed, the four ceilings and the two compute rates are required. */
+  grow_allowed?: boolean
+  grow_ceiling_vcpu?: string | null
+  grow_ceiling_memory_gb?: string | null
+  grow_ceiling_disk_gb?: string | null
+  grow_ceiling_bandwidth_mbps?: string | null
+  overage_vcpu_month?: string | null
+  overage_mem_gb_month?: string | null
 }
 
 /** One priced line of an estimate. `plan` is set on a plan line. */

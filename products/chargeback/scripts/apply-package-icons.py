@@ -153,6 +153,19 @@ def main():
             v = p.get("shape", {}).get(k)
             if v is not None:
                 body[k] = str(v)
+        # The grow settings (DESIGN.md §22.11) are part of the whole write:
+        # re-send them as the document publishes them, or the branding would
+        # switch grow off.
+        grow = p.get("grow")
+        if grow and grow.get("allowed"):
+            body["grow_allowed"] = True
+            for k, v in grow.get("ceiling", {}).items():
+                body["grow_ceiling_" + k] = str(v)
+            rates = {r["key"]: r["price_month"] for r in grow.get("overage_rates", [])}
+            if "vcpu" in rates:
+                body["overage_vcpu_month"] = rates["vcpu"]
+            if "memory" in rates:
+                body["overage_mem_gb_month"] = rates["memory"]
         api.call("PUT", "/api/v1/pricebooks/" + urllib.parse.quote(book["id"]) + "/packages/" + urllib.parse.quote(p["sku"]) + "/settings", body)
         settings_written += 1
     print(f"packages: {settings_written} given their accent and badge")

@@ -307,6 +307,7 @@ export function cellText(feature: Pick<Feature, 'kind' | 'unit' | 'levels'>, cel
     }
     return 'Included'
   }
+  if (cell.state === 'optional' && cell.grow_only) return 'In grow mode'
   if (cell.state === 'optional') return cell.price_month ? `+ ${cell.price_month} ${currency} / month` : 'Optional · unpriced'
   return 'Not offered'
 }
@@ -314,6 +315,11 @@ export function cellText(feature: Pick<Feature, 'kind' | 'unit' | 'levels'>, cel
 /** The line under the chip: the overage of a quantity cell, the purchasable next level of a level cell, '' otherwise. */
 export function cellSubText(feature: Pick<Feature, 'kind' | 'unit' | 'levels'>, cell: PackageCell, currency: string): string {
   if (feature.kind === 'quantity' && cell.state === 'included' && cell.overage) return overageLabel(cell.overage).toLowerCase()
+  // DESIGN.md §22.11 — a grow-only cell: no price, billed as usage.
+  if (cell.grow_only) {
+    const next = feature.kind === 'level' && cell.level !== undefined && cell.level !== null ? (feature.levels?.[cell.level + 1] ?? '') : ''
+    return next ? `${next} in grow mode, billed as usage` : 'billed as usage'
+  }
   if (feature.kind === 'level' && cell.next_level_addon) {
     const next = nextLevelLabel(feature, cell)
     const price = cell.next_level_addon.price_month ? `+ ${cell.next_level_addon.price_month} ${currency} / month` : 'unpriced'

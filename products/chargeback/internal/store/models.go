@@ -109,6 +109,31 @@ const (
 // ARE the bill.
 var PlatformMeterSKUs = []string{SKUVCPU, SKUMem, SKUPVC}
 
+// The LIMIT meters (DESIGN.md §22.11). The request meters above are the
+// allocation basis and the pay-per-use bill; a package's headline, though,
+// is a LIMIT (the ResourceQuota's limits.* term), so the quantity grow mode
+// bills above the headline is measured in the same unit: the CPU and memory
+// LIMITS of the Organization's own pods, hour by hour. The collector writes
+// these only for an Organization on a sized package, beside the request
+// meters, on the same hour slices. They are measurements, never a sale: no
+// book prices them, the rating run takes them out before pricing and hands
+// them to the package (rating.GrowOverage), and the explorer reads them as
+// not sold per use.
+const (
+	SKUVCPULimit = "k8s.vcpu_limit"
+	SKUMemLimit  = "k8s.mem_gb_limit"
+)
+
+// PlatformLimitSKUs are the two limit meters.
+var PlatformLimitSKUs = []string{SKUVCPULimit, SKUMemLimit}
+
+// IsPlatformLimitMeter reports whether sku is one of PlatformLimitSKUs.
+func IsPlatformLimitMeter(sku string) bool { return sku == SKUVCPULimit || sku == SKUMemLimit }
+
+// SKUBandwidth is the EIP bandwidth meter (per Mbps-hour) a package's
+// bandwidth feature is an allowance on.
+const SKUBandwidth = "eip.bandwidth_mbps"
+
 // IsPlatformMeter reports whether sku is one of PlatformMeterSKUs.
 func IsPlatformMeter(sku string) bool {
 	for _, s := range PlatformMeterSKUs {
@@ -311,6 +336,19 @@ type CostSource struct {
 	// "field missing". Written by SetSourceAddons, which refuses a feature the
 	// package includes already or does not offer.
 	Addons []string `json:"addons"`
+	// OverageMode is what happens at the package's allowance (DESIGN.md
+	// §22.11): "capped" (the default — nothing is billed beyond the
+	// package) or "grow" (the quota is raised to GrowCeiling and the usage
+	// above the allowance is billed in arrears at the package's overage
+	// rates). Always present on the wire.
+	OverageMode string `json:"overage_mode"`
+	// GrowCeiling is the ceiling the Organization's quota is raised to in
+	// grow mode, resolved per dimension (the package's ceiling where the
+	// customer chose none); absent in capped mode.
+	GrowCeiling *GrowCeiling `json:"grow_ceiling,omitempty"`
+	// SpendLimitMonth is the customer's monthly spend limit in the source's
+	// currency, grow mode only; absent when none is set.
+	SpendLimitMonth *Decimal `json:"spend_limit_month,omitempty"`
 }
 
 // Credential is the API view of a stored AK/SK: the secret never leaves the

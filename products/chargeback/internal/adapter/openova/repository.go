@@ -58,6 +58,10 @@ type Repository interface {
 	// includes already, one it does not offer, and a key no feature carries;
 	// the write is all-or-nothing.
 	SetSourceAddons(ctx context.Context, sourceID string, keys []string) (store.CostSource, error)
+	// SetSourceOverage writes a platform Source's overage mode, grow ceiling
+	// and spend limit (DESIGN.md §22.11), refusing grow on a package that
+	// does not offer it and a ceiling outside the package's range.
+	SetSourceOverage(ctx context.Context, sourceID string, in store.OverageInput) (store.CostSource, error)
 }
 
 var _ Repository = (*store.Store)(nil)

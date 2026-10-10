@@ -111,6 +111,11 @@ var constraintMessages = map[string]string{
 	"package_settings_icon_id_fkey":                "a package names an icon that is not stored",
 	"package_settings_accent_check":                "a package accent is a colour written #RRGGBB",
 	"package_settings_badge_check":                 "a package badge is at most 24 characters",
+	"package_settings_grow_check":                  "a grow ceiling and an overage rate cannot be negative",
+	"package_entitlements_grow_only_check":         "a grow-only cell is optional",
+	"cost_sources_overage_mode_check":              "the overage mode is capped or grow",
+	"cost_sources_grow_check":                      "a grow ceiling and a spend limit apply in grow mode only",
+	"cost_sources_spend_limit_check":               "a spend limit is an amount above zero",
 
 	// customers, partners and their commercial terms
 	"customers_slug_key":                 "a customer with that short name already exists",

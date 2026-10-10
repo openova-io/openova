@@ -379,9 +379,12 @@ func TestIntegrationPackagesMatrixAddonsAndBilling(t *testing.T) {
 			t.Fatalf("%s rendered a line: %v", sku, lines[sku])
 		}
 	}
-	// Bandwidth, metered: 52,080 mbps-hours used, 37,200 included → 14,880
-	// priced at 0.01716667 = 255.440050; the breakdown reports the allowance.
-	if l := lines["eip.bandwidth_mbps"]; l == nil || dec(t, l["amount"]) != "255.440050" {
+	// Bandwidth: the cell is METERED, but the Source is in the default
+	// CAPPED mode (DESIGN.md §22.11) — the customer's mode decides, so
+	// 52,080 mbps-hours used, 37,200 included, the 14,880 excess reported
+	// and billed at NOTHING. Grow mode, which meters it, is
+	// TestIntegrationGrowModeBillsAboveTheAllowance.
+	if l := lines["eip.bandwidth_mbps"]; l == nil || dec(t, l["amount"]) != "0.000000" || dec(t, l["quantity"]) != "52080.000000" {
 		t.Fatalf("bandwidth line = %v", l)
 	}
 	// Disk, hard-capped: 74,400 gb-hours used, 37,200 included, the excess
@@ -395,7 +398,7 @@ func TestIntegrationPackagesMatrixAddonsAndBilling(t *testing.T) {
 		switch m["sku"] {
 		case "eip.bandwidth_mbps":
 			sawAllowance = true
-			if dec(t, m["allowance"]) != "37200.000000" || dec(t, m["excess"]) != "14880.000000" || m["capped"] != nil {
+			if dec(t, m["allowance"]) != "37200.000000" || dec(t, m["excess"]) != "14880.000000" || m["capped"] != true {
 				t.Fatalf("bandwidth breakdown = %v", m)
 			}
 		case "k8s.pvc_gb":
@@ -416,8 +419,9 @@ func TestIntegrationPackagesMatrixAddonsAndBilling(t *testing.T) {
 	if ns := res["not_sold_per_use"]; ns == nil || len(ns.([]any)) != 1 || ns.([]any)[0] != "k8s.vcpu" {
 		t.Fatalf("not sold per use = %v, want k8s.vcpu", ns)
 	}
-	// 9.172605 + 1.528764 + 0 + 255.440050 + 0 = 266.141419
-	if dec(t, stmt["subtotal"]) != "266.141419" {
+	// 9.172605 + 1.528764 + 0 + 0 + 0 = 10.701369 — capped: the package
+	// and its add-on, nothing beyond.
+	if dec(t, stmt["subtotal"]) != "10.701369" {
 		t.Fatalf("subtotal = %s", dec(t, stmt["subtotal"]))
 	}
 

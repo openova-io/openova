@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -223,6 +224,13 @@ type commerceSpec struct {
 	// OrderID is the billing order row the Organization came from.
 	// Provenance only.
 	OrderID string
+	// OverageMode is the customer's choice at the package's allowance
+	// (DESIGN.md §22.11): "capped" or "grow", "" when the block says
+	// nothing. GrowCeiling is the ceiling the order resolved (nil values
+	// leave the package's), SpendLimitMonth the monthly spend limit.
+	OverageMode     string
+	GrowCeiling     *store.GrowCeiling
+	SpendLimitMonth *store.Decimal
 }
 
 // readCommerce reads spec.commerce without ever failing: a block that is not
@@ -244,6 +252,41 @@ func readCommerce(u *unstructured.Unstructured) commerceSpec {
 	c.PriceSource = strings.TrimSpace(src)
 	order, _ := block["orderID"].(string)
 	c.OrderID = strings.TrimSpace(order)
+	mode, _ := block["overageMode"].(string)
+	c.OverageMode = strings.ToLower(strings.TrimSpace(mode))
+	if !store.ValidOverageMode(c.OverageMode) {
+		c.OverageMode = ""
+	}
+	if g, ok := block["growCeiling"].(map[string]any); ok {
+		num := func(k string) *store.Decimal {
+			var s string
+			switch v := g[k].(type) {
+			case float64:
+				s = strconv.FormatFloat(v, 'f', -1, 64)
+			case int64:
+				s = strconv.FormatInt(v, 10)
+			case int:
+				s = strconv.Itoa(v)
+			case string:
+				s = strings.TrimSpace(v)
+			default:
+				return nil
+			}
+			if s == "" || s == "0" {
+				return nil
+			}
+			d := store.Decimal(s)
+			return &d
+		}
+		gc := store.GrowCeiling{VCPU: num("vcpu"), MemoryGB: num("memoryGB"), DiskGB: num("diskGB"), BandwidthMbps: num("bandwidthMbps")}
+		if gc.VCPU != nil || gc.MemoryGB != nil || gc.DiskGB != nil || gc.BandwidthMbps != nil {
+			c.GrowCeiling = &gc
+		}
+	}
+	if sl, _ := block["spendLimitMonth"].(string); strings.TrimSpace(sl) != "" {
+		d := store.Decimal(strings.TrimSpace(sl))
+		c.SpendLimitMonth = &d
+	}
 	addons, _ := block["addons"].([]any)
 	seen := map[string]bool{}
 	for _, a := range addons {
@@ -511,6 +554,7 @@ func (s *OrgSync) SyncOrganization(ctx context.Context, u *unstructured.Unstruct
 	// book and its customer is on its plan — both of which SetSourceAddons
 	// checks every key against. Never a sync failure.
 	s.attachCommerce(ctx, f, c, src)
+	s.attachOverage(ctx, f, c, src)
 
 	for _, cs := range f.CostSources {
 		if err := s.syncCostSource(ctx, c, f.Slug, cs); err != nil {
@@ -680,6 +724,35 @@ func (s *OrgSync) attachCommerce(ctx context.Context, f orgFields, c store.Custo
 		return
 	}
 	slog.Info("openova adapter: platform source attached to the Organization's order", "org", f.Slug, "customer", c.ID, "source", src.ID, "plan", f.PlanSlug, "package_sku", cm.PackageSKU, "addons", updated.Addons, "price_source", cm.PriceSource, "order", cm.OrderID)
+}
+
+// attachOverage sets the Organization's platform Source to the overage mode
+// its order chose (DESIGN.md §22.11): capped or grow, the grow ceiling and
+// the spend limit, through SetSourceOverage — the console's own write, with
+// the same refusals — and ONLY when the Source does not already carry it, so
+// a resync writes nothing. An Organization whose block names no mode drives
+// nothing: a mode a sovereign-admin set by hand stays. A refusal (the package
+// does not offer grow, a ceiling outside the package's range) is a WARN
+// carrying the store's sentence, never a sync failure.
+func (s *OrgSync) attachOverage(ctx context.Context, f orgFields, c store.Customer, src store.CostSource) {
+	cm := f.Commerce
+	if cm.OverageMode == "" {
+		return
+	}
+	var spend *store.Decimal
+	var ceiling *store.GrowCeiling
+	if cm.OverageMode == store.OverageModeGrow {
+		spend, ceiling = cm.SpendLimitMonth, cm.GrowCeiling
+	}
+	if store.SameOverage(src, cm.OverageMode, ceiling, spend) {
+		return
+	}
+	updated, err := s.Repo.SetSourceOverage(ctx, src.ID, store.OverageInput{Mode: cm.OverageMode, Ceiling: ceiling, SpendLimitMonth: spend})
+	if err != nil {
+		slog.Warn("openova adapter: overage mode not set; the customer and its Source still sync", "org", f.Slug, "customer", c.ID, "source", src.ID, "plan", f.PlanSlug, "overage_mode", cm.OverageMode, "order", cm.OrderID, "error", err)
+		return
+	}
+	slog.Info("openova adapter: platform source set to the Organization's overage mode", "org", f.Slug, "customer", c.ID, "source", src.ID, "overage_mode", updated.OverageMode, "grow_ceiling", updated.GrowCeiling, "spend_limit_month", updated.SpendLimitMonth, "order", cm.OrderID)
 }
 
 // sameKeySet reports whether two key lists name the same set, whatever their

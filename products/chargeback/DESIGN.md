@@ -5698,6 +5698,7 @@ not.
 | `POST /icons` · `GET /icons` · `DELETE /icons/{id}` | `rating.manage` · `metering.read` · `rating.manage` | the icon store (§22.10): upload the raw bytes under their content type, list without the bytes, delete — `409` with `{features, groups, packages}` while anything shows it |
 | `GET /public/icons/{id}` | none — public like the document, its own rate budget | the bytes, `Cache-Control: public, max-age=31536000, immutable`, `X-Content-Type-Options: nosniff`, a sandboxing CSP; `404` for an unknown id |
 | `PUT /customers/{id}/sources/{sid}/addons` `{addons: [key…]}` | `customers.manage` on the customer, like the Source's price book | replaces the set; refusals as §22.1 |
+| `PUT /customers/{id}/sources/{sid}/overage` `{overage_mode, grow_ceiling?, spend_limit_month?}` | `customers.manage` on the customer, like the add-ons | the Source's overage mode, written whole (§22.11) |
 | `GET /public/packages` | none — the session middleware skips `/api/v1/public/`, CORS and the rate limit as the catalog's | the same document, `Cache-Control: public, max-age=60` |
 
 **The packages document** is the storefront's contract, and the console reads
@@ -5899,8 +5900,8 @@ or "to be decided"):
   Included everywhere — applications, databases, mail, ssl, sso, ddos,
   malware_scanner, waf, support — which lose any cell an earlier baseline
   gave them and move to the floor; **capacity** bandwidth 50 / 100 / 250 /
-  1000 Mbps and disk 25 / 50 / 100 / 250 GB, hard-capped on S and M and
-  metered on L and XL; **features** AI SEO and AI website builder, optional
+  1000 Mbps and disk 25 / 50 / 100 / 250 GB, metered on all four since
+  §22.11 (the customer's capped or grow mode decides); **features** AI SEO and AI website builder, optional
   on S / M / L and included on XL; **access** console click-install on all,
   Gitea + IaC from M (*"read"* on M), the advanced Kubernetes UI from L, the
   kube API / shell (Guacamole) + PAM on XL; **ops** the vulnerability
@@ -6169,3 +6170,217 @@ icon, tile, accent and badge and nothing where unset; a stored icon and a
 tile picked and PATCHed; an upload POSTed raw under its type, a GIF refused
 before sending, Remove; the settings saved whole with icon, accent and
 badge; a malformed accent refused; a group's icon set from its heading).
+
+### 22.11 Capped or grow — the commitment and the usage above it (founder direction 2026-10-10, 0.1.64)
+
+A package is a **prepaid minimum commitment**: its price is the plan line, and
+its shape — vCPU, memory, disk, bandwidth — is an **allowance** consumed first
+(§22.3, §15.1). What happens at the allowance is the **customer's** choice,
+per subscription — per platform Source — and no longer a property of a cell:
+
+| Mode | The quota | Above the allowance |
+|---|---|---|
+| **`capped`** (the default) | the package headline (§2.0a, unchanged) | **nothing is billed**: every quantity feature reads as a hard cap whatever its cell's overage says; the excess is reported `capped` and billed at 0 (§22.2) |
+| **`grow`** | raised to a **ceiling** (limits.cpu / limits.memory; requests stay the guaranteed share) | billed **in arrears** at the package's **overage rates** |
+
+The package says only **whether grow is allowed**, its **ceiling** and its two
+**compute rates** (`package_settings`). The cell's `overage` (`metered` /
+`hard_cap` / `unlimited`) is kept for compatibility: an `unlimited` cell stays
+unlimited in both modes; `metered` and `hard_cap` are decided by the mode.
+**"Flexi" stops being a plan in the commercial model**: grow on any package IS
+pay as you go above a commitment. The flexi plan slug and the "Organization
+PAYG" book (§2.9a) stay in the code for the Organizations already on them;
+nothing in this change moves one.
+
+**The rates** (founder pricing sheet 2026-10-10). Pay per use is the package's
+own unit price plus 10 % (§2.9a's rule, now per package), a unit being 1 vCPU
++ 2 GB, split into a vCPU part and a GB part:
+
+| Package | unit price | × 1.1 | `overage_vcpu_month` | `overage_mem_gb_month` | ceiling (default and maximum) |
+|---|---|---|---|---|---|
+| S | 2.490 / 1 | 2.739 | 1.992 | 0.374 | XL shape: 8 vCPU · 16 GB · 250 GB · 1000 Mbps |
+| M | 4.490 / 2 = 2.245 | 2.470 | 1.796 | 0.337 | XL shape |
+| L | 7.990 / 4 = 1.998 | 2.197 | 1.598 | 0.300 | XL shape |
+| XL | 13.990 / 8 = 1.749 | 1.924 | 1.399 | 0.263 | **twice** the XL shape: 16 · 32 · 500 · 2000 (otherwise XL could not grow) |
+
+Disk and bandwidth above the allowance are **flat** on every package — the
+book's `k8s.pvc_gb` at 0.423 a GB-year (0.035 a month) and `eip.bandwidth_mbps`
+at 15.038 a Mbps-year (1.253 a month). **The step-up rule for growth**: each
+package's overage unit stays above the next package's own unit price (S 2.740
+> M 2.245, M 2.470 > L 1.998, L 2.198 > XL 1.749), so growing past a package is
+never cheaper than stepping up (`synth.TestGrowOverageRatesStayAboveTheNextPackage`).
+
+**Why the compute rates live on the package and not in the book.** On a book
+that sells plans the `k8s.vcpu` / `k8s.mem_gb` request meters are the
+allocation basis (§22.2, `costNotSoldPerUseExpr`): pricing those SKUs in the
+plans book would bill every package's request meter per hour on top of its
+plan. A per-package SKU would need four more items and four allowance paths.
+Two numbers on `package_settings` are rated by the one function that needs
+them (`rating.GrowOverage`), converted exactly as every book item is (annual =
+monthly × 12, unit = annual ÷ the book's divisor, rounded to 8), and the plans
+book keeps pricing no request meter — `apply-grow-model.py` warns if one is.
+
+**What is measured.** A package's vCPU and memory headline is a **limit** (the
+ResourceQuota's `limits.*` term), so what grow bills above it is measured in
+the same unit: the collector writes two **limit meters** —
+`k8s.vcpu_limit` (vcpu-hour) and `k8s.mem_gb_limit` (gib-hour), the CPU and
+memory **limits** of the Organization's own pods (a container with no limit
+counts its request), hour by hour, on the same slices as the request meters,
+**only for an Organization on a sized package** (`billablePlan`), never for
+the control plane, the platform stack or the Sovereign's own footprint. The
+request meters are unchanged: they stay the allocation basis and the
+pay-per-use bill. The limit meters are a measurement, never a sale: the rating
+run takes them out before pricing (no book prices them), the explorer reads
+them as not sold per use. Then, per period:
+
+    allowance = Σ over the plan segments of headline × plan-hours
+    excess    = max(0, limit-hours − allowance)
+    line      = excess × (overage_month × 12 ÷ divisor)       at the rate of the longest segment's package
+
+Disk and bandwidth use the one allowance path they always had (§22.3): grow
+meters their excess at the book's price; capped reports it and bills 0.
+
+**Where the package and the usage land on the statement — today, exactly.**
+The collector writes one `plan.<slug>` record per plan-hour while the customer
+is active; the statement of period N rates the usage records whose window lies
+in N — the plan-hours **and** the usage — and is drafted and issued after N
+closes. So the package line of N is on statement N **in arrears**, pro rata to
+the plan-hours (a 744-hour month bills 744 × 0.00615068 = 4.576106 for M, a
+plan change inside N gives two segments, a suspension stops the plan-hours),
+and the grow usage of N is on the **same** statement N. The billing service
+separately collects the order's first price **upfront** at checkout (the
+`orders` row, §22.9). Moving the BSS package line to "period N+1 billed on
+statement N" would conflict with those existing invoice semantics — per-hour
+pro-rating, two segments on a plan change, the suspend stamp, the
+one-period-per-statement rule that the true-up, the contract floor, the
+partner waterfall and the e-invoice all read — so it is **kept as it is**:
+the commitment is honoured as a **floor** (the package's plan-hours bill
+whether or not anything ran), and the usage above it is billed in the same
+period's statement after the period closes.
+
+**The spend limit** (`spend_limit_month`, grow only) caps the **usage charges
+above the package** — the compute overage lines and the disk and bandwidth
+excess of that Source — **never the whole bill**: the package line and its
+add-ons are always billed. When the usage above the package rates to more
+than the limit, the statement carries ONE named line,
+`overage.spend_limit`, unit `period`, that takes the difference off
+(*"Spend limit — the usage above the package rated 3.235916 OMR this period,
+capped at the 3 OMR limit; 0.235916 not billed"*), after the allowances and
+before the discounts, the true-up and the tax (`rating.SpendLimitLine`). It is
+a cap on the **bill**: nothing stops the usage while it happens — the quota
+stays at the grow ceiling, and there is no suspend or notify on the limit
+(the budget alerts of §2.8 are a separate, operator-set instrument).
+
+**The DR topology.** XL includes active-passive (level 1). On S, M and L the
+`dr_topology` cell is **optional and grow-only** at "single region": the
+active-passive topology comes **only with grow mode**, at **no upfront price**
+— the standby region's pods are the Organization's pods, so their limits are
+on the limit meters and billed as overage. A grow-only cell is never an
+add-on (`SetSourceAddons` refuses it: *"DR topology comes with grow mode on
+the M package and is billed as usage; there is nothing to add — choose grow
+instead"*), and never bundled by the step-up rule.
+
+    package_settings.grow_allowed, grow_ceiling_vcpu / _memory_gb / _disk_gb / _bandwidth_mbps,
+                     overage_vcpu_month, overage_mem_gb_month
+    package_entitlements.grow_only   (CHECK: only on an optional cell)
+    cost_sources.overage_mode capped|grow (default capped), grow_ceiling_vcpu / _memory_gb /
+                 _disk_gb / _bandwidth_mbps, spend_limit_month   (CHECK: ceiling and limit in grow only)
+
+**The rules** (`store.PutPackageSettings`, `store.PutEntitlement`,
+`store.SetSourceOverage`): grow allowed needs the four ceilings and both
+rates above zero, each ceiling at least the package's own shape (bandwidth:
+its bandwidth cell); a grow-only cell is optional, on a boolean or a level
+feature (a level needs a next level), and needs no add-on SKU; a Source's
+grow needs its book, a sized package whose settings allow grow, and a ceiling
+per dimension between the package headline and the package's ceiling — a
+dimension left out takes the package's ceiling, and the stored ceiling is
+resolved; capped refuses a ceiling or a spend limit and clears both.
+
+**The document** (§22.4) gains, omitted when unset:
+
+    "packages": [{"sku": "plan.m", …,
+                  "grow": {"allowed": true,
+                           "ceiling": {"vcpu": 8, "memory_gb": 16, "disk_gb": 250, "bandwidth_mbps": 1000},
+                           "overage_rates": [{"key": "vcpu", "sku": "k8s.vcpu", "unit": "vCPU", "price_month": "1.796"},
+                                             {"key": "memory", "sku": "k8s.mem_gb", "unit": "GB", "price_month": "0.337"},
+                                             {"key": "disk", "sku": "k8s.pvc_gb", "unit": "GB", "price_month": "0.035"},
+                                             {"key": "bandwidth", "sku": "eip.bandwidth_mbps", "unit": "Mbps", "price_month": "1.253"}]}}],
+    "features": [{"key": "dr_topology", …,
+                  "cells": {"plan.s": {"state": "optional", "included_from": "plan.xl", "level": 0, "grow_only": true}, …,
+                            "plan.xl": {"state": "included", "level": 1}}}]
+
+`price_month` is the unit price × 730 rounded once (`rating.MonthlyAt`), read
+from the package's rate and the book's items, never a constant. A
+grow-only cell carries no `addon_sku` and no `price_month`. The package
+settings route takes `grow_allowed`, `grow_ceiling_vcpu`,
+`grow_ceiling_memory_gb`, `grow_ceiling_disk_gb`, `grow_ceiling_bandwidth_mbps`,
+`overage_vcpu_month`, `overage_mem_gb_month` — written whole like the rest, so
+the console's settings modal and `apply-package-icons.py` re-send them; the
+cell route takes `grow_only`.
+
+**The order and the hand-over.** The storefront sends `overage_mode`
+(`capped` by default, also when absent), and in grow `grow_ceiling` and
+`spend_limit_month`, on `POST /billing/quote` and `/billing/checkout`; billing
+validates them against the document (grow on a package without `grow` → 400,
+a ceiling outside [headline, the package's ceiling] → 400, active-passive on
+S/M/L only with grow, at 0 upfront), echoes them with the chosen package's
+`overage_rates`, persists them on the order and hands them over:
+`spec.commerce.overageMode`, `spec.commerce.growCeiling{vcpu, memoryGB,
+diskGB, bandwidthMbps}`, `spec.commerce.spendLimitMonth`. The
+organization-controller raises the ResourceQuota's `limits.cpu` /
+`limits.memory` plan term to the ceiling in grow (default: the XL headline,
+twice it on XL; clamped to [headline, that ceiling]) and annotates
+`openova.io/overage-mode`; no storage cap is rendered in either mode (the
+platform stack's volumes share the namespace). The adapter
+(`attachOverage`) sets the Source's mode from the block through
+`SetSourceOverage`, only when it differs, a refusal a WARN; a block that
+names no mode drives nothing, so a mode set by hand on the console stays.
+
+**The console.** Customer → Sources: an **Overage** column (*capped*, or
+*grow · up to 4 vCPU / 16 GB / 250 GB disk / 1000 Mbps · usage capped at 25
+OMR / month*) and **Change**, the Overage modal (capped / grow, the package's
+rates, a ceiling per dimension with its range, the spend limit), refused
+before sending outside the range. Price book → Packages: the settings modal
+carries **Grow allowed**, the four ceilings and the two rates; the cell modal
+of a level or boolean feature a **grow mode only** tick; the chip reads *In
+grow mode* (boolean) or the level with *active-passive in grow mode, billed as
+usage* under it.
+
+**Worked example** — M in grow for October (744 h), one vCPU and 2 GB of
+limits above the headline all month, 20 GB of disk above the 50 included,
+bandwidth at its 100 Mbps:
+
+| Line | arithmetic | amount |
+|---|---|---|
+| `plan.m` | 744 plan-h × 0.00615068 (53.88 ÷ 8760) | 4.576106 |
+| `k8s.vcpu` | (2,232 − 2 × 744) = 744 vcpu-h × 0.00246027 (1.796 × 12 ÷ 8760) | 1.830441 |
+| `k8s.mem_gb` | (4,464 − 4 × 744) = 1,488 gib-h × 0.00046164 (0.337 × 12 ÷ 8760) | 0.686920 |
+| `k8s.pvc_gb` | (52,080 − 50 × 744) = 14,880 gb-h × 0.00004829 (0.423 ÷ 8760) | 0.718555 |
+| `eip.bandwidth_mbps` | 74,400 − 100 × 744 = 0 | 0.000000 |
+| **subtotal** | | **7.812022** |
+
+The same usage in capped mode: `plan.m` 4.576106 and nothing else (the disk
+excess reported, billed 0). With a spend limit of 3.000: the three usage lines
+(3.235916) plus `overage.spend_limit` −0.235916 → subtotal 7.576106.
+
+**Seeder and script.** `cmd/seed-history` writes all of it onto the showcase
+plans book (grow on every package at the table above, every quantity cell
+metered, the DR cells on S/M/L grow-only, the disk and bandwidth meters at
+0.423 / 15.038 a year where not priced yet); `scripts/apply-grow-model.py`
+(stdlib) applies the same to a running BSS through its API (`--base`,
+`--email`, `--dry-run`), writing only what differs.
+
+Tests: `internal/rating/grow_test.go` (the mode over the cell, grow-only never
+an add-on, the limits above the headline at the package rate to the digit,
+capped billing no compute, a plan change, an unpriced rate, the spend limit);
+`internal/api/packages_grow_test.go` (the grow block byte for byte, omitted
+where not allowed, XL's doubled ceiling, the grow-only cells, nothing
+bundled); `internal/api/grow_integration_test.go` (the settings and cell
+refusals, the document, the overage route's refusals and the resolved
+ceiling, the grow-only DR refused as an add-on, October billed in grow, under
+a spend limit and capped, to the digit); `internal/adapter/openova/
+orgsync_overage_test.go` and `collector_limits_test.go`;
+`internal/synth/grow_test.go`; `cmd/seed-history/packages_integration_test.go`;
+`ui/src/panels/SourcesPanel.overage.dom.test.tsx`,
+`ui/src/components/PackagesPanel.cell.dom.test.tsx`,
+`ui/src/lib/packages.grow.test.ts`.
