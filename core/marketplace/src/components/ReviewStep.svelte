@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { getPlans, getApps, getAddons, type Plan, type App, type AddOn } from '../lib/api';
+  import { getPlans, getApps, getAddons, getQuote, type Plan, type App, type AddOn, type QuoteResponse } from '../lib/api';
   import { readCart, toggleAddon, setPlan, setPackage } from '../lib/cart';
   import { formatOMR, formatOMRAmount } from '../lib/currency';
   import { chargebackBaseURL } from '../lib/config';
+  import { quoteRequestFor, quoteable, lineAmountLabel, QUOTE_STRINGS } from '../lib/quote';
   import {
     funnelAddonsFor,
     loadPublicPackages,
@@ -29,9 +30,6 @@
   const paidAddons = $derived(addons.filter(a => !a.included));
   const selectedAddons = $derived(addons.filter(a => cart.addons.includes(a.id)));
 
-  const planCost = $derived(selectedPlan?.monthly_price ?? 0);
-  const addonCost = $derived(selectedAddons.reduce((sum, a) => sum + a.monthly_price, 0));
-
   // --- Pillar-2 BCP topology (#4524) ---------------------------------------
   // The /bcp step persists the customer's database business-continuity choice
   // to cart.appConfigs.postgres.{active_hot_standby, primary_region,
@@ -39,14 +37,8 @@
   // provisioning gitops generator consumes). This review surface MUST reflect
   // both the chosen topology AND its price so the customer confirms checkout
   // seeing what they picked. The checkout payload is unchanged — it already
-  // carries app_configs end-to-end.
-  //
-  // Active-hot-standby is +OMR 5.000 / mo. The price label is owned by
-  // BCPStep.svelte (the topology card shows "+OMR 5.000 / mo"); formatOMR
-  // takes baisa, so 5.000 OMR = 5000 baisa. Mirror the constant here rather
-  // than threading a price through the cart — the cart carries the booleans,
-  // not money, and the marketplace renders every OMR figure through formatOMR.
-  const HOT_STANDBY_MONTHLY_BAISA = 5000;
+  // carries app_configs end-to-end. The surcharge amount is the server's
+  // (quote.topology_amount_baisa), not a constant mirrored here (#6971).
 
   // Human labels for the canonical Sovereign region keys, mirroring
   // BCPStep.svelte's REGIONS list. Falls back to the raw key so a region the
@@ -66,9 +58,28 @@
   const hotStandby = $derived(Boolean(pgConfig.active_hot_standby));
   const primaryRegion = $derived(regionLabel(pgConfig.primary_region));
   const replicaRegion = $derived(regionLabel(pgConfig.replica_region));
-  const bcpCost = $derived(hotStandby ? HOT_STANDBY_MONTHLY_BAISA : 0);
 
-  const totalCost = $derived(planCost + addonCost + bcpCost);
+  // #6971 — every figure in the cost sidebar comes from POST /billing/quote,
+  // the pricing seam /billing/checkout bills through: the plan (from the BSS
+  // package or the catalog), one line per add-on in the cart's list (a BSS
+  // SKU from the package's cell, a catalog id from /catalog/addons,
+  // "Included" when the package already has it), the topology surcharge and
+  // the total. The package table, this page, the checkout and the receipt
+  // therefore show ONE number; nothing here sums money. Re-quoted whenever a
+  // priced input changes (changePlan / toggleAddon rewrite `cart`); when the
+  // quote is unavailable the total says so.
+  let quote = $state<QuoteResponse | null>(null);
+  let quoteError = $state<string | null>(null);
+  $effect(() => {
+    const req = quoteRequestFor(cart);
+    if (!quoteable(req)) { quote = null; quoteError = null; return; }
+    let stale = false;
+    getQuote(req)
+      .then(q => { if (!stale) { quote = q; quoteError = null; } })
+      .catch(e => { if (!stale) { quote = null; quoteError = e instanceof Error ? e.message : String(e); } });
+    return () => { stale = true; };
+  });
+  const totalCost = $derived(quote?.amount_baisa ?? 0);
 
   // --- Per-app resource estimates (MiB RAM, milli-CPU, GiB disk) ---
   const appRam: Record<string, number> = {
@@ -400,7 +411,7 @@
             <div class="bcp-summary-head">
               <strong>{hotStandby ? 'Active-hot-standby' : 'Single-region'}</strong>
               <span class="bcp-summary-price {hotStandby ? '' : 'free'}">
-                {hotStandby ? `+${formatOMR(HOT_STANDBY_MONTHLY_BAISA)} / mo` : 'FREE'}
+                {hotStandby ? (quote ? `+${formatOMR(quote.topology_amount_baisa)} / mo` : QUOTE_STRINGS.pending) : 'FREE'}
               </span>
             </div>
             {#if hotStandby}
@@ -457,29 +468,32 @@
                 <span class="free-label">{formatOMR(0)}</span>
               </div>
             {/if}
-            {#if selectedPlan}
-              <div class="breakdown-row">
-                <span>{selectedPlan.name} plan</span>
-                <span>{formatOMR(planCost)}</span>
+            {#if quote}
+              <div class="breakdown-row" data-testid="review-total-plan">
+                <span>{selectedPlan?.name || cart.planName || 'Plan'} plan</span>
+                <span>{formatOMR(quote.plan_amount_baisa)}</span>
               </div>
-            {/if}
-            {#each selectedAddons as addon}
-              <div class="breakdown-row">
-                <span>{addon.name}</span>
-                <span>+{formatOMR(addon.monthly_price)}</span>
-              </div>
-            {/each}
-            {#if hotStandby}
-              <div class="breakdown-row">
-                <span>Active-hot-standby</span>
-                <span>+{formatOMR(HOT_STANDBY_MONTHLY_BAISA)}</span>
-              </div>
+              {#each quote.lines as line (line.sku)}
+                <div class="breakdown-row" data-testid="review-total-package-addon-{line.sku}">
+                  <span>{line.name}</span>
+                  <span>{lineAmountLabel(line, formatOMR)}</span>
+                </div>
+              {/each}
+              {#if quote.topology_amount_baisa > 0}
+                <div class="breakdown-row">
+                  <span>Active-hot-standby</span>
+                  <span>+{formatOMR(quote.topology_amount_baisa)}</span>
+                </div>
+              {/if}
             {/if}
           </div>
           <div class="total-row">
             <span>Total</span>
-            <strong>{formatOMR(totalCost)}</strong>
+            <strong data-testid="review-total">{quote ? formatOMR(quote.amount_baisa) : QUOTE_STRINGS.pending}</strong>
           </div>
+          {#if quoteError}
+            <p class="quote-error" data-testid="review-quote-error">{QUOTE_STRINGS.unavailable}</p>
+          {/if}
           <small>per month · first month prorated · cancel anytime</small>
           <a href="/checkout" class="checkout-cta">
             Proceed to Checkout &rarr;
@@ -790,6 +804,7 @@
   .total-row span { color: var(--color-text-strong); font-weight: 600; }
   .total-row strong { color: var(--color-text-strong); font-size: 1.4rem; font-weight: 800; }
   .side-card small { color: var(--color-text-dim); font-size: 0.78rem; }
+  .quote-error { margin: 0.4rem 0 0; color: #EF4444; font-size: 0.75rem; line-height: 1.4; }
   .checkout-cta {
     display: flex; align-items: center; justify-content: center; gap: 0.5rem;
     margin-top: 1rem; padding: 0.65rem 1rem;

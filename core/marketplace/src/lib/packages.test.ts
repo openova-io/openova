@@ -489,11 +489,18 @@ describe('wizard markup contract', () => {
     expect(table).not.toMatch(/toggleAddon|addonPicksFor|packageAddons/);
   });
 
-  it('the Add-ons step consumes the document; Review and Checkout resolve ids through the same list', () => {
+  it('the Add-ons step consumes the document; Review resolves ids through the same list; Checkout and both totals take the server quote', () => {
     expect(addonsStep).toMatch(/funnelAddonsFor\(/);
     expect(addonsStep).toMatch(/data-testid="addons-included"/);
+    // Review still offers the package's optional features as tiles, so it
+    // resolves the cart's ids through the document like the Add-ons step.
     expect(review).toMatch(/funnelAddonsFor\(/);
-    expect(checkout).toMatch(/funnelAddonsFor\(/);
+    // Checkout picks nothing: every line's name and amount, and both pages'
+    // totals, come from POST /billing/quote — the pricing seam the checkout
+    // POST bills through (quote.test.ts pins the full contract).
+    expect(checkout).toMatch(/\bgetQuote\b/);
+    expect(review).toMatch(/\bgetQuote\b/);
+    expect(checkout).not.toMatch(/funnelAddonsFor\(/);
     // The cart's one list is what both POSTs send.
     expect(checkout).toMatch(/addons: cart\.addons/);
     expect(checkout).not.toMatch(/orderAddonIds|packageAddons/);

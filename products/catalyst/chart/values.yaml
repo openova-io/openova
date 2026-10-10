@@ -2058,6 +2058,18 @@ orgServices:
     # wire a different NATS endpoint (e.g. a leaf-node connection) or
     # set explicitly empty to force NATS-disabled mode.
     natsURL: ""
+  billing:
+    # #6971 — base URL of the Catalyst BSS (bp-chargeback) whose public price
+    # book, GET /api/v1/public/packages, the billing service prices every
+    # order carrying a `package_sku` from (the S/M/L/XL table the marketplace
+    # renders from the same document). Empty = the template's default, the
+    # Sovereign placement's in-cluster Service — bootstrap-kit slot 13f
+    # installs release `chargeback` into namespace `chargeback` on
+    # values.service.port 8080. Overlays MAY point at another chargeback
+    # placement; empty here always renders the default (the binary's "BSS
+    # pricing off" — package orders answer 503, never catalog-priced — is an
+    # explicitly empty CHARGEBACK_PUBLIC_URL env, which the chart never emits).
+    chargebackPublicURL: ""
   ferretdb:
     namespace: org-services          # #3383: was `sme`
     # FerretDB v1.24 — works against vanilla CNPG postgres:16. v2.x

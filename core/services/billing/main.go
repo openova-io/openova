@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/openova-io/openova/core/services/billing/handlers"
+	"github.com/openova-io/openova/core/services/billing/packages"
 	"github.com/openova-io/openova/core/services/billing/store"
 	"github.com/openova-io/openova/core/services/shared/db"
 	"github.com/openova-io/openova/core/services/shared/events"
@@ -38,6 +39,15 @@ func main() {
 	// hardcoded; the chart pipes it from `billing.sovereignFQDN`. Empty is
 	// tolerated for dev loops — the template emits a relative-ish fallback.
 	sovereignFQDN := getEnv("SOVEREIGN_FQDN", "")
+	// CHARGEBACK_PUBLIC_URL — base URL of the Catalyst BSS (bp-chargeback)
+	// whose public price book, GET /api/v1/public/packages, prices every
+	// order that carries a package_sku (#6971). The chart pipes it from
+	// `orgServices.billing.chargebackPublicURL`; the default is the Sovereign
+	// placement's in-cluster Service (bootstrap-kit slot 13f: release
+	// `chargeback`, namespace `chargeback`, port 8080). Set it empty to turn
+	// BSS pricing off — package orders are then refused with 503, never
+	// priced from the catalog instead.
+	chargebackPublicURL := getEnv("CHARGEBACK_PUBLIC_URL", "http://chargeback.chargeback.svc.cluster.local:8080")
 	// NATS_URL — JetStream broker URL for BOTH:
 	//   (a) the catalyst.usage.recorded metering stream (#798), and
 	//   (b) the canonical billing event bus per ADR-0001 §6
@@ -134,6 +144,8 @@ func main() {
 		NotificationClient: &http.Client{
 			Timeout: 5 * time.Second,
 		},
+		// #6971 — the BSS price book client; 60 s cache, 5 s per read.
+		Packages: packages.NewClient(chargebackPublicURL, &http.Client{Timeout: 5 * time.Second}),
 		// JWTSecret — same bytes the inbound JWTAuth middleware below
 		// validates against (org-services-secrets/JWT_SECRET). Used by
 		// sendVoucherIssuedEmail to mint a short-lived service token for
@@ -251,10 +263,11 @@ func main() {
 	// Caught live on t132 2026-05-16 after PR #1559 made the gateway public —
 	// the billing service was still JWT-gating internally.
 	publicBillingPaths := map[string]bool{
-		"/billing/webhook":                  true, // Stripe (sig-verified)
-		"/billing/vouchers/redeem-preview":  true, // D29 voucher landing
-		"/billing/plans":                    true, // marketplace pricing
-		"/billing/addons":                   true, // marketplace add-on pricing
+		"/billing/webhook":                 true, // Stripe (sig-verified)
+		"/billing/vouchers/redeem-preview": true, // D29 voucher landing
+		"/billing/plans":                   true, // marketplace pricing
+		"/billing/addons":                  true, // marketplace add-on pricing
+		"/billing/quote":                   true, // #6971 — /review + /checkout totals, quoted before sign-in; creates nothing
 	}
 
 	mux.Handle("/billing/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
