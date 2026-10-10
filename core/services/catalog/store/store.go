@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -14,14 +15,14 @@ import (
 
 // App represents a deployable application in the catalog.
 type App struct {
-	ID              string    `bson:"_id" json:"id"`
-	Slug            string    `bson:"slug" json:"slug"`
-	Name            string    `bson:"name" json:"name"`
-	Tagline         string    `bson:"tagline" json:"tagline"`
-	Description     string    `bson:"description" json:"description"`
-	Category        string    `bson:"category" json:"category"`
-	Tags            []string  `bson:"tags" json:"tags"`
-	Icon            string    `bson:"icon" json:"icon"`
+	ID          string   `bson:"_id" json:"id"`
+	Slug        string   `bson:"slug" json:"slug"`
+	Name        string   `bson:"name" json:"name"`
+	Tagline     string   `bson:"tagline" json:"tagline"`
+	Description string   `bson:"description" json:"description"`
+	Category    string   `bson:"category" json:"category"`
+	Tags        []string `bson:"tags" json:"tags"`
+	Icon        string   `bson:"icon" json:"icon"`
 	// IconLight / IconDark are theme-specific icon overrides (#3602,
 	// EPIC #3597). The console renders IconLight in the light theme and
 	// IconDark in the dark theme; each may be a URL or an inline data:
@@ -30,9 +31,9 @@ type App struct {
 	// theme-icon falls back to `Icon`, so existing catalog rows that only
 	// carry `Icon` keep rendering unchanged. `Icon` stays the canonical
 	// default — these two are kept alongside it for back-compat.
-	IconLight       string    `bson:"icon_light,omitempty" json:"icon_light,omitempty"`
-	IconDark        string    `bson:"icon_dark,omitempty" json:"icon_dark,omitempty"`
-	IconBg          string    `bson:"icon_bg" json:"icon_bg"`
+	IconLight string `bson:"icon_light,omitempty" json:"icon_light,omitempty"`
+	IconDark  string `bson:"icon_dark,omitempty" json:"icon_dark,omitempty"`
+	IconBg    string `bson:"icon_bg" json:"icon_bg"`
 	// SupportedTopologies is the admin-editable set of placement modes
 	// this catalog entry advertises, in the CANONICAL topology vocabulary
 	// (e.g. ["singleton", "active-active", "active-hot-standby"]) — #3602,
@@ -47,36 +48,36 @@ type App struct {
 	// override; the catalog read API keeps the Blueprint/seed's own
 	// placement set. Additive — never overwrites the seed when unset.
 	SupportedTopologies []string `bson:"supported_topologies,omitempty" json:"supported_topologies,omitempty"`
-	MinimumSize     string    `bson:"minimum_size" json:"minimum_size"`
-	RecommendedSize string    `bson:"recommended_size" json:"recommended_size"`
-	Website         string    `bson:"website" json:"website"`
-	License         string    `bson:"license" json:"license"`
-	Featured        bool      `bson:"featured" json:"featured"`
-	Popular         bool      `bson:"popular" json:"popular"`
-	Free            bool      `bson:"free" json:"free"`
-	Features        []string  `bson:"features" json:"features"`
-	RelatedApps     []string  `bson:"related_apps" json:"related_apps"`
+	MinimumSize         string   `bson:"minimum_size" json:"minimum_size"`
+	RecommendedSize     string   `bson:"recommended_size" json:"recommended_size"`
+	Website             string   `bson:"website" json:"website"`
+	License             string   `bson:"license" json:"license"`
+	Featured            bool     `bson:"featured" json:"featured"`
+	Popular             bool     `bson:"popular" json:"popular"`
+	Free                bool     `bson:"free" json:"free"`
+	Features            []string `bson:"features" json:"features"`
+	RelatedApps         []string `bson:"related_apps" json:"related_apps"`
 	// Dependencies is a list of app slugs that must be provisioned alongside
 	// this app (e.g., wordpress → ["mysql"]). The provisioning service treats
 	// each dependency as a full first-class app deploy.
-	Dependencies    []string  `bson:"dependencies" json:"dependencies"`
+	Dependencies []string `bson:"dependencies" json:"dependencies"`
 	// System marks infrastructure apps (mysql, postgres, redis) that are
 	// selectable as dependencies in the admin UI but hidden from the public
 	// marketplace.
-	System          bool      `bson:"system" json:"system"`
+	System bool `bson:"system" json:"system"`
 	// Kind classifies how the app appears in the console: "business" shows
 	// up as a first-class card, "service" is a backing service (database,
 	// cache, queue) that renders in the muted Backing services section.
 	// Defaults to "business" when empty.
-	Kind            string    `bson:"kind,omitempty" json:"kind,omitempty"`
+	Kind string `bson:"kind,omitempty" json:"kind,omitempty"`
 	// Shareable=true allows more than one business app to reuse a single
 	// instance of this app as a dependency (e.g., one MySQL shared by
 	// WordPress and Matomo). The default (false) means each dependent gets
 	// its own dedicated instance.
-	Shareable       bool      `bson:"shareable,omitempty" json:"shareable,omitempty"`
+	Shareable bool `bson:"shareable,omitempty" json:"shareable,omitempty"`
 	// ConfigSchema declares the tunables that the console renders on the
 	// app detail page (e.g., CNPG replicas, disk size). Empty = no tunables.
-	ConfigSchema    []ConfigField `bson:"config_schema,omitempty" json:"config_schema,omitempty"`
+	ConfigSchema []ConfigField `bson:"config_schema,omitempty" json:"config_schema,omitempty"`
 	// Deployable=false means the catalog listing is visible but day-2 installs
 	// will be rejected with a clear error. The marketplace UI surfaces these
 	// as "Coming soon". Defaults to false for safety — apps must be explicitly
@@ -84,7 +85,7 @@ type App struct {
 	// services/provisioning/gitops/apps.go) can deploy them end-to-end.
 	// See issue #102 — before this flag, unknown slugs silently deployed an
 	// nginx placeholder that the UI reported as "installed".
-	Deployable      bool      `bson:"deployable,omitempty" json:"deployable"`
+	Deployable bool `bson:"deployable,omitempty" json:"deployable"`
 	// Published=true means marketplace storefront customers see this app on
 	// `marketplace.<sov>`. The Sovereign-console operator owns this flag —
 	// flipping it to false hides the app from marketplace customers while
@@ -99,14 +100,14 @@ type App struct {
 	// flag introduction doesn't silently hide every app on the day Catalyst
 	// 1.3.x ships. Operators opt OUT of marketplace visibility per app, not
 	// IN — matches how a SaaS team curates a real storefront.
-	Published       bool      `bson:"published,omitempty" json:"published"`
-	RamMB           int       `bson:"ram_mb" json:"ram_mb"`
-	CpuMilli        int       `bson:"cpu_milli" json:"cpu_milli"`
-	DiskGB          int       `bson:"disk_gb" json:"disk_gb"`
-	HelmChart       string    `bson:"helm_chart" json:"helm_chart"`
-	HelmRepo        string    `bson:"helm_repo" json:"helm_repo"`
-	CreatedAt       time.Time `bson:"created_at" json:"created_at"`
-	UpdatedAt       time.Time `bson:"updated_at" json:"updated_at"`
+	Published bool      `bson:"published,omitempty" json:"published"`
+	RamMB     int       `bson:"ram_mb" json:"ram_mb"`
+	CpuMilli  int       `bson:"cpu_milli" json:"cpu_milli"`
+	DiskGB    int       `bson:"disk_gb" json:"disk_gb"`
+	HelmChart string    `bson:"helm_chart" json:"helm_chart"`
+	HelmRepo  string    `bson:"helm_repo" json:"helm_repo"`
+	CreatedAt time.Time `bson:"created_at" json:"created_at"`
+	UpdatedAt time.Time `bson:"updated_at" json:"updated_at"`
 }
 
 // ConfigField declares one tunable on an app. The console renders a matching
@@ -150,20 +151,31 @@ type Bundle struct {
 // Plan represents a hosting plan with resource limits and pricing.
 //
 // ProductSlug scopes the plan to a specific product/app. Empty = generic
-// compute tier (S/M/L/XL/Flexi) selectable for any tenant. Non-empty =
+// compute tier (S/M/L/XL/Flexi) selectable for any Organization. Non-empty =
 // product-specific tier (e.g. ProductSlug="sandbox" for Sandbox
 // Free/Pro/Ent) that is only valid when the cart contains that app.
 // IncludedQuotas carries product-specific quota knobs (sessions, agents,
-// storage_gb, byos) the orchestrator stamps onto the per-tenant CR.
+// storage_gb, byos) the orchestrator stamps onto the per-Organization CR.
+//
+// Money (#6971): PriceBaisa is the AUTHORITATIVE monthly price, in baisa
+// (1 OMR = 1000 baisa) — the National Cloud workbook prices the packages at
+// 2.490 / 4.490 / 7.990 / 13.990 OMR, which no integer OMR field can carry.
+// PriceOMR is kept on the wire for every reader that predates the baisa
+// field: a number with up to three decimals (2.49), always DERIVED from
+// PriceBaisa by NormalizePrice, never the other way round once both are set.
+// A reader must round or format from price_baisa; price_omr is a display
+// mirror, not an input to arithmetic.
 type Plan struct {
-	ID             string            `bson:"_id" json:"id"`
-	Slug           string            `bson:"slug" json:"slug"`
-	Name           string            `bson:"name" json:"name"`
-	Description    string            `bson:"description" json:"description"`
-	CPU            string            `bson:"cpu" json:"cpu"`
-	Memory         string            `bson:"memory" json:"memory"`
-	Storage        string            `bson:"storage" json:"storage"`
-	PriceOMR       int               `bson:"price_omr" json:"price_omr"`
+	ID          string  `bson:"_id" json:"id"`
+	Slug        string  `bson:"slug" json:"slug"`
+	Name        string  `bson:"name" json:"name"`
+	Description string  `bson:"description" json:"description"`
+	CPU         string  `bson:"cpu" json:"cpu"`
+	Memory      string  `bson:"memory" json:"memory"`
+	Storage     string  `bson:"storage" json:"storage"`
+	PriceOMR    float64 `bson:"price_omr" json:"price_omr"`
+	// PriceBaisa is the price in baisa — the field the money is computed from.
+	PriceBaisa     int               `bson:"price_baisa" json:"price_baisa"`
 	Popular        bool              `bson:"popular" json:"popular"`
 	SortOrder      int               `bson:"sort_order" json:"sort_order"`
 	Features       []string          `bson:"features" json:"features"`
@@ -172,15 +184,69 @@ type Plan struct {
 	IncludedQuotas map[string]string `bson:"included_quotas,omitempty" json:"included_quotas,omitempty"`
 }
 
+// BaisaPerOMR is the OMR minor unit: 1 OMR = 1000 baisa.
+const BaisaPerOMR = 1000
+
+// OMRToBaisa converts a decimal OMR price (2.49) into baisa (2490). It is the
+// ONE place a float becomes money: the product is rounded to the nearest
+// baisa so 2.49 × 1000 can never land on 2489.9999. Use it only at an input
+// boundary (a seed literal, an admin form that still posts price_omr); every
+// reader works from PriceBaisa.
+func OMRToBaisa(omr float64) int {
+	return int(math.Round(omr * BaisaPerOMR))
+}
+
+// BaisaToOMR renders baisa as the decimal OMR mirror (2490 → 2.49).
+func BaisaToOMR(baisa int) float64 {
+	return float64(baisa) / BaisaPerOMR
+}
+
+// NormalizePrice settles the two price fields against each other so a row
+// never carries a baisa figure and an OMR figure that disagree:
+//
+//   - PriceBaisa set → PriceOMR is rewritten as its decimal mirror (baisa is
+//     authoritative).
+//   - PriceBaisa zero, PriceOMR set → PriceBaisa is derived from it. This is
+//     the path for a row seeded before #6971 (price_omr INT, no price_baisa)
+//     and for the admin editor, whose form still posts price_omr.
+//   - both zero → a free plan (Flexi); nothing to settle.
+func (p *Plan) NormalizePrice() {
+	if p.PriceBaisa == 0 && p.PriceOMR != 0 {
+		p.PriceBaisa = OMRToBaisa(p.PriceOMR)
+	}
+	p.PriceOMR = BaisaToOMR(p.PriceBaisa)
+}
+
 // AddOn represents an optional add-on service.
+//
+// Money follows the Plan rule (#6971): PriceBaisa is authoritative, PriceOMR
+// its decimal mirror (NormalizePrice). Every catalog add-on is FREE — the
+// only priced add-ons are the BSS package add-ons (core/services/billing/
+// packages, priced from the National Cloud workbook); the catalog never
+// carried a number from that workbook, so it carries none.
+//
+// App marks an add-on that is an APPLICATION the Sovereign installs for the
+// Organization (CrowdSec, Trivy, Grafana Loki, the Coraza WAF) rather than a
+// commercial entitlement (a domain, a dedicated IP, a backup schedule): the
+// storefront lists it with the applications and never beside a price.
 type AddOn struct {
-	ID          string `bson:"_id" json:"id"`
-	Slug        string `bson:"slug" json:"slug"`
-	Name        string `bson:"name" json:"name"`
-	Description string `bson:"description" json:"description"`
-	PriceOMR    int    `bson:"price_omr" json:"price_omr"`
-	Included    bool   `bson:"included" json:"included"`
-	Category    string `bson:"category" json:"category"`
+	ID          string  `bson:"_id" json:"id"`
+	Slug        string  `bson:"slug" json:"slug"`
+	Name        string  `bson:"name" json:"name"`
+	Description string  `bson:"description" json:"description"`
+	PriceOMR    float64 `bson:"price_omr" json:"price_omr"`
+	PriceBaisa  int     `bson:"price_baisa" json:"price_baisa"`
+	Included    bool    `bson:"included" json:"included"`
+	Category    string  `bson:"category" json:"category"`
+	App         bool    `bson:"app" json:"app"`
+}
+
+// NormalizePrice settles PriceBaisa / PriceOMR exactly as Plan.NormalizePrice.
+func (a *AddOn) NormalizePrice() {
+	if a.PriceBaisa == 0 && a.PriceOMR != 0 {
+		a.PriceBaisa = OMRToBaisa(a.PriceOMR)
+	}
+	a.PriceOMR = BaisaToOMR(a.PriceBaisa)
 }
 
 // Store provides CRUD operations against a FerretDB (MongoDB wire protocol) database.
@@ -600,6 +666,12 @@ func (s *Store) ListPlans(ctx context.Context) ([]Plan, error) {
 	if plans == nil {
 		plans = []Plan{}
 	}
+	// A row written before #6971 carries price_omr (an integer) and no
+	// price_baisa; settle it on read so every caller sees both fields
+	// agree, whichever generation of the row it got.
+	for i := range plans {
+		plans[i].NormalizePrice()
+	}
 	return plans, nil
 }
 
@@ -613,6 +685,7 @@ func (s *Store) GetPlan(ctx context.Context, slug string) (*Plan, error) {
 		}
 		return nil, fmt.Errorf("store: get plan %s: %w", slug, err)
 	}
+	p.NormalizePrice()
 	return &p, nil
 }
 
@@ -621,6 +694,7 @@ func (s *Store) CreatePlan(ctx context.Context, p *Plan) error {
 	if p.ID == "" {
 		p.ID = uuid.New().String()
 	}
+	p.NormalizePrice()
 	_, err := s.plans().InsertOne(ctx, p)
 	if err != nil {
 		return fmt.Errorf("store: create plan: %w", err)
@@ -631,6 +705,7 @@ func (s *Store) CreatePlan(ctx context.Context, p *Plan) error {
 // UpdatePlan updates a plan by _id.
 func (s *Store) UpdatePlan(ctx context.Context, id string, p *Plan) error {
 	p.ID = id // ensure _id matches the filter
+	p.NormalizePrice()
 	update := bson.D{{Key: "$set", Value: bson.D{
 		{Key: "slug", Value: p.Slug},
 		{Key: "name", Value: p.Name},
@@ -639,6 +714,7 @@ func (s *Store) UpdatePlan(ctx context.Context, id string, p *Plan) error {
 		{Key: "memory", Value: p.Memory},
 		{Key: "storage", Value: p.Storage},
 		{Key: "price_omr", Value: p.PriceOMR},
+		{Key: "price_baisa", Value: p.PriceBaisa},
 		{Key: "popular", Value: p.Popular},
 		{Key: "sort_order", Value: p.SortOrder},
 		{Key: "features", Value: p.Features},
@@ -688,6 +764,9 @@ func (s *Store) ListAddOns(ctx context.Context) ([]AddOn, error) {
 	if addons == nil {
 		addons = []AddOn{}
 	}
+	for i := range addons {
+		addons[i].NormalizePrice()
+	}
 	return addons, nil
 }
 
@@ -701,6 +780,7 @@ func (s *Store) GetAddOn(ctx context.Context, slug string) (*AddOn, error) {
 		}
 		return nil, fmt.Errorf("store: get addon %s: %w", slug, err)
 	}
+	a.NormalizePrice()
 	return &a, nil
 }
 
@@ -709,6 +789,7 @@ func (s *Store) CreateAddOn(ctx context.Context, a *AddOn) error {
 	if a.ID == "" {
 		a.ID = uuid.New().String()
 	}
+	a.NormalizePrice()
 	_, err := s.addons().InsertOne(ctx, a)
 	if err != nil {
 		return fmt.Errorf("store: create addon: %w", err)
@@ -719,13 +800,16 @@ func (s *Store) CreateAddOn(ctx context.Context, a *AddOn) error {
 // UpdateAddOn updates an add-on by _id.
 func (s *Store) UpdateAddOn(ctx context.Context, id string, a *AddOn) error {
 	a.ID = id
+	a.NormalizePrice()
 	update := bson.D{{Key: "$set", Value: bson.D{
 		{Key: "slug", Value: a.Slug},
 		{Key: "name", Value: a.Name},
 		{Key: "description", Value: a.Description},
 		{Key: "price_omr", Value: a.PriceOMR},
+		{Key: "price_baisa", Value: a.PriceBaisa},
 		{Key: "included", Value: a.Included},
 		{Key: "category", Value: a.Category},
+		{Key: "app", Value: a.App},
 	}}}
 	res, err := s.addons().UpdateOne(ctx, bson.D{{Key: "_id", Value: id}}, update)
 	if err != nil {

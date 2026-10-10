@@ -69,10 +69,10 @@ async function installMocks(page: Page): Promise<MockState> {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify([
-        { id: 's', slug: 's', name: 'S', cpu: '2 vCPU', memory: '4 GB', storage: '25 GB', price_omr: 5, popular: false, features: [], description: '' },
-        { id: 'm', slug: 'm', name: 'M', cpu: '4 vCPU', memory: '8 GB', storage: '50 GB', price_omr: 9, popular: true, features: [], description: '' },
-        { id: 'l', slug: 'l', name: 'L', cpu: '8 vCPU', memory: '16 GB', storage: '100 GB', price_omr: 16, popular: false, features: [], description: '' },
-        { id: 'xl', slug: 'xl', name: 'XL', cpu: '16 vCPU', memory: '32 GB', storage: '200 GB', price_omr: 30, popular: false, features: [], description: '' },
+        { id: 's', slug: 's', name: 'S', cpu: '1 vCPU', memory: '2 GB', storage: '25 GB', price_omr: 2.49, price_baisa: 2490, popular: false, features: [], description: '' },
+        { id: 'm', slug: 'm', name: 'M', cpu: '2 vCPU', memory: '4 GB', storage: '50 GB', price_omr: 4.49, price_baisa: 4490, popular: true, features: [], description: '' },
+        { id: 'l', slug: 'l', name: 'L', cpu: '4 vCPU', memory: '8 GB', storage: '100 GB', price_omr: 7.99, price_baisa: 7990, popular: false, features: [], description: '' },
+        { id: 'xl', slug: 'xl', name: 'XL', cpu: '8 vCPU', memory: '16 GB', storage: '250 GB', price_omr: 13.99, price_baisa: 13990, popular: false, features: [], description: '' },
         { id: 'flexi', slug: 'flexi', name: 'Flexi', cpu: 'On demand', memory: 'On demand', storage: 'On demand', price_omr: 0, popular: false, features: [], description: '' },
       ]),
     })

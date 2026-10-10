@@ -41,17 +41,21 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-// wantPlatformStackOverhead is the derived figure per plan, pinned. S/M/L share
-// one figure; XL differs because the 2-CPU / 4Gi LimitRange default sizes
-// bp-agenity's unsized init container above its app containers (see the
-// platformStack comment in manifests.go). If any source moves, property 2
-// fails first and names it; this fails second and names the doc lines that
+// wantPlatformStackOverhead is the derived figure per plan, pinned. All four
+// hard-capped plans share one figure under the #6971 headlines: bp-agenity's
+// unsized init container takes the plan's LimitRange defaults (XL: 1 CPU /
+// 2Gi limit, 167m / 683Mi request) and no plan's defaults exceed its app
+// containers (1050m / 2112Mi limits, 1005m / 2064Mi requests), so the pod's
+// effective shape is the app sum everywhere (see the platformStack comment in
+// manifests.go; TestPlatformStackOverhead_PinnedFigures asserts that this
+// coincidence is arithmetic, not an accident). If any source moves, property
+// 2 fails first and names it; this fails second and names the doc lines that
 // must move with it.
 var wantPlatformStackOverhead = map[string]map[string]string{
 	"s":  {"requests.cpu": "3840m", "requests.memory": "6064Mi", "limits.cpu": "4550m", "limits.memory": "7168Mi"},
 	"m":  {"requests.cpu": "3840m", "requests.memory": "6064Mi", "limits.cpu": "4550m", "limits.memory": "7168Mi"},
 	"l":  {"requests.cpu": "3840m", "requests.memory": "6064Mi", "limits.cpu": "4550m", "limits.memory": "7168Mi"},
-	"xl": {"requests.cpu": "4835m", "requests.memory": "8096Mi", "limits.cpu": "5500m", "limits.memory": "9152Mi"},
+	"xl": {"requests.cpu": "3840m", "requests.memory": "6064Mi", "limits.cpu": "4550m", "limits.memory": "7168Mi"},
 }
 
 // The pod names platformStack uses, so the tests below address rows by name
@@ -585,10 +589,37 @@ func TestPlatformStackOverhead_PinnedFigures(t *testing.T) {
 	if hardCapped != len(wantPlatformStackOverhead) {
 		t.Fatalf("vacuity: %d hard-capped plans, %d pinned figures", hardCapped, len(wantPlatformStackOverhead))
 	}
-	// XL is the plan where the unsized init container dominates; the figure
-	// must differ from S or the LimitRange-default rule is not being applied.
-	if s, xl := platformStackOverheadFor(planQuota("s")), platformStackOverheadFor(planQuota("xl")); s.RequestsCPU.Cmp(xl.RequestsCPU) >= 0 {
-		t.Errorf("plan xl stack overhead requests.cpu %s is not above plan s %s — the 2-CPU LimitRange default should size agenity's unsized init container above its app containers on xl", xl.RequestsCPU.String(), s.RequestsCPU.String())
+	// The four figures coincide because, on every plan, the LimitRange
+	// defaults that size agenity's unsized init container are BELOW its app
+	// containers on every resource and side — prove that, so the equality is
+	// arithmetic and not a rule that silently stopped being applied (the
+	// synthetic TestPlatformStackOverheadOf_RuleAndDefaults proves the rule
+	// itself is load-bearing).
+	var agenity *platformStackWorkload
+	for i := range platformStack {
+		if platformStack[i].Name == wlAgenity {
+			agenity = &platformStack[i]
+		}
+	}
+	if agenity == nil {
+		t.Fatal("bp-agenity-0 is not in platformStack")
+	}
+	app := podEffectiveShape(agenity.Containers, nil)
+	for slug, q := range planQuotaTable {
+		if q.Burstable {
+			continue
+		}
+		def := limitRangeDefaults(q)
+		for _, c := range []struct{ name, def, app string }{
+			{"requests.cpu", def.RequestsCPU, app.RequestsCPU},
+			{"requests.memory", def.RequestsMemory, app.RequestsMemory},
+			{"limits.cpu", def.LimitsCPU, app.LimitsCPU},
+			{"limits.memory", def.LimitsMemory, app.LimitsMemory},
+		} {
+			if d, a := mustQ(t, slug, c.def), mustQ(t, slug, c.app); d.Cmp(a) >= 0 {
+				t.Errorf("plan %q: LimitRange default %s %s is not below agenity's app containers %s — the pinned stack figure for this plan must then differ from the others", slug, c.name, c.def, c.app)
+			}
+		}
 	}
 }
 
@@ -610,7 +641,10 @@ func TestPlatformStackOverheadOf_RuleAndDefaults(t *testing.T) {
 	}
 	check := func(defCPU, defMem string, want map[string]string) {
 		t.Helper()
-		o := platformStackOverheadOf(stack, defCPU, defMem)
+		// A symmetric default (requests == limits) keeps the arithmetic below
+		// readable; the request/limit split of the real defaults is covered by
+		// TestRender_LimitRangeDefaultsUnchangedByOverhead.
+		o := platformStackOverheadOf(stack, containerShape{RequestsCPU: defCPU, RequestsMemory: defMem, LimitsCPU: defCPU, LimitsMemory: defMem})
 		got := map[string]resource.Quantity{
 			"requests.cpu": o.RequestsCPU, "requests.memory": o.RequestsMemory,
 			"limits.cpu": o.LimitsCPU, "limits.memory": o.LimitsMemory,
@@ -633,7 +667,7 @@ func TestPlatformStackOverheadOf_RuleAndDefaults(t *testing.T) {
 	check("10m", "10Mi", map[string]string{
 		"requests.cpu": "450m", "requests.memory": "1174Mi", "limits.cpu": "550m", "limits.memory": "1274Mi",
 	})
-	if o := platformStackOverheadOf(nil, "250m", "512Mi"); !o.RequestsCPU.IsZero() || !o.LimitsMemory.IsZero() {
+	if o := platformStackOverheadOf(nil, containerShape{RequestsCPU: "250m", RequestsMemory: "512Mi", LimitsCPU: "250m", LimitsMemory: "512Mi"}); !o.RequestsCPU.IsZero() || !o.LimitsMemory.IsZero() {
 		t.Errorf("empty stack must sum to zero, got %s", o.String())
 	}
 }

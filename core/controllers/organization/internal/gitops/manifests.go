@@ -95,39 +95,68 @@ type Inputs struct {
 // the Org boundary host namespace (#4292). It REPLACES both the retired
 // marketplace-api `SizeResources` (raw req.Size string, dev-tiny, no
 // LimitRange) and the provisioning `planLimits` (syncer-pod-only). The cap is
-// keyed by the catalog plan SLUG (seed.go:187-198), so the resource the
-// customer pays for is exactly the resource that materializes.
+// keyed by the catalog plan SLUG (core/services/catalog/handlers/seed.go
+// seedPlanRows), so the resource the customer pays for is exactly the
+// resource that materializes.
 //
-//	CPU  — the CPU the customer PURCHASED. The ResourceQuota hard cap is this
-//	       plus the vCluster control-plane overhead (vclusterControlPlaneOverhead)
-//	       plus the per-Organization platform-stack overhead (platformStack) so
-//	       neither eats into it; requests and limits carry their own figures.
-//	Mem  — the memory the customer purchased; same rule.
-//	Burstable — Flexi alone; when true the LimitRange omits the
-//	            maxLimitRequestRatio so pods may run requests<limits
-//	            (Burstable QoS). Fixed tiers (S/M/L/XL) keep it false →
-//	            the LimitRange forces requests==limits → Guaranteed QoS.
+// The overcommit model (#6971, NC-OO-Pricing.xlsx 2026-06-28): a package is
+// sold by its HEADLINE shape — S 1 vCPU / 2 GB, M 2 / 4, L 4 / 8, XL 8 / 16 —
+// and that headline is the LIMIT: the ceiling the customer's workloads may
+// burst to and the cap the customer pays for. What the Sovereign PROVISIONS
+// for it — the guaranteed share, reserved on the node — is the headline over
+// the workbook's overcommit ratios, CPU 6× and memory 3×: S 167m / 683Mi,
+// M 334m / 1366Mi, L 667m / 2731Mi, XL 1334m / 5462Mi (headline ÷ 6 and ÷ 3,
+// rounded UP to the millicore / MiB so the ratio is never exceeded). That
+// guaranteed share is the REQUEST.
+//
+//	CPULimit   / MemLimit   — the headline the customer bought; the
+//	                          ResourceQuota's limits.cpu / limits.memory term.
+//	CPURequest / MemRequest — the guaranteed share the Sovereign reserves;
+//	                          the ResourceQuota's requests.cpu / requests.memory
+//	                          term. The hard cap on each side is that term PLUS
+//	                          the vCluster control-plane overhead
+//	                          (vclusterControlPlaneOverhead) PLUS the
+//	                          per-Organization platform-stack overhead
+//	                          (platformStack), each side with its own figures,
+//	                          so neither overhead eats into the plan.
+//	Burstable — Flexi alone: on demand, no hard ceiling, no ResourceQuota;
+//	            the LimitRange still renders (a small floor) so default-less
+//	            pods admit. Fixed tiers (S/M/L/XL) are hard-capped.
 type PlanQuota struct {
-	Slug      string
-	CPU       string // e.g. "2", "4", "8", "16"
-	Mem       string // e.g. "4Gi", "8Gi"
-	Burstable bool
+	Slug       string
+	CPULimit   string // headline, e.g. "1", "2", "4", "8"
+	MemLimit   string // headline, e.g. "2Gi", "4Gi"
+	CPURequest string // guaranteed = headline ÷ 6, e.g. "167m"
+	MemRequest string // guaranteed = headline ÷ 3, e.g. "683Mi"
+	Burstable  bool
 }
+
+// planOvercommitCPU / planOvercommitMemory are the workbook's overcommit
+// ratios — the headline limit over the guaranteed request. They are stamped
+// on the live LimitRange (openova.io/plan-overcommit-cpu / -memory) and size
+// its per-container default request from its default limit.
+const (
+	planOvercommitCPU    = 6
+	planOvercommitMemory = 3
+)
 
 // planQuotaTable is the catalog-slug → host-ns cap map (issue #4292 target
 // table). It is the ONE source the org-controller drives the ResourceQuota +
 // LimitRange off; the marketplace-api SizeResources + provisioning planLimits
 // were retired in Workstream A precisely so this table is the only one.
 //
-// S/M/L/XL are fixed Guaranteed tiers; Flexi is on-demand Burstable (no hard
-// quota ceiling — soft, scale-on-demand). The numbers mirror the seeded plan
-// rows (seed.go: S=2vCPU/4GB, M=4/8, L=8/16, XL=16/32).
+// S/M/L/XL are fixed hard-capped tiers; Flexi is on-demand Burstable (no hard
+// quota ceiling — soft, scale-on-demand). The headline numbers mirror the
+// seeded plan rows (core/services/catalog/handlers/seed.go seedPlanRows:
+// S 1 vCPU / 2 GB, M 2 / 4, L 4 / 8, XL 8 / 16 — the National Cloud workbook,
+// NC-OO-Pricing.xlsx 2026-06-28); the requests are those over the 6× / 3×
+// overcommit, rounded up (TestPlanQuota_RequestIsHeadlineOverOvercommit).
 var planQuotaTable = map[string]PlanQuota{
-	"s":     {Slug: "s", CPU: "2", Mem: "4Gi", Burstable: false},
-	"m":     {Slug: "m", CPU: "4", Mem: "8Gi", Burstable: false},
-	"l":     {Slug: "l", CPU: "8", Mem: "16Gi", Burstable: false},
-	"xl":    {Slug: "xl", CPU: "16", Mem: "32Gi", Burstable: false},
-	"flexi": {Slug: "flexi", CPU: "", Mem: "", Burstable: true},
+	"s":     {Slug: "s", CPULimit: "1", MemLimit: "2Gi", CPURequest: "167m", MemRequest: "683Mi", Burstable: false},
+	"m":     {Slug: "m", CPULimit: "2", MemLimit: "4Gi", CPURequest: "334m", MemRequest: "1366Mi", Burstable: false},
+	"l":     {Slug: "l", CPULimit: "4", MemLimit: "8Gi", CPURequest: "667m", MemRequest: "2731Mi", Burstable: false},
+	"xl":    {Slug: "xl", CPULimit: "8", MemLimit: "16Gi", CPURequest: "1334m", MemRequest: "5462Mi", Burstable: false},
+	"flexi": {Slug: "flexi", Burstable: true},
 }
 
 // planQuota resolves the cap for a plan slug, defaulting to "s" for an unknown
@@ -352,9 +381,11 @@ func mustQuantity(s string) resource.Quantity {
 }
 
 // quotaHard is the four hard-cap strings the ResourceQuota template renders:
-// the purchased plan plus the control-plane overhead plus the platform-stack
-// overhead, per resource, in the canonical Quantity spelling (e.g. plan "2" +
-// 520m + 3840m → "6360m", "4Gi" + 1088Mi + 6064Mi → "11248Mi").
+// the plan term plus the control-plane overhead plus the platform-stack
+// overhead, per resource, in the canonical Quantity spelling. The plan term
+// differs per side (#6971): the guaranteed request on requests.* (plan M
+// "334m" + 520m + 3840m → "4694m"), the headline limit on limits.* (plan M
+// "2" + 1500m + 4550m → "8050m").
 type quotaHard struct {
 	RequestsCPU    string
 	RequestsMemory string
@@ -362,11 +393,12 @@ type quotaHard struct {
 	LimitsMemory   string
 }
 
-// planPlusOverhead sizes the hard cap for a fixed-tier plan: the plan plus the
-// vCluster control plane plus the per-Organization platform stack, requests
-// and limits each with their own figures. Flexi never reaches here
-// (PlanRendersResourceQuota gates the file), and its empty CPU/Mem would not
-// parse.
+// planPlusOverhead sizes the hard cap for a fixed-tier plan: the plan term
+// plus the vCluster control plane plus the per-Organization platform stack,
+// requests (guaranteed share + the overheads' requests) and limits (headline +
+// the overheads' limits) each with their own figures. Flexi never reaches
+// here (PlanRendersResourceQuota gates the file), and its empty figures would
+// not parse.
 func planPlusOverhead(q PlanQuota, cp ControlPlaneOverhead, ps PlatformStackOverhead) quotaHard {
 	add := func(plan string, overheads ...resource.Quantity) string {
 		sum := mustQuantity(plan)
@@ -376,10 +408,10 @@ func planPlusOverhead(q PlanQuota, cp ControlPlaneOverhead, ps PlatformStackOver
 		return sum.String()
 	}
 	return quotaHard{
-		RequestsCPU:    add(q.CPU, cp.RequestsCPU, ps.RequestsCPU),
-		RequestsMemory: add(q.Mem, cp.RequestsMemory, ps.RequestsMemory),
-		LimitsCPU:      add(q.CPU, cp.LimitsCPU, ps.LimitsCPU),
-		LimitsMemory:   add(q.Mem, cp.LimitsMemory, ps.LimitsMemory),
+		RequestsCPU:    add(q.CPURequest, cp.RequestsCPU, ps.RequestsCPU),
+		RequestsMemory: add(q.MemRequest, cp.RequestsMemory, ps.RequestsMemory),
+		LimitsCPU:      add(q.CPULimit, cp.LimitsCPU, ps.LimitsCPU),
+		LimitsMemory:   add(q.MemLimit, cp.LimitsMemory, ps.LimitsMemory),
 	}
 }
 
@@ -435,11 +467,14 @@ func (o ControlPlaneOverhead) String() string {
 //
 // A container the chart leaves UNSIZED (bp-agenity's `seed-claude-creds` init
 // container) is admitted with the per-Org LimitRange defaults of the plan
-// (limitRangeDefaults: plan/8, requests==limits) — so its cost, and with it
-// the stack overhead, depends on the plan. On S/M/L the agenity app containers
-// still dominate the pod; on XL the 2-CPU / 4Gi default makes the init
-// container the pod's effective shape. A zero-value containerShape below means
-// exactly that, and platformStackOverheadOf resolves it per plan.
+// (limitRangeDefaults: default limit = headline/8, default request = that over
+// the overcommit ratio) — so its cost, and with it the stack overhead, depends
+// on the plan in principle. With the #6971 headlines (XL 8 vCPU / 16 GiB →
+// defaults 1 CPU / 2Gi limit, 167m / 683Mi request) the agenity app
+// containers dominate the pod on every plan, so the four figures coincide
+// today; the rule is still applied per plan, and a larger headline would
+// change XL first. A zero-value containerShape below means exactly that, and
+// platformStackOverheadOf resolves it per plan.
 //
 // NOT COUNTED, deliberately: transient pods — Helm hook Jobs (keycloak-config-
 // cli 250m/256Mi, the newapi seed and secret-sync Jobs) and a Deployment's
@@ -542,15 +577,16 @@ type PlatformStackOverhead struct {
 }
 
 // platformStackOverheadOf applies the ResourceQuota pod-usage rule to every
-// workload in the stack and sums the pods. defCPU/defMem are the plan's
-// LimitRange per-container defaults (limitRangeDefaults), which size any
-// container the chart leaves unsized — so the result is per plan.
-func platformStackOverheadOf(stack []platformStackWorkload, defCPU, defMem string) PlatformStackOverhead {
+// workload in the stack and sums the pods. def is the plan's LimitRange
+// per-container defaults (limitRangeDefaults: defaultRequest on the request
+// side, default on the limit side), which size any container the chart
+// leaves unsized — so the result is per plan.
+func platformStackOverheadOf(stack []platformStackWorkload, def containerShape) PlatformStackOverhead {
 	sized := func(cs []containerShape) []containerShape {
 		out := make([]containerShape, len(cs))
 		for i, c := range cs {
 			if c == (containerShape{}) {
-				c = containerShape{RequestsCPU: defCPU, RequestsMemory: defMem, LimitsCPU: defCPU, LimitsMemory: defMem}
+				c = def
 			}
 			out[i] = c
 		}
@@ -570,8 +606,7 @@ func platformStackOverheadOf(stack []platformStackWorkload, defCPU, defMem strin
 // platformStackOverheadFor is the stack overhead for a plan: the shared table
 // resolved against that plan's LimitRange defaults.
 func platformStackOverheadFor(q PlanQuota) PlatformStackOverhead {
-	defCPU, defMem := limitRangeDefaults(q)
-	return platformStackOverheadOf(platformStack, defCPU, defMem)
+	return platformStackOverheadOf(platformStack, limitRangeDefaults(q))
 }
 
 // String renders the overhead the way the ResourceQuota annotation carries it.
@@ -668,8 +703,9 @@ spec:
             repository: proxy-ghcr/loft-sh/kubernetes
           # #4389/#4297: the k8s-distro is initContainers[0] with an asymmetric
           # 40m/100m + 64Mi/256Mi shape (ratio 2.5/4) — the per-Org LimitRange
-          # (#4292, maxLimitRequestRatio 1) rejects it alongside the syncer.
-          # Render requests==limits so the whole vcluster-0 pod is admitted.
+          # of the time (#4292, maxLimitRequestRatio 1; the ratio is gone since
+          # #4758) rejected it alongside the syncer. Rendered requests==limits
+          # since then so the whole vcluster-0 pod is admitted; kept as is.
           # Figures come from vclusterControlPlane.Distro — the same values the
           # plan ResourceQuota's control-plane overhead is computed from.
           resources:
@@ -720,15 +756,16 @@ spec:
         image:
           registry: {{ .VClusterImageRegistry }}
           repository: proxy-ghcr/loft-sh/vcluster-oss
-        # #4389/#4297: the per-Org LimitRange (#4292) maxLimitRequestRatio
-        # {cpu:1,memory:1} ALSO applies to the vcluster control-plane
-        # StatefulSet (it runs natively in the Org host ns, NOT inside the
-        # vcluster) — the asymmetric 100m/2000m + 192Mi/2Gi shape was 'forbidden:
-        # cpu limit to request ratio is 20' → vcluster-0 never scheduled → m-tier
-        # Orgs could not provision their vcluster at all (#4297 keystone). Render
-        # requests==limits (Guaranteed QoS) so the LimitRange admits the syncer.
-        # The platform mgmt/rtz/dmz vclusters escape only because their ns has
-        # no LimitRange; the per-Org boundary must instead satisfy it.
+        # #4389/#4297: the per-Org LimitRange of the time (#4292,
+        # maxLimitRequestRatio {cpu:1,memory:1}; the ratio is gone since #4758)
+        # ALSO applied to the vcluster control-plane StatefulSet (it runs
+        # natively in the Org host ns, NOT inside the vcluster) — the asymmetric
+        # 100m/2000m + 192Mi/2Gi shape was 'forbidden: cpu limit to request
+        # ratio is 20' → vcluster-0 never scheduled → m-tier Orgs could not
+        # provision their vcluster at all (#4297 keystone). Rendered
+        # requests==limits (Guaranteed QoS) since then and kept as is: the
+        # LimitRange carries no ratio today, but the shape is what the plan
+        # ResourceQuota's control-plane overhead is derived from.
         # Figures come from vclusterControlPlane.Syncer — the same values the
         # plan ResourceQuota's control-plane overhead is computed from.
         resources:
@@ -865,12 +902,18 @@ spec:
 // customer purchased (#4292) PLUS the vCluster control-plane overhead PLUS the
 // per-Organization platform-stack overhead, both of which run in the same
 // namespace (#6902 follow-ups; see vclusterControlPlaneOverhead and
-// platformStack). Driven by planQuota(.PlanSlug) → planPlusOverhead. Requests
-// and limits carry their own overheads: the plan itself is requests==limits
-// (Guaranteed shape), the overheads are not (coredns and the newapi pod are
-// Burstable), so the two hard caps differ by exactly the overheads'
-// request/limit gap. Flexi renders NO ResourceQuota (on-demand, soft cap) —
-// the controller skips this file for Burstable plans.
+// platformStack). Driven by planQuota(.PlanSlug) → planPlusOverhead.
+//
+// The plan term is NOT the same on both sides (#6971 overcommit model): the
+// limits.* cap carries the HEADLINE the customer bought (M: 2 CPU / 4Gi), the
+// requests.* cap carries the GUARANTEED share the Sovereign provisions for it
+// (M: 334m / 1366Mi — headline ÷ 6 and ÷ 3). The customer's workloads may
+// request up to the guaranteed share and burst up to the headline; what they
+// pay for is the headline, what is reserved for them is the guarantee. The
+// overheads are added on their own sides likewise (coredns and the newapi pod
+// are Burstable), so the two hard caps differ by the plan's overcommit gap
+// plus the overheads' request/limit gap. Flexi renders NO ResourceQuota
+// (on-demand, soft cap) — the controller skips this file for Burstable plans.
 //
 // The split is stamped as annotations so an operator reading the LIVE object
 // (`kubectl get resourcequota plan-quota -o yaml`) can reconcile the number to
@@ -887,8 +930,11 @@ const resourceQuotaTemplate = `# The hard cap below is NOT the plan alone. It is
 # the per-Organization platform stack (bp-keycloak + its postgresql, bp-newapi
 # + its postgresql, bp-openclaw, bp-agenity + its oidc-gate), all of which run
 # in this same namespace and are charged to this quota at admission, so neither
-# eats into what the customer bought.
-#   plan {{ .PlanSlug }}: {{ .PlanCapText }}
+# eats into what the customer bought. The plan term is the headline on limits
+# and the guaranteed share (headline over the CPU 6x / memory 3x overcommit)
+# on requests.
+#   plan {{ .PlanSlug }} headline (limits): {{ .PlanCapText }}
+#   plan {{ .PlanSlug }} guaranteed (requests): {{ .PlanGuaranteedText }}
 #   vcluster control plane: {{ .OverheadText }}
 #   per-Organization platform stack: {{ .PlatformStackText }}
 apiVersion: v1
@@ -903,6 +949,10 @@ metadata:
   annotations:
     openova.io/quota-formula: "purchased plan + vcluster control plane + per-Organization platform stack"
     openova.io/plan-cap: {{ .PlanCapText | quote }}
+    openova.io/plan-guaranteed-cpu: {{ .Quota.CPURequest | quote }}
+    openova.io/plan-guaranteed-memory: {{ .Quota.MemRequest | quote }}
+    openova.io/plan-overcommit-cpu: "{{ .OvercommitCPU }}"
+    openova.io/plan-overcommit-memory: "{{ .OvercommitMemory }}"
     openova.io/vcluster-control-plane-overhead: {{ .OverheadText | quote }}
     openova.io/platform-stack-overhead: {{ .PlatformStackText | quote }}
 spec:
@@ -915,12 +965,23 @@ spec:
 
 // limitRangeTemplate seeds defaultRequest/default so pods authored without
 // explicit requests/limits still ADMIT once a ResourceQuota exists (a quota
-// rejects any pod missing the limited resources). For the fixed tiers it also
-// pins maxLimitRequestRatio {cpu:1,memory:1} + defaultRequest==default →
-// requests==limits → Guaranteed QoS (#4292). Flexi omits the ratio (asymmetric
-// requests<limits allowed → Burstable). The default container request is the
-// plan ceiling / 8 so a handful of small Pods fit under the quota out of the
-// box; an Application that needs more sets its own explicit requests.
+// rejects any pod missing the limited resources).
+//
+// The defaults carry the plan's overcommit shape (#6971): the default LIMIT
+// is the headline / 8, the default REQUEST is that over the workbook's ratio
+// (CPU ÷ 6, memory ÷ 3) — limitRangeDefaults. A container authored without
+// resources is therefore admitted requests<limits, Burstable, at the same
+// guaranteed:headline proportion the plan itself has; an Application that
+// needs more sets its own explicit requests, up to the ResourceQuota's caps.
+// Until #6971 the two defaults were EQUAL (plan / 8 on both), which made every
+// defaulted container Guaranteed and reserved the whole headline on the node;
+// the headline is the cap the customer pays for, the guarantee is what the
+// Sovereign provisions, and the defaults now say so.
+//
+// The overcommit ratios are stamped as annotations (openova.io/plan-
+// overcommit-cpu / -memory) with the headline and the guarantee, so the live
+// object states the model the defaults were derived from. They are NOT
+// enforced as maxLimitRequestRatio — see the note inside the template.
 const limitRangeTemplate = `apiVersion: v1
 kind: LimitRange
 metadata:
@@ -930,29 +991,41 @@ metadata:
     openova.io/organization: {{ .Slug }}
     openova.io/plan: {{ .PlanSlug }}
     openova.io/managed-by: catalyst
+  annotations:
+    openova.io/plan-cap: {{ .PlanCapText | quote }}
+    openova.io/plan-guaranteed-cpu: {{ .Quota.CPURequest | quote }}
+    openova.io/plan-guaranteed-memory: {{ .Quota.MemRequest | quote }}
+    openova.io/plan-overcommit-cpu: "{{ .OvercommitCPU }}"
+    openova.io/plan-overcommit-memory: "{{ .OvercommitMemory }}"
 spec:
   limits:
     - type: Container
       defaultRequest:
-        cpu: "{{ .DefaultCPU }}"
-        memory: "{{ .DefaultMem }}"
+        cpu: "{{ .Defaults.RequestsCPU }}"
+        memory: "{{ .Defaults.RequestsMemory }}"
       default:
-        cpu: "{{ .DefaultCPU }}"
-        memory: "{{ .DefaultMem }}"
+        cpu: "{{ .Defaults.LimitsCPU }}"
+        memory: "{{ .Defaults.LimitsMemory }}"
 {{- /*
-  #4758 — NO maxLimitRequestRatio on the vcluster-Org host namespace. This
-  template renders the HOST ns of a per-Org vCluster, and the vcluster syncer
-  reflects the vcluster's pods INTO this ns — starting with the vcluster's own
-  bundled system pods (coredns, ratio 50:1 cpu / 2.66:1 mem) which can NEVER be
-  Guaranteed. A maxLimitRequestRatio cpu=1/memory=1 here therefore FORBIDS
-  every synced pod at admission → coredns Pending → the vcluster runs nothing →
-  the customer's first app (WordPress) 404s. Live-confirmed on hw223 uatwalk223
-  (syncer: "forbidden: cpu max limit to request ratio ... is 1, but provided
-  50"). The #4292/W-2 Guaranteed-QoS enforcement belongs on the HOST-namespace
-  Org path (non-vcluster tiers), NOT here — the vcluster boundary + the
-  vcluster's own resource caps provide isolation for vcluster-mode Orgs. The
-  defaultRequest/default above stay (they satisfy the ResourceQuota's
-  "limited resource must be set" admission rule without imposing a ratio).
+  NO maxLimitRequestRatio here — not 1 (#4758) and not the plan's 6 / 3
+  (#6971) either. This template renders the HOST ns of a per-Org vCluster, and
+  that namespace holds pods this plan does not size: the vcluster syncer
+  reflects the vcluster's own bundled system pods into it (coredns: 20m
+  requests / 1000m limits, ratio 50:1 cpu, 2.66:1 mem) and the per-Organization
+  platform stack runs here too (the newapi sandbox-bridge and metering
+  sidecars at 20:1, its wait-for-sql-dsn init at 10:1, agenity's creds-resync
+  at 10:1, newapi memory at 4:1 — platformStack). A LimitRange ratio applies to
+  EVERY container admitted into the namespace, so any ratio tighter than 50:1
+  forbids those pods at admission → coredns Pending → the vcluster runs
+  nothing → the customer's first app (WordPress) 404s. Live-confirmed on hw223
+  uatwalk223 with ratio 1 (syncer: "forbidden: cpu max limit to request ratio
+  ... is 1, but provided 50"); the same admission rule would reject the same
+  pods at 6. The plan's overcommit is therefore carried where it can be
+  enforced without touching those pods — the ResourceQuota (guaranteed share on
+  requests.*, headline on limits.*) and the defaults above — and stated on this
+  object as annotations. The defaultRequest/default stay (they satisfy the
+  ResourceQuota's "limited resource must be set" admission rule without
+  imposing a ratio).
 */}}
 `
 
@@ -1330,16 +1403,23 @@ type renderView struct {
 	// template interpolates (vclusterControlPlane) — the same values Hard's
 	// overhead was computed from.
 	ControlPlane vclusterControlPlaneShape
-	// PlanCapText / OverheadText / PlatformStackText are the human-readable
-	// terms of the split, stamped as annotations on the ResourceQuota.
-	PlanCapText       string
-	OverheadText      string
-	PlatformStackText string
-	// DefaultCPU/DefaultMem are the LimitRange per-container default
-	// request==limit (plan ceiling / 8 for fixed tiers; a small fixed
-	// floor for Flexi which has no ceiling).
-	DefaultCPU string
-	DefaultMem string
+	// PlanCapText / PlanGuaranteedText / OverheadText / PlatformStackText are
+	// the human-readable terms of the split, stamped as annotations on the
+	// ResourceQuota: the headline (limits), the guaranteed share (requests),
+	// and the two overheads.
+	PlanCapText        string
+	PlanGuaranteedText string
+	OverheadText       string
+	PlatformStackText  string
+	// OvercommitCPU / OvercommitMemory are the workbook ratios (headline over
+	// guaranteed), stamped on the ResourceQuota and the LimitRange.
+	OvercommitCPU    int
+	OvercommitMemory int
+	// Defaults are the LimitRange per-container defaults (limitRangeDefaults):
+	// default limit = headline / 8, default request = that over the overcommit
+	// ratio for fixed tiers; a small fixed floor for Flexi which has no
+	// ceiling.
+	Defaults containerShape
 	// AppNamespace is the in-vcluster namespace the funnel installs the
 	// customer's Applications into (= "apps", matching the provisioning
 	// funnel's appNS). The default-deny + same-Org NetworkPolicy targets it
@@ -1365,23 +1445,47 @@ type renderView struct {
 	LimitRangeName    string
 }
 
-// limitRangeDefaults derives the per-container default request==limit for a
-// plan. For a fixed tier it is the plan ceiling / 8 (so ~8 unspecified small
-// Pods fit under the quota before any Application sets explicit requests). For
-// Flexi (no ceiling) it is a small fixed floor.
-func limitRangeDefaults(q PlanQuota) (cpu, mem string) {
-	switch q.Slug {
-	case "s":
-		return "250m", "512Mi"
-	case "m":
-		return "500m", "1Gi"
-	case "l":
-		return "1", "2Gi"
-	case "xl":
-		return "2", "4Gi"
-	default: // flexi / unknown — small Burstable floor.
-		return "100m", "128Mi"
+// limitRangeDefaults derives the per-container defaults the LimitRange seeds
+// into a container authored without resources, as one containerShape:
+//
+//   - default LIMIT   = the plan headline / 8 (so ~8 unspecified small
+//     containers fit under the headline before any Application sets explicit
+//     resources) — S 125m / 256Mi, M 250m / 512Mi, L 500m / 1Gi, XL 1 / 2Gi;
+//   - default REQUEST = that limit over the overcommit ratio (CPU ÷ 6,
+//     memory ÷ 3), rounded UP so limit/request never exceeds the ratio —
+//     S 21m / 86Mi, M 42m / 171Mi, L 84m / 342Mi, XL 167m / 683Mi.
+//
+// The request:limit shape of a defaulted container therefore mirrors the
+// plan's own guaranteed:headline shape. For Flexi (no ceiling) both are a
+// small fixed floor; the same numbers are used for an unknown slug, which
+// planQuota already resolved to "s".
+func limitRangeDefaults(q PlanQuota) containerShape {
+	if q.Burstable {
+		return containerShape{RequestsCPU: "100m", RequestsMemory: "128Mi", LimitsCPU: "100m", LimitsMemory: "128Mi"}
 	}
+	limCPU := mustQuantity(q.CPULimit)
+	limMem := mustQuantity(q.MemLimit)
+	// Headline / 8, in exact millicores and MiB (every headline is a whole
+	// number of CPUs and a power-of-two GiB, so neither division truncates).
+	defCPU := resource.NewMilliQuantity(limCPU.MilliValue()/8, resource.DecimalSI)
+	defMem := resource.NewQuantity(limMem.Value()/8, resource.BinarySI)
+	return containerShape{
+		RequestsCPU:    ceilDiv(defCPU.MilliValue(), planOvercommitCPU, "m"),
+		RequestsMemory: ceilDiv(defMem.Value()/mi, planOvercommitMemory, "Mi"),
+		LimitsCPU:      defCPU.String(),
+		LimitsMemory:   defMem.String(),
+	}
+}
+
+// mi is one MiB in bytes, for memory arithmetic in whole MiB.
+const mi = 1024 * 1024
+
+// ceilDiv divides n by d rounding UP and renders it with the unit suffix the
+// LimitRange carries ("m" millicores, "Mi" MiB). Rounding up is load-bearing:
+// a request rounded down would put the container's limit/request ratio a
+// hair ABOVE the overcommit ratio the LimitRange annotations state.
+func ceilDiv(n, d int64, unit string) string {
+	return fmt.Sprintf("%d%s", (n+d-1)/d, unit)
 }
 
 // Render returns the rendered (path, bytes) tuples the controller
@@ -1428,26 +1532,28 @@ func Render(in Inputs) (map[string][]byte, error) {
 	}
 
 	quota := planQuota(in.PlanSlug)
-	defCPU, defMem := limitRangeDefaults(quota)
 	view := renderView{
 		Inputs:            in,
 		Quota:             quota,
 		ControlPlane:      vclusterControlPlane,
 		OverheadText:      vclusterControlPlaneOverhead.String(),
-		DefaultCPU:        defCPU,
-		DefaultMem:        defMem,
+		OvercommitCPU:     planOvercommitCPU,
+		OvercommitMemory:  planOvercommitMemory,
+		Defaults:          limitRangeDefaults(quota),
 		AppNamespace:      "apps",
 		ResourceQuotaName: BoundaryResourceQuotaName,
 		LimitRangeName:    BoundaryLimitRangeName,
 	}
-	// The hard cap = plan + control-plane overhead + platform-stack overhead.
-	// Only for hard-capped plans: Flexi has no plan figure to add to (and
-	// renders no quota). The stack term is per plan because a chart-unsized
-	// container takes this plan's LimitRange defaults.
+	// The hard cap = plan term + control-plane overhead + platform-stack
+	// overhead, the plan term being the guaranteed share on requests and the
+	// headline on limits. Only for hard-capped plans: Flexi has no plan figure
+	// to add to (and renders no quota). The stack term is per plan because a
+	// chart-unsized container takes this plan's LimitRange defaults.
 	if PlanRendersResourceQuota(in.PlanSlug) {
 		ps := platformStackOverheadFor(quota)
 		view.Hard = planPlusOverhead(quota, vclusterControlPlaneOverhead, ps)
-		view.PlanCapText = fmt.Sprintf("cpu=%s memory=%s", quota.CPU, quota.Mem)
+		view.PlanCapText = fmt.Sprintf("cpu=%s memory=%s", quota.CPULimit, quota.MemLimit)
+		view.PlanGuaranteedText = fmt.Sprintf("cpu=%s memory=%s", quota.CPURequest, quota.MemRequest)
 		view.PlatformStackText = ps.String()
 	}
 

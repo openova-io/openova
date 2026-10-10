@@ -314,15 +314,17 @@ func TestRender_ResourceQuotaIsPlanPlusBothOverheads(t *testing.T) {
 			t.Fatalf("plan %q: resourcequota.yaml did not parse: %v\n%s", slug, err, raw)
 		}
 
+		// The plan term is per side (#6971): the guaranteed share on
+		// requests, the headline on limits.
 		for res, tc := range map[string]struct {
 			plan         string
 			controlPlane resource.Quantity
 			stack        resource.Quantity
 		}{
-			"requests.cpu":    {q.CPU, o.RequestsCPU, ps.RequestsCPU},
-			"requests.memory": {q.Mem, o.RequestsMemory, ps.RequestsMemory},
-			"limits.cpu":      {q.CPU, o.LimitsCPU, ps.LimitsCPU},
-			"limits.memory":   {q.Mem, o.LimitsMemory, ps.LimitsMemory},
+			"requests.cpu":    {q.CPURequest, o.RequestsCPU, ps.RequestsCPU},
+			"requests.memory": {q.MemRequest, o.RequestsMemory, ps.RequestsMemory},
+			"limits.cpu":      {q.CPULimit, o.LimitsCPU, ps.LimitsCPU},
+			"limits.memory":   {q.MemLimit, o.LimitsMemory, ps.LimitsMemory},
 		} {
 			hard, ok := rq.Spec.Hard[res]
 			if !ok {
@@ -357,9 +359,22 @@ func TestRender_ResourceQuotaIsPlanPlusBothOverheads(t *testing.T) {
 				slug, len(rq.Spec.Hard), rq.Spec.Hard)
 		}
 
-		// The split is stamped on the object.
-		if got, want := rq.Metadata.Annotations["openova.io/plan-cap"], fmt.Sprintf("cpu=%s memory=%s", q.CPU, q.Mem); got != want {
+		// The split is stamped on the object: the headline, the guaranteed
+		// share, the overcommit ratios and the two overheads.
+		if got, want := rq.Metadata.Annotations["openova.io/plan-cap"], fmt.Sprintf("cpu=%s memory=%s", q.CPULimit, q.MemLimit); got != want {
 			t.Errorf("plan %q: annotation openova.io/plan-cap = %q, want %q", slug, got, want)
+		}
+		if got := rq.Metadata.Annotations["openova.io/plan-guaranteed-cpu"]; got != q.CPURequest {
+			t.Errorf("plan %q: annotation openova.io/plan-guaranteed-cpu = %q, want %q", slug, got, q.CPURequest)
+		}
+		if got := rq.Metadata.Annotations["openova.io/plan-guaranteed-memory"]; got != q.MemRequest {
+			t.Errorf("plan %q: annotation openova.io/plan-guaranteed-memory = %q, want %q", slug, got, q.MemRequest)
+		}
+		if got := rq.Metadata.Annotations["openova.io/plan-overcommit-cpu"]; got != "6" {
+			t.Errorf("plan %q: annotation openova.io/plan-overcommit-cpu = %q, want \"6\"", slug, got)
+		}
+		if got := rq.Metadata.Annotations["openova.io/plan-overcommit-memory"]; got != "3" {
+			t.Errorf("plan %q: annotation openova.io/plan-overcommit-memory = %q, want \"3\"", slug, got)
 		}
 		if got := rq.Metadata.Annotations["openova.io/vcluster-control-plane-overhead"]; got != o.String() {
 			t.Errorf("plan %q: annotation openova.io/vcluster-control-plane-overhead = %q, want %q", slug, got, o.String())
@@ -380,13 +395,17 @@ func TestRender_ResourceQuotaIsPlanPlusBothOverheads(t *testing.T) {
 }
 
 // TestRender_LimitRangeDefaultsUnchangedByOverhead is property 3: the
-// per-container defaultRequest/default stay plan-only (plan / 8 for fixed
-// tiers, the small floor for Flexi) and never absorb the control plane.
+// per-container defaultRequest/default stay plan-only (default limit =
+// headline / 8, default request = that over the 6× / 3× overcommit for fixed
+// tiers; the small floor for Flexi) and never absorb the control plane.
 func TestRender_LimitRangeDefaultsUnchangedByOverhead(t *testing.T) {
 	t.Parallel()
-	want := map[string]struct{ cpu, mem string }{
-		"s": {"250m", "512Mi"}, "m": {"500m", "1Gi"}, "l": {"1", "2Gi"}, "xl": {"2", "4Gi"},
-		"flexi": {"100m", "128Mi"},
+	want := map[string]struct{ reqCPU, reqMem, limCPU, limMem string }{
+		"s":     {"21m", "86Mi", "125m", "256Mi"},
+		"m":     {"42m", "171Mi", "250m", "512Mi"},
+		"l":     {"84m", "342Mi", "500m", "1Gi"},
+		"xl":    {"167m", "683Mi", "1", "2Gi"},
+		"flexi": {"100m", "128Mi", "100m", "128Mi"},
 	}
 	if len(want) != len(planQuotaTable) {
 		t.Fatalf("vacuity: %d plans pinned here, planQuotaTable has %d — pin the new plan's LimitRange defaults", len(want), len(planQuotaTable))
@@ -413,16 +432,23 @@ func TestRender_LimitRangeDefaultsUnchangedByOverhead(t *testing.T) {
 			t.Fatalf("plan %q: want exactly one Container limit, got %+v", slug, lr.Spec.Limits)
 		}
 		l := lr.Spec.Limits[0]
-		for _, m := range []map[string]string{l.DefaultRequest, l.Default} {
-			gotCPU, wantCPU := mustQ(t, slug, m["cpu"]), mustQ(t, slug, w.cpu)
-			gotMem, wantMem := mustQ(t, slug, m["memory"]), mustQ(t, slug, w.mem)
+		for _, side := range []struct {
+			name     string
+			got      map[string]string
+			cpu, mem string
+		}{
+			{"defaultRequest", l.DefaultRequest, w.reqCPU, w.reqMem},
+			{"default", l.Default, w.limCPU, w.limMem},
+		} {
+			gotCPU, wantCPU := mustQ(t, slug, side.got["cpu"]), mustQ(t, slug, side.cpu)
+			gotMem, wantMem := mustQ(t, slug, side.got["memory"]), mustQ(t, slug, side.mem)
 			if gotCPU.Cmp(wantCPU) != 0 || gotMem.Cmp(wantMem) != 0 {
-				t.Errorf("plan %q: LimitRange defaults = cpu %s / memory %s, want %s / %s (plan-only; the control-plane overhead must not leak in)",
-					slug, m["cpu"], m["memory"], w.cpu, w.mem)
+				t.Errorf("plan %q: LimitRange %s = cpu %s / memory %s, want %s / %s (plan-only; the control-plane overhead must not leak in)",
+					slug, side.name, side.got["cpu"], side.got["memory"], side.cpu, side.mem)
 			}
 		}
 		if len(l.MaxRatio) != 0 {
-			t.Errorf("plan %q: maxLimitRequestRatio must stay absent (#4758)", slug)
+			t.Errorf("plan %q: maxLimitRequestRatio must stay absent (#4758; the overcommit is carried by the quota and the defaults, not by a ratio that would reject coredns)", slug)
 		}
 	}
 }

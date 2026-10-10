@@ -689,7 +689,8 @@ function IssueVoucherModal({ onClose, onIssued }: IssueVoucherModalProps) {
             <option value="">Any plan (credit only)</option>
             {planOptions.map((p) => (
               <option key={p.slug} value={p.slug}>
-                {p.name} — {p.price_omr} OMR/mo
+                {/* Money from price_baisa (#6971), three decimals: "M — 4.490 OMR/mo". */}
+                {p.name} — {((typeof p.price_baisa === 'number' ? p.price_baisa : Math.round((p.price_omr ?? 0) * 1000)) / 1000).toFixed(3)} OMR/mo
               </option>
             ))}
           </select>
