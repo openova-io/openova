@@ -324,7 +324,13 @@ const orgIsolation = "vcluster"
 // catalogPlanSlugs — the purchasable catalog plans, in tier order. ONE list:
 // resolveOrgShape's normalisation and the #6135 conflict message both read it,
 // so a new plan cannot be accepted by one and invisible to the other.
-var catalogPlanSlugs = []string{"s", "m", "l", "xl", "flexi"}
+//
+// flexi is NOT here (#6971, founder model 2026-10-10): pay as you go is grow
+// mode on a package, so a NEW Organization is never minted on flexi — a
+// plan_slug "flexi" is coerced to "s" like any slug outside the list. An
+// Organization already on flexi keeps its CR, and the org-controller renders
+// it as S in grow mode (gitops.EffectivePlan).
+var catalogPlanSlugs = []string{"s", "m", "l", "xl"}
 
 // isCatalogPlanSlug reports whether `slug` names a purchasable plan.
 func isCatalogPlanSlug(slug string) bool {

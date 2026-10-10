@@ -40,6 +40,14 @@ func TestCommerceUpdate(t *testing.T) {
 			},
 		},
 		{
+			// M 4.490 + backup 1.500 = 5.990 collected at checkout.
+			name: "the prepaid amount the checkout collected",
+			in:   Commerce{PrepaidAmount: "5.990"},
+			want: bson.D{
+				{Key: "$set", Value: bson.D{{Key: "updated_at", Value: now}, {Key: "prepaid_amount", Value: "5.990"}}},
+			},
+		},
+		{
 			name: "capped clears the grow fields",
 			in:   Commerce{OverageMode: "capped", ClearGrow: true},
 			want: bson.D{

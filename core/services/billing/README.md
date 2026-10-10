@@ -139,6 +139,21 @@ three keys. The settlement launch body hands them to core/services/tenant:
 only in grow mode; the Organization CR receives them as
 `spec.commerce.overageMode` / `growCeiling` / `spendLimitMonth`.
 
+### Prepaid amount — what the checkout collected for the package
+
+A package is paid for in advance, and the checkout collects the first one.
+On a package order the row persists `prepaid_baisa` (BIGINT, default 0 — the
+backfill for every older row): the package's `price_month` plus every
+non-redundant BSS `addon.*` line, never the topology surcharge (billing's own
+figure) and never a catalog add-on, and never more than `amount_baisa`. M
+4.490 with backup 1.500 is 5.990. `order.placed` and the settlement launch
+body carry it as `prepaid_amount`, a money string at exactly three decimals
+(`"5.990"`, omitted when zero); core/services/tenant persists it (the settled
+order wins over a create-time value) and emits it on `tenant.created`; the
+Organization CR receives it as `spec.commerce.prepaidAmount`. BSS credits it
+on the Organization's first statement, so the package the checkout collected
+is never charged twice.
+
 ### Configuration
 
 | Env | Default | Source |

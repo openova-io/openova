@@ -1212,6 +1212,12 @@ func main() {
 	// chargeback) — and then run the same CR stamp the operator routes do.
 	r.Post("/api/v1/internal/organizations/{id}/suspend", h.HandleInternalSuspendOrganization)
 	r.Post("/api/v1/internal/organizations/{id}/resume", h.HandleInternalResumeOrganization)
+	// #6971 — the BSS spend-limit stop on a grow Organization: the same
+	// ServiceAccount door and allow-list, stamping spec.overageStoppedUntil
+	// (the org-controller then renders the Organization capped until that
+	// instant) and clearing it.
+	r.Post("/api/v1/internal/organizations/{id}/overage-stop", h.HandleInternalOverageStopOrganization)
+	r.Post("/api/v1/internal/organizations/{id}/overage-resume", h.HandleInternalOverageResumeOrganization)
 
 	// Sovereign-side handover ARCHIVE RECEIVER (issue #317 / #933,
 	// fix #3379). Catalyst-Zero's postTofuArchive POSTs the sealed

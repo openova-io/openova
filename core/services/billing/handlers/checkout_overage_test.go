@@ -348,6 +348,7 @@ func TestCheckout_Grow_CreditOnly_PersistsOverageAndHandsItOver(t *testing.T) {
 			sqlmock.AnyArg(), sqlmock.AnyArg(),
 			"plan.m", "bss:OpenOva plans@2026-10-10", jsonArg{`[]`},
 			"grow", jsonArg{wantCeiling}, "25.000",
+			int64(4490), // prepaid_baisa: M 4.490; the grow-only DR standby is 0 upfront
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow("order-grow", time.Now()))
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO credit_ledger (customer_id, amount_omr, reason, order_id)")).
@@ -384,12 +385,14 @@ func TestCheckout_Grow_CreditOnly_PersistsOverageAndHandsItOver(t *testing.T) {
 		GrowCeiling     *events.GrowCeiling `json:"grow_ceiling"`
 		SpendLimitMonth string              `json:"spend_limit_month"`
 		PackageSKU      string              `json:"package_sku"`
+		PrepaidAmount   string              `json:"prepaid_amount"`
 	}
 	if err := json.Unmarshal(launch, &got); err != nil {
 		t.Fatalf("launch body: %v (%s)", err, launch)
 	}
 	if got.OverageMode != "grow" || got.SpendLimitMonth != "25.000" || got.PackageSKU != "plan.m" ||
-		got.GrowCeiling == nil || got.GrowCeiling.VCPU != 4 || got.GrowCeiling.BandwidthMbps != 1000 {
+		got.GrowCeiling == nil || got.GrowCeiling.VCPU != 4 || got.GrowCeiling.BandwidthMbps != 1000 ||
+		got.PrepaidAmount != "4.490" { // M 4.490; the grow-only DR standby is 0 upfront
 		t.Errorf("launch body = %s", launch)
 	}
 
@@ -400,6 +403,9 @@ func TestCheckout_Grow_CreditOnly_PersistsOverageAndHandsItOver(t *testing.T) {
 		var p map[string]any
 		if err := json.Unmarshal(e.Data, &p); err != nil {
 			t.Fatal(err)
+		}
+		if p["prepaid_amount"] != "4.490" {
+			t.Errorf("order.placed prepaid_amount = %v, want 4.490", p["prepaid_amount"])
 		}
 		if p["overage_mode"] != "grow" || p["spend_limit_month"] != "25.000" {
 			t.Errorf("order.placed overage: %v %v", p["overage_mode"], p["spend_limit_month"])

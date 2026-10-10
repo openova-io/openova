@@ -226,7 +226,7 @@ func TestPlanQuota_CatalogSlugMapping(t *testing.T) {
 		{"m", "2", "4Gi", "334m", "1366Mi", false},
 		{"l", "4", "8Gi", "667m", "2731Mi", false},
 		{"xl", "8", "16Gi", "1334m", "5462Mi", false},
-		{"flexi", "", "", "", "", true},
+		{"flexi", "1", "2Gi", "167m", "683Mi", false}, // retired (#6971): S, rendered in grow by EffectivePlan
 		{"", "1", "2Gi", "167m", "683Mi", false},      // empty → smallest paid cap, never uncapped
 		{"bogus", "1", "2Gi", "167m", "683Mi", false}, // unknown → smallest paid cap
 		{"M", "2", "4Gi", "334m", "1366Mi", false},    // case-insensitive
@@ -297,24 +297,44 @@ func TestRender_ResourceQuotaPerPlan(t *testing.T) {
 	}
 }
 
-// TestRender_FlexiNoResourceQuota proves Flexi is soft-capped: a LimitRange
-// renders (so default-less pods still admit) but NO hard ResourceQuota.
-func TestRender_FlexiNoResourceQuota(t *testing.T) {
+// TestRender_RetiredFlexiRendersSGrow proves flexi retired (#6971, founder
+// model 2026-10-10): an Organization still on spec.planSlug "flexi" renders
+// the S package in grow mode — the same ResourceQuota, LimitRange and
+// app-storage quota as plan S with overageMode grow, plus only the
+// openova.io/retired-plan stamp on the app-storage quota. Nothing renders a
+// soft-capped flexi boundary any more.
+func TestRender_RetiredFlexiRendersSGrow(t *testing.T) {
 	t.Parallel()
-	out, err := Render(Inputs{Slug: "acme", DisplayName: "Acme", Tier: "org",
-		PlanSlug: "flexi", SovereignFQDN: "x.example", HostCluster: "hz", VClusterChartVersion: "0.33.*"})
+	in := Inputs{Slug: "acme", DisplayName: "Acme", Tier: "org",
+		SovereignFQDN: "x.example", HostCluster: "hz", VClusterChartVersion: "0.33.*"}
+	flexi, sGrow := in, in
+	flexi.PlanSlug = "flexi"
+	sGrow.PlanSlug, sGrow.OverageMode = "s", OverageModeGrow
+	got, err := Render(flexi)
 	if err != nil {
-		t.Fatalf("Render: %v", err)
+		t.Fatalf("Render(flexi): %v", err)
 	}
-	if _, ok := out["vcluster/resourcequota.yaml"]; ok {
-		t.Errorf("Flexi must NOT render a hard ResourceQuota (on-demand/soft cap)")
+	want, err := Render(sGrow)
+	if err != nil {
+		t.Fatalf("Render(s grow): %v", err)
 	}
-	lr, ok := out["vcluster/limitrange.yaml"]
-	if !ok {
-		t.Fatalf("Flexi must still render a LimitRange so default-less pods admit")
+	if len(got) != len(want) {
+		t.Fatalf("flexi renders %d files, S grow %d", len(got), len(want))
 	}
-	if strings.Contains(string(lr), "maxLimitRequestRatio") {
-		t.Errorf("Flexi LimitRange must omit maxLimitRequestRatio (Burstable QoS allowed)\n%s", string(lr))
+	for k, w := range want {
+		g := string(got[k])
+		if k == "vcluster/apps/"+appStorageQuotaDoc {
+			g = strings.Replace(g, "    openova.io/retired-plan: \"flexi\"\n", "", 1)
+		}
+		if g != string(w) {
+			t.Errorf("flexi %s differs from S grow:\n%s\n--- want ---\n%s", k, g, w)
+		}
+	}
+	if !strings.Contains(string(got["vcluster/resourcequota.yaml"]), `openova.io/grow-ceiling: "cpu=8 memory=16Gi"`) {
+		t.Errorf("flexi quota is not at the S grow ceiling:\n%s", got["vcluster/resourcequota.yaml"])
+	}
+	if !strings.Contains(string(got["vcluster/apps/"+appStorageQuotaDoc]), `openova.io/retired-plan: "flexi"`) {
+		t.Error("flexi app-storage quota lacks the retired-plan stamp")
 	}
 }
 
@@ -529,7 +549,7 @@ func TestRender_CiliumNetworkPolicyReservedEntities(t *testing.T) {
 // anywhere in Render fails this on the first slug it excludes.
 func TestRender_EveryPlanSlugIsVclusterBacked_NoTierGate(t *testing.T) {
 	t.Parallel()
-	if len(planQuotaTable) < 5 {
+	if len(planQuotaTable) < 4 {
 		t.Fatalf("planQuotaTable has %d entries — the walk below would prove nothing", len(planQuotaTable))
 	}
 	slugs := []string{"", "free", "S", "  s ", "enterprise-2027"}

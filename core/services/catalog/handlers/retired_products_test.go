@@ -160,7 +160,8 @@ func TestLiveComputeTiersAreStillSeeded(t *testing.T) {
 		seeded[p.Slug] = p.PriceBaisa
 	}
 	// The generic compute ladder a customer actually buys.
-	for _, slug := range []string{"s", "m", "l", "xl", "flexi"} {
+	// flexi is retired (products/chargeback DESIGN.md §22.11).
+	for _, slug := range []string{"s", "m", "l", "xl"} {
 		if _, ok := seeded[slug]; !ok {
 			t.Errorf("live compute tier %q is no longer seeded — the retirement change "+
 				"removed more than it should have", slug)

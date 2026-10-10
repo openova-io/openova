@@ -99,6 +99,14 @@ type Order struct {
 	OverageMode     string          `json:"overage_mode,omitempty"`
 	GrowCeiling     json.RawMessage `json:"grow_ceiling,omitempty"`
 	SpendLimitMonth string          `json:"spend_limit_month,omitempty"`
+
+	// PrepaidBaisa is what the checkout collected for the PACKAGE and its
+	// BSS add-on lines (#6971): the package's price plus the non-redundant
+	// addon.* lines, never the topology surcharge or a catalog add-on, and
+	// never more than AmountBaisa. 0 on a catalog-priced order and on every
+	// row that predates the column. Handed to the Organization as
+	// spec.commerce.prepaidAmount; BSS credits it on the first statement.
+	PrepaidBaisa int64 `json:"prepaid_baisa,omitempty"`
 }
 
 // Overage modes an order carries.
@@ -323,6 +331,10 @@ func (s *Store) Migrate(ctx context.Context) error {
 		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS overage_mode TEXT NOT NULL DEFAULT 'capped'`,
 		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS grow_ceiling JSONB`,
 		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS spend_limit_month TEXT`,
+		// #6971 — what the checkout collected for the package and its BSS
+		// add-ons, handed over so BSS credits it on the first statement.
+		// Every older row collected nothing BSS can credit: 0 is truthful.
+		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS prepaid_baisa BIGINT NOT NULL DEFAULT 0`,
 		`CREATE TABLE IF NOT EXISTS invoices (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			customer_id UUID NOT NULL REFERENCES customers(id),
@@ -523,12 +535,12 @@ func (s *Store) CreateOrder(ctx context.Context, o *Order) error {
 	o.AddonLines = orderAddonLines(o.AddonLines)
 	o.OverageMode = orderOverageMode(o.OverageMode)
 	err := s.db.QueryRowContext(ctx,
-		`INSERT INTO orders (customer_id, tenant_id, plan_id, apps, addons, topology, amount_omr, amount_baisa, status, stripe_session_id, promo_code, package_sku, price_source, addon_lines, overage_mode, grow_ceiling, spend_limit_month)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+		`INSERT INTO orders (customer_id, tenant_id, plan_id, apps, addons, topology, amount_omr, amount_baisa, status, stripe_session_id, promo_code, package_sku, price_source, addon_lines, overage_mode, grow_ceiling, spend_limit_month, prepaid_baisa)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 		 RETURNING id, created_at`,
 		o.CustomerID, o.TenantID, o.PlanID, o.Apps, o.Addons, orderTopology(o.Topology), o.AmountOMR, o.AmountBaisa, o.Status, nilIfEmpty(o.StripeSessionID), nilIfEmpty(o.PromoCode),
 		nilIfEmpty(o.PackageSKU), o.PriceSource, o.AddonLines,
-		o.OverageMode, nilIfEmptyJSON(o.GrowCeiling), nilIfEmpty(o.SpendLimitMonth),
+		o.OverageMode, nilIfEmptyJSON(o.GrowCeiling), nilIfEmpty(o.SpendLimitMonth), o.PrepaidBaisa,
 	).Scan(&o.ID, &o.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("store: create order: %w", err)
@@ -552,14 +564,14 @@ func (s *Store) GetOrder(ctx context.Context, id string) (*Order, error) {
 		`SELECT o.id, o.customer_id, o.tenant_id, o.plan_id, o.apps, o.addons, o.topology,
 		        o.amount_omr, o.amount_baisa, o.status, o.stripe_session_id, o.created_at,
 		        o.promo_code, pc.deleted_at, o.package_sku, o.price_source, o.addon_lines,
-		        o.overage_mode, o.grow_ceiling, o.spend_limit_month
+		        o.overage_mode, o.grow_ceiling, o.spend_limit_month, o.prepaid_baisa
 		   FROM orders o
 		   LEFT JOIN promo_codes pc ON pc.code = o.promo_code
 		  WHERE o.id = $1`, id,
 	).Scan(&o.ID, &o.CustomerID, &o.TenantID, &o.PlanID, &o.Apps, &o.Addons, &o.Topology,
 		&o.AmountOMR, &o.AmountBaisa, &o.Status, &sessionID, &o.CreatedAt,
 		&promoCode, &promoDeletedAt, &packageSKU, &o.PriceSource, &o.AddonLines,
-		&o.OverageMode, &growCeiling, &spendLimit)
+		&o.OverageMode, &growCeiling, &spendLimit, &o.PrepaidBaisa)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -600,7 +612,7 @@ func (s *Store) ListRecentOrders(ctx context.Context) ([]Order, error) {
 		`SELECT o.id, o.customer_id, o.tenant_id, o.plan_id, o.apps, o.addons, o.topology,
 		        o.amount_omr, o.amount_baisa, o.status, o.stripe_session_id, o.created_at,
 		        o.promo_code, pc.deleted_at, o.package_sku, o.price_source, o.addon_lines,
-		        o.overage_mode, o.grow_ceiling, o.spend_limit_month
+		        o.overage_mode, o.grow_ceiling, o.spend_limit_month, o.prepaid_baisa
 		   FROM orders o
 		   LEFT JOIN promo_codes pc ON pc.code = o.promo_code
 		  ORDER BY o.created_at DESC LIMIT 50`,
@@ -621,7 +633,7 @@ func (s *Store) ListRecentOrders(ctx context.Context) ([]Order, error) {
 		if err := rows.Scan(&o.ID, &o.CustomerID, &o.TenantID, &o.PlanID, &o.Apps, &o.Addons, &o.Topology,
 			&o.AmountOMR, &o.AmountBaisa, &o.Status, &sessionID, &o.CreatedAt,
 			&promoCode, &promoDeletedAt, &packageSKU, &o.PriceSource, &o.AddonLines,
-			&o.OverageMode, &growCeiling, &spendLimit); err != nil {
+			&o.OverageMode, &growCeiling, &spendLimit, &o.PrepaidBaisa); err != nil {
 			return nil, fmt.Errorf("store: scan order: %w", err)
 		}
 		o.StripeSessionID = sessionID.String
@@ -667,7 +679,7 @@ func (s *Store) ListOrdersAwaitingLaunch(ctx context.Context, lookback time.Dura
 		`SELECT o.id, o.customer_id, o.tenant_id, o.plan_id, o.apps, o.addons, o.topology,
 		        o.amount_omr, o.amount_baisa, o.status, o.stripe_session_id, o.created_at,
 		        o.promo_code, pc.deleted_at, o.package_sku, o.price_source, o.addon_lines,
-		        o.overage_mode, o.grow_ceiling, o.spend_limit_month
+		        o.overage_mode, o.grow_ceiling, o.spend_limit_month, o.prepaid_baisa
 		   FROM orders o
 		   LEFT JOIN promo_codes pc ON pc.code = o.promo_code
 		  WHERE o.status = 'completed'
@@ -692,7 +704,7 @@ func (s *Store) ListOrdersAwaitingLaunch(ctx context.Context, lookback time.Dura
 		if err := rows.Scan(&o.ID, &o.CustomerID, &o.TenantID, &o.PlanID, &o.Apps, &o.Addons, &o.Topology,
 			&o.AmountOMR, &o.AmountBaisa, &o.Status, &sessionID, &o.CreatedAt,
 			&promoCode, &promoDeletedAt, &packageSKU, &o.PriceSource, &o.AddonLines,
-			&o.OverageMode, &growCeiling, &spendLimit); err != nil {
+			&o.OverageMode, &growCeiling, &spendLimit, &o.PrepaidBaisa); err != nil {
 			return nil, fmt.Errorf("store: scan order awaiting launch: %w", err)
 		}
 		o.StripeSessionID = sessionID.String
@@ -1563,14 +1575,14 @@ func (s *Store) CreditOnlyCheckout(ctx context.Context, order *Order, sub *Subsc
 	order.PriceSource = orderPriceSource(order.PriceSource)
 	order.OverageMode = orderOverageMode(order.OverageMode)
 	if err := tx.QueryRowContext(ctx,
-		`INSERT INTO orders (customer_id, tenant_id, plan_id, apps, addons, topology, amount_omr, amount_baisa, status, stripe_session_id, promo_code, package_sku, price_source, addon_lines, overage_mode, grow_ceiling, spend_limit_month)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+		`INSERT INTO orders (customer_id, tenant_id, plan_id, apps, addons, topology, amount_omr, amount_baisa, status, stripe_session_id, promo_code, package_sku, price_source, addon_lines, overage_mode, grow_ceiling, spend_limit_month, prepaid_baisa)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 		 RETURNING id, created_at`,
 		order.CustomerID, order.TenantID, order.PlanID, order.Apps, order.Addons,
 		orderTopology(order.Topology), order.AmountOMR, order.AmountBaisa, order.Status,
 		nilIfEmpty(order.StripeSessionID), nilIfEmpty(order.PromoCode),
 		nilIfEmpty(order.PackageSKU), order.PriceSource, order.AddonLines,
-		order.OverageMode, nilIfEmptyJSON(order.GrowCeiling), nilIfEmpty(order.SpendLimitMonth),
+		order.OverageMode, nilIfEmptyJSON(order.GrowCeiling), nilIfEmpty(order.SpendLimitMonth), order.PrepaidBaisa,
 	).Scan(&order.ID, &order.CreatedAt); err != nil {
 		return fmt.Errorf("store: credit-only create order: %w", err)
 	}

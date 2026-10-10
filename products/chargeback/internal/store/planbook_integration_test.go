@@ -136,15 +136,14 @@ func TestIntegrationAllocationPlanRevenue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 168 plan-hours × round(9/730, 8) = 168 × 0.01232877 = 2.07123336 →
-	// 2.071233 at the ledger's 6 decimals; the exact 168 × 9/730 =
-	// 2.0712329 rounds to the same figure.
+	// A package is a flat monthly price (DESIGN.md §22.11): 168 plan-hours
+	// of September accrue 9 × 168 ÷ 720 = 2.1.
 	a := allocRow(res, orgA.ID, "organization")
 	if a == nil {
 		t.Fatalf("no row for acme: %+v", res.Rows)
 	}
-	if a.RatedRevenue != "2.071233" {
-		t.Fatalf("rated_revenue = %s, want 2.071233 (7 × 24 × 9/730)", a.RatedRevenue)
+	if a.RatedRevenue != "2.100000" {
+		t.Fatalf("rated_revenue = %s, want 2.100000 (7 × 24 × 9/720)", a.RatedRevenue)
 	}
 	// The pool is the Sovereign's cloud bill (7 × 24 × 0.5 = 84.0; the
 	// Sovereign's own Organization carries no plan line, so nothing else
@@ -153,11 +152,11 @@ func TestIntegrationAllocationPlanRevenue(t *testing.T) {
 	if res.Pool.Amount != "84.000000" || a.AllocatedCost != "84.000000" {
 		t.Fatalf("pool %s allocated %s, want 84.000000", res.Pool.Amount, a.AllocatedCost)
 	}
-	wantPct := -81.928767 / 2.071233 * 100
-	if a.Margin != "-81.928767" || a.MarginPct == nil || math.Abs(*a.MarginPct-wantPct) > 0.01 {
-		t.Fatalf("margin = %s (%v), want 2.071233 − 84 = −81.928767 (%.2f %%)", a.Margin, a.MarginPct, wantPct)
+	wantPct := -81.9 / 2.1 * 100
+	if a.Margin != "-81.900000" || a.MarginPct == nil || math.Abs(*a.MarginPct-wantPct) > 0.01 {
+		t.Fatalf("margin = %s (%v), want 2.1 − 84 = −81.9 (%.2f %%)", a.Margin, a.MarginPct, wantPct)
 	}
-	if res.Totals.Revenue != "2.071233" || res.Totals.Margin != "-81.928767" {
+	if res.Totals.Revenue != "2.100000" || res.Totals.Margin != "-81.900000" {
 		t.Fatalf("totals = %+v", res.Totals)
 	}
 	// The statement side files the same line under the plan kind.

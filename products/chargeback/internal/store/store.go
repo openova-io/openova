@@ -545,6 +545,12 @@ ALTER TABLE cost_sources ADD CONSTRAINT cost_sources_status_check CHECK (status 
 	// Appended at the very END: migrations are positional. Located by
 	// content as MigrationGrowModel (grow.go).
 	growModelMigrationSQL,
+	// DESIGN.md §22.11 (founder direction 2026-10-10) — the package is
+	// prepaid: the service period on a rated line (the advance line), the
+	// checkout's prepaid amount on a Source, and the spend-limit stops.
+	// Appended at the very END: migrations are positional. Located by
+	// content as MigrationCommitment (commitment.go).
+	commitmentMigrationSQL,
 }
 
 // MigrationBackfillIssuedInvoices is the schema_migrations version of the

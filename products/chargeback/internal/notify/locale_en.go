@@ -93,6 +93,18 @@ Your prepaid balance is {{.available}} {{.currency}}, below the {{.threshold}} {
 `,
 		},
 
+		EventOverageSpendLimit: {
+			Subject: `Spend limit reached for {{.organization}}: {{.limit}} {{.currency}} this month`,
+			Body: `Hello {{.customer_name}},
+
+The usage above the {{.package}} package of {{.organization}} has reached your monthly spend limit of {{.limit}} {{.currency}} for {{.period}} ({{.accrued}} {{.currency}} so far).
+
+Your Organization is now held at the {{.package}} package — the resources included in it keep running, nothing above it starts — until {{.until}}, when grow mode returns. Nothing above the limit is billed.
+
+To grow again before then, raise the spend limit or move to a larger package.
+`,
+		},
+
 		EventBudgetThreshold: {
 			Subject: `Budget {{.budget_name}}: {{.threshold}}% of {{.amount}} {{.currency}} reached for {{.period}}`,
 			Body: `Budget {{printf "%q" .budget_name}} ({{.scope}}) has reached {{.threshold}}% of its {{.amount}} {{.currency}} cap for {{.period}}.

@@ -188,8 +188,10 @@ func seedPlanRows() []store.Plan {
 			Features: append([]string(nil), packageIncludedFeatures...)},
 		{Slug: "xl", Name: "XL", Description: "For the largest workloads, with backup and a domain included", CPU: "8 vCPU", Memory: "16 GB", Storage: "250 GB", PriceBaisa: 13990, Popular: false, SortOrder: 4,
 			Features: withXLFeatures()},
-		{Slug: "flexi", Name: "Flexi", Description: "Pay as you go \u2014 scale resources on demand", CPU: "On demand", Memory: "On demand", Storage: "On demand", PriceBaisa: 0, Popular: false, SortOrder: 5,
-			Features: []string{"Unlimited apps", "SSO included", "API access", "TLS certificates", "Pay per use", "Scale on demand"}},
+		// Flexi is retired (founder model 2026-10-10, products/chargeback
+		// DESIGN.md §22.11): grow mode on any package is pay as you go above
+		// a commitment, and an Organization still on flexi is reconciled as
+		// S in grow mode. A fresh Sovereign is not sold it.
 	}
 	for i := range plans {
 		plans[i].NormalizePrice()

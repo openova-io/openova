@@ -33,6 +33,7 @@ import (
 	"github.com/openova-io/openova/products/chargeback/internal/report"
 	"github.com/openova-io/openova/products/chargeback/internal/rollup"
 	"github.com/openova-io/openova/products/chargeback/internal/settle"
+	"github.com/openova-io/openova/products/chargeback/internal/spendlimit"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 	"github.com/openova-io/openova/products/chargeback/ui"
 )
@@ -213,6 +214,14 @@ func main() {
 	// per period (budget_alerts), audits it and mails the budget's
 	// recipients. First run one minute after start, then hourly.
 	go (&budget.Evaluator{Store: st, Mail: deps.Mail, Notify: notifier}).Run(ctx)
+	// DESIGN.md §22.11 — the hourly spend-limit evaluator: a grow Source
+	// whose usage above its package reaches its monthly spend limit is held
+	// at its package headline until the next period start, through the same
+	// platform door as suspension (spec.overageStoppedUntil), and its
+	// customer is told.
+	if oc, ok := plat.(platform.OverageClient); ok {
+		go (&spendlimit.Evaluator{Store: st, Platform: oc, Notify: notifier}).Run(ctx)
+	}
 	// DESIGN.md §9.6 — the daily collections evaluator: reminders on the
 	// schedule, the escalation at its age, resumption once settled. A no-op
 	// when the external billing system owns collections.

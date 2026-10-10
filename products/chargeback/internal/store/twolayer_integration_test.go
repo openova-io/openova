@@ -23,7 +23,8 @@ import (
 //
 // Every number below is exact: the cloud source runs one ECS at 0.5/h for
 // 7 days (84.000000 OMR) and the platform source one plan.m hour per hour
-// at 0.25/h (42.000000 OMR), so the statement subtotal is 126.000000.
+// of a 186-a-month package (186 ÷ 744 = 0.25 an August hour, 42.000000
+// OMR), so the statement subtotal is 126.000000.
 
 type twoLayerSeed struct {
 	cust      store.Customer
@@ -48,10 +49,16 @@ func seedTwoLayer(t *testing.T, st *store.Store) twoLayerSeed {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The plan book prices plan.<slug> only; give plan.m the round 0.25 so
-	// the arithmetic below is exact to the last digit.
-	price := store.Decimal("0.25")
-	if _, err := st.UpdatePriceItem(ctx, planBook.ID, "plan.m", store.PriceItemPatch{UnitPrice: &price}); err != nil {
+	// The plan book prices plan.<slug> only. A package is a flat monthly
+	// price (DESIGN.md §22.11): give plan.m 186 a month (annual 2,232) so
+	// that 186 ÷ 744 August hours = 0.25 exactly and the arithmetic below is
+	// exact to the last digit — 168 plan-hours of the 7 days = 42 in the
+	// explorer's accrual, and 168 h × 0.25 = 42 on the statement, where the
+	// first, partial month is prorated by the hour (nothing was paid for it
+	// in advance, and it does not run to the month's end, so no September
+	// line is billed ahead).
+	annual, unit := store.Decimal("2232"), store.Decimal("0.25479452") // 2,232 ÷ 8,760
+	if _, err := st.UpdatePriceItem(ctx, planBook.ID, "plan.m", store.PriceItemPatch{UnitPrice: &unit, AnnualPrice: &annual}); err != nil {
 		t.Fatal(err)
 	}
 	cust, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "acme", Name: "Acme", AdminEmail: "a@acme.example", Kind: "organization", OrgSlug: "acme", PlanSlug: "m", StartDate: "2026-08-01"})

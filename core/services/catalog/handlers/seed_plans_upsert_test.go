@@ -86,8 +86,10 @@ func TestUpsertSeedPlans_ReseedingOverOldRowsYieldsTheNewPrices(t *testing.T) {
 	if created != 0 {
 		t.Errorf("created = %d, want 0 — every seeded slug already had a row", created)
 	}
-	if updated != 5 {
-		t.Errorf("updated = %d, want 5 (s, m, l, xl and flexi's feature list all moved)", updated)
+	// Flexi is retired (products/chargeback DESIGN.md §22.11): the seed no
+	// longer carries it, so the old row is left as it was, not converged.
+	if updated != 4 {
+		t.Errorf("updated = %d, want 4 (s, m, l, xl)", updated)
 	}
 
 	want := map[string]struct {
@@ -157,8 +159,8 @@ func TestUpsertSeedPlans_CreatesMissingSlugs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("upsertSeedPlans: %v", err)
 	}
-	if created != 3 || updated != 2 {
-		t.Errorf("created=%d updated=%d, want 3 created (l, xl, flexi) and 2 updated (s, m)", created, updated)
+	if created != 2 || updated != 2 {
+		t.Errorf("created=%d updated=%d, want 2 created (l, xl — flexi is retired) and 2 updated (s, m)", created, updated)
 	}
 	if got := m.bySlug("xl"); got == nil || got.PriceBaisa != 13990 {
 		t.Errorf("xl was not created at 13990 baisa: %+v", got)
@@ -184,7 +186,12 @@ func TestSeedPlanRows_NationalCloudLadder(t *testing.T) {
 		{"m", 4490, "2 vCPU", "4 GB", "50 GB", true},
 		{"l", 7990, "4 vCPU", "8 GB", "100 GB", false},
 		{"xl", 13990, "8 vCPU", "16 GB", "250 GB", false},
-		{"flexi", 0, "On demand", "On demand", "On demand", false},
+	}
+	// Flexi is retired (products/chargeback DESIGN.md §22.11): grow on any
+	// package is pay as you go above a commitment, so a fresh Sovereign is
+	// not sold it.
+	if _, ok := bySlug["flexi"]; ok {
+		t.Fatal("the retired flexi plan is still seeded")
 	}
 	for _, c := range cases {
 		p, ok := bySlug[c.slug]

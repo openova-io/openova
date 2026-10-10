@@ -66,7 +66,8 @@ type OrganizationSpec struct {
 	// in EPIC-5 — out of scope here.
 	Tier string `json:"tier"`
 
-	// PlanSlug is the purchased catalog plan slug (s|m|l|xl|flexi). It is
+	// PlanSlug is the purchased catalog plan slug (s|m|l|xl; "flexi" is
+	// retired and rendered as S in grow mode, gitops.EffectivePlan). It is
 	// the SINGLE truth-source for the resource cap the org-controller
 	// materializes on the boundary namespace (Workstream B, #4292): the
 	// ResourceQuota + LimitRange (gitops.planQuota). It SIZES the boundary
@@ -124,6 +125,21 @@ type OrganizationSpec struct {
 	// same trap #4471 documented on clientSecretRef.
 	Suspended     bool   `json:"suspended,omitempty"`
 	SuspendReason string `json:"suspendReason,omitempty"`
+
+	// OverageStoppedUntil is the BSS spend-limit flag (products/chargeback
+	// DESIGN.md §22.11, #6971): the grow Organization's accrued usage above
+	// its package reached spec.commerce.spendLimitMonth, so until this
+	// instant — the next billing-period start, RFC3339 UTC — the controller
+	// renders the Organization as capped (the package headline on the
+	// ResourceQuota limits and the package disk on the app-storage quota).
+	// Set and cleared ONLY by the sovereign-admin API's ServiceAccount
+	// routes POST /api/v1/internal/organizations/{id}/overage-stop and
+	// .../overage-resume, which the chargeback application calls. The
+	// controller does not need the clear: once the instant has passed it
+	// renders grow again on its own (it requeues at the instant).
+	// OverageStopReason says why, for the operator reading the CR.
+	OverageStoppedUntil string `json:"overageStoppedUntil,omitempty"`
+	OverageStopReason   string `json:"overageStopReason,omitempty"`
 
 	// Owners is the initial owner roster.
 	Owners []OrganizationOwner `json:"owners"`
@@ -246,11 +262,18 @@ type OrganizationCostSourceCredentialRef struct {
 //	spec.commerce.spendLimitMonth — OMR per month the customer allows the
 //	                                overage to reach, a money string
 //	                                ("25.000"); stored and published here,
-//	                                read and enforced by BSS
+//	                                read and enforced by BSS (on reaching it
+//	                                BSS stamps spec.overageStoppedUntil)
+//	spec.commerce.prepaidAmount   — OMR the checkout collected for the
+//	                                package and its BSS add-ons ("4.490");
+//	                                BSS credits it on the Organization's
+//	                                first statement so the first period is
+//	                                never charged twice
 //
 // The organization-controller DOES read overageMode + growCeiling: they size
 // the ResourceQuota limits it renders (gitops.Inputs.OverageMode /
-// GrowCeilingCPU / GrowCeilingMemory). It does not read spendLimitMonth.
+// GrowCeilingCPU / GrowCeilingMemory / GrowCeilingDisk). It does not read
+// spendLimitMonth or prepaidAmount.
 type OrganizationCommerce struct {
 	PackageSKU      string                   `json:"packageSKU,omitempty"`
 	Addons          []string                 `json:"addons,omitempty"`
@@ -259,6 +282,7 @@ type OrganizationCommerce struct {
 	OverageMode     string                   `json:"overageMode,omitempty"`
 	GrowCeiling     *OrganizationGrowCeiling `json:"growCeiling,omitempty"`
 	SpendLimitMonth string                   `json:"spendLimitMonth,omitempty"`
+	PrepaidAmount   string                   `json:"prepaidAmount,omitempty"`
 }
 
 // Overage modes for spec.commerce.overageMode. Empty reads as
@@ -271,9 +295,9 @@ const (
 // OrganizationGrowCeiling is spec.commerce.growCeiling — the most a "grow"
 // package may reach. Each value is >= the package headline (the order path
 // validates that; the renderer clamps again). A zero field means "not set":
-// the renderer uses the XL headline for it. DiskGB and BandwidthMbps are
-// stored and published for BSS; the ResourceQuota renders no storage or
-// bandwidth cap in either mode.
+// the renderer uses the XL headline for it (twice it on XL). DiskGB sizes the
+// in-vCluster app-storage quota in grow mode (gitops.Inputs.GrowCeilingDisk);
+// BandwidthMbps is stored and published for BSS — no bandwidth cap renders.
 type OrganizationGrowCeiling struct {
 	VCPU          float64 `json:"vcpu,omitempty"`
 	MemoryGB      float64 `json:"memoryGB,omitempty"`

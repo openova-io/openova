@@ -590,7 +590,9 @@ the model is Sovereign → Organization only):
 | `spec.commerce.orderID` | the billing `orders.id` the Organization was launched from (provenance) | UUID |
 | `spec.commerce.overageMode` | what the package does above its headline: `capped` (default when absent) or `grow` | `grow` |
 | `spec.commerce.growCeiling` | the most a `grow` package may reach — `vcpu`, `memoryGB`, `diskGB`, `bandwidthMbps`; absent = the package ceiling: the XL shape (8 / 16 / 250 / 1000) for S, M and L, twice it (16 / 32 / 500 / 2000) for XL | `{vcpu: 4, memoryGB: 8}` |
-| `spec.commerce.spendLimitMonth` | OMR per month the usage charges ABOVE the package may reach (not the whole bill), a money string; stored here, applied by BSS on the statement | `25.000` |
+| `spec.commerce.spendLimitMonth` | OMR per month the usage charges ABOVE the package may reach (not the whole bill), a money string; BSS watches the accrued usage and, when it reaches the limit, stops grow (`spec.overageStoppedUntil` below) | `25.000` |
+| `spec.commerce.prepaidAmount` | OMR the checkout collected for the package and its BSS add-ons; BSS credits it on the Organization's first statement so the first period is never charged twice | `4.490` |
+| `spec.overageStoppedUntil` (top level, beside `spec.suspended`) | the BSS spend-limit stop: until this RFC3339 instant — the next billing-period start — a `grow` Organization is rendered `capped`. `spec.overageStopReason` says why | `2026-11-01T00:00:00Z` |
 
 **Overage and the quota.** A package is a prepaid commitment. In `capped` the
 ResourceQuota limits are the headline, exactly as above. In `grow` the
@@ -603,11 +605,42 @@ guaranteed share) and both overheads are the same in both modes, and the
 LimitRange per-container defaults stay headline-derived. Plan M grow at the
 default ceiling therefore renders `limits.cpu` 8 + 1500m + 4550m = 14050m
 against capped M's 8050m, with `requests.*` unchanged. Usage above the headline
-is billed in arrears by BSS; `spendLimitMonth` caps those usage charges on the statement. There is no storage cap
-in either mode (the platform stack's own volumes share the namespace); disk
-above the package is metered by BSS from the PVC meter. The ResourceQuota and
-LimitRange carry `openova.io/overage-mode` and, in grow,
-`openova.io/grow-ceiling`. Flexi renders no ResourceQuota in either mode.
+is billed in arrears by BSS. The ResourceQuota and LimitRange carry
+`openova.io/overage-mode` and, in grow, `openova.io/grow-ceiling`.
+
+**Disk.** The host `plan-quota` carries no storage term in either mode: the
+per-Organization platform stack's database volumes (keycloak and newapi
+PostgreSQL) and the vCluster's own data volume live in the host `<slug>`
+namespace on the same StorageClass as the customer's synced claims, so a host
+cap could not tell them apart. The customer's application storage is capped
+**inside the vCluster** instead: the organization-controller renders a
+ResourceQuota `app-storage` into the apps tree (`vcluster/apps/storagequota.yaml`,
+applied through the apps Kustomization's kubeConfig into the namespace every
+Application install targets) with `requests.storage` = the package disk
+(`planQuotaTable` S 25Gi / M 50Gi / L 100Gi / XL 250Gi) in `capped`, and the
+`growCeiling.diskGB` ceiling (default the XL disk, twice it on XL, clamped the
+same way) in `grow` (`gitops.QuotaDiskFor`). A customer with kube-API access
+could create a second in-vCluster namespace this quota does not cover; disk
+there is still metered by BSS from the PVC meter.
+
+**The spend limit stops usage.** BSS evaluates the period's accrued usage above
+the package; when it reaches `spendLimitMonth` it calls the sovereign-admin
+API's ServiceAccount route `POST /api/v1/internal/organizations/{id}/overage-stop`
+(`{"until": <next period start>, "reason": ...}`; same TokenReview allow-list as
+`/suspend`), which merge-patches `spec.overageStoppedUntil` +
+`spec.overageStopReason`. While that instant is in the future the
+organization-controller renders the `grow` Organization `capped` — the headline
+limits and the package disk — stamps `openova.io/overage-stopped-until` on both
+quotas, and requeues at the instant, so grow returns at the period start on its
+own; BSS also clears the field (`.../overage-resume`).
+
+**Flexi is retired** (founder model 2026-10-10: grow on a package IS pay as you
+go above a commitment). The create door no longer accepts it (`catalogPlanSlugs`,
+a `plan_slug` of `flexi` is coerced to `s`), the sovereign-admin form does not
+offer it, and an Organization still on `spec.planSlug: flexi` is rendered as
+**S in grow mode** on every reconcile (`gitops.EffectivePlan`) — the S quota at
+the S grow ceiling, stamped `openova.io/retired-plan: flexi` on its app-storage
+quota. BSS maps it the same way.
 
 `spec.planSlug` is unchanged: it stays the catalog plan slug that **sizes** the
 boundary (ResourceQuota + LimitRange). `spec.commerce` is the commercial record
@@ -633,7 +666,8 @@ Flow, order → Organization → BSS:
    stamps `spec.commerce` on the Organization CR it mints.
 6. The organization-controller carries the block through its typed round-trips,
    never writes it, and reads only `overageMode` + `growCeiling` (to size the
-   ResourceQuota limits). The chargeback OpenOva adapter
+   ResourceQuota limits and the app-storage quota) and the top-level
+   `overageStoppedUntil`. The chargeback OpenOva adapter
    (`products/chargeback/internal/adapter/openova/orgsync.go`, `readOrg`) reads
    `spec.commerce.*` to attach the Organization's platform Source to its package
    and add-on lines, so the add-on lines reach the statement.

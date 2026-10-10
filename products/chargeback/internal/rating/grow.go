@@ -39,6 +39,11 @@ type GrowInput struct {
 	// Packages are the limits and rates of each package the Source ran,
 	// keyed by plan slug.
 	Packages map[string]store.PackageLimits
+	// Committed is the package paid in advance for the period (DESIGN.md
+	// §22.11), "" when none. A downgrade inside the period takes effect at
+	// the next period start: a segment on a SMALLER package than the one
+	// paid for keeps the paid package's headline as its allowance.
+	Committed string
 	// Divisor is the book's annual divisor.
 	Divisor int
 	// Currency is the book's, named on the line.
@@ -83,6 +88,13 @@ func GrowOverage(src store.CostSource, segments []PlanSegment, in GrowInput) ([]
 			head, err := parseRat(string(*h))
 			if err != nil {
 				return nil, nil, fmt.Errorf("package %s: %s headline: %w", seg.Slug, d.what, err)
+			}
+			if in.Committed != "" && in.Committed != seg.Slug {
+				if ch := d.head(in.Packages[in.Committed]); ch != nil {
+					if paid, err := parseRat(string(*ch)); err == nil && paid.Cmp(head) > 0 {
+						head = paid
+					}
+				}
 			}
 			allowance.Add(allowance, new(big.Rat).Mul(head, seg.Hours))
 			parts = append(parts, fmt.Sprintf("%s %s × %s h on %s", trimRat(head), d.unitName, trimRat(seg.Hours), store.PlanName(seg.Slug)))

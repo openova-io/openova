@@ -116,12 +116,13 @@ func (p provisioningPostconditions) message() string {
 //     EVERY plan by gitops.Render, so its absence always means the boundary
 //     tree never landed.
 //  2. The boundary ResourceQuota (`plan-quota`) in ns `<slug>` — rendered only
-//     for plans where gitops.PlanRendersResourceQuota is true. Flexi is the
-//     on-demand soft-cap plan and renders none, so for Flexi the check is
-//     skipped rather than failed. Pairing (1) and (2) is what turns "no
-//     ResourceQuota" from an ambiguous observation into a decided one: quota
-//     absent + LimitRange present == Flexi by design; both absent == the
-//     boundary tree never landed (#5395 symptom B).
+//     for plans where gitops.PlanRendersResourceQuota is true — every plan
+//     today: flexi retired on 2026-10-10 and renders as S in grow mode
+//     (gitops.EffectivePlan), so its quota IS expected. The gate stays so a
+//     future soft plan is skipped rather than failed. Pairing (1) and (2) is
+//     what turns "no ResourceQuota" from an ambiguous observation into a
+//     decided one: both absent == the boundary tree never landed (#5395
+//     symptom B).
 //  3. The per-Org console Gateway listener pair
 //     (`console-https-<sub>` / `console-http-<sub>`) — only for an Org that
 //     engages the tenant-networking up-path (a pool parentDomain). This is the

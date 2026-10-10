@@ -397,15 +397,14 @@ func TestRender_ResourceQuotaIsPlanPlusBothOverheads(t *testing.T) {
 // TestRender_LimitRangeDefaultsUnchangedByOverhead is property 3: the
 // per-container defaultRequest/default stay plan-only (default limit =
 // headline / 8, default request = that over the 6× / 3× overcommit for fixed
-// tiers; the small floor for Flexi) and never absorb the control plane.
+// tiers) and never absorb the control plane.
 func TestRender_LimitRangeDefaultsUnchangedByOverhead(t *testing.T) {
 	t.Parallel()
 	want := map[string]struct{ reqCPU, reqMem, limCPU, limMem string }{
-		"s":     {"21m", "86Mi", "125m", "256Mi"},
-		"m":     {"42m", "171Mi", "250m", "512Mi"},
-		"l":     {"84m", "342Mi", "500m", "1Gi"},
-		"xl":    {"167m", "683Mi", "1", "2Gi"},
-		"flexi": {"100m", "128Mi", "100m", "128Mi"},
+		"s":  {"21m", "86Mi", "125m", "256Mi"},
+		"m":  {"42m", "171Mi", "250m", "512Mi"},
+		"l":  {"84m", "342Mi", "500m", "1Gi"},
+		"xl": {"167m", "683Mi", "1", "2Gi"},
 	}
 	if len(want) != len(planQuotaTable) {
 		t.Fatalf("vacuity: %d plans pinned here, planQuotaTable has %d — pin the new plan's LimitRange defaults", len(want), len(planQuotaTable))

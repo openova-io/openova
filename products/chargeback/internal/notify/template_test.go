@@ -250,6 +250,19 @@ func TestEnglishTemplatesRenderTheMessageTheProductAlreadySent(t *testing.T) {
 				"Status: over\n",
 		},
 		{
+			name:  "the spend limit reached on a grow package",
+			event: EventOverageSpendLimit,
+			from:  "internal/spendlimit/evaluator.go notice",
+			payload: map[string]any{
+				"customer_name": "Sohar Trading", "organization": "sohar", "package": "M", "accrued": "25.004",
+				"limit": "25", "currency": "OMR", "period": "2026-10", "until": "2026-11-01",
+			},
+			subject: "Spend limit reached for sohar: 25 OMR this month",
+			body: "Hello Sohar Trading,\n\nThe usage above the M package of sohar has reached your monthly spend limit of 25 OMR for 2026-10 (25.004 OMR so far).\n\n" +
+				"Your Organization is now held at the M package — the resources included in it keep running, nothing above it starts — until 2026-11-01, when grow mode returns. Nothing above the limit is billed.\n\n" +
+				"To grow again before then, raise the spend limit or move to a larger package.\n",
+		},
+		{
 			name:  "a budget crossing with no forecast",
 			event: EventBudgetThreshold,
 			from:  "internal/budget/evaluator.go crossingMail, Forecast == nil",
@@ -346,6 +359,7 @@ func TestEveryEventRendersAnExampleSubjectAnOperatorCanRead(t *testing.T) {
 		EventAccountLowBalance:     "Low balance: 12.5 OMR left on your account",
 		EventBudgetThreshold:       "Budget Acme cap: 80% of 100 OMR reached for 2026-09",
 		EventReportScheduled:       "Cost report: Monthly — 1–31 Aug 2026: 9876.540 OMR",
+		EventOverageSpendLimit:     "Spend limit reached for sohar: 25 OMR this month",
 	}
 	for _, e := range Events() {
 		got, locale, ok := ExampleSubject(e.Key, DefaultLocale)

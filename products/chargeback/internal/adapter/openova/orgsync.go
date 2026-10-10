@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/big"
 	"strconv"
 	"strings"
 	"time"
@@ -199,6 +200,9 @@ type orgFields struct {
 	// PlanFromPackage reports that PlanSlug came from spec.commerce.packageSKU
 	// because spec.planSlug was absent.
 	PlanFromPackage bool
+	// FlexiRetired reports that spec.planSlug named the retired flexi plan
+	// and PlanSlug is "s" in its place.
+	FlexiRetired bool
 	// Commerce is spec.commerce, the order the Organization was created from.
 	Commerce commerceSpec
 }
@@ -231,6 +235,10 @@ type commerceSpec struct {
 	OverageMode     string
 	GrowCeiling     *store.GrowCeiling
 	SpendLimitMonth *store.Decimal
+	// PrepaidAmount is what the checkout collected for the package and its
+	// add-ons, credited on the Source's first statement (DESIGN.md §22.11);
+	// nil when the block says nothing.
+	PrepaidAmount *store.Decimal
 }
 
 // readCommerce reads spec.commerce without ever failing: a block that is not
@@ -286,6 +294,12 @@ func readCommerce(u *unstructured.Unstructured) commerceSpec {
 	if sl, _ := block["spendLimitMonth"].(string); strings.TrimSpace(sl) != "" {
 		d := store.Decimal(strings.TrimSpace(sl))
 		c.SpendLimitMonth = &d
+	}
+	if pa, _ := block["prepaidAmount"].(string); strings.TrimSpace(pa) != "" {
+		if r, ok := new(big.Rat).SetString(strings.TrimSpace(pa)); ok && r.Sign() > 0 {
+			d := store.Decimal(strings.TrimSpace(pa))
+			c.PrepaidAmount = &d
+		}
 	}
 	addons, _ := block["addons"].([]any)
 	seen := map[string]bool{}
@@ -358,8 +372,19 @@ func readOrg(u *unstructured.Unstructured) (orgFields, error) {
 			f.PlanSlug = "s" // the org-controller's default for a CR without spec.planSlug
 		}
 	}
+	// The flexi plan is retired (DESIGN.md §22.11): grow on any package IS
+	// pay as you go above a commitment. An Organization still on flexi is
+	// billed as S in grow mode — the shape the org-controller renders for it
+	// on reconcile — so nothing rates flexi any more. A mode the order
+	// states wins; a block that states none takes grow.
+	if f.PlanSlug == store.PlanFlexi {
+		f.PlanSlug, f.FlexiRetired = "s", true
+		if f.Commerce.OverageMode == "" {
+			f.Commerce.OverageMode = store.OverageModeGrow
+		}
+	}
 	if f.Internal {
-		f.PlanSlug, f.PlanFromPackage = "", false
+		f.PlanSlug, f.PlanFromPackage, f.FlexiRetired = "", false, false
 	}
 	f.BillingMode, _, _ = unstructured.NestedString(u.Object, "spec", "billingMode")
 	switch f.BillingMode {
@@ -555,6 +580,7 @@ func (s *OrgSync) SyncOrganization(ctx context.Context, u *unstructured.Unstruct
 	// checks every key against. Never a sync failure.
 	s.attachCommerce(ctx, f, c, src)
 	s.attachOverage(ctx, f, c, src)
+	s.attachPrepaid(ctx, f, c, src)
 
 	for _, cs := range f.CostSources {
 		if err := s.syncCostSource(ctx, c, f.Slug, cs); err != nil {
@@ -753,6 +779,30 @@ func (s *OrgSync) attachOverage(ctx context.Context, f orgFields, c store.Custom
 		return
 	}
 	slog.Info("openova adapter: platform source set to the Organization's overage mode", "org", f.Slug, "customer", c.ID, "source", src.ID, "overage_mode", updated.OverageMode, "grow_ceiling", updated.GrowCeiling, "spend_limit_month", updated.SpendLimitMonth, "order", cm.OrderID)
+}
+
+// attachPrepaid records on the Organization's platform Source what its
+// checkout collected (spec.commerce.prepaidAmount), so the first statement
+// credits it and the package is never charged twice (DESIGN.md §22.11). Only
+// when the block names an amount and the Source does not already carry the
+// same figure; a refusal is a WARN, never a sync failure.
+func (s *OrgSync) attachPrepaid(ctx context.Context, f orgFields, c store.Customer, src store.CostSource) {
+	pa := f.Commerce.PrepaidAmount
+	if pa == nil {
+		return
+	}
+	if src.PrepaidAmount != nil {
+		have, ok1 := new(big.Rat).SetString(string(*src.PrepaidAmount))
+		want, ok2 := new(big.Rat).SetString(string(*pa))
+		if ok1 && ok2 && have.Cmp(want) == 0 {
+			return
+		}
+	}
+	if err := s.Repo.SetSourcePrepaid(ctx, src.ID, *pa); err != nil {
+		slog.Warn("openova adapter: prepaid amount not recorded; the customer and its Source still sync", "org", f.Slug, "customer", c.ID, "source", src.ID, "prepaid_amount", *pa, "order", f.Commerce.OrderID, "error", err)
+		return
+	}
+	slog.Info("openova adapter: platform source records the checkout's prepaid amount", "org", f.Slug, "customer", c.ID, "source", src.ID, "prepaid_amount", *pa, "order", f.Commerce.OrderID)
 }
 
 // sameKeySet reports whether two key lists name the same set, whatever their

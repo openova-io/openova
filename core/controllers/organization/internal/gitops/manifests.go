@@ -77,7 +77,8 @@ type Inputs struct {
 	// post-handover.
 	VClusterImageRegistry string
 
-	// PlanSlug is the catalog plan slug (s|m|l|xl|flexi) the customer
+	// PlanSlug is the catalog plan slug (s|m|l|xl; a retired "flexi" renders
+	// as S in grow mode, EffectivePlan) the customer
 	// purchased — the SINGLE truth-source for the resource cap that
 	// materializes on the Org boundary namespace (Workstream B, #4292 /
 	// EPIC #4293). Resolved from the plan UUID via catalog `resolvePlanSlug`
@@ -96,8 +97,8 @@ type Inputs struct {
 	// the field existed — or "grow" — the limits are raised to the grow
 	// ceiling and usage above the headline is billed in arrears by BSS.
 	// Empty (no spec.commerce, or a block without the field) and any other
-	// value read as "capped". Ignored for Burstable plans (Flexi renders no
-	// ResourceQuota in either mode).
+	// value read as "capped". A flexi Organization is grow whatever this
+	// says (EffectivePlan).
 	OverageMode string
 
 	// GrowCeilingCPU / GrowCeilingMemory are the grow ceiling as Kubernetes
@@ -107,6 +108,41 @@ type Inputs struct {
 	// quotaLimitsFor for the clamps.
 	GrowCeilingCPU    string
 	GrowCeilingMemory string
+	// GrowCeilingDisk is the grow ceiling for the customer's application
+	// storage as a Kubernetes quantity ("250Gi"), from
+	// spec.commerce.growCeiling.diskGB. Read only in grow mode; empty =
+	// the default ceiling (the XL disk, twice it on XL). See quotaDiskFor.
+	GrowCeilingDisk string
+
+	// OverageStoppedUntil is spec.overageStoppedUntil (RFC3339) while the
+	// BSS spend-limit stop is IN FORCE — the controller sets it only when
+	// the clock is before that instant, so Render stays pure. Non-empty on a
+	// grow Organization renders it capped: the headline on the limits term
+	// and the package disk on the app-storage quota, with
+	// openova.io/overage-stopped-until stamped on both quotas. Empty =
+	// no stop. Ignored in capped mode (nothing to stop).
+	OverageStoppedUntil string
+}
+
+// RetiredPlanFlexi is the pay-per-use plan the commercial model retired
+// (founder model, 2026-10-10: grow on any package IS pay as you go above a
+// commitment). An Organization still carrying spec.planSlug "flexi" is
+// rendered as the S package in grow mode on every reconcile (EffectivePlan):
+// the S headline as its commitment, the S grow ceiling (the XL shape) as its
+// limit. Nothing renders, sells or rates a flexi boundary any more; the slug
+// stays readable so an older CR still reconciles.
+const RetiredPlanFlexi = "flexi"
+
+// EffectivePlan is the plan and overage mode a boundary is rendered with:
+// flexi → S in grow (its ceiling, if any, is honoured as for any grow
+// package); every other slug unchanged. Exported so the controller's
+// postcondition readback and any caller that reports the plan agree with
+// the render.
+func EffectivePlan(planSlug, overageMode string) (slug, mode string, retired bool) {
+	if strings.EqualFold(strings.TrimSpace(planSlug), RetiredPlanFlexi) {
+		return "s", OverageModeGrow, true
+	}
+	return planSlug, overageMode, false
 }
 
 // Overage modes Inputs.OverageMode carries (spec.commerce.overageMode).
@@ -143,16 +179,22 @@ const (
 //	                          per-Organization platform-stack overhead
 //	                          (platformStack), each side with its own figures,
 //	                          so neither overhead eats into the plan.
-//	Burstable — Flexi alone: on demand, no hard ceiling, no ResourceQuota;
-//	            the LimitRange still renders (a small floor) so default-less
-//	            pods admit. Fixed tiers (S/M/L/XL) are hard-capped.
+//	Burstable — a plan with no hard ceiling and no ResourceQuota (the
+//	            LimitRange still renders a small floor). No plan in the table
+//	            is Burstable since flexi retired (RetiredPlanFlexi → S grow);
+//	            the gate is kept so a future soft plan is one row away.
+//	            Fixed tiers (S/M/L/XL) are hard-capped.
 type PlanQuota struct {
 	Slug       string
 	CPULimit   string // headline, e.g. "1", "2", "4", "8"
 	MemLimit   string // headline, e.g. "2Gi", "4Gi"
 	CPURequest string // guaranteed = headline ÷ 6, e.g. "167m"
 	MemRequest string // guaranteed = headline ÷ 3, e.g. "683Mi"
-	Burstable  bool
+	// DiskLimit is the package's disk headline (the workbook's GB as Gi,
+	// like the memory headline): the requests.storage cap of the in-vCluster
+	// app-storage quota in capped mode (appStorageQuotaTemplate).
+	DiskLimit string
+	Burstable bool
 }
 
 // planOvercommitCPU / planOvercommitMemory are the workbook's overcommit
@@ -169,18 +211,18 @@ const (
 // LimitRange off; the marketplace-api SizeResources + provisioning planLimits
 // were retired in Workstream A precisely so this table is the only one.
 //
-// S/M/L/XL are fixed hard-capped tiers; Flexi is on-demand Burstable (no hard
-// quota ceiling — soft, scale-on-demand). The headline numbers mirror the
+// S/M/L/XL are fixed hard-capped tiers. Flexi is no longer a row: it retired
+// on 2026-10-10 and EffectivePlan renders it as S in grow mode, so an unknown
+// lookup of "flexi" would also land on "s". The headline numbers mirror the
 // seeded plan rows (core/services/catalog/handlers/seed.go seedPlanRows:
 // S 1 vCPU / 2 GB, M 2 / 4, L 4 / 8, XL 8 / 16 — the National Cloud workbook,
 // NC-OO-Pricing.xlsx 2026-06-28); the requests are those over the 6× / 3×
 // overcommit, rounded up (TestPlanQuota_RequestIsHeadlineOverOvercommit).
 var planQuotaTable = map[string]PlanQuota{
-	"s":     {Slug: "s", CPULimit: "1", MemLimit: "2Gi", CPURequest: "167m", MemRequest: "683Mi", Burstable: false},
-	"m":     {Slug: "m", CPULimit: "2", MemLimit: "4Gi", CPURequest: "334m", MemRequest: "1366Mi", Burstable: false},
-	"l":     {Slug: "l", CPULimit: "4", MemLimit: "8Gi", CPURequest: "667m", MemRequest: "2731Mi", Burstable: false},
-	"xl":    {Slug: "xl", CPULimit: "8", MemLimit: "16Gi", CPURequest: "1334m", MemRequest: "5462Mi", Burstable: false},
-	"flexi": {Slug: "flexi", Burstable: true},
+	"s":  {Slug: "s", CPULimit: "1", MemLimit: "2Gi", CPURequest: "167m", MemRequest: "683Mi", DiskLimit: "25Gi"},
+	"m":  {Slug: "m", CPULimit: "2", MemLimit: "4Gi", CPURequest: "334m", MemRequest: "1366Mi", DiskLimit: "50Gi"},
+	"l":  {Slug: "l", CPULimit: "4", MemLimit: "8Gi", CPURequest: "667m", MemRequest: "2731Mi", DiskLimit: "100Gi"},
+	"xl": {Slug: "xl", CPULimit: "8", MemLimit: "16Gi", CPURequest: "1334m", MemRequest: "5462Mi", DiskLimit: "250Gi"},
 }
 
 // planQuota resolves the cap for a plan slug, defaulting to "s" for an unknown
@@ -224,7 +266,13 @@ func planQuota(planSlug string) PlanQuota {
 const (
 	BoundaryResourceQuotaName = "plan-quota"
 	BoundaryLimitRangeName    = "plan-limits"
+	// AppStorageQuotaName is the in-vCluster ResourceQuota that caps the
+	// customer's application storage (appStorageQuotaTemplate).
+	AppStorageQuotaName = "app-storage"
 )
+
+// appStorageQuotaDoc is the apps-tree filename of the app-storage quota.
+const appStorageQuotaDoc = "storagequota.yaml"
 
 // PlanRendersResourceQuota reports whether Render emits
 // `vcluster/resourcequota.yaml` for a plan — i.e. whether the Org's boundary
@@ -235,14 +283,15 @@ const (
 // it exists so that "this Org has no ResourceQuota" becomes a DECIDED outcome
 // instead of an ambiguous one (#5395). Fixed tiers (S/M/L/XL — plus the
 // ""/free/unknown slugs planQuota defaults to "s") are hard-capped and MUST
-// carry the quota; Flexi is the on-demand soft-cap plan and deliberately
-// carries none. Without this predicate an operator looking at a quota-less
-// namespace cannot distinguish "Flexi, uncapped by design" from "the boundary
-// tree never landed" — the two are byte-identical on the cluster, which is
-// exactly how a partially-provisioned Org passed for a healthy one.
+// carry the quota. The retired flexi plan renders as S in grow mode
+// (EffectivePlan), so it carries the quota too (#6971); only a Burstable row —
+// none today — would carry none. Without this predicate an operator looking at
+// a quota-less namespace could not distinguish "uncapped by design" from "the
+// boundary tree never landed" — the two are byte-identical on the cluster,
+// which is exactly how a partially-provisioned Org passed for a healthy one.
 //
 // The LimitRange (BoundaryLimitRangeName) has no such gate — Render emits it
-// for EVERY plan including Flexi — so its absence is ALWAYS a delivery gap.
+// for EVERY plan — so its absence is ALWAYS a delivery gap.
 // That asymmetry is what makes the pair a usable diagnostic; see
 // provisioning_postconditions.go.
 //
@@ -252,7 +301,8 @@ const (
 // and platformStack below. This predicate answers only "is a quota object
 // expected at all", never "how big it is".
 func PlanRendersResourceQuota(planSlug string) bool {
-	return !planQuota(planSlug).Burstable
+	slug, _, _ := EffectivePlan(planSlug, "")
+	return !planQuota(slug).Burstable
 }
 
 // ─── The vCluster control plane is overhead, not purchased capacity ─────────
@@ -507,6 +557,38 @@ func clampCeiling(v, floor, top string) string {
 	return c.String()
 }
 
+// growTopDisk is a plan's disk grow ceiling: the XL disk for S, M and L,
+// twice it for XL — the same rule as growTop, read from the same table.
+func growTopDisk(q PlanQuota) string {
+	top := mustQuantity(planQuotaTable[growCeilingPlan].DiskLimit)
+	if q.Slug == growCeilingPlan {
+		top.Add(mustQuantity(planQuotaTable[growCeilingPlan].DiskLimit))
+	}
+	return top.String()
+}
+
+// quotaDiskFor is the requests.storage cap of the in-vCluster app-storage
+// quota per overage mode: capped (also empty / unknown) → the package disk;
+// grow → the disk ceiling clamped into [package disk, growTopDisk] (empty or
+// unparseable = growTopDisk). Burstable plans carry no disk cap.
+func quotaDiskFor(q PlanQuota, mode, ceilDisk string) (disk string, grow bool) {
+	if q.Burstable || q.DiskLimit == "" {
+		return "", false
+	}
+	if mode != OverageModeGrow {
+		d := mustQuantity(q.DiskLimit)
+		return d.String(), false
+	}
+	return clampCeiling(ceilDisk, q.DiskLimit, growTopDisk(q)), true
+}
+
+// QuotaDiskFor is the exported form of quotaDiskFor keyed by plan slug,
+// after EffectivePlan (flexi → S grow).
+func QuotaDiskFor(planSlug, overageMode, growCeilingDisk string) (disk string, grow bool) {
+	slug, mode, _ := EffectivePlan(planSlug, overageMode)
+	return quotaDiskFor(planQuota(slug), mode, growCeilingDisk)
+}
+
 // QuotaLimitsFor is the exported form of quotaLimitsFor keyed by plan slug:
 // the cpu / memory plan term the ResourceQuota renders on its limits side
 // (before the control-plane and platform-stack overheads are added), and
@@ -514,7 +596,8 @@ func clampCeiling(v, floor, top string) string {
 // empty strings. PlanRendersResourceQuota still answers whether a quota
 // renders at all — the overage mode never changes that.
 func QuotaLimitsFor(planSlug, overageMode, growCeilingCPU, growCeilingMemory string) (cpu, memory string, grow bool) {
-	return quotaLimitsFor(planQuota(planSlug), overageMode, growCeilingCPU, growCeilingMemory)
+	slug, mode, _ := EffectivePlan(planSlug, overageMode)
+	return quotaLimitsFor(planQuota(slug), mode, growCeilingCPU, growCeilingMemory)
 }
 
 // String renders the overhead the way the ResourceQuota annotation carries it,
@@ -587,7 +670,8 @@ func (o ControlPlaneOverhead) String() string {
 // transients do. openclaw's per-user workspace pods are not here either: they
 // exist per signed-in User of the customer, so they are the customer's usage,
 // not a workload delivered with the Organization. Storage is not counted: the
-// quota renders no storage cap.
+// host quota renders no storage cap (the customer's application storage is
+// capped inside the vCluster — appStorageQuotaTemplate).
 
 // platformStackWorkload is one long-running pod the per-Organization platform
 // stack keeps in the host namespace, with the requests/limits of every
@@ -1014,8 +1098,9 @@ spec:
 // pay for is the headline, what is reserved for them is the guarantee. The
 // overheads are added on their own sides likewise (coredns and the newapi pod
 // are Burstable), so the two hard caps differ by the plan's overcommit gap
-// plus the overheads' request/limit gap. Flexi renders NO ResourceQuota
-// (on-demand, soft cap) — the controller skips this file for Burstable plans.
+// plus the overheads' request/limit gap. A Burstable plan (none today; flexi
+// retired and renders as S grow) would render NO ResourceQuota — the
+// controller skips this file for Burstable plans.
 //
 // Overage mode (spec.commerce.overageMode, founder model 2026-10-10): in
 // "capped" the limits plan term is the headline as above; in "grow" it is the
@@ -1048,8 +1133,14 @@ const resourceQuotaTemplate = `# The hard cap below is NOT the plan alone. It is
 #   overage mode: {{ .EffectiveOverageMode }}
 {{- if .GrowCeilingText }}
 #   grow ceiling (limits, in place of the headline): {{ .GrowCeilingText }}
-#   usage above the headline is billed in arrears by BSS; no storage cap in
-#   either mode (the platform stack's own volumes share this namespace)
+#   usage above the headline is billed in arrears by BSS; no storage cap
+#   here (the platform stack's own volumes share this namespace) - the
+#   customer's application storage is capped inside the vCluster
+#   (apps/storagequota.yaml)
+{{- end }}
+{{- if .OverageStoppedUntil }}
+#   grow held at the headline until {{ .OverageStoppedUntil }}: the BSS spend
+#   limit was reached this billing period (spec.overageStoppedUntil)
 {{- end }}
 apiVersion: v1
 kind: ResourceQuota
@@ -1073,12 +1164,71 @@ metadata:
 {{- if .GrowCeilingText }}
     openova.io/grow-ceiling: {{ .GrowCeilingText | quote }}
 {{- end }}
+{{- if .OverageStoppedUntil }}
+    openova.io/overage-stopped-until: {{ .OverageStoppedUntil | quote }}
+{{- end }}
 spec:
   hard:
     requests.cpu: "{{ .Hard.RequestsCPU }}"
     requests.memory: "{{ .Hard.RequestsMemory }}"
     limits.cpu: "{{ .Hard.LimitsCPU }}"
     limits.memory: "{{ .Hard.LimitsMemory }}"
+`
+
+// appStorageQuotaTemplate caps the CUSTOMER's application storage - and only
+// that (#6971, founder model 2026-10-10: capped mode caps disk). It is a
+// ResourceQuota rendered into the apps tree, so the per-Org apps Kustomization
+// (spec.kubeConfig -> the Org vCluster apiserver, targetNamespace=<slug>,
+// per_org_flux.go) applies it INSIDE the vCluster, into the namespace every
+// Catalyst Application install targets. The vCluster's own apiserver enforces
+// requests.storage at PVC admission there.
+//
+// Why inside the vCluster and not on the host plan-quota: the
+// per-Organization platform stack - bp-keycloak and its postgresql, bp-newapi
+// and its CNPG cluster, bp-openclaw, bp-agenity - and the vCluster's own
+// data-vcluster-0 volume are HOST objects in the host `<slug>` namespace,
+// using the same default StorageClass as the customer's synced PVCs. A host
+// requests.storage (or a per-StorageClass) cap could not tell them apart and
+// would refuse the Organization's own databases. Inside the vCluster only the
+// customer's Applications exist, so the cap is exactly theirs; the host
+// plan-quota keeps NO storage term (pinned by TestRender_AppStorageQuota*).
+//
+// The figure: capped -> the package disk (planQuotaTable DiskLimit: S 25Gi,
+// M 50Gi, L 100Gi, XL 250Gi); grow -> the disk ceiling
+// (spec.commerce.growCeiling.diskGB, default and top the XL disk, twice it on
+// XL); a grow Organization whose BSS spend limit is reached renders capped
+// until spec.overageStoppedUntil. Lowering the cap never deletes a volume: the
+// apiserver refuses NEW claims while usage is above it.
+//
+// Known limit, stated plainly: the quota covers the Applications namespace. A
+// customer on a package with kube-API access could create a second namespace
+// inside its vCluster, which this quota does not cover; the disk above the
+// package there is still metered by BSS from the PVC meter.
+const appStorageQuotaTemplate = `apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: {{ .AppStorageQuotaName }}
+  namespace: {{ .AppNamespace }}
+  labels:
+    openova.io/organization: {{ .Slug }}
+    openova.io/plan: {{ .PlanSlug }}
+    openova.io/managed-by: catalyst
+  annotations:
+    openova.io/quota-formula: "the customer's application storage only; the platform stack's volumes live on the host namespace and are not counted"
+    openova.io/plan-disk: {{ .Quota.DiskLimit | quote }}
+    openova.io/overage-mode: {{ .EffectiveOverageMode | quote }}
+{{- if .RetiredPlan }}
+    openova.io/retired-plan: {{ .RetiredPlan | quote }}
+{{- end }}
+{{- if .GrowDiskText }}
+    openova.io/grow-ceiling-disk: {{ .GrowDiskText | quote }}
+{{- end }}
+{{- if .OverageStoppedUntil }}
+    openova.io/overage-stopped-until: {{ .OverageStoppedUntil | quote }}
+{{- end }}
+spec:
+  hard:
+    requests.storage: "{{ .StorageHard }}"
 `
 
 // limitRangeTemplate seeds defaultRequest/default so pods authored without
@@ -1552,6 +1702,15 @@ type renderView struct {
 	// GrowCeilingText is the clamped grow ceiling ("cpu=8 memory=16Gi"),
 	// stamped as openova.io/grow-ceiling; empty unless the mode is grow.
 	GrowCeilingText string
+	// StorageHard is the app-storage quota's requests.storage (quotaDiskFor);
+	// GrowDiskText the same figure when it is the grow ceiling, else empty.
+	StorageHard  string
+	GrowDiskText string
+	// AppStorageQuotaName carries AppStorageQuotaName into the template.
+	AppStorageQuotaName string
+	// RetiredPlan is the slug the CR carried when EffectivePlan mapped it
+	// (flexi), empty otherwise.
+	RetiredPlan string
 	// AppNamespace is the in-vcluster namespace the funnel installs the
 	// customer's Applications into (= "apps", matching the provisioning
 	// funnel's appNS). The default-deny + same-Org NetworkPolicy targets it
@@ -1663,18 +1822,32 @@ func Render(in Inputs) (map[string][]byte, error) {
 		in.Tier = "org"
 	}
 
+	// Flexi retired (2026-10-10): render it as S in grow mode. A grow
+	// Organization under a BSS spend-limit stop renders capped.
+	slug, mode, retired := EffectivePlan(in.PlanSlug, in.OverageMode)
+	in.PlanSlug, in.OverageMode = slug, mode
+	if in.OverageMode != OverageModeGrow {
+		in.OverageStoppedUntil = ""
+	}
+	if in.OverageStoppedUntil != "" {
+		in.OverageMode = OverageModeCapped
+	}
 	quota := planQuota(in.PlanSlug)
 	view := renderView{
-		Inputs:            in,
-		Quota:             quota,
-		ControlPlane:      vclusterControlPlane,
-		OverheadText:      vclusterControlPlaneOverhead.String(),
-		OvercommitCPU:     planOvercommitCPU,
-		OvercommitMemory:  planOvercommitMemory,
-		Defaults:          limitRangeDefaults(quota),
-		AppNamespace:      "apps",
-		ResourceQuotaName: BoundaryResourceQuotaName,
-		LimitRangeName:    BoundaryLimitRangeName,
+		AppStorageQuotaName: AppStorageQuotaName,
+		Inputs:              in,
+		Quota:               quota,
+		ControlPlane:        vclusterControlPlane,
+		OverheadText:        vclusterControlPlaneOverhead.String(),
+		OvercommitCPU:       planOvercommitCPU,
+		OvercommitMemory:    planOvercommitMemory,
+		Defaults:            limitRangeDefaults(quota),
+		AppNamespace:        "apps",
+		ResourceQuotaName:   BoundaryResourceQuotaName,
+		LimitRangeName:      BoundaryLimitRangeName,
+	}
+	if retired {
+		view.RetiredPlan = RetiredPlanFlexi
 	}
 	// The hard cap = plan term + control-plane overhead + platform-stack
 	// overhead, the plan term being the guaranteed share on requests and the
@@ -1694,15 +1867,16 @@ func Render(in Inputs) (map[string][]byte, error) {
 		// the LimitRange defaults, which stay headline-derived in both
 		// modes).
 		//
-		// Storage: NO requests.storage in either mode, deliberately. The
-		// per-Organization platform stack's PVCs (the keycloak and newapi
-		// postgresql volumes) share this namespace with the customer's own
-		// and are not sized in this controller, so a storage cap
-		// would refuse the Organization's own databases (see "Storage is
-		// not counted" above platformStackWorkload). Disk above the package
-		// is metered by BSS from the PVC meter and billed in arrears; the
-		// growCeiling.diskGB / bandwidthMbps values are BSS's, not this
-		// quota's.
+		// Storage: NO requests.storage on THIS host quota in either mode,
+		// deliberately. The per-Organization platform stack's PVCs (the
+		// keycloak and newapi postgresql volumes) share the host namespace
+		// with the customer's synced claims and are not sized in this
+		// controller, so a host storage cap would refuse the Organization's
+		// own databases (see "Storage is not counted" above
+		// platformStackWorkload). The customer's application storage is
+		// capped INSIDE the vCluster instead (appStorageQuotaTemplate,
+		// quotaDiskFor: the package disk in capped, the disk ceiling in
+		// grow). Bandwidth renders no cap; growCeiling.bandwidthMbps is BSS's.
 		limCPU, limMem, grow := quotaLimitsFor(quota, in.OverageMode, in.GrowCeilingCPU, in.GrowCeilingMemory)
 		limitsQuota := quota
 		limitsQuota.CPULimit, limitsQuota.MemLimit = limCPU, limMem
@@ -1715,6 +1889,11 @@ func Render(in Inputs) (map[string][]byte, error) {
 		view.PlanCapText = fmt.Sprintf("cpu=%s memory=%s", quota.CPULimit, quota.MemLimit)
 		view.PlanGuaranteedText = fmt.Sprintf("cpu=%s memory=%s", quota.CPURequest, quota.MemRequest)
 		view.PlatformStackText = ps.String()
+		disk, growDisk := quotaDiskFor(quota, in.OverageMode, in.GrowCeilingDisk)
+		view.StorageHard = disk
+		if growDisk {
+			view.GrowDiskText = disk
+		}
 	}
 
 	// Assemble the file set. The boundary host namespace, its plan-templated
@@ -1771,6 +1950,12 @@ func Render(in Inputs) (map[string][]byte, error) {
 	// vcluster (nothing else does → `namespaces "<slug>" not found`).
 	files["vcluster/apps/"+appsNamespaceDoc] = appsNamespaceTemplate
 	appsResources := []string{networkPolicyDoc, appsNamespaceDoc}
+	// The customer's application storage cap, applied INSIDE the vCluster
+	// (appStorageQuotaTemplate) - only where the plan has a disk headline.
+	if view.StorageHard != "" {
+		files["vcluster/apps/"+appStorageQuotaDoc] = appStorageQuotaTemplate
+		appsResources = append(appsResources, appStorageQuotaDoc)
+	}
 	// Explicit apps/kustomization.yaml so the per-Org apps Flux Kustomization's
 	// `kustomize build ./vcluster/apps` enumerates the K8s NP + the in-vcluster
 	// target namespace deterministically.

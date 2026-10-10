@@ -36,8 +36,8 @@ func TestShowcasePackagesAreSeededBilledAndPurged(t *testing.T) {
 	if n := scalar[int](t, db, `SELECT count(*) FROM icons`); n != len(manifest.files()) || n != 32 {
 		t.Fatalf("%d icons stored, want the manifest's %d distinct files (32)", n, len(manifest.files()))
 	}
-	if n := scalar[int](t, db, `SELECT count(*) FROM features WHERE icon_id IS NOT NULL AND icon_bg IS NOT NULL`); n != 27 {
-		t.Fatalf("%d features with an icon and a tile colour, want all 27", n)
+	if n := scalar[int](t, db, `SELECT count(*) FROM features WHERE icon_id IS NOT NULL AND icon_bg IS NOT NULL`); n != 28 {
+		t.Fatalf("%d features with an icon and a tile colour, want all 28", n)
 	}
 	if n := scalar[int](t, db, `SELECT count(*) FROM feature_group_settings WHERE icon_id IS NOT NULL`); n != 7 {
 		t.Fatalf("%d groups with an icon, want all 7", n)
@@ -74,14 +74,41 @@ func TestShowcasePackagesAreSeededBilledAndPurged(t *testing.T) {
 	}
 
 	// ── the ladder, exactly ────────────────────────────────────────────
-	if n := scalar[int](t, db, `SELECT count(*) FROM features`); n != 27 {
-		t.Fatalf("%d features, want 27 (9 on the floor, 18 with cells)", n)
+	// 2026-10-11 (founder decision): the web application firewall left the
+	// floor for an S/M add-on, and APM joined ops on L and XL.
+	if n := scalar[int](t, db, `SELECT count(*) FROM features`); n != 28 {
+		t.Fatalf("%d features, want 28 (8 on the floor, 20 with cells)", n)
 	}
-	if n := scalar[int](t, db, `SELECT count(*) FROM features WHERE feature_group = 'floor'`); n != 9 {
-		t.Fatalf("%d floor items, want 9", n)
+	if n := scalar[int](t, db, `SELECT count(*) FROM features WHERE feature_group = 'floor'`); n != 8 {
+		t.Fatalf("%d floor items, want 8", n)
 	}
-	if n := scalar[int](t, db, `SELECT count(*) FROM package_entitlements WHERE price_book_id = $1`, planBook); n != 72 {
-		t.Fatalf("%d cells, want 18 features × 4 packages = 72", n)
+	if n := scalar[int](t, db, `SELECT count(*) FROM package_entitlements WHERE price_book_id = $1`, planBook); n != 80 {
+		t.Fatalf("%d cells, want 20 features × 4 packages = 80", n)
+	}
+	// WAF: an add-on on S and M at 3.500 a month (annual 42), included on L
+	// and XL, group features, sort order 7, shield-check on #DCFCE7. APM: a
+	// teaser on S and M, included on L and XL, group ops, sort order 15,
+	// layout-dashboard on #FEF3C7.
+	for _, tc := range []struct {
+		key, group, addon, blurb, bg string
+		teaser                       bool
+		sort                         int
+	}{
+		{"waf", "features", "addon.waf", "Common web attacks blocked before they reach your sites", "#DCFCE7", false, 7},
+		{"apm", "ops", "", "Traces, metrics and logs for every app, with service maps", "#FEF3C7", true, 15},
+	} {
+		var group, addon, blurb, bg string
+		var teaser bool
+		var sort int
+		if err := db.QueryRow(`SELECT feature_group, coalesce(addon_sku, ''), blurb, coalesce(icon_bg, ''), teaser, sort_order FROM features WHERE key = $1`, tc.key).Scan(&group, &addon, &blurb, &bg, &teaser, &sort); err != nil {
+			t.Fatalf("%s: %v", tc.key, err)
+		}
+		if group != tc.group || addon != tc.addon || blurb != tc.blurb || !strings.EqualFold(bg, tc.bg) || teaser != tc.teaser || sort != tc.sort {
+			t.Fatalf("%s = group %s addon %q blurb %q bg %s teaser %v sort %d, want %+v", tc.key, group, addon, blurb, bg, teaser, sort, tc)
+		}
+	}
+	if a := scalar[string](t, db, `SELECT annual_price::text FROM price_items WHERE price_book_id = $1 AND sku = 'addon.waf'`, planBook); !near(f(t, a), 42) {
+		t.Fatalf("addon.waf = %s OMR/year, want 42 (3.500 a month)", a)
 	}
 	if n := scalar[int](t, db, `SELECT count(*) FROM package_entitlements e JOIN features f ON f.id = e.feature_id WHERE f.feature_group = 'floor'`); n != 0 {
 		t.Fatalf("%d cells on floor items, want none", n)
@@ -96,6 +123,8 @@ func TestShowcasePackagesAreSeededBilledAndPurged(t *testing.T) {
 		{"plan.s", "bandwidth", "included"}, {"plan.s", "disk", "included"},
 		{"plan.s", "gitea_iac", "not_offered"}, {"plan.m", "gitea_iac", "included"}, {"plan.xl", "kube_api", "included"}, {"plan.l", "kube_api", "not_offered"},
 		{"plan.s", "vuln_dashboard", "not_offered"}, {"plan.m", "vuln_dashboard", "included"},
+		{"plan.s", "waf", "optional"}, {"plan.m", "waf", "optional"}, {"plan.l", "waf", "included"}, {"plan.xl", "waf", "included"},
+		{"plan.s", "apm", "not_offered"}, {"plan.m", "apm", "not_offered"}, {"plan.l", "apm", "included"}, {"plan.xl", "apm", "included"},
 		// DESIGN.md §22.11: active-passive comes with grow mode on S, M, L.
 		{"plan.s", "dr_topology", "optional"}, {"plan.l", "dr_topology", "optional"}, {"plan.xl", "dr_topology", "included"},
 	} {
@@ -222,7 +251,9 @@ func TestShowcasePackagesAreSeededBilledAndPurged(t *testing.T) {
 		vcpu, disk           float64
 	}{
 		{"plan.s", "2.490", "2.000", "0.000", 1, 25},
-		{"plan.m", "4.490", "3.500", "0.000", 2, 50},
+		// M → L: the WAF is the one add-on M offers and L includes, priced at
+		// the gap, so the rule holds exactly — 3.500 bundled = 3.500 gap.
+		{"plan.m", "4.490", "3.500", "3.500", 2, 50},
 		{"plan.l", "7.990", "6.000", "6.000", 4, 100},
 		{"plan.xl", "13.990", "", "", 8, 250},
 	} {
@@ -307,9 +338,15 @@ func TestShowcasePackagesAreSeededBilledAndPurged(t *testing.T) {
 		t.Fatalf("unpriced %v, want none: the vCPU and memory meters are the basis under a plans book that prices the disk meter", up)
 	}
 	stID := run.Results[0].StatementID
-	// The plan at the workbook's price: 744 × 0.00615068 = 4.576106.
-	if a := scalar[string](t, db, `SELECT amount::text FROM rated_lines WHERE statement_id = $1 AND sku = 'plan.m'`, stID); !near(f(t, a), 4.576106) {
-		t.Fatalf("plan line = %s, want 4.576106 (744 h at 4.490 a month)", a)
+	// The package at the workbook's FLAT monthly price (DESIGN.md §22.11):
+	// July is the Source's first month here and was not paid in advance, so
+	// it is billed whole at 4.490 (not 744 h × 0.00615068 = 4.576106), and
+	// August in advance at 4.490.
+	if a := scalar[string](t, db, `SELECT amount::text FROM rated_lines WHERE statement_id = $1 AND sku = 'plan.m' AND service_period_start = '2026-07-01'`, stID); !near(f(t, a), 4.49) {
+		t.Fatalf("July's plan line = %s, want 4.490 (the flat monthly price)", a)
+	}
+	if a := scalar[string](t, db, `SELECT amount::text FROM rated_lines WHERE statement_id = $1 AND sku = 'plan.m' AND service_period_start = '2026-08-01'`, stID); !near(f(t, a), 4.49) {
+		t.Fatalf("August's advance line = %s, want 4.490", a)
 	}
 	// 744 plan-hours on M × 0.00205479 = 1.528764, the add-on named.
 	var addonAmount, addonDesc string
@@ -347,8 +384,8 @@ func TestShowcasePackagesAreSeededBilledAndPurged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("purge: %v", err)
 	}
-	if counts.PackageCells != 72 || counts.AddonRates != 7 || counts.Features != 27 || counts.Customers != 1 {
-		t.Fatalf("purge removed %d cells, %d rates, %d features, %d customers; want 72, 7, 27, 1", counts.PackageCells, counts.AddonRates, counts.Features, counts.Customers)
+	if counts.PackageCells != 80 || counts.AddonRates != 8 || counts.Features != 28 || counts.Customers != 1 {
+		t.Fatalf("purge removed %d cells, %d rates, %d features, %d customers; want 80, 8, 28, 1", counts.PackageCells, counts.AddonRates, counts.Features, counts.Customers)
 	}
 	if counts.GroupIcons != 7 || counts.Icons != 32 || scalar[int](t, db, `SELECT count(*) FROM icons`) != 0 {
 		t.Fatalf("purge removed %d group icons and %d icons; want 7 and all 32", counts.GroupIcons, counts.Icons)
@@ -389,21 +426,21 @@ func TestPurgeKeepsAFeatureAnotherBookStillCarries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("purge: %v", err)
 	}
-	if counts.PackageCells != 72 || counts.Features != 9 {
-		t.Fatalf("purge removed %d cells and %d features; the clone still carries every cell, so only the 9 floor items (no cell anywhere) may go", counts.PackageCells, counts.Features)
+	if counts.PackageCells != 80 || counts.Features != 8 {
+		t.Fatalf("purge removed %d cells and %d features; the clone still carries every cell, so only the 8 floor items (no cell anywhere) may go", counts.PackageCells, counts.Features)
 	}
-	if n := scalar[int](t, db, `SELECT count(*) FROM features`); n != 18 {
-		t.Fatalf("%d features after the purge, want the 18 kept for the clone", n)
+	if n := scalar[int](t, db, `SELECT count(*) FROM features`); n != 20 {
+		t.Fatalf("%d features after the purge, want the 20 kept for the clone", n)
 	}
-	if n := scalar[int](t, db, `SELECT count(*) FROM package_entitlements WHERE price_book_id = $1`, clone.ID); n != 72 {
-		t.Fatalf("%d cells on the clone after the purge, want 72", n)
+	if n := scalar[int](t, db, `SELECT count(*) FROM package_entitlements WHERE price_book_id = $1`, clone.ID); n != 80 {
+		t.Fatalf("%d cells on the clone after the purge, want 80", n)
 	}
 }
 
 // The ladder converges a book that carries the EARLIER baseline — the
 // fifteen boolean features with cells on every package, as 0.1.57 seeded
-// hw307: the nine that are now floor items lose their cells and move to the
-// floor, backup keeps its optional cells, bandwidth gains its overage, and
+// hw307: the ones that are now floor items lose their cells and move to the
+// floor, the WAF becomes the S/M add-on it is since 2026-10-11, backup keeps its optional cells, bandwidth gains its overage, and
 // the rest of the ladder arrives.
 func TestLadderConvergesTheEarlierBaseline(t *testing.T) {
 	s, db := setupSeeder(t, synth.DefaultWindow())
@@ -444,19 +481,24 @@ func TestLadderConvergesTheEarlierBaseline(t *testing.T) {
 	if err := s.ensurePackages(planBook); err != nil {
 		t.Fatalf("converge: %v", err)
 	}
-	if n := scalar[int](t, db, `SELECT count(*) FROM package_entitlements WHERE price_book_id = $1`, planBook); n != 72 {
-		t.Fatalf("%d cells after converging, want 72", n)
+	if n := scalar[int](t, db, `SELECT count(*) FROM package_entitlements WHERE price_book_id = $1`, planBook); n != 80 {
+		t.Fatalf("%d cells after converging, want 80", n)
 	}
-	if g := scalar[string](t, db, `SELECT feature_group FROM features WHERE key = 'waf'`); g != "floor" {
-		t.Fatalf("waf group = %s, want floor", g)
+	// The baseline's WAF, included everywhere, converges to the add-on on S
+	// and M it is since 2026-10-11.
+	if g := scalar[string](t, db, `SELECT feature_group FROM features WHERE key = 'waf'`); g != "features" {
+		t.Fatalf("waf group = %s, want features", g)
 	}
-	if n := scalar[int](t, db, `SELECT count(*) FROM package_entitlements e JOIN features f ON f.id = e.feature_id WHERE f.key IN ('applications', 'ssl', 'waf', 'support')`); n != 0 {
+	if st := scalar[string](t, db, `SELECT e.state FROM package_entitlements e JOIN features f ON f.id = e.feature_id WHERE e.price_book_id = $1 AND e.plan_sku = 'plan.s' AND f.key = 'waf'`, planBook); st != "optional" {
+		t.Fatalf("waf on S = %s, want optional", st)
+	}
+	if n := scalar[int](t, db, `SELECT count(*) FROM package_entitlements e JOIN features f ON f.id = e.feature_id WHERE f.key IN ('applications', 'ssl', 'support')`); n != 0 {
 		t.Fatalf("%d cells left on floor items", n)
 	}
 	if g := scalar[string](t, db, `SELECT feature_group FROM features WHERE key = 'backup'`); g != "resilience" {
 		t.Fatalf("backup group = %s", g)
 	}
-	if n := scalar[int](t, db, `SELECT count(*) FROM features`); n != 27 {
-		t.Fatalf("%d features, want 27", n)
+	if n := scalar[int](t, db, `SELECT count(*) FROM features`); n != 28 {
+		t.Fatalf("%d features, want 28", n)
 	}
 }

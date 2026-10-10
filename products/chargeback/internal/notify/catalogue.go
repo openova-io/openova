@@ -51,6 +51,10 @@ const (
 	// EventReportScheduled is a scheduled cost report
 	// (internal/report/scheduler.go).
 	EventReportScheduled = "report.scheduled"
+	// EventOverageSpendLimit is the notice that a grow Source's spend limit
+	// was reached and the Organization is held at its package until the
+	// next period (internal/spendlimit/evaluator.go).
+	EventOverageSpendLimit = "overage.spend_limit_reached"
 )
 
 // Category groups events for the console. It carries no behaviour.
@@ -244,6 +248,29 @@ var catalogue = []Event{
 		},
 		Example: map[string]any{
 			"available": "12.5", "currency": "OMR",
+		},
+	},
+	{
+		Key:       EventOverageSpendLimit,
+		Title:     "Spend limit reached",
+		Desc:      "A grow package's usage above the package reached the customer's monthly spend limit: the Organization is held at its package until the next period starts. Recorded once per (Source, period).",
+		Category:  CategoryBilling,
+		Mandatory: true,
+		Channels:  []string{ChannelEmail},
+		DefaultOn: true,
+		Source:    "internal/spendlimit/evaluator.go — the hourly pass",
+		Payload: []Field{
+			{Name: "customer_name", Desc: "the customer's name"},
+			{Name: "organization", Desc: "the Organization slug"},
+			{Name: "package", Desc: "the package name, e.g. M"},
+			{Name: "accrued", Desc: "the usage above the package so far this period, unformatted"},
+			{Name: "limit", Desc: "the monthly spend limit, unformatted"},
+			{Name: "currency", Desc: "the currency"},
+			{Name: "period", Desc: "the period, YYYY-MM"},
+			{Name: "until", Desc: "when grow returns: the next period start, YYYY-MM-DD"},
+		},
+		Example: map[string]any{
+			"organization": "sohar", "limit": "25", "currency": "OMR",
 		},
 	},
 	{
