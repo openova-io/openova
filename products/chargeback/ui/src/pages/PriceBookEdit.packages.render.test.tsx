@@ -118,7 +118,7 @@ describe('the Packages tab of a price book', () => {
       'group-service',
       'feature-row-sla',
     ])
-    expect(html).toMatch(/<tr class="pkg-group" data-testid="group-ops"><th colSpan="6">Managed operations<\/th><\/tr>/)
+    expect(html).toMatch(/<tr class="pkg-group" data-testid="group-ops"><th colSpan="6"><span class="pkg-group-name">Managed operations<\/span>/)
     // A quantity with its overage under the chip.
     expect(html).toMatch(/data-testid="cell-bandwidth-plan\.s"><span>50 Mbps<\/span><span class="tiny muted">hard cap<\/span>/)
     expect(html).toMatch(/data-testid="cell-bandwidth-plan\.l"><span>250 Mbps<\/span><span class="tiny muted">metered<\/span>/)

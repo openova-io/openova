@@ -151,15 +151,17 @@ describe('the package comparison table, walked', () => {
     // A quantity with what happens above it.
     const bw = [...t.querySelectorAll('[data-testid=compare-bandwidth] td')].map((c) => c.textContent)
     expect(bw.slice(1)).toEqual(['50 Mbpshard cap', '100 Mbpshard cap', '250 Mbpsmore billed per use', '1000 Mbpsmore billed per use'])
-    // A boolean add-on with its price and hint; included on XL.
+    // A boolean add-on: one line "+ price / mo" (the currency is the column
+    // header's and the tooltip's) over its hint; included on XL.
     const backup = [...t.querySelectorAll('[data-testid=compare-backup] td')].map((c) => c.textContent)
     expect(backup[0]).toBe('Backup')
     expect(t.querySelector('[data-testid=compare-backup] td')?.getAttribute('title')).toBe('Scheduled backups of your sites and databases')
-    expect(backup[1]).toBe('+ 1.500OMR / monthincluded from XL')
+    expect(backup[1]).toBe('+ 1.500 / moincluded from XL')
+    expect(t.querySelector('[data-testid=compare-backup] td:nth-child(2) label')?.getAttribute('title')).toBe('1.500 OMR a month')
     expect(backup[4]).toBe('✓ Included')
     const ip = [...t.querySelectorAll('[data-testid=compare-dedicated_ip] td')].map((c) => c.textContent)
     expect(ip[3]).toBe('—')
-    expect(ip[4]).toBe('+ 2.000OMR / month')
+    expect(ip[4]).toBe('+ 2.000 / mo')
     // An access door: ✓ / —, with its note.
     const gitea = [...t.querySelectorAll('[data-testid=compare-gitea_iac] td')].map((c) => c.textContent)
     expect(gitea.slice(1)).toEqual(['—', '✓read', '✓', '✓'])
@@ -168,9 +170,17 @@ describe('the package comparison table, walked', () => {
     expect(vuln.slice(1)).toEqual(['from M', '✓ Included', '✓ Included', '✓ Included'])
     // A level shows its label; the purchasable next level is a tick with its price.
     const dr = [...t.querySelectorAll('[data-testid=compare-dr_topology] td')].map((c) => c.textContent)
-    expect(dr.slice(1)).toEqual(['single region+ 8.000active-passive · OMR / month', 'active-passive', 'active-passive', 'active-passive'])
-    // The floor, once, under the table.
-    expect(document.querySelector('[data-testid=floor-strip]')?.textContent).toBe('On every package: Unlimited free SSL · Standard DDoS protection')
+    expect(dr.slice(1)).toEqual(['single region+ 8.000 / moactive-passive', 'active-passive', 'active-passive', 'active-passive'])
+    // The floor, once, under the table — outside the table's scroll
+    // container, like the footer, so both stay the card's full width when
+    // the table scrolls on a narrow screen (0.1.62).
+    const strip = document.querySelector('[data-testid=floor-strip]')
+    expect(strip?.textContent).toBe('On every package: Unlimited free SSL · Standard DDoS protection')
+    const scroll = t.querySelector('[data-testid=package-table-scroll]')
+    expect(scroll?.querySelector('table.pkg-table.compare')).not.toBeNull()
+    expect(scroll?.querySelectorAll('colgroup col')).toHaveLength(5)
+    expect(scroll?.contains(strip)).toBe(false)
+    expect(scroll?.contains(byAria('Configure Platform plans'))).toBe(false)
     // No step-up hint until something is ticked.
     expect(document.querySelector('[data-testid=step-up-hint-plan\\.s]')).toBeNull()
   })

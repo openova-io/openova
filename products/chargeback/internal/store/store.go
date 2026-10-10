@@ -533,6 +533,12 @@ ALTER TABLE cost_sources ADD CONSTRAINT cost_sources_status_check CHECK (status 
 	// (book, plan). Appended at the very END: migrations are positional.
 	// Located by content as MigrationPackageLadder (packages.go).
 	packageLadderMigrationSQL,
+	// DESIGN.md §22.10 (founder direction 2026-10-10) — icons and branding:
+	// the content-addressed icons table, an icon and its background on a
+	// feature, an icon per group, and an icon, accent colour and badge on a
+	// package's settings. Appended at the very END: migrations are
+	// positional. Located by content as MigrationIcons (icons.go).
+	iconsMigrationSQL,
 }
 
 // MigrationBackfillIssuedInvoices is the schema_migrations version of the

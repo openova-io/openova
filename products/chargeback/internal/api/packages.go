@@ -53,19 +53,46 @@ import (
 // least the gap. Writes are rating.manage.
 
 type packagesDoc struct {
-	Currency   string               `json:"currency"`
-	PriceBook  string               `json:"price_book"`
-	PricesAsOf string               `json:"prices_as_of"`
-	Groups     []store.FeatureGroup `json:"groups"`
-	Floor      []floorItem          `json:"floor"`
-	Packages   []packageDoc         `json:"packages"`
-	Features   []packageFeature     `json:"features"`
+	Currency   string           `json:"currency"`
+	PriceBook  string           `json:"price_book"`
+	PricesAsOf string           `json:"prices_as_of"`
+	Groups     []groupDoc       `json:"groups"`
+	Floor      []floorItem      `json:"floor"`
+	Packages   []packageDoc     `json:"packages"`
+	Features   []packageFeature `json:"features"`
+}
+
+// iconDoc is an icon as the document names it (DESIGN.md §22.10): src is a
+// PATH relative to the origin that serves the document — the console and the
+// storefront resolve it against the document's URL — alt is the name of the
+// thing it stands for, bg the tile colour behind it (features only, and only
+// when set). Absent when nothing is set: never null, never "".
+type iconDoc struct {
+	Src string `json:"src"`
+	Alt string `json:"alt"`
+	BG  string `json:"bg,omitempty"`
+}
+
+// iconOf is the published icon of an item, or nil when it has none.
+func iconOf(id, alt, bg string) *iconDoc {
+	if id == "" {
+		return nil
+	}
+	return &iconDoc{Src: store.IconSrc(id), Alt: alt, BG: bg}
+}
+
+// groupDoc is one group heading, with its icon when one is set.
+type groupDoc struct {
+	Key  string   `json:"key"`
+	Name string   `json:"name"`
+	Icon *iconDoc `json:"icon,omitempty"`
 }
 
 type floorItem struct {
-	Key   string `json:"key"`
-	Name  string `json:"name"`
-	Blurb string `json:"blurb,omitempty"`
+	Key   string   `json:"key"`
+	Name  string   `json:"name"`
+	Blurb string   `json:"blurb,omitempty"`
+	Icon  *iconDoc `json:"icon,omitempty"`
 }
 
 // packageShape is the vCPU and memory headline with the guaranteed floors
@@ -99,6 +126,11 @@ type packageDoc struct {
 	Shape            packageShape             `json:"shape"`
 	StepUp           *packageStepUp           `json:"step_up,omitempty"`
 	Includes         map[string]store.Decimal `json:"includes"`
+	// Icon, Accent and Badge brand the column (DESIGN.md §22.10), each
+	// omitted when unset.
+	Icon   *iconDoc `json:"icon,omitempty"`
+	Accent string   `json:"accent,omitempty"`
+	Badge  string   `json:"badge,omitempty"`
 }
 
 type packageFeature struct {
@@ -111,6 +143,7 @@ type packageFeature struct {
 	Levels   []string               `json:"levels,omitempty"`
 	AddonSKU string                 `json:"addon_sku,omitempty"`
 	Teaser   bool                   `json:"teaser"`
+	Icon     *iconDoc               `json:"icon,omitempty"`
 	Cells    map[string]packageCell `json:"cells"`
 }
 
@@ -199,12 +232,16 @@ func packageShapeOf(slug string, ps *store.PackageSettings) packageShape {
 }
 
 // packagesDocument builds the one document from a book, its matrix cells,
-// its package settings and the features in matrix order. Only features with
-// at least one cell in the book appear (floor items always do, as the floor);
-// a plan with no cell for a feature reads not_offered.
-func packagesDocument(pb store.PriceBook, features []store.Feature, cells []store.Entitlement, settings map[string]store.PackageSettings) (packagesDoc, error) {
+// its package settings, the features in matrix order and the icon of each
+// group that has one. Only features with at least one cell in the book appear
+// (floor items always do, as the floor); a plan with no cell for a feature
+// reads not_offered.
+func packagesDocument(pb store.PriceBook, features []store.Feature, cells []store.Entitlement, settings map[string]store.PackageSettings, groupIcons map[string]string) (packagesDoc, error) {
 	digits := store.MinorUnitDigits(pb.Currency)
-	doc := packagesDoc{Currency: pb.Currency, PriceBook: pb.Name, PricesAsOf: pb.UpdatedAt.UTC().Format("2006-01-02"), Groups: store.FeatureGroups, Floor: []floorItem{}, Packages: []packageDoc{}, Features: []packageFeature{}}
+	doc := packagesDoc{Currency: pb.Currency, PriceBook: pb.Name, PricesAsOf: pb.UpdatedAt.UTC().Format("2006-01-02"), Groups: []groupDoc{}, Floor: []floorItem{}, Packages: []packageDoc{}, Features: []packageFeature{}}
+	for _, g := range store.FeatureGroups {
+		doc.Groups = append(doc.Groups, groupDoc{Key: g.Key, Name: g.Name, Icon: iconOf(groupIcons[g.Key], g.Name, "")})
+	}
 	items := map[string]store.PriceItem{}
 	for _, it := range pb.Items {
 		items[it.SKU] = it
@@ -277,7 +314,7 @@ func packagesDocument(pb store.PriceBook, features []store.Feature, cells []stor
 	kinds := map[string]store.Feature{}
 	for _, f := range features {
 		if f.Group == store.FeatureGroupFloor {
-			doc.Floor = append(doc.Floor, floorItem{Key: f.Key, Name: f.Name, Blurb: f.Blurb})
+			doc.Floor = append(doc.Floor, floorItem{Key: f.Key, Name: f.Name, Blurb: f.Blurb, Icon: iconOf(f.IconID, f.Name, f.IconBG)})
 			continue
 		}
 		byPlan := cellOf[f.ID]
@@ -302,7 +339,7 @@ func packagesDocument(pb store.PriceBook, features []store.Feature, cells []stor
 			}
 			return ""
 		}
-		pf := packageFeature{Key: f.Key, Name: f.Name, Blurb: f.Blurb, Group: f.Group, Kind: f.Kind, Unit: f.Unit, Levels: f.Levels, AddonSKU: f.AddonSKU, Teaser: f.Teaser, Cells: map[string]packageCell{}}
+		pf := packageFeature{Key: f.Key, Name: f.Name, Blurb: f.Blurb, Group: f.Group, Kind: f.Kind, Unit: f.Unit, Levels: f.Levels, AddonSKU: f.AddonSKU, Teaser: f.Teaser, Icon: iconOf(f.IconID, f.Name, f.IconBG), Cells: map[string]packageCell{}}
 		published[f.Key] = map[string]packageCell{}
 		for _, p := range plans {
 			cell := packageCell{State: store.EntitlementNotOffered}
@@ -371,6 +408,7 @@ func packagesDocument(pb store.PriceBook, features []store.Feature, cells []stor
 		pd := packageDoc{SKU: p.sku, Name: store.PlanName(p.slug), PriceMonth: string(p.monthly), Shape: shapes[p.sku], Includes: includes[p.sku]}
 		if s, ok := settings[p.sku]; ok {
 			pd.Tagline, pd.Recommended, pd.AnnualMonthsFree = s.Tagline, s.Recommended, s.AnnualMonthsFree
+			pd.Icon, pd.Accent, pd.Badge = iconOf(s.IconID, pd.Name, ""), s.Accent, s.Badge
 		}
 		if i+1 < len(plans) {
 			n := plans[i+1]
@@ -436,7 +474,11 @@ func (h *Handler) packagesOf(r *http.Request, pb store.PriceBook) (packagesDoc, 
 	if err != nil {
 		return packagesDoc{}, err
 	}
-	return packagesDocument(pb, features, cells, settings)
+	groupIcons, err := h.Store.FeatureGroupIcons(r.Context())
+	if err != nil {
+		return packagesDoc{}, err
+	}
+	return packagesDocument(pb, features, cells, settings, groupIcons)
 }
 
 // writeJSONCacheable is writeJSON for a public document a browser or a CDN
@@ -504,6 +546,9 @@ type featureBody struct {
 	Levels    *[]string `json:"levels"`
 	Teaser    *bool     `json:"teaser"`
 	SortOrder *int      `json:"sort_order"`
+	// IconID ("" clears) and IconBG ("#RRGGBB", "" clears) — DESIGN.md §22.10.
+	IconID *string `json:"icon_id"`
+	IconBG *string `json:"icon_bg"`
 }
 
 func (h *Handler) listFeatures(w http.ResponseWriter, r *http.Request) {
@@ -515,7 +560,12 @@ func (h *Handler) listFeatures(w http.ResponseWriter, r *http.Request) {
 		storeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"features": list, "groups": store.FeatureGroups})
+	groups, err := h.featureGroups(r)
+	if err != nil {
+		storeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"features": list, "groups": groups})
 }
 
 func (h *Handler) getFeature(w http.ResponseWriter, r *http.Request) {
@@ -567,6 +617,12 @@ func (h *Handler) createFeature(w http.ResponseWriter, r *http.Request) {
 	if in.SortOrder != nil {
 		fi.SortOrder = *in.SortOrder
 	}
+	if in.IconID != nil {
+		fi.IconID = *in.IconID
+	}
+	if in.IconBG != nil {
+		fi.IconBG = *in.IconBG
+	}
 	if strings.TrimSpace(fi.Key) == "" || strings.TrimSpace(fi.Name) == "" {
 		writeErr(w, http.StatusBadRequest, "key and name are required")
 		return
@@ -576,7 +632,7 @@ func (h *Handler) createFeature(w http.ResponseWriter, r *http.Request) {
 		storeErr(w, err)
 		return
 	}
-	h.audit(r, nil, "feature.create", map[string]any{"id": f.ID, "key": f.Key, "kind": f.Kind, "group": f.Group, "addon_sku": f.AddonSKU})
+	h.audit(r, nil, "feature.create", map[string]any{"id": f.ID, "key": f.Key, "kind": f.Kind, "group": f.Group, "addon_sku": f.AddonSKU, "icon_id": f.IconID, "icon_bg": f.IconBG})
 	writeJSON(w, http.StatusCreated, f)
 }
 
@@ -593,9 +649,9 @@ func (h *Handler) patchFeature(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "a feature key cannot be renamed; the matrix, the add-ons and the invoices name it")
 		return
 	}
-	p := store.FeaturePatch{Name: in.Name, Blurb: in.Blurb, Kind: in.Kind, Group: in.Group, Unit: in.Unit, AddonSKU: in.AddonSKU, Levels: in.Levels, Teaser: in.Teaser, SortOrder: in.SortOrder}
-	if p.Name == nil && p.Blurb == nil && p.Kind == nil && p.Group == nil && p.Unit == nil && p.AddonSKU == nil && p.Levels == nil && p.Teaser == nil && p.SortOrder == nil {
-		writeErr(w, http.StatusBadRequest, "nothing to update: give name, blurb, kind, group, unit, addon_sku, levels, teaser or sort_order")
+	p := store.FeaturePatch{Name: in.Name, Blurb: in.Blurb, Kind: in.Kind, Group: in.Group, Unit: in.Unit, AddonSKU: in.AddonSKU, Levels: in.Levels, Teaser: in.Teaser, SortOrder: in.SortOrder, IconID: in.IconID, IconBG: in.IconBG}
+	if p.Name == nil && p.Blurb == nil && p.Kind == nil && p.Group == nil && p.Unit == nil && p.AddonSKU == nil && p.Levels == nil && p.Teaser == nil && p.SortOrder == nil && p.IconID == nil && p.IconBG == nil {
+		writeErr(w, http.StatusBadRequest, "nothing to update: give name, blurb, kind, group, unit, addon_sku, levels, teaser, sort_order, icon_id or icon_bg")
 		return
 	}
 	f, err := h.Store.UpdateFeature(r.Context(), r.PathValue("id"), p)
@@ -603,7 +659,7 @@ func (h *Handler) patchFeature(w http.ResponseWriter, r *http.Request) {
 		storeErr(w, err)
 		return
 	}
-	h.audit(r, nil, "feature.update", map[string]any{"id": f.ID, "key": f.Key, "kind": f.Kind, "group": f.Group, "addon_sku": f.AddonSKU})
+	h.audit(r, nil, "feature.update", map[string]any{"id": f.ID, "key": f.Key, "kind": f.Kind, "group": f.Group, "addon_sku": f.AddonSKU, "icon_id": f.IconID, "icon_bg": f.IconBG})
 	writeJSON(w, http.StatusOK, f)
 }
 
@@ -788,6 +844,11 @@ type packageSettingsBody struct {
 	VCPUGuaranteed     *store.Decimal `json:"vcpu_guaranteed"`
 	MemoryGBGuaranteed *store.Decimal `json:"memory_gb_guaranteed"`
 	DiskGB             *store.Decimal `json:"disk_gb"`
+	// The column's branding (DESIGN.md §22.10): an icon, a "#RRGGBB" accent,
+	// a badge of at most 24 characters. Whole, like the rest: absent = none.
+	IconID string `json:"icon_id"`
+	Accent string `json:"accent"`
+	Badge  string `json:"badge"`
 }
 
 func (h *Handler) putPackageSettings(w http.ResponseWriter, r *http.Request) {
@@ -806,12 +867,13 @@ func (h *Handler) putPackageSettings(w http.ResponseWriter, r *http.Request) {
 	ps, err := h.Store.PutPackageSettings(r.Context(), id, planSKU, store.PackageSettingsInput{
 		Tagline: in.Tagline, Recommended: in.Recommended, AnnualMonthsFree: in.AnnualMonthsFree,
 		VCPU: in.VCPU, MemoryGB: in.MemoryGB, VCPUGuaranteed: in.VCPUGuaranteed, MemoryGBGuaranteed: in.MemoryGBGuaranteed, DiskGB: in.DiskGB,
+		IconID: in.IconID, Accent: in.Accent, Badge: in.Badge,
 	})
 	if err != nil {
 		storeErr(w, err)
 		return
 	}
-	h.audit(r, nil, "pricebook.package.settings", map[string]any{"id": id, "plan": planSKU, "recommended": ps.Recommended, "annual_months_free": ps.AnnualMonthsFree, "vcpu": ps.VCPU, "memory_gb": ps.MemoryGB, "disk_gb": ps.DiskGB})
+	h.audit(r, nil, "pricebook.package.settings", map[string]any{"id": id, "plan": planSKU, "recommended": ps.Recommended, "annual_months_free": ps.AnnualMonthsFree, "vcpu": ps.VCPU, "memory_gb": ps.MemoryGB, "disk_gb": ps.DiskGB, "icon_id": ps.IconID, "accent": ps.Accent, "badge": ps.Badge})
 	writeJSON(w, http.StatusOK, ps)
 }
 

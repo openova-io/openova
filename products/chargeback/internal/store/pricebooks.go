@@ -313,8 +313,8 @@ func (s *Store) ClonePriceBook(ctx context.Context, id, name string) (PriceBook,
 	}
 	// The package settings (tagline, recommended, term rule, shape) travel
 	// with the cells.
-	if _, err := tx.ExecContext(ctx, `INSERT INTO package_settings (price_book_id, plan_sku, tagline, recommended, annual_months_free, vcpu, memory_gb, vcpu_guaranteed, memory_gb_guaranteed, disk_gb)
-		SELECT $2, plan_sku, tagline, recommended, annual_months_free, vcpu, memory_gb, vcpu_guaranteed, memory_gb_guaranteed, disk_gb FROM package_settings WHERE price_book_id = $1`, id, newID); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO package_settings (price_book_id, plan_sku, tagline, recommended, annual_months_free, vcpu, memory_gb, vcpu_guaranteed, memory_gb_guaranteed, disk_gb, icon_id, accent, badge)
+		SELECT $2, plan_sku, tagline, recommended, annual_months_free, vcpu, memory_gb, vcpu_guaranteed, memory_gb_guaranteed, disk_gb, icon_id, accent, badge FROM package_settings WHERE price_book_id = $1`, id, newID); err != nil {
 		return PriceBook{}, mapErr(err)
 	}
 	if err := tx.Commit(); err != nil {

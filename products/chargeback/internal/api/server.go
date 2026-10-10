@@ -129,6 +129,11 @@ type Handler struct {
 	// limiter is the per-address budget of the public calculator routes
 	// (DESIGN.md §11), sized from Config.PublicCalculatorRatePerMinute.
 	limiter *ipLimiter
+	// assetLimiter is the budget of the public icon route (DESIGN.md
+	// §22.10): ten times the calculator's, because one storefront page
+	// loads every icon of the package table at once, and each is then kept
+	// by the browser for a year.
+	assetLimiter *ipLimiter
 }
 
 const (
@@ -218,7 +223,7 @@ func New(d Deps) http.Handler {
 	if d.Importer != nil && d.Importer.Enforcer == nil {
 		d.Importer.Enforcer = d.Enforcer
 	}
-	h := &Handler{Deps: d, limiter: newIPLimiter(d.Config.PublicCalculatorRatePerMinute, d.Now)}
+	h := &Handler{Deps: d, limiter: newIPLimiter(d.Config.PublicCalculatorRatePerMinute, d.Now), assetLimiter: newIPLimiter(assetRatePerMinute(d.Config.PublicCalculatorRatePerMinute), d.Now)}
 	mux := http.NewServeMux()
 
 	// The public calculator (DESIGN.md §11): unauthenticated, rate-limited,
@@ -233,6 +238,9 @@ func New(d Deps) http.Handler {
 	// document the console's Packages tab edits, published for the storefront
 	// comparison table and the calculator; cacheable for a minute.
 	mux.HandleFunc("GET /api/v1/public/packages", h.publicRoute(h.publicPackages))
+	// The icons the document names (DESIGN.md §22.10): content-addressed,
+	// immutable, served under a sandboxing CSP.
+	mux.HandleFunc("GET /api/v1/public/icons/{id}", h.publicRouteWith(h.assetLimiter, h.publicIcon))
 	mux.HandleFunc("OPTIONS /api/v1/public/", h.publicRoute(func(http.ResponseWriter, *http.Request) {}))
 	// Its operator side: the public toggle on a cloud book (rating.manage)
 	// and the read-only Leads list (customers.manage).
@@ -432,6 +440,13 @@ func New(d Deps) http.Handler {
 	// term rule and the shape, per (book, plan).
 	mux.HandleFunc("PUT /api/v1/pricebooks/{id}/packages/{plan}/settings", h.putPackageSettings)
 	mux.HandleFunc("PUT /api/v1/customers/{id}/sources/{sid}/addons", h.putSourceAddons)
+	// Icons and branding (DESIGN.md §22.10): the icon store, and the icon of
+	// a group. A feature's icon rides on PATCH /features, a package's icon,
+	// accent and badge on its settings.
+	mux.HandleFunc("GET /api/v1/icons", h.listIcons)
+	mux.HandleFunc("POST /api/v1/icons", h.uploadIcon)
+	mux.HandleFunc("DELETE /api/v1/icons/{id}", h.deleteIcon)
+	mux.HandleFunc("PUT /api/v1/feature-groups/{key}", h.putFeatureGroup)
 
 	// Statements.
 	mux.HandleFunc("POST /api/v1/statements/run", h.runStatements)

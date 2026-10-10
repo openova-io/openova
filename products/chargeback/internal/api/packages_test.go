@@ -16,7 +16,9 @@ import (
 // other), features in matrix order with every plan given a cell, money at
 // the minor unit, and each kind's cell — the boolean add-on with its price
 // and hint, the teaser, the quantity with its overage, the level with its
-// purchasable next level, the access door with its note.
+// purchasable next level, the access door with its note — and the icons
+// and branding (§22.10): present where set, absent (never null, never "")
+// where not.
 func TestPackagesDocumentShape(t *testing.T) {
 	book := store.PriceBook{Name: store.PlanBookName, Currency: "OMR", UpdatedAt: time.Date(2026, 10, 10, 10, 0, 0, 0, time.UTC)}
 	// Deliberately out of price order, so the ordering is the document's.
@@ -31,8 +33,9 @@ func TestPackagesDocumentShape(t *testing.T) {
 		{SKU: "eip.bandwidth_mbps", Unit: "mbps-hour", UnitPrice: "0.01716667"},
 		{SKU: "k8s.vcpu", Unit: "vcpu-hour", UnitPrice: "0.00273973"},
 	}
-	ssl := store.Feature{ID: "f0", Key: "ssl", Name: "Unlimited free SSL", Blurb: "Certificates for every site", Kind: store.FeatureKindBoolean, Group: store.FeatureGroupFloor, SortOrder: 1}
-	backup := store.Feature{ID: "f1", Key: "backup", Name: "Backup", Blurb: "Daily backups, kept 30 days", Kind: store.FeatureKindBoolean, Group: store.FeatureGroupResilience, AddonSKU: "addon.backup", SortOrder: 4}
+	const lockIcon, archiveIcon, planIcon, groupIcon = "1111111111111111111111111111111111111111111111111111111111111111", "2222222222222222222222222222222222222222222222222222222222222222", "3333333333333333333333333333333333333333333333333333333333333333", "4444444444444444444444444444444444444444444444444444444444444444"
+	ssl := store.Feature{ID: "f0", Key: "ssl", Name: "Unlimited free SSL", Blurb: "Certificates for every site", Kind: store.FeatureKindBoolean, Group: store.FeatureGroupFloor, SortOrder: 1, IconID: lockIcon}
+	backup := store.Feature{ID: "f1", Key: "backup", Name: "Backup", Blurb: "Daily backups, kept 30 days", Kind: store.FeatureKindBoolean, Group: store.FeatureGroupResilience, AddonSKU: "addon.backup", SortOrder: 4, IconID: archiveIcon, IconBG: "#FFE4E6"}
 	seo := store.Feature{ID: "f2", Key: "ai_seo", Name: "AI SEO ready", Kind: store.FeatureKindBoolean, Group: store.FeatureGroupFeatures, AddonSKU: "addon.ai_seo", SortOrder: 5}
 	vuln := store.Feature{ID: "f3", Key: "vuln", Name: "Vulnerability dashboard", Kind: store.FeatureKindBoolean, Group: store.FeatureGroupOps, Teaser: true, SortOrder: 6}
 	bw := store.Feature{ID: "f4", Key: "bandwidth", Name: "Bandwidth", Kind: store.FeatureKindQuantity, Group: store.FeatureGroupCapacity, Unit: "Mbps", AddonSKU: "eip.bandwidth_mbps", SortOrder: 2}
@@ -59,10 +62,12 @@ func TestPackagesDocumentShape(t *testing.T) {
 		{PlanSKU: "plan.xl", FeatureID: "f6", State: store.EntitlementIncluded, Feature: gitea},
 	}
 	settings := map[string]store.PackageSettings{
-		"plan.m": {PlanSKU: "plan.m", Recommended: true, AnnualMonthsFree: 0, VCPU: dc("2"), MemoryGB: dc("4.0000"), VCPUGuaranteed: dc("0.3300"), MemoryGBGuaranteed: dc("1.33"), DiskGB: dc("50")},
+		"plan.m": {PlanSKU: "plan.m", Recommended: true, AnnualMonthsFree: 0, VCPU: dc("2"), MemoryGB: dc("4.0000"), VCPUGuaranteed: dc("0.3300"), MemoryGBGuaranteed: dc("1.33"), DiskGB: dc("50"), IconID: planIcon, Accent: "#3B82F6", Badge: "Most popular"},
+		// XL has settings and no branding: nothing of it is published.
+		"plan.xl": {PlanSKU: "plan.xl"},
 	}
 	// Features in matrix order; `orphan` has no cell in this book and is left out.
-	doc, err := packagesDocument(book, []store.Feature{ssl, bw, gitea, backup, seo, vuln, dr, orphan}, cells, settings)
+	doc, err := packagesDocument(book, []store.Feature{ssl, bw, gitea, backup, seo, vuln, dr, orphan}, cells, settings, map[string]string{"resilience": groupIcon})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,6 +248,45 @@ func TestPackagesDocumentShape(t *testing.T) {
 	}
 	if c := gcells["plan.m"].(map[string]any); c["state"] != "included" || c["note"] != "read" {
 		t.Fatalf("gitea on M = %v", c)
+	}
+	// Icons and branding (DESIGN.md §22.10). A group with an icon carries it
+	// under its own name; one without carries no "icon" key at all.
+	grp := got["groups"].([]any)
+	if ic, ok := grp[5].(map[string]any)["icon"].(map[string]any); !ok || ic["src"] != "/api/v1/public/icons/"+groupIcon || ic["alt"] != "Resilience" || len(ic) != 2 {
+		t.Fatalf("resilience group icon = %v", grp[5])
+	}
+	if _, has := grp[0].(map[string]any)["icon"]; has {
+		t.Fatalf("a group with no icon carries no icon key: %v", grp[0])
+	}
+	// The floor item: src and alt, no bg (none set).
+	if ic := floor[0].(map[string]any)["icon"].(map[string]any); ic["src"] != "/api/v1/public/icons/"+lockIcon || ic["alt"] != "Unlimited free SSL" || len(ic) != 2 {
+		t.Fatalf("floor icon = %v", ic)
+	}
+	// A feature with an icon and a tile colour; a feature with neither.
+	if ic := bk["icon"].(map[string]any); ic["src"] != "/api/v1/public/icons/"+archiveIcon || ic["alt"] != "Backup" || ic["bg"] != "#FFE4E6" || len(ic) != 3 {
+		t.Fatalf("backup icon = %v", ic)
+	}
+	if _, has := bw2["icon"]; has {
+		t.Fatalf("a feature with no icon carries no icon key: %v", bw2)
+	}
+	// The package column: icon (alt = the package's name, never a bg),
+	// accent and badge on M; S (no settings) and XL (settings, no
+	// branding) carry none of the three keys.
+	if ic := m["icon"].(map[string]any); ic["src"] != "/api/v1/public/icons/"+planIcon || ic["alt"] != "M" || len(ic) != 2 {
+		t.Fatalf("M icon = %v", ic)
+	}
+	if m["accent"] != "#3B82F6" || m["badge"] != "Most popular" {
+		t.Fatalf("M branding = accent %v badge %v", m["accent"], m["badge"])
+	}
+	for _, p := range []map[string]any{s, xl} {
+		for _, k := range []string{"icon", "accent", "badge"} {
+			if _, has := p[k]; has {
+				t.Fatalf("package %v carries %q though nothing is set", p["sku"], k)
+			}
+		}
+	}
+	if jsonHas(b, `"icon":null`) || jsonHas(b, `"accent":""`) || jsonHas(b, `"badge":""`) || jsonHas(b, `"bg":""`) {
+		t.Fatalf("an unset icon, accent, badge or bg is omitted, never null or empty: %s", b)
 	}
 	// The document is byte-stable on the wire: numbers never float-render.
 	if string(b) == "" || jsonHas(b, "50.000000") || jsonHas(b, "0.3300") {

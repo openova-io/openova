@@ -2118,6 +2118,33 @@ export type FeatureGroupKey = 'floor' | 'capacity' | 'features' | 'access' | 'op
 export interface FeatureGroup {
   key: FeatureGroupKey | string
   name: string
+  /** GET /features only: the icon an operator set on the group (DESIGN.md §22.10). */
+  icon_id?: string
+  /** The packages document only: the group's icon, absent when none is set. */
+  icon?: IconRef
+}
+
+/**
+ * An icon as the packages document names it (DESIGN.md §22.10). `src` is a
+ * PATH relative to the origin that served the document — resolve it against
+ * the document's URL (`resolveIconSrc`). `bg` is the tile colour, features
+ * and floor items only. The whole object is absent when nothing is set.
+ */
+export interface IconRef {
+  src: string
+  alt: string
+  bg?: string
+}
+
+/** One stored icon, as GET /api/v1/icons lists it (no bytes). */
+export interface StoredIcon {
+  id: string
+  src: string
+  content_type: string
+  size: number
+  created_at?: string
+  /** Features, groups and packages that show it. */
+  references: number
 }
 
 /** One row of the matrix, as GET /features lists it. */
@@ -2138,6 +2165,10 @@ export interface Feature {
   /** A not-offered cell is published as "available on <first package that includes it>". */
   teaser: boolean
   sort_order: number
+  /** The icon beside the feature: a stored icon's id. */
+  icon_id?: string
+  /** "#RRGGBB" tile behind the icon. */
+  icon_bg?: string
   created_at?: string
   updated_at?: string
 }
@@ -2177,6 +2208,7 @@ export interface PackageFeature {
   levels?: string[]
   addon_sku?: string
   teaser?: boolean
+  icon?: IconRef
   /** Keyed by plan SKU (plan.s …); every package has a cell. */
   cells: Record<string, PackageCell>
 }
@@ -2213,6 +2245,12 @@ export interface PackageInfo {
   step_up?: PackageStepUp
   /** vcpu, memory_gb and every included quantity feature (bandwidth_mbps …). */
   includes: Record<string, number | string>
+  /** The column's branding (DESIGN.md §22.10), each absent when unset. */
+  icon?: IconRef
+  /** "#RRGGBB" — drawn as the column's top border. */
+  accent?: string
+  /** A short chip over the column ("Most popular"). */
+  badge?: string
 }
 
 /** A floor item: on every package, never priced, never a cell. */
@@ -2220,6 +2258,7 @@ export interface FloorItem {
   key: string
   name: string
   blurb?: string
+  icon?: IconRef
 }
 
 /** GET /public/packages and GET /pricebooks/{id}/packages — the same document. */
@@ -2258,6 +2297,10 @@ export interface PackageSettingsWrite {
   vcpu_guaranteed?: string | null
   memory_gb_guaranteed?: string | null
   disk_gb?: string | null
+  /** The column's branding; "" (or absent) = none. */
+  icon_id?: string
+  accent?: string
+  badge?: string
 }
 
 /** One priced line of an estimate. `plan` is set on a plan line. */

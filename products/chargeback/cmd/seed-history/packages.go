@@ -49,6 +49,8 @@ type apiFeature struct {
 	Levels    []string `json:"levels"`
 	Teaser    bool     `json:"teaser"`
 	SortOrder int      `json:"sort_order"`
+	IconID    string   `json:"icon_id"`
+	IconBG    string   `json:"icon_bg"`
 }
 
 // apiPackages is the packages document (GET /pricebooks/{id}/packages) — the
@@ -73,6 +75,11 @@ type apiPackages struct {
 			Sum       string `json:"bundled_addons_sum_month"`
 			RuleHolds bool   `json:"rule_holds"`
 		} `json:"step_up"`
+		Icon *struct {
+			Src string `json:"src"`
+		} `json:"icon"`
+		Accent string `json:"accent"`
+		Badge  string `json:"badge"`
 	} `json:"packages"`
 	Features []struct {
 		Key   string `json:"key"`
@@ -226,9 +233,17 @@ func (s *seeder) ensurePackages(planBookID string) error {
 		s.infof("packages: the four plan prices already at the workbook's; left untouched")
 	}
 
-	// 3. The features, by key. A feature whose kind changes, or that becomes
-	//    a floor item, first loses its cells on the plans book — the product
-	//    refuses either while a package carries it.
+	// 3. The icons (DESIGN.md §22.10), uploaded before the features and the
+	//    settings that name them.
+	icons, iconIDs, err := s.ensureShowcaseIcons()
+	if err != nil {
+		return err
+	}
+
+	// 4. The features, by key, with their icon and tile colour. A feature
+	//    whose kind changes, or that becomes a floor item, first loses its
+	//    cells on the plans book — the product refuses either while a
+	//    package carries it.
 	doc, err := s.api.getPackages(planBookID)
 	if err != nil {
 		return fmt.Errorf("read the matrix: %w", err)
@@ -271,7 +286,8 @@ func (s *seeder) ensurePackages(planBookID string) error {
 		if levels == nil {
 			levels = []string{}
 		}
-		want := map[string]any{"name": f.Name, "blurb": f.Blurb, "kind": f.Kind, "group": f.Group, "unit": f.Unit, "addon_sku": f.AddonSKU, "levels": levels, "teaser": f.Teaser, "sort_order": i + 1}
+		wantIcon, wantBG := iconIDs[icons.Features[f.Key].Icon], icons.Features[f.Key].BG
+		want := map[string]any{"name": f.Name, "blurb": f.Blurb, "kind": f.Kind, "group": f.Group, "unit": f.Unit, "addon_sku": f.AddonSKU, "levels": levels, "teaser": f.Teaser, "sort_order": i + 1, "icon_id": wantIcon, "icon_bg": wantBG}
 		cur, ok := byKey[f.Key]
 		if !ok {
 			body := map[string]any{"key": f.Key}
@@ -294,7 +310,7 @@ func (s *seeder) ensurePackages(planBookID string) error {
 			delete(have, f.Key)
 			delete(rowsOf, f.Key)
 		}
-		if cur.Name != f.Name || cur.Blurb != f.Blurb || cur.Kind != f.Kind || cur.Group != f.Group || cur.Unit != f.Unit || cur.AddonSKU != f.AddonSKU || !sameStrings(cur.Levels, f.Levels) || cur.Teaser != f.Teaser || cur.SortOrder != i+1 {
+		if cur.Name != f.Name || cur.Blurb != f.Blurb || cur.Kind != f.Kind || cur.Group != f.Group || cur.Unit != f.Unit || cur.AddonSKU != f.AddonSKU || !sameStrings(cur.Levels, f.Levels) || cur.Teaser != f.Teaser || cur.SortOrder != i+1 || cur.IconID != wantIcon || cur.IconBG != wantBG {
 			if _, err := s.api.patchFeature(cur.ID, want); err != nil {
 				return fmt.Errorf("converge feature %q: %w", f.Key, err)
 			}
@@ -303,11 +319,14 @@ func (s *seeder) ensurePackages(planBookID string) error {
 	}
 	s.infof("packages: %d feature(s) created, %d brought back to the ladder, %d already as the ladder has them; %d cell(s) cleared for a kind or floor change", created, converged, len(synth.Features)-created-converged, cleared)
 
-	// 4. Each package's settings: the shape and the recommended flag, written
-	//    whole when anything differs.
+	// 5. Each package's settings: the shape, the recommended flag and the
+	//    column's branding (icon, accent, badge), written whole when anything
+	//    differs.
 	settingsWritten := 0
 	for _, p := range synth.Packages {
 		sku := "plan." + p.Slug
+		brand := icons.Packages[sku]
+		wantIcon := iconIDs[brand.Icon]
 		same := false
 		for _, dp := range doc.Packages {
 			if dp.SKU != sku {
@@ -316,13 +335,15 @@ func (s *seeder) ensurePackages(planBookID string) error {
 			same = dp.Tagline == p.Tagline && dp.Recommended == p.Recommended && dp.AnnualMonthsFree == p.AnnualMonthsFree &&
 				numEqText(dp.Shape.VCPU.text(), ftoa(p.VCPU)) && numEqText(dp.Shape.MemoryGB.text(), ftoa(p.MemoryGB)) &&
 				numEqText(dp.Shape.VCPUGuaranteed.text(), ftoa(p.VCPUGuaranteed)) && numEqText(dp.Shape.MemoryGBGuaranteed.text(), ftoa(p.MemoryGBGuaranteed)) &&
-				numEqText(dp.Shape.DiskGB.text(), ftoa(p.DiskGB))
+				numEqText(dp.Shape.DiskGB.text(), ftoa(p.DiskGB)) &&
+				dp.Accent == brand.Accent && dp.Badge == brand.Badge && ((dp.Icon == nil && wantIcon == "") || (dp.Icon != nil && dp.Icon.Src == "/api/v1/public/icons/"+wantIcon))
 		}
 		if same {
 			continue
 		}
 		body := map[string]any{"tagline": p.Tagline, "recommended": p.Recommended, "annual_months_free": p.AnnualMonthsFree,
-			"vcpu": ftoa(p.VCPU), "memory_gb": ftoa(p.MemoryGB), "vcpu_guaranteed": ftoa(p.VCPUGuaranteed), "memory_gb_guaranteed": ftoa(p.MemoryGBGuaranteed), "disk_gb": ftoa(p.DiskGB)}
+			"vcpu": ftoa(p.VCPU), "memory_gb": ftoa(p.MemoryGB), "vcpu_guaranteed": ftoa(p.VCPUGuaranteed), "memory_gb_guaranteed": ftoa(p.MemoryGBGuaranteed), "disk_gb": ftoa(p.DiskGB),
+			"icon_id": wantIcon, "accent": brand.Accent, "badge": brand.Badge}
 		if err := s.api.putPackageSettings(planBookID, sku, body); err != nil {
 			return fmt.Errorf("settings of %s: %w", sku, err)
 		}
@@ -330,7 +351,7 @@ func (s *seeder) ensurePackages(planBookID string) error {
 	}
 	s.infof("packages: %d package setting(s) written, the rest already as the ladder has them", settingsWritten)
 
-	// 5. The cells, each written only when it differs. A floor item has none.
+	// 6. The cells, each written only when it differs. A floor item has none.
 	written := 0
 	for _, f := range synth.Features {
 		if f.Group == synth.GroupFloor {
@@ -375,7 +396,9 @@ func (s *seeder) ensurePackages(planBookID string) error {
 		}
 	}
 	s.infof("packages: %d cell(s) written, the rest already as the ladder has them", written)
-	return nil
+
+	// 7. Each group's icon.
+	return s.ensureGroupIcons(icons, iconIDs)
 }
 
 // cellRows reads which (feature key, plan) rows the plans book really

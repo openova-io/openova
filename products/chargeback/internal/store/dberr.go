@@ -99,6 +99,18 @@ var constraintMessages = map[string]string{
 	"package_settings_annual_months_free_check":    "the months free on an annual term are between 0 and 12",
 	"package_settings_shape_check":                 "a package shape cannot be negative",
 	"source_addons_pkey":                           "that add-on is already taken on this source",
+	"icons_pkey":                                   "that icon is already stored",
+	"icons_id_check":                               "an icon id is the 64-character hex SHA-256 of its bytes",
+	"icons_content_type_check":                     "an icon is an SVG, PNG or WebP image",
+	"icons_size_check":                             "an icon is at most 64 KiB",
+	"features_icon_id_fkey":                        "a feature names an icon that is not stored",
+	"features_icon_bg_check":                       "an icon background is a colour written #RRGGBB",
+	"feature_group_settings_pkey":                  "that group already has its settings",
+	"feature_group_settings_key_check":             "a group is capacity, features, access, ops, scope, resilience or service",
+	"feature_group_settings_icon_id_fkey":          "a group names an icon that is not stored",
+	"package_settings_icon_id_fkey":                "a package names an icon that is not stored",
+	"package_settings_accent_check":                "a package accent is a colour written #RRGGBB",
+	"package_settings_badge_check":                 "a package badge is at most 24 characters",
 
 	// customers, partners and their commercial terms
 	"customers_slug_key":                 "a customer with that short name already exists",
