@@ -360,6 +360,9 @@ func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, pc *pa
 	currency := ""
 	var lines []store.RatedLine
 	unpricedSet, notSoldSet := map[string]bool{}, map[string]bool{}
+	// The allowances the Sources' PACKAGES carry into the period (DESIGN.md
+	// §22), per SKU, summed across sources — fed to the one allowance path.
+	included := map[string]store.Decimal{}
 	for _, src := range sources {
 		rows := perSource[src.ID]
 		if src.PriceBookID == nil {
@@ -419,6 +422,26 @@ func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, pc *pa
 			}
 			unpricedSet[sku] = true
 		}
+		// DESIGN.md §22 — the PACKAGE of a platform Source: the included
+		// features as 0.000 lines, the add-ons it took at their price, and
+		// the included quantities as allowances for the terms below.
+		if src.Layer == store.LayerPlatform {
+			pkg, err := packageOf(ctx, st, src, pb, rows, items)
+			if err != nil {
+				return store.Statement{}, detail, fmt.Errorf("source %s: package: %w", src.Label(), err)
+			}
+			lines = append(lines, pkg.Lines...)
+			for sku, q := range pkg.Included {
+				sum, err := Sum(included[sku], q)
+				if err != nil {
+					return store.Statement{}, detail, err
+				}
+				included[sku] = sum
+			}
+			for _, sku := range pkg.Unpriced {
+				unpricedSet[sku] = true
+			}
+		}
 	}
 	detail.unpriced = sortedKeys(unpricedSet)
 	detail.notSold = sortedKeys(notSoldSet)
@@ -432,6 +455,9 @@ func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, pc *pa
 	}
 	if terms.Contract != nil {
 		detail.contractID, detail.contractName = terms.Contract.ID, terms.Contract.Name
+	}
+	if len(included) > 0 {
+		terms.Included = included
 	}
 	// ALWAYS applied, contract or not: an allowance and a tier ladder belong
 	// to the PLAN — the price-book item — and a customer that has signed
@@ -567,6 +593,28 @@ func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, pc *pa
 	}
 	stmt, err := st.WriteDraftStatement(ctx, draft)
 	return stmt, detail, err
+}
+
+// packageOf applies the Source's package to the period (DESIGN.md §22): the
+// plan segments are read off the Source's own plan.<slug> rows, each plan's
+// cells are loaded from the Source's book, and ApplyPackage does the rest.
+func packageOf(ctx context.Context, st *store.Store, src store.CostSource, pb store.PriceBook, rows []store.RatableUsage, items map[string]store.PriceItem) (PackageResult, error) {
+	segments, err := PlanSegments(rows)
+	if err != nil {
+		return PackageResult{}, err
+	}
+	if len(segments) == 0 {
+		return PackageResult{Included: map[string]store.Decimal{}}, nil
+	}
+	ents := map[string][]store.Entitlement{}
+	for _, seg := range segments {
+		cells, err := st.PackageEntitlements(ctx, pb.ID, store.PlanSKU(seg.Slug))
+		if err != nil {
+			return PackageResult{}, fmt.Errorf("package %s: %w", seg.Slug, err)
+		}
+		ents[seg.Slug] = cells
+	}
+	return ApplyPackage(src, segments, ents, items)
 }
 
 // ratePartner writes a partner's own statement for the period — wholesale

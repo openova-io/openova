@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { API_BASE, api, asList, errorText } from '../api/client'
 import type { PriceBook, PriceBookCoverage, PriceItem } from '../api/types'
 import { DataTable, sortRows, type Column } from '../components/DataTable'
+import { PackagesPanel } from '../components/PackagesPanel'
 import { BookSettingsModal, CloneBookModal, DeleteBookConfirm, billStoppedLabel, settingsFrom } from '../components/PriceBookForms'
 import { ExplainedPrice, PriceItemTermsModal, hasShape, shapeSummary } from '../components/PriceItemTerms'
-import { Badge, Confirm, EmptyState, Field, KPI, Modal, Notice, PageHeader, Skeleton } from '../components/ui'
+import { Badge, Confirm, EmptyState, Field, KPI, Modal, Notice, PageHeader, Skeleton, Tabs } from '../components/ui'
 import { PRICE_CSV_SAMPLE, dataUrl, parsePriceBookCsv, unitPrice } from '../lib/csv'
 import { day, num } from '../lib/format'
 import { formatMoney, formatPct, formatQty } from '../lib/money'
@@ -61,9 +62,14 @@ function validDraft(d: Draft): string {
   return ''
 }
 
+/** The two tabs of the page: the rate card, and the package matrix built on its plan items (DESIGN.md §22). */
+const TABS = ['Items', 'Packages']
+
 export function PriceBookEdit() {
   const { id = '' } = useParams()
   const nav = useNavigate()
+  const [params] = useSearchParams()
+  const tab = (params.get('tab') ?? 'items').toLowerCase()
   const book = useQuery<PriceBook>(`/pricebooks/${id}`)
   const coverage = useQuery<PriceBookCoverage>(`/pricebooks/${id}/coverage`)
   const [dialog, setDialog] = useState<Dialog>(null)
@@ -239,6 +245,8 @@ export function PriceBookEdit() {
   const assignedSources = cov?.sources ?? []
   const notSold = (cov?.skus_in_use ?? []).filter((k) => k.not_sold_per_use)
   const money = (v: number | string | null | undefined, digits?: number) => formatMoney(toNumber(v), currency, digits === undefined ? undefined : { digits })
+  // The packages are the book's plan items (plan.s …); the tab counts them.
+  const planItems = items.filter((it) => /^plan\.[a-z0-9]+$/.test(it.sku))
 
   return (
     <div className="stack">
@@ -306,6 +314,13 @@ export function PriceBookEdit() {
         />
       </div>
 
+      <Tabs base={`/pricebooks/${id}`} tabs={TABS} current={tab} counts={{ items: items.length, packages: planItems.length }} />
+
+      {tab === 'packages' ? <PackagesPanel book={b} canManage /> : null}
+      {!TABS.some((t) => t.toLowerCase() === tab) ? <Notice kind="warn">Unknown tab "{tab}".</Notice> : null}
+
+      {tab === 'items' ? (
+      <>
       <div className="card">
         <div className="card-head">
           <h2>SKUs in use by the sources assigned to this book</h2>
@@ -491,6 +506,8 @@ export function PriceBookEdit() {
           </div>
         )}
       </div>
+      </>
+      ) : null}
 
       {dialog?.kind === 'settings' ? (
         <BookSettingsModal

@@ -3,7 +3,7 @@ import type { Estimate } from '../../api/types'
 import { EmptyState, KPI, Notice } from '../../components/ui'
 import { formatMoney, formatPct } from '../../lib/money'
 import { Breakdown } from './Breakdown'
-import { familyBreakdown, groupItems, type EstimateItem, type PricedItem } from './model'
+import { familyBreakdown, groupItems, lineUsageText, type EstimateItem, type PricedItem } from './model'
 
 /**
  * The estimate summary (DESIGN.md §12.5): the two totals the server
@@ -121,7 +121,7 @@ export function Summary({
                           <div key={`${l.line.sku ?? l.line.plan}-${i}`} className="row between">
                             <span style={{ minWidth: 0 }}>
                               {l.line.label} <span className="mono muted tiny">{l.line.sku ?? `plan.${l.line.plan}`}</span>
-                              <span className="muted"> · {l.line.plan ? `${l.line.quantity} × ${l.line.months} month(s)` : `${l.line.quantity} × ${l.line.hours} h`}</span>
+                              <span className="muted"> · {lineUsageText(l.line)}</span>
                             </span>
                             <span className="num">{l.priced ? formatMoney(l.priced.amount, currency) : '—'}</span>
                           </div>

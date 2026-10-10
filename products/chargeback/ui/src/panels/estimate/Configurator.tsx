@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { PublicCatalog, PublicCatalogPlan } from '../../api/types'
 import { Field, FormRow, Modal } from '../../components/ui'
 import { formatMoney } from '../../lib/money'
+import { optionalFeatures, planSku } from '../../lib/packages'
 import { MAX_HOURS } from '../../pages/Estimate'
 import {
   QUANTITY_LABEL,
@@ -11,6 +12,7 @@ import {
   findService,
   itemLines,
   kindOf,
+  lineUsageText,
   sizeOptions,
   storageFor,
   variantsOf,
@@ -279,25 +281,48 @@ export function Configurator({
       )
       break
     }
-    case 'plan':
+    case 'plan': {
+      // The package's optional features (DESIGN.md §22), ticked to add
+      // their add-on lines; what the chosen package includes is not offered.
+      const addons = optionalFeatures(catalog.packages, planSku(draft.plan))
+      const taken = draft.addons ?? []
       body = (
-        <FormRow>
-          <Field label="Plan" error={errors.plan}>
-            <select value={draft.plan} onChange={(e) => set({ plan: e.target.value })}>
-              {(service.entries as PublicCatalogPlan[]).map((p) => (
-                <option key={p.slug} value={p.slug}>
-                  {p.name} — {p.vcpu} vCPU · {p.memory_gib} GiB — {formatMoney(p.monthly, currency)} / month
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Months" error={errors.months} help="1 to 12">
-            <input type="number" min={1} max={12} step={1} inputMode="numeric" value={draft.months} onChange={(e) => set({ months: e.target.value })} />
-          </Field>
-          {quantityField}
-        </FormRow>
+        <>
+          <FormRow>
+            <Field label="Plan" error={errors.plan}>
+              <select value={draft.plan} onChange={(e) => set({ plan: e.target.value })}>
+                {(service.entries as PublicCatalogPlan[]).map((p) => (
+                  <option key={p.slug} value={p.slug}>
+                    {p.name} — {p.vcpu} vCPU · {p.memory_gib} GiB — {formatMoney(p.monthly, currency)} / month
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Months" error={errors.months} help="1 to 12">
+              <input type="number" min={1} max={12} step={1} inputMode="numeric" value={draft.months} onChange={(e) => set({ months: e.target.value })} />
+            </Field>
+            {quantityField}
+          </FormRow>
+          {addons.length ? (
+            <div className="field" data-testid="plan-addons">
+              <label>Add-ons</label>
+              <div className="stack tight">
+                {addons.map((o) => (
+                  <label key={o.key} className="check" style={{ alignItems: 'flex-start' }}>
+                    <input type="checkbox" checked={taken.includes(o.key)} onChange={() => set({ addons: taken.includes(o.key) ? taken.filter((k) => k !== o.key) : [...taken, o.key] })} aria-label={`${o.name} add-on`} disabled={!o.price_month} />
+                    <span>
+                      {o.name} <span className="num muted">{o.price_month ? `+ ${o.price_month} ${currency} / month` : 'ask us'}</span>
+                      {o.included_from ? <span className="tiny muted"> · {o.included_from}</span> : null}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </>
       )
       break
+    }
     default:
       body = (
         <FormRow>
@@ -347,7 +372,7 @@ export function Configurator({
               <span>
                 {l.label} <span className="mono muted tiny">{l.sku ?? `plan.${l.plan}`}</span>
               </span>
-              <span className="muted num">{l.plan ? `${l.quantity} × ${l.months} month(s)` : `${l.quantity} × ${l.hours} h`}</span>
+              <span className="muted num">{lineUsageText(l)}</span>
             </div>
           ))}
         </div>

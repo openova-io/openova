@@ -1,18 +1,22 @@
 import { useState, type FormEvent } from 'react'
 import { api, errorText } from '../api/client'
-import type { CostSource, PriceBook } from '../api/types'
+import type { CostSource, PackagesDoc, PriceBook } from '../api/types'
 import { DataTable, type Column } from '../components/DataTable'
 import { Badge, Confirm, Field, Modal, Notice, Skeleton } from '../components/ui'
 import { when } from '../lib/format'
 import { hasErrors, validateSource, type Errors, type SourceForm } from '../lib/forms'
 import { CLOUD_SOURCE_KINDS, bookCellText, booksForSource, layerLabel, layerOf, sourceKindLabel } from '../lib/layers'
+import { optionalFeatures, planName, planSku } from '../lib/packages'
 import { useAction } from '../lib/useAction'
+import { useQuery } from '../lib/useQuery'
 
 export const SCOPE_TOKEN_HELP = 'Bills only resources whose name carries this token (e.g. a deployment id) — empty bills the whole project.'
 
 export const BOOK_HELP = 'The rate card that prices THIS source. A cloud source takes a cloud book, a platform source a platform book — the two layers are never priced by the same card.'
 
-type Dialog = { kind: 'add' } | { kind: 'edit'; source: CostSource } | { kind: 'rotate'; source: CostSource } | { kind: 'delete'; source: CostSource } | { kind: 'purge'; source: CostSource } | null
+export const ADDONS_HELP = 'The optional features of the package the Organization has taken (DESIGN.md §22). Each is billed at its add-on SKU per plan-hour, beside the plan; what the package includes is on the invoice at 0.000 and cannot be taken.'
+
+type Dialog = { kind: 'add' } | { kind: 'edit'; source: CostSource } | { kind: 'rotate'; source: CostSource } | { kind: 'delete'; source: CostSource } | { kind: 'purge'; source: CostSource } | { kind: 'addons'; source: CostSource } | null
 
 /**
  * Cost sources of one customer (#6867, DESIGN.md §2). Each source carries
@@ -36,6 +40,7 @@ export function SourcesPanel({
   onChanged,
   loading,
   autoAdd,
+  planSlug,
 }: {
   customerId: string
   sources: CostSource[]
@@ -47,6 +52,8 @@ export function SourcesPanel({
   loading?: boolean
   /** Open the add-source modal immediately (the new-customer flow). */
   autoAdd?: boolean
+  /** The customer's plan (s, m, l, xl): which package's add-ons a platform source may take (DESIGN.md §22). */
+  planSlug?: string
 }) {
   const act = useAction()
   const [dialog, setDialog] = useState<Dialog>(autoAdd ? { kind: 'add' } : null)
@@ -129,6 +136,26 @@ export function SourcesPanel({
       header: 'Scope',
       value: (s) => s.scope_token ?? '',
       render: (s) => (s.scope_token ? <span className="mono" title={SCOPE_TOKEN_HELP}>{s.scope_token}</span> : <span className="muted" title={SCOPE_TOKEN_HELP}>whole project</span>),
+    },
+    {
+      // DESIGN.md §22 — the package add-ons a platform source has taken.
+      key: 'addons',
+      header: 'Add-ons',
+      value: (s) => (s.addons ?? []).join(', '),
+      render: (s) => {
+        if (s.internal || layerOf(s) !== 'platform') return <span className="muted">—</span>
+        const taken = s.addons ?? []
+        return (
+          <span className="btn-row" title={ADDONS_HELP}>
+            {taken.length ? taken.map((k) => <Badge key={k} status={k} kind="info" />) : <span className="muted small">none</span>}
+            {canManage && s.price_book_id ? (
+              <button className="link small" disabled={act.busy} onClick={() => setDialog({ kind: 'addons', source: s })}>
+                Manage add-ons
+              </button>
+            ) : null}
+          </span>
+        )
+      },
     },
     {
       key: 'status',
@@ -244,6 +271,7 @@ export function SourcesPanel({
       {dialog?.kind === 'add' ? <SourceFormModal title="Add cost source" customerId={customerId} books={catalogue} editable={['kind', 'region', 'project_id', 'scope_token']} onClose={close} onDone={onChanged} /> : null}
       {dialog?.kind === 'edit' ? <SourceFormModal title={`Edit source ${dialog.source.project_id || dialog.source.id}`} customerId={customerId} books={catalogue} source={dialog.source} editable={editable} onClose={close} onDone={onChanged} /> : null}
       {dialog?.kind === 'rotate' ? <RotateKeyModal source={dialog.source} onClose={close} onDone={onChanged} /> : null}
+      {dialog?.kind === 'addons' ? <AddonsModal customerId={customerId} source={dialog.source} planSlug={planSlug ?? ''} onClose={close} onDone={onChanged} /> : null}
       {dialog?.kind === 'purge' ? (
         <Confirm
           title="Purge usage of excluded resources"
@@ -437,6 +465,88 @@ function SourceFormModal({
           </>
         ) : null}
       </form>
+    </Modal>
+  )
+}
+
+/**
+ * The add-ons of one platform source (DESIGN.md §22): the optional features
+ * of the customer's package, each with its price and the package it is
+ * included from, ticked to take and unticked to drop; saved as one set. The
+ * server refuses a feature the package includes or does not offer, so the
+ * list offers only what may be taken.
+ */
+export function AddonsModal({ customerId, source, planSlug, onClose, onDone }: { customerId: string; source: CostSource; planSlug: string; onClose: () => void; onDone: () => void | Promise<void> }) {
+  const doc = useQuery<PackagesDoc>(source.price_book_id ? `/pricebooks/${source.price_book_id}/packages` : null)
+  const [taken, setTaken] = useState<string[]>(source.addons ?? [])
+  const act = useAction()
+  const sku = planSlug ? planSku(planSlug) : ''
+  const offered = sku ? optionalFeatures(doc.data, sku) : []
+  const stale = taken.filter((k) => !offered.some((o) => o.key === k))
+  const keep = taken.filter((k) => offered.some((o) => o.key === k))
+  const toggle = (key: string) => setTaken((t) => (t.includes(key) ? t.filter((k) => k !== key) : [...t, key]))
+  const chosen = offered.filter((o) => keep.includes(o.key))
+  const currency = doc.data?.currency ?? ''
+  const submit = async () => {
+    const ok = await act.run(keep.length ? `add-ons of ${source.project_id || source.id} set to ${keep.join(', ')}` : `every add-on dropped from ${source.project_id || source.id}`, () => api.put(`/customers/${customerId}/sources/${source.id}/addons`, { addons: keep }), onDone)
+    if (ok) onClose()
+  }
+  return (
+    <Modal
+      title={`Add-ons — ${source.project_id || source.id}`}
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" onClick={onClose} disabled={act.busy}>
+            Cancel
+          </button>
+          <button className="primary" disabled={act.busy || !sku || !doc.data} onClick={() => void submit()}>
+            Save add-ons
+          </button>
+        </>
+      }
+    >
+      <div className="stack tight" data-testid="addons-modal">
+        {act.error ? <Notice kind="bad">{act.error}</Notice> : null}
+        {!sku ? (
+          <Notice kind="warn">This customer is not on a sized package (S, M, L, XL), so no package offers it an add-on.</Notice>
+        ) : doc.error ? (
+          <Notice kind="bad">{doc.error}</Notice>
+        ) : !doc.data ? (
+          <Skeleton lines={3} />
+        ) : (
+          <>
+            <p className="muted small" style={{ margin: 0 }}>
+              The <b>{planName(doc.data, sku)}</b> package offers these as paid add-ons; what it includes is already on the invoice at 0.000. Each add-on is billed per plan-hour, like the plan.
+            </p>
+            {offered.length === 0 ? <Notice kind="info">The {planName(doc.data, sku)} package offers no add-on — everything it has, it includes.</Notice> : null}
+            {offered.map((o) => (
+              <label key={o.key} className="check" style={{ alignItems: 'flex-start' }}>
+                <input type="checkbox" checked={keep.includes(o.key)} onChange={() => toggle(o.key)} aria-label={o.name} />
+                <span>
+                  <b>{o.name}</b> <span className="num">{o.price_month ? `+ ${o.price_month} ${currency} / month` : 'unpriced'}</span>
+                  {o.included_from ? <span className="muted small"> · {o.included_from}</span> : null}
+                  {o.blurb ? <div className="tiny muted">{o.blurb}</div> : null}
+                </span>
+              </label>
+            ))}
+            {stale.length ? (
+              <Notice kind="warn">
+                Taken earlier but no longer offered on {planName(doc.data, sku)}: <span className="mono">{stale.join(', ')}</span>. Saving drops {stale.length === 1 ? 'it' : 'them'}.
+              </Notice>
+            ) : null}
+            <div className="small" data-testid="addons-summary">
+              {chosen.length ? (
+                <>
+                  Taking: {chosen.map((o) => `${o.name}${o.price_month ? ` (+ ${o.price_month} ${currency} / month)` : ''}`).join(', ')}
+                </>
+              ) : (
+                <span className="muted">No add-ons.</span>
+              )}
+            </div>
+          </>
+        )}
+      </div>
     </Modal>
   )
 }

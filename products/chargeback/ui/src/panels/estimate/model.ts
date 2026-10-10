@@ -1,5 +1,6 @@
 import type { Estimate, EstimateLine, PublicCatalog, PublicCatalogPlan, PublicCatalogRate, PublicCatalogSKU } from '../../api/types'
 import { colorForKey } from '../../components/charts/palette'
+import { addonLines } from '../../lib/packages'
 import { HOURS_PER_MONTH, MAX_HOURS, MAX_LINES, MAX_MONTHS, MAX_QUANTITY } from '../../pages/Estimate'
 
 /**
@@ -271,6 +272,8 @@ export interface ItemConfig {
   /** A platform plan and how many months of it. */
   plan: string
   months: string
+  /** The package's optional features taken with the plan (DESIGN.md §22), by feature key; each adds its add-on line. */
+  addons?: string[]
 }
 
 /** What one unit of a configurator's quantity is, in the words of the form. */
@@ -360,6 +363,7 @@ export function defaultConfig(cat: PublicCatalog | null, svc: CatalogService): I
     pvcGb: kind === 'capacity' ? '50' : '',
     plan: kind === 'plan' ? ((svc.entries[0] as PublicCatalogPlan | undefined)?.slug ?? '') : '',
     months: '1',
+    addons: [],
   }
 }
 
@@ -368,7 +372,7 @@ export function usageHours(c: Pick<ItemConfig, 'usage' | 'hours'>): string {
   return USAGES.find((u) => u.value === c.usage)?.hours || c.hours.trim()
 }
 
-/** One line an item sends: an SKU by the hour, or a plan by the month. */
+/** One line an item sends: an SKU by the hour, a plan by the month, or a package add-on by the month (an SKU with months and no hours). */
 export interface ItemLine {
   sku?: string
   plan?: string
@@ -376,6 +380,12 @@ export interface ItemLine {
   quantity: string
   hours?: string
   months?: number
+}
+
+/** "2 × 176 h" / "1 × 3 month(s)" — how a line's quantity reads. */
+export function lineUsageText(l: Pick<ItemLine, 'plan' | 'quantity' | 'hours' | 'months'>): string {
+  if (l.plan || l.hours === undefined) return `${l.quantity} × ${l.months ?? 1} month(s)`
+  return `${l.quantity} × ${l.hours} h`
 }
 
 export interface ItemResult {
@@ -505,7 +515,13 @@ export function itemLines(cat: PublicCatalog | null, c: ItemConfig): ItemResult 
       const months = Number(c.months)
       if (!plan) errors.plan = 'choose a plan'
       if (!Number.isInteger(months) || months < 1 || months > MAX_MONTHS) errors.months = `months must be between 1 and ${MAX_MONTHS}`
-      if (plan && !errors.months) lines.push({ plan: plan.slug, label: plan.display_name || `${plan.name} plan`, quantity: qty, months })
+      if (plan && !errors.months) {
+        lines.push({ plan: plan.slug, label: plan.display_name || `${plan.name} plan`, quantity: qty, months })
+        // The package's add-ons (DESIGN.md §22): one line per optional
+        // feature taken, by the month like the plan it extends. A feature
+        // the chosen package includes adds nothing — it is in the plan.
+        for (const a of addonLines(cat?.packages, plan.slug, c.addons ?? [])) lines.push({ sku: a.sku, label: a.label, quantity: qty, months })
+      }
       break
     }
     default: {
@@ -538,8 +554,10 @@ export function describeItem(cat: PublicCatalog | null, c: ItemConfig): string {
       return `${n} × ${c.bandwidthMbps.trim()} Mbps · ${usage}`
     case 'capacity':
       return [c.vcpu.trim() && `${c.vcpu.trim()} vCPU`, c.memGb.trim() && `${c.memGb.trim()} GiB`, c.pvcGb.trim() && `${c.pvcGb.trim()} GB storage`].filter(Boolean).join(' · ') + (n !== '1' ? ` × ${n}` : '') + ` · ${usage}`
-    case 'plan':
-      return `${n} × ${(svc?.entries.find((e) => 'slug' in e && e.slug === c.plan) as PublicCatalogPlan | undefined)?.display_name ?? c.plan.toUpperCase()} · ${c.months.trim()} month(s)`
+    case 'plan': {
+      const addons = addonLines(cat?.packages, c.plan, c.addons ?? []).map((a) => a.label.replace(/ add-on$/, ''))
+      return `${n} × ${(svc?.entries.find((e) => 'slug' in e && e.slug === c.plan) as PublicCatalogPlan | undefined)?.display_name ?? c.plan.toUpperCase()} · ${c.months.trim()} month(s)${addons.length ? ` + ${addons.join(', ')}` : ''}`
+    }
     default:
       return `${n} × ${chosen?.display_name ?? svc?.name ?? c.service} · ${usage}`
   }
@@ -605,7 +623,10 @@ export function requestBody(items: EstimateItem[], region?: string, contactEmail
   for (const it of items) {
     spans.push({ id: it.id, start: body.lines.length, count: it.lines.length })
     for (const l of it.lines) {
-      body.lines.push(l.plan ? { plan: l.plan, quantity: l.quantity, months: l.months ?? 1 } : { sku: l.sku, quantity: l.quantity, hours_per_month: l.hours ?? HOURS_PER_MONTH })
+      if (l.plan) body.lines.push({ plan: l.plan, quantity: l.quantity, months: l.months ?? 1 })
+      // A package add-on is an SKU by the month, like the plan (DESIGN.md §22).
+      else if (l.hours === undefined && l.months !== undefined) body.lines.push({ sku: l.sku, quantity: l.quantity, months: l.months })
+      else body.lines.push({ sku: l.sku, quantity: l.quantity, hours_per_month: l.hours ?? HOURS_PER_MONTH })
     }
   }
   if (region) body.region = region

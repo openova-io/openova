@@ -80,6 +80,18 @@ var constraintMessages = map[string]string{
 	"price_items_allowance_check":      "an allowance cannot be negative",
 	"price_items_tier_mode_check":      "a tiered price is either graduated or all-units",
 
+	// packages and the entitlement matrix (DESIGN.md §22)
+	"features_key_key":                             "a feature with that key already exists",
+	"features_key_check":                           "a feature key is lower-case letters, digits, dot, dash or underscore",
+	"features_name_check":                          "a feature needs a name",
+	"features_kind_check":                          "a feature is boolean or quantity",
+	"features_unit_check":                          "a quantity feature needs a unit",
+	"package_entitlements_pkey":                    "that package already has a cell for this feature",
+	"package_entitlements_plan_sku_check":          "a package is a plan.<slug> item of the book",
+	"package_entitlements_state_check":             "a package cell is included, optional or not offered",
+	"package_entitlements_included_quantity_check": "an included quantity cannot be negative",
+	"source_addons_pkey":                           "that add-on is already taken on this source",
+
 	// customers, partners and their commercial terms
 	"customers_slug_key":                 "a customer with that short name already exists",
 	"partners_slug_key":                  "a partner with that short name already exists",
@@ -198,6 +210,10 @@ var deleteConstraintMessages = map[string]string{
 	"cost_sources_price_book_id_fkey": "a cost source is still assigned to that price book; assign it another book first",
 	"customers_price_book_id_fkey":    "a customer is still assigned to that price book; assign it another book first",
 	"partners_party_customer_id_fkey": "that account belongs to a partner; delete the partner, not its account",
+	// packages (DESIGN.md §22) — DeleteFeature counts these first and refuses
+	// in its own words; these are the sentences for a reference that gets past it.
+	"package_entitlements_feature_id_fkey": "that feature is still in a package matrix; take it out of every package first",
+	"source_addons_feature_id_fkey":        "that feature is still taken as an add-on by a source; drop it there first",
 }
 
 // stillReferencedFallback is the delete-side counterpart of referenceFallback.
