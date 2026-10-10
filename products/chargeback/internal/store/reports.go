@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strings"
 	"time"
 
@@ -85,11 +86,17 @@ type ReportDeliveryInput struct {
 	Error      string
 }
 
-const reportColumns = `r.id, r.name, r.customer_id, c.name, r.cadence, r.day_of_week, r.day_of_month, r.hour_utc,
+// reportColumns renders the schedule columns; asOfParam is the ordinal of
+// the bound "as of" timestamp the 30-day delivery counters are measured
+// against — the caller's clock, never the database's, so a scheduler run
+// under a fixed clock and the console read that follows it agree.
+func reportColumns(asOfParam int) string {
+	return fmt.Sprintf(`r.id, r.name, r.customer_id, c.name, r.cadence, r.day_of_week, r.day_of_month, r.hour_utc,
 	r.recipients, r.sections, r.active, r.last_sent_at, r.next_at, r.created_at, r.updated_at,
-	(SELECT count(*) FROM report_deliveries d WHERE d.schedule_id = r.id AND d.sent_at >= now() - interval '30 days'),
-	(SELECT count(*) FROM report_deliveries d WHERE d.schedule_id = r.id AND d.sent_at >= now() - interval '30 days' AND NOT d.ok),
-	(SELECT d.error FROM report_deliveries d WHERE d.schedule_id = r.id AND NOT d.ok ORDER BY d.sent_at DESC, d.id DESC LIMIT 1)`
+	(SELECT count(*) FROM report_deliveries d WHERE d.schedule_id = r.id AND d.sent_at >= $%d::timestamptz - interval '30 days'),
+	(SELECT count(*) FROM report_deliveries d WHERE d.schedule_id = r.id AND d.sent_at >= $%d::timestamptz - interval '30 days' AND NOT d.ok),
+	(SELECT d.error FROM report_deliveries d WHERE d.schedule_id = r.id AND NOT d.ok ORDER BY d.sent_at DESC, d.id DESC LIMIT 1)`, asOfParam, asOfParam)
+}
 
 const reportFrom = ` FROM report_schedules r LEFT JOIN customers c ON c.id = r.customer_id`
 
@@ -130,8 +137,9 @@ func scanReportSchedule(row interface{ Scan(...any) error }) (ReportSchedule, er
 	return r, nil
 }
 
-func (s *Store) queryReportSchedules(ctx context.Context, where string, args ...any) ([]ReportSchedule, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+reportColumns+reportFrom+where+` ORDER BY r.created_at DESC, r.id`, args...)
+func (s *Store) queryReportSchedules(ctx context.Context, asOf time.Time, where string, args ...any) ([]ReportSchedule, error) {
+	args = append(args, asOf.UTC())
+	rows, err := s.db.QueryContext(ctx, `SELECT `+reportColumns(len(args))+reportFrom+where+` ORDER BY r.created_at DESC, r.id`, args...)
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -151,20 +159,20 @@ func (s *Store) queryReportSchedules(ctx context.Context, where string, args ...
 // schedule for the operator; for a customer scope only those naming that
 // customer. A global schedule belongs to the operator and is never shown to
 // a customer.
-func (s *Store) ListReportSchedules(ctx context.Context, scope Scope) ([]ReportSchedule, error) {
+func (s *Store) ListReportSchedules(ctx context.Context, scope Scope, asOf time.Time) ([]ReportSchedule, error) {
 	if scope.Operator {
-		return s.queryReportSchedules(ctx, "")
+		return s.queryReportSchedules(ctx, asOf, "")
 	}
 	if len(scope.Set()) == 0 {
 		return nil, ErrNotFound
 	}
-	return s.queryReportSchedules(ctx, ` WHERE r.customer_id::text = ANY($1)`, pq.Array(scope.Set()))
+	return s.queryReportSchedules(ctx, asOf, ` WHERE r.customer_id::text = ANY($1)`, pq.Array(scope.Set()))
 }
 
 // GetReportSchedule returns one schedule, or ErrNotFound when it does not
 // exist or lies outside the scope.
-func (s *Store) GetReportSchedule(ctx context.Context, scope Scope, id string) (ReportSchedule, error) {
-	r, err := scanReportSchedule(s.db.QueryRowContext(ctx, `SELECT `+reportColumns+reportFrom+` WHERE r.id::text = $1`, id))
+func (s *Store) GetReportSchedule(ctx context.Context, scope Scope, id string, asOf time.Time) (ReportSchedule, error) {
+	r, err := scanReportSchedule(s.db.QueryRowContext(ctx, `SELECT `+reportColumns(2)+reportFrom+` WHERE r.id::text = $1`, id, asOf.UTC()))
 	if err != nil {
 		return ReportSchedule{}, err
 	}
@@ -209,7 +217,7 @@ func (s *Store) CreateReportSchedule(ctx context.Context, in ReportScheduleInput
 	if err != nil {
 		return ReportSchedule{}, mapErr(err)
 	}
-	return s.GetReportSchedule(ctx, OperatorScope, id)
+	return s.GetReportSchedule(ctx, OperatorScope, id, time.Now())
 }
 
 // UpdateReportSchedule replaces every editable field of a schedule,
@@ -228,7 +236,7 @@ func (s *Store) UpdateReportSchedule(ctx context.Context, id string, in ReportSc
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ReportSchedule{}, ErrNotFound
 	}
-	return s.GetReportSchedule(ctx, OperatorScope, id)
+	return s.GetReportSchedule(ctx, OperatorScope, id, time.Now())
 }
 
 // DeleteReportSchedule removes a schedule and, through the FK cascade, its
@@ -247,7 +255,7 @@ func (s *Store) DeleteReportSchedule(ctx context.Context, id string) error {
 // DueReportSchedules returns every active schedule whose next_at has passed
 // at now, oldest due first — what the scheduler walks each tick.
 func (s *Store) DueReportSchedules(ctx context.Context, now time.Time) ([]ReportSchedule, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+reportColumns+reportFrom+` WHERE r.active AND r.next_at <= $1 ORDER BY r.next_at, r.id`, now.UTC())
+	rows, err := s.db.QueryContext(ctx, `SELECT `+reportColumns(1)+reportFrom+` WHERE r.active AND r.next_at <= $1 ORDER BY r.next_at, r.id`, now.UTC())
 	if err != nil {
 		return nil, mapErr(err)
 	}

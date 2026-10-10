@@ -293,7 +293,7 @@ func TestIntegrationReportSchedulerOnceOnly(t *testing.T) {
 	if !strings.Contains(mail.last(t), "1–7 Sep 2026") || !strings.Contains(mail.last(t), "Open the console:\nhttps://billing.t99.omani.works/reports") {
 		t.Fatalf("mail = %q", mail.last(t))
 	}
-	got, err := st.GetReportSchedule(ctx, store.OperatorScope, sched.ID)
+	got, err := st.GetReportSchedule(ctx, store.OperatorScope, sched.ID, budgetNow)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,7 +357,7 @@ func TestIntegrationReportSchedulerOnceOnly(t *testing.T) {
 	if failed.Due != 1 || failed.Failed != 1 {
 		t.Fatalf("failed run = %+v", failed)
 	}
-	got, _ = st.GetReportSchedule(ctx, store.OperatorScope, sched.ID)
+	got, _ = st.GetReportSchedule(ctx, store.OperatorScope, sched.ID, budgetNow)
 	if !got.NextAt.After(now) || got.Failed30d != 1 || got.LastError == nil || !strings.Contains(*got.LastError, "550") {
 		t.Fatalf("after failure: %+v", got)
 	}

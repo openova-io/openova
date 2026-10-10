@@ -241,7 +241,7 @@ func (h *Handler) listReportSchedules(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	rows, err := h.Store.ListReportSchedules(r.Context(), s.Scope())
+	rows, err := h.Store.ListReportSchedules(r.Context(), s.Scope(), h.Now())
 	if err != nil {
 		storeErr(w, err)
 		return
@@ -255,7 +255,7 @@ func (h *Handler) customerReportSchedules(w http.ResponseWriter, r *http.Request
 	if _, ok := h.requireCustomer(w, r, id, false); !ok {
 		return
 	}
-	rows, err := h.Store.ListReportSchedules(r.Context(), store.CustomerScope(id))
+	rows, err := h.Store.ListReportSchedules(r.Context(), store.CustomerScope(id), h.Now())
 	if err != nil {
 		storeErr(w, err)
 		return
@@ -303,7 +303,7 @@ func (h *Handler) getReportSchedule(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	row, err := h.Store.GetReportSchedule(r.Context(), s.Scope(), r.PathValue("id"))
+	row, err := h.Store.GetReportSchedule(r.Context(), s.Scope(), r.PathValue("id"), h.Now())
 	if err != nil {
 		storeErr(w, err)
 		return
@@ -319,7 +319,7 @@ func (h *Handler) updateReportSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	cur, err := h.Store.GetReportSchedule(r.Context(), s.Scope(), id)
+	cur, err := h.Store.GetReportSchedule(r.Context(), s.Scope(), id, h.Now())
 	if err != nil {
 		storeErr(w, err)
 		return
@@ -366,7 +366,7 @@ func (h *Handler) deleteReportSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	cur, err := h.Store.GetReportSchedule(r.Context(), s.Scope(), id)
+	cur, err := h.Store.GetReportSchedule(r.Context(), s.Scope(), id, h.Now())
 	if err != nil {
 		storeErr(w, err)
 		return
@@ -387,7 +387,7 @@ func (h *Handler) sendReportNow(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	sched, err := h.Store.GetReportSchedule(r.Context(), s.Scope(), r.PathValue("id"))
+	sched, err := h.Store.GetReportSchedule(r.Context(), s.Scope(), r.PathValue("id"), h.Now())
 	if err != nil {
 		storeErr(w, err)
 		return
@@ -413,7 +413,7 @@ func (h *Handler) previewReport(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	sched, err := h.Store.GetReportSchedule(r.Context(), s.Scope(), r.PathValue("id"))
+	sched, err := h.Store.GetReportSchedule(r.Context(), s.Scope(), r.PathValue("id"), h.Now())
 	if err != nil {
 		storeErr(w, err)
 		return
@@ -436,7 +436,7 @@ func (h *Handler) listReportDeliveries(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	sched, err := h.Store.GetReportSchedule(r.Context(), s.Scope(), r.PathValue("id"))
+	sched, err := h.Store.GetReportSchedule(r.Context(), s.Scope(), r.PathValue("id"), h.Now())
 	if err != nil {
 		storeErr(w, err)
 		return
