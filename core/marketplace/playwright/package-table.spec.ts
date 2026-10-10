@@ -234,6 +234,72 @@ test.describe('step 1: package comparison table (/plans, #6971)', () => {
     await expect(page.locator('.pcard')).toHaveCount(4, { timeout: 10_000 })
     await expect(page.getByTestId('package-table')).toHaveCount(0)
   })
+
+  // Regression for the live hw307 shape after PR #6972: the endpoint did not
+  // exist, the browser reported the request as failed, the deck rendered — as
+  // a bare vertical list, because PlanStep's stylesheet was missing from the
+  // PRODUCTION bundle (the component had been tree-shaken out of the server
+  // render, and Vite keeps a component's scoped CSS only while the component
+  // is rendered). The previous fallback test counted cards and passed. This
+  // one asserts the deck's COMPUTED layout, so the pixels are what is tested,
+  // and it must run against `astro build` + `astro preview`, never the dev
+  // server, which injects every stylesheet regardless.
+  test('fallback deck keeps its stylesheet in the production build — laid out as a row of cards, not a bare list', async ({ page }, testInfo) => {
+    await pointAtChargeback(page)
+    // What the live browser does on a Sovereign without the endpoint: the
+    // request fails at the network layer and fetch rejects ("Failed to fetch").
+    await page.route(PACKAGES_URL, (route) => route.abort('failed'))
+    const response = await page.goto('/plans')
+
+    // The deck is the server-rendered first paint, not a client-side swap-in:
+    // its heading is already in the HTML the server sent.
+    expect(await response!.text()).toContain('Pick a plan')
+
+    const cards = page.locator('.pcard')
+    await expect(cards).toHaveCount(4, { timeout: 10_000 })
+    await expect(page.getByTestId('package-table')).toHaveCount(0)
+
+    // Browser defaults would be display:block, transparent, square, static.
+    await expect(page.locator('.pd')).toHaveCSS('display', 'grid')
+    await expect(page.locator('.pd-cards')).toHaveCSS('display', 'grid')
+    const first = cards.first()
+    await expect(first).toHaveCSS('display', 'flex')
+    await expect(first).toHaveCSS('flex-direction', 'column')
+    await expect(first).toHaveCSS('border-top-left-radius', '12px')
+    await expect(first).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    await expect(page.locator('.pcard-cta.primary')).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    await expect(page.locator('.float-nav')).toHaveCSS('position', 'fixed')
+
+    // The four cards sit side by side on one row: equal tops, increasing lefts.
+    const boxes = await cards.evaluateAll((els) =>
+      els.map((el) => {
+        const r = el.getBoundingClientRect()
+        return { top: Math.round(r.top), left: Math.round(r.left), width: Math.round(r.width) }
+      }),
+    )
+    const bottomAligned = await cards.evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().bottom)))
+    expect(new Set(bottomAligned).size, `cards share one baseline: ${JSON.stringify(bottomAligned)}`).toBe(1)
+    for (let i = 1; i < boxes.length; i++) {
+      expect(boxes[i].left, `card ${i} is to the right of card ${i - 1}: ${JSON.stringify(boxes)}`).toBeGreaterThan(boxes[i - 1].left + boxes[i - 1].width - 1)
+    }
+    expect(Math.min(...boxes.map((b) => b.width))).toBeGreaterThan(150)
+
+    await page.screenshot({ path: testInfo.outputPath('plans-fallback-deck.png'), fullPage: false })
+  })
+
+  test('the table path is styled too: the comparison table lays out as a table with the recommended hat', async ({ page }, testInfo) => {
+    await pointAtChargeback(page)
+    await mockPackages(page)
+    await page.goto('/plans')
+    const table = page.getByTestId('package-table')
+    await expect(table).toBeVisible({ timeout: 10_000 })
+    await expect(table).toHaveCSS('border-collapse', 'separate')
+    await expect(table).toHaveCSS('table-layout', 'fixed')
+    await expect(page.locator('.pk-hat')).toHaveCSS('display', 'block')
+    await expect(page.locator('thead th.pk-col').first()).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    await expect(page.locator('.float-nav')).toHaveCSS('position', 'fixed')
+    await page.screenshot({ path: testInfo.outputPath('plans-package-table.png'), fullPage: false })
+  })
 })
 
 // ────────────────────────────────────────────────────────────────────────
