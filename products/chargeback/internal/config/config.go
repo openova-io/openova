@@ -42,6 +42,15 @@ type Config struct {
 	CostRollupEnabled  bool
 	CostRollupInterval time.Duration
 
+	// PackageIncludedLines (PACKAGE_INCLUDED_LINES, default true) writes a
+	// 0.000 line per boolean feature a package INCLUDES on every statement
+	// of a platform Source on a plan (DESIGN.md §22.2), so the invoice
+	// shows the value the package carries. Off, the included features are
+	// on the published document and the console only and the statement
+	// carries no 0.000 lines — an operator who finds nine such lines noise
+	// turns them off here. Add-on lines, allowances and caps are unaffected.
+	PackageIncludedLines bool
+
 	// OpenOva adapter (ADR-0014 D2 case 1; #6723 lane D). AdapterEnabled
 	// is the raw ADAPTER_ENABLED override: "" = auto (on when the profile
 	// is sovereign AND in-cluster Kubernetes configuration is available),
@@ -206,6 +215,7 @@ func FromEnv() (Config, error) {
 		CESInterval:               durEnv("CES_INTERVAL", time.Hour),
 		CollectorEnabled:          boolEnv("COLLECTOR_ENABLED", true),
 		CostRollupEnabled:         boolEnv("COST_ROLLUP_ENABLED", true),
+		PackageIncludedLines:      boolEnv("PACKAGE_INCLUDED_LINES", true),
 		CostRollupInterval:        durEnv("COST_ROLLUP_INTERVAL", time.Minute),
 		NotificationRetention:     daysEnv("NOTIFICATION_RETENTION_DAYS", DefaultNotificationRetention),
 		AdapterEnabled:            strings.ToLower(strings.TrimSpace(os.Getenv("ADAPTER_ENABLED"))),
@@ -224,7 +234,7 @@ func FromEnv() (Config, error) {
 		// the deprecated aliases (see the field comment).
 		EInvoiceSigningKeyFile: get("EINVOICE_SIGNER_PATH", strings.TrimSpace(os.Getenv("EINVOICE_SIGNING_KEY_FILE"))),
 		EInvoiceKeyID:          get("EINVOICE_SIGNER_ID", strings.TrimSpace(os.Getenv("EINVOICE_KEY_ID"))),
-		PlatformAPIToken:          strings.TrimSpace(os.Getenv("PLATFORM_API_TOKEN")),
+		PlatformAPIToken:       strings.TrimSpace(os.Getenv("PLATFORM_API_TOKEN")),
 		// New name first; PLATFORM_API_TOKEN_FILE is the deprecated alias
 		// (see the field comment).
 		PlatformAPITokenFile: get("PLATFORM_API_BEARER_FILE", strings.TrimSpace(os.Getenv("PLATFORM_API_TOKEN_FILE"))),

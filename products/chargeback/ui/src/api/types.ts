@@ -2105,8 +2105,20 @@ export interface PublicCatalog {
 
 // ── packages and the entitlement matrix (DESIGN.md §22) ──────────────
 
-export type FeatureKind = 'boolean' | 'quantity'
+/** The four kinds of a feature (DESIGN.md §22.1): boolean, quantity, level (an ordered list of labels), access (a platform door). */
+export type FeatureKind = 'boolean' | 'quantity' | 'level' | 'access'
+/** The stored state of a cell; the document also publishes `teaser` for a not-offered cell on a teaser feature. */
 export type EntitlementState = 'included' | 'optional' | 'not_offered'
+export type CellState = EntitlementState | 'teaser'
+/** What happens above a quantity cell's included quantity. */
+export type Overage = 'metered' | 'hard_cap' | 'unlimited'
+/** The groups a package is read in, plus the floor (no cells). */
+export type FeatureGroupKey = 'floor' | 'capacity' | 'features' | 'access' | 'ops' | 'scope' | 'resilience' | 'service'
+
+export interface FeatureGroup {
+  key: FeatureGroupKey | string
+  name: string
+}
 
 /** One row of the matrix, as GET /features lists it. */
 export interface Feature {
@@ -2115,25 +2127,43 @@ export interface Feature {
   name: string
   blurb: string
   kind: FeatureKind | string
+  /** The group the row sits in, or `floor` for a platform-wide item. */
+  group: FeatureGroupKey | string
   /** The quantity's unit on a quantity feature ("Mbps"). */
   unit?: string
-  /** The SKU billed when the feature is an add-on; the metered SKU of a quantity feature. */
+  /** The SKU billed when the feature (or its next level) is an add-on; the metered SKU of a quantity feature. */
   addon_sku?: string
+  /** The ordered labels of a level feature. */
+  levels?: string[]
+  /** A not-offered cell is published as "available on <first package that includes it>". */
+  teaser: boolean
   sort_order: number
   created_at?: string
   updated_at?: string
 }
 
+/** The purchasable next level of a level feature on one package. */
+export interface NextLevelAddon {
+  addon_sku: string
+  price_month?: string
+}
+
 /** One cell of the published matrix: a feature on a package. */
 export interface PackageCell {
-  state: EntitlementState | string
+  state: CellState | string
   addon_sku?: string
   /** The add-on's price per month, at the currency's minor unit, when priced. */
   price_month?: string
-  /** The cheapest package that includes the feature, when any does. */
+  /** The cheapest package that includes the feature (for a level feature, the first package at a level above). */
   included_from?: string
   /** A quantity feature's included quantity. */
   quantity?: number | string
+  /** A quantity cell's overage policy. */
+  overage?: Overage | string
+  /** A level cell's level index. */
+  level?: number
+  /** The next level, when purchasable on this package. */
+  next_level_addon?: NextLevelAddon
   note?: string
 }
 
@@ -2141,19 +2171,55 @@ export interface PackageFeature {
   key: string
   name: string
   blurb?: string
+  group: FeatureGroupKey | string
   kind: FeatureKind | string
   unit?: string
+  levels?: string[]
+  addon_sku?: string
+  teaser?: boolean
   /** Keyed by plan SKU (plan.s …); every package has a cell. */
   cells: Record<string, PackageCell>
+}
+
+/** The shape of a package: the headline with the guaranteed floors under it, and the disk. */
+export interface PackageShape {
+  vcpu?: number | string
+  memory_gb?: number | string
+  vcpu_guaranteed?: number | string
+  memory_gb_guaranteed?: number | string
+  disk_gb?: number | string
+}
+
+/** The step-up rule of a package against the next one (computed by the server, never stored). */
+export interface PackageStepUp {
+  next_sku: string
+  next_name: string
+  gap_month: string
+  bundled_addon_keys: string[]
+  bundled_addons_sum_month: string
+  rule_holds: boolean
 }
 
 export interface PackageInfo {
   sku: string
   name: string
+  tagline?: string
   /** Price per month at the currency's minor unit. */
   price_month: string
+  recommended?: boolean
+  annual_months_free?: number
+  shape?: PackageShape
+  /** Absent on the last package. */
+  step_up?: PackageStepUp
   /** vcpu, memory_gb and every included quantity feature (bandwidth_mbps …). */
   includes: Record<string, number | string>
+}
+
+/** A floor item: on every package, never priced, never a cell. */
+export interface FloorItem {
+  key: string
+  name: string
+  blurb?: string
 }
 
 /** GET /public/packages and GET /pricebooks/{id}/packages — the same document. */
@@ -2161,6 +2227,10 @@ export interface PackagesDoc {
   currency: string
   price_book: string
   prices_as_of: string
+  /** The groups, in the order a package is read. */
+  groups?: FeatureGroup[]
+  /** The floor, listed once under every package. */
+  floor?: FloorItem[]
   /** Ordered by price. */
   packages: PackageInfo[]
   /** Ordered by the features' sort order; only features with a cell in the book. */
@@ -2171,9 +2241,23 @@ export interface PackagesDoc {
 export interface PackageCellWrite {
   state: EntitlementState
   included_quantity?: string | null
+  overage?: Overage
+  level?: number
   note?: string
   /** Prices the feature's add-on SKU in the book per month, in the same write. */
   addon_monthly?: string
+}
+
+/** PUT /pricebooks/{id}/packages/{plan}/settings — written whole. */
+export interface PackageSettingsWrite {
+  tagline: string
+  recommended: boolean
+  annual_months_free: number
+  vcpu?: string | null
+  memory_gb?: string | null
+  vcpu_guaranteed?: string | null
+  memory_gb_guaranteed?: string | null
+  disk_gb?: string | null
 }
 
 /** One priced line of an estimate. `plan` is set on a plan line. */

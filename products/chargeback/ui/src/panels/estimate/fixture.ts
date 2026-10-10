@@ -80,23 +80,175 @@ export const morePlans: PublicCatalogPlan[] = [
  * book (DESIGN.md §22): the four packages with their price and included
  * quantities, and a cut of the feature matrix with all three states.
  */
+/**
+ * The packages document as GET /public/packages answers it for the showcase
+ * book (DESIGN.md §22.4), priced at the catalog's constants the plans above
+ * carry: the groups, the floor, the four packages with their settings, shape
+ * and step-up (holding on S, failing on L), and a cut of the ladder with
+ * every kind and state — a quantity with its overage, a boolean add-on, a
+ * teaser, an access door, a level with a purchasable next level.
+ */
 export const packages: PackagesDoc = {
   currency: 'OMR',
   price_book: 'OpenOva plans',
-  prices_as_of: '2026-09-11',
+  prices_as_of: '2026-10-10',
+  groups: [
+    { key: 'capacity', name: 'Capacity' },
+    { key: 'features', name: 'Features' },
+    { key: 'access', name: 'Access' },
+    { key: 'ops', name: 'Managed operations' },
+    { key: 'scope', name: 'Scope' },
+    { key: 'resilience', name: 'Resilience' },
+    { key: 'service', name: 'Service level' },
+  ],
+  floor: [
+    { key: 'ssl', name: 'Unlimited free SSL', blurb: 'Certificates for every site, renewed for you' },
+    { key: 'ddos', name: 'Standard DDoS protection', blurb: 'Volumetric attacks absorbed at the edge' },
+  ],
   packages: [
-    { sku: 'plan.s', name: 'S', price_month: '5.000', includes: { vcpu: 2, memory_gb: 4, bandwidth_mbps: 50 } },
-    { sku: 'plan.m', name: 'M', price_month: '9.000', includes: { vcpu: 4, memory_gb: 8, bandwidth_mbps: 100 } },
-    { sku: 'plan.l', name: 'L', price_month: '16.000', includes: { vcpu: 8, memory_gb: 16, bandwidth_mbps: 250 } },
-    { sku: 'plan.xl', name: 'XL', price_month: '30.000', includes: { vcpu: 16, memory_gb: 32, bandwidth_mbps: 1000 } },
+    {
+      sku: 'plan.s',
+      name: 'S',
+      tagline: '',
+      price_month: '5.000',
+      recommended: false,
+      annual_months_free: 0,
+      shape: { vcpu: 1, memory_gb: 2, vcpu_guaranteed: 0.17, memory_gb_guaranteed: 0.67, disk_gb: 25 },
+      step_up: { next_sku: 'plan.m', next_name: 'M', gap_month: '4.000', bundled_addon_keys: ['dr_topology'], bundled_addons_sum_month: '8.000', rule_holds: true },
+      includes: { vcpu: 1, memory_gb: 2, bandwidth_mbps: 50, disk_gb: 25 },
+    },
+    {
+      sku: 'plan.m',
+      name: 'M',
+      tagline: '',
+      price_month: '9.000',
+      recommended: true,
+      annual_months_free: 0,
+      shape: { vcpu: 2, memory_gb: 4, vcpu_guaranteed: 0.33, memory_gb_guaranteed: 1.33, disk_gb: 50 },
+      step_up: { next_sku: 'plan.l', next_name: 'L', gap_month: '7.000', bundled_addon_keys: [], bundled_addons_sum_month: '0.000', rule_holds: true },
+      includes: { vcpu: 2, memory_gb: 4, bandwidth_mbps: 100, disk_gb: 50 },
+    },
+    {
+      sku: 'plan.l',
+      name: 'L',
+      tagline: '',
+      price_month: '16.000',
+      recommended: false,
+      annual_months_free: 0,
+      shape: { vcpu: 4, memory_gb: 8, vcpu_guaranteed: 0.67, memory_gb_guaranteed: 2.67, disk_gb: 100 },
+      step_up: { next_sku: 'plan.xl', next_name: 'XL', gap_month: '14.000', bundled_addon_keys: ['ai_seo', 'backup'], bundled_addons_sum_month: '3.500', rule_holds: false },
+      includes: { vcpu: 4, memory_gb: 8, bandwidth_mbps: 250, disk_gb: 100 },
+    },
+    {
+      sku: 'plan.xl',
+      name: 'XL',
+      tagline: '',
+      price_month: '30.000',
+      recommended: false,
+      annual_months_free: 0,
+      shape: { vcpu: 8, memory_gb: 16, vcpu_guaranteed: 1.33, memory_gb_guaranteed: 5.33, disk_gb: 250 },
+      includes: { vcpu: 8, memory_gb: 16, bandwidth_mbps: 1000, disk_gb: 250 },
+    },
   ],
   features: [
-    { key: 'ssl', name: 'Unlimited free SSL', blurb: 'Certificates for every site, renewed for you', kind: 'boolean', cells: { 'plan.s': { state: 'included' }, 'plan.m': { state: 'included' }, 'plan.l': { state: 'included' }, 'plan.xl': { state: 'included' } } },
+    {
+      key: 'bandwidth',
+      name: 'Bandwidth',
+      blurb: 'Included bandwidth; above it the package’s overage rule applies',
+      group: 'capacity',
+      kind: 'quantity',
+      unit: 'Mbps',
+      addon_sku: 'eip.bandwidth_mbps',
+      teaser: false,
+      cells: {
+        'plan.s': { state: 'included', quantity: 50, overage: 'hard_cap' },
+        'plan.m': { state: 'included', quantity: 100, overage: 'hard_cap' },
+        'plan.l': { state: 'included', quantity: 250, overage: 'metered' },
+        'plan.xl': { state: 'included', quantity: 1000, overage: 'metered' },
+      },
+    },
+    {
+      key: 'disk',
+      name: 'Disk',
+      blurb: 'Persistent storage for apps and databases',
+      group: 'capacity',
+      kind: 'quantity',
+      unit: 'GB',
+      addon_sku: 'k8s.pvc_gb',
+      teaser: false,
+      cells: {
+        'plan.s': { state: 'included', quantity: 25, overage: 'hard_cap' },
+        'plan.m': { state: 'included', quantity: 50, overage: 'hard_cap' },
+        'plan.l': { state: 'included', quantity: 100, overage: 'metered' },
+        'plan.xl': { state: 'included', quantity: 250, overage: 'metered' },
+      },
+    },
+    {
+      key: 'ai_seo',
+      name: 'AI SEO ready',
+      blurb: 'Search-engine readiness checked and tuned by AI',
+      group: 'features',
+      kind: 'boolean',
+      addon_sku: 'addon.ai_seo',
+      teaser: false,
+      cells: {
+        'plan.s': { state: 'optional', addon_sku: 'addon.ai_seo', price_month: '2.000', included_from: 'plan.xl' },
+        'plan.m': { state: 'optional', addon_sku: 'addon.ai_seo', price_month: '2.000', included_from: 'plan.xl' },
+        'plan.l': { state: 'optional', addon_sku: 'addon.ai_seo', price_month: '2.000', included_from: 'plan.xl' },
+        'plan.xl': { state: 'included' },
+      },
+    },
+    {
+      key: 'gitea_iac',
+      name: 'Gitea + IaC',
+      blurb: 'Your Organization’s Git and the infrastructure-as-code behind every application',
+      group: 'access',
+      kind: 'access',
+      teaser: false,
+      cells: {
+        'plan.s': { state: 'not_offered', included_from: 'plan.m' },
+        'plan.m': { state: 'included', note: 'read' },
+        'plan.l': { state: 'included' },
+        'plan.xl': { state: 'included' },
+      },
+    },
+    {
+      key: 'vuln_dashboard',
+      name: 'Vulnerability dashboard',
+      blurb: 'Every image and dependency scanned, the findings in one place',
+      group: 'ops',
+      kind: 'boolean',
+      teaser: true,
+      cells: {
+        'plan.s': { state: 'teaser', included_from: 'plan.m' },
+        'plan.m': { state: 'included' },
+        'plan.l': { state: 'included' },
+        'plan.xl': { state: 'included' },
+      },
+    },
+    {
+      key: 'dedicated_ip',
+      name: 'Dedicated IP address',
+      blurb: 'A public IPv4 reserved for your Organization',
+      group: 'scope',
+      kind: 'boolean',
+      addon_sku: 'addon.dedicated_ip',
+      teaser: false,
+      cells: {
+        'plan.s': { state: 'optional', addon_sku: 'addon.dedicated_ip', price_month: '2.000' },
+        'plan.m': { state: 'optional', addon_sku: 'addon.dedicated_ip', price_month: '2.000' },
+        'plan.l': { state: 'not_offered' },
+        'plan.xl': { state: 'optional', addon_sku: 'addon.dedicated_ip', price_month: '2.000' },
+      },
+    },
     {
       key: 'backup',
       name: 'Backup',
-      blurb: 'Daily backups of your sites and databases, kept 30 days',
+      blurb: 'Scheduled backups of your sites and databases',
+      group: 'resilience',
       kind: 'boolean',
+      addon_sku: 'addon.backup',
+      teaser: false,
       cells: {
         'plan.s': { state: 'optional', addon_sku: 'addon.backup', price_month: '1.500', included_from: 'plan.xl' },
         'plan.m': { state: 'optional', addon_sku: 'addon.backup', price_month: '1.500', included_from: 'plan.xl' },
@@ -105,23 +257,26 @@ export const packages: PackagesDoc = {
       },
     },
     {
-      key: 'dedicated_ip',
-      name: 'Dedicated IP address',
-      blurb: 'A public address of your own',
-      kind: 'boolean',
+      key: 'dr_topology',
+      name: 'DR topology',
+      blurb: 'Where your applications run, and where they fail over to',
+      group: 'resilience',
+      kind: 'level',
+      levels: ['single region', 'active-passive'],
+      addon_sku: 'addon.dr',
+      teaser: false,
       cells: {
-        'plan.s': { state: 'optional', addon_sku: 'addon.dedicated_ip', price_month: '2.000' },
-        'plan.m': { state: 'optional', addon_sku: 'addon.dedicated_ip', price_month: '2.000' },
-        'plan.l': { state: 'not_offered' },
-        'plan.xl': { state: 'optional', addon_sku: 'addon.dedicated_ip', price_month: '2.000' },
+        'plan.s': { state: 'included', level: 0, included_from: 'plan.m', next_level_addon: { addon_sku: 'addon.dr', price_month: '8.000' } },
+        'plan.m': { state: 'included', level: 1 },
+        'plan.l': { state: 'included', level: 1 },
+        'plan.xl': { state: 'included', level: 1 },
       },
     },
-    { key: 'bandwidth', name: 'Bandwidth', kind: 'quantity', unit: 'Mbps', cells: { 'plan.s': { state: 'included', quantity: 50 }, 'plan.m': { state: 'included', quantity: 100 }, 'plan.l': { state: 'included', quantity: 250 }, 'plan.xl': { state: 'included', quantity: 1000 } } },
   ],
 }
 
 /** The add-on SKUs per plan-hour: monthly ÷ 730. */
-export const addonUnitPrices: Record<string, number> = { 'addon.backup': 0.00205479, 'addon.dedicated_ip': 0.0027397 }
+export const addonUnitPrices: Record<string, number> = { 'addon.backup': 0.00205479, 'addon.dedicated_ip': 0.0027397, 'addon.ai_seo': 0.00273973, 'addon.dr': 0.0109589 }
 
 /** The unit price of every priced entry, for a fake server in a test. */
 export const unitPrices: Record<string, number> = { ...Object.fromEntries([...skus, ...payg, ...plans, ...morePlans].map((e) => [e.sku, Number(e.unit_price)])), ...addonUnitPrices }

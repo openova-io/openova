@@ -138,11 +138,17 @@ func purge(ctx context.Context, db *sql.DB) (purgeCounts, error) {
 		return c, fmt.Errorf("purge package cells: %w", err)
 	}
 	c.PackageCells, _ = res.RowsAffected()
-	res, err = tx.ExecContext(ctx, `DELETE FROM price_items WHERE price_book_id IN (`+plan+`) AND sku = ANY($1)`, pq.Array(append(synth.AddonSKUs(), synth.BandwidthSKU)))
+	res, err = tx.ExecContext(ctx, `DELETE FROM price_items WHERE price_book_id IN (`+plan+`) AND sku = ANY($1)`, pq.Array(append(synth.AddonSKUs(), synth.MeterSKUs()...)))
 	if err != nil {
 		return c, fmt.Errorf("purge add-on rates: %w", err)
 	}
 	c.AddonRates, _ = res.RowsAffected()
+	// The package settings (shape, recommended) the ladder wrote on the
+	// plans book. The four plan prices it converged to the workbook's stay:
+	// the plans are the product's, and the book is never un-priced.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM package_settings WHERE price_book_id IN (`+plan+`)`); err != nil {
+		return c, fmt.Errorf("purge package settings: %w", err)
+	}
 	res, err = tx.ExecContext(ctx, `DELETE FROM features f WHERE f.key = ANY($1)
 		AND NOT EXISTS (SELECT 1 FROM package_entitlements e WHERE e.feature_id = f.id)
 		AND NOT EXISTS (SELECT 1 FROM source_addons sa WHERE sa.feature_id = f.id)`, keys)

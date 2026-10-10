@@ -361,8 +361,11 @@ func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, pc *pa
 	var lines []store.RatedLine
 	unpricedSet, notSoldSet := map[string]bool{}, map[string]bool{}
 	// The allowances the Sources' PACKAGES carry into the period (DESIGN.md
-	// §22), per SKU, summed across sources — fed to the one allowance path.
+	// §22), per SKU, summed across sources — fed to the one allowance path —
+	// and the SKUs a package caps (the excess is reported, never billed) or
+	// leaves unlimited (no allowance, nothing billed).
 	included := map[string]store.Decimal{}
+	capped, unlimited := map[string]bool{}, map[string]bool{}
 	for _, src := range sources {
 		rows := perSource[src.ID]
 		if src.PriceBookID == nil {
@@ -393,11 +396,11 @@ func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, pc *pa
 			continue
 		}
 		items := map[string]store.PriceItem{}
-		pricesPlatformMeter := false
+		sellsPlans := false
 		for _, it := range pb.Items {
 			items[it.SKU] = it
-			if store.IsPlatformMeter(it.SKU) {
-				pricesPlatformMeter = true
+			if strings.HasPrefix(it.SKU, store.PlanSKUPrefix) {
+				sellsPlans = true
 			}
 			// The commercial shape of a SKU (DESIGN.md §15.1) belongs to the
 			// agreement, not to one project: the FIRST booked source in
@@ -413,10 +416,13 @@ func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, pc *pa
 		}
 		lines = append(lines, srcLines...)
 		for _, sku := range unpriced {
-			// A platform book that prices none of the k8s.* meters sells
-			// plans, not vCPU-hours: those meters are the allocation basis,
-			// not a gap in the book.
-			if src.Layer == store.LayerPlatform && store.IsPlatformMeter(sku) && !pricesPlatformMeter {
+			// A platform book that sells plans prices bundles, not
+			// vCPU-hours: a k8s.* meter it does not price is the allocation
+			// basis, not a gap in the book. Per SKU, the same rule as
+			// store.costNotSoldPerUseExpr: the plans book prices k8s.pvc_gb
+			// so a package's disk overage can be metered (DESIGN.md §22.2)
+			// while k8s.vcpu / k8s.mem_gb stay the basis beside it.
+			if src.Layer == store.LayerPlatform && store.IsPlatformMeter(sku) && sellsPlans {
 				notSoldSet[sku] = true
 				continue
 			}
@@ -438,6 +444,12 @@ func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, pc *pa
 				}
 				included[sku] = sum
 			}
+			for sku := range pkg.Capped {
+				capped[sku] = true
+			}
+			for sku := range pkg.Unlimited {
+				unlimited[sku] = true
+			}
 			for _, sku := range pkg.Unpriced {
 				unpricedSet[sku] = true
 			}
@@ -458,6 +470,12 @@ func rateCustomer(ctx context.Context, st *store.Store, c store.Customer, pc *pa
 	}
 	if len(included) > 0 {
 		terms.Included = included
+	}
+	if len(capped) > 0 {
+		terms.Capped = capped
+	}
+	if len(unlimited) > 0 {
+		terms.Unlimited = unlimited
 	}
 	// ALWAYS applied, contract or not: an allowance and a tier ladder belong
 	// to the PLAN — the price-book item — and a customer that has signed
@@ -614,7 +632,7 @@ func packageOf(ctx context.Context, st *store.Store, src store.CostSource, pb st
 		}
 		ents[seg.Slug] = cells
 	}
-	return ApplyPackage(src, segments, ents, items)
+	return ApplyPackageWith(PackageOptions{IncludedLines: st.PackageIncludedLines()}, src, segments, ents, items)
 }
 
 // ratePartner writes a partner's own statement for the period — wholesale
