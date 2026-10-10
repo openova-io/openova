@@ -29,8 +29,14 @@
   ];
 
   $effect(() => {
+    // #6971 — PackageTable renders this deck first and swaps in the package
+    // table once the BSS document arrives. A catalog answer that lands after
+    // that swap must not write the cart over the package the table just
+    // stamped, so the hand-off is guarded: once unmounted, this does nothing.
+    let alive = true;
     getPlans()
       .then((data) => {
+        if (!alive) return;
         plans = data;
         if (!selected) {
           const pop = data.find(p => p.popular);
@@ -43,6 +49,7 @@
         loading = false;
       })
       .catch(() => {
+        if (!alive) return;
         plans = [
           { id: 's', slug: 's', name: 'S', tagline: '', resources: { cpu: '2 vCPU', memory: '4 GB', storage: '25 GB' }, monthly_price: 5000, features: [], popular: false },
           { id: 'm', slug: 'm', name: 'M', tagline: '', resources: { cpu: '4 vCPU', memory: '8 GB', storage: '50 GB' }, monthly_price: 9000, features: [], popular: true },
@@ -53,6 +60,7 @@
         if (!selected) { selected = 'm'; setPlan('m', 'M'); }
         loading = false;
       });
+    return () => { alive = false; };
   });
 
   function selectPlan(id: string) {
