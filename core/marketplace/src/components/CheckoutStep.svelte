@@ -2,7 +2,7 @@
   import { sendMagicLink, verifyMagicLink, getMe, createTenant, getMyOrgs, createCheckout, getQuote, startProvisioning, getProvisionByTenant, checkSlug, getPlans, getCreditBalance, redeemVoucherPreview, setAuthTokens, setActiveOrg, setActiveOrgSlug, setActiveOrgConsoleHost, type User, type Provision, type Plan, type QuoteResponse } from '../lib/api';
   import { readCart, clearCart } from '../lib/cart';
   import { formatOMR } from '../lib/currency';
-  import { quoteRequestFor, quoteable, topologyFor, QUOTE_STRINGS } from '../lib/quote';
+  import { overageFieldsFor, overageSummary, quoteRequestFor, quoteable, topologyFor, QUOTE_STRINGS } from '../lib/quote';
   import { consoleHandoffHref, consoleLaunchHref } from '../lib/config';
   import { creditCoversOrder, chargesCustomer } from '../lib/checkoutPaymentGate';
   import { codeExpiryNotice, needsFreshCode } from '../lib/checkoutSignIn';
@@ -38,6 +38,8 @@
     return () => { stale = true; };
   });
   const totalCost = $derived(quote?.amount_baisa ?? 0);
+  // #6971 — the grow choice as the quote echoed it (the cart's until it answers).
+  const overage = $derived(overageSummary(quote, cart, null, formatOMR));
 
   $effect(() => {
     getPlans().then(p => { plans = p; }).catch(() => {});
@@ -447,6 +449,8 @@
         // used to travel only inside the tenant-create app_configs, so the
         // order billed the plan alone while the Org got hot-standby free.
         topology: topologyFor(cart),
+        // #6971 — the grow choice, the same fields the quote priced.
+        ...overageFieldsFor(cart),
         tenant_id: tenant.id,
         promo_code: trimmedPromo || undefined,
       });
@@ -810,6 +814,14 @@
             </div>
             {#if quoteError}
               <p class="text-xs text-[var(--color-danger)]" data-testid="checkout-quote-error">{QUOTE_STRINGS.unavailable}</p>
+            {/if}
+            {#if quote && overage.mode === 'grow'}
+              <div class="flex flex-col gap-0.5 rounded-lg border border-dashed border-[var(--color-success)] px-3 py-2 text-xs" data-testid="checkout-overage" data-mode="grow">
+                <span class="font-semibold text-[var(--color-text-strong)]">{overage.title}</span>
+                <span class="text-[var(--color-text-dim)]">{overage.detail.join(' · ')}</span>
+              </div>
+            {:else if quote?.overage_mode}
+              <p class="text-xs text-[var(--color-text-dim)]" data-testid="checkout-overage" data-mode="capped">{overage.title}</p>
             {/if}
             {#if creditBaisa > 0}
               <div class="flex justify-between text-[var(--color-success)]">

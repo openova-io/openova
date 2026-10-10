@@ -509,12 +509,12 @@ describe('the topology step reads the DR level', () => {
   it('S, M and L are single region: hot-standby is locked, included from XL', () => {
     for (const sku of ['plan.s', 'plan.m', 'plan.l']) {
       const t = drTopologyFor(doc, sku)!;
-      expect(t, sku).toEqual({ level: 0, label: 'single region', activePassive: false, activePassiveFrom: { sku: 'plan.xl', name: 'XL' } });
+      expect(t, sku).toEqual({ level: 0, label: 'single region', activePassive: false, activePassiveFrom: { sku: 'plan.xl', name: 'XL' }, growOnly: false });
     }
   });
 
   it('XL includes active-passive', () => {
-    expect(drTopologyFor(doc, 'plan.xl')).toEqual({ level: 1, label: 'active-passive', activePassive: true, activePassiveFrom: null });
+    expect(drTopologyFor(doc, 'plan.xl')).toEqual({ level: 1, label: 'active-passive', activePassive: true, activePassiveFrom: null, growOnly: false });
   });
 
   it('a document with no DR level feature (the v1 fixture) gates nothing', () => {

@@ -45,11 +45,12 @@
   // feature) the step is exactly as before.
   import { onMount } from 'svelte';
   import { getPlans, type Plan } from '../lib/api';
-  import { readCart, setAppConfig, setPackage } from '../lib/cart';
+  import { readCart, setAppConfig, setOverage, setPackage } from '../lib/cart';
   import { chargebackBaseURL } from '../lib/config';
   import {
     catalogPlanIdForPackage,
     drTopologyFor,
+    growSelectionFor,
     loadPublicPackages,
     packageForCart,
     pruneAddonsForPackage,
@@ -64,13 +65,19 @@
   let packageName = $state('');
 
   function applyDocument(d: PublicPackages) {
-    const pkg = packageForCart(d, readCart());
+    const c = readCart();
+    const pkg = packageForCart(d, c);
     if (!pkg) { dr = null; packageName = ''; return; }
     packageName = pkg.name;
     dr = drTopologyFor(d, pkg.sku);
-    // A topology this package does not include cannot stay in the cart — it
-    // was picked on a larger package the customer has since switched off.
-    if (dr && !dr.activePassive && enabled) enabled = false;
+    // A topology this package does not offer cannot stay in the cart — it was
+    // picked on a larger package (or in grow mode) the customer has since left.
+    const mode = growSelectionFor(d, pkg.sku, c).mode;
+    if (dr && !dr.activePassive && !(dr.growOnly && mode === 'grow') && enabled) enabled = false;
+  }
+
+  function switchToGrow() {
+    cart = setOverage({ mode: 'grow' });
   }
 
   onMount(async () => {
@@ -169,6 +176,12 @@
   // surface fires a hard validation error on the wizard rather than
   // letting the customer pay for active-hot-standby + then discover
   // post-checkout that the provisioner fell back to single-cluster.
+  // #6971 — the grow choice made on /addons. On a package whose DR cell is
+  // `grow_only` (S / M / L), active-passive is selectable only in grow mode,
+  // the standby billed as usage; "Switch to Grow" here sets the mode.
+  const growMode = $derived(doc ? growSelectionFor(doc, packageForCart(doc, cart)?.sku ?? null, cart).mode : 'capped');
+  const hotSelectable = $derived(!dr || dr.activePassive || (dr.growOnly && growMode === 'grow'));
+
   const regionsValid = $derived(!enabled || (primaryRegion !== '' && replicaRegion !== '' && primaryRegion !== replicaRegion));
 
   // Persist on every change. setAppConfig MERGES with the existing
@@ -234,7 +247,39 @@
         </div>
       </label>
 
-      {#if dr && !dr.activePassive}
+      {#if dr && dr.growOnly && !hotSelectable}
+        <!-- #6971 — on this package active-passive needs Grow: the standby is
+             billed as usage. One click switches the mode; the rung that
+             includes it stays named as the other way. -->
+        <div class="topology-card locked needs-grow" data-testid="topology-card-hot" data-locked="true" data-needs-grow="true">
+          <span class="topology-lock" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg>
+          </span>
+          <div class="topology-body">
+            <div class="topology-title-row">
+              <strong>Active-hot-standby</strong>
+              <span class="topology-price from" data-testid="topology-needs-grow">{PS.grow.needsGrow}</span>
+            </div>
+            <p>Primary + synchronous replica across two distinct regions over Cilium ClusterMesh. Zero-tx-loss failover when a region goes dark.</p>
+            <p class="topology-locked-note">{PS.grow.needsGrowBody(packageName)}</p>
+            <div class="topology-actions">
+              <button type="button" class="topology-switch" data-testid="topology-switch-grow" onclick={switchToGrow}>
+                {PS.grow.switchToGrow} &rarr;
+              </button>
+              {#if dr.activePassiveFrom}
+                <button
+                  type="button"
+                  class="topology-link"
+                  data-testid="topology-switch-{dr.activePassiveFrom.sku}"
+                  onclick={() => switchPackage(dr!.activePassiveFrom!.sku)}
+                >
+                  {PS.grow.orSwitchTo(dr.activePassiveFrom.name)}
+                </button>
+              {/if}
+            </div>
+          </div>
+        </div>
+      {:else if dr && !hotSelectable}
         <!-- Locked: this package's DR level is single region. -->
         <div class="topology-card locked" data-testid="topology-card-hot" data-locked="true">
           <span class="topology-lock" aria-hidden="true">—</span>
@@ -272,6 +317,8 @@
               <strong>Active-hot-standby</strong>
               {#if dr?.activePassive}
                 <span class="topology-price free">{packageName ? `${packageName} · ` : ''}{PS.ladder.includedBadge}</span>
+              {:else if dr?.growOnly}
+                <span class="topology-price usage" data-testid="topology-billed-as-usage">{PS.grow.billedAsUsage}</span>
               {:else}
                 <span class="topology-price">+OMR 5.000 / mo</span>
               {/if}
@@ -463,6 +510,20 @@
     cursor: pointer;
   }
   .topology-switch:hover { filter: brightness(0.92); }
+  /* #6971 — active-passive with Grow */
+  .topology-card.needs-grow .topology-lock { color: var(--color-success); }
+  .topology-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.8rem; }
+  .topology-actions .topology-switch { background: var(--color-success); }
+  .topology-link {
+    margin-top: 0.45rem; padding: 0; border: 0; background: none;
+    color: var(--color-accent); font: inherit; font-size: 0.76rem; font-weight: 600; cursor: pointer; text-align: left;
+  }
+  .topology-link:hover { text-decoration: underline; }
+  .topology-price.usage {
+    background: color-mix(in srgb, var(--color-success) 15%, transparent);
+    color: var(--color-success);
+  }
+  .topology-title-row { flex-wrap: wrap; }
 
   /* Region pickers */
   .region-grid {
