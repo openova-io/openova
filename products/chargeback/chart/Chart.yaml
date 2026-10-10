@@ -68,11 +68,27 @@ type: application
 # scripts/apply-package-icons.py does the same to a running BSS.
 # Migration: icons, feature_group_settings, features.icon_id / icon_bg,
 # package_settings.icon_id / accent / badge. No chart template changed.
-version: 0.1.63
+# 0.1.64 (#6971, DESIGN.md §22.11): capped or grow. A package is a prepaid
+# commitment whose shape is an allowance; the customer chooses per platform
+# Source capped (nothing billed beyond the package) or grow (the quota
+# raised to a ceiling, the usage above the allowance billed in arrears at the
+# package's own compute rates and the book's flat disk and bandwidth). The
+# collector adds two LIMIT meters (k8s.vcpu_limit, k8s.mem_gb_limit) for an
+# Organization on a sized package; rating.GrowOverage bills the limits above
+# the headline; a spend limit caps the usage above the package with one named
+# line; a grow-only cell (active-passive on S/M/L) is never an add-on. The
+# document publishes packages[].grow {allowed, ceiling, overage_rates} and
+# cells' grow_only; PUT /customers/{id}/sources/{sid}/overage; the adapter
+# sets the mode from spec.commerce. Migration: cost_sources.overage_mode /
+# grow_ceiling_* / spend_limit_month, package_settings.grow_allowed /
+# grow_ceiling_* / overage_vcpu_month / overage_mem_gb_month,
+# package_entitlements.grow_only. scripts/apply-grow-model.py applies the
+# model to a running BSS. No chart template changed.
+version: 0.1.64
 # appVersion is the default image tag (chargeback.image in _helpers.tpl);
 # build-chargeback.yaml derives the pushed tag from this field so the two
 # can never drift.
-appVersion: 0.1.63
+appVersion: 0.1.64
 # The document renderer (EPIC #6867) ships as an OPTIONAL sub-chart, gated on
 # `docrender.enabled` (default false), so a Sovereign that does not offer
 # invoice downloads runs no second workload. The repository is a `file://`
