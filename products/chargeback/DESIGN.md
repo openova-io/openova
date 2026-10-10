@@ -5681,3 +5681,82 @@ the comparison table walked: the columns and states, choosing M with Backup
 ticked producing the two lines and the request by the month, the hint beside
 the add-on, Edit re-opening the configurator with the add-on ticked, XL
 offering no backup tick.
+
+### 22.9 The hand-over — what the adapter reads off the Organization (0.1.59, #6971 item 8)
+
+The storefront sells a package and its add-ons; the billing order records
+them; the Organization that is created from the order carries them in an
+OPTIONAL `spec.commerce` block (`products/catalyst/chart/crds/organization.yaml`):
+
+| Field | Meaning | What BSS does with it |
+|---|---|---|
+| `spec.commerce.packageSKU` | the package chosen on the comparison table, `plan.m` | consistency check against `spec.planSlug`; the plan itself when `spec.planSlug` is absent |
+| `spec.commerce.addons[]` | the BSS add-on SKUs bought with it, `addon.backup` — BSS SKUs only, the emitters filter out catalog add-on ids | the Source's add-on set, by feature key |
+| `spec.commerce.priceSource` | `catalog` or `bss:<price_book>@<prices_as_of>` | provenance, logged |
+| `spec.commerce.orderID` | the billing order row | provenance, logged |
+
+The OpenOva adapter (`internal/adapter/openova/orgsync.go`, PROFILE=sovereign)
+reads the block on every Organization sync, tolerantly: an absent block, a
+block that is not a map, a field of the wrong type — each reads as "nothing to
+attach", never as an error. The block is absent on the sovereign-admin door
+(no order) and on every Organization that predates the field, and the
+organization-controller does not reconcile it. No new entity type: these are
+optional fields on the Organization, read by the adapter that already mirrors
+the Organization into its customer and platform Source.
+
+**Add-ons.** Each SKU in `addons[]` is mapped to the feature whose `addon_sku`
+equals it (§22.1, `Feature.AddonSKU`, one `ListFeatures` per sync that carries
+add-ons). The resolved feature keys become the platform Source's add-on set
+through `SetSourceAddons` — the same write the console's
+`PUT /customers/{id}/sources/{sid}/addons` makes, with the same refusals — and
+ONLY when the resolved set differs from the Source's current `addons`, so a
+resync is idempotent and writes nothing when nothing changed. It runs after
+the Source is on its book and the customer on its plan, which is what every
+key is checked against.
+
+The rule that keeps the console authoritative: **an Organization whose block
+is absent, or whose `addons` is absent or empty, drives nothing — the add-ons
+a sovereign-admin set by hand stay exactly as they are.** Only an explicit,
+non-empty `spec.commerce.addons` replaces the set. An order whose SKUs are all
+unknown applies nothing for the same reason.
+
+Nothing here fails the sync; the customer and its Source have already synced
+and the bill must not hinge on an add-on:
+
+- a SKU no feature carries → WARN naming the Organization, the SKU and the
+  order; skipped, the rest applied;
+- a key the store refuses — the package INCLUDES the feature already
+  (redundant), does not OFFER it, or the Source has no book yet → WARN with the
+  store's own sentence (`backup is included in the XL package; there is nothing
+  to add`), the Organization, the SKUs and the order. The store's write is
+  all-or-nothing, so the Source keeps the add-ons it had; the hourly resync
+  tries again once the matrix or the plan has been put right.
+
+**Package and plan.** `spec.planSlug` stays the source of the plan
+(`Customer.PlanSlug`): the controller renders the quota from it and the bill
+must follow the same number. When `packageSKU` is present and
+`store.PlanSKU(planSlug)` differs from it, the adapter WARNs once per sync
+(Organization, plan slug, package SKU) and changes nothing. When
+`spec.planSlug` is absent and `packageSKU` is a package — `plan.<slug>` where
+the slug is a catalog plan that produces a plan line (`store.ValidPlanSlug` and
+`store.PlanBillable`; flexi has no package) — the plan is taken from the
+package, so an Organization the storefront created with only the commerce
+block still bills what it bought. Anything else keeps the controller's default
+`s`, and the mismatch WARN says so.
+
+**Provenance.** Neither the customer nor the Source has a free field for an
+order, and no column is added for one: `priceSource` and `orderID` are logged
+at Info when the customer first appears and when its add-ons are attached, and
+left there.
+
+Tests: `internal/adapter/openova/orgsync_test.go` (`TestReadOrgCommerce`,
+`TestSyncOrganizationAttachesAddonsFromOrder`,
+`TestSyncOrganizationRefusedAddonIsLoggedNotFatal`,
+`TestSyncOrganizationUnknownAddonSKUIsSkipped`,
+`TestSyncOrganizationAbsentCommerceLeavesHandSetAddons`,
+`TestSyncOrganizationPackageSKUMismatchWarnsAndKeepsPlanSlug`,
+`TestSyncOrganizationPackageSKUAloneSetsThePlan`) against the in-memory fake,
+which mirrors `SetSourceAddons`' refusals; `adapter_integration_test.go`
+`TestIntegrationCommerceAddonsAgainstStore` on real SQL — the `source_addons`
+row written once, a resync leaving its `taken_at` untouched, the XL refusal
+not failing the sync.

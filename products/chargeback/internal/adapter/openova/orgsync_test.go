@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"sync"
 	"testing"
@@ -489,5 +490,343 @@ func TestSyncOrganizationResumeStampsPlatformSource(t *testing.T) {
 	c, _ = repo.customerBySlug("acme")
 	if got := repo.sourcesOf(c.ID)[0].LastCollectedAt; c.Status != "active" || got == nil || !got.Equal(now) {
 		t.Fatalf("resume: status %s stamp %v, want active at %v", c.Status, got, now)
+	}
+}
+
+// ---- spec.commerce — the hand-over from the order (#6971 item 8) -----------
+
+// captureLogs routes slog's default logger into a buffer for the test and
+// restores it afterwards, so a WARN the adapter promises can be asserted on.
+func captureLogs(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return &buf
+}
+
+// commerceRepo is a fake with the matrix an M-package Organization meets:
+// backup and waf optional on M, backup included on XL, ssl included
+// everywhere and carrying no add-on SKU. The plans book is ensured first so
+// the cells can hang off it.
+func commerceRepo(t *testing.T) *fakeRepo {
+	t.Helper()
+	repo := newFakeRepo()
+	if _, _, err := repo.EnsurePlanBook(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	repo.addFeature("backup", "addon.backup")
+	repo.addFeature("waf", "addon.waf")
+	repo.addFeature("ssl", "")
+	book := repo.planBook.ID
+	repo.entitle(book, "m", "backup", store.EntitlementOptional)
+	repo.entitle(book, "m", "waf", store.EntitlementOptional)
+	repo.entitle(book, "m", "ssl", store.EntitlementIncluded)
+	repo.entitle(book, "xl", "backup", store.EntitlementIncluded)
+	repo.entitle(book, "xl", "ssl", store.EntitlementIncluded)
+	repo.entitle(book, "s", "ssl", store.EntitlementIncluded)
+	return repo
+}
+
+func withCommerce(pkg string, addons []any, extra map[string]any) func(spec map[string]any) {
+	return func(spec map[string]any) {
+		block := map[string]any{"packageSKU": pkg, "priceSource": "bss:OpenOva plans@2026-10-01", "orderID": "ord-6971"}
+		if addons != nil {
+			block["addons"] = addons
+		}
+		for k, v := range extra {
+			block[k] = v
+		}
+		spec["commerce"] = block
+	}
+}
+
+// TestReadOrgCommerce: the block is read tolerantly — absent is "nothing",
+// a block that is not a map is "nothing", entries are trimmed and
+// deduplicated — and the package stands in for an absent spec.planSlug only
+// when it names a billable catalog plan.
+func TestReadOrgCommerce(t *testing.T) {
+	f, err := readOrg(orgUnstructured("plain", nil))
+	if err != nil || f.Commerce.Present || f.Commerce.Addons != nil || f.PlanSlug != "s" || f.PlanFromPackage {
+		t.Fatalf("no block → %+v err=%v, want absent and the default plan", f.Commerce, err)
+	}
+	f, err = readOrg(orgUnstructured("junk", func(spec map[string]any) { spec["commerce"] = "not-a-map" }))
+	if err != nil || f.Commerce.Present {
+		t.Fatalf("malformed block must read as absent, never fail: %+v err=%v", f.Commerce, err)
+	}
+	f, err = readOrg(orgUnstructured("shop", func(spec map[string]any) {
+		delete(spec, "planSlug")
+		withCommerce(" plan.l ", []any{" addon.backup ", "addon.backup", "", 7, "addon.waf"}, nil)(spec)
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !f.Commerce.Present || f.Commerce.PackageSKU != "plan.l" || f.Commerce.OrderID != "ord-6971" || f.Commerce.PriceSource != "bss:OpenOva plans@2026-10-01" {
+		t.Fatalf("block = %+v", f.Commerce)
+	}
+	if strings.Join(f.Commerce.Addons, ",") != "addon.backup,addon.waf" {
+		t.Fatalf("addons = %v, want trimmed and deduplicated in cart order", f.Commerce.Addons)
+	}
+	if f.PlanSlug != "l" || !f.PlanFromPackage {
+		t.Fatalf("plan = %q from package %v, want l from the package", f.PlanSlug, f.PlanFromPackage)
+	}
+	// spec.planSlug present: it wins, whatever the package says.
+	f, _ = readOrg(orgUnstructured("sized", func(spec map[string]any) { spec["planSlug"] = "s"; withCommerce("plan.l", nil, nil)(spec) }))
+	if f.PlanSlug != "s" || f.PlanFromPackage {
+		t.Fatalf("plan = %q from package %v, want spec.planSlug s", f.PlanSlug, f.PlanFromPackage)
+	}
+	// Not a package: flexi has none, an unknown plan is none, a non-plan SKU is none.
+	for _, sku := range []string{"plan.flexi", "plan.platinum", "addon.backup", ""} {
+		f, _ = readOrg(orgUnstructured("odd", func(spec map[string]any) { withCommerce(sku, nil, nil)(spec) }))
+		if f.PlanSlug != "s" || f.PlanFromPackage {
+			t.Fatalf("packageSKU %q alone → plan %q from package %v, want the default s", sku, f.PlanSlug, f.PlanFromPackage)
+		}
+	}
+	// The Sovereign's own Organization buys nothing from itself.
+	f, _ = readOrg(orgUnstructured("platform", func(spec map[string]any) { spec["kind"] = "internal"; withCommerce("plan.xl", nil, nil)(spec) }))
+	if f.PlanSlug != "" || f.PlanFromPackage {
+		t.Fatalf("internal org → plan %q, want none", f.PlanSlug)
+	}
+}
+
+// TestSyncOrganizationAttachesAddonsFromOrder: the order's add-on SKUs become
+// the Source's add-ons by feature key; a resync with the same order writes
+// nothing; a changed order replaces the set.
+func TestSyncOrganizationAttachesAddonsFromOrder(t *testing.T) {
+	repo := commerceRepo(t)
+	logs := captureLogs(t)
+	s := &OrgSync{Core: k8sfake.NewSimpleClientset(), Repo: repo, Keys: testKeys(t), Metrics: metrics.New()}
+	ctx := context.Background()
+	org := orgUnstructured("acme", func(spec map[string]any) {
+		spec["planSlug"] = "m"
+		withCommerce("plan.m", []any{"addon.waf", "addon.backup"}, nil)(spec)
+	})
+	if err := s.SyncOrganization(ctx, org); err != nil {
+		t.Fatal(err)
+	}
+	src := orgSourceOf(t, repo, "acme")
+	if strings.Join(src.Addons, ",") != "backup,waf" {
+		t.Fatalf("addons = %v, want backup,waf in matrix order", src.Addons)
+	}
+	if repo.addonWrites != 1 {
+		t.Fatalf("SetSourceAddons writes = %d, want 1", repo.addonWrites)
+	}
+	if out := logs.String(); !strings.Contains(out, "attached to the Organization's order") || !strings.Contains(out, "ord-6971") || !strings.Contains(out, "bss:OpenOva plans@2026-10-01") {
+		t.Fatalf("the first attach must record the order's provenance at Info:\n%s", out)
+	}
+	if strings.Contains(logs.String(), "level=WARN") {
+		t.Fatalf("a clean attach must not warn:\n%s", logs.String())
+	}
+
+	// Resync with the same order, cart order reversed: nothing is written.
+	logs.Reset()
+	same := orgUnstructured("acme", func(spec map[string]any) {
+		spec["planSlug"] = "m"
+		withCommerce("plan.m", []any{"addon.backup", "addon.waf"}, nil)(spec)
+	})
+	if err := s.SyncOrganization(ctx, same); err != nil {
+		t.Fatal(err)
+	}
+	if repo.addonWrites != 1 {
+		t.Fatalf("resync wrote the add-ons again: %d writes, want 1", repo.addonWrites)
+	}
+	if strings.Contains(logs.String(), "attached to the Organization's order") {
+		t.Fatalf("an unchanged set must not be re-attached:\n%s", logs.String())
+	}
+
+	// The order now carries backup only: the set is replaced.
+	if err := s.SyncOrganization(ctx, orgUnstructured("acme", func(spec map[string]any) {
+		spec["planSlug"] = "m"
+		withCommerce("plan.m", []any{"addon.backup"}, nil)(spec)
+	})); err != nil {
+		t.Fatal(err)
+	}
+	if src = orgSourceOf(t, repo, "acme"); strings.Join(src.Addons, ",") != "backup" || repo.addonWrites != 2 {
+		t.Fatalf("after the order changed: addons %v writes %d, want backup and 2", src.Addons, repo.addonWrites)
+	}
+}
+
+// TestSyncOrganizationRefusedAddonIsLoggedNotFatal: backup is INCLUDED in
+// XL, so an XL order carrying addon.backup is refused by the store as
+// redundant. The sync still succeeds, the Source keeps the add-ons it had
+// (none), and the WARN names the org, the SKU and the store's sentence.
+func TestSyncOrganizationRefusedAddonIsLoggedNotFatal(t *testing.T) {
+	repo := commerceRepo(t)
+	logs := captureLogs(t)
+	s := &OrgSync{Core: k8sfake.NewSimpleClientset(), Repo: repo, Keys: testKeys(t), Metrics: metrics.New()}
+	ctx := context.Background()
+	org := orgUnstructured("big", func(spec map[string]any) {
+		spec["planSlug"] = "xl"
+		withCommerce("plan.xl", []any{"addon.backup"}, nil)(spec)
+	})
+	if err := s.SyncOrganization(ctx, org); err != nil {
+		t.Fatalf("a refused add-on must never fail the sync: %v", err)
+	}
+	c, ok := repo.customerBySlug("big")
+	if !ok || c.Status != "active" || c.PlanSlug != "xl" {
+		t.Fatalf("customer = %+v ok=%v; the customer must sync regardless", c, ok)
+	}
+	src := orgSourceOf(t, repo, "big")
+	if len(src.Addons) != 0 || repo.addonWrites != 0 || src.PriceBookID == nil {
+		t.Fatalf("source = addons %v writes %d book %v; want nothing attached, source still on its book", src.Addons, repo.addonWrites, src.PriceBookID)
+	}
+	out := logs.String()
+	if !strings.Contains(out, "level=WARN") || !strings.Contains(out, "org=big") || !strings.Contains(out, "addon.backup") || !strings.Contains(out, "included in the XL package") {
+		t.Fatalf("WARN must name the org, the SKU and the store's refusal:\n%s", out)
+	}
+
+	// Not offered on S either (no cell): refused the same way, sync still fine.
+	logs.Reset()
+	if err := s.SyncOrganization(ctx, orgUnstructured("small", func(spec map[string]any) {
+		spec["planSlug"] = "s"
+		withCommerce("plan.s", []any{"addon.waf"}, nil)(spec)
+	})); err != nil {
+		t.Fatal(err)
+	}
+	if out := logs.String(); !strings.Contains(out, "level=WARN") || !strings.Contains(out, "not offered on the S package") || !strings.Contains(out, "addon.waf") {
+		t.Fatalf("WARN must carry the store's not-offered sentence:\n%s", out)
+	}
+	if n := len(orgSourceOf(t, repo, "small").Addons); n != 0 || repo.addonWrites != 0 {
+		t.Fatalf("not-offered add-on attached: %d add-ons, %d writes", n, repo.addonWrites)
+	}
+}
+
+// TestSyncOrganizationUnknownAddonSKUIsSkipped: a SKU no feature carries is
+// warned about and skipped; the rest of the order is applied. An order whose
+// SKUs are ALL unknown applies nothing and writes nothing.
+func TestSyncOrganizationUnknownAddonSKUIsSkipped(t *testing.T) {
+	repo := commerceRepo(t)
+	logs := captureLogs(t)
+	s := &OrgSync{Core: k8sfake.NewSimpleClientset(), Repo: repo, Keys: testKeys(t), Metrics: metrics.New()}
+	ctx := context.Background()
+	org := orgUnstructured("acme", func(spec map[string]any) {
+		spec["planSlug"] = "m"
+		withCommerce("plan.m", []any{"addon.nope", "addon.backup"}, nil)(spec)
+	})
+	if err := s.SyncOrganization(ctx, org); err != nil {
+		t.Fatal(err)
+	}
+	if src := orgSourceOf(t, repo, "acme"); strings.Join(src.Addons, ",") != "backup" || repo.addonWrites != 1 {
+		t.Fatalf("addons = %v writes %d, want backup attached and the unknown SKU skipped", src.Addons, repo.addonWrites)
+	}
+	if out := logs.String(); !strings.Contains(out, "level=WARN") || !strings.Contains(out, "addon_sku=addon.nope") || !strings.Contains(out, "names no feature") {
+		t.Fatalf("WARN must name the unknown SKU:\n%s", out)
+	}
+	if err := s.SyncOrganization(ctx, orgUnstructured("lost", func(spec map[string]any) {
+		spec["planSlug"] = "m"
+		withCommerce("plan.m", []any{"addon.nope"}, nil)(spec)
+	})); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(orgSourceOf(t, repo, "lost").Addons); n != 0 || repo.addonWrites != 1 {
+		t.Fatalf("all-unknown order: %d add-ons, %d writes; want nothing applied and nothing written", n, repo.addonWrites)
+	}
+}
+
+// TestSyncOrganizationAbsentCommerceLeavesHandSetAddons: add-ons a
+// sovereign-admin set through the console stay when the CR carries no
+// commerce block, a block without addons, or an empty list — only an
+// explicit, non-empty spec.commerce.addons drives the set.
+func TestSyncOrganizationAbsentCommerceLeavesHandSetAddons(t *testing.T) {
+	repo := commerceRepo(t)
+	s := &OrgSync{Core: k8sfake.NewSimpleClientset(), Repo: repo, Keys: testKeys(t), Metrics: metrics.New()}
+	ctx := context.Background()
+	plain := orgUnstructured("acme", func(spec map[string]any) { spec["planSlug"] = "m" })
+	if err := s.SyncOrganization(ctx, plain); err != nil {
+		t.Fatal(err)
+	}
+	// The console: PUT /customers/{id}/sources/{sid}/addons ["waf"].
+	src := orgSourceOf(t, repo, "acme")
+	if _, err := repo.SetSourceAddons(ctx, src.ID, []string{"waf"}); err != nil {
+		t.Fatal(err)
+	}
+	writes := repo.addonWrites
+	for name, mutate := range map[string]func(spec map[string]any){
+		"no block":         func(spec map[string]any) { spec["planSlug"] = "m" },
+		"block, no addons": func(spec map[string]any) { spec["planSlug"] = "m"; withCommerce("plan.m", nil, nil)(spec) },
+		"empty addons":     func(spec map[string]any) { spec["planSlug"] = "m"; withCommerce("plan.m", []any{}, nil)(spec) },
+		"blank addons":     func(spec map[string]any) { spec["planSlug"] = "m"; withCommerce("plan.m", []any{"", "  "}, nil)(spec) },
+	} {
+		if err := s.SyncOrganization(ctx, orgUnstructured("acme", mutate)); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if got := orgSourceOf(t, repo, "acme"); strings.Join(got.Addons, ",") != "waf" || repo.addonWrites != writes {
+			t.Fatalf("%s: addons %v writes %d; the hand-set add-on must stay untouched", name, got.Addons, repo.addonWrites)
+		}
+	}
+}
+
+// TestSyncOrganizationPackageSKUMismatchWarnsAndKeepsPlanSlug: spec.planSlug
+// is the plan; a packageSKU that names another package is said once per sync
+// and changes nothing.
+func TestSyncOrganizationPackageSKUMismatchWarnsAndKeepsPlanSlug(t *testing.T) {
+	repo := commerceRepo(t)
+	logs := captureLogs(t)
+	s := &OrgSync{Core: k8sfake.NewSimpleClientset(), Repo: repo, Keys: testKeys(t), Metrics: metrics.New()}
+	ctx := context.Background()
+	org := orgUnstructured("acme", func(spec map[string]any) { spec["planSlug"] = "s"; withCommerce("plan.m", nil, nil)(spec) })
+	if err := s.SyncOrganization(ctx, org); err != nil {
+		t.Fatal(err)
+	}
+	c, _ := repo.customerBySlug("acme")
+	if c.PlanSlug != "s" {
+		t.Fatalf("plan = %q, want spec.planSlug s kept over the package", c.PlanSlug)
+	}
+	out := logs.String()
+	if n := strings.Count(out, "disagrees with spec.planSlug"); n != 1 {
+		t.Fatalf("mismatch WARN count = %d, want exactly one per sync:\n%s", n, out)
+	}
+	if !strings.Contains(out, "org=acme") || !strings.Contains(out, "plan=s") || !strings.Contains(out, "package_sku=plan.m") {
+		t.Fatalf("WARN must name the org, the plan slug and the package SKU:\n%s", out)
+	}
+	// Agreement, in any case: silent.
+	logs.Reset()
+	if err := s.SyncOrganization(ctx, orgUnstructured("acme", func(spec map[string]any) { spec["planSlug"] = "S"; withCommerce("PLAN.S", nil, nil)(spec) })); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(logs.String(), "disagrees") {
+		t.Fatalf("plan.s vs planSlug s must not warn:\n%s", logs.String())
+	}
+}
+
+// TestSyncOrganizationPackageSKUAloneSetsThePlan: an Organization the
+// storefront created with only the commerce block bills its package — the
+// customer is on the package's plan, its Source on the plans book, and the
+// order's add-ons attach against that plan.
+func TestSyncOrganizationPackageSKUAloneSetsThePlan(t *testing.T) {
+	repo := commerceRepo(t)
+	logs := captureLogs(t)
+	s := &OrgSync{Core: k8sfake.NewSimpleClientset(), Repo: repo, Keys: testKeys(t), Metrics: metrics.New()}
+	ctx := context.Background()
+	org := orgUnstructured("shop", func(spec map[string]any) {
+		delete(spec, "planSlug")
+		withCommerce("plan.m", []any{"addon.backup"}, nil)(spec)
+	})
+	if err := s.SyncOrganization(ctx, org); err != nil {
+		t.Fatal(err)
+	}
+	c, _ := repo.customerBySlug("shop")
+	if c.PlanSlug != "m" {
+		t.Fatalf("plan = %q, want m from plan.m", c.PlanSlug)
+	}
+	src := orgSourceOf(t, repo, "shop")
+	if src.PriceBookID == nil || *src.PriceBookID != repo.planBook.ID || strings.Join(src.Addons, ",") != "backup" {
+		t.Fatalf("source = book %v addons %v, want the plans book with backup", src.PriceBookID, src.Addons)
+	}
+	if strings.Contains(logs.String(), "disagrees") {
+		t.Fatalf("a plan taken from the package cannot disagree with it:\n%s", logs.String())
+	}
+	// A package that is not one (flexi has no package) leaves the default
+	// plan, and says so.
+	logs.Reset()
+	if err := s.SyncOrganization(ctx, orgUnstructured("flex", func(spec map[string]any) { delete(spec, "planSlug"); withCommerce("plan.flexi", nil, nil)(spec) })); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ = repo.customerBySlug("flex"); c.PlanSlug != "s" {
+		t.Fatalf("plan.flexi alone → plan %q, want the default s", c.PlanSlug)
+	}
+	if !strings.Contains(logs.String(), "disagrees with spec.planSlug") {
+		t.Fatalf("the default plan standing in for a non-package SKU must be said:\n%s", logs.String())
 	}
 }
