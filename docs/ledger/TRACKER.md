@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-10-10T14:15:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-10-10T14:30:07Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-10-10T14:29 | [#6994](https://github.com/openova-io/openova/pull/6994) | #6971 | feat(bss): the package ladder — groups, levels, overage poli |
 | 2026-10-10T13:08 | [#6991](https://github.com/openova-io/openova/pull/6991) | #6963 | docs(ledger): hw307 evidence for the contract page's rated p |
 | 2026-10-10T12:34 | [#6990](https://github.com/openova-io/openova/pull/6990) | #6971 | docs(ledger): hw307 evidence for packages 0.1.58–0.1.59 |
 | 2026-10-10T11:53 | [#6989](https://github.com/openova-io/openova/pull/6989) | #6987 | test(bootstrap-api): the resource-tree test waits for every  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-20T14:39 | [#6943](https://github.com/openova-io/openova/pull/6943) | #6867 | fix(bss): an open pool row refreshes what is running when th |
 | 2026-09-20T14:03 | [#6942](https://github.com/openova-io/openova/pull/6942) | #6937 | feat(bss): Capacity in four tabs — classes per pool, one SKU |
 | 2026-09-13T14:21 | [#6935](https://github.com/openova-io/openova/pull/6935) | #6867 | fix(bss): Catalyst BSS 0.1.46 — notification lockout, templa |
-| 2026-09-13T12:27 | [#6934](https://github.com/openova-io/openova/pull/6934) | #6867 | fix(bss): Catalyst BSS 0.1.45 — "A exempt rule": the article |
 
 ---
 
