@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-10-12T12:15:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Last refreshed | `2026-10-12T12:30:05Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,36 +307,6 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
-| 2026-10-10T19:52 | [#7004](https://github.com/openova-io/openova/pull/7004) | #6971 | fix(storefront): /plans floor and grow are rows of the table |
-| 2026-10-10T19:25 | [#7003](https://github.com/openova-io/openova/pull/7003) | #6971 | feat(bss): the package prepaid at a flat monthly price, the  |
-| 2026-10-10T18:53 | [#7002](https://github.com/openova-io/openova/pull/7002) | #6971 | fix(storefront): /plans as one continuous table + allowances |
-| 2026-10-10T17:55 | [#7001](https://github.com/openova-io/openova/pull/7001) | #6971 | feat(bss): capped or grow — package as prepaid commitment, u |
-| 2026-10-10T17:27 | [#7000](https://github.com/openova-io/openova/pull/7000) | #6971 | feat(storefront): capped or grow with me — growth billed aft |
-| 2026-10-10T16:47 | [#6999](https://github.com/openova-io/openova/pull/6999) | #6996 | feat(bss): icons and branding defined in BSS and published b |
-| 2026-10-10T15:58 | [#6998](https://github.com/openova-io/openova/pull/6998) | #6971 | fix(billing): accept the teaser cell state — storefront quot |
-| 2026-10-10T16:12 | [#6997](https://github.com/openova-io/openova/pull/6997) | #6971 | feat(storefront): package icons, accent and badge from BSS;  |
-| 2026-10-10T14:37 | [#6995](https://github.com/openova-io/openova/pull/6995) | #6971 | fix(billing): the active-passive topology is priced from the |
-| 2026-10-10T14:29 | [#6994](https://github.com/openova-io/openova/pull/6994) | #6971 | feat(bss): the package ladder — groups, levels, overage poli |
-| 2026-10-10T14:51 | [#6993](https://github.com/openova-io/openova/pull/6993) | #6974 | feat(plans): the package numbers from the National Cloud wor |
-| 2026-10-10T15:16 | [#6992](https://github.com/openova-io/openova/pull/6992) | #6993 | feat(storefront): the package ladder journey — grouped cards |
-| 2026-10-10T13:08 | [#6991](https://github.com/openova-io/openova/pull/6991) | #6963 | docs(ledger): hw307 evidence for the contract page's rated p |
-| 2026-10-10T12:34 | [#6990](https://github.com/openova-io/openova/pull/6990) | #6971 | docs(ledger): hw307 evidence for packages 0.1.58–0.1.59 |
-| 2026-10-10T11:53 | [#6989](https://github.com/openova-io/openova/pull/6989) | #6987 | test(bootstrap-api): the resource-tree test waits for every  |
-| 2026-10-10T12:57 | [#6988](https://github.com/openova-io/openova/pull/6988) | #6963 | feat(bss): the contract page shows what the contract did — r |
-| 2026-10-10T11:52 | [#6987](https://github.com/openova-io/openova/pull/6987) | #6971 | feat(bss): packages reach the order, the Organization and th |
-| 2026-10-10T09:25 | [#6986](https://github.com/openova-io/openova/pull/6986) | #6971 | docs(ledger): hw307 BSS walk evidence 0.1.27–0.1.57 |
-| 2026-10-10T10:53 | [#6984](https://github.com/openova-io/openova/pull/6984) | #6971 | fix(bss): the storefront reads the package document — its or |
-| 2026-10-10T08:19 | [#6982](https://github.com/openova-io/openova/pull/6982) | #6972 | fix(marketplace): the plan deck keeps its styles when the pa |
-| 2026-10-10T07:07 | [#6975](https://github.com/openova-io/openova/pull/6975) | #6973 | ci(docrender): refresh the apt index before installing poppl |
-| 2026-10-10T08:51 | [#6973](https://github.com/openova-io/openova/pull/6973) | #6971 | feat(bss): packages and the entitlement matrix — Included /  |
-| 2026-10-10T07:01 | [#6972](https://github.com/openova-io/openova/pull/6972) | #6971 | feat(marketplace): the package table — S/M/L/XL with include |
-| 2026-10-04T13:24 | [#6965](https://github.com/openova-io/openova/pull/6965) | #6964 | docs(ledger): hw307 evidence for the contract page at 0.1.56 |
-| 2026-10-04T13:12 | [#6964](https://github.com/openova-io/openova/pull/6964) | #6963 | feat(bss): contracts you can read and edit line by line, a s |
-| 2026-09-27T13:07 | [#6957](https://github.com/openova-io/openova/pull/6957) | #6955 | fix(oidc-gate): the calculator's live-pricing call passes th |
-| 2026-09-27T13:15 | [#6956](https://github.com/openova-io/openova/pull/6956) | #6867 | fix(bss): the estimate totals never clip — number on one lin |
-| 2026-09-27T12:57 | [#6955](https://github.com/openova-io/openova/pull/6955) | #6841 | fix(oidc-gate): the public cost calculator is public — skip- |
-| 2026-09-27T13:47 | [#6954](https://github.com/openova-io/openova/pull/6954) | #6867 | docs(bss): the training course — 142 slides, generator and d |
-| 2026-09-27T12:34 | [#6953](https://github.com/openova-io/openova/pull/6953) | #6867 | feat(bss): the public calculator by product family, with con |
 
 ---
 
