@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-10-18T12:00:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Last refreshed | `2026-10-18T12:45:04Z` |
+| Deploy cron (#799) | 🔴 **DEPLOY CRON NEVER INSTALLED** — image-reroll log `/tmp/iogrid-image-reroll.log` is missing; merged PRs are NOT reaching prod (this is the exact #799 freeze). Fix: `crontab -l` must contain the `iogrid-image-reroll-cron.sh` line (`5,20,35,50 * * * *`). |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
