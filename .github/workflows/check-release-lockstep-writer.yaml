@@ -60,7 +60,7 @@ jobs:
       # the tree the writer pushed — they are the guards that actually redden, so
       # asserting on them is the point. Without Go on PATH the harness FAILS
       # rather than silently reporting on less than it claims.
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.22'
           cache: false
