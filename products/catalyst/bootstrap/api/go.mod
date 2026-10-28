@@ -3,7 +3,7 @@ module github.com/openova-io/openova/products/catalyst/bootstrap/api
 go 1.26.0
 
 require (
-	github.com/go-chi/chi/v5 v5.2.1
+	github.com/go-chi/chi/v5 v5.4.0
 	github.com/go-chi/cors v1.2.1
 	github.com/golang-jwt/jwt/v5 v5.2.1
 	github.com/google/uuid v1.6.0
@@ -13,6 +13,7 @@ require (
 	github.com/openova-io/openova/core/controllers v0.0.0-00010101000000-000000000000
 	github.com/openova-io/openova/core/services/shared v0.0.0-00010101000000-000000000000
 	github.com/prometheus/client_golang v1.23.2
+	github.com/prometheus/client_model v0.6.2
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/api v0.36.0
 	k8s.io/apimachinery v0.36.0
@@ -63,7 +64,6 @@ require (
 	github.com/nats-io/nkeys v0.4.8 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
-	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.66.1 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
 	github.com/rs/xid v1.6.0 // indirect
