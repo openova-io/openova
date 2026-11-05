@@ -178,6 +178,21 @@ MUTATIONS = [
         "TestReconcilePass_RefreshesBeforeSeeding_6317",
         "the refresh is actually WIRED INTO the reconcile pass",
     ),
+    (
+        "M19", SUBJECT,
+        "\t\tGet(ctx, anthropicCredentialSecret, metav1.GetOptions{}); err != nil {\n\t\tif apierrors.IsNotFound(err) {",
+        "\t\tGet(ctx, anthropicCredentialSecret, metav1.GetOptions{}); err != nil && false {\n\t\tif apierrors.IsNotFound(err) {",
+        "TestRefresh_DoesNotSpendRefreshTokenWhenRootSecretAbsent",
+        "the pre-flight checks that the root Secret EXISTS, not only that an identity does — "
+        "a PATCH cannot create, so the rotated token would be lost",
+    ),
+    (
+        "M20", SUBJECT,
+        "if status, at, rejected := h.anthropicRefreshRejected.match(oldRefresh); rejected {",
+        "if status, at, rejected := h.anthropicRefreshRejected.match(oldRefresh); rejected && false {",
+        "TestRefresh_SpentRefreshTokenIsNotResent",
+        "a refresh token the provider DEFINITIVELY rejected is not re-sent every pass",
+    ),
 ]
 
 # M17 is structural (ordering), so it is applied as a move rather than a

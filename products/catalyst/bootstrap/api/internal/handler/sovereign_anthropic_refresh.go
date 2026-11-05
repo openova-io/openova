@@ -53,13 +53,16 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
@@ -129,7 +132,62 @@ const (
 	anthropicRefreshNoDurableStore anthropicRefreshOutcome = "no-durable-store"
 	// anthropicRefreshed — a fresh accessToken is stored and propagating.
 	anthropicRefreshed anthropicRefreshOutcome = "refreshed"
+	// anthropicRefreshTokenSpent — the stored refresh token is one the provider
+	// has ALREADY definitively rejected (HTTP 400/401/403) on an earlier pass,
+	// and the stored credential has not changed since. The exchange is NOT
+	// re-attempted: a spent or revoked refresh token never recovers, so
+	// re-sending it every pass only earns rate limits (hw305: HTTP 429 after
+	// weeks of 10-minute retries) and buries the one line that matters —
+	// rotate the root Secret. Reported loudly, every pass, until the operator
+	// does.
+	anthropicRefreshTokenSpent anthropicRefreshOutcome = "refresh-token-spent"
 )
+
+// anthropicRejectedRefresh remembers the ONE refresh token the OAuth endpoint
+// last rejected definitively, by fingerprint only (never the token). Lives on
+// the Handler so a catalyst-api restart forgets it — one retry per restart is
+// cheap, and a token the provider has spent will simply be rejected again.
+type anthropicRejectedRefresh struct {
+	mu     sync.Mutex
+	fp     string
+	status int
+	at     time.Time
+}
+
+func (m *anthropicRejectedRefresh) record(refreshToken string, status int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.fp, m.status, m.at = credFingerprint(refreshToken), status, time.Now()
+}
+
+// match reports whether refreshToken is the one previously rejected.
+func (m *anthropicRejectedRefresh) match(refreshToken string) (status int, at time.Time, rejected bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.fp == "" || m.fp != credFingerprint(refreshToken) {
+		return 0, time.Time{}, false
+	}
+	return m.status, m.at, true
+}
+
+// anthropicOAuthStatusError — the token endpoint answered with a non-2xx
+// status. The body is never carried: on some error shapes it holds token
+// material. Status 400/401/403 are DEFINITIVE for a refresh_token grant
+// (invalid_grant / revoked / forbidden): the same token will never succeed.
+// Everything else (429, 5xx, 408) is transient and is retried next pass.
+type anthropicOAuthStatusError struct {
+	Status    int
+	BodyBytes int
+}
+
+func (e *anthropicOAuthStatusError) Error() string {
+	return fmt.Sprintf("oauth endpoint returned HTTP %d (%d-byte body withheld: may carry credential material)",
+		e.Status, e.BodyBytes)
+}
+
+func (e *anthropicOAuthStatusError) definitive() bool {
+	return e.Status == http.StatusBadRequest || e.Status == http.StatusUnauthorized || e.Status == http.StatusForbidden
+}
 
 // credFingerprint — first 8 hex chars of the sha256 of a credential, so two
 // log lines can be compared for "did this actually change?" without any part
@@ -198,19 +256,35 @@ func (h *Handler) refreshAnthropicCredential(ctx context.Context) anthropicRefre
 	// a credential which merely EXPIRES into one that cannot be recovered
 	// without a human re-issue.
 	//
-	// The condition is narrow and real: no in-cluster identity (a Catalyst-Zero
-	// or CI process), where the credential can only have come from the process
-	// env and there is no Secret to write back to. Checked BEFORE the exchange,
-	// not after.
+	// Two conditions, both real, both checked BEFORE the exchange, not after:
+	//   - no in-cluster identity (a Catalyst-Zero or CI process), where the
+	//     credential can only have come from the process env and there is no
+	//     Secret to write back to;
+	//   - an in-cluster identity but NO root Secret — the credential reached
+	//     this process through chart values (sovereign.anthropic.* → the
+	//     kc-credentials Secret → env) and nobody created
+	//     catalyst-system/sovereign-anthropic-credentials. The write-back is
+	//     a strategic-merge PATCH, which cannot create; before this check the
+	//     exchange ran, the PATCH 404'd, and the ROTATED refresh token was
+	//     lost on the first pass — the values copy was dead from then on.
 	if _, err := anthropicSecretRootWritable(); err != nil {
 		if h.log != nil {
+			remediation := "this process has no in-cluster identity, so it can read the credential from its env but cannot write a renewed one back. " +
+				"Run the refresh where catalyst-api holds a ServiceAccount and the " + anthropicCredentialSecret + " Secret exists; " +
+				"until then the credential must be rotated by hand before it expires."
+			if apierrors.IsNotFound(err) {
+				remediation = "create the root Secret from the SAME credential this process holds — " +
+					"kubectl -n " + anthropicCredentialNamespace + " create secret generic " + anthropicCredentialSecret +
+					" --from-literal=" + anthropicCredentialJSONKey + "='<credentialsJson>' (and " + anthropicCredentialAPIKeyKey + " if set). " +
+					"The chart's lookup source-wins it over the values copy, the live read (#6163) picks it up on the next pass, " +
+					"and every renewal is stored there from then on. One kubectl, once."
+			}
 			h.log.Error("🛑 anthropic refresh SKIPPED — the credential is due for renewal but there is nowhere durable to store the result, and the exchange ROTATES the refresh token. Attempting it would burn the only material that can renew this credential (#6317)",
 				"err", err.Error(),
 				"rootSecret", anthropicCredentialNamespace+"/"+anthropicCredentialSecret,
+				"rootSecretAbsent", apierrors.IsNotFound(err),
 				"remainingMin", int(remaining.Minutes()),
-				"remediation", "this process has no in-cluster identity, so it can read the credential from its env but cannot write a renewed one back. "+
-					"Run the refresh where catalyst-api holds a ServiceAccount and the "+anthropicCredentialSecret+" Secret exists; "+
-					"until then the credential must be rotated by hand before it expires.",
+				"remediation", remediation,
 			)
 		}
 		return anthropicRefreshNoDurableStore
@@ -218,6 +292,26 @@ func (h *Handler) refreshAnthropicCredential(ctx context.Context) anthropicRefre
 
 	oldAccess := strings.TrimSpace(stringField(oauth, "accessToken"))
 	oldRefresh := strings.TrimSpace(stringField(oauth, "refreshToken"))
+
+	// A refresh token the provider has ALREADY rejected definitively is not
+	// re-sent. It cannot start working again, and the credential it belongs to
+	// has not changed (same fingerprint) — the only thing that clears this is
+	// an operator rotation, which changes the token and therefore the key.
+	if status, at, rejected := h.anthropicRefreshRejected.match(oldRefresh); rejected {
+		if h.log != nil {
+			h.log.Error("🛑 anthropic refresh NOT RETRIED — the stored refresh token was already rejected by the OAuth endpoint and has not changed since; it is SPENT or REVOKED and will never renew this credential. Every Organization's Agenity workspace agent 401s until the root Secret is rotated (#6317)",
+				"rejectedHTTPStatus", status,
+				"rejectedAt", at.UTC().Format(time.RFC3339),
+				"refreshTokenSha256Prefix", credFingerprint(oldRefresh),
+				"remainingMin", int(remaining.Minutes()),
+				"rootSecret", anthropicCredentialNamespace+"/"+anthropicCredentialSecret,
+				"remediation", "rotate "+anthropicCredentialNamespace+"/"+anthropicCredentialSecret+" with a FRESHLY issued credentialsJson from a "+
+					"DEDICATED claude-code login that no other Sovereign or the mothership shares — a refresh token is single-use, so two "+
+					"refreshers on one credential spend each other's token. The next pass exchanges the new token automatically.",
+			)
+		}
+		return anthropicRefreshTokenSpent
+	}
 
 	if h.log != nil {
 		h.log.Info("[ANTHROPIC-REFRESH] credential is within the renewal window — exchanging refresh token (#6317)",
@@ -229,13 +323,30 @@ func (h *Handler) refreshAnthropicCredential(ctx context.Context) anthropicRefre
 
 	tok, err := exchangeAnthropicRefreshToken(ctx, oldRefresh)
 	if err != nil {
+		// A definitive 4xx means THIS refresh token is spent or revoked. Remember
+		// its fingerprint so the next pass reports the verdict instead of
+		// re-spending the request; a transient status (429/5xx) or a transport
+		// error is retried next pass as before.
+		definitive := false
+		var statusErr *anthropicOAuthStatusError
+		if errors.As(err, &statusErr) && statusErr.definitive() {
+			definitive = true
+			h.anthropicRefreshRejected.record(oldRefresh, statusErr.Status)
+		}
 		if h.log != nil {
+			remediation := "if this persists past the remaining lifetime, the refresh token itself is spent or revoked — rotate " +
+				anthropicCredentialNamespace + "/" + anthropicCredentialSecret + " with a freshly issued credentialsJson."
+			if definitive {
+				remediation = "the OAuth endpoint rejected this refresh token DEFINITIVELY (spent or revoked) — it will not be re-sent. Rotate " +
+					anthropicCredentialNamespace + "/" + anthropicCredentialSecret + " with a freshly issued credentialsJson from a DEDICATED " +
+					"claude-code login no other refresher shares; the next pass exchanges the new token automatically."
+			}
 			h.log.Error("🛑 anthropic refresh FAILED — the OAuth exchange did not return a usable access token; the credential is UNCHANGED and will expire on schedule, after which every Organization's Agenity workspace agent 401s (#6317)",
 				"err", err.Error(),
+				"definitive", definitive,
 				"endpoint", anthropicOAuthTokenEndpoint,
 				"remainingMin", int(remaining.Minutes()),
-				"remediation", "if this persists past the remaining lifetime, the refresh token itself is spent or revoked — rotate "+
-					anthropicCredentialNamespace+"/"+anthropicCredentialSecret+" with a freshly issued credentialsJson.",
+				"remediation", remediation,
 			)
 		}
 		return anthropicRefreshExchangeFailed
@@ -384,9 +495,9 @@ func exchangeAnthropicRefreshToken(ctx context.Context, refreshToken string) (an
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		// The body may carry the provider's error CODE, but it may also carry
-		// token material on some error shapes — report the status only.
-		return out, fmt.Errorf("oauth endpoint returned HTTP %d (%d-byte body withheld: may carry credential material)",
-			resp.StatusCode, len(raw))
+		// token material on some error shapes — report the status only. Typed,
+		// so the caller can tell a definitive rejection from a transient one.
+		return out, &anthropicOAuthStatusError{Status: resp.StatusCode, BodyBytes: len(raw)}
 	}
 
 	var parsed struct {
@@ -494,10 +605,21 @@ func (h *Handler) persistRefreshedAnthropicCredential(ctx context.Context, apiKe
 // be asserted against the object it produces without trusting that server-side
 // conversion. Writing data directly makes the stored bytes the same under a
 // real apiserver and under the fake clientset the tests drive.
-// anthropicSecretRootWritable reports whether there is an in-cluster identity
-// capable of writing the root Secret at all. Used as the pre-flight above, and
-// by writeAnthropicRootSecret itself, so the check and the write can never
-// disagree about what "reachable" means.
+// anthropicSecretRootWritable reports whether there is somewhere DURABLE to
+// store a renewed credential: an in-cluster identity AND the root Secret
+// itself. Used as the pre-flight above, and by writeAnthropicRootSecret
+// itself, so the check and the write can never disagree about what
+// "reachable" means.
+//
+// The existence check is load-bearing, not a nicety. The write-back is a
+// strategic-merge PATCH, which cannot create. A Sovereign whose credential
+// arrived through chart values (sovereign.anthropic.* → env) and whose
+// operator never created catalyst-system/sovereign-anthropic-credentials has
+// a working credential and NO root Secret; before this check the exchange ran
+// first, the PATCH 404'd, and the rotated refresh token was lost on the very
+// first renewal pass. A NotFound is returned as-is so the caller can name the
+// one-kubectl remediation; any other read error is "we do not know", which
+// for a refresh token that is consumed on use must also mean do-not-spend.
 //
 // It deliberately does NOT probe RBAC with a speculative write: the shipped
 // ClusterRole grants the name-scoped patch, and a dry-run would double every
@@ -510,6 +632,15 @@ func anthropicSecretRootWritable() (kubernetes.Interface, error) {
 	}
 	if cli == nil {
 		return nil, fmt.Errorf("no in-cluster identity")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), anthropicCredentialReadBudget)
+	defer cancel()
+	if _, err := cli.CoreV1().Secrets(anthropicCredentialNamespace).
+		Get(ctx, anthropicCredentialSecret, metav1.GetOptions{}); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("read root Secret %s/%s: %w", anthropicCredentialNamespace, anthropicCredentialSecret, err)
 	}
 	return cli, nil
 }
