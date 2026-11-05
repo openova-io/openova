@@ -166,15 +166,15 @@ spec:
       #   HR within a tick of every un-suspend and blocked the chart upgrade. A
       #   latch on a promoted HR is never touched. Script-only; substitutes
       #   unchanged. Lockstep 16a/16c/16d.
-      # 0.2.31 (hw307 2026-09-13, Refs #6874 #6753 #5504): a promotion no longer
-      #   re-keys the bootstrap owner — the region-B follower (and the demoted
-      #   rejoin shape) names the PRIMARY's application Secret in
-      #   pg_basebackup.secret, so CNPG never mints `<instance>-replica-app` and
-      #   ALTERs grafana to a random password on the promotion tick (grafana
-      #   crash-looped in both regions for 52 days). The replica NetworkPolicy
-      #   now admits local consumers on :5432, so region-B's own consumers reach
-      #   the promoted primary through the re-homed `-mesh-rw` alias.
-      #   Substitutes unchanged. Lockstep 16a/16c/16d.
+      # 0.2.31 (#6627, Refs #6149 #6753 #3577): the replica-side
+      #   `-allow-replication-to-replica` NetworkPolicy admits SAME-REGION
+      #   consumers on :5432 (`namespaceSelector: {}`), as the primary side
+      #   already does. After a #6149 promote the promoted Cluster is the
+      #   writable primary behind `-mesh-rw`, yet its policy admitted only the DR
+      #   actors, its own instances and peer-region identities — hw307 region-B
+      #   keycloak-0 5,168 restarts, `Policy denied DROPPED` on :5432, region-B
+      #   SSO dead for every app. Singleton + primary byte-identical; substitutes
+      #   unchanged. Lockstep 16a/16c/16d.
       version: 0.2.31
       sourceRef:
         kind: HelmRepository

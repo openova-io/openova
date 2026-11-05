@@ -629,6 +629,19 @@ name: bp-postgres
 #   honoured — sprig's `default` swallows boolean false). Primary render is
 #   byte-identical. Lockstep slot pins 16a/16c/16d → 0.2.20.
 #   tests/postgres-render.sh Case 21 added.
+# 0.2.31 — #6627 (Refs #6149 #6753 #3577): the REPLICA-side
+#   `<instance>-allow-replication-to-replica` NetworkPolicy now admits
+#   same-region consumers on :5432 (`namespaceSelector: {}`), the rule the
+#   primary side has carried since #3577. After a #6149 promote the
+#   `<instance>-replica` Cluster is the writable primary and `-mesh-rw`
+#   resolves to its LOCAL Pod, but the policy admitted only the DR actors, the
+#   replica's own instances and PEER-region identities — never the promoted
+#   region's own keycloak/gitea/harbor. hw307 2026-11-05 (53 days after the
+#   promote): region-B keycloak-0 at 5,168 restarts, Hubble `keycloak-0 →
+#   shared-pg-replica-1:5432 Policy denied DROPPED`, region-B SSO dead for
+#   every app. Unconditional on the replica side (a region-kill survivor may
+#   not be able to re-render). Singleton + primary renders byte-identical.
+#   tests/postgres-render.sh Case 4j added. Lockstep slot pins 16a/16c/16d.
 version: 0.2.31
 appVersion: 0.2.31
 description: |
