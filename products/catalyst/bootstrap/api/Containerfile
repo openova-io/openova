@@ -54,7 +54,19 @@ WORKDIR /app
 COPY products/catalyst/bootstrap/api/go.mod products/catalyst/bootstrap/api/go.sum ./
 RUN go mod download
 COPY products/catalyst/bootstrap/api/ ./
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /catalyst-api ./cmd/api \
+# BUILD_SHA / BUILD_TIME — stamped into the binary so /api/v1/version
+# describes the IMAGE, not the Deployment env a `kubectl set image` roll
+# never updates (#6229). The catalyst-build workflow passes them as
+# build-args (sha_short + the job's UTC timestamp); a local `podman build`
+# without them yields the compiled-in "dev" / process-start fallbacks, which
+# /version labels as such (shaSource / buildTimeSource).
+ARG BUILD_SHA=dev
+ARG BUILD_TIME=
+RUN CGO_ENABLED=0 GOOS=linux go build \
+      -ldflags="-s -w \
+        -X github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handler.buildSHA=${BUILD_SHA} \
+        -X github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handler.buildTime=${BUILD_TIME}" \
+      -o /catalyst-api ./cmd/api \
     && upx -q --best --lzma /catalyst-api
 # catalyst-dns helper — invoked by the OpenTofu module's null_resource.dns_pool
 # via local-exec at Phase-0 apply time. Lives at /usr/local/bin/catalyst-dns

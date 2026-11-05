@@ -14,18 +14,26 @@
 //
 // The implementation prefers, in order:
 //
-//  1. CATALYST_BUILD_SHA env var (injected by the chart via the image
-//     tag; deployment-controller maps the image tag to this env). When
-//     set this is the truth.
-//  2. CATALYST_BUILD_VERSION env var (semver — set by chart values
-//     when a tagged release is rolled out).
-//  3. The buildSHA / buildVersion ldflags variables (`go build
-//     -ldflags="-X .../handler.buildSHA=$SHA"`). Used by CI so the
-//     version is baked into the binary even when env vars are
-//     unset.
+//  1. The buildSHA ldflag (`go build -ldflags="-X .../handler.buildSHA=$SHA"`,
+//     stamped by the Containerfile from the BUILD_SHA build-arg the
+//     catalyst-build workflow passes). The ldflag describes THE BINARY,
+//     so it is the truth about the image that is running (#6229).
+//  2. CATALYST_BUILD_SHA env var — a literal the chart template carries
+//     and CI bumps in lockstep with the image tag. It is a property of
+//     the Deployment, not of the image: a `kubectl set image` roll
+//     replaces the image and leaves the env untouched, so an env-first
+//     answer kept reporting a May commit on an August image (measured on
+//     the mothership 2026-08-13, #6229). It remains as the fallback for
+//     binaries built without the ldflag.
+//  3. CATALYST_BUILD_VERSION env var (semver — set by chart values
+//     when a tagged release is rolled out), else the buildVersion ldflag.
 //  4. The literal "dev" / "0.0.0" — surfaced when neither env nor
 //     ldflags carries a value, so the response is always well-formed
 //     instead of empty.
+//
+// Every freshness field names its provenance (`shaSource`,
+// `buildTimeSource`) so a caller can tell a value that describes the
+// image from one that describes the Deployment or the pod's own boot.
 //
 // The handler is registered on the public router (no session gate) so
 // CI smoke tests + external monitoring can probe it without a cookie.
@@ -85,7 +93,7 @@ type VersionResponse struct {
 	Service string `json:"service"`
 
 	// SHA — git commit the image was built from. Truthful resolution:
-	// CATALYST_BUILD_SHA env var > buildSHA ldflag > "dev".
+	// buildSHA ldflag > CATALYST_BUILD_SHA env var > "dev" (#6229).
 	// Retained as the legacy key; new callers SHOULD prefer GitSha
 	// (added qa-loop iter-6 to match the QA matrix TC-014 contract).
 	SHA string `json:"sha"`
@@ -137,6 +145,41 @@ type VersionResponse struct {
 	// dates the current pod, which is how you spot a restart loop). The defect
 	// was never the fallback — it was the fallback being unlabelled.
 	BuildTimeSource string `json:"buildTimeSource"`
+
+	// ShaSource — where SHA actually came from: "ldflag" (stamped into
+	// the binary at link time — describes the image), "env" (the chart's
+	// CATALYST_BUILD_SHA literal — describes the Deployment template,
+	// which a `kubectl set image` roll never updates) or "default" (the
+	// compiled-in "dev"). The sibling of BuildTimeSource (#5821) for the
+	// sha: a walker asking "does this env carry fix X" must be able to
+	// see that an env-sourced answer cannot answer that question (#6229).
+	ShaSource string `json:"shaSource"`
+}
+
+// shaSourceLdflag / shaSourceEnv / shaSourceDefault — the closed
+// vocabulary of VersionResponse.ShaSource.
+const (
+	shaSourceLdflag  = "ldflag"
+	shaSourceEnv     = "env"
+	shaSourceDefault = "default"
+)
+
+// defaultBuildSHA is the compiled-in placeholder an unstamped binary
+// carries. resolveBuildSHA treats it as "no ldflag".
+const defaultBuildSHA = "dev"
+
+// resolveBuildSHA returns the sha to report and which source produced
+// it. ldflag is the linker-stamped value (buildSHA), env the trimmed
+// CATALYST_BUILD_SHA. The ldflag wins whenever it is stamped, because it
+// is the only one of the two that describes the running image (#6229).
+func resolveBuildSHA(ldflag, env string) (sha, source string) {
+	if v := strings.TrimSpace(ldflag); v != "" && v != defaultBuildSHA {
+		return v, shaSourceLdflag
+	}
+	if v := strings.TrimSpace(env); v != "" {
+		return v, shaSourceEnv
+	}
+	return defaultBuildSHA, shaSourceDefault
 }
 
 // HandleVersion — GET /api/v1/version
@@ -144,7 +187,7 @@ type VersionResponse struct {
 // Returns the running build's SHA + version. Always 200, always
 // JSON. No auth gate (probe-friendly).
 func (h *Handler) HandleVersion(w http.ResponseWriter, r *http.Request) {
-	sha := envOrTrim("CATALYST_BUILD_SHA", buildSHA)
+	sha, shaSource := resolveBuildSHA(buildSHA, os.Getenv("CATALYST_BUILD_SHA"))
 
 	// Resolve BuildTime and record WHICH source won, so a caller can tell a
 	// real link timestamp from the process-start fallback (#5821).
@@ -164,6 +207,7 @@ func (h *Handler) HandleVersion(w http.ResponseWriter, r *http.Request) {
 		ChartVersion:    envOrTrim("CATALYST_CHART_VERSION", chartVersion),
 		BuildTime:       bt,
 		BuildTimeSource: btSource,
+		ShaSource:       shaSource,
 		Go:              runtime.Version(),
 	}
 	writeJSON(w, http.StatusOK, resp)
