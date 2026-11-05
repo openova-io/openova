@@ -4074,14 +4074,12 @@ name: bp-catalyst-platform
 #   rendered surface changed. Taken via scripts/bump-chart-version.sh (ceiling
 #   1.4.1631 from origin/main, 46 open PR heads consulted); slot-13 pin bumped in
 #   lockstep.
-# 1.4.1844 — #6294 / #6289: catalog-seed advances bp-self-sovereign-cutover
-#   0.1.202 -> 0.1.203 (step-03 worklist de-dupe by destination), and the
-#   catalyst-api cutover-driver ClusterRole gains coordination.k8s.io/leases
-#   (create; get/update/delete) + api-deployment gains CATALYST_POD_NAME for the
-#   #6289 single-driver engine Lease, so the umbrella rendered surface changed.
-#   Bumped by hand on an offline branch (no gh): re-take via
-#   scripts/bump-chart-version.sh before merge if an open PR claims 1.4.1844;
-#   slot-13 pin bumped in lockstep.
+# 1.4.1844 — #3969: crds/application.yaml settles spec.placement on ONE stored
+#   shape (the object; the bare posture string is legacy, read-only, migrated by
+#   the application-controller on first reconcile) and the Placement printer
+#   column reads .spec.placement.mode (the whole node printed `map[mode:…]`).
+#   Slot-13 crds:CreateReplace propagates the schema; slot-13 pin bumped in
+#   lockstep. Render byte-unchanged otherwise.
 version: 1.4.1844
 # 1.4.1481 — #6293: catalog-seed advances bp-self-sovereign-cutover
 #   0.1.186 -> 0.1.187, the release that stops step-06 from patching five
