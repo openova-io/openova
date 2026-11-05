@@ -4253,7 +4253,20 @@ name: bp-self-sovereign-cutover
 #   stepTimeouts.helmRepositoryPatchesSeconds 2400 → 3600 for the new per-region
 #   Job wait + GitRepository convergence. Catalog + bootstrap-kit slot 06a move
 #   to 0.1.202; umbrella 1.4.1630.
-version: 0.1.202
+# 0.1.203 (#6294): step-03 Phase A de-duplicates its worklist by DESTINATION
+#   before the parallel fan-out. The same artifact was enumerated from two
+#   sources (harbor.openova.io/proxy-dockerhub/X from the bootstrap-kit and
+#   docker.io/X from a chart's values) that resolve to the byte-identical local
+#   path; two copy_one workers then raced on one destination and the second
+#   push into a proxy-<x> project got `unauthorized ... action: push`, failing
+#   the whole step FATAL for an image that WAS mirrored (hw296 2026-08-14,
+#   curlimages/curl:8.10.1 — a ~55-minute Phase A burned + one of three
+#   backoffLimit retries). prewarm_dedupe_by_dest keeps one work item per
+#   destination set, preferring the mothership-proxy form (both legs: proxy
+#   first, #5095 direct fallback); dropped items are named on the Job log.
+#   tests/step6294-dedupe-by-destination.sh executes the rendered block.
+#   Catalog + bootstrap-kit slot 06a move to 0.1.203; umbrella 1.4.1844.
+version: 0.1.203
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

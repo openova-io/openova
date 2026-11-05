@@ -4074,15 +4074,14 @@ name: bp-catalyst-platform
 #   rendered surface changed. Taken via scripts/bump-chart-version.sh (ceiling
 #   1.4.1631 from origin/main, 46 open PR heads consulted); slot-13 pin bumped in
 #   lockstep.
-# 1.4.1844 — hw307 2026-09-13 (Refs #6874 #6753 #5504): catalog-seed advances
-#   bp-postgres 0.2.30 -> 0.2.31 (a promotion no longer re-keys the bootstrap
-#   owner — the replica follower + demoted rejoin name the primary's app Secret
-#   in pg_basebackup.secret; the replica-side NetworkPolicy admits local
-#   consumers on :5432 so region-B consumers reach the promoted primary), so the
-#   umbrella rendered surface changed. Slot-13 pin bumped in lockstep (base
-#   origin/main 1.4.1843; open PR heads NOT consulted — no GitHub token in this
-#   lane, re-take via scripts/bump-chart-version.sh at merge time if the
-#   ceiling has moved).
+# 1.4.1844 — #6294 / #6289: catalog-seed advances bp-self-sovereign-cutover
+#   0.1.202 -> 0.1.203 (step-03 worklist de-dupe by destination), and the
+#   catalyst-api cutover-driver ClusterRole gains coordination.k8s.io/leases
+#   (create; get/update/delete) + api-deployment gains CATALYST_POD_NAME for the
+#   #6289 single-driver engine Lease, so the umbrella rendered surface changed.
+#   Bumped by hand on an offline branch (no gh): re-take via
+#   scripts/bump-chart-version.sh before merge if an open PR claims 1.4.1844;
+#   slot-13 pin bumped in lockstep.
 version: 1.4.1844
 # 1.4.1481 — #6293: catalog-seed advances bp-self-sovereign-cutover
 #   0.1.186 -> 0.1.187, the release that stops step-06 from patching five

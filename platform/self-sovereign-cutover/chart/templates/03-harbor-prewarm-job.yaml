@@ -1832,6 +1832,80 @@ data:
           ;;
       esac
     done
+    {{- /*
+     #6294 — de-duplicate the worklist by DESTINATION before the fan-out.
+     The same artifact is routinely enumerated from TWO sources — the
+     mothership-proxy form (harbor.openova.io/proxy-dockerhub/X, what the
+     bootstrap-kit pins) and the direct-upstream form (docker.io/X, what a
+     chart's values pin) — and both resolve to the byte-identical local
+     path registry.<fqdn>/proxy-dockerhub/X. Two concurrent copy_one
+     workers then race on one destination: whichever lands second pushes
+     content the first has already written, and for a proxy-<x> project
+     Harbor answers `unauthorized ... action: push`, which fails the whole
+     step FATAL for an image that was already mirrored (hw296 2026-08-14,
+     curlimages/curl:8.10.1 — a ~55-minute Phase A burned + one of three
+     backoffLimit retries). The #4994 "dest already current" skip cannot
+     help on the first pass: it runs BEFORE either copy has landed.
+
+     Keep ONE work item per destination set. When both forms are present
+     the mothership-proxy form is kept, because copy_one gives it BOTH
+     legs (proxy first, #5095 direct-upstream fallback) whereas the direct
+     form has no proxy fallback outside the scarf.sh case. The dropped
+     form is named on stdout so the operator can see the collapse.
+    */}}
+    # ── prewarm-dedupe-by-dest BEGIN (#6294 extraction anchor — tests/step6294-dedupe-by-destination.sh sources this block verbatim with a stubbed resolver) ──
+    prewarm_dedupe_by_dest() {
+      _dd_claims="${cpdir:-/tmp/prewarm-copies}/.dest-claims"
+      mkdir -p "$(dirname "${_dd_claims}")"
+      : >"${_dd_claims}"
+      _dd_work=""
+      _dd_dropped=0
+      _dd_proxy_pfx="${MOTHERSHIP_HOST:-__no_mothership__}/"
+      # Pass 1 — the mothership-proxy forms claim their destinations first.
+      for _dd_img in "$@"; do
+        case "${_dd_img}" in
+          "${_dd_proxy_pfx}"*)
+            for _dd_dp in $(offlinemirror_local_paths "${_dd_img}"); do
+              printf '%s\t%s\n' "${_dd_dp}" "${_dd_img}" >>"${_dd_claims}"
+            done
+            _dd_work="${_dd_work} ${_dd_img}"
+            ;;
+        esac
+      done
+      # Pass 2 — every other form keeps its item only if no earlier item claimed its destination(s).
+      for _dd_img in "$@"; do
+        case "${_dd_img}" in
+          "${_dd_proxy_pfx}"*) continue ;;
+        esac
+        _dd_owner=""
+        for _dd_dp in $(offlinemirror_local_paths "${_dd_img}"); do
+          _dd_owner=$(awk -F'\t' -v d="${_dd_dp}" '$1==d {print $2; exit}' "${_dd_claims}")
+          [ -n "${_dd_owner}" ] && break
+        done
+        if [ -n "${_dd_owner}" ]; then
+          echo "[harbor-prewarm] dedupe ${_dd_img}: same local destination as ${_dd_owner}; copying once (#6294)" >&2
+          _dd_dropped=$((_dd_dropped+1))
+          continue
+        fi
+        for _dd_dp in $(offlinemirror_local_paths "${_dd_img}"); do
+          printf '%s\t%s\n' "${_dd_dp}" "${_dd_img}" >>"${_dd_claims}"
+        done
+        _dd_work="${_dd_work} ${_dd_img}"
+      done
+      if [ "${_dd_dropped}" -gt 0 ]; then
+        echo "[harbor-prewarm] ${_dd_dropped} duplicate work item(s) collapsed by destination (#6294)" >&2
+      fi
+      printf '%s' "${_dd_work}"
+    }
+    # ── prewarm-dedupe-by-dest END (#6294 extraction anchor) ──
+    {{- /*
+     The deduped list goes to stdout (captured), the dedupe NOTICES go to
+     stderr (surfaced on the Job log right after), so a notice can never
+     be mistaken for a work item.
+    */}}
+    prewarm_dedupe_by_dest ${mirror_work} >"${cpdir}/.dedup-work" 2>"${cpdir}/.dedup-notices" || true
+    cat "${cpdir}/.dedup-notices"
+    mirror_work=$(cat "${cpdir}/.dedup-work")
     if [ -n "${unmapped}" ]; then
       echo "[harbor-prewarm] FATAL: image(s) from registry host(s) NOT in the offline-mirror coverage map (offlineMirror.hostProjects). Add the host→project (or exclude it) and re-run:"
       for u in ${unmapped}; do echo "  UNMAPPED ${u}"; done
