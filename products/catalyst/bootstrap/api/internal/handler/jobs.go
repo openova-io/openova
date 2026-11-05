@@ -499,19 +499,22 @@ func (h *Handler) chrootSeedCutoverActivity(ctx context.Context, dep *Deployment
 	// record (a completed cutover whose step ConfigMaps were reaped — the
 	// #3646 case), so an installed-but-never-run chain still shows the
 	// honest "tethered, 0/N" picture in the right order.
-	var orderedNames []string
+	var ordered []cutoverStep
 	if steps, derr := listCutoverSteps(ctx, deps); derr == nil {
-		orderedNames = stepNamesFromSteps(steps)
+		ordered = steps
 	} else {
 		h.log.Debug("chroot seed: ordered cutover step discovery failed; falling back to the durable record's order",
 			"depId", dep.ID, "err", derr)
 	}
-	stepNames := mergeCutoverStepOrder(orderedNames, listStepNamesFromStatus(status))
+	stepNames := mergeCutoverStepOrder(stepNamesFromSteps(ordered), listStepNamesFromStatus(status))
 	if len(stepNames) == 0 {
 		// Cutover chart not installed / no steps — nothing to surface.
 		return
 	}
-	h.projectCutoverResumeSeed(stepNames, status)
+	// The ordered ConfigMaps also carry each step's DECLARED dependsOn
+	// (epic #6703 P4); the durable-only tail has none and chains after
+	// them. Same union, same order as mergeCutoverStepOrder.
+	h.projectCutoverResumeSeedSteps(activityStepsFromCutover(ordered, stepNames), status)
 }
 
 // regionFromSecondaryClusterID — pure helper: given a k8sCache cluster ID

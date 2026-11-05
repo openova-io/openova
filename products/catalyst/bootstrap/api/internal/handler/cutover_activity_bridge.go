@@ -174,11 +174,7 @@ func (h *Handler) projectCutoverStepStarted(step cutoverStep, message string, t 
 	if ab == nil {
 		return
 	}
-	if err := ab.StartStep(jobs.ActivityStep{
-		Slug:        step.stepName,
-		DisplayName: cutoverStepDisplay(step.stepName),
-		Order:       step.order,
-	}, message, t); err != nil {
+	if err := ab.StartStep(activityStepFromCutover(step), message, t); err != nil {
 		h.log.Warn("cutover-activity: start step job failed", "step", step.stepName, "err", err)
 	}
 }
@@ -191,13 +187,67 @@ func (h *Handler) projectCutoverStepFinished(step cutoverStep, result, message s
 	if ab == nil {
 		return
 	}
-	if err := ab.FinishStep(jobs.ActivityStep{
+	if err := ab.FinishStep(activityStepFromCutover(step), result, message, t); err != nil {
+		h.log.Warn("cutover-activity: finish step job failed", "step", step.stepName, "err", err)
+	}
+}
+
+// activityStepFromCutover maps one discovered cutover step onto the
+// generic activity-step contract, carrying its declared dependsOn set
+// (nil when the chart declared none — the bridge then chains on Order).
+func activityStepFromCutover(step cutoverStep) jobs.ActivityStep {
+	return jobs.ActivityStep{
 		Slug:        step.stepName,
 		DisplayName: cutoverStepDisplay(step.stepName),
 		Order:       step.order,
-	}, result, message, t); err != nil {
-		h.log.Warn("cutover-activity: finish step job failed", "step", step.stepName, "err", err)
+		DependsOn:   step.dependsOn,
 	}
+}
+
+// activityStepsFromCutover builds the seed set projectCutoverResumeSeedSteps
+// consumes: the order-bearing steps first (Order = position, DependsOn as
+// declared), then every name in durableNames that the ConfigMaps did not
+// yield — the post-run durability case where a completed cutover's step
+// ConfigMaps are gone and only the status record remembers them (#3646,
+// #6093). Those trailing steps carry no order label and no declaration,
+// so they take the positions after every order-bearing step with
+// DependsOn nil (the linear predecessor), never a slot they cannot claim.
+// Blank and duplicate names are dropped.
+func activityStepsFromCutover(ordered []cutoverStep, durableNames []string) []jobs.ActivityStep {
+	out := make([]jobs.ActivityStep, 0, len(ordered)+len(durableNames))
+	seen := make(map[string]struct{}, len(ordered)+len(durableNames))
+	for _, s := range ordered {
+		name := strings.TrimSpace(s.stepName)
+		if name == "" {
+			continue
+		}
+		if _, dup := seen[name]; dup {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, jobs.ActivityStep{
+			Slug:        name,
+			DisplayName: cutoverStepDisplay(name),
+			Order:       len(out) + 1,
+			DependsOn:   s.dependsOn,
+		})
+	}
+	for _, name := range durableNames {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, dup := seen[name]; dup {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, jobs.ActivityStep{
+			Slug:        name,
+			DisplayName: cutoverStepDisplay(name),
+			Order:       len(out) + 1,
+		})
+	}
+	return out
 }
 
 // projectCutoverResumeSeed re-projects the durable per-step results from
@@ -215,10 +265,6 @@ func (h *Handler) projectCutoverStepFinished(step cutoverStep, result, message s
 // the Cutover group rolls up to the true state (succeeded only when every
 // step succeeded).
 func (h *Handler) projectCutoverResumeSeed(stepNames []string, priorStatus map[string]string) {
-	ab := h.cutoverActivityBridge()
-	if ab == nil {
-		return
-	}
 	steps := make([]jobs.ActivityStep, 0, len(stepNames))
 	for i, name := range stepNames {
 		name = strings.TrimSpace(name)
@@ -230,6 +276,20 @@ func (h *Handler) projectCutoverResumeSeed(stepNames []string, priorStatus map[s
 			DisplayName: cutoverStepDisplay(name),
 			Order:       i + 1,
 		})
+	}
+	h.projectCutoverResumeSeedSteps(steps, priorStatus)
+}
+
+// projectCutoverResumeSeedSteps is projectCutoverResumeSeed over a
+// fully-formed step set — the production entry point since epic #6703
+// P4, so each step's DECLARED DependsOn (from the chart annotation, via
+// activityStepsFromCutover) reaches the bridge instead of being rebuilt
+// as a linear chain from the slice position. The names-only wrapper
+// above remains for callers that have no declaration to offer.
+func (h *Handler) projectCutoverResumeSeedSteps(steps []jobs.ActivityStep, priorStatus map[string]string) {
+	ab := h.cutoverActivityBridge()
+	if ab == nil {
+		return
 	}
 	if err := ab.SeedSteps(steps); err != nil {
 		h.log.Warn("cutover-activity: resume seed failed", "err", err)

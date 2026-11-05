@@ -29,10 +29,12 @@
 //     Store.deriveTreeView — the activity source never has to compute
 //     aggregate state.
 //   - Each declared step becomes a leaf Job named
-//     "<group>-step-<slug>" with DependsOn pointing at the PRIOR step
-//     (a linear chain, the same shape SeedProvisionerJobs uses for the
-//     Phase-0 tofu lifecycle). The canvas renders the edges from these
-//     DependsOn entries.
+//     "<group>-step-<slug>" whose DependsOn is the step's DECLARED
+//     upstream set (ActivityStep.DependsOn — the dependsOn DAG contract,
+//     epic #6703 P4), or, for a step that declares nothing, the PRIOR
+//     step in Order (the linear chain the Phase-0 tofu lifecycle uses).
+//     The canvas renders the edges from these DependsOn entries; the
+//     flow snapshot turns every entry into a finish-to-start arrow.
 //   - Step state transitions (pending → running → succeeded/failed)
 //     drive StartExecution / AppendLogLines / FinishExecution so the
 //     per-step Exec Log surface resolves and the GitLab-CI log viewer
@@ -108,9 +110,30 @@ func ActivityStepJobName(groupSlug, stepSlug string) string {
 
 // ActivityStep is one declared step of an activity. Order is the
 // 1-based (or any monotonically increasing) sequence position — the
-// bridge sorts by it to build the linear DependsOn chain and to choose
-// each step's predecessor. DisplayName is the optional user-visible
+// EXECUTION order the source runs the steps in. DependsOn is the
+// optional DECLARED dependency set; when absent the bridge derives the
+// linear chain from Order. DisplayName is the optional user-visible
 // label (falls back to Slug when empty).
+//
+// # Order vs DependsOn (the step contract, epic #6703 P4)
+//
+// A linear Order says "runs after"; a DependsOn set says "needs the
+// result of". The two coincide only for a strictly serial activity whose
+// every step consumes its predecessor. The cutover is NOT that — Harbor
+// projects do not need the Gitea mirror — and the linear chain the
+// bridge used to fabricate from Order alone drew eleven edges of which
+// several asserted a dependency no step actually has (the same class
+// #6093 killed for the alphabetical sort: a plausible tree that is wrong
+// at the edge level). So a source that knows its real DAG declares it
+// per step and the bridge projects exactly that; a source that only
+// knows its sequence leaves DependsOn nil and keeps the chain.
+//
+// Order stays authoritative for execution. A declared dependency may only
+// name a step that sorts BEFORE this one — the sequential schedule must
+// be a topological order of the declared DAG, otherwise the engine would
+// start a step before its input exists. dependsOnForStepLocked drops any
+// edge that violates that (and any unknown or self reference), so the
+// projected graph is acyclic by construction whatever a source declares.
 type ActivityStep struct {
 	// Slug — stable, URL-safe step identifier (e.g. "harbor-prewarm").
 	// Used as the step's JobName suffix and as the map key the source
@@ -123,10 +146,24 @@ type ActivityStep struct {
 	DisplayName string
 
 	// Order — sequence position. Steps are sorted ascending by Order
-	// (stable secondary sort on Slug) to derive the linear dependency
-	// chain. A step depends on the step immediately before it in that
-	// sorted order; the first step has no dependency.
+	// (stable secondary sort on Slug). A step with no declared DependsOn
+	// depends on the step immediately before it in that sorted order;
+	// the first such step has no dependency.
 	Order int
+
+	// DependsOn — the DECLARED upstream step slugs (epic #6703 P4).
+	//
+	//   nil           → not declared: derive the linear predecessor from
+	//                   Order (the pre-P4 contract, kept for sources that
+	//                   only know a sequence).
+	//   []string{}    → declared EMPTY: this step is a root, no edge.
+	//   [a, b]        → declared: edges from a and b (each must sort
+	//                   before this step; others are dropped).
+	//
+	// The nil-vs-empty distinction is load-bearing and mirrors the
+	// store's DependsOnAuthoritative rule (#6131): absence of information
+	// and an asserted absence are different facts.
+	DependsOn []string
 }
 
 // ActivityBridge projects one declared activity (identified by a stable
@@ -221,25 +258,62 @@ func (a *ActivityBridge) sortedSteps() []ActivityStep {
 	return out
 }
 
-// dependsOnForStepLocked returns the DependsOn list (length 0 for the
-// first step, length 1 thereafter) pointing at the immediately-prior
-// step's JobName, so the canvas renders the linear chain. The format
-// matches the helmwatch leaf convention (Job.DependsOn carries the
-// dependency's JobName, resolved by deriveTreeView's byJobName map for
-// the cascading-failure sweep and by the FE for edge rendering).
-// Caller MUST hold a.mu.
+// dependsOnForStepLocked returns the DependsOn list for a step — the
+// upstream steps' JobNames, in the format the helmwatch leaf convention
+// uses (Job.DependsOn carries the dependency's JobName, resolved by
+// deriveTreeView's byJobName map for the cascading-failure sweep and by
+// the flow snapshot for edge rendering). Caller MUST hold a.mu.
+//
+// Declared DependsOn (non-nil) wins: every named slug that is a known
+// step sorting STRICTLY BEFORE this one becomes an edge, in declaration
+// order, de-duplicated; unknown slugs, self references and forward
+// references are dropped (see ActivityStep). A declared-empty set yields
+// no edge — the step is a root. An undeclared (nil) set yields the
+// linear predecessor: the immediately-prior step in sorted order, or no
+// edge for the first step.
 func (a *ActivityBridge) dependsOnForStepLocked(slug string) []string {
 	sorted := a.sortedSteps()
+	pos := -1
 	for i, s := range sorted {
-		if s.Slug != slug {
-			continue
+		if s.Slug == slug {
+			pos = i
+			break
 		}
-		if i == 0 {
+	}
+	if pos < 0 {
+		return []string{}
+	}
+	step := sorted[pos]
+	if step.DependsOn == nil {
+		if pos == 0 {
 			return []string{}
 		}
-		return []string{ActivityStepJobName(a.groupSlug, sorted[i-1].Slug)}
+		return []string{ActivityStepJobName(a.groupSlug, sorted[pos-1].Slug)}
 	}
-	return []string{}
+	// Declared DAG — resolve each slug against the steps that precede
+	// this one in execution order; anything else cannot be an edge the
+	// sequential engine honours, so it is not drawn either.
+	before := make(map[string]struct{}, pos)
+	for _, s := range sorted[:pos] {
+		before[s.Slug] = struct{}{}
+	}
+	out := make([]string, 0, len(step.DependsOn))
+	seen := make(map[string]struct{}, len(step.DependsOn))
+	for _, dep := range step.DependsOn {
+		dep = strings.TrimSpace(dep)
+		if dep == "" || dep == slug {
+			continue
+		}
+		if _, ok := before[dep]; !ok {
+			continue
+		}
+		if _, dup := seen[dep]; dup {
+			continue
+		}
+		seen[dep] = struct{}{}
+		out = append(out, ActivityStepJobName(a.groupSlug, dep))
+	}
+	return out
 }
 
 // SeedSteps registers (or re-registers) the activity's full step set and

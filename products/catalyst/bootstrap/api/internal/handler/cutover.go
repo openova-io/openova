@@ -28,7 +28,19 @@
 //     app.kubernetes.io/part-of=self-sovereign-cutover
 //     app.kubernetes.io/component=cutover-step
 //   - Order encoded as the integer label `bp.openova.io/cutover-order`
-//     (e.g. "1", "2", ..., "8"). Steps are sorted ascending.
+//     (e.g. "1", "2", ..., "8"). Steps are sorted ascending. This is
+//     the EXECUTION order: the engine runs one step at a time.
+//   - Dependencies (optional, epic #6703 P4) as the annotation
+//     `bp.openova.io/cutover-depends-on`: a comma-separated list of the
+//     stepNames this step needs the RESULT of. An absent annotation
+//     means "undeclared" and the projection falls back to the linear
+//     predecessor; a present-but-empty annotation declares a root. Every
+//     named step must exist and carry a LOWER order — the sequential
+//     execution order must be a topological order of the declared DAG,
+//     otherwise the engine would start a step before its input exists —
+//     and listCutoverSteps refuses the chart when that does not hold.
+//     The engine's schedule is unchanged; the annotation is what the
+//     /jobs execution tree draws its edges from.
 //   - Mode encoded as the label `bp.openova.io/cutover-mode`:
 //     "job" (default) — data.podSpec is YAML of corev1.PodSpec; the
 //     handler creates a fresh batchv1.Job per run, watches to
@@ -164,7 +176,11 @@ const (
 	cutoverStepComponentValue = "cutover-step"
 	cutoverStepOrderLabel     = "bp.openova.io/cutover-order"
 	cutoverStepModeLabel      = "bp.openova.io/cutover-mode"
-	cutoverStepDaemonSetLabel = "bp.openova.io/cutover-daemonset"
+	// cutoverStepDependsOnAnnotation — the declared-dependency half of
+	// the step contract (epic #6703 P4). An ANNOTATION, not a label:
+	// label values cannot hold the commas a multi-dependency list needs.
+	cutoverStepDependsOnAnnotation = "bp.openova.io/cutover-depends-on"
+	cutoverStepDaemonSetLabel      = "bp.openova.io/cutover-daemonset"
 
 	// Cutover modes.
 	cutoverModeJob           = "job"
@@ -464,6 +480,13 @@ type cutoverStep struct {
 	mode         string
 	daemonsetRef string
 	podSpec      *corev1.PodSpec
+	// dependsOn — the stepNames this step declares it needs the result
+	// of (annotation bp.openova.io/cutover-depends-on, epic #6703 P4).
+	// nil when the annotation is absent (undeclared — the projection
+	// chains on order); an empty non-nil slice when it is present but
+	// empty (a declared root). Validated against order by
+	// validateCutoverStepDeps once the whole set is known.
+	dependsOn []string
 	// chartVersion is the bp-self-sovereign-cutover version this step was
 	// rendered from, read out of the standard `helm.sh/chart` label the
 	// chart already stamps on every resource. Empty when the label is
@@ -520,7 +543,74 @@ func listCutoverSteps(ctx context.Context, deps *cutoverDeps) ([]cutoverStep, er
 		// rather than a flake.
 		return out[i].cmName < out[j].cmName
 	})
+	if err := validateCutoverStepDeps(out); err != nil {
+		return nil, err
+	}
 	return out, nil
+}
+
+// validateCutoverStepDeps checks the declared dependency DAG (epic #6703
+// P4) against the execution order: every `bp.openova.io/cutover-depends-on`
+// entry must name a step that exists in the set and sorts STRICTLY before
+// the declaring step, and no step may name itself. steps must already be
+// sorted by order.
+//
+// Why refuse rather than drop: a dependency on a step that runs LATER is
+// a chart bug the sequential engine cannot honour — it would start the
+// step before its input exists — and an unknown name is a typo that would
+// otherwise silently draw no edge. Both are the "fabricated or missing
+// edge" class #6093 exists to kill, so they surface as an error at
+// discovery, where the operator can fix the chart, exactly like a
+// malformed podSpec does.
+func validateCutoverStepDeps(steps []cutoverStep) error {
+	orderOf := make(map[string]int, len(steps))
+	for _, s := range steps {
+		orderOf[s.stepName] = s.order
+	}
+	for _, s := range steps {
+		for _, dep := range s.dependsOn {
+			if dep == s.stepName {
+				return fmt.Errorf("ConfigMap %s: step %q declares a dependency on itself", s.cmName, s.stepName)
+			}
+			depOrder, ok := orderOf[dep]
+			if !ok {
+				return fmt.Errorf("ConfigMap %s: step %q depends on unknown step %q (annotation %s)",
+					s.cmName, s.stepName, dep, cutoverStepDependsOnAnnotation)
+			}
+			if depOrder >= s.order {
+				return fmt.Errorf("ConfigMap %s: step %q (order %d) depends on %q (order %d), which does not run before it",
+					s.cmName, s.stepName, s.order, dep, depOrder)
+			}
+		}
+	}
+	return nil
+}
+
+// parseCutoverStepDependsOn parses the bp.openova.io/cutover-depends-on
+// annotation value into the declared slug list. Returns nil when the
+// annotation is absent (undeclared), and a non-nil — possibly empty —
+// slice when it is present, so the caller can tell "no information" from
+// "declared root". Entries are trimmed, blanks dropped, duplicates kept
+// in first-seen position only.
+func parseCutoverStepDependsOn(annotations map[string]string) []string {
+	raw, present := annotations[cutoverStepDependsOnAnnotation]
+	if !present {
+		return nil
+	}
+	out := []string{}
+	seen := map[string]struct{}{}
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if _, dup := seen[part]; dup {
+			continue
+		}
+		seen[part] = struct{}{}
+		out = append(out, part)
+	}
+	return out
 }
 
 func parseCutoverStep(cm corev1.ConfigMap) (cutoverStep, error) {
@@ -549,6 +639,7 @@ func parseCutoverStep(cm corev1.ConfigMap) (cutoverStep, error) {
 	if step.stepName == "" {
 		return step, fmt.Errorf("missing required data key %q", "stepName")
 	}
+	step.dependsOn = parseCutoverStepDependsOn(cm.Annotations)
 	switch step.mode {
 	case cutoverModeJob:
 		raw := cm.Data["podSpec"]
@@ -1829,7 +1920,7 @@ func (h *Handler) runCutoverWith(acquireCtx context.Context, deps *cutoverDeps, 
 	// the cutover. Re-projecting the durable prior results first means a
 	// resume already shows the real per-step states before this run's
 	// transitions land.
-	h.projectCutoverResumeSeed(stepNamesFromSteps(steps), priorStatus)
+	h.projectCutoverResumeSeedSteps(activityStepsFromCutover(steps, nil), priorStatus)
 
 	for i, step := range steps {
 		percent := int(100 * (float64(i) / float64(totalSteps)))
