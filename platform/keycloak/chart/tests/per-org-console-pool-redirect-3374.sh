@@ -119,9 +119,15 @@ assert cu['redirectUris'] == [f"https://console.{fqdn}/*"], \
     f"single-zone catalyst-ui redirectUris changed (should be sovereign host only): {cu['redirectUris']}"
 assert cu['webOrigins'] == [f"https://console.{fqdn}"], \
     f"single-zone catalyst-ui webOrigins changed: {cu['webOrigins']}"
-assert cu['attributes']['post.logout.redirect.uris'] == f"https://console.{fqdn}/*", \
-    f"single-zone catalyst-ui post-logout changed: {cu['attributes']['post.logout.redirect.uris']}"
-print("  [assert] single-zone render carries the sovereign host only")
+# #6870: post-logout is the literal `+` — Keycloak 26.x expands it to the
+# client's redirectUris, so it FOLLOWS the concrete per-Org console hosts the
+# organization-controller appends at reconcile time (#6509). A static host
+# list here (the pre-1.5.13 value) refused a per-Org console's sign-out with
+# 400 "Invalid redirect uri" (hw307). The sovereign-admin host stays covered
+# because it is the first redirectUri (asserted above).
+assert cu['attributes']['post.logout.redirect.uris'] == "+", \
+    f"single-zone catalyst-ui post-logout must be the literal '+' (#6870), got: {cu['attributes']['post.logout.redirect.uris']}"
+print("  [assert] single-zone render carries the sovereign host only; post-logout follows redirectUris (+)")
 PY
 echo "  PASS"
 
