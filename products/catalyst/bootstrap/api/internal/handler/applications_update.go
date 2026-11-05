@@ -211,26 +211,17 @@ func regionsFromPlacementTargets(targets []bpv1.PlacementTarget) []string {
 //
 // THE RULES.
 //   - `current` is the CR's existing spec.placement value (any shape, or nil).
-//   - A body that declares only a mode, over a CR that holds only a string,
-//     keeps producing the bare string — the legacy wire stays byte-identical.
-//   - A body that declares targets / vcluster / clusters, OR a CR already
-//     holding the object form, produces the OBJECT form.
+//   - The result is ALWAYS the object form (#3969 — one stored shape). A CR
+//     that still holds the legacy bare string is migrated by the PUT: the
+//     string carried only a posture, and that posture lands in `mode`.
 //   - The object form is MERGED onto the current one: a key the body does not
 //     restate is carried forward rather than deleted. `mode` is always
 //     rewritten (it is what the PUT is for) and always canonicalised, so one
 //     vocabulary still holds (#3375 DoD-1).
-func placementValueForUpdate(current any, body applicationPlacement) any {
+func placementValueForUpdate(current any, body applicationPlacement) map[string]interface{} {
 	canonMode := canonicalizeTopology(body.Mode)
 
 	curObj, _ := current.(map[string]interface{})
-	declaresWhere := strings.TrimSpace(body.VCluster) != "" ||
-		len(body.Clusters) > 0 ||
-		len(body.Targets) > 0
-
-	// Legacy shape in, legacy shape out.
-	if curObj == nil && !declaresWhere {
-		return canonMode
-	}
 
 	out := make(map[string]interface{}, len(curObj)+4)
 	for k, v := range curObj {
@@ -1000,7 +991,10 @@ func (h *Handler) handleApplicationChangePreview(w http.ResponseWriter, r *http.
 	curBPName, _, _ := unstructured.NestedString(cur.Object, "spec", "blueprintRef", "name")
 	curBPVersion, _, _ := unstructured.NestedString(cur.Object, "spec", "blueprintRef", "version")
 	curEnv, _, _ := unstructured.NestedString(cur.Object, "spec", "environmentRef")
-	curMode, _, _ := unstructured.NestedString(cur.Object, "spec", "placement")
+	// #3969 — read through the shape-tolerant seam: the stored placement is
+	// the object (`mode` inside it); a raw string read returned "" for every
+	// migrated CR and the preview overlay then diffed against no posture.
+	curMode := placementFromSpec(cur)
 	curRegionsRaw, _, _ := unstructured.NestedSlice(cur.Object, "spec", "regions")
 	curRegions := stringsFromAnySlice(curRegionsRaw)
 	curParamsRaw, _, _ := unstructured.NestedMap(cur.Object, "spec", "parameters")

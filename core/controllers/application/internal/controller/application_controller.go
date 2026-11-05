@@ -729,6 +729,16 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 		return r.handleDeletion(ctx, app)
 	}
 
+	// #3969 — ONE stored shape for spec.placement. A CR still carrying the
+	// legacy posture string is rewritten to the canonical object here, before
+	// either reconcile path reads it, so every Application on every Sovereign
+	// migrates on its first reconcile after this controller rolls — chart-
+	// templated bootstrap CRs included (this sits ABOVE the adoption guard on
+	// purpose). See placement_canonicalize.go.
+	if _, err := r.canonicalizePlacement(ctx, app); err != nil {
+		return r.markFailed(ctx, app, ReasonInvalid, err.Error())
+	}
+
 	// #3370 — bootstrap-owned ADOPTION guard. A bootstrap-owned
 	// Application (spec.bootstrap=true) is the canonical representation
 	// a bootstrap-kit chart self-registered for its slot-installed

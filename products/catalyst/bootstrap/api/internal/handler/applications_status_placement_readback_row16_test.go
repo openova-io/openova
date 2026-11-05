@@ -228,10 +228,11 @@ func TestApplicationStatus_Row16_Control_DifferentTopologyRoundTripsDifferently(
 
 // TestApplicationStatus_Row16_Control_StringPlacementStaysAString is the
 // SECOND control, sharing the suspect property from the other side: a CR that
-// declares ONLY a posture must still report only a posture. A "fix" that
-// promoted every placement to an object would hand the tab a `targets[]` the
-// operator never chose — a declared intention it could not tell apart from an
-// observed fact, which is #5568's defect — and would turn this red.
+// declares ONLY a posture must still report only a posture. #3969 made the
+// wire shape ALWAYS the object — `{mode}` here — but the endpoint must not
+// hand the tab a `targets[]` the operator never chose: a declared intention it
+// could not tell apart from an observed fact is #5568's defect, and inventing
+// one would turn this red.
 func TestApplicationStatus_Row16_Control_StringPlacementStaysAString(t *testing.T) {
 	cr := makeAppCR("acme", "wp-str", "1.2.3", "single-region", []string{"me-east-215-a"})
 
@@ -253,14 +254,22 @@ func TestApplicationStatus_Row16_Control_StringPlacementStaysAString(t *testing.
 	}
 
 	placement := statusSpecPlacement(t, get.Body.Bytes())
-	mode, isString := placement.(string)
-	if !isString {
-		t.Fatalf("spec.placement came back %T (%v) — a CR declaring only a posture must "+
-			"report only a posture; synthesising an object would invent a desired state",
-			placement, placement)
+	obj, isObject := placement.(map[string]any)
+	if !isObject {
+		t.Fatalf("spec.placement came back %T (%v) — #3969: the wire shape is ALWAYS the "+
+			"object, so the console never type-switches", placement, placement)
 	}
 	// The legacy spelling still folds to the canonical token on the wire.
-	if mode != "singleton" {
-		t.Fatalf("spec.placement = %q, want canonical singleton (legacy single-region folded)", mode)
+	if obj["mode"] != "singleton" {
+		t.Fatalf("spec.placement.mode = %v, want canonical singleton (legacy single-region folded)", obj["mode"])
+	}
+	// A CR declaring only a posture reports only a posture: no invented
+	// desired state.
+	if _, present := obj["targets"]; present {
+		t.Fatalf("spec.placement carries targets %v for a CR that declared none — synthesising "+
+			"a desired state is #5568's defect", obj["targets"])
+	}
+	if len(obj) != 1 {
+		t.Fatalf("spec.placement = %v, want exactly {mode}", obj)
 	}
 }

@@ -128,11 +128,12 @@ func TestHandleApplicationUpdate_Row16_ObjectPlacementSurvivesPUT(t *testing.T) 
 	}
 }
 
-// TestHandleApplicationUpdate_Row16_Control_StringPlacementStaysString is the
-// CONTROL that shares the suspect property: it drives the SAME handler, the
-// SAME branch and the same posture change, differing ONLY in the seeded shape.
-// A "fix" that promoted every placement to an object would turn this red, so it
-// is what keeps the change from over-reaching.
+// TestHandleApplicationUpdate_Row16_Control_StringPlacementStaysString drives
+// the SAME handler, the SAME branch and the same posture change as the test
+// above, differing ONLY in the seeded shape: a legacy string-form CR. #3969
+// settled the shape — the object is the contract and the string is legacy on
+// read only — so this PUT migrates the CR to `{mode}` and must not invent a
+// desired state (no `targets`) while doing so.
 func TestHandleApplicationUpdate_Row16_Control_StringPlacementStaysString(t *testing.T) {
 	cr := makeAppCR("acme", "wp-str", "1.2.3", "single-region", []string{"me-east-215-a"})
 
@@ -163,13 +164,16 @@ func TestHandleApplicationUpdate_Row16_Control_StringPlacementStaysString(t *tes
 
 	got, _ := client.Resource(ApplicationGVR()).Namespace("acme").Get(
 		context.Background(), "wp-str", metav1.GetOptions{})
-	mode, ok, _ := unstructured.NestedString(got.Object, "spec", "placement")
+	pl, ok, _ := unstructured.NestedMap(got.Object, "spec", "placement")
 	if !ok {
-		t.Fatalf("control regressed: a STRING placement must stay a string when the " +
-			"body names no WHERE fields; it became a non-string")
+		t.Fatalf("#3969: a legacy STRING placement must be migrated to the ONE stored shape "+
+			"(the object) by the PUT; got %v", got.Object["spec"].(map[string]interface{})["placement"])
 	}
-	if mode != "active-hot-standby" {
-		t.Fatalf("spec.placement = %q, want canonical active-hot-standby", mode)
+	if pl["mode"] != "active-hot-standby" {
+		t.Fatalf("spec.placement.mode = %v, want canonical active-hot-standby", pl["mode"])
+	}
+	if _, present := pl["targets"]; present {
+		t.Fatalf("a mode-only PUT must not invent targets: %v", pl)
 	}
 }
 
