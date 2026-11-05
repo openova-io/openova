@@ -20,8 +20,18 @@
  * use. `deriveCronRows` / `childRunsOfCron` (cronScheduleModel.ts) do the
  * pure shaping; `cronSchedule.ts` parses `.spec.schedule`.
  *
- * READ-ONLY: no create/edit ("+ New schedule" is a later phase). Nothing here
- * mutates cluster state.
+ * Scheduled vs actual (P3): every controller-created child Job carries
+ * `batch.kubernetes.io/cronjob-scheduled-timestamp`; the run-history drawer
+ * shows that slot next to the real start and the lag between them, and the
+ * table flags a CronJob whose latest run fired late.
+ *
+ * Writes (P4b, "New schedule"): the toolbar's primary action opens a modal
+ * (ScheduleFormDialog) that creates a REAL batch/v1 CronJob cloned from an
+ * existing one's jobTemplate via POST /api/v1/sovereigns/{id}/schedules.
+ * Row-level actions: Run now (every row — the canonical /jobs retry
+ * endpoint), Edit + Delete (console-origin rows only; a chart's CronJob
+ * changes in Git). Console primitives: no inline form on the page — every
+ * write is a modal opened from the toolbar or the row.
  */
 
 import { useMemo, useState } from 'react'
@@ -29,19 +39,34 @@ import { Link } from '@tanstack/react-router'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { sovereignPathOrDeployments } from '@/shared/lib/sovereignPaths'
 import { Badge, type BadgeProps } from '@/shared/ui/badge'
+import { Button } from '@/shared/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/shared/ui/dialog'
+import { useOptionalNotifications } from '@/shared/ui/notifications'
 import type { K8sSnapshot } from '@/widgets/architecture-graph/useK8sCacheStream'
 import { useK8sCacheStream } from '@/widgets/architecture-graph/useK8sCacheStream'
 import { PortalShell } from '../PortalShell'
+import { RetryJobButton } from '../RetryJobButton'
 import {
   childRunsOfCron,
   collisionMinutes,
   deriveCronRows,
   formatDuration,
+  formatLag,
   formatMinuteOfDay,
+  scheduleAdherence,
+  LATE_RUN_THRESHOLD_MS,
   type CronRow,
   type CronRun,
   type CronRunStatus,
 } from './cronScheduleModel'
+import { ScheduleFormDialog, type ScheduleFormMode } from './ScheduleFormDialog'
+import { deleteSchedule, ScheduleApiError } from './schedules.api'
 
 /** The k8scache registry kinds this surface watches (batch/v1). Kept
  *  module-local (not exported) so this component file stays fast-refresh
@@ -121,6 +146,43 @@ export function CronScheduleView({
     [selectedRow, snapshot, live.revision],
   )
 
+  // Writes — a modal from the toolbar (create) or the row (edit / delete).
+  const notifications = useOptionalNotifications()
+  const [dialog, setDialog] = useState<ScheduleFormMode | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<CronRow | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
+  async function onConfirmDelete() {
+    if (!confirmDelete) return
+    setDeleting(true)
+    try {
+      const gone = await deleteSchedule(deploymentId, confirmDelete.namespace, confirmDelete.name)
+      notifications?.notify({
+        id: `schedule-deleted-${confirmDelete.key}`,
+        level: 'success',
+        title: `Deleted schedule ${gone.name}`,
+        body: `${gone.namespace}/${gone.name} (${gone.schedule}) is gone; its runs are being reaped.`,
+      })
+      if (selectedKey === confirmDelete.key) setSelectedKey(null)
+      setConfirmDelete(null)
+    } catch (err) {
+      const detail =
+        err instanceof ScheduleApiError
+          ? `${err.code || err.status}: ${err.message}`
+          : err instanceof Error
+            ? err.message
+            : 'Network error'
+      notifications?.notify({
+        id: `schedule-delete-failed-${confirmDelete.key}`,
+        level: 'error',
+        title: `Could not delete ${confirmDelete.name}`,
+        body: detail,
+      })
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
     <PortalShell
       deploymentId={deploymentId}
@@ -139,11 +201,25 @@ export function CronScheduleView({
     >
       <style>{CRON_SCHEDULE_CSS}</style>
       <div data-testid="sov-cron-schedule">
-        <p className="mt-4 text-sm text-[var(--color-text-dim)]">
-          Every CronJob on the Sovereign, placed on a 24-hour clock by its
-          schedule — read down a time to see what fires then, and where runs
-          collide. Times are the CronJob&rsquo;s own wall-clock schedule.
-        </p>
+        <div className="mt-4 flex items-start justify-between gap-4" data-testid="sov-cron-schedule-toolbar">
+          <p className="text-sm text-[var(--color-text-dim)]">
+            Every CronJob on the Sovereign, placed on a 24-hour clock by its
+            schedule — read down a time to see what fires then, and where runs
+            collide. Times are each CronJob&rsquo;s own schedule clock
+            (its <span className="font-mono">timeZone</span> when set, else the
+            controller&rsquo;s).
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            data-testid="sov-cron-new-schedule"
+            disabled={rows.length === 0}
+            title={rows.length === 0 ? 'A schedule clones an existing CronJob — none to clone yet' : undefined}
+            onClick={() => setDialog({ kind: 'create' })}
+          >
+            + New schedule
+          </Button>
+        </div>
 
         {rows.length === 0 ? (
           <div
@@ -152,7 +228,7 @@ export function CronScheduleView({
           >
             {status === 'connecting'
               ? 'Connecting to the live cluster stream…'
-              : 'No CronJobs scheduled on this Sovereign.'}
+              : 'No CronJobs scheduled on this Sovereign. A new schedule clones an existing CronJob\u2019s work, so one appears here once a Blueprint ships a CronJob.'}
           </div>
         ) : (
           <>
@@ -167,8 +243,11 @@ export function CronScheduleView({
             />
             <ScheduleTable
               rows={rows}
+              deploymentId={deploymentId}
               onSelect={setSelectedKey}
               selectedKey={selectedKey}
+              onEdit={(row) => setDialog({ kind: 'edit', row })}
+              onDelete={(row) => setConfirmDelete(row)}
             />
           </>
         )}
@@ -180,6 +259,61 @@ export function CronScheduleView({
           runs={selectedRuns}
           onClose={() => setSelectedKey(null)}
         />
+      ) : null}
+
+      {dialog ? (
+        <ScheduleFormDialog
+          deploymentId={deploymentId}
+          mode={dialog}
+          sources={rows}
+          now={now}
+          onClose={() => setDialog(null)}
+          onSaved={(saved) => {
+            notifications?.notify({
+              id: `schedule-saved-${saved.namespace}/${saved.name}`,
+              level: 'success',
+              title: dialog.kind === 'edit' ? `Updated schedule ${saved.name}` : `Created schedule ${saved.name}`,
+              body: `${saved.namespace}/${saved.name} · ${saved.schedule}${saved.timeZone ? ` (${saved.timeZone})` : ''}${saved.suspend ? ' · suspended' : ''}`,
+            })
+            setDialog(null)
+          }}
+        />
+      ) : null}
+
+      {confirmDelete ? (
+        <Dialog open onOpenChange={(open) => !open && !deleting && setConfirmDelete(null)}>
+          <DialogContent data-testid="sov-cron-delete-dialog">
+            <DialogHeader>
+              <DialogTitle>Delete schedule {confirmDelete.name}?</DialogTitle>
+              <DialogDescription>
+                {confirmDelete.namespace}/{confirmDelete.name} ({confirmDelete.schedule}) will be
+                removed and its runs reaped. The source CronJob
+                {confirmDelete.sourceName ? <> <span className="font-mono">{confirmDelete.sourceName}</span></> : null}{' '}
+                is not touched.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={deleting}
+                onClick={() => setConfirmDelete(null)}
+                data-testid="sov-cron-delete-cancel"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={deleting}
+                onClick={() => void onConfirmDelete()}
+                data-testid="sov-cron-delete-confirm"
+              >
+                {deleting ? 'Deleting…' : 'Delete'}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       ) : null}
     </PortalShell>
   )
@@ -375,11 +509,20 @@ function ScheduleTimeline({ rows, collisions, selectedKey, onSelect }: ScheduleT
 
 interface ScheduleTableProps {
   rows: CronRow[]
+  deploymentId: string
   selectedKey: string | null
   onSelect: (key: string) => void
+  onEdit: (row: CronRow) => void
+  onDelete: (row: CronRow) => void
 }
 
-function ScheduleTable({ rows, selectedKey, onSelect }: ScheduleTableProps) {
+/** The jobs-store id of a CronJob's /jobs row — `<dep>:cron-<name>` — the
+ *  target of the canonical Run-now (retry) endpoint. */
+function cronJobsRowId(deploymentId: string, cronName: string): string {
+  return `${deploymentId}:cron-${cronName}`
+}
+
+function ScheduleTable({ rows, deploymentId, selectedKey, onSelect, onEdit, onDelete }: ScheduleTableProps) {
   return (
     <div className="mt-4 overflow-x-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-2)]">
       <table
@@ -394,6 +537,8 @@ function ScheduleTable({ rows, selectedKey, onSelect }: ScheduleTableProps) {
             <th className="px-3 py-2 text-left font-medium">Next fire</th>
             <th className="px-3 py-2 text-left font-medium">Last run</th>
             <th className="px-3 py-2 text-left font-medium">Runs</th>
+            <th className="px-3 py-2 text-left font-medium">Origin</th>
+            <th className="px-3 py-2 text-right font-medium">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -431,6 +576,11 @@ function ScheduleTable({ rows, selectedKey, onSelect }: ScheduleTableProps) {
                 <td className="px-3 py-2">
                   <span className="font-mono text-xs text-[var(--color-text-dim)]">{row.schedule || '—'}</span>
                   <span className="ml-2 text-[var(--color-text)]">{row.description}</span>
+                  {row.timeZone ? (
+                    <span className="ml-2 text-xs text-[var(--color-text-dim)]" data-testid={`sov-cron-tz-${sid}`}>
+                      · {row.timeZone}
+                    </span>
+                  ) : null}
                 </td>
                 <td className="px-3 py-2 text-[var(--color-text)]">
                   {row.nextFire ? formatDateTime(row.nextFire) : '—'}
@@ -442,6 +592,11 @@ function ScheduleTable({ rows, selectedKey, onSelect }: ScheduleTableProps) {
                       <span className="text-xs text-[var(--color-text-dim)]">
                         {row.latestRun.startTime ? formatDateTime(new Date(row.latestRun.startTime)) : ''}
                       </span>
+                      {row.latestRun.lagMs != null && row.latestRun.lagMs > LATE_RUN_THRESHOLD_MS ? (
+                        <Badge variant="warning" data-testid={`sov-cron-late-${sid}`}>
+                          late {formatLag(row.latestRun.lagMs)}
+                        </Badge>
+                      ) : null}
                     </span>
                   ) : row.lastScheduleTime ? (
                     <span className="text-xs text-[var(--color-text-dim)]">
@@ -453,6 +608,61 @@ function ScheduleTable({ rows, selectedKey, onSelect }: ScheduleTableProps) {
                 </td>
                 <td className="px-3 py-2 text-[var(--color-text-dim)] tabular-nums">
                   {row.runCount}
+                </td>
+                <td className="px-3 py-2" data-testid={`sov-cron-origin-${sid}`} data-origin={row.origin}>
+                  {row.origin === 'console' ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <Badge variant="info">console</Badge>
+                      {row.sourceName ? (
+                        <span className="text-xs text-[var(--color-text-dim)]">
+                          clones <span className="font-mono">{row.sourceName}</span>
+                        </span>
+                      ) : null}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-[var(--color-text-dim)]">
+                      {row.blueprint ? <span className="font-mono">{row.blueprint}</span> : 'chart'}
+                    </span>
+                  )}
+                </td>
+                {/* Actions — stop propagation so a click here never opens the
+                    drawer underneath. Run now = the canonical /jobs retry
+                    endpoint on the CronJob's own row. Edit/Delete only for a
+                    console schedule: a chart's CronJob changes in Git. */}
+                <td
+                  className="px-3 py-2 text-right whitespace-nowrap"
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => e.stopPropagation()}
+                >
+                  <span className="inline-flex items-center justify-end gap-1.5">
+                    <RetryJobButton
+                      deploymentId={deploymentId}
+                      jobId={cronJobsRowId(deploymentId, row.name)}
+                      kind="cron"
+                    />
+                    {row.origin === 'console' ? (
+                      <>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          data-testid={`sov-cron-edit-${sid}`}
+                          onClick={() => onEdit(row)}
+                        >
+                          Edit
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="destructive"
+                          data-testid={`sov-cron-delete-${sid}`}
+                          onClick={() => onDelete(row)}
+                        >
+                          Delete
+                        </Button>
+                      </>
+                    ) : null}
+                  </span>
                 </td>
               </tr>
             )
@@ -472,6 +682,7 @@ interface RunHistoryDrawerProps {
 }
 
 function RunHistoryDrawer({ row, runs, onClose }: RunHistoryDrawerProps) {
+  const adherence = scheduleAdherence(runs)
   return (
     <div className="sov-cron-drawer-scrim" data-testid="sov-cron-history-scrim" onClick={onClose}>
       <aside
@@ -500,6 +711,34 @@ function RunHistoryDrawer({ row, runs, onClose }: RunHistoryDrawerProps) {
         </div>
 
         <div className="sov-cron-drawer-body">
+          {runs.length > 0 ? (
+            <div
+              className="mb-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-2)] p-3 text-xs text-[var(--color-text)]"
+              data-testid="sov-cron-adherence"
+              data-late={adherence.lateRuns}
+              data-manual={adherence.manualRuns}
+            >
+              <span className="font-semibold">Scheduled vs actual</span>
+              {' — '}
+              {adherence.scheduledRuns === 0
+                ? 'no run carries a schedule slot yet'
+                : adherence.lateRuns === 0
+                  ? `all ${adherence.scheduledRuns} scheduled runs started on time`
+                  : `${adherence.lateRuns} of ${adherence.scheduledRuns} scheduled runs started late`}
+              {adherence.worstLagMs != null && adherence.worstLagMs > LATE_RUN_THRESHOLD_MS ? (
+                <>
+                  {' '}
+                  (worst{' '}
+                  <span className="font-mono text-[var(--color-warning)]">
+                    {formatLag(adherence.worstLagMs)}
+                  </span>
+                  {adherence.worstRun ? `, ${adherence.worstRun.name}` : ''})
+                </>
+              ) : null}
+              {adherence.manualRuns > 0 ? ` · ${adherence.manualRuns} manual` : ''}
+              .
+            </div>
+          ) : null}
           {runs.length === 0 ? (
             <div
               className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-2)] p-4 text-sm text-[var(--color-text-dim)]"
@@ -516,7 +755,9 @@ function RunHistoryDrawer({ row, runs, onClose }: RunHistoryDrawerProps) {
                 <tr className="border-b border-[var(--color-border)]">
                   <th className="px-2 py-2 text-left font-medium">Run</th>
                   <th className="px-2 py-2 text-left font-medium">Status</th>
+                  <th className="px-2 py-2 text-left font-medium">Scheduled</th>
                   <th className="px-2 py-2 text-left font-medium">Started</th>
+                  <th className="px-2 py-2 text-left font-medium">Lag</th>
                   <th className="px-2 py-2 text-left font-medium">Duration</th>
                 </tr>
               </thead>
@@ -527,12 +768,34 @@ function RunHistoryDrawer({ row, runs, onClose }: RunHistoryDrawerProps) {
                     data-testid={`sov-cron-run-${safeId(run.name)}`}
                     className="border-b border-[var(--color-border)] last:border-0"
                   >
-                    <td className="px-2 py-2 font-mono text-xs text-[var(--color-text)]">{run.name}</td>
+                    <td className="px-2 py-2 font-mono text-xs text-[var(--color-text)]">
+                      {run.name}
+                      {run.manual ? (
+                        <span className="ml-2" data-testid={`sov-cron-run-manual-${safeId(run.name)}`}>
+                          <Badge variant="default">manual</Badge>
+                        </span>
+                      ) : null}
+                    </td>
                     <td className="px-2 py-2">
                       <RunStatusBadge status={run.status} />
                     </td>
                     <td className="px-2 py-2 text-xs text-[var(--color-text-dim)]">
+                      {run.manual ? '—' : run.scheduledTime ? formatDateTime(new Date(run.scheduledTime)) : '—'}
+                    </td>
+                    <td className="px-2 py-2 text-xs text-[var(--color-text-dim)]">
                       {run.startTime ? formatDateTime(new Date(run.startTime)) : '—'}
+                    </td>
+                    <td
+                      className="px-2 py-2 text-xs tabular-nums"
+                      data-testid={`sov-cron-run-lag-${safeId(run.name)}`}
+                      style={{
+                        color:
+                          run.lagMs != null && run.lagMs > LATE_RUN_THRESHOLD_MS
+                            ? 'var(--color-warning)'
+                            : 'var(--color-text-dim)',
+                      }}
+                    >
+                      {run.manual ? '—' : formatLag(run.lagMs)}
                     </td>
                     <td className="px-2 py-2 text-xs text-[var(--color-text-dim)] tabular-nums">
                       {run.status === 'running' && run.startTime && !run.completionTime
@@ -570,6 +833,16 @@ function formatDateTime(d: Date): string {
 
 const CRON_SCHEDULE_CSS = `
 .sov-cron-rowbg { cursor: pointer; }
+.sov-cron-select {
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-2);
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 400;
+}
 .sov-cron-rowlabel { cursor: pointer; }
 .sov-cron-schedule-rows g:hover .sov-cron-rowbg { opacity: 0.06; fill: var(--color-accent); }
 

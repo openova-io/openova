@@ -29,6 +29,31 @@ import {
 /** k8s Job terminal/active state, mapped to a small closed vocabulary. */
 export type CronRunStatus = 'succeeded' | 'failed' | 'running' | 'unknown'
 
+/**
+ * The annotation the CronJob controller stamps on every child Job with the
+ * schedule slot it was created for (batch/v1, Kubernetes ≥1.26). This is the
+ * "scheduled" half of scheduled-vs-actual: `.status.startTime` is the
+ * "actual" half, and the gap between them is the lag.
+ */
+export const CRONJOB_SCHEDULED_TIMESTAMP_ANNOTATION =
+  'batch.kubernetes.io/cronjob-scheduled-timestamp'
+
+/** `kubectl create job --from=cronjob` (and the console's Run now) stamp
+ *  this; such a run has no schedule slot to compare against. */
+export const CRONJOB_INSTANTIATE_ANNOTATION = 'cronjob.kubernetes.io/instantiate'
+
+/** The console's own Run-now marker (catalyst-api createJobFromCronJob). */
+export const MANUAL_RUN_LABEL = 'catalyst.openova.io/manual-run'
+
+/** Labels the catalyst-api stamps on an ad-hoc (console-created) schedule. */
+export const SCHEDULE_ORIGIN_LABEL = 'catalyst.openova.io/schedule-origin'
+export const SCHEDULE_SOURCE_LABEL = 'catalyst.openova.io/schedule-source'
+export const BLUEPRINT_LABEL = 'catalyst.openova.io/blueprint'
+
+/** Where a CronJob came from: a Blueprint chart (changes in Git) or the
+ *  console's "New schedule" (editable + deletable here). */
+export type CronOrigin = 'chart' | 'console'
+
 /** One historical run (child Job) of a CronJob. */
 export interface CronRun {
   /** Child Job name. */
@@ -41,6 +66,13 @@ export interface CronRun {
   completionTime?: string
   /** Wall-clock run duration in ms, when both start + completion are known. */
   durationMs?: number
+  /** ISO schedule slot the controller created this run for
+   *  (`batch.kubernetes.io/cronjob-scheduled-timestamp`), when present. */
+  scheduledTime?: string
+  /** True for a manual (Run now / kubectl create job --from) run — no slot. */
+  manual: boolean
+  /** startTime − scheduledTime in ms (scheduled-vs-actual), when both known. */
+  lagMs?: number
 }
 
 /** One CronJob row on the Schedule surface. */
@@ -69,6 +101,18 @@ export interface CronRow {
   latestRun: CronRun | null
   /** How many child-Job runs are visible in the snapshot. */
   runCount: number
+  /** `.metadata.uid` — identity for the edit/delete actions. */
+  uid?: string
+  /** `.spec.timeZone` (IANA) when set; otherwise the controller's clock. */
+  timeZone?: string
+  /** chart (declared by a Blueprint) or console (ad-hoc, "New schedule"). */
+  origin: CronOrigin
+  /** For a console schedule: the CronJob whose jobTemplate it clones. */
+  sourceName?: string
+  /** The Blueprint the CronJob belongs to (`catalyst.openova.io/blueprint`). */
+  blueprint?: string
+  /** `.status.lastSuccessfulTime` — the controller's own last-success stamp. */
+  lastSuccessfulTime?: string
 }
 
 /** Read a nested string from an unstructured object without `any`. */
@@ -118,6 +162,17 @@ function toRun(job: K8sObject): CronRun {
     const d = new Date(completionTime).getTime() - new Date(startTime).getTime()
     if (Number.isFinite(d) && d >= 0) durationMs = d
   }
+  const annotations = job.metadata?.annotations ?? {}
+  const labels = job.metadata?.labels ?? {}
+  const manual =
+    annotations[CRONJOB_INSTANTIATE_ANNOTATION] === 'manual' ||
+    labels[MANUAL_RUN_LABEL] === 'true'
+  const scheduledTime = manual ? undefined : annotations[CRONJOB_SCHEDULED_TIMESTAMP_ANNOTATION]
+  let lagMs: number | undefined
+  if (scheduledTime && startTime) {
+    const d = new Date(startTime).getTime() - new Date(scheduledTime).getTime()
+    if (Number.isFinite(d)) lagMs = d
+  }
   return {
     name: job.metadata?.name ?? '',
     namespace: job.metadata?.namespace ?? '',
@@ -125,6 +180,9 @@ function toRun(job: K8sObject): CronRun {
     startTime,
     completionTime,
     durationMs,
+    scheduledTime,
+    manual,
+    lagMs,
   }
 }
 
@@ -172,6 +230,8 @@ export function deriveCronRows(snapshot: K8sSnapshot, referenceDate: Date): Cron
     const schedule = str(spec, 'schedule') ?? ''
     const parsed = schedule ? tryParseCron(schedule) : null
     const suspended = spec['suspend'] === true
+    const labels = obj.metadata?.labels ?? {}
+    const origin: CronOrigin = labels[SCHEDULE_ORIGIN_LABEL] === 'console' ? 'console' : 'chart'
 
     const runs = childRunsOfCron(
       snapshot,
@@ -193,6 +253,12 @@ export function deriveCronRows(snapshot: K8sSnapshot, referenceDate: Date): Cron
       nextFire: parsed && !suspended ? nextFireTime(parsed, referenceDate) : null,
       latestRun: runs[0] ?? null,
       runCount: runs.length,
+      uid: obj.metadata?.uid,
+      timeZone: str(spec, 'timeZone'),
+      origin,
+      sourceName: origin === 'console' ? labels[SCHEDULE_SOURCE_LABEL] : undefined,
+      blueprint: labels[BLUEPRINT_LABEL],
+      lastSuccessfulTime: str(status, 'lastSuccessfulTime'),
     })
   }
   rows.sort((a, b) => {
@@ -246,4 +312,59 @@ export function formatDuration(ms: number | undefined): string {
   const hr = Math.floor(min / 60)
   const remMin = min % 60
   return `${hr}h ${String(remMin).padStart(2, '0')}m`
+}
+
+/* ── Scheduled vs actual ───────────────────────────────────────────── */
+
+/** A run is "late" when it started more than this after its schedule slot.
+ *  The CronJob controller's own tolerance for a missed start is
+ *  startingDeadlineSeconds (default: unlimited); one minute is the slot
+ *  width, so anything beyond it was not the fire the schedule promised. */
+export const LATE_RUN_THRESHOLD_MS = 60_000
+
+export interface ScheduleAdherence {
+  /** Runs that carry a schedule slot (manual runs excluded). */
+  scheduledRuns: number
+  /** Runs started more than LATE_RUN_THRESHOLD_MS after their slot. */
+  lateRuns: number
+  /** Manual (Run now / kubectl) runs — no slot to compare against. */
+  manualRuns: number
+  /** The largest lag seen, in ms, or null when no run carries a slot. */
+  worstLagMs: number | null
+  /** The run with the worst lag, when any. */
+  worstRun: CronRun | null
+}
+
+/**
+ * Summarise scheduled-vs-actual over a CronJob's runs: how many fired late,
+ * how late the worst one was, how many were manual. Pure.
+ */
+export function scheduleAdherence(runs: readonly CronRun[]): ScheduleAdherence {
+  let scheduledRuns = 0
+  let lateRuns = 0
+  let manualRuns = 0
+  let worstLagMs: number | null = null
+  let worstRun: CronRun | null = null
+  for (const run of runs) {
+    if (run.manual) {
+      manualRuns++
+      continue
+    }
+    if (run.lagMs == null) continue
+    scheduledRuns++
+    if (run.lagMs > LATE_RUN_THRESHOLD_MS) lateRuns++
+    if (worstLagMs == null || run.lagMs > worstLagMs) {
+      worstLagMs = run.lagMs
+      worstRun = run
+    }
+  }
+  return { scheduledRuns, lateRuns, manualRuns, worstLagMs, worstRun }
+}
+
+/** Signed compact lag (`+4s`, `+8h 03m`, `−2s`, `on time`). */
+export function formatLag(ms: number | undefined): string {
+  if (ms == null || !Number.isFinite(ms)) return '—'
+  if (Math.abs(ms) < 1000) return 'on time'
+  const sign = ms < 0 ? '−' : '+'
+  return `${sign}${formatDuration(Math.abs(ms))}`
 }
