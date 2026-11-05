@@ -111,6 +111,66 @@ func decideSnapshotRerun(
 	attemptStart time.Time,
 	stepHasJobs func(stepName string) bool,
 ) snapshotRerunDecision {
+	return decideSnapshotRerunWithOverride(step, steps, priorStatus, attemptStart, stepHasJobs, nil)
+}
+
+// remirrorOverride (#6307) carries an OPERATOR's explicit request to re-take
+// the snapshot even though the chain is past the pivot boundary.
+//
+// Why it exists: once step-05 has pointed Flux at the local Gitea, that Gitea
+// is the Sovereign's only delivery path, and step-01 is the only thing that
+// re-syncs it. The #5437 suppression (rightly) refuses to re-mirror past the
+// boundary, so a step that then terminal-fails for a reason whose FIX lives
+// upstream can never receive it — hw296 sat at step-06 with the fix published
+// as chart 0.1.187 while the local mirror still pinned 0.1.186. The
+// suppression's hazard (a force-push reverting sovereign-local commits) is
+// real only when a commit-writing step has actually succeeded; when nothing
+// past the boundary has, a re-mirror reverts nothing that is not about to be
+// rewritten anyway.
+//
+// stepHasLiveOrCompleteJob reports whether a step still carries a Job that
+// is Complete or non-terminal (still running). A Failed Job is not a
+// blocker: its step produced nothing durable and will be re-run.
+type remirrorOverride struct {
+	stepHasLiveOrCompleteJob func(stepName string) bool
+}
+
+// remirrorBlockedBy returns the name of the first step PAST the pivot
+// boundary that has produced durable work (a recorded success, a Complete
+// Job, or a Job still in flight), or "" when an operator-requested re-mirror
+// is safe. The boundary step itself (flux-gitrepository-patch) is never a
+// blocker — it writes no commits and is idempotent.
+func remirrorBlockedBy(
+	steps []cutoverStep,
+	priorStatus map[string]string,
+	snapshotOrder int,
+	stepHasLiveOrCompleteJob func(stepName string) bool,
+) string {
+	boundaryOrder := snapshotRerunBoundaryOrder(steps, snapshotOrder)
+	for _, s := range steps {
+		if s.order <= boundaryOrder {
+			continue
+		}
+		if priorStatus["step."+s.stepName+".result"] == "success" {
+			return s.stepName
+		}
+		if stepHasLiveOrCompleteJob != nil && stepHasLiveOrCompleteJob(s.stepName) {
+			return s.stepName
+		}
+	}
+	return ""
+}
+
+// decideSnapshotRerunWithOverride is decideSnapshotRerun with the #6307
+// operator override. A nil override is the unattended / plain-retry path.
+func decideSnapshotRerunWithOverride(
+	step cutoverStep,
+	steps []cutoverStep,
+	priorStatus map[string]string,
+	attemptStart time.Time,
+	stepHasJobs func(stepName string) bool,
+	override *remirrorOverride,
+) snapshotRerunDecision {
 	if !isSnapshotCutoverStep(step.stepName) {
 		return snapshotRerunDecision{}
 	}
@@ -123,10 +183,26 @@ func decideSnapshotRerun(
 	// DESTROYS downstream work, which is strictly worse than a stale snapshot
 	// that has already been pivoted onto.
 	if blocker := snapshotRerunSuppressedBy(steps, priorStatus, step.order, stepHasJobs); blocker != "" {
+		if override != nil {
+			if hard := remirrorBlockedBy(steps, priorStatus, step.order, override.stepHasLiveOrCompleteJob); hard != "" {
+				return snapshotRerunDecision{
+					suppressed: true,
+					reason: fmt.Sprintf(
+						"operator requested a re-mirror (remirror=true) but step %s has already succeeded past the pivot boundary — re-mirroring would force-push upstream over its sovereign-local commits; refused, keeping the recorded %s success (#6307)",
+						hard, step.stepName),
+				}
+			}
+			return snapshotRerunDecision{
+				rerun: true,
+				reason: fmt.Sprintf(
+					"operator requested a re-mirror (remirror=true): the chain is past the pivot boundary (%s) but no step past it has succeeded, so a re-mirror reverts no sovereign-local commits — re-taking the %s snapshot and re-running the steps below the boundary so a fix published upstream can reach this Sovereign; %s keeps its recorded success and is not re-run (#6307)",
+					blocker, step.stepName, cutoverStepFluxGitRepoPatch),
+			}
+		}
 		return snapshotRerunDecision{
 			suppressed: true,
 			reason: fmt.Sprintf(
-				"step %s snapshot is from a prior attempt, but the chain has already reached step %s — re-mirroring now would force-push upstream over the sovereign-local commits pushed to the mirror, and would re-run steps that must not repeat; keeping the recorded success (#5437)",
+				"step %s snapshot is from a prior attempt, but the chain has already reached step %s — re-mirroring now would force-push upstream over the sovereign-local commits pushed to the mirror, and would re-run steps that must not repeat; keeping the recorded success (#5437). An operator may re-fire POST /api/v1/sovereign/cutover/start?remirror=true to re-take it while no step past the boundary has succeeded (#6307)",
 				step.stepName, blocker),
 		}
 	}
