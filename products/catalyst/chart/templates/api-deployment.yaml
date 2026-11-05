@@ -1202,6 +1202,15 @@ spec:
             # Sovereign-only; empty on the mothership (never a cutover subject).
             - name: CATALYST_CUTOVER_ACK_TOLERANCE
               value: '{{ if .Values.global.sovereignFQDN }}{{ .Values.catalystApi.cutoverAckTolerance }}{{ end }}'
+            # CATALYST_POD_NAME (#6289) — the cutover engine's Lease holder
+            # identity (coordination.k8s.io/Lease self-sovereign-cutover-engine
+            # in the cutover namespace), recorded on the status ConfigMap as
+            # engineHolder so two Pods driving one cutover is visible, not
+            # silent. Falls back to the hostname when unset.
+            - name: CATALYST_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
             # SOVEREIGN_FQDN — Sovereign's public FQDN. The /auth/handover
             # validator (auth_handover.go) reads this to compute the expected
             # JWT audience claim ("https://console." + SOVEREIGN_FQDN). When

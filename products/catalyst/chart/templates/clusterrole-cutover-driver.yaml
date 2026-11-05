@@ -894,3 +894,22 @@ rules:
   - apiGroups: [""]
     resources: ["services"]
     verbs: ["create"]
+  # ───────────────────────────────────────────────────────────────
+  # CUTOVER ENGINE LEASE — #6289.
+  # The cutover engine had no Lease and no leader election: during a
+  # rolling restart the outgoing catalyst-api Pod's engine goroutine and
+  # the incoming Pod's ResumeInterruptedCutover could both drive the same
+  # state machine (the same self-sovereign-cutover-status ConfigMap, the
+  # same step Jobs). The engine now holds
+  # coordination.k8s.io/Lease `self-sovereign-cutover-engine` in the
+  # cutover namespace for the life of a run: /start and the startup
+  # resume acquire it (or yield), the drain hook releases it, and a lost
+  # renewal stops the engine. `create` MUST stay in its own Rule without
+  # resourceNames (feedback_rbac_create_no_resourcenames.md).
+  # ───────────────────────────────────────────────────────────────
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["create"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "update", "delete"]
