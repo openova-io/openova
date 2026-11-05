@@ -948,6 +948,22 @@ func findExistingRunningJobForStep(ctx context.Context, deps *cutoverDeps, stepN
 // evidence was 56 minutes old and from a prior one, which is exactly the
 // reading that sent three separate investigations after the wrong cause.
 // The JobFailed condition carried the true 21:08:08Z all along.
+// jobStartTime returns when a Job actually began: its Status.StartTime
+// (set by the Job controller when it first admits the Job), else its
+// CreationTimestamp. ok=false when neither is recorded.
+func jobStartTime(job *batchv1.Job) (time.Time, bool) {
+	if job == nil {
+		return time.Time{}, false
+	}
+	if job.Status.StartTime != nil && !job.Status.StartTime.IsZero() {
+		return job.Status.StartTime.Time.UTC(), true
+	}
+	if !job.CreationTimestamp.IsZero() {
+		return job.CreationTimestamp.Time.UTC(), true
+	}
+	return time.Time{}, false
+}
+
 func jobCompletionTime(job *batchv1.Job) time.Time {
 	if job == nil {
 		return time.Now().UTC()
@@ -1454,8 +1470,50 @@ func countRegistryPivotV2Acks(status map[string]string) int {
 // auto-resume (#3558) refuses to. The auto-resume + in-cluster auto-trigger
 // pass false (fail-closed) so a genuinely-broken step never auto-loops.
 func (h *Handler) runCutover(ctx context.Context, deps *cutoverDeps, steps []cutoverStep, operatorRetry bool) {
+	h.runCutoverWith(ctx, deps, steps, cutoverRunOpts{operatorRetry: operatorRetry})
+}
+
+// cutoverRunOpts names WHY the engine is being entered. The engine used to
+// take a single operatorRetry flag, which conflated two different things a
+// resume-after-restart and an operator re-fire have in common (both re-enter
+// the chain) with the one thing they do not: whether this entry begins a NEW
+// attempt. #6288 is what happens when they are conflated.
+type cutoverRunOpts struct {
+	// operatorRetry (#3379): a deliberate human/CTA re-POST of /start —
+	// a step whose prior Job failed genuinely is deleted and re-run.
+	operatorRetry bool
+	// resume (#6288): the process restarted while a cutover was in flight
+	// (ResumeInterruptedCutover). The entry CONTINUES the interrupted
+	// attempt instead of opening a new one: the attempt's start time is
+	// read back from the durable record, so the #5437 snapshot judgement
+	// sees the mirror taken during that attempt as current and does NOT
+	// rewind the chain to step 1 — which on hw296 (2026-08-14) re-ran
+	// steps 1-2 and, had the in-flight prewarm Job finished during the
+	// restart window, would have deleted and repeated a ~50-minute
+	// step-03 for nothing. A resume of an attempt that had already
+	// terminally FAILED (failedStep set) is not a continuation; it keeps
+	// the pre-existing new-attempt semantics.
+	resume bool
+}
+
+// resumedAttemptStart returns the start of the attempt a process restart
+// interrupted, when the durable record shows that attempt was still in
+// flight (it had not terminally failed) and recorded when it began.
+func resumedAttemptStart(status map[string]string) (time.Time, bool) {
+	if status["failedStep"] != "" {
+		return time.Time{}, false
+	}
+	t, err := time.Parse(time.RFC3339, status["cutoverLastAttemptStartedAt"])
+	if err != nil {
+		return time.Time{}, false
+	}
+	return t.UTC(), true
+}
+
+func (h *Handler) runCutoverWith(ctx context.Context, deps *cutoverDeps, steps []cutoverStep, opts cutoverRunOpts) {
 	bus := h.cutoverBusFor()
 	defer bus.endRun()
+	operatorRetry := opts.operatorRetry
 
 	runEpoch := time.Now().Unix()
 	totalSteps := len(steps)
@@ -1477,12 +1535,27 @@ func (h *Handler) runCutover(ctx context.Context, deps *cutoverDeps, steps []cut
 	priorStatus, _ := readCutoverStatus(ctx, deps)
 
 	startedAt := time.Now().UTC()
+	// attemptStart is the time the #5437 snapshot judgement and the
+	// pre-pivot freshness assert measure against. For a new attempt it is
+	// now; for a process-restart resume (#6288) it is the start of the
+	// attempt being continued, so a mirror taken during that attempt is
+	// still "this attempt's" and nothing is rewound.
+	attemptStart := startedAt
+	continuation := false
+	if opts.resume {
+		if t, ok := resumedAttemptStart(priorStatus); ok {
+			attemptStart = t
+			continuation = true
+		}
+	}
 	seed := map[string]string{
-		"cutoverLastAttemptStartedAt": startedAt.Format(time.RFC3339),
-		"totalSteps":                  strconv.Itoa(totalSteps),
-		"cutoverComplete":             "false",
-		"failedStep":                  "",
-		"lastError":                   "",
+		"totalSteps":      strconv.Itoa(totalSteps),
+		"cutoverComplete": "false",
+		"failedStep":      "",
+		"lastError":       "",
+	}
+	if !continuation {
+		seed["cutoverLastAttemptStartedAt"] = startedAt.Format(time.RFC3339)
 	}
 	if priorStatus["cutoverStartedAt"] == "" {
 		// First run only — anchor the true start. On a resume/re-fire the
@@ -1509,7 +1582,7 @@ func (h *Handler) runCutover(ctx context.Context, deps *cutoverDeps, steps []cut
 		return err == nil && len(jobs) > 0
 	}
 	for i, step := range steps {
-		d := decideSnapshotRerun(step, steps, priorStatus, startedAt, stepHasJobs)
+		d := decideSnapshotRerun(step, steps, priorStatus, attemptStart, stepHasJobs)
 		if d.reason != "" {
 			snapshotNotices = append(snapshotNotices, d.reason)
 		}
@@ -1541,6 +1614,16 @@ func (h *Handler) runCutover(ctx context.Context, deps *cutoverDeps, steps []cut
 		Level:   "info",
 		Message: fmt.Sprintf("Self-Sovereignty Cutover started: %d steps", totalSteps),
 	})
+	if continuation {
+		h.publishCutoverEvent(bus, cutoverEvent{
+			Time:    startedAt.Format(time.RFC3339),
+			Phase:   cutoverPhaseStarted,
+			Level:   "info",
+			Message: fmt.Sprintf("catalyst-api restarted mid-cutover; continuing the attempt that began at %s — step results recorded by that attempt are kept and an in-flight step Job is re-attached, not re-run (#6288)", attemptStart.Format(time.RFC3339)),
+		})
+		h.log.Info("cutover: continuing interrupted attempt without rewind (#6288)",
+			"attemptStartedAt", attemptStart.Format(time.RFC3339))
+	}
 
 	// #5437 — surface the snapshot judgement on the wizard's event stream so
 	// an operator sees WHY the mirror re-ran (or why it was kept).
@@ -1639,7 +1722,7 @@ func (h *Handler) runCutover(ctx context.Context, deps *cutoverDeps, steps []cut
 				h.log.Warn("cutover: could not re-read status for the pre-pivot mirror-freshness assert (#5437)",
 					"err", readErr)
 			} else {
-				stepErr = assertMirrorSnapshotFresh(steps, live, startedAt)
+				stepErr = assertMirrorSnapshotFresh(steps, live, attemptStart)
 			}
 		}
 		if stepErr == nil {
@@ -2070,6 +2153,12 @@ func (h *Handler) runCutoverStep(ctx context.Context, deps *cutoverDeps, step cu
 		attachToExisting = findExistingRunningJobForStep(ctx, deps, step.stepName)
 		if attachToExisting != nil {
 			jobOrDS = attachToExisting.Name
+			// #6288 — the step started when its Job did, not when this
+			// process re-attached to it. Stamping the adoption time
+			// understated hw296's step-03 by the whole restart window.
+			if t, ok := jobStartTime(attachToExisting); ok {
+				startedAt = t
+			}
 		} else {
 			jobOrDS = cutoverJobName(step.stepName, runEpoch)
 		}
@@ -2374,7 +2463,12 @@ func (h *Handler) ResumeInterruptedCutover(ctx context.Context) {
 	// Only an explicit operator /start re-fire (operatorRetry=true) re-runs a
 	// genuinely-failed step. Transient (DeadlineExceeded) failures still
 	// re-run here via jobFailedTransiently inside runCutoverStep.
-	go h.runCutover(context.Background(), deps, steps, false)
+	//
+	// resume=true (#6288): this entry CONTINUES the interrupted attempt — the
+	// snapshot judgement measures against that attempt's recorded start, so
+	// a mirror taken during it is kept and the chain is not rewound to step
+	// 1 by a routine catalyst-api roll.
+	go h.runCutoverWith(context.Background(), deps, steps, cutoverRunOpts{resume: true})
 }
 
 // ── HTTP handlers ───────────────────────────────────────────────────────────
