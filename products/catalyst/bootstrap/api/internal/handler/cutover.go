@@ -1494,6 +1494,75 @@ type cutoverRunOpts struct {
 	// terminally FAILED (failedStep set) is not a continuation; it keeps
 	// the pre-existing new-attempt semantics.
 	resume bool
+	// remirror (#6307): the operator explicitly asked (POST /start?remirror=
+	// true) to re-take the step-01 snapshot although the chain is past the
+	// pivot boundary. Honoured only while no step past the boundary has
+	// produced durable work — see remirrorBlockedBy.
+	remirror bool
+}
+
+// cutoverStepJobPredicates returns the two Job-state probes the snapshot
+// judgement is injected with: "any Job at all" (the #5437 suppression
+// signal) and "a Job that is Complete or still running" (the #6307 override
+// blocker — a Failed Job is not durable work).
+func cutoverStepJobPredicates(ctx context.Context, deps *cutoverDeps) (func(string) bool, func(string) bool) {
+	hasJobs := func(stepName string) bool {
+		jobs, err := findExistingJobsForStep(ctx, deps, stepName)
+		return err == nil && len(jobs) > 0
+	}
+	hasLiveOrComplete := func(stepName string) bool {
+		jobs, err := findExistingJobsForStep(ctx, deps, stepName)
+		if err != nil {
+			// Fail closed: an unanswerable probe must not license a
+			// force-push over work that may exist.
+			return true
+		}
+		for i := range jobs {
+			cond, terminal := terminalJobCondition(&jobs[i])
+			if !terminal || cond == batchv1.JobComplete {
+				return true
+			}
+		}
+		return false
+	}
+	return hasJobs, hasLiveOrComplete
+}
+
+// remirrorRefusal answers, BEFORE an engine run is spawned, whether an
+// operator's remirror=true request would be refused — so HandleCutoverStart
+// can answer 409 with the reason instead of starting a run that silently
+// keeps the stale snapshot. Returns "" when the request is honourable (or
+// moot: the snapshot is not being skipped in the first place).
+func remirrorRefusal(ctx context.Context, deps *cutoverDeps, steps []cutoverStep, status map[string]string) string {
+	for _, s := range steps {
+		if !isSnapshotCutoverStep(s.stepName) || status["step."+s.stepName+".result"] != "success" {
+			continue
+		}
+		_, hasLiveOrComplete := cutoverStepJobPredicates(ctx, deps)
+		if hard := remirrorBlockedBy(steps, status, s.order, hasLiveOrComplete); hard != "" {
+			return fmt.Sprintf("step %s has already succeeded past the pivot boundary; a re-mirror would force-push upstream over its sovereign-local commits (#6307)", hard)
+		}
+	}
+	return ""
+}
+
+// refreshCutoverStep re-reads the step's ConfigMap right before the step
+// runs and returns the current PodSpec when the chart has rolled since the
+// attempt began. Without this the engine would execute, on the very attempt
+// a #6307 re-mirror was fired to deliver a fix, the stale PodSpec captured
+// at /start — and fail the same way once more. Any discovery problem keeps
+// the step as captured (never fails the step).
+func refreshCutoverStep(ctx context.Context, deps *cutoverDeps, step cutoverStep) cutoverStep {
+	fresh, err := listCutoverSteps(ctx, deps)
+	if err != nil {
+		return step
+	}
+	for _, f := range fresh {
+		if f.stepName == step.stepName && f.mode == step.mode {
+			return f
+		}
+	}
+	return step
 }
 
 // resumedAttemptStart returns the start of the attempt a process restart
@@ -1577,12 +1646,13 @@ func (h *Handler) runCutoverWith(ctx context.Context, deps *cutoverDeps, steps [
 	// The judgement lives in cutover_snapshot_steps.go.
 	forceRerun := map[string]bool{}
 	var snapshotNotices []string
-	stepHasJobs := func(stepName string) bool {
-		jobs, err := findExistingJobsForStep(ctx, deps, stepName)
-		return err == nil && len(jobs) > 0
+	stepHasJobs, stepHasLiveOrCompleteJob := cutoverStepJobPredicates(ctx, deps)
+	var override *remirrorOverride
+	if opts.remirror {
+		override = &remirrorOverride{stepHasLiveOrCompleteJob: stepHasLiveOrCompleteJob}
 	}
 	for i, step := range steps {
-		d := decideSnapshotRerun(step, steps, priorStatus, attemptStart, stepHasJobs)
+		d := decideSnapshotRerunWithOverride(step, steps, priorStatus, attemptStart, stepHasJobs, override)
 		if d.reason != "" {
 			snapshotNotices = append(snapshotNotices, d.reason)
 		}
@@ -1726,6 +1796,10 @@ func (h *Handler) runCutoverWith(ctx context.Context, deps *cutoverDeps, steps [
 			}
 		}
 		if stepErr == nil {
+			// #6307 — run the step as the chart defines it NOW, not as it
+			// was captured at /start: a re-mirror earlier in this attempt
+			// may have rolled the chart that carries this step's fix.
+			step = refreshCutoverStep(ctx, deps, step)
 			stepErr = h.runCutoverStep(ctx, deps, step, runEpoch, operatorRetry, forceRerun[step.stepName])
 		}
 		if err := stepErr; err != nil {
@@ -2592,6 +2666,24 @@ func (h *Handler) HandleCutoverStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// #6307 — `?remirror=true`: the operator asks to re-take the step-01
+	// snapshot although the chain is past the pivot boundary (the only
+	// way a fix published upstream can reach a Sovereign whose Flux already
+	// reads from the local Gitea). Refused up-front, with the reason, when
+	// a step past the boundary has produced durable work the force-push
+	// would revert — a run that silently kept the stale snapshot is the
+	// deadlock this flag exists to break.
+	remirror := cutoverRemirrorRequested(r)
+	if remirror {
+		if why := remirrorRefusal(r.Context(), deps, steps, status); why != "" {
+			writeJSON(w, http.StatusConflict, map[string]string{
+				"error":  "remirror-refused",
+				"detail": why,
+			})
+			return
+		}
+	}
+
 	bus := h.cutoverBusFor()
 	if !bus.tryStartRun() {
 		writeJSON(w, http.StatusConflict, map[string]string{
@@ -2611,7 +2703,7 @@ func (h *Handler) HandleCutoverStart(w http.ResponseWriter, r *http.Request) {
 	// now fixed in chart 0.1.62) deletes the prior failed Job + re-runs the
 	// step. The in-cluster auto-trigger + startup-resume keep this false
 	// (fail-closed) so an unattended genuine failure never auto-loops.
-	go h.runCutover(context.Background(), deps, steps, true)
+	go h.runCutoverWith(context.Background(), deps, steps, cutoverRunOpts{operatorRetry: true, remirror: remirror})
 
 	// Re-read status so the response reflects the freshly-patched
 	// `cutoverStartedAt` from the engine — the goroutine has likely
@@ -2624,6 +2716,16 @@ func (h *Handler) HandleCutoverStart(w http.ResponseWriter, r *http.Request) {
 	resp := buildCutoverStatusResponseFromMap(freshStatus, stepNames)
 	resp.TotalSteps = len(steps)
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// cutoverRemirrorRequested reads the #6307 operator override off the /start
+// request: `?remirror=true` (or `1`).
+func cutoverRemirrorRequested(r *http.Request) bool {
+	switch strings.ToLower(strings.TrimSpace(r.URL.Query().Get("remirror"))) {
+	case "true", "1", "yes":
+		return true
+	}
+	return false
 }
 
 // HandleCutoverStatus handles GET /api/v1/sovereign/cutover/status.
