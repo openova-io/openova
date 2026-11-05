@@ -4074,12 +4074,11 @@ name: bp-catalyst-platform
 #   rendered surface changed. Taken via scripts/bump-chart-version.sh (ceiling
 #   1.4.1631 from origin/main, 46 open PR heads consulted); slot-13 pin bumped in
 #   lockstep.
-# 1.4.1844 — #3969: crds/application.yaml settles spec.placement on ONE stored
-#   shape (the object; the bare posture string is legacy, read-only, migrated by
-#   the application-controller on first reconcile) and the Placement printer
-#   column reads .spec.placement.mode (the whole node printed `map[mode:…]`).
-#   Slot-13 crds:CreateReplace propagates the schema; slot-13 pin bumped in
-#   lockstep. Render byte-unchanged otherwise.
+# 1.4.1844 — #6374: catalog-seed advances bp-agenity 0.5.33 -> 0.5.34 (the
+#   numeric credentialWait / credentialResync knobs resolve by key presence, so
+#   an explicit 0 no longer renders as 300 / 5 / 120), so the umbrella rendered
+#   surface changed. Bumped by hand off origin/main 1.4.1843 (no gh access in
+#   this lane); slot-13 pin bumped in lockstep.
 version: 1.4.1844
 # 1.4.1481 — #6293: catalog-seed advances bp-self-sovereign-cutover
 #   0.1.186 -> 0.1.187, the release that stops step-06 from patching five

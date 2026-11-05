@@ -1523,9 +1523,8 @@ spec:
       #   check-bootstrap-kit-pin-sync.sh stays green.
       # 1.4.1649 — #6832: lockstep with the umbrella Chart.yaml bump (the catalog-seed
       #   card advances bp-kyverno-policies 1.0.52 -> 1.0.53). Pin bumped to match.
-      # 1.4.1844 — #3969: lockstep with the umbrella Chart.yaml bump (the
-      #   Application CRD settles spec.placement on the object shape + its
-      #   Placement printer column reads .spec.placement.mode). Pin bumped to match.
+      # 1.4.1844 — #6374: lockstep with the umbrella Chart.yaml bump (the catalog-seed
+      #   card advances bp-agenity 0.5.33 -> 0.5.34). Pin bumped to match.
       version: 1.4.1844
       sourceRef:
         kind: HelmRepository

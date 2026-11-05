@@ -90,9 +90,27 @@ spec:
               # still running — that is what lets a late credential land with no
               # restart. Retrying here also survives an init-container restart,
               # because each attempt re-reads the mount rather than a snapshot.
-              _cw_timeout={{ (.Values.anthropic.credentialWait).timeoutSeconds | default 300 }}
-              _cw_interval={{ (.Values.anthropic.credentialWait).intervalSeconds | default 5 }}
-              _cw_ontimeout='{{ (.Values.anthropic.credentialWait).onTimeout | default "fail" }}'
+              {{- /*
+                #6374 — the two NUMERIC knobs resolve by KEY PRESENCE, not by
+                sprig `default`. `default` substitutes on any falsy value and 0
+                is falsy, so `timeoutSeconds: 0` ("do not wait, fail at once")
+                silently rendered as 300 and `intervalSeconds: 0` as 5 — and the
+                log line below echoed the substituted value back, so the setting
+                looked applied. Same trap as #5991 in bp-guacamole. onTimeout
+                deliberately KEEPS `default`: an empty verdict string is not a
+                meaningful setting and must fall back to fail.
+              */}}
+              {{- $cw := .Values.anthropic.credentialWait | default dict }}
+              _cw_timeout={{ ternary $cw.timeoutSeconds 300 (hasKey $cw "timeoutSeconds") }}
+              _cw_interval={{ ternary $cw.intervalSeconds 5 (hasKey $cw "intervalSeconds") }}
+              _cw_ontimeout='{{ $cw.onTimeout | default "fail" }}'
+              # A 0s poll interval is now REPRESENTABLE (#6374) but not POLLABLE:
+              # `sleep 0` + `waited += 0` never advances, so a positive timeout
+              # would spin forever. Floor it at 1s and say so — never silently.
+              if [ "$_cw_interval" -lt 1 ]; then
+                echo "anthropic.credentialWait.intervalSeconds=${_cw_interval} is not a pollable interval — polling every 1s instead (#6374)"
+                _cw_interval=1
+              fi
               # #6163 FREEZE 3 — verdict for a credential that IS present but is
               # already expired. Same fail|continue vocabulary as onTimeout,
               # because it is the same question: can this workspace work?
@@ -474,7 +492,14 @@ spec:
               # Single-line python3 -c (no heredoc) so the YAML block scalar
               # stays whitespace-robust across Helm renders, matching the
               # init container's expiry parser above.
-              _rs_interval={{ (.Values.anthropic.credentialResync).intervalSeconds | default 120 }}
+              {{- /* #6374 — key presence, not sprig `default`: 0 is falsy and rendered as 120. */}}
+              {{- $rs := .Values.anthropic.credentialResync | default dict }}
+              _rs_interval={{ ternary $rs.intervalSeconds 120 (hasKey $rs "intervalSeconds") }}
+              # A 0s interval is representable but would hot-loop; floor at 1s, loudly.
+              if [ "$_rs_interval" -lt 1 ]; then
+                echo "[creds-resync] anthropic.credentialResync.intervalSeconds=${_rs_interval} is not a pollable interval — polling every 1s instead (#6374)"
+                _rs_interval=1
+              fi
               echo "[creds-resync] watching /creds/{{ .Values.anthropic.credentialsKey }} every ${_rs_interval}s; copies forward ONLY when the Secret carries a LATER expiresAt than ~/.claude/.credentials.json (#6317)"
               while true; do
                 python3 -c 'import json,os,shutil,sys;s="/creds/{{ .Values.anthropic.credentialsKey }}";d="/claudehome/.claude/.credentials.json";e=lambda p:int((json.load(open(p)).get("claudeAiOauth",{}) or {}).get("expiresAt",0) or 0) if os.path.exists(p) and os.path.getsize(p)>0 else -1;se=e(s);de=e(d);sys.exit(0) if se<0 or se<=de else (shutil.copyfile(s,d),os.chmod(d,0o600),print("[creds-resync] adopted a NEWER credential from the Secret: expiresAt %d -> %d (%d bytes)"%(de,se,os.path.getsize(d)),flush=True))' 2>&1 || echo "[creds-resync] 🛑 re-sync attempt FAILED — the running agent keeps the credential it already has and will 401 once that expires (#6317)"

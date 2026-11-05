@@ -26,7 +26,11 @@ spec:
   # spec.consoleUI (below) — no chart-template change; the bump exists because the
   # published artifact packages this file. Lockstep with products/agenity/chart/
   # Chart.yaml + the catalog-seed card and source pins + the funnel pin.
-  version: 0.5.33
+  # 0.5.34 (#6374): the numeric credentialWait / credentialResync knobs resolve by
+  # key presence — an explicit 0 no longer renders as the default (300/5/120).
+  # Lockstep with products/agenity/chart/Chart.yaml + the catalog-seed pins +
+  # the funnel pin.
+  version: 0.5.34
   # EPIC #6723 lane C (founder 2026-08-31: "the left menu or sub-menus of the
   # sovereign console can be connected to the respective applications, like
   # Agenity"). Agenity is the first Blueprint that registers its own

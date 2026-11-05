@@ -6072,7 +6072,11 @@ spec:
   # via spec.consoleUI (below) — no chart-template change; the published
   # artifact packages blueprint.yaml, hence the bump. Lockstep with
   # products/agenity/chart + blueprint.yaml + the funnel pin.
-  version: "0.5.33"
+  # 0.5.34 (#6374): credentialWait.timeoutSeconds / intervalSeconds and
+  # credentialResync.intervalSeconds resolve by key presence — an explicit 0 no
+  # longer renders as the sprig default (300 / 5 / 120). Lockstep with
+  # products/agenity/chart + blueprint.yaml + the funnel pin.
+  version: "0.5.34"
   visibility: listed
   card:
     title: "Agenity"
@@ -6116,7 +6120,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-agenity
-    version: 0.5.33
+    version: 0.5.34
   topology:
     supported:
       - singleton
