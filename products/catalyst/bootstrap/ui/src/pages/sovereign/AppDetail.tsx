@@ -67,6 +67,11 @@ import { ContextsTab } from './AppDetail/ContextsTab'
 import { PerClusterTable } from './AppDetail/InstancesSection'
 import { MembersTab } from './AppDetail/MembersTab'
 import { TopologyTab } from './AppDetail/TopologyTab'
+import {
+  PLACEMENT_SOURCE_LABEL,
+  useResolvedPlacement,
+  type PlacementSource,
+} from './AppDetail/useResolvedPlacement'
 import { ResourcesTab } from './AppDetail/ResourcesTab'
 import { LogsTab } from './AppDetail/LogsTab'
 import { SettingsTab } from './AppDetail/SettingsTab'
@@ -253,16 +258,6 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
   const appDependsOn = apiApp?.dependsOn ?? []
   const appRegions = apiApp?.regions ?? []
   const appLastReconciled = apiApp?.lastReconciledAt ?? ''
-  // #5422 (#3969) — NEVER assert a placement the API did not report. The
-  // old `?? 'singleton'` fallback stated a specific, load-bearing value for
-  // an app whose placement is simply unknown to this response, and the
-  // Topology tab on the SAME screen derives its own value from live
-  // targets — so a two-region hot-standby app was described as a singleton
-  // in the Overview and correctly in Topology, with no way to tell which
-  // was true. Reuses the sentinel #5515 shipped for the identical
-  // fails-open defect in derivePattern, so both surfaces say "not-reported"
-  // in the same words rather than inventing two dialects for "unknown".
-  const appPlacement = apiApp?.placement ?? PATTERN_NOT_REPORTED
   const appPrimaryRegion = apiApp?.primaryRegion ?? appRegions[0] ?? ''
   // Family B (2026-05-17 t10 C4-005/007): the namespace the workload
   // actually lives in (HR spec.targetNamespace), and the label that
@@ -282,6 +277,40 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
   // — the publish chip should render "Bootstrap blueprint" instead of
   // "Catalog status unavailable".
   const appIsBootstrap = !!apiApp?.bootstrap
+
+  // #6192 (#3969) — the Overview PLACEMENT cell renders THE SAME resolved
+  // value the Topology tab's "Pattern:" line renders, from the same hook,
+  // with the same provenance chip. Before this it printed
+  // `apiApp.placement` — the posture STORED on the CR — while Topology
+  // derived its pattern from the live targets: on hw295 grafana/keycloak and
+  // on hw307 gitea/harbor/keycloak/openbao the Overview said `singleton` for
+  // an app the Topology tab (correctly) showed running as `active-active` in
+  // both regions. Two sources, one screen, no way to tell which was true.
+  // #5422 removed the `?? 'singleton'` fail-open; this removes the second
+  // source. The hook's queries share their keys with the Topology tab's, so
+  // flipping between the tabs costs no extra round-trip.
+  //
+  // When the resolver has NOTHING (no runtime observation, no status, no
+  // declared targets — the shape every pre-#5836 bootstrap component had),
+  // the detail endpoint's stored posture is the only value there is and it
+  // renders as DECLARED, never as observed. An app with neither still reads
+  // `not reported` (#5422 / #5515) — never a stale constant.
+  const resolvedPlacement = useResolvedPlacement({
+    sovereignId: deploymentId,
+    applicationName: componentId,
+    namespace: appNamespace,
+    isBootstrap: appIsBootstrap,
+  })
+  const appPlacement: string =
+    resolvedPlacement.pattern !== PATTERN_NOT_REPORTED
+      ? resolvedPlacement.pattern
+      : (apiApp?.placement ?? PATTERN_NOT_REPORTED)
+  const appPlacementSource: PlacementSource =
+    resolvedPlacement.pattern !== PATTERN_NOT_REPORTED
+      ? resolvedPlacement.placementSource
+      : apiApp?.placement
+        ? 'declared'
+        : 'none'
   // C4-003: when the backend's HR-Ready overlay promoted the phase
   // (CR was stale at Provisioning, HR was Ready=True), the source
   // chip surfaces both so the operator can see the lag.
@@ -696,6 +725,7 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
               status={status}
               appRegions={appRegions}
               appPlacement={appPlacement}
+              appPlacementSource={appPlacementSource}
               appPrimaryRegion={appPrimaryRegion}
               appLastReconciled={appLastReconciled}
               appExternalURL={appExternalURL}
@@ -1061,6 +1091,8 @@ interface OverviewPanelProps {
   status: ApplicationStatus
   appRegions: string[]
   appPlacement: string
+  /** #6192 — where `appPlacement` came from; the same chip Topology prints. */
+  appPlacementSource: PlacementSource
   appPrimaryRegion: string
   appLastReconciled: string
   /**
@@ -1211,6 +1243,7 @@ function OverviewPanel({
   status,
   appRegions,
   appPlacement,
+  appPlacementSource,
   appPrimaryRegion,
   appLastReconciled,
   appExternalURL,
@@ -1317,7 +1350,11 @@ function OverviewPanel({
             {/* #5422 — an unreported placement renders as dim italic prose,
                 matching the treatment TopologyTab.tsx already gives the same
                 sentinel (#5515). A real value keeps the normal weight. The two
-                tabs must not describe the same app in two different dialects. */}
+                tabs must not describe the same app in two different dialects.
+                #6192 — the value IS the Topology tab's (same resolver), and the
+                provenance chip beside it is the same chip, so an operator can
+                see from the Overview alone whether the placement was observed
+                in the region clusters or merely declared on the CR. */}
             <dd
               data-testid="app-detail-overview-placement"
               className={
@@ -1328,6 +1365,23 @@ function OverviewPanel({
             >
               {appPlacement === PATTERN_NOT_REPORTED ? 'not reported' : appPlacement}
             </dd>
+            {appPlacement !== PATTERN_NOT_REPORTED ? (
+              <dd
+                data-testid="app-detail-overview-placement-source"
+                className={
+                  appPlacementSource === 'runtime'
+                    ? 'text-xs text-[var(--color-text-dim)]'
+                    : 'text-xs font-semibold text-yellow-400'
+                }
+                title={
+                  appPlacementSource === 'runtime'
+                    ? 'Derived from live runtime state observed in the region clusters.'
+                    : 'Projected from the DECLARED placement (spec/status). No live runtime observation backs this — it is desired state, not observed state.'
+                }
+              >
+                {PLACEMENT_SOURCE_LABEL[appPlacementSource]}
+              </dd>
+            ) : null}
           </div>
           {appRegions.length > 0 ? (
             <div className="overview-row">
