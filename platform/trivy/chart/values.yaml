@@ -79,7 +79,13 @@ trivy-operator:
     namespace: ""
     targetNamespaces: ""
     excludeNamespaces: "kube-system,kube-public,kube-node-lease"
-    scanJobsConcurrentLimit: 10
+    # 2, not 10: each vulnerability scan Job unpacks ~1.7G of trivy DB + image
+    # layers into node ephemeral storage. Ten at once on a 42G node tripped
+    # kubelet DiskPressure on hw307 (2026-11-06), which evicted a CNPG
+    # instance and forced a shared-pg-b failover. Finished Jobs are reaped
+    # after scanJobTTL so failed scans cannot pile up either.
+    scanJobsConcurrentLimit: 2
+    scanJobTTL: 5m
     scanJobsRetryDelay: 30s
     # Scanners enabled — full posture for Catalyst Sovereigns.
     vulnerabilityScannerEnabled: true
