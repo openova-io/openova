@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-05T17:02:12.270Z",
+  "generatedAt": "2026-11-05T17:11:38.309Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -4511,7 +4511,7 @@
       "category": "devtools",
       "tagline": null,
       "tags": [],
-      "visibility": "listed",
+      "visibility": "unlisted",
       "version": "0.3.12",
       "section": "pts-4-sandbox",
       "depends": [
