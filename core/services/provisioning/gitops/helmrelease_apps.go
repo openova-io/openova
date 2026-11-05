@@ -848,15 +848,27 @@ spec:
       sourceRef:
         kind: HelmRepository
         name: bp-agenity
+  # retries: -1 (never stall) — NOT the 3 every other funnel app carries.
+  # This release's readiness waits on an INPUT the platform does not ship:
+  # the seed-claude-creds init container blocks until the Sovereign's
+  # Anthropic credential lands and fails loudly otherwise (#6163), so on a
+  # Sovereign whose owner has not yet supplied it every helm install --wait
+  # times out by design. Three retries buy ~1h; the credential is an operator
+  # action that can arrive days later. After the retries Flux marks the HR
+  # Stalled=True/RetriesExceeded and never reconciles it again, so when the
+  # credential finally arrives the Pod comes up on its own but the release
+  # stays Failed until a human resets it (measured on hw307 ns acmewalk307
+  # for the BSS-door twin of this template: Stalled 56 days, 11 806 init
+  # restarts). Mirrors orgTenantBPAgenity so the doors cannot drift.
   install:
     timeout: 15m
     remediation:
-      retries: 3
+      retries: -1
   upgrade:
     timeout: 15m
     cleanupOnFail: true
     remediation:
-      retries: 3
+      retries: -1
   values:
     # Per-Org identity zone — openova-MCP derives https://console.<fqdn> from it.
     sovereignFqdn: %s
