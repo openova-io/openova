@@ -517,6 +517,12 @@ type Handler struct {
 	// tests inject a deterministic instance via SetCutoverBroadcaster.
 	cutoverBus     *cutoverBroadcaster
 	cutoverBusOnce sync.Once
+	// cutoverEngineCtx/Cancel — #6289: the context every engine run derives
+	// from, cancelled by StopCutoverEngine from the process drain hook so an
+	// outgoing Pod yields the state machine instead of racing its successor.
+	cutoverEngineMu     sync.Mutex
+	cutoverEngineCtx    context.Context
+	cutoverEngineCancel context.CancelFunc
 	// cutoverDepsFactory — test-only override that builds the in-cluster
 	// kubernetes.Interface + namespace pair the cutover engine reads
 	// from. Production leaves this nil and cutoverDepsFromEnv runs.

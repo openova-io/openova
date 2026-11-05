@@ -24,6 +24,10 @@ type httpDrainer interface {
 // orphanReleaseJoiner is the handler surface drainOnSignal needs.
 type orphanReleaseJoiner interface {
 	WaitOrphanReleases()
+	// StopCutoverEngine (#6289) cancels a running sovereignty-cutover engine
+	// and waits for it to yield + release its Lease, so the incoming Pod's
+	// resume is the ONLY driver. Bounded by ctx.
+	StopCutoverEngine(ctx context.Context)
 }
 
 // drainOnSignal blocks until sigCh delivers, then shuts the HTTP server down
@@ -60,6 +64,13 @@ func drainOnSignal(
 		log.Warn("http drain did not finish inside the budget; continuing to the orphan-release join",
 			"err", err, "budget", budget.String())
 	}
+
+	// #6289 — yield the cutover state machine BEFORE the successor's resume
+	// can take it: cancel the engine, let it release the Lease. Without this
+	// the outgoing Pod kept stepping the chain through its whole grace
+	// period while the incoming Pod drove it too.
+	joiner.StopCutoverEngine(ctx)
+	log.Info("cutover engine stopped (yielded + lease released if one was held)")
 
 	joiner.WaitOrphanReleases()
 	log.Info("drain complete — orphan PDM releases joined, no persist left in flight")

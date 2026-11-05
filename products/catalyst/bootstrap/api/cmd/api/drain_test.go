@@ -42,6 +42,10 @@ func (r *recorder) Shutdown(ctx context.Context) error {
 
 func (r *recorder) WaitOrphanReleases() { r.record("join") }
 
+// StopCutoverEngine (#6289) must run AFTER the HTTP drain (no new /start can
+// land once the listener is closed) and BEFORE the orphan join.
+func (r *recorder) StopCutoverEngine(ctx context.Context) { r.record("stop-engine") }
+
 func (r *recorder) record(s string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -78,7 +82,7 @@ func TestDrainOnSignal_ShutsDownBeforeJoiningOrphanReleases(t *testing.T) {
 	}
 
 	got := rec.snapshot()
-	want := []string{"shutdown", "join"}
+	want := []string{"shutdown", "stop-engine", "join"}
 	if len(got) != len(want) {
 		t.Fatalf("call sequence = %v, want %v", got, want)
 	}
@@ -111,8 +115,8 @@ func TestDrainOnSignal_JoinsEvenWhenDrainOverrunsBudget(t *testing.T) {
 	}
 
 	got := rec.snapshot()
-	if len(got) != 2 || got[0] != "shutdown:ctx-expired" || got[1] != "join" {
-		t.Fatalf("call sequence = %v, want [shutdown:ctx-expired join] — the join must survive a blown drain budget", got)
+	if len(got) != 3 || got[0] != "shutdown:ctx-expired" || got[1] != "stop-engine" || got[2] != "join" {
+		t.Fatalf("call sequence = %v, want [shutdown:ctx-expired stop-engine join] — the engine stop and the join must survive a blown drain budget", got)
 	}
 }
 

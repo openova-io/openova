@@ -105,6 +105,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -1579,10 +1580,79 @@ func resumedAttemptStart(status map[string]string) (time.Time, bool) {
 	return t.UTC(), true
 }
 
-func (h *Handler) runCutoverWith(ctx context.Context, deps *cutoverDeps, steps []cutoverStep, opts cutoverRunOpts) {
+// cutoverLeaseWaitPoll / cutoverLeaseWaitMax bound how long a startup resume
+// waits for a predecessor's Lease to be released or to lapse (#6289). A
+// drained predecessor releases at once; a SIGKILLed one lapses after the TTL.
+var (
+	cutoverLeaseWaitPoll = 2 * time.Second
+	cutoverLeaseWaitMax  = cutoverEngineLeaseTTL + 10*time.Second
+)
+
+// acquireCutoverEngineLeaseForRun takes the engine Lease for this run. An
+// operator/trigger entry gives up at once when another holder is live (the
+// HTTP edge has already answered 409 for the common case); a startup resume
+// waits for the predecessor to let go, because the predecessor IS the Pod
+// being replaced and will release on drain or lapse on kill.
+func (h *Handler) acquireCutoverEngineLeaseForRun(ctx context.Context, deps *cutoverDeps, holder string, wait bool) (*cutoverEngineLease, error) {
+	deadline := time.Now().Add(cutoverLeaseWaitMax)
+	for {
+		lease, err := acquireCutoverEngineLease(ctx, deps, holder, time.Now())
+		var held *errCutoverLeaseHeld
+		if err == nil {
+			return lease, nil
+		}
+		if !errors.As(err, &held) || !wait || time.Now().After(deadline) {
+			return nil, err
+		}
+		h.log.Info("cutover-resume: engine lease held by a predecessor; waiting for it to release or lapse (#6289)",
+			"holder", held.holder, "until", held.until.UTC().Format(time.RFC3339))
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(cutoverLeaseWaitPoll):
+		}
+	}
+}
+
+func (h *Handler) runCutoverWith(acquireCtx context.Context, deps *cutoverDeps, steps []cutoverStep, opts cutoverRunOpts) {
 	bus := h.cutoverBusFor()
 	defer bus.endRun()
 	operatorRetry := opts.operatorRetry
+
+	// ── #6289 single driver ─────────────────────────────────────────────
+	// Hold the engine Lease for the life of this run, and run on a context
+	// the process's drain hook cancels (StopCutoverEngine) — additionally
+	// cancelled when a renewal finds the Lease taken. Two catalyst-api Pods
+	// can no longer drive the same state machine through a rolling update.
+	holder := cutoverEngineHolderIdentity()
+	lease, lerr := h.acquireCutoverEngineLeaseForRun(acquireCtx, deps, holder, opts.resume)
+	if lerr != nil {
+		h.publishCutoverEvent(bus, cutoverEvent{
+			Time:    time.Now().UTC().Format(time.RFC3339),
+			Phase:   cutoverPhaseRefused,
+			Level:   "error",
+			Message: fmt.Sprintf("cutover engine not started on this Pod: %v (#6289 — one driver at a time; the holder's run continues)", lerr),
+		})
+		h.log.Warn("cutover: engine lease not acquired; not driving", "holder", holder, "err", lerr)
+		return
+	}
+	defer lease.Release()
+	lease.StartRenewing(cutoverEngineLeaseTTL / 3)
+	ctx, cancelRun := cutoverRunCtx(h.cutoverEngineContext(), lease)
+	defer cancelRun()
+	if lease.degraded {
+		h.publishCutoverEvent(bus, cutoverEvent{
+			Time:    time.Now().UTC().Format(time.RFC3339),
+			Phase:   cutoverPhaseStarted,
+			Level:   "warn",
+			Message: "cutover engine lease UNAVAILABLE (coordination.k8s.io leases forbidden for the catalyst-api ServiceAccount — RBAC predates #6289); driving WITHOUT a lease: a concurrent catalyst-api Pod could also drive this cutover until the catalyst-platform chart with the lease grant rolls",
+		})
+		h.log.Warn("cutover: engine lease forbidden by RBAC; running unfenced (#6289)")
+	}
+	_ = patchCutoverStatus(ctx, deps, map[string]string{
+		"engineHolder":      holder,
+		"engineHolderSince": time.Now().UTC().Format(time.RFC3339),
+	})
 
 	runEpoch := time.Now().Unix()
 	totalSteps := len(steps)
@@ -1603,7 +1673,12 @@ func (h *Handler) runCutoverWith(ctx context.Context, deps *cutoverDeps, steps [
 	// T0") while the new field carries "latest attempt began at Tn".
 	priorStatus, _ := readCutoverStatus(ctx, deps)
 
-	startedAt := time.Now().UTC()
+	// Second precision on purpose: every timestamp the durable record
+	// carries is RFC3339 (whole seconds), and the snapshot judgement +
+	// pre-pivot freshness assert compare recorded finishedAt values against
+	// this start. A sub-second start would read a mirror that finished in
+	// the same second as "before the attempt" and refuse its own pivot.
+	startedAt := time.Now().UTC().Truncate(time.Second)
 	// attemptStart is the time the #5437 snapshot judgement and the
 	// pre-pivot freshness assert measure against. For a new attempt it is
 	// now; for a process-restart resume (#6288) it is the start of the
@@ -1803,6 +1878,22 @@ func (h *Handler) runCutoverWith(ctx context.Context, deps *cutoverDeps, steps [
 			stepErr = h.runCutoverStep(ctx, deps, step, runEpoch, operatorRetry, forceRerun[step.stepName])
 		}
 		if err := stepErr; err != nil {
+			// #6289 — a run stopped by the drain hook or by a lost Lease
+			// has not failed; it has YIELDED. Leave the durable record as
+			// it stands (the in-flight step keeps its running row and its
+			// Job keeps running) so the successor Pod's resume re-attaches
+			// (#6288) instead of inheriting a failure the step never had.
+			if ctx.Err() != nil || errors.Is(err, errCutoverEngineYielded) {
+				h.publishCutoverEvent(bus, cutoverEvent{
+					Time:    time.Now().UTC().Format(time.RFC3339),
+					Phase:   cutoverPhaseStepStarted,
+					Level:   "warn",
+					Step:    step.stepName,
+					Message: fmt.Sprintf("cutover engine on %s yielded during step %s (process shutdown or lease lost, #6289) — the step's Job keeps running; the successor catalyst-api Pod resumes from the durable record", holder, step.stepName),
+				})
+				h.log.Warn("cutover: engine yielded mid-step", "step", step.stepName, "holder", holder, "cause", err)
+				return
+			}
 			finishedAt := time.Now().UTC()
 			_ = patchCutoverStatus(ctx, deps, map[string]string{
 				"currentStep":                           "",
@@ -1981,6 +2072,20 @@ func (h *Handler) runCutoverStep(ctx context.Context, deps *cutoverDeps, step cu
 		defer func() {
 			rctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
+			// #6289 — an engine that YIELDED (drain / lease lost) while the
+			// hold Job is still running must not pull the policy out from
+			// under it: the successor re-attaches to that Job and its own
+			// backstop reaps on exit. Reap only when no Job is in flight.
+			if ctx.Err() != nil && findExistingRunningJobForStep(rctx, deps, step.stepName) != nil {
+				h.publishCutoverEvent(bus, cutoverEvent{
+					Time:    time.Now().UTC().Format(time.RFC3339),
+					Phase:   cutoverPhaseStepStarted,
+					Level:   "info",
+					Step:    step.stepName,
+					Message: "engine yielded while the deny-egress hold Job is still running — backstop reap deferred to the successor driver (#6289)",
+				})
+				return
+			}
 			// #5359 — reap the region-B hold policies too (best-effort;
 			// same SIGKILL/watch-loss leak class, per-secondary cluster).
 			h.reapSecondaryCutoverEgressPolicies(rctx)
@@ -2682,6 +2787,17 @@ func (h *Handler) HandleCutoverStart(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+	}
+
+	// #6289 — one driver at a time ACROSS Pods, not just within this one:
+	// an engine on another catalyst-api Pod (the outgoing side of a rolling
+	// update) that still holds the Lease is reported, not raced.
+	if held := cutoverLeaseHeldByOther(r.Context(), deps, cutoverEngineHolderIdentity()); held != nil {
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error":  "cutover-in-progress",
+			"detail": fmt.Sprintf("a cutover engine on another catalyst-api Pod holds the lease: %s until %s (#6289)", held.holder, held.until.UTC().Format(time.RFC3339)),
+		})
+		return
 	}
 
 	bus := h.cutoverBusFor()
