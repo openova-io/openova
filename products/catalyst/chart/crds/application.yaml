@@ -35,7 +35,10 @@ spec:
           jsonPath: .spec.environmentRef
         - name: Placement
           type: string
-          jsonPath: .spec.placement
+          # #3969 — spec.placement is an object; the posture lives in .mode.
+          # (Printing the whole node rendered `map[mode:…]`.) A not-yet-
+          # migrated legacy string prints blank until its first reconcile.
+          jsonPath: .spec.placement.mode
         - name: Phase
           type: string
           jsonPath: .status.phase
@@ -119,22 +122,35 @@ spec:
                       description: Semver of the Blueprint OCI artifact.
                       pattern: '^[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9.-]+)?$'
                 placement:
-                  # #3373 — DUAL-FORM field (founder-ratified placement law).
+                  # #3969 — ONE stored shape: the OBJECT.
                   #
-                  # Form 1 (legacy string): the DR-posture enum
-                  #   single-region | active-active | active-hotstandby.
-                  #   Existing CRs + writers keep working verbatim.
-                  #
-                  # Form 2 (object): WHERE this instance runs —
-                  #   { vcluster: host|mgmt|dmz|rtz,
-                  #     regions:  [<host-cluster>, ...],
+                  #   { mode:     singleton | active-active |
+                  #               active-hot-standby | active-passive,
+                  #     targets:  [{region, cluster, vcluster, role
+                  #                 Primary|Standby, standbyType Hot|Cold}],
+                  #     ownedDependencies: [{name, follow}],
+                  #     regions:  [<host-cluster>, ...]   ([0] = primary),
                   #     clusters: [<canonical-cluster-id>, ...],
-                  #     mode:     <the legacy DR-posture enum> }
-                  #   Every field optional; omitted fields default from the
-                  #   Blueprint (spec.defaultPlacement + the legacy
-                  #   placementSchema seams). The application-controller
-                  #   validates vcluster against {host,mgmt,dmz,rtz} and the
-                  #   Blueprint's spec.allowedPlacements at reconcile time.
+                  #     vcluster: host|mgmt|dmz|rtz }
+                  #
+                  #   `targets[]` is the canonical desired state when the
+                  #   operator chose WHERE (the pattern is DERIVED from it and
+                  #   folded onto `mode` by the write doors); a placement that
+                  #   declares only a posture is `{mode}`. Every other key is
+                  #   optional and defaults from the Blueprint
+                  #   (spec.defaultPlacement + placementSchema). The
+                  #   application-controller validates vcluster against
+                  #   {host,mgmt,dmz,rtz}, the Blueprint's allowedPlacements
+                  #   and the placementCapability gate at reconcile time.
+                  #
+                  # LEGACY, read only: the pre-#3969 bare STRING (the posture
+                  #   alone, incl. the single-region / active-hotstandby
+                  #   spellings). Still ADMITTED so an older writer cannot
+                  #   wedge a Sovereign, decoded by every reader through the
+                  #   one codec (pkg/apis/blueprint/v1alpha1
+                  #   ApplicationPlacement), and rewritten to `{mode}` by the
+                  #   application-controller on the CR's first reconcile —
+                  #   no manual migration step. No writer emits it.
                   #
                   # Written by the provisioning journey's advanced view OR
                   # edited DIRECTLY in Git by an advanced user — both equally
@@ -144,19 +160,22 @@ spec:
                   #
                   # Structural-schema note: a node with
                   # x-kubernetes-preserve-unknown-fields:true may omit `type`
-                  # (the int-or-string-style exception) — that is what makes
-                  # the string|object dual form admissible.
+                  # (the int-or-string-style exception) — that is what keeps
+                  # the legacy string admissible alongside the object.
                   x-kubernetes-preserve-unknown-fields: true
                   description: |
-                    Placement of this instance (#3373). String form = the
-                    legacy DR posture (single-region = one cluster only;
-                    active-active = manifests fan out to all regions[];
-                    active-hotstandby = primary in regions[0], standby in
-                    regions[1..] with replica:0; failover managed by the
-                    Continuum controller). Object form =
-                    {vcluster, regions, clusters, mode} — WHERE the instance
-                    runs; defaulted from the Blueprint's defaultPlacement;
-                    gated by the Blueprint's allowedPlacements.
+                    Placement of this instance (#3969): an OBJECT
+                    {mode, targets, ownedDependencies, regions, clusters,
+                    vcluster}. `mode` is the posture (singleton = one cluster
+                    only; active-active = manifests fan out to all regions[];
+                    active-hot-standby / active-passive = primary in
+                    regions[0], standby in regions[1..]; failover managed by
+                    the Continuum controller); `targets[]` is the per-target
+                    desired state the pattern is derived from. Defaulted from
+                    the Blueprint's defaultPlacement; gated by its
+                    allowedPlacements + placementCapability. The bare posture
+                    STRING is the legacy spelling: accepted on read and
+                    migrated to {mode} by the application-controller.
                 regions:
                   type: array
                   minItems: 1
