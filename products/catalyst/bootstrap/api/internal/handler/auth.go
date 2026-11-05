@@ -1387,42 +1387,122 @@ func buildClearSessionCookie(name, domain string, secure bool) string {
 // /login. Falls back to /sovereign/login (the contabo default) when
 // the env var is unset, so the local-dev path (no ingress prefix)
 // can override via CATALYST_KC_POST_LOGOUT_PATH.
+//
+// SOVEREIGN shape (#6870, measured on hw307 2026-09-06 and re-measured
+// 2026-11-05): on a Sovereign the three inputs above are all wrong for
+// a BROWSER, and each one alone dead-ends the sign-out:
+//
+//   - CATALYST_KC_ADDR is the IN-CLUSTER admin address
+//     (http://keycloak.keycloak.svc.cluster.local) the catalyst-kc-sa-
+//     credentials host-bridge publishes for server-side calls. The
+//     browser cannot resolve it — the second hop ended on
+//     chrome-error://chromewebdata with the page title
+//     "keycloak.keycloak.svc.cluster.local".
+//   - CATALYST_KC_CLIENT_ID is unset (its Secret is mothership-only), so
+//     the default "catalyst-zero-ui" went on the wire. The sovereign
+//     realm's SPA client is "catalyst-ui" (the UI's oidc.ts CLIENT_ID,
+//     the org-controller's catalystUIClientID, and the realm import);
+//     an unknown client_id makes Keycloak reject the post-logout URI:
+//     `GET …/logout?client_id=catalyst-zero-ui&post_logout_redirect_uri=
+//     https://console.hw307.omani.works/sovereign/login` → 400 "Invalid
+//     redirect uri" (probed live against auth.hw307.omani.works).
+//   - CATALYST_POST_AUTH_REDIRECT ships as /sovereign/components on every
+//     Sovereign, so the derived path was /sovereign/login — but the
+//     Sovereign SPA is mounted at the ROOT (urls.ts BASE='/', router
+//     basepath '/'); its login route is /login. /sovereign/login is the
+//     stale-bookmark URL G110 (#2706) had to defend against.
+//
+// So on a Sovereign — identified by SOVEREIGN_FQDN, the same
+// discriminator buildKCBrokerURL uses — the end-session hop targets the
+// PUBLIC issuer https://auth.<fqdn> (the host every login redirect
+// already uses; see keycloakPublicBaseURL), names the realm's SPA client
+// catalyst-ui, and returns to /login on the host the request came in on
+// (the sovereign-admin console OR a per-Org console.<slug>.<pool>, whose
+// catalyst_session cookie this handler just cleared). Keycloak then
+// ends the realm SSO session and 302s back to that login page: probed
+// live, `client_id=catalyst-ui&post_logout_redirect_uri=https://
+// console.hw307.omani.works/login` → 302 Location: that URL. The
+// explicit CATALYST_KC_PUBLIC_ADDR / CATALYST_KC_CLIENT_ID /
+// CATALYST_KC_POST_LOGOUT_PATH overrides still win on every shape, and
+// the Catalyst-Zero branch is byte-identical to before.
 func buildKeycloakLogoutURL(r *http.Request) string {
-	kcAddr := strings.TrimRight(os.Getenv("CATALYST_KC_ADDR"), "/")
-	if kcAddr == "" {
+	onSovereign := strings.TrimSpace(os.Getenv("SOVEREIGN_FQDN")) != ""
+	kcBase := keycloakPublicBaseURL()
+	if kcBase == "" {
 		return ""
 	}
 	realm := os.Getenv("CATALYST_KC_REALM")
 	if realm == "" {
-		realm = "openova"
+		if onSovereign {
+			realm = "sovereign"
+		} else {
+			realm = "openova"
+		}
 	}
 	clientID := os.Getenv("CATALYST_KC_CLIENT_ID")
 	if clientID == "" {
-		clientID = "catalyst-zero-ui"
+		if onSovereign {
+			clientID = sovereignConsoleClientID
+		} else {
+			clientID = "catalyst-zero-ui"
+		}
 	}
 	scheme := "https"
 	if r.TLS == nil && r.Header.Get("X-Forwarded-Proto") != "https" {
 		scheme = "http"
 	}
-	host := r.Host
-	if fwd := r.Header.Get("X-Forwarded-Host"); fwd != "" {
-		host = fwd
-	}
-	postLogout := scheme + "://" + host + resolvePostLogoutPath()
+	// requestHost strips any :port suffix — Keycloak matches the
+	// post_logout_redirect_uri against `https://console.<host>/*` as a
+	// string prefix, so a `:443` authority would not match the wildcard.
+	host := requestHost(r)
+	postLogout := scheme + "://" + host + resolvePostLogoutPath(onSovereign)
 	q := url.Values{}
 	q.Set("client_id", clientID)
 	q.Set("post_logout_redirect_uri", postLogout)
-	return kcAddr + "/realms/" + realm + "/protocol/openid-connect/logout?" + q.Encode()
+	return kcBase + "/realms/" + realm + "/protocol/openid-connect/logout?" + q.Encode()
+}
+
+// sovereignConsoleClientID is the sovereign realm's public PKCE client the
+// catalyst-ui SPA authenticates with (bp-keycloak realm import; the UI's
+// oidc.ts CLIENT_ID; the org-controller registers each per-Org console
+// redirect onto this same client, #6509).
+const sovereignConsoleClientID = "catalyst-ui"
+
+// keycloakPublicBaseURL returns the Keycloak origin a BROWSER can reach
+// (no trailing slash), for URLs that are handed to the user agent rather
+// than dialled server-side. Resolution order:
+//
+//  1. CATALYST_KC_PUBLIC_ADDR — explicit operator override.
+//  2. https://auth.<SOVEREIGN_FQDN> — every Sovereign's public issuer host
+//     (bp-keycloak gateway.host; the same host buildKCBrokerURL and the UI's
+//     buildOIDCEndpoints derive).
+//  3. CATALYST_KC_ADDR — Catalyst-Zero, where the configured address has
+//     always been the one the browser is sent to.
+//
+// Returns "" when none is set (CI / contabo bring-up without Keycloak).
+func keycloakPublicBaseURL() string {
+	if explicit := strings.TrimRight(strings.TrimSpace(os.Getenv("CATALYST_KC_PUBLIC_ADDR")), "/"); explicit != "" {
+		return explicit
+	}
+	if sovFQDN := strings.TrimSpace(os.Getenv("SOVEREIGN_FQDN")); sovFQDN != "" {
+		return "https://auth." + sovFQDN
+	}
+	return strings.TrimRight(os.Getenv("CATALYST_KC_ADDR"), "/")
 }
 
 // resolvePostLogoutPath picks the correct path to redirect operators
 // back to after KC RP-initiated logout. See buildKeycloakLogoutURL for
-// the contabo-vs-Sovereign rationale.
-func resolvePostLogoutPath() string {
+// the contabo-vs-Sovereign rationale. onSovereign short-circuits to the
+// root-mounted SPA's /login (#6870); the CATALYST_POST_AUTH_REDIRECT
+// derivation below is the Catalyst-Zero (/sovereign-prefixed) shape.
+func resolvePostLogoutPath(onSovereign bool) string {
 	// Explicit override wins — useful for local dev or unusual ingress
 	// shapes (an operator running catalyst-ui on a different prefix).
 	if explicit := strings.TrimSpace(os.Getenv("CATALYST_KC_POST_LOGOUT_PATH")); explicit != "" {
 		return explicit
+	}
+	if onSovereign {
+		return "/login"
 	}
 	// Derive from the post-AUTH redirect already configured for this
 	// catalyst-api (the same path prefix applies — wizard and login are
