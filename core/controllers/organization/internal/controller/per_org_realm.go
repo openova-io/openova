@@ -25,11 +25,14 @@
 // complete Tier-3 SSO, so the reconcile fails + requeues).
 //
 // Feature flag: PerOrgRealmEnabled gates the path. It defaults to
-// enabled (consistent with the always-on EnsureGroup group path) so the
-// realm provisions out of the box; an operator can disable it per-Org-
-// realm rollout via the controller env. When disabled the hook surfaces
-// State=Disabled (parallel to iac-bootstrap's Disabled badge) and the
-// reconcile continues.
+// DISABLED — cmd/main.go reads CATALYST_PER_ORG_REALM_ENABLED with
+// envBoolDefaultFalse, the PR #3101 merge-readiness decision (default-on +
+// fatal-on-failure on the Pillar-1 onboarding path, with EnsureRealm never
+// yet run against a live Keycloak). It stays dormant until the Tier-3
+// per-Org SSO walk validates it on a test Sovereign (#5373 exit criteria);
+// an operator enables it per Sovereign via the controller env. When
+// disabled the hook surfaces State=Disabled (parallel to iac-bootstrap's
+// Disabled badge) and the reconcile continues.
 //
 // Finalizer: the controller adds the `orgs.openova.io/per-org-realm`
 // finalizer on first observation (when the feature is enabled) and runs
