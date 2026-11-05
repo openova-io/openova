@@ -121,12 +121,14 @@ func TestRenderSpineApplicationCR_ContractShape(t *testing.T) {
 	// spec.placement is stamped EXPLICITLY (multi-region → the Blueprint's
 	// active-passive default) so placement.Resolve emits a primary+standby
 	// plan and buildContinuumPlan mints the Continuum CR (the consumer half).
-	pl, found, _ := unstructured.NestedString(cr.Object, "spec", "placement")
+	// #3969 — stamped as the ONE stored shape, the object `{mode}`.
+	pl, found, _ := unstructured.NestedString(cr.Object, "spec", "placement", "mode")
 	if !found {
-		t.Fatalf("spec.placement must be stamped explicitly; it was omitted")
+		t.Fatalf("spec.placement.mode must be stamped explicitly; it was omitted (spec.placement=%v)",
+			cr.Object["spec"].(map[string]interface{})["placement"])
 	}
 	if pl != "active-passive" {
-		t.Fatalf("spec.placement = %q, want active-passive (multi-region openbao default)", pl)
+		t.Fatalf("spec.placement.mode = %q, want active-passive (multi-region openbao default)", pl)
 	}
 
 	// #4416 — ADOPT, never roll (Invariant #3): the CR is bootstrap-owned +

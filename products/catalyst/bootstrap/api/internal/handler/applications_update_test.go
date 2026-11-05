@@ -124,9 +124,10 @@ func TestHandleApplicationUpdate_TopologyScaleUp_Succeeds(t *testing.T) {
 		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
 	}
 	got, _ := client.Resource(ApplicationGVR()).Namespace("acme").Get(context.Background(), "wp-prod", metav1.GetOptions{})
-	mode, _, _ := unstructured.NestedString(got.Object, "spec", "placement")
-	// One vocabulary (#3375 DoD-1): the PUT posted the legacy spelling
-	// "active-hotstandby"; the CR STORES the canonical "active-hot-standby".
+	mode, _, _ := unstructured.NestedString(got.Object, "spec", "placement", "mode")
+	// One vocabulary (#3375 DoD-1) + ONE shape (#3969): the PUT posted the
+	// legacy spelling "active-hotstandby"; the CR STORES the canonical
+	// "active-hot-standby" in the placement object's `mode`.
 	if mode != "active-hot-standby" {
 		t.Fatalf("placement not patched to canonical: got %q, want active-hot-standby", mode)
 	}

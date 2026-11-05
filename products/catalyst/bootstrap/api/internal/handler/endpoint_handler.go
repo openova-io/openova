@@ -63,6 +63,7 @@ import (
 	"k8s.io/client-go/rest"
 
 	"github.com/openova-io/openova/core/controllers/application/admission"
+	bpv1 "github.com/openova-io/openova/core/controllers/pkg/apis/blueprint/v1alpha1"
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/catalog"
@@ -2326,38 +2327,28 @@ func newApplicationCRFromSeed(seed instances.ApplicationSeed) *unstructured.Unst
 	// carrier in its spec at all (UAT row 15).
 	obj.SetNamespace(orgNamespace(seed.Namespace))
 	obj.SetLabels(seed.Labels)
-	// One vocabulary (#3375 DoD-1): both the string AND object forms
-	// stamp the CANONICAL placement token. placementForTopology folds
-	// the chosen topology (which may already be a canonical G117 class,
-	// e.g. singleton / active-hot-standby) onto the canonical posture;
-	// the object form's `mode` is canonicalised too so the two forms
-	// never disagree.
-	var placementValue interface{} = placementForTopology(seed.Topology)
+	// One vocabulary (#3375 DoD-1) + ONE shape (#3969): the CR stores the
+	// canonical placement OBJECT. placementForTopology folds the chosen
+	// topology (which may already be a canonical G117 class, e.g. singleton
+	// / active-hot-standby) onto the canonical posture; the WHERE fields the
+	// advanced view set ride on the same object. The bare string this door
+	// used to emit when no WHERE was set is the legacy spelling — read, never
+	// written.
+	placement := bpv1.ApplicationPlacement{Mode: placementForTopology(seed.Topology)}
 	regions := []interface{}{"primary"}
 	if seed.Placement != nil {
-		pl := map[string]interface{}{
-			"mode": canonicalizeTopology(seed.Topology),
-		}
-		if seed.Placement.VCluster != "" {
-			pl["vcluster"] = seed.Placement.VCluster
-		}
+		placement.Mode = canonicalizeTopology(seed.Topology)
+		placement.VCluster = seed.Placement.VCluster
+		placement.Regions = seed.Placement.Regions
+		placement.Clusters = seed.Placement.Clusters
 		if len(seed.Placement.Regions) > 0 {
-			plRegions := make([]interface{}, 0, len(seed.Placement.Regions))
+			regions = make([]interface{}, 0, len(seed.Placement.Regions))
 			for _, r := range seed.Placement.Regions {
-				plRegions = append(plRegions, r)
+				regions = append(regions, r)
 			}
-			pl["regions"] = plRegions
-			regions = plRegions
 		}
-		if len(seed.Placement.Clusters) > 0 {
-			plClusters := make([]interface{}, 0, len(seed.Placement.Clusters))
-			for _, c := range seed.Placement.Clusters {
-				plClusters = append(plClusters, c)
-			}
-			pl["clusters"] = plClusters
-		}
-		placementValue = pl
 	}
+	placementValue := placement.Canonical()
 	spec := map[string]interface{}{
 		// #3922 — slug the env ref so a dotted Sovereign FQDN (seed.Namespace
 		// is the Org, often an FQDN like "hw171.omantel.biz") does not produce

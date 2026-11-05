@@ -573,7 +573,13 @@ func renderSpineApplicationCR(sc spineComponent, envRef, orgRef string, regions 
 	spec := map[string]interface{}{
 		"environmentRef":  envRef,
 		"organizationRef": orgRef,
-		"placement":       spinePlacementMode(sc, len(regions)),
+		// #3969 — ONE stored shape: the placement object. The producer used
+		// to stamp the bare posture string ("the spine producer that still
+		// stamps the legacy posture string", placement_fanout.go); every
+		// catalyst-api start re-runs this force:true server-side apply, so
+		// the enrolled CRs migrate to `{mode}` on the next roll with no
+		// manual step.
+		"placement": map[string]interface{}{"mode": spinePlacementMode(sc, len(regions))},
 		"blueprintRef": map[string]interface{}{
 			"name":    sc.BlueprintName,
 			"version": sc.BlueprintVersion,

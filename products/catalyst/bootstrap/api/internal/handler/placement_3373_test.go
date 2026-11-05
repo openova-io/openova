@@ -21,13 +21,19 @@ func TestNewApplicationUnstructured_StringForm_StoresCanonical(t *testing.T) {
 		Placement: applicationPlacement{Mode: "single-region", Regions: []string{"fsn"}},
 	}
 	obj := newApplicationUnstructured(req, "", "")
-	pl, ok, err := unstructured.NestedString(obj.Object, "spec", "placement")
-	// One vocabulary (#3375 DoD-1): the CR STORES the canonical token —
-	// the legacy "single-region" is folded to "singleton" so every CR
-	// carries one vocabulary the resolver/render path can rely on. The
-	// string form is preserved (still a string, not the object form).
-	if err != nil || !ok || pl != "singleton" {
-		t.Fatalf("legacy single-region must store the canonical singleton string, got (%q, %v, %v)", pl, ok, err)
+	// One vocabulary (#3375 DoD-1) + ONE shape (#3969): the CR STORES the
+	// canonical token — the legacy "single-region" is folded to "singleton"
+	// — inside the placement OBJECT `{mode}`. A posture-only caller no
+	// longer produces the bare string; that spelling is read, never written.
+	pl, ok, err := unstructured.NestedMap(obj.Object, "spec", "placement")
+	if err != nil || !ok {
+		t.Fatalf("spec.placement must be the object form, got (%v, %v, %v)", obj.Object["spec"].(map[string]any)["placement"], ok, err)
+	}
+	if pl["mode"] != "singleton" {
+		t.Fatalf("legacy single-region must store the canonical singleton mode, got %v", pl["mode"])
+	}
+	if len(pl) != 1 {
+		t.Fatalf("a posture-only install must store exactly {mode}, got %v", pl)
 	}
 }
 
@@ -118,19 +124,23 @@ func TestNewApplicationCRFromSeed_NoPlacement_StringForm(t *testing.T) {
 		Topology:  "singleton",
 	}
 	obj := newApplicationCRFromSeed(seed)
-	pl, ok, err := unstructured.NestedString(obj.Object, "spec", "placement")
-	// One vocabulary (#3375 DoD-1): the silent-accept string form stamps
-	// the CANONICAL token via placementForTopology. A "singleton" topology
-	// maps to the canonical "singleton" placement (no longer rewritten to
-	// the legacy "single-region"); the catalog placementSchema, the
-	// editors, and the resolver all speak this single set.
-	if err != nil || !ok || pl != "singleton" {
-		t.Fatalf("silent-accept flow must stamp the canonical placement token, got (%q, %v, %v)", pl, ok, err)
+	// One vocabulary (#3375 DoD-1) + ONE shape (#3969): the silent-accept
+	// flow stamps the CANONICAL token via placementForTopology inside the
+	// placement OBJECT `{mode}`. A "singleton" topology maps to the canonical
+	// "singleton" placement (no longer rewritten to the legacy
+	// "single-region"); the catalog placementSchema, the editors, and the
+	// resolver all speak this single set.
+	pl, ok, err := unstructured.NestedMap(obj.Object, "spec", "placement")
+	if err != nil || !ok {
+		t.Fatalf("silent-accept flow must stamp the placement object, got (%v, %v, %v)", obj.Object["spec"].(map[string]any)["placement"], ok, err)
+	}
+	if pl["mode"] != "singleton" || len(pl) != 1 {
+		t.Fatalf("silent-accept flow must stamp exactly {mode: singleton}, got %v", pl)
 	}
 }
 
 // A legacy / hyphen-variant topology choice on the seed still folds to
-// the canonical placement token on the string form.
+// the canonical placement token in `mode`.
 func TestNewApplicationCRFromSeed_LegacyTopologyFoldsToCanonical(t *testing.T) {
 	seed := instances.ApplicationSeed{
 		Name:      "obs",
@@ -139,7 +149,7 @@ func TestNewApplicationCRFromSeed_LegacyTopologyFoldsToCanonical(t *testing.T) {
 		Topology:  "active-hotstandby", // legacy spelling
 	}
 	obj := newApplicationCRFromSeed(seed)
-	pl, _, _ := unstructured.NestedString(obj.Object, "spec", "placement")
+	pl, _, _ := unstructured.NestedString(obj.Object, "spec", "placement", "mode")
 	if pl != "active-hot-standby" {
 		t.Fatalf("legacy active-hotstandby topology must stamp canonical active-hot-standby, got %q", pl)
 	}

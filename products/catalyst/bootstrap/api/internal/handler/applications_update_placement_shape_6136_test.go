@@ -85,15 +85,10 @@ func TestPlacementValueForUpdate_PreservesShapeAndUnrestatedFields_6136(t *testi
 
 	t.Run("object-form CR is NOT downgraded to a scalar", func(t *testing.T) {
 		// The Topology-tab Save: a mode + regions, no WHERE fields restated.
-		got := placementValueForUpdate(objectCR, applicationPlacement{
+		obj := placementValueForUpdate(objectCR, applicationPlacement{
 			Mode:    "active-active",
 			Regions: []string{"me-east-215-a", "me-east-215-b"},
 		})
-		obj, ok := got.(map[string]interface{})
-		if !ok {
-			t.Fatalf("placement collapsed to %T (%v) — a Save replaced the object form with a "+
-				"scalar and dropped vcluster/clusters the body never mentioned (#6136)", got, got)
-		}
 		if obj["mode"] != "active-active" {
 			t.Errorf("mode = %v, want active-active", obj["mode"])
 		}
@@ -107,7 +102,7 @@ func TestPlacementValueForUpdate_PreservesShapeAndUnrestatedFields_6136(t *testi
 	})
 
 	t.Run("targets[] from the editor are persisted as an object", func(t *testing.T) {
-		got := placementValueForUpdate(nil, applicationPlacement{
+		obj := placementValueForUpdate(nil, applicationPlacement{
 			Mode:    "active-hot-standby",
 			Regions: []string{"me-east-215-a", "me-east-215-b"},
 			Targets: []bpv1.PlacementTarget{
@@ -115,11 +110,6 @@ func TestPlacementValueForUpdate_PreservesShapeAndUnrestatedFields_6136(t *testi
 				{Region: "me-east-215-b", Cluster: "mgmt-B", Role: bpv1.DataRoleStandby, StandbyType: bpv1.StandbyHot},
 			},
 		})
-		obj, ok := got.(map[string]interface{})
-		if !ok {
-			t.Fatalf("placement = %T (%v), want the object form — a body carrying targets[] cannot be "+
-				"stored as a bare string, so the editor's whole model is discarded (#6136)", got, got)
-		}
 		targets, ok := obj["targets"].([]interface{})
 		if !ok || len(targets) != 2 {
 			t.Fatalf("targets = %v, want 2 entries", obj["targets"])
@@ -139,62 +129,62 @@ func TestPlacementValueForUpdate_PreservesShapeAndUnrestatedFields_6136(t *testi
 		}
 	})
 
-	// CONTROL — shares the suspect property (it goes through the same producer,
-	// same canonicalisation) and must stay on the legacy wire byte-for-byte.
-	t.Run("CONTROL: legacy mode-only body over a string-form CR still stores a bare string", func(t *testing.T) {
+	// #3969 — ONE stored shape. A mode-only body over a string-form CR is the
+	// migration case: the string carried only a posture, and the PUT stores
+	// that posture in `{mode}`. (Pre-#3969 this was a CONTROL asserting the
+	// bare string survived; the dual form it protected is what the EPIC's
+	// last comment measured as the remaining build.)
+	t.Run("legacy mode-only body over a string-form CR migrates to {mode}", func(t *testing.T) {
 		got := placementValueForUpdate("singleton", applicationPlacement{
 			Mode:    "active-active",
 			Regions: []string{"me-east-215-a"},
 		})
-		s, ok := got.(string)
-		if !ok {
-			t.Fatalf("placement = %T (%v), want the bare string — the legacy caller's wire must not "+
-				"change shape underneath it", got, got)
+		if got["mode"] != "active-active" {
+			t.Errorf("placement.mode = %v, want active-active", got["mode"])
 		}
-		if s != "active-active" {
-			t.Errorf("placement = %q, want active-active", s)
+		if _, present := got["targets"]; present {
+			t.Errorf("a body with no targets must not invent any: %v", got)
 		}
 	})
 
-	// CONTROL — a nil current placement with a mode-only body is the fresh
-	// legacy case and must also stay scalar.
-	t.Run("CONTROL: absent current placement + mode-only body stays a bare string", func(t *testing.T) {
+	// A nil current placement with a mode-only body is the fresh case and
+	// lands on the same shape.
+	t.Run("absent current placement + mode-only body stores {mode}", func(t *testing.T) {
 		got := placementValueForUpdate(nil, applicationPlacement{Mode: "single-region"})
-		s, ok := got.(string)
-		if !ok {
-			t.Fatalf("placement = %T, want string", got)
-		}
 		// One vocabulary (#3375 DoD-1): the legacy dialect still folds.
-		if s != "singleton" {
-			t.Errorf("placement = %q, want singleton (canonicalised from single-region)", s)
+		if got["mode"] != "singleton" {
+			t.Errorf("placement.mode = %v, want singleton (canonicalised from single-region)", got["mode"])
+		}
+		if len(got) != 1 {
+			t.Errorf("a posture-only body must store exactly {mode}, got %v", got)
 		}
 	})
 }
 
 // TestPlacementValueForUpdate_VacuityCheck_6136 proves the guards above can
-// FAIL. It feeds the producer the two inputs whose outputs the fix changed and
-// asserts the results DIFFER in shape from each other — a stubbed producer that
-// always returned a string, or always returned an object, collapses this
-// distinction and the test goes red.
+// FAIL. The producer must still DISTINGUISH a posture-only body from one that
+// carries the #3969 model: the first stores `{mode}` and nothing else, the
+// second stores `targets[]`. A stub that always emitted the same object would
+// collapse the two and go red here.
 func TestPlacementValueForUpdate_VacuityCheck_6136(t *testing.T) {
 	t.Parallel()
 
-	scalar := placementValueForUpdate(nil, applicationPlacement{Mode: "singleton"})
-	object := placementValueForUpdate(nil, applicationPlacement{
+	modeOnly := placementValueForUpdate(nil, applicationPlacement{Mode: "singleton"})
+	withTargets := placementValueForUpdate(nil, applicationPlacement{
 		Mode:    "singleton",
 		Targets: []bpv1.PlacementTarget{{Region: "me-east-215-a", Cluster: "mgmt-A", Role: bpv1.DataRolePrimary}},
 	})
 
-	if _, ok := scalar.(string); !ok {
-		t.Fatalf("the mode-only case produced %T — this suite would pass vacuously on a "+
-			"producer that emits objects unconditionally", scalar)
+	if _, present := modeOnly["targets"]; present {
+		t.Fatalf("the mode-only case produced targets %v — this suite would pass vacuously on a "+
+			"producer that invents a desired state", modeOnly["targets"])
 	}
-	if _, ok := object.(map[string]interface{}); !ok {
-		t.Fatalf("the targets case produced %T — this suite would pass vacuously on a "+
-			"producer that emits strings unconditionally", object)
+	if _, present := withTargets["targets"]; !present {
+		t.Fatalf("the targets case produced %v — this suite would pass vacuously on a "+
+			"producer that drops the model", withTargets)
 	}
-	if reflect.TypeOf(scalar) == reflect.TypeOf(object) {
-		t.Fatal("both inputs produced the same type — the producer is not resolving the dual form at all")
+	if reflect.DeepEqual(modeOnly, withTargets) {
+		t.Fatal("both inputs produced the same object — the producer is not reading the body at all")
 	}
 }
 
@@ -322,11 +312,11 @@ func TestHandleApplicationUpdate_ObjectFormStillGuardsDestructiveTransitions_613
 	}
 }
 
-// TestHandleApplicationUpdate_StringFormCallerIsUnchanged_6136 is the CONTROL
-// at handler level: the legacy string-form CR with a legacy mode-only body must
-// behave exactly as before, INCLUDING keeping its scalar shape. It shares the
-// suspect property — it is the same handler, the same producer, the same
-// canonicalisation — and stays green in both states of the fix.
+// TestHandleApplicationUpdate_StringFormCallerIsUnchanged_6136 drives the
+// legacy string-form CR with a legacy mode-only body through the real handler.
+// The caller's wire is unchanged (mode + regions in, 200 out); the stored
+// shape is the #3969 object, because a PUT is the one write that can migrate
+// a legacy CR without the controller's help.
 func TestHandleApplicationUpdate_StringFormCallerIsUnchanged_6136(t *testing.T) {
 	cr := makeAppCR("acme", "wp-prod", "1.2.3", "singleton", []string{"me-east-215-a"})
 	h := NewWithPDM(silentLogger(), &fakePDM{})
@@ -348,14 +338,20 @@ func TestHandleApplicationUpdate_StringFormCallerIsUnchanged_6136(t *testing.T) 
 	if err != nil {
 		t.Fatalf("get patched CR: %v", err)
 	}
-	s, isString, _ := unstructured.NestedString(got.Object, "spec", "placement")
-	if !isString {
-		t.Fatalf("a legacy string-form CR edited by a legacy mode-only body changed shape — "+
-			"the fix must not migrate CRs nobody asked it to migrate; got %v",
+	// #3969 — ONE stored shape: the PUT migrates the legacy string to the
+	// object. The caller's wire (mode + regions) is unchanged; only the CR's
+	// stored shape is.
+	pl, ok, _ := unstructured.NestedMap(got.Object, "spec", "placement")
+	if !ok {
+		t.Fatalf("a legacy string-form CR edited by a mode-only body must land on the ONE "+
+			"stored shape (the object); got %v",
 			got.Object["spec"].(map[string]interface{})["placement"])
 	}
-	if s != "active-active" {
-		t.Errorf("spec.placement = %q, want active-active", s)
+	if pl["mode"] != "active-active" {
+		t.Errorf("spec.placement.mode = %v, want active-active", pl["mode"])
+	}
+	if _, present := pl["targets"]; present {
+		t.Errorf("a mode-only body must not invent targets: %v", pl)
 	}
 }
 

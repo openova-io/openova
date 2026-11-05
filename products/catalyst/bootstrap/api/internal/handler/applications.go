@@ -304,15 +304,15 @@ type applicationStatusResponse struct {
 
 // applicationStatusSpec is the spec subset the Topology tab consumes.
 //
-// `Placement` is DUAL-FORM, exactly as `Application.spec.placement` is
-// (#3373): the legacy posture STRING, or the #3969 object
-// `{mode, vcluster, regions, clusters, targets, ownedDependencies}`. It is
-// `any` rather than `string` because this endpoint is the console's only read
-// of the DESIRED placement, and a string cannot carry `targets[]` — see
+// `Placement` is the #3969 object `{mode, vcluster, regions, clusters,
+// targets, ownedDependencies}` — ALWAYS an object on the wire, even when the
+// CR still holds the legacy posture string (placementValueForStatus folds
+// that to `{mode}`). This endpoint is the console's only read of the DESIRED
+// placement, and a string cannot carry `targets[]` — see
 // placementValueForStatus for the defect that typing it `string` caused
 // (UAT row 16).
 type applicationStatusSpec struct {
-	Placement      any                    `json:"placement,omitempty"`
+	Placement      map[string]interface{} `json:"placement,omitempty"`
 	Regions        []string               `json:"regions,omitempty"`
 	EnvironmentRef string                 `json:"environmentRef,omitempty"`
 	BlueprintRef   map[string]interface{} `json:"blueprintRef,omitempty"`
@@ -829,32 +829,33 @@ func applicationStatusSpecFromCR(obj *unstructured.Unstructured) *applicationSta
 // could read back, and the tab kept rendering the pre-Save posture.
 //
 // THE RULES, deliberately mirroring placementValueForUpdate on the write side
-// so one dual-form producer faces each direction:
-//   - A CR holding the OBJECT form is reported as an object, verbatim, with
-//     `mode` REWRITTEN to the canonical token (#3375 DoD-1) so one vocabulary
-//     still holds on the wire regardless of which spelling was stored.
-//   - A CR holding the string form (or none at all) is reported as the posture
-//     STRING via the pre-existing placementForTopology(readTopology(...)) path
-//     — byte-identical to the previous behaviour, including its
-//     empty/unknown → `singleton` display default for the listing-style
-//     consumers that have always relied on it.
+// so one producer faces each direction:
+//   - The wire value is ALWAYS the object form (#3969 — one shape, so the
+//     console never type-switches). A CR holding the object form is reported
+//     verbatim, with `mode` REWRITTEN to the canonical token (#3375 DoD-1) so
+//     one vocabulary still holds regardless of which spelling was stored.
+//   - A CR still holding the legacy string form (or none at all) is reported
+//     as `{mode: <posture>}` — the posture resolved through the pre-existing
+//     placementForTopology(readTopology(...)) path, including its
+//     empty/unknown → `singleton` display default the listing-style consumers
+//     have always relied on. Only the SHAPE changed; the value did not.
 //
-// It never SYNTHESISES an object: an Application that declares only a posture
-// reports only a posture. Inventing `targets` here would hand the tab a
-// declared intention it could not distinguish from an observed one, which is
-// the #5568 defect this repo has already paid for once.
-func placementValueForStatus(obj *unstructured.Unstructured) any {
+// It never SYNTHESISES a desired state: an Application that declares only a
+// posture reports only `{mode}` — no `targets`. Inventing targets here would
+// hand the tab a declared intention it could not distinguish from an observed
+// one, which is the #5568 defect this repo has already paid for once.
+func placementValueForStatus(obj *unstructured.Unstructured) map[string]interface{} {
 	posture := placementForTopology(readTopology(obj))
 	if obj == nil {
-		return posture
+		return map[string]interface{}{"mode": posture}
 	}
 	raw, found, err := unstructured.NestedFieldNoCopy(obj.Object, "spec", "placement")
 	if err != nil || !found {
-		return posture
+		return map[string]interface{}{"mode": posture}
 	}
 	cur, isObject := raw.(map[string]interface{})
 	if !isObject {
-		return posture
+		return map[string]interface{}{"mode": posture}
 	}
 	out := make(map[string]interface{}, len(cur)+1)
 	for k, v := range cur {
@@ -1182,33 +1183,25 @@ func newApplicationUnstructured(req applicationInstallRequest, sovereignFQDN, or
 	// folded here so every Application CR carries one vocabulary and the
 	// resolver/render path never sees a legacy spelling.
 	canonMode := canonicalizeTopology(req.Placement.Mode)
-	// #3373 — spec.placement is dual-form. The string form carries the
-	// canonical posture for callers that never set the WHERE fields; the
-	// OBJECT form {mode, vcluster, regions, clusters} carries the
-	// instance placement when the caller (console advanced view / direct
-	// API) declares it.
-	var placementValue any = canonMode
-	if req.Placement.VCluster != "" || len(req.Placement.Clusters) > 0 {
-		pl := map[string]any{
-			"mode":     canonMode,
-			"vcluster": req.Placement.VCluster,
-		}
-		if len(req.Placement.Regions) > 0 {
-			plRegions := make([]any, 0, len(req.Placement.Regions))
-			for _, r := range req.Placement.Regions {
-				plRegions = append(plRegions, r)
-			}
-			pl["regions"] = plRegions
-		}
-		if len(req.Placement.Clusters) > 0 {
-			plClusters := make([]any, 0, len(req.Placement.Clusters))
-			for _, c := range req.Placement.Clusters {
-				plClusters = append(plClusters, c)
-			}
-			pl["clusters"] = plClusters
-		}
-		placementValue = pl
+	// #3969 — spec.placement has ONE stored shape: the object
+	// (bpv1.ApplicationPlacement.Canonical). A caller that names only a
+	// posture stores `{mode}`; the WHERE fields (vcluster / clusters /
+	// regions) ride on the same object when declared. The bare string this
+	// door used to emit for posture-only callers is the legacy spelling the
+	// readers still accept and the application-controller rewrites — no
+	// writer emits it any more, so no reader has to type-switch.
+	placement := bpv1.ApplicationPlacement{
+		Mode:     canonMode,
+		VCluster: req.Placement.VCluster,
+		Clusters: req.Placement.Clusters,
 	}
+	if placement.VCluster != "" || len(placement.Clusters) > 0 {
+		// Byte-identical to the pre-#3969 object form: an explicit WHERE
+		// also pins the placement's own region list.
+		placement.VClusterSet = true
+		placement.Regions = req.Placement.Regions
+	}
+	placementValue := placement.Canonical()
 	spec := map[string]any{
 		// #3922 — the CR's spec.environmentRef is RFC-1123-label-constrained
 		// (^[a-z][a-z0-9-]{2,63}$, no dots). On a chroot/operator install the
