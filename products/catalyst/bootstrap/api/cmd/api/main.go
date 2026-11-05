@@ -1422,6 +1422,14 @@ func main() {
 		// Body: {yaml: "<one-or-more-docs>"}. Returns one entry per
 		// document with `created` vs `updated`. Matrix TC-271.
 		rg.Post("/api/v1/sovereigns/{id}/k8s/apply", h.HandleK8sMultiApply)
+		// Epic #6703 P4b — ad-hoc CronJob schedules ("New schedule" on the
+		// /jobs/schedule surface). A real batch/v1 CronJob cloned from an
+		// existing CronJob's jobTemplate; edit/delete gated to console-
+		// origin schedules (a chart's CronJob changes in Git). See
+		// internal/handler/schedules.go.
+		rg.Post("/api/v1/sovereigns/{id}/schedules", h.HandleScheduleCreate)
+		rg.Patch("/api/v1/sovereigns/{id}/schedules/{ns}/{name}", h.HandleScheduleUpdate)
+		rg.Delete("/api/v1/sovereigns/{id}/schedules/{ns}/{name}", h.HandleScheduleDelete)
 		// NOTE: wizard pre-submit validation endpoints
 		// (/credentials/validate, /credentials/object-storage/validate,
 		// /sshkey/generate, /registrar/{r}/validate, /subdomains/check)
