@@ -2002,11 +2002,33 @@ spec:
         kind: HelmRepository
         name: bp-agenity
         namespace: flux-system
+  # NEVER STALL (Refs #4111 #6163 #4277). This release's readiness is gated on
+  # an INPUT the platform does not ship: the seed-claude-creds init container
+  # waits for the Sovereign's Anthropic credential and fails loudly when it
+  # has not arrived (#6163), so on a Sovereign whose owner has not yet supplied
+  # catalyst-system/sovereign-anthropic-credentials the first helm install
+  # --wait times out by design. With remediation.retries UNSET (=0) Flux then
+  # marks the HelmRelease Stalled=True / RetriesExceeded after that ONE
+  # attempt and never reconciles it again — measured on hw307 ns acmewalk307:
+  # "Failed to upgrade after 1 attempt(s)", Stalled for 56 days, while the
+  # kubelet kept restarting the init container (11 806 restarts) ready to pick
+  # the credential up the moment it landed. The credential can arrive days
+  # later (it is an operator action), and when it does the Pod comes up on its
+  # own but the HelmRelease stays Failed until a human resets it — a manual
+  # step on the one path that must have none. -1 is Flux's "retry forever"
+  # sentinel, the same posture the vcluster boundary HR takes
+  # (core/controllers/organization/internal/gitops/manifests.go), because
+  # giving up is never the right answer for a release whose only blocker is
+  # an input that will be supplied later.
   install:
     timeout: 15m
+    remediation:
+      retries: -1
   upgrade:
     timeout: 15m
     cleanupOnFail: true
+    remediation:
+      retries: -1
   values:
     # Per-Org identity zone — the openova-MCP derives
     # https://console.<sovereignFqdn> from this when catalystApiUrl is empty.
