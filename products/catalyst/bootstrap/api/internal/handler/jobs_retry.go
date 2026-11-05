@@ -399,10 +399,34 @@ func triggerDeploymentRollout(ctx context.Context, dyn dynamic.Interface, ns, na
 	return nil
 }
 
+// manualRunInstantiateAnnotation is the annotation `kubectl create job
+// --from=cronjob/<name>` stamps on the Job it materialises. Stamped here too
+// so a console "Run now" is indistinguishable from the kubectl one for every
+// consumer that keys on it (the schedule view's run history reads it as
+// "manual — no scheduled fire to compare against").
+const manualRunInstantiateAnnotation = "cronjob.kubernetes.io/instantiate"
+
 // createJobFromCronJob materialises a one-off Job from a CronJob's
 // jobTemplate ("Run now"), via the dynamic client. The new Job is named
 // "<cron>-manual-<unix>" so successive runs never collide and the operator
 // can map it back in `kubectl get jobs`.
+//
+// It mirrors `kubectl create job --from=cronjob/<name>` exactly, and the
+// three things kubectl copies are each load-bearing (epic #6703 P3/P4):
+//
+//   - jobTemplate.metadata.labels + .annotations are carried onto the Job.
+//     Every bootstrap-kit CronJob's template carries
+//     `app.kubernetes.io/managed-by: flux`; without it the Kyverno
+//     `flux-managed` ClusterPolicy (Enforce, matches Job) DENIES the
+//     create outside its namespace allow-list, so "Run now" 5xx'd on a
+//     Blueprint cron. The controller-created children are admitted only
+//     because the CronJob controller copies the template labels — this
+//     path must do the same.
+//   - an ownerReference to the CronJob (non-controller, like kubectl) so
+//     the run is GC'd with its CronJob and shows in the CronJob's run
+//     history (childRunsOfCron matches on ownerReference kind=CronJob).
+//   - `cronjob.kubernetes.io/instantiate: manual`, the kubectl marker that
+//     tells a reader this run has no scheduled fire time.
 func createJobFromCronJob(ctx context.Context, dyn dynamic.Interface, ns, cronName string, now time.Time) (string, error) {
 	cj, err := dyn.Resource(helmwatch.CronJobGVR).Namespace(ns).Get(ctx, cronName, metav1.GetOptions{})
 	if err != nil {
@@ -416,21 +440,41 @@ func createJobFromCronJob(ctx context.Context, dyn dynamic.Interface, ns, cronNa
 	if len(runName) > 63 {
 		runName = runName[:63]
 	}
+	labels := map[string]any{}
+	if tmplLabels, ok, _ := unstructured.NestedMap(cj.Object, "spec", "jobTemplate", "metadata", "labels"); ok {
+		for k, v := range tmplLabels {
+			labels[k] = v
+		}
+	}
+	labels["catalyst.openova.io/manual-run"] = "true"
+	labels["catalyst.openova.io/from-cronjob"] = cronName
+	annotations := map[string]any{}
+	if tmplAnn, ok, _ := unstructured.NestedMap(cj.Object, "spec", "jobTemplate", "metadata", "annotations"); ok {
+		for k, v := range tmplAnn {
+			annotations[k] = v
+		}
+	}
+	annotations[reconcileRequestedAtAnnotation] = now.Format(time.RFC3339Nano)
+	annotations[manualRunInstantiateAnnotation] = "manual"
+	metadata := map[string]any{
+		"name":        runName,
+		"namespace":   ns,
+		"labels":      labels,
+		"annotations": annotations,
+	}
+	if uid := string(cj.GetUID()); uid != "" {
+		metadata["ownerReferences"] = []any{map[string]any{
+			"apiVersion": "batch/v1",
+			"kind":       "CronJob",
+			"name":       cronName,
+			"uid":        uid,
+		}}
+	}
 	newJob := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "batch/v1",
 		"kind":       "Job",
-		"metadata": map[string]any{
-			"name":      runName,
-			"namespace": ns,
-			"labels": map[string]any{
-				"catalyst.openova.io/manual-run":   "true",
-				"catalyst.openova.io/from-cronjob": cronName,
-			},
-			"annotations": map[string]any{
-				reconcileRequestedAtAnnotation: now.Format(time.RFC3339Nano),
-			},
-		},
-		"spec": jobSpec,
+		"metadata":   metadata,
+		"spec":       jobSpec,
 	}}
 	if _, err := dyn.Resource(helmwatch.JobGVR).Namespace(ns).Create(ctx, newJob, metav1.CreateOptions{}); err != nil {
 		return "", fmt.Errorf("create one-off Job %s/%s: %w", ns, runName, err)
