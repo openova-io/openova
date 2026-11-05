@@ -297,7 +297,14 @@ type: application
 # same gateway bp-wordpress-tenant + the org console route attach to, #4054).
 # The old default rendered Accepted=False/InvalidHTTPRoute and the host 404'd
 # until the parentRef was hand-overridden. appVersion (image) unchanged.
-version: 0.5.33
+# 0.5.34 (#6374): credentialWait.timeoutSeconds / .intervalSeconds and
+# credentialResync.intervalSeconds resolve by KEY PRESENCE (hasKey), not sprig
+# `default` — 0 is falsy, so `timeoutSeconds: 0` ("fail immediately") silently
+# rendered as 300 and `intervalSeconds: 0` as 5/120, with the init log echoing
+# the substituted value back. A 0s interval is floored to 1s at runtime, loudly.
+# New suite tests/credential-wait-falsy-default-6374.sh renders the zero case
+# FIRST. appVersion (image) unchanged.
+version: 0.5.34
 # 0.5.22 (#5617): the per-Org oidc-gate companion gains its EGRESS
 # CiliumNetworkPolicy (templates/oidc-gate.yaml `oidc-gate-<cid>-egress`).
 # The gate shipped an ingress-only gateway CNP into a DEFAULT-DENY per-Org

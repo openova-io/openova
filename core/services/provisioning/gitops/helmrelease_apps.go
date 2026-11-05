@@ -740,7 +740,11 @@ spec:
 // a475a5578) — the seed path in test-provisioning-service.yaml was already
 // right (#6324) and never got the chance to match. That workflow now also runs
 // on workflow_run of Blueprint Release, which the suppression does not cover.
-const DefaultHRAppChartVersions = "openclaw=0.2.19,stalwart-mail=0.1.16,newapi=1.4.155,agenity=0.5.33"
+// 2026-11-05: agenity 0.5.33 -> 0.5.34. #6374 bumped products/agenity/chart + the
+// catalog seed to 0.5.34 (credentialWait / credentialResync numeric knobs resolve
+// by key presence — an explicit 0 no longer renders as 300 / 5 / 120); this
+// funnel pin moves in lockstep so hrAppPinSeedDrift stays green.
+const DefaultHRAppChartVersions = "openclaw=0.2.19,stalwart-mail=0.1.16,newapi=1.4.155,agenity=0.5.34"
 
 // ParseHRAppVersions parses the CATALYST_HR_APP_CHART_VERSIONS wire format
 // ("slug=version,slug=version") into the HelmReleaseAppVersions map (#4706).
