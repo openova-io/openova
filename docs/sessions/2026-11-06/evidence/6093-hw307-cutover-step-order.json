@@ -1,0 +1,97 @@
+{
+  "source": "hw307 catalyst-system/catalyst-api (ghcr.io/openova-io/openova/catalyst-api:77b1489), /var/lib/catalyst/executions/9a1f230f320d7ff9/index.json, read 2026-11-05T20:49Z via kubectl exec cat (read-only)",
+  "chartOrderLabels": "kubectl -n catalyst get cm -l app.kubernetes.io/component=cutover-step: gitea-mirror=1 harbor-projects=2 harbor-prewarm=3 registry-pivot=4 flux-gitrepository-patch=5 helmrepository-patches=6 catalyst-api-env-patch=7 gitea-token-mint=8 vcluster-registry-pivot=9 crossplane-provider-pivot=10 egress-block-test=11",
+  "cutoverStatus": {
+    "cutoverComplete": "false",
+    "progressPercent": "0",
+    "totalSteps": "11"
+  },
+  "steps": [
+    {
+      "jobName": "cutover-step-gitea-mirror",
+      "kind": "step",
+      "status": "pending",
+      "dependsOn": []
+    },
+    {
+      "jobName": "cutover-step-harbor-projects",
+      "kind": "step",
+      "status": "pending",
+      "dependsOn": [
+        "cutover-step-gitea-mirror"
+      ]
+    },
+    {
+      "jobName": "cutover-step-harbor-prewarm",
+      "kind": "step",
+      "status": "pending",
+      "dependsOn": [
+        "cutover-step-harbor-projects"
+      ]
+    },
+    {
+      "jobName": "cutover-step-registry-pivot",
+      "kind": "step",
+      "status": "pending",
+      "dependsOn": [
+        "cutover-step-harbor-prewarm"
+      ]
+    },
+    {
+      "jobName": "cutover-step-flux-gitrepository-patch",
+      "kind": "step",
+      "status": "pending",
+      "dependsOn": [
+        "cutover-step-registry-pivot"
+      ]
+    },
+    {
+      "jobName": "cutover-step-helmrepository-patches",
+      "kind": "step",
+      "status": "pending",
+      "dependsOn": [
+        "cutover-step-flux-gitrepository-patch"
+      ]
+    },
+    {
+      "jobName": "cutover-step-catalyst-api-env-patch",
+      "kind": "step",
+      "status": "pending",
+      "dependsOn": [
+        "cutover-step-helmrepository-patches"
+      ]
+    },
+    {
+      "jobName": "cutover-step-gitea-token-mint",
+      "kind": "step",
+      "status": "pending",
+      "dependsOn": [
+        "cutover-step-catalyst-api-env-patch"
+      ]
+    },
+    {
+      "jobName": "cutover-step-vcluster-registry-pivot",
+      "kind": "step",
+      "status": "pending",
+      "dependsOn": [
+        "cutover-step-gitea-token-mint"
+      ]
+    },
+    {
+      "jobName": "cutover-step-crossplane-provider-pivot",
+      "kind": "step",
+      "status": "pending",
+      "dependsOn": [
+        "cutover-step-vcluster-registry-pivot"
+      ]
+    },
+    {
+      "jobName": "cutover-step-egress-block-test",
+      "kind": "step",
+      "status": "pending",
+      "dependsOn": [
+        "cutover-step-crossplane-provider-pivot"
+      ]
+    }
+  ]
+}
