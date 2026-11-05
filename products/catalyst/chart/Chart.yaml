@@ -4074,7 +4074,16 @@ name: bp-catalyst-platform
 #   rendered surface changed. Taken via scripts/bump-chart-version.sh (ceiling
 #   1.4.1631 from origin/main, 46 open PR heads consulted); slot-13 pin bumped in
 #   lockstep.
-version: 1.4.1843
+# 1.4.1844 — hw307 2026-09-13 (Refs #6874 #6753 #5504): catalog-seed advances
+#   bp-postgres 0.2.30 -> 0.2.31 (a promotion no longer re-keys the bootstrap
+#   owner — the replica follower + demoted rejoin name the primary's app Secret
+#   in pg_basebackup.secret; the replica-side NetworkPolicy admits local
+#   consumers on :5432 so region-B consumers reach the promoted primary), so the
+#   umbrella rendered surface changed. Slot-13 pin bumped in lockstep (base
+#   origin/main 1.4.1843; open PR heads NOT consulted — no GitHub token in this
+#   lane, re-take via scripts/bump-chart-version.sh at merge time if the
+#   ceiling has moved).
+version: 1.4.1844
 # 1.4.1481 — #6293: catalog-seed advances bp-self-sovereign-cutover
 #   0.1.186 -> 0.1.187, the release that stops step-06 from patching five
 #   HelmRepositories it does not own and then grading itself on whether they
@@ -4261,7 +4270,7 @@ version: 1.4.1843
 # scripts/check-chart-version-forward.sh (#5743) fails unless the two match —
 # main was carrying a pre-existing 1.4.1330/1.4.1329 split, so this bump heals
 # it in the same commit, exactly as the documented self-heal contract does.
-appVersion: 1.4.1843
+appVersion: 1.4.1844
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
 # Adds the OpenTofu module at infra/providers/huawei/ (VPC + Subnet +

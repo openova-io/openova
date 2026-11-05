@@ -2107,12 +2107,23 @@ assert edd=={'ingress': False, 'egress': False}, \
 #     aborts the failback outright. A guard that blinds the decider is worse
 #     than no guard — this is exactly what ruled out CNPG instance fencing.
 exempt=set()
+ns_scope=[]
 for r in deny:
     for fe in r.get('fromEndpoints',[]):
         for me in fe.get('matchExpressions',[]):
+            if me['key']=='k8s:io.kubernetes.pod.namespace':
+                ns_scope.append(me); continue
             assert me['operator']=='NotIn', f"#6148: exemptions must be NotIn, got {me['operator']}"
             exempt.add(me['key'])
             exempt.update(me['values'])
+# (c0) The deny must reach consumers in EVERY namespace (0.2.31). A namespaced
+#      CNP's fromEndpoints is implicitly ANDed with the policy's own namespace
+#      unless the selector names the namespace key (the #4854 measurement the
+#      allow rules already rely on) — and keycloak / gitea / harbor / grafana /
+#      powerdns all live outside shared-data, so without the Exists term the
+#      guard fenced nothing it was built for.
+assert len(ns_scope)==1 and ns_scope[0]['operator']=='Exists' and not ns_scope[0].get('values'), \
+    f"#6148: the deny selector must carry `k8s:io.kubernetes.pod.namespace Exists` (any namespace) exactly once, got {ns_scope} — otherwise the implicit same-namespace AND limits the guard to shared-data Pods and every real consumer keeps writing through the hold"
 assert 'dr-failback' in exempt, \
     "#6148: the failback Pod must be exempt or its own timeline probe trips clear_hold and aborts the failback"
 assert 'cnpg.io/cluster' in exempt, \
@@ -2855,3 +2866,137 @@ grep -q 'PROMOTING: region-A WAL stream absent AND region-A unreachable' "$FAKE/
   || { cat "$FAKE/act-e2.log" >&2; fail "#6874 D5 (e) a real region kill AFTER the switchback did not promote — the cleared marker still blocks (or the promote path regressed)"; }
 if grep -q 'REFUSING promote: local cluster already diverged' "$FAKE/act-e2.log"; then fail "#6874 D5 (e) anti-flap still refuses on a cleared marker"; fi
 echo "  PASS (signals publishes local-state · marker self-clears on replica.enabled=true + ConsistentSystemID=True + fresh streaming · self-heal never re-freezes a consistent replica · own stale latch released with annotations dropped · foreign suspend + promoted latch untouched · later real kill promotes again)"
+
+# ── Case 22a: a PROMOTION must never re-key the bootstrap owner (hw307 2026-09-13) ──
+#
+# CNPG treats `pg_basebackup.database/owner` as an application-database
+# declaration that is dormant while the Cluster is a replica and ACTIVE the
+# moment it is promoted (ShouldPgBaseBackupCreateApplicationDatabase, v1.29.0).
+# With no `secret` named, the operator mints `<replica>-app` with a random
+# password on the promotion tick and the instance manager ALTERs the owner to
+# it. On hw307 that re-keyed harbor / grafana / org for 52 days while every
+# consumer held the canonical hub Secret. The fix is ONE credential name for
+# the owner across both halves and every bootstrap shape: the replica follower
+# and the #6149 demoted rejoin shape name the PRIMARY's application Secret —
+# the same object cluster.yaml's initdb.secret and managed.roles[] name. Absent
+# on the replica side (#5224) it is a NotFound no-op, so the WAL-streamed hash
+# survives; present on the primary side it is the canonical value.
+#
+# Asserted on the PARSED objects (a grep for `secret:` would also match the
+# externalClusters TLS refs). Vacuity guards first.
+echo "[render] Case 22a: promotion never re-keys the owner — replica + demoted pg_basebackup name the PRIMARY's app Secret (== initdb.secret == managed.roles passwordSecret)"
+helm template shared-pg . -f "$TMP/ahs.values.yaml" --namespace shared-data \
+  --set topology.side=secondary --set topology.promoted=true \
+  --api-versions postgresql.cnpg.io/v1 > "$TMP/ahs-replica-promoted.yaml" 2>&1 || fail "Case 22a promoted replica render errored"
+cat > "$TMP/nobind-replica.values.yaml" <<'YAML'
+instance: { name: shared-pg }
+topology:
+  mode: active-hot-standby
+  side: secondary
+  primary: { region: hz-fsn-rtz-prod }
+  replica: { region: hz-hel-rtz-prod }
+  replication: { mode: sync }
+databases: []
+YAML
+helm template shared-pg . -f "$TMP/nobind-replica.values.yaml" --namespace shared-data \
+  --api-versions postgresql.cnpg.io/v1 > "$TMP/ahs-replica-nobind.yaml" 2>&1 || fail "Case 22a no-binding replica render errored"
+python3 - "$TMP/ahs.yaml" "$TMP/ahs-replica.yaml" "$TMP/ahs-replica-promoted.yaml" "$TMP/failback-demoted.yaml" "$TMP/ahs-replica-nobind.yaml" "$TMP/failback.yaml" <<'PYEOF' || { echo "FAIL: Case 22a owner re-key assertions failed." >&2; exit 1; }
+import sys, yaml
+def docs(p): return [d for d in yaml.safe_load_all(open(p)) if isinstance(d, dict)]
+def cluster(p, name):
+    cs=[d for d in docs(p) if d.get('kind')=='Cluster' and d['metadata']['name']==name]
+    assert len(cs)==1, f"{p}: expected exactly one Cluster {name}, got {len(cs)} (vacuity guard)"
+    return cs[0]
+primary, replica, promoted, demoted, nobind, steady_fb = sys.argv[1:7]
+
+# The primary half's single credential name (#5504 already pins initdb == roles).
+p = cluster(primary, 'shared-pg')
+initdb = p['spec']['bootstrap']['initdb']
+assert initdb.get('owner')=='harbor', "vacuity: primary initdb owner must be harbor"
+canon = initdb['secret']['name']
+roles = {r['name']: r['passwordSecret']['name'] for r in p['spec']['managed']['roles']}
+assert roles.get('harbor')==canon, f"#5504 control: managed.roles harbor -> {roles.get('harbor')} != initdb.secret {canon}"
+assert canon=='shared-pg-harbor', f"expected the canonical role Secret shared-pg-harbor, got {canon}"
+
+# (1) replica follower: pg_basebackup names THE SAME Secret.
+r = cluster(replica, 'shared-pg-replica')
+pb = r['spec']['bootstrap']['pg_basebackup']
+assert pb.get('owner')=='harbor' and pb.get('database')=='registry', "vacuity: replica pg_basebackup owner/database must render"
+assert r['spec']['replica']['enabled'] is True, "vacuity: the steady replica must be replica.enabled=true"
+assert pb.get('secret',{}).get('name')==canon, \
+    f"replica pg_basebackup.secret must name the primary's app Secret {canon}, got {pb.get('secret')} — without it CNPG mints shared-pg-replica-app on promotion and re-keys harbor (hw307 52-day outage)"
+
+# (2) the promoted shape keeps it (the exact tick the operator would otherwise mint).
+pr = cluster(promoted, 'shared-pg-replica')
+assert pr['spec']['replica']['enabled'] is False, "vacuity: promoted render must flip replica.enabled=false"
+assert pr['spec']['bootstrap']['pg_basebackup'].get('secret',{}).get('name')==canon, \
+    "promoted replica must still name the primary's app Secret"
+
+# (3) the #6149 demoted rejoin shape on the primary side names it too — the
+#     SAME Secret that fixture's steady primary render (Case 21a, owner
+#     keycloak) names in initdb.secret, so demote → switchback never changes
+#     the owner's credential object.
+sfb = cluster(steady_fb, 'shared-pg')
+canon_fb = sfb['spec']['bootstrap']['initdb']['secret']['name']
+assert canon_fb=='shared-pg-keycloak', f"vacuity: the failback fixture's steady initdb.secret should be shared-pg-keycloak, got {canon_fb}"
+d = cluster(demoted, 'shared-pg')
+assert d['spec']['replica']['enabled'] is True and 'pg_basebackup' in d['spec']['bootstrap'], "vacuity: demoted shape must be the pg_basebackup rejoin"
+assert d['spec']['bootstrap']['pg_basebackup'].get('secret',{}).get('name')==canon_fb, \
+    f"demoted rejoin pg_basebackup.secret must name the canonical role Secret {canon_fb}, got {d['spec']['bootstrap']['pg_basebackup'].get('secret')}"
+
+# (4) no bindings: the neutral `app` owner is keyed from CNPG's own primary
+#     default `<instance>-app`, never `<instance>-replica-app`.
+n = cluster(nobind, 'shared-pg-replica')
+npb = n['spec']['bootstrap']['pg_basebackup']
+assert npb.get('owner')=='app', "vacuity: no-binding replica owner must default to app"
+assert npb.get('secret',{}).get('name')=='shared-pg-app', f"no-binding replica must name shared-pg-app, got {npb.get('secret')}"
+
+# (5) the replica side still MINTS nothing (#5224) — the name is a reference,
+#     not a second credential.
+for p_ in (replica, promoted):
+    assert not [x for x in docs(p_) if x.get('kind')=='Secret' and x.get('type')=='kubernetes.io/basic-auth'], \
+        f"{p_}: the replica side must not mint a role Secret (#5224)"
+print("  PASS (replica / promoted / demoted / no-binding pg_basebackup.secret == %s == initdb.secret == managed.roles passwordSecret; replica side mints nothing)" % canon)
+PYEOF
+
+# ── Case 22b: the REPLICA-side NetworkPolicy admits local consumers on 5432 (hw307 2026-09-13) ──
+#
+# `-allow-replication-to-replica` selects every replica-CR Pod and default-
+# denies what it does not list. After a #6149 promotion the ClusterMesh-global
+# `-mesh-rw` alias re-homes onto the promoted replica (#6753, real LOCAL
+# backends), so region-B's own consumers dial it in-region — and were DROPPED:
+# region-B keycloak `Trying to connect to PostgreSQL server shared-pg-mesh-rw
+# ... timeout` while region-A consumers (peer-identity CNP) reached the same
+# Pods. The replica side must carry the SAME any-namespace :5432 consumer rule
+# the primary side carries (#3577), unconditionally — a standby has to be
+# consumer-reachable the instant it is promoted, not one helm render later.
+echo "[render] Case 22b: replica-side NetworkPolicy admits LOCAL consumers (any namespace, :5432) — same rule as the primary side"
+python3 - "$TMP/ahs.yaml" "$TMP/ahs-replica.yaml" "$TMP/ahs-replica-promoted.yaml" <<'PYEOF' || { echo "FAIL: Case 22b replica consumer-ingress assertions failed." >&2; exit 1; }
+import sys, yaml
+def docs(p): return [d for d in yaml.safe_load_all(open(p)) if isinstance(d, dict)]
+def netpol(p, name):
+    ps=[d for d in docs(p) if d.get('kind')=='NetworkPolicy' and d['metadata']['name']==name]
+    assert len(ps)==1, f"{p}: expected exactly one NetworkPolicy {name}, got {len(ps)} (vacuity guard)"
+    return ps[0]
+def consumer_rules(np):
+    out=[]
+    for rule in np['spec'].get('ingress') or []:
+        froms=rule.get('from') or []
+        ports=[(pp.get('port'), pp.get('protocol','TCP')) for pp in rule.get('ports') or []]
+        if any(f=={'namespaceSelector': {}} for f in froms) and (5432,'TCP') in ports:
+            out.append(rule)
+    return out
+primary, replica, promoted = sys.argv[1:4]
+# control: the primary side's #3577 rule
+pn = netpol(primary, 'shared-pg-allow-replication-to-primary')
+assert consumer_rules(pn), "control: primary netpol must carry the any-namespace :5432 consumer rule (#3577)"
+for p_ in (replica, promoted):
+    rn = netpol(p_, 'shared-pg-allow-replication-to-replica')
+    assert rn['spec']['podSelector']['matchLabels'].get('cnpg.io/cluster')=='shared-pg-replica', "vacuity: replica netpol must select the replica Cluster's Pods"
+    assert 'Ingress' in rn['spec'].get('policyTypes', []), "vacuity: replica netpol must be an Ingress policy (it default-denies)"
+    rules=consumer_rules(rn)
+    assert len(rules)==1, f"{p_}: replica netpol must carry exactly one any-namespace :5432 consumer rule, got {len(rules)} — region-B consumers are dropped by the promoted primary without it (hw307)"
+    # the rule is a plain ingress allow, scoped to the one port
+    assert len(rules[0]['ports'])==1, "the consumer rule must open ONE port (5432) only"
+print("  PASS (replica netpol admits any-namespace :5432 in the steady AND promoted shapes; primary control holds)")
+PYEOF

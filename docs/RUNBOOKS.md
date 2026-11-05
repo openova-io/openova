@@ -1675,6 +1675,60 @@ The deterministic failover test for two independent CNPG clusters:
    ```
    kubectl --context <region-b> -n shared-data logs deploy/<instance>-dr-promoter -c actor | grep -E 'DIVERGENCE CLEARED|LATCH RELEASED|LATCHED'
    ```
+   🛑 **A promotion must not re-key the bootstrap owner, and the promoted
+   survivor must be reachable by its OWN consumers (`bp-postgres` ≥ 0.2.31,
+   hw307 2026-09-13 → 2026-11-06).** hw307 ran failed over for 52 days and
+   region B's consumers never recovered, for two chart reasons. (1) The
+   region-B follower's `bootstrap.pg_basebackup` carried `database`/`owner`
+   and no `secret`; CNPG keeps that application-database declaration dormant
+   while `replica.enabled=true` and activates it on the promotion tick, so the
+   operator minted `shared-pg-replica-app` / `shared-pg-b-replica-app` /
+   `shared-pg-c-replica-app` with random passwords and ALTERed `harbor`,
+   `grafana` and `org` to them — harbor-core, jobservice and Grafana then
+   failed `28P01` against the canonical `harbor-database-secret` /
+   `grafana-database-env` in BOTH regions, while non-owner roles (gitea,
+   keycloak) kept authenticating. The follower and the demoted rejoin shape
+   now name the primary's application Secret in `pg_basebackup.secret`
+   (absent on the replica side → CNPG mints nothing and the WAL-streamed hash
+   survives). (2) `<instance>-allow-replication-to-replica` admitted no local
+   consumer: once the global `-mesh-rw` alias re-homed onto the promoted
+   replica (#6753), region-B keycloak logged `Trying to connect to PostgreSQL
+   server shared-pg-mesh-rw … timeout` and gitea's init never passed, while
+   region-A consumers (peer-identity CNP) reached the same Pods. The replica
+   side now carries the primary's any-namespace `:5432` consumer rule. Also
+   in 0.2.31: the #6148 write-guard's `ingressDeny` selector gains
+   `k8s:io.kubernetes.pod.namespace Exists` — without it the deny was limited
+   to shared-data Pods by the same implicit same-namespace AND the #4854 allow
+   rules document, so it fenced none of the consumers it was built for.
+   Sample on a Sovereign that promoted on an older chart:
+   ```
+   # an owner re-key leaves a CNPG-owned `<instance>-replica-app` Secret on region B …
+   kubectl --context <region-b> -n shared-data get secret -o name | grep -- '-replica-app'
+   # … and the owner authenticates ONLY with that Secret's password (canonical one 28P01s):
+   P=$(kubectl --context <region-b> -n shared-data get secret <instance>-replica-app -o jsonpath='{.data.password}' | base64 -d)
+   kubectl --context <region-b> -n shared-data exec <instance>-replica-1 -c postgres -- \
+     env PGPASSWORD="$P" psql -h <instance>-replica-rw -U <owner> -d <db> -tAXc 'select 1'
+   ```
+   The repair is the realign on the WRITABLE side: `ALTER ROLE <owner>
+   PASSWORD '<canonical>'` with the value from region A's `<instance>-<owner>`
+   Secret, then delete the stray `<instance>-replica-app` Secret so CNPG
+   cannot re-assert it (the replica-side chart never names it again).
+   🛑 **A failed-over pair reports itself (continuum-controller, same
+   change).** The 2-region standby probe runs against the LOCAL `-rw`; after
+   a failover that is the demoted follower's designated primary streaming to
+   its own in-cluster standbys, so every `dr-shared-pg*` Continuum on hw307
+   read `phase=Healthy / primaryRegion=A / StandbyAvailable=True` for 52 days
+   while region B held the writer. The controller now reads the local half's
+   `spec.replica.enabled` first: a pair-role primary that is itself a replica
+   cluster is reported `phase=FailedOver`, `status.primaryRegion=<the
+   failover target>`, `StandbyAvailable=False` with reason **`PrimaryDemoted`**
+   (`hotStandbyAbsent=true`), `Ready=True` (the service is up, in the other
+   region); the lag-breach auto-switchover is suppressed on that pair. The
+   console's Switch-over control is then disabled (the "standby" is already
+   the writer) and UAT row G3 reads the failover instead of a false green.
+   `kubectl --context <region-a> get continuums.dr.openova.io -A -o custom-columns=NAME:.metadata.name,PHASE:.status.phase,PRIMARY:.status.primaryRegion,STANDBY:.status.standbyAvailable`
+   is the one-line check; `FailedOver` + the standby region in PRIMARY means
+   the controlled switchback above is owed.
    🛑 **Timeline-divergence signal (#5220/#5245)**: the dr-promoter still
    records `catalyst.openova.io/dr-timeline-diverged-at` on the region-B HR
    when a side cannot stream from a REACHABLE peer — on ≥ 0.2.18 the wedge

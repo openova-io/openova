@@ -166,7 +166,16 @@ spec:
       #   HR within a tick of every un-suspend and blocked the chart upgrade. A
       #   latch on a promoted HR is never touched. Script-only; substitutes
       #   unchanged. Lockstep 16a/16c/16d.
-      version: 0.2.30
+      # 0.2.31 (hw307 2026-09-13, Refs #6874 #6753 #5504): a promotion no longer
+      #   re-keys the bootstrap owner — the region-B follower (and the demoted
+      #   rejoin shape) names the PRIMARY's application Secret in
+      #   pg_basebackup.secret, so CNPG never mints `<instance>-replica-app` and
+      #   ALTERs grafana to a random password on the promotion tick (grafana
+      #   crash-looped in both regions for 52 days). The replica NetworkPolicy
+      #   now admits local consumers on :5432, so region-B's own consumers reach
+      #   the promoted primary through the re-homed `-mesh-rw` alias.
+      #   Substitutes unchanged. Lockstep 16a/16c/16d.
+      version: 0.2.31
       sourceRef:
         kind: HelmRepository
         name: bp-postgres

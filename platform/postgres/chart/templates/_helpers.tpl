@@ -592,6 +592,28 @@ yields the valid `…-openova-flow` instead of an underscore'd invalid name.
 {{- end -}}
 {{- end -}}
 
+{{/*
+The PRIMARY half's application-owner Secret name — the ONE credential object
+the bootstrap owner is keyed from in every shape (hw307 2026-09-13, the
+replica-side twin of #5504):
+  - with bindings: the first binding's role Secret (bp-postgres.roleSecretName),
+    which cluster.yaml names in bootstrap.initdb.secret AND managed.roles[]
+    .passwordSecret on the primary;
+  - with no bindings: CNPG's own default `<instance>-app` (the Secret initdb
+    mints for the neutral `app` owner on the primary).
+replica-cluster.yaml (the region-B follower) and the #6149 demoted rejoin shape
+in cluster.yaml name it in bootstrap.pg_basebackup.secret so that a promotion
+can never mint a second, random credential for the same role.
+*/}}
+{{- define "bp-postgres.primaryAppSecretName" -}}
+{{- $first := first (.Values.databases | default list) -}}
+{{- if $first -}}
+{{- include "bp-postgres.roleSecretName" (dict "ctx" . "db" $first) -}}
+{{- else -}}
+{{- printf "%s-app" (include "bp-postgres.instanceName" .) -}}
+{{- end -}}
+{{- end -}}
+
 {{/* Common labels applied to every resource the chart emits. */}}
 {{- define "bp-postgres.labels" -}}
 helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
