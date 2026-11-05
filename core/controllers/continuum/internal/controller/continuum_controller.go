@@ -431,7 +431,11 @@ func (r *ContinuumReconciler) runPerCR(ctx context.Context, nn types.NamespacedN
 			_ = r.publishCNPGPromotable(ctx, nn, spec, maxLag)
 			r.runSwitchover(ctx, cr, spec, toRegion, "operator-requested", maxLag, w)
 			_ = r.clearSwitchoverRequest(ctx, cr)
-		case lagBreached:
+		case lagBreached && !standby.LocalHalfDemoted:
+			// A lag breach on a FAILED-OVER pair must not drive the
+			// sequencer "from spec.primaryRegion to the standby": the
+			// standby already IS the writer, and the declared primary's
+			// lag is its own replay lag as a follower.
 			_ = r.publishLagBreach(ctx, nn, spec, maxLag)
 			r.runSwitchover(ctx, cr, spec, toRegion, "lag-breach", maxLag, w)
 		default:
@@ -956,6 +960,18 @@ func (r *ContinuumReconciler) observeCNPGStandby(
 				Available:      cnpg.StandbyAvailable(replicaStatus),
 				ReplicaCluster: replica.GetName(),
 			}
+			// Roles INVERTED (the named primary is a replica cluster and
+			// the named replica is not): the pair is failed over. The
+			// promoted replica half being Ready is not "the standby is
+			// available" — there is no standby of the declared primary.
+			if primaryStatus.IsReplicaCluster && !replicaStatus.IsReplicaCluster {
+				raw = cnpg.StandbyObservation{
+					Known:            true,
+					Available:        false,
+					LocalHalfDemoted: true,
+					ReplicaCluster:   replica.GetName(),
+				}
+			}
 			// #5125 Defect-2 — step-8 rejoin-repair check. Reuses the
 			// SAME FindPair + Get calls above; no extra CNPG API traffic.
 			// Runs every tick regardless of switchover-requested/lag-
@@ -978,6 +994,31 @@ func (r *ContinuumReconciler) observeCNPGStandby(
 		// local API).
 		primaryStatus, _, _ = reader.Get(ctx, primary.GetNamespace(), primary.GetName())
 		expectedReplica := cnpg.ReplicaNameForPrimary(primary.GetName())
+		// FAILED OVER (hw307 2026-09-13 → 2026-11-06): the named primary
+		// half is itself a replica cluster (the dr-failback #6149 rejoin
+		// shape — spec.replica.enabled=true, source=<instance>-replica).
+		// Its `-rw` is the DESIGNATED primary of a 3-instance follower,
+		// which streams to its own two in-cluster standbys, so the
+		// pg_stat_replication probe below reads "standby present" from
+		// rows that are region A's own Pods and reported
+		// StandbyAvailable=True / StandbyReachable / phase=Healthy /
+		// primaryRegion=A for 52 days while region B held the writer.
+		// The local probe cannot be the cross-region standby verdict
+		// here; the structural read of the CR is.
+		if primaryStatus.IsReplicaCluster {
+			source := primaryStatus.ReplicaSource
+			if source == "" {
+				source = expectedReplica
+			}
+			raw = cnpg.StandbyObservation{
+				Known:            true,
+				Available:        false,
+				LocalHalfDemoted: true,
+				ReplicaCluster:   source,
+			}
+			standby = r.resolveStandbyPosture(nn, cr, spec, raw, false)
+			return primaryStatus, replicaStatus, standby
+		}
 		posture, pErr := r.StandbyProbe.Observe(ctx, spec.CNPGNamespace, primary.GetName(), expectedReplica)
 		if pErr != nil {
 			// Probe error != standby-absent: leave raw Known=false and
@@ -1073,6 +1114,14 @@ func (r *ContinuumReconciler) resolveStandbyPosture(
 		g.standbyLastSeenReplica = raw.ReplicaCluster
 		g.standbyUnavailableSince = time.Time{}
 		return raw
+	case raw.Known && raw.LocalHalfDemoted:
+		// A structural read of the local CR's spec (replica.enabled=true
+		// on the pair-role primary), not a probe that can flap — no
+		// grace. Passing through at once is what makes the status turn
+		// truthful on the tick the failover is observed.
+		g.standbyLastSeenReplica = raw.ReplicaCluster
+		g.standbyUnavailableSince = time.Time{}
+		return raw
 	case raw.Known:
 		// Replica CR present but not serving (not Ready / zero ready
 		// instances) — "standby temporarily unreachable".
@@ -1133,12 +1182,33 @@ func (r *ContinuumReconciler) patchStatusFromCR(
 	// branch the CR stays phase=Healthy / replicationLagSeconds=0 for
 	// the whole outage while writes stall on SyncRep (proven in the
 	// G12 region-kill drill on hw232).
-	if standby.Known && !standby.Available && phase == PhaseHealthy {
+	primaryRegion := spec.PrimaryRegion
+	var reason, message string
+	switch {
+	case standby.Known && standby.LocalHalfDemoted && phase == PhaseHealthy:
+		// FAILED OVER (hw307): the declared primary half is a replica
+		// cluster following the promoted standby region. The pair's
+		// writer is the failover target, not spec.primaryRegion — say so
+		// on the CR the console and the UAT ledger read, with the phase
+		// vocabulary the CRD already carries (FailedOver → Ready=True:
+		// the service is up, in the other region). The lease stays with
+		// this controller (it runs only here), so LeaseHeld is untouched.
+		phase = PhaseFailedOver
+		if t := pickFailoverTarget(spec); t != "" {
+			primaryRegion = t
+		}
+		reason = "PrimaryDemoted"
+		message = fmt.Sprintf("pair is FAILED OVER: the %s half (cnpg Cluster %q) is a replica cluster streaming from %q, so writes are served by %s; a controlled switchback (RUNBOOKS §6.1) restores %s as primary",
+			spec.PrimaryRegion, spec.CNPGPair, standby.ReplicaCluster, primaryRegion, spec.PrimaryRegion)
+	case standby.Known && !standby.Available && phase == PhaseHealthy:
 		phase = PhaseDegraded
 	}
 	su := statusUpdate{
 		Phase:                 phase,
-		PrimaryRegion:         spec.PrimaryRegion,
+		PrimaryRegion:         primaryRegion,
+		Reason:                reason,
+		Message:               message,
+		LocalHalfDemoted:      standby.Known && standby.LocalHalfDemoted,
 		LeaseHolder:           lease.Holder,
 		SelfRegion:            self,
 		ReplicationLagSeconds: maxLag,
@@ -1186,6 +1256,13 @@ type statusUpdate struct {
 	LagObserved          bool
 	SwitchoverInProgress bool
 	Step                 string
+
+	// LocalHalfDemoted — the pair-role primary half is a replica cluster
+	// (the pair is failed over to the standby region). Selects the
+	// PrimaryDemoted wording of the StandbyAvailable=False condition
+	// instead of StandbyUnreachable, which would claim an outage of a
+	// standby that is in fact the writer.
+	LocalHalfDemoted bool
 
 	LastSwitchoverResult string
 	LastSwitchoverFrom   string
@@ -1405,6 +1482,13 @@ func (r *ContinuumReconciler) patchStatus(ctx context.Context, cr *unstructured.
 		if !*su.StandbyAvailable {
 			cond["reason"] = "StandbyUnreachable"
 			cond["message"] = fmt.Sprintf("required synchronous hot-standby (cnpg-pair replica cluster %q) is unreachable; synchronous replication has no standby to acknowledge commits so writes stall and RPO=0 durability is at risk", su.StandbyReplicaCluster)
+			if su.LocalHalfDemoted {
+				// FAILED OVER — the "standby" is the writer and the declared
+				// primary follows it; there is no synchronous standby of
+				// the declared primary. Not an outage of the standby.
+				cond["reason"] = "PrimaryDemoted"
+				cond["message"] = fmt.Sprintf("the declared primary half is a replica cluster streaming from %q (spec.replica.enabled=true) — the pair is FAILED OVER to the standby region; no synchronous hot-standby of the declared primary exists until the controlled switchback (RUNBOOKS §6.1)", su.StandbyReplicaCluster)
+			}
 			if su.StandbyGone {
 				// #4901 follow-up — the replica Cluster CR itself is no
 				// longer resolvable (cluster deleted / region wiped), a

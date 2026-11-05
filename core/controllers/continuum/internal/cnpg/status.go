@@ -69,6 +69,14 @@ type Status struct {
 	// this Cluster CR is the standby half of a cluster-pair.
 	IsReplicaCluster bool
 
+	// ReplicaSource is `spec.replica.source` — the externalCluster this
+	// Cluster streams from while IsReplicaCluster. On the pair-role
+	// PRIMARY half it is non-empty exactly when the half has been
+	// DEMOTED by the bp-postgres / bp-cnpg-pair dr-failback actor
+	// (the #6149 rejoin shape: region A re-cloned as a follower of the
+	// promoted region-B `<instance>-replica`).
+	ReplicaSource string
+
 	// LagSeconds is the observed replication lag in seconds. Zero on
 	// the primary Cluster (no upstream). Sourced from
 	// status.timelineID + last-archived/applied-WAL deltas exposed
@@ -146,6 +154,17 @@ type StandbyObservation struct {
 	Available      bool
 	Gone           bool
 	ReplicaCluster string
+	// LocalHalfDemoted — the pair-role PRIMARY half visible to this
+	// controller is itself a replica cluster (spec.replica.enabled=true):
+	// the region-B dr-promoter promoted the standby and the region-A
+	// dr-failback re-cloned the named primary as its follower (#6149).
+	// The pair is FAILED OVER; the declared primary region no longer
+	// serves writes and a standby probe run against the local `-rw`
+	// would only see the demoted half's own in-cluster standbys (hw307:
+	// 52 days of phase=Healthy / primaryRegion=A / StandbyReachable over
+	// a pair whose writer was region B). Always paired with Known=true,
+	// Available=false.
+	LocalHalfDemoted bool
 }
 
 // Reader reads + writes CNPG Cluster CRs via the dynamic client.
@@ -368,6 +387,7 @@ func parseStatus(cr *unstructured.Unstructured) Status {
 	s.TargetPrimary, _, _ = unstructured.NestedString(cr.Object, "status", "targetPrimary")
 	s.Phase, _, _ = unstructured.NestedString(cr.Object, "status", "phase")
 	s.IsReplicaCluster, _, _ = unstructured.NestedBool(cr.Object, "spec", "replica", "enabled")
+	s.ReplicaSource, _, _ = unstructured.NestedString(cr.Object, "spec", "replica", "source")
 
 	// Lag fields may live in different sub-paths depending on CNPG
 	// version. Try the common ones (status.lag, status.replication.lagSeconds).
