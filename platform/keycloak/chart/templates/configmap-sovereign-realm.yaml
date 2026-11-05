@@ -210,11 +210,23 @@ tenant emit; tenant takes precedence here.
      (https://console.<sovereignFQDN>/* — a trailing `*`, which DOES work); the
      per-Org hosts are appended at runtime. parentZones is retained for the
      other slots that consume it but no longer feeds catalyst-ui. */ -}}
-{{- /* post.logout.redirect.uris is a `##`-delimited list in Keycloak. Only the
-     sovereign-admin host is listed statically; the org-controller does not
-     currently manage per-Org post-logout entries (the pool logout returns to
-     the sovereign host, then the SPA re-discovers), so no wildcard leaks here. */ -}}
-{{- $postLogout := printf "https://console.%s/*" .Values.sovereignFQDN -}}
+{{- /* post.logout.redirect.uris is a `##`-delimited list in Keycloak. It is
+     set to the literal `+`, which Keycloak 26.x expands to "every entry of
+     this client's redirectUris" (OIDCAdvancedConfigWrapper.
+     getPostLogoutRedirectUris: a list containing `+` is unioned with
+     clientModel.getRedirectUris()). That is the ONLY way the post-logout
+     list can follow the per-Org console hosts the organization-controller
+     appends to redirectUris at reconcile time (#6509): a static value here
+     can no more enumerate the unbounded Org set than the redirectUris could.
+
+     #6870 — before this, the attribute listed the sovereign-admin host only,
+     so a per-Org console's sign-out (post_logout_redirect_uri=
+     https://console.<slug>.<pool>/login, the host the user is on) was
+     refused by Keycloak with 400 "Invalid redirect uri" — probed live on
+     hw307 against client_id=catalyst-ui with console.acmewalk307.omani.rest,
+     while the sovereign host 302'd straight back to /login. The sovereign-
+     admin host stays covered because it is the first redirectUri below. */ -}}
+{{- $postLogout := "+" -}}
 ---
 apiVersion: v1
 kind: ConfigMap

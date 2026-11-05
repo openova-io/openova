@@ -263,7 +263,13 @@ spec:
       #   the sovereign-admin host; the organization-controller registers each
       #   Org's CONCRETE callback https://console.<slug>.<pool-tld>/* at reconcile
       #   time (the only shape Keycloak honors for an unbounded Org set).
-      version: 1.5.12
+      # 1.5.13 — #6870 (Refs #6509): catalyst-ui `post.logout.redirect.uris` is
+      #   the literal `+` (Keycloak expands it to the client's redirectUris), so
+      #   the post-logout list follows the per-Org console hosts the
+      #   organization-controller registers; a per-Org console's sign-out no
+      #   longer 400s "Invalid redirect uri" at Keycloak (hw307). Pairs with the
+      #   catalyst-api end-session URL fix (public issuer + catalyst-ui + /login).
+      version: 1.5.13
       sourceRef:
         kind: HelmRepository
         name: bp-keycloak

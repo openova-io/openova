@@ -6,7 +6,12 @@ metadata:
     catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.5.12
+  # 1.5.13 — #6870 (Refs #6509): catalyst-ui `post.logout.redirect.uris` = `+`
+  #   (Keycloak expands it to the client's redirectUris), so sign-out from a
+  #   per-Org console returns to that console's /login instead of 400 "Invalid
+  #   redirect uri" (hw307). Single-zone Sovereigns: same behaviour, the
+  #   sovereign-admin host is the first redirectUri.
+  version: 1.5.13
   card:
     title: keycloak
     summary: Keycloak — user identity. Topology decided by Sovereign CRD spec.keycloakTopology (per-organization for Organizations, shared-sovereign for corporate).

@@ -603,7 +603,19 @@ name: bp-keycloak
 #   Guarded by tests/per-org-console-pool-redirect-3374.sh (Case A now asserts
 # the inert mid-host wildcard is ABSENT -- FAILS on the 1.5.11 template) +
 # core/controllers organization keycloak_console_redirect_6509_test.go.
-version: 1.5.12
+# 1.5.13 (#6870, Refs #6509): the sovereign realm's catalyst-ui client sets
+# `post.logout.redirect.uris` to the literal `+` -- Keycloak 26.x expands it to
+# "every entry of this client's redirectUris" -- so the post-logout list
+# FOLLOWS the concrete per-Org console hosts the organization-controller
+# appends to redirectUris at reconcile time (#6509). The former static value
+# listed the sovereign-admin host only, so a per-Org console's sign-out
+# (post_logout_redirect_uri=https://console.<slug>.<pool>/login) was refused
+# with 400 "Invalid redirect uri" (probed live on hw307 against
+# console.acmewalk307.omani.rest; the sovereign host 302'd back fine). Pairs
+# with the catalyst-api side of #6870 (the end-session URL now names the
+# public issuer + client_id=catalyst-ui + /login). Guarded by
+# tests/per-org-console-pool-redirect-3374.sh Case B (asserts `+`).
+version: 1.5.13
 description: |
   1.5.2 (#4246): the per-tenant `openclaw-oidc-client-secret` Secret now
   emits BOTH `client-secret` AND `OIDC_CLIENT_SECRET` keys (it previously
