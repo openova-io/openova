@@ -309,7 +309,10 @@ jobs:
 
       - name: Set short SHA
         id: vars
-        run: echo "sha_short=$(echo $GITHUB_SHA | head -c 7)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "sha_short=$(echo $GITHUB_SHA | head -c 7)" >> "$GITHUB_OUTPUT"
+          # #6229 — link-time stamp for /api/v1/version buildTime (RFC3339 UTC).
+          echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
       - name: Login to GHCR
         uses: docker/login-action@v3
@@ -333,6 +336,13 @@ jobs:
           push: false
           load: true
           tags: ${{ env.API_IMAGE }}:test
+          # #6229 — stamp the binary with the sha it was built from so
+          # /api/v1/version reports the IMAGE, not the Deployment's env
+          # literal. Same args on the test + push builds so the go-build
+          # layer is cached once, not twice.
+          build-args: |
+            BUILD_SHA=${{ steps.vars.outputs.sha_short }}
+            BUILD_TIME=${{ steps.vars.outputs.build_time }}
 
       # Smoke test — the catalyst-api Pod is the OpenTofu runner, so the .tf
       # sources MUST be present inside the image. After the providers/
@@ -493,6 +503,9 @@ jobs:
           tags: |
             ${{ env.API_IMAGE }}:${{ steps.vars.outputs.sha_short }}
             ${{ env.API_IMAGE }}:latest
+          build-args: |
+            BUILD_SHA=${{ steps.vars.outputs.sha_short }}
+            BUILD_TIME=${{ steps.vars.outputs.build_time }}
 
   # #4049 — BASTION HARBOR WARMUP (every image Huawei→Huawei, incl. PRIVATE
   # catalyst). Delegated to the reusable .github/workflows/warmup-bastion-harbor.yaml
