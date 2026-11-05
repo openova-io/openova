@@ -600,6 +600,14 @@ type Handler struct {
 	// sovereign_anthropic_seed_mothership.go.
 	sovereignAnthropicSeedClientFactory SovereignAnthropicSeedClientFactory
 
+	// anthropicRefreshRejected — the refresh token the OAuth endpoint has
+	// DEFINITIVELY rejected (#6317 follow-up). A spent/revoked refresh token
+	// never recovers, so re-sending it every 10-minute pass only earns rate
+	// limits (measured: HTTP 429 after weeks of retries on hw305). The memo is
+	// keyed by fingerprint; an operator rotation changes the token and clears
+	// it implicitly. See sovereign_anthropic_refresh.go.
+	anthropicRefreshRejected anthropicRejectedRefresh
+
 	// ── NewAPI admin-token OpenBao seed (issue #4477 secondary; ADR-0003) ───
 	// newapiAdminTokenSecretReader — test-only override for reading the
 	// bridge ADMIN_SECRET from the in-cluster
