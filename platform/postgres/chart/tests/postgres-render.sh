@@ -243,6 +243,84 @@ fi
 # Replica-side NetworkPolicy carve-out (own-cluster join + operator).
 grep -q 'allow-replication-to-replica' "$TMP/ahs-replica.yaml" || fail "ahs replica missing replication NetworkPolicy"
 
+# ── Case 4j: #6627 — the REPLICA-side netpol admits SAME-REGION consumers on :5432 ─
+# After a #6149 promote the `<instance>-replica` Cluster is the writable primary
+# and the `-mesh-rw` alias (#6753) resolves to its LOCAL Pod, so the promoted
+# region's own consumers (keycloak first) dial a Pod the replica-side netpol
+# selects. That policy admitted only the DR actors, the replica's own instances
+# and (via the -crossregion-dr-replica CNP) PEER-region identities — never a
+# same-region consumer. hw307 2026-11-05: region-B keycloak-0 5,168 restarts,
+# Hubble `keycloak/keycloak-0 → shared-pg-replica-1:5432 Policy denied DROPPED`.
+# The rule is UNCONDITIONAL on the replica side (a region-kill survivor may not
+# be able to re-render), so it must be present in the steady replica render AND
+# the promoted one, and the primary side's existing rule is the positive control.
+echo "[render] Case 4j: #6627 replica-side netpol carries the namespaceSelector:{} :5432 consumer rule (steady + promoted); primary-side rule = control"
+helm template shared-pg . -f "$TMP/ahs.values.yaml" --namespace shared-data \
+  --set topology.side=secondary --set topology.promoted=true \
+  --api-versions postgresql.cnpg.io/v1 > "$TMP/ahs-replica-promoted.yaml" 2>&1 \
+  || fail "#6627 promoted replica render errored"
+python3 - "$TMP/ahs-replica.yaml" "$TMP/ahs-replica-promoted.yaml" "$TMP/ahs.yaml" <<'PY' \
+  || { echo "FAIL: #6627 replica-side consumer-rule assertions failed." >&2; exit 1; }
+import sys, yaml
+steady, promoted, primary = sys.argv[1:4]
+
+def load(p):
+    return [d for d in yaml.safe_load_all(open(p)) if isinstance(d, dict)]
+
+def netpol(docs, name):
+    for d in docs:
+        if d.get("kind") == "NetworkPolicy" and (d.get("metadata") or {}).get("name") == name:
+            return d
+    return None
+
+def has_local_consumer_rule(np):
+    """True iff an ingress rule admits `namespaceSelector: {}` (every LOCAL
+    namespace, no podSelector) on TCP 5432 — the shape the primary side carries."""
+    for rule in ((np or {}).get("spec") or {}).get("ingress") or []:
+        froms = rule.get("from") or []
+        ports = rule.get("ports") or []
+        if any(f.get("namespaceSelector") == {} and "podSelector" not in f for f in froms) \
+           and any(p.get("port") == 5432 and p.get("protocol", "TCP") == "TCP" for p in ports):
+            return True
+    return False
+
+fails = []
+# CONTROL (positive) — the primary side has carried this rule since #3577; if the
+# checker cannot see it there, the assertions below prove nothing.
+pri = netpol(load(primary), "shared-pg-allow-replication-to-primary")
+if pri is None:
+    fails.append("CONTROL: primary render lacks shared-pg-allow-replication-to-primary")
+elif not has_local_consumer_rule(pri):
+    fails.append("CONTROL FAILED: the checker does not see the primary side's namespaceSelector:{} :5432 rule (#3577) — checker blind")
+# CONTROL (negative) — the checker must be able to say NO: a rule-set with only
+# the DR-actor / own-cluster / operator carve-outs is NOT a consumer rule.
+without = {"spec": {"ingress": [
+    {"from": [{"podSelector": {"matchLabels": {"cnpg.io/cluster": "shared-pg-replica"}}}], "ports": [{"port": 5432, "protocol": "TCP"}]},
+    {"from": [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "cnpg-system"}}}], "ports": [{"port": 8000, "protocol": "TCP"}]},
+    {"from": [{"namespaceSelector": {}, "podSelector": {"matchLabels": {"x": "y"}}}], "ports": [{"port": 5432, "protocol": "TCP"}]},
+]}}
+if has_local_consumer_rule(without):
+    fails.append("CONTROL FAILED: the checker accepts a rule-set with NO broad consumer rule")
+# THE FIX — present on the replica side in BOTH the steady and the promoted render.
+for label, path in (("steady replica", steady), ("promoted replica", promoted)):
+    np = netpol(load(path), "shared-pg-allow-replication-to-replica")
+    if np is None:
+        fails.append(f"{label}: shared-pg-allow-replication-to-replica missing"); continue
+    sel = ((np.get("spec") or {}).get("podSelector") or {}).get("matchLabels") or {}
+    if sel.get("cnpg.io/cluster") != "shared-pg-replica":
+        fails.append(f"{label}: netpol podSelector {sel} does not select the replica Cluster")
+    if not has_local_consumer_rule(np):
+        fails.append(f"{label}: replica-side netpol has NO namespaceSelector:{{}} :5432 consumer rule — a promoted region's own keycloak is default-denied (hw307 region-B 5,168 restarts)")
+    # The pre-existing carve-outs survive (purely additive).
+    text = yaml.safe_dump(np)
+    for needle in ("cnpg.io/cluster: shared-pg-replica", "kubernetes.io/metadata.name: cnpg-system"):
+        if needle not in text:
+            fails.append(f"{label}: replica-side netpol lost its existing carve-out containing {needle!r}")
+for f in fails:
+    print("  FAIL:", f)
+sys.exit(1 if fails else 0)
+PY
+
 # ── Case 4c: crossRegion boolean (the SLOT wiring) → same pair shape ──────
 # The bootstrap-kit slots leave mode=singleton and flip topology.crossRegion to
 # ${SOVEREIGN_ENABLE_CNPG_PAIR}. Prove the boolean alone (mode still singleton)

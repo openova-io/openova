@@ -96,16 +96,15 @@ spec:
   #   un-suspend and blocked the chart upgrade. A latch on a promoted HR is
   #   never touched; the diverged self-heal arm never fires on a consistent
   #   replica. Script-only; singleton byte-identical.
-  # 0.2.31 — hw307 2026-09-13 (Refs #6874 #6753 #5504): a promotion must not
-  #   re-key the bootstrap owner — the replica follower and the demoted rejoin
-  #   shape name the PRIMARY's application Secret in pg_basebackup.secret, so
-  #   CNPG never mints `<instance>-replica-app` and ALTERs harbor/grafana/org to
-  #   a random password on the promotion tick (52-day consumer crash-loop in
-  #   both regions); and the replica-side NetworkPolicy admits local consumers
-  #   on :5432, so region-B's own keycloak/gitea/harbor reach the promoted
-  #   primary through the re-homed `-mesh-rw` alias; and the #6148 write-guard
-  #   deny now spans every namespace (`k8s:io.kubernetes.pod.namespace Exists`)
-  #   instead of only shared-data. Singleton byte-identical.
+  # 0.2.31 — #6627 (Refs #6149 #6753 #3577): the replica-side
+  #   `-allow-replication-to-replica` NetworkPolicy admits SAME-REGION consumers
+  #   on :5432 (`namespaceSelector: {}`), mirroring the primary side. After a
+  #   #6149 promote the promoted Cluster is the writable primary behind
+  #   `-mesh-rw`, yet its policy admitted only the DR actors, its own instances
+  #   and peer-region identities — hw307 region-B keycloak-0 sat at 5,168
+  #   restarts (`Policy denied DROPPED` on :5432) and region-B SSO was dead for
+  #   every app. Unconditional on the replica side; singleton + primary renders
+  #   byte-identical.
   version: 0.2.31
   card:
     title: PostgreSQL

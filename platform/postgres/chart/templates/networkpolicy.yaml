@@ -225,6 +225,37 @@ spec:
       ports:
         - port: 5432
           protocol: TCP
+    # LOCAL-REGION SHARED-PG CONSUMERS (#6627, the promoted-pair shape). After a
+    # #6149 DR promote the `<instance>-replica` Cluster selected by THIS policy IS
+    # the writable primary, and the ClusterMesh-global `<instance>-mesh-rw` write
+    # alias (#6753) resolves to its LOCAL primary Pod. The consumers that run in
+    # this region (keycloak, gitea, harbor, grafana, powerdns, newapi …) then dial
+    # a Pod this policy default-denies: every rule above admits only the DR
+    # actors, the replica's own instances and — via the -crossregion-dr-replica
+    # CiliumNetworkPolicy below — PEER-region endpoints, never a same-region
+    # consumer. Measured live on hw307 (dep 9a1f230f, 2026-11-05, 53 days after
+    # the promote): region-B keycloak-0 at 5,168 restarts on "Unable to connect
+    # to host shared-pg-mesh-rw", Hubble on the primary's node reporting
+    # `keycloak/keycloak-0 → shared-data/shared-pg-replica-1:5432 Policy denied
+    # DROPPED`, while region-A grafana reached the same Pod through the
+    # cross-region CNP (it failed on a password, not on the network). So the
+    # promoted region's own SSO was dead for every app and the pool-domain
+    # funnel with it. This is the replica-side mirror of the primary side's
+    # `namespaceSelector: {}` consumer rule above (#3577) and of the #6627
+    # singleton carve-out — a k8s-NetworkPolicy namespaceSelector resolves to
+    # LOCAL-cluster identities, exactly the set the cross-region CNP cannot
+    # name. UNCONDITIONAL on the replica side on purpose: at the moment of a
+    # region-A kill the survivor's Flux may be unable to re-render anything
+    # (its sources can live in the dead region), so a rule gated on
+    # `topology.promoted` would arrive only after the outage it exists for.
+    # In steady state the replica is a read-only standby, so admitting the
+    # same single data-tier port the primary already opens to every namespace
+    # changes nothing a consumer can do.
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - port: 5432
+          protocol: TCP
     # CNPG operator status + metrics probe — the replica side selects its own
     # instance CR Pods, so it needs the same operator carve-out as the primary.
     - from:
