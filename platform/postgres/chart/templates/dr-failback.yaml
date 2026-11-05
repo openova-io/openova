@@ -292,6 +292,21 @@ data:
       ingressDeny:
         - fromEndpoints:
             - matchExpressions:
+                # ANY-NAMESPACE (#4854 shape, applied to the DENY — 0.2.31).
+                # A namespaced CNP's fromEndpoints selector is implicitly
+                # ANDed with `k8s:io.kubernetes.pod.namespace=<this policy's
+                # namespace>` unless the selector names the namespace key
+                # itself (proven live on hw228 for the allow rules in
+                # networkpolicy.yaml). Without this term the deny matched
+                # only shared-data Pods — and the consumers it exists to
+                # fence (keycloak, gitea, harbor, grafana, powerdns, the
+                # Organization mesh) all live in OTHER namespaces, so the
+                # guard was applied, logged `WRITE-GUARD ON`, and fenced
+                # nothing that mattered. The Exists term suppresses the
+                # implicit same-namespace AND; the two NotIn terms below
+                # still exempt the pair's own Pods and the failback actor.
+                - key: k8s:io.kubernetes.pod.namespace
+                  operator: Exists
                 - key: cnpg.io/cluster
                   operator: NotIn
                   values:

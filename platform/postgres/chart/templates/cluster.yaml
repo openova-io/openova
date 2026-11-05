@@ -110,6 +110,16 @@ spec:
       source: {{ include "bp-postgres.replicaName" . }}
       database: {{ $rejoinDb | quote }}
       owner:    {{ $rejoinOwner | quote }}
+      # The owner's ONE credential object (bp-postgres.primaryAppSecretName —
+      # the same Secret the steady shape's initdb + managed.roles name). Without
+      # it, any promotion of this rejoined half while the pg_basebackup stanza
+      # is still rendered would mint `<instance>-app` and re-key the owner to a
+      # random password (the hw307 2026-09-13 region-B shape, see
+      # replica-cluster.yaml). On this side the Secret is PRESENT (role-
+      # secrets.yaml, resource-policy keep) and canonical, so CNPG asserts the
+      # value every consumer already holds.
+      secret:
+        name: {{ include "bp-postgres.primaryAppSecretName" . | quote }}
   externalClusters:
     - name: {{ include "bp-postgres.replicaName" . }}
       connectionParameters:

@@ -168,6 +168,28 @@ spec:
       cnpg.io/cluster: {{ include "bp-postgres.replicaName" . }}
   policyTypes: [Ingress]
   ingress:
+    # LOCAL SHARED-PG CONSUMERS (hw307 2026-09-13, the replica-side twin of the
+    # #3577 rule above). This policy selects EVERY replica-CR Pod and so
+    # default-denies every ingress it does not list — and until now it listed
+    # no consumer at all, because in steady state region-B's consumers write
+    # through the ClusterMesh-global `-mesh-rw` alias to region A. After a
+    # #6149 promotion that same alias re-homes onto THIS cluster (#6753: the
+    # replica-side stub selects the promoted `<instance>-replica`, affinity
+    # local → REAL local backends), so region-B's own keycloak / gitea / harbor
+    # / grafana dial the promoted primary in-region on 5432 — and this policy
+    # DROPPED them. Measured on hw307: region B held the writable primary for
+    # all three shared instances, region-B keycloak logged `Trying to connect
+    # to PostgreSQL server shared-pg-mesh-rw ... timeout`, gitea's init
+    # container never passed, every region-B consumer was down while region-A
+    # consumers (admitted by the peer-identity CNP below) reached the same
+    # Pods. Same scope as the primary side: one port, every namespace — a
+    # standby must be consumer-reachable the instant it is promoted, not one
+    # helm render later.
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - port: 5432
+          protocol: TCP
 {{- if (include "bp-postgres.autoPromoteActive" .) }}
     # #5623 failover-readiness probe — polls the replica's -rw for the WAL apply
     # lag. Same intra-cluster 5432 path as the dr-promoter signals container.

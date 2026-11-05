@@ -143,6 +143,48 @@ spec:
       source: {{ include "bp-postgres.instanceName" . }}
       database: {{ $bootDb | quote }}
       owner:    {{ $bootOwner | quote }}
+      {{- /*
+      PROMOTION MUST NOT RE-KEY THE OWNER (hw307, 2026-09-13 — #6874 follow-up,
+      the replica-side twin of #5504).
+
+      CNPG treats `pg_basebackup.database/owner` as an APPLICATION-DATABASE
+      declaration that is dormant while `replica.enabled=true`
+      (ShouldPgBaseBackupCreateApplicationDatabase: `if cluster.IsReplica()
+      {return false}`, api/v1/cluster_funcs.go v1.29.0) and ACTIVE the moment
+      the dr-promoter flips this Cluster to a primary. With no `secret` named,
+      the operator then mints `<replica>-app` with a RANDOM 64-char password
+      (cluster_create.go reconcileAppUserSecret) and the primary instance's
+      manager ALTERs the owner's password to it (instance_controller.go
+      refreshCredentialsFromSecret → reconcileUser(owner, GetApplicationSecretName())).
+      Measured on hw307: `shared-pg-replica-app` (user harbor), `shared-pg-b-
+      replica-app` (user grafana) and `shared-pg-c-replica-app` (user org) were
+      created at 17:17:58Z on the promotion tick, and from then on the owner
+      authenticated ONLY with the random password — every consumer holding the
+      canonical hub Secret (harbor-core, jobservice, grafana) crash-looped in
+      BOTH regions for 52 days, while non-owner roles (gitea, keycloak) kept
+      working. The owner's hash had streamed in from region-A's canonical
+      Secret and was correct until the promotion overwrote it.
+
+      Naming the PRIMARY's application Secret here (the SAME object the primary
+      half's bootstrap.initdb.secret and managed.roles[].passwordSecret name —
+      bp-postgres.roleSecretName of the first binding, or CNPG's own
+      `<instance>-app` when no binding is declared) makes the owner have ONE
+      credential name across both halves and every bootstrap shape:
+        - ShouldCreateApplicationSecret() is false → no `<replica>-app` mint;
+        - on this side the Secret is deliberately absent (#5224: a replica
+          region never mints role Secrets) → reconcileUser is a NotFound no-op
+          (instance_controller.go: `if apierrors.IsNotFound(err) {return nil}`)
+          and the WAL-streamed canonical hash SURVIVES the promotion;
+        - if it is ever present it carries region-A's canonical value, so the
+          assert is idempotent.
+      The pgbasebackup Job never projects this Secret (jobs.go gates the
+      non-optional APP_USERNAME env on jobRoleInitDB only), and the operator's
+      status resource-version read tolerates NotFound — so unlike the #6016
+      initdb case an absent name is pod-safe here. Verified against the
+      v1.29.0 source, not assumed.
+      */}}
+      secret:
+        name: {{ include "bp-postgres.primaryAppSecretName" . | quote }}
 
   externalClusters:
     - name: {{ include "bp-postgres.instanceName" . }}

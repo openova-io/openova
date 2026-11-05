@@ -1,5 +1,39 @@
 apiVersion: v2
 name: bp-postgres
+# 0.2.31 — hw307 2026-09-13 failed-over state (Refs #6874 #6753 #5504 #6149):
+#   two defects that leave a PROMOTED region-B survivor unusable by its own
+#   consumers, measured live 52 days after the automatic promotion.
+#   (1) OWNER RE-KEY. replica-cluster.yaml's `bootstrap.pg_basebackup` carried
+#   database+owner and NO `secret`. CNPG keeps that application-database
+#   declaration dormant while `replica.enabled=true` and activates it on the
+#   promotion tick: the operator minted `<instance>-replica-app` with a random
+#   64-char password and the instance manager ALTERed the owner to it
+#   (ShouldPgBaseBackupCreateApplicationDatabase / reconcileAppUserSecret /
+#   refreshCredentialsFromSecret, v1.29.0 source). harbor (shared-pg), grafana
+#   (shared-pg-b) and org (shared-pg-c) were re-keyed at 17:17:58Z; every
+#   consumer holding the canonical hub Secret crash-looped in BOTH regions
+#   while non-owner roles (gitea, keycloak) kept working. The replica follower
+#   AND the #6149 demoted rejoin shape now name the PRIMARY's application
+#   Secret (`bp-postgres.primaryAppSecretName`: the first binding's role Secret
+#   — the same object initdb.secret + managed.roles name — or `<instance>-app`
+#   with no bindings). Absent on the replica side (#5224) → CNPG mints nothing
+#   and reconcileUser is a NotFound no-op, so the WAL-streamed canonical hash
+#   survives promotion; present on the primary side → the canonical value.
+#   (2) REPLICA NETPOL. `-allow-replication-to-replica` admitted no local
+#   consumer, so once the global `-mesh-rw` alias re-homed onto the promoted
+#   replica (#6753, real local backends) region-B's own keycloak / gitea /
+#   harbor were DROPPED on :5432 (`Trying to connect to PostgreSQL server
+#   shared-pg-mesh-rw ... timeout`) while region-A consumers (peer-identity
+#   CNP) reached the same Pods. The replica side now carries the primary's
+#   any-namespace :5432 consumer rule (#3577), unconditionally.
+#   (3) WRITE-GUARD SCOPE (#6148). The dr-failback write-guard's ingressDeny
+#   selector named no namespace key, so the implicit same-namespace AND
+#   (#4854, measured on hw228 for the allow rules) limited the deny to
+#   shared-data Pods — none of keycloak / gitea / harbor / grafana / powerdns.
+#   It now carries `k8s:io.kubernetes.pod.namespace Exists`. Singleton and
+#   steady-primary renders byte-identical. tests/postgres-render.sh Cases
+#   22a/22b + the Case 21g namespace assertion (fail on 0.2.30, pass here).
+#   Lockstep: 16a/16c/16d HR pins + blueprint.yaml + catalog-seed -> 0.2.31.
 # 0.2.30 — #6874 D5 (Refs #5178 #5218 #5623): the region-B dr-promoter's
 #   /shared/diverged anti-flap marker is SELF-CLEARING. The signals container
 #   writes it when it sees the local cluster OUT of recovery; nothing ever
@@ -595,8 +629,8 @@ name: bp-postgres
 #   honoured — sprig's `default` swallows boolean false). Primary render is
 #   byte-identical. Lockstep slot pins 16a/16c/16d → 0.2.20.
 #   tests/postgres-render.sh Case 21 added.
-version: 0.2.30
-appVersion: 0.2.30
+version: 0.2.31
+appVersion: 0.2.31
 description: |
   Catalyst-authored data-instance Blueprint for a shareable, reusable
   PostgreSQL engine. Each install of bp-postgres = ONE
