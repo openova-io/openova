@@ -669,25 +669,14 @@ export function TopologyTab({
               </div>
             ) : null}
 
-            {isBootstrap ? (
-              // A bootstrap-kit component has NO Application CR — its placement
-              // is the bootstrap-kit HelmRelease's, and the save endpoint
-              // (PUT /applications/{name}) can only 404. On hw307 (2026-11-06)
-              // "Edit placement → Apply" on bp-cnpg-pair failed with
-              // application-not-found. Its DR control is the switchover below.
-              <p className="mt-4 text-xs text-[var(--color-text-dim)]" data-testid="topology-tab-placement-readonly">
-                Placement is defined by the platform bootstrap kit and is read-only here. Use Switchover to move the primary to the other region.
-              </p>
-            ) : (
-              <button
-                type="button"
-                className="mt-4 rounded-md border border-[var(--color-border)] px-3 py-1.5 text-xs hover:border-[var(--color-accent)]"
-                onClick={() => setEditing(true)}
-                data-testid="topology-tab-edit-placement"
-              >
-                Edit placement
-              </button>
-            )}
+            <button
+              type="button"
+              className="mt-4 rounded-md border border-[var(--color-border)] px-3 py-1.5 text-xs hover:border-[var(--color-accent)]"
+              onClick={() => setEditing(true)}
+              data-testid="topology-tab-edit-placement"
+            >
+              Edit placement
+            </button>
           </>
         ) : (
           <PlacementEditor
@@ -1056,11 +1045,8 @@ export function TopologyTab({
               {showSwitchover && switchoverArmed ? (
                 <SwitchoverDialog
                   sovereignId={sovereignId}
-                  // The RESOLVED Continuum the live status was read from — the
-                  // `dr-<app>` guess misses CRs named otherwise
-                  // (cnpg-pair-bp-cnpg-pair-continuum in ns cnpg).
-                  continuumName={drStatus?.continuum || continuumName}
-                  namespace={drStatus?.namespace || drNamespace}
+                  continuumName={continuumName}
+                  namespace={drNamespace}
                   fromRegion={drPrimaryRegion}
                   toRegion={switchoverTarget}
                   applicationName={applicationName}
