@@ -369,7 +369,7 @@ spec:
     # file — the sed matches `^      imageRegistry:`, so the 6-space indent is
     # REQUIRED. Empty default = verbatim ghcr.io (byte-identical pre-cutover).
     global:
-      imageRegistry: ''
+      imageRegistry: 'registry.hw307.omani.works'
     # ── Cross-region singleton (#5599) ─────────────────────────────────
     # This slot installs on EVERY region's control plane, so a 2-region
     # Sovereign ran TWO complete newapi stacks — two Deployments AND two
