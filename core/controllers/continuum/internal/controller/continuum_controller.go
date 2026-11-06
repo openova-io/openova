@@ -552,10 +552,17 @@ func (r *ContinuumReconciler) runSwitchover(
 		})
 		return
 	}
+	msg := fmt.Sprintf("switchover %s → %s completed", plan.FromRegion, plan.ToRegion)
+	for _, perr := range res.PostCommitErrs {
+		// Committed switchover; a later step (e.g. audit-emit) failed.
+		// Never unwound — surfaced in the log and the status message.
+		log.Error(perr, "switchover committed but a post-promotion step failed", "continuum", plan.ContinuumName, "from", plan.FromRegion, "to", plan.ToRegion)
+		msg += "; WARNING " + perr.Error()
+	}
 	_ = r.patchStatus(ctx, cr, statusUpdate{
 		Phase:                PhaseFailedOver,
 		Reason:               "Succeeded",
-		Message:              fmt.Sprintf("switchover %s → %s completed", plan.FromRegion, plan.ToRegion),
+		Message:              msg,
 		LastSwitchoverResult: "Success",
 		LastSwitchoverFrom:   plan.FromRegion,
 		LastSwitchoverTo:     plan.ToRegion,
