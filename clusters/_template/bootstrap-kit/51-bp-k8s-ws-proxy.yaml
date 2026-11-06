@@ -132,7 +132,7 @@ spec:
     # 6-space indent on `imageRegistry:` is REQUIRED — step-07's sed matches
     # `^      imageRegistry:`.
     global:
-      imageRegistry: ''
+      imageRegistry: 'registry.hw307.omani.works'
     k8sWsProxy:
       # Default-OFF gate flipped ON by the bootstrap-kit slot. Operator
       # opts out per-Sovereign by removing this slot from
