@@ -13,15 +13,23 @@
 //	retention: limits     (size + age caps; 7d default)
 //	storage:   file       (durable across restarts)
 //
-// Stream creation is OUT OF SCOPE for K-Cont-2: the bp-nats
-// blueprint owns the StreamConfig manifest. This publisher only
-// PUBLISHES; it neither creates nor configures the stream.
+// Stream ownership: every `catalyst.*` subject on a Sovereign is backed
+// by the ONE canonical CATALYST_ORG stream (subjects `catalyst.>`),
+// created first-writer-wins by whichever Catalyst service publishes or
+// consumes first (core/services/shared/events EnsureCatalystOrgStream).
+// bp-nats-jetstream's own Stream CRs stay off because they would overlap
+// it (#2283). When a publish finds NO stream bound to catalyst.audit,
+// this publisher ensures that same canonical stream (identical config)
+// and retries once — hw307 2026-11-07: a cnpg-pair switchover promoted
+// region B, then failed at step-7 and rolled back because nothing had
+// created the stream on a Sovereign whose org services never started.
 package events
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -99,8 +107,44 @@ func (p *JetStreamPublisher) Publish(ctx context.Context, e Event) error {
 			"application-name": []string{e.ApplicationName},
 		},
 	}
-	if _, err := p.js.PublishMsg(ctx, msg); err != nil {
+	_, err = p.js.PublishMsg(ctx, msg)
+	if errors.Is(err, jetstream.ErrNoStreamResponse) {
+		if eerr := EnsureCatalystStream(ctx, p.js); eerr != nil {
+			return fmt.Errorf("events: publish: no stream bound to %s, and ensuring %s failed: %w", Subject, StreamCatalystOrg, eerr)
+		}
+		_, err = p.js.PublishMsg(ctx, msg)
+	}
+	if err != nil {
 		return fmt.Errorf("events: publish: %w", err)
+	}
+	return nil
+}
+
+// StreamCatalystOrg is the canonical stream behind every catalyst.*
+// subject (mirrors core/services/shared/events.StreamCatalystOrg).
+const StreamCatalystOrg = "CATALYST_ORG"
+
+// EnsureCatalystStream makes sure a stream is bound to the audit
+// subject. If one already is (CATALYST_ORG or any operator-provided
+// stream), it is left untouched. Otherwise the canonical CATALYST_ORG
+// stream is created with the exact config the shared events package
+// uses, so whichever Catalyst writer comes first produces the same
+// stream. A concurrent creator winning the race is success.
+func EnsureCatalystStream(ctx context.Context, js jetstream.JetStream) error {
+	if name, err := js.StreamNameBySubject(ctx, Subject); err == nil && name != "" {
+		return nil
+	}
+	_, err := js.CreateStream(ctx, jetstream.StreamConfig{
+		Name:        StreamCatalystOrg,
+		Description: "Catalyst Organization convergence events (catalyst.<domain>.<event>).",
+		Subjects:    []string{"catalyst.>"},
+		Retention:   jetstream.LimitsPolicy,
+		Storage:     jetstream.FileStorage,
+		MaxAge:      14 * 24 * time.Hour,
+		Replicas:    1,
+	})
+	if err != nil && !errors.Is(err, jetstream.ErrStreamNameAlreadyInUse) {
+		return err
 	}
 	return nil
 }
