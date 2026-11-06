@@ -37,7 +37,7 @@ continuum:
   image:
     tag: "<sha-stamped-by-CI>"
   pdmURL: "http://pool-domain-manager.openova-system.svc.cluster.local:8080"
-  natsURL: "nats://nats.openova-system.svc.cluster.local:4222"
+  natsURL: "nats://nats-jetstream.nats-system.svc.cluster.local:4222"
 ```
 
 ## CRD
