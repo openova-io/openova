@@ -519,6 +519,13 @@ offlineMirror:
   hostProjects:
     - host: "ghcr.io"
       project: "proxy-ghcr"
+    # lscr.io (LinuxServer) is a front for GHCR: its /v2 manifests answer 401
+    # with `Bearer realm="https://ghcr.io/token",service="ghcr.io"`, so
+    # lscr.io/linuxserver/X is ghcr.io/linuxserver/X. bp-bookstack pins
+    # lscr.io/linuxserver/bookstack; step-03 FATALed on it as UNMAPPED on
+    # hw307 (2026-11-06).
+    - host: "lscr.io"
+      project: "proxy-ghcr"
     - host: "docker.io"
       project: "proxy-dockerhub"
     - host: "registry-1.docker.io"
