@@ -136,7 +136,10 @@ type: application
 # reaching region B via the existing cutover-secondary-kubeconfigs Secret.
 # RBAC: kustomizations get+patch pinned to resourceNames [bootstrap-kit].
 # Slot-62 pin + blueprint.yaml + catalog-seed move to 0.1.13 in lockstep.
-version: 0.1.13
+# 0.1.14: ship the cross-region switchover image (86b0daa). 0.1.13 was published
+#   before the #7048 Containerfile fix and still carries 6e23bf2; the deploy-bot
+#   image bump does not republish a chart, so this version bump does.
+version: 0.1.14
 appVersion: "0.1.0"
 home: https://openova.io
 sources:
