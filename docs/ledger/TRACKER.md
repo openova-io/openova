@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-06T22:45:04Z` |
+| Last refreshed | `2026-11-06T23:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-06T22:50 | [#7052](https://github.com/openova-io/openova/pull/7052) | #3375 | fix(continuum): audit publish ensures the canonical CATALYST |
 | 2026-11-06T22:35 | [#7051](https://github.com/openova-io/openova/pull/7051) | #7050 | chore(continuum): bp-continuum 0.1.15 ships the #7050 switch |
 | 2026-11-06T22:17 | [#7050](https://github.com/openova-io/openova/pull/7050) | #3375 | fix(continuum): DB-only switchover skips flip-dns; request c |
 | 2026-11-06T21:40 | [#7049](https://github.com/openova-io/openova/pull/7049) | #7048 | chore(bp-continuum): 0.1.14 — ship the cross-region switchov |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-10-10T14:51 | [#6993](https://github.com/openova-io/openova/pull/6993) | #6974 | feat(plans): the package numbers from the National Cloud wor |
 | 2026-10-10T15:16 | [#6992](https://github.com/openova-io/openova/pull/6992) | #6993 | feat(storefront): the package ladder journey — grouped cards |
 | 2026-10-10T13:08 | [#6991](https://github.com/openova-io/openova/pull/6991) | #6963 | docs(ledger): hw307 evidence for the contract page's rated p |
-| 2026-10-10T12:34 | [#6990](https://github.com/openova-io/openova/pull/6990) | #6971 | docs(ledger): hw307 evidence for packages 0.1.58–0.1.59 |
 
 ---
 
