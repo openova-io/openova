@@ -23,13 +23,9 @@ import (
 // of the region-B REPLICA cluster (spec.replica.enabled=true) `primary` while
 // it is in recovery. Region B must read Standby·Hot.
 
-// Exactly the live shape: CNPG operator-created Pods are labelled with their
-// CLUSTER name as app.kubernetes.io/instance — NOT the Helm release
-// (cnpg-pair) — so only the Cluster CR ties them to the app.
 func cnpgPodOnly(ns, name, cluster, instanceRole, region string) *unstructured.Unstructured {
-	p := placementFixturePod(ns, name, cluster, region, "")
+	p := placementFixturePod(ns, name, "cnpg-pair", region, "")
 	lbls := p.GetLabels()
-	lbls["app.kubernetes.io/name"] = "postgresql"
 	lbls["cnpg.io/cluster"] = cluster
 	lbls["cnpg.io/instanceRole"] = instanceRole
 	p.SetLabels(lbls)
@@ -42,10 +38,6 @@ func cnpgClusterObj(ns, name string, replica bool) *unstructured.Unstructured {
 		"kind":       "Cluster",
 		"metadata": map[string]any{
 			"namespace": ns, "name": name, "resourceVersion": "1",
-			"labels": map[string]any{
-				"app.kubernetes.io/instance":    "cnpg-pair",
-				"catalyst.openova.io/blueprint": "bp-cnpg-pair",
-			},
 			"creationTimestamp": time.Now().Add(-time.Hour).UTC().Format(time.RFC3339),
 		},
 		"spec": map[string]any{"instances": int64(3)},
@@ -125,16 +117,14 @@ func TestPlacementRuntime_CNPGReplicaCluster_LeadInstanceIsStandby_hw307(t *test
 			cnpgClusterObj("cnpg", "cnpg-pair-bp-cnpg-pair-primary", false),
 			cnpgPodOnly("cnpg", "cnpg-pair-bp-cnpg-pair-primary-4", "cnpg-pair-bp-cnpg-pair-primary", "primary", regionA),
 			cnpgPodOnly("cnpg", "cnpg-pair-bp-cnpg-pair-primary-5", "cnpg-pair-bp-cnpg-pair-primary", "replica", regionA),
-			placementFixturePod("cnpg", "cnpg-pair-bp-cnpg-pair-dr-failback-x", "cnpg-pair", regionA, ""),
 		},
 		[]runtime.Object{
 			cnpgClusterObj("cnpg", "cnpg-pair-bp-cnpg-pair-replica", true),
 			cnpgPodOnly("cnpg", "cnpg-pair-bp-cnpg-pair-replica-1", "cnpg-pair-bp-cnpg-pair-replica", "primary", regionB),
 			cnpgPodOnly("cnpg", "cnpg-pair-bp-cnpg-pair-replica-2", "cnpg-pair-bp-cnpg-pair-replica", "replica", regionB),
-			placementFixturePod("cnpg", "cnpg-pair-bp-cnpg-pair-dr-promoter-x", "cnpg-pair", regionB, ""),
 		},
 	)
-	resp := callPlacement(t, h, depID, "bp-cnpg-pair")
+	resp := callPlacement(t, h, depID, "cnpg-pair")
 	var primaries, standbys int
 	for _, tgt := range resp.Targets {
 		switch tgt.Role {

@@ -750,10 +750,9 @@ func (h *Handler) derivePlacementTargets(ident componentWorkloadIdentity, declar
 		nodeByName := indexByName(nodes)
 		cnpgClusters, _, _ := h.k8sCache.List(cid, "cnpgcluster", labels.Everything())
 		replicaClusters := cnpgReplicaClusterSet(cnpgClusters)
-		ownedCNPG := cnpgClustersOfIdentity(cnpgClusters, ident)
 
 		for _, p := range pods {
-			if !podBelongsToIdentity(p, ident) && !ownedCNPG[p.GetNamespace()+"/"+p.GetLabels()["cnpg.io/cluster"]] {
+			if !podBelongsToIdentity(p, ident) {
 				continue
 			}
 			region := podRegion(p, nsByName, nodeByName, clusterRegion[cid])
@@ -1018,38 +1017,6 @@ func cnpgReplicaClusterSet(clusters []*unstructured.Unstructured) map[string]boo
 			continue
 		}
 		if enabled, found, _ := unstructured.NestedBool(c.Object, "spec", "replica", "enabled"); found && enabled {
-			out[c.GetNamespace()+"/"+c.GetName()] = true
-		}
-	}
-	return out
-}
-
-// cnpgClustersOfIdentity returns "<namespace>/<name>" for every CNPG Cluster
-// this component OWNS. CNPG operator-created Pods carry
-// app.kubernetes.io/instance=<cluster-name> (e.g.
-// cnpg-pair-bp-cnpg-pair-primary), not the Helm release, so the release
-// matcher never claimed them and bp-cnpg-pair's placement was built from its
-// stateless helper Deployments alone — every region read Primary (hw307
-// 2026-11-06). The Cluster CR itself carries the release + blueprint labels.
-func cnpgClustersOfIdentity(clusters []*unstructured.Unstructured, id componentWorkloadIdentity) map[string]bool {
-	out := map[string]bool{}
-	for _, c := range clusters {
-		if c == nil || !id.matchesNamespace(c) {
-			continue
-		}
-		l := c.GetLabels()
-		owned := false
-		for _, rel := range id.release {
-			if rel != "" && (l["app.kubernetes.io/instance"] == rel || l["helm.toolkit.fluxcd.io/name"] == rel) {
-				owned = true
-			}
-		}
-		for _, r := range id.route {
-			if r != "" && (l["app.kubernetes.io/instance"] == r || l["helm.toolkit.fluxcd.io/name"] == r || l["catalyst.openova.io/blueprint"] == r) {
-				owned = true
-			}
-		}
-		if owned {
 			out[c.GetNamespace()+"/"+c.GetName()] = true
 		}
 	}
