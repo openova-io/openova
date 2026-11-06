@@ -308,7 +308,7 @@ func (h *Handler) projectCutoverResumeSeedSteps(steps []jobs.ActivityStep, prior
 				h.log.Warn("cutover-activity: resume finish failed", "step", s.Slug, "err", err)
 			}
 		case jobs.ActivityResultRunning:
-			if err := ab.StartStep(s, "[in flight — replayed from durable cutover status]", startedAt); err != nil {
+			if err := ab.ResumeStep(s, "[in flight — replayed from durable cutover status]", startedAt); err != nil {
 				h.log.Warn("cutover-activity: resume running failed", "step", s.Slug, "err", err)
 			}
 		default:
