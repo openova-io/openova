@@ -705,7 +705,12 @@ type Request struct {
 	// api-deployment.yaml already ORs `.Values.catalystApi.fireCutoverOnHandover`
 	// with `.Values.qaFixtures.enabled` (#4648) — this closes the wire→tfvars
 	// →cloud-init half that #4648 left coupled to qaTestEnabled.
-	FireCutoverOnHandover bool `json:"fireCutoverOnHandover"`
+	//
+	// ZERO-TOUCH DEFAULT (founder 2026-11-06): nil — the field omitted —
+	// means TRUE. Every Sovereign cuts over on handover with no operator
+	// click; a prov must send `"fireCutoverOnHandover": false` explicitly to
+	// keep the cutover an operator-gated action.
+	FireCutoverOnHandover *bool `json:"fireCutoverOnHandover,omitempty"`
 
 	// QAFixturesNamespace — explicit override for the qa-fixtures
 	// namespace name. Empty (default) → derived from SovereignFQDN's
@@ -2837,12 +2842,12 @@ func writeTfvars(deployDir string, req Request) error {
 		// fireCutoverOnHandover=true) reaches cutoverComplete with ZERO manual
 		// steps. The OR is rendered in the cloud-init control-plane template's
 		// FIRE_CUTOVER_ON_HANDOVER substitute (slot-13 catalyst-api env).
-		// Default false (#4061 — customer Sovereigns that set neither flag keep
-		// the cutover an operator-gated BSS action). Stringified for the same
+		// Default TRUE (zero-touch, founder 2026-11-06; supersedes the #4061
+		// operator-gated default) — only an explicit false opts out. Stringified for the same
 		// envsubst-passthrough reason as qa_fixtures_enabled;
 		// infra/providers/{hetzner,huawei}/variables.tf carry the matching
 		// `["true","false"]` validation so a typo fails at `tofu plan`.
-		"fire_cutover_on_handover": map[bool]string{true: "true", false: "false"}[req.FireCutoverOnHandover],
+		"fire_cutover_on_handover": map[bool]string{true: "true", false: "false"}[req.FireCutoverOnHandover == nil || *req.FireCutoverOnHandover],
 
 		// Wildcard cert staging-LE selector (Fix #123 — qa-loop iter-1 LE
 		// rate-limit unblock). When QATestEnabled=true the per-Sovereign

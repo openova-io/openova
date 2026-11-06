@@ -2711,7 +2711,10 @@ stepTimeouts:
   # AND its own watch context (cutover.go createCutoverJob / watchJobToCompletion),
   # and the step stays event-driven (a fast run returns in minutes and never waits
   # out the ceiling). Operators on a slower link can raise it further via overlay.
-  giteaMirrorSeconds: 2700
+  # hw307 2026-11-06: 2,605 upstream branches pushed to BOTH regions' Gitea
+  # took longer than 45m — the step died at DeadlineExceeded with region A
+  # already complete. 7200s (2h).
+  giteaMirrorSeconds: 7200
   harborProjectsSeconds: 600
   # #3379 step-03 DeadlineExceeded (hw139, 2026-06-15): Step-03 skopeo-
   # native-pushes ~29 multi-layer PRIVATE openova-io images ghcr.io→local

@@ -1013,9 +1013,25 @@ func findExistingRunningJobForStep(ctx context.Context, deps *cutoverDeps, stepN
 		if _, terminal := terminalJobCondition(j); terminal {
 			continue
 		}
+		// A Job already marked FailureTarget has exhausted its backoff and
+		// is only waiting for its Pod to terminate before it turns Failed.
+		// Attaching to it made an operator retry fail in seconds on hw307
+		// (2026-11-06) instead of re-running the step.
+		if jobHasFailureTarget(j) {
+			continue
+		}
 		return j
 	}
 	return nil
+}
+
+func jobHasFailureTarget(j *batchv1.Job) bool {
+	for _, c := range j.Status.Conditions {
+		if c.Type == batchv1.JobFailureTarget && c.Status == corev1.ConditionTrue {
+			return true
+		}
+	}
+	return false
 }
 
 // jobCompletionTime returns the Job's terminal timestamp, falling back to

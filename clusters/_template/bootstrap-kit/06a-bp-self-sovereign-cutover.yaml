@@ -1111,12 +1111,13 @@ spec:
       #   and the region's GitRepository is converged onto it before the live
       #   patch + #5596 assert. hw305 looped FATAL at step 6/11 for 10 days on
       #   exactly this (63/65 region-B HelmRepositories reverting to ghcr).
+      # 0.1.204: step-01 gitea-mirror deadline 2700 -> 7200s (two-region mirror of 2,605 branches overran 45m on hw307).
       # 0.1.203 (#6294): step-03 Phase A de-duplicates its worklist by destination
       #   before the fan-out — the mothership-proxy and direct-upstream forms of one
       #   artifact no longer race one local path (the second push into a proxy-<x>
       #   project answered `unauthorized ... action: push` and FATALed the step for
       #   an image that was already mirrored; hw296, ~55 min + a retry burned).
-      version: 0.1.203
+      version: 0.1.204
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
