@@ -237,7 +237,7 @@ spec:
     # file — the sed matches `^      imageRegistry:`, so the 6-space indent is
     # REQUIRED. Empty default = verbatim ghcr.io (byte-identical pre-cutover).
     global:
-      imageRegistry: ''
+      imageRegistry: 'registry.hw307.omani.works'
     # ── Cross-region singleton (#5358) ─────────────────────────────────
     # ADR-0001 §11 says ONE Guacamole per Sovereign, but this slot installs on
     # EVERY region's control plane, so a 2-region Sovereign ran TWO independent
