@@ -40,7 +40,9 @@ type: application
 # "mimir-make-minio-buckets" with kind Job` on the immutable Job spec (which
 # rolled the 1.0.9→1.0.10 upgrade back on hw305). post-* (not pre-*) preserves
 # the dependency on the regular MinIO Deployment/Service/Secret/ConfigMap.
-version: 1.0.11
+# 1.0.12: make-buckets Job image quay.io/minio/mc -> bitnamilegacy/minio-client
+#   2025.7.21 (quay.io/minio now requires auth); mc resolved from PATH.
+version: 1.0.12
 appVersion: "3.0.4"
 keywords: [catalyst, blueprint, mimir, observability, metrics, prometheus]
 maintainers:
