@@ -176,7 +176,7 @@ spec:
       # substitute seam + region-B client via cutover-secondary-kubeconfigs);
       # RBAC adds kustomizations get+patch on resourceNames [bootstrap-kit].
       # Pin moves in lockstep (Inviolable Principle #13).
-      version: 0.1.15
+      version: 0.1.16
       sourceRef:
         kind: HelmRepository
         name: bp-continuum
@@ -214,7 +214,7 @@ spec:
   #
   # pdmURL / natsURL — empty defaults route through the in-cluster
   # Service DNS (pool-domain-manager.catalyst-system.svc.cluster.local
-  # + nats.openova-system.svc.cluster.local respectively). Per-
+  # + nats-jetstream.nats-system.svc.cluster.local respectively). Per-
   # Sovereign overlays may repoint at Sovereign-local instances.
   values:
     # #4885 (Refs #3379): imageRegistry override seam — same pattern as

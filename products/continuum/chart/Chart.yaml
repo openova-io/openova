@@ -142,7 +142,11 @@ type: application
 # 0.1.15: ship the #7050 image (3e23910) — DB-only switchover skips flip-dns and
 #   the request is cleared from a stale copy. The deploy-bot image bump does not
 #   republish a chart, so this version bump does.
-version: 0.1.15
+# 0.1.16: ship the #7052 image (e635e94: audit publish ensures CATALYST_ORG),
+#   default natsURL to the bp-nats-jetstream Service (was empty, so every
+#   switchover failed at step-7 and rolled back), and point the NATS egress
+#   rule at nats-system (was openova-system, which matched nothing).
+version: 0.1.16
 appVersion: "0.1.0"
 home: https://openova.io
 sources:
