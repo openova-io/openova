@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-06T10:45:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-06T11:00:06Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-06T10:48 | [#7039](https://github.com/openova-io/openova/pull/7039) | #6093 | fix(bp-mimir): bucket Job uses bitnamilegacy/minio-client —  |
 | 2026-11-06T07:25 | [#7038](https://github.com/openova-io/openova/pull/7038) | #4061 | fix(cutover): zero-touch — auto-fire on handover by default; |
 | 2026-11-06T06:57 | [#7037](https://github.com/openova-io/openova/pull/7037) | #6093 | fix(cutover): step log panel streams the Job's own output; n |
 | 2026-11-06T05:02 | [#7036](https://github.com/openova-io/openova/pull/7036) | #3969 | integ(2026-11-06): six lanes — DR pairs, cutover resume/leas |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-10-04T13:24 | [#6965](https://github.com/openova-io/openova/pull/6965) | #6964 | docs(ledger): hw307 evidence for the contract page at 0.1.56 |
 | 2026-10-04T13:12 | [#6964](https://github.com/openova-io/openova/pull/6964) | #6963 | feat(bss): contracts you can read and edit line by line, a s |
 | 2026-09-27T13:07 | [#6957](https://github.com/openova-io/openova/pull/6957) | #6955 | fix(oidc-gate): the calculator's live-pricing call passes th |
-| 2026-09-27T13:15 | [#6956](https://github.com/openova-io/openova/pull/6956) | #6867 | fix(bss): the estimate totals never clip — number on one lin |
 
 ---
 
