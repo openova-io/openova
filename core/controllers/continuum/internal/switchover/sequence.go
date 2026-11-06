@@ -402,7 +402,11 @@ func (s *Sequencer) steps(plan SwitchoverPlan) []stepFunc {
 				// Acceptable starting states:
 				//  (a) the lease is currently held by FromRegion (we're flipping it to ToRegion)
 				//  (b) the lease is unheld / expired (lease-loss path; ToRegion takes it cold)
-				if st.Holder != "" && st.Holder != plan.FromRegion {
+				//  (c) the lease is already held by ToRegion — the witness stayed
+				//      with the controller's region while the writer moved away
+				//      (switchback after a DR failover, hw307 2026-11-07); swap-lease
+				//      then simply re-affirms it.
+				if st.Holder != "" && st.Holder != plan.FromRegion && st.Holder != plan.ToRegion {
 					return nil, fmt.Errorf("lease holder %q != plan.FromRegion %q", st.Holder, plan.FromRegion)
 				}
 				return nil, nil // no rollback needed for a read

@@ -425,6 +425,9 @@ func (s *Sequencer) promote(ctx context.Context, t *crossTopology, to pairHalf, 
 // when the peer is already primary by spec (re-promoting the old half
 // then would be a split-brain).
 func (s *Sequencer) crossCordon(ctx context.Context, plan SwitchoverPlan, t *crossTopology) (func(ctx context.Context) error, error) {
+	if err := s.adoptDREpisode(ctx, plan, t); err != nil {
+		return nil, err
+	}
 	if blockers, _ := s.crossPreflight(ctx, plan, t); len(blockers) > 0 {
 		return nil, fmt.Errorf("cross-region preflight: %s", strings.Join(blockers, "; "))
 	}
@@ -443,6 +446,86 @@ func (s *Sequencer) crossCordon(ctx context.Context, plan SwitchoverPlan, t *cro
 		}
 		return s.patchSeam(ctx, from, prev)
 	}, nil
+}
+
+// adoptDREpisode hands a pair that an unplanned DR episode left behind
+// (dr-promoter latched SOVEREIGN_CNPG_PAIR_PROMOTED on the survivor,
+// dr-failback latched SOVEREIGN_CNPG_PAIR_DEMOTED and re-cloned the other
+// half onto it) to the planned-switchover engine, WITHOUT changing a role:
+// both seams get ACTIVE_PRIMARY = the current writer's half and the DR key
+// cleared, in ONE patch per region, so no half ever renders without a role.
+// The chart then renders the same roles in the distributed shape and the
+// DR actors stand down (planned role). Only a clean episode is adopted:
+// the from-half is the writer, the to-half a Ready replica. Anything else
+// is left for the preflight to refuse (hw307 2026-11-07: without this the
+// console could never switch a failed-over pair back).
+func (s *Sequencer) adoptDREpisode(ctx context.Context, plan SwitchoverPlan, t *crossTopology) error {
+	from, to, err := t.halves(plan)
+	if err != nil {
+		return nil // preflight reports it
+	}
+	// The DR seams always designate the pair-role REPLICA half as the
+	// writer (PROMOTED on it, DEMOTED on the primary half). Adopt only a
+	// switch that starts FROM that writer; anything else (e.g. a latched
+	// promotion not yet rendered) is a live DR decision — never cancel it.
+	if from.name != t.remote.name {
+		return nil
+	}
+	latched := false
+	for _, h := range []pairHalf{from, to} {
+		sub, sErr := s.readSeam(ctx, h)
+		if sErr != nil {
+			return nil // preflight reports it
+		}
+		for _, k := range []string{cnpg.SubstitutePromoted, cnpg.SubstituteDemoted} {
+			if strings.EqualFold(sub[k], "true") {
+				latched = true
+			}
+		}
+	}
+	if !latched {
+		return nil
+	}
+	fromSt, err := t.status(ctx, from)
+	if err != nil {
+		return nil
+	}
+	toSt, err := t.status(ctx, to)
+	if err != nil {
+		return nil
+	}
+	if fromSt.IsReplicaCluster || !toSt.IsReplicaCluster || !toSt.Ready {
+		return nil // not a clean failed-over geometry — preflight refuses it
+	}
+	writer := cnpg.StrPtr(from.name)
+	for _, h := range []pairHalf{to, from} { // follower first: it keeps following the writer
+		if err := s.patchSeam(ctx, h, map[string]*string{
+			cnpg.SubstituteActivePrimary: writer,
+			cnpg.SubstitutePromoted:      nil,
+			cnpg.SubstituteDemoted:       nil,
+		}); err != nil {
+			return fmt.Errorf("adopt DR episode into the planned topology (%s): %w", h.where(), err)
+		}
+	}
+	return s.waitFor(ctx, "adoption of the failed-over pair into the distributed topology", func() (bool, string, error) {
+		f, err := t.status(ctx, from)
+		if err != nil {
+			return false, "", err
+		}
+		r, err := t.status(ctx, to)
+		if err != nil {
+			return false, "", err
+		}
+		switch {
+		case !f.Distributed || f.IsReplicaCluster:
+			return false, fmt.Sprintf("%s not yet rendered as distributed primary", from.where()), nil
+		case !r.Distributed || !r.IsReplicaCluster:
+			return false, fmt.Sprintf("%s not yet rendered as distributed replica", to.where()), nil
+		case !r.Ready:
+			return false, fmt.Sprintf("%s not Ready (phase=%q)", to.where(), r.Phase), nil
+		}
+		return true, "", nil
+	})
 }
 
 // crossPromote — step-6 on a split pair: promote the standby with the

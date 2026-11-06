@@ -437,7 +437,14 @@ func (r *ContinuumReconciler) runPerCR(ctx context.Context, nn types.NamespacedN
 		switch {
 		case switchoverRequested:
 			_ = r.publishCNPGPromotable(ctx, nn, spec, maxLag)
-			r.runSwitchover(ctx, cr, spec, toRegion, "operator-requested", maxLag, w)
+			from := actingPrimaryRegion(cr, spec)
+			to := requestedTargetRegion(cr, spec, from)
+			if to == from {
+				// Nothing to do: the requested target already serves writes.
+				ctrl.LoggerFrom(ctx).Info("switchover request is a no-op: target already primary", "continuum", nn.String(), "target", to)
+			} else {
+				r.runSwitchover(ctx, cr, spec, from, to, "operator-requested", maxLag, w)
+			}
 			if err := r.clearSwitchoverRequest(ctx, cr); err != nil {
 				ctrl.LoggerFrom(ctx).Error(err, "switchover request not cleared")
 			}
@@ -447,7 +454,7 @@ func (r *ContinuumReconciler) runPerCR(ctx context.Context, nn types.NamespacedN
 			// standby already IS the writer, and the declared primary's
 			// lag is its own replay lag as a follower.
 			_ = r.publishLagBreach(ctx, nn, spec, maxLag)
-			r.runSwitchover(ctx, cr, spec, toRegion, "lag-breach", maxLag, w)
+			r.runSwitchover(ctx, cr, spec, spec.PrimaryRegion, toRegion, "lag-breach", maxLag, w)
 		default:
 			_ = r.patchStatusFromCR(ctx, cr, spec, leaseState, primaryStatus, replicaStatus, standby, false, "")
 			_ = r.publishReconcileSuccess(ctx, nn, spec, maxLag)
@@ -460,7 +467,7 @@ func (r *ContinuumReconciler) runSwitchover(
 	ctx context.Context,
 	cr *unstructured.Unstructured,
 	spec ContinuumSpec,
-	toRegion, reason string,
+	fromRegion, toRegion, reason string,
 	maxLag int,
 	w witness.Client,
 ) {
@@ -472,7 +479,7 @@ func (r *ContinuumReconciler) runSwitchover(
 	plan := switchover.SwitchoverPlan{
 		ContinuumName:      types.NamespacedName{Namespace: cr.GetNamespace(), Name: cr.GetName()}.String(),
 		ApplicationName:    spec.ApplicationRef,
-		FromRegion:         spec.PrimaryRegion,
+		FromRegion:         fromRegion,
 		ToRegion:           toRegion,
 		Mechanism:          spec.Mechanism,
 		CNPGPair:           spec.CNPGPair,
@@ -886,6 +893,33 @@ func (r *ContinuumReconciler) fetchCR(ctx context.Context, nn types.NamespacedNa
 func pickFailoverTarget(spec ContinuumSpec) string {
 	for _, r := range spec.HotStandbyRegions {
 		if r != spec.PrimaryRegion {
+			return r
+		}
+	}
+	return ""
+}
+
+// actingPrimaryRegion is the region serving writes NOW: the observed
+// status.primaryRegion (the failover target once the declared primary half
+// is a replica — planned switchover or DR failover), else spec.primaryRegion.
+// hw307 2026-11-07: the switchover always started from spec.primaryRegion,
+// so after any switch to region B there was no way to switch back.
+func actingPrimaryRegion(cr *unstructured.Unstructured, spec ContinuumSpec) string {
+	if s, _, _ := unstructured.NestedString(cr.Object, "status", "primaryRegion"); s != "" {
+		return s
+	}
+	return spec.PrimaryRegion
+}
+
+// requestedTargetRegion is the region the operator asked for
+// (spec.switchover.targetRegion, written by the console API). Without one,
+// the target is the other pair member relative to the acting primary.
+func requestedTargetRegion(cr *unstructured.Unstructured, spec ContinuumSpec, from string) string {
+	if t, _, _ := unstructured.NestedString(cr.Object, "spec", "switchover", "targetRegion"); t != "" {
+		return t
+	}
+	for _, r := range append([]string{spec.PrimaryRegion}, spec.HotStandbyRegions...) {
+		if r != "" && r != from {
 			return r
 		}
 	}
