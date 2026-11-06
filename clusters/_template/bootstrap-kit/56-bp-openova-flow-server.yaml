@@ -38,7 +38,9 @@ metadata:
 spec:
   type: oci
   interval: 15m
-  url: oci://ghcr.io/openova-io
+  url: oci://registry.hw307.omani.works/openova-io
+  certSecretRef:
+    name: cutover-harbor-ca
   secretRef:
     name: ghcr-pull
 ---

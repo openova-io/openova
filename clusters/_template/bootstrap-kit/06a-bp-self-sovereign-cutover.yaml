@@ -43,7 +43,9 @@ spec:
   # helmrepository-patches) is what flips this URL to the local Harbor
   # post-handover; until then this Sovereign is soft-tethered like the
   # rest of the kit.
-  url: oci://ghcr.io/openova-io
+  url: oci://registry.hw307.omani.works/openova-io
+  certSecretRef:
+    name: cutover-harbor-ca
   secretRef:
     name: ghcr-pull
 ---

@@ -35,7 +35,9 @@ metadata:
 spec:
   type: oci
   interval: 15m
-  url: oci://ghcr.io/openova-io
+  url: oci://registry.hw307.omani.works/openova-io
+  certSecretRef:
+    name: cutover-harbor-ca
   # ghcr-pull authenticates the OCI pull — bp-plane-isolation is a PRIVATE
   # ghcr package (like every other bp-* chart). Without this secretRef Flux
   # falls back to anonymous auth → 401 → the chart never pulls → the
