@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-06T06:45:02Z` |
+| Last refreshed | `2026-11-06T07:00:09Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-06T06:57 | [#7037](https://github.com/openova-io/openova/pull/7037) | #6093 | fix(cutover): step log panel streams the Job's own output; n |
 | 2026-11-06T05:02 | [#7036](https://github.com/openova-io/openova/pull/7036) | #3969 | integ(2026-11-06): six lanes — DR pairs, cutover resume/leas |
 | 2026-10-10T19:52 | [#7004](https://github.com/openova-io/openova/pull/7004) | #6971 | fix(storefront): /plans floor and grow are rows of the table |
 | 2026-10-10T19:25 | [#7003](https://github.com/openova-io/openova/pull/7003) | #6971 | feat(bss): the package prepaid at a flat monthly price, the  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-09-27T13:07 | [#6957](https://github.com/openova-io/openova/pull/6957) | #6955 | fix(oidc-gate): the calculator's live-pricing call passes th |
 | 2026-09-27T13:15 | [#6956](https://github.com/openova-io/openova/pull/6956) | #6867 | fix(bss): the estimate totals never clip — number on one lin |
 | 2026-09-27T12:57 | [#6955](https://github.com/openova-io/openova/pull/6955) | #6841 | fix(oidc-gate): the public cost calculator is public — skip- |
-| 2026-09-27T13:47 | [#6954](https://github.com/openova-io/openova/pull/6954) | #6867 | docs(bss): the training course — 142 slides, generator and d |
 
 ---
 
