@@ -74,9 +74,9 @@ spec:
     # reconcile once catalyst-api is up. So sso-bridge runs early, writes
     # sso/<app>, and gitea/catalyst-platform install behind it.
     - name: bp-keycloak
-      namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+      namespace: flux-system # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     - name: bp-openbao
-      namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+      namespace: flux-system # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
   chart:
     spec:
       chart: bp-sso-bridge
@@ -192,9 +192,11 @@ spec:
     # registry pivot, ADR-0002) re-point the host to the Sovereign's OWN
     # Harbor in one place without editing the chart.
     global:
-      registryMirror: ${REGISTRY_MIRROR:=harbor.openova.io}
+      registryMirror: harbor.hw307.omani.works
     sovereign:
       fqdn: ${SOVEREIGN_FQDN}
+    image:
+      repository: proxy-dockerhub/alpine/k8s
   install:
     timeout: 5m
     disableWait: true
