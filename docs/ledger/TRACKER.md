@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-06T06:30:04Z` |
+| Last refreshed | `2026-11-06T16:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,12 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-06T16:06 | [#7042](https://github.com/openova-io/openova/pull/7042) | #3601 | fix(sovereign-ui): the Applications view lists every install |
+| 2026-11-06T13:03 | [#7041](https://github.com/openova-io/openova/pull/7041) | #7040 | fix(cutover,mimir,flux): remaining hw307 cutover defects — s |
+| 2026-11-06T12:22 | [#7040](https://github.com/openova-io/openova/pull/7040) | #6093 | fix(cutover): harbor.<fqdn> is a local alias; org-tenant ima |
+| 2026-11-06T10:48 | [#7039](https://github.com/openova-io/openova/pull/7039) | #6093 | fix(bp-mimir): bucket Job uses bitnamilegacy/minio-client —  |
+| 2026-11-06T07:25 | [#7038](https://github.com/openova-io/openova/pull/7038) | #4061 | fix(cutover): zero-touch — auto-fire on handover by default; |
+| 2026-11-06T06:57 | [#7037](https://github.com/openova-io/openova/pull/7037) | #6093 | fix(cutover): step log panel streams the Job's own output; n |
 | 2026-11-06T05:02 | [#7036](https://github.com/openova-io/openova/pull/7036) | #3969 | integ(2026-11-06): six lanes — DR pairs, cutover resume/leas |
 | 2026-10-10T19:52 | [#7004](https://github.com/openova-io/openova/pull/7004) | #6971 | fix(storefront): /plans floor and grow are rows of the table |
 | 2026-10-10T19:25 | [#7003](https://github.com/openova-io/openova/pull/7003) | #6971 | feat(bss): the package prepaid at a flat monthly price, the  |
@@ -331,12 +337,6 @@ flowchart LR
 | 2026-10-10T07:07 | [#6975](https://github.com/openova-io/openova/pull/6975) | #6973 | ci(docrender): refresh the apt index before installing poppl |
 | 2026-10-10T08:51 | [#6973](https://github.com/openova-io/openova/pull/6973) | #6971 | feat(bss): packages and the entitlement matrix — Included /  |
 | 2026-10-10T07:01 | [#6972](https://github.com/openova-io/openova/pull/6972) | #6971 | feat(marketplace): the package table — S/M/L/XL with include |
-| 2026-10-04T13:24 | [#6965](https://github.com/openova-io/openova/pull/6965) | #6964 | docs(ledger): hw307 evidence for the contract page at 0.1.56 |
-| 2026-10-04T13:12 | [#6964](https://github.com/openova-io/openova/pull/6964) | #6963 | feat(bss): contracts you can read and edit line by line, a s |
-| 2026-09-27T13:07 | [#6957](https://github.com/openova-io/openova/pull/6957) | #6955 | fix(oidc-gate): the calculator's live-pricing call passes th |
-| 2026-09-27T13:15 | [#6956](https://github.com/openova-io/openova/pull/6956) | #6867 | fix(bss): the estimate totals never clip — number on one lin |
-| 2026-09-27T12:57 | [#6955](https://github.com/openova-io/openova/pull/6955) | #6841 | fix(oidc-gate): the public cost calculator is public — skip- |
-| 2026-09-27T13:47 | [#6954](https://github.com/openova-io/openova/pull/6954) | #6867 | docs(bss): the training course — 142 slides, generator and d |
 
 ---
 

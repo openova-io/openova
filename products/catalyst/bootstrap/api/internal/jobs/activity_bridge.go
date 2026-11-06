@@ -427,6 +427,42 @@ func (a *ActivityBridge) ensureStepLocked(step ActivityStep) error {
 // already declared via SeedSteps the display/order there win for the
 // persisted row's DependsOn chain; passing them again is harmless.
 func (a *ActivityBridge) StartStep(step ActivityStep, message string, t time.Time) error {
+	return a.startStep(step, message, t, true)
+}
+
+// ResumeStep is StartStep for a REPLAY: it flips the step to running and
+// reuses its open Execution exactly like StartStep, but writes the
+// message only when it had to allocate a fresh Execution. The cutover
+// resume seed runs on every /jobs read; with StartStep each read
+// appended another "[in flight …]" line, so the operator's log panel
+// filled with identical placeholders instead of the step's output.
+func (a *ActivityBridge) ResumeStep(step ActivityStep, message string, t time.Time) error {
+	return a.startStep(step, message, t, false)
+}
+
+// AppendStepLog appends lines to the step's open Execution — the live
+// output of the batch/v1 Job (or other worker) the step runs. A step
+// with no open Execution is a no-op: there is nothing running to attach
+// the output to.
+func (a *ActivityBridge) AppendStepLog(slug string, lines []LogLine) error {
+	slug = strings.TrimSpace(slug)
+	if slug == "" || len(lines) == 0 {
+		return nil
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	execID := a.activeExecID[slug]
+	if execID == "" {
+		job, _, err := a.store.GetJob(a.deploymentID, ActivityStepJobName(a.groupSlug, slug))
+		if err != nil || job.LatestExecutionID == "" || IsTerminal(job.Status) {
+			return nil
+		}
+		execID = job.LatestExecutionID
+	}
+	return a.store.AppendLogLines(a.deploymentID, execID, lines)
+}
+
+func (a *ActivityBridge) startStep(step ActivityStep, message string, t time.Time, logOnReuse bool) error {
 	step.Slug = strings.TrimSpace(step.Slug)
 	if step.Slug == "" {
 		return nil
@@ -447,11 +483,13 @@ func (a *ActivityBridge) StartStep(step ActivityStep, message string, t time.Tim
 	// is live — this is what prevents a resumed activity from minting a
 	// second Execution for a step that's already in flight.
 	execID := a.activeExecID[step.Slug]
+	reused := execID != ""
 	if execID == "" {
 		if job, _, err := a.store.GetJob(a.deploymentID, jobName); err == nil &&
 			job.LatestExecutionID != "" && !IsTerminal(job.Status) {
 			execID = job.LatestExecutionID
 			a.activeExecID[step.Slug] = execID
+			reused = true
 		}
 	}
 	if execID == "" {
@@ -479,6 +517,9 @@ func (a *ActivityBridge) StartStep(step ActivityStep, message string, t time.Tim
 		}
 	}
 
+	if reused && !logOnReuse {
+		return nil
+	}
 	msg := strings.TrimSpace(message)
 	if msg == "" {
 		msg = "[" + step.Slug + "] started"

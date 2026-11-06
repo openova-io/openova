@@ -594,8 +594,8 @@ variable "qa_fixtures_enabled" {
 # flag keep the cutover an operator-gated BSS action).
 variable "fire_cutover_on_handover" {
   type        = string
-  description = "When 'true', the Sovereign's catalyst-api auto-fires the self-sovereign cutover the instant handover seals the tofu-phase0-archive — INDEPENDENT of qa_fixtures_enabled, so a PROD-cert Sovereign reaches cutoverComplete with zero manual steps (North Star). Default 'false' (operator-gated BSS action, #4061)."
-  default     = "false"
+  description = "When 'true', the Sovereign's catalyst-api auto-fires the self-sovereign cutover the instant handover seals the tofu-phase0-archive — INDEPENDENT of qa_fixtures_enabled, so a PROD-cert Sovereign reaches cutoverComplete with zero manual steps (North Star). Default 'true' — zero-touch (founder 2026-11-06); 'false' keeps it an operator-gated BSS action."
+  default     = "true"
   validation {
     condition     = contains(["true", "false"], var.fire_cutover_on_handover)
     error_message = "fire_cutover_on_handover must be the string 'true' or 'false'."

@@ -604,12 +604,10 @@ func TestWriteTfvars_QAFixtures_DefaultDisabled(t *testing.T) {
 	if v, _ := parsed["qa_test_session_enabled"].(string); v != "false" {
 		t.Fatalf("qa_test_session_enabled MUST default 'false' on customer Sovereigns, got %q", v)
 	}
-	// North Star — fire_cutover_on_handover MUST default 'false' so a
-	// zero-touch customer Sovereign that sets neither flag keeps the cutover
-	// an operator-gated BSS action (#4061). The decoupling from qaTestEnabled
-	// does NOT change this default-off invariant.
-	if v, _ := parsed["fire_cutover_on_handover"].(string); v != "false" {
-		t.Fatalf("fire_cutover_on_handover MUST default 'false' on customer Sovereigns (operator-gated cutover, #4061), got %q", v)
+	// Zero-touch (founder 2026-11-06, supersedes #4061): a Sovereign that
+	// sets neither flag auto-fires the cutover on handover.
+	if v, _ := parsed["fire_cutover_on_handover"].(string); v != "true" {
+		t.Fatalf("fire_cutover_on_handover MUST default 'true' (zero-touch cutover), got %q", v)
 	}
 	// Fix #123 — wildcard_cert_use_staging MUST default 'false' so a
 	// customer Sovereign issues real-trusted production LE certs (not
@@ -698,8 +696,10 @@ func TestWriteTfvars_QAFixtures_EnabledDerivesNamespaceAndOrg(t *testing.T) {
 			// CATALYST_FIRE_CUTOVER_ON_HANDOVER (#4648), NOT from this
 			// independent flag. The flag is the ONLY thing QATestEnabled does
 			// NOT set, which is exactly what lets a PROD-cert prov auto-cutover.
-			if v, _ := parsed["fire_cutover_on_handover"].(string); v != "false" {
-				t.Errorf("fire_cutover_on_handover: got %q want \"false\" (QATestEnabled MUST NOT set this independent flag; the QA auto-cutover rides qaFixtures.enabled via the chart OR)", v)
+			// Zero-touch default: the flag is unset here, so it renders
+			// true regardless of QATestEnabled.
+			if v, _ := parsed["fire_cutover_on_handover"].(string); v != "true" {
+				t.Errorf("fire_cutover_on_handover: got %q want \"true\" (zero-touch default)", v)
 			}
 		})
 	}
@@ -730,7 +730,7 @@ func TestWriteTfvars_FireCutoverOnHandover_DecoupledFromQA(t *testing.T) {
 		Region:                "fsn1",
 		WorkerCount:           2,
 		QATestEnabled:         false, // PROD-cert Sovereign — NO qaFixtures, NO staging certs.
-		FireCutoverOnHandover: true,  // ...but DO auto-fire the cutover on handover.
+		FireCutoverOnHandover: boolPtr(true), // ...but DO auto-fire the cutover on handover.
 	}
 	if err := writeTfvars(dir, req); err != nil {
 		t.Fatalf("writeTfvars: %v", err)
@@ -796,5 +796,37 @@ func TestWriteTfvars_QAFixtures_OperatorOverrideWins(t *testing.T) {
 	}
 	if v, _ := parsed["qa_organization"].(string); v != "team-alpha-platform" {
 		t.Errorf("qa_organization: operator override must win, got %q", v)
+	}
+}
+
+
+// Zero-touch default (founder 2026-11-06): a prov that does not mention
+// the flag auto-fires the cutover; only an explicit false opts out.
+func TestWriteTfvars_FireCutoverOnHandover_DefaultsTrue(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		v    *bool
+		want string
+	}{{"omitted", nil, "true"}, {"explicit-true", boolPtr(true), "true"}, {"explicit-false", boolPtr(false), "false"}} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			req := Request{SovereignFQDN: "z.omani.works", OrgName: "Z", OrgEmail: "ops@omani.works",
+				HetznerToken: "tok", HetznerProjectID: "p1", Region: "fsn1", WorkerCount: 2,
+				FireCutoverOnHandover: tc.v}
+			if err := writeTfvars(dir, req); err != nil {
+				t.Fatalf("writeTfvars: %v", err)
+			}
+			raw, err := os.ReadFile(dir + "/tofu.auto.tfvars.json")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var parsed map[string]any
+			if err := json.Unmarshal(raw, &parsed); err != nil {
+				t.Fatal(err)
+			}
+			if got, _ := parsed["fire_cutover_on_handover"].(string); got != tc.want {
+				t.Fatalf("fire_cutover_on_handover=%q want %q", got, tc.want)
+			}
+		})
 	}
 }

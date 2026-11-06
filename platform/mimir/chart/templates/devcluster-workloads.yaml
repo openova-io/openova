@@ -514,11 +514,11 @@ spec:
 {{- $minio := $md.minio | default dict -}}
 {{- $minioName := printf "%s-minio" $rel -}}
 {{- $minioImg := $minio.image | default dict -}}
-{{- $minioRepo := $minioImg.repository | default "harbor.openova.io/proxy-quay/minio/minio" -}}
-{{- $minioTag := $minioImg.tag | default "RELEASE.2024-12-18T13-15-44Z" -}}
+{{- $minioRepo := $minioImg.repository | default "harbor.openova.io/proxy-dockerhub/bitnamilegacy/minio" -}}
+{{- $minioTag := $minioImg.tag | default "2025.7.23-debian-12-r3" -}}
 {{- $mcImg := $minio.mcImage | default dict -}}
-{{- $mcRepo := $mcImg.repository | default "harbor.openova.io/proxy-quay/minio/mc" -}}
-{{- $mcTag := $mcImg.tag | default "RELEASE.2024-11-21T17-21-54Z" -}}
+{{- $mcRepo := $mcImg.repository | default "harbor.openova.io/proxy-dockerhub/bitnamilegacy/minio-client" -}}
+{{- $mcTag := $mcImg.tag | default "2025.7.21" -}}
 {{- $minioUser := $minio.rootUser | default "grafana-mimir" -}}
 {{- $minioPass := $minio.rootPassword | default "supersecret" -}}
 {{- $minioSize := ($minio.persistence).size | default "5Gi" -}}
@@ -557,7 +557,9 @@ data:
     #!/bin/sh
     set -e
     MC_CONFIG_DIR="/tmp/minio/mc/"
-    MC="/usr/bin/mc --insecure --config-dir ${MC_CONFIG_DIR}"
+    # `mc` from PATH: the bitnamilegacy/minio-client image keeps it at
+    # /opt/bitnami/minio-client/bin/mc, not /usr/bin/mc.
+    MC="$(command -v mc || echo /usr/bin/mc) --insecure --config-dir ${MC_CONFIG_DIR}"
     connectToMinio() {
       # LIMIT bumped 29→150 (#4739): on kom4dc the Catalyst-owned MinIO
       # Deployment pulls its server image through the Harbor pull-through proxy
@@ -687,7 +689,7 @@ spec:
           command:
             - /bin/sh
             - -ce
-            - /usr/bin/docker-entrypoint.sh minio server /export -S /etc/minio/certs/ --address :9000 --console-address :9001
+            - minio server /export -S /etc/minio/certs/ --address :9000 --console-address :9001
           volumeMounts:
             - name: export
               mountPath: /export

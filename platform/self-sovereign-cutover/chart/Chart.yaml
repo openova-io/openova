@@ -4266,7 +4266,13 @@ name: bp-self-sovereign-cutover
 #   first, #5095 direct fallback); dropped items are named on the Job log.
 #   tests/step6294-dedupe-by-destination.sh executes the rendered block.
 #   Catalog + bootstrap-kit slot 06a move to 0.1.203; umbrella 1.4.1844.
-version: 0.1.203
+# 0.1.204: step-01 gitea-mirror deadline 2700 -> 7200s — a two-region mirror of
+#   2,605 branches overran 45m on hw307 (2026-11-06). Umbrella 1.4.1848.
+# 0.1.205: harbor.<fqdn> is a local alias in the host map (step-08 counted it UNMAPPED); step-06
+#   org-tenants leg also host-swaps mothership image-registry values (hw307 2026-11-06).
+# 0.1.206: step-03 converges the secondary harbor-admin on the primary's password (shared DB);
+#   loft-sh/vcluster is mirrored (offlineMirror.mirrorAnyway) though still not rolled (hw307).
+version: 0.1.206
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

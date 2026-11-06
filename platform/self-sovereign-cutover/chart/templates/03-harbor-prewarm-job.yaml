@@ -3380,6 +3380,30 @@ data:
       fi
 
       {{- /*
+       (2b) The secondary Harbor shares the PRIMARY's Harbor database, so its
+       admin account (and password) is the primary's. bp-harbor in the
+       secondary region generates its OWN random harbor-admin Secret on first
+       install, which that Harbor then rejects (401): on hw307 (2026-11-06)
+       all 70 secondary-region pushes failed with "unauthorized". Converge the
+       secondary's harbor-admin Secret on the primary's password (this Job
+       already holds it as HARBOR_PASSWORD); bp-harbor's lookup re-emits the
+       stored bytes on every reconcile and reflector mirrors the Secret into
+       catalyst, so the fix is durable.
+      */}}
+      if [ -n "${HARBOR_PASSWORD:-}" ]; then
+        _sec_pw_b64=$(printf '%s' "${HARBOR_PASSWORD}" | base64 | tr -d '\n')
+        if kubectl --kubeconfig "${skc}" -n "${SECONDARY_HARBOR_NAMESPACE}" get secret harbor-admin >/dev/null 2>&1; then
+          if kubectl --kubeconfig "${skc}" -n "${SECONDARY_HARBOR_NAMESPACE}" patch secret harbor-admin --type=merge \
+               -p "{\"data\":{\"HARBOR_ADMIN_PASSWORD\":\"${_sec_pw_b64}\"}}" >/dev/null 2>&1; then
+            echo "[harbor-prewarm] #6764 secondary region ${region}: harbor-admin converged on the primary's admin password (shared Harbor DB)"
+          else
+            echo "[harbor-prewarm] FATAL: #6764 secondary region ${region}: could not converge ${SECONDARY_HARBOR_NAMESPACE}/harbor-admin on the primary's admin password — the region-local pushes would 401." >&2
+            exit 1
+          fi
+        fi
+      fi
+
+      {{- /*
        (3) enumerate THIS region's OWN openova-io images (running Pods ∪ declared
        workload templates — the same union the primary Phase A builds) + charts
        (static names ∪ live openova-io HelmRepositories, deployed∪desired
@@ -3579,7 +3603,7 @@ data:
           - name: EXCLUDED_HOSTS
             value: {{ include "bp-self-sovereign-cutover.excludedHostsInline" . | quote }}
           - name: EXCLUDED_SUBSTRINGS
-            value: {{ include "bp-self-sovereign-cutover.excludedSubstringsInline" . | quote }}
+            value: {{ include "bp-self-sovereign-cutover.mirrorExcludedSubstringsInline" . | quote }}
           - name: LOCAL_REGISTRY_HOST
             value: {{ include "bp-self-sovereign-cutover.localRegistryHost" . | quote }}
           - name: MOTHERSHIP_HOST

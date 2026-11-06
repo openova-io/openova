@@ -171,6 +171,30 @@ export function reverseDependencies(bareId: string): string[] {
   )
 }
 
+/**
+ * A server-reported installed Application the wizard selection does not
+ * cover. The Applications view must list EVERY installed Application: on
+ * hw307 (2026-11-06) six installed Blueprints (agenity, chargeback,
+ * cnpg-pair, openclaw, stalwart-tenant, wordpress-tenant) were invisible
+ * because the grid was seeded only from the provisioning wizard's selection.
+ * Resolves through the component catalog when the slug is known, else falls
+ * back to the server's own title so nothing is ever dropped.
+ */
+export function resolveServerApplication(row: {
+  id: string
+  slug?: string
+  title?: string
+}): ApplicationDescriptor {
+  const bare = row.slug && row.slug !== '' ? row.slug : row.id.replace(/^bp-/, '')
+  return makeDescriptor({
+    blueprintId: row.id,
+    bareId: bare,
+    fallbackTitle: row.title && row.title !== '' ? row.title : bare,
+    compEntry: findComponent(bare),
+    bootstrapKit: false,
+  })
+}
+
 /** Lookup a descriptor inside a list by Blueprint id ("bp-<slug>"). */
 export function findApplication(
   apps: readonly ApplicationDescriptor[],
