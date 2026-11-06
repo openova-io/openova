@@ -1760,7 +1760,7 @@ spec:
       # alone is reverted by Flux reading Git source — META-AUDIT 1
       # sub-class 10, architectural rule: every cutover live-patch
       # MUST persist to local Gitea source-of-truth).
-      imageRegistry: ''
+      imageRegistry: 'registry.hw307.omani.works'
     ingress:
       gateway:
         parentRef:
