@@ -1616,6 +1616,22 @@ The deterministic failover test for two independent CNPG clusters:
       it (`forceAt` = `requestedAt`, as above).
    5. Confirm B streams from A: `pg_stat_wal_receiver` shows `streaming` and the
       Cluster reports `ConsistentSystemID=True`.
+
+   **PLANNED cross-region switchover WITH a demotion token (`bp-cnpg-pair` ≥
+   0.2.29 + `bp-continuum` ≥ 0.1.13, opt-in).** With
+   `SOVEREIGN_CNPG_PAIR_DISTRIBUTED=true` on EVERY region's bootstrap-kit
+   Kustomization, both halves render CNPG's distributed topology
+   (`spec.replica.{self,primary,source}`), and the console "Switch over…"
+   runs losslessly across the two API servers with no re-clone: the
+   continuum-controller sets `SOVEREIGN_CNPG_PAIR_ACTIVE_PRIMARY=<peer>` on the
+   current primary's Kustomization (CNPG demotes in place and publishes
+   `status.demotionToken`), then `ACTIVE_PRIMARY=<self>` +
+   `SOVEREIGN_CNPG_PAIR_PROMOTION_TOKEN=<token>` on the standby's (CNPG
+   promotes only after replaying up to the demotion checkpoint). Region B is
+   reached through `catalyst/cutover-secondary-kubeconfigs`; field manager
+   `continuum-switchover`. Preflight refuses while either DR seam above is
+   latched (`…_PROMOTED` / `…_DEMOTED=true`) — that episode's switchback is
+   the re-clone sequence above. Never patch the Cluster CRs by hand.
    🛑 **#6874 D2 — a CNPG local failover is NOT a region kill (`bp-postgres`
    ≥ 0.2.28 / `bp-cnpg-pair` ≥ 0.2.26).** The promoter's original liveness probe
    was a `pg_isready` of `<instance>-mesh`, which selects

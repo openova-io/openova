@@ -52,6 +52,13 @@
 //	CONTINUUM_HEALTH_DELAY_SECONDS — post-switchover health-check delay.
 //	                       Default 30s per design doc §9.5.
 //
+// Cross-region cnpg-pair switchover (true two-region Sovereign):
+//
+//	CATALYST_SECONDARY_REGION_KUBECONFIG_SECRET    — peer-region kubeconfig
+//	                       bridge Secret (default cutover-secondary-kubeconfigs)
+//	CATALYST_SECONDARY_REGION_KUBECONFIG_SECRET_NS — its namespace (default catalyst)
+//	CONTINUUM_CROSS_REGION_TIMEOUT_SECONDS         — per-wait bound (default 300)
+//
 // Per-CR config (lease TTL/renew, witness kind, regions) is read
 // from Continuum CR spec, NEVER env (per INVIOLABLE-PRINCIPLES #4).
 //
@@ -87,6 +94,7 @@ import (
 	"github.com/openova-io/openova/core/controllers/continuum/internal/events"
 	"github.com/openova-io/openova/core/controllers/continuum/internal/pdm"
 	"github.com/openova-io/openova/core/controllers/continuum/internal/pgprobe"
+	"github.com/openova-io/openova/core/controllers/continuum/internal/regions"
 	"github.com/openova-io/openova/core/controllers/continuum/internal/switchover"
 	"github.com/openova-io/openova/core/controllers/continuum/internal/witness"
 	// K-Cont-3 lease-witness implementations — register their
@@ -232,7 +240,34 @@ func main() {
 	// the controller, which already has the coordination.k8s.io RBAC).
 	leaseNamespace := env("CATALYST_LEASE_NS", podNamespace())
 
+	// Cross-region cnpg-pair switchover: region B's API server is reached
+	// through the EXISTING peer-region kubeconfig bridge Secret (#5359;
+	// same object the cutover secondary legs + organization-controller
+	// use). Read uncached — `secrets: get` is all the RBAC grants.
+	crossTimeout := 5 * time.Minute
+	if v := env("CONTINUUM_CROSS_REGION_TIMEOUT_SECONDS", ""); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			crossTimeout = time.Duration(n) * time.Second
+		}
+	}
+	apiReader := mgr.GetAPIReader()
+	crossRegion := switchover.CrossRegionOptions{
+		Regions: &regions.SecretResolver{
+			Namespace: env("CATALYST_SECONDARY_REGION_KUBECONFIG_SECRET_NS", regions.DefaultSecretNamespace),
+			Name:      env("CATALYST_SECONDARY_REGION_KUBECONFIG_SECRET", regions.DefaultSecretName),
+			Read: func(ctx context.Context, namespace, name string) (map[string][]byte, error) {
+				var sec corev1.Secret
+				if err := apiReader.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, &sec); err != nil {
+					return nil, err
+				}
+				return sec.Data, nil
+			},
+		},
+		Timeout: crossTimeout,
+	}
+
 	r := &controller.ContinuumReconciler{
+		CrossRegion:     crossRegion,
 		Client:          mgr.GetClient(),
 		Scheme:          mgr.GetScheme(),
 		Dyn:             dyn,

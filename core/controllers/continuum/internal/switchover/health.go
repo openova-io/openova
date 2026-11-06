@@ -247,11 +247,15 @@ func (s *Sequencer) healthReplicas(ctx context.Context, plan SwitchoverPlan) Hea
 		c.Detail = "CNPG reader not configured"
 		return c
 	}
-	primary, replica, err := s.CNPG.FindPair(ctx, plan.CNPGNamespace, plan.CNPGPair)
+	topo, err := s.resolveCNPGTopology(ctx, plan)
 	if err != nil {
 		c.Detail = fmt.Sprintf("FindPair %s/%s: %v", plan.CNPGNamespace, plan.CNPGPair, err)
 		return c
 	}
+	if topo.cross != nil {
+		return s.crossHealthReplicas(ctx, plan, topo.cross)
+	}
+	primary, replica := topo.primary, topo.replica
 	primaryStatus, _, pErr := s.CNPG.Get(ctx, primary.GetNamespace(), primary.GetName())
 	if pErr != nil {
 		c.Detail = fmt.Sprintf("Get primary %s: %v", primary.GetName(), pErr)

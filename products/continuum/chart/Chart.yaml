@@ -130,7 +130,16 @@ type: application
 # deploy-bot stamps the new image SHA (the 0.1.9 lesson). Slot-62 pin
 # + blueprint.yaml version move to 0.1.12 in lockstep (Inviolable
 # Principle #13).
-version: 0.1.12
+# 0.1.13: cross-region cnpg-pair PLANNED switchover — the controller drives a
+# pair split across two API servers through the per-region bootstrap-kit
+# Kustomization substitutes (CNPG distributed topology, bp-cnpg-pair 0.2.29),
+# reaching region B via the existing cutover-secondary-kubeconfigs Secret.
+# RBAC: kustomizations get+patch pinned to resourceNames [bootstrap-kit].
+# Slot-62 pin + blueprint.yaml + catalog-seed move to 0.1.13 in lockstep.
+# 0.1.14: ship the cross-region switchover image (86b0daa). 0.1.13 was published
+#   before the #7048 Containerfile fix and still carries 6e23bf2; the deploy-bot
+#   image bump does not republish a chart, so this version bump does.
+version: 0.1.14
 appVersion: "0.1.0"
 home: https://openova.io
 sources:

@@ -43,6 +43,7 @@ import (
 	"github.com/openova-io/openova/core/controllers/continuum/internal/cnpg"
 	"github.com/openova-io/openova/core/controllers/continuum/internal/dns"
 	"github.com/openova-io/openova/core/controllers/continuum/internal/events"
+	"github.com/openova-io/openova/core/controllers/continuum/internal/pgprobe"
 	"github.com/openova-io/openova/core/controllers/continuum/internal/witness"
 )
 
@@ -221,6 +222,17 @@ type Sequencer struct {
 	// replica.enabled flips). Serves the default cnpg-pair promotion
 	// mechanism (steps 2 + 6).
 	CNPG *cnpg.Reader
+
+	// CrossRegion configures the cnpg-pair path for a pair split across
+	// two API servers (true two-region Sovereign — crossregion.go).
+	// Zero value: a split pair fails step-2 with a clear "no region
+	// client resolver" error; single-API pairs never consult it.
+	CrossRegion CrossRegionOptions
+
+	// StandbyProbe (optional) reads the acting primary's
+	// pg_stat_replication — the cross-region preflight uses it to verify
+	// the standby is streaming and caught up (#5311 probe, reused).
+	StandbyProbe pgprobe.Prober
 
 	// RaftPromoter serves the `raft-transition` promotion mechanism
 	// (bp-openbao). Nil unless the controller wires a pod-exec backend;

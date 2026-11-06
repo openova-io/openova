@@ -442,7 +442,16 @@ name: bp-cnpg-pair
 # 0.2.28: unified model — renders the pair's Application CR (cnpg-pair, bootstrap-adopted,
 #   primary side), binds the Continuum as dr-cnpg-pair, labels CNPG Pods with the app
 #   (cnpgPair.application.enabled; default-off render byte-identical).
-version: 0.2.28
+# 0.2.29: CNPG distributed topology (cnpgPair.distributed, default OFF; renders
+#   byte-identical when off) — both halves declare spec.replica.{self,primary,source}
+#   (+ promotionToken on the half being promoted) + externalClusters for both, driven
+#   by the bootstrap-kit substitutes SOVEREIGN_CNPG_PAIR_{DISTRIBUTED,ACTIVE_PRIMARY,
+#   PROMOTION_TOKEN} the continuum-controller writes for a LOSSLESS planned cross-region
+#   switchover (hw307 2026-11-06: step-2 "pair incomplete" on a two-API-server pair).
+#   DR seams (demoted/promoted) still win with the legacy shapes; the sync fence follows
+#   the planned primary; dr-promoter stands its divergence arms down while the planned
+#   role is owned by continuum-switchover. tests/cnpg-pair-render.sh Case 26.
+version: 0.2.29
 appVersion: "0.2.1"
 description: |
   Catalyst-curated Blueprint for an active-hotstandby CNPG cluster-pair

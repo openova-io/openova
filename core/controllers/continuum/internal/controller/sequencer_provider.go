@@ -78,6 +78,8 @@ func (r *ContinuumReconciler) SequencerFor(ns, name string) (*switchover.Sequenc
 	zone := spec.PDMZone
 	seq := &switchover.Sequencer{
 		CNPG:         r.cnpgReader(),
+		CrossRegion:  r.CrossRegion,
+		StandbyProbe: r.StandbyProbe,
 		RaftPromoter: r.RaftPromoter,
 		Witness:      w,
 		PDMCommit: func(ctx context.Context, records []dns.Record) error {
