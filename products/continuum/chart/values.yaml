@@ -120,9 +120,14 @@ continuum:
   # overlays may repoint at a Sovereign-local PDM instance.
   pdmURL: ""
 
-  # NATS endpoint for catalyst.audit publishing. Empty = use the
-  # in-cluster nats.openova-system.svc.cluster.local default.
-  natsURL: ""
+  # NATS endpoint for catalyst.audit publishing (switchover step-7 is
+  # REQUIRED — an empty URL fails every switchover at audit-emit and rolls
+  # back a completed promotion; hw307 2026-11-07). The default is the
+  # bp-nats-jetstream Service (slot 07: release nats-jetstream, namespace
+  # nats-system). natsNamespace must name the same namespace — the
+  # NetworkPolicy egress rule is keyed on it.
+  natsURL: "nats://nats-jetstream.nats-system.svc.cluster.local:4222"
+  natsNamespace: nats-system
 
   # #3829 — the host-cluster region this controller instance represents,
   # stamped as the k8s-lease holderIdentity (CATALYST_REGION). Empty =

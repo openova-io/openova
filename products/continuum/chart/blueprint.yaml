@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-9-disaster-recovery
     openova.io/category: customer-facing-capability
 spec:
-  version: 0.1.15
+  version: 0.1.16
   card:
     title: Continuum
     summary: |
@@ -53,8 +53,8 @@ spec:
           natsURL:
             type: string
             description: |
-              NATS endpoint for catalyst.audit publishing. Empty =
-              use the in-cluster default.
+              NATS endpoint for catalyst.audit publishing. Default =
+              the bp-nats-jetstream Service in nats-system.
 
   placementSchema:
     # Continuum is itself a single-region controller — it lives on the

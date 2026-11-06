@@ -65,14 +65,14 @@ spec:
           protocol: UDP
         - port: 53
           protocol: TCP
-    # NATS for catalyst.audit publishing (K-Cont-2). The default
-    # in-cluster nats Service runs in openova-system; override the
-    # namespace label match per Sovereign overlay if your NATS
-    # instance lives elsewhere.
+    # NATS for catalyst.audit publishing (K-Cont-2). bp-nats-jetstream
+    # runs in nats-system (slot 07); the namespace is .continuum.natsNamespace
+    # so it always matches natsURL. The previous hardcoded openova-system
+    # matched no NATS at all.
     - to:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: openova-system
+              kubernetes.io/metadata.name: {{ .Values.continuum.natsNamespace | default "nats-system" | quote }}
       ports:
         - port: 4222
           protocol: TCP
