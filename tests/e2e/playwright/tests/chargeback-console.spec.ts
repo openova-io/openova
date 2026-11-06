@@ -168,7 +168,7 @@ test.describe('chargeback cost console (#6867)', () => {
     await expect(page.getByRole('group', { name: 'Price book scope filter' })).toBeVisible()
     await expect(bookRow.locator('td').nth(4)).toContainText('1')
     await bookRow.getByRole('link', { name: 'E2E list' }).click()
-    await expect(page.getByText('ecs.m7n.xlarge.8')).toBeVisible()
+    await expect(page.getByText('ecs.m7n.xlarge.8').first()).toBeVisible()
     // The coverage card is measured over the sources assigned to the book.
     await expect(page.getByRole('heading', { name: 'SKUs in use by the sources assigned to this book' })).toBeVisible()
     await expect(page.getByText('e2e-project').first()).toBeVisible()
