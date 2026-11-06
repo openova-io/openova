@@ -438,7 +438,9 @@ func (r *ContinuumReconciler) runPerCR(ctx context.Context, nn types.NamespacedN
 		case switchoverRequested:
 			_ = r.publishCNPGPromotable(ctx, nn, spec, maxLag)
 			r.runSwitchover(ctx, cr, spec, toRegion, "operator-requested", maxLag, w)
-			_ = r.clearSwitchoverRequest(ctx, cr)
+			if err := r.clearSwitchoverRequest(ctx, cr); err != nil {
+				ctrl.LoggerFrom(ctx).Error(err, "switchover request not cleared")
+			}
 		case lagBreached && !standby.LocalHalfDemoted:
 			// A lag breach on a FAILED-OVER pair must not drive the
 			// sequencer "from spec.primaryRegion to the standby": the
@@ -538,6 +540,10 @@ func (r *ContinuumReconciler) runSwitchover(
 
 	res := seq.Execute(ctx, plan)
 	if res.Err != nil {
+		// Log the failing step: the status message is overwritten by the
+		// next reconcile, so without this the cause of a failed switchover
+		// was unrecoverable once the pod restarted (hw307 2026-11-06).
+		log.Error(res.Err, "switchover failed", "continuum", plan.ContinuumName, "from", plan.FromRegion, "to", plan.ToRegion, "mechanism", plan.Mechanism)
 		_ = r.patchStatus(ctx, cr, statusUpdate{
 			Phase:                PhaseDegraded,
 			Reason:               "SwitchoverFailed",
@@ -905,15 +911,35 @@ func (r *ContinuumReconciler) effectiveHoldingRegion(spec ContinuumSpec) string 
 	return spec.PrimaryRegion
 }
 
+// clearSwitchoverRequest ENDS the operator's request, whatever the outcome.
+//
+// It must not write back the object read at the start of the reconcile: the
+// switchover patches the CR's status meanwhile, so a full Update of that copy
+// fails with a resourceVersion conflict. That error was discarded, the
+// request stayed requested=true, and every following reconcile re-ran the
+// switchover — on hw307 (2026-11-06) re-demoting the just-restored region-A
+// primary over and over. A JSON merge patch carries no resourceVersion, so it
+// cannot conflict; it is retried briefly and the failure is logged, never
+// dropped.
 func (r *ContinuumReconciler) clearSwitchoverRequest(ctx context.Context, cr *unstructured.Unstructured) error {
 	_ = unstructured.SetNestedField(cr.Object, false, "spec", "switchover", "requested")
 	if r.Dyn == nil {
 		return nil
 	}
-	_, err := r.Dyn.Resource(ContinuumGVR).Namespace(cr.GetNamespace()).Update(ctx, cr, metav1.UpdateOptions{})
-	if apierrors.IsNotFound(err) {
-		return nil
+	patch := []byte(`{"spec":{"switchover":{"requested":false}}}`)
+	var err error
+	for attempt := 0; attempt < 5; attempt++ {
+		_, err = r.Dyn.Resource(ContinuumGVR).Namespace(cr.GetNamespace()).Patch(ctx, cr.GetName(), types.MergePatchType, patch, metav1.PatchOptions{})
+		if err == nil || apierrors.IsNotFound(err) {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Duration(attempt+1) * 200 * time.Millisecond):
+		}
 	}
+	ctrl.LoggerFrom(ctx).Error(err, "could not clear spec.switchover.requested — the next reconcile would re-run the switchover", "continuum", cr.GetNamespace()+"/"+cr.GetName())
 	return err
 }
 

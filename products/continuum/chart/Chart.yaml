@@ -139,7 +139,10 @@ type: application
 # 0.1.14: ship the cross-region switchover image (86b0daa). 0.1.13 was published
 #   before the #7048 Containerfile fix and still carries 6e23bf2; the deploy-bot
 #   image bump does not republish a chart, so this version bump does.
-version: 0.1.14
+# 0.1.15: ship the #7050 image (3e23910) — DB-only switchover skips flip-dns and
+#   the request is cleared from a stale copy. The deploy-bot image bump does not
+#   republish a chart, so this version bump does.
+version: 0.1.15
 appVersion: "0.1.0"
 home: https://openova.io
 sources:

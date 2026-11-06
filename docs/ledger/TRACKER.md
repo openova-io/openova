@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-06T21:45:04Z` |
+| Last refreshed | `2026-11-06T22:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-06T22:17 | [#7050](https://github.com/openova-io/openova/pull/7050) | #3375 | fix(continuum): DB-only switchover skips flip-dns; request c |
 | 2026-11-06T21:40 | [#7049](https://github.com/openova-io/openova/pull/7049) | #7048 | chore(bp-continuum): 0.1.14 — ship the cross-region switchov |
 | 2026-11-06T21:27 | [#7048](https://github.com/openova-io/openova/pull/7048) | #7047 | fix(continuum): Containerfile copies core/controllers/pkg (# |
 | 2026-11-06T21:12 | [#7047](https://github.com/openova-io/openova/pull/7047) | #5125 | feat(continuum): lossless planned cnpg-pair switchover acros |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-10-10T13:08 | [#6991](https://github.com/openova-io/openova/pull/6991) | #6963 | docs(ledger): hw307 evidence for the contract page's rated p |
 | 2026-10-10T12:34 | [#6990](https://github.com/openova-io/openova/pull/6990) | #6971 | docs(ledger): hw307 evidence for packages 0.1.58–0.1.59 |
 | 2026-10-10T11:53 | [#6989](https://github.com/openova-io/openova/pull/6989) | #6987 | test(bootstrap-api): the resource-tree test waits for every  |
-| 2026-10-10T12:57 | [#6988](https://github.com/openova-io/openova/pull/6988) | #6963 | feat(bss): the contract page shows what the contract did — r |
 
 ---
 
