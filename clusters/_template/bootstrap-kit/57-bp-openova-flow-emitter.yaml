@@ -101,7 +101,7 @@ spec:
     # reconcile. 6-space indent on `imageRegistry:` is REQUIRED — step-07's sed
     # matches `^      imageRegistry:`.
     global:
-      imageRegistry: ''
+      imageRegistry: 'registry.hw307.omani.works'
     flowEmitter:
       enabled: true
       # In-cluster Service URL — the emitter DaemonSet lives in the same
