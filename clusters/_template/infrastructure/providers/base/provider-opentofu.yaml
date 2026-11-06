@@ -70,7 +70,7 @@ spec:
   # inline infrastructure-providers Kustomization has NONE — so the raw
   # placeholder shipped verbatim and provider-opentofu stayed Installed=False
   # on the live 8fd457a8 prov. step-11 pivots this literal host post-handover.
-  package: xpkg.upbound.io/upbound/provider-opentofu:v1.1.3
+  package: harbor.hw307.omani.works/proxy-xpkg/upbound/provider-opentofu@sha256:4aeddb701725498d06baaf3532ec534c278169f19b5ad89aced615ac8360eb90
   # Inherit the cluster's image-pull behaviour from the runtime config
   # below (so post-cutover the Sovereign's own Harbor can proxy it).
   runtimeConfigRef:

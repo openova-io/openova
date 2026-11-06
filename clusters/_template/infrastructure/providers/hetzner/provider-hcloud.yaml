@@ -5,4 +5,4 @@ kind: Provider
 metadata:
   name: provider-hcloud
 spec:
-  package: xpkg.upbound.io/crossplane-contrib/provider-hcloud:v0.4.0
+  package: harbor.hw307.omani.works/proxy-xpkg/crossplane-contrib/provider-hcloud:v0.4.0
