@@ -1786,8 +1786,29 @@ func findContinuumCRByApplicationRef(
 			return list.Items[i].DeepCopy()
 		}
 	}
-	return nil
+	// Second pass — the Blueprint that rendered the CR. bp-cnpg-pair's
+	// Continuum is named cnpg-pair-bp-cnpg-pair-continuum and carries
+	// applicationRef=catalyst-platform, so neither the `dr-<app>` name nor the
+	// applicationRef matched and the Topology tab read the synthesized
+	// source:"pending" envelope — no DR panel, no switchover (hw307
+	// 2026-11-06). The chart stamps catalyst.openova.io/blueprint=<bp> on it;
+	// match on that only when exactly ONE CR carries it, never guess.
+	var byBlueprint *unstructured.Unstructured
+	for i := range list.Items {
+		if list.Items[i].GetLabels()[blueprintLabelKey] != appName {
+			continue
+		}
+		if byBlueprint != nil {
+			return nil
+		}
+		byBlueprint = list.Items[i].DeepCopy()
+	}
+	return byBlueprint
 }
+
+// blueprintLabelKey — the label every Blueprint chart stamps with its own
+// Blueprint id (e.g. bp-cnpg-pair).
+const blueprintLabelKey = "catalyst.openova.io/blueprint"
 
 // liveReplicationStatusFromCNPGPair derives the replication-status body
 // directly from the live cnpg cluster-pair backing the app — the same
