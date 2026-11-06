@@ -35,6 +35,14 @@ replica pattern; only the apply TARGET was wrong.
 */ -}}
 {{- if and .Values.cnpgPair.enabled (include "cnpg-pair.isReplicaSide" .) }}
 {{- include "cnpg-pair.validateRegions" . }}
+{{- /* Chart 0.2.29 — CNPG distributed topology (planned cross-region
+       switchover). The DR promotion seam (replica.promoted) wins: a
+       dr-promoter promotion keeps rendering the exact legacy shape. */ -}}
+{{- $planned := and (include "cnpg-pair.distributedActive" .) (not (.Values.cnpgPair.replica.promoted | default false)) }}
+{{- $activePrimary := "" }}
+{{- if $planned }}{{- $activePrimary = include "cnpg-pair.activePrimary" . }}{{- end }}
+{{- $selfPrimary := and $planned (eq $activePrimary (include "cnpg-pair.replicaName" .)) }}
+{{- $syncFence := and $selfPrimary (eq (default "sync" .Values.cnpgPair.replication.mode) "sync") }}
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
@@ -124,9 +132,27 @@ spec:
   # DESIRED state, so drift-correction RE-AFFIRMS the promotion instead of
   # undoing it. Default `promoted: false` ⇒ `enabled: true` (normal
   # replica); a missing value is also treated as replica (backward-safe).
+{{- if $planned }}
+  # ── CNPG distributed topology (chart 0.2.29) ──────────────────────
+  # Role = `primary == self`, moved by the continuum-controller through
+  # SOVEREIGN_CNPG_PAIR_ACTIVE_PRIMARY for a PLANNED switchover; the
+  # promotion presents region-A's demotion token
+  # (SOVEREIGN_CNPG_PAIR_PROMOTION_TOKEN) so CNPG promotes only after
+  # replaying up to region-A's shutdown checkpoint (lossless).
+  replica:
+    self: {{ include "cnpg-pair.replicaName" . }}
+    primary: {{ $activePrimary }}
+    source: {{ include "cnpg-pair.fullname" . }}-primary
+    {{- with .Values.cnpgPair.distributed.promotionToken }}
+    {{- if $selfPrimary }}
+    promotionToken: {{ . | quote }}
+    {{- end }}
+    {{- end }}
+{{- else }}
   replica:
     enabled: {{ not (.Values.cnpgPair.replica.promoted | default false) }}
     source: {{ include "cnpg-pair.fullname" . }}-primary
+{{- end }}
 
   # ── Bootstrap from primary ──────────────────────────────────────
   # CNPG REQUIRES an explicit bootstrap stanza on a replica Cluster:
@@ -180,6 +206,25 @@ spec:
       sslRootCert:
         name: {{ include "cnpg-pair.fullname" . }}-primary-ca
         key: ca.crt
+{{- if $planned }}
+    # Self entry (chart 0.2.29 distributed topology lists every member):
+    # this cluster's own `rw` over its `-replica-mesh` global alias, with
+    # its OWN CNPG-issued streaming_replica leaf (issued from the shared
+    # client CA, see `certificates` below).
+    - name: {{ include "cnpg-pair.fullname" . }}-replica
+      connectionParameters:
+        host: {{ include "cnpg-pair.peerReplicationServiceName" . }}
+        port: "5432"
+        user: streaming_replica
+        sslmode: require
+        dbname: {{ .Values.cnpgPair.primary.bootstrap.database | quote }}
+      sslKey:
+        name: {{ include "cnpg-pair.replicaName" . }}-replication
+        key: tls.key
+      sslCert:
+        name: {{ include "cnpg-pair.replicaName" . }}-replication
+        key: tls.crt
+{{- end }}
 
   # ── Reverse-direction replication Service (#5245) ─────────────────
   # Publish THIS cluster's writable endpoint across the mesh as
@@ -228,6 +273,26 @@ spec:
       max_wal_senders: "10"
       max_replication_slots: "10"
       wal_level: "logical"
+      {{- if $syncFence }}
+      synchronous_commit: {{ default "remote_apply" .Values.cnpgPair.replication.sync.commit | quote }}
+      {{- end }}
+    {{- if $syncFence }}
+    # ── Synchronous fence — follows the PLANNED primary role (0.2.29) ──
+    # Mirror of primary-cluster.yaml's #3740 block, rendered ONLY while
+    # the distributed topology designates THIS cluster primary: the
+    # cross-region SYNC target is region-A's cluster (its application_name
+    # == its Cluster CR name), so RPO=0 holds in both directions. A
+    # dr-promoter (unplanned) promotion keeps the legacy shape with NO
+    # fence — region-A is dead then, and a required sync standby would
+    # block every write on the survivor.
+    synchronous:
+      method: first
+      number: {{ int (default 1 .Values.cnpgPair.replication.sync.numSync) }}
+      dataDurability: required
+      maxStandbyNamesFromCluster: 0
+      standbyNamesPre:
+        - {{ include "cnpg-pair.primaryName" . | quote }}
+    {{- end }}
 
   enableSuperuserAccess: false
 {{- end }}

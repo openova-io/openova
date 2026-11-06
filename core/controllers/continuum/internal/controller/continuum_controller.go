@@ -172,6 +172,14 @@ type ContinuumReconciler struct {
 	// inject a fake.
 	StandbyProbe pgprobe.Prober
 
+	// CrossRegion configures the switchover engine's cnpg-pair path for
+	// a pair split across two API servers (true two-region Sovereign:
+	// the replica Cluster CR lives in region B's control plane). Wired in
+	// cmd/main.go with a resolver over the peer-region kubeconfig bridge
+	// Secret. Zero value = split pairs fail step-2 with a clear "no
+	// region client resolver" error; single-API pairs never consult it.
+	CrossRegion switchover.CrossRegionOptions
+
 	// activeContinuums tracks per-CR goroutines keyed by
 	// NamespacedName.String() (e.g. "demo/cr1").
 	activeContinuums   map[string]*continuumGoroutine
@@ -487,6 +495,8 @@ func (r *ContinuumReconciler) runSwitchover(
 	zone := plan.PDMZone
 	seq := &switchover.Sequencer{
 		CNPG:         r.cnpgReader(),
+		CrossRegion:  r.CrossRegion,
+		StandbyProbe: r.StandbyProbe,
 		RaftPromoter: r.RaftPromoter,
 		Witness:      w,
 		PDMCommit: func(ctx context.Context, records []dns.Record) error {

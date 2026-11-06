@@ -91,6 +91,18 @@ rules:
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get"]
+  # Cross-region cnpg-pair planned switchover (0.1.13): the pair's role
+  # is moved through the per-region bootstrap-kit Kustomization's
+  # postBuild.substitute (SOVEREIGN_CNPG_PAIR_ACTIVE_PRIMARY /
+  # _PROMOTION_TOKEN, field manager `continuum-switchover`) — never a
+  # live Cluster CR patch (helm drift correction reverts it, #5125-D1).
+  # Pinned to that ONE object name. Region B's Kustomization is patched
+  # through the peer-region kubeconfig (catalyst/cutover-secondary-
+  # kubeconfigs, read via the `secrets: get` grant above), not this SA.
+  - apiGroups: ["kustomize.toolkit.fluxcd.io"]
+    resources: ["kustomizations"]
+    verbs: ["get", "patch"]
+    resourceNames: ["bootstrap-kit"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

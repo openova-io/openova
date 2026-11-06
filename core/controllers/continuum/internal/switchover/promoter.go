@@ -134,7 +134,7 @@ func (s *Sequencer) promoterFor(plan SwitchoverPlan) (Promoter, error) {
 		if s.CNPG == nil {
 			return nil, errors.New("cnpg-pair mechanism: CNPG reader is required")
 		}
-		return &cnpgPromoter{r: s.CNPG}, nil
+		return &cnpgPromoter{r: s.CNPG, s: s}, nil
 	case MechanismRaftTransition:
 		if s.RaftPromoter == nil {
 			return nil, errors.New("raft-transition mechanism: no RaftPromoter wired (controller must set Sequencer.RaftPromoter)")
@@ -178,8 +178,27 @@ func (statelessPromoter) Promote(_ context.Context, _ SwitchoverPlan) (func(ctx 
 // cnpg-pair cordon (step-2) and replica.enabled flip (step-6) the
 // Sequencer performed inline before the Promoter seam was extracted. It
 // wraps the same *cnpg.Reader the Sequencer already holds.
+//
+// When the pair is split across two API servers (true two-region
+// Sovereign: the replica half is not in the local API) both steps take
+// the cross-region distributed-topology path instead (crossregion.go).
 type cnpgPromoter struct {
 	r *cnpg.Reader
+	s *Sequencer
+}
+
+// topology resolves the pair through the owning Sequencer (single-API
+// vs split). A promoter built without one keeps the historical
+// local-only FindPair.
+func (p *cnpgPromoter) topology(ctx context.Context, plan SwitchoverPlan) (cnpgTopology, error) {
+	if p.s != nil {
+		return p.s.resolveCNPGTopology(ctx, plan)
+	}
+	primary, replica, err := p.r.FindPair(ctx, plan.CNPGNamespace, plan.CNPGPair)
+	if err != nil {
+		return cnpgTopology{}, err
+	}
+	return cnpgTopology{primary: primary, replica: replica}, nil
 }
 
 // Cordon — step-2 for cnpg-pair: annotate the primary Cluster CR with
@@ -189,10 +208,14 @@ func (p *cnpgPromoter) Cordon(ctx context.Context, plan SwitchoverPlan) (func(ct
 	if p == nil || p.r == nil {
 		return nil, errors.New("cnpgPromoter: nil reader")
 	}
-	primary, _, err := p.r.FindPair(ctx, plan.CNPGNamespace, plan.CNPGPair)
+	topo, err := p.topology(ctx, plan)
 	if err != nil {
 		return nil, fmt.Errorf("find pair: %w", err)
 	}
+	if topo.cross != nil {
+		return p.s.crossCordon(ctx, plan, topo.cross)
+	}
+	primary := topo.primary
 	if err := p.r.SetPrimaryAnnotation(ctx, plan.CNPGNamespace, primary.GetName(), "switchover-pending"); err != nil {
 		return nil, err
 	}
@@ -208,10 +231,14 @@ func (p *cnpgPromoter) Promote(ctx context.Context, plan SwitchoverPlan) (func(c
 	if p == nil || p.r == nil {
 		return nil, errors.New("cnpgPromoter: nil reader")
 	}
-	primary, replica, err := p.r.FindPair(ctx, plan.CNPGNamespace, plan.CNPGPair)
+	topo, err := p.topology(ctx, plan)
 	if err != nil {
 		return nil, fmt.Errorf("find pair (uncordon): %w", err)
 	}
+	if topo.cross != nil {
+		return p.s.crossPromote(ctx, plan, topo.cross)
+	}
+	primary, replica := topo.primary, topo.replica
 	if err := p.r.ClearPrimaryAnnotation(ctx, plan.CNPGNamespace, primary.GetName()); err != nil {
 		return nil, err
 	}
