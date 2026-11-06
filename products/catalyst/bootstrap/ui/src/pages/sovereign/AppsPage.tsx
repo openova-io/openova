@@ -42,7 +42,7 @@ import { authedFetch } from '@/shared/lib/authedFetch'
 import { useWizardStore } from '@/entities/deployment/store'
 import { useConsoleScope } from '@/shared/lib/useConsoleScope'
 import { PortalShell } from './PortalShell'
-import { resolveApplications, type ApplicationDescriptor } from './applicationCatalog'
+import { resolveApplications, resolveServerApplication, type ApplicationDescriptor } from './applicationCatalog'
 import { findComponent } from '@/pages/wizard/steps/componentGroups'
 import { BLUEPRINT_BY_ID } from '@/shared/constants/catalog.generated'
 import { getLaunchURL } from '@/lib/catalog.api'
@@ -136,6 +136,8 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
   const isSovereignMode = DETECTED_MODE.mode === 'sovereign'
   interface LiveAppsData {
     statusById: Record<string, ApplicationStatus>
+    /** Every non-instance row the server reports installed/bootstrap/installing. */
+    installedRows: Array<{ id: string; slug?: string; title?: string }>
     publishedBySlug: Record<string, boolean>
     /**
      * environmentById — per-app environment label (e.g. "dev", "prod",
@@ -225,6 +227,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
         }>
       }
       const statusById: Record<string, ApplicationStatus> = {}
+      const installedRows: Array<{ id: string; slug?: string; title?: string }> = []
       const publishedBySlug: Record<string, boolean> = {}
       const environmentById: Record<string, string> = {}
       const externalURLById: Record<string, string> = {}
@@ -251,6 +254,9 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
         if (typeof a.externalURL === 'string' && a.externalURL !== '') {
           externalURLById[a.id] = a.externalURL
         }
+        if (a.status === 'installed' || a.status === 'bootstrap' || a.status === 'installing') {
+          installedRows.push({ id: a.id, slug: a.slug, title: a.title })
+        }
         switch (a.status) {
           case 'installed':
           case 'bootstrap':
@@ -276,7 +282,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
           environmentById[a.id] = a.environment
         }
       }
-      return { statusById, publishedBySlug, environmentById, externalURLById, instances }
+      return { statusById, installedRows, publishedBySlug, environmentById, externalURLById, instances }
     },
     // A single transient 5xx must not read as "this Sovereign runs no
     // Applications". With no retry and no previous data — i.e. a COLD load,
@@ -552,14 +558,34 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
   // (`/catalog` → CatalogPage). `catalogApps` is still the full
   // `resolveApplications` union; here we only use it to derive the
   // installed subset (it remains the source of truth CatalogPage renders).
-  const catalogApps = applications
+  // The candidate set is the wizard selection PLUS every Application the
+  // server reports installed — the Applications view may never miss one.
+  const serverInstalledRows = liveAppsQuery.data?.installedRows
+  const catalogApps = useMemo<ApplicationDescriptor[]>(() => {
+    const seen = new Set(applications.map((a) => a.id))
+    const extra: ApplicationDescriptor[] = []
+    for (const r of serverInstalledRows ?? []) {
+      if (seen.has(r.id)) continue
+      seen.add(r.id)
+      extra.push(resolveServerApplication(r))
+    }
+    return extra.length ? [...applications, ...extra] : applications
+  }, [applications, serverInstalledRows])
   // Deployments = every catalog entry that has at least one event
   // attributed to it OR was explicitly selected by the operator
   // (bootstrap-kit always counts). Mirrors canonical `installedIds`.
   const deployedIds = useMemo<Set<string>>(() => {
     const out = new Set<string>()
-    for (const app of applications) {
+    for (const app of catalogApps) {
       if (app.bootstrapKit) {
+        out.add(app.id)
+        continue
+      }
+      // The server's live status is authoritative: an Application installed
+      // outside this console's own install flow (bootstrap-kit slot, GitOps,
+      // another session) has no install event here but IS installed.
+      const live = liveAppsQuery.data?.statusById?.[app.id]
+      if (live === 'installed' || live === 'installing') {
         out.add(app.id)
         continue
       }
@@ -567,7 +593,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
       if (compState && compState.status !== 'pending') out.add(app.id)
     }
     return out
-  }, [applications, state.apps])
+  }, [catalogApps, liveAppsQuery.data, state.apps])
   const installedApps = useMemo(
     () =>
       // #4113 — on an Org-scoped session the blueprint/bootstrap-kit cards
