@@ -466,7 +466,7 @@ func (h *Handler) HandleContinuumSwitchoverRequest(w http.ResponseWriter, r *htt
 	// Reject when the switchover targetRegion equals the current primary
 	// — the reconciler would treat it as a no-op but a 409 here gives the
 	// UI a clean error instead of a silent failure.
-	curPrimary, _, _ := unstructured.NestedString(cr.Object, "spec", "primaryRegion")
+	curPrimary := continuumActingPrimary(cr)
 	if curPrimary != "" && curPrimary == body.TargetRegion {
 		// qa-loop iter-16 Fix #169 — 409 → 200 with `error` token.
 		writeJSON(w, http.StatusOK, continuumSwitchoverResponse{

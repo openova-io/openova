@@ -178,7 +178,7 @@ spec:
       # substitute seam + region-B client via cutover-secondary-kubeconfigs);
       # RBAC adds kustomizations get+patch on resourceNames [bootstrap-kit].
       # Pin moves in lockstep (Inviolable Principle #13).
-      version: 0.1.16
+      version: 0.1.17
       sourceRef:
         kind: HelmRepository
         name: bp-continuum

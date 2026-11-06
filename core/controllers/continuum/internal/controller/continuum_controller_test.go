@@ -255,7 +255,7 @@ func TestRunSwitchover_HappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseSpec: %v", err)
 	}
-	r.runSwitchover(context.Background(), cr, spec, "hel", "operator-requested", 0, w)
+	r.runSwitchover(context.Background(), cr, spec, spec.PrimaryRegion, "hel", "operator-requested", 0, w)
 
 	// Status should reflect FailedOver after successful switchover.
 	got, _ := r.Dyn.Resource(ContinuumGVR).Namespace("ns").Get(context.Background(), "cr1", metav1.GetOptions{})
@@ -292,7 +292,7 @@ func TestRunSwitchover_PatchesLastLuaRecord(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseSpec: %v", err)
 	}
-	r.runSwitchover(context.Background(), cr, spec, "hel", "operator-requested", 0, w)
+	r.runSwitchover(context.Background(), cr, spec, spec.PrimaryRegion, "hel", "operator-requested", 0, w)
 
 	got, err := r.Dyn.Resource(ContinuumGVR).Namespace("ns").Get(context.Background(), "cr1", metav1.GetOptions{})
 	if err != nil {
@@ -475,7 +475,7 @@ func TestRunSwitchover_NoFailoverTarget_NoOp(t *testing.T) {
 	r, rec, sel := newReconciler(t, objs...)
 	w, _ := sel.Select("in-memory", map[string]any{"slot": "ns/cr1"})
 	spec, _ := parseSpec(cr)
-	r.runSwitchover(context.Background(), cr, spec, "", "operator-requested", 0, w)
+	r.runSwitchover(context.Background(), cr, spec, spec.PrimaryRegion, "", "operator-requested", 0, w)
 	if got := rec.EventsByType(events.TypeSwitchover); len(got) != 0 {
 		t.Fatalf("expected no switchover audit, got %d", len(got))
 	}
