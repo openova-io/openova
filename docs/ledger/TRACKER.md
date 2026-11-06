@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-06T23:15:03Z` |
+| Last refreshed | `2026-11-06T23:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-06T23:17 | [#7054](https://github.com/openova-io/openova/pull/7054) | #3375 | fix(continuum): promotion is the switchover's point of no re |
 | 2026-11-06T23:04 | [#7053](https://github.com/openova-io/openova/pull/7053) | #7052 | fix(continuum): natsURL default + NATS egress; bp-continuum  |
 | 2026-11-06T22:50 | [#7052](https://github.com/openova-io/openova/pull/7052) | #3375 | fix(continuum): audit publish ensures the canonical CATALYST |
 | 2026-11-06T22:35 | [#7051](https://github.com/openova-io/openova/pull/7051) | #7050 | chore(continuum): bp-continuum 0.1.15 ships the #7050 switch |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-10-10T14:37 | [#6995](https://github.com/openova-io/openova/pull/6995) | #6971 | fix(billing): the active-passive topology is priced from the |
 | 2026-10-10T14:29 | [#6994](https://github.com/openova-io/openova/pull/6994) | #6971 | feat(bss): the package ladder — groups, levels, overage poli |
 | 2026-10-10T14:51 | [#6993](https://github.com/openova-io/openova/pull/6993) | #6974 | feat(plans): the package numbers from the National Cloud wor |
-| 2026-10-10T15:16 | [#6992](https://github.com/openova-io/openova/pull/6992) | #6993 | feat(storefront): the package ladder journey — grouped cards |
 
 ---
 
