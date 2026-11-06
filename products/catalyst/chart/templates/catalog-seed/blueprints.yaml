@@ -2213,7 +2213,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.12"
+  version: "1.0.13"
   visibility: listed
   card:
     title: "Mimir"
@@ -2232,7 +2232,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-mimir
-    version: "1.0.12"
+    version: "1.0.13"
   topology:
     supported:
     - active-passive
@@ -5120,7 +5120,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.1.205"
+  version: "0.1.206"
   visibility: unlisted
   card:
     title: "Self-Sovereignty Cutover"
@@ -5137,7 +5137,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-self-sovereign-cutover
-    version: "0.1.205"
+    version: "0.1.206"
   topology:
     supported:
       - singleton
