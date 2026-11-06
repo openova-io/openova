@@ -119,6 +119,19 @@ one declaration — this is the retirement of the three hand-maintained lists.
 {{- if and $mo (not (has $mo $hosts)) -}}
 {{- $pairs = append $pairs (printf "%s:" $mo) -}}
 {{- end -}}
+{{- /*
+   The Sovereign's own Harbor answers on BOTH registry.<fqdn> and
+   harbor.<fqdn>. Workloads pivoted onto harbor.<fqdn> (vcluster control
+   planes, sso-bridge) are local, but step-08 counted them UNMAPPED and the
+   sovereignty proof failed on hw307 (2026-11-06). Treat harbor.<fqdn> as a
+   host-swap/path-preserve alias of the local registry. */ -}}
+{{- $fq := .Values.sovereign.fqdn | default "" -}}
+{{- if and $fq (ne $fq "example.local") -}}
+{{- $alias := printf "harbor.%s" $fq -}}
+{{- if not (has $alias $hosts) -}}
+{{- $pairs = append $pairs (printf "%s:" $alias) -}}
+{{- end -}}
+{{- end -}}
 {{- join " " $pairs -}}
 {{- end -}}
 
