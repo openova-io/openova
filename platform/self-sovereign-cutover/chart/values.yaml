@@ -616,6 +616,12 @@ offlineMirror:
     - "rancher/k3s"
     # vcluster control-plane image — step-10 vcluster-registry-pivot owns it.
     - "loft-sh/vcluster"
+  # Substrings from excludedImageSubstrings that step-03 STILL copies into
+  # local Harbor (they stay out of the step-08 roll-set). step-10 only
+  # re-points the vcluster image at harbor.<fqdn>; without this the image was
+  # never in local Harbor and every vcluster-0 ImagePullBackOff'd (hw307).
+  mirrorAnyway:
+    - "loft-sh/vcluster"
 
 # Pre-warm list — images to HEAD-pull through Harbor proxy-cache before
 # the cluster reconciles against local Harbor, so first-reconcile pulls

@@ -290,6 +290,24 @@ loft-sh/vcluster = handled by step-10 vcluster-registry-pivot). Space-separated.
 {{- end -}}
 
 {{/*
+Step-03's exclusion list: excludedImageSubstrings MINUS mirrorAnyway. An
+excluded substring is skipped by BOTH the mirror and the step-08 roll-set;
+mirrorAnyway entries stay out of the roll-set but ARE copied into local
+Harbor. loft-sh/vcluster is the case: step-10 only rewrites the control-plane
+image reference to harbor.<fqdn>/proxy-ghcr/loft-sh/vcluster-oss — it copies
+nothing — so excluding it from the mirror left every vcluster-0 in
+ImagePullBackOff during the hw307 deny-egress hold (2026-11-06).
+*/}}
+{{- define "bp-self-sovereign-cutover.mirrorExcludedSubstringsInline" -}}
+{{- $keep := .Values.offlineMirror.mirrorAnyway | default (list) -}}
+{{- $out := list -}}
+{{- range (.Values.offlineMirror.excludedImageSubstrings | default (list)) -}}
+{{- if not (has . $keep) -}}{{- $out = append $out . -}}{{- end -}}
+{{- end -}}
+{{- join " " $out -}}
+{{- end -}}
+
+{{/*
 #5468 — image-path substrings copied SINGLE-PLATFORM by step-03's skopeo
 mirror instead of the #4975 `--multi-arch all` default. Space-separated for
 the POSIX-sh `for` loop in prewarm_multiarch_flags. An empty list renders an

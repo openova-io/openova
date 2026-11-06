@@ -514,8 +514,8 @@ spec:
 {{- $minio := $md.minio | default dict -}}
 {{- $minioName := printf "%s-minio" $rel -}}
 {{- $minioImg := $minio.image | default dict -}}
-{{- $minioRepo := $minioImg.repository | default "harbor.openova.io/proxy-quay/minio/minio" -}}
-{{- $minioTag := $minioImg.tag | default "RELEASE.2024-12-18T13-15-44Z" -}}
+{{- $minioRepo := $minioImg.repository | default "harbor.openova.io/proxy-dockerhub/bitnamilegacy/minio" -}}
+{{- $minioTag := $minioImg.tag | default "2025.7.23-debian-12-r3" -}}
 {{- $mcImg := $minio.mcImage | default dict -}}
 {{- $mcRepo := $mcImg.repository | default "harbor.openova.io/proxy-dockerhub/bitnamilegacy/minio-client" -}}
 {{- $mcTag := $mcImg.tag | default "2025.7.21" -}}
@@ -689,7 +689,7 @@ spec:
           command:
             - /bin/sh
             - -ce
-            - /usr/bin/docker-entrypoint.sh minio server /export -S /etc/minio/certs/ --address :9000 --console-address :9001
+            - minio server /export -S /etc/minio/certs/ --address :9000 --console-address :9001
           volumeMounts:
             - name: export
               mountPath: /export
