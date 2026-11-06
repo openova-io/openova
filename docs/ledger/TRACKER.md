@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-06T18:30:04Z` |
+| Last refreshed | `2026-11-06T18:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-06T18:42 | [#7044](https://github.com/openova-io/openova/pull/7044) | #4551 | fix(dr): cnpg-pair Topology shows the real pair, the live sw |
+| 2026-11-06T18:39 | [#7043](https://github.com/openova-io/openova/pull/7043) | #3601 | fix(sovereign-ui): Apps search matches ids, slugs, blueprint |
 | 2026-11-06T16:06 | [#7042](https://github.com/openova-io/openova/pull/7042) | #3601 | fix(sovereign-ui): the Applications view lists every install |
 | 2026-11-06T13:03 | [#7041](https://github.com/openova-io/openova/pull/7041) | #7040 | fix(cutover,mimir,flux): remaining hw307 cutover defects — s |
 | 2026-11-06T12:22 | [#7040](https://github.com/openova-io/openova/pull/7040) | #6093 | fix(cutover): harbor.<fqdn> is a local alias; org-tenant ima |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-10-10T10:53 | [#6984](https://github.com/openova-io/openova/pull/6984) | #6971 | fix(bss): the storefront reads the package document — its or |
 | 2026-10-10T08:19 | [#6982](https://github.com/openova-io/openova/pull/6982) | #6972 | fix(marketplace): the plan deck keeps its styles when the pa |
 | 2026-10-10T07:07 | [#6975](https://github.com/openova-io/openova/pull/6975) | #6973 | ci(docrender): refresh the apt index before installing poppl |
-| 2026-10-10T08:51 | [#6973](https://github.com/openova-io/openova/pull/6973) | #6971 | feat(bss): packages and the entitlement matrix — Included /  |
-| 2026-10-10T07:01 | [#6972](https://github.com/openova-io/openova/pull/6972) | #6971 | feat(marketplace): the package table — S/M/L/XL with include |
 
 ---
 
