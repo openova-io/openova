@@ -748,8 +748,6 @@ func (h *Handler) derivePlacementTargets(ident componentWorkloadIdentity, declar
 		nodes, _, _ := h.k8sCache.List(cid, "node", labels.Everything())
 		nsByName := indexByName(nsList)
 		nodeByName := indexByName(nodes)
-		cnpgClusters, _, _ := h.k8sCache.List(cid, "cnpgcluster", labels.Everything())
-		replicaClusters := cnpgReplicaClusterSet(cnpgClusters)
 
 		for _, p := range pods {
 			if !podBelongsToIdentity(p, ident) {
@@ -763,17 +761,7 @@ func (h *Handler) derivePlacementTargets(ident componentWorkloadIdentity, declar
 				o = &placementOccupancy{region: region, cluster: cid, vcluster: vcluster}
 				occ[key] = o
 			}
-			role := cnpgInstanceRole(p)
-			// CNPG labels the lead instance of a REPLICA cluster (the
-			// cross-region standby half, spec.replica.enabled=true)
-			// instanceRole=primary though it is in recovery. Counting it as a
-			// primary made bp-cnpg-pair read active-active with TWO primaries
-			// on hw307 (2026-11-06) — region B is read-only. A replica
-			// cluster's pods are the standby leg, whatever their label says.
-			if role == cnpgRolePrimary && replicaClusters[p.GetNamespace()+"/"+p.GetLabels()["cnpg.io/cluster"]] {
-				role = cnpgRoleReplica
-			}
-			if role != "" {
+			if role := cnpgInstanceRole(p); role != "" {
 				o.anyCNPG = true
 				switch role {
 				case cnpgRolePrimary:
@@ -1006,19 +994,4 @@ func indexByName(objs []*unstructured.Unstructured) map[string]*unstructured.Uns
 		}
 	}
 	return m
-}
-
-// cnpgReplicaClusterSet returns "<namespace>/<name>" for every CNPG Cluster
-// whose spec.replica.enabled is true — the standby half of a cross-region pair.
-func cnpgReplicaClusterSet(clusters []*unstructured.Unstructured) map[string]bool {
-	out := make(map[string]bool, len(clusters))
-	for _, c := range clusters {
-		if c == nil {
-			continue
-		}
-		if enabled, found, _ := unstructured.NestedBool(c.Object, "spec", "replica", "enabled"); found && enabled {
-			out[c.GetNamespace()+"/"+c.GetName()] = true
-		}
-	}
-	return out
 }

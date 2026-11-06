@@ -439,7 +439,10 @@ name: bp-cnpg-pair
 # the post-mesh flip. Default-OFF contract UNCHANGED: cnpgPair.enabled=false OR
 # empty crossRegionPeerClusters renders ZERO CiliumNetworkPolicy — resource
 # counts unchanged from 0.2.8. Lockstep slot 16b pin → 0.2.9.
-version: 0.2.27
+# 0.2.28: unified model — renders the pair's Application CR (cnpg-pair, bootstrap-adopted,
+#   primary side), binds the Continuum as dr-cnpg-pair, labels CNPG Pods with the app
+#   (cnpgPair.application.enabled; default-off render byte-identical).
+version: 0.2.28
 appVersion: "0.2.1"
 description: |
   Catalyst-curated Blueprint for an active-hotstandby CNPG cluster-pair

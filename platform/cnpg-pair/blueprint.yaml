@@ -149,7 +149,7 @@ spec:
   # and the diverged arms of the self-heal AND the #5245 handoff no longer fire
   # on a consistent replica (hw307: a stale marker re-froze the HR after the
   # switchback; here it would also re-promote via the substitute). Script only.
-  version: 0.2.27
+  version: 0.2.28
   card:
     title: CNPG Cluster-Pair (Active-Hotstandby DR)
     summary: |

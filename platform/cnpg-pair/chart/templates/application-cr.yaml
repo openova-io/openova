@@ -1,0 +1,54 @@
+{{- /*
+Bootstrap self-registration — the Application CR for this cluster-pair.
+
+Same contract as bp-postgres (platform/postgres/chart/templates/
+application-cr.yaml, #3370): the Application CR (apps.openova.io/v1) is the
+canonical representation of every running instance. bp-cnpg-pair is a
+bootstrap-kit slot install (16b) and had NONE, so on hw307 (2026-11-06) it
+was the one platform data pair outside the unified model: the Topology tab
+had no declared placement (read active-active with two primaries), no
+`dr-<app>` Continuum (no DR panel), and Edit placement → Apply 404'd
+application-not-found.
+
+- Capabilities gate: render only once the Application CRD exists (it ships
+  in bp-catalyst-platform), so first bootstrap never fails on a missing CRD.
+- Primary side only: one card per instance; the replica half on the other
+  control plane must not create a duplicate.
+- spec.bootstrap=true: the application-controller ADOPTS the slot install
+  (no render/fan-out), observing spec.helmRelease's Ready condition.
+- placement / parameters.topology.mode: the canonical tokens. The pair is
+  active-hot-standby whenever it renders (cnpgPair.enabled).
+*/ -}}
+{{- if and .Values.cnpgPair.enabled .Values.cnpgPair.application.enabled (include "cnpg-pair.isPrimarySide" .) (.Capabilities.APIVersions.Has "apps.openova.io/v1") }}
+apiVersion: apps.openova.io/v1
+kind: Application
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cnpg-pair.labels" . | nindent 4 }}
+    apps.openova.io/bootstrap-owned: "true"
+    catalyst.openova.io/organization: platform
+spec:
+  bootstrap: true
+  {{- /* Old-CRD compatibility fields — inert under both schemas (see
+       bp-postgres application-cr.yaml for the hw130 history). */}}
+  environmentRef: platform-bootstrap
+  regions: ["platform-bootstrap-owned-host"]
+  blueprintRef:
+    name: bp-cnpg-pair
+    version: {{ .Chart.Version | quote }}
+  placement: active-hot-standby
+  {{- with .Values.cnpgPair.application.helmRelease }}
+  {{- if .name }}
+  helmRelease:
+    name: {{ .name | quote }}
+    namespace: {{ .namespace | default "flux-system" | quote }}
+  {{- end }}
+  {{- end }}
+  targetNamespace: {{ .Release.Namespace }}
+  releaseName: {{ .Release.Name }}
+  parameters:
+    topology:
+      mode: "active-hot-standby"
+{{- end }}

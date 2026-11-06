@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-06T18:45:03Z` |
+| Last refreshed | `2026-11-06T20:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-06T20:20 | [#7046](https://github.com/openova-io/openova/pull/7046) | #7044 | feat(bp-cnpg-pair): the pair is an Application in the unifie |
+| 2026-11-06T19:21 | [#7045](https://github.com/openova-io/openova/pull/7045) | #7044 | fix(dr): placement claims CNPG pods via their owning Cluster |
 | 2026-11-06T18:42 | [#7044](https://github.com/openova-io/openova/pull/7044) | #4551 | fix(dr): cnpg-pair Topology shows the real pair, the live sw |
 | 2026-11-06T18:39 | [#7043](https://github.com/openova-io/openova/pull/7043) | #3601 | fix(sovereign-ui): Apps search matches ids, slugs, blueprint |
 | 2026-11-06T16:06 | [#7042](https://github.com/openova-io/openova/pull/7042) | #3601 | fix(sovereign-ui): the Applications view lists every install |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-10-10T11:52 | [#6987](https://github.com/openova-io/openova/pull/6987) | #6971 | feat(bss): packages reach the order, the Organization and th |
 | 2026-10-10T09:25 | [#6986](https://github.com/openova-io/openova/pull/6986) | #6971 | docs(ledger): hw307 BSS walk evidence 0.1.27–0.1.57 |
 | 2026-10-10T10:53 | [#6984](https://github.com/openova-io/openova/pull/6984) | #6971 | fix(bss): the storefront reads the package document — its or |
-| 2026-10-10T08:19 | [#6982](https://github.com/openova-io/openova/pull/6982) | #6972 | fix(marketplace): the plan deck keeps its styles when the pa |
-| 2026-10-10T07:07 | [#6975](https://github.com/openova-io/openova/pull/6975) | #6973 | ci(docrender): refresh the apt index before installing poppl |
 
 ---
 
