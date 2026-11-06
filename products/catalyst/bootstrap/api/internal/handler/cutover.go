@@ -2468,7 +2468,18 @@ func (h *Handler) runCutoverStep(ctx context.Context, deps *cutoverDeps, step cu
 				return err
 			}
 		}
+		// Stream the Job Pod's own output into the step's log panel while
+		// it runs — without it the operator saw only the "started" line for
+		// the whole step (a 30-minute gitea-mirror read as a hung step).
+		tailCtx, stopTail := context.WithCancel(ctx)
+		tailDone := make(chan struct{})
+		go func() {
+			defer close(tailDone)
+			h.tailCutoverStepJobLogs(tailCtx, deps, step.stepName, jobOrDS)
+		}()
 		cond, err := watchJobToCompletion(ctx, deps, jobOrDS, cutoverStepDeadline(step))
+		stopTail()
+		<-tailDone
 		if err != nil {
 			return err
 		}
