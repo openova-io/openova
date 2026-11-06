@@ -230,7 +230,7 @@ spec:
     # next Flux Kustomization reconcile. 6-space indent on `imageRegistry:` is
     # REQUIRED — step-07's sed matches `^      imageRegistry:`.
     global:
-      imageRegistry: ''
+      imageRegistry: 'registry.hw307.omani.works'
     continuum:
       enabled: ${CONTINUUM_ENABLED:-false}
       # ── harbor-proxy-pull compliance (#3195) ──────────────────────────
