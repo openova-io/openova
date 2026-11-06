@@ -38,7 +38,9 @@ metadata:
 spec:
   type: oci
   interval: 15m
-  url: oci://ghcr.io/openova-io
+  url: oci://registry.hw307.omani.works/openova-io
+  certSecretRef:
+    name: cutover-harbor-ca
   # G2722 #2722 (2026-06-01): private GHCR registry — secretRef:
   # ghcr-pull required, else helm-controller falls back to anonymous
   # auth and the OCI pull returns 401. Caught live on hw86 — bp-sso-

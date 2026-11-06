@@ -25,7 +25,9 @@ metadata:
 spec:
   type: oci
   interval: 15m
-  url: oci://ghcr.io/openova-io
+  url: oci://registry.hw307.omani.works/openova-io
+  certSecretRef:
+    name: cutover-harbor-ca
   secretRef:
     name: ghcr-pull
 ---
@@ -1899,6 +1901,19 @@ spec:
     # N regions correctly. Without this the chroot fell back to the
     # live-Nodes path and emitted "1 cluster 1 region" on every
     # multi-region Sovereign (caught on t126, 2026-05-16).
+    # ─── openova-catalog HelmRepository URL (TBD-C19, 2026-05-18) ──
+    # Pivoted by self-sovereign-cutover step-06 phase-2.5 from
+    # oci://ghcr.io/openova-io → local Harbor mirror so the
+    # catalyst-platform chart re-renders openova-catalog HR with
+    # the post-cutover URL on every reconcile. Bootstrap-kit
+    # Kustomization preserves this override across reconciles —
+    # without it Step-08 catches `openova-catalog` regressing
+    # back to ghcr.io ~1 min after Phase-1 patch.
+    catalog:
+      helmRepository:
+        url: oci://registry.hw307.omani.works/openova-io
+        certSecretRef:
+          name: cutover-harbor-ca
     sovereign:
       # MUST be quoted: SOVEREIGN_REGIONS_JSON contains valid JSON like
       # `[{"cloudRegion":"hel1",...}]`. Without quotes, YAML interprets
