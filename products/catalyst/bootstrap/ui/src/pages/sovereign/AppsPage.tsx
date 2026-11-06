@@ -608,21 +608,35 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
   )
 
   const [query, setQuery] = useState<string>('')
+  // ONE search rule for every card kind: a query matches if it occurs in ANY
+  // identifier or label the operator can see — id (bp-cnpg-pair), slug/bareId
+  // (cnpg-pair), title, description, family, blueprint, Organization. On hw307
+  // searching "bp-cnpg" (the id the detail page shows) returned an empty grid
+  // because catalog cards matched only title/description/family.
+  const matchesQuery = (fields: ReadonlyArray<string | undefined | null>): boolean => {
+    const q = query.trim().toLowerCase()
+    if (!q) return true
+    return fields.some((f) => (f ?? '').toLowerCase().includes(q))
+  }
 
   // #3601 — the grid is the installed-deployments set only; no tab switch.
   const visibleApps = useMemo<ApplicationDescriptor[]>(() => {
-    const filtered = query
-      ? installedApps.filter((a) => {
-          const q = query.toLowerCase()
-          return (
-            a.title.toLowerCase().includes(q) ||
-            (a.description ?? '').toLowerCase().includes(q) ||
-            (a.familyName ?? '').toLowerCase().includes(q)
-          )
-        })
-      : installedApps
+    const filtered = installedApps.filter((a) =>
+      matchesQuery([a.id, a.bareId, a.title, a.description, a.familyName]),
+    )
     return [...filtered].sort((a, b) => a.title.localeCompare(b.title))
   }, [installedApps, query])
+
+  const visibleInstances = liveInstances.filter((inst) =>
+    matchesQuery([
+      inst.id,
+      inst.slug,
+      inst.blueprint,
+      inst.org,
+      findComponent(inst.slug)?.name,
+      `${findComponent(inst.slug)?.name ?? inst.slug} instance`,
+    ]),
+  )
 
   // #4119 — the "Provisioning" pill + "View jobs" link is a sovereign
   // provisioning affordance; never render it for an Org-scoped session.
@@ -787,6 +801,13 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
           </Link>
         </div>
       ) : (
+        <>
+        {query.trim() !== '' && visibleInstances.length === 0 && visibleApps.length === 0 ? (
+          <div className="empty-state" data-testid="sov-apps-no-match">
+            <p className="empty-title">No installed application matches “{query.trim()}”.</p>
+            <p className="empty-sub">Search matches an application's id (e.g. bp-cnpg-pair), name, description, family, blueprint or Organization.</p>
+          </div>
+        ) : null}
         <div className="apps-grid" data-testid="sov-apps-grid">
           {/*
             #3370 — instance cards: one card per RUNNING INSTANCE
@@ -796,13 +817,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
             tiles. #3601 — /apps is installed-only, so these always
             render (no tab gate).
           */}
-          {liveInstances
-            .filter((inst) =>
-              query
-                ? inst.id.toLowerCase().includes(query.toLowerCase()) ||
-                  inst.slug.toLowerCase().includes(query.toLowerCase())
-                : true,
-            )
+          {visibleInstances
             .map((inst) => {
               const comp = findComponent(inst.slug)
               const descriptor: ApplicationDescriptor = {
@@ -928,6 +943,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
             )
           })}
         </div>
+        </>
       )}
     </PortalShell>
   )
