@@ -36,6 +36,10 @@ RUN go mod download
 # controller tree are both needed at compile time.
 WORKDIR /workspace
 COPY core/controllers/internal /workspace/core/controllers/internal
+# pkg/ is shared across controllers (e.g. pkg/kubeconfig, used by the
+# cross-region switchover region resolver) — copied like the other
+# controllers' Containerfiles do.
+COPY core/controllers/pkg /workspace/core/controllers/pkg
 COPY core/controllers/continuum /workspace/core/controllers/continuum
 
 WORKDIR /workspace/core/controllers/continuum
