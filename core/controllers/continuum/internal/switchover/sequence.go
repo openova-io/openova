@@ -426,6 +426,17 @@ func (s *Sequencer) steps(plan SwitchoverPlan) []stepFunc {
 		{
 			name: "flip-dns",
 			run: func(ctx context.Context) (func(ctx context.Context) error, error) {
+				if !planHasDNSSeam(plan) {
+					// A data-tier pair (bp-cnpg-pair, bp-postgres shared-pg)
+					// declares no DNS seam — no pdmZone, hostnames or region
+					// IPs — because it has no public endpoint; its clients
+					// follow the CNPG `-rw` service. Skip with no rollback,
+					// exactly as drain-http does without an HTTPRoute. On
+					// hw307 (2026-11-06) dns.Synthesize failed here for
+					// dr-cnpg-pair and aborted every planned switchover right
+					// after the old primary was demoted.
+					return nil, nil
+				}
 				if s.PDMCommit == nil {
 					return nil, errors.New("PDMCommit is required")
 				}
@@ -644,4 +655,11 @@ func timeoutCh(d time.Duration) <-chan time.Time {
 		return nil
 	}
 	return time.After(d)
+}
+
+// planHasDNSSeam reports whether the switchover plan declares anything for
+// the flip-dns step to write: a PDM zone, explicit hostnames, or per-region
+// IPs. A data-tier Continuum declares none of them.
+func planHasDNSSeam(plan SwitchoverPlan) bool {
+	return plan.PDMZone != "" || len(plan.SynthParams.Hostnames) > 0 || len(plan.SynthParams.RegionToIPs) > 0
 }
