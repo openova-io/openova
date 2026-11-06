@@ -50,3 +50,20 @@ func TestPrePromotionFailure_StillUnwinds(t *testing.T) {
 		t.Fatal("lease moved to hel despite a pre-promotion failure")
 	}
 }
+
+// Switchback after a DR failover: the writer is "hel", but the witness
+// stayed with the controller's region "fsn" (= ToRegion). validate-lease
+// must accept it (hw307 2026-11-07).
+func TestValidateLease_AcceptsLeaseHeldByToRegion(t *testing.T) {
+	t.Parallel()
+	seq, w, _, _, _ := makeStatelessSequencer(t)
+	plan := statelessPlan("cnpg-pair")
+	plan.FromRegion, plan.ToRegion = plan.ToRegion, plan.FromRegion // hel -> fsn
+	if _, err := w.Acquire(context.Background(), plan.ToRegion, plan.LeaseTTL); err != nil {
+		t.Fatal(err)
+	}
+	res := seq.Execute(context.Background(), plan)
+	if res.Err != nil && res.FailedAtStep == 1 {
+		t.Fatalf("validate-lease refused a lease held by ToRegion: %v", res.Err)
+	}
+}
