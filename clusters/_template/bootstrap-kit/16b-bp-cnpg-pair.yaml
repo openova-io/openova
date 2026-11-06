@@ -343,7 +343,7 @@ spec:
       # marker re-froze the HR after the switchback; here it would also flip
       # the substitute and re-promote). Script only; substitutes unchanged.
       # Lockstep slot 16b pin -> 0.2.27.
-      version: 0.2.27
+      version: 0.2.28
       sourceRef:
         kind: HelmRepository
         name: bp-cnpg-pair
@@ -469,6 +469,16 @@ spec:
       # continuum.yaml) to admit digit-bearing codes; the prior
       # letters-only pattern was Hetzner-era and unsatisfiable on
       # kom4dc (me-east-215-*), which is what kept this seed OFF.
+      # ── Unified model: the pair is an Application (like shared-pg) ──
+      # Renders Application `cnpg-pair` (bootstrap-adopted, primary side
+      # only), binds the Continuum as `dr-cnpg-pair` to it, and stamps the
+      # canonical app label on the CNPG Pods. Without it the pair had no
+      # Topology placement / DR panel and Apply 404'd (hw307 2026-11-06).
+      application:
+        enabled: true
+        helmRelease:
+          name: bp-cnpg-pair
+          namespace: flux-system
       continuum:
         enabled: true
         primaryRegion: '${SOVEREIGN_PRIMARY_REGION:-}'

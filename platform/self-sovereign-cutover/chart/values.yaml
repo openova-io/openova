@@ -519,6 +519,13 @@ offlineMirror:
   hostProjects:
     - host: "ghcr.io"
       project: "proxy-ghcr"
+    # lscr.io (LinuxServer) is a front for GHCR: its /v2 manifests answer 401
+    # with `Bearer realm="https://ghcr.io/token",service="ghcr.io"`, so
+    # lscr.io/linuxserver/X is ghcr.io/linuxserver/X. bp-bookstack pins
+    # lscr.io/linuxserver/bookstack; step-03 FATALed on it as UNMAPPED on
+    # hw307 (2026-11-06).
+    - host: "lscr.io"
+      project: "proxy-ghcr"
     - host: "docker.io"
       project: "proxy-dockerhub"
     - host: "registry-1.docker.io"
@@ -608,6 +615,12 @@ offlineMirror:
     # inside each Org's vcluster, not a host workload).
     - "rancher/k3s"
     # vcluster control-plane image — step-10 vcluster-registry-pivot owns it.
+    - "loft-sh/vcluster"
+  # Substrings from excludedImageSubstrings that step-03 STILL copies into
+  # local Harbor (they stay out of the step-08 roll-set). step-10 only
+  # re-points the vcluster image at harbor.<fqdn>; without this the image was
+  # never in local Harbor and every vcluster-0 ImagePullBackOff'd (hw307).
+  mirrorAnyway:
     - "loft-sh/vcluster"
 
 # Pre-warm list — images to HEAD-pull through Harbor proxy-cache before
@@ -2711,7 +2724,10 @@ stepTimeouts:
   # AND its own watch context (cutover.go createCutoverJob / watchJobToCompletion),
   # and the step stays event-driven (a fast run returns in minutes and never waits
   # out the ceiling). Operators on a slower link can raise it further via overlay.
-  giteaMirrorSeconds: 2700
+  # hw307 2026-11-06: 2,605 upstream branches pushed to BOTH regions' Gitea
+  # took longer than 45m — the step died at DeadlineExceeded with region A
+  # already complete. 7200s (2h).
+  giteaMirrorSeconds: 7200
   harborProjectsSeconds: 600
   # #3379 step-03 DeadlineExceeded (hw139, 2026-06-15): Step-03 skopeo-
   # native-pushes ~29 multi-layer PRIVATE openova-io images ghcr.io→local

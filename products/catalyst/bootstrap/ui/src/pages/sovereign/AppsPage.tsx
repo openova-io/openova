@@ -42,7 +42,7 @@ import { authedFetch } from '@/shared/lib/authedFetch'
 import { useWizardStore } from '@/entities/deployment/store'
 import { useConsoleScope } from '@/shared/lib/useConsoleScope'
 import { PortalShell } from './PortalShell'
-import { resolveApplications, type ApplicationDescriptor } from './applicationCatalog'
+import { resolveApplications, resolveServerApplication, type ApplicationDescriptor } from './applicationCatalog'
 import { findComponent } from '@/pages/wizard/steps/componentGroups'
 import { BLUEPRINT_BY_ID } from '@/shared/constants/catalog.generated'
 import { getLaunchURL } from '@/lib/catalog.api'
@@ -136,6 +136,8 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
   const isSovereignMode = DETECTED_MODE.mode === 'sovereign'
   interface LiveAppsData {
     statusById: Record<string, ApplicationStatus>
+    /** Every non-instance row the server reports installed/bootstrap/installing. */
+    installedRows: Array<{ id: string; slug?: string; title?: string }>
     publishedBySlug: Record<string, boolean>
     /**
      * environmentById — per-app environment label (e.g. "dev", "prod",
@@ -210,6 +212,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
         apps?: Array<{
           id: string
           slug?: string
+          title?: string
           status?: string
           marketplacePublished?: boolean
           environment?: string
@@ -225,6 +228,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
         }>
       }
       const statusById: Record<string, ApplicationStatus> = {}
+      const installedRows: Array<{ id: string; slug?: string; title?: string }> = []
       const publishedBySlug: Record<string, boolean> = {}
       const environmentById: Record<string, string> = {}
       const externalURLById: Record<string, string> = {}
@@ -251,6 +255,9 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
         if (typeof a.externalURL === 'string' && a.externalURL !== '') {
           externalURLById[a.id] = a.externalURL
         }
+        if (a.status === 'installed' || a.status === 'bootstrap' || a.status === 'installing') {
+          installedRows.push({ id: a.id, slug: a.slug, title: a.title })
+        }
         switch (a.status) {
           case 'installed':
           case 'bootstrap':
@@ -276,7 +283,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
           environmentById[a.id] = a.environment
         }
       }
-      return { statusById, publishedBySlug, environmentById, externalURLById, instances }
+      return { statusById, installedRows, publishedBySlug, environmentById, externalURLById, instances }
     },
     // A single transient 5xx must not read as "this Sovereign runs no
     // Applications". With no retry and no previous data — i.e. a COLD load,
@@ -552,14 +559,34 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
   // (`/catalog` → CatalogPage). `catalogApps` is still the full
   // `resolveApplications` union; here we only use it to derive the
   // installed subset (it remains the source of truth CatalogPage renders).
-  const catalogApps = applications
+  // The candidate set is the wizard selection PLUS every Application the
+  // server reports installed — the Applications view may never miss one.
+  const serverInstalledRows = liveAppsQuery.data?.installedRows
+  const catalogApps = useMemo<ApplicationDescriptor[]>(() => {
+    const seen = new Set(applications.map((a) => a.id))
+    const extra: ApplicationDescriptor[] = []
+    for (const r of serverInstalledRows ?? []) {
+      if (seen.has(r.id)) continue
+      seen.add(r.id)
+      extra.push(resolveServerApplication(r))
+    }
+    return extra.length ? [...applications, ...extra] : applications
+  }, [applications, serverInstalledRows])
   // Deployments = every catalog entry that has at least one event
   // attributed to it OR was explicitly selected by the operator
   // (bootstrap-kit always counts). Mirrors canonical `installedIds`.
   const deployedIds = useMemo<Set<string>>(() => {
     const out = new Set<string>()
-    for (const app of applications) {
+    for (const app of catalogApps) {
       if (app.bootstrapKit) {
+        out.add(app.id)
+        continue
+      }
+      // The server's live status is authoritative: an Application installed
+      // outside this console's own install flow (bootstrap-kit slot, GitOps,
+      // another session) has no install event here but IS installed.
+      const live = liveAppsQuery.data?.statusById?.[app.id]
+      if (live === 'installed' || live === 'installing') {
         out.add(app.id)
         continue
       }
@@ -567,7 +594,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
       if (compState && compState.status !== 'pending') out.add(app.id)
     }
     return out
-  }, [applications, state.apps])
+  }, [catalogApps, liveAppsQuery.data, state.apps])
   const installedApps = useMemo(
     () =>
       // #4113 — on an Org-scoped session the blueprint/bootstrap-kit cards
@@ -581,21 +608,35 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
   )
 
   const [query, setQuery] = useState<string>('')
+  // ONE search rule for every card kind: a query matches if it occurs in ANY
+  // identifier or label the operator can see — id (bp-cnpg-pair), slug/bareId
+  // (cnpg-pair), title, description, family, blueprint, Organization. On hw307
+  // searching "bp-cnpg" (the id the detail page shows) returned an empty grid
+  // because catalog cards matched only title/description/family.
+  const matchesQuery = (fields: ReadonlyArray<string | undefined | null>): boolean => {
+    const q = query.trim().toLowerCase()
+    if (!q) return true
+    return fields.some((f) => (f ?? '').toLowerCase().includes(q))
+  }
 
   // #3601 — the grid is the installed-deployments set only; no tab switch.
   const visibleApps = useMemo<ApplicationDescriptor[]>(() => {
-    const filtered = query
-      ? installedApps.filter((a) => {
-          const q = query.toLowerCase()
-          return (
-            a.title.toLowerCase().includes(q) ||
-            (a.description ?? '').toLowerCase().includes(q) ||
-            (a.familyName ?? '').toLowerCase().includes(q)
-          )
-        })
-      : installedApps
+    const filtered = installedApps.filter((a) =>
+      matchesQuery([a.id, a.bareId, a.title, a.description, a.familyName]),
+    )
     return [...filtered].sort((a, b) => a.title.localeCompare(b.title))
   }, [installedApps, query])
+
+  const visibleInstances = liveInstances.filter((inst) =>
+    matchesQuery([
+      inst.id,
+      inst.slug,
+      inst.blueprint,
+      inst.org,
+      findComponent(inst.slug)?.name,
+      `${findComponent(inst.slug)?.name ?? inst.slug} instance`,
+    ]),
+  )
 
   // #4119 — the "Provisioning" pill + "View jobs" link is a sovereign
   // provisioning affordance; never render it for an Org-scoped session.
@@ -760,6 +801,13 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
           </Link>
         </div>
       ) : (
+        <>
+        {query.trim() !== '' && visibleInstances.length === 0 && visibleApps.length === 0 ? (
+          <div className="empty-state" data-testid="sov-apps-no-match">
+            <p className="empty-title">No installed application matches “{query.trim()}”.</p>
+            <p className="empty-sub">Search matches an application's id (e.g. bp-cnpg-pair), name, description, family, blueprint or Organization.</p>
+          </div>
+        ) : null}
         <div className="apps-grid" data-testid="sov-apps-grid">
           {/*
             #3370 — instance cards: one card per RUNNING INSTANCE
@@ -769,13 +817,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
             tiles. #3601 — /apps is installed-only, so these always
             render (no tab gate).
           */}
-          {liveInstances
-            .filter((inst) =>
-              query
-                ? inst.id.toLowerCase().includes(query.toLowerCase()) ||
-                  inst.slug.toLowerCase().includes(query.toLowerCase())
-                : true,
-            )
+          {visibleInstances
             .map((inst) => {
               const comp = findComponent(inst.slug)
               const descriptor: ApplicationDescriptor = {
@@ -901,6 +943,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
             )
           })}
         </div>
+        </>
       )}
     </PortalShell>
   )

@@ -38,14 +38,22 @@ live there too.
 apiVersion: dr.openova.io/v1
 kind: Continuum
 metadata:
+  {{- if .Values.cnpgPair.application.enabled }}
+  name: dr-{{ .Release.Name }}
+  {{- else }}
   name: {{ include "cnpg-pair.fullname" . }}-continuum
+  {{- end }}
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "cnpg-pair.labels" . | nindent 4 }}
     catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
     openova.io/scope: platform
 spec:
+  {{- if .Values.cnpgPair.application.enabled }}
+  applicationRef: {{ printf "%s/%s" .Release.Namespace .Release.Name | quote }}
+  {{- else }}
   applicationRef: {{ .Values.cnpgPair.continuum.applicationRef | quote }}
+  {{- end }}
   primaryRegion: {{ $cprim | quote }}
   hotStandbyRegions:
     - {{ $cstby | quote }}

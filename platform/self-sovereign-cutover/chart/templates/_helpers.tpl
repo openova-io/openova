@@ -119,6 +119,19 @@ one declaration — this is the retirement of the three hand-maintained lists.
 {{- if and $mo (not (has $mo $hosts)) -}}
 {{- $pairs = append $pairs (printf "%s:" $mo) -}}
 {{- end -}}
+{{- /*
+   The Sovereign's own Harbor answers on BOTH registry.<fqdn> and
+   harbor.<fqdn>. Workloads pivoted onto harbor.<fqdn> (vcluster control
+   planes, sso-bridge) are local, but step-08 counted them UNMAPPED and the
+   sovereignty proof failed on hw307 (2026-11-06). Treat harbor.<fqdn> as a
+   host-swap/path-preserve alias of the local registry. */ -}}
+{{- $fq := .Values.sovereign.fqdn | default "" -}}
+{{- if and $fq (ne $fq "example.local") -}}
+{{- $alias := printf "harbor.%s" $fq -}}
+{{- if not (has $alias $hosts) -}}
+{{- $pairs = append $pairs (printf "%s:" $alias) -}}
+{{- end -}}
+{{- end -}}
 {{- join " " $pairs -}}
 {{- end -}}
 
@@ -274,6 +287,24 @@ loft-sh/vcluster = handled by step-10 vcluster-registry-pivot). Space-separated.
 */}}
 {{- define "bp-self-sovereign-cutover.excludedSubstringsInline" -}}
 {{- .Values.offlineMirror.excludedImageSubstrings | default (list) | join " " -}}
+{{- end -}}
+
+{{/*
+Step-03's exclusion list: excludedImageSubstrings MINUS mirrorAnyway. An
+excluded substring is skipped by BOTH the mirror and the step-08 roll-set;
+mirrorAnyway entries stay out of the roll-set but ARE copied into local
+Harbor. loft-sh/vcluster is the case: step-10 only rewrites the control-plane
+image reference to harbor.<fqdn>/proxy-ghcr/loft-sh/vcluster-oss — it copies
+nothing — so excluding it from the mirror left every vcluster-0 in
+ImagePullBackOff during the hw307 deny-egress hold (2026-11-06).
+*/}}
+{{- define "bp-self-sovereign-cutover.mirrorExcludedSubstringsInline" -}}
+{{- $keep := .Values.offlineMirror.mirrorAnyway | default (list) -}}
+{{- $out := list -}}
+{{- range (.Values.offlineMirror.excludedImageSubstrings | default (list)) -}}
+{{- if not (has . $keep) -}}{{- $out = append $out . -}}{{- end -}}
+{{- end -}}
+{{- join " " $out -}}
 {{- end -}}
 
 {{/*

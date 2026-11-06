@@ -1528,7 +1528,7 @@ spec:
       # 1.4.1845 — lockstep: bp-trivy 1.0.6 + bp-agenity 0.5.34 seed pins land after 1.4.1844; tests/ helmignored (#6004 budget).
       # 1.4.1844 — #6374: lockstep with the umbrella Chart.yaml bump (the catalog-seed
       #   card advances bp-agenity 0.5.33 -> 0.5.34). Pin bumped to match.
-      version: 1.4.1846
+      version: 1.4.1865
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
@@ -1867,7 +1867,7 @@ spec:
     # fireCutoverOnHandover=true) requests it. This is the North Star seam: a
     # browser-trusted Sovereign reaches cutoverComplete with ZERO manual steps.
     catalystApi:
-      fireCutoverOnHandover: ${FIRE_CUTOVER_ON_HANDOVER:-false}
+      fireCutoverOnHandover: ${FIRE_CUTOVER_ON_HANDOVER:-true}
       # #4971 — keep catalyst-api OFF the driverless control-plane node on every
       # fresh Sovereign. catalyst-api mounts two RWO Huawei-EVS PVCs whose CSI
       # node-plugin (evs.csi.huaweicloud.com) runs ONLY on workers; with

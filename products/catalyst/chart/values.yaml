@@ -554,9 +554,9 @@ images:
     # new chart emits only the new name, so handoverSigner never
     # initialises and /api/v1/auth/pin/issue returns 503 "handover
     # signer unavailable". ff778a36 reads both names with fallback.
-    tag: "6e23bf2"
+    tag: "5618ad4"
   catalystUi:
-    tag: "6e23bf2"
+    tag: "5618ad4"
   # 2026-08-11 (#5451): marketplaceApi / console / admin were ALL frozen at
   # "3c2f7e4" (2026-04-28) for three and a half months. Their build workflows
   # sed-ed the `image:` line of their chart template; 83ec889f0 (PR #580,
@@ -1463,10 +1463,12 @@ catalystApi:
   # fires the engine with source="handover", which the require-handover
   # gate (cutover_internal.go) exempts, and the in-code env default is TRUE.
   #
-  # Set true only on a throwaway test prov that should drive the full
-  # cutover walk end-to-end with no operator click. Flipping this to true
-  # does NOT change the operator/BSS CTA path — that always fires.
-  fireCutoverOnHandover: false
+  # ZERO-TOUCH DEFAULT (founder 2026-11-06, supersedes #4061): TRUE — every
+  # Sovereign cuts over on handover with no operator click, and the
+  # cutover reconciler drives an already-handed-over Sovereign to
+  # cutoverComplete. Set false only to keep the cutover an operator-gated
+  # BSS action. The operator/BSS CTA path fires either way.
+  fireCutoverOnHandover: true
   # #3379 / #4674 — registry-pivot (cutover step-04) ack-gate laggard tolerance,
   # wired to CATALYST_CUTOVER_ACK_TOLERANCE (Sovereign-only). A control-plane
   # node whose dragonfly dfdaemon is dead (the known kom4dc cp1 fault) never

@@ -435,7 +435,7 @@ spec:
   # datapath shape, #5339), instead of idling silently while a split-brain
   # persists. Keep this display-version in lockstep with delivery
   # source.version + blueprint.yaml (the #4988 precedent).
-  version: "0.2.27"
+  version: "0.2.28"
   visibility: listed
   card:
     title: "CNPG Cluster-Pair (Active-Hotstandby DR)"
@@ -465,7 +465,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-cnpg-pair
-    version: "0.2.27"
+    version: "0.2.28"
   # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): cluster-pair IS
   # active-hot-standby by construction. Only one topology variant —
   # active-passive — because the chart renders 2 Cluster CRs (primary +
@@ -2213,7 +2213,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.11"
+  version: "1.0.13"
   visibility: listed
   card:
     title: "Mimir"
@@ -2232,7 +2232,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-mimir
-    version: "1.0.11"
+    version: "1.0.13"
   topology:
     supported:
     - active-passive
@@ -5120,7 +5120,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.1.203"
+  version: "0.1.206"
   visibility: unlisted
   card:
     title: "Self-Sovereignty Cutover"
@@ -5137,7 +5137,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-self-sovereign-cutover
-    version: "0.1.203"
+    version: "0.1.206"
   topology:
     supported:
       - singleton
