@@ -61,6 +61,15 @@ metadata:
     catalyst.openova.io/cnpg-pair-role: primary
     catalyst.openova.io/cnpg-pair-name: {{ include "cnpg-pair.fullname" . | quote }}
 spec:
+  {{- if .Values.cnpgPair.application.enabled }}
+  # Unified model: stamp the canonical app label on every CNPG Pod so they
+  # belong to the `{{ .Release.Name }}` Application (the cluster-wide
+  # app-label-mutate policy otherwise copies app.kubernetes.io/instance,
+  # which CNPG sets to the CLUSTER name).
+  inheritedMetadata:
+    labels:
+      catalyst.openova.io/application: {{ .Release.Name | quote }}
+  {{- end }}
   instances: {{ .Values.cnpgPair.primary.instances }}
   primaryUpdateMethod: switchover
   imageName: {{ include "cnpg-pair.imageRef" . | quote }}

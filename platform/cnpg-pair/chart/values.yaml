@@ -593,10 +593,28 @@ cnpgPair:
   # The CRD (dr.openova.io/v1.Continuum) ships with bp-catalyst-platform
   # (slot 13) — render only succeeds once that CRD is installed; the
   # bootstrap-kit sequences slot 13 well before slot 16b.
+  # ── Application self-registration (unified model) ──────────────────
+  # Same contract as bp-postgres's bootstrapOwned (application-cr.yaml):
+  # when enabled, the chart renders the pair's canonical Application CR
+  # (apps.openova.io/v1, spec.bootstrap=true → the application-controller
+  # ADOPTS the slot install) named after the release, its Continuum as
+  # `dr-<release>` with applicationRef `<namespace>/<release>`, and stamps
+  # `catalyst.openova.io/application=<release>` onto every CNPG Pod via the
+  # Clusters' inheritedMetadata. Without it the pair was the ONE platform
+  # data pair that was not an Application: no Topology placement, no DR
+  # panel, and an Apply that could only 404 (hw307 2026-11-06). Default
+  # OFF keeps a non-slot render byte-identical; slot 16b turns it on.
+  application:
+    enabled: false
+    # The owning Flux HelmRelease (the adoption path observes its Ready).
+    helmRelease:
+      name: ""
+      namespace: flux-system
   continuum:
     enabled: false
-    # Logical Application this DR contract protects. For the platform-
-    # level cluster-pair this is the platform control plane itself.
+    # Logical Application this DR contract protects. Used ONLY when
+    # cnpgPair.application.enabled is false; with the Application
+    # rendered, applicationRef is `<namespace>/<release>` (bound to it).
     applicationRef: catalyst-platform
     # ── Continuum CR region labels — DISTINCT seam from the cnpg-pair
     # node-region labels above ──────────────────────────────────────
