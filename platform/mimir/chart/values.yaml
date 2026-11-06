@@ -197,9 +197,16 @@ mimir-distributed:
     # host folds into the repository. quay → `harbor.openova.io/proxy-quay/...`.
     # These values feed the Catalyst-owned MinIO render (the bundled subchart is
     # disabled above) via `.Values.<...>.minio.image` lookups in the umbrella.
+    # quay.io/minio/* requires authentication now (MinIO stopped publishing
+    # public images): the former RELEASE.2024-12-18T13-15-44Z pin 401s
+    # upstream and is absent from the mothership cache, so a fresh Sovereign
+    # could not start MinIO and cutover step-03 FATALed on it (hw307
+    # 2026-11-06). bitnamilegacy/minio is public; verified with this chart's
+    # command as uid 1000: server up, /minio/health/{live,ready} 200, and the
+    # make-buckets script (bitnamilegacy/minio-client) creates its bucket.
     image:
-      repository: harbor.openova.io/proxy-quay/minio/minio
-      tag: RELEASE.2024-12-18T13-15-44Z
+      repository: harbor.openova.io/proxy-dockerhub/bitnamilegacy/minio
+      tag: 2025.7.23-debian-12-r3
     # quay.io/minio/* now requires authentication (MinIO stopped publishing
     # public images) — the pinned quay.io/minio/mc tag 401s upstream and is
     # absent from the mothership cache, so a fresh Sovereign's bucket Job

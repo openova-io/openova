@@ -42,7 +42,8 @@ type: application
 # the dependency on the regular MinIO Deployment/Service/Secret/ConfigMap.
 # 1.0.12: make-buckets Job image quay.io/minio/mc -> bitnamilegacy/minio-client
 #   2025.7.21 (quay.io/minio now requires auth); mc resolved from PATH.
-version: 1.0.12
+# 1.0.13: MinIO server image -> bitnamilegacy/minio:2025.7.23-debian-12-r3 (quay.io/minio auth-only).
+version: 1.0.13
 appVersion: "3.0.4"
 keywords: [catalyst, blueprint, mimir, observability, metrics, prometheus]
 maintainers:

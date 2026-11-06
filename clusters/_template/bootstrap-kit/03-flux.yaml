@@ -174,6 +174,19 @@ spec:
                             memory: 1Gi
                           requests:
                             memory: 256Mi
+                        # Readiness on the health server (:9440 /readyz), NOT the
+                        # chart default `GET / on :9090`: the artifact server on
+                        # :9090 only starts once the pod holds the leader lease,
+                        # and with maxUnavailable:0 the OLD pod keeps that lease
+                        # until the NEW pod is Ready — a deadlock. It froze the
+                        # step-08 deny-egress re-roll on hw307 (2026-11-06) until
+                        # the old pod was deleted by hand.
+                        readinessProbe:
+                          httpGet:
+                            path: /readyz
+                            port: healthz
+                          periodSeconds: 10
+                          failureThreshold: 3
                     volumes:
                       - name: tmp
                         emptyDir:
