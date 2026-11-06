@@ -604,6 +604,41 @@ cnpgPair:
   # data pair that was not an Application: no Topology placement, no DR
   # panel, and an Apply that could only 404 (hw307 2026-11-06). Default
   # OFF keeps a non-slot render byte-identical; slot 16b turns it on.
+  # ── CNPG DISTRIBUTED TOPOLOGY — planned cross-region switchover ────
+  # (chart 0.2.29). Opt-in, default OFF: with enabled=false every render
+  # is byte-identical to 0.2.28.
+  #
+  # When ON, BOTH Cluster halves declare their role the CNPG >= 1.24 way
+  # — `spec.replica.{self, primary, source}` (+ `promotionToken` on the
+  # half being promoted) and an `externalClusters` entry for BOTH halves
+  # — instead of the legacy `replica.enabled` flag. That is what lets
+  # the Continuum engine run a LOSSLESS planned switchover between two
+  # separate API servers: it moves `primary` on the current primary
+  # (CNPG demotes it and publishes status.demotionToken), then sets the
+  # peer's `primary` to itself with that token (CNPG promotes only once
+  # it has replayed up to the demotion checkpoint — RPO=0).
+  #
+  # The values are driven ONLY through the per-region bootstrap-kit
+  # Kustomization substitutes (slot 16b), written by the continuum-
+  # controller with field manager `continuum-switchover` — never by a
+  # live Cluster CR patch (helm drift correction would revert it):
+  #   enabled        <- SOVEREIGN_CNPG_PAIR_DISTRIBUTED      (default false)
+  #   primary        <- SOVEREIGN_CNPG_PAIR_ACTIVE_PRIMARY   (default "")
+  #   promotionToken <- SOVEREIGN_CNPG_PAIR_PROMOTION_TOKEN  (default "")
+  #
+  # The unplanned-DR seams WIN over the planned one: `primary.demoted`
+  # (dr-failback) and `replica.promoted` (dr-promoter) still render the
+  # exact legacy rejoin / promoted shapes the DR actors read, so a region
+  # kill behaves exactly as before.
+  distributed:
+    enabled: false
+    # Name of the Cluster CR the topology designates primary. "" = the
+    # pair-role primary half (`<fullname>-primary`). Must be one of the
+    # two pair halves.
+    primary: ""
+    # Demotion token of the peer, presented by the half being promoted
+    # (rendered only on the half that `primary` names).
+    promotionToken: ""
   application:
     enabled: false
     # The owning Flux HelmRelease (the adoption path observes its Ready).

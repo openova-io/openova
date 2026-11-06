@@ -114,6 +114,34 @@ type Status struct {
 	// hasn't surfaced it) — callers must never guess on absent data.
 	TimelineID    int
 	HasTimelineID bool
+
+	// ── CNPG distributed topology (CNPG >= 1.24) ─────────────────────
+	//
+	// Distributed is true when the Cluster declares its role through
+	// `spec.replica.primary` (+ optional `self`) instead of the legacy
+	// `spec.replica.enabled` flag — bp-cnpg-pair's opt-in
+	// `cnpgPair.distributed` mode, which the cross-region planned
+	// switchover drives (switchover/crossregion.go). In that form
+	// IsReplicaCluster is DERIVED as `primary != self`, so every
+	// existing role consumer (#4901 LocalHalfDemoted, #5125 divergence,
+	// #5224 role re-assert) reads the true role without knowing which
+	// form the chart rendered.
+	Distributed bool
+	// DistributedPrimary is `spec.replica.primary` — the Cluster name
+	// the distributed topology designates as primary.
+	DistributedPrimary string
+	// Self is `spec.replica.self`, defaulted to metadata.name (only
+	// populated when Distributed).
+	Self string
+	// PromotionToken is the desired `spec.replica.promotionToken`.
+	PromotionToken string
+	// DemotionToken is `status.demotionToken` — written by CNPG once a
+	// distributed-topology primary has been demoted (its shutdown
+	// checkpoint recorded). The peer's promotion must present it.
+	DemotionToken string
+	// LastPromotionToken is `status.lastPromotionToken` — the token
+	// CNPG verified and consumed when it promoted this Cluster.
+	LastPromotionToken string
 }
 
 // StandbyAvailable reports whether the replica (standby) half of a
@@ -386,8 +414,32 @@ func parseStatus(cr *unstructured.Unstructured) Status {
 	s.CurrentPrimary, _, _ = unstructured.NestedString(cr.Object, "status", "currentPrimary")
 	s.TargetPrimary, _, _ = unstructured.NestedString(cr.Object, "status", "targetPrimary")
 	s.Phase, _, _ = unstructured.NestedString(cr.Object, "status", "phase")
-	s.IsReplicaCluster, _, _ = unstructured.NestedBool(cr.Object, "spec", "replica", "enabled")
+	var enabledFound bool
+	s.IsReplicaCluster, enabledFound, _ = unstructured.NestedBool(cr.Object, "spec", "replica", "enabled")
 	s.ReplicaSource, _, _ = unstructured.NestedString(cr.Object, "spec", "replica", "source")
+	s.DistributedPrimary, _, _ = unstructured.NestedString(cr.Object, "spec", "replica", "primary")
+	s.PromotionToken, _, _ = unstructured.NestedString(cr.Object, "spec", "replica", "promotionToken")
+	s.DemotionToken, _, _ = unstructured.NestedString(cr.Object, "status", "demotionToken")
+	s.LastPromotionToken, _, _ = unstructured.NestedString(cr.Object, "status", "lastPromotionToken")
+	if !enabledFound && s.DistributedPrimary != "" {
+		// CNPG distributed topology: the role is `primary != self`
+		// (self defaults to metadata.name) — the same rule the CNPG
+		// operator applies. An explicit `enabled` wins above (the
+		// legacy form; CNPG rejects both together).
+		s.Distributed = true
+		s.Self, _, _ = unstructured.NestedString(cr.Object, "spec", "replica", "self")
+		if s.Self == "" {
+			s.Self = cr.GetName()
+		}
+		s.IsReplicaCluster = s.DistributedPrimary != s.Self
+		if !s.IsReplicaCluster {
+			// A distributed-topology primary still names `source` (the
+			// peer it will follow once demoted) but does not stream
+			// from it. Keep ReplicaSource's contract: non-empty only
+			// while the Cluster actually follows a source.
+			s.ReplicaSource = ""
+		}
+	}
 
 	// Lag fields may live in different sub-paths depending on CNPG
 	// version. Try the common ones (status.lag, status.replication.lagSeconds).

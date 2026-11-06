@@ -145,6 +145,30 @@ ClusterMesh global Service can compute them deterministically.
 {{- end }}
 
 {{/*
+CNPG distributed topology (chart 0.2.29) — planned cross-region
+switchover seam. See values.yaml `cnpgPair.distributed`.
+
+distributedActive: "true" when cnpgPair.distributed.enabled.
+activePrimary: the Cluster CR name the topology designates primary —
+`distributed.primary`, defaulting to the pair-role primary half; fails
+the render when it names neither half (a typo there would otherwise
+render BOTH halves as replicas = a write outage).
+*/}}
+{{- define "cnpg-pair.distributedActive" -}}
+{{- $d := .Values.cnpgPair.distributed | default dict -}}
+{{- if $d.enabled -}}true{{- end -}}
+{{- end }}
+
+{{- define "cnpg-pair.activePrimary" -}}
+{{- $d := .Values.cnpgPair.distributed | default dict -}}
+{{- $p := $d.primary | default (include "cnpg-pair.primaryName" .) -}}
+{{- if and (ne $p (include "cnpg-pair.primaryName" .)) (ne $p (include "cnpg-pair.replicaName" .)) -}}
+{{- fail (printf "cnpgPair.distributed.primary must name one of the pair halves (%s | %s) — got %q" (include "cnpg-pair.primaryName" .) (include "cnpg-pair.replicaName" .) $p) -}}
+{{- end -}}
+{{- $p -}}
+{{- end }}
+
+{{/*
 Replication Service name — canonical alias the replica uses to reach
 the primary's read-replica endpoint over the Cilium ClusterMesh.
 

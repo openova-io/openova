@@ -149,7 +149,11 @@ spec:
   # and the diverged arms of the self-heal AND the #5245 handoff no longer fire
   # on a consistent replica (hw307: a stale marker re-froze the HR after the
   # switchback; here it would also re-promote via the substitute). Script only.
-  version: 0.2.28
+  # 0.2.29: opt-in CNPG distributed topology (cnpgPair.distributed) — the seam the
+  # continuum-controller drives for a LOSSLESS planned cross-region switchover
+  # (demotion token -> promotion token) through the bootstrap-kit substitutes
+  # SOVEREIGN_CNPG_PAIR_{DISTRIBUTED,ACTIVE_PRIMARY,PROMOTION_TOKEN}. Default off.
+  version: 0.2.29
   card:
     title: CNPG Cluster-Pair (Active-Hotstandby DR)
     summary: |

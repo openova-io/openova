@@ -38,6 +38,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/openova-io/openova/core/controllers/continuum/internal/cnpg"
 	"github.com/openova-io/openova/core/controllers/continuum/internal/dns"
 	"github.com/openova-io/openova/core/controllers/continuum/internal/witness"
 )
@@ -247,12 +248,31 @@ func (s *Sequencer) dryStep2CordonOld(ctx context.Context, plan SwitchoverPlan, 
 		rep.Blockers = append(rep.Blockers, "step-2: CNPG reader is required")
 		return st
 	}
-	primary, replica, err := s.CNPG.FindPair(ctx, plan.CNPGNamespace, plan.CNPGPair)
+	topo, err := s.resolveCNPGTopology(ctx, plan)
 	if err != nil {
 		st.Notes = append(st.Notes, fmt.Sprintf("FindPair %s/%s: %v", plan.CNPGNamespace, plan.CNPGPair, err))
 		rep.Blockers = append(rep.Blockers, fmt.Sprintf("step-2: cannot resolve cluster-pair %q in ns %q: %v", plan.CNPGPair, plan.CNPGNamespace, err))
 		return st
 	}
+	if t := topo.cross; t != nil {
+		// Split across two API servers — the cross-region preflight
+		// (reachability, distributed topology, DR latch, standby lag).
+		st.Notes = append(st.Notes, fmt.Sprintf("cross-region pair: %s / %s", t.local.where(), t.remote.where()))
+		blockers, warnings := s.crossPreflight(ctx, plan, t)
+		for _, b := range blockers {
+			st.Notes = append(st.Notes, b)
+			rep.Blockers = append(rep.Blockers, "step-2: "+b)
+		}
+		for _, w := range warnings {
+			rep.Warnings = append(rep.Warnings, "step-2: "+w)
+		}
+		if len(blockers) == 0 {
+			st.Notes = append(st.Notes, fmt.Sprintf("would demote the %s half via its bootstrap-kit seam (%s) and wait for status.demotionToken", plan.FromRegion, cnpg.SubstituteActivePrimary))
+			st.PreconditionsMet = true
+		}
+		return st
+	}
+	primary, replica := topo.primary, topo.replica
 	st.Notes = append(st.Notes, fmt.Sprintf("primary=%s replica=%s", primary.GetName(), replica.GetName()))
 	// Inspect annotations — if the primary already carries a cordon
 	// annotation, that's a warning (likely a stuck switchover).
@@ -345,10 +365,15 @@ func (s *Sequencer) dryStep6UncordonNew(ctx context.Context, plan SwitchoverPlan
 		st.Notes = append(st.Notes, "CNPG reader not configured (see step-2)")
 		return st
 	}
-	_, _, err := s.CNPG.FindPair(ctx, plan.CNPGNamespace, plan.CNPGPair)
+	topo, err := s.resolveCNPGTopology(ctx, plan)
 	if err != nil {
 		st.Notes = append(st.Notes, fmt.Sprintf("FindPair (re-check for uncordon): %v", err))
 		// Already a blocker at step 2; don't double-count.
+		return st
+	}
+	if topo.cross != nil {
+		st.Notes = append(st.Notes, fmt.Sprintf("would promote the %s half via its bootstrap-kit seam (%s + %s = the demotion token) and wait for CNPG to consume the token", plan.ToRegion, cnpg.SubstituteActivePrimary, cnpg.SubstitutePromotionToken))
+		st.PreconditionsMet = true
 		return st
 	}
 	st.Notes = append(st.Notes, "would clear cordon + flip replica.enabled on both halves")
