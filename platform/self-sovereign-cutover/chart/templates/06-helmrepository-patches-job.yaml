@@ -152,6 +152,24 @@ data:
           echo "[helmrepository-patches] Phase-2b edited ${ot_branch}:${otf}"
         done
         {{- /*
+         Image-registry VALUES carry the mothership host too, not only
+         HelmRepository URLs: a per-Org HelmRelease renders
+         `global.imageRegistry: harbor.openova.io/proxy-dockerhub`, which this
+         leg used to leave in place. On hw307 (2026-11-06) step-10's read-back
+         then waited on acmewalk307/bp-wordpress-tenant until it failed.
+         Host-swap the mothership host to the local registry host on
+         non-comment registry/image keys; the path (proxy-<x>/...) is kept.
+        */}}
+        if [ -n "${MOTHERSHIP_HOST:-}" ] && [ -n "${HARBOR_PUBLIC_URL:-}" ]; then
+          ot_local_host="${HARBOR_PUBLIC_URL#https://}"; ot_local_host="${ot_local_host#http://}"; ot_local_host="${ot_local_host%/}"
+          ot_mo_re=$(printf '%s' "${MOTHERSHIP_HOST}" | sed 's/[.]/\\./g')
+          for otf in $(grep -rlE "^[[:space:]]*(imageRegistry|registry|repository|image):[[:space:]]*\"?${ot_mo_re}/" clusters 2>/dev/null | grep '/org-tenants/' | sort -u); do
+            sed -i -E "s,^([[:space:]]*(imageRegistry|registry|repository|image):[[:space:]]*\"?)${ot_mo_re}/,\1${ot_local_host}/," "${otf}"
+            ot_edited=$((ot_edited+1))
+            echo "[helmrepository-patches] Phase-2b image-registry host-swap ${MOTHERSHIP_HOST} -> ${ot_local_host} in ${ot_branch}:${otf}"
+          done
+        fi
+        {{- /*
          Same certSecretRef durability the bootstrap-kit files get: without it
          the pivoted tenant HelmRepositories x509-fail against the in-cluster
          Harbor the moment the Kustomization re-applies the local url. Calls
@@ -1183,6 +1201,8 @@ data:
             value: {{ .Values.helmRepositories.upstreamPrefix | quote }}
           - name: HARBOR_PUBLIC_URL
             value: {{ .Values.sovereign.harborPublicURL | quote }}
+          - name: MOTHERSHIP_HOST
+            value: {{ include "bp-self-sovereign-cutover.mothershipHost" . | quote }}
           - name: SOVEREIGN_FQDN
             value: {{ .Values.sovereign.fqdn | quote }}
           - name: GITEA_INTERNAL_URL
