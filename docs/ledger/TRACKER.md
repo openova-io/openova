@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-06T16:00:02Z` |
+| Last refreshed | `2026-11-06T16:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-06T16:06 | [#7042](https://github.com/openova-io/openova/pull/7042) | #3601 | fix(sovereign-ui): the Applications view lists every install |
 | 2026-11-06T13:03 | [#7041](https://github.com/openova-io/openova/pull/7041) | #7040 | fix(cutover,mimir,flux): remaining hw307 cutover defects — s |
 | 2026-11-06T12:22 | [#7040](https://github.com/openova-io/openova/pull/7040) | #6093 | fix(cutover): harbor.<fqdn> is a local alias; org-tenant ima |
 | 2026-11-06T10:48 | [#7039](https://github.com/openova-io/openova/pull/7039) | #6093 | fix(bp-mimir): bucket Job uses bitnamilegacy/minio-client —  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-10-10T07:07 | [#6975](https://github.com/openova-io/openova/pull/6975) | #6973 | ci(docrender): refresh the apt index before installing poppl |
 | 2026-10-10T08:51 | [#6973](https://github.com/openova-io/openova/pull/6973) | #6971 | feat(bss): packages and the entitlement matrix — Included /  |
 | 2026-10-10T07:01 | [#6972](https://github.com/openova-io/openova/pull/6972) | #6971 | feat(marketplace): the package table — S/M/L/XL with include |
-| 2026-10-04T13:24 | [#6965](https://github.com/openova-io/openova/pull/6965) | #6964 | docs(ledger): hw307 evidence for the contract page at 0.1.56 |
 
 ---
 
