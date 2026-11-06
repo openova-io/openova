@@ -146,7 +146,10 @@ type: application
 #   default natsURL to the bp-nats-jetstream Service (was empty, so every
 #   switchover failed at step-7 and rolled back), and point the NATS egress
 #   rule at nats-system (was openova-system, which matched nothing).
-version: 0.1.16
+# 0.1.17: ship #7054 + #7055 (c39ba75). Promotion is the point of no return;
+#   a switchover honours its target and starts from the observed writer; a
+#   switchback adopts a DR-failed-over pair into the planned topology.
+version: 0.1.17
 appVersion: "0.1.0"
 home: https://openova.io
 sources:

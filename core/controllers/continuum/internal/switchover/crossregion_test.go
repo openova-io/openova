@@ -161,6 +161,25 @@ func (w *xrWorld) operate() {
 		{w.b, xrReplica, w.a, xrPrimary},
 	} {
 		sub := w.substitutes(side.dyn)
+		// Unplanned-DR seams win over the distributed one (chart 0.2.29):
+		// render the legacy replica.enabled shape.
+		if (side.self == xrPrimary && sub[cnpg.SubstituteDemoted] == "true") || (side.self == xrReplica && sub[cnpg.SubstitutePromoted] == "true") {
+			c := w.cluster(side.dyn, side.self)
+			unstructured.RemoveNestedField(c.Object, "spec", "replica", "primary")
+			unstructured.RemoveNestedField(c.Object, "spec", "replica", "promotionToken")
+			_ = unstructured.SetNestedField(c.Object, side.self == xrPrimary, "spec", "replica", "enabled")
+			if err := side.dyn.Tracker().Update(cnpg.ClusterGVR, c, xrNS); err != nil {
+				panic(err)
+			}
+			continue
+		}
+		{
+			c := w.cluster(side.dyn, side.self)
+			unstructured.RemoveNestedField(c.Object, "spec", "replica", "enabled")
+			if err := side.dyn.Tracker().Update(cnpg.ClusterGVR, c, xrNS); err != nil {
+				panic(err)
+			}
+		}
 		active := sub[cnpg.SubstituteActivePrimary]
 		if active == "" {
 			active = xrPrimary // chart default: the pair-role primary

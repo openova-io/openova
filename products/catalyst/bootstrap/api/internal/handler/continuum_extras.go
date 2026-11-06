@@ -425,10 +425,7 @@ func (h *Handler) HandleContinuumSwitchoverPreview(w http.ResponseWriter, r *htt
 		return
 	}
 
-	curPrimary, _, _ := unstructured.NestedString(cr.Object, "status", "currentPrimary")
-	if curPrimary == "" {
-		curPrimary, _, _ = unstructured.NestedString(cr.Object, "spec", "primaryRegion")
-	}
+	curPrimary := continuumActingPrimary(cr)
 	if target == "" {
 		standbys, _, _ := unstructured.NestedStringSlice(cr.Object, "spec", "hotStandbyRegions")
 		if len(standbys) > 0 {
@@ -654,7 +651,7 @@ func continuumItemFromCR(sov string, cr *unstructured.Unstructured) continuumFle
 	item.PrimaryRegion, _, _ = unstructured.NestedString(cr.Object, "spec", "primaryRegion")
 	item.CurrentPrimary, _, _ = unstructured.NestedString(cr.Object, "status", "currentPrimary")
 	if item.CurrentPrimary == "" {
-		item.CurrentPrimary = item.PrimaryRegion
+		item.CurrentPrimary = continuumActingPrimary(cr)
 	}
 	item.Phase, _, _ = unstructured.NestedString(cr.Object, "status", "phase")
 	item.WALLagSeconds = readNumericNested(cr.Object, "status", "walLagSeconds")
@@ -860,3 +857,17 @@ func continuumPreviewUnavailable(name, target, reason string) continuumSwitchove
 
 // Compile-time assertions that we don't shadow names from continuum.go.
 var _ = (*Handler).HandleContinuumGet
+
+// continuumActingPrimary is the region serving writes NOW. The controller
+// publishes the observed writer as status.primaryRegion (the failover
+// target once the declared primary half is a replica). The preview used to
+// read status.currentPrimary — a field nothing writes — and fell back to
+// spec.primaryRegion, so after a switch to region B the console said
+// "region A already primary" and offered no way back (hw307 2026-11-07).
+func continuumActingPrimary(cr *unstructured.Unstructured) string {
+	if s, _, _ := unstructured.NestedString(cr.Object, "status", "primaryRegion"); s != "" {
+		return s
+	}
+	s, _, _ := unstructured.NestedString(cr.Object, "spec", "primaryRegion")
+	return s
+}

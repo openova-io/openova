@@ -26,6 +26,14 @@
 // 1, 4, 5 are externally-observable (DNS / witness write); their
 // rollbacks are best-effort idempotent (re-issue the prior write).
 //
+// Point of no return: once promote-new-primary succeeds the new primary
+// has taken writes on a new timeline. Re-pointing the old primary back
+// at that moment is NOT a rollback — it forks the timeline (hw307
+// 2026-11-07: step-7 audit failed, the unwind made region A primary on
+// TL15 while region B was already on TL16, and region A was re-cloned).
+// Failures after promotion are reported in Result.PostCommitErrs and the
+// remaining steps still run; nothing is unwound.
+//
 // The sequencer is goroutine-safe but a single Continuum CR's
 // per-CR goroutine drives one Sequencer.Execute at a time (CR-level
 // state machine prevents concurrent switchover).
@@ -212,6 +220,10 @@ type Result struct {
 	FailedAtStep   int // 0 means none failed
 	Err            error
 	RolledBack     []int
+	// PostCommitErrs are failures of steps AFTER promote-new-primary.
+	// The switchover is committed (Err stays nil); these are surfaced,
+	// never unwound — see "Point of no return" above.
+	PostCommitErrs []error
 	StartedAt      time.Time
 	FinishedAt     time.Time
 }
@@ -317,11 +329,18 @@ func (s *Sequencer) Execute(ctx context.Context, plan SwitchoverPlan) Result {
 		hook func(ctx context.Context) error
 	}{}
 
+	committed := false
 	for step, fn := range s.steps(plan) {
 		stepNum := step + 1
 		s.fireHook(stepNum, fn.name)
 
 		rollback, err := fn.run(ctx)
+		if err != nil && committed {
+			perr := fmt.Errorf("step-%d (%s): %w", stepNum, fn.name, err)
+			res.PostCommitErrs = append(res.PostCommitErrs, perr)
+			s.emitError(ctx, plan, stepNum, perr)
+			continue
+		}
 		if err != nil {
 			res.Err = fmt.Errorf("step-%d (%s): %w", stepNum, fn.name, err)
 			res.FailedAtStep = stepNum
@@ -337,6 +356,9 @@ func (s *Sequencer) Execute(ctx context.Context, plan SwitchoverPlan) Result {
 		}
 
 		res.StepsCompleted = append(res.StepsCompleted, stepNum)
+		if fn.name == stepPromote {
+			committed = true
+		}
 		if rollback != nil {
 			rollbacks = append(rollbacks, struct {
 				step int
@@ -346,6 +368,9 @@ func (s *Sequencer) Execute(ctx context.Context, plan SwitchoverPlan) Result {
 	}
 	return res
 }
+
+// stepPromote is the point of no return (see package doc).
+const stepPromote = "promote-new-primary"
 
 // stepFunc bundles a step name + run + (optional) rollback hook
 // returned by run on success.
@@ -377,7 +402,11 @@ func (s *Sequencer) steps(plan SwitchoverPlan) []stepFunc {
 				// Acceptable starting states:
 				//  (a) the lease is currently held by FromRegion (we're flipping it to ToRegion)
 				//  (b) the lease is unheld / expired (lease-loss path; ToRegion takes it cold)
-				if st.Holder != "" && st.Holder != plan.FromRegion {
+				//  (c) the lease is already held by ToRegion — the witness stayed
+				//      with the controller's region while the writer moved away
+				//      (switchback after a DR failover, hw307 2026-11-07); swap-lease
+				//      then simply re-affirms it.
+				if st.Holder != "" && st.Holder != plan.FromRegion && st.Holder != plan.ToRegion {
 					return nil, fmt.Errorf("lease holder %q != plan.FromRegion %q", st.Holder, plan.FromRegion)
 				}
 				return nil, nil // no rollback needed for a read
@@ -493,7 +522,7 @@ func (s *Sequencer) steps(plan SwitchoverPlan) []stepFunc {
 		// write → Pod restart) on the surviving openbao standby.
 		// Dispatched through the per-mechanism Promoter (#3492).
 		{
-			name: "promote-new-primary",
+			name: stepPromote,
 			run: func(ctx context.Context) (func(ctx context.Context) error, error) {
 				promoter, err := s.promoterFor(plan)
 				if err != nil {
