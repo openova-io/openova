@@ -343,7 +343,9 @@ spec:
       # marker re-froze the HR after the switchback; here it would also flip
       # the substitute and re-promote). Script only; substitutes unchanged.
       # Lockstep slot 16b pin -> 0.2.27.
-      version: 0.2.28
+      # 0.2.29: opt-in CNPG distributed topology for the planned cross-region
+      # switchover (cnpgPair.distributed below). Lockstep slot 16b pin -> 0.2.29.
+      version: 0.2.29
       sourceRef:
         kind: HelmRepository
         name: bp-cnpg-pair
@@ -444,6 +446,23 @@ spec:
         # keeps reconciling the promoted survivor instead of freezing
         # forever. Reset to "false" at the controlled switchback.
         promoted: ${SOVEREIGN_CNPG_PAIR_PROMOTED:-false}
+      # ── PLANNED cross-region switchover seam (chart 0.2.29) ──────────
+      # CNPG distributed topology (spec.replica.{self,primary,source,
+      # promotionToken}) on BOTH halves. OPT-IN: SOVEREIGN_CNPG_PAIR_
+      # DISTRIBUTED defaults false (byte-identical render); set it true on
+      # EVERY region's bootstrap-kit Kustomization to enable a lossless
+      # Continuum "Switch over" between the two API servers.
+      # ACTIVE_PRIMARY / PROMOTION_TOKEN are NOT provisioner substitutes:
+      # the continuum-controller patches them onto each region's
+      # Kustomization (field manager `continuum-switchover`, same durable
+      # pattern as the DR seams above) — demote = ACTIVE_PRIMARY=<peer> on
+      # the current primary's region; promote = ACTIVE_PRIMARY=<self> +
+      # PROMOTION_TOKEN=<peer's status.demotionToken> on the standby's.
+      # The DR seams (demoted / promoted) still win over this one.
+      distributed:
+        enabled: ${SOVEREIGN_CNPG_PAIR_DISTRIBUTED:-false}
+        primary: '${SOVEREIGN_CNPG_PAIR_ACTIVE_PRIMARY:-}'
+        promotionToken: '${SOVEREIGN_CNPG_PAIR_PROMOTION_TOKEN:-}'
       networkPolicy:
         # crossRegionPeerClusters (#4846) — admit the PEER region's Pods to the
         # pair's 5432 by CLUSTER IDENTITY. A k8s `ipBlock` (the reverted #4846

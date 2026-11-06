@@ -2119,4 +2119,90 @@ grep -q 'PROMOTING' "$FAKE/act-e2.log" && grep -qF '"promoted":true' "$FAKE/patc
 if grep -q 'REFUSING promote: local cluster already diverged' "$FAKE/act-e2.log"; then fail25 "#6874 D5 (e) anti-flap still refuses on a cleared marker"; fi
 echo "  PASS (signals publishes local-state · marker self-clears on replica.enabled=true + ConsistentSystemID=True + fresh streaming · self-heal and handoff never act on a consistent replica · own stale latch released with 4 annotations dropped · foreign suspend + promoted latch untouched · later real kill promotes again)"
 
+# ── Case 26: 0.2.29 CNPG distributed topology (planned cross-region switchover)
+# The continuum-controller drives a LOSSLESS planned switchover between two
+# API servers through the bootstrap-kit substitutes ACTIVE_PRIMARY +
+# PROMOTION_TOKEN. Assert the rendered shapes per (side, active primary),
+# that the DR seams (demoted / promoted) still win with the legacy shapes,
+# that the sync fence follows the planned primary, that a typo'd primary
+# fails the render, and that default-off renders carry no distributed field.
+echo "[render] Case 26: CNPG distributed topology — planned cross-region switchover shapes"
+D26="--set cnpgPair.enabled=true --set cnpgPair.image.tag=16.3-23 --set cnpgPair.primary.region=hw-a-rtz-prod --set cnpgPair.replica.region=hw-b-rtz-prod --set cnpgPair.clusterMesh.enabled=true --set cnpgPair.networkPolicy.crossRegionPeerClusters={peer-mesh}"
+P26=cnpg-pair-bp-cnpg-pair-primary
+R26=cnpg-pair-bp-cnpg-pair-replica
+render26() { # $1=out $2...=extra args
+  local out="$1"; shift
+  # shellcheck disable=SC2086
+  helm template cnpg-pair . --namespace cnpg $D26 "$@" > "$TMP/$out.yaml" 2> "$TMP/$out.err" || {
+    echo "FAIL: Case 26 render $out errored:" >&2; cat "$TMP/$out.err" >&2; exit 1; }
+}
+render26 d26-off-a
+render26 d26-off-b --set cnpgPair.side=replica
+render26 d26-a --set cnpgPair.distributed.enabled=true
+render26 d26-b --set cnpgPair.distributed.enabled=true --set cnpgPair.side=replica
+render26 d26-a-demoted --set cnpgPair.distributed.enabled=true --set cnpgPair.distributed.primary=$R26
+render26 d26-b-promoted --set cnpgPair.distributed.enabled=true --set cnpgPair.side=replica --set cnpgPair.distributed.primary=$R26 --set cnpgPair.distributed.promotionToken=TOK26
+render26 d26-a-switchback --set cnpgPair.distributed.enabled=true --set cnpgPair.distributed.primary=$P26 --set cnpgPair.distributed.promotionToken=TOK27
+render26 d26-a-dr --set cnpgPair.distributed.enabled=true --set cnpgPair.distributed.primary=$R26 --set cnpgPair.primary.demoted=true
+render26 d26-b-dr --set cnpgPair.distributed.enabled=true --set cnpgPair.side=replica --set cnpgPair.replica.promoted=true
+python3 - "$TMP" "$P26" "$R26" <<'PYEOF' || { echo "FAIL: Case 26 distributed-topology assertions failed." >&2; exit 1; }
+import sys, yaml
+tmp, P, R = sys.argv[1:4]
+def cluster(name):
+    docs = [d for d in yaml.safe_load_all(open(f"{tmp}/{name}.yaml")) if d]
+    cs = [d for d in docs if d.get('kind') == 'Cluster']
+    assert len(cs) == 1, (name, len(cs))
+    return cs[0]['spec']
+def check(name, replica, ext, sync_to):
+    s = cluster(name)
+    assert s['replica'] == replica, (name, s['replica'], replica)
+    got_ext = [e['name'] for e in s.get('externalClusters', [])]
+    assert got_ext == ext, (name, got_ext, ext)
+    syn = s['postgresql'].get('synchronous')
+    commit = s['postgresql']['parameters'].get('synchronous_commit')
+    if sync_to is None:
+        assert syn is None and commit is None, (name, 'sync fence must be absent', syn, commit)
+    else:
+        assert syn and syn['standbyNamesPre'] == [sync_to] and syn['dataDurability'] == 'required', (name, syn)
+        assert commit == 'remote_apply', (name, commit)
+# default-off: legacy forms, no distributed field anywhere.
+for n in ('d26-off-a', 'd26-off-b'):
+    s = cluster(n)
+    assert 'primary' not in (s.get('replica') or {}) and 'self' not in (s.get('replica') or {}), (n, s.get('replica'))
+check('d26-a', {'self': P, 'primary': P, 'source': R}, [P, R], R)
+check('d26-b', {'self': R, 'primary': P, 'source': P}, [P, R], None)
+check('d26-a-demoted', {'self': P, 'primary': R, 'source': R}, [P, R], None)
+check('d26-b-promoted', {'self': R, 'primary': R, 'source': P, 'promotionToken': 'TOK26'}, [P, R], P)
+check('d26-a-switchback', {'self': P, 'primary': P, 'source': R, 'promotionToken': 'TOK27'}, [P, R], R)
+# DR seams WIN: the exact legacy shapes the dr-failback / dr-promoter actors read.
+check('d26-a-dr', {'enabled': True, 'source': R}, [R], None)
+check('d26-b-dr', {'enabled': False, 'source': P}, [P], None)
+assert 'pg_basebackup' in cluster('d26-a-dr')['bootstrap'] and 'initdb' in cluster('d26-a-demoted')['bootstrap']
+# replica.enabled and replica.primary are never rendered together (CNPG rejects it).
+for n in ('d26-a', 'd26-b', 'd26-a-demoted', 'd26-b-promoted', 'd26-a-switchback', 'd26-a-dr', 'd26-b-dr'):
+    r = cluster(n)['replica']
+    assert not ('enabled' in r and 'primary' in r), (n, r)
+PYEOF
+# dr-promoter: the planned-ownership block renders ONLY in distributed mode and
+# stays valid POSIX shell.
+for n in d26-b d26-off-b; do
+  python3 - "$TMP/$n.yaml" <<'PYEOF' > "$TMP/$n-actor.sh" || { echo "FAIL: Case 26 could not extract the dr-promoter actor ($n)." >&2; exit 1; }
+import sys, yaml
+docs=[d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+dep=[d for d in docs if d.get('kind')=='Deployment' and 'dr-promoter' in d['metadata']['name']][0]
+act=[c for c in dep['spec']['template']['spec']['containers'] if c['name']=='actor'][0]
+sys.stdout.write(act['args'][0])
+PYEOF
+  sh -n "$TMP/$n-actor.sh" || { echo "FAIL: Case 26 dr-promoter actor ($n) is not valid POSIX shell." >&2; exit 1; }
+done
+grep -q 'PLANNED ROLE owned by continuum-switchover' "$TMP/d26-b-actor.sh" || { echo "FAIL: Case 26 distributed dr-promoter lacks the planned-ownership block." >&2; exit 1; }
+if grep -q 'SOVEREIGN_CNPG_PAIR_ACTIVE_PRIMARY' "$TMP/d26-off-b-actor.sh"; then echo "FAIL: Case 26 default-off dr-promoter carries the distributed block." >&2; exit 1; fi
+# A typo'd active primary must fail the render (both halves replicas = write outage).
+# shellcheck disable=SC2086
+if helm template cnpg-pair . --namespace cnpg $D26 --set cnpgPair.distributed.enabled=true --set cnpgPair.distributed.primary=typo > /dev/null 2> "$TMP/d26-typo.err"; then
+  echo "FAIL: Case 26 distributed.primary=typo rendered — must fail." >&2; exit 1
+fi
+grep -q 'cnpgPair.distributed.primary must name one of the pair halves' "$TMP/d26-typo.err" || { cat "$TMP/d26-typo.err" >&2; echo "FAIL: Case 26 typo error message." >&2; exit 1; }
+echo "  PASS (default-off legacy forms · A/B planned roles + promotionToken on the promoted half only · sync fence follows the planned primary · DR seams win with legacy shapes · enabled+primary never together · dr-promoter planned-ownership block gated + valid shell · typo fails)"
+
 echo "[render] All bp-cnpg-pair render gates green."

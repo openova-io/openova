@@ -47,6 +47,14 @@ replica Cluster pins its client CA to the shared `-primary-ca`
 {{- if and .Values.cnpgPair.enabled (include "cnpg-pair.isPrimarySide" .) }}
 {{- include "cnpg-pair.validateRegions" . }}
 {{- $demoted := .Values.cnpgPair.primary.demoted | default false }}
+{{- /* Chart 0.2.29 — CNPG distributed topology (planned cross-region
+       switchover). The DR rejoin seam ($demoted) wins: a dr-failback
+       episode keeps rendering the exact legacy rejoin shape. */ -}}
+{{- $planned := and (include "cnpg-pair.distributedActive" .) (not $demoted) }}
+{{- $activePrimary := "" }}
+{{- if $planned }}{{- $activePrimary = include "cnpg-pair.activePrimary" . }}{{- end }}
+{{- $selfPrimary := or (not $planned) (eq $activePrimary (include "cnpg-pair.primaryName" .)) }}
+{{- $syncFence := and (not $demoted) $selfPrimary }}
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
@@ -147,6 +155,61 @@ spec:
     initdb:
       database: {{ .Values.cnpgPair.primary.bootstrap.database | quote }}
       owner:    {{ .Values.cnpgPair.primary.bootstrap.owner | quote }}
+{{- if $planned }}
+  # ── CNPG distributed topology (chart 0.2.29) ──────────────────────
+  # The role is `primary == self`. The continuum-controller moves
+  # `primary` (SOVEREIGN_CNPG_PAIR_ACTIVE_PRIMARY) for a PLANNED
+  # cross-region switchover: set to the peer, CNPG demotes this cluster
+  # in place and publishes status.demotionToken; set back to self with
+  # promotionToken (SOVEREIGN_CNPG_PAIR_PROMOTION_TOKEN = the peer's
+  # demotion token), CNPG promotes it once it has replayed up to that
+  # checkpoint (lossless). bootstrap stays initdb: it only runs at
+  # Cluster creation, and an in-place demotion needs no re-clone.
+  replica:
+    self: {{ include "cnpg-pair.primaryName" . }}
+    primary: {{ $activePrimary }}
+    source: {{ include "cnpg-pair.fullname" . }}-replica
+    {{- with .Values.cnpgPair.distributed.promotionToken }}
+    {{- if $selfPrimary }}
+    promotionToken: {{ . | quote }}
+    {{- end }}
+    {{- end }}
+  externalClusters:
+    # Self entry — the distributed topology lists every member.
+    - name: {{ include "cnpg-pair.fullname" . }}-primary
+      connectionParameters:
+        host: {{ include "cnpg-pair.replicationServiceName" . }}
+        port: "5432"
+        user: streaming_replica
+        sslmode: require
+        dbname: {{ .Values.cnpgPair.primary.bootstrap.database | quote }}
+      sslKey:
+        name: {{ include "cnpg-pair.fullname" . }}-primary-replication
+        key: tls.key
+      sslCert:
+        name: {{ include "cnpg-pair.fullname" . }}-primary-replication
+        key: tls.crt
+      sslRootCert:
+        name: {{ include "cnpg-pair.fullname" . }}-primary-ca
+        key: ca.crt
+    # Peer entry — region-B's `rw` over the `-replica-mesh` global alias,
+    # the SAME connection the #5245 rejoin shape uses (own client cert,
+    # NO sslRootCert: region-B's server chain is signed by its own
+    # `-replica-ca`, which cluster-A does not hold — 0.2.20 hw278).
+    - name: {{ include "cnpg-pair.fullname" . }}-replica
+      connectionParameters:
+        host: {{ include "cnpg-pair.peerReplicationServiceName" . }}
+        port: "5432"
+        user: streaming_replica
+        sslmode: require
+        dbname: {{ .Values.cnpgPair.primary.bootstrap.database | quote }}
+      sslKey:
+        name: {{ include "cnpg-pair.fullname" . }}-primary-replication
+        key: tls.key
+      sslCert:
+        name: {{ include "cnpg-pair.fullname" . }}-primary-replication
+        key: tls.crt
+{{- end }}
 {{- end }}
 
   # Region pinning — node-affinity is the operator's idiomatic seam
@@ -230,11 +293,16 @@ spec:
       #5245: the DEMOTED (rejoin) shape also omits both — a standby of
       region-B must not pin a sync fence; the fence returns with the
       primary shape on the controlled switchback (demoted:false).
+
+      0.2.29: likewise in distributed mode while this half is NOT the
+      designated primary ($syncFence) — the fence moves with the role
+      (replica-cluster.yaml renders the mirror block naming THIS cluster
+      when region-B is the designated primary).
       */ -}}
-      {{- if and (not $demoted) (eq (default "sync" .Values.cnpgPair.replication.mode) "sync") }}
+      {{- if and $syncFence (eq (default "sync" .Values.cnpgPair.replication.mode) "sync") }}
       synchronous_commit: {{ default "remote_apply" .Values.cnpgPair.replication.sync.commit | quote }}
       {{- end }}
-    {{- if and (not $demoted) (eq (default "sync" .Values.cnpgPair.replication.mode) "sync") }}
+    {{- if and $syncFence (eq (default "sync" .Values.cnpgPair.replication.mode) "sync") }}
     # ── Synchronous replication — CNPG-native (NOT a raw parameter) ────
     # method=first + number=N + standbyNamesPre:[<replica>] +
     # maxStandbyNamesFromCluster:0 renders

@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-06T20:30:07Z` |
+| Last refreshed | `2026-11-06T21:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-06T21:40 | [#7049](https://github.com/openova-io/openova/pull/7049) | #7048 | chore(bp-continuum): 0.1.14 — ship the cross-region switchov |
+| 2026-11-06T21:27 | [#7048](https://github.com/openova-io/openova/pull/7048) | #7047 | fix(continuum): Containerfile copies core/controllers/pkg (# |
+| 2026-11-06T21:12 | [#7047](https://github.com/openova-io/openova/pull/7047) | #5125 | feat(continuum): lossless planned cnpg-pair switchover acros |
 | 2026-11-06T20:20 | [#7046](https://github.com/openova-io/openova/pull/7046) | #7044 | feat(bp-cnpg-pair): the pair is an Application in the unifie |
 | 2026-11-06T19:21 | [#7045](https://github.com/openova-io/openova/pull/7045) | #7044 | fix(dr): placement claims CNPG pods via their owning Cluster |
 | 2026-11-06T18:42 | [#7044](https://github.com/openova-io/openova/pull/7044) | #4551 | fix(dr): cnpg-pair Topology shows the real pair, the live sw |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-10-10T12:34 | [#6990](https://github.com/openova-io/openova/pull/6990) | #6971 | docs(ledger): hw307 evidence for packages 0.1.58–0.1.59 |
 | 2026-10-10T11:53 | [#6989](https://github.com/openova-io/openova/pull/6989) | #6987 | test(bootstrap-api): the resource-tree test waits for every  |
 | 2026-10-10T12:57 | [#6988](https://github.com/openova-io/openova/pull/6988) | #6963 | feat(bss): the contract page shows what the contract did — r |
-| 2026-10-10T11:52 | [#6987](https://github.com/openova-io/openova/pull/6987) | #6971 | feat(bss): packages reach the order, the Organization and th |
-| 2026-10-10T09:25 | [#6986](https://github.com/openova-io/openova/pull/6986) | #6971 | docs(ledger): hw307 BSS walk evidence 0.1.27–0.1.57 |
-| 2026-10-10T10:53 | [#6984](https://github.com/openova-io/openova/pull/6984) | #6971 | fix(bss): the storefront reads the package document — its or |
 
 ---
 
