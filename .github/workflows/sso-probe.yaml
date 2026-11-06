@@ -50,7 +50,7 @@ jobs:
   # dead admin-by-default grant theater must stay deleted. Runs on every
   # PR — no live Sovereign needed.
   dead-grant-guard:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # Playwright has no chromium build for ubuntu-26.04 (ubuntu-latest since 2026-11)
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
@@ -61,7 +61,7 @@ jobs:
     # The live per-app walk needs a Sovereign — only on dispatch/schedule,
     # never on the static pull_request leg.
     if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # Playwright has no chromium build for ubuntu-26.04 (ubuntu-latest since 2026-11)
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4

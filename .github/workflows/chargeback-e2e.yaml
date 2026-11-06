@@ -31,7 +31,7 @@ permissions:
 jobs:
   e2e:
     name: chargeback console e2e (Chromium)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # Playwright has no chromium build for ubuntu-26.04 (ubuntu-latest since 2026-11)
     timeout-minutes: 30
     services:
       postgres:

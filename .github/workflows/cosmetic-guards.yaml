@@ -38,7 +38,7 @@ on:
 jobs:
   guards:
     name: Playwright cosmetic + step-flow guards
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # Playwright has no chromium build for ubuntu-26.04 (ubuntu-latest since 2026-11)
     timeout-minutes: 15
     # TEMPORARILY DISABLED — 38/50 tests failing on main due to UI
     # regression that breaks wizard StepComponents grid + multiple
