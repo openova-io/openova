@@ -114,7 +114,7 @@ spec:
     # cutover step-03). Without it the literal ghcr.io ref 401s under
     # deny-egress → step-08 fresh-pull FATALs.
     global:
-      imageRegistry: ''
+      imageRegistry: 'registry.hw307.omani.works'
     # G87 #2634: multi-region CNPG instances default (1 single-region, 2 multi).
     postgres:
       cluster:
