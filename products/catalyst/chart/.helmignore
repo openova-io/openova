@@ -49,3 +49,7 @@ templates/api-priorityclass-kustomize.yaml
 # image ref for the contabo-mkt raw-Kustomize path). Helm renders only the
 # templated ui-deployment.yaml; Kustomize renders only this literal one.
 templates/ui-deployment-kustomize.yaml
+
+# CI-only contract scripts — run from the working tree, never from the package.
+# Packaging them put the umbrella over the #6004 release-Secret budget.
+tests/
