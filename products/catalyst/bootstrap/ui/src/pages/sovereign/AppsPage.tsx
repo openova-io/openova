@@ -212,6 +212,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
         apps?: Array<{
           id: string
           slug?: string
+          title?: string
           status?: string
           marketplacePublished?: boolean
           environment?: string

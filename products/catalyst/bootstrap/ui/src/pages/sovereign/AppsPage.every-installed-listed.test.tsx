@@ -131,14 +131,7 @@ function renderApps() {
   )
 }
 
-async function cards(kind: 'instance' | 'catalog'): Promise<HTMLElement[]> {
-  const grid = await screen.findByTestId('sov-apps-grid')
-  return Array.from(grid.querySelectorAll(`[data-card-kind="${kind}"]`))
-}
 
-function idOf(el: Element): string {
-  return (el.getAttribute('data-testid') ?? '').replace(/^sov-app-card-/, '')
-}
 
 beforeEach(() => {
   useWizardStore.setState({ ...INITIAL_WIZARD_STATE })
