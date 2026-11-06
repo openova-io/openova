@@ -200,9 +200,14 @@ mimir-distributed:
     image:
       repository: harbor.openova.io/proxy-quay/minio/minio
       tag: RELEASE.2024-12-18T13-15-44Z
+    # quay.io/minio/* now requires authentication (MinIO stopped publishing
+    # public images) — the pinned quay.io/minio/mc tag 401s upstream and is
+    # absent from the mothership cache, so a fresh Sovereign's bucket Job
+    # ImagePullBackOffs and cutover step-03 FATALs on it (hw307 2026-11-06).
+    # bitnamilegacy/minio-client is public, carries /bin/sh + mc on PATH.
     mcImage:
-      repository: harbor.openova.io/proxy-quay/minio/mc
-      tag: RELEASE.2024-11-21T17-21-54Z
+      repository: harbor.openova.io/proxy-dockerhub/bitnamilegacy/minio-client
+      tag: 2025.7.21
     # #4343 — the bundled MinIO subchart's defaults declare ONLY a memory
     # request (server 16Gi, post-bucket Job 128Mi) with NO cpu. The cluster-
     # wide Kyverno `resource-requests` Enforce policy requires BOTH cpu AND
