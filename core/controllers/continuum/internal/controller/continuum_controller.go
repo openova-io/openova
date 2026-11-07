@@ -641,6 +641,13 @@ func (r *ContinuumReconciler) runPostSwitchoverHealth(plan switchover.Switchover
 		condStatus = "True"
 	}
 	detail := summarizeHealth(report)
+	// Name every check in the log: the condition carries only the counts,
+	// so "1 failed" was undiagnosable after the fact (hw307 2026-11-07).
+	for _, c := range report.Checks {
+		ctrl.Log.WithName("post-switchover-health").Info("check",
+			"continuum", plan.ContinuumName, "check", c.Name,
+			"passed", c.Passed, "deferred", c.Deferred, "detail", c.Detail)
+	}
 	_ = r.patchStatusByName(ctx, plan.ContinuumName, statusUpdate{
 		LastSwitchoverHealthy:       condStatus,
 		LastSwitchoverHealthyDetail: detail,
