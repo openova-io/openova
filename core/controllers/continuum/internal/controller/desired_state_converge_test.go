@@ -1,15 +1,18 @@
 package controller
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/openova-io/openova/core/controllers/continuum/internal/cnpg"
+	"github.com/openova-io/openova/core/controllers/continuum/internal/witness"
 )
 
 func pairSpec(desired string) ContinuumSpec {
@@ -117,4 +120,75 @@ func TestConvergeDecision_BackoffAfterFailure(t *testing.T) {
 	if got = r.convergeDecision(nn, spec, "hel-b-rtz-prod", true, healthy); got.run || got.view.reason != "Converged" {
 		t.Fatalf("converged: %+v", got.view)
 	}
+}
+
+// The Converged condition is ONE entry, rewritten on each determination —
+// hw307 2026-11-07: it was appended on every pass, so the stale "Converging"
+// entry stayed first after the switchover had converged.
+func TestPatchStatus_ConvergedConditionIsReplacedNotAppended(t *testing.T) {
+	cr := newTestContinuumCR("db", "dr-pg", "fsn-a-rtz-prod", []string{"hel-b-rtz-prod"}, "in-memory")
+	r, _, _ := newReconciler(t, cr)
+	ctx := context.Background()
+	for _, v := range []*convergeView{
+		{converged: false, reason: "Converging", message: "switching"},
+		{converged: true, reason: "Converged", message: "done"},
+		{converged: true, reason: "Converged", message: "done"},
+	} {
+		if err := r.patchStatus(ctx, cr, statusUpdate{Phase: PhaseHealthy, Converge: v}); err != nil {
+			t.Fatalf("patchStatus: %v", err)
+		}
+	}
+	// A pass with no determination keeps the last one.
+	if err := r.patchStatus(ctx, cr, statusUpdate{Phase: PhaseHealthy}); err != nil {
+		t.Fatalf("patchStatus: %v", err)
+	}
+	got, _ := r.Dyn.Resource(ContinuumGVR).Namespace("db").Get(ctx, "dr-pg", metav1.GetOptions{})
+	conds, _, _ := unstructured.NestedSlice(got.Object, "status", "conditions")
+	var seen []string
+	for _, c := range conds {
+		m := c.(map[string]interface{})
+		if m["type"] == "Converged" {
+			seen = append(seen, m["reason"].(string))
+		}
+	}
+	if len(seen) != 1 || seen[0] != "Converged" {
+		t.Fatalf("Converged conditions = %v, want exactly [Converged]", seen)
+	}
+	if c, _, _ := unstructured.NestedBool(got.Object, "status", "converged"); !c {
+		t.Fatalf("status.converged = false, want true")
+	}
+}
+
+// With the writer in the declared (non-home) region, the home half is the
+// hot standby: Healthy + StandbyAvailable=True, not "failed over".
+func TestPatchStatusFromCR_PlannedRemotePrimaryIsHealthy(t *testing.T) {
+	cr := newTestContinuumCR("db", "dr-pg", "fsn-a-rtz-prod", []string{"hel-b-rtz-prod"}, "in-memory")
+	// The last observation (a completed switchover) put the writer in hel;
+	// the controller holds the lease as that writer.
+	_ = unstructured.SetNestedField(cr.Object, "hel-b-rtz-prod", "status", "primaryRegion")
+	r, _, _ := newReconciler(t, cr)
+	spec := pairSpec("hel-b-rtz-prod")
+	home := cnpg.Status{IsReplicaCluster: true, Ready: true}
+	demoted := cnpg.StandbyObservation{Known: true, LocalHalfDemoted: true, ReplicaCluster: "pg-replica"}
+	if err := r.patchStatusFromCR(context.Background(), cr, spec, witnessStateHeldBy("hel-b-rtz-prod"), home, cnpg.Status{}, demoted, false, ""); err != nil {
+		t.Fatalf("patch: %v", err)
+	}
+	got, _ := r.Dyn.Resource(ContinuumGVR).Namespace("db").Get(context.Background(), "dr-pg", metav1.GetOptions{})
+	phase, _, _ := unstructured.NestedString(got.Object, "status", "phase")
+	writer, _, _ := unstructured.NestedString(got.Object, "status", "primaryRegion")
+	avail, _, _ := unstructured.NestedBool(got.Object, "status", "standbyAvailable")
+	if phase != PhaseHealthy || writer != "hel-b-rtz-prod" || !avail {
+		t.Fatalf("phase=%q writer=%q standbyAvailable=%v; want Healthy, hel-b-rtz-prod, true", phase, writer, avail)
+	}
+	// Same observation with NO declaration is an unplanned failover.
+	spec.DesiredPrimaryRegion = ""
+	_ = r.patchStatusFromCR(context.Background(), cr, spec, witnessStateHeldBy("hel-b-rtz-prod"), home, cnpg.Status{}, demoted, false, "")
+	got, _ = r.Dyn.Resource(ContinuumGVR).Namespace("db").Get(context.Background(), "dr-pg", metav1.GetOptions{})
+	if phase, _, _ = unstructured.NestedString(got.Object, "status", "phase"); phase != PhaseFailedOver {
+		t.Fatalf("undeclared: phase=%q want FailedOver", phase)
+	}
+}
+
+func witnessStateHeldBy(region string) witness.State {
+	return witness.State{Holder: region, ExpiresAt: time.Now().Add(30 * time.Second)}
 }

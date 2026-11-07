@@ -153,7 +153,10 @@ type: application
 #   observed from the pair, never from the declared value; the controller runs
 #   the switchover when spec.desiredPrimaryRegion (from the Application's
 #   placement) differs from it; the imperative switchover request is gone.
-version: 0.1.18
+# 0.1.19: ship #7063 (cbd4f28) — one Converged condition; a writer in the
+#   declared non-home region is Healthy with the home half as its standby;
+#   the lease identity is the observed writer.
+version: 0.1.19
 appVersion: "0.1.0"
 home: https://openova.io
 sources:
