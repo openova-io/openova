@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-07T14:45:03Z` |
+| Last refreshed | `2026-11-07T15:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -308,6 +308,7 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-11-07T14:31 | [#7060](https://github.com/openova-io/openova/pull/7060) | #7058 | deploy(continuum): ship desired-state convergence (bp-contin |
+| 2026-11-07T14:45 | [#7059](https://github.com/openova-io/openova/pull/7059) | #7058 | feat(dr): desired-state switchover in the console API and To |
 | 2026-11-07T14:05 | [#7058](https://github.com/openova-io/openova/pull/7058) | #3375 | feat(continuum): converge the writer onto the declared prima |
 | 2026-11-07T00:36 | [#7057](https://github.com/openova-io/openova/pull/7057) | #5178 | fix(cnpg-pair): dr-promoter yields to the planned owner and  |
 | 2026-11-06T23:53 | [#7056](https://github.com/openova-io/openova/pull/7056) | #7054 | chore(continuum): bp-continuum 0.1.17 ships the switchback e |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-10-10T18:53 | [#7002](https://github.com/openova-io/openova/pull/7002) | #6971 | fix(storefront): /plans as one continuous table + allowances |
 | 2026-10-10T17:55 | [#7001](https://github.com/openova-io/openova/pull/7001) | #6971 | feat(bss): capped or grow — package as prepaid commitment, u |
 | 2026-10-10T17:27 | [#7000](https://github.com/openova-io/openova/pull/7000) | #6971 | feat(storefront): capped or grow with me — growth billed aft |
-| 2026-10-10T16:47 | [#6999](https://github.com/openova-io/openova/pull/6999) | #6996 | feat(bss): icons and branding defined in BSS and published b |
 
 ---
 
