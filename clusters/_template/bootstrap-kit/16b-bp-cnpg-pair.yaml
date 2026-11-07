@@ -343,7 +343,7 @@ spec:
       # Lockstep slot 16b pin -> 0.2.27.
       # 0.2.29: opt-in CNPG distributed topology for the planned cross-region
       # switchover (cnpgPair.distributed below). Lockstep slot 16b pin -> 0.2.29.
-      version: 0.2.30
+      version: 0.2.31
       sourceRef:
         kind: HelmRepository
         name: bp-cnpg-pair
@@ -354,6 +354,13 @@ spec:
   # the zero-touch contract for the DR-critical pair.
   driftDetection:
     mode: enabled
+    # The cnpg-pair Application's placement is the operator's DESIRED STATE
+    # (Topology edit → Application CR + Git); the chart only seeds it. Drift
+    # correction must not revert it (hw307 2026-11-07).
+    ignore:
+      - paths: ["/spec/placement", "/spec/regions"]
+        target:
+          kind: Application
   install:
     timeout: 15m
     # disableWait: the replica ReplicaCluster only reaches Ready once it
