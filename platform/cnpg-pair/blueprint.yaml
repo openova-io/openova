@@ -153,7 +153,7 @@ spec:
   # continuum-controller drives for a LOSSLESS planned cross-region switchover
   # (demotion token -> promotion token) through the bootstrap-kit substitutes
   # SOVEREIGN_CNPG_PAIR_{DISTRIBUTED,ACTIVE_PRIMARY,PROMOTION_TOKEN}. Default off.
-  version: 0.2.29
+  version: 0.2.30
   card:
     title: CNPG Cluster-Pair (Active-Hotstandby DR)
     summary: |
