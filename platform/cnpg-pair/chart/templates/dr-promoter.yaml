@@ -909,11 +909,39 @@ spec:
                     if [ "${DIST_PRIMARY}" = "${DIST_SELF}" ]; then REPLICA_ENABLED="false"; else REPLICA_ENABLED="true"; fi
                   fi
                   ACTIVE_SUB=$(kubectl -n "${KS_NAMESPACE}" get kustomization "${KS_NAME}" -o jsonpath='{.spec.postBuild.substitute.SOVEREIGN_CNPG_PAIR_ACTIVE_PRIMARY}' 2>/dev/null || echo "")
-                  if [ -n "${DIST_PRIMARY}" ] && [ -n "${ACTIVE_SUB}" ] && [ "${HR_PROMOTED}" != "true" ] && [ "${DIVERGED}" = "true" ]; then
+                  # 0.2.30 (hw307 2026-11-07): ownership is the SEAM, not the
+                  # render. The engine writes ACTIVE_PRIMARY and clears PROMOTED
+                  # in one patch; until helm re-renders, spec.replica.primary is
+                  # still empty, and 0.2.29 (which required it) latched the HR
+                  # suspended in that window, so the planned switch could never
+                  # render. No DR promotion may be driving the HR (neither the
+                  # PROMOTED substitute nor HR values).
+                  # IN FLIGHT: this actor promoted (dr-auto-promoted-at) but has
+                  # not completed the durable handoff (no handoff-at) — flux may
+                  # already have dropped the atomic promoted=true value, so
+                  # HR_PROMOTED alone cannot tell a DR promotion apart from a
+                  # planned owner (#5178). Never treat that window as planned.
+                  PROMOTED_AT=$(kubectl -n "${HR_NAMESPACE}" get helmrelease "${HR_NAME}" -o jsonpath='{.metadata.annotations.catalyst\.openova\.io/dr-auto-promoted-at}' 2>/dev/null || echo "")
+                  HANDOFF_AT=$(kubectl -n "${HR_NAMESPACE}" get helmrelease "${HR_NAME}" -o jsonpath='{.metadata.annotations.catalyst\.openova\.io/dr-auto-promote-handoff-at}' 2>/dev/null || echo "")
+                  IN_FLIGHT=""; [ -n "${PROMOTED_AT}" ] && [ -z "${HANDOFF_AT}" ] && IN_FLIGHT="true"
+                  if [ -n "${ACTIVE_SUB}" ] && [ "${SUB}" != "true" ] && [ "${HR_PROMOTED}" != "true" ] && [ "${IN_FLIGHT}" != "true" ]; then
                     DIVERGED=""
                     if [ ! -f /shared/planned-owned-logged ]; then
-                      echo "$(date -u +"%FT%TZ") [dr-promoter/actor] PLANNED ROLE owned by continuum-switchover (SOVEREIGN_CNPG_PAIR_ACTIVE_PRIMARY=${ACTIVE_SUB}, spec.replica.primary=${DIST_PRIMARY}) — out-of-recovery is a planned move, not a divergence; anti-flap latch/handoff arms stand down (0.2.29)"
+                      echo "$(date -u +"%FT%TZ") [dr-promoter/actor] PLANNED ROLE owned by continuum-switchover (SOVEREIGN_CNPG_PAIR_ACTIVE_PRIMARY=${ACTIVE_SUB}, spec.replica.primary=${DIST_PRIMARY:-<not yet rendered>}) — out-of-recovery is a planned move, not a divergence; anti-flap latch/handoff arms stand down (0.2.30)"
                       : > /shared/planned-owned-logged
+                    fi
+                    # A latch THIS actor set earlier (the DR episode the engine
+                    # just adopted, or the render-lag window above) protects
+                    # nothing once the planned owner holds the role — and it
+                    # freezes helm, so the engine's demote/promote never renders.
+                    # Lift it. Only our own latch (latched-at present) is lifted.
+                    if [ "${SUSPENDED}" = "true" ]; then
+                      LATCHED_AT=$(kubectl -n "${HR_NAMESPACE}" get helmrelease "${HR_NAME}" -o jsonpath='{.metadata.annotations.catalyst\.openova\.io/dr-auto-promote-latched-at}' 2>/dev/null || echo "")
+                      if [ -n "${LATCHED_AT}" ]; then
+                        echo "$(date -u +"%FT%TZ") [dr-promoter/actor] PLANNED OWNER holds the role — lifting this actor's DR latch (latched-at=${LATCHED_AT}) so the planned topology renders (0.2.30)"
+                        release_latch || true
+                        exit 0
+                      fi
                     fi
                   else
                     rm -f /shared/planned-owned-logged
