@@ -20,6 +20,16 @@ application-not-found.
   active-hot-standby whenever it renders (cnpgPair.enabled).
 */ -}}
 {{- if and .Values.cnpgPair.enabled .Values.cnpgPair.application.enabled (include "cnpg-pair.isPrimarySide" .) (.Capabilities.APIVersions.Has "apps.openova.io/v1") }}
+{{- /* DESIRED STATE belongs to the operator once the Application exists:
+     the Topology edit (console → Application CR + Git) owns spec.placement
+     and spec.regions. This chart only SEEDS them on first install; every
+     later render carries the live values forward, so an upgrade never
+     reverts the declared primary (hw307 2026-11-07: a placement edit was
+     undone by the release). The slot-16b HelmRelease's driftDetection
+     ignores the same two paths. */}}
+{{- $live := lookup "apps.openova.io/v1" "Application" .Release.Namespace .Release.Name }}
+{{- $liveSpec := dict }}
+{{- if $live }}{{ $liveSpec = (get $live "spec") | default dict }}{{ end }}
 apiVersion: apps.openova.io/v1
 kind: Application
 metadata:
@@ -34,11 +44,19 @@ spec:
   {{- /* Old-CRD compatibility fields — inert under both schemas (see
        bp-postgres application-cr.yaml for the hw130 history). */}}
   environmentRef: platform-bootstrap
+  {{- if hasKey $liveSpec "regions" }}
+  regions: {{ toJson (get $liveSpec "regions") }}
+  {{- else }}
   regions: ["platform-bootstrap-owned-host"]
+  {{- end }}
   blueprintRef:
     name: bp-cnpg-pair
     version: {{ .Chart.Version | quote }}
+  {{- if hasKey $liveSpec "placement" }}
+  placement: {{ toJson (get $liveSpec "placement") }}
+  {{- else }}
   placement: active-hot-standby
+  {{- end }}
   {{- with .Values.cnpgPair.application.helmRelease }}
   {{- if .name }}
   helmRelease:
