@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-07T16:15:02Z` |
+| Last refreshed | `2026-11-07T16:30:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-07T16:26 | [#7064](https://github.com/openova-io/openova/pull/7064) | #7063 | deploy(continuum): bp-continuum 0.1.19 ships #7063 (cbd4f28) |
 | 2026-11-07T16:11 | [#7063](https://github.com/openova-io/openova/pull/7063) | #3375 | fix(continuum): one Converged condition; a planned remote pr |
 | 2026-11-07T15:41 | [#7061](https://github.com/openova-io/openova/pull/7061) | #3375 | fix(cnpg-pair): the Application's placement is operator-owne |
 | 2026-11-07T14:31 | [#7060](https://github.com/openova-io/openova/pull/7060) | #7058 | deploy(continuum): ship desired-state convergence (bp-contin |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-06T05:02 | [#7036](https://github.com/openova-io/openova/pull/7036) | #3969 | integ(2026-11-06): six lanes — DR pairs, cutover resume/leas |
 | 2026-10-10T19:52 | [#7004](https://github.com/openova-io/openova/pull/7004) | #6971 | fix(storefront): /plans floor and grow are rows of the table |
 | 2026-10-10T19:25 | [#7003](https://github.com/openova-io/openova/pull/7003) | #6971 | feat(bss): the package prepaid at a flat monthly price, the  |
-| 2026-10-10T18:53 | [#7002](https://github.com/openova-io/openova/pull/7002) | #6971 | fix(storefront): /plans as one continuous table + allowances |
 
 ---
 
