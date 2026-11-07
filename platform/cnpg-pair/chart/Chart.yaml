@@ -451,7 +451,12 @@ name: bp-cnpg-pair
 #   DR seams (demoted/promoted) still win with the legacy shapes; the sync fence follows
 #   the planned primary; dr-promoter stands its divergence arms down while the planned
 #   role is owned by continuum-switchover. tests/cnpg-pair-render.sh Case 26.
-version: 0.2.29
+# 0.2.30: dr-promoter treats the SEAM (ACTIVE_PRIMARY set, no DR promotion
+#   in flight) as planned ownership, not the render, and lifts its own
+#   suspend latch for the planned owner. 0.2.29 latched the HR in the render
+#   lag after the engine adopted a DR episode, so a switchback never rendered
+#   (hw307 2026-11-07).
+version: 0.2.30
 appVersion: "0.2.1"
 description: |
   Catalyst-curated Blueprint for an active-hotstandby CNPG cluster-pair
