@@ -23,6 +23,14 @@ Leaf platform app — no shareable Context, so spec.parameters is empty.
 {{- /* #5358: the Application CR represents the ONE Guacamole instance; only the
    crossRegion `primary` region self-registers it (no double-carding). */ -}}
 {{- if and .Values.bootstrapOwned.enabled (not (include "bp-guacamole.isMeshSecondary" .)) (.Capabilities.APIVersions.Has "apps.openova.io/v1") }}
+{{- /* DESIRED STATE belongs to the operator once the Application exists:
+     the Topology edit (console → Application CR + Git) owns spec.placement
+     and spec.regions. This chart only SEEDS them on first install; every
+     later render carries the live values forward, so an upgrade never
+     reverts the declared primary (hw307 2026-11-07). */}}
+{{- $live := lookup "apps.openova.io/v1" "Application" .Release.Namespace .Release.Name }}
+{{- $liveSpec := dict }}
+{{- if $live }}{{ $liveSpec = (get $live "spec") | default dict }}{{ end }}
 apiVersion: apps.openova.io/v1
 kind: Application
 metadata:
@@ -39,7 +47,11 @@ spec:
        them for bootstrap-owned instances but still ACCEPTS them. Inert
        under both schemas. */}}
   environmentRef: platform-bootstrap
+  {{- if hasKey $liveSpec "regions" }}
+  regions: {{ toJson (get $liveSpec "regions") }}
+  {{- else }}
   regions: ["platform-bootstrap-owned-host"]
+  {{- end }}
   blueprintRef:
     name: {{ .Chart.Name }}
     version: {{ .Chart.Version | quote }}
@@ -52,7 +64,11 @@ spec:
        bootstrap app installed as one copy → singleton is the truthful effective
        mode; the value is overridable so a future slot can place it otherwise
        without re-introducing a banned literal. */}}
+  {{- if hasKey $liveSpec "placement" }}
+  placement: {{ toJson (get $liveSpec "placement") }}
+  {{- else }}
   placement: {{ .Values.bootstrapOwned.placement | default "singleton" }}
+  {{- end }}
   {{- with .Values.bootstrapOwned.helmRelease }}
   helmRelease:
     name: {{ .name | quote }}

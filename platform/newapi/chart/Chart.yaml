@@ -1076,7 +1076,11 @@ name: bp-newapi
 #   0.2.27. Render seam guarded by tests/5466-credentials-region-
 #   consistency-render.sh (fails on the pre-#5466 shape, plus a fallback
 #   vacuity control).
-version: 1.4.155
+# 1.4.156: the bootstrap Application's spec.placement / spec.regions are
+#   seeded once and carried forward from the live object (lookup) on
+#   every later render, so an upgrade never reverts the operator's
+#   Topology edit (hw307 2026-11-07, the #7061 cnpg-pair fix).
+version: 1.4.156
 appVersion: 0.13.2
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
