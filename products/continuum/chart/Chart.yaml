@@ -149,7 +149,11 @@ type: application
 # 0.1.17: ship #7054 + #7055 (c39ba75). Promotion is the point of no return;
 #   a switchover honours its target and starts from the observed writer; a
 #   switchback adopts a DR-failed-over pair into the planned topology.
-version: 0.1.17
+# 0.1.18: ship #7058 (e81b012) — desired-state convergence. The writer is
+#   observed from the pair, never from the declared value; the controller runs
+#   the switchover when spec.desiredPrimaryRegion (from the Application's
+#   placement) differs from it; the imperative switchover request is gone.
+version: 0.1.18
 appVersion: "0.1.0"
 home: https://openova.io
 sources:
