@@ -82,21 +82,7 @@ spec:
                     (the controller refuses other modes at admission).
                 primaryRegion:
                   type: string
-                  description: |
-                    HOME region of the primary-named member (topology, fixed
-                    at creation). NOT the writer: the region serving writes
-                    is observed into status.primaryRegion and converges onto
-                    desiredPrimaryRegion.
-                  pattern: '^[a-z][a-z0-9]*(-[a-z0-9]+){3,}$'
-                desiredPrimaryRegion:
-                  type: string
-                  description: |
-                    DESIRED STATE — the region declared Primary in the
-                    Application's placement (written by the
-                    application-controller from the Topology edit / Git).
-                    The continuum-controller converges the observed writer
-                    onto it by running the switchover sequence; there is no
-                    imperative switchover request. Empty = nothing declared.
+                  description: Currently-primary host cluster name. Switched on failover.
                   pattern: '^[a-z][a-z0-9]*(-[a-z0-9]+){3,}$'
                 hotStandbyRegions:
                   type: array
@@ -231,9 +217,9 @@ spec:
                     drain-HTTP / flip-DNS / audit) are mechanism-agnostic.
                     Mirrors the Blueprint topology declaration's
                     switchover.mechanism column (docs/topology-matrix.md).
-                    A switchover is never requested imperatively: it runs
-                    when spec.desiredPrimaryRegion differs from the observed
-                    writer (status.primaryRegion).
+                    Also carries the operator-initiated switchover request
+                    flags (requested / targetRegion / requestedBy / reason)
+                    patched by catalyst-api's POST .../switchover.
                   properties:
                     mechanism:
                       type: string
@@ -321,16 +307,6 @@ spec:
                     - Failed
                 primaryRegion:
                   type: string
-                  description: OBSERVED region serving writes.
-                desiredPrimaryRegion:
-                  type: string
-                  description: Echo of spec.desiredPrimaryRegion.
-                converged:
-                  type: boolean
-                  description: True when the observed writer is the declared primary. The Converged condition carries the reason when it is not.
-                switchoverStep:
-                  type: string
-                  description: Current step of a running switchover ("step N/7 — name").
                 leaseHolder:
                   type: string
                   description: Cluster that currently holds the lease.
