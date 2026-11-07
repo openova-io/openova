@@ -6,11 +6,12 @@
  *
  *   browser ──/api/v1/sovereigns/{id}/continuums/...──▶ catalyst-api
  *
- * The handlers patch the Continuum CR's spec — the K-Cont-2 reconciler
- * (the per-CR goroutine in core/controllers/continuum) observes the
- * change on its next loop iteration and either runs the 7-step
- * Sequencer (switchover / failback) or waits for the failback approval
- * gate.
+ * Switchover is DESIRED STATE (2026-11-07): there is no switchover
+ * request. The operator sets the app's Primary in the placement editor;
+ * the continuum-controller converges the writer onto it (7-step
+ * Sequencer). This client only READS that convergence
+ * (replication-status) and runs the read-only switchover PREVIEW so the
+ * placement editor can say what a Save will do.
  *
  * Per docs/INVIOLABLE-PRINCIPLES.md #4 every URL derives from
  * `API_BASE` so the contabo strip-sovereign / direct-Sovereign
@@ -29,55 +30,6 @@ export interface ContinuumGetResponse {
   uid: string
   spec?: Record<string, unknown>
   status?: Record<string, unknown>
-}
-
-/** ContinuumSwitchoverRequest — body of POST .../switchover. */
-export interface ContinuumSwitchoverRequest {
-  targetRegion: string
-  reason?: string
-}
-
-/** ContinuumSwitchoverResponse — switchover-request body.
- *
- * Status codes (#5731):
- *   202 — the request was PATCHED onto the Continuum CR (`status:
- *         "requested"`). The K-Cont-2 reconciler runs the 7-step
- *         sequence afterwards; this response is NOT a completion.
- *   200 — the live cnpg-pair path really performed the promotion
- *         (`status:"completed"`), or an authz/validation branch is
- *         carrying its semantic code in `httpStatus` + `error`.
- *   404 — the deployment is not registered with this catalyst-api.
- *   503 — the Sovereign cluster could not be reached.
- *
- * A 404/503 means NOTHING was attempted and the DR state is UNKNOWN. The
- * handler used to answer 200 `completed` on both, which reported a
- * finished failover for a cluster it could not reach.
- *
- * UI callers MUST still inspect `applied` (and `error`) — some branches
- * carry their outcome in the body (e.g. `error:"no-live-dr-pair"`,
- * `applied:false` when the app isn't placed active-hot-standby on a
- * 2-region Sovereign).
- */
-export interface ContinuumSwitchoverResponse {
-  name: string
-  namespace: string
-  targetRegion: string
-  fromRegion?: string
-  toRegion?: string
-  reason?: string
-  requestedAt: string
-  requestedBy?: string
-  message: string
-  /** "requested" (202, reconciler will run it) | "completed" (live pair promoted) | a semantic error code. */
-  status?: string
-  /** true when the request was applied to the cluster (patched or promoted). */
-  applied?: boolean
-  /** true ONLY when a promotion was observed — never set for a request that is merely queued. */
-  completed?: boolean
-  /** present on any failure/no-op outcome (e.g. "no-live-dr-pair", "sovereign-unreachable"). */
-  error?: string
-  /** the semantic HTTP status carried in-body. */
-  httpStatus?: number
 }
 
 /**
@@ -166,7 +118,7 @@ export interface ContinuumAuditListResponse {
  * ContinuumFleetItem — one row of GET /api/v1/fleet/continuum. Mirrors
  * the catalyst-api `continuumFleetItem` shape (continuum_extras.go) — a
  * roll-up of every live Continuum CR across the Sovereigns this
- * catalyst-api can see. Drives the ContinuumPage `list` (fleet) mode.
+ * catalyst-api can see. Fleet roll-up of every Continuum.
  */
 export interface ContinuumFleetItem {
   sovereign: string
@@ -179,6 +131,14 @@ export interface ContinuumFleetItem {
   leaseHolder?: string
   lastSwitchover?: string
   healthy: boolean
+  /** Desired-state projection — see ContinuumReplicationStatus. */
+  desiredPrimaryRegion?: string
+  converged?: boolean
+  switchoverInProgress?: boolean
+  step?: string
+  lastSwitchoverDetail?: ContinuumLastSwitchover
+  convergeReason?: string
+  convergeMessage?: string
 }
 
 /** ContinuumFleetResponse — items envelope of GET /fleet/continuum.
@@ -273,6 +233,40 @@ export interface ContinuumReplicationStatus {
   replicas?: ContinuumReplicaInfo[]
   observedAt?: string
   source: string // "live" | "pending"
+
+  /* ── Desired-state switchover (2026-11-07) ──────────────────────────
+   * There is NO imperative switchover request. The operator declares the
+   * Primary region in the placement editor; the Application controller
+   * projects it into the Continuum's spec.desiredPrimaryRegion and the
+   * continuum-controller CONVERGES. `currentPrimary` above is the OBSERVED
+   * writer (status.primaryRegion); these fields describe the declaration
+   * and the convergence towards it. All optional — an older backend omits
+   * them and the panel renders no convergence claim.
+   */
+  /** The Primary the operator declared (status echo, else spec). */
+  desiredPrimaryRegion?: string
+  /** status.primaryRegion verbatim (empty when not yet observed). */
+  observedPrimaryRegion?: string
+  /** observed === desired. */
+  converged?: boolean
+  /** The controller is running the 7-step switchover now. */
+  switchoverInProgress?: boolean
+  /** "step N/7 — <name>" while switchoverInProgress. */
+  step?: string
+  lastSwitchover?: ContinuumLastSwitchover
+  /** The Converged condition's reason (Converged|Converging|ConvergeBlocked|ConvergeFailed). */
+  convergeReason?: string
+  /** Why it is not converged / what blocks it / when it retries. */
+  convergeMessage?: string
+}
+
+/** status.lastSwitchover — the continuum-controller's last converge run. */
+export interface ContinuumLastSwitchover {
+  at?: string
+  from?: string
+  to?: string
+  /** "Success" | "Failed" */
+  result?: string
 }
 
 /* ── Endpoint helpers ────────────────────────────────────────────── */
@@ -334,28 +328,6 @@ export async function getContinuumReplicationStatus(
   const res = await authedFetch(url, { headers: { Accept: 'application/json' } })
   if (!res.ok) {
     throw new Error(`continuum replication-status: HTTP ${res.status}`)
-  }
-  return res.json()
-}
-
-export async function requestSwitchover(
-  sovereignId: string,
-  name: string,
-  body: ContinuumSwitchoverRequest,
-  opts: { namespace?: string } = {},
-): Promise<ContinuumSwitchoverResponse> {
-  const params = new URLSearchParams()
-  if (opts.namespace) params.set('namespace', opts.namespace)
-  const qs = params.toString()
-  const url = `${continuumsBase(sovereignId)}/${encodeURIComponent(name)}/switchover${qs ? '?' + qs : ''}`
-  const res = await authedFetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`switchover: HTTP ${res.status} ${detail}`)
   }
   return res.json()
 }
@@ -457,7 +429,7 @@ export async function listContinuumAudit(
  * listFleetContinuums — fleet-wide roll-up of every live Continuum CR
  * (GET /api/v1/fleet/continuum). The endpoint is NOT scoped to a single
  * Sovereign — catalyst-api aggregates across every Sovereign it can
- * reach. The ContinuumPage `list` mode renders one row per item, linking
+ * reach. A fleet view renders one row per item, linking
  * to the per-continuum overview.
  *
  * Wire path:
@@ -572,7 +544,7 @@ export function parseLagSeconds(value: unknown): number | null {
 }
 
 /**
- * lagBucket — bucketizes lag seconds for the StatusPanel's progress
+ * lagBucket — bucketizes lag seconds for the DR panel's progress
  * bar color. Thresholds per the brief: green <30s, yellow 30-60s,
  * red >60s.
  */

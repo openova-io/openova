@@ -2,9 +2,10 @@
  * TopologyTab.declared-standby-63.test.tsx — UAT row 63, the residual half.
  *
  * Row 63's clause: an Application **declaring** active-hot-standby with NO
- * Continuum backing renders an honest no-backing DR section — "Switchover
- * unavailable" copy, the control DISABLED, and NO synthesized lag / standby /
- * target-region values.
+ * Continuum backing renders an honest no-backing DR section — a plain reason
+ * the Primary cannot move yet, and NO synthesized lag / standby /
+ * target-region values. (Since the 2026-11-07 desired-state model there is no
+ * switchover control at all; the Primary moves only via a placement edit.)
  *
  * #6061 (`c4dd18f21`) fixed the half where `status.perCluster` SHADOWED a
  * `status.targets` that already named the pair. That half is delivered and is
@@ -117,8 +118,11 @@ beforeEach(() => {
 
 afterEach(() => cleanup())
 
-describe('row 63 — a DECLARED standby with nothing observed must render the disabled control, not vanish', () => {
-  it('renders the DR section with a DISABLED switchover and a named reason', async () => {
+describe('row 63 — a DECLARED standby with nothing observed must render the DR section, not vanish', () => {
+  // Desired-state model (2026-11-07): the imperative switchover control is
+  // GONE — the Primary moves only via a placement edit. The section must still
+  // render, and say how the Primary moves and why it cannot move today.
+  it('renders the DR section with NO switchover control and a named reason', async () => {
     getApplicationStatus.mockResolvedValue(DECLARED_AHS_NOTHING_OBSERVED)
     render(
       withProviders(
@@ -134,17 +138,14 @@ describe('row 63 — a DECLARED standby with nothing observed must render the di
     // so the assertions below cannot pass on a page that has not painted.
     await waitFor(() => expect(getContinuumReplicationStatus).toHaveBeenCalled())
 
-    // Clause part 1 + 2: the control EXISTS and is DISABLED.
-    const btn = await screen.findByTestId('topology-tab-dr-switchover-open')
-    expect(btn).toBeTruthy()
-    expect((btn as HTMLButtonElement).disabled).toBe(true)
+    // The section is there, with the plain reason it cannot act.
+    const reason = await screen.findByTestId('topology-tab-dr-unavailable')
+    expect(reason.textContent).toContain('editing this app')
+    expect(reason.textContent).toContain('No live')
+    // No imperative verb exists to arm.
+    expect(screen.queryByTestId('topology-tab-dr-switchover-open')).toBeNull()
 
-    // Clause part 1: the "Switchover unavailable" copy, with a reason.
-    const reason = screen.getByTestId('topology-tab-dr-switchover-reason')
-    expect(reason.textContent).toContain('Switchover unavailable')
-
-    // Clause part 3: NO synthesized lag / standby / target-region values.
-    // These must stay absent — the disabled control is the whole statement.
+    // NO synthesized lag / standby / target-region values.
     expect(screen.queryByTestId('topology-tab-dr-lag-value')).toBeNull()
     expect(screen.queryByTestId('topology-tab-dr-regions')).toBeNull()
     expect(screen.queryByTestId('topology-tab-dr-standby')).toBeNull()

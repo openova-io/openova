@@ -322,6 +322,9 @@ func TestReplicationStatus_ReadsLeaseHolderAndReplicationLagSeconds(t *testing.T
 	// Lease has flipped to region-b (a switchover); the numeric lag lives in
 	// status.replicationLagSeconds (int64), the continuum-controller spelling.
 	_ = unstructured.SetNestedField(cr.Object, "me-east-215-b", "status", "leaseHolder")
+	// The continuum-controller publishes the observed writer alongside the
+	// lease (status.primaryRegion — the desired-state contract's truth).
+	_ = unstructured.SetNestedField(cr.Object, "me-east-215-b", "status", "primaryRegion")
 	_ = unstructured.SetNestedField(cr.Object, int64(7), "status", "replicationLagSeconds")
 	factory, _ := fakeContinuumDynamicFactory(cr)
 	h.dynamicFactory = factory

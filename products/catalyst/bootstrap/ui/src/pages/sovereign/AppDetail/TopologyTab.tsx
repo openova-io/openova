@@ -15,19 +15,27 @@
  * (canonicalTopologyClass, the second derived class, DeclaredTopologyPanel,
  * the observed strip, the parroted-class/unbuilt-mandate cells), the entire
  * DR section (DRSection / imperative Switchover verb), and the TOPOLOGY_BY_ID
- * matrix consumption. Switchover = a role-flip edit in the same editor; the
- * "Promote" affordance, if any, is a shortcut that opens the editor with
- * roles pre-flipped — not a separate verb.
+ * matrix consumption.
+ *
+ * DESIRED STATE (2026-11-07): there is NO switchover button or request. The
+ * ONLY way to move the writer is to change which target is Primary in the
+ * PlacementEditor and Save. The Application controller projects that Primary
+ * into the Continuum's spec.desiredPrimaryRegion and the continuum-controller
+ * converges (runs the 7-step switchover itself). The DR section shows the
+ * declared Primary next to the region actually serving writes, plus the
+ * convergence progress / blocker and the last switchover.
  */
 
 import { useMemo, useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient, type Query } from '@tanstack/react-query'
 
 import { getCatalogItem, type CatalogItem } from '@/lib/catalog.api'
 import {
   getContinuumReplicationStatus,
+  getSwitchoverPreview,
   lagBucket,
   type ContinuumHealthGate,
+  type ContinuumReplicationStatus,
   type LagBucket,
 } from '@/lib/continuum.api'
 import { getHierarchicalInfrastructure } from '@/lib/infrastructure.types'
@@ -36,9 +44,9 @@ import { PlacementEditor, type OwnedDependencyInfo } from '@/widgets/topology/Pl
 // from Go's placement.Canonicalize. Used here (row 63) so a CR declaring
 // `active-hotstandby` is read the same as one declaring `active-hot-standby`.
 import { canonicalizeMode } from '@/widgets/topology/modes'
-import { SwitchoverDialog } from '@/widgets/continuum/SwitchoverDialog'
 import {
   type Capability,
+  type PlacementTarget,
   type ReconStatus,
   HOST_VCLUSTER,
   PATTERN_NOT_REPORTED,
@@ -46,6 +54,7 @@ import {
   normalizeCapability,
   patternLabel,
 } from '@/shared/lib/placement'
+import { drIsConverging, drPollInterval } from './drConvergence'
 import {
   PLACEMENT_SOURCE_LABEL,
   useResolvedPlacement,
@@ -95,9 +104,9 @@ export function TopologyTab({
   const qc = useQueryClient()
   const [editing, setEditing] = useState(false)
   const [refreshTick, setRefreshTick] = useState(0)
-  // #4552 — the armed manual-switchover confirm dialog (opened from the DR
-  // panel's "Switch over…" button). Closed by default.
-  const [showSwitchover, setShowSwitchover] = useState(false)
+  // The editor's live (unsaved) targets — drives the "what will Save do to
+  // the DR writer" preview. Null when the editor is closed.
+  const [draftTargets, setDraftTargets] = useState<PlacementTarget[] | null>(null)
 
   // #6192 — ONE resolver for the whole per-app screen. The status poll, the
   // runtime placement poll and the six-rung resolution chain moved to
@@ -228,18 +237,30 @@ export function TopologyTab({
     queryKey: ['continuum-replication-status', sovereignId, continuumName, drNamespace, refreshTick],
     queryFn: () => getContinuumReplicationStatus(sovereignId, continuumName, { namespace: drNamespace }),
     enabled: !disableNetwork && !!sovereignId && !!applicationName,
-    refetchInterval: 30_000,
+    // Desired-state convergence: poll fast (3s) while the controller is
+    // converging the writer onto the declared Primary, so the step counter
+    // moves live; otherwise the calm 30s cadence.
+    refetchInterval: (query: Query<ContinuumReplicationStatus>) => drPollInterval(query.state.data),
     retry: false,
   })
   const drStatus = drQ.data
+
+  // ── Desired vs observed primary (desired-state model) ─────────────
+  // `currentPrimary` is the OBSERVED writer (status.primaryRegion);
+  // `desiredPrimaryRegion` is what the placement declares. Never print the
+  // Continuum's static spec.primaryRegion as "the primary".
+  const observedPrimary = drStatus?.observedPrimaryRegion || drStatus?.currentPrimary || ''
+  const desiredPrimary = drStatus?.desiredPrimaryRegion || ''
+  const converging = drIsConverging(drStatus)
+  const lastSwitchover = drStatus?.lastSwitchover
 
   // The primary + standby regions for the DR cards. Prefer the live
   // replication-status (authoritative current primary after a switchover);
   // fall back to the placement targets when the endpoint is unavailable.
   const drPrimaryRegion = useMemo(
     () =>
+      drStatus?.observedPrimaryRegion ||
       drStatus?.currentPrimary ||
-      drStatus?.primaryRegion ||
       targets.find((t) => t.role === 'Primary')?.region ||
       '',
     [drStatus, targets],
@@ -407,41 +428,6 @@ export function TopologyTab({
     return 'standby state not reported'
   }, [standbyAbsent, drStatus, standbyGateStatus])
 
-  // The switchover target — the standby region we would promote. Prefer the
-  // placement Standby target, fall back to the live continuum standby region.
-  const switchoverTarget = useMemo(
-    () => drStandbyRegions[0] || liveStandbyRegion || '',
-    [drStandbyRegions, liveStandbyRegion],
-  )
-
-  // #5514 — arming the switchover needs THREE independent facts, not just a
-  // region string. `switchoverTarget` alone is a DECLARED region name, which on
-  // hw291 pointed at a region with no namespace: a string is not a standby.
-  //
-  //   1. drBacked            — the reading is live, not the pending envelope.
-  //   2. replicaPromotable   — the backend's positive verdict. It DOES return
-  //                            this (`false` for the phantom) and it was never
-  //                            consulted. `undefined` = unverified, which stays
-  //                            armed: the SwitchoverDialog then runs its own
-  //                            read-only RPO/health preflight and only arms
-  //                            [ Confirm Switchover ] on `promotable`. Only an
-  //                            EXPLICIT `false` disarms here.
-  //   3. !standbyAbsent      — a VERIFIED-absent standby (#4923/#4901) has no
-  //                            leg to promote.
-  const replicaPromotable = drStatus?.replicaPromotable
-  const switchoverArmed =
-    drBacked && !!switchoverTarget && replicaPromotable !== false && !standbyAbsent
-
-  // The plain reason the control is not armed — the operator must never see a
-  // dead button with no explanation.
-  const switchoverBlockedReason = useMemo(() => {
-    if (switchoverArmed) return ''
-    if (!switchoverTarget) return 'resolving standby region…'
-    if (standbyAbsent) return 'standby unreachable — nothing to promote'
-    if (replicaPromotable === false) return 'the replica is not promotable — no caught-up standby to promote'
-    return 'no live replication reading — cannot promote'
-  }, [switchoverArmed, switchoverTarget, standbyAbsent, replicaPromotable])
-
   // Owned dependencies that cascade — read from spec.placement.ownedDependencies
   // when present (override state); the names also come from the blueprint's
   // backingServices. Default follow:true.
@@ -471,6 +457,27 @@ export function TopologyTab({
     for (const o of overrides ?? []) byName.set(o.name, o.follow !== false)
     return Array.from(byName.entries()).map(([name, follow]) => ({ name, follow }))
   }, [app, blueprint, applicationName])
+
+  // ── Save preview: "Saving will switch the writer from X to Y" ──────
+  // Purely informative — Save stays the action. Fires only while the editor
+  // is open, the app is Continuum-backed (live), and the draft's Primary
+  // differs from the region serving writes now.
+  const draftPrimary = useMemo(
+    () => draftTargets?.find((t) => t.role === 'Primary')?.region || '',
+    [draftTargets],
+  )
+  const previewTarget =
+    editing && drBacked && !!draftPrimary && !!drPrimaryRegion && draftPrimary !== drPrimaryRegion
+      ? draftPrimary
+      : ''
+  const previewQ = useQuery({
+    queryKey: ['continuum-switchover-preview', sovereignId, continuumName, drNamespace, previewTarget],
+    queryFn: () =>
+      getSwitchoverPreview(sovereignId, continuumName, { targetRegion: previewTarget }, { namespace: drNamespace }),
+    enabled: !disableNetwork && !!previewTarget,
+    retry: false,
+    staleTime: 10_000,
+  })
 
   // Recon status — read the single status value (no second derived class).
   //
@@ -691,9 +698,56 @@ export function TopologyTab({
             availableVClusters={availableVClusters}
             ownedDependencies={ownedDeps}
             disableNetwork={disableNetwork}
-            onCancel={() => setEditing(false)}
+            onTargetsChange={setDraftTargets}
+            beforeActions={
+              previewTarget ? (
+                <div
+                  className="mb-3 rounded-md border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 px-3 py-2 text-xs"
+                  data-testid="topology-tab-save-preview"
+                >
+                  <p className="text-[var(--color-text)]">
+                    Saving will switch the writer from{' '}
+                    <span className="font-mono font-semibold">{drPrimaryRegion}</span> to{' '}
+                    <span className="font-mono font-semibold">{previewTarget}</span>. The DR
+                    controller runs the switchover once the placement is saved.
+                  </p>
+                  {previewQ.isLoading ? (
+                    <p className="mt-1 text-[var(--color-text-dim)]" data-testid="topology-tab-save-preview-loading">
+                      Checking switchover preconditions…
+                    </p>
+                  ) : previewQ.isError ? (
+                    <p className="mt-1 text-yellow-400" data-testid="topology-tab-save-preview-error">
+                      Preconditions could not be checked: {(previewQ.error as Error).message}
+                    </p>
+                  ) : previewQ.data ? (
+                    <div className="mt-1" data-testid="topology-tab-save-preview-checks">
+                      {previewQ.data.blockingChecks?.length ? (
+                        <ul className="space-y-0.5">
+                          {previewQ.data.blockingChecks.map((c) => (
+                            <li key={c} className="text-yellow-400">
+                              ⚠ {c}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="text-green-400">✓ all switchover checks pass</p>
+                      )}
+                      <p className="text-[var(--color-text-dim)]">
+                        current lag {Number(previewQ.data.currentLagSec ?? 0).toFixed(1)} s · estimated{' '}
+                        {previewQ.data.estimatedDuration}
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null
+            }
+            onCancel={() => {
+              setEditing(false)
+              setDraftTargets(null)
+            }}
             onApplied={() => {
               setEditing(false)
+              setDraftTargets(null)
               setRefreshTick((t) => t + 1)
               void qc.invalidateQueries({ queryKey: ['application-status'] })
             }}
@@ -769,40 +823,15 @@ export function TopologyTab({
                   stay unavailable until a real replica reports.
                 </p>
               ) : null}
-              {/* UAT row 63 — the switchover control must render DISABLED here,
-                  not vanish. The clause is "renders an honest no-backing DR
-                  section: 'Switchover unavailable' copy, the control DISABLED,
-                  and NO synthesized lag / standby / target-region values", and
-                  the 2026-08-10 walk could not verify the middle clause because
-                  NO switchover element existed on the page at all — an absent
-                  control and a disabled one are not the same statement, and only
-                  the second one tells the operator that switchover is a thing
-                  this app has and cannot currently do.
-                  It is rendered inside the !drBacked branch precisely so it can
-                  never arm: there is no `onClick`, no target region and no
-                  numeric value anywhere in it — the row's third clause holds by
-                  construction. */}
               {!drQ.isLoading ? (
-                <div
-                  className="mt-3 flex items-center gap-2"
-                  data-testid="topology-tab-dr-switchover"
+                <p
+                  className="mt-3 text-[10px] text-[var(--color-text-dim)]"
+                  data-testid="topology-tab-dr-unavailable"
                 >
-                  <button
-                    type="button"
-                    className="rounded-md border border-[var(--color-border)] px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
-                    disabled
-                    data-testid="topology-tab-dr-switchover-open"
-                  >
-                    Switch over…
-                  </button>
-                  <span
-                    className="text-[10px] text-[var(--color-text-dim)]"
-                    data-testid="topology-tab-dr-switchover-reason"
-                  >
-                    Switchover unavailable — no live Continuum backs this
-                    placement, so there is no standby to promote.
-                  </span>
-                </div>
+                  The Primary is moved by editing this app&apos;s placement. No live
+                  Continuum backs it yet, so a saved Primary change cannot switch the
+                  writer until a real replica reports.
+                </p>
               ) : null}
             </div>
           ) : (
@@ -857,21 +886,111 @@ export function TopologyTab({
               ) : null}
 
               <div
+                className="mb-3 flex flex-wrap items-stretch gap-2"
+                data-testid="topology-tab-dr-primaries"
+              >
+                <div
+                  className="min-w-[11rem] rounded-md border border-[var(--color-border)] px-3 py-2"
+                  data-testid="topology-tab-dr-desired"
+                  title="The Primary region declared in this app's placement. Change it with Edit placement → Save."
+                >
+                  <div className="text-[10px] uppercase tracking-wide text-[var(--color-text-dim)]">
+                    Desired primary
+                  </div>
+                  <div className="mt-0.5 font-mono text-xs font-semibold text-[var(--color-text)]">
+                    {desiredPrimary || '—'}
+                  </div>
+                  <div className="text-[10px] text-[var(--color-text-dim)]">
+                    {desiredPrimary ? 'declared in placement' : 'not declared'}
+                  </div>
+                </div>
+                <div
+                  className="min-w-[11rem] rounded-md border border-green-500/40 bg-green-500/10 px-3 py-2"
+                  data-testid="topology-tab-dr-observed"
+                  title="The region actually serving writes, observed by the DR controller."
+                >
+                  <div className="text-[10px] uppercase tracking-wide text-[var(--color-text-dim)]">
+                    Serving writes
+                  </div>
+                  <div className="mt-0.5 font-mono text-xs font-semibold text-green-400">
+                    {observedPrimary || '—'}
+                  </div>
+                  <div className="text-[10px] text-[var(--color-text-dim)]">
+                    {!desiredPrimary
+                      ? 'observed'
+                      : converging
+                        ? 'converging…'
+                        : '✓ matches desired'}
+                  </div>
+                </div>
+              </div>
+
+              {converging ? (
+                <div
+                  className={`mb-3 rounded-md border px-3 py-2 text-xs ${
+                    drStatus?.switchoverInProgress
+                      ? 'border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 text-[var(--color-text)]'
+                      : 'border-yellow-500/40 bg-yellow-500/10 text-yellow-400'
+                  }`}
+                  data-testid="topology-tab-dr-converging"
+                >
+                  {drStatus?.switchoverInProgress ? (
+                    <>
+                      Switching <span className="font-mono">{observedPrimary || '—'}</span> →{' '}
+                      <span className="font-mono">{desiredPrimary}</span>: {drStatus.step || 'in progress'}
+                    </>
+                  ) : (
+                    <>
+                      {drStatus?.convergeMessage ||
+                        `Not converged — writes are served from ${observedPrimary || 'an unobserved region'}, the placement declares ${desiredPrimary}.`}
+                      {drStatus?.convergeReason ? (
+                        <span
+                          className="ml-2 font-mono text-[10px]"
+                          data-testid="topology-tab-dr-converge-reason"
+                        >
+                          ({drStatus.convergeReason})
+                        </span>
+                      ) : null}
+                    </>
+                  )}
+                </div>
+              ) : null}
+
+              {lastSwitchover && (lastSwitchover.at || lastSwitchover.result) ? (
+                <div
+                  className="mb-3 rounded-md border border-[var(--color-border)] px-3 py-2 text-xs"
+                  data-testid="topology-tab-dr-last-switchover"
+                >
+                  <div className="text-[10px] uppercase tracking-wide text-[var(--color-text-dim)]">
+                    Last switchover
+                  </div>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-x-2">
+                    <span className="font-mono">
+                      {lastSwitchover.from || '—'} → {lastSwitchover.to || '—'}
+                    </span>
+                    {lastSwitchover.result ? (
+                      <span
+                        className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                          lastSwitchover.result === 'Success'
+                            ? 'bg-green-500/10 text-green-400'
+                            : 'bg-red-500/10 text-red-400'
+                        }`}
+                        data-testid="topology-tab-dr-last-switchover-result"
+                      >
+                        {lastSwitchover.result}
+                      </span>
+                    ) : null}
+                    {lastSwitchover.at ? (
+                      <span className="text-[var(--color-text-dim)]">{lastSwitchover.at}</span>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+
+              <div
                 className="flex flex-wrap items-stretch gap-2"
                 data-testid="topology-tab-dr-regions"
               >
-                <div
-                  className="min-w-[11rem] rounded-md border border-green-500/40 bg-green-500/10 px-3 py-2"
-                  data-testid="topology-tab-dr-primary"
-                >
-                  <div className="text-[10px] uppercase tracking-wide text-[var(--color-text-dim)]">
-                    Primary region
-                  </div>
-                  <div className="mt-0.5 font-mono text-xs font-semibold text-green-400">
-                    {drPrimaryRegion || '—'}
-                  </div>
-                  <div className="text-[10px] text-[var(--color-text-dim)]">serves writes</div>
-                </div>
                 {drStandbyRegions.length > 0 ? (
                   drStandbyRegions.map((region) => (
                     <div
@@ -1015,53 +1134,6 @@ export function TopologyTab({
                 </ul>
               ) : null}
 
-              {/* Armed manual Switchover (#4552). The button opens a confirm
-                  dialog that runs a read-only RPO/health preflight and only
-                  arms [ Confirm Switchover ] when the standby is caught up and
-                  promotable. The confirm wires to the operator-gated
-                  POST .../switchover endpoint (the K-Cont-2 reconciler runs the
-                  7-step cordon-before-promote sequence). Hidden when we can't
-                  resolve a standby region to promote to. */}
-              <div className="mt-4 flex items-center gap-2" data-testid="topology-tab-dr-switchover">
-                <button
-                  type="button"
-                  className="rounded-md border border-[var(--color-border)] px-3 py-1.5 text-xs hover:border-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-50"
-                  onClick={() => setShowSwitchover(true)}
-                  disabled={!switchoverArmed}
-                  data-testid="topology-tab-dr-switchover-open"
-                >
-                  Switch over…
-                </button>
-                <span
-                  className="text-[10px] text-[var(--color-text-dim)]"
-                  data-testid="topology-tab-dr-switchover-reason"
-                >
-                  {switchoverArmed
-                    ? `promote standby ${switchoverTarget} — runs an RPO/health preflight before you confirm`
-                    : switchoverBlockedReason}
-                </span>
-              </div>
-
-              {showSwitchover && switchoverArmed ? (
-                <SwitchoverDialog
-                  sovereignId={sovereignId}
-                  continuumName={continuumName}
-                  namespace={drNamespace}
-                  fromRegion={drPrimaryRegion}
-                  toRegion={switchoverTarget}
-                  applicationName={applicationName}
-                  lagSeconds={lagSeconds}
-                  syncState={drStatus?.syncState}
-                  disableNetwork={disableNetwork}
-                  onClose={() => setShowSwitchover(false)}
-                  onConfirmed={() => {
-                    setShowSwitchover(false)
-                    // Re-poll the DR status so the panel reflects the promoted
-                    // primary + fresh lag right after the sequence kicks off.
-                    setRefreshTick((t) => t + 1)
-                  }}
-                />
-              ) : null}
             </>
           )}
         </section>

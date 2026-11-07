@@ -20,7 +20,7 @@
  * rendering — all deleted by #3969.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 
 import { updateApplication } from '@/lib/catalog.api'
 import {
@@ -79,6 +79,10 @@ export interface PlacementEditorProps {
   onCancel?: () => void
   /** Test seam — bypass the network call. */
   disableNetwork?: boolean
+  /** Fires the live (unsaved) targets on every edit, in any mode. */
+  onTargetsChange?: (targets: PlacementTarget[]) => void
+  /** Rendered just above the Apply/Cancel bar (e.g. a save preview). */
+  beforeActions?: ReactNode
 }
 
 // #5616 — the placement TIER is only real when the Sovereign installs a
@@ -112,6 +116,8 @@ export function PlacementEditor({
   onChange,
   onCancel,
   disableNetwork = false,
+  onTargetsChange,
+  beforeActions,
 }: PlacementEditorProps) {
   // Seed the editor state once at mount. The parent keys this component on
   // applicationName, so a different Application remounts the editor and the
@@ -141,6 +147,13 @@ export function PlacementEditor({
     current && !vclusters.includes(current) ? [...vclusters, current] : vclusters
   const pattern = useMemo(() => derivePattern(targets), [targets])
   const validation = useMemo(() => validatePlacement(targets, capability), [targets, capability])
+
+  // Report the live (unsaved) targets in EVERY mode — the Topology tab uses
+  // it to preview what a Save would do to the DR writer. Informative only.
+  useEffect(() => {
+    onTargetsChange?.(targets)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targets])
 
   // Report live state up in embedded (wizard) mode.
   useEffect(() => {
@@ -478,6 +491,8 @@ export function PlacementEditor({
           {info}
         </div>
       ) : null}
+
+      {beforeActions}
 
       {!embedded ? (
         <div className="flex gap-2" data-testid="placement-editor-actions">
