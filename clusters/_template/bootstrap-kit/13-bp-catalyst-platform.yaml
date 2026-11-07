@@ -1526,7 +1526,7 @@ spec:
       # 1.4.1845 — lockstep: bp-trivy 1.0.6 + bp-agenity 0.5.34 seed pins land after 1.4.1844; tests/ helmignored (#6004 budget).
       # 1.4.1844 — #6374: lockstep with the umbrella Chart.yaml bump (the catalog-seed
       #   card advances bp-agenity 0.5.33 -> 0.5.34). Pin bumped to match.
-      version: 1.4.1884
+      version: 1.4.1885
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
