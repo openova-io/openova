@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-07T17:15:03Z` |
+| Last refreshed | `2026-11-07T18:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -311,6 +311,7 @@ flowchart LR
 | 2026-11-07T16:50 | [#7065](https://github.com/openova-io/openova/pull/7065) | #7050 | fix(continuum): a DB-only switchover is not UNHEALTHY for la |
 | 2026-11-07T16:26 | [#7064](https://github.com/openova-io/openova/pull/7064) | #7063 | deploy(continuum): bp-continuum 0.1.19 ships #7063 (cbd4f28) |
 | 2026-11-07T16:11 | [#7063](https://github.com/openova-io/openova/pull/7063) | #3375 | fix(continuum): one Converged condition; a planned remote pr |
+| 2026-11-07T17:49 | [#7062](https://github.com/openova-io/openova/pull/7062) | #7061 | fix(bootstrap-kit): bootstrap Application placement is opera |
 | 2026-11-07T15:41 | [#7061](https://github.com/openova-io/openova/pull/7061) | #3375 | fix(cnpg-pair): the Application's placement is operator-owne |
 | 2026-11-07T14:31 | [#7060](https://github.com/openova-io/openova/pull/7060) | #7058 | deploy(continuum): ship desired-state convergence (bp-contin |
 | 2026-11-07T14:45 | [#7059](https://github.com/openova-io/openova/pull/7059) | #7058 | feat(dr): desired-state switchover in the console API and To |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-06T10:48 | [#7039](https://github.com/openova-io/openova/pull/7039) | #6093 | fix(bp-mimir): bucket Job uses bitnamilegacy/minio-client —  |
 | 2026-11-06T07:25 | [#7038](https://github.com/openova-io/openova/pull/7038) | #4061 | fix(cutover): zero-touch — auto-fire on handover by default; |
 | 2026-11-06T06:57 | [#7037](https://github.com/openova-io/openova/pull/7037) | #6093 | fix(cutover): step log panel streams the Job's own output; n |
-| 2026-11-06T05:02 | [#7036](https://github.com/openova-io/openova/pull/7036) | #3969 | integ(2026-11-06): six lanes — DR pairs, cutover resume/leas |
 
 ---
 
