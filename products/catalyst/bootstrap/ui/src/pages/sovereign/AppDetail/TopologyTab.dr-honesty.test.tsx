@@ -347,18 +347,19 @@ describe('row 63 — an active-hot-standby app with NO Continuum backing', () =>
     healthGates: [{ name: 'live-status', status: 'Warn', severity: 'info' }],
   }
 
-  it('renders the switchover control DISABLED with "Switchover unavailable" copy', async () => {
+  // Desired-state model (2026-11-07): there is no switchover control at all —
+  // the Primary moves only through a placement edit. Row 63's intent ("tell
+  // the operator DR exists here and why it cannot act now") is carried by the
+  // `topology-tab-dr-unavailable` note.
+  it('renders NO switchover control, only the honest "move the Primary via placement" note', async () => {
     getContinuumReplicationStatus.mockResolvedValue(UNBACKED)
 
     renderTab()
 
-    const btn = (await screen.findByTestId(
-      'topology-tab-dr-switchover-open',
-    )) as HTMLButtonElement
-    expect(btn.disabled).toBe(true)
-    expect(screen.getByTestId('topology-tab-dr-switchover-reason').textContent).toContain(
-      'Switchover unavailable',
-    )
+    const note = await screen.findByTestId('topology-tab-dr-unavailable')
+    expect(note.textContent).toContain('editing this app')
+    expect(note.textContent).toContain('No live')
+    expect(screen.queryByTestId('topology-tab-dr-switchover-open')).toBeNull()
   })
 
   it('and still synthesizes NO lag, standby or target-region values', async () => {
@@ -366,24 +367,27 @@ describe('row 63 — an active-hot-standby app with NO Continuum backing', () =>
 
     renderTab()
 
-    // Wait for the SETTLED no-backing state (the reason line only renders once
-    // the poll resolves), not merely for the panel to mount.
-    await screen.findByTestId('topology-tab-dr-switchover-reason')
+    // Wait for the SETTLED no-backing state (the note only renders once the
+    // poll resolves), not merely for the panel to mount.
+    await screen.findByTestId('topology-tab-dr-unavailable')
     expect(screen.getByTestId('topology-tab-dr-none')).toBeTruthy()
-    // No numeric lag row, no standby card, no armed target region.
+    // No numeric lag row, no standby card, no desired/observed claim.
     expect(screen.queryByTestId('topology-tab-dr-lag-value')).toBeNull()
     expect(screen.queryByTestId('topology-tab-dr-regions')).toBeNull()
-    expect(screen.getByTestId('topology-tab-dr-switchover-reason').textContent).not.toContain(
-      'promote standby',
-    )
+    expect(screen.queryByTestId('topology-tab-dr-desired')).toBeNull()
+    expect(screen.queryByTestId('topology-tab-dr-observed')).toBeNull()
+    expect(screen.queryByTestId('topology-tab-dr-converging')).toBeNull()
+    expect(document.body.textContent).not.toContain('promote standby')
   })
 
-  it('CONTROL — a BACKED app arms the same control, so "disabled" above is chosen by the backing, not printed unconditionally', async () => {
+  it('CONTROL — a BACKED app renders Desired primary + Serving writes (chosen by the backing, not printed unconditionally)', async () => {
     getContinuumReplicationStatus.mockResolvedValue({
       continuum: 'dr-shared-pg',
       namespace: 'shared-data',
       primaryRegion: 'hw-me-east-215-a-rtz-prod',
       currentPrimary: 'hw-me-east-215-a-rtz-prod',
+      desiredPrimaryRegion: 'hw-me-east-215-a-rtz-prod',
+      converged: true,
       walLagSeconds: 0,
       replicaPromotable: true,
       streamingState: 'streaming',
@@ -395,12 +399,10 @@ describe('row 63 — an active-hot-standby app with NO Continuum backing', () =>
 
     renderTab()
 
-    const btn = (await screen.findByTestId(
-      'topology-tab-dr-switchover-open',
-    )) as HTMLButtonElement
-    expect(btn.disabled).toBe(false)
-    expect(screen.getByTestId('topology-tab-dr-switchover-reason').textContent).toContain(
-      'promote standby',
-    )
+    const observed = await screen.findByTestId('topology-tab-dr-observed')
+    expect(observed.textContent).toContain('hw-me-east-215-a-rtz-prod')
+    expect(screen.getByTestId('topology-tab-dr-desired').textContent).toContain('hw-me-east-215-a-rtz-prod')
+    expect(screen.queryByTestId('topology-tab-dr-unavailable')).toBeNull()
+    expect(screen.queryByTestId('topology-tab-dr-switchover-open')).toBeNull()
   })
 })

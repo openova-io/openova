@@ -33,12 +33,9 @@ import { AppDetail } from './AppDetail'
 import { useWizardStore } from '@/entities/deployment/store'
 import { INITIAL_WIZARD_STATE } from '@/entities/deployment/model'
 
-// The Topology tab mounts the editor + DR widgets; neither is the subject.
+// The Topology tab mounts the placement editor; it is not the subject.
 vi.mock('@/widgets/topology/PlacementEditor', () => ({
   PlacementEditor: () => <div data-testid="stub-placement-editor" />,
-}))
-vi.mock('@/widgets/continuum/SwitchoverDialog', () => ({
-  SwitchoverDialog: () => null,
 }))
 
 function renderDetail() {

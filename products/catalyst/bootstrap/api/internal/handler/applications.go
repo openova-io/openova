@@ -1390,20 +1390,28 @@ type applicationDetailResponse struct {
 	// synthesised from a HelmRelease (bootstrap-kit installs with no
 	// companion Application CR — those have no Application UID).
 	// Refs #2743 #2834 #2839.
-	UID                string                   `json:"uid"`
-	Blueprint          string                   `json:"blueprint,omitempty"`
-	Version            string                   `json:"version,omitempty"`
-	EnvironmentRef     string                   `json:"environmentRef,omitempty"`
-	Placement          string                   `json:"placement,omitempty"`
-	Regions            []string                 `json:"regions,omitempty"`
-	Parameters         map[string]interface{}   `json:"parameters,omitempty"`
-	Phase              string                   `json:"phase,omitempty"`
-	PrimaryRegion      string                   `json:"primaryRegion,omitempty"`
-	GiteaRepo          string                   `json:"giteaRepo,omitempty"`
-	LastReconciled     string                   `json:"lastReconciledAt,omitempty"`
-	Conditions         []map[string]interface{} `json:"conditions"`
-	RegionStatuses     []map[string]interface{} `json:"regionStatuses,omitempty"`
-	InstalledBlueprint map[string]interface{}   `json:"installedBlueprint,omitempty"`
+	UID            string                 `json:"uid"`
+	Blueprint      string                 `json:"blueprint,omitempty"`
+	Version        string                 `json:"version,omitempty"`
+	EnvironmentRef string                 `json:"environmentRef,omitempty"`
+	Placement      string                 `json:"placement,omitempty"`
+	Regions        []string               `json:"regions,omitempty"`
+	Parameters     map[string]interface{} `json:"parameters,omitempty"`
+	Phase          string                 `json:"phase,omitempty"`
+	PrimaryRegion  string                 `json:"primaryRegion,omitempty"`
+	// DeclaredPrimaryRegion — the Primary the Application's placement
+	// DECLARES (status.placement.primaryRegion). Set only when it differs
+	// from PrimaryRegion, which reports the OBSERVED writer whenever the
+	// app's Continuum has published one (desired-state model, 2026-11-07).
+	DeclaredPrimaryRegion string `json:"declaredPrimaryRegion,omitempty"`
+	// DR — desired-vs-observed primary projection off the app's Continuum
+	// (dr-<app>), nil when the app has none. See continuum_convergence.go.
+	DR                 *applicationDRConvergence `json:"dr,omitempty"`
+	GiteaRepo          string                    `json:"giteaRepo,omitempty"`
+	LastReconciled     string                    `json:"lastReconciledAt,omitempty"`
+	Conditions         []map[string]interface{}  `json:"conditions"`
+	RegionStatuses     []map[string]interface{}  `json:"regionStatuses,omitempty"`
+	InstalledBlueprint map[string]interface{}    `json:"installedBlueprint,omitempty"`
 
 	// Family B (2026-05-17 t10 founder bugs C4-003/005/007/013):
 	// AppDetail Resources/Logs tabs were querying the wrong namespace
@@ -1705,6 +1713,20 @@ func (h *Handler) HandleApplicationGet(w http.ResponseWriter, r *http.Request) {
 	}
 	if pr := applicationPrimaryRegion(obj); pr != "" {
 		resp.PrimaryRegion = pr
+	}
+	// Desired-state model: the placement's Primary is what the operator
+	// DECLARED; the region actually serving writes is the Continuum's
+	// observed status.primaryRegion. Report the observation as primaryRegion
+	// and surface the declaration + convergence alongside it.
+	if cr := h.continuumForApplication(r.Context(), client, obj); cr != nil {
+		dr := applicationDRConvergenceFromCR(cr)
+		resp.DR = &dr
+		if observed := continuumObservedPrimary(cr); observed != "" {
+			if resp.PrimaryRegion != "" && resp.PrimaryRegion != observed {
+				resp.DeclaredPrimaryRegion = resp.PrimaryRegion
+			}
+			resp.PrimaryRegion = observed
+		}
 	}
 	if gr, ok, _ := unstructured.NestedString(obj.Object, "status", "giteaRepo"); ok {
 		resp.GiteaRepo = gr
