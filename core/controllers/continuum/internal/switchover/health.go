@@ -292,6 +292,15 @@ func (s *Sequencer) healthReplicas(ctx context.Context, plan SwitchoverPlan) Hea
 
 func (s *Sequencer) healthDNSProbes(ctx context.Context, plan SwitchoverPlan, opts HealthOptions) HealthCheck {
 	c := HealthCheck{Name: CheckDNSProbes}
+	if !planHasDNSSeam(plan) {
+		// A database-only pair publishes no DNS record, so there is nothing
+		// to probe — the same rule the sequencer's flip-dns step follows
+		// (#7050). Failing here marked every DB-only switchover UNHEALTHY
+		// (hw307 2026-11-07).
+		c.Deferred = true
+		c.Detail = "deferred: this Continuum has no DNS seam (no pdmZone / luaRecord hostnames), nothing to probe"
+		return c
+	}
 	if opts.Resolvers == nil {
 		c.Deferred = true
 		c.Detail = "deferred: no MultiResolverDial wired (production sets defaults via api/server.go)"

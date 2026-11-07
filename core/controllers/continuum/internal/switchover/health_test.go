@@ -422,3 +422,35 @@ func TestPostSwitchoverHealth_AuditTailError(t *testing.T) {
 		}
 	}
 }
+
+// A database-only pair (no pdmZone, no luaRecord hostnames) publishes no DNS
+// record: the DNS probe is deferred, not failed — hw307 2026-11-07 every
+// DB-only switchover read UNHEALTHY on "no expected IPs".
+func TestPostSwitchoverHealth_DBOnly_DefersDNS(t *testing.T) {
+	t.Parallel()
+	seq := makeHealthSeq(t)
+	plan := defaultPlan()
+	plan.PDMZone = ""
+	plan.SynthParams.Hostnames = nil
+	plan.SynthParams.RegionToIPs = nil
+	res := &fakeResolver{name: "fake", answers: map[string][]string{}}
+	tail := &fakeAuditTail{events: []AuditTailEvent{{
+		Type: "continuum-switchover", ContinuumName: plan.ContinuumName,
+		FromPrimary: plan.FromRegion, ToPrimary: plan.ToRegion, Timestamp: time.Now(),
+	}}}
+	rep, err := seq.PostSwitchoverHealth(context.Background(), plan, HealthOptions{
+		Resolvers: func() []Resolver { return []Resolver{res} },
+		AuditTail: tail,
+	})
+	if err != nil {
+		t.Fatalf("PostSwitchoverHealth: %v", err)
+	}
+	for _, c := range rep.Checks {
+		if c.Name == CheckDNSProbes && !c.Deferred {
+			t.Fatalf("DNS check must be deferred for a DB-only pair, got %+v", c)
+		}
+	}
+	if !rep.OverallHealthy {
+		t.Fatalf("OverallHealthy = false for a DB-only pair: %+v", rep.Checks)
+	}
+}
