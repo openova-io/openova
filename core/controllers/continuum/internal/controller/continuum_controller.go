@@ -942,9 +942,10 @@ func pickFailoverTarget(spec ContinuumSpec) string {
 // sequencer's swap-lease step hands the lease to the new writer the next
 // renew does not fight it. Falls back to effectiveHoldingRegion.
 func (r *ContinuumReconciler) holdingRegionFor(cr *unstructured.Unstructured, spec ContinuumSpec) string {
-	if r.HoldingRegion != "" {
-		return r.HoldingRegion
-	}
+	// The switchover's swap-lease step hands the lease to the new writer,
+	// so the lease identity IS the observed writer — even when
+	// CATALYST_REGION pins this controller's host region (that pin is the
+	// identity only before any writer has been observed).
 	if cr != nil {
 		if w, _, _ := unstructured.NestedString(cr.Object, "status", "primaryRegion"); w != "" && isMember(spec, w) {
 			return w
@@ -1371,8 +1372,16 @@ func (r *ContinuumReconciler) patchStatusFromCR(
 		reason = "PrimaryDemoted"
 		message = fmt.Sprintf("the %s half (cnpg Cluster %q) is a replica cluster streaming from %q, so writes are served by %s",
 			spec.PrimaryRegion, spec.CNPGPair, standby.ReplicaCluster, primaryRegion)
-		if spec.DesiredPrimaryRegion == "" || spec.DesiredPrimaryRegion != primaryRegion {
+		switch {
+		case spec.DesiredPrimaryRegion == "" || spec.DesiredPrimaryRegion != primaryRegion:
 			phase = PhaseFailedOver
+		case !cnpg.StandbyAvailable(primaryStatus):
+			reason = "StandbyUnreachable"
+			message = fmt.Sprintf("%s serves writes as declared, but its hot standby (the %s half) is not ready", primaryRegion, spec.PrimaryRegion)
+			phase = PhaseDegraded
+		default:
+			reason = "ServingFromDeclaredRegion"
+			message = fmt.Sprintf("%s serves writes as declared; the %s half is its hot standby", primaryRegion, spec.PrimaryRegion)
 		}
 	case standby.Known && !standby.Available && phase == PhaseHealthy:
 		phase = PhaseDegraded
@@ -1402,6 +1411,15 @@ func (r *ContinuumReconciler) patchStatusFromCR(
 		su.StandbyAvailable = &avail
 		su.StandbyGone = standby.Gone
 		su.StandbyReplicaCluster = standby.ReplicaCluster
+		if standby.LocalHalfDemoted && spec.DesiredPrimaryRegion != "" && primaryRegion == spec.DesiredPrimaryRegion {
+			// PLANNED: the writer is in the other region because it was
+			// declared there, and the home half is its hot standby. Report
+			// that standby's own health, not "failed over".
+			planned := cnpg.StandbyAvailable(primaryStatus)
+			su.StandbyAvailable = &planned
+			su.LocalHalfDemoted = false
+			su.StandbyReplicaCluster = spec.CNPGPair + " (" + spec.PrimaryRegion + ", following " + standby.ReplicaCluster + ")"
+		}
 	}
 	if !lease.ExpiresAt.IsZero() {
 		su.LeaseExpiresAt = lease.ExpiresAt.Format(time.RFC3339)
@@ -1621,6 +1639,11 @@ func (r *ContinuumReconciler) patchStatus(ctx context.Context, cr *unstructured.
 			// #5125 Defect-2: same preserve-unless-rewriting contract for
 			// the RejoinRepair condition.
 			if t == "RejoinRepair" && su.RejoinRepair != nil {
+				continue
+			}
+			// Same contract for the desired-state Converged condition: one
+			// entry, rewritten when this pass made a determination.
+			if t == "Converged" && su.Converge != nil {
 				continue
 			}
 			conds = append(conds, c)
