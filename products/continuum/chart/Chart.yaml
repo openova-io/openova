@@ -156,7 +156,9 @@ type: application
 # 0.1.19: ship #7063 (cbd4f28) — one Converged condition; a writer in the
 #   declared non-home region is Healthy with the home half as its standby;
 #   the lease identity is the observed writer.
-version: 0.1.19
+# 0.1.20: ship #7065 (ddd6e05) — a DB-only switchover is not UNHEALTHY for
+#   lack of DNS; each post-switchover check is logged by name.
+version: 0.1.20
 appVersion: "0.1.0"
 home: https://openova.io
 sources:
