@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-07T00:30:05Z` |
+| Last refreshed | `2026-11-07T00:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-07T00:36 | [#7057](https://github.com/openova-io/openova/pull/7057) | #5178 | fix(cnpg-pair): dr-promoter yields to the planned owner and  |
 | 2026-11-06T23:53 | [#7056](https://github.com/openova-io/openova/pull/7056) | #7054 | chore(continuum): bp-continuum 0.1.17 ships the switchback e |
 | 2026-11-06T23:37 | [#7055](https://github.com/openova-io/openova/pull/7055) | #3375 | fix(continuum): switchover honours the requested target and  |
 | 2026-11-06T23:17 | [#7054](https://github.com/openova-io/openova/pull/7054) | #3375 | fix(continuum): promotion is the switchover's point of no re |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-10-10T16:47 | [#6999](https://github.com/openova-io/openova/pull/6999) | #6996 | feat(bss): icons and branding defined in BSS and published b |
 | 2026-10-10T15:58 | [#6998](https://github.com/openova-io/openova/pull/6998) | #6971 | fix(billing): accept the teaser cell state — storefront quot |
 | 2026-10-10T16:12 | [#6997](https://github.com/openova-io/openova/pull/6997) | #6971 | feat(storefront): package icons, accent and badge from BSS;  |
-| 2026-10-10T14:37 | [#6995](https://github.com/openova-io/openova/pull/6995) | #6971 | fix(billing): the active-passive topology is priced from the |
 
 ---
 
