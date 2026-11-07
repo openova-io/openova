@@ -219,7 +219,11 @@ name: bp-gitea
 #   The reflector reflection-*-namespaces annotations are templated from the
 #   SAME values knob so annotation list and fallback order can never drift.
 #   Non-cutover render unchanged (annotation values identical at defaults).
-version: 1.2.50
+# 1.2.51: the bootstrap Application's spec.placement / spec.regions are
+#   seeded once and carried forward from the live object (lookup) on
+#   every later render, so an upgrade never reverts the operator's
+#   Topology edit (hw307 2026-11-07, the #7061 cnpg-pair fix).
+version: 1.2.51
 description: |
   Catalyst-curated Blueprint umbrella chart for Gitea. Depends on the
   upstream `gitea` chart (dl.gitea.com) as a Helm subchart so

@@ -14,6 +14,14 @@ spec.parameters.keyspaces carries this instance's Context declarations
 ZERO valkey-specific code.
 */ -}}
 {{- if and .Values.bootstrapOwned.enabled (.Capabilities.APIVersions.Has "apps.openova.io/v1") }}
+{{- /* DESIRED STATE belongs to the operator once the Application exists:
+     the Topology edit (console → Application CR + Git) owns spec.placement
+     and spec.regions. This chart only SEEDS them on first install; every
+     later render carries the live values forward, so an upgrade never
+     reverts the declared primary (hw307 2026-11-07). */}}
+{{- $live := lookup "apps.openova.io/v1" "Application" .Release.Namespace (include "bp-valkey.instanceName" .) }}
+{{- $liveSpec := dict }}
+{{- if $live }}{{ $liveSpec = (get $live "spec") | default dict }}{{ end }}
 apiVersion: apps.openova.io/v1
 kind: Application
 metadata:
@@ -37,7 +45,11 @@ spec:
   {{- /* old-CRD regions pattern is 4 letter-only dash tokens
        (^[a-z]+-[a-z]+-[a-z]+-[a-z]+$) — "primary" is rejected; this
        token satisfies old AND relaxed-new schemas, inert in both. */}}
+  {{- if hasKey $liveSpec "regions" }}
+  regions: {{ toJson (get $liveSpec "regions") }}
+  {{- else }}
   regions: ["platform-bootstrap-owned-host"]
+  {{- end }}
   blueprintRef:
     name: bp-valkey
     version: {{ .Chart.Version | quote }}
@@ -50,7 +62,11 @@ spec:
        bootstrap app installed as one copy → singleton is the truthful effective
        mode; the value is overridable so a future slot can place it otherwise
        without re-introducing a banned literal. */}}
+  {{- if hasKey $liveSpec "placement" }}
+  placement: {{ toJson (get $liveSpec "placement") }}
+  {{- else }}
   placement: {{ .Values.bootstrapOwned.placement | default "singleton" }}
+  {{- end }}
   {{- with .Values.bootstrapOwned.helmRelease }}
   helmRelease:
     name: {{ .name | quote }}
