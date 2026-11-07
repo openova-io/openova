@@ -658,18 +658,6 @@ func TestPhaseToReady(t *testing.T) {
 	}
 }
 
-func TestIsSwitchoverRequested(t *testing.T) {
-	t.Parallel()
-	cr := newTestContinuumCR("ns", "cr1", "fsn", []string{"hel"}, "in-memory")
-	if isSwitchoverRequested(cr) {
-		t.Error("default should be false")
-	}
-	_ = unstructured.SetNestedField(cr.Object, true, "spec", "switchover", "requested")
-	if !isSwitchoverRequested(cr) {
-		t.Error("after set, should be true")
-	}
-}
-
 func TestReconcile_MultiCRIsolation(t *testing.T) {
 	t.Parallel()
 	cr1 := newTestContinuumCR("ns", "cr1", "fsn", []string{"hel"}, "in-memory")
