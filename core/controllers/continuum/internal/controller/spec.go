@@ -29,8 +29,17 @@ type ContinuumSpec struct {
 	// peer; here we only read its name).
 	ApplicationRef string
 
-	// PrimaryRegion is the host-cluster name currently primary.
+	// PrimaryRegion is the HOME region of the pair's primary-named member
+	// (topology, fixed at creation). It is NOT the writer: the writer is
+	// observed (status.primaryRegion) and converges onto
+	// DesiredPrimaryRegion.
 	PrimaryRegion string
+
+	// DesiredPrimaryRegion is the region the operator declared Primary in
+	// the Application's placement (written by the application-controller).
+	// The controller converges the observed writer onto it by running the
+	// switchover sequence. Empty = nothing declared, no convergence.
+	DesiredPrimaryRegion string
 
 	// HotStandbyRegions lists the standby host-clusters in priority
 	// order. Index 0 is the preferred failover target.
@@ -132,6 +141,8 @@ func parseSpec(cr *unstructured.Unstructured) (ContinuumSpec, error) {
 		return out, errors.New("spec.primaryRegion is required")
 	}
 
+	out.DesiredPrimaryRegion, _, _ = unstructured.NestedString(cr.Object, "spec", "desiredPrimaryRegion")
+
 	regions, _, _ := unstructured.NestedStringSlice(cr.Object, "spec", "hotStandbyRegions")
 	if len(regions) == 0 {
 		return out, errors.New("spec.hotStandbyRegions[] is required")
@@ -196,10 +207,7 @@ func parseSpec(cr *unstructured.Unstructured) (ContinuumSpec, error) {
 
 	out.SynthParams = parseSynthParams(cr)
 
-	out.InitiatedBy, _, _ = unstructured.NestedString(cr.Object, "spec", "switchover", "requestedBy")
-	if out.InitiatedBy == "" {
-		out.InitiatedBy = "controller"
-	}
+	out.InitiatedBy = "desired-state"
 
 	return out, nil
 }
