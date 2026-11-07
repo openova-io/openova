@@ -128,7 +128,6 @@ import { SovereigntyPreviewPage } from '@/pages/sovereignty/SovereigntyPreviewPa
 // full implementations are owned by other slices. See
 // pages/sovereign/stubs/README pattern in each file.
 import { NetworkingPage } from '@/pages/sovereign/networking/NetworkingPage'
-import { ContinuumPage } from '@/pages/sovereign/stubs/ContinuumPage'
 // qa-loop iter-12 Fix #50: Resources family — moved out of `stubs/` into
 // the wired `pages/sovereign/resources/` package. Each component now
 // subscribes to a real catalyst-api endpoint via TanStack Query (no
@@ -2053,7 +2052,7 @@ const consoleLegacyCloudRedirectRoutes = LEGACY_CLOUD_REDIRECTS.map((r) =>
  * Per founder rule (`feedback_no_mvp_no_workarounds.md`): the iter-6
  * test matrix is the contract. Operator URLs must live under
  * `/app/$deploymentId/<feature>/<sub>` — `applications`, `resources`,
- * `rbac`, `users`, `blueprints`, `install`, `networking`, `continuum`,
+ * `rbac`, `users`, `blueprints`, `install`, `networking`,
  * `shells`, `organizations`, `settings`, plus mothership-level
  * `/app/dashboard`, `/app/install/*`, `/app/sre/compliance`, and
  * `/app/sec/compliance`.
@@ -2271,31 +2270,11 @@ const appNetworkingRoute = createRoute({
   beforeLoad: provisionAuthGuard,
 })
 
-// /app/$deploymentId/continuum{,/$continuumId{,/audit,/settings}}.
-const appContinuumListRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/$deploymentId/continuum',
-  component: () => <ContinuumPage mode="list" />,
-  beforeLoad: provisionAuthGuard,
-})
-const appContinuumOverviewRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/$deploymentId/continuum/$continuumId',
-  component: () => <ContinuumPage mode="overview" />,
-  beforeLoad: provisionAuthGuard,
-})
-const appContinuumAuditRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/$deploymentId/continuum/$continuumId/audit',
-  component: () => <ContinuumPage mode="audit" />,
-  beforeLoad: provisionAuthGuard,
-})
-const appContinuumSettingsRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/$deploymentId/continuum/$continuumId/settings',
-  component: () => <ContinuumPage mode="settings" />,
-  beforeLoad: provisionAuthGuard,
-})
+// /app/$deploymentId/continuum{,…} — REMOVED (desired-state switchover,
+// 2026-11-07). Those stub pages were excluded from the Sovereign route tree
+// (so they rendered "Not Found" there) and carried a second, imperative
+// switchover/failback view. DR state lives in ONE place: Applications →
+// <app> → Topology, where the Primary is a placement edit.
 
 // /app/$deploymentId/resources/* — order matters: STATIC sub-paths
 // (/apply, /search) must be registered BEFORE the dynamic $kind so
@@ -2414,10 +2393,6 @@ const routeTree = rootRoute.addChildren([
           appShellsSessionDetailRoute,
           appNetworkingIndexRoute,
           appNetworkingRoute,
-          appContinuumListRoute,
-          appContinuumOverviewRoute,
-          appContinuumAuditRoute,
-          appContinuumSettingsRoute,
           // Resources — static sub-paths first.
           appResourcesApplyRoute,
           appResourcesSearchRoute,

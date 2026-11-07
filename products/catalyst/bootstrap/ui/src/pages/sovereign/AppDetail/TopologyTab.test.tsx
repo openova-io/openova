@@ -21,7 +21,6 @@ const getApplicationPlacement = vi.fn()
 const getHierarchicalInfrastructure = vi.fn()
 const getContinuumReplicationStatus = vi.fn()
 const getSwitchoverPreview = vi.fn()
-const requestSwitchover = vi.fn()
 
 vi.mock('@/lib/catalog.api', () => ({
   getApplicationStatus: (...a: unknown[]) => getApplicationStatus(...a),
@@ -37,10 +36,9 @@ vi.mock('@/lib/continuum.api', async (importOriginal) => {
   return {
     ...actual,
     getContinuumReplicationStatus: (...a: unknown[]) => getContinuumReplicationStatus(...a),
-    // #4552 — the armed SwitchoverDialog runs a preflight + confirm. Mock both
-    // so opening the dialog from the DR panel doesn't hit the network.
+    // The read-only switchover PREVIEW the placement editor shows before Save
+    // (desired-state model — there is no switchover request any more).
     getSwitchoverPreview: (...a: unknown[]) => getSwitchoverPreview(...a),
-    requestSwitchover: (...a: unknown[]) => requestSwitchover(...a),
   }
 })
 
@@ -49,12 +47,39 @@ vi.mock('@/lib/infrastructure.types', () => ({
 }))
 
 // Stub the editor — the tab's panel structure + status are what we assert,
-// not the editor internals (covered by PlacementEditor's own tests).
+// not the editor internals (covered by PlacementEditor's own tests). The stub
+// can flip which target is Primary (reporting the draft via onTargetsChange,
+// exactly what the real editor does on a role edit) and renders the tab's
+// `beforeActions` slot so the save preview is observable.
+type StubTarget = { region: string; cluster: string; vcluster?: string; role: string; standbyType?: string }
 vi.mock('@/widgets/topology/PlacementEditor', () => ({
-  PlacementEditor: () => <div data-testid="stub-placement-editor" />,
+  PlacementEditor: (props: {
+    initialTargets: StubTarget[]
+    onTargetsChange?: (t: StubTarget[]) => void
+    beforeActions?: React.ReactNode
+  }) => (
+    <div data-testid="stub-placement-editor">
+      <button
+        type="button"
+        data-testid="stub-flip-primary"
+        onClick={() =>
+          props.onTargetsChange?.(
+            props.initialTargets.map((t) => ({
+              ...t,
+              role: t.role === 'Primary' ? 'Standby' : 'Primary',
+            })),
+          )
+        }
+      >
+        flip
+      </button>
+      {props.beforeActions}
+    </div>
+  ),
 }))
 
 import { TopologyTab } from './TopologyTab'
+import { drIsConverging, drPollInterval, DR_CONVERGING_POLL_MS, DR_STEADY_POLL_MS } from './drConvergence'
 
 function withProviders(node: React.ReactNode) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -70,8 +95,7 @@ beforeEach(() => {
   // the DR section renders the calm "no cross-region replica" note unless a
   // case overrides it. Mirrors the endpoint's real not-found behaviour.
   getContinuumReplicationStatus.mockRejectedValue(new Error('continuum replication-status: HTTP 404'))
-  // #4552 — the switchover preflight defaults to a promotable result so the
-  // armed dialog can be exercised; cases override per-scenario.
+  // The save-preview preflight defaults to a passing result; cases override.
   getSwitchoverPreview.mockResolvedValue({
     continuum: 'dr-shared-pg',
     namespace: 'shared-data',
@@ -83,17 +107,6 @@ beforeEach(() => {
     blockingChecks: [],
     promotable: true,
     message: 'preview only',
-  })
-  requestSwitchover.mockResolvedValue({
-    name: 'dr-shared-pg',
-    namespace: 'shared-data',
-    targetRegion: 'me-east-215-b',
-    fromRegion: 'me-east-215-a',
-    toRegion: 'me-east-215-b',
-    requestedAt: new Date().toISOString(),
-    message: 'switchover completed',
-    applied: true,
-    completed: true,
   })
 })
 
@@ -441,7 +454,7 @@ describe('TopologyTab — DR / replication surface (#3375 rows 51/52/56/57)', ()
       expect(screen.getByTestId('topology-tab-dr-panel')).toBeTruthy()
     })
     // Primary + standby region cards.
-    expect(screen.getByTestId('topology-tab-dr-primary').textContent).toContain('me-east-215-a')
+    expect(screen.getByTestId('topology-tab-dr-observed').textContent).toContain('me-east-215-a')
     expect(screen.getByTestId('topology-tab-dr-standby-me-east-215-b').textContent).toContain('me-east-215-b')
     // LIVE lag in seconds — not a hardcoded dash.
     await waitFor(() => {
@@ -451,14 +464,21 @@ describe('TopologyTab — DR / replication surface (#3375 rows 51/52/56/57)', ()
     expect(screen.getByTestId('topology-tab-dr-source').textContent).toContain('live')
   })
 
-  it('Switchover affordance is ARMED — opens the confirm dialog (row 57, #4552)', async () => {
+  it('desired-state: NO imperative Switchover control — Desired primary + Serving writes side by side, converged, last switchover card', async () => {
     getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
     getApplicationPlacement.mockResolvedValue(standbyPlacement)
     getContinuumReplicationStatus.mockResolvedValue({
       continuum: 'dr-shared-pg',
       namespace: 'shared-data',
+      // spec.primaryRegion (static home) deliberately differs from the
+      // observed writer — the panel must never print it as "the primary".
       primaryRegion: 'me-east-215-a',
-      currentPrimary: 'me-east-215-a',
+      currentPrimary: 'me-east-215-b',
+      observedPrimaryRegion: 'me-east-215-b',
+      desiredPrimaryRegion: 'me-east-215-b',
+      converged: true,
+      switchoverInProgress: false,
+      lastSwitchover: { at: '2026-11-07T12:00:00Z', from: 'me-east-215-a', to: 'me-east-215-b', result: 'Success' },
       walLagSeconds: 0.4,
       source: 'live',
     })
@@ -467,22 +487,158 @@ describe('TopologyTab — DR / replication surface (#3375 rows 51/52/56/57)', ()
     render(withProviders(<TopologyTab sovereignId="dep-z" applicationName="shared-pg" namespace="shared-data" />))
 
     await waitFor(() => {
-      expect(screen.getByTestId('topology-tab-dr-switchover-open')).toBeTruthy()
+      expect(screen.getByTestId('topology-tab-dr-desired')).toBeTruthy()
     })
-    const btn = screen.getByTestId('topology-tab-dr-switchover-open') as HTMLButtonElement
-    // Armed (not the old deferred disabled affordance).
-    expect(btn.disabled).toBe(false)
-    // No dialog until the operator clicks.
+    expect(screen.getByTestId('topology-tab-dr-desired').textContent).toContain('me-east-215-b')
+    expect(screen.getByTestId('topology-tab-dr-observed').textContent).toContain('me-east-215-b')
+    expect(screen.getByTestId('topology-tab-dr-observed').textContent).toContain('matches desired')
+    // Converged → no converging banner.
+    expect(screen.queryByTestId('topology-tab-dr-converging')).toBeNull()
+    // Last switchover card: at, from → to, result.
+    const last = screen.getByTestId('topology-tab-dr-last-switchover')
+    expect(last.textContent).toContain('me-east-215-a → me-east-215-b')
+    expect(last.textContent).toContain('Success')
+    expect(last.textContent).toContain('2026-11-07T12:00:00Z')
+    // The imperative verb is gone — no button, no dialog, anywhere.
+    expect(screen.queryByTestId('topology-tab-dr-switchover-open')).toBeNull()
+    expect(screen.queryByTestId('topology-tab-dr-switchover')).toBeNull()
     expect(screen.queryByTestId('continuum-switchover-dialog')).toBeNull()
-    fireEvent.click(btn)
-    // The confirm dialog opens with the from→to diff (the standby is the target).
-    await waitFor(() => {
-      expect(screen.getByTestId('continuum-switchover-dialog')).toBeTruthy()
-    })
-    expect(screen.getByTestId('continuum-switchover-dialog-diff').textContent).toContain('me-east-215-b')
+    expect(screen.queryByText(/Switch over/)).toBeNull()
   })
 
-  it('#4552: a paired CNPG whose placement projects a false singleton STILL renders the pair + switchover (no stale singleton)', async () => {
+  it('desired-state: while the controller runs the switchover the banner names from → to and the live step', async () => {
+    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
+    getApplicationPlacement.mockResolvedValue(standbyPlacement)
+    getContinuumReplicationStatus.mockResolvedValue({
+      continuum: 'dr-shared-pg',
+      namespace: 'shared-data',
+      primaryRegion: 'me-east-215-a',
+      currentPrimary: 'me-east-215-a',
+      observedPrimaryRegion: 'me-east-215-a',
+      desiredPrimaryRegion: 'me-east-215-b',
+      converged: false,
+      switchoverInProgress: true,
+      step: 'step 3/7 — fence-old-primary',
+      phase: 'SwitchingOver',
+      walLagSeconds: 0.2,
+      source: 'live',
+    })
+    getApplicationStatus.mockResolvedValue({ name: 'shared-pg', namespace: 'shared-data', spec: {}, status: {} })
+
+    render(withProviders(<TopologyTab sovereignId="dep-z" applicationName="shared-pg" namespace="shared-data" />))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('topology-tab-dr-converging')).toBeTruthy()
+    })
+    expect(screen.getByTestId('topology-tab-dr-converging').textContent).toBe(
+      'Switching me-east-215-a → me-east-215-b: step 3/7 — fence-old-primary',
+    )
+    expect(screen.getByTestId('topology-tab-dr-desired').textContent).toContain('me-east-215-b')
+    expect(screen.getByTestId('topology-tab-dr-observed').textContent).toContain('me-east-215-a')
+    expect(screen.getByTestId('topology-tab-dr-observed').textContent).toContain('converging')
+  })
+
+  it('desired-state: not converged and not running → the banner is the controller\'s convergeMessage (why it is blocked)', async () => {
+    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
+    getApplicationPlacement.mockResolvedValue(standbyPlacement)
+    getContinuumReplicationStatus.mockResolvedValue({
+      continuum: 'dr-shared-pg',
+      namespace: 'shared-data',
+      primaryRegion: 'me-east-215-a',
+      currentPrimary: 'me-east-215-a',
+      desiredPrimaryRegion: 'me-east-215-b',
+      converged: false,
+      switchoverInProgress: false,
+      convergeReason: 'ConvergeBlocked',
+      convergeMessage: 'standby lag 40s exceeds RPO; will retry',
+      lastSwitchover: { at: '2026-11-07T11:00:00Z', from: 'me-east-215-a', to: 'me-east-215-b', result: 'Failed' },
+      walLagSeconds: 40,
+      source: 'live',
+    })
+    getApplicationStatus.mockResolvedValue({ name: 'shared-pg', namespace: 'shared-data', spec: {}, status: {} })
+
+    render(withProviders(<TopologyTab sovereignId="dep-z" applicationName="shared-pg" namespace="shared-data" />))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('topology-tab-dr-converging')).toBeTruthy()
+    })
+    const banner = screen.getByTestId('topology-tab-dr-converging')
+    expect(banner.textContent).toContain('standby lag 40s exceeds RPO; will retry')
+    expect(screen.getByTestId('topology-tab-dr-converge-reason').textContent).toContain('ConvergeBlocked')
+    expect(banner.textContent).not.toContain('Switching')
+    expect(screen.getByTestId('topology-tab-dr-last-switchover-result').textContent).toBe('Failed')
+  })
+
+  it('desired-state: changing the Primary in the placement editor previews the switch BEFORE Save (informative only)', async () => {
+    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
+    getApplicationPlacement.mockResolvedValue(standbyPlacement)
+    getContinuumReplicationStatus.mockResolvedValue({
+      continuum: 'dr-shared-pg',
+      namespace: 'shared-data',
+      primaryRegion: 'me-east-215-a',
+      currentPrimary: 'me-east-215-a',
+      desiredPrimaryRegion: 'me-east-215-a',
+      converged: true,
+      walLagSeconds: 0.3,
+      source: 'live',
+    })
+    getSwitchoverPreview.mockResolvedValue({
+      continuum: 'dr-shared-pg',
+      namespace: 'shared-data',
+      targetRegion: 'me-east-215-b',
+      currentPrimary: 'me-east-215-a',
+      currentLagSec: 0.3,
+      estimatedDurationSec: 60,
+      estimatedDuration: '60s',
+      blockingChecks: ['WAL lag 40.0s exceeds 4× RTO (10s) — replica not promotable'],
+      promotable: false,
+      message: 'preview only',
+    })
+    getApplicationStatus.mockResolvedValue({ name: 'shared-pg', namespace: 'shared-data', spec: {}, status: {} })
+
+    render(withProviders(<TopologyTab sovereignId="dep-z" applicationName="shared-pg" namespace="shared-data" />))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('topology-tab-dr-observed').textContent).toContain('me-east-215-a')
+    })
+    fireEvent.click(screen.getByTestId('topology-tab-edit-placement'))
+    // Nothing previewed until the Primary actually changes.
+    expect(screen.queryByTestId('topology-tab-save-preview')).toBeNull()
+    expect(getSwitchoverPreview).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByTestId('stub-flip-primary'))
+
+    await waitFor(() => {
+      expect(getSwitchoverPreview).toHaveBeenCalledWith(
+        'dep-z',
+        'dr-shared-pg',
+        { targetRegion: 'me-east-215-b' },
+        { namespace: 'shared-data' },
+      )
+    })
+    const preview = await screen.findByTestId('topology-tab-save-preview')
+    expect(preview.textContent).toContain('Saving will switch the writer from me-east-215-a to me-east-215-b')
+    await waitFor(() => {
+      expect(screen.getByTestId('topology-tab-save-preview-checks').textContent).toContain('exceeds 4× RTO')
+    })
+  })
+
+  it('drIsConverging drives the 3s fast poll only while converging toward a declared Primary', () => {
+    const base = { continuum: 'c', namespace: 'n', primaryRegion: 'x', currentPrimary: 'x', walLagSeconds: 0, source: 'live' }
+    expect(drIsConverging(undefined)).toBe(false)
+    // Older backend — nothing declared → never "converging".
+    expect(drIsConverging({ ...base })).toBe(false)
+    expect(drIsConverging({ ...base, desiredPrimaryRegion: 'x', converged: true })).toBe(false)
+    expect(drIsConverging({ ...base, desiredPrimaryRegion: 'y', converged: false })).toBe(true)
+    expect(drIsConverging({ ...base, desiredPrimaryRegion: 'y', converged: true, switchoverInProgress: true })).toBe(true)
+    // A fallback (non-live) envelope is never a convergence claim.
+    expect(drIsConverging({ ...base, source: 'pending', desiredPrimaryRegion: 'y', converged: false })).toBe(false)
+    expect(drPollInterval({ ...base, desiredPrimaryRegion: 'y', converged: false })).toBe(DR_CONVERGING_POLL_MS)
+    expect(drPollInterval({ ...base, desiredPrimaryRegion: 'x', converged: true })).toBe(DR_STEADY_POLL_MS)
+    expect(DR_CONVERGING_POLL_MS).toBe(3_000)
+  })
+
+  it('#4552: a paired CNPG whose placement projects a false singleton STILL renders the pair (no stale singleton)', async () => {
     getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
     getApplicationStatus.mockResolvedValue({ name: 'shared-pg', namespace: 'shared-data', spec: {}, status: {} })
     // The placement projection reports ONLY the primary (the CNPG replica half
@@ -512,11 +668,10 @@ describe('TopologyTab — DR / replication surface (#3375 rows 51/52/56/57)', ()
     await waitFor(() => {
       expect(screen.getByTestId('topology-tab-dr-panel')).toBeTruthy()
     })
-    expect(screen.getByTestId('topology-tab-dr-primary').textContent).toContain('me-east-215-a')
+    expect(screen.getByTestId('topology-tab-dr-observed').textContent).toContain('me-east-215-a')
     expect(screen.getByTestId('topology-tab-dr-standby').textContent).toContain('me-east-215-b')
-    // And the switchover control is armed for it.
-    const btn = screen.getByTestId('topology-tab-dr-switchover-open') as HTMLButtonElement
-    expect(btn.disabled).toBe(false)
+    // No imperative switchover verb — the Primary moves via placement only.
+    expect(screen.queryByTestId('topology-tab-dr-switchover-open')).toBeNull()
   })
 
   it('#4923: a VERIFIED-absent standby renders the explicit standby-absent condition, never a calm follower card', async () => {
@@ -665,7 +820,7 @@ describe('TopologyTab — #4886 bootstrap-HR DR off the live Continuum CR', () =
     })
     // Active region = leaseHolder; standby is the OTHER region — NOT a second
     // "PRIMARY / serves writes" card.
-    expect(screen.getByTestId('topology-tab-dr-primary').textContent).toContain('me-east-215-a')
+    expect(screen.getByTestId('topology-tab-dr-observed').textContent).toContain('me-east-215-a')
     expect(screen.getByTestId('topology-tab-dr-standby').textContent).toContain('me-east-215-b')
     // Numeric replication lag in seconds (row 56/64) — never a bare dash.
     await waitFor(() => {
@@ -680,7 +835,7 @@ describe('TopologyTab — #4886 bootstrap-HR DR off the live Continuum CR', () =
     expect(screen.getByTestId('topology-tab-status-panel')).toBeTruthy()
   })
 
-  it('#5514: a DECLARED active-hot-standby with ZERO backing arms NOTHING — no lag, no follower card, switchover DISABLED', async () => {
+  it('#5514: a DECLARED active-hot-standby with ZERO backing arms NOTHING — no lag, no follower card, no switchover verb', async () => {
     // The live hw291 phantom (uatcorp/uatwalk-ahs-07300830): the Application
     // DECLARES active-hot-standby, but the standby region has no namespace at
     // all. Two things conspired:
@@ -745,31 +900,18 @@ describe('TopologyTab — #4886 bootstrap-HR DR off the live Continuum CR', () =
     expect(screen.queryByTestId('topology-tab-dr-standby')).toBeNull()
     expect(screen.queryByTestId('topology-tab-dr-standby-me-east-215-b')).toBeNull()
     expect(document.body.textContent).not.toContain('hot replica (follows WAL)')
-    // 3. NO switchover control ARMED against a region with no namespace.
-    //
-    // UAT row 63 tightened this clause. #5514 asserted the control was ABSENT,
-    // which was the cheapest way to guarantee it could not arm — but "absent"
-    // and "disabled" are different statements to an operator, and the row's
-    // own wording is "'Switchover unavailable' copy, the control DISABLED".
-    // The 2026-08-10 walk could not verify that sub-clause at all because no
-    // switchover element existed on the page to inspect. So the control now
-    // RENDERS here, permanently disabled, with honest copy — which is strictly
-    // stronger than absence: it still cannot arm (it has no onClick and no
-    // target region), and it now also tells the operator why.
-    const unbackedSwitchover = screen.getByTestId(
-      'topology-tab-dr-switchover-open',
-    ) as HTMLButtonElement
-    expect(unbackedSwitchover.disabled).toBe(true)
-    expect(screen.getByTestId('topology-tab-dr-switchover-reason').textContent).toContain(
-      'Switchover unavailable',
+    // 3. NO switchover control at all (desired-state model): the section
+    //    says how the Primary moves (placement) and why it cannot today.
+    expect(screen.queryByTestId('topology-tab-dr-switchover-open')).toBeNull()
+    expect(screen.getByTestId('topology-tab-dr-unavailable').textContent).toContain(
+      'editing this app',
     )
-    // The dialog is what "armed" would mean, and it must still be unreachable.
     expect(screen.queryByTestId('continuum-switchover-dialog')).toBeNull()
     // No target region is named anywhere — the phantom must not be printed.
     expect(document.body.textContent).not.toContain('promote standby')
   })
 
-  it('#5514: an explicit replicaPromotable:false on a LIVE reading DISABLES the switchover (the verdict is consulted)', async () => {
+  it('#5514: an explicit replicaPromotable:false on a LIVE reading still renders the honest live lag and NO switchover verb', async () => {
     // Backing IS live (so the panel + lag render honestly), but the backend
     // says the replica cannot be promoted. The button must be disabled with a
     // plain reason — pre-fix `disabled={!switchoverTarget}` ignored the verdict
@@ -798,19 +940,13 @@ describe('TopologyTab — #4886 bootstrap-HR DR off the live Continuum CR', () =
 
     // POSITIVE CONTROL — a live backing renders the full panel + real lag.
     await waitFor(() => {
-      expect(screen.getByTestId('topology-tab-dr-switchover-open')).toBeTruthy()
+      expect(screen.getByTestId('topology-tab-dr-lag-value')).toBeTruthy()
     })
     expect(screen.getByTestId('topology-tab-dr-lag-value').textContent).toContain('3.2 s')
-    // The button exists but is DISARMED, with the reason stated.
-    const btn = screen.getByTestId('topology-tab-dr-switchover-open') as HTMLButtonElement
-    expect(btn.disabled).toBe(true)
-    expect(screen.getByTestId('topology-tab-dr-switchover').textContent).toContain('not promotable')
-    // Clicking a disabled control opens nothing.
-    fireEvent.click(btn)
-    expect(screen.queryByTestId('continuum-switchover-dialog')).toBeNull()
+    expect(screen.queryByTestId('topology-tab-dr-switchover-open')).toBeNull()
   })
 
-  it('#5514: a VERIFIED-absent standby disarms the switchover and shows no false 0.0 s lag', async () => {
+  it('#5514: a VERIFIED-absent standby shows no false 0.0 s lag', async () => {
     getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
     getApplicationStatus.mockResolvedValue({ name: 'shared-pg', namespace: 'shared-data', spec: {}, status: {} })
     getApplicationPlacement.mockResolvedValue({
@@ -842,10 +978,7 @@ describe('TopologyTab — #4886 bootstrap-HR DR off the live Continuum CR', () =
     // The lag cell renders, but as an honest dash — not a false 0.0 s.
     expect(screen.getByTestId('topology-tab-dr-lag-value').textContent).toContain('—')
     expect(screen.getByTestId('topology-tab-dr-lag-value').textContent).not.toContain('0.0 s')
-    // Switchover disarmed: there is no standby leg to promote.
-    const btn = screen.getByTestId('topology-tab-dr-switchover-open') as HTMLButtonElement
-    expect(btn.disabled).toBe(true)
-    expect(screen.getByTestId('topology-tab-dr-switchover').textContent).toContain('nothing to promote')
+    expect(screen.queryByTestId('topology-tab-dr-switchover-open')).toBeNull()
   })
 
   it('#5508: an UNVERIFIED lag (streaming-replication + standby-available gates Warn) renders as unknown, never 0.0 s green', async () => {

@@ -73,6 +73,11 @@ type continuumEnrichedGetResponse struct {
 	RPOSeconds              int64   `json:"rpoSeconds"`
 	RTOSeconds              int64   `json:"rtoSeconds"`
 	Replicas                []continuumReplicaInfo `json:"replicas"`
+
+	// Desired-state projection (desiredPrimaryRegion, converged,
+	// switchoverInProgress, step, lastSwitchover, convergeReason/Message).
+	// See continuum_convergence.go.
+	continuumConvergence
 }
 
 type continuumReplicaInfo struct {
@@ -131,6 +136,17 @@ type continuumFleetItem struct {
 	LeaseHolder    string  `json:"leaseHolder,omitempty"`
 	LastSwitchover string  `json:"lastSwitchover,omitempty"`
 	Healthy        bool    `json:"healthy"`
+
+	// Desired-state projection (continuum_convergence.go). Flattened field
+	// by field — the struct is not embedded because this row's
+	// `lastSwitchover` is already the bare timestamp.
+	DesiredPrimaryRegion string                   `json:"desiredPrimaryRegion,omitempty"`
+	Converged            bool                     `json:"converged"`
+	SwitchoverInProgress bool                     `json:"switchoverInProgress"`
+	Step                 string                   `json:"step,omitempty"`
+	LastSwitchoverDetail *continuumLastSwitchover `json:"lastSwitchoverDetail,omitempty"`
+	ConvergeReason       string                   `json:"convergeReason,omitempty"`
+	ConvergeMessage      string                   `json:"convergeMessage,omitempty"`
 }
 
 // continuumFleetResponse — items envelope per the matrix's TC-326.
@@ -580,14 +596,16 @@ func enrichContinuumResponse(cr *unstructured.Unstructured) continuumEnrichedGet
 		resp.Status = statusObj
 	}
 	resp.PrimaryRegion, _, _ = unstructured.NestedString(cr.Object, "spec", "primaryRegion")
-	resp.CurrentPrimary, _, _ = unstructured.NestedString(cr.Object, "status", "currentPrimary")
+	// The OBSERVED writer (status.primaryRegion) wins; spec.primaryRegion is
+	// the pair's static home region and only a pre-reconcile fallback.
+	resp.CurrentPrimary = continuumObservedPrimary(cr)
 	if resp.CurrentPrimary == "" {
-		// Fall back to status.primaryRegion (controller convention).
-		resp.CurrentPrimary, _, _ = unstructured.NestedString(cr.Object, "status", "primaryRegion")
+		resp.CurrentPrimary, _, _ = unstructured.NestedString(cr.Object, "status", "currentPrimary")
 	}
 	if resp.CurrentPrimary == "" {
 		resp.CurrentPrimary = resp.PrimaryRegion
 	}
+	resp.continuumConvergence = continuumConvergenceFromCR(cr, resp.CurrentPrimary)
 	resp.WALLagSeconds = readNumericNested(cr.Object, "status", "walLagSeconds")
 	resp.LastSwitchoverDuration = readNumericNested(cr.Object, "status", "lastSwitchoverDurationSeconds")
 	resp.LastSwitchoverDurationS, _, _ = unstructured.NestedString(cr.Object, "status", "lastSwitchover", "rtoObserved")
@@ -649,10 +667,23 @@ func continuumItemFromCR(sov string, cr *unstructured.Unstructured) continuumFle
 		Namespace: cr.GetNamespace(),
 	}
 	item.PrimaryRegion, _, _ = unstructured.NestedString(cr.Object, "spec", "primaryRegion")
-	item.CurrentPrimary, _, _ = unstructured.NestedString(cr.Object, "status", "currentPrimary")
+	// Observed writer first (status.primaryRegion); never spec.primaryRegion
+	// while the controller has published an observation.
+	item.CurrentPrimary = continuumObservedPrimary(cr)
+	if item.CurrentPrimary == "" {
+		item.CurrentPrimary, _, _ = unstructured.NestedString(cr.Object, "status", "currentPrimary")
+	}
 	if item.CurrentPrimary == "" {
 		item.CurrentPrimary = continuumActingPrimary(cr)
 	}
+	conv := continuumConvergenceFromCR(cr, item.CurrentPrimary)
+	item.DesiredPrimaryRegion = conv.DesiredPrimaryRegion
+	item.Converged = conv.Converged
+	item.SwitchoverInProgress = conv.SwitchoverInProgress
+	item.Step = conv.Step
+	item.LastSwitchoverDetail = conv.LastSwitchoverRecord
+	item.ConvergeReason = conv.ConvergeReason
+	item.ConvergeMessage = conv.ConvergeMessage
 	item.Phase, _, _ = unstructured.NestedString(cr.Object, "status", "phase")
 	item.WALLagSeconds = readNumericNested(cr.Object, "status", "walLagSeconds")
 	item.LeaseHolder, _, _ = unstructured.NestedString(cr.Object, "status", "leaseHolder")
