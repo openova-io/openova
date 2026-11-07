@@ -615,7 +615,11 @@ name: bp-keycloak
 # with the catalyst-api side of #6870 (the end-session URL now names the
 # public issuer + client_id=catalyst-ui + /login). Guarded by
 # tests/per-org-console-pool-redirect-3374.sh Case B (asserts `+`).
-version: 1.5.13
+# 1.5.14: the bootstrap Application's spec.placement / spec.regions are
+#   seeded once and carried forward from the live object (lookup) on
+#   every later render, so an upgrade never reverts the operator's
+#   Topology edit (hw307 2026-11-07, the #7061 cnpg-pair fix).
+version: 1.5.14
 description: |
   1.5.2 (#4246): the per-tenant `openclaw-oidc-client-secret` Secret now
   emits BOTH `client-secret` AND `OIDC_CLIENT_SECRET` keys (it previously

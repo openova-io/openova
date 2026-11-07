@@ -744,7 +744,9 @@ spec:
 // catalog seed to 0.5.34 (credentialWait / credentialResync numeric knobs resolve
 // by key presence — an explicit 0 no longer renders as 300 / 5 / 120); this
 // funnel pin moves in lockstep so hrAppPinSeedDrift stays green.
-const DefaultHRAppChartVersions = "openclaw=0.2.19,stalwart-mail=0.1.16,newapi=1.4.155,agenity=0.5.34"
+// 2026-11-07: newapi 1.4.155 -> 1.4.156 (the bootstrap Application's placement
+// is operator-owned — seeded once, carried forward on upgrade; Refs #3375).
+const DefaultHRAppChartVersions = "openclaw=0.2.19,stalwart-mail=0.1.16,newapi=1.4.156,agenity=0.5.34"
 
 // ParseHRAppVersions parses the CATALYST_HR_APP_CHART_VERSIONS wire format
 // ("slug=version,slug=version") into the HelmReleaseAppVersions map (#4706).
