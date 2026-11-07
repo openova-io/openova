@@ -36,7 +36,6 @@ package handler
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -44,7 +43,6 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
@@ -54,7 +52,6 @@ import (
 // guard exercises. The singular `/continuum/` aliases are the paths
 // cmd/api/main.go registers and the UI + matrix runner hit.
 func registerContinuumHonestyRoutes(r chi.Router, h *Handler) {
-	r.Post("/api/v1/sovereigns/{id}/continuum/{name}/switchover", h.HandleContinuumSwitchoverRequest)
 	r.Post("/api/v1/sovereigns/{id}/continuum/{name}/switchover/preview", h.HandleContinuumSwitchoverPreview)
 	r.Get("/api/v1/sovereigns/{id}/continuum/{name}", h.HandleContinuumGetEnriched)
 	r.Put("/api/v1/sovereigns/{id}/continuum/{name}", h.HandleContinuumPut)
@@ -102,77 +99,6 @@ func assertNoFabricatedCompletion(t *testing.T, label string, body []byte) {
 		if bytes.Contains(body, []byte(tok)) {
 			t.Errorf("%s: body reports %q for a switchover that was never attempted; got %s",
 				label, tok, string(body))
-		}
-	}
-}
-
-// ── GUARD 1 — switchover against an UNREGISTERED deployment ─────────
-//
-// Pre-fix: HandleContinuumSwitchoverRequest called
-// synthesizedSwitchoverCompleted() and answered 200 with
-// status:"completed", duration 60s, fromRegion "fsn1".
-func TestSwitchover_HonestWhenDeploymentUnregistered_5731(t *testing.T) {
-	h := NewWithPDM(silentLogger(), &fakePDM{})
-	factory, _ := fakeContinuumDynamicFactory()
-	h.dynamicFactory = factory
-	// NOTE: no installUserAccessDeployment — the id is unknown.
-
-	r := chi.NewRouter()
-	registerContinuumHonestyRoutes(r, h)
-	req := httptest.NewRequest(http.MethodPost,
-		"/api/v1/sovereigns/dep-never-registered/continuum/cont-x/switchover", nil)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, ownerCtxReq(req))
-
-	if rec.Code >= 200 && rec.Code < 300 {
-		t.Errorf("unregistered deployment: got 2xx %d, want non-2xx — nothing was attempted; body=%s",
-			rec.Code, rec.Body.String())
-	}
-	assertNoFabricatedCompletion(t, "unregistered deployment", rec.Body.Bytes())
-	// The Hetzner/QA constants the synthesizer emitted from a Huawei
-	// Sovereign.
-	for _, leak := range []string{"fsn1", "hz-hel-rtz-prod", "qa-omantel"} {
-		if bytes.Contains(rec.Body.Bytes(), []byte(leak)) {
-			t.Errorf("unregistered deployment: body leaked hardcoded %q; got %s",
-				leak, rec.Body.String())
-		}
-	}
-}
-
-// ── GUARD 2 — switchover when the cluster client CANNOT BE BUILT ────
-//
-// This is the outage case: the control plane cannot reach the
-// Sovereign. Pre-fix it was the second synthesizedSwitchoverCompleted()
-// call site and returned 200 "completed".
-func TestSwitchover_HonestWhenClientUnavailable_5731(t *testing.T) {
-	h := NewWithPDM(silentLogger(), &fakePDM{})
-	h.dynamicFactory = errDynamicFactory()
-	dep := installUserAccessDeployment(t, h, "dep-5731-noclient")
-
-	body, _ := json.Marshal(continuumSwitchoverRequest{TargetRegion: "me-east-215-b"})
-	r := chi.NewRouter()
-	registerContinuumHonestyRoutes(r, h)
-	req := httptest.NewRequest(http.MethodPost,
-		"/api/v1/sovereigns/"+dep.ID+"/continuum/cont-x/switchover", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, ownerCtxReq(req))
-
-	if rec.Code >= 200 && rec.Code < 300 {
-		t.Errorf("unreachable cluster: got 2xx %d, want non-2xx — no switchover was attempted; body=%s",
-			rec.Code, rec.Body.String())
-	}
-	assertNoFabricatedCompletion(t, "unreachable cluster", rec.Body.Bytes())
-	// A fabricated duration is the token TC-312's must_contain demanded.
-	if bytes.Contains(rec.Body.Bytes(), []byte(`"duration":60`)) ||
-		bytes.Contains(rec.Body.Bytes(), []byte(`"durationSeconds":60`)) {
-		t.Errorf("unreachable cluster: body reports a 60s switchover duration; got %s",
-			rec.Body.String())
-	}
-	for _, leak := range []string{"fsn1", "hz-hel-rtz-prod", "qa-omantel"} {
-		if bytes.Contains(rec.Body.Bytes(), []byte(leak)) {
-			t.Errorf("unreachable cluster: body leaked hardcoded %q; got %s",
-				leak, rec.Body.String())
 		}
 	}
 }
@@ -487,50 +413,6 @@ func TestGetEnriched_ControlLiveCRStillReturnsRealValues_5728(t *testing.T) {
 	if resp.WALLagSeconds != 7 {
 		t.Errorf("CONTROL walLagSeconds: got %v want 7 (read off status, the fix must not blank real telemetry)",
 			resp.WALLagSeconds)
-	}
-}
-
-// ── CONTROL B — a genuine switchover still succeeds ─────────────────
-//
-// Green on BOTH trees: accepts any 2xx (the pre-fix tree answers 200,
-// the fixed tree 202) and asserts the effect that actually matters —
-// the CR was patched. Proves the fix did not degrade into "always
-// error".
-func TestSwitchover_ControlLiveCRStillSucceeds_5731(t *testing.T) {
-	h := NewWithPDM(silentLogger(), &fakePDM{})
-	cr := newContinuumUnstructured("dr-wp", "acme", "wp-prod", "hz-fsn-rtz-prod", []string{"hz-hel-rtz-prod"})
-	factory, client := fakeContinuumDynamicFactory(cr)
-	h.dynamicFactory = factory
-	dep := installUserAccessDeployment(t, h, "dep-5731-control-sw")
-
-	body, _ := json.Marshal(continuumSwitchoverRequest{TargetRegion: "hz-hel-rtz-prod"})
-	r := chi.NewRouter()
-	registerContinuumHonestyRoutes(r, h)
-	req := httptest.NewRequest(http.MethodPost,
-		"/api/v1/sovereigns/"+dep.ID+"/continuum/dr-wp/switchover?namespace=acme", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, ownerCtxReq(req))
-
-	if rec.Code < 200 || rec.Code >= 300 {
-		t.Fatalf("CONTROL: a genuine switchover must still succeed; got %d body=%s",
-			rec.Code, rec.Body.String())
-	}
-	if !bytes.Contains(rec.Body.Bytes(), []byte(`"applied":true`)) {
-		t.Errorf("CONTROL: a genuine switchover must report applied:true; got %s", rec.Body.String())
-	}
-	got, err := client.Resource(ContinuumGVR()).Namespace("acme").
-		Get(context.Background(), "dr-wp", metav1.GetOptions{})
-	if err != nil {
-		t.Fatalf("CONTROL re-fetch: %v", err)
-	}
-	requested, _, _ := unstructured.NestedBool(got.Object, "spec", "switchover", "requested")
-	if !requested {
-		t.Error("CONTROL: spec.switchover.requested was not patched — the fix broke the real path")
-	}
-	target, _, _ := unstructured.NestedString(got.Object, "spec", "switchover", "targetRegion")
-	if target != "hz-hel-rtz-prod" {
-		t.Errorf("CONTROL: spec.switchover.targetRegion got %q want hz-hel-rtz-prod", target)
 	}
 }
 

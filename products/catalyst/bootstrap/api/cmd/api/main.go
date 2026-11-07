@@ -1881,9 +1881,13 @@ func main() {
 
 		// EPIC-6 (#1101) slice U-DR-1 — Continuum DR UI surface.
 		// GET surfaces the CR for the AppDetail Topology DR section.
-		// POST switchover/failback patches spec — the K-Cont-2
-		// reconciler picks up the change and runs the 7-step Sequencer
-		// + emits the 9 reserved continuum-* audit events on NATS.
+		// There is NO imperative switchover route (desired-state model,
+		// 2026-11-07): the operator declares the Primary region in the
+		// Application placement, the Application controller projects it
+		// into Continuum spec.desiredPrimaryRegion and the
+		// continuum-controller converges (runs the 7-step Sequencer +
+		// emits the continuum-* audit events on NATS). Only the read-only
+		// switchover/preview survives below. POST failback patches spec.
 		// /audit/continuum mirrors the rbac audit endpoints (slice
 		// U5-U8 #1098) but filters on the continuum-* type prefix so
 		// future audit-type additions (slice F-1 may add 3 more)
@@ -1894,7 +1898,6 @@ func main() {
 		// sovereign-admin server-side, the audit endpoints enforce
 		// tier-admin or higher.
 		rg.Get("/api/v1/sovereigns/{id}/continuums/{name}", h.HandleContinuumGet)
-		rg.Post("/api/v1/sovereigns/{id}/continuums/{name}/switchover", h.HandleContinuumSwitchoverRequest)
 		rg.Post("/api/v1/sovereigns/{id}/continuums/{name}/failback", h.HandleContinuumFailbackRequest)
 		rg.Post("/api/v1/sovereigns/{id}/continuums/{name}/failback/approve", h.HandleContinuumFailbackApprove)
 		rg.Get("/api/v1/sovereigns/{id}/audit/continuum", h.HandleContinuumAuditList)
@@ -1912,7 +1915,6 @@ func main() {
 		rg.Get("/api/v1/sovereigns/{id}/continuum/{name}", h.HandleContinuumGetEnriched)
 		rg.Put("/api/v1/sovereigns/{id}/continuum/{name}", h.HandleContinuumPut)
 		rg.Get("/api/v1/sovereigns/{id}/continuum/{name}/stream", h.HandleContinuumStream)
-		rg.Post("/api/v1/sovereigns/{id}/continuum/{name}/switchover", h.HandleContinuumSwitchoverRequest)
 		rg.Post("/api/v1/sovereigns/{id}/continuum/{name}/switchover/preview", h.HandleContinuumSwitchoverPreview)
 		rg.Post("/api/v1/sovereigns/{id}/continuum/{name}/failback", h.HandleContinuumFailbackRequest)
 		rg.Post("/api/v1/sovereigns/{id}/continuum/{name}/failback/approve", h.HandleContinuumFailbackApprove)

@@ -93,6 +93,12 @@ type continuumReplicationStatus struct {
 	HealthGates       []continuumHealthGate   `json:"healthGates"`
 	ObservedAt        string                  `json:"observedAt"`
 	Source            string                  `json:"source"` // "live" | "pending"
+
+	// Desired-state projection — desiredPrimaryRegion, converged,
+	// switchoverInProgress, step, lastSwitchover, convergeReason/Message
+	// (continuum_convergence.go). `currentPrimary` above is the OBSERVED
+	// writer (status.primaryRegion); the console renders the two side by side.
+	continuumConvergence
 }
 
 // continuumHealthGate — one row in the replication status health-gate list.
@@ -1518,7 +1524,7 @@ func (h *Handler) collectContinuumSwitchoverHistory(depID, contName string) []co
 	}
 	predicate := func(t string) bool {
 		// Match the canonical switchover audit-type names emitted by
-		// continuum.go HandleContinuumSwitchoverRequest.
+		// the continuum-controller (converging on spec.desiredPrimaryRegion).
 		return strings.HasPrefix(t, "continuum-switchover-")
 	}
 	events := h.auditBus.List(depID, predicate, 100)
@@ -1577,9 +1583,15 @@ func enrichReplicationStatus(cr *unstructured.Unstructured) continuumReplication
 	if leaseHolder, _, _ := unstructured.NestedString(cr.Object, "status", "leaseHolder"); leaseHolder != "" {
 		out.CurrentPrimary = leaseHolder
 	}
+	// The continuum-controller's status.primaryRegion is the OBSERVED writer
+	// and beats both the lease holder and the static spec.primaryRegion.
+	if observed := continuumObservedPrimary(cr); observed != "" {
+		out.CurrentPrimary = observed
+	}
 	if out.CurrentPrimary == "" {
 		out.CurrentPrimary = out.PrimaryRegion
 	}
+	out.continuumConvergence = continuumConvergenceFromCR(cr, out.CurrentPrimary)
 	out.WALLagSeconds = readNumericNested(cr.Object, "status", "walLagSeconds")
 	// #4886 — the Continuum controller writes the numeric lag as
 	// `status.replicationLagSeconds` (int64); `walLagSeconds` is the
@@ -1860,6 +1872,9 @@ func (h *Handler) liveReplicationStatusFromCNPGPair(
 			standbyGate,
 		},
 		Source: "live",
+		// No Continuum CR backs this record, so nothing is DECLARED and
+		// there is nothing to converge to.
+		continuumConvergence: continuumConvergenceFromCR(nil, ""),
 	}
 	if pairName != "" {
 		out.LastHeartbeat = h.continuumNow().UTC().Format(time.RFC3339)
