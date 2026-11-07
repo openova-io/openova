@@ -202,6 +202,14 @@ type continuumGoroutine struct {
 	// `continuum-config-changed` (slice F-1).
 	lastSpecFingerprint string
 
+	// convergeRetryAt / convergeLastErr — desired-state convergence
+	// back-off. A failed convergence attempt is retried, never abandoned
+	// (the declared primary stays the goal), but not on every tick: the
+	// next attempt waits until convergeRetryAt, and the failure is shown
+	// on the Converged condition meanwhile.
+	convergeRetryAt time.Time
+	convergeLastErr string
+
 	// rejoinState is step-8's (#5125 Defect-2) cross-tick bookkeeping —
 	// attempt count + backoff clock + bounded-fail-loud latch for the
 	// current re-clone-on-divergence episode. Session-scoped, same
@@ -369,7 +377,7 @@ func (r *ContinuumReconciler) runPerCR(ctx context.Context, nn types.NamespacedN
 		}
 		// Re-resolve in case the primaryRegion changed (and the env var
 		// is unset). Stable when CATALYST_REGION is wired.
-		holder = r.effectiveHoldingRegion(spec)
+		holder = r.holdingRegionFor(cr, spec)
 
 		// F-1: detect spec drift on switchover-relevant fields and
 		// emit `continuum-config-changed` (rare; happens when the
@@ -429,34 +437,32 @@ func (r *ContinuumReconciler) runPerCR(ctx context.Context, nn types.NamespacedN
 			primaryStatus, replicaStatus, standby = r.observeCNPGStandby(ctx, reader, nn, cr, spec)
 		}
 
-		switchoverRequested := isSwitchoverRequested(cr)
 		maxLag := cnpg.MaxLagSeconds(primaryStatus, replicaStatus)
 		lagBreached := spec.RTOSeconds > 0 && maxLag > spec.RTOSeconds
-		toRegion := pickFailoverTarget(spec)
+		observed, observedKnown := observedWriter(cr, spec, standby)
+		conv := r.convergeDecision(nn, spec, observed, observedKnown, standby)
 
 		switch {
-		case switchoverRequested:
+		case conv.run:
+			// DESIRED STATE: the operator declared a different primary in
+			// the Application's placement than the region serving writes.
+			// Converge by running the switchover sequence — there is no
+			// separate imperative request (hw307 2026-11-07).
 			_ = r.publishCNPGPromotable(ctx, nn, spec, maxLag)
-			from := actingPrimaryRegion(cr, spec)
-			to := requestedTargetRegion(cr, spec, from)
-			if to == from {
-				// Nothing to do: the requested target already serves writes.
-				ctrl.LoggerFrom(ctx).Info("switchover request is a no-op: target already primary", "continuum", nn.String(), "target", to)
+			if err := r.runSwitchover(ctx, cr, spec, observed, spec.DesiredPrimaryRegion, "desired-state", maxLag, w); err != nil {
+				r.noteConvergeFailure(nn, err)
 			} else {
-				r.runSwitchover(ctx, cr, spec, from, to, "operator-requested", maxLag, w)
+				r.noteConvergeSuccess(nn)
 			}
-			if err := r.clearSwitchoverRequest(ctx, cr); err != nil {
-				ctrl.LoggerFrom(ctx).Error(err, "switchover request not cleared")
-			}
-		case lagBreached && !standby.LocalHalfDemoted:
-			// A lag breach on a FAILED-OVER pair must not drive the
-			// sequencer "from spec.primaryRegion to the standby": the
-			// standby already IS the writer, and the declared primary's
-			// lag is its own replay lag as a follower.
+		case lagBreached && spec.AutoFailover && !standby.LocalHalfDemoted:
+			// Unplanned failover on a lag breach — only when the Continuum
+			// opts into autoFailover. It moves the writer away from the
+			// declared primary; convergence brings it back once the declared
+			// region is a healthy standby again.
 			_ = r.publishLagBreach(ctx, nn, spec, maxLag)
-			r.runSwitchover(ctx, cr, spec, spec.PrimaryRegion, toRegion, "lag-breach", maxLag, w)
+			_ = r.runSwitchover(ctx, cr, spec, observed, pickOtherMember(spec, observed), "lag-breach", maxLag, w)
 		default:
-			_ = r.patchStatusFromCR(ctx, cr, spec, leaseState, primaryStatus, replicaStatus, standby, false, "")
+			_ = r.patchStatusFromCR(ctx, cr, spec, leaseState, primaryStatus, replicaStatus, standby, false, "", conv)
 			_ = r.publishReconcileSuccess(ctx, nn, spec, maxLag)
 		}
 	}
@@ -470,11 +476,11 @@ func (r *ContinuumReconciler) runSwitchover(
 	fromRegion, toRegion, reason string,
 	maxLag int,
 	w witness.Client,
-) {
+) error {
 	log := ctrl.LoggerFrom(ctx)
 	if toRegion == "" {
 		log.Info("no failover target available; skipping switchover")
-		return
+		return errors.New("no switchover target region")
 	}
 	plan := switchover.SwitchoverPlan{
 		ContinuumName:      types.NamespacedName{Namespace: cr.GetNamespace(), Name: cr.GetName()}.String(),
@@ -496,9 +502,13 @@ func (r *ContinuumReconciler) runSwitchover(
 	}
 
 	_ = r.patchStatus(ctx, cr, statusUpdate{
-		Phase:   PhaseSwitchingOver,
-		Reason:  "InProgress",
-		Message: fmt.Sprintf("step 1/7 starting; from=%s to=%s", plan.FromRegion, plan.ToRegion),
+		Phase:                PhaseSwitchingOver,
+		Reason:               "InProgress",
+		Message:              fmt.Sprintf("switching %s → %s: step 1/7 starting", plan.FromRegion, plan.ToRegion),
+		SwitchoverInProgress: true,
+		Step:                 "step 1/7 — starting",
+		DesiredPrimaryRegion: spec.DesiredPrimaryRegion,
+		Converge:             &convergeView{converged: false, reason: "Converging", message: fmt.Sprintf("switching the writer %s → %s (%s)", plan.FromRegion, plan.ToRegion, reason)},
 	})
 
 	zone := plan.PDMZone
@@ -538,9 +548,11 @@ func (r *ContinuumReconciler) runSwitchover(
 		Now:       r.Now,
 		StepHook: func(step int, name string) {
 			_ = r.patchStatus(ctx, cr, statusUpdate{
-				Phase:   PhaseSwitchingOver,
-				Reason:  "InProgress",
-				Message: fmt.Sprintf("step %d/7 — %s", step, name),
+				Phase:                PhaseSwitchingOver,
+				Reason:               "InProgress",
+				Message:              fmt.Sprintf("switching %s → %s: step %d/7 — %s", plan.FromRegion, plan.ToRegion, step, name),
+				SwitchoverInProgress: true,
+				Step:                 fmt.Sprintf("step %d/7 — %s", step, name),
 			})
 		},
 	}
@@ -556,8 +568,10 @@ func (r *ContinuumReconciler) runSwitchover(
 			Reason:               "SwitchoverFailed",
 			Message:              res.Err.Error(),
 			LastSwitchoverResult: "Failed",
+			LastSwitchoverFrom:   plan.FromRegion,
+			LastSwitchoverTo:     plan.ToRegion,
 		})
-		return
+		return res.Err
 	}
 	msg := fmt.Sprintf("switchover %s → %s completed", plan.FromRegion, plan.ToRegion)
 	for _, perr := range res.PostCommitErrs {
@@ -566,8 +580,16 @@ func (r *ContinuumReconciler) runSwitchover(
 		log.Error(perr, "switchover committed but a post-promotion step failed", "continuum", plan.ContinuumName, "from", plan.FromRegion, "to", plan.ToRegion)
 		msg += "; WARNING " + perr.Error()
 	}
+	// Healthy when the writer now sits where it was declared; a move with
+	// no declaration, or away from it (lag-breach autoFailover), is a
+	// failover.
+	phase := PhaseFailedOver
+	if spec.DesiredPrimaryRegion != "" && plan.ToRegion == spec.DesiredPrimaryRegion {
+		phase = PhaseHealthy
+	}
 	_ = r.patchStatus(ctx, cr, statusUpdate{
-		Phase:                PhaseFailedOver,
+		Phase:                phase,
+		PrimaryRegion:        plan.ToRegion,
 		Reason:               "Succeeded",
 		Message:              msg,
 		LastSwitchoverResult: "Success",
@@ -580,6 +602,7 @@ func (r *ContinuumReconciler) runSwitchover(
 	// reconcile loop returns promptly. The health result is written
 	// back to the CR status condition `LastSwitchoverHealthy`.
 	go r.runPostSwitchoverHealth(plan, seq)
+	return nil
 }
 
 // runPostSwitchoverHealth waits HealthDelay then executes
@@ -899,38 +922,6 @@ func pickFailoverTarget(spec ContinuumSpec) string {
 	return ""
 }
 
-// actingPrimaryRegion is the region serving writes NOW: the observed
-// status.primaryRegion (the failover target once the declared primary half
-// is a replica — planned switchover or DR failover), else spec.primaryRegion.
-// hw307 2026-11-07: the switchover always started from spec.primaryRegion,
-// so after any switch to region B there was no way to switch back.
-func actingPrimaryRegion(cr *unstructured.Unstructured, spec ContinuumSpec) string {
-	if s, _, _ := unstructured.NestedString(cr.Object, "status", "primaryRegion"); s != "" {
-		return s
-	}
-	return spec.PrimaryRegion
-}
-
-// requestedTargetRegion is the region the operator asked for
-// (spec.switchover.targetRegion, written by the console API). Without one,
-// the target is the other pair member relative to the acting primary.
-func requestedTargetRegion(cr *unstructured.Unstructured, spec ContinuumSpec, from string) string {
-	if t, _, _ := unstructured.NestedString(cr.Object, "spec", "switchover", "targetRegion"); t != "" {
-		return t
-	}
-	for _, r := range append([]string{spec.PrimaryRegion}, spec.HotStandbyRegions...) {
-		if r != "" && r != from {
-			return r
-		}
-	}
-	return ""
-}
-
-func isSwitchoverRequested(cr *unstructured.Unstructured) bool {
-	v, _, _ := unstructured.NestedBool(cr.Object, "spec", "switchover", "requested")
-	return v
-}
-
 // effectiveHoldingRegion resolves the region identity this controller
 // instance holds the lease as. CATALYST_REGION (r.HoldingRegion) wins
 // when set; otherwise we fall back to the CR's declared primaryRegion.
@@ -945,6 +936,23 @@ func isSwitchoverRequested(cr *unstructured.Unstructured) bool {
 // the CR is pinned Degraded / LeaseHeld=False forever even though the
 // witness acquired the slot cleanly. Falling back to spec.primaryRegion
 // makes a healthy 2-region pair self-bootstrap leaseHolder=<region-a>.
+// holdingRegionFor is the lease identity once the CR has been read: with
+// no CATALYST_REGION pinned, the controller holds the lease on behalf of the
+// region OBSERVED serving writes (status.primaryRegion), so after the
+// sequencer's swap-lease step hands the lease to the new writer the next
+// renew does not fight it. Falls back to effectiveHoldingRegion.
+func (r *ContinuumReconciler) holdingRegionFor(cr *unstructured.Unstructured, spec ContinuumSpec) string {
+	if r.HoldingRegion != "" {
+		return r.HoldingRegion
+	}
+	if cr != nil {
+		if w, _, _ := unstructured.NestedString(cr.Object, "status", "primaryRegion"); w != "" && isMember(spec, w) {
+			return w
+		}
+	}
+	return r.effectiveHoldingRegion(spec)
+}
+
 func (r *ContinuumReconciler) effectiveHoldingRegion(spec ContinuumSpec) string {
 	if r.HoldingRegion != "" {
 		return r.HoldingRegion
@@ -952,36 +960,128 @@ func (r *ContinuumReconciler) effectiveHoldingRegion(spec ContinuumSpec) string 
 	return spec.PrimaryRegion
 }
 
-// clearSwitchoverRequest ENDS the operator's request, whatever the outcome.
-//
-// It must not write back the object read at the start of the reconcile: the
-// switchover patches the CR's status meanwhile, so a full Update of that copy
-// fails with a resourceVersion conflict. That error was discarded, the
-// request stayed requested=true, and every following reconcile re-ran the
-// switchover — on hw307 (2026-11-06) re-demoting the just-restored region-A
-// primary over and over. A JSON merge patch carries no resourceVersion, so it
-// cannot conflict; it is retried briefly and the failure is logged, never
-// dropped.
-func (r *ContinuumReconciler) clearSwitchoverRequest(ctx context.Context, cr *unstructured.Unstructured) error {
-	_ = unstructured.SetNestedField(cr.Object, false, "spec", "switchover", "requested")
-	if r.Dyn == nil {
-		return nil
-	}
-	patch := []byte(`{"spec":{"switchover":{"requested":false}}}`)
-	var err error
-	for attempt := 0; attempt < 5; attempt++ {
-		_, err = r.Dyn.Resource(ContinuumGVR).Namespace(cr.GetNamespace()).Patch(ctx, cr.GetName(), types.MergePatchType, patch, metav1.PatchOptions{})
-		if err == nil || apierrors.IsNotFound(err) {
-			return nil
+// observedWriter is the region serving writes NOW, from observation — never
+// from the desired state. For a cnpg-pair Continuum it is the structural
+// read of the pair: the home (spec.primaryRegion) half is the writer unless
+// it is a replica cluster, in which case the other member is. For mechanisms
+// with no structural read (stateless DNS flip, raft) it is the last region a
+// completed switchover moved the writer to (status.primaryRegion), else the
+// home region. known=false means no trustworthy observation this tick: the
+// controller then never starts a switchover.
+func observedWriter(cr *unstructured.Unstructured, spec ContinuumSpec, standby cnpg.StandbyObservation) (string, bool) {
+	if spec.CNPGPair != "" {
+		if !standby.Known {
+			last, _, _ := unstructured.NestedString(cr.Object, "status", "primaryRegion")
+			return firstNonEmpty(last, spec.PrimaryRegion), false
 		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(time.Duration(attempt+1) * 200 * time.Millisecond):
+		if standby.LocalHalfDemoted {
+			return pickOtherMember(spec, spec.PrimaryRegion), true
+		}
+		return spec.PrimaryRegion, true
+	}
+	if last, _, _ := unstructured.NestedString(cr.Object, "status", "primaryRegion"); last != "" && isMember(spec, last) {
+		return last, true
+	}
+	return spec.PrimaryRegion, true
+}
+
+// pickOtherMember — the first member (home or hot standby) that is not
+// `region`.
+func pickOtherMember(spec ContinuumSpec, region string) string {
+	for _, m := range append([]string{spec.PrimaryRegion}, spec.HotStandbyRegions...) {
+		if m != "" && m != region {
+			return m
 		}
 	}
-	ctrl.LoggerFrom(ctx).Error(err, "could not clear spec.switchover.requested — the next reconcile would re-run the switchover", "continuum", cr.GetNamespace()+"/"+cr.GetName())
-	return err
+	return ""
+}
+
+func isMember(spec ContinuumSpec, region string) bool {
+	for _, m := range append([]string{spec.PrimaryRegion}, spec.HotStandbyRegions...) {
+		if m == region {
+			return true
+		}
+	}
+	return false
+}
+
+// convergeView is the Converged condition this tick: whether the observed
+// writer matches the declared primary and, when it does not, why.
+type convergeView struct {
+	converged bool
+	reason    string
+	message   string
+}
+
+// convergeOutcome is convergeDecision's verdict for one tick.
+type convergeOutcome struct {
+	run  bool
+	view *convergeView
+}
+
+// DefaultConvergeRetry is the wait between convergence attempts after a
+// failed one.
+const DefaultConvergeRetry = 2 * time.Minute
+
+// convergeDecision decides whether this tick starts a switchover to bring the
+// observed writer onto spec.desiredPrimaryRegion, and what the Converged
+// condition says. It never starts one on an unknown observation, onto a
+// region that is not a member, onto an unavailable standby, or inside the
+// back-off window of a failed attempt.
+func (r *ContinuumReconciler) convergeDecision(nn types.NamespacedName, spec ContinuumSpec, observed string, known bool, standby cnpg.StandbyObservation) convergeOutcome {
+	desired := spec.DesiredPrimaryRegion
+	if desired == "" {
+		return convergeOutcome{}
+	}
+	if observed == desired {
+		return convergeOutcome{view: &convergeView{converged: true, reason: "Converged", message: fmt.Sprintf("%s serves writes, as declared", desired)}}
+	}
+	blocked := func(msg string) convergeOutcome {
+		return convergeOutcome{view: &convergeView{reason: "ConvergeBlocked", message: msg}}
+	}
+	if !isMember(spec, desired) {
+		return blocked(fmt.Sprintf("declared primary %s is not a member of this Continuum (members: %s, %v)", desired, spec.PrimaryRegion, spec.HotStandbyRegions))
+	}
+	if !known {
+		return blocked(fmt.Sprintf("declared primary is %s but the writer cannot be observed this pass (last seen: %s); waiting for a reading before switching", desired, observed))
+	}
+	// The standby must be following before it can take the writer. When the
+	// home half is itself the follower (writer is in the other region) the
+	// local read cannot see that follower's health; the switchover's own
+	// validate step checks it.
+	if spec.CNPGPair != "" && !standby.LocalHalfDemoted && !standby.Available {
+		return blocked(fmt.Sprintf("declared primary is %s but its standby is not available (replica %q not following); waiting for it to catch up", desired, standby.ReplicaCluster))
+	}
+	r.activeContinuumsMu.Lock()
+	g := r.activeContinuums[nn.String()]
+	var retryAt time.Time
+	var lastErr string
+	if g != nil {
+		retryAt, lastErr = g.convergeRetryAt, g.convergeLastErr
+	}
+	r.activeContinuumsMu.Unlock()
+	if !retryAt.IsZero() && r.now().Before(retryAt) {
+		return convergeOutcome{view: &convergeView{reason: "ConvergeFailed", message: fmt.Sprintf("switching the writer %s → %s failed: %s; retrying at %s", observed, desired, lastErr, retryAt.UTC().Format(time.RFC3339))}}
+	}
+	return convergeOutcome{run: true, view: &convergeView{reason: "Converging", message: fmt.Sprintf("switching the writer %s → %s", observed, desired)}}
+}
+
+func (r *ContinuumReconciler) noteConvergeFailure(nn types.NamespacedName, err error) {
+	r.activeContinuumsMu.Lock()
+	defer r.activeContinuumsMu.Unlock()
+	if g := r.activeContinuums[nn.String()]; g != nil {
+		g.convergeRetryAt = r.now().Add(DefaultConvergeRetry)
+		g.convergeLastErr = err.Error()
+	}
+}
+
+func (r *ContinuumReconciler) noteConvergeSuccess(nn types.NamespacedName) {
+	r.activeContinuumsMu.Lock()
+	defer r.activeContinuumsMu.Unlock()
+	if g := r.activeContinuums[nn.String()]; g != nil {
+		g.convergeRetryAt = time.Time{}
+		g.convergeLastErr = ""
+	}
 }
 
 // observeCNPGStandby resolves one tick's required synchronous
@@ -1244,10 +1344,11 @@ func (r *ContinuumReconciler) patchStatusFromCR(
 	standby cnpg.StandbyObservation,
 	switchoverInProgress bool,
 	stepLabel string,
+	conv ...convergeOutcome,
 ) error {
 	maxLag := cnpg.MaxLagSeconds(primaryStatus, replicaStatus)
 	now := r.now()
-	self := r.effectiveHoldingRegion(spec)
+	self := r.holdingRegionFor(cr, spec)
 	heldByUs := lease.IsHeldBy(self, now)
 	phase := PhaseHealthy
 	if !heldByUs {
@@ -1259,24 +1360,20 @@ func (r *ContinuumReconciler) patchStatusFromCR(
 	// branch the CR stays phase=Healthy / replicationLagSeconds=0 for
 	// the whole outage while writes stall on SyncRep (proven in the
 	// G12 region-kill drill on hw232).
-	primaryRegion := spec.PrimaryRegion
+	primaryRegion, _ := observedWriter(cr, spec, standby)
 	var reason, message string
 	switch {
 	case standby.Known && standby.LocalHalfDemoted && phase == PhaseHealthy:
-		// FAILED OVER (hw307): the declared primary half is a replica
-		// cluster following the promoted standby region. The pair's
-		// writer is the failover target, not spec.primaryRegion — say so
-		// on the CR the console and the UAT ledger read, with the phase
-		// vocabulary the CRD already carries (FailedOver → Ready=True:
-		// the service is up, in the other region). The lease stays with
-		// this controller (it runs only here), so LeaseHeld is untouched.
-		phase = PhaseFailedOver
-		if t := pickFailoverTarget(spec); t != "" {
-			primaryRegion = t
-		}
+		// The home half follows the other region: the writer is there.
+		// With a declared primary that IS that region this is the planned
+		// state (Healthy); otherwise the pair is failed over away from the
+		// declared primary and convergence moves it back.
 		reason = "PrimaryDemoted"
-		message = fmt.Sprintf("pair is FAILED OVER: the %s half (cnpg Cluster %q) is a replica cluster streaming from %q, so writes are served by %s; a controlled switchback (RUNBOOKS §6.1) restores %s as primary",
-			spec.PrimaryRegion, spec.CNPGPair, standby.ReplicaCluster, primaryRegion, spec.PrimaryRegion)
+		message = fmt.Sprintf("the %s half (cnpg Cluster %q) is a replica cluster streaming from %q, so writes are served by %s",
+			spec.PrimaryRegion, spec.CNPGPair, standby.ReplicaCluster, primaryRegion)
+		if spec.DesiredPrimaryRegion == "" || spec.DesiredPrimaryRegion != primaryRegion {
+			phase = PhaseFailedOver
+		}
 	case standby.Known && !standby.Available && phase == PhaseHealthy:
 		phase = PhaseDegraded
 	}
@@ -1295,6 +1392,10 @@ func (r *ContinuumReconciler) patchStatusFromCR(
 		LagObserved:          standby.Known,
 		SwitchoverInProgress: switchoverInProgress,
 		Step:                 stepLabel,
+		DesiredPrimaryRegion: spec.DesiredPrimaryRegion,
+	}
+	if len(conv) > 0 && conv[0].view != nil {
+		su.Converge = conv[0].view
 	}
 	if standby.Known {
 		avail := standby.Available
@@ -1333,6 +1434,12 @@ type statusUpdate struct {
 	LagObserved          bool
 	SwitchoverInProgress bool
 	Step                 string
+
+	// DesiredPrimaryRegion echoes spec.desiredPrimaryRegion; Converge, when
+	// set, rewrites status.converged + the Converged condition (nil keeps
+	// the prior condition).
+	DesiredPrimaryRegion string
+	Converge             *convergeView
 
 	// LocalHalfDemoted — the pair-role primary half is a replica cluster
 	// (the pair is failed over to the standby region). Selects the
@@ -1455,6 +1562,14 @@ func (r *ContinuumReconciler) patchStatus(ctx context.Context, cr *unstructured.
 	status["switchoverInProgress"] = su.SwitchoverInProgress
 	if su.Step != "" {
 		status["switchoverStep"] = su.Step
+	} else if !su.SwitchoverInProgress {
+		delete(status, "switchoverStep")
+	}
+	if su.DesiredPrimaryRegion != "" {
+		status["desiredPrimaryRegion"] = su.DesiredPrimaryRegion
+	}
+	if su.Converge != nil {
+		status["converged"] = su.Converge.converged
 	}
 	if su.LastSwitchoverResult != "" {
 		ls := map[string]interface{}{
@@ -1539,6 +1654,15 @@ func (r *ContinuumReconciler) patchStatus(ctx context.Context, cr *unstructured.
 			"status":             su.LastSwitchoverHealthy,
 			"reason":             firstNonEmpty(su.Reason, "PostSwitchoverHealth"),
 			"message":            firstNonEmpty(su.LastSwitchoverHealthyDetail, su.Message),
+			"lastTransitionTime": r.now().UTC().Format(time.RFC3339),
+		})
+	}
+	if su.Converge != nil {
+		conds = append(conds, map[string]interface{}{
+			"type":               "Converged",
+			"status":             boolToCondStatus(su.Converge.converged),
+			"reason":             su.Converge.reason,
+			"message":            su.Converge.message,
 			"lastTransitionTime": r.now().UTC().Format(time.RFC3339),
 		})
 	}
