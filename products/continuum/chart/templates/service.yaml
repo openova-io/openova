@@ -1,12 +1,17 @@
 {{- /*
-Service for continuum-controller — exposes /metrics + /healthz +
-/readyz inside the cluster. Consumed by Prometheus ServiceMonitor +
-k8s liveness/readiness probes.
+Services for continuum-controller.
 
-Per Inviolable Principle #4 ports are configurable via
-.Values.continuum.metrics.port + .Values.continuum.health.port.
+1. continuum-controller — metrics + health inside the region.
+2. continuum-<region-id> for EVERY region of the Sovereign — the
+   region-addressable ClusterMesh Service a peer Continuum reads this region's
+   observations through (ADR-0015 D8). This region's own entry selects the
+   local pods and is shared into the mesh; every other region's entry is a
+   selector-less stub (no local backends), so the mesh routes it to that
+   region's pods only. Same pattern as gitea-<region-id>
+   (clusters/_template/sovereign-region). ClusterIP only — never a nodePort.
 */ -}}
 {{- if .Values.continuum.enabled }}
+{{- $self := include "continuum.region" . -}}
 apiVersion: v1
 kind: Service
 metadata:
@@ -27,11 +32,30 @@ spec:
       port: {{ .Values.continuum.health.port | default 8081 }}
       targetPort: health
       protocol: TCP
-    # Slice F-2 + F-3 — dry-run + health endpoints. The catalyst-api
-    # proxies /api/v1/sovereigns/{id}/continuums/{name}/{verb} to this
-    # in-cluster Service.
-    - name: api
-      port: {{ .Values.continuum.api.port | default 8082 }}
-      targetPort: api
+{{- range $r := (include "continuum.regionIDs" . | fromJsonArray) }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ printf "continuum-%s" $r | trunc 63 | trimSuffix "-" }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "continuum.labels" $ | nindent 4 }}
+    openova.io/region: {{ $r | quote }}
+    catalyst.openova.io/role: {{ ternary "continuum-region-observations" "continuum-region-observations-stub" (eq $r $self) | quote }}
+  annotations:
+    service.cilium.io/global: "true"
+    service.cilium.io/shared: {{ ternary "true" "false" (eq $r $self) | quote }}
+spec:
+  type: ClusterIP
+  {{- if eq $r $self }}
+  selector:
+    {{- include "continuum.selectorLabels" $ | nindent 4 }}
+  {{- end }}
+  ports:
+    - name: observations
+      port: {{ $.Values.continuum.observations.port }}
+      targetPort: {{ $.Values.continuum.observations.port }}
       protocol: TCP
+{{- end }}
 {{- end }}

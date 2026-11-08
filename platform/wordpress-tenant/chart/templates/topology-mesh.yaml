@@ -85,7 +85,7 @@ spec:
 {{- $es := dig "sharedSecrets" "externalSecret" dict $topo -}}
 {{- $store := $es.storeRef | default dict -}}
 {{- if $store.name }}
-{{- $prefix := $es.remoteKeyPrefix | default (printf "openova/apps/%s/%s" .Release.Namespace .Release.Name) }}
+{{- $prefix := include "bp-wordpress-tenant.sharedSecretsPrefix" . }}
 ---
 apiVersion: external-secrets.io/v1beta1
 kind: ExternalSecret

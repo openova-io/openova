@@ -1,156 +1,88 @@
-# bp-continuum values — slice K-Cont-1 of EPIC-6 (#1101).
+# bp-continuum values — ADR-0015 D8 (native topology transitions).
 #
-# Continuum is a customer-facing capability (per ADR-0001 §3.2.8 — NOT
-# under platform/) that orchestrates per-Application DR for placement:
-# active-hotstandby Applications. This chart deploys the
-# continuum-controller alongside its RBAC + NetworkPolicy.
+# Continuum is reduced to: the cross-region lease (a file in Git), region-loss
+# detection, and committing the next phase of a topology transition to the
+# per-region Application files. It runs in EVERY region (bootstrap-kit slot 62
+# renders per region). It never writes a workload object: Flux, CNPG and the
+# chart's own rendering carry out each phase.
 #
-# Default-OFF gate: `continuum.enabled: false`. Operators flip this in
-# a per-Sovereign overlay once they have:
-#   - bp-cnpg-pair installed (C-DB-1 — primary + replica CNPG cluster)
-#   - bp-powerdns + pool-domain-manager reachable (lua-record commits)
-#   - lease witness configured (Cloudflare KV per K-Cont-3, or DNS
-#     quorum fallback)
-#
-# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) every value
-# below is overridable per-Sovereign overlay. Per #4a (image SHA-pinned
-# from CI) `image.tag` is empty by default; the chart fail-fasts at
-# render time when `enabled: true` and `image.tag` is empty (see
-# templates/_helpers.tpl `continuum.image`). CI stamps the SHA on every
-# push to main via .github/workflows/build-continuum-controller.yaml.
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) every value below is
+# overridable per Sovereign. Per #4a `image.tag` is stamped by CI on every
+# push to main (.github/workflows/build-continuum-controller.yaml); the chart
+# fails the render when it is empty.
 
 # ─── Global registry rewrite (matches catalyst chart pattern) ──────────
-# When set, ALL Continuum image pulls route through this registry.
-# Per-Sovereign overlays set this to harbor.<sovereign-fqdn> so every
-# image pull hits the Sovereign's own Harbor proxy_cache rather than
-# ghcr.io directly. Empty = no rewrite.
 global:
   imageRegistry: ""
 
-# ─── Continuum controller deployment ───────────────────────────────────
 continuum:
-  # Default-OFF. Flip to true on a Sovereign overlay once dependencies
-  # (bp-cnpg-pair, bp-powerdns, lease witness) are ready.
+  # Default-OFF. Slot 62 sets ${CONTINUUM_ENABLED} (true on a multi-region
+  # Sovereign). A single-region Sovereign has nothing to transition.
   enabled: false
 
   image:
     repository: "ghcr.io/openova-io/openova/continuum-controller"
-    # tag is empty by default — CI stamps a SHA on every push to main.
-    # Render-time fail-fast (see templates/_helpers.tpl) prevents a
-    # half-configured deploy from accidentally running with `:latest`.
+    # CI stamps the SHA on every push to main.
     tag: "3b7690b"
     pullPolicy: IfNotPresent
 
+  # In-region replicas; one is elected per region (in-region Lease). The
+  # CROSS-region fence is the Git lease, not this.
   replicas: 1
   leaderElection:
     enabled: true
 
-  # #3189 (2026-06-09): init container probe that DETECTS whether a
-  # bp-cnpg-pair installation exists cluster-wide before the main
-  # controller starts. On a single-region Sovereign there is no
-  # cnpg-pair, so bp-continuum has no CNPG cluster-pair to switch over —
-  # this is a CORRECT idle state (the controller-runtime Manager simply
-  # has 0 Continuum CRs to act on and reports Ready), NOT a failure.
-  #
-  # The probe logs a clear "single-region idle" diagnostic and exits 0,
-  # letting the main controller start and sit idle-Ready. Earlier
-  # revisions (#2922 PR-B) did `sleep 300; exit 1` here, which forced
-  # Init:CrashLoopBackOff on every single-region prov and presented a
-  # healthy controller as perpetually broken. We keep the loud log line
-  # but no longer crash. Operators CAN disable this guard entirely via
-  # prerequisiteCheck.enabled=false (e.g. for chart unit tests or
-  # air-gapped offline reconcile evaluation).
-  prerequisiteCheck:
-    enabled: true
-    # Default image carries kubectl + sh — overridable for air-gapped
-    # mirrors with stricter image-source policies.
-    image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.30.0
-    resources:
-      requests:
-        cpu: 10m
-        memory: 32Mi
-      limits:
-        cpu: 100m
-        memory: 64Mi
+  # This region's canonical id (bootstrap-kit SOVEREIGN_REGION_CANONICAL_LABEL).
+  # REQUIRED when enabled.
+  region: ""
+
+  # The Sovereign's region registry (bootstrap-kit SOVEREIGN_REGIONS_JSON,
+  # `[{"cloudRegion":"<id>",...}]`). Renders one continuum-<region-id>
+  # ClusterMesh Service per region (this region's selects the local pods; the
+  # others are selector-less stubs).
+  regionsJson: "[]"
+
+  git:
+    # The region whose Gitea is the WRITER (bootstrap-kit
+    # SOVEREIGN_PRIMARY_REGION). When it is not this region, Continuum writes
+    # through gitea-<writer-id> over ClusterMesh (ADR-0015 D1).
+    writerRegionID: ""
+    # Explicit override of the Gitea API base URL.
+    apiURL: ""
+    # Token with write access to every Org's catalyst-tenant repo. In a
+    # follower region the shared PAT must be distributed into this namespace.
+    tokenSecret:
+      name: catalyst-gitea-token
+      key: token
+
+  observations:
+    # Port of GET /v1/observations (read-only native status for the peers).
+    port: 8082
+
+  # Evaluation interval.
+  tickSeconds: 10
+
+  lease:
+    # Git lease TTL: a region that stops renewing for this long loses the
+    # right to act; another region resumes the transition from the record.
+    ttlSeconds: 60
 
   resources:
     requests:
-      cpu: 100m
-      memory: 128Mi
+      cpu: 50m
+      memory: 64Mi
     limits:
       cpu: 500m
-      memory: 512Mi
+      memory: 256Mi
 
-  # ─── Metrics / health endpoints ──────────────────────────────────────
   metrics:
     enabled: true
-    # Port exposed on the controller Deployment + Service.
     port: 9090
 
   health:
-    # /healthz + /readyz endpoint port (separate from metrics so the
-    # ServiceMonitor scrape can hit /metrics without exposing health
-    # publicly).
     port: 8081
-    # Slice F-3: post-switchover health-check delay in seconds.
-    # Default 30s per design doc §9.5; 0 = run immediately (tests).
-    postSwitchoverDelaySeconds: 30
 
-  # Slice F-2 + F-3: HTTP server for dry-run + health endpoints.
-  api:
-    # Port exposed on the controller Deployment + Service for the
-    # F-2 (POST .../dry-run) + F-3 (GET .../health) endpoints. Empty
-    # = disabled (no HTTP server bound).
-    port: 8082
-    # Optional bearer token gate. Leave nil to rely solely on the
-    # X-Catalyst-Owner-Tier header (catalyst-api stamps after JWT
-    # validation). When set, a SealedSecret reference like:
-    #   tokenSecretRef:
-    #     name: continuum-api-token
-    #     key:  token
-    # populates the CONTINUUM_API_TOKEN env var.
-    tokenSecretRef: null
-
-  # ─── K-Cont-2 / K-Cont-3 config seams (sketch — finalized in
-  # downstream slices) ─────────────────────────────────────────────────
-  #
-  # PDM endpoint that the controller calls /v1/commit on for lua-record
-  # writes. Empty = use the in-cluster Service default. Per Inviolable
-  # Principle #4 the value is fully runtime-configurable; per-Sovereign
-  # overlays may repoint at a Sovereign-local PDM instance.
-  pdmURL: ""
-
-  # NATS endpoint for catalyst.audit publishing (switchover step-7 is
-  # REQUIRED — an empty URL fails every switchover at audit-emit and rolls
-  # back a completed promotion; hw307 2026-11-07). The default is the
-  # bp-nats-jetstream Service (slot 07: release nats-jetstream, namespace
-  # nats-system). natsNamespace must name the same namespace — the
-  # NetworkPolicy egress rule is keyed on it.
-  natsURL: "nats://nats-jetstream.nats-system.svc.cluster.local:4222"
-  natsNamespace: nats-system
-
-  # #3829 — the host-cluster region this controller instance represents,
-  # stamped as the k8s-lease holderIdentity (CATALYST_REGION). Empty =
-  # the controller falls back to the Continuum CR's primaryRegion (it
-  # runs only on the primary-side cluster), which is correct for a single
-  # 2-region cnpg-pair. Pin explicitly in a per-Sovereign overlay if a
-  # cluster hosts continuum CRs whose primaryRegion is not this region.
-  region: ""
-
-  # #3829 — namespace for the k8s-lease witness's coordination.k8s.io/v1
-  # Lease objects (CATALYST_LEASE_NS). Empty = the controller's own
-  # namespace (.Release.Namespace), where the ClusterRole already grants
-  # coordination.k8s.io/leases.
-  leaseNamespace: ""
-
-  # Lease witness defaults (overridden per-CR via Continuum.spec.leaseClient).
-  # These are CONTROLLER-WIDE defaults; per-Continuum-CR config wins.
-  lease:
-    ttlSeconds: 30
-    renewSeconds: 10
-
-  # Free-form extra env vars threaded into the Pod (advanced; for one-off
-  # operator-side knobs not yet promoted to a top-level value).
+  # Free-form extra env vars.
   env: {}
 
   nodeSelector: {}
@@ -158,9 +90,5 @@ continuum:
   affinity: {}
 
 # ─── NetworkPolicy ────────────────────────────────────────────────────
-# Default-deny except for explicit egress to Kubernetes API server,
-# in-cluster CNPG status, NATS, PDM, and the lease witness URL. K-Cont-2
-# extends with witness-specific egress when WITNESS_KIND=cloudflare-kv
-# (egress to CF API at api.cloudflare.com:443).
 networkPolicy:
   enabled: true

@@ -1884,45 +1884,22 @@ func main() {
 		rg.Get("/api/v1/refs/regions", h.HandleListRefRegions)
 		rg.Get("/catalyst/v1/catalog/{blueprint}/instances", h.HandleListBlueprintInstances)
 
-		// EPIC-6 (#1101) slice U-DR-1 — Continuum DR UI surface.
-		// GET surfaces the CR for the AppDetail Topology DR section.
-		// There is NO imperative switchover route (desired-state model,
-		// 2026-11-07): the operator declares the Primary region in the
-		// Application placement, the Application controller projects it
-		// into Continuum spec.desiredPrimaryRegion and the
-		// continuum-controller converges (runs the 7-step Sequencer +
-		// emits the continuum-* audit events on NATS). Only the read-only
-		// switchover/preview survives below. POST failback patches spec.
-		// /audit/continuum mirrors the rbac audit endpoints (slice
-		// U5-U8 #1098) but filters on the continuum-* type prefix so
-		// future audit-type additions (slice F-1 may add 3 more)
-		// require zero handler-side change. Per ADR-0001 §2.7 the CR
-		// is the source of truth; per INVIOLABLE-PRINCIPLES #5 the
-		// switchover + failback gates enforce owner tier on the
-		// Application server-side, the approve gate enforces
-		// sovereign-admin server-side, the audit endpoints enforce
-		// tier-admin or higher.
+		// Continuum surfaces are READ-ONLY (ADR-0015 D8). The Continuum CR
+		// is delivered from Git (the application-controller renders it into
+		// every region file from Application.spec.placement) and Flux would
+		// revert any API write; a topology transition is started by editing
+		// the Application's placement, and carried out by Continuum as
+		// ordered Git commits. Deleted with the imperative sequencer: POST
+		// failback / failback/approve, PUT continuum/{name}, PUT
+		// continuum/{name}/settings, POST continuum/{name}/switchover/preview.
 		rg.Get("/api/v1/sovereigns/{id}/continuums/{name}", h.HandleContinuumGet)
-		rg.Post("/api/v1/sovereigns/{id}/continuums/{name}/failback", h.HandleContinuumFailbackRequest)
-		rg.Post("/api/v1/sovereigns/{id}/continuums/{name}/failback/approve", h.HandleContinuumFailbackApprove)
 		rg.Get("/api/v1/sovereigns/{id}/audit/continuum", h.HandleContinuumAuditList)
 		rg.Get("/api/v1/sovereigns/{id}/audit/continuum/stream", h.HandleContinuumAuditStream)
 
-		// EPIC-6 iter-6 target-state — singular `/continuum/` path aliases
-		// + the rest of the matrix-required surface (PUT for spec
-		// updates, switchover preview, status SSE, fleet aggregate, per-
-		// Sovereign DR summary). The original plural routes above stay
-		// live for back-compat. See continuum_extras.go for handler
-		// docs. Per ADR-0001 §2.7 the Continuum CR remains the source
-		// of truth; PUT patches spec.rpoSeconds + spec.rtoSeconds and
-		// the controller reconciles. Per INVIOLABLE-PRINCIPLES #5 PUT
-		// gates on operator tier (REUSES applicationInstallCallerAuthorized).
+		// Singular `/continuum/` read aliases: enriched GET, status SSE,
+		// fleet aggregate, per-Sovereign summary (continuum_extras.go).
 		rg.Get("/api/v1/sovereigns/{id}/continuum/{name}", h.HandleContinuumGetEnriched)
-		rg.Put("/api/v1/sovereigns/{id}/continuum/{name}", h.HandleContinuumPut)
 		rg.Get("/api/v1/sovereigns/{id}/continuum/{name}/stream", h.HandleContinuumStream)
-		rg.Post("/api/v1/sovereigns/{id}/continuum/{name}/switchover/preview", h.HandleContinuumSwitchoverPreview)
-		rg.Post("/api/v1/sovereigns/{id}/continuum/{name}/failback", h.HandleContinuumFailbackRequest)
-		rg.Post("/api/v1/sovereigns/{id}/continuum/{name}/failback/approve", h.HandleContinuumFailbackApprove)
 		rg.Get("/api/v1/fleet/continuum", h.HandleFleetContinuum)
 		rg.Get("/api/v1/fleet/sovereigns/{id}/dr-summary", h.HandleFleetSovereignDRSummary)
 
@@ -1939,7 +1916,6 @@ func main() {
 		rg.Get("/api/v1/sovereigns/{id}/continuum/{name}/replication-status", h.HandleContinuumReplicationStatus)
 		rg.Get("/api/v1/sovereigns/{id}/continuum/{name}/switchover/history", h.HandleContinuumSwitchoverHistory)
 		rg.Get("/api/v1/sovereigns/{id}/continuum/{name}/settings", h.HandleContinuumSettingsGet)
-		rg.Put("/api/v1/sovereigns/{id}/continuum/{name}/settings", h.HandleContinuumSettingsPut)
 		rg.Post("/api/v1/sovereigns/{id}/dr/runbook/preflight", h.HandleDRRunbookPreflight)
 		rg.Post("/api/v1/sovereigns/{id}/dr/runbook/playback", h.HandleDRRunbookPlayback)
 		rg.Get("/api/v1/sovereigns/{id}/dr/quorum/status", h.HandleDRQuorumStatus)

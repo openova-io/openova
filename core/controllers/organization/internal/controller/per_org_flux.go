@@ -55,9 +55,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/yaml"
 
+	"github.com/openova-io/openova/core/controllers/organization/internal/gitops"
 	orgapi "github.com/openova-io/openova/core/controllers/organization/internal/orgapi"
 	"github.com/openova-io/openova/core/controllers/pkg/fluxsource"
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
+	"github.com/openova-io/openova/core/controllers/pkg/regionfile"
 )
 
 // perOrgTenantRepoName is the per-Org Gitea repo the vCluster manifests
@@ -136,10 +138,42 @@ func perOrgRegionAppsKustomizationName(slug string) string {
 	return fmt.Sprintf("catalyst-tenant-%s-region-apps", slug)
 }
 
-// perOrgKubeconfigSecretName is the flux-system Secret the provisioning
-// workflow mirrors the per-Org vcluster's exported kubeconfig into.
+// perOrgKubeconfigSecretName is the flux-system Secret holding the per-Org
+// vcluster's exported kubeconfig. Produced in EVERY region from that region's
+// own vCluster by the boundary tree's kubeconfig-mirror.yaml (reflector pull
+// of `<slug>/vc-vcluster`, gitops/region_local.go) — not only by the region-A
+// provisioning funnel's imperative copy.
 func perOrgKubeconfigSecretName(slug string) string {
 	return fmt.Sprintf("tenant-%s-kubeconfig", slug)
+}
+
+// perOrgHomeRegion is the region that reconciles the Organization's SHARED,
+// placement-less trees (`vcluster/apps`, `vcluster/host-apps`): the
+// Sovereign's first region (provisioning index 0 of the one registry). That
+// is where those trees have always been applied — the pre-ADR-0015 controller
+// and the provisioning funnel ran there — so the installs they carry stay
+// where their data already lives. ADR-0015 D1, Refs #7067.
+//
+// The funnel's placement-less installs name no region. Reconciled by two
+// regions they would run twice (two databases; a global route splitting
+// traffic between them), so they are bound to exactly one region here. A
+// multi-region Application is never placement-less: the application-controller
+// writes it per region under `regions/<region-id>/apps` (D1/D3). Moving a
+// placement-less install to another region means re-expressing it as an
+// Application with a placement — not changing this function.
+func (r *Reconciler) perOrgHomeRegion() string {
+	home, _ := r.Regions.At(0)
+	return home
+}
+
+// perOrgSharedTreePaths returns the apps / host-apps Kustomization paths for
+// one region: the shared, funnel-written trees in the home region; the
+// controller-owned baseline copies (gitops/region_local.go) everywhere else.
+func (r *Reconciler) perOrgSharedTreePaths(region string) (apps, hostApps string) {
+	if region == r.perOrgHomeRegion() {
+		return "./" + gitops.SharedAppsDir, "./" + gitops.SharedHostAppsDir
+	}
+	return "./" + gitops.RegionBaselineAppsDir, "./" + gitops.RegionBaselineHostAppsDir
 }
 
 // perOrgRegionFilePath is the path of one Org's Flux objects for one region
@@ -158,7 +192,7 @@ func regionRootReadmePath(fqdn, region string) string {
 // perOrgRegionAppsReadmePath seeds the region's Application folder in the Org
 // repo so the region-apps Kustomization's path exists from the first commit.
 func perOrgRegionAppsReadmePath(region string) string {
-	return fmt.Sprintf("regions/%s/apps/README.md", region)
+	return regionfile.AppsDir(region) + "/README.md"
 }
 
 // regionGit returns the Gitea writer (RegionGit override, else GiteaClient).
@@ -265,24 +299,30 @@ func (r *Reconciler) renderPerOrgRegionFlux(org *orgapi.Organization, region str
 		return spec
 	}
 
+	appsPath, hostAppsPath := r.perOrgSharedTreePaths(region)
+
 	return []*unstructured.Unstructured{
 		obj(fluxGitRepositoryGVK, gitRepoName, "per-org-vcluster-source", grSpec),
-		// ./vcluster → host (ns/quota/limitrange/vCluster HR carry their own
-		// namespace; no targetNamespace).
+		// ./vcluster → host (ns/quota/limitrange/vCluster HR + the region-local
+		// kubeconfig producer carry their own namespace; no targetNamespace).
 		obj(fluxKustomizationGVK, kustomizationName, "per-org-vcluster-reconciler", ks("./vcluster", nil)),
-		// #4293 MAJOR-2 — ./vcluster/apps INTO the Org vCluster.
-		obj(fluxKustomizationGVK, perOrgAppsKustomizationName(slug), "per-org-apps-reconciler", ks("./vcluster/apps", map[string]any{
+		// #4293 MAJOR-2 — the apps tree INTO the Org vCluster. The shared,
+		// funnel-written ./vcluster/apps only in the home region; every other
+		// region the controller-owned baseline (a placement-less install must
+		// never run in two regions — perOrgSharedTreePaths).
+		obj(fluxKustomizationGVK, perOrgAppsKustomizationName(slug), "per-org-apps-reconciler", ks(appsPath, map[string]any{
 			"targetNamespace": slug,
 			"kubeConfig": map[string]any{
 				"secretRef": map[string]any{"name": perOrgKubeconfigSecretName(slug), "key": "config"},
 			},
 		})),
-		// #4475 §1 — ./vcluster/host-apps host-side, every tier.
-		obj(fluxKustomizationGVK, perOrgHostAppsKustomizationName(slug), "per-org-host-apps-reconciler", ks("./vcluster/host-apps", map[string]any{
+		// #4475 §1 — the host-apps tree host-side, every tier (same home-region
+		// binding as the apps tree: it carries the funnel's per-app routes).
+		obj(fluxKustomizationGVK, perOrgHostAppsKustomizationName(slug), "per-org-host-apps-reconciler", ks(hostAppsPath, map[string]any{
 			"targetNamespace": slug,
 		})),
 		// ADR-0015 D1 — this region's own Application folder.
-		obj(fluxKustomizationGVK, perOrgRegionAppsKustomizationName(slug), "per-org-region-apps-reconciler", ks("./regions/"+region+"/apps", nil)),
+		obj(fluxKustomizationGVK, perOrgRegionAppsKustomizationName(slug), "per-org-region-apps-reconciler", ks("./"+regionfile.AppsDir(region), nil)),
 	}, nil
 }
 

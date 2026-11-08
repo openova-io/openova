@@ -1,103 +1,28 @@
-# Valid sample — tier-1 bank DR config: Cloudflare-KV lease, ifurlup
-# lua-record selector, RTO 60s / RPO 5s.
+# Valid sample — ADR-0015 D8. The Continuum of a WordPress placed
+# active-hot-standby across two regions, as the application-controller renders
+# it into every region file of the Org repo. Continuum commits the transition
+# phases to acme/catalyst-tenant regions/<region-id>/apps/wordpress.yaml.
 apiVersion: dr.openova.io/v1
 kind: Continuum
 metadata:
-  name: marketing-site-dr
+  name: dr-wordpress
   namespace: acme
 spec:
-  applicationRef: marketing-site
-  primaryRegion: hz-fsn-rtz-prod
-  hotStandbyRegions:
-    - hz-hel-rtz-prod
-  leaseClient:
-    kind: cloudflare-kv
-    config:
-      kvNamespaceId: 9b1c0a2eXXXXXXXXXXXXXXXXXXXXXXXX
-      accountId: a1b2c3d4XXXXXXXXXXXXXXXXXXXXXXXX
-      tokenSecretRef:
-        name: continuum-cf-token
-        key: token
-      ttlSeconds: 30
-      renewSeconds: 10
-  luaRecord:
-    selector: ifurlup
-    healthCheck:
-      url: https://marketing.acme-prod.omantel.openova.io/health
-      intervalSeconds: 5
-      timeoutSeconds: 2
+  applicationRef: acme/wordpress
+  desiredPrimaryRegion: hw-me-east-215-b-rtz-prod
+  regions:
+    - hw-me-east-215-a-rtz-prod
+    - hw-me-east-215-b-rtz-prod
+  transition:
+    repo:
+      owner: acme
+      name: catalyst-tenant
+      branch: main
+    app: wordpress
+    stateful: true
+    dependsOn: []
+    autoPromoteOnRegionLoss: false
+    regionLossSeconds: 300
+    phaseTimeoutSeconds: 900
   rto: 60s
-  rpo: 5s
-  autoFailover: true
----
-# Manual-failover sample — DNS-quorum lease (no Cloudflare), 2-of-3 resolvers,
-# pickclosest selector for latency-aware routing.
-apiVersion: dr.openova.io/v1
-kind: Continuum
-metadata:
-  name: api-active-passive
-  namespace: bank
-spec:
-  applicationRef: api-gateway
-  primaryRegion: hz-fsn-rtz-prod
-  hotStandbyRegions:
-    - hz-hel-rtz-prod
-    - hz-nbg-rtz-prod
-  leaseClient:
-    kind: dns-quorum
-    config:
-      resolvers:
-        - 8.8.8.8
-        - 1.1.1.1
-        - 9.9.9.9
-      ttlSeconds: 60
-      renewSeconds: 20
-  luaRecord:
-    selector: pickclosest
-    healthCheck:
-      url: https://api.bank-prod.bank.example/healthz
-  rto: 5m
-  rpo: 1m
-  autoFailover: false
----
-# #3492 — openbao raft-transition sample. active-passive secret backend;
-# switchover.mechanism=raft-transition drives the OpenBao OSS peers.json
-# recovery on the surviving standby Pod: bp-continuum writes a single-voter
-# <raftDataPath>/raft/peers.json + restarts the Pod (transition-to-primary is
-# Enterprise-only, absent in OSS). No snapshotPath in the common stretched-raft
-# case (region-B already holds region-A's live KV as a retry_join non-voter).
-# No cnpgPair (raft-transition needs no CNPG cluster-pair).
-apiVersion: dr.openova.io/v1
-kind: Continuum
-metadata:
-  name: cont-openbao
-  namespace: openbao
-spec:
-  applicationRef: openbao
-  primaryRegion: hz-fsn-rtz-prod
-  hotStandbyRegions:
-    - hz-hel-rtz-prod
-  switchover:
-    mechanism: raft-transition
-    raftTransition:
-      namespace: openbao
-      podSelector: app.kubernetes.io/name=openbao
-      container: openbao
-      raftDataPath: /openbao/data
-      baoBinary: bao
-  leaseClient:
-    kind: dns-quorum
-    config:
-      resolvers:
-        - 10.43.0.10
-        - 10.43.0.11
-        - 10.43.0.12
-      ttlSeconds: 30
-      renewSeconds: 10
-  luaRecord:
-    selector: ifurlup
-    healthCheck:
-      url: https://bao.t99.omani.works/v1/sys/health
-  rto: 60s
-  rpo: 30s
-  autoFailover: false
+  rpo: 0s

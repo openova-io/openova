@@ -1,15 +1,22 @@
 {{- /*
-continuum-controller Deployment (slice K-Cont-1 of EPIC-6 #1101).
+continuum-controller Deployment — ADR-0015 D8.
 
-K-Cont-1 ships the SKELETON: a controller-runtime Manager wired to a
-no-op Reconcile() over Continuum.dr.openova.io/v1 CRs. K-Cont-2 fills
-in the reconcile loop (lease + replication watch + switchover
-sequencer); K-Cont-3 wires the lease witness; K-Cont-4 ships the
-Cloudflare Worker source.
-
-All configuration env-driven per Inviolable Principle #4.
+Rendered in EVERY region (bootstrap-kit slot 62 is per region). Each region's
+Continuum observes its own region natively, serves those observations to the
+other regions on the observations port, and — when it holds the group's Git
+lease — commits the next phase of a topology transition to the writer Gitea.
+All configuration is env-driven (Inviolable Principle #4).
 */ -}}
 {{- if .Values.continuum.enabled }}
+{{- $region := include "continuum.region" . -}}
+{{- $writer := .Values.continuum.git.writerRegionID | default "" | trim -}}
+{{- $giteaURL := .Values.continuum.git.apiURL | default "" | trim -}}
+{{- if and (eq $giteaURL "") (ne $writer "") (ne $writer $region) -}}
+{{- $giteaURL = printf "http://gitea-%s.gitea.svc.cluster.local:3000" $writer -}}
+{{- end -}}
+{{- if eq $giteaURL "" -}}
+{{- $giteaURL = "http://gitea-http.gitea.svc.cluster.local:3000" -}}
+{{- end -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -26,16 +33,10 @@ spec:
     metadata:
       labels:
         {{- include "continuum.labels" . | nindent 8 }}
+        openova.io/region: {{ $region | quote }}
     spec:
       serviceAccountName: {{ include "continuum.fullname" . }}
       automountServiceAccountToken: true
-      # GHCR image (ghcr.io/openova-io/openova/continuum-controller) is a
-      # PRIVATE package — same pattern as catalyst-api / application-controller.
-      # Without this, the deploy-bot's controller-image sweep rolls the Pod onto
-      # a new tag it can't pull → ImagePullBackOff (anonymous 401), which left
-      # continuum-controller down on hw124 and blocked the #3189 single-region
-      # idle-Ready verification. The ghcr-pull Secret lives in the same
-      # targetNamespace (catalyst-system) as the other control-plane controllers.
       imagePullSecrets:
         - name: ghcr-pull
       securityContext:
@@ -44,49 +45,6 @@ spec:
         runAsGroup: 65534
         seccompProfile:
           type: RuntimeDefault
-      {{- if .Values.continuum.prerequisiteCheck.enabled }}
-      # #3189 prerequisite-check initContainer — see values.yaml comment
-      # block on continuum.prerequisiteCheck for full rationale.
-      #
-      # The probe detects whether a bp-cnpg-pair installation exists
-      # cluster-wide. On a single-region Sovereign there is no cnpg-pair,
-      # so bp-continuum has nothing to reconcile — it is a CORRECT idle
-      # state, not a failure (the controller-runtime Manager simply has
-      # 0 Continuum CRs to act on and reports Ready). The probe therefore
-      # exits 0 in that case and lets the main controller start idle.
-      #
-      # Earlier revisions did `sleep 300; exit 1` here, which forced the
-      # init container — and therefore the whole Pod — into
-      # Init:CrashLoopBackOff on every single-region prov (#3189). That
-      # presented a healthy single-region controller as perpetually
-      # broken. We keep the loud diagnostic log line but no longer crash.
-      initContainers:
-        - name: prerequisite-check
-          image: {{ .Values.continuum.prerequisiteCheck.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.30.0" | quote }}
-          imagePullPolicy: {{ .Values.continuum.image.pullPolicy | default "IfNotPresent" }}
-          command:
-            - sh
-            - -c
-            - |
-              set -eu
-              echo "[prerequisite-check] probing for bp-cnpg-pair audit ConfigMap cluster-wide..."
-              pair_count="$(kubectl get cm -A -l catalyst.openova.io/audit-config=true --no-headers 2>/dev/null | wc -l)"
-              if [ "$pair_count" -eq 0 ]; then
-                echo "[prerequisite-check] no bp-cnpg-pair installation detected — single-region Sovereign."
-                echo "[prerequisite-check] bp-continuum has no CNPG cluster-pair to switch over (Pillar-3 multi-region only, #2840)."
-                echo "[prerequisite-check] Starting controller in IDLE mode: it will report Ready and reconcile nothing until a"
-                echo "[prerequisite-check] bp-cnpg-pair (2nd region) appears. This is a correct single-region no-op, NOT a failure."
-                exit 0
-              fi
-              echo "[prerequisite-check] PASS: found $pair_count bp-cnpg-pair installation(s); main container will start active."
-          resources:
-            {{- toYaml (.Values.continuum.prerequisiteCheck.resources | default (dict "requests" (dict "cpu" "10m" "memory" "32Mi") "limits" (dict "cpu" "100m" "memory" "64Mi"))) | nindent 12 }}
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop: ["ALL"]
-      {{- end }}
       containers:
         - name: controller
           image: {{ include "continuum.image" (dict "root" .) | quote }}
@@ -100,47 +58,26 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
-            # #3829 — the host-cluster region this controller represents.
-            # Stamped on the k8s-lease holderIdentity. When unset, the
-            # controller falls back to the Continuum CR's primaryRegion
-            # (the controller runs only on the primary-side cluster), so
-            # a fresh prov that doesn't wire this still yields a held
-            # lease. Set continuum.region in an overlay to pin it
-            # explicitly.
-            {{- if .Values.continuum.region }}
-            - name: CATALYST_REGION
-              value: {{ .Values.continuum.region | quote }}
-            {{- end }}
-            # #3829 — namespace for the k8s-lease witness's
-            # coordination.k8s.io/v1 Lease objects. Defaults (controller
-            # binary side) to the controller's own namespace.
-            - name: CATALYST_LEASE_NS
-              value: {{ .Values.continuum.leaseNamespace | default .Release.Namespace | quote }}
-            # K-Cont-2 / K-Cont-3 seams (sketched here; values currently
-            # unused by the no-op Reconcile but part of the target-state
-            # shape per Inviolable Principle #1).
-            - name: PDM_API_URL
-              value: {{ .Values.continuum.pdmURL | default "" | quote }}
-            - name: NATS_URL
-              value: {{ .Values.continuum.natsURL | default "" | quote }}
-            - name: LEASE_TTL_SECONDS
-              value: {{ .Values.continuum.lease.ttlSeconds | default 30 | quote }}
-            - name: LEASE_RENEW_SECONDS
-              value: {{ .Values.continuum.lease.renewSeconds | default 10 | quote }}
-            # Slice F-2 + F-3 — dry-run + post-switchover health
-            # endpoints. Empty CONTINUUM_API_ADDR disables the HTTP
-            # server entirely.
-            - name: CONTINUUM_API_ADDR
-              value: ":{{ .Values.continuum.api.port | default 8082 }}"
-            {{- if .Values.continuum.api.tokenSecretRef }}
-            - name: CONTINUUM_API_TOKEN
+            - name: SOVEREIGN_REGION_ID
+              value: {{ $region | quote }}
+            - name: SOVEREIGN_REGIONS_JSON
+              value: {{ include "continuum.regionsJson" . | quote }}
+            - name: GITEA_API_URL
+              value: {{ $giteaURL | quote }}
+            - name: GITEA_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.continuum.api.tokenSecretRef.name | quote }}
-                  key: {{ .Values.continuum.api.tokenSecretRef.key | quote }}
-            {{- end }}
-            - name: CONTINUUM_HEALTH_DELAY_SECONDS
-              value: {{ .Values.continuum.health.postSwitchoverDelaySeconds | default 30 | quote }}
+                  name: {{ .Values.continuum.git.tokenSecret.name | quote }}
+                  key: {{ .Values.continuum.git.tokenSecret.key | quote }}
+                  optional: true
+            - name: OBSERVATIONS_ADDR
+              value: ":{{ .Values.continuum.observations.port }}"
+            - name: PEER_URL_TEMPLATE
+              value: {{ printf "http://continuum-{region}.%s.svc.cluster.local:%v" .Release.Namespace .Values.continuum.observations.port | quote }}
+            - name: TICK_SECONDS
+              value: {{ .Values.continuum.tickSeconds | quote }}
+            - name: LEASE_TTL_SECONDS
+              value: {{ .Values.continuum.lease.ttlSeconds | quote }}
             {{- range $k, $v := .Values.continuum.env }}
             - name: {{ $k | quote }}
               value: {{ $v | quote }}
@@ -150,8 +87,8 @@ spec:
               containerPort: {{ .Values.continuum.metrics.port | default 9090 }}
             - name: health
               containerPort: {{ .Values.continuum.health.port | default 8081 }}
-            - name: api
-              containerPort: {{ .Values.continuum.api.port | default 8082 }}
+            - name: observations
+              containerPort: {{ .Values.continuum.observations.port }}
           livenessProbe:
             httpGet:
               path: /healthz

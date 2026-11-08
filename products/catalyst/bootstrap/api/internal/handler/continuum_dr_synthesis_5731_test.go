@@ -52,9 +52,7 @@ import (
 // guard exercises. The singular `/continuum/` aliases are the paths
 // cmd/api/main.go registers and the UI + matrix runner hit.
 func registerContinuumHonestyRoutes(r chi.Router, h *Handler) {
-	r.Post("/api/v1/sovereigns/{id}/continuum/{name}/switchover/preview", h.HandleContinuumSwitchoverPreview)
 	r.Get("/api/v1/sovereigns/{id}/continuum/{name}", h.HandleContinuumGetEnriched)
-	r.Put("/api/v1/sovereigns/{id}/continuum/{name}", h.HandleContinuumPut)
 	r.Get("/api/v1/fleet/continuum", h.HandleFleetContinuum)
 }
 
@@ -166,35 +164,6 @@ func TestGetEnriched_HonestWhenClientUnavailable_5728(t *testing.T) {
 	}
 }
 
-// ── GUARD 3c — PUT when the cluster could not be reached ────────────
-//
-// Pre-fix: enrichSynthesizedWithPut() echoed the caller's rpo/rto back
-// at 200, so an operator was told their DR policy had been persisted
-// when nothing had been written.
-func TestPut_HonestWhenClientUnavailable_5728(t *testing.T) {
-	h := NewWithPDM(silentLogger(), &fakePDM{})
-	h.dynamicFactory = errDynamicFactory()
-	dep := installUserAccessDeployment(t, h, "dep-5728-put")
-
-	body := []byte(`{"spec":{"rpoSeconds":15,"rtoSeconds":45}}`)
-	r := chi.NewRouter()
-	registerContinuumHonestyRoutes(r, h)
-	req := httptest.NewRequest(http.MethodPut,
-		"/api/v1/sovereigns/"+dep.ID+"/continuum/cont-x", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, ownerCtxReq(req))
-
-	if rec.Code >= 200 && rec.Code < 300 {
-		t.Errorf("PUT against unreachable cluster: got 2xx %d, want non-2xx — nothing was persisted; body=%s",
-			rec.Code, rec.Body.String())
-	}
-	if bytes.Contains(rec.Body.Bytes(), []byte(`"rpoSeconds":15`)) {
-		t.Errorf("PUT against unreachable cluster: echoed the requested policy back as if stored; got %s",
-			rec.Body.String())
-	}
-}
-
 // ── GUARD 4 — fleet listing when NO Continuum can be read ───────────
 //
 // The fleet page is what a sovereign-admin scans to find which
@@ -244,82 +213,6 @@ func TestFleetContinuum_HonestWhenUnreadable_5731(t *testing.T) {
 		if bytes.Contains(rec.Body.Bytes(), []byte(leak)) {
 			t.Errorf("fleet body leaked hardcoded %q; got %s", leak, rec.Body.String())
 		}
-	}
-}
-
-// ── GUARD 5 — switchover PREVIEW when nothing could be checked ──────
-//
-// This is the PRE-FLIGHT SAFETY CHECK the confirm button is gated on.
-// Pre-fix it answered Promotable:true with an EMPTY BlockingChecks list
-// when it had run zero checks. An empty list is the dangerous value: it
-// reads as "every precondition passed", so this asserts on the VALUE,
-// not on the presence of the key.
-func TestSwitchoverPreview_HonestWhenClientUnavailable_5731(t *testing.T) {
-	h := NewWithPDM(silentLogger(), &fakePDM{})
-	h.dynamicFactory = errDynamicFactory()
-	dep := installUserAccessDeployment(t, h, "dep-5731-preview-noclient")
-
-	body, _ := json.Marshal(continuumSwitchoverPreviewRequest{TargetRegion: "me-east-215-b"})
-	r := chi.NewRouter()
-	registerContinuumHonestyRoutes(r, h)
-	req := httptest.NewRequest(http.MethodPost,
-		"/api/v1/sovereigns/"+dep.ID+"/continuum/cont-x/switchover/preview", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, ownerCtxReq(req))
-
-	var resp continuumSwitchoverPreviewResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v; body=%s", err, rec.Body.String())
-	}
-	if resp.Promotable {
-		t.Errorf("preview reports promotable:true having run zero checks (cluster unreachable); body=%s",
-			rec.Body.String())
-	}
-	if len(resp.BlockingChecks) == 0 {
-		t.Errorf("preview returned an EMPTY blockingChecks list having run zero checks — "+
-			"an empty list reads as 'all preconditions passed'; body=%s", rec.Body.String())
-	}
-	if rec.Code >= 200 && rec.Code < 300 {
-		t.Errorf("preview: got 2xx %d, want non-2xx when no precondition could be checked; body=%s",
-			rec.Code, rec.Body.String())
-	}
-	for _, leak := range []string{"fsn1", "hz-hel-rtz-prod", "qa-omantel"} {
-		if bytes.Contains(rec.Body.Bytes(), []byte(leak)) {
-			t.Errorf("preview leaked hardcoded %q; got %s", leak, rec.Body.String())
-		}
-	}
-}
-
-// ── GUARD 5b — preview when the CR is absent ────────────────────────
-func TestSwitchoverPreview_HonestWhenCRAbsent_5731(t *testing.T) {
-	h := NewWithPDM(silentLogger(), &fakePDM{})
-	factory, _ := fakeContinuumDynamicFactory() // cluster answers; no CR
-	h.dynamicFactory = factory
-	dep := installUserAccessDeployment(t, h, "dep-5731-preview-nocr")
-
-	r := chi.NewRouter()
-	registerContinuumHonestyRoutes(r, h)
-	req := httptest.NewRequest(http.MethodPost,
-		"/api/v1/sovereigns/"+dep.ID+"/continuum/cont-absent/switchover/preview", nil)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, ownerCtxReq(req))
-
-	var resp continuumSwitchoverPreviewResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v; body=%s", err, rec.Body.String())
-	}
-	if resp.Promotable {
-		t.Errorf("preview reports promotable:true with no Continuum CR to check; body=%s",
-			rec.Body.String())
-	}
-	if len(resp.BlockingChecks) == 0 {
-		t.Errorf("preview returned an EMPTY blockingChecks list with no CR to check; body=%s",
-			rec.Body.String())
-	}
-	if resp.CurrentLagSec > 0 {
-		t.Errorf("preview reports a %v s replication lag it never measured; body=%s",
-			resp.CurrentLagSec, rec.Body.String())
 	}
 }
 
@@ -454,43 +347,6 @@ func TestFleetContinuum_ControlLiveCRStillListed_5731(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("CONTROL: fleet did not list the live Continuum dr-wp; items=%+v", resp.Items)
-	}
-}
-
-// ── CONTROL D — a live preview still runs its real checks ───────────
-//
-// Green on BOTH trees.
-func TestSwitchoverPreview_ControlLiveCRStillPreviews_5731(t *testing.T) {
-	h := NewWithPDM(silentLogger(), &fakePDM{})
-	cr := newContinuumUnstructured("dr-wp", "acme", "wp-prod", "hz-fsn-rtz-prod", []string{"hz-hel-rtz-prod"})
-	factory, _ := fakeContinuumDynamicFactory(cr)
-	h.dynamicFactory = factory
-	dep := installUserAccessDeployment(t, h, "dep-5731-control-preview")
-
-	body, _ := json.Marshal(continuumSwitchoverPreviewRequest{TargetRegion: "hz-hel-rtz-prod"})
-	r := chi.NewRouter()
-	registerContinuumHonestyRoutes(r, h)
-	req := httptest.NewRequest(http.MethodPost,
-		"/api/v1/sovereigns/"+dep.ID+"/continuum/dr-wp/switchover/preview?namespace=acme",
-		bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, ownerCtxReq(req))
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("CONTROL preview status: got %d want 200; body=%s", rec.Code, rec.Body.String())
-	}
-	var resp continuumSwitchoverPreviewResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if resp.CurrentPrimary != "hz-fsn-rtz-prod" {
-		t.Errorf("CONTROL preview currentPrimary: got %q want hz-fsn-rtz-prod (read off the CR)",
-			resp.CurrentPrimary)
-	}
-	if !resp.Promotable {
-		t.Errorf("CONTROL: a healthy live pair must still preview as promotable; body=%s",
-			rec.Body.String())
 	}
 }
 

@@ -4100,7 +4100,19 @@ name: bp-catalyst-platform
 #   Continuum status.activity[] + phase Unknown, Blueprint
 #   spec.endpoints[].healthPath) + application-controller HTTPRoute/Service
 #   read RBAC; bp-openova-mcp 0.1.8 seed pin.
-version: 1.4.1901
+# 1.4.1902 (ADR-0015 batch 2, Refs #7067 — integration of #7076 #7077 #7079
+#   #7080): seed pins bp-continuum 0.2.0 (D8 native topology transitions — Git
+#   phase commits + Git lease, every region; Continuum CRD rewritten for the
+#   Git-delivered contract and shipped byte-identically by bp-continuum's crds/,
+#   scripts/check-continuum-crd-lockstep.sh); bp-wordpress-tenant 0.6.0 (D6b
+#   media in the replicated SeaweedFS bucket + the writer-only write-once
+#   shared-secrets seed + promotion.mechanism continuum) and its
+#   spec.regionLocalVolumes on the seed CR (read by the D6 admission gate);
+#   bp-seaweedfs 1.3.1 (s3-secret reflection-allowed); bp-openbao 1.2.71 (ESO
+#   push grant on secret/openova/apps/*); bp-self-sovereign-cutover 0.1.207
+#   (secondary ghcr-pull keeps the Reflector annotations); bp-reflector (sized
+#   from hw307 OOMKill evidence).
+version: 1.4.1902
 # 1.4.1481 — #6293: catalog-seed advances bp-self-sovereign-cutover
 #   0.1.186 -> 0.1.187, the release that stops step-06 from patching five
 #   HelmRepositories it does not own and then grading itself on whether they
@@ -4287,7 +4299,7 @@ version: 1.4.1901
 # scripts/check-chart-version-forward.sh (#5743) fails unless the two match —
 # main was carrying a pre-existing 1.4.1330/1.4.1329 split, so this bump heals
 # it in the same commit, exactly as the documented self-heal contract does.
-appVersion: 1.4.1901
+appVersion: 1.4.1902
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
 # Adds the OpenTofu module at infra/providers/huawei/ (VPC + Subnet +

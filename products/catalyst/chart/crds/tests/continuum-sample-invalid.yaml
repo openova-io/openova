@@ -1,44 +1,29 @@
 # Invalid sample — must FAIL schema validation. Seeded errors:
-#   primaryRegion pattern: "fsn" - too short
-#   hotStandbyRegions: empty - minItems=1
-#   leaseClient.kind: "etcd" - not in enum
-#   luaRecord.selector: "round-robin" - not in enum
-#   luaRecord.healthCheck.url: "marketing.acme.com/health" - missing scheme
-#   rto: "1minute" - wrong format
-#   rpo: "fast" - wrong format
+#   desiredPrimaryRegion pattern: "b" — not a canonical region id
+#   regions[0] pattern: "fsn" — not a canonical region id
+#   transition.regionLossSeconds: 5 — minimum 30
 apiVersion: dr.openova.io/v1
 kind: Continuum
 metadata:
-  name: bad-dr
+  name: bad-transition
   namespace: acme
 spec:
-  applicationRef: marketing-site
-  primaryRegion: fsn
-  hotStandbyRegions: []
-  leaseClient:
-    kind: etcd
-  luaRecord:
-    selector: round-robin
-    healthCheck:
-      url: marketing.acme.com/health
-  rto: 1minute
-  rpo: fast
+  applicationRef: acme/wordpress
+  desiredPrimaryRegion: b
+  regions:
+    - fsn
+  transition:
+    repo:
+      owner: acme
+      name: catalyst-tenant
+    app: wordpress
+    regionLossSeconds: 5
 ---
-# Second invalid case — dns-quorum with too few resolvers
+# applicationRef is required.
 apiVersion: dr.openova.io/v1
 kind: Continuum
 metadata:
-  name: bad-dr-2
-  namespace: bank
+  name: bad-transition-2
+  namespace: acme
 spec:
-  applicationRef: api
-  primaryRegion: hz-fsn-rtz-prod
-  hotStandbyRegions:
-    - hz-hel-rtz-prod
-  leaseClient:
-    kind: dns-quorum
-    config:
-      resolvers:
-        - 8.8.8.8
-        - "not-an-ip"
-      ttlSeconds: 1
+  desiredPrimaryRegion: hw-me-east-215-a-rtz-prod
