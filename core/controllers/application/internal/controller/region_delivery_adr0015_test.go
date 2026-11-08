@@ -12,6 +12,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+
+	"github.com/openova-io/openova/core/controllers/pkg/regionfile"
 )
 
 func hotStandbyApp(primaryCluster, standbyCluster string) *unstructured.Unstructured {
@@ -28,14 +30,33 @@ func hotStandbyApp(primaryCluster, standbyCluster string) *unstructured.Unstruct
 
 func topologyIn(t *testing.T, objs []*unstructured.Unstructured) map[string]interface{} {
 	t.Helper()
-	if len(objs) != 1 {
-		t.Fatalf("want 1 HelmRelease in the region file, got %d", len(objs))
+	var hrs []*unstructured.Unstructured
+	for _, o := range objs {
+		if o.GetKind() == "HelmRelease" {
+			hrs = append(hrs, o)
+		}
 	}
-	topo, ok, _ := unstructured.NestedMap(objs[0].Object, "spec", "values", "openova", "topology")
+	if len(hrs) != 1 {
+		t.Fatalf("want 1 HelmRelease in the region file, got %d", len(hrs))
+	}
+	topo, ok, _ := unstructured.NestedMap(hrs[0].Object, "spec", "values", "openova", "topology")
 	if !ok {
-		t.Fatalf("%s carries no openova.topology", objs[0].GetName())
+		t.Fatalf("%s carries no openova.topology", hrs[0].GetName())
 	}
 	return topo
+}
+
+// continuumIn returns the Continuum document of a region file (ADR-0015 D8:
+// a governed Application's Continuum is delivered from Git in every region).
+func continuumIn(t *testing.T, objs []*unstructured.Unstructured) *unstructured.Unstructured {
+	t.Helper()
+	for _, o := range objs {
+		if o.GetKind() == "Continuum" {
+			return o
+		}
+	}
+	t.Fatalf("region file carries no Continuum document")
+	return nil
 }
 
 func TestReconcile_ADR0015_PlacementBecomesOneFilePerRegion(t *testing.T) {
@@ -101,10 +122,51 @@ func TestReconcile_ADR0015_MovingPrimaryIsAGitChange(t *testing.T) {
 	}
 	reconcileFromCluster(t, r, "acme", "obs")
 
-	a := topologyIn(t, regionFileObjs(t, fg, "acme", testRegionA, "obs"))
-	b := topologyIn(t, regionFileObjs(t, fg, "acme", testRegionB, "obs"))
-	if a["primary"] != testRegionB || b["primary"] != testRegionB {
-		t.Fatalf("after the move both files must name region B primary: A=%v B=%v", a, b)
+	// ADR-0015 D8: the placement edit moves the DESIRED primary (the
+	// Continuum document in every region file); the HelmReleases keep the
+	// committed primary, because moving it is Continuum's ordered commit
+	// series (old primary first, then the new one with the CNPG token) —
+	// never one commit to every region.
+	objsA := regionFileObjs(t, fg, "acme", testRegionA, "obs")
+	objsB := regionFileObjs(t, fg, "acme", testRegionB, "obs")
+	a := topologyIn(t, objsA)
+	b := topologyIn(t, objsB)
+	if a["primary"] != testRegionA || b["primary"] != testRegionA {
+		t.Fatalf("the controller must not move the committed primary itself: A=%v B=%v", a, b)
+	}
+	for _, objs := range [][]*unstructured.Unstructured{objsA, objsB} {
+		c := continuumIn(t, objs)
+		if d, _, _ := unstructured.NestedString(c.Object, "spec", "desiredPrimaryRegion"); d != testRegionB {
+			t.Fatalf("Continuum desiredPrimaryRegion = %q, want %q", d, testRegionB)
+		}
+		if owner, _, _ := unstructured.NestedString(c.Object, "spec", "transition", "repo", "owner"); owner != "acme" {
+			t.Fatalf("Continuum must name the Org repo it transitions: %v", c.Object["spec"])
+		}
+	}
+	// No Continuum is created through the API any more.
+	if _, err := r.Dynamic.Resource(ContinuumGVR).Namespace("acme").Get(context.Background(), "dr-obs", metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("Continuum must be delivered from Git, not created by API: %v", err)
+	}
+
+	// Continuum commits the transition to region A's file; a later
+	// re-render keeps Continuum's fields (compare-and-swap, no revert).
+	path := "regions/" + testRegionA + "/apps/obs.yaml"
+	raw, _ := fg.get("acme", "catalyst-tenant", "main", path)
+	moved2, err := regionfile.Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := regionfile.SetTransitionFields(moved2, regionfile.TransitionFields{Primary: testRegionB}); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := regionfile.Marshal(moved2)
+	_, _, _ = fg.PutFile(context.Background(), "acme", "catalyst-tenant", "main", path, data, "continuum: traffic-off")
+	reconcileFromCluster(t, r, "acme", "obs")
+	if a := topologyIn(t, regionFileObjs(t, fg, "acme", testRegionA, "obs")); a["primary"] != testRegionB {
+		t.Fatalf("the application-controller reverted Continuum's commit: A=%v", a)
+	}
+	if b := topologyIn(t, regionFileObjs(t, fg, "acme", testRegionB, "obs")); b["primary"] != testRegionA {
+		t.Fatalf("region B must keep its committed primary until Continuum moves it: B=%v", b)
 	}
 }
 

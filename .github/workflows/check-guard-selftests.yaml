@@ -155,6 +155,14 @@ jobs:
       - name: train-coherence pre-flight (#6326)
         run: bash scripts/check-train-coherent.sh --self-test
 
+      # ADR-0015 D8 (#7067) — Continuum acts through Git only; its CRD is
+      # shipped identically by two charts. Scans run in
+      # build-continuum-controller.yaml on every Continuum change.
+      - name: Continuum writes no workload object — self-test (ADR-0015 D8)
+        run: bash scripts/check-continuum-no-workload-mutation.sh --self-test
+      - name: Continuum CRD lockstep — self-test (ADR-0015 D8)
+        run: bash scripts/check-continuum-crd-lockstep.sh --self-test
+
       # ADR-0015 D4 (#7067) — references, never fabrication. The self-test
       # proves every forbidden shape ("sovereign" as an Org value, an
       # "<org>-prod" Environment derivation, region string surgery) goes RED

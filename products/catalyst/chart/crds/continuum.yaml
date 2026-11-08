@@ -13,8 +13,6 @@ spec:
     listKind: ContinuumList
     singular: continuum
     plural: continuums
-    shortNames:
-      - dr
     categories:
       - catalyst
       - openova
@@ -26,24 +24,15 @@ spec:
         - name: Application
           type: string
           jsonPath: .spec.applicationRef
+        - name: Desired
+          type: string
+          jsonPath: .spec.desiredPrimaryRegion
         - name: Primary
           type: string
           jsonPath: .status.primaryRegion
         - name: Lease
           type: string
           jsonPath: .status.leaseHolder
-        - name: Lag
-          type: string
-          jsonPath: .status.maxReplicationLag
-          priority: 1
-        - name: RTO
-          type: string
-          jsonPath: .spec.rto
-          priority: 1
-        - name: RPO
-          type: string
-          jsonPath: .spec.rpo
-          priority: 1
         - name: Phase
           type: string
           jsonPath: .status.phase
@@ -56,256 +45,104 @@ spec:
         openAPIV3Schema:
           type: object
           description: |
-            Continuum is the declarative DR contract for an Application
-            running with placement: active-hotstandby across two or more
-            regions. Watched by the continuum-controller (EPIC-6 #1101).
+            Continuum is the topology-transition contract of one Application
+            placed across regions (ADR-0015 D8). It is DELIVERED FROM GIT: the
+            application-controller renders it into the Application's file of
+            every region (regions/<region-id>/apps/<app>.yaml of the Org repo)
+            from Application.spec.placement, and every region's Flux applies
+            it, so the Continuum running in every region reads the same
+            desired primary.
 
-            Per docs/SRE.md §2.4 + docs/MULTI-REGION-DNS.md, switchover
-            is gated by a lease witness (Cloudflare KV or 3-DNS quorum)
-            and effected by flipping a PowerDNS lua-record probe target
-            via PDM /v1/commit. ClusterMesh carries the replication
-            traffic; Application.spec.placement remains the single
-            source of truth for which regions exist.
+            Changing the Primary is a topology transition: Continuum commits
+            ordered phases to the region files (traffic-off in the old
+            primary, data-primary with the CNPG demotion token in the new one,
+            peers, traffic-on) and waits on the native status of each (CNPG
+            demotionToken / lastPromotionToken, HelmRelease Ready, the
+            Application's Serving condition). It writes no workload object.
 
-            See docs/EPICS-1-6-unified-design.md §3.2.8 and §9.
+            This CRD is shipped identically by bp-catalyst-platform and
+            bp-continuum (so a region without the platform umbrella still has
+            it); scripts/check-continuum-crd-lockstep.sh keeps the two equal.
           required: [spec]
           properties:
             spec:
               type: object
-              required: [applicationRef, primaryRegion, hotStandbyRegions, leaseClient]
+              required: [applicationRef]
               properties:
                 applicationRef:
                   type: string
-                  description: |
-                    Name of the Application CR this Continuum governs.
-                    Application.spec.placement MUST be active-hotstandby
-                    (the controller refuses other modes at admission).
-                primaryRegion:
-                  type: string
-                  description: |
-                    HOME region of the primary-named member (topology, fixed
-                    at creation). NOT the writer: the region serving writes
-                    is observed into status.primaryRegion and converges onto
-                    desiredPrimaryRegion.
-                  pattern: '^[a-z][a-z0-9]*(-[a-z0-9]+){3,}$'
+                  description: <namespace>/<name> of the Application this Continuum governs.
                 desiredPrimaryRegion:
                   type: string
                   description: |
-                    DESIRED STATE — the region declared Primary in the
-                    Application's placement (written by the
-                    application-controller from the Topology edit / Git).
-                    The continuum-controller converges the observed writer
-                    onto it by running the switchover sequence; there is no
-                    imperative switchover request. Empty = nothing declared.
+                    DESIRED STATE — the region Application.spec.placement
+                    declares Primary, rendered by the application-controller.
+                    Continuum converges the region files onto it.
                   pattern: '^[a-z][a-z0-9]*(-[a-z0-9]+){3,}$'
-                hotStandbyRegions:
+                regions:
                   type: array
-                  minItems: 1
-                  maxItems: 4
-                  description: Host clusters running standby replicas. Promoted on failover.
+                  description: Every region of the placement (canonical region ids), in placement order.
                   items:
                     type: string
                     pattern: '^[a-z][a-z0-9]*(-[a-z0-9]+){3,}$'
-                leaseClient:
+                transition:
                   type: object
-                  required: [kind]
+                  description: Where the region files live and how a transition behaves.
                   properties:
-                    kind:
-                      type: string
-                      enum: [k8s-lease, cloudflare-kv, dns-quorum]
-                      description: |
-                        k8s-lease = a native coordination.k8s.io/v1 Lease
-                        in the control-plane cluster (#3829). The
-                        air-gappable DEFAULT — zero external dependency,
-                        durable etcd-backed CAS via the Lease object's
-                        resourceVersion. Recommended for every Sovereign.
-                        cloudflare-kv = lease in a Cloudflare Worker KV
-                        namespace — needs external egress + a Worker;
-                        unsuitable for air-gapped / self-sovereign.
-                        dns-quorum = 2-of-3 DNS resolver quorum over
-                        PowerDNS TXT (requires a TXT-write backend).
-                    config:
+                    repo:
                       type: object
-                      description: |
-                        Kind-specific config. k8s-lease optionally takes
-                        namespace (defaults to the controller namespace).
-                        cloudflare-kv expects kvNamespaceId + accountId +
-                        tokenSecretRef. dns-quorum expects resolvers[]
-                        (2-of-3 voting set) + a TXT-write backend.
+                      description: The Org repo holding regions/<region-id>/apps/<app>.yaml.
                       properties:
-                        namespace:
+                        owner:
                           type: string
-                          description: |
-                            k8s-lease only — namespace for the
-                            coordination.k8s.io/v1 Lease object. Optional;
-                            defaults to the continuum-controller's own
-                            namespace.
-                        kvNamespaceId:
+                        name:
                           type: string
-                        accountId:
+                        branch:
                           type: string
-                        tokenSecretRef:
-                          type: object
-                          required: [name, key]
-                          description: SealedSecret reference; plaintext NEVER on the CR.
-                          properties:
-                            name:
-                              type: string
-                            key:
-                              type: string
-                              default: token
-                          x-kubernetes-preserve-unknown-fields: true
-                        resolvers:
-                          type: array
-                          minItems: 3
-                          maxItems: 5
-                          items:
-                            type: string
-                            description: IPv4 resolver address.
-                            pattern: '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$'
-                        ttlSeconds:
-                          type: integer
-                          minimum: 5
-                          maximum: 600
-                          description: Lease TTL. Default applied by controller (30s).
-                        renewSeconds:
-                          type: integer
-                          minimum: 1
-                          maximum: 60
-                          description: Lease renewal interval (must be < ttlSeconds/2). Default 10s.
-                      x-kubernetes-preserve-unknown-fields: true
-                  x-kubernetes-preserve-unknown-fields: true
-                luaRecord:
-                  type: object
-                  description: |
-                    Per docs/MULTI-REGION-DNS.md, the controller writes
-                    the Application's HTTPRoute hostnames as PowerDNS
-                    lua-records via PDM /v1/commit. selector picks the
-                    behaviour; healthCheck drives the probe target.
-                  properties:
-                    selector:
+                          default: main
+                    app:
                       type: string
-                      enum: [ifurlup, pickclosest, pickfirst, pickwhashed]
-                      default: ifurlup
-                    healthCheck:
-                      type: object
-                      required: [url]
-                      properties:
-                        url:
-                          type: string
-                          pattern: '^https?://.+'
-                        intervalSeconds:
-                          type: integer
-                          minimum: 1
-                          maximum: 60
-                          default: 5
-                        timeoutSeconds:
-                          type: integer
-                          minimum: 1
-                          maximum: 30
-                          default: 2
+                      description: Application name — the region file key.
+                    stateful:
+                      type: boolean
+                      description: |
+                        The Application carries a CNPG distributed-topology
+                        member per region; traffic-off waits for
+                        status.demotionToken and data-primary commits it as
+                        database.topology.promotionToken.
+                    dependsOn:
+                      type: array
+                      description: |
+                        Continuums ([<namespace>/]<name>) of the Applications
+                        this one consumes (from Application.spec.dependsOn).
+                        A group moves together: traffic stops top-down, state
+                        moves bottom-up, traffic is restored last.
+                      items:
+                        type: string
+                    autoPromoteOnRegionLoss:
+                      type: boolean
+                      default: false
+                      description: |
+                        When the primary's region is unreachable beyond
+                        regionLossSeconds, commit the move to a surviving
+                        region WITHOUT a demotion token. Default false: a lost
+                        region is reported and nothing is committed.
+                    regionLossSeconds:
+                      type: integer
+                      minimum: 30
+                      default: 300
+                    phaseTimeoutSeconds:
+                      type: integer
+                      minimum: 30
+                      default: 900
                 rto:
                   type: string
-                  description: Recovery Time Objective. Format `^[0-9]+(s|m|h)$`.
-                  pattern: '^[0-9]+(s|m|h)$'
                 rpo:
                   type: string
-                  description: Recovery Point Objective. Format `^[0-9]+(s|m|h)$`.
-                  pattern: '^[0-9]+(s|m|h)$'
-                autoFailover:
-                  type: boolean
-                  default: false
-                  description: |
-                    If true, controller initiates switchover when health
-                    check fails for ≥3 consecutive intervals + lease
-                    quorum confirms primary unreachable. If false,
-                    controller surfaces alarm only and waits for manual
-                    switchover via the Application page (UI in #1101).
-                switchover:
-                  type: object
-                  description: |
-                    Switchover orchestration knobs. `mechanism` selects the
-                    state-store-promotion strategy for the two
-                    mechanism-specific steps of the switchover sequence
-                    (cordon + promote); the other five steps (lease /
-                    drain-HTTP / flip-DNS / audit) are mechanism-agnostic.
-                    Mirrors the Blueprint topology declaration's
-                    switchover.mechanism column (docs/topology-matrix.md).
-                    A switchover is never requested imperatively: it runs
-                    when spec.desiredPrimaryRegion differs from the observed
-                    writer (status.primaryRegion).
-                  properties:
-                    mechanism:
-                      type: string
-                      enum: [cnpg-pair, raft-transition, stateless]
-                      default: cnpg-pair
-                      description: |
-                        cnpg-pair (default) = bp-cnpg-pair promotion
-                        (cordon annotation + replica.enabled flip on the two
-                        Cluster CR halves). raft-transition = bp-openbao
-                        promotion (`bao operator raft snapshot restore` of
-                        the staged snapshot + `transition-to-primary` via
-                        Pod exec on the surviving standby; #3492). stateless
-                        = the generic DNS-flip-only promotion for an app
-                        with NO cross-region state store (#3375 §5.1): the
-                        two state-store steps (cordon + promote) are no-ops
-                        and the five agnostic steps (lease / drain-HTTP /
-                        flip-DNS / swap-lease / audit) carry the whole
-                        switchover. This is the mechanism the
-                        application-controller stamps on the per-app
-                        Continuum CR it mints for a stateless DR blueprint
-                        (bp-sso-bridge, bp-livekit, …).
-                    raftTransition:
-                      type: object
-                      description: |
-                        Openbao standby target for the raft-transition
-                        mechanism. Filled by the bp-openbao bootstrap-kit
-                        slot from the topology declaration. Ignored for
-                        cnpg-pair.
-                      properties:
-                        namespace:
-                          type: string
-                          description: openbao release namespace on the standby cluster.
-                        pod:
-                          type: string
-                          description: |
-                            Explicit standby Raft member Pod to promote
-                            (e.g. openbao-0). When empty, podSelector is
-                            used to discover the Ready Pod.
-                        podSelector:
-                          type: string
-                          description: |
-                            Label selector to find the standby Pod when pod
-                            is empty (e.g. app.kubernetes.io/name=openbao).
-                            The lexically-first Ready match is promoted.
-                        container:
-                          type: string
-                          default: openbao
-                          description: openbao container name inside the Pod.
-                        raftDataPath:
-                          type: string
-                          default: /openbao/data
-                          description: |
-                            openbao raft store directory inside the container
-                            (upstream chart default /openbao/data). The OSS
-                            peers.json recovery file is written to
-                            <raftDataPath>/raft/peers.json on the survivor.
-                        snapshotPath:
-                          type: string
-                          description: |
-                            OPTIONAL last-resort staged snapshot to restore
-                            BEFORE the peers.json recovery — only for the
-                            degenerate non-stretched topology where region-B was
-                            fed periodic snapshots instead of being a live
-                            retry_join non-voter. Empty (the common stretched-
-                            raft case) promotes from the survivor's live
-                            replicated state (no restore).
-                        baoBinary:
-                          type: string
-                          default: bao
-                          description: openbao CLI name in the image (bao | vault).
-                      x-kubernetes-preserve-unknown-fields: true
-                  x-kubernetes-preserve-unknown-fields: true
+              # Legacy fields of platform-scope Continuums (bp-cnpg-pair,
+              # bp-openbao) pass through unvalidated; the D8 controller reports
+              # a Continuum without spec.transition.repo as NotGitDelivered and
+              # never acts on it.
               x-kubernetes-preserve-unknown-fields: true
             status:
               type: object
@@ -316,57 +153,43 @@ spec:
                     - Pending
                     - Healthy
                     - Degraded
-                    - SwitchingOver
-                    - FailedOver
+                    - Transitioning
                     - Failed
-                    # ADR-0015 D7 — a standby (or witness) that has never been
-                    # observed is Unknown, never Healthy.
                     - Unknown
                 primaryRegion:
                   type: string
-                  description: OBSERVED region serving writes.
+                  description: The primary every region file currently names (Git).
                 desiredPrimaryRegion:
                   type: string
-                  description: Echo of spec.desiredPrimaryRegion.
+                  description: The desired primary read from the region files.
                 converged:
                   type: boolean
-                  description: True when the observed writer is the declared primary. The Converged condition carries the reason when it is not.
-                switchoverStep:
-                  type: string
-                  description: Current step of a running switchover ("step N/7 — name").
                 leaseHolder:
                   type: string
-                  description: Cluster that currently holds the lease.
+                  description: Region currently holding the group's Git lease ("" = no transition running).
                 leaseExpiresAt:
                   type: string
                   format: date-time
-                replicationLag:
+                transition:
                   type: object
-                  description: 'Per-standby-region replication lag — keyed by host-cluster name, value is a duration string.'
-                  additionalProperties:
-                    type: string
-                maxReplicationLag:
-                  type: string
-                  description: Convenience printer column = max(replicationLag values).
-                lastSwitchover:
-                  type: object
+                  description: The group's current or last transition record (mirrored from Git).
                   properties:
-                    at:
+                    id:
                       type: string
-                      format: date-time
+                    group:
+                      type: string
                     from:
                       type: string
                     to:
                       type: string
-                    reason:
+                    startedAt:
                       type: string
-                    rtoObserved:
+                    outcome:
                       type: string
-                    rpoObserved:
+                    message:
                       type: string
-                    initiatedBy:
-                      type: string
-                      description: User email or 'auto-failover'.
+                    lossMode:
+                      type: boolean
                   x-kubernetes-preserve-unknown-fields: true
                 conditions:
                   type: array
@@ -386,41 +209,12 @@ spec:
                       lastTransitionTime:
                         type: string
                         format: date-time
-                lastLuaRecord:
-                  type: object
-                  description: |
-                    Slice Z1 follow-up — last lua-record body Continuum
-                    committed to PowerDNS via PDM /v1/lua/commit. The UI
-                    (U-DR-1 LuaRecordView) reads `records[].body` to
-                    render. Always reflects what is currently published
-                    in PowerDNS — re-emitted on every successful PDM
-                    commit (forward and rollback).
-                  properties:
-                    records:
-                      type: array
-                      items:
-                        type: object
-                        properties:
-                          hostname:
-                            type: string
-                          body:
-                            type: string
-                            description: Lua expression PowerDNS evaluates at query time.
-                          ttl:
-                            type: integer
-                            format: int64
-                          primaryRegion:
-                            type: string
-                        x-kubernetes-preserve-unknown-fields: true
-                  x-kubernetes-preserve-unknown-fields: true
                 activity:
                   type: array
                   description: |
-                    ADR-0015 D7/D8 — structured activity of an in-flight
-                    topology transition (one entry per phase × member).
-                    Projected verbatim into Jobs as type
-                    `topology-transition`. Populated by the D8 transition
-                    engine; empty otherwise.
+                    ADR-0015 D7/D8 — this member's phases of the group's
+                    transition (one entry per phase). Projected verbatim into
+                    Jobs as type `topology-transition`.
                   items:
                     type: object
                     required: [id, state]
@@ -442,10 +236,6 @@ spec:
                         format: date-time
                       message:
                         type: string
-                lastLuaRecordAt:
-                  type: string
-                  format: date-time
-                  description: RFC3339 timestamp of the last successful PDM lua-record commit.
                 observedGeneration:
                   type: integer
                   format: int64

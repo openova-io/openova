@@ -402,7 +402,7 @@ export const KINDS: readonly CloudKindEntry[] = [
   { id: 'applications', label: 'Applications', tagline: 'Catalyst Application CRs — installed Blueprints per Environment.', hasData: true, Component: ApplicationsListPage, icon: ICON_RECONCILE_LOOP, category: 'reconciler', primary: false },
   { id: 'environments', label: 'Environments', tagline: 'Catalyst Environment CRs — logical env per Organization.', hasData: true, Component: EnvironmentsListPage, icon: ICON_RECONCILE_LOOP, category: 'reconciler', primary: false },
   { id: 'organizations', label: 'Organizations', tagline: 'Catalyst Organization CRs — top-level tenancy.', hasData: true, Component: OrganizationsListPage, icon: ICON_RECONCILE_LOOP, category: 'reconciler', primary: false },
-  { id: 'continuums', label: 'Continuums', tagline: 'Catalyst Continuum DR CRs — multi-region failover.', hasData: true, Component: ContinuumsListPage, icon: ICON_RECONCILE_LOOP, category: 'reconciler', primary: false },
+  { id: 'continuums', label: 'Continuums', tagline: 'Topology transitions — every protected group, phase by phase.', hasData: true, Component: ContinuumsListPage, icon: ICON_RECONCILE_LOOP, category: 'reconciler', primary: false },
   { id: 'useraccesses', label: 'User Access', tagline: 'Catalyst UserAccess CRs — RBAC bindings per User.', hasData: true, Component: UserAccessesListPage, icon: ICON_RECONCILE_LOOP, category: 'reconciler', primary: false },
 ] as const
 
