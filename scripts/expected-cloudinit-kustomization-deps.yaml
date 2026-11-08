@@ -71,7 +71,8 @@ kustomizations:
     # ADR-0015 D1 — every region reconciles its own path of the Sovereign
     # region repo from its own Gitea (clusters/_template/sovereign-region).
     # NO dependsOn: wait:false + retryInterval, retrying until Gitea and the
-    # region repo exist. Provider-agnostic (NOT optional).
+    # region repo exist. Rendered for every provider except Hetzner (32576 B
+    # user-data cap; applied by hand there). Present in the .tftpl text.
     depends_on: []
   - name: infrastructure-providers
     # #4521 — LAYER 1 of the two-layer Crossplane bootstrap. The ONLY crossplane

@@ -688,7 +688,10 @@ func TestBootstrapKit_PerOrgBlueprintsAreHostNative(t *testing.T) {
 	//     tier rtz -> ''). It installs through the application-controller
 	//     fan-out (no bootstrap: true application-cr) so a regression to a
 	//     removed plane would Degrade a fresh Org — assert it here too.
-	perOrgSeedNames := map[string]bool{"bp-wordpress": true, "bp-agenity": true}
+	// ADR-0015 D4 (#7067): the seed-only `bp-wordpress` alias was deleted —
+	// WordPress has one Blueprint, bp-wordpress-tenant, which the source half
+	// above already covers (and perOrgCatalogBlueprints adds when seeded).
+	perOrgSeedNames := map[string]bool{"bp-agenity": true}
 	for bpName := range perOrgCatalogBlueprints {
 		perOrgSeedNames[bpName] = true
 	}
