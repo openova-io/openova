@@ -130,6 +130,12 @@ spec:
                   optional: true
             - name: SOVEREIGN_REGION_ID
               value: {{ (.Values.sovereign).regionId | default "" | quote }}
+            # ADR-0015 D8 — platform Applications (bootstrap-kit slot installs:
+            # cnpg-pair, shared-pg*) are delivered from the Sovereign region
+            # repo, clusters/<fqdn>/regions/<region-id>/platform/<app>.yaml —
+            # the same repo + fqdn the organization-controller commits to.
+            - name: SOVEREIGN_FQDN
+              value: {{ .Values.global.sovereignFQDN | default "" | quote }}
             {{- range $k, $v := .Values.controllers.application.env }}
             - name: {{ $k | quote }}
               value: {{ $v | quote }}

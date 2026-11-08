@@ -169,7 +169,14 @@ type: application
 #   Continuum CRD in crds/. RBAC reduced to reads + continuums/status +
 #   applications/status. Values: region, regionsJson, git.*, observations.*,
 #   tickSeconds; removed pdmURL, natsURL, api.*, prerequisiteCheck.*.
-version: 0.2.0
+# 0.2.1 (ADR-0015 D8, Refs #7067): Continuum CRD gains
+#   spec.transition.repo.{path,folder} and spec.transition.helmRelease, so a
+#   PLATFORM pair (bp-cnpg-pair, bp-postgres shared-pg*, installed by a
+#   bootstrap-kit slot) is Git-delivered from the Sovereign region repo
+#   (clusters/<fqdn>/regions/<r>/platform/<app>.yaml, lease under
+#   clusters/<fqdn>/continuum/transitions/) and moved by the same phase
+#   machine. Values unchanged (the controller image follows the deploy-bot).
+version: 0.2.1
 appVersion: "0.1.0"
 home: https://openova.io
 sources:

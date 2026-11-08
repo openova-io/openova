@@ -60,8 +60,11 @@ switchover with an RPO/health preflight; no unattended promotion.
      .Values itself is chartutil.Values which dig rejects. */ -}}
 {{- $continuum := .Values.continuum | default dict -}}
 {{- $continuumOn := ne (toString (dig "enabled" true $continuum)) "false" -}}
+{{- /* ADR-0015 D8: under the openova.topology contract the Continuum is
+     delivered from Git with the region file in every region — none here. */ -}}
 {{- if and
       (ne (toString .Values.enabled) "false")
+      (not (include "bp-postgres.contractActive" .))
       $continuumOn
       $ahs
       (not (include "bp-postgres.renderReplicaHalf" .))

@@ -910,7 +910,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "0.2.31",
+      "version": "0.2.32",
       "section": "pts-9-disaster-recovery",
       "depends": [
         "bp-cnpg",
@@ -4130,7 +4130,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "0.2.32",
+      "version": "0.2.33",
       "section": "pts-4-1-data-services",
       "depends": [
         "bp-cnpg",

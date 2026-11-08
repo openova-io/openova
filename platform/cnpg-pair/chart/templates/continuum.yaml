@@ -31,7 +31,10 @@ continuum-controller (slot 62) runs on the primary cluster (its HR is
 suspended on secondary control planes), so the CR it reconciles must
 live there too.
 */ -}}
-{{- if and .Values.cnpgPair.enabled .Values.cnpgPair.continuum.enabled (include "cnpg-pair.isPrimarySide" .) }}
+{{- /* ADR-0015 D8: under the openova.topology contract the Continuum is
+     delivered from Git with the region file (application-controller,
+     platform_region_files.go) in EVERY region — the chart renders none. */ -}}
+{{- if and .Values.cnpgPair.enabled .Values.cnpgPair.continuum.enabled (include "cnpg-pair.isPrimarySide" .) (not (include "cnpg-pair.contractActive" .)) }}
 {{- include "cnpg-pair.validateRegions" . }}
 {{- $cprim := required "continuum.primaryRegion is REQUIRED when continuum.enabled=true — set the canonical 4-segment label (e.g. hz-fsn-rtz-prod) matching the Continuum CRD region pattern (canonical label, e.g. hw-me-east-215-a-rtz-prod)" .Values.cnpgPair.continuum.primaryRegion -}}
 {{- $cstby := required "continuum.hotStandbyRegion is REQUIRED when continuum.enabled=true — set the canonical 4-segment label (e.g. hz-hel-rtz-prod)" .Values.cnpgPair.continuum.hotStandbyRegion -}}

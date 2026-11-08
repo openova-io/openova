@@ -35,6 +35,9 @@ applies) keeps the historical single-cluster behaviour. Any other value
 fails the render. Mirrors bp-cnpg-pair's `cnpg-pair.side` helper exactly.
 */}}
 {{- define "bp-postgres.side" -}}
+{{- if (include "bp-postgres.contractActive" .) -}}
+{{- include "bp-postgres.contractSide" . -}}
+{{- else -}}
 {{- $side := default "primary" .Values.topology.side -}}
 {{- if eq $side "secondary" -}}
 {{- $side = "replica" -}}
@@ -43,6 +46,7 @@ fails the render. Mirrors bp-cnpg-pair's `cnpg-pair.side` helper exactly.
 {{- fail (printf "topology.side must be one of primary|replica|secondary — got %q" .Values.topology.side) -}}
 {{- end -}}
 {{- $side -}}
+{{- end -}}
 {{- end -}}
 
 {{- define "bp-postgres.isReplicaSide" -}}
@@ -67,7 +71,7 @@ RUNTIME catalyst-api patch, not a cloud-init substitute). Sprig-safe
 singleton, byte-identical to pre-0.2.0.
 */}}
 {{- define "bp-postgres.activeHotStandby" -}}
-{{- if or (eq .Values.topology.mode "active-hot-standby") (and (hasKey .Values.topology "crossRegion") (ne (toString .Values.topology.crossRegion) "false")) -}}true{{- end -}}
+{{- if or (include "bp-postgres.contractActive" .) (eq .Values.topology.mode "active-hot-standby") (and (hasKey .Values.topology "crossRegion") (ne (toString .Values.topology.crossRegion) "false")) -}}true{{- end -}}
 {{- end -}}
 
 {{/*
@@ -138,7 +142,7 @@ drPairCapable + assertDRPairSymmetry.
 {{- $ap := dig "autoPromote" dict $topology -}}
 {{- $apEnabled := true -}}
 {{- if hasKey $ap "enabled" }}{{- $apEnabled = $ap.enabled -}}{{- end -}}
-{{- if and (eq (include "bp-postgres.drPairCapable" .) "true") (eq (include "bp-postgres.side" .) "replica") $apEnabled -}}true{{- end -}}
+{{- if and (not (include "bp-postgres.contractActive" .)) (eq (include "bp-postgres.drPairCapable" .) "true") (eq (include "bp-postgres.side" .) "replica") $apEnabled -}}true{{- end -}}
 {{- end -}}
 
 {{/*
@@ -226,7 +230,7 @@ being rejoined — by definition it only matters once region-A is back.
 {{- $fb := dig "failback" dict $topology -}}
 {{- $fbEnabled := true -}}
 {{- if hasKey $fb "enabled" }}{{- $fbEnabled = $fb.enabled -}}{{- end -}}
-{{- if and (eq (include "bp-postgres.drPairCapable" .) "true") (eq (include "bp-postgres.side" .) "primary") $fbEnabled -}}true{{- end -}}
+{{- if and (not (include "bp-postgres.contractActive" .)) (eq (include "bp-postgres.drPairCapable" .) "true") (eq (include "bp-postgres.side" .) "primary") $fbEnabled -}}true{{- end -}}
 {{- end -}}
 
 {{/*
@@ -282,7 +286,7 @@ Flipping it back to false is the sovereign-admin's controlled switchback
 */}}
 {{- define "bp-postgres.primaryDemoted" -}}
 {{- $topology := .Values.topology | default dict -}}
-{{- if and (include "bp-postgres.activeHotStandby" .) (eq (include "bp-postgres.side" .) "primary") (ne (toString (dig "demoted" false $topology)) "false") -}}true{{- end -}}
+{{- if and (not (include "bp-postgres.contractActive" .)) (include "bp-postgres.activeHotStandby" .) (eq (include "bp-postgres.side" .) "primary") (ne (toString (dig "demoted" false $topology)) "false") -}}true{{- end -}}
 {{- end -}}
 
 {{/*
@@ -533,10 +537,15 @@ SAME answer on both. Default (neither set) → false → steady state, and every
 alias selector below is byte-identical to pre-0.2.25.
 */}}
 {{- define "bp-postgres.pairFailedOver" -}}
+{{- if (include "bp-postgres.contractActive" .) -}}
+{{- /* Under the contract: the writer is the replica-home member. */ -}}
+{{- if eq (include "openova.topology.get" . | fromJson).primary (include "bp-postgres.replicaRegion" .) -}}true{{- end -}}
+{{- else -}}
 {{- $topology := .Values.topology | default dict -}}
 {{- $demotedPrimary := eq (include "bp-postgres.primaryDemoted" .) "true" -}}
 {{- $promotedReplica := and (ne (include "bp-postgres.side" .) "primary") (ne (toString (dig "promoted" false $topology)) "false") -}}
 {{- if or $demotedPrimary $promotedReplica -}}true{{- end -}}
+{{- end -}}
 {{- end -}}
 
 {{/*
@@ -625,4 +634,145 @@ app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 catalyst.openova.io/blueprint: bp-postgres
 catalyst.openova.io/data-instance: {{ include "bp-postgres.instanceName" . | quote }}
+{{- end -}}
+
+{{- /*
+═══════════════════════════════════════════════════════════════════════════
+ADR-0015 D2/D8 — the openova.topology contract (chart 0.2.33)
+═══════════════════════════════════════════════════════════════════════════
+The data instance consumes the ONE contract (platform/topology-lib):
+
+  openova.topology: {mode, self, primary, peers}      region ids
+  database.topology.promotionToken                    CNPG demotion token
+
+For the bootstrap-kit shared instances (slots 16c/16d — NOT 16a: shared-pg
+holds Gitea's own database, which a Gitea-commit transition cannot move) it is
+delivered per
+region from Git: the application-controller writes
+clusters/<fqdn>/regions/<r>/platform/<instance>.yaml in the Sovereign region
+repo (a carrier ConfigMap) and the slot HelmRelease merges it via `valuesFrom`;
+Continuum moves `primary` + `promotionToken` region by region, waiting on CNPG's
+own demotionToken / lastPromotionToken.
+
+ACTIVE when the contract is multi-region AND both member pins are set —
+topology.primary.region (keeps the `<instance>` Cluster, the consumer host
+`<instance>-rw`) and topology.replica.region (keeps `<instance>-replica`). The
+pins are the clusterNames-pin mechanism: the existing per-region names never
+change, so adopting the live hw307 pair renames nothing. Without the pins the
+chart renders exactly as 0.2.32.
+
+MAPPING onto the existing shapes — no second vocabulary:
+
+  contract                         bp-postgres
+  ──────────────────────────────   ─────────────────────────────────────────
+  self == topology.primary.region  side=primary  (cluster.yaml, `<instance>`)
+  self == topology.replica.region  side=replica  (replica-cluster.yaml)
+  primary (region id)              spec.replica.primary = that region's member
+                                   (CNPG ≥1.24 distributed topology); the
+                                   consumer aliases `-mesh` / `-mesh-rw` follow
+                                   it (pairFailedOver ⇔ primary is the replica
+                                   home), so DNS/traffic move with the render
+  database.topology.promotionToken spec.replica.promotionToken on the member
+                                   being promoted
+
+UNDER THE CONTRACT the imperative seams stay OFF: dr-promoter / dr-failback
+(they patch the bootstrap-kit Kustomization), the topology.demoted /
+topology.promoted reshapes, and the chart's own Continuum CR (the region file
+carries it).
+*/ -}}
+
+{{- define "bp-postgres.contractActive" -}}
+{{- $topology := .Values.topology | default dict -}}
+{{- if and (include "openova.topology.get" . | fromJson).multiRegion (ne (toString (dig "primary" "region" "" $topology)) "") (ne (toString (dig "replica" "region" "" $topology)) "") -}}true{{- end -}}
+{{- end -}}
+
+{{- /* The member (Cluster CR name) pinned to a region id. */ -}}
+{{- define "bp-postgres.memberName" -}}
+{{- if eq .region (include "bp-postgres.primaryRegion" .ctx) -}}
+{{- include "bp-postgres.instanceName" .ctx -}}
+{{- else if eq .region (include "bp-postgres.replicaRegion" .ctx) -}}
+{{- include "bp-postgres.replicaName" .ctx -}}
+{{- else -}}
+{{- fail (printf "openova.topology region %q is neither topology.primary.region (%q) nor topology.replica.region (%q) — the data instance's members are pinned to those two regions" .region (include "bp-postgres.primaryRegion" .ctx) (include "bp-postgres.replicaRegion" .ctx)) -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "bp-postgres.contractSide" -}}
+{{- $t := include "openova.topology.get" . | fromJson -}}
+{{- include "openova.topology.assertMode" (dict "ctx" . "supported" (list "active-hot-standby" "active-passive")) -}}
+{{- if eq (include "bp-postgres.primaryRegion" .) (include "bp-postgres.replicaRegion" .) -}}
+{{- fail "bp-postgres: topology.primary.region and topology.replica.region must differ" -}}
+{{- end -}}
+{{- range (concat (list $t.self $t.primary) $t.peers) -}}
+{{- $_ := include "bp-postgres.memberName" (dict "ctx" $ "region" .) -}}
+{{- end -}}
+{{- if eq $t.self (include "bp-postgres.primaryRegion" .) -}}primary{{- else -}}replica{{- end -}}
+{{- end -}}
+
+{{- /* "true" when THIS release renders the writer (contract mode only). */ -}}
+{{- define "bp-postgres.contractIsPrimary" -}}
+{{- if (include "openova.topology.get" . | fromJson).isPrimary -}}true{{- end -}}
+{{- end -}}
+
+{{- /* The distributed-topology `replica:` body for THIS member (contract mode). */ -}}
+{{- define "bp-postgres.contractReplica" -}}
+{{- $t := include "openova.topology.get" . | fromJson -}}
+{{- $self := include "bp-postgres.memberName" (dict "ctx" . "region" $t.self) -}}
+{{- $peer := include "bp-postgres.memberName" (dict "ctx" . "region" (first $t.peers)) -}}
+self: {{ $self }}
+primary: {{ include "bp-postgres.memberName" (dict "ctx" . "region" $t.primary) }}
+source: {{ $peer }}
+{{- $tok := dig "database" "topology" "promotionToken" "" (.Values | toJson | fromJson) }}
+{{- if and $t.isPrimary $tok }}
+promotionToken: {{ $tok | quote }}
+{{- end }}
+{{- end -}}
+
+{{- /* Both members as externalClusters (CNPG's distributed topology lists
+     every member). `<instance>` is reached over `-mesh`, `<instance>-replica`
+     over `-replica-mesh`; each presents THIS member's streaming_replica client
+     cert. The `<instance>` entry keeps its root pin (the replica half's proven
+     forward stream); the `-replica` entry carries none (its server chain is
+     signed by the replica's own CA — the hw278 lesson). */ -}}
+{{- define "bp-postgres.contractExternalClusters" -}}
+{{- $first := first (.Values.databases | default list) -}}
+{{- $db := (default (dict) $first).name | default "app" -}}
+{{- $inst := include "bp-postgres.instanceName" . -}}
+- name: {{ $inst }}
+  connectionParameters:
+    host: {{ include "bp-postgres.replicationServiceName" . }}
+    port: "5432"
+    user: streaming_replica
+    sslmode: require
+    dbname: {{ $db | quote }}
+  sslKey:
+    name: {{ $inst }}-replication
+    key: tls.key
+  sslCert:
+    name: {{ $inst }}-replication
+    key: tls.crt
+  sslRootCert:
+    name: {{ $inst }}-ca
+    key: ca.crt
+- name: {{ include "bp-postgres.replicaName" . }}
+  connectionParameters:
+    host: {{ include "bp-postgres.peerReplicationServiceName" . }}
+    port: "5432"
+    user: streaming_replica
+    sslmode: require
+    dbname: {{ $db | quote }}
+  sslKey:
+    name: {{ $inst }}-replication
+    key: tls.key
+  sslCert:
+    name: {{ $inst }}-replication
+    key: tls.crt
+{{- end -}}
+
+{{- /* openova.io/topology-primary — what Helm APPLIED, read by Continuum (the
+     slot HelmRelease's spec.values do not carry the contract). */ -}}
+{{- define "bp-postgres.topologyAnnotations" -}}
+{{- if (include "bp-postgres.contractActive" .) }}
+openova.io/topology-primary: {{ (include "openova.topology.get" . | fromJson).primary | quote }}
+{{- end }}
 {{- end -}}

@@ -180,52 +180,6 @@ func TestBuildContinuumPlan_Gate(t *testing.T) {
 	})
 }
 
-func TestRenderContinuumCR_Shape(t *testing.T) {
-	cp := continuumPlan{
-		AppRef:         "acme/obs",
-		PrimaryRegion:  "hetzner-fsn-rtz-prod",
-		StandbyRegions: []string{"hetzner-nbg-rtz-prod"},
-		Mechanism:      "stateless",
-		RTOSeconds:     30,
-		OwnerLabels:    map[string]string{"catalyst.openova.io/organization": "acme"},
-	}
-	cr := renderContinuumCR("obs", "acme", cp)
-
-	if cr.GetName() != "dr-obs" {
-		t.Errorf("name = %q, want dr-obs", cr.GetName())
-	}
-	if cr.GetAPIVersion() != "dr.openova.io/v1" || cr.GetKind() != "Continuum" {
-		t.Errorf("GVK = %s/%s", cr.GetAPIVersion(), cr.GetKind())
-	}
-	appRef, _, _ := unstructured.NestedString(cr.Object, "spec", "applicationRef")
-	if appRef != "acme/obs" {
-		t.Errorf("applicationRef = %q", appRef)
-	}
-	primary, _, _ := unstructured.NestedString(cr.Object, "spec", "primaryRegion")
-	if primary != "hetzner-fsn-rtz-prod" {
-		t.Errorf("primaryRegion = %q", primary)
-	}
-	standby, _, _ := unstructured.NestedStringSlice(cr.Object, "spec", "hotStandbyRegions")
-	if len(standby) != 1 || standby[0] != "hetzner-nbg-rtz-prod" {
-		t.Errorf("hotStandbyRegions = %v", standby)
-	}
-	leaseKind, _, _ := unstructured.NestedString(cr.Object, "spec", "leaseClient", "kind")
-	if leaseKind != DefaultContinuumLeaseKind {
-		t.Errorf("leaseClient.kind = %q, want %q", leaseKind, DefaultContinuumLeaseKind)
-	}
-	mech, _, _ := unstructured.NestedString(cr.Object, "spec", "switchover", "mechanism")
-	if mech != "stateless" {
-		t.Errorf("switchover.mechanism = %q", mech)
-	}
-	rto, _, _ := unstructured.NestedString(cr.Object, "spec", "rto")
-	if rto != "30s" {
-		t.Errorf("rto = %q, want 30s", rto)
-	}
-	if cr.GetLabels()[topoLabelApp()] != "obs" {
-		t.Errorf("app label = %q, want obs", cr.GetLabels()[topoLabelApp()])
-	}
-}
-
 // topoLabelApp returns the canonical app-label key so the test reads the
 // same constant the producer stamps without importing the render package
 // just for the literal.

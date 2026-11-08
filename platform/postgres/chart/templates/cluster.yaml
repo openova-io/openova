@@ -33,7 +33,12 @@ ClusterMesh-global `-mesh` Service. The REPLICA half is replica-cluster.yaml
      fence (a standby has no synchronous standby of its own), so $sync is forced
      off here rather than at every use site. */ -}}
 {{- $demoted := eq (include "bp-postgres.primaryDemoted" .) "true" }}
-{{- $sync := and $ahs (not $demoted) (eq (default "sync" .Values.topology.replication.mode) "sync") }}
+{{- /* ADR-0015 D8 contract: this member is the writer only when the contract
+     names its region primary; otherwise it is a distributed-topology replica
+     of `<instance>-replica` (no sync fence, no managed roles, no write alias). */ -}}
+{{- $contract := eq (include "bp-postgres.contractActive" .) "true" }}
+{{- $writer := or (not $contract) (eq (include "bp-postgres.contractIsPrimary" .) "true") }}
+{{- $sync := and $ahs (not $demoted) $writer (eq (default "sync" .Values.topology.replication.mode) "sync") }}
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
@@ -54,6 +59,10 @@ metadata:
     openova.io/region: {{ include "bp-postgres.primaryRegion" . | quote }}
     catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
     {{- end }}
+  {{- with (include "bp-postgres.topologyAnnotations" . | trim) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 spec:
   {{- if $ahs }}
   {{- /* active-hot-standby PRIMARY half — the cnpg-pair primary shape.
@@ -239,6 +248,17 @@ spec:
         name: {{ include "bp-postgres.roleSecretName" (dict "ctx" $ "db" $first) | quote }}
       {{- end }}
 {{- end }}
+{{- if $contract }}
+  # ── ADR-0015 D8: CNPG distributed topology from the openova.topology
+  # contract. The role is `primary == self`; Continuum commits `primary`
+  # (and the peer's demotion token as promotionToken) through Git, CNPG
+  # demotes / promotes this member in place. bootstrap stays initdb: it only
+  # runs at Cluster creation.
+  replica:
+    {{- include "bp-postgres.contractReplica" . | nindent 4 }}
+  externalClusters:
+    {{- include "bp-postgres.contractExternalClusters" . | nindent 4 }}
+{{- end }}
 
   {{- /*
   managed.roles — one declarative per-consumer login role per binding.
@@ -284,14 +304,14 @@ spec:
        these names instead, selecting the promoted `<instance>-replica` so they
        route cross-mesh to region-B's writable survivor. Switchback (demoted→
        false) hands the names back to CNPG here with no consumer host change. */ -}}
-  {{- $meshSvc := and (eq (include "bp-postgres.meshGlobalServices" .) "true") (eq (include "bp-postgres.side" .) "primary") (not $demoted) }}
+  {{- $meshSvc := and (eq (include "bp-postgres.meshGlobalServices" .) "true") (eq (include "bp-postgres.side" .) "primary") (not $demoted) $writer }}
   {{- /* #6149 — managed.roles is a WRITE reconcile (CREATE/ALTER ROLE). In the
        demoted rejoin shape this Cluster is a read-only standby of region-B, so
        CNPG can never satisfy the declaration and would report it pending
        forever; the roles themselves arrive with the basebackup. (#6753: the
        mesh Service names keep resolving in the demoted shape too — via the
        primary-demoted stub above, not this managed block.) */ -}}
-  {{- $mgdRoles := and .Values.databases (not $demoted) }}
+  {{- $mgdRoles := and .Values.databases (not $demoted) $writer }}
   {{- if or $mgdRoles $meshSvc }}
   managed:
     {{- if $mgdRoles }}

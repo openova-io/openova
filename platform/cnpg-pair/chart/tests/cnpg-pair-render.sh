@@ -2205,4 +2205,83 @@ fi
 grep -q 'cnpgPair.distributed.primary must name one of the pair halves' "$TMP/d26-typo.err" || { cat "$TMP/d26-typo.err" >&2; echo "FAIL: Case 26 typo error message." >&2; exit 1; }
 echo "  PASS (default-off legacy forms · A/B planned roles + promotionToken on the promoted half only · sync fence follows the planned primary · DR seams win with legacy shapes · enabled+primary never together · dr-promoter planned-ownership block gated + valid shell · typo fails)"
 
+# ── Case 27: 0.2.32 ADR-0015 D8 — the openova.topology contract ──────────
+# Slot 16b merges the region file's carrier ConfigMap through valuesFrom, so
+# the contract arrives ALONGSIDE the slot's legacy substitutes (side, the
+# pre-D8 distributed.* knobs). Assert, per (self, primary):
+#   - self picks the half; member names stay pinned per region (adoption of the
+#     live hw307 pair renames nothing) — the legacy `side` substitute is ignored;
+#   - primary maps to that region's member; promotionToken rides only on the
+#     member being promoted; the sync fence follows the primary;
+#   - the applied primary is stamped on the Cluster (openova.io/topology-primary);
+#   - the imperative seams are OFF: no dr-promoter / dr-failback actor, the
+#     demoted/promoted substitutes cannot reshape it, and no chart Continuum;
+#   - a region outside the pinned pair fails the render.
+echo "[render] Case 27: openova.topology contract — Git-delivered per-region topology (ADR-0015 D8)"
+A27=hw-a-rtz-prod
+B27=hw-b-rtz-prod
+# Slot-shaped legacy values that must NOT steer a contract render: side
+# substitute says primary in both regions, the pre-D8 substitutes say B,
+# and the DR seams are set.
+L27="--set cnpgPair.side=primary --set cnpgPair.distributed.enabled=true --set cnpgPair.distributed.primary=$R26 --set cnpgPair.distributed.promotionToken=STALE --set cnpgPair.primary.demoted=true --set cnpgPair.replica.promoted=true --set cnpgPair.continuum.enabled=true --set cnpgPair.continuum.primaryRegion=$A27 --set cnpgPair.continuum.hotStandbyRegion=$B27"
+render27() { # $1=out $2=self $3=primary [$4=token]
+  local out="$1" self="$2" prim="$3" tok="${4:-}" peer="$A27"
+  [ "$self" = "$A27" ] && peer="$B27"
+  local extra=()
+  [ -n "$tok" ] && extra=(--set "database.topology.promotionToken=$tok")
+  # shellcheck disable=SC2086
+  helm template cnpg-pair . --namespace cnpg $D26 $L27 \
+    --set openova.topology.mode=active-hot-standby --set "openova.topology.self=$self" \
+    --set "openova.topology.primary=$prim" --set "openova.topology.peers={$peer}" "${extra[@]}" \
+    > "$TMP/$out.yaml" 2> "$TMP/$out.err" || { echo "FAIL: Case 27 render $out errored:" >&2; cat "$TMP/$out.err" >&2; exit 1; }
+}
+render27 c27-a-primary  "$A27" "$A27"
+render27 c27-b-standby  "$B27" "$A27"
+render27 c27-a-demoting "$A27" "$B27"
+render27 c27-b-promote  "$B27" "$B27" TOK-A
+render27 c27-a-back     "$A27" "$A27" TOK-B
+python3 - "$TMP" "$P26" "$R26" "$A27" "$B27" <<'PYEOF' || { echo "FAIL: Case 27 contract assertions failed." >&2; exit 1; }
+import sys, yaml
+tmp, P, R, A, B = sys.argv[1:6]
+def docs(n):
+    return [d for d in yaml.safe_load_all(open(f"{tmp}/{n}.yaml")) if d]
+def cluster(n):
+    cs = [d for d in docs(n) if d.get('kind') == 'Cluster']
+    assert len(cs) == 1, (n, [c['metadata']['name'] for c in cs])
+    return cs[0]
+def check(n, name, replica, sync_to, applied):
+    c = cluster(n)
+    assert c['metadata']['name'] == name, (n, 'member name must stay pinned', c['metadata']['name'], name)
+    assert c['metadata']['annotations'].get('openova.io/topology-primary') == applied, (n, c['metadata']['annotations'])
+    s = c['spec']
+    assert s['replica'] == replica, (n, s['replica'], replica)
+    assert [e['name'] for e in s['externalClusters']] == [P, R], (n, s['externalClusters'])
+    assert 'initdb' in s['bootstrap'] or 'pg_basebackup' in s['bootstrap'], n
+    syn = s['postgresql'].get('synchronous')
+    if sync_to is None:
+        assert syn is None, (n, syn)
+    else:
+        assert syn['standbyNamesPre'] == [sync_to] and syn['dataDurability'] == 'required', (n, syn)
+    kinds = {(d['kind'], d['metadata']['name']) for d in docs(n)}
+    for k, nm in kinds:
+        assert k != 'Continuum', (n, 'the region file carries the Continuum; the chart renders none')
+        assert 'dr-promoter' not in nm and 'dr-failback' not in nm, (n, 'imperative actor rendered under the contract', nm)
+check('c27-a-primary',  P, {'self': P, 'primary': P, 'source': R}, R, A)
+check('c27-b-standby',  R, {'self': R, 'primary': P, 'source': P}, None, A)
+check('c27-a-demoting', P, {'self': P, 'primary': R, 'source': R}, None, B)
+check('c27-b-promote',  R, {'self': R, 'primary': R, 'source': P, 'promotionToken': 'TOK-A'}, P, B)
+check('c27-a-back',     P, {'self': P, 'primary': P, 'source': R, 'promotionToken': 'TOK-B'}, R, A)
+# The stale pre-D8 token substitute never reaches a contract render.
+for n in ('c27-a-primary', 'c27-b-standby', 'c27-a-demoting', 'c27-b-promote', 'c27-a-back'):
+    assert 'STALE' not in open(f"{tmp}/{n}.yaml").read(), n
+PYEOF
+# A region outside the pinned pair fails (it would render both halves replicas).
+# shellcheck disable=SC2086
+if helm template cnpg-pair . --namespace cnpg $D26 --set openova.topology.mode=active-hot-standby \
+  --set openova.topology.self=$A27 --set openova.topology.primary=hw-c-rtz-prod --set "openova.topology.peers={hw-c-rtz-prod}" > /dev/null 2> "$TMP/c27-typo.err"; then
+  echo "FAIL: Case 27 a primary outside the pinned pair rendered — must fail." >&2; exit 1
+fi
+grep -q 'neither cnpgPair.primary.region' "$TMP/c27-typo.err" || { cat "$TMP/c27-typo.err" >&2; echo "FAIL: Case 27 error message." >&2; exit 1; }
+echo "  PASS (self picks the pinned half · primary→member, token only on the promoted member · sync fence follows the primary · applied-primary annotation · no actors, no DR seams, no chart Continuum · outside region fails)"
+
 echo "[render] All bp-cnpg-pair render gates green."

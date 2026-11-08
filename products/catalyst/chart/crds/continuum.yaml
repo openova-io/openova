@@ -91,7 +91,15 @@ spec:
                   properties:
                     repo:
                       type: object
-                      description: The Org repo holding regions/<region-id>/apps/<app>.yaml.
+                      description: |
+                        The repo holding the region files and the lease:
+                        <path>/regions/<region-id>/<folder>/<app>.yaml and
+                        <path>/continuum/transitions/<group>.yaml. An Org
+                        Application uses its Org repo (path "", folder apps);
+                        a platform Application (installed by a bootstrap-kit
+                        slot) uses the Sovereign region repo
+                        openova/sovereign-regions (path clusters/<fqdn>,
+                        folder platform).
                       properties:
                         owner:
                           type: string
@@ -100,6 +108,25 @@ spec:
                         branch:
                           type: string
                           default: main
+                        path:
+                          type: string
+                          description: Folder the region files and the lease live under ("" = repository root).
+                        folder:
+                          type: string
+                          description: Per-region folder of the Application files ("" = apps).
+                    helmRelease:
+                      type: object
+                      description: |
+                        The HelmRelease to observe when it is not rendered by
+                        the application-controller — a bootstrap-kit slot's
+                        HelmRelease, which reads the region file's topology
+                        values ConfigMap through valuesFrom.
+                      properties:
+                        name:
+                          type: string
+                        namespace:
+                          type: string
+                          default: flux-system
                     app:
                       type: string
                       description: Application name — the region file key.
