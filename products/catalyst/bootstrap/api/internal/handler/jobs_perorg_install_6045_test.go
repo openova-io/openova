@@ -131,6 +131,8 @@ func perOrgDynamicFactory(objs ...runtime.Object) func(string) (dynamic.Interfac
 			{Group: "batch", Version: "v1", Kind: "CronJobList"},
 			{Group: "batch", Version: "v1", Kind: "JobList"},
 			{Group: "apps", Version: "v1", Kind: "DeploymentList"},
+			{Group: "apps.openova.io", Version: "v1", Kind: "ApplicationList"},
+			{Group: "dr.openova.io", Version: "v1", Kind: "ContinuumList"},
 		} {
 			scheme.AddKnownTypeWithName(lk, &unstructured.UnstructuredList{})
 		}
@@ -141,6 +143,8 @@ func perOrgDynamicFactory(objs ...runtime.Object) func(string) (dynamic.Interfac
 				{Group: "batch", Version: "v1", Resource: "cronjobs"}:                             "CronJobList",
 				{Group: "batch", Version: "v1", Resource: "jobs"}:                                 "JobList",
 				{Group: "apps", Version: "v1", Resource: "deployments"}:                           "DeploymentList",
+				ApplicationGVR(): "ApplicationList",
+				ContinuumGVR():   "ContinuumList",
 			}, objs...), nil
 	}
 }

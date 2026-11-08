@@ -218,6 +218,8 @@ func listKindMap() map[schema.GroupVersionResource]string {
 		ContinuumGVR: "ContinuumList",
 		// #5513 — backing CNPG Cluster health observation.
 		CNPGClusterGVR: "ClusterList",
+		// ADR-0015 D7 — Serving probe reads the app's HTTPRoutes.
+		HTTPRouteGVR: "HTTPRouteList",
 	}
 }
 

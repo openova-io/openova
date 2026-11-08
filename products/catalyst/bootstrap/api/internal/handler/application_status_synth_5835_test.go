@@ -2,7 +2,6 @@ package handler
 
 import (
 	"encoding/json"
-	"go/ast"
 	"testing"
 )
 
@@ -47,70 +46,7 @@ func TestHandleApplicationStatus_ReachesTheSynthesisedFallback(t *testing.T) {
 	}
 }
 
-func TestStatusFromSynthesised_DelegatesToBothExistingSynthesisers(t *testing.T) {
-	_, f := parseHandlerFile(t, "application_status_synth_5835.go")
-	calls := callsWithin(t, f, "statusFromSynthesised")
 
-	if !calls["synthesiseAppFromHelmRelease"] {
-		t.Fatal("statusFromSynthesised no longer delegates to synthesiseAppFromHelmRelease — " +
-			"if it derives a phase from the HelmRelease itself there are now THREE ways to " +
-			"compute one component's status, and two was already enough for the detail and " +
-			"status paths to disagree in front of an operator.")
-	}
-	if !calls["synthesiseAppFromRuntime"] {
-		t.Fatal("statusFromSynthesised no longer falls through to synthesiseAppFromRuntime — " +
-			"a component that is neither a CR nor a same-named HelmRelease (catalyst-api, " +
-			"#5827) answers on /applications/{name} but 404s on /status again.")
-	}
-}
-
-// The HR path must be tried BEFORE the runtime path, mirroring the detail
-// endpoint's ordering. Runtime-first would strip a bootstrap component's
-// declared identity down to observed Pods on this endpoint while the detail
-// endpoint still reports it — reintroducing a disagreement in the other
-// direction.
-func TestStatusFromSynthesised_TriesHelmReleaseBeforeRuntime(t *testing.T) {
-	_, f := parseHandlerFile(t, "application_status_synth_5835.go")
-
-	var fn *ast.FuncDecl
-	ast.Inspect(f, func(n ast.Node) bool {
-		fd, ok := n.(*ast.FuncDecl)
-		if ok && fd.Name != nil && fd.Name.Name == "statusFromSynthesised" {
-			fn = fd
-			return false
-		}
-		return true
-	})
-	if fn == nil {
-		t.Fatal("statusFromSynthesised not found — this guard is asserting on nothing")
-	}
-
-	var order []string
-	ast.Inspect(fn.Body, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok {
-			return true
-		}
-		switch sel.Sel.Name {
-		case "synthesiseAppFromHelmRelease", "synthesiseAppFromRuntime":
-			order = append(order, sel.Sel.Name)
-		}
-		return true
-	})
-
-	if len(order) != 2 {
-		t.Fatalf("expected exactly one call to each synthesiser, saw %v", order)
-	}
-	if order[0] != "synthesiseAppFromHelmRelease" {
-		t.Fatalf("runtime synthesis is attempted first (%v) — a bootstrap component's declared "+
-			"identity would be reduced to observed Pods here while the detail endpoint still "+
-			"reports it, which is the same disagreement in the other direction", order)
-	}
-}
 
 // The wire shape this path must not break: `conditions` is never JSON `null`.
 //
@@ -124,7 +60,7 @@ func TestStatusFromSynthesised_TriesHelmReleaseBeforeRuntime(t *testing.T) {
 func TestStatusFromSynthesised_ConditionsIsNeverJSONNull(t *testing.T) {
 	// Nil in, normalised out — the case the helper exists to handle.
 	got, _ := json.Marshal(applicationStatusResponse{
-		Name: "bp-grafana", Namespace: "flux-system", Phase: "Ready",
+		Name: "bp-grafana", Namespace: "flux-system",
 		Conditions: []map[string]interface{}{},
 	})
 	var m map[string]any

@@ -573,6 +573,11 @@ type Reconciler struct {
 
 	// Log is the structured logger. Defaults to slog.Default() when nil.
 	Log *slog.Logger
+
+	// Prober — ADR-0015 D7 functional Serving probe transport. nil = the
+	// production HTTP prober (application_controller_serving.go). Tests
+	// inject a fake so no socket is opened.
+	Prober ServingProber
 }
 
 // New returns a fresh Reconciler with cfg defaults applied.
@@ -1597,14 +1602,15 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 		finalReason = hrReason
 		finalMessage = hrMessage
 	case PhaseProvisioning:
-		// Provisioning is "we did our part, Flux will apply" — Ready
-		// stays True because the Application's own contract (manifests
-		// committed + host Flux bootstrapped) IS done. The
-		// `phase=Provisioning` signal is what the UI uses to show a
-		// spinner; the Ready condition is what RBAC guards / fleet
-		// rollups consume.
-		finalReady = "True"
-		finalReason = ReasonReconciled
+		// ADR-0015 D7 — Provisioning means the downstream HelmRelease(s)
+		// have not reported Ready yet. Before D7 this published Ready=True
+		// ("we did our part, Flux will apply"), which is how an app that
+		// never came up read Ready in every rollup. Not-yet-known is
+		// Unknown, never True.
+		finalReady = "Unknown"
+		finalReason = ReasonProgressing
+		finalMessage = fmt.Sprintf("Application %s/%s committed into %d region(s); waiting for the downstream HelmRelease(s) to report Ready",
+			app.GetNamespace(), app.GetName(), effectiveRegions)
 	case PhaseReady:
 		finalReady = "True"
 		finalReason = ReasonReconciled
@@ -1659,10 +1665,33 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 				app.GetNamespace(), app.GetName(), v.detail)
 		}
 	}
+	// ADR-0015 D7 — the functional Serving probe (endpoint answers through
+	// the region's gateway; a sync-required database has its synchronous
+	// standby). Always observed so the condition is published in every
+	// state; it gates Ready only once HR + backing are Ready. Ready =
+	// HR Ready ∧ backing Ready ∧ Serving, reason/message of the FIRST
+	// failing input verbatim. NoFunctionalProbeDeclared alone does not gate.
+	serving := r.observeServing(ctx, app, bp, plan, perClusterStatus)
+	if finalReady == "True" && serving.aggregate.Reason != ReasonNoFunctionalProbe {
+		switch serving.aggregate.Status {
+		case "False":
+			finalPhase = PhaseDegraded
+			finalReady = "False"
+			finalReason = serving.aggregate.Reason
+			finalMessage = serving.aggregate.Message
+		case "Unknown":
+			finalPhase = PhaseProvisioning
+			finalReady = "Unknown"
+			finalReason = serving.aggregate.Reason
+			finalMessage = serving.aggregate.Message
+		}
+	}
+	regionStatuses = withRegionServing(regionStatuses, serving)
 	su := statusUpdate{
 		Phase:         finalPhase,
 		PrimaryRegion: plan.PrimaryRegion,
 		Regions:       regionStatuses,
+		Serving:       &serving.aggregate,
 		GiteaRepo:     giteaRepo,
 		Installed: map[string]interface{}{
 			"name":    spec.BlueprintName,
@@ -2029,7 +2058,10 @@ func mergeRegionReadiness(
 		if replicas, ok := copyMap["replicas"].(int64); ok {
 			copyMap["ready"] = replicas
 		}
-		copyMap["lastTransitionTime"] = now
+		// ADR-0015 D7 — lastTransitionTime is NOT restamped here every
+		// pass; updateStatus keeps the prior value unless the region's
+		// readiness actually changed (preserveRegionTransitions).
+		_ = now
 		out = append(out, copyMap)
 	}
 	_ = plan
@@ -2560,6 +2592,10 @@ type statusUpdate struct {
 	// the recon rollup fallback. Nil leaves the field untouched.
 	ObservedTargets []interface{}
 
+	// Serving — ADR-0015 D7 aggregate functional-probe condition. Nil
+	// leaves any prior Serving condition untouched.
+	Serving *condValue
+
 	// ContinuumRef — #4416. The `<namespace>/<name>` of the per-app
 	// Continuum DR contract this Application minted (e.g.
 	// `catalyst/dr-spine-gitea`). Surfaced via `status.continuumRef` — the
@@ -2616,7 +2652,7 @@ func (r *Reconciler) updateStatus(ctx context.Context, app *unstructured.Unstruc
 			for i, r := range su.Regions {
 				regions[i] = r
 			}
-			currentStatus["regions"] = regions
+			currentStatus["regions"] = preserveRegionTransitions(currentStatus["regions"], regions, now)
 		}
 		if su.Placement != nil {
 			// #3373 — effective placement reflection.
@@ -2660,15 +2696,19 @@ func (r *Reconciler) updateStatus(ctx context.Context, app *unstructured.Unstruc
 			currentStatus["perCluster"] = perCluster
 		}
 
-		// Replace Ready condition; preserve unrelated conditions.
+		// Replace Ready (and Serving, when this pass observed it); preserve
+		// unrelated conditions. ADR-0015 D7 — lastTransitionTime moves only
+		// when the condition's status actually changed.
+		prior := currentStatus["conditions"]
 		conditions := []interface{}{}
-		if existing, ok := currentStatus["conditions"].([]interface{}); ok {
+		if existing, ok := prior.([]interface{}); ok {
 			for _, c := range existing {
 				cm, ok := c.(map[string]interface{})
 				if !ok {
 					continue
 				}
-				if t, _ := cm["type"].(string); t == "Ready" {
+				t, _ := cm["type"].(string)
+				if t == "Ready" || (t == ConditionServing && su.Serving != nil) {
 					continue
 				}
 				conditions = append(conditions, c)
@@ -2681,7 +2721,16 @@ func (r *Reconciler) updateStatus(ctx context.Context, app *unstructured.Unstruc
 			"message":            su.Message,
 			"lastTransitionTime": now,
 		})
-		currentStatus["conditions"] = conditions
+		if su.Serving != nil {
+			conditions = append(conditions, map[string]interface{}{
+				"type":               ConditionServing,
+				"status":             su.Serving.Status,
+				"reason":             su.Serving.Reason,
+				"message":            su.Serving.Message,
+				"lastTransitionTime": now,
+			})
+		}
+		currentStatus["conditions"] = preserveConditionTransitions(prior, conditions)
 
 		latest.Object["status"] = currentStatus
 

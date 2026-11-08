@@ -141,9 +141,9 @@ describe('row 63 — status.targets must not be shadowed by a poorer perCluster 
     expect(cards.textContent).toContain(REGION_A)
     expect(cards.textContent).toContain(REGION_B)
 
-    // The DR panel is gated on the placement carrying a Standby. Its absence
-    // was the other half of the row-63 failure.
-    await waitFor(() => expect(screen.getByTestId('topology-tab-dr-panel')).toBeTruthy())
+    // ADR-0015 D7 — the DR panel is deleted; each target card instead carries
+    // its region's status (Unknown here: no perRegion entry was reported).
+    expect(screen.getByTestId(`topology-tab-target-${REGION_B}-status-badge`).textContent).toBe('Unknown')
   })
 
   it('CONTROL — a genuine single-target app still renders singleton and no DR panel', async () => {

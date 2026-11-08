@@ -164,6 +164,18 @@ type ActivityStep struct {
 	// store's DependsOnAuthoritative rule (#6131): absence of information
 	// and an asserted absence are different facts.
 	DependsOn []string
+
+	// Kind — optional typed discriminator for the step's leaf Job
+	// (ADR-0015 D7: KindApplication, KindTopologyTransition). Empty keeps
+	// the default KindStep.
+	Kind string
+}
+
+func (s ActivityStep) kind() string {
+	if strings.TrimSpace(s.Kind) != "" {
+		return s.Kind
+	}
+	return KindStep
 }
 
 // ActivityBridge projects one declared activity (identified by a stable
@@ -366,7 +378,7 @@ func (a *ActivityBridge) SeedSteps(steps []ActivityStep) error {
 			JobName:      ActivityStepJobName(a.groupSlug, s.Slug),
 			DisplayName:  display,
 			Type:         JobTypeInstall,
-			Kind:         KindStep,
+			Kind:         s.kind(),
 			ParentID:     parent,
 			DependsOn:    a.dependsOnForStepLocked(s.Slug),
 			// SeedSteps was just handed the COMPLETE ordered step set, so
@@ -410,6 +422,7 @@ func (a *ActivityBridge) ensureStepLocked(step ActivityStep) error {
 		JobName:      ActivityStepJobName(a.groupSlug, step.Slug),
 		DisplayName:  step.DisplayName,
 		Type:         JobTypeInstall,
+		Kind:         step.kind(),
 		ParentID:     JobID(a.deploymentID, a.groupSlug),
 		DependsOn:    a.dependsOnForStepLocked(step.Slug),
 		Status:       StatusPending,
@@ -616,5 +629,80 @@ func activityStatusFromResult(result string) string {
 		return StatusRunning
 	default:
 		return StatusPending
+	}
+}
+
+// ProjectObservation is the LEVEL-TRIGGERED entry point for sources that
+// observe an object's current state rather than emit transitions (ADR-0015
+// D7: Application CRs, topology-transition activity entries). Called on
+// every /jobs read with the object's current (result, reason, message); it
+// writes ONLY when the projected status, reason or message differs from
+// what the store already holds, so repeated reads never mint duplicate
+// Executions or log lines.
+//
+//   - result running → StartStep (reused Execution, message logged once).
+//   - result success/skipped/failed → FinishStep (closes the Execution;
+//     message appended as the final log line).
+//   - result pending ("") → the leaf is (re)materialised as pending.
+//
+// reason + message are stamped verbatim on the leaf Job (Job.Reason /
+// Job.Message) so the row itself says why it is blocked.
+func (a *ActivityBridge) ProjectObservation(step ActivityStep, result, reason, message string, t time.Time) error {
+	step.Slug = strings.TrimSpace(step.Slug)
+	if step.Slug == "" {
+		return nil
+	}
+	want := activityStatusFromResult(result)
+	jobName := ActivityStepJobName(a.groupSlug, step.Slug)
+	if prev, _, err := a.store.GetJob(a.deploymentID, jobName); err == nil &&
+		prev.Status == want && prev.Reason == reason && prev.Message == message {
+		return nil
+	}
+	var err error
+	switch want {
+	case StatusRunning:
+		err = a.ResumeStep(step, message, t)
+	case StatusSucceeded, StatusFailed:
+		err = a.FinishStep(step, result, message, t)
+	default:
+		a.mu.Lock()
+		err = a.ensureStepLocked(step)
+		a.mu.Unlock()
+	}
+	if err != nil {
+		return err
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.store.UpsertJob(Job{
+		DeploymentID: a.deploymentID,
+		JobName:      jobName,
+		DisplayName:  step.DisplayName,
+		Type:         JobTypeInstall,
+		Kind:         step.kind(),
+		ParentID:     JobID(a.deploymentID, a.groupSlug),
+		DependsOn:    a.dependsOnForStepLocked(step.Slug),
+		Status:       want,
+		Reason:       reason,
+		Message:      message,
+	})
+}
+
+// RegisterSteps declares the step set (for dependsOn derivation) WITHOUT
+// writing anything to the store. Level-triggered sources (ProjectObservation)
+// use it instead of SeedSteps, whose pending re-seed would reset every
+// already-projected leaf on each read.
+func (a *ActivityBridge) RegisterSteps(steps []ActivityStep) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.steps = a.steps[:0]
+	a.stepIndex = make(map[string]int, len(steps))
+	for _, s := range steps {
+		s.Slug = strings.TrimSpace(s.Slug)
+		if s.Slug == "" {
+			continue
+		}
+		a.stepIndex[s.Slug] = len(a.steps)
+		a.steps = append(a.steps, s)
 	}
 }

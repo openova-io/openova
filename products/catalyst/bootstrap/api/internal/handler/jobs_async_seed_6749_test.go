@@ -54,6 +54,9 @@ func blockingListDynamicFactory(block <-chan struct{}, listStarted chan<- struct
 			{Group: "batch", Version: "v1", Kind: "CronJobList"},
 			{Group: "batch", Version: "v1", Kind: "JobList"},
 			{Group: "apps", Version: "v1", Kind: "DeploymentList"},
+			// ADR-0015 D7 — the seed also projects Application + Continuum CRs.
+			{Group: "apps.openova.io", Version: "v1", Kind: "ApplicationList"},
+			{Group: "dr.openova.io", Version: "v1", Kind: "ContinuumList"},
 		} {
 			scheme.AddKnownTypeWithName(lk, &unstructured.UnstructuredList{})
 		}
@@ -64,6 +67,8 @@ func blockingListDynamicFactory(block <-chan struct{}, listStarted chan<- struct
 				{Group: "batch", Version: "v1", Resource: "cronjobs"}:                             "CronJobList",
 				{Group: "batch", Version: "v1", Resource: "jobs"}:                                 "JobList",
 				{Group: "apps", Version: "v1", Resource: "deployments"}:                           "DeploymentList",
+				ApplicationGVR(): "ApplicationList",
+				ContinuumGVR():   "ContinuumList",
 			}, objs...)
 		// The seed lists FIVE GVRs and the handler may build more than one
 		// client, so this reactor runs from several goroutines — a plain

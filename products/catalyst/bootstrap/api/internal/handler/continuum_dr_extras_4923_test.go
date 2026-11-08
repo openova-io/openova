@@ -28,7 +28,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -55,99 +54,7 @@ func gateByName(t *testing.T, resp continuumReplicationStatus, name string) cont
 	return continuumHealthGate{}
 }
 
-// pair-healthy — a Continuum CR referencing a cnpg pair whose replica half is
-// Ready must report standbyAvailable:true with a Pass gate.
-func TestReplicationStatus_StandbyAvailableVerifiedFromReferencedPair(t *testing.T) {
-	h := NewWithPDM(silentLogger(), &fakePDM{})
-	cr := newContinuumUnstructured(
-		"cnpg-pair-bp-cnpg-pair-continuum", "catalyst-system",
-		"catalyst-platform", "me-east-215-a", []string{"me-east-215-b"})
-	_ = unstructured.SetNestedMap(cr.Object, map[string]interface{}{
-		"name":      "shared-pg",
-		"namespace": "catalyst-system",
-	}, "spec", "cnpgPair")
-	primary, replica := newCNPGPairFixture("shared-pg", "catalyst-system", "me-east-215-a", "me-east-215-b")
-	factory, _ := fakeContinuumDynamicFactory(cr, primary, replica)
-	h.dynamicFactory = factory
-	fixed := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
-	h.SetContinuumClock(func() time.Time { return fixed })
-	dep := installUserAccessDeployment(t, h, "dep-4923-standby-ok")
 
-	r := chi.NewRouter()
-	registerReplicationStatusRoute(r, h)
-	req := httptest.NewRequest(http.MethodGet,
-		"/api/v1/sovereigns/"+dep.ID+"/continuum/cnpg-pair-bp-cnpg-pair-continuum/replication-status?namespace=catalyst-system", nil)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
-	}
-	var resp continuumReplicationStatus
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if resp.Source != "live" {
-		t.Errorf("source: got %q want live", resp.Source)
-	}
-	if resp.StandbyAvailable == nil || !*resp.StandbyAvailable {
-		t.Errorf("standbyAvailable: got %v want true (replica half Ready)", resp.StandbyAvailable)
-	}
-	if g := gateByName(t, resp, "standby-available"); g.Status != "Pass" {
-		t.Errorf("standby-available gate: got %q want Pass (msg=%q)", g.Status, g.Message)
-	}
-}
-
-// standby-absent — the replica half down (region-kill) must surface the
-// explicit honest condition: standbyAvailable:false, a critical Fail gate,
-// replicaPromotable forced false, streaming "interrupted". The stored CR
-// status says Healthy/lag=0 the whole time — the endpoint must NOT relay it.
-func TestReplicationStatus_StandbyAbsentIsExplicitNeverHealthy(t *testing.T) {
-	h := NewWithPDM(silentLogger(), &fakePDM{})
-	cr := newContinuumUnstructured(
-		"cnpg-pair-bp-cnpg-pair-continuum", "catalyst-system",
-		"catalyst-platform", "me-east-215-a", []string{"me-east-215-b"})
-	_ = unstructured.SetNestedMap(cr.Object, map[string]interface{}{
-		"name":      "shared-pg",
-		"namespace": "catalyst-system",
-	}, "spec", "cnpgPair")
-	// The controller-stored status stays green during the outage (#4901).
-	_ = unstructured.SetNestedField(cr.Object, "Healthy", "status", "phase")
-	_ = unstructured.SetNestedField(cr.Object, int64(0), "status", "replicationLagSeconds")
-	primary, replica := newCNPGPairFixture("shared-pg", "catalyst-system", "me-east-215-a", "me-east-215-b")
-	setCNPGReplicaDown(replica)
-	factory, _ := fakeContinuumDynamicFactory(cr, primary, replica)
-	h.dynamicFactory = factory
-	dep := installUserAccessDeployment(t, h, "dep-4923-standby-absent")
-
-	r := chi.NewRouter()
-	registerReplicationStatusRoute(r, h)
-	req := httptest.NewRequest(http.MethodGet,
-		"/api/v1/sovereigns/"+dep.ID+"/continuum/cnpg-pair-bp-cnpg-pair-continuum/replication-status?namespace=catalyst-system", nil)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
-	}
-	var resp continuumReplicationStatus
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if resp.StandbyAvailable == nil || *resp.StandbyAvailable {
-		t.Fatalf("standbyAvailable: got %v want false (replica half down)", resp.StandbyAvailable)
-	}
-	g := gateByName(t, resp, "standby-available")
-	if g.Status != "Fail" || g.Severity != "critical" {
-		t.Errorf("standby-available gate: got status=%q severity=%q want Fail/critical", g.Status, g.Severity)
-	}
-	if resp.ReplicaPromotable {
-		t.Errorf("replicaPromotable: got true want false — an absent standby is never promotable")
-	}
-	if resp.StreamingState != "interrupted" {
-		t.Errorf("streamingState: got %q want interrupted", resp.StreamingState)
-	}
-}
 
 // unverifiable — a spine Continuum with NO cnpg pair must report the verdict
 // as UNKNOWN (standbyAvailable omitted) with an explicit Warn gate, and the
@@ -205,82 +112,7 @@ func TestReplicationStatus_SpineWithoutPairReportsUnknownNotFabricatedGreen(t *t
 	}
 }
 
-// app-level fallback — a Continuum CR WITHOUT spec.cnpgPair whose app is
-// backed by a resolvable pair (label-driven, namespace-scoped) still gets a
-// verified verdict off that pair's replica half.
-func TestReplicationStatus_StandbyVerifiedViaAppPairFallback(t *testing.T) {
-	h := NewWithPDM(silentLogger(), &fakePDM{})
-	cr := newContinuumUnstructured(
-		"dr-shared-pg", "catalyst-system", "shared-pg",
-		"me-east-215-a", []string{"me-east-215-b"})
-	primary, replica := newCNPGPairFixture("shared-pg", "catalyst-system", "me-east-215-a", "me-east-215-b")
-	setCNPGReplicaDown(replica)
-	factory, _ := fakeContinuumDynamicFactory(cr, primary, replica)
-	h.dynamicFactory = factory
-	dep := installUserAccessDeployment(t, h, "dep-4923-app-fallback")
 
-	r := chi.NewRouter()
-	registerReplicationStatusRoute(r, h)
-	req := httptest.NewRequest(http.MethodGet,
-		"/api/v1/sovereigns/"+dep.ID+"/continuum/dr-shared-pg/replication-status?namespace=catalyst-system", nil)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
-	}
-	var resp continuumReplicationStatus
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if resp.StandbyAvailable == nil || *resp.StandbyAvailable {
-		t.Errorf("standbyAvailable: got %v want false (app pair replica down, resolved without spec.cnpgPair)", resp.StandbyAvailable)
-	}
-	if g := gateByName(t, resp, "standby-available"); g.Status != "Fail" {
-		t.Errorf("standby-available gate: got %q want Fail", g.Status)
-	}
-}
-
-// derive path (no Continuum CR) — a live pair whose replica half is down must
-// report the standby-absent condition off the derived record too.
-func TestReplicationStatus_DerivedLivePairSurfacesStandbyAbsent(t *testing.T) {
-	h := NewWithPDM(silentLogger(), &fakePDM{})
-	primary, replica := newCNPGPairFixture("shared-pg", "catalyst-system", "me-east-215-a", "me-east-215-b")
-	setCNPGReplicaDown(replica)
-	factory, _ := fakeContinuumDynamicFactory(primary, replica)
-	h.dynamicFactory = factory
-	dep := installUserAccessDeployment(t, h, "dep-4923-derive-absent")
-
-	r := chi.NewRouter()
-	registerReplicationStatusRoute(r, h)
-	req := httptest.NewRequest(http.MethodGet,
-		"/api/v1/sovereigns/"+dep.ID+"/continuum/dr-shared-pg/replication-status?namespace=catalyst-system", nil)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
-	}
-	var resp continuumReplicationStatus
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if resp.Source != "live" {
-		t.Fatalf("source: got %q want live (derived off the real pair)", resp.Source)
-	}
-	if resp.StandbyAvailable == nil || *resp.StandbyAvailable {
-		t.Errorf("standbyAvailable: got %v want false", resp.StandbyAvailable)
-	}
-	if resp.ReplicaPromotable {
-		t.Errorf("replicaPromotable: got true want false")
-	}
-	if resp.StreamingState != "interrupted" {
-		t.Errorf("streamingState: got %q want interrupted", resp.StreamingState)
-	}
-	if g := gateByName(t, resp, "standby-available"); g.Status != "Fail" || g.Severity != "critical" {
-		t.Errorf("standby-available gate: got %q/%q want Fail/critical", g.Status, g.Severity)
-	}
-}
 
 // roll-up — the sovereign-wide aggregate must count a verified-absent standby
 // as degraded and an unverifiable spine as UNKNOWN, never healthy. The old
@@ -294,6 +126,9 @@ func TestDRReplicationStatusRollup_HonestHealthyDegradedUnknownCounters(t *testi
 		"name":      "shared-pg",
 		"namespace": "catalyst-system",
 	}, "spec", "cnpgPair")
+	// ADR-0015 D7 — the verdict is the continuum-controller's own
+	// status.standbyAvailable, relayed verbatim (no read-side cross-check).
+	_ = unstructured.SetNestedField(pairCR.Object, false, "status", "standbyAvailable")
 	spineCR := newContinuumUnstructured(
 		"dr-spine-openbao", "openbao", "openbao",
 		"me-east-215-a", []string{"me-east-215-b"})

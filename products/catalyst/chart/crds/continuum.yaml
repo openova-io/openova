@@ -319,6 +319,9 @@ spec:
                     - SwitchingOver
                     - FailedOver
                     - Failed
+                    # ADR-0015 D7 — a standby (or witness) that has never been
+                    # observed is Unknown, never Healthy.
+                    - Unknown
                 primaryRegion:
                   type: string
                   description: OBSERVED region serving writes.
@@ -410,6 +413,35 @@ spec:
                             type: string
                         x-kubernetes-preserve-unknown-fields: true
                   x-kubernetes-preserve-unknown-fields: true
+                activity:
+                  type: array
+                  description: |
+                    ADR-0015 D7/D8 — structured activity of an in-flight
+                    topology transition (one entry per phase × member).
+                    Projected verbatim into Jobs as type
+                    `topology-transition`. Populated by the D8 transition
+                    engine; empty otherwise.
+                  items:
+                    type: object
+                    required: [id, state]
+                    properties:
+                      id:
+                        type: string
+                      phase:
+                        type: string
+                      member:
+                        type: string
+                      state:
+                        type: string
+                        enum: [pending, running, succeeded, failed]
+                      startedAt:
+                        type: string
+                        format: date-time
+                      finishedAt:
+                        type: string
+                        format: date-time
+                      message:
+                        type: string
                 lastLuaRecordAt:
                   type: string
                   format: date-time

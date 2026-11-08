@@ -82,6 +82,15 @@ import (
 // sets so that regression fails in CI rather than on a Sovereign.
 const ApplicationOrgLabel = "catalyst.openova.io/organization"
 
+// OrgTenantLabel is stamped on the per-Organization HelmReleases the
+// org-tenants Kustomization delivers (the signup-funnel install path, D5 —
+// live on hw307: acmewalk307/bp-wordpress-tenant, bp-keycloak, … carry
+// `catalyst.openova.io/org-tenant: <org uid>` and NOT ApplicationOrgLabel).
+// ADR-0015 D7: every reconciling object feeds Jobs, so these are projected
+// alongside the application-controller's installs. Like ApplicationOrgLabel
+// it is catalyst-prefixed, so the per-Org vcluster HR (openova.io/…) stays out.
+const OrgTenantLabel = "catalyst.openova.io/org-tenant"
+
 // ApplicationComponentID builds the AppID for a per-Org Application
 // install: `<namespace>:<name>`.
 //
@@ -156,10 +165,29 @@ func listApplicationInstallSnapshots(ctx context.Context, dyn dynamic.Interface)
 	if err != nil {
 		return nil, fmt.Errorf("helmwatch: list Application HelmReleases: %w", err)
 	}
+	items := list.Items
+	// ADR-0015 D7 — the funnel-delivered per-Org HRs (OrgTenantLabel).
+	// De-duplicated by namespace/name against the first list.
+	if tl, terr := dyn.Resource(HelmReleaseGVR).
+		Namespace(metav1.NamespaceAll).
+		List(ctx, metav1.ListOptions{LabelSelector: OrgTenantLabel}); terr == nil {
+		seen := make(map[string]struct{}, len(items))
+		for i := range items {
+			seen[items[i].GetNamespace()+"/"+items[i].GetName()] = struct{}{}
+		}
+		for i := range tl.Items {
+			if _, dup := seen[tl.Items[i].GetNamespace()+"/"+tl.Items[i].GetName()]; dup {
+				continue
+			}
+			items = append(items, tl.Items[i])
+		}
+	} else {
+		return nil, fmt.Errorf("helmwatch: list org-tenant HelmReleases: %w", terr)
+	}
 
-	out := make([]ComponentSnapshot, 0, len(list.Items))
-	for i := range list.Items {
-		u := &list.Items[i]
+	out := make([]ComponentSnapshot, 0, len(items))
+	for i := range items {
+		u := &items[i]
 		ns := u.GetNamespace()
 		// An Application HR is never authored in flux-system. If one ever
 		// is, the bootstrap-kit leg above already governs that namespace —

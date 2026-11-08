@@ -251,6 +251,11 @@ type EndpointSpec struct {
 	// none do, catalyst-api picks the first SSO-enabled https endpoint.
 	LaunchDefault bool `json:"launchDefault,omitempty"`
 
+	// HealthPath — ADR-0015 D7. The path the application-controller's
+	// per-region Serving probe GETs through the region's gateway (Host =
+	// the route hostname). Any response < 500 counts as serving. Default "/".
+	HealthPath string `json:"healthPath,omitempty"`
+
 	// SSOEnabled — whether this endpoint sits behind the Sovereign's
 	// SSO chain (Catalyst KC realm `sovereign` for Tier-1/2 apps;
 	// per-Org KC realm with sovereign-broker federation for Tier-3).

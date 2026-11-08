@@ -32,7 +32,7 @@
 import { useMemo, useState } from 'react'
 import { Link, useParams } from '@tanstack/react-router'
 import type { Job, JobStatus, JobKind } from '@/lib/jobs.types'
-import { jobKind, isJobRetryable, JOB_ENGINE_LABELS } from '@/lib/jobs.types'
+import { jobKind, isJobRetryable, jobStatusNote, JOB_ENGINE_LABELS } from '@/lib/jobs.types'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import { RetryJobButton } from './RetryJobButton'
 
@@ -212,7 +212,7 @@ export function regionUnionOfGroup(
 export function matchJob(job: Job, query: string): boolean {
   if (!query.trim()) return true
   const q = query.toLowerCase()
-  const fields = [job.jobName, job.displayName, job.appId, job.parentId, job.status]
+  const fields = [job.jobName, job.displayName, job.appId, job.parentId, job.status, job.reason, job.message]
   for (const f of fields) {
     if (typeof f === 'string' && f.toLowerCase().includes(q)) return true
   }
@@ -810,6 +810,12 @@ function JobRow({ job, parentLabel, showRegion, showKind, regionUnionByGroupId, 
       </td>
       <td className="jobs-cell jobs-cell-status">
         <StatusBadge status={job.status} jobId={job.id} provisional={job.provisional === true} />
+        {/* ADR-0015 D7 — the object's own reason + message, verbatim. */}
+        {jobStatusNote(job) ? (
+          <div className="jobs-status-note" data-testid={`jobs-cell-status-note-${job.id}`}>
+            {jobStatusNote(job)}
+          </div>
+        ) : null}
       </td>
       <td className="jobs-cell jobs-cell-runs">
         {/* Runs (#3925) — run-history depth. A collapsed recurring row
@@ -1060,6 +1066,7 @@ const JOBS_TABLE_CSS = `
 .jobs-cell-name { min-width: 220px; max-width: 360px; }
 .jobs-cell-deps { min-width: 120px; }
 .jobs-cell-runs { text-align: right; min-width: 56px; }
+.jobs-status-note { margin-top: 0.2rem; font-size: 0.7rem; color: var(--color-text-dim, inherit); overflow-wrap: anywhere; max-width: 22rem; }
 .jobs-runs-count {
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono, ui-monospace, monospace);
