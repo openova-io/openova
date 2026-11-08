@@ -4893,7 +4893,8 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.0"
+  # 1.0.1 (#7067): memory sized from hw307 OOMKill evidence (128Mi request / 512Mi limit).
+  version: "1.0.1"
   visibility: unlisted
   card:
     title: "Reflector"
@@ -4910,7 +4911,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-reflector
-    version: "1.0.0"
+    version: "1.0.1"
   topology:
     supported:
       - singleton
