@@ -189,7 +189,7 @@ build). Each release renders **only its own half**:
   its `uploads/` into the bucket (HeadObject-skip, idempotent, PVC mounted
   read-only). Delete the PVC by hand once the copy is verified.
 
-### Shared secrets (0.5.1, fan-out 0.5.2)
+### Shared secrets (0.5.1, fan-out 0.6.1)
 
 Who creates the two shared Secrets:
 
@@ -205,7 +205,7 @@ Who creates the two shared Secrets:
   material is written once. A re-render, a refresh, a renewed seed CA or a
   primary move never overwrites or deletes it. The new primary's seed finds
   every property present and does nothing.
-- **Reaching every region (0.5.2).** Each region runs its own OpenBao and
+- **Reaching every region (0.6.1).** Each region runs its own OpenBao and
   each region's ExternalSecret reads its own `storeRef`. So the seed pushes
   into `storeRef` AND into `vault-<peer>` for every peer in
   `openova.topology.peers`. bp-external-secrets-stores renders one

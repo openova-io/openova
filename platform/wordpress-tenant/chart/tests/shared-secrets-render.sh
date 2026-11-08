@@ -16,7 +16,7 @@
 #       identity `openova/apps/<ns>/<cnpgClusterName>`;
 #   S4  the seed writes exactly the keys/properties the ExternalSecrets read;
 #   S5  swapped primary: the seed moves to B, A renders none;
-#   S6  default fan-out (0.5.2): the seed pushes into storeRef (vault-region1)
+#   S6  default fan-out (0.6.1): the seed pushes into storeRef (vault-region1)
 #       AND vault-<peer> for every openova.topology.peers entry — A primary ⇒
 #       [vault-region1, vault-<B>], B primary ⇒ [vault-region1, vault-<A>];
 #       an explicit seed.secretStoreRefs replaces the list verbatim;
