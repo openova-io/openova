@@ -1,0 +1,89 @@
+name: Test — bp-openbao declarative config against real OpenBao
+
+# ADR-0015 (Refs #7067). bp-openbao 1.2.72 moved every policy/role/mount into
+# a declarative reconciler and lets the auth-bootstrap hook generate a root
+# from the unseal-key shares. Render tests prove the shape; this job proves
+# the behaviour against REAL OpenBao servers (the `bao` binary of the image
+# the chart runs, quay.io/openbao/openbao:2.3.1): reconciler convergence and
+# a no-op second round, generate-root produced + revoked with no attempt
+# left, openbao-config-admin scope, and peer trust A <- B with a token minted
+# by B's identity OIDC role. See tests/e2e/bp-openbao-config-live.sh.
+#
+# No cluster: plain processes on the runner (dev servers + one non-dev
+# server initialised 5 shares / threshold 3). No Service, no nodePort.
+
+on:
+  push:
+    paths:
+      - 'platform/openbao/chart/**'
+      - 'tests/e2e/bp-openbao-config-live.sh'
+      - '.github/workflows/test-bp-openbao-config-live.yaml'
+  pull_request:
+    paths:
+      - 'platform/openbao/chart/**'
+      - 'tests/e2e/bp-openbao-config-live.sh'
+      - '.github/workflows/test-bp-openbao-config-live.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  openbao-config-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      OPENBAO_VERSION: "2.3.1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get the bao binary from the image the chart runs (retried; release tarball fallback)
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/bao"
+          got=""
+          for i in 1 2 3 4 5; do
+            if timeout 120 docker pull -q "quay.io/openbao/openbao:${OPENBAO_VERSION}"; then
+              cid="$(docker create "quay.io/openbao/openbao:${OPENBAO_VERSION}")"
+              docker cp "$cid:/bin/bao" "$RUNNER_TEMP/bao/bao" && got=image
+              docker rm "$cid" >/dev/null
+              break
+            fi
+            echo "image pull attempt $i failed; retrying"; sleep $((i*5))
+          done
+          if [ -z "$got" ]; then
+            url="https://github.com/openbao/openbao/releases/download/v${OPENBAO_VERSION}/bao_${OPENBAO_VERSION}_Linux_x86_64.tar.gz"
+            timeout 300 curl -fsSL --retry 6 --retry-delay 5 --retry-all-errors --connect-timeout 15 -o "$RUNNER_TEMP/bao.tgz" "$url"
+            tar -xzf "$RUNNER_TEMP/bao.tgz" -C "$RUNNER_TEMP/bao" bao && got=release
+          fi
+          chmod +x "$RUNNER_TEMP/bao/bao"
+          "$RUNNER_TEMP/bao/bao" version | tee /dev/stderr | grep -q "v${OPENBAO_VERSION}"
+          echo "BAO_BIN=$RUNNER_TEMP/bao/bao" >> "$GITHUB_ENV"
+          echo "bao source: $got"
+
+      - name: Ensure helm (runner image ships it; install with retries otherwise)
+        timeout-minutes: 4
+        run: |
+          set -euo pipefail
+          if ! command -v helm >/dev/null; then
+            timeout 120 curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+            chmod +x get_helm.sh && timeout 180 ./get_helm.sh
+          fi
+          helm version --short
+          python3 -c 'import yaml' 2>/dev/null || pip install --quiet pyyaml
+
+      - name: Build bp-openbao chart dependencies (retried)
+        timeout-minutes: 4
+        run: |
+          set -euo pipefail
+          for i in 1 2 3 4 5; do
+            timeout 90 helm dependency build platform/openbao/chart && exit 0
+            echo "helm dependency build attempt $i failed; retrying"; sleep $((i*5))
+          done
+          exit 1
+
+      - name: Run the live test (real OpenBao)
+        timeout-minutes: 8
+        run: bash tests/e2e/bp-openbao-config-live.sh
