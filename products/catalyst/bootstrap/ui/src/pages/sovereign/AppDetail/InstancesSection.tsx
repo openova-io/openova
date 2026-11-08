@@ -26,7 +26,14 @@ import {
   type BackingSelection,
   type CreateApplicationInstanceRequest,
 } from '@/lib/catalog.api'
-import { listOrganizations, type OrgRow } from '@/lib/organizations.api'
+import {
+  listRefEnvironments,
+  listRefOrganizations,
+  listRefRegions,
+  type RefEnvironment,
+  type RefOrganization,
+  type RefRegion,
+} from '@/lib/installRefs.api'
 import { getHierarchicalInfrastructure } from '@/lib/infrastructure.types'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import {
@@ -447,7 +454,10 @@ export function PerClusterTable({
  * (#3600) — free-text remains ONLY for the instance name:
  *
  *  - name        — free-text (lowercase k8s-name; the only free field).
- *  - org         — <select> from listOrganizations() (live Orgs).
+ *  - org         — <select> of Organization CRs (GET /api/v1/refs/organizations);
+ *                  value = the CR name, verbatim (ADR-0015 D4).
+ *  - environment — REQUIRED <select> of the chosen Org's Environment CRs
+ *                  (GET /api/v1/refs/organizations/{org}/environments).
  *  - topology    — <select> from the canonical editor mode set
  *                  (single-region / active-active / active-hotstandby),
  *                  constrained to the Blueprint's supported modes when
@@ -486,6 +496,7 @@ export function NewInstanceDialog({
 }) {
   const [name, setName] = useState('')
   const [org, setOrg] = useState('')
+  const [environment, setEnvironment] = useState('')
   const [topology, setTopology] = useState<string>('')
   const [regions, setRegions] = useState<string[]>([])
   const [vcluster, setVcluster] = useState<string>('')
@@ -497,14 +508,35 @@ export function NewInstanceDialog({
 
   const { deploymentId } = useResolvedDeploymentId()
 
-  // #3600 — live Organizations for the Org dropdown.
-  const orgsQuery = useQuery<OrgRow[]>({
-    queryKey: ['organizations-directory', deploymentId ?? ''],
-    queryFn: listOrganizations,
+  // ADR-0015 D4 — the Org dropdown lists Organization CRs; the option VALUE
+  // is the CR name the API validates against, never a routing slug.
+  const orgsQuery = useQuery<RefOrganization[]>({
+    queryKey: ['install-refs-organizations', deploymentId ?? ''],
+    queryFn: listRefOrganizations,
     staleTime: 60_000,
     retry: 1,
   })
   const orgs = orgsQuery.data ?? []
+
+  // ADR-0015 D4 — the Environment dropdown lists the chosen Org's
+  // Environment CRs. Required: there is no derived "<org>-prod".
+  const envsQuery = useQuery<RefEnvironment[]>({
+    queryKey: ['install-refs-environments', org],
+    queryFn: () => listRefEnvironments(org),
+    enabled: !!org,
+    staleTime: 60_000,
+    retry: 1,
+  })
+  const environments = useMemo<RefEnvironment[]>(() => envsQuery.data ?? [], [envsQuery.data])
+
+  // ADR-0015 D4 — regions from the Sovereign's region registry; the value
+  // sent is the canonical id, verbatim.
+  const regionsQuery = useQuery<RefRegion[]>({
+    queryKey: ['install-refs-regions', deploymentId ?? ''],
+    queryFn: listRefRegions,
+    staleTime: 60_000,
+    retry: 1,
+  })
 
   /**
    * #5823 (UAT row 218) — pre-select the Organization when there is exactly
@@ -525,9 +557,10 @@ export function NewInstanceDialog({
    * multi-Org sovereign console returns several and stays unselected — a
    * sovereign-admin with a real choice must still make it.
    *
-   * PARENTS ARE EXCLUDED from the count. The parent row is the Sovereign
-   * self-org (the platform's own control-plane Organization); defaulting a
-   * customer install into it would be worse than asking. So a sovereign
+   * THE PLATFORM ORG IS EXCLUDED from the count. It is the Sovereign
+   * self-org (the platform's own control-plane Organization, label
+   * openova.io/scope=platform); defaulting a customer install into it would
+   * be worse than asking. So a sovereign
    * console with only the self-org resolves to ZERO candidates and stays
    * unselected, which is the honest outcome — there is no customer Org to
    * install into yet.
@@ -535,14 +568,21 @@ export function NewInstanceDialog({
    * Only ever fills a BLANK selection. Once the operator picks something this
    * must never move it, including on a background refetch of the directory.
    */
-  const soleOrgSlug = useMemo<string>(() => {
-    const candidates = orgs.filter((o) => !o.isParent && !!o.slug)
-    return candidates.length === 1 ? candidates[0].slug : ''
+  const soleOrgName = useMemo<string>(() => {
+    const candidates = orgs.filter((o) => !o.platform && !!o.name)
+    return candidates.length === 1 ? candidates[0].name : ''
   }, [orgs])
 
   useEffect(() => {
-    if (!org && soleOrgSlug) setOrg(soleOrgSlug)
-  }, [org, soleOrgSlug])
+    if (!org && soleOrgName) setOrg(soleOrgName)
+  }, [org, soleOrgName])
+
+  // A different Org has different Environments: clear a stale choice, and
+  // pre-select when the Org has exactly one Environment.
+  useEffect(() => {
+    if (environment && !environments.some((e) => e.name === environment)) setEnvironment('')
+    if (!environment && environments.length === 1) setEnvironment(environments[0].name)
+  }, [environment, environments])
 
   // #3599 / #3600 — live cluster regions + vclusters from the Sovereign's
   // infrastructure topology (the SAME source the post-create Topology tab
@@ -555,13 +595,7 @@ export function NewInstanceDialog({
     staleTime: 60_000,
     retry: 1,
   })
-  const availableRegions = useMemo<string[]>(() => {
-    const set = new Set<string>()
-    for (const r of infraQuery.data?.topology?.regions ?? []) {
-      if (r.name) set.add(r.name)
-    }
-    return Array.from(set).sort()
-  }, [infraQuery.data])
+  const availableRegions = useMemo<RefRegion[]>(() => regionsQuery.data ?? [], [regionsQuery.data])
   // #5616 — REAL placement targets from the live topology. Each option's
   // VALUE is the vCluster's real host NAMESPACE (`vc.namespace` on the
   // wire) — the identity the backend consumes when addressing the
@@ -677,7 +711,11 @@ export function NewInstanceDialog({
 
   // #3599 validation — multi-region modes need ≥2 regions.
   const placementValid = !requiresMultiRegion || regions.length >= 2
-  const canSubmit = !submitting && !!name && !!org && placementValid
+  // ADR-0015 D4 — an empty region registry names no region at all; the
+  // server would 422, so the dialog says so instead of submitting.
+  const registryEmpty = !regionsQuery.isPending && availableRegions.length === 0
+  const canSubmit =
+    !submitting && !!name && !!org && !!environment && placementValid && !registryEmpty
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -685,9 +723,13 @@ export function NewInstanceDialog({
     setError(null)
     setSubmitting(true)
     try {
+      // ADR-0015 D4 — every reference is sent EXACTLY as listed: the
+      // Blueprint CR name, the Organization CR name, the Environment CR
+      // name, canonical region ids.
       const body: CreateApplicationInstanceRequest = {
-        blueprint: bpName,
-        org: org.trim(),
+        blueprint,
+        org,
+        environment,
         name: name.trim(),
       }
       if (topology) body.topology = topology
@@ -792,7 +834,10 @@ export function NewInstanceDialog({
           <select
             data-testid="select-instance-org"
             value={org}
-            onChange={(e) => setOrg(e.target.value)}
+            onChange={(e) => {
+              setOrg(e.target.value)
+              setEnvironment('')
+            }}
             required
             style={fieldStyle}
           >
@@ -800,27 +845,40 @@ export function NewInstanceDialog({
               {orgsQuery.isPending ? 'Loading organizations…' : 'Select an organization…'}
             </option>
             {orgs.map((o) => (
-              <option key={o.id} value={o.slug}>
-                {o.displayName ? `${o.displayName} (${o.slug})` : o.slug}
+              <option key={o.name} value={o.name}>
+                {o.displayName ? `${o.displayName} (${o.name})` : o.name}
               </option>
             ))}
           </select>
-          {/* Environment is derived server-side as <org>-prod; surfaced
-              read-only so the operator sees WHERE it lands (#3599). No
-              free-text — there is no environments list to choose from. */}
-          {org ? (
-            <span
-              data-testid="instance-environment-derived"
-              style={{
-                display: 'block',
-                marginTop: '0.3rem',
-                fontSize: '0.74rem',
-                color: 'var(--color-text-dim)',
-              }}
-            >
-              Environment: <code>{org}-prod</code>
-            </span>
-          ) : null}
+        </label>
+
+        {/* Environment — REQUIRED, from the chosen Org's Environment CRs
+            (ADR-0015 D4). Value = the Environment CR name, verbatim. */}
+        <label style={{ display: 'block', marginBottom: '0.6rem', fontSize: '0.85rem' }}>
+          <span style={{ display: 'block', marginBottom: '0.2rem' }}>Environment</span>
+          <select
+            data-testid="select-instance-environment"
+            value={environment}
+            onChange={(e) => setEnvironment(e.target.value)}
+            disabled={!org}
+            required
+            style={fieldStyle}
+          >
+            <option value="" disabled>
+              {!org
+                ? 'Select an organization first'
+                : envsQuery.isPending
+                  ? 'Loading environments…'
+                  : environments.length === 0
+                    ? 'This organization has no environments'
+                    : 'Select an environment…'}
+            </option>
+            {environments.map((env) => (
+              <option key={env.name} value={env.name}>
+                {env.envType ? `${env.name} (${env.envType})` : env.name}
+              </option>
+            ))}
+          </select>
         </label>
 
         {/* Topology mode — dropdown over the editor's full canonical
@@ -865,7 +923,7 @@ export function NewInstanceDialog({
           <legend style={{ fontSize: '0.8rem', padding: '0 0.3rem' }}>
             Region(s){requiresMultiRegion ? ' — pick at least 2' : ''}
           </legend>
-          {infraQuery.isPending ? (
+          {regionsQuery.isPending ? (
             <p style={{ fontSize: '0.78rem', margin: 0, color: 'var(--color-text-dim)' }}>
               Loading regions…
             </p>
@@ -888,10 +946,10 @@ export function NewInstanceDialog({
                   Cluster, so it is named, not papered over. */}
               {requiresMultiRegion
                 ? `No cluster regions reported for this Sovereign, so ${topology} cannot be placed — it needs 2 regions and there is no default second region to fall back to. Check the infrastructure topology for this Sovereign first.`
-                : 'No cluster regions reported for this Sovereign — the server will place the instance in its default region.'}
+                : 'This Sovereign declares no regions in its region registry, so the instance cannot be placed.'}
             </p>
           ) : (
-            availableRegions.map((region) => (
+            availableRegions.map(({ id: region, label, primary }) => (
               <label
                 key={region}
                 style={{ display: 'block', fontSize: '0.82rem', padding: '0.12rem 0', cursor: 'pointer' }}
@@ -903,7 +961,12 @@ export function NewInstanceDialog({
                   data-testid={`region-checkbox-${region}`}
                   style={{ marginRight: '0.4rem' }}
                 />
-                <code>{region}</code>
+                <code>{label || region}</code>
+                {primary ? (
+                  <span style={{ marginLeft: '0.4rem', fontSize: '0.72rem', color: 'var(--color-text-dim)' }}>
+                    primary
+                  </span>
+                ) : null}
               </label>
             ))
           )}

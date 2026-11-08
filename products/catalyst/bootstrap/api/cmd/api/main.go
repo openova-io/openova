@@ -1877,6 +1877,11 @@ func main() {
 		// catalyst_session cookie, so RequireSession would 401 it before
 		// the shim ever ran (#3374 root cause).
 		rg.Post("/catalyst/v1/apps/instances", h.HandleCreateInstance)
+		// ADR-0015 D4 — the install dialog's option lists, read from the
+		// objects a create request must name (install_refs_api.go).
+		rg.Get("/api/v1/refs/organizations", h.HandleListRefOrganizations)
+		rg.Get("/api/v1/refs/organizations/{org}/environments", h.HandleListRefEnvironments)
+		rg.Get("/api/v1/refs/regions", h.HandleListRefRegions)
 		rg.Get("/catalyst/v1/catalog/{blueprint}/instances", h.HandleListBlueprintInstances)
 
 		// EPIC-6 (#1101) slice U-DR-1 — Continuum DR UI surface.

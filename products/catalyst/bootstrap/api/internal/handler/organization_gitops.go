@@ -230,6 +230,12 @@ func (w DefaultOrganizationGitOpsWriter) WriteTenantOverlay(ctx context.Context,
 		if strings.TrimSpace(contents) == "" {
 			continue
 		}
+		// ADR-0015 D5 — application templates are rendered for their
+		// values only; the funnel installs them as Application CRs
+		// (installFunnelApplications), never as bare HelmReleases here.
+		if isFunnelApplicationFile(name) {
+			continue
+		}
 		path := filepath.Join(overlayDir, name)
 		if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
 			return "", fmt.Errorf("write %s: %w", name, err)
@@ -976,11 +982,9 @@ var orgTenantTemplates = map[string]string{
 	"bp-stalwart-tenant.yaml":  orgTenantBPStalwart,
 	"bp-agenity.yaml":          orgTenantBPAgenity,
 	"certificate.yaml":         orgTenantCertificate,
-	// #2066 — per-Application Continuum CR. The template evaluates to
-	// the empty string when EnableHotStandby=false; the writer in
-	// WriteTenantOverlay skips empty contents so the file never lands
-	// in the overlay directory for single-cluster tenants.
-	"continuum.yaml": orgTenantContinuum,
+	// ADR-0015 D5 — the per-Application continuum.yaml (#2066) is gone: a
+	// funnel Application with a multi-region placement gets its Continuum
+	// from the application-controller, like every console Application.
 }
 
 const orgTenantKustomization = `# Generated at {{.GeneratedAt}} by catalyst-api/org-tenant pipeline (#804).
@@ -994,21 +998,18 @@ resources:
   # #4188 — leaving it here re-created a stale ImagePullBackOff duplicate
   # on every render. prune=true on the org-tenants Kustomization reaps
   # the old one.
+  #
+  # ADR-0015 D5 — this overlay carries the Org SUBSTRATE only. The Org's
+  # applications (bp-newapi, bp-wordpress-tenant, bp-openclaw,
+  # bp-stalwart-tenant, bp-agenity) are Application CRs created through
+  # the console's create function (installFunnelApplications); the
+  # application-controller renders their HelmReleases and, for a
+  # multi-region placement, their Continuum. prune=true on the
+  # org-tenants Kustomization reaps the bare HelmReleases this overlay
+  # used to carry.
   - namespace.yaml
   - bp-keycloak.yaml
-  - bp-newapi.yaml
-  - bp-wordpress-tenant.yaml
-  - bp-openclaw.yaml
-  - bp-stalwart-tenant.yaml
-  - bp-agenity.yaml
   - certificate.yaml
-{{- if .EnableHotStandby }}
-  # D31 / Pillar 3 — per-Application Continuum CR (Refs #2066) that
-  # bp-continuum (Refs #2065) reconciles against. Only included when
-  # active-hot-standby is on AND both regions are distinct (validated
-  # in renderOrganizationOverlay before this template fires).
-  - continuum.yaml
-{{- end }}
 commonLabels:
   catalyst.openova.io/org-tenant: {{.TenantID}}
   catalyst.openova.io/org-subdomain: {{.Subdomain}}
@@ -1754,106 +1755,6 @@ spec:
 {{- end }}
 `
 
-// orgTenantContinuum — D31 / Pillar 3 (Refs #2066). Per-Application
-// Continuum CR that bp-continuum (Refs #2065) reconciles against to
-// orchestrate primary/replica switchover + lua-record flip on region
-// kill. Only rendered when EnableHotStandby=true; otherwise the
-// template evaluates to whitespace and the overlay writer skips the
-// file. The applicationRef points at the bp-wordpress-tenant
-// HelmRelease (the per-Application unit in the Organization tenant model).
-// CRD shape per products/catalyst/chart/crds/continuum.yaml.
-//
-// Lease backend is k8s-lease (#3829). It is NOT dns-quorum, and the
-// difference is the whole reason a hot-standby tenant reaches Ready.
-//
-// This template used to emit `kind: dns-quorum` with resolvers
-// 10.43.0.10/.11/.12, on the belief that those were the Sovereign's
-// three in-cluster PowerDNS resolver Pods. They are not: 10.43.0.0/16
-// is k3s's DEFAULT service CIDR, and these Sovereigns allocate from
-// 10.96.0.0/12, so .11 and .12 were never anything at all and .10 was
-// at best kube-dns. Re-pointing them does NOT fix the row, for three
-// independent reasons:
-//
-//  1. dns-quorum's registered factory builds its client with a nil
-//     TXTWriter unconditionally
-//     (core/controllers/continuum/internal/witness/dnsquorum/client.go:213),
-//     so writeQuorum (same file:435) returns "Writer not configured
-//     (Phase-1 POC needs PDM /v1/txt — K-Cont-{4|5})" and Acquire can
-//     never take the lease no matter which resolvers it is given.
-//  2. kube-dns is not authoritative for the lease zone, so the read
-//     side finds no TXT record to reach a 2-of-3 majority either.
-//  3. kube-dns is REGION-LOCAL (measured on hw293: region A serves
-//     10.96.0.10, region B serves 10.97.0.10). A witness exists to let
-//     two regions arbitrate ONE slot; per-region resolver sets can
-//     never form the shared quorum that requires.
-//
-// k8s-lease stores the lease in a native coordination.k8s.io/v1 Lease
-// in the control-plane cluster — durable etcd CAS via resourceVersion,
-// zero external dependency (so it survives the Pillar-5 air-gap), and
-// the continuum-controller's ClusterRole already grants the verbs. It
-// is already the shipped default for bp-cnpg-pair
-// (platform/cnpg-pair/chart/values.yaml:613) and bp-postgres
-// (platform/postgres/chart/values.yaml:351); this per-Org writer was
-// the last producer still selecting the dead backend.
-//
-// No `config` block is needed: the reconciler stamps the Lease
-// namespace from CATALYST_LEASE_NS (already set to catalyst-system on
-// the deployed controller). Health-check URL points at the tenant's
-// WordPress public host.
-//
-// RTO 30s / RPO 5s match CLAUDE.md §0 deterministic step 10's
-// "≤30s failover" claim. autoFailover defaults to false so the first
-// fresh-prov walk is operator-driven; Sovereigns that have proven
-// the path can flip the CR field after the fact.
-const orgTenantContinuum = `{{- if .EnableHotStandby }}
-# Continuum.dr.openova.io/v1 — per-Application DR contract (#2066).
-# Reconciled by bp-continuum (#2065). One CR per active-hot-standby
-# tenant Application. The controller watches replication lag from the
-# primary/replica Cluster CR pair (rendered by bp-wordpress-tenant's
-# pg.activeHotStandby.* block above), drives the 7-step switchover
-# sequencer on region-kill (validate-lease → cordon-old → drain
-# HTTPRoute → flip-dns lua-record → swap-lease → uncordon-new →
-# audit), and surfaces phase to the operator console.
-apiVersion: dr.openova.io/v1
-kind: Continuum
-metadata:
-  name: bp-wordpress-tenant
-  namespace: {{.Namespace}}
-  labels:
-    catalyst.openova.io/org-tenant: {{.TenantID}}
-    catalyst.openova.io/org-subdomain: {{.Subdomain}}
-    openova.io/application: bp-wordpress-tenant
-spec:
-  applicationRef: bp-wordpress-tenant
-  primaryRegion: {{ .PrimaryRegion }}
-  hotStandbyRegions:
-    - {{ .ReplicaRegion }}
-  # CLAUDE.md §0 — failover must complete ≤30s. RPO 5s matches the
-  # synchronous_commit=remote_apply replication shape PR #2071 wired
-  # into bp-cnpg-pair / bp-wordpress-tenant.
-  rto: 30s
-  rpo: 5s
-  # Operator-driven for the first fresh-prov walk; flip to true on
-  # the CR post-handover once the path is proven.
-  autoFailover: false
-  # k8s-lease (#3829) — a native coordination.k8s.io/v1 Lease in the
-  # control-plane cluster. Air-gappable, durable etcd CAS, no resolvers
-  # to misconfigure. dns-quorum is NOT usable: its client is built with
-  # a nil TXTWriter, so Acquire always fails and the CR sits Degraded
-  # with no leaseHolder and no standby. See the Go comment above.
-  leaseClient:
-    kind: k8s-lease
-    config:
-      ttlSeconds: 30
-      renewSeconds: 10
-  luaRecord:
-    selector: ifurlup
-    healthCheck:
-      url: https://{{.WordPressHost}}/healthz
-      intervalSeconds: 5
-      timeoutSeconds: 2
-{{- end }}
-`
 
 const orgTenantBPOpenClaw = `# bp-openclaw (#803, #915) — workspace controller pre-wired to the
 # per-tenant Keycloak realm (SSO) and the per-tenant NewAPI gateway

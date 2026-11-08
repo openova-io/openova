@@ -164,8 +164,12 @@ func UnavailableTierMessage(tier string) string {
 // handler package; exported here so per-cluster reconciler code can
 // reuse the same wire-shape for future imports.
 type CreateInstanceRequest struct {
-	Blueprint      string                 `json:"blueprint"`
-	Org            string                 `json:"org"`
+	Blueprint string `json:"blueprint"`
+	Org       string `json:"org"`
+	// Environment — the Environment CR name (ADR-0015 D4). Must belong to
+	// Org. Omitted → resolved from objects by the handler (the Org's single
+	// Environment of its default type), never derived from the Org name.
+	Environment    string                 `json:"environment,omitempty"`
 	Name           string                 `json:"name"`
 	Topology       string                 `json:"topology,omitempty"`
 	IsolationLevel string                 `json:"isolationLevel,omitempty"`
@@ -217,6 +221,7 @@ var NameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,40}[a-z0-9]$`)
 func (r *CreateInstanceRequest) Sanitise() {
 	r.Blueprint = strings.TrimSpace(r.Blueprint)
 	r.Org = strings.TrimSpace(r.Org)
+	r.Environment = strings.TrimSpace(r.Environment)
 	r.Name = strings.TrimSpace(r.Name)
 	r.IsolationLevel = strings.TrimSpace(r.IsolationLevel)
 	r.Topology = strings.TrimSpace(r.Topology)
@@ -303,9 +308,15 @@ func (e *ShapeError) Error() string { return e.Code + ": " + e.Message }
 // `dynamic.Interface.Create`. Keeping it as a plain struct here makes
 // the unit tests independent of the K8s client.
 type ApplicationSeed struct {
-	Name           string
-	Namespace      string
-	Blueprint      string // with `bp-` prefix
+	Name      string
+	Namespace string
+	// Organization — the Organization CR name, verbatim (spec.organizationRef).
+	Organization string
+	// Environment — the validated Environment CR name (spec.environmentRef).
+	Environment string
+	// Regions — the validated canonical region ids (spec.regions).
+	Regions        []string
+	Blueprint      string // the Blueprint CR name
 	Topology       string
 	InstanceID     string
 	IsolationLevel appv1alpha1.IsolationLevel
@@ -350,10 +361,9 @@ func (r CreateInstanceRequest) Build(chosenTopology string) (ApplicationSeed, er
 		return ApplicationSeed{}, err
 	}
 
+	// ADR-0015 D4 — the Blueprint is named exactly (the handler validated
+	// it against the Blueprint CR); no prefix is re-added here.
 	bp := r.Blueprint
-	if !strings.HasPrefix(bp, "bp-") {
-		bp = "bp-" + bp
-	}
 
 	mi := appv1alpha1.MultiInstanceSpec{IsolationLevel: appv1alpha1.IsolationLevel(r.IsolationLevel)}
 	mi.ApplyDefaults()
@@ -366,6 +376,8 @@ func (r CreateInstanceRequest) Build(chosenTopology string) (ApplicationSeed, er
 	return ApplicationSeed{
 		Name:           r.Name,
 		Namespace:      r.Org,
+		Organization:   r.Org,
+		Environment:    r.Environment,
 		Blueprint:      bp,
 		Topology:       chosenTopology,
 		InstanceID:     id,

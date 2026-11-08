@@ -11,7 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -47,58 +46,8 @@ func getNamespace(t *testing.T, client *dynamicfake.FakeDynamicClient, name stri
 	return client.Resource(namespacesGVR()).Get(context.Background(), name, metav1.GetOptions{})
 }
 
-// The core #3598 contract: ensuring a namespace that does NOT exist
-// creates it (so the subsequent Application CR create won't hit
-// "namespace not found").
-func TestEnsureOrgNamespace_CreatesWhenAbsent(t *testing.T) {
-	client := fakeNamespaceClient()
 
-	// Pre-condition: the namespace is genuinely absent.
-	if _, err := getNamespace(t, client, "acme"); !apierrors.IsNotFound(err) {
-		t.Fatalf("precondition: expected acme namespace absent, got err=%v", err)
-	}
 
-	if err := ensureOrgNamespace(context.Background(), client, "acme"); err != nil {
-		t.Fatalf("ensureOrgNamespace returned error: %v", err)
-	}
-
-	got, err := getNamespace(t, client, "acme")
-	if err != nil {
-		t.Fatalf("namespace acme not present after ensure: %v", err)
-	}
-	if got.GetName() != "acme" {
-		t.Fatalf("created namespace name = %q, want acme", got.GetName())
-	}
-	// It should carry the catalyst-api managed-by marker.
-	labels := got.GetLabels()
-	if labels["app.kubernetes.io/managed-by"] != "catalyst-api" {
-		t.Fatalf("ensured namespace missing managed-by label, labels=%v", labels)
-	}
-}
-
-// Idempotency: ensuring an already-present namespace is a no-op success
-// (the steady-state + GitOps-already-created path).
-func TestEnsureOrgNamespace_IdempotentWhenPresent(t *testing.T) {
-	client := fakeNamespaceClient(nsObject("acme"))
-
-	if err := ensureOrgNamespace(context.Background(), client, "acme"); err != nil {
-		t.Fatalf("ensureOrgNamespace on existing namespace returned error: %v", err)
-	}
-
-	// Still exactly one namespace named acme (no duplicate / no error).
-	if _, err := getNamespace(t, client, "acme"); err != nil {
-		t.Fatalf("namespace acme missing after idempotent ensure: %v", err)
-	}
-}
-
-// A blank namespace is a programmer error and must be rejected rather
-// than creating a cluster-scoped object with an empty name.
-func TestEnsureOrgNamespace_RejectsEmpty(t *testing.T) {
-	client := fakeNamespaceClient()
-	if err := ensureOrgNamespace(context.Background(), client, "   "); err == nil {
-		t.Fatalf("ensureOrgNamespace(\"\") = nil, want error")
-	}
-}
 
 // ── #3830 — orgNamespace FQDN → RFC-1123 label slug ────────────────────
 
@@ -170,25 +119,6 @@ func TestOrgNamespace_Idempotent(t *testing.T) {
 	}
 }
 
-// TestEnsureOrgNamespace_SlugsDottedFQDN — the end-to-end #3830 contract:
-// passing a dotted Org FQDN to ensureOrgNamespace creates the SLUGGED
-// namespace (never the raw dotted name, which the apiserver rejects).
-func TestEnsureOrgNamespace_SlugsDottedFQDN(t *testing.T) {
-	client := fakeNamespaceClient()
-
-	if err := ensureOrgNamespace(context.Background(), client, "hw165.omani.works"); err != nil {
-		t.Fatalf("ensureOrgNamespace(dotted FQDN) returned error: %v", err)
-	}
-
-	// The slugged namespace exists…
-	if _, err := getNamespace(t, client, "hw165-omani-works"); err != nil {
-		t.Fatalf("slugged namespace hw165-omani-works not present after ensure: %v", err)
-	}
-	// …and the raw dotted name was NEVER created.
-	if _, err := getNamespace(t, client, "hw165.omani.works"); !apierrors.IsNotFound(err) {
-		t.Fatalf("raw dotted namespace must not exist, got err=%v", err)
-	}
-}
 
 // ── #3922 — environmentRef must satisfy the Application CRD pattern ─────
 
@@ -200,24 +130,6 @@ func TestEnsureOrgNamespace_SlugsDottedFQDN(t *testing.T) {
 // asserted against the SAME rule the apiserver enforces.
 var applicationEnvironmentRefPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{2,63}$`)
 
-// TestEnvironmentRefForOrg_SlugsDottedFQDN — the headline #3922 contract: a
-// dotted Org FQDN yields a dash-joined, CRD-pattern-safe "<slug>-prod" env ref
-// (never the raw dotted "<fqdn>-prod" the apiserver 500s on).
-func TestEnvironmentRefForOrg_SlugsDottedFQDN(t *testing.T) {
-	cases := []struct {
-		in   string
-		want string
-	}{
-		{"hw171.omantel.biz", "hw171-omantel-biz-prod"},
-		{"hw165.omani.works", "hw165-omani-works-prod"},
-		{"acme", "acme-prod"}, // bare slug + suffix, unchanged shape
-	}
-	for _, tc := range cases {
-		if got := environmentRefForOrg(tc.in); got != tc.want {
-			t.Fatalf("environmentRefForOrg(%q) = %q, want %q", tc.in, got, tc.want)
-		}
-	}
-}
 
 // TestSanitizeEnvironmentRef_AlwaysMatchesCRDPattern asserts every output
 // satisfies the Application CRD's spec.environmentRef pattern — so the create
@@ -243,9 +155,5 @@ func TestSanitizeEnvironmentRef_AlwaysMatchesCRDPattern(t *testing.T) {
 	// An already-valid label round-trips byte-identically.
 	if got := sanitizeEnvironmentRef("acme-prod"); got != "acme-prod" {
 		t.Fatalf("sanitizeEnvironmentRef(\"acme-prod\") = %q, want unchanged acme-prod", got)
-	}
-	// environmentRefForOrg output also satisfies the CRD pattern (suffix path).
-	if got := environmentRefForOrg("hw171.omantel.biz"); !applicationEnvironmentRefPattern.MatchString(got) {
-		t.Fatalf("environmentRefForOrg output %q does NOT match the CRD pattern", got)
 	}
 }

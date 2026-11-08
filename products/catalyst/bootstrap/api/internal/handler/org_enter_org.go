@@ -101,7 +101,7 @@ func (h *Handler) HandleEnterOrg(w http.ResponseWriter, r *http.Request) {
 	// Guard: the parent org IS the Sovereign — entering it is a no-op
 	// ("you are already inside it", §5). The button is hidden on the
 	// parent row; reject a forged attempt.
-	if strings.EqualFold(slug, sovFQDN) || slug == "sovereign" {
+	if strings.EqualFold(slug, sovFQDN) || slug == orgNamespace(sovFQDN) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
 			"error":  "cannot-enter-parent",
 			"detail": "the parent organization is the Sovereign itself — you are already inside it",
