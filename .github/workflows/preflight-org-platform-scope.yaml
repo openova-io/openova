@@ -41,25 +41,40 @@ jobs:
           go-version-file: core/controllers/go.mod
           cache-dependency-path: core/controllers/go.sum
 
-      - name: Set up kind
-        uses: helm/kind-action@v1
-        with:
-          cluster_name: org-platform-scope
-          version: v0.25.0
-          node_image: kindest/node:v1.30.6
-
-      - name: Set up Helm
-        uses: azure/setup-helm@v4
+      # kind and helm come preinstalled on the ubuntu runner image; the
+      # helm/kind-action downloads kind from github.com releases, which made
+      # this gate fail on a release-CDN outage (504) that had nothing to do
+      # with the change under test.
+      - name: Create kind cluster
+        run: |
+          set -euo pipefail
+          if ! command -v kind >/dev/null; then
+            for i in 1 2 3 4 5; do
+              curl -fsSLo /tmp/kind https://kind.sigs.k8s.io/dl/v0.25.0/kind-linux-amd64 && break
+              sleep $((i * 20))
+            done
+            sudo install /tmp/kind /usr/local/bin/kind
+          fi
+          kind version
+          kind create cluster --name org-platform-scope --image kindest/node:v1.30.6 --wait 180s
+          kubectl get nodes
 
       - name: Install Kyverno (the chart bp-kyverno wraps — platform/kyverno/chart/Chart.yaml)
         run: |
+          set -euo pipefail
           ver="$(awk '/^dependencies:/{d=1} d && /name: kyverno/{k=1} k && /version:/{gsub(/"/,"",$2); print $2; exit}' platform/kyverno/chart/Chart.yaml)"
           echo "kyverno chart ${ver}"
-          helm repo add kyverno https://kyverno.github.io/kyverno/
-          helm install kyverno kyverno/kyverno --version "${ver}" -n kyverno --create-namespace \
-            --set admissionController.replicas=1 --set backgroundController.enabled=false \
-            --set cleanupController.enabled=false --set reportsController.enabled=false \
-            --wait --timeout 10m
+          args=(-n kyverno --create-namespace --version "${ver}"
+            --set admissionController.replicas=1 --set backgroundController.enabled=false
+            --set cleanupController.enabled=false --set reportsController.enabled=false
+            --wait --timeout 10m)
+          helm repo add kyverno https://kyverno.github.io/kyverno/ || true
+          for i in 1 2 3 4 5; do
+            if helm upgrade --install kyverno kyverno/kyverno "${args[@]}"; then exit 0; fi
+            if helm upgrade --install kyverno oci://ghcr.io/kyverno/charts/kyverno "${args[@]}"; then exit 0; fi
+            echo "kyverno chart fetch failed (attempt $i), retrying"; sleep $((i * 30))
+          done
+          exit 1
 
       - name: Admission walk
         run: bash tests/e2e/org-platform-scope/run.sh
