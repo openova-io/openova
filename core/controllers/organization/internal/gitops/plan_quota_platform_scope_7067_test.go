@@ -36,37 +36,6 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-// inPlatformScope is the Policy's selection rule in Go, built from the SAME
-// platformScope the template renders (TestPlatformScope_PolicyMatchesTable
-// pins the two together): match any clause, unless an exclude matches.
-func inPlatformScope(labels map[string]string) bool {
-	if _, synced := labels["vcluster.loft.sh/managed-by"]; synced {
-		return false
-	}
-	for _, c := range platformScope.ExcludeComponents {
-		if labels["app.kubernetes.io/component"] == c {
-			return false
-		}
-	}
-	in := func(v string, set []string) bool {
-		for _, s := range set {
-			if v != "" && v == s {
-				return true
-			}
-		}
-		return false
-	}
-	switch {
-	case in(labels["app.kubernetes.io/instance"], platformScope.InstanceReleases),
-		in(labels["app.kubernetes.io/name"], platformScope.ChartNames),
-		in(labels["catalyst.openova.io/blueprint"], platformScope.Blueprints),
-		labels["app"] == platformScope.ControlPlaneApp:
-		return true
-	}
-	c := labels["cnpg.io/cluster"]
-	return c != "" && strings.HasSuffix(c, platformScope.CNPGClusterSuffix)
-}
-
 // ─── 1. OBJECTS ──────────────────────────────────────────────────────────────
 
 func TestPlatformScope_ObjectsRenderTogetherAndSafely(t *testing.T) {
@@ -146,9 +115,29 @@ func TestPlatformScope_ObjectsRenderTogetherAndSafely(t *testing.T) {
 	if len(pol.Spec.Rules) != 2 {
 		t.Fatalf("Policy has %d rules, want stamp + synced-pod refusal", len(pol.Spec.Rules))
 	}
-	m := pol.Spec.Rules[0].Mutate.PatchStrategicMerge.Spec
-	if m.PriorityClassName != OrgPlatformPriorityClassName || m.Priority != orgPlatformPriorityValue || m.PreemptionPolicy != "Never" {
-		t.Errorf("mutation = %+v, want class %s + priority %d + Never (all three, so a re-invoked Priority plugin computes the same figures)", m, OrgPlatformPriorityClassName, orgPlatformPriorityValue)
+	// The Priority admission plugin stamps spec.priority / preemptionPolicy
+	// BEFORE the webhook and is re-invoked after it; a name-only patch is
+	// refused ("the integer value of priority (0) must not be provided",
+	// proven on the hw307-A apiserver). The patch must set the name and
+	// REMOVE both computed fields, exactly these three ops in this order.
+	var ops []struct {
+		Op    string `json:"op"`
+		Path  string `json:"path"`
+		Value string `json:"value"`
+	}
+	if err := yaml.Unmarshal([]byte(pol.Spec.Rules[0].Mutate.PatchesJSON6902), &ops); err != nil {
+		t.Fatalf("patchesJson6902 does not parse: %v", err)
+	}
+	want := []string{"add /spec/priorityClassName " + OrgPlatformPriorityClassName, "remove /spec/priority ", "remove /spec/preemptionPolicy "}
+	got := []string{}
+	for _, o := range ops {
+		got = append(got, o.Op+" "+o.Path+" "+o.Value)
+	}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("mutation ops = %v, want %v", got, want)
+	}
+	if pol.Spec.Rules[0].Mutate.PatchStrategicMerge != nil {
+		t.Errorf("the stamp rule must not carry a patchStrategicMerge (a name-only or figure-setting merge is what the apiserver refuses)")
 	}
 	for _, c := range pol.Spec.Rules[0].Match.Any {
 		if strings.Join(c.Resources.Kinds, ",") != "Pod" || strings.Join(c.Resources.Operations, ",") != "CREATE" {
@@ -183,13 +172,8 @@ type kyvernoPolicy struct {
 				Any []kyvernoClause `json:"any"`
 			} `json:"exclude"`
 			Mutate struct {
-				PatchStrategicMerge struct {
-					Spec struct {
-						PriorityClassName string `json:"priorityClassName"`
-						Priority          int64  `json:"priority"`
-						PreemptionPolicy  string `json:"preemptionPolicy"`
-					} `json:"spec"`
-				} `json:"patchStrategicMerge"`
+				PatchesJSON6902     string         `json:"patchesJson6902"`
+				PatchStrategicMerge map[string]any `json:"patchStrategicMerge"`
 			} `json:"mutate"`
 			Validate struct {
 				FailureAction string `json:"failureAction"`
@@ -335,8 +319,8 @@ func TestPlatformScope_ClassifiesEveryPod(t *testing.T) {
 	t.Parallel()
 	nPlat, nCust := 0, 0
 	for _, f := range append(append([]platformScopeFixture(nil), hw307Pods...), renderedHookPods...) {
-		if got := inPlatformScope(f.labels); got != f.platform {
-			t.Errorf("%s: inPlatformScope = %v, want %v (labels %v)", f.name, got, f.platform, f.labels)
+		if got := InPlatformScope(f.labels); got != f.platform {
+			t.Errorf("%s: InPlatformScope = %v, want %v (labels %v)", f.name, got, f.platform, f.labels)
 		}
 		if f.platform {
 			nPlat++
@@ -564,4 +548,121 @@ func sorted(s []string) []string {
 	out := append([]string(nil), s...)
 	sort.Strings(out)
 	return out
+}
+
+// ─── 6. ROLLOUT GATE ─────────────────────────────────────────────────────────
+
+// TestPlatformScope_PendingHoldsPlanQuotaUnscoped: while a platform pod still
+// lacks the class (PlatformScopePending), plan-quota must NOT be scoped — a
+// classless keycloak pod is "not in" the class and a scoped plan-quota would
+// charge it to the customer's plan and refuse every new customer pod. It is
+// held at the pre-#7067 single-quota size plus the transient headroom, while
+// the class, the Policy, platform-quota and the read RBAC still render.
+func TestPlatformScope_PendingHoldsPlanQuotaUnscoped(t *testing.T) {
+	t.Parallel()
+	for slug := range planQuotaTable {
+		out, err := Render(Inputs{Slug: "acme", DisplayName: "Acme", Tier: "org", PlanSlug: slug,
+			SovereignFQDN: "x.example", HostCluster: "hz", VClusterChartVersion: "0.33.*", PlatformScopePending: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, f := range []string{platformQuotaDoc, priorityClassDoc, platformScopePolicyDoc, platformScopeRBACDoc} {
+			if _, ok := out["vcluster/"+f]; !ok {
+				t.Errorf("plan %q pending: %s not rendered — new pods must be stamped while the gate is pending", slug, f)
+			}
+		}
+		var rq struct {
+			Metadata struct {
+				Labels map[string]string `json:"labels"`
+			} `json:"metadata"`
+			Spec struct {
+				ScopeSelector map[string]any    `json:"scopeSelector"`
+				Hard          map[string]string `json:"hard"`
+			} `json:"spec"`
+		}
+		if err := yaml.Unmarshal(out["vcluster/resourcequota.yaml"], &rq); err != nil {
+			t.Fatal(err)
+		}
+		if rq.Spec.ScopeSelector != nil {
+			t.Errorf("plan %q pending: plan-quota is scoped %v — classless platform pods would be charged to the customer's plan", slug, rq.Spec.ScopeSelector)
+		}
+		if rq.Metadata.Labels["openova.io/quota-scope"] != "transitional" {
+			t.Errorf("plan %q pending: quota-scope label = %q, want transitional", slug, rq.Metadata.Labels["openova.io/quota-scope"])
+		}
+		q := planQuota(slug)
+		ps, th, cp := platformStackOverheadFor(q), transientHeadroomFor(q), vclusterControlPlaneOverhead
+		for res, parts := range map[string][]any{
+			"requests.cpu":    {q.CPURequest, cp.RequestsCPU, ps.RequestsCPU, th.RequestsCPU},
+			"requests.memory": {q.MemRequest, cp.RequestsMemory, ps.RequestsMemory, th.RequestsMemory},
+			"limits.cpu":      {q.CPULimit, cp.LimitsCPU, ps.LimitsCPU, th.LimitsCPU},
+			"limits.memory":   {q.MemLimit, cp.LimitsMemory, ps.LimitsMemory, th.LimitsMemory},
+		} {
+			want := mustQ(t, res, parts[0].(string))
+			for _, x := range parts[1:] {
+				want.Add(x.(resource.Quantity))
+			}
+			if got := mustQ(t, res, rq.Spec.Hard[res]); got.Cmp(want) != 0 {
+				t.Errorf("plan %q pending: plan-quota %s = %s, want the pre-#7067 single quota + transients %s", slug, res, got.String(), want.String())
+			}
+		}
+	}
+	// hw307 acmewalk307, plan M, the moment the boundary tree lands: 5205m
+	// requested by classless pods. The transitional plan-quota holds them.
+	pending, _ := Render(Inputs{Slug: "acme", PlanSlug: "m", SovereignFQDN: "x", HostCluster: "hz", VClusterChartVersion: "0.33.*", PlatformScopePending: true})
+	var d struct {
+		Spec struct {
+			Hard map[string]string `json:"hard"`
+		} `json:"spec"`
+	}
+	_ = yaml.Unmarshal(pending["vcluster/resourcequota.yaml"], &d)
+	if d.Spec.Hard["requests.cpu"] != "5479m" {
+		t.Errorf("plan m pending requests.cpu = %s, want 5479m (334m + 520m + 3840m + 785m)", d.Spec.Hard["requests.cpu"])
+	}
+}
+
+// TestPlatformScope_ReadRBACBindsTheController: the gate's pod read is a
+// namespaced Role bound to the org-controller's ServiceAccount, delivered by
+// the Org's own tree — no cluster-wide pod read, no umbrella ClusterRole change.
+func TestPlatformScope_ReadRBACBindsTheController(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct{ sa, ns, wantSA, wantNS string }{
+		{"", "", DefaultControllerServiceAccount, DefaultControllerNamespace},
+		{"orgctl", "ops", "orgctl", "ops"},
+	} {
+		out, err := Render(Inputs{Slug: "acme", PlanSlug: "m", SovereignFQDN: "x", HostCluster: "hz", VClusterChartVersion: "0.33.*",
+			ControllerServiceAccount: c.sa, ControllerNamespace: c.ns})
+		if err != nil {
+			t.Fatal(err)
+		}
+		docs := strings.Split(string(out["vcluster/"+platformScopeRBACDoc]), "\n---\n")
+		if len(docs) != 2 {
+			t.Fatalf("platform-scope-rbac.yaml has %d documents, want Role + RoleBinding", len(docs))
+		}
+		var role struct {
+			Kind     string `json:"kind"`
+			Metadata struct {
+				Namespace string `json:"namespace"`
+			} `json:"metadata"`
+			Rules []struct {
+				Resources []string `json:"resources"`
+				Verbs     []string `json:"verbs"`
+			} `json:"rules"`
+		}
+		var rb struct {
+			Kind     string `json:"kind"`
+			Subjects []struct {
+				Kind, Name, Namespace string
+			} `json:"subjects"`
+		}
+		if yaml.Unmarshal([]byte(docs[0]), &role) != nil || yaml.Unmarshal([]byte(docs[1]), &rb) != nil {
+			t.Fatal("rbac does not parse")
+		}
+		if role.Kind != "Role" || role.Metadata.Namespace != "acme" || len(role.Rules) != 1 ||
+			strings.Join(role.Rules[0].Resources, ",") != "pods" || strings.Join(role.Rules[0].Verbs, ",") != "get,list" {
+			t.Errorf("Role = %+v, want a namespaced read-only pods Role in acme", role)
+		}
+		if rb.Kind != "RoleBinding" || len(rb.Subjects) != 1 || rb.Subjects[0].Name != c.wantSA || rb.Subjects[0].Namespace != c.wantNS {
+			t.Errorf("RoleBinding subjects = %+v, want %s/%s", rb.Subjects, c.wantNS, c.wantSA)
+		}
+	}
 }

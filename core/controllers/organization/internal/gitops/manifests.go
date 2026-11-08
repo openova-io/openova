@@ -122,6 +122,26 @@ type Inputs struct {
 	// openova.io/overage-stopped-until stamped on both quotas. Empty =
 	// no stop. Ignored in capped mode (nothing to stop).
 	OverageStoppedUntil string
+
+	// PlatformScopePending holds plan-quota UNSCOPED (#7067 rollout gate,
+	// platform_scope.go): the controller sets it while any platform pod in
+	// the namespace still lacks PriorityClass catalyst-org-platform — every
+	// pod admitted before the Policy existed — or while it cannot tell. Such
+	// a pod is "not in" the class, so a scoped plan-quota would charge it to
+	// the customer's plan (acmewalk307 on hw307: ~5.2 CPU against 354m) and
+	// refuse every new customer pod. While pending, plan-quota keeps the
+	// pre-#7067 single-quota shape (plan + control plane + platform stack, plus
+	// the transient headroom) and admits everything the namespace runs today;
+	// the class, the Policy and platform-quota render regardless, so every pod
+	// created from now on is stamped. Zero value = scoped.
+	PlatformScopePending bool
+
+	// ControllerServiceAccount / ControllerNamespace name the org-controller's
+	// own ServiceAccount, bound to read the Org namespace's pods for the gate
+	// above (vcluster/platform-scope-rbac.yaml). Empty = the chart defaults
+	// catalyst-organization-controller / catalyst-system.
+	ControllerServiceAccount string
+	ControllerNamespace      string
 }
 
 // RetiredPlanFlexi is the pay-per-use plan the commercial model retired
@@ -1129,6 +1149,11 @@ const resourceQuotaTemplate = `# The customer's quota. Scoped to every pod that 
 #   plan {{ .PlanSlug }} headline (limits): {{ .PlanCapText }}
 #   plan {{ .PlanSlug }} guaranteed (requests): {{ .PlanGuaranteedText }}
 #   vcluster coredns (synced): {{ .CoreDNSText }}
+{{- if .PlatformScopePending }}
+#   TRANSITIONAL: a platform pod in this namespace still lacks the class, so
+#   this quota is held UNSCOPED at plan + control plane + platform stack +
+#   transient headroom until every platform pod carries it (rollout gate)
+{{- end }}
 #   overage mode: {{ .EffectiveOverageMode }}
 {{- if .GrowCeilingText }}
 #   grow ceiling (limits, in place of the headline): {{ .GrowCeilingText }}
@@ -1150,9 +1175,13 @@ metadata:
     openova.io/organization: {{ .Slug }}
     openova.io/plan: {{ .PlanSlug }}
     openova.io/managed-by: catalyst
-    openova.io/quota-scope: customer
+    openova.io/quota-scope: {{ if .PlatformScopePending }}transitional{{ else }}customer{{ end }}
   annotations:
+{{- if .PlatformScopePending }}
+    openova.io/quota-formula: "TRANSITIONAL (unscoped, every pod): purchased plan + vcluster control plane + per-Organization platform stack + transient headroom — held until every platform pod carries PriorityClass {{ .PlatformPriorityClass }}"
+{{- else }}
     openova.io/quota-formula: "purchased plan + the vCluster's synced coredns (every pod not in PriorityClass {{ .PlatformPriorityClass }})"
+{{- end }}
     openova.io/plan-cap: {{ .PlanCapText | quote }}
     openova.io/plan-guaranteed-cpu: {{ .Quota.CPURequest | quote }}
     openova.io/plan-guaranteed-memory: {{ .Quota.MemRequest | quote }}
@@ -1168,12 +1197,14 @@ metadata:
 {{- end }}
     kustomize.toolkit.fluxcd.io/force: enabled
 spec:
+{{- if not .PlatformScopePending }}
   scopeSelector:
     matchExpressions:
       - scopeName: PriorityClass
         operator: NotIn
         values:
           - {{ .PlatformPriorityClass }}
+{{- end }}
   hard:
     requests.cpu: "{{ .Hard.RequestsCPU }}"
     requests.memory: "{{ .Hard.RequestsMemory }}"
@@ -1755,6 +1786,7 @@ type renderView struct {
 	PlatformQuotaName     string
 	PlatformScopePolicy   string
 	Scope                 platformScopeSelectors
+	PlatformScopeReadRole string
 }
 
 // limitRangeDefaults derives the per-container defaults the LimitRange seeds
@@ -1842,6 +1874,12 @@ func Render(in Inputs) (map[string][]byte, error) {
 	if in.Tier == "" {
 		in.Tier = "org"
 	}
+	if in.ControllerServiceAccount == "" {
+		in.ControllerServiceAccount = DefaultControllerServiceAccount
+	}
+	if in.ControllerNamespace == "" {
+		in.ControllerNamespace = DefaultControllerNamespace
+	}
 
 	// Flexi retired (2026-10-10): render it as S in grow mode. A grow
 	// Organization under a BSS spend-limit stop renders capped.
@@ -1872,6 +1910,7 @@ func Render(in Inputs) (map[string][]byte, error) {
 		PlatformQuotaName:     PlatformResourceQuotaName,
 		PlatformScopePolicy:   PlatformScopePolicyName,
 		Scope:                 platformScope,
+		PlatformScopeReadRole: PlatformScopeReadRoleName,
 		CoreDNSText:           podOverheadText(corednsOverhead),
 		VClusterPodText:       podOverheadText(vclusterPodOverhead),
 	}
@@ -1913,6 +1952,9 @@ func Render(in Inputs) (map[string][]byte, error) {
 		// term + the synced coredns; platform-quota carries vcluster-0 + the
 		// stack + the transient headroom (platform_scope.go).
 		view.Hard = planQuotaHard(limitsQuota)
+		if in.PlatformScopePending {
+			view.Hard = transitionalPlanQuotaHard(limitsQuota)
+		}
 		view.PlatformHard = platformQuotaHard(quota)
 		view.TransientText = overheadText(transientHeadroomFor(quota))
 		view.EffectiveOverageMode = OverageModeCapped
@@ -1952,7 +1994,8 @@ func Render(in Inputs) (map[string][]byte, error) {
 		files["vcluster/"+platformQuotaDoc] = platformQuotaTemplate
 		files["vcluster/"+priorityClassDoc] = priorityClassTemplate
 		files["vcluster/"+platformScopePolicyDoc] = platformScopePolicyTemplate
-		res = append(res, platformQuotaDoc, priorityClassDoc, platformScopePolicyDoc)
+		files["vcluster/"+platformScopeRBACDoc] = platformScopeRBACTemplate
+		res = append(res, platformQuotaDoc, priorityClassDoc, platformScopePolicyDoc, platformScopeRBACDoc)
 	}
 	files["vcluster/vcluster.yaml"] = vclusterTemplate
 	res = append(res, "vcluster.yaml")

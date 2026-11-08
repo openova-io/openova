@@ -1,6 +1,10 @@
 package gitops
 
-import "k8s.io/apimachinery/pkg/api/resource"
+import (
+	"strings"
+
+	"k8s.io/apimachinery/pkg/api/resource"
+)
 
 // ─── Two admission scopes in one namespace: platform vs customer ────────────
 //
@@ -88,12 +92,61 @@ const PlatformResourceQuotaName = "platform-quota"
 // PlatformScopePolicyName is the Kyverno Policy that stamps the class.
 const PlatformScopePolicyName = "org-platform-scope"
 
-// Boundary-tree file names of the three new objects.
+// Boundary-tree file names of the new objects.
 const (
 	priorityClassDoc       = "priorityclass.yaml"
 	platformQuotaDoc       = "platformquota.yaml"
 	platformScopePolicyDoc = "platform-scope-policy.yaml"
+	platformScopeRBACDoc   = "platform-scope-rbac.yaml"
 )
+
+// DefaultControllerServiceAccount / DefaultControllerNamespace are the
+// org-controller's ServiceAccount as the umbrella chart names it
+// (controllers.fullname "organization" in products/catalyst/chart).
+const (
+	DefaultControllerServiceAccount = "catalyst-organization-controller"
+	DefaultControllerNamespace      = "catalyst-system"
+)
+
+// PlatformScopeReadRoleName is the per-Org Role that lets the org-controller
+// read the namespace's pods for the rollout gate (Inputs.PlatformScopePending).
+// Delivered by the Org's own boundary tree, so the controller needs no
+// cluster-wide pod read and the umbrella ClusterRole does not move.
+const PlatformScopeReadRoleName = "org-controller-platform-scope-read"
+
+// InPlatformScope reports whether a pod with these labels is one the Policy
+// stamps with the class — the Policy's selection rule in Go, built from the
+// SAME platformScope table the template renders
+// (TestPlatformScope_PolicyMatchesTable pins the two together). The
+// controller's rollout gate uses it to find platform pods admitted before the
+// Policy existed.
+func InPlatformScope(labels map[string]string) bool {
+	if _, synced := labels["vcluster.loft.sh/managed-by"]; synced {
+		return false
+	}
+	for _, c := range platformScope.ExcludeComponents {
+		if labels["app.kubernetes.io/component"] == c {
+			return false
+		}
+	}
+	in := func(v string, set []string) bool {
+		for _, s := range set {
+			if v != "" && v == s {
+				return true
+			}
+		}
+		return false
+	}
+	switch {
+	case in(labels["app.kubernetes.io/instance"], platformScope.InstanceReleases),
+		in(labels["app.kubernetes.io/name"], platformScope.ChartNames),
+		in(labels["catalyst.openova.io/blueprint"], platformScope.Blueprints),
+		labels["app"] == platformScope.ControlPlaneApp:
+		return true
+	}
+	c := labels["cnpg.io/cluster"]
+	return c != "" && strings.HasSuffix(c, platformScope.CNPGClusterSuffix)
+}
 
 // platformScopeSelectors is how a pod is recognised as platform. Each entry is
 // ONE match clause (any clause suffices); the pin test checks every platform
@@ -286,6 +339,30 @@ func platformQuotaHard(q PlanQuota) quotaHard {
 	}
 }
 
+// transitionalPlanQuotaHard is plan-quota while the rollout gate is pending
+// (Inputs.PlatformScopePending): UNSCOPED, so it charges every pod — sized
+// as the pre-#7067 single quota (plan + whole control plane + platform stack)
+// plus the transient headroom, so nothing the namespace runs today is
+// refused and the hooks fit too.
+func transitionalPlanQuotaHard(limits PlanQuota) quotaHard {
+	ps := platformStackOverheadFor(limits)
+	th := transientHeadroomFor(limits)
+	cp := vclusterControlPlaneOverhead
+	add := func(plan string, qs ...resource.Quantity) string {
+		s := mustQuantity(plan)
+		for _, x := range qs {
+			s.Add(x)
+		}
+		return s.String()
+	}
+	return quotaHard{
+		RequestsCPU:    add(limits.CPURequest, cp.RequestsCPU, ps.RequestsCPU, th.RequestsCPU),
+		RequestsMemory: add(limits.MemRequest, cp.RequestsMemory, ps.RequestsMemory, th.RequestsMemory),
+		LimitsCPU:      add(limits.CPULimit, cp.LimitsCPU, ps.LimitsCPU, th.LimitsCPU),
+		LimitsMemory:   add(limits.MemLimit, cp.LimitsMemory, ps.LimitsMemory, th.LimitsMemory),
+	}
+}
+
 // planQuotaHard sizes the customer-scope plan-quota: the plan term (the
 // guaranteed share on requests, the headline — or the grow ceiling — on
 // limits) plus the synced coredns.
@@ -379,9 +456,21 @@ spec:
 
 // platformScopePolicyTemplate — see the block comment at the top of this
 // file. autogen is off so the policy touches Pods only (never a controller's
-// pod template, which for a Job is immutable). priority and preemptionPolicy
-// are patched together with the class name so the Priority admission plugin
-// computes the same figures if it is re-invoked after the webhook.
+// pod template, which for a Job is immutable).
+//
+// The patch sets the class NAME and REMOVES spec.priority and
+// spec.preemptionPolicy. On Pod CREATE the in-tree Priority admission plugin
+// runs BEFORE the webhook and always stamps both fields (priority 0 and
+// PreemptLowerPriority for a classless pod); it is re-invoked after the
+// webhook mutates the pod, and it refuses a pod whose provided figures differ
+// from the ones it computes from the class name ("the integer value of
+// priority (0) must not be provided in pod spec" — proven on the hw307-A
+// apiserver 2026-11-08 with a name-only patch). Removing both lets the
+// re-invoked plugin compute them from catalyst-org-platform. Both paths are
+// always present at webhook time (the plugin has just written them), so the
+// JSON-patch removes cannot hit an absent path. The real-apiserver preflight
+// (.github/workflows/preflight-org-platform-scope.yaml) admits a pod through
+// this exact Policy.
 const platformScopePolicyTemplate = `apiVersion: kyverno.io/v1
 kind: Policy
 metadata:
@@ -454,11 +543,14 @@ spec:
                     operator: In
                     values: [{{ join .Scope.ExcludeComponents }}]
       mutate:
-        patchStrategicMerge:
-          spec:
-            priorityClassName: {{ .PlatformPriorityClass }}
-            priority: {{ .PlatformPriorityValue }}
-            preemptionPolicy: Never
+        patchesJson6902: |-
+          - op: add
+            path: /spec/priorityClassName
+            value: {{ .PlatformPriorityClass }}
+          - op: remove
+            path: /spec/priority
+          - op: remove
+            path: /spec/preemptionPolicy
     - name: synced-pods-stay-customer-scope
       match:
         any:
@@ -481,4 +573,38 @@ spec:
               - key: "{{"{{"}} request.object.spec.priorityClassName || '' {{"}}"}}"
                 operator: Equals
                 value: {{ .PlatformPriorityClass }}
+`
+
+// platformScopeRBACTemplate lets the org-controller read this namespace's pods
+// for the rollout gate (Inputs.PlatformScopePending) — read only, this
+// namespace only.
+const platformScopeRBACTemplate = `apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .PlatformScopeReadRole }}
+  namespace: {{ .Slug }}
+  labels:
+    openova.io/organization: {{ .Slug }}
+    openova.io/managed-by: catalyst
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .PlatformScopeReadRole }}
+  namespace: {{ .Slug }}
+  labels:
+    openova.io/organization: {{ .Slug }}
+    openova.io/managed-by: catalyst
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .PlatformScopeReadRole }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .ControllerServiceAccount }}
+    namespace: {{ .ControllerNamespace }}
 `

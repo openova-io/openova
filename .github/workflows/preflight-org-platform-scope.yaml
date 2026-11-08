@@ -1,0 +1,65 @@
+# Preflight — per-Organization admission scopes on a real apiserver (#7067).
+#
+# The org-controller renders a PriorityClass, a Kyverno Policy that stamps it
+# on every platform pod, and two scoped ResourceQuotas (platform-quota /
+# plan-quota). Whether Pod CREATE survives that mutation is decided by the
+# apiserver's in-tree Priority admission plugin, which no Kyverno CLI run and
+# no unit test can see (a name-only patch is refused — proven on hw307-A). This
+# workflow applies the controller's own render to kind + Kyverno and walks the
+# rollout: tests/e2e/org-platform-scope/run.sh.
+name: Preflight — per-Org platform admission scope (real apiserver)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'core/controllers/organization/internal/gitops/**'
+      - 'tests/e2e/org-platform-scope/**'
+      - '.github/workflows/preflight-org-platform-scope.yaml'
+  pull_request:
+    paths:
+      - 'core/controllers/organization/internal/gitops/**'
+      - 'tests/e2e/org-platform-scope/**'
+      - '.github/workflows/preflight-org-platform-scope.yaml'
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: Platform pods admitted + charged to the right quota on real apiserver
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: core/controllers/go.mod
+          cache-dependency-path: core/controllers/go.sum
+
+      - name: Set up kind
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: org-platform-scope
+          version: v0.25.0
+          node_image: kindest/node:v1.30.6
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Install Kyverno (the chart bp-kyverno wraps — platform/kyverno/chart/Chart.yaml)
+        run: |
+          ver="$(awk '/^dependencies:/{d=1} d && /name: kyverno/{k=1} k && /version:/{gsub(/"/,"",$2); print $2; exit}' platform/kyverno/chart/Chart.yaml)"
+          echo "kyverno chart ${ver}"
+          helm repo add kyverno https://kyverno.github.io/kyverno/
+          helm install kyverno kyverno/kyverno --version "${ver}" -n kyverno --create-namespace \
+            --set admissionController.replicas=1 --set backgroundController.enabled=false \
+            --set cleanupController.enabled=false --set reportsController.enabled=false \
+            --wait --timeout 10m
+
+      - name: Admission walk
+        run: bash tests/e2e/org-platform-scope/run.sh
