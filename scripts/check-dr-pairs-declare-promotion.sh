@@ -96,7 +96,18 @@ ensure_deps() {
   local dir="$1"
   if [ -f "$dir/Chart.yaml" ] && grep -q '^dependencies:' "$dir/Chart.yaml" 2>/dev/null; then
     if [ ! -d "$dir/charts" ] || [ -z "$(ls -A "$dir/charts" 2>/dev/null)" ]; then
-      (cd "$dir" && helm dependency build >/dev/null 2>&1)
+      # Retry once and SHOW the error: a silent failure here turns every
+      # render below into "missing in charts/ directory", which hides whether
+      # the cause is the chart or the dependency's download host.
+      local log; log="$(mktemp)"
+      if ! (cd "$dir" && helm dependency build >"$log" 2>&1); then
+        sleep 5
+        if ! (cd "$dir" && helm dependency build >"$log" 2>&1); then
+          fail "helm dependency build failed for $dir (every render of it below is invalid):
+        $(tail -3 "$log")"
+        fi
+      fi
+      rm -f "$log"
     fi
   fi
 }
@@ -497,8 +508,11 @@ if helm template wp platform/wordpress-tenant/chart "${WP_BASE[@]}" \
   --set database.topology.promotion.mechanism=continuum --set database.cluster.namespace=elsewhere \
   --api-versions postgresql.cnpg.io/v1 > /dev/null 2>"$TMP/wp-ns.err"; then
   fail "bp-wordpress-tenant: mechanism=continuum accepted a CNPG Cluster outside the release namespace — Continuum would wait forever on a Cluster it cannot see"
-else
+elif grep -q 'needs the CNPG Cluster in the release namespace' "$TMP/wp-ns.err"; then
   pass "bp-wordpress-tenant: mechanism=continuum with the Cluster outside the release namespace fails closed"
+else
+  # Any OTHER render error (a missing dependency, a typo) must not count.
+  fail "bp-wordpress-tenant: out-of-namespace render failed, but not with the Continuum-visibility error — got: $(tail -2 "$TMP/wp-ns.err")"
 fi
 
 # (d) THE RENDER FOLLOWS CONTINUUM'S COMMITS, phase by phase (the token value
@@ -567,8 +581,11 @@ for bogus in dr-promoter not-a-mechanism; do
     fail "bp-wordpress-tenant: accepted mechanism=$bogus, which it does not ship.
         Declaring an undelivered mechanism is worse than declaring none — it
         reads as a failover guarantee in every audit that follows."
-  else
+  elif grep -q "promotion.mechanism=.*$bogus" "$TMP/wp-$bogus.err"; then
     pass "bp-wordpress-tenant: mechanism=$bogus fails closed (chart ships no such actor)"
+  else
+    # Any OTHER render error (a missing dependency, a typo) must not count.
+    fail "bp-wordpress-tenant: mechanism=$bogus render failed, but not with the mechanism error — got: $(tail -2 "$TMP/wp-$bogus.err")"
   fi
 done
 
