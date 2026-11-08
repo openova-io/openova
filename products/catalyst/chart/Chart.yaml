@@ -4100,11 +4100,11 @@ name: bp-catalyst-platform
 #   Continuum status.activity[] + phase Unknown, Blueprint
 #   spec.endpoints[].healthPath) + application-controller HTTPRoute/Service
 #   read RBAC; bp-openova-mcp 0.1.8 seed pin.
-# 1.4.1896: ADR-0015 D6b (#7067) — bp-wordpress-tenant 0.6.0 seed pin (media
+# 1.4.1899: ADR-0015 D6b (#7067) — bp-wordpress-tenant 0.6.0 seed pin (media
 #   in the replicated SeaweedFS bucket) + its spec.regionLocalVolumes on the
 #   seed CR (read by the D6 admission gate); bp-seaweedfs 1.3.1 seed pin
 #   (s3-secret reflection-allowed).
-version: 1.4.1896
+version: 1.4.1899
 # 1.4.1481 — #6293: catalog-seed advances bp-self-sovereign-cutover
 #   0.1.186 -> 0.1.187, the release that stops step-06 from patching five
 #   HelmRepositories it does not own and then grading itself on whether they
