@@ -197,10 +197,9 @@ func validVClusterTier(v string) bool {
 //	namespace  → OrganizationRef (one Org per Sovereign in EPIC-2)
 //	values     → Parameters
 //
-// EnvironmentRef defaults to "<org>-prod" when omitted (matches the
-// matrix's omission). Placement defaults to single-region with a
-// "primary" sentinel that the validator surfaces as a clear 400 if
-// the caller forgot to set regions[].
+// ADR-0015 D4 — EnvironmentRef and Placement.Regions, when omitted, are
+// resolved from objects by validateInstallRefs (the Org's single default
+// Environment; the registry's primary region) — never derived from strings.
 type applicationInstallRequest struct {
 	BlueprintRef    applicationBlueprintRef `json:"blueprintRef"`
 	Name            string                  `json:"name"`
@@ -234,18 +233,15 @@ func applicationInstallRequestNormalize(b applicationInstallRequest) application
 	if b.OrganizationRef == "" && strings.TrimSpace(b.NamespaceShort) != "" {
 		b.OrganizationRef = strings.TrimSpace(b.NamespaceShort)
 	}
-	if b.EnvironmentRef == "" && b.OrganizationRef != "" {
-		b.EnvironmentRef = b.OrganizationRef + "-prod"
-	}
+	// ADR-0015 D4 — an omitted environmentRef / placement.regions is NOT
+	// derived here ("<org>-prod" / "primary" were fabrications). The shared
+	// core resolves them from objects (validateInstallRefs) or answers 422.
 	if len(b.Parameters) == 0 && len(b.ValuesShort) > 0 {
 		b.Parameters = b.ValuesShort
 	}
 	if strings.TrimSpace(b.Placement.Mode) == "" {
 		// One vocabulary (#3375 DoD-1): canonical default.
 		b.Placement.Mode = "singleton"
-	}
-	if len(b.Placement.Regions) == 0 {
-		b.Placement.Regions = []string{"primary"}
 	}
 	return b
 }
@@ -300,6 +296,9 @@ type applicationStatusResponse struct {
 	// EPIC #3597). The FE TopologyTab reads `app.spec.placement` (the
 	// editor-posture mode string) + `app.spec.regions`.
 	Spec *applicationStatusSpec `json:"spec,omitempty"`
+	// ObjectStatus — ADR-0015 D7, the same statusOf answer the detail
+	// endpoint, the apps grid and the Topology tab carry.
+	ObjectStatus ObjectStatus `json:"objectStatus"`
 }
 
 // applicationStatusSpec is the spec subset the Topology tab consumes.
@@ -499,30 +498,32 @@ func (h *Handler) installApplicationCore(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	// #3598 (EPIC #3597) — ensure the Org/Environment namespace exists
-	// before creating the Application CR, so an install never fails with
-	// `namespaces "<org>" not found` when the organization controller's
-	// GitOps namespace reconcile hasn't landed yet. Idempotent.
-	//
-	// #3830 — the OrganizationRef is the Org identity (often a dotted
-	// FQDN, e.g. "hw165.omani.works"); the namespace is the slugged
-	// RFC-1123 form. ensureOrgNamespace + the create below + the CR's
-	// metadata.namespace (newApplicationUnstructured) all route through
-	// orgNamespace() so they resolve to ONE consistent namespace.
-	appNS := orgNamespace(body.OrganizationRef)
-	if nsErr := ensureOrgNamespace(r.Context(), client, body.OrganizationRef); nsErr != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
-			"kind":       "Application",
-			"name":       body.Name,
-			"namespace":  appNS,
-			"error":      "namespace-ensure-failed",
-			"status":     "503",
-			"httpStatus": "503",
-			"applied":    false,
-			"detail":     fmt.Sprintf("could not ensure namespace %q: %v", appNS, nsErr),
-		})
+	// ADR-0015 D4 — resolve every reference against a live object BEFORE
+	// writing anything: Organization (CR name), Environment (belongs to the
+	// Org), Blueprint (exists; mode allowed by its placementSchema), every
+	// region (in the registry), and the org-controller-owned namespace (409
+	// organization-not-ready when absent — never created here).
+	refs, rerr := validateInstallRefs(r.Context(), client, installRefs{
+		Org:         body.OrganizationRef,
+		Environment: body.EnvironmentRef,
+		Blueprint:   body.BlueprintRef.Name,
+		Mode:        body.Placement.Mode,
+		Regions:     body.Placement.Regions,
+	})
+	if rerr != nil {
+		out := rerr.body()
+		out["kind"] = "Application"
+		out["name"] = body.Name
+		writeJSON(w, rerr.Status, out)
 		return
 	}
+	body.EnvironmentRef = refs.Environment
+	body.Placement.Regions = refs.Regions
+	if msg := placementRegionCountError(body.Placement.Mode, body.Placement.Regions); msg != "" {
+		writeApplicationInstallSoftError(w, "invalid-application-install", http.StatusBadRequest, msg)
+		return
+	}
+	appNS := refs.Namespace
 
 	// #4556 Item 2 — resolve the Sovereign's own FQDN so the agenity install
 	// stamps spec.parameters.sovereignFqdn (the chart derives the openova-MCP
@@ -772,6 +773,7 @@ func (h *Handler) HandleApplicationStatus(w http.ResponseWriter, r *http.Request
 	// #3599 — surface the create-time placement from spec so the Topology
 	// tab reflects it immediately (no wait for status.placement).
 	resp.Spec = applicationStatusSpecFromCR(obj)
+	resp.ObjectStatus = statusOf(obj)
 	writeJSON(w, http.StatusOK, resp)
 }
 
@@ -1006,9 +1008,6 @@ func validateApplicationInstallRequest(req applicationInstallRequest) (string, b
 	if !isValidOrgRef(req.OrganizationRef) {
 		return "organizationRef must be a valid DNS name (Org slug or FQDN, e.g. acme or hw165.omani.works)", false
 	}
-	if strings.TrimSpace(req.EnvironmentRef) == "" {
-		return "environmentRef is required", false
-	}
 	if strings.TrimSpace(req.BlueprintRef.Name) == "" {
 		return "blueprintRef.name is required", false
 	}
@@ -1030,9 +1029,6 @@ func validateApplicationInstallRequest(req applicationInstallRequest) (string, b
 	default:
 		return "placement.mode must be one of singleton, active-active, active-hot-standby, active-passive (legacy single-region / active-hotstandby also accepted)", false
 	}
-	if len(req.Placement.Regions) == 0 {
-		return "placement.regions must list at least one region", false
-	}
 	if len(req.Placement.Regions) > 5 {
 		return "placement.regions cannot exceed 5 entries", false
 	}
@@ -1043,8 +1039,10 @@ func validateApplicationInstallRequest(req applicationInstallRequest) (string, b
 	}
 	// UAT row 60 — a multi-region posture over one region is a DR promise
 	// nothing downstream can keep. See placementRegionCountError.
-	if msg := placementRegionCountError(req.Placement.Mode, req.Placement.Regions); msg != "" {
-		return msg, false
+	if len(req.Placement.Regions) > 0 {
+		if msg := placementRegionCountError(req.Placement.Mode, req.Placement.Regions); msg != "" {
+			return msg, false
+		}
 	}
 	// #3373 — instance placement WHERE fields.
 	// #5616 — separate "not a tier at all" from "a real tier this
@@ -1210,7 +1208,8 @@ func newApplicationUnstructured(req applicationInstallRequest, sovereignFQDN, or
 		// namespace is slugged (preserving whatever Environment the caller
 		// asked for, just made pattern-safe); the verbatim Org identity stays
 		// on the organization label + organizationRef.
-		"environmentRef": sanitizeEnvironmentRef(req.EnvironmentRef),
+		// ADR-0015 D4 — the Environment CR name, verbatim (validated).
+		"environmentRef": req.EnvironmentRef,
 		"blueprintRef": map[string]any{
 			"name":    req.BlueprintRef.Name,
 			"version": req.BlueprintRef.Version,
@@ -1432,19 +1431,6 @@ type applicationDetailResponse struct {
 	//     pod-template and resource labels). Issue #1928 (2026-05-19).
 	TargetNamespace string `json:"targetNamespace,omitempty"`
 
-	// RuntimeDerived — this response was synthesised from LIVE PODS because
-	// the component has neither an Application CR nor a same-named
-	// HelmRelease (#5827, UAT row 188). `catalyst-api` is the canonical
-	// case: a Deployment rendered by the bp-catalyst-platform HR.
-	//
-	// It is the honesty marker for the whole answer. A runtime-derived
-	// response carries no uid, blueprint, version or parameters — there is
-	// no declaration to read them from — and a consumer must be able to
-	// tell "this component declares nothing" from "the declaration was not
-	// fetched", without inferring it from which fields happen to be blank.
-	// Absent on every CR- and HR-backed response, so nothing that reads the
-	// existing shape changes.
-	RuntimeDerived       bool   `json:"runtimeDerived,omitempty"`
 	ReleaseName          string `json:"releaseName,omitempty"`
 	InstallLabelSelector string `json:"installLabelSelector,omitempty"`
 
@@ -1456,16 +1442,12 @@ type applicationDetailResponse struct {
 	// know that GET /catalog/apps/<slug> 404 is expected.
 	Bootstrap bool `json:"bootstrap,omitempty"`
 
-	// Family B (2026-05-17 t10 founder bug C4-003): HR-Ready overlay
-	// telemetry. When the CR `status.phase` is stale ("Provisioning")
-	// but the matching HelmRelease reports Ready=True, the response
-	// `Phase` field is promoted to "Ready" so the AppDetail chip
-	// matches what /sovereign/apps already shows. `HRReady` flags the
-	// promotion happened, and `PhaseFromCR` preserves the original CR
-	// phase so the SPA's D19 source-counter chip can surface the
-	// disagreement without losing data.
-	HRReady     bool   `json:"hrReady,omitempty"`
-	PhaseFromCR string `json:"phaseFromCR,omitempty"`
+	// ObjectStatus — ADR-0015 D7. The ONE status of this object, read
+	// verbatim from its own Ready condition (+ per-region Serving) by
+	// statusOf. The console renders state + reason + message from here and
+	// nowhere else. Phase above stays the raw CR status.phase, never
+	// overlaid.
+	ObjectStatus ObjectStatus `json:"objectStatus"`
 
 	// ExternalURL — front-door URL the operator clicks from the
 	// AppDetail Overview tab to open this installed Application in a
@@ -1510,53 +1492,6 @@ type dependsOnDetail struct {
 // Application CR named `name` across every namespace on the Sovereign.
 //
 // qa-loop iter-11 Fix #45 Cluster-C.
-
-// backingVerdictReasons — #5955. The Ready-condition reasons the
-// application-controller stamps when it OBSERVED the backing resource a chart
-// installed and is reporting what it measured, rather than lagging behind Flux:
-//
-//	BackingNotReady               the backing was read and reports not-ready.
-//	BackingClusterUnrecoverable   the backing is in its terminal state (#5513).
-//	BackingReadinessUnverifiable  the backing could not be read at all, so
-//	                              readiness is explicitly unknown.
-//
-// A HelmRelease can be legitimately Ready under every one of these — Helm
-// applied the manifests and the apiserver accepted them; the workload died
-// afterwards. Promoting the response to Ready on the strength of that HR would
-// discard the only signal that measured the workload.
-var backingVerdictReasons = map[string]struct{}{
-	"BackingNotReady":              {},
-	"BackingClusterUnrecoverable":  {},
-	"BackingReadinessUnverifiable": {},
-}
-
-// applicationHoldsBackingVerdict reports whether the Application CR's Ready
-// condition carries a measured backing verdict, in which case the HR-Ready
-// overlay must not fire. Returns false for every other not-ready shape
-// (BootstrapAdopted, plain stale Provisioning, …) so the overlay keeps serving
-// the lag cases it was built for.
-func applicationHoldsBackingVerdict(obj *unstructured.Unstructured) bool {
-	if obj == nil {
-		return false
-	}
-	conds, ok, err := unstructured.NestedSlice(obj.Object, "status", "conditions")
-	if err != nil || !ok {
-		return false
-	}
-	for _, c := range conds {
-		cm, isMap := c.(map[string]interface{})
-		if !isMap {
-			continue
-		}
-		if t, _ := cm["type"].(string); t != "Ready" {
-			continue
-		}
-		reason, _ := cm["reason"].(string)
-		_, held := backingVerdictReasons[reason]
-		return held
-	}
-	return false
-}
 
 // applicationPrimaryRegion resolves an Application's primary region from its
 // CR status.
@@ -1620,37 +1555,7 @@ func (h *Handler) HandleApplicationGet(w http.ResponseWriter, r *http.Request) {
 			// Founder caught on t140: "in the catalog and jobs it shows
 			// as installed, in the application page it shows as
 			// provisioning, there is a sync issue".
-			if resp, ok := h.synthesiseAppFromHelmRelease(r.Context(), depID, name); ok {
-				writeJSON(w, http.StatusOK, resp)
-				return
-			}
-			// #5827 (UAT row 188) — THIRD fallback: live runtime.
-			//
-			// Some components have neither an Application CR nor a same-named
-			// HelmRelease. `catalyst-api` is the canonical case: it is a
-			// Deployment rendered BY the bp-catalyst-platform HR, so both
-			// lookups above miss and this endpoint 404s.
-			//
-			// THE INCOHERENCE THIS CLOSES. The sibling endpoint on the very
-			// same path — GET .../applications/catalyst-api/placement — answers
-			// 200 with a correct single Primary target, because it derives from
-			// LIVE PODS (derivePlacementTargets) rather than from a CR. So the
-			// API simultaneously knew the component and denied it existed,
-			// depending on which suffix you asked for, and the console rendered
-			// "App not found — the component catalyst-api is not part of this
-			// deployment" for something plainly running in front of the caller.
-			//
-			// The fallback reuses podBelongsToComponent — the SAME identity
-			// predicate the placement path uses — so the two endpoints cannot
-			// disagree about whether a component exists. Deriving existence a
-			// second way here is exactly what would let them drift apart again.
-			//
-			// It fabricates nothing: no CR means no uid, no blueprint, no
-			// parameters, and every one of those stays empty. What it reports is
-			// what it observed — the namespace the pods run in and a phase read
-			// off their readiness — flagged `runtimeDerived` so the FE and the
-			// operator can tell an observation from a declaration.
-			if resp, ok := h.synthesiseAppFromRuntime(depID, name, ns); ok {
+			if resp, ok := h.synthesiseAppFromHelmRelease(r.Context(), depID, name, ns); ok {
 				writeJSON(w, http.StatusOK, resp)
 				return
 			}
@@ -1823,68 +1728,13 @@ func (h *Handler) HandleApplicationGet(w http.ResponseWriter, r *http.Request) {
 		resp.DependsOn = h.dependsOnForBootstrapCR(r.Context(), depID, obj, resp.Blueprint)
 	}
 
-	// Family B (2026-05-17 t10 founder bug C4-003): HR-Ready overlay.
-	//
-	// Root cause: the catalyst-controller writes status.phase on the
-	// Application CR by aggregating per-region HelmRelease readiness.
-	// On chroot Sovereigns the controller can lag (or be missing in
-	// some niches) — the CR sits at `phase=Provisioning` long after the
-	// HR has flipped Ready=True. The operator sees /apps render the
-	// card as "installed" (from /sovereign/apps which queries HRs
-	// directly), then clicks through to AppDetail and sees
-	// "Provisioning" — exactly the desync founder flagged.
-	//
-	// Fix: cross-check the same chroot k8sCache the bootstrap-synth
-	// path uses (PR L #1592). When ANY HR named `<resp.ReleaseName>`
-	// reports Ready=True, promote the response phase to Ready. This is
-	// safe because: (a) the catalyst controller already aggregates on
-	// HR-Ready, so we're only racing it forward, never against its
-	// final state; (b) HR-Ready is the source-of-truth wire for the
-	// /sovereign/apps card already shown as "installed"; (c) the
-	// `source` chip on AppDetail renders "Application CR" so the
-	// operator knows the underlying object type — only the phase chip
-	// is overlayed.
-	//
-	// Mirrors the C4-013 contract: surface the discrepancy when the
-	// CR phase disagrees with HR Ready, so the operator can see both.
-	//
-	// #4889 — resolve the HR-lookup identity from spec.helmRelease.name
-	// (the adopted HelmRelease) first. Spine/bootstrap Application CRs
-	// reference their HR there (e.g. spine-gitea → flux-system/bp-gitea)
-	// and carry NO spec.releaseName, so resp.ReleaseName fell back to the
-	// CR's OWN name ("spine-gitea") and helmReleaseReadyByName never
-	// matched the real HR ("bp-gitea") — the overlay was inert for exactly
-	// these apps and the operator saw FAILED/Provisioning (source:
-	// Application CR) while the HelmRelease was Ready. Fallback chain:
-	// spec.helmRelease.name → resp.ReleaseName.
-	//
-	// #5955 — the safety argument in (a) above is NO LONGER TRUE, and this is
-	// the whole reason the guard below exists. The controller no longer
-	// aggregates purely on HR-Ready: it also observes the BACKING resource the
-	// chart installed and deliberately holds the Application at
-	// Degraded / Ready=Unknown WHILE the HelmRelease is legitimately Ready,
-	// because a HelmRelease reporting Ready only means Helm applied the
-	// manifests and the apiserver accepted them. That is the controller's
-	// FINAL state, not a lag — so "racing it forward" would race it BACKWARD,
-	// past a measured verdict, and repaint the exact green badge over a dead
-	// database that #5955 fixed one layer down (Application
-	// hw292-omani-works/uat-ahs-pg, Ready=True over a CNPG Cluster whose own
-	// Ready condition was False with zero ready instances).
-	//
-	// The overlay therefore stays for the LAG shapes it was built for
-	// (#4889 spine/bootstrap adoption, C4-003 stale Provisioning) and is
-	// suppressed only when the CR's own Ready-condition reason says the
-	// controller MEASURED the workload and is reporting what it found.
-	hrLookupName := resp.ReleaseName
-	if hrn, ok, _ := unstructured.NestedString(obj.Object, "spec", "helmRelease", "name"); ok && hrn != "" {
-		hrLookupName = hrn
-	}
-	if isHRReady := h.helmReleaseReadyByName(r.Context(), depID, hrLookupName); isHRReady &&
-		resp.Phase != "Ready" && !applicationHoldsBackingVerdict(obj) {
-		resp.HRReady = true
-		resp.PhaseFromCR = resp.Phase
-		resp.Phase = "Ready"
-	}
+	// ADR-0015 D7 — the object is the status. The former HR-Ready overlay
+	// (C4-003 / #4889) promoted resp.Phase to "Ready" when ANY HelmRelease
+	// with the same NAME anywhere in the region-A cache was Ready; it was
+	// name-only (two bp-keycloak HRs answered for each other on hw307) and
+	// raced the controller's measured verdicts backwards. Deleted: the
+	// controller's own conditions are the answer.
+	resp.ObjectStatus = statusOf(obj)
 
 	// G90 2026-06-01: resolve the operator-visible front-door URL by
 	// joining the (targetNamespace, releaseName) against HTTPRoutes in
@@ -1898,48 +1748,6 @@ func (h *Handler) HandleApplicationGet(w http.ResponseWriter, r *http.Request) {
 	resp.ExternalURL = h.externalURLIfUserUI(r.Context(), depID, resp.Blueprint, resp.TargetNamespace, resp.ReleaseName)
 
 	writeJSON(w, http.StatusOK, resp)
-}
-
-// helmReleaseReadyByName — Family B (2026-05-17 t10 C4-003).
-//
-// Returns true when at least one HelmRelease named `name` in the chroot
-// cluster's k8sCache reports Ready=True. Used by HandleApplicationGet
-// to overlay HR-Ready over a stale Application CR `status.phase`.
-//
-// Same lookup pattern as synthesiseAppFromHelmRelease (PR L #1592) so
-// both code paths share the same chroot cluster resolution and silently
-// no-op when k8sCache is unavailable / the chroot is single-cluster
-// pre-handover.
-func (h *Handler) helmReleaseReadyByName(ctx context.Context, depID, name string) bool {
-	if h.k8sCache == nil || name == "" {
-		return false
-	}
-	clusterID := h.resolveChrootClusterID(depID)
-	if !h.k8sCacheHasCluster(clusterID) {
-		return false
-	}
-	hrs, _, err := h.k8sCache.List(clusterID, "helmrelease", labels.Everything())
-	if err != nil {
-		return false
-	}
-	for _, hr := range hrs {
-		if hr.GetName() != name {
-			continue
-		}
-		conds, _, _ := unstructured.NestedSlice(hr.Object, "status", "conditions")
-		for _, c := range conds {
-			cm, ok := c.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			ctype, _ := cm["type"].(string)
-			cstatus, _ := cm["status"].(string)
-			if ctype == "Ready" && cstatus == "True" {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // installLabelSelectorForHR returns the Kubernetes label selector the
@@ -2023,7 +1831,17 @@ func placementFromHR(hr *unstructured.Unstructured) string {
 // We use h.k8sCache (which has both the primary + secondary kubeconfigs
 // after PR #1583 D16 fan-out) so the lookup works on multi-region too.
 // Returns (resp, true) on success; (zero, false) when no matching HR.
-func (h *Handler) synthesiseAppFromHelmRelease(ctx context.Context, depID, name string) (applicationDetailResponse, bool) {
+//
+// ADR-0015 D7 — NAMESPACE-EXACT. When the caller names a namespace only the
+// HelmRelease in that namespace answers; when it does not and several HRs
+// share the name (hw307: flux-system/bp-keycloak Ready, acmewalk307/bp-keycloak
+// UpgradeFailed) the choice is deterministic — flux-system (the bootstrap-kit
+// identity this fallback exists for) first, then namespace order — never
+// "whichever the cache returned first". Its status is statusOf the SAME
+// namespace/name in every region cluster; no phase is synthesised from it.
+// (#3370: spec.releaseName also matches — /app/shared-pg addresses the Helm
+// RELEASE of the bp-postgres-shared HR.)
+func (h *Handler) synthesiseAppFromHelmRelease(ctx context.Context, depID, name, ns string) (applicationDetailResponse, bool) {
 	if h.k8sCache == nil {
 		return applicationDetailResponse{}, false
 	}
@@ -2035,15 +1853,7 @@ func (h *Handler) synthesiseAppFromHelmRelease(ctx context.Context, depID, name 
 	if err != nil {
 		return applicationDetailResponse{}, false
 	}
-	for _, hr := range hrs {
-		// #3370 — also match on spec.releaseName: the instance identity
-		// the console addresses (/app/shared-pg) is the Helm RELEASE,
-		// while the bootstrap-kit HR is named bp-postgres-shared.
-		// Name-match keeps the legacy /app/bp-alloy addressing working.
-		hrReleaseName, _, _ := unstructured.NestedString(hr.Object, "spec", "releaseName")
-		if hr.GetName() != name && hrReleaseName != name {
-			continue
-		}
+	for _, hr := range orderHelmReleaseCandidates(hrs, name, ns) {
 		resp := applicationDetailResponse{
 			Name:       name,
 			Namespace:  hr.GetNamespace(),
@@ -2094,29 +1904,17 @@ func (h *Handler) synthesiseAppFromHelmRelease(ctx context.Context, depID, name 
 		// rtz) the syncer placed it in; surfaced for completeness but the
 		// placement CLASS is what the Topology tab reads.
 		resp.Placement = placementFromHR(hr)
-		// Map HR Ready condition → Application phase.
+		// Conditions verbatim; the status is statusOf the same
+		// namespace/name in every region (ADR-0015 D7). No phase is
+		// synthesised from the HR — the former Ready→"Ready" /
+		// absent→"Pending" mapping was a second status vocabulary.
 		conds, _, _ := unstructured.NestedSlice(hr.Object, "status", "conditions")
-		phase := "Pending"
 		for _, c := range conds {
-			cm, isMap := c.(map[string]interface{})
-			if !isMap {
-				continue
-			}
-			resp.Conditions = append(resp.Conditions, cm)
-			ctype, _ := cm["type"].(string)
-			cstatus, _ := cm["status"].(string)
-			if ctype == "Ready" {
-				switch cstatus {
-				case "True":
-					phase = "Ready"
-				case "False":
-					phase = "Failed"
-				default:
-					phase = "Provisioning"
-				}
+			if cm, isMap := c.(map[string]interface{}); isMap {
+				resp.Conditions = append(resp.Conditions, cm)
 			}
 		}
-		resp.Phase = phase
+		resp.ObjectStatus = h.helmReleaseStatusAcrossRegions(depID, clusterID, hr)
 		// #3224: gate the URL on a user-UI endpoint. For HR-synth apps the
 		// blueprint name comes from spec.chart.spec.chart (e.g. `bp-grafana`,
 		// `bp-newapi`) — externalURLIfUserUI strips the `bp-` prefix.
@@ -2612,6 +2410,9 @@ type applicationListItem struct {
 	// drops out of the JSON, rather than being manufactured into a default the
 	// console would render as fact.
 	Placement string `json:"placement,omitempty"`
+
+	// ObjectStatus — ADR-0015 D7, statusOf the CR (verbatim conditions).
+	ObjectStatus ObjectStatus `json:"objectStatus"`
 }
 
 // applicationListResponse — body of GET /sovereigns/{id}/applications.
@@ -2696,6 +2497,7 @@ func (h *Handler) HandleApplicationList(w http.ResponseWriter, r *http.Request) 
 		// cannot drift. Empty when placement is genuinely absent; omitempty
 		// then drops it, which is the honest answer rather than a default.
 		row.Placement = placementFromSpec(obj)
+		row.ObjectStatus = statusOf(obj)
 		items = append(items, row)
 	}
 	writeJSON(w, http.StatusOK, applicationListResponse{

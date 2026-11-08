@@ -1,0 +1,74 @@
+# Pulls the writer region's repos into this region's Gitea every minute.
+# Token: the shared catalyst-gitea-token PAT, which region A distributes into
+# this region's gitea namespace (cutover #6754, Secret
+# cutover-secondary-gitea-pat). The two Giteas share one access_token table,
+# so the same PAT authenticates both.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: region-git-sync
+  namespace: gitea
+  labels:
+    app.kubernetes.io/managed-by: flux
+    app.kubernetes.io/component: region-git-sync
+spec:
+  schedule: "* * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 900
+      ttlSecondsAfterFinished: 600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/managed-by: flux
+            app.kubernetes.io/component: region-git-sync
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: sync
+              image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4
+              command: ["/bin/sh", "/scripts/sync.sh"]
+              env:
+                - name: WRITER_REGION_ID
+                  value: ${SOVEREIGN_WRITER_REGION_ID}
+                # The upstream platform repo is replicated by
+                # bp-self-sovereign-cutover (step-01/11); never here.
+                - name: SKIP_REPOS
+                  value: "openova/openova"
+                - name: GITEA_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: ${SOVEREIGN_REGION_SYNC_TOKEN_SECRET:=cutover-secondary-gitea-pat}
+                      key: token
+              resources:
+                requests:
+                  cpu: 20m
+                  memory: 64Mi
+                limits:
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: scripts
+              configMap:
+                name: region-git-sync
+            - name: tmp
+              emptyDir:
+                sizeLimit: 2Gi

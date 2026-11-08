@@ -43,18 +43,19 @@ func Test_ApplicationInstall_VersionIsRequiredAndNeverDefaulted(t *testing.T) {
 
 	got := applicationInstallRequestNormalize(body)
 
-	// ── CONTROL: these three ARE defaulted, so the assertion below is a
+	// ── CONTROL: placement.mode IS defaulted, so the assertion below is a
 	// statement about `version` specifically, not about normalize being inert.
-	if got.EnvironmentRef != "acme-prod" {
-		t.Fatalf("control failed: environmentRef must default to <org>-prod, got %q — "+
-			"if this changed, the openova-mcp create_application tool description "+
-			"(which tells agents environment is optional) is now wrong too", got.EnvironmentRef)
-	}
 	if got.Placement.Mode != "singleton" {
 		t.Fatalf("control failed: placement.mode must default to singleton, got %q", got.Placement.Mode)
 	}
-	if len(got.Placement.Regions) != 1 || got.Placement.Regions[0] != "primary" {
-		t.Fatalf("control failed: placement.regions must default to [primary], got %v", got.Placement.Regions)
+	// ADR-0015 D4 — environmentRef and regions are NEVER derived by
+	// normalize ("<org>-prod" / "primary" were fabrications). The shared
+	// core resolves an omission from objects (validateInstallRefs) or 422s.
+	if got.EnvironmentRef != "" {
+		t.Fatalf("environmentRef was derived to %q — normalize must not fabricate an Environment", got.EnvironmentRef)
+	}
+	if len(got.Placement.Regions) != 0 {
+		t.Fatalf("placement.regions was derived to %v — normalize must not fabricate a region", got.Placement.Regions)
 	}
 
 	// ── THE ASYMMETRY: version is NOT defaulted…

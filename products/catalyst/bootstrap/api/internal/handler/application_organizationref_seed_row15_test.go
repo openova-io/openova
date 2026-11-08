@@ -57,8 +57,9 @@ import (
 func seedForOrg(org string) instances.ApplicationSeed {
 	return instances.ApplicationSeed{
 		Name:       "uatco-openclaw",
-		Namespace:  org,
-		Blueprint:  "bp-openclaw",
+		Namespace:    org,
+		Organization: org,
+		Blueprint:    "bp-openclaw",
 		Topology:   "single-region",
 		InstanceID: "inst-abc123",
 		Labels: map[string]string{
@@ -90,9 +91,9 @@ func TestNewApplicationCRFromSeed_StampsOrganizationRef_Row15(t *testing.T) {
 }
 
 // The dotted-FQDN case is where a "helpful" fix goes wrong. The seed producer
-// SLUGS the same string twice on purpose — metadata.namespace via orgNamespace
-// and spec.environmentRef via environmentRefForOrg — because the CRD rejects
-// dots there. organizationRef is the one place the identity must survive
+// SLUGS metadata.namespace via orgNamespace because the CRD rejects dots
+// there (ADR-0015 D4: spec.environmentRef is now the validated Environment CR
+// name, never derived from the Org). organizationRef is the one place the identity must survive
 // UNSLUGGED, because the reader is verbatim and the chip prints what it reads.
 // Reusing either slugged value here would satisfy the test above and still
 // paint the wrong Org name on the card.

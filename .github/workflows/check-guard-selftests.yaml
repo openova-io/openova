@@ -27,12 +27,16 @@ on:
   push:
     branches: [main]
     paths:
+      - 'products/catalyst/bootstrap/api/internal/handler/**'
+      - 'products/catalyst/bootstrap/ui/src/**'
       - 'scripts/check-*.sh'
       - 'scripts/uat-pivot.py'
       - 'scripts/chart-tests-pr-matrix.sh'
       - '.github/workflows/**'
   pull_request:
     paths:
+      - 'products/catalyst/bootstrap/api/internal/handler/**'
+      - 'products/catalyst/bootstrap/ui/src/**'
       - 'scripts/check-*.sh'
       - 'scripts/uat-pivot.py'
       - 'scripts/chart-tests-pr-matrix.sh'
@@ -150,6 +154,17 @@ jobs:
       # instead of in production.
       - name: train-coherence pre-flight (#6326)
         run: bash scripts/check-train-coherent.sh --self-test
+
+      # ADR-0015 D4 (#7067) — references, never fabrication. The self-test
+      # proves every forbidden shape ("sovereign" as an Org value, an
+      # "<org>-prod" Environment derivation, region string surgery) goes RED
+      # and a clean fixture stays green; the scan then runs against the real
+      # catalyst-api handlers + sovereign-admin console source. Both are
+      # cluster-free.
+      - name: no fabricated Org / Environment / Region identity — self-test (ADR-0015 D4)
+        run: bash scripts/check-no-fabricated-identity.sh --self-test
+      - name: no fabricated Org / Environment / Region identity — scan (ADR-0015 D4)
+        run: bash scripts/check-no-fabricated-identity.sh
 
       # The 6-hourly convergence report is only as honest as this renderer.
       # It grouped cycles by DATE, so four cycles a day collapsed to one and a

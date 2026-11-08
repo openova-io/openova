@@ -90,6 +90,10 @@ export const KIND_STAGES: Record<JobKind, { order: number }> = {
   cron: { order: 6 },
   reconciler: { order: 7 },
   group: { order: 8 },
+  // ADR-0015 D7 — Application CR projections + per-object topology
+  // transitions (status.activity[]) join the Jobs kinds.
+  application: { order: 9 },
+  'topology-transition': { order: 10 },
 }
 
 /**

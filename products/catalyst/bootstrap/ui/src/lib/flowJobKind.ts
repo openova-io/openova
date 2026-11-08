@@ -22,10 +22,15 @@ export type GraphKind =
   | 'task'
   | 'mutation'
   | 'lifecycle'
+  // ADR-0015 D7 — the Application projection + topology-transition kinds
+  // (JobKind minus `group` must stay assignable to GraphKind).
+  | 'application'
+  | 'topology-transition'
 
 /** Ordered id-prefix → GraphKind rules. `reconciler` before `reconcile`,
  *  since "reconciler" starts with "reconcile". */
 const PREFIX_RULES: ReadonlyArray<[RegExp, GraphKind]> = [
+  [/(^|[:-])topology-transition[-:]/, 'topology-transition'],
   [/(^|[:-])reconciler(s)?[-:]/, 'reconciler'],
   [/(^|[:-])reconcile[-:]/, 'reconcile'],
   [/(^|[:-])install[-:]/, 'install'],

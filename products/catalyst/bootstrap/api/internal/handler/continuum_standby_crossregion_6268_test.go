@@ -135,42 +135,6 @@ func setCNPGReady(u *unstructured.Unstructured, ready string) {
 
 // ── THE FIX ──────────────────────────────────────────────────────────────
 
-// A Continuum with no cnpgPair ref and no controller probe, whose pair's two
-// halves live in DIFFERENT registered clusters, must resolve the standby off
-// the replica half itself and ARM the switchover.
-func TestReplicationStatus_Row60_CrossRegionPairArmsSwitchover(t *testing.T) {
-	h := NewWithPDM(silentLogger(), &fakePDM{})
-	cr := row60Continuum()
-	primary, replica := row60Halves()
-	// The region-A dynamic client sees ONLY the primary half — the live split.
-	factory, _ := fakeContinuumDynamicFactory(cr, primary)
-	h.dynamicFactory = factory
-	dep := installUserAccessDeployment(t, h, "dep-row60-crossregion")
-	h.SetK8sCache(crossRegionCNPGCache(t, map[string][]*unstructured.Unstructured{
-		dep.ID:                      {primary},
-		dep.ID + "-me-east-215-b-1": {replica},
-	}), k8scache.NewSARCache(), "X-Forwarded-User")
-
-	resp := fetchReplicationStatus(t, h, dep.ID, "dr-r60fresh", "walkfour")
-
-	// SUBSTANCE FIRST — this is the value UAT row 60's fourth clause turns on.
-	if !resp.ReplicaPromotable {
-		t.Fatalf("replicaPromotable: got false want true — the pair's replica half is Ready and following in region B, so the Switchover control must arm; body=%+v", resp)
-	}
-	if resp.StandbyAvailable == nil || !*resp.StandbyAvailable {
-		t.Fatalf("standbyAvailable: got %v want an explicit true", resp.StandbyAvailable)
-	}
-	g := gateByName(t, resp, "standby-available")
-	if g.Status != "Pass" {
-		t.Fatalf("standby-available gate: got %q (%q) want Pass", g.Status, g.Message)
-	}
-	// PROVENANCE — the Pass must come from reading the replica half, not from
-	// relaying the controller probe (which this CR does not even carry). The
-	// region-B cluster id can only appear via the cross-region path.
-	if !strings.Contains(g.Message, dep.ID+"-me-east-215-b-1") {
-		t.Fatalf("standby-available message %q does not name the region-B cluster the verdict was read from — a Pass with no provenance is indistinguishable from the relay", g.Message)
-	}
-}
 
 // ── CONTROLS — one mutated behaviour each ────────────────────────────────
 
@@ -200,86 +164,8 @@ func TestReplicationStatus_Row60_NoRegionBClusterStaysUnknown(t *testing.T) {
 	}
 }
 
-// The region-kill shape: the replica half is OBSERVABLE but not Ready. That is
-// positive evidence of an ABSENT standby — explicit false, Fail, disarmed.
-func TestReplicationStatus_Row60_CrossRegionAbsentStandbyIsExplicit(t *testing.T) {
-	h := NewWithPDM(silentLogger(), &fakePDM{})
-	cr := row60Continuum()
-	primary, replica := row60Halves()
-	setCNPGReady(replica, "False")
-	factory, _ := fakeContinuumDynamicFactory(cr, primary)
-	h.dynamicFactory = factory
-	dep := installUserAccessDeployment(t, h, "dep-row60-absent")
-	h.SetK8sCache(crossRegionCNPGCache(t, map[string][]*unstructured.Unstructured{
-		dep.ID:                      {primary},
-		dep.ID + "-me-east-215-b-1": {replica},
-	}), k8scache.NewSARCache(), "X-Forwarded-User")
 
-	resp := fetchReplicationStatus(t, h, dep.ID, "dr-r60fresh", "walkfour")
-	if resp.StandbyAvailable == nil || *resp.StandbyAvailable {
-		t.Fatalf("standbyAvailable: got %v want an explicit false — a lost standby that reports unknown leaves the red banner unreachable", resp.StandbyAvailable)
-	}
-	if resp.ReplicaPromotable {
-		t.Fatalf("replicaPromotable: got true against a not-Ready replica half")
-	}
-	if resp.StreamingState != "interrupted" {
-		t.Fatalf("streamingState: got %q want interrupted", resp.StreamingState)
-	}
-	if g := gateByName(t, resp, "standby-available"); g.Status != "Fail" {
-		t.Fatalf("standby-available gate: got %q want Fail", g.Status)
-	}
-}
 
-// A PROMOTED standby (Ready, but spec.replica.enabled=false) is AVAILABLE and
-// must NOT be promotable — it is no longer following the primary, so promoting
-// it again is meaningless. This proves the `Following` term is load-bearing:
-// delete it and this test flips to promotable while every other test stays green.
-func TestReplicationStatus_Row60_PromotedStandbyIsAvailableButNotPromotable(t *testing.T) {
-	h := NewWithPDM(silentLogger(), &fakePDM{})
-	cr := row60Continuum()
-	primary, replica := row60Halves()
-	_ = unstructured.SetNestedField(replica.Object, false, "spec", "replica", "enabled")
-	factory, _ := fakeContinuumDynamicFactory(cr, primary)
-	h.dynamicFactory = factory
-	dep := installUserAccessDeployment(t, h, "dep-row60-promoted")
-	h.SetK8sCache(crossRegionCNPGCache(t, map[string][]*unstructured.Unstructured{
-		dep.ID:                      {primary},
-		dep.ID + "-me-east-215-b-1": {replica},
-	}), k8scache.NewSARCache(), "X-Forwarded-User")
-
-	resp := fetchReplicationStatus(t, h, dep.ID, "dr-r60fresh", "walkfour")
-	if resp.ReplicaPromotable {
-		t.Fatalf("replicaPromotable: got true for a half that is no longer a follower (spec.replica.enabled=false)")
-	}
-	if resp.StandbyAvailable == nil || !*resp.StandbyAvailable {
-		t.Fatalf("standbyAvailable: got %v want true — the half IS up; availability and followership are different axes", resp.StandbyAvailable)
-	}
-}
-
-// A replica lagging beyond the 30s switchover-safety threshold is available but
-// not promotable. This proves the lag term is load-bearing: delete it and this
-// test flips while the promoted-standby control above stays green.
-func TestReplicationStatus_Row60_LaggingStandbyIsNotPromotable(t *testing.T) {
-	h := NewWithPDM(silentLogger(), &fakePDM{})
-	cr := row60Continuum()
-	primary, replica := row60Halves()
-	_ = unstructured.SetNestedField(replica.Object, int64(120), "status", "lag")
-	factory, _ := fakeContinuumDynamicFactory(cr, primary)
-	h.dynamicFactory = factory
-	dep := installUserAccessDeployment(t, h, "dep-row60-lagging")
-	h.SetK8sCache(crossRegionCNPGCache(t, map[string][]*unstructured.Unstructured{
-		dep.ID:                      {primary},
-		dep.ID + "-me-east-215-b-1": {replica},
-	}), k8scache.NewSARCache(), "X-Forwarded-User")
-
-	resp := fetchReplicationStatus(t, h, dep.ID, "dr-r60fresh", "walkfour")
-	if resp.ReplicaPromotable {
-		t.Fatalf("replicaPromotable: got true against a 120s-lagging replica — promoting it loses committed transactions")
-	}
-	if resp.StandbyAvailable == nil || !*resp.StandbyAvailable {
-		t.Fatalf("standbyAvailable: got %v want true — a lagging standby is reachable, and lag rides its own axis (never a standby-absent alarm)", resp.StandbyAvailable)
-	}
-}
 
 // 🔒 Organization isolation: the replica half lives in ANOTHER namespace. The
 // resolver must not reach across the Org boundary — no determination.

@@ -105,7 +105,10 @@ type: application
 # catalog-seed (blueprints.json) 0.1.1. Image = ghcr.io/openova-io/
 # openova-mcp:<appVersion> (build-openova-mcp.yaml; plain image repo per
 # the #4706 chart-repo-collision lesson).
-version: 0.1.7
+# 0.1.8 (ADR-0015 D4, #7067): appVersion 0.2.7 — catalystapi client docs
+#   state the D4 contract (environmentRef / placement.regions resolved from
+#   objects, unknown refs 422; no "<org>-prod" / "primary").
+version: 0.1.8
 # appVersion is the default image tag (openova-mcp.image in _helpers.tpl).
 # 0.2.5 (#5206): see the version-0.1.5 note above — identity.go/whoami.go
 # reject an Org-scoped caller reaching a Sovereign-pinned instance instead
@@ -120,7 +123,7 @@ version: 0.1.7
 # the OPENOVA_MCP_EXPECTED_ISSUER / OPENOVA_MCP_ORG_SCOPE instance pins) —
 # the 0.1.x binary was stdio-only (the agenity in-pod child, #4010/#4097)
 # and cannot back a Service.
-appVersion: "0.2.6"
+appVersion: "0.2.7"
 keywords:
   - mcp
   - agent

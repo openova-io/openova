@@ -91,7 +91,9 @@ spec:
       # 1.2.5 — #3971: comment-only reword in storageclass.yaml so the
       #   land-time zero-local-path guard sees the ban marker on the line
       #   naming rancher.io/local-path. Rendered output identical to 1.2.4.
-      version: 1.2.6
+      # 1.3.0 — ADR-0015 D6a / #7067: native cross-region filer sync for the
+      #   replicated buckets (see `values.crossRegion` below).
+      version: 1.3.0
       sourceRef:
         kind: HelmRepository
         name: bp-seaweedfs
@@ -108,3 +110,29 @@ spec:
     disableWait: true
     remediation:
       retries: 3
+  values:
+    # ── Cross-region filer sync — ADR-0015 D6(a), #7067 (chart 1.3.0) ──
+    # Each region runs `weed filer.sync` PULLING peer -> self for the
+    # replicated buckets (default `replicated`), dialling the peer filer
+    # through a per-region ClusterMesh global Service
+    # `seaweedfs-filer-mesh-<region-id>`. Both regions together = active-
+    # active: a write through either region's S3 gateway appears in the
+    # other. Delivered per region by this slot, so the values come from the
+    # SAME per-region Flux substitutes bp-cnpg-pair (16b) / bp-harbor (19)
+    # already consume — no new seam:
+    #   enabled           ← SOVEREIGN_ENABLE_CNPG_PAIR — stamped true on BOTH
+    #                       regions by catalyst-api only once ClusterMesh is
+    #                       established; single-region provs stay false and
+    #                       the chart renders nothing extra.
+    #   self              ← SOVEREIGN_REGION_KEY (this region's id).
+    #   configuredRegions ← SOVEREIGN_CONFIGURED_REGIONS_YAML; the chart
+    #                       derives peers = configuredRegions − self.
+    #   peerClusters      ← SOVEREIGN_PEER_CLUSTERMESH_NAMES (CNPs only when
+    #                       the optional seaweedfs NetworkPolicy is on).
+    # When the ADR-0015 D2 contract lands, the chart reads
+    # `openova.topology.{self,peers}` first and these become the fallback.
+    crossRegion:
+      enabled: ${SOVEREIGN_ENABLE_CNPG_PAIR:-false}
+      self: '${SOVEREIGN_REGION_KEY:-}'
+      configuredRegions: ${SOVEREIGN_CONFIGURED_REGIONS_YAML:-[]}
+      peerClusters: ${SOVEREIGN_PEER_CLUSTERMESH_NAMES:-[]}

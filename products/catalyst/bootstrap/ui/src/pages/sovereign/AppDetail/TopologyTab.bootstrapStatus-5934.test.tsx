@@ -87,6 +87,7 @@ describe('TopologyTab — bootstrap component status (#5934, UAT rows 67 + 69)',
       namespace: 'flux-system',
       phase: 'Ready',
       status: {},
+      objectStatus: { state: 'Ready', reason: 'UpgradeSucceeded', message: 'Helm upgrade succeeded', kind: 'HelmRelease' },
     })
 
     render(
@@ -102,7 +103,9 @@ describe('TopologyTab — bootstrap component status (#5934, UAT rows 67 + 69)',
     await waitFor(() => {
       expect(screen.getByTestId('topology-tab-recon-status')).toBeTruthy()
     })
-    expect(screen.getByTestId('topology-tab-recon-status').textContent).toContain('Reconciled')
+    // ADR-0015 D7 — the HR's own Ready condition, verbatim.
+    expect(screen.getByTestId('topology-tab-object-status-badge').textContent).toBe('Ready')
+    expect(screen.getByTestId('topology-tab-recon-status').textContent).toContain('UpgradeSucceeded — Helm upgrade succeeded')
     expect(screen.queryByTestId('topology-tab-status-bootstrap')).toBeNull()
     expect(screen.queryByText(NA_PROSE)).toBeNull()
   })
@@ -134,12 +137,18 @@ describe('TopologyTab — bootstrap component status (#5934, UAT rows 67 + 69)',
   // A Degraded component must read Degraded. A fix that pinned the chip to a
   // constant "Reconciled" would satisfy the first guard and be a worse lie than
   // the n/a string it replaced.
-  it('a Degraded bootstrap component reads Degraded, not a constant green chip', async () => {
+  it('a NotReady bootstrap component reads NotReady + its reason verbatim, not a constant green chip', async () => {
     getApplicationStatus.mockResolvedValue({
       name: 'bp-grafana',
       namespace: 'flux-system',
       phase: 'Degraded',
-      status: { placementReason: 'HelmRelease not ready: upgrade retries exhausted' },
+      status: {},
+      objectStatus: {
+        state: 'NotReady',
+        reason: 'UpgradeFailed',
+        message: 'HelmRelease not ready: upgrade retries exhausted',
+        kind: 'HelmRelease',
+      },
     })
 
     render(
@@ -149,9 +158,12 @@ describe('TopologyTab — bootstrap component status (#5934, UAT rows 67 + 69)',
     )
 
     await waitFor(() => {
-      expect(screen.getByTestId('topology-tab-recon-status').textContent).toContain('Degraded')
+      expect(screen.getByTestId('topology-tab-object-status-badge').textContent).toBe('NotReady')
     })
-    expect(screen.getByTestId('topology-tab-recon-reason').textContent).toContain('upgrade retries exhausted')
+    expect(screen.getByTestId('topology-tab-object-status-reason-reason').textContent).toBe('UpgradeFailed')
+    expect(screen.getByTestId('topology-tab-object-status-reason-message').textContent).toBe(
+      'HelmRelease not ready: upgrade retries exhausted',
+    )
   })
 
   // THE FALLBACK, narrowed to its honest case. When /status genuinely has
@@ -195,19 +207,20 @@ describe('TopologyTab — bootstrap component status (#5934, UAT rows 67 + 69)',
   })
 
   // CONTROL — the non-bootstrap path already worked and must be undisturbed.
-  it('CONTROL: a non-bootstrap app still polls and still renders its recon chip', async () => {
+  it('CONTROL: a non-bootstrap app still polls and still renders its status chip', async () => {
     getApplicationStatus.mockResolvedValue({
       name: 'wordpress',
       namespace: 'qa-omantel',
       phase: 'Ready',
       spec: { placement: 'single-region', regions: [] },
       status: {},
+      objectStatus: { state: 'Ready', reason: 'Reconciled', message: 'ok' },
     })
 
     render(withProviders(<TopologyTab sovereignId="test-sov" applicationName="wordpress" namespace="qa-omantel" />))
 
     await waitFor(() => {
-      expect(screen.getByTestId('topology-tab-recon-status').textContent).toContain('Reconciled')
+      expect(screen.getByTestId('topology-tab-object-status-badge').textContent).toBe('Ready')
     })
     expect(getApplicationStatus).toHaveBeenCalledWith('test-sov', 'wordpress', 'qa-omantel')
     expect(screen.queryByTestId('topology-tab-status-bootstrap')).toBeNull()

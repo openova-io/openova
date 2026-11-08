@@ -49,8 +49,18 @@ import (
 func fakeApplicationDynamicFactory(seed ...runtime.Object) (func(string) (dynamic.Interface, error), *dynamicfake.FakeDynamicClient) {
 	scheme := runtime.NewScheme()
 	listKinds := map[schema.GroupVersionResource]string{
-		ApplicationGVR(): "ApplicationList",
+		ApplicationGVR():   "ApplicationList",
+		OrganizationGVR():  "OrganizationList",
+		EnvironmentGVR():   "EnvironmentList",
+		blueprintCRGVR():   "BlueprintList",
+		namespacesGVR():    "NamespaceList",
+		helmReleaseGVR:     "HelmReleaseList",
 	}
+	// ADR-0015 D4 — the Organizations these install tests name are real
+	// (fixture) objects: CR + <org>-prod Environment + namespace.
+	fixtures := append(refTestReadyOrg("acme", "bp-wordpress"), refTestReadyOrg("qa-omantel")...)
+	fixtures = append(fixtures, refTestEnvironment("qa-omantel-dev", "qa-omantel", "dev"))
+	seed = append(fixtures, seed...)
 	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, listKinds, seed...)
 	return func(_ string) (dynamic.Interface, error) {
 		return client, nil

@@ -1,0 +1,33 @@
+# This region's desired state: every Organization's Flux objects for THIS
+# region (clusters/<fqdn>/regions/<region-id>/orgs/<slug>.yaml), committed by
+# the organization-controller. Directory sweep (no kustomization.yaml index):
+# Flux generates one over every manifest under the path.
+#
+# prune: deleting an Organization's file removes its Flux objects here, and
+# their prune:true removes the Organization's trees in this region.
+# wait: false — Organizations converge independently; one broken Org must not
+# hold the others.
+# The per-Org files reference ${SOVEREIGN_REGION_GIT_SECRET:=...}; this
+# Kustomization forwards the region's value (empty = the file's default).
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: sovereign-region
+  namespace: flux-system
+  labels:
+    catalyst.openova.io/component: sovereign-region-reconciler
+    openova.io/region: ${SOVEREIGN_REGION_ID}
+spec:
+  interval: 1m
+  retryInterval: 1m
+  timeout: 5m
+  path: ./clusters/${SOVEREIGN_FQDN}/regions/${SOVEREIGN_REGION_ID}
+  prune: true
+  wait: false
+  sourceRef:
+    kind: GitRepository
+    name: sovereign-region
+  postBuild:
+    substitute:
+      SOVEREIGN_REGION_ID: ${SOVEREIGN_REGION_ID}
+      SOVEREIGN_REGION_GIT_SECRET: ${SOVEREIGN_REGION_GIT_SECRET:=openova-org-tenants-git-auth}

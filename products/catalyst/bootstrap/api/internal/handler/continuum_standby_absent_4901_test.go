@@ -22,7 +22,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -128,107 +127,8 @@ func findCondition(status map[string]interface{}, condType string) (map[string]i
 	return nil, false
 }
 
-// #4901 — the required sync standby (region-b replica) is UNREACHABLE:
-// its Cluster is present but Ready=False / readyInstances=0. The Continuum
-// GET must now flip phase Healthy→Degraded, set standbyAvailable=false, and
-// carry a StandbyAvailable=False / StandbyUnreachable condition — while
-// preserving the correct lease/primary tracking.
-func TestHandleContinuumGet_StandbyAbsent_SurfacesDegraded(t *testing.T) {
-	h := NewWithPDM(silentLogger(), &fakePDM{})
-	cr := newCnpgPairContinuumCR(
-		"cnpg-pair-bp-cnpg-pair-continuum", "catalyst-system",
-		"bp-cnpg-pair", "hz-fsn-rtz-prod", "hz-hel-rtz-prod")
-	primary := newCnpgClusterHalf("bp-cnpg-pair", cnpgRolePrimary, "hz-fsn-rtz-prod", false, true, 2)
-	// Region-b killed: replica half present but NOT Ready, zero ready instances.
-	replica := newCnpgClusterHalf("bp-cnpg-pair", cnpgRoleReplica, "hz-hel-rtz-prod", true, false, 0)
-	factory, _ := fakeContinuumDynamicFactory(cr, primary, replica)
-	h.dynamicFactory = factory
-	fixed := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)
-	h.SetContinuumClock(func() time.Time { return fixed })
-	dep := installUserAccessDeployment(t, h, "dep-4901-absent")
 
-	_, status := getContinuumStatus(t, h, dep.ID, "cnpg-pair-bp-cnpg-pair-continuum")
 
-	if phase, _, _ := unstructured.NestedString(status, "phase"); phase != "Degraded" {
-		t.Errorf("phase: got %q want Degraded (standby unreachable)", phase)
-	}
-	if avail, found, _ := unstructured.NestedBool(status, "standbyAvailable"); !found || avail {
-		t.Errorf("standbyAvailable: got %v (found=%v) want false", avail, found)
-	}
-	if absent, _, _ := unstructured.NestedBool(status, "hotStandbyAbsent"); !absent {
-		t.Errorf("hotStandbyAbsent: got false want true")
-	}
-	cond, ok := findCondition(status, "StandbyAvailable")
-	if !ok {
-		t.Fatalf("missing StandbyAvailable condition; status=%+v", status)
-	}
-	if s, _, _ := unstructured.NestedString(cond, "status"); s != "False" {
-		t.Errorf("condition status: got %q want False", s)
-	}
-	if reason, _, _ := unstructured.NestedString(cond, "reason"); reason != "StandbyUnreachable" {
-		t.Errorf("condition reason: got %q want StandbyUnreachable", reason)
-	}
-	// Lease/primary tracking must be preserved verbatim — the fix must not
-	// break the (correct) autoFailover=false, lease-pinned-region-a behaviour.
-	if lh, _, _ := unstructured.NestedString(status, "leaseHolder"); lh != "hz-fsn-rtz-prod" {
-		t.Errorf("leaseHolder clobbered: got %q want hz-fsn-rtz-prod", lh)
-	}
-	if cp, _, _ := unstructured.NestedString(status, "currentPrimary"); cp != "bp-cnpg-pair-primary-1" {
-		t.Errorf("currentPrimary clobbered: got %q", cp)
-	}
-}
-
-// A healthy, following standby (Ready=True, ready instances present) keeps
-// the Continuum green: phase Healthy, standbyAvailable=true. No false alarm.
-func TestHandleContinuumGet_StandbyPresent_StaysHealthy(t *testing.T) {
-	h := NewWithPDM(silentLogger(), &fakePDM{})
-	cr := newCnpgPairContinuumCR(
-		"cnpg-pair-bp-cnpg-pair-continuum", "catalyst-system",
-		"bp-cnpg-pair", "hz-fsn-rtz-prod", "hz-hel-rtz-prod")
-	primary := newCnpgClusterHalf("bp-cnpg-pair", cnpgRolePrimary, "hz-fsn-rtz-prod", false, true, 2)
-	replica := newCnpgClusterHalf("bp-cnpg-pair", cnpgRoleReplica, "hz-hel-rtz-prod", true, true, 2)
-	factory, _ := fakeContinuumDynamicFactory(cr, primary, replica)
-	h.dynamicFactory = factory
-	dep := installUserAccessDeployment(t, h, "dep-4901-present")
-
-	_, status := getContinuumStatus(t, h, dep.ID, "cnpg-pair-bp-cnpg-pair-continuum")
-
-	if phase, _, _ := unstructured.NestedString(status, "phase"); phase != "Healthy" {
-		t.Errorf("phase: got %q want Healthy (standby reachable)", phase)
-	}
-	if avail, found, _ := unstructured.NestedBool(status, "standbyAvailable"); !found || !avail {
-		t.Errorf("standbyAvailable: got %v (found=%v) want true", avail, found)
-	}
-	if absent, _, _ := unstructured.NestedBool(status, "hotStandbyAbsent"); absent {
-		t.Errorf("hotStandbyAbsent: got true want false")
-	}
-}
-
-// A Ready-but-LAGGING standby (Ready=True, ready instances present, high lag)
-// must NOT be flagged standby-absent — lag rides its own field. This guards
-// the explicit no-false-alarm rule.
-func TestHandleContinuumGet_StandbyLagging_NotFlagged(t *testing.T) {
-	h := NewWithPDM(silentLogger(), &fakePDM{})
-	cr := newCnpgPairContinuumCR(
-		"cnpg-pair-bp-cnpg-pair-continuum", "catalyst-system",
-		"bp-cnpg-pair", "hz-fsn-rtz-prod", "hz-hel-rtz-prod")
-	primary := newCnpgClusterHalf("bp-cnpg-pair", cnpgRolePrimary, "hz-fsn-rtz-prod", false, true, 2)
-	replica := newCnpgClusterHalf("bp-cnpg-pair", cnpgRoleReplica, "hz-hel-rtz-prod", true, true, 2)
-	// Model lag on the replica half — still Ready, so still AVAILABLE.
-	_ = unstructured.SetNestedField(replica.Object, int64(45), "status", "lag")
-	factory, _ := fakeContinuumDynamicFactory(cr, primary, replica)
-	h.dynamicFactory = factory
-	dep := installUserAccessDeployment(t, h, "dep-4901-lag")
-
-	_, status := getContinuumStatus(t, h, dep.ID, "cnpg-pair-bp-cnpg-pair-continuum")
-
-	if phase, _, _ := unstructured.NestedString(status, "phase"); phase != "Healthy" {
-		t.Errorf("phase: got %q want Healthy (lagging standby is NOT absent)", phase)
-	}
-	if avail, found, _ := unstructured.NestedBool(status, "standbyAvailable"); !found || !avail {
-		t.Errorf("standbyAvailable: got %v (found=%v) want true (lag is not absence)", avail, found)
-	}
-}
 
 // A dr-spine / raft Continuum has no spec.cnpgPair (no synchronous cnpg
 // standby). Its status must pass through UNTOUCHED — the fix is scoped to

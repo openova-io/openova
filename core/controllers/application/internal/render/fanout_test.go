@@ -18,6 +18,7 @@ func TestFanoutHRs_ActiveHotStandby_TwoClusters(t *testing.T) {
 	variant := bp.PerTopology[bpv1alpha1.BcpActiveHotStandby]
 
 	hrs, err := FanoutHRs(FanoutInputs{
+		RegionFor:     testRegionFor,
 		AppName:       "obs-prod",
 		AppNamespace:  "acme",
 		Topology:      bpv1alpha1.BcpActiveHotStandby,
@@ -67,6 +68,7 @@ func TestFanoutHRs_Singleton(t *testing.T) {
 	bp := fixtureGrafanaTopology()
 	variant := bp.PerTopology[bpv1alpha1.BcpSingleton]
 	hrs, err := FanoutHRs(FanoutInputs{
+		RegionFor:    testRegionFor,
 		AppName:      "obs-prod",
 		AppNamespace: "acme",
 		Topology:     bpv1alpha1.BcpSingleton,
@@ -91,6 +93,7 @@ func TestFanoutHRs_KubeConfigSecretRefStamped(t *testing.T) {
 	bp := fixtureGrafanaTopology()
 	variant := bp.PerTopology[bpv1alpha1.BcpActiveHotStandby]
 	hrs, err := FanoutHRs(FanoutInputs{
+		RegionFor:      testRegionFor,
 		AppName:        "obs",
 		AppNamespace:   "acme",
 		WriteNamespace: "mgmt", // G92.1 vCluster-pivot pattern (PR #2674)
@@ -137,6 +140,7 @@ func TestFanoutHRs_KubeConfigSecretKeyStamped(t *testing.T) {
 	bp := fixtureGrafanaTopology()
 	variant := bp.PerTopology[bpv1alpha1.BcpActiveHotStandby]
 	hrs, err := FanoutHRs(FanoutInputs{
+		RegionFor:      testRegionFor,
 		AppName:        "obs",
 		AppNamespace:   "acme",
 		WriteNamespace: "mgmt",
@@ -170,6 +174,7 @@ func TestFanoutHRs_NoKubeConfigSecretKey_OmitsKey(t *testing.T) {
 	bp := fixtureGrafanaTopology()
 	variant := bp.PerTopology[bpv1alpha1.BcpActiveHotStandby]
 	hrs, err := FanoutHRs(FanoutInputs{
+		RegionFor:      testRegionFor,
 		AppName:        "obs",
 		AppNamespace:   "acme",
 		WriteNamespace: "mgmt",
@@ -200,6 +205,7 @@ func TestFanoutHRs_NoKubeConfigSecretFor_OmitsBlock(t *testing.T) {
 	bp := fixtureCiliumTopology()
 	variant := bp.PerTopology[bpv1alpha1.BcpSingleton]
 	hrs, err := FanoutHRs(FanoutInputs{
+		RegionFor:    testRegionFor,
 		AppName:      "cilium",
 		AppNamespace: "kube-system",
 		Topology:     bpv1alpha1.BcpSingleton,
@@ -232,11 +238,15 @@ func TestFanoutHRs_PassiveHRCarriesReplicasZero(t *testing.T) {
 	bp := fixtureGrafanaTopology()
 	variant := bp.PerTopology[bpv1alpha1.BcpActiveHotStandby]
 	hrs, err := FanoutHRs(FanoutInputs{
+		RegionFor:    testRegionFor,
 		AppName:      "obs-prod",
 		AppNamespace: "acme",
-		Topology:     bpv1alpha1.BcpActiveHotStandby,
-		Variant:      &variant,
-		Chart:        "grafana",
+		// Cold standby (active-passive): the posture whose standby is
+		// scaled to 0. A HOT standby keeps its replicas (ADR-0015 D1 — it
+		// streams in its own region; see fanout_region_adr0015_test.go).
+		Topology: bpv1alpha1.BcpActivePassive,
+		Variant:  &variant,
+		Chart:    "grafana",
 		// The Blueprint declares a real replica count; standby must
 		// override it to 0.
 		Values: map[string]interface{}{
@@ -296,6 +306,7 @@ func TestFanoutHRs_SingletonNotScaledDown(t *testing.T) {
 	bp := fixtureGrafanaTopology()
 	variant := bp.PerTopology[bpv1alpha1.BcpSingleton]
 	hrs, err := FanoutHRs(FanoutInputs{
+		RegionFor:    testRegionFor,
 		AppName:      "obs-prod",
 		AppNamespace: "acme",
 		Topology:     bpv1alpha1.BcpSingleton,
@@ -319,6 +330,7 @@ func TestFanoutHRs_OwnerLabelsMerged_ButCanonicalLabelsWin(t *testing.T) {
 	bp := fixtureGrafanaTopology()
 	variant := bp.PerTopology[bpv1alpha1.BcpActiveHotStandby]
 	hrs, err := FanoutHRs(FanoutInputs{
+		RegionFor:    testRegionFor,
 		AppName:      "obs",
 		AppNamespace: "acme",
 		Topology:     bpv1alpha1.BcpActiveHotStandby,
@@ -418,6 +430,7 @@ func TestPerClusterStatusesFor_TemplateShape(t *testing.T) {
 	bp := fixtureGrafanaTopology()
 	variant := bp.PerTopology[bpv1alpha1.BcpActiveHotStandby]
 	hrs, err := FanoutHRs(FanoutInputs{
+		RegionFor:    testRegionFor,
 		AppName:      "obs",
 		AppNamespace: "acme",
 		Topology:     bpv1alpha1.BcpActiveHotStandby,
@@ -447,6 +460,7 @@ func TestSortHRsForReconcile_ActiveBeforePassiveBeforeSingleton(t *testing.T) {
 	bp := fixtureGrafanaTopology()
 	variant := bp.PerTopology[bpv1alpha1.BcpActiveHotStandby]
 	hrs, err := FanoutHRs(FanoutInputs{
+		RegionFor:    testRegionFor,
 		AppName:      "obs",
 		AppNamespace: "acme",
 		Topology:     bpv1alpha1.BcpActiveHotStandby,
@@ -479,6 +493,7 @@ func TestFanoutHRs_ChartAndValuesPassedThrough(t *testing.T) {
 		},
 	}
 	hrs, err := FanoutHRs(FanoutInputs{
+		RegionFor:          testRegionFor,
 		AppName:            "obs",
 		AppNamespace:       "acme",
 		Topology:           bpv1alpha1.BcpSingleton,
@@ -542,6 +557,7 @@ func TestFanoutHRs_ThreeClusterActiveActiveAllActive(t *testing.T) {
 		},
 	}
 	hrs, err := FanoutHRs(FanoutInputs{
+		RegionFor:    testRegionFor,
 		AppName:      "kafka-bus",
 		AppNamespace: "acme",
 		Topology:     bpv1alpha1.BcpActiveActive,
@@ -604,6 +620,7 @@ func TestFanoutHRs_6268_MissingRolesMapDerivesRolesFromDeclaredMode(t *testing.T
 				},
 			}
 			hrs, err := FanoutHRs(FanoutInputs{
+				RegionFor:    testRegionFor,
 				AppName:      "x",
 				AppNamespace: "ns",
 				Topology:     tc.topology,
@@ -646,6 +663,7 @@ func TestFanoutHRs_BriefExampleMapping(t *testing.T) {
 	bp := fixtureGrafanaTopology()
 	variant := bp.PerTopology[bpv1alpha1.BcpActiveHotStandby]
 	hrs, err := FanoutHRs(FanoutInputs{
+		RegionFor:    testRegionFor,
 		AppName:      "obs-prod",
 		AppNamespace: "acme",
 		Topology:     bpv1alpha1.BcpActiveHotStandby,
@@ -690,6 +708,7 @@ func TestFanoutHRs_DependsOnStamped(t *testing.T) {
 	variant := bp.PerTopology[bpv1alpha1.BcpActiveHotStandby]
 
 	hrs, err := FanoutHRs(FanoutInputs{
+		RegionFor:    testRegionFor,
 		AppName:      "wiki",
 		AppNamespace: "acme",
 		Topology:     bpv1alpha1.BcpActiveHotStandby,
@@ -733,6 +752,7 @@ func TestFanoutHRs_NoDependsOnFor_OmitsBlock(t *testing.T) {
 	bp := fixtureGrafanaTopology()
 	variant := bp.PerTopology[bpv1alpha1.BcpSingleton]
 	hrs, err := FanoutHRs(FanoutInputs{
+		RegionFor:    testRegionFor,
 		AppName:      "obs-prod",
 		AppNamespace: "acme",
 		Topology:     bpv1alpha1.BcpSingleton,
@@ -753,6 +773,7 @@ func TestFanoutHRs_EmptyDependsOn_OmitsBlock(t *testing.T) {
 	bp := fixtureGrafanaTopology()
 	variant := bp.PerTopology[bpv1alpha1.BcpSingleton]
 	hrs, err := FanoutHRs(FanoutInputs{
+		RegionFor:    testRegionFor,
 		AppName:      "obs-prod",
 		AppNamespace: "acme",
 		Topology:     bpv1alpha1.BcpSingleton,
@@ -809,6 +830,7 @@ func TestFanoutHRs_StampsTimeoutAndRemediation(t *testing.T) {
 	installRetries := 3
 	upgradeRetries := 3
 	hrs, err := FanoutHRs(FanoutInputs{
+		RegionFor:      testRegionFor,
 		AppName:        "obs-prod",
 		AppNamespace:   "acme",
 		Topology:       bpv1alpha1.BcpSingleton,
@@ -869,6 +891,7 @@ func TestFanoutHRs_DisableWaitStampedOnBothActions(t *testing.T) {
 	bp := fixtureGrafanaTopology()
 	variant := bp.PerTopology[bpv1alpha1.BcpSingleton]
 	hrs, err := FanoutHRs(FanoutInputs{
+		RegionFor:    testRegionFor,
 		AppName:      "obs-prod",
 		AppNamespace: "acme",
 		Topology:     bpv1alpha1.BcpSingleton,
@@ -899,6 +922,7 @@ func TestFanoutHRs_NoTimeoutKnobs_OmitsBlocksEntirely(t *testing.T) {
 	bp := fixtureGrafanaTopology()
 	variant := bp.PerTopology[bpv1alpha1.BcpSingleton]
 	hrs, err := FanoutHRs(FanoutInputs{
+		RegionFor:    testRegionFor,
 		AppName:      "obs-prod",
 		AppNamespace: "acme",
 		Topology:     bpv1alpha1.BcpSingleton,

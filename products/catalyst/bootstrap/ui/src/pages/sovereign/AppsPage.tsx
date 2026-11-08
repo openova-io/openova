@@ -31,6 +31,8 @@
  * is no hand-maintained id list in this file.
  */
 
+import { StatusBadge, StatusReason } from '@/components/status/StatusBadge'
+import type { ObjectStatus } from '@/lib/objectStatus'
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter, Link, useParams, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
@@ -164,6 +166,11 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
      * its topology chip + ⛓ contexts badge.
      */
     instances: LiveInstanceRow[]
+    /**
+     * ADR-0015 D7 — statusOf(object) per non-instance row (HR-backed rows),
+     * rendered verbatim by StatusBadge. Absent for catalog-only rows.
+     */
+    objectStatusById: Record<string, ObjectStatus>
   }
   interface LiveInstanceRow {
     id: string
@@ -181,6 +188,8 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
      * CR omits it; rendered as no chip rather than a guess.
      */
     org: string
+    /** ADR-0015 D7 — the Application CR's statusOf(object), verbatim. */
+    objectStatus?: ObjectStatus
   }
   const liveAppsQuery = useQuery<LiveAppsData>({
     // #4113 — the query key carries the scope so flipping between a sovereign
@@ -225,6 +234,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
           contextCount?: number
           bootstrapKit?: boolean
           org?: string
+          objectStatus?: ObjectStatus
         }>
       }
       const statusById: Record<string, ApplicationStatus> = {}
@@ -233,6 +243,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
       const environmentById: Record<string, string> = {}
       const externalURLById: Record<string, string> = {}
       const instances: LiveInstanceRow[] = []
+      const objectStatusById: Record<string, ObjectStatus> = {}
       for (const a of body.apps ?? []) {
         if (!a.id) continue
         if (a.instance === true) {
@@ -249,9 +260,11 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
             externalURL: a.externalURL ?? '',
             bootstrapKit: a.bootstrapKit === true,
             org: typeof a.org === 'string' ? a.org : '',
+            objectStatus: a.objectStatus,
           })
           continue
         }
+        if (a.objectStatus) objectStatusById[a.id] = a.objectStatus
         if (typeof a.externalURL === 'string' && a.externalURL !== '') {
           externalURLById[a.id] = a.externalURL
         }
@@ -283,7 +296,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
           environmentById[a.id] = a.environment
         }
       }
-      return { statusById, installedRows, publishedBySlug, environmentById, externalURLById, instances }
+      return { statusById, installedRows, publishedBySlug, environmentById, externalURLById, instances, objectStatusById }
     },
     // A single transient 5xx must not read as "this Sovereign runs no
     // Applications". With no retry and no previous data — i.e. a COLD load,
@@ -848,6 +861,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
                   hasUserUI={BLUEPRINT_BY_ID[inst.blueprint]?.hasUserUIEndpoint === true}
                   urlPending={liveAppsQuery.isPending}
                   status={inst.status}
+                  objectStatus={inst.objectStatus}
                   isService={false}
                   marketplacePublished={null}
                   slug={inst.slug}
@@ -919,6 +933,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
                   }
                   return reducerStatus ?? 'pending'
                 })()}
+                objectStatus={liveAppsQuery.data?.objectStatusById?.[app.id]}
                 isService={app.familyId === 'platform' && !app.bootstrapKit ? false : !app.bootstrapKit && app.tier === 'optional' ? false : false}
                 marketplacePublished={published}
                 slug={slug}
@@ -980,6 +995,13 @@ async function launchAppViaSSO(launchKey: string, fallbackURL: string): Promise<
 interface AppCardProps {
   app: ApplicationDescriptor
   status: ApplicationStatus
+  /**
+   * ADR-0015 D7 — the object's own status (statusOf on the API). When
+   * present it is the status pill, rendered verbatim by StatusBadge; the
+   * catalog-membership `status` keeps driving only the card affordances
+   * (Install / AVAILABLE). Absent ⇒ the legacy catalog pill.
+   */
+  objectStatus?: ObjectStatus
   /**
    * #3090 — which tab this card is rendered under. On the Catalog tab a
    * card is a Blueprint CLASS and must link to the class page
@@ -1106,7 +1128,7 @@ interface AppCardProps {
 // Exported for the #3374 render test (AppsPage.open-button.test.tsx) — the
 // per-card Open button gate + silent-SSO click routing are leaf behaviour
 // best asserted directly on the card, without the live-apps query plumbing.
-export function AppCard({ app, status, isCatalog, isService, environment, marketplacePublished, slug, onPublishedChange, topology, contextCount, org, externalURL, hasUserUI, urlPending, iconLight, iconDark, onEdit, cardKind }: AppCardProps) {
+export function AppCard({ app, status, objectStatus, isCatalog, isService, environment, marketplacePublished, slug, onPublishedChange, topology, contextCount, org, externalURL, hasUserUI, urlPending, iconLight, iconDark, onEdit, cardKind }: AppCardProps) {
   const stateClass = `state-${status}`
   const navigate = useNavigate()
   // #3603 — render the theme-correct admin icon override when present:
@@ -1398,7 +1420,18 @@ export function AppCard({ app, status, isCatalog, isService, environment, market
             {marketplacePublished ? 'PUBLISHED' : 'UNPUBLISHED'}
           </button>
         ) : null}
-        {status === 'installed' ? (
+        {objectStatus ? (
+          <span
+            className="app-card-object-status"
+            data-testid={`app-card-object-status-${app.id}`}
+            title={[objectStatus.reason, objectStatus.message].filter(Boolean).join(': ') || undefined}
+          >
+            <StatusBadge status={objectStatus} testId={`app-card-status-${app.id}`} />
+            {objectStatus.state !== 'Ready' ? (
+              <StatusReason status={objectStatus} testId={`app-card-status-reason-${app.id}`} />
+            ) : null}
+          </span>
+        ) : status === 'installed' ? (
           <span className="status-chip s-installed">
             <span className="dot" /> INSTALLED
           </span>
@@ -1722,6 +1755,8 @@ const APPS_PAGE_CSS = `
   color: var(--color-text-dim);
   border-color: color-mix(in srgb, var(--color-text-dim) 30%, transparent);
 }
+.app-card-object-status { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 0.15rem; max-width: 16rem; }
+.app-card-object-status .status-reason { font-size: 0.62rem; color: var(--wiz-text-sub, inherit); text-align: right; overflow-wrap: anywhere; }
 .status-chip {
   display: inline-flex;
   align-items: center;

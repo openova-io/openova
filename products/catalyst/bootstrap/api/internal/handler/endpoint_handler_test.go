@@ -73,6 +73,11 @@ func fakeEndpointDynamic(seed ...runtime.Object) (func() (dynamic.Interface, err
 		// #5389: resolveOrgDomain lists Organizations to answer the
 		// {OrgDomain} hostname token.
 		OrganizationGVR(): "OrganizationList",
+		// ADR-0015 D4: the create path resolves Environment + Blueprint
+		// CRs and the Org namespace before writing.
+		EnvironmentGVR(): "EnvironmentList",
+		blueprintCRGVR(): "BlueprintList",
+		namespacesGVR():  "NamespaceList",
 	}
 	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, listKinds, seed...)
 	return func() (dynamic.Interface, error) {
@@ -236,6 +241,11 @@ func itoaTest(n int64) string {
 func newTestHandlerWithEndpoint(t *testing.T, seed ...runtime.Object) (*Handler, *fakeIaCWriter, *dynamicfake.FakeDynamicClient) {
 	t.Helper()
 	h := NewWithPDM(slog.New(slog.NewTextHandler(io_discard{}, nil)), nil)
+	// ADR-0015 D4 — the Organization "acme" these tests install into is a
+	// real (fixture) object: CR + acme-prod Environment + namespace, the
+	// Blueprints the tests name, and a two-region registry.
+	setRefTestRegistry(t)
+	seed = append(refTestReadyOrg("acme", "wordpress", "grafana", "bp-postgres"), seed...)
 	dynFactory, dyn := fakeEndpointDynamic(seed...)
 	factory, iac := newWriterFactoryAllPass(t)
 	cert, dns := passthroughCertDNS()
@@ -979,7 +989,7 @@ func TestCreateInstance_BackingReuse(t *testing.T) {
 	r := newTestRouter(h)
 
 	body := []byte(`{"blueprint":"wordpress","org":"acme","name":"wiki","topology":"singleton",` +
-		`"backing":[{"blueprint":"postgres","mode":"reuse","instance":"demo-pg"}]}`)
+		`"backing":[{"blueprint":"bp-postgres","mode":"reuse","instance":"demo-pg"}]}`)
 	req := httptest.NewRequest("POST", "/catalyst/v1/apps/instances", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -1037,7 +1047,7 @@ func TestCreateInstance_BackingCreate(t *testing.T) {
 	r := newTestRouter(h)
 
 	body := []byte(`{"blueprint":"wordpress","org":"acme","name":"wiki","topology":"singleton",` +
-		`"backing":[{"blueprint":"postgres"}]}`)
+		`"backing":[{"blueprint":"bp-postgres"}]}`)
 	req := httptest.NewRequest("POST", "/catalyst/v1/apps/instances", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -1090,7 +1100,7 @@ func TestCreateInstance_BackingReuse_BootstrapOwnedRejected(t *testing.T) {
 	r := newTestRouter(h)
 
 	body := []byte(`{"blueprint":"wordpress","org":"acme","name":"wiki","topology":"singleton",` +
-		`"backing":[{"blueprint":"postgres","mode":"reuse","instance":"shared-pg"}]}`)
+		`"backing":[{"blueprint":"bp-postgres","mode":"reuse","instance":"shared-pg"}]}`)
 	req := httptest.NewRequest("POST", "/catalyst/v1/apps/instances", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()

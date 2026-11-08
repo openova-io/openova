@@ -344,8 +344,13 @@ var orgSafeExactReadPaths = []string{
 //     (app:<name>, which name Applications from every Organization) never
 //     reach it. The sibling …/sidebar-overrides (the sovereign-admin's
 //     mapping store) is NOT matched by this pattern and stays denied.
+//   - /api/v1/refs/{organizations,organizations/{org}/environments,regions}
+//     — the install dialog's option lists (ADR-0015 D4). The handlers
+//     confine an Org-scoped session to its OWN Organization (list filter /
+//     403 forbidden-cross-org); the region registry is not Org-specific.
 var orgSafeReadPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`^/api/v1/sovereigns/[^/]+/console-ui/sidebar-entries$`),
+	regexp.MustCompile(`^/api/v1/refs/(organizations|organizations/[^/]+/environments|regions)$`),
 }
 
 // requestIsOrgSafe is the guard's verdict for one request. The method-blind

@@ -39,6 +39,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
+	k8stesting "k8s.io/client-go/testing"
 
 	"github.com/openova-io/openova/core/controllers/internal/placement"
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
@@ -217,6 +218,8 @@ func listKindMap() map[schema.GroupVersionResource]string {
 		ContinuumGVR: "ContinuumList",
 		// #5513 — backing CNPG Cluster health observation.
 		CNPGClusterGVR: "ClusterList",
+		// ADR-0015 D7 — Serving probe reads the app's HTTPRoutes.
+		HTTPRouteGVR: "HTTPRouteList",
 	}
 }
 
@@ -350,6 +353,10 @@ func newReconciler(t *testing.T, fg *fakeGitea, objs ...*unstructured.Unstructur
 	}
 	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, listKinds, objsAny...)
 	return New(dyn, fg, fakeClassifier{}, Config{
+		// ADR-0015 D3 — the test Sovereign's region registry: cluster IDs
+		// *-A map to the first region, *-B to the second.
+		Regions:                    testRegions,
+		LocalRegionID:              testRegionA,
 		GiteaPublicURL:             "https://gitea.test.openova.io",
 		HelmReleaseIntervalSeconds: 600,
 		SourceNamespace:            "flux-system",
@@ -504,15 +511,12 @@ func TestReconcile_SingleRegionHappyPath(t *testing.T) {
 
 	reconcileFromCluster(t, r, "acme", "site")
 
-	// Expected manifests on `main` branch (envType=prod):
-	expectedPaths := []string{
-		"clusters/hetzner-fsn-rtz-prod/applications/site/kustomization.yaml",
-		"clusters/hetzner-fsn-rtz-prod/applications/site/helmrelease.yaml",
+	// ADR-0015 D1 — one file for the one region, in the Org repo.
+	if _, ok := fg.get("acme", "catalyst-tenant", "main", "regions/hetzner-fsn-rtz-prod/apps/site.yaml"); !ok {
+		t.Errorf("expected the region file regions/hetzner-fsn-rtz-prod/apps/site.yaml")
 	}
-	for _, p := range expectedPaths {
-		if _, ok := fg.get("acme", "site", "main", p); !ok {
-			t.Errorf("expected file at %s on branch main", p)
-		}
+	if _, ok := fg.get("acme", "catalyst-tenant", "main", "regions/hetzner-nbg-rtz-prod/apps/site.yaml"); ok {
+		t.Errorf("a region outside the placement must hold no file")
 	}
 	got := readApp(t, r, "acme", "site")
 	phase, reason, message := readPhaseAndReason(t, got)
@@ -524,7 +528,7 @@ func TestReconcile_SingleRegionHappyPath(t *testing.T) {
 		t.Errorf("primaryRegion = %q", primary)
 	}
 	giteaRepo, _, _ := unstructured.NestedString(got.Object, "status", "giteaRepo")
-	if !strings.HasSuffix(giteaRepo, "/acme/site") {
+	if !strings.HasSuffix(giteaRepo, "/acme/catalyst-tenant") {
 		t.Errorf("giteaRepo = %q", giteaRepo)
 	}
 	finalizers := got.GetFinalizers()
@@ -549,13 +553,9 @@ func TestReconcile_ActiveActiveFanOut(t *testing.T) {
 	reconcileFromCluster(t, r, "acme", "api")
 
 	for _, region := range []string{"hetzner-fsn-rtz-prod", "hetzner-nbg-rtz-prod"} {
-		hrPath := "clusters/" + region + "/applications/api/helmrelease.yaml"
-		ksPath := "clusters/" + region + "/applications/api/kustomization.yaml"
-		if _, ok := fg.get("acme", "api", "main", hrPath); !ok {
-			t.Errorf("expected helmrelease at %s", hrPath)
-		}
-		if _, ok := fg.get("acme", "api", "main", ksPath); !ok {
-			t.Errorf("expected kustomization at %s", ksPath)
+		hrPath := "regions/" + region + "/apps/api.yaml"
+		if _, ok := fg.get("acme", "catalyst-tenant", "main", hrPath); !ok {
+			t.Errorf("expected region file at %s", hrPath)
 		}
 	}
 
@@ -563,10 +563,15 @@ func TestReconcile_ActiveActiveFanOut(t *testing.T) {
 	// per-region label / comment). We canonicalise both manifests to
 	// the same region label so any other byte difference fails the
 	// test.
-	a, _ := fg.get("acme", "api", "main", "clusters/hetzner-fsn-rtz-prod/applications/api/helmrelease.yaml")
-	b, _ := fg.get("acme", "api", "main", "clusters/hetzner-nbg-rtz-prod/applications/api/helmrelease.yaml")
-	canonA := strings.ReplaceAll(string(a), "hetzner-fsn-rtz-prod", "REGION")
-	canonB := strings.ReplaceAll(string(b), "hetzner-nbg-rtz-prod", "REGION")
+	a, _ := fg.get("acme", "catalyst-tenant", "main", "regions/hetzner-fsn-rtz-prod/apps/api.yaml")
+	b, _ := fg.get("acme", "catalyst-tenant", "main", "regions/hetzner-nbg-rtz-prod/apps/api.yaml")
+	// The D2 contract names each file's self and peers; swap both region
+	// ids so the two files compare equal when nothing else differs.
+	canonA := strings.ReplaceAll(strings.ReplaceAll(string(a), "hetzner-fsn-rtz-prod", "SELF"), "hetzner-nbg-rtz-prod", "PEER")
+	canonB := strings.ReplaceAll(strings.ReplaceAll(string(b), "hetzner-nbg-rtz-prod", "SELF"), "hetzner-fsn-rtz-prod", "PEER")
+	// primary is the first region in both files.
+	canonA = strings.ReplaceAll(canonA, "primary: SELF", "primary: FIRST")
+	canonB = strings.ReplaceAll(canonB, "primary: PEER", "primary: FIRST")
 	if canonA != canonB {
 		t.Errorf("active-active fan-out manifests differ (after region canonicalisation):\n--- A ---\n%s\n--- B ---\n%s", canonA, canonB)
 	}
@@ -594,7 +599,7 @@ func TestReconcile_ActiveHotStandby(t *testing.T) {
 	reconcileFromCluster(t, r, "acme", "db")
 
 	// Primary (regions[0]) should have replicas: 3.
-	primary, _ := fg.get("acme", "db", "main", "clusters/hetzner-fsn-rtz-prod/applications/db/helmrelease.yaml")
+	primary, _ := fg.get("acme", "catalyst-tenant", "main", "regions/hetzner-fsn-rtz-prod/apps/db.yaml")
 	if !strings.Contains(string(primary), "replicas: 3") {
 		t.Errorf("primary should render replicas: 3:\n%s", string(primary))
 	}
@@ -603,7 +608,7 @@ func TestReconcile_ActiveHotStandby(t *testing.T) {
 	}
 
 	// Standby (regions[1]) should have replicas: 0.
-	standby, _ := fg.get("acme", "db", "main", "clusters/hetzner-nbg-rtz-prod/applications/db/helmrelease.yaml")
+	standby, _ := fg.get("acme", "catalyst-tenant", "main", "regions/hetzner-nbg-rtz-prod/apps/db.yaml")
 	if !strings.Contains(string(standby), "replicas: 0") {
 		t.Errorf("standby should render replicas: 0:\n%s", string(standby))
 	}
@@ -676,14 +681,11 @@ func TestReconcile_DeletionCascade(t *testing.T) {
 	reconcileFromCluster(t, r, "acme", "site")
 
 	// Manifests should be gone.
-	if _, ok := fg.get("acme", "site", "main", "clusters/hetzner-fsn-rtz-prod/applications/site/helmrelease.yaml"); ok {
-		t.Error("helmrelease.yaml should have been deleted")
+	if _, ok := fg.get("acme", "catalyst-tenant", "main", "regions/hetzner-fsn-rtz-prod/apps/site.yaml"); ok {
+		t.Error("the region file should have been deleted")
 	}
-	if _, ok := fg.get("acme", "site", "main", "clusters/hetzner-fsn-rtz-prod/applications/site/kustomization.yaml"); ok {
-		t.Error("kustomization.yaml should have been deleted")
-	}
-	if fg.deletes < 2 {
-		t.Errorf("expected at least 2 deletes (helmrelease + kustomization), got %d", fg.deletes)
+	if fg.deletes < 1 {
+		t.Errorf("expected the region file delete, got %d deletes", fg.deletes)
 	}
 
 	// Finalizer should be released — fake client now allows the GET to
@@ -717,20 +719,20 @@ func TestReconcile_DriftRestoration(t *testing.T) {
 
 	// First pass — commit manifests.
 	reconcileFromCluster(t, r, "acme", "site")
-	hrPath := "clusters/hetzner-fsn-rtz-prod/applications/site/helmrelease.yaml"
-	original, _ := fg.get("acme", "site", "main", hrPath)
+	hrPath := "regions/hetzner-fsn-rtz-prod/apps/site.yaml"
+	original, _ := fg.get("acme", "catalyst-tenant", "main", hrPath)
 	if len(original) == 0 {
 		t.Fatal("first pass should have written the helmrelease")
 	}
 
 	// Hand-edit the file in Gitea (simulate drift).
 	driftedContent := []byte("# THIS IS HAND-EDITED DRIFT\n")
-	fg.repos[fg.repoKey("acme", "site")]["main"][hrPath] = driftedContent
+	fg.repos[fg.repoKey("acme", "catalyst-tenant")]["main"][hrPath] = driftedContent
 
 	// Reconcile — controller should restore.
 	reconcileFromCluster(t, r, "acme", "site")
 
-	restored, _ := fg.get("acme", "site", "main", hrPath)
+	restored, _ := fg.get("acme", "catalyst-tenant", "main", hrPath)
 	if string(restored) != string(original) {
 		t.Errorf("drift not restored:\n--- expected ---\n%s\n--- got ---\n%s", string(original), string(restored))
 	}
@@ -814,8 +816,7 @@ func TestReconcile_VClusterPlacementMGMT(t *testing.T) {
 
 	reconcileFromCluster(t, r, "acme", "control-plane")
 
-	hrBytes, ok := fg.get("acme", "control-plane", "main",
-		"clusters/hetzner-fsn-rtz-prod/applications/control-plane/helmrelease.yaml")
+	hrBytes, ok := fg.get("acme", "catalyst-tenant", "main", "regions/hetzner-fsn-rtz-prod/apps/control-plane.yaml")
 	if !ok {
 		t.Fatal("HelmRelease should have been committed to Gitea")
 	}
@@ -868,8 +869,7 @@ func TestReconcile_NoVClusterFieldUnchanged(t *testing.T) {
 
 	reconcileFromCluster(t, r, "acme", "site")
 
-	hrBytes, ok := fg.get("acme", "site", "main",
-		"clusters/hetzner-fsn-rtz-prod/applications/site/helmrelease.yaml")
+	hrBytes, ok := fg.get("acme", "catalyst-tenant", "main", "regions/hetzner-fsn-rtz-prod/apps/site.yaml")
 	if !ok {
 		t.Fatal("HelmRelease should have been committed")
 	}
@@ -941,165 +941,12 @@ func TestReconcile_InvalidPlacementForBlueprint(t *testing.T) {
 
 // --- qa-loop iter-8 Fix #42 bug 3: host-side Flux bootstrap ---------
 
-// TestReconcile_HostFluxBootstrap_CreatesGitRepoAndKustomization is the
-// regression test for qa-loop iter-8 Fix #42 bug 3.
-//
-// Before the fix the application-controller committed kustomization +
-// helmrelease YAMLs to Gitea but no Flux GitRepository or Kustomization
-// existed on the host cluster to pull them — Pods never spawned, even
-// though the controller marked the Application Ready=True.
-//
-// This test asserts a successful reconcile creates:
-//   - 1 GitRepository in flux-system named `catalyst-app-{org}-{app}`
-//     pointing at the in-cluster Gitea URL with the env-type-mapped
-//     branch.
-//   - 1 Kustomization per region named
-//     `catalyst-app-{org}-{app}-{region}` with path
-//     `./clusters/{region}/applications/{app}` and sourceRef pointing
-//     at the GitRepository above.
-//   - Both CRs carry an ownerRef back to the Application so they're
-//     garbage-collected on Application deletion.
-//   - Both CRs use the v1 Flux API (NOT v1beta2 — Flux 2.4+ deprecates
-//     it).
-func TestReconcile_HostFluxBootstrap_CreatesGitRepoAndKustomization(t *testing.T) {
-	bp := makeBlueprint("bp-wp", "1.0.0", nil, []string{"single-region"})
-	env := makeEnv("acme-prod", "acme", "prod")
-	org := makeOrg("acme")
-	app := makeApp("acme", "site", "acme-prod", "bp-wp", "1.0.0", "single-region",
-		[]string{"hetzner-fsn-rtz-prod"},
-		map[string]interface{}{"replicas": int64(1)})
-	fg := newFakeGitea()
-	fg.orgsExist["acme"] = true
-	r := newReconciler(t, fg, app, env, org, bp)
-
-	reconcileFromCluster(t, r, "acme", "site")
-
-	// GitRepository assertion.
-	grName := "catalyst-app-acme-site"
-	gr, err := r.Dynamic.Resource(FluxGitRepositoryGVR).Namespace("flux-system").
-		Get(context.Background(), grName, metav1.GetOptions{})
-	if err != nil {
-		t.Fatalf("expected Flux GitRepository %q in flux-system; got: %v", grName, err)
-	}
-	if gr.GetAPIVersion() != "source.toolkit.fluxcd.io/v1" {
-		t.Errorf("GitRepository apiVersion = %q, want source.toolkit.fluxcd.io/v1 (Flux 2.4+ deprecated v1beta2)", gr.GetAPIVersion())
-	}
-	url, _, _ := unstructured.NestedString(gr.Object, "spec", "url")
-	if !strings.Contains(url, "/acme/site.git") {
-		t.Errorf("GitRepository.spec.url = %q, want substring %q", url, "/acme/site.git")
-	}
-	branch, _, _ := unstructured.NestedString(gr.Object, "spec", "ref", "branch")
-	if branch != "main" {
-		t.Errorf("GitRepository.spec.ref.branch = %q, want %q (envType=prod → branch=main)", branch, "main")
-	}
-	// #4285 — the per-Application source targets the Sovereign-local Gitea, so
-	// it MUST carry the configured secretRef (else bp-gitea
-	// REQUIRE_SIGNIN_VIEW=true returns 401 'authentication required').
-	if name, found, _ := unstructured.NestedString(gr.Object, "spec", "secretRef", "name"); !found || name != "openova-org-tenants-git-auth" {
-		t.Errorf("GitRepository.spec.secretRef.name = %q (found=%v), want openova-org-tenants-git-auth", name, found)
-	}
-	// NO ownerRef — cross-namespace ownerRefs would trigger the K8s GC
-	// to immediately delete the GitRepository (Application is in
-	// `acme`, GitRepository is in `flux-system`). Cross-namespace lookup
-	// is treated as missing-owner. Cleanup is via labels +
-	// handleDeletion.
-	if owners := gr.GetOwnerReferences(); len(owners) != 0 {
-		t.Errorf("GitRepository must NOT carry ownerRefs (cross-namespace GC); got %+v", owners)
-	}
-	// Cascade-delete reference labels.
-	gotAppNS, _, _ := unstructured.NestedString(gr.Object, "metadata", "labels", "catalyst.openova.io/app-namespace")
-	if gotAppNS != "acme" {
-		t.Errorf("GitRepository missing catalyst.openova.io/app-namespace label = %q, want %q", gotAppNS, "acme")
-	}
-
-	// Kustomization assertion.
-	ksName := "catalyst-app-acme-site-hetzner-fsn-rtz-prod"
-	ks, err := r.Dynamic.Resource(FluxKustomizationGVR).Namespace("flux-system").
-		Get(context.Background(), ksName, metav1.GetOptions{})
-	if err != nil {
-		t.Fatalf("expected Flux Kustomization %q in flux-system; got: %v", ksName, err)
-	}
-	if ks.GetAPIVersion() != "kustomize.toolkit.fluxcd.io/v1" {
-		t.Errorf("Kustomization apiVersion = %q, want kustomize.toolkit.fluxcd.io/v1", ks.GetAPIVersion())
-	}
-	path, _, _ := unstructured.NestedString(ks.Object, "spec", "path")
-	wantPath := "./clusters/hetzner-fsn-rtz-prod/applications/site"
-	if path != wantPath {
-		t.Errorf("Kustomization.spec.path = %q, want %q", path, wantPath)
-	}
-	srcKind, _, _ := unstructured.NestedString(ks.Object, "spec", "sourceRef", "kind")
-	srcName, _, _ := unstructured.NestedString(ks.Object, "spec", "sourceRef", "name")
-	if srcKind != "GitRepository" || srcName != grName {
-		t.Errorf("Kustomization.spec.sourceRef = {%q, %q}, want {GitRepository, %q}", srcKind, srcName, grName)
-	}
-	prune, _, _ := unstructured.NestedBool(ks.Object, "spec", "prune")
-	if !prune {
-		t.Errorf("Kustomization.spec.prune = false, want true (orphan workloads must be GC'd on app delete)")
-	}
-	targetNS, _, _ := unstructured.NestedString(ks.Object, "spec", "targetNamespace")
-	if targetNS != "acme" {
-		t.Errorf("Kustomization.spec.targetNamespace = %q, want %q (the Application's namespace)", targetNS, "acme")
-	}
-	if ksOwners := ks.GetOwnerReferences(); len(ksOwners) != 0 {
-		t.Errorf("Kustomization must NOT carry ownerRefs (cross-namespace GC); got %+v", ksOwners)
-	}
-	gotKsAppNS, _, _ := unstructured.NestedString(ks.Object, "metadata", "labels", "catalyst.openova.io/app-namespace")
-	if gotKsAppNS != "acme" {
-		t.Errorf("Kustomization missing catalyst.openova.io/app-namespace label = %q, want %q", gotKsAppNS, "acme")
-	}
-}
-
-// TestReconcile_HostFluxBootstrap_EmptySecretRefDegrades is the #4285 guard at
-// the application leg: when FluxGiteaSecretRef is empty the per-Application
-// GitRepository (a Sovereign-local Gitea source) MUST NOT be emitted anonymous
-// — the controller fails the reconcile (Degraded) so the misconfiguration is
-// LOUD, not a live 401 source. The chart default is non-empty; this proves the
-// guard fires if an operator ever blanks it.
-func TestReconcile_HostFluxBootstrap_EmptySecretRefDegrades(t *testing.T) {
-	bp := makeBlueprint("bp-wp", "1.0.0", nil, []string{"single-region"})
-	env := makeEnv("acme-prod", "acme", "prod")
-	org := makeOrg("acme")
-	app := makeApp("acme", "site", "acme-prod", "bp-wp", "1.0.0", "single-region",
-		[]string{"hetzner-fsn-rtz-prod"},
-		map[string]interface{}{"replicas": int64(1)})
-	fg := newFakeGitea()
-	fg.orgsExist["acme"] = true
-
-	scheme := newScheme()
-	objsAny := []runtime.Object{app.DeepCopy(), env.DeepCopy(), org.DeepCopy(), bp.DeepCopy()}
-	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, listKindMap(), objsAny...)
-	r := New(dyn, fg, fakeClassifier{}, Config{
-		GiteaPublicURL:             "https://gitea.test.openova.io",
-		HelmReleaseIntervalSeconds: 600,
-		SourceNamespace:            "flux-system",
-		CatalogSourceRef:           "openova-catalog",
-		HostFluxNamespace:          "flux-system",
-		GiteaInClusterURL:          "http://gitea.test.svc.cluster.local:3000",
-		HostFluxIntervalSeconds:    60,
-		// FluxGiteaSecretRef intentionally empty — the #4285 defect.
-	}, nil)
-
-	reconcileFromCluster(t, r, "acme", "site")
-	got := readApp(t, r, "acme", "site")
-	phase, _, message := readPhaseAndReason(t, got)
-	if phase != PhaseDegraded {
-		t.Fatalf("phase = %q, want %q when secretRef is empty (msg=%q)", phase, PhaseDegraded, message)
-	}
-	if !strings.Contains(message, "secretRef is empty") {
-		t.Errorf("Degraded message should cite the #4285 secretRef guard; got %q", message)
-	}
-	// And NO GitRepository should have been created.
-	if _, err := r.Dynamic.Resource(FluxGitRepositoryGVR).Namespace("flux-system").
-		Get(context.Background(), "catalyst-app-acme-site", metav1.GetOptions{}); err == nil {
-		t.Errorf("no GitRepository must be created when the secretRef guard fires")
-	}
-}
-
-// TestReconcile_HostFluxBootstrap_FanOutOnePerRegion asserts an
-// active-active Application with N regions produces 1 GitRepository
-// (shared by all regions on the same per-app Gitea repo) and N
-// Kustomizations (one per region with its own path).
-func TestReconcile_HostFluxBootstrap_FanOutOnePerRegion(t *testing.T) {
+// TestReconcile_ADR0015_NoHostFluxObjectsCreated — ADR-0015 D1. The
+// controller no longer creates a per-Application GitRepository/Kustomization
+// pair by API call (that pair only ever existed in the controller's own
+// region). Delivery is the per-region file in the Org repo, applied by each
+// region's per-Org Flux objects the organization-controller commits to Git.
+func TestReconcile_ADR0015_NoHostFluxObjectsCreated(t *testing.T) {
 	bp := makeBlueprint("bp-api", "2.0.0", nil, []string{"active-active"})
 	env := makeEnv("acme-prod", "acme", "prod")
 	org := makeOrg("acme")
@@ -1112,46 +959,33 @@ func TestReconcile_HostFluxBootstrap_FanOutOnePerRegion(t *testing.T) {
 
 	reconcileFromCluster(t, r, "acme", "api")
 
-	// Exactly one GitRepository.
-	grList, err := r.Dynamic.Resource(FluxGitRepositoryGVR).Namespace("flux-system").
-		List(context.Background(), metav1.ListOptions{})
-	if err != nil {
-		t.Fatalf("list GitRepositories: %v", err)
-	}
-	if len(grList.Items) != 1 {
-		t.Errorf("expected exactly 1 GitRepository per Application, got %d", len(grList.Items))
-	}
-
-	// Two Kustomizations — one per region.
-	ksList, err := r.Dynamic.Resource(FluxKustomizationGVR).Namespace("flux-system").
-		List(context.Background(), metav1.ListOptions{})
-	if err != nil {
-		t.Fatalf("list Kustomizations: %v", err)
-	}
-	if len(ksList.Items) != 2 {
-		t.Fatalf("expected 2 Kustomizations (one per region), got %d", len(ksList.Items))
-	}
-	regionsSeen := map[string]bool{}
-	for _, ks := range ksList.Items {
-		path, _, _ := unstructured.NestedString(ks.Object, "spec", "path")
-		for _, region := range []string{"hetzner-fsn-rtz-prod", "hetzner-nbg-rtz-prod"} {
-			if strings.Contains(path, region) {
-				regionsSeen[region] = true
-			}
+	for _, gvr := range []schema.GroupVersionResource{FluxGitRepositoryGVR, FluxKustomizationGVR, FluxHelmReleaseGVR} {
+		list, err := r.Dynamic.Resource(gvr).List(context.Background(), metav1.ListOptions{})
+		if err != nil {
+			t.Fatalf("list %s: %v", gvr.Resource, err)
+		}
+		if len(list.Items) != 0 {
+			t.Errorf("the controller must apply no %s itself; found %d", gvr.Resource, len(list.Items))
 		}
 	}
-	for _, region := range []string{"hetzner-fsn-rtz-prod", "hetzner-nbg-rtz-prod"} {
-		if !regionsSeen[region] {
-			t.Errorf("no Kustomization saw region %q", region)
+	for _, region := range []string{testRegionA, testRegionB} {
+		objs := regionFileObjs(t, fg, "acme", region, "api")
+		if len(objs) != 1 || objs[0].GetKind() != "HelmRelease" {
+			t.Fatalf("region %s file = %d objects, want 1 HelmRelease", region, len(objs))
+		}
+		self, _, _ := unstructured.NestedString(objs[0].Object, "spec", "values", "openova", "topology", "self")
+		mode, _, _ := unstructured.NestedString(objs[0].Object, "spec", "values", "openova", "topology", "mode")
+		if self != region || mode != "active-active" {
+			t.Errorf("region %s file states self=%q mode=%q", region, self, mode)
 		}
 	}
 }
 
-// TestReconcile_HostFluxBootstrap_Idempotent asserts re-reconciling a
-// steady-state Application makes ZERO new K8s writes (drift-free path).
-// We assert by counting the apiVersion/spec hash between passes —
-// nothing should change.
-func TestReconcile_HostFluxBootstrap_Idempotent(t *testing.T) {
+// TestReconcile_ADR0015_RetiresLegacyHostFluxPair — the pre-ADR-0015 pair is
+// removed on the next reconcile, and its Kustomization is set prune=false
+// first so deleting it never uninstalls the release the region's Flux now
+// delivers from Git.
+func TestReconcile_ADR0015_RetiresLegacyHostFluxPair(t *testing.T) {
 	bp := makeBlueprint("bp-wp", "1.0.0", nil, []string{"single-region"})
 	env := makeEnv("acme-prod", "acme", "prod")
 	org := makeOrg("acme")
@@ -1160,25 +994,52 @@ func TestReconcile_HostFluxBootstrap_Idempotent(t *testing.T) {
 		map[string]interface{}{"replicas": int64(1)})
 	fg := newFakeGitea()
 	fg.orgsExist["acme"] = true
-	r := newReconciler(t, fg, app, env, org, bp)
+
+	legacy := func(kind, name string, gvr schema.GroupVersionResource) *unstructured.Unstructured {
+		u := &unstructured.Unstructured{}
+		u.SetAPIVersion(gvr.Group + "/" + gvr.Version)
+		u.SetKind(kind)
+		u.SetNamespace("flux-system")
+		u.SetName(name)
+		u.SetLabels(map[string]string{LabelAppUID: "uid-site"})
+		u.Object["spec"] = map[string]interface{}{"prune": true}
+		return u
+	}
+	ks := legacy("Kustomization", "catalyst-app-acme-site-hetzner-fsn-rtz-prod", FluxKustomizationGVR)
+	gr := legacy("GitRepository", "catalyst-app-acme-site", FluxGitRepositoryGVR)
+	r := newReconciler(t, fg, app, env, org, bp, ks, gr)
+
+	// Record the order of writes on the legacy Kustomization: an update
+	// carrying prune=false must precede its delete.
+	var prunedOff, deletedAfterPruneOff bool
+	fdyn := r.Dynamic.(*dynamicfake.FakeDynamicClient)
+	fdyn.PrependReactor("update", "kustomizations", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if ua, ok := action.(k8stesting.UpdateAction); ok {
+			if u, ok := ua.GetObject().(*unstructured.Unstructured); ok {
+				if p, found, _ := unstructured.NestedBool(u.Object, "spec", "prune"); found && !p {
+					prunedOff = true
+				}
+			}
+		}
+		return false, nil, nil
+	})
+	fdyn.PrependReactor("delete", "kustomizations", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		deletedAfterPruneOff = prunedOff
+		return false, nil, nil
+	})
 
 	reconcileFromCluster(t, r, "acme", "site")
-	gr1, err := r.Dynamic.Resource(FluxGitRepositoryGVR).Namespace("flux-system").
-		Get(context.Background(), "catalyst-app-acme-site", metav1.GetOptions{})
-	if err != nil {
-		t.Fatalf("first GitRepository fetch: %v", err)
-	}
-	rv1 := gr1.GetResourceVersion()
 
-	reconcileFromCluster(t, r, "acme", "site")
-	gr2, err := r.Dynamic.Resource(FluxGitRepositoryGVR).Namespace("flux-system").
-		Get(context.Background(), "catalyst-app-acme-site", metav1.GetOptions{})
-	if err != nil {
-		t.Fatalf("second GitRepository fetch: %v", err)
+	if !deletedAfterPruneOff {
+		t.Fatal("the legacy Kustomization must be set prune=false before it is deleted")
 	}
-	rv2 := gr2.GetResourceVersion()
-	if rv1 != rv2 {
-		t.Errorf("GitRepository resourceVersion changed across idempotent reconcile passes (%q → %q); steady state must be a no-op", rv1, rv2)
+	if _, err := r.Dynamic.Resource(FluxKustomizationGVR).Namespace("flux-system").
+		Get(context.Background(), ks.GetName(), metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+		t.Errorf("legacy Kustomization not retired: %v", err)
+	}
+	if _, err := r.Dynamic.Resource(FluxGitRepositoryGVR).Namespace("flux-system").
+		Get(context.Background(), gr.GetName(), metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+		t.Errorf("legacy GitRepository not retired: %v", err)
 	}
 }
 
@@ -1211,7 +1072,7 @@ func TestReconcile_HelmReleaseTargetNamespaceIsAppNamespace(t *testing.T) {
 	org := makeOrg("omantel-platform")
 	app := makeApp("qa-omantel", "qa-wp", "qa-omantel", "bp-qa-app", "0.1.0",
 		"single-region",
-		[]string{"hz-fsn-rtz-prod"},
+		[]string{"hetzner-fsn-rtz-prod"},
 		map[string]interface{}{"replicas": int64(1)})
 	fg := newFakeGitea()
 	fg.orgsExist["omantel-platform"] = true
@@ -1219,11 +1080,11 @@ func TestReconcile_HelmReleaseTargetNamespaceIsAppNamespace(t *testing.T) {
 
 	reconcileFromCluster(t, r, "qa-omantel", "qa-wp")
 
-	// HelmRelease lives on Gitea branch=develop (envType=dev).
-	hrPath := "clusters/hz-fsn-rtz-prod/applications/qa-wp/helmrelease.yaml"
-	hr, ok := fg.get("omantel-platform", "qa-wp", "develop", hrPath)
+	// ADR-0015 D1 — the region file in the Org repo.
+	hrPath := "regions/hetzner-fsn-rtz-prod/apps/qa-wp.yaml"
+	hr, ok := fg.get("omantel-platform", "catalyst-tenant", "main", hrPath)
 	if !ok {
-		t.Fatalf("expected HelmRelease at %s in branch develop", hrPath)
+		t.Fatalf("expected HelmRelease at %s", hrPath)
 	}
 	hrStr := string(hr)
 
@@ -1247,17 +1108,6 @@ func TestReconcile_HelmReleaseTargetNamespaceIsAppNamespace(t *testing.T) {
 	// Org-as-label still present for traceability.
 	if !strings.Contains(hrStr, "catalyst.openova.io/organization: omantel-platform") {
 		t.Errorf("HelmRelease should still stamp Org as a label; got:\n%s", hrStr)
-	}
-
-	// Same checks on the Kustomization wrapper.
-	ksPath := "clusters/hz-fsn-rtz-prod/applications/qa-wp/kustomization.yaml"
-	ks, ok := fg.get("omantel-platform", "qa-wp", "develop", ksPath)
-	if !ok {
-		t.Fatalf("expected Kustomization at %s in branch develop", ksPath)
-	}
-	ksStr := string(ks)
-	if !strings.Contains(ksStr, "namespace: qa-omantel") {
-		t.Errorf("Kustomization namespace should be 'qa-omantel'; got:\n%s", ksStr)
 	}
 }
 

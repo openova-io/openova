@@ -67,8 +67,8 @@ func makeBlueprintWithDefaultPlacement(name, version string, defaultVCluster str
 
 func getCommittedHR(t *testing.T, fg *fakeGitea, org, app, region string) string {
 	t.Helper()
-	hrBytes, ok := fg.get(org, app, "main",
-		"clusters/"+region+"/applications/"+app+"/helmrelease.yaml")
+	// ADR-0015 D1 — the region's file in the Org repo.
+	hrBytes, ok := fg.get(org, "catalyst-tenant", "main", "regions/"+region+"/apps/"+app+".yaml")
 	if !ok {
 		t.Fatalf("HelmRelease for %s/%s on %s should have been committed to Gitea", org, app, region)
 	}

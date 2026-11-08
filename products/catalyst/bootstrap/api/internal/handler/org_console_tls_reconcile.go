@@ -153,25 +153,13 @@ func (h *Handler) reconcileOrgConsoleTLSOnce(ctx context.Context) {
 		// about it is create-time-only, which is precisely why re-running it
 		// here backfills a region the Org's original producer never reached.
 		h.provisionOrgConsoleTLS(ctx, rec)
-		// #5635 APP half. The console half above gives every region the
-		// `*.<slug>.<parent>` listener pair, which makes the TLS handshake
-		// succeed for EVERY per-Org host — but a secondary region still has no
-		// route for `wordpress.<slug>.<parent>`, so the reset merely becomes a
-		// 404. This projects the Org's app routes (and the ClusterMesh Service
-		// stubs they need) into every secondary, using the same idiom
-		// bp-catalyst-edge-routes uses for the platform hosts. No-op on a
-		// single-region Sovereign. See org_app_surface_mesh.go.
-		h.reconcileOrgAppSurfaceAcrossRegions(ctx, deps, rec)
-		// #6268 STANDBY half. The two halves above give a secondary region the
-		// per-Org listener pair and the app ROUTES — the front door. Neither
-		// puts a WORKLOAD there. A Catalog-provisioned `active-hot-standby`
-		// Application's standby leg is rendered as a HelmRelease that lands in
-		// the host region beside its own primary, because nothing writes a
-		// per-Org HelmRelease into a secondary region. This projects that leg
-		// into the region its placement names, where that region's OWN Flux
-		// reconciles it. No-op on a single-region Sovereign. See
-		// org_app_standby_regions.go.
-		h.reconcileOrgAppStandbyAcrossRegions(ctx, deps, rec)
+		// ADR-0015 D1 — the per-Org APP surface and standby legs are no
+		// longer copied into secondary regions by this process. Every
+		// region's own Flux applies the Org's Flux objects and its own
+		// `regions/<region-id>/apps` folder from its own Gitea (committed by
+		// the organization- and application-controllers). The former
+		// imperative writers (org_app_surface_mesh.go,
+		// org_app_standby_regions.go) are deleted.
 		reconciled++
 	}
 	if reconciled > 0 {

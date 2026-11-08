@@ -60,6 +60,8 @@ func fakeReseedDynamicClient(t *testing.T, hrNames ...string) *dynamicfake.FakeD
 		{Group: "batch", Version: "v1", Kind: "CronJobList"},
 		{Group: "batch", Version: "v1", Kind: "JobList"},
 		{Group: "apps", Version: "v1", Kind: "DeploymentList"},
+		{Group: "apps.openova.io", Version: "v1", Kind: "ApplicationList"},
+		{Group: "dr.openova.io", Version: "v1", Kind: "ContinuumList"},
 	} {
 		scheme.AddKnownTypeWithName(lk, &unstructured.UnstructuredList{})
 	}

@@ -193,8 +193,16 @@ func (h *Handler) HandleSovereignConsumption(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Resolve the parent org name = the Sovereign FQDN (the parent org IS
-	// the Sovereign, §2.2). Falls back to "sovereign" when unresolved.
+	// the Sovereign, §2.2). ADR-0015 D4 — unresolved is an error, not a
+	// placeholder Organization.
 	parentOrg := h.consumptionParentOrg(depID)
+	if parentOrg == "" {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error":  "parent-organization-unresolved",
+			"detail": "neither the deployment record nor SOVEREIGN_FQDN names this Sovereign's parent Organization",
+		})
+		return
+	}
 
 	// No cache ⇒ return the parent-only empty rollup flagged pending so
 	// the page renders showback chrome (never a hard error). This is the
@@ -398,9 +406,10 @@ func orgForRow(row podRow, infraNamespaces map[string]struct{}) string {
 // workloads. The walk saw exactly that: showback emitting the parent at zero
 // while the treemap had no parent node at all.
 //
-// The "sovereign" fallback is kept for an unresolvable deployment: it is a
-// visibly synthetic name, and inventing a plausible-looking slug for an Org we
-// cannot identify would be worse than an obviously placeholder one.
+// ADR-0015 D4 — no synthetic name. An unknown deployment resolves through
+// this catalyst-api's own SOVEREIGN_FQDN (the Sovereign it runs in); when
+// neither is known the parent is "" and the handler answers 503 rather
+// than labelling a bucket with an Organization that does not exist.
 func (h *Handler) consumptionParentOrg(depID string) string {
 	if val, ok := h.deployments.Load(depID); ok {
 		if dep, ok := val.(*Deployment); ok {
@@ -412,7 +421,10 @@ func (h *Handler) consumptionParentOrg(depID string) string {
 			}
 		}
 	}
-	return "sovereign"
+	if fqdn := strings.TrimSpace(h.sovereignFQDN()); fqdn != "" {
+		return orgNamespace(fqdn)
+	}
+	return ""
 }
 
 func roundPct(v float64) float64 { return round2(v) }

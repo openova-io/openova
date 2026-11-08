@@ -153,7 +153,7 @@ func TestReconcile_TopologyFanout_TwoClustersTwoHRs(t *testing.T) {
 	fg.orgsExist["acme"] = true
 	r := newReconciler(t, fg, app, env, org, bp)
 
-	reconcileFromCluster(t, r, "acme", "obs")
+	reconcileAndApplyAll(t, r, fg, "acme", "obs")
 
 	// Application reconcile should not have failed.
 	got := readApp(t, r, "acme", "obs")
@@ -227,9 +227,12 @@ func TestReconcile_TopologyFanout_TwoClustersTwoHRs(t *testing.T) {
 			t.Errorf("mgmt-A kubeConfig.secretRef.name = %q, want vc-mgmt (per-tier vCluster export Secret)", secName)
 		}
 	}
-	// mgmt-B (remote region) carries NO kubeConfig — split-side default.
-	if kcB := kcByCluster["mgmt-B"]; kcB != nil {
-		t.Errorf("HR for mgmt-B has spec.kubeConfig %v, want NONE (split-side: region B's own Flux owns its half)", kcB)
+	// ADR-0015 D1 — mgmt-B is applied by region B's own Flux, so it pivots
+	// into region B's OWN `vc-mgmt` exactly like mgmt-A does in region A.
+	if kcB := kcByCluster["mgmt-B"]; kcB == nil {
+		t.Errorf("HR for mgmt-B missing spec.kubeConfig (its own region's tier vCluster)")
+	} else if name, _, _ := unstructured.NestedString(kcB, "secretRef", "name"); name != "vc-mgmt" {
+		t.Errorf("mgmt-B kubeConfig.secretRef.name = %q, want vc-mgmt", name)
 	}
 }
 
@@ -254,7 +257,7 @@ func TestReconcile_TopologyFanout_Idempotent(t *testing.T) {
 	r := newReconciler(t, fg, app, env, org, bp)
 
 	// First reconcile.
-	reconcileFromCluster(t, r, "acme", "obs")
+	reconcileAndApplyAll(t, r, fg, "acme", "obs")
 	firstList, err := r.Dynamic.Resource(FluxHelmReleaseGVR).
 		Namespace("mgmt").
 		List(context.Background(), metav1.ListOptions{})
@@ -268,7 +271,7 @@ func TestReconcile_TopologyFanout_Idempotent(t *testing.T) {
 	}
 
 	// Second reconcile — should be a no-op on the HR spec.
-	reconcileFromCluster(t, r, "acme", "obs")
+	reconcileAndApplyAll(t, r, fg, "acme", "obs")
 	secondList, err := r.Dynamic.Resource(FluxHelmReleaseGVR).
 		Namespace("mgmt").
 		List(context.Background(), metav1.ListOptions{})

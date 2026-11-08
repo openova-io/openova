@@ -27,6 +27,8 @@ const ALL_JOB_KINDS: readonly JobKind[] = [
   'task',
   'reconciler',
   'lifecycle',
+  'application',
+  'topology-transition',
   'group',
 ]
 

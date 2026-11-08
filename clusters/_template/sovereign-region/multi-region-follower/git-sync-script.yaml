@@ -1,0 +1,61 @@
+# The pull-replication script. Postbuild substitution is DISABLED on this
+# object (the shell's own variables must survive); the region ids arrive as
+# env from the CronJob.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: region-git-sync
+  namespace: gitea
+  labels:
+    catalyst.openova.io/component: region-git-sync
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+data:
+  sync.sh: |
+    #!/bin/sh
+    # ADR-0015 D1 — replicate every repo of the shared Gitea database from the
+    # writer region's disk into this region's disk. Never fatal for one repo;
+    # a missing writer leaves this region's last state untouched.
+    set -u
+    export HOME=/tmp
+    LOCAL="http://gitea-http.gitea.svc.cluster.local:3000"
+    WRITER="http://gitea-${WRITER_REGION_ID}.gitea.svc.cluster.local:3000"
+    AUTH="Authorization: token ${GITEA_TOKEN}"
+    BASIC=$(printf '%s' "sync:${GITEA_TOKEN}" | base64 | tr -d '\n')
+    GITH="http.extraHeader=Authorization: Basic ${BASIC}"
+
+    if ! curl -fsS -o /dev/null --max-time 20 -H "$AUTH" "$WRITER/api/v1/version"; then
+      echo "[region-git-sync] writer ${WRITER_REGION_ID} unreachable — keeping this region's last state"
+      exit 0
+    fi
+    # Repos created in the shared DB since the last pass have no directory on
+    # this disk yet; let Gitea re-initialise them before pushing.
+    curl -fsS -o /dev/null --max-time 60 -X POST -H "$AUTH" \
+      "$LOCAL/api/v1/admin/cron/reinit_missing_repos" || \
+      echo "[region-git-sync] reinit_missing_repos not run (token lacks admin?)"
+
+    page=1; repos=""
+    while :; do
+      batch=$(curl -fsS --max-time 30 -H "$AUTH" \
+        "$LOCAL/api/v1/repos/search?limit=50&page=${page}" | jq -r '.data[].full_name') || break
+      [ -z "$batch" ] && break
+      repos="$repos $batch"; page=$((page + 1))
+    done
+
+    synced=0; same=0; failed=0
+    for r in $repos; do
+      case " ${SKIP_REPOS} " in *" $r "*) continue ;; esac
+      wref=$(git -c "$GITH" ls-remote "$WRITER/$r.git" 2>/dev/null | sort) || { failed=$((failed+1)); continue; }
+      [ -z "$wref" ] && continue
+      lref=$(git -c "$GITH" ls-remote "$LOCAL/$r.git" 2>/dev/null | sort)
+      if [ "$wref" = "$lref" ]; then same=$((same+1)); continue; fi
+      dir=$(mktemp -d)
+      if git -c "$GITH" clone --quiet --mirror "$WRITER/$r.git" "$dir/r.git" && \
+         git -C "$dir/r.git" -c "$GITH" push --quiet --mirror --force "$LOCAL/$r.git"; then
+        synced=$((synced+1)); echo "[region-git-sync] $r replicated"
+      else
+        failed=$((failed+1)); echo "[region-git-sync] $r FAILED (kept last state)"
+      fi
+      rm -rf "$dir"
+    done
+    echo "[region-git-sync] writer=${WRITER_REGION_ID} synced=$synced unchanged=$same failed=$failed"

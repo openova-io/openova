@@ -361,6 +361,14 @@ func mergeJob(prev, next Job) Job {
 	if next.Kind == "" && prev.Kind != "" {
 		out.Kind = prev.Kind
 	}
+	// ADR-0015 D7 — Reason/Message describe the CURRENT status. A write
+	// that leaves them empty without changing the status (an execution
+	// stamp, a re-seed) inherits them; a status change takes the new
+	// write's values, so a row that turns green drops its old reason.
+	if next.Reason == "" && next.Message == "" && (next.Status == "" || next.Status == prev.Status) {
+		out.Reason = prev.Reason
+		out.Message = prev.Message
+	}
 	if out.StartedAt != nil && out.FinishedAt != nil {
 		out.DurationMs = out.FinishedAt.Sub(*out.StartedAt).Milliseconds()
 	}

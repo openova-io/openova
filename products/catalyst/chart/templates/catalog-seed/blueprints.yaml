@@ -80,7 +80,11 @@ spec:
   # (pg4wp + openid-connect-generic baked into the runtime image). Rebase of
   # PR #6320 onto current main; 0.4.24 is claimed by the still-open #6320, so
   # this republish takes the next free patch.
-  version: "0.4.26"
+  # ADR-0015 D2 (#7067): →0.5.0 — the shared openova.topology contract via
+  # platform/topology-lib; one HelmRelease per region renders only its own CNPG
+  # member (native distributed topology). database.mode / pg.activeHotStandby
+  # removed (fail closed); singleton installs render unchanged.
+  version: "0.5.0"
   visibility: listed
   card:
     title: "WordPress (per-Organization)"
@@ -99,7 +103,7 @@ spec:
   # to a primary+standby plan and the generic per-app Continuum producer
   # mints the per-Org Continuum CR. Mirrors platform/wordpress-tenant/blueprint.yaml.
   placementSchema:
-    modes: [single-region, singleton, active-passive]
+    modes: [single-region, singleton, active-passive, active-hot-standby]
     default: single-region
     defaultOnMultiRegion: active-passive
   manifests:
@@ -109,19 +113,39 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-wordpress-tenant
-    version: "0.4.26"
+    version: "0.5.0"
   # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): lockstep with
   # platform/wordpress-tenant/blueprint.yaml. Uses {{.AppName}} so
   # multi-instance tenants get distinct hostnames per Application.
   topology:
     supported:
       - active-passive
+      - active-hot-standby
       - singleton
     defaults:
       multi-region: active-passive
       single-region: singleton
     perTopology:
       active-passive:
+        replication:
+          backend: cnpg-pair
+          mode: sync
+          lagSloSeconds: 0
+        switchover:
+          mechanism: bp-continuum
+          rtoSeconds: 60
+          rpoSeconds: 0
+        placement:
+          tier: ''
+          clusters: [rtz-A, rtz-B]
+          roles:
+            rtz-A: active
+            rtz-B: passive
+      # ADR-0015 D2/D9 (#7067): bp-wordpress-tenant 0.5.0 renders
+      # active-hot-standby with the SAME per-region shape as active-passive
+      # (CNPG distributed topology, sync fence on the primary, WordPress at 0
+      # replicas off-primary). The D9 acceptance suite installs it.
+      active-hot-standby:
         replication:
           backend: cnpg-pair
           mode: sync
@@ -184,141 +208,11 @@ spec:
           email:
             type: string
             description: "Admin email (must match Keycloak realm email claim)."
----
-{{- if not $.Values.qaFixtures.enabled }}
-# bp-wordpress — production alias for the bare `wordpress` / `bp-wordpress`
-# slug (2026-06-19, #3870 / #3376). The customer-facing marketplace funnel
-# NOTE (2026-06-30, #4655): gated `not qaFixtures.enabled` — on a qaTestEnabled
-# prov the templates/qa-fixtures/blueprint-bp-wordpress.yaml fixture ALSO seeds a
-# `bp-wordpress` Blueprint, so rendering this alias too registers the id twice →
-# Helm post-render "may not add resource with an already registered id:
-# Blueprint/bp-wordpress" → bp-catalyst-platform install fails → fresh qa provs
-# wedge at ~59/65 HRs. Production (qaFixtures off) still gets this alias.
-# (core/marketplace AppsStep.svelte) sells WordPress under `slug: wordpress`,
-# and operator docs + the qa-loop matrix POST `"blueprint":"bp-wordpress"`.
-# The console resolves both via the catalog-client bare→`bp-` prefix retry
-# (catalog_client_cluster_fallback.go) → it looks up a CR named `bp-wordpress`.
-# Pre-fix that CR was seeded ONLY by templates/qa-fixtures/blueprint-bp-wordpress.yaml,
-# which is gated on qaFixtures.enabled (default FALSE on production Sovereigns).
-# Result: on a fresh production prov, `GET /api/v1/catalog/wordpress` 404'd
-# ("Couldn't load wordpress / catalog get: HTTP 404", caught live hw167).
-# Seeding the alias here (always-on via catalogSeed.enabled) makes the bare
-# slug resolve to the REAL bp-wordpress-tenant chart on every Sovereign. The
-# canonical `bp-wordpress-tenant` entry above remains the operator-grid card;
-# this alias is the marketplace/funnel/literal-install entrypoint pointing at
-# the same OCI chart bytes (no separate chart). Per INVIOLABLE-PRINCIPLES #1
-# the chart ref is the published 0.4.1 — not a placeholder.
-apiVersion: catalyst.openova.io/v1
-kind: Blueprint
-metadata:
-  name: bp-wordpress
-  labels:
-    catalyst.openova.io/managed-by: catalog-seed
-    catalyst.openova.io/origin: openova-public
-    catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/category: organization-app
-    catalyst.openova.io/section: pts-7-org-tenant
-    catalyst.openova.io/alias-of: bp-wordpress-tenant
-    app.kubernetes.io/managed-by: {{ $managedBy }}
-    app.kubernetes.io/instance: {{ $instance }}
-spec:
-  version: "0.4.26"
-  visibility: listed
-  card:
-    title: "WordPress"
-    category: organization-app
-    family: cms
-    summary: "Turnkey, SSO-pre-wired WordPress. Postgres + cert-manager TLS pre-wired. The marketplace funnel's flagship CMS."
-    description: "Runs in the Org's vcluster. SSO via the per-Org Keycloak realm (openid-connect-generic). Default theme + admin user pre-seeded at install time so the first browser hit lands on /wp-admin authenticated. Aliases the bp-wordpress-tenant chart."
-    icon: wordpress.svg
-    license: "GPL-2.0-or-later"
-    tags: [wordpress, cms, org, tenant, sso, keycloak, postgres]
-    docs: "https://wordpress.org/documentation/"
-  placementSchema:
-    modes: [single-region]
-    default: single-region
-  manifests:
-    chart: bp-wordpress-tenant
-  source:
-    kind: HelmRepository
-    type: oci
-    url: oci://ghcr.io/openova-io
-    chart: bp-wordpress-tenant
-    version: "0.4.26"
-  # Lockstep with the bp-wordpress-tenant entry above + platform/wordpress-tenant/
-  # blueprint.yaml. Same chart bytes; this is the bare-slug entrypoint only.
-  topology:
-    supported:
-      - active-passive
-      - singleton
-    defaults:
-      multi-region: active-passive
-      single-region: singleton
-    perTopology:
-      active-passive:
-        replication:
-          backend: cnpg-pair
-          mode: sync
-          lagSloSeconds: 0
-        switchover:
-          mechanism: bp-continuum
-          rtoSeconds: 60
-          rpoSeconds: 0
-        placement:
-          tier: ''
-          clusters: [rtz-A, rtz-B]
-          roles:
-            rtz-A: active
-            rtz-B: passive
-      singleton:
-        placement:
-          tier: ''
-          clusters: [rtz-A]
-          roles:
-            rtz-A: singleton
-  endpoints:
-    - name: ui
-      hostnameTemplate: "{{ "{{" }}.AppName{{ "}}" }}.{{ "{{" }}.OrgDomain{{ "}}" }}"
-      port: 443
-      protocol: https
-      tls: true
-      visibility: public
-      launchDefault: true
-      ssoEnabled: true
-  sso:
-    realm: "{{ "{{" }}.OrgSlug{{ "}}" }}"
-    protocolMapper: oidc
-    silentLogin: true
-  multiInstance:
-    enabled: true
-    maxPerOrg: 10
-  configSchema:
-    type: object
-    # #4936: orgDomain + adminUser are NOT customer-required. The console
-    # 'New instance' dialog + marketplace funnel collect neither, so
-    # requiring them failed Application admission
-    # (`missing properties: 'orgDomain','adminUser'`). The Organization
-    # controller DERIVES both from Org context (orgDomain from the Org
-    # domain, adminUser.email from the Org owner) and injects them into the
-    # Application config before render — a customer never types them. They
-    # stay accepted (with nested validation) for explicit operator overlays.
-    properties:
-      orgDomain:
-        type: string
-        description: "Org domain (e.g. acme.<sov-fqdn>)."
-      replicas:
-        type: integer
-        default: 1
-        minimum: 1
-        maximum: 8
-      adminUser:
-        type: object
-        required: [email]
-        properties:
-          email:
-            type: string
-            description: "Admin email (must match Keycloak realm email claim)."
-{{- end }}
+# ADR-0015 D4 — the hand-copied `bp-wordpress` alias Blueprint (alias-of
+# bp-wordpress-tenant, with its own drifted placementSchema) was deleted.
+# WordPress has ONE Blueprint name: bp-wordpress-tenant (above). Callers name
+# it exactly; the catalyst-api 422s an unknown Blueprint instead of resolving
+# an alias.
 ---
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint
@@ -2715,7 +2609,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.2.6"
+  version: "1.3.0"
   visibility: unlisted
   card:
     title: "SeaweedFS"
@@ -2724,8 +2618,12 @@ spec:
     description: "Unified S3-compatible object storage encapsulation. Master + volume + filer + S3 services. Single S3 surface that every consumer (Loki, Mimir, Tempo, Velero, Harbor, CNPG WAL, OpenSearch snapshots) talks to; SeaweedFS handles tiered storage hot→warm→cold, with cold-tier offload to Cloudflare R2 / AWS S3 Glacier / Hetzner Object Storage configured per-Sovereign."
     icon: "seaweedfs.svg"
     docs: "https://github.com/seaweedfs/seaweedfs/wiki"
+  # ADR-0015 D6a (#7067): bp-seaweedfs 1.3.0 ships native cross-region
+  # filer.sync (active-active, one sync per peer per replicated bucket), so
+  # the seed admits the multi-region mode the chart implements (#5358 guard,
+  # crossregion_seed_lockstep_test.go). Default stays single-region.
   placementSchema:
-    modes: [single-region]
+    modes: [single-region, active-active]
     default: single-region
   manifests:
     chart: bp-seaweedfs
@@ -2734,7 +2632,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-seaweedfs
-    version: "1.2.6"
+    version: "1.3.0"
   topology:
     supported:
     - singleton
@@ -6224,7 +6122,10 @@ spec:
   # whoami-delegated verify so post-handover SESSION tokens are accepted;
   # 0.1.3 (#5167) made verify=rs256 parse the JWK mirror a Sovereign actually
   # seeds. All three are why a per-Org instance is worth installing at all.
-  version: "0.1.7"
+  # 0.1.8 (ADR-0015 D4, #7067): appVersion 0.2.7 — catalystapi client docs
+  #   state the D4 contract (environmentRef / placement.regions resolved from
+  #   objects, unknown refs 422; no "<org>-prod" / "primary").
+  version: "0.1.8"
   visibility: unlisted
   card:
     title: "OpenOva MCP"
@@ -6246,7 +6147,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-openova-mcp
-    version: 0.1.7
+    version: 0.1.8
   topology:
     supported:
       - singleton

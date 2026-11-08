@@ -175,30 +175,9 @@ wordpress:
 # never created (customer host 404). Referencing the CNPG source Secret
 # directly removes the async-populate race outright.
 database:
-  # ─── D31 / TBD-E8b — canonical DB topology selector ──────────────────
-  # Operator-facing enum: "singleton" (default) | "active-hot-standby".
-  # When set, this is the canonical interface and overrides the legacy
-  # boolean `pg.activeHotStandby.enabled` (kept as a back-compat alias
-  # for chart 0.3.x orchestrator overlays — removal slated for 0.4.0).
-  #
-  # The marketplace voucher → org wizard (D29) writes this field
-  # directly when the customer ticks the "cross-region HA database"
-  # checkbox; the catalog-seed Blueprint `bp-cnpg-pair` is the
-  # standalone equivalent customers can install side-by-side for any
-  # non-WordPress tenant-app.
-  #
-  # When mode=active-hot-standby:
-  #   - `pg.activeHotStandby.{primaryRegion,replicaRegion}` MUST be set
-  #     AND differ (templates/_helpers.tpl validateActiveHotStandbyRegions
-  #     fail-fasts at render time).
-  #   - bp-cnpg MUST be installed in BOTH regions (bootstrap-kit does
-  #     this in every region — verified on t132).
-  #   - DoD D11 (Cilium ClusterMesh via LoadBalancer) MUST be reconciled.
-  #
-  # Empty default → fall through to the legacy boolean for back-compat.
-  mode: ""
-  # CNPG Cluster name & topology — operator-overridable via cluster
-  # overlay. Defaults to a tenant-isolated cluster sized for Organization usage.
+  # CNPG Cluster name. Without `openova.topology` this IS the Cluster name.
+  # With the contract it is the BASE of the per-region name
+  # `<cnpgClusterName>-<sha256(region-id)[0:8]>` (see database.topology).
   cnpgClusterName: "wordpress-db"
   cluster:
     enabled: true
@@ -230,112 +209,84 @@ database:
         # `<cluster>-app` Secret (name derived from `cnpgClusterName`, resolved by
         # _helpers.tpl `cnpgAppSecret`). There is no separate reflector-mirrored
         # wrapper Secret to name.
-# ─── Postgres topology (D31 active-hot-standby) ─────────────────────────
-# Sovereign DoD D31 — tenants subscribing to an HA-capable marketplace
-# app (catalog Tags include `ha` + `cnpg-pair`) may opt into a cross-
-# region active-hot-standby Postgres pair instead of the default single
-# CNPG Cluster declared by `database.cluster.enabled` above.
-#
-# When `pg.activeHotStandby.enabled=true`:
-#   - templates/cnpg-cluster.yaml renders TWO Cluster.postgresql.cnpg.io
-#     resources (primary in `primaryRegion`, replica in `replicaRegion`)
-#     mirroring the bp-cnpg-pair pattern (see platform/cnpg-pair/chart/
-#     templates/primary-cluster.yaml + replica-cluster.yaml).
-#   - WAL streams from primary -> replica over Cilium ClusterMesh via the
-#     primary's `spec.managed.services.additional` entry annotated
-#     `service.cilium.io/global: "true"`. The replica's externalCluster
-#     resolves the primary's read-replica endpoint via the mesh-global
-#     `<cluster>-mesh` Service alias.
-#   - WordPress connects to `<cnpgClusterName>-rw.<ns>.svc.cluster.local`
-#     in the PRIMARY region; CNPG handles RW endpoint routing through
-#     the operator's switchover sequencer.
-#   - Operator/tenant must ensure bp-cnpg is installed in BOTH regions
-#     (today's bootstrap-kit installs it in every region — verified on
-#     t132). Cilium ClusterMesh must be wired (DoD D11 — clustermesh
-#     apiserver via LoadBalancer + peer cert exchange).
-#
-# When `pg.activeHotStandby.enabled=false` (default): the existing
-# single Cluster declared by `database.cluster.*` is rendered with no
-# regression for non-HA tenants.
-pg:
-  activeHotStandby:
-    # Default OFF — keep the single-cluster shape backward compatible.
-    enabled: false
-    # Region keys (matches `openova.io/region` node labels per G1 multi-
-    # region wiring). NEVER hardcode — operator passes these via the
-    # marketplace voucher -> org wizard (D29) when the tenant ticks the
-    # HA checkbox. With enabled=true both MUST be set AND differ.
-    primaryRegion: ""
-    replicaRegion: ""
-    # ── #5623 REQUIRED promotion declaration ───────────────────────────
-    # WHO PROMOTES THE STANDBY WHEN THE PRIMARY REGION DIES?
-    #
-    # On the hw292 G12 region-kill (2026-08-03) the pairs that shipped a
-    # region-local dr-promoter promoted in ~2 minutes; the pairs that shipped
-    # none stayed read-only for the entire outage — and nothing in their render
-    # distinguished the two. This chart is in the second group: it renders a
-    # cross-region standby (`replica.enabled: true` + pg_basebackup, see
-    # templates/cnpg-cluster.yaml) but ships NO dr-promoter and NO Continuum CR,
-    # and continuum-controller is region-A-only (dies with region-A; region-B
-    # carries neither the controller nor the Continuum CRD — verified live
-    # 2026-08-06 on hw292, both regions sampled).
-    #
-    # So the mechanism must be STATED, not assumed. Empty ⇒ the render FAILS.
-    #   manual       — the ONLY value this chart can honour today. Promotion is
-    #                  the sovereign-admin's RUNBOOKS §6.1 action; RTO = human
-    #                  response time, NOT the ~2min a promoter delivers.
-    #   dr-promoter  — fails closed: this chart ships no promoter and no
-    #                  `topology.promoted` HR-value promote seam.
-    #   continuum    — fails closed: no Continuum CR is rendered, and Continuum
-    #                  orchestrates a PLANNED switchover from region A only.
-    #
-    # The declared value is stamped on the standby Cluster CR as
-    # `catalyst.openova.io/dr-promotion-mechanism` so it is answerable from the
-    # live object. Making this automatic is tracked on #5623.
+  # ─── Multi-region DB knobs (ADR-0015 D2) ─────────────────────────────
+  # Read ONLY when `openova.topology.mode` is active-passive or
+  # active-hot-standby. Placement itself (mode/self/primary/peers) is NOT
+  # here — it is the shared contract `openova.topology` below.
+  topology:
+    # Migration seam — region-id → explicit CNPG Cluster name. Lets an
+    # existing Cluster keep its name (and data) when its release adopts the
+    # contract, instead of the derived `<cnpgClusterName>-<hash>`. Example:
+    #   clusterNames: {hw-me-east-215-a-rtz-prod: wordpress-db}
+    clusterNames: {}
+    # Planned primary move — the CNPG demotion token the FORMER primary
+    # published (`status.demotionToken`). Committed by the orchestrator into
+    # the NEW primary region's values together with `openova.topology.primary`
+    # (step 2 of the move; templates/cnpg-cluster.yaml). Rendered only on the
+    # member the contract names primary; CNPG ignores a token it already used
+    # (`status.lastPromotionToken`), so leaving it set is harmless.
+    promotionToken: ""
+    # #5623 — WHO PROMOTES A STANDBY WHEN THE PRIMARY REGION DIES? REQUIRED
+    # for a multi-region contract; empty FAILS the render. `manual` (the only
+    # deliverable value today): the sovereign-admin commits
+    # `openova.topology.primary: <surviving region>`. `dr-promoter` /
+    # `continuum` fail closed until an every-region actor ships (ADR-0015 D8).
+    # Stamped on every non-primary Cluster as
+    # catalyst.openova.io/dr-promotion-mechanism.
     promotion:
       mechanism: ""
-    # WAL streaming + promotability threshold — mirrors bp-cnpg-pair
-    # walStreaming defaults. Continuum K-Cont-2 reads these back from
-    # the Cluster CR status before initiating cross-cluster switchover.
-    walStreaming:
-      targetLagSeconds: 30
-      timeoutSeconds: 60
-    # Cilium ClusterMesh — required transport for cross-region WAL.
-    # Disabling makes the replica unreachable; toggle exists for
-    # forensic isolation only.
+    # Cilium ClusterMesh transport for cross-region WAL. `enabled: false` is
+    # for forensic isolation only (the members cannot reach each other).
     clusterMesh:
       enabled: true
-      # Local-affinity routing: keep reads local in each region, fall
-      # through to the remote region only when no local backend exists
-      # (replica region has zero `cnpg-role=primary` backends so its
-      # WAL traffic ALWAYS crosses the mesh to the primary region).
       affinity: local
-    # Replication MODE — sync (DEFAULT) vs async. Mirrors bp-cnpg-pair
-    # 0.1.2 + DESIGN.md §7. The canonical Pillar 3 claim of "zero
-    # transactions lost" on region-kill failover REQUIRES synchronous
-    # replication; the previous async-streaming default could not
-    # honour it. `replication.mode: sync` renders
-    # `synchronous_commit: remote_apply` + `synchronous_standby_names:
-    # FIRST 1 (<replica-cluster-name>)` into the primary CNPG Cluster
-    # CR's `postgresql.parameters`. `async` exists for forensic / lab
-    # use only; production deployments MUST stay on `sync`.
-    #
-    # Trade-off (operator-disclosure): every COMMIT on the primary
-    # waits for the replica to REPLAY the WAL — bounded by the
-    # inter-region RTT (Hetzner FSN<->HEL ~10 ms). If the replica is
-    # unreachable, the primary BLOCKS new writes until recovery or
-    # an explicit break-glass downgrade.
+    # ADR-0004 — `sync` (DEFAULT, Pillar 3 zero-tx-loss): the primary member
+    # renders synchronous_commit=remote_apply + synchronous{method first,
+    # dataDurability required, standbyNamesPre = the DECLARED peers'
+    # Clusters}. If no peer is reachable the primary BLOCKS writes — the
+    # by-design durability contract. `async` is lab/forensic only.
     replication:
       mode: sync
       sync:
         commit: remote_apply
         numSync: 1
-        # NOTE: instances/storage/resources are NOT re-declared here. The
-        # primary + replica BOTH inherit from `database.cluster.{instances,
-        # storageSize,storageClass,resources}` above so the operator wizard
-        # tunes ONE sizing block and both sides stay symmetric. Operator
-        # bumps `database.cluster.instances` to >=3 + storageSize to >=100Gi
-        # when ticking the HA checkbox per the D31 sizing guidance.
+    # Secrets that must be IDENTICAL in every region (see _helpers.tpl):
+    #   replicationCA  (ca.crt, ca.key)  — shared streaming client CA
+    #   appCredentials (basic-auth)       — the DB owner's password
+    # Empty names ⇒ `<cnpgClusterName>-replication-ca` /
+    # `<cnpgClusterName>-app-credentials`. With externalSecret.storeRef.name
+    # set they are pulled from that store at
+    # `<remoteKeyPrefix>/replication-ca` and `<remoteKeyPrefix>/db-owner`
+    # (default prefix `openova/apps/<namespace>/<release>`); otherwise they
+    # must pre-exist — the CNPG Cluster waits for them.
+    sharedSecrets:
+      replicationCA: ""
+      appCredentials: ""
+      externalSecret:
+        storeRef:
+          kind: ClusterSecretStore
+          name: ""
+        remoteKeyPrefix: ""
+        refreshInterval: 1h
+# ─── openova.topology — THE placement contract (ADR-0015 D2) ─────────────
+# Written per region into Git by the orchestrator (one HelmRelease of this
+# chart PER REGION); never hand-edited per chart. Shared by every
+# multi-region chart through platform/topology-lib.
+#
+#   openova:
+#     topology:
+#       mode: active-passive          # singleton | active-passive | active-hot-standby
+#       self: hw-me-east-215-a-rtz-prod
+#       primary: hw-me-east-215-a-rtz-prod
+#       peers: [hw-me-east-215-b-rtz-prod]
+#
+# Empty (default) ⇒ the single-region render (one Cluster named
+# `database.cnpgClusterName`, WordPress serving, no replication).
+# active-active is refused: WordPress is a single-writer application.
+# REMOVED in 0.5.0: `database.mode`, `pg.activeHotStandby.*` — setting either
+# fails the render with the migration instruction (README §Migration).
+openova:
+  topology: {}
 # ─── SSO via Organization-vcluster Keycloak (openid-connect-generic plugin) ──────
 # The plugin is installed + activated + configured by the post-install
 # `oidc-config` Job (templates/oidc-config-job.yaml) using `wp-cli` so

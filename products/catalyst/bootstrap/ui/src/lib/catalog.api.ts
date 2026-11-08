@@ -28,6 +28,7 @@
  * distinction is resolved at config-time, not in components.
  */
 
+import type { ObjectStatus } from './objectStatus'
 import { API_BASE, BASE } from '@/shared/config/urls'
 import { authedFetch } from '@/shared/lib/authedFetch'
 
@@ -277,6 +278,8 @@ export interface ApplicationStatusResponse {
   name: string
   namespace: string
   phase?: string
+  /** ADR-0015 D7 — statusOf(object), incl. perRegion[]. */
+  objectStatus?: ObjectStatus
   status?: Record<string, unknown>
   /**
    * #3599 — the create-time placement projected from the Application
@@ -349,18 +352,12 @@ export interface ApplicationDetailResponse {
    */
   bootstrap?: boolean
   /**
-   * Family B (C4-003): HR-Ready overlay telemetry. When `hrReady=true`
-   * the backend promoted `phase` to "Ready" because the matching
-   * HelmRelease reported Ready=True even though the Application CR's
-   * own `status.phase` is stale (`phaseFromCR`). The SPA surfaces this
-   * in the source-of-truth D19 chip so the operator knows the CR is
-   * behind its HR — the canonical signal for a lagging
-   * application-controller. The chip also matches what /sovereign/apps
-   * shows (which queries HRs directly), eliminating the founder-flagged
-   * desync.
+   * ADR-0015 D7 — the ONE status contract: catalyst-api statusOf(object)
+   * read off the object's own conditions, rendered verbatim by
+   * StatusBadge/StatusReason. Replaces the deleted hrReady/phaseFromCR
+   * overlay telemetry. Absent => the console renders "Unknown".
    */
-  hrReady?: boolean
-  phaseFromCR?: string
+  objectStatus?: ObjectStatus
   /**
    * G90 (2026-06-01, founder UX gap on hw86): front-door URL the
    * operator clicks to open this installed Application in a new browser
@@ -976,8 +973,15 @@ export interface ListBlueprintInstancesResponse {
  * form (out of scope for the v1 dialog — see PR follow-up TBD).
  */
 export interface CreateApplicationInstanceRequest {
+  /** The Blueprint CR name, exactly (e.g. `bp-wordpress-tenant`). */
   blueprint: string
+  /** The Organization CR name (GET /api/v1/refs/organizations). */
   org: string
+  /**
+   * ADR-0015 D4 — the Environment CR name, one of the chosen Org's
+   * Environments (GET /api/v1/refs/organizations/{org}/environments).
+   */
+  environment: string
   name: string
   topology?: string
   isolationLevel?: 'namespace' | 'vcluster'
