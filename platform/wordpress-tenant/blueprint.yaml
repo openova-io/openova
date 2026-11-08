@@ -19,7 +19,11 @@ spec:
   # cross-region secrets (replication CA + DB owner) into the secret store;
   # remote-key prefix keyed on the pair identity. Lockstep with
   # platform/wordpress-tenant/chart/Chart.yaml.
-  version: 0.5.1
+  # 0.6.0 (ADR-0015 D6b, Refs #7067): media in the replicated SeaweedFS S3
+  # bucket (S3-Uploads + openova-media-store mu-plugin); no wp-content PVC by
+  # default; regionLocalVolumes declare a replication for every entry.
+  # Lockstep with platform/wordpress-tenant/chart/Chart.yaml.
+  version: 0.6.0
   card:
     title: WordPress (per-Organization)
     summary: |
@@ -241,19 +245,41 @@ spec:
     defaultOnMultiRegion: active-passive
   manifests:
     chart: ./chart
-  # ── ADR-0015 D6 seam — region-local volumes ──────────────────────────
-  # Every PVC this Blueprint binds PER REGION and nothing replicates. D6
-  # admits `active-hot-standby` only when each entry names a replication
-  # mechanism; `replication: none` means a primary move leaves this data
-  # behind in the old region. `template` is the chart file that renders it
-  # (kept as its own template so D6 can replace exactly that file).
-  # NOTE: catalog-only field — the Blueprint CRD does not carry it yet.
+  # ── ADR-0015 D6 — region-local volumes ───────────────────────────────
+  # Every piece of FILE state this Blueprint keeps per region, and how it
+  # survives a primary move. The D6 admission gate (catalyst-api
+  # validateInstallRefs + application-controller, package
+  # core/controllers/pkg/regionlocal) REFUSES any multi-region placement
+  # while an entry says `replication: none` (or names no mechanism), naming
+  # the volume. Recognised mechanisms:
+  #   s3-replicated       — lives in a bp-seaweedfs `replicated[-*]` bucket
+  #                         (native filer.sync between the regions);
+  #   volume-replication  — a volume replication operator;
+  #   none-needed         — nothing to carry: rebuilt from the image/Git.
+  # Every PVC the chart renders must carry the label
+  # `openova.io/volume-name: <name>` of an entry here —
+  # scripts/check-region-local-volumes-declared.sh fails CI otherwise.
+  # The spec root of the Blueprint CRD preserves unknown fields, so the
+  # catalog-seed copy carries this list to the live CR the gate reads.
   regionLocalVolumes:
     - name: wp-content
+      # Rendered as a PVC ONLY for the legacy single-region media.store=pvc
+      # (the chart refuses media.store=pvc under a multi-region topology).
+      # Default media.store=s3: an emptyDir rebuilt from the runtime image on
+      # every Pod start (core themes, pg4wp, OIDC plugin, media mu-plugin);
+      # DISALLOW_FILE_MODS keeps it immutable from wp-admin.
       template: chart/templates/pvc.yaml
       mountPath: /var/www/html/wp-content
-      contents: [uploads, themes, plugins]
-      replication: none
+      contents: [themes, plugins, mu-plugins]
+      replication: none-needed
+    - name: uploads
+      # The media library. S3-Uploads writes it to
+      # `replicated/<org>/<app>/uploads/` on this region's SeaweedFS;
+      # bp-seaweedfs filer.sync makes it identical in every region.
+      mountPath: /var/www/html/wp-content/uploads
+      contents: [uploads]
+      replication: s3-replicated
+      bucket: replicated
   depends:
     # #3370 — the database dependency is the SHAREABLE INSTANCE class
     # (bp-postgres), not the operator: a wordpress app consumes a

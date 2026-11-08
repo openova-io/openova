@@ -60,6 +60,17 @@ spec:
         # mesh (TLS terminates at the gateway). Allow both.
         - port: 8080
           protocol: TCP
+    {{- if eq (include "bp-wordpress-tenant.mediaStore" .) "s3" }}
+    # ── bp-seaweedfs S3 gateway — the media store (ADR-0015 D6) ───
+    # This region's own SeaweedFS; filer.sync replicates the bucket.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.media.s3.namespace }}
+      ports:
+        - port: {{ .Values.media.s3.port }}
+          protocol: TCP
+    {{- end }}
     # ── DNS resolution ────────────────────────────────────────────
     - to:
         - namespaceSelector:

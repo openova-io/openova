@@ -1,6 +1,16 @@
 {{- if .Values.wordpress.enabled }}
+{{- $mediaStore := include "bp-wordpress-tenant.mediaStore" . }}
+{{- $onPvc := eq (include "bp-wordpress-tenant.wpContentOnPvc" .) "true" }}
 {{- /*
 WordPress Deployment.
+
+ADR-0015 D6 (Refs #7067) — media.store=s3 (default): wp-content is an
+emptyDir rebuilt from the image by the init containers below on EVERY Pod
+start (core themes, pg4wp, openid-connect-generic, the openova-media-store
+mu-plugin), DISALLOW_FILE_MODS keeps it immutable from wp-admin, and uploads
+go to the replicated SeaweedFS bucket through the mu-plugin. Nothing in this
+Pod is region-local state. media.store=pvc keeps the legacy wp-content PVC
+(single-region only).
 
 Boot sequence (per docs/INVIOLABLE-PRINCIPLES.md #2 — ship target-state shape, no stubs):
 
@@ -52,10 +62,15 @@ spec:
     matchLabels:
       {{- include "bp-wordpress-tenant.selectorLabels" . | nindent 6 }}
   strategy:
+    {{- if $onPvc }}
     # ReadWriteOnce PVC default — Recreate avoids the "two pods can't
     # mount the same PVC" deadlock during rollouts. Operators that
     # switch persistence to RWX may flip to RollingUpdate via overlay.
     type: Recreate
+    {{- else }}
+    # media.store=s3: no PVC, the Pod is stateless — roll without downtime.
+    type: RollingUpdate
+    {{- end }}
   template:
     metadata:
       labels:
@@ -234,6 +249,23 @@ spec:
                 cp -R "${WP_ARTIFACTS}/plugins/openid-connect-generic" "${OIDC_DIR}"
                 echo "openid-connect-generic installed."
               fi
+              # ── (c) openova-media-store mu-plugin (ADR-0015 D6) ────
+              # ALWAYS re-copied (never "skip if present"): it is code from
+              # the image, and a stale copy on a legacy PVC must not outlive
+              # an image bump. Inert unless OPENOVA_MEDIA_S3_ENDPOINT is set.
+              {{- if eq $mediaStore "s3" }}
+              if [ ! -f "${WP_ARTIFACTS}/mu-plugins/openova-media-store.php" ] || [ ! -f "${WP_ARTIFACTS}/plugins/s3-uploads/s3-uploads.php" ]; then
+                echo "FATAL: media.store=s3 but the runtime image has no baked S3-Uploads /" >&2
+                echo "  openova-media-store mu-plugin (ADR-0015 D6). The image pin in" >&2
+                echo "  values.yaml predates platform/wordpress-tenant/image with the media store." >&2
+                exit 1
+              fi
+              {{- end }}
+              if [ -f "${WP_ARTIFACTS}/mu-plugins/openova-media-store.php" ]; then
+                mkdir -p /pvc/mu-plugins
+                cp "${WP_ARTIFACTS}/mu-plugins/openova-media-store.php" /pvc/mu-plugins/openova-media-store.php
+                echo "openova-media-store mu-plugin installed."
+              fi
               # ── (b) pg4wp drop-in (Postgres adapter) ───────────────
               # bp-wordpress-tenant runs WordPress against bp-cnpg
               # Postgres (per ticket #800 scope). pg4wp ships a
@@ -310,6 +342,26 @@ spec:
                 if (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') {
                   $_SERVER['HTTPS'] = 'on';
                 }
+                {{- if eq $mediaStore "s3" }}
+                /* ADR-0015 D6: wp-content is rebuilt from the image on every
+                   Pod start — plugin/theme installs from wp-admin would be
+                   lost on restart, so the code is immutable here. */
+                define('DISALLOW_FILE_MODS', true);
+                {{- end }}
+            {{- if eq $mediaStore "s3" }}
+            # ── Media store (ADR-0015 D6) — read by the openova-media-store
+            #    mu-plugin. Credentials are FILES (volume below), not env.
+            - name: OPENOVA_MEDIA_S3_ENDPOINT
+              value: {{ .Values.media.s3.endpoint | quote }}
+            - name: OPENOVA_MEDIA_S3_BUCKET
+              value: {{ .Values.media.s3.bucket | quote }}
+            - name: OPENOVA_MEDIA_S3_PREFIX
+              value: {{ include "bp-wordpress-tenant.mediaKeyPrefix" . | quote }}
+            - name: OPENOVA_MEDIA_S3_REGION
+              value: {{ .Values.media.s3.region | default "us-east-1" | quote }}
+            - name: OPENOVA_MEDIA_S3_CREDENTIALS_DIR
+              value: /etc/openova/media-s3
+            {{- end }}
           livenessProbe:
             httpGet:
               path: {{ .Values.wordpress.probes.liveness.path }}
@@ -337,12 +389,29 @@ spec:
           volumeMounts:
             - name: wp-content
               mountPath: /var/www/html/wp-content
+            {{- if eq $mediaStore "s3" }}
+            - name: media-s3
+              mountPath: /etc/openova/media-s3
+              readOnly: true
+            {{- end }}
       volumes:
         - name: wp-content
-          {{- if .Values.persistence.wpContent.enabled }}
+          {{- if $onPvc }}
           persistentVolumeClaim:
-            claimName: {{ include "bp-wordpress-tenant.fullname" . }}-wp-content
+            claimName: {{ include "bp-wordpress-tenant.wpContentPvcName" . }}
           {{- else }}
+          # media.store=s3 — NOT region-local state: rebuilt from the image on
+          # every Pod start; uploads live in the replicated bucket (D6).
           emptyDir: {}
           {{- end }}
+        {{- if eq $mediaStore "s3" }}
+        - name: media-s3
+          secret:
+            secretName: {{ include "bp-wordpress-tenant.mediaS3SecretName" . }}
+            items:
+              - key: {{ .Values.media.s3.credentials.accessKeyIdKey }}
+                path: access-key-id
+              - key: {{ .Values.media.s3.credentials.secretAccessKeyKey }}
+                path: secret-access-key
+        {{- end }}
 {{- end }}

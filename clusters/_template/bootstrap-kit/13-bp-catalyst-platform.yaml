@@ -1530,8 +1530,11 @@ spec:
       #   Chart.yaml bump (D1/D3 region registry env, D2 bp-wordpress-tenant
       #   0.5.0, D4 alias removal, D6a bp-seaweedfs 1.3.0, D7 CRDs, bp-openova-mcp
       #   0.1.8). Pin bumped to match.
-      # 1.4.1900 — ADR-0015 follow-up (#7067): lockstep with the umbrella bump
-      #   (catalog-seed bp-wordpress-tenant 0.5.1 + bp-openbao 1.2.71). Pin bumped to match.
+      # 1.4.1896 — ADR-0015 batch 2 (#7067; integration of #7076 #7077 #7079
+      #   #7080): lockstep with the umbrella bump (seed: bp-continuum 0.2.0,
+      #   bp-wordpress-tenant 0.6.0 + regionLocalVolumes, bp-seaweedfs 1.3.1,
+      #   bp-openbao 1.2.71, bp-self-sovereign-cutover 0.1.207, bp-reflector).
+      #   Pin bumped to match.
       version: 1.4.1896
       sourceRef:
         kind: HelmRepository

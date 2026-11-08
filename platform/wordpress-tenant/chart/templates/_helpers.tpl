@@ -391,3 +391,52 @@ Resolved OIDC clientSecretName. Same fold pattern as oidcIssuerURL.
 {{- $modern -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+ADR-0015 D6 — media store (Refs #7067). Returns "s3" or "pvc" and FAILS the
+render on the two shapes D6 forbids:
+  - media.store=pvc under a multi-region openova.topology: uploads would live
+    on a region-local PVC that nothing replicates, so a primary move strands
+    them in the old region;
+  - an S3 bucket whose name bp-seaweedfs does not replicate (only `replicated`
+    and `replicated-<suffix>` are synced cross-region).
+*/}}
+{{- define "bp-wordpress-tenant.mediaStore" -}}
+{{- $m := .Values.media | default dict -}}
+{{- $store := $m.store | default "s3" | toString | trim -}}
+{{- if not (has $store (list "s3" "pvc")) -}}
+{{- fail (printf "media.store=%q is not supported (ADR-0015 D6). Valid: s3 (replicated SeaweedFS bucket, default) | pvc (legacy single-region wp-content PVC)." $store) -}}
+{{- end -}}
+{{- if and (eq $store "pvc") (eq (include "bp-wordpress-tenant.multiRegion" .) "true") -}}
+{{- fail "media.store=pvc is REFUSED for a multi-region openova.topology (ADR-0015 D6): uploads would live on the region-local `wp-content` PVC, which nothing replicates — after a primary move the new primary serves posts whose media exist only in the old region. Use media.store=s3 (the default: the replicated SeaweedFS bucket)." -}}
+{{- end -}}
+{{- if eq $store "s3" -}}
+{{- $bucket := dig "s3" "bucket" "" $m | toString | trim -}}
+{{- if not (regexMatch "^replicated(-[a-z0-9][a-z0-9-]*)?$" $bucket) -}}
+{{- fail (printf "media.s3.bucket=%q is not a cross-region replicated bucket (ADR-0015 D6): bp-seaweedfs syncs only `replicated` and `replicated-<suffix>` between regions, so any other bucket is a region-local volume again." $bucket) -}}
+{{- end -}}
+{{- end -}}
+{{- $store -}}
+{{- end -}}
+
+{{/* Object-key prefix of this Application's media: `<org>/<app>`. */}}
+{{- define "bp-wordpress-tenant.mediaKeyPrefix" -}}
+{{- $p := dig "s3" "keyPrefix" "" (.Values.media | default dict) | toString | trim | trimPrefix "/" | trimSuffix "/" -}}
+{{- if $p -}}{{ $p }}{{- else -}}{{ printf "%s/%s" .Release.Namespace (include "bp-wordpress-tenant.fullname" .) }}{{- end -}}
+{{- end -}}
+
+{{/* Name of the reflected SeaweedFS S3 credentials Secret. */}}
+{{- define "bp-wordpress-tenant.mediaS3SecretName" -}}
+{{- $n := dig "s3" "credentials" "secretName" "" (.Values.media | default dict) | toString | trim -}}
+{{- if $n -}}{{ $n }}{{- else -}}{{ printf "%s-media-s3" (include "bp-wordpress-tenant.fullname" .) | trunc 63 | trimSuffix "-" }}{{- end -}}
+{{- end -}}
+
+{{/* Name of the LEGACY region-local wp-content PVC. */}}
+{{- define "bp-wordpress-tenant.wpContentPvcName" -}}
+{{- printf "%s-wp-content" (include "bp-wordpress-tenant.fullname" .) -}}
+{{- end -}}
+
+{{/* "true" when the wp-content volume is the legacy PVC. */}}
+{{- define "bp-wordpress-tenant.wpContentOnPvc" -}}
+{{- if and (eq (include "bp-wordpress-tenant.mediaStore" .) "pvc") .Values.persistence.wpContent.enabled -}}true{{- end -}}
+{{- end -}}

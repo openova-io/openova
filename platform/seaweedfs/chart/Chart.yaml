@@ -49,7 +49,11 @@ type: application
 #   `weed filer.sync -isActivePassive` Deployment per peer (peer -> self).
 #   OFF unless crossRegion.enabled + a known self + >=1 peer; the default
 #   and single-region renders are unchanged.
-version: 1.3.0
+# 1.3.1 (ADR-0015 D6b, #7067): `seaweedfs.s3.secretAnnotations` (vendored
+#   s3-secret.yaml edit) — default marks `seaweedfs-s3-secret`
+#   reflection-allowed so bp-wordpress-tenant 0.6.0 can reflect the S3
+#   credentials of its media store (bp-gitea objectStorage precedent).
+version: 1.3.1
 appVersion: "4.22"
 keywords: [catalyst, blueprint, seaweedfs, s3, object-storage, storage]
 maintainers:
@@ -84,7 +88,7 @@ maintainers:
 #   4. Bump the dependencies[0].version + the version: field here + open PR
 dependencies:
   - name: seaweedfs
-    version: "4.22.0"
+    version: "4.22.0+openova.1"
     # Local vendored copy (see note above) — NEVER the upstream repo, so
     # `helm dependency build` resolves offline and the deleted
     # security-configmap.yaml (issue #340) is never re-pulled.

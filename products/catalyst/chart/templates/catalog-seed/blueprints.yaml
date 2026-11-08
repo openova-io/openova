@@ -84,7 +84,11 @@ spec:
   # platform/topology-lib; one HelmRelease per region renders only its own CNPG
   # member (native distributed topology). database.mode / pg.activeHotStandby
   # removed (fail closed); singleton installs render unchanged.
-  version: "0.5.1"
+  # ADR-0015 D6b (#7067): →0.6.0 — media in the replicated SeaweedFS bucket
+  # (S3-Uploads + openova-media-store mu-plugin), no wp-content PVC by
+  # default; regionLocalVolumes below carry a replication for every entry
+  # (the D6 admission gate reads them off THIS CR).
+  version: "0.6.0"
   visibility: listed
   card:
     title: "WordPress (per-Organization)"
@@ -106,6 +110,22 @@ spec:
     modes: [single-region, singleton, active-passive, active-hot-standby]
     default: single-region
     defaultOnMultiRegion: active-passive
+  # ADR-0015 D6 — region-local file state and how it survives a primary
+  # move. Mirrors platform/wordpress-tenant/blueprint.yaml spec.regionLocalVolumes;
+  # the catalyst-api + application-controller D6 gate REFUSES multi-region
+  # placement while any entry says `replication: none` (package
+  # core/controllers/pkg/regionlocal).
+  regionLocalVolumes:
+    - name: wp-content
+      template: chart/templates/pvc.yaml
+      mountPath: /var/www/html/wp-content
+      contents: [themes, plugins, mu-plugins]
+      replication: none-needed
+    - name: uploads
+      mountPath: /var/www/html/wp-content/uploads
+      contents: [uploads]
+      replication: s3-replicated
+      bucket: replicated
   manifests:
     chart: bp-wordpress-tenant
   source:
@@ -113,7 +133,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-wordpress-tenant
-    version: "0.5.1"
+    version: "0.6.0"
   # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): lockstep with
   # platform/wordpress-tenant/blueprint.yaml. Uses {{.AppName}} so
   # multi-instance tenants get distinct hostnames per Application.
@@ -2609,7 +2629,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.3.0"
+  version: "1.3.1"
   visibility: unlisted
   card:
     title: "SeaweedFS"
@@ -2618,6 +2638,9 @@ spec:
     description: "Unified S3-compatible object storage encapsulation. Master + volume + filer + S3 services. Single S3 surface that every consumer (Loki, Mimir, Tempo, Velero, Harbor, CNPG WAL, OpenSearch snapshots) talks to; SeaweedFS handles tiered storage hot→warm→cold, with cold-tier offload to Cloudflare R2 / AWS S3 Glacier / Hetzner Object Storage configured per-Sovereign."
     icon: "seaweedfs.svg"
     docs: "https://github.com/seaweedfs/seaweedfs/wiki"
+  # ADR-0015 D6b (#7067): 1.3.1 marks seaweedfs-s3-secret reflection-allowed
+  # (bp-wordpress-tenant 0.6.0 media store reflects it). Lockstep with
+  # platform/seaweedfs/blueprint.yaml + slot 18.
   # ADR-0015 D6a (#7067): bp-seaweedfs 1.3.0 ships native cross-region
   # filer.sync (active-active, one sync per peer per replicated bucket), so
   # the seed admits the multi-region mode the chart implements (#5358 guard,
@@ -2632,7 +2655,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-seaweedfs
-    version: "1.3.0"
+    version: "1.3.1"
   topology:
     supported:
     - singleton

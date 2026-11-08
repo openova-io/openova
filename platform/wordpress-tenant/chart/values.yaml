@@ -451,9 +451,66 @@ adminUser:
 # The theme slug installed + activated by oidc-config-job. Operator-
 # overridable. Default ships the latest WordPress yearly theme.
 defaultTheme: "twentytwentyfive"
+# ─── Media store (ADR-0015 D6, Refs #7067) ──────────────────────────────
+# WHERE UPLOADED MEDIA LIVE.
+#
+#   s3  (default) — media go to the Sovereign's SeaweedFS S3 bucket
+#       `media.s3.bucket` (default `replicated`) under the key prefix
+#       `<org>/<app>/` (`media.s3.keyPrefix`, empty = `<namespace>/<fullname>`),
+#       through the humanmade/S3-Uploads plugin baked into the runtime image
+#       and loaded by the `openova-media-store` mu-plugin (no wp-admin step).
+#       bp-seaweedfs >= 1.3.0 syncs every `replicated[-*]` bucket between the
+#       regions (native `weed filer.sync`), so after a primary move the new
+#       primary serves the same media. Media URLs keep their
+#       `https://<host>/wp-content/uploads/...` shape (read path in the
+#       mu-plugin), so existing post content keeps working.
+#       wp-content itself becomes an emptyDir rebuilt from the image on every
+#       Pod start, and DISALLOW_FILE_MODS makes themes/plugins immutable from
+#       wp-admin — the code is the image, not region-local state. NO PVC.
+#   pvc — LEGACY single-region shape: everything (media included) on the
+#       region-local `wp-content` PVC below. REFUSED for any multi-region
+#       openova.topology (the render fails; the catalyst-api / application-
+#       controller D6 gate refuses the placement first).
+#
+# Credentials: never in values. `media.s3.credentials` names the SeaweedFS
+# S3 Secret the chart REFLECTS into the release namespace (bp-reflector, the
+# same bridge bp-gitea's objectStorage uses); bp-seaweedfs >= 1.3.1 marks the
+# source reflection-allowed. Mounted as files (read per request), not env.
+media:
+  store: s3
+  s3:
+    # bp-seaweedfs S3 gateway (HTTP inside the cluster, see
+    # platform/seaweedfs/chart/values.yaml seaweedfs.s3). Each region's
+    # release talks to ITS OWN region's SeaweedFS; filer.sync replicates.
+    endpoint: "http://seaweedfs-s3.seaweedfs.svc.cluster.local:8333"
+    # Namespace of the SeaweedFS S3 gateway — the NetworkPolicy egress peer.
+    namespace: seaweedfs
+    port: 8333
+    # MUST be `replicated` or `replicated-<suffix>` — the names bp-seaweedfs
+    # syncs cross-region (crossRegion.filerSync.buckets). The render fails on
+    # any other name: a non-replicated bucket is a region-local volume again.
+    bucket: replicated
+    # Empty → `<Release.Namespace>/<fullname>` (= <org>/<app>).
+    keyPrefix: ""
+    # SigV4 signing region; SeaweedFS accepts any.
+    region: us-east-1
+    credentials:
+      # Source Secret `<namespace>/<name>` reflected into this namespace.
+      sourceNamespace: seaweedfs
+      sourceName: seaweedfs-s3-secret
+      accessKeyIdKey: admin_access_key_id
+      secretAccessKeyKey: admin_secret_access_key
+      # Empty → `<fullname>-media-s3`.
+      secretName: ""
+  # One-shot copy of media from the LEGACY wp-content PVC into the bucket
+  # (`templates/media-migrate-job.yaml`, idempotent: objects already present
+  # are skipped). auto = run when the legacy PVC `<fullname>-wp-content`
+  # exists in the namespace (Helm lookup); always / never = force.
+  migrateLegacyPvc: auto
+
 # ─── Persistence ────────────────────────────────────────────────────────
-# /var/www/html/wp-content carries themes, plugins, uploads. Persists
-# across pod restarts and image upgrades. PVC bound at first install.
+# LEGACY (media.store=pvc only): /var/www/html/wp-content on a region-local
+# PVC carrying themes, plugins and uploads. Not rendered under media.store=s3.
 persistence:
   wpContent:
     enabled: true
