@@ -466,8 +466,13 @@ spec:
 // from the ones it computes from the class name ("the integer value of
 // priority (0) must not be provided in pod spec" — proven on the hw307-A
 // apiserver 2026-11-08 with a name-only patch). Removing both lets the
-// re-invoked plugin compute them from catalyst-org-platform. Both paths are
-// always present at webhook time (the plugin has just written them), so the
+// re-invoked plugin compute them from catalyst-org-platform. Where the plugin
+// is NOT re-invoked (the first preflight run on kind + Kyverno 3.8.0: the pod
+// was admitted as "catalyst-org-platform" with priority and preemptionPolicy
+// unset) the pod schedules at the default priority — harmless here, because
+// ResourceQuota scoping keys on the class NAME, which is set either way. The
+// two fields
+// are always present at webhook time (the plugin has just written them), so the
 // JSON-patch removes cannot hit an absent path. The real-apiserver preflight
 // (.github/workflows/preflight-org-platform-scope.yaml) admits a pod through
 // this exact Policy.

@@ -16,8 +16,8 @@
 #      still admitted (the pending plan-quota is unscoped and sized for all);
 #   3. HAZARD: rescope plan-quota while the classless platform pod runs — the
 #      next customer pod is refused (why the controller gates the rescope);
-#   4. the platform pod is recreated -> stamped (class, priority 1000000,
-#      preemptionPolicy Never), plan-quota usage drops, the customer pod fits;
+#   4. the platform pod is recreated -> admitted and stamped with the class
+#      (see stamped()), plan-quota usage drops, the customer pod fits;
 #   5. a Helm-hook-shaped Job pod (keycloak-config-cli labels) is stamped and
 #      charged to platform-quota; an openclaw per-user pod and the customer
 #      pods stay in plan-quota; a vCluster-synced pod claiming the class is
@@ -41,7 +41,9 @@ echo "== render (gitops.Render, plan m) -> $OUT"
 ls "$OUT/scoped" "$OUT/pending"
 
 used() { # used <quota> <resource>
-  kubectl -n "$NS" get resourcequota "$1" -o "jsonpath={.status.used['$2']}"
+  # the dot inside the resource name must be escaped in a jsonpath key
+  local key="${2//./\\.}"
+  kubectl -n "$NS" get resourcequota "$1" -o "jsonpath={.status.used['$key']}"
 }
 wait_used() { # wait_used <quota> <resource> <want>
   for _ in $(seq 1 60); do
@@ -62,6 +64,12 @@ EOF
 }
 create() { pod "$@" | kubectl create -f - 2>&1; }
 klass() { kubectl -n "$NS" get pod "$1" -o 'jsonpath={.spec.priorityClassName}/{.spec.priority}/{.spec.preemptionPolicy}'; }
+# stamped: the class name is set and the computed figures are either the
+# class's own (the Priority plugin was re-invoked after the webhook, as on
+# hw307) or absent (not re-invoked, as on a bare kind + Kyverno; first run of
+# this preflight showed "catalyst-org-platform//") — never the classless
+# 0 / PreemptLowerPriority the plugin wrote before the webhook.
+stamped() { case "$(klass "$1")" in "$CLS/1000000/Never" | "$CLS//") return 0 ;; *) return 1 ;; esac; }
 
 KEYCLOAK='{"app.kubernetes.io/instance":"bp-keycloak","app.kubernetes.io/name":"keycloak"}'
 CUSTOMER='{"app.kubernetes.io/instance":"bp-stalwart-tenant","app.kubernetes.io/name":"bp-stalwart-tenant"}'
@@ -95,7 +103,7 @@ echo "== 4. platform pod recreated -> stamped by the Policy"
 kubectl -n "$NS" delete pod legacy-keycloak --wait
 out="$(create legacy-keycloak "$KEYCLOAK" 1 1Gi)"
 echo "$out" | grep -q created && pass "platform pod admitted through the Policy (no 'priority must not be provided' refusal)" || bad "platform pod refused: $out"
-[ "$(klass legacy-keycloak)" = "$CLS/1000000/Never" ] && pass "platform pod carries $(klass legacy-keycloak)" || bad "platform pod: $(klass legacy-keycloak)"
+stamped legacy-keycloak && pass "platform pod carries $(klass legacy-keycloak)" || bad "platform pod: $(klass legacy-keycloak)"
 wait_used plan-quota requests.cpu 84m && pass "plan-quota usage back to the customer's 84m" || bad "plan-quota after restamp"
 out="$(create cust-b "$CUSTOMER" 84m 342Mi)"
 echo "$out" | grep -q created && pass "customer pod now fits plan-quota" || bad "cust-b: $out"
@@ -131,7 +139,7 @@ for _ in $(seq 1 60); do
   [ -n "$hookpod" ] && break
   sleep 2
 done
-[ -n "$hookpod" ] && [ "$(klass "$hookpod")" = "$CLS/1000000/Never" ] && pass "Helm-hook-shaped Job pod $hookpod admitted and stamped ($(klass "$hookpod"))" || bad "hook pod: '${hookpod}' $(kubectl -n "$NS" describe job bp-keycloak-keycloak-config-cli | tail -5)"
+[ -n "$hookpod" ] && stamped "$hookpod" && pass "Helm-hook-shaped Job pod $hookpod admitted and stamped ($(klass "$hookpod"))" || bad "hook pod: '${hookpod}' $(kubectl -n "$NS" describe job bp-keycloak-keycloak-config-cli | tail -5)"
 create openclaw-user-u1 '{"app.kubernetes.io/name":"bp-openclaw","app.kubernetes.io/component":"per-user-pod"}' 50m 64Mi >/dev/null
 [ "$(klass openclaw-user-u1 | cut -d/ -f1)" = "" ] && pass "openclaw per-user pod stays customer scope" || bad "per-user pod: $(klass openclaw-user-u1)"
 out="$(create sneaky-x-acme-x-vcluster '{"app.kubernetes.io/instance":"bp-keycloak","vcluster.loft.sh/managed-by":"vcluster"}' 10m 16Mi "$CLS" || true)"
