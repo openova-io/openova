@@ -83,6 +83,24 @@ const TOPOLOGY = {
   storage: { pvcs: [], buckets: [], volumes: [] },
 }
 
+// ADR-0015 D4 — the dialog's option lists come from the refs endpoints:
+// Organization CRs, the chosen Org's Environment CRs, the region registry.
+const REF_ORGS = {
+  organizations: [
+    { name: 'hw307-omani-works', displayName: 'Omantel', namespace: 'hw307-omani-works', ready: true, kind: 'internal', platform: true },
+    { name: 'acme', displayName: 'Acme', namespace: 'acme', ready: true, kind: 'customer', platform: false },
+  ],
+}
+const REF_ENVS: Record<string, unknown> = {
+  acme: { environments: [{ name: 'acme-prod', envType: 'prod', organizationRef: 'acme' }] },
+}
+const REF_REGIONS = {
+  regions: [
+    { id: 'rgn-a', label: 'rgn-a', primary: true },
+    { id: 'rgn-b', label: 'rgn-b', primary: false },
+  ],
+}
+
 // Captured create-instance POST bodies.
 let captured: Array<Record<string, unknown>> = []
 
@@ -95,6 +113,11 @@ function installFetch() {
       captured.push(JSON.parse(String(init.body)))
       return json({ id: 'new-uid', name: 'wp-1', blueprint: 'wordpress', org: 'acme', topology: 'single-region', status: 'Pending' }, 201)
     }
+    // ADR-0015 D4 refs endpoints.
+    const envMatch = url.match(/\/v1\/refs\/organizations\/([^/]+)\/environments/)
+    if (envMatch) return json(REF_ENVS[decodeURIComponent(envMatch[1])] ?? { environments: [] })
+    if (url.includes('/v1/refs/organizations')) return json(REF_ORGS)
+    if (url.includes('/v1/refs/regions')) return json(REF_REGIONS)
     // Instances list (the section body).
     if (url.includes('/instances')) return json({ items: [] })
     // Org sources: /sovereign/self (parent) + /v1/organizations (sub-orgs).
@@ -152,7 +175,7 @@ afterEach(() => {
 })
 
 describe('NewInstanceDialog — dropdowns (#3600)', () => {
-  it('Organization is a <select> populated from live orgs', async () => {
+  it('Organization is a <select> populated from Organization CRs', async () => {
     await openDialog()
     const sel = (await screen.findByTestId('select-instance-org')) as HTMLSelectElement
     expect(sel.tagName).toBe('SELECT')
@@ -233,7 +256,7 @@ describe('NewInstanceDialog — dropdowns (#3600)', () => {
     expect(values).not.toContain('acme')
   })
 
-  it('Region(s) render as checkboxes from the live topology', async () => {
+  it('Region(s) render as checkboxes from the region registry', async () => {
     await openDialog()
     expect(await screen.findByTestId('region-checkbox-rgn-a')).toBeTruthy()
     expect(await screen.findByTestId('region-checkbox-rgn-b')).toBeTruthy()
@@ -283,8 +306,11 @@ describe('NewInstanceDialog — placement (#3599)', () => {
 
     await waitFor(() => expect(captured.length).toBe(1))
     const body = captured[0]
-    expect(body.blueprint).toBe('wordpress')
+    // ADR-0015 D4 — exact references: the Blueprint CR name (no bp-
+    // strip), the Organization CR name, the Environment CR name.
+    expect(body.blueprint).toBe('bp-wordpress')
     expect(body.org).toBe('acme')
+    expect(body.environment).toBe('acme-prod')
     expect(body.name).toBe('wp-1')
     // One vocabulary (#3375 DoD-1): the canonical topology is POSTed.
     expect(body.topology).toBe('active-hot-standby')
@@ -362,5 +388,54 @@ describe('"+ New instance" gating (#3648, founder #6)', () => {
   it('keeps the button for a singleton with no instance yet (the first is creatable)', async () => {
     renderWith(false, [])
     expect(await screen.findByTestId('btn-new-instance')).toBeTruthy()
+  })
+})
+
+// ADR-0015 D4 — references, never fabrication.
+describe('NewInstanceDialog — exact references (ADR-0015 D4)', () => {
+  it('Environment is a REQUIRED select fed by the chosen Org; Create stays disabled without one', async () => {
+    REF_ENVS.acme = {
+      environments: [
+        { name: 'acme-prod', envType: 'prod', organizationRef: 'acme' },
+        { name: 'acme-dev', envType: 'dev', organizationRef: 'acme' },
+      ],
+    }
+    try {
+      await openDialog()
+      fireEvent.change(await screen.findByTestId('input-instance-name'), { target: { value: 'wp-9' } })
+      const env = (await screen.findByTestId('select-instance-environment')) as HTMLSelectElement
+      fireEvent.change(await screen.findByTestId('select-instance-org'), { target: { value: 'acme' } })
+      await waitFor(() => expect(env.querySelector('option[value="acme-dev"]')).toBeTruthy())
+      // Two Environments → nothing pre-selected → Create disabled.
+      expect(env.value).toBe('')
+      const submit = (await screen.findByTestId('btn-submit-instance')) as HTMLButtonElement
+      expect(submit.disabled).toBe(true)
+      // No derived "<org>-prod" text anywhere in the dialog.
+      expect(screen.queryByTestId('instance-environment-derived')).toBeNull()
+      fireEvent.change(env, { target: { value: 'acme-dev' } })
+      await waitFor(() => expect(submit.disabled).toBe(false))
+      fireEvent.click(await screen.findByTestId('region-checkbox-rgn-b'))
+      fireEvent.click(submit)
+      await waitFor(() => expect(captured.length).toBe(1))
+      expect(captured[0]).toMatchObject({
+        blueprint: 'bp-wordpress',
+        org: 'acme',
+        environment: 'acme-dev',
+        placement: { regions: ['rgn-b'] },
+      })
+    } finally {
+      REF_ENVS.acme = { environments: [{ name: 'acme-prod', envType: 'prod', organizationRef: 'acme' }] }
+    }
+  })
+
+  it('Org option values are Organization CR names, and the platform Org is never pre-selected', async () => {
+    await openDialog()
+    const sel = (await screen.findByTestId('select-instance-org')) as HTMLSelectElement
+    await waitFor(() => expect(sel.querySelector('option[value="hw307-omani-works"]')).toBeTruthy())
+    const values = Array.from(sel.querySelectorAll('option')).map((o) => o.getAttribute('value'))
+    expect(values).toEqual(['', 'hw307-omani-works', 'acme'])
+    expect(values).not.toContain('sovereign')
+    // Exactly one non-platform Org → it (not the platform Org) is pre-selected.
+    await waitFor(() => expect(sel.value).toBe('acme'))
   })
 })

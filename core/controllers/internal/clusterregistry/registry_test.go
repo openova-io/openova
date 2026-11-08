@@ -87,105 +87,32 @@ func TestIsCanonical(t *testing.T) {
 	}
 }
 
-// TestSecretFor is the core DoD-4 contract: canonical IDs resolve to the
-// right kubeConfig Secret under the split-side model.
+// TestSecretFor — ADR-0015 D1: the tier alone decides; the region suffix
+// never does, because each region's own Flux applies its own legs.
 func TestSecretFor(t *testing.T) {
-	// Resolver running on the primary (region A) mgmt cluster, with the
-	// loft-sh vCluster convention for the three tiers (mgmt has a
-	// vCluster; rtz has a vCluster; dmz on host in this fixture).
 	r := Resolver{
-		LocalRegion: RegionA,
 		TierVClusters: map[Tier]TierVCluster{
 			TierMgmt: {HostNamespace: "mgmt", KubeconfigSecret: "vc-mgmt"},
 			TierRtz:  {HostNamespace: "rtz", KubeconfigSecret: "vc-rtz"},
-			// dmz intentionally absent ⇒ host placement, no pivot.
+			// dmz intentionally absent => host placement, no pivot.
 		},
 	}
-
 	cases := []struct {
-		name    string
-		cluster string
-		wantSec string
-		wantNs  string
+		cluster, wantSec, wantNs string
 	}{
-		// same region, tier has a vCluster → local pivot
-		{"local mgmt → vc-mgmt", "mgmt-A", "vc-mgmt", "mgmt"},
-		{"local rtz → vc-rtz", "rtz-A", "vc-rtz", "rtz"},
-		// same region, tier on host → no pivot
-		{"local dmz on host → none", "dmz-A", "", ""},
-		// other region, no remote secret → split-side default (no pivot)
-		{"remote mgmt-B → split-side none", "mgmt-B", "", ""},
-		{"remote rtz-B → split-side none", "rtz-B", "", ""},
-		{"remote dmz-B → split-side none", "dmz-B", "", ""},
-		// non-canonical → no pivot
-		{"legacy bare name → none", "hz-fsn-rtz-prod", "", ""},
-		{"empty → none", "", "", ""},
+		{"mgmt-A", "vc-mgmt", "mgmt"},
+		{"mgmt-B", "vc-mgmt", "mgmt"},
+		{"rtz-A", "vc-rtz", "rtz"},
+		{"rtz-B", "vc-rtz", "rtz"},
+		{"dmz-A", "", ""},
+		{"dmz-B", "", ""},
+		{"hz-fsn-rtz-prod", "", ""},
+		{"", "", ""},
 	}
 	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			sec, ns := r.SecretFor(c.cluster)
-			if sec != c.wantSec || ns != c.wantNs {
-				t.Fatalf("SecretFor(%q) = (%q,%q), want (%q,%q)", c.cluster, sec, ns, c.wantSec, c.wantNs)
-			}
-		})
-	}
-}
-
-// TestSecretFor_RemoteWired proves the opt-in cross-region path: when an
-// operator wires a remote-region kubeconfig Secret, a -B cluster ID
-// resolves to it (the rare row that genuinely needs one control plane to
-// write into the other; none in the §6 reference set, but the seam must
-// support it).
-func TestSecretFor_RemoteWired(t *testing.T) {
-	r := Resolver{
-		LocalRegion: RegionA,
-		TierVClusters: map[Tier]TierVCluster{
-			TierMgmt: {HostNamespace: "mgmt", KubeconfigSecret: "vc-mgmt"},
-		},
-		RemoteRegionSecrets: map[Region]RemoteRegionSecret{
-			RegionB: {Name: "region-b-kubeconfig", Namespace: "flux-system"},
-		},
-	}
-	sec, ns := r.SecretFor("mgmt-B")
-	if sec != "region-b-kubeconfig" || ns != "flux-system" {
-		t.Fatalf("SecretFor(mgmt-B) with remote wired = (%q,%q), want (region-b-kubeconfig,flux-system)", sec, ns)
-	}
-	// local still uses the vCluster pivot, not the remote secret
-	sec, ns = r.SecretFor("mgmt-A")
-	if sec != "vc-mgmt" || ns != "mgmt" {
-		t.Fatalf("SecretFor(mgmt-A) = (%q,%q), want (vc-mgmt,mgmt)", sec, ns)
-	}
-}
-
-// TestSecretFor_LocalRegionB proves symmetry: a controller running in
-// region B resolves -B IDs locally and -A IDs split-side.
-func TestSecretFor_LocalRegionB(t *testing.T) {
-	r := Resolver{
-		LocalRegion: RegionB,
-		TierVClusters: map[Tier]TierVCluster{
-			TierRtz: {HostNamespace: "rtz", KubeconfigSecret: "vc-rtz"},
-		},
-	}
-	if sec, ns := r.SecretFor("rtz-B"); sec != "vc-rtz" || ns != "rtz" {
-		t.Fatalf("region-B controller SecretFor(rtz-B) = (%q,%q), want (vc-rtz,rtz)", sec, ns)
-	}
-	if sec, ns := r.SecretFor("rtz-A"); sec != "" || ns != "" {
-		t.Fatalf("region-B controller SecretFor(rtz-A) = (%q,%q), want split-side none", sec, ns)
-	}
-}
-
-// TestSecretFor_DefaultLocalRegion proves the LocalRegion="" default is
-// RegionA (so an unconfigured controller behaves as the primary).
-func TestSecretFor_DefaultLocalRegion(t *testing.T) {
-	r := Resolver{
-		TierVClusters: map[Tier]TierVCluster{
-			TierMgmt: {HostNamespace: "mgmt", KubeconfigSecret: "vc-mgmt"},
-		},
-	}
-	if sec, _ := r.SecretFor("mgmt-A"); sec != "vc-mgmt" {
-		t.Fatalf("default-LocalRegion SecretFor(mgmt-A) = %q, want vc-mgmt (RegionA default)", sec)
-	}
-	if sec, _ := r.SecretFor("mgmt-B"); sec != "" {
-		t.Fatalf("default-LocalRegion SecretFor(mgmt-B) = %q, want split-side none", sec)
+		sec, ns := r.SecretFor(c.cluster)
+		if sec != c.wantSec || ns != c.wantNs {
+			t.Errorf("SecretFor(%q) = (%q,%q), want (%q,%q)", c.cluster, sec, ns, c.wantSec, c.wantNs)
+		}
 	}
 }

@@ -74,28 +74,25 @@ func TestReconcile_DeletionCascade_HostFluxBootstrap_4902(t *testing.T) {
 
 	fg := newFakeGitea()
 	fg.orgsExist["acme"] = true
-	r := newReconciler(t, fg, app, env, org, bp, decoyGR, decoyKS)
-
-	// First reconcile — upserts the host-flux GitRepository + Kustomization
-	// into flux-system + adds the finalizer.
-	reconcileFromCluster(t, r, "acme", "site")
-
+	// ADR-0015: the controller no longer CREATES this pair; it only exists
+	// on Sovereigns reconciled by the pre-ADR-0015 controller. Seed it.
 	grName := "catalyst-app-acme-site"
 	ksName := "catalyst-app-acme-site-hetzner-fsn-rtz-prod"
+	ownGR := makeSeedHostFluxCR(FluxGitRepositoryGVR, "GitRepository",
+		"flux-system", grName, "site", "uid-site", "acme")
+	ownKS := makeSeedHostFluxCR(FluxKustomizationGVR, "Kustomization",
+		"flux-system", ksName, "site", "uid-site", "acme")
+	r := newReconciler(t, fg, app, env, org, bp, decoyGR, decoyKS, ownGR, ownKS)
 
-	gr, err := r.Dynamic.Resource(FluxGitRepositoryGVR).Namespace("flux-system").
-		Get(context.Background(), grName, metav1.GetOptions{})
-	if err != nil {
-		t.Fatalf("expected host-flux GitRepository %q after first reconcile: %v", grName, err)
-	}
-	// The cascade keys off the app-uid back-pointer — assert it was actually
-	// stamped by ensureHostFluxBootstrap (makeApp sets uid = "uid-site").
-	if got := gr.GetLabels()[LabelAppUID]; got != "uid-site" {
-		t.Errorf("GitRepository %s app-uid label = %q, want uid-site", grName, got)
+	// First reconcile — retires the legacy pair (scoped to this app-uid).
+	reconcileFromCluster(t, r, "acme", "site")
+	if _, err := r.Dynamic.Resource(FluxGitRepositoryGVR).Namespace("flux-system").
+		Get(context.Background(), grName, metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("legacy GitRepository %q not retired on reconcile: %v", grName, err)
 	}
 	if _, err := r.Dynamic.Resource(FluxKustomizationGVR).Namespace("flux-system").
-		Get(context.Background(), ksName, metav1.GetOptions{}); err != nil {
-		t.Fatalf("expected host-flux Kustomization %q after first reconcile: %v", ksName, err)
+		Get(context.Background(), ksName, metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("legacy Kustomization %q not retired on reconcile: %v", ksName, err)
 	}
 
 	got := readApp(t, r, "acme", "site")

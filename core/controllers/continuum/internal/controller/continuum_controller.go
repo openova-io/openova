@@ -95,6 +95,12 @@ const (
 	PhaseSwitchingOver = "SwitchingOver"
 	PhaseFailedOver    = "FailedOver"
 	PhaseFailed        = "Failed"
+	// PhaseUnknown — ADR-0015 D7. A Continuum guarding a cnpg pair whose
+	// standby half has never been observed this pass has NO determination:
+	// it is neither Healthy nor Degraded. Before D7 this read Healthy, so
+	// acmewalk307/bp-wordpress-tenant reported Healthy for 58 days over a
+	// replica that never came up.
+	PhaseUnknown = "Unknown"
 )
 
 // ContinuumReconciler is the K-Cont-2 reconciler.
@@ -1392,6 +1398,14 @@ func (r *ContinuumReconciler) patchStatusFromCR(
 		}
 	case standby.Known && !standby.Available && phase == PhaseHealthy:
 		phase = PhaseDegraded
+	case !standby.Known && spec.CNPGPair != "" && phase == PhaseHealthy:
+		// ADR-0015 D7 — the guarded pair's standby half was not observed
+		// (never seen, or inside the unreachable-grace window). Absence of
+		// a measurement is not health: report Unknown, verbatim why.
+		phase = PhaseUnknown
+		reason = "StandbyNotObserved"
+		message = fmt.Sprintf("the standby half of cnpg pair %q has not been observed from region %s; the pair's health is unknown, not healthy",
+			spec.CNPGPair, self)
 	}
 	su := statusUpdate{
 		Phase:                 phase,
@@ -1761,7 +1775,7 @@ func (r *ContinuumReconciler) patchStatus(ctx context.Context, cr *unstructured.
 			"lastTransitionTime": r.now().UTC().Format(time.RFC3339),
 		})
 	}
-	status["conditions"] = conds
+	status["conditions"] = preserveTransitionTimes(status["conditions"], conds)
 	latest.Object["status"] = status
 
 	_, err = r.Dyn.Resource(ContinuumGVR).Namespace(latest.GetNamespace()).UpdateStatus(ctx, latest, metav1.UpdateOptions{})
@@ -1943,9 +1957,44 @@ func phaseToReady(phase string) string {
 	switch phase {
 	case PhaseHealthy, PhaseFailedOver:
 		return "True"
-	case PhasePending, PhaseSwitchingOver:
+	case PhasePending, PhaseSwitchingOver, PhaseUnknown:
 		return "Unknown"
 	default:
 		return "False"
 	}
+}
+
+// preserveTransitionTimes — ADR-0015 D7. Every condition this controller
+// writes is rebuilt each pass with lastTransitionTime=now, which made
+// "since" meaningless (it read as "a few seconds ago" forever). A condition
+// whose status did not change keeps the lastTransitionTime it already had;
+// only a real status change stamps a new one. `prior` is the conditions
+// slice read off the object before this pass rebuilt it.
+func preserveTransitionTimes(prior interface{}, next []interface{}) []interface{} {
+	type seen struct{ status, ltt string }
+	prev := map[string]seen{}
+	if ps, ok := prior.([]interface{}); ok {
+		for _, c := range ps {
+			cm, ok := c.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			t, _ := cm["type"].(string)
+			st, _ := cm["status"].(string)
+			ltt, _ := cm["lastTransitionTime"].(string)
+			prev[t] = seen{st, ltt}
+		}
+	}
+	for _, c := range next {
+		cm, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		t, _ := cm["type"].(string)
+		st, _ := cm["status"].(string)
+		if p, ok := prev[t]; ok && p.status == st && p.ltt != "" {
+			cm["lastTransitionTime"] = p.ltt
+		}
+	}
+	return next
 }

@@ -407,6 +407,32 @@ spec:
                       lastTransitionTime:
                         type: string
                         format: date-time
+                      conditions:
+                        type: array
+                        description: |
+                          ADR-0015 D7 — per-region conditions. Carries the
+                          region's `Serving` condition (functional probe:
+                          the route answers through the region's gateway;
+                          a CNPG primary with required synchronous
+                          replication has its synchronous standby).
+                          Unknown when the region is not observable from
+                          the controller instance that wrote it.
+                        items:
+                          type: object
+                          required: [type, status]
+                          properties:
+                            type:
+                              type: string
+                            status:
+                              type: string
+                              enum: ["True", "False", "Unknown"]
+                            reason:
+                              type: string
+                            message:
+                              type: string
+                            lastTransitionTime:
+                              type: string
+                              format: date-time
                 giteaRepo:
                   type: string
                   description: Full URL of the per-Application Gitea repo (e.g. gitea.hfmp.omantel.openova.io/acme/marketing-site).
@@ -439,6 +465,35 @@ spec:
                       lastTransitionTime:
                         type: string
                         format: date-time
+                activity:
+                  type: array
+                  description: |
+                    ADR-0015 D7/D8 — structured activity of an in-flight
+                    topology transition (one entry per phase × member).
+                    Projected verbatim into Jobs as type
+                    `topology-transition`. Populated by the D8 transition
+                    engine; empty otherwise.
+                  items:
+                    type: object
+                    required: [id, state]
+                    properties:
+                      id:
+                        type: string
+                      phase:
+                        type: string
+                      member:
+                        type: string
+                      state:
+                        type: string
+                        enum: [pending, running, succeeded, failed]
+                      startedAt:
+                        type: string
+                        format: date-time
+                      finishedAt:
+                        type: string
+                        format: date-time
+                      message:
+                        type: string
                 observedGeneration:
                   type: integer
                   format: int64

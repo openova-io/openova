@@ -1,0 +1,94 @@
+{{- /*
+Cross-region filer reachability CiliumNetworkPolicies — ADR-0015 D6(a), #7067.
+
+Rendered ONLY when the namespace is deny-by-default, i.e. when the optional
+bp-seaweedfs NetworkPolicy (networkpolicy.yaml) is enabled. That k8s
+NetworkPolicy can never admit a ClusterMesh peer — Cilium AND-injects
+`io.cilium.k8s.policy.cluster=<local>` into every selector derived from a k8s
+NetworkPolicy (#4846/#4854, harbor redis-crossregion-netpol.yaml) — so the
+cross-region hop needs identity-based CNPs. Cilium unions every policy that
+selects an endpoint, so these are purely ADDITIVE: filer HTTP + gRPC only,
+peer-cluster identities only.
+
+Deliberately NOT rendered while the NetworkPolicy is off: a CNP with an
+ingress (egress) section puts its selected endpoints into ingress (egress)
+default-deny, which would cut the S3 gateway -> filer path in a namespace
+that today has no policy at all.
+
+  INGRESS: peer-region filer.sync Pods -> this region's filer (8888, 18888).
+  EGRESS:  this region's filer.sync Pods -> the peer region's filer.
+*/ -}}
+{{- $cr := .Values.crossRegion | default dict -}}
+{{- $peerClusters := $cr.peerClusters | default list -}}
+{{- if and (include "bp-seaweedfs.filerSyncActive" .) .Values.seaweedfsOverlay.networkPolicy.enabled (gt (len $peerClusters) 0) (.Capabilities.APIVersions.Has "cilium.io/v2") }}
+{{- $filer := (.Values.seaweedfs | default dict).filer | default dict -}}
+{{- $httpPort := $filer.port | default 8888 | toString -}}
+{{- $grpcPort := $filer.grpcPort | default 18888 | toString -}}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: seaweedfs-filer-crossregion-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-seaweedfs.crossRegionLabels" . | nindent 4 }}
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: seaweedfs
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: filer
+  ingress:
+    - fromEndpoints:
+        - matchExpressions:
+            - key: io.cilium.k8s.policy.cluster
+              operator: In
+              values:
+                {{- range $peerClusters }}
+                - {{ . | quote }}
+                {{- end }}
+            - key: k8s:io.kubernetes.pod.namespace
+              operator: Exists
+            - key: k8s:app.kubernetes.io/component
+              operator: In
+              values: [filer-sync]
+      toPorts:
+        - ports:
+            - port: {{ $httpPort | quote }}
+              protocol: TCP
+            - port: {{ $grpcPort | quote }}
+              protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: seaweedfs-filer-sync-crossregion-egress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-seaweedfs.crossRegionLabels" . | nindent 4 }}
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: seaweedfs
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: filer-sync
+  egress:
+    - toEndpoints:
+        - matchExpressions:
+            - key: io.cilium.k8s.policy.cluster
+              operator: In
+              values:
+                {{- range $peerClusters }}
+                - {{ . | quote }}
+                {{- end }}
+            - key: k8s:io.kubernetes.pod.namespace
+              operator: Exists
+            - key: k8s:app.kubernetes.io/component
+              operator: In
+              values: [filer]
+      toPorts:
+        - ports:
+            - port: {{ $httpPort | quote }}
+              protocol: TCP
+            - port: {{ $grpcPort | quote }}
+              protocol: TCP
+{{- end }}

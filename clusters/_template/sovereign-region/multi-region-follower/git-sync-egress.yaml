@@ -1,0 +1,26 @@
+# Egress for the region-git-sync Job: the writer region's Gitea pods over the
+# ClusterMesh (cluster-scoped selectors do not match remote endpoints by
+# default), plus this region's own Gitea.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: region-git-sync-egress
+  namespace: gitea
+  labels:
+    catalyst.openova.io/component: region-git-sync
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/component: region-git-sync
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: gitea
+            k8s:app.kubernetes.io/name: gitea
+          matchExpressions:
+            - key: io.cilium.k8s.policy.cluster
+              operator: Exists
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP

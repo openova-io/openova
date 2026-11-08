@@ -101,6 +101,13 @@ jobs:
         if: steps.changed.outputs.charts != ''
         run: |
           for c in ${{ steps.changed.outputs.charts }}; do
+            # ADR-0015 D2 (#7067): a chart whose templates call a vendored
+            # library (file://../../topology-lib/chart) cannot lint without its
+            # declared dependencies — build them first (charts/ is gitignored).
+            if grep -qE '^dependencies:' "$c/Chart.yaml"; then
+              echo "▸ helm dependency build $c"
+              helm dependency build "$c" || exit 1
+            fi
             echo "▸ helm lint $c"
             helm lint "$c" || exit 1
           done

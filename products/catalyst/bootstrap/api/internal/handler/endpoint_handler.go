@@ -844,30 +844,74 @@ func (h *Handler) HandleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bpDoc, bpErr := h.fetchBlueprint(r.Context(), r, body.Blueprint)
-	if bpErr != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"code":    "blueprint-unavailable",
-			"message": bpErr.Error(),
-		})
+	created, chosen, cerr := h.createApplicationInstance(r.Context(), client, &body, applicationSessionToken(r))
+	if cerr != nil {
+		writeJSON(w, cerr.Status, cerr.body())
 		return
+	}
+
+	resp := application{
+		applicationSummary: applicationSummary{
+			ID:        string(created.GetUID()),
+			Name:      created.GetName(),
+			Blueprint: body.Blueprint,
+			Org:       body.Org,
+			Topology:  chosen,
+			Status:    "Pending",
+			CreatedAt: created.GetCreationTimestamp().UTC().Format(time.RFC3339),
+		},
+		// #3373 — echo the instance placement the CR was created
+		// with (nil when the user silently accepted the Blueprint
+		// defaults; the controller's status.placement carries the
+		// resolved effective value after the first reconcile).
+		Placement: placementInfoFromCR(created),
+	}
+	writeJSON(w, http.StatusCreated, resp)
+}
+
+// createApplicationInstance is THE Application-create function (ADR-0015
+// D5): the console dialog (HandleCreateInstance) and the signup funnel
+// (installFunnelApplications) both call it, so there is one install
+// primitive — an Application CR whose every reference was resolved against
+// a live object before anything was written (D4, validateInstallRefs).
+//
+// Order: Blueprint metadata → topology → reference validation (Org,
+// Environment, Blueprint, mode, regions, Org namespace) → admission gates →
+// backing services → Application CR create → IaC Git commit. A failure
+// before the create writes nothing; in particular no namespace is created.
+func (h *Handler) createApplicationInstance(ctx context.Context, client dynamic.Interface, body *instances.CreateInstanceRequest, sessionToken string) (*unstructured.Unstructured, string, *refError) {
+	bpDoc, bpErr := h.resolveBlueprintMeta(ctx, body.Blueprint, sessionToken)
+	if bpErr != nil {
+		return nil, "", &refError{Status: http.StatusServiceUnavailable, Code: "blueprint-unavailable", Field: "blueprint", Message: bpErr.Error()}
 	}
 
 	// Topology gating per locked decision #1+#7.
 	// G117.3d #2780: multi-region detection MUST consult
 	// Sovereign.spec.regions, not the SOVEREIGN_REGIONS env var.
-	multiRegion := h.detectMultiRegion(r.Context())
+	multiRegion := h.detectMultiRegion(ctx)
 	chosen, derr := chooseTopology(bpDoc, body.Topology, multiRegion)
 	if derr != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"code":    "invalid-topology",
-			"message": derr.Error(),
-		})
-		return
+		return nil, "", &refError{Status: http.StatusBadRequest, Code: "invalid-topology", Field: "topology", Message: derr.Error()}
 	}
 
+	var reqRegions []string
+	if body.Placement != nil {
+		reqRegions = body.Placement.Regions
+	}
+	refs, rerr := validateInstallRefs(ctx, client, installRefs{
+		Org:         body.Org,
+		Environment: body.Environment,
+		Blueprint:   body.Blueprint,
+		Mode:        chosen,
+		Regions:     reqRegions,
+	})
+	if rerr != nil {
+		return nil, "", rerr
+	}
+	body.Environment = refs.Environment
+
 	// Build the existing-applications projection for the admission gates.
-	existingList, _ := listAppsInOrg(r.Context(), client, body.Org, body.Blueprint)
+	existingList, _ := listAppsInOrg(ctx, client, body.Org, body.Blueprint)
 	existing := make([]admission.ExistingApplication, 0, len(existingList))
 	for i := range existingList {
 		instanceID, _, _ := unstructured.NestedString(existingList[i].Object, "spec", "instanceId")
@@ -890,110 +934,60 @@ func (h *Handler) HandleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		existing,
 	)
 	if rejection := instances.MapDecision(decision); rejection != nil {
-		writeJSON(w, rejection.StatusCode, map[string]string{
-			"code":    string(rejection.Code),
-			"message": rejection.Message,
-		})
-		return
+		return nil, "", &refError{Status: rejection.StatusCode, Code: string(rejection.Code), Message: rejection.Message}
 	}
 
 	seed, err := body.Build(chosen)
 	if err != nil {
-		// Should not occur after ValidateShape, but be defensive.
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"code":    "invalid-body",
-			"message": err.Error(),
-		})
-		return
+		return nil, "", &refError{Status: http.StatusBadRequest, Code: "invalid-body", Message: err.Error()}
 	}
+	seed.Regions = refs.Regions
 	// #4556 Item 2 — stamp the Sovereign's own FQDN so a bp-agenity instance
-	// created via this path gets spec.parameters.sovereignFqdn (the chart
-	// derives the openova-MCP catalyst-api URL from it; empty → the mothership
-	// console.openova.io). No-op for non-agenity Blueprints.
+	// created via this path gets spec.parameters.sovereignFqdn. No-op for
+	// non-agenity Blueprints.
 	seed.SovereignFQDN = h.sovereignFQDN()
-	// #4624 — stamp the ORG's public console host (console.<slug>.<pool>,
-	// from the tenant registry) so a bp-agenity instance gets
-	// spec.parameters.openovaMCP.tenantHost: the OPENOVA_MCP_TENANT_HOST the
-	// agent's MCP forwards as X-Tenant-Host must be the Org host, NOT the
-	// Sovereign console host derived from sovereignFqdn (that host is not a
-	// registered tenant → every agent create_application 404'd, live-proven
-	// on hw220 2026-07-04). Empty (mothership / no registry row) ⇒ no stamp,
-	// fail-closed. No-op for non-agenity Blueprints.
+	// #4624 — stamp the ORG's public console host (from the tenant
+	// registry) so a bp-agenity instance gets
+	// spec.parameters.openovaMCP.tenantHost. Empty ⇒ no stamp, fail-closed.
 	seed.OrgConsoleHost = h.orgConsoleHostFor(seed.Namespace)
-
-	// #3598 (EPIC #3597) — ensure the Org/Environment namespace exists
-	// BEFORE creating any Application CR. Without this the create races the
-	// organization controller's GitOps namespace reconcile and fails with
-	// `namespaces "<org>" not found` (the founder-reported "namespace not
-	// found"). Ensured here so BOTH the backing-service CRs below and the
-	// consumer CR land in a present namespace.
-	if nsErr := ensureOrgNamespace(r.Context(), client, body.Org); nsErr != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"code":    "namespace-ensure-failed",
-			"message": fmt.Sprintf("could not ensure namespace for Organization %q: %v", body.Org, nsErr),
-		})
-		return
-	}
 
 	// #3370 — backing-service journey. BEFORE creating the consumer:
 	// for each selection, either auto-create the backing service as its
-	// OWN instance-application (own card; default) or append a Context
-	// to the named existing instance's IaC (reuse). Both return the
-	// spec.dependsOn entries the consumer CR is created with, so the
-	// Flux wiring is present from the first reconcile.
-	dependsOnEntries, backingErr := h.wireBackingServices(r.Context(), client, &body)
+	// OWN instance-application or append a Context to the named existing
+	// instance's IaC. Both return the spec.dependsOn entries the consumer
+	// CR is created with.
+	dependsOnEntries, backingErr := h.wireBackingServices(ctx, client, body, refs)
 	if backingErr != nil {
-		writeJSON(w, backingErr.status, map[string]string{
-			"code":    backingErr.code,
-			"message": backingErr.message,
-		})
-		return
+		return nil, "", &refError{Status: backingErr.status, Code: backingErr.code, Message: backingErr.message}
 	}
 
 	obj := newApplicationCRFromSeed(seed)
-	// #3370 — stamp the resolved Blueprint version: the CRD requires an
-	// exact semver on blueprintRef.version (admission rejected every CR
-	// from the old version-less seed on a real apiserver).
-	if v := strings.TrimSpace(bpDoc.Version); v != "" {
-		_ = unstructured.SetNestedField(obj.Object, v, "spec", "blueprintRef", "version")
+	// The CRD requires an exact semver on blueprintRef.version: the
+	// Blueprint CR's own spec.version (validateInstallRefs), falling back
+	// to the catalog projection.
+	version := strings.TrimSpace(refs.BlueprintVersion)
+	if version == "" && bpDoc != nil {
+		version = strings.TrimSpace(bpDoc.Version)
+	}
+	if version != "" {
+		_ = unstructured.SetNestedField(obj.Object, version, "spec", "blueprintRef", "version")
 	}
 	if len(dependsOnEntries) > 0 {
 		_ = unstructured.SetNestedSlice(obj.Object, dependsOnEntries, "spec", "dependsOn")
 	}
-	// #3830 — create into the slugged namespace, matching the CR's
-	// metadata.namespace (newApplicationCRFromSeed) and the namespace
-	// ensureOrgNamespace created above. body.Org (the FQDN) stays the Org
-	// identity in user-facing messages + labels.
-	created, err := client.Resource(ApplicationGVR()).Namespace(orgNamespace(body.Org)).Create(
-		r.Context(), obj, metav1.CreateOptions{})
+	created, err := client.Resource(ApplicationGVR()).Namespace(refs.Namespace).Create(
+		ctx, obj, metav1.CreateOptions{})
 	if err != nil {
 		if apierrors.IsAlreadyExists(err) {
-			// Belt-and-suspenders — admission gate should have caught
-			// this; if it slipped past (race), return the same code
-			// the admission gate would have returned.
-			writeJSON(w, http.StatusConflict, map[string]string{
-				"code":    string(admission.CodeNameCollision),
-				"message": fmt.Sprintf("Application %q already exists in Org %s", body.Name, body.Org),
-			})
-			return
+			return nil, "", &refError{Status: http.StatusConflict, Code: string(admission.CodeNameCollision),
+				Message: fmt.Sprintf("Application %q already exists in Org %s", body.Name, body.Org)}
 		}
-		writeJSON(w, http.StatusInternalServerError, map[string]string{
-			"code":    "create-failed",
-			"message": err.Error(),
-		})
-		return
+		return nil, "", &refError{Status: http.StatusInternalServerError, Code: "create-failed", Message: err.Error()}
 	}
 
 	// #3687 (fold #3694) — the Application CR's authoring home is Git.
-	// Commit the desired-state CR into the per-Org `iac` repo at
-	// `applications/<name>.yaml` so Flux reconciles it and a hand
-	// `git push` round-trips (the canonical representation stops being
-	// etcd-only). Best-effort: a missing Gitea backend (chroot/CI) or a
-	// write failure does NOT fail the create — the etcd projection above
-	// already succeeded and keeps the app-list warm while the Flux loop
-	// catches up. We commit `obj` (the clean desired state) rather than
-	// `created` (which carries server-populated status/managedFields).
-	if committed, gErr := h.commitApplicationCRToGit(r.Context(), body.Org, obj); gErr != nil {
+	// Best-effort: a missing Gitea backend does NOT fail the create.
+	if committed, gErr := h.commitApplicationCRToGit(ctx, body.Org, obj); gErr != nil {
 		h.log.Warn("application IaC git commit failed (etcd projection still created)",
 			"org", body.Org, "application", body.Name, "error", gErr)
 	} else if committed {
@@ -1001,24 +995,7 @@ func (h *Handler) HandleCreateInstance(w http.ResponseWriter, r *http.Request) {
 			"org", body.Org, "application", body.Name,
 			"path", applicationManifestPath(body.Name))
 	}
-
-	resp := application{
-		applicationSummary: applicationSummary{
-			ID:        string(created.GetUID()),
-			Name:      created.GetName(),
-			Blueprint: body.Blueprint,
-			Org:       body.Org,
-			Topology:  chosen,
-			Status:    "Pending",
-			CreatedAt: created.GetCreationTimestamp().UTC().Format(time.RFC3339),
-		},
-		// #3373 — echo the instance placement the CR was created
-		// with (nil when the user silently accepted the Blueprint
-		// defaults; the controller's status.placement carries the
-		// resolved effective value after the first reconcile).
-		Placement: placementInfoFromCR(created),
-	}
-	writeJSON(w, http.StatusCreated, resp)
+	return created, chosen, nil
 }
 
 // backingError is the structured error wireBackingServices maps to the
@@ -1052,7 +1029,7 @@ type backingError struct {
 // their Context declarations live in the bootstrap-kit slot values in
 // Git, not in the Application CR — appending here would render a row
 // whose materialization never happens.
-func (h *Handler) wireBackingServices(ctx context.Context, client dynamic.Interface, body *instances.CreateInstanceRequest) ([]interface{}, *backingError) {
+func (h *Handler) wireBackingServices(ctx context.Context, client dynamic.Interface, body *instances.CreateInstanceRequest, refs resolvedRefs) ([]interface{}, *backingError) {
 	if len(body.Backing) == 0 {
 		return nil, nil
 	}
@@ -1060,13 +1037,11 @@ func (h *Handler) wireBackingServices(ctx context.Context, client dynamic.Interf
 	// identity). The reflected-credential target namespace, the backing CR
 	// create, and the consumer's dependsOn pointer all use this so they
 	// agree with where the consumer + backing CRs actually live.
-	orgNS := orgNamespace(body.Org)
+	orgNS := refs.Namespace
 	dependsOn := make([]interface{}, 0, len(body.Backing))
 	for _, sel := range body.Backing {
+		// ADR-0015 D4 — the backing Blueprint is named exactly.
 		bpFull := sel.Blueprint
-		if !strings.HasPrefix(bpFull, "bp-") {
-			bpFull = "bp-" + bpFull
-		}
 		slug := strings.TrimPrefix(bpFull, "bp-")
 
 		ctxSchema := h.contextSchemaFor(ctx, bpFull)
@@ -1102,9 +1077,10 @@ func (h *Handler) wireBackingServices(ctx context.Context, client dynamic.Interf
 		case "", "create":
 			backingName := fmt.Sprintf("%s-%s", body.Name, slug)
 			backing := instances.CreateInstanceRequest{
-				Blueprint: bpFull,
-				Org:       body.Org,
-				Name:      backingName,
+				Blueprint:   bpFull,
+				Org:         body.Org,
+				Environment: refs.Environment,
+				Name:        backingName,
 				Values: map[string]interface{}{
 					ctxSchema.ValuesKey: []interface{}{entry},
 				},
@@ -1121,15 +1097,25 @@ func (h *Handler) wireBackingServices(ctx context.Context, client dynamic.Interf
 					backingTopology = bpDoc.Topology.Defaults.SingleRegion
 				}
 			}
+			backingRefs, rerr := validateInstallRefs(ctx, client, installRefs{
+				Org: body.Org, Environment: refs.Environment, Blueprint: bpFull,
+				Mode: backingTopology, Regions: refs.Regions,
+			})
+			if rerr != nil {
+				return nil, &backingError{status: rerr.Status, code: rerr.Code, message: "backing " + rerr.Message}
+			}
 			backingSeed, serr := backing.Build(backingTopology)
 			if serr != nil {
 				return nil, &backingError{status: http.StatusBadRequest, code: "backing-invalid", message: serr.Error()}
 			}
+			backingSeed.Regions = backingRefs.Regions
 			backingObj := newApplicationCRFromSeed(backingSeed)
 			// Stamp the backing Blueprint's resolved version — the CRD
 			// requires an exact semver on blueprintRef.version (#3370,
 			// same admission contract as the consumer CR below).
-			if bpDoc != nil {
+			if v := strings.TrimSpace(backingRefs.BlueprintVersion); v != "" {
+				_ = unstructured.SetNestedField(backingObj.Object, v, "spec", "blueprintRef", "version")
+			} else if bpDoc != nil {
 				if v := strings.TrimSpace(bpDoc.Version); v != "" {
 					_ = unstructured.SetNestedField(backingObj.Object, v, "spec", "blueprintRef", "version")
 				}
@@ -2320,11 +2306,8 @@ func newApplicationCRFromSeed(seed instances.ApplicationSeed) *unstructured.Unst
 	// Org identity is preserved on the catalyst.openova.io/organization
 	// label (set in instances.Build) and on spec.organizationRef below.
 	//
-	// This comment used to point at environmentRef as the second verbatim
-	// carrier. It is not one — environmentRefForOrg slugs it for the same
-	// CRD-pattern reason metadata.namespace is slugged, so BOTH of the
-	// places it named were derived forms and the CR had no verbatim
-	// carrier in its spec at all (UAT row 15).
+	// ADR-0015 D4 — spec.organizationRef + spec.environmentRef carry the
+	// validated Organization / Environment CR names verbatim.
 	obj.SetNamespace(orgNamespace(seed.Namespace))
 	obj.SetLabels(seed.Labels)
 	// One vocabulary (#3375 DoD-1) + ONE shape (#3969): the CR stores the
@@ -2335,27 +2318,27 @@ func newApplicationCRFromSeed(seed instances.ApplicationSeed) *unstructured.Unst
 	// used to emit when no WHERE was set is the legacy spelling — read, never
 	// written.
 	placement := bpv1.ApplicationPlacement{Mode: placementForTopology(seed.Topology)}
-	regions := []interface{}{"primary"}
+	// ADR-0015 D4 — spec.regions + placement.regions carry the VALIDATED
+	// canonical region ids (validateInstallRefs). No "primary" sentinel.
+	regionIDs := seed.Regions
 	if seed.Placement != nil {
 		placement.Mode = canonicalizeTopology(seed.Topology)
 		placement.VCluster = seed.Placement.VCluster
-		placement.Regions = seed.Placement.Regions
 		placement.Clusters = seed.Placement.Clusters
 		if len(seed.Placement.Regions) > 0 {
-			regions = make([]interface{}, 0, len(seed.Placement.Regions))
-			for _, r := range seed.Placement.Regions {
-				regions = append(regions, r)
-			}
+			regionIDs = seed.Placement.Regions
 		}
+	}
+	placement.Regions = regionIDs
+	regions := make([]interface{}, 0, len(regionIDs))
+	for _, r := range regionIDs {
+		regions = append(regions, r)
 	}
 	placementValue := placement.Canonical()
 	spec := map[string]interface{}{
-		// #3922 — slug the env ref so a dotted Sovereign FQDN (seed.Namespace
-		// is the Org, often an FQDN like "hw171.omantel.biz") does not produce
-		// a dotted spec.environmentRef the apiserver rejects against the CRD
-		// pattern ^[a-z][a-z0-9-]{2,63}$ (HTTP 500). environmentRefForOrg
-		// appends the canonical "-prod" suffix and slugs the whole value.
-		"environmentRef": environmentRefForOrg(seed.Namespace),
+		// ADR-0015 D4 — the Environment CR name the request named (and
+		// validateInstallRefs proved exists under this Organization).
+		"environmentRef": seed.Environment,
 		"blueprintRef": map[string]interface{}{
 			"name": seed.Blueprint,
 		},
@@ -2393,7 +2376,7 @@ func newApplicationCRFromSeed(seed instances.ApplicationSeed) *unstructured.Unst
 	// Omitted when empty, matching producer 1: an empty ref claims an
 	// Org with no name, while an absent one honestly reads as
 	// attribution-unknown.
-	if orgRef := strings.TrimSpace(seed.Namespace); orgRef != "" {
+	if orgRef := strings.TrimSpace(seed.Organization); orgRef != "" {
 		spec["organizationRef"] = orgRef
 	}
 	// #4283 / #4282 Root-B — ALWAYS stamp a non-null spec.parameters
@@ -2704,10 +2687,10 @@ func NewProductionCertConflictLookup(dynClient dynamic.Interface) precheck.CertC
 
 // certOwnerFromObject lifts (Org, App) from the Certificate's
 // canonical catalyst.openova.io labels. Sovereign-Gateway wildcard
-// certs typically carry no per-Application labels — we surface
-// (`sovereign`, `gateway`) as a deterministic placeholder so the
-// CheckCertManager auto-PASS-by-wildcard branch (G117 #2864) fires
-// without leaking namespace/name into the verdict.
+// certs typically carry no per-Application labels. ADR-0015 D4 — an
+// unlabelled cert has NO Organization (Org stays ""), never a
+// "sovereign" placeholder; the CheckCertManager wildcard auto-PASS
+// (G117 #2864) keys on IsWildcard, not on the owner Org.
 func certOwnerFromObject(c *unstructured.Unstructured) precheck.CertOwner {
 	labels := c.GetLabels()
 	org := ""
@@ -2715,9 +2698,6 @@ func certOwnerFromObject(c *unstructured.Unstructured) precheck.CertOwner {
 	if labels != nil {
 		org = strings.TrimSpace(labels["catalyst.openova.io/organization"])
 		app = strings.TrimSpace(labels[labelCatalystApp])
-	}
-	if org == "" {
-		org = "sovereign"
 	}
 	if app == "" {
 		app = "gateway"

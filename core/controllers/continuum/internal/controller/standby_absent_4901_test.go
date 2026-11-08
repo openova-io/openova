@@ -160,8 +160,10 @@ func TestPatchStatusFromCR_NoDetermination_LeavesStandbyUntouched(t *testing.T) 
 		t.Fatalf("patchStatusFromCR: %v", err)
 	}
 	phase, condStatus, _, avail, absent := statusFields(t, r, "cnpg", "dr")
-	if phase != PhaseHealthy {
-		t.Errorf("phase = %q, want Healthy", phase)
+	// ADR-0015 D7 — no standby determination over a guarded cnpg pair is
+	// Unknown, never Healthy.
+	if phase != PhaseUnknown {
+		t.Errorf("phase = %q, want Unknown (never-observed standby is not Healthy)", phase)
 	}
 	if _, present := condStatus["StandbyAvailable"]; present {
 		t.Errorf("StandbyAvailable condition written with no determination — must be absent")

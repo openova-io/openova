@@ -1137,13 +1137,14 @@ func TestRenderOrganizationOverlay_NewAPIEmitted(t *testing.T) {
 		t.Errorf("bp-newapi.yaml must be per-tenant api.<sub>.<parent>, not otech-wide newapi: %s", body)
 	}
 
-	// kustomization.yaml MUST list bp-newapi.yaml so Flux materialises it.
+	// ADR-0015 D5 — bp-newapi is an Application CR now (installFunnelApplications);
+	// the overlay kustomization must NOT list it as a bare HelmRelease.
 	kust, ok := files["kustomization.yaml"]
 	if !ok {
 		t.Fatalf("kustomization.yaml missing")
 	}
-	if !strings.Contains(kust, "  - bp-newapi.yaml") {
-		t.Errorf("kustomization.yaml resources list must include bp-newapi.yaml — got:\n%s", kust)
+	if strings.Contains(kust, "bp-newapi.yaml") {
+		t.Errorf("kustomization.yaml still lists bp-newapi.yaml as a bare HelmRelease — got:\n%s", kust)
 	}
 }
 

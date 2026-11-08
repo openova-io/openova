@@ -1,0 +1,79 @@
+{{- /*
+Per-region filer ClusterMesh global Services — ADR-0015 D6(a), issue #7067.
+
+Cilium ClusterMesh merges global Services BY NAME+NAMESPACE across every
+connected cluster. A single shared name (`seaweedfs-filer-mesh`) would be
+wrong here: each region would load-balance across BOTH filers, so "the peer
+filer" would be the local one half of the time. So every region id gets its
+OWN name, `<prefix>-<region-id>`, and EVERY region renders ALL of them:
+
+  - `<prefix>-<self>`  selects the LOCAL filer Pods and EXPORTS them
+                       (`service.cilium.io/shared: "true"`).
+  - `<prefix>-<peer>`  is a stub whose selector adds
+                       `catalyst.openova.io/seaweedfs-region: <peer>` — a
+                       label no local filer Pod carries — so it has ZERO
+                       local backends and `shared: "false"`. Cilium fills it
+                       with the backends the peer region exports under the
+                       same name, i.e. the PEER's filer.
+
+Region A dials `<prefix>-<B>` and lands on B's filer; region B dials
+`<prefix>-<A>` and lands on A's. Same idiom as bp-cnpg-pair
+(peer-mesh-service.yaml, zero-backend stub) and bp-harbor
+(redis-mesh-service.yaml, shared true/false by role).
+
+ClusterIP (a global Service cannot be headless). Both filer ports are
+carried: HTTP 8888 (chunk reads via -a.filerProxy, readiness) and gRPC
+18888 (metadata subscription + offsets; filer.sync derives it as port+10000).
+NO NodePort, ever — type ClusterIP is pinned explicitly.
+
+Rendered only when bp-seaweedfs.filerSyncActive (crossRegion.enabled + a
+known self + >=1 peer) — single-region renders nothing.
+*/ -}}
+{{- if include "bp-seaweedfs.filerSyncActive" . }}
+{{- $self := include "bp-seaweedfs.topologySelf" . -}}
+{{- $peers := splitList "," (include "bp-seaweedfs.topologyPeers" .) -}}
+{{- $sub := .Values.seaweedfs | default dict -}}
+{{- $filer := $sub.filer | default dict -}}
+{{- $httpPort := $filer.port | default 8888 | int -}}
+{{- $grpcPort := $filer.grpcPort | default 18888 | int -}}
+{{- $regions := prepend $peers $self -}}
+{{- range $region := $regions }}
+{{- $isSelf := eq $region $self }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "bp-seaweedfs.filerMeshName" (list $ $region) }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "bp-seaweedfs.crossRegionLabels" $ | nindent 4 }}
+    app.kubernetes.io/component: filer-mesh
+    catalyst.openova.io/seaweedfs-region: {{ $region | quote }}
+    catalyst.openova.io/cross-region-role: {{ ternary "self" "peer" $isSelf | quote }}
+  annotations:
+    service.cilium.io/global: "true"
+    service.cilium.io/shared: {{ ternary "true" "false" $isSelf | quote }}
+    catalyst.openova.io/blueprint: bp-seaweedfs
+spec:
+  type: ClusterIP
+  selector:
+    # Upstream filer Pod selector (charts/seaweedfs/templates/filer/
+    # filer-statefulset.yaml).
+    app.kubernetes.io/name: seaweedfs
+    app.kubernetes.io/instance: {{ $.Release.Name }}
+    app.kubernetes.io/component: filer
+    {{- if not $isSelf }}
+    # Matches ZERO local Pods by construction -> backends come from the peer.
+    catalyst.openova.io/seaweedfs-region: {{ $region | quote }}
+    {{- end }}
+  ports:
+    - name: http
+      port: {{ $httpPort }}
+      targetPort: {{ $httpPort }}
+      protocol: TCP
+    - name: grpc
+      port: {{ $grpcPort }}
+      targetPort: {{ $grpcPort }}
+      protocol: TCP
+{{- end }}
+{{- end }}

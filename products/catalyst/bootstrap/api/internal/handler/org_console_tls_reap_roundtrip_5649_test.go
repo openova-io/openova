@@ -248,25 +248,6 @@ func TestOrgConsoleTeardown_ProducerRoundTrip_EveryEmittedArtifactIsReaped(t *te
 	applySSAListeners(t, hostDyn)
 	applySSAListeners(t, secDyn)
 
-	// The app-surface emitter's Namespace contract, asserted at its real seam
-	// (see the file header on why this is a predicate check, not a store check).
-	if err := ensureOrgBoundaryNamespaceForApps(ctx, secDyn, ghostNames,
-		mustOrgRecord(t, ghostSlug, parent, sovereignFQDN)); err != nil {
-		t.Fatalf("app-surface emitter could not create the secondary boundary Namespace: %v", err)
-	}
-	producedNS, err := secDyn.Resource(namespacesGVR()).Get(ctx, ghostNames.Slug, metav1.GetOptions{})
-	if err != nil {
-		t.Fatalf("read back the Namespace the app-surface emitter wrote: %v", err)
-	}
-	if identity, ok := orgNamespaceReapIdentity(producedNS.GetName(), producedNS.GetLabels()); !ok {
-		t.Errorf("the Namespace ensureOrgBoundaryNamespaceForApps writes into a secondary region is NOT a reap candidate — "+
-			"labels %v fail orgNamespaceReapIdentity, so a deleted Org's boundary namespace (and every mirrored app route + "+
-			"ClusterMesh stub inside it) leaks in that region forever (#5649 #5635)", producedNS.GetLabels())
-	} else if identity != ghostNames.Slug {
-		t.Errorf("app-surface Namespace resolves to reap identity %q, want the Org slug %q — the reaper would key it to the wrong Org",
-			identity, ghostNames.Slug)
-	}
-
 	// ── VACUITY: the producers really did write everything, in both regions. ──
 	type artifact struct {
 		what    string

@@ -53,6 +53,7 @@ import { adaptDerivedJobsToFlat } from './jobsAdapter'
 import { useLiveJobsBackfill, mergeJobs } from './useLiveJobsBackfill'
 import { useJobDetail } from './useJobDetail'
 import type { Job } from '@/lib/jobs.types'
+import { jobStatusNote } from '@/lib/jobs.types'
 import { LogPane } from '@/components/LogPane'
 import type { LogLine, LogLevel } from '@/components/ExecutionLogs'
 import { FlowPage } from './FlowPage'
@@ -323,6 +324,12 @@ export function JobDetail({
           >
             {badge.text}
           </span>
+          {/* ADR-0015 D7 — the object's own reason + message, verbatim. */}
+          {jobStatusNote(job) ? (
+            <span className="job-detail-status-note" data-testid="job-detail-status-note">
+              {jobStatusNote(job)}
+            </span>
+          ) : null}
         </header>
 
         {/* Full-bleed canvas. The embedded FlowPage owns its own

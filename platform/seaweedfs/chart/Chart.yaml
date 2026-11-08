@@ -44,7 +44,12 @@ type: application
 #   land-time zero-local-path guard (scripts/check-no-local-path.sh) sees the
 #   ban marker on the same line that names `rancher.io/local-path`. Rendered
 #   output is byte-identical to 1.2.4.
-version: 1.2.6
+# 1.3.0 (ADR-0015 D6a, #7067): native cross-region filer sync for replicated
+#   buckets — per-region ClusterMesh global filer Services + one
+#   `weed filer.sync -isActivePassive` Deployment per peer (peer -> self).
+#   OFF unless crossRegion.enabled + a known self + >=1 peer; the default
+#   and single-region renders are unchanged.
+version: 1.3.0
 appVersion: "4.22"
 keywords: [catalyst, blueprint, seaweedfs, s3, object-storage, storage]
 maintainers:

@@ -1,0 +1,25 @@
+# This region's Gitea under a region-addressable, ClusterMesh-global name.
+# ClusterIP (not headless) so Cilium ClusterMesh can merge it; a peer region
+# renders a same-named selector-less stub (follower/gitea-writer-stub.yaml) and
+# therefore reaches ONLY this region's pods. No nodePort: ClusterIP only.
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitea-${SOVEREIGN_REGION_ID}
+  namespace: gitea
+  labels:
+    catalyst.openova.io/component: gitea-region-service
+    openova.io/region: ${SOVEREIGN_REGION_ID}
+  annotations:
+    service.cilium.io/global: "true"
+    service.cilium.io/shared: "true"
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: gitea
+    app.kubernetes.io/instance: gitea
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      protocol: TCP

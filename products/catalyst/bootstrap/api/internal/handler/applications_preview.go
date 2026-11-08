@@ -118,18 +118,12 @@ func applicationPreviewRequestNormalize(b applicationPreviewRequest) application
 	if b.OrganizationRef == "" && strings.TrimSpace(b.NamespaceShort) != "" {
 		b.OrganizationRef = strings.TrimSpace(b.NamespaceShort)
 	}
-	if b.EnvironmentRef == "" && b.OrganizationRef != "" {
-		b.EnvironmentRef = b.OrganizationRef + "-prod"
-	}
 	if len(b.Parameters) == 0 && len(b.ValuesShort) > 0 {
 		b.Parameters = b.ValuesShort
 	}
 	if strings.TrimSpace(b.Placement.Mode) == "" {
 		// One vocabulary (#3375 DoD-1): canonical default.
 		b.Placement.Mode = "singleton"
-	}
-	if len(b.Placement.Regions) == 0 {
-		b.Placement.Regions = []string{"primary"}
 	}
 	return b
 }

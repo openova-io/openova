@@ -52,11 +52,10 @@ func TestDecodeApplicationInstallBody_SimplifiedMatrixShape(t *testing.T) {
 	if got.OrganizationRef != "qa-omantel" {
 		t.Errorf("namespace not promoted to organizationRef: got %q", got.OrganizationRef)
 	}
-	// environmentRef defaults to "<organizationRef>-prod" per main's
-	// applicationInstallRequestNormalize convention (PR #1227, the
-	// canonical short-form alias path).
-	if got.EnvironmentRef != "qa-omantel-prod" {
-		t.Errorf("environmentRef default failed: got %q", got.EnvironmentRef)
+	// ADR-0015 D4 — environmentRef is NOT derived from the Org; the shared
+	// core resolves an omission from the Environment CRs.
+	if got.EnvironmentRef != "" {
+		t.Errorf("environmentRef was fabricated: got %q", got.EnvironmentRef)
 	}
 	if got.Name != "qa-wp" {
 		t.Errorf("name wrong: %q", got.Name)
@@ -65,11 +64,10 @@ func TestDecodeApplicationInstallBody_SimplifiedMatrixShape(t *testing.T) {
 	if got.Placement.Mode != "singleton" {
 		t.Errorf("default placement mode wrong: %q, want canonical singleton", got.Placement.Mode)
 	}
-	// Default regions is `["primary"]` (a sentinel) per
-	// applicationInstallRequestNormalize; the caller is expected to
-	// override with explicit regions or accept the validator's 400.
-	if !reflect.DeepEqual(got.Placement.Regions, []string{"primary"}) {
-		t.Errorf("default regions wrong: %+v", got.Placement.Regions)
+	// ADR-0015 D4 — no "primary" sentinel: omitted regions stay omitted
+	// and the shared core resolves them from the region registry.
+	if len(got.Placement.Regions) != 0 {
+		t.Errorf("regions were fabricated: %+v", got.Placement.Regions)
 	}
 	if got.Parameters["siteTitle"] != "QA WP" {
 		t.Errorf("values not promoted to parameters: %+v", got.Parameters)

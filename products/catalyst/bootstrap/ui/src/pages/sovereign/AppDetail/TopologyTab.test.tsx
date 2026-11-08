@@ -10,7 +10,7 @@
  * blueprint name.
  */
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
-import { render, screen, cleanup, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, cleanup, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 /* ── Mock the API + infra clients so no network is hit ─────────────────── */
@@ -79,7 +79,6 @@ vi.mock('@/widgets/topology/PlacementEditor', () => ({
 }))
 
 import { TopologyTab } from './TopologyTab'
-import { drIsConverging, drPollInterval, DR_CONVERGING_POLL_MS, DR_STEADY_POLL_MS } from './drConvergence'
 
 function withProviders(node: React.ReactNode) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -131,6 +130,20 @@ describe('TopologyTab — #3969 { Placement, Status }', () => {
         },
       },
       status: { placement: 'Reconciled' },
+      objectStatus: {
+        state: 'Ready',
+        reason: 'Reconciled',
+        message: 'installed across 2 region(s)',
+        perRegion: [
+          { region: 'region-a', state: 'Ready', reason: 'Serving', message: 'GET / answered 200' },
+          {
+            region: 'region-b',
+            state: 'NotReady',
+            reason: 'SynchronousStandbyNotStreaming',
+            message: 'standby wordpress-db-replica not streaming',
+          },
+        ],
+      },
     }
 
     render(
@@ -153,8 +166,23 @@ describe('TopologyTab — #3969 { Placement, Status }', () => {
     // Derived pattern is active-hot-standby (1 Primary + 1 Hot standby).
     expect(screen.getByTestId('topology-tab-pattern').textContent).toBe('active-hot-standby')
 
-    // Recon status renders as a single value — no second contradictory value.
-    expect(screen.getByTestId('topology-tab-recon-status').textContent).toContain('Reconciled')
+    // ADR-0015 D7 — the Status panel renders statusOf(object) verbatim.
+    expect(screen.getByTestId('topology-tab-object-status-badge').textContent).toBe('Ready')
+    expect(screen.getByTestId('topology-tab-recon-status').textContent).toContain('installed across 2 region(s)')
+
+    // Per placement target: DECLARED role + per-region status, verbatim.
+    expect(screen.getByTestId('topology-tab-target-card-0-role').textContent).toContain('PRIMARY')
+    expect(screen.getByTestId('topology-tab-target-region-a-status-badge').textContent).toBe('Ready')
+    expect(screen.getByTestId('topology-tab-target-region-b-status-badge').textContent).toBe('NotReady')
+    expect(screen.getByTestId('topology-tab-target-card-1').textContent).toContain(
+      'SynchronousStandbyNotStreaming — standby wordpress-db-replica not streaming',
+    )
+
+    // D7 deleted the whole DR section.
+    expect(document.body.textContent).not.toContain('Disaster recovery')
+    expect(screen.queryByTestId('topology-tab-dr-panel')).toBeNull()
+    // No transition running → no link.
+    expect(screen.queryByTestId('topology-tab-active-transition-job')).toBeNull()
 
     // The deleted contradiction must NOT appear anywhere on the screen.
     expect(document.body.textContent).not.toContain('mandate unbuilt')
@@ -166,13 +194,8 @@ describe('TopologyTab — #3969 { Placement, Status }', () => {
     expect(screen.getByTestId('topology-tab-target-card-1')).toBeTruthy()
   })
 
-  it('#3969 §8d: reads status.placementRecon while status.placement is the legacy OBJECT (no collision)', async () => {
+  it('D7: a region with no perRegion entry renders Unknown — never a browser-default Reconciling', async () => {
     getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
-    // The REAL controller shape: status.placement is an OBJECT
-    // ({vcluster, source, regions}) AND the ONE recon value lives in the
-    // dedicated status.placementRecon string. The tab must read the recon
-    // field and never choke on the object (the pre-#3969 code cast
-    // status.placement to a string and would have shown the wrong status).
     getApplicationStatus.mockResolvedValue({
       name: 'keycloak',
       namespace: 'keycloak',
@@ -184,22 +207,43 @@ describe('TopologyTab — #3969 { Placement, Status }', () => {
           ],
         },
       },
+      // Legacy recon fields the deleted browser verdict used to read.
       status: {
         placement: { vcluster: 'mgmt', source: 'instance', regions: ['region-a', 'region-b'] },
-        placementRecon: 'Reconciling',
-        placementReason: 'region-b Standby·Hot is reconciling',
+        placementRecon: 'Reconciled',
       },
+      objectStatus: { state: 'Unknown', reason: 'Progressing', message: 'HelmRelease not yet present' },
     })
 
     render(withProviders(<TopologyTab sovereignId="test-sov" applicationName="keycloak" namespace="keycloak" />))
 
     await waitFor(() => {
-      expect(screen.getByTestId('topology-tab-recon-status').textContent).toContain('Reconciling')
+      expect(screen.getByTestId('topology-tab-object-status-badge').textContent).toBe('Unknown')
     })
-    // The plain reason is surfaced, never a second contradictory class.
-    expect(document.body.textContent).toContain('region-b Standby·Hot is reconciling')
+    expect(screen.getByTestId('topology-tab-recon-status').textContent).toContain('Progressing — HelmRelease not yet present')
+    expect(screen.getByTestId('topology-tab-target-region-a-status-badge').textContent).toBe('Unknown')
+    expect(screen.getByTestId('topology-tab-target-region-b-status-badge').textContent).toBe('Unknown')
+    // The legacy placementRecon no longer drives anything on screen.
+    expect(screen.getByTestId('topology-tab-recon-status').textContent).not.toContain('Reconciled')
     expect(document.body.textContent).not.toContain('[object Object]')
-    expect(document.body.textContent).not.toContain('mandate unbuilt')
+  })
+
+  it('D8 slot: activeTransitionJobLink renders a link when present', async () => {
+    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
+    render(
+      withProviders(
+        <TopologyTab
+          sovereignId="test-sov"
+          applicationName="keycloak"
+          initialApp={{ name: 'keycloak', namespace: 'keycloak', status: {} } as never}
+          activeTransitionJobLink={{ href: '/jobs/x:topology-transition-a-b', label: 'Topology transition running' }}
+          disableNetwork
+        />,
+      ),
+    )
+    const link = await screen.findByTestId('topology-tab-active-transition-job')
+    expect(link.textContent).toBe('Topology transition running')
+    expect(link.querySelector('a')?.getAttribute('href')).toBe('/jobs/x:topology-transition-a-b')
   })
 
   it('singleton placement shows one card, pattern singleton, no contradiction', async () => {
@@ -412,818 +456,6 @@ describe('TopologyTab — #5515 an empty placement is "not reported", never a co
     expect(screen.getByTestId('topology-tab-pattern').textContent).toBe('singleton')
     expect(screen.getByTestId('topology-tab-pattern').textContent).not.toBe('not reported')
     expect(screen.queryByTestId('topology-tab-placement-empty')).toBeNull()
-  })
-})
-
-describe('TopologyTab — DR / replication surface (#3375 rows 51/52/56/57)', () => {
-  const standbyPlacement = {
-    targets: [
-      { region: 'me-east-215-a', cluster: 'c', vcluster: 'host', role: 'Primary' },
-      { region: 'me-east-215-b', cluster: 'c-b', vcluster: 'host', role: 'Standby', standbyType: 'Hot' },
-    ],
-    derivedFromRuntime: true,
-  }
-
-  it('renders the standby region + LIVE replication lag in seconds for a cross-region app (rows 51/52/56)', async () => {
-    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
-    getApplicationStatus.mockResolvedValue({
-      name: 'shared-pg',
-      namespace: 'shared-data',
-      spec: {},
-      status: { placement: 'Reconciled' },
-    })
-    getApplicationPlacement.mockResolvedValue(standbyPlacement)
-    getContinuumReplicationStatus.mockResolvedValue({
-      continuum: 'dr-shared-pg',
-      namespace: 'shared-data',
-      primaryRegion: 'me-east-215-a',
-      currentPrimary: 'me-east-215-a',
-      walLagSeconds: 1.7,
-      streamingState: 'streaming',
-      syncState: 'async',
-      source: 'live',
-    })
-
-    render(withProviders(<TopologyTab sovereignId="dep-z" applicationName="shared-pg" namespace="shared-data" />))
-
-    // The continuum name is derived as dr-<app>.
-    await waitFor(() => {
-      expect(getContinuumReplicationStatus).toHaveBeenCalledWith('dep-z', 'dr-shared-pg', { namespace: 'shared-data' })
-    })
-    await waitFor(() => {
-      expect(screen.getByTestId('topology-tab-dr-panel')).toBeTruthy()
-    })
-    // Primary + standby region cards.
-    expect(screen.getByTestId('topology-tab-dr-observed').textContent).toContain('me-east-215-a')
-    expect(screen.getByTestId('topology-tab-dr-standby-me-east-215-b').textContent).toContain('me-east-215-b')
-    // LIVE lag in seconds — not a hardcoded dash.
-    await waitFor(() => {
-      expect(screen.getByTestId('topology-tab-dr-lag-value').textContent).toContain('1.7 s')
-    })
-    // Honest "live" source badge.
-    expect(screen.getByTestId('topology-tab-dr-source').textContent).toContain('live')
-  })
-
-  it('desired-state: NO imperative Switchover control — Desired primary + Serving writes side by side, converged, last switchover card', async () => {
-    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
-    getApplicationPlacement.mockResolvedValue(standbyPlacement)
-    getContinuumReplicationStatus.mockResolvedValue({
-      continuum: 'dr-shared-pg',
-      namespace: 'shared-data',
-      // spec.primaryRegion (static home) deliberately differs from the
-      // observed writer — the panel must never print it as "the primary".
-      primaryRegion: 'me-east-215-a',
-      currentPrimary: 'me-east-215-b',
-      observedPrimaryRegion: 'me-east-215-b',
-      desiredPrimaryRegion: 'me-east-215-b',
-      converged: true,
-      switchoverInProgress: false,
-      lastSwitchover: { at: '2026-11-07T12:00:00Z', from: 'me-east-215-a', to: 'me-east-215-b', result: 'Success' },
-      walLagSeconds: 0.4,
-      source: 'live',
-    })
-    getApplicationStatus.mockResolvedValue({ name: 'shared-pg', namespace: 'shared-data', spec: {}, status: {} })
-
-    render(withProviders(<TopologyTab sovereignId="dep-z" applicationName="shared-pg" namespace="shared-data" />))
-
-    await waitFor(() => {
-      expect(screen.getByTestId('topology-tab-dr-desired')).toBeTruthy()
-    })
-    expect(screen.getByTestId('topology-tab-dr-desired').textContent).toContain('me-east-215-b')
-    expect(screen.getByTestId('topology-tab-dr-observed').textContent).toContain('me-east-215-b')
-    expect(screen.getByTestId('topology-tab-dr-observed').textContent).toContain('matches desired')
-    // Converged → no converging banner.
-    expect(screen.queryByTestId('topology-tab-dr-converging')).toBeNull()
-    // Last switchover card: at, from → to, result.
-    const last = screen.getByTestId('topology-tab-dr-last-switchover')
-    expect(last.textContent).toContain('me-east-215-a → me-east-215-b')
-    expect(last.textContent).toContain('Success')
-    expect(last.textContent).toContain('2026-11-07T12:00:00Z')
-    // The imperative verb is gone — no button, no dialog, anywhere.
-    expect(screen.queryByTestId('topology-tab-dr-switchover-open')).toBeNull()
-    expect(screen.queryByTestId('topology-tab-dr-switchover')).toBeNull()
-    expect(screen.queryByTestId('continuum-switchover-dialog')).toBeNull()
-    expect(screen.queryByText(/Switch over/)).toBeNull()
-  })
-
-  it('desired-state: while the controller runs the switchover the banner names from → to and the live step', async () => {
-    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
-    getApplicationPlacement.mockResolvedValue(standbyPlacement)
-    getContinuumReplicationStatus.mockResolvedValue({
-      continuum: 'dr-shared-pg',
-      namespace: 'shared-data',
-      primaryRegion: 'me-east-215-a',
-      currentPrimary: 'me-east-215-a',
-      observedPrimaryRegion: 'me-east-215-a',
-      desiredPrimaryRegion: 'me-east-215-b',
-      converged: false,
-      switchoverInProgress: true,
-      step: 'step 3/7 — fence-old-primary',
-      phase: 'SwitchingOver',
-      walLagSeconds: 0.2,
-      source: 'live',
-    })
-    getApplicationStatus.mockResolvedValue({ name: 'shared-pg', namespace: 'shared-data', spec: {}, status: {} })
-
-    render(withProviders(<TopologyTab sovereignId="dep-z" applicationName="shared-pg" namespace="shared-data" />))
-
-    await waitFor(() => {
-      expect(screen.getByTestId('topology-tab-dr-converging')).toBeTruthy()
-    })
-    expect(screen.getByTestId('topology-tab-dr-converging').textContent).toBe(
-      'Switching me-east-215-a → me-east-215-b: step 3/7 — fence-old-primary',
-    )
-    expect(screen.getByTestId('topology-tab-dr-desired').textContent).toContain('me-east-215-b')
-    expect(screen.getByTestId('topology-tab-dr-observed').textContent).toContain('me-east-215-a')
-    expect(screen.getByTestId('topology-tab-dr-observed').textContent).toContain('converging')
-  })
-
-  it('desired-state: not converged and not running → the banner is the controller\'s convergeMessage (why it is blocked)', async () => {
-    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
-    getApplicationPlacement.mockResolvedValue(standbyPlacement)
-    getContinuumReplicationStatus.mockResolvedValue({
-      continuum: 'dr-shared-pg',
-      namespace: 'shared-data',
-      primaryRegion: 'me-east-215-a',
-      currentPrimary: 'me-east-215-a',
-      desiredPrimaryRegion: 'me-east-215-b',
-      converged: false,
-      switchoverInProgress: false,
-      convergeReason: 'ConvergeBlocked',
-      convergeMessage: 'standby lag 40s exceeds RPO; will retry',
-      lastSwitchover: { at: '2026-11-07T11:00:00Z', from: 'me-east-215-a', to: 'me-east-215-b', result: 'Failed' },
-      walLagSeconds: 40,
-      source: 'live',
-    })
-    getApplicationStatus.mockResolvedValue({ name: 'shared-pg', namespace: 'shared-data', spec: {}, status: {} })
-
-    render(withProviders(<TopologyTab sovereignId="dep-z" applicationName="shared-pg" namespace="shared-data" />))
-
-    await waitFor(() => {
-      expect(screen.getByTestId('topology-tab-dr-converging')).toBeTruthy()
-    })
-    const banner = screen.getByTestId('topology-tab-dr-converging')
-    expect(banner.textContent).toContain('standby lag 40s exceeds RPO; will retry')
-    expect(screen.getByTestId('topology-tab-dr-converge-reason').textContent).toContain('ConvergeBlocked')
-    expect(banner.textContent).not.toContain('Switching')
-    expect(screen.getByTestId('topology-tab-dr-last-switchover-result').textContent).toBe('Failed')
-  })
-
-  it('desired-state: changing the Primary in the placement editor previews the switch BEFORE Save (informative only)', async () => {
-    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
-    getApplicationPlacement.mockResolvedValue(standbyPlacement)
-    getContinuumReplicationStatus.mockResolvedValue({
-      continuum: 'dr-shared-pg',
-      namespace: 'shared-data',
-      primaryRegion: 'me-east-215-a',
-      currentPrimary: 'me-east-215-a',
-      desiredPrimaryRegion: 'me-east-215-a',
-      converged: true,
-      walLagSeconds: 0.3,
-      source: 'live',
-    })
-    getSwitchoverPreview.mockResolvedValue({
-      continuum: 'dr-shared-pg',
-      namespace: 'shared-data',
-      targetRegion: 'me-east-215-b',
-      currentPrimary: 'me-east-215-a',
-      currentLagSec: 0.3,
-      estimatedDurationSec: 60,
-      estimatedDuration: '60s',
-      blockingChecks: ['WAL lag 40.0s exceeds 4× RTO (10s) — replica not promotable'],
-      promotable: false,
-      message: 'preview only',
-    })
-    getApplicationStatus.mockResolvedValue({ name: 'shared-pg', namespace: 'shared-data', spec: {}, status: {} })
-
-    render(withProviders(<TopologyTab sovereignId="dep-z" applicationName="shared-pg" namespace="shared-data" />))
-
-    await waitFor(() => {
-      expect(screen.getByTestId('topology-tab-dr-observed').textContent).toContain('me-east-215-a')
-    })
-    fireEvent.click(screen.getByTestId('topology-tab-edit-placement'))
-    // Nothing previewed until the Primary actually changes.
-    expect(screen.queryByTestId('topology-tab-save-preview')).toBeNull()
-    expect(getSwitchoverPreview).not.toHaveBeenCalled()
-
-    fireEvent.click(screen.getByTestId('stub-flip-primary'))
-
-    await waitFor(() => {
-      expect(getSwitchoverPreview).toHaveBeenCalledWith(
-        'dep-z',
-        'dr-shared-pg',
-        { targetRegion: 'me-east-215-b' },
-        { namespace: 'shared-data' },
-      )
-    })
-    const preview = await screen.findByTestId('topology-tab-save-preview')
-    expect(preview.textContent).toContain('Saving will switch the writer from me-east-215-a to me-east-215-b')
-    await waitFor(() => {
-      expect(screen.getByTestId('topology-tab-save-preview-checks').textContent).toContain('exceeds 4× RTO')
-    })
-  })
-
-  it('drIsConverging drives the 3s fast poll only while converging toward a declared Primary', () => {
-    const base = { continuum: 'c', namespace: 'n', primaryRegion: 'x', currentPrimary: 'x', walLagSeconds: 0, source: 'live' }
-    expect(drIsConverging(undefined)).toBe(false)
-    // Older backend — nothing declared → never "converging".
-    expect(drIsConverging({ ...base })).toBe(false)
-    expect(drIsConverging({ ...base, desiredPrimaryRegion: 'x', converged: true })).toBe(false)
-    expect(drIsConverging({ ...base, desiredPrimaryRegion: 'y', converged: false })).toBe(true)
-    expect(drIsConverging({ ...base, desiredPrimaryRegion: 'y', converged: true, switchoverInProgress: true })).toBe(true)
-    // A fallback (non-live) envelope is never a convergence claim.
-    expect(drIsConverging({ ...base, source: 'pending', desiredPrimaryRegion: 'y', converged: false })).toBe(false)
-    expect(drPollInterval({ ...base, desiredPrimaryRegion: 'y', converged: false })).toBe(DR_CONVERGING_POLL_MS)
-    expect(drPollInterval({ ...base, desiredPrimaryRegion: 'x', converged: true })).toBe(DR_STEADY_POLL_MS)
-    expect(DR_CONVERGING_POLL_MS).toBe(3_000)
-  })
-
-  it('#4552: a paired CNPG whose placement projects a false singleton STILL renders the pair (no stale singleton)', async () => {
-    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
-    getApplicationStatus.mockResolvedValue({ name: 'shared-pg', namespace: 'shared-data', spec: {}, status: {} })
-    // The placement projection reports ONLY the primary (the CNPG replica half
-    // isn't surfaced as a Standby target) → hasStandby is false → the tab used
-    // to render a stale singleton with no DR. But the LIVE continuum status
-    // confirms a real cross-region pair, so the DR panel + switchover must
-    // render off it.
-    getApplicationPlacement.mockResolvedValue({
-      targets: [{ region: 'me-east-215-a', cluster: 'c', vcluster: 'host', role: 'Primary' }],
-      derivedFromRuntime: true,
-    })
-    getContinuumReplicationStatus.mockResolvedValue({
-      continuum: 'dr-shared-pg',
-      namespace: 'shared-data',
-      primaryRegion: 'me-east-215-a',
-      currentPrimary: 'me-east-215-a',
-      walLagSeconds: 0,
-      replicas: [{ region: 'me-east-215-b', role: 'replica', lagSeconds: 0 }],
-      streamingState: 'streaming',
-      syncState: 'sync',
-      source: 'live',
-    })
-
-    render(withProviders(<TopologyTab sovereignId="dep-z" applicationName="shared-pg" namespace="shared-data" />))
-
-    // DR panel renders off the live pair even though placement said singleton.
-    await waitFor(() => {
-      expect(screen.getByTestId('topology-tab-dr-panel')).toBeTruthy()
-    })
-    expect(screen.getByTestId('topology-tab-dr-observed').textContent).toContain('me-east-215-a')
-    expect(screen.getByTestId('topology-tab-dr-standby').textContent).toContain('me-east-215-b')
-    // No imperative switchover verb — the Primary moves via placement only.
-    expect(screen.queryByTestId('topology-tab-dr-switchover-open')).toBeNull()
-  })
-
-  it('#4923: a VERIFIED-absent standby renders the explicit standby-absent condition, never a calm follower card', async () => {
-    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
-    getApplicationStatus.mockResolvedValue({ name: 'shared-pg', namespace: 'shared-data', spec: {}, status: {} })
-    getApplicationPlacement.mockResolvedValue(standbyPlacement)
-    // The backend verified the standby leg off the live cnpg-pair replica
-    // half and reports it ABSENT (the #4901 region-kill shape) — lag stays 0
-    // during the outage, so the UI must key off standbyAvailable, not lag.
-    getContinuumReplicationStatus.mockResolvedValue({
-      continuum: 'dr-shared-pg',
-      namespace: 'shared-data',
-      primaryRegion: 'me-east-215-a',
-      currentPrimary: 'me-east-215-a',
-      walLagSeconds: 0,
-      streamingState: 'interrupted',
-      standbyAvailable: false,
-      replicas: [{ region: 'me-east-215-b', role: 'replica', lagSeconds: 0 }],
-      source: 'live',
-    })
-
-    render(withProviders(<TopologyTab sovereignId="dep-z" applicationName="shared-pg" namespace="shared-data" />))
-
-    await waitFor(() => {
-      expect(screen.getByTestId('topology-tab-dr-panel')).toBeTruthy()
-    })
-    // The explicit honest condition banner renders.
-    await waitFor(() => {
-      expect(screen.getByTestId('topology-tab-dr-standby-absent').textContent).toContain('Standby absent')
-    })
-    // The standby card reads unreachable — NOT the calm 'hot replica' text.
-    const card = screen.getByTestId('topology-tab-dr-standby-me-east-215-b')
-    expect(card.textContent).toContain('standby unreachable')
-    expect(card.textContent).not.toContain('hot replica (follows WAL)')
-  })
-
-  it('#4923: an UNVERIFIABLE standby (standbyAvailable omitted) renders NO absent banner (unknown is not a fault claim)', async () => {
-    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
-    getApplicationStatus.mockResolvedValue({ name: 'shared-pg', namespace: 'shared-data', spec: {}, status: {} })
-    getApplicationPlacement.mockResolvedValue(standbyPlacement)
-    getContinuumReplicationStatus.mockResolvedValue({
-      continuum: 'dr-shared-pg',
-      namespace: 'shared-data',
-      primaryRegion: 'me-east-215-a',
-      currentPrimary: 'me-east-215-a',
-      walLagSeconds: 0.4,
-      source: 'live',
-    })
-
-    render(withProviders(<TopologyTab sovereignId="dep-z" applicationName="shared-pg" namespace="shared-data" />))
-
-    await waitFor(() => {
-      expect(screen.getByTestId('topology-tab-dr-panel')).toBeTruthy()
-    })
-    expect(screen.queryByTestId('topology-tab-dr-standby-absent')).toBeNull()
-  })
-
-  it('a SINGLETON app shows NO DR panel + NO Switchover (honestly hidden, row 58)', async () => {
-    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
-    const initialApp = {
-      name: 'grafana',
-      namespace: 'grafana',
-      spec: { placement: { targets: [{ region: 'region-a', cluster: 'mgmt-A', vcluster: 'mgmt', role: 'Primary' }] } },
-      status: { placement: 'Reconciled' },
-    }
-    render(
-      withProviders(
-        <TopologyTab sovereignId="test-sov" applicationName="grafana" initialApp={initialApp as never} disableNetwork />,
-      ),
-    )
-    await waitFor(() => {
-      expect(screen.getByTestId('topology-tab-pattern').textContent).toBe('singleton')
-    })
-    expect(screen.queryByTestId('topology-tab-dr-panel')).toBeNull()
-    expect(screen.queryByTestId('topology-tab-dr-switchover')).toBeNull()
-    // The DR endpoint is never polled for a singleton.
-    expect(getContinuumReplicationStatus).not.toHaveBeenCalled()
-  })
-
-  it('a cross-region app with NO Continuum CR (404) shows the calm no-replica note, never a fabricated lag', async () => {
-    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
-    getApplicationStatus.mockResolvedValue({ name: 'sso-bridge', namespace: 'sso-bridge', spec: {}, status: {} })
-    getApplicationPlacement.mockResolvedValue(standbyPlacement)
-    // Default beforeEach mock = 404.
-
-    render(withProviders(<TopologyTab sovereignId="dep-z" applicationName="sso-bridge" namespace="sso-bridge" />))
-
-    await waitFor(() => {
-      expect(screen.getByTestId('topology-tab-dr-none')).toBeTruthy()
-    })
-    // No live lag value rendered (the section short-circuits on error).
-    expect(screen.queryByTestId('topology-tab-dr-lag-value')).toBeNull()
-  })
-})
-
-describe('TopologyTab — #4886 bootstrap-HR DR off the live Continuum CR', () => {
-  // spine-keycloak/gitea/harbor/openbao + cnpg-pair: Continuum-backed bootstrap
-  // HelmReleases with NO Application CR. Their Pods run active-active across
-  // both regions, so the placement projection labels BOTH regions Primary and
-  // hasStandby is false — yet the live continuum carries the real active
-  // (leaseHolder) + standby + replicationLagSeconds. The DR section must render
-  // off that live status instead of vanishing.
-  const activeActivePlacement = {
-    targets: [
-      { region: 'me-east-215-a', cluster: 'dep-x', vcluster: 'mgmt', role: 'Primary' },
-      { region: 'me-east-215-b', cluster: 'dep-x-b', vcluster: 'mgmt', role: 'Primary' },
-    ],
-    derivedFromRuntime: true,
-  }
-
-  it('renders the DR section for a bootstrap-HR app off the LIVE continuum (active region=leaseHolder, standby, numeric lag)', async () => {
-    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
-    getApplicationPlacement.mockResolvedValue(activeActivePlacement)
-    getContinuumReplicationStatus.mockResolvedValue({
-      continuum: 'dr-spine-keycloak',
-      namespace: 'keycloak',
-      primaryRegion: 'me-east-215-a',
-      // active region = the witness-lease holder (surfaced as currentPrimary).
-      currentPrimary: 'me-east-215-a',
-      walLagSeconds: 0,
-      replicas: [{ region: 'me-east-215-b', role: 'replica', lagSeconds: 0 }],
-      streamingState: 'streaming',
-      source: 'live',
-    })
-
-    render(
-      withProviders(
-        <TopologyTab
-          sovereignId="dep-x"
-          applicationName="spine-keycloak"
-          namespace="flux-system"
-          isBootstrap
-        />,
-      ),
-    )
-
-    // Bootstrap components query with EMPTY namespace so the cluster-wide lookup
-    // finds the CR in the spine's namespace (not the flux-system HR ns).
-    await waitFor(() => {
-      expect(getContinuumReplicationStatus).toHaveBeenCalledWith('dep-x', 'dr-spine-keycloak', {
-        namespace: undefined,
-      })
-    })
-    await waitFor(() => {
-      expect(screen.getByTestId('topology-tab-dr-panel')).toBeTruthy()
-    })
-    // Active region = leaseHolder; standby is the OTHER region — NOT a second
-    // "PRIMARY / serves writes" card.
-    expect(screen.getByTestId('topology-tab-dr-observed').textContent).toContain('me-east-215-a')
-    expect(screen.getByTestId('topology-tab-dr-standby').textContent).toContain('me-east-215-b')
-    // Numeric replication lag in seconds (row 56/64) — never a bare dash.
-    await waitFor(() => {
-      expect(screen.getByTestId('topology-tab-dr-lag-value').textContent).toContain('0.0 s')
-    })
-    expect(screen.getByTestId('topology-tab-dr-source').textContent).toContain('live')
-    // The Status panel is unaffected by the DR panel — it still renders. This
-    // used to anchor on the "n/a — bootstrap component" prose; #5934 made that
-    // string the FALLBACK rather than the fixed rendering for a bootstrap
-    // component, so anchoring on the panel itself is what this case actually
-    // means (DR does not displace Status).
-    expect(screen.getByTestId('topology-tab-status-panel')).toBeTruthy()
-  })
-
-  it('#5514: a DECLARED active-hot-standby with ZERO backing arms NOTHING — no lag, no follower card, no switchover verb', async () => {
-    // The live hw291 phantom (uatcorp/uatwalk-ahs-07300830): the Application
-    // DECLARES active-hot-standby, but the standby region has no namespace at
-    // all. Two things conspired:
-    //   • /placement returns targets: [] → the targetsFromLegacy fallback
-    //     projects Primary + Standby·Hot from the DECLARED mode → hasStandby.
-    //   • replication-status returns HTTP 200 (NOT a 404) with the
-    //     `source:"pending"` fallback envelope carrying a fabricated
-    //     replicas[] entry + walLagSeconds 0 + replicaPromotable false.
-    // Pre-fix that rendered "Replication lag 0.0 s", a "hot replica (follows
-    // WAL)" card, and an ARMED "Switch over…" targeting the phantom region.
-    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
-    getApplicationStatus.mockResolvedValue({
-      name: 'uatwalk-ahs-07300830',
-      namespace: 'uatcorp',
-      // The DECLARED legacy posture — no spec.placement.targets[] at all.
-      spec: { placement: 'active-hot-standby', regions: ['me-east-215-a', 'me-east-215-b'] },
-      status: { placementRecon: 'Reconciling' },
-    })
-    getApplicationPlacement.mockResolvedValue({ targets: [], derivedFromRuntime: true })
-    getContinuumReplicationStatus.mockResolvedValue({
-      continuum: 'dr-uatwalk-ahs-07300830',
-      namespace: 'uatcorp',
-      primaryRegion: 'me-east-215-a',
-      currentPrimary: 'me-east-215-a',
-      walLagSeconds: 0,
-      replicaPromotable: false,
-      replicas: [{ region: 'me-east-215-b', role: 'replica' }],
-      source: 'pending',
-    })
-
-    render(
-      withProviders(
-        <TopologyTab
-          sovereignId="dep-hw291"
-          applicationName="uatwalk-ahs-07300830"
-          namespace="uatcorp"
-        />,
-      ),
-    )
-
-    // POSITIVE CONTROL (rule 2) — the surface really did render. Without this
-    // the absence assertions below would pass on an empty render.
-    await waitFor(() => {
-      expect(screen.getByTestId('topology-tab-dr-panel')).toBeTruthy()
-    })
-    // The declared standby DID drive the panel open, and the honest
-    // not-live badge is present — so we are on the real code path.
-    expect(screen.getByTestId('topology-tab-dr-source').textContent).toContain('not live')
-    // And the honest unbacked note renders (previously DEAD code, because the
-    // endpoint answers 200 and `drQ.isError` never fired).
-    await waitFor(() => {
-      expect(screen.getByTestId('topology-tab-dr-none')).toBeTruthy()
-    })
-    expect(screen.getByTestId('topology-tab-dr-unbacked').textContent).toContain('DECLARES a standby')
-
-    // ── The three defects, each asserted absent ────────────────────────
-    // 1. NO numeric replication lag anywhere.
-    expect(screen.queryByTestId('topology-tab-dr-lag-value')).toBeNull()
-    expect(screen.queryByTestId('topology-tab-dr-lag')).toBeNull()
-    expect(document.body.textContent).not.toContain('0.0 s')
-    // 2. NO "hot replica (follows WAL)" standby card for the phantom region.
-    expect(screen.queryByTestId('topology-tab-dr-standby')).toBeNull()
-    expect(screen.queryByTestId('topology-tab-dr-standby-me-east-215-b')).toBeNull()
-    expect(document.body.textContent).not.toContain('hot replica (follows WAL)')
-    // 3. NO switchover control at all (desired-state model): the section
-    //    says how the Primary moves (placement) and why it cannot today.
-    expect(screen.queryByTestId('topology-tab-dr-switchover-open')).toBeNull()
-    expect(screen.getByTestId('topology-tab-dr-unavailable').textContent).toContain(
-      'editing this app',
-    )
-    expect(screen.queryByTestId('continuum-switchover-dialog')).toBeNull()
-    // No target region is named anywhere — the phantom must not be printed.
-    expect(document.body.textContent).not.toContain('promote standby')
-  })
-
-  it('#5514: an explicit replicaPromotable:false on a LIVE reading still renders the honest live lag and NO switchover verb', async () => {
-    // Backing IS live (so the panel + lag render honestly), but the backend
-    // says the replica cannot be promoted. The button must be disabled with a
-    // plain reason — pre-fix `disabled={!switchoverTarget}` ignored the verdict
-    // entirely and armed off a region STRING.
-    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
-    getApplicationStatus.mockResolvedValue({ name: 'shared-pg', namespace: 'shared-data', spec: {}, status: {} })
-    getApplicationPlacement.mockResolvedValue({
-      targets: [
-        { region: 'me-east-215-a', cluster: 'c', vcluster: 'host', role: 'Primary' },
-        { region: 'me-east-215-b', cluster: 'c-b', vcluster: 'host', role: 'Standby', standbyType: 'Hot' },
-      ],
-      derivedFromRuntime: true,
-    })
-    getContinuumReplicationStatus.mockResolvedValue({
-      continuum: 'dr-shared-pg',
-      namespace: 'shared-data',
-      primaryRegion: 'me-east-215-a',
-      currentPrimary: 'me-east-215-a',
-      walLagSeconds: 3.2,
-      replicaPromotable: false,
-      streamingState: 'catchup',
-      source: 'live',
-    })
-
-    render(withProviders(<TopologyTab sovereignId="dep-z" applicationName="shared-pg" namespace="shared-data" />))
-
-    // POSITIVE CONTROL — a live backing renders the full panel + real lag.
-    await waitFor(() => {
-      expect(screen.getByTestId('topology-tab-dr-lag-value')).toBeTruthy()
-    })
-    expect(screen.getByTestId('topology-tab-dr-lag-value').textContent).toContain('3.2 s')
-    expect(screen.queryByTestId('topology-tab-dr-switchover-open')).toBeNull()
-  })
-
-  it('#5514: a VERIFIED-absent standby shows no false 0.0 s lag', async () => {
-    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
-    getApplicationStatus.mockResolvedValue({ name: 'shared-pg', namespace: 'shared-data', spec: {}, status: {} })
-    getApplicationPlacement.mockResolvedValue({
-      targets: [
-        { region: 'me-east-215-a', cluster: 'c', vcluster: 'host', role: 'Primary' },
-        { region: 'me-east-215-b', cluster: 'c-b', vcluster: 'host', role: 'Standby', standbyType: 'Hot' },
-      ],
-      derivedFromRuntime: true,
-    })
-    // #4901 shape — lag stays 0 through the outage, so a rendered "0.0 s"
-    // reads as perfect health exactly when the standby is gone.
-    getContinuumReplicationStatus.mockResolvedValue({
-      continuum: 'dr-shared-pg',
-      namespace: 'shared-data',
-      primaryRegion: 'me-east-215-a',
-      currentPrimary: 'me-east-215-a',
-      walLagSeconds: 0,
-      standbyAvailable: false,
-      streamingState: 'interrupted',
-      source: 'live',
-    })
-
-    render(withProviders(<TopologyTab sovereignId="dep-z" applicationName="shared-pg" namespace="shared-data" />))
-
-    // POSITIVE CONTROL — the panel and the absent banner rendered.
-    await waitFor(() => {
-      expect(screen.getByTestId('topology-tab-dr-standby-absent')).toBeTruthy()
-    })
-    // The lag cell renders, but as an honest dash — not a false 0.0 s.
-    expect(screen.getByTestId('topology-tab-dr-lag-value').textContent).toContain('—')
-    expect(screen.getByTestId('topology-tab-dr-lag-value').textContent).not.toContain('0.0 s')
-    expect(screen.queryByTestId('topology-tab-dr-switchover-open')).toBeNull()
-  })
-
-  it('#5508: an UNVERIFIED lag (streaming-replication + standby-available gates Warn) renders as unknown, never 0.0 s green', async () => {
-    // The live hw291 shape (dep 2c2d746b578c636b): the API returns
-    // walLagSeconds:0 WITH the two Warn gates saying the measurement is
-    // unverified — and the tab rendered "Replication lag 0.0 s" behind a
-    // green pill, surfacing neither gate. The reductio on the same env:
-    // dr-spine-openbao (a raft store with no PostgreSQL at all) reported a
-    // PostgreSQL lag of 0 through the identical shape.
-    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
-    getApplicationStatus.mockResolvedValue({ name: 'shared-pg', namespace: 'shared-data', spec: {}, status: {} })
-    getApplicationPlacement.mockResolvedValue({
-      targets: [
-        { region: 'me-east-215-a', cluster: 'c', vcluster: 'host', role: 'Primary' },
-        { region: 'me-east-215-b', cluster: 'c-b', vcluster: 'host', role: 'Standby', standbyType: 'Hot' },
-      ],
-      derivedFromRuntime: true,
-    })
-    getContinuumReplicationStatus.mockResolvedValue({
-      continuum: 'dr-shared-pg',
-      namespace: 'shared-data',
-      primaryRegion: 'me-east-215-a',
-      currentPrimary: 'me-east-215-a',
-      walLagSeconds: 0,
-      streamingState: 'streaming',
-      replicas: [{ region: 'me-east-215-b', role: 'replica', lagSeconds: 0 }],
-      healthGates: [
-        {
-          name: 'streaming-replication',
-          status: 'Warn',
-          severity: 'warning',
-          message: 'replication health not reported by the Continuum CR; unverified',
-        },
-        { name: 'wal-lag-under-rpo', status: 'Pass', severity: 'info' },
-        {
-          name: 'standby-available',
-          status: 'Warn',
-          severity: 'warning',
-          message:
-            'standby leg not verifiable from live cluster state (no cnpg pair resolvable); reporting unknown, not healthy',
-        },
-      ],
-      source: 'live',
-    })
-
-    render(withProviders(<TopologyTab sovereignId="dep-hw291" applicationName="shared-pg" namespace="shared-data" />))
-
-    // POSITIVE CONTROL (vacuity check) — the DR panel AND the lag cell really
-    // rendered; the negative assertions below cannot pass on an empty render.
-    await waitFor(() => {
-      expect(screen.getByTestId('topology-tab-dr-panel')).toBeTruthy()
-    })
-    const lagCell = await screen.findByTestId('topology-tab-dr-lag-value')
-
-    // THE regression: an unverified lag must read as unknown, never a
-    // numeric zero…
-    expect(lagCell.textContent).toContain('—')
-    expect(lagCell.textContent).not.toContain('0.0 s')
-    expect(document.body.textContent).not.toContain('0.0 s')
-    // …and a Warn gate can NEVER sit behind a green pill.
-    expect(lagCell.className).not.toContain('text-green-400')
-    // The unverified qualifier is stated in plain text.
-    expect(screen.getByTestId('topology-tab-dr-lag-unverified')).toBeTruthy()
-    // BOTH Warn gates are surfaced next to the reading they qualify.
-    expect(screen.getByTestId('topology-tab-dr-gate-streaming-replication').textContent).toContain('unverified')
-    expect(screen.getByTestId('topology-tab-dr-gate-standby-available').textContent).toContain('not verifiable')
-  })
-
-  it('#5508 CONTROL: all-Pass gates keep the verified numeric lag + green pill unchanged (the guard must not swallow real data)', async () => {
-    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
-    getApplicationStatus.mockResolvedValue({ name: 'shared-pg', namespace: 'shared-data', spec: {}, status: {} })
-    getApplicationPlacement.mockResolvedValue({
-      targets: [
-        { region: 'me-east-215-a', cluster: 'c', vcluster: 'host', role: 'Primary' },
-        { region: 'me-east-215-b', cluster: 'c-b', vcluster: 'host', role: 'Standby', standbyType: 'Hot' },
-      ],
-      derivedFromRuntime: true,
-    })
-    getContinuumReplicationStatus.mockResolvedValue({
-      continuum: 'dr-shared-pg',
-      namespace: 'shared-data',
-      primaryRegion: 'me-east-215-a',
-      currentPrimary: 'me-east-215-a',
-      walLagSeconds: 1.7,
-      streamingState: 'streaming',
-      syncState: 'async',
-      healthGates: [
-        { name: 'streaming-replication', status: 'Pass', severity: 'info' },
-        { name: 'wal-lag-under-rpo', status: 'Pass', severity: 'info' },
-        { name: 'standby-available', status: 'Pass', severity: 'info', message: 'hot-standby in me-east-215-b is reachable' },
-      ],
-      source: 'live',
-    })
-
-    render(withProviders(<TopologyTab sovereignId="dep-z" applicationName="shared-pg" namespace="shared-data" />))
-
-    await waitFor(() => {
-      expect(screen.getByTestId('topology-tab-dr-panel')).toBeTruthy()
-    })
-    const lagCell = await screen.findByTestId('topology-tab-dr-lag-value')
-    // Verified reading renders EXACTLY as before: the number, green bucket.
-    await waitFor(() => {
-      expect(lagCell.textContent).toContain('1.7 s')
-    })
-    expect(lagCell.className).toContain('text-green-400')
-    // No unverified qualifier, no degraded-gate rows.
-    expect(screen.queryByTestId('topology-tab-dr-lag-unverified')).toBeNull()
-    expect(screen.queryByTestId('topology-tab-dr-gates')).toBeNull()
-  })
-
-  it('#5508: a Fail gate is a VERIFIED fault — the real number stays but the pill degrades to red, never green', async () => {
-    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
-    getApplicationStatus.mockResolvedValue({ name: 'shared-pg', namespace: 'shared-data', spec: {}, status: {} })
-    getApplicationPlacement.mockResolvedValue({
-      targets: [
-        { region: 'me-east-215-a', cluster: 'c', vcluster: 'host', role: 'Primary' },
-        { region: 'me-east-215-b', cluster: 'c-b', vcluster: 'host', role: 'Standby', standbyType: 'Hot' },
-      ],
-      derivedFromRuntime: true,
-    })
-    getContinuumReplicationStatus.mockResolvedValue({
-      continuum: 'dr-shared-pg',
-      namespace: 'shared-data',
-      primaryRegion: 'me-east-215-a',
-      currentPrimary: 'me-east-215-a',
-      walLagSeconds: 3.2,
-      streamingState: 'catchup',
-      healthGates: [
-        {
-          name: 'streaming-replication',
-          status: 'Fail',
-          severity: 'critical',
-          message: 'replication reported unhealthy on the Continuum CR',
-        },
-        { name: 'wal-lag-under-rpo', status: 'Pass', severity: 'info' },
-      ],
-      source: 'live',
-    })
-
-    render(withProviders(<TopologyTab sovereignId="dep-z" applicationName="shared-pg" namespace="shared-data" />))
-
-    await waitFor(() => {
-      expect(screen.getByTestId('topology-tab-dr-panel')).toBeTruthy()
-    })
-    const lagCell = await screen.findByTestId('topology-tab-dr-lag-value')
-    await waitFor(() => {
-      expect(lagCell.textContent).toContain('3.2 s')
-    })
-    expect(lagCell.className).toContain('text-red-400')
-    expect(lagCell.className).not.toContain('text-green-400')
-    // The verified fault is surfaced as an explicit gate row.
-    expect(screen.getByTestId('topology-tab-dr-gate-streaming-replication').textContent).toContain('unhealthy')
-  })
-
-  it('#5508: an OVER-THRESHOLD wal-lag Warn keeps its genuine numeric reading (only the not-reported branch reads unknown)', async () => {
-    // The other Warn cause on the same gate: lag 45s > the 30s promotability
-    // threshold. That number is a REAL measurement the operator needs — a
-    // blanket gates-warn→dash overcorrection would hide it. The backend's
-    // not-reported branch is only reachable with the zero-value lag (<=30),
-    // which is how the component discriminates structurally.
-    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
-    getApplicationStatus.mockResolvedValue({ name: 'shared-pg', namespace: 'shared-data', spec: {}, status: {} })
-    getApplicationPlacement.mockResolvedValue({
-      targets: [
-        { region: 'me-east-215-a', cluster: 'c', vcluster: 'host', role: 'Primary' },
-        { region: 'me-east-215-b', cluster: 'c-b', vcluster: 'host', role: 'Standby', standbyType: 'Hot' },
-      ],
-      derivedFromRuntime: true,
-    })
-    getContinuumReplicationStatus.mockResolvedValue({
-      continuum: 'dr-shared-pg',
-      namespace: 'shared-data',
-      primaryRegion: 'me-east-215-a',
-      currentPrimary: 'me-east-215-a',
-      walLagSeconds: 45,
-      streamingState: 'streaming',
-      healthGates: [
-        { name: 'streaming-replication', status: 'Pass', severity: 'info' },
-        {
-          name: 'wal-lag-under-rpo',
-          status: 'Warn',
-          severity: 'warning',
-          message: 'replication lag 45s exceeds the 30s promotability threshold',
-        },
-        { name: 'standby-available', status: 'Pass', severity: 'info' },
-      ],
-      source: 'live',
-    })
-
-    render(withProviders(<TopologyTab sovereignId="dep-z" applicationName="shared-pg" namespace="shared-data" />))
-
-    await waitFor(() => {
-      expect(screen.getByTestId('topology-tab-dr-panel')).toBeTruthy()
-    })
-    const lagCell = await screen.findByTestId('topology-tab-dr-lag-value')
-    await waitFor(() => {
-      expect(lagCell.textContent).toContain('45.0 s')
-    })
-    // Not green (the gate warns), and the number is NOT swallowed.
-    expect(lagCell.className).not.toContain('text-green-400')
-    expect(screen.queryByTestId('topology-tab-dr-lag-unverified')).toBeNull()
-    expect(screen.getByTestId('topology-tab-dr-gate-wal-lag-under-rpo').textContent).toContain('exceeds')
-  })
-
-  it('does NOT render DR for a SINGLETON bootstrap app (synthesized fallback is never passed off as live)', async () => {
-    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
-    getApplicationPlacement.mockResolvedValue({
-      targets: [{ region: 'me-east-215-a', cluster: 'dep-x', vcluster: 'mgmt', role: 'Primary' }],
-      derivedFromRuntime: true,
-    })
-    // The endpoint returns a synthesized shape (source:"synthesized") when no
-    // live Continuum/cnpg-pair backs the app — the DR section must stay hidden.
-    getContinuumReplicationStatus.mockResolvedValue({
-      continuum: 'dr-cert-manager',
-      namespace: 'cert-manager',
-      primaryRegion: 'hz-fsn-rtz-prod',
-      currentPrimary: 'hz-fsn-rtz-prod',
-      walLagSeconds: 2.0,
-      replicas: [{ region: 'hz-hel-rtz-prod', role: 'replica' }],
-      source: 'synthesized',
-    })
-
-    render(
-      withProviders(
-        <TopologyTab
-          sovereignId="dep-x"
-          applicationName="cert-manager"
-          namespace="flux-system"
-          isBootstrap
-        />,
-      ),
-    )
-
-    // Anchor on the SUBJECT of this case — the replication-status answer this
-    // assertion is about — so the two negatives below cannot pass merely
-    // because nothing has rendered yet. (It previously anchored on the
-    // "n/a — bootstrap component" prose, which #5934 turned into a fallback.)
-    await waitFor(() => {
-      expect(getContinuumReplicationStatus).toHaveBeenCalled()
-    })
-    await waitFor(() => {
-      expect(screen.getByTestId('topology-tab-placement-panel')).toBeTruthy()
-    })
-    expect(screen.queryByTestId('topology-tab-dr-panel')).toBeNull()
-    expect(screen.queryByTestId('topology-tab-dr-switchover')).toBeNull()
   })
 })
 

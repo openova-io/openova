@@ -79,7 +79,7 @@ func TestReconcilePerOrgFlux_CreatesGitRepositoryAndKustomization(t *testing.T) 
 	}
 	r.Client = cl
 
-	if err := r.reconcilePerOrgFlux(context.Background(), newTestOrg(slug)); err != nil {
+	if err := reconcilePerOrgFluxApplied(t, r, context.Background(), newTestOrg(slug)); err != nil {
 		t.Fatalf("reconcilePerOrgFlux: %v", err)
 	}
 
@@ -148,7 +148,7 @@ func TestReconcilePerOrgFlux_SecretRefWhenConfigured(t *testing.T) {
 		FluxGiteaSecretRef: "catalyst-gitea-flux-auth",
 	}
 	r.Client = cl
-	if err := r.reconcilePerOrgFlux(context.Background(), newTestOrg(slug)); err != nil {
+	if err := reconcilePerOrgFluxApplied(t, r, context.Background(), newTestOrg(slug)); err != nil {
 		t.Fatalf("reconcilePerOrgFlux: %v", err)
 	}
 	grName, _ := perOrgFluxNames(slug)
@@ -173,7 +173,7 @@ func TestReconcilePerOrgFlux_EmptySecretErrors(t *testing.T) {
 		// FluxGiteaSecretRef intentionally empty — the #4285 defect.
 	}
 	r.Client = cl
-	if err := r.reconcilePerOrgFlux(context.Background(), newTestOrg(slug)); err == nil {
+	if err := reconcilePerOrgFluxApplied(t, r, context.Background(), newTestOrg(slug)); err == nil {
 		t.Fatal("expected error for empty FluxGiteaSecretRef on local-Gitea source, got nil")
 	}
 }
@@ -183,7 +183,7 @@ func TestReconcilePerOrgFlux_NoopWhenGiteaURLUnset(t *testing.T) {
 	cl := fake.NewClientBuilder().WithScheme(fluxScheme(t)).Build()
 	r := &Reconciler{Log: logr.Discard()} // GiteaInClusterURL empty
 	r.Client = cl
-	if err := r.reconcilePerOrgFlux(context.Background(), newTestOrg(slug)); err != nil {
+	if err := reconcilePerOrgFluxApplied(t, r, context.Background(), newTestOrg(slug)); err != nil {
 		t.Fatalf("reconcilePerOrgFlux (no-op path) returned error: %v", err)
 	}
 	grName, ksName := perOrgFluxNames(slug)
@@ -212,7 +212,7 @@ func TestReconcilePerOrgFlux_IdempotentSecondPass(t *testing.T) {
 	ctx := context.Background()
 	org := newTestOrg(slug)
 
-	if err := r.reconcilePerOrgFlux(ctx, org); err != nil {
+	if err := reconcilePerOrgFluxApplied(t, r, ctx, org); err != nil {
 		t.Fatalf("first pass: %v", err)
 	}
 	grName, _ := perOrgFluxNames(slug)
@@ -220,7 +220,7 @@ func TestReconcilePerOrgFlux_IdempotentSecondPass(t *testing.T) {
 
 	// Second pass on a steady-state CR must NOT rewrite the GitRepository
 	// (byte-equal spec → no Update → resourceVersion unchanged).
-	if err := r.reconcilePerOrgFlux(ctx, org); err != nil {
+	if err := reconcilePerOrgFluxApplied(t, r, ctx, org); err != nil {
 		t.Fatalf("second pass: %v", err)
 	}
 	rv2 := getFlux(t, cl, fluxGitRepositoryGVK, "flux-system", grName).GetResourceVersion()
@@ -244,11 +244,20 @@ func TestReconcile_WiresPerOrgFluxEndToEnd(t *testing.T) {
 	r.FluxIntervalSeconds = 60
 	r.FluxGiteaSecretRef = "openova-org-tenants-git-auth" // #4285 — mandatory for local Gitea
 
+	fg := ensureTestRegionWiring(r)
 	if _, err := r.Reconcile(context.Background(), ctrl.Request{
 		NamespacedName: types.NamespacedName{Name: "acme"},
 	}); err != nil {
 		t.Fatalf("full Reconcile: %v", err)
 	}
+	// ADR-0015 D1 — the controller committed one file per region; every
+	// region's file must exist, and region A's Flux applies its copy.
+	for _, region := range []string{testRegionA, testRegionB} {
+		if _, ok := fg.get("openova/sovereign-regions/" + perOrgRegionFilePath(org.Spec.SovereignRef, region, "acme")); !ok {
+			t.Fatalf("no per-Org Flux file committed for region %s", region)
+		}
+	}
+	fluxApplyRegionFile(t, r, fg, org, testRegionA)
 
 	grName, ksName := perOrgFluxNames("acme")
 	gr := getFlux(t, r.Client, fluxGitRepositoryGVK, "flux-system", grName)
@@ -274,10 +283,10 @@ func TestTeardownPerOrgFlux_DeletesBoth(t *testing.T) {
 	ctx := context.Background()
 	org := newTestOrg(slug)
 
-	if err := r.reconcilePerOrgFlux(ctx, org); err != nil {
+	if err := reconcilePerOrgFluxApplied(t, r, ctx, org); err != nil {
 		t.Fatalf("setup reconcile: %v", err)
 	}
-	if err := r.teardownPerOrgFlux(ctx, org); err != nil {
+	if err := teardownPerOrgFluxApplied(t, r, ctx, org); err != nil {
 		t.Fatalf("teardownPerOrgFlux: %v", err)
 	}
 	grName, ksName := perOrgFluxNames(slug)
@@ -294,7 +303,7 @@ func TestTeardownPerOrgFlux_DeletesBoth(t *testing.T) {
 
 	// Teardown is absent-as-success — a second teardown on already-gone CRs
 	// must not error.
-	if err := r.teardownPerOrgFlux(ctx, org); err != nil {
+	if err := teardownPerOrgFluxApplied(t, r, ctx, org); err != nil {
 		t.Errorf("second teardown (absent) must succeed, got %v", err)
 	}
 }
@@ -325,7 +334,7 @@ func TestReconcilePerOrgFlux_AppsKustomization_VclusterTier(t *testing.T) {
 		FluxGiteaSecretRef: "openova-org-tenants-git-auth",
 	}
 	r.Client = cl
-	if err := r.reconcilePerOrgFlux(context.Background(), newTestOrgPlan(slug, "m")); err != nil {
+	if err := reconcilePerOrgFluxApplied(t, r, context.Background(), newTestOrgPlan(slug, "m")); err != nil {
 		t.Fatalf("reconcilePerOrgFlux: %v", err)
 	}
 	appsName := perOrgAppsKustomizationName(slug)
@@ -372,7 +381,7 @@ func TestReconcilePerOrgFlux_AppsKustomization_EveryPlanRoutesThroughTheVcluster
 				FluxGiteaSecretRef: "openova-org-tenants-git-auth",
 			}
 			r.Client = cl
-			if err := r.reconcilePerOrgFlux(context.Background(), newTestOrgPlan(slug, plan)); err != nil {
+			if err := reconcilePerOrgFluxApplied(t, r, context.Background(), newTestOrgPlan(slug, plan)); err != nil {
 				t.Fatalf("reconcilePerOrgFlux: %v", err)
 			}
 			ks := getFlux(t, cl, fluxKustomizationGVK, "flux-system", perOrgAppsKustomizationName(slug))
@@ -414,7 +423,7 @@ func TestReconcilePerOrgFlux_HostAppsKustomization_AlwaysHostSide(t *testing.T) 
 				FluxGiteaSecretRef: "openova-org-tenants-git-auth",
 			}
 			r.Client = cl
-			if err := r.reconcilePerOrgFlux(context.Background(), newTestOrgPlan(slug, plan)); err != nil {
+			if err := reconcilePerOrgFluxApplied(t, r, context.Background(), newTestOrgPlan(slug, plan)); err != nil {
 				t.Fatalf("reconcilePerOrgFlux: %v", err)
 			}
 			ks := getFlux(t, cl, fluxKustomizationGVK, "flux-system", perOrgHostAppsKustomizationName(slug))
@@ -453,7 +462,7 @@ func TestReconcilePerOrgFlux_AppsKustomization_NoCNPInVclusterTree(t *testing.T)
 		FluxGiteaSecretRef: "openova-org-tenants-git-auth",
 	}
 	r.Client = cl
-	if err := r.reconcilePerOrgFlux(context.Background(), newTestOrgPlan(slug, "m")); err != nil {
+	if err := reconcilePerOrgFluxApplied(t, r, context.Background(), newTestOrgPlan(slug, "m")); err != nil {
 		t.Fatalf("reconcilePerOrgFlux: %v", err)
 	}
 	// The vcluster-tier apps Kustomization (kubeConfig) reconciles ./vcluster/apps.
@@ -486,13 +495,13 @@ func TestTeardownPerOrgFlux_DeletesAppsKustomization(t *testing.T) {
 	ctx := context.Background()
 	org := newTestOrgPlan(slug, "m")
 
-	if err := r.reconcilePerOrgFlux(ctx, org); err != nil {
+	if err := reconcilePerOrgFluxApplied(t, r, ctx, org); err != nil {
 		t.Fatalf("setup reconcile: %v", err)
 	}
 	// Sanity: it exists before teardown.
 	_ = getFlux(t, cl, fluxKustomizationGVK, "flux-system", perOrgAppsKustomizationName(slug))
 
-	if err := r.teardownPerOrgFlux(ctx, org); err != nil {
+	if err := teardownPerOrgFluxApplied(t, r, ctx, org); err != nil {
 		t.Fatalf("teardownPerOrgFlux: %v", err)
 	}
 	ks := &unstructured.Unstructured{}

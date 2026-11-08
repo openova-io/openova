@@ -3978,7 +3978,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.7",
+    "version": "0.1.8",
     "section": "pts-4-7-agentic-workspace",
     "depends": [],
     "shareable": false,
@@ -4766,7 +4766,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.6",
+    "version": "1.3.0",
     "section": "pts-3-5-storage-and-data",
     "depends": [
       "bp-cert-manager"
@@ -5949,7 +5949,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.4.26",
+    "version": "0.5.0",
     "section": "pts-7-org-tenant",
     "depends": [
       "bp-postgres",
@@ -5964,12 +5964,36 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "topology": {
       "supported": [
         "active-passive",
+        "active-hot-standby",
         "singleton"
       ],
       "multiRegion": "active-passive",
       "singleRegion": "singleton",
       "perTopology": {
         "active-passive": {
+          "replication": {
+            "backend": "cnpg-pair",
+            "mode": "sync",
+            "lagSloSeconds": 0
+          },
+          "switchover": {
+            "mechanism": "bp-continuum",
+            "rtoSeconds": 60,
+            "rpoSeconds": 0
+          },
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "rtz-A": "active",
+              "rtz-B": "passive"
+            }
+          }
+        },
+        "active-hot-standby": {
           "replication": {
             "backend": "cnpg-pair",
             "mode": "sync",
