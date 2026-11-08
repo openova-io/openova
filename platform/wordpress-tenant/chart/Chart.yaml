@@ -446,7 +446,23 @@ name: bp-wordpress-tenant
 #   fails the render with the migration text. Contract absent ⇒ the unchanged
 #   singleton render. wp-content PVC declared region-local (D6 seam).
 #   tests/active-hot-standby-render.sh → tests/topology-per-region-render.sh.
-version: 0.5.0
+# 0.6.0 (ADR-0015 D6b, Refs #7067) — media move to the replicated store.
+#   New `media.store` (default `s3`): uploads go to the Sovereign's SeaweedFS
+#   S3 bucket `replicated` (synced cross-region by bp-seaweedfs >= 1.3.0
+#   filer.sync) under `<org>/<app>/uploads/`, through humanmade/S3-Uploads
+#   3.0.10 baked into the runtime image and loaded by the new
+#   `openova-media-store` mu-plugin (custom endpoint + path-style, private
+#   bucket, read path keeps `/wp-content/uploads/...` URLs). Credentials:
+#   bp-reflector bridge from `seaweedfs/seaweedfs-s3-secret` (bp-gitea
+#   objectStorage precedent; bp-seaweedfs >= 1.3.1 allows the reflection),
+#   mounted as files. wp-content becomes an emptyDir rebuilt from the image
+#   (DISALLOW_FILE_MODS) — NO PVC under media.store=s3. `media.store=pvc`
+#   keeps the legacy PVC and FAILS the render under a multi-region topology;
+#   a non-`replicated[-*]` bucket fails the render. New post-install/upgrade
+#   hook `media-migrate` copies a still-present legacy PVC's uploads into the
+#   bucket (idempotent, HeadObject-skip). blueprint.yaml regionLocalVolumes:
+#   wp-content none-needed, uploads s3-replicated.
+version: 0.6.0
 appVersion: "6"
 description: |
   Catalyst Blueprint scratch chart for in-vcluster WordPress, one
@@ -457,8 +473,8 @@ description: |
       configurable default role, Keycloak-group → WP-role mapping).
     - Postgres provisioned by bp-cnpg (Cluster CR) in the Organization tenant
       namespace; password mirrored via reflector + post-install Job.
-    - PVC-backed `/var/www/html/wp-content/` for theme/plugin/upload
-      persistence.
+    - Media (uploads) in the Sovereign's replicated SeaweedFS S3 bucket
+      (ADR-0015 D6); wp-content rebuilt from the image on every start.
     - Ingress at `wordpress.<org-domain>` routed via the Organization's ingress
       with cert-manager TLS.
     - Idempotent post-install Jobs run via `wp-cli` that (a) `wp core

@@ -287,6 +287,16 @@ seaweedfs:
     # overlay MAY supply existing secret name + per-bucket fine-grained
     # IAM via `auditLogConfig` and `s3ConfigContents`.
     s3ConfigContents: ""
+    # 1.3.1 (ADR-0015 D6b, #7067): annotations on the generated
+    # `seaweedfs-s3-secret` (vendored-template edit, charts/seaweedfs/
+    # templates/s3/s3-secret.yaml). bp-reflector copies a Secret only when
+    # its SOURCE allows it; bp-wordpress-tenant >= 0.6.0 (media store) and
+    # bp-gitea objectStorage reflect this Secret into their own namespace
+    # with a `reflects` annotation (the destination half). Reflection is
+    # on-request only — no auto-namespaces, nothing is copied anywhere a
+    # chart did not ask for it.
+    secretAnnotations:
+      reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
     extraEnvironmentVars:
       WEED_FILER_BUCKETS_FOLDER: "/buckets"
     resources:

@@ -116,6 +116,44 @@ RUN set -eux; \
     apt-get purge -y --auto-remove unzip; \
     rm -rf /var/lib/apt/lists/*
 
+# ─── Media store: humanmade/S3-Uploads + the OpenOva mu-plugin (ADR-0015 D6) ──
+#
+# WHY: uploads on the region-local wp-content PVC stay behind in the old region
+# after a primary move. Media now live in the Sovereign's SeaweedFS S3 bucket
+# `replicated` (bp-seaweedfs >= 1.3.0 syncs `replicated[-*]` buckets between
+# regions with the native `weed filer.sync`), under the key prefix
+# `<org>/<app>/`.
+#
+# PLUGIN CHOICE: humanmade/S3-Uploads — maintained (releases through 2026),
+# configured ENTIRELY by constants + one documented filter (custom endpoint +
+# path-style addressing for S3-compatible stores), no wp-admin settings page,
+# no activation click, a stream wrapper (s3://) so core media code paths keep
+# working, and a `wp s3-uploads upload-directory` command for the one-time
+# migration of PVC media. The `manual-install.zip` release asset is used
+# because it carries the composer `vendor/` tree (AWS SDK); 3.0.10 is the
+# newest release that publishes it. Its sha256 is pinned below, so the bytes
+# are pinned independently of the tag.
+#
+# The plugin is NOT copied into wp-content: the mu-plugin requires it from
+# this read-only image path, so it cannot be deactivated, edited or deleted
+# from wp-admin, and an image bump is the only way it changes.
+ARG S3_UPLOADS_VERSION=3.0.10
+ARG S3_UPLOADS_SHA256=c29d84d5663b922aa6d857610d08ff62ee9f166656e2db1e9e2abf70958aa2af
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates curl unzip; \
+    curl -fsSL -o /tmp/s3-uploads.zip \
+      "https://github.com/humanmade/S3-Uploads/releases/download/${S3_UPLOADS_VERSION}/manual-install.zip"; \
+    echo "${S3_UPLOADS_SHA256}  /tmp/s3-uploads.zip" | sha256sum -c -; \
+    mkdir -p /usr/src/openova-wp-artifacts/plugins/s3-uploads; \
+    unzip -q /tmp/s3-uploads.zip -d /usr/src/openova-wp-artifacts/plugins/s3-uploads; \
+    rm -f /tmp/s3-uploads.zip; \
+    printf 's3-uploads=%s (humanmade/S3-Uploads manual-install.zip sha256:%s)\n' \
+      "${S3_UPLOADS_VERSION}" "${S3_UPLOADS_SHA256}" >> /usr/src/openova-wp-artifacts/VERSIONS; \
+    apt-get purge -y --auto-remove unzip; \
+    rm -rf /var/lib/apt/lists/*
+COPY openova-media-store.php /usr/src/openova-wp-artifacts/mu-plugins/openova-media-store.php
+
 # Build-time assertions: fail the image build if a baked artifact is missing,
 # empty, or unreadable by the runtime uid. This is the regression guard for
 # #6311 — the chart no longer has a network fallback, so an image that silently
@@ -133,15 +171,22 @@ RUN set -eux; \
 RUN set -eux; \
     test -s /usr/src/openova-wp-artifacts/db.php; \
     test -s /usr/src/openova-wp-artifacts/pg4wp/driver_pgsql.php; \
-    test -s /usr/src/openova-wp-artifacts/plugins/openid-connect-generic/openid-connect-generic.php
+    test -s /usr/src/openova-wp-artifacts/plugins/openid-connect-generic/openid-connect-generic.php; \
+    test -s /usr/src/openova-wp-artifacts/plugins/s3-uploads/s3-uploads.php; \
+    test -s /usr/src/openova-wp-artifacts/plugins/s3-uploads/vendor/aws/aws-sdk-php/src/S3/S3Client.php; \
+    test -s /usr/src/openova-wp-artifacts/mu-plugins/openova-media-store.php; \
+    php -l /usr/src/openova-wp-artifacts/mu-plugins/openova-media-store.php
 RUN set -eux; \
     mkdir -p /tmp/uid33probe; \
     chown 33:33 /tmp/uid33probe; \
     su -s /bin/sh -c 'set -eu; \
       cp -R /usr/src/openova-wp-artifacts/pg4wp /tmp/uid33probe/pg4wp; \
       cp -R /usr/src/openova-wp-artifacts/plugins/openid-connect-generic /tmp/uid33probe/oidc; \
-      cp /usr/src/openova-wp-artifacts/db.php /tmp/uid33probe/db.php' www-data; \
+      cp /usr/src/openova-wp-artifacts/db.php /tmp/uid33probe/db.php; \
+      cp /usr/src/openova-wp-artifacts/mu-plugins/openova-media-store.php /tmp/uid33probe/media.php; \
+      test -r /usr/src/openova-wp-artifacts/plugins/s3-uploads/vendor/autoload.php' www-data; \
     test -s /tmp/uid33probe/db.php; \
     test -s /tmp/uid33probe/pg4wp/driver_pgsql.php; \
     test -s /tmp/uid33probe/oidc/openid-connect-generic.php; \
+    test -s /tmp/uid33probe/media.php; \
     rm -rf /tmp/uid33probe

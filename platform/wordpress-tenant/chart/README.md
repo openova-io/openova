@@ -15,10 +15,12 @@ pattern.
 
 | Resource | Purpose |
 |---|---|
-| `Deployment` (single replica) | The WordPress Pod. Two initContainers: one seeds `wp-content/` from the image onto the PVC; the other downloads + installs `openid-connect-generic` (Keycloak SSO) and `pg4wp` (Postgres adapter) from wordpress.org / GitHub. |
+| `Deployment` (single replica) | The WordPress Pod. initContainers rebuild `wp-content/` from the image on every start (core themes, `openid-connect-generic`, `pg4wp`, the `openova-media-store` mu-plugin — all baked into the runtime image, no install-time egress). |
 | `Service` (ClusterIP, :80) | In-vcluster service for the ingress to target. |
 | `Ingress` (Traefik, host `wordpress.<orgDomain>`) | Customer-facing entry point. cert-manager issues TLS via the operator-supplied `ClusterIssuer`. |
-| `PersistentVolumeClaim` (10Gi default, RWO) | Backs `/var/www/html/wp-content` so themes, plugins, and uploads persist across pod restarts and image upgrades. `helm.sh/resource-policy: keep` so `helm uninstall` never drops customer content. |
+| `Secret <release>-media-s3` (reflected) | `media.store=s3` (default): the SeaweedFS S3 credentials, reflected by bp-reflector from `seaweedfs/seaweedfs-s3-secret`, mounted as files. Uploads go to the replicated bucket `replicated` under `<org>/<app>/uploads/` (ADR-0015 D6, see §Media store). |
+| `PersistentVolumeClaim` (10Gi default, RWO) | LEGACY `media.store=pvc` only (single region): backs `/var/www/html/wp-content` including uploads. `helm.sh/resource-policy: keep`. |
+| `Job <release>-media-migrate` (post-install/upgrade) | Only when a legacy wp-content PVC still exists: copies its `uploads/` into the bucket (idempotent). |
 | `Cluster.postgresql.cnpg.io` (1 instance, 10Gi) | Tenant-isolated Postgres provisioned by bp-cnpg. The CNPG-emitted `<cluster>-app` Secret carries the password. |
 | `Secret wordpress-database-secret` (placeholder) | Reflector-managed bridge that the WordPress Pod reads via `secretKeyRef`. Populated by the post-install `db-secret-sync` Job. |
 | `Job <release>-db-secret-sync` (post-install/upgrade) | Mirrors `<cluster>-app.password` into `wordpress-database-secret.password`. Eliminates the otech30-class Reflector race documented in `bp-gitea`. |
@@ -70,7 +72,10 @@ All other values have sensible defaults; common overrides include:
 | `wordpress.image.tag` | `6-php8.3-apache` | The chart pins the manifest-list digest alongside; change `tag`+`digest` together. |
 | `database.cnpgClusterName` | `wordpress-db` | Per-tenant unique within the Org namespace. |
 | `database.cluster.storageSize` | `10Gi` | Postgres storage size. |
-| `persistence.wpContent.size` | `10Gi` | wp-content PVC size. |
+| `media.store` | `s3` | `s3` = replicated SeaweedFS bucket; `pvc` = legacy single-region PVC (refused multi-region). |
+| `media.s3.bucket` | `replicated` | Must be `replicated[-<suffix>]` (the buckets bp-seaweedfs syncs). |
+| `media.migrateLegacyPvc` | `auto` | Copy a still-present legacy PVC's uploads into the bucket. |
+| `persistence.wpContent.size` | `10Gi` | wp-content PVC size (`media.store=pvc` only). |
 | `persistence.wpContent.storageClass` | `local-path` | Set to a RWX class if you want to scale `replicas > 1`. |
 | `defaultTheme` | `twentytwentyfive` | Any wordpress.org theme slug bundled with the official image. |
 | `ingress.tls.issuer` | `letsencrypt-prod` | cert-manager `ClusterIssuer`. |
@@ -148,9 +153,40 @@ build). Each release renders **only its own half**:
   inter-region RTT on every query and write uploads to the wrong region's
   PVC. So only the primary runs Pods; any other region's gateway reaches them
   through the global Service.
-- `wp-content` is a **region-local** volume (`templates/pvc.yaml`, declared in
-  `blueprint.yaml` `spec.regionLocalVolumes`, `replication: none`): media do
-  not follow a primary move until ADR-0015 D6 lands.
+- **Media follow the primary (ADR-0015 D6).** Uploads live in the
+  Sovereign's SeaweedFS bucket `replicated` (each region writes to its own
+  SeaweedFS; bp-seaweedfs >= 1.3.0 `filer.sync` keeps the bucket identical in
+  every region). wp-content is rebuilt from the image, so nothing in the Pod
+  is region-local. `blueprint.yaml` `spec.regionLocalVolumes` declares
+  `wp-content: none-needed` and `uploads: s3-replicated`; the catalyst-api /
+  application-controller D6 gate refuses multi-region placement for any
+  Blueprint with an unreplicated entry, and
+  `scripts/check-region-local-volumes-declared.sh` fails CI on a PVC the
+  blueprint does not declare.
+
+## Media store (ADR-0015 D6)
+
+- Plugin: [humanmade/S3-Uploads](https://github.com/humanmade/S3-Uploads)
+  3.0.10 (`manual-install.zip`, sha256-pinned), baked into the runtime image
+  and loaded by the `openova-media-store` **mu-plugin**
+  (`image/openova-media-store.php`) — no wp-admin step, cannot be deactivated.
+  Custom endpoint + path-style addressing via the plugin's documented
+  `s3_uploads_s3_client_params` filter; objects are private.
+- URLs: `S3_UPLOADS_BUCKET_URL` is the site's own `WP_CONTENT_URL`, so media
+  URLs stay `https://<host>/wp-content/uploads/...` — existing posts keep
+  working. Such a URL matches no local file; WordPress's `.htaccess` routes it
+  to `index.php`, and the mu-plugin streams the object from S3 at
+  `muplugins_loaded` (Range, ETag/304; a missing key falls through to the
+  WordPress 404).
+- Credentials: never in values. `templates/media-s3-secret.yaml` asks
+  bp-reflector to copy `seaweedfs/seaweedfs-s3-secret` (bp-seaweedfs >= 1.3.1
+  marks it `reflection-allowed`); mounted at `/etc/openova/media-s3/` and read
+  per request, so a credential filled or rotated after start is picked up.
+- Code is immutable: `DISALLOW_FILE_MODS` (themes/plugins come from the image).
+- Migration from a chart <= 0.5.0 install: the legacy `<release>-wp-content`
+  PVC is kept (`resource-policy: keep`); the `media-migrate` hook Job copies
+  its `uploads/` into the bucket (HeadObject-skip, idempotent, PVC mounted
+  read-only). Delete the PVC by hand once the copy is verified.
 
 ### Moving the primary (Git-level, lossless)
 

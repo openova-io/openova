@@ -67,6 +67,7 @@ import (
 	"github.com/openova-io/openova/core/controllers/internal/semver"
 	bpv1alpha1 "github.com/openova-io/openova/core/controllers/pkg/apis/blueprint/v1alpha1"
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
+	"github.com/openova-io/openova/core/controllers/pkg/regionlocal"
 	"github.com/openova-io/openova/core/controllers/pkg/regions"
 	"github.com/openova-io/openova/core/controllers/pkg/render"
 	"github.com/openova-io/openova/core/controllers/pkg/validate"
@@ -174,6 +175,14 @@ const (
 	ReasonRenderError         = "RenderError"
 	ReasonOrgGiteaMissing     = "GiteaOrgMissing"
 	ReasonAwaitingDrain       = "AwaitingFluxDrain"
+
+	// ReasonRegionLocalVolumeNotReplicated — ADR-0015 D6. The Application
+	// spans more than one region but its Blueprint declares a
+	// spec.regionLocalVolumes entry nothing replicates; a primary move would
+	// leave that volume's data behind. Same rule as catalyst-api's 422
+	// (package regionlocal) — this is the gate for a placement edited in Git
+	// or with kubectl, which never passes through the API.
+	ReasonRegionLocalVolumeNotReplicated = "RegionLocalVolumeNotReplicated"
 
 	// ReasonBackingUnrecoverable — #5513. Stamped on
 	// Application.status.conditions[type=Ready,status=False] when a
@@ -842,6 +851,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 		return r.markFailed(ctx, app, ReasonInvalid,
 			fmt.Sprintf("placement %q not in Blueprint %q allowed modes %v",
 				spec.Placement, spec.BlueprintName, allowedModes))
+	}
+
+	// 5.0.1 (ADR-0015 D6) — region-local volumes must be replicated before
+	// the Application may span regions. Refused BEFORE anything renders.
+	if rerr := regionlocal.Refusal(spec.BlueprintName, bp.Object, spec.Placement, len(spec.Regions)); rerr != nil {
+		return r.markFailed(ctx, app, ReasonRegionLocalVolumeNotReplicated, rerr.Error())
 	}
 
 	// 5.1 (#3969) — validate the canonical desired-state placement
