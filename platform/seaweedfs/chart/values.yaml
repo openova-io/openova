@@ -432,3 +432,110 @@ seaweedfsOverlay:
       enabled: false
       bucket: ""
       region: ""
+
+# ─────────────────────────────────────────────────────────────────────────
+# Cross-region filer sync — ADR-0015 D6(a), issue #7067.
+#
+# Region-local FILE state of a multi-region Application (first consumer:
+# WordPress media) must exist in every region, so a topology transition
+# (Primary A -> B) never loses user files. bp-seaweedfs runs one independent
+# SeaweedFS per region; this block wires SeaweedFS's NATIVE cross-cluster
+# mechanism, `weed filer.sync`, between the regions' filers.
+#
+# Shape, per region (`self`):
+#   - ONE ClusterMesh global Service per region id, `seaweedfs-filer-mesh-<id>`.
+#     For `self` it selects the local filer and EXPORTS it (shared=true); for
+#     each peer it is a zero-backend stub (shared=false) whose name resolves,
+#     over Cilium ClusterMesh, to the PEER's filer. Same idiom as bp-cnpg-pair
+#     `-mesh` / bp-harbor `harbor-redis-mesh`.
+#   - ONE Deployment per peer, `seaweedfs-filer-sync-from-<peer-id>`: it
+#     PULLS peer -> self (`-isActivePassive`, A = peer mesh Service, B = local
+#     filer), one `weed filer.sync` process per replicated bucket. The peer
+#     region runs the mirror-image Deployment, so the pair is active-active:
+#     a write in EITHER region appears in the other. Loop-free natively —
+#     every replicated event carries the source filer signature and the
+#     follower skips events stamped with its own target's signature.
+#   - Idempotent across restarts: filer.sync persists its offset IN THE
+#     LOCAL (target) filer KV (key `sync.<path><source-signature>`), every
+#     ~3s while streaming and on SIGTERM; a restart resumes from it. A fresh
+#     pair starts from the peer filer's earliest metadata log, so objects
+#     written before the sync existed are replicated too.
+#
+# Values contract: the ADR-0015 D2 topology contract `openova.topology.{self,
+# peers[]}` wins when set. bp-seaweedfs is delivered TODAY by the per-region
+# bootstrap-kit slot 18, so the slot fills the `crossRegion.*` seam from the
+# existing per-region Flux substitutes (the same ones bp-cnpg-pair / bp-harbor
+# consume): self = SOVEREIGN_REGION_KEY, configuredRegions =
+# SOVEREIGN_CONFIGURED_REGIONS_YAML (peers = configuredRegions minus self),
+# enabled = SOVEREIGN_ENABLE_CNPG_PAIR (stamped true on BOTH regions by
+# catalyst-api only once ClusterMesh is established), peerClusters =
+# SOVEREIGN_PEER_CLUSTERMESH_NAMES.
+#
+# OFF by default and on every single-region Sovereign -> renders NOTHING
+# (byte-identical to 1.2.6).
+# ─────────────────────────────────────────────────────────────────────────
+openova:
+  topology:
+    # ADR-0015 D2 contract (region ids). Empty -> fall back to crossRegion.*.
+    self: ""
+    peers: []
+
+crossRegion:
+  enabled: false
+  # This region's id, e.g. hw-me-east-215-a-rtz-prod (slot: SOVEREIGN_REGION_KEY).
+  self: ""
+  # Every region id of the Sovereign (slot: SOVEREIGN_CONFIGURED_REGIONS_YAML).
+  # peers = configuredRegions minus self, unless openova.topology.peers is set.
+  configuredRegions: []
+  # Peer Cilium ClusterMesh cluster names (slot: SOVEREIGN_PEER_CLUSTERMESH_NAMES).
+  # Only used by the CiliumNetworkPolicies rendered when
+  # seaweedfsOverlay.networkPolicy.enabled=true (a k8s NetworkPolicy can never
+  # admit a ClusterMesh peer — Cilium pins it to the local cluster).
+  peerClusters: []
+
+  filerMesh:
+    # Prefix of the per-region ClusterMesh global Service; full name is
+    # `<prefix>-<region-id>` (must fit a 63-char DNS label).
+    servicePrefix: seaweedfs-filer-mesh
+
+  filerSync:
+    enabled: true
+    # REPLICATED SCOPE. One `weed filer.sync` process per bucket. filer.sync
+    # scopes by DIRECTORY (it subscribes to `<path>/`), so a bucket-name
+    # wildcard is impossible natively — scope is this explicit list, and
+    # every name MUST be `replicated` or `replicated-<suffix>` (the render
+    # fails otherwise) so the name alone tells any reader a bucket is
+    # cross-region. The default `replicated` bucket is shared: Applications
+    # write under a key prefix `<org>/<app>/...`. An Application that needs
+    # its own bucket adds `replicated-<org>-<app>` here.
+    buckets:
+      - replicated
+    # S3 buckets folder in the filer (upstream default; matches
+    # seaweedfs.s3.extraEnvironmentVars.WEED_FILER_BUCKETS_FOLDER).
+    bucketsFolder: /buckets
+    # Create every listed bucket on the LOCAL filer (idempotent, on every pod
+    # start) so an Application can write in ANY region before the first
+    # replicated event arrives.
+    ensureBuckets: true
+    # Deletes/overwrites in one region propagate to the other.
+    # CONFLICT RULE (native filer.sync sink): per object, the newer mtime
+    # wins; an incoming entry whose mtime is <= the existing entry's is
+    # skipped (identical ETag = already replicated). Two regions writing the
+    # SAME key within the same second keep their own copy until the next
+    # write — an Application must not write one key from two regions at once
+    # (WordPress media keys are unique per upload).
+    propagateDeletes: true
+    concurrency: 32
+    # First metrics port; bucket i listens on metricsPortBase+i.
+    metricsPortBase: 9340
+    image:
+      # Empty -> seaweedfs.global.registry/imageName:imageTag (Harbor proxy).
+      repository: ""
+      tag: ""
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi

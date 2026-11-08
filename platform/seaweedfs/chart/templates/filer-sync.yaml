@@ -1,0 +1,253 @@
+{{- /*
+Cross-region filer sync — ADR-0015 D6(a), issue #7067.
+
+ONE Deployment per peer region: `seaweedfs-filer-sync-from-<peer>`. It PULLS
+peer -> self with SeaweedFS's native `weed filer.sync -isActivePassive`
+(A = the peer's filer through its ClusterMesh global Service, B = the local
+filer). The peer region renders the mirror-image Deployment, so the pair is
+active-active. Each region owns exactly its INBOUND stream: if a region dies,
+only the stream INTO it stops; the survivor's own stream simply waits for the
+peer to come back and resumes from its saved offset.
+
+One container (= one filer.sync process) per bucket in
+crossRegion.filerSync.buckets: filer.sync scopes by directory, offsets are
+keyed per path, so each bucket streams and checkpoints independently.
+
+Why each flag:
+  -isActivePassive    one direction per process (the peer runs the other).
+  -a.filerProxy       read source chunks THROUGH the peer filer. Peer volume
+                      servers register cluster-local addresses that do not
+                      resolve here; the filer mesh Service does.
+  -b.doDeleteFiles    deletes/overwrites propagate (propagateDeletes).
+  -metricsPort        SeaweedFS_filerSync_sync_offset{path=...} gauge.
+  host:http.grpc      explicit gRPC port, no reliance on the +10000 default.
+
+Restart-idempotent: offsets live in the LOCAL filer KV (written ~3s while
+streaming and on SIGTERM; terminationGracePeriodSeconds leaves time for
+that), so a restart resumes where it left off. strategy Recreate + replicas 1:
+two followers of the same stream would race each other.
+
+Ready signal: the container is Ready only while (1) its own metrics endpoint
+answers (the process is up) AND (2) the peer filer answers through the mesh
+— so the Deployment's native `Available` condition reads "replication
+streaming" vs not, and the gauge's age (time() - offset/1e9) reads lag.
+If the peer is unreachable at start, filer.sync exits (cannot read the peer
+filer signature) and kubelet restarts it with backoff until the peer is back.
+*/ -}}
+{{- if include "bp-seaweedfs.filerSyncActive" . }}
+{{- $self := include "bp-seaweedfs.topologySelf" . -}}
+{{- $peers := splitList "," (include "bp-seaweedfs.topologyPeers" .) -}}
+{{- $cr := .Values.crossRegion -}}
+{{- $fs := $cr.filerSync -}}
+{{- $sub := .Values.seaweedfs | default dict -}}
+{{- $filer := $sub.filer | default dict -}}
+{{- $master := $sub.master | default dict -}}
+{{- $httpPort := $filer.port | default 8888 | int -}}
+{{- $grpcPort := $filer.grpcPort | default 18888 | int -}}
+{{- $masterPort := $master.port | default 9333 | int -}}
+{{- $full := include "bp-seaweedfs.subFullname" . -}}
+{{- $ns := .Release.Namespace -}}
+{{- $localFiler := printf "%s-filer-client.%s:%d.%d" $full $ns $httpPort $grpcPort -}}
+{{- $localFilerHttp := printf "%s-filer-client.%s:%d" $full $ns $httpPort -}}
+{{- $localMaster := printf "%s-master.%s:%d" $full $ns $masterPort -}}
+{{- $folder := $fs.bucketsFolder | default "/buckets" | trimSuffix "/" -}}
+{{- $buckets := $fs.buckets | default list -}}
+{{- if eq (len $buckets) 0 -}}
+{{- fail "bp-seaweedfs: crossRegion.filerSync.buckets is empty — list at least one replicated bucket (or set crossRegion.filerSync.enabled=false)" -}}
+{{- end -}}
+{{- range $buckets -}}
+{{- if not (regexMatch "^replicated(-[a-z0-9]([-a-z0-9]*[a-z0-9])?)?$" (toString .)) -}}
+{{- fail (printf "bp-seaweedfs: replicated bucket %q must be named `replicated` or `replicated-<suffix>` (lowercase, DNS-safe) — the name is the cross-region scope marker" (toString .)) -}}
+{{- end -}}
+{{- end -}}
+{{- $portBase := $fs.metricsPortBase | default 9340 | int -}}
+{{- $image := include "bp-seaweedfs.filerSyncImage" . -}}
+{{- $pullPolicy := ($sub.global | default dict).imagePullPolicy | default "IfNotPresent" -}}
+{{- $sa := ($sub.global | default dict).serviceAccountName | default "seaweedfs" -}}
+{{- range $peer := $peers }}
+{{- $peerMesh := include "bp-seaweedfs.filerMeshName" (list $ $peer) -}}
+{{- $peerFiler := printf "%s.%s:%d.%d" $peerMesh $ns $httpPort $grpcPort -}}
+{{- $peerFilerHttp := printf "%s.%s:%d" $peerMesh $ns $httpPort -}}
+{{- $name := printf "%s-filer-sync-from-%s" $full $peer | trunc 63 | trimSuffix "-" }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "bp-seaweedfs.crossRegionLabels" $ | nindent 4 }}
+    app.kubernetes.io/component: filer-sync
+    catalyst.openova.io/sync-source-region: {{ $peer | quote }}
+    catalyst.openova.io/sync-target-region: {{ $self | quote }}
+  annotations:
+    catalyst.openova.io/replication: "seaweedfs-filer-sync"
+    catalyst.openova.io/replicated-buckets: {{ join "," $buckets | quote }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: seaweedfs
+      app.kubernetes.io/instance: {{ $.Release.Name }}
+      app.kubernetes.io/component: filer-sync
+      catalyst.openova.io/sync-source-region: {{ $peer | quote }}
+  template:
+    metadata:
+      labels:
+        # `app.kubernetes.io/name: seaweedfs` on the POD on purpose: the
+        # optional bp-seaweedfs NetworkPolicy (networkpolicy.yaml) selects
+        # by it, so the sync Pods get the same intra-namespace + DNS rules
+        # as every other seaweedfs Pod; the peer-cluster hop is added by
+        # filer-sync-netpol.yaml. No upstream Service selects component
+        # `filer-sync`.
+        app.kubernetes.io/name: seaweedfs
+        app.kubernetes.io/instance: {{ $.Release.Name }}
+        app.kubernetes.io/component: filer-sync
+        catalyst.openova.io/sync-source-region: {{ $peer | quote }}
+        catalyst.openova.io/sync-target-region: {{ $self | quote }}
+    spec:
+      serviceAccountName: {{ $sa }}
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        fsGroup: 1000
+      {{- if $fs.ensureBuckets }}
+      initContainers:
+        # Create every replicated bucket on the LOCAL filer (idempotent —
+        # same list-then-create shape as the upstream post-install bucket
+        # hook), so an Application can write in either region before the
+        # first replicated event arrives. Runs on every Pod start.
+        - name: ensure-replicated-buckets
+          image: {{ $image }}
+          imagePullPolicy: {{ $pullPolicy }}
+          securityContext:
+            runAsUser: 1000
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+          env:
+            - name: WEED_CLUSTER_DEFAULT
+              value: "sw"
+            - name: WEED_CLUSTER_SW_MASTER
+              value: {{ $localMaster | quote }}
+            - name: WEED_CLUSTER_SW_FILER
+              value: {{ $localFilerHttp | quote }}
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until wget -q -O /dev/null "http://${WEED_CLUSTER_SW_FILER}/"; do
+                echo "waiting for local filer ${WEED_CLUSTER_SW_FILER}"; sleep 5
+              done
+              existing=$(echo 's3.bucket.list' | /usr/bin/weed shell | awk '{print $1}')
+              {{- range $buckets }}
+              if echo "$existing" | grep -Fxq {{ . | quote }}; then
+                echo "bucket {{ . }} present"
+              else
+                echo "creating bucket {{ . }}"
+                echo 's3.bucket.create -name {{ . }}' | /usr/bin/weed shell
+              fi
+              {{- end }}
+          resources:
+            {{- toYaml $fs.resources | nindent 12 }}
+      {{- end }}
+      containers:
+        {{- range $i, $bucket := $buckets }}
+        {{- $port := add $portBase $i | int }}
+        - name: {{ printf "sync-%s" $bucket | trunc 63 | trimSuffix "-" }}
+          image: {{ $image }}
+          imagePullPolicy: {{ $pullPolicy }}
+          securityContext:
+            runAsUser: 1000
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+          command:
+            - /usr/bin/weed
+            - filer.sync
+            - -a={{ $peerFiler }}
+            - -b={{ $localFiler }}
+            - -isActivePassive
+            - -a.path={{ $folder }}/{{ $bucket }}
+            - -b.path={{ $folder }}/{{ $bucket }}
+            - -a.filerProxy
+            - -b.doDeleteFiles={{ $fs.propagateDeletes }}
+            - -concurrency={{ $fs.concurrency | default 32 }}
+            - -metricsPort={{ $port }}
+          ports:
+            - name: {{ printf "metrics-%d" $i }}
+              containerPort: {{ $port }}
+              protocol: TCP
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - >-
+                  wget -q -O /dev/null http://127.0.0.1:{{ $port }}/metrics &&
+                  wget -q -O /dev/null http://{{ $peerFilerHttp }}/
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: {{ $port }}
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            {{- toYaml $fs.resources | nindent 12 }}
+        {{- end }}
+{{- end }}
+---
+# Metrics Service for every filer.sync process in this region (one port per
+# bucket). Distinct `app.kubernetes.io/name` so the existing
+# bp-seaweedfs-catalyst ServiceMonitor (port `metrics`) never double-selects.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ printf "%s-filer-sync-metrics" $full | trunc 63 | trimSuffix "-" }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "bp-seaweedfs.crossRegionLabels" . | nindent 4 }}
+    app.kubernetes.io/name: seaweedfs-filer-sync
+    app.kubernetes.io/component: filer-sync
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: seaweedfs
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: filer-sync
+  ports:
+    {{- range $i, $bucket := $buckets }}
+    - name: {{ printf "metrics-%d" $i }}
+      port: {{ add $portBase $i }}
+      targetPort: {{ add $portBase $i }}
+      protocol: TCP
+    {{- end }}
+{{- if and .Values.seaweedfsOverlay.serviceMonitor.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1") }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: bp-seaweedfs-filer-sync
+  namespace: {{ default $ns .Values.seaweedfsOverlay.serviceMonitor.namespace }}
+  labels:
+    {{- include "bp-seaweedfs.crossRegionLabels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: seaweedfs-filer-sync
+  namespaceSelector:
+    matchNames:
+      - {{ $ns }}
+  endpoints:
+    {{- range $i, $bucket := $buckets }}
+    - port: {{ printf "metrics-%d" $i }}
+      interval: {{ $.Values.seaweedfsOverlay.serviceMonitor.interval | default "30s" }}
+      path: /metrics
+    {{- end }}
+{{- end }}
+{{- end }}
