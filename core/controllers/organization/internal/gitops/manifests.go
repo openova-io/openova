@@ -122,6 +122,26 @@ type Inputs struct {
 	// openova.io/overage-stopped-until stamped on both quotas. Empty =
 	// no stop. Ignored in capped mode (nothing to stop).
 	OverageStoppedUntil string
+
+	// PlatformScopePending holds plan-quota UNSCOPED (#7067 rollout gate,
+	// platform_scope.go): the controller sets it while any platform pod in
+	// the namespace still lacks PriorityClass catalyst-org-platform — every
+	// pod admitted before the Policy existed — or while it cannot tell. Such
+	// a pod is "not in" the class, so a scoped plan-quota would charge it to
+	// the customer's plan (acmewalk307 on hw307: ~5.2 CPU against 354m) and
+	// refuse every new customer pod. While pending, plan-quota keeps the
+	// pre-#7067 single-quota shape (plan + control plane + platform stack, plus
+	// the transient headroom) and admits everything the namespace runs today;
+	// the class, the Policy and platform-quota render regardless, so every pod
+	// created from now on is stamped. Zero value = scoped.
+	PlatformScopePending bool
+
+	// ControllerServiceAccount / ControllerNamespace name the org-controller's
+	// own ServiceAccount, bound to read the Org namespace's pods for the gate
+	// above (vcluster/platform-scope-rbac.yaml). Empty = the chart defaults
+	// catalyst-organization-controller / catalyst-system.
+	ControllerServiceAccount string
+	ControllerNamespace      string
 }
 
 // RetiredPlanFlexi is the pay-per-use plan the commercial model retired
@@ -454,39 +474,17 @@ func mustQuantity(s string) resource.Quantity {
 	return q
 }
 
-// quotaHard is the four hard-cap strings the ResourceQuota template renders:
-// the plan term plus the control-plane overhead plus the platform-stack
-// overhead, per resource, in the canonical Quantity spelling. The plan term
-// differs per side (#6971): the guaranteed request on requests.* (plan M
-// "334m" + 520m + 3840m → "4694m"), the headline limit on limits.* (plan M
-// "2" + 1500m + 4550m → "8050m").
+// quotaHard is the four hard-cap strings a ResourceQuota template renders, in
+// the canonical Quantity spelling. Since #7067 there are two per Organization:
+// plan-quota (planQuotaHard — the plan term + the synced coredns; plan M
+// requests "334m" + 20m → "354m", limits "2" + 1000m → "3") and
+// platform-quota (platformQuotaHard — vcluster-0 + the platform stack + the
+// transient headroom).
 type quotaHard struct {
 	RequestsCPU    string
 	RequestsMemory string
 	LimitsCPU      string
 	LimitsMemory   string
-}
-
-// planPlusOverhead sizes the hard cap for a fixed-tier plan: the plan term
-// plus the vCluster control plane plus the per-Organization platform stack,
-// requests (guaranteed share + the overheads' requests) and limits (headline +
-// the overheads' limits) each with their own figures. Flexi never reaches
-// here (PlanRendersResourceQuota gates the file), and its empty figures would
-// not parse.
-func planPlusOverhead(q PlanQuota, cp ControlPlaneOverhead, ps PlatformStackOverhead) quotaHard {
-	add := func(plan string, overheads ...resource.Quantity) string {
-		sum := mustQuantity(plan)
-		for _, o := range overheads {
-			sum.Add(o)
-		}
-		return sum.String()
-	}
-	return quotaHard{
-		RequestsCPU:    add(q.CPURequest, cp.RequestsCPU, ps.RequestsCPU),
-		RequestsMemory: add(q.MemRequest, cp.RequestsMemory, ps.RequestsMemory),
-		LimitsCPU:      add(q.CPULimit, cp.LimitsCPU, ps.LimitsCPU),
-		LimitsMemory:   add(q.MemLimit, cp.LimitsMemory, ps.LimitsMemory),
-	}
 }
 
 // growCeilingPlan is the plan whose headline is the DEFAULT grow ceiling and
@@ -619,8 +617,10 @@ func (o ControlPlaneOverhead) String() string {
 // Organization unconditionally (products/catalyst/bootstrap/api/internal/
 // handler/organization_gitops.go orgTenantTemplates; bp-wordpress-tenant and
 // bp-stalwart-tenant in that same map are the customer's purchase and are NOT
-// in this list). Every one of their pods is charged to `plan-quota` at
-// admission.
+// in this list). Every one of their pods — and every hook, CronJob and
+// surge pod they create — carries PriorityClass catalyst-org-platform and is
+// charged to `platform-quota`, never to the customer's `plan-quota`
+// (platform_scope.go).
 //
 // Measured on hw307 (Acme Walk, plan S, 2026-09-10 17:10Z): with the quota
 // equal to plan + control plane, vcluster-0 was admitted and bp-keycloak-0 was
@@ -633,9 +633,11 @@ func (o ControlPlaneOverhead) String() string {
 //
 // Decision (Refs #6902 #6867; same principle as the control plane): the stack
 // is OpenOva's overhead delivered with every Organization, not the customer's
-// purchase. The hard cap is purchased plan + vCluster control plane + this
-// platform stack, for requests and for limits, and the customer's catalog
-// applications consume the plan. Chargeback draws the same line
+// purchase. Since #7067 it is admitted in its OWN scope: platform-quota =
+// vcluster-0 + this stack + the transient headroom; plan-quota = the
+// purchased plan + the synced coredns, and the customer's applications
+// consume the plan (platform_scope.go explains why one shared quota wedged
+// hw307). Chargeback draws the same line
 // (products/chargeback/internal/adapter/openova/collector.go isPlatformStack):
 // these pods stay off the customer's k8s.* meters.
 //
@@ -661,17 +663,21 @@ func (o ControlPlaneOverhead) String() string {
 // change XL first. A zero-value containerShape below means exactly that, and
 // platformStackOverheadOf resolves it per plan.
 //
-// NOT COUNTED, deliberately: transient pods — Helm hook Jobs (keycloak-config-
-// cli 250m/256Mi, the newapi seed and secret-sync Jobs) and a Deployment's
-// surge replica during a rollout. The quota charges them only while they run,
-// and a namespace quota cannot reserve room for a pod that is not there: any
-// headroom added for them is headroom the customer's own pods may take first.
-// They ride the plan's unconsumed slack, exactly as the control plane's own
-// transients do. openclaw's per-user workspace pods are not here either: they
-// exist per signed-in User of the customer, so they are the customer's usage,
-// not a workload delivered with the Organization. Storage is not counted: the
-// host quota renders no storage cap (the customer's application storage is
-// capped inside the vCluster — appStorageQuotaTemplate).
+// TRANSIENTS (Refs #7067): Helm hook Jobs (keycloak-config-cli 250m/256Mi,
+// the newapi admin-seed and db-dsn-sync Jobs), the newapi admin-promote
+// CronJob and the surge replica of a rolling Deployment are NOT in this
+// long-running table; they are platformTransients and the Surge flag below,
+// and platform-quota holds the largest of each on top of the stack
+// (transientHeadroomOf). Until #7067 they were left to "ride the plan's
+// unconsumed slack" in a quota shared with the customer — and on hw307 the
+// customer took that slack and the keycloak hook was refused for 14h+, which
+// wedged every release that depends on bp-keycloak. In its own scope the
+// headroom is reserved for exactly those pods. openclaw's per-user workspace
+// pods are not here: they exist per signed-in User of the customer, so they
+// are the customer's usage (excluded from the platform scope by their
+// component label). Storage is not counted: the host quotas render no storage
+// cap (the customer's application storage is capped inside the vCluster —
+// appStorageQuotaTemplate).
 
 // platformStackWorkload is one long-running pod the per-Organization platform
 // stack keeps in the host namespace, with the requests/limits of every
@@ -690,6 +696,11 @@ type platformStackWorkload struct {
 	// under the pod-usage rule. A zero-value shape is a container the chart
 	// leaves unsized, which the LimitRange defaults size per plan.
 	Inits []containerShape
+	// Surge marks a Deployment on the RollingUpdate strategy: a rollout
+	// creates one extra pod before it removes the old one, which the
+	// platform-quota's transient headroom must hold (transientHeadroomOf).
+	// StatefulSets and the CNPG instance replace in place and do not surge.
+	Surge bool
 }
 
 // platformStack is the stack rendered today. Change a figure at its Source
@@ -714,6 +725,7 @@ var platformStack = []platformStackWorkload{
 		Source: "newapi: organization_gitops.go orgTenantBPNewAPI and helmrelease_apps.go generateNewAPIHR spec.values.newapi.resources; " +
 			"sandbox-bridge (native sidecar) / metering-sidecar: platform/newapi/chart/values.yaml sandboxBridge.resources / meteringSidecar.resources; " +
 			"wait-for-sql-dsn: platform/newapi/chart/templates/deployment.yaml (inline)",
+		Surge: true,
 		Containers: []containerShape{
 			{RequestsCPU: "500m", RequestsMemory: "256Mi", LimitsCPU: "500m", LimitsMemory: "1Gi"}, // newapi
 			{RequestsCPU: "10m", RequestsMemory: "32Mi", LimitsCPU: "200m", LimitsMemory: "128Mi"}, // sandbox-bridge (native sidecar, #3374)
@@ -733,6 +745,7 @@ var platformStack = []platformStackWorkload{
 	{
 		Name: "bp-openclaw-<hash>", Release: "bp-openclaw",
 		Source:     "platform/openclaw/chart/values.yaml controller.resources",
+		Surge:      true,
 		Containers: []containerShape{{RequestsCPU: "250m", RequestsMemory: "512Mi", LimitsCPU: "250m", LimitsMemory: "512Mi"}},
 	},
 	{
@@ -748,6 +761,7 @@ var platformStack = []platformStackWorkload{
 	{
 		Name: "oidc-gate-agenity-<slug>", Release: "bp-agenity",
 		Source:     "products/agenity/chart/values.yaml oidcGate.resources",
+		Surge:      true,
 		Containers: []containerShape{{RequestsCPU: "50m", RequestsMemory: "64Mi", LimitsCPU: "50m", LimitsMemory: "64Mi"}},
 	},
 }
@@ -1084,23 +1098,25 @@ spec:
                       x-kubernetes-preserve-unknown-fields: true
 `
 
-// resourceQuotaTemplate caps the Org boundary host namespace at the plan the
-// customer purchased (#4292) PLUS the vCluster control-plane overhead PLUS the
-// per-Organization platform-stack overhead, both of which run in the same
-// namespace (#6902 follow-ups; see vclusterControlPlaneOverhead and
-// platformStack). Driven by planQuota(.PlanSlug) → planPlusOverhead.
+// resourceQuotaTemplate is the CUSTOMER-scope quota of the Org boundary host
+// namespace (#4292; split by admission scope in #7067 — platform_scope.go):
+// scoped PriorityClass NotIn [catalyst-org-platform], so it admits every pod
+// the platform scope does not — the BSS door's purchase charts and every
+// Application the syncer mirrors out of the Org vCluster — against the plan
+// the customer purchased PLUS the vCluster's coredns (a synced pod, and so in
+// this scope; added as overhead so it never eats the plan). The vcluster-0
+// pod and the per-Organization platform stack are charged to platform-quota
+// (platformQuotaTemplate) instead; until #7067 they shared this object with
+// the customer, which let customer usage starve a platform hook (hw307).
 //
 // The plan term is NOT the same on both sides (#6971 overcommit model): the
 // limits.* cap carries the HEADLINE the customer bought (M: 2 CPU / 4Gi), the
 // requests.* cap carries the GUARANTEED share the Sovereign provisions for it
 // (M: 334m / 1366Mi — headline ÷ 6 and ÷ 3). The customer's workloads may
 // request up to the guaranteed share and burst up to the headline; what they
-// pay for is the headline, what is reserved for them is the guarantee. The
-// overheads are added on their own sides likewise (coredns and the newapi pod
-// are Burstable), so the two hard caps differ by the plan's overcommit gap
-// plus the overheads' request/limit gap. A Burstable plan (none today; flexi
-// retired and renders as S grow) would render NO ResourceQuota — the
-// controller skips this file for Burstable plans.
+// pay for is the headline, what is reserved for them is the guarantee. A
+// Burstable plan (none today; flexi retired and renders as S grow) would
+// render NO ResourceQuota — the controller skips this file for Burstable plans.
 //
 // Overage mode (spec.commerce.overageMode, founder model 2026-10-10): in
 // "capped" the limits plan term is the headline as above; in "grow" it is the
@@ -1108,28 +1124,36 @@ spec:
 // and, in grow, the ceiling are stamped as openova.io/overage-mode and
 // openova.io/grow-ceiling.
 //
+// The scopeSelector is immutable on a live ResourceQuota, and every
+// Organization created before #7067 carries an UNSCOPED plan-quota: the
+// kustomize.toolkit.fluxcd.io/force annotation lets Flux recreate the object
+// once instead of wedging the boundary Kustomization on "field is immutable".
+//
 // The split is stamped as annotations so an operator reading the LIVE object
 // (`kubectl get resourcequota plan-quota -o yaml`) can reconcile the number to
 // the plan without this source: annotations survive apply, the YAML comment
 // block does not.
 //
 // 5-pillar Pillar 1: the cap the customer pays for IS the cap that
-// materializes — and is usable in full, because the control plane and the
-// platform stack are on top of it. This replaces the dev-tiny marketplace-api
-// SizeResources + the syncer-only provisioning planLimits, both retired in
-// Workstream A.
-const resourceQuotaTemplate = `# The hard cap below is NOT the plan alone. It is the purchased plan PLUS the
-# per-Org vCluster control plane (vcluster-0 syncer + the synced coredns) PLUS
-# the per-Organization platform stack (bp-keycloak + its postgresql, bp-newapi
-# + its postgresql, bp-openclaw, bp-agenity + its oidc-gate), all of which run
-# in this same namespace and are charged to this quota at admission, so neither
-# eats into what the customer bought. The plan term is the headline on limits
-# and the guaranteed share (headline over the CPU 6x / memory 3x overcommit)
-# on requests.
+// materializes — and is usable in full, because the platform's own pods are in
+// another scope.
+const resourceQuotaTemplate = `# The customer's quota. Scoped to every pod that is NOT PriorityClass
+# {{ .PlatformPriorityClass }} - the purchase and every Application synced out
+# of the Organization vCluster. The per-Org vCluster control plane (vcluster-0)
+# and the per-Organization platform stack carry that class and are admitted
+# against {{ .PlatformQuotaName }}, so nothing OpenOva runs eats into what the
+# customer bought, and nothing the customer runs can starve OpenOva's pods.
+# The plan term is the headline on limits and the guaranteed share (headline
+# over the CPU 6x / memory 3x overcommit) on requests; the vCluster's synced
+# coredns is the one overhead in this scope and is added on top.
 #   plan {{ .PlanSlug }} headline (limits): {{ .PlanCapText }}
 #   plan {{ .PlanSlug }} guaranteed (requests): {{ .PlanGuaranteedText }}
-#   vcluster control plane: {{ .OverheadText }}
-#   per-Organization platform stack: {{ .PlatformStackText }}
+#   vcluster coredns (synced): {{ .CoreDNSText }}
+{{- if .PlatformScopePending }}
+#   TRANSITIONAL: a platform pod in this namespace still lacks the class, so
+#   this quota is held UNSCOPED at plan + control plane + platform stack +
+#   transient headroom until every platform pod carries it (rollout gate)
+{{- end }}
 #   overage mode: {{ .EffectiveOverageMode }}
 {{- if .GrowCeilingText }}
 #   grow ceiling (limits, in place of the headline): {{ .GrowCeilingText }}
@@ -1151,15 +1175,19 @@ metadata:
     openova.io/organization: {{ .Slug }}
     openova.io/plan: {{ .PlanSlug }}
     openova.io/managed-by: catalyst
+    openova.io/quota-scope: {{ if .PlatformScopePending }}transitional{{ else }}customer{{ end }}
   annotations:
-    openova.io/quota-formula: "purchased plan + vcluster control plane + per-Organization platform stack"
+{{- if .PlatformScopePending }}
+    openova.io/quota-formula: "TRANSITIONAL (unscoped, every pod): purchased plan + vcluster control plane + per-Organization platform stack + transient headroom — held until every platform pod carries PriorityClass {{ .PlatformPriorityClass }}"
+{{- else }}
+    openova.io/quota-formula: "purchased plan + the vCluster's synced coredns (every pod not in PriorityClass {{ .PlatformPriorityClass }})"
+{{- end }}
     openova.io/plan-cap: {{ .PlanCapText | quote }}
     openova.io/plan-guaranteed-cpu: {{ .Quota.CPURequest | quote }}
     openova.io/plan-guaranteed-memory: {{ .Quota.MemRequest | quote }}
     openova.io/plan-overcommit-cpu: "{{ .OvercommitCPU }}"
     openova.io/plan-overcommit-memory: "{{ .OvercommitMemory }}"
-    openova.io/vcluster-control-plane-overhead: {{ .OverheadText | quote }}
-    openova.io/platform-stack-overhead: {{ .PlatformStackText | quote }}
+    openova.io/vcluster-coredns-overhead: {{ .CoreDNSText | quote }}
     openova.io/overage-mode: {{ .EffectiveOverageMode | quote }}
 {{- if .GrowCeilingText }}
     openova.io/grow-ceiling: {{ .GrowCeilingText | quote }}
@@ -1167,7 +1195,16 @@ metadata:
 {{- if .OverageStoppedUntil }}
     openova.io/overage-stopped-until: {{ .OverageStoppedUntil | quote }}
 {{- end }}
+    kustomize.toolkit.fluxcd.io/force: enabled
 spec:
+{{- if not .PlatformScopePending }}
+  scopeSelector:
+    matchExpressions:
+      - scopeName: PriorityClass
+        operator: NotIn
+        values:
+          - {{ .PlatformPriorityClass }}
+{{- end }}
   hard:
     requests.cpu: "{{ .Hard.RequestsCPU }}"
     requests.memory: "{{ .Hard.RequestsMemory }}"
@@ -1669,9 +1706,8 @@ type renderView struct {
 	// Quota is the resolved plan cap (planQuota(.PlanSlug)) — what the
 	// customer purchased.
 	Quota PlanQuota
-	// Hard is the ResourceQuota hard cap: Quota plus the vCluster
-	// control-plane overhead plus the per-Organization platform-stack
-	// overhead, per resource (planPlusOverhead).
+	// Hard is the customer-scope plan-quota hard cap: the plan term plus the
+	// vCluster's synced coredns, per resource (planQuotaHard, #7067).
 	Hard quotaHard
 	// ControlPlane is the vCluster control-plane shape the HelmRelease
 	// template interpolates (vclusterControlPlane) — the same values Hard's
@@ -1734,6 +1770,23 @@ type renderView struct {
 	// apart — the constants are the single definition of both.
 	ResourceQuotaName string
 	LimitRangeName    string
+
+	// #7067 — the platform admission scope (platform_scope.go).
+	// PlatformHard is platform-quota's hard cap (platformQuotaHard);
+	// VClusterPodText / TransientText / CoreDNSText the human-readable terms
+	// stamped on the two quotas. PlatformPriorityClass / PlatformPriorityValue /
+	// PlatformQuotaName / PlatformScopePolicy carry the exported names into the
+	// templates; Scope the label selectors the Kyverno Policy matches on.
+	PlatformHard          quotaHard
+	VClusterPodText       string
+	TransientText         string
+	CoreDNSText           string
+	PlatformPriorityClass string
+	PlatformPriorityValue int
+	PlatformQuotaName     string
+	PlatformScopePolicy   string
+	Scope                 platformScopeSelectors
+	PlatformScopeReadRole string
 }
 
 // limitRangeDefaults derives the per-container defaults the LimitRange seeds
@@ -1821,6 +1874,12 @@ func Render(in Inputs) (map[string][]byte, error) {
 	if in.Tier == "" {
 		in.Tier = "org"
 	}
+	if in.ControllerServiceAccount == "" {
+		in.ControllerServiceAccount = DefaultControllerServiceAccount
+	}
+	if in.ControllerNamespace == "" {
+		in.ControllerNamespace = DefaultControllerNamespace
+	}
 
 	// Flexi retired (2026-10-10): render it as S in grow mode. A grow
 	// Organization under a BSS spend-limit stop renders capped.
@@ -1845,6 +1904,15 @@ func Render(in Inputs) (map[string][]byte, error) {
 		AppNamespace:        "apps",
 		ResourceQuotaName:   BoundaryResourceQuotaName,
 		LimitRangeName:      BoundaryLimitRangeName,
+
+		PlatformPriorityClass: OrgPlatformPriorityClassName,
+		PlatformPriorityValue: orgPlatformPriorityValue,
+		PlatformQuotaName:     PlatformResourceQuotaName,
+		PlatformScopePolicy:   PlatformScopePolicyName,
+		Scope:                 platformScope,
+		PlatformScopeReadRole: PlatformScopeReadRoleName,
+		CoreDNSText:           podOverheadText(corednsOverhead),
+		VClusterPodText:       podOverheadText(vclusterPodOverhead),
 	}
 	if retired {
 		view.RetiredPlan = RetiredPlanFlexi
@@ -1880,7 +1948,15 @@ func Render(in Inputs) (map[string][]byte, error) {
 		limCPU, limMem, grow := quotaLimitsFor(quota, in.OverageMode, in.GrowCeilingCPU, in.GrowCeilingMemory)
 		limitsQuota := quota
 		limitsQuota.CPULimit, limitsQuota.MemLimit = limCPU, limMem
-		view.Hard = planPlusOverhead(limitsQuota, vclusterControlPlaneOverhead, ps)
+		// #7067 — two scopes: the customer's plan-quota carries the plan
+		// term + the synced coredns; platform-quota carries vcluster-0 + the
+		// stack + the transient headroom (platform_scope.go).
+		view.Hard = planQuotaHard(limitsQuota)
+		if in.PlatformScopePending {
+			view.Hard = transitionalPlanQuotaHard(limitsQuota)
+		}
+		view.PlatformHard = platformQuotaHard(quota)
+		view.TransientText = overheadText(transientHeadroomFor(quota))
 		view.EffectiveOverageMode = OverageModeCapped
 		if grow {
 			view.EffectiveOverageMode = OverageModeGrow
@@ -1911,6 +1987,15 @@ func Render(in Inputs) (map[string][]byte, error) {
 	if PlanRendersResourceQuota(in.PlanSlug) {
 		files["vcluster/resourcequota.yaml"] = resourceQuotaTemplate
 		res = append(res, "resourcequota.yaml")
+		// #7067 — the platform scope: its quota, the class it scopes on and
+		// the Policy that stamps that class (platform_scope.go). Rendered
+		// together with plan-quota: one without the others either admits the
+		// stack unbounded or refuses it.
+		files["vcluster/"+platformQuotaDoc] = platformQuotaTemplate
+		files["vcluster/"+priorityClassDoc] = priorityClassTemplate
+		files["vcluster/"+platformScopePolicyDoc] = platformScopePolicyTemplate
+		files["vcluster/"+platformScopeRBACDoc] = platformScopeRBACTemplate
+		res = append(res, platformQuotaDoc, priorityClassDoc, platformScopePolicyDoc, platformScopeRBACDoc)
 	}
 	files["vcluster/vcluster.yaml"] = vclusterTemplate
 	res = append(res, "vcluster.yaml")
@@ -2016,6 +2101,8 @@ func resourceLess(a, b string) bool {
 func funcs() template.FuncMap {
 	return template.FuncMap{
 		"quote": func(s string) string { return fmt.Sprintf("%q", s) },
+		// join renders a string list as a YAML flow sequence body.
+		"join": func(ss []string) string { return strings.Join(ss, ", ") },
 	}
 }
 

@@ -113,8 +113,9 @@ func TestRender_PlanM_HeadlineLimitOverGuaranteedRequest(t *testing.T) {
 	t.Parallel()
 	out := renderPlan(t, "m")
 	q := planQuota("m")
-	cp := vclusterControlPlaneOverhead
-	ps := platformStackOverheadFor(q)
+	// #7067: the customer-scope plan-quota carries the plan term + the
+	// synced coredns only; vcluster-0 and the stack are platform-quota's.
+	dns := corednsOverhead
 
 	var rq struct {
 		Metadata struct {
@@ -133,17 +134,17 @@ func TestRender_PlanM_HeadlineLimitOverGuaranteedRequest(t *testing.T) {
 		return s.String()
 	}
 	for _, c := range []struct{ key, want, literal string }{
-		{"requests.cpu", sum("334m", cpPlus(cp.RequestsCPU, ps.RequestsCPU)), "4694m"},
-		{"requests.memory", sum("1366Mi", cpPlus(cp.RequestsMemory, ps.RequestsMemory)), "8518Mi"},
-		{"limits.cpu", sum("2", cpPlus(cp.LimitsCPU, ps.LimitsCPU)), "8050m"},
-		{"limits.memory", sum("4Gi", cpPlus(cp.LimitsMemory, ps.LimitsMemory)), "12458Mi"},
+		{"requests.cpu", sum("334m", dns.RequestsCPU), "354m"},
+		{"requests.memory", sum("1366Mi", dns.RequestsMemory), "1430Mi"},
+		{"limits.cpu", sum("2", dns.LimitsCPU), "3"},
+		{"limits.memory", sum("4Gi", dns.LimitsMemory), "4266Mi"},
 	} {
 		got := rq.Spec.Hard[c.key]
 		if got != c.want {
-			t.Errorf("plan m %s = %s, want %s (plan term + control plane + platform stack)", c.key, got, c.want)
+			t.Errorf("plan m %s = %s, want %s (plan term + synced coredns)", c.key, got, c.want)
 		}
 		if got != c.literal {
-			t.Errorf("plan m %s = %s, want the literal %s (334m + 520m + 3840m / 2 + 1500m + 4550m; 1366Mi + 1088Mi + 6064Mi / 4Gi + 1194Mi + 7168Mi)", c.key, got, c.literal)
+			t.Errorf("plan m %s = %s, want the literal %s (334m + 20m / 2 + 1; 1366Mi + 64Mi / 4Gi + 170Mi)", c.key, got, c.literal)
 		}
 	}
 	// requests < limits on both resources — the overcommit is visible on the cap.

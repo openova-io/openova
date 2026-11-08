@@ -581,9 +581,9 @@ func TestPlatformStackOverhead_PinnedFigures(t *testing.T) {
 				t.Errorf("plan %q: derived platform-stack overhead %s = %s, pinned figure is %s — a source moved; re-pin here AND in docs/SYSTEM-DESIGN.md and products/chargeback/DESIGN.md", slug, res, g.String(), w)
 			}
 		}
-		rq := string(renderPlan(t, slug)["vcluster/resourcequota.yaml"])
-		if !strings.Contains(rq, "openova.io/platform-stack-overhead: "+fmt.Sprintf("%q", ps.String())) {
-			t.Errorf("plan %q: resourcequota.yaml annotation openova.io/platform-stack-overhead does not equal %q:\n%s", slug, ps.String(), rq)
+		pq := string(renderPlan(t, slug)["vcluster/"+platformQuotaDoc])
+		if !strings.Contains(pq, "openova.io/platform-stack-overhead: "+fmt.Sprintf("%q", ps.String())) {
+			t.Errorf("plan %q: %s annotation openova.io/platform-stack-overhead does not equal %q:\n%s", slug, platformQuotaDoc, ps.String(), pq)
 		}
 	}
 	if hardCapped != len(wantPlatformStackOverhead) {

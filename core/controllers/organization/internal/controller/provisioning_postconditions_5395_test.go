@@ -52,6 +52,14 @@ func boundaryResourceQuota(slug string) *corev1.ResourceQuota {
 	}}
 }
 
+// platformResourceQuota is the platform-scope sibling of boundaryResourceQuota
+// (#7067), rendered in the same boundary file set.
+func platformResourceQuota(slug string) *corev1.ResourceQuota {
+	return &corev1.ResourceQuota{ObjectMeta: metav1.ObjectMeta{
+		Namespace: slug, Name: gitops.PlatformResourceQuotaName,
+	}}
+}
+
 // readyVClusterHR builds the Ready vCluster HelmRelease a paid-tier Org needs
 // before vclusterReadiness reports ready.
 func readyVClusterHR(slug string) *unstructured.Unstructured {
@@ -156,7 +164,7 @@ func TestReconcile_5395_ConsoleListenerMissing_MustNotReadReady(t *testing.T) {
 		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "acme"}},
 		readyVClusterHR("acme"),
 		boundaryLimitRange("acme"),
-		boundaryResourceQuota("acme"),
+		boundaryResourceQuota("acme"), platformResourceQuota("acme"),
 		// A sibling Org's listeners are present; this Org's are not — exactly
 		// the hw290 shape where six Orgs had theirs and gamma-corp did not.
 		consoleGateway("console-https-otherorg", "console-http-otherorg"),
@@ -208,7 +216,7 @@ func TestReconcile_5395_SilentListenerSkip_MustNotReadReady(t *testing.T) {
 		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "acme"}},
 		readyVClusterHR("acme"),
 		boundaryLimitRange("acme"),
-		boundaryResourceQuota("acme"),
+		boundaryResourceQuota("acme"), platformResourceQuota("acme"),
 		// No console Gateway at all — ensureConsoleOrgListener's NotFound
 		// branch returns (false, nil) and reports no degradation whatsoever.
 	)
@@ -239,7 +247,7 @@ func TestReconcile_5395_ListenerAppendedThenVerified(t *testing.T) {
 		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "acme"}},
 		readyVClusterHR("acme"),
 		boundaryLimitRange("acme"),
-		boundaryResourceQuota("acme"),
+		boundaryResourceQuota("acme"), platformResourceQuota("acme"),
 		consoleGateway(),
 	)
 
@@ -340,6 +348,36 @@ func TestReconcile_5395_HardCappedPlanWithoutQuota_MustNotReadReady(t *testing.T
 	}
 }
 
+// TestReconcile_7067_PlanQuotaWithoutPlatformQuota_MustNotReadReady — the
+// platform-scope quota is rendered in the same file set as plan-quota
+// (#7067). A namespace with only plan-quota admits the platform pods under a
+// class no quota counts; it is a delivery gap and must not read Ready.
+func TestReconcile_7067_PlanQuotaWithoutPlatformQuota_MustNotReadReady(t *testing.T) {
+	t.Parallel()
+	org := sampleOrg() // PlanSlug "m" — hard-capped
+
+	r, _, _ := makeReconciler(t, org,
+		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "acme"}},
+		readyVClusterHR("acme"),
+		boundaryLimitRange("acme"),
+		boundaryResourceQuota("acme"),
+		// No platform-quota.
+	)
+
+	res, got := reconcileToStatus(t, r, "acme")
+
+	cond := mustReadyCondition(t, got)
+	if cond.Status != "False" || cond.Reason != "ProvisioningIncomplete" {
+		t.Errorf("an Org with plan-quota but no platform-quota must NOT read Ready=True — got %+v", cond)
+	}
+	if !strings.Contains(cond.Message, gitops.PlatformResourceQuotaName) {
+		t.Errorf("Ready message must name the missing platform-quota, got %q", cond.Message)
+	}
+	if res.RequeueAfter == 0 {
+		t.Errorf("a missing quota must keep the requeue alive, got %v", res)
+	}
+}
+
 // TestReconcile_5395_RetiredFlexiNeedsTheSQuota — flexi retired on 2026-10-10
 // (#6971): an Organization still carrying spec.planSlug "flexi" renders as S
 // in grow mode (gitops.EffectivePlan), so its boundary namespace MUST carry
@@ -374,7 +412,7 @@ func TestReconcile_5395_RetiredFlexiNeedsTheSQuota(t *testing.T) {
 		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "acme"}},
 		readyVClusterHR("acme"),
 		boundaryLimitRange("acme"),
-		boundaryResourceQuota("acme"),
+		boundaryResourceQuota("acme"), platformResourceQuota("acme"),
 	)
 	res2, got2 := reconcileToStatus(t, r2, "acme")
 	if cond2 := mustReadyCondition(t, got2); cond2.Status != "True" {
@@ -395,7 +433,7 @@ func TestVerifyProvisioned_UnreadableProbeIsNotEvidenceOfAbsence(t *testing.T) {
 	r, _, _ := makeReconciler(t, org,
 		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "acme"}},
 		boundaryLimitRange("acme"),
-		boundaryResourceQuota("acme"),
+		boundaryResourceQuota("acme"), platformResourceQuota("acme"),
 		consoleGateway("console-https-acme", "console-http-acme"),
 	)
 	// Wrap the client so every Gateway read fails with a non-NotFound error.
@@ -422,7 +460,7 @@ func TestVerifyProvisioned_NoParentDomainSkipsConsoleCheck(t *testing.T) {
 	r, _, _ := makeReconciler(t, org,
 		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "acme"}},
 		boundaryLimitRange("acme"),
-		boundaryResourceQuota("acme"),
+		boundaryResourceQuota("acme"), platformResourceQuota("acme"),
 		// No console Gateway at all.
 	)
 

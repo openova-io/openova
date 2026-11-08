@@ -122,8 +122,11 @@ quota at plan + control plane, `bp-keycloak-0` was refused at admission
 on the keycloak dependency forever. Derived from the sources that size it,
 the stack is 3840m / 6064Mi of requests and 4550m / 7168Mi of limits before a
 single customer application — larger than the S plan by itself.
-The org-controller now sizes the quota as **plan + vCluster control plane +
-platform stack** (`manifests.go` `platformStack`; requests 3840m / 6064Mi and
+The org-controller now admits the stack in its own scope — since #7067
+`platform-quota` (PriorityClass `catalyst-org-platform`) = vcluster-0 +
+**platform stack** + the transient headroom, and the customer's `plan-quota`
+= plan + the synced coredns (`manifests.go` `platformStack`,
+`platform_scope.go`; the stack is requests 3840m / 6064Mi and
 limits 4550m / 7168Mi on every plan — under the National Cloud headlines
 (NC-OO-Pricing.xlsx, 2026-06-28: S 1 vCPU / 2 GiB … XL 8 / 16) no plan's
 LimitRange default sizes agenity's unsized init container above its app

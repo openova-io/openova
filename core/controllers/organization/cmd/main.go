@@ -282,6 +282,9 @@ func main() {
 
 	r := &controller.Reconciler{
 		Client:                            mgr.GetClient(),
+		PodReader:                         mgr.GetAPIReader(),
+		ControllerServiceAccount:          strings.TrimSpace(os.Getenv("CATALYST_ORG_CONTROLLER_SERVICE_ACCOUNT")),
+		ControllerNamespace:               strings.TrimSpace(os.Getenv("POD_NAMESPACE")),
 		Log:                               log.WithName("reconciler"),
 		Keycloak:                          controller.NewLiveKeycloak(kcAddr, kcRealm, kcSAID, kcSASecret),
 		PerOrgRealmEnabled:                perOrgRealmEnabled,
