@@ -53,6 +53,12 @@ render_args() {
   case "$1" in
     platform/wordpress-tenant)
       echo "--set smeDomain=a.example --set adminUser.email=a@b.c --set database.topology.promotion.mechanism=manual --api-versions postgresql.cnpg.io/v1 --api-versions cilium.io/v2" ;;
+    # ADR-0015 D8 platform pairs: default-off charts; the region pins are the
+    # bootstrap-kit slot's cloud-init values (16b / 16c+16d).
+    platform/cnpg-pair)
+      echo "--set cnpgPair.enabled=true --set cnpgPair.primary.region=$A --set cnpgPair.replica.region=$B --set cnpgPair.image.tag=16.4-1" ;;
+    platform/postgres)
+      echo "--set enabled=true --set topology.primary.region=$A --set topology.replica.region=$B --api-versions postgresql.cnpg.io/v1" ;;
     *) echo "" ;;
   esac
 }
