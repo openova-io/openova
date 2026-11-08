@@ -11,7 +11,11 @@ spec:
   # (artifacts baked into the runtime image). Rebase of PR #6320 onto current
   # main; #6320 already claims 0.4.24 as an open PR, so this republish takes
   # the next free patch. Lockstep with platform/wordpress-tenant/chart/Chart.yaml.
-  version: 0.4.26
+  # 0.5.0 (ADR-0015 D2, Refs #7067): consumes the shared openova.topology
+  # contract (one HelmRelease per region, renders only its own CNPG member —
+  # CNPG native distributed topology). database.mode / pg.activeHotStandby
+  # REMOVED (fail closed). Lockstep with platform/wordpress-tenant/chart/Chart.yaml.
+  version: 0.5.0
   card:
     title: WordPress (per-Organization)
     summary: |
@@ -113,30 +117,46 @@ spec:
       database:
         type: object
         properties:
-          mode:
-            type: string
-            enum: ["", "singleton", "active-hot-standby"]
-            default: ""
-            description: |
-              Canonical operator-facing DB topology selector (TBD-E8b).
-
-                - "singleton"          (DEFAULT) — single in-vcluster CNPG Cluster CR.
-                - "active-hot-standby" (D31)     — primary + replica CNPG Cluster CRs across
-                                                    two regions, WAL streaming over Cilium
-                                                    ClusterMesh (mirrors bp-cnpg-pair shape).
-
-              When set, this enum overrides the legacy
-              `pg.activeHotStandby.enabled` boolean. Empty string falls
-              through to the boolean for back-compat with chart 0.3.x
-              overlays. The marketplace voucher → org wizard (D29)
-              writes this field directly.
           cnpgClusterName:
             type: string
             default: wordpress-db
             description: |
               Name of the `Cluster.postgresql.cnpg.io` provisioned for
-              this WordPress instance. Per-tenant unique within the Organization
-              namespace.
+              this WordPress instance (single-region). Under a multi-region
+              `openova.topology` it is the BASE of the per-region name
+              `<cnpgClusterName>-<sha256(region-id)[0:8]>`.
+          topology:
+            type: object
+            description: |
+              Multi-region DB knobs, read only when `openova.topology.mode` is
+              active-passive / active-hot-standby (ADR-0015 D2): clusterNames
+              (region-id → name migration overrides), promotionToken (CNPG
+              demotion token for a planned primary move), promotion.mechanism
+              (#5623, REQUIRED: manual), clusterMesh, replication (ADR-0004
+              sync default), sharedSecrets (replication CA + DB owner
+              credentials identical in every region).
+      openova:
+        type: object
+        properties:
+          topology:
+            type: object
+            description: |
+              THE placement contract (ADR-0015 D2), written per region by the
+              orchestrator: {mode: singleton|active-passive|active-hot-standby,
+              self: <region-id>, primary: <region-id>, peers: [<region-id>]}.
+              Empty ⇒ single-region. active-active is refused (single-writer).
+            properties:
+              mode:
+                type: string
+                enum: [singleton, active-passive, active-hot-standby]
+              self:
+                type: string
+              primary:
+                type: string
+              peers:
+                type: array
+                items:
+                  type: string
       adminUser:
         type: object
         required: [email]
@@ -215,6 +235,19 @@ spec:
     defaultOnMultiRegion: active-passive
   manifests:
     chart: ./chart
+  # ── ADR-0015 D6 seam — region-local volumes ──────────────────────────
+  # Every PVC this Blueprint binds PER REGION and nothing replicates. D6
+  # admits `active-hot-standby` only when each entry names a replication
+  # mechanism; `replication: none` means a primary move leaves this data
+  # behind in the old region. `template` is the chart file that renders it
+  # (kept as its own template so D6 can replace exactly that file).
+  # NOTE: catalog-only field — the Blueprint CRD does not carry it yet.
+  regionLocalVolumes:
+    - name: wp-content
+      template: chart/templates/pvc.yaml
+      mountPath: /var/www/html/wp-content
+      contents: [uploads, themes, plugins]
+      replication: none
   depends:
     # #3370 — the database dependency is the SHAREABLE INSTANCE class
     # (bp-postgres), not the operator: a wordpress app consumes a

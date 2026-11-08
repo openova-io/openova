@@ -4090,7 +4090,8 @@ name: bp-catalyst-platform
 # 1.4.1890: bootstrap Application placement is operator-owned — seed pins for
 #   bp-gitea/grafana/guacamole/harbor/keycloak/newapi/openbao/postgres/
 #   powerdns/valkey (seeded once, carried forward on upgrade).
-version: 1.4.1892
+# 1.4.1894: bp-wordpress-tenant 0.5.0 seed pins (ADR-0015 D2, #7067).
+version: 1.4.1894
 # 1.4.1481 — #6293: catalog-seed advances bp-self-sovereign-cutover
 #   0.1.186 -> 0.1.187, the release that stops step-06 from patching five
 #   HelmRepositories it does not own and then grading itself on whether they
@@ -4277,7 +4278,7 @@ version: 1.4.1892
 # scripts/check-chart-version-forward.sh (#5743) fails unless the two match —
 # main was carrying a pre-existing 1.4.1330/1.4.1329 split, so this bump heals
 # it in the same commit, exactly as the documented self-heal contract does.
-appVersion: 1.4.1892
+appVersion: 1.4.1894
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
 # Adds the OpenTofu module at infra/providers/huawei/ (VPC + Subnet +

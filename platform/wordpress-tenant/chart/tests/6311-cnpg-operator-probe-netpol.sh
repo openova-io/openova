@@ -191,17 +191,23 @@ gate_absent "networkPolicy.enabled=false" "${CNPG_API[@]}" --set networkPolicy.e
 # Explicit opt-out for a cluster with no default-deny baseline.
 gate_absent "networkPolicy.cnpgOperator.enabled=false" "${CNPG_API[@]}" \
   --set networkPolicy.cnpgOperator.enabled=false
-# active-hot-standby: the replica streams WAL cross-cluster over ClusterMesh;
-# an Ingress policyType selecting the Cluster Pods would default-deny that
-# stream, and a remote-cluster peer cannot be expressed in a k8s NetworkPolicy
-# (an ipBlock never matches a ClusterMesh remote endpoint identity). Rendering
-# nothing keeps that path byte-identical rather than trading one break for
-# another. Mirrors bp-postgres, whose #4282 template is singleton-only too.
-gate_absent "database.mode=active-hot-standby" "${CNPG_API[@]}" \
-  --set database.mode=active-hot-standby \
-  --set pg.activeHotStandby.promotion.mechanism=manual \
-  --set pg.activeHotStandby.primaryRegion=hz-fsn-rtz-prod \
-  --set pg.activeHotStandby.replicaRegion=hz-hel-rtz-prod
+# ADR-0015 D2 (0.5.0): a multi-region release renders exactly ONE Cluster —
+# its own region's member — and the cross-region WAL stream is admitted by the
+# identity-based CiliumNetworkPolicy in topology-mesh.yaml (policies union).
+# So the carve-out now renders in EVERY mode, selecting THIS region's
+# per-region Cluster name (assert_carveout derives `want` from the render).
+for side in a b; do
+  if [ "$side" = a ]; then self=hw-me-east-215-a-rtz-prod; peer=hw-me-east-215-b-rtz-prod
+  else self=hw-me-east-215-b-rtz-prod; peer=hw-me-east-215-a-rtz-prod; fi
+  helm template smoke-wp . "${CNPG_API[@]}" \
+    --set openova.topology.mode=active-passive \
+    --set openova.topology.self="$self" \
+    --set openova.topology.primary=hw-me-east-215-a-rtz-prod \
+    --set "openova.topology.peers={$peer}" \
+    --set database.topology.promotion.mechanism=manual > "$TMP/multi-$side.yaml"
+  assert_carveout "$TMP/multi-$side.yaml"
+  echo "  present as required: multi-region self=$self"
+done
 echo "  PASS"
 
 # ──────────────────────────────────────────────────────────────────────────

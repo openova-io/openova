@@ -1,0 +1,149 @@
+{{- /*
+─── Cross-region plumbing of THIS region's CNPG member (ADR-0015 D2) ─────
+Rendered only for a multi-region `openova.topology`. Nothing here selects or
+pins anything in another region:
+
+  1. Peer `-mesh` stubs — one zero-backend Service per PEER Cluster
+     (`<peer>-mesh`, global). Cilium merges global Services by
+     name+namespace, so the peer alias resolves here and every connection
+     crosses the mesh to that peer's `rw` (topology-lib peerMeshStubs).
+
+  2. Cross-region ingress to THIS region's CNPG Pods on 5432 from the peer
+     members' Pods. Peers arrive over ClusterMesh as known endpoints with
+     their own identity, so only an identity-based CiliumNetworkPolicy
+     admits them (an ipBlock never matches — bp-postgres #4846/#4847). The
+     peers are matched by their `cnpg.io/cluster` label (their per-region
+     Cluster names), and `io.cilium.k8s.policy.cluster Exists` lifts Cilium's
+     implicit local-cluster scoping — so no Cilium cluster-name registry is
+     needed (those names are yet another region spelling, ADR-0015 D3).
+
+  3. Shared Secrets (OPTIONAL ExternalSecrets) — the replication client CA
+     and the DB owner credentials must be the SAME bytes in every region
+     (see _helpers.tpl). With `database.topology.sharedSecrets.externalSecret
+     .storeRef.name` set, both are pulled from that (Cluster)SecretStore;
+     otherwise they must pre-exist in the namespace (the CNPG Cluster waits
+     for them).
+*/ -}}
+{{- if and .Values.wordpress.enabled .Values.database.cluster.enabled (include "bp-wordpress-tenant.multiRegion" .) }}
+{{- $topo := .Values.database.topology | default dict -}}
+{{- $overrides := $topo.clusterNames | default dict -}}
+{{- $mesh := $topo.clusterMesh | default dict -}}
+{{- $n := include "bp-wordpress-tenant.dbNames" . | fromJson -}}
+{{- $ns := include "bp-wordpress-tenant.cnpgNamespace" . -}}
+{{- if ne ($mesh.enabled | toString) "false" }}
+{{- include "openova.topology.cnpg.peerMeshStubs" (dict "ctx" . "base" .Values.database.cnpgClusterName "overrides" $overrides "affinity" ($mesh.affinity | default "local") "labels" (include "bp-wordpress-tenant.labels" .)) }}
+{{- end }}
+{{- if and .Values.networkPolicy.enabled (.Capabilities.APIVersions.Has "cilium.io/v2") }}
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ printf "%s-cross-region" $n.self | quote }}
+  namespace: {{ $ns | quote }}
+  labels:
+    {{- include "bp-wordpress-tenant.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ .Values.database.cnpgClusterName | quote }}
+spec:
+  endpointSelector:
+    matchLabels:
+      cnpg.io/cluster: {{ $n.self | quote }}
+  ingress:
+    - fromEndpoints:
+        - matchExpressions:
+            - key: cnpg.io/cluster
+              operator: In
+              values:
+                {{- range $n.peers }}
+                - {{ . | quote }}
+                {{- end }}
+            - key: io.cilium.k8s.policy.cluster
+              operator: Exists
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+  # EGRESS mirror: the per-Org `allow-gateway-and-apiserver` CNP gives every
+  # endpoint an egress section (apiserver + same-namespace, LOCAL cluster), so
+  # without this the member could not dial a peer's `-mesh` (pg_basebackup,
+  # WAL streaming, the demoted primary following its successor).
+  egress:
+    - toEndpoints:
+        - matchExpressions:
+            - key: cnpg.io/cluster
+              operator: In
+              values:
+                {{- range $n.peers }}
+                - {{ . | quote }}
+                {{- end }}
+            - key: io.cilium.k8s.policy.cluster
+              operator: Exists
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+{{- end }}
+{{- $es := dig "sharedSecrets" "externalSecret" dict $topo -}}
+{{- $store := $es.storeRef | default dict -}}
+{{- if $store.name }}
+{{- $prefix := $es.remoteKeyPrefix | default (printf "openova/apps/%s/%s" .Release.Namespace .Release.Name) }}
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: {{ include "bp-wordpress-tenant.replicationCASecret" . | quote }}
+  namespace: {{ $ns | quote }}
+  labels:
+    {{- include "bp-wordpress-tenant.labels" . | nindent 4 }}
+spec:
+  refreshInterval: {{ $es.refreshInterval | default "1h" | quote }}
+  secretStoreRef:
+    kind: {{ $store.kind | default "ClusterSecretStore" | quote }}
+    name: {{ $store.name | quote }}
+  target:
+    name: {{ include "bp-wordpress-tenant.replicationCASecret" . | quote }}
+    creationPolicy: Owner
+    template:
+      metadata:
+        labels:
+          cnpg.io/reload: "true"
+  data:
+    - secretKey: ca.crt
+      remoteRef:
+        key: {{ printf "%s/replication-ca" $prefix | quote }}
+        property: ca.crt
+    - secretKey: ca.key
+      remoteRef:
+        key: {{ printf "%s/replication-ca" $prefix | quote }}
+        property: ca.key
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: {{ include "bp-wordpress-tenant.appCredentialsSecret" . | quote }}
+  namespace: {{ $ns | quote }}
+  labels:
+    {{- include "bp-wordpress-tenant.labels" . | nindent 4 }}
+spec:
+  refreshInterval: {{ $es.refreshInterval | default "1h" | quote }}
+  secretStoreRef:
+    kind: {{ $store.kind | default "ClusterSecretStore" | quote }}
+    name: {{ $store.name | quote }}
+  target:
+    name: {{ include "bp-wordpress-tenant.appCredentialsSecret" . | quote }}
+    creationPolicy: Owner
+    template:
+      type: kubernetes.io/basic-auth
+      metadata:
+        labels:
+          cnpg.io/reload: "true"
+  data:
+    - secretKey: username
+      remoteRef:
+        key: {{ printf "%s/db-owner" $prefix | quote }}
+        property: username
+    - secretKey: password
+      remoteRef:
+        key: {{ printf "%s/db-owner" $prefix | quote }}
+        property: password
+{{- end }}
+{{- end }}

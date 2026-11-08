@@ -101,3 +101,92 @@ reconciling skips the Cluster CR (and the Pod waits in
 `Pending`/`CrashLoopBackOff` until bp-cnpg lands and the Cluster is
 re-rendered on the next reconcile). The Sovereign's bootstrap order
 MUST land bp-cnpg before bp-wordpress-tenant.
+
+## Multi-region topology (0.5.0, ADR-0015 D2)
+
+Placement is expressed ONLY through the shared contract, one HelmRelease of
+this chart **per region**, identical except for `self`:
+
+```yaml
+openova:
+  topology:
+    mode: active-passive            # singleton | active-passive | active-hot-standby
+    self: hw-me-east-215-a-rtz-prod # the region this release is applied in
+    primary: hw-me-east-215-a-rtz-prod
+    peers: [hw-me-east-215-b-rtz-prod]
+database:
+  topology:
+    promotion: {mechanism: manual}  # #5623 — REQUIRED for a multi-region contract
+```
+
+Helpers come from the library chart `platform/topology-lib` (vendored at
+build). Each release renders **only its own half**:
+
+| Region role | CNPG Cluster | WordPress | Hook Jobs | Service |
+|---|---|---|---|---|
+| primary (`self == primary`) | `wordpress-db-<h(self)>`, `bootstrap.initdb`, synchronous standby = declared peers (ADR-0004, `dataDurability: required`) | `replicas: N` against the local `-rw` | rendered | mesh-global, local backends |
+| replica | `wordpress-db-<h(self)>`, `bootstrap.pg_basebackup` from the primary, no sync fence | `replicas: 0` | not rendered | mesh-global, zero local backends ⇒ proxies to the primary |
+
+- **Naming scheme**: `<database.cnpgClusterName>-<first 8 hex of sha256(region-id)>`
+  (`printf %s <region-id> | sha256sum | cut -c1-8`). Stable, DNS-safe, ≤ 50
+  chars, computable without the chart. `database.topology.clusterNames`
+  (region-id → name) overrides it per region.
+- Every member declares `spec.replica.{self,primary,source}` and
+  `externalClusters` for every member over `<member>-mesh` (ClusterMesh
+  global; its own via CNPG `managed.services.additional`, `selectorType: rw`;
+  the peers' as zero-backend stubs). A `CiliumNetworkPolicy` admits 5432 to /
+  from the peer members only.
+- **Shared Secrets** — identical bytes in every region, must exist before the
+  Cluster can start: `<cnpgClusterName>-replication-ca` (`ca.crt`, `ca.key`:
+  every member's `clientCASecret`) and `<cnpgClusterName>-app-credentials`
+  (basic-auth: the DB owner). Set
+  `database.topology.sharedSecrets.externalSecret.storeRef.name` to pull them
+  from a (Cluster)SecretStore (`<prefix>/replication-ca`, `<prefix>/db-owner`).
+- **Traffic follows the primary**: WordPress cannot serve against a read-only
+  replica (sessions, options, wp-cron, login all write), and pointing a
+  passive region's Pods at the primary's DB over the mesh would pay the
+  inter-region RTT on every query and write uploads to the wrong region's
+  PVC. So only the primary runs Pods; any other region's gateway reaches them
+  through the global Service.
+- `wp-content` is a **region-local** volume (`templates/pvc.yaml`, declared in
+  `blueprint.yaml` `spec.regionLocalVolumes`, `replication: none`): media do
+  not follow a primary move until ADR-0015 D6 lands.
+
+### Moving the primary (Git-level, lossless)
+
+1. Commit `openova.topology.primary: <new>` to the **current primary's**
+   region file. CNPG demotes that Cluster in place and publishes
+   `status.demotionToken`; its WordPress scales to 0.
+2. Read that Cluster's `status.demotionToken`; commit
+   `openova.topology.primary: <new>` **and**
+   `database.topology.promotionToken: <token>` to the **new primary's** region
+   file. CNPG promotes after replaying up to the token (RPO 0); WordPress
+   scales up there and the hook Jobs run there.
+3. Commit `openova.topology.primary: <new>` to every remaining peer.
+
+Never commit step 2 before step 1 is reconciled: without a token CNPG
+promotes immediately while the old primary is still writable. An unplanned
+region loss has no token: commit `primary: <survivor>` to the survivor only.
+
+### Migration from 0.4.x
+
+`database.mode` and `pg.activeHotStandby.*` are **removed**; setting either
+fails the render with the migration text (no silent downgrade).
+
+- **Single-region installs**: nothing to do — no contract ⇒ the 0.4.x
+  singleton render (one Cluster `wordpress-db`, WordPress serving).
+- **Former `active-hot-standby` installs** (one release rendering
+  `wordpress-db` + `wordpress-db-replica` into region A): give region A's
+  release the contract with `self` = region A and pin its existing Cluster
+  name — `database.topology.clusterNames: {<region-A-id>: wordpress-db}` — so
+  Helm keeps the primary and its data (only the never-scheduled
+  `wordpress-db-replica` is pruned). Seed the two shared Secrets in both
+  regions FROM THE EXISTING CLUSTER: `wordpress-db-app-credentials` =
+  `username`/`password` of the live `wordpress-db-app` Secret (bootstrap
+  secrets are only read at creation, so the role keeps its current password
+  and WordPress must be given that one), and `wordpress-db-replication-ca` =
+  `ca.crt`/`ca.key` of `wordpress-db-ca` (or a new shared CA — CNPG then
+  re-issues the replication leaf). Then add region B's release with
+  `self` = region B: its Cluster `wordpress-db-<h(B)>` clones the primary over
+  the mesh. Until region B is streaming, the primary's sync fence blocks
+  writes, exactly as ADR-0004 requires.

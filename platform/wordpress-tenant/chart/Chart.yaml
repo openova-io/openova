@@ -426,7 +426,27 @@ name: bp-wordpress-tenant
 #   generic`) left active_plugins pointing at a file the runtime PVC never had.
 #   The oidc-config Job also gains imagePullSecrets: its new wp-artifacts init
 #   runs the PRIVATE ghcr image, and without them it ImagePullBackOffs.
-version: 0.4.26
+# 0.5.0 (ADR-0015 D2, Refs #7067) — BREAKING: one topology values contract,
+#   render only the `self` half. The chart consumes the shared
+#   `openova.topology.{mode,self,primary,peers}` contract through the new
+#   topology-lib library (file://../../topology-lib/chart, vendored at build).
+#   Each region gets its own HelmRelease; each release renders exactly ONE
+#   CNPG Cluster — `<cnpgClusterName>-<sha256(region-id)[0:8]>` — as a member
+#   of CNPG's native distributed topology (spec.replica.{self,primary,source},
+#   externalClusters over `<member>-mesh` ClusterMesh global Services,
+#   selectorType rw — not r, #3740). ADR-0004 kept: the primary member pins a
+#   synchronous standby (dataDurability required) naming ONLY declared peers.
+#   Moving the primary = commit `primary` (+ `database.topology.promotionToken`
+#   on the new primary) per region; CNPG demotes/promotes natively. WordPress
+#   serves only where this region's member is primary (replicas 0 elsewhere,
+#   global Service proxies over the mesh). Hook Jobs render only on the
+#   primary. REMOVED: `database.mode`, `pg.activeHotStandby.*` (they rendered
+#   both halves into ONE cluster separated by node affinity — the replica was
+#   unschedulable for 58 days on hw307 and every write blocked); setting either
+#   fails the render with the migration text. Contract absent ⇒ the unchanged
+#   singleton render. wp-content PVC declared region-local (D6 seam).
+#   tests/active-hot-standby-render.sh → tests/topology-per-region-render.sh.
+version: 0.5.0
 appVersion: "6"
 description: |
   Catalyst Blueprint scratch chart for in-vcluster WordPress, one
@@ -477,3 +497,8 @@ dependencies:
   - name: common
     version: "0.1.3"
     repository: "https://sigstore.github.io/helm-charts"
+  # ADR-0015 D2 — the shared topology contract helpers (library chart,
+  # vendored into this package by `helm dependency build`).
+  - name: topology-lib
+    version: "0.1.0"
+    repository: "file://../../topology-lib/chart"

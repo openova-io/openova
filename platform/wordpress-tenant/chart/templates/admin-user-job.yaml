@@ -1,4 +1,5 @@
-{{- if and .Values.wordpress.enabled .Values.adminUser.email }}
+{{- if and .Values.wordpress.enabled .Values.adminUser.email (include "bp-wordpress-tenant.isPrimary" .) }}
+{{- /* ADR-0015 D2: this hook WRITES the WordPress database, so it renders only in the region whose CNPG member is the primary (always, without a multi-region openova.topology). The data it writes replicates to every peer. */ -}}
 {{- /*
 Helm post-install Job that pre-seeds the Organization admin WP user with the
 SSO email mapping, so on first SSO login from Keycloak the
