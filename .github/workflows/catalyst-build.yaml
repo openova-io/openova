@@ -526,8 +526,29 @@ jobs:
     secrets:
       bastion_harbor_robot_token: ${{ secrets.BASTION_HARBOR_ROBOT_TOKEN }}
 
+  # ADR-0015 D9 — the next deploy-bot bump needs the LAST delivery's live
+  # acceptance run (install / data / move / move back, tests/acceptance/sovereign)
+  # to have PASSED on the gate Sovereign. Reads the newest committed record in
+  # docs/ledger/acceptance/<env>-*.json (written by acceptance-sovereign.yaml).
+  #   vars.ACCEPTANCE_GATE_ENV   default hw307
+  #   vars.ACCEPTANCE_GATE_MODE  report (default: prints the verdict, says NOT
+  #                              GATING, never blocks) | enforce (blocks the bump
+  #                              unless the latest run PASSED)
+  # A delivery that FIXES a failing run passes with `ACCEPTANCE-OVERRIDE: <reason>`
+  # in its commit message (= the squash-merged PR body). Cheap and cluster-free:
+  # it runs alongside the image builds and adds no wall time to the train.
+  acceptance-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: D9 acceptance gate
+        env:
+          ACCEPTANCE_GATE_MODE: ${{ vars.ACCEPTANCE_GATE_MODE || 'report' }}
+          ACCEPTANCE_OVERRIDE_TEXT: ${{ github.event.head_commit.message }}
+        run: python3 scripts/acceptance-gate.py "${{ vars.ACCEPTANCE_GATE_ENV || 'hw307' }}"
+
   deploy:
-    needs: [build-ui, build-api]
+    needs: [build-ui, build-api, acceptance-gate]
     runs-on: ubuntu-latest
     permissions:
       # contents: write — push the values.yaml SHA bump back to main

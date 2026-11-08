@@ -1,0 +1,13 @@
+row_id,journeys,why
+R12,J1+J2,CNPG streaming replication is live — proven only by a write in A read back on the B replica
+G3,J1+J3,every Continuum declares a reachable standby — proven only by the writer actually moving to it
+G12,J3+J4,region-kill failover + recovery — the planned move both ways is its precondition (necessary not sufficient)
+50,J1,create active-hot-standby succeeds — succeeds means it reconciles and serves not a 201
+51,J1,Topology shows region-a active and region-b standby — only true if the writer/replica split is real (pg_is_in_recovery)
+57,J3+J4,Switchover armed — an armed switchover is green only if a switchover actually completes
+60,J1,New instance active-hot-standby yields a 2-region pair — proven by both regions' CNPG halves healthy with the right roles
+64,J1+J2,replication lag is live — proven by a replicated write not a rendered number
+71,J1+J2+J3,region-kill baseline: lease held + standby present + replicating — proven by a move that lands
+89,J1,WordPress app card Running/Healthy — proven by the FQDN serving a configured WordPress
+90,J1+J2,WordPress SERVES at its FQDN — proven by serving a written post and media
+233,J1,WordPress serves HTTP 200 on a fresh install

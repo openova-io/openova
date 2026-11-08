@@ -112,7 +112,22 @@ OBS = os.path.join(REPO, "docs", "ledger", "uat-observations.csv")
 # hand-written score would outrank the evidence it is supposed to summarise.
 SNAPSHOT = os.path.join(REPO, "docs", "ledger", "confidence.csv")
 
-OBS_FIELDS = ["cycle_ts", "env", "row_id", "status"]
+# `evidence_class` (ADR-0015 D9) — what KIND of evidence the observation rests
+# on: function (a passing acceptance run is cited), state (a measured cluster /
+# API state), presence (something rendered). Rows written before the column
+# existed read as "" (legacy) and are scored exactly as before; the log's
+# header gained the column in the same change, and append_obs writes whatever
+# columns the EXISTING header declares, so an old log can never get a value
+# under no heading.
+OBS_FIELDS = ["cycle_ts", "env", "row_id", "status", "evidence_class"]
+
+import acceptance_record  # noqa: E402  (scripts/ is on sys.path above)
+
+# A function-clause row (docs/ledger/uat-function-rows.csv) is only EVIDENCED by
+# a function-class observation. A PASS resting on state or presence evidence is
+# recorded, but scored as NOTRUN: it says nothing about whether the thing works.
+FUNCTION_ROWS = os.path.join(REPO, "docs", "ledger", "uat-function-rows.csv")
+ACCEPTANCE_DIR = os.path.join(REPO, "docs", "ledger", "acceptance")
 
 # --- model constants -------------------------------------------------------
 # Beta(α, β) prior. Slightly pessimistic: an unseen row is NOT assumed good.
@@ -237,7 +252,7 @@ def observable_here(row_envs, current_env):
 STATUS_MAP = {"✅": "PASS", "❌": "FAIL", "☐": "NOTRUN"}
 
 
-def plan_observations(body, env, cycle):
+def plan_observations(body, env, cycle, frows=None, acceptance_dir=None):
     """(rows, foreign): what --observe appends for `env`, and the row ids it refuses.
 
     Split out of main() so the self-test can exercise the whole --observe
@@ -247,13 +262,19 @@ def plan_observations(body, env, cycle):
     """
     led = parse_ledger(body)
     envs = ledger_envs(body)
+    evidence = {rid: f[F_EVIDENCE] for rid, f in ledger_rows(body)}
+    if frows is None:
+        frows = acceptance_record.function_rows(FUNCTION_ROWS)
+    adir = acceptance_dir or ACCEPTANCE_DIR
     rows, foreign = [], []
     for rid, v in sorted(led.items()):
         if not observable_here(envs.get(rid, set()), env):
             foreign.append(rid)
             continue
         rows.append({"cycle_ts": cycle, "env": env, "row_id": rid,
-                     "status": STATUS_MAP.get(v, "NOTRUN")})
+                     "status": STATUS_MAP.get(v, "NOTRUN"),
+                     "evidence_class": acceptance_record.classify(
+                         rid, evidence.get(rid, ""), env, frows, adir)})
     return rows, foreign
 
 
@@ -278,10 +299,18 @@ def load_obs(obs_path=None):
         return list(csv.DictReader(fh))
 
 
-def append_obs(rows):
-    new = not os.path.exists(OBS)
-    with open(OBS, "a", newline="", encoding="utf-8") as fh:
-        w = csv.DictWriter(fh, fieldnames=OBS_FIELDS)
+def append_obs(rows, obs_path=None):
+    path = obs_path or OBS
+    new = not os.path.exists(path) or os.path.getsize(path) == 0
+    fields = OBS_FIELDS
+    if not new:
+        # Write the columns the EXISTING header declares, in its order: a log
+        # whose header predates `evidence_class` gets 4-field rows, never a
+        # 5th value under no heading.
+        with open(path, newline="", encoding="utf-8") as fh:
+            fields = next(csv.reader(fh), None) or OBS_FIELDS
+    with open(path, "a", newline="", encoding="utf-8") as fh:
+        w = csv.DictWriter(fh, fieldnames=fields, extrasaction="ignore")
         if new:
             w.writeheader()
         for r in rows:
@@ -384,15 +413,32 @@ def score_row(observations, current_env, now_index, cycle_index):
     }
 
 
-def build(current_env, obs_path=None):
+def effective_status(r, frows):
+    """The status an observation contributes to the score.
+
+    A PASS on a function-clause row counts only if its evidence_class is
+    `function`; a `state`/`presence` PASS there is NOTRUN — recorded, never
+    trusted. Legacy observations (no evidence_class) score as they always did;
+    the LEDGER gate (scripts/check-function-rows-cite-acceptance.py) is what
+    refuses a NEW function-row ✅ without an acceptance run.
+    """
+    st = r.get("status") or "NOTRUN"
+    ec = (r.get("evidence_class") or "").strip()
+    if st == "PASS" and r.get("row_id") in frows and ec and ec != "function":
+        return "NOTRUN"
+    return st
+
+
+def build(current_env, obs_path=None, function_rows_path=None):
     obs = load_obs(obs_path)
     cycles = sorted({r["cycle_ts"] for r in obs})
     cycle_index = {ts: i for i, ts in enumerate(cycles)}
     now_index = len(cycles) - 1 if cycles else 0
 
+    frows = acceptance_record.function_rows(function_rows_path or FUNCTION_ROWS)
     per = collections.defaultdict(list)
     for r in obs:
-        per[r["row_id"]].append((r["cycle_ts"], r["env"], r["status"]))
+        per[r["row_id"]].append((r["cycle_ts"], r["env"], effective_status(r, frows)))
     for rid in per:
         per[rid].sort(key=lambda t: cycle_index.get(t[0], 0))
 
@@ -773,6 +819,78 @@ def self_test():
     # The walk-list selector is now consumed by scripts/uat-drift-guard.py, so
     # its two directions are pinned here rather than only at its call site.
     bad += _test_walk_list()
+    # ADR-0015 D9: a function row is only evidenced by a function observation.
+    bad += _test_evidence_class()
+    return bad
+
+
+def _test_evidence_class():
+    """evidence_class: classified from the citation, scored by row class, and
+    read/written backward-compatibly with 4-column logs."""
+    import json
+    import tempfile
+    bad = 0
+
+    def check(label, ok, detail=""):
+        nonlocal bad
+        print(f"  {'PASS' if ok else 'FAIL'}  {label}")
+        if not ok:
+            print(f"        got: {detail}")
+            bad += 1
+
+    with tempfile.TemporaryDirectory() as d:
+        adir = os.path.join(d, "acceptance")
+        os.makedirs(adir)
+        good = {"schema": acceptance_record.SCHEMA, "env": "hw900", "mode": "run",
+                "result": "PASS", "journeys": {"J1": "PASS", "J2": "PASS"}}
+        json.dump(good, open(os.path.join(adir, "hw900-20261108T100000Z-aaaa.json"), "w"))
+        disc = dict(good, mode="discover")
+        json.dump(disc, open(os.path.join(adir, "hw900-20261108T100000Z-bbbb.json"), "w"))
+        frows = {"90": ["J1", "J2"], "57": ["J3", "J4"]}
+        cls = lambda rid, ev: acceptance_record.classify(rid, ev, "hw900", frows, adir)
+
+        check("a cited PASS run covering the row's journeys -> function",
+              cls("90", "hw900 ✅ acceptance:20261108T100000Z-aaaa") == "function")
+        check("CONTROL: the same run does not cover J3/J4 -> not function",
+              cls("57", "hw900 ✅ acceptance:20261108T100000Z-aaaa") != "function")
+        check("a discover record certifies nothing",
+              cls("90", "acceptance:20261108T100000Z-bbbb") != "function")
+        check("a run id from ANOTHER env is refused",
+              acceptance_record.classify("90", "acceptance:20261108T100000Z-aaaa", "hw901", frows, adir) != "function")
+        check("kubectl evidence without a run -> state",
+              cls("90", "hw900 kubectl get hr Ready=True") == "state")
+        check("a screenshot alone -> presence",
+              cls("90", "hw900 📷 the card renders") == "presence")
+
+        # Scoring: a function row's state-class PASS is NOTRUN; legacy "" is untouched.
+        fr = {"90": []}
+        check("function row + state PASS scores NOTRUN",
+              effective_status({"row_id": "90", "status": "PASS", "evidence_class": "state"}, fr) == "NOTRUN")
+        check("CONTROL: function row + function PASS scores PASS",
+              effective_status({"row_id": "90", "status": "PASS", "evidence_class": "function"}, fr) == "PASS")
+        check("legacy (no class) observation scores as before",
+              effective_status({"row_id": "90", "status": "PASS"}, fr) == "PASS")
+        check("a FAIL is never softened",
+              effective_status({"row_id": "90", "status": "FAIL", "evidence_class": "presence"}, fr) == "FAIL")
+        check("a non-function row's presence PASS still counts",
+              effective_status({"row_id": "7", "status": "PASS", "evidence_class": "presence"}, fr) == "PASS")
+
+        # Backward-compatible I/O: a 4-column log stays 4 columns; a new log gets 5.
+        old = os.path.join(d, "old.csv")
+        open(old, "w").write("cycle_ts,env,row_id,status\nc0,hw900,1,PASS\n")
+        append_obs([{"cycle_ts": "c1", "env": "hw900", "row_id": "1", "status": "PASS", "evidence_class": "state"}], old)
+        lines = open(old).read().splitlines()
+        check("append to a legacy 4-column log writes 4 fields",
+              lines[-1] == "c1,hw900,1,PASS", lines[-1])
+        new = os.path.join(d, "new.csv")
+        append_obs([{"cycle_ts": "c1", "env": "hw900", "row_id": "1", "status": "PASS", "evidence_class": "state"}], new)
+        check("a new log carries evidence_class",
+              open(new).read().splitlines() == ["cycle_ts,env,row_id,status,evidence_class", "c1,hw900,1,PASS,state"])
+        mixed = os.path.join(d, "mixed.csv")
+        open(mixed, "w").write("cycle_ts,env,row_id,status,evidence_class\nc0,hw900,90,PASS\nc1,hw900,90,PASS,state\n")
+        got = [effective_status(r, {"90": []}) for r in load_obs(mixed)]
+        check("mixed old/new rows load: legacy PASS counts, state PASS does not",
+              got == ["PASS", "NOTRUN"], got)
     return bad
 
 
