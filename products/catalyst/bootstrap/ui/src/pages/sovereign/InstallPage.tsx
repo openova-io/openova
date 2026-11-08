@@ -42,6 +42,14 @@ import {
 import { InstallForm } from '@/widgets/install/InstallForm'
 import { CodeView } from '@/widgets/code/CodeView'
 import { requiresMultipleRegions } from '@/widgets/topology/modes'
+import {
+  listRefEnvironments,
+  listRefOrganizations,
+  listRefRegions,
+  type RefEnvironment,
+  type RefOrganization,
+  type RefRegion,
+} from '@/lib/installRefs.api'
 
 interface InstallPageProps {
   /** Test seam — pre-selected Blueprint without going through the catalog grid. */
@@ -79,10 +87,17 @@ export function InstallPage({ preselectedBlueprint }: InstallPageProps = {}) {
   // first region. For slice I we keep these as plain inputs above the
   // auto-form; a follow-up slice swaps them for richer pickers (Topology
   // editor, see EPIC-2 slice T).
-  const [organizationRef, setOrganizationRef] = useState<string>('default')
-  const [environmentRef, setEnvironmentRef] = useState<string>('default-prod')
+  // ADR-0015 D4 — no fabricated defaults ("default" / "default-prod" /
+  // a hard-coded region). The fields start empty and are offered the real
+  // Organization / Environment CRs and the region registry (datalists
+  // below); a single candidate pre-fills. The API 422s an unknown value.
+  const [organizationRef, setOrganizationRef] = useState<string>('')
+  const [environmentRef, setEnvironmentRef] = useState<string>('')
   const [appName, setAppName] = useState<string>('')
-  const [region, setRegion] = useState<string>('hz-fsn-rtz-prod')
+  const [region, setRegion] = useState<string>('')
+  const [refOrgs, setRefOrgs] = useState<RefOrganization[]>([])
+  const [refEnvs, setRefEnvs] = useState<RefEnvironment[]>([])
+  const [refRegions, setRefRegions] = useState<RefRegion[]>([])
   const [placementMode, setPlacementMode] = useState<string>('singleton')
   // UAT row 60 — the SECOND region. A multi-region posture places a standby
   // (active-hot-standby / active-passive) or a co-equal primary
@@ -96,6 +111,50 @@ export function InstallPage({ preselectedBlueprint }: InstallPageProps = {}) {
   // throughout (#6033).
   const [secondaryRegion, setSecondaryRegion] = useState<string>('')
 
+  // ADR-0015 D4 — option lists from the objects the API validates against.
+  useEffect(() => {
+    let cancelled = false
+    listRefOrganizations()
+      .then((orgs) => {
+        if (cancelled) return
+        setRefOrgs(orgs)
+        const candidates = orgs.filter((o) => !o.platform)
+        if (candidates.length === 1) setOrganizationRef((cur) => cur || candidates[0].name)
+      })
+      .catch(() => undefined)
+    listRefRegions()
+      .then((regions) => {
+        if (cancelled) return
+        setRefRegions(regions)
+        const primary = regions.find((r) => r.primary)
+        if (primary) setRegion((cur) => cur || primary.id)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  useEffect(() => {
+    const org = organizationRef.trim()
+    if (!org) {
+      setRefEnvs([])
+      return
+    }
+    let cancelled = false
+    listRefEnvironments(org)
+      .then((envs) => {
+        if (cancelled) return
+        setRefEnvs(envs)
+        if (envs.length === 1) setEnvironmentRef((cur) => cur || envs[0].name)
+      })
+      .catch(() => {
+        if (!cancelled) setRefEnvs([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [organizationRef])
+
   // Reset the form scaffold when a new Blueprint is selected. Keeps the
   // "click another card" UX intuitive — the prior input doesn't survive
   // the swap.
@@ -103,8 +162,9 @@ export function InstallPage({ preselectedBlueprint }: InstallPageProps = {}) {
     setInstallError(null)
     setPreviewState(null)
     if (selectedCard && !appName) {
-      const slug = selectedCard.name.replace(/^bp-/, '')
-      setAppName(`${slug}-prod`)
+      // The Application NAME default is the Blueprint slug; it is never an
+      // Environment derivation (ADR-0015 D4).
+      setAppName(selectedCard.name.replace(/^bp-/, ''))
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCard?.name])
@@ -438,9 +498,18 @@ export function InstallPage({ preselectedBlueprint }: InstallPageProps = {}) {
                 type="text"
                 className="mt-1 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm"
                 data-testid="install-page-org-ref"
+                list="install-page-org-options"
                 value={organizationRef}
                 onChange={(e) => setOrganizationRef(e.target.value)}
+                placeholder="Organization CR name"
               />
+              <datalist id="install-page-org-options">
+                {refOrgs.map((o) => (
+                  <option key={o.name} value={o.name}>
+                    {o.displayName || o.name}
+                  </option>
+                ))}
+              </datalist>
             </label>
             <label className="flex flex-col text-xs text-[var(--color-text-dim)]">
               Environment
@@ -448,9 +517,18 @@ export function InstallPage({ preselectedBlueprint }: InstallPageProps = {}) {
                 type="text"
                 className="mt-1 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm"
                 data-testid="install-page-env-ref"
+                list="install-page-env-options"
                 value={environmentRef}
                 onChange={(e) => setEnvironmentRef(e.target.value)}
+                placeholder="Environment CR name"
               />
+              <datalist id="install-page-env-options">
+                {refEnvs.map((env) => (
+                  <option key={env.name} value={env.name}>
+                    {env.envType || env.name}
+                  </option>
+                ))}
+              </datalist>
             </label>
             <label className="flex flex-col text-xs text-[var(--color-text-dim)]">
               {needsSecondRegion ? 'Primary region' : 'Region'}
@@ -458,9 +536,18 @@ export function InstallPage({ preselectedBlueprint }: InstallPageProps = {}) {
                 type="text"
                 className="mt-1 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm"
                 data-testid="install-page-region"
+                list="install-page-region-options"
                 value={region}
                 onChange={(e) => setRegion(e.target.value)}
+                placeholder="canonical region id"
               />
+              <datalist id="install-page-region-options">
+                {refRegions.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.primary ? `${r.label} (primary)` : r.label}
+                  </option>
+                ))}
+              </datalist>
             </label>
             {/* UAT row 60 — the standby / second region, rendered ONLY for a
                 posture that places one. Absent for singleton so the
@@ -472,6 +559,7 @@ export function InstallPage({ preselectedBlueprint }: InstallPageProps = {}) {
                   type="text"
                   className="mt-1 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm"
                   data-testid="install-page-standby-region"
+                  list="install-page-region-options"
                   value={secondaryRegion}
                   onChange={(e) => setSecondaryRegion(e.target.value)}
                   placeholder="e.g. hz-hel-rtz-prod"

@@ -1568,6 +1568,23 @@ func (h *Handler) runOrganizationPipeline(ctx context.Context, rec store.Organiz
 			return persist(rec)
 		}
 
+		// ADR-0015 D5 — the Org's applications are Application CRs created
+		// through the SAME function the console dialog uses
+		// (createApplicationInstance), never bare HelmReleases in the
+		// overlay. They need a Ready boundary (Organization + Environment +
+		// namespace) to resolve their references, so they are created here;
+		// until every one resolves the record holds non-terminal and the
+		// reconciler re-runs this step (each create is idempotent).
+		appsReady, appsErr := h.installFunnelApplications(ctx, rec)
+		if appsErr != nil {
+			h.log.Warn("org-tenant: funnel applications not installed — holding non-terminal",
+				"slug", rec.Subdomain, "org_tenant_id", rec.OrganizationID, "err", appsErr)
+		}
+		if !appsReady {
+			rec.LastError = ""
+			return persist(rec)
+		}
+
 		rec.State = store.STSDone
 		rec.LastError = ""
 		rec = persist(rec)

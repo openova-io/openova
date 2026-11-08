@@ -4097,6 +4097,8 @@ name: bp-catalyst-platform
 #   receive the region registry (SOVEREIGN_REGIONS_JSON from sovereign-fqdn)
 #   and their own region id (sovereign.regionId ← slot 13
 #   SOVEREIGN_REGION_CANONICAL_LABEL).
+# 1.4.1893: ADR-0015 D4 — catalog seed drops the bp-wordpress alias Blueprint
+#   (one name: bp-wordpress-tenant).
 version: 1.4.1892
 # 1.4.1481 — #6293: catalog-seed advances bp-self-sovereign-cutover
 #   0.1.186 -> 0.1.187, the release that stops step-06 from patching five

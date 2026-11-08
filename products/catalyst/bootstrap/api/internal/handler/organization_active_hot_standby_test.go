@@ -83,13 +83,12 @@ func TestRenderOrganizationOverlay_HotStandby_On_EmitsBlock(t *testing.T) {
 	}
 }
 
-// #2066 — when active-hot-standby is on AND both regions are distinct,
-// renderOrganizationOverlay MUST emit a per-Application Continuum CR
-// alongside the bp-wordpress-tenant HelmRelease. Without it the
-// bp-continuum controller (Refs #2065) has nothing to reconcile and
-// region-kill leaves the tenant unfailed-over. CRD shape per
-// products/catalyst/chart/crds/continuum.yaml.
-func TestRenderOrganizationOverlay_HotStandby_On_EmitsContinuumCR(t *testing.T) {
+// ADR-0015 D5 — the overlay no longer carries a per-Application
+// continuum.yaml (#2066), even with active-hot-standby on: the funnel's
+// WordPress is an Application CR, and the application-controller derives its
+// Continuum from the Application's multi-region placement exactly as it does
+// for a console-installed Application. One install path, one DR path.
+func TestRenderOrganizationOverlay_HotStandby_On_NoOverlayContinuum_ADR0015(t *testing.T) {
 	t.Setenv("SOVEREIGN_ENABLE_HOT_STANDBY", "true")
 	t.Setenv("SOVEREIGN_PRIMARY_REGION", "hz-fsn-rtz-prod")
 	t.Setenv("SOVEREIGN_REPLICA_REGION", "hz-hel-rtz-prod")
@@ -97,61 +96,11 @@ func TestRenderOrganizationOverlay_HotStandby_On_EmitsContinuumCR(t *testing.T) 
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	cr, ok := files["continuum.yaml"]
-	if !ok || strings.TrimSpace(cr) == "" {
-		t.Fatalf("expected continuum.yaml in HA overlay, got files=%v\ncontents=%q",
-			fileNames(files), cr)
+	if _, ok := files["continuum.yaml"]; ok {
+		t.Fatalf("continuum.yaml rendered into the overlay — the Application controller owns the Continuum now (files=%v)", fileNames(files))
 	}
-	for _, want := range []string{
-		"apiVersion: dr.openova.io/v1",
-		"kind: Continuum",
-		"name: bp-wordpress-tenant",
-		"namespace: org-t-acme",
-		"applicationRef: bp-wordpress-tenant",
-		"primaryRegion: hz-fsn-rtz-prod",
-		"- hz-hel-rtz-prod",
-		"rto: 30s",
-		"rpo: 5s",
-		"kind: k8s-lease",
-		"selector: ifurlup",
-		"url: https://wordpress.acme.otech.example/healthz",
-	} {
-		if !strings.Contains(cr, want) {
-			t.Errorf("continuum.yaml missing %q\n%s", want, cr)
-		}
-	}
-	// #3829 — the emitted witness kind must be one the controller can
-	// actually ACQUIRE a lease with. dns-quorum cannot: its registered
-	// factory builds the client with a nil TXTWriter, so Acquire always
-	// fails and the Continuum sits Degraded with no leaseHolder and no
-	// standby (measured live on hw293, g7doora/bp-wordpress-tenant).
-	// The behavioural proof — including that CORRECT resolvers do not
-	// rescue it — lives in
-	// core/controllers/continuum/internal/witness/witness_backend_functional_test.go.
-	for _, banned := range []string{
-		// assert on the VALUE of the selector field, not on the bare
-		// word — the template legitimately explains in a comment why
-		// dns-quorum is not used, and a substring match on the name
-		// would flag that explanation instead of a real selection.
-		"kind: dns-quorum",
-		// The placeholder resolver set. 10.43.0.0/16 is k3s's default
-		// service CIDR; these Sovereigns allocate from 10.96.0.0/12 and
-		// kube-dns is region-local (region A 10.96.0.10, region B
-		// 10.97.0.10), so no hardcoded resolver list can be correct for
-		// both regions of one DR pair.
-		"10.43.0.",
-		"resolvers:",
-	} {
-		if strings.Contains(cr, banned) {
-			t.Errorf("continuum.yaml must not contain %q (dead dns-quorum witness config)\n%s", banned, cr)
-		}
-	}
-	// kustomization.yaml MUST also list it under resources so Flux
-	// actually applies the CR. Without this, the CR file exists in
-	// git but never reconciles into the cluster.
-	kust := files["kustomization.yaml"]
-	if !strings.Contains(kust, "- continuum.yaml") {
-		t.Errorf("kustomization.yaml missing 'continuum.yaml' entry:\n%s", kust)
+	if strings.Contains(files["kustomization.yaml"], "continuum.yaml") {
+		t.Fatalf("kustomization.yaml references continuum.yaml:\n%s", files["kustomization.yaml"])
 	}
 }
 

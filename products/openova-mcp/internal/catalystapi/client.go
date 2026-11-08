@@ -542,9 +542,14 @@ type ApplicationPlacement struct {
 // applicationInstallRequestNormalize + validateApplicationInstallRequest in
 // products/catalyst/bootstrap/api/internal/handler/applications.go):
 //
-//   - EnvironmentRef — DEFAULTED server-side to "<organizationRef>-prod".
+//   - EnvironmentRef — RESOLVED server-side from objects (ADR-0015 D4): the
+//     Organization's single Environment CR of its default type; zero or
+//     several → 422 environment-required. Never derived as "<org>-prod".
 //   - Placement.Mode — DEFAULTED server-side to "singleton".
-//   - Placement.Regions — DEFAULTED server-side to ["primary"].
+//   - Placement.Regions — RESOLVED server-side from the region registry (the
+//     primary for singleton, all regions for a multi-region mode). An id not
+//     in the registry → 422 region-unknown. No "primary" sentinel.
+//   - organizationRef / blueprintRef.name must name existing CRs → else 422.
 //   - BlueprintRef.Version — **NOT defaulted**. The validator rejects an
 //     empty version with `blueprintRef.version is required` (400). The
 //     console never hits this because InstallPage.tsx composes the body from

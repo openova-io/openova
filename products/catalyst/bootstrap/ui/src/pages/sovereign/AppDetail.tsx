@@ -207,8 +207,11 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
       bareId,
       title: compEntry?.name ?? apiApp.name ?? componentId,
       description: compEntry?.desc ?? `Application installed in namespace ${apiApp.namespace}`,
-      familyId: compEntry?.product ?? 'platform',
-      familyName: compEntry?.groupName ?? 'Platform',
+      // ADR-0015 D4 — the family chip is DATA (the component's catalog
+      // group). A Blueprint the catalog does not know has no family —
+      // never the "Platform" fallback that badged every unknown app.
+      familyId: compEntry?.product ?? '',
+      familyName: compEntry?.groupName ?? '',
       tier: compEntry?.tier ?? 'optional',
       logoUrl: compEntry?.logoUrl ?? null,
       dependencies: compEntry?.dependencies ?? [],
@@ -504,8 +507,16 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
             </h1>
             <p className="hero-tagline">{app.description || app.familyName}</p>
             <div className="hero-meta">
-              <span className="chip chip-cat">{app.familyName}</span>
-              {app.bootstrapKit ? <span className="chip chip-free">BOOTSTRAP</span> : null}
+              {app.familyName ? (
+                <span className="chip chip-cat" data-testid="app-detail-family">
+                  {app.familyName}
+                </span>
+              ) : null}
+              {app.bootstrapKit || appIsBootstrap ? (
+                <span className="chip chip-free" data-testid="app-detail-bootstrap">
+                  BOOTSTRAP
+                </span>
+              ) : null}
               <span className="chip chip-ns" data-testid="app-detail-namespace">
                 {appNamespace}
               </span>
@@ -570,7 +581,14 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
                 PUT /api/catalog/admin/apps/{slug}/published; ownership
                 gated by Sovereign Console session.
               */}
-              <PublishToggleChip slug={componentId} isBootstrap={appIsBootstrap} />
+              {/* ADR-0015 D4 — the catalog row is keyed by the BLUEPRINT
+                  (its catalog slug), never by this Application's name. */}
+              {appBlueprintFull ? (
+                <PublishToggleChip
+                  slug={appBlueprintFull.replace(/^bp-/, '')}
+                  isBootstrap={appIsBootstrap}
+                />
+              ) : null}
               {/*
                 Family B (2026-05-17 t10 C4-013): D19 D-count mismatch
                 root cause = the three count sources (Deployment CR
@@ -904,7 +922,7 @@ interface PublishToggleChipProps {
 
 function PublishToggleChip({ slug, isBootstrap = false }: PublishToggleChipProps) {
   const [state, setState] = useState<
-    'loading' | 'published' | 'unpublished' | 'bootstrap' | 'error'
+    'loading' | 'published' | 'unpublished' | 'bootstrap' | 'unknown' | 'error'
   >(isBootstrap ? 'bootstrap' : 'loading')
   const [busy, setBusy] = useState(false)
 
@@ -923,16 +941,16 @@ function PublishToggleChip({ slug, isBootstrap = false }: PublishToggleChipProps
       headers: { Accept: 'application/json' },
     })
       .then((r) => {
-        // 404 on a non-bootstrap app means the catalog row hasn't been
-        // seeded yet; render as bootstrap-like (no toggle) rather than
-        // the misleading "Catalog status unavailable".
-        if (r.status === 404) return { __bootstrapFallback: true }
+        // ADR-0015 D4 — a 404 means the catalog has no row for this
+        // Blueprint. That is UNKNOWN, not "bootstrap": only the
+        // Application's own spec.bootstrap flag (isBootstrap) says that.
+        if (r.status === 404) return { __notInCatalog: true }
         return r.ok ? r.json() : null
       })
       .then((d) => {
         if (cancelled) return
-        if (d && (d as { __bootstrapFallback?: boolean }).__bootstrapFallback) {
-          setState('bootstrap')
+        if (d && (d as { __notInCatalog?: boolean }).__notInCatalog) {
+          setState('unknown')
         } else if (d && typeof (d as { published?: boolean }).published === 'boolean') {
           setState((d as { published: boolean }).published ? 'published' : 'unpublished')
         } else {
@@ -948,7 +966,7 @@ function PublishToggleChip({ slug, isBootstrap = false }: PublishToggleChipProps
   }, [slug, isBootstrap])
 
   async function toggle() {
-    if (busy || state === 'loading' || state === 'error' || state === 'bootstrap') return
+    if (busy || state === 'loading' || state === 'error' || state === 'bootstrap' || state === 'unknown') return
     setBusy(true)
     const next = state === 'published' ? false : true
     const prev = state
@@ -979,7 +997,9 @@ function PublishToggleChip({ slug, isBootstrap = false }: PublishToggleChipProps
         ? 'Catalog status unavailable'
         : state === 'bootstrap'
           ? 'Bootstrap blueprint (not in marketplace)'
-          : state === 'published'
+          : state === 'unknown'
+            ? 'Catalog: unknown'
+            : state === 'published'
             ? 'Published'
             : 'Unpublished'
 
@@ -988,7 +1008,7 @@ function PublishToggleChip({ slug, isBootstrap = false }: PublishToggleChipProps
       type="button"
       onClick={toggle}
       disabled={
-        state === 'loading' || state === 'error' || state === 'bootstrap' || busy
+        state === 'loading' || state === 'error' || state === 'bootstrap' || state === 'unknown' || busy
       }
       title={
         state === 'published'
@@ -997,7 +1017,9 @@ function PublishToggleChip({ slug, isBootstrap = false }: PublishToggleChipProps
             ? 'Click to publish — shows in marketplace storefront'
             : state === 'bootstrap'
               ? 'This is a bootstrap-kit install (HelmRelease without a catalog entry). It ships with the platform and is not surfaced in the Organization marketplace.'
-              : ''
+              : state === 'unknown'
+                ? 'The catalog has no row for this Blueprint, so its marketplace status is unknown.'
+                : ''
       }
       className={`chip ${
         state === 'published'

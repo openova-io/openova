@@ -197,10 +197,9 @@ func validVClusterTier(v string) bool {
 //	namespace  → OrganizationRef (one Org per Sovereign in EPIC-2)
 //	values     → Parameters
 //
-// EnvironmentRef defaults to "<org>-prod" when omitted (matches the
-// matrix's omission). Placement defaults to single-region with a
-// "primary" sentinel that the validator surfaces as a clear 400 if
-// the caller forgot to set regions[].
+// ADR-0015 D4 — EnvironmentRef and Placement.Regions, when omitted, are
+// resolved from objects by validateInstallRefs (the Org's single default
+// Environment; the registry's primary region) — never derived from strings.
 type applicationInstallRequest struct {
 	BlueprintRef    applicationBlueprintRef `json:"blueprintRef"`
 	Name            string                  `json:"name"`
@@ -234,18 +233,15 @@ func applicationInstallRequestNormalize(b applicationInstallRequest) application
 	if b.OrganizationRef == "" && strings.TrimSpace(b.NamespaceShort) != "" {
 		b.OrganizationRef = strings.TrimSpace(b.NamespaceShort)
 	}
-	if b.EnvironmentRef == "" && b.OrganizationRef != "" {
-		b.EnvironmentRef = b.OrganizationRef + "-prod"
-	}
+	// ADR-0015 D4 — an omitted environmentRef / placement.regions is NOT
+	// derived here ("<org>-prod" / "primary" were fabrications). The shared
+	// core resolves them from objects (validateInstallRefs) or answers 422.
 	if len(b.Parameters) == 0 && len(b.ValuesShort) > 0 {
 		b.Parameters = b.ValuesShort
 	}
 	if strings.TrimSpace(b.Placement.Mode) == "" {
 		// One vocabulary (#3375 DoD-1): canonical default.
 		b.Placement.Mode = "singleton"
-	}
-	if len(b.Placement.Regions) == 0 {
-		b.Placement.Regions = []string{"primary"}
 	}
 	return b
 }
@@ -499,30 +495,32 @@ func (h *Handler) installApplicationCore(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	// #3598 (EPIC #3597) — ensure the Org/Environment namespace exists
-	// before creating the Application CR, so an install never fails with
-	// `namespaces "<org>" not found` when the organization controller's
-	// GitOps namespace reconcile hasn't landed yet. Idempotent.
-	//
-	// #3830 — the OrganizationRef is the Org identity (often a dotted
-	// FQDN, e.g. "hw165.omani.works"); the namespace is the slugged
-	// RFC-1123 form. ensureOrgNamespace + the create below + the CR's
-	// metadata.namespace (newApplicationUnstructured) all route through
-	// orgNamespace() so they resolve to ONE consistent namespace.
-	appNS := orgNamespace(body.OrganizationRef)
-	if nsErr := ensureOrgNamespace(r.Context(), client, body.OrganizationRef); nsErr != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
-			"kind":       "Application",
-			"name":       body.Name,
-			"namespace":  appNS,
-			"error":      "namespace-ensure-failed",
-			"status":     "503",
-			"httpStatus": "503",
-			"applied":    false,
-			"detail":     fmt.Sprintf("could not ensure namespace %q: %v", appNS, nsErr),
-		})
+	// ADR-0015 D4 — resolve every reference against a live object BEFORE
+	// writing anything: Organization (CR name), Environment (belongs to the
+	// Org), Blueprint (exists; mode allowed by its placementSchema), every
+	// region (in the registry), and the org-controller-owned namespace (409
+	// organization-not-ready when absent — never created here).
+	refs, rerr := validateInstallRefs(r.Context(), client, installRefs{
+		Org:         body.OrganizationRef,
+		Environment: body.EnvironmentRef,
+		Blueprint:   body.BlueprintRef.Name,
+		Mode:        body.Placement.Mode,
+		Regions:     body.Placement.Regions,
+	})
+	if rerr != nil {
+		out := rerr.body()
+		out["kind"] = "Application"
+		out["name"] = body.Name
+		writeJSON(w, rerr.Status, out)
 		return
 	}
+	body.EnvironmentRef = refs.Environment
+	body.Placement.Regions = refs.Regions
+	if msg := placementRegionCountError(body.Placement.Mode, body.Placement.Regions); msg != "" {
+		writeApplicationInstallSoftError(w, "invalid-application-install", http.StatusBadRequest, msg)
+		return
+	}
+	appNS := refs.Namespace
 
 	// #4556 Item 2 — resolve the Sovereign's own FQDN so the agenity install
 	// stamps spec.parameters.sovereignFqdn (the chart derives the openova-MCP
@@ -1006,9 +1004,6 @@ func validateApplicationInstallRequest(req applicationInstallRequest) (string, b
 	if !isValidOrgRef(req.OrganizationRef) {
 		return "organizationRef must be a valid DNS name (Org slug or FQDN, e.g. acme or hw165.omani.works)", false
 	}
-	if strings.TrimSpace(req.EnvironmentRef) == "" {
-		return "environmentRef is required", false
-	}
 	if strings.TrimSpace(req.BlueprintRef.Name) == "" {
 		return "blueprintRef.name is required", false
 	}
@@ -1030,9 +1025,6 @@ func validateApplicationInstallRequest(req applicationInstallRequest) (string, b
 	default:
 		return "placement.mode must be one of singleton, active-active, active-hot-standby, active-passive (legacy single-region / active-hotstandby also accepted)", false
 	}
-	if len(req.Placement.Regions) == 0 {
-		return "placement.regions must list at least one region", false
-	}
 	if len(req.Placement.Regions) > 5 {
 		return "placement.regions cannot exceed 5 entries", false
 	}
@@ -1043,8 +1035,10 @@ func validateApplicationInstallRequest(req applicationInstallRequest) (string, b
 	}
 	// UAT row 60 — a multi-region posture over one region is a DR promise
 	// nothing downstream can keep. See placementRegionCountError.
-	if msg := placementRegionCountError(req.Placement.Mode, req.Placement.Regions); msg != "" {
-		return msg, false
+	if len(req.Placement.Regions) > 0 {
+		if msg := placementRegionCountError(req.Placement.Mode, req.Placement.Regions); msg != "" {
+			return msg, false
+		}
 	}
 	// #3373 — instance placement WHERE fields.
 	// #5616 — separate "not a tier at all" from "a real tier this
@@ -1210,7 +1204,8 @@ func newApplicationUnstructured(req applicationInstallRequest, sovereignFQDN, or
 		// namespace is slugged (preserving whatever Environment the caller
 		// asked for, just made pattern-safe); the verbatim Org identity stays
 		// on the organization label + organizationRef.
-		"environmentRef": sanitizeEnvironmentRef(req.EnvironmentRef),
+		// ADR-0015 D4 — the Environment CR name, verbatim (validated).
+		"environmentRef": req.EnvironmentRef,
 		"blueprintRef": map[string]any{
 			"name":    req.BlueprintRef.Name,
 			"version": req.BlueprintRef.Version,

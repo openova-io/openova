@@ -439,11 +439,10 @@ func (h *Handler) collectFleetOrgItems(ctx context.Context) []fleetTreemapItem {
 		replicaSets, _, _ := h.k8sCache.List(clusterID, "replicaset", labels.Everything())
 		rows := buildPodRows(pods, pvcs, podMetrics, namespaces, nodes, replicaSets, clusterID, "")
 
-		parentOrg := sov.FQDN
-		if parentOrg == "" {
-			parentOrg = "sovereign"
-		}
-		items = append(items, fleetOrgItemsForSovereign(rows, parentOrg, infraNamespaces)...)
+		// ADR-0015 D4 — the parent Organization is the Sovereign's FQDN; a
+		// Sovereign without one gets no parent attribution rather than an
+		// invented "sovereign" Organization.
+		items = append(items, fleetOrgItemsForSovereign(rows, sov.FQDN, infraNamespaces)...)
 	}
 	return items
 }
@@ -476,8 +475,11 @@ func fleetOrgItemsForSovereign(rows []podRow, parentOrg string, infraNamespaces 
 		return t
 	}
 	// Seed the parent so the Sovereign's own estate is never blank,
-	// mirroring aggregateConsumption's §5 "never blank" contract.
-	ensure(parentOrg)
+	// mirroring aggregateConsumption's §5 "never blank" contract. An
+	// unnamed parent is not seeded (ADR-0015 D4).
+	if parentOrg != "" {
+		ensure(parentOrg)
+	}
 
 	var total float64
 	for _, row := range rows {

@@ -64,14 +64,15 @@ func TestConsumptionParentOrg_AgreesWithTheSelfOrgProducer(t *testing.T) {
 	}
 }
 
-// Unresolvable deployment keeps the visibly-synthetic fallback. A plausible
-// LOOKING slug for an Org we cannot identify would be worse than an obviously
-// placeholder one — it would read as a real Organization on the showback panel.
-func TestConsumptionParentOrg_UnknownDeploymentKeepsSyntheticFallback(t *testing.T) {
+// ADR-0015 D4 — an unresolvable deployment names NO Organization: neither a
+// real-looking slug nor the old synthetic "sovereign" placeholder. The
+// handler turns "" into a 503 instead of labelling a bucket.
+func TestConsumptionParentOrg_UnknownDeploymentNamesNoOrganization(t *testing.T) {
+	t.Setenv("SOVEREIGN_FQDN", "")
 	h := &Handler{}
-	if got := h.consumptionParentOrg("no-such-dep"); got != "sovereign" {
-		t.Fatalf("consumptionParentOrg on an unknown deployment = %q, want %q — "+
-			"an unidentifiable Org must not be given a real-looking slug", got, "sovereign")
+	if got := h.consumptionParentOrg("no-such-dep"); got != "" {
+		t.Fatalf("consumptionParentOrg on an unknown deployment = %q, want \"\" — "+
+			"an unidentifiable Org must not be given any name", got)
 	}
 }
 

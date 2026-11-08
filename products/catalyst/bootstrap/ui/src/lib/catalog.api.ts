@@ -976,8 +976,15 @@ export interface ListBlueprintInstancesResponse {
  * form (out of scope for the v1 dialog — see PR follow-up TBD).
  */
 export interface CreateApplicationInstanceRequest {
+  /** The Blueprint CR name, exactly (e.g. `bp-wordpress-tenant`). */
   blueprint: string
+  /** The Organization CR name (GET /api/v1/refs/organizations). */
   org: string
+  /**
+   * ADR-0015 D4 — the Environment CR name, one of the chosen Org's
+   * Environments (GET /api/v1/refs/organizations/{org}/environments).
+   */
+  environment: string
   name: string
   topology?: string
   isolationLevel?: 'namespace' | 'vcluster'

@@ -910,7 +910,7 @@ func TestPreferredContextName(t *testing.T) {
 		{
 			name: "all-empty-fallback",
 			req:  provisioner.Request{},
-			want: "sovereign",
+			want: "", // ADR-0015 D4: no fabricated name
 		},
 		{
 			name: "subdomain-with-junk-stripped",
@@ -931,9 +931,10 @@ func TestPreferredContextName(t *testing.T) {
 			}
 		})
 	}
-	// Nil-request safety net so callers can pass &dep.Request unchecked.
-	if got := preferredContextName(nil); got != "sovereign" {
-		t.Errorf("preferredContextName(nil) = %q, want sovereign", got)
+	// ADR-0015 D4 — no identity is invented: nil / nameless → "" (the
+	// caller serves the kubeconfig unrewritten).
+	if got := preferredContextName(nil); got != "" {
+		t.Errorf("preferredContextName(nil) = %q, want \"\" (no fabricated name)", got)
 	}
 }
 
