@@ -99,6 +99,11 @@ multiRegion:
 # and have no equivalent on Catalyst-Zero (contabo-mkt). Per-Sovereign
 # overlays may override every value here without forking the chart.
 sovereign:
+  # ADR-0015 D3 — this region's canonical region id (the openova.io/region
+  # node label). bootstrap-kit slot 13 stamps it from
+  # SOVEREIGN_REGION_CANONICAL_LABEL; the controllers read it as
+  # SOVEREIGN_REGION_ID.
+  regionId: ""
   # CATALYST_POST_AUTH_REDIRECT default. Browser is sent here after a
   # successful PIN / magic-link callback. The original chart shipped
   # /sovereign/wizard (the mothership Provisioning Wizard route);

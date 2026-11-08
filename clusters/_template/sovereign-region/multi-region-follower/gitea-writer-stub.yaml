@@ -1,0 +1,20 @@
+# Selector-less stub of the writer region's gitea-<writer-id> Service: no local
+# backends, so ClusterMesh routes it to the writer region's Gitea pods only.
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitea-${SOVEREIGN_WRITER_REGION_ID}
+  namespace: gitea
+  labels:
+    catalyst.openova.io/component: gitea-region-service-stub
+    openova.io/region: ${SOVEREIGN_WRITER_REGION_ID}
+  annotations:
+    service.cilium.io/global: "true"
+    service.cilium.io/shared: "false"
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      protocol: TCP

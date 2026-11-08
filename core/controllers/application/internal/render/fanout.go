@@ -8,8 +8,8 @@
 //     PlacementSpec.Roles map; when the map is empty, defaults to
 //     singleton for a 1-cluster variant and otherwise to the role the
 //     DECLARED TOPOLOGY implies for that cluster — see roleFor)
-//   - LabelStandbyDelivery = remote | local-undelivered, on passive
-//     legs only: whether the standby actually reached its own cluster
+//   - LabelRegion = the canonical region id (ADR-0015 D3) of the region
+//     whose own Flux applies this HR
 //   - LabelTopology = the resolved BCP topology choice
 //   - LabelApp = the parent Application name (back-pointer for delete
 //     + observability rollup)
@@ -18,15 +18,12 @@
 //     (PR #2674) so Flux helm-controller pivots into the per-cluster
 //     vCluster apiserver
 //
-// The output is the per-cluster `*unstructured.Unstructured` slice; the
-// reconciler ranges over it and upserts each HR via the dynamic
-// client (matching the existing application_controller.go style).
-//
-// Hard rule #9 (worker brief): use the existing dynamic-client path.
-// We do NOT introduce a typed helmv2 SDK dependency — the
-// application-controller has historically rendered HRs via unstructured
-// + the dynamic client (see ensureHostFluxBootstrap()), and that idiom
-// stays intact here.
+// The output is the per-cluster `*unstructured.Unstructured` slice. ADR-0015
+// D1: the reconciler never applies these itself — RegionFiles groups them by
+// LabelRegion and the reconciler COMMITS one file per region to the Org repo
+// (`regions/<region-id>/apps/<app>.yaml`), which that region's own Flux
+// applies. Each HR carries the ADR-0015 D2 values contract
+// `openova.topology: {mode, self, primary, peers}`.
 //
 // Refs #2745 (G117.6) + #2737 (G117 EPIC).
 
@@ -87,11 +84,18 @@ type FanoutInputs struct {
 
 	// KubeConfigSecretFor — function returning the per-cluster
 	// kubeConfig Secret name (Flux v2's
-	// `spec.kubeConfig.secretRef.name`). When nil the renderer
-	// emits no `spec.kubeConfig` block — i.e. the HR targets the
-	// SAME cluster the reconciler runs in (legacy / mgmt-cluster-
-	// local Applications). This is the G92.1 pivot seam.
+	// `spec.kubeConfig.secretRef.name`) of the TIER vCluster the leg
+	// pivots into. The Secret is resolved in the region that applies the
+	// HR (ADR-0015 D1) — never another region's cluster. When nil, or
+	// when it resolves "", the renderer emits no `spec.kubeConfig` block
+	// and the HR installs onto that region's host cluster. G92.1 seam.
 	KubeConfigSecretFor func(cluster string) (secretName, secretNamespace string)
+
+	// RegionFor — ADR-0015 D3. Maps a placement cluster ID to the
+	// canonical region id (pkg/regions) whose own Flux applies that leg.
+	// Required: FanoutHRs errors when nil or when it returns "" for any
+	// cluster — a leg whose region is unknown is never rendered.
+	RegionFor func(cluster string) string
 
 	// KubeConfigSecretKey — the data key inside the kubeConfig
 	// Secret (Flux v2 `spec.kubeConfig.secretRef.key`). The loft-sh
@@ -232,18 +236,72 @@ func FanoutHRs(in FanoutInputs) ([]*unstructured.Unstructured, error) {
 	if len(clusters) == 0 {
 		return nil, fmt.Errorf("fanout: Variant.Placement.Clusters must be non-empty")
 	}
+	if in.RegionFor == nil {
+		return nil, fmt.Errorf("fanout: RegionFor required (ADR-0015 D3 region registry)")
+	}
+
+	// Resolve every leg's region first: the D2 contract of each file names
+	// the primary region and the peer regions, so it needs the whole set.
+	legRegion := make(map[string]string, len(clusters))
+	placementRegions := make([]string, 0, len(clusters))
+	primary := ""
+	for _, cluster := range clusters {
+		region := in.RegionFor(cluster)
+		if region == "" {
+			return nil, fmt.Errorf("fanout: cluster %q does not map to a region of this Sovereign", cluster)
+		}
+		legRegion[cluster] = region
+		if !containsString(placementRegions, region) {
+			placementRegions = append(placementRegions, region)
+		}
+		if primary == "" {
+			switch roleFor(cluster, in.Variant.Placement, in.Topology) {
+			case RoleActive, RoleSingleton:
+				primary = region
+			}
+		}
+	}
+	if primary == "" {
+		primary = placementRegions[0]
+	}
 
 	out := make([]*unstructured.Unstructured, 0, len(clusters))
 	for _, cluster := range clusters {
-		hr := renderOneHR(in, cluster)
+		self := legRegion[cluster]
+		contract := TopologyContract{
+			Mode:    string(in.Topology),
+			Self:    self,
+			Primary: primary,
+			Peers:   peersOf(self, placementRegions),
+		}
+		hr := renderOneHR(in, cluster, contract)
 		out = append(out, hr)
 	}
 	return out, nil
 }
 
+func containsString(ss []string, s string) bool {
+	for _, x := range ss {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
+func peersOf(self string, placement []string) []string {
+	out := make([]string, 0, len(placement))
+	for _, p := range placement {
+		if p != self {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // renderOneHR produces a single HelmRelease (helm.toolkit.fluxcd.io/v2)
 // for one (Application × cluster) pair. Pure function.
-func renderOneHR(in FanoutInputs, cluster string) *unstructured.Unstructured {
+func renderOneHR(in FanoutInputs, cluster string, contract TopologyContract) *unstructured.Unstructured {
 	hr := &unstructured.Unstructured{}
 	hr.SetAPIVersion("helm.toolkit.fluxcd.io/v2")
 	hr.SetKind("HelmRelease")
@@ -269,31 +327,26 @@ func renderOneHR(in FanoutInputs, cluster string) *unstructured.Unstructured {
 	// is the COLD-standby semantic (rebuild-on-failover, active-passive);
 	// applying it to a HOT standby contradicts the posture the operator
 	// chose, because a hot standby is defined by streaming and a replica
-	// with zero replicas cannot stream. Which one a passive leg gets is
-	// decided by standbyIsHot() — see its doc for why DELIVERY is half
-	// of that decision and not a defensive extra.
-	//
-	// The kubeConfig pivot is resolved FIRST because the values overlay
-	// depends on it: an undelivered leg renders into the same cluster as
-	// its active peer, and that changes what booting it "hot" would mean.
+	// with zero replicas cannot stream. ADR-0015 D1: every leg is applied
+	// by its OWN region's Flux, so a standby always lands in its own
+	// region and the posture alone decides hot vs cold.
 	role := roleFor(cluster, in.Variant.Placement, in.Topology)
 
 	// G92.1 #2674 kubeConfig pivot — Flux v2 helm-controller installs
-	// INTO the cluster whose kubeconfig is in the referenced Secret.
-	// When KubeConfigSecretFor is nil, or resolves this cluster to the
-	// empty string, the field is omitted so the HR targets the LOCAL
-	// cluster (legacy / substrate Blueprints; the clusterregistry
-	// split-side default for an unwired remote region).
+	// INTO the tier vCluster whose kubeconfig is in the referenced Secret,
+	// resolved in the region applying this HR. Empty ⇒ host install.
 	secretName, secretNamespace := "", ""
 	if in.KubeConfigSecretFor != nil {
 		secretName, secretNamespace = in.KubeConfigSecretFor(cluster)
 	}
-	delivered := secretName != ""
+	pivot := secretName != ""
 
 	values := in.Values
 	if role == RolePassive {
-		values = withStandbyOverlay(in.Values, standbyIsHot(in.Topology, delivered))
+		values = withStandbyOverlay(values, standbyIsHot(in.Topology))
 	}
+	// ADR-0015 D2 — the one topology values contract, stated per region.
+	values = WithTopologyContract(values, contract)
 
 	// Labels — start from OwnerLabels, then overlay the
 	// G117.6-mandated four (role, topology, app, cluster) so a
@@ -307,17 +360,7 @@ func renderOneHR(in FanoutInputs, cluster string) *unstructured.Unstructured {
 	labels[LabelTopology] = string(in.Topology)
 	labels[LabelCluster] = cluster
 	labels[LabelRole] = role
-	// #6268 — record WHERE a standby leg actually landed. Stamped only
-	// on passive HRs (an active / singleton HR has no standby leg), so
-	// the label's presence is itself meaningful and no existing HR shape
-	// gains a field it cannot explain.
-	if role == RolePassive {
-		if delivered {
-			labels[LabelStandbyDelivery] = StandbyDeliveryRemote
-		} else {
-			labels[LabelStandbyDelivery] = StandbyDeliveryLocal
-		}
-	}
+	labels[LabelRegion] = contract.Self
 	hr.SetLabels(labels)
 
 	// Spec.
@@ -397,9 +440,8 @@ func renderOneHR(in FanoutInputs, cluster string) *unstructured.Unstructured {
 		}
 	}
 
-	// Emit the kubeConfig block for a leg that resolved one (resolution
-	// itself happened above, before the values overlay).
-	if delivered {
+	// Emit the kubeConfig block for a leg that pivots into a tier vCluster.
+	if pivot {
 		secretRef := map[string]interface{}{
 			"name": secretName,
 		}
@@ -533,33 +575,14 @@ func withStandbyOverlay(user map[string]interface{}, hot bool) map[string]interf
 	return out
 }
 
-// standbyIsHot reports whether a passive leg must boot HOT (a live,
-// streaming replica) rather than COLD (`replicas: 0`, rebuilt on
-// failover). BOTH conditions are required:
-//
-//  1. the resolved topology declares a hot standby — `active-hot-standby`
-//     is the only posture in the enum whose standby streams;
-//     `active-passive` is the cold one by definition, and a singleton /
-//     active-active has no standby leg to classify.
-//
-//  2. the leg is actually DELIVERED to its own cluster — i.e. the
-//     fan-out resolved a kubeConfig secretRef for it.
-//
-// Condition 2 is not defensive padding, and it is the reason this
-// function takes an argument that looks unrelated to "hot". When no
-// kubeConfig resolves, the renderer omits `spec.kubeConfig` and Flux
-// installs the HR into the cluster the controller itself runs in — the
-// SAME cluster, and the same namespace, as the active peer. Booting
-// that leg "hot" would not produce a standby; it would install a second
-// full primary next to the first, under a name that says standby. So
-// while delivery is unmet the leg stays cold, which is inert, and
-// LabelStandbyDelivery records the shortfall on the object rather than
-// letting a duplicate be mistaken for a replica.
-//
-// The consequence worth stating plainly: turning an undelivered standby
-// hot requires FIXING DELIVERY, not relaxing this predicate.
-func standbyIsHot(topology bpv1alpha1.BcpTopology, delivered bool) bool {
-	return topology == bpv1alpha1.BcpActiveHotStandby && delivered
+// standbyIsHot reports whether a passive leg boots HOT (a live, streaming
+// replica) rather than COLD (`replicas: 0`, rebuilt on failover).
+// `active-hot-standby` is the only posture whose standby streams. Since
+// ADR-0015 D1 a standby leg is always applied by its own region's Flux, so
+// the former "undelivered ⇒ stay cold" guard (a standby that silently
+// installed beside its primary) has no case left to guard.
+func standbyIsHot(topology bpv1alpha1.BcpTopology) bool {
+	return topology == bpv1alpha1.BcpActiveHotStandby
 }
 
 // roleFor picks the per-cluster role from the variant's Roles map,
@@ -673,15 +696,9 @@ type PerClusterStatus struct {
 	HR      string `json:"hr"`
 	Status  string `json:"status,omitempty"`
 
-	// StandbyDelivery mirrors LabelStandbyDelivery for the passive legs
-	// (empty for active / singleton, which have no standby leg). #6268 —
-	// without it, a standby that never left the primary region is
-	// reported here identically to one that landed in its own region:
-	// same cluster ID, same role, same Ready status, because the HR IS
-	// Ready — it installed successfully, just not where the placement
-	// says. Readers that need "is this Application actually in two
-	// regions?" cannot answer it from cluster+role+status alone.
-	StandbyDelivery string `json:"standbyDelivery,omitempty"`
+	// Region is the canonical region id whose own Flux applies this leg
+	// (LabelRegion, ADR-0015 D3).
+	Region string `json:"region,omitempty"`
 }
 
 // PerClusterStatusesFor returns a templated `perCluster` slice from a
@@ -693,10 +710,10 @@ func PerClusterStatusesFor(hrs []*unstructured.Unstructured) []PerClusterStatus 
 	for _, hr := range hrs {
 		labels := hr.GetLabels()
 		out = append(out, PerClusterStatus{
-			Cluster:         labels[LabelCluster],
-			Role:            labels[LabelRole],
-			HR:              hr.GetName(),
-			StandbyDelivery: labels[LabelStandbyDelivery],
+			Cluster: labels[LabelCluster],
+			Role:    labels[LabelRole],
+			HR:      hr.GetName(),
+			Region:  labels[LabelRegion],
 		})
 	}
 	return out

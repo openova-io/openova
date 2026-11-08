@@ -1,0 +1,34 @@
+# ADR-0015 D1 — how the writer region's commits reach THIS region's Gitea.
+#
+# Extra substitute (cloud-init): SOVEREIGN_WRITER_REGION_ID — the region the
+# Catalyst controllers run in (the primary).
+#
+# WHY NOT GITEA'S NATIVE PUSH/PULL MIRROR. On a multi-region Sovereign the
+# regions' Giteas share ONE database (region B's gitea dials
+# shared-pg-mesh-rw → region A's primary) while each keeps its own repository
+# disk. A native mirror is therefore unsafe here:
+#   - a pull-mirror is a separate read-only repo row, so it cannot be the repo
+#     the per-region Flux objects point at, and its single next_update row in
+#     the shared table is claimed by whichever region's cron fires first — the
+#     other region's disk is skipped nondeterministically;
+#   - a push-mirror run by the follower's cron pushes the FOLLOWER's (stale)
+#     disk copy, and push-mirror credentials are encrypted with each region's
+#     own SECRET_KEY.
+# Instead this region PULLS: a CronJob reads the repo list from the shared
+# database (every repo the writer created is visible here), fetches each repo
+# from the writer's Gitea through the region-addressable ClusterMesh Service
+# gitea-<writer-id>, and force-pushes it into this region's own Gitea (same
+# repo row, this region's disk). A repo whose directory is missing on this
+# disk is re-initialised first (Gitea admin task reinit_missing_repos).
+#
+# REGION LOSS. If the writer is unreachable the fetch fails, the push is
+# skipped, and this region's Gitea keeps its last state — so this region's
+# Flux keeps reconciling exactly what it last received.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../multi-region
+  - gitea-writer-stub.yaml
+  - git-sync-egress.yaml
+  - git-sync-script.yaml
+  - git-sync-cronjob.yaml

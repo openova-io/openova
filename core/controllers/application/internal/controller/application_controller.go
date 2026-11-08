@@ -19,12 +19,12 @@
 //     `Blueprint.spec.configSchema`. On invalid surfaces an `Invalid`
 //     condition listing every failing JSON pointer.
 //
-//  4. Resolves the placement → per-region work plan via
-//     `internal/placement`. For each region, renders the manifest set
-//     via `internal/render` and idempotently writes
-//     `clusters/<region>/applications/<app>/{kustomization,helmrelease}.yaml`
-//     to the per-Org Gitea repo `<org>/<app>` on the env-type-mapped
-//     branch (per slice C2 BranchForEnvType).
+//  4. Translates the placement into per-region HelmReleases (ADR-0015
+//     D1/D3 — this controller is the single writer of placement) and
+//     idempotently commits ONE FILE PER REGION to the per-Org repo
+//     `<org>/catalyst-tenant` at `regions/<region-id>/apps/<app>.yaml`.
+//     Each region's own Flux applies its own folder from its own Gitea;
+//     the controller never applies a HelmRelease to any cluster.
 //
 //  5. Updates `Application.status` with phase, primaryRegion,
 //     regions[], giteaRepo URL, installedBlueprint snapshot, and
@@ -66,8 +66,8 @@ import (
 	"github.com/openova-io/openova/core/controllers/internal/placement"
 	"github.com/openova-io/openova/core/controllers/internal/semver"
 	bpv1alpha1 "github.com/openova-io/openova/core/controllers/pkg/apis/blueprint/v1alpha1"
-	"github.com/openova-io/openova/core/controllers/pkg/fluxsource"
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
+	"github.com/openova-io/openova/core/controllers/pkg/regions"
 	"github.com/openova-io/openova/core/controllers/pkg/render"
 	"github.com/openova-io/openova/core/controllers/pkg/validate"
 )
@@ -393,18 +393,25 @@ type Config struct {
 	// G92.1 #2660 (2026-06-01).
 	VClusterPlacements map[string]VClusterPlacement
 
-	// LocalRegion is the region suffix ("A" | "B") of the region this
-	// controller instance runs in — the FIRST region's mgmt cluster is
-	// "A", the SECOND region's is "B". Stamped from SOVEREIGN_REGION_ROLE
-	// (primary→A, secondary→B) by cmd/main.go. The topology fan-out's
-	// cluster-ID registry (#3375 DoD-4) uses it to resolve a declared
-	// cluster ID (mgmt-A / mgmt-B / …) to the right kubeConfig Secret:
-	// same-region IDs reuse the local vCluster pivot; cross-region IDs
-	// follow the split-side default (the remote region's own Flux owns
-	// its half) unless an operator wired a remote-region kubeconfig.
-	// Empty defaults to "A" (an unconfigured controller behaves as the
-	// primary).
-	LocalRegion string
+	// Regions is the Sovereign's region registry (ADR-0015 D3) — the
+	// `sovereign-fqdn` ConfigMap `regionsJson` list (SOVEREIGN_REGIONS_JSON),
+	// in provisioning order. Every placement leg is mapped to one of these
+	// canonical ids, and its HelmRelease is committed under that region's
+	// folder. A leg that maps to no region is never rendered.
+	Regions regions.Registry
+
+	// LocalRegionID is the canonical id of the region this controller runs
+	// in (SOVEREIGN_REGION_ID). It only scopes STATUS: the controller
+	// observes the HelmReleases its own region's Flux applied; other
+	// regions' legs are applied (and observed) by those regions. Empty =
+	// observe every leg (single-region).
+	LocalRegionID string
+
+	// TenantRepoName is the per-Org Gitea repo the per-region Application
+	// files are committed to. Defaults to "catalyst-tenant" — the repo the
+	// organization-controller creates and every region's per-Org Flux
+	// GitRepository tracks.
+	TenantRepoName string
 }
 
 // VClusterPlacement carries the per-vCluster runtime values the
@@ -444,13 +451,9 @@ func DefaultVClusterPlacements() map[string]VClusterPlacement {
 	}
 }
 
-// clusterResolver builds the cluster-ID registry resolver (#3375 DoD-4)
-// from the controller's VClusterPlacements + LocalRegion. It maps the
-// loft-sh tier names (dmz|mgmt|rtz) onto the registry's Tier enum and
-// carries each tier's local vCluster Secret + host namespace so a
-// same-region canonical cluster ID resolves through the proven G92.1
-// pivot. Cross-region IDs follow the split-side default (no pivot;
-// remote region's own Flux owns its half).
+// clusterResolver builds the cluster-ID resolver (#3375 DoD-4) from the
+// controller's VClusterPlacements. ADR-0015 D1: a leg is always applied by
+// its own region's Flux, so only the tier decides the kubeConfig pivot.
 func (r *Reconciler) clusterResolver() clusterregistry.Resolver {
 	tiers := map[clusterregistry.Tier]clusterregistry.TierVCluster{}
 	for name, vcp := range r.Cfg.VClusterPlacements {
@@ -463,61 +466,36 @@ func (r *Reconciler) clusterResolver() clusterregistry.Resolver {
 			KubeconfigSecret: vcp.KubeconfigSecret,
 		}
 	}
-	local := clusterregistry.Region(strings.ToUpper(r.Cfg.LocalRegion))
-	if !clusterregistry.IsKnownRegion(local) {
-		local = clusterregistry.RegionA
-	}
-	return clusterregistry.Resolver{
-		LocalRegion:   local,
-		TierVClusters: tiers,
-	}
+	return clusterregistry.Resolver{TierVClusters: tiers}
 }
 
-// localRegion is the canonical Region this controller instance runs in, the
-// same derivation clusterResolver makes. Kept as one helper so the #4282
-// narrowing below and the registry can never disagree about which cluster IDs
-// are "same-region".
-func (r *Reconciler) localRegion() clusterregistry.Region {
-	local := clusterregistry.Region(strings.ToUpper(r.Cfg.LocalRegion))
-	if !clusterregistry.IsKnownRegion(local) {
-		local = clusterregistry.RegionA
+// regionFor maps a placement cluster ID to its canonical region id through
+// the ONE registry (ADR-0015 D3). A desired-state target names its region
+// explicitly; that wins. Otherwise the cluster ID's region letter is read
+// back to the region at that provisioning index. "" = not a region of this
+// Sovereign (the renderer then refuses the leg).
+func (r *Reconciler) regionFor(targets []bpv1alpha1.PlacementTarget) func(cluster string) string {
+	byCluster := make(map[string]string, len(targets))
+	for _, t := range targets {
+		byCluster[t.Cluster] = t.Region
 	}
-	return local
-}
-
-// hostCNPGKubeSecretFor narrows the #4282 host-CNPG rule (#6268).
-//
-// #4282 measured a real defect: a CNPG-bearing Blueprint pivoted into a
-// vCluster renders a hollow `InstallSucceeded`, because the chart's
-// `cluster.yaml` is gated on `.Capabilities.APIVersions.Has
-// "postgresql.cnpg.io/v1"` and a vCluster apiserver registers no such CRD and
-// runs no cnpg operator. Its remedy was `fanoutKubeSecretFor = nil` — which
-// removes the pivot for EVERY leg of the Application, same-region and
-// cross-region alike.
-//
-// The warrant does not reach that far. It is a statement about VCLUSTERS, and
-// a cross-region cluster ID does not name one: `rtz-B` is a different REGION's
-// HOST cluster, which on a 2-region Sovereign runs its own cnpg operator and
-// registers the CRD (hw296 region B: `cnpg-system/cnpg-cloudnative-pg`,
-// `clusters.postgresql.cnpg.io`). Suppressing its resolution therefore
-// suppressed nothing #4282 was about, while removing the only signal the
-// renderer has that a standby leg belongs somewhere else.
-//
-// So: same-region (and unparseable) IDs still resolve to ("",""), which is
-// exactly the pre-#6268 behaviour for every leg #4282 measured; a cross-region
-// ID is delegated to the registry, which returns a Secret only when an operator
-// has wired a remote-region kubeconfig for that region and ("","") otherwise.
-// A nil base is treated as "nothing to delegate to" rather than as an error —
-// this wrapper only ever narrows.
-func (r *Reconciler) hostCNPGKubeSecretFor(base func(string) (string, string)) func(string) (string, string) {
-	local := r.localRegion()
-	return func(cluster string) (string, string) {
-		id, err := clusterregistry.Parse(cluster)
-		if err != nil || id.Region == local || base == nil {
-			return "", ""
+	return func(cluster string) string {
+		if tr, ok := byCluster[cluster]; ok && tr != "" {
+			if id, err := r.Cfg.Regions.Canonical(tr); err == nil {
+				return id
+			}
 		}
-		return base(cluster)
+		if id, err := r.Cfg.Regions.Canonical(cluster); err == nil {
+			return id
+		}
+		return ""
 	}
+}
+
+// observesRegion reports whether this controller instance observes legs of
+// region id (its own region; every region when LocalRegionID is unset).
+func (r *Reconciler) observesRegion(id string) bool {
+	return r.Cfg.LocalRegionID == "" || r.Cfg.LocalRegionID == id
 }
 
 // Defaults applies missing-field defaults to a Config. Returns a copy.
@@ -568,6 +546,9 @@ func (c Config) Defaults() Config {
 	}
 	if out.VClusterPlacements == nil {
 		out.VClusterPlacements = DefaultVClusterPlacements()
+	}
+	if out.TenantRepoName == "" {
+		out.TenantRepoName = "catalyst-tenant"
 	}
 	return out
 }
@@ -1114,20 +1095,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 				r.Log.Info("CNPG-bearing Blueprint placed in a vCluster tier — routing the Cluster CR host-side (no vCluster pivot) so the host cnpg-system operator reconciles it (#4282)",
 					"blueprint", spec.BlueprintName, "tier", placementTier, "hostNamespace", app.GetNamespace())
 				fanoutWriteNamespace = app.GetNamespace()
-				// #6268 — NARROWED, not deleted. The rule's warrant is "a
-				// vCluster apiserver registers no postgresql.cnpg.io CRD and
-				// runs no cnpg operator", which is a statement about VCLUSTERS.
-				// Nilling the whole seam applied it to a CROSS-REGION leg as
-				// well, where it does not hold: region B's HOST cluster runs
-				// `cnpg-system/cnpg-cloudnative-pg` with
-				// `clusters.postgresql.cnpg.io` registered (read live on hw296
-				// dep e689e3b34a75fdec), so a `rtz-B` leg has exactly the
-				// operator + CRD the invariant asks for. The narrowed form
-				// suppresses the SAME-REGION vCluster pivot — the whole of what
-				// #4282 measured — and leaves a cross-region cluster ID to the
-				// registry, which resolves it only when a remote-region
-				// kubeconfig is actually wired and returns ("","") otherwise.
-				fanoutKubeSecretFor = r.hostCNPGKubeSecretFor(fanoutKubeSecretFor)
+				// ADR-0015 D1 — every leg is applied by its own region's
+				// Flux, so "host-side" means host-side IN THAT REGION for
+				// every leg: no vCluster pivot at all.
+				fanoutKubeSecretFor = nil
 			}
 
 			// Source-ref + chart: read from Blueprint.spec.manifests
@@ -1240,6 +1211,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 				SourceRefKind:       ifEmpty(fanoutSourceKind, "HelmRepository"),
 				SourceRefNamespace:  r.Cfg.SourceNamespace,
 				KubeConfigSecretFor: fanoutKubeSecretFor,
+				// ADR-0015 D3 — every leg's region, from the one registry.
+				RegionFor: r.regionFor(spec.PlacementTargets),
 				// #3373 — loft-sh vcluster exportKubeConfig data key
 				// (matches the per-region render path + the
 				// hand-proven bootstrap-kit vCluster slots).
@@ -1271,37 +1244,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 			}
 			topo.SortHRsForReconcile(hrs)
 			perClusterFanout = hrs
-
-			// G117.6a (Refs #2796) — persist each rendered HR onto the
-			// host k3s. The dynamic client upsert is byte-equal
-			// idempotent (drift-restore on diverged spec; no-op on
-			// steady state) per upsertHostResource. We iterate in
-			// SortHRsForReconcile order: active HRs first, then
-			// passive, then singleton — so the active replica's HR
-			// upsert hits Flux's reconcile queue before its passive
-			// peer's (avoids the cnpg-pair race where the standby
-			// boots before WAL streaming comes up on primary).
-			for _, hr := range hrs {
-				hrName := hr.GetName()
-				hrNamespace := hr.GetNamespace()
-				if hrNamespace == "" {
-					// Belt-and-braces: WriteNamespace defaulted to
-					// AppNamespace in renderOneHR; this guards against
-					// a future renderer regression.
-					hrNamespace = app.GetNamespace()
-					hr.SetNamespace(hrNamespace)
-				}
-				if err := r.upsertHostResource(ctx, FluxHelmReleaseGVR, hrNamespace, hrName, hr); err != nil {
-					return r.markDegraded(ctx, app, ReasonGiteaError,
-						fmt.Sprintf("upsert per-cluster HelmRelease %s/%s: %v", hrNamespace, hrName, err))
-				}
-				r.Log.Info("upserted per-cluster HelmRelease",
-					"namespace", hrNamespace, "name", hrName,
-					"cluster", hr.GetLabels()[topo.LabelCluster],
-					"role", hr.GetLabels()[topo.LabelRole],
-					"topology", string(choice),
-				)
-			}
+			// ADR-0015 D1 — the HRs are NOT applied here. They are committed
+			// below, one file per region, and each region's Flux applies its
+			// own file (step 9).
 
 			// #4282 — seed each per-cluster row with the HR's authored
 			// namespace + a provisional "Provisioning" status. The status
@@ -1326,15 +1271,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 					"role":      s.Role,
 					"hr":        s.HR,
 					"namespace": hrNamespace,
+					"region":    s.Region,
 					"status":    PhaseProvisioning,
-				}
-				// #6268 — carry the standby leg's DELIVERY through to
-				// status so a reader can tell a standby that reached its
-				// own region from one that installed beside its active
-				// peer. Empty for active / singleton legs, so the key's
-				// presence is itself the signal.
-				if s.StandbyDelivery != "" {
-					pcs["standbyDelivery"] = s.StandbyDelivery
 				}
 				perClusterStatus = append(perClusterStatus, pcs)
 			}
@@ -1395,35 +1333,32 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 			fmt.Sprintf("per-app Continuum DR contract: %v", cerr))
 	}
 
-	// 8. Ensure the per-Application Gitea repo exists.
-	//
-	// private=false: the in-cluster Gitea is on the K8s service cordon
-	// (host-only, no external network access via gitea-http svc), so
-	// "private" is redundant security theater that breaks Flux's
-	// anonymous clone path. Without anonymous-clone the host-side Flux
-	// GitRepository requires a token Secret in flux-system, which would
-	// be yet another bootstrapped state. Public-on-cordon is the
-	// architecturally clean default; operators who want hard isolation
-	// can swap private=true + bootstrap the Secret in a follow-up.
-	// qa-loop iter-8 Fix #42 follow-up #2: live on omantel, private=true
-	// caused `failed to checkout: authentication required` on the
-	// Flux side.
-	branch := branchForEnvType(envSpec.EnvType)
-	if _, err := r.Gitea.EnsureRepo(ctx, envSpec.OrganizationRef, app.GetName(),
-		"Application manifests — auto-managed by application-controller. Do not edit manually.",
-		false); err != nil {
+	// 8. Resolve the per-Org repo the per-region files are committed to
+	//    (ADR-0015 D1). The organization-controller creates it and commits
+	//    every region's Flux objects that reconcile its `regions/<id>/apps`
+	//    folders; EnsureRepo here is an idempotent find-or-create so an
+	//    Application racing its Organization's first reconcile converges.
+	orgSlug := envSpec.OrganizationRef
+	if s, _, _ := unstructured.NestedString(org.Object, "spec", "slug"); s != "" {
+		orgSlug = s
+	}
+	tenantRepo := r.Cfg.TenantRepoName
+	const tenantBranch = "main"
+	if _, err := r.Gitea.EnsureRepo(ctx, orgSlug, tenantRepo,
+		"vCluster + tenant manifests reconciled by Flux on the host cluster",
+		true); err != nil {
 		if r.GiteaErrors != nil && r.GiteaErrors.IsOrgNotFound(err) {
 			return r.markPending(ctx, app, ReasonOrgGiteaMissing,
 				fmt.Sprintf("Gitea Org %q does not exist; organization-controller (C1) creates it",
-					envSpec.OrganizationRef))
+					orgSlug))
 		}
 		return r.markDegraded(ctx, app, ReasonGiteaError, fmt.Sprintf("EnsureRepo: %v", err))
 	}
-	if err := r.Gitea.EnsureBranch(ctx, envSpec.OrganizationRef, app.GetName(), branch); err != nil {
-		return r.markDegraded(ctx, app, ReasonGiteaError, fmt.Sprintf("EnsureBranch: %v", err))
-	}
 
-	// 9. Per-region render + commit.
+	// 9. Per-region render. The fan-out above already rendered its legs;
+	//    a Blueprint with no topology and no targets renders the single
+	//    bare `<app>` HelmRelease per planned region here. Both paths end
+	//    in the SAME list of region-labelled HelmReleases.
 	bpManifestsValues, _, _ := unstructured.NestedMap(bp.Object, "spec", "manifests", "values")
 	bpSourceKind, _, _ := unstructured.NestedString(bp.Object, "spec", "manifests", "source", "kind")
 	bpSourceRef, _, _ := unstructured.NestedString(bp.Object, "spec", "manifests", "source", "ref")
@@ -1431,21 +1366,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 	bpDigest, _, _ := unstructured.NestedString(bp.Object, "status", "ociDigest")
 	// #4246 — Blueprint authors set spec.manifests.helmRelease.disableWait=true
 	// for charts whose workload Pod gates on a value populated by one of the
-	// chart's OWN post-install/post-upgrade Helm hooks (e.g. bp-newapi's
-	// DSN-gate initContainer + database-secret-sync-job post-install hook).
-	// Without it, Flux's default --wait deadlocks the install. The bootstrap-
-	// kit newapi HR has this hard-coded; this propagates it to the per-Org
-	// Application render path.
+	// chart's OWN post-install/post-upgrade Helm hooks.
 	bpDisableWait, _, _ := unstructured.NestedBool(bp.Object, "spec", "manifests", "helmRelease", "disableWait")
-	// G92.1 #2660 — Blueprint authors declare the vCluster the
-	// rendered HelmRelease targets via spec.placementSchema.vcluster
-	// (dmz|mgmt|rtz). Empty/unset = install onto the host k3s
-	// (legacy shape, kept for substrate Blueprints per G92.6 #2665).
+	// G92.1 #2660 — spec.placementSchema.vcluster (dmz|mgmt|rtz) names the
+	// vCluster the rendered HelmRelease targets; #3373 the instance's
+	// effective vCluster overrides it. Empty = the region's host cluster.
 	bpVCluster := blueprintVCluster(bp)
-	// #3373 — the instance's effective vCluster (instance >
-	// blueprint defaultPlacement) overrides the legacy class-level
-	// placementSchema.vcluster. An explicit instance "host" ("")
-	// keeps the host install (no kubeConfig pivot).
 	if effVCFound {
 		bpVCluster = effVC
 	}
@@ -1461,38 +1387,52 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 				spec.BlueprintName, bpVCluster, strings.ToUpper(bpVCluster)))
 	}
 
+	deliveries := append([]*unstructured.Unstructured(nil), perClusterFanout...)
 	regionStatuses := make([]map[string]interface{}, 0, len(plan.Regions))
-	allCommitted := true
-	for _, rp := range plan.Regions {
-		// #4556 Item 1 — the fan-out already owns the install (its `<app>-<cluster>`
-		// HRs were upserted host-side above). Skip the redundant per-region
-		// render+commit of the bare `<app>` HR so the Org plan quota is not
-		// double-consumed. Keep the regionStatuses skeleton row so
-		// status.regions[] + mergeRegionReadiness stay populated for the UI.
+	// The legacy plan's regions resolved to canonical ids (ADR-0015 D3).
+	planRegionIDs := make([]string, 0, len(plan.Regions))
+	if !fanoutOwnsInstall {
+		for _, rp := range plan.Regions {
+			id, rerr := r.Cfg.Regions.Canonical(rp.Name)
+			if rerr != nil {
+				return r.markFailed(ctx, app, ReasonInvalid,
+					fmt.Sprintf("placement region %q: %v", rp.Name, rerr))
+			}
+			planRegionIDs = append(planRegionIDs, id)
+		}
+	}
+	for i, rp := range plan.Regions {
+		regionStatuses = append(regionStatuses, map[string]interface{}{
+			"name":               rp.Name,
+			"role":               rp.Role,
+			"replicas":           int64(replicasFor(rp.Standby, spec.Parameters)),
+			"ready":              int64(0),
+			"lastTransitionTime": time.Now().UTC().Format(time.RFC3339),
+		})
+		// #4556 Item 1 — the fan-out already owns the install; rendering
+		// the bare `<app>` HR as well would double-consume the Org quota.
 		if fanoutOwnsInstall {
-			regionStatuses = append(regionStatuses, map[string]interface{}{
-				"name":               rp.Name,
-				"role":               rp.Role,
-				"replicas":           int64(replicasFor(rp.Standby, spec.Parameters)),
-				"ready":              int64(0),
-				"lastTransitionTime": time.Now().UTC().Format(time.RFC3339),
-			})
 			continue
 		}
-		merged := mergeMaps(bpManifestsValues, spec.Parameters)
+		self := planRegionIDs[i]
+		// placement.Resolve puts the primary first (active-active: every
+		// region is active; the first is named primary).
+		primary := planRegionIDs[0]
+		merged := topo.WithTopologyContract(mergeMaps(bpManifestsValues, spec.Parameters), topo.TopologyContract{
+			Mode:    plan.Mode,
+			Self:    self,
+			Primary: primary,
+			Peers:   regions.Peers(self, planRegionIDs),
+		})
 		out, err := render.Render(render.Inputs{
 			AppName: app.GetName(),
-			// AppNamespace = the Application CR's own namespace. The
-			// rendered HelmRelease metadata.namespace + spec.targetNamespace
-			// both resolve here, matching the host-side Flux Kustomization
-			// targetNamespace. qa-loop iter-10 Fix #44 root cause: previously
-			// we passed Org for both, which on omantel made the workload Pod
-			// land in `omantel-platform` instead of the operator's chosen
-			// `qa-omantel` namespace.
+			// AppNamespace = the Application CR's own namespace; the
+			// rendered HelmRelease's spec.targetNamespace resolves here
+			// (qa-loop iter-10 Fix #44).
 			AppNamespace:     app.GetNamespace(),
 			Org:              envSpec.OrganizationRef,
 			EnvType:          envSpec.EnvType,
-			Region:           rp.Name,
+			Region:           self,
 			PlacementRole:    rp.Role,
 			Standby:          rp.Standby,
 			BlueprintName:    spec.BlueprintName,
@@ -1505,99 +1445,56 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 			IntervalSeconds:  r.Cfg.HelmReleaseIntervalSeconds,
 			OwnerAppUID:      string(app.GetUID()),
 			OwnerAppGen:      app.GetGeneration(),
-			// vCluster pivot — empty Blueprint declaration =
-			// host placement (legacy + G92.6 substrate); otherwise
-			// stamp host namespace + kubeconfig Secret so Flux v2
-			// helm-controller installs INSIDE the vCluster
-			// (G92.1 #2660).
+			// vCluster pivot (G92.1 #2660) — resolved in the region that
+			// applies the file.
 			VCluster:                 bpVCluster,
 			VClusterHostNamespace:    vcPlacement.HostNamespace,
 			VClusterKubeconfigSecret: vcPlacement.KubeconfigSecret,
-			// #4246 — propagate the Blueprint's DSN-gate / hook-deadlock
-			// avoidance flag onto the rendered HR's install + upgrade.
-			DisableWait: bpDisableWait,
+			DisableWait:              bpDisableWait,
 		})
 		if err != nil {
 			return r.markDegraded(ctx, app, ReasonRenderError,
-				fmt.Sprintf("render region %q: %v", rp.Name, err))
+				fmt.Sprintf("render region %q: %v", self, err))
 		}
-
-		// Commit kustomization.yaml + helmrelease.yaml.
-		paths := []struct {
-			path    string
-			content []byte
-		}{
-			{render.KustomizationPath(rp.Name, app.GetName()), out.KustomizationYAML},
-			{render.HelmReleasePath(rp.Name, app.GetName()), out.HelmReleaseYAML},
+		hr, err := render.ParseHelmRelease(out.HelmReleaseYAML)
+		if err != nil {
+			return r.markDegraded(ctx, app, ReasonRenderError,
+				fmt.Sprintf("render region %q: %v", self, err))
 		}
-		commitMsg := fmt.Sprintf("application-controller: reconcile %s on %s (gen %d)",
-			app.GetName(), rp.Name, app.GetGeneration())
-		regionCommitted := false
-		for _, p := range paths {
-			_, committed, err := r.Gitea.PutFile(
-				ctx, envSpec.OrganizationRef, app.GetName(), branch, p.path,
-				p.content, commitMsg)
-			if err != nil {
-				return r.markDegraded(ctx, app, ReasonGiteaError,
-					fmt.Sprintf("PutFile %s: %v", p.path, err))
-			}
-			if committed {
-				regionCommitted = true
-			}
+		labels := hr.GetLabels()
+		if labels == nil {
+			labels = map[string]string{}
 		}
-		if !regionCommitted {
-			// Already in steady state — manifest set already in Gitea
-			// byte-equal. This contributes to the idempotency test
-			// (re-reconcile = 0 writes).
-		} else {
-			allCommitted = true
+		for k, v := range fanoutOwnerLabels(envSpec, app) {
+			labels[k] = v
 		}
-
-		regionStatuses = append(regionStatuses, map[string]interface{}{
-			"name":               rp.Name,
-			"role":               rp.Role,
-			"replicas":           int64(replicasFor(rp.Standby, spec.Parameters)),
-			"ready":              int64(0),
-			"lastTransitionTime": time.Now().UTC().Format(time.RFC3339),
-		})
+		labels[topo.LabelApp] = app.GetName()
+		labels[topo.LabelRegion] = self
+		hr.SetLabels(labels)
+		deliveries = append(deliveries, hr)
 	}
-	_ = allCommitted
 
-	// 9b. Upsert the host-cluster Flux GitRepository + per-region
-	//     Kustomization CRs that reconcile the manifests we just
-	//     committed to Gitea. Without this step the manifests sit in
-	//     Gitea forever; nothing on the host cluster ever pulls them
-	//     and no Pod gets scheduled. qa-loop iter-8 Fix #42 bug 3
-	//     root cause.
-	//
-	//     Failure here is non-fatal-but-degraded: the manifests are
-	//     already in Gitea so a future reconcile pass (or operator
-	//     re-apply) can resolve. We log + mark Degraded so the
-	//     Application visibly fails its Ready bar.
-	//
-	//     G92.1 #2660 — when the Blueprint declares a vCluster, the
-	//     Kustomization's targetNamespace must be the vCluster's host
-	//     namespace so the HR CR itself lands there (where Flux v2
-	//     resolves the kubeConfig.secretRef). The IN-vCluster install
-	//     target stays the Application's namespace (rendered HR's
-	//     spec.targetNamespace).
-	//
-	//     #4556 Item 1 — SKIP this when the fan-out owns the install: the
-	//     GitRepository + per-region Kustomization here are what deliver the
-	//     duplicate bare `<app>` HR (the fan-out `<app>-<cluster>` HRs were
-	//     already upserted host-side above). Bootstrapping them would
-	//     re-create the second HR every reconcile and double-consume the Org
-	//     plan quota. Legacy / non-fan-out Applications still bootstrap their
-	//     SOLE per-region delivery here, unchanged.
-	if !fanoutOwnsInstall {
-		hostHRNamespace := app.GetNamespace()
-		if bpVCluster != "" {
-			hostHRNamespace = vcPlacement.HostNamespace
-		}
-		if err := r.ensureHostFluxBootstrap(ctx, app, envSpec, plan, hostHRNamespace); err != nil {
-			return r.markDegraded(ctx, app, ReasonGiteaError,
-				fmt.Sprintf("ensure host Flux bootstrap: %v", err))
-		}
+	// 9b. Commit one file per region to the Org repo (ADR-0015 D1). Every
+	//     region of the Sovereign is visited: a region in the placement gets
+	//     its file (PutFile is byte-equal idempotent), a region outside it
+	//     has any earlier file removed — so a placement change moves an
+	//     Application between regions by Git alone, and each region's Flux
+	//     prunes what left it.
+	files, ferr := topo.RegionFiles(deliveries)
+	if ferr != nil {
+		return r.markDegraded(ctx, app, ReasonRenderError, ferr.Error())
+	}
+	if err := r.commitRegionFiles(ctx, app, orgSlug, tenantRepo, tenantBranch, files); err != nil {
+		return r.markDegraded(ctx, app, ReasonGiteaError, err.Error())
+	}
+
+	// 9c. Retire this Application's pre-ADR-0015 imperative delivery in
+	//     this region (the per-Application GitRepository/Kustomization pair
+	//     and HelmReleases upserted for other regions' legs). Idempotent;
+	//     a no-op once retired.
+	if err := r.retireImperativeDelivery(ctx, app, files); err != nil {
+		return r.markDegraded(ctx, app, ReasonGiteaError,
+			fmt.Sprintf("retire pre-ADR-0015 delivery: %v", err))
 	}
 
 	// 10. Observe the downstream HelmRelease so the Application's
@@ -1632,17 +1529,20 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 	// → NotFound → the Application is pinned at Provisioning forever even
 	// though `w4282-pg-rtz-a` is Ready=True. perClusterStatus carries the
 	// real names + namespaces (seeded above); pass them in.
-	fanoutHRRefs := make([]hrRef, 0, len(perClusterStatus))
-	for _, pcs := range perClusterStatus {
-		n, _ := pcs["hr"].(string)
-		if n == "" {
+	//
+	// ADR-0015 D1 — only the legs THIS region's Flux applies are observable
+	// here; another region's legs are applied and observed by that region.
+	fanoutHRRefs := make([]hrRef, 0, len(deliveries))
+	for _, hr := range deliveries {
+		region := hr.GetLabels()[topo.LabelRegion]
+		if !r.observesRegion(region) {
 			continue
 		}
-		ns, _ := pcs["namespace"].(string)
+		ns := hr.GetNamespace()
 		if ns == "" {
 			ns = app.GetNamespace()
 		}
-		fanoutHRRefs = append(fanoutHRRefs, hrRef{name: n, namespace: ns, region: n})
+		fanoutHRRefs = append(fanoutHRRefs, hrRef{name: hr.GetName(), namespace: ns, region: region})
 	}
 	hrPhase, hrReason, hrMessage, perHRReady := r.observeRegionHelmReleases(ctx, app, plan, fanoutHRRefs)
 	regionStatuses = mergeRegionReadiness(regionStatuses, hrPhase, plan, ctx, r, app)
@@ -1666,7 +1566,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 	//     fall back to Provisioning when no signal is available yet.
 	giteaRepo := fmt.Sprintf("%s/%s/%s",
 		strings.TrimRight(r.Cfg.GiteaPublicURL, "/"),
-		envSpec.OrganizationRef, app.GetName())
+		orgSlug, tenantRepo)
 	finalPhase := hrPhase
 	finalReady := "True"
 	finalReason := ReasonReconciled
@@ -2139,166 +2039,6 @@ func mergeRegionReadiness(
 	return out
 }
 
-// ensureHostFluxBootstrap upserts (find-or-create) the host-cluster
-// Flux v1 GitRepository + per-region Kustomization CRs that pull the
-// per-Application manifests we committed to Gitea. Idempotent: a
-// steady-state Application produces zero K8s writes after the first
-// pass (we re-Get and only call Update when a meaningful field
-// diverged from desired). Owner-references on every CR target the
-// parent Application so the Flux CRs are garbage-collected when the
-// Application is deleted.
-//
-// Schema:
-//
-//	GitRepository (1 per Application):
-//	  metadata.namespace: cfg.HostFluxNamespace (default flux-system)
-//	  metadata.name:      catalyst-app-{org}-{app}
-//	  spec.url:           {GiteaInClusterURL}/{org}/{app}.git
-//	  spec.ref.branch:    {branchForEnvType(envSpec.EnvType)}
-//	  spec.interval:      {HostFluxIntervalSeconds}s
-//	  spec.secretRef.name: {FluxGiteaSecretRef}  (only if non-empty)
-//
-//	Kustomization (1 per per-region work plan):
-//	  metadata.namespace: cfg.HostFluxNamespace
-//	  metadata.name:      catalyst-app-{org}-{app}-{region}
-//	  spec.path:          ./clusters/{region}/applications/{app}
-//	  spec.sourceRef:     GitRepository: catalyst-app-{org}-{app}
-//	  spec.interval:      {HostFluxIntervalSeconds}s
-//	  spec.prune:         true
-//	  spec.targetNamespace: {app.GetNamespace()}
-//
-// Per Inviolable Principle #3 (Flux is the only reconciler), we do NOT
-// `kubectl apply` workload manifests directly — only the Flux CR pair
-// that wires Gitea → Flux → workload.
-func (r *Reconciler) ensureHostFluxBootstrap(
-	ctx context.Context,
-	app *unstructured.Unstructured,
-	envSpec envParsedSpec,
-	plan placement.Plan,
-	hostHRNamespace string,
-) error {
-	ns := r.Cfg.HostFluxNamespace
-	branch := branchForEnvType(envSpec.EnvType)
-	repoName := fmt.Sprintf("catalyst-app-%s-%s", envSpec.OrganizationRef, app.GetName())
-	repoURL := fmt.Sprintf("%s/%s/%s.git",
-		strings.TrimRight(r.Cfg.GiteaInClusterURL, "/"),
-		envSpec.OrganizationRef,
-		app.GetName())
-
-	// IMPORTANT: NO ownerReferences here.
-	//
-	// K8s ownerRefs only resolve INSIDE the same namespace (when both
-	// owner and dependent are namespaced) — the K8s garbage collector
-	// hard-deletes any dependent whose owner it cannot find in the
-	// SAME namespace. The Application CR lives in
-	// `app.GetNamespace()` (e.g. `qa-omantel`) but the GitRepository +
-	// Kustomization live in `flux-system`. With ownerRef pointing at a
-	// namespaced owner in a different namespace, the GC silently
-	// deletes the GitRepository the moment it's created — the
-	// controller log says "ensured" but `kubectl get` shows nothing.
-	// First version of Fix #42 hit this exact bug live on omantel.
-	//
-	// Cleanup on Application delete is handled by handleDeletion(): it
-	// deletes the Gitea-side files (Flux then GCs the workload via
-	// prune=true on the Kustomization) AND — via
-	// cascadeDeleteHostFluxBootstrap (#4902 follow-on) — issues explicit
-	// Delete calls on these host-cluster GitRepository + Kustomization CRs
-	// themselves, keyed off the app-uid back-pointer label below, so they
-	// no longer orphan on delete.
-	commonLabels := map[string]interface{}{
-		"app.kubernetes.io/managed-by":     "application-controller",
-		LabelHostFluxApp:                   app.GetName(),
-		"catalyst.openova.io/organization": envSpec.OrganizationRef,
-		"catalyst.openova.io/env-type":     envSpec.EnvType,
-		// Reference labels for cascade-delete (replaces ownerRef which
-		// can't span namespaces). handleDeletion() looks these up.
-		LabelHostFluxAppNamespace: app.GetNamespace(),
-		LabelAppUID:               string(app.GetUID()),
-	}
-
-	// --- GitRepository ---
-	gr := &unstructured.Unstructured{}
-	gr.SetAPIVersion(FluxGitRepositoryGVR.Group + "/" + FluxGitRepositoryGVR.Version)
-	gr.SetKind("GitRepository")
-	gr.SetNamespace(ns)
-	gr.SetName(repoName)
-	// NO ownerRef — see top-of-function note about cross-namespace GC.
-	if err := unstructured.SetNestedMap(gr.Object, commonLabels, "metadata", "labels"); err != nil {
-		return fmt.Errorf("set GitRepository labels: %w", err)
-	}
-	// #4285 — route through the shared fluxsource builder so the
-	// "local-Gitea source MUST carry a secretRef" law is enforced in ONE
-	// place. bp-gitea REQUIRE_SIGNIN_VIEW=true makes anonymous clone 401;
-	// an empty secretRef on this (always Sovereign-local) source is a hard
-	// error, not a silently-dead 401 source.
-	grSpec, err := fluxsource.BuildGitRepositorySpec(fluxsource.GitRepositorySpecInput{
-		URL:             repoURL,
-		Branch:          branch,
-		IntervalSeconds: r.Cfg.HostFluxIntervalSeconds,
-		SecretRef:       r.Cfg.FluxGiteaSecretRef,
-	})
-	if err != nil {
-		return fmt.Errorf("build GitRepository spec for %s: %w", repoName, err)
-	}
-	if err := unstructured.SetNestedMap(gr.Object, grSpec, "spec"); err != nil {
-		return fmt.Errorf("set GitRepository spec: %w", err)
-	}
-
-	if err := r.upsertHostResource(ctx, FluxGitRepositoryGVR, ns, repoName, gr); err != nil {
-		return fmt.Errorf("upsert GitRepository %s/%s: %w", ns, repoName, err)
-	}
-	r.Log.Info("ensured host Flux GitRepository",
-		"namespace", ns, "name", repoName, "url", repoURL, "branch", branch)
-
-	// --- Kustomization (one per region) ---
-	for _, rp := range plan.Regions {
-		ksName := fmt.Sprintf("catalyst-app-%s-%s-%s",
-			envSpec.OrganizationRef, app.GetName(), rp.Name)
-		ks := &unstructured.Unstructured{}
-		ks.SetAPIVersion(FluxKustomizationGVR.Group + "/" + FluxKustomizationGVR.Version)
-		ks.SetKind("Kustomization")
-		ks.SetNamespace(ns)
-		ks.SetName(ksName)
-		// NO ownerRef — see top-of-function note about cross-namespace GC.
-		labels := map[string]interface{}{}
-		for k, v := range commonLabels {
-			labels[k] = v
-		}
-		labels["catalyst.openova.io/region"] = rp.Name
-		if err := unstructured.SetNestedMap(ks.Object, labels, "metadata", "labels"); err != nil {
-			return fmt.Errorf("set Kustomization labels: %w", err)
-		}
-		ksSpec := map[string]interface{}{
-			"interval": fmt.Sprintf("%ds", r.Cfg.HostFluxIntervalSeconds),
-			"path":     fmt.Sprintf("./clusters/%s/applications/%s", rp.Name, app.GetName()),
-			"prune":    true,
-			// targetNamespace = where the HR CR lands on the HOST. For
-			// host-placement Applications this is the Application's own
-			// namespace (legacy). For vCluster-placement Applications
-			// (G92.1 #2660) it's the vCluster's host namespace so
-			// helm-controller resolves spec.kubeConfig.secretRef from
-			// the same namespace as the HR (Flux v2 SecretReference
-			// contract).
-			"targetNamespace": hostHRNamespace,
-			"sourceRef": map[string]interface{}{
-				"kind":      "GitRepository",
-				"name":      repoName,
-				"namespace": ns,
-			},
-		}
-		if err := unstructured.SetNestedMap(ks.Object, ksSpec, "spec"); err != nil {
-			return fmt.Errorf("set Kustomization spec: %w", err)
-		}
-		if err := r.upsertHostResource(ctx, FluxKustomizationGVR, ns, ksName, ks); err != nil {
-			return fmt.Errorf("upsert Kustomization %s/%s: %w", ns, ksName, err)
-		}
-		r.Log.Info("ensured host Flux Kustomization",
-			"namespace", ns, "name", ksName, "region", rp.Name, "path", ksSpec["path"])
-	}
-
-	return nil
-}
-
 // upsertHostResource find-or-creates the resource via the dynamic
 // client, then drift-restores spec when an existing instance diverges
 // from desired. Idempotent on byte-equal spec.
@@ -2384,62 +2124,27 @@ func (r *Reconciler) handleDeletion(ctx context.Context, app *unstructured.Unstr
 		Ready:   "False",
 	})
 
-	// #4902 — cascade-delete the per-region HelmReleases the topology
-	// fan-out imperatively upserted for this Application (the
-	// `<app>-<cluster>` HRs — e.g. `uatprobe-ahs-rtz-a`). They carry NO
-	// ownerReferences (they can live in a different namespace than the
-	// Application CR, which makes same-namespace ownerRefs unsafe — see
-	// the cross-namespace-GC note on ensureHostFluxBootstrap), so K8s GC
-	// never reaps them; and when the fan-out owns the install the legacy
-	// per-region Gitea path below is suppressed, so nothing else removes
-	// them. Without this, an Application created via the New-instance
-	// flow leaks its per-region HR (and its Helm release) on every
-	// delete. Runs BEFORE the spec/env resolution below so orphans are
-	// cleaned even when the spec is unparseable or the parent Environment
-	// is already gone — the cleanup keys off the app-uid back-pointer
-	// label alone.
-	if err := r.cascadeDeleteFanoutHelmReleases(ctx, app); err != nil {
-		return fmt.Errorf("delete per-cluster HelmReleases: %w", err)
-	}
-
-	// #4902 (follow-on) — cascade-delete the host-cluster Flux
-	// GitRepository + per-region Kustomization CRs that
-	// ensureHostFluxBootstrap imperatively upserted for this Application
-	// (`catalyst-app-<org>-<app>` + `…-<region>`). Like the fan-out HRs
-	// these carry NO ownerReferences (they live in HostFluxNamespace —
-	// flux-system — a DIFFERENT namespace than the Application CR, so a
-	// cross-namespace ownerRef would be hard-GC'd on creation), so K8s GC
-	// never reaps them. The Gitea-file cleanup below only removes the
-	// per-region manifests (Flux then prunes the WORKLOAD via the
-	// Kustomization's prune=true) — it does NOT remove these source/sync
-	// CRs themselves, so without this they orphan on every delete (the
-	// GitRepository keeps polling a now-empty Gitea repo; the Kustomization
-	// keeps reconciling). Closes the explicit TODO on ensureHostFluxBootstrap.
-	// Runs BEFORE the spec/env resolution below so the cleanup happens even
-	// when the spec is unparseable or the parent Environment is already gone
-	// — it keys off the app-uid back-pointer label + the fixed
-	// HostFluxNamespace alone.
-	if err := r.cascadeDeleteHostFluxBootstrap(ctx, app); err != nil {
-		return fmt.Errorf("delete host-flux bootstrap CRs: %w", err)
-	}
-
 	spec, err := parseSpec(app)
 	if err != nil {
-		// Spec is unparseable — nothing we can do but release the
-		// finalizer. The user will need to handle stuck workloads
-		// manually if any exist.
+		// Spec is unparseable — clean what this region still holds, then
+		// release the finalizer.
 		r.Log.Warn("delete: spec unparseable; releasing finalizer", "err", err)
+		if cerr := r.cascadeDeleteImperative(ctx, app); cerr != nil {
+			return cerr
+		}
 		return r.removeFinalizer(ctx, app)
 	}
 
-	// Resolve env to find the Gitea Org + branch. If the Environment
-	// has been deleted out from under us, we can't compute the target
-	// — release the finalizer and let the operator clean up the Gitea
-	// side manually (rare path; the operator deleted Env before App).
+	// Resolve env → Organization → the Org repo holding the per-region
+	// files. If the Environment is gone we cannot name the repo — clean
+	// what this region still holds and release the finalizer.
 	env, err := r.fetchEnvironment(ctx, spec.EnvironmentRef)
 	if err != nil {
 		if isNotFound(err) {
 			r.Log.Info("delete: parent Environment gone; releasing finalizer", "env", spec.EnvironmentRef)
+			if cerr := r.cascadeDeleteImperative(ctx, app); cerr != nil {
+				return cerr
+			}
 			return r.removeFinalizer(ctx, app)
 		}
 		return fmt.Errorf("delete: fetch Environment: %w", err)
@@ -2447,22 +2152,39 @@ func (r *Reconciler) handleDeletion(ctx context.Context, app *unstructured.Unstr
 	envSpec, err := parseEnvSpec(env)
 	if err != nil {
 		r.Log.Warn("delete: parent Environment spec invalid; releasing finalizer", "err", err)
+		if cerr := r.cascadeDeleteImperative(ctx, app); cerr != nil {
+			return cerr
+		}
 		return r.removeFinalizer(ctx, app)
 	}
-	branch := branchForEnvType(envSpec.EnvType)
+	orgSlug := envSpec.OrganizationRef
+	if o, oerr := r.fetchOrganization(ctx, envSpec.OrganizationRef); oerr == nil {
+		if sl, _, _ := unstructured.NestedString(o.Object, "spec", "slug"); sl != "" {
+			orgSlug = sl
+		}
+	}
 
-	// Resolve placement to know which regions to clean.
+	// ADR-0015 D1 — remove the Application's file from EVERY region's
+	// folder. Each region's Flux prunes its own HelmRelease (and the
+	// workload) from Git; nothing is deleted on any cluster by hand.
+	if err := r.deleteRegionFiles(ctx, app, orgSlug, r.Cfg.TenantRepoName, "main"); err != nil {
+		return fmt.Errorf("delete per-region files: %w", err)
+	}
+
+	// Pre-ADR-0015 Applications may still hold imperatively-written objects
+	// in this region (fan-out HRs upserted onto the host, the per-Application
+	// GitRepository + Kustomization pair, the per-Application repo files).
+	if err := r.cascadeDeleteImperative(ctx, app); err != nil {
+		return err
+	}
+	branch := branchForEnvType(envSpec.EnvType)
 	plan, err := placement.Resolve(spec.Placement, spec.Regions)
 	if err != nil {
-		// Best effort — if the spec is invalid, try every region.
-		// Still release the finalizer at the end.
-		r.Log.Warn("delete: placement invalid; deleting all spec.regions[]", "err", err)
 		plan = placement.Plan{Regions: nil}
 		for _, rg := range spec.Regions {
 			plan.Regions = append(plan.Regions, placement.RegionPlan{Name: rg})
 		}
 	}
-
 	commitMsg := fmt.Sprintf("application-controller: cascade-delete %s (gen %d)",
 		app.GetName(), app.GetGeneration())
 	for _, rp := range plan.Regions {
@@ -2484,6 +2206,21 @@ func (r *Reconciler) handleDeletion(ctx context.Context, app *unstructured.Unstr
 	}
 
 	return r.removeFinalizer(ctx, app)
+}
+
+// cascadeDeleteImperative removes the pre-ADR-0015 objects this region may
+// still hold for the Application (#4902): fan-out HelmReleases upserted onto
+// the host and the per-Application GitRepository + Kustomization pair. On an
+// Application delivered from Git these lists are empty, or hold the
+// HelmReleases its region file just stopped declaring (which Flux prunes too).
+func (r *Reconciler) cascadeDeleteImperative(ctx context.Context, app *unstructured.Unstructured) error {
+	if err := r.cascadeDeleteFanoutHelmReleases(ctx, app); err != nil {
+		return fmt.Errorf("delete per-cluster HelmReleases: %w", err)
+	}
+	if err := r.cascadeDeleteHostFluxBootstrap(ctx, app); err != nil {
+		return fmt.Errorf("delete host-flux bootstrap CRs: %w", err)
+	}
+	return nil
 }
 
 // cascadeDeleteFanoutHelmReleases removes every per-cluster HelmRelease

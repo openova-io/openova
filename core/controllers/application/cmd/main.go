@@ -77,7 +77,6 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
@@ -87,6 +86,7 @@ import (
 
 	"github.com/openova-io/openova/core/controllers/application/internal/controller"
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
+	"github.com/openova-io/openova/core/controllers/pkg/regions"
 )
 
 func main() {
@@ -232,24 +232,25 @@ func loadConfigFromEnv() controller.Config {
 				KubeconfigSecret: env("VCLUSTER_PLACEMENT_RTZ_SECRET", "vc-rtz"),
 			},
 		},
-		// #3375 DoD-4 — the region suffix ("A"|"B") this controller runs
-		// in, derived from the same SOVEREIGN_REGION_ROLE the cnpg-pair
-		// bootstrap slot uses (primary→A, secondary→B). The cluster-ID
-		// registry consults it to resolve declared cluster IDs to the
-		// right kubeConfig Secret. Empty/unknown defaults to "A".
-		LocalRegion: regionSuffixFromRole(env("SOVEREIGN_REGION_ROLE", "primary")),
+		// ADR-0015 D3 — the ONE region registry (sovereign-fqdn/regionsJson)
+		// and the id of the region this controller runs in. A malformed
+		// list is fatal at startup: no placement can be translated
+		// without it, and guessing a region is what D3 forbids.
+		Regions:       mustRegions(),
+		LocalRegionID: env(regions.EnvRegionID, ""),
+		// ADR-0015 D1 — the per-Org repo every region's Flux reads.
+		TenantRepoName: env("TENANT_REPO_NAME", "catalyst-tenant"),
 	}
 }
 
-// regionSuffixFromRole maps the per-region SOVEREIGN_REGION_ROLE value
-// (primary|secondary) to the canonical region suffix ("A"|"B") used in
-// cluster IDs (mgmt-A / mgmt-B). Anything other than "secondary" maps to
-// "A" (the safe primary default).
-func regionSuffixFromRole(role string) string {
-	if strings.EqualFold(strings.TrimSpace(role), "secondary") {
-		return "B"
+// mustRegions reads the Sovereign region registry from the environment.
+func mustRegions() regions.Registry {
+	reg, err := regions.FromEnv()
+	if err != nil {
+		slog.Error("region registry", "err", err)
+		os.Exit(1)
 	}
-	return "A"
+	return reg
 }
 
 // giteaClassifier adapts the gitea package's typed errors to the

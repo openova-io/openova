@@ -32,7 +32,7 @@ func TestReconcilePerOrgFlux_ParksTheKustomizationsWhileSuspended(t *testing.T) 
 	names := []string{ksName, perOrgAppsKustomizationName(slug), perOrgHostAppsKustomizationName(slug)}
 
 	// Not suspended: no `suspend` key at all.
-	if err := r.reconcilePerOrgFlux(context.Background(), org); err != nil {
+	if err := reconcilePerOrgFluxApplied(t, r, context.Background(), org); err != nil {
 		t.Fatalf("reconcilePerOrgFlux: %v", err)
 	}
 	for _, name := range names {
@@ -44,7 +44,7 @@ func TestReconcilePerOrgFlux_ParksTheKustomizationsWhileSuspended(t *testing.T) 
 
 	// Suspended: every per-Org Kustomization is parked.
 	org.Spec.Suspended, org.Spec.SuspendReason = true, "invoice INV-2026-00007 is 45 days overdue"
-	if err := r.reconcilePerOrgFlux(context.Background(), org); err != nil {
+	if err := reconcilePerOrgFluxApplied(t, r, context.Background(), org); err != nil {
 		t.Fatalf("reconcilePerOrgFlux (suspended): %v", err)
 	}
 	for _, name := range names {
@@ -56,7 +56,7 @@ func TestReconcilePerOrgFlux_ParksTheKustomizationsWhileSuspended(t *testing.T) 
 
 	// Resumed: un-parked on the next reconcile.
 	org.Spec.Suspended, org.Spec.SuspendReason = false, ""
-	if err := r.reconcilePerOrgFlux(context.Background(), org); err != nil {
+	if err := reconcilePerOrgFluxApplied(t, r, context.Background(), org); err != nil {
 		t.Fatalf("reconcilePerOrgFlux (resumed): %v", err)
 	}
 	for _, name := range names {

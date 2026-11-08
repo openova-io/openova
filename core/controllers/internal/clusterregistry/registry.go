@@ -35,14 +35,10 @@
 //   - A cluster ID in the SAME region as the controller resolves to the
 //     local tier's vCluster Secret (the existing G92.1 pivot) — or to
 //     the host cluster when the tier has no vCluster.
-//   - A cluster ID in a DIFFERENT region resolves to a remote-region
-//     kubeconfig Secret ONLY when the operator has explicitly wired one
-//     (Resolver.RemoteRegionSecrets). Absent that, it resolves to the
-//     empty string, which the fan-out renderer reads as "omit the
-//     kubeConfig block" — i.e. the split-side default where the remote
-//     region's own Flux owns its half. This is the safe, IaC-pure
-//     behaviour: nothing requires the local catalyst-api to reach into
-//     the remote cluster.
+//   - A cluster ID of ANY region resolves the same way, because ADR-0015
+//     D1 commits each region's HelmRelease to that region's own Git path
+//     and that region's own Flux applies it. No control plane ever pivots
+//     into another region's cluster.
 //
 // The package is pure data + pure functions: no K8s client, no I/O. It
 // is unit-testable in isolation and imported by the application-
@@ -196,75 +192,35 @@ type TierVCluster struct {
 	KubeconfigSecret string
 }
 
-// RemoteRegionSecret names a remote-region kubeconfig Secret.
-type RemoteRegionSecret struct {
-	Name      string
-	Namespace string
-}
-
 // Resolver resolves a canonical cluster ID to (secretName,
 // secretNamespace) for the fan-out KubeConfigSecretFor seam.
+//
+// ADR-0015 D1: every per-region HelmRelease is committed to its OWN region's
+// Git path and applied by that region's own Flux, so a cluster ID is always
+// resolved in the region that applies it. The region suffix therefore never
+// changes the answer — there is no cross-region kubeconfig pivot and no
+// "remote region" branch. Only the tier decides: a tier with a vCluster pivots
+// into it; a tier without one installs onto the region's host cluster.
 type Resolver struct {
-	// LocalRegion is the region this controller instance runs in
-	// (RegionA on the primary mgmt cluster; RegionB on the secondary).
-	// Read from the controller's environment (SOVEREIGN_REGION_ROLE:
-	// primary→A, secondary→B). Defaults to RegionA.
-	LocalRegion Region
-
-	// TierVClusters maps a Tier to its local vCluster placement. Seeded
-	// from the application-controller's VClusterPlacements so the
-	// same-region resolution reuses the proven G92.1 pivot.
+	// TierVClusters maps a Tier to its vCluster placement (identical in
+	// every region). Seeded from the application-controller's
+	// VClusterPlacements.
 	TierVClusters map[Tier]TierVCluster
-
-	// RemoteRegionSecrets maps a non-local Region to the kubeconfig
-	// Secret (name + namespace) the operator wired for cross-region
-	// fan-out, when one exists. Absent an entry, a non-local cluster ID
-	// resolves to the empty string — the split-side default where the
-	// remote region's own Flux owns its half (#3375 §3 (b), the proven
-	// cnpg-pair convention). Operators populate this ONLY for the rare
-	// rows that genuinely require one control plane to write into the
-	// other (none in the §6 reference set).
-	RemoteRegionSecrets map[Region]RemoteRegionSecret
 }
 
 // SecretFor implements the fan-out KubeConfigSecretFor contract:
-// returns (secretName, secretNamespace) for the given canonical cluster
-// ID. A non-canonical ID, or a cluster that resolves to host/split-side
-// placement, returns ("", "") so the fan-out renderer omits the
-// kubeConfig block (HR targets the local cluster / the remote region's
-// own Flux owns it).
 //
-// Resolution:
-//
-//	same region, tier has a vCluster   → (tier vCluster Secret, its ns)
-//	same region, tier on host          → ("", "")  [substrate; no pivot]
-//	other region, remote Secret wired  → (remote Secret, its ns)
-//	other region, no remote Secret     → ("", "")  [split-side default]
-//	non-canonical ID                   → ("", "")  [renderer ignores]
+//	tier has a vCluster   → (tier vCluster Secret, its ns)
+//	tier on host          → ("", "")  [no pivot]
+//	non-canonical ID      → ("", "")  [renderer ignores]
 func (r Resolver) SecretFor(clusterID string) (string, string) {
 	id, err := Parse(clusterID)
 	if err != nil {
-		// Non-canonical (e.g. a legacy bare cluster name) — let the
-		// renderer omit the pivot rather than fabricate a Secret.
 		return "", ""
 	}
-	local := r.LocalRegion
-	if local == "" {
-		local = RegionA
+	tv, ok := r.TierVClusters[id.Tier]
+	if !ok || tv.KubeconfigSecret == "" {
+		return "", ""
 	}
-	if id.Region == local {
-		// Same region — reuse the local tier vCluster pivot.
-		tv, ok := r.TierVClusters[id.Tier]
-		if !ok || tv.KubeconfigSecret == "" {
-			// No vCluster for this tier ⇒ host placement, no pivot.
-			return "", ""
-		}
-		return tv.KubeconfigSecret, tv.HostNamespace
-	}
-	// Cross-region — only when an operator explicitly wired a remote
-	// kubeconfig. Otherwise split-side: the remote region's Flux owns it.
-	if rs, ok := r.RemoteRegionSecrets[id.Region]; ok && rs.Name != "" {
-		return rs.Name, rs.Namespace
-	}
-	return "", ""
+	return tv.KubeconfigSecret, tv.HostNamespace
 }

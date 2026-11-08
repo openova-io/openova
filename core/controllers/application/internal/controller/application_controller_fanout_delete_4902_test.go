@@ -75,8 +75,9 @@ func TestReconcile_DeletionCascade_FanoutHelmReleases_4902(t *testing.T) {
 	fg.orgsExist["acme"] = true
 	r := newReconciler(t, fg, app, env, org, bp, decoy)
 
-	// First reconcile — fan-out upserts 2 HRs into `mgmt` + adds finalizer.
-	reconcileFromCluster(t, r, "acme", "obs")
+	// First reconcile — commits the region files; every region's Flux
+	// applies its HR into `mgmt` (union in the one fake API).
+	reconcileAndApplyAll(t, r, fg, "acme", "obs")
 
 	hrList, err := r.Dynamic.Resource(FluxHelmReleaseGVR).
 		Namespace("mgmt").List(context.Background(), metav1.ListOptions{})

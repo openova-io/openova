@@ -102,7 +102,7 @@ func TestReconcile_TargetsDriveFanout_TwoClustersTwoHRs(t *testing.T) {
 	fg.orgsExist["acme"] = true
 	r := newReconciler(t, fg, app, env, org, bp)
 
-	reconcileFromCluster(t, r, "acme", "obs")
+	reconcileAndApplyAll(t, r, fg, "acme", "obs")
 
 	got := readApp(t, r, "acme", "obs")
 	phase, reason, msg := readPhaseAndReason(t, got)
@@ -155,8 +155,12 @@ func TestReconcile_TargetsDriveFanout_TwoClustersTwoHRs(t *testing.T) {
 				t.Errorf("mgmt-A kubeConfig secretRef.name = %q, want vc-mgmt", name)
 			}
 		}
-		if cluster == "mgmt-B" && found {
-			t.Errorf("mgmt-B HR (remote region) must NOT carry a kubeConfig block (split-side default)")
+		// ADR-0015 D1 — region B applies mgmt-B into its OWN vc-mgmt.
+		if cluster == "mgmt-B" {
+			name, _, _ := unstructured.NestedString(kc, "secretRef", "name")
+			if !found || name != "vc-mgmt" {
+				t.Errorf("mgmt-B HR must pivot into its own region's vc-mgmt; got %v", kc)
+			}
 		}
 	}
 }
@@ -179,7 +183,7 @@ func TestReconcile_TargetsDriveFanout_SingletonSingleTarget(t *testing.T) {
 	fg.orgsExist["acme"] = true
 	r := newReconciler(t, fg, app, env, org, bp)
 
-	reconcileFromCluster(t, r, "acme", "obs")
+	reconcileAndApplyAll(t, r, fg, "acme", "obs")
 
 	got := readApp(t, r, "acme", "obs")
 	if phase, reason, msg := readPhaseAndReason(t, got); phase == PhaseFailed {
@@ -230,7 +234,7 @@ func TestReconcile_SingletonFanout_CarriesParameters_4589(t *testing.T) {
 	fg.orgsExist["acme"] = true
 	r := newReconciler(t, fg, app, env, org, bp)
 
-	reconcileFromCluster(t, r, "acme", "agenity")
+	reconcileAndApplyAll(t, r, fg, "acme", "agenity")
 
 	hrList, err := r.Dynamic.Resource(FluxHelmReleaseGVR).
 		Namespace("mgmt").List(context.Background(), metav1.ListOptions{})
@@ -273,7 +277,7 @@ func TestReconcile_SingletonFanout_OneHR_NoPerRegionGitRepository(t *testing.T) 
 	fg.orgsExist["acme"] = true
 	r := newReconciler(t, fg, app, env, org, bp)
 
-	reconcileFromCluster(t, r, "acme", "obs")
+	reconcileAndApplyAll(t, r, fg, "acme", "obs")
 
 	got := readApp(t, r, "acme", "obs")
 	if phase, reason, msg := readPhaseAndReason(t, got); phase == PhaseFailed {
@@ -327,7 +331,7 @@ func TestReconcile_NoTargets_NoBlueprintTopology_NoFanout(t *testing.T) {
 	fg.orgsExist["acme"] = true
 	r := newReconciler(t, fg, app, env, org, bp)
 
-	reconcileFromCluster(t, r, "acme", "obs")
+	reconcileAndApplyAll(t, r, fg, "acme", "obs")
 
 	got := readApp(t, r, "acme", "obs")
 	if phase, reason, msg := readPhaseAndReason(t, got); phase == PhaseFailed {

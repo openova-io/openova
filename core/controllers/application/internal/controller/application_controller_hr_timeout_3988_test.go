@@ -59,7 +59,7 @@ func listFanoutHRs(t *testing.T, bp *unstructured.Unstructured, appName string) 
 	fg.orgsExist["acme"] = true
 	r := newReconciler(t, fg, app, env, org, bp)
 
-	reconcileFromCluster(t, r, "acme", appName)
+	reconcileAndApplyAll(t, r, fg, "acme", appName)
 
 	got := readApp(t, r, "acme", appName)
 	if phase, reason, msg := readPhaseAndReason(t, got); phase == PhaseFailed {

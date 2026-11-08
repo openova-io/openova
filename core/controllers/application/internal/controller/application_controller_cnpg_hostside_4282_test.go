@@ -95,7 +95,7 @@ func reconcileCNPGSingletonHRs(t *testing.T, bp *unstructured.Unstructured, tier
 	fg.orgsExist["acme"] = true
 	r := newReconciler(t, fg, app, env, org, bp)
 
-	reconcileFromCluster(t, r, "acme", "db")
+	reconcileAndApplyAll(t, r, fg, "acme", "db")
 
 	got := readApp(t, r, "acme", "db")
 	if phase, reason, msg := readPhaseAndReason(t, got); phase == PhaseFailed {

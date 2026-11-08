@@ -772,6 +772,10 @@ func rewriteHubSecretHost(src *corev1.Secret, oldHost, newHost string) *corev1.S
 // `service.cilium.io/global: "true"` also reads false — it would be a
 // region-local name, i.e. exactly the black hole the readiness gate exists to
 // prevent. Only a genuine API error is returned as an error.
+// ciliumGlobalServiceAnnotation is the Cilium ClusterMesh global-service
+// marker (moved here when org_app_surface_mesh.go was deleted, ADR-0015 D1).
+const ciliumGlobalServiceAnnotation = "service.cilium.io/global"
+
 func (h *Handler) replicaPublishesMeshAlias(ctx context.Context, cs kubernetes.Interface, namespace, alias string) (bool, error) {
 	getCtx, cancel := context.WithTimeout(ctx, clusterMeshCallTimeout)
 	defer cancel()
