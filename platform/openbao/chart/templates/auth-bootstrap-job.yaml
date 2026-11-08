@@ -556,6 +556,44 @@ spec:
               else
                 echo "[openbao-auth-bootstrap] catalyst-api writer role disabled (kubernetesAuth.catalystApi.enabled=false); skipping"
               fi
+{{- $ptAB := include "openbao.peerTrust" . | fromJson }}
+{{- if $ptAB.peers }}
+{{- $ptAud := (.Values.peerTrust | default dict).audience | default "openbao-peer-push" }}
+
+              # ─── ADR-0015 (#7067) peer-region trust: the two roles only ───
+              # The openbao-peer-trust Deployment (templates/peer-trust.yaml)
+              # converges the issuer + the jwt-peer-<peer> mounts, because a
+              # peer's mount can only be configured once the peer answers. It
+              # logs in as `peer-trust`; this is the only privileged grant it
+              # gets: its own mounts, the two peer policies, and the identity
+              # objects named {{ $ptAud }}. It cannot touch any other mount,
+              # policy or role.
+              cat <<EOF | bao policy write peer-trust-admin -
+              path "sys/auth" { capabilities = ["read"] }
+              path "sys/auth/jwt-peer-*" { capabilities = ["create", "update", "read", "sudo"] }
+              path "auth/jwt-peer-*" { capabilities = ["create", "update", "read"] }
+              path "sys/policies/acl/{{ $ptAud }}" { capabilities = ["create", "update", "read"] }
+              path "sys/policies/acl/openbao-peer-token" { capabilities = ["create", "update", "read"] }
+              path "identity/oidc/config" { capabilities = ["read", "update"] }
+              path "identity/oidc/key/{{ $ptAud }}" { capabilities = ["create", "update", "read"] }
+              path "identity/oidc/role/{{ $ptAud }}" { capabilities = ["create", "update", "read"] }
+              EOF
+              bao write auth/$AUTH_MOUNT_PATH/role/peer-trust \
+                bound_service_account_names=openbao-peer-trust \
+                bound_service_account_namespaces=$NAMESPACE \
+                policies=peer-trust-admin \
+                ttl=$TOKEN_TTL \
+                max_ttl=$TOKEN_MAX_TTL
+              # ESO reads its push token (identity/oidc/token/{{ $ptAud }})
+              # through a SEPARATE role, so the main external-secrets role
+              # keeps exactly the read + push policies.
+              bao write auth/$AUTH_MOUNT_PATH/role/openbao-peer-token \
+                bound_service_account_names=$ESO_SA_NAME \
+                bound_service_account_namespaces=$ESO_SA_NAMESPACE \
+                policies=openbao-peer-token \
+                ttl=15m \
+                max_ttl=1h
+{{- end }}
 {{- if (.Values.snapshotReplication | default dict).enabled }}
 {{- $sr := .Values.snapshotReplication | default dict }}
 {{- $srAuthRole := (($sr.kubernetesAuth | default dict).role) | default "openbao-snapshot" }}

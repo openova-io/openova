@@ -280,11 +280,16 @@ database:
         refreshInterval: 1h
       seed:
         enabled: true
-        # Stores the primary pushes the material into. Empty ⇒ [storeRef].
-        # Each region must be able to READ the material from ITS storeRef:
-        # list every region's store here when the regions do not share one
-        # OpenBao (README §Shared secrets).
+        # Stores the primary pushes the material into. Empty (default) ⇒
+        # [storeRef] + one `<peerStoreNamePrefix><peer>` per
+        # openova.topology.peers entry: every region runs its own OpenBao and
+        # bp-external-secrets-stores renders `vault-<peer-region-id>` writing
+        # into each peer's OpenBao (README §Shared secrets). Non-empty ⇒ used
+        # verbatim.
         secretStoreRefs: []
+        # Must equal bp-external-secrets-stores peerStores.namePrefix
+        # (tests/shared-secrets-render.sh S8 renders both and compares).
+        peerStoreNamePrefix: vault-
         refreshInterval: 1h
 # ─── openova.topology — THE placement contract (ADR-0015 D2) ─────────────
 # Written per region into Git by the orchestrator (one HelmRelease of this

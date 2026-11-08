@@ -1,0 +1,341 @@
+{{- /*
+Peer-region trust — bp-openbao (ADR-0015, Refs #7067). See values.yaml
+§peerTrust for the model; this file renders it.
+
+Every region runs its own OpenBao. The primary region of a multi-region
+Application pushes the shared material into EVERY region's OpenBao
+(bp-external-secrets-stores renders one ClusterSecretStore `vault-<peer>` per
+peer region). This file makes THIS region's OpenBao both
+  - reachable from the peers: Service openbao-<self> (owner, ClusterMesh
+    global, backend = this region's active OpenBao), plus a selector-less stub
+    openbao-<peer> per peer so a dial to a peer reaches only that peer;
+  - an OIDC issuer for its own ESO (identity token `openbao-peer-push`), and
+  - a verifier of each peer's tokens (auth mount jwt-peer-<peer>, keys
+    discovered from the peer's issuer over the mesh).
+
+The OpenBao-side configuration is converged by the openbao-peer-trust
+Deployment (login: k8s-auth role `peer-trust`, policy `peer-trust-admin`, both
+written by auth-bootstrap-job.yaml). A Deployment, not a hook: a peer's jwt
+mount can only be configured once the peer answers, which an install hook
+cannot wait for. Every write is idempotent; an unreachable peer is retried on
+the next tick and never blocks the other peers.
+
+Skip-render (#402, never `{{ fail }}`): nothing renders when the registry
+names no region other than self — single-region output is unchanged.
+No nodePort anywhere: every Service is ClusterIP.
+*/ -}}
+{{- $pt := include "openbao.peerTrust" . | fromJson -}}
+{{- if $pt.peers }}
+{{- $cfg := .Values.peerTrust | default dict -}}
+{{- $au := .Values.autoUnseal | default dict -}}
+{{- $kAuth := $au.kubernetesAuth | default dict -}}
+{{- $kv := $kAuth.kvMountPath | default "secret" -}}
+{{- $authMount := $kAuth.mountPath | default "kubernetes" -}}
+{{- $baoAddr := $au.baoAddress | default (printf "http://%s-openbao.%s.svc.cluster.local:8200" .Release.Name .Release.Namespace) -}}
+{{- $aud := $cfg.audience | default "openbao-peer-push" -}}
+{{- $kvPrefix := $cfg.kvPathPrefix | default "openova/apps" | trimSuffix "/" -}}
+{{- $self := $pt.self -}}
+{{- $issuer := printf "http://%s:8200" (index $pt.hosts $self) -}}
+{{- $pushPolicy := printf "path \"%s/data/%s/*\" {\n  capabilities = [\"create\", \"update\", \"read\"]\n}\npath \"%s/metadata/%s/*\" {\n  capabilities = [\"create\", \"update\", \"read\"]\n}\n" $kv $kvPrefix $kv $kvPrefix -}}
+{{- $tokenPolicy := printf "path \"identity/oidc/token/%s\" {\n  capabilities = [\"read\"]\n}\n" $aud }}
+---
+# This region's OpenBao under its region-addressable, ClusterMesh-global name.
+# ClusterIP (not headless) so Cilium ClusterMesh merges it; every peer renders
+# the same-named selector-less stub, so the peers reach ONLY this region's
+# active OpenBao. No nodePort: ClusterIP only.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ printf "openbao-%s" $self | quote }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    catalyst.openova.io/component: openbao-region-service
+    openova.io/region: {{ $self | quote }}
+  annotations:
+    service.cilium.io/global: "true"
+    service.cilium.io/shared: "true"
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: openbao
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    component: server
+    openbao-active: "true"
+  ports:
+    - name: http
+      port: 8200
+      targetPort: 8200
+      protocol: TCP
+{{- range $pt.peers }}
+---
+# Selector-less stub of peer region {{ . }}'s openbao-<region-id> Service: no
+# local backends, so ClusterMesh routes it to that region's OpenBao only.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ printf "openbao-%s" . | quote }}
+  namespace: {{ $.Release.Namespace | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    catalyst.openova.io/component: openbao-region-service-stub
+    openova.io/region: {{ . | quote }}
+  annotations:
+    service.cilium.io/global: "true"
+    service.cilium.io/shared: "false"
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8200
+      targetPort: 8200
+      protocol: TCP
+{{- end }}
+---
+# The openbao namespace is default-deny (bp-plane-isolation
+# openbao-default-deny) and Cilium evaluates its namespace selectors
+# cluster-locally. Admit, from ANY ClusterMesh cluster, on 8200 only:
+#   - ESO (a peer's primary pushing shared material into this OpenBao);
+#   - a peer's OpenBao + peer-trust reconciler (OIDC discovery of THIS
+#     region's issuer).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: openbao-allow-peer-region-ingress
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    catalyst.openova.io/component: openbao-peer-trust
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: openbao
+      component: server
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ $kAuth.serviceAccountNamespace | default "external-secrets-system" }}
+            k8s:app.kubernetes.io/name: external-secrets
+          matchExpressions:
+            - key: io.cilium.k8s.policy.cluster
+              operator: Exists
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ .Release.Namespace }}
+          matchExpressions:
+            - key: io.cilium.k8s.policy.cluster
+              operator: Exists
+            - key: k8s:app.kubernetes.io/name
+              operator: In
+              values: [openbao, openbao-peer-trust]
+      toPorts:
+        - ports:
+            - port: "8200"
+              protocol: TCP
+---
+# Egress twin: this region's OpenBao (jwt-peer-<peer> key discovery) and the
+# reconciler (reachability probe) dial the peers' OpenBao on 8200.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: openbao-allow-peer-region-egress
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    catalyst.openova.io/component: openbao-peer-trust
+spec:
+  endpointSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values: [openbao, openbao-peer-trust]
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ .Release.Namespace }}
+            k8s:app.kubernetes.io/name: openbao
+            k8s:component: server
+          matchExpressions:
+            - key: io.cilium.k8s.policy.cluster
+              operator: Exists
+      toPorts:
+        - ports:
+            - port: "8200"
+              protocol: TCP
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: openbao-peer-trust
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    app.kubernetes.io/name: openbao-peer-trust
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openbao-peer-trust
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    app.kubernetes.io/name: openbao-peer-trust
+data:
+  # ── Issuer side: THIS region signs its own ESO's push tokens ──────────────
+  issuer.json: {{ dict "issuer" $issuer | toJson | quote }}
+  key.json: {{ dict "algorithm" "RS256" "allowed_client_ids" (list $aud) "rotation_period" "24h" "verification_ttl" "24h" | toJson | quote }}
+  role.json: {{ dict "key" $aud "client_id" $aud "ttl" ($cfg.tokenTTL | default "1h") "template" (dict "openova_region" $self | toJson) | toJson | quote }}
+  policy-token.json: {{ dict "policy" $tokenPolicy | toJson | quote }}
+  # ── Verifier side: what a peer's token may do here ────────────────────────
+  policy-push.json: {{ dict "policy" $pushPolicy | toJson | quote }}
+  mount.json: {{ dict "type" "jwt" "description" "ADR-0015 peer-region ESO push (bp-openbao peer-trust)" | toJson | quote }}
+{{- range $pt.peers }}
+{{- $peerIssuer := printf "http://%s:8200/v1/identity/oidc" (index $pt.hosts .) }}
+  {{ printf "jwt-config-%s.json" . }}: {{ dict "oidc_discovery_url" $peerIssuer | toJson | quote }}
+  {{ printf "jwt-role-%s.json" . }}: {{ dict "role_type" "jwt" "bound_audiences" (list $aud) "user_claim" "sub" "bound_claims" (dict "openova_region" .) "token_policies" (list $aud) "token_ttl" "15m" "token_max_ttl" "1h" | toJson | quote }}
+{{- end }}
+  reconcile.sh: |
+    set -u
+    : "${BAO_ADDR:?}" "${BAO_K8S_AUTH_PATH:?}" "${AUDIENCE:?}" "${PEERS:?}" "${INTERVAL_SECONDS:?}"
+    D=/etc/openbao-peer-trust
+    log() { printf '%s | %s\n' "$(date -u +%FT%TZ)" "$*"; }
+    login() {
+      sa="$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)"
+      BAO_TOKEN="$(wget -qO- --header='Content-Type: application/json' \
+        --post-data "{\"role\":\"peer-trust\",\"jwt\":\"${sa}\"}" \
+        "${BAO_ADDR%/}/v1/auth/${BAO_K8S_AUTH_PATH}/login" 2>/dev/null \
+        | sed -n 's/.*"client_token":"\([^"]*\)".*/\1/p')"
+      [ -n "${BAO_TOKEN}" ]
+    }
+    # write <path> <payload-file> — POST, idempotent on every path used here.
+    write() {
+      wget -qO- --header="X-Vault-Token: ${BAO_TOKEN}" \
+        --header='Content-Type: application/json' \
+        --post-file "$D/$2" "${BAO_ADDR%/}/v1/$1" >/dev/null 2>&1
+    }
+    get() { wget -qO- --header="X-Vault-Token: ${BAO_TOKEN}" "${BAO_ADDR%/}/v1/$1" 2>/dev/null; }
+    step() { if write "$1" "$2"; then return 0; fi; log "WARN: write $1 failed"; return 1; }
+    log "peer-trust starting; self={{ $self }} peers=${PEERS} addr=${BAO_ADDR}"
+    touch /tmp/peer-trust-heartbeat
+    while true; do
+      touch /tmp/peer-trust-heartbeat
+      if ! login; then
+        log "WARN: login as role peer-trust failed (auth-bootstrap has not bound it yet?)"
+        sleep "${INTERVAL_SECONDS}"; continue
+      fi
+      ok=1
+      step sys/policies/acl/openbao-peer-token policy-token.json || ok=0
+      step "sys/policies/acl/${AUDIENCE}" policy-push.json || ok=0
+      step identity/oidc/config issuer.json || ok=0
+      step "identity/oidc/key/${AUDIENCE}" key.json || ok=0
+      step "identity/oidc/role/${AUDIENCE}" role.json || ok=0
+      mounts="$(get sys/auth)"
+      for p in ${PEERS}; do
+        host="{{ $cfg.servicePrefix | default "openbao-" }}${p}.{{ .Release.Namespace }}.svc.cluster.local"
+        if ! wget -qO- "http://${host}:8200/v1/identity/oidc/.well-known/openid-configuration" >/dev/null 2>&1; then
+          log "peer ${p}: issuer http://${host}:8200 not reachable over ClusterMesh yet — retry next tick"
+          ok=0; continue
+        fi
+        case "${mounts}" in
+          *"\"jwt-peer-${p}/\""*) ;;
+          *) step "sys/auth/jwt-peer-${p}" mount.json || { ok=0; continue; } ;;
+        esac
+        step "auth/jwt-peer-${p}/config" "jwt-config-${p}.json" || { ok=0; continue; }
+        step "auth/jwt-peer-${p}/role/${AUDIENCE}" "jwt-role-${p}.json" || { ok=0; continue; }
+      done
+      [ "${ok}" = 1 ] && log "converged: issuer + jwt-peer-* for ${PEERS}"
+      sleep "${INTERVAL_SECONDS}"
+    done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openbao-peer-trust
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    app.kubernetes.io/name: openbao-peer-trust
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: openbao-peer-trust
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: openbao-peer-trust
+        catalyst.openova.io/blueprint: bp-openbao
+      annotations:
+        # The script + payloads live in the ConfigMap; roll on any change.
+        checksum/peer-trust: {{ printf "%s|%s|%v" .Chart.Version $self $pt.peers | sha256sum }}
+    spec:
+      serviceAccountName: openbao-peer-trust
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 100
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: reconcile
+          # `library/` is required on a Docker Hub official image through the
+          # Harbor proxy-cache (see sso-configure-deployment.yaml, #6778).
+          image: harbor.openova.io/proxy-dockerhub/library/alpine:3.20
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh"]
+          args: ["/etc/openbao-peer-trust/reconcile.sh"]
+          env:
+            - name: BAO_ADDR
+              value: {{ $baoAddr | quote }}
+            - name: BAO_K8S_AUTH_PATH
+              value: {{ $authMount | quote }}
+            - name: AUDIENCE
+              value: {{ $aud | quote }}
+            - name: PEERS
+              value: {{ join " " $pt.peers | quote }}
+            - name: INTERVAL_SECONDS
+              value: {{ $cfg.intervalSeconds | default 60 | quote }}
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "16Mi"
+            limits:
+              cpu: "100m"
+              memory: "64Mi"
+          # No serving port: both probes read the heartbeat the loop touches
+          # every tick (same shape as openbao-sso-configure, #4347).
+          readinessProbe:
+            exec:
+              command: ["/bin/sh", "-c", "test -f /tmp/peer-trust-heartbeat"]
+            initialDelaySeconds: 2
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command: ["/bin/sh", "-c", '[ -n "$(find /tmp/peer-trust-heartbeat -mmin -5 2>/dev/null)" ]']
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/openbao-peer-trust
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: openbao-peer-trust
+            defaultMode: 0555
+        - name: tmp
+          emptyDir:
+            sizeLimit: 8Mi
+{{- end }}

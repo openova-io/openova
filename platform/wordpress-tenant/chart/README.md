@@ -189,7 +189,7 @@ build). Each release renders **only its own half**:
   its `uploads/` into the bucket (HeadObject-skip, idempotent, PVC mounted
   read-only). Delete the PVC by hand once the copy is verified.
 
-### Shared secrets (0.5.1)
+### Shared secrets (0.5.1, fan-out 0.5.2)
 
 Who creates the two shared Secrets:
 
@@ -205,13 +205,15 @@ Who creates the two shared Secrets:
   material is written once. A re-render, a refresh, a renewed seed CA or a
   primary move never overwrites or deletes it. The new primary's seed finds
   every property present and does nothing.
-- **Reaching every region.** Each region's ExternalSecret reads its own
-  `storeRef`. If all regions read one replicated OpenBao, the default
-  `seed.secretStoreRefs: []` (push to `storeRef`) is enough. If each region
-  runs its own OpenBao, list every region's store in `seed.secretStoreRefs`.
-  hw307 runs one OpenBao per region today (two `cluster_id`s, see #7067), so it
-  needs a peer store per region before region B's ExternalSecrets can resolve.
-  Until then they report `SecretSyncedError` in B.
+- **Reaching every region (0.5.2).** Each region runs its own OpenBao and
+  each region's ExternalSecret reads its own `storeRef`. So the seed pushes
+  into `storeRef` AND into `vault-<peer>` for every peer in
+  `openova.topology.peers`. bp-external-secrets-stores renders one
+  `vault-<peer-region-id>` ClusterSecretStore per peer region; it writes into
+  that peer's OpenBao over ClusterMesh (bp-openbao §peerTrust: jwt auth
+  against the pushing region's OpenBao issuer, write-only on
+  `secret/openova/apps/*`). No operator values are needed. A non-empty
+  `seed.secretStoreRefs` replaces the default list.
 
 ### Moving the primary (Git-level, lossless)
 
