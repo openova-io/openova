@@ -145,7 +145,7 @@ RENDER_VALUES: dict[str, list[str]] = {
         "sovereignFqdn=t99.omani.works",
         "oidcGate.enabled=true",
     ],
-    "products/continuum/chart": ["continuum.enabled=true", "networkPolicy.enabled=true"],
+    "products/continuum/chart": ["continuum.enabled=true", "continuum.region=hw-me-east-215-a-rtz-prod", "networkPolicy.enabled=true"],
     "products/dmz-vcluster/chart": ["dmz.enabled=true", "dmz.networkPolicy.enabled=true"],
     "products/openova-mcp/chart": [
         "networkPolicy.enabled=true",
