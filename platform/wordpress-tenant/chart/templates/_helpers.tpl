@@ -199,6 +199,17 @@ Shared Secrets of a multi-region topology — the SAME bytes in every region:
 {{- dig "topology" "sharedSecrets" "replicationCA" "" (.Values.database | toJson | fromJson) | default (printf "%s-replication-ca" .Values.database.cnpgClusterName) -}}
 {{- end -}}
 
+{{/*
+Secret-store path prefix of the shared material (0.5.1, Refs #7067). Keyed on
+the PAIR identity `<namespace>/<cnpgClusterName>` — identical in every region.
+NOT the release name: each region's HelmRelease is `<app>-<cluster>`, so a
+release-keyed path differs per region and no peer ever finds it (the 0.5.0
+default had exactly that defect).
+*/}}
+{{- define "bp-wordpress-tenant.sharedSecretsPrefix" -}}
+{{- dig "topology" "sharedSecrets" "externalSecret" "remoteKeyPrefix" "" (.Values.database | toJson | fromJson) | default (printf "openova/apps/%s/%s" (include "bp-wordpress-tenant.cnpgNamespace" .) .Values.database.cnpgClusterName) -}}
+{{- end -}}
+
 {{- define "bp-wordpress-tenant.appCredentialsSecret" -}}
 {{- dig "topology" "sharedSecrets" "appCredentials" "" (.Values.database | toJson | fromJson) | default (printf "%s-app-credentials" .Values.database.cnpgClusterName) -}}
 {{- end -}}

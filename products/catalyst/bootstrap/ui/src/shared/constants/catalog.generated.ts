@@ -3802,7 +3802,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.70",
+    "version": "1.2.71",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [],
     "shareable": false,
@@ -5949,7 +5949,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.5.0",
+    "version": "0.5.1",
     "section": "pts-7-org-tenant",
     "depends": [
       "bp-postgres",

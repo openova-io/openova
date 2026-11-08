@@ -1966,6 +1966,12 @@ func Render(in Inputs) (map[string][]byte, error) {
 	// + provisioning RBAC deterministically.
 	view.HostAppsResources = sortedResources([]string{ciliumNetworkPolicyDoc, provisioningRBACDoc})
 	files["vcluster/host-apps/kustomization.yaml"] = hostAppsKustomizationTemplate
+	// ADR-0015 D1 (Refs #7067) — the controller-owned baseline copies the
+	// non-home regions reconcile instead of the funnel-shared trees, and the
+	// region-local kubeconfig producer (region_local.go).
+	addRegionBaselineTrees(files)
+	files["vcluster/"+kubeconfigMirrorDoc] = kubeconfigMirrorTemplate
+	res = append(res, kubeconfigMirrorDoc)
 
 	// Stable order for the kustomization resource list (map iteration above
 	// is randomized — keep the rendered kustomization byte-stable).

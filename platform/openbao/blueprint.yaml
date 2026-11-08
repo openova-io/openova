@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.2.70  # lockstep with chart/Chart.yaml (#6778: the sso-configure image pinned the Docker Hub SHORT path `proxy-dockerhub/alpine`, whose config blob 404s because Harbor stores it under the wire path `library/alpine` — index+child 200 then a dead pull; caught by prov pre-flight check 7)
+  version: 1.2.71  # lockstep with chart/Chart.yaml (1.2.71, Refs #7067: ESO push grant on secret/openova/apps/* for multi-region shared material)
   card:
     title: openbao
     summary: OpenBao secret backend. 3-node Raft per region (independent quorum, async perf-replication across regions). MPL 2.0 — drop-in Vault replacement.

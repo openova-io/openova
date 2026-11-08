@@ -84,7 +84,7 @@ spec:
   # platform/topology-lib; one HelmRelease per region renders only its own CNPG
   # member (native distributed topology). database.mode / pg.activeHotStandby
   # removed (fail closed); singleton installs render unchanged.
-  version: "0.5.0"
+  version: "0.5.1"
   visibility: listed
   card:
     title: "WordPress (per-Organization)"
@@ -113,7 +113,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-wordpress-tenant
-    version: "0.5.0"
+    version: "0.5.1"
   # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): lockstep with
   # platform/wordpress-tenant/blueprint.yaml. Uses {{.AppName}} so
   # multi-instance tenants get distinct hostnames per Application.
@@ -3388,7 +3388,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.2.70"
+  version: "1.2.71"
   visibility: unlisted
   card:
     title: "OpenBao"
@@ -3413,7 +3413,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-openbao
-    version: "1.2.70"
+    version: "1.2.71"
   topology:
     supported:
     - active-passive
