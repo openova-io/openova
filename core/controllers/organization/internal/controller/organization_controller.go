@@ -100,7 +100,7 @@ type Reconciler struct {
 	client.Client
 	Log logr.Logger
 
-	// PodReader is the UNCACHED reader the #7067 rollout gate lists the
+	// PodReader is the UNCACHED reader the #7067 classless platform credit lists the
 	// Organization namespace's pods with (platform_scope_gate.go) —
 	// mgr.GetAPIReader() in production, so no cluster-wide pod informer is
 	// started (the controller may read pods only per Org namespace). Nil =
@@ -714,14 +714,22 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if _, effMode, _ := gitops.EffectivePlan(org.Spec.PlanSlug, overageMode); effMode != gitops.OverageModeGrow {
 		stoppedUntil, stopLifts = "", 0
 	}
-	// #7067 rollout gate — plan-quota stays unscoped while any platform pod
-	// in the namespace still lacks the platform PriorityClass.
-	scopePending, scopeWhy := r.platformScopePending(ctx, org.Spec.Slug)
-	if scopePending {
-		r.Log.Info("plan-quota held unscoped (platform admission scope pending)", "org", org.Spec.Slug, "reason", scopeWhy)
+	// #7067 — the classless platform credit: plan-quota is always scoped
+	// NotIn the platform class; the platform pods admitted before the class
+	// existed are credited back onto its hard cap until they are replaced
+	// (platform_scope_gate.go). Unlistable pods never shrink the cap.
+	credit, creditKnown, creditWhy := r.classlessPlatformCredit(ctx, org.Spec.Slug)
+	var liveHard map[string]string
+	if !creditKnown {
+		liveHard = r.livePlanQuotaHard(ctx, org.Spec.Slug)
+		r.Log.Info("classless platform credit unknown; plan-quota hard held at its safe bound", "org", org.Spec.Slug, "reason", creditWhy)
+	} else if credit.Pods > 0 {
+		r.Log.Info("classless platform credit on plan-quota", "org", org.Spec.Slug, "credit", credit.String())
 	}
 	manifests, err := gitops.Render(gitops.Inputs{
-		PlatformScopePending:      scopePending,
+		ClasslessPlatformCredit:   credit,
+		CreditUnknown:             !creditKnown,
+		LivePlanQuotaHard:         liveHard,
 		ControllerServiceAccount:  r.ControllerServiceAccount,
 		ControllerNamespace:       r.ControllerNamespace,
 		Slug:                      org.Spec.Slug,

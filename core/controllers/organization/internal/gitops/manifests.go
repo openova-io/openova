@@ -123,22 +123,29 @@ type Inputs struct {
 	// no stop. Ignored in capped mode (nothing to stop).
 	OverageStoppedUntil string
 
-	// PlatformScopePending holds plan-quota UNSCOPED (#7067 rollout gate,
-	// platform_scope.go): the controller sets it while any platform pod in
-	// the namespace still lacks PriorityClass catalyst-org-platform — every
-	// pod admitted before the Policy existed — or while it cannot tell. Such
-	// a pod is "not in" the class, so a scoped plan-quota would charge it to
-	// the customer's plan (acmewalk307 on hw307: ~5.2 CPU against 354m) and
-	// refuse every new customer pod. While pending, plan-quota keeps the
-	// pre-#7067 single-quota shape (plan + control plane + platform stack, plus
-	// the transient headroom) and admits everything the namespace runs today;
-	// the class, the Policy and platform-quota render regardless, so every pod
-	// created from now on is stamped. Zero value = scoped.
-	PlatformScopePending bool
+	// ClasslessPlatformCredit is the summed effective requests/limits of
+	// the platform pods in the namespace that do NOT carry PriorityClass
+	// catalyst-org-platform — every pod admitted before the Policy existed
+	// (platform_scope.go, "classless platform credit"). plan-quota is ALWAYS
+	// scoped NotIn [catalyst-org-platform], so it charges exactly these pods
+	// as if they were the customer's; adding their usage to its hard cancels
+	// that charge. Recomputed by the controller every reconcile: as each pod
+	// is replaced, Kyverno stamps the new one, platform-quota charges it, and
+	// the credit shrinks to zero. Zero value = no credit.
+	ClasslessPlatformCredit PlatformCredit
+
+	// CreditUnknown — the controller could not list the namespace's pods
+	// (on a fresh rollout the read RBAC lands in the same Flux apply as this
+	// render, so the FIRST render after the upgrade is always unknown). The
+	// hard cap then never shrinks: per resource it is the larger of the live
+	// plan-quota hard (LivePlanQuotaHard) and the static safe bound — plan +
+	// coredns + vcluster-0 + the whole modelled platform stack as credit.
+	CreditUnknown     bool
+	LivePlanQuotaHard map[string]string
 
 	// ControllerServiceAccount / ControllerNamespace name the org-controller's
-	// own ServiceAccount, bound to read the Org namespace's pods for the gate
-	// above (vcluster/platform-scope-rbac.yaml). Empty = the chart defaults
+	// own ServiceAccount, bound to read the Org namespace's pods for the
+	// credit above (vcluster/platform-scope-rbac.yaml). Empty = the chart defaults
 	// catalyst-organization-controller / catalyst-system.
 	ControllerServiceAccount string
 	ControllerNamespace      string
@@ -1149,11 +1156,11 @@ const resourceQuotaTemplate = `# The customer's quota. Scoped to every pod that 
 #   plan {{ .PlanSlug }} headline (limits): {{ .PlanCapText }}
 #   plan {{ .PlanSlug }} guaranteed (requests): {{ .PlanGuaranteedText }}
 #   vcluster coredns (synced): {{ .CoreDNSText }}
-{{- if .PlatformScopePending }}
-#   TRANSITIONAL: a platform pod in this namespace still lacks the class, so
-#   this quota is held UNSCOPED at plan + control plane + platform stack +
-#   transient headroom until every platform pod carries it (rollout gate)
-{{- end }}
+#   classless platform credit: {{ .CreditText }}
+#     (platform pods admitted before the platform scope existed carry no
+#     class and are charged here; their usage is added back so they never eat
+#     the plan. It shrinks to zero as they are replaced - every new platform
+#     pod is stamped and charged to {{ .PlatformQuotaName }})
 #   overage mode: {{ .EffectiveOverageMode }}
 {{- if .GrowCeilingText }}
 #   grow ceiling (limits, in place of the headline): {{ .GrowCeilingText }}
@@ -1175,13 +1182,10 @@ metadata:
     openova.io/organization: {{ .Slug }}
     openova.io/plan: {{ .PlanSlug }}
     openova.io/managed-by: catalyst
-    openova.io/quota-scope: {{ if .PlatformScopePending }}transitional{{ else }}customer{{ end }}
+    openova.io/quota-scope: customer
   annotations:
-{{- if .PlatformScopePending }}
-    openova.io/quota-formula: "TRANSITIONAL (unscoped, every pod): purchased plan + vcluster control plane + per-Organization platform stack + transient headroom — held until every platform pod carries PriorityClass {{ .PlatformPriorityClass }}"
-{{- else }}
-    openova.io/quota-formula: "purchased plan + the vCluster's synced coredns (every pod not in PriorityClass {{ .PlatformPriorityClass }})"
-{{- end }}
+    openova.io/quota-formula: "purchased plan + the vCluster's synced coredns + the classless platform credit (every pod not in PriorityClass {{ .PlatformPriorityClass }})"
+    openova.io/classless-platform-credit: {{ .CreditText | quote }}
     openova.io/plan-cap: {{ .PlanCapText | quote }}
     openova.io/plan-guaranteed-cpu: {{ .Quota.CPURequest | quote }}
     openova.io/plan-guaranteed-memory: {{ .Quota.MemRequest | quote }}
@@ -1197,14 +1201,12 @@ metadata:
 {{- end }}
     kustomize.toolkit.fluxcd.io/force: enabled
 spec:
-{{- if not .PlatformScopePending }}
   scopeSelector:
     matchExpressions:
       - scopeName: PriorityClass
         operator: NotIn
         values:
           - {{ .PlatformPriorityClass }}
-{{- end }}
   hard:
     requests.cpu: "{{ .Hard.RequestsCPU }}"
     requests.memory: "{{ .Hard.RequestsMemory }}"
@@ -1787,6 +1789,8 @@ type renderView struct {
 	PlatformScopePolicy   string
 	Scope                 platformScopeSelectors
 	PlatformScopeReadRole string
+	// CreditText states the classless platform credit on plan-quota.
+	CreditText string
 }
 
 // limitRangeDefaults derives the per-container defaults the LimitRange seeds
@@ -1951,10 +1955,7 @@ func Render(in Inputs) (map[string][]byte, error) {
 		// #7067 — two scopes: the customer's plan-quota carries the plan
 		// term + the synced coredns; platform-quota carries vcluster-0 + the
 		// stack + the transient headroom (platform_scope.go).
-		view.Hard = planQuotaHard(limitsQuota)
-		if in.PlatformScopePending {
-			view.Hard = transitionalPlanQuotaHard(limitsQuota)
-		}
+		view.Hard, view.CreditText = planQuotaHardWithCredit(limitsQuota, in)
 		view.PlatformHard = platformQuotaHard(quota)
 		view.TransientText = overheadText(transientHeadroomFor(quota))
 		view.EffectiveOverageMode = OverageModeCapped
