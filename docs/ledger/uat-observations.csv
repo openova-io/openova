@@ -1,4 +1,4 @@
-cycle_ts,env,row_id,status
+cycle_ts,env,row_id,status,evidence_class
 2026-08-09T22:30:27Z,hw292,1,PASS
 2026-08-09T22:30:27Z,hw292,10,PASS
 2026-08-09T22:30:27Z,hw292,100,NOTRUN

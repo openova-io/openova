@@ -17,6 +17,10 @@ on:
       - 'scripts/uat-confidence.py'
       - 'scripts/check-walk-respects-scheduler.sh'
       - '.github/workflows/check-walk-respects-scheduler.yaml'
+      - 'scripts/check-function-rows-cite-acceptance.py'
+      - 'scripts/acceptance_record.py'
+      - 'docs/ledger/uat-function-rows.csv'
+      - 'docs/ledger/acceptance/**'
   workflow_dispatch:
 
 jobs:
@@ -50,3 +54,21 @@ jobs:
         run: |
           bash scripts/check-walk-respects-scheduler.sh \
             "origin/${{ github.base_ref }}"
+
+  function-rows:
+    # ADR-0015 D9: a UAT row about FUNCTION (docs/ledger/uat-function-rows.csv)
+    # turns ✅ only by citing `acceptance:<run_id>` of a passing live acceptance
+    # run on the env named in the ledger header. No bypass token — that is the
+    # point: on hw307 presence was recorded as function and nothing could tell.
+    name: check — a function-row ✅ cites a passing acceptance run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the base ref's UAT.md must be readable
+
+      - name: Prove the gate can fail (and can pass)
+        run: python3 scripts/check-function-rows-cite-acceptance.py --self-test
+
+      - name: Every function-row ✅ walked in this PR cites a passing run
+        run: python3 scripts/check-function-rows-cite-acceptance.py "origin/${{ github.base_ref || 'main' }}"
