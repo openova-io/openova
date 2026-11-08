@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-08T08:30:06Z` |
+| Last refreshed | `2026-11-08T11:30:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-08T11:05 | [#7078](https://github.com/openova-io/openova/pull/7078) | #7067 | fix(org-quota): split per-Org admission into platform and cu |
 | 2026-11-08T08:17 | [#7075](https://github.com/openova-io/openova/pull/7075) | #7067 | integ: ADR-0015 D1–D7 + D9 (supersedes #7069 #7070 #7071 #70 |
 | 2026-11-08T07:06 | [#7068](https://github.com/openova-io/openova/pull/7068) | #7067 | docs(adr): ADR-0015 region-symmetric GitOps + one topology c |
 | 2026-11-07T17:08 | [#7066](https://github.com/openova-io/openova/pull/7066) | #7065 | deploy(continuum): bp-continuum 0.1.20 ships #7065 (ddd6e05) |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-06T16:06 | [#7042](https://github.com/openova-io/openova/pull/7042) | #3601 | fix(sovereign-ui): the Applications view lists every install |
 | 2026-11-06T13:03 | [#7041](https://github.com/openova-io/openova/pull/7041) | #7040 | fix(cutover,mimir,flux): remaining hw307 cutover defects — s |
 | 2026-11-06T12:22 | [#7040](https://github.com/openova-io/openova/pull/7040) | #6093 | fix(cutover): harbor.<fqdn> is a local alias; org-tenant ima |
-| 2026-11-06T10:48 | [#7039](https://github.com/openova-io/openova/pull/7039) | #6093 | fix(bp-mimir): bucket Job uses bitnamilegacy/minio-client —  |
 
 ---
 

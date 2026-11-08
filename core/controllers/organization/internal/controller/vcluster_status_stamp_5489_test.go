@@ -75,7 +75,7 @@ func TestReconcile_PlanS_WaitsOnItsVcluster(t *testing.T) {
 
 			// No HR yet: must NOT be Ready, must stamp a Pending vcluster block.
 			r, _, _ := makeReconciler(t, org, ns,
-				boundaryLimitRange("acme"), boundaryResourceQuota("acme"))
+				boundaryLimitRange("acme"), boundaryResourceQuota("acme"), platformResourceQuota("acme"))
 			res, err := r.Reconcile(context.Background(), ctrl.Request{
 				NamespacedName: types.NamespacedName{Name: "acme"},
 			})
@@ -100,7 +100,7 @@ func TestReconcile_PlanS_WaitsOnItsVcluster(t *testing.T) {
 
 			// Control: with a Ready HR the same Organization goes Ready.
 			r2, _, _ := makeReconciler(t, sampleOrgWithPlan(plan), ns.DeepCopy(),
-				boundaryLimitRange("acme"), boundaryResourceQuota("acme"), readyVClusterHR("acme"))
+				boundaryLimitRange("acme"), boundaryResourceQuota("acme"), platformResourceQuota("acme"), readyVClusterHR("acme"))
 			if _, err := r2.Reconcile(context.Background(), ctrl.Request{
 				NamespacedName: types.NamespacedName{Name: "acme"},
 			}); err != nil {

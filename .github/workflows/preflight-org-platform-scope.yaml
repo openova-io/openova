@@ -1,0 +1,80 @@
+# Preflight — per-Organization admission scopes on a real apiserver (#7067).
+#
+# The org-controller renders a PriorityClass, a Kyverno Policy that stamps it
+# on every platform pod, and two scoped ResourceQuotas (platform-quota /
+# plan-quota). Whether Pod CREATE survives that mutation is decided by the
+# apiserver's in-tree Priority admission plugin, which no Kyverno CLI run and
+# no unit test can see (a name-only patch is refused — proven on hw307-A). This
+# workflow applies the controller's own render to kind + Kyverno and walks the
+# rollout: tests/e2e/org-platform-scope/run.sh.
+name: Preflight — per-Org platform admission scope (real apiserver)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'core/controllers/organization/internal/gitops/**'
+      - 'tests/e2e/org-platform-scope/**'
+      - '.github/workflows/preflight-org-platform-scope.yaml'
+  pull_request:
+    paths:
+      - 'core/controllers/organization/internal/gitops/**'
+      - 'tests/e2e/org-platform-scope/**'
+      - '.github/workflows/preflight-org-platform-scope.yaml'
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: Platform pods admitted + charged to the right quota on real apiserver
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: core/controllers/go.mod
+          cache-dependency-path: core/controllers/go.sum
+
+      # kind and helm come preinstalled on the ubuntu runner image; the
+      # helm/kind-action downloads kind from github.com releases, which made
+      # this gate fail on a release-CDN outage (504) that had nothing to do
+      # with the change under test.
+      - name: Create kind cluster
+        run: |
+          set -euo pipefail
+          if ! command -v kind >/dev/null; then
+            for i in 1 2 3 4 5; do
+              curl -fsSLo /tmp/kind https://kind.sigs.k8s.io/dl/v0.25.0/kind-linux-amd64 && break
+              sleep $((i * 20))
+            done
+            sudo install /tmp/kind /usr/local/bin/kind
+          fi
+          kind version
+          kind create cluster --name org-platform-scope --image kindest/node:v1.30.6 --wait 180s
+          kubectl get nodes
+
+      - name: Install Kyverno (the chart bp-kyverno wraps — platform/kyverno/chart/Chart.yaml)
+        run: |
+          set -euo pipefail
+          ver="$(awk '/^dependencies:/{d=1} d && /name: kyverno/{k=1} k && /version:/{gsub(/"/,"",$2); print $2; exit}' platform/kyverno/chart/Chart.yaml)"
+          echo "kyverno chart ${ver}"
+          args=(-n kyverno --create-namespace --version "${ver}"
+            --set admissionController.replicas=1 --set backgroundController.enabled=false
+            --set cleanupController.enabled=false --set reportsController.enabled=false
+            --wait --timeout 10m)
+          helm repo add kyverno https://kyverno.github.io/kyverno/ || true
+          for i in 1 2 3 4 5; do
+            if helm upgrade --install kyverno kyverno/kyverno "${args[@]}"; then exit 0; fi
+            if helm upgrade --install kyverno oci://ghcr.io/kyverno/charts/kyverno "${args[@]}"; then exit 0; fi
+            echo "kyverno chart fetch failed (attempt $i), retrying"; sleep $((i * 30))
+          done
+          exit 1
+
+      - name: Admission walk
+        run: bash tests/e2e/org-platform-scope/run.sh
