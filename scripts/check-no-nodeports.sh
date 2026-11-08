@@ -311,6 +311,13 @@ else
   CHART_DIRS=(platform/*/chart products/*/charts/*)
   for chart in "${CHART_DIRS[@]}"; do
     [ -f "${chart}/Chart.yaml" ] || continue
+    # ADR-0015 D2: a `type: library` chart (platform/topology-lib) is not
+    # installable; its templates are rendered — and NodePort-scanned — inside
+    # every consumer that vendors it. Phase 1 still scans its sources.
+    if grep -qE '^type:[[:space:]]*"?library"?[[:space:]]*$' "${chart}/Chart.yaml"; then
+      echo "SKIP: ${chart} is a library chart (rendered via its consumers)."
+      continue
+    fi
     rendered="$(timeout "${HELM_TIMEOUT}" helm template "$(basename "${chart}")" "${chart}" 2>/dev/null || true)"
 
     # Missing-dependency recovery. Narrow on purpose: a chart that fails for

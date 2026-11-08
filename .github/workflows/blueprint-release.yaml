@@ -203,6 +203,17 @@ jobs:
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # ADR-0015 D2 (#7067): a `type: library` chart (platform/topology-lib)
+          # renders nothing on its own, so it has no installable artifact to
+          # smoke-render, sign or pin. Consumers declare it as a
+          # `file://../../<lib>/chart` dependency and `helm dependency build`
+          # VENDORS it into each consumer's own published package — every
+          # consumer carries the exact library code it was tested with.
+          if [ "$(awk '/^type:/{print $2; exit}' "$chart_yaml" | tr -d '"')" = "library" ]; then
+            echo "Library chart at $path/chart/ — vendored into consumers, nothing to publish standalone"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           # Authoritative chart name comes from Chart.yaml `name:` field
           # (e.g. `bp-cilium`, `bp-catalyst-platform`). Folder basename and
           # chart name are not always identical — the umbrella at

@@ -41,20 +41,16 @@ shape in bp-postgres): the only consumer of this Cluster is the WordPress
 Deployment + hook Jobs in the SAME namespace, which `allow-same-org`
 already admits.
 
-SINGLETON ONLY — deliberate, mirroring #4282
-────────────────────────────────────────────
-Renders only when `database.mode` resolves to `singleton` (the chart
-DEFAULT, and the mode the defect was measured in). In
-`active-hot-standby` the replica streams WAL from the primary across
-Cilium ClusterMesh from ANOTHER cluster; a `policyTypes: [Ingress]`
-policy selecting the Cluster Pods would default-deny that stream, and a
-remote-cluster peer CANNOT be expressed in a k8s NetworkPolicy — an
-`ipBlock` never matches a ClusterMesh remote endpoint's identity
-(bp-postgres needs a dedicated identity-based CiliumNetworkPolicy,
-`topology.networkPolicy.crossRegionPeerClusters`, for exactly this).
-Rendering nothing in AHS mode leaves that path byte-identical to today
-rather than trading a status-probe fix for a broken replication stream.
-The AHS carve-out is tracked separately in #6311.
+EVERY MODE (0.5.0, ADR-0015 D2)
+───────────────────────────────
+Each release renders exactly ONE Cluster (this region's member), so this
+policy selects that one Cluster by its per-region name in every mode. The
+0.4.x chart skipped it in active-hot-standby because a `policyTypes:
+[Ingress]` policy selecting the Pods would have default-denied the
+cross-region WAL stream; that stream is now admitted (ingress AND egress,
+5432, peer members only) by the identity-based CiliumNetworkPolicy in
+topology-mesh.yaml, and policies union, so the probe carve-out no longer
+trades one break for another.
 
 Gated additionally on the `postgresql.cnpg.io/v1` capability + the same
 `wordpress.enabled` / `database.cluster.enabled` pair as cnpg-cluster.yaml,
@@ -63,19 +59,19 @@ not itself rendered.
 */ -}}
 {{- if and .Values.wordpress.enabled .Values.database.cluster.enabled .Values.networkPolicy.enabled .Values.networkPolicy.cnpgOperator.enabled }}
 {{- if .Capabilities.APIVersions.Has "postgresql.cnpg.io/v1" }}
-{{- if ne (include "bp-wordpress-tenant.dbMode" .) "active-hot-standby" }}
+{{- $self := include "bp-wordpress-tenant.cnpgSelfName" . }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ printf "%s-allow-cnpg-operator-probe" .Values.database.cnpgClusterName }}
+  name: {{ printf "%s-allow-cnpg-operator-probe" $self }}
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "bp-wordpress-tenant.labels" . | nindent 4 }}
 spec:
   podSelector:
     matchLabels:
-      cnpg.io/cluster: {{ .Values.database.cnpgClusterName | quote }}
+      cnpg.io/cluster: {{ $self | quote }}
   policyTypes: [Ingress, Egress]
   ingress:
     # CNPG operator status + metrics probe. Without this the operator
@@ -128,6 +124,5 @@ spec:
           protocol: UDP
         - port: 53
           protocol: TCP
-{{- end }}
 {{- end }}
 {{- end }}

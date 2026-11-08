@@ -98,7 +98,6 @@ platform/cnpg-pair/chart/templates/replica-cluster.yaml|platform/cnpg-pair/chart
 platform/cnpg-pair/chart/templates/dr-failback.yaml|platform/cnpg-pair/chart|cnpg-pair.validateRegions (transitive — failbackActive requires enabled+isPrimarySide, so primary-cluster.yaml co-renders)
 platform/cnpg-pair/chart/templates/dr-promoter.yaml|platform/cnpg-pair/chart|cnpg-pair.validateRegions (transitive — autoPromoteActive requires enabled+isReplicaSide, so replica-cluster.yaml co-renders)
 platform/cnpg-pair/chart/templates/failover-readiness.yaml|platform/cnpg-pair/chart|cnpg-pair.validateRegions (transitive — same enabled+isReplicaSide gate as replica-cluster.yaml)
-platform/wordpress-tenant/chart/templates/cnpg-cluster.yaml|platform/wordpress-tenant/chart|bp-wordpress-tenant.validateActiveHotStandbyRegions
 products/catalyst/chart/templates/qa-fixtures/cnpg-clusters-qa.yaml|products/catalyst/chart|inline required on qaFixtures.cnpgPrimaryRegion
 "
 
@@ -247,33 +246,16 @@ run_case "bp-cnpg-pair/replica" platform/cnpg-pair/chart "$B" \
   --NEG-- \
   --set cnpgPair.enabled=true --set cnpgPair.side=replica --set cnpgPair.image.tag=16.3-23
 
-# bp-wordpress-tenant — has a `common` subchart dependency. Build it; a build
-# failure is a HARD failure, never a skip: a gate that can silently opt out of
-# a chart is the fail-open shape that hid four defects for two months.
-if [ ! -f platform/wordpress-tenant/chart/charts/common-0.1.3.tgz ]; then
-  if ! (cd platform/wordpress-tenant/chart && helm dependency build) >"$TMP/wpdep.log" 2>&1; then
-    fail "bp-wordpress-tenant: helm dependency build failed — cannot render the chart"
-    tail -3 "$TMP/wpdep.log" | sed 's/^/        /'
-  fi
-fi
-if [ -d platform/wordpress-tenant/chart/charts ]; then
-  # #5623 — chart 0.4.23 additionally REQUIRES a declared promotion mechanism
-  # whenever the active-hot-standby pair renders (an undeclared DR pair is one
-  # that silently never promotes on a region kill). Supply it on BOTH legs so
-  # this gate keeps testing the REGION selector: without it the positive leg
-  # fails for the promotion reason and the negative leg passes for the promotion
-  # reason, which would make the region assertion vacuous in both directions.
-  run_case "bp-wordpress-tenant" platform/wordpress-tenant/chart "$A" \
-    --api-versions postgresql.cnpg.io/v1 \
-    --set pg.activeHotStandby.enabled=true \
-    --set pg.activeHotStandby.promotion.mechanism=manual \
-    --set pg.activeHotStandby.primaryRegion="$A" \
-    --set pg.activeHotStandby.replicaRegion="$B" \
-    --NEG-- \
-    --api-versions postgresql.cnpg.io/v1 \
-    --set pg.activeHotStandby.enabled=true \
-    --set pg.activeHotStandby.promotion.mechanism=manual
-fi
+# bp-wordpress-tenant — DEREGISTERED in chart 0.5.0 (ADR-0015 D2, #7067): the
+# chart no longer emits ANY openova.io/region node selector. Each region's
+# release renders only its own CNPG member into its own cluster, so there is
+# nothing to pin. Its fail-closed rule moved to the contract: a multi-region
+# `openova.topology` without `self` fails the render (topology-lib
+# `openova.topology.get`, proven by
+# platform/wordpress-tenant/chart/tests/topology-per-region-render.sh), and
+# scripts/check-chart-renders-self-only.sh proves no resource names a peer
+# region. If the chart ever re-grows a region selector, Phase 1 above fails
+# with UNREGISTERED and forces it back into this registry.
 
 # bp-catalyst-platform qa-fixtures — the sibling this sweep found still pinning
 # a Hetzner literal on every Huawei Sovereign (#5639 class, wrong-value variant).

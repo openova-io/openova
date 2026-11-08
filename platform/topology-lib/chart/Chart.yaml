@@ -1,0 +1,40 @@
+apiVersion: v2
+name: topology-lib
+# 0.1.0 (ADR-0015 D2, Refs #7067): the ONE topology values contract
+#
+#   openova:
+#     topology:
+#       mode:    singleton | active-hot-standby | active-passive | active-active
+#       self:    <region-id this release renders, e.g. hw-me-east-215-a-rtz-prod>
+#       primary: <region-id of the Primary>
+#       peers:   [<the other region-ids>]
+#
+# and the helpers every multi-region chart uses to render ONLY its `self` half:
+# validation, primary predicate, per-region resource naming, and the CNPG
+# native distributed-topology blocks (spec.replica.{self,primary,source},
+# externalClusters over ClusterMesh `-mesh` global Services, synchronous
+# standby names for declared peers only). See README.md.
+#
+# A LIBRARY chart: it renders nothing on its own and is consumed as a
+# `file://../../topology-lib/chart` dependency, so `helm dependency build`
+# VENDORS it into every consumer's packaged OCI artifact. A consumer is
+# therefore never blocked on a separate registry publish of this library (the
+# #6004 / #6262 pin-gate class) and every published Blueprint carries the exact
+# helper code it was tested with. blueprint-release.yaml skips `type: library`
+# charts for that reason (there is nothing installable to smoke-render).
+version: 0.1.0
+type: library
+description: |
+  OpenOva topology contract helper library (ADR-0015 D2). One values contract
+  (`openova.topology.{mode,self,primary,peers}`), rendered once per region;
+  helpers render only the `self` half and the CNPG native distributed topology.
+keywords:
+  - catalyst
+  - topology
+  - multi-region
+  - cnpg
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+annotations:
+  catalyst.openova.io/no-upstream: "true"

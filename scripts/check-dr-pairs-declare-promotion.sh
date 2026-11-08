@@ -364,8 +364,8 @@ else
 fi
 
 # ── bp-wordpress-tenant — mechanism: manual ──────────────────────────────────
-# This chart renders a cross-region standby but ships no promoter and no
-# Continuum CR. `manual` is honest; SILENCE is not. The gate therefore requires
+# This chart renders a cross-region standby (the non-primary region's release)
+# but ships no promoter; promotion is a Git commit of openova.topology.primary. `manual` is honest; SILENCE is not. The gate therefore requires
 # the declaration to be (a) mandatory and (b) visible on the standby object.
 ensure_deps platform/wordpress-tenant/chart
 WP_BASE=(
@@ -373,9 +373,12 @@ WP_BASE=(
   --set keycloak.realmURL=https://kc.example/realms/x
   --set keycloak.clientSecretName=wp-oidc
   --set adminUser.email=admin@example.org
-  --set database.mode=active-hot-standby
-  --set pg.activeHotStandby.primaryRegion="$A"
-  --set pg.activeHotStandby.replicaRegion="$B"
+  # ADR-0015 D2 (0.5.0): the standby is the PEER region's own release —
+  # rendered with self=B, primary=A from the shared openova.topology contract.
+  --set openova.topology.mode=active-passive
+  --set openova.topology.self="$B"
+  --set openova.topology.primary="$A"
+  --set "openova.topology.peers={$A}"
 )
 
 # Negative FIRST — an undeclared pair must FAIL CLOSED. Before #5623 this
@@ -386,8 +389,8 @@ if helm template wp platform/wordpress-tenant/chart "${WP_BASE[@]}" \
         This is the #5623 defect on the customer-facing Blueprint: a paying
         Organization gets an \"HA\" database whose standby nothing promotes, and
         the render says nothing about it. The chart must fail closed."
-elif grep -q 'pg.activeHotStandby.promotion.mechanism' "$TMP/wp-undeclared.err"; then
-  pass "bp-wordpress-tenant: undeclared active-hot-standby FAILS CLOSED naming pg.activeHotStandby.promotion.mechanism"
+elif grep -q 'database.topology.promotion.mechanism' "$TMP/wp-undeclared.err"; then
+  pass "bp-wordpress-tenant: undeclared active-hot-standby FAILS CLOSED naming database.topology.promotion.mechanism"
 else
   fail "bp-wordpress-tenant: undeclared render failed, but not with the promotion-mechanism error —
         got: $(tail -2 "$TMP/wp-undeclared.err")"
@@ -396,7 +399,7 @@ fi
 # Positive — the declaration renders, and is stamped on the STANDBY object so an
 # operator can answer "who promotes this?" from the live cluster, not from git.
 if helm template wp platform/wordpress-tenant/chart "${WP_BASE[@]}" \
-  --set pg.activeHotStandby.promotion.mechanism=manual \
+  --set database.topology.promotion.mechanism=manual \
   --api-versions postgresql.cnpg.io/v1 > "$TMP/wp-manual.yaml" 2>"$TMP/wp-manual.err"; then
   stamped="$(python3 - "$TMP/wp-manual.yaml" <<'PYEOF'
 import sys, yaml
@@ -427,7 +430,7 @@ fi
 # failover that will not happen.
 for bogus in dr-promoter continuum; do
   if helm template wp platform/wordpress-tenant/chart "${WP_BASE[@]}" \
-    --set pg.activeHotStandby.promotion.mechanism="$bogus" \
+    --set database.topology.promotion.mechanism="$bogus" \
     --api-versions postgresql.cnpg.io/v1 > /dev/null 2>"$TMP/wp-$bogus.err"; then
     fail "bp-wordpress-tenant: accepted mechanism=$bogus, which it does not ship.
         Declaring an undelivered mechanism is worse than declaring none — it

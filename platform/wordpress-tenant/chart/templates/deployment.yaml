@@ -38,7 +38,16 @@ metadata:
   labels:
     {{- include "bp-wordpress-tenant.labels" . | nindent 4 }}
 spec:
-  replicas: {{ .Values.wordpress.replicas }}
+  # ADR-0015 D2 — traffic follows the primary. WordPress runs ONLY where this
+  # region's CNPG member is the primary; every other region keeps the
+  # Deployment at 0 (warm object, PVC bound, image pinned) and its global
+  # Service proxies to the primary over ClusterMesh (service.yaml).
+  # Why not run it against the local replica: WordPress writes on every
+  # request path that matters (sessions, options/transients, wp-cron, login)
+  # and errors on a read-only database. Why not point it at the primary's DB
+  # over the mesh: every page issues dozens of queries (RTT each) and uploads
+  # would land on a region-local wp-content PVC the primary never sees (D6).
+  replicas: {{ ternary .Values.wordpress.replicas 0 (eq (include "bp-wordpress-tenant.isPrimary" .) "true") }}
   selector:
     matchLabels:
       {{- include "bp-wordpress-tenant.selectorLabels" . | nindent 6 }}
