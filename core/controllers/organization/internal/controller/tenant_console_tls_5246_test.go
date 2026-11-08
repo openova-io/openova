@@ -232,6 +232,10 @@ func newMultiRegionFixture(t *testing.T, withMesh, withBridge bool, regionListen
 		if err := r.Create(context.Background(), rq); err != nil {
 			t.Fatalf("seed boundary ResourceQuota: %v", err)
 		}
+		pq := &corev1.ResourceQuota{ObjectMeta: metav1.ObjectMeta{Name: gitops.PlatformResourceQuotaName, Namespace: org.Spec.Slug}}
+		if err := r.Create(context.Background(), pq); err != nil {
+			t.Fatalf("seed platform-scope ResourceQuota: %v", err)
+		}
 	}
 
 	// The issued per-Org TLS Secret in the host region — what gets mirrored.

@@ -100,6 +100,19 @@ type Reconciler struct {
 	client.Client
 	Log logr.Logger
 
+	// PodReader is the UNCACHED reader the #7067 rollout gate lists the
+	// Organization namespace's pods with (platform_scope_gate.go) —
+	// mgr.GetAPIReader() in production, so no cluster-wide pod informer is
+	// started (the controller may read pods only per Org namespace). Nil =
+	// the cached Client (tests).
+	PodReader client.Reader
+
+	// ControllerServiceAccount / ControllerNamespace are this controller's own
+	// ServiceAccount, bound per Org namespace for that read (empty = the
+	// chart defaults, gitops.DefaultControllerServiceAccount / Namespace).
+	ControllerServiceAccount string
+	ControllerNamespace      string
+
 	// Now is the clock the BSS spend-limit stop is read against
 	// (spec.overageStoppedUntil, overageStop); nil = time.Now. Tests pin it.
 	Now func() time.Time
@@ -701,7 +714,16 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if _, effMode, _ := gitops.EffectivePlan(org.Spec.PlanSlug, overageMode); effMode != gitops.OverageModeGrow {
 		stoppedUntil, stopLifts = "", 0
 	}
+	// #7067 rollout gate — plan-quota stays unscoped while any platform pod
+	// in the namespace still lacks the platform PriorityClass.
+	scopePending, scopeWhy := r.platformScopePending(ctx, org.Spec.Slug)
+	if scopePending {
+		r.Log.Info("plan-quota held unscoped (platform admission scope pending)", "org", org.Spec.Slug, "reason", scopeWhy)
+	}
 	manifests, err := gitops.Render(gitops.Inputs{
+		PlatformScopePending:      scopePending,
+		ControllerServiceAccount:  r.ControllerServiceAccount,
+		ControllerNamespace:       r.ControllerNamespace,
 		Slug:                      org.Spec.Slug,
 		DisplayName:               org.Spec.DisplayName,
 		Tier:                      org.Spec.Tier,

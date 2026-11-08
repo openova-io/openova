@@ -50,7 +50,7 @@ func TestReconcile_SpendStopRendersCappedAndRequeuesAtTheInstant(t *testing.T) {
 			&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "acme"}},
 			readyVClusterHR("acme"),
 			boundaryLimitRange("acme"),
-			boundaryResourceQuota("acme"),
+			boundaryResourceQuota("acme"), platformResourceQuota("acme"),
 		)
 		r.Now = func() time.Time { return now }
 		res, _ := reconcileToStatus(t, r, "acme")
@@ -65,12 +65,12 @@ func TestReconcile_SpendStopRendersCappedAndRequeuesAtTheInstant(t *testing.T) {
 		return string(rq.content), string(sq.content), res.RequeueAfter
 	}
 
-	// In force: capped figures (plan M: limits 2 + 1500m + 4550m = 8050m,
-	// 4Gi + 1194Mi + 7168Mi = 12458Mi; disk 50Gi), the stop stamped on both
+	// In force: capped figures (plan M, customer scope since #7067: limits
+	// 2 + the synced coredns 1 = 3, 4Gi + 170Mi = 4266Mi; disk 50Gi), the stop stamped on both
 	// quotas, and the requeue lands one second after 2026-11-01T00:00Z —
 	// 11 days 12 hours from now.
 	rq, sq, after := run(stopOrg("2026-11-01T00:00:00Z"))
-	for _, want := range []string{`openova.io/overage-mode: "capped"`, `limits.cpu: "8050m"`, `limits.memory: "12458Mi"`,
+	for _, want := range []string{`openova.io/overage-mode: "capped"`, `limits.cpu: "3"`, `limits.memory: "4266Mi"`,
 		`openova.io/overage-stopped-until: "2026-11-01T00:00:00Z"`} {
 		if !strings.Contains(rq, want) {
 			t.Errorf("stopped plan-quota lacks %s:\n%s", want, rq)
@@ -89,10 +89,10 @@ func TestReconcile_SpendStopRendersCappedAndRequeuesAtTheInstant(t *testing.T) {
 	}
 
 	// Lifted (the instant has passed, BSS has not cleared the field yet):
-	// grow again — the XL ceiling 8 + overheads = 14050m, disk 250Gi — and
+	// grow again — the XL ceiling 8 + the synced coredns 1 = 9, disk 250Gi — and
 	// no stop-driven requeue.
 	rq, sq, after = run(stopOrg("2026-10-01T00:00:00Z"))
-	for _, want := range []string{`openova.io/overage-mode: "grow"`, `limits.cpu: "14050m"`} {
+	for _, want := range []string{`openova.io/overage-mode: "grow"`, `limits.cpu: "9"`} {
 		if !strings.Contains(rq, want) {
 			t.Errorf("lifted plan-quota lacks %s:\n%s", want, rq)
 		}

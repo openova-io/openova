@@ -92,13 +92,13 @@ func TestReconcile_SpecCommerceGrowSizesTheCommittedQuota(t *testing.T) {
 	capped := render(nil)
 	grow := render(&orgapi.OrganizationCommerce{PackageSKU: "plan.m", OverageMode: "grow",
 		GrowCeiling: &orgapi.OrganizationGrowCeiling{VCPU: 4, MemoryGB: 8}, SpendLimitMonth: "25.000"})
-	for _, want := range []string{`openova.io/overage-mode: "capped"`, `limits.cpu: "8050m"`, `limits.memory: "12458Mi"`, `requests.cpu: "4694m"`} {
+	for _, want := range []string{`openova.io/overage-mode: "capped"`, `limits.cpu: "3"`, `limits.memory: "4266Mi"`, `requests.cpu: "354m"`} {
 		if !strings.Contains(capped, want) {
 			t.Errorf("capped quota missing %s:\n%s", want, capped)
 		}
 	}
 	for _, want := range []string{`openova.io/overage-mode: "grow"`, `openova.io/grow-ceiling: "cpu=4 memory=8Gi"`,
-		`limits.cpu: "10050m"`, `limits.memory: "16554Mi"`, `requests.cpu: "4694m"`, `requests.memory: "8518Mi"`} {
+		`limits.cpu: "5"`, `limits.memory: "8362Mi"`, `requests.cpu: "354m"`, `requests.memory: "1430Mi"`} {
 		if !strings.Contains(grow, want) {
 			t.Errorf("grow quota missing %s:\n%s", want, grow)
 		}

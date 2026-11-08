@@ -200,16 +200,33 @@ func TestVClusterControlPlaneOverhead_PinnedToRenderedValues(t *testing.T) {
 		}
 	}
 
-	// The operator-facing annotation must carry the same figures, or the live
-	// object explains a split that is not the one enforced.
-	rq := string(renderPlan(t, "s")["vcluster/resourcequota.yaml"])
-	for res, v := range wantControlPlaneOverhead {
-		if !strings.Contains(rq, v) {
-			t.Errorf("resourcequota.yaml does not carry the %s overhead figure %q anywhere (annotation or comment):\n%s", res, v, rq)
+	// #7067 — the control plane is split by admission scope: vcluster-0 is a
+	// host pod in the platform scope (platform-quota), coredns is synced and
+	// stays in the customer scope (plan-quota). The two parts must sum to the
+	// whole, or one of the two quotas is short.
+	for res, pair := range map[string][3]resource.Quantity{
+		"requests.cpu":    {vclusterPodOverhead.RequestsCPU, corednsOverhead.RequestsCPU, vclusterControlPlaneOverhead.RequestsCPU},
+		"requests.memory": {vclusterPodOverhead.RequestsMemory, corednsOverhead.RequestsMemory, vclusterControlPlaneOverhead.RequestsMemory},
+		"limits.cpu":      {vclusterPodOverhead.LimitsCPU, corednsOverhead.LimitsCPU, vclusterControlPlaneOverhead.LimitsCPU},
+		"limits.memory":   {vclusterPodOverhead.LimitsMemory, corednsOverhead.LimitsMemory, vclusterControlPlaneOverhead.LimitsMemory},
+	} {
+		sum := pair[0].DeepCopy()
+		sum.Add(pair[1])
+		if sum.Cmp(pair[2]) != 0 || pair[0].IsZero() || pair[1].IsZero() {
+			t.Errorf("%s: vcluster-0 %s + coredns %s != control plane %s (or a part is zero)", res, pair[0].String(), pair[1].String(), pair[2].String())
 		}
 	}
-	if !strings.Contains(rq, "openova.io/vcluster-control-plane-overhead: "+fmt.Sprintf("%q", vclusterControlPlaneOverhead.String())) {
-		t.Errorf("resourcequota.yaml annotation openova.io/vcluster-control-plane-overhead does not equal vclusterControlPlaneOverhead.String() = %q:\n%s", vclusterControlPlaneOverhead.String(), rq)
+
+	// The operator-facing annotations must carry the same figures, or the
+	// live object explains a split that is not the one enforced.
+	out = renderPlan(t, "s")
+	pq := string(out["vcluster/"+platformQuotaDoc])
+	if !strings.Contains(pq, "openova.io/vcluster-control-plane-overhead: "+fmt.Sprintf("%q", podOverheadText(vclusterPodOverhead))) {
+		t.Errorf("platformquota.yaml annotation openova.io/vcluster-control-plane-overhead does not carry vcluster-0 = %q:\n%s", podOverheadText(vclusterPodOverhead), pq)
+	}
+	rq := string(out["vcluster/resourcequota.yaml"])
+	if !strings.Contains(rq, "openova.io/vcluster-coredns-overhead: "+fmt.Sprintf("%q", podOverheadText(corednsOverhead))) {
+		t.Errorf("resourcequota.yaml annotation openova.io/vcluster-coredns-overhead does not carry coredns = %q:\n%s", podOverheadText(corednsOverhead), rq)
 	}
 }
 
@@ -251,8 +268,14 @@ func TestControlPlaneOverheadOf_PodUsageRule(t *testing.T) {
 }
 
 // TestRender_ResourceQuotaIsPlanPlusBothOverheads is property 2, driven off
-// planQuotaTable itself so a new plan is covered the moment it is added: the
-// hard cap is plan + vCluster control plane + per-Organization platform stack.
+// planQuotaTable itself so a new plan is covered the moment it is added. Since
+// #7067 the overheads live in their own admission scope:
+//
+//	plan-quota     (NotIn catalyst-org-platform) = plan + synced coredns
+//	platform-quota (In    catalyst-org-platform) = vcluster-0 + platform stack + transient headroom
+//
+// and together they hold exactly what the single quota held before plus the
+// transient headroom — nothing the plan bought moved.
 func TestRender_ResourceQuotaIsPlanPlusBothOverheads(t *testing.T) {
 	t.Parallel()
 	if len(planQuotaTable) == 0 {
@@ -276,91 +299,110 @@ func TestRender_ResourceQuotaIsPlanPlusBothOverheads(t *testing.T) {
 	}
 	sort.Strings(slugs)
 
+	type rqDoc struct {
+		Metadata struct {
+			Labels      map[string]string `json:"labels"`
+			Annotations map[string]string `json:"annotations"`
+		} `json:"metadata"`
+		Spec struct {
+			ScopeSelector struct {
+				MatchExpressions []struct {
+					ScopeName string   `json:"scopeName"`
+					Operator  string   `json:"operator"`
+					Values    []string `json:"values"`
+				} `json:"matchExpressions"`
+			} `json:"scopeSelector"`
+			Hard map[string]string `json:"hard"`
+		} `json:"spec"`
+	}
+	parse := func(slug, file string, raw []byte) rqDoc {
+		var d rqDoc
+		if err := yaml.Unmarshal(raw, &d); err != nil {
+			t.Fatalf("plan %q: %s did not parse: %v\n%s", slug, file, err, raw)
+		}
+		return d
+	}
+	scopeIs := func(slug, file string, d rqDoc, op string) {
+		m := d.Spec.ScopeSelector.MatchExpressions
+		if len(m) != 1 || m[0].ScopeName != "PriorityClass" || m[0].Operator != op ||
+			len(m[0].Values) != 1 || m[0].Values[0] != OrgPlatformPriorityClassName {
+			t.Errorf("plan %q: %s scopeSelector = %+v, want PriorityClass %s [%s]", slug, file, m, op, OrgPlatformPriorityClassName)
+		}
+	}
+
 	hardCapped := 0
 	for _, slug := range slugs {
 		q := planQuota(slug)
 		out := renderPlan(t, slug)
 		raw, ok := out["vcluster/resourcequota.yaml"]
+		praw, pok := out["vcluster/"+platformQuotaDoc]
 		if q.Burstable {
-			if ok {
-				t.Errorf("plan %q is Burstable (Flexi, pay per use) and must render NO ResourceQuota — overhead does not change that", slug)
+			if ok || pok {
+				t.Errorf("plan %q is Burstable and must render NO ResourceQuota — overhead does not change that", slug)
 			}
 			continue
 		}
-		if !ok {
-			t.Fatalf("plan %q: missing resourcequota.yaml", slug)
+		if !ok || !pok {
+			t.Fatalf("plan %q: missing resourcequota.yaml (%v) or %s (%v)", slug, ok, platformQuotaDoc, pok)
 		}
 		hardCapped++
 		ps := platformStackOverheadFor(q)
-		for res, pq := range map[string]resource.Quantity{
-			"requests.cpu": ps.RequestsCPU, "requests.memory": ps.RequestsMemory,
-			"limits.cpu": ps.LimitsCPU, "limits.memory": ps.LimitsMemory,
-		} {
-			if pq.IsZero() {
-				t.Fatalf("vacuity: plan %q platform-stack overhead %s is zero — the stack would be eating the plan again", slug, res)
-			}
-		}
+		th := transientHeadroomFor(q)
+		rq, pq := parse(slug, "resourcequota.yaml", raw), parse(slug, platformQuotaDoc, praw)
+		scopeIs(slug, "resourcequota.yaml", rq, "NotIn")
+		scopeIs(slug, platformQuotaDoc, pq, "In")
 
-		var rq struct {
-			Metadata struct {
-				Labels      map[string]string `json:"labels"`
-				Annotations map[string]string `json:"annotations"`
-			} `json:"metadata"`
-			Spec struct {
-				Hard map[string]string `json:"hard"`
-			} `json:"spec"`
-		}
-		if err := yaml.Unmarshal(raw, &rq); err != nil {
-			t.Fatalf("plan %q: resourcequota.yaml did not parse: %v\n%s", slug, err, raw)
-		}
-
-		// The plan term is per side (#6971): the guaranteed share on
-		// requests, the headline on limits.
 		for res, tc := range map[string]struct {
-			plan         string
-			controlPlane resource.Quantity
-			stack        resource.Quantity
+			plan                        string
+			coredns, vc0, stack, transi resource.Quantity
 		}{
-			"requests.cpu":    {q.CPURequest, o.RequestsCPU, ps.RequestsCPU},
-			"requests.memory": {q.MemRequest, o.RequestsMemory, ps.RequestsMemory},
-			"limits.cpu":      {q.CPULimit, o.LimitsCPU, ps.LimitsCPU},
-			"limits.memory":   {q.MemLimit, o.LimitsMemory, ps.LimitsMemory},
+			"requests.cpu":    {q.CPURequest, corednsOverhead.RequestsCPU, vclusterPodOverhead.RequestsCPU, ps.RequestsCPU, th.RequestsCPU},
+			"requests.memory": {q.MemRequest, corednsOverhead.RequestsMemory, vclusterPodOverhead.RequestsMemory, ps.RequestsMemory, th.RequestsMemory},
+			"limits.cpu":      {q.CPULimit, corednsOverhead.LimitsCPU, vclusterPodOverhead.LimitsCPU, ps.LimitsCPU, th.LimitsCPU},
+			"limits.memory":   {q.MemLimit, corednsOverhead.LimitsMemory, vclusterPodOverhead.LimitsMemory, ps.LimitsMemory, th.LimitsMemory},
 		} {
-			hard, ok := rq.Spec.Hard[res]
-			if !ok {
-				t.Errorf("plan %q: spec.hard has no %s", slug, res)
-				continue
+			for _, x := range []resource.Quantity{tc.coredns, tc.vc0, tc.stack, tc.transi} {
+				if x.IsZero() {
+					t.Fatalf("vacuity: plan %q %s has a zero term — a scope would not be distinguishable from the bare plan", slug, res)
+				}
 			}
-			got := mustQ(t, slug+" hard "+res, hard)
 			plan := mustQ(t, slug+" plan "+res, tc.plan)
-			want := plan.DeepCopy()
-			want.Add(tc.controlPlane)
-			want.Add(tc.stack)
-			if got.Cmp(want) != 0 {
-				t.Errorf("plan %q: hard %s = %s, want plan %s + control plane %s + platform stack %s = %s",
-					slug, res, got.String(), plan.String(), tc.controlPlane.String(), tc.stack.String(), want.String())
+			wantPlan := plan.DeepCopy()
+			wantPlan.Add(tc.coredns)
+			if got := mustQ(t, slug+" plan-quota "+res, rq.Spec.Hard[res]); got.Cmp(wantPlan) != 0 {
+				t.Errorf("plan %q: plan-quota %s = %s, want plan %s + coredns %s = %s", slug, res, got.String(), plan.String(), tc.coredns.String(), wantPlan.String())
 			}
-			// Controls: strictly above the plan, and strictly above plan +
-			// control plane alone (so a stack term that collapses to zero is
-			// visible per row, not only through the vacuity guard above).
-			if got.Cmp(plan) <= 0 {
-				t.Errorf("plan %q: hard %s = %s is not strictly above the purchased plan %s — the overheads are eating the customer's plan again",
-					slug, res, got.String(), plan.String())
+			wantPlat := tc.vc0.DeepCopy()
+			wantPlat.Add(tc.stack)
+			wantPlat.Add(tc.transi)
+			if got := mustQ(t, slug+" platform-quota "+res, pq.Spec.Hard[res]); got.Cmp(wantPlat) != 0 {
+				t.Errorf("plan %q: platform-quota %s = %s, want vcluster-0 %s + stack %s + transients %s = %s", slug, res, got.String(), tc.vc0.String(), tc.stack.String(), tc.transi.String(), wantPlat.String())
 			}
-			planPlusCP := plan.DeepCopy()
-			planPlusCP.Add(tc.controlPlane)
-			if got.Cmp(planPlusCP) <= 0 {
-				t.Errorf("plan %q: hard %s = %s is not strictly above plan + control plane %s — the platform stack is eating the customer's plan again (the hw307 bp-keycloak-0 refusal)",
-					slug, res, got.String(), planPlusCP.String())
+			// Conservation: plan-quota + platform-quota == the pre-#7067
+			// single quota (plan + control plane + stack) + the transient
+			// headroom. Nothing the customer bought moved into the platform
+			// scope, and nothing of the platform's leaked into the plan.
+			total := mustQ(t, "plan-quota "+res, rq.Spec.Hard[res])
+			total.Add(mustQ(t, "platform-quota "+res, pq.Spec.Hard[res]))
+			pre := plan.DeepCopy()
+			pre.Add(tc.coredns)
+			pre.Add(tc.vc0)
+			pre.Add(tc.stack)
+			pre.Add(tc.transi)
+			if total.Cmp(pre) != 0 {
+				t.Errorf("plan %q: %s plan-quota + platform-quota = %s, want plan + control plane + stack + transients = %s", slug, res, total.String(), pre.String())
 			}
 		}
-		if len(rq.Spec.Hard) != 4 {
-			t.Errorf("plan %q: spec.hard has %d keys %v, want exactly requests/limits × cpu/memory (no storage quota is rendered; the plan has no storage figure)",
-				slug, len(rq.Spec.Hard), rq.Spec.Hard)
+		for name, d := range map[string]rqDoc{"plan-quota": rq, "platform-quota": pq} {
+			if len(d.Spec.Hard) != 4 {
+				t.Errorf("plan %q: %s spec.hard has %d keys %v, want exactly requests/limits × cpu/memory", slug, name, len(d.Spec.Hard), d.Spec.Hard)
+			}
+			if d.Metadata.Annotations["kustomize.toolkit.fluxcd.io/force"] != "enabled" {
+				t.Errorf("plan %q: %s lacks kustomize.toolkit.fluxcd.io/force: enabled — its scopeSelector is immutable, so a pre-#7067 unscoped object would wedge the boundary Kustomization", slug, name)
+			}
 		}
 
-		// The split is stamped on the object: the headline, the guaranteed
-		// share, the overcommit ratios and the two overheads.
+		// The split is stamped on the objects.
 		if got, want := rq.Metadata.Annotations["openova.io/plan-cap"], fmt.Sprintf("cpu=%s memory=%s", q.CPULimit, q.MemLimit); got != want {
 			t.Errorf("plan %q: annotation openova.io/plan-cap = %q, want %q", slug, got, want)
 		}
@@ -376,17 +418,26 @@ func TestRender_ResourceQuotaIsPlanPlusBothOverheads(t *testing.T) {
 		if got := rq.Metadata.Annotations["openova.io/plan-overcommit-memory"]; got != "3" {
 			t.Errorf("plan %q: annotation openova.io/plan-overcommit-memory = %q, want \"3\"", slug, got)
 		}
-		if got := rq.Metadata.Annotations["openova.io/vcluster-control-plane-overhead"]; got != o.String() {
-			t.Errorf("plan %q: annotation openova.io/vcluster-control-plane-overhead = %q, want %q", slug, got, o.String())
+		if got := rq.Metadata.Annotations["openova.io/vcluster-coredns-overhead"]; got != podOverheadText(corednsOverhead) {
+			t.Errorf("plan %q: annotation openova.io/vcluster-coredns-overhead = %q, want %q", slug, got, podOverheadText(corednsOverhead))
 		}
-		if got := rq.Metadata.Annotations["openova.io/platform-stack-overhead"]; got != ps.String() {
-			t.Errorf("plan %q: annotation openova.io/platform-stack-overhead = %q, want %q", slug, got, ps.String())
+		if _, leaked := rq.Metadata.Annotations["openova.io/platform-stack-overhead"]; leaked {
+			t.Errorf("plan %q: plan-quota still states the platform-stack overhead — that figure is platform-quota's now", slug)
 		}
-		if got, want := rq.Metadata.Annotations["openova.io/quota-formula"], "purchased plan + vcluster control plane + per-Organization platform stack"; got != want {
-			t.Errorf("plan %q: annotation openova.io/quota-formula = %q, want %q", slug, got, want)
+		if got := pq.Metadata.Annotations["openova.io/vcluster-control-plane-overhead"]; got != podOverheadText(vclusterPodOverhead) {
+			t.Errorf("plan %q: platform-quota annotation openova.io/vcluster-control-plane-overhead = %q, want %q", slug, got, podOverheadText(vclusterPodOverhead))
+		}
+		if got := pq.Metadata.Annotations["openova.io/platform-stack-overhead"]; got != ps.String() {
+			t.Errorf("plan %q: platform-quota annotation openova.io/platform-stack-overhead = %q, want %q", slug, got, ps.String())
+		}
+		if got := pq.Metadata.Annotations["openova.io/platform-transient-headroom"]; got != th.String() {
+			t.Errorf("plan %q: platform-quota annotation openova.io/platform-transient-headroom = %q, want %q", slug, got, th.String())
 		}
 		if got := rq.Metadata.Labels["openova.io/plan"]; got != slug {
 			t.Errorf("plan %q: label openova.io/plan = %q (the raw input slug is what the walker filters by)", slug, got)
+		}
+		if rq.Metadata.Labels["openova.io/quota-scope"] != "customer" || pq.Metadata.Labels["openova.io/quota-scope"] != "platform" {
+			t.Errorf("plan %q: quota-scope labels = %q / %q, want customer / platform", slug, rq.Metadata.Labels["openova.io/quota-scope"], pq.Metadata.Labels["openova.io/quota-scope"])
 		}
 	}
 	if hardCapped < 4 {

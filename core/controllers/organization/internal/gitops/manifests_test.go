@@ -261,10 +261,10 @@ func TestPlanQuota_CatalogSlugMapping(t *testing.T) {
 func TestRender_ResourceQuotaPerPlan(t *testing.T) {
 	t.Parallel()
 	cases := map[string]struct{ reqCPU, reqMem, limCPU, limMem string }{
-		"s":  {"4527m", "7835Mi", "7050m", "10410Mi"},
-		"m":  {"4694m", "8518Mi", "8050m", "12458Mi"},
-		"l":  {"5027m", "9883Mi", "10050m", "16554Mi"},
-		"xl": {"5694m", "12614Mi", "14050m", "24746Mi"},
+		"s":  {"187m", "747Mi", "2", "2218Mi"},
+		"m":  {"354m", "1430Mi", "3", "4266Mi"},
+		"l":  {"687m", "2795Mi", "5", "8362Mi"},
+		"xl": {"1354m", "5526Mi", "9", "16554Mi"},
 	}
 	for slug, want := range cases {
 		out, err := Render(Inputs{Slug: "acme", DisplayName: "Acme", Tier: "org",
@@ -284,7 +284,7 @@ func TestRender_ResourceQuotaPerPlan(t *testing.T) {
 			"limits.memory: \"" + want.limMem + "\"",
 			"namespace: acme",
 			"openova.io/plan: " + slug,
-			`openova.io/quota-formula: "purchased plan + vcluster control plane + per-Organization platform stack"`,
+			`openova.io/quota-formula: "purchased plan + the vCluster's synced coredns (every pod not in PriorityClass catalyst-org-platform)"`,
 		} {
 			if !strings.Contains(s, line) {
 				t.Errorf("plan %s resourcequota.yaml missing %q\n%s", slug, line, s)

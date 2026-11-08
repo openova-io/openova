@@ -115,7 +115,8 @@ func (p provisioningPostconditions) message() string {
 //  1. The boundary LimitRange (`plan-limits`) in ns `<slug>` — rendered for
 //     EVERY plan by gitops.Render, so its absence always means the boundary
 //     tree never landed.
-//  2. The boundary ResourceQuota (`plan-quota`) in ns `<slug>` — rendered only
+//  2. The boundary ResourceQuotas (`plan-quota`, and since #7067 its
+//     platform-scope sibling `platform-quota`) in ns `<slug>` — rendered only
 //     for plans where gitops.PlanRendersResourceQuota is true — every plan
 //     today: flexi retired on 2026-10-10 and renders as S in grow mode
 //     (gitops.EffectivePlan), so its quota IS expected. The gate stays so a
@@ -175,6 +176,20 @@ func (r *Reconciler) verifyProvisioned(ctx context.Context, org *orgapi.Organiza
 		default:
 			out.Unverifiable = append(out.Unverifiable, fmt.Sprintf(
 				"ResourceQuota %s/%s: %s", slug, gitops.BoundaryResourceQuotaName, err))
+		}
+		// #7067 — the platform admission scope renders with plan-quota, in
+		// the same file set: without it the platform pods carry a class no
+		// quota counts, and the customer's quota is the only one enforced.
+		pq := &corev1.ResourceQuota{}
+		switch err := r.Get(ctx, client.ObjectKey{Namespace: slug, Name: gitops.PlatformResourceQuotaName}, pq); {
+		case err == nil:
+		case apierrors.IsNotFound(err):
+			out.Missing = append(out.Missing, fmt.Sprintf(
+				"ResourceQuota %s/%s (the platform-scope quota that admits the Organization's own platform pods apart from the customer's plan)",
+				slug, gitops.PlatformResourceQuotaName))
+		default:
+			out.Unverifiable = append(out.Unverifiable, fmt.Sprintf(
+				"ResourceQuota %s/%s: %s", slug, gitops.PlatformResourceQuotaName, err))
 		}
 	}
 
