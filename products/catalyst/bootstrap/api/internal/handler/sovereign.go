@@ -454,6 +454,13 @@ type sovereignAppItem struct {
 	Status       string   `json:"status"` // installed | available | bootstrap
 	BootstrapKit bool     `json:"bootstrapKit"`
 
+	// ObjectStatus — ADR-0015 D7. statusOf the object backing this row
+	// (the Application CR, or for an HR-only row the namespace-exact
+	// HelmRelease), verbatim. `status` above is catalog MEMBERSHIP
+	// (installed/available/bootstrap), not health; the console renders
+	// health from this field only. Absent on catalog-only rows.
+	ObjectStatus *ObjectStatus `json:"objectStatus,omitempty"`
+
 	// Environment — deployment environment this app row is associated
 	// with on this Sovereign. Sourced from the matching Application
 	// CR's spec.environmentRef when present (apps.openova.io/v1alpha1);
@@ -641,14 +648,36 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 	var hrItems []unstructured.Unstructured
 	instanceRows := []sovereignAppItem{}
 	adoptedHRs := map[string]bool{}
+	// hrByName — the ONE HelmRelease object each slot-row name refers to
+	// (flux-system preferred), so its statusOf is namespace-exact.
+	hrByName := map[string]*unstructured.Unstructured{}
+	hrStatus := func(name string) *ObjectStatus {
+		hr, ok := hrByName[name]
+		if !ok {
+			return nil
+		}
+		st := statusOf(hr)
+		return &st
+	}
 	deps, depsErr := h.sovereignDepsFor()
 	if depsErr == nil {
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
 		if hrList, err := deps.dyn.Resource(helmReleaseGVR).Namespace("").List(ctx, metav1.ListOptions{}); err == nil {
 			hrItems = hrList.Items
-			for _, hr := range hrList.Items {
+			for i := range hrList.Items {
+				hr := hrList.Items[i]
 				name := hr.GetName()
+				// ADR-0015 D7 — the grid's slot rows key HRs by NAME, and two
+				// HRs may share one (hw307: flux-system/bp-keycloak Ready,
+				// acmewalk307/bp-keycloak UpgradeFailed). Map iteration used
+				// to let whichever came last win. The bootstrap-kit identity
+				// (flux-system) owns the name; any other namespace only fills
+				// a name flux-system does not hold.
+				if prev, seen := hrByName[name]; seen && prev.GetNamespace() == "flux-system" {
+					continue
+				}
+				hrByName[name] = &hrList.Items[i]
 				if helmReleaseReady(&hr) {
 					installed[name] = "installed"
 				} else {
@@ -864,17 +893,10 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 			if hrName, _, _ := unstructured.NestedString(app.Object, "spec", "helmRelease", "name"); hrName != "" {
 				adoptedHRs[hrName] = true
 				externalURL = urlByHRName[hrName]
-				// #4889 — HR-Ready overlay for adopted spine/bootstrap CRs.
-				// The Application CR status.phase lags/flaps behind Flux (the
-				// app-controller can sit at Provisioning/Failed while the
-				// adopted HelmRelease is already Ready=True). When the adopted
-				// HR (installed map, built from helmReleaseReady above) is
-				// Ready, prefer it — mirrors the detail endpoint's C4-003 /
-				// #4889 overlay so the grid card doesn't render FAILED/
-				// installing while the HelmRelease is Ready.
-				if status != "installed" && installed[hrName] == "installed" {
-					status = "installed"
-				}
+				// ADR-0015 D7 — the #4889 HR-Ready overlay that promoted this
+				// card to "installed" off the adopted HR is deleted: the
+				// Application CR's own conditions (objectStatus) are the
+				// status.
 			}
 			// #4897 — spec.placement is dual-form: a legacy posture STRING or
 			// the object {mode, regions, …}. readTopology handles both (the
@@ -892,6 +914,7 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 			// producer actually wrote.
 			orgRef, _, _ := unstructured.NestedString(app.Object, "spec", "organizationRef")
 			projectedAppCRs[strings.ToLower(app.GetName())] = true
+			appStatus := statusOf(app)
 			instanceRows = append(instanceRows, sovereignAppItem{
 				ID:           app.GetName(),
 				Slug:         slug,
@@ -905,6 +928,7 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 				Topology:     topology,
 				ContextCount: contextCount,
 				Org:          orgRef,
+				ObjectStatus: &appStatus,
 			})
 		}
 
@@ -1031,6 +1055,7 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 			if helmReleaseReady(hr) {
 				status = "installed"
 			}
+			hrSt := statusOf(hr)
 			instanceRows = append(instanceRows, sovereignAppItem{
 				ID:           instName,
 				Slug:         slug,
@@ -1043,6 +1068,7 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 				Blueprint:    bpFull,
 				Topology:     readTopologyFromValues(values),
 				ContextCount: contextCount,
+				ObjectStatus: &hrSt,
 			})
 			// Suppress the bootstrap SLOT row for this HR below — it is now
 			// represented by its instance card (one physical instance = one
@@ -1086,6 +1112,10 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 			BootstrapKit: true,
 			Environment:  resolveAppEnvironment(envBySlug, b.Slug),
 			ExternalURL:  urlByHRName[b.ID],
+			// ADR-0015 D7 — "bootstrap" is membership, not health: the
+			// slot's HelmRelease status rides alongside, verbatim. nil when
+			// no HR of that name exists (the honest absence).
+			ObjectStatus: hrStatus(b.ID),
 		})
 	}
 
@@ -1113,6 +1143,7 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 			BootstrapKit: false,
 			Environment:  resolveAppEnvironment(envBySlug, b.Slug),
 			ExternalURL:  urlByHRName[b.ID],
+			ObjectStatus: hrStatus(b.ID),
 		})
 	}
 

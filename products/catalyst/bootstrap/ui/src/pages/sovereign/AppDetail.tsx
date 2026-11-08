@@ -53,7 +53,8 @@ import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { PATTERN_NOT_REPORTED } from '@/shared/lib/placement'
 import { useSession } from '@/shared/lib/useSession'
 import { API_BASE } from '@/shared/config/urls'
-import type { ApplicationStatus } from './eventReducer'
+import { StatusBadge, StatusLine, StatusReason } from '@/components/status/StatusBadge'
+import type { ObjectStatus } from '@/lib/objectStatus'
 import {
   getApplication,
   getLaunchURL,
@@ -218,23 +219,11 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
 
   const app: ApplicationDescriptor | undefined = wizardApp ?? synthesisedApp
   const compState = state.apps[componentId]
-  const apiPhaseStatus: ApplicationStatus | undefined = useMemo(() => {
-    if (!apiApp?.phase) return undefined
-    switch (apiApp.phase) {
-      case 'Ready':
-        return 'installed'
-      case 'Failed':
-        return 'failed'
-      case 'Degraded':
-        return 'degraded'
-      case 'Provisioning':
-      case 'Pending':
-        return 'installing'
-      default:
-        return 'pending'
-    }
-  }, [apiApp])
-  const status: ApplicationStatus = compState?.status ?? apiPhaseStatus ?? 'pending'
+  // ADR-0015 D7 — the ONE status: catalyst-api statusOf(object), rendered
+  // verbatim. The wizard event-stream `compState` no longer wins over the
+  // API (it never knew about the Application CR's conditions), and an
+  // absent status renders Unknown — never "pending".
+  const appObjectStatus: ObjectStatus | undefined = apiApp?.objectStatus
 
   // Surface the underlying namespace, blueprint name, and live phase
   // from the API response (or fall back to the wizard event-stream
@@ -311,11 +300,6 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
       : apiApp?.placement
         ? 'declared'
         : 'none'
-  // C4-003: when the backend's HR-Ready overlay promoted the phase
-  // (CR was stale at Provisioning, HR was Ready=True), the source
-  // chip surfaces both so the operator can see the lag.
-  const appHRReady = !!apiApp?.hrReady
-  const appPhaseFromCR = apiApp?.phaseFromCR?.trim() ?? ''
   // G90 (2026-06-01) — operator-visible front-door URL. Empty when the
   // Application has no externally-exposed HTTPRoute. Renders as an
   // "External URL" row + "Open" button on the Overview tab so the
@@ -359,11 +343,6 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
   // HR-backed app and return the OIDC-init URL. Non-bootstrap apps keep
   // using the CR uid exactly as before.
   const launchKey = appUID || (appIsBootstrap ? componentId : '')
-  // Matrix asserts the literal `Ready` token in the Overview body
-  // (TC-068). When the API hasn't reported a phase yet, render the
-  // mapped `status` chip phrase instead of an empty string so the test
-  // gets a stable, human-readable token.
-  const apiPhaseLabel = apiApp?.phase ?? ''
 
   // Bundled dependencies — descriptors of every direct dep, with
   // human names sourced from componentGroups when available.
@@ -516,35 +495,11 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
                 </span>
               ) : null}
               {/*
-                Phase chip — matrix asserts the literal `Ready` token
-                in the body. We always emit the API-reported phase
-                verbatim (e.g. "Ready", "Provisioning") so the matrix
-                reads the canonical state, AND we keep the colour-coded
-                visual chip for the operator.
+                ADR-0015 D7 — state + reason + message VERBATIM from
+                statusOf(object). No phase→status mapping in the browser.
               */}
-              <span
-                className={`chip ${
-                  status === 'installed'
-                    ? 'chip-installed'
-                    : status === 'installing'
-                      ? 'chip-pending'
-                      : status === 'failed' || status === 'degraded'
-                        ? 'chip-failed'
-                        : 'chip-cat'
-                }`}
-                data-testid="app-detail-phase"
-              >
-                {apiPhaseLabel ||
-                  (status === 'installing'
-                    ? 'Provisioning'
-                    : status === 'failed'
-                      ? 'Failed'
-                      : status === 'degraded'
-                        ? 'Degraded'
-                        : status === 'installed'
-                          ? 'Ready'
-                          : 'Pending')}
-              </span>
+              <StatusBadge status={appObjectStatus} testId="app-detail-phase" />
+              <StatusReason status={appObjectStatus} testId="app-detail-status-reason" />
               {appRegions.map((r) => (
                 <span
                   key={r}
@@ -586,22 +541,14 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
                 className="chip chip-bp"
                 data-testid="app-detail-source"
                 data-source={appIsBootstrap ? 'helmrelease' : 'application-cr'}
-                data-hr-overlay={appHRReady ? 'true' : 'false'}
                 title={
                   appIsBootstrap
-                    ? 'Phase derived from HelmRelease Ready condition (no Application CR)'
-                    : appHRReady
-                      ? `Application CR phase is stale (status.phase=${appPhaseFromCR || 'Provisioning'}); HelmRelease is Ready — promoted to Ready. application-controller is lagging.`
-                      : 'Phase derived from Application CR status'
+                    ? 'Status read from the HelmRelease Ready condition (no Application CR)'
+                    : 'Status read from the Application CR conditions'
                 }
                 style={{ fontWeight: 500 }}
               >
-                source:{' '}
-                {appIsBootstrap
-                  ? 'HelmRelease'
-                  : appHRReady
-                    ? `Application CR (HR-overlayed; CR=${appPhaseFromCR || 'Provisioning'})`
-                    : 'Application CR'}
+                source: {appIsBootstrap ? 'HelmRelease' : 'Application CR'}
               </span>
             </div>
           </div>
@@ -721,8 +668,7 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
               appNamespace={appNamespace}
               appBlueprint={appBlueprint}
               appBlueprintVersion={appBlueprintVersion}
-              appPhaseLabel={apiPhaseLabel}
-              status={status}
+              objectStatus={appObjectStatus}
               appRegions={appRegions}
               appPlacement={appPlacement}
               appPlacementSource={appPlacementSource}
@@ -1087,8 +1033,8 @@ interface OverviewPanelProps {
   appNamespace: string
   appBlueprint: string
   appBlueprintVersion: string
-  appPhaseLabel: string
-  status: ApplicationStatus
+  /** ADR-0015 D7 — statusOf(object), rendered verbatim. */
+  objectStatus: ObjectStatus | undefined
   appRegions: string[]
   appPlacement: string
   /** #6192 — where `appPlacement` came from; the same chip Topology prints. */
@@ -1239,8 +1185,7 @@ function OverviewPanel({
   appNamespace,
   appBlueprint,
   appBlueprintVersion,
-  appPhaseLabel,
-  status,
+  objectStatus,
   appRegions,
   appPlacement,
   appPlacementSource,
@@ -1261,20 +1206,6 @@ function OverviewPanel({
   sovereignFQDN,
   deploymentId,
 }: OverviewPanelProps) {
-  // Resolved phase string — keep the literal `Ready` / `Provisioning`
-  // / `Failed` token in the tabpanel body so matrix assertions land
-  // even when the operator's first navigation skips the hero scroll.
-  const phaseToken =
-    appPhaseLabel ||
-    (status === 'installed'
-      ? 'Ready'
-      : status === 'installing'
-        ? 'Provisioning'
-        : status === 'failed'
-          ? 'Failed'
-          : status === 'degraded'
-            ? 'Degraded'
-            : 'Pending')
 
   // #3659 — the "Available regions" list MUST come from the Sovereign's
   // own live infrastructure topology, NOT a hardcoded Hetzner placeholder.
@@ -1330,7 +1261,9 @@ function OverviewPanel({
           </div>
           <div className="overview-row">
             <dt>Status</dt>
-            <dd data-testid="app-detail-overview-phase">{phaseToken}</dd>
+            <dd data-testid="app-detail-overview-phase">
+              <StatusLine status={objectStatus} testId="app-detail-overview-status" />
+            </dd>
           </div>
           <div className="overview-row">
             <dt>Namespace</dt>

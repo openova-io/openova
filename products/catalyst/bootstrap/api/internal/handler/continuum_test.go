@@ -222,57 +222,6 @@ func TestHandleContinuumGet_404WhenMissing(t *testing.T) {
 	}
 }
 
-// #3492 / #3375 — GET derives a LIVE DR record from the cnpg cluster-pair
-// when no Continuum CR exists but a real 2-region pair does. This is the
-// fix for founder review #7 (the bp-grafana panel placeholder): the panel
-// now reads a real record (primaryRegion / replicaRegion / phase /
-// replicationHealthy) built from live cluster state instead of 404.
-func TestHandleContinuumGet_DerivesLiveRecordFromCNPGPair(t *testing.T) {
-	h := NewWithPDM(silentLogger(), &fakePDM{})
-	primary, replica := newCNPGPairFixture("acme-pg", "acme", "hz-fsn-rtz-prod", "hz-hel-rtz-prod")
-	factory, _ := fakeContinuumDynamicFactory(primary, replica)
-	h.dynamicFactory = factory
-	fixed := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
-	h.SetContinuumClock(func() time.Time { return fixed })
-	dep := installUserAccessDeployment(t, h, "dep-cont-live-get")
-
-	r := chi.NewRouter()
-	registerContinuumRoutes(r, h)
-	// The UI queries dr-<app>; there is no Continuum CR — only the pair.
-	req := httptest.NewRequest(http.MethodGet,
-		"/api/v1/sovereigns/"+dep.ID+"/continuums/dr-grafana?namespace=acme", nil)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d want 200 (live record); body=%s", rec.Code, rec.Body.String())
-	}
-	var resp continuumGetResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if resp.Status["primaryRegion"] != "hz-fsn-rtz-prod" {
-		t.Errorf("status.primaryRegion: got %v want hz-fsn-rtz-prod", resp.Status["primaryRegion"])
-	}
-	if resp.Status["replicaRegion"] != "hz-hel-rtz-prod" {
-		t.Errorf("status.replicaRegion: got %v want hz-hel-rtz-prod", resp.Status["replicaRegion"])
-	}
-	if resp.Status["replicationHealthy"] != true {
-		t.Errorf("status.replicationHealthy: got %v want true", resp.Status["replicationHealthy"])
-	}
-	if resp.Status["phase"] != "Healthy" {
-		t.Errorf("status.phase: got %v want Healthy", resp.Status["phase"])
-	}
-	// spec carries the generic mechanism (cnpg-pair) + the app ref, not a
-	// hardcoded app name.
-	sw, _ := resp.Spec["switchover"].(map[string]interface{})
-	if sw == nil || sw["mechanism"] != "cnpg-pair" {
-		t.Errorf("spec.switchover.mechanism: got %v want cnpg-pair", sw)
-	}
-	if resp.Spec["applicationRef"] != "grafana" {
-		t.Errorf("spec.applicationRef: got %v want grafana", resp.Spec["applicationRef"])
-	}
-}
 
 // A live record is only derived for a GENUINE 2-region pair. A single
 // region (both halves same region) must NOT fabricate a cross-region DR

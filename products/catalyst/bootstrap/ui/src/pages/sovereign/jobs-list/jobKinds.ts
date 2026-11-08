@@ -55,6 +55,10 @@ const ICON_JOB_TASK =
   'M4 7h9M4 12h9M4 17h6M15 8l2 2 4 -4'
 const ICON_CROSSPLANE =
   'M12 3l8 4v10l-8 4 -8 -4V7zM4 7l8 4 8 -4M12 11v10'
+const ICON_APPLICATION =
+  'M4 4h16v16H4zM4 9h16M9 9v11'
+const ICON_TOPOLOGY_TRANSITION =
+  'M5 7h11l-3 -3M19 17H8l3 3'
 const ICON_OPENTOFU =
   'M4 12a8 8 0 0 1 13.7 -5.6L20 8M20 4v4h-4M20 12a8 8 0 0 1 -13.7 5.6L4 16M4 20v-4h4'
 
@@ -72,6 +76,11 @@ export const JOB_KINDS: readonly JobKindEntry[] = [
   { id: 'cron', label: JOB_ENGINE_LABELS.cron, tagline: 'Recurring CronJob runs — each run is an Execution.', icon: ICON_CRONJOB, category: 'process', primary: true },
   { id: 'mutation', label: JOB_ENGINE_LABELS.mutation, tagline: 'Day-2 Crossplane XRC submissions.', icon: ICON_CROSSPLANE, category: 'mutation', primary: true },
   { id: 'lifecycle', label: JOB_ENGINE_LABELS.lifecycle, tagline: 'Phase-0 / lifecycle OpenTofu runs.', icon: ICON_OPENTOFU, category: 'lifecycle', primary: true },
+  // ADR-0015 D7 — every Application CR, its own Ready condition verbatim
+  // (a blocked one reads `blocked: <reason> — <message>`).
+  { id: 'application', label: JOB_ENGINE_LABELS.application, tagline: 'Application objects — reconcile / blocked with the reason the controller wrote.', icon: ICON_APPLICATION, category: 'reconciler', primary: true },
+  // ADR-0015 D8 — one row per phase × member of a topology transition.
+  { id: 'topology-transition', label: JOB_ENGINE_LABELS['topology-transition'], tagline: 'Topology transitions — one row per phase and member (status.activity[]).', icon: ICON_TOPOLOGY_TRANSITION, category: 'process', primary: true },
 
   /* ── Overflow — accessible via the `+ More` popover ───────────── */
   // The open-ended reconcilers are excluded from /jobs by the backend

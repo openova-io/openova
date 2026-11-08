@@ -238,6 +238,9 @@ func loadConfigFromEnv() controller.Config {
 		// registry consults it to resolve declared cluster IDs to the
 		// right kubeConfig Secret. Empty/unknown defaults to "A".
 		LocalRegion: regionSuffixFromRole(env("SOVEREIGN_REGION_ROLE", "primary")),
+		// ADR-0015 D7 — the region NAME (e.g. me-east-215-a) the per-region
+		// Serving probe uses to tell which status.regions[] row it observes.
+		LocalRegionName: env("CATALYST_REGION", ""),
 	}
 }
 

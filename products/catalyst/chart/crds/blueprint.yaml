@@ -709,6 +709,15 @@ spec:
                         enum: [public, private, internal]
                       launchDefault:
                         type: boolean
+                      healthPath:
+                        type: string
+                        maxLength: 512
+                        pattern: '^/'
+                        description: |
+                          ADR-0015 D7 — path the application-controller's
+                          per-region Serving probe GETs through the region's
+                          gateway (Host = the route hostname). Any response
+                          < 500 means the endpoint is serving. Default "/".
                       ssoEnabled:
                         type: boolean
                       ssoInitPath:

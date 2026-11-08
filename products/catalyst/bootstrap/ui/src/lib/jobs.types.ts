@@ -74,6 +74,13 @@ export type JobType = 'install' | 'group'
  *   task        — a standalone / owned batch Job.
  *   reconciler  — a long-running reconciler Deployment (HEALTH status).
  *   lifecycle   — a Phase-0 / lifecycle leaf.
+ *   application — one Application CR (ADR-0015 D7): its own Ready
+ *                 condition projected through jobs.ActivityBridge. A
+ *                 failed row carries `reason` + `message` and renders
+ *                 `blocked: <reason> — <message>`.
+ *   topology-transition — one phase × member row of a topology
+ *                 transition (ADR-0015 D8), driven from the CR's
+ *                 status.activity[]; its parent is the transition group.
  *   group       — a synthesised parent group.
  *
  * Optional on the wire (`omitempty`) — the backend always stamps it, but
@@ -89,6 +96,8 @@ export type JobKind =
   | 'task'
   | 'reconciler'
   | 'lifecycle'
+  | 'application'
+  | 'topology-transition'
   | 'group'
 
 /**
@@ -116,6 +125,8 @@ export const JOB_ENGINE_LABELS: Record<JobKind, string> = {
   task: 'Job (task)',
   mutation: 'Crossplane',
   lifecycle: 'OpenTofu',
+  application: 'Application',
+  'topology-transition': 'Topology transition',
   group: 'Group',
 }
 
@@ -185,6 +196,14 @@ export interface Job {
   finishedAt: string | null
   durationMs: number
   /**
+   * ADR-0015 D7 — the reconciled object's own condition reason + message,
+   * verbatim (e.g. reason `EnvironmentMissing`, message
+   * `Environment "sovereign-prod" not found`). Set by the Application /
+   * topology-transition projections; omitempty on the wire.
+   */
+  reason?: string
+  message?: string
+  /**
    * Run-history depth (#3925) — the number of Executions (runs) behind
    * this leaf row. A recurring job that collapses to ONE identity-keyed
    * row (e.g. a trivy/syft scan) reports its full run count here ("600
@@ -252,4 +271,24 @@ export function isHealthAxisStatus(s: JobStatus): boolean {
  */
 export function isJobRetryable(status: JobStatus): boolean {
   return status === 'failed' || status === 'degraded' || status === 'failing'
+}
+
+/**
+ * jobStatusNote — ADR-0015 D7: the one-line note a Jobs row carries next to
+ * its status, built ONLY from the object's own `reason` + `message`, verbatim.
+ *
+ *   failed + reason → `blocked: <reason> — <message>` (e.g. an Application
+ *                     whose Environment does not exist)
+ *   otherwise       → the message as-is, or '' when there is none.
+ *
+ * No text is invented: an absent reason/message yields '' (rendered as
+ * nothing), never a guessed explanation.
+ */
+export function jobStatusNote(job: Pick<Job, 'status' | 'reason' | 'message'>): string {
+  const reason = job.reason?.trim() ?? ''
+  const message = job.message?.trim() ?? ''
+  if (job.status === 'failed' && reason) {
+    return message ? `blocked: ${reason} — ${message}` : `blocked: ${reason}`
+  }
+  return message
 }
