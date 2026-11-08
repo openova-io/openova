@@ -27,6 +27,9 @@ package controller
 
 import (
 	"context"
+	"encoding/base64"
+	"fmt"
+	"hash/fnv"
 	"strings"
 	"sync"
 	"testing"
@@ -133,6 +136,43 @@ func (f *fakeGitea) PutFile(_ context.Context, org, repo, branch, path string, c
 	f.repos[key][branch][path] = append([]byte(nil), content...)
 	f.puts++
 	return gitea.File{Path: path, SHA: "newsha"}, true, nil
+}
+
+// fakeSHA is a content hash: equal bytes ⇒ equal SHA, like a Git blob id.
+func fakeSHA(b []byte) string {
+	h := fnv.New64a()
+	_, _ = h.Write(b)
+	return fmt.Sprintf("%x", h.Sum64())
+}
+
+func (f *fakeGitea) GetFile(_ context.Context, org, repo, branch, path string) (gitea.File, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	d, ok := f.repos[f.repoKey(org, repo)][branch][path]
+	if !ok {
+		return gitea.File{}, gitea.ErrFileNotFound
+	}
+	return gitea.File{Path: path, SHA: fakeSHA(d), Type: "file", ContentBase64: base64.StdEncoding.EncodeToString(d)}, nil
+}
+
+func (f *fakeGitea) PutFileIfMatch(_ context.Context, org, repo, branch, path string, data []byte, _ string, expectSHA string) (gitea.File, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	key := f.repoKey(org, repo)
+	if _, ok := f.repos[key]; !ok {
+		f.repos[key] = map[string]map[string][]byte{}
+	}
+	if _, ok := f.repos[key][branch]; !ok {
+		f.repos[key][branch] = map[string][]byte{}
+	}
+	cur, exists := f.repos[key][branch][path]
+	switch {
+	case expectSHA == "" && exists, expectSHA != "" && (!exists || fakeSHA(cur) != expectSHA):
+		return gitea.File{}, gitea.ErrConflict
+	}
+	f.repos[key][branch][path] = append([]byte(nil), data...)
+	f.puts++
+	return gitea.File{Path: path, SHA: fakeSHA(data)}, nil
 }
 
 func (f *fakeGitea) DeleteFile(_ context.Context, org, repo, branch, path, _ string) (bool, error) {

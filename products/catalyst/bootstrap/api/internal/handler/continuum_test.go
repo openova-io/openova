@@ -14,17 +14,14 @@
 package handler
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -130,13 +127,10 @@ func newCNPGPairFixture(pairName, namespace, primaryRegion, replicaRegion string
 
 func registerContinuumRoutes(r chi.Router, h *Handler) {
 	r.Get("/api/v1/sovereigns/{id}/continuums/{name}", h.HandleContinuumGet)
-	r.Post("/api/v1/sovereigns/{id}/continuums/{name}/failback", h.HandleContinuumFailbackRequest)
-	r.Post("/api/v1/sovereigns/{id}/continuums/{name}/failback/approve", h.HandleContinuumFailbackApprove)
 	r.Get("/api/v1/sovereigns/{id}/audit/continuum", h.HandleContinuumAuditList)
 	// qa-loop iter-16 Fix #169 — singular `/continuum/` aliases registered
 	// in cmd/api/main.go are the surface the matrix runner hits. Mirror
 	// them here so TC-pinning tests exercise the same paths.
-	r.Post("/api/v1/sovereigns/{id}/continuum/{name}/switchover/preview", h.HandleContinuumSwitchoverPreview)
 }
 
 // ── IsContinuumAuditType pure-function tests ─────────────────────────
@@ -250,206 +244,9 @@ func TestHandleContinuumGet_NoLiveRecordForSingleRegion(t *testing.T) {
 
 // ── qa-loop iter-16 Fix #169 — wire-shape parity tests (TC-pinning) ─
 
-// TestHandleContinuumSwitchoverPreview_TC339_DryRunPreflight pins TC-339.
-//
-// #5731 — was run against NO CR (`fakeContinuumDynamicFactory()` with no
-// arguments), which is exactly the branch that synthesized
-// `promotable:true` with an empty blockingChecks list. Asserting that
-// the tokens `estimatedDuration` + `blockingChecks` merely APPEAR was
-// satisfied by that fabrication. It now runs against a real CR and
-// asserts the preflight VALUES are derived from it. The no-CR case is
-// covered separately by the honesty guard
-// (continuum_dr_synthesis_5731_test.go).
-func TestHandleContinuumSwitchoverPreview_TC339_DryRunPreflight(t *testing.T) {
-	h := NewWithPDM(silentLogger(), &fakePDM{})
-	cr := newContinuumUnstructured("cont-omantel", "qa-omantel", "qa-wp", "fsn1", []string{"hz-hel-rtz-prod"})
-	factory, _ := fakeContinuumDynamicFactory(cr)
-	h.dynamicFactory = factory
-	dep := installUserAccessDeployment(t, h, "dep-tc339")
-
-	body := continuumSwitchoverPreviewRequest{Target: "hz-hel-rtz-prod"}
-	raw, _ := json.Marshal(body)
-	r := chi.NewRouter()
-	registerContinuumRoutes(r, h)
-	req := httptest.NewRequest(http.MethodPost,
-		"/api/v1/sovereigns/"+dep.ID+"/continuum/cont-omantel/switchover/preview", bytes.NewReader(raw))
-	req.Header.Set("Content-Type", "application/json")
-	req = req.WithContext(withClaims(req.Context(), &auth.Claims{Email: "owner@acme.io", Tier: "owner"}))
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("TC-339 status: got %d want 200; body=%s", rec.Code, rec.Body.String())
-	}
-	var resp continuumSwitchoverPreviewResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("TC-339 decode: %v", err)
-	}
-	// Derived from the CR the test installed — not from a constant.
-	if resp.Continuum != "cont-omantel" {
-		t.Errorf("TC-339 continuum: got %q want cont-omantel (read off the CR)", resp.Continuum)
-	}
-	if resp.Namespace != "qa-omantel" {
-		t.Errorf("TC-339 namespace: got %q want qa-omantel (read off the CR)", resp.Namespace)
-	}
-	if resp.CurrentPrimary != "fsn1" {
-		t.Errorf("TC-339 currentPrimary: got %q want fsn1 (spec.primaryRegion of the CR)", resp.CurrentPrimary)
-	}
-	if resp.TargetRegion != "hz-hel-rtz-prod" {
-		t.Errorf("TC-339 targetRegion: got %q want hz-hel-rtz-prod", resp.TargetRegion)
-	}
-	if bytes.Contains(rec.Body.Bytes(), []byte(`"500"`)) {
-		t.Errorf("TC-339 body has forbidden %q token; got %s", "500", rec.Body.String())
-	}
-}
-
 // ── POST /continuums/{name}/failback ────────────────────────────────
 
-func TestHandleContinuumFailback_PatchesSpec(t *testing.T) {
-	h := NewWithPDM(silentLogger(), &fakePDM{})
-	cr := newContinuumUnstructured("dr-wp", "acme", "wp-prod", "hz-fsn-rtz-prod", []string{"hz-hel-rtz-prod"})
-	// Mark approvalRequired so the response carries it through.
-	_ = unstructured.SetNestedMap(cr.Object, map[string]interface{}{
-		"approvalRequired": true,
-	}, "spec", "failback")
-	factory, client := fakeContinuumDynamicFactory(cr)
-	h.dynamicFactory = factory
-	bus := audit.NewBus(audit.BusConfig{RingCapacity: 50})
-	h.SetAuditBus(bus)
-	fixed := time.Date(2026, 5, 9, 11, 0, 0, 0, time.UTC)
-	h.SetContinuumClock(func() time.Time { return fixed })
-	dep := installUserAccessDeployment(t, h, "dep-cont-fb")
-
-	body := continuumFailbackRequest{Reason: "lag-recovered"}
-	raw, _ := json.Marshal(body)
-
-	r := chi.NewRouter()
-	registerContinuumRoutes(r, h)
-	req := httptest.NewRequest(http.MethodPost,
-		"/api/v1/sovereigns/"+dep.ID+"/continuums/dr-wp/failback", bytes.NewReader(raw))
-	req.Header.Set("Content-Type", "application/json")
-	req = req.WithContext(withClaims(req.Context(), &auth.Claims{Email: "owner@acme.io", Tier: "owner"}))
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusAccepted {
-		t.Fatalf("status: got %d want 202; body=%s", rec.Code, rec.Body.String())
-	}
-	var resp continuumFailbackResponse
-	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
-	if !resp.ApprovalRequired {
-		t.Error("response.ApprovalRequired: got false want true")
-	}
-	if !strings.Contains(resp.Message, "approval") {
-		t.Errorf("message should mention approval; got %q", resp.Message)
-	}
-
-	got, _ := client.Resource(ContinuumGVR()).Namespace("acme").Get(context.Background(), "dr-wp", metav1.GetOptions{})
-	requested, _, _ := unstructured.NestedBool(got.Object, "spec", "failback", "requested")
-	if !requested {
-		t.Error("spec.failback.requested: got false want true")
-	}
-
-	auditEvents := bus.List(dep.ID, IsContinuumAuditType, 100)
-	if len(auditEvents) != 1 || auditEvents[0].AuditType != "continuum-failback-requested" {
-		t.Fatalf("audit events: %+v", auditEvents)
-	}
-}
-
-func TestHandleContinuumFailback_AcceptsEmptyBody(t *testing.T) {
-	h := NewWithPDM(silentLogger(), &fakePDM{})
-	cr := newContinuumUnstructured("dr-wp", "acme", "wp-prod", "hz-fsn-rtz-prod", []string{"hz-hel-rtz-prod"})
-	factory, _ := fakeContinuumDynamicFactory(cr)
-	h.dynamicFactory = factory
-	dep := installUserAccessDeployment(t, h, "dep-cont-fb-empty")
-
-	r := chi.NewRouter()
-	registerContinuumRoutes(r, h)
-	req := httptest.NewRequest(http.MethodPost,
-		"/api/v1/sovereigns/"+dep.ID+"/continuums/dr-wp/failback", nil)
-	req = req.WithContext(withClaims(req.Context(), &auth.Claims{Email: "owner@acme.io", Tier: "owner"}))
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusAccepted {
-		t.Fatalf("status: got %d want 202; body=%s", rec.Code, rec.Body.String())
-	}
-}
-
-func TestHandleContinuumFailback_403WhenNotOwner(t *testing.T) {
-	h := NewWithPDM(silentLogger(), &fakePDM{})
-	cr := newContinuumUnstructured("dr-wp", "acme", "wp-prod", "hz-fsn-rtz-prod", []string{"hz-hel-rtz-prod"})
-	factory, _ := fakeContinuumDynamicFactory(cr)
-	h.dynamicFactory = factory
-	dep := installUserAccessDeployment(t, h, "dep-cont-fb-403")
-
-	r := chi.NewRouter()
-	registerContinuumRoutes(r, h)
-	req := httptest.NewRequest(http.MethodPost,
-		"/api/v1/sovereigns/"+dep.ID+"/continuums/dr-wp/failback", nil)
-	req = req.WithContext(withClaims(req.Context(), &auth.Claims{Email: "dev@acme.io", Tier: "developer"}))
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("status: got %d want 403; body=%s", rec.Code, rec.Body.String())
-	}
-}
-
 // ── POST /continuums/{name}/failback/approve ────────────────────────
-
-func TestHandleContinuumFailbackApprove_PatchesSpec(t *testing.T) {
-	h := NewWithPDM(silentLogger(), &fakePDM{})
-	cr := newContinuumUnstructured("dr-wp", "acme", "wp-prod", "hz-fsn-rtz-prod", []string{"hz-hel-rtz-prod"})
-	factory, client := fakeContinuumDynamicFactory(cr)
-	h.dynamicFactory = factory
-	bus := audit.NewBus(audit.BusConfig{RingCapacity: 50})
-	h.SetAuditBus(bus)
-	dep := installUserAccessDeployment(t, h, "dep-cont-fb-ap")
-
-	r := chi.NewRouter()
-	registerContinuumRoutes(r, h)
-	req := httptest.NewRequest(http.MethodPost,
-		"/api/v1/sovereigns/"+dep.ID+"/continuums/dr-wp/failback/approve", nil)
-	req = req.WithContext(withClaims(req.Context(), &auth.Claims{Email: "admin@acme.io", Tier: "admin"}))
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusAccepted {
-		t.Fatalf("status: got %d want 202; body=%s", rec.Code, rec.Body.String())
-	}
-
-	got, _ := client.Resource(ContinuumGVR()).Namespace("acme").Get(context.Background(), "dr-wp", metav1.GetOptions{})
-	approved, _, _ := unstructured.NestedBool(got.Object, "spec", "failback", "approved")
-	if !approved {
-		t.Error("spec.failback.approved: got false want true")
-	}
-
-	auditEvents := bus.List(dep.ID, IsContinuumAuditType, 100)
-	if len(auditEvents) != 1 || auditEvents[0].AuditType != "continuum-failback-approved" {
-		t.Fatalf("audit events: %+v", auditEvents)
-	}
-}
-
-func TestHandleContinuumFailbackApprove_403WhenNotSovereignAdmin(t *testing.T) {
-	h := NewWithPDM(silentLogger(), &fakePDM{})
-	cr := newContinuumUnstructured("dr-wp", "acme", "wp-prod", "hz-fsn-rtz-prod", []string{"hz-hel-rtz-prod"})
-	factory, _ := fakeContinuumDynamicFactory(cr)
-	h.dynamicFactory = factory
-	dep := installUserAccessDeployment(t, h, "dep-cont-fb-ap-403")
-
-	r := chi.NewRouter()
-	registerContinuumRoutes(r, h)
-	req := httptest.NewRequest(http.MethodPost,
-		"/api/v1/sovereigns/"+dep.ID+"/continuums/dr-wp/failback/approve", nil)
-	req = req.WithContext(withClaims(req.Context(), &auth.Claims{Email: "dev@acme.io", Tier: "developer"}))
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("status: got %d want 403; body=%s", rec.Code, rec.Body.String())
-	}
-}
 
 // ── GET /audit/continuum ────────────────────────────────────────────
 

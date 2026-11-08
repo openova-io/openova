@@ -5324,7 +5324,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.1.20"
+  version: "0.2.0"
   visibility: unlisted
   card:
     title: "Continuum"
@@ -5345,7 +5345,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-continuum
-    version: "0.1.20"
+    version: "0.2.0"
   topology:
     supported:
       - active-hot-standby

@@ -33,55 +33,6 @@ export interface ContinuumGetResponse {
 }
 
 /**
- * ContinuumSwitchoverPreview — body of
- * POST /api/v1/sovereigns/{id}/continuum/{name}/switchover/preview
- * (continuum_extras.go::HandleContinuumSwitchoverPreview).
- *
- * The READ-ONLY RPO/health preflight the confirm dialog runs BEFORE it
- * arms the [ Confirm Switchover ] button. `promotable` is the gate: it is
- * true only when `blockingChecks` is empty (target is not already primary,
- * WAL lag is within 4× RTO, and the Continuum is not mid-switchover /
- * Failed). `currentLagSec` is the live replication lag the operator sees
- * before committing. Nothing is mutated by this call.
- */
-export interface ContinuumSwitchoverPreview {
-  continuum: string
-  namespace: string
-  targetRegion: string
-  currentPrimary: string
-  currentLagSec: number
-  estimatedDurationSec: number
-  estimatedDuration: string
-  blockingChecks: string[]
-  promotable: boolean
-  message: string
-}
-
-/** ContinuumFailbackRequest — body of POST .../failback. */
-export interface ContinuumFailbackRequest {
-  reason?: string
-}
-
-/** ContinuumFailbackResponse — 202 Accepted body. */
-export interface ContinuumFailbackResponse {
-  name: string
-  namespace: string
-  requestedAt: string
-  requestedBy?: string
-  approvalRequired: boolean
-  message: string
-}
-
-/** ContinuumFailbackApproveResponse — 202 Accepted body. */
-export interface ContinuumFailbackApproveResponse {
-  name: string
-  namespace: string
-  approvedAt: string
-  approvedBy?: string
-  message: string
-}
-
-/**
  * ContinuumAuditEvent — one row from the audit ring buffer / SSE
  * stream. Mirrors `audit.Event` in the catalyst-api package — the
  * superset shape every audit-type populates only the fields it owns.
@@ -332,80 +283,6 @@ export async function getContinuumReplicationStatus(
   return res.json()
 }
 
-/**
- * getSwitchoverPreview — run the read-only RPO/health preflight for a
- * Continuum CR (POST .../continuum/{name}/switchover/preview). The confirm
- * dialog calls this before arming its [ Confirm Switchover ] button so the
- * operator sees the live lag + any blocking checks and can only proceed
- * when `promotable` is true. Read-only — mutates nothing on the cluster.
- *
- * The singular `/continuum/` path is used (the preview endpoint lives only
- * under the singular alias — see continuum_extras.go).
- */
-export async function getSwitchoverPreview(
-  sovereignId: string,
-  name: string,
-  body: { targetRegion?: string } = {},
-  opts: { namespace?: string } = {},
-): Promise<ContinuumSwitchoverPreview> {
-  const params = new URLSearchParams()
-  if (opts.namespace) params.set('namespace', opts.namespace)
-  const qs = params.toString()
-  const url = `${continuumSingularBase(sovereignId)}/${encodeURIComponent(name)}/switchover/preview${qs ? '?' + qs : ''}`
-  const res = await authedFetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`switchover preview: HTTP ${res.status} ${detail}`)
-  }
-  return res.json()
-}
-
-export async function requestFailback(
-  sovereignId: string,
-  name: string,
-  body: ContinuumFailbackRequest = {},
-  opts: { namespace?: string } = {},
-): Promise<ContinuumFailbackResponse> {
-  const params = new URLSearchParams()
-  if (opts.namespace) params.set('namespace', opts.namespace)
-  const qs = params.toString()
-  const url = `${continuumsBase(sovereignId)}/${encodeURIComponent(name)}/failback${qs ? '?' + qs : ''}`
-  const res = await authedFetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`failback: HTTP ${res.status} ${detail}`)
-  }
-  return res.json()
-}
-
-export async function approveFailback(
-  sovereignId: string,
-  name: string,
-  opts: { namespace?: string } = {},
-): Promise<ContinuumFailbackApproveResponse> {
-  const params = new URLSearchParams()
-  if (opts.namespace) params.set('namespace', opts.namespace)
-  const qs = params.toString()
-  const url = `${continuumsBase(sovereignId)}/${encodeURIComponent(name)}/failback/approve${qs ? '?' + qs : ''}`
-  const res = await authedFetch(url, {
-    method: 'POST',
-    headers: { Accept: 'application/json' },
-  })
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`approve-failback: HTTP ${res.status} ${detail}`)
-  }
-  return res.json()
-}
-
 export async function listContinuumAudit(
   sovereignId: string,
   opts: { limit?: number; offset?: number; type?: string; actor?: string; since?: string } = {},
@@ -458,58 +335,6 @@ export function continuumAuditStreamURL(sovereignId: string, accessToken?: strin
   const qs = params.toString()
   return `${auditBase(sovereignId)}/continuum/stream${qs ? '?' + qs : ''}`
 }
-
-/* ── Switchover step constants ───────────────────────────────────── */
-
-/**
- * SWITCHOVER_STEPS — 7-step sequence shipped by the K-Cont-2
- * Sequencer (`core/controllers/continuum/internal/switchover/sequence.go`).
- * The names below MUST stay in lock-step with the Sequencer's `name:`
- * fields — the SwitchoverDialog renders them so the operator sees
- * exactly what the Sequencer will execute.
- *
- * Per the brief these are hardcoded here (the alternative — pulling
- * them from a /continuums/{name}/steps endpoint — adds an extra round
- * trip with no payoff; the reconciler's step names are a stable
- * contract per K-Cont-2).
- */
-export const SWITCHOVER_STEPS: { id: number; name: string; description: string }[] = [
-  {
-    id: 1,
-    name: 'validate-lease',
-    description: 'Validate the witness lease holder is the current primary (or quorum allows takeover).',
-  },
-  {
-    id: 2,
-    name: 'cordon-old-primary',
-    description: 'Annotate the old primary CNPG Cluster CR to demote it; CNPG operator stops accepting writes.',
-  },
-  {
-    id: 3,
-    name: 'drain-http',
-    description: 'Set Cilium HTTPRoute weight to 0 toward the old primary; in-flight traffic drains over a short window.',
-  },
-  {
-    id: 4,
-    name: 'flip-dns',
-    description: 'Flip the lua-record probe target to the new primary via PowerDNS Manager (low-TTL DNS, ~5s).',
-  },
-  {
-    id: 5,
-    name: 'swap-lease',
-    description: 'Release the lease on the old primary; acquire it on the new primary.',
-  },
-  {
-    id: 6,
-    name: 'uncordon-new-primary',
-    description: 'Clear the demotion annotation; flip CNPG replica.enabled flags so the new primary stops following WAL.',
-  },
-  {
-    id: 7,
-    name: 'audit-emit',
-    description: 'Emit `continuum-switchover` audit event on the catalyst.audit JetStream subject.',
-  },
-]
 
 /* ── Helpers ──────────────────────────────────────────────────────── */
 

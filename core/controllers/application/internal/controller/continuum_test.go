@@ -325,27 +325,30 @@ func TestReconcile_PerAppContinuumCR_Produced(t *testing.T) {
 		t.Fatalf("unexpected Failed phase: reason=%q msg=%q", reason, msg)
 	}
 
-	cr, err := r.Dynamic.Resource(ContinuumGVR).Namespace("acme").
-		Get(context.Background(), "dr-sso-bridge", metav1.GetOptions{})
-	if err != nil {
-		t.Fatalf("expected per-app Continuum CR dr-sso-bridge in ns acme: %v", err)
+	// ADR-0015 D8: delivered from Git in every region file, not by API.
+	if _, err := r.Dynamic.Resource(ContinuumGVR).Namespace("acme").
+		Get(context.Background(), "dr-sso-bridge", metav1.GetOptions{}); err == nil {
+		t.Fatal("the Continuum must not be created through the API")
+	}
+	cr, ok := gitContinuum(t, r, "acme", "sso-bridge")
+	if !ok {
+		t.Fatal("expected the per-app Continuum dr-sso-bridge in the region files")
 	}
 
 	appRef, _, _ := unstructured.NestedString(cr.Object, "spec", "applicationRef")
 	if appRef != "acme/sso-bridge" {
 		t.Errorf("applicationRef = %q, want acme/sso-bridge", appRef)
 	}
-	primary, _, _ := unstructured.NestedString(cr.Object, "spec", "primaryRegion")
+	primary, _, _ := unstructured.NestedString(cr.Object, "spec", "desiredPrimaryRegion")
 	if primary != "hetzner-fsn-rtz-prod" {
-		t.Errorf("primaryRegion = %q, want hetzner-fsn-rtz-prod", primary)
+		t.Errorf("desiredPrimaryRegion = %q, want hetzner-fsn-rtz-prod", primary)
 	}
-	standby, _, _ := unstructured.NestedStringSlice(cr.Object, "spec", "hotStandbyRegions")
-	if len(standby) != 1 || standby[0] != "hetzner-nbg-rtz-prod" {
-		t.Errorf("hotStandbyRegions = %v, want [hetzner-nbg-rtz-prod]", standby)
+	regs, _, _ := unstructured.NestedStringSlice(cr.Object, "spec", "regions")
+	if len(regs) != 2 || regs[1] != "hetzner-nbg-rtz-prod" {
+		t.Errorf("regions = %v, want [hetzner-fsn-rtz-prod hetzner-nbg-rtz-prod]", regs)
 	}
-	mech, _, _ := unstructured.NestedString(cr.Object, "spec", "switchover", "mechanism")
-	if mech != "stateless" {
-		t.Errorf("switchover.mechanism = %q, want stateless", mech)
+	if st, _, _ := unstructured.NestedBool(cr.Object, "spec", "transition", "stateful"); st {
+		t.Errorf("a stateless Blueprint must not be marked stateful")
 	}
 	if cr.GetLabels()["catalyst.openova.io/app"] != "sso-bridge" {
 		t.Errorf("app label = %q", cr.GetLabels()["catalyst.openova.io/app"])
@@ -368,22 +371,21 @@ func TestReconcile_PerAppContinuumCR_Idempotent(t *testing.T) {
 	r := newReconciler(t, fg, app, env, org, bp)
 
 	reconcileFromCluster(t, r, "acme", "sso-bridge")
-	first, err := r.Dynamic.Resource(ContinuumGVR).Namespace("acme").
-		Get(context.Background(), "dr-sso-bridge", metav1.GetOptions{})
-	if err != nil {
-		t.Fatalf("first get: %v", err)
+	first, ok := gitContinuum(t, r, "acme", "sso-bridge")
+	if !ok {
+		t.Fatal("first: no Continuum in the region files")
 	}
 	firstSpec, _, _ := unstructured.NestedMap(first.Object, "spec")
+	puts := fg.puts
 
 	reconcileFromCluster(t, r, "acme", "sso-bridge")
-	second, err := r.Dynamic.Resource(ContinuumGVR).Namespace("acme").
-		Get(context.Background(), "dr-sso-bridge", metav1.GetOptions{})
-	if err != nil {
-		t.Fatalf("second get: %v", err)
-	}
+	second, _ := gitContinuum(t, r, "acme", "sso-bridge")
 	secondSpec, _, _ := unstructured.NestedMap(second.Object, "spec")
 	if !specsEqual(firstSpec, secondSpec) {
-		t.Error("Continuum CR spec diverged on re-reconcile (should be byte-equal no-op)")
+		t.Error("Continuum spec diverged on re-reconcile (should be byte-equal no-op)")
+	}
+	if fg.puts != puts {
+		t.Errorf("re-reconcile committed %d more file(s); steady state must write nothing", fg.puts-puts)
 	}
 }
 
@@ -405,10 +407,8 @@ func TestReconcile_SingletonApp_NoContinuumCR(t *testing.T) {
 
 	reconcileFromCluster(t, r, "acme", "sso-bridge")
 
-	_, err := r.Dynamic.Resource(ContinuumGVR).Namespace("acme").
-		Get(context.Background(), "dr-sso-bridge", metav1.GetOptions{})
-	if err == nil {
-		t.Fatal("singleton app must NOT produce a Continuum CR, but dr-sso-bridge exists")
+	if _, ok := gitContinuum(t, r, "acme", "sso-bridge"); ok {
+		t.Fatal("singleton app must NOT produce a Continuum, but dr-sso-bridge is in its region files")
 	}
 }
 
@@ -428,11 +428,10 @@ func TestReconcile_TopologyDowngrade_RemovesContinuumCR(t *testing.T) {
 	fg.orgsExist["acme"] = true
 	r := newReconciler(t, fg, app, env, org, bp)
 
-	// First reconcile mints the CR.
+	// First reconcile commits the Continuum with the region files.
 	reconcileFromCluster(t, r, "acme", "sso-bridge")
-	if _, err := r.Dynamic.Resource(ContinuumGVR).Namespace("acme").
-		Get(context.Background(), "dr-sso-bridge", metav1.GetOptions{}); err != nil {
-		t.Fatalf("expected CR after first reconcile: %v", err)
+	if _, ok := gitContinuum(t, r, "acme", "sso-bridge"); !ok {
+		t.Fatal("expected the Continuum in the region files after the first reconcile")
 	}
 
 	// Downgrade the Application's topology to single-region and re-reconcile.
@@ -449,8 +448,7 @@ func TestReconcile_TopologyDowngrade_RemovesContinuumCR(t *testing.T) {
 	}
 	reconcileFromCluster(t, r, "acme", "sso-bridge")
 
-	if _, err := r.Dynamic.Resource(ContinuumGVR).Namespace("acme").
-		Get(context.Background(), "dr-sso-bridge", metav1.GetOptions{}); err == nil {
-		t.Fatal("stale Continuum CR must be removed after topology downgrade to singleton")
+	if _, ok := gitContinuum(t, r, "acme", "sso-bridge"); ok {
+		t.Fatal("stale Continuum must leave the region files after topology downgrade to singleton (Flux prunes it)")
 	}
 }
