@@ -59,6 +59,7 @@ import (
 	orgapi "github.com/openova-io/openova/core/controllers/organization/internal/orgapi"
 	"github.com/openova-io/openova/core/controllers/pkg/fluxsource"
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
+	"github.com/openova-io/openova/core/controllers/pkg/regionfile"
 )
 
 // perOrgTenantRepoName is the per-Org Gitea repo the vCluster manifests
@@ -191,7 +192,7 @@ func regionRootReadmePath(fqdn, region string) string {
 // perOrgRegionAppsReadmePath seeds the region's Application folder in the Org
 // repo so the region-apps Kustomization's path exists from the first commit.
 func perOrgRegionAppsReadmePath(region string) string {
-	return fmt.Sprintf("regions/%s/apps/README.md", region)
+	return regionfile.AppsDir(region) + "/README.md"
 }
 
 // regionGit returns the Gitea writer (RegionGit override, else GiteaClient).
@@ -321,7 +322,7 @@ func (r *Reconciler) renderPerOrgRegionFlux(org *orgapi.Organization, region str
 			"targetNamespace": slug,
 		})),
 		// ADR-0015 D1 — this region's own Application folder.
-		obj(fluxKustomizationGVK, perOrgRegionAppsKustomizationName(slug), "per-org-region-apps-reconciler", ks("./regions/"+region+"/apps", nil)),
+		obj(fluxKustomizationGVK, perOrgRegionAppsKustomizationName(slug), "per-org-region-apps-reconciler", ks("./"+regionfile.AppsDir(region), nil)),
 	}, nil
 }
 

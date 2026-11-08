@@ -74,7 +74,25 @@ func TestReconcile_D6_ReplicatedRegionLocalVolumes_MultiRegion_Delivered(t *test
 	if _, reason, msg := readyCondition(t, readApp(t, r, "acme", "obs")); reason == ReasonRegionLocalVolumeNotReplicated {
 		t.Fatalf("replicated volumes refused: %s", msg)
 	}
-	if len(regionFileObjs(t, fg, "acme", testRegionA, "obs")) != 1 || len(regionFileObjs(t, fg, "acme", testRegionB, "obs")) != 1 {
-		t.Fatal("an admitted placement must render one file per region")
+	// One HelmRelease per region file. Since ADR-0015 D8 a governed
+	// multi-region Application's region file also carries its Continuum
+	// document, so count HelmReleases rather than every object.
+	for _, region := range []string{testRegionA, testRegionB} {
+		if n := countKind(regionFileObjs(t, fg, "acme", region, "obs"), "HelmRelease"); n != 1 {
+			t.Fatalf("an admitted placement must render one HelmRelease into region %s, got %d", region, n)
+		}
 	}
+	if _, ok := gitContinuum(t, r, "acme", "obs"); !ok {
+		t.Fatal("an admitted multi-region placement must carry its Continuum in the region files (D8)")
+	}
+}
+
+func countKind(objs []*unstructured.Unstructured, kind string) int {
+	n := 0
+	for _, o := range objs {
+		if o.GetKind() == kind {
+			n++
+		}
+	}
+	return n
 }

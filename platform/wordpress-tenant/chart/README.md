@@ -121,7 +121,7 @@ openova:
     peers: [hw-me-east-215-b-rtz-prod]
 database:
   topology:
-    promotion: {mechanism: manual}  # #5623 — REQUIRED for a multi-region contract
+    promotion: {mechanism: continuum}  # #5623 — REQUIRED for a multi-region contract: continuum (ADR-0015 D8) | manual
 ```
 
 Helpers come from the library chart `platform/topology-lib` (vendored at

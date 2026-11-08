@@ -140,7 +140,7 @@ spec:
               active-passive / active-hot-standby (ADR-0015 D2): clusterNames
               (region-id → name migration overrides), promotionToken (CNPG
               demotion token for a planned primary move), promotion.mechanism
-              (#5623, REQUIRED: manual), clusterMesh, replication (ADR-0004
+              (#5623, REQUIRED: continuum | manual), clusterMesh, replication (ADR-0004
               sync default), sharedSecrets (replication CA + DB owner
               credentials identical in every region).
       openova:

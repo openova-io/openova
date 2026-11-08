@@ -227,10 +227,14 @@ database:
     # (`status.lastPromotionToken`), so leaving it set is harmless.
     promotionToken: ""
     # #5623 — WHO PROMOTES A STANDBY WHEN THE PRIMARY REGION DIES? REQUIRED
-    # for a multi-region contract; empty FAILS the render. `manual` (the only
-    # deliverable value today): the sovereign-admin commits
-    # `openova.topology.primary: <surviving region>`. `dr-promoter` /
-    # `continuum` fail closed until an every-region actor ships (ADR-0015 D8).
+    # for a multi-region contract; empty FAILS the render. `continuum`
+    # (ADR-0015 D8): the Continuum rendered into every region file commits
+    # the move phase by phase (demote old → promote new with the CNPG token →
+    # peers); an unplanned region loss is promoted only when the Continuum's
+    # spec.transition.autoPromoteOnRegionLoss is true. `manual`: the
+    # sovereign-admin commits `openova.topology.primary: <surviving region>`.
+    # `dr-promoter` fails closed (this chart ships no promoter). The chart
+    # renders no actor of its own under either value.
     # Stamped on every non-primary Cluster as
     # catalyst.openova.io/dr-promotion-mechanism.
     promotion:

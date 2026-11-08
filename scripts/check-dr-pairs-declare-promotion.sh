@@ -144,20 +144,29 @@ PYEOF
 #                 RUNBOOKS §6.1 action. Honest, and the RTO is human response
 #                 time. Must be DECLARED by the chart so the gap is visible on
 #                 the live object, never inferred from an absent promoter.
+#   continuum   — ADR-0015 D8. The Continuum delivered from Git in EVERY
+#                 region's file of the Application (bp-continuum, slot 62,
+#                 `region-role: every-region`, never suspended in a follower)
+#                 commits the move as ordered per-region Git commits of
+#                 `openova.topology.primary` (+ the CNPG promotionToken), and
+#                 detects region loss from the survivor. The CHART therefore
+#                 must render no actor of its own — its render must be a pure
+#                 function of the committed fields, or it would fight
+#                 Continuum's commits.
 #
-# `continuum` is deliberately NOT an accepted mechanism for an unplanned kill:
-# continuum-controller is a single region-A Deployment (verified live on hw292
-# 2026-08-06, both regions sampled — region-B carries neither the controller nor
-# the Continuum CRD), and its Sequencer orchestrates a PLANNED switchover. It
-# dies with the region it is supposed to fail away from. That is the #5137 root
-# cause and precisely why bp-cnpg-pair grew its own promoter.
+# History: before D8, `continuum` was refused here because continuum-controller
+# was a single region-A Deployment (hw292 2026-08-06: region-B carried neither
+# the controller nor the CRD) that died with the region it was meant to fail
+# away from (#5137). The `continuum` case below therefore also asserts the
+# slot-62 HelmRelease is the every-region shape, so that regression re-opens
+# this gate rather than silently making the declaration a lie again.
 # ─────────────────────────────────────────────────────────────────────────────
 REGISTRY="
 platform/cnpg-pair/chart/templates/replica-cluster.yaml|platform/cnpg-pair/chart|dr-promoter
 platform/cnpg-pair/chart/templates/primary-cluster.yaml|platform/cnpg-pair/chart|dr-promoter
 platform/postgres/chart/templates/replica-cluster.yaml|platform/postgres/chart|dr-promoter
 platform/postgres/chart/templates/cluster.yaml|platform/postgres/chart|dr-promoter
-platform/wordpress-tenant/chart/templates/cnpg-cluster.yaml|platform/wordpress-tenant/chart|manual
+platform/wordpress-tenant/chart/templates/cnpg-cluster.yaml|platform/wordpress-tenant/chart|continuum
 "
 # platform/postgres/chart/templates/cluster.yaml joined the registry with #6149:
 # in the DEMOTED (rejoin) shape the primary half renders as a pg_basebackup
@@ -363,72 +372,195 @@ else
   fail "bp-postgres async render errored (expected a successful render with no promoter)"
 fi
 
-# ── bp-wordpress-tenant — mechanism: manual ──────────────────────────────────
+# ── bp-wordpress-tenant — mechanism: continuum (ADR-0015 D8) ─────────────────
 # This chart renders a cross-region standby (the non-primary region's release)
-# but ships no promoter; promotion is a Git commit of openova.topology.primary. `manual` is honest; SILENCE is not. The gate therefore requires
-# the declaration to be (a) mandatory and (b) visible on the standby object.
+# and ships no promoter: promotion is a Git commit of openova.topology.primary
+# (+ database.topology.promotionToken) made by the every-region Continuum
+# (`continuum`) or by the sovereign-admin (`manual`). SILENCE is not allowed.
+# The gate requires the declaration to be (a) mandatory, (b) visible on the
+# standby object, (c) FREE OF ANY CHART-SIDE ACTOR — declaring continuum must
+# change nothing but the stamp, so nothing in the render fights Continuum's
+# commits — and (d) the render must FOLLOW the committed fields, phase by
+# phase, which is the only lever Continuum has.
 ensure_deps platform/wordpress-tenant/chart
-WP_BASE=(
+WP_COMMON=(
+  --namespace acme
   --set smeDomain=t99.omani.works
   --set keycloak.realmURL=https://kc.example/realms/x
   --set keycloak.clientSecretName=wp-oidc
   --set adminUser.email=admin@example.org
-  # ADR-0015 D2 (0.5.0): the standby is the PEER region's own release —
-  # rendered with self=B, primary=A from the shared openova.topology contract.
   --set openova.topology.mode=active-passive
+)
+# ADR-0015 D2 (0.5.0): the standby is the PEER region's own release —
+# rendered with self=B, primary=A from the shared openova.topology contract.
+WP_BASE=(
+  "${WP_COMMON[@]}"
   --set openova.topology.self="$B"
   --set openova.topology.primary="$A"
   --set "openova.topology.peers={$A}"
 )
 
+# wp_cluster <file> <field> — one field of the rendered CNPG Cluster, parsed as
+# YAML (never grepped): role|self|primary|token|mechanism|instance|ns|wp_replicas
+wp_field() {
+  python3 - "$1" "$2" <<'PYEOF'
+import sys, yaml
+docs = [d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+f = sys.argv[2]
+for d in docs:
+    md = d.get('metadata') or {}
+    if d.get('kind') == 'Cluster':
+        ann = md.get('annotations') or {}
+        rep = (d.get('spec') or {}).get('replica') or {}
+        v = {
+            'role': ann.get('catalyst.openova.io/cnpg-pair-role', ''),
+            'self': rep.get('self', ''),
+            'name': md.get('name', ''),
+            'primary': rep.get('primary', ''),
+            'token': rep.get('promotionToken', ''),
+            'mechanism': ann.get('catalyst.openova.io/dr-promotion-mechanism', ''),
+            'instance': (md.get('labels') or {}).get('app.kubernetes.io/instance', ''),
+            'ns': md.get('namespace', ''),
+        }.get(f)
+        if v is not None:
+            print(v)
+    if f == 'wp_replicas' and d.get('kind') == 'Deployment' and 'wordpress' in md.get('name', ''):
+        print((d.get('spec') or {}).get('replicas', ''))
+PYEOF
+}
+
 # Negative FIRST — an undeclared pair must FAIL CLOSED. Before #5623 this
 # rendered happily and shipped a standby nothing would ever promote.
 if helm template wp platform/wordpress-tenant/chart "${WP_BASE[@]}" \
   --api-versions postgresql.cnpg.io/v1 > "$TMP/wp-undeclared.yaml" 2>"$TMP/wp-undeclared.err"; then
-  fail "bp-wordpress-tenant: active-hot-standby rendered with NO promotion mechanism declared.
+  fail "bp-wordpress-tenant: active-passive rendered with NO promotion mechanism declared.
         This is the #5623 defect on the customer-facing Blueprint: a paying
         Organization gets an \"HA\" database whose standby nothing promotes, and
         the render says nothing about it. The chart must fail closed."
 elif grep -q 'database.topology.promotion.mechanism' "$TMP/wp-undeclared.err"; then
-  pass "bp-wordpress-tenant: undeclared active-hot-standby FAILS CLOSED naming database.topology.promotion.mechanism"
+  pass "bp-wordpress-tenant: undeclared multi-region pair FAILS CLOSED naming database.topology.promotion.mechanism"
 else
   fail "bp-wordpress-tenant: undeclared render failed, but not with the promotion-mechanism error —
         got: $(tail -2 "$TMP/wp-undeclared.err")"
 fi
 
-# Positive — the declaration renders, and is stamped on the STANDBY object so an
+# Positive — both declarations render, each stamped on the STANDBY object so an
 # operator can answer "who promotes this?" from the live cluster, not from git.
-if helm template wp platform/wordpress-tenant/chart "${WP_BASE[@]}" \
-  --set database.topology.promotion.mechanism=manual \
-  --api-versions postgresql.cnpg.io/v1 > "$TMP/wp-manual.yaml" 2>"$TMP/wp-manual.err"; then
-  stamped="$(python3 - "$TMP/wp-manual.yaml" <<'PYEOF'
-import sys, yaml
-for d in yaml.safe_load_all(open(sys.argv[1])):
-    if d and d.get('kind') == 'Cluster':
-        ann = (d.get('metadata') or {}).get('annotations') or {}
-        if ann.get('catalyst.openova.io/cnpg-pair-role') == 'replica':
-            print(ann.get('catalyst.openova.io/dr-promotion-mechanism', ''))
-PYEOF
-)"
-  if [ "$stamped" = "manual" ]; then
-    pass "bp-wordpress-tenant: standby Cluster CR stamped catalyst.openova.io/dr-promotion-mechanism=manual"
-  else
-    fail "bp-wordpress-tenant: standby not stamped with the declared mechanism — got '${stamped:-<absent>}', want 'manual'.
+for mech in continuum manual; do
+  if helm template wp platform/wordpress-tenant/chart "${WP_BASE[@]}" \
+    --set database.topology.promotion.mechanism="$mech" \
+    --api-versions postgresql.cnpg.io/v1 > "$TMP/wp-$mech.yaml" 2>"$TMP/wp-$mech.err"; then
+    stamped="$(wp_field "$TMP/wp-$mech.yaml" mechanism)"
+    if [ "$stamped" = "$mech" ] && [ "$(wp_field "$TMP/wp-$mech.yaml" role)" = "replica" ]; then
+      pass "bp-wordpress-tenant: standby Cluster CR stamped catalyst.openova.io/dr-promotion-mechanism=$mech"
+    else
+      fail "bp-wordpress-tenant: standby not stamped with the declared mechanism — got '${stamped:-<absent>}', want '$mech'.
         The declaration must be answerable from the live object; a values-file-only
         claim is invisible to the operator during an outage."
+    fi
+    assert_no_promoter "bp-wordpress-tenant mechanism=$mech" "$TMP/wp-$mech.yaml" \
+      "the commit is made by $mech, never by a chart-side promoter"
+  else
+    fail "bp-wordpress-tenant mechanism=$mech render errored: $(tail -2 "$TMP/wp-$mech.err")"
   fi
-  # A `manual` declaration that shipped a promoter would be a stale lie in the
-  # other direction — the registry would be describing a chart that no longer
-  # matches it.
-  assert_no_promoter "bp-wordpress-tenant mechanism=manual" "$TMP/wp-manual.yaml" \
-    "declared mechanism is manual — a promoter here would contradict the registry"
+done
+
+# (c) NOTHING FIGHTS CONTINUUM — the continuum render must equal the manual
+# render once the one stamp is normalised. Any extra object (a promoter, a
+# Continuum or Lease of the chart's own, a Job that patches a Cluster) shows up
+# as a diff here, whatever it is named.
+if [ -s "$TMP/wp-continuum.yaml" ] && [ -s "$TMP/wp-manual.yaml" ]; then
+  # (client-secret is randAlphaNum-per-render in sso-secret.yaml's lookup-or-
+  # generate fallback — normalised too, it differs between ANY two renders.)
+  sed -e 's/dr-promotion-mechanism: "continuum"/dr-promotion-mechanism: "X"/' \
+    -e 's/^\(  client-secret: \).*/\1RANDOM/' "$TMP/wp-continuum.yaml" > "$TMP/wp-c.norm"
+  sed -e 's/dr-promotion-mechanism: "manual"/dr-promotion-mechanism: "X"/' \
+    -e 's/^\(  client-secret: \).*/\1RANDOM/' "$TMP/wp-manual.yaml" > "$TMP/wp-m.norm"
+  if cmp -s "$TMP/wp-c.norm" "$TMP/wp-m.norm"; then
+    pass "bp-wordpress-tenant: mechanism=continuum renders nothing but the stamp (no chart-side actor fights Continuum's commits)"
+  else
+    fail "bp-wordpress-tenant: mechanism=continuum renders MORE than the stamp — a chart-side actor would race Continuum's Git commits:
+        $(diff "$TMP/wp-m.norm" "$TMP/wp-c.norm" | head -6)"
+  fi
+  # Continuum observes the Cluster by app.kubernetes.io/instance=<release> in
+  # the HelmRelease's namespace and reads spec.replica.self == its own name
+  # (core/controllers/continuum/internal/observe). Pin those VALUES.
+  if [ "$(wp_field "$TMP/wp-continuum.yaml" instance)" = "wp" ] && [ "$(wp_field "$TMP/wp-continuum.yaml" ns)" = "acme" ] \
+    && [ "$(wp_field "$TMP/wp-continuum.yaml" self)" = "$(wp_field "$TMP/wp-continuum.yaml" name)" ]; then
+    pass "bp-wordpress-tenant: the standby Cluster is where Continuum observes it (instance=wp, ns=acme, replica.self=its name)"
+  else
+    fail "bp-wordpress-tenant: Continuum could not observe this Cluster (instance='$(wp_field "$TMP/wp-continuum.yaml" instance)' ns='$(wp_field "$TMP/wp-continuum.yaml" ns)' self='$(wp_field "$TMP/wp-continuum.yaml" self)' name='$(wp_field "$TMP/wp-continuum.yaml" name)')"
+  fi
+fi
+# ...and a Cluster moved out of Continuum's sight must fail closed.
+if helm template wp platform/wordpress-tenant/chart "${WP_BASE[@]}" \
+  --set database.topology.promotion.mechanism=continuum --set database.cluster.namespace=elsewhere \
+  --api-versions postgresql.cnpg.io/v1 > /dev/null 2>"$TMP/wp-ns.err"; then
+  fail "bp-wordpress-tenant: mechanism=continuum accepted a CNPG Cluster outside the release namespace — Continuum would wait forever on a Cluster it cannot see"
 else
-  fail "bp-wordpress-tenant mechanism=manual render errored: $(tail -2 "$TMP/wp-manual.err")"
+  pass "bp-wordpress-tenant: mechanism=continuum with the Cluster outside the release namespace fails closed"
+fi
+
+# (d) THE RENDER FOLLOWS CONTINUUM'S COMMITS, phase by phase (the token value
+# is arbitrary; CNPG compares it to the one the old primary published).
+wp_phase() { # <out> <self> <primary> [token]
+  helm template wp platform/wordpress-tenant/chart "${WP_COMMON[@]}" \
+    --set openova.topology.self="$2" --set openova.topology.primary="$3" \
+    --set "openova.topology.peers={$([ "$2" = "$A" ] && echo "$B" || echo "$A")}" \
+    --set database.topology.promotion.mechanism=continuum \
+    ${4:+--set database.topology.promotionToken="$4"} \
+    --api-versions postgresql.cnpg.io/v1 > "$1" 2>"$1.err"
+}
+TOK="tok-from-A-demotion"
+# traffic-off: A's file gets primary=B → A demotes (not primary), WordPress 0,
+# and A never renders a promotion token even if one is present in its values.
+if wp_phase "$TMP/wp-p1.yaml" "$A" "$B" "$TOK"; then
+  if [ "$(wp_field "$TMP/wp-p1.yaml" role)" = "replica" ] && [ "$(wp_field "$TMP/wp-p1.yaml" wp_replicas)" = "0" ] \
+    && [ -z "$(wp_field "$TMP/wp-p1.yaml" token)" ]; then
+    pass "bp-wordpress-tenant: traffic-off commit (A: primary=B) demotes A, scales WordPress to 0, renders no token on A"
+  else
+    fail "bp-wordpress-tenant: traffic-off commit not followed on A (role='$(wp_field "$TMP/wp-p1.yaml" role)' replicas='$(wp_field "$TMP/wp-p1.yaml" wp_replicas)' token='$(wp_field "$TMP/wp-p1.yaml" token)')"
+  fi
+else
+  fail "bp-wordpress-tenant: traffic-off render errored: $(tail -2 "$TMP/wp-p1.yaml.err")"
+fi
+# data-primary: B's file gets primary=B + promotionToken → B is the primary
+# member carrying exactly that token, WordPress scaled up.
+if wp_phase "$TMP/wp-p2.yaml" "$B" "$B" "$TOK"; then
+  if [ "$(wp_field "$TMP/wp-p2.yaml" role)" = "primary" ] && [ "$(wp_field "$TMP/wp-p2.yaml" token)" = "$TOK" ] \
+    && [ "$(wp_field "$TMP/wp-p2.yaml" self)" = "$(wp_field "$TMP/wp-p2.yaml" primary)" ] \
+    && [ "$(wp_field "$TMP/wp-p2.yaml" wp_replicas)" != "0" ]; then
+    pass "bp-wordpress-tenant: data-primary commit (B: primary=B + token) promotes B with exactly that token, WordPress up"
+  else
+    fail "bp-wordpress-tenant: data-primary commit not followed on B (role='$(wp_field "$TMP/wp-p2.yaml" role)' token='$(wp_field "$TMP/wp-p2.yaml" token)' replicas='$(wp_field "$TMP/wp-p2.yaml" wp_replicas)')"
+  fi
+else
+  fail "bp-wordpress-tenant: data-primary render errored: $(tail -2 "$TMP/wp-p2.yaml.err")"
+fi
+
+# The actor must EXIST in every region, or declaring it is the pre-D8 lie
+# (#5137): slot 62 is the every-region shape and never suspended.
+SLOT62=clusters/_template/bootstrap-kit/62-bp-continuum.yaml
+slot62="$(python3 - "$SLOT62" <<'PYEOF'
+import sys, yaml
+for d in yaml.safe_load_all(open(sys.argv[1])):
+    if d and d.get('kind') == 'HelmRelease':
+        lab = (d.get('metadata') or {}).get('labels') or {}
+        spec = d.get('spec') or {}
+        print(lab.get('catalyst.openova.io/region-role', ''), str(spec.get('suspend', False)).lower(), len(spec.get('dependsOn') or []))
+PYEOF
+)"
+if [ "$slot62" = "every-region false 0" ]; then
+  pass "slot 62 bp-continuum is the every-region shape (region-role=every-region, not suspended, no dependsOn) — continuum is a real actor in every region"
+else
+  fail "slot 62 bp-continuum is NOT the every-region shape (got '$slot62', want 'every-region false 0').
+        bp-wordpress-tenant declares mechanism=continuum; a Continuum that is absent
+        or suspended in a region dies with the region it should fail away from (#5137)."
 fi
 
 # A mechanism this chart cannot deliver must fail closed rather than assert a
 # failover that will not happen.
-for bogus in dr-promoter continuum; do
+for bogus in dr-promoter not-a-mechanism; do
   if helm template wp platform/wordpress-tenant/chart "${WP_BASE[@]}" \
     --set database.topology.promotion.mechanism="$bogus" \
     --api-versions postgresql.cnpg.io/v1 > /dev/null 2>"$TMP/wp-$bogus.err"; then

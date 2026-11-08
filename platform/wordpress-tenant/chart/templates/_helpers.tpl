@@ -250,13 +250,29 @@ Pod uses it — no cross-region DB round-trips.
 #5623 — a multi-region pair MUST DECLARE ITS PROMOTION MECHANISM.
 
 Under ADR-0015 a promotion is a Git commit of `openova.topology.primary` (plus,
-for a planned move, `database.topology.promotionToken`) to the surviving
-region's values. Nothing in THIS chart makes that commit on an unplanned region
-kill: the Continuum actor that will (ADR-0015 D8, running in every region) is
-not delivered yet. So the only honest mechanism today is `manual` — the
-sovereign-admin commits the new primary. Empty FAILS; `dr-promoter` /
-`continuum` fail closed naming what is missing. The value is stamped on every
-non-primary Cluster CR (`catalyst.openova.io/dr-promotion-mechanism`).
+for a planned move, `database.topology.promotionToken`) to the region files.
+Two mechanisms make that commit; this chart itself makes none:
+
+  continuum - ADR-0015 D8. The Continuum the application-controller renders
+              into every region file of this Application (bp-continuum, slot
+              62, running in EVERY region) commits the move phase by phase:
+              the old primary's file first (CNPG demotes it and publishes
+              status.demotionToken), then the new primary's file with
+              `primary` + `promotionToken`, then the peers. On an UNPLANNED
+              region loss the survivor commits `primary` without a token only
+              when the Continuum's spec.transition.autoPromoteOnRegionLoss is
+              true (default false: the loss is reported, never acted on).
+  manual    - the sovereign-admin commits `openova.topology.primary=<survivor>`.
+
+The chart must render NOTHING that fights those commits: no promoter, no
+Continuum or Lease of its own, no hook that patches a Cluster. The render is a
+pure function of the two committed fields, so the declaration changes only the
+stamp below (scripts/check-dr-pairs-declare-promotion.sh diffs the renders).
+Under `continuum` the CNPG Cluster must also stay where Continuum observes it:
+the release namespace, labelled app.kubernetes.io/instance=<release>
+(core/controllers/continuum/internal/observe). Empty FAILS; `dr-promoter`
+fails closed (this chart ships no promoter Deployment). The value is stamped on
+every non-primary Cluster CR (`catalyst.openova.io/dr-promotion-mechanism`).
 */}}
 {{- define "bp-wordpress-tenant.drPromotionMechanism" -}}
 {{- dig "topology" "promotion" "mechanism" "" (.Values.database | toJson | fromJson) | toString | trim -}}
@@ -265,16 +281,18 @@ non-primary Cluster CR (`catalyst.openova.io/dr-promotion-mechanism`).
 {{- define "bp-wordpress-tenant.validatePromotion" -}}
 {{- $m := include "bp-wordpress-tenant.drPromotionMechanism" . -}}
 {{- if eq $m "" -}}
-{{- fail "database.topology.promotion.mechanism is REQUIRED for a multi-region openova.topology (#5623): this chart renders a cross-region CNPG standby, and an undeclared pair is one that silently never promotes on a region kill. Set it to \"manual\" (the sovereign-admin commits openova.topology.primary=<surviving region> — the only mechanism this chart delivers today)." -}}
+{{- fail "database.topology.promotion.mechanism is REQUIRED for a multi-region openova.topology (#5623): this chart renders a cross-region CNPG standby, and an undeclared pair is one that silently never promotes on a region kill. Set it to \"continuum\" (ADR-0015 D8: the Continuum in every region commits the move) or \"manual\" (the sovereign-admin commits openova.topology.primary=<surviving region>)." -}}
 {{- end -}}
 {{- if eq $m "dr-promoter" -}}
-{{- fail "database.topology.promotion.mechanism=\"dr-promoter\" is NOT DELIVERABLE by bp-wordpress-tenant (#5623): this chart ships no dr-promoter Deployment. Declaring it would assert a failover that cannot happen." -}}
+{{- fail "database.topology.promotion.mechanism=\"dr-promoter\" is NOT DELIVERABLE by bp-wordpress-tenant (#5623): this chart ships no dr-promoter Deployment. Declaring it would assert a failover that cannot happen. Use \"continuum\" (ADR-0015 D8)." -}}
 {{- end -}}
 {{- if eq $m "continuum" -}}
-{{- fail "database.topology.promotion.mechanism=\"continuum\" is NOT DELIVERABLE yet (#5623, ADR-0015 D8): the every-region Continuum actor that commits the next primary on a region loss is not shipped." -}}
+{{- $cnpgNs := include "bp-wordpress-tenant.cnpgNamespace" . -}}
+{{- if ne $cnpgNs .Release.Namespace -}}
+{{- fail (printf "database.topology.promotion.mechanism=\"continuum\" needs the CNPG Cluster in the release namespace %q (database.cluster.namespace=%q): Continuum observes status.demotionToken / lastPromotionToken on the Cluster labelled app.kubernetes.io/instance=<release> in the HelmRelease's target namespace, and would wait forever on a Cluster it cannot see (ADR-0015 D8)." .Release.Namespace $cnpgNs) -}}
 {{- end -}}
-{{- if ne $m "manual" -}}
-{{- fail (printf "database.topology.promotion.mechanism=%q is not a recognised mechanism (#5623). Valid: manual | dr-promoter | continuum." $m) -}}
+{{- else if ne $m "manual" -}}
+{{- fail (printf "database.topology.promotion.mechanism=%q is not a recognised mechanism (#5623). Valid: continuum | manual." $m) -}}
 {{- end -}}
 {{- end -}}
 

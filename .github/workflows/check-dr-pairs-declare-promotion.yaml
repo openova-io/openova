@@ -34,12 +34,14 @@ on:
       - 'platform/**'
       - 'products/**'
       - 'scripts/check-dr-pairs-declare-promotion.sh'
+      - 'clusters/_template/bootstrap-kit/62-bp-continuum.yaml'
       - '.github/workflows/check-dr-pairs-declare-promotion.yaml'
   pull_request:
     paths:
       - 'platform/**'
       - 'products/**'
       - 'scripts/check-dr-pairs-declare-promotion.sh'
+      - 'clusters/_template/bootstrap-kit/62-bp-continuum.yaml'
       - '.github/workflows/check-dr-pairs-declare-promotion.yaml'
   workflow_dispatch:
 

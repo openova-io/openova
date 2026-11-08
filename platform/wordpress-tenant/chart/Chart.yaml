@@ -479,6 +479,15 @@ name: bp-wordpress-tenant
 #   hook `media-migrate` copies a still-present legacy PVC's uploads into the
 #   bucket (idempotent, HeadObject-skip). blueprint.yaml regionLocalVolumes:
 #   wp-content none-needed, uploads s3-replicated.
+#   ALSO in 0.6.0 (ADR-0015 batch-2 integration, #7076 + #7080): it carries
+#   the 0.5.1 shared-secrets seed above (0.5.1 was never published), and
+#   `database.topology.promotion.mechanism: continuum` is now ACCEPTED —
+#   ADR-0015 D8's every-region Continuum is the actor that commits the move.
+#   The chart renders nothing of its own under it (no promoter, no Continuum,
+#   no Cluster-patching hook; the render is a pure function of
+#   openova.topology.primary + database.topology.promotionToken), and under
+#   `continuum` the CNPG Cluster must live in the release namespace where
+#   Continuum observes it. `dr-promoter` still fails closed.
 version: 0.6.0
 appVersion: "6"
 description: |
