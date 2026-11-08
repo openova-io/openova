@@ -67,4 +67,20 @@ if grep -qE '"(create|update|delete)"' <<<"$read_policy_block"; then
 fi
 echo "  ok"
 
+echo "[bp-openbao] Case 4: multi-region shared-material grant (ADR-0015, #7067) — scoped, no delete"
+# shellcheck disable=SC2016
+grep -qF -- '"$KV_MOUNT_PATH/data/openova/apps/*"' "$render_file" || {
+  echo "FAIL: push policy lacks the data grant for openova/apps/* (writer-region PushSecret seed 403s)"; exit 1; }
+# shellcheck disable=SC2016
+grep -qF -- '"$KV_MOUNT_PATH/metadata/openova/apps/*"' "$render_file" || {
+  echo "FAIL: push policy lacks the metadata grant for openova/apps/*"; exit 1; }
+push_policy_block=$(sed -n '/bao policy write external-secrets-push -/,/^ *EOF$/p' "$render_file")
+if grep -qE '"delete"' <<<"$push_policy_block"; then
+  echo "FAIL: external-secrets-push gained delete — shared material must survive a primary move / uninstall"; exit 1
+fi
+if grep -qE '"\$KV_MOUNT_PATH/data/\*"' <<<"$push_policy_block"; then
+  echo "FAIL: external-secrets-push widened to the whole KV tree"; exit 1
+fi
+echo "  ok"
+
 echo "[bp-openbao] eso-push-policy-render: ALL CASES PASSED"

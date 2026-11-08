@@ -254,19 +254,33 @@ database:
     #   replicationCA  (ca.crt, ca.key)  — shared streaming client CA
     #   appCredentials (basic-auth)       — the DB owner's password
     # Empty names ⇒ `<cnpgClusterName>-replication-ca` /
-    # `<cnpgClusterName>-app-credentials`. With externalSecret.storeRef.name
-    # set they are pulled from that store at
-    # `<remoteKeyPrefix>/replication-ca` and `<remoteKeyPrefix>/db-owner`
-    # (default prefix `openova/apps/<namespace>/<release>`); otherwise they
-    # must pre-exist — the CNPG Cluster waits for them.
+    # `<cnpgClusterName>-app-credentials`. Every region pulls both from
+    # externalSecret.storeRef at `<remoteKeyPrefix>/replication-ca` and
+    # `<remoteKeyPrefix>/db-owner` (default prefix
+    # `openova/apps/<namespace>/<cnpgClusterName>` — the pair identity, the
+    # same in every region). The PRIMARY region also renders the seed
+    # (templates/shared-secrets-seed.yaml): an ESO Password generator + a
+    # cert-manager self-signed CA, pushed write-once (IfNotExists) into every
+    # store in seed.secretStoreRefs. storeRef.name "" ⇒ no ExternalSecret and
+    # no seed: the two Secrets must then pre-exist (the CNPG Cluster waits).
     sharedSecrets:
       replicationCA: ""
       appCredentials: ""
       externalSecret:
         storeRef:
           kind: ClusterSecretStore
-          name: ""
+          # The platform's OpenBao store (bp-external-secrets-stores), present
+          # on every Sovereign.
+          name: vault-region1
         remoteKeyPrefix: ""
+        refreshInterval: 1h
+      seed:
+        enabled: true
+        # Stores the primary pushes the material into. Empty ⇒ [storeRef].
+        # Each region must be able to READ the material from ITS storeRef:
+        # list every region's store here when the regions do not share one
+        # OpenBao (README §Shared secrets).
+        secretStoreRefs: []
         refreshInterval: 1h
 # ─── openova.topology — THE placement contract (ADR-0015 D2) ─────────────
 # Written per region into Git by the orchestrator (one HelmRelease of this

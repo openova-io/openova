@@ -323,7 +323,7 @@ func TestRender_RetiredFlexiRendersSGrow(t *testing.T) {
 	}
 	for k, w := range want {
 		g := string(got[k])
-		if k == "vcluster/apps/"+appStorageQuotaDoc {
+		if k == "vcluster/apps/"+appStorageQuotaDoc || k == RegionBaselineAppsDir+"/"+appStorageQuotaDoc {
 			g = strings.Replace(g, "    openova.io/retired-plan: \"flexi\"\n", "", 1)
 		}
 		if g != string(w) {

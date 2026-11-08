@@ -554,8 +554,8 @@ func TestReconcile_HappyPath(t *testing.T) {
 	if gs.createRepos != 1 {
 		t.Errorf("expected 1 gitea repo create, got %d", gs.createRepos)
 	}
-	if gs.createFiles != 16 {
-		t.Errorf("expected 16 gitea file creates (namespace, vcluster, resourcequota, limitrange, kustomization, platformquota + priorityclass + platform-scope-policy + platform-scope-rbac [#7067 platform admission scope], apps/networkpolicy, apps/kustomization, apps/namespace [#4991 vcluster-tier target ns], apps/storagequota [#6971 app-storage cap], host-apps/ciliumnetworkpolicy, host-apps/provisioning-rbac [#4991], host-apps/kustomization), got %d", gs.createFiles)
+	if gs.createFiles != 20 {
+		t.Errorf("expected 20 gitea file creates (namespace, vcluster, resourcequota, limitrange, kustomization, kubeconfig-mirror [ADR-0015], apps/networkpolicy, apps/kustomization, apps/namespace [#4991 vcluster-tier target ns], apps/storagequota [#6971 app-storage cap], host-apps/ciliumnetworkpolicy, host-apps/provisioning-rbac [#4991], host-apps/kustomization, + the 7 region-baseline copies of the apps + host-apps trees [ADR-0015]), got %d", gs.createFiles)
 	}
 	if gs.updateFiles != 0 {
 		t.Errorf("expected 0 file updates on first reconcile, got %d", gs.updateFiles)
@@ -783,8 +783,8 @@ func TestReconcile_GiteaOrgAlreadyExists(t *testing.T) {
 	if gs.createRepos != 1 {
 		t.Errorf("expected 1 repo create even with pre-existing org, got %d", gs.createRepos)
 	}
-	if gs.createFiles != 16 {
-		t.Errorf("expected 16 file creates even with pre-existing org, got %d", gs.createFiles)
+	if gs.createFiles != 20 {
+		t.Errorf("expected 20 file creates even with pre-existing org, got %d", gs.createFiles)
 	}
 }
 

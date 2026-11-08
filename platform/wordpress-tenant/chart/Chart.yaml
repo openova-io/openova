@@ -446,7 +446,24 @@ name: bp-wordpress-tenant
 #   fails the render with the migration text. Contract absent ⇒ the unchanged
 #   singleton render. wp-content PVC declared region-local (D6 seam).
 #   tests/active-hot-standby-render.sh → tests/topology-per-region-render.sh.
-version: 0.5.0
+# 0.5.1 (ADR-0015, Refs #7067) — the shared cross-region secrets get a
+#   producer. NEW templates/shared-secrets-seed.yaml, rendered ONLY where
+#   openova.topology.self is the primary: an ESO Password generator + a
+#   cert-manager self-signed CA, pushed into the secret store by two
+#   PushSecrets with updatePolicy IfNotExists + deletionPolicy None
+#   (write-once: never regenerated on re-render, never removed on a primary
+#   move; the new primary's seed is a no-op). Every region (primary included)
+#   keeps consuming the store copy through the existing ExternalSecrets.
+#   FIX: the remote-key prefix defaulted to `openova/apps/<ns>/<release>` and
+#   each region's release is named `<app>-<cluster>`, so the two regions read
+#   DIFFERENT paths — now the pair identity
+#   `openova/apps/<ns>/<cnpgClusterName>` (sharedSecretsPrefix helper).
+#   externalSecret.storeRef.name defaults to the platform store
+#   `vault-region1` (was "", which left the CNPG Cluster waiting forever on
+#   Secrets nothing created). seed.secretStoreRefs fans the push out to every
+#   region's store. tests/shared-secrets-render.sh. Expected rebase: the
+#   concurrent D6b media→SeaweedFS change takes 0.6.0 on top of this.
+version: 0.5.1
 appVersion: "6"
 description: |
   Catalyst Blueprint scratch chart for in-vcluster WordPress, one

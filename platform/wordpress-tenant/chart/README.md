@@ -139,9 +139,10 @@ build). Each release renders **only its own half**:
 - **Shared Secrets** — identical bytes in every region, must exist before the
   Cluster can start: `<cnpgClusterName>-replication-ca` (`ca.crt`, `ca.key`:
   every member's `clientCASecret`) and `<cnpgClusterName>-app-credentials`
-  (basic-auth: the DB owner). Set
-  `database.topology.sharedSecrets.externalSecret.storeRef.name` to pull them
-  from a (Cluster)SecretStore (`<prefix>/replication-ca`, `<prefix>/db-owner`).
+  (basic-auth: the DB owner). They are pulled from
+  `database.topology.sharedSecrets.externalSecret.storeRef` (default
+  `vault-region1`) at `<prefix>/replication-ca` and `<prefix>/db-owner`; see
+  §Shared secrets for who writes them.
 - **Traffic follows the primary**: WordPress cannot serve against a read-only
   replica (sessions, options, wp-cron, login all write), and pointing a
   passive region's Pods at the primary's DB over the mesh would pay the
@@ -151,6 +152,30 @@ build). Each release renders **only its own half**:
 - `wp-content` is a **region-local** volume (`templates/pvc.yaml`, declared in
   `blueprint.yaml` `spec.regionLocalVolumes`, `replication: none`): media do
   not follow a primary move until ADR-0015 D6 lands.
+
+### Shared secrets (0.5.1)
+
+Who creates the two shared Secrets:
+
+- **Every region** renders two ExternalSecrets that read them from
+  `externalSecret.storeRef` (default the platform's OpenBao store
+  `vault-region1`) at `<prefix>/replication-ca` and `<prefix>/db-owner`.
+  `<prefix>` defaults to `openova/apps/<namespace>/<cnpgClusterName>`, the pair
+  identity. It is the same in every region; the release name is not, because
+  each region's HelmRelease is named `<app>-<cluster>`.
+- **Only the primary** renders the seed (`templates/shared-secrets-seed.yaml`):
+  an ESO `Password` generator and a cert-manager self-signed CA, pushed by two
+  PushSecrets with `updatePolicy: IfNotExists` and `deletionPolicy: None`. The
+  material is written once. A re-render, a refresh, a renewed seed CA or a
+  primary move never overwrites or deletes it. The new primary's seed finds
+  every property present and does nothing.
+- **Reaching every region.** Each region's ExternalSecret reads its own
+  `storeRef`. If all regions read one replicated OpenBao, the default
+  `seed.secretStoreRefs: []` (push to `storeRef`) is enough. If each region
+  runs its own OpenBao, list every region's store in `seed.secretStoreRefs`.
+  hw307 runs one OpenBao per region today (two `cluster_id`s, see #7067), so it
+  needs a peer store per region before region B's ExternalSecrets can resolve.
+  Until then they report `SecretSyncedError` in B.
 
 ### Moving the primary (Git-level, lossless)
 

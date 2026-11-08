@@ -66,7 +66,10 @@ func TestRender_EveryTierOwnsExactlyOneOrgNamespace(t *testing.T) {
 		// Verified by this very assertion: scoping it wrongly made the renders
 		// report 2.
 		hostApplied := func(path string) bool {
-			return !strings.HasPrefix(path, "vcluster/apps/")
+			// The region-baseline apps copy (ADR-0015, region_local.go) is
+			// kubeConfig-applied INTO the vCluster exactly like vcluster/apps/.
+			return !strings.HasPrefix(path, "vcluster/apps/") &&
+				!strings.HasPrefix(path, RegionBaselineAppsDir+"/")
 		}
 		nsDocs := 0
 		for path, raw := range out {

@@ -15,7 +15,11 @@ spec:
   # contract (one HelmRelease per region, renders only its own CNPG member —
   # CNPG native distributed topology). database.mode / pg.activeHotStandby
   # REMOVED (fail closed). Lockstep with platform/wordpress-tenant/chart/Chart.yaml.
-  version: 0.5.0
+  # 0.5.1 (ADR-0015, Refs #7067): writer-only write-once seed of the shared
+  # cross-region secrets (replication CA + DB owner) into the secret store;
+  # remote-key prefix keyed on the pair identity. Lockstep with
+  # platform/wordpress-tenant/chart/Chart.yaml.
+  version: 0.5.1
   card:
     title: WordPress (per-Organization)
     summary: |
