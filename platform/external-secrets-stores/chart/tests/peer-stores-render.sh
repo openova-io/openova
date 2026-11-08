@@ -99,17 +99,21 @@ if mode == "contract":     # S6 — argv[5] = this region's bp-openbao, argv[6] 
     ok(owner is not None and owner["spec"].get("selector", {}).get("openbao-active") == "true", f"S6 peer {p} must render the OWNER openbao-{p} with backends")
     stub = get(mine, "Service", f"openbao-{p}")
     ok(stub is not None and not stub["spec"].get("selector"), f"S6 this region must render the selector-less stub openbao-{p}")
-    cm = get(theirs, "ConfigMap", "openbao-peer-trust")
-    d = cm["data"] if cm else {}
-    ok(f"jwt-config-{self_id}.json" in d, f"S6 peer {p} has no jwt-peer-{self_id} mount for this store's auth path")
-    role = json.loads(d.get(f"jwt-role-{self_id}.json", "{}"))
+    def desired(ds):
+        cm = get(ds, "ConfigMap", "openbao-config-desired")
+        data = cm["data"] if cm else {}
+        return data, (lambda path: json.loads(data.get(path.replace("/", ".") + ".json", "{}")))
+    d, pl = desired(theirs)
+    ok(f"mount sys/auth/jwt-peer-{self_id}" in d.get("manifest", ""), f"S6 peer {p} has no jwt-peer-{self_id} mount for this store's auth path")
+    role = pl(f"auth/jwt-peer-{self_id}/role/openbao-peer-push")
     ok(role.get("bound_claims") == {"openova_region": self_id} and role.get("bound_audiences") == ["openbao-peer-push"], f"S6 peer role binds {role}")
-    ok(json.loads(d.get(f"jwt-config-{self_id}.json", "{}")).get("oidc_discovery_url") == f"http://openbao-{self_id}.openbao.svc.cluster.local:8200/v1/identity/oidc", "S6 peer must discover THIS region's issuer")
-    mcm = get(mine, "ConfigMap", "openbao-peer-trust")
-    md = mcm["data"] if mcm else {}
-    r = json.loads(md.get("role.json", "{}"))
+    ok(pl(f"auth/jwt-peer-{self_id}/config").get("oidc_discovery_url") == f"http://openbao-{self_id}.openbao.svc.cluster.local:8200/v1/identity/oidc", "S6 peer must discover THIS region's issuer")
+    md, mpl = desired(mine)
+    r = mpl("identity/oidc/role/openbao-peer-push")
     ok(r.get("client_id") == "openbao-peer-push" and json.loads(r.get("template", "{}")) == {"openova_region": self_id}, f"S6 this region's issuer role {r}")
-    ok(json.loads(md.get("issuer.json", "{}")).get("issuer") == f"http://openbao-{self_id}.openbao.svc.cluster.local:8200", "S6 issuer must be the openbao-<self> Service the peer discovers")
+    ok(mpl("identity/oidc/config").get("issuer") == f"http://openbao-{self_id}.openbao.svc.cluster.local:8200", "S6 issuer must be the openbao-<self> Service the peer discovers")
+    tok = mpl("auth/kubernetes/role/openbao-peer-token")
+    ok(tok.get("bound_service_account_names") == ["external-secrets"], f"S6 this region must bind the generator's role openbao-peer-token to ESO: {tok}")
 elif mode == "none":
     ok(stores == ["vault-region1"], f"S4 stores {stores}, want only vault-region1")
     ok(get(docs, "VaultDynamicSecret", "openbao-peer-push-token") is None, "S4 single region renders the token generator")

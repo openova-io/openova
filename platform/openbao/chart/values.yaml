@@ -821,10 +821,9 @@ bootstrapOwned:
 # discovery is bound to system:serviceaccounts only) and the jwks_uri is the
 # apiserver's VPC-private address — measured on hw307 A and B, 2026-11-08.
 #
-# The jwt mounts need the peer to be reachable, which a one-shot install hook
-# cannot wait for, so a Deployment (templates/peer-trust.yaml) converges them
-# every `intervalSeconds` with the narrow `peer-trust-admin` policy that the
-# auth-bootstrap Job binds.
+# All of the OpenBao-side objects above are declarative desired state
+# (templates/_config.tpl), applied by the openbao-config reconciler (§config).
+# The jwt-peer-<peer> ops wait for the peer's discovery URL to answer.
 #
 # Off by construction for a single region: nothing renders unless `regions`
 # names at least one region other than `selfRegion`. The bootstrap-kit slot
@@ -843,4 +842,20 @@ peerTrust:
   kvPathPrefix: openova/apps
   # Identity token lifetime; ESO refreshes it well inside this.
   tokenTTL: 1h
+
+# ── Declarative OpenBao configuration (ADR-0015, Refs #7067) ─────────────
+# Every ACL policy, auth role, auth mount and identity object the chart needs
+# is rendered into ConfigMap openbao-config-desired (templates/_config.tpl)
+# and applied every `intervalSeconds` by the openbao-config Deployment
+# (templates/config-reconciler.yaml, files/openbao-config-reconcile.sh).
+# It logs in as k8s-auth role openbao-config-admin (configuration surfaces
+# only — templates/_config.tpl openbao.configAdminPolicy), which the
+# auth-bootstrap hook writes on every install/upgrade: with the init root
+# token the first time, afterwards with a short-lived root generated from
+# the openbao-unseal-keys shares and revoked in the same run. A chart bump
+# therefore reaches a running Sovereign with no manual root step.
+# Rendered whenever the auth-bootstrap Job is (autoUnseal.enabled +
+# autoUnseal.kubernetesAuth.enabled).
+config:
   intervalSeconds: 60
+  image: harbor.openova.io/proxy-dockerhub/library/alpine:3.20

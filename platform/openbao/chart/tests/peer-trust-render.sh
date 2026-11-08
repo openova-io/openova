@@ -9,21 +9,21 @@
 #   P1  region A renders the OWNER Service openbao-<A> (ClusterMesh global,
 #       shared, selector = the active OpenBao server, ClusterIP) and a
 #       selector-less stub openbao-<B> (global, shared=false); B mirrors it;
-#   P2  A's reconciler payloads: issuer = http://openbao-<A>…:8200, identity
-#       role aud = openbao-peer-push + claim openova_region=<A>; one jwt mount
-#       payload per PEER whose oidc_discovery_url is the PEER's issuer and
-#       whose role binds openova_region=<peer> — never self;
+#   P2  A's declarative desired state (ConfigMap openbao-config-desired):
+#       issuer = http://openbao-<A>…:8200, identity role aud =
+#       openbao-peer-push + claim openova_region=<A>; per PEER a jwt mount +
+#       config whose oidc_discovery_url is the PEER's issuer (and probes it)
+#       and a role binding openova_region=<peer> — never self;
 #   P3  the push policy grants create/update/read on secret/{data,metadata}/
 #       openova/apps/* only — no delete, nothing wider;
-#   P4  auth-bootstrap binds role peer-trust (policy peer-trust-admin, which
-#       reaches only jwt-peer-* mounts + the two peer policies + the identity
-#       objects) and role openbao-peer-token to the ESO SA; the main
-#       external-secrets role keeps exactly read + push;
+#   P4  desired state binds role openbao-peer-token to the ESO SA (policy
+#       openbao-peer-token only) and the main external-secrets role keeps
+#       exactly read + push; the openbao-config Deployment applies it;
 #   P5  ingress CNP admits ESO + peer OpenBao from any ClusterMesh cluster on
 #       8200 only; egress CNP lets OpenBao reach peers' OpenBao on 8200;
 #   P6  no Service of type NodePort and no nodePort field anywhere;
 #   P7  single region / self unset / self not in the registry ⇒ NOTHING of
-#       the above renders (and the auth-bootstrap script has no peer roles);
+#       the above renders (and the desired state has no peer op);
 #   P8  three regions: two stubs, two jwt mounts.
 #
 # Vacuity: P1's assertions run against the single-region render must fail.
@@ -86,45 +86,42 @@ if mode == "peers":
     stubs = [d["metadata"]["name"] for d in docs if d["kind"] == "Service" and d["metadata"].get("labels", {}).get("catalyst.openova.io/component") == "openbao-region-service-stub"]
     ok(sorted(stubs) == sorted(f"openbao-{p}" for p in peers), f"P1/P8 stubs {stubs} != peers {peers}")
 
-    cm = get("ConfigMap", "openbao-peer-trust")
-    ok(cm is not None, "P2 openbao-peer-trust ConfigMap missing")
+    cm = get("ConfigMap", "openbao-config-desired")
+    ok(cm is not None, "P2 openbao-config-desired ConfigMap missing")
+    d = cm["data"] if cm else {}
+    man = [l.split() for l in d.get("manifest", "").splitlines() if l.strip()]
+    pl = lambda path: json.loads(d.get(path.replace("/", ".") + ".json", "{}"))
     if cm:
-        d = cm["data"]
-        ok(json.loads(d["issuer.json"])["issuer"] == f"http://{host(self_id)}:8200", "P2 issuer must be this region's openbao-<self>")
-        role = json.loads(d["role.json"])
-        ok(role["client_id"] == "openbao-peer-push" and role["key"] == "openbao-peer-push", "P2 identity role aud/key")
-        ok(json.loads(role["template"]) == {"openova_region": self_id}, "P2 identity token must claim openova_region=<self>")
-        ok("openbao-peer-push" in json.loads(d["key.json"])["allowed_client_ids"], "P2 key must allow the audience")
-        cfgs = sorted(k for k in d if k.startswith("jwt-config-"))
-        ok(cfgs == sorted(f"jwt-config-{p}.json" for p in peers), f"P2/P8 jwt mounts {cfgs} != peers {peers}")
-        ok(f"jwt-config-{self_id}.json" not in d, "P2 a region must not trust ITSELF as a peer")
+        ok(pl("identity/oidc/config").get("issuer") == f"http://{host(self_id)}:8200", "P2 issuer must be this region's openbao-<self>")
+        role = pl("identity/oidc/role/openbao-peer-push")
+        ok(role.get("client_id") == "openbao-peer-push" and role.get("key") == "openbao-peer-push", "P2 identity role aud/key")
+        ok(json.loads(role.get("template", "{}")) == {"openova_region": self_id}, "P2 identity token must claim openova_region=<self>")
+        ok("openbao-peer-push" in pl("identity/oidc/key/openbao-peer-push").get("allowed_client_ids", []), "P2 key must allow the audience")
+        mounts = sorted(o[1] for o in man if o[0] == "mount")
+        ok(mounts == sorted(f"sys/auth/jwt-peer-{p}" for p in peers), f"P2/P8 jwt mounts {mounts} != peers {peers}")
+        ok(all(f"jwt-peer-{self_id}" not in o[1] for o in man), "P2 a region must not trust ITSELF as a peer")
         for p in peers:
-            c = json.loads(d.get(f"jwt-config-{p}.json", "{}"))
-            ok(c.get("oidc_discovery_url") == f"http://{host(p)}:8200/v1/identity/oidc", f"P2 jwt-peer-{p} must discover the PEER issuer, got {c}")
-            r = json.loads(d.get(f"jwt-role-{p}.json", "{}"))
+            disc = f"http://{host(p)}:8200/v1/identity/oidc"
+            c = pl(f"auth/jwt-peer-{p}/config")
+            ok(c.get("oidc_discovery_url") == disc, f"P2 jwt-peer-{p} must discover the PEER issuer, got {c}")
+            ops = [o for o in man if f"jwt-peer-{p}" in o[1]]
+            ok(len(ops) == 3 and all(len(o) == 3 and o[2] == disc + "/.well-known/openid-configuration" for o in ops), f"P2 jwt-peer-{p} ops must wait on the peer's discovery URL: {ops}")
+            r = pl(f"auth/jwt-peer-{p}/role/openbao-peer-push")
             ok(r.get("bound_claims") == {"openova_region": p}, f"P2 jwt-peer-{p} role must bind openova_region={p}")
             ok(r.get("bound_audiences") == ["openbao-peer-push"] and r.get("token_policies") == ["openbao-peer-push"], f"P2 jwt-peer-{p} role aud/policy")
-        pol = json.loads(d["policy-push.json"])["policy"]
+        pol = pl("sys/policies/acl/openbao-peer-push").get("policy", "")
         paths = dict(re.findall(r'path "([^"]+)" \{\s*capabilities = \[([^\]]*)\]', pol))
         ok(set(paths) == {"secret/data/openova/apps/*", "secret/metadata/openova/apps/*"}, f"P3 push policy paths {sorted(paths)}")
         ok(all("delete" not in v and "sudo" not in v for v in paths.values()), "P3 push policy must not grant delete/sudo")
-        ok("secret/data/openova/apps/*" in paths and "create" in paths["secret/data/openova/apps/*"], "P3 push policy must grant create")
-        ok(f"PEERS" in d["reconcile.sh"], "P2 reconcile.sh present")
-    dep = get("Deployment", "openbao-peer-trust")
-    ok(dep is not None, "P2 openbao-peer-trust Deployment missing")
-    if dep:
-        env = {e["name"]: e.get("value") for e in dep["spec"]["template"]["spec"]["containers"][0]["env"]}
-        ok(env.get("PEERS", "").split() == peers, f"P2 Deployment PEERS={env.get('PEERS')} != {peers}")
-
-    job = get("Job", "openbao-auth-bootstrap")
-    script = job["spec"]["template"]["spec"]["containers"][0]["args"][0] if job else ""
-    ok("bao policy write peer-trust-admin" in script, "P4 auth-bootstrap must write peer-trust-admin")
-    blk = script.split("bao policy write peer-trust-admin -", 1)[-1].split("EOF", 1)[0]
-    pp = re.findall(r'path "([^"]+)"', blk)
-    ok(pp and all(p == "sys/auth" or p.startswith(("sys/auth/jwt-peer-", "auth/jwt-peer-", "identity/oidc/")) or p in ("sys/policies/acl/openbao-peer-push", "sys/policies/acl/openbao-peer-token") for p in pp), f"P4 peer-trust-admin reaches beyond its scope: {pp}")
-    ok(re.search(r"role/peer-trust \\\s*\n\s*bound_service_account_names=openbao-peer-trust", script) is not None, "P4 role peer-trust must bind the openbao-peer-trust SA")
-    ok(re.search(r"role/openbao-peer-token \\\s*\n\s*bound_service_account_names=\$ESO_SA_NAME", script) is not None, "P4 role openbao-peer-token must bind the ESO SA")
-    ok("policies=external-secrets-read,external-secrets-push \\" in script, "P4 the main ESO role must keep exactly read + push")
+        ok("create" in paths.get("secret/data/openova/apps/*", ""), "P3 push policy must grant create")
+        tok = pl("auth/kubernetes/role/openbao-peer-token")
+        ok(tok.get("bound_service_account_names") == ["external-secrets"] and tok.get("policies") == ["openbao-peer-token"], f"P4 openbao-peer-token role {tok}")
+        eso = pl("auth/kubernetes/role/external-secrets")
+        ok(eso.get("policies") == ["external-secrets-read", "external-secrets-push"], f"P4 main ESO role policies {eso.get('policies')}")
+        order = [o[1] for o in man]
+        ok(order.index("sys/policies/acl/openbao-peer-push") < order.index(f"auth/jwt-peer-{peers[0]}/role/openbao-peer-push") if peers and f"auth/jwt-peer-{peers[0]}/role/openbao-peer-push" in order else False, "P4 the push policy must be written before the roles naming it")
+    dep = get("Deployment", "openbao-config")
+    ok(dep is not None, "P4 openbao-config Deployment missing")
 
     ing = get("CiliumNetworkPolicy", "openbao-allow-peer-region-ingress")
     egr = get("CiliumNetworkPolicy", "openbao-allow-peer-region-egress")
@@ -143,9 +140,10 @@ elif mode == "none":
     names = [f"{d['kind']}/{d['metadata']['name']}" for d in docs
              if "peer" in d["metadata"]["name"] or d["metadata"]["name"].startswith("openbao-hw-")]
     ok(not names, f"P7 single-region render carries peer objects: {names}")
-    job = get("Job", "openbao-auth-bootstrap")
-    script = job["spec"]["template"]["spec"]["containers"][0]["args"][0] if job else ""
-    ok("peer-trust" not in script and "openbao-peer-token" not in script, "P7 single-region auth-bootstrap must not bind peer roles")
+    cm = get("ConfigMap", "openbao-config-desired")
+    man = cm["data"]["manifest"] if cm else "MISSING"
+    ok(cm is not None, "P7 the desired state must still render (single region)")
+    ok("peer" not in man and "identity/oidc" not in man, f"P7 single-region desired state carries peer ops: {man}")
 else:
     raise SystemExit("bad mode")
 
