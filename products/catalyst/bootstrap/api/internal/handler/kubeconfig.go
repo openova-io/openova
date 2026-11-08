@@ -245,7 +245,10 @@ func (h *Handler) GetKubeconfig(w http.ResponseWriter, r *http.Request) {
 	// k3s-default-context kubeconfig than fail the download.
 	contextName := preferredContextName(&dep.Request)
 	served := raw
-	if rewritten, rewriteErr := rewriteKubeconfigContext(raw, contextName); rewriteErr == nil {
+	if contextName == "" {
+		// ADR-0015 D4 — no Sovereign identity to name the context after:
+		// serve the kubeconfig as cloud-init produced it.
+	} else if rewritten, rewriteErr := rewriteKubeconfigContext(raw, contextName); rewriteErr == nil {
 		served = rewritten
 	} else {
 		h.log.Warn("kubeconfig context rewrite failed; serving raw file",
@@ -285,14 +288,11 @@ func (h *Handler) GetKubeconfig(w http.ResponseWriter, r *http.Request) {
 //  2. First label of SovereignFQDN — for BYO-domain deployments
 //     where SovereignSubdomain is empty (e.g. "k8s.foo.example"
 //     → "k8s").
-//  3. The literal string "sovereign" — last-resort fallback so the
-//     YAML never contains an empty context name (which kubectl
-//     refuses to parse).
-//
-// The returned value is always non-empty.
+//  3. "" — ADR-0015 D4: no name is invented. The caller then serves the
+//     kubeconfig with its original context name, unrewritten.
 func preferredContextName(req *provisioner.Request) string {
 	if req == nil {
-		return "sovereign"
+		return ""
 	}
 	if name := sanitiseContextName(req.SovereignSubdomain); name != "" {
 		return name
@@ -306,7 +306,7 @@ func preferredContextName(req *provisioner.Request) string {
 			return name
 		}
 	}
-	return "sovereign"
+	return ""
 }
 
 // sanitiseContextName strips characters kubectl rejects in a

@@ -1,0 +1,27 @@
+# The Sovereign region repo, read from THIS region's own Gitea. The in-cluster
+# Service `gitea-http.gitea.svc` is headless and resolves from the local
+# EndpointSlice only, so in every region this URL is that region's Gitea.
+# A small dedicated repo (not a branch of openova/openova) — every region
+# clones it every minute.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: sovereign-region
+  namespace: flux-system
+  labels:
+    catalyst.openova.io/component: sovereign-region-source
+    openova.io/region: ${SOVEREIGN_REGION_ID}
+spec:
+  interval: 1m
+  timeout: 2m
+  url: http://gitea-http.gitea.svc.cluster.local:3000/openova/sovereign-regions
+  ref:
+    branch: main
+  # bp-gitea REQUIRE_SIGNIN_VIEW=true — a local-Gitea source MUST authenticate
+  # (#4285). The writer region carries openova-org-tenants-git-auth (chart);
+  # a region without it names its own Secret via SOVEREIGN_REGION_GIT_SECRET.
+  secretRef:
+    name: ${SOVEREIGN_REGION_GIT_SECRET:=openova-org-tenants-git-auth}
+  ignore: |
+    /*
+    !/clusters/${SOVEREIGN_FQDN}/regions/${SOVEREIGN_REGION_ID}

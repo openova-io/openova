@@ -26,9 +26,9 @@ func TestCreateInstanceRequest_Sanitise(t *testing.T) {
 
 func TestCreateInstanceRequest_ValidateShape(t *testing.T) {
 	cases := []struct {
-		name    string
-		r       CreateInstanceRequest
-		wantErr bool
+		name     string
+		r        CreateInstanceRequest
+		wantErr  bool
 		wantCode string
 	}{
 		{"happy", CreateInstanceRequest{Blueprint: "grafana", Org: "acme", Name: "obs-1"}, false, ""},
@@ -63,7 +63,7 @@ func TestCreateInstanceRequest_ValidateShape(t *testing.T) {
 }
 
 func TestCreateInstanceRequest_Build(t *testing.T) {
-	r := CreateInstanceRequest{Blueprint: "grafana", Org: "acme", Name: "obs-1"}
+	r := CreateInstanceRequest{Blueprint: "bp-grafana", Org: "acme", Environment: "acme-prod", Name: "obs-1"}
 	seed, err := r.Build("singleton")
 	if err != nil {
 		t.Fatalf("Build failed: %v", err)
@@ -72,7 +72,10 @@ func TestCreateInstanceRequest_Build(t *testing.T) {
 		t.Fatalf("Name/Namespace = %q/%q", seed.Name, seed.Namespace)
 	}
 	if seed.Blueprint != "bp-grafana" {
-		t.Fatalf("Blueprint = %q, want bp-prefix", seed.Blueprint)
+		t.Fatalf("Blueprint = %q, want the exact Blueprint name", seed.Blueprint)
+	}
+	if seed.Organization != "acme" || seed.Environment != "acme-prod" {
+		t.Fatalf("Organization/Environment = %q/%q, want the exact request refs", seed.Organization, seed.Environment)
 	}
 	if seed.Topology != "singleton" {
 		t.Fatalf("Topology = %q", seed.Topology)
@@ -152,11 +155,11 @@ func TestNewInstanceID_Unique(t *testing.T) {
 
 func TestMapDecision(t *testing.T) {
 	cases := []struct {
-		name        string
-		d           admission.Decision
-		wantNil     bool
-		wantStatus  int
-		wantCode    admission.DecisionCode
+		name       string
+		d          admission.Decision
+		wantNil    bool
+		wantStatus int
+		wantCode   admission.DecisionCode
 	}{
 		{"allowed → nil", admission.AllowedDecision, true, 0, ""},
 		{"multi-instance-disabled → 409", admission.Decision{Allowed: false, Code: admission.CodeMultiInstanceDisabled, Message: "x"}, false, 409, admission.CodeMultiInstanceDisabled},

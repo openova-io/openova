@@ -1,0 +1,19 @@
+# ADR-0015 D1 — multi-region layer, applied in EVERY region of a multi-region
+# Sovereign. Adds, on top of the base:
+#
+#   gitea-region-service.yaml  this region's Gitea exported to the ClusterMesh
+#                              under a REGION-ADDRESSABLE name
+#                              (gitea-<region-id>.gitea.svc). gitea-http is
+#                              headless and region-local by construction, so a
+#                              peer region can only reach this Gitea through
+#                              this Service.
+#   gitea-sync-ingress.yaml    lets peer regions' sync Jobs reach this Gitea.
+#
+# Follower regions (every region except the writer — the region the Catalyst
+# controllers run in) use ../multi-region-follower, which adds the pull replication.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../base
+  - gitea-region-service.yaml
+  - gitea-sync-ingress.yaml

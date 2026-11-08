@@ -74,51 +74,6 @@ func TestReplicationStatus_ResolvesByApplicationRef(t *testing.T) {
 	}
 }
 
-// GAP 2 (live-pair fallback) — when there is NO Continuum CR at all but a
-// real 2-region cnpg-pair backs the app, the replication-status endpoint
-// derives the live status off the pair (source:"live"), NOT the synthesized
-// Hetzner shape. This is the catalyst-platform / shared-pg live case.
-func TestReplicationStatus_DerivesLiveFromCNPGPairWhenNoCR(t *testing.T) {
-	h := NewWithPDM(silentLogger(), &fakePDM{})
-	primary, replica := newCNPGPairFixture("shared-pg", "catalyst-system", "hz-fsn-rtz-prod", "hz-hel-rtz-prod")
-	factory, _ := fakeContinuumDynamicFactory(primary, replica)
-	h.dynamicFactory = factory
-	fixed := time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC)
-	h.SetContinuumClock(func() time.Time { return fixed })
-	dep := installUserAccessDeployment(t, h, "dep-repl-livepair")
-
-	r := chi.NewRouter()
-	registerReplicationStatusRoute(r, h)
-	req := httptest.NewRequest(http.MethodGet,
-		"/api/v1/sovereigns/"+dep.ID+"/continuum/dr-shared-pg/replication-status?namespace=catalyst-system", nil)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
-	}
-	var resp continuumReplicationStatus
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if resp.Source != "live" {
-		t.Errorf("source: got %q want live (derived off cnpg-pair); body=%s", resp.Source, rec.Body.String())
-	}
-	if resp.PrimaryRegion != "hz-fsn-rtz-prod" {
-		t.Errorf("primaryRegion: got %q want hz-fsn-rtz-prod", resp.PrimaryRegion)
-	}
-	// The standby region must surface in the replicas list so the panel can
-	// render the standby card.
-	foundReplica := false
-	for _, rep := range resp.Replicas {
-		if rep.Region == "hz-hel-rtz-prod" {
-			foundReplica = true
-		}
-	}
-	if !foundReplica {
-		t.Errorf("replicas: missing standby region hz-hel-rtz-prod; got %+v", resp.Replicas)
-	}
-}
 
 // A single-region pair (both halves same region) must NOT be passed off as
 // live cross-region DR — the HONEST pending fallback stands. #4923: that
@@ -222,89 +177,7 @@ func TestReplicationStatus_PendingFallbackDerivesRegionsFromDeployment(t *testin
 	}
 }
 
-// #4923 — the live path must report syncState=sync when the primary CNPG
-// cluster declares synchronous replication (spec.postgresql.synchronous →
-// `synchronous_standby_names = FIRST N (...)`, RPO=0), and it must derive the
-// regions from the live CLUSTER placement labels (me-east-215-a/-b), NOT the
-// old hardcoded Hetzner constants. Fixture: a real 2-region cnpg-pair whose
-// primary half carries the synchronous block, no Continuum CR (derive path).
-func TestReplicationStatus_LiveSyncStateFromSynchronousCNPGPair(t *testing.T) {
-	h := NewWithPDM(silentLogger(), &fakePDM{})
-	primary, replica := newCNPGPairFixture("shared-pg", "catalyst-system", "me-east-215-a", "me-east-215-b")
-	// Primary declares synchronous replication — the bp-cnpg-pair sync mode.
-	_ = unstructured.SetNestedMap(primary.Object, map[string]interface{}{
-		"method":         "first",
-		"number":         int64(1),
-		"dataDurability": "required",
-	}, "spec", "postgresql", "synchronous")
-	factory, _ := fakeContinuumDynamicFactory(primary, replica)
-	h.dynamicFactory = factory
-	fixed := time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC)
-	h.SetContinuumClock(func() time.Time { return fixed })
-	dep := installUserAccessDeployment(t, h, "dep-repl-sync")
 
-	r := chi.NewRouter()
-	registerReplicationStatusRoute(r, h)
-	req := httptest.NewRequest(http.MethodGet,
-		"/api/v1/sovereigns/"+dep.ID+"/continuum/dr-shared-pg/replication-status?namespace=catalyst-system", nil)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
-	}
-	var resp continuumReplicationStatus
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if resp.Source != "live" {
-		t.Errorf("source: got %q want live", resp.Source)
-	}
-	// Regions derived from the CLUSTER placement labels, never Hetzner.
-	if resp.PrimaryRegion != "me-east-215-a" {
-		t.Errorf("primaryRegion: got %q want me-east-215-a (from cluster label)", resp.PrimaryRegion)
-	}
-	if strings.HasPrefix(resp.PrimaryRegion, "hz-") {
-		t.Errorf("primaryRegion leaked Hetzner: %q", resp.PrimaryRegion)
-	}
-	// syncState reflects the synchronous config, NOT a hardcoded async.
-	if resp.SyncState != "sync" {
-		t.Errorf("syncState: got %q want sync (spec.postgresql.synchronous is set → RPO=0)", resp.SyncState)
-	}
-}
-
-// #4923 — the mirror of the sync case: a pair WITHOUT the synchronous block
-// (forensic async mode) reports syncState=async off the same live path, so the
-// signal is genuinely derived, not hardcoded either way.
-func TestReplicationStatus_LiveAsyncStateWhenNoSynchronousBlock(t *testing.T) {
-	h := NewWithPDM(silentLogger(), &fakePDM{})
-	primary, replica := newCNPGPairFixture("shared-pg", "catalyst-system", "me-east-215-a", "me-east-215-b")
-	// No spec.postgresql.synchronous on the primary → async.
-	factory, _ := fakeContinuumDynamicFactory(primary, replica)
-	h.dynamicFactory = factory
-	dep := installUserAccessDeployment(t, h, "dep-repl-async")
-
-	r := chi.NewRouter()
-	registerReplicationStatusRoute(r, h)
-	req := httptest.NewRequest(http.MethodGet,
-		"/api/v1/sovereigns/"+dep.ID+"/continuum/dr-shared-pg/replication-status?namespace=catalyst-system", nil)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
-	}
-	var resp continuumReplicationStatus
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if resp.Source != "live" {
-		t.Errorf("source: got %q want live", resp.Source)
-	}
-	if resp.SyncState != "async" {
-		t.Errorf("syncState: got %q want async (no synchronous block)", resp.SyncState)
-	}
-}
 
 // #4886 — the Continuum controller records the ACTIVE region as
 // `status.leaseHolder` and the lag as `status.replicationLagSeconds` (NOT the

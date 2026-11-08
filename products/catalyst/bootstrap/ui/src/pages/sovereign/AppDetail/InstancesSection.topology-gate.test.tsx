@@ -109,6 +109,17 @@ function installFetch(bpName: string, supported: string[]) {
       captured.push(JSON.parse(String(init.body)))
       return json({ id: 'new-uid', name: 'x-1', blueprint: bpName, org: 'acme' }, 201)
     }
+    // ADR-0015 D4 — the dialog reads Organization / Environment CRs and the
+    // region registry from the refs endpoints.
+    if (url.includes('/v1/refs/organizations/') && url.includes('/environments')) {
+      return json({ environments: [{ name: 'acme-prod', envType: 'prod', organizationRef: 'acme' }] })
+    }
+    if (url.includes('/v1/refs/organizations')) {
+      return json({ organizations: [{ name: 'acme', displayName: 'acme', namespace: 'acme', ready: true, kind: 'customer', platform: false }] })
+    }
+    if (url.includes('/v1/refs/regions')) {
+      return json({ regions: [{ id: 'rgn-a', label: 'rgn-a', primary: true }, { id: 'rgn-b', label: 'rgn-b', primary: false }] })
+    }
     if (url.includes('/instances')) return json({ items: [] })
     if (url.includes('/sovereign/self')) return json(SELF)
     if (url.includes('/v1/organizations')) return json(ORG_ROWS)

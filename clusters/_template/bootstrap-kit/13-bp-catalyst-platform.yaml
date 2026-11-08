@@ -1526,7 +1526,11 @@ spec:
       # 1.4.1845 — lockstep: bp-trivy 1.0.6 + bp-agenity 0.5.34 seed pins land after 1.4.1844; tests/ helmignored (#6004 budget).
       # 1.4.1844 — #6374: lockstep with the umbrella Chart.yaml bump (the catalog-seed
       #   card advances bp-agenity 0.5.33 -> 0.5.34). Pin bumped to match.
-      version: 1.4.1891
+      # 1.4.1893 — ADR-0015 integration (#7067): lockstep with the ONE umbrella
+      #   Chart.yaml bump (D1/D3 region registry env, D2 bp-wordpress-tenant
+      #   0.5.0, D4 alias removal, D6a bp-seaweedfs 1.3.0, D7 CRDs, bp-openova-mcp
+      #   0.1.8). Pin bumped to match.
+      version: 1.4.1893
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
@@ -1911,6 +1915,8 @@ spec:
       # on every multi-region Sovereign. Caught on t131 2026-05-16.
       # Single-quoted so embedded double-quotes in the JSON are literal.
       regionsJson: '${SOVEREIGN_REGIONS_JSON:-}'
+      # ADR-0015 D3 — this region's canonical id for the controllers.
+      regionId: ${SOVEREIGN_REGION_CANONICAL_LABEL:-}
       # ─── D22 (settings empty values) sovereign-side identity ──────────
       # ORG_EMAIL / ORG_NAME / SOVEREIGN_CONTROL_PLANE_IP / GITOPS_REPO_URL
       # threaded from cloud-init (provisioner.go::writeTfvars + Hetzner

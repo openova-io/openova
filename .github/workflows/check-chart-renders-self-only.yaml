@@ -1,0 +1,51 @@
+name: check — multi-region charts render only their self half (ADR-0015 D2)
+
+# Renders every registered multi-region chart once PER REGION and fails on any
+# resource pinned (label / selector / nodeSelector / node affinity) to a region
+# other than `self`, or on more than one CNPG Cluster in a region's render.
+#
+# bp-wordpress-tenant ≤0.4.26 rendered both CNPG halves into ONE release
+# separated by node affinity; on hw307 the replica was unschedulable for 58
+# days and every write blocked — while its own render test asserted the
+# broken two-Cluster shape. This gate is the catalog-wide floor that stops the
+# next chart from repeating it. Registry + TODO list in the script header.
+#
+# Renders templates locally only — no deploy, no cloud API, no live cluster.
+#
+# Refs #7067
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'platform/**'
+      - 'products/**'
+      - 'scripts/check-chart-renders-self-only.sh'
+      - '.github/workflows/check-chart-renders-self-only.yaml'
+  pull_request:
+    paths:
+      - 'platform/**'
+      - 'products/**'
+      - 'scripts/check-chart-renders-self-only.sh'
+      - '.github/workflows/check-chart-renders-self-only.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  renders-self-only:
+    name: Multi-region charts render only their self half
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Install PyYAML
+        run: python3 -m pip install --quiet pyyaml
+
+      - name: Run self-only render gate
+        run: bash scripts/check-chart-renders-self-only.sh

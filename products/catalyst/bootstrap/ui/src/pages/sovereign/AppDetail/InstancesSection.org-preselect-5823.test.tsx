@@ -21,7 +21,7 @@
  * unselected. That is the honest outcome: there is no customer Org yet.
  */
 
-import { describe, it, expect, afterEach, vi } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
@@ -33,14 +33,19 @@ import {
   Outlet,
 } from '@tanstack/react-router'
 
-import type { OrgRow } from '@/lib/organizations.api'
+import type { RefEnvironment, RefOrganization } from '@/lib/installRefs.api'
 
-const listOrganizations = vi.fn<() => Promise<OrgRow[]>>()
+// ADR-0015 D4 — the dialog's Org list is the Organization CRs and its
+// Environment list is the chosen Org's Environment CRs.
+const listOrganizations = vi.fn<() => Promise<RefOrganization[]>>()
+const listEnvironments = vi.fn<(org: string) => Promise<RefEnvironment[]>>()
 const getApplicationInstances = vi.fn()
 
-vi.mock('@/lib/organizations.api', async (orig) => ({
+vi.mock('@/lib/installRefs.api', async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
-  listOrganizations: () => listOrganizations(),
+  listRefOrganizations: () => listOrganizations(),
+  listRefEnvironments: (org: string) => listEnvironments(org),
+  listRefRegions: async () => [],
 }))
 
 vi.mock('@/lib/catalog.api', async (orig) => ({
@@ -50,21 +55,17 @@ vi.mock('@/lib/catalog.api', async (orig) => ({
 
 const { InstancesSection } = await import('./InstancesSection')
 
-function orgRow(over: Partial<OrgRow>): OrgRow {
+// Legacy fixture shape kept for readability: `slug` → CR name, `isParent`
+// → the platform Organization.
+function orgRow(over: { slug: string; displayName?: string; isParent?: boolean }): RefOrganization {
   return {
-    id: over.slug ?? 'x',
-    slug: 'x',
-    displayName: 'X',
-    kind: 'customer',
-    tier: 'org',
-    billingMode: 'real',
-    isolation: 'vcluster',
-    status: 'active',
-    isParent: false,
-    consoleHost: '',
-    ownerEmail: '',
-    ...over,
-  } as OrgRow
+    name: over.slug,
+    displayName: over.displayName ?? over.slug,
+    namespace: over.slug,
+    ready: true,
+    kind: over.isParent ? 'internal' : 'customer',
+    platform: !!over.isParent,
+  }
 }
 
 function renderSection() {
@@ -111,6 +112,12 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
+beforeEach(() => {
+  listEnvironments.mockImplementation(async (org: string) => [
+    { name: `${org}-prod`, envType: 'prod', organizationRef: org },
+  ])
+})
+
 describe('#5823 — the install wizard pre-selects the only Organization it could be', () => {
   it('pre-selects the sole customer Org and shows the derived Environment', async () => {
     getApplicationInstances.mockResolvedValue({ items: [] })
@@ -124,10 +131,10 @@ describe('#5823 — the install wizard pre-selects the only Organization it coul
     await waitFor(() => expect(sel().value).toBe('uatco'))
 
     // The row's actual clause is about the ENVIRONMENT being pre-selected as
-    // the target. That line only renders once org is set, so it — not the
-    // select's value — is what the row asks for.
-    const env = await screen.findByTestId('instance-environment-derived')
-    expect(env.textContent).toContain('uatco-prod')
+    // the target: the Org's only Environment CR (read, not derived).
+    const env = (await screen.findByTestId('select-instance-environment')) as HTMLSelectElement
+    await waitFor(() => expect(env.value).toBe('uatco-prod'))
+    expect(listEnvironments).toHaveBeenCalledWith('uatco')
   })
 
   it('leaves the selection blank when several Orgs could be meant', async () => {
@@ -144,7 +151,7 @@ describe('#5823 — the install wizard pre-selects the only Organization it coul
     // asserts on a resolved list rather than on a pending query.
     await waitFor(() => expect(sel().querySelectorAll('option').length).toBeGreaterThan(3))
     expect(sel().value).toBe('')
-    expect(screen.queryByTestId('instance-environment-derived')).toBeNull()
+    expect((screen.getByTestId('select-instance-environment') as HTMLSelectElement).value).toBe('')
   })
 
   it('never defaults into the parent self-org when it is the only row', async () => {

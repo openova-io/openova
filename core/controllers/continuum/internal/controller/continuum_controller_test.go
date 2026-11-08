@@ -417,7 +417,10 @@ func TestPatchStatusFromCR_HealthyWhenHolderMatchesPrimary_NoEnv(t *testing.T) {
 		Holder:    primary,
 		ExpiresAt: now.Add(30 * time.Second),
 	}
-	if err := r.patchStatusFromCR(context.Background(), cr, spec, lease, cnpg.Status{}, cnpg.Status{}, cnpg.StandbyObservation{}, false, ""); err != nil {
+	// ADR-0015 D7 — Healthy must be EARNED by an observed standby; an
+	// empty observation now reads Unknown (see the never-observed test).
+	observed := cnpg.StandbyObservation{Known: true, Available: true, ReplicaCluster: "demo-replica"}
+	if err := r.patchStatusFromCR(context.Background(), cr, spec, lease, cnpg.Status{}, cnpg.Status{}, observed, false, ""); err != nil {
 		t.Fatalf("patchStatusFromCR: %v", err)
 	}
 

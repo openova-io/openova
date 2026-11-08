@@ -34,6 +34,9 @@ app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 catalyst.openova.io/blueprint: bp-wordpress-tenant
+{{- with (include "openova.topology.labels" .) }}
+{{ . }}
+{{- end }}
 {{- end }}
 
 {{/*
@@ -114,7 +117,94 @@ explicitly, so this only bit the chart-default render path.)
 {{- end -}}
 
 {{/*
-CNPG cluster namespace — defaults to .Release.Namespace if the
+─── Topology (ADR-0015 D2) ──────────────────────────────────────────────
+The chart consumes ONLY the shared contract `openova.topology.{mode,self,
+primary,peers}` through the topology-lib library (platform/topology-lib).
+Each region's HelmRelease sets `self` to that region and the release
+renders ONLY its own half: one CNPG Cluster, named per region.
+
+Supported modes: singleton | active-passive | active-hot-standby. For
+WordPress the two multi-region modes render the SAME shape (see
+cnpg-cluster.yaml + deployment.yaml): a synchronous CNPG distributed
+topology, WordPress serving only in the primary region. active-active is
+refused — WordPress is a single-writer application.
+
+Contract ABSENT ⇒ the pre-contract single-region render (one Cluster named
+`database.cnpgClusterName`, no replication fields), byte-for-byte the
+singleton shape every existing install has.
+
+REMOVED in 0.5.0: `database.mode` and `pg.activeHotStandby.*`. They rendered
+both CNPG halves into ONE release/cluster separated only by node affinity —
+the replica was unschedulable in region A for 58 days on hw307 and, with
+`dataDurability: required`, every write blocked. Setting either now FAILS the
+render with the migration instruction instead of silently dropping HA.
+*/}}
+{{- define "bp-wordpress-tenant.topology" -}}
+{{- $pg := .Values.pg | default dict -}}
+{{- $ahs := $pg.activeHotStandby | default dict -}}
+{{- if or $ahs.enabled (ne (dig "mode" "" (.Values.database | default dict) | toString) "") -}}
+{{- fail "bp-wordpress-tenant 0.5.0 (ADR-0015 D2): `database.mode` and `pg.activeHotStandby.*` are REMOVED. Express placement through the shared contract instead — one HelmRelease per region with `openova.topology: {mode: active-passive|active-hot-standby, self: <this region-id>, primary: <primary region-id>, peers: [<other region-ids>]}` (see platform/wordpress-tenant/chart/README.md §Migration). Remove database.mode / pg.activeHotStandby from the values." -}}
+{{- end -}}
+{{- include "openova.topology.assertMode" (dict "ctx" . "supported" (list "singleton" "active-passive" "active-hot-standby")) -}}
+{{- include "openova.topology.get" . -}}
+{{- end -}}
+
+{{/* "true" when this release renders the Primary / serving half. */}}
+{{- define "bp-wordpress-tenant.isPrimary" -}}
+{{- if (include "bp-wordpress-tenant.topology" . | fromJson).isPrimary -}}true{{- end -}}
+{{- end -}}
+
+{{/* "true" when the contract declares a multi-region mode. */}}
+{{- define "bp-wordpress-tenant.multiRegion" -}}
+{{- if (include "bp-wordpress-tenant.topology" . | fromJson).multiRegion -}}true{{- end -}}
+{{- end -}}
+
+{{/*
+Per-region CNPG Cluster names — JSON {self, primary, peers[], source}.
+
+NAMING SCHEME: `<database.cnpgClusterName>-<sha256(region-id)[0:8]>`, e.g.
+`wordpress-db-` + first 8 hex of sha256("hw-me-east-215-a-rtz-prod"). Stable
+(a pure function of the region id), DNS-safe, ≤ 50 chars (the CNPG Cluster
+name ceiling; the base is truncated to 41), unique per region, and computable
+by any orchestrator without the chart. The contract-absent render keeps the
+bare `database.cnpgClusterName`.
+
+`database.topology.clusterNames` (region-id → name) overrides the derived
+name — the migration seam that lets an existing Cluster keep its name (and
+its data) when its release adopts the contract.
+*/}}
+{{- define "bp-wordpress-tenant.dbNames" -}}
+{{- $_ := include "bp-wordpress-tenant.topology" . -}}
+{{- include "openova.topology.memberNames" (dict "ctx" . "base" .Values.database.cnpgClusterName "overrides" (dig "topology" "clusterNames" dict (.Values.database | toJson | fromJson))) -}}
+{{- end -}}
+
+{{/* THIS region's CNPG Cluster name. */}}
+{{- define "bp-wordpress-tenant.cnpgSelfName" -}}
+{{- (include "bp-wordpress-tenant.dbNames" . | fromJson).self -}}
+{{- end -}}
+
+{{/*
+Shared Secrets of a multi-region topology — the SAME bytes in every region:
+  replicationCA  — `ca.crt` + `ca.key`; every member pins it as
+                   `spec.certificates.clientCASecret`, so CNPG issues each
+                   member's `<cluster>-replication` streaming client cert from
+                   ONE CA and every member accepts every other member's stream.
+  appCredentials — `kubernetes.io/basic-auth` (`username`, `password`) for the
+                   WordPress DB owner, used by `bootstrap.{initdb,pg_basebackup}.secret`.
+                   The role password lives in the replicated database, so every
+                   region must hold the same password or WordPress cannot log in
+                   after a primary move.
+*/}}
+{{- define "bp-wordpress-tenant.replicationCASecret" -}}
+{{- dig "topology" "sharedSecrets" "replicationCA" "" (.Values.database | toJson | fromJson) | default (printf "%s-replication-ca" .Values.database.cnpgClusterName) -}}
+{{- end -}}
+
+{{- define "bp-wordpress-tenant.appCredentialsSecret" -}}
+{{- dig "topology" "sharedSecrets" "appCredentials" "" (.Values.database | toJson | fromJson) | default (printf "%s-app-credentials" .Values.database.cnpgClusterName) -}}
+{{- end -}}
+
+{{/*
+CNPG namespace — defaults to .Release.Namespace if the
 operator left `database.cluster.namespace` empty.
 */}}
 {{- define "bp-wordpress-tenant.cnpgNamespace" -}}
@@ -122,174 +212,58 @@ operator left `database.cluster.namespace` empty.
 {{- end -}}
 
 {{/*
-CNPG-emitted application Secret name (`<cluster>-app`). CNPG synthesises
-this Secret from the `Cluster.spec.bootstrap.initdb.owner` field at
-install time.
+DB password Secret the runtime + hook Jobs read (key `password`).
+  - single-region: the CNPG-emitted `<cluster>-app` Secret (#4936 — bound
+    directly, no reflector mirror).
+  - multi-region:  the shared `appCredentials` Secret (identical in every
+    region; CNPG uses it as the owner password at bootstrap).
 */}}
 {{- define "bp-wordpress-tenant.cnpgAppSecret" -}}
-{{- printf "%s-app" .Values.database.cnpgClusterName -}}
+{{- if include "bp-wordpress-tenant.multiRegion" . -}}
+{{- include "bp-wordpress-tenant.appCredentialsSecret" . -}}
+{{- else -}}
+{{- printf "%s-app" (include "bp-wordpress-tenant.cnpgSelfName" .) -}}
+{{- end -}}
 {{- end -}}
 
 {{/*
-CNPG-emitted read-write Service hostname. CNPG synthesises this Service
-from the Cluster CR; suffix is `-rw` per the CNPG operator convention.
-
-D31 active-hot-standby: WordPress always connects to the PRIMARY's RW
-endpoint (`<cnpgClusterName>-rw`). After a cross-region switchover
-Continuum K-Cont-2 flips `replica.enabled` on both Cluster CRs so the
-former replica becomes the new primary and its `-rw` Service is what
-the renamed-primary publishes — the hostname is unchanged from the
-client side because the cnpgClusterName itself does not move.
+CNPG `-rw` Service of THIS region's Cluster. WordPress runs only where this
+Cluster is the primary (deployment.yaml), so `-rw` is always writable when a
+Pod uses it — no cross-region DB round-trips.
 */}}
 {{- define "bp-wordpress-tenant.cnpgRwHost" -}}
-{{- printf "%s-rw.%s.svc.cluster.local" .Values.database.cnpgClusterName (include "bp-wordpress-tenant.cnpgNamespace" .) -}}
+{{- printf "%s-rw.%s.svc.cluster.local" (include "bp-wordpress-tenant.cnpgSelfName" .) (include "bp-wordpress-tenant.cnpgNamespace" .) -}}
 {{- end -}}
 
 {{/*
-─── D31 active-hot-standby helpers ──────────────────────────────────────
-Mirror bp-cnpg-pair's naming + validation pattern (see
-platform/cnpg-pair/chart/templates/_helpers.tpl).
-*/}}
+#5623 — a multi-region pair MUST DECLARE ITS PROMOTION MECHANISM.
 
-{{/*
-D31 / TBD-E8b: canonical operator-facing DB topology selector.
-
-Resolves the chart's DB topology to one of:
-  - "singleton"          (default — single in-vcluster CNPG Cluster CR)
-  - "active-hot-standby" (D31 — primary + replica CNPG Cluster CRs,
-                          WAL streaming over Cilium ClusterMesh; mirrors
-                          bp-cnpg-pair shape — see platform/cnpg-pair/)
-
-Precedence (operator-supplied `database.mode` wins; legacy
-`pg.activeHotStandby.enabled` boolean folds as alias for clusters whose
-orchestrator overlays haven't been re-rendered with the canonical
-enum):
-
-  1. `database.mode` is "active-hot-standby" → active-hot-standby
-  2. `database.mode` is "singleton"          → singleton
-  3. `database.mode` is empty/unset:
-     - `pg.activeHotStandby.enabled=true`    → active-hot-standby
-     - otherwise                              → singleton
-
-The enum form (`database.mode`) is the canonical interface customers
-see in the marketplace voucher → org wizard (D29). The boolean form
-(`pg.activeHotStandby.enabled`) remains a back-compat alias and will
-be removed in chart 0.4.0.
-*/}}
-{{- define "bp-wordpress-tenant.dbMode" -}}
-{{- $mode := .Values.database.mode | default "" -}}
-{{- if eq $mode "active-hot-standby" -}}
-active-hot-standby
-{{- else if eq $mode "singleton" -}}
-singleton
-{{- else if .Values.pg.activeHotStandby.enabled -}}
-active-hot-standby
-{{- else -}}
-singleton
-{{- end -}}
-{{- end -}}
-
-{{/*
-D31 / TBD-E8b: boolean convenience predicate — returns "true" when the
-resolved `dbMode` is "active-hot-standby". Used by cnpg-cluster.yaml
-in place of the legacy `.Values.pg.activeHotStandby.enabled` boolean
-so the canonical enum drives template rendering. Empty (falsy) when
-mode resolves to "singleton".
-*/}}
-{{- define "bp-wordpress-tenant.dbModeActiveHotStandby" -}}
-{{- if eq (include "bp-wordpress-tenant.dbMode" .) "active-hot-standby" -}}
-true
-{{- end -}}
-{{- end -}}
-
-{{/*
-D31: replica Cluster CR name. Suffix `-replica` matches bp-cnpg-pair.
-Truncated to 63 chars per the K8s resource-name limit.
-*/}}
-{{- define "bp-wordpress-tenant.cnpgPairReplicaName" -}}
-{{- printf "%s-replica" .Values.database.cnpgClusterName | trunc 63 | trimSuffix "-" -}}
-{{- end -}}
-
-{{/*
-D31: ClusterMesh global replication Service alias the replica uses to
-reach the primary's read-replica endpoint over the mesh. Suffix `-mesh`
-avoids collision with the auto-created `<cluster>-r` Service (lesson
-from bp-cnpg-pair chart 0.1.0 -> 0.1.1, Phase-2 incident #3 in
-qa-loop-state/incidents.md).
-*/}}
-{{- define "bp-wordpress-tenant.cnpgPairReplicationServiceName" -}}
-{{- printf "%s-mesh" .Values.database.cnpgClusterName | trunc 63 | trimSuffix "-" -}}
-{{- end -}}
-
-{{/*
-D31: validate primary + replica regions when active-hot-standby is on.
-Both MUST be set AND differ (a same-region pair is degenerate — no
-failure-isolation gain). Triggered only when enabled=true.
-*/}}
-{{- define "bp-wordpress-tenant.validateActiveHotStandbyRegions" -}}
-{{- $p := required "pg.activeHotStandby.primaryRegion is REQUIRED when pg.activeHotStandby.enabled=true" .Values.pg.activeHotStandby.primaryRegion -}}
-{{- $r := required "pg.activeHotStandby.replicaRegion is REQUIRED when pg.activeHotStandby.enabled=true" .Values.pg.activeHotStandby.replicaRegion -}}
-{{- if eq $p $r -}}
-{{- fail (printf "pg.activeHotStandby.primaryRegion (%s) MUST NOT equal pg.activeHotStandby.replicaRegion (%s) — active-hot-standby requires two distinct regions" $p $r) -}}
-{{- end -}}
-{{- end -}}
-
-{{/*
-#5623 — EVERY rendered DR pair MUST DECLARE ITS PROMOTION MECHANISM.
-
-THE DEFECT THIS EXISTS TO PREVENT
----------------------------------
-On the hw292 G12 region-kill (2026-08-03) `bp-cnpg-pair`'s region-B dr-promoter
-auto-promoted at T0+2m16s while the three `bp-postgres` shared-pg standbys stayed
-`pg_is_in_recovery()=t` for the WHOLE outage — they rendered the identical
-split-side standby shape but shipped no region-local promoter, so nothing in the
-surviving region ever acted on them. bp-postgres 0.2.18 ported the promoter.
-
-THIS chart renders the SAME standby shape (`replica.enabled: true` +
-`bootstrap.pg_basebackup` + `externalClusters[]`, below) and ships NEITHER a
-promoter NOR a `kind: Continuum` CR. The mechanism its own template comment names
-— "Continuum K-Cont-2" — is a REGION-A-ONLY Deployment: on hw292 region-B carries
-no continuum-controller and not even the Continuum CRD (verified live 2026-08-06,
-both regions sampled). So a region-A kill leaves this pair's standby read-only
-with no actor anywhere that can promote it, and NOTHING in the render says so.
-`replica.enabled: true` is additionally hard-coded here (no `topology.promoted`
-HR-value seam like bp-postgres/bp-cnpg-pair), so even a hand-patch of the live
-Cluster CR is reverted by flux drift-correction mid-outage (#5125-D1).
-
-WHY A REQUIRED DECLARATION AND NOT A PORTED PROMOTER
-----------------------------------------------------
-A promoter that promotes without a real quorum/lease signal causes the #5178
-false-promote flap and split-brain. Porting the proven bp-cnpg-pair actor here
-needs a design decision this chart cannot make on its own: the actor's durability
-latch patches a NAMED HelmRelease, and this chart's HR is minted per-Application
-by the application-controller, so there is no stable HR name at render time. That
-seam is real work, tracked on #5623 — it is NOT something to fabricate inline.
-
-What IS shippable and correct today: refuse to render an "HA" pair that silently
-cannot fail over. The operator must state the mechanism out loud, and the value
-they state is stamped onto the standby Cluster CR so it is visible on the LIVE
-object (`kubectl get cluster -o jsonpath=...dr-promotion-mechanism`), not only in
-a values file. `manual` is the only mechanism this chart can actually deliver
-today; `dr-promoter` and `continuum` fail closed naming exactly what is missing,
-so the day one of them ships the declaration becomes true rather than aspirational.
+Under ADR-0015 a promotion is a Git commit of `openova.topology.primary` (plus,
+for a planned move, `database.topology.promotionToken`) to the surviving
+region's values. Nothing in THIS chart makes that commit on an unplanned region
+kill: the Continuum actor that will (ADR-0015 D8, running in every region) is
+not delivered yet. So the only honest mechanism today is `manual` — the
+sovereign-admin commits the new primary. Empty FAILS; `dr-promoter` /
+`continuum` fail closed naming what is missing. The value is stamped on every
+non-primary Cluster CR (`catalyst.openova.io/dr-promotion-mechanism`).
 */}}
 {{- define "bp-wordpress-tenant.drPromotionMechanism" -}}
-{{- dig "activeHotStandby" "promotion" "mechanism" "" .Values.pg | toString | trim -}}
+{{- dig "topology" "promotion" "mechanism" "" (.Values.database | toJson | fromJson) | toString | trim -}}
 {{- end -}}
 
-{{- define "bp-wordpress-tenant.validateActiveHotStandbyPromotion" -}}
+{{- define "bp-wordpress-tenant.validatePromotion" -}}
 {{- $m := include "bp-wordpress-tenant.drPromotionMechanism" . -}}
 {{- if eq $m "" -}}
-{{- fail "pg.activeHotStandby.promotion.mechanism is REQUIRED when the active-hot-standby pair renders (#5623): this chart renders a cross-region CNPG standby, and an undeclared pair is one that silently never promotes on a region kill. Set it to \"manual\" (operator-run promotion per RUNBOOKS §6.1 — the only mechanism this chart delivers today) or ship an automatic one first." -}}
+{{- fail "database.topology.promotion.mechanism is REQUIRED for a multi-region openova.topology (#5623): this chart renders a cross-region CNPG standby, and an undeclared pair is one that silently never promotes on a region kill. Set it to \"manual\" (the sovereign-admin commits openova.topology.primary=<surviving region> — the only mechanism this chart delivers today)." -}}
 {{- end -}}
 {{- if eq $m "dr-promoter" -}}
-{{- fail "pg.activeHotStandby.promotion.mechanism=\"dr-promoter\" is NOT DELIVERABLE by bp-wordpress-tenant (#5623): this chart ships no dr-promoter Deployment and no `topology.promoted` HelmRelease-value promote seam, so declaring it would assert a failover that cannot happen. Port the bp-cnpg-pair/bp-postgres actor (and a stable per-Application HR name for its suspend latch) before declaring this." -}}
+{{- fail "database.topology.promotion.mechanism=\"dr-promoter\" is NOT DELIVERABLE by bp-wordpress-tenant (#5623): this chart ships no dr-promoter Deployment. Declaring it would assert a failover that cannot happen." -}}
 {{- end -}}
 {{- if eq $m "continuum" -}}
-{{- fail "pg.activeHotStandby.promotion.mechanism=\"continuum\" is NOT DELIVERABLE by bp-wordpress-tenant (#5623): this chart renders no `kind: Continuum` CR, and continuum-controller is a region-A-only Deployment that dies with region-A (the #5137 root cause — region-B carries neither the controller nor the Continuum CRD). Continuum orchestrates a PLANNED switchover; it is not an unplanned-region-kill actor." -}}
+{{- fail "database.topology.promotion.mechanism=\"continuum\" is NOT DELIVERABLE yet (#5623, ADR-0015 D8): the every-region Continuum actor that commits the next primary on a region loss is not shipped." -}}
 {{- end -}}
 {{- if ne $m "manual" -}}
-{{- fail (printf "pg.activeHotStandby.promotion.mechanism=%q is not a recognised mechanism (#5623). Valid: manual | dr-promoter | continuum." $m) -}}
+{{- fail (printf "database.topology.promotion.mechanism=%q is not a recognised mechanism (#5623). Valid: manual | dr-promoter | continuum." $m) -}}
 {{- end -}}
 {{- end -}}
 

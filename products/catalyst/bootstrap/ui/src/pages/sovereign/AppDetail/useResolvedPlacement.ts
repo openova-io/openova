@@ -30,6 +30,7 @@ import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 
 import { getApplicationPlacement, getApplicationStatus } from '@/lib/catalog.api'
+import type { ObjectStatus } from '@/lib/objectStatus'
 import {
   type DerivedPattern,
   type PlacementTarget,
@@ -43,6 +44,8 @@ export interface ApplicationStatus {
   phase?: string
   status?: Record<string, unknown>
   spec?: ApplicationSpec
+  /** ADR-0015 D7 — statusOf(object) incl. perRegion[], rendered verbatim. */
+  objectStatus?: ObjectStatus
 }
 
 export interface ApplicationSpec {

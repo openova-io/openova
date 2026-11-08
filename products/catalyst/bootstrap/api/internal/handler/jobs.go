@@ -422,6 +422,12 @@ func (h *Handler) chrootSeedJobsStoreIfEmpty(ctx context.Context, dep *Deploymen
 	// kind that HAS Applications — never seeds a single one.
 	h.chrootSeedApplicationInstalls(ctx, dep, bridge)
 
+	// ADR-0015 D7 — every reconciling object feeds Jobs. Application CRs
+	// (one leaf each, status = the CR's own Ready condition, reason +
+	// message verbatim) and topology transitions (status.activity[] on
+	// Continuum/Application CRs) project through jobs.ActivityBridge.
+	h.chrootSeedApplicationObjects(ctx, dep)
+
 	// §5a generic reconciler ingestion (issue #3646). The helmwatch seed
 	// above surfaces ONLY HelmRelease installs — so a green install-openbao
 	// leaf masks a Failed openbao-snapshot CronJob, a stuck cnpg-pair join

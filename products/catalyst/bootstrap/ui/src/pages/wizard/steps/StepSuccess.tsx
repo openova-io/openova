@@ -459,7 +459,7 @@ export function StepSuccess({
           <CheckCircle2 size={28} color="#4ADE80" style={{ flexShrink: 0, marginTop: 1 }} />
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
             <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--wiz-text-hi)' }}>
-              {fqdn || 'sovereign'} is ready
+              {fqdn ? `${fqdn} is ready` : 'Your Sovereign is ready'}
             </span>
             <span style={{ fontSize: 11, color: 'var(--wiz-text-sub)', lineHeight: 1.55 }}>
               All 11 bootstrap-kit phases finished green. Your control-plane is reachable

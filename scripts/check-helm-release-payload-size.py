@@ -252,6 +252,22 @@ def declares_dependencies(chart_dir: str) -> bool:
     return False
 
 
+def is_library_chart(chart_dir: str) -> bool:
+    """True when Chart.yaml declares `type: library` (e.g. platform/topology-lib).
+
+    A library chart is never installed, so it never produces a Helm release
+    Secret and has no payload to measure — `helm template` refuses it by design.
+    Its bytes are paid inside each consumer's package (vendored via a
+    `file://` dependency), which is measured there. Same skip
+    blueprint-release.yaml / check-chart-annotations.sh apply (ADR-0015 D2).
+    """
+    with open(os.path.join(chart_dir, "Chart.yaml"), encoding="utf-8") as fh:
+        for line in fh:
+            if re.match(r"^type:\s*['\"]?library['\"]?\s*(#.*)?$", line):
+                return True
+    return False
+
+
 def discover_charts(root: str) -> list[str]:
     found = []
     for pattern in ("platform/*/chart", "products/*/chart", "products/*/charts/*"):
@@ -263,10 +279,13 @@ def discover_charts(root: str) -> list[str]:
 
 def sweep(root: str, budget_pct: float) -> int:
     """Measure every chart that packages standalone; defer the rest, loudly."""
-    measured, deferred, over, broken = [], [], [], []
+    measured, deferred, over, broken, libraries = [], [], [], [], []
     budget = int(K8S_SECRET_LIMIT * budget_pct / 100.0)
     for chart in discover_charts(root):
         full = os.path.join(root, chart)
+        if is_library_chart(full):
+            libraries.append(chart)
+            continue
         if declares_dependencies(full):
             deferred.append(chart)
             continue
@@ -285,7 +304,8 @@ def sweep(root: str, budget_pct: float) -> int:
         flag = "OVER " if judged > budget else ("near " if pct >= NOTICE_PCT else "     ")
         print(f"  {flag}{judged:>9} bytes {pct:>6.2f}%  {chart}")
     print(f"\nmeasured {len(measured)} chart(s); "
-          f"{len(deferred)} deferred to blueprint-release (declare dependencies:)")
+          f"{len(deferred)} deferred to blueprint-release (declare dependencies:); "
+          f"{len(libraries)} library chart(s) skipped (never installed: {', '.join(libraries) or '-'})")
 
     if broken:
         for chart, why in broken:

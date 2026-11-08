@@ -1,0 +1,112 @@
+package controller
+
+import (
+	"context"
+	"strings"
+	"testing"
+
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+
+	topo "github.com/openova-io/openova/core/controllers/application/internal/render"
+	"github.com/openova-io/openova/core/controllers/pkg/regions"
+)
+
+// The test Sovereign: two regions. Canonical cluster IDs *-A resolve to the
+// first, *-B to the second (pkg/regions provisioning-index rule).
+const (
+	testRegionA = "hetzner-fsn-rtz-prod"
+	testRegionB = "hetzner-nbg-rtz-prod"
+)
+
+var testRegions = regions.New(testRegionA, testRegionB)
+
+// regionFileObjs returns the objects committed for app in region's folder of
+// the Org repo, or nil when no file exists.
+func regionFileObjs(t *testing.T, fg *fakeGitea, org, region, app string) []*unstructured.Unstructured {
+	t.Helper()
+	data, ok := fg.get(org, "catalyst-tenant", "main", topo.RegionAppPath(region, app))
+	if !ok {
+		return nil
+	}
+	objs, err := topo.ParseRegionFile(data)
+	if err != nil {
+		t.Fatalf("parse region file %s/%s: %v", region, app, err)
+	}
+	return objs
+}
+
+// reconcileAndApplyAll runs one reconcile pass and then stands in for EVERY
+// region's Flux applying its folder of every Org repo into the one fake API
+// (the union of all regions). Tests that assert on rendered HelmRelease
+// shape use it; tests about WHICH region applies what read the files.
+func reconcileAndApplyAll(t *testing.T, r *Reconciler, fg *fakeGitea, ns, name string) {
+	t.Helper()
+	reconcileFromCluster(t, r, ns, name)
+	fg.mu.Lock()
+	var orgs []string
+	for key := range fg.repos {
+		if strings.HasSuffix(key, "/catalyst-tenant") {
+			orgs = append(orgs, strings.TrimSuffix(key, "/catalyst-tenant"))
+		}
+	}
+	fg.mu.Unlock()
+	for _, org := range orgs {
+		for _, region := range r.Cfg.Regions.IDs() {
+			fluxApplyRegion(t, r, fg, org, region)
+		}
+	}
+}
+
+// fluxApplyRegion stands in for ONE region's Flux: it applies every object
+// committed under `regions/<region>/apps/` of the Org repo to r.Dynamic,
+// stamping the kustomize-controller label the real apply stamps. Existing
+// objects keep their status (only spec + labels are replaced), exactly like a
+// server-side apply by kustomize-controller.
+func fluxApplyRegion(t *testing.T, r *Reconciler, fg *fakeGitea, org, region string) []*unstructured.Unstructured {
+	t.Helper()
+	ctx := context.Background()
+	prefix := topo.RegionAppsDir(region) + "/"
+	fg.mu.Lock()
+	var docs [][]byte
+	for path, data := range fg.repos[org+"/catalyst-tenant"]["main"] {
+		if strings.HasPrefix(path, prefix) {
+			docs = append(docs, data)
+		}
+	}
+	fg.mu.Unlock()
+	var applied []*unstructured.Unstructured
+	for _, d := range docs {
+		objs, err := topo.ParseRegionFile(d)
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		for _, o := range objs {
+			labels := o.GetLabels()
+			if labels == nil {
+				labels = map[string]string{}
+			}
+			labels[fluxKustomizeNameLabel] = "catalyst-tenant-" + org + "-region-apps"
+			o.SetLabels(labels)
+			res := r.Dynamic.Resource(FluxHelmReleaseGVR).Namespace(o.GetNamespace())
+			cur, err := res.Get(ctx, o.GetName(), metav1.GetOptions{})
+			switch {
+			case apierrors.IsNotFound(err):
+				if _, err := res.Create(ctx, o, metav1.CreateOptions{}); err != nil {
+					t.Fatalf("flux apply create %s/%s: %v", o.GetNamespace(), o.GetName(), err)
+				}
+			case err != nil:
+				t.Fatalf("flux apply get: %v", err)
+			default:
+				cur.Object["spec"] = o.Object["spec"]
+				cur.SetLabels(o.GetLabels())
+				if _, err := res.Update(ctx, cur, metav1.UpdateOptions{}); err != nil {
+					t.Fatalf("flux apply update: %v", err)
+				}
+			}
+			applied = append(applied, o)
+		}
+	}
+	return applied
+}

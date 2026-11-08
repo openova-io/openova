@@ -1,10 +1,21 @@
 {{- if and .Values.wordpress.enabled .Values.persistence.wpContent.enabled }}
 {{- /*
+REGION-LOCAL VOLUME `wp-content` (ADR-0015 D6 seam).
+
 Persistent volume for /var/www/html/wp-content. Carries the WordPress
 themes, plugins, mu-plugins, and uploaded media across pod restarts and
 image upgrades. Bound at first install; the wp-content-bootstrap
 initContainer in the Deployment seeds the freshly-bound PVC from the
 official image's baked-in wp-content directory (idempotent).
+
+This volume is REGION-LOCAL: every region's release binds its own PVC and
+NOTHING replicates it. Under a multi-region `openova.topology` the database
+moves with the primary but uploaded media do NOT — after a primary move the
+new primary serves posts whose media files exist only in the old region.
+Declared in platform/wordpress-tenant/blueprint.yaml
+`spec.regionLocalVolumes[name=wp-content]` (replication: none) so the D6
+admission can refuse active-hot-standby until media live in a replicated
+store. Kept as its own template on purpose: D6 replaces exactly this file.
 */}}
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -12,11 +23,14 @@ metadata:
   name: {{ include "bp-wordpress-tenant.fullname" . }}-wp-content
   labels:
     {{- include "bp-wordpress-tenant.labels" . | nindent 4 }}
+    openova.io/volume-scope: region-local
+    openova.io/volume-name: wp-content
   annotations:
     # Helm resource-policy keep — do not delete on `helm uninstall`
     # (the PVC carries customer content; operator must explicitly
     # delete via `kubectl delete pvc` after data export).
     helm.sh/resource-policy: keep
+    openova.io/volume-replication: none
 spec:
   accessModes:
     {{- range .Values.persistence.wpContent.accessModes }}

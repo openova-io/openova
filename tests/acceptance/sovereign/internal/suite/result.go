@@ -1,0 +1,179 @@
+package suite
+
+import (
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+)
+
+// Status of one step.
+const (
+	Pass = "PASS"
+	Fail = "FAIL"
+	Skip = "SKIP"
+)
+
+// Evidence is the per-step bag of measured values. Every value in it is a
+// thing the suite OBSERVED (an HTTP code, a resolved IP, a row count, a
+// sha256) — never the thing it asked for.
+type Evidence map[string]any
+
+// Step is one asserted action.
+type Step struct {
+	Journey    string    `json:"journey"`
+	ID         string    `json:"id"`
+	Name       string    `json:"name"`
+	Status     string    `json:"status"`
+	StartedAt  time.Time `json:"started_at"`
+	FinishedAt time.Time `json:"finished_at"`
+	DurationMs int64     `json:"duration_ms"`
+	Evidence   Evidence  `json:"evidence,omitempty"`
+	Error      string    `json:"error,omitempty"`
+}
+
+// Run is the JSON record written to docs/ledger/acceptance/<env>-<runid>.json.
+// The schema is read by scripts/check-function-rows-cite-acceptance.py and
+// scripts/acceptance-gate.sh — change all three together.
+type Run struct {
+	Schema       string            `json:"schema"`
+	RunID        string            `json:"run_id"`
+	Env          string            `json:"env"`
+	Console      string            `json:"console"`
+	DeploymentID string            `json:"deployment_id"`
+	Mode         string            `json:"mode"` // run | discover
+	SuiteGitSHA  string            `json:"suite_git_sha,omitempty"`
+	StartedAt    time.Time         `json:"started_at"`
+	FinishedAt   time.Time         `json:"finished_at"`
+	Result       string            `json:"result"`
+	Journeys     map[string]string `json:"journeys"`
+	Subject      Evidence          `json:"subject"` // what was tested: org/env/regions/app/blueprint/delivered images
+	Steps        []*Step           `json:"steps"`
+}
+
+// SchemaVersion of the record.
+const SchemaVersion = "openova.io/acceptance-sovereign/v1"
+
+// NewRunID is <UTC timestamp>-<4 random hex>, sortable and unique.
+func NewRunID(now time.Time) string {
+	var b [2]byte
+	_, _ = rand.Read(b[:])
+	return now.UTC().Format("20060102T150405Z") + "-" + hex.EncodeToString(b[:])
+}
+
+// Finalize computes per-journey and overall results. A journey PASSes only if
+// it has at least one step and every step PASSed — a journey that was
+// skipped entirely is SKIP, and any SKIP of a REQUESTED journey makes the run
+// FAIL: "not measured" never reads as green.
+func (r *Run) Finalize(requested []string) {
+	r.Journeys = map[string]string{}
+	for _, j := range requested {
+		r.Journeys[j] = Skip
+	}
+	seen := map[string]bool{}
+	for _, s := range r.Steps {
+		if s.Journey == "D0" {
+			continue
+		}
+		cur, ok := r.Journeys[s.Journey]
+		if !ok {
+			continue
+		}
+		if !seen[s.Journey] {
+			seen[s.Journey] = true
+			cur = Pass
+		}
+		switch {
+		case s.Status == Fail:
+			cur = Fail
+		case s.Status == Skip && cur != Fail:
+			cur = Skip
+		}
+		r.Journeys[s.Journey] = cur
+	}
+	r.Result = Pass
+	for _, s := range r.Steps {
+		if s.Journey == "D0" && s.Status != Pass {
+			r.Result = Fail
+		}
+	}
+	for _, j := range requested {
+		if r.Journeys[j] != Pass {
+			r.Result = Fail
+		}
+	}
+	if r.Mode == "discover" {
+		// discover asserts only reachability of the contract; it never
+		// certifies function and its record is refused by the UAT gate.
+		r.Journeys = map[string]string{}
+	}
+}
+
+// PrintTable writes the human step table.
+func (r *Run) PrintTable(w io.Writer) {
+	fmt.Fprintf(w, "\nACCEPTANCE %s  env=%s  run=%s  result=%s\n", r.Mode, r.Env, r.RunID, r.Result)
+	fmt.Fprintf(w, "%-4s %-6s %-6s %8s  %-58s %s\n", "J", "STEP", "RESULT", "SECONDS", "ASSERTION", "EVIDENCE / ERROR")
+	fmt.Fprintln(w, strings.Repeat("-", 140))
+	for _, s := range r.Steps {
+		detail := s.Error
+		if detail == "" {
+			detail = evidenceLine(s.Evidence)
+		}
+		fmt.Fprintf(w, "%-4s %-6s %-6s %8.1f  %-58s %s\n", s.Journey, s.ID, s.Status,
+			float64(s.DurationMs)/1000, trunc(s.Name, 58), trunc(detail, 200))
+	}
+	fmt.Fprintln(w, strings.Repeat("-", 140))
+	keys := make([]string, 0, len(r.Journeys))
+	for k := range r.Journeys {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		fmt.Fprintf(w, "  %s %s\n", k, r.Journeys[k])
+	}
+	fmt.Fprintf(w, "RESULT %s\n", r.Result)
+}
+
+func evidenceLine(e Evidence) string {
+	if len(e) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(e))
+	for k := range e {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		b, _ := json.Marshal(e[k])
+		parts = append(parts, k+"="+string(b))
+	}
+	return strings.Join(parts, " ")
+}
+
+func trunc(s string, n int) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	if len(s) <= n {
+		return s
+	}
+	return s[:n-1] + "…"
+}
+
+// Write stores the record at <dir>/<env>-<runid>.json and returns the path.
+func (r *Run) Write(dir string) (string, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	p := filepath.Join(dir, fmt.Sprintf("%s-%s.json", r.Env, r.RunID))
+	b, err := json.MarshalIndent(r, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return p, os.WriteFile(p, append(b, '\n'), 0o644)
+}

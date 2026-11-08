@@ -215,6 +215,13 @@ EOF
     echo "  ⊘ $rel_path — GUARD 2: skipped (SKIP_SMOKE_RENDER=1)"
     continue
   fi
+  # ADR-0015 D2: a `type: library` chart (platform/topology-lib) is not
+  # installable — `helm template` refuses it by design. Its helpers are
+  # smoke-rendered through every consumer that vendors it.
+  if [ "$(yq '.type // "application"' "$chart_yaml")" = "library" ]; then
+    echo "  ⊘ $rel_path — GUARD 2: library chart (rendered via its consumers)"
+    continue
+  fi
 
   # `helm template` must run against a chart whose subchart deps were
   # resolved via `helm dependency build`. For charts with deps, we expect

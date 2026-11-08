@@ -256,6 +256,10 @@ func TestKustomizationTimeout_WaitTrueRetained(t *testing.T) {
 		"sovereign-tls":            true, // #3845 / Refs #3888 — async wildcard-TLS applier
 		"infrastructure-providers": true, // #4521 — Crossplane Provider-install LAYER 1 (package pull off the critical path)
 		"infrastructure-config":    true, // #4212 / #4521 — Crossplane object-model config LAYER 2 (dependsOn infrastructure-providers)
+		// ADR-0015 D1 (#7067) — the per-region root that applies this region's
+		// own clusters/<fqdn>/regions/<id> path. Nothing dependsOn it; Org
+		// Kustomizations it creates reconcile (and report) independently.
+		"sovereign-region-bootstrap": true,
 	}
 	currentName := ""
 	prevNonComment := ""

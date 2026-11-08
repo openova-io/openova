@@ -115,6 +115,17 @@ function installFetch(topologyBody: unknown, supported = ['singleton', 'active-h
       captured.push(JSON.parse(String(init.body)))
       return json({ id: 'new-uid', name: 'pg-1', blueprint: 'postgres', org: 'uatco' }, 201)
     }
+    // ADR-0015 D4 — the dialog reads Organization / Environment CRs and the
+    // region registry from the refs endpoints.
+    if (url.includes('/v1/refs/organizations/') && url.includes('/environments')) {
+      return json({ environments: [{ name: 'uatco-prod', envType: 'prod', organizationRef: 'uatco' }] })
+    }
+    if (url.includes('/v1/refs/organizations')) {
+      return json({ organizations: [{ name: 'uatco', displayName: 'uatco', namespace: 'uatco', ready: true, kind: 'customer', platform: false }] })
+    }
+    if (url.includes('/v1/refs/regions')) {
+      return json({ regions: ((topologyBody as { topology: { regions: Array<{ name: string }> } }).topology.regions).map((r, i) => ({ id: r.name, label: r.name, primary: i === 0 })) })
+    }
     if (url.includes('/instances')) return json({ items: [] })
     if (url.includes('/sovereign/self')) return json(SELF)
     if (url.includes('/v1/organizations')) return json(ORG_ROWS)
@@ -211,25 +222,19 @@ describe('#5639 — a Sovereign reporting NO regions says so honestly', () => {
     await waitFor(async () => expect((await submitBtn()).disabled).toBe(true))
   })
 
-  it('NEGATIVE CONTROL — singleton with no regions is still creatable', async () => {
-    // A mode that genuinely needs no region choice must stay submittable, or
-    // the fix above is a blanket block dressed up as validation.
+  it('ADR-0015 D4 — with an EMPTY region registry even a singleton is not creatable', async () => {
+    // There is no "default region" to fall back to: the server resolves an
+    // omitted region to the registry's primary, and an empty registry has
+    // none (it would answer 422 region-registry-empty). Saying otherwise is
+    // the reassurance-plus-dead-request this row was opened about.
     const sel = await openDialog()
     expect(sel.value).toBe('singleton')
     fireEvent.change(await screen.findByTestId('input-instance-name'), { target: { value: 'pg-1' } })
     fireEvent.change(await screen.findByTestId('select-instance-org'), { target: { value: 'uatco' } })
 
-    // The singleton copy DOES legitimately fall back to the server default.
-    expect((await screen.findByTestId('instance-regions-empty')).textContent).toContain(
-      'default region',
-    )
-
-    await waitFor(async () => expect((await submitBtn()).disabled).toBe(false))
-    fireEvent.click(await submitBtn())
-    await waitFor(() => expect(captured.length).toBe(1))
-    expect(captured[0].topology).toBe('singleton')
-    // No placement is sent, so the server applies the Blueprint default —
-    // which is a real default, unlike the multi-region case.
-    expect(captured[0].placement).toBeUndefined()
+    const msg = (await screen.findByTestId('instance-regions-empty')).textContent ?? ''
+    expect(msg).toContain('declares no regions')
+    expect(msg).not.toContain('default region')
+    await waitFor(async () => expect((await submitBtn()).disabled).toBe(true))
   })
 })

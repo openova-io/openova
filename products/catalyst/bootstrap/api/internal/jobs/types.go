@@ -136,6 +136,15 @@ const (
 	KindReconciler = "reconciler"
 	KindLifecycle  = "lifecycle"
 	KindGroup      = "group"
+	// KindApplication — ADR-0015 D7: one leaf per Application CR, its
+	// status the CR's own Ready condition (reason + message verbatim on
+	// Job.Reason / Job.Message). A blocked Application (Ready=False,
+	// e.g. EnvironmentMissing) is a Failed row that says why.
+	KindApplication = "application"
+	// KindTopologyTransition — ADR-0015 D7/D8: one leaf per entry of a
+	// Continuum/Application CR's status.activity[] (a phase × member of a
+	// topology transition), grouped under one group Job per transition.
+	KindTopologyTransition = "topology-transition"
 )
 
 // JobName prefixes for the §5a ingestion kinds. Kept disjoint from the
@@ -224,6 +233,12 @@ const (
 	// green under bootstrap-kit — the operator sees the truth (issue
 	// #3646 §3a/§6).
 	GroupReconcilers = "reconcilers"
+	// GroupApplications — ADR-0015 D7: the group the Application-CR leaves
+	// (KindApplication) hang under.
+	GroupApplications = "applications"
+	// TopologyTransitionGroupPrefix — group JobName prefix for one topology
+	// transition: "topology-transition-<namespace>-<name>".
+	TopologyTransitionGroupPrefix = "topology-transition-"
 )
 
 // Group display names — user-visible labels for the synthesised
@@ -239,11 +254,12 @@ const (
 	// ("Provision Huawei", "Provision AWS", …) so a Huawei prov never
 	// masquerades as Hetzner. Defaults to Hetzner for back-compat with
 	// pre-multi-cloud deployment records that never carried a provider.
-	GroupProvisionerDisplay = "Provision Hetzner"
-	GroupCutoverDisplay     = "Cutover"
-	GroupHandoverDisplay    = "Handover"
-	GroupAppsDisplay        = "Apps"
-	GroupReconcilersDisplay = "Reconcilers"
+	GroupProvisionerDisplay  = "Provision Hetzner"
+	GroupCutoverDisplay      = "Cutover"
+	GroupHandoverDisplay     = "Handover"
+	GroupAppsDisplay         = "Apps"
+	GroupReconcilersDisplay  = "Reconcilers"
+	GroupApplicationsDisplay = "Applications"
 )
 
 // providerDisplayNames maps a canonical (lower-cased) cloud provider name
@@ -394,6 +410,13 @@ type Job struct {
 	// DependsOn entry `<deploymentId>:install-cilium`). For dep
 	// arrows to render the canvas resolves these by exact ID match.
 	DependsOn []string `json:"dependsOn"`
+
+	// Reason / Message — ADR-0015 D7. The verbatim condition reason and
+	// message of the object this Job projects (e.g. an Application's
+	// Ready=False reason "EnvironmentMissing" + its message), so a
+	// blocked row says WHY. Empty for kinds that carry none.
+	Reason  string `json:"reason,omitempty"`
+	Message string `json:"message,omitempty"`
 
 	// DependsOnAuthoritative — a WRITE-TIME DIRECTIVE, never record
 	// state, and therefore never persisted (`json:"-"`). It answers the

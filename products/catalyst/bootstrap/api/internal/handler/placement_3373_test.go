@@ -216,19 +216,19 @@ func TestNewApplicationUnstructured_DottedOrgSlugsNamespace(t *testing.T) {
 	if org := obj.GetLabels()["catalyst.openova.io/organization"]; org != "hw165.omani.works" {
 		t.Fatalf("organization label = %q, want verbatim FQDN hw165.omani.works", org)
 	}
-	// … but spec.environmentRef MUST be the slugged, CRD-pattern-safe form
-	// (#3922): a dotted env ref makes the apiserver reject the create with
-	// HTTP 500 against ^[a-z][a-z0-9-]{2,63}$.
-	if env, _, _ := unstructured.NestedString(obj.Object, "spec", "environmentRef"); env != "hw165-omani-works-prod" {
-		t.Fatalf("spec.environmentRef = %q, want slugged hw165-omani-works-prod (no dots)", env)
+	// ADR-0015 D4 — spec.environmentRef is the Environment CR name the
+	// request named (validated to exist), carried verbatim.
+	if env, _, _ := unstructured.NestedString(obj.Object, "spec", "environmentRef"); env != "hw165.omani.works-prod" {
+		t.Fatalf("spec.environmentRef = %q, want the request's Environment verbatim", env)
 	}
 }
 
 func TestNewApplicationCRFromSeed_DottedOrgSlugsNamespace(t *testing.T) {
 	seed := instances.ApplicationSeed{
 		Name:      "obs",
-		Namespace: "hw165.omani.works", // instances.Build sets Namespace = Org (the FQDN)
-		Blueprint: "bp-grafana",
+		Namespace:   "hw165.omani.works", // instances.Build sets Namespace = Org (the FQDN)
+		Environment: "hw165-prod",
+		Blueprint:   "bp-grafana",
 		Topology:  "singleton",
 		Labels:    map[string]string{"catalyst.openova.io/organization": "hw165.omani.works"},
 	}
@@ -236,10 +236,10 @@ func TestNewApplicationCRFromSeed_DottedOrgSlugsNamespace(t *testing.T) {
 	if ns := obj.GetNamespace(); ns != "hw165-omani-works" {
 		t.Fatalf("metadata.namespace = %q, want slugged hw165-omani-works", ns)
 	}
-	// environmentRef is the slugged "<org>-prod" form (#3922): the FQDN's dots
-	// are folded so the CR passes the CRD pattern.
-	if env, _, _ := unstructured.NestedString(obj.Object, "spec", "environmentRef"); env != "hw165-omani-works-prod" {
-		t.Fatalf("spec.environmentRef = %q, want slugged hw165-omani-works-prod (no dots)", env)
+	// ADR-0015 D4 — environmentRef is the seed's validated Environment,
+	// never "<org>-prod".
+	if env, _, _ := unstructured.NestedString(obj.Object, "spec", "environmentRef"); env != "hw165-prod" {
+		t.Fatalf("spec.environmentRef = %q, want the seed's Environment hw165-prod", env)
 	}
 }
 

@@ -1,10 +1,28 @@
 {{- if .Values.wordpress.enabled }}
+{{- /*
+WordPress Service.
+
+Multi-region `openova.topology` (ADR-0015 D2): the Service is a Cilium
+ClusterMesh GLOBAL Service (same name + namespace in every region). WordPress
+Pods run only in the primary region (deployment.yaml), so:
+  - primary region: local backends serve (affinity local);
+  - every other region: ZERO local backends, so its gateway proxies over the
+    mesh to the primary's Pods instead of 404-ing.
+Traffic therefore follows the primary wherever the edge lands it, and moves
+with the primary on the same commit — no per-region route surgery (this is
+the declarative form of the #5289 / #5635 zero-backend-stub idiom that
+catalyst-api's org_app_surface_mesh.go emits imperatively today).
+*/ -}}
 apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "bp-wordpress-tenant.fullname" . }}
   labels:
     {{- include "bp-wordpress-tenant.labels" . | nindent 4 }}
+  {{- if include "bp-wordpress-tenant.multiRegion" . }}
+  annotations:
+    {{- include "openova.topology.meshAnnotations" (dig "topology" "clusterMesh" "affinity" "local" (.Values.database | toJson | fromJson)) | nindent 4 }}
+  {{- end }}
 spec:
   type: {{ .Values.service.type }}
   ports:

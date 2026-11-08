@@ -6,14 +6,15 @@ import "context"
 // GET /applications/{name} already produces onto the /status wire shape
 // (#5835, UAT rows 67 + 69).
 //
-// WHY IT DELEGATES. synthesiseAppFromHelmRelease (bootstrap-kit HRs) and
-// synthesiseAppFromRuntime (#5827, components that are neither a CR nor a
-// same-named HR) are the two paths that already know how to answer for a
-// component with no Application CR. Re-deriving a phase from the HelmRelease
+// WHY IT DELEGATES. synthesiseAppFromHelmRelease (bootstrap-kit HRs) is the
+// path that already knows how to answer for a component with no Application
+// CR (the Pod-readiness runtime synth, #5827, was deleted by ADR-0015 D7:
+// Pod readiness is not Application status). Re-deriving a phase from the HelmRelease
 // here would be a THIRD derivation of the same fact, and two was already enough
 // for the detail path and the status path to disagree in front of an operator.
 //
-// It reports only what the synthesised answer carries — name, namespace, phase.
+// It reports only what the synthesised answer carries — name, namespace,
+// conditions and the statusOf ObjectStatus (namespace-exact).
 //
 // `Conditions` is normalised from nil to an empty slice so this path never
 // emits JSON `null`. Note that the field carries `omitempty`, so an empty slice
@@ -31,10 +32,7 @@ import "context"
 func (h *Handler) statusFromSynthesised(ctx context.Context, depID, name, ns string) (applicationStatusResponse, bool) {
 	var out applicationStatusResponse
 
-	detail, ok := h.synthesiseAppFromHelmRelease(ctx, depID, name)
-	if !ok {
-		detail, ok = h.synthesiseAppFromRuntime(depID, name, ns)
-	}
+	detail, ok := h.synthesiseAppFromHelmRelease(ctx, depID, name, ns)
 	if !ok {
 		return out, false
 	}
@@ -42,6 +40,7 @@ func (h *Handler) statusFromSynthesised(ctx context.Context, depID, name, ns str
 	out.Name = detail.Name
 	out.Namespace = detail.Namespace
 	out.Phase = detail.Phase
+	out.ObjectStatus = detail.ObjectStatus
 	out.Conditions = detail.Conditions
 	if out.Conditions == nil {
 		out.Conditions = []map[string]interface{}{}

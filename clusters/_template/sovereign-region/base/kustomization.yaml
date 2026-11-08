@@ -1,0 +1,26 @@
+# ADR-0015 D1 — region-symmetric GitOps delivery.
+#
+# Applied in EVERY region by the `sovereign-region-bootstrap` Flux
+# Kustomization that cloud-init writes (infra/providers/_shared/
+# cloudinit-control-plane.tftpl), with per-region postBuild substitutes:
+#
+#   SOVEREIGN_FQDN       the Sovereign FQDN
+#   SOVEREIGN_REGION_ID  THIS region's canonical id (the openova.io/region
+#                        node label, e.g. hw-me-east-215-b-rtz-prod)
+#
+# It wires this region's Flux to reconcile
+#   clusters/${SOVEREIGN_FQDN}/regions/${SOVEREIGN_REGION_ID}/
+# of the Sovereign region repo (openova/sovereign-regions) from THIS region's
+# own Gitea. The organization-controller commits every Organization's Flux
+# objects (GitRepository + Kustomizations) under every region's path, so every
+# region reconciles every Organization — region B no longer depends on region
+# A's API to receive anything.
+#
+# Multi-region Sovereigns use ../multi-region (writer region) or
+# ../multi-region-follower (every other region), which add the cross-region
+# Gitea replication of ADR-0015 D1 on top of this base.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - gitrepository.yaml
+  - region-kustomization.yaml

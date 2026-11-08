@@ -133,4 +133,15 @@ rules:
   - apiGroups: ["postgresql.cnpg.io"]
     resources: ["clusters"]
     verbs: ["get", "list", "watch"]
+
+  # ADR-0015 D7 — the per-region Serving probe reads the app's HTTPRoutes
+  # (hostname + parent Gateway) and the gateway's Service (in-cluster
+  # address) to GET the declared health path through the region gateway.
+  # READ-ONLY.
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["httproutes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list"]
 {{- end }}

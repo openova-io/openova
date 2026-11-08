@@ -12,6 +12,10 @@
 // `values.pg.activeHotStandby.{enabled,primaryRegion,replicaRegion}`
 // block — bp-wordpress-tenant chart 0.2.0+ then renders a primary +
 // replica Cluster.postgresql.cnpg.io pair (templates/cnpg-cluster.yaml).
+//
+// ADR-0015 D2/D5 (#7067) SUPERSEDES the above: the writer no longer emits
+// pg.activeHotStandby at all (bp-wordpress-tenant 0.5.0 removed it); the
+// tests below lock that, whatever the legacy env toggle says.
 // In every other shape (toggle off, missing region, identical regions)
 // the writer falls back to the single-Cluster shape — defence-in-depth
 // against malformed inputs that would otherwise break the entire
@@ -57,39 +61,69 @@ func TestRenderOrganizationOverlay_HotStandby_Off_NoBlock(t *testing.T) {
 	}
 }
 
-// With the canonical happy-path env triple, the HelmRelease MUST carry
-// the chart's pg.activeHotStandby.{enabled,primaryRegion,replicaRegion}
-// block so bp-wordpress-tenant chart 0.2.0+ renders the primary +
-// replica Cluster CR pair (DoD D31).
-func TestRenderOrganizationOverlay_HotStandby_On_EmitsBlock(t *testing.T) {
-	t.Setenv("SOVEREIGN_ENABLE_HOT_STANDBY", "true")
-	t.Setenv("SOVEREIGN_PRIMARY_REGION", "hz-fsn-rtz-prod")
-	t.Setenv("SOVEREIGN_REPLICA_REGION", "hz-hel-rtz-prod")
-	files, err := renderOrganizationOverlay(d31TestRec(), OrganizationChartVersions{})
-	if err != nil {
-		t.Fatalf("render: %v", err)
+// ADR-0015 D2/D5 (#7067) — the HA toggle on NEVER emits the keys
+// bp-wordpress-tenant 0.5.0 removed. The overlay's values become the funnel
+// Application's spec.parameters verbatim; a pg.activeHotStandby.* or
+// database.mode key there fails the chart's render (fail closed), so the
+// funnel WordPress on every HA Sovereign would never install. Multi-region
+// shape comes from the Application placement → openova.topology instead.
+// Asserted on every env shape the old writer branched on.
+func TestRenderOrganizationOverlay_NeverEmitsRemovedTopologyKeys_ADR0015(t *testing.T) {
+	cases := []struct{ name, enable, primary, replica string }{
+		{"toggle-off", "", "", ""},
+		{"toggle-on-distinct-regions", "true", "hz-fsn-rtz-prod", "hz-hel-rtz-prod"},
+		{"toggle-on-no-regions", "true", "", ""},
+		{"toggle-on-same-region", "true", "hz-fsn-rtz-prod", "hz-fsn-rtz-prod"},
 	}
-	wp := files["bp-wordpress-tenant.yaml"]
-	for _, want := range []string{
-		"pg:",
-		"activeHotStandby:",
-		"enabled: true",
-		"primaryRegion: hz-fsn-rtz-prod",
-		"replicaRegion: hz-hel-rtz-prod",
-	} {
-		if !strings.Contains(wp, want) {
-			t.Errorf("missing %q in HA WordPress overlay:\n%s", want, wp)
-		}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("SOVEREIGN_ENABLE_HOT_STANDBY", tc.enable)
+			t.Setenv("SOVEREIGN_PRIMARY_REGION", tc.primary)
+			t.Setenv("SOVEREIGN_REPLICA_REGION", tc.replica)
+			files, err := renderOrganizationOverlay(d31TestRec(), OrganizationChartVersions{})
+			if err != nil {
+				t.Fatalf("render: %v", err)
+			}
+			wp := files["bp-wordpress-tenant.yaml"]
+			if wp == "" {
+				t.Fatal("no bp-wordpress-tenant.yaml rendered — the assertions below would be vacuous")
+			}
+			apps, err := funnelApplicationsFromOverlay(files)
+			if err != nil {
+				t.Fatalf("funnel apps: %v", err)
+			}
+			var params map[string]interface{}
+			for _, a := range apps {
+				if a.Blueprint == "bp-wordpress-tenant" {
+					params = a.Parameters
+				}
+			}
+			if params == nil {
+				t.Fatal("funnel produced no bp-wordpress-tenant Application")
+			}
+			if pg, ok := params["pg"].(map[string]interface{}); ok {
+				if _, bad := pg["activeHotStandby"]; bad {
+					t.Fatalf("funnel WordPress parameters carry pg.activeHotStandby (removed in 0.5.0): %v", pg)
+				}
+			}
+			if db, ok := params["database"].(map[string]interface{}); ok {
+				if _, bad := db["mode"]; bad {
+					t.Fatalf("funnel WordPress parameters carry database.mode (removed in 0.5.0): %v", db)
+				}
+			}
+			if strings.Contains(wp, "activeHotStandby:") {
+				t.Fatalf("overlay still renders an activeHotStandby block:\n%s", wp)
+			}
+		})
 	}
 }
 
-// #2066 — when active-hot-standby is on AND both regions are distinct,
-// renderOrganizationOverlay MUST emit a per-Application Continuum CR
-// alongside the bp-wordpress-tenant HelmRelease. Without it the
-// bp-continuum controller (Refs #2065) has nothing to reconcile and
-// region-kill leaves the tenant unfailed-over. CRD shape per
-// products/catalyst/chart/crds/continuum.yaml.
-func TestRenderOrganizationOverlay_HotStandby_On_EmitsContinuumCR(t *testing.T) {
+// ADR-0015 D5 — the overlay no longer carries a per-Application
+// continuum.yaml (#2066), even with active-hot-standby on: the funnel's
+// WordPress is an Application CR, and the application-controller derives its
+// Continuum from the Application's multi-region placement exactly as it does
+// for a console-installed Application. One install path, one DR path.
+func TestRenderOrganizationOverlay_HotStandby_On_NoOverlayContinuum_ADR0015(t *testing.T) {
 	t.Setenv("SOVEREIGN_ENABLE_HOT_STANDBY", "true")
 	t.Setenv("SOVEREIGN_PRIMARY_REGION", "hz-fsn-rtz-prod")
 	t.Setenv("SOVEREIGN_REPLICA_REGION", "hz-hel-rtz-prod")
@@ -97,61 +131,11 @@ func TestRenderOrganizationOverlay_HotStandby_On_EmitsContinuumCR(t *testing.T) 
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	cr, ok := files["continuum.yaml"]
-	if !ok || strings.TrimSpace(cr) == "" {
-		t.Fatalf("expected continuum.yaml in HA overlay, got files=%v\ncontents=%q",
-			fileNames(files), cr)
+	if _, ok := files["continuum.yaml"]; ok {
+		t.Fatalf("continuum.yaml rendered into the overlay — the Application controller owns the Continuum now (files=%v)", fileNames(files))
 	}
-	for _, want := range []string{
-		"apiVersion: dr.openova.io/v1",
-		"kind: Continuum",
-		"name: bp-wordpress-tenant",
-		"namespace: org-t-acme",
-		"applicationRef: bp-wordpress-tenant",
-		"primaryRegion: hz-fsn-rtz-prod",
-		"- hz-hel-rtz-prod",
-		"rto: 30s",
-		"rpo: 5s",
-		"kind: k8s-lease",
-		"selector: ifurlup",
-		"url: https://wordpress.acme.otech.example/healthz",
-	} {
-		if !strings.Contains(cr, want) {
-			t.Errorf("continuum.yaml missing %q\n%s", want, cr)
-		}
-	}
-	// #3829 — the emitted witness kind must be one the controller can
-	// actually ACQUIRE a lease with. dns-quorum cannot: its registered
-	// factory builds the client with a nil TXTWriter, so Acquire always
-	// fails and the Continuum sits Degraded with no leaseHolder and no
-	// standby (measured live on hw293, g7doora/bp-wordpress-tenant).
-	// The behavioural proof — including that CORRECT resolvers do not
-	// rescue it — lives in
-	// core/controllers/continuum/internal/witness/witness_backend_functional_test.go.
-	for _, banned := range []string{
-		// assert on the VALUE of the selector field, not on the bare
-		// word — the template legitimately explains in a comment why
-		// dns-quorum is not used, and a substring match on the name
-		// would flag that explanation instead of a real selection.
-		"kind: dns-quorum",
-		// The placeholder resolver set. 10.43.0.0/16 is k3s's default
-		// service CIDR; these Sovereigns allocate from 10.96.0.0/12 and
-		// kube-dns is region-local (region A 10.96.0.10, region B
-		// 10.97.0.10), so no hardcoded resolver list can be correct for
-		// both regions of one DR pair.
-		"10.43.0.",
-		"resolvers:",
-	} {
-		if strings.Contains(cr, banned) {
-			t.Errorf("continuum.yaml must not contain %q (dead dns-quorum witness config)\n%s", banned, cr)
-		}
-	}
-	// kustomization.yaml MUST also list it under resources so Flux
-	// actually applies the CR. Without this, the CR file exists in
-	// git but never reconciles into the cluster.
-	kust := files["kustomization.yaml"]
-	if !strings.Contains(kust, "- continuum.yaml") {
-		t.Errorf("kustomization.yaml missing 'continuum.yaml' entry:\n%s", kust)
+	if strings.Contains(files["kustomization.yaml"], "continuum.yaml") {
+		t.Fatalf("kustomization.yaml references continuum.yaml:\n%s", files["kustomization.yaml"])
 	}
 }
 
@@ -186,84 +170,6 @@ func fileNames(m map[string]string) []string {
 		out = append(out, k)
 	}
 	return out
-}
-
-// Defence-in-depth: the writer falls back to single-cluster shape when
-// the operator opts in but the region pair is degenerate (empty primary,
-// empty replica, primary==replica). The alternative — emitting the
-// block anyway — would let the chart's validateActiveHotStandbyRegions
-// helper `fail` at template time and gate the entire tenant overlay
-// reconcile, which is far worse than degrading silently to non-HA.
-func TestRenderOrganizationOverlay_HotStandby_Degenerate_FallsBackToSingle(t *testing.T) {
-	cases := []struct {
-		name        string
-		enable      string
-		primary     string
-		replica     string
-		wantHABlock bool
-	}{
-		{"toggle-on-no-regions", "true", "", "", false},
-		{"toggle-on-empty-primary", "true", "", "hz-hel-rtz-prod", false},
-		{"toggle-on-empty-replica", "true", "hz-fsn-rtz-prod", "", false},
-		{"toggle-on-same-region", "true", "hz-fsn-rtz-prod", "hz-fsn-rtz-prod", false},
-		{"toggle-off-with-regions", "false", "hz-fsn-rtz-prod", "hz-hel-rtz-prod", false},
-		{"toggle-on-distinct-regions", "true", "hz-fsn-rtz-prod", "hz-hel-rtz-prod", true},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("SOVEREIGN_ENABLE_HOT_STANDBY", tc.enable)
-			t.Setenv("SOVEREIGN_PRIMARY_REGION", tc.primary)
-			t.Setenv("SOVEREIGN_REPLICA_REGION", tc.replica)
-			files, err := renderOrganizationOverlay(d31TestRec(), OrganizationChartVersions{})
-			if err != nil {
-				t.Fatalf("render: %v", err)
-			}
-			wp := files["bp-wordpress-tenant.yaml"]
-			has := strings.Contains(wp, "activeHotStandby:")
-			if has != tc.wantHABlock {
-				t.Fatalf("activeHotStandby presence=%v, want %v\noverlay:\n%s",
-					has, tc.wantHABlock, wp)
-			}
-		})
-	}
-}
-
-// #5623 — the emitted HA block MUST declare what promotes the standby.
-//
-// On the hw292 G12 region-kill (2026-08-03) bp-cnpg-pair's region-B dr-promoter
-// promoted at T0+2m16s with RPO=0, while every DR pair that shipped no
-// region-local promoter stayed pg_is_in_recovery()=t for the entire outage.
-// bp-wordpress-tenant is in the second group: it renders a cross-region standby
-// but ships no promoter, and the per-Application Continuum CR this same writer
-// emits is reconciled by continuum-controller — a SINGLE region-A Deployment
-// that dies with the region it would fail away from (#5137; verified live on
-// hw292 2026-08-06, region-B carries neither the controller nor the Continuum
-// CRD) whose spec.autoFailover defaults to false.
-//
-// bp-wordpress-tenant 0.4.23+ therefore REFUSES to render an active-hot-standby
-// pair with no declared mechanism. This test is the lock on the writer side: if
-// the declaration is ever dropped from the template, every tenant WordPress
-// install on a multi-region Sovereign fails its Helm render instead of silently
-// shipping a standby nothing promotes. Asserting the VALUE, not the key — a key
-// with an empty value is exactly how #5639 survived two months.
-func TestRenderOrganizationOverlay_HotStandby_On_DeclaresPromotionMechanism(t *testing.T) {
-	t.Setenv("SOVEREIGN_ENABLE_HOT_STANDBY", "true")
-	t.Setenv("SOVEREIGN_PRIMARY_REGION", "hz-fsn-rtz-prod")
-	t.Setenv("SOVEREIGN_REPLICA_REGION", "hz-hel-rtz-prod")
-	files, err := renderOrganizationOverlay(d31TestRec(), OrganizationChartVersions{})
-	if err != nil {
-		t.Fatalf("render: %v", err)
-	}
-	wp := files["bp-wordpress-tenant.yaml"]
-	if !strings.Contains(wp, "promotion:") {
-		t.Fatalf("#5623: HA overlay carries no pg.activeHotStandby.promotion block — "+
-			"bp-wordpress-tenant 0.4.23+ fails the render without it:\n%s", wp)
-	}
-	if !strings.Contains(wp, "mechanism: manual") {
-		t.Fatalf("#5623: HA overlay does not declare mechanism: manual. Only declare a "+
-			"mechanism this chart actually ships — \"dr-promoter\" and \"continuum\" fail "+
-			"closed in the chart precisely so an undelivered failover cannot be asserted:\n%s", wp)
-	}
 }
 
 // #5623 companion — a NON-HA overlay must not carry the declaration at all.

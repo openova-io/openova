@@ -50,6 +50,7 @@ import (
 	orgapi "github.com/openova-io/openova/core/controllers/organization/internal/orgapi"
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
 	"github.com/openova-io/openova/core/controllers/pkg/natsbus"
+	"github.com/openova-io/openova/core/controllers/pkg/regions"
 )
 
 // TenantEventPublisher is the narrow publish seam the deletion path uses to
@@ -205,6 +206,23 @@ type Reconciler struct {
 	// 401s). Empty == anonymous, matching the application-controller's
 	// FluxGiteaSecretRef default.
 	FluxGiteaSecretRef string
+
+	// Regions is the Sovereign's region registry (ADR-0015 D3,
+	// SOVEREIGN_REGIONS_JSON). The per-Org Flux objects are committed once
+	// per region (per_org_flux.go, ADR-0015 D1).
+	Regions regions.Registry
+
+	// SovereignFQDN keys the region paths `clusters/<fqdn>/regions/<id>/`
+	// when an Organization carries no spec.sovereignRef.
+	SovereignFQDN string
+
+	// SovereignRegionRepoOwner / SovereignRegionRepo name the Sovereign-local
+	// Gitea repo holding every region's path (default openova/sovereign-regions).
+	SovereignRegionRepoOwner string
+	SovereignRegionRepo      string
+
+	// RegionGit overrides GiteaClient for the per-region writer (tests).
+	RegionGit RegionGit
 
 	// FederationSecretNamespace is the K8s namespace where the
 	// `spec.identity.federationConfig.clientSecretRef` Secret lives.
