@@ -753,6 +753,11 @@ type orgTenantTemplateData struct {
 	// flips it to harbor.<sovereign-fqdn> post-handover.
 	VClusterImageRegistry string
 
+	// Purchase — the ratio-sized resources of every container the customer's
+	// purchase charts size through values (organization_purchase_sizing.go,
+	// #7067): request = limit / the plan overcommit. Addressed from the
+	// templates as (index .Purchase "<key>").
+	Purchase map[string]purchaseShape
 }
 
 // renderOrganizationOverlay turns a record into a map<filename, contents>
@@ -823,6 +828,7 @@ func renderOrganizationOverlay(rec store.OrganizationProvisionRecord, versions O
 		ChartVersions:         versions,
 		GeneratedAt:           time.Now().UTC().Format(time.RFC3339),
 		VClusterImageRegistry: imageRegistry,
+		Purchase:              purchaseShapes(),
 	}
 
 	out := map[string]string{}
@@ -1645,6 +1651,28 @@ spec:
         name: cilium-gateway-console
         namespace: kube-system
         sectionName: ""
+    # #7067 — the purchase is sized from the plan: limit as the chart sets
+    # it, request = limit / the plan overcommit (CPU 6, memory 3), the rule
+    # the org-controller's LimitRange applies to every unsized container
+    # (organization_purchase_sizing.go). Requested near its limit, the
+    # purchase could not fit the request budget it was sold against.
+    wordpress:
+      resources:
+        requests:
+          cpu: {{ (index .Purchase "wordpress").RequestsCPU }}
+          memory: {{ (index .Purchase "wordpress").RequestsMemory }}
+        limits:
+          cpu: {{ (index .Purchase "wordpress").LimitsCPU }}
+          memory: {{ (index .Purchase "wordpress").LimitsMemory }}
+    database:
+      cluster:
+        resources:
+          requests:
+            cpu: {{ (index .Purchase "wordpress-db").RequestsCPU }}
+            memory: {{ (index .Purchase "wordpress-db").RequestsMemory }}
+          limits:
+            cpu: {{ (index .Purchase "wordpress-db").LimitsCPU }}
+            memory: {{ (index .Purchase "wordpress-db").LimitsMemory }}
     # ADR-0015 D2/D5 (#7067): NO legacy pg hot-standby / database-mode keys here.
     # bp-wordpress-tenant 0.5.0 removed both (setting either fails the render).
     # These values become the funnel Application's spec.parameters
@@ -2066,6 +2094,33 @@ spec:
     mailboxProvisioner:
       setupJob:
         enabled: true
+        resources:
+          requests:
+            cpu: {{ (index .Purchase "stalwart-setup").RequestsCPU }}
+            memory: {{ (index .Purchase "stalwart-setup").RequestsMemory }}
+          limits:
+            cpu: {{ (index .Purchase "stalwart-setup").LimitsCPU }}
+            memory: {{ (index .Purchase "stalwart-setup").LimitsMemory }}
+    # #7067 — the purchase is sized from the plan: limit as the chart sets
+    # it, request = limit / the plan overcommit (CPU 6, memory 3) — see
+    # organization_purchase_sizing.go. On hw307 (plan M, request budget
+    # 334m) the Stalwart pod alone requested 500m.
+    stalwart:
+      resources:
+        requests:
+          cpu: {{ (index .Purchase "stalwart").RequestsCPU }}
+          memory: {{ (index .Purchase "stalwart").RequestsMemory }}
+        limits:
+          cpu: {{ (index .Purchase "stalwart").LimitsCPU }}
+          memory: {{ (index .Purchase "stalwart").LimitsMemory }}
+    webmail:
+      resources:
+        requests:
+          cpu: {{ (index .Purchase "webmail").RequestsCPU }}
+          memory: {{ (index .Purchase "webmail").RequestsMemory }}
+        limits:
+          cpu: {{ (index .Purchase "webmail").LimitsCPU }}
+          memory: {{ (index .Purchase "webmail").LimitsMemory }}
 `
 
 const orgTenantCertificate = `{{- if .IsBYO}}

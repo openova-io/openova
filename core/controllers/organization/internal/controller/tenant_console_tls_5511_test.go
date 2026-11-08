@@ -345,7 +345,7 @@ func verifyPoolOrg(t *testing.T, listeners []any) (*Reconciler, *orgapi.Organiza
 		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "acme"}},
 		readyVClusterHR("acme"),
 		boundaryLimitRange("acme"),
-		boundaryResourceQuota("acme"),
+		boundaryResourceQuota("acme"), platformResourceQuota("acme"),
 	)
 	for _, gvk := range []schema.GroupVersionKind{certificateGVK, gatewayGVK} {
 		r.Scheme().AddKnownTypeWithName(gvk, &unstructured.Unstructured{})

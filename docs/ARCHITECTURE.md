@@ -601,10 +601,36 @@ organization-controller raises the limits plan term to the grow ceiling
 grow ceiling — the XL headline read from `planQuotaTable["xl"]` for S, M and L,
 twice it for XL — raised to the package headline if set below it and lowered
 to that grow ceiling if set above it. The requests side (the
-guaranteed share) and both overheads are the same in both modes, and the
-LimitRange per-container defaults stay headline-derived. Plan M grow at the
-default ceiling therefore renders `limits.cpu` 8 + 1500m + 4550m = 14050m
-against capped M's 8050m, with `requests.*` unchanged. Usage above the headline
+guaranteed share) and the overheads are the same in both modes, and the
+LimitRange per-container defaults stay headline-derived. Since #7067 the
+customer-scope `plan-quota` carries only the plan term plus the synced coredns
+(the platform's own pods are admitted against `platform-quota`, below), so plan
+M grow at the default ceiling renders `limits.cpu` 8 + 1 = 9 against capped M's
+2 + 1 = 3, with `requests.*` unchanged (334m + 20m = 354m).
+
+**Two admission scopes (#7067).** The Organization namespace holds OpenOva's
+pods and the customer's pods, and until #7067 they shared one quota sized
+plan + control plane + platform stack, the Helm hooks and rollout surges left
+to "the plan's unconsumed slack". On hw307 `acmewalk307` (plan M) the
+customer's purchase took that slack and the `bp-keycloak-keycloak-config-cli`
+post-upgrade hook was refused `exceeded quota: plan-quota` for 14h+, wedging
+every release that depends on `bp-keycloak`. The organization-controller now
+renders, with the boundary: PriorityClass `catalyst-org-platform` (value
+1000000, `preemptionPolicy: Never`, identical in every Organization's tree,
+never pruned); a namespaced Kyverno Policy `org-platform-scope` that stamps it
+at Pod CREATE on every platform pod by the labels the charts already carry
+(`vcluster-0`, `bp-keycloak` incl. its bitnami `keycloak-config-cli` hook —
+which has no `priorityClassName` knob, and Helm 3 post-renders no hook — the
+bp-newapi / bp-openclaw / bp-agenity / oidc-gate pods and hook Jobs, the
+newapi CNPG pods), excluding every pod synced out of the vCluster and the
+openclaw per-user pods, and refusing a synced pod that claims the class;
+`platform-quota` scoped `PriorityClass In [catalyst-org-platform]` = vcluster-0
++ platform stack + transient headroom (largest hook pod + one surge replica):
+5125m / 7856Mi requests, 6500m / 9856Mi limits on every plan; and `plan-quota`
+scoped `NotIn` = plan + the synced coredns (M: 354m / 1430Mi requests, 3 /
+4266Mi limits). The BSS door sizes the purchase it delivers (bp-stalwart-tenant,
+bp-wordpress-tenant) at request = limit ÷ the plan overcommit, the LimitRange
+rule, so the request side never refuses a purchase whose limits fit. Usage above the headline
 is billed in arrears by BSS. The ResourceQuota and LimitRange carry
 `openova.io/overage-mode` and, in grow, `openova.io/grow-ceiling`.
 

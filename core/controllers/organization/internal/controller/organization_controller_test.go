@@ -554,8 +554,8 @@ func TestReconcile_HappyPath(t *testing.T) {
 	if gs.createRepos != 1 {
 		t.Errorf("expected 1 gitea repo create, got %d", gs.createRepos)
 	}
-	if gs.createFiles != 12 {
-		t.Errorf("expected 12 gitea file creates (namespace, vcluster, resourcequota, limitrange, kustomization, apps/networkpolicy, apps/kustomization, apps/namespace [#4991 vcluster-tier target ns], apps/storagequota [#6971 app-storage cap], host-apps/ciliumnetworkpolicy, host-apps/provisioning-rbac [#4991], host-apps/kustomization), got %d", gs.createFiles)
+	if gs.createFiles != 15 {
+		t.Errorf("expected 15 gitea file creates (namespace, vcluster, resourcequota, limitrange, kustomization, platformquota + priorityclass + platform-scope-policy [#7067 platform admission scope], apps/networkpolicy, apps/kustomization, apps/namespace [#4991 vcluster-tier target ns], apps/storagequota [#6971 app-storage cap], host-apps/ciliumnetworkpolicy, host-apps/provisioning-rbac [#4991], host-apps/kustomization), got %d", gs.createFiles)
 	}
 	if gs.updateFiles != 0 {
 		t.Errorf("expected 0 file updates on first reconcile, got %d", gs.updateFiles)
@@ -673,7 +673,7 @@ func TestReconcile_ReadyOnlyWhenVClusterHRReady(t *testing.T) {
 	}, "status", "conditions")
 
 	r, _, _ := makeReconciler(t, org, ns, hr,
-		boundaryLimitRange("acme"), boundaryResourceQuota("acme"))
+		boundaryLimitRange("acme"), boundaryResourceQuota("acme"), platformResourceQuota("acme"))
 
 	res, err := r.Reconcile(context.Background(), ctrl.Request{
 		NamespacedName: types.NamespacedName{Name: "acme"},
@@ -783,8 +783,8 @@ func TestReconcile_GiteaOrgAlreadyExists(t *testing.T) {
 	if gs.createRepos != 1 {
 		t.Errorf("expected 1 repo create even with pre-existing org, got %d", gs.createRepos)
 	}
-	if gs.createFiles != 12 {
-		t.Errorf("expected 12 file creates even with pre-existing org, got %d", gs.createFiles)
+	if gs.createFiles != 15 {
+		t.Errorf("expected 15 file creates even with pre-existing org, got %d", gs.createFiles)
 	}
 }
 
