@@ -142,7 +142,7 @@ ARG S3_UPLOADS_SHA256=c29d84d5663b922aa6d857610d08ff62ee9f166656e2db1e9e2abf7095
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends ca-certificates curl unzip; \
-    curl -fsSL -o /tmp/s3-uploads.zip \
+    curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors -o /tmp/s3-uploads.zip \
       "https://github.com/humanmade/S3-Uploads/releases/download/${S3_UPLOADS_VERSION}/manual-install.zip"; \
     echo "${S3_UPLOADS_SHA256}  /tmp/s3-uploads.zip" | sha256sum -c -; \
     mkdir -p /usr/src/openova-wp-artifacts/plugins/s3-uploads; \

@@ -88,7 +88,7 @@ maintainers:
 #   4. Bump the dependencies[0].version + the version: field here + open PR
 dependencies:
   - name: seaweedfs
-    version: "4.22.0"
+    version: "4.22.0+openova.1"
     # Local vendored copy (see note above) — NEVER the upstream repo, so
     # `helm dependency build` resolves offline and the deleted
     # security-configmap.yaml (issue #340) is never re-pulled.
