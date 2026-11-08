@@ -27,7 +27,7 @@
  */
 
 import { useMemo, useState } from 'react'
-import { useQuery, useQueryClient, type Query } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { getCatalogItem, type CatalogItem } from '@/lib/catalog.api'
 import { regionStatusOf } from '@/lib/objectStatus'
@@ -36,7 +36,6 @@ import { getHierarchicalInfrastructure } from '@/lib/infrastructure.types'
 import { PlacementEditor, type OwnedDependencyInfo } from '@/widgets/topology/PlacementEditor'
 import {
   type Capability,
-  type PlacementTarget,
   HOST_VCLUSTER,
   PATTERN_NOT_REPORTED,
   describePattern,

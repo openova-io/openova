@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-08T07:15:03Z` |
+| Last refreshed | `2026-11-08T07:00:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,7 +307,6 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
-| 2026-11-08T07:06 | [#7068](https://github.com/openova-io/openova/pull/7068) | #7067 | docs(adr): ADR-0015 region-symmetric GitOps + one topology c |
 | 2026-11-07T17:08 | [#7066](https://github.com/openova-io/openova/pull/7066) | #7065 | deploy(continuum): bp-continuum 0.1.20 ships #7065 (ddd6e05) |
 | 2026-11-07T16:50 | [#7065](https://github.com/openova-io/openova/pull/7065) | #7050 | fix(continuum): a DB-only switchover is not UNHEALTHY for la |
 | 2026-11-07T16:26 | [#7064](https://github.com/openova-io/openova/pull/7064) | #7063 | deploy(continuum): bp-continuum 0.1.19 ships #7063 (cbd4f28) |
@@ -337,6 +336,7 @@ flowchart LR
 | 2026-11-06T12:22 | [#7040](https://github.com/openova-io/openova/pull/7040) | #6093 | fix(cutover): harbor.<fqdn> is a local alias; org-tenant ima |
 | 2026-11-06T10:48 | [#7039](https://github.com/openova-io/openova/pull/7039) | #6093 | fix(bp-mimir): bucket Job uses bitnamilegacy/minio-client —  |
 | 2026-11-06T07:25 | [#7038](https://github.com/openova-io/openova/pull/7038) | #4061 | fix(cutover): zero-touch — auto-fire on handover by default; |
+| 2026-11-06T06:57 | [#7037](https://github.com/openova-io/openova/pull/7037) | #6093 | fix(cutover): step log panel streams the Job's own output; n |
 
 ---
 

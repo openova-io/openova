@@ -4090,16 +4090,17 @@ name: bp-catalyst-platform
 # 1.4.1890: bootstrap Application placement is operator-owned — seed pins for
 #   bp-gitea/grafana/guacamole/harbor/keycloak/newapi/openbao/postgres/
 #   powerdns/valkey (seeded once, carried forward on upgrade).
-# 1.4.1893: bp-seaweedfs 1.3.0 seed pin — native cross-region filer sync for
-#   replicated buckets (ADR-0015 D6a, #7067).
-# 1.4.1894: bp-wordpress-tenant 0.5.0 seed pins (ADR-0015 D2, #7067).
-# 1.4.1893 — ADR-0015 D1/D3 (#7067): application- + organization-controller
-#   receive the region registry (SOVEREIGN_REGIONS_JSON from sovereign-fqdn)
-#   and their own region id (sovereign.regionId ← slot 13
-#   SOVEREIGN_REGION_CANONICAL_LABEL).
-# 1.4.1893: ADR-0015 D4 — catalog seed drops the bp-wordpress alias Blueprint
-#   (one name: bp-wordpress-tenant).
-version: 1.4.1892
+# 1.4.1893: ADR-0015 integration (#7067) — ONE umbrella bump carrying all
+#   slices: D1/D3 application- + organization-controller receive the region
+#   registry (SOVEREIGN_REGIONS_JSON from sovereign-fqdn) and their own region
+#   id (SOVEREIGN_REGION_ID ← sovereign.regionId ← slot 13
+#   SOVEREIGN_REGION_CANONICAL_LABEL); D2 bp-wordpress-tenant 0.5.0 seed pin;
+#   D4 bp-wordpress alias Blueprint deleted; D6a bp-seaweedfs 1.3.0 seed pin;
+#   D7 CRDs (Application status.regions[].conditions + status.activity[],
+#   Continuum status.activity[] + phase Unknown, Blueprint
+#   spec.endpoints[].healthPath) + application-controller HTTPRoute/Service
+#   read RBAC; bp-openova-mcp 0.1.8 seed pin.
+version: 1.4.1893
 # 1.4.1481 — #6293: catalog-seed advances bp-self-sovereign-cutover
 #   0.1.186 -> 0.1.187, the release that stops step-06 from patching five
 #   HelmRepositories it does not own and then grading itself on whether they
@@ -4286,7 +4287,7 @@ version: 1.4.1892
 # scripts/check-chart-version-forward.sh (#5743) fails unless the two match —
 # main was carrying a pre-existing 1.4.1330/1.4.1329 split, so this bump heals
 # it in the same commit, exactly as the documented self-heal contract does.
-appVersion: 1.4.1892
+appVersion: 1.4.1893
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
 # Adds the OpenTofu module at infra/providers/huawei/ (VPC + Subnet +

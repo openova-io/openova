@@ -60,7 +60,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
-	"github.com/openova-io/openova/core/controllers/internal/clusterregistry"
 	"github.com/openova-io/openova/core/controllers/internal/placement"
 )
 
@@ -164,9 +163,9 @@ func (r *Reconciler) prober() ServingProber {
 
 // servingRef is one HelmRelease whose installed objects the Serving probe
 // examines: its name (= Helm release = instance label), the namespace its
-// objects live in, and the canonical cluster ID it was fanned out to ("" for
-// the single-HR host path).
-type servingRef struct{ hr, namespace, cluster string }
+// objects live in, and the canonical region id (ADR-0015 D3) of the region
+// whose Flux applies it ("" for the legacy single-HR host path).
+type servingRef struct{ hr, namespace, region string }
 
 // servingResult is the per-region + aggregate Serving verdict.
 type servingResult struct {
@@ -183,7 +182,7 @@ func (r *Reconciler) observeServing(
 	plan placement.Plan,
 	perClusterStatus []map[string]interface{},
 ) servingResult {
-	local := r.localRegion()
+	local := r.Cfg.LocalRegionID
 	refs := make([]servingRef, 0, len(perClusterStatus))
 	for _, pcs := range perClusterStatus {
 		hr, _ := pcs["hr"].(string)
@@ -194,8 +193,8 @@ func (r *Reconciler) observeServing(
 		if ns == "" {
 			ns = app.GetNamespace()
 		}
-		cl, _ := pcs["cluster"].(string)
-		refs = append(refs, servingRef{hr: hr, namespace: ns, cluster: cl})
+		rg, _ := pcs["region"].(string)
+		refs = append(refs, servingRef{hr: hr, namespace: ns, region: rg})
 	}
 	if len(refs) == 0 {
 		refs = append(refs, servingRef{hr: app.GetName(), namespace: app.GetNamespace()})
@@ -205,10 +204,8 @@ func (r *Reconciler) observeServing(
 	// region's cluster is not observable from here.
 	var probed []condValue
 	for _, ref := range refs {
-		if ref.cluster != "" {
-			if id, err := clusterregistry.Parse(ref.cluster); err == nil && id.Region != local {
-				continue
-			}
+		if ref.region != "" && !r.observesRegion(ref.region) {
+			continue
 		}
 		probed = append(probed, r.probeHTTPRoutes(ctx, bp, ref)...)
 		probed = append(probed, r.probeSyncStandbys(ctx, ref)...)
@@ -248,34 +245,28 @@ func (r *Reconciler) observeServing(
 }
 
 // localPlanRegion picks which plan region this controller instance runs in.
-// Cfg.LocalRegionName (CATALYST_REGION, e.g. "me-east-215-a") matched as a
-// substring of the plan region name wins; otherwise a single-region plan's
-// sole region is local; otherwise the region letter (A→index 0, B→index 1)
-// indexes the plan, which puts the declared Primary at A — the convention the
-// placement resolver and the cluster-ID registry share.
+// ADR-0015 D1/D3: the controller knows its own canonical region id
+// (Cfg.LocalRegionID = SOVEREIGN_REGION_ID); a plan region is local when the
+// region registry resolves it to that same id. No region letter, no
+// substring match, no kubeconfig pivot. With no LocalRegionID (single-region
+// / unconfigured) the controller observes every leg, so the first plan
+// region — the declared Primary — is the one whose verdict it reports.
 func (r *Reconciler) localPlanRegion(plan placement.Plan) string {
 	if len(plan.Regions) == 0 {
 		return ""
 	}
-	if n := strings.ToLower(strings.TrimSpace(r.Cfg.LocalRegionName)); n != "" {
+	if id := r.Cfg.LocalRegionID; id != "" {
 		for _, rp := range plan.Regions {
-			if strings.Contains(strings.ToLower(rp.Name), n) {
+			if rp.Name == id {
+				return rp.Name
+			}
+			if c, err := r.Cfg.Regions.Canonical(rp.Name); err == nil && c == id {
 				return rp.Name
 			}
 		}
 		return ""
 	}
-	if len(plan.Regions) == 1 {
-		return plan.Regions[0].Name
-	}
-	idx := 0
-	if r.localRegion() == clusterregistry.Region("B") {
-		idx = 1
-	}
-	if idx < len(plan.Regions) {
-		return plan.Regions[idx].Name
-	}
-	return ""
+	return plan.Regions[0].Name
 }
 
 // worstServing rolls probe verdicts up: False > Unknown(observability) > True.

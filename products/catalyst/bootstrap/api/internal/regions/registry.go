@@ -14,6 +14,12 @@
 //  2. SOVEREIGN_PRIMARY_REGION + SOVEREIGN_REPLICA_REGION
 //  3. CATALYST_CONFIGURED_REGIONS — comma-separated
 //
+// SOVEREIGN_REGIONS_JSON is parsed by core/controllers/pkg/regions.Parse —
+// the SAME parser the application- and organization-controllers use — so the
+// API and the controllers can never disagree on which ids exist or on how
+// the ConfigMap's quoted-JSON wire form is unwrapped (ADR-0015 D3: one env
+// contract, one set of canonical ids).
+//
 // The first region is the primary. Another ADR-0015 slice may move the
 // registry to a CR; callers depend only on Registry(), so that move
 // touches this file alone.
@@ -23,6 +29,8 @@ import (
 	"encoding/json"
 	"os"
 	"strings"
+
+	ctrlregions "github.com/openova-io/openova/core/controllers/pkg/regions"
 )
 
 // Region is one registry entry.
@@ -105,25 +113,32 @@ func IDs() []string {
 
 func fromJSON() ([]string, map[string]string) {
 	providers := map[string]string{}
-	raw := strings.TrimSpace(getenv("SOVEREIGN_REGIONS_JSON"))
+	raw := strings.TrimSpace(getenv(ctrlregions.EnvRegionsJSON))
 	if raw == "" {
 		return nil, providers
+	}
+	reg, err := ctrlregions.Parse(raw)
+	if err != nil {
+		return nil, providers
+	}
+	ids := reg.IDs()
+	// Provider is display metadata only; read it best-effort from the same
+	// payload (unwrapping the ConfigMap's quoted-string form once, as Parse
+	// does). Ids never come from here.
+	var inner string
+	if strings.HasPrefix(raw, `"`) && json.Unmarshal([]byte(raw), &inner) == nil {
+		raw = inner
 	}
 	var specs []struct {
 		CloudRegion string `json:"cloudRegion"`
 		Provider    string `json:"provider"`
 	}
-	if err := json.Unmarshal([]byte(raw), &specs); err != nil {
-		return nil, providers
-	}
-	ids := make([]string, 0, len(specs))
-	for _, s := range specs {
-		id := strings.TrimSpace(s.CloudRegion)
-		if id == "" {
-			continue
+	if json.Unmarshal([]byte(raw), &specs) == nil {
+		for _, sp := range specs {
+			if id := strings.TrimSpace(sp.CloudRegion); id != "" {
+				providers[id] = strings.TrimSpace(sp.Provider)
+			}
 		}
-		ids = append(ids, id)
-		providers[id] = strings.TrimSpace(s.Provider)
 	}
 	return ids, providers
 }

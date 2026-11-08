@@ -33,6 +33,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Self-test the guard
-        run: scripts/check-region-vocabulary.sh --self-test
+        run: bash scripts/check-region-vocabulary.sh --self-test
       - name: Check region vocabulary
-        run: scripts/check-region-vocabulary.sh
+        run: bash scripts/check-region-vocabulary.sh

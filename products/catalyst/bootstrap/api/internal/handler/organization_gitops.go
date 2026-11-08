@@ -753,46 +753,6 @@ type orgTenantTemplateData struct {
 	// flips it to harbor.<sovereign-fqdn> post-handover.
 	VClusterImageRegistry string
 
-	// D31 active-hot-standby — opt-in cross-region CNPG ReplicaCluster
-	// for CNPG-backed tenant apps. The bp-wordpress-tenant chart
-	// (platform/wordpress-tenant/chart/templates/cnpg-cluster.yaml,
-	// PR #1562) already supports a `pg.activeHotStandby.{enabled,
-	// primaryRegion,replicaRegion}` block: when enabled it renders a
-	// primary + replica `Cluster.postgresql.cnpg.io` pair pinned to two
-	// distinct openova.io/region values, with WAL streaming over
-	// Cilium ClusterMesh via the `service.cilium.io/global` Service the
-	// CNPG operator provisions on the primary. Single-cluster
-	// (legacy) shape stays the default for every tenant that hasn't
-	// opted in.
-	//
-	// Source: the trio is sourced from the catalyst-api Pod env at
-	// render time (env keys: SOVEREIGN_ENABLE_HOT_STANDBY,
-	// SOVEREIGN_PRIMARY_REGION, SOVEREIGN_REPLICA_REGION). Bootstrap-
-	// kit slot 13 (clusters/_template/bootstrap-kit/13-bp-catalyst-
-	// platform.yaml) wires those envsubst placeholders from
-	// per-Sovereign overlays so an operator flips one knob and every
-	// future tenant install gets the HA shape.
-	//
-	// Default behaviour (EnableHotStandby=false): the rendered
-	// HelmRelease omits the `pg.activeHotStandby` block entirely so the
-	// chart falls back to its values.yaml default (enabled=false). Zero
-	// regression for any Sovereign that has not opted in.
-	//
-	// When EnableHotStandby=true at render time we additionally enforce:
-	//   - PrimaryRegion non-empty
-	//   - ReplicaRegion non-empty AND distinct from PrimaryRegion
-	// If any of those fail we fall back to single-cluster shape rather
-	// than emitting a HelmRelease the chart's
-	// `validateActiveHotStandbyRegions` helper would `fail` at template
-	// time — a failed template render blocks the entire tenant overlay
-	// reconcile, which is far worse than degrading silently to non-HA.
-	// Same shape applies to any future tenant product chart (gitlab-
-	// tenant, nextcloud-tenant) that adopts the same value contract;
-	// today those charts do not exist in this monorepo so this wiring
-	// is exercised only by bp-wordpress-tenant.
-	EnableHotStandby bool
-	PrimaryRegion    string
-	ReplicaRegion    string
 }
 
 // renderOrganizationOverlay turns a record into a map<filename, contents>
@@ -826,28 +786,6 @@ func renderOrganizationOverlay(rec store.OrganizationProvisionRecord, versions O
 	owHost := strings.Replace(host, "console.", "openclaw.", 1)
 	mailHost := strings.Replace(host, "console.", "mail.", 1)
 	agenityHost := strings.Replace(host, "console.", "agenity.", 1)
-
-	// D31 active-hot-standby — read the Sovereign-level toggle + region
-	// pair from the catalyst-api Pod env at render time. Wired by
-	// bootstrap-kit slot 13 (clusters/_template/bootstrap-kit/13-bp-
-	// catalyst-platform.yaml) from envsubst placeholders the operator
-	// sets at provision time. Default-off keeps every existing tenant
-	// rendering single-cluster CNPG (no regression).
-	enableHotStandby := false
-	switch strings.ToLower(strings.TrimSpace(envOr("SOVEREIGN_ENABLE_HOT_STANDBY", ""))) {
-	case "true", "1", "yes", "on":
-		enableHotStandby = true
-	}
-	primaryRegion := strings.TrimSpace(envOr("SOVEREIGN_PRIMARY_REGION", ""))
-	replicaRegion := strings.TrimSpace(envOr("SOVEREIGN_REPLICA_REGION", ""))
-	// Defence-in-depth: if the operator opted in to HA but didn't wire
-	// distinct regions, fall back to single-cluster mode rather than
-	// rendering a HelmRelease the WordPress chart's
-	// validateActiveHotStandbyRegions helper would reject at template
-	// time (which would block the entire tenant overlay reconcile).
-	if enableHotStandby && (primaryRegion == "" || replicaRegion == "" || primaryRegion == replicaRegion) {
-		enableHotStandby = false
-	}
 
 	// MIRROR-EVERYTHING (#3785): the Sovereign-local Harbor proxy host every
 	// per-tenant app image routes through. Same env knob + default the
@@ -885,9 +823,6 @@ func renderOrganizationOverlay(rec store.OrganizationProvisionRecord, versions O
 		ChartVersions:         versions,
 		GeneratedAt:           time.Now().UTC().Format(time.RFC3339),
 		VClusterImageRegistry: imageRegistry,
-		EnableHotStandby:      enableHotStandby,
-		PrimaryRegion:         primaryRegion,
-		ReplicaRegion:         replicaRegion,
 	}
 
 	out := map[string]string{}
@@ -1710,49 +1645,15 @@ spec:
         name: cilium-gateway-console
         namespace: kube-system
         sectionName: ""
-{{- if .EnableHotStandby }}
-    # D31 active-hot-standby — primary + replica Cluster CR pair across
-    # the Sovereign's two declared regions, WAL streaming over Cilium
-    # ClusterMesh (DoD D11 — clustermesh apiserver via LoadBalancer +
-    # peer cert exchange). Toggled at the bootstrap-kit slot 13 layer
-    # via SOVEREIGN_ENABLE_HOT_STANDBY=true on the per-Sovereign
-    # overlay; the catalyst-api Pod reads SOVEREIGN_PRIMARY_REGION /
-    # SOVEREIGN_REPLICA_REGION env at render time and writes them
-    # through here. Chart contract: bp-wordpress-tenant chart 0.2.0+'s
-    # pg.activeHotStandby.* block (see platform/wordpress-tenant/chart/
-    # templates/cnpg-cluster.yaml).
-    pg:
-      activeHotStandby:
-        enabled: true
-        primaryRegion: {{ .PrimaryRegion }}
-        replicaRegion: {{ .ReplicaRegion }}
-        # #5623 — WHAT PROMOTES THIS STANDBY ON A REGION KILL. Required by
-        # bp-wordpress-tenant 0.4.23+: the chart refuses to render an
-        # active-hot-standby pair that has not stated its promotion mechanism,
-        # because an undeclared pair is one that silently never promotes (hw292
-        # G12: the pairs without a region-local promoter stayed
-        # pg_is_in_recovery()=t for the entire outage while bp-cnpg-pair's
-        # promoted in 2m16s).
-        #
-        # "manual" is the CORRECT value for this path today, and it is not a
-        # placeholder. The orgTenantContinuum CR rendered below is reconciled by
-        # continuum-controller, which is a SINGLE region-A Deployment — it dies
-        # with the region it would fail away from (the #5137 root cause;
-        # verified live on hw292 2026-08-06, region-B carries neither the
-        # controller nor the Continuum CRD) — and its spec.autoFailover defaults
-        # to false. So nothing promotes this standby automatically on an
-        # unplanned region-A loss; the sovereign-admin does, per RUNBOOKS §6.1.
-        # Declaring "continuum" here would assert a failover that cannot happen,
-        # which is why the chart fails closed on that value.
-        #
-        # Making this automatic means porting the proven bp-cnpg-pair /
-        # bp-postgres dr-promoter onto this chart, which needs a stable
-        # per-Application HelmRelease name for the actor's #5218 suspend latch.
-        # Tracked on #5623 — do NOT flip this to "dr-promoter" before that
-        # actor actually renders.
-        promotion:
-          mechanism: manual
-{{- end }}
+    # ADR-0015 D2/D5 (#7067): NO legacy pg hot-standby / database-mode keys here.
+    # bp-wordpress-tenant 0.5.0 removed both (setting either fails the render).
+    # These values become the funnel Application's spec.parameters
+    # (installFunnelApplications); the multi-region shape comes from the
+    # Application's placement — chooseTopology resolves the Blueprint's
+    # multi-region default on a multi-region Sovereign — and the
+    # application-controller writes openova.topology {mode,self,primary,peers}
+    # into each region's file (ADR-0015 D1). One install path, one topology
+    # contract.
 `
 
 

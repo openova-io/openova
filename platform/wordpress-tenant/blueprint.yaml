@@ -230,7 +230,9 @@ spec:
   # (matching topology.defaults.multi-region) lets the producer emit a
   # primary+standby plan and mint the per-Org Continuum CR.
   placementSchema:
-    modes: [single-region, singleton, active-passive]
+    # ADR-0015 D2/D9 (#7067): active-hot-standby admitted — 0.5.0 renders it
+    # with the same per-region shape as active-passive.
+    modes: [single-region, singleton, active-passive, active-hot-standby]
     default: single-region
     defaultOnMultiRegion: active-passive
   manifests:
@@ -278,6 +280,7 @@ spec:
   topology:
     supported:
     - active-passive
+    - active-hot-standby
     - singleton
     defaults:
       multi-region: active-passive
@@ -297,6 +300,23 @@ spec:
           # removed; per-Org apps land host-native in their OWN Org namespace
           # (#4297 keystone). Host placement = empty tier; keep the rtz-A/-B
           # region designators (clusters/roles) for the multi-region split.
+          tier: ''
+          clusters:
+          - rtz-A
+          - rtz-B
+          roles:
+            rtz-A: active
+            rtz-B: passive
+      active-hot-standby:
+        replication:
+          backend: cnpg-pair
+          mode: sync
+          lagSloSeconds: 0
+        switchover:
+          mechanism: bp-continuum
+          rtoSeconds: 60
+          rpoSeconds: 0
+        placement:
           tier: ''
           clusters:
           - rtz-A

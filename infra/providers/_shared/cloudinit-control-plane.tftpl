@@ -1130,9 +1130,7 @@ write_files:
         namespace: flux-system
       spec:
         interval: 5m
-        # retryInterval short: with NO dependsOn (see header), the CRs fail the
-        # dry-run until the operators register their CRDs, so retry FAST to apply
-        # promptly after — not at the 5m interval. timeout defaults to interval.
+        # short retry: no dependsOn, so CRs fail dry-run until CRDs register.
         retryInterval: 1m
         path: ./clusters/_template/bootstrap-kit-crs
         prune: true
@@ -1143,16 +1141,10 @@ write_files:
         postBuild:
           substitute:
             SOVEREIGN_FQDN: ${sovereign_fqdn}
-            # #4206 — the host-shared CNPG Cluster CRs reconciled by THIS
-            # Kustomization (gitea-pg / harbor-pg / guacamole-pg, slots
-            # 10/19/52) name their storageClass via this var so their PVCs are
-            # RACE-IMMUNE. Omitting the field (the prior #4107 shape) lets the
-            # admission-default plugin freeze "" the instant a PVC is created
-            # before the default SC lands (the fresh-prov ordering race) — and
-            # that "" is PERMANENT (opts out of dynamic provisioning) → Pending
-            # forever. The same per-provider durable class the bootstrap-kit
-            # block uses (evs-ssd on Huawei, hcloud-volumes on Hetzner); the
-            # tofu var validation rejects "" and "local-path".
+            # #4206: host-shared CNPG CRs (slots 10/19/52) name their SC so
+            # PVCs never freeze "" before the default SC lands (Pending
+            # forever). Same durable class as bootstrap-kit; ""/local-path
+            # rejected by tofu validation.
             SOVEREIGN_CNPG_STORAGE_CLASS: "${default_storage_class}"
       ---
       # ADR-0015 D1: region path from this region's own Gitea (every region).
