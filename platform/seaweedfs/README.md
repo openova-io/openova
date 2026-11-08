@@ -205,26 +205,74 @@ spec:
 
 ## Multi-Region Replication
 
+Each region runs its own independent SeaweedFS (bootstrap-kit slot 18). Nothing is shared between regions by default. Buckets in the **replicated scope** are kept identical in every region by SeaweedFS's native cross-cluster sync, `weed filer.sync` (chart ≥ 1.3.0, [ADR-0015](../../docs/adr/) D6a, #7067). This lets a multi-region Application keep its region-local files (first consumer: WordPress media) in every region, so a topology transition does not lose user files.
+
 ```mermaid
 flowchart LR
-    subgraph Region1["Region 1 (primary)"]
-        SW1[SeaweedFS]
+    subgraph A["Region A"]
+        S3A["S3 gateway"] --> FA["filer A"]
+        SYNCA["filer-sync-from-B"]
     end
-
-    subgraph Region2["Region 2 (replica)"]
-        SW2[SeaweedFS]
+    subgraph B["Region B"]
+        S3B["S3 gateway"] --> FB["filer B"]
+        SYNCB["filer-sync-from-A"]
     end
-
-    subgraph CloudArchive["Cloud archive (single, shared)"]
-        R2[Cloudflare R2]
-    end
-
-    SW1 -->|"Async bucket replication"| SW2
-    SW1 -->|"Cold tier"| R2
-    SW2 -.->|"Cold tier read-through"| R2
+    SYNCA -->|"pull via seaweedfs-filer-mesh-B (ClusterMesh)"| FB
+    SYNCA -->|"write local"| FA
+    SYNCB -->|"pull via seaweedfs-filer-mesh-A (ClusterMesh)"| FA
+    SYNCB -->|"write local"| FB
 ```
 
-The cold backend is shared across regions — each region writes warm-aged objects to the same archive bucket, deduplicated by content hash. On region failover, the surviving region reads cold objects directly from cloud archive without needing to re-replicate.
+### How it works
+
+| Piece | What it does |
+|---|---|
+| `Service seaweedfs-filer-mesh-<region-id>` (one per region, rendered in every region) | Cilium ClusterMesh global Service (ClusterIP, ports 8888 + 18888). In its own region it selects the local filer and exports it (`service.cilium.io/shared: "true"`). In other regions it is a zero-backend stub (`shared: "false"`), so the name resolves to that region's filer over the mesh. Same idiom as bp-cnpg-pair `-mesh` and bp-harbor `harbor-redis-mesh`. |
+| `Deployment seaweedfs-filer-sync-from-<peer-id>` (one per peer) | Runs `weed filer.sync -isActivePassive -a=<peer mesh> -b=<local filer> -a.filerProxy`, one process per replicated bucket. It pulls peer → self. The peer runs the mirror image, so together the regions are active-active. `-a.filerProxy` reads chunks through the peer filer, because peer volume-server addresses do not resolve across clusters. |
+| Init container `ensure-replicated-buckets` | Creates each replicated bucket on the local filer if it is missing. It is idempotent and runs on every pod start, so an Application can write in any region before the first replicated event arrives. |
+| CiliumNetworkPolicies | Rendered only when `seaweedfsOverlay.networkPolicy.enabled=true`. A k8s NetworkPolicy cannot admit a ClusterMesh peer, so these admit the peer filer.sync → filer hop on 8888/18888. |
+
+**Restarts are idempotent.** filer.sync stores its offset in the local (target) filer: every ~3 s while streaming, and on SIGTERM. A restart resumes from that offset. A new pair starts from the peer filer's earliest metadata log, so objects that existed before replication was enabled are copied too.
+
+**No loops.** Each replicated event carries the source filer's signature. A follower skips events that already carry its target's signature, so a write is never echoed back.
+
+**Conflicts.** For each object, the entry with the newer mtime wins. An incoming entry whose mtime is less than or equal to the existing one is skipped, and an identical ETag counts as already replicated. Deletes and overwrites propagate (`propagateDeletes: true`). Do not write the same key from two regions at the same time. WordPress media keys are unique per upload, so WordPress is safe.
+
+**Three or more regions.** Each region pulls from every peer (a full mesh). A write is applied once per region. Copies that arrive by a second path are skipped as identical ETag.
+
+### Replicated scope convention
+
+filer.sync scopes by directory, so it cannot match a bucket-name wildcard. The scope is therefore an explicit list in `crossRegion.filerSync.buckets`, and every name in it must be `replicated` or `replicated-<suffix>`. The render fails for any other name, so a bucket's name alone tells you it is cross-region.
+
+- Default: one shared bucket, `replicated`. Each Application writes under its own key prefix, `<org>/<app>/…`.
+- If an Application needs its own bucket, add `replicated-<org>-<app>` to the list.
+- Buckets outside the list stay region-local. All existing platform buckets (Loki, Mimir, Velero, Harbor, CNPG WAL, …) are unchanged.
+
+### How an Application consumes it
+
+1. Use the S3 gateway in your own region: `http://seaweedfs-s3.seaweedfs.svc.cluster.local:8333`. Your region's credentials and endpoint are unchanged, and there is no cross-region endpoint to configure.
+2. Write objects into the replicated bucket under your prefix, for example `s3://replicated/<org>/<app>/wp-content/uploads/2026/11/a.jpg`. The bucket already exists in every region because the init container creates it. For a dedicated bucket, add `replicated-<org>-<app>` to `crossRegion.filerSync.buckets`; it is created in every region the same way.
+3. A write in either region appears in the other, usually within seconds. Reads can go to the local region's gateway.
+
+### Values and delivery
+
+The values follow the ADR-0015 D2 topology contract: the chart reads `openova.topology.self` / `openova.topology.peers[]` (region ids) first. bp-seaweedfs is currently delivered per region by bootstrap-kit slot 18, so the slot fills the fallback `crossRegion.*` seam from the per-region Flux substitutes that bp-cnpg-pair and bp-harbor already use:
+
+| Value | Substitute |
+|---|---|
+| `crossRegion.enabled` | `SOVEREIGN_ENABLE_CNPG_PAIR` (set to true on both regions by catalyst-api only after ClusterMesh is established) |
+| `crossRegion.self` | `SOVEREIGN_REGION_KEY` |
+| `crossRegion.configuredRegions` | `SOVEREIGN_CONFIGURED_REGIONS_YAML` (peers = this list minus self) |
+| `crossRegion.peerClusters` | `SOVEREIGN_PEER_CLUSTERMESH_NAMES` (used only by the CNPs) |
+
+On a single-region Sovereign, or with no peers, nothing is rendered.
+
+### Status: streaming or lagging
+
+- **Ready.** A sync container is Ready only when its own metrics endpoint answers and the peer filer answers through the mesh. The Deployment's native `Available` condition therefore reads as "replication streaming" or not. If the peer is unreachable at start, filer.sync exits and kubelet restarts it with backoff until the peer returns.
+- **Lag.** Each process exports `SeaweedFS_filerSync_sync_offset{path="/buckets/<bucket>"}`, the timestamp (ns) of the last applied event, on port `9340+i` through the `seaweedfs-filer-sync-metrics` Service (scraped when `seaweedfsOverlay.serviceMonitor.enabled`). `time() - SeaweedFS_filerSync_sync_offset / 1e9` is the age of the last replicated change. On an idle bucket this keeps growing even though nothing is behind, so read it together with write activity.
+
+The cold backend is shared across regions. Each region writes warm-aged objects to the same archive bucket, deduplicated by content hash. On region failover, the surviving region reads cold objects directly from the cloud archive and does not need to re-replicate them.
 
 ---
 
