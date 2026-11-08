@@ -19,13 +19,9 @@ func TestPlatformScope_WriteRenderForAdmissionPreflight(t *testing.T) {
 	if dir == "" {
 		t.Skip("ORG_PLATFORM_SCOPE_RENDER_DIR unset — only the admission preflight writes the render")
 	}
-	for _, c := range []struct {
-		sub     string
-		pending bool
-	}{{"scoped", false}, {"pending", true}} {
+	for _, c := range []struct{ sub string }{{"scoped"}} {
 		out, err := Render(Inputs{Slug: "acme", DisplayName: "Acme", Tier: "org", PlanSlug: "m",
-			SovereignFQDN: "x.example", HostCluster: "kind", VClusterChartVersion: "0.33.*",
-			PlatformScopePending: c.pending})
+			SovereignFQDN: "x.example", HostCluster: "kind", VClusterChartVersion: "0.33.*"})
 		if err != nil {
 			t.Fatal(err)
 		}

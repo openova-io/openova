@@ -628,7 +628,12 @@ openclaw per-user pods, and refusing a synced pod that claims the class;
 + platform stack + transient headroom (largest hook pod + one surge replica):
 5125m / 7856Mi requests, 6500m / 9856Mi limits on every plan; and `plan-quota`
 scoped `NotIn` = plan + the synced coredns (M: 354m / 1430Mi requests, 3 /
-4266Mi limits). The BSS door sizes the purchase it delivers (bp-stalwart-tenant,
+4266Mi limits) **+ the classless platform credit**: the effective usage of
+the platform pods admitted before the class existed, which the always-scoped
+`plan-quota` charges, recomputed by the organization-controller on every
+reconcile from the namespace's pods and shrinking to zero as they are
+replaced (pods not listable → the hard never shrinks: max of the live hard and
+plan + coredns + vcluster-0 + the whole stack). The BSS door sizes the purchase it delivers (bp-stalwart-tenant,
 bp-wordpress-tenant) at request = limit ÷ the plan overcommit, the LimitRange
 rule, so the request side never refuses a purchase whose limits fit. Usage above the headline
 is billed in arrears by BSS. The ResourceQuota and LimitRange carry
