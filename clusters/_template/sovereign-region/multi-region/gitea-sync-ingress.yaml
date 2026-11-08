@@ -1,0 +1,26 @@
+# The gitea namespace runs default-deny (bp-gitea gitea-default-deny); Cilium
+# evaluates its namespace selectors cluster-locally. Admit the peer regions'
+# region-git-sync Jobs (any ClusterMesh cluster) to Gitea HTTP only.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: gitea-allow-crossregion-git-sync-ingress
+  namespace: gitea
+  labels:
+    catalyst.openova.io/component: region-git-sync
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: gitea
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: gitea
+            k8s:app.kubernetes.io/component: region-git-sync
+          matchExpressions:
+            - key: io.cilium.k8s.policy.cluster
+              operator: Exists
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP

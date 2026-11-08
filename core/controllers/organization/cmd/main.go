@@ -32,6 +32,7 @@ import (
 	orgapi "github.com/openova-io/openova/core/controllers/organization/internal/orgapi"
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
 	"github.com/openova-io/openova/core/controllers/pkg/natsbus"
+	"github.com/openova-io/openova/core/controllers/pkg/regions"
 )
 
 var scheme = runtime.NewScheme()
@@ -109,6 +110,14 @@ func main() {
 	// → anonymous clone 401s). Empty == anonymous, matching the
 	// application-controller's FLUX_GITEA_SECRET_REF default.
 	fluxGiteaSecretRef := envOr("CATALYST_FLUX_GITEA_SECRET_REF", "")
+	// ADR-0015 D3 — the ONE region registry. A malformed list is fatal: the
+	// per-Org Flux objects are committed once per region and no region may
+	// be guessed.
+	regionRegistry, err := regions.FromEnv()
+	if err != nil {
+		log.Error(err, "region registry")
+		os.Exit(1)
+	}
 	// Slice F2 (#1098): namespace where federation client-secret K8s
 	// Secrets live. Defaults to the controller's own namespace so the
 	// ClusterRole `secrets:get` rule + cache scope stay minimal.
@@ -290,6 +299,10 @@ func main() {
 		FluxNamespace:                     fluxNamespace,
 		FluxIntervalSeconds:               fluxIntervalSeconds,
 		FluxGiteaSecretRef:                fluxGiteaSecretRef,
+		Regions:                           regionRegistry,
+		SovereignFQDN:                     envOr("SOVEREIGN_FQDN", hostCluster),
+		SovereignRegionRepoOwner:          envOr("SOVEREIGN_REGION_REPO_OWNER", "openova"),
+		SovereignRegionRepo:               envOr("SOVEREIGN_REGION_REPO", "sovereign-regions"),
 		FederationSecretNamespace:         fedSecretNs,
 		UserAccessNamespace:               uaNs,
 		IacBootstrapGitea:                 iacGitea,

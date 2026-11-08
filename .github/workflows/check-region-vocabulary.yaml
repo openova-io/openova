@@ -1,0 +1,38 @@
+name: check — one region vocabulary (ADR-0015 D3)
+
+# Region identity is the cluster region id, read from ONE registry
+# (core/controllers/pkg/regions). scripts/check-region-vocabulary.sh fails on
+# legacy spellings (A/B letters, bare regions, meea, region-a, the
+# remote-region kubeconfig pivot, local-undelivered) in the controller/API
+# paths ADR-0015 moved onto the registry. Refs #7067.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'core/controllers/**'
+      - 'products/catalyst/bootstrap/api/internal/handler/**'
+      - 'scripts/check-region-vocabulary.sh'
+      - '.github/workflows/check-region-vocabulary.yaml'
+  pull_request:
+    paths:
+      - 'core/controllers/**'
+      - 'products/catalyst/bootstrap/api/internal/handler/**'
+      - 'scripts/check-region-vocabulary.sh'
+      - '.github/workflows/check-region-vocabulary.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  region-vocabulary:
+    name: Reject non-canonical region spellings
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Self-test the guard
+        run: scripts/check-region-vocabulary.sh --self-test
+      - name: Check region vocabulary
+        run: scripts/check-region-vocabulary.sh

@@ -119,6 +119,17 @@ spec:
                   name: sovereign-fqdn
                   key: bcpTopology
                   optional: true
+            # ADR-0015 D3 — the ONE region registry (sovereign-fqdn/regionsJson,
+            # provisioning order) and THIS region's canonical id. The
+            # controller commits one Git file per region from them.
+            - name: SOVEREIGN_REGIONS_JSON
+              valueFrom:
+                configMapKeyRef:
+                  name: sovereign-fqdn
+                  key: regionsJson
+                  optional: true
+            - name: SOVEREIGN_REGION_ID
+              value: {{ (.Values.sovereign).regionId | default "" | quote }}
             {{- range $k, $v := .Values.controllers.application.env }}
             - name: {{ $k | quote }}
               value: {{ $v | quote }}
