@@ -1535,7 +1535,9 @@ spec:
       #   bp-wordpress-tenant 0.6.0 + regionLocalVolumes, bp-seaweedfs 1.3.1,
       #   bp-openbao 1.2.71, bp-self-sovereign-cutover 0.1.207, bp-reflector).
       #   Pin bumped to match.
-      version: 1.4.1905
+      # 1.4.1906 — lockstep with the umbrella bump (the catalog-seed card
+      #   advances bp-agenity 0.5.34 -> 0.5.35). Pin bumped to match.
+      version: 1.4.1906
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

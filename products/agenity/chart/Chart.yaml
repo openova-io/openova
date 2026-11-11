@@ -304,7 +304,19 @@ type: application
 # the substituted value back. A 0s interval is floored to 1s at runtime, loudly.
 # New suite tests/credential-wait-falsy-default-6374.sh renders the zero case
 # FIRST. appVersion (image) unchanged.
-version: 0.5.34
+# 0.5.35: the StatefulSet renders podManagementPolicy Parallel. Under the
+# OrderedReady default the controller never replaces a pod that is not
+# Running+Ready, so a chart upgrade could not reach a broken bp-agenity-0 and
+# helm --wait timed out on currentRevision != updateRevision (hw307
+# acmewalk307: 0.5.34's revision bp-agenity-6688c94b8c sat un-rolled for five
+# days behind a pod stuck Init:0/1, HelmRelease "context deadline exceeded").
+# One replica, so no ordering is lost. The field is immutable: an existing
+# StatefulSet keeps its live value through a lookup, so no upgrade asks the
+# apiserver for a forbidden change. Pinned by
+# tests/statefulset-pod-management-parallel.sh (fresh, live-kept, opt-out,
+# invalid value, and a vacuity control against the pre-fix template).
+# Template + values change; appVersion (image) unchanged.
+version: 0.5.35
 # 0.5.22 (#5617): the per-Org oidc-gate companion gains its EGRESS
 # CiliumNetworkPolicy (templates/oidc-gate.yaml `oidc-gate-<cid>-egress`).
 # The gate shipped an ingress-only gateway CNP into a DEFAULT-DENY per-Org

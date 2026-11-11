@@ -7,6 +7,11 @@ metadata:
 spec:
   serviceName: {{ include "agenity.fullname" . }}
   replicas: 1
+  # Parallel so a chart upgrade can replace a pod that is not Ready (with the
+  # OrderedReady default the controller never rolls an unhealthy pod, and helm
+  # --wait times out). Immutable field: an existing StatefulSet keeps its live
+  # value. See agenity.podManagementPolicy in _helpers.tpl.
+  podManagementPolicy: {{ include "agenity.podManagementPolicy" (dict "live" (lookup "apps/v1" "StatefulSet" .Release.Namespace (include "agenity.fullname" .)) "want" .Values.podManagementPolicy) }}
   selector:
     matchLabels:
       {{- include "agenity.selectorLabels" . | nindent 6 }}

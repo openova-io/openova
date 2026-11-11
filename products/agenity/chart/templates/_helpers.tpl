@@ -166,3 +166,53 @@ rs256PubkeySecret override (name != the chart default) always wins.
 {{- .Values.openovaMCP.rs256PubkeySecret.key -}}
 {{- end -}}
 {{- end -}}
+
+{{- /*
+agenity.podManagementPolicy — the StatefulSet's spec.podManagementPolicy.
+
+WHY Parallel. With the Kubernetes default (OrderedReady) the StatefulSet
+controller does not REPLACE a pod that is not Running+Ready: processReplica
+(pkg/controller/statefulset/stateful_set_control.go, v1.31) returns before the
+rolling-update loop whenever `!isRunningAndReady(pod) && monotonic`, and
+monotonic is (podManagementPolicy != Parallel). So once bp-agenity-0 is
+unhealthy (the seed-claude-creds init container refusing to start without the
+Anthropic credential, #6163; an ImagePullBackOff; a LimitRange refusal) NO
+chart upgrade can reach it: the new ControllerRevision is created and never
+rolled, helm --wait sees currentRevision != updateRevision for its whole
+timeout, and the HelmRelease fails "context deadline exceeded". Measured on
+hw307 acmewalk307 2026-11-11: updateRevision bp-agenity-6688c94b8c (0.5.34,
+created 2026-11-06T05:19:10Z) never replaced pod bp-agenity-0, which was still
+on bp-agenity-5db55c5cc8 from 2026-09-10 after 12982 init restarts. Kubernetes
+documents this as "Forced rollback". The chart renders exactly one replica, so
+Parallel gives up no ordering guarantee; it only lets a template change replace
+a broken pod. The rollout still deletes before it creates, so two agenity pods
+never run at once.
+
+WHY the live value wins. podManagementPolicy is IMMUTABLE on a StatefulSet
+("updates to statefulset spec for fields other than 'replicas', 'ordinals',
+'template', 'updateStrategy', 'persistentVolumeClaimRetentionPolicy' and
+'minReadySeconds' are forbidden"), so rendering Parallel over an existing
+OrderedReady StatefulSet would turn every existing Organization's upgrade into
+a hard 422. When the StatefulSet exists, its live value is rendered back
+unchanged. A new StatefulSet (fresh install, or one deleted with
+--cascade=orphan to migrate it; its pod and PVCs stay and are re-adopted) gets
+.Values.podManagementPolicy. A live object without the field was defaulted by
+the apiserver to OrderedReady, so that is what is rendered.
+
+Called as (dict "live" <lookup result> "want" .Values.podManagementPolicy).
+lookup returns an empty map under `helm template` and when the object does not
+exist; both mean "no StatefulSet yet".
+*/ -}}
+{{- define "agenity.podManagementPolicy" -}}
+{{- $want := .want | default "Parallel" -}}
+{{- if not (has $want (list "Parallel" "OrderedReady")) -}}
+{{- fail (printf "podManagementPolicy must be Parallel or OrderedReady, got %q" $want) -}}
+{{- end -}}
+{{- $live := .live | default dict -}}
+{{- if $live -}}
+{{- $spec := get $live "spec" | default dict -}}
+{{- get $spec "podManagementPolicy" | default "OrderedReady" -}}
+{{- else -}}
+{{- $want -}}
+{{- end -}}
+{{- end -}}

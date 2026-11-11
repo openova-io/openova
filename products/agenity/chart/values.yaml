@@ -592,6 +592,17 @@ persistence:
     size: 10Gi
     storageClass: ""
 
+# ── StatefulSet pod management ───────────────────────────────────────────
+# Parallel | OrderedReady. Parallel lets a chart upgrade replace bp-agenity-0
+# while it is NOT Ready. Under OrderedReady (the Kubernetes default) the
+# controller never rolls an unhealthy pod, so the fix for a broken pod can
+# never reach it and the HelmRelease times out "context deadline exceeded"
+# (hw307 acmewalk307, 2026-11-11). The chart runs one replica, so ordering is
+# not lost. Applies only when the StatefulSet is CREATED: the field is
+# immutable, so an existing StatefulSet keeps its live value (see
+# agenity.podManagementPolicy in templates/_helpers.tpl for the migration).
+podManagementPolicy: Parallel
+
 # ── Resources ─────────────────────────────────────────────────────────────
 # chepherd itself is a light coordinator; the per-agent claude REPLs are the
 # heavy users and run as sidecar/podman children inside the pod.

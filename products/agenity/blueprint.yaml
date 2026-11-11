@@ -30,7 +30,11 @@ spec:
   # key presence — an explicit 0 no longer renders as the default (300/5/120).
   # Lockstep with products/agenity/chart/Chart.yaml + the catalog-seed pins +
   # the funnel pin.
-  version: 0.5.34
+  # 0.5.35: the StatefulSet renders podManagementPolicy Parallel so an upgrade
+  # can replace a pod that is not Ready (OrderedReady never rolls one; hw307
+  # acmewalk307 HelmRelease timed out on it). Lockstep with
+  # products/agenity/chart/Chart.yaml + the catalog-seed pins + the funnel pin.
+  version: 0.5.35
   # EPIC #6723 lane C (founder 2026-08-31: "the left menu or sub-menus of the
   # sovereign console can be connected to the respective applications, like
   # Agenity"). Agenity is the first Blueprint that registers its own
