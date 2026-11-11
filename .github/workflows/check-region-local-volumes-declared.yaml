@@ -1,0 +1,56 @@
+name: check — multi-region charts declare + replicate their region-local volumes (ADR-0015 D6)
+
+# Renders every multi-region chart (topology-lib consumers, plus any blueprint
+# that declares spec.regionLocalVolumes) once as a singleton and once per
+# region, and fails on any PersistentVolumeClaim / volumeClaimTemplate that is
+# not a declared spec.regionLocalVolumes entry — or that a multi-region render
+# binds while its entry says `replication: none`.
+#
+# bp-wordpress-tenant kept uploaded media on a region-local PVC nothing
+# replicated; after a primary move the media stayed behind. The D6 admission
+# gate (catalyst-api 422 + application-controller) reads only what the
+# Blueprint DECLARES, so an undeclared PVC would slip past it. This gate makes
+# the declaration complete. Header of the script: what it checks and why.
+#
+# Renders templates locally only — no deploy, no cloud API, no live cluster.
+#
+# Refs #7067
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'platform/**'
+      - 'products/**'
+      - 'scripts/check-region-local-volumes-declared.sh'
+      - '.github/workflows/check-region-local-volumes-declared.yaml'
+  pull_request:
+    paths:
+      - 'platform/**'
+      - 'products/**'
+      - 'scripts/check-region-local-volumes-declared.sh'
+      - '.github/workflows/check-region-local-volumes-declared.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  region-local-volumes:
+    name: Region-local volumes declared and replicated
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Install PyYAML
+        run: python3 -m pip install --quiet pyyaml
+
+      - name: Guard self-test (fixtures only, no cluster)
+        run: bash scripts/check-region-local-volumes-declared.sh --self-test
+
+      - name: Region-local volume gate
+        run: bash scripts/check-region-local-volumes-declared.sh

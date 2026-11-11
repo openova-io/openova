@@ -550,77 +550,128 @@ func sorted(s []string) []string {
 	return out
 }
 
-// ─── 6. ROLLOUT GATE ─────────────────────────────────────────────────────────
+// ─── 6. CLASSLESS PLATFORM CREDIT ────────────────────────────────────────────
 
-// TestPlatformScope_PendingHoldsPlanQuotaUnscoped: while a platform pod still
-// lacks the class (PlatformScopePending), plan-quota must NOT be scoped — a
-// classless keycloak pod is "not in" the class and a scoped plan-quota would
-// charge it to the customer's plan and refuse every new customer pod. It is
-// held at the pre-#7067 single-quota size plus the transient headroom, while
-// the class, the Policy, platform-quota and the read RBAC still render.
-func TestPlatformScope_PendingHoldsPlanQuotaUnscoped(t *testing.T) {
+func renderCredit(t *testing.T, in Inputs) quotaDocFor7067 {
+	t.Helper()
+	in.Slug, in.DisplayName, in.Tier = "acme", "Acme", "org"
+	in.SovereignFQDN, in.HostCluster, in.VClusterChartVersion = "x.example", "hz", "0.33.*"
+	if in.PlanSlug == "" {
+		in.PlanSlug = "m"
+	}
+	out, err := Render(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var d quotaDocFor7067
+	if err := yaml.Unmarshal(out["vcluster/resourcequota.yaml"], &d); err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
+type quotaDocFor7067 struct {
+	Metadata struct {
+		Annotations map[string]string `json:"annotations"`
+	} `json:"metadata"`
+	Spec struct {
+		ScopeSelector *struct {
+			MatchExpressions []struct {
+				Operator string `json:"operator"`
+			} `json:"matchExpressions"`
+		} `json:"scopeSelector"`
+		Hard map[string]string `json:"hard"`
+	} `json:"spec"`
+}
+
+// TestPlatformScope_PlanQuotaAlwaysScopedPlusCredit: plan-quota is scoped
+// NotIn the class in EVERY state — no unscoped transitional quota (the #7078
+// design that wedged acmewalk307) — and its hard is plan + coredns + the
+// classless platform credit.
+func TestPlatformScope_PlanQuotaAlwaysScopedPlusCredit(t *testing.T) {
 	t.Parallel()
-	for slug := range planQuotaTable {
-		out, err := Render(Inputs{Slug: "acme", DisplayName: "Acme", Tier: "org", PlanSlug: slug,
-			SovereignFQDN: "x.example", HostCluster: "hz", VClusterChartVersion: "0.33.*", PlatformScopePending: true})
-		if err != nil {
-			t.Fatal(err)
+	credit := PlatformCredit{
+		RequestsCPU: mustQ(t, "", "3805m"), RequestsMemory: mustQ(t, "", "6736Mi"),
+		LimitsCPU: mustQ(t, "", "3850m"), LimitsMemory: mustQ(t, "", "6784Mi"), Pods: 7,
+	}
+	for name, in := range map[string]Inputs{
+		"no credit":      {},
+		"credit":         {ClasslessPlatformCredit: credit},
+		"credit unknown": {CreditUnknown: true, LivePlanQuotaHard: map[string]string{"requests.cpu": "5479m"}},
+	} {
+		d := renderCredit(t, in)
+		if d.Spec.ScopeSelector == nil || len(d.Spec.ScopeSelector.MatchExpressions) != 1 || d.Spec.ScopeSelector.MatchExpressions[0].Operator != "NotIn" {
+			t.Errorf("%s: plan-quota is not scoped NotIn the platform class: %+v", name, d.Spec.ScopeSelector)
 		}
-		for _, f := range []string{platformQuotaDoc, priorityClassDoc, platformScopePolicyDoc, platformScopeRBACDoc} {
-			if _, ok := out["vcluster/"+f]; !ok {
-				t.Errorf("plan %q pending: %s not rendered — new pods must be stamped while the gate is pending", slug, f)
-			}
-		}
-		var rq struct {
-			Metadata struct {
-				Labels map[string]string `json:"labels"`
-			} `json:"metadata"`
-			Spec struct {
-				ScopeSelector map[string]any    `json:"scopeSelector"`
-				Hard          map[string]string `json:"hard"`
-			} `json:"spec"`
-		}
-		if err := yaml.Unmarshal(out["vcluster/resourcequota.yaml"], &rq); err != nil {
-			t.Fatal(err)
-		}
-		if rq.Spec.ScopeSelector != nil {
-			t.Errorf("plan %q pending: plan-quota is scoped %v — classless platform pods would be charged to the customer's plan", slug, rq.Spec.ScopeSelector)
-		}
-		if rq.Metadata.Labels["openova.io/quota-scope"] != "transitional" {
-			t.Errorf("plan %q pending: quota-scope label = %q, want transitional", slug, rq.Metadata.Labels["openova.io/quota-scope"])
-		}
-		q := planQuota(slug)
-		ps, th, cp := platformStackOverheadFor(q), transientHeadroomFor(q), vclusterControlPlaneOverhead
-		for res, parts := range map[string][]any{
-			"requests.cpu":    {q.CPURequest, cp.RequestsCPU, ps.RequestsCPU, th.RequestsCPU},
-			"requests.memory": {q.MemRequest, cp.RequestsMemory, ps.RequestsMemory, th.RequestsMemory},
-			"limits.cpu":      {q.CPULimit, cp.LimitsCPU, ps.LimitsCPU, th.LimitsCPU},
-			"limits.memory":   {q.MemLimit, cp.LimitsMemory, ps.LimitsMemory, th.LimitsMemory},
-		} {
-			want := mustQ(t, res, parts[0].(string))
-			for _, x := range parts[1:] {
-				want.Add(x.(resource.Quantity))
-			}
-			if got := mustQ(t, res, rq.Spec.Hard[res]); got.Cmp(want) != 0 {
-				t.Errorf("plan %q pending: plan-quota %s = %s, want the pre-#7067 single quota + transients %s", slug, res, got.String(), want.String())
-			}
+		if d.Metadata.Annotations["openova.io/classless-platform-credit"] == "" {
+			t.Errorf("%s: plan-quota does not state its classless platform credit", name)
 		}
 	}
-	// hw307 acmewalk307, plan M, the moment the boundary tree lands: 5205m
-	// requested by classless pods. The transitional plan-quota holds them.
-	pending, _ := Render(Inputs{Slug: "acme", PlanSlug: "m", SovereignFQDN: "x", HostCluster: "hz", VClusterChartVersion: "0.33.*", PlatformScopePending: true})
-	var d struct {
-		Spec struct {
-			Hard map[string]string `json:"hard"`
-		} `json:"spec"`
+	// plan m = 334m / 1366Mi, 2 / 4Gi; coredns 20m / 64Mi, 1 / 170Mi.
+	got := renderCredit(t, Inputs{ClasslessPlatformCredit: credit}).Spec.Hard
+	for k, w := range map[string]string{"requests.cpu": "4159m", "requests.memory": "8166Mi", "limits.cpu": "6850m", "limits.memory": "11050Mi"} {
+		if got[k] != w {
+			t.Errorf("credit: plan-quota %s = %s, want %s (plan + coredns + credit)", k, got[k], w)
+		}
 	}
-	_ = yaml.Unmarshal(pending["vcluster/resourcequota.yaml"], &d)
-	if d.Spec.Hard["requests.cpu"] != "5479m" {
-		t.Errorf("plan m pending requests.cpu = %s, want 5479m (334m + 520m + 3840m + 785m)", d.Spec.Hard["requests.cpu"])
+	zero := renderCredit(t, Inputs{}).Spec.Hard
+	if zero["requests.cpu"] != "354m" || zero["requests.memory"] != "1430Mi" {
+		t.Errorf("no credit: plan-quota = %v, want the plan + coredns (354m / 1430Mi)", zero)
 	}
 }
 
-// TestPlatformScope_ReadRBACBindsTheController: the gate's pod read is a
+// TestPlatformScope_CreditUnknownNeverShrinks: when the pods cannot be listed
+// (the read RBAC lands in the same Flux apply as the first render) the hard cap
+// is, per resource, the larger of the live hard and the static safe bound —
+// never lower than either.
+func TestPlatformScope_CreditUnknownNeverShrinks(t *testing.T) {
+	t.Parallel()
+	static := staticPlatformCredit(planQuota("m"))
+	// plan + coredns + vcluster-0 + stack = 354m+500m+3840m / 1430Mi+1Gi+6064Mi …
+	bound := map[string]string{"requests.cpu": "4694m", "requests.memory": "8518Mi", "limits.cpu": "8050m", "limits.memory": "12458Mi"}
+	if static.Pods != len(platformStack)+1 {
+		t.Errorf("static credit covers %d pods, want the stack + vcluster-0", static.Pods)
+	}
+	// The live acmewalk307 hard after #7078 (unscoped transitional): larger on
+	// every side, so it is kept.
+	live := map[string]string{"requests.cpu": "5479m", "requests.memory": "9286Mi", "limits.cpu": "9500m", "limits.memory": "14122Mi"}
+	if got := renderCredit(t, Inputs{CreditUnknown: true, LivePlanQuotaHard: live}).Spec.Hard; !equalHard(got, live) {
+		t.Errorf("unknown credit with a larger live hard: %v, want the live hard kept %v", got, live)
+	}
+	// A live hard below the bound (or none at all) never pulls it down.
+	for name, l := range map[string]map[string]string{
+		"smaller live": {"requests.cpu": "354m", "requests.memory": "1430Mi", "limits.cpu": "3", "limits.memory": "4266Mi"},
+		"no live":      nil,
+		"garbage live": {"requests.cpu": "lots"},
+	} {
+		if got := renderCredit(t, Inputs{CreditUnknown: true, LivePlanQuotaHard: l}).Spec.Hard; !equalHard(got, bound) {
+			t.Errorf("unknown credit, %s: %v, want the static safe bound %v", name, got, bound)
+		}
+	}
+	// Mixed: each resource takes its own maximum.
+	mixed := map[string]string{"requests.cpu": "9000m", "requests.memory": "1Mi", "limits.cpu": "1", "limits.memory": "99Gi"}
+	got := renderCredit(t, Inputs{CreditUnknown: true, LivePlanQuotaHard: mixed}).Spec.Hard
+	want := map[string]string{"requests.cpu": "9", "requests.memory": "8518Mi", "limits.cpu": "8050m", "limits.memory": "99Gi"}
+	if !equalHard(got, want) {
+		t.Errorf("unknown credit, mixed live: %v, want per-resource max %v", got, want)
+	}
+}
+
+func equalHard(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range b {
+		x, err1 := resource.ParseQuantity(a[k])
+		y, err2 := resource.ParseQuantity(v)
+		if err1 != nil || err2 != nil || x.Cmp(y) != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// TestPlatformScope_ReadRBACBindsTheController: the credit's pod read is a
 // namespaced Role bound to the org-controller's ServiceAccount, delivered by
 // the Org's own tree — no cluster-wide pod read, no umbrella ClusterRole change.
 func TestPlatformScope_ReadRBACBindsTheController(t *testing.T) {

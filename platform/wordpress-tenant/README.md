@@ -10,7 +10,7 @@ Application per Organization inside the Org's vcluster. Part of the
 |---|---|
 | `blueprint.yaml` | Catalyst Blueprint metadata (configSchema, depends, placementSchema) |
 | `chart/` | Helm chart `bp-wordpress-tenant` — see `chart/README.md` |
-| `chart/templates/` | Deployment, Service, Ingress, PVC, CNPG Cluster, NetworkPolicy, ServiceAccount + 3 post-install Jobs (db-secret-sync, oidc-config, admin-user) |
+| `chart/templates/` | Deployment, Service, Ingress, CNPG Cluster, NetworkPolicy, ServiceAccount, reflected media S3 Secret (+ legacy PVC under `media.store=pvc`) + post-install Jobs (oidc-config, admin-user, media-migrate) |
 | `chart/tests/` | observability-toggle.sh, oidc-config.sh, topology-per-region-render.sh (ADR-0015 D2), 6311-*.sh, imagepullsecrets-render.sh |
 | `image/Dockerfile` | Custom WordPress runtime image — official base + PG PHP driver (see below) |
 

@@ -1,0 +1,174 @@
+{{- if and .Values.wordpress.enabled (eq (include "bp-wordpress-tenant.mediaStore" .) "s3") (include "bp-wordpress-tenant.isPrimary" .) }}
+{{- $mode := .Values.media.migrateLegacyPvc | default "auto" | toString }}
+{{- if not (has $mode (list "auto" "always" "never")) }}
+{{- fail (printf "media.migrateLegacyPvc=%q is not supported. Valid: auto | always | never." $mode) }}
+{{- end }}
+{{- $pvc := include "bp-wordpress-tenant.wpContentPvcName" . }}
+{{- $found := lookup "v1" "PersistentVolumeClaim" .Release.Namespace $pvc }}
+{{- if or (eq $mode "always") (and (eq $mode "auto") $found) }}
+{{- /*
+ADR-0015 D6 (Refs #7067) — one-shot copy of media from the LEGACY
+region-local wp-content PVC into the replicated bucket.
+
+When: media.store=s3 and the legacy PVC `<fullname>-wp-content` still exists
+in the namespace (Helm `lookup`; it carries helm.sh/resource-policy: keep, so
+switching an install from media.store=pvc / chart <= 0.5.0 to 0.6.0 leaves it
+in place). Rendered only on the primary region — the legacy PVC only ever
+existed where WordPress served.
+
+What: every file under <pvc>/uploads/ is PUT to
+`<bucket>/<prefix>/uploads/<same relative path>` unless an object of that key
+already exists (HeadObject) — idempotent, safe to re-run on every upgrade, and
+it never overwrites media written through S3-Uploads since the switch. The
+object keys are exactly the ones the mu-plugin's read path serves for the
+unchanged `https://<host>/wp-content/uploads/...` URLs, so existing posts
+keep their images. The PVC is mounted read-only and never deleted: the
+sovereign-admin removes it after checking the copy.
+
+How: the runtime image's baked AWS SDK (S3-Uploads' vendor/ tree) — no DB
+access needed, no WordPress bootstrap, no network beyond the S3 gateway.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "bp-wordpress-tenant.fullname" . }}-media-migrate
+  labels:
+    {{- include "bp-wordpress-tenant.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      catalyst.openova.io/component: wordpress-media-migrate
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.media.s3.namespace }}
+      ports:
+        - port: {{ .Values.media.s3.port }}
+          protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "bp-wordpress-tenant.fullname" . }}-media-migrate
+  labels:
+    {{- include "bp-wordpress-tenant.labels" . | nindent 4 }}
+    catalyst.openova.io/component: wordpress-media-migrate
+    app.kubernetes.io/managed-by: flux
+  annotations:
+    "helm.sh/hook": "post-install,post-upgrade"
+    "helm.sh/hook-weight": "20"
+    "helm.sh/hook-delete-policy": "before-hook-creation,hook-succeeded"
+spec:
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: wordpress-media-migrate
+        catalyst.openova.io/blueprint: bp-wordpress-tenant
+        catalyst.openova.io/component: wordpress-media-migrate
+    spec:
+      restartPolicy: OnFailure
+      {{- with .Values.wordpress.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.wordpress.podSecurityContext | nindent 8 }}
+      containers:
+        - name: media-migrate
+          image: {{ include "bp-wordpress-tenant.wordpressImage" . | quote }}
+          imagePullPolicy: {{ .Values.wordpress.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.wordpress.containerSecurityContext | nindent 12 }}
+          env:
+            - name: OPENOVA_MEDIA_S3_ENDPOINT
+              value: {{ .Values.media.s3.endpoint | quote }}
+            - name: OPENOVA_MEDIA_S3_BUCKET
+              value: {{ .Values.media.s3.bucket | quote }}
+            - name: OPENOVA_MEDIA_S3_PREFIX
+              value: {{ include "bp-wordpress-tenant.mediaKeyPrefix" . | quote }}
+            - name: OPENOVA_MEDIA_S3_REGION
+              value: {{ .Values.media.s3.region | default "us-east-1" | quote }}
+            - name: OPENOVA_MEDIA_S3_CREDENTIALS_DIR
+              value: /etc/openova/media-s3
+            - name: LEGACY_UPLOADS_DIR
+              value: /legacy/uploads
+          command:
+            - php
+            - -r
+            - |
+              $autoload = '/usr/src/openova-wp-artifacts/plugins/s3-uploads/vendor/autoload.php';
+              if (!is_readable($autoload)) { fwrite(STDERR, "FATAL: baked S3-Uploads vendor/ missing from the runtime image\n"); exit(1); }
+              require $autoload;
+              $dir = rtrim(getenv('OPENOVA_MEDIA_S3_CREDENTIALS_DIR'), '/');
+              $id = trim((string) @file_get_contents($dir . '/access-key-id'));
+              $sk = trim((string) @file_get_contents($dir . '/secret-access-key'));
+              if ($id === '' || $sk === '') { fwrite(STDERR, "credentials not reflected yet into the media Secret — retrying\n"); exit(1); }
+              $src = getenv('LEGACY_UPLOADS_DIR');
+              if (!is_dir($src)) { echo "no legacy uploads directory at $src — nothing to migrate\n"; exit(0); }
+              $bucket = getenv('OPENOVA_MEDIA_S3_BUCKET');
+              $prefix = trim(getenv('OPENOVA_MEDIA_S3_PREFIX'), '/');
+              $s3 = new Aws\S3\S3Client([
+                'version' => 'latest',
+                'region' => getenv('OPENOVA_MEDIA_S3_REGION') ?: 'us-east-1',
+                'endpoint' => getenv('OPENOVA_MEDIA_S3_ENDPOINT'),
+                'use_path_style_endpoint' => true,
+                'credentials' => ['key' => $id, 'secret' => $sk],
+              ]);
+              $copied = 0; $present = 0;
+              $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($src, FilesystemIterator::SKIP_DOTS));
+              foreach ($it as $f) {
+                if (!$f->isFile()) { continue; }
+                $rel = 'uploads/' . ltrim(substr($f->getPathname(), strlen($src)), '/');
+                $key = ($prefix === '' ? '' : $prefix . '/') . $rel;
+                if ($s3->doesObjectExistV2($bucket, $key)) { $present++; continue; }
+                $s3->putObject([
+                  'Bucket' => $bucket, 'Key' => $key,
+                  'SourceFile' => $f->getPathname(),
+                  'ContentType' => mime_content_type($f->getPathname()) ?: 'application/octet-stream',
+                ]);
+                $copied++;
+              }
+              echo "media migrated to $bucket/$prefix/uploads: copied=$copied already-present=$present\n";
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          volumeMounts:
+            - name: legacy
+              mountPath: /legacy
+              readOnly: true
+            - name: media-s3
+              mountPath: /etc/openova/media-s3
+              readOnly: true
+      volumes:
+        - name: legacy
+          persistentVolumeClaim:
+            claimName: {{ $pvc }}
+            readOnly: true
+        - name: media-s3
+          secret:
+            secretName: {{ include "bp-wordpress-tenant.mediaS3SecretName" . }}
+            items:
+              - key: {{ .Values.media.s3.credentials.accessKeyIdKey }}
+                path: access-key-id
+              - key: {{ .Values.media.s3.credentials.secretAccessKeyKey }}
+                path: secret-access-key
+{{- end }}
+{{- end }}

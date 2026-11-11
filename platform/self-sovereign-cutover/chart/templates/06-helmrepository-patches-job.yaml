@@ -2557,20 +2557,36 @@ data:
               for sy_kc in /secondary-kubeconfigs/*.yaml; do
                 [ -e "${sy_kc}" ] || continue
                 sy_region=$(basename "${sy_kc}" .yaml)
-                cat >/tmp/sec-ghcr-pull.yaml <<EOF
-            apiVersion: v1
-            kind: Secret
-            metadata:
-              name: ${GHCR_PULL_SECRET_NAME}
-              namespace: ${GHCR_PULL_SECRET_NAMESPACE}
-              labels:
-                app.kubernetes.io/managed-by: self-sovereign-cutover
-              annotations:
-                catalyst.openova.io/mirrored-from: region-a/${GHCR_PULL_SECRET_NAMESPACE}/${GHCR_PULL_SECRET_NAME}
-            type: kubernetes.io/dockerconfigjson
-            data:
-              ${GHCR_PULL_SECRET_KEY}: ${sy_b64}
-            EOF
+                {{- /*
+                 #7067 (ADR-0015 D1): carry the source Secret's Reflector
+                 annotations. Cloud-init writes this Secret in every region
+                 with reflection-auto-* so Reflector copies it into every
+                 namespace (vcluster-system, Org namespaces, …). A
+                 client-side apply WITHOUT them strips them (they are in the
+                 previous last-applied config), so region B's Reflector never
+                 copied ghcr-pull anywhere and every OCI source naming it in
+                 B failed ("secrets ghcr-pull not found" — per-Org vCluster
+                 HelmCharts first). jq builds the manifest so no YAML
+                 indentation can drop them.
+                */}}
+                sy_ann=$(kubectl get secret "${GHCR_PULL_SECRET_NAME}" -n "${GHCR_PULL_SECRET_NAMESPACE}" -o json 2>/dev/null \
+                  | jq -c '(.metadata.annotations // {}) | with_entries(select(.key | startswith("reflector.v1.k8s.emberstack.com/reflection-")))')
+                if [ -z "${sy_ann}" ] || [ "${sy_ann}" = "{}" ]; then
+                  sy_ann=$(kubectl get secret "${GHCR_PULL_SECRET_NAME}" -n flux-system -o json 2>/dev/null \
+                    | jq -c '(.metadata.annotations // {}) | with_entries(select(.key | startswith("reflector.v1.k8s.emberstack.com/reflection-")))')
+                fi
+                [ -n "${sy_ann}" ] || sy_ann='{}'
+                jq -n \
+                  --arg name "${GHCR_PULL_SECRET_NAME}" \
+                  --arg ns "${GHCR_PULL_SECRET_NAMESPACE}" \
+                  --arg key "${GHCR_PULL_SECRET_KEY}" \
+                  --arg val "${sy_b64}" \
+                  --argjson ann "${sy_ann}" \
+                  '{apiVersion:"v1",kind:"Secret",type:"kubernetes.io/dockerconfigjson",
+                    metadata:{name:$name,namespace:$ns,
+                      labels:{"app.kubernetes.io/managed-by":"self-sovereign-cutover"},
+                      annotations:({"catalyst.openova.io/mirrored-from":("region-a/"+$ns+"/"+$name)} + $ann)},
+                    data:{($key):$val}}' >/tmp/sec-ghcr-pull.yaml
                 if kubectl --kubeconfig "${sy_kc}" apply -f /tmp/sec-ghcr-pull.yaml >/dev/null; then
                   echo "[helmrepository-patches] #5359 secondary ${sy_region}: ghcr-pull auth synced from region-A"
                 else

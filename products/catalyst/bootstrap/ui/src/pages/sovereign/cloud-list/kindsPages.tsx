@@ -9,6 +9,7 @@
 
 import type { K8sObject } from '@/widgets/architecture-graph/useK8sCacheStream'
 import { K8sListPage } from './K8sListPage'
+import { ContinuumDashboard } from './ContinuumDashboard'
 import {
   COL_NAME,
   COL_NAMESPACE,
@@ -1100,31 +1101,13 @@ export function OrganizationsListPage() {
   )
 }
 
+/**
+ * Continuums — the central topology-transition dashboard (ADR-0015 D8):
+ * every protected group with per-member phases, read from each Continuum's
+ * own status. Replaces the former plain CR list.
+ */
 export function ContinuumsListPage() {
-  return (
-    <K8sListPage
-      kind="continuum"
-      title="Continuums"
-      tagline="Catalyst Continuum DR CRs — multi-region failover orchestration. Mode / reconcile state."
-      columns={[
-        COL_NAMESPACE,
-        COL_NAME,
-        {
-          header: 'Mode',
-          extract: (o) => {
-            const spec = o.spec as Record<string, unknown> | undefined
-            return (
-              (spec?.['mode'] as string | undefined) ??
-              (spec?.['topology'] as string | undefined) ??
-              '—'
-            )
-          },
-        },
-        colCatalystCrStatus('Status'),
-        COL_AGE,
-      ]}
-    />
-  )
+  return <ContinuumDashboard />
 }
 
 export function UserAccessesListPage() {

@@ -15,11 +15,13 @@ on:
     branches: [main]
     paths:
       - 'core/controllers/organization/internal/gitops/**'
+      - 'core/controllers/organization/internal/controller/platform_scope*'
       - 'tests/e2e/org-platform-scope/**'
       - '.github/workflows/preflight-org-platform-scope.yaml'
   pull_request:
     paths:
       - 'core/controllers/organization/internal/gitops/**'
+      - 'core/controllers/organization/internal/controller/platform_scope*'
       - 'tests/e2e/org-platform-scope/**'
       - '.github/workflows/preflight-org-platform-scope.yaml'
 

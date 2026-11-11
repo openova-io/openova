@@ -1,6 +1,7 @@
 package gitops
 
 import (
+	"fmt"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -72,6 +73,18 @@ import (
 // pod. It stays in the customer scope rather than opening a hole in the
 // managed-by exclusion, and its figure is added to plan-quota as overhead so
 // it still never eats the plan.
+//
+// Classless platform credit (the migration, Refs #7067): a platform pod
+// admitted before the Policy existed carries no class, so the always-scoped
+// plan-quota charges it. Its effective usage is added back onto plan-quota's
+// hard cap every reconcile (Inputs.ClasslessPlatformCredit, computed by the
+// controller from the namespace's pods) and shrinks to zero as those pods are
+// replaced — each replacement is stamped and charged to platform-quota. There
+// is NO unscoped transitional quota: #7078 shipped one, and on hw307
+// acmewalk307 it stayed over hard (requests.memory 9808Mi of 9286Mi), refused
+// the keycloak-config-cli hook, and would have refused a platform pod
+// restarted to obtain the class — a deadlock. With the credit, every new
+// platform pod is admitted against platform-quota from the first render.
 
 // OrgPlatformPriorityClassName is the PriorityClass every per-Organization
 // platform pod carries and the two ResourceQuotas scope on. Exported so the
@@ -109,7 +122,7 @@ const (
 )
 
 // PlatformScopeReadRoleName is the per-Org Role that lets the org-controller
-// read the namespace's pods for the rollout gate (Inputs.PlatformScopePending).
+// read the namespace's pods for the classless platform credit (Inputs.ClasslessPlatformCredit).
 // Delivered by the Org's own boundary tree, so the controller needs no
 // cluster-wide pod read and the umbrella ClusterRole does not move.
 const PlatformScopeReadRoleName = "org-controller-platform-scope-read"
@@ -118,7 +131,7 @@ const PlatformScopeReadRoleName = "org-controller-platform-scope-read"
 // stamps with the class — the Policy's selection rule in Go, built from the
 // SAME platformScope table the template renders
 // (TestPlatformScope_PolicyMatchesTable pins the two together). The
-// controller's rollout gate uses it to find platform pods admitted before the
+// controller uses it to credit the platform pods admitted before the
 // Policy existed.
 func InPlatformScope(labels map[string]string) bool {
 	if _, synced := labels["vcluster.loft.sh/managed-by"]; synced {
@@ -339,28 +352,75 @@ func platformQuotaHard(q PlanQuota) quotaHard {
 	}
 }
 
-// transitionalPlanQuotaHard is plan-quota while the rollout gate is pending
-// (Inputs.PlatformScopePending): UNSCOPED, so it charges every pod — sized
-// as the pre-#7067 single quota (plan + whole control plane + platform stack)
-// plus the transient headroom, so nothing the namespace runs today is
-// refused and the hooks fit too.
-func transitionalPlanQuotaHard(limits PlanQuota) quotaHard {
-	ps := platformStackOverheadFor(limits)
-	th := transientHeadroomFor(limits)
-	cp := vclusterControlPlaneOverhead
-	add := func(plan string, qs ...resource.Quantity) string {
-		s := mustQuantity(plan)
-		for _, x := range qs {
-			s.Add(x)
+// PlatformCredit is the summed effective usage of the classless platform
+// pods (Inputs.ClasslessPlatformCredit), per hard-cap resource.
+type PlatformCredit struct {
+	RequestsCPU    resource.Quantity
+	RequestsMemory resource.Quantity
+	LimitsCPU      resource.Quantity
+	LimitsMemory   resource.Quantity
+	// Pods is how many pods the credit covers (for the annotation and the log).
+	Pods int
+}
+
+// String renders the credit for the plan-quota annotation.
+func (c PlatformCredit) String() string {
+	return fmt.Sprintf("requests cpu=%s memory=%s; limits cpu=%s memory=%s; pods=%d",
+		c.RequestsCPU.String(), c.RequestsMemory.String(), c.LimitsCPU.String(), c.LimitsMemory.String(), c.Pods)
+}
+
+// staticPlatformCredit is the safe bound used when the classless pods cannot
+// be listed: every pod the platform scope models (vcluster-0 + the whole
+// platform stack) counted as classless.
+func staticPlatformCredit(q PlanQuota) PlatformCredit {
+	ps := platformStackOverheadFor(q)
+	sum := func(a, b resource.Quantity) resource.Quantity {
+		x := a.DeepCopy()
+		x.Add(b)
+		return x
+	}
+	return PlatformCredit{
+		RequestsCPU:    sum(vclusterPodOverhead.RequestsCPU, ps.RequestsCPU),
+		RequestsMemory: sum(vclusterPodOverhead.RequestsMemory, ps.RequestsMemory),
+		LimitsCPU:      sum(vclusterPodOverhead.LimitsCPU, ps.LimitsCPU),
+		LimitsMemory:   sum(vclusterPodOverhead.LimitsMemory, ps.LimitsMemory),
+		Pods:           len(platformStack) + 1,
+	}
+}
+
+// planQuotaHardWithCredit is plan-quota's hard cap: the plan term + the
+// synced coredns + the classless platform credit. With the credit unknown it
+// never shrinks — per resource, the larger of the live hard and the static
+// safe bound (plan + coredns + the whole modelled stack as credit).
+func planQuotaHardWithCredit(limits PlanQuota, in Inputs) (quotaHard, string) {
+	credit := in.ClasslessPlatformCredit
+	text := credit.String()
+	if in.CreditUnknown {
+		credit = staticPlatformCredit(limits)
+		text = "unknown (the namespace's pods could not be listed) - held at max(live hard, plan + coredns + static stack " + credit.String() + ")"
+	}
+	base := planQuotaHard(limits)
+	add := func(v string, c resource.Quantity) resource.Quantity {
+		x := mustQuantity(v)
+		x.Add(c)
+		return x
+	}
+	floor := func(computed resource.Quantity, key string) string {
+		if in.CreditUnknown {
+			if live, err := resource.ParseQuantity(strings.TrimSpace(in.LivePlanQuotaHard[key])); err == nil && live.Cmp(computed) > 0 {
+				return live.String()
+			}
 		}
-		return s.String()
+		return computed.String()
 	}
+	rc, rm := add(base.RequestsCPU, credit.RequestsCPU), add(base.RequestsMemory, credit.RequestsMemory)
+	lc, lm := add(base.LimitsCPU, credit.LimitsCPU), add(base.LimitsMemory, credit.LimitsMemory)
 	return quotaHard{
-		RequestsCPU:    add(limits.CPURequest, cp.RequestsCPU, ps.RequestsCPU, th.RequestsCPU),
-		RequestsMemory: add(limits.MemRequest, cp.RequestsMemory, ps.RequestsMemory, th.RequestsMemory),
-		LimitsCPU:      add(limits.CPULimit, cp.LimitsCPU, ps.LimitsCPU, th.LimitsCPU),
-		LimitsMemory:   add(limits.MemLimit, cp.LimitsMemory, ps.LimitsMemory, th.LimitsMemory),
-	}
+		RequestsCPU:    floor(rc, "requests.cpu"),
+		RequestsMemory: floor(rm, "requests.memory"),
+		LimitsCPU:      floor(lc, "limits.cpu"),
+		LimitsMemory:   floor(lm, "limits.memory"),
+	}, text
 }
 
 // planQuotaHard sizes the customer-scope plan-quota: the plan term (the
@@ -581,7 +641,7 @@ spec:
 `
 
 // platformScopeRBACTemplate lets the org-controller read this namespace's pods
-// for the rollout gate (Inputs.PlatformScopePending) — read only, this
+// for the classless platform credit (Inputs.ClasslessPlatformCredit) — read only, this
 // namespace only.
 const platformScopeRBACTemplate = `apiVersion: rbac.authorization.k8s.io/v1
 kind: Role

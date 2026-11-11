@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-08T11:30:05Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Last refreshed | `2026-11-11T04:30:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-08T12:17 | [#7082](https://github.com/openova-io/openova/pull/7082) | #7067 | fix(org-quota): always-scoped plan-quota + classless platfor |
+| 2026-11-08T12:16 | [#7081](https://github.com/openova-io/openova/pull/7081) | #7077 | integ: ADR-0015 batch 2 — D6b + D8 + region-local kubeconfig |
 | 2026-11-08T11:05 | [#7078](https://github.com/openova-io/openova/pull/7078) | #7067 | fix(org-quota): split per-Org admission into platform and cu |
 | 2026-11-08T08:17 | [#7075](https://github.com/openova-io/openova/pull/7075) | #7067 | integ: ADR-0015 D1–D7 + D9 (supersedes #7069 #7070 #7071 #70 |
 | 2026-11-08T07:06 | [#7068](https://github.com/openova-io/openova/pull/7068) | #7067 | docs(adr): ADR-0015 region-symmetric GitOps + one topology c |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-06T18:42 | [#7044](https://github.com/openova-io/openova/pull/7044) | #4551 | fix(dr): cnpg-pair Topology shows the real pair, the live sw |
 | 2026-11-06T18:39 | [#7043](https://github.com/openova-io/openova/pull/7043) | #3601 | fix(sovereign-ui): Apps search matches ids, slugs, blueprint |
 | 2026-11-06T16:06 | [#7042](https://github.com/openova-io/openova/pull/7042) | #3601 | fix(sovereign-ui): the Applications view lists every install |
-| 2026-11-06T13:03 | [#7041](https://github.com/openova-io/openova/pull/7041) | #7040 | fix(cutover,mimir,flux): remaining hw307 cutover defects — s |
-| 2026-11-06T12:22 | [#7040](https://github.com/openova-io/openova/pull/7040) | #6093 | fix(cutover): harbor.<fqdn> is a local alias; org-tenant ima |
 
 ---
 

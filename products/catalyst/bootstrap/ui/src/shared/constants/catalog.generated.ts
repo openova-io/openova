@@ -3802,7 +3802,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.70",
+    "version": "1.2.71",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [],
     "shareable": false,
@@ -4494,7 +4494,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "section": "pts-3-3-security-and-policy",
     "depends": [],
     "shareable": false,
@@ -4766,7 +4766,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.3.0",
+    "version": "1.3.1",
     "section": "pts-3-5-storage-and-data",
     "depends": [
       "bp-cert-manager"
@@ -4822,7 +4822,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.206",
+    "version": "0.1.207",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-gitea",
@@ -5949,7 +5949,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.5.0",
+    "version": "0.6.0",
     "section": "pts-7-org-tenant",
     "depends": [
       "bp-postgres",

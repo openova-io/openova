@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
 
+	"github.com/openova-io/openova/core/controllers/pkg/regionlocal"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/regions"
 )
 
@@ -176,6 +177,17 @@ func validateInstallRefs(ctx context.Context, client dynamic.Interface, in insta
 			}
 		}
 		out.Regions = append([]string(nil), in.Regions...)
+	}
+
+	// 4b. ADR-0015 D6 — region-local volumes. A multi-region placement (any
+	//     mode but singleton, or more than one region) is refused while the
+	//     Blueprint declares a spec.regionLocalVolumes entry that nothing
+	//     replicates: a primary move would leave that volume's data in the
+	//     old region. The message names the volume. Same rule as the
+	//     application-controller (package regionlocal), so a placement edited
+	//     in Git is refused there too.
+	if err := regionlocal.Refusal(out.Blueprint, bpObj.Object, canonicalizeTopology(in.Mode), len(out.Regions)); err != nil {
+		return out, unprocessable("region-local-volume-not-replicated", "placement.mode", "%s", err.Error())
 	}
 
 	// 5. The Organization's namespace — owned by the org-controller. Never

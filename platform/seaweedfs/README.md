@@ -251,7 +251,7 @@ filer.sync scopes by directory, so it cannot match a bucket-name wildcard. The s
 ### How an Application consumes it
 
 1. Use the S3 gateway in your own region: `http://seaweedfs-s3.seaweedfs.svc.cluster.local:8333`. Your region's credentials and endpoint are unchanged, and there is no cross-region endpoint to configure.
-2. Write objects into the replicated bucket under your prefix, for example `s3://replicated/<org>/<app>/wp-content/uploads/2026/11/a.jpg`. The bucket already exists in every region because the init container creates it. For a dedicated bucket, add `replicated-<org>-<app>` to `crossRegion.filerSync.buckets`; it is created in every region the same way.
+2. Write objects into the replicated bucket under your prefix, for example `s3://replicated/<org>/<app>/uploads/2026/11/a.jpg` (the bp-wordpress-tenant ≥ 0.6.0 layout). To get credentials, add a Secret in your namespace annotated `reflector.v1.k8s.emberstack.com/reflects: seaweedfs/seaweedfs-s3-secret`; chart ≥ 1.3.1 marks the source `reflection-allowed` (`seaweedfs.s3.secretAnnotations`). The bucket already exists in every region because the init container creates it. For a dedicated bucket, add `replicated-<org>-<app>` to `crossRegion.filerSync.buckets`; it is created in every region the same way.
 3. A write in either region appears in the other, usually within seconds. Reads can go to the local region's gateway.
 
 ### Values and delivery
