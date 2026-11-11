@@ -4494,7 +4494,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.1",
+    "version": "1.0.2-hw307.1",
     "section": "pts-3-3-security-and-policy",
     "depends": [],
     "shareable": false,
@@ -5949,7 +5949,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.6.1-hw307.6",
+    "version": "0.6.1-hw307.7",
     "section": "pts-7-org-tenant",
     "depends": [
       "bp-postgres",
