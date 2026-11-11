@@ -420,6 +420,12 @@ type Config struct {
 	// observe every leg (single-region).
 	LocalRegionID string
 
+	// PeerObserverURLTemplate — base URL of a peer region's Continuum
+	// observer, "{region}" substituted (default
+	// DefaultPeerObserverURLTemplate). Used by the Serving probe to read a
+	// cross-region synchronous standby's state (PEER_OBSERVER_URL_TEMPLATE).
+	PeerObserverURLTemplate string
+
 	// SovereignFQDN + SovereignRegionRepo{Owner,} locate the Sovereign region
 	// repo (default openova/sovereign-regions) every region's
 	// `sovereign-region` Flux Kustomization applies

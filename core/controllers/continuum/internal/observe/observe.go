@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"net/http"
 	"net/url"
 	"sort"
@@ -347,4 +348,37 @@ func (p Peers) Fetch(ctx context.Context, region string, targets []Target) (map[
 		return nil, fmt.Errorf("observations: asked %s, answered by %s", region, body.Region)
 	}
 	return body.Members, nil
+}
+
+// ClusterHandler serves this region's view of ONE CNPG Cluster by name:
+// GET /v1/clusters?namespace=<ns>&name=<cluster>. It lets a peer region's
+// readiness probe confirm a cross-region synchronous standby it cannot see
+// through its own API server (ADR-0015 D1 removed cross-region kubeconfigs;
+// D7 Serving needs the standby's state — live hw307 2026-11-11, Refs #7067).
+// Read-only. found=false when the Cluster does not exist here.
+func ClusterHandler(o *Observer) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "read-only", http.StatusMethodNotAllowed)
+			return
+		}
+		ns, name := r.URL.Query().Get("namespace"), r.URL.Query().Get("name")
+		if ns == "" || name == "" {
+			http.Error(w, "namespace and name are required", http.StatusBadRequest)
+			return
+		}
+		out := transition.DBStatus{Cluster: name}
+		c, err := o.Dyn.Resource(CNPGClusterGVR).Namespace(ns).Get(r.Context(), name, metav1.GetOptions{})
+		if err == nil {
+			out = DBStatusOf(c)
+		} else if !apierrors.IsNotFound(err) {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(struct {
+			Region string `json:"region"`
+			transition.DBStatus
+		}{o.Region, out})
+	})
 }

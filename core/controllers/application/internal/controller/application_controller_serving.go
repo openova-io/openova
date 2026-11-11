@@ -520,6 +520,17 @@ func (r *Reconciler) syncStandbyVerdict(ctx context.Context, c *unstructured.Uns
 	for _, n := range named {
 		sb, err := r.Dynamic.Resource(CNPGClusterGVR).Namespace(c.GetNamespace()).Get(ctx, n, metav1.GetOptions{})
 		if err != nil {
+			// Not in this region: a cross-region standby. Ask the peer
+			// regions' Continuum observers (ADR-0015 D8) instead of
+			// reporting it unobservable forever (Refs #7067).
+			if st, ok := r.observeStandbyInPeers(ctx, c.GetNamespace(), n); ok {
+				if st.Ready && !st.Primary {
+					available++
+				} else {
+					problems = append(problems, fmt.Sprintf("standby %s is not ready: %s", n, st))
+				}
+				continue
+			}
 			if unobserved == "" {
 				unobserved = n
 			}
