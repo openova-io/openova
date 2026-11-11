@@ -253,7 +253,7 @@ spec:
             # show the hint and "fell back to forms" failure modes
             # surface in observability immediately.
             - name: OIDC_IDP_HINT
-              value: {{ .Values.ssoIdpHint | default "" | quote }}
+              value: {{ include "bp-wordpress-tenant.ssoIdpHint" . | quote }}
             # #6311: `oidc.plugin.{repo,version}` moved to the `wp-artifacts`
             # initContainer, which is where they are now meaningful — it
             # compares them against the image's baked VERSIONS file. This

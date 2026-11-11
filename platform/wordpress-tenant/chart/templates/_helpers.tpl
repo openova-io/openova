@@ -401,8 +401,11 @@ The placeholder is `https://keycloak.org.local/realms/org`.
 {{- $sovFQDN := .Values.sovereign.fqdn | default "" -}}
 {{- $orgRealm := .Values.org.realm | default "" -}}
 {{- $smeSub := .Values.smeSubdomain | default "" -}}
+{{- $idIssuer := dig "openova" "identity" "issuerURL" "" (.Values | toJson | fromJson) -}}
 {{- if ne $modern $placeholder -}}
 {{- $modern -}}
+{{- else if $idIssuer -}}
+{{- $idIssuer -}}
 {{- else if and $sovFQDN $orgRealm -}}
 {{- printf "https://auth.%s/realms/%s" $sovFQDN $orgRealm -}}
 {{- else if and $sovFQDN $smeSub -}}
@@ -420,7 +423,10 @@ ConfigMap's `data.realm` field for bp-sso-bridge consumption.
 Precedence: org.realm > smeSubdomain → `sme-<sub>` > "default".
 */}}
 {{- define "bp-wordpress-tenant.orgRealm" -}}
-{{- if .Values.org.realm -}}
+{{- $idRealm := dig "openova" "identity" "realm" "" (.Values | toJson | fromJson) -}}
+{{- if $idRealm -}}
+{{- $idRealm -}}
+{{- else if .Values.org.realm -}}
 {{- .Values.org.realm -}}
 {{- else if .Values.smeSubdomain -}}
 {{- printf "sme-%s" .Values.smeSubdomain -}}
@@ -435,7 +441,14 @@ Resolved OIDC clientId. Same fold pattern as oidcIssuerURL.
 {{- define "bp-wordpress-tenant.oidcClientId" -}}
 {{- $modern := .Values.oidc.clientId -}}
 {{- $legacy := .Values.keycloak.clientID -}}
-{{- if and (eq $modern "wordpress") $legacy -}}
+{{- $app := dig "openova" "application" "name" "" (.Values | toJson | fromJson) -}}
+{{- $appNS := dig "openova" "application" "namespace" "" (.Values | toJson | fromJson) -}}
+{{- if and (eq $modern "wordpress") (include "bp-wordpress-tenant.ssoFromIdentity" .) $app -}}
+{{- /* One client per instance: every WordPress in a realm registered the
+       same `wordpress` client, so each install overwrote the previous
+       one's redirect URIs (Refs #7067). */ -}}
+{{- printf "%s-%s" ($appNS | default .Release.Namespace) $app -}}
+{{- else if and (eq $modern "wordpress") $legacy -}}
 {{- $legacy -}}
 {{- else -}}
 {{- $modern -}}
@@ -448,7 +461,11 @@ Resolved OIDC clientSecretName. Same fold pattern as oidcIssuerURL.
 {{- define "bp-wordpress-tenant.oidcClientSecretName" -}}
 {{- $modern := .Values.oidc.clientSecretName -}}
 {{- $legacy := .Values.keycloak.clientSecretName -}}
-{{- if and (eq $modern "wordpress-oidc-client-secret") $legacy -}}
+{{- if and (eq $modern "wordpress-oidc-client-secret") (include "bp-wordpress-tenant.ssoFromIdentity" .) -}}
+{{- /* bp-sso-bridge delivers this Secret (ExternalSecret off the
+       AppRegistration), per instance. */ -}}
+{{- printf "%s-oidc" (include "bp-wordpress-tenant.fullname" .) -}}
+{{- else if and (eq $modern "wordpress-oidc-client-secret") $legacy -}}
 {{- $legacy -}}
 {{- else -}}
 {{- $modern -}}
@@ -503,4 +520,25 @@ render on the two shapes D6 forbids:
 {{/* "true" when the wp-content volume is the legacy PVC. */}}
 {{- define "bp-wordpress-tenant.wpContentOnPvc" -}}
 {{- if and (eq (include "bp-wordpress-tenant.mediaStore" .) "pvc") .Values.persistence.wpContent.enabled -}}true{{- end -}}
+{{- end -}}
+
+{{/*
+ADR-0015 D2 (Refs #7067) — "true" when the application-controller rendered
+`openova.identity` (the realm the Organization's users sign in with). SSO is
+then registered in that realm by bp-sso-bridge, which also DELIVERS the client
+secret (ExternalSecret declared on the AppRegistration), so the chart neither
+invents a realm nor generates a secret Keycloak never learns.
+*/}}
+{{- define "bp-wordpress-tenant.ssoFromIdentity" -}}
+{{- $r := dig "openova" "identity" "realm" "" (.Values | toJson | fromJson) -}}
+{{- $i := dig "openova" "identity" "issuerURL" "" (.Values | toJson | fromJson) -}}
+{{- if and $r $i -}}true{{- end -}}
+{{- end -}}
+
+{{/*
+The kc_idp_hint the WordPress login appends: the realm's own broker when the
+application-controller names one (openova.identity.idpHint), else ssoIdpHint.
+*/}}
+{{- define "bp-wordpress-tenant.ssoIdpHint" -}}
+{{- dig "openova" "identity" "idpHint" (.Values.ssoIdpHint | default "") (.Values | toJson | fromJson) -}}
 {{- end -}}

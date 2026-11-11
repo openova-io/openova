@@ -70,6 +70,10 @@ type FanoutInputs struct {
 	// into every leg's `openova.endpoints` (ADR-0015 D2/D7).
 	Endpoints []endpoints.Endpoint
 
+	// Identity — the Organization's sign-in realm (ADR-0015 D2), rendered
+	// into every leg's `openova.identity`. Nil when the platform does not know it.
+	Identity *Identity
+
 	// WriteNamespace — when non-empty, overrides AppNamespace on
 	// the rendered HR's metadata.namespace. The G92.1 vCluster
 	// pivot path (PR #2674) uses this to land each HR in the
@@ -281,6 +285,7 @@ func FanoutHRs(in FanoutInputs) ([]*unstructured.Unstructured, error) {
 			AppName:      in.AppName,
 			AppNamespace: in.AppNamespace,
 			Endpoints:    in.Endpoints,
+			Identity:     in.Identity,
 		}
 		hr := renderOneHR(in, cluster, contract)
 		out = append(out, hr)
