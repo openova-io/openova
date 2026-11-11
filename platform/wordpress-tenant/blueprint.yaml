@@ -24,18 +24,18 @@ spec:
   # default; regionLocalVolumes declare a replication for every entry.
   # Lockstep with platform/wordpress-tenant/chart/Chart.yaml.
   # 0.6.1 (Refs #7067): seed fans out to vault-<peer> for every topology peer.
-  version: 0.6.1-hw307.8
+  version: 0.6.1-hw307.9
   card:
     title: WordPress (per-Organization)
     summary: |
-      Turnkey, SSO-pre-wired WordPress per Organization. Runs in the Organization's
-      vcluster, namespace = Organization namespace. SSO via the Organization-vcluster
-      Keycloak realm (openid-connect-generic plugin), Postgres via bp-cnpg
-      (Cluster CR in Organization ns), persistent /var/www/html/wp-content via
-      PVC (default 10Gi), ingress at https://wordpress.<org-domain> with
-      cert-manager TLS. Default theme + admin user pre-seeded at install
-      time so the Organization admin's first browser hit lands on /wp-admin
-      authenticated. No install wizard, no manual config.
+      Turnkey, SSO-pre-wired WordPress per Organization, served at
+      https://<instance>.<org-domain> with TLS. Its own PostgreSQL (CNPG) in
+      every region it runs in, synchronously replicated under
+      active-hot-standby / active-passive, so moving the Primary loses no
+      data. Uploaded media live in the Sovereign's replicated object store.
+      Sign-in is SSO through the Organization's realm (openid-connect-generic
+      plugin); the Organization owner is pre-seeded as administrator, so the
+      first sign-in lands in /wp-admin. No install wizard, no manual config.
     icon: wordpress.svg
     category: organization-app
     tags: [wordpress, cms, organization, sso, keycloak, oidc, postgres]

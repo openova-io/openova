@@ -56,6 +56,21 @@ type TopologyContract struct {
 	// catalyst-api reports from). Rendered as `openova.endpoints` so a chart
 	// routes exactly the host the console advertises.
 	Endpoints []endpoints.Endpoint
+	// Identity — the realm that signs in the Organization's users, when the
+	// platform knows it. Rendered as `openova.identity: {realm, issuerURL}` so
+	// an SSO-wired chart registers its OIDC client in the realm its users
+	// actually live in (bp-sso-bridge reads the realm off the chart's
+	// AppRegistration) instead of a placeholder realm that does not exist.
+	Identity *Identity
+}
+
+// Identity is the OIDC realm an Application's users sign in with.
+type Identity struct {
+	Realm     string
+	IssuerURL string
+	// IDPHint — the realm's identity-provider alias a client appends as
+	// kc_idp_hint so the user signs in silently with their console session.
+	IDPHint string
 }
 
 // WithTopologyContract returns a COPY of values carrying
@@ -95,6 +110,13 @@ func WithTopologyContract(values map[string]interface{}, c TopologyContract) map
 			})
 		}
 		ns["endpoints"] = eps
+	}
+	if c.Identity != nil && c.Identity.Realm != "" && c.Identity.IssuerURL != "" {
+		id := map[string]interface{}{"realm": c.Identity.Realm, "issuerURL": c.Identity.IssuerURL}
+		if c.Identity.IDPHint != "" {
+			id["idpHint"] = c.Identity.IDPHint
+		}
+		ns["identity"] = id
 	}
 	out[TopologyValuesKey] = ns
 	return out

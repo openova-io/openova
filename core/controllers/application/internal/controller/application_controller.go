@@ -1243,6 +1243,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 
 			hrs, ferr := topo.FanoutHRs(topo.FanoutInputs{
 				Endpoints:      r.resolveAppEndpoints(app, bp, org, envSpec.OrganizationRef),
+				Identity:       r.resolveOrgIdentity(org),
 				AppName:        app.GetName(),
 				AppNamespace:   app.GetNamespace(),
 				WriteNamespace: fanoutWriteNamespace,
@@ -1482,6 +1483,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 			AppName:      app.GetName(),
 			AppNamespace: app.GetNamespace(),
 			Endpoints:    appEndpoints,
+			Identity:     r.resolveOrgIdentity(org),
 		})
 		out, err := render.Render(render.Inputs{
 			AppName: app.GetName(),
@@ -3876,6 +3878,34 @@ func ptrInt64(v int64) *int64 { return &v }
 // core/controllers/pkg/endpoints — the SAME resolver catalyst-api reports
 // from — so the chart routes exactly the host the console shows (ADR-0015
 // D2/D7). Every render path (fan-out and per-region) uses it.
+// resolveOrgIdentity — the realm the Organization's users sign in with, when
+// the platform knows it. The Sovereign's own (internal) Organization signs in
+// with the Sovereign realm, `sovereign` at auth.<sovereign-fqdn> — the realm the
+// console owner lives in and every platform SSO client is registered in. A
+// tenant Organization's realm is not resolvable here yet, so nothing is
+// rendered and the chart keeps its own defaults (Refs #7067).
+func (r *Reconciler) resolveOrgIdentity(org *unstructured.Unstructured) *topo.Identity {
+	if org == nil || r.Cfg.SovereignFQDN == "" {
+		return nil
+	}
+	kind, _, _ := unstructured.NestedString(org.Object, "spec", "kind")
+	if !strings.EqualFold(strings.TrimSpace(kind), "internal") {
+		return nil
+	}
+	return &topo.Identity{
+		Realm:     SovereignRealm,
+		IssuerURL: "https://auth." + r.Cfg.SovereignFQDN + "/realms/" + SovereignRealm,
+		IDPHint:   SovereignRealmIDPHint,
+	}
+}
+
+// SovereignRealm is the Keycloak realm of the Sovereign itself.
+const SovereignRealm = "sovereign"
+
+// SovereignRealmIDPHint is that realm's broker for the console's PIN session
+// (the alias bp-guacamole and bp-powerdns-admin already hint with).
+const SovereignRealmIDPHint = "catalyst-pin"
+
 func (r *Reconciler) resolveAppEndpoints(app, bp, org *unstructured.Unstructured, orgRef string) []endpoints.Endpoint {
 	orgSlug := orgRef
 	if org != nil {
