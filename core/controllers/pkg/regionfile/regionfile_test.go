@@ -3,7 +3,64 @@ package regionfile
 import (
 	"strings"
 	"testing"
+
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
+
+func TestPlatformLayout(t *testing.T) {
+	l := PlatformLayout("hw307.omani.works")
+	if got := l.AppPath("hw-a", "cnpg-pair"); got != "clusters/hw307.omani.works/regions/hw-a/platform/cnpg-pair.yaml" {
+		t.Fatal(got)
+	}
+	// The lease is outside every region's applied path
+	// (clusters/<fqdn>/regions/<r>/) — no Flux ever applies it.
+	if got := l.LeasePath("cnpg--dr-cnpg-pair"); got != "clusters/hw307.omani.works/continuum/transitions/cnpg--dr-cnpg-pair.yaml" {
+		t.Fatal(got)
+	}
+	if OrgLayout.AppPath("hw-a", "wp") != AppPath("hw-a", "wp") || OrgLayout.LeasePath("g") != LeasePath("g") {
+		t.Fatal("OrgLayout must be the historical layout")
+	}
+}
+
+func TestConfigMapCarrier_RoundTrip(t *testing.T) {
+	cm, err := TopologyValuesConfigMap("bp-cnpg-pair-topology", "flux-system", map[string]string{"catalyst.openova.io/app": "cnpg-pair"},
+		map[string]interface{}{"openova": map[string]interface{}{"topology": map[string]interface{}{
+			"mode": "active-hot-standby", "self": "hw-a", "primary": "hw-b", "peers": []interface{}{"hw-b"},
+		}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A ConfigMap WITHOUT the carrier label is never a carrier.
+	other := cm.DeepCopy()
+	other.SetLabels(map[string]string{})
+	other.SetName("unrelated")
+	objs := []*unstructured.Unstructured{cm, other}
+	f, ok, err := ReadTransitionFields(objs)
+	if err != nil || !ok || f.Primary != "hw-b" {
+		t.Fatalf("read: %+v %v %v", f, ok, err)
+	}
+	n, err := SetTransitionFields(objs, TransitionFields{Primary: "hw-a", PromotionToken: "TOK"})
+	if err != nil || n != 1 {
+		t.Fatalf("set: %d %v (the unlabelled ConfigMap must be untouched)", n, err)
+	}
+	raw, _, _ := unstructured.NestedString(cm.Object, "data", TopologyValuesKey)
+	if !strings.Contains(raw, "promotionToken: TOK") || !strings.Contains(raw, "primary: hw-a") || !strings.Contains(raw, "self: hw-a") {
+		t.Fatalf("values not written:\n%s", raw)
+	}
+	out, _ := Marshal(objs)
+	again, _ := Parse(out)
+	out2, _ := Marshal(again)
+	if string(out) != string(out2) {
+		t.Fatal("marshal is not byte-stable")
+	}
+	if _, err := SetTransitionFields(again, TransitionFields{Primary: "hw-a"}); err != nil {
+		t.Fatal(err)
+	}
+	f, _, _ = ReadTransitionFields(again)
+	if f.PromotionToken != "" || f.Primary != "hw-a" {
+		t.Fatalf("empty token must remove the key: %+v", f)
+	}
+}
 
 const sample = `apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease

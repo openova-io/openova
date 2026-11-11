@@ -46,7 +46,7 @@ replica Cluster pins its client CA to the shared `-primary-ca`
 */ -}}
 {{- if and .Values.cnpgPair.enabled (include "cnpg-pair.isPrimarySide" .) }}
 {{- include "cnpg-pair.validateRegions" . }}
-{{- $demoted := .Values.cnpgPair.primary.demoted | default false }}
+{{- $demoted := eq (include "cnpg-pair.primaryDemoted" .) "true" }}
 {{- /* Chart 0.2.29 — CNPG distributed topology (planned cross-region
        switchover). The DR rejoin seam ($demoted) wins: a dr-failback
        episode keeps rendering the exact legacy rejoin shape. */ -}}
@@ -68,6 +68,9 @@ metadata:
     catalyst.openova.io/blueprint: bp-cnpg-pair
     catalyst.openova.io/cnpg-pair-role: primary
     catalyst.openova.io/cnpg-pair-name: {{ include "cnpg-pair.fullname" . | quote }}
+    {{- with (include "cnpg-pair.topologyAnnotations" . | trim) }}
+    {{- . | nindent 4 }}
+    {{- end }}
 spec:
   {{- if .Values.cnpgPair.application.enabled }}
   # Unified model: stamp the canonical app label on every CNPG Pod so they
@@ -169,7 +172,7 @@ spec:
     self: {{ include "cnpg-pair.primaryName" . }}
     primary: {{ $activePrimary }}
     source: {{ include "cnpg-pair.fullname" . }}-replica
-    {{- with .Values.cnpgPair.distributed.promotionToken }}
+    {{- with (include "cnpg-pair.promotionToken" .) }}
     {{- if $selfPrimary }}
     promotionToken: {{ . | quote }}
     {{- end }}

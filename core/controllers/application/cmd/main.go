@@ -238,6 +238,12 @@ func loadConfigFromEnv() controller.Config {
 		// without it, and guessing a region is what D3 forbids.
 		Regions:       mustRegions(),
 		LocalRegionID: env(regions.EnvRegionID, ""),
+		// ADR-0015 D8 — platform Applications (bootstrap-kit slot installs)
+		// are delivered from the Sovereign region repo, the same repo the
+		// organization-controller commits every region's Org Flux objects to.
+		SovereignFQDN:            env("SOVEREIGN_FQDN", ""),
+		SovereignRegionRepoOwner: env("SOVEREIGN_REGION_REPO_OWNER", "openova"),
+		SovereignRegionRepo:      env("SOVEREIGN_REGION_REPO", "sovereign-regions"),
 		// ADR-0015 D1 — the per-Org repo every region's Flux reads.
 		TenantRepoName: env("TENANT_REPO_NAME", "catalyst-tenant"),
 	}

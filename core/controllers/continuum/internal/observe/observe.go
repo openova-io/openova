@@ -52,7 +52,20 @@ type Target struct {
 	Namespace string `json:"namespace"`
 	App       string `json:"app"`
 	Stateful  bool   `json:"stateful"`
+	// HelmRelease ("<namespace>/<name>") names the member's HelmRelease
+	// directly. Set for a PLATFORM Application, whose HelmRelease is the
+	// bootstrap-kit slot's (not labelled by the application-controller);
+	// empty = find the HelmReleases by the application-controller's labels.
+	HelmRelease string `json:"helmRelease,omitempty"`
 }
+
+// AnnotationTopologyPrimary is stamped by a contract chart that receives its
+// topology through `valuesFrom` (bp-cnpg-pair, bp-postgres) on the CNPG
+// Cluster it renders: the `openova.topology.primary` Helm actually APPLIED.
+// The slot HelmRelease's spec.values does not carry the contract (it arrives
+// from the region file's carrier ConfigMap), so this is how a region reports
+// what Flux has applied — read from the rendered object, never inferred.
+const AnnotationTopologyPrimary = "openova.io/topology-primary"
 
 // Key matches transition.Member.Key().
 func (t Target) Key() string { return t.Namespace + "/" + t.App }
@@ -105,22 +118,32 @@ func targetNamespace(hr *unstructured.Unstructured) string {
 
 func (o *Observer) observeOne(ctx context.Context, t Target) transition.MemberStatus {
 	ms := transition.MemberStatus{Serving: transition.Unknown}
-	sel := fmt.Sprintf("%s=%s,%s=%s", LabelApp, t.App, LabelRegion, o.Region)
-	l, err := o.Dyn.Resource(HelmReleaseGVR).Namespace("").List(ctx, metav1.ListOptions{LabelSelector: sel})
-	if err != nil {
-		ms.ReleaseMessage = "list HelmReleases: " + err.Error()
-		return ms
-	}
 	var hrs []unstructured.Unstructured
-	for _, hr := range l.Items {
-		if hr.GetNamespace() == t.Namespace || targetNamespace(&hr) == t.Namespace {
-			hrs = append(hrs, hr)
+	if t.HelmRelease != "" {
+		ns, name, _ := strings.Cut(t.HelmRelease, "/")
+		hr, err := o.Dyn.Resource(HelmReleaseGVR).Namespace(ns).Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			ms.ReleaseMessage = fmt.Sprintf("HelmRelease %s: %v", t.HelmRelease, err)
+			return ms
 		}
-	}
-	sort.Slice(hrs, func(i, j int) bool { return hrs[i].GetName() < hrs[j].GetName() })
-	if len(hrs) == 0 {
-		ms.ReleaseMessage = "no HelmRelease labelled " + sel
-		return ms
+		hrs = append(hrs, *hr)
+	} else {
+		sel := fmt.Sprintf("%s=%s,%s=%s", LabelApp, t.App, LabelRegion, o.Region)
+		l, err := o.Dyn.Resource(HelmReleaseGVR).Namespace("").List(ctx, metav1.ListOptions{LabelSelector: sel})
+		if err != nil {
+			ms.ReleaseMessage = "list HelmReleases: " + err.Error()
+			return ms
+		}
+		for _, hr := range l.Items {
+			if hr.GetNamespace() == t.Namespace || targetNamespace(&hr) == t.Namespace {
+				hrs = append(hrs, hr)
+			}
+		}
+		sort.Slice(hrs, func(i, j int) bool { return hrs[i].GetName() < hrs[j].GetName() })
+		if len(hrs) == 0 {
+			ms.ReleaseMessage = "no HelmRelease labelled " + sel
+			return ms
+		}
 	}
 	ms.Observed = true
 	ms.ReleaseReady = true
@@ -146,6 +169,11 @@ func (o *Observer) observeOne(ctx context.Context, t Target) transition.MemberSt
 	ms.ReleaseMessage = strings.Join(msgs, "; ")
 	if t.Stateful {
 		ms.DB = o.observeDB(ctx, &hrs[0])
+		if ms.AppliedPrimary == "" && t.HelmRelease != "" {
+			// The contract arrived through valuesFrom: what Helm applied is
+			// stamped on the rendered Cluster (AnnotationTopologyPrimary).
+			ms.AppliedPrimary = ms.DB.TopologyPrimary
+		}
 	}
 	ms.Serving = o.observeServing(ctx, t)
 	return ms
@@ -190,6 +218,7 @@ func DBStatusOf(c *unstructured.Unstructured) transition.DBStatus {
 	d.Phase, _, _ = unstructured.NestedString(c.Object, "status", "phase")
 	d.DemotionToken, _, _ = unstructured.NestedString(c.Object, "status", "demotionToken")
 	d.LastPromotionToken, _, _ = unstructured.NestedString(c.Object, "status", "lastPromotionToken")
+	d.TopologyPrimary = c.GetAnnotations()[AnnotationTopologyPrimary]
 	return d
 }
 
@@ -231,8 +260,9 @@ type Response struct {
 	Members    map[string]transition.MemberStatus `json:"members"`
 }
 
-// Handler serves this region's observations. Query: members=<ns>/<app>[:s],…
-// (":s" marks a stateful member). Read-only.
+// Handler serves this region's observations. Query:
+// members=<ns>/<app>[:s][@<hr-ns>/<hr-name>],… (":s" marks a stateful member,
+// "@…" names its HelmRelease). Read-only.
 func Handler(o *Observer) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -254,6 +284,9 @@ func EncodeTargets(ts []Target) string {
 		if t.Stateful {
 			s += ":s"
 		}
+		if t.HelmRelease != "" {
+			s += "@" + t.HelmRelease
+		}
 		parts = append(parts, s)
 	}
 	return strings.Join(parts, ",")
@@ -267,13 +300,14 @@ func ParseTargets(q string) []Target {
 		if p == "" {
 			continue
 		}
+		p, hr, _ := strings.Cut(p, "@")
 		stateful := strings.HasSuffix(p, ":s")
 		p = strings.TrimSuffix(p, ":s")
 		ns, app, ok := strings.Cut(p, "/")
 		if !ok || ns == "" || app == "" {
 			continue
 		}
-		out = append(out, Target{Namespace: ns, App: app, Stateful: stateful})
+		out = append(out, Target{Namespace: ns, App: app, Stateful: stateful, HelmRelease: hr})
 	}
 	return out
 }

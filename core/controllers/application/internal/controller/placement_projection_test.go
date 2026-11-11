@@ -394,6 +394,9 @@ func TestReconcile_BootstrapOwned_PlacementProjectionFromContinuum(t *testing.T)
 	hr := makeSlotHR("flux-system", "bp-gitea-spine", "True", "Helm install succeeded")
 	// The producer mints/back-refs `dr-<app>`; seed it with a live lease.
 	cont := makeContinuumCR("catalyst", ContinuumNameFor("spine-gitea"), "spine-gitea", "me-east-215-a", 0)
+	// ADR-0015 D8: a Continuum is Git-delivered (Flux-applied) — never an
+	// API-created one, which the adoption path retires.
+	cont.SetLabels(map[string]string{"catalyst.openova.io/app": "spine-gitea", fluxKustomizeNameLabel: "sovereign-region"})
 
 	fg := newFakeGitea()
 	r := newReconciler(t, fg, app, hr, cont)

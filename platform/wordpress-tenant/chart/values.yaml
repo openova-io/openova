@@ -77,12 +77,12 @@ wordpress:
     # digest of the published image; the human-readable tag is kept alongside
     # for forensics.
     repository: ghcr.io/openova-io/openova/wordpress-tenant-pg
-    tag: "28d6575"
+    tag: "hw307-d7f8160"
     # Pushed manifest digest of `wordpress-tenant-pg:<tag>` — populated by the
     # build workflow's build-push-action `outputs.digest` on first build.
     # Empty until then; the helper omits `@digest` when empty so the chart
     # still renders + pulls by tag during the bootstrap window.
-    digest: "sha256:b1f15f9e1786e64136f64b56ec9bc17fda247408adc9d78daa873adbd39a576d"
+    digest: ""
     pullPolicy: IfNotPresent
     # ─── Image pull secrets (#4152, Refs #3858) ──────────────────────────
     # Since #4153 the runtime image is the CUSTOM
@@ -280,11 +280,16 @@ database:
         refreshInterval: 1h
       seed:
         enabled: true
-        # Stores the primary pushes the material into. Empty ⇒ [storeRef].
-        # Each region must be able to READ the material from ITS storeRef:
-        # list every region's store here when the regions do not share one
-        # OpenBao (README §Shared secrets).
+        # Stores the primary pushes the material into. Empty (default) ⇒
+        # [storeRef] + one `<peerStoreNamePrefix><peer>` per
+        # openova.topology.peers entry: every region runs its own OpenBao and
+        # bp-external-secrets-stores renders `vault-<peer-region-id>` writing
+        # into each peer's OpenBao (README §Shared secrets). Non-empty ⇒ used
+        # verbatim.
         secretStoreRefs: []
+        # Must equal bp-external-secrets-stores peerStores.namePrefix
+        # (tests/shared-secrets-render.sh S8 renders both and compares).
+        peerStoreNamePrefix: vault-
         refreshInterval: 1h
 # ─── openova.topology — THE placement contract (ADR-0015 D2) ─────────────
 # Written per region into Git by the orchestrator (one HelmRelease of this

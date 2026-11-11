@@ -31,16 +31,12 @@ package controller
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/types"
 
-	topo "github.com/openova-io/openova/core/controllers/application/internal/render"
 	"github.com/openova-io/openova/core/controllers/internal/placement"
 	bpv1alpha1 "github.com/openova-io/openova/core/controllers/pkg/apis/blueprint/v1alpha1"
 )
@@ -252,133 +248,6 @@ func resolveSwitchoverMechanism(variant *bpv1alpha1.TopologyVariant) string {
 	return mechStateless
 }
 
-// renderContinuumCR builds the Continuum CR Unstructured from a resolved
-// continuumPlan. Pure function — no client calls. The shape mirrors the
-// CRD's required set (applicationRef, primaryRegion, hotStandbyRegions,
-// leaseClient) + the optional switchover.mechanism the continuum-
-// controller reads (parseSpec, spec.go). Status is NEVER seeded — the
-// running continuum-controller owns status per ADR-0001 §2.7.
-func renderContinuumCR(appName, namespace string, cp continuumPlan) *unstructured.Unstructured {
-	cr := &unstructured.Unstructured{}
-	cr.SetAPIVersion(ContinuumGroup + "/" + ContinuumVersion)
-	cr.SetKind(ContinuumKind)
-	cr.SetName(ContinuumNameFor(appName))
-	cr.SetNamespace(namespace)
-
-	labels := map[string]string{}
-	for k, v := range cp.OwnerLabels {
-		labels[k] = v
-	}
-	// Back-pointer to the owning Application (cascade-delete + rollup),
-	// mirroring the fan-out HR's LabelApp contract.
-	labels[topo.LabelApp] = appName
-	// Scope marker — the cnpg-pair chart stamps openova.io/scope:platform
-	// on its CR; per-app DR CRs are application-scope so an operator can
-	// tell the two producers apart.
-	labels["openova.io/scope"] = "application"
-	cr.SetLabels(labels)
-
-	hotStandby := make([]interface{}, 0, len(cp.StandbyRegions))
-	for _, s := range cp.StandbyRegions {
-		hotStandby = append(hotStandby, s)
-	}
-
-	spec := map[string]interface{}{
-		"applicationRef":       cp.AppRef,
-		"primaryRegion":        cp.PrimaryRegion,
-		"desiredPrimaryRegion": cp.PrimaryRegion,
-		"hotStandbyRegions":    hotStandby,
-		"leaseClient": map[string]interface{}{
-			"kind": DefaultContinuumLeaseKind,
-		},
-	}
-	if cp.Mechanism != "" {
-		spec["switchover"] = map[string]interface{}{
-			"mechanism": cp.Mechanism,
-		}
-	}
-	if cp.RTOSeconds > 0 {
-		spec["rto"] = fmt.Sprintf("%ds", cp.RTOSeconds)
-	}
-	if cp.RPOSeconds > 0 {
-		spec["rpo"] = fmt.Sprintf("%ds", cp.RPOSeconds)
-	}
-	cr.Object["spec"] = spec
-	return cr
-}
-
-// continuumDesiredStatePatch is the merge patch that brings an EXISTING
-// Continuum CR in line with the Application's placement, or nil when it
-// already is.
-//
-// The Continuum spec carries two different things and they have different
-// owners:
-//
-//   - TOPOLOGY — spec.primaryRegion / spec.hotStandbyRegions: the HOME region
-//     of each member (where the pair's primary-named half and standby-named
-//     half live). It is fixed when the CR is created and never follows a
-//     placement edit: the continuum-controller identifies its own half and
-//     reads the observed writer through it. Rewriting it on a placement edit
-//     (hw307 2026-11-07) made the controller believe it lived in the other
-//     region, report region B as the writer while A served writes, move the
-//     lease, and run no switchover at all.
-//   - DESIRED STATE — spec.desiredPrimaryRegion: the region the operator
-//     declared Primary in placement. This is the only field a placement edit
-//     moves; the continuum-controller converges the observed writer onto it.
-//
-// A CR produced by another owner (the cnpg-pair chart stamps
-// openova.io/scope=platform and owns cnpgPair, lease, rto/rpo) gets ONLY
-// desiredPrimaryRegion — replacing its spec dropped spec.cnpgPair and blinded
-// the controller to the pair. An application-scoped CR (minted here) also
-// keeps its membership, mechanism and rto/rpo in step with the Blueprint.
-func continuumDesiredStatePatch(current *unstructured.Unstructured, cp continuumPlan) map[string]interface{} {
-	specPatch := map[string]interface{}{}
-	curDesired, _, _ := unstructured.NestedString(current.Object, "spec", "desiredPrimaryRegion")
-	if curDesired != cp.PrimaryRegion {
-		specPatch["desiredPrimaryRegion"] = cp.PrimaryRegion
-	}
-	if current.GetLabels()["openova.io/scope"] == "application" {
-		members := append([]string{cp.PrimaryRegion}, cp.StandbyRegions...)
-		home, _, _ := unstructured.NestedString(current.Object, "spec", "primaryRegion")
-		if !containsString(members, home) {
-			// The home region left the placement altogether — re-home.
-			home = cp.PrimaryRegion
-			specPatch["primaryRegion"] = home
-		}
-		hot := make([]interface{}, 0, len(members))
-		hotS := make([]string, 0, len(members))
-		for _, m := range members {
-			if m != home && !containsString(hotS, m) {
-				hot = append(hot, m)
-				hotS = append(hotS, m)
-			}
-		}
-		curHot, _, _ := unstructured.NestedStringSlice(current.Object, "spec", "hotStandbyRegions")
-		if !equalStrings(curHot, hotS) {
-			specPatch["hotStandbyRegions"] = hot
-		}
-		if cp.Mechanism != "" {
-			if m, _, _ := unstructured.NestedString(current.Object, "spec", "switchover", "mechanism"); m != cp.Mechanism {
-				specPatch["switchover"] = map[string]interface{}{"mechanism": cp.Mechanism}
-			}
-		}
-		if cp.RTOSeconds > 0 {
-			if v, _, _ := unstructured.NestedString(current.Object, "spec", "rto"); v != fmt.Sprintf("%ds", cp.RTOSeconds) {
-				specPatch["rto"] = fmt.Sprintf("%ds", cp.RTOSeconds)
-			}
-		}
-		if cp.RPOSeconds > 0 {
-			if v, _, _ := unstructured.NestedString(current.Object, "spec", "rpo"); v != fmt.Sprintf("%ds", cp.RPOSeconds) {
-				specPatch["rpo"] = fmt.Sprintf("%ds", cp.RPOSeconds)
-			}
-		}
-	}
-	if len(specPatch) == 0 {
-		return nil
-	}
-	return map[string]interface{}{"spec": specPatch}
-}
-
 func containsString(xs []string, s string) bool {
 	for _, x := range xs {
 		if x == s {
@@ -404,63 +273,6 @@ func equalStrings(a, b []string) bool {
 // Exported so handleDeletion + tests reference the same convention.
 func ContinuumNameFor(app string) string {
 	return ContinuumNamePrefix + app
-}
-
-// reconcileContinuumCR upserts the per-app Continuum CR for a DR-capable
-// Application, idempotently. Called from the fan-out persist block once
-// the per-cluster HelmReleases are written. Returns ("", nil) (no-op) when
-// the app is not a DR contract (buildContinuumPlan gate); otherwise returns
-// the `<namespace>/<name>` of the produced Continuum CR so the caller can
-// write the `status.continuumRef` back-pointer (#4416 — the consumer-READ
-// that closes the #4212 round-trip). Errors are surfaced to the caller,
-// which downgrades the Application to Degraded so the reconcile retries — a
-// missing DR contract must not silently pass.
-func (r *Reconciler) reconcileContinuumCR(
-	ctx context.Context,
-	appName, namespace string,
-	choice bpv1alpha1.BcpTopology,
-	variant *bpv1alpha1.TopologyVariant,
-	plan placement.Plan,
-	ownerLabels map[string]string,
-) (string, error) {
-	appRef := namespace + "/" + appName
-	cp, ok := buildContinuumPlan(appRef, choice, variant, plan, ownerLabels)
-	if !ok {
-		// Not a DR contract (singleton / active-active / single-region /
-		// no switchover mechanism). If a stale CR exists from a PRIOR
-		// topology (operator downgraded active-hot-standby → singleton),
-		// remove it so the roster reflects reality.
-		return "", r.deleteContinuumCRIfExists(ctx, appName, namespace)
-	}
-	cr := renderContinuumCR(appName, namespace, cp)
-	current, gErr := r.Dynamic.Resource(ContinuumGVR).Namespace(namespace).Get(ctx, cr.GetName(), metav1.GetOptions{})
-	switch {
-	case apierrors.IsNotFound(gErr):
-		if err := r.upsertHostResource(ctx, ContinuumGVR, namespace, cr.GetName(), cr); err != nil {
-			return "", fmt.Errorf("create Continuum CR %s/%s: %w", namespace, cr.GetName(), err)
-		}
-	case gErr != nil:
-		return "", fmt.Errorf("get Continuum CR %s/%s: %w", namespace, cr.GetName(), gErr)
-	default:
-		patch := continuumDesiredStatePatch(current, cp)
-		if patch != nil {
-			body, err := json.Marshal(patch)
-			if err != nil {
-				return "", fmt.Errorf("marshal Continuum patch: %w", err)
-			}
-			if _, err := r.Dynamic.Resource(ContinuumGVR).Namespace(namespace).Patch(ctx, cr.GetName(), types.MergePatchType, body, metav1.PatchOptions{}); err != nil {
-				return "", fmt.Errorf("patch Continuum CR %s/%s: %w", namespace, cr.GetName(), err)
-			}
-		}
-	}
-	r.Log.Info("upserted per-app Continuum CR",
-		"namespace", namespace, "name", cr.GetName(),
-		"app", appName, "topology", string(choice),
-		"mechanism", cp.Mechanism,
-		"primaryRegion", cp.PrimaryRegion,
-		"hotStandbyRegions", cp.StandbyRegions,
-	)
-	return namespace + "/" + cr.GetName(), nil
 }
 
 // deleteContinuumCRIfExists removes the per-app Continuum CR if present.

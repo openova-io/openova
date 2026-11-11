@@ -85,6 +85,9 @@ slot substitutes the role verbatim. Empty/unset defaults to "primary"
 rendering the primary half). Any other value fails the render.
 */}}
 {{- define "cnpg-pair.side" -}}
+{{- if (include "cnpg-pair.contractActive" .) -}}
+{{- include "cnpg-pair.contractSide" . -}}
+{{- else -}}
 {{- $side := default "primary" .Values.cnpgPair.side -}}
 {{- if eq $side "secondary" -}}
 {{- $side = "replica" -}}
@@ -93,6 +96,7 @@ rendering the primary half). Any other value fails the render.
 {{- fail (printf "cnpgPair.side must be one of primary|replica|secondary — got %q" .Values.cnpgPair.side) -}}
 {{- end -}}
 {{- $side -}}
+{{- end -}}
 {{- end }}
 
 {{- define "cnpg-pair.isPrimarySide" -}}
@@ -129,7 +133,7 @@ TRUE only when ALL of:
 {{- $ap := .Values.cnpgPair.replica.autoPromote | default dict -}}
 {{- $apEnabled := true -}}
 {{- if hasKey $ap "enabled" }}{{- $apEnabled = $ap.enabled -}}{{- end -}}
-{{- if and .Values.cnpgPair.enabled (include "cnpg-pair.isReplicaSide" .) $apEnabled (eq (.Values.cnpgPair.replication.mode | default "sync") "sync") -}}true{{- end -}}
+{{- if and .Values.cnpgPair.enabled (not (include "cnpg-pair.contractActive" .)) (include "cnpg-pair.isReplicaSide" .) $apEnabled (eq (.Values.cnpgPair.replication.mode | default "sync") "sync") -}}true{{- end -}}
 {{- end }}
 
 {{/*
@@ -156,12 +160,15 @@ render BOTH halves as replicas = a write outage).
 */}}
 {{- define "cnpg-pair.distributedActive" -}}
 {{- $d := .Values.cnpgPair.distributed | default dict -}}
-{{- if $d.enabled -}}true{{- end -}}
+{{- if or $d.enabled (include "cnpg-pair.contractActive" .) -}}true{{- end -}}
 {{- end }}
 
 {{- define "cnpg-pair.activePrimary" -}}
 {{- $d := .Values.cnpgPair.distributed | default dict -}}
 {{- $p := $d.primary | default (include "cnpg-pair.primaryName" .) -}}
+{{- if (include "cnpg-pair.contractActive" .) -}}
+{{- $p = include "cnpg-pair.memberName" (dict "ctx" . "region" (include "openova.topology.get" . | fromJson).primary) -}}
+{{- end -}}
 {{- if and (ne $p (include "cnpg-pair.primaryName" .)) (ne $p (include "cnpg-pair.replicaName" .)) -}}
 {{- fail (printf "cnpgPair.distributed.primary must name one of the pair halves (%s | %s) — got %q" (include "cnpg-pair.primaryName" .) (include "cnpg-pair.replicaName" .) $p) -}}
 {{- end -}}
@@ -255,5 +262,97 @@ TRUE only when ALL of:
 {{- $fbEnabled := true -}}
 {{- if hasKey $fb "enabled" }}{{- $fbEnabled = $fb.enabled -}}{{- end -}}
 {{- $peers := .Values.cnpgPair.networkPolicy.crossRegionPeerClusters | default list -}}
-{{- if and .Values.cnpgPair.enabled (include "cnpg-pair.isPrimarySide" .) $fbEnabled (eq (.Values.cnpgPair.replication.mode | default "sync") "sync") .Values.cnpgPair.clusterMesh.enabled (gt (len $peers) 0) -}}true{{- end -}}
+{{- if and .Values.cnpgPair.enabled (not (include "cnpg-pair.contractActive" .)) (include "cnpg-pair.isPrimarySide" .) $fbEnabled (eq (.Values.cnpgPair.replication.mode | default "sync") "sync") .Values.cnpgPair.clusterMesh.enabled (gt (len $peers) 0) -}}true{{- end -}}
+{{- end }}
+
+{{- /*
+═══════════════════════════════════════════════════════════════════════════
+ADR-0015 D2/D8 — the openova.topology contract (chart 0.2.32)
+═══════════════════════════════════════════════════════════════════════════
+The pair consumes the ONE contract (platform/topology-lib):
+
+  openova.topology: {mode, self, primary, peers}      region ids
+  database.topology.promotionToken                    CNPG demotion token
+
+delivered per region from Git: the application-controller writes
+clusters/<fqdn>/regions/<r>/platform/cnpg-pair.yaml in the Sovereign region
+repo (a carrier ConfigMap); slot 16b's HelmRelease merges it through
+`valuesFrom`. Continuum moves `primary` + `promotionToken` region by region.
+
+MAPPING onto the pair's existing (proven, hw307-live) distributed form — no
+second vocabulary:
+
+  contract                       pair
+  ───────────────────────────    ─────────────────────────────────────────
+  self == primary.region         side=primary  (renders <fullname>-primary)
+  self == replica.region         side=replica  (renders <fullname>-replica)
+  primary  (region id)           distributed.primary = that region's member
+  database.topology.promotionToken  distributed.promotionToken
+  present (multi-region)         distributed.enabled = true
+
+CLUSTER NAMES ARE PINNED per region: cnpgPair.primary.region keeps
+`<fullname>-primary`, cnpgPair.replica.region keeps `<fullname>-replica`
+(the clusterNames-pin mechanism: the two cloud-init region substitutes ARE
+the pins). Adoption of a live pair therefore renames nothing; only which
+member is primary is moved, natively by CNPG.
+
+UNDER THE CONTRACT Continuum is the one mover, through Git: the imperative
+seams stay OFF — dr-promoter / dr-failback actors (they patch the bootstrap-kit
+Kustomization), the primary.demoted / replica.promoted shapes, and the chart's
+own Continuum CR (the region file carries it). Contract absent ⇒ byte-identical
+to 0.2.31.
+*/ -}}
+
+{{- define "cnpg-pair.contractActive" -}}
+{{- if (include "openova.topology.get" . | fromJson).multiRegion -}}true{{- end -}}
+{{- end }}
+
+{{- /* The pair's member (Cluster CR name) for a region id — fails on a region
+     that is neither pinned half (a typo would render both halves replicas). */ -}}
+{{- define "cnpg-pair.memberName" -}}
+{{- $v := .ctx.Values.cnpgPair -}}
+{{- if eq .region $v.primary.region -}}
+{{- include "cnpg-pair.primaryName" .ctx -}}
+{{- else if eq .region $v.replica.region -}}
+{{- include "cnpg-pair.replicaName" .ctx -}}
+{{- else -}}
+{{- fail (printf "openova.topology region %q is neither cnpgPair.primary.region (%q) nor cnpgPair.replica.region (%q) — the pair's members are pinned to those two regions" .region $v.primary.region $v.replica.region) -}}
+{{- end -}}
+{{- end }}
+
+{{- define "cnpg-pair.contractSide" -}}
+{{- $t := include "openova.topology.get" . | fromJson -}}
+{{- include "openova.topology.assertMode" (dict "ctx" . "supported" (list "active-hot-standby" "active-passive")) -}}
+{{- include "cnpg-pair.validateRegions" . -}}
+{{- range (concat (list $t.self $t.primary) $t.peers) -}}
+{{- $_ := include "cnpg-pair.memberName" (dict "ctx" $ "region" .) -}}
+{{- end -}}
+{{- if eq $t.self .Values.cnpgPair.primary.region -}}primary{{- else -}}replica{{- end -}}
+{{- end }}
+
+{{- /* The promotion token in force: the contract's under the contract. */ -}}
+{{- define "cnpg-pair.promotionToken" -}}
+{{- if (include "cnpg-pair.contractActive" .) -}}
+{{- dig "database" "topology" "promotionToken" "" (.Values | toJson | fromJson) -}}
+{{- else -}}
+{{- (.Values.cnpgPair.distributed | default dict).promotionToken | default "" -}}
+{{- end -}}
+{{- end }}
+
+{{- /* DR seams — never under the contract (Continuum moves the pair via Git). */ -}}
+{{- define "cnpg-pair.primaryDemoted" -}}
+{{- if and (not (include "cnpg-pair.contractActive" .)) (.Values.cnpgPair.primary.demoted | default false) -}}true{{- end -}}
+{{- end }}
+
+{{- define "cnpg-pair.replicaPromoted" -}}
+{{- if and (not (include "cnpg-pair.contractActive" .)) (.Values.cnpgPair.replica.promoted | default false) -}}true{{- end -}}
+{{- end }}
+
+{{- /* openova.io/topology-primary — what Helm APPLIED, read by Continuum to
+     know a commit reached this region (the slot HelmRelease's spec.values do
+     not carry the contract: it arrives through valuesFrom). */ -}}
+{{- define "cnpg-pair.topologyAnnotations" -}}
+{{- if (include "cnpg-pair.contractActive" .) }}
+openova.io/topology-primary: {{ (include "openova.topology.get" . | fromJson).primary | quote }}
+{{- end }}
 {{- end }}

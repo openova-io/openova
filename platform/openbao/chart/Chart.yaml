@@ -265,7 +265,26 @@ name: bp-openbao
 #   subtree a multi-region Application's writer region seeds its shared
 #   material into (bp-wordpress-tenant 0.5.1 shared-secrets-seed.yaml,
 #   PushSecret updatePolicy IfNotExists). No delete.
-version: 1.2.71
+# 1.2.72 (ADR-0015, Refs #7067): DECLARATIVE OpenBao configuration + peer-region
+#   trust.
+#   (1) Every policy/role/auth mount/identity object is desired state
+#   (templates/_config.tpl -> ConfigMap openbao-config-desired), applied
+#   continuously + idempotently by the openbao-config Deployment, logged in as
+#   k8s-auth role openbao-config-admin (config surfaces only: no secret data,
+#   no sys/raw, no seal, no delete, cannot rewrite itself). The auth-bootstrap
+#   hook writes ONLY that grant: with the init root on first install, on every
+#   later run with a short-lived root generated from the openbao-unseal-keys
+#   shares and revoked in the same run. Before this a re-run exited 0, so no
+#   later policy/role change ever reached a running Sovereign.
+#   (2) Peer-region trust: openbao-<self> ClusterMesh-global Service +
+#   selector-less openbao-<peer> stubs; this OpenBao issues its ESO's push
+#   token (identity openbao-peer-push) and verifies each peer's (jwt mount
+#   jwt-peer-<peer>, keys discovered from the peer's issuer over the mesh),
+#   granting write-only secret/{data,metadata}/openova/apps/*. Peer CNPs on
+#   8200. Inputs: peerTrust.selfRegion/regions (region registry); nothing for
+#   a single region. tests: config-desired-render, config-reconcile-
+#   idempotence, peer-trust-render (+ eso-push / snapshot updated).
+version: 1.2.72-hw307.1
 # 1.2.51 (#3888, Refs #3847): prov-time openbao KV-seed mechanism — the
 # auth-bootstrap Job reads a one-shot cloud-init `openbao-bootstrap-seed`
 # Secret + writes its keys into KV at secret/<prefix>/* with the still-valid
