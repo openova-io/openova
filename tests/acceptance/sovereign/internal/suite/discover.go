@@ -122,6 +122,18 @@ func (r *runner) discover(ctx context.Context) bool {
 		}
 		r.regionIPs = m
 		ev["region_ips"] = m
+		// The Sovereign's SHARED ingress (the console/gateway load
+		// balancers that front every region and forward over the mesh to
+		// wherever the app's primary runs). A DNS answer that is one of these
+		// serves whichever region holds the primary; J3.6 then proves the
+		// routing by reading the content back (Refs #7067).
+		if out, err := r.A.Run(ctx, nil, "get", "configmap", "sovereign-fqdn", "-n", "catalyst-system",
+			"-o", "jsonpath={.data.lbIP} {.data.consoleLBIP}"); err == nil {
+			for _, ip := range strings.Fields(string(out)) {
+				r.sharedIngressIPs = append(r.sharedIngressIPs, ip)
+			}
+		}
+		ev["shared_ingress_ips"] = r.sharedIngressIPs
 		r.run.Subject["regions"] = map[string]string{"A": keyA, "B": keyB}
 		return nil
 	})
