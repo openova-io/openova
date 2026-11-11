@@ -90,7 +90,15 @@ jobs:
 
       - name: Seed a customer, price book and one week of usage
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client >/dev/null
+          # The ubuntu-24.04 image ships psql; apt only when it is missing
+          # (Ubuntu mirror DNS failed for hours on 2026-11-11, PR #7085).
+          if ! command -v psql >/dev/null; then
+            for i in 1 2 3; do
+              timeout 300 bash -c 'sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client >/dev/null' && break
+              sleep $((i * 15))
+            done
+          fi
+          psql --version
           bash tests/e2e/chargeback/seed.sh /tmp/seed.env
           cat /tmp/seed.env >> "$GITHUB_ENV"
 
