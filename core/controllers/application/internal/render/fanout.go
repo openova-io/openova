@@ -33,6 +33,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"github.com/openova-io/openova/core/controllers/pkg/endpoints"
 	"sort"
 	"strings"
 
@@ -64,6 +65,10 @@ type FanoutInputs struct {
 	// the host-side HR may live in a different namespace; that's
 	// stamped by the caller via WriteNamespace.)
 	AppNamespace string
+
+	// Endpoints — the Application's resolved public endpoints, rendered
+	// into every leg's `openova.endpoints` (ADR-0015 D2/D7).
+	Endpoints []endpoints.Endpoint
 
 	// WriteNamespace — when non-empty, overrides AppNamespace on
 	// the rendered HR's metadata.namespace. The G92.1 vCluster
@@ -275,6 +280,7 @@ func FanoutHRs(in FanoutInputs) ([]*unstructured.Unstructured, error) {
 			Peers:        peersOf(self, placementRegions),
 			AppName:      in.AppName,
 			AppNamespace: in.AppNamespace,
+			Endpoints:    in.Endpoints,
 		}
 		hr := renderOneHR(in, cluster, contract)
 		out = append(out, hr)
