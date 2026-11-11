@@ -33,6 +33,32 @@ clusterSecretStore:
     serviceAccountName: external-secrets
     serviceAccountNamespace: external-secrets-system
 
+# Peer-region stores (ADR-0015, Refs #7067) — templates/clustersecretstore-peers.yaml.
+# One ClusterSecretStore `<namePrefix><peer-region-id>` per peer region, writing
+# into the PEER's OpenBao over ClusterMesh (bp-openbao §peerTrust is the other
+# half). A multi-region Application's primary pushes its shared material into
+# vault-region1 (self) + every vault-<peer>, so each region reads it from its
+# own store. Renders nothing unless `regions` names a region other than
+# `selfRegion`; the bootstrap-kit slot (15a) threads both from the registry.
+peerStores:
+  # This region's canonical id (SOVEREIGN_REGION_CANONICAL_LABEL).
+  selfRegion: ""
+  # The Sovereign region registry (SOVEREIGN_REGIONS_JSON).
+  regions: ""
+  # Store name = namePrefix + region id. bp-wordpress-tenant
+  # (database.topology.sharedSecrets.seed.peerStoreNamePrefix) addresses the
+  # same names; its render test asserts the two agree.
+  namePrefix: vault-
+  # bp-openbao's per-region Service: <servicePrefix><region-id>.<openbaoNamespace>.svc
+  servicePrefix: openbao-
+  openbaoNamespace: openbao
+  # Identity-token audience + the jwt role name on the peer (bp-openbao
+  # peerTrust.audience).
+  audience: openbao-peer-push
+  tokenSecretName: openbao-peer-push-token
+  # The token lives 1h (bp-openbao peerTrust.tokenTTL); refresh well inside it.
+  tokenRefreshInterval: 15m
+
 # Pre-install webhook gate (issue #137 / prov #20).
 #
 # Why this exists

@@ -38,7 +38,7 @@ replica pattern; only the apply TARGET was wrong.
 {{- /* Chart 0.2.29 — CNPG distributed topology (planned cross-region
        switchover). The DR promotion seam (replica.promoted) wins: a
        dr-promoter promotion keeps rendering the exact legacy shape. */ -}}
-{{- $planned := and (include "cnpg-pair.distributedActive" .) (not (.Values.cnpgPair.replica.promoted | default false)) }}
+{{- $planned := and (include "cnpg-pair.distributedActive" .) (not (include "cnpg-pair.replicaPromoted" .)) }}
 {{- $activePrimary := "" }}
 {{- if $planned }}{{- $activePrimary = include "cnpg-pair.activePrimary" . }}{{- end }}
 {{- $selfPrimary := and $planned (eq $activePrimary (include "cnpg-pair.replicaName" .)) }}
@@ -56,6 +56,9 @@ metadata:
     catalyst.openova.io/blueprint: bp-cnpg-pair
     catalyst.openova.io/cnpg-pair-role: replica
     catalyst.openova.io/cnpg-pair-name: {{ include "cnpg-pair.fullname" . | quote }}
+    {{- with (include "cnpg-pair.topologyAnnotations" . | trim) }}
+    {{- . | nindent 4 }}
+    {{- end }}
 spec:
   {{- if .Values.cnpgPair.application.enabled }}
   # Unified model: stamp the canonical app label on every CNPG Pod so they
@@ -143,14 +146,14 @@ spec:
     self: {{ include "cnpg-pair.replicaName" . }}
     primary: {{ $activePrimary }}
     source: {{ include "cnpg-pair.fullname" . }}-primary
-    {{- with .Values.cnpgPair.distributed.promotionToken }}
+    {{- with (include "cnpg-pair.promotionToken" .) }}
     {{- if $selfPrimary }}
     promotionToken: {{ . | quote }}
     {{- end }}
     {{- end }}
 {{- else }}
   replica:
-    enabled: {{ not (.Values.cnpgPair.replica.promoted | default false) }}
+    enabled: {{ not (include "cnpg-pair.replicaPromoted" .) }}
     source: {{ include "cnpg-pair.fullname" . }}-primary
 {{- end }}
 

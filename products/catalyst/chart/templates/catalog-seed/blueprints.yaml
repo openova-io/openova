@@ -88,7 +88,7 @@ spec:
   # (S3-Uploads + openova-media-store mu-plugin), no wp-content PVC by
   # default; regionLocalVolumes below carry a replication for every entry
   # (the D6 admission gate reads them off THIS CR).
-  version: "0.6.0"
+  version: "0.6.1-hw307.1"
   visibility: listed
   card:
     title: "WordPress (per-Organization)"
@@ -133,7 +133,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-wordpress-tenant
-    version: "0.6.0"
+    version: "0.6.1-hw307.1"
   # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): lockstep with
   # platform/wordpress-tenant/blueprint.yaml. Uses {{.AppName}} so
   # multi-instance tenants get distinct hostnames per Application.
@@ -349,7 +349,7 @@ spec:
   # datapath shape, #5339), instead of idling silently while a split-brain
   # persists. Keep this display-version in lockstep with delivery
   # source.version + blueprint.yaml (the #4988 precedent).
-  version: "0.2.31"
+  version: "0.2.32-hw307.1"
   visibility: listed
   card:
     title: "CNPG Cluster-Pair (Active-Hotstandby DR)"
@@ -379,7 +379,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-cnpg-pair
-    version: "0.2.31"
+    version: "0.2.32-hw307.1"
   # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): cluster-pair IS
   # active-hot-standby by construction. Only one topology variant —
   # active-passive — because the chart renders 2 Cluster CRs (primary +
@@ -3411,7 +3411,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.2.71"
+  version: "1.2.72-hw307.1"
   visibility: unlisted
   card:
     title: "OpenBao"
@@ -3436,7 +3436,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-openbao
-    version: "1.2.71"
+    version: "1.2.72-hw307.1"
   topology:
     supported:
     - active-passive
@@ -4129,7 +4129,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.10"
+  version: "1.0.11-hw307.1"
   visibility: unlisted
   card:
     title: "External Secrets — Stores"
@@ -4146,7 +4146,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-external-secrets-stores
-    version: "1.0.10"
+    version: "1.0.11-hw307.1"
   topology:
     supported:
       - singleton
@@ -5348,7 +5348,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.2.0"
+  version: "0.2.1-hw307.1"
   visibility: unlisted
   card:
     title: "Continuum"
@@ -5369,7 +5369,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-continuum
-    version: "0.2.0"
+    version: "0.2.1-hw307.1"
   topology:
     supported:
       - active-hot-standby
@@ -5754,7 +5754,7 @@ spec:
   # CNPG's `-rw` selector), so `affinity: local` sent region-B writes to the throwaway
   # DB → keycloak 28P01 (hw307). The stub now carries a selector term no Pod carries in
   # that window → zero local backends by construction. Every other render byte-identical.
-  version: "0.2.32"
+  version: "0.2.33-hw307.1"
   visibility: listed
   # Shareability + Contexts (#3370) — seeded verbatim from
   # platform/postgres/blueprint.yaml (lockstep-guarded). One instance
@@ -5892,7 +5892,7 @@ spec:
     # 0.2.26 (#6796, Refs #4460 #6627 #6753 #5224): pre-flip secondary `-mesh`/`-mesh-rw`
     # stub no longer selects the local #4460 placeholder singleton (region-B keycloak
     # 28P01 on hw307) — zero local backends by construction in that window.
-    version: "0.2.32"
+    version: "0.2.33-hw307.1"
   # Seeded verbatim from platform/postgres/blueprint.yaml spec.topology.
   # singleton = single-instance Cluster; active-hot-standby = sync
   # replication across regions (ADR-0004 Pillar-3 zero-tx-loss) via the

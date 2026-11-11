@@ -1,5 +1,25 @@
 apiVersion: v2
 name: bp-postgres
+# 0.2.33 (ADR-0015 D8, Refs #7067): the data instance consumes the ONE topology
+# contract (openova.topology {mode,self,primary,peers} +
+# database.topology.promotionToken, platform/topology-lib). For the shared
+# instances it is delivered per region from Git
+# (clusters/<fqdn>/regions/<r>/platform/<instance>.yaml, merged by slots
+# 16c/16d through `valuesFrom`; never 16a: shared-pg holds Gitea's own
+# database, which a transition made of Gitea commits cannot move) so the
+# continuum-controller moves them with
+# the same 3-commit token protocol as an Org Application. Active when the
+# contract is multi-region AND both member pins are set (topology.primary.region
+# keeps `<instance>`, topology.replica.region keeps `<instance>-replica`, so the
+# live hw307 pairs keep their names). Both halves render CNPG's native
+# distributed topology (spec.replica.{self,primary,source} + both members in
+# externalClusters + promotionToken on the member being promoted); the sync
+# fence, managed roles and the consumer `-mesh`/`-mesh-rw` aliases follow the
+# contract primary, so writes and DNS move with the render. Under the contract
+# the imperative seams are off (dr-promoter / dr-failback, topology.demoted /
+# promoted, the chart's own Continuum CR) and each Cluster carries
+# openova.io/topology-primary (what Helm applied). Contract or pins absent =>
+# byte-identical to 0.2.32.
 # 0.2.31 — hw307 2026-09-13 failed-over state (Refs #6874 #6753 #5504 #6149):
 #   two defects that leave a PROMOTED region-B survivor unusable by its own
 #   consumers, measured live 52 days after the automatic promotion.
@@ -646,7 +666,7 @@ name: bp-postgres
 #   seeded once and carried forward from the live object (lookup) on
 #   every later render, so an upgrade never reverts the operator's
 #   Topology edit (hw307 2026-11-07, the #7061 cnpg-pair fix).
-version: 0.2.32
+version: 0.2.33-hw307.1
 appVersion: 0.2.31
 description: |
   Catalyst-authored data-instance Blueprint for a shareable, reusable
@@ -838,6 +858,12 @@ keywords:
 maintainers:
   - name: OpenOva Catalyst
     email: hati.yildiz@openova.io
+dependencies:
+  # ADR-0015 D2 — the shared topology contract helpers (library chart,
+  # vendored into this package by `helm dependency build`).
+  - name: topology-lib
+    version: "0.1.0"
+    repository: "file://../../topology-lib/chart"
 
 # No upstream Helm chart — every byte is Catalyst-authored on top of the
 # CNPG CRDs that bp-cnpg installs (bp-cnpg is a hard dependency declared

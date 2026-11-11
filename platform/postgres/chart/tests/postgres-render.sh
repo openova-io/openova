@@ -3078,3 +3078,121 @@ for p_ in (replica, promoted):
     assert len(rules[0]['ports'])==1, "the consumer rule must open ONE port (5432) only"
 print("  PASS (replica netpol admits any-namespace :5432 in the steady AND promoted shapes; primary control holds)")
 PYEOF
+
+# ── Case 23: 0.2.33 ADR-0015 D8 — the openova.topology contract ──────────────
+#
+# Slots 16a/16c/16d merge the region file's carrier ConfigMap through
+# valuesFrom, so the contract arrives ALONGSIDE the slot's legacy values
+# (side, crossRegion, demoted). Per (self, primary) assert:
+#   - self picks the pinned member — `shared-pg` in topology.primary.region,
+#     `shared-pg-replica` in topology.replica.region — names never change;
+#   - CNPG distributed topology on BOTH halves (replica.{self,primary,source},
+#     both members in externalClusters), promotionToken only on the member
+#     being promoted, the sync fence / managed roles / managed write aliases
+#     only on the writer;
+#   - the consumer aliases `shared-pg-mesh` / `-mesh-rw` follow the primary:
+#     the non-writer region publishes a zero-local-backend stub selecting the
+#     writer's member, so consumer writes and DNS move with the render;
+#   - openova.io/topology-primary carries what Helm applied;
+#   - no dr-promoter / dr-failback actor, no chart Continuum, and the legacy
+#     demoted seam cannot reshape it;
+#   - without the member pins (a per-Org instance) the contract changes nothing.
+echo "[render] Case 23: openova.topology contract — Git-delivered per-region topology (ADR-0015 D8)"
+A23=hw-me-east-215-a-rtz-prod
+B23=hw-me-east-215-b-rtz-prod
+cat > "$TMP/c23-slot.yaml" <<YAML
+enabled: true
+bootstrapOwned:
+  enabled: true
+  helmRelease: {name: bp-postgres-shared, namespace: flux-system}
+instance: {name: shared-pg, namespace: shared-data, storageSize: 10Gi}
+topology:
+  mode: singleton
+  crossRegion: true
+  side: primary
+  instances: 1
+  demoted: true
+  primary: {region: $A23}
+  replica: {region: $B23}
+  networkPolicy: {sharedConsumers: true, crossRegionPeerClusters: [peer-mesh]}
+databases:
+  - {name: registry, owner: harbor, consumer: {blueprint: bp-harbor, mode: shared}}
+  - {name: gitea, owner: gitea, consumer: {blueprint: bp-gitea, mode: shared}}
+YAML
+render23() { # $1=out $2=self $3=primary [$4=token]
+  local out="$1" self="$2" prim="$3" tok="${4:-}" peer="$A23"
+  [ "$self" = "$A23" ] && peer="$B23"
+  local extra=()
+  [ -n "$tok" ] && extra=(--set "database.topology.promotionToken=$tok")
+  helm template shared-pg . --namespace shared-data -f "$TMP/c23-slot.yaml" \
+    --api-versions postgresql.cnpg.io/v1 --api-versions dr.openova.io/v1 --api-versions apps.openova.io/v1 \
+    --set openova.topology.mode=active-hot-standby --set "openova.topology.self=$self" \
+    --set "openova.topology.primary=$prim" --set "openova.topology.peers={$peer}" "${extra[@]}" \
+    > "$TMP/$out.yaml" 2> "$TMP/$out.err" || { echo "FAIL: Case 23 render $out errored:" >&2; cat "$TMP/$out.err" >&2; exit 1; }
+}
+render23 c23-a-primary  "$A23" "$A23"
+render23 c23-b-standby  "$B23" "$A23"
+render23 c23-a-demoting "$A23" "$B23"
+render23 c23-b-promote  "$B23" "$B23" TOK-A
+render23 c23-a-back     "$A23" "$A23" TOK-B
+# Control: the same slot values WITHOUT the contract render the legacy chart
+# (incl. its own Continuum) — so "no Continuum" below is not vacuous.
+helm template shared-pg . --namespace shared-data -f "$TMP/c23-slot.yaml" --set topology.demoted=false \
+  --api-versions postgresql.cnpg.io/v1 --api-versions dr.openova.io/v1 --api-versions apps.openova.io/v1 > "$TMP/c23-legacy.yaml"
+# Per-Org shape: contract present, member pins absent => byte-identical.
+helm template org-pg . --namespace acme --set instance.name=org-pg --set instance.namespace=acme \
+  --api-versions postgresql.cnpg.io/v1 > "$TMP/c23-org-nocontract.yaml"
+helm template org-pg . --namespace acme --set instance.name=org-pg --set instance.namespace=acme \
+  --api-versions postgresql.cnpg.io/v1 --set openova.topology.mode=active-hot-standby \
+  --set openova.topology.self=$A23 --set openova.topology.primary=$A23 --set "openova.topology.peers={$B23}" > "$TMP/c23-org-contract.yaml"
+cmp -s "$TMP/c23-org-nocontract.yaml" "$TMP/c23-org-contract.yaml" || {
+  diff "$TMP/c23-org-nocontract.yaml" "$TMP/c23-org-contract.yaml" | head -20 >&2
+  echo "FAIL: Case 23 a contract without member pins changed the render." >&2; exit 1; }
+python3 - "$TMP" "$A23" "$B23" <<'PYEOF' || { echo "FAIL: Case 23 contract assertions failed." >&2; exit 1; }
+import sys, yaml
+tmp, A, B = sys.argv[1:4]
+P, R = 'shared-pg', 'shared-pg-replica'
+def docs(n): return [d for d in yaml.safe_load_all(open(f"{tmp}/{n}.yaml")) if isinstance(d, dict)]
+def cluster(n):
+    cs = [d for d in docs(n) if d.get('kind') == 'Cluster']
+    assert len(cs) == 1, (n, [c['metadata']['name'] for c in cs])
+    return cs[0]
+def svc(n, name):
+    ss = [d for d in docs(n) if d.get('kind') == 'Service' and d['metadata']['name'] == name]
+    return ss[0] if ss else None
+assert any(d.get('kind') == 'Continuum' for d in docs('c23-legacy')), 'control: the legacy render carries the chart Continuum'
+def check(n, name, replica, writer, applied, alias_to):
+    c = cluster(n)
+    assert c['metadata']['name'] == name, (n, 'member name must stay pinned', c['metadata']['name'])
+    assert (c['metadata'].get('annotations') or {}).get('openova.io/topology-primary') == applied, (n, c['metadata'].get('annotations'))
+    s = c['spec']
+    assert s['replica'] == replica, (n, s['replica'], replica)
+    assert [e['name'] for e in s['externalClusters']] == [P, R], (n, [e['name'] for e in s['externalClusters']])
+    syn = s.get('postgresql', {}).get('synchronous')
+    assert bool(syn) == writer, (n, 'sync fence only on the writer', syn)
+    if writer:
+        assert syn['dataDurability'] == 'required', (n, syn)
+    mg = s.get('managed') or {}
+    if name == P:
+        assert bool(mg.get('roles')) == writer, (n, 'managed roles only on the writer', mg.get('roles'))
+        managed_svcs = [a['serviceTemplate']['metadata']['name'] for a in (mg.get('services') or {}).get('additional', [])]
+        assert ('shared-pg-mesh-rw' in managed_svcs) == writer, (n, 'managed write alias only on the writer', managed_svcs)
+    # Consumer write alias: on a non-writer region it is a plain stub that
+    # selects the WRITER's member (zero local backends there); on the
+    # writer it is CNPG-managed (A) or a stub with REAL local backends (B).
+    st = svc(n, 'shared-pg-mesh-rw')
+    if name == P and writer:
+        assert st is None, (n, 'A writer: the write alias is CNPG-managed, no stub')
+    else:
+        assert st is not None and st['spec']['selector'].get('cnpg.io/cluster') == alias_to, (n, st and st['spec'].get('selector'))
+    for d in docs(n):
+        assert d.get('kind') != 'Continuum', (n, 'the region file carries the Continuum; the chart renders none')
+        assert 'dr-promoter' not in d['metadata']['name'] and 'dr-failback' not in d['metadata']['name'], (n, d['metadata']['name'])
+    assert 'pg_basebackup' not in s['bootstrap'] or name == R, (n, 'the legacy demoted re-clone shape must not render')
+check('c23-a-primary',  P, {'self': P, 'primary': P, 'source': R}, True,  A, P)
+check('c23-b-standby',  R, {'self': R, 'primary': P, 'source': P}, False, A, P)
+check('c23-a-demoting', P, {'self': P, 'primary': R, 'source': R}, False, B, R)
+check('c23-b-promote',  R, {'self': R, 'primary': R, 'source': P, 'promotionToken': 'TOK-A'}, True, B, R)
+check('c23-a-back',     P, {'self': P, 'primary': P, 'source': R, 'promotionToken': 'TOK-B'}, True, A, P)
+print("  PASS (pinned members · distributed topology both halves · token only on the promoted member · fence/roles/write alias on the writer only · consumer aliases follow the primary · applied annotation · no actors, no chart Continuum, no demoted re-clone · no pins = no change)")
+PYEOF

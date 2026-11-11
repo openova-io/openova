@@ -1,0 +1,166 @@
+{{- /*
+openbao-config — the declarative OpenBao configuration reconciler
+(bp-openbao 1.2.72, ADR-0015, Refs #7067).
+
+Desired state: the `openbao-config-desired` ConfigMap — `manifest` (ordered
+ops) + one JSON payload per op, all rendered from templates/_config.tpl.
+The Deployment applies it every `config.intervalSeconds`, idempotently
+(files/openbao-config-reconcile.sh; tests/config-reconcile-idempotence.sh
+runs that exact script against a fake OpenBao).
+
+Login: k8s-auth role `openbao-config-admin` bound to this ServiceAccount,
+policy openbao.configAdminPolicy — written by the auth-bootstrap hook, on the
+first install with the init root token and on every later install/upgrade
+with a short-lived root generated from the unseal-key shares and revoked at
+the end of the hook. No root token is kept anywhere.
+
+Rendered with the auth-bootstrap Job (autoUnseal.enabled +
+kubernetesAuth.enabled): it is the other half of the same contract.
+*/ -}}
+{{- $au := .Values.autoUnseal | default dict -}}
+{{- $kAuth := $au.kubernetesAuth | default dict -}}
+{{- if and $au.enabled $kAuth.enabled }}
+{{- $baoAddr := $au.baoAddress | default (printf "http://%s-openbao:8200" .Release.Name) -}}
+{{- $c := .Values.config | default dict -}}
+{{- $ops := include "openbao.configOps" . | fromJsonArray }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openbao-config-desired
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    app.kubernetes.io/name: openbao-config
+data:
+  # <kind> <api-path> [<probe-url>] — applied top to bottom every tick.
+  manifest: |
+{{- range $ops }}
+    {{ .kind }} {{ .path }}{{ if .probe }} {{ .probe }}{{ end }}
+{{- end }}
+{{- range $ops }}
+  {{ printf "%s.json" (.path | replace "/" ".") }}: {{ .payload | toJson | quote }}
+{{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openbao-config-reconciler
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    app.kubernetes.io/name: openbao-config
+data:
+  reconcile.sh: |
+{{ .Files.Get "files/openbao-config-reconcile.sh" | indent 4 }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: openbao-config
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    app.kubernetes.io/name: openbao-config
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openbao-config
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    app.kubernetes.io/name: openbao-config
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: openbao-config
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: openbao-config
+        catalyst.openova.io/blueprint: bp-openbao
+      annotations:
+        # Roll on any desired-state or script change (the ConfigMaps are
+        # mounted, but a fresh pod also re-logs in immediately).
+        checksum/desired: {{ include "openbao.configOps" . | sha256sum }}
+        checksum/script: {{ .Files.Get "files/openbao-config-reconcile.sh" | sha256sum }}
+    spec:
+      serviceAccountName: openbao-config
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 100
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: reconcile
+          # `library/` is required on a Docker Hub official image through the
+          # Harbor proxy-cache (see sso-configure-deployment.yaml, #6778).
+          image: {{ $c.image | default "harbor.openova.io/proxy-dockerhub/library/alpine:3.20" | quote }}
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh"]
+          args: ["/etc/openbao-config/script/reconcile.sh"]
+          env:
+            - name: BAO_ADDR
+              value: {{ $baoAddr | quote }}
+            - name: BAO_K8S_AUTH_PATH
+              value: {{ include "openbao.configLoginMount" . | quote }}
+            - name: BAO_ROLE
+              value: openbao-config-admin
+            - name: CONFIG_DIR
+              value: /etc/openbao-config/desired
+            - name: INTERVAL_SECONDS
+              value: {{ $c.intervalSeconds | default 60 | quote }}
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "16Mi"
+            limits:
+              cpu: "100m"
+              memory: "64Mi"
+          # No serving port: both probes read the heartbeat the loop touches
+          # every tick (same shape as openbao-sso-configure, #4347).
+          readinessProbe:
+            exec:
+              command: ["/bin/sh", "-c", "test -f /tmp/openbao-config-heartbeat"]
+            initialDelaySeconds: 2
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command: ["/bin/sh", "-c", '[ -n "$(find /tmp/openbao-config-heartbeat -mmin -5 2>/dev/null)" ]']
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: desired
+              mountPath: /etc/openbao-config/desired
+              readOnly: true
+            - name: script
+              mountPath: /etc/openbao-config/script
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: desired
+          configMap:
+            name: openbao-config-desired
+        - name: script
+          configMap:
+            name: openbao-config-reconciler
+            defaultMode: 0555
+        - name: tmp
+          emptyDir:
+            sizeLimit: 8Mi
+{{- end }}

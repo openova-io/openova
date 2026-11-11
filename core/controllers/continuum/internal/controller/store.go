@@ -5,13 +5,24 @@ import (
 	"errors"
 
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
+	"github.com/openova-io/openova/core/controllers/pkg/regionfile"
 )
 
-// Repo addresses one Git repository branch.
+// Repo addresses one Git repository branch and the layout of the region
+// files inside it (regionfile.Layout: the Org repo's root layout, or the
+// Sovereign region repo's clusters/<fqdn>/…/platform layout).
 type Repo struct {
 	Owner  string
 	Name   string
 	Branch string
+	// Path / Folder — regionfile.Layout{Root, Folder}.
+	Path   string
+	Folder string
+}
+
+// Layout is the region-file layout of the repo.
+func (r Repo) Layout() regionfile.Layout {
+	return regionfile.Layout{Root: r.Path, Folder: r.Folder}
 }
 
 // ErrConflict — a compare-and-swap write lost: the file moved since it was

@@ -163,7 +163,7 @@ spec:
       #   keycloak-0 5,168 restarts, `Policy denied DROPPED` on :5432, region-B
       #   SSO dead for every app. Singleton + primary byte-identical; substitutes
       #   unchanged. Lockstep 16a/16c/16d.
-      version: 0.2.32
+      version: 0.2.33-hw307.1
       sourceRef:
         kind: HelmRepository
         name: bp-postgres
@@ -176,6 +176,22 @@ spec:
     timeout: 15m
     remediation:
       retries: 3
+  # ADR-0015 D8 — the ONE per-region delta, delivered from Git. The
+  # application-controller writes the openova.topology contract
+  # ({mode,self,primary,peers} + database.topology.promotionToken) for THIS
+  # region into clusters/<fqdn>/regions/<region-id>/platform/<app>.yaml of the
+  # Sovereign region repo, as ConfigMap flux-system/bp-postgres-shared-c-topology; this region's
+  # `sovereign-region` Kustomization applies it and helm-controller re-renders
+  # the moment it changes (reconcile.fluxcd.io/watch). The continuum-controller
+  # moves `primary` + `promotionToken` file by file (the 3-commit token
+  # protocol). optional: a fresh Sovereign installs from the values below
+  # before the file exists; the chart honours the contract only when present.
+  # This slot stays the one install path.
+  valuesFrom:
+    - kind: ConfigMap
+      name: bp-postgres-shared-c-topology
+      valuesKey: values.yaml
+      optional: true
   values:
     # Same master gate as 16a/16c — one switch for all three instances.
     enabled: ${SOVEREIGN_ENABLE_SHARED_PG:=false}
