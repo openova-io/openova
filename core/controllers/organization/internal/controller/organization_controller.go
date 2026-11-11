@@ -711,7 +711,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		now = r.Now()
 	}
 	stoppedUntil, stopLifts := overageStop(org.Spec, now)
-	if _, effMode, _ := gitops.EffectivePlan(org.Spec.PlanSlug, overageMode); effMode != gitops.OverageModeGrow {
+	if _, effMode, _ := gitops.EffectivePlan(gitops.PlanForOrganization(org.Spec.Kind, org.Spec.PlanSlug), overageMode); effMode != gitops.OverageModeGrow {
 		stoppedUntil, stopLifts = "", 0
 	}
 	// #7067 — the classless platform credit: plan-quota is always scoped
@@ -735,7 +735,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		Slug:                      org.Spec.Slug,
 		DisplayName:               org.Spec.DisplayName,
 		Tier:                      org.Spec.Tier,
-		PlanSlug:                  org.Spec.PlanSlug,
+		PlanSlug:                  gitops.PlanForOrganization(org.Spec.Kind, org.Spec.PlanSlug),
 		OverageMode:               overageMode,
 		GrowCeilingCPU:            growCPU,
 		GrowCeilingMemory:         growMem,
