@@ -47,6 +47,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/openova-io/openova/core/controllers/pkg/endpoints"
 	"log/slog"
 	"strings"
 	"time"
@@ -1442,6 +1443,20 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 			planRegionIDs = append(planRegionIDs, id)
 		}
 	}
+	// ADR-0015 D2/D7 — resolve the Blueprint's public endpoints with the SAME
+	// resolver catalyst-api reports from, so the chart routes exactly the
+	// host the console shows (live hw307 2026-11-11: an Application-path
+	// WordPress rendered no HTTPRoute because nothing set gateway.host).
+	appEndpoints, epErrs := endpoints.FromBlueprint(bp, endpoints.Vars{
+		SovereignFQDN: r.Cfg.SovereignFQDN,
+		OrgSlug:       orgSlug,
+		AppName:       app.GetName(),
+		OrgDomain:     endpoints.OrgDomain(org, orgSlug, r.Cfg.SovereignFQDN),
+	})
+	for _, e := range epErrs {
+		r.Log.Warn("Application endpoint hostname unresolved; not rendered", "app", app.GetNamespace()+"/"+app.GetName(), "error", e.Error())
+	}
+
 	for i, rp := range plan.Regions {
 		regionStatuses = append(regionStatuses, map[string]interface{}{
 			"name":               rp.Name,
@@ -1466,6 +1481,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 			Peers:        regions.Peers(self, planRegionIDs),
 			AppName:      app.GetName(),
 			AppNamespace: app.GetNamespace(),
+			Endpoints:    appEndpoints,
 		})
 		out, err := render.Render(render.Inputs{
 			AppName: app.GetName(),

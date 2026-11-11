@@ -45,7 +45,8 @@ HTTP-01 solver never runs on a Cilium Sovereign — `ingress.enabled` now
 defaults false so that dead cert is no longer emitted (#3785).
 */}}
 {{- if and .Values.gateway .Values.gateway.enabled -}}
-{{- if .Values.gateway.host }}
+{{- $publicHost := include "bp-wordpress-tenant.publicHost" . }}
+{{- if $publicHost }}
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -62,7 +63,7 @@ spec:
       sectionName: {{ . | quote }}
       {{- end }}
   hostnames:
-    - {{ .Values.gateway.host | quote }}
+    - {{ $publicHost | quote }}
   rules:
     - matches:
         - path:
