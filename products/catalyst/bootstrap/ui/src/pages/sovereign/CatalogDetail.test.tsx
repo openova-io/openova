@@ -300,7 +300,8 @@ describe('CatalogDetail — #3090 class page', () => {
       if (url.includes('/applications/bp-grafana')) {
         return jsonRes({
           name: 'bp-grafana',
-          namespace: 'grafana',
+          namespace: 'flux-system',
+          targetNamespace: 'grafana',
           blueprint: 'bp-grafana',
           bootstrap: true,
           phase: 'Ready',
@@ -326,6 +327,41 @@ describe('CatalogDetail — #3090 class page', () => {
     )
     expect(screen.queryByTestId('sov-instances-table')).toBeNull()
     expect(screen.queryByTestId('btn-new-instance')).toBeNull()
+  })
+
+  it('a per-Org HelmRelease of the same name is NOT a platform component — New instance stays (#7067)', async () => {
+    // hw307: acmewalk307/bp-wordpress-tenant (a legacy per-Org install) made
+    // the HelmRelease fallback answer bootstrap:true for the WordPress class
+    // page, which then hid "+ New instance" behind a platform-singleton card.
+    globalThis.fetch = ((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString()
+      if (url.includes('/sovereign/self')) {
+        return jsonRes({ deploymentId: 'dep-123', sovereignFQDN: 't1.omani.works' })
+      }
+      if (url.includes('/applications/bp-grafana')) {
+        return jsonRes({
+          name: 'bp-grafana',
+          namespace: 'acmewalk307',
+          targetNamespace: 'acmewalk307',
+          blueprint: 'bp-grafana',
+          bootstrap: true,
+          phase: 'Failed',
+          conditions: [],
+        })
+      }
+      if (url.includes('/instances')) {
+        return jsonRes({ items: [] })
+      }
+      if (url.includes('/catalog/')) {
+        return jsonRes(GRAFANA_CATALOG)
+      }
+      return jsonRes({})
+    }) as typeof fetch
+
+    renderCatalog('grafana')
+    expect(await screen.findByTestId('btn-new-instance')).toBeTruthy()
+    expect(screen.queryByTestId('catalog-section-platform-singleton')).toBeNull()
+    expect(screen.queryByTestId('badge-platform-component')).toBeNull()
   })
 
   // ── #3370 — the rejected "Data instances" panel is DELETED ──────────
