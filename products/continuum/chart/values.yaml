@@ -23,7 +23,7 @@ continuum:
   image:
     repository: "ghcr.io/openova-io/openova/continuum-controller"
     # CI stamps the SHA on every push to main.
-    tag: "2c1f5b0"
+    tag: "904f0fe"
     pullPolicy: IfNotPresent
 
   # In-region replicas; one is elected per region (in-region Lease). The
