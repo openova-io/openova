@@ -469,6 +469,8 @@ spec:
                 "endpoint_userinfo":        "${ISSUER}/protocol/openid-connect/userinfo",
                 "endpoint_token":           "${ISSUER}/protocol/openid-connect/token",
                 "endpoint_end_session":     "${ISSUER}/protocol/openid-connect/logout",
+                "endpoint_jwks":            "${ISSUER}/protocol/openid-connect/certs",
+                "issuer":                   "${ISSUER}",
                 "identity_key":             "${OIDC_IDENTITY_KEY}",
                 "no_sslverify":             0,
                 "http_request_timeout":     5,

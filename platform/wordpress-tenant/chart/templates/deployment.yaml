@@ -261,10 +261,15 @@ spec:
                 exit 1
               fi
               {{- end }}
-              if [ -f "${WP_ARTIFACTS}/mu-plugins/openova-media-store.php" ]; then
+              # Every baked must-use plugin (media store, pinned updates —
+              # Refs #7067), always re-copied: they are image code.
+              if [ -d "${WP_ARTIFACTS}/mu-plugins" ]; then
                 mkdir -p /pvc/mu-plugins
-                cp "${WP_ARTIFACTS}/mu-plugins/openova-media-store.php" /pvc/mu-plugins/openova-media-store.php
-                echo "openova-media-store mu-plugin installed."
+                for f in "${WP_ARTIFACTS}"/mu-plugins/*.php; do
+                  [ -f "$f" ] || continue
+                  cp "$f" "/pvc/mu-plugins/$(basename "$f")"
+                  echo "mu-plugin $(basename "$f") installed."
+                done
               fi
               # ── (b) pg4wp drop-in (Postgres adapter) ───────────────
               # bp-wordpress-tenant runs WordPress against bp-cnpg
