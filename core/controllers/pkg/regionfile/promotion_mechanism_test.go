@@ -58,3 +58,25 @@ func TestDeclarePromotionMechanism(t *testing.T) {
 		t.Errorf("topology ConfigMap modified: %q", raw)
 	}
 }
+
+func TestDisableDestructiveInstallRemediation(t *testing.T) {
+	multi := hr(topo("active-hot-standby"))
+	_ = unstructured.SetNestedField(multi.Object, int64(3), "spec", "install", "remediation", "retries")
+	single := hr(topo("singleton"))
+	_ = unstructured.SetNestedField(single.Object, int64(3), "spec", "install", "remediation", "retries")
+	n, err := DisableDestructiveInstallRemediation([]*unstructured.Unstructured{multi, single})
+	if err != nil || n != 1 {
+		t.Fatalf("changed=%d err=%v, want 1", n, err)
+	}
+	r, _, _ := unstructured.NestedInt64(multi.Object, "spec", "install", "remediation", "retries")
+	last, found, _ := unstructured.NestedBool(multi.Object, "spec", "install", "remediation", "remediateLastFailure")
+	if r != 0 || !found || last {
+		t.Fatalf("multi-region install remediation = retries %d remediateLastFailure %v(found %v)", r, last, found)
+	}
+	if r, _, _ := unstructured.NestedInt64(single.Object, "spec", "install", "remediation", "retries"); r != 3 {
+		t.Fatalf("singleton install remediation changed: %d", r)
+	}
+	if n, _ := DisableDestructiveInstallRemediation([]*unstructured.Unstructured{multi}); n != 0 {
+		t.Fatalf("not idempotent: %d", n)
+	}
+}
