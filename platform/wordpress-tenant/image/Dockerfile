@@ -160,6 +160,7 @@ RUN set -eux; \
     apt-get purge -y --auto-remove unzip; \
     rm -rf /var/lib/apt/lists/*
 COPY openova-media-store.php /usr/src/openova-wp-artifacts/mu-plugins/openova-media-store.php
+COPY openova-pinned-updates.php /usr/src/openova-wp-artifacts/mu-plugins/openova-pinned-updates.php
 
 # Build-time assertions: fail the image build if a baked artifact is missing,
 # empty, or unreadable by the runtime uid. This is the regression guard for
@@ -183,7 +184,9 @@ RUN set -eux; \
     test -s /usr/src/openova-wp-artifacts/plugins/s3-uploads/s3-uploads.php; \
     test -s /usr/src/openova-wp-artifacts/plugins/s3-uploads/vendor/aws/aws-sdk-php/src/S3/S3Client.php; \
     test -s /usr/src/openova-wp-artifacts/mu-plugins/openova-media-store.php; \
-    php -l /usr/src/openova-wp-artifacts/mu-plugins/openova-media-store.php
+    php -l /usr/src/openova-wp-artifacts/mu-plugins/openova-media-store.php; \
+    test -s /usr/src/openova-wp-artifacts/mu-plugins/openova-pinned-updates.php; \
+    php -l /usr/src/openova-wp-artifacts/mu-plugins/openova-pinned-updates.php
 RUN set -eux; \
     mkdir -p /tmp/uid33probe; \
     chown 33:33 /tmp/uid33probe; \

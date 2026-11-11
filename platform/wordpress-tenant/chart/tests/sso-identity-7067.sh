@@ -38,6 +38,14 @@ grep -A3 'name: KC_CLIENT_SECRET' "$TMP/id.out" | grep -q 'name: blog-bp-wordpre
 grep -A1 'name: OIDC_ISSUER_URL\|name: KC_ISSUER\|name: OIDC_ISSUER' "$TMP/id.out" | grep -q 'https://auth.example.works/realms/sovereign' \
   || grep -q 'value: "https://auth.example.works/realms/sovereign"' "$TMP/id.out" || fail "hook issuer is not the contract issuer"
 grep -q 'value: "catalyst-pin"' "$TMP/id.out" || fail "hook idp hint is not the realm broker"
+# The plugin derives the expected `iss` from endpoint_login's scheme+host only
+# (no /realms/<realm>), so without an explicit issuer every SSO login ended in
+# "ERROR (invalid-iss)". The hook must write issuer + JWKS explicitly.
+grep -q '"issuer": *"${ISSUER}"' "$TMP/id.out" || fail "hook does not write the plugin issuer"
+grep -q '"endpoint_jwks": *"${ISSUER}/protocol/openid-connect/certs"' "$TMP/id.out" || fail "hook does not write the JWKS endpoint"
+# Every baked must-use plugin reaches the runtime (pinned-updates stops the
+# information_schema update check that fatals wp-admin under pg4wp).
+grep -q 'for f in "${WP_ARTIFACTS}"/mu-plugins/\*.php' "$TMP/id.out" || fail "runtime does not install every baked mu-plugin"
 
 # Legacy: no identity contract → unchanged (placeholder realm `default`,
 # shared client id, chart-generated secret).
