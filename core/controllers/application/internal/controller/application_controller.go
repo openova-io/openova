@@ -890,6 +890,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 	// moves to Ready=False, reason=MultiPrimaryNotSupported (DoD item 5).
 	// When no targets are declared this is a no-op (the legacy posture
 	// string drives the fan-out unchanged).
+	spec.PlacementTargets = r.canonicalizeTargetClusters(spec.PlacementTargets)
 	if len(spec.PlacementTargets) > 0 {
 		capability := blueprintPlacementCapability(bp)
 		desired := bpv1alpha1.Placement{

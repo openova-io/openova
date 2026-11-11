@@ -454,7 +454,7 @@ func (r *runner) rowsIn(ctx context.Context, ev Evidence, reg kube.Region, wantS
 		missing := []string{}
 		for _, p := range r.app.Posts {
 			n, err := reg.PSQLSelect(ctx, c.Namespace(), pod, db,
-				fmt.Sprintf("SELECT count(*) FROM %sposts WHERE ID = %d AND post_content LIKE '%%%s%%'", prefix, p.ID, sqlLike(p.Marker)))
+				fmt.Sprintf("SELECT count(*) FROM %sposts WHERE \"ID\" = %d AND post_content LIKE '%%%s%%'", prefix, p.ID, sqlLike(p.Marker)))
 			if err != nil {
 				return false, err.Error(), nil
 			}
@@ -465,7 +465,7 @@ func (r *runner) rowsIn(ctx context.Context, ev Evidence, reg kube.Region, wantS
 		}
 		if r.app.MediaID != 0 {
 			n, err := reg.PSQLSelect(ctx, c.Namespace(), pod, db,
-				fmt.Sprintf("SELECT count(*) FROM %sposts WHERE ID = %d AND post_type = 'attachment'", prefix, r.app.MediaID))
+				fmt.Sprintf("SELECT count(*) FROM %sposts WHERE \"ID\" = %d AND post_type = 'attachment'", prefix, r.app.MediaID))
 			if err != nil {
 				return false, err.Error(), nil
 			}
