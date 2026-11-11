@@ -24,3 +24,19 @@ spec:
         - ports:
             - port: "3000"
               protocol: TCP
+    # ADR-0015 D8 (Refs #7067): every region's Continuum reads the region
+    # files and commits transition phases + the lease file through the
+    # WRITER region's Gitea (gitea-<writer-region-id>). Without this rule a
+    # follower region's Continuum timed out on every read ("TransitionBlocked:
+    # read regions/... from the writer Gitea: context deadline exceeded").
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: catalyst-system
+            k8s:app.kubernetes.io/name: continuum-controller
+          matchExpressions:
+            - key: io.cilium.k8s.policy.cluster
+              operator: Exists
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
