@@ -77,7 +77,7 @@ wordpress:
     # digest of the published image; the human-readable tag is kept alongside
     # for forensics.
     repository: registry.hw307.omani.works/openova-io/openova/wordpress-tenant-pg  # HW307-ONLY (in-Sovereign build); revert to ghcr.io before upstreaming
-    tag: "hw307-3af8a4f"
+    tag: "hw307-6cb9e0a"
     # Pushed manifest digest of `wordpress-tenant-pg:<tag>` — populated by the
     # build workflow's build-push-action `outputs.digest` on first build.
     # Empty until then; the helper omits `@digest` when empty so the chart
