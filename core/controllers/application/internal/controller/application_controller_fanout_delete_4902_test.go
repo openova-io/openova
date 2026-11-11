@@ -70,10 +70,14 @@ func TestReconcile_DeletionCascade_FanoutHelmReleases_4902(t *testing.T) {
 	// Decoy: a DIFFERENT Application's fan-out HR in the SAME host ns.
 	// It carries a different app-uid, so the cascade must NOT touch it.
 	decoy := makeSeedFanoutHR("mgmt", "other-mgmt-a", "other", "uid-other", "mgmt-A")
+	// A pre-ADR-0015 HR this region still holds for obs: written onto the
+	// host imperatively (no Flux Kustomization label). Only these are the
+	// controller's to delete (#4902).
+	legacy := makeSeedFanoutHR("mgmt", "obs-legacy", "obs", "uid-obs", "mgmt-A")
 
 	fg := newFakeGitea()
 	fg.orgsExist["acme"] = true
-	r := newReconciler(t, fg, app, env, org, bp, decoy)
+	r := newReconciler(t, fg, app, env, org, bp, decoy, legacy)
 
 	// First reconcile — commits the region files; every region's Flux
 	// applies its HR into `mgmt` (union in the one fake API).
@@ -86,7 +90,7 @@ func TestReconcile_DeletionCascade_FanoutHelmReleases_4902(t *testing.T) {
 	}
 	ownHRs := 0
 	for _, hr := range hrList.Items {
-		if hr.GetLabels()["catalyst.openova.io/app"] != "obs" {
+		if hr.GetLabels()["catalyst.openova.io/app"] != "obs" || hr.GetName() == "obs-legacy" {
 			continue
 		}
 		ownHRs++
@@ -114,8 +118,44 @@ func TestReconcile_DeletionCascade_FanoutHelmReleases_4902(t *testing.T) {
 		t.Fatalf("set deletion timestamp: %v", err)
 	}
 
-	// Reconcile again — handleDeletion must cascade-delete the 2 fan-out HRs.
+	// Reconcile again — handleDeletion removes the region files and deletes
+	// only the imperatively-written HR.
 	reconcileFromCluster(t, r, "acme", "obs")
+
+	// ADR-0015 D1 (Refs #7067): the Git-delivered HRs are NOT deleted by the
+	// controller — doing so raced the region Kustomization, which re-created
+	// them from its still-applied revision and started a fresh install
+	// (hw307 run 12, J5.2). Git owns them; the region file is gone.
+	gitDelivered, legacyLeft := 0, false
+	midList, err := r.Dynamic.Resource(FluxHelmReleaseGVR).
+		Namespace("mgmt").List(context.Background(), metav1.ListOptions{})
+	if err != nil {
+		t.Fatalf("list HRs in mgmt mid-delete: %v", err)
+	}
+	for _, hr := range midList.Items {
+		if hr.GetLabels()[LabelAppUID] != "uid-obs" {
+			continue
+		}
+		if hr.GetName() == "obs-legacy" {
+			legacyLeft = true
+			continue
+		}
+		if hr.GetLabels()[fluxKustomizeNameLabel] == "" {
+			t.Errorf("HR %s carries no Flux label — test setup is not Git delivery", hr.GetName())
+		}
+		gitDelivered++
+	}
+	if legacyLeft {
+		t.Error("imperatively-written HR obs-legacy survived Application delete — orphan-HR leak (#4902)")
+	}
+	if gitDelivered != 2 {
+		t.Errorf("controller deleted Git-delivered HRs itself (left %d of 2) — it must leave them to Flux prune", gitDelivered)
+	}
+	if n := regionFilesFor(fg, "acme", "obs"); n != 0 {
+		t.Fatalf("%d region file(s) for obs still in Git after delete — Flux would never prune", n)
+	}
+	// Each region's Flux now prunes what its folder stopped declaring.
+	fluxPruneAll(t, r, fg)
 
 	afterList, err := r.Dynamic.Resource(FluxHelmReleaseGVR).
 		Namespace("mgmt").List(context.Background(), metav1.ListOptions{})

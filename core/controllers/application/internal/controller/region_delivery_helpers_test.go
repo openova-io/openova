@@ -143,3 +143,61 @@ func fluxApplyRegion(t *testing.T, r *Reconciler, fg *fakeGitea, org, region str
 	}
 	return applied
 }
+
+// regionFilesFor counts the region files any region folder of the Org repo
+// still holds for the Application.
+func regionFilesFor(fg *fakeGitea, org, app string) int {
+	fg.mu.Lock()
+	defer fg.mu.Unlock()
+	n := 0
+	for path := range fg.repos[org+"/catalyst-tenant"]["main"] {
+		if strings.HasPrefix(path, "regions/") && strings.HasSuffix(path, "/apps/"+app+".yaml") {
+			n++
+		}
+	}
+	return n
+}
+
+// fluxPruneAll stands in for every region's Flux prune: a HelmRelease that
+// carries the kustomize-controller label but is declared by no region file
+// any more is deleted, exactly what prune=true does after the commit lands.
+func fluxPruneAll(t *testing.T, r *Reconciler, fg *fakeGitea) {
+	t.Helper()
+	ctx := context.Background()
+	declared := map[string]bool{}
+	fg.mu.Lock()
+	var docs [][]byte
+	for key, branches := range fg.repos {
+		if !strings.HasSuffix(key, "/catalyst-tenant") {
+			continue
+		}
+		for path, data := range branches["main"] {
+			if strings.HasPrefix(path, "regions/") {
+				docs = append(docs, data)
+			}
+		}
+	}
+	fg.mu.Unlock()
+	for _, d := range docs {
+		objs, err := topo.ParseRegionFile(d)
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		for _, o := range objs {
+			declared[o.GetNamespace()+"/"+o.GetName()] = true
+		}
+	}
+	list, err := r.Dynamic.Resource(FluxHelmReleaseGVR).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		t.Fatalf("list HRs: %v", err)
+	}
+	for _, hr := range list.Items {
+		if hr.GetLabels()[fluxKustomizeNameLabel] == "" || declared[hr.GetNamespace()+"/"+hr.GetName()] {
+			continue
+		}
+		if err := r.Dynamic.Resource(FluxHelmReleaseGVR).Namespace(hr.GetNamespace()).
+			Delete(ctx, hr.GetName(), metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+			t.Fatalf("flux prune %s/%s: %v", hr.GetNamespace(), hr.GetName(), err)
+		}
+	}
+}
