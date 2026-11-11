@@ -1460,10 +1460,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 		// region is active; the first is named primary).
 		primary := planRegionIDs[0]
 		merged := topo.WithTopologyContract(mergeMaps(bpManifestsValues, spec.Parameters), topo.TopologyContract{
-			Mode:    plan.Mode,
-			Self:    self,
-			Primary: primary,
-			Peers:   regions.Peers(self, planRegionIDs),
+			Mode:         plan.Mode,
+			Self:         self,
+			Primary:      primary,
+			Peers:        regions.Peers(self, planRegionIDs),
+			AppName:      app.GetName(),
+			AppNamespace: app.GetNamespace(),
 		})
 		out, err := render.Render(render.Inputs{
 			AppName: app.GetName(),

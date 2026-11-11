@@ -43,6 +43,13 @@ type TopologyContract struct {
 	Self    string
 	Primary string
 	Peers   []string
+	// AppName / AppNamespace — the Application's identity, the same in every
+	// region (the release name is not: it carries a per-region suffix).
+	// Rendered as `openova.application: {name, namespace}` so a chart can
+	// derive region-independent, per-app names (e.g. a CNPG base name)
+	// instead of one fixed default every install in a namespace collides on.
+	AppName      string
+	AppNamespace string
 }
 
 // WithTopologyContract returns a COPY of values carrying
@@ -70,6 +77,9 @@ func WithTopologyContract(values map[string]interface{}, c TopologyContract) map
 		"self":    c.Self,
 		"primary": c.Primary,
 		"peers":   peers,
+	}
+	if c.AppName != "" {
+		ns["application"] = map[string]interface{}{"name": c.AppName, "namespace": c.AppNamespace}
 	}
 	out[TopologyValuesKey] = ns
 	return out

@@ -31,7 +31,7 @@ pins anything in another region:
 {{- $n := include "bp-wordpress-tenant.dbNames" . | fromJson -}}
 {{- $ns := include "bp-wordpress-tenant.cnpgNamespace" . -}}
 {{- if ne ($mesh.enabled | toString) "false" }}
-{{- include "openova.topology.cnpg.peerMeshStubs" (dict "ctx" . "base" .Values.database.cnpgClusterName "overrides" $overrides "affinity" ($mesh.affinity | default "local") "labels" (include "bp-wordpress-tenant.labels" .)) }}
+{{- include "openova.topology.cnpg.peerMeshStubs" (dict "ctx" . "base" (include "bp-wordpress-tenant.cnpgBase" .) "overrides" $overrides "affinity" ($mesh.affinity | default "local") "labels" (include "bp-wordpress-tenant.labels" .)) }}
 {{- end }}
 {{- if and .Values.networkPolicy.enabled (.Capabilities.APIVersions.Has "cilium.io/v2") }}
 ---
@@ -42,7 +42,7 @@ metadata:
   namespace: {{ $ns | quote }}
   labels:
     {{- include "bp-wordpress-tenant.labels" . | nindent 4 }}
-    catalyst.openova.io/cnpg-pair: {{ .Values.database.cnpgClusterName | quote }}
+    catalyst.openova.io/cnpg-pair: {{ (include "bp-wordpress-tenant.cnpgBase" .) | quote }}
 spec:
   endpointSelector:
     matchLabels:
