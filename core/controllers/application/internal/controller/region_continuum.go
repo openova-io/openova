@@ -174,6 +174,9 @@ func withRegionContinuum(files map[string][]byte, regionOrder []string, appName,
 		if _, err := regionfile.DeclarePromotionMechanism(parsed[r], "continuum"); err != nil {
 			return nil, err
 		}
+		if _, err := regionfile.DisableDestructiveInstallRemediation(parsed[r]); err != nil {
+			return nil, err
+		}
 		cr := renderRegionContinuum(appName, namespace, desired, regions, g)
 		l := cr.GetLabels()
 		l[topo.LabelRegion] = r
