@@ -199,6 +199,17 @@ Shared Secrets of a multi-region topology — the SAME bytes in every region:
 {{- dig "topology" "sharedSecrets" "replicationCA" "" (.Values.database | toJson | fromJson) | default (printf "%s-replication-ca" .Values.database.cnpgClusterName) -}}
 {{- end -}}
 
+{{/*
+Secret-store path prefix of the shared material (0.5.1, Refs #7067). Keyed on
+the PAIR identity `<namespace>/<cnpgClusterName>` — identical in every region.
+NOT the release name: each region's HelmRelease is `<app>-<cluster>`, so a
+release-keyed path differs per region and no peer ever finds it (the 0.5.0
+default had exactly that defect).
+*/}}
+{{- define "bp-wordpress-tenant.sharedSecretsPrefix" -}}
+{{- dig "topology" "sharedSecrets" "externalSecret" "remoteKeyPrefix" "" (.Values.database | toJson | fromJson) | default (printf "openova/apps/%s/%s" (include "bp-wordpress-tenant.cnpgNamespace" .) .Values.database.cnpgClusterName) -}}
+{{- end -}}
+
 {{- define "bp-wordpress-tenant.appCredentialsSecret" -}}
 {{- dig "topology" "sharedSecrets" "appCredentials" "" (.Values.database | toJson | fromJson) | default (printf "%s-app-credentials" .Values.database.cnpgClusterName) -}}
 {{- end -}}
@@ -239,13 +250,29 @@ Pod uses it — no cross-region DB round-trips.
 #5623 — a multi-region pair MUST DECLARE ITS PROMOTION MECHANISM.
 
 Under ADR-0015 a promotion is a Git commit of `openova.topology.primary` (plus,
-for a planned move, `database.topology.promotionToken`) to the surviving
-region's values. Nothing in THIS chart makes that commit on an unplanned region
-kill: the Continuum actor that will (ADR-0015 D8, running in every region) is
-not delivered yet. So the only honest mechanism today is `manual` — the
-sovereign-admin commits the new primary. Empty FAILS; `dr-promoter` /
-`continuum` fail closed naming what is missing. The value is stamped on every
-non-primary Cluster CR (`catalyst.openova.io/dr-promotion-mechanism`).
+for a planned move, `database.topology.promotionToken`) to the region files.
+Two mechanisms make that commit; this chart itself makes none:
+
+  continuum - ADR-0015 D8. The Continuum the application-controller renders
+              into every region file of this Application (bp-continuum, slot
+              62, running in EVERY region) commits the move phase by phase:
+              the old primary's file first (CNPG demotes it and publishes
+              status.demotionToken), then the new primary's file with
+              `primary` + `promotionToken`, then the peers. On an UNPLANNED
+              region loss the survivor commits `primary` without a token only
+              when the Continuum's spec.transition.autoPromoteOnRegionLoss is
+              true (default false: the loss is reported, never acted on).
+  manual    - the sovereign-admin commits `openova.topology.primary=<survivor>`.
+
+The chart must render NOTHING that fights those commits: no promoter, no
+Continuum or Lease of its own, no hook that patches a Cluster. The render is a
+pure function of the two committed fields, so the declaration changes only the
+stamp below (scripts/check-dr-pairs-declare-promotion.sh diffs the renders).
+Under `continuum` the CNPG Cluster must also stay where Continuum observes it:
+the release namespace, labelled app.kubernetes.io/instance=<release>
+(core/controllers/continuum/internal/observe). Empty FAILS; `dr-promoter`
+fails closed (this chart ships no promoter Deployment). The value is stamped on
+every non-primary Cluster CR (`catalyst.openova.io/dr-promotion-mechanism`).
 */}}
 {{- define "bp-wordpress-tenant.drPromotionMechanism" -}}
 {{- dig "topology" "promotion" "mechanism" "" (.Values.database | toJson | fromJson) | toString | trim -}}
@@ -254,16 +281,18 @@ non-primary Cluster CR (`catalyst.openova.io/dr-promotion-mechanism`).
 {{- define "bp-wordpress-tenant.validatePromotion" -}}
 {{- $m := include "bp-wordpress-tenant.drPromotionMechanism" . -}}
 {{- if eq $m "" -}}
-{{- fail "database.topology.promotion.mechanism is REQUIRED for a multi-region openova.topology (#5623): this chart renders a cross-region CNPG standby, and an undeclared pair is one that silently never promotes on a region kill. Set it to \"manual\" (the sovereign-admin commits openova.topology.primary=<surviving region> — the only mechanism this chart delivers today)." -}}
+{{- fail "database.topology.promotion.mechanism is REQUIRED for a multi-region openova.topology (#5623): this chart renders a cross-region CNPG standby, and an undeclared pair is one that silently never promotes on a region kill. Set it to \"continuum\" (ADR-0015 D8: the Continuum in every region commits the move) or \"manual\" (the sovereign-admin commits openova.topology.primary=<surviving region>)." -}}
 {{- end -}}
 {{- if eq $m "dr-promoter" -}}
-{{- fail "database.topology.promotion.mechanism=\"dr-promoter\" is NOT DELIVERABLE by bp-wordpress-tenant (#5623): this chart ships no dr-promoter Deployment. Declaring it would assert a failover that cannot happen." -}}
+{{- fail "database.topology.promotion.mechanism=\"dr-promoter\" is NOT DELIVERABLE by bp-wordpress-tenant (#5623): this chart ships no dr-promoter Deployment. Declaring it would assert a failover that cannot happen. Use \"continuum\" (ADR-0015 D8)." -}}
 {{- end -}}
 {{- if eq $m "continuum" -}}
-{{- fail "database.topology.promotion.mechanism=\"continuum\" is NOT DELIVERABLE yet (#5623, ADR-0015 D8): the every-region Continuum actor that commits the next primary on a region loss is not shipped." -}}
+{{- $cnpgNs := include "bp-wordpress-tenant.cnpgNamespace" . -}}
+{{- if ne $cnpgNs .Release.Namespace -}}
+{{- fail (printf "database.topology.promotion.mechanism=\"continuum\" needs the CNPG Cluster in the release namespace %q (database.cluster.namespace=%q): Continuum observes status.demotionToken / lastPromotionToken on the Cluster labelled app.kubernetes.io/instance=<release> in the HelmRelease's target namespace, and would wait forever on a Cluster it cannot see (ADR-0015 D8)." .Release.Namespace $cnpgNs) -}}
 {{- end -}}
-{{- if ne $m "manual" -}}
-{{- fail (printf "database.topology.promotion.mechanism=%q is not a recognised mechanism (#5623). Valid: manual | dr-promoter | continuum." $m) -}}
+{{- else if ne $m "manual" -}}
+{{- fail (printf "database.topology.promotion.mechanism=%q is not a recognised mechanism (#5623). Valid: continuum | manual." $m) -}}
 {{- end -}}
 {{- end -}}
 
@@ -379,4 +408,53 @@ Resolved OIDC clientSecretName. Same fold pattern as oidcIssuerURL.
 {{- else -}}
 {{- $modern -}}
 {{- end -}}
+{{- end -}}
+
+{{/*
+ADR-0015 D6 — media store (Refs #7067). Returns "s3" or "pvc" and FAILS the
+render on the two shapes D6 forbids:
+  - media.store=pvc under a multi-region openova.topology: uploads would live
+    on a region-local PVC that nothing replicates, so a primary move strands
+    them in the old region;
+  - an S3 bucket whose name bp-seaweedfs does not replicate (only `replicated`
+    and `replicated-<suffix>` are synced cross-region).
+*/}}
+{{- define "bp-wordpress-tenant.mediaStore" -}}
+{{- $m := .Values.media | default dict -}}
+{{- $store := $m.store | default "s3" | toString | trim -}}
+{{- if not (has $store (list "s3" "pvc")) -}}
+{{- fail (printf "media.store=%q is not supported (ADR-0015 D6). Valid: s3 (replicated SeaweedFS bucket, default) | pvc (legacy single-region wp-content PVC)." $store) -}}
+{{- end -}}
+{{- if and (eq $store "pvc") (eq (include "bp-wordpress-tenant.multiRegion" .) "true") -}}
+{{- fail "media.store=pvc is REFUSED for a multi-region openova.topology (ADR-0015 D6): uploads would live on the region-local `wp-content` PVC, which nothing replicates — after a primary move the new primary serves posts whose media exist only in the old region. Use media.store=s3 (the default: the replicated SeaweedFS bucket)." -}}
+{{- end -}}
+{{- if eq $store "s3" -}}
+{{- $bucket := dig "s3" "bucket" "" $m | toString | trim -}}
+{{- if not (regexMatch "^replicated(-[a-z0-9][a-z0-9-]*)?$" $bucket) -}}
+{{- fail (printf "media.s3.bucket=%q is not a cross-region replicated bucket (ADR-0015 D6): bp-seaweedfs syncs only `replicated` and `replicated-<suffix>` between regions, so any other bucket is a region-local volume again." $bucket) -}}
+{{- end -}}
+{{- end -}}
+{{- $store -}}
+{{- end -}}
+
+{{/* Object-key prefix of this Application's media: `<org>/<app>`. */}}
+{{- define "bp-wordpress-tenant.mediaKeyPrefix" -}}
+{{- $p := dig "s3" "keyPrefix" "" (.Values.media | default dict) | toString | trim | trimPrefix "/" | trimSuffix "/" -}}
+{{- if $p -}}{{ $p }}{{- else -}}{{ printf "%s/%s" .Release.Namespace (include "bp-wordpress-tenant.fullname" .) }}{{- end -}}
+{{- end -}}
+
+{{/* Name of the reflected SeaweedFS S3 credentials Secret. */}}
+{{- define "bp-wordpress-tenant.mediaS3SecretName" -}}
+{{- $n := dig "s3" "credentials" "secretName" "" (.Values.media | default dict) | toString | trim -}}
+{{- if $n -}}{{ $n }}{{- else -}}{{ printf "%s-media-s3" (include "bp-wordpress-tenant.fullname" .) | trunc 63 | trimSuffix "-" }}{{- end -}}
+{{- end -}}
+
+{{/* Name of the LEGACY region-local wp-content PVC. */}}
+{{- define "bp-wordpress-tenant.wpContentPvcName" -}}
+{{- printf "%s-wp-content" (include "bp-wordpress-tenant.fullname" .) -}}
+{{- end -}}
+
+{{/* "true" when the wp-content volume is the legacy PVC. */}}
+{{- define "bp-wordpress-tenant.wpContentOnPvc" -}}
+{{- if and (eq (include "bp-wordpress-tenant.mediaStore" .) "pvc") .Values.persistence.wpContent.enabled -}}true{{- end -}}
 {{- end -}}

@@ -1,18 +1,13 @@
 {{- /*
-NetworkPolicy for continuum-controller — default-deny except for
-explicit ingress (metrics scrape from Prometheus + health probe from
-kubelet) and egress (Kubernetes API server, in-cluster CNPG status,
-NATS, PDM, lease witness URL).
+NetworkPolicy for continuum-controller — ADR-0015 D8.
 
-K-Cont-1 ships the SKELETON envelope. K-Cont-2 / K-Cont-3 will tighten
-egress rules per witness kind:
-  cloudflare-kv → egress to api.cloudflare.com:443 (TCP)
-  dns-quorum    → egress to 8.8.8.8:53 / 1.1.1.1:53 / 9.9.9.9:53 (UDP+TCP)
-
-Per docs/INVIOLABLE-PRINCIPLES.md #4 the NetworkPolicy is opt-in via
-`.Values.networkPolicy.enabled` so per-Sovereign overlays may disable
-it during initial bring-up if their CNI doesn't enforce the policy
-shape (e.g. a vCluster running on a non-Cilium host).
+Ingress: metrics (monitoring), health (kubelet), observations (the other
+regions' Continuum over ClusterMesh — read-only native status, so the port is
+open to any peer; the source is a pod in another cluster of the mesh, which a
+namespace/pod selector does not reliably match across clusters).
+Egress: Kubernetes API, DNS, the writer Gitea (local gitea-http, or
+gitea-<writer-id> over ClusterMesh), peers' observations port. Nothing else:
+Continuum calls no PowerDNS, CNPG or NATS endpoint.
 */ -}}
 {{- if and .Values.continuum.enabled .Values.networkPolicy.enabled }}
 apiVersion: networking.k8s.io/v1
@@ -30,8 +25,6 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # Prometheus scrape on /metrics. Restrict by namespace label so
-    # only the monitoring namespace can hit the metrics port.
     - from:
         - namespaceSelector:
             matchLabels:
@@ -39,23 +32,19 @@ spec:
       ports:
         - port: metrics
           protocol: TCP
-    # kubelet liveness/readiness probes — NetworkPolicy can't restrict
-    # source by node IP cleanly, so allow any source on health port.
-    # The endpoints (/healthz + /readyz) only return literal "ok".
     - ports:
         - port: health
           protocol: TCP
+    - ports:
+        - port: observations
+          protocol: TCP
   egress:
-    # Kubernetes API server (controller-runtime watch + status writes).
-    # The actual API server CIDR varies per cluster — use a label-less
-    # rule so this works on every distro. K-Cont-2 may tighten by
-    # depending on a per-Sovereign overlay value.
+    # Kubernetes API server.
     - ports:
         - port: 443
           protocol: TCP
         - port: 6443
           protocol: TCP
-    # DNS resolution (kube-dns / coredns).
     - to:
         - namespaceSelector:
             matchLabels:
@@ -65,28 +54,12 @@ spec:
           protocol: UDP
         - port: 53
           protocol: TCP
-    # NATS for catalyst.audit publishing (K-Cont-2). bp-nats-jetstream
-    # runs in nats-system (slot 07); the namespace is .continuum.natsNamespace
-    # so it always matches natsURL. The previous hardcoded openova-system
-    # matched no NATS at all.
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: {{ .Values.continuum.natsNamespace | default "nats-system" | quote }}
-      ports:
-        - port: 4222
-          protocol: TCP
-    # #5311 — the acting primary's PostgreSQL, for the pg_stat_replication
-    # standby probe (the observation source that works on a TRUE 2-region
-    # Sovereign, where the region-b replica Cluster CR is not in this
-    # controller's local API). The target is the cnpg-pair primary's `-rw`
-    # Service on 5432 in the Continuum's spec.cnpgPair.namespace — which
-    # varies per Organization/Environment, so this follows the same
-    # label-less `ports`-only shape as the API-server rule above rather
-    # than pinning a namespace. It is an in-cluster DIRECT connection (no
-    # NodePort); the region-b standby's stream reaches the primary over
-    # ClusterMesh on its own.
+    # Writer Gitea (gitea-http locally; gitea-<writer-id> over ClusterMesh).
     - ports:
-        - port: 5432
+        - port: 3000
+          protocol: TCP
+    # Peer regions' observations (continuum-<region-id> over ClusterMesh).
+    - ports:
+        - port: {{ .Values.continuum.observations.port }}
           protocol: TCP
 {{- end }}

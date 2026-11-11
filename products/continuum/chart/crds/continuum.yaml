@@ -1,0 +1,242 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: continuums.dr.openova.io
+  labels:
+    app.kubernetes.io/name: catalyst
+    app.kubernetes.io/component: continuum
+spec:
+  group: dr.openova.io
+  scope: Namespaced
+  names:
+    kind: Continuum
+    listKind: ContinuumList
+    singular: continuum
+    plural: continuums
+    categories:
+      - catalyst
+      - openova
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      additionalPrinterColumns:
+        - name: Application
+          type: string
+          jsonPath: .spec.applicationRef
+        - name: Desired
+          type: string
+          jsonPath: .spec.desiredPrimaryRegion
+        - name: Primary
+          type: string
+          jsonPath: .status.primaryRegion
+        - name: Lease
+          type: string
+          jsonPath: .status.leaseHolder
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      subresources:
+        status: {}
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: |
+            Continuum is the topology-transition contract of one Application
+            placed across regions (ADR-0015 D8). It is DELIVERED FROM GIT: the
+            application-controller renders it into the Application's file of
+            every region (regions/<region-id>/apps/<app>.yaml of the Org repo)
+            from Application.spec.placement, and every region's Flux applies
+            it, so the Continuum running in every region reads the same
+            desired primary.
+
+            Changing the Primary is a topology transition: Continuum commits
+            ordered phases to the region files (traffic-off in the old
+            primary, data-primary with the CNPG demotion token in the new one,
+            peers, traffic-on) and waits on the native status of each (CNPG
+            demotionToken / lastPromotionToken, HelmRelease Ready, the
+            Application's Serving condition). It writes no workload object.
+
+            This CRD is shipped identically by bp-catalyst-platform and
+            bp-continuum (so a region without the platform umbrella still has
+            it); scripts/check-continuum-crd-lockstep.sh keeps the two equal.
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [applicationRef]
+              properties:
+                applicationRef:
+                  type: string
+                  description: <namespace>/<name> of the Application this Continuum governs.
+                desiredPrimaryRegion:
+                  type: string
+                  description: |
+                    DESIRED STATE — the region Application.spec.placement
+                    declares Primary, rendered by the application-controller.
+                    Continuum converges the region files onto it.
+                  pattern: '^[a-z][a-z0-9]*(-[a-z0-9]+){3,}$'
+                regions:
+                  type: array
+                  description: Every region of the placement (canonical region ids), in placement order.
+                  items:
+                    type: string
+                    pattern: '^[a-z][a-z0-9]*(-[a-z0-9]+){3,}$'
+                transition:
+                  type: object
+                  description: Where the region files live and how a transition behaves.
+                  properties:
+                    repo:
+                      type: object
+                      description: The Org repo holding regions/<region-id>/apps/<app>.yaml.
+                      properties:
+                        owner:
+                          type: string
+                        name:
+                          type: string
+                        branch:
+                          type: string
+                          default: main
+                    app:
+                      type: string
+                      description: Application name — the region file key.
+                    stateful:
+                      type: boolean
+                      description: |
+                        The Application carries a CNPG distributed-topology
+                        member per region; traffic-off waits for
+                        status.demotionToken and data-primary commits it as
+                        database.topology.promotionToken.
+                    dependsOn:
+                      type: array
+                      description: |
+                        Continuums ([<namespace>/]<name>) of the Applications
+                        this one consumes (from Application.spec.dependsOn).
+                        A group moves together: traffic stops top-down, state
+                        moves bottom-up, traffic is restored last.
+                      items:
+                        type: string
+                    autoPromoteOnRegionLoss:
+                      type: boolean
+                      default: false
+                      description: |
+                        When the primary's region is unreachable beyond
+                        regionLossSeconds, commit the move to a surviving
+                        region WITHOUT a demotion token. Default false: a lost
+                        region is reported and nothing is committed.
+                    regionLossSeconds:
+                      type: integer
+                      minimum: 30
+                      default: 300
+                    phaseTimeoutSeconds:
+                      type: integer
+                      minimum: 30
+                      default: 900
+                rto:
+                  type: string
+                rpo:
+                  type: string
+              # Legacy fields of platform-scope Continuums (bp-cnpg-pair,
+              # bp-openbao) pass through unvalidated; the D8 controller reports
+              # a Continuum without spec.transition.repo as NotGitDelivered and
+              # never acts on it.
+              x-kubernetes-preserve-unknown-fields: true
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum:
+                    - Pending
+                    - Healthy
+                    - Degraded
+                    - Transitioning
+                    - Failed
+                    - Unknown
+                primaryRegion:
+                  type: string
+                  description: The primary every region file currently names (Git).
+                desiredPrimaryRegion:
+                  type: string
+                  description: The desired primary read from the region files.
+                converged:
+                  type: boolean
+                leaseHolder:
+                  type: string
+                  description: Region currently holding the group's Git lease ("" = no transition running).
+                leaseExpiresAt:
+                  type: string
+                  format: date-time
+                transition:
+                  type: object
+                  description: The group's current or last transition record (mirrored from Git).
+                  properties:
+                    id:
+                      type: string
+                    group:
+                      type: string
+                    from:
+                      type: string
+                    to:
+                      type: string
+                    startedAt:
+                      type: string
+                    outcome:
+                      type: string
+                    message:
+                      type: string
+                    lossMode:
+                      type: boolean
+                  x-kubernetes-preserve-unknown-fields: true
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required: [type, status]
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum: ["True", "False", "Unknown"]
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                activity:
+                  type: array
+                  description: |
+                    ADR-0015 D7/D8 — this member's phases of the group's
+                    transition (one entry per phase). Projected verbatim into
+                    Jobs as type `topology-transition`.
+                  items:
+                    type: object
+                    required: [id, state]
+                    properties:
+                      id:
+                        type: string
+                      phase:
+                        type: string
+                      member:
+                        type: string
+                      state:
+                        type: string
+                        enum: [pending, running, succeeded, failed]
+                      startedAt:
+                        type: string
+                        format: date-time
+                      finishedAt:
+                        type: string
+                        format: date-time
+                      message:
+                        type: string
+                observedGeneration:
+                  type: integer
+                  format: int64
+              x-kubernetes-preserve-unknown-fields: true

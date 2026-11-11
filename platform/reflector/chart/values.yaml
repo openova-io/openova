@@ -19,12 +19,39 @@ reflector:
   # election — extra replicas would cause duplicate reconcile storms.
   replicaCount: 1
 
+  # Sized from hw307 evidence (1.0.1, Refs #7067), not guessed.
+  # Reflector watches EVERY Secret and ConfigMap cluster-wide and holds them
+  # in memory; its footprint scales with the cluster's Secret bytes, most of
+  # which are Helm release Secrets (sh.helm.release.v1.*), not the handful
+  # of annotated sources it actually reflects.
+  #
+  #   2026-11-08, both regions at the old 32Mi request / 128Mi limit:
+  #     region A: 809 Secrets (182 Helm release) = 43.7 MB of Secret JSON,
+  #               208 ConfigMaps; steady 95Mi; 508 restarts in 67d, last
+  #               reason OOMKilled.
+  #     region B: 428 Secrets (111 Helm release) = 22.4 MB; steady 94Mi;
+  #               44 restarts, last reason OOMKilled.
+  #   Restarts track Secret bytes (A has ~2x B's bytes and ~11x its
+  #   restarts): steady state sits at 74% of the limit and every watch
+  #   re-list materialises another copy of the corpus on top of it.
+  #
+  # request 128Mi: covers the measured 95Mi steady state, so the scheduler
+  # reserves what the Pod really uses. limit 512Mi: steady state + a full
+  # re-list copy (~44 MB raw JSON, several times that deserialised) with
+  # about 2x headroom for the Secret volume to keep growing (every
+  # Organization and Application adds Helm release Secrets).
+  #
+  # Narrowing the watch is NOT possible on this upstream: reflector 7.1.288
+  # exposes only configuration.watcher.timeout (ES_Reflector__Watcher__Timeout);
+  # it has no namespace, label or field selector, and its ClusterRole is
+  # cluster-wide by design. ADR-0015 D1 kubeconfig mirroring and the
+  # secondary-region ghcr-pull fan-out both depend on this Pod staying up.
   resources:
     requests:
       cpu: 10m
-      memory: 32Mi
-    limits:
       memory: 128Mi
+    limits:
+      memory: 512Mi
 
   # Prometheus ServiceMonitor — DEFAULT OFF per
   # INVIOLABLE-PRINCIPLES.md #4 and Blueprint authoring conventions.

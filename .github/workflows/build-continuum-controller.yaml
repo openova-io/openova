@@ -32,6 +32,8 @@ on:
       - 'core/controllers/go.mod'
       - 'core/controllers/go.sum'
       - 'products/continuum/**'
+      - 'products/catalyst/chart/crds/continuum.yaml'
+      - 'scripts/check-continuum-*.sh'
       - '.github/workflows/build-continuum-controller.yaml'
     branches: [main]
   pull_request:
@@ -42,6 +44,8 @@ on:
       - 'core/controllers/go.mod'
       - 'core/controllers/go.sum'
       - 'products/continuum/**'
+      - 'products/catalyst/chart/crds/continuum.yaml'
+      - 'scripts/check-continuum-*.sh'
       - '.github/workflows/build-continuum-controller.yaml'
   workflow_dispatch:
 
@@ -109,13 +113,25 @@ jobs:
             exit 1
           fi
 
+      # ADR-0015 D8 — Continuum acts through Git only: no workload write in
+      # the Go source, no workload write verb in the chart RBAC. Self-test
+      # first (proves the guard can go red), then the real tree.
+      - name: Continuum writes no workload object — self-test (ADR-0015 D8)
+        run: bash scripts/check-continuum-no-workload-mutation.sh --self-test
+      - name: Continuum writes no workload object — scan (ADR-0015 D8)
+        run: bash scripts/check-continuum-no-workload-mutation.sh
+      - name: Continuum CRD identical in both charts — self-test
+        run: bash scripts/check-continuum-crd-lockstep.sh --self-test
+      - name: Continuum CRD identical in both charts
+        run: bash scripts/check-continuum-crd-lockstep.sh
       - name: helm template — enabled (continuum.enabled=true → full set)
         run: |
           set -euo pipefail
           out=$(helm template bp-continuum products/continuum/chart/ \
             --namespace openova-system \
             --set continuum.enabled=true \
-            --set continuum.image.tag=ci-test)
+            --set continuum.image.tag=ci-test \
+            --set continuum.region=hw-me-east-215-a-rtz-prod)
           # Expect: ServiceAccount + ClusterRole + ClusterRoleBinding +
           # Deployment + Service + NetworkPolicy = 6 resources.
           count=$(printf '%s\n' "$out" | grep -cE '^kind:' || true)
@@ -145,6 +161,7 @@ jobs:
           helm template bp-continuum products/continuum/chart/ \
             --namespace openova-system \
             --set continuum.enabled=true \
+            --set continuum.region=hw-me-east-215-a-rtz-prod \
             --set continuum.image.tag="" 2>&1 | tee /tmp/render.out
           rc=${PIPESTATUS[0]}
           set -e

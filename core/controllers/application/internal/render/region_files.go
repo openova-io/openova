@@ -12,40 +12,18 @@
 package render
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
-	"io"
 	"sort"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
-	"sigs.k8s.io/yaml"
+
+	"github.com/openova-io/openova/core/controllers/pkg/regionfile"
 )
 
-// ParseRegionFile decodes a multi-document region file back into objects.
+// ParseRegionFile decodes a multi-document region file back into objects
+// (pkg/regionfile is the one definition of the file format).
 func ParseRegionFile(data []byte) ([]*unstructured.Unstructured, error) {
-	dec := utilyaml.NewYAMLOrJSONDecoder(bytes.NewReader(data), 4096)
-	var out []*unstructured.Unstructured
-	for {
-		var raw json.RawMessage
-		if err := dec.Decode(&raw); err != nil {
-			if err == io.EOF {
-				return out, nil
-			}
-			return nil, fmt.Errorf("region file: %w", err)
-		}
-		if len(bytes.TrimSpace(raw)) == 0 || string(bytes.TrimSpace(raw)) == "null" {
-			continue
-		}
-		// UnmarshalJSON keeps integers int64 (DeepCopy-safe, and the same
-		// types the renderer produced).
-		u := &unstructured.Unstructured{}
-		if err := u.UnmarshalJSON(raw); err != nil {
-			return nil, fmt.Errorf("region file: %w", err)
-		}
-		out = append(out, u)
-	}
+	return regionfile.Parse(data)
 }
 
 // TopologyValuesKey is the top-level values key of the ADR-0015 D2 contract.
@@ -100,12 +78,12 @@ func WithTopologyContract(values map[string]interface{}, c TopologyContract) map
 // RegionAppPath is the Org-repo path of one Application's file for one
 // region: `regions/<region-id>/apps/<app>.yaml`.
 func RegionAppPath(region, app string) string {
-	return fmt.Sprintf("regions/%s/apps/%s.yaml", region, app)
+	return regionfile.AppPath(region, app)
 }
 
 // RegionAppsDir is the folder a region's Flux reconciles from the Org repo.
 func RegionAppsDir(region string) string {
-	return fmt.Sprintf("regions/%s/apps", region)
+	return regionfile.AppsDir(region)
 }
 
 // RegionFiles groups rendered objects by LabelRegion and serialises each
@@ -130,18 +108,11 @@ func RegionFiles(objs []*unstructured.Unstructured) (map[string][]byte, error) {
 	sort.Strings(regions)
 	out := make(map[string][]byte, len(byRegion))
 	for _, r := range regions {
-		var buf bytes.Buffer
-		for i, o := range byRegion[r] {
-			b, err := yaml.Marshal(o.Object)
-			if err != nil {
-				return nil, fmt.Errorf("region files: marshal %s/%s: %w", o.GetNamespace(), o.GetName(), err)
-			}
-			if i > 0 {
-				buf.WriteString("---\n")
-			}
-			buf.Write(b)
+		b, err := regionfile.Marshal(byRegion[r])
+		if err != nil {
+			return nil, fmt.Errorf("region files: %w", err)
 		}
-		out[r] = buf.Bytes()
+		out[r] = b
 	}
 	return out, nil
 }

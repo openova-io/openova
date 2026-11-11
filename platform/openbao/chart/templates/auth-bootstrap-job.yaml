@@ -413,6 +413,19 @@ spec:
               path "$KV_MOUNT_PATH/metadata/catalyst/newapi/admin-token" {
                 capabilities = ["create", "update", "read"]
               }
+              # ADR-0015 (Refs #7067): the shared material of a multi-region
+              # Application (e.g. a CNPG pair's replication CA + DB owner),
+              # seeded ONCE by the writer region's PushSecret with
+              # updatePolicy IfNotExists (bp-wordpress-tenant
+              # templates/shared-secrets-seed.yaml). Scoped to the per-app
+              # subtree only; no delete — a primary move or an uninstall
+              # never removes the material.
+              path "$KV_MOUNT_PATH/data/openova/apps/*" {
+                capabilities = ["create", "update", "read"]
+              }
+              path "$KV_MOUNT_PATH/metadata/openova/apps/*" {
+                capabilities = ["create", "update", "read"]
+              }
               EOF
 
               # ─── Bind role $AUTH_ROLE to the ESO ServiceAccount ─────────

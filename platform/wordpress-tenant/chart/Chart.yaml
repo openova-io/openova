@@ -446,7 +446,49 @@ name: bp-wordpress-tenant
 #   fails the render with the migration text. Contract absent ⇒ the unchanged
 #   singleton render. wp-content PVC declared region-local (D6 seam).
 #   tests/active-hot-standby-render.sh → tests/topology-per-region-render.sh.
-version: 0.5.0
+# 0.5.1 (ADR-0015, Refs #7067) — the shared cross-region secrets get a
+#   producer. NEW templates/shared-secrets-seed.yaml, rendered ONLY where
+#   openova.topology.self is the primary: an ESO Password generator + a
+#   cert-manager self-signed CA, pushed into the secret store by two
+#   PushSecrets with updatePolicy IfNotExists + deletionPolicy None
+#   (write-once: never regenerated on re-render, never removed on a primary
+#   move; the new primary's seed is a no-op). Every region (primary included)
+#   keeps consuming the store copy through the existing ExternalSecrets.
+#   FIX: the remote-key prefix defaulted to `openova/apps/<ns>/<release>` and
+#   each region's release is named `<app>-<cluster>`, so the two regions read
+#   DIFFERENT paths — now the pair identity
+#   `openova/apps/<ns>/<cnpgClusterName>` (sharedSecretsPrefix helper).
+#   externalSecret.storeRef.name defaults to the platform store
+#   `vault-region1` (was "", which left the CNPG Cluster waiting forever on
+#   Secrets nothing created). seed.secretStoreRefs fans the push out to every
+#   region's store. tests/shared-secrets-render.sh. Expected rebase: the
+#   concurrent D6b media→SeaweedFS change takes 0.6.0 on top of this.
+# 0.6.0 (ADR-0015 D6b, Refs #7067) — media move to the replicated store.
+#   New `media.store` (default `s3`): uploads go to the Sovereign's SeaweedFS
+#   S3 bucket `replicated` (synced cross-region by bp-seaweedfs >= 1.3.0
+#   filer.sync) under `<org>/<app>/uploads/`, through humanmade/S3-Uploads
+#   3.0.10 baked into the runtime image and loaded by the new
+#   `openova-media-store` mu-plugin (custom endpoint + path-style, private
+#   bucket, read path keeps `/wp-content/uploads/...` URLs). Credentials:
+#   bp-reflector bridge from `seaweedfs/seaweedfs-s3-secret` (bp-gitea
+#   objectStorage precedent; bp-seaweedfs >= 1.3.1 allows the reflection),
+#   mounted as files. wp-content becomes an emptyDir rebuilt from the image
+#   (DISALLOW_FILE_MODS) — NO PVC under media.store=s3. `media.store=pvc`
+#   keeps the legacy PVC and FAILS the render under a multi-region topology;
+#   a non-`replicated[-*]` bucket fails the render. New post-install/upgrade
+#   hook `media-migrate` copies a still-present legacy PVC's uploads into the
+#   bucket (idempotent, HeadObject-skip). blueprint.yaml regionLocalVolumes:
+#   wp-content none-needed, uploads s3-replicated.
+#   ALSO in 0.6.0 (ADR-0015 batch-2 integration, #7076 + #7080): it carries
+#   the 0.5.1 shared-secrets seed above (0.5.1 was never published), and
+#   `database.topology.promotion.mechanism: continuum` is now ACCEPTED —
+#   ADR-0015 D8's every-region Continuum is the actor that commits the move.
+#   The chart renders nothing of its own under it (no promoter, no Continuum,
+#   no Cluster-patching hook; the render is a pure function of
+#   openova.topology.primary + database.topology.promotionToken), and under
+#   `continuum` the CNPG Cluster must live in the release namespace where
+#   Continuum observes it. `dr-promoter` still fails closed.
+version: 0.6.0
 appVersion: "6"
 description: |
   Catalyst Blueprint scratch chart for in-vcluster WordPress, one
@@ -457,8 +499,8 @@ description: |
       configurable default role, Keycloak-group → WP-role mapping).
     - Postgres provisioned by bp-cnpg (Cluster CR) in the Organization tenant
       namespace; password mirrored via reflector + post-install Job.
-    - PVC-backed `/var/www/html/wp-content/` for theme/plugin/upload
-      persistence.
+    - Media (uploads) in the Sovereign's replicated SeaweedFS S3 bucket
+      (ADR-0015 D6); wp-content rebuilt from the image on every start.
     - Ingress at `wordpress.<org-domain>` routed via the Organization's ingress
       with cert-manager TLS.
     - Idempotent post-install Jobs run via `wp-cli` that (a) `wp core

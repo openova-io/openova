@@ -10,6 +10,11 @@
 #   plan l headline (limits): cpu=4 memory=8Gi
 #   plan l guaranteed (requests): cpu=667m memory=2731Mi
 #   vcluster coredns (synced): requests cpu=20m memory=64Mi; limits cpu=1 memory=170Mi
+#   classless platform credit: requests cpu=0 memory=0; limits cpu=0 memory=0; pods=0
+#     (platform pods admitted before the platform scope existed carry no
+#     class and are charged here; their usage is added back so they never eat
+#     the plan. It shrinks to zero as they are replaced - every new platform
+#     pod is stamped and charged to platform-quota)
 apiVersion: v1
 kind: ResourceQuota
 metadata:
@@ -21,7 +26,8 @@ metadata:
     openova.io/managed-by: catalyst
     openova.io/quota-scope: customer
   annotations:
-    openova.io/quota-formula: "purchased plan + the vCluster's synced coredns (every pod not in PriorityClass catalyst-org-platform)"
+    openova.io/quota-formula: "purchased plan + the vCluster's synced coredns + the classless platform credit (every pod not in PriorityClass catalyst-org-platform)"
+    openova.io/classless-platform-credit: "requests cpu=0 memory=0; limits cpu=0 memory=0; pods=0"
     openova.io/plan-cap: "cpu=4 memory=8Gi"
     openova.io/plan-guaranteed-cpu: "667m"
     openova.io/plan-guaranteed-memory: "2731Mi"

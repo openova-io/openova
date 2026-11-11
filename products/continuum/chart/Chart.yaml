@@ -1,11 +1,12 @@
 apiVersion: v2
 name: bp-continuum
 description: |
-  OpenOva Continuum — DR orchestration for active-hotstandby
-  Applications. Watches Continuum.dr.openova.io/v1 CRs and orchestrates
-  per-Application DR (lease maintenance, replication-health watch,
-  switchover sequence). Slice K-Cont-1 of EPIC-6 (#1101) ships the
-  product skeleton; K-Cont-2 fills the reconcile loop.
+  OpenOva Continuum — native topology transitions (ADR-0015 D8). Runs in
+  every region; holds the cross-region Git lease, detects region loss, and
+  commits the next phase of a primary move to the per-region Application
+  files (traffic-off, data-primary with the CNPG demotion token, peers,
+  traffic-on), waiting on native CNPG / Flux / Application status. It writes
+  no workload object.
 type: application
 # 0.1.3 (#2922 PR-B, 2026-06-03): prerequisite-check initContainer.
 # bp-continuum's reconcile loop assumes bp-cnpg-pair has been
@@ -158,7 +159,17 @@ type: application
 #   the lease identity is the observed writer.
 # 0.1.20: ship #7065 (ddd6e05) — a DB-only switchover is not UNHEALTHY for
 #   lack of DNS; each post-switchover check is logged by name.
-version: 0.1.20
+# 0.2.0 (ADR-0015 D8, Refs #7067) — BREAKING: the imperative 7-step switchover
+#   sequencer (CNPG/HTTPRoute/PowerDNS patches, pod exec/delete, NATS audit,
+#   k8s-lease/cloudflare-kv/dns-quorum witnesses, dry-run API) is DELETED. The
+#   controller is a phase committer: Git lease (compare-and-swap through the
+#   writer Gitea), region-loss detection (peer observations over the
+#   continuum-<region-id> ClusterMesh Service, ClusterIP), ordered commits to
+#   regions/<region-id>/apps/<app>.yaml. Runs in every region; ships the
+#   Continuum CRD in crds/. RBAC reduced to reads + continuums/status +
+#   applications/status. Values: region, regionsJson, git.*, observations.*,
+#   tickSeconds; removed pdmURL, natsURL, api.*, prerequisiteCheck.*.
+version: 0.2.0
 appVersion: "0.1.0"
 home: https://openova.io
 sources:
@@ -178,14 +189,12 @@ annotations:
   openova.io/product: continuum
   openova.io/category: customer-facing-capability
   openova.io/epic: "6"
-  openova.io/depends-on: bp-cnpg-pair,bp-powerdns,pdm
   # no-upstream: this chart legitimately ships only Catalyst-authored
-  # resources (controller Deployment + RBAC + Service + NetworkPolicy
-  # — see templates/). The Continuum CRD lives in products/catalyst/
-  # chart/crds/continuum.yaml and is installed by bp-catalyst-platform
-  # (slot 13) to avoid the helm-controller / kustomize-controller
-  # ownership flap on duplicated CRDs (see crds/README.md). There is
-  # no upstream Helm subchart to bundle. Same shape as bp-kyverno-
+  # resources (controller Deployment + RBAC + Services + NetworkPolicy,
+  # and the Continuum CRD in crds/ — byte-identical to
+  # bp-catalyst-platform's copy, enforced by
+  # scripts/check-continuum-crd-lockstep.sh). There is no upstream Helm
+  # subchart to bundle. Same shape as bp-kyverno-
   # policies (PR #2023) and bp-crossplane-claims. Without this
   # annotation the Blueprint-Release hollow-chart guard (issue #181)
   # rejects publish — proven by failed workflow run 26144858280

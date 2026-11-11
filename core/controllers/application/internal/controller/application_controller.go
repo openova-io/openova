@@ -67,6 +67,7 @@ import (
 	"github.com/openova-io/openova/core/controllers/internal/semver"
 	bpv1alpha1 "github.com/openova-io/openova/core/controllers/pkg/apis/blueprint/v1alpha1"
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
+	"github.com/openova-io/openova/core/controllers/pkg/regionlocal"
 	"github.com/openova-io/openova/core/controllers/pkg/regions"
 	"github.com/openova-io/openova/core/controllers/pkg/render"
 	"github.com/openova-io/openova/core/controllers/pkg/validate"
@@ -175,6 +176,14 @@ const (
 	ReasonOrgGiteaMissing     = "GiteaOrgMissing"
 	ReasonAwaitingDrain       = "AwaitingFluxDrain"
 
+	// ReasonRegionLocalVolumeNotReplicated — ADR-0015 D6. The Application
+	// spans more than one region but its Blueprint declares a
+	// spec.regionLocalVolumes entry nothing replicates; a primary move would
+	// leave that volume's data behind. Same rule as catalyst-api's 422
+	// (package regionlocal) — this is the gate for a placement edited in Git
+	// or with kubectl, which never passes through the API.
+	ReasonRegionLocalVolumeNotReplicated = "RegionLocalVolumeNotReplicated"
+
 	// ReasonBackingUnrecoverable — #5513. Stamped on
 	// Application.status.conditions[type=Ready,status=False] when a
 	// downstream HelmRelease is Ready (manifests applied) but the
@@ -251,14 +260,16 @@ const (
 // real HTTP server. The production gitea.Client satisfies this
 // interface byte-for-byte.
 //
-// Note: GetFile is intentionally absent from this surface — the
-// reconciler relies on PutFile's internal byte-equality short-circuit
-// for idempotency, so the controller never needs to read existing
-// content directly.
+// GetFile + PutFileIfMatch serve the region files of a Continuum-governed
+// Application (ADR-0015 D8, region_continuum.go): the controller reads the
+// transition fields Continuum committed and writes back with Git
+// compare-and-swap so it never reverts them.
 type Gitea interface {
 	EnsureRepo(ctx context.Context, org, name, description string, private bool) (gitea.Repo, error)
 	EnsureBranch(ctx context.Context, org, repo, branch string) error
+	GetFile(ctx context.Context, org, repo, branch, path string) (gitea.File, error)
 	PutFile(ctx context.Context, org, repo, branch, path string, content []byte, message string, opts ...gitea.PutFileOpts) (file gitea.File, committed bool, err error)
+	PutFileIfMatch(ctx context.Context, org, repo, branch, path string, data []byte, message, expectSHA string) (gitea.File, error)
 	DeleteFile(ctx context.Context, org, repo, branch, path, message string) (bool, error)
 }
 
@@ -844,6 +855,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 				spec.Placement, spec.BlueprintName, allowedModes))
 	}
 
+	// 5.0.1 (ADR-0015 D6) — region-local volumes must be replicated before
+	// the Application may span regions. Refused BEFORE anything renders.
+	if rerr := regionlocal.Refusal(spec.BlueprintName, bp.Object, spec.Placement, len(spec.Regions)); rerr != nil {
+		return r.markFailed(ctx, app, ReasonRegionLocalVolumeNotReplicated, rerr.Error())
+	}
+
 	// 5.1 (#3969) — validate the canonical desired-state placement
 	// (spec.placement.targets[]) against the Blueprint capability gate.
 	// This is the authoritative enforcement of the model invariants:
@@ -1331,11 +1348,18 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 	// minted below onto the status write at the end of Reconcile (#4416 —
 	// the back-pointer that closes the #4212 round-trip). Empty for a non-DR
 	// app (no CR produced).
-	continuumRef, cerr := r.reconcileContinuumCR(ctx, app.GetName(), app.GetNamespace(),
+	//
+	// ADR-0015 D8: the Continuum is delivered from Git with the region files
+	// (region_continuum.go), not created by API. A non-governed Application
+	// has any pre-D8 API-created Continuum removed.
+	continuumRef := ""
+	cPlan, governed := buildContinuumPlan(app.GetNamespace()+"/"+app.GetName(),
 		resolvedTopoChoice, resolvedTopoVariant, plan, continuumOwnerLabels)
-	if cerr != nil {
+	if governed {
+		continuumRef = app.GetNamespace() + "/" + ContinuumNameFor(app.GetName())
+	} else if cerr := r.deleteContinuumCRIfExists(ctx, app.GetName(), app.GetNamespace()); cerr != nil {
 		return r.markDegraded(ctx, app, ReasonRenderError,
-			fmt.Sprintf("per-app Continuum DR contract: %v", cerr))
+			fmt.Sprintf("remove stale Continuum: %v", cerr))
 	}
 
 	// 8. Resolve the per-Org repo the per-region files are committed to
@@ -1489,7 +1513,22 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 	if ferr != nil {
 		return r.markDegraded(ctx, app, ReasonRenderError, ferr.Error())
 	}
-	if err := r.commitRegionFiles(ctx, app, orgSlug, tenantRepo, tenantBranch, files); err != nil {
+	if governed {
+		// ADR-0015 D8 — the Continuum rides in every region file, and the
+		// transition fields Continuum committed are kept.
+		files, ferr = withRegionContinuum(files, r.Cfg.Regions.IDs(), app.GetName(), app.GetNamespace(), transitionGovernance{
+			plan: cPlan, repoOwner: orgSlug, repoName: tenantRepo, branch: tenantBranch, dependsOn: spec.DependsOn,
+		})
+		if ferr != nil {
+			return r.markDegraded(ctx, app, ReasonRenderError, ferr.Error())
+		}
+		if err := r.commitGovernedRegionFiles(ctx, app, orgSlug, tenantRepo, tenantBranch, files); err != nil {
+			if errors.Is(err, errRegionFileMoved) {
+				return err // requeue (backoff) without marking the Application Degraded
+			}
+			return r.markDegraded(ctx, app, ReasonGiteaError, err.Error())
+		}
+	} else if err := r.commitRegionFiles(ctx, app, orgSlug, tenantRepo, tenantBranch, files); err != nil {
 		return r.markDegraded(ctx, app, ReasonGiteaError, err.Error())
 	}
 

@@ -191,21 +191,27 @@ func TestContinuumForApplication_ReadsDrAppInAppNamespace(t *testing.T) {
 	}
 }
 
-// The imperative switchover is gone: no handler method, no route. Only the
-// read-only preview + history survive.
+// ADR-0015 D8 — every Continuum WRITE surface is gone: the CR is delivered
+// from Git (Flux would revert an API write) and a topology transition is a
+// placement edit carried out by Continuum as Git commits. No handler method,
+// no route — for the switchover, its "preview", failback, approve, the spec
+// PUT and the settings PUT.
 func TestImperativeSwitchoverRouteRemoved(t *testing.T) {
-	if _, ok := reflect.TypeOf(&Handler{}).MethodByName("HandleContinuumSwitchoverRequest"); ok {
-		t.Fatal("HandleContinuumSwitchoverRequest still exists — the desired-state model forbids an imperative switchover")
+	for _, m := range []string{
+		"HandleContinuumSwitchoverRequest", "HandleContinuumSwitchoverPreview",
+		"HandleContinuumFailbackRequest", "HandleContinuumFailbackApprove",
+		"HandleContinuumPut", "HandleContinuumSettingsPut",
+	} {
+		if _, ok := reflect.TypeOf(&Handler{}).MethodByName(m); ok {
+			t.Fatalf("%s still exists — Continuum is written only from Git (ADR-0015 D8)", m)
+		}
 	}
 	src, err := os.ReadFile("../../cmd/api/main.go")
 	if err != nil {
 		t.Fatalf("read main.go: %v", err)
 	}
-	bad := regexp.MustCompile(`rg\.(Post|Put|Patch)\("/api/v1/sovereigns/\{id\}/continuums?/\{name\}/switchover"`)
+	bad := regexp.MustCompile(`rg\.(Post|Put|Patch|Delete)\("/api/v1/sovereigns/\{id\}/continuums?/`)
 	if loc := bad.FindIndex(src); loc != nil {
-		t.Fatalf("imperative switchover route still registered: %s", src[loc[0]:loc[1]])
-	}
-	if !regexp.MustCompile(`/continuum/\{name\}/switchover/preview", h\.HandleContinuumSwitchoverPreview`).Match(src) {
-		t.Fatal("read-only switchover/preview route must stay registered")
+		t.Fatalf("a Continuum write route is still registered: %s", src[loc[0]:loc[1]])
 	}
 }

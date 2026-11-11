@@ -66,3 +66,49 @@ Param shape: `dict "root" .` — root context (so we can read both
 {{- printf "%s:%s" $repo $tag -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+ADR-0015 D8 — the region this Continuum acts for (the canonical region id,
+bootstrap-kit SOVEREIGN_REGION_CANONICAL_LABEL). Required when enabled: every
+region runs its own Continuum and must know which one it is.
+*/}}
+{{- define "continuum.region" -}}
+{{- $r := .Values.continuum.region | default "" | toString | trim -}}
+{{- if and .Values.continuum.enabled (eq $r "") -}}
+{{- fail "continuum.region is empty — set it to this region's canonical id (bootstrap-kit SOVEREIGN_REGION_CANONICAL_LABEL). ADR-0015 D8: Continuum runs in every region and acts per region." -}}
+{{- end -}}
+{{- $r -}}
+{{- end -}}
+
+{{/*
+The Sovereign's region registry as JSON (SOVEREIGN_REGIONS_JSON wire form,
+`[{"cloudRegion":"<id>"},...]` or `["<id>",...]`). Accepts a list or a JSON
+string.
+*/}}
+{{- define "continuum.regionsJson" -}}
+{{- $raw := .Values.continuum.regionsJson | default "" -}}
+{{- if kindIs "string" $raw -}}
+{{- $s := trim $raw -}}
+{{- if eq $s "" -}}[]{{- else -}}{{- $s -}}{{- end -}}
+{{- else -}}
+{{- toJson $raw -}}
+{{- end -}}
+{{- end -}}
+
+{{/* The registry's region ids as a JSON array of strings, this region included. */}}
+{{- define "continuum.regionIDs" -}}
+{{- $list := include "continuum.regionsJson" . | fromJsonArray -}}
+{{- $ids := list -}}
+{{- range $list -}}
+{{- if kindIs "map" . -}}
+{{- with .cloudRegion -}}{{- $ids = append $ids . -}}{{- end -}}
+{{- else if kindIs "string" . -}}
+{{- $ids = append $ids . -}}
+{{- end -}}
+{{- end -}}
+{{- $self := include "continuum.region" . -}}
+{{- if and (ne $self "") (not (has $self $ids)) -}}
+{{- $ids = append $ids $self -}}
+{{- end -}}
+{{- toJson ($ids | uniq) -}}
+{{- end -}}

@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -35,6 +36,38 @@ func regionFileObjs(t *testing.T, fg *fakeGitea, org, region, app string) []*uns
 		t.Fatalf("parse region file %s/%s: %v", region, app, err)
 	}
 	return objs
+}
+
+// gitContinuum returns the Continuum document committed into the app's region
+// files (ADR-0015 D8: a governed Application's Continuum is delivered from
+// Git in every region, never created by API). Every region file must carry
+// the identical document; the first is returned.
+func gitContinuum(t *testing.T, r *Reconciler, ns, app string) (*unstructured.Unstructured, bool) {
+	t.Helper()
+	fg, ok := r.Gitea.(*fakeGitea)
+	if !ok {
+		t.Fatalf("gitContinuum needs the fake Gitea")
+	}
+	var found *unstructured.Unstructured
+	for _, region := range r.Cfg.Regions.IDs() {
+		for _, org := range []string{ns, "acme"} {
+			for _, o := range regionFileObjs(t, fg, org, region, app) {
+				if o.GetKind() != "Continuum" || o.GetName() != ContinuumNameFor(app) {
+					continue
+				}
+				if found == nil {
+					found = o
+				} else {
+					a, _, _ := unstructured.NestedMap(found.Object, "spec")
+					b, _, _ := unstructured.NestedMap(o.Object, "spec")
+					if fmt.Sprint(a) != fmt.Sprint(b) {
+						t.Fatalf("region files carry different Continuum specs:\n%v\n%v", a, b)
+					}
+				}
+			}
+		}
+	}
+	return found, found != nil
 }
 
 // reconcileAndApplyAll runs one reconcile pass and then stands in for EVERY

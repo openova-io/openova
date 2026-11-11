@@ -34,7 +34,6 @@ package handler
 import (
 	"encoding/json"
 	"fmt"
-	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -44,8 +43,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
-	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/audit"
-	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 )
 
 // ── Wire shapes ──────────────────────────────────────────────────────
@@ -85,43 +82,6 @@ type continuumReplicaInfo struct {
 	Role          string  `json:"role"`
 	LagSeconds    float64 `json:"lagSeconds"`
 	LastHeartbeat string  `json:"lastHeartbeat,omitempty"`
-}
-
-// continuumPutRequest — body of PUT /continuum/{name}.
-// Accepts a partial spec patch; only rpoSeconds + rtoSeconds + autoFailover
-// can be updated via this endpoint. To change topology (primaryRegion,
-// hotStandbyRegions, leaseClient) the operator must edit the CR via
-// kubectl directly — those are structural and require controller restart
-// semantics the API cannot safely orchestrate.
-type continuumPutRequest struct {
-	Spec struct {
-		RPOSeconds   *int64 `json:"rpoSeconds,omitempty"`
-		RTOSeconds   *int64 `json:"rtoSeconds,omitempty"`
-		AutoFailover *bool  `json:"autoFailover,omitempty"`
-	} `json:"spec"`
-}
-
-// continuumSwitchoverPreviewRequest — body of POST /switchover/preview.
-type continuumSwitchoverPreviewRequest struct {
-	TargetRegion string `json:"targetRegion"`
-	Target       string `json:"target,omitempty"` // alias accepted by the matrix
-}
-
-// continuumSwitchoverPreviewResponse — body of POST /switchover/preview.
-// Read-only dry-run. estimatedDurationSec = max(currentLagSec, rtoSeconds).
-// blockingChecks[] is empty when the switchover would proceed; non-empty
-// rows describe each precondition that would 409 the real switchover.
-type continuumSwitchoverPreviewResponse struct {
-	Continuum            string   `json:"continuum"`
-	Namespace            string   `json:"namespace"`
-	TargetRegion         string   `json:"targetRegion"`
-	CurrentPrimary       string   `json:"currentPrimary"`
-	CurrentLagSec        float64  `json:"currentLagSec"`
-	EstimatedDurationSec float64  `json:"estimatedDurationSec"`
-	EstimatedDuration    string   `json:"estimatedDuration"`
-	BlockingChecks       []string `json:"blockingChecks"`
-	Promotable           bool     `json:"promotable"`
-	Message              string   `json:"message"`
 }
 
 // continuumFleetItem — one row in /fleet/continuum.
@@ -216,102 +176,6 @@ func (h *Handler) HandleContinuumGetEnriched(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusOK, enrichContinuumResponse(cr))
 }
 
-// HandleContinuumPut — PUT /api/v1/sovereigns/{id}/continuum/{name}
-// Patches spec.rpoSeconds + spec.rtoSeconds + spec.autoFailover.
-// Auth: operator tier on the Application.
-func (h *Handler) HandleContinuumPut(w http.ResponseWriter, r *http.Request) {
-	depID := chi.URLParam(r, "id")
-	name := chi.URLParam(r, "name")
-	if strings.TrimSpace(name) == "" {
-		writeBadRequest(w, "missing-name", "continuum name is required")
-		return
-	}
-	dep, ok := h.lookupDeploymentForInfra(depID)
-	if !ok {
-		writeNotFound(w, depID)
-		return
-	}
-	if claims := auth.ClaimsFromContext(r.Context()); claims != nil {
-		if !applicationInstallCallerAuthorized(claims) {
-			writeJSON(w, http.StatusForbidden, map[string]string{
-				"error":  "forbidden",
-				"detail": "PUT /continuum/{name} requires operator tier on the Application",
-			})
-			return
-		}
-	}
-	// qa-loop iter-15 Fix #63 — body is OPTIONAL and lenient.
-	//
-	// The matrix's TC-335 sends the spec patch via curl which can drop
-	// the Content-Type header in some test runners. A strict
-	// DisallowUnknownFields decoder produces a 400 EOF for the same
-	// payload shape that should succeed. Use a lenient decoder.
-	var body continuumPutRequest
-	if r.Body != nil && r.ContentLength != 0 {
-		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16))
-		_ = dec.Decode(&body) // empty/invalid body decodes to zero-value
-	}
-
-	client, err := h.sovereignDynamicClient(dep)
-	if err != nil {
-		// #5728 — a PUT that reached no cluster changed nothing.
-		// Echoing the requested rpo/rto back at 200 told the operator
-		// their DR policy had been persisted when it had not.
-		writeContinuumUnreachable(w, name, err)
-		return
-	}
-	ns := strings.TrimSpace(r.URL.Query().Get("namespace"))
-	cr, getErr := getContinuumCR(r.Context(), client, name, ns)
-	if getErr != nil {
-		if apierrors.IsNotFound(getErr) {
-			// #5728 — no CR to patch: 404, not a synthesized echo.
-			writeContinuumNotFound(w, name)
-			return
-		}
-		writeJSON(w, http.StatusInternalServerError, map[string]string{
-			"error":  "continuum-get-failed",
-			"detail": getErr.Error(),
-		})
-		return
-	}
-	patched := cr.DeepCopy()
-	if body.Spec.RPOSeconds != nil {
-		_ = unstructured.SetNestedField(patched.Object, *body.Spec.RPOSeconds, "spec", "rpoSeconds")
-	}
-	if body.Spec.RTOSeconds != nil {
-		_ = unstructured.SetNestedField(patched.Object, *body.Spec.RTOSeconds, "spec", "rtoSeconds")
-	}
-	if body.Spec.AutoFailover != nil {
-		_ = unstructured.SetNestedField(patched.Object, *body.Spec.AutoFailover, "spec", "autoFailover")
-	}
-	if err := updateContinuumCR(r.Context(), client, patched); err != nil {
-		if apierrors.IsConflict(err) {
-			writeJSON(w, http.StatusConflict, map[string]string{
-				"error":  "continuum-conflict",
-				"detail": err.Error(),
-			})
-			return
-		}
-		writeJSON(w, http.StatusInternalServerError, map[string]string{
-			"error":  "continuum-update-failed",
-			"detail": err.Error(),
-		})
-		return
-	}
-
-	if h.auditBus != nil {
-		h.auditBus.Publish(r.Context(), audit.Event{
-			AuditType:         "continuum-policy-updated",
-			SovereignID:       depID,
-			Actor:             actorFromClaims(auth.ClaimsFromContext(r.Context())),
-			TargetApplication: continuumApplicationRef(cr),
-			Detail:            "RPO/RTO/autoFailover updated",
-		})
-	}
-
-	writeJSON(w, http.StatusOK, enrichContinuumResponse(patched))
-}
-
 // HandleContinuumStream — GET /api/v1/sovereigns/{id}/continuum/{name}/stream
 // SSE: emits the enriched status every 5s. Each frame is a `data: {json}`
 // line carrying walLagSeconds + currentPrimary so the UI graph can tick.
@@ -380,120 +244,6 @@ func (h *Handler) HandleContinuumStream(w http.ResponseWriter, r *http.Request) 
 			emitFrame()
 		}
 	}
-}
-
-// HandleContinuumSwitchoverPreview — POST
-// /api/v1/sovereigns/{id}/continuum/{name}/switchover/preview
-// Read-only dry-run.
-func (h *Handler) HandleContinuumSwitchoverPreview(w http.ResponseWriter, r *http.Request) {
-	depID := chi.URLParam(r, "id")
-	name := chi.URLParam(r, "name")
-	if strings.TrimSpace(name) == "" {
-		writeBadRequest(w, "missing-name", "continuum name is required")
-		return
-	}
-	dep, ok := h.lookupDeploymentForInfra(depID)
-	if !ok {
-		writeNotFound(w, depID)
-		return
-	}
-	var body continuumSwitchoverPreviewRequest
-	// Body is OPTIONAL — if empty, we preview against the first hot
-	// standby region in the spec.
-	if r.ContentLength > 0 || r.Header.Get("Content-Type") == "application/json" {
-		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16))
-		_ = dec.Decode(&body)
-	}
-	target := strings.TrimSpace(body.TargetRegion)
-	if target == "" {
-		target = strings.TrimSpace(body.Target)
-	}
-
-	client, err := h.sovereignDynamicClient(dep)
-	if err != nil {
-		// #5731 — this is the PRE-FLIGHT SAFETY CHECK. It previously
-		// answered `promotable:true` with an EMPTY blockingChecks list
-		// when it could not run a single check, which is the machine-
-		// readable field the confirm button is gated on. A preflight
-		// that could not run is not a passed preflight.
-		writeJSON(w, http.StatusServiceUnavailable, continuumPreviewUnavailable(
-			name, target,
-			"cannot reach the Sovereign cluster — no promotion precondition could be checked",
-		))
-		return
-	}
-	ns := strings.TrimSpace(r.URL.Query().Get("namespace"))
-	cr, getErr := getContinuumCR(r.Context(), client, name, ns)
-	if getErr != nil {
-		if apierrors.IsNotFound(getErr) {
-			// #5731 — no CR means no lag reading, no phase and no
-			// hot-standby list, so nothing was verified.
-			writeJSON(w, http.StatusNotFound, continuumPreviewUnavailable(
-				name, target,
-				"no Continuum CR on this Sovereign — no promotion precondition could be checked",
-			))
-			return
-		}
-		writeJSON(w, http.StatusInternalServerError, map[string]string{
-			"error":  "continuum-get-failed",
-			"detail": getErr.Error(),
-		})
-		return
-	}
-
-	curPrimary := continuumActingPrimary(cr)
-	if target == "" {
-		standbys, _, _ := unstructured.NestedStringSlice(cr.Object, "spec", "hotStandbyRegions")
-		if len(standbys) > 0 {
-			target = standbys[0]
-		}
-	}
-
-	rtoSec := readNumericNested(cr.Object, "spec", "rtoSeconds")
-	if rtoSec == 0 {
-		// Fall back to spec.rto duration string.
-		if rtoStr, _, _ := unstructured.NestedString(cr.Object, "spec", "rto"); rtoStr != "" {
-			if n, err := parseDurationSecondsLocal(rtoStr); err == nil {
-				rtoSec = float64(n)
-			}
-		}
-	}
-	if rtoSec == 0 {
-		rtoSec = 60
-	}
-
-	currentLag := readNumericNested(cr.Object, "status", "walLagSeconds")
-	estimated := math.Max(currentLag, rtoSec)
-
-	blocking := []string{}
-	if curPrimary == target {
-		blocking = append(blocking, fmt.Sprintf("targetRegion %q already primary", target))
-	}
-	maxLag := readNumericNested(cr.Object, "status", "maxReplicationLagSeconds")
-	if maxLag == 0 {
-		maxLag = currentLag
-	}
-	if maxLag > rtoSec*4 {
-		blocking = append(blocking, fmt.Sprintf("WAL lag %.1fs exceeds 4× RTO (%ds) — replica not promotable", maxLag, int(rtoSec)))
-	}
-	phase, _, _ := unstructured.NestedString(cr.Object, "status", "phase")
-	if phase == "Failed" || phase == "SwitchingOver" {
-		blocking = append(blocking, fmt.Sprintf("continuum phase=%s blocks new switchover", phase))
-	}
-
-	resp := continuumSwitchoverPreviewResponse{
-		Continuum:            cr.GetName(),
-		Namespace:            cr.GetNamespace(),
-		TargetRegion:         target,
-		CurrentPrimary:       curPrimary,
-		CurrentLagSec:        currentLag,
-		EstimatedDurationSec: estimated,
-		EstimatedDuration:    fmt.Sprintf("%ds", int(estimated)),
-		BlockingChecks:       blocking,
-		Promotable:           len(blocking) == 0,
-		Message:              fmt.Sprintf("preview only — switchover %s → %s", curPrimary, target),
-	}
-	writeJSON(w, http.StatusOK, resp)
 }
 
 // HandleFleetContinuum — GET /api/v1/fleet/continuum
@@ -867,22 +617,6 @@ func continuumStreamUnavailableFrame(name string, err error) continuumUnavailabl
 		Error:   code,
 		Detail:  detail,
 		Message: "DR state could not be read on this tick — UNKNOWN, not healthy",
-	}
-}
-
-// continuumPreviewUnavailable — the honest switchover PREFLIGHT body
-// when no check could be run. Keeps the preview wire shape (the confirm
-// dialog gates its button on `promotable` + renders `blockingChecks`)
-// but reports `promotable:false` with the reason as a NON-EMPTY
-// blocking check. An empty blockingChecks list is the dangerous value
-// here — it reads as "all preconditions passed".
-func continuumPreviewUnavailable(name, target, reason string) continuumSwitchoverPreviewResponse {
-	return continuumSwitchoverPreviewResponse{
-		Continuum:      name,
-		TargetRegion:   target,
-		BlockingChecks: []string{reason},
-		Promotable:     false,
-		Message:        "preflight could not run — " + reason,
 	}
 }
 

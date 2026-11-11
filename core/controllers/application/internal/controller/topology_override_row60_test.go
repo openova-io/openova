@@ -40,10 +40,8 @@
 package controller
 
 import (
-	"context"
 	"testing"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -158,9 +156,8 @@ const (
 
 func row60ContinuumExists(t *testing.T, r *Reconciler, ns, app string) bool {
 	t.Helper()
-	_, err := r.Dynamic.Resource(ContinuumGVR).Namespace(ns).
-		Get(context.Background(), ContinuumNameFor(app), metav1.GetOptions{})
-	return err == nil
+	_, ok := gitContinuum(t, r, ns, app)
+	return ok
 }
 
 // TestRow60_OperatorHotStandbyArmsSwitchover_DespiteSingletonBlueprintDefault
@@ -189,28 +186,27 @@ func TestRow60_OperatorHotStandbyArmsSwitchover_DespiteSingletonBlueprintDefault
 		t.Fatalf("unexpected Failed phase: reason=%q msg=%q", reason, msg)
 	}
 
-	cr, err := r.Dynamic.Resource(ContinuumGVR).Namespace("acme").
-		Get(context.Background(), ContinuumNameFor("shop"), metav1.GetOptions{})
-	if err != nil {
-		t.Fatalf("no Continuum CR for an app the operator placed active-hot-standby "+
-			"across %s + %s: the Switchover half of row 60 is unarmed (%v)",
-			row60RegionA, row60RegionB, err)
+	cr, ok := gitContinuum(t, r, "acme", "shop")
+	if !ok {
+		t.Fatalf("no Continuum for an app the operator placed active-hot-standby "+
+			"across %s + %s: the topology transition of row 60 is unarmed",
+			row60RegionA, row60RegionB)
 	}
 
 	// The armed contract must name the operator's OWN regions, in their order —
 	// a CR that armed the Blueprint's cluster list instead would be a different
 	// (and wrong) answer that still satisfies "a CR exists".
-	primary, _, _ := unstructured.NestedString(cr.Object, "spec", "primaryRegion")
+	primary, _, _ := unstructured.NestedString(cr.Object, "spec", "desiredPrimaryRegion")
 	if primary != row60RegionA {
-		t.Errorf("primaryRegion = %q, want %q (regions[0] is the operator's primary)",
+		t.Errorf("desiredPrimaryRegion = %q, want %q (regions[0] is the operator's primary)",
 			primary, row60RegionA)
 	}
-	standbys, _, _ := unstructured.NestedStringSlice(cr.Object, "spec", "hotStandbyRegions")
-	if len(standbys) != 1 || standbys[0] != row60RegionB {
-		t.Errorf("hotStandbyRegions = %v, want [%s]", standbys, row60RegionB)
+	regs, _, _ := unstructured.NestedStringSlice(cr.Object, "spec", "regions")
+	if len(regs) != 2 || regs[0] != row60RegionA || regs[1] != row60RegionB {
+		t.Errorf("regions = %v, want [%s %s]", regs, row60RegionA, row60RegionB)
 	}
-	if mech, _, _ := unstructured.NestedString(cr.Object, "spec", "switchover", "mechanism"); mech == "" {
-		t.Error("switchover.mechanism is empty — nothing to arm against")
+	if owner, _, _ := unstructured.NestedString(cr.Object, "spec", "transition", "repo", "owner"); owner == "" {
+		t.Error("spec.transition.repo is empty — nothing for Continuum to commit to")
 	}
 }
 

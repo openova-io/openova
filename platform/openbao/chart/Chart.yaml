@@ -260,7 +260,12 @@ name: bp-openbao
 #   seeded once and carried forward from the live object (lookup) on
 #   every later render, so an upgrade never reverts the operator's
 #   Topology edit (hw307 2026-11-07, the #7061 cnpg-pair fix).
-version: 1.2.70
+# 1.2.71 (ADR-0015, Refs #7067): the ESO push policy also grants
+#   create/update/read on `secret/{data,metadata}/openova/apps/*` — the
+#   subtree a multi-region Application's writer region seeds its shared
+#   material into (bp-wordpress-tenant 0.5.1 shared-secrets-seed.yaml,
+#   PushSecret updatePolicy IfNotExists). No delete.
+version: 1.2.71
 # 1.2.51 (#3888, Refs #3847): prov-time openbao KV-seed mechanism — the
 # auth-bootstrap Job reads a one-shot cloud-init `openbao-bootstrap-seed`
 # Secret + writes its keys into KV at secret/<prefix>/* with the still-valid

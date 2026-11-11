@@ -284,7 +284,7 @@ func TestRender_ResourceQuotaPerPlan(t *testing.T) {
 			"limits.memory: \"" + want.limMem + "\"",
 			"namespace: acme",
 			"openova.io/plan: " + slug,
-			`openova.io/quota-formula: "purchased plan + the vCluster's synced coredns (every pod not in PriorityClass catalyst-org-platform)"`,
+			`openova.io/quota-formula: "purchased plan + the vCluster's synced coredns + the classless platform credit (every pod not in PriorityClass catalyst-org-platform)"`,
 		} {
 			if !strings.Contains(s, line) {
 				t.Errorf("plan %s resourcequota.yaml missing %q\n%s", slug, line, s)
@@ -323,7 +323,7 @@ func TestRender_RetiredFlexiRendersSGrow(t *testing.T) {
 	}
 	for k, w := range want {
 		g := string(got[k])
-		if k == "vcluster/apps/"+appStorageQuotaDoc {
+		if k == "vcluster/apps/"+appStorageQuotaDoc || k == RegionBaselineAppsDir+"/"+appStorageQuotaDoc {
 			g = strings.Replace(g, "    openova.io/retired-plan: \"flexi\"\n", "", 1)
 		}
 		if g != string(w) {

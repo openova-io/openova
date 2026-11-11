@@ -719,6 +719,58 @@ func (c *Client) contentsWrite(ctx context.Context, method, org, repo, path stri
 	return File{Path: path}, nil
 }
 
+// ErrConflict is returned by PutFileIfMatch when the file moved since the
+// caller read it (or, for a create, when it already exists): another writer
+// committed first. It is Git's compare-and-swap answer, not a failure — the
+// caller re-reads and decides again.
+var ErrConflict = errors.New("gitea: file changed since it was read (compare-and-swap lost)")
+
+// PutFileIfMatch writes data at path ONLY IF the file's current blob SHA is
+// expectSHA. expectSHA == "" means "the file must not exist yet" (create).
+// Gitea's contents API checks the SHA server-side, so two writers that read
+// the same version can never both commit: the second gets ErrConflict.
+//
+// This is the compare-and-swap primitive the ADR-0015 D8 topology-transition
+// lease and the application-controller's region-file writes rely on.
+func (c *Client) PutFileIfMatch(ctx context.Context, org, repo, branch, path string, data []byte, message, expectSHA string) (File, error) {
+	if org == "" || repo == "" || path == "" {
+		return File{}, errors.New("gitea: PutFileIfMatch requires non-empty org, repo, path")
+	}
+	method := http.MethodPost
+	body := commitFilePayload{
+		Message: message,
+		Content: base64.StdEncoding.EncodeToString(data),
+		Branch:  branch,
+	}
+	if expectSHA != "" {
+		method = http.MethodPut
+		body.SHA = expectSHA
+	}
+	endpoint := fmt.Sprintf("/repos/%s/%s/contents/%s",
+		url.PathEscape(org), url.PathEscape(repo), pathEscapeSegments(path))
+	status, respBody, err := c.do(ctx, method, endpoint, body, nil)
+	if err != nil {
+		switch status {
+		case http.StatusConflict, http.StatusUnprocessableEntity:
+			return File{}, ErrConflict
+		case http.StatusNotFound:
+			if expectSHA != "" && !strings.Contains(strings.ToLower(string(respBody)), "repository") {
+				// The file we read was deleted meanwhile.
+				return File{}, ErrConflict
+			}
+			return File{}, ErrRepoNotFound
+		}
+		return File{}, err
+	}
+	var wrapped struct {
+		Content File `json:"content"`
+	}
+	if jerr := json.Unmarshal(respBody, &wrapped); jerr == nil && wrapped.Content.Path != "" {
+		return wrapped.Content, nil
+	}
+	return File{Path: path}, nil
+}
+
 // DeleteFile removes path from the repo at branch. Idempotent: a 404
 // from the probe returns (true, nil) — already absent.
 func (c *Client) DeleteFile(ctx context.Context, org, repo, branch, path, message string) (bool, error) {
