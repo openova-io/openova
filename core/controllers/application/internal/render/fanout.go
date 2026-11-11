@@ -269,10 +269,12 @@ func FanoutHRs(in FanoutInputs) ([]*unstructured.Unstructured, error) {
 	for _, cluster := range clusters {
 		self := legRegion[cluster]
 		contract := TopologyContract{
-			Mode:    string(in.Topology),
-			Self:    self,
-			Primary: primary,
-			Peers:   peersOf(self, placementRegions),
+			Mode:         string(in.Topology),
+			Self:         self,
+			Primary:      primary,
+			Peers:        peersOf(self, placementRegions),
+			AppName:      in.AppName,
+			AppNamespace: in.AppNamespace,
 		}
 		hr := renderOneHR(in, cluster, contract)
 		out = append(out, hr)

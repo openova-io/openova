@@ -1,4 +1,19 @@
 {{/*
+CNPG base name (ADR-0015 D2, Refs #7067). Resolution:
+  1. `database.cnpgClusterName` when set explicitly (operator pin, legacy installs);
+  2. `<openova.application.name>-db` when the application-controller renders the
+     Application identity — region-independent and unique per app, so two
+     WordPress Applications in one namespace never share a CNPG Cluster,
+     mesh Service or shared-secret path;
+  3. `wordpress-db`, the historical default, for a bare install without the contract.
+*/}}
+{{- define "bp-wordpress-tenant.cnpgBase" -}}
+{{- $explicit := .Values.database.cnpgClusterName | default "" -}}
+{{- $app := dig "openova" "application" "name" "" (.Values | toJson | fromJson) -}}
+{{- if $explicit -}}{{ $explicit }}{{- else if $app -}}{{ printf "%s-db" $app }}{{- else -}}wordpress-db{{- end -}}
+{{- end -}}
+
+{{/*
 Expand the name of the chart.
 */}}
 {{- define "bp-wordpress-tenant.name" -}}
@@ -175,7 +190,7 @@ its data) when its release adopts the contract.
 */}}
 {{- define "bp-wordpress-tenant.dbNames" -}}
 {{- $_ := include "bp-wordpress-tenant.topology" . -}}
-{{- include "openova.topology.memberNames" (dict "ctx" . "base" .Values.database.cnpgClusterName "overrides" (dig "topology" "clusterNames" dict (.Values.database | toJson | fromJson))) -}}
+{{- include "openova.topology.memberNames" (dict "ctx" . "base" (include "bp-wordpress-tenant.cnpgBase" .) "overrides" (dig "topology" "clusterNames" dict (.Values.database | toJson | fromJson))) -}}
 {{- end -}}
 
 {{/* THIS region's CNPG Cluster name. */}}
@@ -196,7 +211,7 @@ Shared Secrets of a multi-region topology — the SAME bytes in every region:
                    after a primary move.
 */}}
 {{- define "bp-wordpress-tenant.replicationCASecret" -}}
-{{- dig "topology" "sharedSecrets" "replicationCA" "" (.Values.database | toJson | fromJson) | default (printf "%s-replication-ca" .Values.database.cnpgClusterName) -}}
+{{- dig "topology" "sharedSecrets" "replicationCA" "" (.Values.database | toJson | fromJson) | default (printf "%s-replication-ca" (include "bp-wordpress-tenant.cnpgBase" .)) -}}
 {{- end -}}
 
 {{/*
@@ -207,11 +222,11 @@ release-keyed path differs per region and no peer ever finds it (the 0.5.0
 default had exactly that defect).
 */}}
 {{- define "bp-wordpress-tenant.sharedSecretsPrefix" -}}
-{{- dig "topology" "sharedSecrets" "externalSecret" "remoteKeyPrefix" "" (.Values.database | toJson | fromJson) | default (printf "openova/apps/%s/%s" (include "bp-wordpress-tenant.cnpgNamespace" .) .Values.database.cnpgClusterName) -}}
+{{- dig "topology" "sharedSecrets" "externalSecret" "remoteKeyPrefix" "" (.Values.database | toJson | fromJson) | default (printf "openova/apps/%s/%s" (include "bp-wordpress-tenant.cnpgNamespace" .) (include "bp-wordpress-tenant.cnpgBase" .)) -}}
 {{- end -}}
 
 {{- define "bp-wordpress-tenant.appCredentialsSecret" -}}
-{{- dig "topology" "sharedSecrets" "appCredentials" "" (.Values.database | toJson | fromJson) | default (printf "%s-app-credentials" .Values.database.cnpgClusterName) -}}
+{{- dig "topology" "sharedSecrets" "appCredentials" "" (.Values.database | toJson | fromJson) | default (printf "%s-app-credentials" (include "bp-wordpress-tenant.cnpgBase" .)) -}}
 {{- end -}}
 
 {{/*
