@@ -129,8 +129,11 @@ spec:
                 exit(1);
               }
 
-              // Upsert the user row.
-              $stmt = $pdo->prepare("SELECT ID FROM wp_users WHERE user_email = :e LIMIT 1");
+              // Upsert the user row. pg4wp creates WordPress's `ID` columns
+              // as the QUOTED identifier "ID"; unquoted, Postgres folds it to
+              // `id` → "column id does not exist" (live hw307 2026-11-11,
+              // Refs #7067).
+              $stmt = $pdo->prepare("SELECT \"ID\" FROM wp_users WHERE user_email = :e LIMIT 1");
               $stmt->execute([':e' => $email]);
               $existing = $stmt->fetchColumn();
 
@@ -151,7 +154,7 @@ spec:
                      (user_login, user_pass, user_nicename, user_email,
                       user_registered, user_status, display_name)
                    VALUES (:l, :p, :n, :e, NOW(), 0, :d)
-                   RETURNING ID"
+                   RETURNING \"ID\""
                 );
                 $stmt->execute([
                   ':l' => $login,

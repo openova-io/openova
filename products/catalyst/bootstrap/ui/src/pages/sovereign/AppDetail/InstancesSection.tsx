@@ -821,7 +821,7 @@ export function NewInstanceDialog({
             value={name}
             onChange={(e) => setName(e.target.value)}
             required
-            pattern="^[a-z0-9][a-z0-9-]{0,40}[a-z0-9]$"
+            pattern="^[a-z0-9][a-z0-9\-]{0,40}[a-z0-9]$"
             title="Lowercase letters, digits, and dashes; 2-42 chars; no leading/trailing dash"
             placeholder="my-instance"
             style={fieldStyle}

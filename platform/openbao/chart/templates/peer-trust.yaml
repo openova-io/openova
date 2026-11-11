@@ -1,0 +1,150 @@
+{{- /*
+Peer-region reachability — bp-openbao (ADR-0015, Refs #7067). See values.yaml
+§peerTrust for the model.
+
+Every region runs its own OpenBao. The primary region of a multi-region
+Application pushes the shared material into EVERY region's OpenBao
+(bp-external-secrets-stores renders one ClusterSecretStore `vault-<peer>` per
+peer region). This file makes THIS region's OpenBao reachable from the peers:
+Service openbao-<self> (owner, ClusterMesh global, backend = this region's
+active OpenBao), plus a selector-less stub openbao-<peer> per peer so a dial
+to a peer reaches only that peer, and the two CiliumNetworkPolicies on 8200.
+
+The OpenBao-side trust (this region's issuer, one jwt-peer-<peer> mount per
+peer, the scoped push policy) is part of the declarative desired state in
+templates/_config.tpl, applied by the openbao-config reconciler; its
+jwt-peer ops carry the peer's discovery URL as a probe and wait for it.
+
+Skip-render (#402, never `{{ fail }}`): nothing renders when the registry
+names no region other than self — single-region output is unchanged.
+No nodePort anywhere: every Service is ClusterIP.
+*/ -}}
+{{- $pt := include "openbao.peerTrust" . | fromJson -}}
+{{- if $pt.peers }}
+{{- $au := .Values.autoUnseal | default dict -}}
+{{- $kAuth := $au.kubernetesAuth | default dict -}}
+{{- $self := $pt.self }}
+---
+# This region's OpenBao under its region-addressable, ClusterMesh-global name.
+# ClusterIP (not headless) so Cilium ClusterMesh merges it; every peer renders
+# the same-named selector-less stub, so the peers reach ONLY this region's
+# active OpenBao. No nodePort: ClusterIP only.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ printf "openbao-%s" $self | quote }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    catalyst.openova.io/component: openbao-region-service
+    openova.io/region: {{ $self | quote }}
+  annotations:
+    service.cilium.io/global: "true"
+    service.cilium.io/shared: "true"
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: openbao
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    component: server
+    openbao-active: "true"
+  ports:
+    - name: http
+      port: 8200
+      targetPort: 8200
+      protocol: TCP
+{{- range $pt.peers }}
+---
+# Selector-less stub of peer region {{ . }}'s openbao-<region-id> Service: no
+# local backends, so ClusterMesh routes it to that region's OpenBao only.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ printf "openbao-%s" . | quote }}
+  namespace: {{ $.Release.Namespace | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    catalyst.openova.io/component: openbao-region-service-stub
+    openova.io/region: {{ . | quote }}
+  annotations:
+    service.cilium.io/global: "true"
+    service.cilium.io/shared: "false"
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8200
+      targetPort: 8200
+      protocol: TCP
+{{- end }}
+---
+# The openbao namespace is default-deny (bp-plane-isolation
+# openbao-default-deny) and Cilium evaluates its namespace selectors
+# cluster-locally. Admit, from ANY ClusterMesh cluster, on 8200 only:
+#   - ESO (a peer's primary pushing shared material into this OpenBao);
+#   - a peer's OpenBao + openbao-config reconciler (OIDC discovery of
+#     THIS region's issuer).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: openbao-allow-peer-region-ingress
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    catalyst.openova.io/component: openbao-config
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: openbao
+      component: server
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ $kAuth.serviceAccountNamespace | default "external-secrets-system" }}
+            k8s:app.kubernetes.io/name: external-secrets
+          matchExpressions:
+            - key: io.cilium.k8s.policy.cluster
+              operator: Exists
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ .Release.Namespace }}
+          matchExpressions:
+            - key: io.cilium.k8s.policy.cluster
+              operator: Exists
+            - key: k8s:app.kubernetes.io/name
+              operator: In
+              values: [openbao, openbao-config]
+      toPorts:
+        - ports:
+            - port: "8200"
+              protocol: TCP
+---
+# Egress twin: this region's OpenBao (jwt-peer-<peer> key discovery) and the
+# reconciler (reachability probe) dial the peers' OpenBao on 8200.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: openbao-allow-peer-region-egress
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    catalyst.openova.io/component: openbao-config
+spec:
+  endpointSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values: [openbao, openbao-config]
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ .Release.Namespace }}
+            k8s:app.kubernetes.io/name: openbao
+            k8s:component: server
+          matchExpressions:
+            - key: io.cilium.k8s.policy.cluster
+              operator: Exists
+      toPorts:
+        - ports:
+            - port: "8200"
+              protocol: TCP
+{{- end }}

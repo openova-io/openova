@@ -60,6 +60,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -118,6 +119,26 @@ func drViolations(census []drCensus) []string {
 
 // drHelm renders a chart and returns the parsed docs. A render ERROR is returned,
 // not fataled, so the negative cases can assert on it.
+// ensureChartDeps runs `helm dependency build` once per chart that declares
+// dependencies: bp-postgres and bp-cnpg-pair consume platform/topology-lib via
+// file://, and charts/ is gitignored, so an unbuilt render fails "missing in
+// charts/ directory" — which every case below would misread (Refs #7067).
+var chartDepsBuilt sync.Map
+
+func ensureChartDeps(t *testing.T, helmBin, dir string) {
+	t.Helper()
+	if _, done := chartDepsBuilt.LoadOrStore(dir, true); done {
+		return
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "Chart.yaml"))
+	if err != nil || !strings.Contains(string(raw), "\ndependencies:") {
+		return
+	}
+	if out, err := exec.Command(helmBin, "dependency", "build", dir).CombinedOutput(); err != nil {
+		t.Fatalf("helm dependency build %s: %v\n%s", dir, err, out)
+	}
+}
+
 func drHelm(t *testing.T, chartDir string, args ...string) ([]map[string]any, string, error) {
 	t.Helper()
 
@@ -130,6 +151,7 @@ func drHelm(t *testing.T, chartDir string, args ...string) ([]map[string]any, st
 	}
 
 	root := repoRoot(t)
+	ensureChartDeps(t, helmBin, filepath.Join(root, chartDir))
 	full := append([]string{"template", "dr", filepath.Join(root, chartDir)}, args...)
 	full = append(full, "--api-versions", "postgresql.cnpg.io/v1")
 

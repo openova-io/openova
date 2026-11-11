@@ -2122,3 +2122,19 @@ func OwnersFromOrg(o *orgapi.Organization) []orgapi.OrganizationOwner {
 	copy(out, o.Spec.Owners)
 	return out
 }
+
+// PlanForOrganization resolves the plan a boundary is sized at from the
+// Organization's kind and purchased plan. A customer Organization is sized at
+// what it bought (an empty legacy slug still falls back to "s" in
+// planQuota, so a customer is never uncapped). An INTERNAL Organization (the
+// Sovereign's own, a department) buys nothing — it is not a customer and is
+// not billed (chargeback two-layer model) — so with no plan it is sized at
+// the largest catalog plan instead of the smallest paid tier. Live on hw307
+// (2026-11-11): the Sovereign's own Organization fell to plan S (167m
+// guaranteed), so one WordPress Pod starved its own database's initdb Job.
+func PlanForOrganization(kind, planSlug string) string {
+	if strings.TrimSpace(planSlug) == "" && strings.EqualFold(strings.TrimSpace(kind), "internal") {
+		return "xl"
+	}
+	return planSlug
+}

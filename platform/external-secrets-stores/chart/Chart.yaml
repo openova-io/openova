@@ -70,7 +70,14 @@ name: bp-external-secrets-stores
 #   bootstrap-kit Kustomization stalled on the Failed HR — freezing the roll of
 #   every newer bootstrap-kit pin. Same landmine as bp-cnpg #4226 / bp-openbao
 #   #3374. Refs #4409.
-version: 1.0.10
+# 1.0.11 (ADR-0015, Refs #7067): one ClusterSecretStore vault-<peer-region-id>
+#   per PEER region (from peerStores.selfRegion/regions, the region registry),
+#   writing into the peer's OpenBao over ClusterMesh (bp-openbao 1.2.72
+#   openbao-<region> Service + jwt-peer-<self> mount). Auth token: an identity
+#   token from THIS region's OpenBao, minted by a VaultDynamicSecret generator
+#   (role openbao-peer-token) into Secret openbao-peer-push-token. vault-region1
+#   unchanged. Single region: nothing new renders. tests/peer-stores-render.sh.
+version: 1.0.11
 description: |
   Catalyst-curated Blueprint chart for the default ESO ClusterSecretStore(s)
   that wire each Sovereign's bp-external-secrets controller to its bp-openbao

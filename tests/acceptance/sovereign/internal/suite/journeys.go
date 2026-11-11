@@ -75,7 +75,7 @@ func randHex(n int) string {
 // both sides of that change).
 func (r *runner) createBody(name, org, env string, regions []string) map[string]any {
 	return map[string]any{
-		"blueprint":   strings.TrimPrefix(r.cfg.Blueprint, "bp-"),
+		"blueprint":   r.cfg.Blueprint, // ADR-0015 D4: the Blueprint CR name exactly, as NewInstanceDialog sends it
 		"org":         org,
 		"environment": env,
 		"name":        name,
@@ -130,7 +130,7 @@ func (r *runner) j1(ctx context.Context) bool {
 			if ex {
 				bad = append(bad, "namespace accept-noorg-"+tag+" was created in "+reg.ID)
 			}
-			apps, err := reg.GetList(ctx, appResource, "")
+			apps, err := listApplications(ctx, reg)
 			if err != nil {
 				return err
 			}
@@ -454,7 +454,7 @@ func (r *runner) rowsIn(ctx context.Context, ev Evidence, reg kube.Region, wantS
 		missing := []string{}
 		for _, p := range r.app.Posts {
 			n, err := reg.PSQLSelect(ctx, c.Namespace(), pod, db,
-				fmt.Sprintf("SELECT count(*) FROM %sposts WHERE ID = %d AND post_content LIKE '%%%s%%'", prefix, p.ID, sqlLike(p.Marker)))
+				fmt.Sprintf("SELECT count(*) FROM %sposts WHERE \"ID\" = %d AND post_content LIKE '%%%s%%'", prefix, p.ID, sqlLike(p.Marker)))
 			if err != nil {
 				return false, err.Error(), nil
 			}
@@ -465,7 +465,7 @@ func (r *runner) rowsIn(ctx context.Context, ev Evidence, reg kube.Region, wantS
 		}
 		if r.app.MediaID != 0 {
 			n, err := reg.PSQLSelect(ctx, c.Namespace(), pod, db,
-				fmt.Sprintf("SELECT count(*) FROM %sposts WHERE ID = %d AND post_type = 'attachment'", prefix, r.app.MediaID))
+				fmt.Sprintf("SELECT count(*) FROM %sposts WHERE \"ID\" = %d AND post_type = 'attachment'", prefix, r.app.MediaID))
 			if err != nil {
 				return false, err.Error(), nil
 			}
@@ -597,6 +597,10 @@ func (r *runner) move(ctx context.Context, j string, to, from kube.Region) bool 
 			if err != nil {
 				return false, err.Error(), nil
 			}
+			if allIn(ans, r.sharedIngressIPs) {
+				ev["via"] = "shared-ingress"
+				return true, "", nil
+			}
 			if err := DNSServesRegion(ans, r.regionIPs, to.ID); err != nil {
 				if strings.Contains(err.Error(), "share") || strings.Contains(err.Error(), "no public IPs") {
 					return false, "", err // undecidable — waiting cannot fix it
@@ -668,7 +672,7 @@ func (r *runner) j5(ctx context.Context) bool {
 			left := map[string][]string{}
 			for _, reg := range []kube.Region{r.A, r.B} {
 				var rest []string
-				apps, err := reg.GetList(ctx, appResource, "")
+				apps, err := listApplications(ctx, reg)
 				if err != nil {
 					return false, err.Error(), nil
 				}
@@ -885,4 +889,34 @@ func contains(xs []string, x string) bool {
 		}
 	}
 	return false
+}
+
+// listApplications lists Application CRs in one region. Under ADR-0015 D1 only
+// the region that runs catalyst-api carries the Application CRD; every other
+// region receives the app as region files (HelmRelease + Continuum). There,
+// "the server doesn't have a resource type" means no Application can exist,
+// so it is an empty list, not an error. Every other error stays fatal.
+func listApplications(ctx context.Context, reg kube.Region) ([]kube.Object, error) {
+	apps, err := reg.GetList(ctx, appResource, "")
+	if err != nil && strings.Contains(err.Error(), "doesn't have a resource type") {
+		return nil, nil
+	}
+	return apps, err
+}
+
+// allIn reports whether every DNS answer is one of set (non-empty).
+func allIn(answers, set []string) bool {
+	if len(answers) == 0 || len(set) == 0 {
+		return false
+	}
+	m := map[string]bool{}
+	for _, s := range set {
+		m[s] = true
+	}
+	for _, a := range answers {
+		if !m[a] {
+			return false
+		}
+	}
+	return true
 }

@@ -791,3 +791,71 @@ bootstrapOwned:
   helmRelease:
     name: ""
     namespace: flux-system
+
+# ── Peer-region trust (ADR-0015, Refs #7067) ─────────────────────────────
+# Every region runs its OWN OpenBao (independent raft, own unseal keys). A
+# multi-region Application's shared material (bp-wordpress-tenant's
+# replication CA + DB owner) is written ONCE by the primary region into EVERY
+# region's OpenBao, so each region's ExternalSecrets read their own store.
+# This block lets a peer region's ESO write into THIS OpenBao:
+#
+#   openbao-<self>     ClusterMesh-global Service with this region's active
+#                      OpenBao as backend; every peer renders a selector-less
+#                      stub of it (openbao-<peer>), so a peer's dial reaches
+#                      only the owning region (the gitea-<region-id> pattern).
+#   issuer             this OpenBao is the OIDC issuer for its own ESO:
+#                      identity/oidc issuer http://openbao-<self>…:8200, key +
+#                      role `openbao-peer-push` (aud = `audience`, claim
+#                      openova_region=<self>). The ESO SA reads the token via
+#                      the k8s-auth role `openbao-peer-token`.
+#   jwt-peer-<peer>    one jwt auth mount per peer: oidc_discovery_url = the
+#                      peer OpenBao's issuer over the mesh (its public signing
+#                      keys, fetched and rotated by OpenBao itself — nothing is
+#                      copied by hand). Role `openbao-peer-push` → policy
+#                      create/update/read on <kv>/{data,metadata}/<kvPathPrefix>/*
+#                      only (no delete, nothing outside the apps subtree).
+#
+# Why not the peer cluster's ServiceAccount issuer: every region's apiserver
+# advertises the SAME issuer (https://kubernetes.default.svc.cluster.local),
+# its JWKS needs an authenticated caller (system:service-account-issuer-
+# discovery is bound to system:serviceaccounts only) and the jwks_uri is the
+# apiserver's VPC-private address — measured on hw307 A and B, 2026-11-08.
+#
+# All of the OpenBao-side objects above are declarative desired state
+# (templates/_config.tpl), applied by the openbao-config reconciler (§config).
+# The jwt-peer-<peer> ops wait for the peer's discovery URL to answer.
+#
+# Off by construction for a single region: nothing renders unless `regions`
+# names at least one region other than `selfRegion`. The bootstrap-kit slot
+# (08-openbao.yaml) threads both from the region registry substitutes.
+peerTrust:
+  # This region's canonical id (SOVEREIGN_REGION_CANONICAL_LABEL).
+  selfRegion: ""
+  # The Sovereign region registry (SOVEREIGN_REGIONS_JSON).
+  regions: ""
+  # Per-region Service name prefix: openbao-<region-id>.
+  servicePrefix: openbao-
+  # Token audience shared by every region (the identity role client_id and
+  # the peers' bound_audiences).
+  audience: openbao-peer-push
+  # KV subtree a peer may write (under autoUnseal.kubernetesAuth.kvMountPath).
+  kvPathPrefix: openova/apps
+  # Identity token lifetime; ESO refreshes it well inside this.
+  tokenTTL: 1h
+
+# ── Declarative OpenBao configuration (ADR-0015, Refs #7067) ─────────────
+# Every ACL policy, auth role, auth mount and identity object the chart needs
+# is rendered into ConfigMap openbao-config-desired (templates/_config.tpl)
+# and applied every `intervalSeconds` by the openbao-config Deployment
+# (templates/config-reconciler.yaml, files/openbao-config-reconcile.sh).
+# It logs in as k8s-auth role openbao-config-admin (configuration surfaces
+# only — templates/_config.tpl openbao.configAdminPolicy), which the
+# auth-bootstrap hook writes on every install/upgrade: with the init root
+# token the first time, afterwards with a short-lived root generated from
+# the openbao-unseal-keys shares and revoked in the same run. A chart bump
+# therefore reaches a running Sovereign with no manual root step.
+# Rendered whenever the auth-bootstrap Job is (autoUnseal.enabled +
+# autoUnseal.kubernetesAuth.enabled).
+config:
+  intervalSeconds: 60
+  image: harbor.openova.io/proxy-dockerhub/library/alpine:3.20

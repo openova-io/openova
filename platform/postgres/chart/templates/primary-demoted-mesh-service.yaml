@@ -40,7 +40,11 @@ host `<instance>-mesh-rw` never changes across the whole promote/failback/
 switchback cycle. A singleton or a steady (non-demoted) primary renders nothing
 here (byte-identical to pre-0.2.25).
 */ -}}
-{{- if and (ne (toString .Values.enabled) "false") (eq (include "bp-postgres.meshGlobalServices" .) "true") (eq (include "bp-postgres.primaryDemoted" .) "true") }}
+{{- /* ADR-0015 D8: under the contract the named member stops being the
+     writer by its own render (primary names the replica home) — the same
+     zero-local-backend stub then publishes the consumer aliases. */ -}}
+{{- $contractStandby := and (eq (include "bp-postgres.contractActive" .) "true") (eq (include "bp-postgres.side" .) "primary") (ne (include "bp-postgres.contractIsPrimary" .) "true") }}
+{{- if and (ne (toString .Values.enabled) "false") (eq (include "bp-postgres.meshGlobalServices" .) "true") (or (eq (include "bp-postgres.primaryDemoted" .) "true") $contractStandby) }}
 apiVersion: v1
 kind: Service
 metadata:

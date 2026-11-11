@@ -5,7 +5,7 @@ name: bp-reflector
 #   Secrets watched, steady 95Mi against the 128Mi limit), region B 44 times.
 #   ADR-0015 D1 kubeconfig mirroring and the cutover ghcr-pull fan-out now
 #   depend on it. Upstream 7.1.288 offers no watch narrowing (values.yaml).
-version: 1.0.1
+version: 1.0.2
 description: |
   Catalyst-curated Blueprint umbrella chart for emberstack/reflector.
   Reflector mirrors Kubernetes Secrets and ConfigMaps across namespaces
@@ -30,4 +30,13 @@ maintainers:
 dependencies:
   - name: reflector
     version: "7.1.288"
-    repository: "https://emberstack.github.io/helm-charts"
+    # Vendored copy (charts/reflector, unmodified upstream 7.1.288 bytes),
+    # like bp-seaweedfs: the upstream index now lists chart URLs as the
+    # relative path `repository/reflector/…`, which Helm misreads as a repo
+    # alias ("repo repository not found"), so `helm dependency build` from
+    # https://emberstack.github.io/helm-charts can no longer resolve it
+    # (CI helm-lint on PR #7085; Refs #7067).
+    repository: "file://charts/reflector"
+annotations:
+  catalyst.openova.io/vendored-subchart: "reflector@7.1.288"
+  catalyst.openova.io/vendored-reason: "upstream index lists relative chart URLs Helm cannot resolve"

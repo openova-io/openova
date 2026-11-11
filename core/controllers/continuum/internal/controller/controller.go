@@ -131,6 +131,11 @@ type member struct {
 	policy transition.Policy
 	gitOK  bool
 	why    string
+	// hr is spec.transition.helmRelease ("<ns>/<name>"): the HelmRelease a
+	// platform Application's bootstrap-kit slot installs (empty for Org
+	// Applications, whose HelmReleases carry the application-controller's
+	// labels).
+	hr string
 }
 
 func parseMember(cr *unstructured.Unstructured, registry []string) member {
@@ -157,7 +162,16 @@ func parseMember(cr *unstructured.Unstructured, registry []string) member {
 	if branch == "" {
 		branch = "main"
 	}
-	out.repo = Repo{Owner: owner, Name: name, Branch: branch}
+	path, _, _ := unstructured.NestedString(cr.Object, "spec", "transition", "repo", "path")
+	folder, _, _ := unstructured.NestedString(cr.Object, "spec", "transition", "repo", "folder")
+	out.repo = Repo{Owner: owner, Name: name, Branch: branch, Path: path, Folder: folder}
+	if hrName, _, _ := unstructured.NestedString(cr.Object, "spec", "transition", "helmRelease", "name"); hrName != "" {
+		hrNS, _, _ := unstructured.NestedString(cr.Object, "spec", "transition", "helmRelease", "namespace")
+		if hrNS == "" {
+			hrNS = "flux-system"
+		}
+		out.hr = hrNS + "/" + hrName
+	}
 	out.gitOK = owner != "" && name != "" && app != ""
 	if !out.gitOK {
 		out.why = "this Continuum names no Git region files (spec.transition.repo); ADR-0015 D8 transitions only Git-delivered Applications — re-express it in the per-region layout"
@@ -241,6 +255,7 @@ func (c *Controller) reconcileGroup(ctx context.Context, g transition.Group, byK
 		members = append(members, byKey[m.Namespace+"/"+m.Name])
 	}
 	repo := members[0].repo
+	layout := repo.Layout()
 	policy := members[0].policy
 	for _, pm := range members[1:] {
 		if pm.repo != repo {
@@ -266,10 +281,10 @@ func (c *Controller) reconcileGroup(ctx context.Context, g transition.Group, byK
 		raw[m.Key()] = map[string]fileState{}
 		for _, r := range m.Regions {
 			regionSet[r] = true
-			data, sha, found, err := c.Store.Read(ctx, repo, regionfile.AppPath(r, m.App))
+			data, sha, found, err := c.Store.Read(ctx, repo, layout.AppPath(r, m.App))
 			if err != nil {
 				return c.statusAll(ctx, members, groupStatus{group: g.ID, outcome: transition.OutcomeBlocked,
-					message: fmt.Sprintf("read %s from the writer Gitea: %v", regionfile.AppPath(r, m.App), err)})
+					message: fmt.Sprintf("read %s from the writer Gitea: %v", layout.AppPath(r, m.App), err)})
 			}
 			fv := transition.FileView{Exists: found}
 			if found {
@@ -300,7 +315,7 @@ func (c *Controller) reconcileGroup(ctx context.Context, g transition.Group, byK
 		for _, m := range g.Members {
 			for _, mr := range m.Regions {
 				if mr == r {
-					targets = append(targets, observe.Target{Namespace: m.Namespace, App: m.App, Stateful: m.Stateful})
+					targets = append(targets, observe.Target{Namespace: m.Namespace, App: m.App, Stateful: m.Stateful, HelmRelease: byKey[m.Namespace+"/"+m.Name].hr})
 				}
 			}
 		}
@@ -308,7 +323,7 @@ func (c *Controller) reconcileGroup(ctx context.Context, g transition.Group, byK
 	}
 
 	// Lease + record.
-	leasePath := regionfile.LeasePath(g.ID)
+	leasePath := layout.LeasePath(g.ID)
 	ldata, lsha, _, err := c.Store.Read(ctx, repo, leasePath)
 	if err != nil {
 		return c.statusAll(ctx, members, groupStatus{group: g.ID, outcome: transition.OutcomeBlocked,
@@ -437,7 +452,7 @@ func (c *Controller) commitRegionFile(ctx context.Context, repo Repo, cm transit
 	if err != nil {
 		return err
 	}
-	path := regionfile.AppPath(cm.Region, cm.App)
+	path := repo.Layout().AppPath(cm.Region, cm.App)
 	id := ""
 	if rec != nil {
 		id = rec.ID
@@ -490,6 +505,12 @@ func memberActivity(rec *transition.Record, m transition.Member) []interface{} {
 			continue
 		}
 		e := map[string]interface{}{"id": a.ID, "phase": a.Phase, "member": a.Member, "state": a.State}
+		// The transition's identity: every move is its own Jobs record
+		// (Refs #7067 — a second move reused the first move's ids and never
+		// appeared in Jobs).
+		if rec.ID != "" {
+			e["transition"] = rec.ID
+		}
 		if a.StartedAt != "" {
 			e["startedAt"] = a.StartedAt
 		}

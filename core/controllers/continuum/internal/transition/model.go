@@ -150,6 +150,11 @@ type DBStatus struct {
 	DemotionToken      string `json:"demotionToken,omitempty"`
 	LastPromotionToken string `json:"lastPromotionToken,omitempty"`
 	Phase              string `json:"phase,omitempty"`
+	// TopologyPrimary is the `openova.topology.primary` the chart rendered
+	// onto the Cluster (annotation openova.io/topology-primary) — set by
+	// contract charts installed by a bootstrap-kit slot, whose HelmRelease
+	// receives the contract through valuesFrom.
+	TopologyPrimary string `json:"topologyPrimary,omitempty"`
 }
 
 // MemberStatus is one member in one region, as that region observes it.

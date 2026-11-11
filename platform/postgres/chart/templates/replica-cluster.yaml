@@ -36,6 +36,11 @@ flipping SOVEREIGN_ENABLE_CNPG_PAIR on (handler/clustermesh.go), exactly as
 it does for the bp-cnpg-pair `-primary-replication` / `-primary-ca` Secrets.
 */ -}}
 {{- if and (ne (toString .Values.enabled) "false") (.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1") (include "bp-postgres.renderReplicaHalf" .) }}
+{{- /* ADR-0015 D8 contract: CNPG distributed topology; this member is the
+     writer when the contract names its region primary (then it carries the
+     sync fence and, while being promoted, the promotionToken). */ -}}
+{{- $contract := eq (include "bp-postgres.contractActive" .) "true" }}
+{{- $writer := and $contract (eq (include "bp-postgres.contractIsPrimary" .) "true") }}
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
@@ -50,6 +55,10 @@ metadata:
          regions, so an empty value degrades that surface too. */}}
     openova.io/region: {{ include "bp-postgres.replicaRegion" . | quote }}
     catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+  {{- with (include "bp-postgres.topologyAnnotations" . | trim) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 spec:
   instances: {{ .Values.topology.haInstances | default 3 }}
   imageName: {{ include "bp-postgres.imageRef" . | quote }}
@@ -124,8 +133,12 @@ spec:
   # dr-promoter actor patches — so flux drift-correction RE-AFFIRMS the
   # promotion instead of a live-object patch it reverts mid-outage (hw256 G12).
   replica:
+    {{- if $contract }}
+    {{- include "bp-postgres.contractReplica" . | nindent 4 }}
+    {{- else }}
     enabled: {{ not (.Values.topology.promoted | default false) }}
     source: {{ include "bp-postgres.instanceName" . }}
+    {{- end }}
 
   # ── Bootstrap from primary ──────────────────────────────────────
   # CNPG REQUIRES an explicit bootstrap stanza on a replica Cluster:
@@ -187,6 +200,9 @@ spec:
         name: {{ include "bp-postgres.primaryAppSecretName" . | quote }}
 
   externalClusters:
+    {{- if $contract }}
+    {{- include "bp-postgres.contractExternalClusters" . | nindent 4 }}
+    {{- else }}
     - name: {{ include "bp-postgres.instanceName" . }}
       connectionParameters:
         # Cilium ClusterMesh-global Service alias — managed by CNPG via the
@@ -214,6 +230,7 @@ spec:
       sslRootCert:
         name: {{ include "bp-postgres.instanceName" . }}-ca
         key: ca.crt
+    {{- end }}
 
   # `hot_standby` is intentionally OMITTED — PostgreSQL 16 hard-pins it to
   # `on` for any Cluster running with `replica.enabled: true`, and CNPG
@@ -224,6 +241,13 @@ spec:
       max_wal_senders: "10"
       max_replication_slots: "10"
       wal_level: "logical"
+      {{- if and $writer (eq (default "sync" .Values.topology.replication.mode) "sync") }}
+      synchronous_commit: {{ default "remote_apply" .Values.topology.replication.sync.commit | quote }}
+    synchronous:
+      method: first
+      number: {{ int (default 1 .Values.topology.replication.sync.numSync) }}
+      dataDurability: required
+      {{- end }}
 
   enableSuperuserAccess: {{ .Values.instance.enableSuperuserAccess | default false }}
 
