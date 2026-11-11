@@ -473,10 +473,11 @@ render on the two shapes D6 forbids:
 {{- $store -}}
 {{- end -}}
 
-{{/* Object-key prefix of this Application's media: `<org>/<app>`. */}}
+{{/* Object-key prefix of this Application's media: `<ns>/<app>` — the Application identity, the same in every region (the release name carries a per-region suffix, so uploads written in A were invisible from B after a move; Refs #7067). */}}
 {{- define "bp-wordpress-tenant.mediaKeyPrefix" -}}
 {{- $p := dig "s3" "keyPrefix" "" (.Values.media | default dict) | toString | trim | trimPrefix "/" | trimSuffix "/" -}}
-{{- if $p -}}{{ $p }}{{- else -}}{{ printf "%s/%s" .Release.Namespace (include "bp-wordpress-tenant.fullname" .) }}{{- end -}}
+{{- $app := dig "openova" "application" "name" "" (.Values | toJson | fromJson) -}}
+{{- if $p -}}{{ $p }}{{- else if $app -}}{{ printf "%s/%s" .Release.Namespace $app }}{{- else -}}{{ printf "%s/%s" .Release.Namespace (include "bp-wordpress-tenant.fullname" .) }}{{- end -}}
 {{- end -}}
 
 {{/* Name of the reflected SeaweedFS S3 credentials Secret. */}}

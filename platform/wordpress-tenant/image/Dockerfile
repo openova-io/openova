@@ -190,3 +190,12 @@ RUN set -eux; \
     test -s /tmp/uid33probe/oidc/openid-connect-generic.php; \
     test -s /tmp/uid33probe/media.php; \
     rm -rf /tmp/uid33probe
+
+# wp-cli for the chart's install/OIDC hook (Refs #7067). The hook used to run
+# the stock `wordpress:cli` image, whose PHP has NO pgsql extension: every
+# wp-cli call through pg4wp failed ("missing the PostgreSQL extension"), so a
+# clean install never completed. The hook now runs THIS image (core + pgsql +
+# pg4wp + the same plugins as the site); only the wp-cli phar is borrowed from
+# the pinned cli image.
+COPY --from=docker.io/library/wordpress:cli-2.12.0-php8.3 /usr/local/bin/wp /usr/local/bin/wp
+RUN php -m | grep -qx pgsql && php /usr/local/bin/wp --info --allow-root >/dev/null
