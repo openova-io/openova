@@ -24,7 +24,7 @@ spec:
   # default; regionLocalVolumes declare a replication for every entry.
   # Lockstep with platform/wordpress-tenant/chart/Chart.yaml.
   # 0.6.1 (Refs #7067): seed fans out to vault-<peer> for every topology peer.
-  version: 0.6.1
+  version: 0.6.2
   card:
     title: WordPress (per-Organization)
     summary: |

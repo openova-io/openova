@@ -88,7 +88,7 @@ spec:
   # (S3-Uploads + openova-media-store mu-plugin), no wp-content PVC by
   # default; regionLocalVolumes below carry a replication for every entry
   # (the D6 admission gate reads them off THIS CR).
-  version: "0.6.1"
+  version: "0.6.2"
   visibility: listed
   card:
     title: "WordPress (per-Organization)"
@@ -133,7 +133,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-wordpress-tenant
-    version: "0.6.1"
+    version: "0.6.2"
   # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): lockstep with
   # platform/wordpress-tenant/blueprint.yaml. Uses {{.AppName}} so
   # multi-instance tenants get distinct hostnames per Application.
