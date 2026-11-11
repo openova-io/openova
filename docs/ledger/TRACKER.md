@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-11T18:45:05Z` |
+| Last refreshed | `2026-11-11T19:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-11T18:52 | [#7086](https://github.com/openova-io/openova/pull/7086) | #7085 | ci: fix the two post-merge reds after #7085 (sso-uat-flip HT |
 | 2026-11-11T18:25 | [#7085](https://github.com/openova-io/openova/pull/7085) | #7067 | fix(adr-0015): two-region WordPress installs from the consol |
 | 2026-11-08T12:17 | [#7082](https://github.com/openova-io/openova/pull/7082) | #7067 | fix(org-quota): always-scoped plan-quota + classless platfor |
 | 2026-11-08T12:16 | [#7081](https://github.com/openova-io/openova/pull/7081) | #7077 | integ: ADR-0015 batch 2 — D6b + D8 + region-local kubeconfig |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-06T20:20 | [#7046](https://github.com/openova-io/openova/pull/7046) | #7044 | feat(bp-cnpg-pair): the pair is an Application in the unifie |
 | 2026-11-06T19:21 | [#7045](https://github.com/openova-io/openova/pull/7045) | #7044 | fix(dr): placement claims CNPG pods via their owning Cluster |
 | 2026-11-06T18:42 | [#7044](https://github.com/openova-io/openova/pull/7044) | #4551 | fix(dr): cnpg-pair Topology shows the real pair, the live sw |
-| 2026-11-06T18:39 | [#7043](https://github.com/openova-io/openova/pull/7043) | #3601 | fix(sovereign-ui): Apps search matches ids, slugs, blueprint |
 
 ---
 
