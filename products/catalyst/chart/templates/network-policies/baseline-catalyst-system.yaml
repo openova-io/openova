@@ -240,6 +240,23 @@ spec:
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: catalyst-system
+    # 3b. ADR-0015 D7/D8 (Refs #7067): the PEER regions' Continuum
+    #     observers (continuum-<region-id> ClusterMesh Service, :8082).
+    #     Rule 3 matches the LOCAL cluster only (Cilium selects local
+    #     endpoints unless the cluster label is named), so the Serving
+    #     probe could never read a cross-region synchronous standby and
+    #     every two-region app stayed Ready=Unknown (live hw307).
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: catalyst-system
+            k8s:app.kubernetes.io/name: continuum-controller
+          matchExpressions:
+            - key: io.cilium.k8s.policy.cluster
+              operator: Exists
+      toPorts:
+        - ports:
+            - port: "8082"
+              protocol: TCP
     # 4. Platform namespaces — operator-tunable list. Defaults cover
     #    every namespace catalyst-system legitimately reaches in a
     #    canonical Sovereign install.
