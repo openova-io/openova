@@ -585,6 +585,10 @@ func (c Config) Defaults() Config {
 
 // Reconciler holds runtime state for the controller.
 type Reconciler struct {
+	// keyLocks serialises reconciles of one Application across the watch
+	// loop and the periodic relist (see reconcileLatest).
+	keyLocks keyedLocks
+
 	// Dynamic is the K8s dynamic client. Pass either an in-cluster
 	// client or a fake.NewSimpleDynamicClient for tests.
 	Dynamic dynamic.Interface
@@ -688,7 +692,7 @@ func (r *Reconciler) initialList(ctx context.Context) error {
 		return err
 	}
 	for i := range list.Items {
-		if err := r.Reconcile(ctx, &list.Items[i]); err != nil {
+		if err := r.reconcileLatest(ctx, &list.Items[i]); err != nil {
 			r.Log.Error("initial reconcile failed", "name", list.Items[i].GetName(), "err", err)
 		}
 	}
@@ -719,7 +723,7 @@ func (r *Reconciler) watchOnce(ctx context.Context) error {
 			if !ok {
 				continue
 			}
-			if err := r.Reconcile(ctx, obj); err != nil {
+			if err := r.reconcileLatest(ctx, obj); err != nil {
 				r.Log.Error("reconcile failed", "name", obj.GetName(), "namespace", obj.GetNamespace(), "err", err)
 			}
 		}
@@ -2376,6 +2380,15 @@ func (r *Reconciler) cascadeDeleteFanoutHelmReleases(ctx context.Context, app *u
 				continue
 			}
 		} else if labels[topo.LabelApp] != name {
+			continue
+		}
+		// ADR-0015 D1 (Refs #7067): a HelmRelease delivered from a region
+		// file is owned by Git. Removing the file and letting that Flux
+		// Kustomization prune is the delete. Deleting it here RACED Flux:
+		// the Kustomization re-created it from the still-applied revision,
+		// a fresh install started (a new CNPG Cluster), and the prune then
+		// waited out the 15-minute install (live hw307 run 12, J5.2).
+		if labels[fluxKustomizeNameLabel] != "" {
 			continue
 		}
 		ns, hrName := hr.GetNamespace(), hr.GetName()
