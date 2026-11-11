@@ -1,0 +1,267 @@
+{
+  "schema": "openova.io/acceptance-sovereign/v1",
+  "run_id": "20261111T075034Z-9fb9",
+  "env": "hw307",
+  "console": "https://console.hw307.omani.works",
+  "deployment_id": "9a1f230f320d7ff9",
+  "mode": "run",
+  "suite_git_sha": "62de0341ccdae35d34cdd729c827aa1de62c7c6a",
+  "started_at": "2026-11-11T07:50:34.942389753Z",
+  "finished_at": "2026-11-11T08:15:43.020643816Z",
+  "result": "FAIL",
+  "journeys": {
+    "J1": "FAIL",
+    "J2": "SKIP",
+    "J3": "SKIP",
+    "J4": "SKIP",
+    "J5": "SKIP"
+  },
+  "subject": {
+    "application": "accept-1794383436",
+    "blueprint": "bp-wordpress-tenant@0.6.1-hw307.5",
+    "delivered_images": {
+      "hw-me-east-215-a-rtz-prod": {
+        "catalyst-api": "registry.hw307.omani.works/openova-io/openova/catalyst-api:hw307-13585c4",
+        "catalyst-application-controller": "registry.hw307.omani.works/openova-io/openova/application-controller:hw307-eecb8ff",
+        "catalyst-catalog": "registry.hw307.omani.works/openova-io/openova/catalyst-catalog:973094b",
+        "catalyst-environment-controller": "registry.hw307.omani.works/openova-io/openova/environment-controller:03bcc36",
+        "catalyst-organization-controller": "registry.hw307.omani.works/openova-io/openova/organization-controller:hw307-01f947f",
+        "catalyst-ui": "registry.hw307.omani.works/openova-io/openova/catalyst-ui:03bcc36",
+        "catalyst-useraccess-controller": "registry.hw307.omani.works/openova-io/openova/useraccess-controller:03bcc36",
+        "continuum-controller": "registry.hw307.omani.works/openova-io/openova/continuum-controller:hw307-bfb5716",
+        "marketplace-api": "registry.hw307.omani.works/openova-io/openova/marketplace-api:0d9531a",
+        "openova-flow-server": "registry.hw307.omani.works/openova-io/openova/openova-flow-server:f5c4c54",
+        "openova-mcp-bp-openova-mcp": "ghcr.io/openova-io/openova-mcp:0.2.7"
+      },
+      "hw-me-east-215-b-rtz-prod": {
+        "continuum-controller": "registry.hw307.omani.works/openova-io/openova/continuum-controller:hw307-bfb5716",
+        "openova-flow-server": "ghcr.io/openova-io/openova/openova-flow-server:f5c4c54"
+      }
+    },
+    "environment": "hw307-omani-works-cp",
+    "org": "hw307-omani-works",
+    "regions": {
+      "A": "hw-me-east-215-a-rtz-prod",
+      "B": "hw-me-east-215-b-rtz-prod"
+    }
+  },
+  "steps": [
+    {
+      "journey": "D0",
+      "id": "D0.1",
+      "name": "session authenticates as owner (GET /api/v1/whoami)",
+      "status": "PASS",
+      "started_at": "2026-11-11T07:50:34.950373164Z",
+      "finished_at": "2026-11-11T07:50:36.137310533Z",
+      "duration_ms": 1186,
+      "evidence": {
+        "deploymentId": "9a1f230f320d7ff9",
+        "mode": "sovereign",
+        "sovereignFQDN": "hw307.omani.works",
+        "tier": "owner"
+      }
+    },
+    {
+      "journey": "D0",
+      "id": "D0.2",
+      "name": "regions: each kubeconfig IS the region it claims; ids from the region registry",
+      "status": "PASS",
+      "started_at": "2026-11-11T07:50:36.137341405Z",
+      "finished_at": "2026-11-11T07:50:36.319049825Z",
+      "duration_ms": 181,
+      "evidence": {
+        "console_topology_regions": [
+          "me-east-215-a",
+          "me-east-215-b"
+        ],
+        "identity_source": "TEMPORARY-fallback: bootstrap-kit postBuild SOVEREIGN_REGION_KEY per kubeconfig",
+        "regionA": "hw-me-east-215-a-rtz-prod",
+        "regionB": "hw-me-east-215-b-rtz-prod",
+        "region_ips": {
+          "hw-me-east-215-a-rtz-prod": [
+            "5.37.79.43"
+          ],
+          "hw-me-east-215-b-rtz-prod": [
+            "212.72.24.1"
+          ]
+        },
+        "region_ips_source": "TEMPORARY-fallback: bootstrap-kit CILIUM_LB_IPAM_CIDRS per region (override: ACCEPT_REGION_IPS)",
+        "registry": "absent (GET /api/v1/sovereigns/{id}/regions 404 — ADR-0015 D3 pending)"
+      }
+    },
+    {
+      "journey": "D0",
+      "id": "D0.3",
+      "name": "Organization = the Sovereign's own (GET /api/v1/organizations)",
+      "status": "PASS",
+      "started_at": "2026-11-11T07:50:36.319091418Z",
+      "finished_at": "2026-11-11T07:50:36.324138263Z",
+      "duration_ms": 5,
+      "evidence": {
+        "kind": "internal",
+        "namespace": "hw307-omani-works",
+        "org": "hw307-omani-works",
+        "state": "done"
+      }
+    },
+    {
+      "journey": "D0",
+      "id": "D0.4",
+      "name": "Environment of that Org spanning both regions",
+      "status": "PASS",
+      "started_at": "2026-11-11T07:50:36.324162413Z",
+      "finished_at": "2026-11-11T07:50:36.394563175Z",
+      "duration_ms": 70,
+      "evidence": {
+        "environment": "hw307-omani-works-cp",
+        "placement": "multi-region",
+        "regions": 2,
+        "source": "TEMPORARY-fallback: kubectl get environments (region A) — console list endpoint 404 (ADR-0015 D4 pending)"
+      }
+    },
+    {
+      "journey": "D0",
+      "id": "D0.5",
+      "name": "Blueprint exists and declares active-hot-standby",
+      "status": "PASS",
+      "started_at": "2026-11-11T07:50:36.39463422Z",
+      "finished_at": "2026-11-11T07:50:36.718266574Z",
+      "duration_ms": 323,
+      "evidence": {
+        "blueprint": "bp-wordpress-tenant",
+        "supported": [
+          "active-passive",
+          "active-hot-standby",
+          "singleton"
+        ],
+        "version": "0.6.1-hw307.5"
+      }
+    },
+    {
+      "journey": "D0",
+      "id": "D0.6",
+      "name": "delivered control-plane images (what this run certifies)",
+      "status": "PASS",
+      "started_at": "2026-11-11T07:50:36.718306167Z",
+      "finished_at": "2026-11-11T07:50:36.84078385Z",
+      "duration_ms": 122,
+      "evidence": {
+        "images": {
+          "hw-me-east-215-a-rtz-prod": {
+            "catalyst-api": "registry.hw307.omani.works/openova-io/openova/catalyst-api:hw307-13585c4",
+            "catalyst-application-controller": "registry.hw307.omani.works/openova-io/openova/application-controller:hw307-eecb8ff",
+            "catalyst-catalog": "registry.hw307.omani.works/openova-io/openova/catalyst-catalog:973094b",
+            "catalyst-environment-controller": "registry.hw307.omani.works/openova-io/openova/environment-controller:03bcc36",
+            "catalyst-organization-controller": "registry.hw307.omani.works/openova-io/openova/organization-controller:hw307-01f947f",
+            "catalyst-ui": "registry.hw307.omani.works/openova-io/openova/catalyst-ui:03bcc36",
+            "catalyst-useraccess-controller": "registry.hw307.omani.works/openova-io/openova/useraccess-controller:03bcc36",
+            "continuum-controller": "registry.hw307.omani.works/openova-io/openova/continuum-controller:hw307-bfb5716",
+            "marketplace-api": "registry.hw307.omani.works/openova-io/openova/marketplace-api:0d9531a",
+            "openova-flow-server": "registry.hw307.omani.works/openova-io/openova/openova-flow-server:f5c4c54",
+            "openova-mcp-bp-openova-mcp": "ghcr.io/openova-io/openova-mcp:0.2.7"
+          },
+          "hw-me-east-215-b-rtz-prod": {
+            "continuum-controller": "registry.hw307.omani.works/openova-io/openova/continuum-controller:hw307-bfb5716",
+            "openova-flow-server": "ghcr.io/openova-io/openova/openova-flow-server:f5c4c54"
+          }
+        }
+      }
+    },
+    {
+      "journey": "J1",
+      "id": "J1.0",
+      "name": "create with an unknown Org / Environment / Region → 422 each, nothing created",
+      "status": "PASS",
+      "started_at": "2026-11-11T07:50:36.840844784Z",
+      "finished_at": "2026-11-11T07:50:37.143740581Z",
+      "duration_ms": 302,
+      "evidence": {
+        "http": {
+          "environment": 422,
+          "organization": 422,
+          "region": 422
+        }
+      }
+    },
+    {
+      "journey": "J1",
+      "id": "J1.1",
+      "name": "create WordPress active-hot-standby, Primary A Standby B (POST /catalyst/v1/apps/instances)",
+      "status": "PASS",
+      "started_at": "2026-11-11T07:50:37.143799987Z",
+      "finished_at": "2026-11-11T07:50:38.071465963Z",
+      "duration_ms": 927,
+      "evidence": {
+        "http": 201,
+        "request": {
+          "blueprint": "bp-wordpress-tenant",
+          "environment": "hw307-omani-works-cp",
+          "name": "accept-1794383436",
+          "org": "hw307-omani-works",
+          "placement": {
+            "regions": [
+              "hw-me-east-215-a-rtz-prod",
+              "hw-me-east-215-b-rtz-prod"
+            ]
+          },
+          "topology": "active-hot-standby"
+        }
+      }
+    },
+    {
+      "journey": "J1",
+      "id": "J1.2",
+      "name": "Application Ready=True and placement reads Primary A / Standby B",
+      "status": "FAIL",
+      "started_at": "2026-11-11T07:50:38.07158926Z",
+      "finished_at": "2026-11-11T08:15:43.020600246Z",
+      "duration_ms": 1504949,
+      "evidence": {
+        "phase": "Provisioning",
+        "ready": "Unknown",
+        "reason": "SynchronousStandbyUnobservable: primary hw307-omani-works/accept-1794383436-db-6e1e3f9c requires 1 synchronous standby(s) (dataDurability=required); standby accept-1794383436-db-5ff1066a is not observable from this region"
+      },
+      "error": "timed out after 24m59.999990846s; last observed: Ready=Unknown SynchronousStandbyUnobservable: primary hw307-omani-works/accept-1794383436-db-6e1e3f9c requires 1 synchronous standby(s) (dataDurability=required); standby accept-1794383436-db-5ff1066a is not observable from this region"
+    },
+    {
+      "journey": "J2",
+      "id": "-",
+      "name": "journey not run",
+      "status": "SKIP",
+      "started_at": "2026-11-11T08:15:43.020634069Z",
+      "finished_at": "2026-11-11T08:15:43.020634069Z",
+      "duration_ms": 0,
+      "error": "J1 failed — no working install to drive"
+    },
+    {
+      "journey": "J3",
+      "id": "-",
+      "name": "journey not run",
+      "status": "SKIP",
+      "started_at": "2026-11-11T08:15:43.020637374Z",
+      "finished_at": "2026-11-11T08:15:43.020637374Z",
+      "duration_ms": 0,
+      "error": "J1 failed — no working install to drive"
+    },
+    {
+      "journey": "J4",
+      "id": "-",
+      "name": "journey not run",
+      "status": "SKIP",
+      "started_at": "2026-11-11T08:15:43.020639146Z",
+      "finished_at": "2026-11-11T08:15:43.020639146Z",
+      "duration_ms": 0,
+      "error": "J1 failed — no working install to drive"
+    },
+    {
+      "journey": "J5",
+      "id": "-",
+      "name": "journey not run",
+      "status": "SKIP",
+      "started_at": "2026-11-11T08:15:43.020641942Z",
+      "finished_at": "2026-11-11T08:15:43.020641942Z",
+      "duration_ms": 0,
+      "error": "--keep-on-fail: an earlier step failed; accept-1794383436 left in place for debugging"
+    }
+  ]
+}
