@@ -312,3 +312,42 @@ func SetTransitionFields(objs []*unstructured.Unstructured, f TransitionFields) 
 	}
 	return changed, nil
 }
+
+// DeclarePromotionMechanism stamps `database.topology.promotion.mechanism`
+// on every HelmRelease carrier of objs whose topology contract is
+// multi-region (openova.topology.mode other than singleton) and that does not
+// already declare one. The application-controller calls it only for files it
+// governs with a Continuum, so the declared actor IS the actor it renders
+// (ADR-0015 D8). An operator's explicit choice (e.g. "manual") is kept.
+// Topology ConfigMaps (platform pairs) are left alone: their charts carry
+// their own promotion wiring. Returns the number of carriers changed.
+func DeclarePromotionMechanism(objs []*unstructured.Unstructured, mechanism string) (int, error) {
+	changed := 0
+	for _, o := range objs {
+		if !isHelmRelease(o) {
+			continue
+		}
+		v, _, err := carrierValues(o)
+		if err != nil {
+			return changed, err
+		}
+		if v == nil {
+			continue
+		}
+		mode, ok, _ := unstructured.NestedString(v, "openova", "topology", "mode")
+		if !ok || mode == "" || mode == "singleton" {
+			continue
+		}
+		if cur, _, _ := unstructured.NestedString(v, "database", "topology", "promotion", "mechanism"); cur != "" {
+			continue
+		}
+		if err := unstructured.SetNestedField(v, mechanism, "database", "topology", "promotion", "mechanism"); err != nil {
+			return changed, err
+		}
+		if err := setCarrierValues(o, v); err != nil {
+			return changed, err
+		}
+		changed++
+	}
+	return changed, nil
+}
