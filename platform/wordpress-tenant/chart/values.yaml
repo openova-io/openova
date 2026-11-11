@@ -178,7 +178,9 @@ database:
   # CNPG Cluster name. Without `openova.topology` this IS the Cluster name.
   # With the contract it is the BASE of the per-region name
   # `<cnpgClusterName>-<sha256(region-id)[0:8]>` (see database.topology).
-  cnpgClusterName: "wordpress-db"
+  # Empty = derived: <openova.application.name>-db under the topology
+  # contract, else "wordpress-db" (bp-wordpress-tenant.cnpgBase).
+  cnpgClusterName: ""
   cluster:
     enabled: true
     # CNPG namespace defaults to .Release.Namespace (tenant ns) so the
