@@ -476,7 +476,7 @@ name: bp-cnpg-pair
 #   carried forward from the live object on every later render (lookup), so a
 #   release upgrade never reverts the operator's declared primary (hw307
 #   2026-11-07: the Topology edit B-as-Primary was undone by the release).
-version: 0.2.32
+version: 0.2.32-hw307.1
 appVersion: "0.2.1"
 description: |
   Catalyst-curated Blueprint for an active-hotstandby CNPG cluster-pair
