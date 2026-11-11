@@ -42,8 +42,17 @@ Expand the name of the chart.
 Create a default fully qualified app name.
 */}}
 {{- define "bp-wordpress-tenant.fullname" -}}
+{{- $app := dig "openova" "application" "name" "" (.Values | toJson | fromJson) -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- else if $app }}
+{{- /* ADR-0015 D2 (Refs #7067): under the topology contract every region
+       renders the SAME object names, from the Application identity — not
+       from the per-region release name (<app>-rtz-a / -rtz-b). Cilium merges
+       mesh-global Services BY NAME: with per-region names the non-primary
+       region's route had 0 backends after a Primary move and answered 503
+       (live hw307 run 9). */ -}}
+{{- printf "%s-%s" $app (default .Chart.Name .Values.nameOverride) | trunc 63 | trimSuffix "-" }}
 {{- else }}
 {{- $name := default .Chart.Name .Values.nameOverride }}
 {{- if contains $name .Release.Name }}
