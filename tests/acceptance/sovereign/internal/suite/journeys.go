@@ -75,7 +75,7 @@ func randHex(n int) string {
 // both sides of that change).
 func (r *runner) createBody(name, org, env string, regions []string) map[string]any {
 	return map[string]any{
-		"blueprint":   strings.TrimPrefix(r.cfg.Blueprint, "bp-"),
+		"blueprint":   r.cfg.Blueprint, // ADR-0015 D4: the Blueprint CR name exactly, as NewInstanceDialog sends it
 		"org":         org,
 		"environment": env,
 		"name":        name,
@@ -130,7 +130,7 @@ func (r *runner) j1(ctx context.Context) bool {
 			if ex {
 				bad = append(bad, "namespace accept-noorg-"+tag+" was created in "+reg.ID)
 			}
-			apps, err := reg.GetList(ctx, appResource, "")
+			apps, err := listApplications(ctx, reg)
 			if err != nil {
 				return err
 			}
@@ -668,7 +668,7 @@ func (r *runner) j5(ctx context.Context) bool {
 			left := map[string][]string{}
 			for _, reg := range []kube.Region{r.A, r.B} {
 				var rest []string
-				apps, err := reg.GetList(ctx, appResource, "")
+				apps, err := listApplications(ctx, reg)
 				if err != nil {
 					return false, err.Error(), nil
 				}
@@ -885,4 +885,17 @@ func contains(xs []string, x string) bool {
 		}
 	}
 	return false
+}
+
+// listApplications lists Application CRs in one region. Under ADR-0015 D1 only
+// the region that runs catalyst-api carries the Application CRD; every other
+// region receives the app as region files (HelmRelease + Continuum). There,
+// "the server doesn't have a resource type" means no Application can exist,
+// so it is an empty list, not an error. Every other error stays fatal.
+func listApplications(ctx context.Context, reg kube.Region) ([]kube.Object, error) {
+	apps, err := reg.GetList(ctx, appResource, "")
+	if err != nil && strings.Contains(err.Error(), "doesn't have a resource type") {
+		return nil, nil
+	}
+	return apps, err
 }
