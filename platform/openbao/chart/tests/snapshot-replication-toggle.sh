@@ -15,7 +15,7 @@
 #   Case 3 — enabled + role=secondary: a snapshot-FETCH CronJob that pulls
 #            the latest object from S3 + the restore-staging PVC.
 #   Case 4 — when autoUnseal.enabled=true AND snapshotReplication.enabled
-#            =true, the auth-bootstrap Job binds the openbao-snapshot
+#            =true, the declarative config (openbao-config) binds the openbao-snapshot
 #            K8s-auth role + policy (scoped to sys/storage/raft/snapshot).
 #
 # Usage: bash tests/snapshot-replication-toggle.sh [CHART_DIR]
@@ -196,7 +196,7 @@ if grep -qF '"jwt\":\"${SA_TOKEN}' "$TMP/secondary.yaml" \
 fi
 echo "  PASS"
 
-echo "[snapshot-replication-toggle] Case 4: auth-bootstrap binds the openbao-snapshot role when both flags on"
+echo "[snapshot-replication-toggle] Case 4: the declarative OpenBao config binds the openbao-snapshot role when both flags on"
 helm template smoke-bao . \
   --set autoUnseal.enabled=true \
   --set snapshotReplication.enabled=true \
@@ -207,12 +207,14 @@ helm template smoke-bao . \
     cat "$TMP/both.err" >&2
     exit 1
   }
-if ! grep -qE "bao write auth/.*/role/openbao-snapshot" "$TMP/both.yaml"; then
-  echo "FAIL: auth-bootstrap does not bind the openbao-snapshot K8s-auth role." >&2
+# Since 1.2.72 (Refs #7067) policies + roles are desired state in ConfigMap
+# openbao-config-desired (applied by the openbao-config reconciler).
+if ! grep -qE "^    write auth/kubernetes/role/openbao-snapshot$" "$TMP/both.yaml"; then
+  echo "FAIL: the desired state does not bind the openbao-snapshot K8s-auth role." >&2
   exit 1
 fi
-if ! grep -qE "bao policy write openbao-snapshot" "$TMP/both.yaml"; then
-  echo "FAIL: auth-bootstrap does not write the openbao-snapshot policy." >&2
+if ! grep -qE "^    write sys/policies/acl/openbao-snapshot$" "$TMP/both.yaml"; then
+  echo "FAIL: the desired state does not write the openbao-snapshot policy." >&2
   exit 1
 fi
 echo "  PASS"

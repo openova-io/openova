@@ -16,9 +16,15 @@
 #       identity `openova/apps/<ns>/<cnpgClusterName>`;
 #   S4  the seed writes exactly the keys/properties the ExternalSecrets read;
 #   S5  swapped primary: the seed moves to B, A renders none;
-#   S6  seed.secretStoreRefs fans the push out to every listed store;
+#   S6  default fan-out (0.6.1): the seed pushes into storeRef (vault-region1)
+#       AND vault-<peer> for every openova.topology.peers entry — A primary ⇒
+#       [vault-region1, vault-<B>], B primary ⇒ [vault-region1, vault-<A>];
+#       an explicit seed.secretStoreRefs replaces the list verbatim;
 #   S7  storeRef.name="" ⇒ neither seed nor ExternalSecret; seed.enabled=false
-#       ⇒ ExternalSecrets only; contract absent ⇒ none of it.
+#       ⇒ ExternalSecrets only; contract absent ⇒ none of it;
+#   S8  every store the seed pushes into is a ClusterSecretStore that
+#       bp-external-secrets-stores actually renders in that region (rendered
+#       from the same region registry), so the default needs no values.
 #
 # Vacuity: S1's body run against the replica render must FAIL, and S2's body
 # against the primary render must FAIL.
@@ -74,9 +80,22 @@ render "$TMP/nostore.yaml" "wordpress-rtz-a" "${TA[@]}" --set database.topology.
 render "$TMP/noseed.yaml" "wordpress-rtz-a" "${TA[@]}" --set database.topology.sharedSecrets.seed.enabled=false
 render "$TMP/legacy.yaml" "wordpress"
 
+# S8 — the stores chart, rendered per region from the same registry the
+# bootstrap-kit slot 15a threads in (a JSON string, as Flux substitutes it).
+STORES_DIR="$(cd "$CHART_DIR/../../external-secrets-stores/chart" && pwd)"
+stores() {  # $1 out $2 self $3 registry-json
+  python3 -c 'import json,sys; print(json.dumps({"peerStores": {"selfRegion": sys.argv[1], "regions": sys.argv[2]}}))' "$2" "$3" > "$1.v.json"
+  helm template external-secrets-stores "$STORES_DIR" --namespace external-secrets-system -f "$1.v.json" > "$1"
+}
+REG='[{"cloudRegion":"'"$A"'"},{"cloudRegion":"'"$B"'"}]'
+stores "$TMP/stores-a.yaml" "$A" "$REG"
+stores "$TMP/stores-b.yaml" "$B" "$REG"
+stores "$TMP/stores-single.yaml" "$A" '[{"cloudRegion":"'"$A"'"}]'
+
 cat > "$TMP/check.py" <<'PYEOF'
 import sys, yaml, json
 mode, path = sys.argv[1], sys.argv[2]
+arg = sys.argv[3] if len(sys.argv) > 3 else ""
 docs = [d for d in yaml.safe_load_all(open(path)) if d]
 kind = lambda k: [d for d in docs if d.get("kind") == k]
 errs = []
@@ -122,10 +141,28 @@ elif mode == "noseed-replica":         # S2 + S3
     want = {(PREFIX + "/db-owner", "username"), (PREFIX + "/db-owner", "password"),
             (PREFIX + "/replication-ca", "ca.crt"), (PREFIX + "/replication-ca", "ca.key")}
     ok(es_keys(kind("ExternalSecret")) == want, f"S3 replica reads {sorted(es_keys(kind('ExternalSecret')))}, want {sorted(want)}")
-elif mode == "fanout":                  # S6
+elif mode == "fanout":                  # S6 explicit override
     for p in kind("PushSecret"):
         names = [s["name"] for s in p["spec"]["secretStoreRefs"]]
         ok(names == ["vault-region1", "vault-peer-b"], f"S6 {p['metadata']['name']} stores {names}")
+elif mode == "default-fanout":          # S6 default: self + one per topology peer
+    want = arg.split(",")
+    ps = kind("PushSecret")
+    ok(len(ps) == 2, f"S6 want 2 PushSecrets, got {len(ps)}")
+    for p in ps:
+        refs = p["spec"]["secretStoreRefs"]
+        names = [s["name"] for s in refs]
+        ok(names == want, f"S6 {p['metadata']['name']} stores {names}, want {want}")
+        ok(all(s["kind"] == "ClusterSecretStore" for s in refs), f"S6 {p['metadata']['name']} store kinds")
+elif mode == "stores-exist":            # S8: arg = that region's bp-external-secrets-stores render
+    have = {d["metadata"]["name"] for d in yaml.safe_load_all(open(arg)) if d and d.get("kind") == "ClusterSecretStore"}
+    ps = kind("PushSecret")
+    ok(ps, "S8 no PushSecret to check")
+    for p in ps:
+        for s in p["spec"]["secretStoreRefs"]:
+            ok(s["name"] in have, f"S8 {p['metadata']['name']} pushes into {s['name']}, which the region's stores chart does not render (has {sorted(have)})")
+    for e in kind("ExternalSecret"):
+        ok(e["spec"]["secretStoreRef"]["name"] in have, f"S8 reader store {e['spec']['secretStoreRef']['name']} not rendered")
 elif mode == "none":                    # S7
     for k in SEED_KINDS + ("ExternalSecret",):
         ok(not kind(k), f"S7 rendered {k}")
@@ -141,8 +178,8 @@ PYEOF
 
 FAIL=0
 pass() { echo "  PASS  $1"; }
-must()     { if python3 "$TMP/check.py" "$2" "$3"; then pass "$1"; else echo "  FAIL  $1"; FAIL=1; fi; }
-must_not() { if python3 "$TMP/check.py" "$2" "$3" >/dev/null; then echo "  FAIL  $1 (vacuous: passed on the wrong render)"; FAIL=1; else pass "$1"; fi; }
+must()     { if python3 "$TMP/check.py" "$2" "$3" "${4:-}"; then pass "$1"; else echo "  FAIL  $1"; FAIL=1; fi; }
+must_not() { if python3 "$TMP/check.py" "$2" "$3" "${4:-}" >/dev/null; then echo "  FAIL  $1 (vacuous: passed on the wrong render)"; FAIL=1; else pass "$1"; fi; }
 
 must     "S1/S4 A primary renders the write-once seed"      seed "$TMP/a-primary.yaml"
 must_not "S1 vacuity: the replica render carries no seed"   seed "$TMP/b-replica.yaml"
@@ -150,7 +187,13 @@ must     "S2/S3 B replica: readers only"                    noseed-replica "$TMP
 must_not "S2 vacuity: the primary render has a seed"        noseed-replica "$TMP/a-primary.yaml"
 must     "S5 swapped: B primary renders the seed"           seed "$TMP/b-primary.yaml"
 must     "S5 swapped: A replica renders none"               noseed-replica "$TMP/a-replica.yaml"
-must     "S6 seed fans out to every listed store"           fanout "$TMP/fanout.yaml"
+must     "S6 explicit seed.secretStoreRefs is used verbatim" fanout "$TMP/fanout.yaml"
+must     "S6 default: A primary pushes to self + vault-B"   default-fanout "$TMP/a-primary.yaml" "vault-region1,vault-$B"
+must     "S6 default: B primary pushes to self + vault-A"   default-fanout "$TMP/b-primary.yaml" "vault-region1,vault-$A"
+must_not "S6 vacuity: A's fan-out is not B's"               default-fanout "$TMP/a-primary.yaml" "vault-region1,vault-$A"
+must     "S8 A's push targets exist in A's stores render"   stores-exist "$TMP/a-primary.yaml" "$TMP/stores-a.yaml"
+must     "S8 B's push targets exist in B's stores render"   stores-exist "$TMP/b-primary.yaml" "$TMP/stores-b.yaml"
+must_not "S8 vacuity: A's targets vs a single-region stores render" stores-exist "$TMP/a-primary.yaml" "$TMP/stores-single.yaml"
 must     "S7 storeRef.name empty: nothing"                  none "$TMP/nostore.yaml"
 must     "S7 seed.enabled=false: ExternalSecrets only"      es-only "$TMP/noseed.yaml"
 must     "S7 contract absent: nothing"                      none "$TMP/legacy.yaml"

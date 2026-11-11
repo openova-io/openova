@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-08T11:19:28.451Z",
+  "generatedAt": "2026-11-08T12:19:33.918Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -1394,7 +1394,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.0.10",
+      "version": "1.0.11",
       "section": "pts-3-3-security-and-policy",
       "depends": [],
       "shareable": false,
@@ -3667,7 +3667,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.2.71",
+      "version": "1.2.72",
       "section": "pts-2-3-per-sovereign-supporting-services",
       "depends": [],
       "shareable": false,
@@ -5814,7 +5814,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "0.6.0",
+      "version": "0.6.1",
       "section": "pts-7-org-tenant",
       "depends": [
         "bp-postgres",
