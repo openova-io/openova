@@ -351,3 +351,40 @@ func DeclarePromotionMechanism(objs []*unstructured.Unstructured, mechanism stri
 	}
 	return changed, nil
 }
+
+// DisableDestructiveInstallRemediation sets, on every multi-region HelmRelease
+// carrier of objs, `spec.install.remediation = {retries: 0,
+// remediateLastFailure: false}`. Install remediation in helm-controller is an
+// UNINSTALL: for a two-region database app it deletes the first region's CNPG
+// Cluster while the other region's standby — already cloned from it — keeps
+// the old system identifier and can never stream again ("database system
+// identifier differs"), so the pair is permanently split (live hw307
+// 2026-11-11, Refs #7067). A failed first install now stays failed and
+// visible; upgrades keep their rollback remediation (non-destructive).
+// Returns the number of carriers changed.
+func DisableDestructiveInstallRemediation(objs []*unstructured.Unstructured) (int, error) {
+	changed := 0
+	for _, o := range objs {
+		if !isHelmRelease(o) {
+			continue
+		}
+		v, _, err := carrierValues(o)
+		if err != nil {
+			return changed, err
+		}
+		mode, _, _ := unstructured.NestedString(v, "openova", "topology", "mode")
+		if mode == "" || mode == "singleton" {
+			continue
+		}
+		want := map[string]interface{}{"retries": int64(0), "remediateLastFailure": false}
+		cur, _, _ := unstructured.NestedMap(o.Object, "spec", "install", "remediation")
+		if cur != nil && cur["retries"] == want["retries"] && cur["remediateLastFailure"] == want["remediateLastFailure"] {
+			continue
+		}
+		if err := unstructured.SetNestedMap(o.Object, want, "spec", "install", "remediation"); err != nil {
+			return changed, err
+		}
+		changed++
+	}
+	return changed, nil
+}
