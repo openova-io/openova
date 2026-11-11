@@ -1237,6 +1237,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 			fanoutUpgradeRetries := r.Cfg.HelmReleaseUpgradeRetries
 
 			hrs, ferr := topo.FanoutHRs(topo.FanoutInputs{
+				Endpoints:      r.resolveAppEndpoints(app, bp, org, envSpec.OrganizationRef),
 				AppName:        app.GetName(),
 				AppNamespace:   app.GetNamespace(),
 				WriteNamespace: fanoutWriteNamespace,
@@ -1449,19 +1450,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 			planRegionIDs = append(planRegionIDs, id)
 		}
 	}
-	// ADR-0015 D2/D7 — resolve the Blueprint's public endpoints with the SAME
-	// resolver catalyst-api reports from, so the chart routes exactly the
-	// host the console shows (live hw307 2026-11-11: an Application-path
-	// WordPress rendered no HTTPRoute because nothing set gateway.host).
-	appEndpoints, epErrs := endpoints.FromBlueprint(bp, endpoints.Vars{
-		SovereignFQDN: r.Cfg.SovereignFQDN,
-		OrgSlug:       orgSlug,
-		AppName:       app.GetName(),
-		OrgDomain:     endpoints.OrgDomain(org, orgSlug, r.Cfg.SovereignFQDN),
-	})
-	for _, e := range epErrs {
-		r.Log.Warn("Application endpoint hostname unresolved; not rendered", "app", app.GetNamespace()+"/"+app.GetName(), "error", e.Error())
-	}
+	appEndpoints := r.resolveAppEndpoints(app, bp, org, envSpec.OrganizationRef)
 
 	for i, rp := range plan.Regions {
 		regionStatuses = append(regionStatuses, map[string]interface{}{
@@ -3868,3 +3857,26 @@ func ifEmpty(s, def string) string {
 var _ = types.NamespacedName{}
 
 func ptrInt64(v int64) *int64 { return &v }
+
+// resolveAppEndpoints resolves the Blueprint's public endpoints for app with
+// core/controllers/pkg/endpoints — the SAME resolver catalyst-api reports
+// from — so the chart routes exactly the host the console shows (ADR-0015
+// D2/D7). Every render path (fan-out and per-region) uses it.
+func (r *Reconciler) resolveAppEndpoints(app, bp, org *unstructured.Unstructured, orgRef string) []endpoints.Endpoint {
+	orgSlug := orgRef
+	if org != nil {
+		if s, _, _ := unstructured.NestedString(org.Object, "spec", "slug"); s != "" {
+			orgSlug = s
+		}
+	}
+	eps, errs := endpoints.FromBlueprint(bp, endpoints.Vars{
+		SovereignFQDN: r.Cfg.SovereignFQDN,
+		OrgSlug:       orgSlug,
+		AppName:       app.GetName(),
+		OrgDomain:     endpoints.OrgDomain(org, orgSlug, r.Cfg.SovereignFQDN),
+	})
+	for _, e := range errs {
+		r.Log.Warn("Application endpoint hostname unresolved; not rendered", "app", app.GetNamespace()+"/"+app.GetName(), "error", e.Error())
+	}
+	return eps
+}
