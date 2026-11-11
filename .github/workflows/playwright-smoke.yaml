@@ -75,7 +75,7 @@ jobs:
         working-directory: tests/e2e/playwright
         run: |
           npm install
-          npx playwright install --with-deps chromium
+          bash "$GITHUB_WORKSPACE/scripts/playwright-chromium-install.sh"
 
       - name: Boot Catalyst UI in background
         working-directory: products/catalyst/bootstrap/ui
