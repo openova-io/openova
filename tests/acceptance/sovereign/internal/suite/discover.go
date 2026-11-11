@@ -234,7 +234,61 @@ func (r *runner) discover(ctx context.Context) bool {
 		r.run.Subject["delivered_images"] = imgs
 		return nil
 	})
-	return okBP && okImgs
+	// D0.10 — a two-region app is served through the shared ingress in one
+	// region and, after a move, by pods in the other. Every Cilium agent must
+	// therefore know each peer-region node's gateway source IP as
+	// reserved:ingress, or that node's gateway traffic is policy-dropped and
+	// ~1 request in N times out (hw307 run 13 J3.7: B's agents had lost A's
+	// control-plane node ingress IP after it rebooted). Checked before any
+	// journey so a run fails on the cause, not on a flaky 503.
+	okMesh := r.step("D0", "D0.10", "mesh: every Cilium agent holds the peer region's gateway (ingress) IPs as reserved:ingress", func(ev Evidence) error {
+		missing := map[string][]string{}
+		checked := 0
+		for _, pair := range [][2]kube.Region{{r.A, r.B}, {r.B, r.A}} {
+			src, dst := pair[0], pair[1]
+			nodes, err := src.GetList(ctx, "ciliumnodes", "")
+			if err != nil {
+				return err
+			}
+			var want []string
+			for _, n := range nodes {
+				if ip := n.Str("spec", "ingress", "ipv4"); ip != "" {
+					want = append(want, ip)
+				}
+			}
+			pods, err := dst.GetList(ctx, "pods", "kube-system", "-l", "k8s-app=cilium")
+			if err != nil {
+				return err
+			}
+			for _, p := range pods {
+				out, err := dst.Exec(ctx, "kube-system", p.Name(), "cilium-agent", nil, "cilium-dbg", "bpf", "ipcache", "list")
+				if err != nil {
+					return fmt.Errorf("[%s] %s: ipcache: %w", dst.ID, p.Name(), err)
+				}
+				have := map[string]bool{}
+				for _, line := range strings.Split(string(out), "\n") {
+					f := strings.Fields(line)
+					if len(f) >= 2 && f[1] == "identity=8" {
+						have[strings.TrimSuffix(f[0], "/32")] = true
+					}
+				}
+				for _, ip := range want {
+					checked++
+					if !have[ip] {
+						k := dst.ID + "/" + p.Name()
+						missing[k] = append(missing[k], src.ID+" ingress "+ip)
+					}
+				}
+			}
+		}
+		ev["checked"] = checked
+		if len(missing) > 0 {
+			ev["missing"] = missing
+			return fmt.Errorf("%d agent(s) lack peer gateway identities — that gateway's requests are dropped (restart the stale agents: kubectl -n kube-system rollout restart ds/cilium)", len(missing))
+		}
+		return nil
+	})
+	return okBP && okImgs && okMesh
 }
 
 // regionIdentity reads the region key + gateway VIPs a cluster was
