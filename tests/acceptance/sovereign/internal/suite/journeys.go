@@ -597,6 +597,10 @@ func (r *runner) move(ctx context.Context, j string, to, from kube.Region) bool 
 			if err != nil {
 				return false, err.Error(), nil
 			}
+			if allIn(ans, r.sharedIngressIPs) {
+				ev["via"] = "shared-ingress"
+				return true, "", nil
+			}
 			if err := DNSServesRegion(ans, r.regionIPs, to.ID); err != nil {
 				if strings.Contains(err.Error(), "share") || strings.Contains(err.Error(), "no public IPs") {
 					return false, "", err // undecidable — waiting cannot fix it
@@ -898,4 +902,21 @@ func listApplications(ctx context.Context, reg kube.Region) ([]kube.Object, erro
 		return nil, nil
 	}
 	return apps, err
+}
+
+// allIn reports whether every DNS answer is one of set (non-empty).
+func allIn(answers, set []string) bool {
+	if len(answers) == 0 || len(set) == 0 {
+		return false
+	}
+	m := map[string]bool{}
+	for _, s := range set {
+		m[s] = true
+	}
+	for _, a := range answers {
+		if !m[a] {
+			return false
+		}
+	}
+	return true
 }
