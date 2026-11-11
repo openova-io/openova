@@ -141,9 +141,30 @@ echo "══ Phase 2 — fail-closed behavior, both directions ══"
 #   positive MUST render, MUST contain >=1 selector, and every selector VALUE
 #   must be one of $A/$B and never empty.
 #   negative MUST fail the render.
+# A chart with file:// dependencies (bp-postgres / bp-cnpg-pair consume
+# platform/topology-lib) renders only after `helm dependency build`; charts/ is
+# gitignored, so without this the POSITIVE render fails "missing in charts/
+# directory" and reads as the guard over-firing. Same step as
+# check-dr-pairs-declare-promotion.sh.
+declare -A DEPS_BUILT=()
+ensure_deps() {
+  local chart="$1"
+  [ -n "${DEPS_BUILT[$chart]:-}" ] && return 0
+  DEPS_BUILT[$chart]=1
+  grep -q '^dependencies:' "$chart/Chart.yaml" 2>/dev/null || return 0
+  local log; log="$(mktemp)"
+  if ! (cd "$chart" && helm dependency build >"$log" 2>&1); then
+    sleep 5
+    (cd "$chart" && helm dependency build >"$log" 2>&1) || {
+      fail "helm dependency build failed for $chart (its renders below are invalid): $(tail -2 "$log")"
+    }
+  fi
+}
+
 run_case() {
   local label="$1" chart="$2" want_region="$3"
   shift 3
+  ensure_deps "$chart"
   local pos=() neg=() bucket=pos
   for a in "$@"; do
     if [ "$a" = "--NEG--" ]; then

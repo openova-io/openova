@@ -16,6 +16,10 @@ products/*/chart/Chart.lock
 # blueprint-release workflow's hollow-chart guard.
 !platform/seaweedfs/chart/charts/
 !platform/seaweedfs/chart/charts/**
+# bp-reflector vendors emberstack/reflector 7.1.288 unmodified: the upstream
+# repo index lists relative chart URLs Helm cannot resolve (Refs #7067).
+!platform/reflector/chart/charts/
+!platform/reflector/chart/charts/**
 
 # Node + dev artifacts (untracked already, listed here for clarity).
 **/node_modules/
