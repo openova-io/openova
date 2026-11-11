@@ -492,6 +492,9 @@ spec:
                       finishedAt:
                         type: string
                         format: date-time
+                      transition:
+                        type: string
+                        description: The transition record id this entry belongs to (one Jobs record per move; Refs #7067).
                       message:
                         type: string
                 observedGeneration:

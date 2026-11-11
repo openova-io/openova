@@ -218,6 +218,9 @@ spec:
                 secretKeyRef:
                   name: openbao-root-token
                   key: token
+                  # Revoked (and normally deleted) after the first run; later
+                  # runs generate a short-lived root from the unseal keys.
+                  optional: true
             - name: NAMESPACE
               valueFrom:
                 fieldRef:
@@ -243,22 +246,28 @@ spec:
                 sleep 5
               done
 
-              # ─── Token-validity gate (post-upgrade no-op) ─────────────
-              # On post-install (first run) BAO_TOKEN is the freshly-minted
-              # root token from openbao-root-token Secret and is valid.
-              # On post-upgrade re-runs the same root token has ALREADY
-              # been revoked by the previous run (see "revoke + cleanup"
-              # section below) so every privileged call returns 403. There
-              # is nothing meaningful for this Job to do on a re-run — the
-              # auth method, the role, and the kv backend are already
-              # configured. Detect the revoked-token case and exit 0 so a
-              # routine chart bump doesn't fail the HR's post-upgrade hook
-              # and rollback the release. Caught live on prov #80 when
-              # bp-openbao 1.2.14 → 1.2.15 (an HTTPRoute-only bump) replayed
-              # the hook and 403'd on `bao auth enable`.
+              # ─── Privileged token for THIS run (ADR-0015, #7067) ───────
+              # First install: BAO_TOKEN is the init root token (valid).
+              # Every later install/upgrade: that token was revoked by the
+              # first run, so generate a short-lived root from the unseal-key
+              # shares (files/openbao-generate-root.sh) — it is revoked at the
+              # end of this run, like the init token. Before 1.2.72 a re-run
+              # exited 0 here, so NO later policy/role/mount change ever
+              # reached a running Sovereign; now the hook re-asserts the
+              # openbao-config-admin grant and the openbao-config reconciler
+              # owns everything else. No unseal-key Secret (a pre-#539 init)
+              # ⇒ WARN + exit 0, never a failed HR.
+{{ .Files.Get "files/openbao-generate-root.sh" | indent 14 }}
               if ! bao token lookup >/dev/null 2>&1; then
-                echo "[openbao-auth-bootstrap] BAO_TOKEN no longer valid (likely revoked by a prior successful run); nothing to do — exiting 0"
-                exit 0
+                echo "[openbao-auth-bootstrap] init root token no longer valid — generating a short-lived root from the unseal-key shares"
+                if GEN_TOKEN="$(bao_generate_root)" && [ -n "$GEN_TOKEN" ]; then
+                  BAO_TOKEN="$GEN_TOKEN"; export BAO_TOKEN
+                  bao token lookup >/dev/null 2>&1 || { echo "[openbao-auth-bootstrap] FATAL: generated root token does not authenticate"; exit 1; }
+                  echo "[openbao-auth-bootstrap] short-lived root generated (revoked at the end of this run)"
+                else
+                  echo "[openbao-auth-bootstrap] WARN: cannot generate a root (openbao-unseal-keys missing or incomplete) — openbao-config-admin NOT re-asserted; see platform/openbao/README.md §Declarative configuration, one-time upgrade"
+                  exit 0
+                fi
               fi
 
               # ─── Idempotency: skip if auth method + role already exist ─
@@ -377,222 +386,24 @@ spec:
                 bao secrets enable -path=$KV_MOUNT_PATH -version=2 kv
               fi
 
-              # ─── ESO read-policy ────────────────────────────────────────
-              # Read access to all keys under $KV_MOUNT_PATH. ESO does NOT
-              # write — Catalyst rotation jobs hold the writer policy
-              # separately. (Sole exception: the single-path push grant in
-              # external-secrets-push below, #5375.)
-              cat <<EOF | bao policy write external-secrets-read -
-              path "$KV_MOUNT_PATH/data/*" {
-                capabilities = ["read", "list"]
-              }
-              path "$KV_MOUNT_PATH/metadata/*" {
-                capabilities = ["read", "list"]
-              }
+              # ─── openbao-config-admin (ADR-0015, #7067) ─────────────────
+              # Every ACL policy and auth role this chart needs (ESO read +
+              # push, sso-bridge, sso-configure, catalyst-api, snapshot, the
+              # peer-region trust) is DECLARATIVE desired state now
+              # (templates/_config.tpl → ConfigMap openbao-config-desired),
+              # applied continuously by the openbao-config Deployment. This
+              # hook writes only that reconciler's own grant — scoped to
+              # configuration surfaces, no secret data, no sys/raw, no seal.
+              echo "[openbao-auth-bootstrap] writing openbao-config-admin policy + role/openbao-config-admin on auth/{{ include "openbao.configLoginMount" . }}"
+              cat <<'EOF' | bao policy write openbao-config-admin -
+{{ include "openbao.configAdminPolicy" . | indent 14 }}
               EOF
-
-              # ─── #5375 (UAT M2) ESO push-policy: region-local newapi admin-token ─
-              # bp-newapi renders a PushSecret (platform/newapi/chart/templates/
-              # admin-token-pushsecret.yaml) that seeds `$KV_MOUNT_PATH/catalyst/
-              # newapi/admin-token` (property ADMIN_API_TOKEN) from the REGION-
-              # LOCAL sandbox-bridge ADMIN_SECRET, so the catalyst-newapi-admin-
-              # token ExternalSecret resolves in EVERY region. Root cause it
-              # closes: the only other producer — catalyst-api's #4477 seed —
-              # runs solely in the PRIMARY region, and each region runs its OWN
-              # OpenBao (region-local raft, no stretched cluster), so region-B's
-              # vault never held the path → region-B ES permanently
-              # SecretSyncedError → a post-region-kill promote had NO NewAPI
-              # admin bearer (latent DR gap, live-proven hw285-hw288). NARROW
-              # grant: exactly ONE KV path, create/update only (+ the matching
-              # metadata path for ESO's managed-by custom-metadata stamp). The
-              # broad `secret/data/*` tree stays read-only for ESO.
-              cat <<EOF | bao policy write external-secrets-push -
-              path "$KV_MOUNT_PATH/data/catalyst/newapi/admin-token" {
-                capabilities = ["create", "update", "read"]
-              }
-              path "$KV_MOUNT_PATH/metadata/catalyst/newapi/admin-token" {
-                capabilities = ["create", "update", "read"]
-              }
-              # ADR-0015 (Refs #7067): the shared material of a multi-region
-              # Application (e.g. a CNPG pair's replication CA + DB owner),
-              # seeded ONCE by the writer region's PushSecret with
-              # updatePolicy IfNotExists (bp-wordpress-tenant
-              # templates/shared-secrets-seed.yaml). Scoped to the per-app
-              # subtree only; no delete — a primary move or an uninstall
-              # never removes the material.
-              path "$KV_MOUNT_PATH/data/openova/apps/*" {
-                capabilities = ["create", "update", "read"]
-              }
-              path "$KV_MOUNT_PATH/metadata/openova/apps/*" {
-                capabilities = ["create", "update", "read"]
-              }
-              EOF
-
-              # ─── Bind role $AUTH_ROLE to the ESO ServiceAccount ─────────
-              echo "[openbao-auth-bootstrap] writing auth/$AUTH_MOUNT_PATH/role/$AUTH_ROLE bound to $ESO_SA_NAMESPACE/$ESO_SA_NAME"
-              bao write auth/$AUTH_MOUNT_PATH/role/$AUTH_ROLE \
-                bound_service_account_names=$ESO_SA_NAME \
-                bound_service_account_namespaces=$ESO_SA_NAMESPACE \
-                policies=external-secrets-read,external-secrets-push \
-                ttl=$TOKEN_TTL \
-                max_ttl=$TOKEN_MAX_TTL
-
-              # ─── G91.openbao (#2655) — sso-bridge + sso-configure roles ─
-              # bp-sso-bridge writes the per-app OAuth bundle under
-              # `secret/sso/<clientId>`; ESO consumers in app namespaces
-              # then read it via the existing external-secrets-read
-              # policy + K8s SA auth. bp-sso-bridge needs its own
-              # write-bearing policy, and a Deployment inside this
-              # namespace (sso-configure-deployment.yaml) needs an
-              # admin-scoped policy to enable + configure the oidc auth
-              # method on OpenBao itself.
-              echo "[openbao-auth-bootstrap] writing sso-bridge-write policy"
-              cat <<EOF | bao policy write sso-bridge-write -
-              path "$KV_MOUNT_PATH/data/sso/*" {
-                capabilities = ["create", "read", "update", "delete", "list"]
-              }
-              path "$KV_MOUNT_PATH/metadata/sso/*" {
-                capabilities = ["read", "list", "delete"]
-              }
-              EOF
-              bao write auth/$AUTH_MOUNT_PATH/role/sso-bridge \
-                bound_service_account_names=sso-bridge-reconciler \
-                bound_service_account_namespaces=sso-bridge \
-                policies=sso-bridge-write,external-secrets-read \
-                ttl=$TOKEN_TTL \
-                max_ttl=$TOKEN_MAX_TTL
-              # #3374 — sso-bridge runs in the mgmt vCluster (ns sso-bridge); in
-              # XCR mode its vCluster-signed SA token only validates on the
-              # in-vCluster mount. Bind the SAME role there too (idempotent;
-              # no-op when XCR off).
-              if [ "${XCR_ENABLED}" = "true" ]; then
-                bao write auth/$VC_AUTH_MOUNT_PATH/role/sso-bridge \
-                  bound_service_account_names=sso-bridge-reconciler \
-                  bound_service_account_namespaces=sso-bridge \
-                  policies=sso-bridge-write,external-secrets-read \
-                  ttl=$TOKEN_TTL \
-                  max_ttl=$TOKEN_MAX_TTL \
-                  && echo "[openbao-auth-bootstrap] sso-bridge role also bound on $VC_AUTH_MOUNT_PATH/"
-              fi
-
-              # sso-configure: admin-scoped policy for the in-namespace
-              # Deployment that enables + configures the oidc auth method
-              # on OpenBao after bp-sso-bridge has materialised the
-              # secret/sso/openbao bundle. Per-call retry-with-backoff
-              # makes this safe to run continuously.
-              echo "[openbao-auth-bootstrap] writing sso-configure-admin policy"
-              cat <<EOF | bao policy write sso-configure-admin -
-              path "sys/auth" { capabilities = ["read", "list"] }
-              path "sys/auth/oidc" { capabilities = ["create", "update", "delete", "sudo"] }
-              path "sys/auth/oidc/*" { capabilities = ["create", "read", "update", "delete", "list", "sudo"] }
-              path "auth/oidc/*" { capabilities = ["create", "read", "update", "delete", "list"] }
-              path "sys/policies/acl/sso-operator-admin" { capabilities = ["create", "read", "update", "delete"] }
-              # #3150 — the sso-configure reconciler now ALSO writes the
-              # read-only operator policy AND the external identity groups
-              # that map realm groups → policy (sovereign-admins/-ops →
-              # sso-operator-admin, sovereign-viewers → sso-operator-read).
-              # Without these grants the reconciler 403s on those paths and
-              # the OIDC callback rejects every non-admin operator. The
-              # identity/* grants are scoped to group + group-alias only
-              # (NOT entity/* — the reconciler never touches entities).
-              path "sys/policies/acl/sso-operator-read" { capabilities = ["create", "read", "update", "delete"] }
-              path "identity/group" { capabilities = ["create", "update"] }
-              path "identity/group/name/*" { capabilities = ["create", "read", "update"] }
-              path "identity/group-alias" { capabilities = ["create", "update"] }
-              path "identity/group-alias/id/*" { capabilities = ["create", "read", "update"] }
-              EOF
-              bao write auth/$AUTH_MOUNT_PATH/role/sso-configure \
-                bound_service_account_names=openbao-sso-configure \
+              bao write auth/{{ include "openbao.configLoginMount" . }}/role/openbao-config-admin \
+                bound_service_account_names=openbao-config \
                 bound_service_account_namespaces=$NAMESPACE \
-                policies=sso-configure-admin \
+                policies=openbao-config-admin \
                 ttl=$TOKEN_TTL \
                 max_ttl=$TOKEN_MAX_TTL
-              # #3374 (THE openbao zero-click fix) — the sso-configure reconciler
-              # is an in-vCluster Pod (ns=$NAMESPACE inside the mgmt vCluster); its
-              # vCluster-signed SA token is rejected by the HOST apiserver that the
-              # `kubernetes/` mount targets in XCR mode. Bind the role on the
-              # in-vCluster mount so its login succeeds (sso-configure-deployment.yaml
-              # sets BAO_K8S_AUTH_PATH=kubernetes-vcluster under the same XCR gate).
-              # Verified live hw167 2026-06-19: login → oidc/auth_url returns a real
-              # auth_url → /sso/landing → lands /ui/vault/secrets. Idempotent; no-op
-              # when XCR off.
-              if [ "${XCR_ENABLED}" = "true" ]; then
-                bao write auth/$VC_AUTH_MOUNT_PATH/role/sso-configure \
-                  bound_service_account_names=openbao-sso-configure \
-                  bound_service_account_namespaces=$NAMESPACE \
-                  policies=sso-configure-admin \
-                  ttl=$TOKEN_TTL \
-                  max_ttl=$TOKEN_MAX_TTL \
-                  && echo "[openbao-auth-bootstrap] sso-configure role also bound on $VC_AUTH_MOUNT_PATH/ (in-vCluster TokenReview — #3374)"
-              fi
-
-              # ─── #3376 — catalyst-api handover-archive writer role ──────
-              # The Sovereign's catalyst-api seals the phase0 tofu archive
-              # (ReceiveTofuArchive) at secret/catalyst/tofu-phase0-archive —
-              # the durable handover marker the cutover's 425 gate keys on.
-              # It authenticates via this K8s-auth role bound to the
-              # catalyst-api Pod's SA + a write policy scoped to
-              # secret/{data,metadata}/catalyst/*. No long-lived static
-              # token at rest: catalyst-api logs in with its projected SA
-              # token and re-logs before the lease expires. Without this the
-              # receiver 503s ("not handover target") and the tenant-Org
-              # funnel never un-wedges (#3376 walked live on hw130).
-              if [ "${CATALYST_API_ROLE_ENABLED}" = "true" ]; then
-                echo "[openbao-auth-bootstrap] writing catalyst-api-write policy + role/$CATALYST_API_ROLE bound to $CATALYST_API_SA_NAMESPACE/$CATALYST_API_SA_NAME"
-                cat <<EOF | bao policy write catalyst-api-write -
-              path "$KV_MOUNT_PATH/data/catalyst/*" {
-                capabilities = ["create", "read", "update", "list"]
-              }
-              path "$KV_MOUNT_PATH/metadata/catalyst/*" {
-                capabilities = ["read", "list"]
-              }
-              EOF
-                bao write auth/$AUTH_MOUNT_PATH/role/$CATALYST_API_ROLE \
-                  bound_service_account_names=$CATALYST_API_SA_NAME \
-                  bound_service_account_namespaces=$CATALYST_API_SA_NAMESPACE \
-                  policies=catalyst-api-write \
-                  ttl=$TOKEN_TTL \
-                  max_ttl=$TOKEN_MAX_TTL
-              else
-                echo "[openbao-auth-bootstrap] catalyst-api writer role disabled (kubernetesAuth.catalystApi.enabled=false); skipping"
-              fi
-{{- if (.Values.snapshotReplication | default dict).enabled }}
-{{- $sr := .Values.snapshotReplication | default dict }}
-{{- $srAuthRole := (($sr.kubernetesAuth | default dict).role) | default "openbao-snapshot" }}
-
-              # ─── Cross-cluster snapshot-replication role (#3375 DoD-8) ──
-              # The snapshot/restore CronJob (templates/snapshot-replication.yaml)
-              # authenticates via this K8s-auth role to call the raft
-              # snapshot API. Least-privilege: READ on
-              # sys/storage/raft/snapshot only (the snapshot SAVE endpoint).
-              # The init-time root token is revoked below, so the ongoing
-              # CronJob MUST use this K8s-auth role — mirrors the
-              # sso-configure / ESO ongoing-auth pattern.
-              echo "[openbao-auth-bootstrap] writing openbao-snapshot policy"
-              cat <<EOF | bao policy write openbao-snapshot -
-              path "sys/storage/raft/snapshot" {
-                capabilities = ["read"]
-              }
-              EOF
-              bao write auth/$AUTH_MOUNT_PATH/role/{{ $srAuthRole }} \
-                bound_service_account_names=openbao-snapshot \
-                bound_service_account_namespaces=$NAMESPACE \
-                policies=openbao-snapshot \
-                ttl=$TOKEN_TTL \
-                max_ttl=$TOKEN_MAX_TTL
-              # #3374 — the snapshot CronJob runs in the mgmt vCluster (ns=$NAMESPACE);
-              # in XCR mode its vCluster-signed SA token only validates on the
-              # in-vCluster mount. Bind the role there too (idempotent; no-op off).
-              if [ "${XCR_ENABLED}" = "true" ]; then
-                bao write auth/$VC_AUTH_MOUNT_PATH/role/{{ $srAuthRole }} \
-                  bound_service_account_names=openbao-snapshot \
-                  bound_service_account_namespaces=$NAMESPACE \
-                  policies=openbao-snapshot \
-                  ttl=$TOKEN_TTL \
-                  max_ttl=$TOKEN_MAX_TTL \
-                  && echo "[openbao-auth-bootstrap] {{ $srAuthRole }} role also bound on $VC_AUTH_MOUNT_PATH/"
-              fi
-{{- end }}
 
               # ─── #3888 (Refs #3847) prov-time KV-seed ──────────────────
               # Land per-deployment creds the cloud-init wrote into the

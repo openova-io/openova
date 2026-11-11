@@ -488,7 +488,13 @@ name: bp-wordpress-tenant
 #   openova.topology.primary + database.topology.promotionToken), and under
 #   `continuum` the CNPG Cluster must live in the release namespace where
 #   Continuum observes it. `dr-promoter` still fails closed.
-version: 0.6.0
+# 0.6.1 (ADR-0015, Refs #7067): the shared-secrets seed's default fan-out is
+#   storeRef PLUS vault-<peer> for every openova.topology.peers entry (the
+#   per-peer-region stores bp-external-secrets-stores 1.0.11 renders), so the
+#   write-once material reaches every region's own OpenBao with no operator
+#   values. seed.secretStoreRefs still overrides. 0.6.0's media store is
+#   unchanged. tests/shared-secrets-render.sh S6/S8.
+version: 0.6.1
 appVersion: "6"
 description: |
   Catalyst Blueprint scratch chart for in-vcluster WordPress, one

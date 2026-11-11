@@ -122,6 +122,9 @@ function CatalogLogoPair({
   )
 }
 
+// The namespace every bootstrap-kit HelmRelease object lives in.
+const BOOTSTRAP_KIT_NAMESPACE = 'flux-system'
+
 export function CatalogDetail() {
   const params = useParams({ strict: false }) as {
     blueprintName?: string
@@ -344,7 +347,14 @@ export function CatalogDetail() {
   }
 
   const bootstrapApp = bootstrapQuery.data
-  const isBootstrapSingleton = !!bootstrapApp?.bootstrap
+  // A platform component is a bootstrap-kit HelmRelease, and every one of
+  // those lives in flux-system. The HelmRelease fallback behind
+  // getApplication answers for ANY release with this name, so a per-Org
+  // install (hw307: acmewalk307/bp-wordpress-tenant) used to turn WordPress
+  // into a "platform component" with no "+ New instance" — the Sovereign
+  // owner could not install it from the console (Refs #7067).
+  const isBootstrapSingleton =
+    !!bootstrapApp?.bootstrap && bootstrapApp.namespace === BOOTSTRAP_KIT_NAMESPACE
 
   return (
     <section

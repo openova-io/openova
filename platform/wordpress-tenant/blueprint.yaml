@@ -23,18 +23,19 @@ spec:
   # bucket (S3-Uploads + openova-media-store mu-plugin); no wp-content PVC by
   # default; regionLocalVolumes declare a replication for every entry.
   # Lockstep with platform/wordpress-tenant/chart/Chart.yaml.
-  version: 0.6.0
+  # 0.6.1 (Refs #7067): seed fans out to vault-<peer> for every topology peer.
+  version: 0.6.1
   card:
     title: WordPress (per-Organization)
     summary: |
-      Turnkey, SSO-pre-wired WordPress per Organization. Runs in the Organization's
-      vcluster, namespace = Organization namespace. SSO via the Organization-vcluster
-      Keycloak realm (openid-connect-generic plugin), Postgres via bp-cnpg
-      (Cluster CR in Organization ns), persistent /var/www/html/wp-content via
-      PVC (default 10Gi), ingress at https://wordpress.<org-domain> with
-      cert-manager TLS. Default theme + admin user pre-seeded at install
-      time so the Organization admin's first browser hit lands on /wp-admin
-      authenticated. No install wizard, no manual config.
+      Turnkey, SSO-pre-wired WordPress per Organization, served at
+      https://<instance>.<org-domain> with TLS. Its own PostgreSQL (CNPG) in
+      every region it runs in, synchronously replicated under
+      active-hot-standby / active-passive, so moving the Primary loses no
+      data. Uploaded media live in the Sovereign's replicated object store.
+      Sign-in is SSO through the Organization's realm (openid-connect-generic
+      plugin); the Organization owner is pre-seeded as administrator, so the
+      first sign-in lands in /wp-admin. No install wizard, no manual config.
     icon: wordpress.svg
     category: organization-app
     tags: [wordpress, cms, organization, sso, keycloak, oidc, postgres]
@@ -281,14 +282,14 @@ spec:
       replication: s3-replicated
       bucket: replicated
   depends:
-    # #3370 — the database dependency is the SHAREABLE INSTANCE class
-    # (bp-postgres), not the operator: a wordpress app consumes a
-    # Context (db) on a bp-postgres instance-application, wired purely
-    # as Flux dependsOn. The provisioning journey renders the generic
-    # Create-new / Reuse-existing selector from this declaration.
-    - blueprint: bp-postgres
-      version: ^0.1
-      alias: db
+    # This chart provisions and owns its database: one CNPG Cluster per
+    # region (`<app>-db-<hash>`, synchronous cross-region replication under
+    # a multi-region topology — database.* above). It consumes NO bp-postgres
+    # Context, so it declares none. Declaring bp-postgres here made the
+    # console's New-instance dialog create a separate `<app>-postgres`
+    # Application and wire the WordPress HelmReleases' dependsOn to it — on
+    # hw307 that instance failed placement and blocked the install
+    # (Refs #7067). bp-cnpg is the engine operator the Clusters need.
     - blueprint: bp-cnpg
       version: ^1.0
       alias: db-operator

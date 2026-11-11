@@ -1,4 +1,37 @@
 {{/*
+Public host (ADR-0015 D2/D7, Refs #7067): `gateway.host` when set explicitly,
+else the hostname the application-controller resolved for the Blueprint's
+launch-default (else first) public endpoint, rendered as `openova.endpoints`
+by the same resolver catalyst-api reports from — so the route serves exactly
+the host the console advertises. Empty ⇒ no HTTPRoute.
+*/}}
+{{- define "bp-wordpress-tenant.publicHost" -}}
+{{- $explicit := .Values.gateway.host | default "" -}}
+{{- if $explicit -}}{{ $explicit }}{{- else -}}
+{{- $eps := dig "openova" "endpoints" (list) (.Values | toJson | fromJson) -}}
+{{- $pick := "" -}}
+{{- range $eps -}}{{- if and (not $pick) .launchDefault .hostname -}}{{- $pick = .hostname -}}{{- end -}}{{- end -}}
+{{- range $eps -}}{{- if and (not $pick) .hostname -}}{{- $pick = .hostname -}}{{- end -}}{{- end -}}
+{{- $pick -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+CNPG base name (ADR-0015 D2, Refs #7067). Resolution:
+  1. `database.cnpgClusterName` when set explicitly (operator pin, legacy installs);
+  2. `<openova.application.name>-db` when the application-controller renders the
+     Application identity — region-independent and unique per app, so two
+     WordPress Applications in one namespace never share a CNPG Cluster,
+     mesh Service or shared-secret path;
+  3. `wordpress-db`, the historical default, for a bare install without the contract.
+*/}}
+{{- define "bp-wordpress-tenant.cnpgBase" -}}
+{{- $explicit := .Values.database.cnpgClusterName | default "" -}}
+{{- $app := dig "openova" "application" "name" "" (.Values | toJson | fromJson) -}}
+{{- if $explicit -}}{{ $explicit }}{{- else if $app -}}{{ printf "%s-db" $app }}{{- else -}}wordpress-db{{- end -}}
+{{- end -}}
+
+{{/*
 Expand the name of the chart.
 */}}
 {{- define "bp-wordpress-tenant.name" -}}
@@ -9,8 +42,17 @@ Expand the name of the chart.
 Create a default fully qualified app name.
 */}}
 {{- define "bp-wordpress-tenant.fullname" -}}
+{{- $app := dig "openova" "application" "name" "" (.Values | toJson | fromJson) -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- else if $app }}
+{{- /* ADR-0015 D2 (Refs #7067): under the topology contract every region
+       renders the SAME object names, from the Application identity — not
+       from the per-region release name (<app>-rtz-a / -rtz-b). Cilium merges
+       mesh-global Services BY NAME: with per-region names the non-primary
+       region's route had 0 backends after a Primary move and answered 503
+       (live hw307 run 9). */ -}}
+{{- printf "%s-%s" $app (default .Chart.Name .Values.nameOverride) | trunc 63 | trimSuffix "-" }}
 {{- else }}
 {{- $name := default .Chart.Name .Values.nameOverride }}
 {{- if contains $name .Release.Name }}
@@ -109,8 +151,11 @@ fallback rendered `wordpress.<no value>`. (Live HRs always set ingress.host
 explicitly, so this only bit the chart-default render path.)
 */}}
 {{- define "bp-wordpress-tenant.ingressHost" -}}
+{{- $public := include "bp-wordpress-tenant.publicHost" . -}}
 {{- if .Values.ingress.host -}}
 {{- .Values.ingress.host -}}
+{{- else if $public -}}
+{{- $public -}}
 {{- else -}}
 {{- printf "wordpress.%s" .Values.orgDomain -}}
 {{- end -}}
@@ -175,7 +220,7 @@ its data) when its release adopts the contract.
 */}}
 {{- define "bp-wordpress-tenant.dbNames" -}}
 {{- $_ := include "bp-wordpress-tenant.topology" . -}}
-{{- include "openova.topology.memberNames" (dict "ctx" . "base" .Values.database.cnpgClusterName "overrides" (dig "topology" "clusterNames" dict (.Values.database | toJson | fromJson))) -}}
+{{- include "openova.topology.memberNames" (dict "ctx" . "base" (include "bp-wordpress-tenant.cnpgBase" .) "overrides" (dig "topology" "clusterNames" dict (.Values.database | toJson | fromJson))) -}}
 {{- end -}}
 
 {{/* THIS region's CNPG Cluster name. */}}
@@ -196,7 +241,7 @@ Shared Secrets of a multi-region topology — the SAME bytes in every region:
                    after a primary move.
 */}}
 {{- define "bp-wordpress-tenant.replicationCASecret" -}}
-{{- dig "topology" "sharedSecrets" "replicationCA" "" (.Values.database | toJson | fromJson) | default (printf "%s-replication-ca" .Values.database.cnpgClusterName) -}}
+{{- dig "topology" "sharedSecrets" "replicationCA" "" (.Values.database | toJson | fromJson) | default (printf "%s-replication-ca" (include "bp-wordpress-tenant.cnpgBase" .)) -}}
 {{- end -}}
 
 {{/*
@@ -207,11 +252,11 @@ release-keyed path differs per region and no peer ever finds it (the 0.5.0
 default had exactly that defect).
 */}}
 {{- define "bp-wordpress-tenant.sharedSecretsPrefix" -}}
-{{- dig "topology" "sharedSecrets" "externalSecret" "remoteKeyPrefix" "" (.Values.database | toJson | fromJson) | default (printf "openova/apps/%s/%s" (include "bp-wordpress-tenant.cnpgNamespace" .) .Values.database.cnpgClusterName) -}}
+{{- dig "topology" "sharedSecrets" "externalSecret" "remoteKeyPrefix" "" (.Values.database | toJson | fromJson) | default (printf "openova/apps/%s/%s" (include "bp-wordpress-tenant.cnpgNamespace" .) (include "bp-wordpress-tenant.cnpgBase" .)) -}}
 {{- end -}}
 
 {{- define "bp-wordpress-tenant.appCredentialsSecret" -}}
-{{- dig "topology" "sharedSecrets" "appCredentials" "" (.Values.database | toJson | fromJson) | default (printf "%s-app-credentials" .Values.database.cnpgClusterName) -}}
+{{- dig "topology" "sharedSecrets" "appCredentials" "" (.Values.database | toJson | fromJson) | default (printf "%s-app-credentials" (include "bp-wordpress-tenant.cnpgBase" .)) -}}
 {{- end -}}
 
 {{/*
@@ -356,8 +401,11 @@ The placeholder is `https://keycloak.org.local/realms/org`.
 {{- $sovFQDN := .Values.sovereign.fqdn | default "" -}}
 {{- $orgRealm := .Values.org.realm | default "" -}}
 {{- $smeSub := .Values.smeSubdomain | default "" -}}
+{{- $idIssuer := dig "openova" "identity" "issuerURL" "" (.Values | toJson | fromJson) -}}
 {{- if ne $modern $placeholder -}}
 {{- $modern -}}
+{{- else if $idIssuer -}}
+{{- $idIssuer -}}
 {{- else if and $sovFQDN $orgRealm -}}
 {{- printf "https://auth.%s/realms/%s" $sovFQDN $orgRealm -}}
 {{- else if and $sovFQDN $smeSub -}}
@@ -375,7 +423,10 @@ ConfigMap's `data.realm` field for bp-sso-bridge consumption.
 Precedence: org.realm > smeSubdomain → `sme-<sub>` > "default".
 */}}
 {{- define "bp-wordpress-tenant.orgRealm" -}}
-{{- if .Values.org.realm -}}
+{{- $idRealm := dig "openova" "identity" "realm" "" (.Values | toJson | fromJson) -}}
+{{- if $idRealm -}}
+{{- $idRealm -}}
+{{- else if .Values.org.realm -}}
 {{- .Values.org.realm -}}
 {{- else if .Values.smeSubdomain -}}
 {{- printf "sme-%s" .Values.smeSubdomain -}}
@@ -390,7 +441,14 @@ Resolved OIDC clientId. Same fold pattern as oidcIssuerURL.
 {{- define "bp-wordpress-tenant.oidcClientId" -}}
 {{- $modern := .Values.oidc.clientId -}}
 {{- $legacy := .Values.keycloak.clientID -}}
-{{- if and (eq $modern "wordpress") $legacy -}}
+{{- $app := dig "openova" "application" "name" "" (.Values | toJson | fromJson) -}}
+{{- $appNS := dig "openova" "application" "namespace" "" (.Values | toJson | fromJson) -}}
+{{- if and (eq $modern "wordpress") (include "bp-wordpress-tenant.ssoFromIdentity" .) $app -}}
+{{- /* One client per instance: every WordPress in a realm registered the
+       same `wordpress` client, so each install overwrote the previous
+       one's redirect URIs (Refs #7067). */ -}}
+{{- printf "%s-%s" ($appNS | default .Release.Namespace) $app -}}
+{{- else if and (eq $modern "wordpress") $legacy -}}
 {{- $legacy -}}
 {{- else -}}
 {{- $modern -}}
@@ -403,7 +461,11 @@ Resolved OIDC clientSecretName. Same fold pattern as oidcIssuerURL.
 {{- define "bp-wordpress-tenant.oidcClientSecretName" -}}
 {{- $modern := .Values.oidc.clientSecretName -}}
 {{- $legacy := .Values.keycloak.clientSecretName -}}
-{{- if and (eq $modern "wordpress-oidc-client-secret") $legacy -}}
+{{- if and (eq $modern "wordpress-oidc-client-secret") (include "bp-wordpress-tenant.ssoFromIdentity" .) -}}
+{{- /* bp-sso-bridge delivers this Secret (ExternalSecret off the
+       AppRegistration), per instance. */ -}}
+{{- printf "%s-oidc" (include "bp-wordpress-tenant.fullname" .) -}}
+{{- else if and (eq $modern "wordpress-oidc-client-secret") $legacy -}}
 {{- $legacy -}}
 {{- else -}}
 {{- $modern -}}
@@ -437,10 +499,11 @@ render on the two shapes D6 forbids:
 {{- $store -}}
 {{- end -}}
 
-{{/* Object-key prefix of this Application's media: `<org>/<app>`. */}}
+{{/* Object-key prefix of this Application's media: `<ns>/<app>` — the Application identity, the same in every region (the release name carries a per-region suffix, so uploads written in A were invisible from B after a move; Refs #7067). */}}
 {{- define "bp-wordpress-tenant.mediaKeyPrefix" -}}
 {{- $p := dig "s3" "keyPrefix" "" (.Values.media | default dict) | toString | trim | trimPrefix "/" | trimSuffix "/" -}}
-{{- if $p -}}{{ $p }}{{- else -}}{{ printf "%s/%s" .Release.Namespace (include "bp-wordpress-tenant.fullname" .) }}{{- end -}}
+{{- $app := dig "openova" "application" "name" "" (.Values | toJson | fromJson) -}}
+{{- if $p -}}{{ $p }}{{- else if $app -}}{{ printf "%s/%s" .Release.Namespace $app }}{{- else -}}{{ printf "%s/%s" .Release.Namespace (include "bp-wordpress-tenant.fullname" .) }}{{- end -}}
 {{- end -}}
 
 {{/* Name of the reflected SeaweedFS S3 credentials Secret. */}}
@@ -457,4 +520,25 @@ render on the two shapes D6 forbids:
 {{/* "true" when the wp-content volume is the legacy PVC. */}}
 {{- define "bp-wordpress-tenant.wpContentOnPvc" -}}
 {{- if and (eq (include "bp-wordpress-tenant.mediaStore" .) "pvc") .Values.persistence.wpContent.enabled -}}true{{- end -}}
+{{- end -}}
+
+{{/*
+ADR-0015 D2 (Refs #7067) — "true" when the application-controller rendered
+`openova.identity` (the realm the Organization's users sign in with). SSO is
+then registered in that realm by bp-sso-bridge, which also DELIVERS the client
+secret (ExternalSecret declared on the AppRegistration), so the chart neither
+invents a realm nor generates a secret Keycloak never learns.
+*/}}
+{{- define "bp-wordpress-tenant.ssoFromIdentity" -}}
+{{- $r := dig "openova" "identity" "realm" "" (.Values | toJson | fromJson) -}}
+{{- $i := dig "openova" "identity" "issuerURL" "" (.Values | toJson | fromJson) -}}
+{{- if and $r $i -}}true{{- end -}}
+{{- end -}}
+
+{{/*
+The kc_idp_hint the WordPress login appends: the realm's own broker when the
+application-controller names one (openova.identity.idpHint), else ssoIdpHint.
+*/}}
+{{- define "bp-wordpress-tenant.ssoIdpHint" -}}
+{{- dig "openova" "identity" "idpHint" (.Values.ssoIdpHint | default "") (.Values | toJson | fromJson) -}}
 {{- end -}}

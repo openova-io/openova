@@ -1089,17 +1089,33 @@ func (h *Handler) wireBackingServices(ctx context.Context, client dynamic.Interf
 			if bpErr != nil {
 				return nil, &backingError{status: http.StatusServiceUnavailable, code: "blueprint-unavailable", message: bpErr.Error()}
 			}
+			// The backing instance is placed like its consumer: the regions
+			// THIS install asked for decide multi- vs single-region. The
+			// Sovereign-wide probe only decides when no region was chosen —
+			// on hw307 it answered single-region for a two-region install,
+			// so the backing bp-postgres went in as singleton across BOTH
+			// regions, failed placement, and blocked the consumer that
+			// dependsOn it (Refs #7067).
+			multiRegion := len(refs.Regions) > 1
+			if len(refs.Regions) == 0 {
+				multiRegion = h.detectMultiRegion(ctx)
+			}
 			backingTopology := ""
 			if bpDoc != nil && bpDoc.Topology != nil {
-				if h.detectMultiRegion(ctx) {
+				if multiRegion {
 					backingTopology = bpDoc.Topology.Defaults.MultiRegion
 				} else {
 					backingTopology = bpDoc.Topology.Defaults.SingleRegion
 				}
 			}
+			backingRegions := refs.Regions
+			if backingTopology == "singleton" && len(backingRegions) > 1 {
+				// A singleton runs in exactly one region: the consumer's first.
+				backingRegions = backingRegions[:1]
+			}
 			backingRefs, rerr := validateInstallRefs(ctx, client, installRefs{
 				Org: body.Org, Environment: refs.Environment, Blueprint: bpFull,
-				Mode: backingTopology, Regions: refs.Regions,
+				Mode: backingTopology, Regions: backingRegions,
 			})
 			if rerr != nil {
 				return nil, &backingError{status: rerr.Status, code: rerr.Code, message: "backing " + rerr.Message}

@@ -343,7 +343,7 @@ spec:
       # Lockstep slot 16b pin -> 0.2.27.
       # 0.2.29: opt-in CNPG distributed topology for the planned cross-region
       # switchover (cnpgPair.distributed below). Lockstep slot 16b pin -> 0.2.29.
-      version: 0.2.31
+      version: 0.2.32
       sourceRef:
         kind: HelmRepository
         name: bp-cnpg-pair
@@ -377,6 +377,22 @@ spec:
     remediation:
       retries: 3
   # ── Per-Sovereign overlay surface ──────────────────────────────────
+  # ADR-0015 D8 — the ONE per-region delta, delivered from Git. The
+  # application-controller writes the openova.topology contract
+  # ({mode,self,primary,peers} + database.topology.promotionToken) for THIS
+  # region into clusters/<fqdn>/regions/<region-id>/platform/<app>.yaml of the
+  # Sovereign region repo, as ConfigMap flux-system/bp-cnpg-pair-topology; this region's
+  # `sovereign-region` Kustomization applies it and helm-controller re-renders
+  # the moment it changes (reconcile.fluxcd.io/watch). The continuum-controller
+  # moves `primary` + `promotionToken` file by file (the 3-commit token
+  # protocol). optional: a fresh Sovereign installs from the values below
+  # before the file exists; the chart honours the contract only when present.
+  # This slot stays the one install path.
+  valuesFrom:
+    - kind: ConfigMap
+      name: bp-cnpg-pair-topology
+      valuesKey: values.yaml
+      optional: true
   values:
     cnpgPair:
       # ── ClusterMesh-gated enable (NOT raw 2-region) ─────────────────

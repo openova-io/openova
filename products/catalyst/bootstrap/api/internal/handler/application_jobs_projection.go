@@ -51,6 +51,9 @@ type activityEntry struct {
 	Member     string
 	State      string
 	StartedAt  string
+	// Transition — the transition record id (Continuum), so each move is
+	// its own Jobs group; empty for pre-#7067 entries (one group per object).
+	Transition string
 	FinishedAt string
 	Message    string
 }
@@ -71,6 +74,7 @@ func activityEntriesOf(obj *unstructured.Unstructured) []activityEntry {
 		e.Member, _ = m["member"].(string)
 		e.State, _ = m["state"].(string)
 		e.StartedAt, _ = m["startedAt"].(string)
+		e.Transition, _ = m["transition"].(string)
 		e.FinishedAt, _ = m["finishedAt"].(string)
 		e.Message, _ = m["message"].(string)
 		if strings.TrimSpace(e.ID) == "" {
@@ -162,6 +166,10 @@ func projectApplicationObjects(store *jobs.Store, depID string, apps, continuums
 		}
 		group := jobs.TopologyTransitionGroupPrefix + obj.GetNamespace() + "-" + obj.GetName()
 		display := "Topology transition " + obj.GetKind() + " " + obj.GetNamespace() + "/" + obj.GetName()
+		if t := transitionSlug(entries); t != "" {
+			group += "-" + t
+			display += " (" + t + ")"
+		}
 		bridge := jobs.NewActivityBridge(store, depID, group, display)
 		steps := make([]jobs.ActivityStep, 0, len(entries))
 		for j, e := range entries {
@@ -225,4 +233,23 @@ func (h *Handler) seedApplicationObjectsFrom(ctx context.Context, dyn dynamic.In
 		h.log.Warn("jobs seed: Application/topology-transition projection failed",
 			"depId", depID, "err", err)
 	}
+}
+
+// transitionSlug is the URL-safe transition id the entries carry (the first
+// non-empty one), so every move projects as its own Jobs group.
+func transitionSlug(entries []activityEntry) string {
+	for _, e := range entries {
+		if t := strings.TrimSpace(e.Transition); t != "" {
+			var b strings.Builder
+			for _, r := range strings.ToLower(t) {
+				if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+					b.WriteRune(r)
+				} else {
+					b.WriteRune('-')
+				}
+			}
+			return strings.Trim(b.String(), "-")
+		}
+	}
+	return ""
 }

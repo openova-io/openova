@@ -13,6 +13,7 @@ package render
 
 import (
 	"fmt"
+	"github.com/openova-io/openova/core/controllers/pkg/endpoints"
 	"sort"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -43,6 +44,33 @@ type TopologyContract struct {
 	Self    string
 	Primary string
 	Peers   []string
+	// AppName / AppNamespace — the Application's identity, the same in every
+	// region (the release name is not: it carries a per-region suffix).
+	// Rendered as `openova.application: {name, namespace}` so a chart can
+	// derive region-independent, per-app names (e.g. a CNPG base name)
+	// instead of one fixed default every install in a namespace collides on.
+	AppName      string
+	AppNamespace string
+	// Endpoints — the Application's public endpoints with their resolved
+	// hostnames (core/controllers/pkg/endpoints, the same resolver
+	// catalyst-api reports from). Rendered as `openova.endpoints` so a chart
+	// routes exactly the host the console advertises.
+	Endpoints []endpoints.Endpoint
+	// Identity — the realm that signs in the Organization's users, when the
+	// platform knows it. Rendered as `openova.identity: {realm, issuerURL}` so
+	// an SSO-wired chart registers its OIDC client in the realm its users
+	// actually live in (bp-sso-bridge reads the realm off the chart's
+	// AppRegistration) instead of a placeholder realm that does not exist.
+	Identity *Identity
+}
+
+// Identity is the OIDC realm an Application's users sign in with.
+type Identity struct {
+	Realm     string
+	IssuerURL string
+	// IDPHint — the realm's identity-provider alias a client appends as
+	// kc_idp_hint so the user signs in silently with their console session.
+	IDPHint string
 }
 
 // WithTopologyContract returns a COPY of values carrying
@@ -70,6 +98,25 @@ func WithTopologyContract(values map[string]interface{}, c TopologyContract) map
 		"self":    c.Self,
 		"primary": c.Primary,
 		"peers":   peers,
+	}
+	if c.AppName != "" {
+		ns["application"] = map[string]interface{}{"name": c.AppName, "namespace": c.AppNamespace}
+	}
+	if len(c.Endpoints) > 0 {
+		eps := make([]interface{}, 0, len(c.Endpoints))
+		for _, e := range c.Endpoints {
+			eps = append(eps, map[string]interface{}{
+				"name": e.Name, "hostname": e.Hostname, "port": e.Port, "tls": e.TLS, "launchDefault": e.LaunchDefault,
+			})
+		}
+		ns["endpoints"] = eps
+	}
+	if c.Identity != nil && c.Identity.Realm != "" && c.Identity.IssuerURL != "" {
+		id := map[string]interface{}{"realm": c.Identity.Realm, "issuerURL": c.Identity.IssuerURL}
+		if c.Identity.IDPHint != "" {
+			id["idpHint"] = c.Identity.IDPHint
+		}
+		ns["identity"] = id
 	}
 	out[TopologyValuesKey] = ns
 	return out

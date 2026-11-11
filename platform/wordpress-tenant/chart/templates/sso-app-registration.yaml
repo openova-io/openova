@@ -35,7 +35,7 @@ data:
   client.json: |
     {
       "clientId": {{ $clientId | quote }},
-      "name": "WordPress ({{ .Values.orgDomain }})",
+      "name": "WordPress ({{ $host }})",
       "enabled": true,
       "publicClient": false,
       "serviceAccountsEnabled": false,
@@ -49,4 +49,11 @@ data:
       "defaultClientScopes": ["web-origins","profile","email","groups"],
       "optionalClientScopes": ["roles"]
     }
+  {{- if include "bp-wordpress-tenant.ssoFromIdentity" . }}
+  {{- /* ADR-0015 D2 (Refs #7067): bp-sso-bridge writes the client secret
+         Keycloak holds into THIS Secret (the one the oidc-config hook reads),
+         in every region that renders this ConfigMap. */}}
+  externalSecret.json: |
+    {"name": {{ include "bp-wordpress-tenant.oidcClientSecretName" . | quote }}, "namespace": {{ .Release.Namespace | quote }}, "secretKey": "client-secret", "property": "client_secret"}
+  {{- end }}
 {{- end }}

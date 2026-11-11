@@ -178,9 +178,22 @@ spec:
                 cp -R /usr/src/wordpress/wp-content/themes /wp-content/themes
               fi
               echo "[wp-artifacts] pg4wp + openid-connect-generic + core themes seeded from the image"
+              # WordPress CORE for the wp-cli container (Refs #7067). The
+              # wp-cli image ships no WordPress, and since #4244 this Job no
+              # longer mounts the runtime docroot, so every wp command failed
+              # with "This does not seem to be a WordPress installation" and
+              # step 2's `wp db check` loop exited FATAL after 5 minutes on
+              # every clean install (live hw307 2026-11-11). Core comes from
+              # the SAME runtime image (exact version match, no egress).
+              cp -R /usr/src/wordpress/. /wp-core/
+              rm -rf /wp-core/wp-content
+              test -f /wp-core/wp-load.php || { echo "[wp-artifacts] FATAL: runtime image carries no /usr/src/wordpress core" >&2; exit 1; }
+              echo "[wp-artifacts] WordPress core seeded from the runtime image"
           volumeMounts:
             - name: wp-content
               mountPath: /wp-content
+            - name: wp-core
+              mountPath: /wp-core
           resources:
             requests:
               cpu: 25m
@@ -192,8 +205,10 @@ spec:
               memory: 128Mi
       containers:
         - name: oidc-config
-          image: {{ include "bp-wordpress-tenant.wpCliImage" . | quote }}
-          imagePullPolicy: {{ .Values.oidc.cliImage.pullPolicy }}
+          # The runtime image (core + pgsql + pg4wp + baked wp-cli), NOT the
+          # stock wordpress:cli image whose PHP lacks pgsql (Refs #7067).
+          image: {{ include "bp-wordpress-tenant.wordpressImage" . | quote }}
+          imagePullPolicy: {{ .Values.wordpress.image.pullPolicy | default "IfNotPresent" }}
           securityContext:
             {{- toYaml .Values.wordpress.containerSecurityContext | nindent 12 }}
           env:
@@ -238,7 +253,7 @@ spec:
             # show the hint and "fell back to forms" failure modes
             # surface in observability immediately.
             - name: OIDC_IDP_HINT
-              value: {{ .Values.ssoIdpHint | default "" | quote }}
+              value: {{ include "bp-wordpress-tenant.ssoIdpHint" . | quote }}
             # #6311: `oidc.plugin.{repo,version}` moved to the `wp-artifacts`
             # initContainer, which is where they are now meaningful — it
             # compares them against the image's baked VERSIONS file. This
@@ -325,8 +340,16 @@ spec:
               #    we poll for up to 5 minutes. pg4wp's drop-in runs
               #    automatically from the wp-content/db.php seeded in
               #    step 0 above.
+              # NOT `wp db check`: it shells out to mysqlcheck/mariadb-check,
+              # which speaks the MySQL protocol and can never reach the CNPG
+              # Postgres backend (pg4wp translates only inside PHP) — the loop
+              # always exited FATAL after 5 min (live hw307 2026-11-11, Refs
+              # #7067). Probe the Postgres
+              # backend directly (pg_connect, the same credentials WordPress
+              # uses). `wp eval` cannot be used here: it boots WordPress, which
+              # exits "not installed" until step 3 has run.
               for i in $(seq 1 60); do
-                if wp db check --allow-root >/dev/null 2>&1; then
+                if php -r '$h=getenv("WORDPRESS_DB_HOST"); $p="5432"; if (strpos($h, ":") !== false) { list($h,$p)=explode(":",$h,2); } $c=@pg_connect("host=$h port=$p dbname=".getenv("WORDPRESS_DB_NAME")." user=".getenv("WORDPRESS_DB_USER")." password=".getenv("WORDPRESS_DB_PASSWORD")." connect_timeout=5"); exit(($c && pg_fetch_result(pg_query($c,"SELECT 1"),0,0)=="1") ? 0 : 1);' >/dev/null 2>&1; then
                   echo "[oidc-config] database reachable"
                   break
                 fi
@@ -446,6 +469,8 @@ spec:
                 "endpoint_userinfo":        "${ISSUER}/protocol/openid-connect/userinfo",
                 "endpoint_token":           "${ISSUER}/protocol/openid-connect/token",
                 "endpoint_end_session":     "${ISSUER}/protocol/openid-connect/logout",
+                "endpoint_jwks":            "${ISSUER}/protocol/openid-connect/certs",
+                "issuer":                   "${ISSUER}",
                 "identity_key":             "${OIDC_IDENTITY_KEY}",
                 "no_sslverify":             0,
                 "http_request_timeout":     5,
@@ -503,6 +528,8 @@ spec:
 
               echo "[oidc-config] all OIDC bootstrap steps complete"
           volumeMounts:
+            - name: wp-core
+              mountPath: /var/www/html
             - name: wp-content
               mountPath: /var/www/html/wp-content
           resources:
@@ -531,6 +558,8 @@ spec:
         # pg4wp db.php drop-in (self-seeded in step 0) for Postgres
         # connectivity; the OIDC settings it writes persist in Postgres,
         # so the ephemeral wp-content is the correct, deadlock-free choice.
+        - name: wp-core
+          emptyDir: {}
         - name: wp-content
           emptyDir: {}
 {{- end }}

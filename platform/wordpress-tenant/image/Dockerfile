@@ -82,8 +82,13 @@ RUN php -m | grep -E 'pdo_pgsql|^pgsql$'
 # backslash continuation is a Dockerfile parser edge case, not a shell comment):
 #   - pg4wp's release tag KEEPS its `v` prefix, while GitHub strips the `v`
 #     from the extracted top-level directory (`postgresql-for-wordpress-3.3.1`).
-#   - openid-connect-generic's tags are UN-prefixed, so the extracted directory
-#     is `openid-connect-generic-<version>`.
+#   - openid-connect-generic comes from its wordpress.org RELEASE zip, pinned
+#     by sha256. The GitHub tag archive is the composer SOURCE tree: it has no
+#     `vendor/`, so `bootstrap()`'s `require vendor/autoload.php` fataled on
+#     every `wp plugin activate`, the oidc-config hook (which never fails the
+#     release) swallowed it, and wp-admin offered no SSO at all (hw307 walk,
+#     Refs #7067). The release zip extracts to
+#     `daggerhart-openid-connect-generic/` (the wordpress.org slug).
 #   - The plugin is baked under the BARE `openid-connect-generic` slug because
 #     that is the directory name the oidc-config Job's `wp plugin activate`
 #     writes into WordPress's `active_plugins` option row. A differently-named
@@ -93,6 +98,7 @@ RUN php -m | grep -E 'pdo_pgsql|^pgsql$'
 ARG PG4WP_VERSION=3.3.1
 ARG OIDC_PLUGIN_REPO=oidc-wp/openid-connect-generic
 ARG OIDC_PLUGIN_VERSION=3.11.3
+ARG OIDC_PLUGIN_SHA256=81c009fe8f8f1504b329656d5a41176b5de09febfca4574393889c46387f8a97
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends ca-certificates curl unzip; \
@@ -102,17 +108,18 @@ RUN set -eux; \
     unzip -q /tmp/pg4wp.zip -d /tmp; \
     cp -a "/tmp/postgresql-for-wordpress-${PG4WP_VERSION}/pg4wp" /usr/src/openova-wp-artifacts/pg4wp; \
     cp "/tmp/postgresql-for-wordpress-${PG4WP_VERSION}/pg4wp/db.php" /usr/src/openova-wp-artifacts/db.php; \
-    curl -fsSL -o /tmp/oidc.zip \
-      "https://github.com/${OIDC_PLUGIN_REPO}/archive/refs/tags/${OIDC_PLUGIN_VERSION}.zip"; \
+    curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors -o /tmp/oidc.zip \
+      "https://downloads.wordpress.org/plugin/daggerhart-openid-connect-generic.${OIDC_PLUGIN_VERSION}.zip"; \
+    echo "${OIDC_PLUGIN_SHA256}  /tmp/oidc.zip" | sha256sum -c -; \
     unzip -q /tmp/oidc.zip -d /tmp; \
-    cp -a "/tmp/openid-connect-generic-${OIDC_PLUGIN_VERSION}" \
+    cp -a /tmp/daggerhart-openid-connect-generic \
           /usr/src/openova-wp-artifacts/plugins/openid-connect-generic; \
     printf 'pg4wp=%s\nopenid-connect-generic=%s (%s)\n' \
       "${PG4WP_VERSION}" "${OIDC_PLUGIN_VERSION}" "${OIDC_PLUGIN_REPO}" \
       > /usr/src/openova-wp-artifacts/VERSIONS; \
     rm -rf /tmp/pg4wp.zip /tmp/oidc.zip \
            "/tmp/postgresql-for-wordpress-${PG4WP_VERSION}" \
-           "/tmp/openid-connect-generic-${OIDC_PLUGIN_VERSION}"; \
+           /tmp/daggerhart-openid-connect-generic; \
     apt-get purge -y --auto-remove unzip; \
     rm -rf /var/lib/apt/lists/*
 
@@ -153,6 +160,7 @@ RUN set -eux; \
     apt-get purge -y --auto-remove unzip; \
     rm -rf /var/lib/apt/lists/*
 COPY openova-media-store.php /usr/src/openova-wp-artifacts/mu-plugins/openova-media-store.php
+COPY openova-pinned-updates.php /usr/src/openova-wp-artifacts/mu-plugins/openova-pinned-updates.php
 
 # Build-time assertions: fail the image build if a baked artifact is missing,
 # empty, or unreadable by the runtime uid. This is the regression guard for
@@ -172,10 +180,13 @@ RUN set -eux; \
     test -s /usr/src/openova-wp-artifacts/db.php; \
     test -s /usr/src/openova-wp-artifacts/pg4wp/driver_pgsql.php; \
     test -s /usr/src/openova-wp-artifacts/plugins/openid-connect-generic/openid-connect-generic.php; \
+    test -s /usr/src/openova-wp-artifacts/plugins/openid-connect-generic/vendor/autoload.php; \
     test -s /usr/src/openova-wp-artifacts/plugins/s3-uploads/s3-uploads.php; \
     test -s /usr/src/openova-wp-artifacts/plugins/s3-uploads/vendor/aws/aws-sdk-php/src/S3/S3Client.php; \
     test -s /usr/src/openova-wp-artifacts/mu-plugins/openova-media-store.php; \
-    php -l /usr/src/openova-wp-artifacts/mu-plugins/openova-media-store.php
+    php -l /usr/src/openova-wp-artifacts/mu-plugins/openova-media-store.php; \
+    test -s /usr/src/openova-wp-artifacts/mu-plugins/openova-pinned-updates.php; \
+    php -l /usr/src/openova-wp-artifacts/mu-plugins/openova-pinned-updates.php
 RUN set -eux; \
     mkdir -p /tmp/uid33probe; \
     chown 33:33 /tmp/uid33probe; \
@@ -188,5 +199,15 @@ RUN set -eux; \
     test -s /tmp/uid33probe/db.php; \
     test -s /tmp/uid33probe/pg4wp/driver_pgsql.php; \
     test -s /tmp/uid33probe/oidc/openid-connect-generic.php; \
+    test -s /tmp/uid33probe/oidc/vendor/autoload.php; \
     test -s /tmp/uid33probe/media.php; \
     rm -rf /tmp/uid33probe
+
+# wp-cli for the chart's install/OIDC hook (Refs #7067). The hook used to run
+# the stock `wordpress:cli` image, whose PHP has NO pgsql extension: every
+# wp-cli call through pg4wp failed ("missing the PostgreSQL extension"), so a
+# clean install never completed. The hook now runs THIS image (core + pgsql +
+# pg4wp + the same plugins as the site); only the wp-cli phar is borrowed from
+# the pinned cli image.
+COPY --from=docker.io/library/wordpress:cli-2.12.0-php8.3 /usr/local/bin/wp /usr/local/bin/wp
+RUN php -m | grep -qx pgsql && php /usr/local/bin/wp --info --allow-root >/dev/null

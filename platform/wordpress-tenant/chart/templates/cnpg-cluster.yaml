@@ -76,13 +76,13 @@ metadata:
     {{- include "bp-wordpress-tenant.labels" . | nindent 4 }}
     {{- if $multi }}
     openova.io/cnpg-role: {{ include "openova.topology.role" . | quote }}
-    catalyst.openova.io/cnpg-pair: {{ .Values.database.cnpgClusterName | quote }}
+    catalyst.openova.io/cnpg-pair: {{ (include "bp-wordpress-tenant.cnpgBase" .) | quote }}
     {{- end }}
   {{- if $multi }}
   annotations:
     catalyst.openova.io/blueprint: bp-wordpress-tenant
     catalyst.openova.io/cnpg-pair-role: {{ include "openova.topology.role" . | quote }}
-    catalyst.openova.io/cnpg-pair-name: {{ .Values.database.cnpgClusterName | quote }}
+    catalyst.openova.io/cnpg-pair-name: {{ (include "bp-wordpress-tenant.cnpgBase" .) | quote }}
     catalyst.openova.io/topology-primary: {{ $n.primary | quote }}
     {{- if not $t.isPrimary }}
     # #5623 — WHAT WILL PROMOTE THIS STANDBY, answerable from the live object.
@@ -121,10 +121,10 @@ spec:
   {{- if $multi }}
   # ── CNPG distributed topology (ADR-0015 D2) ─────────────────────────
   replica:
-    {{- include "openova.topology.cnpg.replica" (dict "ctx" . "base" .Values.database.cnpgClusterName "overrides" $overrides "promotionToken" ($topo.promotionToken | default "")) | nindent 4 }}
+    {{- include "openova.topology.cnpg.replica" (dict "ctx" . "base" (include "bp-wordpress-tenant.cnpgBase" .) "overrides" $overrides "promotionToken" ($topo.promotionToken | default "")) | nindent 4 }}
 
   externalClusters:
-    {{- include "openova.topology.cnpg.externalClusters" (dict "ctx" . "base" .Values.database.cnpgClusterName "overrides" $overrides "dbname" .Values.database.cluster.database) | nindent 4 }}
+    {{- include "openova.topology.cnpg.externalClusters" (dict "ctx" . "base" (include "bp-wordpress-tenant.cnpgBase" .) "overrides" $overrides "dbname" .Values.database.cluster.database) | nindent 4 }}
 
   # Shared client CA (identical bytes in every region): CNPG issues THIS
   # member's `<cluster>-replication` streaming_replica cert from it, and
@@ -176,7 +176,7 @@ spec:
       dataDurability: required
       maxStandbyNamesFromCluster: 0
       standbyNamesPre:
-        {{- range (include "openova.topology.cnpg.syncStandbyNames" (dict "ctx" . "base" .Values.database.cnpgClusterName "overrides" $overrides) | fromJsonArray) }}
+        {{- range (include "openova.topology.cnpg.syncStandbyNames" (dict "ctx" . "base" (include "bp-wordpress-tenant.cnpgBase" .) "overrides" $overrides) | fromJsonArray) }}
         - {{ . | quote }}
         {{- end }}
     {{- end }}
@@ -198,7 +198,7 @@ spec:
   managed:
     services:
       additional:
-        {{- include "openova.topology.cnpg.managedMeshService" (dict "name" $n.self "affinity" ($mesh.affinity | default "local") "labels" (printf "catalyst.openova.io/cnpg-pair: %s\ncatalyst.openova.io/role: replication-source" (.Values.database.cnpgClusterName | quote))) | nindent 8 }}
+        {{- include "openova.topology.cnpg.managedMeshService" (dict "name" $n.self "affinity" ($mesh.affinity | default "local") "labels" (printf "catalyst.openova.io/cnpg-pair: %s\ncatalyst.openova.io/role: replication-source" ((include "bp-wordpress-tenant.cnpgBase" .) | quote))) | nindent 8 }}
   {{- end }}
 
   enableSuperuserAccess: true

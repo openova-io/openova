@@ -139,7 +139,7 @@ jobs:
           if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
+        run: bash "$GITHUB_WORKSPACE/scripts/playwright-chromium-install.sh"
 
       - name: Astro build (smoke — fails on type / template errors)
         env:
@@ -182,7 +182,7 @@ jobs:
         run: npm ci
 
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
+        run: bash "$GITHUB_WORKSPACE/scripts/playwright-chromium-install.sh"
 
       # Per playwright.config.ts's own doc comment: "designed to run against
       # `npm run build && npm run preview` locally — no API server required
@@ -311,7 +311,7 @@ jobs:
         run: npm ci
 
       - name: Install Playwright browser (chromium)
-        run: npx playwright install --with-deps chromium
+        run: bash "$GITHUB_WORKSPACE/scripts/playwright-chromium-install.sh"
 
       # Same boot recipe as .github/workflows/org-demo-e2e.yaml: sovereign
       # mode forces a non-null sovereignFQDN so SovereignConsoleLayout's

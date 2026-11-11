@@ -200,6 +200,16 @@ func orgConsoleTLSRecordFromOrgCR(obj *unstructured.Unstructured, sovereignFQDN 
 
 	parentDomain := strings.ToLower(strings.TrimSpace(
 		nestedString(obj.Object, "spec", "tenantPublic", "parentDomain")))
+	if parentDomain == "" && strings.EqualFold(strings.TrimSpace(nestedString(obj.Object, "spec", "kind")), "internal") {
+		// ADR-0015 D7 (Refs #7067): an internal Organization (the Sovereign's
+		// own, a department) has no public pool parent; its app hosts live at
+		// <app>.<slug>.<sovereign-fqdn> (core/controllers/pkg/endpoints
+		// OrgDomain, the host the console advertises). It gets the same
+		// per-Org wildcard listener + certificate a customer gets, under the
+		// Sovereign domain — otherwise every app in it has an address nothing
+		// serves (live hw307 2026-11-11).
+		parentDomain = strings.ToLower(strings.TrimSpace(sovereignFQDN))
+	}
 	if parentDomain == "" {
 		return store.OrganizationProvisionRecord{}, false
 	}

@@ -26,6 +26,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
@@ -42,6 +43,15 @@ type transitionGovernance struct {
 	repoName  string
 	branch    string
 	dependsOn []dependsOnRef
+	// layout is where the region files and the lease live in the repo
+	// (regionfile.OrgLayout for an Org Application, PlatformLayout for a
+	// platform one).
+	layout regionfile.Layout
+	// helmRelease ("<ns>/<name>") — the bootstrap-kit slot HelmRelease a
+	// platform Application's Continuum observes; empty for Org Applications.
+	helmRelease string
+	// scope is the openova.io/scope label: application | platform.
+	scope string
 }
 
 // renderRegionContinuum builds the Continuum document committed into every
@@ -59,7 +69,11 @@ func renderRegionContinuum(appName, namespace, desired string, regions []string,
 		labels[k] = v
 	}
 	labels[topo.LabelApp] = appName
-	labels["openova.io/scope"] = "application"
+	scope := g.scope
+	if scope == "" {
+		scope = "application"
+	}
+	labels["openova.io/scope"] = scope
 	cr.SetLabels(labels)
 
 	rs := make([]interface{}, 0, len(regions))
@@ -74,14 +88,24 @@ func renderRegionContinuum(appName, namespace, desired string, regions []string,
 		}
 		deps = append(deps, name)
 	}
+	repo := map[string]interface{}{
+		"owner":  g.repoOwner,
+		"name":   g.repoName,
+		"branch": g.branch,
+	}
+	if g.layout.Root != "" {
+		repo["path"] = g.layout.Root
+	}
+	if g.layout.Folder != "" {
+		repo["folder"] = g.layout.Folder
+	}
 	tr := map[string]interface{}{
-		"repo": map[string]interface{}{
-			"owner":  g.repoOwner,
-			"name":   g.repoName,
-			"branch": g.branch,
-		},
+		"repo":     repo,
 		"app":      appName,
 		"stateful": g.plan.Mechanism == "cnpg-pair",
+	}
+	if ns, name, ok := strings.Cut(g.helmRelease, "/"); ok && name != "" {
+		tr["helmRelease"] = map[string]interface{}{"name": name, "namespace": ns}
 	}
 	if len(deps) > 0 {
 		tr["dependsOn"] = deps
@@ -144,6 +168,15 @@ func withRegionContinuum(files map[string][]byte, regionOrder []string, appName,
 	}
 	out := make(map[string][]byte, len(files))
 	for _, r := range regions {
+		// The Continuum rendered here IS the promotion actor; declare it on
+		// the HelmReleases so the chart's #5623 fail-closed check is
+		// satisfied by the truth, not by a default (ADR-0015 D8).
+		if _, err := regionfile.DeclarePromotionMechanism(parsed[r], "continuum"); err != nil {
+			return nil, err
+		}
+		if _, err := regionfile.DisableDestructiveInstallRemediation(parsed[r]); err != nil {
+			return nil, err
+		}
 		cr := renderRegionContinuum(appName, namespace, desired, regions, g)
 		l := cr.GetLabels()
 		l[topo.LabelRegion] = r
@@ -164,10 +197,13 @@ var errRegionFileMoved = errors.New("region file changed during the write (a top
 // commitGovernedRegionFiles writes a governed Application's files keeping the
 // transition fields Continuum owns. Same region set semantics as
 // commitRegionFiles: a region with no file in `files` has its file removed.
+// layout locates the files (OrgLayout, or PlatformLayout for a platform
+// Application in the Sovereign region repo).
 func (r *Reconciler) commitGovernedRegionFiles(
 	ctx context.Context,
 	app *unstructured.Unstructured,
 	org, repo, branch string,
+	layout regionfile.Layout,
 	files map[string][]byte,
 ) error {
 	for region := range files {
@@ -183,7 +219,7 @@ func (r *Reconciler) commitGovernedRegionFiles(
 	}
 	cur := map[string]existing{}
 	for _, region := range r.Cfg.Regions.IDs() {
-		path := topo.RegionAppPath(region, app.GetName())
+		path := layout.AppPath(region, app.GetName())
 		f, err := r.Gitea.GetFile(ctx, org, repo, branch, path)
 		if err != nil {
 			if errors.Is(err, gitea.ErrFileNotFound) || (r.GiteaErrors != nil && r.GiteaErrors.IsNotFound(err)) {
@@ -214,7 +250,7 @@ func (r *Reconciler) commitGovernedRegionFiles(
 	msg := fmt.Sprintf("application-controller: placement of %s/%s (gen %d)",
 		app.GetNamespace(), app.GetName(), app.GetGeneration())
 	for _, region := range r.Cfg.Regions.IDs() {
-		path := topo.RegionAppPath(region, app.GetName())
+		path := layout.AppPath(region, app.GetName())
 		data, want := files[region]
 		e, have := cur[region]
 		if !want {

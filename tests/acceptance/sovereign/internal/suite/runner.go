@@ -25,8 +25,10 @@ type runner struct {
 	dep, fqdn string
 	A, B      kube.Region // A starts as Primary, B as Standby
 	regionIPs map[string][]string
-	org       OrgItem
-	env       EnvInfo
+	// sharedIngressIPs — load balancers that front every region (discover).
+	sharedIngressIPs []string
+	org              OrgItem
+	env              EnvInfo
 
 	app app
 }

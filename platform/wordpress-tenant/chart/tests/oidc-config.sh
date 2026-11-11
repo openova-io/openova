@@ -53,9 +53,28 @@ if ! grep -q '"helm.sh/hook-weight": "10"' "$TMP/canonical.yaml"; then
   exit 1
 fi
 
-# wp-cli image (canonical) — NOT the runtime wordpress:6-* image.
-if ! grep -qE 'image: "wordpress:cli-2\.12\.0-php8\.3@sha256:[0-9a-f]{64}"' "$TMP/canonical.yaml"; then
-  echo "FAIL: oidc-config container must use wordpress:cli-* image (umbrella #915 requirement)" >&2
+# Refs #7067 — the hook runs the RUNTIME image (core + pgsql + pg4wp + baked
+# wp-cli). The stock wordpress:cli image has no pgsql PHP extension, so every
+# wp-cli call through pg4wp failed and no clean install ever completed.
+job_doc=$(awk 'BEGIN{RS="---"} /oidc-config/ && /kind: Job/' "$TMP/canonical.yaml")
+if echo "$job_doc" | grep -qE 'image: "?wordpress:cli'; then
+  echo "FAIL: oidc-config must not run the stock wordpress:cli image (no pgsql extension)" >&2
+  exit 1
+fi
+if ! echo "$job_doc" | grep -qE 'image: "?[^"]*wordpress-tenant-pg:'; then
+  echo "FAIL: oidc-config container must run the wordpress-tenant-pg runtime image" >&2
+  exit 1
+fi
+if ! echo "$job_doc" | grep -q 'mountPath: /var/www/html$'; then
+  echo "FAIL: WordPress core (wp-core emptyDir) must be mounted at /var/www/html" >&2
+  exit 1
+fi
+if echo "$job_doc" | grep -qE '^[^#]*wp db check'; then
+  echo "FAIL: \`wp db check\` (mysqlcheck, MySQL protocol) can never reach the Postgres backend" >&2
+  exit 1
+fi
+if ! echo "$job_doc" | grep -q 'pg_connect'; then
+  echo "FAIL: the DB reachability probe must connect to Postgres directly" >&2
   exit 1
 fi
 
