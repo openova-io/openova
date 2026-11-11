@@ -67,6 +67,7 @@ import (
 	"github.com/openova-io/openova/core/controllers/internal/semver"
 	bpv1alpha1 "github.com/openova-io/openova/core/controllers/pkg/apis/blueprint/v1alpha1"
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
+	"github.com/openova-io/openova/core/controllers/pkg/regionfile"
 	"github.com/openova-io/openova/core/controllers/pkg/regionlocal"
 	"github.com/openova-io/openova/core/controllers/pkg/regions"
 	"github.com/openova-io/openova/core/controllers/pkg/render"
@@ -417,6 +418,17 @@ type Config struct {
 	// regions' legs are applied (and observed) by those regions. Empty =
 	// observe every leg (single-region).
 	LocalRegionID string
+
+	// SovereignFQDN + SovereignRegionRepo{Owner,} locate the Sovereign region
+	// repo (default openova/sovereign-regions) every region's
+	// `sovereign-region` Flux Kustomization applies
+	// clusters/<fqdn>/regions/<region-id>/ from. ADR-0015 D8: a PLATFORM
+	// Application (bootstrap-kit slot install) is delivered from there —
+	// clusters/<fqdn>/regions/<r>/platform/<app>.yaml (platform_region_files.go).
+	// Empty SovereignFQDN = platform Applications are not Git-delivered.
+	SovereignFQDN            string
+	SovereignRegionRepoOwner string
+	SovereignRegionRepo      string
 
 	// TenantRepoName is the per-Org Gitea repo the per-region Application
 	// files are committed to. Defaults to "catalyst-tenant" — the repo the
@@ -1518,11 +1530,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 		// transition fields Continuum committed are kept.
 		files, ferr = withRegionContinuum(files, r.Cfg.Regions.IDs(), app.GetName(), app.GetNamespace(), transitionGovernance{
 			plan: cPlan, repoOwner: orgSlug, repoName: tenantRepo, branch: tenantBranch, dependsOn: spec.DependsOn,
+			layout: regionfile.OrgLayout,
 		})
 		if ferr != nil {
 			return r.markDegraded(ctx, app, ReasonRenderError, ferr.Error())
 		}
-		if err := r.commitGovernedRegionFiles(ctx, app, orgSlug, tenantRepo, tenantBranch, files); err != nil {
+		if err := r.commitGovernedRegionFiles(ctx, app, orgSlug, tenantRepo, tenantBranch, regionfile.OrgLayout, files); err != nil {
 			if errors.Is(err, errRegionFileMoved) {
 				return err // requeue (backoff) without marking the Application Degraded
 			}
@@ -2870,23 +2883,22 @@ func (r *Reconciler) reconcileBootstrapOwned(ctx context.Context, app *unstructu
 		break
 	}
 
-	// #4416 — mint the per-app Continuum DR contract for an ADOPTED
-	// DR-capable spine app (openbao/keycloak/harbor/gitea) + carry its
-	// back-pointer. The bootstrap-owned path is status-only (it never
-	// renders a fan-out HR), but the spine app is STILL a DR-capable
-	// multi-region Application whose Continuum contract must exist — that
-	// is the forward half of the #4212 round-trip. We resolve the contract
-	// from the CR's own spec.placement + spec.regions + the Blueprint
-	// topology variant (no fan-out render needed) and upsert the same
-	// Continuum CR the normal path would. A non-DR bootstrap app
-	// (singleton shared-pg, single-region) produces NO CR (the
-	// buildContinuumPlan gate) and writes no back-ref — the shared-pg
-	// adoption path is unchanged. Errors here are surfaced as Degraded so
-	// a missing DR contract retries (never silently passes).
-	continuumRef, cerr := r.reconcileBootstrapContinuum(ctx, app)
+	// ADR-0015 D8 — a DR-capable platform Application is delivered from
+	// Git: its slot HelmRelease's topology values and its Continuum ride in
+	// the Sovereign region repo's per-region platform files
+	// (platform_region_files.go), never an API-created Continuum. The
+	// adoption path still renders NO HelmRelease (the slot owns the
+	// install). A non-DR app, or one whose slot chart does not consume the
+	// topology contract, gets no Continuum. Errors surface as Degraded so a
+	// missing delivery retries (never silently passes); a compare-and-swap
+	// lost to a Continuum commit requeues without Degraded.
+	continuumRef, cerr := r.reconcilePlatformRegionFiles(ctx, app, hr)
 	if cerr != nil {
-		return r.markDegraded(ctx, app, ReasonRenderError,
-			fmt.Sprintf("adopted spine Continuum DR contract: %v", cerr))
+		if errors.Is(cerr, errRegionFileMoved) {
+			return cerr
+		}
+		return r.markDegraded(ctx, app, ReasonGiteaError,
+			fmt.Sprintf("platform region files (ADR-0015 D8): %v", cerr))
 	}
 
 	// #4601 — project the EFFECTIVE per-region DR placement onto
@@ -3041,101 +3053,6 @@ func planHasRealRegions(plan placement.Plan) bool {
 		}
 	}
 	return false
-}
-
-// reconcileBootstrapContinuum mints the per-app Continuum DR contract for a
-// bootstrap-owned (adopted) Application and returns its `<ns>/<name>`
-// back-pointer (#4416). It is the adoption-path equivalent of the normal
-// reconcile's step-7.5 Continuum producer: the adoption path never resolves
-// a fan-out render, so we resolve the minimal inputs the Continuum producer
-// needs (placement plan + Blueprint topology variant) directly from the
-// Application's own spec + the referenced Blueprint.
-//
-// A non-DR bootstrap app (singleton / single-region / Blueprint with no
-// switchover mechanism) produces NO CR — buildContinuumPlan returns
-// (zero,false) and reconcileContinuumCR is a no-op that returns "". So the
-// pre-existing shared-pg / substrate adoption apps are unaffected (they
-// keep being pure status-mirrors with no Continuum + no back-ref). Only a
-// DR-capable multi-region spine app mints a contract here.
-//
-// Resolution mirrors the normal path: spec.placement (the explicit posture
-// string the spine producer stamps — active-hot-standby / active-passive)
-// + spec.regions → placement.Resolve; the Blueprint's spec.topology variant
-// → the switchover mechanism. A missing/non-DR placement or a Blueprint
-// without a topology block simply yields no contract (returns "", nil),
-// never an error — the gate is the same buildContinuumPlan the normal path
-// applies.
-func (r *Reconciler) reconcileBootstrapContinuum(
-	ctx context.Context,
-	app *unstructured.Unstructured,
-) (string, error) {
-	spec, err := parseSpec(app)
-	if err != nil {
-		// A bootstrap app with an unparseable spec is not a DR contract we
-		// can mint — leave it a pure status-mirror rather than fail the
-		// adoption (the HR observation above is the load-bearing signal).
-		return "", nil
-	}
-	// Only an explicit single-primary DR posture has a switchover to drive.
-	// A singleton / active-active / empty posture is not a DR contract — skip
-	// without fetching the Blueprint (keeps the shared-pg adoption path a
-	// zero-extra-GET status-mirror).
-	switch spec.Placement {
-	case string(bpv1alpha1.BcpActiveHotStandby), string(bpv1alpha1.BcpActivePassive):
-		// DR-capable posture — resolve the contract below.
-	default:
-		return "", nil
-	}
-	if len(spec.Regions) < 2 {
-		// A DR contract needs ≥2 regions (primary + ≥1 standby). A
-		// single-region spine on a single-region Sovereign has nothing to
-		// fail over to — no CR.
-		return "", nil
-	}
-
-	plan, perr := placement.Resolve(spec.Placement, spec.Regions)
-	if perr != nil {
-		// An unresolvable placement is not mintable; do not fail the
-		// adoption over it (the HR is still healthy + observed).
-		r.Log.Warn("bootstrap-owned: placement resolve failed; no Continuum minted",
-			"app", app.GetName(), "placement", spec.Placement, "err", perr)
-		return "", nil
-	}
-
-	bp, berr := r.fetchBlueprint(ctx, spec.BlueprintName)
-	if berr != nil {
-		if isNotFound(berr) {
-			// Blueprint not yet in the catalog — retry on the next pass
-			// rather than minting an incomplete contract.
-			r.Log.Info("bootstrap-owned: Blueprint not found; Continuum mint deferred",
-				"app", app.GetName(), "blueprint", spec.BlueprintName)
-			return "", nil
-		}
-		return "", fmt.Errorf("fetch Blueprint %q: %w", spec.BlueprintName, berr)
-	}
-	bpTopo := parseBlueprintTopology(bp)
-	if bpTopo == nil {
-		// No topology block ⇒ no switchover variant ⇒ not a DR contract.
-		return "", nil
-	}
-	// Resolve the variant for the chosen posture (operator override = the
-	// explicit posture string; sovereignRegions = the CR's region count).
-	choice, variant, terr := topo.ResolveTopology(spec.Placement, bpTopo, len(spec.Regions))
-	if terr != nil {
-		r.Log.Warn("bootstrap-owned: topology resolve failed; no Continuum minted",
-			"app", app.GetName(), "blueprint", spec.BlueprintName,
-			"placement", spec.Placement, "err", terr)
-		return "", nil
-	}
-
-	ownerLabels := map[string]string{
-		"catalyst.openova.io/app-uid": string(app.GetUID()),
-	}
-	if org := app.GetLabels()["catalyst.openova.io/organization"]; org != "" {
-		ownerLabels["catalyst.openova.io/organization"] = org
-	}
-	return r.reconcileContinuumCR(ctx, app.GetName(), app.GetNamespace(),
-		choice, variant, plan, ownerLabels)
 }
 
 // bootstrapContinuumRefUnchanged reports whether the Application's current

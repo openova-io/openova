@@ -35,7 +35,7 @@ func objects() []runtime.Object {
 	}}
 	app := &unstructured.Unstructured{Object: map[string]interface{}{
 		"apiVersion": "apps.openova.io/v1", "kind": "Application",
-		"metadata":   map[string]interface{}{"name": "wp", "namespace": "acme"},
+		"metadata": map[string]interface{}{"name": "wp", "namespace": "acme"},
 		"status": map[string]interface{}{"regions": []interface{}{map[string]interface{}{"name": region,
 			"conditions": []interface{}{map[string]interface{}{"type": "Serving", "status": "False"}}}}},
 	}}
@@ -80,5 +80,54 @@ func TestPeers_FetchOverHTTP(t *testing.T) {
 	}
 	if _, err := p.Fetch(context.Background(), "some-other-region", nil); err == nil {
 		t.Fatal("an answer from a different region must be rejected")
+	}
+}
+
+// A platform pair: the bootstrap-kit slot HelmRelease (no application-controller
+// labels, contract arriving via valuesFrom) is observed by reference, and the
+// applied primary is read from the rendered Cluster's annotation.
+func TestObserve_PlatformMember_ByHelmReleaseRef(t *testing.T) {
+	hr := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "helm.toolkit.fluxcd.io/v2", "kind": "HelmRelease",
+		"metadata": map[string]interface{}{"name": "bp-cnpg-pair", "namespace": "flux-system", "generation": int64(7)},
+		"spec": map[string]interface{}{"releaseName": "cnpg-pair", "targetNamespace": "cnpg",
+			"valuesFrom": []interface{}{map[string]interface{}{"kind": "ConfigMap", "name": "bp-cnpg-pair-topology"}},
+			"values":     map[string]interface{}{"cnpgPair": map[string]interface{}{"enabled": true}}},
+		"status": map[string]interface{}{"observedGeneration": int64(7),
+			"conditions": []interface{}{map[string]interface{}{"type": "Ready", "status": "True"}}},
+	}}
+	db := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "postgresql.cnpg.io/v1", "kind": "Cluster",
+		"metadata": map[string]interface{}{"name": "cnpg-pair-bp-cnpg-pair-primary", "namespace": "cnpg",
+			"labels":      map[string]interface{}{"app.kubernetes.io/instance": "cnpg-pair"},
+			"annotations": map[string]interface{}{AnnotationTopologyPrimary: "hw-me-east-215-b-rtz-prod"}},
+		"spec": map[string]interface{}{"replica": map[string]interface{}{"self": "cnpg-pair-bp-cnpg-pair-primary", "primary": "cnpg-pair-bp-cnpg-pair-replica"}},
+		"status": map[string]interface{}{"phase": "Cluster in healthy state", "demotionToken": "TOK",
+			"conditions": []interface{}{map[string]interface{}{"type": "Ready", "status": "True"}}},
+	}}
+	mk := func(objs ...runtime.Object) *Observer {
+		dyn := dynfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{
+			HelmReleaseGVR: "HelmReleaseList", CNPGClusterGVR: "ClusterList", ApplicationGVR: "ApplicationList",
+		}, objs...)
+		return &Observer{Dyn: dyn, Region: region}
+	}
+	tg := Target{Namespace: "cnpg", App: "cnpg-pair", Stateful: true, HelmRelease: "flux-system/bp-cnpg-pair"}
+	got := mk(hr, db).Observe(context.Background(), []Target{tg})["cnpg/cnpg-pair"]
+	if !got.Observed || !got.ReleaseReady || got.AppliedPrimary != "hw-me-east-215-b-rtz-prod" {
+		t.Fatalf("platform member: %+v", got)
+	}
+	if got.DB.Primary || got.DB.DemotionToken != "TOK" || got.DB.Cluster != "cnpg-pair-bp-cnpg-pair-primary" {
+		t.Fatalf("CNPG: %+v", got.DB)
+	}
+	// Without the annotation nothing is inferred: the applied primary is unknown.
+	bare := db.DeepCopy()
+	unstructured.RemoveNestedField(bare.Object, "metadata", "annotations")
+	if got := mk(hr, bare).Observe(context.Background(), []Target{tg})["cnpg/cnpg-pair"]; got.AppliedPrimary != "" {
+		t.Fatalf("no annotation must read as not applied, got %q", got.AppliedPrimary)
+	}
+	// The target (with its HelmRelease) survives the peer query encoding.
+	back := ParseTargets(EncodeTargets([]Target{tg, {Namespace: "acme", App: "wp"}}))
+	if len(back) != 2 || back[0] != tg || back[1].HelmRelease != "" {
+		t.Fatalf("encode/parse: %+v", back)
 	}
 }

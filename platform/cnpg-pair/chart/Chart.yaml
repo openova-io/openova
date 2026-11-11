@@ -1,5 +1,21 @@
 apiVersion: v2
 name: bp-cnpg-pair
+# 0.2.32 (ADR-0015 D8, Refs #7067): the pair consumes the ONE topology
+# contract (openova.topology {mode,self,primary,peers} +
+# database.topology.promotionToken, platform/topology-lib) delivered per region
+# from Git — clusters/<fqdn>/regions/<r>/platform/cnpg-pair.yaml in the
+# Sovereign region repo, merged by slot 16b through `valuesFrom` — so the
+# continuum-controller moves it with the same 3-commit token protocol as an Org
+# Application. The contract maps onto the 0.2.29 distributed form (self ->
+# side, primary -> distributed.primary = that region's member,
+# promotionToken -> distributed.promotionToken); member names stay pinned per
+# region (primary.region keeps <fullname>-primary, replica.region keeps
+# <fullname>-replica), so adopting the live hw307 pair renames nothing. Under
+# the contract the imperative seams are off: dr-promoter / dr-failback (they
+# patched the bootstrap-kit Kustomization), the demoted/promoted shapes and the
+# chart's own Continuum CR (the region file carries it). Each Cluster carries
+# openova.io/topology-primary (what Helm applied), which Continuum reads to
+# know a commit reached the region. Contract absent => byte-identical to 0.2.31.
 # 0.2.27 (#6874 D5, Refs #5178 #5218 #5245): dr-promoter /shared/diverged
 # anti-flap marker is SELF-CLEARING — the counterpart of bp-postgres 0.2.30. The
 # signals container writes the marker when it sees the local cluster OUT of
@@ -460,7 +476,7 @@ name: bp-cnpg-pair
 #   carried forward from the live object on every later render (lookup), so a
 #   release upgrade never reverts the operator's declared primary (hw307
 #   2026-11-07: the Topology edit B-as-Primary was undone by the release).
-version: 0.2.31
+version: 0.2.32
 appVersion: "0.2.1"
 description: |
   Catalyst-curated Blueprint for an active-hotstandby CNPG cluster-pair
@@ -1079,6 +1095,12 @@ keywords:
 maintainers:
   - name: OpenOva Catalyst
     email: hati.yildiz@openova.io
+dependencies:
+  # ADR-0015 D2 — the shared topology contract helpers (library chart,
+  # vendored into this package by `helm dependency build`).
+  - name: topology-lib
+    version: "0.1.0"
+    repository: "file://../../topology-lib/chart"
 
 # No upstream Helm chart — every byte of this Blueprint is Catalyst-
 # authored. The blueprint-release workflow's hollow-chart guard

@@ -32,9 +32,13 @@
 #
 # REGISTRY — charts that declare multi-region support:
 #   platform/wordpress-tenant/chart  — openova.topology contract (ADR-0015 D2)
-#   platform/cnpg-pair/chart         — cnpgPair.side (pre-contract vocabulary)
+#   platform/cnpg-pair/chart         — openova.topology contract (ADR-0015 D8,
+#                                      slot 16b via valuesFrom) + the legacy
+#                                      cnpgPair.side vocabulary it maps onto
+#   platform/postgres/chart          — openova.topology contract (ADR-0015 D8,
+#                                      slots 16c/16d via valuesFrom)
 # TODO (migrate to openova.topology via platform/topology-lib, then register):
-#   platform/postgres, platform/gitea, platform/openbao, platform/harbor,
+#   platform/gitea, platform/openbao, platform/harbor,
 #   platform/newapi, platform/guacamole, platform/sandbox.
 #
 # Usage: bash scripts/check-chart-renders-self-only.sh
@@ -127,7 +131,7 @@ case_ "wordpress B primary (swapped)" "$WP" "$B" "$A" 1 "${WP_BASE[@]}" \
 case_ "wordpress A replica (swapped)" "$WP" "$A" "$B" 1 "${WP_BASE[@]}" \
   --set openova.topology.self="$A" --set openova.topology.primary="$B" --set "openova.topology.peers={$B}"
 
-echo "══ bp-cnpg-pair (cnpgPair.side) ══"
+echo "══ bp-cnpg-pair (cnpgPair.side + openova.topology) ══"
 CP=platform/cnpg-pair/chart
 ensure_deps "$CP"
 CP_BASE=(--set cnpgPair.enabled=true --set cnpgPair.primary.region="$A" --set cnpgPair.replica.region="$B"
@@ -136,6 +140,33 @@ case_ "cnpg-pair side=primary" "$CP" "$A" "$B" 1 "${CP_BASE[@]}" --set cnpgPair.
 case_ "cnpg-pair side=replica" "$CP" "$B" "$A" 1 "${CP_BASE[@]}" --set cnpgPair.side=replica
 case_ "cnpg-pair side=primary distributed" "$CP" "$A" "$B" 1 "${CP_BASE[@]}" --set cnpgPair.side=primary --set cnpgPair.distributed.enabled=true
 case_ "cnpg-pair side=replica distributed" "$CP" "$B" "$A" 1 "${CP_BASE[@]}" --set cnpgPair.side=replica --set cnpgPair.distributed.enabled=true
+# ADR-0015 D8 — the contract, with the slot's legacy `side` substitute left at
+# primary in BOTH regions: `self` alone must decide which half renders.
+CP_TOPO=(--set openova.topology.mode=active-hot-standby --set cnpgPair.side=primary)
+case_ "cnpg-pair contract A primary" "$CP" "$A" "$B" 1 "${CP_BASE[@]}" "${CP_TOPO[@]}" \
+  --set openova.topology.self="$A" --set openova.topology.primary="$A" --set "openova.topology.peers={$B}"
+case_ "cnpg-pair contract B standby" "$CP" "$B" "$A" 1 "${CP_BASE[@]}" "${CP_TOPO[@]}" \
+  --set openova.topology.self="$B" --set openova.topology.primary="$A" --set "openova.topology.peers={$A}"
+case_ "cnpg-pair contract B primary (swapped)" "$CP" "$B" "$A" 1 "${CP_BASE[@]}" "${CP_TOPO[@]}" \
+  --set openova.topology.self="$B" --set openova.topology.primary="$B" --set "openova.topology.peers={$A}" --set database.topology.promotionToken=T
+case_ "cnpg-pair contract A standby (swapped)" "$CP" "$A" "$B" 1 "${CP_BASE[@]}" "${CP_TOPO[@]}" \
+  --set openova.topology.self="$A" --set openova.topology.primary="$B" --set "openova.topology.peers={$B}"
+
+echo "══ bp-postgres (openova.topology, shared instance) ══"
+PG=platform/postgres/chart
+ensure_deps "$PG"
+PG_BASE=(--set enabled=true --set instance.name=shared-pg --set instance.namespace=shared-data
+  --set topology.crossRegion=true --set topology.side=primary
+  --set topology.primary.region="$A" --set topology.replica.region="$B"
+  --api-versions postgresql.cnpg.io/v1 --set openova.topology.mode=active-hot-standby)
+case_ "postgres contract A primary" "$PG" "$A" "$B" 1 "${PG_BASE[@]}" \
+  --set openova.topology.self="$A" --set openova.topology.primary="$A" --set "openova.topology.peers={$B}"
+case_ "postgres contract B standby" "$PG" "$B" "$A" 1 "${PG_BASE[@]}" \
+  --set openova.topology.self="$B" --set openova.topology.primary="$A" --set "openova.topology.peers={$A}"
+case_ "postgres contract B primary (swapped)" "$PG" "$B" "$A" 1 "${PG_BASE[@]}" \
+  --set openova.topology.self="$B" --set openova.topology.primary="$B" --set "openova.topology.peers={$A}" --set database.topology.promotionToken=T
+case_ "postgres contract A standby (swapped)" "$PG" "$A" "$B" 1 "${PG_BASE[@]}" \
+  --set openova.topology.self="$A" --set openova.topology.primary="$B" --set "openova.topology.peers={$B}"
 
 echo
 if [ "$fails" -gt 0 ]; then
