@@ -168,6 +168,12 @@ func withRegionContinuum(files map[string][]byte, regionOrder []string, appName,
 	}
 	out := make(map[string][]byte, len(files))
 	for _, r := range regions {
+		// The Continuum rendered here IS the promotion actor; declare it on
+		// the HelmReleases so the chart's #5623 fail-closed check is
+		// satisfied by the truth, not by a default (ADR-0015 D8).
+		if _, err := regionfile.DeclarePromotionMechanism(parsed[r], "continuum"); err != nil {
+			return nil, err
+		}
 		cr := renderRegionContinuum(appName, namespace, desired, regions, g)
 		l := cr.GetLabels()
 		l[topo.LabelRegion] = r
