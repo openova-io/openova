@@ -76,7 +76,7 @@ wordpress:
     # SHA-pinned per docs/PRINCIPLES.md #4 — the digest below is the manifest
     # digest of the published image; the human-readable tag is kept alongside
     # for forensics.
-    repository: ghcr.io/openova-io/openova/wordpress-tenant-pg
+    repository: registry.hw307.omani.works/openova-io/openova/wordpress-tenant-pg  # HW307-ONLY (in-Sovereign build); revert to ghcr.io before upstreaming
     tag: "hw307-d7f8160"
     # Pushed manifest digest of `wordpress-tenant-pg:<tag>` — populated by the
     # build workflow's build-push-action `outputs.digest` on first build.

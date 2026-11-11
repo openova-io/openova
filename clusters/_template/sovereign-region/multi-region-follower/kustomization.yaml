@@ -32,3 +32,4 @@ resources:
   - git-sync-egress.yaml
   - git-sync-script.yaml
   - git-sync-cronjob.yaml
+  - catalog-helmrepository.yaml

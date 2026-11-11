@@ -1,0 +1,27 @@
+# ADR-0015 D1 (Refs #7067) — the catalog source every per-region app
+# HelmRelease references (the application-controller renders
+# sourceRef flux-system/openova-catalog, CATALOG_SOURCE_REF).
+#
+# In the writer region bp-catalyst-platform ships this object
+# (products/catalyst/chart/templates/openova-catalog-helmrepository.yaml).
+# A follower region runs no catalyst-platform, so without this file every
+# app HelmRelease delivered to it through regions/<region-id>/apps fails with
+# `HelmRepository "openova-catalog" not found` (hw307 region B, 2026-11-11).
+#
+# Pre-cutover shape: the public catalog. Self-sovereign-cutover pivots it to
+# the local Harbor exactly like every bootstrap-kit HelmRepository
+# (step-06 durable edit: url -> oci://registry.<fqdn>/openova-io,
+# certSecretRef -> cutover-harbor-ca).
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: openova-catalog
+  namespace: flux-system
+  labels:
+    app.kubernetes.io/component: openova-catalog
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
