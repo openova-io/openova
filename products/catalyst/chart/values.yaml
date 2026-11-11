@@ -561,7 +561,7 @@ images:
     # signer unavailable". ff778a36 reads both names with fallback.
     tag: "hw307-8519b21"
   catalystUi:
-    tag: "03bcc36"
+    tag: "hw307-247b480"
   # 2026-08-11 (#5451): marketplaceApi / console / admin were ALL frozen at
   # "3c2f7e4" (2026-04-28) for three and a half months. Their build workflows
   # sed-ed the `image:` line of their chart template; 83ec889f0 (PR #580,
