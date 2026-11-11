@@ -14,6 +14,14 @@ catalystBlueprint:
 
 # ─── Upstream chart values (subchart key: reflector) ──────────────────────
 reflector:
+  # Pull through the Sovereign's Harbor proxy like every bootstrap-kit
+  # chart (cf. bp-reloader: harbor.openova.io/proxy-ghcr/...). The upstream
+  # default `emberstack/kubernetes-reflector` (Docker Hub) is REFUSED by the
+  # Kyverno `harbor-proxy-pull` policy, so no upgrade of this chart could ever
+  # roll: both hw307 regions stayed on the old 128Mi pod (537 OOM restarts)
+  # while 1.0.1's 512Mi limit sat unapplied (Refs #7067).
+  image:
+    repository: harbor.openova.io/proxy-dockerhub/emberstack/kubernetes-reflector
   # Single replica is sufficient for a single-node Sovereign (cpx52).
   # Reflector uses a watch loop, not a controller-manager with leader
   # election — extra replicas would cause duplicate reconcile storms.
