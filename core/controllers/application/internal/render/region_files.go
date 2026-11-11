@@ -13,6 +13,7 @@ package render
 
 import (
 	"fmt"
+	"github.com/openova-io/openova/core/controllers/pkg/endpoints"
 	"sort"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -50,6 +51,11 @@ type TopologyContract struct {
 	// instead of one fixed default every install in a namespace collides on.
 	AppName      string
 	AppNamespace string
+	// Endpoints — the Application's public endpoints with their resolved
+	// hostnames (core/controllers/pkg/endpoints, the same resolver
+	// catalyst-api reports from). Rendered as `openova.endpoints` so a chart
+	// routes exactly the host the console advertises.
+	Endpoints []endpoints.Endpoint
 }
 
 // WithTopologyContract returns a COPY of values carrying
@@ -80,6 +86,15 @@ func WithTopologyContract(values map[string]interface{}, c TopologyContract) map
 	}
 	if c.AppName != "" {
 		ns["application"] = map[string]interface{}{"name": c.AppName, "namespace": c.AppNamespace}
+	}
+	if len(c.Endpoints) > 0 {
+		eps := make([]interface{}, 0, len(c.Endpoints))
+		for _, e := range c.Endpoints {
+			eps = append(eps, map[string]interface{}{
+				"name": e.Name, "hostname": e.Hostname, "port": e.Port, "tls": e.TLS, "launchDefault": e.LaunchDefault,
+			})
+		}
+		ns["endpoints"] = eps
 	}
 	out[TopologyValuesKey] = ns
 	return out
