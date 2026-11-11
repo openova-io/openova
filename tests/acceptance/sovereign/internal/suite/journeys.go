@@ -75,7 +75,7 @@ func randHex(n int) string {
 // both sides of that change).
 func (r *runner) createBody(name, org, env string, regions []string) map[string]any {
 	return map[string]any{
-		"blueprint":   strings.TrimPrefix(r.cfg.Blueprint, "bp-"),
+		"blueprint":   r.cfg.Blueprint, // ADR-0015 D4: the Blueprint CR name exactly, as NewInstanceDialog sends it
 		"org":         org,
 		"environment": env,
 		"name":        name,
