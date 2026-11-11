@@ -108,7 +108,7 @@ type poolDNSRecord struct {
 // no error on an existing rrset — the #4236 idempotency requirement).
 func (r *Reconciler) reconcileTenantDNS(ctx context.Context, org *orgapi.Organization) (bool, error) {
 	tp := org.Spec.TenantPublic
-	parentDomain := strings.TrimSpace(tp.ParentDomain)
+	parentDomain, zone := tenantDNSParent(org)
 	if parentDomain == "" {
 		// Feature disabled — Org has no pool-parent public hostname. The
 		// Sovereign-wide `*.<sovFQDN>` apex wildcard covers single-domain Orgs.
@@ -191,14 +191,14 @@ func (r *Reconciler) reconcileTenantDNS(ctx context.Context, org *orgapi.Organiz
 		})
 	}
 
-	if err := r.patchPoolZone(ctx, baseURL, apiKey, parentDomain, rrsets); err != nil {
+	if err := r.patchPoolZone(ctx, baseURL, apiKey, zone, rrsets); err != nil {
 		return false, fmt.Errorf("patch pool zone %q for %q: %w", parentDomain, subdomain, err)
 	}
 	r.Log.Info("tenant-dns: wrote per-Org pool A-records",
 		"organization", org.Name,
 		"console_host", fmt.Sprintf("console.%s.%s", subdomain, parentDomain),
 		"target", consoleIP,
-		"zone", parentDomain)
+		"zone", zone)
 	return true, nil
 }
 
@@ -214,7 +214,7 @@ func (r *Reconciler) reconcileTenantDNS(ctx context.Context, org *orgapi.Organiz
 // no-op on PowerDNS.
 func (r *Reconciler) teardownTenantDNS(ctx context.Context, org *orgapi.Organization) (bool, error) {
 	tp := org.Spec.TenantPublic
-	parentDomain := strings.TrimSpace(tp.ParentDomain)
+	parentDomain, zone := tenantDNSParent(org)
 	if parentDomain == "" {
 		return false, nil
 	}
@@ -251,13 +251,13 @@ func (r *Reconciler) teardownTenantDNS(ctx context.Context, org *orgapi.Organiza
 			ChangeType: "DELETE",
 		})
 	}
-	if err := r.patchPoolZone(ctx, baseURL, apiKey, parentDomain, rrsets); err != nil {
+	if err := r.patchPoolZone(ctx, baseURL, apiKey, zone, rrsets); err != nil {
 		return false, fmt.Errorf("delete pool zone rrsets %q for %q: %w", parentDomain, subdomain, err)
 	}
 	r.Log.Info("tenant-dns teardown: deleted per-Org pool A-records",
 		"organization", org.Name,
 		"console_host", fmt.Sprintf("console.%s.%s", subdomain, parentDomain),
-		"zone", parentDomain)
+		"zone", zone)
 	return true, nil
 }
 
@@ -445,4 +445,28 @@ func (r *Reconciler) patchPoolZone(ctx context.Context, baseURL, apiKey, zone st
 // (PowerDNS API convention). Mirrors catalyst-api's zoneCanonical.
 func poolZoneCanonical(zone string) string {
 	return strings.TrimRight(zone, ".") + "."
+}
+
+// tenantDNSParent returns the parent domain an Organization's per-Org hosts
+// live under and the PowerDNS zone that holds them. A customer Organization
+// uses its pool parent (zone == parent). An INTERNAL Organization (the
+// Sovereign's own) has no pool parent: its hosts live under the Sovereign
+// FQDN (<slug>.<sovereign-fqdn>, the host catalyst-api advertises and the
+// per-Org listener serves), and the records go into the zone that holds the
+// Sovereign's own records — the Sovereign FQDN's parent (live hw307
+// 2026-11-11, Refs #7067: there is no `*.<sovereign-fqdn>` apex wildcard, so
+// every app of the Sovereign's own Organization had no DNS).
+func tenantDNSParent(org *orgapi.Organization) (parent, zone string) {
+	parent = strings.TrimSpace(org.Spec.TenantPublic.ParentDomain)
+	if parent != "" {
+		return parent, parent
+	}
+	if !strings.EqualFold(strings.TrimSpace(org.Spec.Kind), "internal") {
+		return "", ""
+	}
+	sov := strings.ToLower(strings.TrimSpace(org.Spec.SovereignRef))
+	if strings.Count(sov, ".") < 2 {
+		return "", ""
+	}
+	return sov, sov[strings.Index(sov, ".")+1:]
 }
