@@ -2378,6 +2378,15 @@ func (r *Reconciler) cascadeDeleteFanoutHelmReleases(ctx context.Context, app *u
 		} else if labels[topo.LabelApp] != name {
 			continue
 		}
+		// ADR-0015 D1 (Refs #7067): a HelmRelease delivered from a region
+		// file is owned by Git. Removing the file and letting that Flux
+		// Kustomization prune is the delete. Deleting it here RACED Flux:
+		// the Kustomization re-created it from the still-applied revision,
+		// a fresh install started (a new CNPG Cluster), and the prune then
+		// waited out the 15-minute install (live hw307 run 12, J5.2).
+		if labels[fluxKustomizeNameLabel] != "" {
+			continue
+		}
 		ns, hrName := hr.GetNamespace(), hr.GetName()
 		if derr := r.Dynamic.Resource(FluxHelmReleaseGVR).Namespace(ns).
 			Delete(ctx, hrName, metav1.DeleteOptions{}); derr != nil {
