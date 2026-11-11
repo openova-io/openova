@@ -505,6 +505,12 @@ func memberActivity(rec *transition.Record, m transition.Member) []interface{} {
 			continue
 		}
 		e := map[string]interface{}{"id": a.ID, "phase": a.Phase, "member": a.Member, "state": a.State}
+		// The transition's identity: every move is its own Jobs record
+		// (Refs #7067 — a second move reused the first move's ids and never
+		// appeared in Jobs).
+		if rec.ID != "" {
+			e["transition"] = rec.ID
+		}
 		if a.StartedAt != "" {
 			e["startedAt"] = a.StartedAt
 		}
