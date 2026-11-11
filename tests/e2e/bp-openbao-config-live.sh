@@ -57,9 +57,34 @@ CURL=(curl -s --max-time 10)
 FAIL=0
 pass() { echo "  PASS  $1"; }
 fail() { echo "  FAIL  $1"; FAIL=1; }
-die()  { echo "FATAL: $1"; for f in "$TMP"/*.log; do echo "--- $f"; tail -20 "$f"; done; exit 1; }
+# head AND tail: a listener that failed to bind reports it in the first lines,
+# which tail -20 cut off (PR #7085: "dev server B did not come up" with B's
+# log showing only a healthy unseal).
+die()  { echo "FATAL: $1"; for f in "$TMP"/*.log; do echo "--- $f (head)"; head -15 "$f"; echo "--- $f (tail)"; tail -15 "$f"; done; exit 1; }
 
-freeport() { python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])'; }
+# A dev server binds its API port AND port+1 (cluster listener). Ports picked
+# one at a time can land on another server's port+1, so pick them all at once:
+# each P with P+1 free, no two pairs overlapping.
+freeports() {  # $1 count -> space-separated ports
+  python3 - "$1" <<'PYP'
+import socket, sys
+n, picked = int(sys.argv[1]), []
+def free(p):
+    s = socket.socket()
+    try:
+        s.bind(("127.0.0.1", p))
+        return True
+    except OSError:
+        return False
+    finally:
+        s.close()
+while len(picked) < n:
+    s = socket.socket(); s.bind(("127.0.0.1", 0)); p = s.getsockname()[1]; s.close()
+    if p < 65535 and free(p + 1) and all(abs(p - q) > 1 for q in picked):
+        picked.append(p)
+print(" ".join(map(str, picked)))
+PYP
+}
 wait_up() {  # $1 port $2 what
   for _ in $(seq 60); do "${CURL[@]}" -o /dev/null "http://127.0.0.1:$1/v1/sys/health?uninitcode=200&sealedcode=200&standbyok=true" && return 0; sleep 0.5; done
   die "$2 on :$1 did not come up"
@@ -67,7 +92,7 @@ wait_up() {  # $1 port $2 what
 code() { "${CURL[@]}" -o /dev/null -w '%{http_code}' "$@"; }   # HTTP status only
 
 A="hw-me-east-215-a-rtz-prod"; B="hw-me-east-215-b-rtz-prod"
-PA="$(freeport)"; PB="$(freeport)"; PS="$(freeport)"
+read -r PA PB PS APIPORT < <(freeports 4)
 
 # ── render the chart once per region ──────────────────────────────────────
 helm dependency build "$CHART" >/dev/null 2>&1 || ls "$CHART"/charts/*.tgz >/dev/null 2>&1 || die "helm dependency build failed"
@@ -292,7 +317,6 @@ d = json.load(open(sys.argv[1]))
 b = lambda s: base64.b64encode(s.encode()).decode()
 json.dump({"kind": "Secret", "data": {"unseal-keys-b64": b("\n".join(d["unseal_keys_b64"]) + "\n"), "unseal-threshold": b("3")}}, open(sys.argv[2], "w"))
 PYEOF
-APIPORT="$(freeport)"
 ( cd "$TMP/api" && exec python3 -m http.server "$APIPORT" --bind 127.0.0.1 ) > "$TMP/api.log" 2>&1 & PIDS+=($!)
 for _ in $(seq 40); do "${CURL[@]}" -o /dev/null "http://127.0.0.1:$APIPORT/" && break; sleep 0.25; done
 printf 'sa-token' > "$TMP/sa/token"
