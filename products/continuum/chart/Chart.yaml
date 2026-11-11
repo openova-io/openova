@@ -176,7 +176,7 @@ type: application
 #   (clusters/<fqdn>/regions/<r>/platform/<app>.yaml, lease under
 #   clusters/<fqdn>/continuum/transitions/) and moved by the same phase
 #   machine. Values unchanged (the controller image follows the deploy-bot).
-version: 0.2.1-hw307.2
+version: 0.2.1-hw307.3
 appVersion: "0.1.0"
 home: https://openova.io
 sources:
