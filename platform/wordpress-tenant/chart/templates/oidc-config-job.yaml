@@ -344,10 +344,12 @@ spec:
               # which speaks the MySQL protocol and can never reach the CNPG
               # Postgres backend (pg4wp translates only inside PHP) — the loop
               # always exited FATAL after 5 min (live hw307 2026-11-11, Refs
-              # #7067). Probe through $wpdb, i.e. through pg4wp, exactly the
-              # path WordPress itself uses.
+              # #7067). Probe the Postgres
+              # backend directly (pg_connect, the same credentials WordPress
+              # uses). `wp eval` cannot be used here: it boots WordPress, which
+              # exits "not installed" until step 3 has run.
               for i in $(seq 1 60); do
-                if wp eval 'global $wpdb; $wpdb->suppress_errors(true); exit(($wpdb->get_var("SELECT 1") == "1") ? 0 : 1);' --allow-root >/dev/null 2>&1; then
+                if php -r '$h=getenv("WORDPRESS_DB_HOST"); $p="5432"; if (strpos($h, ":") !== false) { list($h,$p)=explode(":",$h,2); } $c=@pg_connect("host=$h port=$p dbname=".getenv("WORDPRESS_DB_NAME")." user=".getenv("WORDPRESS_DB_USER")." password=".getenv("WORDPRESS_DB_PASSWORD")." connect_timeout=5"); exit(($c && pg_fetch_result(pg_query($c,"SELECT 1"),0,0)=="1") ? 0 : 1);' >/dev/null 2>&1; then
                   echo "[oidc-config] database reachable"
                   break
                 fi
