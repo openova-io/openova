@@ -1,4 +1,22 @@
 {{/*
+Public host (ADR-0015 D2/D7, Refs #7067): `gateway.host` when set explicitly,
+else the hostname the application-controller resolved for the Blueprint's
+launch-default (else first) public endpoint, rendered as `openova.endpoints`
+by the same resolver catalyst-api reports from — so the route serves exactly
+the host the console advertises. Empty ⇒ no HTTPRoute.
+*/}}
+{{- define "bp-wordpress-tenant.publicHost" -}}
+{{- $explicit := .Values.gateway.host | default "" -}}
+{{- if $explicit -}}{{ $explicit }}{{- else -}}
+{{- $eps := dig "openova" "endpoints" (list) (.Values | toJson | fromJson) -}}
+{{- $pick := "" -}}
+{{- range $eps -}}{{- if and (not $pick) .launchDefault .hostname -}}{{- $pick = .hostname -}}{{- end -}}{{- end -}}
+{{- range $eps -}}{{- if and (not $pick) .hostname -}}{{- $pick = .hostname -}}{{- end -}}{{- end -}}
+{{- $pick -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 CNPG base name (ADR-0015 D2, Refs #7067). Resolution:
   1. `database.cnpgClusterName` when set explicitly (operator pin, legacy installs);
   2. `<openova.application.name>-db` when the application-controller renders the
@@ -124,8 +142,11 @@ fallback rendered `wordpress.<no value>`. (Live HRs always set ingress.host
 explicitly, so this only bit the chart-default render path.)
 */}}
 {{- define "bp-wordpress-tenant.ingressHost" -}}
+{{- $public := include "bp-wordpress-tenant.publicHost" . -}}
 {{- if .Values.ingress.host -}}
 {{- .Values.ingress.host -}}
+{{- else if $public -}}
+{{- $public -}}
 {{- else -}}
 {{- printf "wordpress.%s" .Values.orgDomain -}}
 {{- end -}}
