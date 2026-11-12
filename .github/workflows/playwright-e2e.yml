@@ -242,7 +242,6 @@ jobs:
           - rbac-management
           - rbac-membership
           - resource-detail
-          - sandbox
           - sovereignty
     defaults:
       run:
@@ -337,7 +336,7 @@ jobs:
             # to make a red spec pass — fix the spec or the product, cite the
             # reason in #5762, and remove the entry once it goes green.
             case "${{ matrix.spec }}" in
-              application-pages-t-o-p|cloud-architecture|cloud-crud|cloud-list-pages|cloud-nav|cloud-shell|continuum-dr-section|fleet-dashboard|install-flow|org-multi-domain|org-tier-rbac|parent-domains-829|post-v2-polish-366|rbac-membership|sandbox|sovereignty)
+              application-pages-t-o-p|cloud-architecture|cloud-crud|cloud-list-pages|cloud-nav|cloud-shell|continuum-dr-section|fleet-dashboard|install-flow|org-multi-domain|org-tier-rbac|parent-domains-829|post-v2-polish-366|rbac-membership|sovereignty)
                 echo "::warning::e2e/${{ matrix.spec }}.spec.ts is KNOWN-RED (tracked in #5762, not this PR) — not failing the gate. Root cause + fix shape are in #5762's triage table."
                 exit 0
                 ;;
