@@ -20,6 +20,7 @@ Format: lightweight ADR (Status / Context / Decision / Consequences / Shipped-vi
 | [0014](0014-chargeback-usage-ledger-and-split-deployment.md) | Chargeback: usage ledger as the measurement primitive (not Crossplane), `bp-chargeback` multi-tenant application with split deployment (Sovereign BSS · per-Org · central National Cloud instance) | Proposed |
 | [0015](0015-region-symmetric-gitops-and-native-topology-transitions.md) | Region-symmetric GitOps delivery, one topology contract, native topology transitions (replaces the imperative switchover sequencer) | Accepted |
 | [0016](0016-cloud-abstraction-contract.md) | Cloud abstraction contract: provider port, module contract version 1, cloud profile, provider packs, Workspace hand-over | Accepted |
+| [0019](0019-zones-are-namespaces-and-an-edge-pool.md) | Zones are namespaces and an edge pool: platform planes are host namespaces, a vCluster is the boundary of an Organization only, the zone trial and its withdrawal; closes the numbers 0005 to 0008 | Accepted |
 | [0020](0020-service-model-classes-and-capability-contracts.md) | Service model: classes, lifecycle, capability contracts, one catalogue source, function tests and kit rings | Accepted |
 | [0022](0022-foundation-gate-release-train-and-execution-protocol.md) | Foundation gate, release train, stability register and execution protocol (supersedes the gate wiring of ADR-0015 decision D9) | Accepted |
 | [0023](0023-sandbox-withdrawn.md) | Sandbox withdrawn; the per-Organization agent workspace and the tool server replace it | Accepted |
