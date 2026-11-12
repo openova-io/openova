@@ -1,0 +1,127 @@
+# work-package.yaml - the fence around every work package.
+#
+# A work package of docs/ledger/plan.yaml arrives as one pull request. The last line of its
+# body names the package: "Work-Package: <ID>". Three jobs judge the pull request:
+#   scope         only the allowed paths of the package changed, its dependencies are merged
+#                 and their gate checks are green, the done marker is there, the budget is kept
+#   precondition  the precondition of the package holds at the commit the branch was cut from
+#   acceptance    the acceptance commands of the package exit 0 on the merged result
+# The plan on main decides. Every job reads the plan at the base commit, never the copy in
+# the pull request, so a branch cannot change the commands that judge it. On a pull request
+# the checkout is the merge of main and the branch: HEAD^1 is main, HEAD^2 is the branch.
+# A pull request with "Work-Package: PLAN", and one that carries only a wrong report, have
+# nothing to run: for them the jobs precondition and acceptance say so and pass.
+# Only a work package is judged. A pull request whose branch is not wp/<ID> or
+# wrong/<ID>-rev<N> and whose body names no package is not one: the three jobs pass with the
+# notice "not a work package, not judged". A pull request that changes a file of the plan
+# itself is always judged; when it names no package it is judged as a plan change.
+# On a merge group every commit of the group is one pull request: its message is the body.
+name: work-package
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, edited, reopened, synchronize]
+  merge_group:
+
+permissions:
+  contents: read
+
+# Text that a pull request controls reaches a script only through these variables.
+# It is never written into a script.
+env:
+  PR_BODY: ${{ github.event.pull_request.body }}
+  PR_BRANCH: ${{ github.head_ref }}
+  PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+  GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+  GROUP_HEAD: ${{ github.event.merge_group.head_sha }}
+
+jobs:
+  scope:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PyYAML
+        run: pip install --quiet pyyaml
+      - name: Scope fence and dependency gate
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            printf '%s\n' "$PR_BODY" > "$RUNNER_TEMP/body.txt"
+            python3 scripts/plan.py check-pr --base "$(git rev-parse HEAD^1)" --head "$(git rev-parse HEAD^2)" --body-file "$RUNNER_TEMP/body.txt" --branch "$PR_BRANCH" --author "$PR_AUTHOR"
+          else
+            for commit in $(git rev-list --reverse "$GROUP_BASE..$GROUP_HEAD"); do
+              git log -1 --format=%B "$commit" > "$RUNNER_TEMP/body.txt"
+              python3 scripts/plan.py check-pr --base "$commit^" --head "$commit" --body-file "$RUNNER_TEMP/body.txt" --author "$(git log -1 --format=%an "$commit")"
+            done
+          fi
+
+  precondition:
+    # In a merge group the commit a branch was cut from is no longer the base, so this job runs on pull requests only.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PyYAML
+        run: pip install --quiet pyyaml
+      - name: Precondition at the merge base
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$PR_BODY" > "$RUNNER_TEMP/body.txt"
+          base="$(git rev-parse HEAD^1)"
+          head="$(git rev-parse HEAD^2)"
+          git worktree add --detach "$RUNNER_TEMP/merge-base" "$(git merge-base "$base" "$head")"
+          cd "$RUNNER_TEMP/merge-base"
+          python3 "$GITHUB_WORKSPACE/scripts/plan.py" precondition --base "$base" --head "$head" --body-file "$RUNNER_TEMP/body.txt" --branch "$PR_BRANCH" --author "$PR_AUTHOR"
+
+  acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # The whole history is fetched, with every branch: an acceptance command may compare the change with origin/main.
+      # The tools an acceptance command may use: git, the shell, Python with PyYAML, Go, Node with npm, Helm.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PyYAML
+        run: pip install --quiet pyyaml
+      # Go: the newest version a module of this repository asks for, so every module builds.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: products/catalyst/bootstrap/api/go.mod
+          cache: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      # Helm: the version that blueprint-release.yaml pins.
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.18.4
+      - name: Acceptance commands of the package
+        run: |
+          set -euo pipefail
+          git rev-parse --verify --quiet "origin/main^{commit}" > /dev/null || { echo "origin/main is not known in this checkout"; exit 1; }
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            printf '%s\n' "$PR_BODY" > "$RUNNER_TEMP/body.txt"
+            python3 scripts/plan.py accept --base "$(git rev-parse HEAD^1)" --head "$(git rev-parse HEAD^2)" --body-file "$RUNNER_TEMP/body.txt" --branch "$PR_BRANCH" --author "$PR_AUTHOR"
+          else
+            for commit in $(git rev-list --reverse "$GROUP_BASE..$GROUP_HEAD"); do
+              git log -1 --format=%B "$commit" > "$RUNNER_TEMP/body.txt"
+              python3 scripts/plan.py accept --base "$commit^" --head "$commit" --body-file "$RUNNER_TEMP/body.txt" --author "$(git log -1 --format=%an "$commit")"
+            done
+          fi

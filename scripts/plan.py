@@ -17,17 +17,39 @@ markers and the wrong reports on origin/main, and the remote branches wp/<ID>) a
 Each of these commands runs "git fetch origin --prune" first unless --no-fetch is given.
 validate prints nothing when the plan is valid.
 
+Commands for one pull request. They never fetch: they read the commits they are given.
+
+    python3 scripts/plan.py check-pr --base B --head H --body-file F [--branch R] [--author A]   the scope fence and the dependency gate
+    python3 scripts/plan.py precondition --id ID       runs the precondition of a package in this checkout
+    python3 scripts/plan.py accept --id ID             runs the acceptance commands of a package in this checkout, in order
+    python3 scripts/plan.py checks --pr N [--wait]     the checks on the head commit of pull request N
+
+check-pr needs no pull request: before the push it is run with --base origin/main --head HEAD and the body in a file.
+precondition and accept also take --base, --head, --body-file, --branch and --author in place of --id. They then find the
+package from the pull request and read its commands from the plan at the base: the plan on main decides, never the copy in a branch.
+Only a work package is judged: a pull request whose branch is wp/<ID> or wrong/<ID>-rev<N>, or whose body has a line
+"Work-Package: <ID>". Any other pull request passes with the notice "not a work package, not judged". There is one exception:
+a pull request that changes a file of the plan itself is always judged, as a plan change when it names no package.
+checks judges each check by its newest run on the head commit: a check is a name in one workflow on one event. A check that
+finished red while its workflow run still runs has not finished. Exit codes of checks: 0 every check has finished green;
+1 one finished red; 2 one has not finished, or none exists yet; 3 the tool could not read the checks; 4 one has not finished
+and nothing of the head commit has started for 90 minutes (with --wait only).
+With --wait the command reads again every 20 seconds while a check has not finished, until 90 seconds have passed since it
+started. It reads a red result a second time, 20 seconds later, before it reports it. It never waits after its last reading.
+
 Exit codes: 0 pass or yes; 1 a violation or no; 3 the tool could not do its work (usage, git, a broken file).
 It needs Python 3 and PyYAML and nothing else.
 """
 import argparse
 import bisect
 import datetime
+import json
 import os
 import re
 import subprocess
 import sys
 import tempfile
+import time
 
 try:
     import yaml
@@ -61,6 +83,10 @@ PKG_FIELDS = ["id", "title", "area", "epic", "type", "wave", "size", "lane", "de
               "dropped", "delivers"]
 # A precondition or an acceptance command never talks to a cluster, a cloud or the code host: that is the work of a gate check.
 FORBIDDEN_COMMANDS = ["kubectl", "helm upgrade", "helm install", "tofu apply", "curl", "gh "]
+# checks --wait. All three are read by the code only through these names.
+WAIT_TOTAL = 90                                             # seconds: a reading is followed by another one only while fewer than this have passed
+WAIT_STEP = 20                                              # seconds between two readings
+STUCK_MINUTES = 90                                          # a check that has not finished is stuck when nothing has started for this long
 
 
 def die(message):
@@ -637,6 +663,258 @@ class Model:
         return "\n".join(out + ["## Gate verdict", "", fence + "text", verdict_text.strip("\n"), fence, ""])
 
 
+# ---------------------------------------------------------------------------------------------- the pull request
+FOUND = "docs/ledger/plan/found"
+DELETED = "docs/ledger/deleted-paths.txt"
+# What a pull request with the trailer "Work-Package: PLAN" may change. Only the architect opens one.
+PLAN_PATHS = [PLAN, TICKETS + "/**", GATES, "docs/ledger/stability.yaml", "docs/contracts/README.md", "docs/adr/**"]
+# The files of the plan itself. A pull request that changes one of them is always judged: as its package, or else as a plan change.
+PLAN_OWN = [PLAN, GATES, "docs/ledger/stability.yaml", "docs/ledger/plan/**", "scripts/plan.py", GATE_TOOL]
+BOT, BOT_PACKAGE = "dependabot[bot]", "FND-910"            # a pull request of the dependency bot belongs to this package, once it has a ticket
+WP_BRANCH = re.compile(r"^(wp/%s|wrong/%s-rev[0-9]+)$" % (ID_RE.pattern[1:-1], ID_RE.pattern[1:-1]))
+NOT_JUDGED = "not a work package, not judged"
+GREEN = ("success", "skipped", "neutral")
+
+
+class Change:
+    """What a pull request changes. files: (A, M or D; path; changed lines). old(path) and new(path): the text before and after, or None."""
+
+    def __init__(self, files, old, new):
+        self.files, self.old, self.new = files, old, new
+
+
+def load_change(root, base, head):
+    """The difference between the merge base and the head. A deleted file counts as one line."""
+    mb = git(root, "merge-base", base, head).decode().strip()
+    lines = {}
+    for row in git(root, "diff", "--no-renames", "--numstat", "-z", mb, head).decode("utf-8", "replace").split("\0"):
+        if row:
+            added, deleted, path = row.split("\t", 2)
+            lines[path] = sum(int(n) for n in (added, deleted) if n.isdigit())
+    st = git(root, "diff", "--no-renames", "--name-status", "-z", mb, head).decode("utf-8", "replace").split("\0")
+    files = [(st[n][0], st[n + 1], 1 if st[n][0] == "D" else lines.get(st[n + 1], 0)) for n in range(0, len(st) - 1, 2)]
+    return Change(files, lambda p: git_read(root, mb, [p]).get(p), lambda p: git_read(root, head, [p]).get(p))
+
+
+def pr_package(model, change, body, author=None, branch=None):
+    """Rule 1: the package a pull request belongs to. Returns (id, kind, None) or (None, None, the failure).
+
+    kind: package, plan or wrong; or none for a pull request that is not a work package and is therefore not judged.
+    """
+    named = re.findall(r"(?m)^Work-Package:[ \t]*(\S+)[ \t\r]*$", body)
+    if author == BOT:                                          # the bot writes no line: its package is fixed, and counts once it has a ticket
+        named = [BOT_PACKAGE] if model.pk.get(BOT_PACKAGE, {}).get("ticket_rev", 0) >= 1 else []
+    if not named and not WP_BRANCH.match(branch or ""):
+        # Not a work package. It is judged all the same, as a plan change, when it changes a file of the plan itself.
+        return (None, "plan" if any(matches(PLAN_OWN, f) for st, f, n in change.files) else "none", None)
+    if len(named) != 1:
+        return None, None, "rule 1: the body must hold exactly one line 'Work-Package: <ID>'; it holds %d" % len(named)
+    i = named[0]
+    if i == "PLAN":
+        return i, "plan", None
+    if i not in model.pk or model.pk[i]["dropped"]:
+        return None, None, "rule 1: %s is not a package of the plan on main, or it is dropped" % i
+    report = glob_re("%s/%s-rev*.yaml" % (WRONG, i))
+    only_report = bool(change.files) and all(st != "D" and report.match(f) for st, f, n in change.files)
+    return i, "wrong" if only_report else "package", None
+
+
+def manifest_lines(p, old, new):
+    """Rule 2 for the gate manifest: a package may change only the state and the implementation of the checks it flips or implements."""
+    def rest(c):
+        return {k: x for k, x in c.items() if k not in ("state", "implementation")}
+    try:
+        a, b = yaml.load(old or "", Loader=LOADER), yaml.load(new or "", Loader=LOADER)
+        same = [rest(c) for c in a["checks"]] == [rest(c) for c in b["checks"]] and dict(a, checks=0) == dict(b, checks=0)
+        moved = [x["id"] for x, y in zip(a["checks"], b["checks"]) if x != y]
+    except (yaml.YAMLError, TypeError, KeyError, AttributeError):
+        return ["rule 2: %s cannot be read before or after the change" % GATES]
+    if not same:
+        return ["rule 2: in %s a package may change only state and implementation lines" % GATES]
+    return ["rule 2: %s may not change check %s in %s" % (p["id"], c, GATES) for c in moved if c not in p["flips"] + p["implements"]]
+
+
+def check_pr(model, change, body, author=None, branch=None):
+    """The scope fence and the dependency gate: one line per failure. model: the plan and the repository as they are on main.
+
+    Rules 1, 2, 4, 5 and 6 are here. Rule 3 (no release-owned line changes) is the check of the guard that FND-011 adds.
+    Rule 7 (closed and frozen paths) arrives with the stability register of FND-040.
+    """
+    i, kind, failure = pr_package(model, change, body, author, branch)
+    if failure:
+        return [failure]
+    if kind == "none":
+        return []
+    if kind == "plan":
+        who = "a pull request with Work-Package: PLAN" if i else ("the body holds no line 'Work-Package: <ID>'; a pull request that changes "
+                                                                   "a file of the plan is then judged as a plan change, which")
+        return ["rule 1: %s may not change %s" % (who, f) for st, f, n in change.files if not matches(PLAN_PATHS, f)]
+    p, out = model.pk[i], []
+    marker = "%s/%s.yaml" % (DONE, i)
+    mine = [marker, "%s/%s-rev*.yaml" % (WRONG, i), "%s/%s.md" % (FOUND, i)]      # the package's own files: always allowed, never counted
+    own = model.touch[i] + mine
+    for st, f, n in change.files:
+        if f == GATES and (p["flips"] or p["implements"] or matches(own, f)):
+            out += manifest_lines(p, change.old(f), change.new(f))
+        elif f == DELETED and (p["type"] == "delete" or matches(own, f)):
+            if st == "D" or not (change.new(f) or "").startswith(change.old(f) or ""):
+                out.append("rule 2: %s may only gain lines at its end" % DELETED)
+        elif not matches(own, f):
+            out.append("rule 2: %s is outside the allowed paths of %s" % (f, i))
+    if kind == "wrong":
+        return out                                             # a wrong report is never held back by the rules on the work
+    out += ["rule 4: %s is not merged" % d for d in p["depends_on"] + p["after"] if not model.merged(d)]
+    out += ["rule 4: check %s, flipped by %s, is not green" % (c, d) for d in p["depends_on"] if d in model.pk for c in model.pk[d]["flips"] if not model.green(c)]
+    added = any(f == marker and st != "D" for st, f, n in change.files)
+    if p["repeatable"]:
+        if added:
+            out.append("rule 5: %s is repeatable and writes no done marker" % i)
+    else:
+        try:
+            m = yaml.load(change.new(marker) or "", Loader=LOADER) if added else None
+        except yaml.YAMLError:
+            m = None
+        if not (isinstance(m, dict) and m.get("schema") == DONE_SCHEMA and m.get("id") == i and m.get("ticket_rev") == p["ticket_rev"]):
+            out.append("rule 5: the pull request must add %s with schema %s, id %s and ticket_rev %d" % (marker, DONE_SCHEMA, i, p["ticket_rev"]))
+    budget = p["budget"] or model.plan["budgets"][p["size"]]
+    counted = [(st, n) for st, f, n in change.files if not matches(mine, f)]
+    files, lines = sum(1 for st, n in counted if st != "D"), sum(n for st, n in counted)
+    if files > budget["files"] or lines > budget["lines"]:
+        out.append("rule 6: %d files added or modified and %d changed lines; the budget of %s is %d files and %d lines" % (files, lines, i, budget["files"], budget["lines"]))
+    return out
+
+
+def run_precondition(p, root, say=print):
+    """Runs the precondition of a package in the checkout at root. 0 when the trimmed output equals expect."""
+    pre = p["precondition"]
+    if not pre:
+        say("%s has no precondition in the plan, so nothing shows that the work may start" % p["id"])
+        return 1
+    got = subprocess.run(["bash", "-c", pre["run"]], cwd=root, stdout=subprocess.PIPE).stdout.decode("utf-8", "replace").strip()
+    say("$ %s\n%s" % (pre["run"], got))
+    if got != pre["expect"].strip():
+        say("the precondition of %s does not hold: expected %r" % (p["id"], pre["expect"].strip()))
+        return 1
+    say("the precondition of %s holds" % p["id"])
+    return 0
+
+
+def run_acceptance(p, root, say=print, out=None):
+    """Runs the acceptance commands in order with bash -euo pipefail. 1 at the first that does not exit 0, and when there is none."""
+    if not p["acceptance"]:
+        say("%s has no acceptance command in the plan, so nothing proves the work" % p["id"])
+        return 1
+    for a in p["acceptance"]:
+        say("%s $ %s" % (a["id"], a["run"]))
+        sys.stdout.flush()
+        code = subprocess.run(["bash", "-euo", "pipefail", "-c", a["run"]], cwd=root, stdout=out, stderr=out).returncode
+        if code != 0:
+            say("%s failed: exit code %d" % (a["id"], code))
+            return 1
+        say("%s passed" % a["id"])
+    return 0
+
+
+def pages(text, key):
+    """The answer of the code host to a paged request: one JSON object per page, one after another. Returns the rows under key."""
+    rows, decoder, n = [], json.JSONDecoder(), 0
+    while n < len(text):
+        if text[n].isspace():
+            n += 1
+            continue
+        page, n = decoder.raw_decode(text, n)
+        rows += page[key]
+    return rows
+
+
+def runs_path(repo, sha):
+    """The request for the check runs of a commit. filter=latest: the code host leaves out the runs that it counts as replaced itself."""
+    return "%s/commits/%s/check-runs?per_page=100&filter=latest" % (repo, sha)
+
+
+def flows_path(repo, sha):
+    """The request for the workflow runs of a commit. They say to which workflow, on which event, a check run belongs."""
+    return "%s/actions/runs?per_page=100&head_sha=%s" % (repo, sha)
+
+
+def newest_runs(check_runs, workflow_runs):
+    """One (name, status, conclusion) per check. A check is a name in one workflow on one event: the code host can answer with
+    several runs of it on one commit. The newest counts: the latest started_at, then the higher id. A run without a start time
+    has not started, so it is the newest. An older run of the same check does not count, red or green.
+    Two workflows may give a job the same name. Those are two checks, and neither hides the other. A run whose workflow is not
+    known is a check of its own.
+    A run that finished red while its workflow run has not finished has not finished either: the job was started again, or
+    other jobs of its workflow still run, and the code host refuses to start a run again while it runs. Its status is given
+    as "workflow-running". The workflow run of a check run is the one with its check suite."""
+    flow = {w.get("check_suite_id"): (w.get("workflow_id"), w.get("event")) for w in workflow_runs}
+    running = set(w.get("check_suite_id") for w in workflow_runs if w.get("status") != "completed")
+    best = {}
+    for r in check_runs:
+        suite = (r.get("check_suite") or {}).get("id")
+        check = (flow[suite] if suite is not None and suite in flow else ("run", r["id"]), r["name"])
+        age = (r.get("started_at") is None, r.get("started_at") or "", r["id"])
+        held = r["status"] == "completed" and r["conclusion"] not in GREEN and suite in running
+        if check not in best or age > best[check][0]:
+            best[check] = (age, (r["name"], "workflow-running" if held else r["status"], r["conclusion"] or "none"))
+    return [run for age, run in best.values()]
+
+
+def read_checks(runs):
+    """(exit code, one line per check run). 0: all finished green. 1: one finished red. 2: one has not finished, or there is none yet."""
+    words = ["unfinished" if status != "completed" else "green" if conclusion in GREEN else "red" for name, status, conclusion in runs]
+    code = 1 if "red" in words else 2 if "unfinished" in words or not runs else 0
+    return code, ["%-10s %s (%s, %s)" % ((w,) + r) for w, r in zip(words, runs)]
+
+
+class Unread(Exception):
+    """A reading of the checks failed: the code host gave no answer."""
+
+
+def seconds(stamp):
+    """A time as the code host writes it (2026-01-01T10:00:00Z), in seconds since 1970."""
+    return datetime.datetime.strptime(stamp[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=datetime.timezone.utc).timestamp()
+
+
+def last_start(workflow_runs, committed):
+    """When something of the head commit last started, in seconds since 1970: the newest run_started_at among its workflow runs,
+    and created_at for a run that has no run_started_at. A commit without a workflow run: committed(), its committer date."""
+    return max(seconds(w.get("run_started_at") or w["created_at"]) for w in workflow_runs) if workflow_runs else seconds(committed())
+
+
+def wait_checks(read, sleep, clock, wait):
+    """The answer of the command checks: (exit code, the lines of the last reading). read() gives (code, lines, started) or
+    raises Unread. started is when something of the head commit last started, on the scale of clock(), in seconds.
+    Without wait there is one reading. With wait:
+      a reading 0 is the answer at once;
+      after a reading 2 the command waits WAIT_STEP and reads again, while fewer than WAIT_TOTAL seconds have passed since it
+      started; then the last reading is the answer;
+      after a reading 1 it waits WAIT_STEP once and reads again: red is the answer only when two readings in a row gave it,
+      so a check that was started again is not reported red;
+      a reading that failed counts as a reading 2 for its round; when the last reading failed, the answer is 3 and the one
+      line is the failure;
+      the answer 2 becomes 4 when nothing of the head commit has started for STUCK_MINUTES.
+    It never waits after its last reading."""
+    begin, red = clock(), False
+    while True:
+        try:
+            code, lines, started = read()
+        except Unread as failure:
+            code, lines, started = 3, [str(failure)], None
+        if not wait or code == 0 or (code == 1 and red) or (code in (2, 3) and clock() - begin >= WAIT_TOTAL):
+            break
+        red = code == 1
+        sleep(WAIT_STEP)
+    if wait and code == 2 and clock() - started >= STUCK_MINUTES * 60:
+        code = 4
+    return code, lines
+
+
+def repo_path(url):
+    """The API path of the repository that the address of the remote origin names; None when it is not on github.com."""
+    m = re.search(r"github\.com[:/]([^/]+)/([^/]+?)(\.git)?/?$", url.strip())
+    return "repos/%s/%s" % (m.group(1), m.group(2)) if m else None
+
+
 # ---------------------------------------------------------------------------------------------- commands
 def find_root():
     r = subprocess.run(["git", "rev-parse", "--show-toplevel"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
@@ -744,6 +1022,90 @@ def cmd_render(root, a):
     return 0
 
 
+def open_pr(root, a):
+    """The plan, the manifest and the repository as they are at the base, what the pull request changes, and its body."""
+    if not (a.base and a.head and a.body_file):
+        die("give --base, --head and --body-file")
+    texts = git_read(root, a.base, [PLAN, GATES])
+    try:
+        plan, gates = yaml.load(texts.get(PLAN, ""), Loader=LOADER), yaml.load(texts.get(GATES, ""), Loader=LOADER)
+    except yaml.YAMLError:
+        die("%s or %s at %s is not valid YAML" % (PLAN, GATES, a.base))
+    if shape(plan):
+        die("%s at %s is missing or not well formed" % (PLAN, a.base))
+    with open(a.body_file, encoding="utf-8") as fh:
+        return Model(plan, gates, real_world(root, a.base)), load_change(root, a.base, a.head), fh.read()
+
+
+def target(root, a):
+    """The package a command runs for: the one named by --id, from the plan of this checkout; or the one of the pull request,
+    from the plan at its base. The command ends here, with 0, when the pull request has nothing to run."""
+    if a.id:
+        pk = {p["id"]: p for p in load_plan(root)["packages"]}
+        if a.id not in pk:
+            die("%s is not a package of %s" % (a.id, PLAN))
+        return pk[a.id]
+    model, change, body = open_pr(root, a)
+    i, kind, failure = pr_package(model, change, body, a.author, a.branch)
+    if failure:
+        print(failure)
+        sys.exit(1)
+    if kind != "package":
+        print({"none": NOT_JUDGED, "plan": "nothing to run: a plan change", "wrong": "nothing to run: the pull request carries only a wrong report"}[kind])
+        sys.exit(0)
+    return model.pk[i]
+
+
+def cmd_check_pr(root, a):
+    model, change, body = open_pr(root, a)
+    lines = check_pr(model, change, body, a.author, a.branch)
+    for line in lines:
+        print(line)
+    if not lines:
+        i, kind = pr_package(model, change, body, a.author, a.branch)[:2]
+        print(NOT_JUDGED if kind == "none" else "check-pr: pass (%s, %d changed files)" % (i or "a plan change", len(change.files)))
+    return 1 if lines else 0
+
+
+def cmd_precondition(root, a):
+    return run_precondition(target(root, a), root)
+
+
+def cmd_accept(root, a):
+    return run_acceptance(target(root, a), root)
+
+
+def cmd_checks(root, a):
+    def gh(path, *more):
+        try:
+            r = subprocess.run(("gh", "api", path) + more, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        except OSError:
+            die("the gh command is not installed")
+        if r.returncode != 0:
+            raise Unread("gh api %s failed: %s" % (path, r.stderr.decode("utf-8", "replace").strip()))
+        return r.stdout.decode("utf-8", "replace")
+
+    def read():
+        """One reading: the pull request, the check runs of its head commit and the workflow runs of that commit."""
+        sha = head[0] = json.loads(gh("%s/pulls/%d" % (repo, a.pr)))["head"]["sha"]
+        runs = pages(gh(runs_path(repo, sha), "--paginate"), "check_runs")
+        flows = pages(gh(flows_path(repo, sha), "--paginate"), "workflow_runs")
+        code, lines = read_checks(newest_runs(runs, flows))
+        stuck = a.wait and code == 2                          # only then does the answer depend on when something last started
+        return code, lines, last_start(flows, lambda: json.loads(gh("%s/commits/%s" % (repo, sha)))["commit"]["committer"]["date"]) if stuck else None
+    repo, head = repo_path(git(root, "remote", "get-url", "origin").decode()), [None]
+    if not repo:
+        die("the remote origin is not a repository on github.com")
+    code, lines = wait_checks(read, time.sleep, time.time, a.wait)
+    if code == 3:
+        die(lines[0])
+    for line in lines:
+        print(line)
+    print("checks on %s: %s" % (head[0][:12], {0: "every check finished green", 1: "one check finished red", 2: "not finished; a check that has not finished is not green",
+                                               4: "not finished for %d minutes" % STUCK_MINUTES}[code]))
+    return code
+
+
 class Parser(argparse.ArgumentParser):
     def error(self, message):
         self.print_usage(sys.stderr)
@@ -772,6 +1134,14 @@ def build_parser():
     sp.add_argument("--lane")
     add("claim-check", cmd_claim_check, "keep or yield, after the branch was pushed").add_argument("id")
     add("render", cmd_render, "write docs/ledger/TRACKER.md")
+    for name, fn, text in (("check-pr", cmd_check_pr, "the scope fence and the dependency gate of a pull request"),
+                           ("precondition", cmd_precondition, "run the precondition of a package"), ("accept", cmd_accept, "run the acceptance commands of a package")):
+        sp = add(name, fn, text, fetch=False)
+        for flag in ("--base", "--head", "--body-file", "--branch", "--author") + (("--id",) if name != "check-pr" else ()):
+            sp.add_argument(flag)
+    sp = add("checks", cmd_checks, "the checks on the head commit of a pull request", fetch=False)
+    sp.add_argument("--pr", type=int, required=True)
+    sp.add_argument("--wait", action="store_true", help="while a check has not finished, read again every %d seconds, for %d seconds" % (WAIT_STEP, WAIT_TOTAL))
     return ap
 
 
@@ -1043,9 +1413,226 @@ def test_repository(t):
              "render: one table row per package with its state, then the gate verdict")
 
 
+def test_check_pr(t):
+    plan = t_plan(
+        t_pkg("AAA-001"), t_pkg("AAA-002", depends_on=["AAA-001"], touches=["src/a.go", "src/sub/"], flips=["AAA-G01"]),
+        t_pkg("AAA-003", depends_on=["AAA-004"]), t_pkg("AAA-004"), t_pkg("AAA-005", depends_on=["AAA-006"]), t_pkg("AAA-006", flips=["AAA-G02"]),
+        t_pkg("AAA-007", dropped=True), t_pkg("AAA-008", repeatable=True), t_pkg("AAA-009", type="delete", touches=["old/"], budget={"files": 1, "lines": 5}),
+        t_pkg("FND-910", repeatable=True, touches=["**/go.mod"]))
+    gates = t_gates(("AAA-G01", "not-built", ["local"], "AAA-002", None), ("AAA-G02", "expected-fail", ["local"], "AAA-006", None))
+    model = Model(plan, gates, t_world(texts=dict(t_done("AAA-001"), **t_done("AAA-006"))))
+    markers = {}
+    for p in plan["packages"]:
+        markers.update(t_done(p["id"]))
+
+    def done(i):
+        return ("A", "%s/%s.yaml" % (DONE, i), 3)
+
+    def lines(i, files, old=None, new=None, body=None, author=None, branch=None):
+        change = Change(files, (old or {}).get, dict(markers, **(new or {})).get)
+        return check_pr(model, change, "A title\n\nRefs #1\n\nWork-Package: %s\n" % i if body is None else body, author, branch)
+
+    def manifest(first="not-built", second="expected-fail", title="A title"):
+        return yaml.safe_dump({"schema": "s", "checks": [{"id": "AAA-G01", "state": first, "title": title}, {"id": "AAA-G02", "state": second, "title": "T"}]})
+    good = [("M", "src/a.go", 10), ("A", "src/sub/x/new.go", 20), done("AAA-002")]
+    t.ok(lines("AAA-002", good) == [], "check-pr: a pull request inside its paths, with its marker and its dependencies merged, passes")
+    t.ok(lines("AAA-002", good, body="T\r\n\r\nWork-Package: AAA-002\r\n") == [], "check-pr: a body with Windows line ends passes")
+    t.refused(lines("AAA-002", good, body="no trailer", branch="wp/AAA-002"), "rule 1: the body must hold exactly one line", "check-pr rule 1: a branch wp/<ID> whose body has no trailer")
+    report = [("A", WRONG + "/AAA-003-rev1.yaml", 10)]
+    t.refused(lines("", report, body="no trailer", branch="wrong/AAA-003-rev1"), "rule 1: the body must hold exactly one line", "check-pr rule 1: a branch wrong/<ID>-rev<N> whose body has no trailer")
+    other = [("M", "core/x/main.go", 5), ("A", "docs/new.md", 9)]
+    t.ok(lines("", other, body="no trailer", branch="wp/AAA-002-b") == [], "check-pr: a pull request that is not a work package is not judged")
+    for f in (PLAN, GATES, "docs/ledger/stability.yaml", DONE + "/AAA-004.yaml", "scripts/plan.py", GATE_TOOL):
+        t.refused(lines("", other + [("M", f, 1)], body="no trailer", branch="fix/x"), "judged as a plan change, which may not change core/x/main.go",
+                  "check-pr rule 1: a pull request that names no package and changes %s is judged as a plan change" % f)
+    t.ok(lines("", [("M", PLAN, 3), ("A", TICKETS + "/AAA-003.md", 300)], body="no trailer") == [], "check-pr: a plan change that names no package passes inside the paths of a plan change")
+    t.refused(lines("AAA-002", good, body="Work-Package: AAA-002\nWork-Package: AAA-001\n"), "it holds 2", "check-pr rule 1: two trailers")
+    t.refused(lines("AAA-999", good), "rule 1: AAA-999 is not a package", "check-pr rule 1: a package that does not exist")
+    t.refused(lines("AAA-007", good), "rule 1: AAA-007 is not a package of the plan on main, or it is dropped", "check-pr rule 1: a dropped package")
+    plan_pr = [("M", PLAN, 40), ("A", TICKETS + "/AAA-003.md", 300), ("M", GATES, 2), ("A", "docs/adr/0040-x.md", 30)]
+    t.ok(lines("PLAN", plan_pr) == [], "check-pr: a plan pull request passes")
+    t.refused(lines("PLAN", plan_pr + [("M", "src/a.go", 1)]), "rule 1: a pull request with Work-Package: PLAN may not change src/a.go", "check-pr rule 1: a plan pull request that changes another file")
+    t.refused(lines("AAA-002", good + [("M", "src/b.go", 1)]), "rule 2: src/b.go is outside the allowed paths of AAA-002", "check-pr rule 2: a file outside the allowed paths")
+    t.refused(lines("AAA-002", good + [("M", PLAN, 1)]), "rule 2: %s is outside" % PLAN, "check-pr rule 2: a package that changes the plan file")
+    t.ok(lines("AAA-002", good + [("A", FOUND + "/AAA-002.md", 2)]) == [], "check-pr: the found file of the package is allowed")
+    g = good + [("M", GATES, 1)]
+    t.ok(lines("AAA-002", g, {GATES: manifest()}, {GATES: manifest("required")}) == [], "check-pr: a package may change the state of a check it flips")
+    t.refused(lines("AAA-002", g, {GATES: manifest()}, {GATES: manifest(second="required")}), "rule 2: AAA-002 may not change check AAA-G02", "check-pr rule 2: the state of a check of another package")
+    t.refused(lines("AAA-002", g, {GATES: manifest()}, {GATES: manifest(title="Other")}), "only state and implementation lines", "check-pr rule 2: another field of a check")
+    t.refused(lines("AAA-004", [done("AAA-004"), ("M", GATES, 1)], {GATES: manifest()}, {GATES: manifest("required")}), "rule 2: %s is outside" % GATES, "check-pr rule 2: the gate manifest in a package that flips nothing")
+    d = [("M", DELETED, 1), done("AAA-009")]
+    t.ok(lines("AAA-009", d, {DELETED: "a\n"}, {DELETED: "a\nb\n"}) == [], "check-pr: a package of type delete may add lines to the list of deleted paths")
+    t.refused(lines("AAA-009", d, {DELETED: "a\n"}, {DELETED: "b\n"}), "may only gain lines at its end", "check-pr rule 2: a rewritten list of deleted paths")
+    t.refused(lines("AAA-003", [("M", "src/AAA-003.txt", 1), done("AAA-003")]), "rule 4: AAA-004 is not merged", "check-pr rule 4: a dependency that is not merged")
+    t.refused(lines("AAA-005", [("M", "src/AAA-005.txt", 1), done("AAA-005")]), "rule 4: check AAA-G02, flipped by AAA-006, is not green", "check-pr rule 4: a dependency whose check is not green")
+    t.refused(lines("AAA-002", good[:2]), "rule 5: the pull request must add", "check-pr rule 5: a pull request without the done marker")
+    t.refused(lines("AAA-002", good, new={good[2][1]: "schema: %s\nid: AAA-002\nticket_rev: 7\n" % DONE_SCHEMA}), "rule 5", "check-pr rule 5: a marker with another ticket_rev")
+    t.ok(lines("AAA-008", [("M", "src/AAA-008.txt", 1)]) == [], "check-pr: a repeatable package needs no marker")
+    t.refused(lines("AAA-008", [done("AAA-008")]), "rule 5: AAA-008 is repeatable", "check-pr rule 5: a marker in a repeatable package")
+    mine = [done("AAA-009"), ("A", FOUND + "/AAA-009.md", 2), ("A", WRONG + "/AAA-009-rev1.yaml", 10)]
+    t.ok(lines("AAA-009", [("D", "old/a", 1), ("D", "old/b", 1), ("M", "old/c", 3)] + mine) == [], "check-pr: a deleted file counts as one line and no file; the own files of the package are not counted")
+    t.refused(lines("AAA-009", [("M", "old/c", 6), done("AAA-009")]), "rule 6: 1 files added or modified and 6 changed lines", "check-pr rule 6: more changed lines than the budget")
+    t.refused(lines("AAA-009", [("M", "old/c", 1), ("A", "old/d", 1), done("AAA-009")]), "rule 6: 2 files", "check-pr rule 6: more files than the budget")
+    t.ok(lines("AAA-003", [("A", WRONG + "/AAA-003-rev1.yaml", 10)]) == [], "check-pr: a pull request that carries only a wrong report passes, whatever the state of the work")
+    t.refused(lines("AAA-003", [("A", WRONG + "/AAA-004-rev1.yaml", 10)]), "rule 2", "check-pr rule 2: the wrong report of another package")
+    t.refused(lines("AAA-003", [("A", WRONG + "/AAA-003-rev1.yaml", 10), ("M", "src/AAA-003.txt", 1)]), "rule 4: AAA-004 is not merged", "check-pr rule 4: a wrong report beside work is judged as work")
+    t.ok(lines("", [("M", "core/x/go.mod", 2)], body="Bump x", author=BOT) == [], "check-pr: a pull request of the dependency bot is checked as %s" % BOT_PACKAGE)
+    t.refused(lines("", [("M", "core/x/main.go", 2)], body="Bump x", author=BOT), "outside the allowed paths of FND-910", "check-pr rule 2: the dependency bot outside its paths")
+    early = Model(t_plan(t_pkg("FND-910", repeatable=True, touches=["**/go.mod"], ticket_rev=0, precondition=None, acceptance=[])), gates, t_world())
+    t.ok(check_pr(early, Change([("M", "core/x/main.go", 2)], {}.get, {}.get), "Bump x", BOT) == [], "check-pr: a pull request of the dependency bot is not judged while %s has no ticket" % BOT_PACKAGE)
+
+
+def test_run(t):
+    def quiet(*text):
+        pass
+
+    seen = []
+
+    def page(*runs):
+        """One page of check runs: (name, status, conclusion[, started_at, check suite]). Each run gets the next id."""
+        seen.extend(runs)
+        rows = [dict(zip(("name", "status", "conclusion", "started_at"), r), id=len(seen) - len(runs) + n, check_suite={"id": r[4] if len(r) > 4 else 1}) for n, r in enumerate(runs)]
+        return json.dumps({"total_count": len(rows), "check_runs": rows})
+
+    def judged(text, flows=((1, 7), (2, 7), (3, 8))):
+        """(exit code, lines). flows: (check suite, workflow[, event[, status]]) of every workflow run on the commit; suites 1 and 2 are two runs of workflow 7."""
+        rows = [dict(zip(("check_suite_id", "workflow_id", "event", "status"), f + ("pull_request", "completed")[len(f) - 2:])) for f in flows]
+        return read_checks(newest_runs(pages(text, "check_runs"), pages(json.dumps({"total_count": len(rows), "workflow_runs": rows}), "workflow_runs")))
+
+    def code(text, **kw):
+        return judged(text, **kw)[0]
+
+    def waited(readings, wait=True, started=10000.0):
+        """(exit code, what happened) for the readings, given in order; the last one repeats. A reading is an exit code, or None for one that fails.
+        The clock starts at 10000 and only a wait moves it: the self-test never really waits."""
+        now, log, left = [10000.0], [], list(readings)
+
+        def read():
+            log.append("read")
+            r = left.pop(0) if len(left) > 1 else left[0]
+            if r is None:
+                raise Unread("no answer")
+            return r, ["a line"], started
+
+        def sleep(n):
+            log.append(n)
+            now[0] += n
+        return wait_checks(read, sleep, lambda: now[0], wait)[0], log
+    with tempfile.TemporaryDirectory() as tmp:
+        p = t_pkg("AAA-001", precondition={"run": "test -e marker; echo $?", "expect": "1"},
+                  acceptance=[{"id": "A1", "run": "true"}, {"id": "A2", "run": "false | true"}, {"id": "A3", "run": "touch ran-a3"}])
+        t.ok(run_precondition(p, tmp, quiet) == 0, "precondition: the trimmed output equals expect")
+        open(os.path.join(tmp, "marker"), "w").close()
+        t.ok(run_precondition(p, tmp, quiet) == 1, "precondition: another output than expect can fail")
+        t.ok(run_precondition(t_pkg("AAA-001", precondition=None), tmp, quiet) == 1, "precondition: a package without a precondition can fail")
+        ran = os.path.join(tmp, "ran-a3")
+        t.ok(run_acceptance(p, tmp, quiet, subprocess.DEVNULL) == 1 and not os.path.exists(ran), "accept: a failure inside a pipe stops the run at that command; the rule can fail")
+        p["acceptance"].pop(1)
+        t.ok(run_acceptance(p, tmp, quiet, subprocess.DEVNULL) == 0 and os.path.exists(ran), "accept: every command exits 0")
+        t.ok(run_acceptance(t_pkg("AAA-001", acceptance=[]), tmp, quiet, subprocess.DEVNULL) == 1, "accept: a package without acceptance commands can fail")
+    green = [("scope", "completed", "success"), ("acceptance", "completed", "skipped"), ("lint", "completed", "neutral")]
+    t.ok(code(page(*green[:2]) + "\n" + page(green[2])) == 0, "checks: success, skipped and neutral, on two pages, are green: exit 0")
+    for bad in ("failure", "cancelled", "timed_out", "action_required"):
+        t.ok(code(page(("build", "completed", bad), ("slow", "in_progress", None)) + page(*green)) == 1, "checks: a check that ended in %s is red: exit 1, also while another runs; the rule can fail" % bad)
+    t.ok(code(page(*green) + page(("slow", "queued", None))) == 2, "checks: a check that has not finished gives exit 2 and is never green; the rule can fail")
+    t.ok(code(page()) == 2, "checks: no check at all gives exit 2; the rule can fail")
+    t.ok(runs_path("repos/o/r", "abc") == "repos/o/r/commits/abc/check-runs?per_page=100&filter=latest",
+         "checks: the request asks the code host to leave out the runs it counts as replaced; the rule can fail")
+    t.ok(flows_path("repos/o/r", "abc") == "repos/o/r/actions/runs?per_page=100&head_sha=abc", "checks: the workflow runs of the same commit are asked for")
+    red, good, late = ("fence", "completed", "failure", "2026-01-01T10:00:00Z"), ("fence", "completed", "success", "2026-01-01T10:05:00Z"), ("fence", "queued", None, None, 2)
+    t.ok(code(page(red, *green) + page(good + (2,))) == 0, "checks: an older red run and a newer green run of the same check give exit 0: the newest run counts")
+    t.ok(code(page(good, *green) + page(red[:3] + ("2026-01-01T10:09:00Z", 2))) == 1, "checks: an older green run and a newer red run of the same check give exit 1; the rule can fail")
+    t.ok(code(page(red, *green) + page(late)) == 2 and code(page(late) + page(good, *green)) == 2, "checks: a newer run of the same check that has not finished gives exit 2; the rule can fail")
+    t.ok(code(page(red[:3] + (good[3],), good + (2,), *green)) == 0 and code(page(good, red[:3] + (good[3], 2), *green)) == 1,
+         "checks: of two runs of one check that started together the one with the higher id counts; the rule can fail")
+    t.ok(code(page(red, *green) + page(good + (3,))) == 1, "checks: a red run is not hidden by a newer green run of the same name in another workflow; the rule can fail")
+    t.ok(code(page(red, *green) + page(good + (2,)), flows=((1, 7), (2, 7, "push"))) == 1, "checks: a red run is not hidden by a newer green run of the same workflow on another event; the rule can fail")
+    t.ok(code(page(red, *green) + page(good + (2,)), flows=()) == 1, "checks: a red run is not hidden by a run whose workflow is not known; the rule can fail")
+    again, live = ["read", WAIT_STEP], (1, 7, "pull_request", "in_progress")
+    t.ok(judged(page(red, *green), flows=(live,)) == (2, ["unfinished fence (workflow-running, failure)"] + ["green      %s (%s, %s)" % g for g in green]),
+         "checks: a check run that finished red while its workflow run has not finished is not finished: exit 2; the rule can fail")
+    t.ok(code(page(red, *green), flows=((1, 7), (2, 8, "pull_request", "queued"))) == 1 and code(page(*green), flows=(live,)) == 0,
+         "checks: red stays red when its own workflow run has finished, and green stays green while its workflow run runs; the rule can fail")
+    t.ok(judged(page(("slow", "in_progress", None)), flows=(live,)) == (2, ["unfinished slow (in_progress, none)"]),
+         "checks: a check run that has not finished keeps its own status in its line; the rule can fail")
+    t.ok(waited([2], wait=False, started=0.0) == (2, ["read"]) and waited([1], wait=False) == (1, ["read"]),
+         "checks without --wait: one reading and no wait, and never exit 4; the rule can fail")
+    t.ok(waited([0]) == (0, ["read"]), "checks --wait: every check green is the answer at once; the rule can fail")
+    t.ok(waited([2, 2, 0]) == (0, again * 2 + ["read"]), "checks --wait: readings 2, 2, 0 give exit 0 after two waits; the rule can fail")
+    t.ok(waited([1, 0]) == (0, again + ["read"]), "checks --wait: a red reading and then a green one give exit 0 after one wait; the rule can fail")
+    t.ok(waited([1, 1]) == (1, again + ["read"]), "checks --wait: two red readings in a row give exit 1 after exactly one wait; the rule can fail")
+    t.ok(waited([1, 2, 0]) == (0, again * 2 + ["read"]) and waited([1, 2, 1, 1]) == (1, again * 3 + ["read"]),
+         "checks --wait: after red and then not finished the command goes on, and a later red is read twice again; the rule can fail")
+    spent = -(-WAIT_TOTAL // WAIT_STEP)                                      # the waits that use up the time
+    t.ok(spent >= 3 and waited([2]) == (2, again * spent + ["read"]),
+         "checks --wait: not finished every time gives exit 2 when the time is used up, with no wait after the last reading; the rule can fail")
+    t.ok(waited([2] * spent + [1, 1]) == (1, again * (spent + 1) + ["read"]), "checks --wait: a red reading after the time is used up is still read a second time; the rule can fail")
+    end = 10000.0 + spent * WAIT_STEP                                        # the clock at the last reading
+    t.ok(waited([2], started=end - (STUCK_MINUTES + 1) * 60)[0] == 4 and waited([2], started=end - STUCK_MINUTES * 60)[0] == 4,
+         "checks --wait: not finished, and nothing has started for %d minutes or more, gives exit 4; the rule can fail" % STUCK_MINUTES)
+    t.ok(waited([2], started=end - (STUCK_MINUTES - 1) * 60)[0] == 2 and waited([1, 1], started=0.0)[0] == 1 and waited([0], started=0.0)[0] == 0,
+         "checks --wait: exit 4 is given only for not finished, and not before %d minutes; the rule can fail" % STUCK_MINUTES)
+    t.ok(waited([None, 0]) == (0, again + ["read"]) and waited([1, None, 1, 1]) == (1, again * 3 + ["read"]),
+         "checks --wait: a reading that fails counts as not finished for its round; the rule can fail")
+    t.ok(waited([None]) == (3, again * spent + ["read"]) and waited([2, None])[0] == 3 and waited([None], wait=False) == (3, ["read"]),
+         "checks: when the last reading failed the command gives exit 3; the rule can fail")
+    flows = [{"run_started_at": "2026-01-01T10:00:00Z", "created_at": "2026-01-01T12:00:00Z"}, {"created_at": "2026-01-01T11:00:00Z"}, {"run_started_at": "2026-01-01T09:00:00Z"}]
+    t.ok(seconds("2026-01-01T00:00:00Z") == 1767225600 and last_start(flows, None) == 1767225600 + 11 * 3600,
+         "checks --wait: the last start is the newest run_started_at of the workflow runs, and created_at for a run without one; the rule can fail")
+    t.ok(last_start([], lambda: "2026-01-01T08:00:00Z") == 1767225600 + 8 * 3600, "checks --wait: a head commit without a workflow run: its committer date is the last start; the rule can fail")
+    a = build_parser().parse_args(["checks", "--pr", "7"])
+    t.ok((a.pr, a.wait, a.fetch) == (7, False, False) and build_parser().parse_args(["checks", "--pr", "7", "--wait"]).wait is True, "checks: --wait is a flag of the command and is off without it")
+    t.ok(repo_path("https://github.com/o/r.git\n") == repo_path("git@github.com:o/r") == "repos/o/r" and repo_path("https://example.invalid/o/r") is None,
+         "checks: owner and repository come from the address of the remote origin")
+
+
+def test_pull_request(t):
+    """A pull request in a real git repository: the diff from the merge base, and the plan of main as the authority."""
+    with tempfile.TemporaryDirectory() as tmp:
+        work, run, put = t_repo(tmp)
+        plan = t_plan(t_pkg("AAA-001", touches=["src/"], acceptance=[{"id": "A1", "run": "test -e src/new.go"}]))
+        for path, text in ((PLAN, yaml.safe_dump(plan)), (GATES, yaml.safe_dump(t_gates())), ("src/a.go", "a\n"), ("src/gone.go", "1\n2\n3\n"), ("other.txt", "1\n")):
+            put(path, text)
+        run("add", "--", "docs", "src", "other.txt")
+        run("commit", "-q", "-m", "base")
+        run("branch", "wp/AAA-001")
+        put("other.txt", "2\n")
+        run("commit", "-q", "-m", "main moves on after the branch was cut", "--", "other.txt")
+        run("checkout", "-q", "wp/AAA-001")
+        plan["packages"][0]["acceptance"][0]["run"] = "exit 9"                # the branch rewrites the command that judges it
+        for path, text in ((PLAN, yaml.safe_dump(plan)), ("src/new.go", "n\n"), ("src/a.go", "a\nb\n"), ("%s/AAA-001.yaml" % DONE, list(t_done("AAA-001").values())[0])):
+            put(path, text)
+        os.remove(os.path.join(work, "src/gone.go"))
+        run("add", "--", "docs", "src")
+        run("commit", "-q", "-m", "work")
+        put("body", "Work-Package: AAA-001\n")
+        a = argparse.Namespace(id=None, base="main", head="wp/AAA-001", body_file=os.path.join(work, "body"), author=None, branch=None)
+        model, change, body = open_pr(work, a)
+        want = [("A", "%s/AAA-001.yaml" % DONE, 3), ("M", PLAN, 2), ("M", "src/a.go", 1), ("D", "src/gone.go", 1), ("A", "src/new.go", 1)]
+        t.ok(sorted(change.files) == sorted(want), "pull request: files and lines are counted from the merge base; a deleted file is one line; a change on main is not counted")
+        t.ok(check_pr(model, change, body) == ["rule 2: %s is outside the allowed paths of AAA-001" % PLAN], "check-pr rule 2: a branch that edits the plan can fail")
+        t.ok(run_acceptance(target(work, a), work, lambda *text: None, subprocess.DEVNULL) == 0, "accept: the commands come from the plan on main, not from the copy in the branch; the rule can fail")
+        a.id = "AAA-001"
+        t.ok(run_acceptance(target(work, a), work, lambda *text: None, subprocess.DEVNULL) == 1, "accept --id: the commands come from the plan of the checkout")
+        run("push", "-q", "origin", "main")                                   # origin/main is now known, as in the checkout of an executor
+
+        def tool(*args):
+            r = subprocess.run((sys.executable, os.path.abspath(__file__)) + args, cwd=work, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            return r.returncode, r.stdout.decode("utf-8", "replace")
+        fence = ("check-pr", "--base", "origin/main", "--head", "HEAD", "--body-file", "body")
+        t.ok(tool(*fence)[0] == 1 and tool("accept", "--id", "AAA-001")[0] == 1, "before the push: check-pr and accept --id run in the checkout of the branch, with no pull request, and can fail")
+        run("checkout", "-q", "main", "--", PLAN)
+        run("commit", "-q", "-m", "the plan as it is on main", "--", PLAN)
+        t.ok(tool(*fence) == (0, "check-pr: pass (AAA-001, 4 changed files)\n") and tool("accept", "--id", "AAA-001")[0] == 0, "before the push: both pass on a branch that keeps to its paths")
+        put("plain", "A change\n")
+        pr = ("--base", "main~1", "--head", "main", "--body-file", "plain")
+        t.ok(all(tool(c, *pr) == (0, NOT_JUDGED + "\n") for c in ("check-pr", "precondition", "accept")), "a pull request that is not a work package: the three commands pass with the notice")
+        t.ok(tool("check-pr", "--branch", "wp/AAA-001", *pr)[0] == 1, "check-pr --branch: the same pull request from a branch wp/<ID> is judged and can fail")
+
+
 def self_test():
     t = Cases()
-    for test in (test_validate, test_state, test_parallel, test_ready, test_repository):
+    for test in (test_validate, test_state, test_parallel, test_ready, test_repository, test_check_pr, test_run, test_pull_request):
         test(t)
     print("self-test: %d cases, %d failed" % (t.count, t.bad))
     return 1 if t.bad else 0
