@@ -7,6 +7,7 @@
 | **Date** | 2026-05-01 (Proposed); 2026-05-08 (Accepted with §2.3 amendment) |
 | **Supersedes** | — |
 | **Superseded by** | — |
+| **Partially superseded by** | [ADR-0011](0011-opentofu-crossplane-adoption-seam.md): the provisioning seam of §2 principle 2 and §9.1 (see the errata below). A later record that replaces another part adds its own line here; the [index](README.md) lists the allocated numbers. |
 | **Related** | #309, #320, #321, #322, #324, #325, #326, #347, #68; ratified under #1094 / #1095 (Phase-0 Foundation) — see [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md). |
 
 > **2026-05-08 amendment (rule 3 clarification)**: Reconciling RoleBindings, Kustomizations, ConfigMaps, and other K8s-to-K8s objects is the responsibility of Flux Kustomizations or thin in-cluster controllers — not Crossplane Compositions. The `useraccess-controller` is the canonical example: it watches `UserAccess` CRs and reconciles RoleBindings/ClusterRoleBindings via the kubernetes Go clientset. The earlier `XUserAccess` Composition that used `provider-kubernetes` is retired in EPIC-0 (#1095).
