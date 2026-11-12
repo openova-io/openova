@@ -1429,6 +1429,12 @@ type Result struct {
 	// the 5-second auto-redirect timer.
 	HandoverFiredAt *time.Time `json:"handoverFiredAt,omitempty"`
 
+	// HandoverCompletedAt — UTC time the hand-over of the Sovereign to its
+	// owner completed; fireHandover sets it. From then on the wipe route
+	// refuses a wipe whose header X-Confirm-Sovereign-FQDN does not carry
+	// the Sovereign's FQDN (internal/lifecycle). Nil until then.
+	HandoverCompletedAt *time.Time `json:"handoverCompletedAt,omitempty"`
+
 	// MaterializedRegions — list of region codes that actually came up
 	// after `tofu apply` returned. Sourced from the per-provider
 	// per-region output map (Huawei: `control_plane_ips_per_region`).
