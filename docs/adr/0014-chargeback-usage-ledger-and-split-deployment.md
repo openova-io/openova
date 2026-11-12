@@ -1,6 +1,7 @@
 # ADR-0014 — Chargeback: usage ledger as the measurement primitive, `bp-chargeback` as a multi-tenant application with split deployment
 
 **Status:** Proposed (founder session 2026-08-30; accept once the §Open-inputs land)
+**Superseded by:** [ADR-0028](0028-commerce-and-billing.md), accepted 2026-11-13. This record was never accepted; ADR-0028 states which of its decisions are kept, changed and withdrawn.
 **Date:** 2026-08-30
 **Refs:** `docs/sessions/2026-08-30/chargeback-requirements.md` (requirements capture + probe evidence, PR #6711/#6712), ADR-0011 (OpenTofu→Crossplane adoption seam), `docs/BUSINESS-STRATEGY.md` §10 (PAYG / ESA / franchise split), `products/catalyst/chart/crds/organization.yaml` (`planSlug`, `billingMode`, `kind`), Inviolable Principle #3 (Crossplane = day-2 cloud IaC), `docs/DOD.md` §5 J13 (Billing & quotas).
 

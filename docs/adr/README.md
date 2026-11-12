@@ -17,7 +17,7 @@ Format: lightweight ADR (Status / Context / Decision / Consequences / Shipped-vi
 | [0011](0011-opentofu-crossplane-adoption-seam.md) | OpenTofu→Crossplane adoption seam (provider-opentofu Workspace, Observe-first) | Accepted |
 | [0012](0012-dragonfly-p2p-registry-cutover.md) | Dragonfly P2P registry distribution + cloud-agnostic cutover (kills the kom4dc hairpin + the bastion proxy-cache) | Accepted |
 | [0013](0013-cross-org-denial-shape.md) | Cross-Organization denial shape: 403 on assertion, not-found on lookup (MCP `create_application` vs `get_application`) | Accepted |
-| [0014](0014-chargeback-usage-ledger-and-split-deployment.md) | Chargeback: usage ledger as the measurement primitive (not Crossplane), `bp-chargeback` multi-tenant application with split deployment (Sovereign BSS · per-Org · central National Cloud instance) | Proposed |
+| [0014](0014-chargeback-usage-ledger-and-split-deployment.md) | Chargeback: usage ledger as the measurement primitive (not Crossplane), `bp-chargeback` multi-tenant application with split deployment (Sovereign BSS · per-Org · central National Cloud instance) | Proposed; superseded by [0028](0028-commerce-and-billing.md) |
 | [0015](0015-region-symmetric-gitops-and-native-topology-transitions.md) | Region-symmetric GitOps delivery, one topology contract, native topology transitions (replaces the imperative switchover sequencer) | Accepted |
 | [0016](0016-cloud-abstraction-contract.md) | Cloud abstraction contract: provider port, module contract version 1, cloud profile, provider packs, Workspace hand-over | Accepted |
 | [0019](0019-zones-are-namespaces-and-an-edge-pool.md) | Zones are namespaces and an edge pool: platform planes are host namespaces, a vCluster is the boundary of an Organization only, the zone trial and its withdrawal; closes the numbers 0005 to 0008 | Accepted |
@@ -25,6 +25,7 @@ Format: lightweight ADR (Status / Context / Decision / Consequences / Shipped-vi
 | [0022](0022-foundation-gate-release-train-and-execution-protocol.md) | Foundation gate, release train, stability register and execution protocol (supersedes the gate wiring of ADR-0015 decision D9) | Accepted |
 | [0023](0023-sandbox-withdrawn.md) | Sandbox withdrawn; the per-Organization agent workspace and the tool server replace it | Accepted |
 | [0025](0025-organization-vcluster-tier-gate-added-and-removed.md) | The per-Organization vCluster tier gate, added 2026-06-25 and removed 2026-09-10 | Accepted |
+| [0028](0028-commerce-and-billing.md) | Commerce and billing: one billing product with two installation options, one owner per money entity, one plan source | Accepted |
 
 > **Numbering note:** numbers 0005–0008 were reserved for records that were never written (see the ADR-0009 header). They are never used. Record 0019, allocated below, closes them.
 
