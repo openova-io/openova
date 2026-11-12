@@ -263,7 +263,7 @@ epics:
 - id: NET-320
   title: 'Epic: the first managed cluster class'
   wave: W3
-  packages: [NET-321, NET-322]
+  packages: [NET-321, NET-322, NET-323, NET-324, NET-325, NET-326, NET-327, NET-328, NET-329]
 - id: SVC-050
   title: 'Epic: function tests for the foundation ring'
   wave: W0
@@ -649,16 +649,36 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c '\"gitops_branch\":   env(\"CATALYST_GITOPS_BRANCH\", \"main\")' products/catalyst/bootstrap/api/internal/provisioner/provisioner.go"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "cd products/catalyst/bootstrap/api && test \"$(go test ./internal/provisioner/ -run '^TestGitopsBranch' -count=1 -v | grep -c '^--- PASS: TestGitopsBranch')\" = 4"
+  - id: A2
+    run: "test \"$(sha256sum < products/catalyst/bootstrap/api/internal/provisioner/gitops_branch_test.go | cut -d' ' -f1)\" = 2e04fa9e16c8c2052c213981b709f785a97e12eb97291141fe7febd3b35b4538"
+  - id: A3
+    run: "test \"$(grep -c -F '\"gitops_branch\":   gitopsBranch,' products/catalyst/bootstrap/api/internal/provisioner/provisioner.go)\" = 1 && test \"$(grep -c -F '\"gitops_branch\":   env(' products/catalyst/bootstrap/api/internal/provisioner/provisioner.go)\" = 0"
+  - id: A4
+    run: "cd products/catalyst/bootstrap/api && go vet ./internal/provisioner/ && go test ./internal/provisioner/ -count=1"
+  - id: A5
+    run: "cd products/catalyst/bootstrap/api && go build ./... && test -z \"$(gofmt -l internal/provisioner/provisioner.go internal/provisioner/gitops_branch_test.go)\""
+  - id: A6
+    run: "test \"$(grep -A 1 -F 'if err := req.Validate(); err != nil {' products/catalyst/bootstrap/api/internal/handler/deployments.go | grep -c -F 'writeJSON(w, http.StatusBadRequest, map[string]string{\"error\": err.Error()})')\" = 1"
+  - id: A7
+    run: "bash -n scripts/sovereign-lifecycle.sh"
+  - id: A8
+    run: "code=\"$(sed -n \"s/^    python3 -c '\\(import json,os;.*\\)')\\$/\\1/p\" scripts/sovereign-lifecycle.sh)\" && test \"$(SUB=s POOL=p PUB=k CP_SIZE=c WORKER_SIZE=w WORKER_COUNT=1 GITOPS_BRANCH=rc/20261120T060000Z-4be7a11 python3 -c \"$code\" | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"gitopsBranch\"])')\" = rc/20261120T060000Z-4be7a11"
+  - id: A9
+    run: "code=\"$(sed -n \"s/^    python3 -c '\\(import json,os;.*\\)')\\$/\\1/p\" scripts/sovereign-lifecycle.sh)\" && test \"$(env -u GITOPS_BRANCH SUB=s POOL=p PUB=k CP_SIZE=c WORKER_SIZE=w WORKER_COUNT=1 python3 -c \"$code\" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(len(d), \"gitopsBranch\" in d)')\" = \"12 False\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: A deployment request may name the candidate ref the new Sovereign follows.
+  delivers: A deployment request may name the Git ref the new Sovereign follows, which is main or a release-candidate ref.
 - id: FND-015
   title: Candidate tool and cut workflow
   area: FND
@@ -921,7 +941,7 @@ packages:
   epic: FND-030
   type: test
   wave: W0
-  size: S
+  size: M
   lane: GATE
   depends_on: [FND-031]
   after: []
@@ -932,20 +952,45 @@ packages:
   - tests/acceptance/sovereign/internal/suite/runner.go
   - tests/acceptance/sovereign/internal/suite/config.go
   - tests/acceptance/sovereign/cmd/sovereign-acceptance/main.go
+  - tests/acceptance/sovereign/README.md
   - scripts/acceptance_record.py
   - scripts/acceptance-gate.py
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c 'acceptance-sovereign/v1' tests/acceptance/sovereign/internal/suite/result.go"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "cd tests/acceptance/sovereign && go test ./... -count=1"
+  - id: A2
+    run: "cd tests/acceptance/sovereign && test \"$(go test ./internal/suite/ -count=1 -v -run '^(TestRegisterCheck|TestLoadManifest|TestSelectChecks|TestRunChecksAndResult|TestExecuteStopsOnManifest|TestProducerFromEnv|TestSampleRecord)$' | grep -c '^--- PASS: ')\" = 7"
+  - id: A3
+    run: "git diff --quiet \"$(git merge-base origin/main HEAD)\" -- tests/acceptance/sovereign/internal/suite/journeys.go tests/acceptance/sovereign/internal/suite/match.go"
+  - id: A4
+    run: "cd tests/acceptance/sovereign && go list -m all | wc -l | grep -qx 1"
+  - id: A5
+    run: "d=\"$(mktemp -d)\" && (cd tests/acceptance/sovereign && ACCEPT_SAMPLE_RECORD_DIR=\"$d\" go test ./internal/suite/ -count=1 -run '^TestSampleRecord$') && python3 scripts/acceptance-gate.py validate-record \"$d\"/sample-*.json"
+  - id: A6
+    run: "d=\"$(mktemp -d)\"; (cd tests/acceptance/sovereign && go build -o \"$d/suite\" ./cmd/sovereign-acceptance); printf '%s' '{\"schema\":\"openova.io/gates/v1\",\"checks\":[{\"id\":\"ZZZ-G99\",\"state\":\"required\",\"runs_in\":[\"cloud\"],\"destructive\":false,\"needs\":[]}]}' > \"$d/gates.json\"; code=0; out=\"$(CATALYST_SESSION=x \"$d/suite\" run --env sample --console http://127.0.0.1:9 --kubeconfig-a \"$d/a\" --kubeconfig-b \"$d/b\" --manifest \"$d/gates.json\" 2>&1)\" || code=$?; test \"$code\" = 2; grep -q -F 'no registered check for ZZZ-G99' <<<\"$out\""
+  - id: A7
+    run: "out=\"$(python3 scripts/acceptance-gate.py --self-test)\" && grep -q -F 'PASS  rule 3: a check file without a registration is refused' <<<\"$out\" && grep -q -F 'PASS  rule 3: a registration in a comment line does not count' <<<\"$out\" && test \"$(tail -n 1 <<<\"$out\")\" = 'SELF-TEST OK (101 cases)'"
+  - id: A8
+    run: "python3 scripts/acceptance-gate.py validate --base HEAD --body-file /dev/null"
+  - id: A9
+    run: "d=\"$(mktemp -d)\" && for v in 1 2 3; do printf '{\"schema\":\"openova.io/acceptance-sovereign/v%s\",\"env\":\"hw900\",\"mode\":\"run\",\"journeys\":{\"J1\":\"PASS\"}}' \"$v\" > \"$d/hw900-20261120T08150${v}Z-3f2a.json\"; done && python3 -c \"import sys; sys.path.insert(0, 'scripts'); import acceptance_record as a; v = [a.citation_verdict('acceptance:20261120T08150%dZ-3f2a' % n, 'hw900', ['J1'], sys.argv[1])[0] for n in (1, 2, 3)]; sys.exit(0 if v == [True, True, False] else 1)\" \"$d\""
+  - id: A10
+    run: "python3 scripts/check-function-rows-cite-acceptance.py --self-test && python3 scripts/uat-confidence.py --self-test"
+  - id: A11
+    run: "grep -q -F 'openova.io/acceptance-sovereign/v2' tests/acceptance/sovereign/README.md && ! grep -q -F 'acceptance-sovereign/v1' tests/acceptance/sovereign/README.md && grep -q -F -- '--manifest' tests/acceptance/sovereign/README.md"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
   delivers: The suite writes version 2 records and runs registered checks selected from the manifest.
 - id: FND-033
@@ -3779,7 +3824,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-040, CLD-080, CLD-087, FND-031]
-  after: []
+  after: [FND-014]
   touches:
   - products/catalyst/bootstrap/api/internal/providers/conformance/**
   - products/catalyst/bootstrap/api/internal/provisioner/provisioner.go
@@ -3949,7 +3994,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CLD-103]
-  after: []
+  after: [FND-014]
   touches:
   - products/catalyst/bootstrap/api/internal/provisioner/provisioner.go
   - products/catalyst/bootstrap/api/internal/provisioner/testdata/*.golden.json
@@ -4257,7 +4302,7 @@ packages:
   size: XS
   lane: CONTROL
   depends_on: [CLD-123]
-  after: []
+  after: [FND-014]
   touches:
   - products/catalyst/bootstrap/api/internal/provisioner/provisioner.go
   - products/catalyst/bootstrap/api/internal/handler/wipe.go
@@ -5660,7 +5705,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [SOV-060, SOV-110]
-  after: [NET-031]
+  after: [FND-014, NET-031]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - infra/providers/_shared/tests/cloudinit_render.tftest.hcl
@@ -6177,7 +6222,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-086, CLD-090, SOV-090, SOV-150]
-  after: []
+  after: [FND-014]
   touches:
   - clusters/_template/sovereign-tls/powerdns-api-credentials.yaml
   - clusters/_template/bootstrap-kit/49-bp-cert-manager-powerdns-webhook.yaml
@@ -6239,7 +6284,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CTL-201, SOV-310]
-  after: [FND-011]
+  after: [FND-011, FND-014]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - products/catalyst/bootstrap/api/internal/provisioner/provisioner.go
@@ -6329,7 +6374,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CLD-107, SOV-070]
-  after: []
+  after: [FND-014]
   touches:
   - products/catalyst/bootstrap/api/internal/provisioner/provisioner.go
   - products/catalyst/bootstrap/api/internal/handler/deployments.go
@@ -9125,7 +9170,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271]
-  after: [FND-011, FND-021, FND-022, FND-031, FND-052, FND-053, NET-030, CMP-014]
+  after: [FND-011, FND-014, FND-021, FND-022, FND-031, FND-032, FND-052, FND-053, NET-030, CMP-014]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/26-image-signature.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -9549,7 +9594,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [FND-032, NET-010]
-  after: [FND-011]
+  after: [FND-011, FND-014]
   touches: []
   resources: []
   flips: [NET-G02]
@@ -11531,7 +11576,7 @@ packages:
   size: M
   lane: GATE
   depends_on: [NET-321]
-  after: []
+  after: [FND-032]
   touches:
   - platform/cluster-classes/
   - tests/acceptance/sovereign/internal/suite/
@@ -11549,6 +11594,190 @@ packages:
   ticket_rev: 0
   dropped: false
   delivers: 'Section 4.8 built: class files, schema, per-flag probe checks read by the gate''s needs field, duplicate-pod-address check'
+- id: NET-323
+  title: 'Managed cluster on the reference cloud: the cluster and its node pools from the provider pack'
+  area: NET
+  epic: NET-320
+  type: new
+  wave: W3
+  size: M
+  lane: SUBSTRATE
+  depends_on: [NET-322]
+  after: []
+  touches:
+  - infra/providers/huawei/
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: The provider pack of the reference cloud can create one managed Kubernetes cluster with its node pools, in the network model the spike proved, from the same request that creates a reference cluster today. The class of the cluster is a field of the request. Nodes come up without the cloud's own pod network plug-in configured, by the switch the spike note names.
+- id: NET-324
+  title: 'First boot on a managed cluster: the platform installs and owns Cilium'
+  area: NET
+  epic: NET-320
+  type: new
+  wave: W3
+  size: M
+  lane: SUBSTRATE
+  depends_on: [NET-323]
+  after: []
+  touches:
+  - clusters/_template/
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: On a managed cluster the first boot installs the platform's Cilium by the mechanism the spike proved and hands it to Flux, with the same values file as the reference class except the fields the class file names. No kube-proxy remains. A node added by scale-out joins with the platform's Cilium and no plug-in of the cloud.
+- id: NET-325
+  title: 'Public entry on a managed cluster: a load balancer on host ports, no NodePort'
+  area: NET
+  epic: NET-320
+  type: new
+  wave: W3
+  size: S
+  lane: SUBSTRATE
+  depends_on: [NET-324]
+  after: []
+  touches:
+  - infra/providers/huawei/
+  - platform/cilium/
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: The gateway of a managed cluster is reached through a load balancer that targets host ports 443 and 80 on labelled nodes. The cloud's own load-balancer controller, which allocates node ports, is not used. No Service in the cluster carries a node port.
+- id: NET-326
+  title: A managed cluster joins the mesh of a Sovereign
+  area: NET
+  epic: NET-320
+  type: new
+  wave: W3
+  size: S
+  lane: SUBSTRATE
+  depends_on: [NET-324]
+  after: []
+  touches:
+  - platform/cilium/
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: A managed cluster and a reference cluster of the same Sovereign are meshed over the private link, declared in Git like every other mesh of the platform. If the spike measured mesh.cilium false for the class, this task is dropped and the class file says single region only.
+- id: NET-327
+  title: Bootstrap kit profile for a managed cluster
+  area: NET
+  epic: NET-320
+  type: new
+  wave: W3
+  size: M
+  lane: SUBSTRATE
+  depends_on: [NET-324]
+  after: []
+  touches:
+  - clusters/_template/bootstrap-kit/
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: The bootstrap kit installs on a managed cluster from a profile that leaves out what the cloud already runs (the Kubernetes control plane and its storage class) and keeps everything else unchanged. Which releases the profile leaves out is derived from the class file, not written by hand per provider.
+- id: NET-328
+  title: 'Console: the cluster class is a choice, and features follow its capabilities'
+  area: NET
+  epic: NET-320
+  type: new
+  wave: W3
+  size: M
+  lane: CONSOLE
+  depends_on: [NET-322, NET-327]
+  after: [FND-014]
+  touches:
+  - products/catalyst/bootstrap/ui/src/pages/sovereign/
+  - products/catalyst/bootstrap/api/
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: Where a region is created, the sovereign-admin chooses its cluster class from the classes admitted on that cloud. A feature whose capability is false on the chosen class is shown as not available with the reason, never hidden and never offered. A managed class hosts Organization workloads; whether it may host the control plane is the class file's field.
+- id: NET-329
+  title: The managed class passes the acceptance suite on the National Cloud
+  area: NET
+  epic: NET-320
+  type: test
+  wave: W3
+  size: M
+  lane: GATE
+  depends_on: [NET-325, NET-326, NET-327, NET-328]
+  after: [FND-031, FND-032]
+  touches:
+  - tests/acceptance/sovereign/
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'The acceptance suite runs against an installation whose workload region is a managed cluster: install, data, sign-in, an Application installed from the console, and, when the class has the mesh, a move between regions and back. The gate record names the class. Two records of one candidate agree.'
 - id: NET-330
   title: 'Spike: a bridged secondary network for virtual machines (conditional, dropped until INF-810 is scheduled)'
   area: NET
@@ -11667,7 +11896,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [FND-011, SVC-020]
-  after: [NET-030]
+  after: [FND-014, NET-030]
   touches:
   - platform/*/blueprint.yaml
   - products/*/blueprint.yaml

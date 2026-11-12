@@ -98,7 +98,7 @@ Provider contract, service model, generated catalogues, second-provider proof.
 |---|---|---|---|
 | **CLD-122**<br>rework, 5 days | **The wizard renders providers, credentials, regions and flavors from the profile**<br>Wizard driven by the providers routes; TypeScript catalogues deleted | CLD-121 | stated in its ticket |
 | **CLD-123**<br>rework, 3 days | **Wipe, decommission and cloud pages without provider names**<br>Credential inputs from the profile; generic purge report; no hetzner fall-backs | CLD-111, CLD-122 | stated in its ticket |
-| **CLD-124**<br>delete, 1 day | **Remove the legacy credential aliases**<br>LegacyAliaser and Request.UnmarshalJSON deleted one train after the console change | CLD-123 | stated in its ticket |
+| **CLD-124**<br>delete, 1 day | **Remove the legacy credential aliases**<br>LegacyAliaser and Request.UnmarshalJSON deleted one train after the console change | CLD-123, FND-014 | stated in its ticket |
 
 <details><summary>Files each task of this group changes</summary>
 
