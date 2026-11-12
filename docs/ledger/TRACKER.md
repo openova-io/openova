@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-12T23:30:06Z` |
+| Last refreshed | `2026-11-12T23:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-12T23:41 | [#7226](https://github.com/openova-io/openova/pull/7226) | #7211 | chore(ci): ratchets of the billing area at their current val |
+| 2026-11-12T23:41 | [#7224](https://github.com/openova-io/openova/pull/7224) | #7216 | ci: Trivy vulnerability and secret scan, new findings only ( |
+| 2026-11-12T23:40 | [#7223](https://github.com/openova-io/openova/pull/7223) | #7214 | ci: hold the legacy Kyverno policy count and forbid the upgr |
+| 2026-11-12T23:40 | [#7220](https://github.com/openova-io/openova/pull/7220) | #7213 | docs(adr): record 0029 on the compliance plane (CMP-005) |
 | 2026-11-12T23:21 | [#7208](https://github.com/openova-io/openova/pull/7208) | #7087 | docs(ledger): plan update: next tickets, one ordering |
 | 2026-11-12T23:06 | [#7207](https://github.com/openova-io/openova/pull/7207) | #7188 | ci: add the provider-leak scanner with a falling baseline (C |
 | 2026-11-12T23:05 | [#7206](https://github.com/openova-io/openova/pull/7206) | #7190 | docs(security): generate the security control matrix from a  |
@@ -333,10 +337,6 @@ flowchart LR
 | 2026-11-12T19:48 | [#7160](https://github.com/openova-io/openova/pull/7160) | #7087 | docs(ledger): dashboard refreshed: 27 tasks delivered |
 | 2026-11-12T19:39 | [#7159](https://github.com/openova-io/openova/pull/7159) | #7144 | feat(contracts): publish contracts C3 and C4 with the event- |
 | 2026-11-12T19:38 | [#7158](https://github.com/openova-io/openova/pull/7158) | #7143 | chore(ci): guard that catalyst-api and core/services gain no |
-| 2026-11-12T19:31 | [#7157](https://github.com/openova-io/openova/pull/7157) | #7087 | docs(ledger): plan update: repaired tickets NET-050 and CTL- |
-| 2026-11-12T19:42 | [#7156](https://github.com/openova-io/openova/pull/7156) | #7147 | chore: remove the unshipped console scaffold, its test job a |
-| 2026-11-12T19:41 | [#7155](https://github.com/openova-io/openova/pull/7155) | #7151 | ci: add the service-model ratchet guard for rules G1 to G9 ( |
-| 2026-11-12T19:41 | [#7154](https://github.com/openova-io/openova/pull/7154) | #7148 | fix(scripts): stop the shell verifier requiring the three re |
 
 ---
 
