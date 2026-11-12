@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-12T18:15:05Z` |
+| Last refreshed | `2026-11-12T18:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,6 +200,8 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
+| [#6242](https://github.com/openova-io/openova/issues/6242) | fix(funnel): a settled order whose launch call is lost strands the paid Organiza | Other |
+| [#6249](https://github.com/openova-io/openova/issues/6249) | Sovereign /apps estate grid renders 11 cards against 10 Application CRs — a He | Other |
 | [#6253](https://github.com/openova-io/openova/issues/6253) | harbor-prewarm calls an unpublished chart pin 'genuinely mid-roll' and then refu | Other |
 | [#6255](https://github.com/openova-io/openova/issues/6255) | region-B cilium-operator never starts its Gateway-API controller (30s CRD poll l | Other |
 | [#6260](https://github.com/openova-io/openova/issues/6260) | Sandbox retirement is half-landed: the reconciler's only install site was delete | Other |
@@ -297,8 +299,6 @@ flowchart LR
 | [#7117](https://github.com/openova-io/openova/issues/7117) | FND-091 Remove committed binaries and root clutter; add the hygiene guard | Other |
 | [#7122](https://github.com/openova-io/openova/issues/7122) | CLD-040 Run the shared render test in CI and pin a golden render | Other |
 | [#7123](https://github.com/openova-io/openova/issues/7123) | CLD-070 Decision record and truthful contract documents | Other |
-| [#7124](https://github.com/openova-io/openova/issues/7124) | FND-033 Checks: candidate identity, zero touch, nodes, releases and pods | Other |
-| [#7125](https://github.com/openova-io/openova/issues/7125) | FND-102 Inventory generators and the drift check | Other |
 | [#7126](https://github.com/openova-io/openova/issues/7126) | SEC-125 k3s bootstrap flags proven on a CI runner | Other |
 
 ---
@@ -307,8 +307,11 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-12T18:22 | [#7131](https://github.com/openova-io/openova/pull/7131) | #7087 | docs(ledger): plan update: the identity step accepts either  |
 | 2026-11-12T18:11 | [#7130](https://github.com/openova-io/openova/pull/7130) | #7124 | feat(gate): checks for candidate identity, zero touch, nodes |
+| 2026-11-12T18:18 | [#7129](https://github.com/openova-io/openova/pull/7129) | #7123 | docs(adr): record the cloud abstraction contract and correct |
 | 2026-11-12T18:10 | [#7128](https://github.com/openova-io/openova/pull/7128) | #7125 | docs(generated): inventories of slots, components and custom |
+| 2026-11-12T18:18 | [#7127](https://github.com/openova-io/openova/pull/7127) | #7122 | test(cloud-init): run the shared render test in CI and pin a |
 | 2026-11-12T18:02 | [#7121](https://github.com/openova-io/openova/pull/7121) | #7087 | docs(ledger): plan update: tickets CLD-040, CLD-070, FND-033 |
 | 2026-11-12T17:55 | [#7120](https://github.com/openova-io/openova/pull/7120) | #7117 | chore: remove committed programs and root clutter, add the r |
 | 2026-11-12T17:37 | [#7119](https://github.com/openova-io/openova/pull/7119) | #7118 | docs(adr): decision records 0022, 0023 and 0025, the allocat |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-08T12:16 | [#7081](https://github.com/openova-io/openova/pull/7081) | #7077 | integ: ADR-0015 batch 2 — D6b + D8 + region-local kubeconfig |
 | 2026-11-08T11:05 | [#7078](https://github.com/openova-io/openova/pull/7078) | #7067 | fix(org-quota): split per-Org admission into platform and cu |
 | 2026-11-08T08:17 | [#7075](https://github.com/openova-io/openova/pull/7075) | #7067 | integ: ADR-0015 D1–D7 + D9 (supersedes #7069 #7070 #7071 #70 |
-| 2026-11-08T07:06 | [#7068](https://github.com/openova-io/openova/pull/7068) | #7067 | docs(adr): ADR-0015 region-symmetric GitOps + one topology c |
-| 2026-11-07T17:08 | [#7066](https://github.com/openova-io/openova/pull/7066) | #7065 | deploy(continuum): bp-continuum 0.1.20 ships #7065 (ddd6e05) |
-| 2026-11-07T16:50 | [#7065](https://github.com/openova-io/openova/pull/7065) | #7050 | fix(continuum): a DB-only switchover is not UNHEALTHY for la |
 
 ---
 
