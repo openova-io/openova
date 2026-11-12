@@ -1,0 +1,31 @@
+# check-no-direct-cluster-write.yaml - no new direct write to the cluster from catalyst-api or core/services.
+#
+# scripts/check-no-direct-cluster-write.py counts, per non-test Go file under
+# products/catalyst/bootstrap/api and core/services, the Kubernetes client write calls whose
+# first argument is a context (metric K) and, under core/services, the raw REST writes to the
+# Kubernetes API (metric R). It compares them with scripts/baselines/direct-cluster-writes.json.
+# A count above its baseline entry fails: a new write goes through Git, not to the cluster.
+# A count below its entry fails too, until the baseline is lowered in the same change.
+#
+# The workflow runs on every pull request and on every merge group. It has no path filter
+# on purpose: a required check that a path filter skips never reports.
+# The self-test runs first. It shows, on a tree it builds itself, that every rule can fail.
+name: check-no-direct-cluster-write
+
+on:
+  pull_request:
+  merge_group:
+
+permissions:
+  contents: read
+
+jobs:
+  no-direct-cluster-write:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Self-test of the guard
+        run: python3 scripts/check-no-direct-cluster-write.py --self-test
+      - name: No new direct cluster write
+        run: python3 scripts/check-no-direct-cluster-write.py
