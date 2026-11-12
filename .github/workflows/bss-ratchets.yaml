@@ -1,0 +1,38 @@
+# bss-ratchets.yaml - the ratchets of the billing area stay at today's values or below.
+#
+# scripts/check-bss-ratchets.py counts ten things that may only fall (one, the tests of the
+# price waterfall, may only rise) and compares them with scripts/baselines/bss.json:
+#   1  plan_literal_sites           plan prices and shapes written in Go
+#   2  collector_importers          files that import a cost collector of the billing engine
+#   3  engine_k8s_outside_adapter   engine files that import k8s.io/ outside the platform adapter
+#   4  engine_platform_imports      platform modules named in the engine's go.mod
+#   5  engine_secret_reads          Secret reads in the engine
+#   6  order_capture_second_system  the invoices and subscriptions tables of order capture
+#   7  storefront_backend_routes    routes of the six storefront services
+#      storefront_backend_k8s       storefront files that import k8s.io/
+#   8  waterfall_tests              tests of the price waterfall (a floor)
+#   9  engine_nats_importers        engine files that import NATS outside the bus package
+#   10 engine_plan_shape_callers    readers of the engine's copy of the plan shape
+#
+# The workflow runs on every pull request and on every merge group. It has no path filter
+# on purpose: a required check that a path filter skips never reports.
+# The self-test runs first. It shows, on trees it builds itself, that every guard can fail.
+name: bss-ratchets
+
+on:
+  pull_request:
+  merge_group:
+
+permissions:
+  contents: read
+
+jobs:
+  bss-ratchets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Self-test of the guards
+        run: python3 scripts/check-bss-ratchets.py --self-test
+      - name: The ratchets of the billing area hold
+        run: python3 scripts/check-bss-ratchets.py

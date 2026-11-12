@@ -26,6 +26,7 @@ Format: lightweight ADR (Status / Context / Decision / Consequences / Shipped-vi
 | [0023](0023-sandbox-withdrawn.md) | Sandbox withdrawn; the per-Organization agent workspace and the tool server replace it | Accepted |
 | [0025](0025-organization-vcluster-tier-gate-added-and-removed.md) | The per-Organization vCluster tier gate, added 2026-06-25 and removed 2026-09-10 | Accepted |
 | [0028](0028-commerce-and-billing.md) | Commerce and billing: one billing product with two installation options, one owner per money entity, one plan source | Accepted |
+| [0029](0029-compliance-plane.md) | Compliance plane: one read model, one model object in Git, policy mode and waivers by commit | Accepted |
 | [0033](0033-access-plane.md) | Access plane: one Blueprint with three kinds, a fenced pod per session, credentials through the mount, sealed recordings, review by rules | Accepted |
 
 > **Numbering note:** numbers 0005–0008 were reserved for records that were never written (see the ADR-0009 header). They are never used. Record 0019, allocated below, closes them.
