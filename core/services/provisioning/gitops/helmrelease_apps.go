@@ -713,6 +713,8 @@ spec:
 // Living here rather than as a literal in main.go is what makes the guard test
 // the value main.go actually ships — a copy in the test would pass while the
 // binary shipped something else.
+// 2026-11-13: openclaw 0.2.19 -> 0.2.20. The deploy bump a4041ecfe moved the chart
+// and the catalog seed to 0.2.20 and did not move this pin; the drift test caught it.
 // 2026-08-14: openclaw 0.2.18 -> 0.2.19. f7961510f bumped platform/openclaw/
 // chart/Chart.yaml and the catalog seed to 0.2.19 and did not bump this pin, so
 // main went red on hrAppPinSeedDrift. The guard was already correct; what let
@@ -749,7 +751,7 @@ spec:
 // 2026-11-08: newapi 1.4.156 -> 1.4.157 — main moved the catalog seed to
 // 1.4.157 (published on ghcr) without this funnel pin; lockstep so
 // hrAppPinSeedDrift stays green (ADR-0015 integration, Refs #7067).
-const DefaultHRAppChartVersions = "openclaw=0.2.19,stalwart-mail=0.1.16,newapi=1.4.157,agenity=0.5.34"
+const DefaultHRAppChartVersions = "openclaw=0.2.20,stalwart-mail=0.1.16,newapi=1.4.157,agenity=0.5.34"
 
 // ParseHRAppVersions parses the CATALYST_HR_APP_CHART_VERSIONS wire format
 // ("slug=version,slug=version") into the HelmReleaseAppVersions map (#4706).
