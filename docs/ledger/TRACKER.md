@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-12T14:00:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-12T14:30:12Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,11 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6211](https://github.com/openova-io/openova/issues/6211) | harbor-prewarm PUSHes into a Harbor proxy-cache project — the first pass alway | Other |
-| [#6214](https://github.com/openova-io/openova/issues/6214) | P0 Pillar-5: step-08's pre-hold Crossplane lint requires step-11's pivot — the | Other |
-| [#6225](https://github.com/openova-io/openova/issues/6225) | Re-prov after a wipe false-fails on orphaned catalyst-* VPCs when the post-recla | Other |
-| [#6229](https://github.com/openova-io/openova/issues/6229) | /api/v1/version reports a sha from a Deployment env var that a roll never update | Other |
-| [#6231](https://github.com/openova-io/openova/issues/6231) | Topology choice does not survive the round trip: the status endpoint flattens th | Other |
 | [#6238](https://github.com/openova-io/openova/issues/6238) | main is red: the bp-guacamole auto-bump workflow bumps Chart.yaml without the ca | Other |
 | [#6242](https://github.com/openova-io/openova/issues/6242) | fix(funnel): a settled order whose launch call is lost strands the paid Organiza | Other |
 | [#6249](https://github.com/openova-io/openova/issues/6249) | Sovereign /apps estate grid renders 11 cards against 10 Application CRs — a He | Other |
@@ -300,6 +295,11 @@ flowchart LR
 | [#6971](https://github.com/openova-io/openova/issues/6971) | BSS packages and the entitlement matrix: Included / Optional / Not offered per p | Other |
 | [#7067](https://github.com/openova-io/openova/issues/7067) | ADR-0015: region-symmetric GitOps + one topology contract + native topology tran | Other |
 | [#7087](https://github.com/openova-io/openova/issues/7087) | North star: the transition plan as data, the gate manifest and the first work in | Other |
+| [#7092](https://github.com/openova-io/openova/issues/7092) | FND-051 Billing-engine and tool-server tests run on pull requests | Other |
+| [#7093](https://github.com/openova-io/openova/issues/7093) | FND-052 Tests that run nowhere join the matrix | Other |
+| [#7094](https://github.com/openova-io/openova/issues/7094) | FND-053 Go lint ratchet | Other |
+| [#7095](https://github.com/openova-io/openova/issues/7095) | NET-030 Retired names lose their policy privileges | Other |
+| [#7096](https://github.com/openova-io/openova/issues/7096) | NET-031 Stop reflecting the object-storage Secret to retired namespaces | Other |
 
 ---
 
@@ -307,6 +307,13 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-12T14:22 | [#7104](https://github.com/openova-io/openova/pull/7104) | #7094 | chore(ci): Go lint ratchet on changed lines (FND-053) |
+| 2026-11-12T14:15 | [#7102](https://github.com/openova-io/openova/pull/7102) | #7091 | feat(gate): manifest ratchet and verdict tool replace the ga |
+| 2026-11-12T14:14 | [#7101](https://github.com/openova-io/openova/pull/7101) | #7097 | ci: run the tests of the policy chart on every pull request  |
+| 2026-11-12T14:18 | [#7100](https://github.com/openova-io/openova/pull/7100) | #7092 | ci: run the billing-engine and tool-server tests on pull req |
+| 2026-11-12T14:10 | [#7099](https://github.com/openova-io/openova/pull/7099) | #7090 | ci: fence every pull request with its work package and run i |
+| 2026-11-12T14:06 | [#7098](https://github.com/openova-io/openova/pull/7098) | #7089 | ci: add the plan tool and the check that keeps the plan file |
+| 2026-11-12T14:02 | [#7088](https://github.com/openova-io/openova/pull/7088) | #7087 | docs(ledger): the transition plan as data, the gate manifest |
 | 2026-11-11T18:52 | [#7086](https://github.com/openova-io/openova/pull/7086) | #7085 | ci: fix the two post-merge reds after #7085 (sso-uat-flip HT |
 | 2026-11-11T18:25 | [#7085](https://github.com/openova-io/openova/pull/7085) | #7067 | fix(adr-0015): two-region WordPress installs from the consol |
 | 2026-11-08T12:17 | [#7082](https://github.com/openova-io/openova/pull/7082) | #7067 | fix(org-quota): always-scoped plan-quota + classless platfor |
@@ -330,13 +337,6 @@ flowchart LR
 | 2026-11-06T23:04 | [#7053](https://github.com/openova-io/openova/pull/7053) | #7052 | fix(continuum): natsURL default + NATS egress; bp-continuum  |
 | 2026-11-06T22:50 | [#7052](https://github.com/openova-io/openova/pull/7052) | #3375 | fix(continuum): audit publish ensures the canonical CATALYST |
 | 2026-11-06T22:35 | [#7051](https://github.com/openova-io/openova/pull/7051) | #7050 | chore(continuum): bp-continuum 0.1.15 ships the #7050 switch |
-| 2026-11-06T22:17 | [#7050](https://github.com/openova-io/openova/pull/7050) | #3375 | fix(continuum): DB-only switchover skips flip-dns; request c |
-| 2026-11-06T21:40 | [#7049](https://github.com/openova-io/openova/pull/7049) | #7048 | chore(bp-continuum): 0.1.14 — ship the cross-region switchov |
-| 2026-11-06T21:27 | [#7048](https://github.com/openova-io/openova/pull/7048) | #7047 | fix(continuum): Containerfile copies core/controllers/pkg (# |
-| 2026-11-06T21:12 | [#7047](https://github.com/openova-io/openova/pull/7047) | #5125 | feat(continuum): lossless planned cnpg-pair switchover acros |
-| 2026-11-06T20:20 | [#7046](https://github.com/openova-io/openova/pull/7046) | #7044 | feat(bp-cnpg-pair): the pair is an Application in the unifie |
-| 2026-11-06T19:21 | [#7045](https://github.com/openova-io/openova/pull/7045) | #7044 | fix(dr): placement claims CNPG pods via their owning Cluster |
-| 2026-11-06T18:42 | [#7044](https://github.com/openova-io/openova/pull/7044) | #4551 | fix(dr): cnpg-pair Topology shows the real pair, the live sw |
 
 ---
 
