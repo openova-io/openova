@@ -1665,16 +1665,40 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "git ls-files core/services/gateway/gateway platform/openclaw/controller/controller platform/openclaw/runtime/runtime | wc -l"
+    expect: "3"
+  acceptance:
+  - id: A1
+    run: "test ! -e core/services/gateway/gateway && test ! -e platform/openclaw/controller/controller && test ! -e platform/openclaw/runtime/runtime"
+  - id: A2
+    run: "test ! -e graphify-out && test ! -e products/catalyst/bootstrap/ui/.pr-evidence && test \"$(find . -maxdepth 1 -name 'hw225-*.snapshot.md' | wc -l)\" = 0"
+  - id: A3
+    run: "python3 scripts/check-repo-hygiene.py --self-test"
+  - id: A4
+    run: "python3 scripts/check-repo-hygiene.py paths"
+  - id: A5
+    run: "python3 scripts/check-repo-hygiene.py binaries"
+  - id: A6
+    run: "grep -c -E 'pull_request|merge_group' .github/workflows/check-repo-hygiene.yaml | grep -qx 2"
+  - id: A7
+    run: "test \"$(grep -vc '^#' docs/ledger/deleted-paths.txt)\" = 15"
+  - id: A8
+    run: "python3 scripts/check-repo-hygiene.py sessions"
+  - id: A9
+    run: "test \"$(grep -c -x -E '/(core/services/gateway/gateway|platform/openclaw/controller/controller|platform/openclaw/runtime/runtime)' .gitignore)\" = 3"
+  - id: A10
+    run: "test \"$(grep -c -E '^ +run: python3 scripts/check-repo-hygiene\\.py (--self-test|paths|binaries|sessions)$' .github/workflows/check-repo-hygiene.yaml)\" = 4"
+  - id: A11
+    run: "printf '%s\\n' '1eb0344aec71f71ff0e65f65dac3e437c4a9047c11ebb2bbf237799073ec4dc7  scripts/check-repo-hygiene.py' 'f882a17bd5e0dd11d1113232fc4bdf15b80c456da0ddaea5a7349651115fba5f  .github/workflows/check-repo-hygiene.yaml' 'd9ed4ca67d38008f05204014b033b27c76600f322ddffa0b216140d35327e53b  docs/ledger/deleted-paths.txt' '28fa1571a9c00abf5efa2edeafa3ca36e6611b6408ea43abbb209e4353549349  docs/ledger/sessions-baseline.txt' | sha256sum -c --quiet -"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: The repository holds no committed binary and a guard keeps it so.
+  delivers: The repository holds no committed compiled program, and a CI check keeps compiled programs out, keeps deleted paths deleted and keeps the session folder from growing.
 - id: FND-092
   title: Stop building the Sandbox images
   area: FND
@@ -2126,16 +2150,34 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "ls docs/adr | grep -c '^002[235]-'"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "ls docs/adr | grep -c '^002[235]-' | grep -qx 3"
+  - id: A2
+    run: "test \"$(cat docs/adr/0022-*.md docs/adr/0023-*.md docs/adr/0025-*.md | grep -c '^Status: Accepted')\" = 3"
+  - id: A3
+    run: "printf '%s  %s\\n' c43fe2f947c85cfc34572ef70f7fe128c9888519f53944c56c5c894d670a933d docs/adr/0022-foundation-gate-release-train-and-execution-protocol.md 587793cc32abe4a0c369154f4e02e347a99ccf140f57c92e0d9637fec2c45e79 docs/adr/0023-sandbox-withdrawn.md 97caf00cf4b4be17c00e9d81b758c5b6e635e6bcec47115edf62baffd7ecb1ba docs/adr/0025-organization-vcluster-tier-gate-added-and-removed.md | sha256sum -c --quiet"
+  - id: A4
+    run: "printf '%s  %s\\n' b34813fc8aed7a054967cf995c5dcbc23dcdab60cd55291ed4b01caca14848d3 docs/adr/README.md | sha256sum -c --quiet"
+  - id: A5
+    run: "printf '%s  %s\\n' 4eab7042d50a3a8852429e638d7a822f1cb9a69fb2b149933b86c073ce5511ff docs/adr/0001-catalyst-control-plane-architecture.md caee99db89b6b742b4f63f344b27a41dded166a342b6b78d9d6df225859113f4 docs/adr/0002-post-handover-sovereignty-cutover.md | sha256sum -c --quiet"
+  - id: A6
+    run: "test \"$(grep -v -F '| **Partially superseded by** |' docs/adr/0001-catalyst-control-plane-architecture.md | sha256sum | cut -d' ' -f1)\" = ab399d9a920303e9e3764ac06800be1e539c83960451621a8443f6d4f51b0c35"
+  - id: A7
+    run: "test \"$(grep -v -F '| **Superseded in part by** |' docs/adr/0002-post-handover-sovereignty-cutover.md | sha256sum | cut -d' ' -f1)\" = 35747abd3a575e6fcfe0af2f1c7c4d565b8c5465a60501e941cfb644b6e1956f"
+  - id: A8
+    run: "for f in $(grep -o '^| \\[[0-9][0-9][0-9][0-9]\\]([^)]*)' docs/adr/README.md | sed 's/^.*(//; s/)$//'); do test -e \"docs/adr/$f\"; done; test \"$(grep -c '^| \\[[0-9][0-9][0-9][0-9]\\](' docs/adr/README.md)\" = 14"
   rollback: revert
   adr: 22
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Three missing decision records exist, and the index carries the allocation table.
+  delivers: Decision records 0022, 0023 and 0025 exist with header lines a tool can read, the index lists them and allocates the numbers 0016 to 0038, and records 0001 and 0002 each carry one new header line.
 - id: FND-110
   title: 'Guard: no Kyverno engine at 1.20 while a legacy policy exists'
   area: FND
@@ -3589,7 +3631,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: []
-  after: []
+  after: [FND-106]
   touches:
   - docs/adr/README.md
   - infra/providers/PROVIDER-INTERFACE.md
@@ -3620,7 +3662,7 @@ packages:
   size: XS
   lane: CONTRACTS
   depends_on: []
-  after: []
+  after: [FND-106]
   touches:
   - docs/adr/0024-primary-substrate.md
   - docs/adr/README.md
@@ -5369,7 +5411,7 @@ packages:
   size: XS
   lane: CONTRACTS
   depends_on: [FND-070]
-  after: []
+  after: [FND-106]
   touches:
   - docs/adr/0002-post-handover-sovereignty-cutover.md
   - docs/STATUS.md
@@ -5455,7 +5497,7 @@ packages:
   size: XS
   lane: CONTROL
   depends_on: []
-  after: [FND-011]
+  after: [FND-011, FND-091]
   touches:
   - products/catalyst/bootstrap/api/internal/store/crd_store.go
   - products/catalyst/bootstrap/api/internal/store/crd_store_test.go
@@ -9170,7 +9212,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271]
-  after: [FND-011, FND-014, FND-021, FND-022, FND-031, FND-032, FND-052, FND-053, NET-030, CMP-014]
+  after: [FND-011, FND-014, FND-021, FND-022, FND-031, FND-032, FND-052, FND-053, FND-091, NET-030, CTL-025, CMP-014]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/26-image-signature.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -9824,7 +9866,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: []
-  after: [NET-030, FND-011, FND-031]
+  after: [NET-030, FND-011, FND-031, FND-091]
   touches:
   - clusters/_template/bootstrap-kit/35-coraza.yaml
   - clusters/_template/bootstrap-kit/kustomization.yaml
@@ -11392,7 +11434,7 @@ packages:
   size: XS
   lane: CONTRACTS
   depends_on: [NET-270]
-  after: []
+  after: [FND-106]
   touches:
   - docs/adr/README.md
   resources: []
@@ -11550,7 +11592,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [NET-290]
-  after: []
+  after: [FND-106]
   touches:
   - docs/adr/
   resources: []
@@ -11812,7 +11854,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: []
-  after: []
+  after: [FND-106]
   touches:
   - docs/adr/README.md
   - docs/GLOSSARY.md
@@ -11896,7 +11938,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [FND-011, SVC-020]
-  after: [FND-014, NET-030]
+  after: [FND-014, FND-091, NET-030]
   touches:
   - platform/*/blueprint.yaml
   - products/*/blueprint.yaml
@@ -13131,7 +13173,7 @@ packages:
   epic: null
   type: guard
   wave: W0
-  size: XS
+  size: S
   lane: RAILS
   depends_on: []
   after: []
@@ -13143,16 +13185,28 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "ls scripts/check-api-structure.py scripts/baselines/api-structure.json .github/workflows/check-api-structure.yaml 2>/dev/null | wc -l"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "test \"$(sha256sum < scripts/check-api-structure.py)\" = \"a4c4938ce9584e79759c007d6dd9f378e297fa2dca298dfa6cfc3dbe1f30a08a  -\""
+  - id: A2
+    run: "test \"$(sha256sum < .github/workflows/check-api-structure.yaml)\" = \"396a5752e58fcd1d6ed7b6f58ede51c3f06ba735f98c37b46755d8939b8961ec  -\""
+  - id: A3
+    run: "python3 scripts/check-api-structure.py --self-test"
+  - id: A4
+    run: "python3 scripts/check-api-structure.py"
+  - id: A5
+    run: "t=\"$(mktemp -d)\"; cp -r --parents products/catalyst/bootstrap/api/internal/handler products/catalyst/bootstrap/api/cmd/api/main.go scripts/baselines/api-structure.json \"$t\"; python3 scripts/check-api-structure.py --root \"$t\" > /dev/null; printf 'func (h *Handler) oneMore() {}\\n' >> \"$t/products/catalyst/bootstrap/api/internal/handler/handler.go\"; code=0; out=\"$(python3 scripts/check-api-structure.py --root \"$t\")\" || code=$?; test \"$code\" = 1; grep -q -F 'FAIL handler_methods: products/catalyst/bootstrap/api/internal/handler is at ' <<<\"$out\"; rm -rf \"$t\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Ratchet on handler_lines, handler_methods, main_lines and the list of files in internal/handler
+  delivers: A pull request fails when the handler package of the API server or its main function grows, or when a file is added to that package.
 - id: CTL-030
   title: Delete the endpoint pipeline and the two duplicate registrations
   area: CTL
@@ -13162,7 +13216,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [FND-171]
-  after: []
+  after: [CTL-025]
   touches:
   - products/catalyst/bootstrap/api/cmd/api/main.go
   - products/catalyst/bootstrap/api/internal/handler/endpoint_handler.go
@@ -13444,7 +13498,7 @@ packages:
   size: XS
   lane: CONTRACTS
   depends_on: [CTL-050]
-  after: []
+  after: [FND-106]
   touches:
   - docs/adr/README.md
   - docs/adr/0009-per-org-iac-repo-bootstrap.md
@@ -14641,7 +14695,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [BSS-010, CTL-300]
-  after: [FND-011]
+  after: [FND-011, FND-091]
   touches:
   - core/services/metering-sidecar/go.mod
   - core/services/shared/go.mod
@@ -15305,7 +15359,7 @@ packages:
   size: XS
   lane: CONTRACTS
   depends_on: [FND-021]
-  after: []
+  after: [FND-106]
   touches:
   - docs/adr/README.md
   - docs/adr/0029-compliance-plane.md
@@ -18577,7 +18631,7 @@ packages:
   size: XS
   lane: CONTRACTS
   depends_on: [FND-021]
-  after: []
+  after: [FND-106]
   touches:
   - docs/adr/README.md
   - docs/adr/0003-rbac-newapi-user-create-hook.md
@@ -18636,7 +18690,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [AIP-020]
-  after: [FND-011]
+  after: [FND-011, FND-091]
   touches:
   - products/axon/src/**
   - products/axon/package.json
@@ -20404,7 +20458,7 @@ packages:
   size: XS
   lane: SUBSTRATE
   depends_on: [INF-050]
-  after: [NET-031]
+  after: [FND-091, NET-031]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - infra/providers/hetzner/cloudinit-worker.tftpl
