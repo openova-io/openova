@@ -18,3 +18,4 @@ core/pkg/apis
 .github/workflows/build-sandbox-controller.yaml
 .github/workflows/build-sandbox-mcp-server.yaml
 .github/workflows/build-sandbox-pty-server.yaml
+products/catalyst/console

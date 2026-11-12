@@ -392,7 +392,7 @@ openova/
 ├── products/               # Composite Blueprint folders OpenOva ships (13 dirs)
 │   ├── agenity/            # bp-agenity — per-Org Agenity workspace (Pillar 4; chart/ + Containerfile)
 │   ├── axon/               # SaaS LLM Gateway                (real code: chart/ src/ scripts/)
-│   ├── catalyst/           # bp-catalyst-platform umbrella + bp-* sub-charts + bootstrap/ + console/
+│   ├── catalyst/           # bp-catalyst-platform umbrella + bp-* sub-charts + bootstrap/
 │   │                       # bootstrap/ui/ = the SOVEREIGN-ADMIN console (see note below)
 │   ├── catalyst-migrator/  # one-shot Catalyst schema-migration Job image
 │   ├── continuum/          # bp-continuum DR/BCP chart + cloudflare-worker
@@ -411,16 +411,15 @@ openova/
     └── archive/            # historical / superseded (legacy proposals/runbooks/lessons-learned folded into the 7 canonical docs)
 ```
 
-### ⚠️ There are FOUR front-end trees — grep all four before concluding "the UI does not do X"
+### ⚠️ There are THREE front-end trees — grep all three before concluding "the UI does not do X"
 
 A single `grep` against `core/console/src` is **not** evidence that a user-facing
-surface is missing. The four trees, by `package.json` name:
+surface is missing. The three trees, by `package.json` name:
 
 | Path | Package | What it is |
 |---|---|---|
 | `core/console/` | `org-console` | per-**Organization** console (the signed-in User's console) |
 | `core/marketplace/` | `org-marketplace` | the **customer storefront + funnel** — signup, catalog, checkout, voucher redeem (`src/pages/redeem.astro`, `checkout.astro`) |
-| `products/catalyst/console/` | `catalyst-console` | Catalyst-side console assets |
 | `products/catalyst/bootstrap/ui/` | `ui` | **the sovereign-admin console** — `src/pages/sovereign/…` |
 
 Almost every operator-facing acceptance row (the whole #3375 topology epic, the
@@ -438,7 +437,7 @@ when the badges were present in `bootstrap/ui` all along (`⛓` 0/0/4,
 `contexts` 0/0/11, `active-passive` 0/2/15 across the three trees). That
 refutation cost two walkers before it was caught.
 
-**Rule:** before claiming a console surface is absent, grep all four paths above
+**Rule:** before claiming a console surface is absent, grep all three paths above
 and say which ones you checked.
 
 For the up-to-date "what's actually built today" inventory (controllers green/yellow/red, microservices status, CRD set) see [`docs/STATUS.md`](docs/STATUS.md).
