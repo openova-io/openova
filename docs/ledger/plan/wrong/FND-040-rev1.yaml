@@ -1,0 +1,15 @@
+schema: openova.io/plan-wrong/v1
+id: FND-040
+ticket_rev: 1
+base_commit: 96013c422cdc4e700cddcf0c476a3efd83de302c
+stage: preflight
+ref: P1
+command: |
+    awk '/^<!-- BEGIN FND-040.patch -->$/{f=1;next} /^<!-- END FND-040.patch -->$/{f=0} f' docs/ledger/plan/tickets/FND-040.md | sed '1d;$d' | git apply --check; echo "exit code: $?"
+expected: |
+    Expected exit code: 0
+actual: |
+    error: patch failed: scripts/plan.py:17
+    error: scripts/plan.py: patch does not apply
+    exit code: 1
+reported_at: 2026-11-12T23:23:57Z
