@@ -95,7 +95,7 @@ epics:
 - id: FND-090
   title: Delete train, this area's items
   wave: W0
-  packages: [FND-091, FND-097, FND-173, FND-092, FND-093, FND-094, FND-098, FND-099, FND-095, FND-171, FND-096]
+  packages: [FND-091, FND-097, FND-173, FND-092, FND-093, FND-094, FND-095, FND-098, FND-099, FND-171, FND-096]
 - id: FND-100
   title: Documentation truth
   wave: W0
@@ -187,7 +187,7 @@ epics:
 - id: SOV-300
   title: 'EPIC: Standing tethers cut at bootstrap'
   wave: W1b
-  packages: [SOV-320, SOV-335, SOV-310, SOV-330, SOV-340]
+  packages: [SOV-320, SOV-310, SOV-335, SOV-330, SOV-340]
 - id: SOV-400
   title: 'EPIC: Ownership pivot and parent release'
   wave: W1b
@@ -215,7 +215,7 @@ epics:
 - id: SEC-160
   title: 'EPIC: OpenBao 2.7 with the seal out of etcd'
   wave: W1a
-  packages: [SEC-161, SEC-150, SEC-162, SEC-155]
+  packages: [SEC-150, SEC-161, SEC-162, SEC-155]
 - id: SEC-210
   title: 'EPIC: injection'
   wave: W1a
@@ -1087,34 +1087,66 @@ packages:
   size: M
   lane: GATE
   depends_on: [FND-032]
-  after: [FND-033, CMP-010]
+  after: [FND-033]
   touches:
-  - tests/acceptance/sovereign/internal/suite/check_nodeport*.go
-  - tests/acceptance/sovereign/internal/suite/check_front_doors*.go
-  - tests/acceptance/sovereign/internal/suite/check_mesh*.go
-  - tests/acceptance/sovereign/internal/suite/check_encryption*.go
-  - tests/acceptance/sovereign/internal/suite/check_wipe*.go
-  - tests/acceptance/sovereign/internal/suite/check_journeys*.go
-  - tests/acceptance/sovereign/internal/kube/kube.go
+  - tests/acceptance/sovereign/internal/suite/check_nodeport.go
+  - tests/acceptance/sovereign/internal/suite/check_nodeport_test.go
+  - tests/acceptance/sovereign/internal/suite/check_front_doors.go
+  - tests/acceptance/sovereign/internal/suite/check_front_doors_test.go
+  - tests/acceptance/sovereign/internal/suite/check_mesh.go
+  - tests/acceptance/sovereign/internal/suite/check_mesh_test.go
+  - tests/acceptance/sovereign/internal/suite/check_encryption.go
+  - tests/acceptance/sovereign/internal/suite/check_encryption_test.go
+  - tests/acceptance/sovereign/internal/suite/check_wipe.go
+  - tests/acceptance/sovereign/internal/suite/check_wipe_test.go
+  - tests/acceptance/sovereign/internal/suite/check_journeys.go
+  - tests/acceptance/sovereign/internal/suite/check_journeys_test.go
+  - tests/acceptance/sovereign/internal/suite/registry.go
+  - tests/acceptance/sovereign/internal/suite/runner.go
   - tests/acceptance/sovereign/internal/suite/result.go
   - tests/acceptance/sovereign/internal/suite/config.go
   - tests/acceptance/sovereign/cmd/sovereign-acceptance/main.go
+  - tests/acceptance/sovereign/README.md
   - scripts/acceptance-gate.py
   - docs/ledger/gates.yaml
   resources: []
   flips: []
   implements: [FND-G05, FND-G06, FND-G08, FND-G09, FND-G10, FND-G11, FND-G12, FND-G13]
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "ls scripts/check-live-nodeports.sh scripts/check-live-node-encryption.sh | wc -l"
+    expect: "2"
+  acceptance:
+  - id: A1
+    run: "cd tests/acceptance/sovereign && go test ./internal/suite/ -count=1"
+  - id: A2
+    run: "python3 scripts/acceptance-gate.py validate --base origin/main --body-file <(echo 'Work-Package: FND-034')"
+  - id: A3
+    run: "cd tests/acceptance/sovereign && go vet ./... && test -z \"$(gofmt -l . 2>&1)\""
+  - id: A4
+    run: "cd tests/acceptance/sovereign && test \"$(go test ./internal/suite/ -count=1 -v -run '^(TestNodePortCheck|TestNodePortScriptsOfThisRepository|TestLastLines|TestEncryptionCheck|TestFrontDoorsCheck|TestFrontDoorsList|TestMeshCheck|TestJourneysChecks|TestWipeCheck|TestParsePreviousWipe|TestWipeSampleRecord)$' | grep -c '^--- PASS: ')\" = 11"
+  - id: A5
+    run: "python3 -c \"import os, yaml; c = {x['id']: x for x in yaml.safe_load(open('docs/ledger/gates.yaml'))['checks']}; d = 'tests/acceptance/sovereign/internal/suite/'; want = {'FND-G05': 'check_nodeport.go', 'FND-G06': 'check_front_doors.go', 'FND-G08': 'check_mesh.go', 'FND-G09': 'check_encryption.go', 'FND-G10': 'check_journeys.go', 'FND-G11': 'check_journeys.go', 'FND-G12': 'check_journeys.go', 'FND-G13': 'check_wipe.go'}; assert all(c[i]['state'] == 'expected-fail' and c[i].get('implementation') == d + f and os.path.isfile(d + f) for i, f in want.items())\""
+  - id: A6
+    run: "out=\"$(python3 scripts/acceptance-gate.py --self-test)\" && grep -q -F 'PASS  CONTROL: a record with the wipe before the fire is valid' <<<\"$out\" && grep -q -F 'PASS  record: a previous deployment without the orphans of its wipe is refused' <<<\"$out\" && grep -q -F 'PASS  record: a negative number of orphans is refused' <<<\"$out\" && test \"$(tail -n 1 <<<\"$out\")\" = 'SELF-TEST OK (108 cases)'"
+  - id: A7
+    run: "d=\"$(mktemp -d)\" && (cd tests/acceptance/sovereign && ACCEPT_SAMPLE_RECORD_DIR=\"$d\" go test ./internal/suite/ -count=1 -run '^TestWipeSampleRecord$') && f=\"$(ls \"$d\"/wipe-*.json)\" && grep -q -F '\"previous_wipe_orphans\": 0' \"$f\" && python3 -c 'import json, sys; r = json.load(open(sys.argv[1])); r[\"provision\"].update(provider=\"huawei\", created_at=\"2026-11-20T06:20:00Z\", ready_at=\"2026-11-20T08:05:00Z\", regions=[], fresh=True); json.dump(r, open(sys.argv[1], \"w\"))' \"$f\" && python3 scripts/acceptance-gate.py validate-record \"$f\""
+  - id: A8
+    run: "d=\"$(mktemp -d)\"; (cd tests/acceptance/sovereign && go build -o \"$d/suite\" ./cmd/sovereign-acceptance); code=0; out=\"$(CATALYST_SESSION=x \"$d/suite\" run --env sample --console http://127.0.0.1:9 --kubeconfig-a \"$d/a\" --kubeconfig-b \"$d/b\" --previous-deployment-id d1 2>&1)\" || code=$?; test \"$code\" = 3; grep -q -F -- '--previous-deployment-id is given without --previous-wipe-orphans' <<<\"$out\""
+  - id: A9
+    run: "git diff --quiet \"$(git merge-base origin/main HEAD)\" -- tests/acceptance/sovereign/go.mod tests/acceptance/sovereign/internal/api tests/acceptance/sovereign/internal/kube tests/acceptance/sovereign/internal/session tests/acceptance/sovereign/internal/wordpress tests/acceptance/sovereign/internal/suite/journeys.go tests/acceptance/sovereign/internal/suite/match.go tests/acceptance/sovereign/internal/suite/discover.go tests/acceptance/sovereign/internal/suite/registry_test.go tests/acceptance/sovereign/internal/suite/fake_kubectl_test.go scripts/check-live-nodeports.sh scripts/check-live-node-encryption.sh scripts/sovereign-dod-verify.sh scripts/acceptance_record.py"
+  - id: A10
+    run: "cd tests/acceptance/sovereign && go list -m all | wc -l | grep -qx 1"
+  - id: A11
+    run: "f=tests/acceptance/sovereign/README.md; grep -q -F -- '--previous-wipe-orphans' \"$f\" && grep -q -F 'check_front_doors.go' \"$f\" && grep -q -F 'Of the object `provision`' \"$f\" && ! grep -q -F 'The object `provision` of the' \"$f\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Five more checks run as expected-fail, and the mesh step and the five journeys are reported as checks.
+  delivers: The acceptance suite has gate checks for node ports, front doors, the mesh, transit encryption and the clean wipe, and reports the five journeys as three gate checks; all of them run as expected-fail.
 - id: FND-035
   title: The gate workflow
   area: FND
@@ -1152,7 +1184,7 @@ packages:
   size: S
   lane: GATE
   depends_on: [FND-035]
-  after: [FND-033, CMP-010]
+  after: [FND-033, FND-034, NET-010, CMP-010]
   touches:
   - scripts/sso-zero-click-probe.mjs
   - .github/workflows/foundation-gate.yaml
@@ -1695,7 +1727,7 @@ packages:
   size: XS
   lane: GATE
   depends_on: [FND-070]
-  after: []
+  after: [NET-010]
   touches:
   - docs/ledger/gates.yaml
   resources: []
@@ -1827,10 +1859,10 @@ packages:
   epic: FND-090
   type: delete
   wave: W0
-  size: M
+  size: S
   lane: CONTROL
   depends_on: [FND-092]
-  after: [FND-054, FND-097, FND-173]
+  after: []
   touches:
   - products/catalyst/bootstrap/api/cmd/api/main.go
   - products/catalyst/bootstrap/api/internal/handler/handler.go
@@ -1841,18 +1873,42 @@ packages:
   - products/catalyst/bootstrap/api/internal/natspub/sandbox_publisher.go
   - products/catalyst/bootstrap/api/internal/natspub/sandbox_publisher_test.go
   - docs/ledger/deleted-paths.txt
+  - scripts/baselines/direct-cluster-writes.json
+  - scripts/baselines/api-structure.json
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c 'rg\\.\\(Get\\|Post\\|Delete\\)(\"/api/v1/sandbox/' products/catalyst/bootstrap/api/cmd/api/main.go"
+    expect: "9"
+  acceptance:
+  - id: A1
+    run: "cd products/catalyst/bootstrap/api && go build ./... && go test ./... -count=1"
+  - id: A2
+    run: "! grep -q '/api/v1/sandbox' products/catalyst/bootstrap/api/cmd/api/main.go"
+  - id: A3
+    run: "! ls products/catalyst/bootstrap/api/internal/handler | grep -qi 'sandbox\\|byos'"
+  - id: A4
+    run: "python3 scripts/check-repo-hygiene.py paths"
+  - id: A5
+    run: "test ! -e products/catalyst/bootstrap/api/internal/natspub/sandbox_publisher.go -a ! -e products/catalyst/bootstrap/api/internal/natspub/sandbox_publisher_test.go"
+  - id: A6
+    run: "test \"$(grep -c -x -E 'products/catalyst/bootstrap/api/internal/(handler/(byos_claude_code|sandbox_sessions|sandbox_sessions_integration_test|sandbox_sessions_nats_test|sandbox_sessions_reresolve_5140_test|sandbox_sessions_test|sandbox_unreconciled_6260_test)|natspub/(sandbox_publisher|sandbox_publisher_test))\\.go' docs/ledger/deleted-paths.txt)\" = 9"
+  - id: A7
+    run: "! grep -r -q -E 'TenantEventPublisher|natspub\\.Dial|HandleByos|SandboxSession|SandboxRequestedSubject' --include='*.go' products/catalyst/bootstrap/api"
+  - id: A8
+    run: "! grep -q '\"/api/v1/sandbox' products/catalyst/bootstrap/api/internal/handler/org_scope.go"
+  - id: A9
+    run: "python3 scripts/check-no-direct-cluster-write.py"
+  - id: A10
+    run: "python3 scripts/check-api-structure.py"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
   delivers: The API serves no Sandbox route and holds no Sandbox handler.
 - id: FND-094
@@ -1864,31 +1920,50 @@ packages:
   size: S
   lane: CONSOLE
   depends_on: [FND-092]
-  after: [FND-054, FND-097, FND-173]
+  after: []
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/sandbox/**
   - products/catalyst/bootstrap/ui/src/lib/sandbox.api.ts
   - products/catalyst/bootstrap/ui/e2e/sandbox.spec.ts
   - products/catalyst/bootstrap/ui/src/app/router.tsx
   - products/catalyst/bootstrap/ui/src/pages/sovereign/SovereignSidebar.tsx
-  - products/catalyst/bootstrap/ui/src/pages/sovereign/SovereignSidebar.menu-mapping.test.tsx
-  - products/catalyst/bootstrap/ui/src/pages/sovereign/SovereignSidebar.orgscope.test.tsx
   - products/catalyst/bootstrap/ui/src/pages/sovereign/sovereignNav.ts
   - products/catalyst/bootstrap/ui/src/app/layouts/SovereignConsoleLayout.tsx
+  - products/catalyst/bootstrap/ui/eslint-max-warnings.txt
   - .github/workflows/playwright-e2e.yml
   - docs/ledger/deleted-paths.txt
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c \"path: '/sandbox\" products/catalyst/bootstrap/ui/src/app/router.tsx"
+    expect: "3"
+  acceptance:
+  - id: A1
+    run: "cd products/catalyst/bootstrap/ui && npm ci && npm run typecheck && npm test"
+  - id: A2
+    run: "! grep -rqi \"sandbox\" products/catalyst/bootstrap/ui/src/app/router.tsx"
+  - id: A3
+    run: "test ! -d products/catalyst/bootstrap/ui/src/pages/sovereign/sandbox"
+  - id: A4
+    run: "! grep -q 'sandbox' .github/workflows/playwright-e2e.yml"
+  - id: A5
+    run: "python3 scripts/check-repo-hygiene.py paths"
+  - id: A6
+    run: "test \"$(grep -c -x -E 'products/catalyst/bootstrap/ui/(src/pages/sovereign/sandbox|src/lib/sandbox\\.api\\.ts|e2e/sandbox\\.spec\\.ts)' docs/ledger/deleted-paths.txt)\" = 3"
+  - id: A7
+    run: "test ! -e products/catalyst/bootstrap/ui/src/lib/sandbox.api.ts && test ! -e products/catalyst/bootstrap/ui/e2e/sandbox.spec.ts && ! grep -q -F \"'sandbox'\" products/catalyst/bootstrap/ui/src/pages/sovereign/SovereignSidebar.tsx"
+  - id: A8
+    run: "test \"$(tr '\\n' ' ' < products/catalyst/bootstrap/ui/eslint-max-warnings.txt)\" = '18 112 '"
+  - id: A9
+    run: "python3 scripts/check-console-lint.py lint"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
   delivers: The console has no Sandbox page or route, and the agent workspace is still reached through its Blueprint entry.
 - id: FND-095
@@ -2030,7 +2105,7 @@ packages:
   size: XS
   lane: CONTRACTS
   depends_on: [FND-091]
-  after: [FND-011, FND-054, FND-092, FND-097, FND-173]
+  after: [FND-011, FND-054, FND-092, FND-093, FND-094, FND-097, FND-173]
   touches:
   - platform/cert-manager-dynadot-webhook/**
   - platform/stalwart-sovereign/**
@@ -2063,7 +2138,7 @@ packages:
   size: XS
   lane: CONTRACTS
   depends_on: [FND-091]
-  after: [FND-011, FND-054, FND-092, FND-097, FND-173]
+  after: [FND-011, FND-054, FND-092, FND-093, FND-094, FND-097, FND-173]
   touches:
   - products/catalyst/chart/crds/runbook.yaml
   - products/catalyst/chart/crds/secretpolicy.yaml
@@ -2095,6 +2170,7 @@ packages:
   after: []
   touches:
   - docs/ledger/UAT.md
+  - docs/ledger/uat-testcases.csv
   - docs/ledger/uat-retirements.csv
   - docs/ledger/UAT-FINAL.md
   - docs/ledger/UAT-CONFIDENCE.md
@@ -2105,20 +2181,37 @@ packages:
   - docs/ledger/PROMOTION-SPEC-repo-rows.md
   - docs/STATUS.md
   - scripts/uat-tally.py
+  - scripts/test_uat_tally.py
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c '<tr id=\"row-' docs/ledger/UAT.md"
+    expect: "286"
+  acceptance:
+  - id: A1
+    run: "head -1 docs/ledger/UAT.md | grep -qxF '# UAT — Console regression list, last walked on `hw307.omani.works` (from 2026-09-02)'; test \"$(grep -c '<tr id=\"row-' docs/ledger/UAT.md)\" = 286"
+  - id: A2
+    run: "python3 scripts/test_uat_tally.py | grep -q '; provenance rules checked$'"
+  - id: A3
+    run: "line=\"$(python3 scripts/uat-tally.py --provenance)\"; test \"$line\" = 'Measured on hw307: 17. Carried from earlier environments: 88. Newest stamp: 2026-09-02.'; grep -qxF \"$line\" docs/ledger/UAT.md"
+  - id: A4
+    run: "python3 scripts/uat-tally.py --check 107 > /dev/null; grep -qxF '**Tally (286 rows):** ✅ 107 · ❌ 12 · ⚠️ 11 · ⏳ 147 · ☐ 9' docs/ledger/UAT.md"
+  - id: A5
+    run: "python3 scripts/test_uat_clause_identity.py > /dev/null; python3 -I -c \"import csv, sys; r = [x['row_id'] for x in csv.DictReader(open('docs/ledger/uat-retirements.csv', newline='', encoding='utf-8')) if x['retired_on'] == '2026-11-13']; sys.exit(0 if sorted(r) == ['57', '58', '59', '60', '61', '62', '63', 'G12'] else 1)\"; for r in 57 58 59 60 61 62 63 G12; do grep -F \"<tr id=\\\"row-$r\\\">\" docs/ledger/UAT.md | grep -qF '<td>☐</td><td>Retired to gate check '; done"
+  - id: A6
+    run: "for f in UAT-FINAL UAT-CONFIDENCE PATH-TO-100 PLAN-TO-100 WBS-TO-100 TRUST PROMOTION-SPEC-repo-rows; do head -1 \"docs/ledger/$f.md\" | grep -q '^Historical\\. Describes .*\\. Not a statement about the product today\\.$'; done"
+  - id: A7
+    run: "sed -n '/^## 9\\. Pillar status/,/^## 10\\./p' docs/STATUS.md > /tmp/FND-101-s9.md; test \"$(sed -n '3p' /tmp/FND-101-s9.md)\" = '> State: rule. Enforced by: nothing'; grep -qxF 'No pillar is proven on what `main` publishes. The verdict is printed by `python3 scripts/acceptance-gate.py verdict`.' /tmp/FND-101-s9.md; test \"$(grep -c 'CODE-COMPLETE' /tmp/FND-101-s9.md)\" = 0"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: The status surfaces stop claiming a proof that does not exist, and the ledger is titled a regression list.
+  delivers: The status surfaces stop claiming a proof that does not exist, the ledger is titled a regression list, and its header says how many greens were measured on the environment it names.
 - id: FND-102
   title: Inventory generators and the drift check
   area: FND
@@ -2193,14 +2286,26 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "cat docs/STATUS.md docs/ARCHITECTURE.md docs/SECURITY.md docs/DOD.md docs/RUNBOOKS.md | grep -c '^## '"
+    expect: "60"
+  acceptance:
+  - id: A1
+    run: "python3 scripts/check-doc-state.py --self-test"
+  - id: A2
+    run: "python3 scripts/check-doc-state.py"
+  - id: A3
+    run: "test \"$(sha256sum < docs/ledger/doc-state-baseline.txt)\" = \"b3b34d0aa084afe6167077378495a8fab3014e6a058a348f08f0dd572c8c2e2f  -\""
+  - id: A4
+    run: "test \"$(sha256sum < scripts/check-doc-state.py)\" = \"6b556dc5b04460fc843c52cba87a414a54cfdc67fcee9aea5857d6d969115f3e  -\""
+  - id: A5
+    run: "test \"$(sha256sum < .github/workflows/check-generated-docs.yaml)\" = \"537a70b69a92561667fea9eb7e2251b3dd9248f5e9489931c0f9197a25a1db1b  -\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
   delivers: Unmarked sections of the five canonical documents and citations of missing headings may only fall.
 - id: FND-104
@@ -2350,7 +2455,7 @@ packages:
   size: S
   lane: GATE
   depends_on: [FND-080]
-  after: [FND-054, FND-091, FND-092, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-099, FND-171, FND-173, SOV-035]
+  after: [FND-054, FND-091, FND-092, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-099, FND-171, FND-173, SOV-035, NET-010]
   touches:
   - docs/ledger/stability.yaml
   - docs/ledger/gates.yaml
@@ -2433,7 +2538,7 @@ packages:
   size: S
   lane: GATE
   depends_on: [FND-141, FND-144, SOV-510, SOV-520]
-  after: []
+  after: [NET-010]
   touches:
   - .github/workflows/release-train.yaml
   - tests/acceptance/sovereign/internal/suite/check_upgrade*.go
@@ -2557,7 +2662,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [FND-151, SOV-510, CMP-150, CTL-038]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - platform/conformance/**
   - clusters/_template/bootstrap-kit/99-bp-conformance.yaml
@@ -2619,7 +2724,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [FND-161]
-  after: []
+  after: [FND-101, NET-010]
   touches:
   - products/catalyst/bootstrap/ui/e2e/gate/applications/**
   - docs/ledger/UAT.md
@@ -2648,7 +2753,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [FND-161]
-  after: [FND-162]
+  after: [FND-162, FND-101, NET-010]
   touches:
   - products/catalyst/bootstrap/ui/e2e/gate/operations/**
   - docs/ledger/UAT.md
@@ -2677,7 +2782,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [FND-161]
-  after: [FND-163]
+  after: [FND-163, FND-101, NET-010]
   touches:
   - products/catalyst/bootstrap/ui/e2e/gate/organizations/**
   - docs/ledger/UAT.md
@@ -2706,7 +2811,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [FND-161]
-  after: [FND-164]
+  after: [FND-164, FND-101, NET-010]
   touches:
   - products/catalyst/bootstrap/ui/e2e/gate/assurance/**
   - core/marketplace/e2e/gate/**
@@ -2736,7 +2841,7 @@ packages:
   size: S
   lane: RAILS
   depends_on: [FND-162, FND-163, FND-164, FND-165]
-  after: [FND-023]
+  after: [FND-023, FND-101]
   touches:
   - scripts/check-function-rows-cite-acceptance.py
   - scripts/check-uat-fix-sha-citations.py
@@ -2848,7 +2953,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [FND-091]
-  after: [FND-093, FND-054, FND-097, FND-173]
+  after: [FND-093, FND-054, FND-094, FND-097, FND-173]
   touches:
   - products/catalyst/bootstrap/api/cmd/api/main.go
   - products/catalyst/bootstrap/api/internal/handler/continuum_dr_extras.go
@@ -2953,7 +3058,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [FND-181, FND-120]
-  after: [CLD-040, NET-031]
+  after: [CLD-040, SEC-020, NET-031]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - infra/providers/_shared/tests/**
@@ -3036,7 +3141,7 @@ packages:
   size: M
   lane: GATE
   depends_on: [FND-182, FND-183, FND-184, FND-034]
-  after: []
+  after: [NET-010]
   touches:
   - tests/acceptance/sovereign/internal/suite/check_restore_etcd*.go
   - tests/acceptance/sovereign/internal/suite/check_restore_database*.go
@@ -3296,7 +3401,7 @@ packages:
   size: M
   lane: GATE
   depends_on: [FND-204, FND-034]
-  after: []
+  after: [NET-010]
   touches:
   - tests/acceptance/sovereign/internal/suite/check_observability*.go
   - clusters/_template/sovereign-region/observability/**
@@ -3448,7 +3553,7 @@ packages:
   size: S
   lane: CONSOLE
   depends_on: [FND-091, FND-094]
-  after: [FND-054, FND-097, FND-173]
+  after: [FND-054, FND-093, FND-097, FND-173]
   touches:
   - products/catalyst/bootstrap/ui/src/components/CrudModals/**
   - products/catalyst/bootstrap/ui/src/lib/infrastructure-crud.ts
@@ -3480,7 +3585,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CLD-021, CLD-040]
-  after: [FND-011, FND-054, FND-097, FND-173]
+  after: [FND-011, FND-054, FND-097, FND-173, SEC-020]
   touches:
   - platform/crossplane/compositions/**
   - platform/powerdns/chart/templates/crossplane-floatingip.yaml
@@ -3513,7 +3618,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [FND-032]
-  after: [FND-011, FND-033, CMP-010]
+  after: [FND-011, FND-033, FND-034, NET-010, CMP-010]
   touches:
   - clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml
   - products/catalyst/chart/values.yaml
@@ -3639,7 +3744,7 @@ packages:
   size: XS
   lane: CHARTS
   depends_on: [CLD-023, CLD-050, FND-032]
-  after: [FND-011, FND-033, CMP-010]
+  after: [FND-011, FND-033, FND-034, NET-010, CMP-010]
   touches:
   - platform/crossplane/chart/Chart.yaml
   - platform/crossplane/chart/values.yaml
@@ -3917,7 +4022,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [CLD-075]
-  after: []
+  after: [FND-101, SEC-020]
   touches:
   - docs/ARCHITECTURE.md
   - docs/STATUS.md
@@ -3977,7 +4082,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-040, CLD-055, CLD-080, CLD-142, FND-102]
-  after: []
+  after: [SEC-020]
   touches:
   - infra/providers/local/**
   - clusters/_template/providers/local/kit/**
@@ -4095,7 +4200,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CLD-090, SEC-020, SEC-150]
-  after: []
+  after: [NET-010]
   touches:
   - infra/providers/_contract/cloudprofile.schema.json
   - infra/providers/*/profile.yaml
@@ -4125,7 +4230,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CLD-087, CLD-090]
-  after: []
+  after: [SEC-020, NET-010]
   touches:
   - infra/providers/local/tests/**
   - infra/providers/huawei/tests/**
@@ -4318,7 +4423,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CLD-088, CLD-102, FND-032, SOV-070]
-  after: [FND-033, CMP-010]
+  after: [FND-033, FND-034, NET-010, CMP-010]
   touches:
   - products/catalyst/bootstrap/api/internal/providers/capabilities.go
   - products/catalyst/bootstrap/api/cmd/provider-identity/**
@@ -4459,7 +4564,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CLD-103, CLD-113, CTL-035, FND-032]
-  after: [FND-033, CMP-010]
+  after: [FND-033, FND-034, NET-010, CMP-010]
   touches:
   - products/catalyst/bootstrap/api/cmd/api/main.go
   - products/catalyst/bootstrap/api/internal/providersapi/**
@@ -4572,7 +4677,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CLD-086, CLD-090]
-  after: []
+  after: [SEC-020]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - infra/providers/_shared/tests/render.tf
@@ -4599,7 +4704,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CLD-131]
-  after: []
+  after: [SEC-020]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - scripts/lint-cloudinit.sh
@@ -4628,7 +4733,7 @@ packages:
   size: XS
   lane: SUBSTRATE
   depends_on: [CLD-132]
-  after: []
+  after: [SEC-020, NET-010]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - infra/providers/huawei/main.tf
@@ -4737,7 +4842,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-080, CLD-132, CLD-141, CLD-142, FND-032]
-  after: [FND-033, CMP-010]
+  after: [FND-033, FND-034, SEC-020, NET-010, CMP-010]
   touches:
   - clusters/_template/bootstrap-kit/**
   - infra/providers/_shared/cloudinit-control-plane.tftpl
@@ -4796,7 +4901,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CLD-023, CLD-145]
-  after: [FND-011]
+  after: [FND-011, SEC-020]
   touches:
   - clusters/_template/providers/*/sovereign-tls/**
   - clusters/_template/providers/hetzner/values/**
@@ -4881,7 +4986,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CLD-111, CLD-151, FND-032]
-  after: [FND-011, FND-033, CMP-010]
+  after: [FND-011, FND-033, FND-034, NET-010, CMP-010]
   touches:
   - products/catalyst/bootstrap/api/cmd/cloud-controller/**
   - products/catalyst/bootstrap/api/Containerfile
@@ -4936,7 +5041,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-104, CLD-121, CLD-144, CLD-161]
-  after: [FND-011]
+  after: [FND-011, SEC-020, NET-010]
   touches:
   - infra/providers/huawei/**
   - products/catalyst/bootstrap/api/internal/providers/huawei/**
@@ -5050,7 +5155,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CLD-050, CLD-066, CLD-087, FND-032, SEC-190, SEC-211]
-  after: [FND-033, CMP-010]
+  after: [FND-033, FND-034, NET-010, CMP-010]
   touches:
   - clusters/_template/infrastructure/base/**
   - clusters/_template/infrastructure/providers/base/provider-opentofu.yaml
@@ -5138,7 +5243,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-088, CLD-172, CLD-173, FND-032, SOV-230]
-  after: []
+  after: [NET-010]
   touches:
   - tests/acceptance/sovereign/internal/suite/check_*.go
   resources: []
@@ -5164,7 +5269,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CLD-174, CTL-045, CTL-150]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - platform/crossplane-claims/chart/templates/xrds/nodepool.yaml
   - platform/crossplane-claims/chart/values.yaml
@@ -5554,7 +5659,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-175, FND-032, SVC-270]
-  after: []
+  after: [NET-010]
   touches:
   - tests/acceptance/sovereign/internal/suite/check_*.go
   resources: []
@@ -5580,7 +5685,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-221, SVC-320]
-  after: []
+  after: [NET-010]
   touches:
   - infra/providers/huawei/day2/postgresinstance/**
   - clusters/_template/providers/huawei/compositions/postgresinstance-native.yaml
@@ -5611,7 +5716,7 @@ packages:
   size: XS
   lane: CONTRACTS
   depends_on: [FND-070]
-  after: [FND-097, FND-106, FND-173]
+  after: [FND-097, FND-101, FND-106, FND-173]
   touches:
   - docs/adr/0002-post-handover-sovereignty-cutover.md
   - docs/STATUS.md
@@ -5697,7 +5802,7 @@ packages:
   size: XS
   lane: CONTROL
   depends_on: []
-  after: [FND-011, FND-054, FND-091, FND-092, FND-097, FND-173]
+  after: [FND-011, FND-054, FND-091, FND-092, FND-093, FND-094, FND-097, FND-173]
   touches:
   - products/catalyst/bootstrap/api/internal/store/crd_store.go
   - products/catalyst/bootstrap/api/internal/store/crd_store_test.go
@@ -5947,7 +6052,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [SOV-060, SOV-110]
-  after: [FND-014, CLD-040, NET-031]
+  after: [FND-014, CLD-040, SEC-020, NET-031]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - infra/providers/_shared/tests/cloudinit_render.tftest.hcl
@@ -5975,7 +6080,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [SOV-130]
-  after: [CLD-040, NET-031]
+  after: [CLD-040, SEC-020, NET-010, NET-031]
   touches:
   - infra/providers/hetzner/main.tf
   - infra/providers/huawei/main.tf
@@ -6064,7 +6169,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [FND-032, FND-120, SOV-120, SOV-130, SOV-160]
-  after: []
+  after: [NET-010]
   touches:
   - tests/acceptance/sovereign/internal/suite/
   - tests/acceptance/sovereign/internal/suite/check_born_local.go
@@ -6347,7 +6452,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [FND-032, SOV-060, SOV-240]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - platform/self-sovereign-cutover/chart/templates/04-registry-pivot-daemonset.yaml
   - platform/self-sovereign-cutover/chart/values.yaml
@@ -6435,7 +6540,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [FND-032, NET-153, SOV-250, SOV-310, SOV-320, SOV-330]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - platform/self-sovereign-cutover/chart/templates/08-egress-block-test-job.yaml
   - platform/self-sovereign-cutover/chart/values.yaml
@@ -6464,7 +6569,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-086, CLD-090, SOV-090, SOV-150]
-  after: [FND-014]
+  after: [FND-014, SEC-020]
   touches:
   - clusters/_template/sovereign-tls/powerdns-api-credentials.yaml
   - clusters/_template/bootstrap-kit/49-bp-cert-manager-powerdns-webhook.yaml
@@ -6526,7 +6631,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CTL-201, SOV-310]
-  after: [FND-011, FND-014]
+  after: [FND-011, FND-014, SEC-020]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - products/catalyst/bootstrap/api/internal/provisioner/provisioner.go
@@ -6586,7 +6691,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [FND-032, NET-131, SOV-030, SOV-140]
-  after: [FND-033, CMP-010]
+  after: [FND-033, FND-034, CMP-010]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/phase1_watch.go
   - products/catalyst/bootstrap/api/internal/handler/deployment_handover_export.go
@@ -6669,7 +6774,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CLD-171, CTL-110, CTL-112, FND-032, SEC-196, SOV-240, SOV-410]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - platform/self-sovereign-cutover/chart/templates/03x-ownership-pivot-job.yaml
   - platform/self-sovereign-cutover/chart/templates/rbac.yaml
@@ -6823,7 +6928,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [FND-032, SEC-190, SOV-080, SOV-420]
-  after: []
+  after: [NET-010]
   touches:
   - core/cmd/sovereign-ops/internal/restore/**
   - tests/hermetic/handover/assert/
@@ -6887,7 +6992,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CTL-620, FND-120, FND-144, SOV-170, SOV-225]
-  after: [NET-031]
+  after: [SEC-020, NET-031]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - products/catalyst/bootstrap/api/internal/provisioner/provisioner.go
@@ -6918,7 +7023,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CTL-035, FND-032, SOV-230, SOV-240, SOV-510]
-  after: []
+  after: [NET-010]
   touches:
   - core/cmd/sovereign-ops/internal/releasesync/**
   - clusters/_template/bootstrap-kit/06c-release-sync.yaml
@@ -7123,7 +7228,7 @@ packages:
   size: XS
   lane: SUBSTRATE
   depends_on: [SOV-720]
-  after: []
+  after: [SEC-020, NET-010]
   touches:
   - infra/providers/*/variables.tf
   - docs/RUNBOOKS.md
@@ -7150,7 +7255,7 @@ packages:
   size: XS
   lane: SUBSTRATE
   depends_on: [SOV-725]
-  after: []
+  after: [SEC-020, NET-010]
   touches:
   - infra/providers/*/variables.tf
   - docs/RUNBOOKS.md
@@ -7290,7 +7395,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CTL-035, CTL-110, FND-032, FND-120, SOV-130, SOV-170, SVC-220]
-  after: [CLD-040, NET-031]
+  after: [CLD-040, SEC-020, NET-031]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - infra/providers/_shared/tests/cloudinit_render.tftest.hcl
@@ -7641,7 +7746,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [FND-032]
-  after: [FND-011, FND-033, CMP-010]
+  after: [FND-011, FND-033, FND-034, NET-010, CMP-010]
   touches: []
   resources: []
   flips: [SEC-G04]
@@ -7658,7 +7763,7 @@ packages:
   dropped: false
   delivers: Security fix. Its text is published with its ticket.
 - id: SEC-020
-  title: Security fix. Its text is published with its ticket.
+  title: Random k3s server token and separate agent token
   area: SEC
   epic: null
   type: fix
@@ -7666,22 +7771,49 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CLD-040, SEC-125]
-  after: [CLD-070]
-  touches: []
+  after: []
+  touches:
+  - infra/providers/hetzner/versions.tf
+  - infra/providers/hetzner/main.tf
+  - infra/providers/hetzner/.terraform.lock.hcl
+  - infra/providers/hetzner/tests/multi_region.tftest.hcl
+  - infra/providers/huawei/versions.tf
+  - infra/providers/huawei/main.tf
+  - infra/providers/huawei/.terraform.lock.hcl
+  - infra/providers/huawei/tests/multi_region.tftest.hcl
+  - infra/providers/_shared/cloudinit-control-plane.tftpl
+  - infra/providers/_shared/tests/render.tf
+  - infra/providers/_shared/tests/cloudinit_render.tftest.hcl
+  - infra/providers/_shared/tests/golden.auto.tfvars.json
+  - infra/providers/PROVIDER-INTERFACE.md
+  - scripts/cloudinit-size-check.sh
+  - scripts/lint-cloudinit.sh
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "git grep -o 'k3s-bootstrap' -- infra/providers | wc -l"
+    expect: "3"
+  acceptance:
+  - id: A1
+    run: "printf '%s  %s\\n' a3f0dca9c8c23d5cba0bc9b9f7ca5e14b2ea4176f02c18c1a7936e43f2b961db infra/providers/hetzner/versions.tf 568d7db4d66b81e33f54eb45b790d10ef52f454fefbf9a934485c5ee61755a65 infra/providers/hetzner/main.tf 640fe7253009840f48b2fc88689d0f1715d536678b6900ab8d4a4bd2a11cd919 infra/providers/hetzner/.terraform.lock.hcl b88d704d80cd226a28141ff116485ab7389fc8c7c996ac03e23d87d8b6b22006 infra/providers/hetzner/tests/multi_region.tftest.hcl 86c895cbe9155bb08a9538a1af8310a7146d46bd5618d95807723f201e3bdb2c infra/providers/huawei/versions.tf 7f3ad7246d208c5d3b0ea6397e2de91123e260d740912da1fc0a56ec4c7fa095 infra/providers/huawei/main.tf 9d3c40e391258ca23db40038bcea1cc144931c79b0cdefbdc18667d6961887d0 infra/providers/huawei/.terraform.lock.hcl 5b0ca928d31138500e6264e8389f2283844c6ac0435b91e4f4ce21ce99b87606 infra/providers/huawei/tests/multi_region.tftest.hcl | sha256sum --check --quiet -"
+  - id: A2
+    run: "printf '%s  %s\\n' 031f9496ae5f58454cc48a12a608545d52f934b208439af2143ebb7ee5803548 infra/providers/_shared/cloudinit-control-plane.tftpl 85e48dcfeb25582f83f44f2fbe0075d1c270a0ca84731ad849d80dc7d8cd2c26 infra/providers/_shared/tests/render.tf 5c72f2e250135598bd9a7a0dd17011f77dfc63047cfd90e0e12611de202dd485 infra/providers/_shared/tests/cloudinit_render.tftest.hcl a9f15ecc27a24971c61d43ad56c4e5e5eb603a272fff0cf2b36211bdc7a13909 infra/providers/_shared/tests/golden.auto.tfvars.json 5a69961ccef9269c2d815212ceefc7f65bc1d65832aedd527c0c54ca5d71aa0c infra/providers/PROVIDER-INTERFACE.md 4b1bb24801b88ceb23935dac2327fd09da94fa432f1358a3d29211ac220d582c scripts/cloudinit-size-check.sh 005197154382b1841535a8275287ec85d997526a63c90358a33d8916b7504ef0 scripts/lint-cloudinit.sh | sha256sum --check --quiet -"
+  - id: A3
+    run: "test \"$(git grep -c 'k3s-bootstrap' -- infra | wc -l)\" = 0 && test \"$(grep -c -F 'K3S_TOKEN=${k3s_server_token} ' infra/providers/_shared/cloudinit-control-plane.tftpl)\" = 1 && test \"$(grep -c -F -e ' --agent-token=${k3s_agent_token} ${k3s_extra_args} ' infra/providers/_shared/cloudinit-control-plane.tftpl)\" = 1 && test \"$(grep -c -F '${k3s_token}' infra/providers/_shared/cloudinit-control-plane.tftpl)\" = 0"
+  - id: A4
+    run: "for p in hetzner huawei; do test \"$(grep -c -E '^resource \"random_password\" \"k3s_(server|agent)_token\" [{]$' infra/providers/$p/main.tf)\" = 2 && test \"$(grep -c -F 'source  = \"hashicorp/random\"' infra/providers/$p/versions.tf)\" = 1 && test \"$(grep -c -F 'provider \"registry.opentofu.org/hashicorp/random\" {' infra/providers/$p/.terraform.lock.hcl)\" = 1 || exit 1; done"
+  - id: A5
+    run: "test \"$(grep -h -E '^ +k3s_token +=' infra/providers/hetzner/main.tf infra/providers/huawei/main.tf | grep -c -F '= random_password.k3s_agent_token[')\" = 3 && test \"$(grep -h -E '^ +k3s_token +=' infra/providers/hetzner/main.tf infra/providers/huawei/main.tf | wc -l)\" = 3 && test \"$(cat infra/providers/_shared/tests/render.tf scripts/cloudinit-size-check.sh scripts/lint-cloudinit.sh | grep -c -E '^ +k3s_(server|agent)_token +=')\" = 6"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Security fix. Its text is published with its ticket.
+  delivers: Each provider module holds a random k3s server token and a random agent token per region; control-plane nodes start with both, and workers join with the agent token only.
 - id: SEC-030
   title: Security fix. Its text is published with its ticket.
   area: SEC
@@ -7741,7 +7873,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [FND-036, FND-080, SEC-040]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches: []
   resources: []
   flips: [SEC-G06]
@@ -7793,7 +7925,7 @@ packages:
   size: XS
   lane: CHARTS
   depends_on: [FND-091, SEC-090]
-  after: [FND-054, FND-092, FND-097, FND-173]
+  after: [FND-054, FND-092, FND-093, FND-094, FND-097, FND-173]
   touches: []
   resources: []
   flips: []
@@ -7818,7 +7950,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [FND-032]
-  after: [FND-011, FND-033, CMP-010]
+  after: [FND-011, FND-033, FND-034, NET-010, CMP-010]
   touches: []
   resources: []
   flips: [SEC-G07]
@@ -7880,7 +8012,7 @@ packages:
   size: M
   lane: RAILS
   depends_on: [FND-032, FND-070, SEC-090]
-  after: []
+  after: [NET-010]
   touches:
   - scripts/secret-guard-baselines/secret-object-register.yaml
   - scripts/secret-guard-baselines/threat-model.md
@@ -7910,7 +8042,7 @@ packages:
   size: XS
   lane: RAILS
   depends_on: [FND-070, SEC-095]
-  after: []
+  after: [NET-010]
   touches:
   - scripts/secret-guard-baselines/secret-object-register.yaml
   - docs/ledger/gates.yaml
@@ -7937,7 +8069,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [FND-013, FND-022, FND-091]
-  after: [FND-011, FND-054, FND-092, FND-097, FND-173]
+  after: [FND-011, FND-054, FND-092, FND-093, FND-094, FND-097, FND-173]
   touches:
   - platform/openbao/chart/templates/cross-region-raft-config.yaml
   - platform/openbao/chart/templates/cross-region-mesh-service.yaml
@@ -7972,7 +8104,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [FND-091]
-  after: [FND-011, FND-054, FND-092, FND-097, FND-173, NET-033]
+  after: [FND-011, FND-054, FND-092, FND-093, FND-094, FND-097, FND-173, NET-033]
   touches:
   - clusters/_template/bootstrap-kit/05-sealed-secrets.yaml
   - clusters/_template/bootstrap-kit/kustomization.yaml
@@ -8012,7 +8144,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [FND-105]
-  after: []
+  after: [FND-101]
   touches:
   - docs/SECURITY.md
   - platform/openbao/README.md
@@ -8068,7 +8200,7 @@ packages:
   size: S
   lane: GATE
   depends_on: [FND-031, FND-032]
-  after: [FND-033, CMP-010]
+  after: [FND-033, FND-034, NET-010, CMP-010]
   touches:
   - tests/acceptance/sovereign/internal/suite/sec_etcd_job.yaml
   - docs/ledger/gates.yaml
@@ -8208,7 +8340,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-080, SEC-005, SEC-040, SEC-130, SEC-135]
-  after: []
+  after: [NET-010]
   touches:
   - infra/providers/PROVIDER-INTERFACE.md
   - infra/providers/hetzner/seal/main.tf
@@ -8309,7 +8441,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [SEC-100, SEC-130, SEC-150, SEC-161]
-  after: [FND-011, FND-033, CMP-010]
+  after: [FND-011, FND-033, FND-034, NET-010, CMP-010]
   touches:
   - platform/openbao/chart/Chart.yaml
   - platform/openbao/chart/values.yaml
@@ -8380,7 +8512,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-162]
-  after: [FND-011, FND-033, CMP-010]
+  after: [FND-011, FND-033, FND-034, NET-010, CMP-010]
   touches:
   - platform/openbao/chart/templates/backup-snapshot.yaml
   - platform/openbao/chart/templates/_config.tpl
@@ -8614,7 +8746,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [SEC-140, SEC-190]
-  after: [FND-011, FND-033, CMP-010]
+  after: [FND-011, FND-033, FND-034, NET-010, CMP-010]
   touches:
   - platform/secrets-store-csi/**
   - clusters/_template/bootstrap-kit/15b-bp-secrets-store-csi.yaml
@@ -8677,7 +8809,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [FND-120, SEC-140, SEC-200, SEC-211]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - platform/wordpress-tenant/chart/**
   - scripts/secret-guard-baselines/*.txt
@@ -8848,7 +8980,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [SEC-223]
-  after: [FND-011]
+  after: [FND-011, FND-093]
   touches:
   - products/catalyst/chart/**
   - products/catalyst/bootstrap/api/internal/secretfile/
@@ -9289,7 +9421,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [NET-120, SEC-190]
-  after: [FND-011, FND-033, CMP-010]
+  after: [FND-011, FND-033, FND-034, NET-010, CMP-010]
   touches:
   - platform/openbao/chart/templates/_config.tpl
   - platform/openbao/chart/values.yaml
@@ -9429,7 +9561,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271]
-  after: [FND-011, FND-014, FND-021, FND-022, FND-023, FND-031, FND-032, FND-033, FND-052, FND-053, FND-054, FND-091, FND-092, FND-097, FND-102, CLD-040, CLD-063, SEC-125, NET-030, NET-033, NET-050, SVC-020, CTL-010, CTL-025, CTL-044, CMP-014]
+  after: [FND-011, FND-014, FND-021, FND-022, FND-023, FND-031, FND-032, FND-033, FND-034, FND-052, FND-053, FND-054, FND-091, FND-092, FND-093, FND-094, FND-097, FND-101, FND-102, FND-103, CLD-040, CLD-063, SEC-020, SEC-125, NET-030, NET-033, NET-050, SVC-020, CTL-010, CTL-025, CTL-044, CMP-014, INF-010, PRD-030]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/26-image-signature.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -9460,7 +9592,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [FND-032, FND-062, FND-141, SEC-272]
-  after: [FND-011, NET-030]
+  after: [FND-011, NET-010, NET-030]
   touches:
   - platform/kyverno-policies/chart/values.yaml
   - platform/kyverno-policies/chart/tests/
@@ -9488,7 +9620,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [FND-091, SEC-272]
-  after: [FND-054, FND-092, FND-097, FND-173]
+  after: [FND-054, FND-092, FND-093, FND-094, FND-097, FND-173]
   touches:
   - clusters/_template/bootstrap-kit/32-sigstore.yaml
   - clusters/_template/bootstrap-kit/kustomization.yaml
@@ -9544,7 +9676,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [FND-120, SEC-213, SEC-231, SEC-280]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - platform/openbao/chart/values.yaml
   - platform/openbao/chart/templates/_config.tpl
@@ -9820,7 +9952,7 @@ packages:
   dropped: false
   delivers: As SEC-341 for the two PowerDNS charts.
 - id: NET-010
-  title: Security fix. Its text is published with its ticket.
+  title: Close peer and stale ports on the reference provider
   area: NET
   epic: null
   type: fix
@@ -9829,21 +9961,38 @@ packages:
   lane: SUBSTRATE
   depends_on: [FND-032]
   after: []
-  touches: []
+  touches:
+  - infra/providers/huawei/main.tf
+  - infra/providers/huawei/tests/multi_region.tftest.hcl
+  - tests/acceptance/sovereign/internal/suite/check_peer_ports.go
+  - tests/acceptance/sovereign/internal/suite/check_peer_ports_test.go
+  - docs/ledger/gates.yaml
   resources: []
   flips: [NET-G01]
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c 'remote_ip_prefix *= *\"0.0.0.0/0\"' infra/providers/huawei/main.tf"
+    expect: "10"
+  acceptance:
+  - id: A1
+    run: "cd tests/acceptance/sovereign && go vet ./... && go test ./... -count=1 && test \"$(go test ./internal/suite/ -count=1 -v -run '^(TestPeerPortsCheck|TestPeerPortsOutcome)$' | grep -c '^--- PASS: ')\" = 2"
+  - id: A2
+    run: "python3 scripts/acceptance-gate.py validate --base origin/main --body-file <(echo 'Work-Package: NET-010') && python3 -c \"import yaml; c = {x['id']: x for x in yaml.safe_load(open('docs/ledger/gates.yaml'))['checks']}['NET-G01']; assert c['state'] == 'required' and c.get('implementation') == 'tests/acceptance/sovereign/internal/suite/check_peer_ports.go', c\""
+  - id: A3
+    run: "test \"$(grep -c 'remote_ip_prefix *= *\"0.0.0.0/0\"' infra/providers/huawei/main.tf)\" = 6"
+  - id: A4
+    run: "f=infra/providers/huawei/main.tf; ! grep -nE '^ *port_range_(min|max) *= *(2379|51820|8472|6081) *$' \"$f\" && awk '/^resource \"huaweicloud_networking_secgroup_rule\" \"(ingress_clustermesh_proxy|ingress_cilium_wireguard)\" [{]$/{f=1; n++} f && /0\\.0\\.0\\.0\\/0/{bad++} /^[}]$/{f=0} END{exit !(n == 2 && bad == 0)}' \"$f\""
+  - id: A5
+    run: "f=infra/providers/huawei/tests/multi_region.tftest.hcl; grep -q '^run \"peer_ports_closed\" {$' \"$f\" && grep -q '^run \"peer_ports_closed_single_region\" {$' \"$f\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Security fix. Its text is published with its ticket.
+  delivers: On the reference provider the mesh dial port admits only the Sovereign's own public addresses and node and pod ranges, Cilium WireGuard admits only the node and pod ranges, the rules for 2379, 51820, 8472 and 6081 are deleted, and the required gate check NET-G01 proves from outside that 2379 and 12379 do not answer.
 - id: NET-011
   title: Security fix. Its text is published with its ticket.
   area: NET
@@ -9853,7 +10002,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [FND-032, NET-010]
-  after: [FND-011, FND-014]
+  after: [FND-011, FND-014, SEC-020]
   touches: []
   resources: []
   flips: [NET-G02]
@@ -9878,7 +10027,7 @@ packages:
   size: XS
   lane: SUBSTRATE
   depends_on: [NET-011]
-  after: []
+  after: [SEC-020]
   touches: []
   resources: []
   flips: []
@@ -9903,7 +10052,7 @@ packages:
   size: XS
   lane: SUBSTRATE
   depends_on: [FND-032]
-  after: [CLD-040, NET-031]
+  after: [CLD-040, SEC-020, NET-031]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - infra/providers/_shared/tests/cloudinit_render.tftest.hcl
@@ -10093,7 +10242,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: []
-  after: [NET-030, FND-011, FND-031, FND-054, FND-091, FND-092, FND-097, FND-173, CLD-040]
+  after: [NET-030, FND-011, FND-031, FND-054, FND-091, FND-092, FND-093, FND-094, FND-097, FND-173, CLD-040]
   touches:
   - clusters/_template/bootstrap-kit/35-coraza.yaml
   - clusters/_template/bootstrap-kit/kustomization.yaml
@@ -10520,7 +10669,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CLD-080]
-  after: []
+  after: [SEC-020, NET-010]
   touches:
   - infra/providers/huawei/main.tf
   - infra/providers/huawei/outputs.tf
@@ -10582,7 +10731,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [NET-020, NET-100]
-  after: [FND-011, NET-031]
+  after: [FND-011, SEC-020, NET-010, NET-031]
   touches:
   - platform/cilium/chart/values.yaml
   - platform/cilium/chart/values-clustermesh.yaml
@@ -10782,7 +10931,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [FND-032, NET-120, SEC-250]
-  after: [FND-011, FND-033, CMP-010]
+  after: [FND-011, FND-033, FND-034, NET-010, CMP-010]
   touches:
   - platform/openbao/chart/values.yaml
   - docs/ledger/gates.yaml
@@ -11385,7 +11534,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CLD-090, NET-100]
-  after: []
+  after: [SEC-020, NET-010]
   touches:
   - infra/providers/huawei/variables.tf
   - infra/providers/huawei/main.tf
@@ -11415,7 +11564,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [NET-102, NET-210]
-  after: [FND-011, FND-033]
+  after: [FND-011, FND-033, FND-034]
   touches:
   - products/catalyst/chart/crds/sovereign.yaml
   - products/catalyst/bootstrap/ui/src/pages/wizard/steps/StepProvider.tsx
@@ -11648,7 +11797,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [NET-227, SOV-240]
-  after: [FND-011]
+  after: [FND-011, SEC-020, NET-010]
   touches:
   - platform/self-sovereign-cutover/chart/templates/00-mgmt-isolation-carveout.yaml
   - platform/self-sovereign-cutover/chart/values.yaml
@@ -11864,7 +12013,7 @@ packages:
   size: M
   lane: GATE
   depends_on: [NET-321]
-  after: [FND-032, FND-033, CMP-010]
+  after: [FND-032, FND-033, FND-034, NET-010, CMP-010]
   touches:
   - platform/cluster-classes/
   - tests/acceptance/sovereign/internal/suite/
@@ -11891,7 +12040,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [NET-322]
-  after: []
+  after: [SEC-020, NET-010]
   touches:
   - infra/providers/huawei/
   resources: []
@@ -11943,7 +12092,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [NET-324]
-  after: []
+  after: [SEC-020, NET-010]
   touches:
   - infra/providers/huawei/
   - platform/cilium/
@@ -12022,7 +12171,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [NET-322, NET-327]
-  after: [FND-014]
+  after: [FND-014, FND-093, FND-094, CMP-016]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/
   - products/catalyst/bootstrap/api/
@@ -12049,7 +12198,7 @@ packages:
   size: M
   lane: GATE
   depends_on: [NET-325, NET-326, NET-327, NET-328]
-  after: [FND-031, FND-032, FND-033, CMP-010]
+  after: [FND-031, FND-032, FND-033, FND-034, NET-010, CMP-010]
   touches:
   - tests/acceptance/sovereign/
   resources: []
@@ -12215,7 +12364,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [FND-011, SVC-020]
-  after: [FND-014, FND-054, FND-091, FND-097, CLD-070, NET-030, NET-050]
+  after: [FND-014, FND-054, FND-091, FND-093, FND-094, FND-097, CLD-070, NET-030, NET-050, CMP-016]
   touches:
   - platform/*/blueprint.yaml
   - products/*/blueprint.yaml
@@ -12427,7 +12576,7 @@ packages:
   size: S
   lane: GATE
   depends_on: [FND-032, FND-033, SVC-120]
-  after: [CMP-010]
+  after: [FND-034, NET-010, CMP-010]
   touches:
   - tests/acceptance/sovereign/internal/suite/check_svc_proofs.go
   - tests/acceptance/sovereign/internal/suite/check_svc_proofs_test.go
@@ -12482,7 +12631,7 @@ packages:
   size: XS
   lane: GATE
   depends_on: [SVC-125, SVC-130]
-  after: []
+  after: [NET-010]
   touches:
   - docs/ledger/gates.yaml
   resources: []
@@ -12535,7 +12684,7 @@ packages:
   size: M
   lane: RAILS
   depends_on: [FND-011, FND-091, SVC-040]
-  after: [FND-054, FND-092, FND-097, FND-173]
+  after: [FND-054, FND-092, FND-093, FND-094, FND-097, FND-173]
   touches:
   - scripts/generate-catalog.py
   - scripts/tests/test_generate_catalog.py
@@ -12573,7 +12722,7 @@ packages:
   size: M
   lane: RAILS
   depends_on: [FND-031, FND-032, FND-091, SVC-150]
-  after: [FND-011, FND-033, FND-054, FND-092, FND-097, FND-173, CMP-010]
+  after: [FND-011, FND-033, FND-034, FND-054, FND-092, FND-093, FND-094, FND-097, FND-173, NET-010, CMP-010]
   touches:
   - scripts/generate-catalog.py
   - platform/_catalog/seed-exclusions.yaml
@@ -12609,7 +12758,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [FND-091, FND-102, SVC-160]
-  after: [FND-011, FND-054, FND-092, FND-097, FND-173, CLD-070]
+  after: [FND-011, FND-054, FND-092, FND-093, FND-094, FND-097, FND-173, CLD-070]
   touches:
   - platform/clickhouse/**
   - platform/debezium/**
@@ -12652,7 +12801,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [FND-091, SVC-160]
-  after: [FND-011, FND-054, FND-092, FND-097, FND-173, CLD-040]
+  after: [FND-011, FND-054, FND-092, FND-093, FND-094, FND-097, FND-173, CLD-040]
   touches:
   - platform/openmeter/**
   - products/catalyst/bootstrap/ui/src/pages/wizard/steps/componentGroups.ts
@@ -12692,7 +12841,7 @@ packages:
   size: XS
   lane: CONTRACTS
   depends_on: [FND-091, SVC-160]
-  after: [FND-011, FND-054, FND-092, FND-097, FND-173]
+  after: [FND-011, FND-054, FND-092, FND-093, FND-094, FND-097, FND-173]
   touches:
   - platform/catalyst-platform/blueprint.yaml
   - products/catalyst/blueprint.yaml
@@ -12815,7 +12964,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [FND-091]
-  after: [FND-011, FND-054, FND-092, FND-097, FND-173]
+  after: [FND-011, FND-054, FND-092, FND-093, FND-094, FND-097, FND-173]
   touches:
   - core/controllers/blueprint/**
   - ​.github/workflows/build-blueprint-controller.yaml
@@ -12955,7 +13104,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [FND-091, SVC-180, SVC-220]
-  after: [FND-054, FND-092, FND-097, FND-173]
+  after: [FND-054, FND-092, FND-093, FND-094, FND-097, FND-173]
   touches:
   - scripts/generate-catalog.py
   - products/catalyst/bootstrap/ui/src/pages/wizard/steps/componentGroups.generated.ts
@@ -13135,7 +13284,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [CLD-080, CLD-113, CLD-221, FND-038, SVC-280]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - platform/crossplane-claims/chart/templates/xrds/objectbucket.yaml
   - platform/object-bucket-managed/
@@ -13164,7 +13313,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-044, CTL-110, CTL-120, SVC-290]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - products/catalyst/bootstrap/api/internal/k8scache/kinds.go
   - products/catalyst/bootstrap/api/internal/handler/catalog_policy.go
@@ -13221,7 +13370,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [FND-038, SVC-300, SVC-315]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - platform/_capabilities/postgres.yaml
   - platform/postgres/blueprint.yaml
@@ -13253,7 +13402,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [CLD-222, SEC-290, SVC-320]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - platform/crossplane-claims/chart/templates/xrds/postgresinstance.yaml
   - platform/postgres-managed/
@@ -13369,7 +13518,7 @@ packages:
   size: XS
   lane: CONTRACTS
   depends_on: [CTL-240, SVC-040, SVC-160, SVC-190]
-  after: [FND-011, FND-054, FND-092, FND-097, FND-173]
+  after: [FND-011, FND-054, FND-092, FND-093, FND-094, FND-097, FND-173]
   touches:
   - products/catalyst/chart/crds/blueprint.yaml
   - .github/workflows/preflight-blueprint-crd-cel.yaml
@@ -13507,7 +13656,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [FND-171]
-  after: [FND-054, FND-097, FND-173, CTL-010, CTL-025]
+  after: [FND-054, FND-094, FND-097, FND-173, CTL-010, CTL-025]
   touches:
   - products/catalyst/bootstrap/api/cmd/api/main.go
   - products/catalyst/bootstrap/api/internal/handler/endpoint_handler.go
@@ -13973,7 +14122,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-035, CTL-050, CTL-120, FND-032, FND-120, SEC-095, SEC-200, SEC-211]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - clusters/_template/sovereign-region/base/receiver.yaml
   - clusters/_template/sovereign-region/base/kustomization.yaml
@@ -14011,7 +14160,7 @@ packages:
   size: XS
   lane: SUBSTRATE
   depends_on: [CTL-130, FND-120]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - core/controllers/pkg/fluxsource/fluxsource.go
   - core/controllers/organization/internal/controller/per_org_flux.go
@@ -14042,7 +14191,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-050, FND-032]
-  after: [FND-011, FND-033, CMP-010]
+  after: [FND-011, FND-033, FND-034, NET-010, CMP-010]
   touches:
   - products/catalyst/chart/templates/intent-lock/policy.yaml
   - products/catalyst/chart/templates/intent-lock/bindings.yaml
@@ -14105,7 +14254,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-122, CTL-130, CTL-160, FND-032, FND-130]
-  after: [CTL-010]
+  after: [NET-010, CTL-010, INF-010, PRD-030]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/handler.go
   - products/catalyst/bootstrap/api/internal/handler/applications.go
@@ -14250,7 +14399,7 @@ packages:
   size: XS
   lane: CONTROL
   depends_on: [CTL-162, CTL-176]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - products/catalyst/chart/values.yaml
   - scripts/baselines/lock-stages.json
@@ -14278,7 +14427,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-120, CTL-162, FND-032]
-  after: [CTL-010]
+  after: [NET-010, CTL-010]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/organization_provisioning.go
   - org_tenant_org_cr.go
@@ -14311,7 +14460,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-180, FND-032]
-  after: []
+  after: [NET-010]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/org_suspend.go
   - org_suspend_internal.go
@@ -14516,7 +14665,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-205]
-  after: [CTL-010]
+  after: [CTL-010, INF-010, PRD-030]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/organization_gitops.go
   - organization_provisioning.go
@@ -14607,7 +14756,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-120, CTL-130, CTL-162, FND-032]
-  after: [CTL-010]
+  after: [NET-010, CTL-010, INF-010, PRD-030]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/user_access.go
   - rbac_assign.go
@@ -14668,7 +14817,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CTL-120, CTL-130, CTL-162]
-  after: [CTL-010]
+  after: [CTL-010, INF-010, PRD-030]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/marketplace_settings.go
   - products/catalyst/bootstrap/api/internal/intent/settings.go
@@ -14752,7 +14901,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-320]
-  after: [CTL-010]
+  after: [FND-093, CTL-010]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/k8s_resource_actions.go
   - k8s_resource_put_apply.go
@@ -14966,7 +15115,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-300, FND-032]
-  after: [FND-033, CMP-010]
+  after: [FND-033, FND-034, FND-093, NET-010, CMP-010]
   touches:
   - core/controllers/pkg/natsbus/cloudevent.go
   - products/catalyst/bootstrap/api/internal/audit/audit.go
@@ -15000,7 +15149,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [BSS-010, CTL-300]
-  after: [FND-011, FND-054, FND-091, FND-092, FND-097, FND-173]
+  after: [FND-011, FND-054, FND-091, FND-092, FND-093, FND-094, FND-097, FND-173]
   touches:
   - core/services/metering-sidecar/go.mod
   - core/services/shared/go.mod
@@ -15096,7 +15245,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-035]
-  after: [CTL-010, CTL-044]
+  after: [CTL-010, CTL-044, INF-010, PRD-030]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/sovereign.go
   - applications.go
@@ -15162,7 +15311,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [CTL-162, CTL-340, CTL-350, FND-161]
-  after: []
+  after: [NET-010]
   touches:
   - products/catalyst/bootstrap/ui/src/lib/useLiveQuery.ts
   - src/lib/liveStream.ts
@@ -15422,7 +15571,7 @@ packages:
   size: M
   lane: GATE
   depends_on: [CTL-162, CTL-180, CTL-210, FND-035, FND-130, FND-184, FND-185]
-  after: []
+  after: [NET-010]
   touches:
   - scripts/rebuild-from-git-drill.sh
   - scripts/intent-snapshot.py
@@ -15454,7 +15603,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CTL-040, FND-141]
-  after: [FND-011, NET-031]
+  after: [FND-011, SEC-020, NET-031]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - platform/flux/chart/Chart.yaml
@@ -15636,7 +15785,7 @@ packages:
   size: M
   lane: GATE
   depends_on: [CTL-800, FND-034]
-  after: []
+  after: [NET-010]
   touches:
   - tests/acceptance/sovereign/internal/suite/check_ctl_region_loss.go
   - tests/acceptance/sovereign/internal/suite/check_ctl_region_loss_test.go
@@ -15811,21 +15960,32 @@ packages:
   after: []
   touches:
   - products/catalyst/bootstrap/api/internal/k8scache/factory.go
+  - products/catalyst/bootstrap/api/internal/k8scache/tree.go
+  - products/catalyst/bootstrap/api/internal/k8scache/snapshot.go
+  - products/catalyst/bootstrap/api/internal/k8scache/hydrate.go
   - products/catalyst/bootstrap/api/internal/k8scache/factory_optional_test.go
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "echo \"$(grep -c 'skippedOptional' products/catalyst/bootstrap/api/internal/k8scache/factory.go) $(git ls-files products/catalyst/bootstrap/api/internal/k8scache/factory_optional_test.go | wc -l)\""
+    expect: "0 0"
+  acceptance:
+  - id: A1
+    run: "cd products/catalyst/bootstrap/api && out=$(go test -race -count=1 -v -run '^TestOptionalKind' ./internal/k8scache/) && printf '%s\\n' \"$out\" | grep -c '^--- PASS: TestOptionalKind' | grep -qx 3"
+  - id: A2
+    run: "cd products/catalyst/bootstrap/api && test -f internal/k8scache/factory_optional_test.go && go vet ./internal/k8scache/... && go test -race -count=1 ./internal/k8scache/..."
+  - id: A3
+    run: "cd products/catalyst/bootstrap/api/internal/k8scache && test \"$(grep -c -E 'time\\.(NewTicker|Tick|AfterFunc|NewTimer)\\(' factory.go)\" = 1 && ! grep -n -E 'range cs\\.(informers|indexers) |cs\\.(informers|indexers)\\[' tree.go snapshot.go hydrate.go"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Skipped optional kinds are recorded and started on the customresourcedefinition event, with no timer
+  delivers: An optional kind that was not served when its cluster was added is recorded, and its informer starts on the ADDED or MODIFIED event of its CustomResourceDefinition, with no timer and no second discovery call.
 - id: CMP-020
   title: 'The API tells the truth: live mode, no fixture data, no invented list'
   area: CMP
@@ -15835,7 +15995,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CMP-010, FND-080]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/compliance.go
   - products/catalyst/bootstrap/api/internal/handler/compliance_test.go
@@ -15868,7 +16028,7 @@ packages:
   size: S
   lane: CONSOLE
   depends_on: [CMP-020]
-  after: [FND-054, FND-092, FND-097, FND-173]
+  after: [FND-054, FND-092, FND-093, FND-094, FND-097, FND-173]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/admin/compliance/**
   - products/catalyst/bootstrap/ui/src/lib/compliance.api.ts
@@ -15929,7 +16089,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CMP-020, CMP-030]
-  after: [FND-054, FND-092, FND-097, FND-173]
+  after: [FND-054, FND-092, FND-093, FND-094, FND-097, FND-173]
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/resolver.go
   - products/catalyst/bootstrap/api/internal/compliance/readmodel.go
@@ -15988,7 +16148,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [CMP-016, CMP-032, CMP-036, CMP-014]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - platform/kyverno-policies/chart/crds/compliancemodel.yaml
   - platform/kyverno-policies/chart/model/**
@@ -16026,7 +16186,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CMP-041, CTL-035]
-  after: []
+  after: [NET-010]
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/routes.go
   - products/catalyst/bootstrap/api/internal/compliance/stream.go
@@ -16057,7 +16217,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [CMP-045, CTL-360, FND-161]
-  after: []
+  after: [NET-010]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/posture/**
   - products/catalyst/bootstrap/ui/src/lib/useLiveQuery.ts
@@ -16153,7 +16313,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [CMP-014, CMP-016, CMP-032, CMP-058, CMP-S1]
-  after: [FND-011, FND-054, FND-092, FND-097, FND-173]
+  after: [FND-011, FND-054, FND-092, FND-093, FND-094, FND-097, FND-173]
   touches:
   - platform/kyverno/chart/values.yaml
   - platform/kyverno/chart/templates/clusterpolicy-*.yaml
@@ -16297,7 +16457,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [CMP-065]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/16-hubble-flows-seen.yaml
   - platform/kyverno-policies/chart/templates/baseline/18-cosign-verified.yaml
@@ -16331,7 +16491,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CMP-041, CMP-S5, FND-038]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - core/controllers/organization/internal/gitops/manifests.go
   - core/controllers/organization/internal/gitops/testdata/**
@@ -16422,7 +16582,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CMP-036, CMP-041, CMP-052, CMP-071, CMP-S6, CTL-045, CTL-160]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/mode.go
   - products/catalyst/bootstrap/api/internal/compliance/routes.go
@@ -16515,7 +16675,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CMP-036, CMP-073, SOV-150, SOV-240]
-  after: []
+  after: [NET-010]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/post_handover_policy_enforce.go
   - products/catalyst/bootstrap/api/internal/handler/post_handover_policy_enforce_test.go
@@ -16547,7 +16707,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CMP-016, CMP-045, CMP-071, CTL-160]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - platform/kyverno-policies/chart/crds/compliancedecision.yaml
   - platform/kyverno-policies/chart/templates/decision-admission.yaml
@@ -16582,7 +16742,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [CMP-052, CMP-081, FND-161]
-  after: []
+  after: [NET-010]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/posture/DecisionsTab.tsx
   - products/catalyst/bootstrap/ui/src/pages/sovereign/posture/DecisionDrawer.tsx
@@ -16613,7 +16773,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CMP-061, CMP-066, CMP-081, CMP-S1]
-  after: []
+  after: [NET-010]
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/decisions/render.go
   - products/catalyst/bootstrap/api/internal/compliance/decisions/render_test.go
@@ -16644,7 +16804,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CMP-081, CMP-082]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - platform/kyverno-policies/chart/crds/compliancedecision.yaml
   - platform/kyverno-policies/chart/templates/decision-admission.yaml
@@ -16702,7 +16862,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CMP-016, CMP-045, CMP-S3]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - products/catalyst/bootstrap/api/internal/k8scache/kinds.go
   - products/catalyst/bootstrap/api/internal/k8scache/factory.go
@@ -16738,7 +16898,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CMP-091]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/adapters/configaudit.go
   - products/catalyst/bootstrap/api/internal/compliance/adapters/exposedsecret.go
@@ -16770,7 +16930,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [CMP-052, CMP-091, CMP-092, FND-161]
-  after: []
+  after: [NET-010]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/posture/security/**
   - products/catalyst/bootstrap/ui/src/pages/sovereign/cloud-list/SBOMTab.tsx
@@ -16827,7 +16987,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [CMP-045, CMP-052, CMP-081, CMP-S2, CTL-045]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - platform/falco/chart/values.yaml
   - docs/contracts/C3-event-subjects.yaml
@@ -16868,7 +17028,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CMP-016, CMP-045]
-  after: [FND-011, NET-030]
+  after: [FND-011, NET-010, NET-030]
   touches:
   - products/catalyst/bootstrap/api/internal/k8scache/evaluators/evaluators.go
   - products/catalyst/bootstrap/api/internal/k8scache/evaluators/backup.go
@@ -16903,7 +17063,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [CMP-052, CMP-111, NET-212]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - products/catalyst/bootstrap/api/internal/k8scache/evaluators/continuity.go
   - products/catalyst/bootstrap/api/internal/compliance/routes.go
@@ -16935,7 +17095,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CMP-111]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - products/catalyst/bootstrap/api/internal/k8scache/evaluators/stability.go
   - products/catalyst/bootstrap/api/internal/k8scache/evaluators/certificate.go
@@ -16967,7 +17127,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [CMP-092, CMP-111]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - platform/kyverno-policies/chart/crds/compliancemodel.yaml
   - platform/kyverno-policies/chart/model/frameworks/*.yaml
@@ -17002,7 +17162,7 @@ packages:
   size: S
   lane: CONSOLE
   depends_on: [CMP-052, CMP-121, FND-161]
-  after: []
+  after: [NET-010]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/posture/FrameworksTab.tsx
   - products/catalyst/bootstrap/ui/src/pages/sovereign/posture/FrameworkDetail.tsx
@@ -17032,7 +17192,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CMP-123, CMP-131]
-  after: []
+  after: [NET-010]
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/oscal.go
   - products/catalyst/bootstrap/api/internal/compliance/testdata/oscal/*.json
@@ -17066,7 +17226,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CMP-045, CMP-052, CMP-071, CTL-045]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/snapshot.go
   - products/catalyst/bootstrap/api/internal/compliance/routes.go
@@ -17104,7 +17264,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CMP-082, CMP-085, CMP-093, CMP-101, CMP-113, CMP-121, CMP-131, FND-038]
-  after: []
+  after: [NET-010]
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/orgroutes.go
   - products/catalyst/bootstrap/api/internal/compliance/orgroutes_test.go
@@ -17136,7 +17296,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [CMP-091, CMP-101, CMP-111, CTL-150, FND-151]
-  after: []
+  after: [NET-010]
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/producers.go
   - products/catalyst/bootstrap/api/internal/compliance/routes.go
@@ -17168,7 +17328,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CMP-150, CTL-230, CTL-320]
-  after: []
+  after: [NET-010]
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/routes.go
   - products/catalyst/bootstrap/ui/src/pages/sovereign/posture/ClustersTab.tsx
@@ -17196,7 +17356,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CMP-092, SEC-095]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - platform/kyverno-policies/chart/model/checks.yaml
   - docs/ledger/gates.yaml
@@ -17252,7 +17412,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CMP-091, CMP-150, INF-140, INF-160, INF-240]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/adapters/policyreport.go
   - products/catalyst/bootstrap/api/internal/compliance/producers.go
@@ -17282,7 +17442,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CMP-150, FND-203, FND-205]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/efficiency.go
   - platform/kyverno-policies/chart/model/model.yaml
@@ -17539,7 +17699,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [FND-031, FND-033, FND-052]
-  after: [CMP-010]
+  after: [FND-034, NET-010, CMP-010]
   touches:
   - core/services/billing/packages/packages.go
   - core/services/billing/packages/packages_test.go
@@ -17660,7 +17820,7 @@ packages:
   size: M
   lane: GATE
   depends_on: [BSS-030, BSS-S1, FND-031, FND-033]
-  after: [CMP-010]
+  after: [FND-034, NET-010, CMP-010]
   touches:
   - tests/acceptance/sovereign/internal/suite/check_bss_onboarding.go
   - tests/acceptance/sovereign/internal/suite/bss_org.go
@@ -17690,7 +17850,7 @@ packages:
   size: XS
   lane: GATE
   depends_on: [BSS-035, BSS-060, FND-080]
-  after: []
+  after: [NET-010]
   touches:
   - docs/ledger/gates.yaml
   resources: []
@@ -17786,7 +17946,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [BSS-101, CTL-035, CTL-110, CTL-120, CTL-160]
-  after: []
+  after: [NET-010]
   touches:
   - products/catalyst/bootstrap/api/internal/intent/offer.go
   - products/catalyst/bootstrap/api/internal/intent/offer_test.go
@@ -18919,7 +19079,7 @@ packages:
   size: XS
   lane: CHARTS
   depends_on: [FND-031, FND-032]
-  after: [FND-011, FND-033, CMP-010]
+  after: [FND-011, FND-033, FND-034, NET-010, CMP-010]
   touches: []
   resources: []
   flips: [AIP-G01]
@@ -19001,7 +19161,7 @@ packages:
   size: XS
   lane: CHARTS
   depends_on: [AIP-010, SVC-160]
-  after: [FND-011, FND-054, FND-092, FND-097, FND-173]
+  after: [FND-011, FND-054, FND-092, FND-093, FND-094, FND-097, FND-173]
   touches:
   - platform/llm-gateway/**
   - platform/anthropic-adapter/**
@@ -19031,7 +19191,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [AIP-020]
-  after: [FND-011, FND-054, FND-091, FND-092, FND-097, FND-173]
+  after: [FND-011, FND-054, FND-091, FND-092, FND-093, FND-094, FND-097, FND-173]
   touches:
   - products/axon/src/**
   - products/axon/package.json
@@ -19196,7 +19356,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [AIP-105, FND-032, SEC-190, SEC-211, SVC-160]
-  after: [FND-011, FND-033, CMP-010]
+  after: [FND-011, FND-033, FND-034, NET-010, CMP-010]
   touches:
   - products/axon/chart/**
   - products/axon/blueprint.yaml
@@ -19346,7 +19506,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-025, CTL-035, CTL-045, FND-032, FND-151]
-  after: [FND-011, CMP-010]
+  after: [FND-011, NET-010, CMP-010]
   touches:
   - products/catalyst/bootstrap/api/internal/agenttoken/**
   - products/catalyst/bootstrap/api/internal/sacaller/**
@@ -19388,7 +19548,7 @@ packages:
   size: S
   lane: GATE
   depends_on: [AIP-113, AIP-120, FND-032]
-  after: [CMP-010]
+  after: [NET-010, CMP-010]
   touches:
   - tests/acceptance/sovereign/internal/modelcontract/**
   - tests/acceptance/sovereign/internal/suite/check_aip_model.go
@@ -19446,7 +19606,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [AIP-010, AIP-106, AIP-113, AIP-120, AIP-130, CTL-300, SVC-160]
-  after: [FND-011, CMP-010]
+  after: [FND-011, NET-010, CMP-010]
   touches:
   - platform/model-gateway/**
   - clusters/_template/bootstrap-kit/81-bp-model-gateway.yaml
@@ -19608,7 +19768,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [AIP-106, AIP-120]
-  after: [CMP-010]
+  after: [NET-010, CMP-010]
   touches:
   - products/catalyst/bootstrap/api/internal/modelsim/**
   - products/catalyst/bootstrap/api/cmd/api/main.go
@@ -19953,7 +20113,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [AIP-150, AIP-170, AIP-201, AIP-202, SEC-213, SVC-160]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - platform/kagent/**
   - .github/workflows/build-bp-kagent.yaml
@@ -20117,7 +20277,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [AIP-203, AIP-225, SEC-290, SVC-160]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - products/ops-records/chart/**
   - products/ops-records/blueprint.yaml
@@ -20182,7 +20342,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [AIP-226, AIP-227]
-  after: []
+  after: [NET-010]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/ops/**
   - products/catalyst/bootstrap/ui/src/app/router.tsx
@@ -20264,7 +20424,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [AIP-242, SVC-160]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - products/agents-service-management/**
   - tests/acceptance/sovereign/internal/suite/check_aip_g11.go
@@ -20292,7 +20452,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [AIP-243]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - products/ops-records/internal/judge/**
   - products/ops-records/internal/correlate/**
@@ -20322,7 +20482,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [AIP-244, CTL-160, CTL-700]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - products/catalyst/bootstrap/api/internal/changeproposal/**
   - products/catalyst/bootstrap/api/internal/agenttoken/**
@@ -20414,7 +20574,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [AIP-140, CTL-120]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - products/catalyst/bootstrap/api/internal/modelkeys/**
   - platform/model-gateway/chart/**
@@ -20645,16 +20805,32 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "ls scripts/check-machine-plane.py scripts/baselines/machine-plane.json .github/workflows/check-machine-plane.yaml 2>/dev/null | wc -l"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "test \"$(sha256sum < scripts/check-machine-plane.py)\" = \"fd45376acb33572dc296021e521d54d3ddf76c149f293a9cda84904800c1b072  -\""
+  - id: A2
+    run: "test \"$(sha256sum < .github/workflows/check-machine-plane.yaml)\" = \"2c7e7e3e4fb235b3d385299093fcd811fd4edb8341743a23ef7745f3389d32cd  -\""
+  - id: A3
+    run: "test \"$(sha256sum < scripts/baselines/machine-plane.json)\" = \"d12ec517357cccf3db61688fd3260d995cb9ae18e0d0f3a961cb1e0964694601  -\""
+  - id: A4
+    run: "python3 scripts/check-machine-plane.py --self-test"
+  - id: A5
+    run: "code=0; out=\"$(python3 scripts/check-machine-plane.py)\" || code=$?; printf '%s\\n' \"$out\"; test \"$code\" = 0; grep -q -x 'node-auto-reboot=2' <<<\"$out\"; grep -q -x 'moving-image-tag=4' <<<\"$out\""
+  - id: A6
+    run: "t=\"$(mktemp -d)\"; trap 'rm -rf \"$t\"' EXIT; cp -r --parents infra scripts/baselines/machine-plane.json \"$t\"; python3 scripts/check-machine-plane.py --root \"$t\" > /dev/null; printf '  image = \"ubuntu-22.04\"\\n' >> \"$t/infra/providers/huawei/main.tf\"; code=0; out=\"$(python3 scripts/check-machine-plane.py --root \"$t\")\" || code=$?; test \"$code\" = 1; grep -q -F 'FAIL moving-image-tag: infra/providers/huawei/main.tf has 1, the baseline allows 0' <<<\"$out\""
+  - id: A7
+    run: "t=\"$(mktemp -d)\"; trap 'rm -rf \"$t\"' EXIT; cp -r --parents infra scripts/baselines/machine-plane.json \"$t\"; python3 scripts/check-machine-plane.py --root \"$t\" > /dev/null; mkdir -p \"$t/products/machine-runner/content/playbooks\"; printf -- '- hosts: all\\n  tasks:\\n    - ansible.builtin.ping:\\n      ignore_errors: true\\n' > \"$t/products/machine-runner/content/playbooks/probe.yml\"; code=0; out=\"$(python3 scripts/check-machine-plane.py --root \"$t\")\" || code=$?; test \"$code\" = 1; grep -q -F 'FAIL host-key-check-disabled: products/machine-runner/content/playbooks/probe.yml has 1, the baseline allows 0' <<<\"$out\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: One script with seven metrics, a self-test and a baseline file
+  delivers: A pull request fails when it adds an automatic node reboot, a moving machine-image tag, a forbidden scanning tool, an unpinned runner tool, a switched-off host-key check, a free-text target field or a credential field to the machine plane.
 - id: INF-020
   title: 'Spike: hardware virtualisation on worker nodes'
   area: INF
@@ -20744,7 +20920,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [INF-040]
-  after: [FND-033, CMP-010]
+  after: [FND-033, FND-034, NET-010, CMP-010]
   touches:
   - clusters/_template/bootstrap-kit/04b-bp-kured.yaml
   - clusters/_template/bootstrap-kit/kustomization.yaml
@@ -20799,7 +20975,7 @@ packages:
   size: XS
   lane: SUBSTRATE
   depends_on: [INF-050]
-  after: [FND-054, FND-091, FND-092, FND-097, FND-173, CLD-040, NET-031]
+  after: [FND-054, FND-091, FND-092, FND-093, FND-094, FND-097, FND-173, CLD-040, SEC-020, NET-031, INF-010]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - infra/providers/hetzner/cloudinit-worker.tftpl
@@ -20989,7 +21165,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [INF-112, INF-130]
-  after: [FND-011, FND-033, CMP-010]
+  after: [FND-011, FND-033, FND-034, NET-010, CMP-010]
   touches:
   - platform/machine-operations/chart/values.yaml
   - platform/machine-operations/chart/templates/deployment-operations.yaml
@@ -21050,7 +21226,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [INF-132]
-  after: [FND-011, FND-033, CMP-010]
+  after: [FND-011, FND-033, FND-034, NET-010, CMP-010]
   touches:
   - products/catalyst/bootstrap/api/internal/machines/operations/match.go
   - products/catalyst/bootstrap/api/internal/machines/operations/report_vulnerability.go
@@ -21086,7 +21262,7 @@ packages:
   size: XS
   lane: SUBSTRATE
   depends_on: [INF-140, INF-160]
-  after: [FND-033, CMP-010]
+  after: [FND-033, FND-034, NET-010, CMP-010]
   touches:
   - clusters/_template/bootstrap-kit/36-bp-machine-operations.yaml
   - docs/ledger/gates.yaml
@@ -21113,7 +21289,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [INF-132, INF-135, NET-150, SEC-190, SEC-211, SVC-275]
-  after: [FND-011, FND-033, NET-030, CMP-010]
+  after: [FND-011, FND-033, FND-034, NET-010, NET-030, CMP-010]
   touches:
   - clusters/_template/bootstrap-kit/36-bp-machine-operations.yaml
   - clusters/_template/bootstrap-kit/kustomization.yaml
@@ -21178,7 +21354,7 @@ packages:
   size: S
   lane: CONSOLE
   depends_on: [FND-161, INF-160, INF-170]
-  after: []
+  after: [NET-010]
   touches:
   - products/catalyst/bootstrap/ui/e2e/gate/machines/**
   - docs/ledger/gates.yaml
@@ -21231,7 +21407,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-173, CLD-174]
-  after: []
+  after: [NET-010]
   touches:
   - infra/providers/huawei/day2/virtualmachine/**
   - infra/providers/local/day2/virtualmachine/**
@@ -21297,7 +21473,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [CTL-162, INF-210, INF-230, SVC-170, SVC-290]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - platform/virtual-machine/chart/**
   - platform/virtual-machine/blueprint.yaml
@@ -21418,7 +21594,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CLD-171, CTL-020, INF-160, INF-230, INF-310]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - products/catalyst/bootstrap/api/internal/machines/source/declared.go
   - products/catalyst/bootstrap/api/internal/machines/source/cloudaccount.go
@@ -21457,7 +21633,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [INF-320]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - platform/machine-operations/chart/values.yaml
   - platform/machine-operations/chart/templates/sources.yaml
@@ -21571,7 +21747,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CLD-086, INF-240, INF-320, INF-410]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - infra/providers/huawei/day2/virtualmachine/**
   - infra/providers/local/day2/virtualmachine/**
@@ -21613,7 +21789,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [INF-420]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - products/machine-runner/content/playbooks/inventory.yml
   - products/machine-runner/content/playbooks/hardening.yml
@@ -21717,7 +21893,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-320, INF-440, INF-450]
-  after: []
+  after: [NET-010]
   touches:
   - products/catalyst/bootstrap/api/internal/machines/routes/runs.go
   - products/catalyst/bootstrap/api/internal/machines/routes/runs_test.go
@@ -22007,7 +22183,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [INF-510, INF-512]
-  after: []
+  after: [NET-010]
   touches:
   - products/catalyst/bootstrap/api/internal/machines/routes/kill.go
   - products/catalyst/bootstrap/api/internal/machines/routes/kill_test.go
@@ -22203,7 +22379,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-260, INF-455, INF-620]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - platform/machine-operations/chart/crds/patchpolicies.yaml
   - platform/crossplane-claims/chart/templates/xrds/virtualmachine.yaml
@@ -22261,7 +22437,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [INF-430, INF-710]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - products/catalyst/bootstrap/api/internal/providers/hostsecurity.go
   - products/catalyst/bootstrap/api/internal/providers/huawei/**
@@ -22373,7 +22549,7 @@ packages:
   size: S
   lane: GATE
   depends_on: [INF-820]
-  after: []
+  after: [NET-010]
   touches:
   - tests/acceptance/sovereign/internal/suite/check_inf_g10.go
   - docs/ledger/gates.yaml
@@ -23045,7 +23221,7 @@ packages:
   size: S
   lane: GATE
   depends_on: [MIG-126, MIG-112, MIG-050, CLD-087, FND-130]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - tests/acceptance/sovereign/internal/suite/check_migration_copy.go
   - tests/acceptance/sovereign/internal/suite/check_migration_copy_test.go
@@ -23195,7 +23371,7 @@ packages:
   size: S
   lane: GATE
   depends_on: [MIG-131, MIG-132, MIG-114, MIG-127, FND-141]
-  after: [INF-310]
+  after: [INF-310, NET-010]
   touches:
   - tests/acceptance/sovereign/internal/suite/check_migration_warm_linux.go
   - tests/acceptance/sovereign/internal/suite/check_migration_warm_linux_test.go
@@ -23342,7 +23518,7 @@ packages:
   size: S
   lane: GATE
   depends_on: [MIG-143, MIG-147, MIG-127, MIG-133]
-  after: []
+  after: [NET-010]
   touches:
   - tests/acceptance/sovereign/internal/suite/check_migration_extension_wiring.go
   - tests/acceptance/sovereign/internal/suite/check_migration_extension_wiring_test.go
@@ -23580,7 +23756,7 @@ packages:
   size: S
   lane: GATE
   depends_on: [MIG-151, MIG-127, CTL-120]
-  after: []
+  after: [NET-010]
   touches:
   - tests/acceptance/sovereign/internal/suite/check_migration_intent.go
   - tests/acceptance/sovereign/internal/suite/check_migration_intent_test.go
@@ -23670,7 +23846,7 @@ packages:
   size: M
   lane: CONTRACTS
   depends_on: [MIG-126, MIG-151, MIG-156]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches:
   - products/vm-migration/api/v1alpha1/migrationwave_types.go
   - products/vm-migration/api/v1alpha1/migration_types.go
@@ -23804,7 +23980,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [FND-034, FND-080]
-  after: [FND-011]
+  after: [FND-011, NET-010]
   touches: []
   resources: []
   flips: [ACC-G01]
@@ -24034,7 +24210,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [ACC-102, CTL-045, CTL-300, CTL-320, SVC-170]
-  after: [FND-011, FND-033, CMP-010]
+  after: [FND-011, FND-033, FND-034, NET-010, CMP-010]
   touches:
   - platform/guacamole/chart/crds/accesstarget.yaml
   - platform/guacamole/chart/crds/accessgrant.yaml
@@ -24136,7 +24312,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [ACC-030, ACC-103, SEC-190, SEC-211, SEC-250]
-  after: [FND-011, FND-033, CMP-010]
+  after: [FND-011, FND-033, FND-034, NET-010, CMP-010]
   touches:
   - platform/openbao/chart/templates/_config.tpl
   - platform/openbao/chart/values.yaml
@@ -24167,7 +24343,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [ACC-020, ACC-103]
-  after: [FND-011, FND-033, CMP-010]
+  after: [FND-011, FND-033, FND-034, NET-010, CMP-010]
   touches:
   - core/cmd/access-session-agent/
   - .github/workflows/build-access-session-agent.yaml
@@ -24354,7 +24530,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [ACC-107, CTL-120, CTL-130, CTL-160]
-  after: [FND-011]
+  after: [FND-011, CMP-016]
   touches:
   - platform/guacamole/chart/crds/accesstarget.yaml
   - core/controllers/access/api/v1alpha1/types.go
@@ -25106,16 +25282,34 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "ls scripts/check-products.py scripts/baselines/products.json .github/workflows/check-products.yaml 2>/dev/null | wc -l"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "test \"$(sha256sum < scripts/check-products.py)\" = \"b07c95679ab1a4038cfbf3f0994e4c27c7ec68392ded13a29b82c6cc1e4cfbc1  -\""
+  - id: A2
+    run: "test \"$(sha256sum < .github/workflows/check-products.yaml)\" = \"028cb458f12324d4337ae493c2e7d2009a290450bf4a4cad5085084841ab476e  -\""
+  - id: A3
+    run: "test \"$(sha256sum < scripts/baselines/products.json)\" = \"937d9192ed6e12f005981b7b64375a1d44d94aeeac39d30386b01a62aefa3b67  -\""
+  - id: A4
+    run: "python3 scripts/check-products.py --self-test"
+  - id: A5
+    run: "python3 scripts/check-products.py"
+  - id: A6
+    run: "t=\"$(mktemp -d)\"; trap 'rm -rf \"$t\"' EXIT; cp -r --parents platform/vllm platform/bge platform/librechat scripts/baselines/products.json \"$t\"; python3 scripts/check-products.py --root \"$t\" > /dev/null; printf 'apiVersion: gateway.networking.k8s.io/v1\\nkind: HTTPRoute\\n' > \"$t/platform/vllm/chart/templates/zz-probe.yaml\"; code=0; out=\"$(python3 scripts/check-products.py --root \"$t\")\" || code=$?; test \"$code\" = 1; grep -q -F 'FAIL G-P1: platform/vllm/chart/templates/zz-probe.yaml has 1, the baseline allows 0' <<<\"$out\""
+  - id: A7
+    run: "t=\"$(mktemp -d)\"; trap 'rm -rf \"$t\"' EXIT; cp -r --parents platform/vllm platform/bge platform/librechat scripts/baselines/products.json \"$t\"; python3 scripts/check-products.py --root \"$t\" > /dev/null; printf 'url: https://api.openai.com/v1\\n' >> \"$t/platform/bge/README.md\"; code=0; out=\"$(python3 scripts/check-products.py --root \"$t\")\" || code=$?; test \"$code\" = 1; grep -q -F 'FAIL G-P2: platform/bge/README.md has 1, the baseline allows 0' <<<\"$out\""
+  - id: A8
+    run: "t=\"$(mktemp -d)\"; trap 'rm -rf \"$t\"' EXIT; cp -r --parents platform/vllm platform/bge platform/librechat scripts/baselines/products.json \"$t\"; python3 scripts/check-products.py --root \"$t\" > /dev/null; printf '                secretKeyRef:\\n' >> \"$t/platform/librechat/chart/templates/deployment.yaml\"; code=0; out=\"$(python3 scripts/check-products.py --root \"$t\")\" || code=$?; test \"$code\" = 1; grep -q -F 'FAIL G-P3: platform/librechat/chart/templates/deployment.yaml has 10, the baseline allows 9' <<<\"$out\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: One guard script with three rules, self-test fixtures and a baseline of 13 secretKeyRef lines; later rules are added by the packages that create their surface.
+  delivers: A pull request fails when it adds a route object to the model-server charts, names a model-provider host in the AI-hub charts, or adds a secretKeyRef line to their templates.
 - id: PRD-040
   title: 'Spike: authorisation server fitness, consent carrier and conformance run'
   area: PRD
@@ -25611,7 +25805,7 @@ packages:
   size: S
   lane: GATE
   depends_on: [FND-032, FND-038]
-  after: []
+  after: [NET-010]
   touches:
   - tests/acceptance/sovereign/internal/suite/check_prd_serving.go
   - tests/acceptance/sovereign/internal/suite/check_prd_cortex.go
@@ -26076,7 +26270,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CLD-175, FND-011, FND-032, PRD-401, PRD-404, SOV-110, SOV-760]
-  after: []
+  after: [NET-010]
   touches:
   - clusters/_template/bootstrap-kit/84-bp-gpu-runtime.yaml
   - clusters/_template/bootstrap-kit/kustomization.yaml
@@ -26298,7 +26492,7 @@ packages:
   size: S
   lane: GATE
   depends_on: [FND-032, FND-038]
-  after: []
+  after: [NET-010]
   touches:
   - tests/acceptance/sovereign/internal/suite/check_prd_fingate.go
   - docs/ledger/gates.yaml
