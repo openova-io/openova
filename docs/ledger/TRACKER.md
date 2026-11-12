@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-12T19:15:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Last refreshed | `2026-11-12T19:30:05Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-12T19:15 | [#7139](https://github.com/openova-io/openova/pull/7139) | #7087 | docs(ledger): plan update: tickets FND-054 and FND-097, furt |
 | 2026-11-12T18:45 | [#7138](https://github.com/openova-io/openova/pull/7138) | #7135 | ci: stop building the Sandbox images (FND-092) |
 | 2026-11-12T18:38 | [#7137](https://github.com/openova-io/openova/pull/7137) | #7133 | chore(core): remove the type mirror that no Go module import |
 | 2026-11-12T18:38 | [#7136](https://github.com/openova-io/openova/pull/7136) | #7134 | docs(contracts): publish contract C8, the seal provider and  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-12T14:06 | [#7098](https://github.com/openova-io/openova/pull/7098) | #7089 | ci: add the plan tool and the check that keeps the plan file |
 | 2026-11-12T14:02 | [#7088](https://github.com/openova-io/openova/pull/7088) | #7087 | docs(ledger): the transition plan as data, the gate manifest |
 | 2026-11-11T18:52 | [#7086](https://github.com/openova-io/openova/pull/7086) | #7085 | ci: fix the two post-merge reds after #7085 (sso-uat-flip HT |
-| 2026-11-11T18:25 | [#7085](https://github.com/openova-io/openova/pull/7085) | #7067 | fix(adr-0015): two-region WordPress installs from the consol |
 
 ---
 
