@@ -3361,7 +3361,7 @@ packages:
   size: S
   lane: RAILS
   depends_on: []
-  after: [FND-022, FND-052, FND-056, FND-097, FND-173]
+  after: [FND-022, FND-052, FND-056, FND-097]
   touches:
   - '**/go.mod'
   - '**/go.sum'
@@ -13694,7 +13694,7 @@ packages:
     expect: "0"
   acceptance:
   - id: A1
-    run: "printf '%s\\n' '188a41952ef3a24f6070584e2e6806333828ad82162ae7ebfef1433f7133c07a  scripts/check-event-subjects.py' '1594b91b12bcc19ca298d3ac996de5e29185cf6b8b4494d594415b47f7455a35  scripts/baselines/streams.json' '81093ac78536ff3adc2e1f47b4b7852c47ac579db09e627d5474e2c5f7f65365  docs/contracts/C3-event-subjects.yaml' 'b368a28578944cb291d2753eceeddde8d76129d48d945420d87abbfa4aafb1a7  docs/contracts/C3-alert-changed-v1.schema.json' '4b16e01f403b042d296d90e680adb056505124b01f2e60fe6f80dc5c88abee8c  docs/contracts/C4-git-layout-and-commit-library.md' '268488a4078735f9fe63f38b6e76721e875d6cc155d40091d90f73d23970cf0d  .github/workflows/check-contracts-ctl.yaml' | sha256sum --check --quiet"
+    run: "printf '%s\\n' '842baa2dd58c9297dced3f2f3bc843a46543bf8ed7f63ed00a6d75076764715a  scripts/check-event-subjects.py' 'b97bfac434bd1c96a90074658268e109d8e035d20e23d122f1e13d6c24b4d565  scripts/baselines/streams.json' '4d3aa863d5349fe2a9482c53cb3ea63c9d5a1e81c873dd64d11ffe60e1747c9e  docs/contracts/C3-event-subjects.yaml' 'b368a28578944cb291d2753eceeddde8d76129d48d945420d87abbfa4aafb1a7  docs/contracts/C3-alert-changed-v1.schema.json' '4b16e01f403b042d296d90e680adb056505124b01f2e60fe6f80dc5c88abee8c  docs/contracts/C4-git-layout-and-commit-library.md' '268488a4078735f9fe63f38b6e76721e875d6cc155d40091d90f73d23970cf0d  .github/workflows/check-contracts-ctl.yaml' | sha256sum --check --quiet"
   - id: A2
     run: "python3 scripts/check-event-subjects.py --self-test"
   - id: A3
@@ -13704,7 +13704,7 @@ packages:
   - id: A5
     run: "test \"$(grep -c '^| C[1-9] ' docs/contracts/README.md)\" = 9 && grep -q -F '| C3 | Event subjects | CTL (control plane) | `docs/contracts/C3-event-subjects.yaml` and `docs/contracts/C3-alert-changed-v1.schema.json` |' docs/contracts/README.md && grep -q -F 'rules are written at the head of `scripts/check-event-subjects.py`.' docs/contracts/README.md"
   - id: A6
-    run: "d=\"$(mktemp -d -p . g4-probe.XXXXXX)\"; trap 'rm -rf \"$d\"' EXIT; printf 'package probe\\n\\nconst s = \"catalyst.probe.unlisted\"\\n\\nfunc f() { js.CreateStream(nil, nil) }\\n' > \"$d/probe.go\"; code=0; out=\"$(python3 scripts/check-event-subjects.py)\" || code=$?; test \"$code\" = 1; grep -q -F \"FAIL rule 3: catalyst.probe.unlisted (in ${d#./}/probe.go)\" <<<\"$out\"; grep -q -F \"FAIL rule 4: ${d#./}/probe.go has 1 stream-creation calls; the baseline allows 0\" <<<\"$out\""
+    run: "d=\"$(mktemp -d -p . g4-probe.XXXXXX)\"; trap 'rm -rf \"$d\"' EXIT; printf 'package probe\\n\\nconst s = \"catalyst.probe.unlisted\"\\n\\nfunc f(t string) {\\n\\tjs.CreateStream(nil, nil)\\n\\t_ = NewEvent(\"probe.unlisted_type\", \"probe\")\\n\\t_ = NewEvent(t, \"probe\")\\n}\\n' > \"$d/probe.go\"; code=0; out=\"$(python3 scripts/check-event-subjects.py)\" || code=$?; test \"$code\" = 1; grep -q -F \"FAIL rule 3: catalyst.probe.unlisted (in ${d#./}/probe.go)\" <<<\"$out\"; grep -q -F \"FAIL rule 3: catalyst.probe.unlisted_type (in ${d#./}/probe.go)\" <<<\"$out\"; grep -q -F \"FAIL rule 4: ${d#./}/probe.go has 1 event_type_indirections; the baseline allows 0\" <<<\"$out\"; grep -q -F \"FAIL rule 4: ${d#./}/probe.go has 1 stream_create_calls; the baseline allows 0\" <<<\"$out\""
   rollback: revert
   adr: null
   due: null
@@ -13712,7 +13712,7 @@ packages:
   repeatable: false
   ticket_rev: 1
   dropped: false
-  delivers: The event-subject registry (contract C3) and the Git layout and commit library (contract C4) are published files, and every pull request fails when Go code names an unlisted event subject or adds a stream-creation call.
+  delivers: The event-subject registry (contract C3) and the Git layout and commit library (contract C4) are published files, and every pull request fails when Go code names an event subject or an event type that the registry lacks, or adds a stream-creation call.
 - id: CTL-045
   title: Publish contract C9 and its tool
   area: CTL
