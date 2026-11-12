@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-12T17:30:05Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Last refreshed | `2026-11-12T17:45:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6225](https://github.com/openova-io/openova/issues/6225) | Re-prov after a wipe false-fails on orphaned catalyst-* VPCs when the post-recla | Other |
-| [#6229](https://github.com/openova-io/openova/issues/6229) | /api/v1/version reports a sha from a Deployment env var that a roll never update | Other |
 | [#6231](https://github.com/openova-io/openova/issues/6231) | Topology choice does not survive the round trip: the status endpoint flattens th | Other |
 | [#6238](https://github.com/openova-io/openova/issues/6238) | main is red: the bp-guacamole auto-bump workflow bumps Chart.yaml without the ca | Other |
 | [#6242](https://github.com/openova-io/openova/issues/6242) | fix(funnel): a settled order whose launch call is lost strands the paid Organiza | Other |
@@ -299,7 +297,9 @@ flowchart LR
 | [#7067](https://github.com/openova-io/openova/issues/7067) | ADR-0015: region-symmetric GitOps + one topology contract + native topology tran | Other |
 | [#7087](https://github.com/openova-io/openova/issues/7087) | North star: the transition plan as data, the gate manifest and the first work in | Other |
 | [#7095](https://github.com/openova-io/openova/issues/7095) | NET-030 Retired names lose their policy privileges | Other |
-| [#7108](https://github.com/openova-io/openova/issues/7108) | FND-014 A deployment may name the Git ref it follows | Other |
+| [#7116](https://github.com/openova-io/openova/issues/7116) | CTL-025 Guard: the handler package and main may only shrink | Other |
+| [#7117](https://github.com/openova-io/openova/issues/7117) | FND-091 Remove committed binaries and root clutter; add the hygiene guard | Other |
+| [#7118](https://github.com/openova-io/openova/issues/7118) | FND-106 Decision records 0022, 0023 and 0025; index and header corrections | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-12T17:37 | [#7119](https://github.com/openova-io/openova/pull/7119) | #7118 | docs(adr): decision records 0022, 0023 and 0025, the allocat |
+| 2026-11-12T17:33 | [#7115](https://github.com/openova-io/openova/pull/7115) | #7087 | docs(ledger): plan update: tickets FND-091, FND-106 and CTL- |
 | 2026-11-12T16:58 | [#7114](https://github.com/openova-io/openova/pull/7114) | #7087 | docs(ledger): the dashboard's baseline shows what was built  |
 | 2026-11-12T16:54 | [#7113](https://github.com/openova-io/openova/pull/7113) | #7087 | docs(ledger): the north-star dashboard as a page GitHub rend |
 | 2026-11-12T17:04 | [#7112](https://github.com/openova-io/openova/pull/7112) | #7109 | feat(gate): check registry and version 2 record in the accep |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-07T16:11 | [#7063](https://github.com/openova-io/openova/pull/7063) | #3375 | fix(continuum): one Converged condition; a planned remote pr |
 | 2026-11-07T17:49 | [#7062](https://github.com/openova-io/openova/pull/7062) | #7061 | fix(bootstrap-kit): bootstrap Application placement is opera |
 | 2026-11-07T15:41 | [#7061](https://github.com/openova-io/openova/pull/7061) | #3375 | fix(cnpg-pair): the Application's placement is operator-owne |
-| 2026-11-07T14:31 | [#7060](https://github.com/openova-io/openova/pull/7060) | #7058 | deploy(continuum): ship desired-state convergence (bp-contin |
-| 2026-11-07T14:45 | [#7059](https://github.com/openova-io/openova/pull/7059) | #7058 | feat(dr): desired-state switchover in the console API and To |
 
 ---
 
