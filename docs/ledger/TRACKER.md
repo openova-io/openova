@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-12T14:30:12Z` |
+| Last refreshed | `2026-11-12T14:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,6 +200,8 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
+| [#6229](https://github.com/openova-io/openova/issues/6229) | /api/v1/version reports a sha from a Deployment env var that a roll never update | Other |
+| [#6231](https://github.com/openova-io/openova/issues/6231) | Topology choice does not survive the round trip: the status endpoint flattens th | Other |
 | [#6238](https://github.com/openova-io/openova/issues/6238) | main is red: the bp-guacamole auto-bump workflow bumps Chart.yaml without the ca | Other |
 | [#6242](https://github.com/openova-io/openova/issues/6242) | fix(funnel): a settled order whose launch call is lost strands the paid Organiza | Other |
 | [#6249](https://github.com/openova-io/openova/issues/6249) | Sovereign /apps estate grid renders 11 cards against 10 Application CRs — a He | Other |
@@ -295,9 +297,7 @@ flowchart LR
 | [#6971](https://github.com/openova-io/openova/issues/6971) | BSS packages and the entitlement matrix: Included / Optional / Not offered per p | Other |
 | [#7067](https://github.com/openova-io/openova/issues/7067) | ADR-0015: region-symmetric GitOps + one topology contract + native topology tran | Other |
 | [#7087](https://github.com/openova-io/openova/issues/7087) | North star: the transition plan as data, the gate manifest and the first work in | Other |
-| [#7092](https://github.com/openova-io/openova/issues/7092) | FND-051 Billing-engine and tool-server tests run on pull requests | Other |
 | [#7093](https://github.com/openova-io/openova/issues/7093) | FND-052 Tests that run nowhere join the matrix | Other |
-| [#7094](https://github.com/openova-io/openova/issues/7094) | FND-053 Go lint ratchet | Other |
 | [#7095](https://github.com/openova-io/openova/issues/7095) | NET-030 Retired names lose their policy privileges | Other |
 | [#7096](https://github.com/openova-io/openova/issues/7096) | NET-031 Stop reflecting the object-storage Secret to retired namespaces | Other |
 
@@ -307,7 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-12T14:38 | [#7105](https://github.com/openova-io/openova/pull/7105) | #7093 | fix(ci): auth, shared and the whole billing module are teste |
 | 2026-11-12T14:22 | [#7104](https://github.com/openova-io/openova/pull/7104) | #7094 | chore(ci): Go lint ratchet on changed lines (FND-053) |
+| 2026-11-12T14:37 | [#7103](https://github.com/openova-io/openova/pull/7103) | #7096 | chore(cloud-init): stop reflecting the object-storage Secret |
 | 2026-11-12T14:15 | [#7102](https://github.com/openova-io/openova/pull/7102) | #7091 | feat(gate): manifest ratchet and verdict tool replace the ga |
 | 2026-11-12T14:14 | [#7101](https://github.com/openova-io/openova/pull/7101) | #7097 | ci: run the tests of the policy chart on every pull request  |
 | 2026-11-12T14:18 | [#7100](https://github.com/openova-io/openova/pull/7100) | #7092 | ci: run the billing-engine and tool-server tests on pull req |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-06T23:37 | [#7055](https://github.com/openova-io/openova/pull/7055) | #3375 | fix(continuum): switchover honours the requested target and  |
 | 2026-11-06T23:17 | [#7054](https://github.com/openova-io/openova/pull/7054) | #3375 | fix(continuum): promotion is the switchover's point of no re |
 | 2026-11-06T23:04 | [#7053](https://github.com/openova-io/openova/pull/7053) | #7052 | fix(continuum): natsURL default + NATS egress; bp-continuum  |
-| 2026-11-06T22:50 | [#7052](https://github.com/openova-io/openova/pull/7052) | #3375 | fix(continuum): audit publish ensures the canonical CATALYST |
-| 2026-11-06T22:35 | [#7051](https://github.com/openova-io/openova/pull/7051) | #7050 | chore(continuum): bp-continuum 0.1.15 ships the #7050 switch |
 
 ---
 
