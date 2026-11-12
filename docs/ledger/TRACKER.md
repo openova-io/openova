@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-12T20:30:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-12T20:45:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,16 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6280](https://github.com/openova-io/openova/issues/6280) | Phase A0 cannot list Organization namespaces — the #6273 partition ships witho | Other |
-| [#6288](https://github.com/openova-io/openova/issues/6288) | A catalyst-api roll rewinds an in-flight cutover to step 1 — safe only if the  | Other |
-| [#6289](https://github.com/openova-io/openova/issues/6289) | The cutover engine has no Lease — an outgoing catalyst-api Pod can drive the s | Other |
-| [#6294](https://github.com/openova-io/openova/issues/6294) | harbor-prewarm enumerates the same destination twice and the redundant push fail | Other |
-| [#6297](https://github.com/openova-io/openova/issues/6297) | bp-alloy slot 21: the Sovereign's own telemetry DaemonSet is denied on re-admiss | Other |
-| [#6298](https://github.com/openova-io/openova/issues/6298) | Seven workflows run an unpinned azure/setup-helm — including check-no-nodeport | Other |
-| [#6306](https://github.com/openova-io/openova/issues/6306) | noreply@openova.io burns its 25/hour send budget in 83s — PIN sign-in blocked  | Other |
-| [#6307](https://github.com/openova-io/openova/issues/6307) | Post-pivot cutover deadlock: a step that terminal-fails past step-05 can never r | Other |
-| [#6309](https://github.com/openova-io/openova/issues/6309) | No cutover step pivots the per-Org <slug>/catalyst-tenant repos — G11 cannot c | Other |
-| [#6311](https://github.com/openova-io/openova/issues/6311) | bp-wordpress-tenant cannot converge in ANY Org: no cnpg-system carve-out blinds  | Other |
 | [#6312](https://github.com/openova-io/openova/issues/6312) | wizard step 1 still pre-fills the fabricated company's industry — the select h | Other |
 | [#6317](https://github.com/openova-io/openova/issues/6317) | Agenity Anthropic credential expires every ~5h and nothing refreshes it — rows | Other |
 | [#6318](https://github.com/openova-io/openova/issues/6318) | Build bp-specter — realize the AIOps component the wizard catalog used to offe | Other |
@@ -300,6 +290,16 @@ flowchart LR
 | [#7149](https://github.com/openova-io/openova/issues/7149) | NET-050 Zone decision record | Other |
 | [#7150](https://github.com/openova-io/openova/issues/7150) | SVC-010 Decision record and glossary edits | Other |
 | [#7151](https://github.com/openova-io/openova/issues/7151) | SVC-020 Service-model ratchet guard | Other |
+| [#7165](https://github.com/openova-io/openova/issues/7165) | CMP-016 An optional informer kind starts when its definition arrives | Other |
+| [#7166](https://github.com/openova-io/openova/issues/7166) | FND-034 Checks: NodePort, front doors, mesh, encryption, clean wipe; journeys as | Other |
+| [#7167](https://github.com/openova-io/openova/issues/7167) | FND-093 Remove the Sandbox surface of the API | Other |
+| [#7168](https://github.com/openova-io/openova/issues/7168) | FND-094 Remove the Sandbox pages of the console | Other |
+| [#7169](https://github.com/openova-io/openova/issues/7169) | FND-101 Truth reset of the status surfaces | Other |
+| [#7170](https://github.com/openova-io/openova/issues/7170) | FND-103 State markers and their ratchet | Other |
+| [#7171](https://github.com/openova-io/openova/issues/7171) | INF-010 Guard for the machine plane | Other |
+| [#7172](https://github.com/openova-io/openova/issues/7172) | NET-010 Close peer and stale ports on the reference provider | Other |
+| [#7173](https://github.com/openova-io/openova/issues/7173) | PRD-030 Product guard at today's values (rules G-P1 to G-P3) | Other |
+| [#7174](https://github.com/openova-io/openova/issues/7174) | SEC-020 Random k3s server token and separate agent token | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-12T20:31 | [#7164](https://github.com/openova-io/openova/pull/7164) | #7087 | docs(ledger): plan update: nine more tickets |
 | 2026-11-12T20:12 | [#7163](https://github.com/openova-io/openova/pull/7163) | #7140 | docs(adr): record 0028 on commerce and billing, superseding  |
 | 2026-11-12T20:06 | [#7162](https://github.com/openova-io/openova/pull/7162) | #7146 | ci: console lint ratchet; remove the switched-off console su |
 | 2026-11-12T20:06 | [#7161](https://github.com/openova-io/openova/pull/7161) | #7149 | docs(adr): record the zone model, the withdrawn zone trial a |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-12T16:58 | [#7114](https://github.com/openova-io/openova/pull/7114) | #7087 | docs(ledger): the dashboard's baseline shows what was built  |
 | 2026-11-12T16:54 | [#7113](https://github.com/openova-io/openova/pull/7113) | #7087 | docs(ledger): the north-star dashboard as a page GitHub rend |
 | 2026-11-12T17:04 | [#7112](https://github.com/openova-io/openova/pull/7112) | #7109 | feat(gate): check registry and version 2 record in the accep |
-| 2026-11-12T17:04 | [#7111](https://github.com/openova-io/openova/pull/7111) | #7108 | feat(catalyst-api): let a deployment request name the Git re |
 
 ---
 
