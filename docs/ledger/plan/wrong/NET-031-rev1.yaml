@@ -1,0 +1,52 @@
+schema: openova.io/plan-wrong/v1
+id: NET-031
+ticket_rev: 1
+base_commit: 2da130ae0ed07364dffd7e4328849c8e9479b3a6
+stage: check
+ref: pin-sync-audit
+command: |
+    gh api repos/openova-io/openova/actions/jobs/131243340700/logs | grep -B 40 -m 1 '##\[error\]' | cut -c30-300
+expected: |
+    the check finishes green
+actual: |4
+      [self-test] ok  site 5 below floor: bootstrap-kit slot 06a -> fail  (violations 1, want 1)
+      [self-test] ok  site 1 unreadable: Chart.yaml version -> fail (not vacuous pass)  (violations 1, want 1)
+      [self-test] ok  site 2 unreadable: blueprint.yaml spec.version -> fail (not vacuous pass)  (violations 1, want 1)
+      [self-test] ok  site 3 unreadable: catalog-seed CARD spec.version -> fail (not vacuous pass)  (violations 1, want 1)
+      [self-test] ok  site 3 unreadable: catalog-seed DELIVERY source.version -> fail (not vacuous pass)  (violations 1, want 1)
+      [self-test] ok  site 4 unreadable: generated catalog blueprints.json -> fail (not vacuous pass)  (violations 1, want 1)
+      [self-test] ok  site 4 unreadable: generated catalog catalog.generated.ts -> fail (not vacuous pass)  (violations 1, want 1)
+      [self-test] ok  site 5 unreadable: bootstrap-kit slot 06a -> fail (not vacuous pass)  (violations 1, want 1)
+      [self-test] ok  catalog-seed FILE unreadable -> both its pins fail  (violations 2, want 2)
+      [self-test] ok  floor value itself -> pass  (violations 0, want 0)
+      [self-test] ok  0.1.171 (one below floor) -> 7 violations  (violations 7, want 7)
+      [self-test] ok  non-semver -> fail  (violations 1, want 1)
+      [self-test] ok  all seven below floor -> 7 violations  (violations 7, want 7)
+      [self-test] the guard fires independently at all 7 pins, and on unreadable input
+      [lockstep site 1] Chart.yaml version: 0.1.207
+      [lockstep site 2] blueprint.yaml spec.version: 0.1.207
+      [lockstep site 3] catalog-seed CARD spec.version: 0.1.207
+      [lockstep site 3] catalog-seed DELIVERY source.version: 0.1.207
+      [lockstep site 4] generated catalog blueprints.json: 0.1.207
+      [lockstep site 4] generated catalog catalog.generated.ts: 0.1.207
+      [lockstep site 5] bootstrap-kit slot 06a: 0.1.207
+
+    OK — all 7 cutover pins across the 5 lockstep sites are at or above the 0.1.172 sovereignty floor.
+    ##[group]Run python3 scripts/check-umbrella-republish-gate.py --ref HEAD
+    [36;1mpython3 scripts/check-umbrella-republish-gate.py --ref HEAD[0m
+    shell: /usr/bin/bash -e {0}
+    ##[endgroup]
+    FAIL: umbrella-republish gate (#5734) — 2 catalog-seed pin(s) were last moved by a commit AFTER WHICH products/catalyst/chart/Chart.yaml's `version:` was NEVER changed (still 1.4.1907), so the published bp-catalyst-platform OCI artifact never carries them:
+
+      bp-wordpress-tenant spec.version = '0.6.2' (blueprints.yaml:91, last touched by commit 41a1edc4f3ba) — the umbrella
+        chart version was 1.4.1907 then and is STILL 1.4.1907 now.
+        Fix: bump products/catalyst/chart/Chart.yaml's `version:` (and its
+        bootstrap-kit slot-13 pin, clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml)
+        in the SAME PR that moves this pin.
+      bp-wordpress-tenant source.version = '0.6.2' (blueprints.yaml:136, last touched by commit 41a1edc4f3ba) — the umbrella
+        chart version was 1.4.1907 then and is STILL 1.4.1907 now.
+        Fix: bump products/catalyst/chart/Chart.yaml's `version:` (and its
+        bootstrap-kit slot-13 pin, clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml)
+        in the SAME PR that moves this pin.
+    ##[error]Process completed with exit code 1.
+reported_at: 2026-11-12T14:22:59Z
