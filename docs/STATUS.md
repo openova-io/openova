@@ -358,45 +358,9 @@ Every guard listed here is a pre-merge check that fails the PR if violated. This
 
 ## 9. Pillar status (5-pillar DoD — per [`DOD.md`](DOD.md))
 
-*(Section re-stamped 2026-07-14.)*
+> State: rule. Enforced by: nothing
 
-| Pillar | Status | Anchoring evidence |
-|---|---|---|
-| **Pillar 1** — Marketplace + voucher onboarding | 🟦 CODE-COMPLETE | configSchema fields render on AppDetail (PR [#2038](https://github.com/openova-io/openova/pull/2038), TBD-V18); form values thread into install POST (PR [#2043](https://github.com/openova-io/openova/pull/2043), TBD-V18-D). Awaits fresh-prov walk for ✅. |
-| **Pillar 2** — Multi-region BCP topology choice at signup | 🟦 CODE-COMPLETE | Wizard surfaces region picker + BCP mode (PR [#2029](https://github.com/openova-io/openova/pull/2029), TBD-V20). Awaits fresh-prov walk for ✅. |
-| **Pillar 3** — Two independent CNPG clusters + region-kill failover (zero-tx-loss) | 🟦 CODE-COMPLETE | bp-cnpg-pair synchronous replication via `remote_apply` (PR [#2071](https://github.com/openova-io/openova/pull/2071)); bp-continuum wired (PR [#2072](https://github.com/openova-io/openova/pull/2072)); provisioning generalised beyond WP-only (PR [#2073](https://github.com/openova-io/openova/pull/2073)); the `SMETenantGitOpsWriter` (Go code path) emits a Continuum CR per multi-region Organization Application (PR [#2074](https://github.com/openova-io/openova/pull/2074)); D31 acceptance test harness (PR [#2075](https://github.com/openova-io/openova/pull/2075)); AppConfigs thread into rendered manifests (PR [#2053](https://github.com/openova-io/openova/pull/2053), TBD-V27). Awaits fresh-prov region-kill walk for ✅. |
-| **Pillar 4** — Agenity + `bp-openova-mcp` (re-scoped; Sandbox surface REMOVED from pillar scope) | 🟦 CODE-COMPLETE | `bp-agenity` (chart 0.5.20) + `openova-mcp` RBAC-scoped MCP facade over live catalyst-api; the pillar walk is an application provisioned end-to-end THROUGH Agenity. Proven live twice (dep 91dc0591, 2026-06-28; zero-touch hw220, 2026-07-03). Blocked-on-founder: durable per-Sovereign Anthropic credential + credential-propagation design (#4111/#4277). The walk fires on ANY converged env — it is never keystone-gated. Legacy Sandbox CRD/controller: internal machinery, exempt (§4). |
-| **Pillar 5** — Sovereign independence post-`bp-self-sovereign-cutover` | 🚧 | **11-step chain** at chart **0.1.126** + 10-min deny-egress hold against `github.com`/`ghcr.io`/`harbor.openova.io`. **Keystone — zero-touch `cutoverComplete=true` on a fresh 2-region Huawei kom4dc prov — is PENDING**: furthest ever hw246 (green through step-7, died at the step-8 pre-hold ref-host lint); the redirect-aware ruling merged as #5038 (2026-07-12) and awaits (1) a converged-env cutover re-fire proving it live, then (2) the fresh-prov zero-touch keystone walk for ✅. |
-
-*The five pillars are inseparable — four are 🟦 CODE-COMPLETE and Pillar 5 is 🚧; all five must walk GREEN on the SAME fresh prov to claim DoD:*
-
-```mermaid
-graph LR
-  subgraph sCode["🟦 CODE-COMPLETE — awaits fresh-prov walk for ✅"]
-    P1["Pillar 1<br/>Marketplace + voucher onboarding"]:::cc
-    P2["Pillar 2<br/>Multi-region BCP topology at signup"]:::cc
-    P3["Pillar 3<br/>Two CNPG clusters + region-kill failover"]:::cc
-    P4["Pillar 4<br/>Agenity + bp-openova-mcp (proven live twice)"]:::cc
-  end
-  subgraph sPart["🚧 Partial — keystone pending"]
-    P5["Pillar 5<br/>Sovereign independence post-cutover<br/>11-step chain + deny-egress proof"]:::partial
-  end
-  GATE(["fresh prov: screenshot + wire-capture + downstream artifact"]):::gate
-  P1 --> GATE
-  P2 --> GATE
-  P3 --> GATE
-  P4 --> GATE
-  P5 -.->|"zero-touch cutoverComplete=true still pending"| GATE
-  GATE --> DONE["✅ 5-pillar DoD — all 5 on the SAME fresh prov"]:::done
-  classDef cc fill:#d6e4ff,stroke:#3366cc,color:#1a3d7c;
-  classDef partial fill:#fff3cd,stroke:#e0a800,color:#7a5c00;
-  classDef done fill:#d4edda,stroke:#28a745,color:#155724;
-  classDef gate fill:#fff0e6,stroke:#e8590c,color:#7a3400;
-```
-
-The 5 pillars are inseparable — DoD claim requires all 5 walked on the same fresh prov with screenshot + non-empty wire-capture + working downstream artifact.
-
-Live per-row walk state lives in [`docs/ledger/UAT.md`](ledger/UAT.md) (~286 rows, all row-ID formats counted; live tally ✅246·❌12·⚠️6·⏳22 on hw305 as of 2026-08-25 after PR #6690 — point-in-time, defer to the ledger head) and [`docs/ledger/TRUST.md`](ledger/TRUST.md). The "Anchoring evidence" column above records the code-complete genealogy — the ledgers, not this table, carry the current walk stamps.
+No pillar is proven on what `main` publishes. The verdict is printed by `python3 scripts/acceptance-gate.py verdict`.
 
 ---
 
