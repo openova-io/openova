@@ -131,6 +131,25 @@ locals {
   )
 }
 
+# ── k3s tokens per region ─────────────────────────────────────────────────
+# Each region is its own k3s cluster with two random tokens. Servers start
+# with K3S_TOKEN set to the server token and with --agent-token set to the
+# agent token (the shared template). Workers join with the agent token only,
+# so a worker's boot data cannot join a node as a server. k3s also wraps the
+# etcd encryption key with the server token, so it must not be derived from
+# an identifier. The values stay in the state: a re-apply keeps them.
+resource "random_password" "k3s_server_token" {
+  for_each = toset(local.all_region_keys)
+  length   = 64
+  special  = false
+}
+
+resource "random_password" "k3s_agent_token" {
+  for_each = toset(local.all_region_keys)
+  length   = 64
+  special  = false
+}
+
 resource "hcloud_network" "region" {
   for_each = toset(local.all_region_keys)
 
@@ -500,10 +519,6 @@ locals {
   effective_cp_size     = local.qa_mode ? coalesce(var.control_plane_size, var.qa_control_plane_size) : var.control_plane_size
   effective_worker_size = local.qa_mode ? coalesce(var.worker_size, var.qa_worker_size) : var.worker_size
 
-  # k3s deterministic bootstrap token derived from project ID + sovereign FQDN.
-  # Workers join with this; k3s rotates it after first join.
-  k3s_token = sha256("${var.hcloud_project_id}/${var.sovereign_fqdn}/k3s-bootstrap")
-
   # ── Hetzner location → network-zone lookup ───────────────────────────────
   # Hetzner Network Subnets are zoned (eu-central / us-east / us-west /
   # ap-southeast). The mapping is documented in the hcloud Terraform
@@ -849,7 +864,7 @@ locals {
   worker_cloud_init = replace(templatefile("${path.module}/cloudinit-worker.tftpl", {
     sovereign_fqdn             = var.sovereign_fqdn
     k3s_version                = var.k3s_version
-    k3s_token                  = local.k3s_token
+    k3s_token                  = random_password.k3s_agent_token["primary"].result
     cp_private_ip              = "10.0.1.2" # First static IP in the subnet — control plane
     enable_unattended_upgrades = var.enable_unattended_upgrades
     enable_fail2ban            = var.enable_fail2ban
@@ -902,7 +917,8 @@ locals {
     cluster_mesh_name   = var.cluster_mesh_name
     cluster_mesh_id     = var.cluster_mesh_id
     k3s_version         = var.k3s_version
-    k3s_token           = local.k3s_token
+    k3s_server_token    = random_password.k3s_server_token["primary"].result
+    k3s_agent_token     = random_password.k3s_agent_token["primary"].result
     gitops_repo_url     = var.gitops_repo_url
     gitops_branch       = var.gitops_branch
     marketplace_enabled = var.marketplace_enabled
@@ -1483,7 +1499,8 @@ locals {
       cluster_mesh_name   = local.secondary_region_cluster_mesh_name[k]
       cluster_mesh_id     = local.secondary_region_cluster_mesh_id[k]
       k3s_version         = var.k3s_version
-      k3s_token           = local.k3s_token
+      k3s_server_token    = random_password.k3s_server_token[k].result
+      k3s_agent_token     = random_password.k3s_agent_token[k].result
       gitops_repo_url     = var.gitops_repo_url
       gitops_branch       = var.gitops_branch
       marketplace_enabled = var.marketplace_enabled
@@ -1599,7 +1616,7 @@ locals {
     k => replace(templatefile("${path.module}/cloudinit-worker.tftpl", {
       sovereign_fqdn             = var.sovereign_fqdn
       k3s_version                = var.k3s_version
-      k3s_token                  = local.k3s_token
+      k3s_token                  = random_password.k3s_agent_token[k].result
       cp_private_ip              = local.secondary_region_cp_ips[k]
       enable_unattended_upgrades = var.enable_unattended_upgrades
       enable_fail2ban            = var.enable_fail2ban

@@ -70,6 +70,18 @@ run "hetzner_render_is_valid" {
     condition     = output.config_paths_correct == true
     error_message = "#4521: the committed `infrastructure-config` CRs must point at the correct cloud config tree (base → ./clusters/_template/infrastructure ; hetzner → .../infrastructure/hetzner)."
   }
+
+  # SEC-020 — the k3s server starts with the server token and hands workers a
+  # separate agent token. Workers never receive the server token.
+  assert {
+    condition     = strcontains(output.rendered_cloud_init, "K3S_TOKEN=render-test-server-token ")
+    error_message = "SEC-020: the k3s server line must set K3S_TOKEN to the server token (k3s_server_token)."
+  }
+
+  assert {
+    condition     = strcontains(output.rendered_cloud_init, " --agent-token=render-test-agent-token ")
+    error_message = "SEC-020: the k3s server line must pass --agent-token with the agent token (k3s_agent_token)."
+  }
 }
 
 run "huawei_render_is_valid" {
@@ -110,6 +122,17 @@ run "huawei_render_is_valid" {
   assert {
     condition     = output.config_depends_on_providers == true
     error_message = "#4521 regression (huawei branch): the committed `infrastructure-config` CRs must `dependsOn: [infrastructure-providers]`."
+  }
+
+  # SEC-020 (huawei branch) — the server token and the separate agent token.
+  assert {
+    condition     = strcontains(output.rendered_cloud_init, "K3S_TOKEN=render-test-server-token ")
+    error_message = "SEC-020 (huawei branch): the k3s server line must set K3S_TOKEN to the server token (k3s_server_token)."
+  }
+
+  assert {
+    condition     = strcontains(output.rendered_cloud_init, " --agent-token=render-test-agent-token ")
+    error_message = "SEC-020 (huawei branch): the k3s server line must pass --agent-token with the agent token (k3s_agent_token)."
   }
 }
 

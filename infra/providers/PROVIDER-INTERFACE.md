@@ -138,6 +138,7 @@ Every module renders the control-plane boot data with the one shared template, `
 - **Boot data never replaces a node.** Every compute resource that sets boot data (`user_data`) lists it in `lifecycle.ignore_changes`. A bootstrap template that renders differently must never plan the replacement of a node.
 - **No node port.** A front door reaches a node on a host port: 443 and 80, and 53 (TCP and UDP) for the DNS front end. A module never declares a load-balancer target or a firewall rule in the range 30000 to 32767.
 - **One control-plane node per region.** A second or third control-plane node per region is a change of the contract, with a work package of its own.
+- **Random cluster tokens.** Every module declares `random_password.k3s_server_token` and `random_password.k3s_agent_token`, each with `for_each` over the region keys, `length = 64` and `special = false`. It passes the server token to the shared template as `k3s_server_token` and the agent token as `k3s_agent_token`. Its workers join with the agent token. No token is derived from an identifier such as the project or the domain name.
 
 ### 6. Conformance tests (added by CLD-090)
 

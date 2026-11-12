@@ -50,6 +50,14 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+
+    # The k3s server token and agent token of each region are
+    # random_password resources (main.tf). Their values stay in the state,
+    # so a re-apply keeps them.
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6"
+    }
   }
 }
 
