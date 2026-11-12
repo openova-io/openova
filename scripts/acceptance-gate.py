@@ -151,6 +151,12 @@ RECORD = {
                           "regions": (True, ("list", {"id": (True, "str"), "nodes_requested": (True, "int"),
                                                       "nodes_ready": (True, "int")})),
                           "fresh": (True, "bool")}),
+    # What ran. Check FND-G01 of the suite observes it; pass rule 2 compares it between the two records of a pair.
+    "artifacts": (False, {"charts": (True, ("list", {"region": (True, "str"), "namespace": (True, "str"),
+                                                     "release": (True, "str"), "chart": (True, "str"),
+                                                     "version": (True, "str"), "pinned": (True, "str")})),
+                          "images": (True, ("list", {"region": (True, "str"), "ref": (True, "str"),
+                                                     "digest": (True, "str"), "containers": (True, "int")}))}),
     "checks": (True, ("list", {"id": (True, "str"), "state_at_run": (True, ("enum", ("expected-fail", "required"))),
                                "status": (True, STATUS), "reason": (False, "str")})),
     "journeys": (True, ("map", STATUS)),
@@ -1067,10 +1073,22 @@ def self_test():
 
     # ---- the record
     print("record:")
-    valid = {k: x for k, x in r2.items() if k != "artifacts"}
+    valid = dict(r2)
     valid["result"] = "FAIL"
     r = validate_record(valid, mv)
     check("CONTROL: a well-formed version 2 record is valid", r == [], r)
+    r = validate_record({k: x for k, x in valid.items() if k != "artifacts"}, mv)
+    check("CONTROL: a record without artifacts is valid", r == [], r)
+    odd = json.loads(json.dumps(valid))
+    odd["artifacts"]["charts"][0]["chartVersion"] = "1.4.20"
+    r = validate_record(odd, mv)
+    check("record: a field of an artifacts entry that is not in the schema is refused", has(r, "artifacts.charts[0].chartVersion: unknown field"), r)
+    odd = json.loads(json.dumps(valid))
+    del odd["artifacts"]["images"][0]["digest"]
+    r = validate_record(odd, mv)
+    check("record: an image of the artifacts without its digest is refused", has(r, "artifacts.images[0].digest: missing"), r)
+    r = validate_record(dict(valid, artifacts={"charts": []}), mv)
+    check("record: artifacts without the list of images are refused", has(r, "artifacts.images: missing"), r)
     r = validate_record(dict(valid, result="PASS"), mv)
     check("rule 5: result PASS with a failed required check is refused", has(r, "required check FND-G05 has status FAIL"), r)
     skipped = with_check(valid, "FND-G05", "SKIP")

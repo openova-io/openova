@@ -82,6 +82,10 @@ func Execute(ctx context.Context, cfg Config, out io.Writer) (*Run, error) {
 			return nil, err
 		}
 	}
+	nodesRequested, err := parseNodesRequested(cfg.NodesRequested)
+	if err != nil {
+		return nil, err
+	}
 	now := time.Now().UTC()
 	r := &runner{
 		cfg: cfg, out: out,
@@ -111,6 +115,12 @@ func Execute(ctx context.Context, cfg Config, out io.Writer) (*Run, error) {
 	}
 
 	ok := r.discover(ctx)
+	// Check FND-G02 looks at the clusters twice. This is the first look,
+	// before the journeys. The check takes the second one and reads this one.
+	var firstLook []*Step
+	if ok {
+		firstLook = zeroTouchStart(ctx, r, checks)
+	}
 	switch {
 	case cfg.ReadOnly:
 		r.probeReadOnly(ctx)
@@ -122,8 +132,11 @@ func Execute(ctx context.Context, cfg Config, out io.Writer) (*Run, error) {
 		r.journeys(ctx, want)
 	}
 	if manifest != nil {
+		// The steps of the first look join the record after the journeys,
+		// so that no journey sees them.
+		r.run.Steps = append(r.run.Steps, firstLook...)
 		cc := &CheckContext{RunIn: RunIn(cfg.RunIn), Regions: []kube.Region{r.A, r.B}, API: r.api,
-			Candidate: r.run.Candidate, RepoRoot: cfg.RepoRoot, Deploy: &DeploymentInfo{ID: r.dep}, Caps: map[string]bool{}}
+			Candidate: r.run.Candidate, RepoRoot: cfg.RepoRoot, Deploy: &DeploymentInfo{ID: r.dep, NodesRequested: nodesRequested}, Caps: map[string]bool{}}
 		for _, c := range r.run.Capabilities {
 			cc.Caps[c] = true
 		}

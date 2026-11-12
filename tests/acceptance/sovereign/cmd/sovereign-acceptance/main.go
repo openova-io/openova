@@ -109,6 +109,7 @@ func run(mode string, args []string) int {
 	fs.StringVar(&cfg.CandidateID, "candidate-id", env("ACCEPT_CANDIDATE_ID", ""), "candidate this run certifies (empty: the record certifies nothing)")
 	fs.StringVar(&cfg.RepoRoot, "repo-root", env("ACCEPT_REPO_ROOT", "."), "checkout of the commit under test; its HEAD is the record's candidate.commit")
 	fs.StringVar(&cfg.Capabilities, "capabilities", env("ACCEPT_CAPABILITIES", ""), "comma list of capability flags this run declares, e.g. multi-region")
+	fs.StringVar(&cfg.NodesRequested, "nodes-requested", env("ACCEPT_NODES_REQUESTED", ""), "nodes the deployment request asked for, per region id: '<regionA>=6,<regionB>=6' (empty: check FND-G03 fails)")
 	fs.BoolVar(&cfg.Record, "record", false, "write docs/ledger/acceptance/<env>-<runid>.json")
 	fs.StringVar(&cfg.RecordDir, "record-dir", env("ACCEPT_RECORD_DIR", "docs/ledger/acceptance"), "where --record writes")
 	fs.BoolVar(&cfg.KeepOnFail, "keep-on-fail", envBool("ACCEPT_KEEP_ON_FAIL"), "skip J5 cleanup when an earlier journey failed (leave the app for debugging)")

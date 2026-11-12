@@ -67,11 +67,14 @@ type Candidate struct {
 	Commit string `json:"commit"` // 40 hex: HEAD of the checkout at RepoRoot
 }
 
-// DeploymentInfo describes the deployment under test. The suite knows its
-// identifier only. The package that gives the suite the deployment request
-// adds the provider and the requested nodes, with the check that reads them.
+// DeploymentInfo describes the deployment under test. The package that gives
+// the suite the provider adds it here, with the check that reads it.
 type DeploymentInfo struct {
 	ID string
+	// NodesRequested is the number of nodes that the deployment request asked
+	// for, by region id. It is the value of --nodes-requested. It is nil when
+	// the run did not say; check FND-G03 then fails.
+	NodesRequested map[string]int
 }
 
 // CheckContext is what a check may read. A check must not modify it.

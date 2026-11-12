@@ -55,6 +55,37 @@ type CheckResult struct {
 	unmet      bool   // SKIP because the run did not declare the needs of the check
 }
 
+// ChartArtifact is one HelmRelease of one region: the chart version that is
+// deployed and the version that the candidate pins ("" when it pins none).
+type ChartArtifact struct {
+	Region    string `json:"region"`
+	Namespace string `json:"namespace"`
+	Release   string `json:"release"`
+	Chart     string `json:"chart"`
+	Version   string `json:"version"`
+	Pinned    string `json:"pinned"`
+}
+
+// ImageArtifact is one image reference of one region with the digest that
+// runs, and the number of containers that run it.
+type ImageArtifact struct {
+	Region     string `json:"region"`
+	Ref        string `json:"ref"`
+	Digest     string `json:"digest"`
+	Containers int    `json:"containers"`
+}
+
+// Artifacts is what ran: every HelmRelease and every image of the platform
+// namespaces, per region. Check FND-G01 observes it.
+type Artifacts struct {
+	Charts []ChartArtifact `json:"charts"`
+	Images []ImageArtifact `json:"images"`
+}
+
+// ArtifactsKey is the evidence key under which a check hands a *Artifacts to
+// the record. Finalize moves the value to the field Artifacts of the record.
+const ArtifactsKey = "artifacts"
+
 // Run is the JSON record written to docs/ledger/acceptance/<env>-<runid>.json.
 // The schema is version 2. It is read by scripts/acceptance-gate.py (the
 // table RECORD) and by scripts/acceptance_record.py: change all three together.
@@ -73,6 +104,7 @@ type Run struct {
 	Result       string            `json:"result"`
 	Candidate    Candidate         `json:"candidate"`
 	Producer     Producer          `json:"producer"`
+	Artifacts    *Artifacts        `json:"artifacts,omitempty"`
 	Checks       []CheckResult     `json:"checks"`
 	Journeys     map[string]string `json:"journeys"`
 	Subject      Evidence          `json:"subject"` // what was tested: org/env/regions/app/blueprint/delivered images
@@ -94,6 +126,14 @@ func NewRunID(now time.Time) string {
 // skipped entirely is SKIP, and any SKIP of a REQUESTED journey makes the run
 // FAIL: "not measured" never reads as green.
 func (r *Run) Finalize(requested []string) {
+	// The artifacts are observed by a check, which hands them over in the
+	// evidence of one step. They belong to the record, not to the step.
+	for _, s := range r.Steps {
+		if a, ok := s.Evidence[ArtifactsKey].(*Artifacts); ok {
+			r.Artifacts = a
+			delete(s.Evidence, ArtifactsKey)
+		}
+	}
 	r.Journeys = map[string]string{}
 	for _, j := range requested {
 		r.Journeys[j] = Skip
