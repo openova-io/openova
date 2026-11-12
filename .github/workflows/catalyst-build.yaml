@@ -460,6 +460,17 @@ jobs:
           # `tofu test` passes 10/10 on hetzner — re-adding it to the
           # gate so the catalyst-build pipeline blocks any future
           # cloud-init regression at PR time on BOTH providers.
+          # CLD-040 — the shared render test runs first: its two
+          # render-integrity runs and the run "golden", which compares the
+          # SHA-256 of the rendered cloud-init of both fixtures with the
+          # values in infra/providers/_shared/tests/golden.auto.tfvars.json.
+          echo "=== tofu test: infra/providers/_shared/tests ==="
+          (
+            cd openova-src/infra/providers/_shared/tests
+            tofu init -input=false -no-color
+            tofu test -no-color
+          )
+          echo "=== _shared/tests: PASS ==="
           for provider in hetzner huawei; do
             echo "=== tofu test: infra/providers/${provider} ==="
             (
