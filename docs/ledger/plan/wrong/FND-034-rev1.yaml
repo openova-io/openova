@@ -1,0 +1,13 @@
+schema: openova.io/plan-wrong/v1
+id: FND-034
+ticket_rev: 1
+base_commit: 303c33c18f6a92a1f65d2008ec22e61b83a40341
+stage: preflight
+ref: P1
+command: |
+    ls tests/acceptance/sovereign/internal/suite | grep -c '^check_compliance'
+expected: |
+    3
+actual: |
+    0
+reported_at: 2026-11-12T20:32:49Z
