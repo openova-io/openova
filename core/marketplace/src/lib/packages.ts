@@ -37,9 +37,17 @@
 //                     shape (packageCapacity), and the floor is a footnote
 //                     under the Review total.
 //
-// There is deliberately NO feature list in this tree. When the document is
-// unreachable or publishes no packages, `loadPublicPackages` resolves to null,
-// logs once, and every step behaves exactly as it does today.
+// There is deliberately NO feature list in this tree. `loadPublicPackages`
+// resolves to one of three results and logs once when it is not `ok`:
+//   ok          — the document, as above;
+//   none        — nothing is published (no chargeback host, HTTP 404, or a
+//                 document with no package): every step behaves exactly as it
+//                 did before the document existed, the plan step shows the deck;
+//   unavailable — the price list could not be read (the request failed or
+//                 timed out, another status that is not 2xx, or a body that is
+//                 not the contract): the plan step says so, shows no plan and
+//                 offers no way on; the other steps behave as for `none`.
+// A failed read is never cached: every page load asks again.
 //
 // Every customer-visible string lives in PACKAGE_STRINGS. The storefront has
 // no i18n mechanism today (`<html lang="en">`, no locale switch anywhere in
@@ -275,6 +283,8 @@ export const PACKAGE_STRINGS = {
   addonsNote: 'Optional features are picked on the Add-ons step and added to your monthly total.',
   continueCta: 'Continue to Stack →',
   loadFailed: 'Could not load packages',
+  /** The plan step when the price list could not be read (result `unavailable`). */
+  pricesUnavailable: 'Prices are unavailable. Please try again shortly.',
   // Step 3 — the read-only group above the optional extras.
   includedInPackage: 'Included in your package',
   includedHint: 'Part of your package at no extra cost — nothing to pick.',
@@ -758,7 +768,31 @@ export function resetPackagesLogOnce(): void {
 function warnOnce(warn: (msg: string) => void, reason: string): void {
   if (warnedThisPage) return;
   warnedThisPage = true;
-  warn(`[packages] ${PACKAGE_STRINGS.loadFailed} — ${reason}; this step uses the catalog alone, as before.`);
+  warn(`[packages] ${PACKAGE_STRINGS.loadFailed} — ${reason}.`);
+}
+
+/**
+ * What `loadPublicPackages` found.
+ *
+ * - `ok`: the document, validated.
+ * - `none`: nothing is published — no chargeback base URL, HTTP 404, or a
+ *   document whose `packages` list holds no valid package.
+ * - `unavailable`: the price list could not be read — no fetch, the request
+ *   failed or timed out, any other status that is not 2xx, or a body that is
+ *   not the contract (not JSON, not an object, or no `packages` list).
+ */
+export type PackagesResult =
+  | { state: 'ok'; packages: PublicPackages }
+  | { state: 'none' }
+  | { state: 'unavailable' };
+
+/**
+ * The document of an `ok` result, else null. The steps after the plan step
+ * read the result through this: for them `none` and `unavailable` both mean
+ * "no document", exactly as the null result did before.
+ */
+export function documentOf(result: PackagesResult): PublicPackages | null {
+  return result.state === 'ok' ? result.packages : null;
 }
 
 export interface LoadPackagesDeps {
@@ -770,23 +804,23 @@ export interface LoadPackagesDeps {
 /**
  * Fetch and validate the public packages document from the chargeback host.
  *
- * Resolves to null — and logs ONCE per page — when there is no chargeback
- * base URL, the request fails or times out, the status is not 2xx, or the body
- * is not the contract / has no packages. Never throws.
+ * Resolves to a `PackagesResult` (see there for which answer is which state)
+ * and logs ONCE per page when the result is not `ok`. Never throws. Caches
+ * nothing: a failed read is asked again on the next page load.
  */
 export async function loadPublicPackages(
   baseURL: string | null,
   deps: LoadPackagesDeps = {},
-): Promise<PublicPackages | null> {
+): Promise<PackagesResult> {
   const warn = deps.warn ?? ((msg: string) => console.warn(msg));
   if (!baseURL) {
     warnOnce(warn, 'no chargeback host for this storefront');
-    return null;
+    return { state: 'none' };
   }
   const fetchImpl = deps.fetchImpl ?? (typeof fetch === 'function' ? fetch : null);
   if (!fetchImpl) {
     warnOnce(warn, 'fetch unavailable');
-    return null;
+    return { state: 'unavailable' };
   }
   const url = `${baseURL}${PUBLIC_PACKAGES_PATH}`;
   const controller = typeof AbortController === 'function' ? new AbortController() : null;
@@ -799,21 +833,31 @@ export async function loadPublicPackages(
       headers: { Accept: 'application/json' },
       signal: controller?.signal,
     });
+    if (res.status === 404) {
+      // The engine answers 404 until its plans book exists: nothing published.
+      warnOnce(warn, `${url} answered 404`);
+      return { state: 'none' };
+    }
     if (!res.ok) {
       warnOnce(warn, `${url} answered ${res.status}`);
-      return null;
+      return { state: 'unavailable' };
     }
     const body: unknown = await res.json();
+    if (!isRecord(body) || !Array.isArray(body.packages)) {
+      warnOnce(warn, `${url} answered a body that is not the packages document`);
+      return { state: 'unavailable' };
+    }
     // Icon paths resolve against where the document actually came from.
     const parsed = parsePublicPackages(body, res.url || url);
     if (!parsed) {
       warnOnce(warn, `${url} published no packages`);
-      return null;
+      return { state: 'none' };
     }
-    return parsed;
+    return { state: 'ok', packages: parsed };
   } catch (e) {
+    // A failed or timed-out request, or a body that is not JSON.
     warnOnce(warn, `${url} unreachable (${e instanceof Error ? e.message : String(e)})`);
-    return null;
+    return { state: 'unavailable' };
   } finally {
     if (timer) clearTimeout(timer);
   }

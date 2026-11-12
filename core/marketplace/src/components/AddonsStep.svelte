@@ -14,6 +14,7 @@
     growUpgradeHint,
     isLadderDocument,
     isPackageCeiling,
+    documentOf,
     loadPublicPackages,
     minorUnits,
     normalizeSpendLimit,
@@ -139,7 +140,7 @@
   $effect(() => {
     Promise.all([
       getAddons().catch(() => FALLBACK_ADDONS),
-      loadPublicPackages(chargebackBaseURL()),
+      loadPublicPackages(chargebackBaseURL()).then(documentOf),
       getPlans().catch(() => [] as Plan[]),
     ]).then(([catalog, d, pl]) => {
       catalogAddons = catalog;

@@ -51,6 +51,7 @@
     catalogPlanIdForPackage,
     drTopologyFor,
     growSelectionFor,
+    documentOf,
     loadPublicPackages,
     packageForCart,
     pruneAddonsForPackage,
@@ -82,7 +83,7 @@
 
   onMount(async () => {
     const [d, pl] = await Promise.all([
-      loadPublicPackages(chargebackBaseURL()),
+      loadPublicPackages(chargebackBaseURL()).then(documentOf),
       getPlans().catch(() => [] as Plan[]),
     ]);
     plans = pl;
