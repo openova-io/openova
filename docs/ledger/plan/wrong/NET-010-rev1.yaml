@@ -1,0 +1,15 @@
+schema: openova.io/plan-wrong/v1
+id: NET-010
+ticket_rev: 1
+base_commit: be254c6d722d5ef75cb8ec73f6c2d87f58ad4abd
+stage: preflight
+ref: P1
+command: |
+    sha256sum infra/providers/huawei/main.tf infra/providers/huawei/tests/multi_region.tftest.hcl
+expected: |
+    bac458b49018c387c9cde0116775573fb742dad69d687274699975546c4467ec  infra/providers/huawei/main.tf
+    77ebf3e69ce1c192d1974bd958c6f5f84374779d8002161e4a989afc813155ef  infra/providers/huawei/tests/multi_region.tftest.hcl
+actual: |
+    7f3ad7246d208c5d3b0ea6397e2de91123e260d740912da1fc0a56ec4c7fa095  infra/providers/huawei/main.tf
+    5b0ca928d31138500e6264e8389f2283844c6ac0435b91e4f4ce21ce99b87606  infra/providers/huawei/tests/multi_region.tftest.hcl
+reported_at: 2026-11-12T21:08:00Z
