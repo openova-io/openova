@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-12T21:45:04Z` |
+| Last refreshed | `2026-11-12T22:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,16 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6312](https://github.com/openova-io/openova/issues/6312) | wizard step 1 still pre-fills the fabricated company's industry — the select h | Other |
-| [#6317](https://github.com/openova-io/openova/issues/6317) | Agenity Anthropic credential expires every ~5h and nothing refreshes it — rows | Other |
-| [#6318](https://github.com/openova-io/openova/issues/6318) | Build bp-specter — realize the AIOps component the wizard catalog used to offe | Other |
-| [#6319](https://github.com/openova-io/openova/issues/6319) | PIN sign-in is dead program-wide: an app_ready event storm NAKs against a 25/hou | Other |
-| [#6324](https://github.com/openova-io/openova/issues/6324) | Per-Org bp-newapi quota guards model one 500m container; the ResourceQuota admit | Other |
-| [#6336](https://github.com/openova-io/openova/issues/6336) | Fresh prov wedges at 0 HelmReleases: bootstrap GitRepository clones 938MB of his | Other |
-| [#6339](https://github.com/openova-io/openova/issues/6339) | Region-b converges to 52/67 then stalls: keycloak and harbor blocked on missing  | Other |
-| [#6344](https://github.com/openova-io/openova/issues/6344) | placement projection joins Pods to an Application by NAME COINCIDENCE — apps w | Other |
-| [#6347](https://github.com/openova-io/openova/issues/6347) | placement projection emits TWO Primaries for an active-hot-standby app, plus a d | Other |
-| [#6352](https://github.com/openova-io/openova/issues/6352) | per-Org GitOps tree is missing four emitters — bp-agenity (Pillar 4), bp-keycl | Other |
 | [#6360](https://github.com/openova-io/openova/issues/6360) | Post-cutover Sovereign sells marketplace apps it cannot install — proxy-docker | Other |
 | [#6362](https://github.com/openova-io/openova/issues/6362) | MCP accepts only handover-signed bearers — a signed-in User cannot reach it; r | Other |
 | [#6364](https://github.com/openova-io/openova/issues/6364) | No vcluster is ever installed — bootstrap-kit slots 54/58/59 that the controll | Other |
@@ -300,6 +290,16 @@ flowchart LR
 | [#7172](https://github.com/openova-io/openova/issues/7172) | NET-010 Close peer and stale ports on the reference provider | Other |
 | [#7173](https://github.com/openova-io/openova/issues/7173) | PRD-030 Product guard at today's values (rules G-P1 to G-P3) | Other |
 | [#7174](https://github.com/openova-io/openova/issues/7174) | SEC-020 Random k3s server token and separate agent token | Other |
+| [#7185](https://github.com/openova-io/openova/issues/7185) | ACC-060 Decision record for the access plane | Other |
+| [#7186](https://github.com/openova-io/openova/issues/7186) | BSS-030 Order capture never prices from a second list | Other |
+| [#7187](https://github.com/openova-io/openova/issues/7187) | BSS-035 The storefront says when prices are unavailable | Other |
+| [#7188](https://github.com/openova-io/openova/issues/7188) | CLD-010 Provider-leak scanner with a falling baseline | Other |
+| [#7189](https://github.com/openova-io/openova/issues/7189) | CTL-020 Guard: no new polling loop | Other |
+| [#7190](https://github.com/openova-io/openova/issues/7190) | FND-105 Security control matrix: format and generator | Other |
+| [#7191](https://github.com/openova-io/openova/issues/7191) | FND-110 Guard: no Kyverno engine at 1.20 while a legacy policy exists | Other |
+| [#7192](https://github.com/openova-io/openova/issues/7192) | NET-042 Retire the two legacy per-Sovereign overlays | Other |
+| [#7193](https://github.com/openova-io/openova/issues/7193) | SOV-030 Wipe refuses a handed-over Sovereign without confirmation | Other |
+| [#7194](https://github.com/openova-io/openova/issues/7194) | SVC-060 Function-test convention and the data charts | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-12T21:50 | [#7184](https://github.com/openova-io/openova/pull/7184) | #7087 | docs(ledger): plan update: NET-010 rewritten, two orderings, |
 | 2026-11-12T21:05 | [#7182](https://github.com/openova-io/openova/pull/7182) | #7169 | docs(ledger): title the UAT ledger a regression list and mar |
 | 2026-11-12T21:06 | [#7181](https://github.com/openova-io/openova/pull/7181) | #7168 | chore(console): remove the Sandbox pages, routes and browser |
 | 2026-11-12T21:05 | [#7180](https://github.com/openova-io/openova/pull/7180) | #7170 | ci: check the state markers of the canonical documents, and  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-12T18:11 | [#7130](https://github.com/openova-io/openova/pull/7130) | #7124 | feat(gate): checks for candidate identity, zero touch, nodes |
 | 2026-11-12T18:18 | [#7129](https://github.com/openova-io/openova/pull/7129) | #7123 | docs(adr): record the cloud abstraction contract and correct |
 | 2026-11-12T18:10 | [#7128](https://github.com/openova-io/openova/pull/7128) | #7125 | docs(generated): inventories of slots, components and custom |
-| 2026-11-12T18:18 | [#7127](https://github.com/openova-io/openova/pull/7127) | #7122 | test(cloud-init): run the shared render test in CI and pin a |
 
 ---
 
