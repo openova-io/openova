@@ -519,3 +519,103 @@ run "k3s_server_and_agent_tokens" {
     error_message = "SEC-020: the worker cloud-init must not carry the k3s server token."
   }
 }
+
+# NET-010 — the peer ports are closed to the internet. The mesh dial port
+# (var.clustermesh_proxy_port, 12379) admits only the Sovereign's own public
+# addresses (every region's control-plane and NAT EIP, as /32) and every
+# region's node subnet and pod range. Cilium WireGuard (51871) admits only the
+# node subnets and pod ranges. The rules for 2379, 51820, 8472 and 6081 are
+# deleted; ICMP is unchanged. No rule of these two families is 0.0.0.0/0.
+run "peer_ports_closed" {
+  command = plan
+
+  variables {
+    regions = [
+      {
+        code               = "me-east-215-a"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      },
+      {
+        code               = "me-east-215-b"
+        role               = "secondary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      }
+    ]
+  }
+
+  # 2 target regions x (4 public addresses + 4 node/pod ranges).
+  assert {
+    condition     = length(huaweicloud_networking_secgroup_rule.ingress_clustermesh_proxy) == 16
+    error_message = "The mesh dial port must have one rule per target region and per source: 2 x (4 public addresses + 4 node/pod ranges) = 16."
+  }
+  assert {
+    condition = alltrue([for k in ["cp|me-east-215-a", "cp|me-east-215-b", "nat|me-east-215-a", "nat|me-east-215-b"] :
+    contains(keys(huaweicloud_networking_secgroup_rule.ingress_clustermesh_proxy), "me-east-215-a|${k}") && contains(keys(huaweicloud_networking_secgroup_rule.ingress_clustermesh_proxy), "me-east-215-b|${k}")])
+    error_message = "Each region's mesh dial port must admit every region's control-plane and NAT address."
+  }
+  assert {
+    condition     = alltrue([for c in local.mesh_ingress_cidrs : contains(keys(huaweicloud_networking_secgroup_rule.ingress_clustermesh_proxy), "me-east-215-b|${c}")])
+    error_message = "The mesh dial port must admit every region's node subnet and pod range."
+  }
+  assert {
+    condition     = length(local.sovereign_public_sources) == 4 && alltrue([for v in values(local.sovereign_public_sources) : endswith(v, "/32")])
+    error_message = "The Sovereign's own public sources must be the 2 control-plane and 2 NAT addresses, each as /32."
+  }
+  assert {
+    condition     = alltrue([for r in huaweicloud_networking_secgroup_rule.ingress_clustermesh_proxy : r.port_range_min == 12379 && r.port_range_max == 12379 && r.protocol == "tcp"])
+    error_message = "Every mesh dial rule must be TCP 12379."
+  }
+  assert {
+    condition     = alltrue([for r in huaweicloud_networking_secgroup_rule.ingress_clustermesh_proxy : r.remote_ip_prefix != "0.0.0.0/0"])
+    error_message = "No rule for the mesh dial port 12379 may have the source 0.0.0.0/0."
+  }
+
+  # 2 target regions x 4 node/pod ranges.
+  assert {
+    condition     = length(huaweicloud_networking_secgroup_rule.ingress_cilium_wireguard) == 8
+    error_message = "Cilium WireGuard (51871) must have one rule per target region and per node/pod range: 2 x 4 = 8."
+  }
+  assert {
+    condition     = alltrue([for r in huaweicloud_networking_secgroup_rule.ingress_cilium_wireguard : r.port_range_min == 51871 && r.remote_ip_prefix != "0.0.0.0/0" && contains(local.mesh_ingress_cidrs, r.remote_ip_prefix)])
+    error_message = "Every Cilium WireGuard (51871) rule must take its source from the node/pod ranges, never 0.0.0.0/0."
+  }
+
+  # ICMP is unchanged: one rule per region, from any source.
+  assert {
+    condition     = length(huaweicloud_networking_secgroup_rule.ingress_icmp) == 2 && alltrue([for r in huaweicloud_networking_secgroup_rule.ingress_icmp : r.remote_ip_prefix == "0.0.0.0/0"])
+    error_message = "ICMP must stay one rule per region from 0.0.0.0/0 (path-MTU discovery)."
+  }
+}
+
+# NET-010 — on a single region the same rules collapse to the region's own
+# addresses and ranges: 2 public addresses + 2 node/pod ranges for the mesh
+# dial port, 2 node/pod ranges for Cilium WireGuard.
+run "peer_ports_closed_single_region" {
+  command = plan
+
+  variables {
+    regions = [
+      {
+        code               = "me-east-215-a"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      }
+    ]
+  }
+
+  assert {
+    condition     = length(huaweicloud_networking_secgroup_rule.ingress_clustermesh_proxy) == 4 && length(huaweicloud_networking_secgroup_rule.ingress_cilium_wireguard) == 2
+    error_message = "Single region: the mesh dial port must have 4 rules (2 public addresses + 2 node/pod ranges) and Cilium WireGuard 2 rules."
+  }
+  assert {
+    condition     = alltrue([for r in concat(values(huaweicloud_networking_secgroup_rule.ingress_clustermesh_proxy), values(huaweicloud_networking_secgroup_rule.ingress_cilium_wireguard)) : r.remote_ip_prefix != "0.0.0.0/0"])
+    error_message = "Single region: no rule for 12379 or 51871 may have the source 0.0.0.0/0."
+  }
+}
