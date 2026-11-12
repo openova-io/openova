@@ -47,7 +47,7 @@ func (f *Factory) hydrateAll(_ context.Context) {
 	f.mu.RUnlock()
 
 	for _, cs := range clusters {
-		for kindName, inf := range cs.informers {
+		for kindName, inf := range cs.informersSnapshot() {
 			path := snapshotPath(f.cfg.SnapshotDir, cs.id, kindName)
 			outcome, count, err := f.hydrateOne(cs, kindName, inf.GetIndexer(), path)
 			if err != nil {

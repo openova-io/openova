@@ -341,6 +341,16 @@ type clusterState struct {
 	// pre-built DynamicClient (the test path); production
 	// kubeconfig-loaded clusters populate it.
 	restCfg *rest.Config
+	// kindsMu guards informers, indexers and skippedOptional (CMP-016).
+	// An optional kind skipped at AddCluster gains its informer at run
+	// time, when its CustomResourceDefinition event arrives, so every
+	// reader that can run while informers run takes kindsMu or reads a
+	// copy from informersSnapshot / indexersSnapshot.
+	kindsMu sync.RWMutex
+	// skippedOptional — the optional kinds AddCluster skipped because
+	// discovery did not serve their GVR, keyed "<group>/<resource>"
+	// (optionalKey). An entry is removed when its informer starts.
+	skippedOptional map[string]Kind
 	informers     map[string]cache.SharedIndexInformer // keyed by Kind.Name
 	indexers      map[string]cache.Indexer             // keyed by Kind.Name
 	synced        map[string]bool                      // keyed by Kind.Name
@@ -767,6 +777,7 @@ func (f *Factory) AddCluster(c ClusterRef) error {
 		core:           core,
 		restCfg:        restCfg, // G95.1 (Refs #2642) — nil on pre-built-client test path; production kubeconfig path populates it for exec-stream SPDY dials.
 		factory:     dynamicinformer.NewDynamicSharedInformerFactory(dyn, f.cfg.Resync),
+		skippedOptional: map[string]Kind{},
 		informers:   map[string]cache.SharedIndexInformer{},
 		indexers:    map[string]cache.Indexer{},
 		synced:      map[string]bool{},
@@ -822,32 +833,21 @@ func (f *Factory) AddCluster(c ClusterRef) error {
 			if !p.served(k.GVR.Resource) {
 				f.log.Info("k8scache: skipping optional kind — GVR not served",
 					"cluster", c.ID, "kind", k.Name, "gvr", k.GVR.String())
+				// CMP-016 — remember the kind; its informer starts when
+				// its CustomResourceDefinition event arrives (dispatch →
+				// startOptionalOnDefinition). No timer, no retry probe.
+				cs.kindsMu.Lock()
+				cs.skippedOptional[optionalKey(k.GVR.Group, k.GVR.Resource)] = k
+				cs.kindsMu.Unlock()
 				continue
 			}
 		}
-		inf := cs.factory.ForResource(k.GVR).Informer()
 		k := k // capture per-iteration
-		_, err := inf.AddEventHandler(cache.ResourceEventHandlerFuncs{
-			AddFunc: func(obj any) {
-				f.dispatch(cs, k, EventAdded, obj)
-			},
-			UpdateFunc: func(_, obj any) {
-				f.dispatch(cs, k, EventModified, obj)
-			},
-			DeleteFunc: func(obj any) {
-				if d, ok := obj.(cache.DeletedFinalStateUnknown); ok {
-					obj = d.Obj
-				}
-				f.dispatch(cs, k, EventDeleted, obj)
-			},
-		})
-		if err != nil {
+		if _, err := f.addKindInformer(cs, k); err != nil {
 			f.log.Warn("k8scache: AddEventHandler failed",
 				"cluster", c.ID, "kind", k.Name, "err", err)
 			continue
 		}
-		cs.informers[k.Name] = inf
-		cs.indexers[k.Name] = inf.GetIndexer()
 	}
 
 	f.mu.Lock()
@@ -892,12 +892,146 @@ func (f *Factory) AddCluster(c ClusterRef) error {
 		}
 		f.startClusterInformers(runCtx, cs)
 		f.log.Info("k8scache: cluster registered + informers started (runtime add)",
-			"cluster", c.ID, "kinds", len(cs.informers))
+			"cluster", c.ID, "kinds", len(cs.informersSnapshot()))
 		return nil
 	}
 	f.log.Info("k8scache: cluster registered",
-		"cluster", c.ID, "kinds", len(cs.informers))
+		"cluster", c.ID, "kinds", len(cs.informersSnapshot()))
 	return nil
+}
+
+// optionalKey is the key of clusterState.skippedOptional: "<group>/<resource>".
+// A CustomResourceDefinition names the same pair as spec.group and
+// spec.names.plural. CMP-016.
+func optionalKey(group, resource string) string {
+	return group + "/" + resource
+}
+
+// addKindInformer builds the informer of one kind on cs's factory, wires
+// its event handlers to dispatch, and records it in cs.informers and
+// cs.indexers under cs.kindsMu. It does not start the informer: the caller
+// does (Start / startClusterInformers, or startOptionalOnDefinition).
+// CMP-016 — extracted from the AddCluster loop so an optional kind whose
+// definition arrives later is built by the same code.
+func (f *Factory) addKindInformer(cs *clusterState, k Kind) (cache.SharedIndexInformer, error) {
+	inf := cs.factory.ForResource(k.GVR).Informer()
+	_, err := inf.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj any) {
+			f.dispatch(cs, k, EventAdded, obj)
+		},
+		UpdateFunc: func(_, obj any) {
+			f.dispatch(cs, k, EventModified, obj)
+		},
+		DeleteFunc: func(obj any) {
+			if d, ok := obj.(cache.DeletedFinalStateUnknown); ok {
+				obj = d.Obj
+			}
+			f.dispatch(cs, k, EventDeleted, obj)
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	cs.kindsMu.Lock()
+	cs.informers[k.Name] = inf
+	cs.indexers[k.Name] = inf.GetIndexer()
+	cs.kindsMu.Unlock()
+	return inf, nil
+}
+
+// startOptionalOnDefinition is called by dispatch for every ADDED or
+// MODIFIED CustomResourceDefinition of cs. When the definition names an
+// optional kind that AddCluster skipped, and one entry of spec.versions
+// has the kind's version and served: true, it builds the kind's informer,
+// starts it and its sync-watcher the way startClusterInformers does, and
+// forgets the skip, so a second definition event starts nothing. It makes
+// no network call of its own and arms no timer. CMP-016.
+func (f *Factory) startOptionalOnDefinition(cs *clusterState, crd *unstructured.Unstructured) {
+	group, _, _ := unstructured.NestedString(crd.Object, "spec", "group")
+	plural, _, _ := unstructured.NestedString(crd.Object, "spec", "names", "plural")
+	key := optionalKey(group, plural)
+
+	cs.kindsMu.Lock()
+	k, skipped := cs.skippedOptional[key]
+	if !skipped || !crdServesVersion(crd, k.GVR.Version) {
+		cs.kindsMu.Unlock()
+		return
+	}
+	delete(cs.skippedOptional, key)
+	cs.kindsMu.Unlock()
+
+	select {
+	case <-cs.stop:
+		return // cluster removed or superseded; its informers are stopping
+	default:
+	}
+
+	inf, err := f.addKindInformer(cs, k)
+	if err != nil {
+		f.log.Warn("k8scache: AddEventHandler failed",
+			"cluster", cs.id, "kind", k.Name, "err", err)
+		return
+	}
+	f.mu.RLock()
+	ctx := f.runCtx
+	f.mu.RUnlock()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	// Start is a no-op for informers already running; it starts only the
+	// one just built.
+	cs.factory.Start(cs.stop)
+	go f.runSyncWatcher(ctx, cs, map[string]cache.SharedIndexInformer{k.Name: inf})
+	f.log.Info("k8scache: optional kind started after its definition arrived",
+		"cluster", cs.id, "kind", k.Name, "gvr", k.GVR.String())
+}
+
+// crdServesVersion reports whether one entry of the definition's
+// spec.versions has name == version and served == true. CMP-016.
+func crdServesVersion(crd *unstructured.Unstructured, version string) bool {
+	versions, _, _ := unstructured.NestedSlice(crd.Object, "spec", "versions")
+	for _, v := range versions {
+		m, ok := v.(map[string]any)
+		if !ok {
+			continue
+		}
+		name, _ := m["name"].(string)
+		served, _ := m["served"].(bool)
+		if name == version && served {
+			return true
+		}
+	}
+	return false
+}
+
+// informersSnapshot returns a copy of cs.informers, read under cs.kindsMu.
+func (cs *clusterState) informersSnapshot() map[string]cache.SharedIndexInformer {
+	cs.kindsMu.RLock()
+	defer cs.kindsMu.RUnlock()
+	out := make(map[string]cache.SharedIndexInformer, len(cs.informers))
+	for name, inf := range cs.informers {
+		out[name] = inf
+	}
+	return out
+}
+
+// indexersSnapshot returns a copy of cs.indexers, read under cs.kindsMu.
+func (cs *clusterState) indexersSnapshot() map[string]cache.Indexer {
+	cs.kindsMu.RLock()
+	defer cs.kindsMu.RUnlock()
+	out := make(map[string]cache.Indexer, len(cs.indexers))
+	for name, idx := range cs.indexers {
+		out[name] = idx
+	}
+	return out
+}
+
+// indexerFor returns the Indexer of one kind, read under cs.kindsMu.
+func (cs *clusterState) indexerFor(kindName string) (cache.Indexer, bool) {
+	cs.kindsMu.RLock()
+	defer cs.kindsMu.RUnlock()
+	idx, ok := cs.indexers[kindName]
+	return idx, ok
 }
 
 // RemoveCluster tears down the per-Sovereign informer factory for
@@ -939,7 +1073,7 @@ func (f *Factory) RemoveCluster(id string) {
 	cs.stopOnce.Do(func() { close(cs.stop) })
 
 	if f.cfg.SnapshotDir != "" {
-		for kindName := range cs.informers {
+		for kindName := range cs.informersSnapshot() {
 			path := snapshotPath(f.cfg.SnapshotDir, id, kindName)
 			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 				f.log.Warn("k8scache: snapshot cleanup failed",
@@ -948,7 +1082,7 @@ func (f *Factory) RemoveCluster(id string) {
 		}
 	}
 	f.log.Info("k8scache: cluster removed",
-		"cluster", id, "kinds", len(cs.informers))
+		"cluster", id, "kinds", len(cs.informersSnapshot()))
 }
 
 // isQuarantinedLocked reports whether clusterID belongs to a
@@ -1114,6 +1248,11 @@ func (f *Factory) startClusterInformers(ctx context.Context, cs *clusterState) {
 	// THIS cluster's informers without affecting others (issue #156).
 	// Process-shutdown semantics are preserved by the fan-out goroutine below:
 	// when f.stop closes (Factory.Stop), every per-cluster stop channel closes.
+	//
+	// CMP-016 — the set of informers to watch is copied BEFORE Start: once
+	// the CustomResourceDefinition informer runs, startOptionalOnDefinition
+	// may add a kind, and it launches that kind's own sync-watcher.
+	infs := cs.informersSnapshot()
 	cs.factory.Start(cs.stop)
 	go func() {
 		select {
@@ -1123,7 +1262,7 @@ func (f *Factory) startClusterInformers(ctx context.Context, cs *clusterState) {
 			// Already removed via RemoveCluster — exit goroutine.
 		}
 	}()
-	go f.runSyncWatcher(ctx, cs)
+	go f.runSyncWatcher(ctx, cs, infs)
 }
 
 // runKubeconfigsRescanLoop ticks every Config.RescanInterval and:
@@ -1504,7 +1643,11 @@ func (f *Factory) RedactForKind(k Kind, u *unstructured.Unstructured) *unstructu
 // informer_sync_watcher_release_5642_test.go): parked runSyncWatcher
 // goroutines grew linearly with the rebuild count before this change and
 // stay at one live set after it.
-func (f *Factory) runSyncWatcher(ctx context.Context, cs *clusterState) {
+//
+// CMP-016 — infs is the set of informers to watch: every informer of cs
+// from startClusterInformers, or the one optional kind that
+// startOptionalOnDefinition started.
+func (f *Factory) runSyncWatcher(ctx context.Context, cs *clusterState, infs map[string]cache.SharedIndexInformer) {
 	// Abort on EITHER the process context OR this cluster's teardown.
 	// cs.stop is closed by RemoveCluster, by AddCluster's rebuild branch,
 	// and by the f.stop fan-out in startClusterInformers — so this single
@@ -1518,7 +1661,7 @@ func (f *Factory) runSyncWatcher(ctx context.Context, cs *clusterState) {
 		}
 	}()
 
-	for kind, inf := range cs.informers {
+	for kind, inf := range infs {
 		kind := kind
 		inf := inf
 		go func() {
@@ -1551,6 +1694,14 @@ func (f *Factory) dispatch(cs *clusterState, k Kind, t EventType, obj any) {
 			"cluster", cs.id, "kind", k.Name)
 		return
 	}
+	// CMP-016 — a CustomResourceDefinition that arrives or changes may name
+	// an optional kind AddCluster skipped. Runs before the fan-out, so a
+	// subscriber that sees this event sees the kind's informer built.
+	if k.GVR.Group == "apiextensions.k8s.io" && k.GVR.Resource == "customresourcedefinitions" &&
+		(t == EventAdded || t == EventModified) {
+		f.startOptionalOnDefinition(cs, u)
+	}
+
 	// Always redact before fan-out.
 	red := redactObject(k, u)
 
@@ -1683,7 +1834,7 @@ func (f *Factory) List(clusterID, kindName string, sel labels.Selector) ([]*unst
 	if k, ok := f.registry.Get(kindName); ok {
 		canonName = CanonicalKindName(k.Name)
 	}
-	idx, ok := cs.indexers[canonName]
+	idx, ok := cs.indexerFor(canonName)
 	if !ok {
 		return nil, 0, fmt.Errorf("k8scache: kind %q not registered", kindName)
 	}
