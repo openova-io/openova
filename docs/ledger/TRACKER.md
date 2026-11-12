@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-12T23:15:03Z` |
+| Last refreshed | `2026-11-12T23:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,17 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6362](https://github.com/openova-io/openova/issues/6362) | MCP accepts only handover-signed bearers — a signed-in User cannot reach it; r | Other |
-| [#6364](https://github.com/openova-io/openova/issues/6364) | No vcluster is ever installed — bootstrap-kit slots 54/58/59 that the controll | Other |
-| [#6374](https://github.com/openova-io/openova/issues/6374) | bp-agenity credentialWait: 0 silently renders as 300/5 via sprig default — 'fa | Other |
-| [#6475](https://github.com/openova-io/openova/issues/6475) | Storefront sells four Blueprints the catalog-seed does not carry — purchasable | Other |
-| [#6477](https://github.com/openova-io/openova/issues/6477) | G8/G9/220/221 are INPUT-gated: the Anthropic credential is founder-supplied and  | Other |
-| [#6482](https://github.com/openova-io/openova/issues/6482) | bp-harbor + bp-powerdns: chart-default images route through the Harbor they serv | Other |
-| [#6483](https://github.com/openova-io/openova/issues/6483) | bp-stalwart-tenant 0.1.15: install fails in vcluster Orgs — no matches for kin | Other |
-| [#6485](https://github.com/openova-io/openova/issues/6485) | hw300 (dep c16642c6b17f1721): cyclic re-bootstrap after fire — reaches ready+2 | Other |
-| [#6487](https://github.com/openova-io/openova/issues/6487) | Cutover step-01 gitea-mirror wedges: full clone of grown monorepo fails + error  | Other |
-| [#6490](https://github.com/openova-io/openova/issues/6490) | cutover step-06 fatal on 2-region kom4dc: region-B Flux GitRepository can't ls-r | Other |
-| [#6495](https://github.com/openova-io/openova/issues/6495) | wipe.go: handed-over Huawei Sovereign is un-wipeable (provHint defaults to hetzn | Other |
 | [#6501](https://github.com/openova-io/openova/issues/6501) | FUNNEL/agenity: funnel door omits the openova-MCP bearer + RS256 verify-pubkey w | Other |
 | [#6506](https://github.com/openova-io/openova/issues/6506) | PIN storm residual: MultiSubscriber MaxDeliver:-1 still redelivers a doomed app_ | Other |
 | [#6508](https://github.com/openova-io/openova/issues/6508) | fresh-prov Flux bootstrap stalls ~1h: unauthenticated openova GitRepository clon | Other |
@@ -300,6 +289,17 @@ flowchart LR
 | [#7193](https://github.com/openova-io/openova/issues/7193) | SOV-030 Wipe refuses a handed-over Sovereign without confirmation | Other |
 | [#7194](https://github.com/openova-io/openova/issues/7194) | SVC-060 Function-test convention and the data charts | Other |
 | [#7197](https://github.com/openova-io/openova/issues/7197) | FND-171 Remove the fabricated playback route and its preflight route | Other |
+| [#7209](https://github.com/openova-io/openova/issues/7209) | AIP-060 Decision record: the model plane | Other |
+| [#7210](https://github.com/openova-io/openova/issues/7210) | BSS-020 Truth in the status document and the engine's README | Other |
+| [#7211](https://github.com/openova-io/openova/issues/7211) | BSS-050 Ratchets of this area | Other |
+| [#7212](https://github.com/openova-io/openova/issues/7212) | CLD-071 Decision record 0024: the primary substrate moved on 2026-05-22; status  | Other |
+| [#7213](https://github.com/openova-io/openova/issues/7213) | CMP-005 Decision record: the compliance plane | Other |
+| [#7214](https://github.com/openova-io/openova/issues/7214) | CMP-012 Guard: legacy policy count may only fall; the upgrade acknowledgement va | Other |
+| [#7215](https://github.com/openova-io/openova/issues/7215) | FND-040 Stability register and the frozen-path check | Other |
+| [#7216](https://github.com/openova-io/openova/issues/7216) | FND-055 Vulnerability and secret scans, new findings only | Other |
+| [#7217](https://github.com/openova-io/openova/issues/7217) | SEC-006 Decision record 0018: secrets and trust | Other |
+| [#7218](https://github.com/openova-io/openova/issues/7218) | SEC-071 Ratchet on passwords the provisioning service writes to Git | Other |
+| [#7219](https://github.com/openova-io/openova/issues/7219) | SEC-110 Truth in the security documents | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-12T23:21 | [#7208](https://github.com/openova-io/openova/pull/7208) | #7087 | docs(ledger): plan update: next tickets, one ordering |
 | 2026-11-12T23:06 | [#7207](https://github.com/openova-io/openova/pull/7207) | #7188 | ci: add the provider-leak scanner with a falling baseline (C |
 | 2026-11-12T23:05 | [#7206](https://github.com/openova-io/openova/pull/7206) | #7190 | docs(security): generate the security control matrix from a  |
 | 2026-11-12T22:51 | [#7205](https://github.com/openova-io/openova/pull/7205) | #7193 | fix(catalyst-api): refuse to wipe a handed-over Sovereign un |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-12T19:42 | [#7156](https://github.com/openova-io/openova/pull/7156) | #7147 | chore: remove the unshipped console scaffold, its test job a |
 | 2026-11-12T19:41 | [#7155](https://github.com/openova-io/openova/pull/7155) | #7151 | ci: add the service-model ratchet guard for rules G1 to G9 ( |
 | 2026-11-12T19:41 | [#7154](https://github.com/openova-io/openova/pull/7154) | #7148 | fix(scripts): stop the shell verifier requiring the three re |
-| 2026-11-12T19:41 | [#7153](https://github.com/openova-io/openova/pull/7153) | #7150 | docs(adr): record the service model and narrow the glossary  |
 
 ---
 
