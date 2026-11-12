@@ -1,0 +1,16 @@
+# One path per line: a file or a folder, from the repository root, no wildcard. A path listed here may not be in the repository. Lines are only added, at the end. Checked by: python3 scripts/check-repo-hygiene.py paths
+core/services/gateway/gateway
+graphify-out/manifest.json
+hw225-apps.snapshot.md
+hw225-cloud.snapshot.md
+hw225-compliance.snapshot.md
+hw225-grafana.snapshot.md
+hw225-jobs.snapshot.md
+hw225-settings.snapshot.md
+hw225-users.snapshot.md
+platform/openclaw/controller/controller
+platform/openclaw/runtime/runtime
+products/catalyst/bootstrap/ui/.pr-evidence/flow-AFTER-1440px-2026-04-30.png
+products/catalyst/bootstrap/ui/.pr-evidence/flow-AFTER-dark-1440px-2026-04-30.png
+products/catalyst/bootstrap/ui/.pr-evidence/flow-BEFORE-1440px-2026-04-30.png
+products/catalyst/bootstrap/ui/.pr-evidence/mockup-v4.png
