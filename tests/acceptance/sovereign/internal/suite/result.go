@@ -38,27 +38,49 @@ type Step struct {
 	Error      string    `json:"error,omitempty"`
 }
 
+// Producer says who wrote the record. Only a workflow record counts for a verdict.
+type Producer struct {
+	Kind       string `json:"kind"` // workflow | manual
+	Workflow   string `json:"workflow,omitempty"`
+	RunID      string `json:"run_id,omitempty"`
+	RunAttempt int    `json:"run_attempt,omitempty"`
+}
+
+// CheckResult is the result of one selected gate check.
+type CheckResult struct {
+	ID         string `json:"id"`
+	StateAtRun string `json:"state_at_run"` // expected-fail | required
+	Status     string `json:"status"`
+	Reason     string `json:"reason,omitempty"`
+	unmet      bool   // SKIP because the run did not declare the needs of the check
+}
+
 // Run is the JSON record written to docs/ledger/acceptance/<env>-<runid>.json.
-// The schema is read by scripts/check-function-rows-cite-acceptance.py and
-// scripts/acceptance-gate.sh — change all three together.
+// The schema is version 2. It is read by scripts/acceptance-gate.py (the
+// table RECORD) and by scripts/acceptance_record.py: change all three together.
 type Run struct {
 	Schema       string            `json:"schema"`
 	RunID        string            `json:"run_id"`
 	Env          string            `json:"env"`
 	Console      string            `json:"console"`
 	DeploymentID string            `json:"deployment_id"`
-	Mode         string            `json:"mode"` // run | discover
+	Mode         string            `json:"mode"`   // run | discover
+	RunIn        string            `json:"run_in"` // local | cloud
+	Capabilities []string          `json:"capabilities"`
 	SuiteGitSHA  string            `json:"suite_git_sha,omitempty"`
 	StartedAt    time.Time         `json:"started_at"`
 	FinishedAt   time.Time         `json:"finished_at"`
 	Result       string            `json:"result"`
+	Candidate    Candidate         `json:"candidate"`
+	Producer     Producer          `json:"producer"`
+	Checks       []CheckResult     `json:"checks"`
 	Journeys     map[string]string `json:"journeys"`
 	Subject      Evidence          `json:"subject"` // what was tested: org/env/regions/app/blueprint/delivered images
 	Steps        []*Step           `json:"steps"`
 }
 
 // SchemaVersion of the record.
-const SchemaVersion = "openova.io/acceptance-sovereign/v1"
+const SchemaVersion = "openova.io/acceptance-sovereign/v2"
 
 // NewRunID is <UTC timestamp>-<4 random hex>, sortable and unique.
 func NewRunID(now time.Time) string {
@@ -108,6 +130,13 @@ func (r *Run) Finalize(requested []string) {
 			r.Result = Fail
 		}
 	}
+	// A required check must pass. A skip passes only when the run did not
+	// declare what the check needs.
+	for _, c := range r.Checks {
+		if c.StateAtRun == StateRequired && c.Status != Pass && !c.unmet {
+			r.Result = Fail
+		}
+	}
 	if r.Mode == "discover" {
 		// discover asserts only reachability of the contract; it never
 		// certifies function and its record is refused by the UAT gate.
@@ -136,6 +165,9 @@ func (r *Run) PrintTable(w io.Writer) {
 	sort.Strings(keys)
 	for _, k := range keys {
 		fmt.Fprintf(w, "  %s %s\n", k, r.Journeys[k])
+	}
+	for _, c := range r.Checks {
+		_, _ = fmt.Fprintf(w, "  %s %s (%s) %s\n", c.ID, c.Status, c.StateAtRun, c.Reason)
 	}
 	fmt.Fprintf(w, "RESULT %s\n", r.Result)
 }

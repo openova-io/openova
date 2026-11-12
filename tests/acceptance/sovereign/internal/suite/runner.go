@@ -68,12 +68,29 @@ func Execute(ctx context.Context, cfg Config, out io.Writer) (*Run, error) {
 	if cfg.ReadOnly {
 		mode = "discover"
 	}
+	// The checks are selected before anything runs: a manifest that cannot be
+	// read, or an entry without a registered check, stops the run at once.
+	// A discover run certifies nothing and runs no check.
+	var manifest *Manifest
+	var checks []Check
+	if cfg.Manifest != "" && !cfg.ReadOnly {
+		var err error
+		if manifest, err = LoadManifest(cfg.Manifest); err != nil {
+			return nil, err
+		}
+		if checks, err = SelectChecks(manifest, RunIn(cfg.RunIn)); err != nil {
+			return nil, err
+		}
+	}
 	now := time.Now().UTC()
 	r := &runner{
 		cfg: cfg, out: out,
 		api: api.New(cfg.Console, cfg.Session),
 		run: &Run{Schema: SchemaVersion, RunID: NewRunID(now), Env: cfg.Env, Console: cfg.Console, Mode: mode,
-			StartedAt: now, Subject: Evidence{}, SuiteGitSHA: gitSHA()},
+			StartedAt: now, Subject: Evidence{}, SuiteGitSHA: gitSHA(),
+			RunIn: cfg.RunIn, Capabilities: splitList(cfg.Capabilities), Checks: []CheckResult{},
+			Candidate: Candidate{ID: cfg.CandidateID, Commit: headCommit(cfg.RepoRoot)},
+			Producer:  producerFromEnv(os.Getenv)},
 		A: kube.Region{Kubeconfig: cfg.KubeconfigA},
 		B: kube.Region{Kubeconfig: cfg.KubeconfigB},
 	}
@@ -103,6 +120,14 @@ func Execute(ctx context.Context, cfg Config, out io.Writer) (*Run, error) {
 		}
 	default:
 		r.journeys(ctx, want)
+	}
+	if manifest != nil {
+		cc := &CheckContext{RunIn: RunIn(cfg.RunIn), Regions: []kube.Region{r.A, r.B}, API: r.api,
+			Candidate: r.run.Candidate, RepoRoot: cfg.RepoRoot, Deploy: &DeploymentInfo{ID: r.dep}, Caps: map[string]bool{}}
+		for _, c := range r.run.Capabilities {
+			cc.Caps[c] = true
+		}
+		r.runChecks(ctx, manifest, checks, cc, ok)
 	}
 
 	r.run.FinishedAt = time.Now().UTC()

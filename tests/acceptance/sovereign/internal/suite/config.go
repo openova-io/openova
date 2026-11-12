@@ -23,6 +23,10 @@ type Config struct {
 	WPTablePrefix  string // WordPress table prefix for the replica SELECTs (default wp_)
 	DNSServer      string // resolver for the DNS assertion (default: system resolver)
 
+	// The gate checks. Manifest is the JSON export of docs/ledger/gates.yaml;
+	// when it is empty no check is selected. Capabilities is a comma list.
+	RunIn, Manifest, CandidateID, RepoRoot, Capabilities string
+
 	Record     bool
 	RecordDir  string
 	KeepOnFail bool
