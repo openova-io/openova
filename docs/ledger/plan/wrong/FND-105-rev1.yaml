@@ -1,0 +1,21 @@
+schema: openova.io/plan-wrong/v1
+id: FND-105
+ticket_rev: 1
+base_commit: 8599f27c14300ef4aa0ae8a01631df218566bf44
+stage: step
+ref: claim
+command: |
+    git push -u origin wp/FND-105
+expected: |
+    Then run `git push -u origin wp/FND-105`. This push is the claim; it changes no file.
+actual: |
+    remote: Internal Server Error
+    remote: Request ID 9222:27B49:11688C:1BF6C1:6AF63B0F
+    remote: Time 2026-11-12T22:17:52Z
+    To https://github.com/openova-io/openova.git
+     ! [remote rejected]     wp/FND-105 -> wp/FND-105 (Internal Server Error)
+    error: failed to push some refs to 'https://github.com/openova-io/openova.git'
+    exit code: 1
+    (second run; the first run gave the same rejection with Request ID 9712:292907:1177E4:1BF61E:6AF63B0B.
+    git ls-remote --exit-code --heads origin wp/FND-105 then printed exit code 2: the branch is not on the remote.)
+reported_at: 2026-11-12T22:18:12Z
