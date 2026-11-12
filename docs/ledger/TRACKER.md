@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-12T22:45:02Z` |
+| Last refreshed | `2026-11-12T23:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,12 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-12T22:51 | [#7205](https://github.com/openova-io/openova/pull/7205) | #7193 | fix(catalyst-api): refuse to wipe a handed-over Sovereign un |
+| 2026-11-12T22:50 | [#7204](https://github.com/openova-io/openova/pull/7204) | #7191 | ci: fail a Kyverno engine upgrade to 1.20 while a legacy pol |
+| 2026-11-12T22:50 | [#7203](https://github.com/openova-io/openova/pull/7203) | #7189 | chore(ci): guard that the platform gains no new polling loop |
+| 2026-11-12T22:51 | [#7202](https://github.com/openova-io/openova/pull/7202) | #7187 | fix(marketplace): the plan step says when prices are unavail |
+| 2026-11-12T22:50 | [#7201](https://github.com/openova-io/openova/pull/7201) | #7192 | chore(clusters): delete the two legacy per-Sovereign overlay |
+| 2026-11-12T22:50 | [#7200](https://github.com/openova-io/openova/pull/7200) | #7185 | docs(adr): record 0033 on the access plane (ACC-060) |
 | 2026-11-12T22:16 | [#7196](https://github.com/openova-io/openova/pull/7196) | #7087 | docs(ledger): plan update: nine tickets read, FND-171, two s |
 | 2026-11-12T22:01 | [#7195](https://github.com/openova-io/openova/pull/7195) | #7172 | fix(huawei): close the peer ports to the internet and add ga |
 | 2026-11-12T21:50 | [#7184](https://github.com/openova-io/openova/pull/7184) | #7087 | docs(ledger): plan update: NET-010 rewritten, two orderings, |
@@ -331,12 +337,6 @@ flowchart LR
 | 2026-11-12T19:41 | [#7153](https://github.com/openova-io/openova/pull/7153) | #7150 | docs(adr): record the service model and narrow the glossary  |
 | 2026-11-12T19:42 | [#7152](https://github.com/openova-io/openova/pull/7152) | #7141 | ci: mirror the Crossplane packages into harbor.openova.io by |
 | 2026-11-12T19:15 | [#7139](https://github.com/openova-io/openova/pull/7139) | #7087 | docs(ledger): plan update: tickets FND-054 and FND-097, furt |
-| 2026-11-12T18:45 | [#7138](https://github.com/openova-io/openova/pull/7138) | #7135 | ci: stop building the Sandbox images (FND-092) |
-| 2026-11-12T18:38 | [#7137](https://github.com/openova-io/openova/pull/7137) | #7133 | chore(core): remove the type mirror that no Go module import |
-| 2026-11-12T18:38 | [#7136](https://github.com/openova-io/openova/pull/7136) | #7134 | docs(contracts): publish contract C8, the seal provider and  |
-| 2026-11-12T18:31 | [#7132](https://github.com/openova-io/openova/pull/7132) | #7126 | test(ci): prove the k3s bootstrap flags on a runner with thr |
-| 2026-11-12T18:22 | [#7131](https://github.com/openova-io/openova/pull/7131) | #7087 | docs(ledger): plan update: the identity step accepts either  |
-| 2026-11-12T18:11 | [#7130](https://github.com/openova-io/openova/pull/7130) | #7124 | feat(gate): checks for candidate identity, zero touch, nodes |
 
 ---
 
