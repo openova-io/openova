@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-12T17:00:05Z` |
+| Last refreshed | `2026-11-12T17:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,6 +200,7 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
+| [#6225](https://github.com/openova-io/openova/issues/6225) | Re-prov after a wipe false-fails on orphaned catalyst-* VPCs when the post-recla | Other |
 | [#6229](https://github.com/openova-io/openova/issues/6229) | /api/v1/version reports a sha from a Deployment env var that a roll never update | Other |
 | [#6231](https://github.com/openova-io/openova/issues/6231) | Topology choice does not survive the round trip: the status endpoint flattens th | Other |
 | [#6238](https://github.com/openova-io/openova/issues/6238) | main is red: the bp-guacamole auto-bump workflow bumps Chart.yaml without the ca | Other |
@@ -299,7 +300,6 @@ flowchart LR
 | [#7087](https://github.com/openova-io/openova/issues/7087) | North star: the transition plan as data, the gate manifest and the first work in | Other |
 | [#7095](https://github.com/openova-io/openova/issues/7095) | NET-030 Retired names lose their policy privileges | Other |
 | [#7108](https://github.com/openova-io/openova/issues/7108) | FND-014 A deployment may name the Git ref it follows | Other |
-| [#7109](https://github.com/openova-io/openova/issues/7109) | FND-032 Record version 2 and the check registry | Other |
 
 ---
 
@@ -309,6 +309,8 @@ flowchart LR
 |---|---|---|---|
 | 2026-11-12T16:58 | [#7114](https://github.com/openova-io/openova/pull/7114) | #7087 | docs(ledger): the dashboard's baseline shows what was built  |
 | 2026-11-12T16:54 | [#7113](https://github.com/openova-io/openova/pull/7113) | #7087 | docs(ledger): the north-star dashboard as a page GitHub rend |
+| 2026-11-12T17:04 | [#7112](https://github.com/openova-io/openova/pull/7112) | #7109 | feat(gate): check registry and version 2 record in the accep |
+| 2026-11-12T17:04 | [#7111](https://github.com/openova-io/openova/pull/7111) | #7108 | feat(catalyst-api): let a deployment request name the Git re |
 | 2026-11-12T16:49 | [#7110](https://github.com/openova-io/openova/pull/7110) | #7087 | docs(ledger): the north-star dashboard as one offline page |
 | 2026-11-12T16:48 | [#7107](https://github.com/openova-io/openova/pull/7107) | #7087 | docs(ledger): plan update: tickets FND-014 and FND-032, mana |
 | 2026-11-12T14:38 | [#7105](https://github.com/openova-io/openova/pull/7105) | #7093 | fix(ci): auth, shared and the whole billing module are teste |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-07T15:41 | [#7061](https://github.com/openova-io/openova/pull/7061) | #3375 | fix(cnpg-pair): the Application's placement is operator-owne |
 | 2026-11-07T14:31 | [#7060](https://github.com/openova-io/openova/pull/7060) | #7058 | deploy(continuum): ship desired-state convergence (bp-contin |
 | 2026-11-07T14:45 | [#7059](https://github.com/openova-io/openova/pull/7059) | #7058 | feat(dr): desired-state switchover in the console API and To |
-| 2026-11-07T14:05 | [#7058](https://github.com/openova-io/openova/pull/7058) | #3375 | feat(continuum): converge the writer onto the declared prima |
-| 2026-11-07T00:36 | [#7057](https://github.com/openova-io/openova/pull/7057) | #5178 | fix(cnpg-pair): dr-promoter yields to the planned owner and  |
 
 ---
 
