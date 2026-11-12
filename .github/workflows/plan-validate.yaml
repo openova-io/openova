@@ -1,0 +1,35 @@
+# plan-validate.yaml - the plan file stays valid, and the plan tool stays able to say no.
+#
+# docs/ledger/plan.yaml is the transition plan as data. scripts/plan.py reads it and says
+# which work package is ready and which packages may run together. A plan file that breaks
+# its contract would hand out the wrong work. So on every pull request, on every merge group
+# and on every push to main this workflow runs:
+#   1. the self-test of the tool, in which every rule is shown to be able to fail;
+#   2. validate, which prints one line per violation of the plan file of this commit.
+# It has no path filter on purpose: a required check that a path filter skips never reports.
+name: plan-validate
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PyYAML
+        run: pip install --quiet pyyaml
+      - name: Self-test of the plan tool
+        run: python3 scripts/plan.py --self-test
+      - name: Validate the plan file
+        run: python3 scripts/plan.py validate --no-fetch
