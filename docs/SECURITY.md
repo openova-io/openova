@@ -595,52 +595,9 @@ Every Sovereign exports its audit log to a customer-specified SIEM. Default: Ope
 
 ## 10. Threat model summary
 
-| Threat | Mitigation |
-|---|---|
-| Stolen ServiceAccount token | Projected SA bound-tokens are 1h TTL, audience-scoped, Pod-bound (deleted when the Pod terminates) — legacy long-lived Secret-tokens are not used. (Future hardening: SPIRE SVID 5-min mTLS-cert if a §2 re-enable trigger fires.) |
-| Stolen K8s Secret | Encrypted at rest in etcd. Pulled only via ESO with a projected SA bound-token (TokenReview-validated); transport encrypted by Cilium WireGuard. |
-| Compromised Pod | NetworkPolicy (Cilium) + L7 policies limit blast radius. Falco detects anomalous syscalls. |
-| Malicious commit to Environment Gitea | EnvironmentPolicy requires PR approvals. Kyverno admission control denies non-policy-compliant manifests. |
-| Compromised Blueprint upstream | All Blueprints are cosigned. Kyverno verify-signatures policy denies unsigned/wrong-issuer artifacts. |
-| Cross-Org leakage | vcluster isolation. JetStream Account isolation. Keycloak realm isolation (per-Org or shared). |
-| Compromised sovereign-admin account | MFA required at Keycloak. JIT elevation for production-impacting actions. Full audit trail to SIEM. |
-| Compromised OpenBao node | 2-of-3 Raft quorum required for writes. Audit log captures every read. Rotate root token + re-shard quarterly. |
-| Region-wide failure | Independent OpenBao Raft per region. PowerDNS lua-records (`ifurlup`) drop the affected regional endpoint from authoritative responses within the health-check window. Apps with `active-active` keep serving from healthy region. |
-| Supply-chain attack on a build | SLSA-3 build provenance, cosign signing, Syft+Grype SBOM scanned in CI and at runtime by Trivy. |
+> State: built. Evidence: docs/generated/security-controls.md, scripts/generators/controls.py
 
-*The same threats, grouped by the control that answers each:*
-
-```mermaid
-graph LR
-  subgraph T["Threats"]
-    T1["stolen SA token / K8s Secret"]
-    T2["compromised Pod"]
-    T3["malicious commit / bad Blueprint"]
-    T4["cross-Org leakage"]
-    T5["compromised sovereign-admin account"]
-    T6["compromised OpenBao node"]
-    T7["region-wide failure"]
-    T8["supply-chain attack"]
-  end
-  subgraph M["Mitigations"]
-    M1["1h audience-scoped bound-tokens<br/>etcd-at-rest + ESO + WireGuard"]
-    M2["Cilium NetworkPolicy + L7<br/>Falco syscall detection"]
-    M3["EnvironmentPolicy PR approvals<br/>Kyverno admission + verify-signatures"]
-    M4["vcluster + NATS Account + Keycloak realm isolation"]
-    M5["MFA + JIT elevation + SIEM audit trail"]
-    M6["2-of-3 Raft quorum + audit + quarterly re-shard"]
-    M7["independent Raft per region<br/>PowerDNS ifurlup drops the bad region"]
-    M8["SLSA-3 provenance + cosign + Syft/Grype/Trivy"]
-  end
-  T1 --> M1
-  T2 --> M2
-  T3 --> M3
-  T4 --> M4
-  T5 --> M5
-  T6 --> M6
-  T7 --> M7
-  T8 --> M8
-```
+The security controls of a Sovereign are listed, with the state of each, in the generated control matrix [`docs/generated/security-controls.md`](generated/security-controls.md). Its source is [`docs/ledger/controls.yaml`](ledger/controls.yaml), and `scripts/generators/controls.py` writes it; the check `generated-docs` fails a pull request in which it is stale. A control is listed as built only when it is on by default on a new Sovereign and a gate check in the state `required` proves it. Every other control is listed as target.
 
 ---
 
