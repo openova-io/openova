@@ -19,3 +19,5 @@ core/pkg/apis
 .github/workflows/build-sandbox-mcp-server.yaml
 .github/workflows/build-sandbox-pty-server.yaml
 products/catalyst/console
+.github/workflows/cosmetic-guards.yaml
+products/catalyst/bootstrap/ui/e2e/cosmetic-guards.spec.ts
