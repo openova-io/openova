@@ -626,22 +626,28 @@ func logLevelForHealth(health string) string {
 	}
 }
 
-// CloseVanishedRuns terminates every run the store still holds as in flight
-// whose Job no longer exists. A finished Job is often deleted at once (Helm
-// hook-succeeded, CloudNativePG initdb, CronJob history pruning), so the read
-// that would have seen it terminate never comes, and the row said "Running"
-// forever. The verdict comes only from evidence, strongest first:
+// CloseVanishedRuns terminates the in-flight runs whose Job no longer exists.
+// A finished Job is often deleted at once (Helm hook-succeeded, CloudNativePG
+// initdb, CronJob history pruning), so the read that would have seen it
+// terminate never comes, and the row said "Running" forever. A verdict comes
+// only from evidence, strongest first:
 //
 //  1. a terminal Job event (Completed / BackoffLimitExceeded / …) recorded at
-//     or after the run started — Kubernetes keeps these about an hour;
-//  2. the run's own seed line saying Helm deletes it only on success;
-//  3. otherwise, when the event LIST itself succeeded, the run is closed
-//     Failed with a log line saying no completion was recorded — a run that
-//     vanished without a completion event did not verifiably complete.
+//     or after the run started — it carries the real end time;
+//  2. the run's seed line saying Helm deletes this Job only on success;
+//  3. no terminal event although the run started inside the event retention
+//     window (and the event read worked): had the Job finished, its event
+//     would still be there, so it was removed before finishing — Failed.
 //
-// Nothing is concluded when the Job LIST failed (absence then means nothing)
-// and rule 3 is skipped when the event LIST failed. Only task and cron leaves
-// are swept: they are the kinds whose Executions are one-per-Job runs.
+// A run older than the window with neither 1 nor 2 is left exactly as it was:
+// its outcome is unknown and absence is not a verdict. Nothing is concluded
+// when the Job LIST failed.
+//
+// The leaf headline stays with the producer whenever the producer still sees
+// the leaf (a cron leaf, or a task leaf with a run still listed): the seed
+// just wrote it from the live runs, and a closed historical run must not
+// displace it. Only a task leaf whose every run is gone has its headline
+// re-resolved here, from the stored runs.
 func (b *Bridge) CloseVanishedRuns(l RunLedger, now time.Time) (closed int, err error) {
 	if !l.Listed {
 		return 0, nil
@@ -662,21 +668,26 @@ func (b *Bridge) CloseVanishedRuns(l RunLedger, now time.Time) (closed int, err 
 			continue
 		}
 		changed := false
+		// anyPresent — the producer still sees this leaf's runs, so it owns
+		// the headline (see the doc comment).
+		anyPresent := j.Kind == KindCron
 		for _, run := range execs {
-			if IsTerminal(run.Status) {
-				continue
-			}
 			page, perr := b.store.PageLogs(b.deploymentID, run.ID, 1, 1)
 			if perr != nil || len(page.Lines) == 0 {
 				continue
 			}
 			seed := page.Lines[0].Message
 			name := runNameFromLogLine(seed)
-			if name == "" || l.Present[name] {
+			if name != "" && l.Present[name] {
+				anyPresent = true
+				continue
+			}
+			if name == "" || IsTerminal(run.Status) {
 				continue
 			}
 			st, at, why := vanishedRunVerdict(name, seed, run.StartedAt, l, now)
 			if st == "" {
+				anyPresent = true // unknown outcome: the run keeps its last state
 				continue
 			}
 			level := LevelInfo
@@ -694,11 +705,22 @@ func (b *Bridge) CloseVanishedRuns(l RunLedger, now time.Time) (closed int, err 
 			changed = true
 			closed++
 		}
-		if !changed || rec.Status == StatusDormant {
+		if !changed {
 			continue
 		}
-		// FinishExecution stamped the leaf with the run it just closed; put
-		// the headline back on the rule every other path uses.
+		// FinishExecution stamped the leaf with the run it just closed. Put
+		// the headline back: the producer's, when it still sees the leaf;
+		// otherwise re-resolved from the stored runs.
+		if anyPresent || rec.Status == StatusDormant {
+			cur, _, gerr := b.store.GetJob(b.deploymentID, j.JobName)
+			if gerr == nil && cur.Status != rec.Status {
+				cur.Status = rec.Status
+				if werr := b.store.UpsertJob(cur); werr != nil {
+					return closed, werr
+				}
+			}
+			continue
+		}
 		_, after, gerr := b.store.GetJob(b.deploymentID, j.JobName)
 		if gerr != nil {
 			continue
@@ -724,19 +746,29 @@ func (b *Bridge) CloseVanishedRuns(l RunLedger, now time.Time) (closed int, err 
 	return closed, nil
 }
 
+// jobEventRetention is how long the apiserver keeps Events (kube-apiserver
+// --event-ttl, default 1h), less a margin for clock skew and poll spacing.
+// Inside it, the absence of a terminal event is itself evidence.
+const jobEventRetention = 50 * time.Minute
+
 // vanishedRunVerdict applies CloseVanishedRuns' evidence rules to one run.
-// An empty status means there is no evidence to act on.
+// An empty status means there is no evidence: leave the run alone.
 func vanishedRunVerdict(name, seed string, started time.Time, l RunLedger, now time.Time) (status string, at time.Time, why string) {
 	if ev, ok := l.Ended[name]; ok && (started.IsZero() || !ev.At.Before(started.Add(-time.Minute))) {
 		return ev.Status, ev.At, "run " + name + " ended " + ev.Status + " (Kubernetes event " + ev.Reason +
 			"); the Job has since been removed from the cluster"
 	}
 	if strings.Contains(seed, removedOnSuccessNote) {
-		return StatusSucceeded, now, "run " + name + " succeeded: Helm removed the Job, which its hook-delete-policy does only on success"
+		end := started
+		if end.IsZero() {
+			end = now
+		}
+		return StatusSucceeded, end, "run " + name + " succeeded: Helm removed the Job, which its hook-delete-policy does only on success " +
+			"(the exact end time was not observed)"
 	}
-	if l.EventsListed {
-		return StatusFailed, now, "run " + name + " was removed from the cluster with no completion event on record, so it did not verifiably finish " +
-			"(Kubernetes keeps Job events for about an hour)"
+	if l.EventsListed && !started.IsZero() && now.Sub(started) < jobEventRetention {
+		return StatusFailed, now, "run " + name + " was removed from the cluster before it finished: no completion or failure event " +
+			"was recorded, and one would still be retained had the Job ended"
 	}
 	return "", time.Time{}, ""
 }

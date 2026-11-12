@@ -165,7 +165,7 @@ func TestCloseVanishedRuns_NoEvidenceClosesFailedOnlyWhenEventsWereRead(t *testi
 		t.Errorf("leaf = %q, want failed", got)
 	}
 	e := execByRunName(t, st, "dep-recon", "task-"+run, run)
-	if l := lastLogLine(t, st, e); !strings.Contains(l, "no completion event") {
+	if l := lastLogLine(t, st, e); !strings.Contains(l, "removed from the cluster before it finished") {
 		t.Errorf("log line must say why, got %q", l)
 	}
 	// Idempotent: a second sweep finds nothing left to close.
@@ -201,5 +201,69 @@ func TestCloseVanishedRuns_CronHeadlineReResolved(t *testing.T) {
 	}
 	if got := leafStatus(t, st, "cron-snap"); got != StatusSucceeded {
 		t.Errorf("cron headline = %q, want succeeded (the newest run succeeded after the old failure)", got)
+	}
+}
+
+// Live hw307, first deploy of this fix: runs older than the event window had
+// no evidence, were closed Failed at "now", became the newest run, and flipped
+// every cron leaf Failed. An old run with no evidence must be left alone.
+func TestCloseVanishedRuns_OldRunWithoutEvidenceIsLeftAlone(t *testing.T) {
+	b, st := newTestBridge(t)
+	run := "chargeback-app-key"
+	pollInFlight(t, b, ObsKindTask, run, run, false)
+	later := vanStart.Add(23 * time.Hour) // far past the ~1h event retention
+	n, err := b.CloseVanishedRuns(RunLedger{Listed: true, Present: map[string]bool{}, EventsListed: true}, later)
+	if err != nil || n != 0 {
+		t.Fatalf("closed=%d err=%v; an old run with no evidence must not get a verdict", n, err)
+	}
+	if got := leafStatus(t, st, "task-"+run); got != StatusRunning {
+		t.Errorf("leaf = %q, want it untouched (running)", got)
+	}
+}
+
+// The exact flip: a cron whose newest live run succeeded, plus a run that
+// vanished inside the window with no event (closed Failed at now, i.e. LATER
+// than the live run). The producer owns a cron headline; the sweep must not
+// displace it.
+func TestCloseVanishedRuns_CronHeadlineStaysWithTheProducer(t *testing.T) {
+	b, st := newTestBridge(t)
+	gone, live := "report-29907000", "report-29907010"
+	obs := ReconcilerObservation{
+		Kind: ObsKindCron, Name: "report", Namespace: "chargeback", Status: HelmStateInstalled,
+		Executions: []ReconcilerExecutionObservation{
+			{Name: gone, Status: HelmStateInstalling, StartedAt: vanStart},
+			{Name: live, Status: HelmStateInstalled, StartedAt: vanStart.Add(time.Minute), FinishedAt: vanStart.Add(2 * time.Minute)},
+		},
+	}
+	if _, _, err := b.SeedReconcilerObservations([]ReconcilerObservation{obs}); err != nil {
+		t.Fatal(err)
+	}
+	if got := leafStatus(t, st, "cron-report"); got != StatusSucceeded {
+		t.Fatalf("precondition: producer headline = %q, want succeeded", got)
+	}
+	n, err := b.CloseVanishedRuns(RunLedger{Listed: true, Present: map[string]bool{live: true}, EventsListed: true}, vanNow)
+	if err != nil || n != 1 {
+		t.Fatalf("closed=%d err=%v; want the vanished in-window run closed", n, err)
+	}
+	if e := execByRunName(t, st, "dep-recon", "cron-report", gone); e.Status != StatusFailed {
+		t.Errorf("vanished run = %s, want failed (no event inside the window)", e.Status)
+	}
+	if got := leafStatus(t, st, "cron-report"); got != StatusSucceeded {
+		t.Errorf("cron headline = %q after the sweep, want the producer's succeeded", got)
+	}
+}
+
+// A Helm-deleted-on-success run has no observed end time; it must not be
+// stamped "now" (which would make it the newest run of its leaf).
+func TestCloseVanishedRuns_HelmMarkerDoesNotInventAnEndTime(t *testing.T) {
+	b, st := newTestBridge(t)
+	run := "wp-bp-wordpress-tenant-admin-user"
+	pollInFlight(t, b, ObsKindTask, run, run, true)
+	if _, err := b.CloseVanishedRuns(RunLedger{Listed: true, Present: map[string]bool{}, EventsListed: false}, vanNow); err != nil {
+		t.Fatal(err)
+	}
+	e := execByRunName(t, st, "dep-recon", "task-"+run, run)
+	if e.FinishedAt == nil || e.FinishedAt.After(vanStart) {
+		t.Errorf("finishedAt = %v, want no later than the run start %v (end time not observed)", e.FinishedAt, vanStart)
 	}
 }
