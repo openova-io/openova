@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-12T21:00:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-12T21:15:05Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,13 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-12T21:05 | [#7182](https://github.com/openova-io/openova/pull/7182) | #7169 | docs(ledger): title the UAT ledger a regression list and mar |
+| 2026-11-12T21:06 | [#7181](https://github.com/openova-io/openova/pull/7181) | #7168 | chore(console): remove the Sandbox pages, routes and browser |
+| 2026-11-12T21:05 | [#7180](https://github.com/openova-io/openova/pull/7180) | #7170 | ci: check the state markers of the canonical documents, and  |
+| 2026-11-12T21:06 | [#7179](https://github.com/openova-io/openova/pull/7179) | #7165 | fix(k8scache): start an optional kinds informer when its def |
+| 2026-11-12T21:06 | [#7178](https://github.com/openova-io/openova/pull/7178) | #7174 | fix(infra): random k3s server token and a separate agent tok |
+| 2026-11-12T21:04 | [#7177](https://github.com/openova-io/openova/pull/7177) | #7171 | chore(ci): guard that the machine plane gains no unsafe patt |
+| 2026-11-12T21:05 | [#7176](https://github.com/openova-io/openova/pull/7176) | #7173 | chore(ci): guard the AI-hub charts at their current values ( |
 | 2026-11-12T20:31 | [#7164](https://github.com/openova-io/openova/pull/7164) | #7087 | docs(ledger): plan update: nine more tickets |
 | 2026-11-12T20:12 | [#7163](https://github.com/openova-io/openova/pull/7163) | #7140 | docs(adr): record 0028 on commerce and billing, superseding  |
 | 2026-11-12T20:06 | [#7162](https://github.com/openova-io/openova/pull/7162) | #7146 | ci: console lint ratchet; remove the switched-off console su |
@@ -330,13 +337,6 @@ flowchart LR
 | 2026-11-12T18:18 | [#7129](https://github.com/openova-io/openova/pull/7129) | #7123 | docs(adr): record the cloud abstraction contract and correct |
 | 2026-11-12T18:10 | [#7128](https://github.com/openova-io/openova/pull/7128) | #7125 | docs(generated): inventories of slots, components and custom |
 | 2026-11-12T18:18 | [#7127](https://github.com/openova-io/openova/pull/7127) | #7122 | test(cloud-init): run the shared render test in CI and pin a |
-| 2026-11-12T18:02 | [#7121](https://github.com/openova-io/openova/pull/7121) | #7087 | docs(ledger): plan update: tickets CLD-040, CLD-070, FND-033 |
-| 2026-11-12T17:55 | [#7120](https://github.com/openova-io/openova/pull/7120) | #7117 | chore: remove committed programs and root clutter, add the r |
-| 2026-11-12T17:37 | [#7119](https://github.com/openova-io/openova/pull/7119) | #7118 | docs(adr): decision records 0022, 0023 and 0025, the allocat |
-| 2026-11-12T17:33 | [#7115](https://github.com/openova-io/openova/pull/7115) | #7087 | docs(ledger): plan update: tickets FND-091, FND-106 and CTL- |
-| 2026-11-12T16:58 | [#7114](https://github.com/openova-io/openova/pull/7114) | #7087 | docs(ledger): the dashboard's baseline shows what was built  |
-| 2026-11-12T16:54 | [#7113](https://github.com/openova-io/openova/pull/7113) | #7087 | docs(ledger): the north-star dashboard as a page GitHub rend |
-| 2026-11-12T17:04 | [#7112](https://github.com/openova-io/openova/pull/7112) | #7109 | feat(gate): check registry and version 2 record in the accep |
 
 ---
 
