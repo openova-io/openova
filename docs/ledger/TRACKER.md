@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-12T23:00:05Z` |
+| Last refreshed | `2026-11-12T23:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-12T23:06 | [#7207](https://github.com/openova-io/openova/pull/7207) | #7188 | ci: add the provider-leak scanner with a falling baseline (C |
+| 2026-11-12T23:05 | [#7206](https://github.com/openova-io/openova/pull/7206) | #7190 | docs(security): generate the security control matrix from a  |
 | 2026-11-12T22:51 | [#7205](https://github.com/openova-io/openova/pull/7205) | #7193 | fix(catalyst-api): refuse to wipe a handed-over Sovereign un |
 | 2026-11-12T22:50 | [#7204](https://github.com/openova-io/openova/pull/7204) | #7191 | ci: fail a Kyverno engine upgrade to 1.20 while a legacy pol |
 | 2026-11-12T22:50 | [#7203](https://github.com/openova-io/openova/pull/7203) | #7189 | chore(ci): guard that the platform gains no new polling loop |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-12T19:41 | [#7155](https://github.com/openova-io/openova/pull/7155) | #7151 | ci: add the service-model ratchet guard for rules G1 to G9 ( |
 | 2026-11-12T19:41 | [#7154](https://github.com/openova-io/openova/pull/7154) | #7148 | fix(scripts): stop the shell verifier requiring the three re |
 | 2026-11-12T19:41 | [#7153](https://github.com/openova-io/openova/pull/7153) | #7150 | docs(adr): record the service model and narrow the glossary  |
-| 2026-11-12T19:42 | [#7152](https://github.com/openova-io/openova/pull/7152) | #7141 | ci: mirror the Crossplane packages into harbor.openova.io by |
-| 2026-11-12T19:15 | [#7139](https://github.com/openova-io/openova/pull/7139) | #7087 | docs(ledger): plan update: tickets FND-054 and FND-097, furt |
 
 ---
 
