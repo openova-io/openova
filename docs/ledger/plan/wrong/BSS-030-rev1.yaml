@@ -1,0 +1,13 @@
+schema: openova.io/plan-wrong/v1
+id: BSS-030
+ticket_rev: 1
+base_commit: 8599f27c14300ef4aa0ae8a01631df218566bf44
+stage: preflight
+ref: P7
+command: |
+    grep -c '^func sovereignFQDN(prior \[\]\*Step) string {$' tests/acceptance/sovereign/internal/suite/check_front_doors.go
+expected: |
+    1
+actual: |
+    ugrep: warning: tests/acceptance/sovereign/internal/suite/check_front_doors.go: No such file or directory
+reported_at: 2026-11-12T22:18:27Z
