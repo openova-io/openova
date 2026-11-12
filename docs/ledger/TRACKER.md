@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-12T22:15:04Z` |
+| Last refreshed | `2026-11-12T22:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6360](https://github.com/openova-io/openova/issues/6360) | Post-cutover Sovereign sells marketplace apps it cannot install — proxy-docker | Other |
 | [#6362](https://github.com/openova-io/openova/issues/6362) | MCP accepts only handover-signed bearers — a signed-in User cannot reach it; r | Other |
 | [#6364](https://github.com/openova-io/openova/issues/6364) | No vcluster is ever installed — bootstrap-kit slots 54/58/59 that the controll | Other |
 | [#6374](https://github.com/openova-io/openova/issues/6374) | bp-agenity credentialWait: 0 silently renders as 300/5 via sprig default — 'fa | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#7192](https://github.com/openova-io/openova/issues/7192) | NET-042 Retire the two legacy per-Sovereign overlays | Other |
 | [#7193](https://github.com/openova-io/openova/issues/7193) | SOV-030 Wipe refuses a handed-over Sovereign without confirmation | Other |
 | [#7194](https://github.com/openova-io/openova/issues/7194) | SVC-060 Function-test convention and the data charts | Other |
+| [#7197](https://github.com/openova-io/openova/issues/7197) | FND-171 Remove the fabricated playback route and its preflight route | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-12T22:16 | [#7196](https://github.com/openova-io/openova/pull/7196) | #7087 | docs(ledger): plan update: nine tickets read, FND-171, two s |
 | 2026-11-12T22:01 | [#7195](https://github.com/openova-io/openova/pull/7195) | #7172 | fix(huawei): close the peer ports to the internet and add ga |
 | 2026-11-12T21:50 | [#7184](https://github.com/openova-io/openova/pull/7184) | #7087 | docs(ledger): plan update: NET-010 rewritten, two orderings, |
 | 2026-11-12T21:05 | [#7182](https://github.com/openova-io/openova/pull/7182) | #7169 | docs(ledger): title the UAT ledger a regression list and mar |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-12T18:31 | [#7132](https://github.com/openova-io/openova/pull/7132) | #7126 | test(ci): prove the k3s bootstrap flags on a runner with thr |
 | 2026-11-12T18:22 | [#7131](https://github.com/openova-io/openova/pull/7131) | #7087 | docs(ledger): plan update: the identity step accepts either  |
 | 2026-11-12T18:11 | [#7130](https://github.com/openova-io/openova/pull/7130) | #7124 | feat(gate): checks for candidate identity, zero touch, nodes |
-| 2026-11-12T18:18 | [#7129](https://github.com/openova-io/openova/pull/7129) | #7123 | docs(adr): record the cloud abstraction contract and correct |
 
 ---
 
