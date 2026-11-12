@@ -1,21 +1,16 @@
 name: Playwright E2E (console / marketplace / sovereign-admin)
 
-# G117 EPIC — Playwright e2e against the new Catalyst console (catalog
-# drill-down, new-instance dialog, Application detail, Endpoints tab,
-# Launch button silent-SSO).
+# Playwright e2e of the customer storefront (job `marketplace-e2e`) and of
+# the sovereign-admin console (job `bootstrap-ui-e2e`).
 #
-# The console lives at products/catalyst/console — a standalone Astro+Svelte 5
-# app that wraps the SvelteKit-style routes scaffolded by Wave-0. The specs
-# run against the in-tree mock backend (tests/e2e/fixtures/mock-blueprints.yaml)
-# so this gate never needs a live Sovereign; Wave-2 closeout runs them
-# against hw86 with the live catalyst-api.
+# FND-097: this file first held one job, `g117-e2e`, for a console scaffold
+# that was never shipped. The scaffold and that job are removed.
 #
 # #5741 FOLLOW-UP — WHY THIS FILE GREW A SECOND AND THIRD JOB
 #
-# Per CLAUDE.md "There are FOUR front-end trees", this repo has FOUR
-# front-end trees, but until now this workflow's `paths:` named only ONE
-# of them (`products/catalyst/console/**`). An e2e spec added under any of
-# the other three ran on `pull_request` in NO workflow. That is the same
+# The repository has several front-end trees, but until then the `paths:`
+# of this workflow named only the removed scaffold. An e2e spec added under
+# any other tree ran on `pull_request` in NO workflow. That is the same
 # "guard that cannot go red" shape #5741 opened for the Go side, just for
 # Playwright specs instead of `go test`:
 #
@@ -103,14 +98,12 @@ on:
   push:
     branches: [main]
     paths:
-      - 'products/catalyst/console/**'
       - 'core/marketplace/**'
       - 'products/catalyst/bootstrap/ui/**'
       - 'docs/api/catalyst-api-openapi.yaml'
       - '.github/workflows/playwright-e2e.yml'
   pull_request:
     paths:
-      - 'products/catalyst/console/**'
       - 'core/marketplace/**'
       - 'products/catalyst/bootstrap/ui/**'
       - 'docs/api/catalyst-api-openapi.yaml'
@@ -118,48 +111,6 @@ on:
   workflow_dispatch:
 
 jobs:
-  g117-e2e:
-    name: G117 Catalyst console e2e
-    runs-on: ubuntu-24.04  # Playwright has no chromium build for ubuntu-26.04 (ubuntu-latest since 2026-11)
-    timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: products/catalyst/console
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: '22'
-
-      - name: Install dependencies
-        run: |
-          if [ -f package-lock.json ]; then npm ci; else npm install; fi
-
-      - name: Install Playwright browsers
-        run: bash "$GITHUB_WORKSPACE/scripts/playwright-chromium-install.sh"
-
-      - name: Astro build (smoke — fails on type / template errors)
-        env:
-          MOCK_API: '1'
-        run: npm run build
-
-      - name: Run Playwright e2e (MOCK_API=1)
-        env:
-          MOCK_API: '1'
-          CI: '1'
-        run: npx playwright test --reporter=list
-
-      - name: Upload Playwright report on failure
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: g117-playwright-report
-          path: products/catalyst/console/playwright-report/
-          retention-days: 7
-
   marketplace-e2e:
     name: core/marketplace customer-journey e2e
     runs-on: ubuntu-24.04  # Playwright has no chromium build for ubuntu-26.04 (ubuntu-latest since 2026-11)
