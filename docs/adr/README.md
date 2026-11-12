@@ -19,6 +19,7 @@ Format: lightweight ADR (Status / Context / Decision / Consequences / Shipped-vi
 | [0013](0013-cross-org-denial-shape.md) | Cross-Organization denial shape: 403 on assertion, not-found on lookup (MCP `create_application` vs `get_application`) | Accepted |
 | [0014](0014-chargeback-usage-ledger-and-split-deployment.md) | Chargeback: usage ledger as the measurement primitive (not Crossplane), `bp-chargeback` multi-tenant application with split deployment (Sovereign BSS · per-Org · central National Cloud instance) | Proposed |
 | [0015](0015-region-symmetric-gitops-and-native-topology-transitions.md) | Region-symmetric GitOps delivery, one topology contract, native topology transitions (replaces the imperative switchover sequencer) | Accepted |
+| [0016](0016-cloud-abstraction-contract.md) | Cloud abstraction contract: provider port, module contract version 1, cloud profile, provider packs, Workspace hand-over | Accepted |
 | [0022](0022-foundation-gate-release-train-and-execution-protocol.md) | Foundation gate, release train, stability register and execution protocol (supersedes the gate wiring of ADR-0015 decision D9) | Accepted |
 | [0023](0023-sandbox-withdrawn.md) | Sandbox withdrawn; the per-Organization agent workspace and the tool server replace it | Accepted |
 | [0025](0025-organization-vcluster-tier-gate-added-and-removed.md) | The per-Organization vCluster tier gate, added 2026-06-25 and removed 2026-09-10 | Accepted |
