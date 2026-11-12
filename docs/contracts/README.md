@@ -8,7 +8,7 @@ page is the index: one row for each of the nine contracts.
 |---|---|---|---|
 | C1 | Blueprint schema | SVC (service model) | not published yet |
 | C2 | Cloud profile | CLD (cloud abstraction) | not published yet |
-| C3 | Event subjects | CTL (control plane) | `docs/contracts/C3-event-subjects.yaml` |
+| C3 | Event subjects | CTL (control plane) | `docs/contracts/C3-event-subjects.yaml` and `docs/contracts/C3-alert-changed-v1.schema.json` |
 | C4 | Git layout and commit library | CTL (control plane) | `docs/contracts/C4-git-layout-and-commit-library.md` |
 | C5 | Upstream variables | SOV (Sovereign lifecycle) | `docs/contracts/c5-upstream-variables.schema.json` and `docs/contracts/c5-kit-keys.txt` |
 | C6 | Crossplane 2 conventions | CLD (cloud abstraction) | `docs/contracts/c6-crossplane-conventions.md` |
@@ -30,3 +30,6 @@ How to read the table:
 C7, the gate manifest, is checked on every pull request by the workflow
 `gate-manifest`. Its rules are written at the head of
 `scripts/acceptance-gate.py`.
+
+C3 is checked on every pull request by the workflow `check-contracts-ctl`. Its
+rules are written at the head of `scripts/check-event-subjects.py`.
