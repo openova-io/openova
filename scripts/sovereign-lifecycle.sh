@@ -37,12 +37,15 @@ capture() {
   fi
 }
 
-# wipe <id> — DEBUG-BEFORE-WIPE: capture first, ALWAYS, then wipe.
+# wipe <id> [fqdn] — DEBUG-BEFORE-WIPE: capture first, ALWAYS, then wipe.
+# A Sovereign that has been handed over is wiped only with its FQDN as the
+# second argument, sent as header X-Confirm-Sovereign-FQDN; without it the
+# API answers 412 {"error":"confirm-fqdn-required"} and destroys nothing.
 wipe() {
-  local id="$1"
+  local id="$1" fqdn="${2:-}"
   echo "== capture-before-wipe (founder rule 2026-06-08) =="; capture "$id"
   echo "== wiping $id =="
-  curl -sk -X POST -H "Authorization: Bearer $(_tok)" -H "Content-Type: application/json" -d '{}' "${API}/${id}/wipe"
+  curl -sk -X POST -H "Authorization: Bearer $(_tok)" -H "Content-Type: application/json" -H "X-Confirm-Sovereign-FQDN: ${fqdn}" -d '{}' "${API}/${id}/wipe"
   echo "wipe submitted: $id"
 }
 
@@ -120,6 +123,6 @@ case "${1:-}" in
   wipe)      shift; wipe "$@" ;;
   capture)   shift; capture "$@" ;;
   reset-uat) shift; reset_uat "$@" ;;
-  *) echo "usage: $0 {fire <subdomain> [pool] | wipe <id> | capture <id> | reset-uat <env>}"
+  *) echo "usage: $0 {fire <subdomain> [pool] | wipe <id> [fqdn] | capture <id> | reset-uat <env>}"
      echo "  fire ALWAYS resets UAT first; wipe ALWAYS captures the cloud-init log first (#3132)."; exit 2 ;;
 esac

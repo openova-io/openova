@@ -2435,15 +2435,15 @@ func (h *Handler) fireHandover(dep *Deployment) {
 	expiresAt := now.Add(handoverjwt.DefaultTTL)
 	handoverURL := "https://console." + fqdn + "/auth/handover?token=" + url.QueryEscape(tokenStr)
 
-	// Persist the URL + timestamp on the deployment record under the
-	// lock. Doing this BEFORE the SSE emit guarantees a /deployments/
-	// {id} GET that races the SSE event sees the same value the
-	// emit carries — no flap window where the typed event arrived
-	// but the durable record disagreed.
+	// Persist the URL and the timestamps under the lock, BEFORE the SSE
+	// emit, so a GET that races the event sees the same values. Nothing
+	// below returns early: the hand-over is complete from here on, and
+	// the wipe route then asks for confirmation (internal/lifecycle).
 	dep.mu.Lock()
 	if dep.Result != nil {
 		dep.Result.HandoverFiredAt = &now
 		dep.Result.HandoverURL = handoverURL
+		dep.Result.HandoverCompletedAt = &now
 	}
 	dep.mu.Unlock()
 	h.persistDeployment(dep)
