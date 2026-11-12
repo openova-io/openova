@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-12T19:45:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Last refreshed | `2026-11-12T20:00:02Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-12T19:48 | [#7160](https://github.com/openova-io/openova/pull/7160) | #7087 | docs(ledger): dashboard refreshed: 27 tasks delivered |
 | 2026-11-12T19:39 | [#7159](https://github.com/openova-io/openova/pull/7159) | #7144 | feat(contracts): publish contracts C3 and C4 with the event- |
 | 2026-11-12T19:38 | [#7158](https://github.com/openova-io/openova/pull/7158) | #7143 | chore(ci): guard that catalyst-api and core/services gain no |
 | 2026-11-12T19:31 | [#7157](https://github.com/openova-io/openova/pull/7157) | #7087 | docs(ledger): plan update: repaired tickets NET-050 and CTL- |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-12T16:49 | [#7110](https://github.com/openova-io/openova/pull/7110) | #7087 | docs(ledger): the north-star dashboard as one offline page |
 | 2026-11-12T16:48 | [#7107](https://github.com/openova-io/openova/pull/7107) | #7087 | docs(ledger): plan update: tickets FND-014 and FND-032, mana |
 | 2026-11-12T14:38 | [#7105](https://github.com/openova-io/openova/pull/7105) | #7093 | fix(ci): auth, shared and the whole billing module are teste |
-| 2026-11-12T14:22 | [#7104](https://github.com/openova-io/openova/pull/7104) | #7094 | chore(ci): Go lint ratchet on changed lines (FND-053) |
 
 ---
 
