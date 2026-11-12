@@ -111,6 +111,69 @@ def merge_date_for(ref: str) -> str | None:
         return None
 
 
+# ── HTML <table> ledger (since 2026-08-20, ca3486cf4) ───────────────────
+# The ledger is one `<tr>` per row: <td>id<br><sub>area · issue</sub></td>
+# <td>📷</td><td>RESULT<br><sub>env-date</sub></td><td>test case</td>
+# <td>evidence</td>. Neither the markers nor `| sso |` pipe rows exist any
+# more, so every SSO-path merge ended FATAL (first hit: PR #7085, Refs
+# #7067). Same semantics as flip_area_rows; the rewrite swaps ONLY the inner
+# html of the Result and Evidence cells, like reset-uat.py's carry_tr.
+_HTML_TR = re.compile(r"<tr\b", re.I)
+_HTML_TD = re.compile(r"(<t[dh]\b[^>]*>)(.*?)(</t[dh]>)", re.I | re.S)
+_HTML_SSO_AREA = re.compile(r"<sub>\s*sso\s*·", re.I)
+_HTML_RESULT_VERIFIED = re.compile(r"^(\s*(?:<(?:strong|b|em|i)>\s*)*)(✅|⚠️)")
+
+
+def _sub_cells(line: str, replacements: dict) -> str:
+    out, last, idx = [], 0, 0
+    for m in _HTML_TD.finditer(line):
+        if idx in replacements:
+            out.append(line[last:m.start()])
+            out.append(m.group(1) + replacements[idx] + m.group(3))
+            last = m.end()
+        idx += 1
+    out.append(line[last:])
+    return "".join(out)
+
+
+def flip_html_rows(text: str, ref: str, merge_date: str | None = None) -> tuple[str, list[str]]:
+    today = datetime.date.today().isoformat()
+    flipped: list[str] = []
+    protected: list[str] = []
+    out_lines: list[str] = []
+    saw_sso_row = False
+    for line in text.splitlines():
+        cells = _HTML_TD.findall(line) if _HTML_TR.search(line) else []
+        if len(cells) in (4, 5) and _HTML_SSO_AREA.search(cells[0][1]):
+            saw_sso_row = True
+            row_id = re.sub(r"<[^>]+>", " ", cells[0][1]).split()[0]
+            result_inner = cells[2][1]
+            m = _HTML_RESULT_VERIFIED.match(result_inner)
+            if m:
+                ev_idx = len(cells) - 1
+                ev_inner = cells[ev_idx][1]
+                ev_date = evidence_date(ev_inner)
+                if merge_date and ev_date and ev_date >= merge_date:
+                    protected.append(f"{row_id} (evidence {ev_date} >= merge {merge_date})")
+                    out_lines.append(line)
+                    continue
+                new_result = result_inner[:m.start(2)] + "☐" + result_inner[m.end(2):]
+                new_ev = f"UNVERIFIED (flipped {today} by {ref}) — was: {ev_inner}"
+                line = _sub_cells(line, {2: new_result, ev_idx: new_ev})
+                flipped.append(row_id)
+        out_lines.append(line)
+    if protected:
+        print(
+            f"#5597 evidence-age floor: kept {len(protected)} row(s) whose walk "
+            f"post-dates {ref}: {', '.join(protected)}",
+            file=sys.stderr,
+        )
+    if not saw_sso_row:
+        print("FATAL: HTML ledger carries no `sso` area rows", file=sys.stderr)
+        sys.exit(2)
+    return "\n".join(out_lines) + ("\n" if text.endswith("\n") else ""), flipped
+
+
 def flip_area_rows(text: str, ref: str, merge_date: str | None = None) -> tuple[str, list[str]]:
     """Marker-less mode: flip consolidated-ledger rows whose area column is
     `sso` and whose verdict claims a verified state (✅/⚠️) back to ☐.
@@ -118,6 +181,8 @@ def flip_area_rows(text: str, ref: str, merge_date: str | None = None) -> tuple[
     or un-gate what was measured). Ledger row shape:
     | id | area | issue | criterion | env | verdict | evidence |
     """
+    if _HTML_TR.search(text) and not re.search(r"^\| *\d+ *\| *sso *\|", text, re.M):
+        return flip_html_rows(text, ref, merge_date)
     today = datetime.date.today().isoformat()
     row_re = re.compile(r"^\| *\d+ *\| *sso *\|")
     flipped: list[str] = []

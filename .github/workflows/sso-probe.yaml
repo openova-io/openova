@@ -73,7 +73,7 @@ jobs:
       - name: Install playwright + chromium
         run: |
           npm install --no-save playwright@1.46.0
-          npx playwright install --with-deps chromium
+          bash "$GITHUB_WORKSPACE/scripts/playwright-chromium-install.sh"
 
       - name: Resolve target
         id: target

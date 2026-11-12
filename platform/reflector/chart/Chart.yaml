@@ -30,4 +30,13 @@ maintainers:
 dependencies:
   - name: reflector
     version: "7.1.288"
-    repository: "https://emberstack.github.io/helm-charts"
+    # Vendored copy (charts/reflector, unmodified upstream 7.1.288 bytes),
+    # like bp-seaweedfs: the upstream index now lists chart URLs as the
+    # relative path `repository/reflector/…`, which Helm misreads as a repo
+    # alias ("repo repository not found"), so `helm dependency build` from
+    # https://emberstack.github.io/helm-charts can no longer resolve it
+    # (CI helm-lint on PR #7085; Refs #7067).
+    repository: "file://charts/reflector"
+annotations:
+  catalyst.openova.io/vendored-subchart: "reflector@7.1.288"
+  catalyst.openova.io/vendored-reason: "upstream index lists relative chart URLs Helm cannot resolve"
