@@ -1765,8 +1765,8 @@ func TestBootstrapKit_LbIpamSharingCrossNamespace(t *testing.T) {
 			}
 		}
 	}
-	if checked < 4 {
-		t.Fatalf("only %d files carry the sovereign-vip sharing-key — expected ≥4 (template 01-cilium + template 11-powerdns + per-Sovereign copies + values-clustermesh.yaml); the guard's file enumeration is broken", checked)
+	if checked < 3 {
+		t.Fatalf("only %d files carry the sovereign-vip sharing-key — expected ≥3 (template 01-cilium + template 11-powerdns + values-clustermesh.yaml); the guard's file enumeration is broken", checked)
 	}
 	t.Logf("sovereign-vip sharing contract: %d files checked, every sharing-key has its cross-namespace grant, zero wildcard grants", checked)
 }
