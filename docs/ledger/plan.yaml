@@ -215,7 +215,7 @@ epics:
 - id: SEC-160
   title: 'EPIC: OpenBao 2.7 with the seal out of etcd'
   wave: W1a
-  packages: [SEC-150, SEC-161, SEC-162, SEC-155]
+  packages: [SEC-161, SEC-150, SEC-162, SEC-155]
 - id: SEC-210
   title: 'EPIC: injection'
   wave: W1a
@@ -1272,10 +1272,10 @@ packages:
   epic: null
   type: guard
   wave: W0
-  size: S
+  size: M
   lane: RAILS
   depends_on: [FND-022]
-  after: [FND-023]
+  after: []
   touches:
   - docs/ledger/stability.yaml
   - scripts/check-frozen-paths.py
@@ -1285,16 +1285,32 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/stability.yaml; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "python3 scripts/check-frozen-paths.py --self-test"
+  - id: A2
+    run: "test \"$(python3 scripts/check-frozen-paths.py classify | grep -c .)\" -ge 22"
+  - id: A3
+    run: "python3 scripts/plan.py --self-test"
+  - id: A4
+    run: "out=\"$(python3 scripts/plan.py --self-test)\" && test \"$(grep -c -E 'stability (entry|register)' <<<\"$out\")\" = 6"
+  - id: A5
+    run: "printf '%s  %s\\n' b5348e5c3934da913614e9acc1460cfe5fdc438679a7d11cc844499bb4400bdd docs/ledger/stability.yaml 9769ae1c11b776c9b33e82a395489c66a8e38b8a67c1549603231a6882b742c8 scripts/check-frozen-paths.py | sha256sum -c --quiet -"
+  - id: A6
+    run: "python3 -c \"import sys, yaml; steps = yaml.safe_load(open('.github/workflows/work-package.yaml'))['jobs']['frozen-paths']['steps']; run = '\\n'.join(s.get('run', '') for s in steps); sys.exit(0 if 'python3 scripts/check-frozen-paths.py --self-test' in run and run.count('python3 scripts/check-frozen-paths.py check --base ') == 2 else 1)\""
+  - id: A7
+    run: "printf 'Work-Package: FND-040\\n' | python3 scripts/check-frozen-paths.py check --base origin/main --head HEAD --body-file /dev/stdin"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: One register names every surface with its class, and CI fails a change to a closed or frozen path.
+  delivers: The stability register names every surface with its paths, class, change policy and evidence, and CI fails a work package that changes a closed, fix-only or frozen path against its policy.
 - id: FND-051
   title: Billing-engine and tool-server tests run on pull requests
   area: FND
@@ -1478,21 +1494,34 @@ packages:
   depends_on: []
   after: []
   touches:
-  - .github/workflows/security-scan.yaml
   - scripts/scan-baseline.py
-  - docs/ledger/scan-baseline.json
+  - .github/workflows/security-scan.yaml
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e .github/workflows/security-scan.yaml; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "python3 scripts/scan-baseline.py --self-test"
+  - id: A2
+    run: "grep -c 'trivy' .github/workflows/security-scan.yaml | grep -qv '^0$'"
+  - id: A3
+    run: "test -f .github/workflows/security-scan.yaml && ! grep -qi 'grype' .github/workflows/security-scan.yaml"
+  - id: A4
+    run: "python3 -c \"import yaml; d=yaml.safe_load(open('.github/workflows/security-scan.yaml')); j=d['jobs']; assert set(d[True]) == {'pull_request', 'merge_group'} and d[True]['pull_request'] is None; assert list(j) == ['security-scan'] and j['security-scan']['name'] == 'security-scan'; assert d['env']['TRIVY_VERSION'] == '0.76.1'; assert [x.get('name') for x in j['security-scan']['steps']][1:] == ['Self-test of the comparison', 'Install Trivy', 'Probe (an old finding passes, a new vulnerability and a new secret fail)', 'Check out the merge base and the change', 'Scan the merge base', 'Scan the change', 'Fail on a new finding']\""
+  - id: A5
+    run: "test \"$(sha256sum < .github/workflows/security-scan.yaml)\" = \"200d7b209be2625bbdca5a934d7b19f400008fb6e8133b1416534d81d61d5b74  -\""
+  - id: A6
+    run: "test \"$(sha256sum < scripts/scan-baseline.py)\" = \"4c62e3c1beaa728fee80360b57b8b724ccca9d2043b2d9d359d35728769c98a3  -\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
   delivers: A pull request fails on a new vulnerability or secret finding, with Trivy as the one image and file-system matcher.
 - id: FND-056
@@ -2317,7 +2346,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [FND-102, FND-103]
-  after: [FND-096, FND-097, FND-101, FND-105]
+  after: [FND-096, FND-097, FND-101, FND-105, SEC-110, BSS-020]
   touches:
   - docs/ARCHITECTURE.md
   - docs/STATUS.md
@@ -2479,7 +2508,7 @@ packages:
   size: S
   lane: GATE
   depends_on: [FND-080]
-  after: [FND-054, FND-091, FND-092, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-099, FND-171, FND-173, SOV-035, CLD-010, NET-010, BSS-030]
+  after: [FND-054, FND-091, FND-092, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-099, FND-171, FND-173, SOV-035, FND-040, CLD-010, NET-010, BSS-030]
   touches:
   - docs/ledger/stability.yaml
   - docs/ledger/gates.yaml
@@ -2865,7 +2894,7 @@ packages:
   size: S
   lane: RAILS
   depends_on: [FND-162, FND-163, FND-164, FND-165]
-  after: [FND-023, FND-101, SOV-030, NET-042]
+  after: [FND-023, FND-040, FND-101, SOV-030, NET-042]
   touches:
   - scripts/check-function-rows-cite-acceptance.py
   - scripts/check-uat-fix-sha-citations.py
@@ -3072,7 +3101,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [FND-106]
-  after: [CLD-070, NET-050, SVC-010, BSS-010, ACC-060]
+  after: [CLD-070, CLD-071, SEC-006, NET-050, SVC-010, CMP-005, BSS-010, AIP-060, ACC-060]
   touches:
   - docs/adr/0036-backup-and-restore.md
   - docs/adr/README.md
@@ -3351,7 +3380,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [FND-201, FND-106]
-  after: [CLD-070, NET-050, SVC-010, BSS-010, ACC-060]
+  after: [CLD-070, CLD-071, SEC-006, NET-050, SVC-010, CMP-005, BSS-010, AIP-060, ACC-060]
   touches:
   - docs/adr/0035-observability-pipeline.md
   - docs/adr/README.md
@@ -4028,7 +4057,7 @@ packages:
   size: XS
   lane: CONTRACTS
   depends_on: []
-  after: [FND-106, CLD-070, NET-050, SVC-010, BSS-010, ACC-060]
+  after: []
   touches:
   - docs/adr/0024-primary-substrate.md
   - docs/adr/README.md
@@ -4036,16 +4065,32 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "ls docs/adr | grep -c '^0024-'"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "test \"$(sha256sum < docs/adr/0024-primary-substrate.md | cut -d' ' -f1)\" = 2bc3271f84e18d8159194be40b9f2417b14ae797d347e4699a5a9e2b186a8002 && test \"$(ls docs/adr | grep -c '^0024-')\" = 1"
+  - id: A2
+    run: "test \"$(sed -n '3p' docs/adr/0024-primary-substrate.md)\" = 'Status: Accepted' && test \"$(sed -n '4p' docs/adr/0024-primary-substrate.md)\" = 'Date: 2026-11-13' && test \"$(grep -c '^Status: ' docs/adr/0024-primary-substrate.md)\" = 1 && test \"$(grep -c -E '^(Supersedes|Unfreezes|Retires-Check):' docs/adr/0024-primary-substrate.md)\" = 0"
+  - id: A3
+    run: "test \"$(grep -c -x -F '| [0024](0024-primary-substrate.md) | The primary substrate moved on 2026-05-22: a Huawei Cloud Stack installation is the primary substrate; Hetzner stays an unproven second provider until it is proven again or retired | Accepted |' docs/adr/README.md)\" = 1 && test \"$(grep -c -F '[0024]' docs/adr/README.md)\" = 1 && python3 -c 'import re; n = [int(l[3:7]) for l in open(\"docs/adr/README.md\", encoding=\"utf-8\") if re.match(r\"\\| \\[[0-9]{4}\\]\\(\", l)]; print(n); raise SystemExit(0 if 24 in n and n == sorted(set(n)) else 1)'"
+  - id: A4
+    run: "test \"$(git diff --numstat origin/main -- docs/adr/README.md | cut -f1,2 | tr '\\t' ' ')\" = '1 0'"
+  - id: A5
+    run: "python3 -c 'import os, re, sys; t = open(\"docs/adr/0024-primary-substrate.md\", encoding=\"utf-8\").read(); p = sorted(set(re.findall(r\"`((?:docs|platform|products|infra|\\.github)/[^`*]+)`\", t)) - {\"infra/hetzner/\"}); bad = [x for x in p if not os.path.exists(x)]; print(len(p), bad); sys.exit(1 if bad or len(p) < 15 or os.path.exists(\"infra/hetzner\") or \"`infra/hetzner/`\" not in t else 0)'"
+  - id: A6
+    run: "python3 -c 'import re, yaml; plan = yaml.safe_load(open(\"docs/ledger/plan.yaml\")); known = {p[\"id\"] for p in plan[\"packages\"] if not p[\"dropped\"]} | {e[\"id\"] for e in plan[\"epics\"]} | {c[\"id\"] for c in yaml.safe_load(open(\"docs/ledger/gates.yaml\"))[\"checks\"]}; cited = set(re.findall(r\"\\b[A-Z]{3}-(?:[0-9]{3}|G[0-9]{2}|S[0-9])\\b\", open(\"docs/adr/0024-primary-substrate.md\", encoding=\"utf-8\").read())); missing = sorted(cited - known); print(len(cited), missing); raise SystemExit(1 if missing or len(cited) < 11 else 0)'"
+  - id: A7
+    run: "python3 -c 'import re, subprocess, sys; c = sorted(set(re.findall(r\"`([0-9a-f]{9})`\", open(\"docs/adr/0024-primary-substrate.md\", encoding=\"utf-8\").read()))); bad = [x for x in c if subprocess.run([\"git\", \"cat-file\", \"-e\", x + \"^{commit}\"], capture_output=True).returncode != 0]; print(len(c), bad); sys.exit(1 if bad or len(c) < 6 else 0)'"
   rollback: revert
   adr: 24
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'Decision record 0024: the primary substrate moved on 2026-05-22; status of the earlier substrate.'
+  delivers: Decision record 0024 states that a Huawei Cloud Stack installation has been the primary substrate since 2026-05-22 and that Hetzner stays an unproven second provider until work package CLD-182 proves it or work package CLD-190 retires it, with the header lines Status and Date; the index of decision records lists it in number order.
 - id: CLD-075
   title: Generator for the provider and profile tables
   area: CLD
@@ -4083,7 +4128,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [CLD-075]
-  after: [FND-101, SEC-020, SVC-060]
+  after: [FND-101, SEC-020, SEC-110, SVC-060, BSS-020]
   touches:
   - docs/ARCHITECTURE.md
   - docs/STATUS.md
@@ -5777,7 +5822,7 @@ packages:
   size: XS
   lane: CONTRACTS
   depends_on: [FND-070]
-  after: [FND-097, FND-101, FND-106, FND-173]
+  after: [FND-097, FND-101, FND-106, FND-173, SEC-110, BSS-020]
   touches:
   - docs/adr/0002-post-handover-sovereignty-cutover.md
   - docs/STATUS.md
@@ -7228,7 +7273,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [SOV-610]
-  after: []
+  after: [FND-040]
   touches:
   - docs/adr/0017-sovereign-lifecycle.md
   - docs/ledger/stability.yaml
@@ -7806,24 +7851,38 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [FND-106]
-  after: [CLD-070, NET-050, SVC-010, BSS-010, ACC-060]
+  after: []
   touches:
-  - docs/adr/0018-*.md
+  - docs/adr/0018-secrets-and-trust.md
   - docs/adr/README.md
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "ls docs/adr | grep -c '^0018-'"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "test \"$(sha256sum < docs/adr/0018-secrets-and-trust.md | cut -d' ' -f1)\" = 4978e0c8bf28818eb5a4a8efd0d18843a662350b5033d8ab521fcf8ec396fc8e && test \"$(ls docs/adr | grep -c '^0018-')\" = 1"
+  - id: A2
+    run: "test \"$(sed -n '3p' docs/adr/0018-secrets-and-trust.md)\" = 'Status: Accepted' && test \"$(grep -c '^Status: ' docs/adr/0018-secrets-and-trust.md)\" = 1 && python3 -c 'import re, sys; t = open(\"docs/adr/0018-secrets-and-trust.md\", encoding=\"utf-8\").read(); d = [n for n in range(1, 22) if len(re.findall(r\"^\\*\\*S%d [A-Z`]\" % n, t, re.M)) == 1]; r = [n for n in range(1, 22) if len(re.findall(r\"^\\*\\*S%d\\.\\*\\* \" % n, t, re.M)) == 1]; print(len(d), len(r)); sys.exit(0 if len(d) == 21 and len(r) == 21 else 1)'"
+  - id: A3
+    run: "test \"$(grep -c -x -F '| [0018](0018-secrets-and-trust.md) | Secrets and trust: credentials injected from OpenBao and never Secret objects, four tiers, the seal-provider contract, the state key, producer identities, one image verifier at admission | Accepted |' docs/adr/README.md)\" = 1 && test \"$(grep -c -F '[0018]' docs/adr/README.md)\" = 1 && python3 -c 'import re; n = [int(l[3:7]) for l in open(\"docs/adr/README.md\", encoding=\"utf-8\") if re.match(r\"\\| \\[[0-9]{4}\\]\\(\", l)]; print(n); raise SystemExit(0 if 18 in n and n == sorted(set(n)) else 1)'"
+  - id: A4
+    run: "test \"$(git diff --numstat origin/main -- docs/adr/README.md | cut -f1,2 | tr '\\t' ' ')\" = '1 0'"
+  - id: A5
+    run: "python3 -c 'import os, re, sys; t = open(\"docs/adr/0018-secrets-and-trust.md\", encoding=\"utf-8\").read(); p = sorted(set(re.findall(r\"`((?:docs|platform|products|scripts|infra|clusters|core)/[^`*<]+)`\", t))); bad = [x for x in p if not os.path.exists(x)]; print(len(p), bad); sys.exit(1 if bad or len(p) < 12 else 0)'"
+  - id: A6
+    run: "python3 -c 'import re, yaml; plan = yaml.safe_load(open(\"docs/ledger/plan.yaml\")); known = {p[\"id\"] for p in plan[\"packages\"] if not p[\"dropped\"]} | {e[\"id\"] for e in plan[\"epics\"]} | {c[\"id\"] for c in yaml.safe_load(open(\"docs/ledger/gates.yaml\"))[\"checks\"]}; cited = set(re.findall(r\"\\b[A-Z]{3}-(?:[0-9]{3}|G[0-9]{2}|S[0-9])\\b\", open(\"docs/adr/0018-secrets-and-trust.md\", encoding=\"utf-8\").read())); missing = sorted(cited - known); print(len(cited), missing); raise SystemExit(1 if missing or len(cited) < 60 else 0)'"
   rollback: revert
   adr: 18
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'One accepted decision record with decisions S1 to S21 of section 1: injection, tiers, seal, state key, producer identities, verification at admission.'
+  delivers: Decision record 0018 states how the platform keeps and delivers secrets, in twenty-one numbered decisions with the alternatives each one rejects, with the header line Status Accepted; the index of decision records lists it in number order.
 - id: SEC-010
   title: Security fix. Its text is published with its ticket.
   area: SEC
@@ -7993,16 +8052,26 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e core/services/provisioning/gitops/secret_literal_ratchet_test.go; echo \"exit code: $?\""
+    expect: "exit code: 1"
+  acceptance:
+  - id: A1
+    run: "(cd core/services/provisioning/gitops && go test . -run '^TestSecretLiteralRatchet$' -count=1 -v 2>&1) | grep -E '^--- PASS: TestSecretLiteralRatchet ' > /dev/null"
+  - id: A2
+    run: "(cd core/services/provisioning/gitops && b=testdata/secret-literal-baseline.txt && t=\"$(mktemp)\" && cp \"$b\" \"$t\" && trap 'cp \"$t\" \"$b\"; rm -f \"$t\" \"$t.out\"' EXIT && sed -i '1d' \"$b\" && if go test . -run '^TestSecretLiteralRatchet$' -count=1 > \"$t.out\" 2>&1; then exit 1; fi && grep -F 'is not in the baseline' \"$t.out\" > /dev/null)"
+  - id: A3
+    run: "(cd core/services/provisioning/gitops && b=testdata/secret-literal-baseline.txt && t=\"$(mktemp)\" && cp \"$b\" \"$t\" && trap 'cp \"$t\" \"$b\"; rm -f \"$t\" \"$t.out\"' EXIT && grep -x -F 'vcluster/apps/app-wordpress.yaml:2' \"$b\" > /dev/null && sed -i 's#^vcluster/apps/app-wordpress\\.yaml:2$#vcluster/apps/app-wordpress.yaml:1#' \"$b\" && if go test . -run '^TestSecretLiteralRatchet$' -count=1 > \"$t.out\" 2>&1; then exit 1; fi && grep -F 'vcluster/apps/app-wordpress.yaml rose from 1 to 2' \"$t.out\" > /dev/null)"
+  - id: A4
+    run: "printf '%s  %s\\n' 73ddf86f827daa0cf615bc6f218ca68693c24bdd54ccb9329dcfdcfcd5d92d71 core/services/provisioning/gitops/secret_literal_ratchet_test.go 7e3fb0f3c8adb95b5af9ffcd6d101ba1112982fc6c696bf919b210870a2e9947 core/services/provisioning/gitops/testdata/secret-literal-baseline.txt | sha256sum -c --quiet -"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Sentinel test and baseline listing every output file that carries the password; count may only fall.
+  delivers: A test counts, per output file, the lines on which the provisioning service writes the database password into Git, and fails when a count rises or a new file carries it.
 - id: SEC-073
   title: Security fix. Its text is published with its ticket.
   area: SEC
@@ -8231,27 +8300,40 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [FND-105]
-  after: [FND-101]
+  after: []
   touches:
   - docs/SECURITY.md
+  - docs/STATUS.md
   - platform/openbao/README.md
   - platform/external-secrets/README.md
-  - docs/STATUS.md
   - docs/ledger/controls.yaml
+  - docs/generated/security-controls.md
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c 'Performance Replication' platform/openbao/README.md"
+    expect: "3"
+  acceptance:
+  - id: A1
+    run: "python3 scripts/generators/controls.py --check && python3 -I -c \"import yaml, sys; c = yaml.safe_load(open('docs/ledger/controls.yaml', encoding='utf-8'))['controls']; got = sorted((x['id'], x.get('gate_check'), x.get('decision'), x.get('guard')) for x in c if x.get('gate_check') or x.get('decision') or x.get('guard')); want = [('dynamic-db-credentials', 'SEC-G13', None, None), ('network-policy', 'NET-G06', 'ADR-0019', None), ('openbao-audit-log', 'SEC-G05', None, None), ('secrets-at-rest', 'SEC-G01', None, None), ('signed-artefacts-only', 'SEC-G14', None, None)]; sys.exit(0 if got == want and len(c) == 19 else 1)\""
+  - id: A2
+    run: "test \"$(git grep -c -i -E 'Encrypted at rest in etcd|Performance Replication|perf replication|never in a K8s Secret|persisted only inside OpenBao|What.s NEVER in Git|replication delivers' -- docs/SECURITY.md platform/openbao/README.md platform/external-secrets/README.md | wc -l)\" = 0"
+  - id: A3
+    run: "test \"$(grep -c -x -F '<!-- sec-threat-model:begin -->' docs/SECURITY.md)\" = 1 && test \"$(grep -c -x -F '<!-- sec-threat-model:end -->' docs/SECURITY.md)\" = 1 && sed -n '/^## 10\\. /,/^## 11\\. /p' docs/SECURITY.md | sed -n '/^<!-- sec-threat-model:begin -->$/,/^<!-- sec-threat-model:end -->$/p' > /tmp/SEC-110-threat-model.md && test \"$(sed -n 2p /tmp/SEC-110-threat-model.md)\" = '| Actor | Obtains today | Obtains in the target |' && test \"$(grep -c '^| ' /tmp/SEC-110-threat-model.md)\" = 11"
+  - id: A4
+    run: "for h in '## 4. Dynamic credentials' '## 5. Multi-region OpenBao — INDEPENDENT, NOT STRETCHED' '## 7. Rotation policy'; do awk -v h=\"$h\" '$0 == h {f = 1; next} f && NF {print; exit}' docs/SECURITY.md | grep -q '^Target, not built\\. '; done; grep -q -x -F '**What must never be in Git, and what is true today:**' docs/SECURITY.md && grep -q -F 'The init Job keeps that key in the Secret `openbao-unseal-keys`' docs/SECURITY.md && grep -q -F 'The auth-bootstrap Job revokes that root token at the end of its run' docs/SECURITY.md"
+  - id: A5
+    run: "grep -q -F '| OpenBao (per region, independent Raft) | \U0001F6A7 | Installed by the bootstrap kit' docs/STATUS.md && grep -q -F '| External Secrets Operator | \U0001F6A7 | Installed by the bootstrap kit' docs/STATUS.md && grep -q -F 'Not wired today: the organization-controller Deployment sets neither `CATALYST_OPENBAO_ADDR` nor `CATALYST_OPENBAO_TOKEN`' docs/STATUS.md && test \"$(grep -c -F 'Multi-region replication semantics agreed' docs/STATUS.md)\" = 0"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: False claims replaced by present facts; target sections marked; threat-model table inserted between markers; values of docs/ledger/controls.yaml filled. The claims inside the old threat table are not edited, because FND-105 replaces that table.
+  delivers: The security documents state what is true of secrets today, mark the sections that describe a design not yet built, hold a threat model between two markers, and the control file names the gate check of five controls.
 - id: SEC-115
   title: SECURITY.md section 5 rewritten to the built state
   area: SEC
@@ -8528,7 +8610,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [SEC-100, SEC-130, SEC-150, SEC-161]
-  after: [FND-011, FND-033, FND-034, CLD-010, NET-010, CMP-010, BSS-030]
+  after: [FND-011, FND-033, FND-034, CLD-010, SEC-110, NET-010, CMP-010, BSS-030]
   touches:
   - platform/openbao/chart/Chart.yaml
   - platform/openbao/chart/values.yaml
@@ -9648,7 +9730,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271]
-  after: [FND-011, FND-014, FND-021, FND-022, FND-023, FND-031, FND-032, FND-033, FND-034, FND-052, FND-053, FND-054, FND-091, FND-092, FND-093, FND-094, FND-097, FND-101, FND-102, FND-103, FND-105, FND-110, FND-171, CLD-010, CLD-040, CLD-063, SOV-030, SEC-020, SEC-125, NET-030, NET-033, NET-050, SVC-020, SVC-060, CTL-010, CTL-020, CTL-025, CTL-044, CMP-014, INF-010, PRD-030]
+  after: [FND-011, FND-014, FND-021, FND-022, FND-023, FND-031, FND-032, FND-033, FND-034, FND-040, FND-052, FND-053, FND-054, FND-055, FND-091, FND-092, FND-093, FND-094, FND-097, FND-101, FND-102, FND-103, FND-105, FND-110, FND-171, CLD-010, CLD-040, CLD-063, SOV-030, SEC-020, SEC-125, NET-030, NET-033, NET-050, SVC-020, SVC-060, CTL-010, CTL-020, CTL-025, CTL-044, CMP-012, CMP-014, BSS-050, INF-010, PRD-030]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/26-image-signature.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -10494,7 +10576,7 @@ packages:
   size: XS
   lane: CONTRACTS
   depends_on: [FND-106]
-  after: [CLD-070, NET-050, SVC-010, BSS-010, ACC-060]
+  after: [CLD-070, CLD-071, SEC-006, NET-050, SVC-010, CMP-005, BSS-010, AIP-060, ACC-060]
   touches:
   - docs/adr/README.md
   resources: []
@@ -10520,7 +10602,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [FND-104, NET-050]
-  after: [SVC-010]
+  after: [SEC-110, SVC-010]
   touches:
   - docs/ARCHITECTURE.md
   - docs/DOD.md
@@ -11930,7 +12012,7 @@ packages:
   size: XS
   lane: CONTRACTS
   depends_on: [NET-270]
-  after: [FND-106, CLD-070, NET-050, SVC-010, BSS-010, ACC-060]
+  after: [FND-106, CLD-070, CLD-071, SEC-006, NET-050, SVC-010, CMP-005, BSS-010, AIP-060, ACC-060]
   touches:
   - docs/adr/README.md
   resources: []
@@ -12088,7 +12170,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [NET-290]
-  after: [FND-106, CLD-070, NET-050, SVC-010, BSS-010, ACC-060]
+  after: [FND-106, CLD-070, CLD-071, SEC-006, NET-050, SVC-010, CMP-005, BSS-010, AIP-060, ACC-060]
   touches:
   - docs/adr/
   resources: []
@@ -12465,7 +12547,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [FND-011, SVC-020]
-  after: [FND-014, FND-054, FND-091, FND-093, FND-094, FND-097, FND-171, CLD-070, SOV-030, NET-030, NET-050, SVC-060, CMP-016]
+  after: [FND-014, FND-054, FND-091, FND-093, FND-094, FND-097, FND-171, CLD-070, SOV-030, SEC-110, NET-030, NET-050, SVC-060, CMP-016, BSS-020]
   touches:
   - platform/*/blueprint.yaml
   - products/*/blueprint.yaml
@@ -14101,7 +14183,7 @@ packages:
   size: XS
   lane: CONTRACTS
   depends_on: [CTL-050]
-  after: [FND-106, CLD-070, NET-050, SVC-010, BSS-010, ACC-060]
+  after: [FND-106, CLD-070, CLD-071, SEC-006, NET-050, SVC-010, CMP-005, BSS-010, AIP-060, ACC-060]
   touches:
   - docs/adr/README.md
   - docs/adr/0009-per-org-iac-repo-bootstrap.md
@@ -14403,7 +14485,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-122, CTL-130, CTL-160, FND-032, FND-130]
-  after: [CLD-010, NET-010, CTL-020, BSS-030, INF-010, PRD-030]
+  after: [CLD-010, NET-010, CTL-020, CMP-012, BSS-030, BSS-050, INF-010, PRD-030]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/handler.go
   - products/catalyst/bootstrap/api/internal/handler/applications.go
@@ -14814,7 +14896,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-205]
-  after: [NET-042, CTL-020, INF-010, PRD-030]
+  after: [SEC-071, NET-042, CTL-020, CMP-012, BSS-050, INF-010, PRD-030]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/organization_gitops.go
   - organization_provisioning.go
@@ -14905,7 +14987,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-120, CTL-130, CTL-162, FND-032]
-  after: [CLD-010, NET-010, CTL-020, BSS-030, INF-010, PRD-030]
+  after: [CLD-010, NET-010, CTL-020, CMP-012, BSS-030, BSS-050, INF-010, PRD-030]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/user_access.go
   - rbac_assign.go
@@ -14966,7 +15048,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CTL-120, CTL-130, CTL-162]
-  after: [CTL-020, INF-010, PRD-030]
+  after: [CTL-020, CMP-012, BSS-050, INF-010, PRD-030]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/marketplace_settings.go
   - products/catalyst/bootstrap/api/internal/intent/settings.go
@@ -15394,7 +15476,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-035]
-  after: [CTL-020, CTL-044, INF-010, PRD-030]
+  after: [CTL-020, CTL-044, CMP-012, BSS-050, INF-010, PRD-030]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/sovereign.go
   - applications.go
@@ -15843,7 +15925,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [CTL-055, FND-120]
-  after: [CLD-070, NET-050, SVC-010, BSS-010, ACC-060]
+  after: [CLD-070, CLD-071, SEC-006, NET-050, SVC-010, CMP-005, BSS-010, AIP-060, ACC-060]
   touches:
   - docs/adr/0027-region-loss-contract.md
   - docs/adr/README.md
@@ -15962,24 +16044,40 @@ packages:
   size: XS
   lane: CONTRACTS
   depends_on: [FND-021]
-  after: [FND-106, CLD-070, NET-050, SVC-010, BSS-010, ACC-060]
+  after: []
   touches:
-  - docs/adr/README.md
   - docs/adr/0029-compliance-plane.md
+  - docs/adr/README.md
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "ls docs/adr | grep -c '^0029-'"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "test \"$(sha256sum < docs/adr/0029-compliance-plane.md | cut -d' ' -f1)\" = 8843267a30919a4a3371efac6dc989675b40ee686960173cac783e2cd86be31a && test \"$(ls docs/adr | grep -c '^0029-')\" = 1"
+  - id: A2
+    run: "test \"$(sed -n '3p' docs/adr/0029-compliance-plane.md)\" = 'Status: Accepted' && test \"$(grep -c '^Status: ' docs/adr/0029-compliance-plane.md)\" = 1 && python3 -c 'import re, sys; t = open(\"docs/adr/0029-compliance-plane.md\", encoding=\"utf-8\").read(); d = [n for n in range(1, 15) if len(re.findall(r\"^\\*\\*K%d [A-Z]\" % n, t, re.M)) == 1]; r = [n for n in range(1, 14) if len(re.findall(r\"^\\*\\*K%d\\.\\*\\* \" % n, t, re.M)) == 1]; print(len(d), len(r)); sys.exit(0 if len(d) == 14 and len(r) == 13 else 1)'"
+  - id: A3
+    run: "test \"$(grep -c -x -F '| [0029](0029-compliance-plane.md) | Compliance plane: one read model, one model object in Git, policy mode and waivers by commit | Accepted |' docs/adr/README.md)\" = 1 && test \"$(grep -c -F '[0029]' docs/adr/README.md)\" = 1 && python3 -c 'import re; n = [int(l[3:7]) for l in open(\"docs/adr/README.md\", encoding=\"utf-8\") if re.match(r\"\\| \\[[0-9]{4}\\]\\(\", l)]; print(n); raise SystemExit(0 if 29 in n and n == sorted(set(n)) else 1)'"
+  - id: A4
+    run: "test \"$(git diff --numstat origin/main -- docs/adr/README.md | cut -f1,2 | tr '\\t' ' ')\" = '1 0'"
+  - id: A5
+    run: "python3 -c 'import os, re, sys; t = open(\"docs/adr/0029-compliance-plane.md\", encoding=\"utf-8\").read(); p = sorted(set(re.findall(r\"`((?:docs|platform|products|scripts|infra|clusters|core|tests)/[^`*<>{} ]+)`\", t))); bad = [x for x in p if not os.path.exists(x)]; print(len(p), bad); sys.exit(1 if bad or len(p) < 21 else 0)'"
+  - id: A6
+    run: "python3 -c 'import re, yaml; plan = yaml.safe_load(open(\"docs/ledger/plan.yaml\")); known = {p[\"id\"] for p in plan[\"packages\"] if not p[\"dropped\"]} | {e[\"id\"] for e in plan[\"epics\"]} | {c[\"id\"] for c in yaml.safe_load(open(\"docs/ledger/gates.yaml\"))[\"checks\"]}; cited = set(re.findall(r\"\\b[A-Z]{3}-(?:[0-9]{3}|G[0-9]{2}|S[0-9])\\b\", open(\"docs/adr/0029-compliance-plane.md\", encoding=\"utf-8\").read())); missing = sorted(cited - known); print(len(cited), missing); raise SystemExit(1 if missing or len(cited) < 40 else 0)'"
+  - id: A7
+    run: "test \"$(grep -c -x -F 'Guarded change classes: none.' docs/adr/0029-compliance-plane.md)\" = 1 && grep -F '`compliance.openova.io`' docs/adr/0029-compliance-plane.md | grep -F '`ComplianceModel`' | grep -c -F '`ComplianceDecision`'"
   rollback: revert
   adr: 29
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Accepted decision record 0029 with K1 to K14 and rejected alternatives, the module kinds in group compliance.openova.io, and the statement that this area names no guarded change class by default; text supplied in the ticket
+  delivers: Decision record 0029 states how the compliance plane works, in decisions K1 to K14 with the alternatives they reject, names the group compliance.openova.io for the two kinds the policy Blueprint brings, states that this area has no guarded change class, and carries the header line Status Accepted; the index of decision records lists it in number order.
 - id: CMP-010
   title: 'Gate checks: the score moves by push; the shown mode is the engine''s mode'
   area: CMP
@@ -16035,7 +16133,7 @@ packages:
   epic: null
   type: guard
   wave: W0
-  size: XS
+  size: S
   lane: RAILS
   depends_on: [FND-110]
   after: []
@@ -16046,16 +16144,28 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "git grep -l acknowledgeLegacyPoliciesNotEnforced -- platform products clusters | wc -l"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "bash scripts/check-kyverno-legacy-policies.sh --self-test | grep -x -F 'self-test: 47 cases passed, 0 failed'"
+  - id: A2
+    run: "rc=0; out=\"$(bash scripts/check-kyverno-legacy-policies.sh)\" || rc=$?; printf '%s\\n' \"$out\"; [ \"$rc\" -eq 0 ]; printf '%s\\n' \"$out\" | grep -q -x -F 'legacy_policy_objects=47'"
+  - id: A3
+    run: "printf '%s\\n' 'e641264cd95545b91ca10636d285814350a15f2ba05b7b674f4d93eb8d662186  scripts/check-kyverno-legacy-policies.sh' '2cfed1452f87cee387ee41d29ae7dbb60bc43a8aff918d219777a96f9aa00446  scripts/baselines/kyverno-legacy.json' | sha256sum -c --quiet -"
+  - id: A4
+    run: "d=\"$(mktemp -d)\"; trap 'rm -rf \"$d\"' EXIT; git ls-files -- platform/kyverno/chart/Chart.yaml platform/kyverno/chart/values.yaml 'platform/**/templates/**' 'products/**/templates/**' | tar -cf - -T - | tar -xf - -C \"$d\"; mkdir -p \"$d/scripts/baselines\"; cp scripts/check-kyverno-legacy-policies.sh \"$d/scripts/\"; cp scripts/baselines/kyverno-legacy.json \"$d/scripts/baselines/\"; printf 'kyverno:\\n  acknowledgeLegacyPoliciesNotEnforced: true\\n' >> \"$d/platform/kyverno/chart/values.yaml\"; git -C \"$d\" init -q; git -C \"$d\" add -A; if bash \"$d/scripts/check-kyverno-legacy-policies.sh\" > \"$d/out.txt\"; then exit 1; fi; grep -q -x -F 'kyverno-legacy-policies: FAIL, platform/kyverno/chart/values.yaml holds acknowledgeLegacyPoliciesNotEnforced; that value is forbidden' \"$d/out.txt\""
+  - id: A5
+    run: "d=\"$(mktemp -d)\"; trap 'rm -rf \"$d\"' EXIT; git ls-files -- platform/kyverno/chart/Chart.yaml 'platform/**/templates/**' 'products/**/templates/**' | tar -cf - -T - | tar -xf - -C \"$d\"; mkdir -p \"$d/scripts/baselines\"; cp scripts/check-kyverno-legacy-policies.sh \"$d/scripts/\"; cp scripts/baselines/kyverno-legacy.json \"$d/scripts/baselines/\"; rm \"$d/platform/kyverno/chart/templates/clusterpolicy-mutate-add-openova-labels.yaml\"; git -C \"$d\" init -q; git -C \"$d\" add -A; if bash \"$d/scripts/check-kyverno-legacy-policies.sh\" > \"$d/out.txt\"; then exit 1; fi; grep -q -x -F 'kyverno-legacy-policies: FAIL, platform/kyverno/chart/templates/clusterpolicy-mutate-add-openova-labels.yaml holds 0 legacy policy objects, the baseline still says 1; lower the baseline in the same change' \"$d/out.txt\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Ratchet at 47 legacy policy objects in 29 files and a ban on acknowledgeLegacyPoliciesNotEnforced
+  delivers: CI fails a change that adds a legacy Kyverno policy object to a chart template, removes one without lowering the baseline in the same change, or writes acknowledgeLegacyPoliciesNotEnforced into a file under platform/, products/ or clusters/.
 - id: CMP-014
   title: Run the policy chart's tests on every pull request
   area: CMP
@@ -17829,16 +17939,26 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c '^| Catalyst BSS (chargeback) | ' docs/STATUS.md"
+    expect: "2"
+  acceptance:
+  - id: A1
+    run: "test \"$(grep '^| Catalyst BSS (chargeback) | ' docs/STATUS.md | sha256sum | cut -d' ' -f1)\" = 863b963edb075e248895b249d854af099da022976e862bb866c87edf1860b24d"
+  - id: A2
+    run: "test \"$(grep -c 'Catalyst BSS' docs/STATUS.md)\" = 1"
+  - id: A3
+    run: "test \"$(sed -n '1,10p' products/chargeback/README.md | sha256sum | cut -d' ' -f1)\" = d5fed97b82cda949268eb2c6d836f6335db98e3a3cc4be33689aee8540eb9fe6"
+  - id: A4
+    run: "grep -q -F '[ADR-0028](../../docs/adr/0028-commerce-and-billing.md)' products/chargeback/README.md"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: One truthful status row (or none if the truth reset removed them); README points at the new record
+  delivers: The status document carries one row for Catalyst BSS that states only what the code and the records show, and the engine's README names ADR-0028 as its decision record.
 - id: BSS-030
   title: Order capture never prices from a second list
   area: BSS
@@ -17848,7 +17968,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [FND-031, FND-033, FND-052]
-  after: []
+  after: [FND-034]
   touches:
   - core/services/billing/packages/packages.go
   - core/services/billing/packages/packages_test.go
@@ -17978,16 +18098,36 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "ls scripts/check-bss-ratchets.py scripts/baselines/bss.json .github/workflows/bss-ratchets.yaml 2>/dev/null | wc -l"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "test \"$(sha256sum < scripts/check-bss-ratchets.py)\" = \"bbd4a5c9cd5c36b43f93ac3a2333dbb48e333f66fc4af4c5994c2fe0e2a33433  -\""
+  - id: A2
+    run: "test \"$(sha256sum < .github/workflows/bss-ratchets.yaml)\" = \"572c5d05b35cf7372f033bf3df16a5f3d29ed95e44475c67741fc8315a0a7e6e  -\""
+  - id: A3
+    run: "test \"$(sha256sum < scripts/baselines/bss.json)\" = \"324b9fb5936a491ad17e82196138dfdd219990dc2cf5d6ee6fa58cb5ba7a9e84  -\""
+  - id: A4
+    run: "python3 scripts/check-bss-ratchets.py --self-test"
+  - id: A5
+    run: "python3 scripts/check-bss-ratchets.py"
+  - id: A6
+    run: "t=\"$(mktemp -d)\"; trap 'rm -rf \"$t\"' EXIT; git ls-files -z -- core products/chargeback | xargs -0 cp --parents -t \"$t\"; cp --parents scripts/baselines/bss.json \"$t\"; python3 scripts/check-bss-ratchets.py --root \"$t\" > /dev/null; printf 'package handlers\\n\\nvar zzProbe = struct{ CPULimit string }{CPULimit: \"1\"}\\n' > \"$t/core/services/catalog/handlers/zz_probe.go\"; code=0; out=\"$(python3 scripts/check-bss-ratchets.py --root \"$t\")\" || code=$?; test \"$code\" = 1; grep -q -F 'check-bss-ratchets: FAIL plan_literal_sites: 14 is above the ceiling 13' <<<\"$out\"; grep -q -x -F 'check-bss-ratchets:   core/services/catalog/handlers/zz_probe.go:3' <<<\"$out\""
+  - id: A7
+    run: "t=\"$(mktemp -d)\"; trap 'rm -rf \"$t\"' EXIT; git ls-files -z -- core products/chargeback | xargs -0 cp --parents -t \"$t\"; cp --parents scripts/baselines/bss.json \"$t\"; python3 scripts/check-bss-ratchets.py --root \"$t\" > /dev/null; printf 'package rating\\n\\nimport metav1 \"k8s.io/apimachinery/pkg/apis/meta/v1\"\\n' > \"$t/products/chargeback/internal/rating/zz_probe.go\"; code=0; out=\"$(python3 scripts/check-bss-ratchets.py --root \"$t\")\" || code=$?; test \"$code\" = 1; grep -q -F 'check-bss-ratchets: FAIL engine_k8s_outside_adapter: 1 is above the ceiling 0' <<<\"$out\"; grep -q -x -F 'check-bss-ratchets:   products/chargeback/internal/rating/zz_probe.go' <<<\"$out\""
+  - id: A8
+    run: "t=\"$(mktemp -d)\"; trap 'rm -rf \"$t\"' EXIT; git ls-files -z -- core products/chargeback | xargs -0 cp --parents -t \"$t\"; cp --parents scripts/baselines/bss.json \"$t\"; python3 scripts/check-bss-ratchets.py --root \"$t\" > /dev/null; printf '\\tmux.HandleFunc(\"GET /catalog/zz-probe\", nil)\\n' >> \"$t/core/services/catalog/handlers/routes.go\"; code=0; out=\"$(python3 scripts/check-bss-ratchets.py --root \"$t\")\" || code=$?; test \"$code\" = 1; grep -q -F 'check-bss-ratchets: FAIL storefront_backend_routes: 89 is above the ceiling 88' <<<\"$out\""
+  - id: A9
+    run: "t=\"$(mktemp -d)\"; trap 'rm -rf \"$t\"' EXIT; git ls-files -z -- core products/chargeback | xargs -0 cp --parents -t \"$t\"; cp --parents scripts/baselines/bss.json \"$t\"; python3 scripts/check-bss-ratchets.py --root \"$t\" > /dev/null; sed -i 's/^func TestPartnerMarginIsBuyTimesMarkupOnATieredLine(/func helperMarginIsBuyTimesMarkup(/' \"$t/products/chargeback/internal/rating/terms_test.go\"; code=0; out=\"$(python3 scripts/check-bss-ratchets.py --root \"$t\")\" || code=$?; test \"$code\" = 1; grep -q -F 'check-bss-ratchets: FAIL waterfall_tests: 6 is below the floor 7' <<<\"$out\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Ten guards with baselines measured at 2c1f5b0c0 and a self-test
+  delivers: A pull request fails when it raises one of ten counts of the billing area above today's value, or lowers the number of price-waterfall tests.
 - id: BSS-060
   title: 'Gate check: self-service onboarding'
   area: BSS
@@ -17997,7 +18137,7 @@ packages:
   size: M
   lane: GATE
   depends_on: [BSS-030, BSS-S1, FND-031, FND-033]
-  after: [FND-034, CLD-010, NET-010, CMP-010]
+  after: [CLD-010, NET-010]
   touches:
   - tests/acceptance/sovereign/internal/suite/check_bss_onboarding.go
   - tests/acceptance/sovereign/internal/suite/bss_org.go
@@ -18089,7 +18229,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [BSS-070, BSS-S1]
-  after: [CTL-044]
+  after: [CTL-044, BSS-050]
   touches:
   - core/controllers/pkg/offer/**
   - docs/contracts/commerce-offer.schema.json
@@ -18301,7 +18441,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [BSS-106]
-  after: [FND-011]
+  after: [FND-011, BSS-050]
   touches:
   - products/chargeback/internal/offerpub/import.go
   - products/chargeback/internal/adapter/openova/offerseed.go
@@ -18334,7 +18474,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [BSS-104, BSS-105, BSS-109]
-  after: [NET-042]
+  after: [NET-042, BSS-050]
   touches:
   - core/services/catalog/handlers/routes.go
   - core/services/catalog/handlers/handlers.go
@@ -18568,7 +18708,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [BSS-122]
-  after: []
+  after: [BSS-050]
   touches:
   - core/services/billing/store/store.go
   - core/services/billing/handlers/handlers.go
@@ -18770,7 +18910,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [FND-051]
-  after: [FND-011]
+  after: [FND-011, BSS-050]
   touches:
   - products/chargeback/internal/adapter/openova/orgsync.go
   - products/catalyst/chart/crds/organization.yaml
@@ -18921,7 +19061,7 @@ packages:
   size: M
   lane: CONTRACTS
   depends_on: [BSS-131, CLD-163]
-  after: [FND-011, CLD-010]
+  after: [FND-011, CLD-010, BSS-050]
   touches:
   - products/chargeback/internal/collector/collector.go
   - products/chargeback/internal/collector/huawei/plugin.go
@@ -19097,7 +19237,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [BSS-302]
-  after: [FND-011]
+  after: [FND-011, BSS-020]
   touches:
   - products/chargeback/chart/tests/standalone-profile.sh
   - products/chargeback/internal/federation/standalone_integration_test.go
@@ -19306,29 +19446,47 @@ packages:
   epic: null
   type: decision
   wave: W0
-  size: XS
+  size: S
   lane: CONTRACTS
   depends_on: [FND-021]
-  after: [FND-106, CLD-070, NET-050, SVC-010, BSS-010, ACC-060]
+  after: []
   touches:
+  - docs/adr/0030-model-plane.md
   - docs/adr/README.md
   - docs/adr/0003-rbac-newapi-user-create-hook.md
   - docs/contracts/model-contract.md
-  - docs/adr/0030-model-plane.md
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "ls docs/adr | grep -c '^0030-'"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "test \"$(sha256sum < docs/adr/0030-model-plane.md | cut -d' ' -f1)\" = 32625db3b87df5119176fcb4c6a11fafc886b4b9fb662f3e42bc808512e00423 && test \"$(ls docs/adr | grep -c '^0030-')\" = 1"
+  - id: A2
+    run: "test \"$(sed -n '3,5p' docs/adr/0030-model-plane.md | tr '\\n' '|')\" = 'Status: Accepted|Date: 2026-11-13|Supersedes: ADR-0003|' && test \"$(grep -c '^Status: ' docs/adr/0030-model-plane.md)\" = 1 && python3 -c 'import re, sys; t = open(\"docs/adr/0030-model-plane.md\", encoding=\"utf-8\").read(); d = [n for n in range(1, 15) if len(re.findall(r\"^\\*\\*M%d [A-Z]\" % n, t, re.M)) == 1]; print(len(d)); sys.exit(0 if len(d) == 14 else 1)'"
+  - id: A3
+    run: "test \"$(sha256sum < docs/contracts/model-contract.md | cut -d' ' -f1)\" = baa61226aab17177ae0e350d3e971c26ee15e176fadf9c9287db9973c901abc4"
+  - id: A4
+    run: "test \"$(grep -c -x -F '| [0030](0030-model-plane.md) | Model plane: one gateway, one model contract, a simulation back end, agent tokens and metered usage | Accepted |' docs/adr/README.md)\" = 1 && test \"$(grep -c -F '| [0030](' docs/adr/README.md)\" = 1 && test \"$(grep -c -x -F '| [0003](0003-rbac-newapi-user-create-hook.md) | RBAC `newapi` user-create hook | Accepted; superseded by [0030](0030-model-plane.md) |' docs/adr/README.md)\" = 1 && test \"$(grep -c -x -F '| [0003](0003-rbac-newapi-user-create-hook.md) | RBAC `newapi` user-create hook | Accepted |' docs/adr/README.md)\" = 0 && python3 -c 'import re; n = [int(l[3:7]) for l in open(\"docs/adr/README.md\", encoding=\"utf-8\") if re.match(r\"\\| \\[[0-9]{4}\\]\\(\", l)]; print(n); raise SystemExit(0 if 30 in n and n == sorted(set(n)) else 1)'"
+  - id: A5
+    run: "test \"$(git diff --numstat origin/main -- docs/adr/README.md | cut -f1,2 | tr '\\t' ' ')\" = '2 1'"
+  - id: A6
+    run: "test \"$(git diff --numstat origin/main -- docs/adr/0003-rbac-newapi-user-create-hook.md | cut -f1,2 | tr '\\t' ' ')\" = '1 1' && test \"$(grep -c -x -F '| **Superseded by** | [ADR-0030](0030-model-plane.md), accepted 2026-11-13: `bp-newapi`, its per-user keys and the key Secrets are retired, so this hook has no work left. |' docs/adr/0003-rbac-newapi-user-create-hook.md)\" = 1"
+  - id: A7
+    run: "python3 -c 'import os, re, sys; t = open(\"docs/adr/0030-model-plane.md\", encoding=\"utf-8\").read() + open(\"docs/contracts/model-contract.md\", encoding=\"utf-8\").read(); gone = {l.strip().rstrip(\"/\") for l in open(\"docs/ledger/deleted-paths.txt\", encoding=\"utf-8\") if l.strip() and not l.startswith(\"#\")}; p = sorted(set(re.findall(r\"`((?:docs|platform|products|scripts|infra|clusters|core)/[^`*]+)`\", t))); bad = [x for x in p if not os.path.exists(x) and x != \"core/services/model-meter\" and x not in gone]; print(len(p), bad); sys.exit(1 if bad or len(p) < 28 else 0)'"
+  - id: A8
+    run: "python3 -c 'import re, yaml; plan = yaml.safe_load(open(\"docs/ledger/plan.yaml\")); known = {p[\"id\"] for p in plan[\"packages\"] if not p[\"dropped\"]} | {e[\"id\"] for e in plan[\"epics\"]} | {c[\"id\"] for c in yaml.safe_load(open(\"docs/ledger/gates.yaml\"))[\"checks\"]}; t = open(\"docs/adr/0030-model-plane.md\", encoding=\"utf-8\").read() + open(\"docs/contracts/model-contract.md\", encoding=\"utf-8\").read(); cited = set(re.findall(r\"\\b[A-Z]{3}-(?:[0-9]{3}|G[0-9]{2}|S[0-9])\\b\", t)) - {\"SHA-256\"}; missing = sorted(cited - known); print(len(cited), missing); raise SystemExit(1 if missing or len(cited) < 40 else 0)'"
   rollback: revert
   adr: 30
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'Accepted decision record 0030 superseding ADR-0003, and the published model contract file. It states AIP-D6 as amended: the agent workspace stays on each Organization''s own sign-in beside kagent and is not placed behind the gateway; the Anthropic Messages route is not offered.'
+  delivers: Decision record 0030 states the model plane in decisions M1 to M14 and supersedes ADR-0003; the file docs/contracts/model-contract.md publishes the model contract that every caller of a model builds against; the index of decision records lists record 0030 and marks record 0003 as superseded.
 - id: AIP-070
   title: Delete the hollow gateway charts
   area: AIP
@@ -19815,7 +19973,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [AIP-010, AIP-113, AIP-140]
-  after: [FND-011]
+  after: [FND-011, AIP-060]
   touches:
   - platform/model-gateway/chart/**
   - core/services/model-meter/**
@@ -24065,7 +24223,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [MIG-133, MIG-144]
-  after: [SVC-060]
+  after: [SEC-110, SVC-060, BSS-020]
   touches:
   - docs/RUNBOOKS.md
   - docs/STATUS.md
@@ -25437,7 +25595,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [FND-106]
-  after: [CLD-070, NET-050, SVC-010, BSS-010, ACC-060]
+  after: [CLD-070, CLD-071, SEC-006, NET-050, SVC-010, CMP-005, BSS-010, AIP-060, ACC-060]
   touches:
   - docs/adr/README.md
   - docs/adr/0034-later-products-ai-hub-and-open-banking.md
