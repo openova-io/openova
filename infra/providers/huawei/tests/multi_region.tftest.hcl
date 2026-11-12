@@ -51,6 +51,24 @@ mock_provider "huaweicloud" {
   }
 }
 
+# SEC-020: the k3s tokens are random_password resources. Under
+# `command = plan` their `result` is unknown, which would leave every
+# rendered cloud-init unknown and every assertion on it unevaluated. These
+# overrides give the tokens fixed values in the plan.
+override_resource {
+  target = random_password.k3s_server_token
+  values = {
+    result = "test-k3s-server-token"
+  }
+}
+
+override_resource {
+  target = random_password.k3s_agent_token
+  values = {
+    result = "test-k3s-agent-token"
+  }
+}
+
 variables {
   deployment_id       = "deadbeefcafef00d"
   sovereign_fqdn      = "t99.omani.works"
@@ -459,5 +477,45 @@ run "default_storage_class_operator_override_renders_huawei" {
       "SOVEREIGN_CNPG_STORAGE_CLASS: \"evs-sas\""
     )
     error_message = "Primary-CP cloud-init must render the operator-chosen default_storage_class verbatim into SOVEREIGN_CNPG_STORAGE_CLASS. #4057"
+  }
+}
+
+# ── SEC-020: a server token for the control plane, an agent token for workers
+# The control plane starts k3s with K3S_TOKEN set to the server token and
+# --agent-token set to the agent token. Workers join with the agent token and
+# never receive the server token.
+run "k3s_server_and_agent_tokens" {
+  command = plan
+
+  variables {
+    regions = [
+      {
+        code               = "me-east-215-a"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      }
+    ]
+  }
+
+  assert {
+    condition     = strcontains(local.cp_cloud_init_by_region["me-east-215-a"], "K3S_TOKEN=test-k3s-server-token ")
+    error_message = "SEC-020: the control-plane cloud-init must start k3s with K3S_TOKEN set to random_password.k3s_server_token."
+  }
+
+  assert {
+    condition     = strcontains(local.cp_cloud_init_by_region["me-east-215-a"], " --agent-token=test-k3s-agent-token ")
+    error_message = "SEC-020: the control-plane cloud-init must pass --agent-token set to random_password.k3s_agent_token."
+  }
+
+  assert {
+    condition     = strcontains(local.worker_cloud_init_by_region["me-east-215-a"], "K3S_TOKEN=test-k3s-agent-token ")
+    error_message = "SEC-020: the worker cloud-init must join with K3S_TOKEN set to random_password.k3s_agent_token."
+  }
+
+  assert {
+    condition     = !strcontains(local.worker_cloud_init_by_region["me-east-215-a"], "test-k3s-server-token")
+    error_message = "SEC-020: the worker cloud-init must not carry the k3s server token."
   }
 }

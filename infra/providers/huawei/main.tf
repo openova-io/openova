@@ -231,6 +231,25 @@ locals {
   }
 }
 
+# ── k3s tokens per region ─────────────────────────────────────────────────
+# Each region is its own k3s cluster with two random tokens. Servers start
+# with K3S_TOKEN set to the server token and with --agent-token set to the
+# agent token (the shared template). Workers join with the agent token only,
+# so a worker's boot data cannot join a node as a server. k3s also wraps the
+# etcd encryption key with the server token, so it must not be derived from
+# an identifier. The values stay in the state: a re-apply keeps them.
+resource "random_password" "k3s_server_token" {
+  for_each = toset(local.region_keys)
+  length   = 64
+  special  = false
+}
+
+resource "random_password" "k3s_agent_token" {
+  for_each = toset(local.region_keys)
+  length   = 64
+  special  = false
+}
+
 # ── VPC per region ────────────────────────────────────────────────────────
 resource "huaweicloud_vpc" "region" {
   for_each = { for r in var.regions : r.code => r }
@@ -1096,7 +1115,7 @@ locals {
     r.code => replace(templatefile("${path.module}/cloudinit-worker.tftpl", {
       sovereign_fqdn             = var.sovereign_fqdn
       k3s_version                = var.k3s_version
-      k3s_token                  = sha256("${var.huawei_project_id}/${var.sovereign_fqdn}/k3s-bootstrap")
+      k3s_token                  = random_password.k3s_agent_token[r.code].result
       cp_private_ip              = local.cp_primary_private_ip_by_region[r.code]
       enable_unattended_upgrades = var.enable_unattended_upgrades
       enable_fail2ban            = var.enable_fail2ban
@@ -1190,7 +1209,8 @@ locals {
       cluster_mesh_name     = local.cluster_mesh_name_by_region[r.code]
       cluster_mesh_id       = tostring(local.cluster_mesh_id_by_region[r.code])
       k3s_version           = var.k3s_version
-      k3s_token             = sha256("${var.huawei_project_id}/${var.sovereign_fqdn}/k3s-bootstrap")
+      k3s_server_token      = random_password.k3s_server_token[r.code].result
+      k3s_agent_token       = random_password.k3s_agent_token[r.code].result
       # Per-CP region's own subnet first-IP.
       cp_private_ip = cidrhost(local.region_subnet_cidr[r.code], 2)
       # #3504 (Refs #3375): per-region pod/service CIDRs (was hardcoded

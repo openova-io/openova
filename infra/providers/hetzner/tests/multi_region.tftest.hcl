@@ -117,6 +117,24 @@ override_resource {
   values = {}
 }
 
+# SEC-020: the k3s tokens are random_password resources. Under
+# `command = plan` their `result` is unknown, which would leave every
+# rendered cloud-init unknown and every assertion on it unevaluated. These
+# overrides give the tokens fixed values in the plan.
+override_resource {
+  target = random_password.k3s_server_token
+  values = {
+    result = "test-k3s-server-token"
+  }
+}
+
+override_resource {
+  target = random_password.k3s_agent_token
+  values = {
+    result = "test-k3s-agent-token"
+  }
+}
+
 # ── Variables shared across scenarios ─────────────────────────────────────
 
 variables {
@@ -738,5 +756,33 @@ run "default_storage_class_operator_override_renders" {
   assert {
     condition     = !strcontains(local.control_plane_cloud_init, "SOVEREIGN_CNPG_STORAGE_CLASS: \"hcloud-volumes\"")
     error_message = "When the operator overrides default_storage_class, the cloud-init must carry ONLY the chosen class, not the default literal."
+  }
+}
+
+# ── SEC-020: a server token for the control plane, an agent token for workers
+# The control plane starts k3s with K3S_TOKEN set to the server token and
+# --agent-token set to the agent token. Workers join with the agent token and
+# never receive the server token.
+run "k3s_server_and_agent_tokens" {
+  command = plan
+
+  assert {
+    condition     = strcontains(local.control_plane_cloud_init, "K3S_TOKEN=test-k3s-server-token ")
+    error_message = "SEC-020: the control-plane cloud-init must start k3s with K3S_TOKEN set to random_password.k3s_server_token."
+  }
+
+  assert {
+    condition     = strcontains(local.control_plane_cloud_init, " --agent-token=test-k3s-agent-token ")
+    error_message = "SEC-020: the control-plane cloud-init must pass --agent-token set to random_password.k3s_agent_token."
+  }
+
+  assert {
+    condition     = strcontains(local.worker_cloud_init, "K3S_TOKEN=test-k3s-agent-token ")
+    error_message = "SEC-020: the worker cloud-init must join with K3S_TOKEN set to random_password.k3s_agent_token."
+  }
+
+  assert {
+    condition     = !strcontains(local.worker_cloud_init, "test-k3s-server-token")
+    error_message = "SEC-020: the worker cloud-init must not carry the k3s server token."
   }
 }
