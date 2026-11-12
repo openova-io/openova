@@ -14,3 +14,4 @@ products/catalyst/bootstrap/ui/.pr-evidence/flow-AFTER-1440px-2026-04-30.png
 products/catalyst/bootstrap/ui/.pr-evidence/flow-AFTER-dark-1440px-2026-04-30.png
 products/catalyst/bootstrap/ui/.pr-evidence/flow-BEFORE-1440px-2026-04-30.png
 products/catalyst/bootstrap/ui/.pr-evidence/mockup-v4.png
+core/pkg/apis
