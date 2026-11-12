@@ -906,6 +906,30 @@ type Request struct {
 	ObjectStorageAccessKey string `json:"objectStorageAccessKey"`
 	ObjectStorageSecretKey string `json:"objectStorageSecretKey"`
 	ObjectStorageBucket    string `json:"objectStorageBucket"`
+
+	// GitopsBranch is the Git ref the new Sovereign follows. Empty means the
+	// value of CATALYST_GITOPS_BRANCH, or "main" when that is unset. Any
+	// other value must match gitopsBranchPattern (see resolveGitopsBranch).
+	GitopsBranch string `json:"gitopsBranch,omitempty"`
+}
+
+// gitopsBranchPattern lists the Git refs a deployment request may name:
+// "main", or a release-candidate ref rc/<UTC yyyymmddThhmmssZ>-<first 7 hex
+// characters of the commit>. No other branch name is accepted.
+var gitopsBranchPattern = regexp.MustCompile(`^(main|rc/[0-9]{8}T[0-9]{6}Z-[0-9a-f]{7})$`)
+
+// resolveGitopsBranch returns the Git ref the new Sovereign follows. An empty
+// field gives the value of CATALYST_GITOPS_BRANCH, or "main" when that is
+// unset, as before the field existed. A value that matches
+// gitopsBranchPattern is returned as it is. Any other value is an error.
+func resolveGitopsBranch(req Request) (string, error) {
+	if req.GitopsBranch == "" {
+		return env("CATALYST_GITOPS_BRANCH", "main"), nil
+	}
+	if !gitopsBranchPattern.MatchString(req.GitopsBranch) {
+		return "", errors.New("invalid gitopsBranch")
+	}
+	return req.GitopsBranch, nil
 }
 
 // Validate ensures the wizard payload is complete enough for OpenTofu to run.
@@ -916,6 +940,9 @@ type Request struct {
 // on the *Request anyway because the same instance is stored on
 // Deployment.Request, so the mutation is intentional and persistent.
 func (r *Request) Validate() error {
+	if _, err := resolveGitopsBranch(*r); err != nil {
+		return err
+	}
 	if len(r.Regions) > 0 {
 		// Each region must carry a provider + cloudRegion + control-plane
 		// SKU. Worker SKU is required only when WorkerCount > 0.
@@ -2795,6 +2822,10 @@ func (p *Provisioner) readOutputs(ctx context.Context, deployDir string) (*tofuO
 // module's variables.tf declares every key here; the JSON format is auto-
 // loaded by tofu without any -var-file flag.
 func writeTfvars(deployDir string, req Request) error {
+	gitopsBranch, err := resolveGitopsBranch(req)
+	if err != nil {
+		return err
+	}
 	vars := map[string]any{
 		// Identity
 		"sovereign_fqdn":      req.SovereignFQDN,
@@ -3077,7 +3108,7 @@ func writeTfvars(deployDir string, req Request) error {
 		// clusters/<sovereign-fqdn>/. Defaults to the public OpenOva monorepo;
 		// override for air-gap (operator-mirrored Gitea).
 		"gitops_repo_url": env("CATALYST_GITOPS_REPO_URL", "https://github.com/openova-io/openova"),
-		"gitops_branch":   env("CATALYST_GITOPS_BRANCH", "main"),
+		"gitops_branch":   gitopsBranch,
 
 		// GHCR pull token — interpolated into the cloud-init template so
 		// the new Sovereign's Flux source-controller can pull private
