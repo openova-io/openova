@@ -1193,49 +1193,45 @@ checks:
 - id: FND-G01
   title: Candidate identity
   owner: FND
-  state: expected-fail
+  state: not-built
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: 'The suite was built from the candidate commit. Every HelmRelease in every region runs the chart version pinned in `clusters/_template/bootstrap-kit/*.yaml` at that commit. Every container in the platform namespaces is listed with its image reference and digest, and one reference maps to one digest. In a `self` run there is no checkout: the applied chart version of every HelmRelease must equal the version its own `spec` names, and the digest rule is the same.'
-  implementation: tests/acceptance/sovereign/internal/suite/check_candidate.go
   implemented_by: FND-033
   delivered_by: FND-080
 - id: FND-G02
   title: Zero touch
   owner: FND
-  state: expected-fail
+  state: not-built
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: fresh
   asserts: No tracked object carries a `kubectl-*` field manager or a `restartedAt` annotation, at the start and at the end of the run. The deployment record shows no retry call.
-  implementation: tests/acceptance/sovereign/internal/suite/check_zero_touch.go
   implemented_by: FND-033
   delivered_by: FND-080
 - id: FND-G03
   title: Nodes
   owner: FND
-  state: expected-fail
+  state: not-built
   runs_in: [local, cloud]
   destructive: false
   needs: []
   proof: fresh
   asserts: Ready nodes in each region equal the number the deployment request asked for.
-  implementation: tests/acceptance/sovereign/internal/suite/check_nodes.go
   implemented_by: FND-033
   delivered_by: FND-080
 - id: FND-G04
   title: Releases and pods
   owner: FND
-  state: expected-fail
+  state: not-built
   runs_in: [local, cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Every HelmRelease is Ready, none stalled. No pod in the platform namespaces is in CrashLoopBackOff. No container has more than 3 restarts.
-  implementation: tests/acceptance/sovereign/internal/suite/check_releases.go
   implemented_by: FND-033
   delivered_by: FND-080
 - id: FND-G05
