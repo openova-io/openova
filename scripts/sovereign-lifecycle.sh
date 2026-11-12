@@ -53,6 +53,9 @@ wipe() {
 # body omitted both, so the server default (fireCutoverOnHandover=false)
 # silently disarmed the zero-touch cutover on every fire (hw256: chain sat
 # dormant, child logged 'operator-gated Sovereign', fired via RT-10 instead).
+# GITOPS_BRANCH (default empty) names the Git ref the new Sovereign follows:
+# "main", or a release-candidate ref rc/<id>. When it is set, the POST body
+# carries it as gitopsBranch; when it is empty, the body has no such key.
 fire() {
   local sub="$1" pool="${2:-omani.works}" pub body
   local qatest="${QATEST:-false}" firecut="${FIRECUT:-true}"
@@ -107,8 +110,8 @@ fire() {
   # any other flavor via direct HCS API (sub_jobs[0].error_code) BEFORE firing.
   body=$(SUB="$sub" POOL="$pool" PUB="$pub" SHARED_PG="${SHARED_PG:-true}" QATEST="$qatest" FIRECUT="$firecut" \
     CP_SIZE="${CP_SIZE:-m7n.large.8}" WORKER_SIZE="${WORKER_SIZE:-m7n.xlarge.8}" WORKER_COUNT="${WORKER_COUNT:-3}" \
-    python3 -c 'import json,os;s=os.environ["SUB"];p=os.environ["POOL"];c=os.environ["CP_SIZE"];w=os.environ["WORKER_SIZE"];wc=int(os.environ["WORKER_COUNT"]);print(json.dumps({"orgName":"Omantel","orgEmail":"emrah.baysal@openova.io","provider":"huawei","sovereignDomainMode":"pool","sovereignPoolDomain":p,"sovereignSubdomain":s,"sovereignFQDN":s+"."+p,"sshPublicKey":os.environ["PUB"],"enableSharedPostgres":os.environ.get("SHARED_PG")=="true","qaTestEnabled":os.environ.get("QATEST")=="true","fireCutoverOnHandover":os.environ.get("FIRECUT")=="true","regions":[{"provider":"huawei","cloudRegion":"me-east-215-a","controlPlaneSize":c,"workerSize":w,"workerCount":wc},{"provider":"huawei","cloudRegion":"me-east-215-b","controlPlaneSize":c,"workerSize":w,"workerCount":wc}]}))')
-  echo "== firing ${sub}.${pool} (CP=${CP_SIZE:-m7n.large.8} worker=${WORKER_SIZE:-m7n.xlarge.8}x${WORKER_COUNT:-3}/region sharedPG=${SHARED_PG:-true} qaTest=${qatest} fireCutover=${firecut}) =="
+    python3 -c 'import json,os;s=os.environ["SUB"];p=os.environ["POOL"];c=os.environ["CP_SIZE"];w=os.environ["WORKER_SIZE"];wc=int(os.environ["WORKER_COUNT"]);print(json.dumps({"orgName":"Omantel","orgEmail":"emrah.baysal@openova.io","provider":"huawei","sovereignDomainMode":"pool","sovereignPoolDomain":p,"sovereignSubdomain":s,"sovereignFQDN":s+"."+p,"sshPublicKey":os.environ["PUB"],"enableSharedPostgres":os.environ.get("SHARED_PG")=="true","qaTestEnabled":os.environ.get("QATEST")=="true","fireCutoverOnHandover":os.environ.get("FIRECUT")=="true","regions":[{"provider":"huawei","cloudRegion":"me-east-215-a","controlPlaneSize":c,"workerSize":w,"workerCount":wc},{"provider":"huawei","cloudRegion":"me-east-215-b","controlPlaneSize":c,"workerSize":w,"workerCount":wc}],**({"gitopsBranch":os.environ["GITOPS_BRANCH"]} if os.environ.get("GITOPS_BRANCH") else {})}))')
+  echo "== firing ${sub}.${pool} (CP=${CP_SIZE:-m7n.large.8} worker=${WORKER_SIZE:-m7n.xlarge.8}x${WORKER_COUNT:-3}/region sharedPG=${SHARED_PG:-true} qaTest=${qatest} fireCutover=${firecut} gitopsBranch=${GITOPS_BRANCH:-server default}) =="
   curl -sk -X POST -H "Authorization: Bearer $(_tok)" -H "Content-Type: application/json" -d "$body" "${API}"; echo
 }
 
