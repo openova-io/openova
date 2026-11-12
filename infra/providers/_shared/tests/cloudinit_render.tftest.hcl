@@ -112,3 +112,24 @@ run "huawei_render_is_valid" {
     error_message = "#4521 regression (huawei branch): the committed `infrastructure-config` CRs must `dependsOn: [infrastructure-providers]`."
   }
 }
+
+# Golden render (CLD-040). The SHA-256 of each fixture's rendered cloud-init
+# (comment lines stripped, as the provider modules strip them) must equal the
+# value stored in golden.auto.tfvars.json. A change to the shared template or
+# to a fixture value in render.tf changes a hash and fails this run. If the
+# change to the render is intended, run scripts/update-cloudinit-golden.sh,
+# commit the golden file with the change, and say in the commit message why
+# the render changed.
+run "golden" {
+  command = plan
+
+  assert {
+    condition     = output.sha256_hetzner == var.golden_hetzner
+    error_message = "Golden render: the hetzner fixture renders to SHA-256 ${output.sha256_hetzner}, but golden.auto.tfvars.json holds \"${var.golden_hetzner}\". If the change to the rendered cloud-init is intended, run scripts/update-cloudinit-golden.sh, commit the golden file, and say in the commit message why the render changed."
+  }
+
+  assert {
+    condition     = output.sha256_huawei == var.golden_huawei
+    error_message = "Golden render: the huawei fixture renders to SHA-256 ${output.sha256_huawei}, but golden.auto.tfvars.json holds \"${var.golden_huawei}\". If the change to the rendered cloud-init is intended, run scripts/update-cloudinit-golden.sh, commit the golden file, and say in the commit message why the render changed."
+  }
+}
