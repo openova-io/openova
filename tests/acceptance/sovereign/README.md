@@ -31,8 +31,9 @@ ACCEPT_MINT=1 scripts/acceptance-sovereign.sh hw307 --record
 | `ACCEPT_COMMIT_BUDGET` | `5s` | Maximum wall time for one WordPress write. |
 | `ACCEPT_KEEP_ON_FAIL=1` | off | Skips J5 cleanup after a failure, so the app stays up for debugging. |
 | `ACCEPT_INSECURE_APP_TLS=1`, `ACCEPT_DNS_SERVER`, `ACCEPT_WP_TABLE_PREFIX` | off, system resolver, `wp_` | |
+| `ACCEPT_MANIFEST`, `ACCEPT_RUN_IN`, `ACCEPT_CAPABILITIES`, `ACCEPT_CANDIDATE_ID`, `ACCEPT_REPO_ROOT` | empty, `cloud`, empty, empty, `.` | The gate checks. See "Gate checks" below. |
 
-Exit codes: `0` PASS, `1` an assertion failed, `2` usage error, `3` harness error.
+Exit codes: `0` PASS, `1` an assertion failed, `2` usage error or a gate manifest that cannot be used, `3` harness error.
 
 In CI, use `.github/workflows/acceptance-sovereign.yaml` (`workflow_dispatch` or
 `workflow_call`). It needs the `ACCEPTANCE_KUBECONFIG_A/B` secrets, and a
@@ -110,12 +111,41 @@ author setup in the WordPress container. The other runs single read-only
 `SELECT`s on CNPG instances; `PSQLSelect` refuses anything else. The suite
 never runs `kubectl apply`, `patch` or `delete`.
 
+## Gate checks
+
+A gate check is one entry of `docs/ledger/gates.yaml`. Its code is a file
+`internal/suite/check_<name>.go` that calls `RegisterCheck` in `init()` and
+holds the identifier of the check as a string literal. The contract is in
+`internal/suite/registry.go`.
+
+| Flag (variable) | Default | Meaning |
+|---|---|---|
+| `--manifest` (`ACCEPT_MANIFEST`) | empty | The manifest as JSON: the output of `python3 scripts/acceptance-gate.py export`. Empty: no check runs. |
+| `--run-in` (`ACCEPT_RUN_IN`) | `cloud` | `local` or `cloud`. A check is selected when its entry lists this value in `runs_in`. |
+| `--capabilities` (`ACCEPT_CAPABILITIES`) | empty | Comma list of the capability flags this run declares, for example `multi-region`. |
+| `--candidate-id` (`ACCEPT_CANDIDATE_ID`) | empty | The candidate this run certifies. Empty: the record certifies nothing. |
+| `--repo-root` (`ACCEPT_REPO_ROOT`) | `.` | The checkout of the commit under test. Its `HEAD` is written as `candidate.commit`. |
+
+With `--manifest`, a `run` selects every registered check whose entry is
+`expected-fail` or `required`, and runs them after the journeys. An entry that
+is selected and has no registered check stops the run before anything runs,
+with exit code `2` and no record. A check whose `needs` the run did not
+declare is recorded **SKIP** and is not run. When discovery (D0) failed no
+check is run; each is recorded **SKIP**. A `required` check that does not
+PASS fails the run, except a SKIP for `needs` that were not declared. An
+`expected-fail` check never fails the run. `discover` runs no check.
+
 ## The record, the UAT gate and the gate manifest
 
 `--record` writes `docs/ledger/acceptance/<env>-<run_id>.json` (schema
-`openova.io/acceptance-sovereign/v1`). The record holds the run id, env,
+`openova.io/acceptance-sovereign/v2`). The record holds the run id, env,
 timestamps, subject (org, env, regions, app, FQDN, blueprint, delivered
 images), per-journey results and every step with its evidence values.
+Version 2 adds where the run ran (`run_in`), the capability flags it declared,
+the candidate, who produced the record (a workflow run, or `manual`), and one
+result per selected gate check (`checks`). The object `provision` of the
+schema is not written yet, so `validate-record` accepts a record of a `local`
+run and refuses a record of a `cloud` run.
 
 - **UAT.** A function-clause row, as listed in
   `docs/ledger/uat-function-rows.csv`, turns ✅ only if its evidence cites
@@ -159,7 +189,8 @@ cmd/sovereign-acceptance   run | discover | mint-session
 internal/api               console HTTP client (cookie auth, read-only mode)
 internal/kube              kubectl wrapper: get, exec, SELECT-only psql
 internal/session           RS256 session mint (stdlib)
-internal/suite             discovery, journeys, record; match.go = pure decision helpers (unit-tested to FAIL)
+internal/suite             discovery, journeys, record; match.go = pure decision helpers (unit-tested to FAIL);
+                           registry.go = the gate checks: contract, registry, selection, results
 internal/wordpress         installer form, REST writes, anonymous reads, unique PNG
 ```
 

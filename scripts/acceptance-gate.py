@@ -42,6 +42,9 @@ Manifest rules (validate):
   3  A check that is not not-built has an `implementation` path that exists
      and is of an allowed kind: a Go file of the suite, a folder of browser
      specifications under a harness folder, or a script under scripts/.
+     A Go file whose name starts with check_ must register the check: outside
+     its comment lines it holds the call RegisterCheck( and the identifier of
+     the check in double quotes.
   4  Only `delivered_by` sets a check to required. `implemented_by`,
      `delivered_by` or PLAN set it to expected-fail.
   5  A check is removed only with its identifier in `retired_ids` and an
@@ -289,6 +292,17 @@ def rule1(m):
     return out
 
 
+def registers(full, cid):
+    """Rule 3, the registration clause: True if the Go file at full registers the check cid.
+
+    The file must hold, outside its comment lines, the call RegisterCheck( and the identifier
+    in double quotes. The check registry is tests/acceptance/sovereign/internal/suite/registry.go.
+    """
+    with open(full, encoding="utf-8", errors="replace") as fh:
+        code = "\n".join(ln for ln in fh.read().split("\n") if not ln.lstrip().startswith("//"))
+    return "RegisterCheck(" in code and f'"{cid}"' in code
+
+
 def implementation_problem(root, c):
     """Rule 3 for one check: None, or what is wrong with its implementation path."""
     path = c.get("implementation")
@@ -299,8 +313,13 @@ def implementation_problem(root, c):
         return f"implementation {path} is not a path inside the repository"
     full = os.path.join(root, norm)
     if norm.startswith(GO_SUITE) and norm.endswith(".go"):
-        # A Go file of the suite. Package FND-032 adds the registration clause here.
-        return None if os.path.isfile(full) else f"implementation {path} does not exist"
+        if not os.path.isfile(full):
+            return f"implementation {path} does not exist"
+        # A check file registers its check. The older files of the suite (the journeys and the
+        # discovery) register nothing and are not asked to.
+        if os.path.basename(norm).startswith("check_") and not registers(full, c["id"]):
+            return f"implementation {path} does not register the check: it needs RegisterCheck( and \"{c['id']}\""
+        return None
     for harness in BROWSER_ROOTS:
         if (norm + "/").startswith(harness) and norm + "/" != harness:
             if not os.path.isdir(full):
@@ -762,13 +781,19 @@ def self_test():
     def has(lines, needle):
         return any(needle in ln for ln in lines)
 
-    go = "tests/acceptance/sovereign/internal/suite/check_nodes.go"
+    suite = "tests/acceptance/sovereign/internal/suite/"
+    go = suite + "check_nodes.go"
+    call = "func init() {\n\tRegisterCheck(nodes{})\n}\n"
+    texts = {go: call + 'var ids = []string{"FND-G01", "FND-G02", "FND-G03"}\n',
+             suite + "check_other.go": call + 'const id = "FND-G09"\n',
+             suite + "check_comment.go": '// RegisterCheck(nodes{}) with "FND-G02"\n\t// RegisterCheck(nodes{}) "FND-G02"\n',
+             suite + "check_bare.go": "x\n", suite + "journeys.go": "x\n"}
     with tempfile.TemporaryDirectory() as root:
-        for rel in (go, "products/catalyst/bootstrap/ui/e2e/gate/apps/grid.spec.ts", "scripts/probe.mjs",
-                    "products/catalyst/bootstrap/ui/e2e/gate/empty/readme.txt"):
+        for rel in list(texts) + ["products/catalyst/bootstrap/ui/e2e/gate/apps/grid.spec.ts", "scripts/probe.mjs",
+                                  "products/catalyst/bootstrap/ui/e2e/gate/empty/readme.txt"]:
             os.makedirs(os.path.dirname(os.path.join(root, rel)), exist_ok=True)
             with open(os.path.join(root, rel), "w", encoding="utf-8") as fh:
-                fh.write("x\n")
+                fh.write(texts.get(rel, "x\n"))
         os.makedirs(os.path.join(root, ADR_DIR))
         with open(os.path.join(root, ADR_DIR, "0040-retire-a-check.md"), "w", encoding="utf-8") as fh:
             fh.write("# ADR-0040\nStatus: Accepted\nRetires-Check: FND-G02\n")
@@ -816,6 +841,14 @@ def self_test():
         # rule 3
         r = run(manifest(g1, dict(g2, implementation="tests/acceptance/sovereign/internal/suite/missing.go"), g3), good)
         check("rule 3: a Go file that does not exist is refused", has(r, "rule 3: FND-G02"), r)
+        for label, name in (("a check file without a registration is refused", "check_bare.go"),
+                            ("a check file that registers another check is refused", "check_other.go"),
+                            ("a registration in a comment line does not count", "check_comment.go")):
+            r = run(manifest(g1, dict(g2, implementation=suite + name), g3), good)
+            check("rule 3: " + label, r == [f"rule 3: FND-G02: implementation {suite}{name} does not register the check: "
+                                            'it needs RegisterCheck( and "FND-G02"'], r)
+        r = run(manifest(g1, dict(g2, implementation=suite + "journeys.go"), g3), good)
+        check("rule 3: a Go file of the suite whose name does not start with check_ passes without a registration", r == [], r)
         browser = manifest(g1, dict(g2, implementation="products/catalyst/bootstrap/ui/e2e/gate/apps"), g3)
         r = run(browser, good)
         check("rule 3: a folder under the browser harness passes without a registration", r == [], r)
