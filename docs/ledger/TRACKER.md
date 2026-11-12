@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-12T22:00:04Z` |
+| Last refreshed | `2026-11-12T22:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-12T22:01 | [#7195](https://github.com/openova-io/openova/pull/7195) | #7172 | fix(huawei): close the peer ports to the internet and add ga |
 | 2026-11-12T21:50 | [#7184](https://github.com/openova-io/openova/pull/7184) | #7087 | docs(ledger): plan update: NET-010 rewritten, two orderings, |
 | 2026-11-12T21:05 | [#7182](https://github.com/openova-io/openova/pull/7182) | #7169 | docs(ledger): title the UAT ledger a regression list and mar |
 | 2026-11-12T21:06 | [#7181](https://github.com/openova-io/openova/pull/7181) | #7168 | chore(console): remove the Sandbox pages, routes and browser |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-12T18:22 | [#7131](https://github.com/openova-io/openova/pull/7131) | #7087 | docs(ledger): plan update: the identity step accepts either  |
 | 2026-11-12T18:11 | [#7130](https://github.com/openova-io/openova/pull/7130) | #7124 | feat(gate): checks for candidate identity, zero touch, nodes |
 | 2026-11-12T18:18 | [#7129](https://github.com/openova-io/openova/pull/7129) | #7123 | docs(adr): record the cloud abstraction contract and correct |
-| 2026-11-12T18:10 | [#7128](https://github.com/openova-io/openova/pull/7128) | #7125 | docs(generated): inventories of slots, components and custom |
 
 ---
 
