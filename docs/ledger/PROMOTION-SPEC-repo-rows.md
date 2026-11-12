@@ -1,3 +1,5 @@
+Historical. Describes environments hw291 to hw305, from 2026-08-01 to 2026-08-26, all wiped by 2026-09-02. Not a statement about the product today.
+
 # Promotion spec — the 8 REPO-class ⚠️ rows (2026-08-01)
 
 Eight UAT rows were walked this session and stamped **⚠️ partial**, not ✅. Each one has a proven
