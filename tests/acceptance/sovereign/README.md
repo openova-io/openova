@@ -31,7 +31,7 @@ ACCEPT_MINT=1 scripts/acceptance-sovereign.sh hw307 --record
 | `ACCEPT_COMMIT_BUDGET` | `5s` | Maximum wall time for one WordPress write. |
 | `ACCEPT_KEEP_ON_FAIL=1` | off | Skips J5 cleanup after a failure, so the app stays up for debugging. |
 | `ACCEPT_INSECURE_APP_TLS=1`, `ACCEPT_DNS_SERVER`, `ACCEPT_WP_TABLE_PREFIX` | off, system resolver, `wp_` | |
-| `ACCEPT_MANIFEST`, `ACCEPT_RUN_IN`, `ACCEPT_CAPABILITIES`, `ACCEPT_CANDIDATE_ID`, `ACCEPT_REPO_ROOT` | empty, `cloud`, empty, empty, `.` | The gate checks. See "Gate checks" below. |
+| `ACCEPT_MANIFEST`, `ACCEPT_RUN_IN`, `ACCEPT_CAPABILITIES`, `ACCEPT_CANDIDATE_ID`, `ACCEPT_REPO_ROOT`, `ACCEPT_NODES_REQUESTED` | empty, `cloud`, empty, empty, `.`, empty | The gate checks. See "Gate checks" below. |
 
 Exit codes: `0` PASS, `1` an assertion failed, `2` usage error or a gate manifest that cannot be used, `3` harness error.
 
@@ -125,6 +125,7 @@ holds the identifier of the check as a string literal. The contract is in
 | `--capabilities` (`ACCEPT_CAPABILITIES`) | empty | Comma list of the capability flags this run declares, for example `multi-region`. |
 | `--candidate-id` (`ACCEPT_CANDIDATE_ID`) | empty | The candidate this run certifies. Empty: the record certifies nothing. |
 | `--repo-root` (`ACCEPT_REPO_ROOT`) | `.` | The checkout of the commit under test. Its `HEAD` is written as `candidate.commit`. |
+| `--nodes-requested` (`ACCEPT_NODES_REQUESTED`) | empty | What the deployment request asked for, per region id: `<regionA>=6,<regionB>=6`. Check FND-G03 compares it with the Ready nodes. Empty: FND-G03 fails. A value in another form stops the run with exit code `3`. |
 
 With `--manifest`, a `run` selects every registered check whose entry is
 `expected-fail` or `required`, and runs them after the journeys. An entry that
@@ -135,6 +136,21 @@ check is run; each is recorded **SKIP**. A `required` check that does not
 PASS fails the run, except a SKIP for `needs` that were not declared. An
 `expected-fail` check never fails the run. `discover` runs no check.
 
+The checks of the suite. Each reads every region; a region that cannot be
+read fails the check. A platform namespace is a namespace without the label
+`openova.io/organization`.
+
+| Check | File | It fails when |
+|---|---|---|
+| FND-G01 Candidate identity | `check_candidate.go` | The suite was not built from the candidate commit. A HelmRelease that is not suspended runs another chart version than `clusters/_template/bootstrap-kit/*.yaml` pins for it in the checkout of `--repo-root`. A container of a platform namespace has no image digest. One image reference has two digests. |
+| FND-G02 Zero touch | `check_zero_touch.go` | A HelmRelease, or a Deployment or DaemonSet of `catalyst-system`, `cnpg-system` or `kube-system`, has a field manager named `kubectl` or `kubectl-…`. A Deployment, DaemonSet or StatefulSet of those namespaces or of `flux-system` has the annotation `kubectl.kubernetes.io/restartedAt` on its pod template. The clusters are looked at twice: before the journeys (steps `FND-G02.start.*`) and when the checks run. |
+| FND-G03 Nodes | `check_nodes.go` | The Ready nodes of a region differ from `--nodes-requested`, in either direction, or the run did not say the number. |
+| FND-G04 Releases and pods | `check_releases.go` | A HelmRelease that is not suspended is not `Ready=True`, or is stalled. A container of a platform namespace is in `CrashLoopBackOff`, or has more than 3 restarts. |
+
+FND-G02 also asserts that the deployment record shows no retry call. The
+suite has no source for that yet, so the step is recorded **SKIP** and the
+check cannot PASS.
+
 ## The record, the UAT gate and the gate manifest
 
 `--record` writes `docs/ledger/acceptance/<env>-<run_id>.json` (schema
@@ -143,7 +159,10 @@ timestamps, subject (org, env, regions, app, FQDN, blueprint, delivered
 images), per-journey results and every step with its evidence values.
 Version 2 adds where the run ran (`run_in`), the capability flags it declared,
 the candidate, who produced the record (a workflow run, or `manual`), and one
-result per selected gate check (`checks`). The object `provision` of the
+result per selected gate check (`checks`). Check FND-G01 adds `artifacts`:
+the chart version of every HelmRelease and the digest of every image of the
+platform namespaces, per region. A record gets them only when every region
+was read; without them it is never half of a pair. The object `provision` of the
 schema is not written yet, so `validate-record` accepts a record of a `local`
 run and refuses a record of a `cloud` run.
 
@@ -191,6 +210,7 @@ internal/kube              kubectl wrapper: get, exec, SELECT-only psql
 internal/session           RS256 session mint (stdlib)
 internal/suite             discovery, journeys, record; match.go = pure decision helpers (unit-tested to FAIL);
                            registry.go = the gate checks: contract, registry, selection, results
+                           check_<name>.go = one gate check each
 internal/wordpress         installer form, REST writes, anonymous reads, unique PNG
 ```
 

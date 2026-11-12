@@ -26,6 +26,9 @@ type Config struct {
 	// The gate checks. Manifest is the JSON export of docs/ledger/gates.yaml;
 	// when it is empty no check is selected. Capabilities is a comma list.
 	RunIn, Manifest, CandidateID, RepoRoot, Capabilities string
+	// NodesRequested is what the deployment request asked for:
+	// "<region id>=<nodes>,<region id>=<nodes>". Check FND-G03 reads it.
+	NodesRequested string
 
 	Record     bool
 	RecordDir  string

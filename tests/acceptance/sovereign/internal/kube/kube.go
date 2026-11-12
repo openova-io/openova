@@ -156,6 +156,47 @@ func (o Object) Int(path ...string) int {
 	return 0
 }
 
+// Objects walks a path of map keys and returns the objects of the list at the
+// end. A missing path, or a value that is not a list, gives an empty list.
+func (o Object) Objects(path ...string) []Object {
+	list, _ := o.Get(path...).([]any)
+	out := make([]Object, 0, len(list))
+	for _, x := range list {
+		if m, ok := x.(map[string]any); ok {
+			out = append(out, Object(m))
+		}
+	}
+	return out
+}
+
+// OrganizationLabel is the label on the host namespace of an Organization.
+// A namespace without it is a platform namespace.
+const OrganizationLabel = "openova.io/organization"
+
+// PlatformPods returns the pods of every platform namespace of this region:
+// every namespace that does not carry OrganizationLabel.
+func (r Region) PlatformPods(ctx context.Context) ([]Object, error) {
+	orgs, err := r.GetList(ctx, "namespaces", "", "-l", OrganizationLabel)
+	if err != nil {
+		return nil, err
+	}
+	organization := map[string]bool{}
+	for _, ns := range orgs {
+		organization[ns.Name()] = true
+	}
+	pods, err := r.GetList(ctx, "pods", "")
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Object, 0, len(pods))
+	for _, p := range pods {
+		if !organization[p.Namespace()] {
+			out = append(out, p)
+		}
+	}
+	return out, nil
+}
+
 // Name / Namespace shortcuts.
 func (o Object) Name() string      { return o.Str("metadata", "name") }
 func (o Object) Namespace() string { return o.Str("metadata", "namespace") }
