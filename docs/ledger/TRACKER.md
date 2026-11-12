@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-12T19:30:05Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-12T19:45:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,14 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-12T19:39 | [#7159](https://github.com/openova-io/openova/pull/7159) | #7144 | feat(contracts): publish contracts C3 and C4 with the event- |
+| 2026-11-12T19:38 | [#7158](https://github.com/openova-io/openova/pull/7158) | #7143 | chore(ci): guard that catalyst-api and core/services gain no |
+| 2026-11-12T19:31 | [#7157](https://github.com/openova-io/openova/pull/7157) | #7087 | docs(ledger): plan update: repaired tickets NET-050 and CTL- |
+| 2026-11-12T19:42 | [#7156](https://github.com/openova-io/openova/pull/7156) | #7147 | chore: remove the unshipped console scaffold, its test job a |
+| 2026-11-12T19:41 | [#7155](https://github.com/openova-io/openova/pull/7155) | #7151 | ci: add the service-model ratchet guard for rules G1 to G9 ( |
+| 2026-11-12T19:41 | [#7154](https://github.com/openova-io/openova/pull/7154) | #7148 | fix(scripts): stop the shell verifier requiring the three re |
+| 2026-11-12T19:41 | [#7153](https://github.com/openova-io/openova/pull/7153) | #7150 | docs(adr): record the service model and narrow the glossary  |
+| 2026-11-12T19:42 | [#7152](https://github.com/openova-io/openova/pull/7152) | #7141 | ci: mirror the Crossplane packages into harbor.openova.io by |
 | 2026-11-12T19:15 | [#7139](https://github.com/openova-io/openova/pull/7139) | #7087 | docs(ledger): plan update: tickets FND-054 and FND-097, furt |
 | 2026-11-12T18:45 | [#7138](https://github.com/openova-io/openova/pull/7138) | #7135 | ci: stop building the Sandbox images (FND-092) |
 | 2026-11-12T18:38 | [#7137](https://github.com/openova-io/openova/pull/7137) | #7133 | chore(core): remove the type mirror that no Go module import |
@@ -329,14 +337,6 @@ flowchart LR
 | 2026-11-12T16:48 | [#7107](https://github.com/openova-io/openova/pull/7107) | #7087 | docs(ledger): plan update: tickets FND-014 and FND-032, mana |
 | 2026-11-12T14:38 | [#7105](https://github.com/openova-io/openova/pull/7105) | #7093 | fix(ci): auth, shared and the whole billing module are teste |
 | 2026-11-12T14:22 | [#7104](https://github.com/openova-io/openova/pull/7104) | #7094 | chore(ci): Go lint ratchet on changed lines (FND-053) |
-| 2026-11-12T14:37 | [#7103](https://github.com/openova-io/openova/pull/7103) | #7096 | chore(cloud-init): stop reflecting the object-storage Secret |
-| 2026-11-12T14:15 | [#7102](https://github.com/openova-io/openova/pull/7102) | #7091 | feat(gate): manifest ratchet and verdict tool replace the ga |
-| 2026-11-12T14:14 | [#7101](https://github.com/openova-io/openova/pull/7101) | #7097 | ci: run the tests of the policy chart on every pull request  |
-| 2026-11-12T14:18 | [#7100](https://github.com/openova-io/openova/pull/7100) | #7092 | ci: run the billing-engine and tool-server tests on pull req |
-| 2026-11-12T14:10 | [#7099](https://github.com/openova-io/openova/pull/7099) | #7090 | ci: fence every pull request with its work package and run i |
-| 2026-11-12T14:06 | [#7098](https://github.com/openova-io/openova/pull/7098) | #7089 | ci: add the plan tool and the check that keeps the plan file |
-| 2026-11-12T14:02 | [#7088](https://github.com/openova-io/openova/pull/7088) | #7087 | docs(ledger): the transition plan as data, the gate manifest |
-| 2026-11-11T18:52 | [#7086](https://github.com/openova-io/openova/pull/7086) | #7085 | ci: fix the two post-merge reds after #7085 (sso-uat-flip HT |
 
 ---
 
