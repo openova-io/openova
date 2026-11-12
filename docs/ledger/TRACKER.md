@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-12T16:45:06Z` |
+| Last refreshed | `2026-11-12T17:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-12T16:58 | [#7114](https://github.com/openova-io/openova/pull/7114) | #7087 | docs(ledger): the dashboard's baseline shows what was built  |
+| 2026-11-12T16:54 | [#7113](https://github.com/openova-io/openova/pull/7113) | #7087 | docs(ledger): the north-star dashboard as a page GitHub rend |
+| 2026-11-12T16:49 | [#7110](https://github.com/openova-io/openova/pull/7110) | #7087 | docs(ledger): the north-star dashboard as one offline page |
+| 2026-11-12T16:48 | [#7107](https://github.com/openova-io/openova/pull/7107) | #7087 | docs(ledger): plan update: tickets FND-014 and FND-032, mana |
 | 2026-11-12T14:38 | [#7105](https://github.com/openova-io/openova/pull/7105) | #7093 | fix(ci): auth, shared and the whole billing module are teste |
 | 2026-11-12T14:22 | [#7104](https://github.com/openova-io/openova/pull/7104) | #7094 | chore(ci): Go lint ratchet on changed lines (FND-053) |
 | 2026-11-12T14:37 | [#7103](https://github.com/openova-io/openova/pull/7103) | #7096 | chore(cloud-init): stop reflecting the object-storage Secret |
@@ -333,10 +337,6 @@ flowchart LR
 | 2026-11-07T14:45 | [#7059](https://github.com/openova-io/openova/pull/7059) | #7058 | feat(dr): desired-state switchover in the console API and To |
 | 2026-11-07T14:05 | [#7058](https://github.com/openova-io/openova/pull/7058) | #3375 | feat(continuum): converge the writer onto the declared prima |
 | 2026-11-07T00:36 | [#7057](https://github.com/openova-io/openova/pull/7057) | #5178 | fix(cnpg-pair): dr-promoter yields to the planned owner and  |
-| 2026-11-06T23:53 | [#7056](https://github.com/openova-io/openova/pull/7056) | #7054 | chore(continuum): bp-continuum 0.1.17 ships the switchback e |
-| 2026-11-06T23:37 | [#7055](https://github.com/openova-io/openova/pull/7055) | #3375 | fix(continuum): switchover honours the requested target and  |
-| 2026-11-06T23:17 | [#7054](https://github.com/openova-io/openova/pull/7054) | #3375 | fix(continuum): promotion is the switchover's point of no re |
-| 2026-11-06T23:04 | [#7053](https://github.com/openova-io/openova/pull/7053) | #7052 | fix(continuum): natsURL default + NATS egress; bp-continuum  |
 
 ---
 
