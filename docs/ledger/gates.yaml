@@ -599,12 +599,13 @@ checks:
 - id: CLD-G02
   title: The provider-leak scanner exits 0
   owner: CLD
-  state: not-built
+  state: required
   runs_in: [local]
   destructive: false
   needs: []
   proof: running
   asserts: The provider-leak scanner exits 0
+  implementation: scripts/check-provider-leaks.py
   delivered_by: CLD-010
 - id: CLD-G03
   title: TestProviderPacks and every module's tofu test pass
