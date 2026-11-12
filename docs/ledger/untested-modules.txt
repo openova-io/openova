@@ -1,0 +1,7 @@
+# One Go module directory per line. No pull-request workflow tests it. Lines are only removed.
+core/pkg/apis/application/v1alpha1
+core/pkg/apis/blueprint/v1alpha1
+platform/newapi/internal/handler
+platform/openclaw/controller
+platform/openclaw/runtime
+tests/dod
