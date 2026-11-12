@@ -110,7 +110,7 @@ author setup in the WordPress container. The other runs single read-only
 `SELECT`s on CNPG instances; `PSQLSelect` refuses anything else. The suite
 never runs `kubectl apply`, `patch` or `delete`.
 
-## The record, the UAT gate and the deploy gate
+## The record, the UAT gate and the gate manifest
 
 `--record` writes `docs/ledger/acceptance/<env>-<run_id>.json` (schema
 `openova.io/acceptance-sovereign/v1`). The record holds the run id, env,
@@ -126,15 +126,31 @@ images), per-journey results and every step with its evidence values.
   `scripts/uat-confidence.py --observe` stamps each observation's
   `evidence_class` (`function`/`state`/`presence`). A function row's PASS that
   does not rest on `function` evidence is scored as NOTRUN.
-- **Deploy.** The `acceptance-gate` job in `catalyst-build.yaml` is a `needs:`
-  of `deploy`, which is the deploy-bot bump. It runs
-  `scripts/acceptance-gate.py ${ACCEPTANCE_GATE_ENV:-hw307}`.
-  - Mode `report` is the default. It prints the latest verdict and says NOT
-    GATING.
-  - Mode `enforce` is set with repo variable `ACCEPTANCE_GATE_MODE=enforce`
-    once a PASS exists. It blocks the bump unless the newest run passed.
-  - A delivery that *fixes* a failing run gets through with
-    `ACCEPTANCE-OVERRIDE: <reason>` in its PR body.
+- **Gate.** The gate has no mode and no override, and no job of
+  `catalyst-build.yaml` waits for it. It is the manifest
+  `docs/ledger/gates.yaml` and the tool `scripts/acceptance-gate.py`. The
+  manifest holds one entry per check, in state `not-built`, `expected-fail`
+  or `required`. A check moves forward only. Each check also declares its
+  kind of proof: `fresh` for a check about installing, handing over or
+  wiping, and `running` for every other check. The commands of the tool:
+  - `validate --base <ref> --body-file <file>` checks the manifest against
+    the manifest at `<ref>`. It refuses a backward move, and a move to
+    `required` by a package other than the one the entry names. The workflow
+    `gate-manifest` runs it on every pull request.
+  - `verdict [--check <id>] [--json]` applies the pass rule to the records in
+    `docs/ledger/acceptance/` and prints one line per check. A check that
+    runs in the cloud is green when the two newest counting records are of
+    one candidate, agree on chart versions and image digests, the newer one
+    is no older than the manifest's `max_age_days`, and the check passed in
+    each of them in which it applied. For a `running` check the two records
+    may be of one Sovereign that was updated in place. For a `fresh` check
+    only records of fresh installations count, and the two must be of
+    different deployments. A version 1 record never counts. A check that is
+    not green is printed with the pass rule that failed. With `--check` the
+    exit code is 0 only if that check is green.
+  - `validate-record <file>` checks a version 2 record against the schema.
+  - `export` prints the manifest as JSON.
+  - `--self-test` proves that each rule can fail.
 
 ## Layout
 
