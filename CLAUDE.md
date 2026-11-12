@@ -542,7 +542,7 @@ go build ./...
 # Sovereign-admin console UI in products/catalyst/bootstrap/ui/ — see the three-console-trees note above
 ```
 
-CRD types live in `core/pkg/apis/<kind>/v1alpha1/` (one Go module per kind, mirrored into `core/controllers/pkg/apis/`). Add new types there, then update the matching reconciler in `core/controllers/<kind>/`.
+CRD types live in `core/controllers/pkg/apis/<kind>/v1alpha1/`. Add new types there, then update the matching reconciler in `core/controllers/<kind>/`.
 
 ---
 
