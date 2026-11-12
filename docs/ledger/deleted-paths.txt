@@ -24,3 +24,5 @@ products/catalyst/bootstrap/ui/e2e/cosmetic-guards.spec.ts
 products/catalyst/bootstrap/ui/src/pages/sovereign/sandbox
 products/catalyst/bootstrap/ui/src/lib/sandbox.api.ts
 products/catalyst/bootstrap/ui/e2e/sandbox.spec.ts
+clusters/omantel.omani.works
+clusters/otech.omani.works
