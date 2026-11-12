@@ -1,0 +1,38 @@
+# check-service-model.yaml - the service-model ratchet, rules G1 to G9.
+#
+# scripts/check-service-model.py counts what the service model wants to see go away: Blueprint
+# files without the bp- name, the visibility or the v1 API version; free-text classifiers;
+# hand-written catalogue lists; "bp-<name>" literals in shared Go code; kit slots without a
+# ring; catalogue entries with no chart behind them. It also counts the charts that ship a
+# function test. It compares each count with scripts/service-model-baseline.yaml. A count
+# that moves the wrong way fails. A count that moves the right way fails too, until the
+# baseline is moved in the same change, so the baseline is always exact. The storefront
+# counts are the exception: for them only a rise fails.
+#
+# It runs on every pull request, on every merge group and on every push to main. There is
+# no path filter, on purpose: a check that a path filter skips never reports.
+# The self-test runs first. It shows on a tree of its own that every rule can fail.
+name: check-service-model
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check-service-model:
+    name: check-service-model
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PyYAML
+        run: python3 -m pip install --quiet pyyaml
+      - name: Self-test of the guard (every rule can fail)
+        run: python3 scripts/check-service-model.py --self-test
+      - name: The service-model counts equal the baseline
+        run: python3 scripts/check-service-model.py
