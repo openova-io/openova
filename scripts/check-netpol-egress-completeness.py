@@ -97,6 +97,12 @@ DEP_TIMEOUT = os.environ.get("DEP_TIMEOUT", "180s")
 # asserted. Keep entries minimal and reviewable — they are test inputs, never
 # shipped values.
 RENDER_VALUES: dict[str, list[str]] = {
+    # ADR-0015 (Refs #7067): the peer-region CNPs render only when the region
+    # registry names a peer; single-region output carries none.
+    "platform/openbao/chart": [
+        "peerTrust.selfRegion=rtz-a",
+        'peerTrust.regions=[{"cloudRegion":"rtz-a"}\\,{"cloudRegion":"rtz-b"}]',
+    ],
     "platform/bp-dmz-vcluster/chart": [
         "dmzVcluster.enabled=true",
         "dmzVcluster.networkPolicy.enabled=true",

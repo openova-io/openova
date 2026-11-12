@@ -60,7 +60,7 @@ jobs:
         working-directory: tests/e2e/playwright
         run: |
           npm install
-          npx playwright install --with-deps chromium
+          bash "$GITHUB_WORKSPACE/scripts/playwright-chromium-install.sh"
 
       - name: Run omantel handover Phase 8 DoD
         working-directory: tests/e2e/playwright

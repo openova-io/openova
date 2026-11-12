@@ -63,7 +63,7 @@ jobs:
 
       - name: Install Playwright browser (chromium)
         working-directory: products/catalyst/bootstrap/ui
-        run: npx playwright install --with-deps chromium
+        run: bash "$GITHUB_WORKSPACE/scripts/playwright-chromium-install.sh"
 
       - name: Boot Catalyst UI in background
         working-directory: products/catalyst/bootstrap/ui
