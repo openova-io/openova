@@ -60,7 +60,7 @@ details.bt{border-top:1px solid var(--grid);padding:8px 0}details.bt summary{cur
   <header style="display:flex;flex-direction:column;gap:8px">
     <span class="eyebrow">OpenOva north star · 13 November 2026</span>
     <h1>What the product does today, what is coming, in which release, and when</h1>
-    <p>Fourteen product areas, 101 epics plus single fixes, <span id="k-total"></span> tasks, all done by agents. This page is the baseline of 12 November. Green is what has been delivered since. Effort is in agent-hours and tokens, from the first eight tasks that were actually run.</p>
+    <p>Fourteen product areas, 101 epics plus single fixes, <span id="k-total"></span> tasks, all done by agents. The baseline is the platform as its agents had built it by 12 November. Green is what has been added since. Effort is in agent-hours and tokens, from the first eight tasks that were actually run.</p>
   </header>
   <section class="kpis">
     <div class="kpi"><b id="k-ep">0</b><span>epics in the backlog</span><small id="k-ep2"></small></div>
@@ -72,7 +72,7 @@ details.bt{border-top:1px solid var(--grid);padding:8px 0}details.bt summary{cur
   <section class="band">
     <span class="eyebrow">Progress since the baseline of 12 November</span>
     <h2>Where we started and where we are</h2>
-    <p>One bar per product area, as long as its number of tasks. Green is delivered and proven. Grey is still to do. On 12 November every bar was grey.</p>
+    <p>Each bar is the whole target for that area. Dark blue is what the platform's agents had already built on 12 November, after nine months of work: 25,978 commits, 4,464 merged pull requests, 100 Blueprint charts, 1,032 Go test files, 56 browser test specs. Green is what has been added since. Grey is still to do.</p>
     <div class="chart" id="prog"></div>
     <p><b>How the estimate is built.</b> Measured on the first eight tasks: an Opus 5.5 session executes a task in 2 to 9 minutes with about 2.4 million cached and 90 thousand new tokens. Writing and proof-reading its exact instruction costs about 0.5 million tokens and 20 minutes. Checks and review add about 10 minutes. A product task then waits for the next update of the environment (every 4 hours); a first-boot task waits for the next fresh install (one a day).</p>
   </section>
@@ -180,15 +180,17 @@ document.getElementById('areas').innerHTML=AREAS.map(([a,n,sc,now,tg])=>{const g
   const r=el('rect',{x:x(g.s),y:y+5,width:Math.max(3,x(g.f)-x(g.s)),height:14,rx:4,fill:'var(--seq)'});s.append(r);hov(r,`${n}: ${g.n} tasks, ${g.d} agent-hours, ${g.tk}M tokens, ${fmt(g.s)} to ${fmt(g.f)}`);
   s.append(el('text',{x:x(g.f)+6,y:y+16,class:'mut'},fmt(g.f)+' · '+g.d+' h'))});
  document.getElementById('road').append(s)})();
-// progress: delivered (green) on remaining (grey), one bar per area and one for the whole plan
+// progress: built before the baseline (dark), added since (green), remaining (grey); each bar is the whole target of the area
 (function(){const NS='http://www.w3.org/2000/svg',el=(n,a,t)=>{const e=document.createElementNS(NS,n);for(const k in a)e.setAttribute(k,a[k]);if(t!=null)e.textContent=t;return e};
- const data=[['All 14 areas',{n:sum(ROWS,'n'),k:sum(ROWS,'k')}]].concat(AREAS.map(a=>[a[1],agg(a[0])])),W=980,L=230,R=150,rh=26,H=data.length*rh+8,s=el('svg',{viewBox:`0 0 ${W} ${H}`,width:W,height:H,role:'img'});
- const mx=Math.max(...data.slice(1).map(d=>d[1].n));
- data.forEach(([n,g],i)=>{const y=4+i*rh,full=i===0?(W-L-R):(W-L-R)*g.n/mx,gw=g.k?Math.max(4,full*g.k/g.n):0;
+ const tot=AREAS.reduce((s,a)=>s+agg(a[0]).n,0),gain=a=>{const g=agg(a[0]);return (100-a[2])*g.k/g.n};
+ const data=[['All 14 areas',Math.round(AREAS.reduce((s,a)=>s+a[2]*agg(a[0]).n,0)/tot),AREAS.reduce((s,a)=>s+gain(a)*agg(a[0]).n,0)/tot]].concat(AREAS.map(a=>[a[1],a[2],gain(a)]));
+ const W=980,L=230,R=190,rh=26,H=data.length*rh+8,s=el('svg',{viewBox:`0 0 ${W} ${H}`,width:W,height:H,role:'img'}),full=W-L-R;
+ data.forEach(([n,sc,gn],i)=>{const y=4+i*rh,dw=full*sc/100,gw=gn?Math.max(4,full*gn/100):0;
   s.append(el('text',{x:L-10,y:y+15,'text-anchor':'end',class:'lab','font-weight':i===0?600:400},n));
-  const r=el('rect',{x:L+gw+(gw?2:0),y:y+5,width:Math.max(2,full-gw-(gw?2:0)),height:14,rx:4,fill:'var(--axis)'});s.append(r);hov(r,`${n}: ${g.n-g.k} tasks still to do`);
-  if(gw){const q=el('rect',{x:L,y:y+5,width:gw,height:14,rx:4,fill:'var(--gain)'});s.append(q);hov(q,`${n}: ${g.k} tasks delivered since 12 November`)}
-  s.append(el('text',{x:L+full+8,y:y+16,class:g.k?'lab':'mut'},g.k+' of '+g.n+' delivered'))});
+  const r=el('rect',{x:L,y:y+5,width:full,height:14,rx:4,fill:'var(--axis)'});s.append(r);hov(r,`${n}: ${Math.round(100-sc-gn)}% of the target still to build`);
+  if(dw){const d=el('rect',{x:L,y:y+5,width:Math.max(3,dw),height:14,rx:4,fill:'var(--done)'});s.append(d);hov(d,`${n}: ${sc}% of the target was built before 12 November`)}
+  if(gw){const q=el('rect',{x:L+dw+2,y:y+5,width:gw,height:14,rx:4,fill:'var(--gain)'});s.append(q);hov(q,`${n}: +${gn.toFixed(1)} points since 12 November`)}
+  s.append(el('text',{x:L+full+8,y:y+16,class:'lab'},sc+'% built'+(gn?', +'+gn.toFixed(1)+' since':'')))});
  document.getElementById('prog').append(s)})();
 // release batches: every batch with its tickets, how each is proven, and the batches it waits for
 (function(){const B=DATA.batches,col=p=>p.startsWith('browser')?'var(--seq)':p.startsWith('fresh')?'var(--serious)':'var(--ink2)';

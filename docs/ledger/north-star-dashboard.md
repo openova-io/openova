@@ -1,10 +1,28 @@
 # North star dashboard
 
-Status on 13 November 2026. Baseline: 12 November 2026, 0 tasks delivered. All work is done by agents; effort is in agent-hours and tokens, from the tasks that were actually run.
+Status on 13 November 2026. The baseline is the platform as it stood on 12 November 2026, after nine months of work by its agents. All work is done by agents; effort is in agent-hours and tokens, from the tasks that were actually run.
+
+## What was built before the baseline
+
+This is the ground the plan stands on. It is measured from the repository.
 
 | | |
 |---|---|
-| Tasks delivered | **8 of 850** |
+| Commits on the main branch since February 2026 | **25,978** |
+| Pull requests merged | **4,464** |
+| Issues closed | 1,929 |
+| Blueprint charts | 100 |
+| Go source files | 1,877, of which 1,032 are tests |
+| Console source files | 1,139 |
+| Browser test specs | 56 |
+| CI workflows and guard scripts | 133 and 77 |
+
+Against the target of this plan, that work stands at **24% built** across the 14 product areas, from 60% in billing to nothing yet in migration. The plan below is the remaining distance.
+
+| | |
+|---|---|
+| Built before the baseline | **24%** of the target, by the code audit |
+| Tasks of the plan delivered since | **8 of 850** |
 | Epics in the backlog | 101, plus single fixes in 14 areas |
 | Still to spend | about 620 agent-hours and 617 million tokens |
 | Last feature done, six agents in parallel | about 4 Dec (336 running hours at 16 a day) |
@@ -12,7 +30,7 @@ Status on 13 November 2026. Baseline: 12 November 2026, 0 tasks delivered. All w
 
 ## Where we started and where we are
 
-Green is delivered and proven. Grey is still to do. On 12 November every bar was grey.
+Each bar is the whole target for that area. Dark blue is what was already built on 12 November. Green is what has been added since. Grey is still to do.
 
 ![Progress per product area](dashboard/progress.svg)
 
