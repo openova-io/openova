@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-12T20:00:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-12T20:15:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-12T20:12 | [#7163](https://github.com/openova-io/openova/pull/7163) | #7140 | docs(adr): record 0028 on commerce and billing, superseding  |
+| 2026-11-12T20:06 | [#7162](https://github.com/openova-io/openova/pull/7162) | #7146 | ci: console lint ratchet; remove the switched-off console su |
+| 2026-11-12T20:06 | [#7161](https://github.com/openova-io/openova/pull/7161) | #7149 | docs(adr): record the zone model, the withdrawn zone trial a |
 | 2026-11-12T19:48 | [#7160](https://github.com/openova-io/openova/pull/7160) | #7087 | docs(ledger): dashboard refreshed: 27 tasks delivered |
 | 2026-11-12T19:39 | [#7159](https://github.com/openova-io/openova/pull/7159) | #7144 | feat(contracts): publish contracts C3 and C4 with the event- |
 | 2026-11-12T19:38 | [#7158](https://github.com/openova-io/openova/pull/7158) | #7143 | chore(ci): guard that catalyst-api and core/services gain no |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-12T16:54 | [#7113](https://github.com/openova-io/openova/pull/7113) | #7087 | docs(ledger): the north-star dashboard as a page GitHub rend |
 | 2026-11-12T17:04 | [#7112](https://github.com/openova-io/openova/pull/7112) | #7109 | feat(gate): check registry and version 2 record in the accep |
 | 2026-11-12T17:04 | [#7111](https://github.com/openova-io/openova/pull/7111) | #7108 | feat(catalyst-api): let a deployment request name the Git re |
-| 2026-11-12T16:49 | [#7110](https://github.com/openova-io/openova/pull/7110) | #7087 | docs(ledger): the north-star dashboard as one offline page |
-| 2026-11-12T16:48 | [#7107](https://github.com/openova-io/openova/pull/7107) | #7087 | docs(ledger): plan update: tickets FND-014 and FND-032, mana |
-| 2026-11-12T14:38 | [#7105](https://github.com/openova-io/openova/pull/7105) | #7093 | fix(ci): auth, shared and the whole billing module are teste |
 
 ---
 
