@@ -2,7 +2,7 @@
 
 Machine operations, exemplar agents, migration, managed Kubernetes, more native services.
 
-125 tasks. One task is one pull request. Rows are in the order the tasks can run. "Waits for" lists the tasks that must be merged first; every task also waits for the first two tasks of the plan, `FND-021` and `FND-022`.
+118 tasks. One task is one pull request. Rows are in the order the tasks can run. "Waits for" lists the tasks that must be merged first; every task also waits for the first two tasks of the plan, `FND-021` and `FND-022`.
 
 [Back to the overview](README.md)
 
@@ -10,7 +10,7 @@ Machine operations, exemplar agents, migration, managed Kubernetes, more native 
 
 - [CLD: Cloud abstraction](#cld-cloud-abstraction) — 6 tasks
 - [SOV: Sovereign lifecycle](#sov-sovereign-lifecycle) — 6 tasks
-- [NET: Network, zones and cluster classes](#net-network-zones-and-cluster-classes) — 11 tasks
+- [NET: Network, zones and cluster classes](#net-network-zones-and-cluster-classes) — 4 tasks
 - [SVC: Service model](#svc-service-model) — 1 tasks
 - [CMP: Compliance and posture](#cmp-compliance-and-posture) — 4 tasks
 - [BSS: Commerce and billing](#bss-commerce-and-billing) — 7 tasks
@@ -85,26 +85,12 @@ Machine operations, exemplar agents, migration, managed Kubernetes, more native 
 | Task | What it does | Waits for | How it is proven |
 |---|---|---|---|
 | **NET-321**<br>decision, 3 days | **Decision record: managed cluster class on the reference cloud**<br>Record of the mechanism, vendor permissions and measured flags from the spike note | NET-290 | stated in its ticket |
-| **NET-322**<br>new, 5 days | **Class file, schema and conformance probe as a suite profile**<br>Section 4.8 built: class files, schema, per-flag probe checks read by the gate's needs field, duplicate-pod-address check | NET-321, FND-032 | Makes NET-G17 required. |
-| **NET-323**<br>new, 5 days | **Managed cluster on the reference cloud: the cluster and its node pools from the provider pack**<br>The provider pack of the reference cloud can create one managed Kubernetes cluster with its node pools, in the network model the spike proved, from the same request that creates a reference cluster today. The class of the cluster is a field of the request. Nodes come up without the cloud's own pod network plug-in configured, by the switch the spike note names. | NET-322 | stated in its ticket |
-| **NET-324**<br>new, 5 days | **First boot on a managed cluster: the platform installs and owns Cilium**<br>On a managed cluster the first boot installs the platform's Cilium by the mechanism the spike proved and hands it to Flux, with the same values file as the reference class except the fields the class file names. No kube-proxy remains. A node added by scale-out joins with the platform's Cilium and no plug-in of the cloud. | NET-323 | stated in its ticket |
-| **NET-325**<br>new, 3 days | **Public entry on a managed cluster: a load balancer on host ports, no NodePort**<br>The gateway of a managed cluster is reached through a load balancer that targets host ports 443 and 80 on labelled nodes. The cloud's own load-balancer controller, which allocates node ports, is not used. No Service in the cluster carries a node port. | NET-324 | stated in its ticket |
-| **NET-326**<br>new, 3 days | **A managed cluster joins the mesh of a Sovereign**<br>A managed cluster and a reference cluster of the same Sovereign are meshed over the private link, declared in Git like every other mesh of the platform. If the spike measured mesh.cilium false for the class, this task is dropped and the class file says single region only. | NET-324 | stated in its ticket |
-| **NET-327**<br>new, 5 days | **Bootstrap kit profile for a managed cluster**<br>The bootstrap kit installs on a managed cluster from a profile that leaves out what the cloud already runs (the Kubernetes control plane and its storage class) and keeps everything else unchanged. Which releases the profile leaves out is derived from the class file, not written by hand per provider. | NET-324 | stated in its ticket |
-| **NET-328**<br>new, 5 days | **Console: the cluster class is a choice, and features follow its capabilities**<br>Where a region is created, the sovereign-admin chooses its cluster class from the classes admitted on that cloud. A feature whose capability is false on the chosen class is shown as not available with the reason, never hidden and never offered. A managed class hosts Organization workloads; whether it may host the control plane is the class file's field. | NET-322, NET-327, FND-014 | stated in its ticket |
-| **NET-329**<br>test, 5 days | **The managed class passes the acceptance suite on the National Cloud**<br>The acceptance suite runs against an installation whose workload region is a managed cluster: install, data, sign-in, an Application installed from the console, and, when the class has the mesh, a move between regions and back. The gate record names the class. Two records of one candidate agree. | NET-325, NET-326, NET-327, NET-328, FND-031, FND-032 | stated in its ticket |
+| **NET-322**<br>new, 5 days | **Class file, schema and conformance probe as a suite profile**<br>Section 4.8 built: class files, schema, per-flag probe checks read by the gate's needs field, duplicate-pod-address check | NET-321 | Makes NET-G17 required. |
 
 <details><summary>Files each task of this group changes</summary>
 
 - **NET-321**: `docs/adr/`
 - **NET-322**: `platform/cluster-classes/`, `tests/acceptance/sovereign/internal/suite/`
-- **NET-323**: `infra/providers/huawei/`
-- **NET-324**: `clusters/_template/`
-- **NET-325**: `infra/providers/huawei/`, `platform/cilium/`
-- **NET-326**: `platform/cilium/`
-- **NET-327**: `clusters/_template/bootstrap-kit/`
-- **NET-328**: `products/catalyst/bootstrap/ui/src/pages/sovereign/`, `products/catalyst/bootstrap/api/`
-- **NET-329**: `tests/acceptance/sovereign/`
 
 </details>
 
