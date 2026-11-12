@@ -71,3 +71,29 @@ jobs:
           done
           echo "check: ${count} generator(s) run"
           exit "$stale"
+
+  doc-state:
+    # The state markers of the five canonical documents (FND-103). scripts/check-doc-state.py
+    # holds the rules: every marker resolves, and two counts may only fall, the sections
+    # without a marker and the lines that cite a missing section of record 0001. Their
+    # highest allowed values are in docs/ledger/doc-state-baseline.txt. A pull request that
+    # adds a marker or removes a citation lowers that file; no line of it may rise.
+    # HEAD^1 is the state before the change on every event of this workflow: the base branch
+    # on a pull request (the checkout is the merge commit), the commit before on a merge group
+    # and on a push. So two commits are fetched.
+    name: doc-state
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PyYAML
+        run: pip install --quiet pyyaml
+      - name: Self-test of the guard (every rule can fail)
+        run: python3 scripts/check-doc-state.py --self-test
+      - name: Markers resolve, the counts do not rise, the baseline does not rise
+        run: python3 scripts/check-doc-state.py --base HEAD^1
