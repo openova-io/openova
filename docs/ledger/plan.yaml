@@ -613,7 +613,7 @@ packages:
   epic: FND-010
   type: delete
   wave: W0
-  size: XS
+  size: S
   lane: RAILS
   depends_on: [FND-011]
   after: []
@@ -623,16 +623,24 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "sed -n 3p docs/ledger/TRACKER.md | grep -c 'refresh-dod-dashboard.sh'"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "! grep -q '41 / 41' docs/ledger/TRACKER.md"
+  - id: A2
+    run: "test \"$(wc -l < docs/ledger/TRACKER.md)\" -le 6"
+  - id: A3
+    run: "printf '%s  %s\\n' 8ca5fee09af6f6e29ee449b42951c55ac22383168d34082ccb4f0079e79783b7 docs/ledger/TRACKER.md | sha256sum --check --quiet -"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: The 15-minute tracker commit stops and the file no longer prints a false total.
+  delivers: docs/ledger/TRACKER.md no longer prints the false 41 / 41 total; it is a five-line pointer to the plan tool and the gate verdict, and no commit rewrites it every 15 minutes.
 - id: FND-013
   title: 'Merge queue: aggregate check, queue triggers, rulesets and code owners as files'
   area: FND
@@ -1772,14 +1780,24 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c -F '| grep -qxF -- \"$b\"' scripts/check-guards-are-wired.sh"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "out=\"$(bash scripts/check-guards-are-wired.sh --self-test)\"; grep -qxF '  ok  the first name of a 20000-name list is a member on 20 runs in a row' <<< \"$out\""
+  - id: A2
+    run: "! grep -nE '\\|[[:space:]]*grep[[:space:]]+-[A-Za-z]*q' scripts/check-guards-are-wired.sh"
+  - id: A3
+    run: "for i in $(seq 1 500); do out=\"$(bash scripts/check-guards-are-wired.sh)\" || { printf 'run %s failed:\\n%s\\n' \"$i\" \"$out\"; exit 1; }; done"
+  - id: A4
+    run: "t=\"$(mktemp -d)\"; mkdir -p \"$t/scripts\" \"$t/.github\"; cp -R .github/workflows \"$t/.github/workflows\"; cp scripts/check-*.sh \"$t/scripts/\"; printf '#!/usr/bin/env bash\\ncase \"$1\" in --self-test) exit 0;; esac\\n' > \"$t/scripts/check-zz-unwired.sh\"; rc=0; out=\"$(bash scripts/check-guards-are-wired.sh --root \"$t\")\" || rc=$?; rm -rf \"$t\"; printf '%s\\n' \"$out\"; test \"$rc\" -eq 1; test \"$(grep -c '^ORPHANED GUARD:' <<< \"$out\")\" -eq 1; grep -qxF 'ORPHANED GUARD: scripts/check-zz-unwired.sh advertises --self-test but no workflow INVOKES it' <<< \"$out\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
   delivers: bash scripts/check-guards-are-wired.sh gives the same verdict on every run, so a guard that a workflow runs is never reported as orphaned.
 - id: FND-061
@@ -11338,7 +11356,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271]
-  after: [FND-011, FND-013, FND-014, FND-015, FND-018, FND-020, FND-021, FND-022, FND-023, FND-031, FND-032, FND-033, FND-034, FND-040, FND-052, FND-053, FND-054, FND-055, FND-091, FND-092, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-101, FND-102, FND-103, FND-105, FND-110, FND-171, CLD-010, CLD-021, CLD-022, CLD-040, CLD-063, CLD-075, CLD-080, CLD-086, CLD-087, CLD-113, CLD-142, SOV-030, SOV-035, SOV-040, SOV-050, SOV-110, SOV-120, SOV-133, SOV-141, SOV-150, SOV-180, SEC-020, SEC-030, SEC-125, NET-030, NET-033, NET-041, NET-050, NET-090, NET-100, SVC-020, SVC-060, SVC-125, CTL-010, CTL-020, CTL-025, CTL-030, CTL-035, CTL-044, CTL-045, CTL-150, CTL-160, CTL-201, CTL-240, CMP-012, CMP-014, CMP-036, BSS-050, INF-010, PRD-030, PRD-101, PRD-102, PRD-106]
+  after: [FND-011, FND-013, FND-014, FND-015, FND-018, FND-020, FND-021, FND-022, FND-023, FND-031, FND-032, FND-033, FND-034, FND-040, FND-052, FND-053, FND-054, FND-055, FND-058, FND-091, FND-092, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-101, FND-102, FND-103, FND-105, FND-110, FND-171, CLD-010, CLD-021, CLD-022, CLD-040, CLD-063, CLD-075, CLD-080, CLD-086, CLD-087, CLD-113, CLD-142, SOV-030, SOV-035, SOV-040, SOV-050, SOV-110, SOV-120, SOV-133, SOV-141, SOV-150, SOV-180, SEC-020, SEC-030, SEC-125, NET-030, NET-033, NET-041, NET-050, NET-090, NET-100, SVC-020, SVC-060, SVC-125, CTL-010, CTL-020, CTL-025, CTL-030, CTL-035, CTL-044, CTL-045, CTL-150, CTL-160, CTL-201, CTL-240, CMP-012, CMP-014, CMP-036, BSS-050, INF-010, PRD-030, PRD-101, PRD-102, PRD-106]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/26-image-signature.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -11796,7 +11814,7 @@ packages:
   after: [FND-011, FND-014, CLD-113, SOV-030, SOV-035, SOV-131, SOV-133, SOV-140, SOV-141, SEC-020, SEC-030, NET-100, CTL-150]
   touches: []
   resources: []
-  flips: [NET-G02]
+  flips: []
   implements: []
   proven_by: null
   precondition: null
@@ -11822,6 +11840,31 @@ packages:
   touches: []
   resources: []
   flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: Security fix. Its text is published with its ticket.
+- id: NET-013
+  title: Security fix. Its text is published with its ticket.
+  area: NET
+  epic: null
+  type: test
+  wave: W0
+  size: S
+  lane: GATE
+  depends_on: [NET-011, FND-035]
+  after: [FND-033, FND-034, CLD-010, CLD-080, CLD-087, SEC-030, SEC-080, SEC-120, NET-020, NET-060, SVC-125, CMP-010, BSS-030]
+  touches: []
+  resources: []
+  flips: [NET-G02]
   implements: []
   proven_by: null
   precondition: null
