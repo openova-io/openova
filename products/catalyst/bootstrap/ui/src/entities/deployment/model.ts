@@ -19,7 +19,7 @@ export type CloudProvider = 'hetzner' | 'huawei' | 'oci' | 'aws' | 'azure'
  */
 export type NodeSize = string
 export type DeploymentStatus = 'pending' | 'provisioning' | 'healthy' | 'degraded' | 'failed' | 'destroying'
-export type TopologyTemplate = 'citadel' | 'triangle' | 'dual' | 'zoned' | 'compact' | 'solo'
+export type TopologyTemplate = 'dual' | 'solo'
 
 export interface Region {
   id: string; code: string; name: string; location: string; countryCode: string; flag: string
@@ -451,16 +451,12 @@ export const PROVIDER_REGIONS: Record<CloudProvider, { id: string; label: string
 }
 
 export const TOPOLOGY_REGION_COUNT: Record<TopologyTemplate, number> = {
-  citadel: 4, triangle: 3, dual: 2, zoned: 2, compact: 2, solo: 1,
+  dual: 2, solo: 1,
 }
 
 export const TOPOLOGY_REGION_LABELS: Record<TopologyTemplate, string[]> = {
-  citadel:  ['CP Region 1 — MGMT', 'CP Region 2 — MGMT', 'DP Region 1 — DMZ + RTZ', 'DP Region 2 — DMZ + RTZ'],
-  triangle: ['CP Region — MGMT', 'DP Region 1 — DMZ + RTZ', 'DP Region 2 — DMZ + RTZ'],
-  dual:     ['Region 1 — MGMT + DMZ + RTZ', 'Region 2 — MGMT + DMZ + RTZ'],
-  zoned:    ['Region 1 — DMZ / RTZ / MGMT', 'Region 2 — DMZ / RTZ / MGMT'],
-  compact:  ['Region 1 — Primary', 'Region 2 — Secondary'],
-  solo:     ['Region 1 — All Components'],
+  dual: ['Region 1', 'Region 2'],
+  solo: ['Region 1'],
 }
 
 /** Base defaults: all M + all R in required blocks; optional blocks empty */
@@ -548,7 +544,7 @@ export const INITIAL_WIZARD_STATE: WizardState = {
   registrarType: null,
   registrarToken: '',
   registrarTokenValidated: false,
-  topology: 'zoned',
+  topology: 'dual',
   regionProviders: {}, regionCloudRegions: {},
   regionControlPlaneSizes: [],
   regionWorkerSizes: [],
