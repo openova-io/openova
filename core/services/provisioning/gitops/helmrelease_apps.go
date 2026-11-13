@@ -250,7 +250,7 @@ func (opt helmReleaseAppOpts) kubeConfigBlock() string {
 // secretRef stays ghcr-pull in both phases (the cutover rewrites that
 // Secret's contents, not its name).
 func helmRepoBlock(name string) string {
-	return fmt.Sprintf(`apiVersion: source.toolkit.fluxcd.io/v1beta2
+	return fmt.Sprintf(`apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
 metadata:
   name: %s

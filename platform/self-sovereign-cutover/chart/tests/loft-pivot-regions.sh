@@ -116,7 +116,7 @@ case "${verb}" in
           printf '%s' "${url}"
         else
           jq -n --arg u "${url}" --arg t "${typ}" \
-            '{apiVersion:"source.toolkit.fluxcd.io/v1beta2",kind:"HelmRepository",metadata:{name:"loft",namespace:"vcluster-system"},spec:({url:$u}+(if $t=="" then {} else {type:$t} end))}'
+            '{apiVersion:"source.toolkit.fluxcd.io/v1",kind:"HelmRepository",metadata:{name:"loft",namespace:"vcluster-system"},spec:({url:$u}+(if $t=="" then {} else {type:$t} end))}'
         fi
         ;;
       helmrelease|helmreleases)

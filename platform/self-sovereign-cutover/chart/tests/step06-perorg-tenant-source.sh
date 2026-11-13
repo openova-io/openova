@@ -292,7 +292,7 @@ hr_doc() {
   # $1 = name, $2 = url — the shape gitops/helmrelease_apps.go helmRepoBlock
   # emits (namespace flux-system in the doc; the per-Org Kustomization's
   # targetNamespace: <slug> is what actually places it).
-  printf -- 'apiVersion: source.toolkit.fluxcd.io/v1beta2\nkind: HelmRepository\nmetadata:\n  name: %s\n  namespace: flux-system\nspec:\n  type: oci\n  interval: 15m\n  url: %s\n  secretRef:\n    name: ghcr-pull\n' "$1" "$2"
+  printf -- 'apiVersion: source.toolkit.fluxcd.io/v1\nkind: HelmRepository\nmetadata:\n  name: %s\n  namespace: flux-system\nspec:\n  type: oci\n  interval: 15m\n  url: %s\n  secretRef:\n    name: ghcr-pull\n' "$1" "$2"
 }
 
 hr_release_doc() {
