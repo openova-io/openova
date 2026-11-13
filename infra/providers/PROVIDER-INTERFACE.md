@@ -84,7 +84,7 @@ A module whose cloud cannot span cloud regions adds its own validation that all 
 
 ### 2. Outputs
 
-Every module emits these five. An output is in the contract only when shared code reads it.
+Every module emits these six. An output is in the contract only when shared code reads it.
 
 | Name | Type | Meaning | Reader |
 |---|---|---|---|
@@ -93,19 +93,53 @@ Every module emits these five. An output is in the contract only when shared cod
 | `load_balancer_ip` | string | Public address of the primary gateway front door | The provisioning engine |
 | `console_load_balancer_ip` | string | Address of the console front door, `""` when the console has no front door of its own | The provisioning engine |
 | `control_plane_ips_per_region` | map(string) | Region code to control-plane address | The provisioning engine |
+| `network_registry` | string (JSON) | The network registry of the Sovereign, section 2.1 | `scripts/check-network-registry.py` and the module tests |
 
-A sixth output, `day2_facts`, joins the contract in work package CLD-173, which adds its reader.
+A further output, `day2_facts`, joins the contract in work package CLD-173, which adds its reader.
 
 These names are reserved. Each joins the contract in the work package that adds its reader.
 
 | Name | Kind | Type | Joins with |
 |---|---|---|---|
 | `edge_pool` | variable | object({size = string, count = number}) | NET-181 |
-| `network_registry` | output | string (JSON) | NET-100 |
 | `region_separation` | output | string | NET-210 |
 | `edge_addresses` | output | map(string) | NET-184 |
 
 Not in the contract: `sovereign_fqdn`, `console_url`, `gitops_repo_url`, `gitops_repo_url_out`, `kubeconfig_path`, `s3_buckets`, `region_primary`, `region_secondaries`, `worker_ips_per_region` and the object-storage outputs. Shared code reads none of them. A module may keep them as extras.
+
+### 2.1 The network registry (`network_registry`)
+
+The network registry is the record of every address, cluster name and cluster identifier of one Sovereign. The module is its one source. The output is the JSON text of one object. `scripts/check-network-registry.py <file>` checks it; `<file>` holds the object or the output of `tofu output -json network_registry`. The documents under `scripts/tests/check-network-registry/` are its test cases: `valid-*.json` pass, and `invalid/<rule>.json` fails with `<rule>`.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `podSupernet` | IPv4 CIDR | One range that holds every `podCIDR`: `10.42.0.0/15` for one or two regions, `10.40.0.0/13` for three to six |
+| `mtu` | integer, 1280 to 9000 | Pod MTU of Cilium: 1420 |
+| `regionSeparation` | `none`, `zone` or `site` | `site` when every region has a different `cloudRegion`; `zone` when cloud regions repeat but every pair of `cloudRegion` and `az` is different; `none` otherwise and for one region |
+| `controlPlaneAccess.adminCIDRs`, `controlPlaneAccess.provisionerCIDRs` | list of CIDR, may be empty | Sources of the API port: the sovereign-admin source list and the provisioner source list. Empty until the module has these lists |
+| `regions` | list, 1 to 6 entries | One entry per region, in the module's region order |
+| `regions[].code` | string | The region code of the module |
+| `regions[].cloudRegion`, `regions[].az` | string | Cloud region and zone of the region; `az` is `none` where the cloud has no zones |
+| `regions[].clusterName` | string | Mesh name of the cluster: a lower-case label of at most 32 characters |
+| `regions[].clusterID` | integer, 1 to 255 | Mesh identifier of the cluster |
+| `regions[].nodeCIDR` | IPv4 CIDR | The node subnet |
+| `regions[].podCIDR`, `regions[].serviceCIDR` | IPv4 CIDR, prefix length 16 | Pod range `10.(42+index).0.0/16`, service range `10.(96+index).0.0/16` |
+| `regions[].meshEndpoint` | object `{ips, port}` | Present when there is more than one region: the addresses peers dial and the dial port |
+| `regions[].edgeAddress` | IPv4 address | The public address clients reach in the region |
+| `regions[].egressAddresses` | list of IPv4 address, at least one | Source addresses of traffic that leaves the region's nodes and pods |
+
+The rules. A violation prints one line that starts with the rule name.
+
+| Rule | A document passes when |
+|---|---|
+| `document-shape` | every field above is present with its type and range, `meshEndpoint` is the only optional field, and no other field exists |
+| `unique-cluster-id` | no two regions share `clusterID` |
+| `unique-cluster-name` | no two regions share `clusterName` |
+| `unique-ranges` | no two of all `nodeCIDR`, `podCIDR` and `serviceCIDR` values overlap |
+| `supernet-covers-pods` | every `podCIDR` lies inside `podSupernet` |
+| `supernet-excludes-nodes-and-services` | no `nodeCIDR` or `serviceCIDR` intersects `podSupernet` |
+| `mesh-endpoint-when-multi-region` | with more than one region, every region has `meshEndpoint` |
+| `no-any-source` | no access list holds a range of prefix length 0 (`0.0.0.0/0`, `::/0`) |
 
 ### 3. Names, tags and labels
 

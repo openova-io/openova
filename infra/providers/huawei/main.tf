@@ -79,7 +79,13 @@ locals {
   # [96, 95+N], shift the base UP by N (the band width). A non-colliding
   # hash is untouched, so every existing Sovereign keeps its CIDRs.
   #
-  # PROOF (N = number of regions, 1 <= N <= 5; the guard enforces the bound):
+  # NET-100: that rule holds for one and two regions, and they keep it. From
+  # three regions on the pod supernet is 10.40.0.0/13 (local.pod_supernet),
+  # so the pod band is the whole supernet, octets 40 to 47: a placement of
+  # the rule that lands there takes the smallest free shift instead
+  # (cidr_base_free_shifts below).
+  #
+  # PROOF of the +N rule (N = number of regions, 1 <= N <= 5; used for N <= 2):
   #   Say region i hit a band [B, B+N-1] (B = 42 or 96) at offset
   #   p = raw + 10*i - B, 0 <= p <= N-1. After the shift every region octet
   #   is (raw + N) + 10*idx = B + (p + N + 10*k) with k = idx - i in
@@ -97,9 +103,10 @@ locals {
   #   <= 145 <= 247 — the OVERFLOW FIX ceiling above still holds.
   #   Worked, N=2 (region-b = +10): raw 32->34, 33->35, 42->44, 43->45,
   #   86->88, 87->89, 96->98, 97->99; e68e79721ecbde62: 42 -> 44 / 54.
-  # Enumerated for every hash byte x N in 1..5 by
+  # Enumerated for every hash byte x N in 1..6 by
   # scripts/check-vpc-cidr-no-pod-overlap.py (CI: infra-huawei-tofu.yaml),
-  # which also parses the 32/216/10/42/96 literals so drift is caught.
+  # which also parses the 32/216/10/42/96 and 40/47/16 literals so drift is
+  # caught.
   cidr_base_raw = 32 + (parseint(substr(sha256(var.deployment_id), 0, 2), 16) % (216 - (length(var.regions) - 1) * 10))
 
   # TRUE when any region's node-VPC second octet (raw + idx*10) lands in the
@@ -112,7 +119,29 @@ locals {
     || (local.cidr_base_raw + idx * 10 >= 96 && local.cidr_base_raw + idx * 10 <= 96 + length(var.regions) - 1)
   ])
 
-  cidr_base = local.cidr_base_raw + (local.cidr_base_hits_overlay ? length(var.regions) : 0)
+  # The shift of the rule above: +N when a region octet hits a band, else 0.
+  cidr_base_old_shift = local.cidr_base_hits_overlay ? length(var.regions) : 0
+
+  # NET-100 — three to six regions (variables.tf allows at most six). The
+  # node-VPC octets must stay out of the whole pod supernet 10.40.0.0/13,
+  # octets 40 to 47, and out of the service band [96, 96+N-1]. This list
+  # holds every shift s in 0..15 for which no region octet (raw + s + idx*10)
+  # lands in either band. The base keeps the shift of the rule above when
+  # that shift is in the list, so a Sovereign keeps its CIDRs unless a node
+  # VPC lies in the supernet; otherwise it takes the smallest shift of the
+  # list. For every hash byte and N in 3..6 the list is not empty and the
+  # last region octet stays at or below 247. One and two regions do not use
+  # this list: their CIDRs never move.
+  cidr_base_free_shifts = [
+    for s in range(16) : s
+    if !anytrue([
+      for idx in range(length(var.regions)) :
+      (local.cidr_base_raw + s + idx * 10 >= 40 && local.cidr_base_raw + s + idx * 10 <= 47)
+      || (local.cidr_base_raw + s + idx * 10 >= 96 && local.cidr_base_raw + s + idx * 10 <= 96 + length(var.regions) - 1)
+    ])
+  ]
+
+  cidr_base = local.cidr_base_raw + (length(var.regions) <= 2 || contains(local.cidr_base_free_shifts, local.cidr_base_old_shift) ? local.cidr_base_old_shift : local.cidr_base_free_shifts[0])
   region_vpc_cidr = {
     for idx, r in var.regions :
     r.code => format("10.%d.0.0/16", local.cidr_base + idx * 10)
@@ -154,6 +183,11 @@ locals {
     for idx, r in var.regions :
     r.code => format("10.%d.0.0/16", 96 + idx)
   }
+
+  # NET-100 — the pod supernet: one range that holds the pod CIDR of every
+  # region. 10.42.0.0/15 for one or two regions, 10.40.0.0/13 for three to
+  # six. It is published in the network registry (output network_registry).
+  pod_supernet = length(var.regions) <= 2 ? "10.42.0.0/15" : "10.40.0.0/13"
 
   # #4942 — mesh-wide ingress source CIDRs for the cilium-health (4240) and
   # pod-CIDR security-group rules.
@@ -1946,4 +1980,68 @@ resource "huaweicloud_elb_monitor" "console_http" {
   interval    = 10
   timeout     = 5
   max_retries = 3
+}
+
+# ── Network registry (NET-100) ────────────────────────────────────────────
+# The record of every address, cluster name and cluster identifier of this
+# Sovereign, one entry per region in the order of var.regions. Output
+# network_registry is its JSON form; scripts/check-network-registry.py
+# checks it. Every value comes from a local or a resource of this module:
+#   - cloudRegion and az: var.huawei_region and var.huawei_az, the same for
+#     every region of this module;
+#   - nodeCIDR: the region's node subnet (region_subnet_cidr);
+#   - meshEndpoint: present only with more than one region; the region's
+#     control-plane EIP and the mesh dial port;
+#   - edgeAddress: the gateway ELB EIP, one for every region;
+#   - egressAddresses: the region's NAT EIP (workers) and control-plane EIP;
+#   - controlPlaneAccess: the module has no sovereign-admin or provisioner
+#     source list yet, so both lists are empty;
+#   - mtu: the pod MTU of Cilium: 1420, the default of the substitution
+#     CILIUM_MTU in clusters/_template/bootstrap-kit/01-cilium.yaml, which no
+#     module sets.
+# regionSeparation: "site" when every region has a different cloud region;
+# "zone" when cloud regions repeat but every (cloud region, zone) pair is
+# different; "none" otherwise and for one region.
+locals {
+  network_registry_mtu = 1420
+
+  network_registry_separation = (
+    length(var.regions) > 1 && length(distinct([for r in var.regions : var.huawei_region])) == length(var.regions) ? "site" :
+    length(var.regions) > 1 && length(distinct([for r in var.regions : "${var.huawei_region}/${var.huawei_az}"])) == length(var.regions) ? "zone" :
+    "none"
+  )
+
+  network_registry = {
+    podSupernet      = local.pod_supernet
+    mtu              = local.network_registry_mtu
+    regionSeparation = local.network_registry_separation
+    controlPlaneAccess = {
+      adminCIDRs       = []
+      provisionerCIDRs = []
+    }
+    regions = [
+      for c in local.region_keys : merge(
+        {
+          code            = c
+          cloudRegion     = var.huawei_region
+          az              = var.huawei_az
+          clusterName     = local.cluster_mesh_name_by_region[c]
+          clusterID       = local.cluster_mesh_id_by_region[c]
+          nodeCIDR        = local.region_subnet_cidr[c]
+          podCIDR         = local.region_cluster_cidr[c]
+          serviceCIDR     = local.region_service_cidr[c]
+          edgeAddress     = huaweicloud_vpc_eip.elb_primary.address
+          egressAddresses = [huaweicloud_vpc_eip.nat[c].address, huaweicloud_vpc_eip.cp[c].address]
+        },
+        {
+          for k, v in {
+            meshEndpoint = {
+              ips  = [huaweicloud_vpc_eip.cp[c].address]
+              port = var.clustermesh_proxy_port
+            }
+          } : k => v if length(var.regions) > 1
+        },
+      )
+    ]
+  }
 }

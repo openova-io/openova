@@ -40,7 +40,8 @@
     {"name": "control_plane_ip", "type": "string"},
     {"name": "load_balancer_ip", "type": "string"},
     {"name": "console_load_balancer_ip", "type": "string"},
-    {"name": "control_plane_ips_per_region", "type": "map(string)"}
+    {"name": "control_plane_ips_per_region", "type": "map(string)"},
+    {"name": "network_registry", "type": "string"}
   ],
   "engine_extras": [
     "domain_mode",

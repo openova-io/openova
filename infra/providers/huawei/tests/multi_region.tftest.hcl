@@ -619,3 +619,194 @@ run "peer_ports_closed_single_region" {
     error_message = "Single region: no rule for 12379 or 51871 may have the source 0.0.0.0/0."
   }
 }
+
+# NET-100 — the network registry. Each run fixes the addresses of the three
+# EIP resources and compares output network_registry with a document under
+# scripts/tests/check-network-registry/. scripts/check-network-registry.py
+# --self-test checks those documents against every rule of the registry, so a
+# module change that breaks a rule fails here or there.
+run "network_registry_one_region" {
+  command = plan
+
+  override_resource {
+    target = huaweicloud_vpc_eip.elb_primary
+    values = {
+      address = "203.0.113.10"
+    }
+  }
+  override_resource {
+    target = huaweicloud_vpc_eip.cp
+    values = {
+      address = "203.0.113.11"
+    }
+  }
+  override_resource {
+    target = huaweicloud_vpc_eip.nat
+    values = {
+      address = "203.0.113.12"
+    }
+  }
+
+  variables {
+    huawei_region = "region-1"
+    huawei_az     = "region-1a"
+    regions = [
+      {
+        code               = "region-a"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      }
+    ]
+  }
+
+  assert {
+    condition     = output.network_registry == jsonencode(jsondecode(file("../../../scripts/tests/check-network-registry/valid-one-region.json")))
+    error_message = "NET-100: network_registry differs from scripts/tests/check-network-registry/valid-one-region.json: ${output.network_registry}"
+  }
+  assert {
+    condition     = !strcontains(output.network_registry, "meshEndpoint")
+    error_message = "NET-100: one region has no meshEndpoint."
+  }
+}
+
+# Two regions: the CIDRs of the Tier-B fixture do not move (raw base 127 for
+# deadbeefcafef00d), and every region carries its meshEndpoint.
+run "network_registry_two_regions" {
+  command = plan
+
+  override_resource {
+    target = huaweicloud_vpc_eip.elb_primary
+    values = {
+      address = "203.0.113.10"
+    }
+  }
+  override_resource {
+    target = huaweicloud_vpc_eip.cp
+    values = {
+      address = "203.0.113.11"
+    }
+  }
+  override_resource {
+    target = huaweicloud_vpc_eip.nat
+    values = {
+      address = "203.0.113.12"
+    }
+  }
+
+  variables {
+    huawei_region = "region-1"
+    huawei_az     = "region-1a"
+    regions = [
+      {
+        code               = "region-a"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      },
+      {
+        code               = "region-b"
+        role               = "secondary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      }
+    ]
+  }
+
+  assert {
+    condition     = local.region_vpc_cidr["region-a"] == "10.127.0.0/16" && local.region_vpc_cidr["region-b"] == "10.137.0.0/16"
+    error_message = "NET-100: the node VPC CIDRs of a two-region Sovereign must not move (10.127.0.0/16 and 10.137.0.0/16 for deadbeefcafef00d)."
+  }
+  assert {
+    condition     = output.network_registry == jsonencode(jsondecode(file("../../../scripts/tests/check-network-registry/valid-two-regions.json")))
+    error_message = "NET-100: network_registry differs from scripts/tests/check-network-registry/valid-two-regions.json: ${output.network_registry}"
+  }
+}
+
+# Three regions: the pod supernet is 10.40.0.0/13. 0123456789ef59d0 hashes to
+# raw base 45, whose node VPC 10.45.0.0/16 lies in that supernet; the base
+# moves up by the smallest free shift, 3, to 48.
+run "network_registry_three_regions" {
+  command = plan
+
+  override_resource {
+    target = huaweicloud_vpc_eip.elb_primary
+    values = {
+      address = "203.0.113.10"
+    }
+  }
+  override_resource {
+    target = huaweicloud_vpc_eip.cp
+    values = {
+      address = "203.0.113.11"
+    }
+  }
+  override_resource {
+    target = huaweicloud_vpc_eip.nat
+    values = {
+      address = "203.0.113.12"
+    }
+  }
+
+  variables {
+    deployment_id = "0123456789ef59d0"
+    huawei_region = "region-1"
+    huawei_az     = "region-1a"
+    regions = [
+      {
+        code               = "region-a"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 1
+      },
+      {
+        code               = "region-b"
+        role               = "secondary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 1
+      },
+      {
+        code               = "region-c"
+        role               = "secondary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 1
+      }
+    ]
+  }
+
+  assert {
+    condition     = local.cidr_base_raw == 45 && local.cidr_base == 48
+    error_message = "NET-100: with three regions the raw base 45 must move to 48, out of the pod supernet 10.40.0.0/13."
+  }
+  assert {
+    condition     = output.network_registry == jsonencode(jsondecode(file("../../../scripts/tests/check-network-registry/valid-three-regions.json")))
+    error_message = "NET-100: network_registry differs from scripts/tests/check-network-registry/valid-three-regions.json: ${output.network_registry}"
+  }
+}
+
+# More than six regions is refused: the pod supernet holds six pod CIDRs.
+run "network_registry_seven_regions_refused" {
+  command = plan
+
+  variables {
+    huawei_region = "region-1"
+    huawei_az     = "region-1a"
+    regions = [
+      for c in ["a", "b", "c", "d", "e", "f", "g"] : {
+        code               = "region-${c}"
+        role               = c == "a" ? "primary" : "secondary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 1
+      }
+    ]
+  }
+
+  expect_failures = [var.regions]
+}

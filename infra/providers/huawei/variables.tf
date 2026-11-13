@@ -67,6 +67,12 @@ variable "regions" {
     condition     = length(var.regions) >= 1
     error_message = "Tier-B Huawei Sovereign requires at least 1 region (primary)."
   }
+  # NET-100: the pod supernet 10.40.0.0/13 holds the pod CIDRs of at most
+  # six regions (10.42.0.0/16 to 10.47.0.0/16).
+  validation {
+    condition     = length(var.regions) <= 6
+    error_message = "At most six regions: the pod supernet 10.40.0.0/13 holds the pod CIDRs 10.42.0.0/16 to 10.47.0.0/16."
+  }
   validation {
     condition = alltrue([
       for r in var.regions :

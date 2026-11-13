@@ -130,3 +130,12 @@ output "s3_bucket_per_region" {
     r.code => huaweicloud_obs_bucket.main.bucket
   }
 }
+
+# NET-100 — the network registry of this Sovereign as one JSON string (contract
+# output network_registry; infra/providers/PROVIDER-INTERFACE.md section 2).
+# Check it with: tofu output -json network_registry > r.json &&
+# python3 scripts/check-network-registry.py r.json
+output "network_registry" {
+  description = "Network registry (JSON): pod supernet, MTU, region separation, control-plane access lists, and per region the cluster name and identifier, node, pod and service ranges, mesh endpoint, edge address and egress addresses."
+  value       = jsonencode(local.network_registry)
+}
