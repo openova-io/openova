@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T01:30:04Z` |
+| Last refreshed | `2026-11-13T01:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T01:30 | [#7257](https://github.com/openova-io/openova/pull/7257) | #7237 | docs(adr): record 0034 on the later products, the AI hub and |
 | 2026-11-13T01:23 | [#7256](https://github.com/openova-io/openova/pull/7256) | #7234 | fix(console): the wizard offers one region or two, as the pr |
 | 2026-11-13T01:23 | [#7255](https://github.com/openova-io/openova/pull/7255) | #7215 | feat(plan): stability register and the frozen-path check (FN |
 | 2026-11-13T01:23 | [#7254](https://github.com/openova-io/openova/pull/7254) | #7233 | docs(adr): record 0026 on the NodePort ban and the gateway s |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-12T23:05 | [#7206](https://github.com/openova-io/openova/pull/7206) | #7190 | docs(security): generate the security control matrix from a  |
 | 2026-11-12T22:51 | [#7205](https://github.com/openova-io/openova/pull/7205) | #7193 | fix(catalyst-api): refuse to wipe a handed-over Sovereign un |
 | 2026-11-12T22:50 | [#7204](https://github.com/openova-io/openova/pull/7204) | #7191 | ci: fail a Kyverno engine upgrade to 1.20 while a legacy pol |
-| 2026-11-12T22:50 | [#7203](https://github.com/openova-io/openova/pull/7203) | #7189 | chore(ci): guard that the platform gains no new polling loop |
 
 ---
 
