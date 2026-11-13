@@ -21,6 +21,7 @@ One row for each pack, in the order of the folder names.
 |---|---|---|---|---|---|---|---|---|
 | hetzner | Hetzner Cloud | `unproven` | not required | 5 | 20 | `infra/providers/hetzner` | `clusters/_template/providers/hetzner` | `products/catalyst/bootstrap/api/internal/providers/hetzner` |
 | huawei | Huawei Cloud Stack | `unproven` | required | from the installation | from the installation | `infra/providers/huawei` | `clusters/_template/providers/huawei` | `products/catalyst/bootstrap/api/internal/providers/huawei` |
+| local | Local machines | `unproven` | not required | 1 | 2 | `infra/providers/local` | `clusters/_template/providers/local` | `products/catalyst/bootstrap/api/internal/providers/local` |
 
 ## Pack hetzner
 
@@ -74,6 +75,32 @@ One row for each pack, in the order of the folder names.
 | profile.yaml | spec.capabilities.multiCloudRegion | `false` |
 | profile.yaml | spec.day2.contracts | - |
 
+## Pack local
+
+| File | Field | Value |
+|---|---|---|
+| pack.yaml | spec.contractVersion | `1` |
+| pack.yaml | spec.charts | - |
+| pack.yaml | spec.tofuProviders | `registry.opentofu.org/hashicorp/random`, `registry.opentofu.org/kreuzwerker/docker` |
+| pack.yaml | spec.leakTokens | `kreuzwerker` |
+| profile.yaml | spec.contractVersion | `1` |
+| profile.yaml | spec.requiresInstallation | not set |
+| profile.yaml | spec.credentials.source | `operator` |
+| profile.yaml | spec.credentials.fields | `runner_socket` (not secret, optional) |
+| profile.yaml | spec.compute.image | `catalyst-local-machine` |
+| profile.yaml | spec.compute.defaults | control plane `medium`, worker `small` |
+| profile.yaml | spec.compute.minWorkerCount | not set |
+| profile.yaml | spec.compute.minimumFlavor | not set |
+| profile.yaml | spec.storage.defaultClass | `local-path` |
+| profile.yaml | spec.storage.driver | `rancher.io/local-path` |
+| profile.yaml | spec.objectStorage.checksumAlgorithm | - |
+| profile.yaml | spec.network.loadBalancer.mode | `external-hostport` |
+| profile.yaml | spec.seal.kind | not set |
+| profile.yaml | spec.bootstrap.userDataLimitBytes | `0` |
+| profile.yaml | spec.capabilities.multiRegion | `true` |
+| profile.yaml | spec.capabilities.multiCloudRegion | `false` |
+| profile.yaml | spec.day2.contracts | - |
+
 ## Regions
 
 One row for each region of each pack profile, in the order of the profile.
@@ -86,6 +113,7 @@ A pack whose profile lists no region has no row here; see the column Regions of 
 | hetzner | `hel1` | HEL1 | Helsinki, Finland | `hel1` | `hel1` |
 | hetzner | `ash` | ASH | Ashburn, USA | `ash` | `ash` |
 | hetzner | `hil` | HIL | Hillsboro, USA | `hil` | `hil` |
+| local | `local-1` | Local 1 | The host that runs the module | `local-1a` | `local-1a` |
 
 ## Flavors
 
@@ -116,3 +144,5 @@ Price: for display only; the billing engine keeps the price book.
 | hetzner | `ccx43` | 16 | 64 | `control-plane`, `worker` | every region | 124.99 EUR per month |
 | hetzner | `ccx53` | 32 | 128 | `control-plane`, `worker` | every region | 249.99 EUR per month |
 | hetzner | `ccx63` | 48 | 192 | `control-plane`, `worker` | every region | 374.49 EUR per month |
+| local | `small` | 2 | 4 | `control-plane`, `worker` | every region | - |
+| local | `medium` | 4 | 8 | `control-plane`, `worker` | every region | - |

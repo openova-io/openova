@@ -154,7 +154,7 @@ func TestContractFile(t *testing.T) {
 	}
 }
 
-// TestLoadBothPacks loads the two packs of this repository and checks the
+// TestLoadBothPacks loads the packs of this repository and checks the
 // values the readers of later work packages rely on.
 func TestLoadBothPacks(t *testing.T) {
 	profiles, err := Load(providersDir())
@@ -166,8 +166,8 @@ func TestLoadBothPacks(t *testing.T) {
 		names = append(names, n)
 	}
 	sort.Strings(names)
-	if strings.Join(names, ",") != "hetzner,huawei" {
-		t.Fatalf("packs %v, want [hetzner huawei]", names)
+	if strings.Join(names, ",") != "hetzner,huawei,local" {
+		t.Fatalf("packs %v, want [hetzner huawei local]", names)
 	}
 	h := profiles["hetzner"].Spec
 	if h.Lifecycle != "unproven" || h.RequiresInstallation || len(h.Regions) == 0 || h.Compute.Image == "" ||
@@ -182,12 +182,18 @@ func TestLoadBothPacks(t *testing.T) {
 		w.Storage.DefaultClass != "evs-ssd" || w.Compute.MinWorkers() != 3 || w.Credentials.Source != "either" {
 		t.Errorf("huawei profile: %+v", w)
 	}
+	l := profiles["local"].Spec
+	if l.Lifecycle != "unproven" || l.RequiresInstallation || len(l.Regions) != 1 || l.Network.LoadBalancer.Mode != "external-hostport" ||
+		l.Bootstrap.UserDataLimitBytes != 0 || !l.Capabilities.MultiRegion || l.Capabilities.MultiCloudRegion ||
+		l.Storage.DefaultClass != "local-path" || l.Credentials.Source != "operator" {
+		t.Errorf("local profile: %+v", l)
+	}
 	packs, err := LoadPacks(providersDir())
 	if err != nil {
 		t.Fatalf("LoadPacks: %v", err)
 	}
-	if len(packs["hetzner"].Spec.TofuProviders) != 3 || len(packs["huawei"].Spec.TofuProviders) != 4 {
-		t.Errorf("tofuProviders: hetzner %v, huawei %v", packs["hetzner"].Spec.TofuProviders, packs["huawei"].Spec.TofuProviders)
+	if len(packs["hetzner"].Spec.TofuProviders) != 3 || len(packs["huawei"].Spec.TofuProviders) != 4 || len(packs["local"].Spec.TofuProviders) != 2 {
+		t.Errorf("tofuProviders: hetzner %v, huawei %v, local %v", packs["hetzner"].Spec.TofuProviders, packs["huawei"].Spec.TofuProviders, packs["local"].Spec.TofuProviders)
 	}
 }
 
