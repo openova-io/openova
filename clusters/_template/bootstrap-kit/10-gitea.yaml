@@ -230,6 +230,10 @@ spec:
         namespace: flux-system
     global:
       sovereignFQDN: ${SOVEREIGN_FQDN}
+    # SOV-160: the platform repositories Job runs in the writer region only.
+    platformRepos:
+      regionId: "${SOVEREIGN_REGION_ID:=}"
+      writerRegionId: "${SOVEREIGN_WRITER_REGION_ID:=}"
     # G91.gitea (#2653) — wire bp-sso-bridge framework. The chart-side
     # post-install Job needs sovereignFqdn to compute the OIDC
     # autoDiscoverUrl at chart-template time. Empty default in the

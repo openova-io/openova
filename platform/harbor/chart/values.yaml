@@ -430,6 +430,40 @@ harborAdmin:
   # may add more if other in-cluster consumers need the bytes.
   reflectionAllowedNamespaces: "catalyst"
 
+# ─── Registry projects at install (SOV-160) ───────────────────────────────
+# templates/registry-projects-job.yaml creates every project of this
+# Sovereign's registry chain as a hosted project when Harbor is installed.
+# Bootstrap-kit slot 19 fills proxyProjectsJSON, paths and xpkgPath from
+# contract C5 (docs/contracts/c5-upstream-variables.schema.json); each
+# default below is the contract's default.
+registryProjects:
+  enabled: true
+  image: "harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1"
+  # REGISTRY_PROXY_PROJECTS_JSON: a JSON object, registry name to project
+  # path. Each distinct path is a public project. Empty: defaultProxyProjects.
+  proxyProjectsJSON: ""
+  defaultProxyProjects:
+    docker.io: proxy-dockerhub
+    registry-1.docker.io: proxy-dockerhub
+    quay.io: proxy-quay
+    gcr.io: proxy-gcr
+    registry.k8s.io: proxy-k8s
+    ghcr.io: proxy-ghcr
+    xpkg.upbound.io: proxy-xpkg
+    public.ecr.aws: proxy-ecr
+  # The first path segment of each is a private project.
+  paths:
+    charts: openova-io
+    release: openova-io/release
+    providerPacks: openova-io/provider-packs
+    tofuProviders: tofu-providers
+    nodeArtifacts: node-artifacts
+  # REGISTRY_PATH_XPKG. Its project is created here only when
+  # createXpkgProject is true. Until the closure copy fills it, the
+  # self-sovereign-cutover chart creates it as a pull-through project.
+  xpkgPath: proxy-xpkg
+  createXpkgProject: false
+
 # ─── Catalyst overlay values (consumed by templates/ in this chart) ──────
 # Reserved for Catalyst-side overlays added in a follow-up PR once
 # bp-harbor is consumed in clusters/_template/:
