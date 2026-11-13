@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T10:45:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Last refreshed | `2026-11-13T11:00:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T10:57 | [#7406](https://github.com/openova-io/openova/pull/7406) | #7395 | feat(cloud-init): post back a revocable service-account kube |
 | 2026-11-13T10:41 | [#7405](https://github.com/openova-io/openova/pull/7405) | #7383 | chore(api): remove the 24 infrastructure write routes and th |
 | 2026-11-13T10:40 | [#7404](https://github.com/openova-io/openova/pull/7404) | #7294 | ci: add the network guards G1, G2, G4 to G7 with a baseline  |
 | 2026-11-13T10:39 | [#7403](https://github.com/openova-io/openova/pull/7403) | #7394 | ci: the release writer bumps chart versions; a pull request  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-13T08:28 | [#7367](https://github.com/openova-io/openova/pull/7367) | #7087 | docs(ledger): result of the lab test NET-300 (NET-300) |
 | 2026-11-13T08:30 | [#7366](https://github.com/openova-io/openova/pull/7366) | #7349 | chore(console): remove the infrastructure add, edit and dele |
 | 2026-11-13T08:30 | [#7365](https://github.com/openova-io/openova/pull/7365) | #7323 | feat(fingate): add the ledger port, its conformance kit and  |
-| 2026-11-13T08:29 | [#7364](https://github.com/openova-io/openova/pull/7364) | #7354 | test(acceptance): record the function-test result of every r |
 
 ---
 
