@@ -1,0 +1,16 @@
+schema: openova.io/plan-wrong/v1
+id: PRD-101
+ticket_rev: 1
+base_commit: f6b615d792b4ecefe3f3c08f0d19ef271290bc06
+stage: budget
+ref: fence run
+command: |
+    python3 scripts/plan.py check-pr --base origin/main --head HEAD --body-file /tmp/PRD-101-body.md; echo "exit code: $?"
+expected: |
+    The last line is exit code: 0. Field 9 says this package has a budget of its own in the plan, at most 15 files added or modified and 32,100 changed lines, and that the fence run and the check work-package / scope judge by it.
+actual: |
+    rule 6: 15 files added or modified and 32024 changed lines; the budget of PRD-101 is 60 files and 3000 lines
+    exit code: 1
+    The same output on the one repeat. The entry of PRD-101 in docs/ledger/plan.yaml on main holds budget: null and ticket_rev: 1, so the fence applies the budget of size M.
+    This is the second run of ticket_rev 1. Wrong report #7279 of the same stage and ref was closed without merge with the note that the ticket gets a new revision; at base_commit the ticket file still carries ticket_rev: 1 and the plan entry still holds budget: null.
+reported_at: 2026-11-13T02:43:10Z
