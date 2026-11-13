@@ -181,6 +181,39 @@ def realias(cfg, alias, description):
     return out
 
 
+def reuse_module_browser(cfg):
+    """Browser scripts for the two PAR modules that visit one request_uri twice.
+    The SIG's configuration leaves both empty (and its own CI skips them), so
+    the modules can only time out. Here: the first visit is scripted (login, or
+    for the 'prior to completion' module only loading the login page), and the
+    second visit copes with either answer of the server - a login page, an
+    error page (screenshot to the placeholder) or a redirect to the callback."""
+    default = cfg["browser"][0]
+    auth_match = default["match"]
+    as_any = "https://as.keycloak-fapi.org/*"
+    second_visit = {"match": auth_match, "tasks": [
+        {"task": "Log in if the login page is shown", "match": as_any, "optional": True, "commands": [
+            ["text", "id", "username", "john", "optional"],
+            ["text", "id", "password", "john", "optional"],
+            ["click", "name", "login", "optional"]]},
+        {"task": "Authorize Client", "match": "https://as.keycloak-fapi.org/auth/realms/test/login-actions/required-action*",
+         "optional": True, "commands": [["click", "name", "accept", "optional"]]},
+        {"task": "Record an error page", "match": as_any, "optional": True, "commands": [
+            ["wait", "xpath", "//*", 10, ".*(Invalid Request|invalid_request|request_uri).*",
+             "update-image-placeholder-optional"]]},
+        {"task": "Verify Complete", "match": SUITE_HOST + "/test/a/*", "optional": True,
+         "commands": [["wait", "id", "submission_complete", 10]]},
+    ]}
+    first_no_login = {"match": auth_match, "match-limit": 1, "tasks": [
+        {"task": "First visit, no login", "match": as_any, "commands": [["wait", "id", "username", 10]]}]}
+    login_once = copy.deepcopy(default)
+    login_once["match-limit"] = 1
+    ov = cfg.setdefault("override", {})
+    ov["fapi1-advanced-final-par-ensure-reused-request-uri-prior-to-auth-completion-succeeds"] = {
+        "browser": [first_no_login, copy.deepcopy(second_visit)]}
+    ov["fapi1-advanced-final-par-attempt-reuse-request_uri"] = {"browser": [login_once, copy.deepcopy(second_visit)]}
+
+
 def ob_resource(cfg):
     cfg["resource"] = {
         "resourceUrl": OB_BASE,
@@ -210,6 +243,7 @@ def build_configs():
             text = text.replace("/realms/test/login-actions/authenticate*",
                                 "/realms/test/protocol/openid-connect/auth*")
         par = json.loads(text)
+        reuse_module_browser(par)
         p2 = realias(par, ALIAS["p2"], f"PRD-040 P2 FAPI1 Advanced PAR, {auth}, Keycloak {KC_VERSION}")
         dump(out_dir / f"p2-{auth}.json", p2)
 
