@@ -2420,11 +2420,12 @@ checks:
 - id: SVC-G06
   title: Blueprint proofs
   owner: SVC
-  state: not-built
+  state: expected-fail
   runs_in: [local, cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Blueprint proofs
+  implementation: tests/acceptance/sovereign/internal/suite/check_svc_proofs.go
   implemented_by: SVC-125
   delivered_by: SVC-135

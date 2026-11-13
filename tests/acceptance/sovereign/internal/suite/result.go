@@ -64,6 +64,13 @@ type ChartArtifact struct {
 	Chart     string `json:"chart"`
 	Version   string `json:"version"`
 	Pinned    string `json:"pinned"`
+
+	// Check SVC-G06 fills these two: the Blueprint name of the chart and the
+	// result of the function test of the newest revision (pass, fail or none).
+	// They are left out when that check did not run or the test had not
+	// finished.
+	Blueprint    string `json:"blueprint,omitempty"`
+	FunctionTest string `json:"functionTest,omitempty"`
 }
 
 // ImageArtifact is one image reference of one region with the digest that
@@ -85,6 +92,19 @@ type Artifacts struct {
 // ArtifactsKey is the evidence key under which a check hands a *Artifacts to
 // the record. Finalize moves the value to the field Artifacts of the record.
 const ArtifactsKey = "artifacts"
+
+// ProofsKey is the evidence key under which check SVC-G06 hands the
+// function-test results of one region to the record, as a
+// map[string]ChartProof keyed by "<region>/<namespace>/<release>". Finalize
+// copies each result onto the chart of the same release in the artifacts.
+const ProofsKey = "proofs"
+
+// ChartProof is the Blueprint name of one HelmRelease and the result of the
+// function test of its newest revision: pass, fail or none.
+type ChartProof struct {
+	Blueprint    string `json:"blueprint"`
+	FunctionTest string `json:"functionTest"`
+}
 
 // Provision is the part of the record about the installation under test. The
 // suite writes two fields of it, and only in a run that follows a wipe: the
@@ -143,6 +163,20 @@ func (r *Run) Finalize(requested []string) {
 		if a, ok := s.Evidence[ArtifactsKey].(*Artifacts); ok {
 			r.Artifacts = a
 			delete(s.Evidence, ArtifactsKey)
+		}
+	}
+	// The function-test results stay in the evidence of their step; each one
+	// is also written onto the chart of the same release.
+	for _, s := range r.Steps {
+		proofs, ok := s.Evidence[ProofsKey].(map[string]ChartProof)
+		if !ok || r.Artifacts == nil {
+			continue
+		}
+		for i := range r.Artifacts.Charts {
+			c := &r.Artifacts.Charts[i]
+			if p, found := proofs[c.Region+"/"+c.Namespace+"/"+c.Release]; found {
+				c.Blueprint, c.FunctionTest = p.Blueprint, p.FunctionTest
+			}
 		}
 	}
 	r.Journeys = map[string]string{}
