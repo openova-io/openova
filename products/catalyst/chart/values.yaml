@@ -2880,3 +2880,49 @@ migrations:
     dryRun: false
     serviceAccountName: catalyst-application-migrator
     image: ghcr.io/openova-io/catalyst-migrator:0.1.0
+
+# ── Intent lock (templates/intent-lock/) ─────────────────────────────────
+# stages.<stage>: the action of the stage's binding catalyst-intent-lock-<stage>,
+# audit (count and warn, reject nothing) or deny (reject). Every stage starts
+# at audit; a stage moves to deny only in the change planned for it, never
+# back (guard scripts/check-lock-stages.py). resources.<stage>: the kinds of
+# the stage. A new stage is one entry in each map and one baseline line.
+intentLock:
+  stages:
+    applications: audit
+    organizations: audit
+    access: audit
+    environments: audit
+    policy: audit
+    blueprints: audit
+    topology: audit
+    flux: audit
+  resources:
+    applications:
+      - apiGroup: apps.openova.io
+        resources: [applications]
+    organizations:
+      - apiGroup: orgs.openova.io
+        resources: [organizations]
+    access:
+      - apiGroup: access.openova.io
+        resources: [useraccesses]
+    environments:
+      - apiGroup: catalyst.openova.io
+        resources: [environments]
+    policy:
+      - apiGroup: catalyst.openova.io
+        resources: [environmentpolicies]
+    blueprints:
+      - apiGroup: catalyst.openova.io
+        resources: [blueprints]
+    topology:
+      - apiGroup: dr.openova.io
+        resources: [continuums, cnpgpairs]
+    flux:
+      - apiGroup: source.toolkit.fluxcd.io
+        resources: [gitrepositories, helmrepositories, ocirepositories]
+      - apiGroup: kustomize.toolkit.fluxcd.io
+        resources: [kustomizations]
+      - apiGroup: helm.toolkit.fluxcd.io
+        resources: [helmreleases]
