@@ -32,6 +32,7 @@ import (
 	"k8s.io/client-go/dynamic"
 
 	"github.com/openova-io/openova/core/controllers/continuum/internal/transition"
+	"github.com/openova-io/openova/core/controllers/pkg/serving"
 )
 
 // GVRs read by the observer.
@@ -75,6 +76,16 @@ func (t Target) Key() string { return t.Namespace + "/" + t.App }
 type Observer struct {
 	Dyn    dynamic.Interface
 	Region string
+	// Prober runs the functional endpoint probe (pkg/serving); nil = the
+	// production HTTP prober.
+	Prober serving.Prober
+}
+
+func (o *Observer) prober() serving.Prober {
+	if o.Prober != nil {
+		return o.Prober
+	}
+	return serving.HTTPProber{}
 }
 
 // Observe returns the native status of every target in this region.
@@ -117,34 +128,59 @@ func targetNamespace(hr *unstructured.Unstructured) string {
 	return hr.GetNamespace()
 }
 
-func (o *Observer) observeOne(ctx context.Context, t Target) transition.MemberStatus {
-	ms := transition.MemberStatus{Serving: transition.Unknown}
+// releases finds the member's HelmReleases in this region. An empty result
+// carries the reason.
+func (o *Observer) releases(ctx context.Context, t Target) ([]unstructured.Unstructured, string) {
 	var hrs []unstructured.Unstructured
 	if t.HelmRelease != "" {
 		ns, name, _ := strings.Cut(t.HelmRelease, "/")
 		hr, err := o.Dyn.Resource(HelmReleaseGVR).Namespace(ns).Get(ctx, name, metav1.GetOptions{})
 		if err != nil {
-			ms.ReleaseMessage = fmt.Sprintf("HelmRelease %s: %v", t.HelmRelease, err)
-			return ms
+			return nil, fmt.Sprintf("HelmRelease %s: %v", t.HelmRelease, err)
 		}
-		hrs = append(hrs, *hr)
-	} else {
-		sel := fmt.Sprintf("%s=%s,%s=%s", LabelApp, t.App, LabelRegion, o.Region)
-		l, err := o.Dyn.Resource(HelmReleaseGVR).Namespace("").List(ctx, metav1.ListOptions{LabelSelector: sel})
-		if err != nil {
-			ms.ReleaseMessage = "list HelmReleases: " + err.Error()
-			return ms
+		return append(hrs, *hr), ""
+	}
+	sel := fmt.Sprintf("%s=%s,%s=%s", LabelApp, t.App, LabelRegion, o.Region)
+	l, err := o.Dyn.Resource(HelmReleaseGVR).Namespace("").List(ctx, metav1.ListOptions{LabelSelector: sel})
+	if err != nil {
+		return nil, "list HelmReleases: " + err.Error()
+	}
+	for _, hr := range l.Items {
+		if hr.GetNamespace() == t.Namespace || targetNamespace(&hr) == t.Namespace {
+			hrs = append(hrs, hr)
 		}
-		for _, hr := range l.Items {
-			if hr.GetNamespace() == t.Namespace || targetNamespace(&hr) == t.Namespace {
-				hrs = append(hrs, hr)
-			}
-		}
-		sort.Slice(hrs, func(i, j int) bool { return hrs[i].GetName() < hrs[j].GetName() })
-		if len(hrs) == 0 {
-			ms.ReleaseMessage = "no HelmRelease labelled " + sel
-			return ms
-		}
+	}
+	sort.Slice(hrs, func(i, j int) bool { return hrs[i].GetName() < hrs[j].GetName() })
+	if len(hrs) == 0 {
+		return nil, "no HelmRelease labelled " + sel
+	}
+	return hrs, ""
+}
+
+// ServingOf runs the functional endpoint probe (pkg/serving — the same one
+// the application-controller runs in its own region) for every HTTPRoute the
+// member's HelmReleases installed in THIS region. It is how a region that
+// does not hold the Application still gets a Serving verdict: the writer
+// region's application-controller asks for it over /v1/serving.
+func (o *Observer) ServingOf(ctx context.Context, t Target, path string) serving.Verdict {
+	hrs, why := o.releases(ctx, t)
+	if len(hrs) == 0 {
+		return serving.Verdict{Status: "Unknown", Reason: serving.ReasonServingProbeUnverifiable,
+			Message: "region " + o.Region + ": " + why}
+	}
+	var vs []serving.Verdict
+	for i := range hrs {
+		vs = append(vs, serving.ProbeRoutes(ctx, o.Dyn, o.prober(), targetNamespace(&hrs[i]), hrs[i].GetName(), path)...)
+	}
+	return serving.Worst(vs)
+}
+
+func (o *Observer) observeOne(ctx context.Context, t Target) transition.MemberStatus {
+	ms := transition.MemberStatus{Serving: transition.Unknown}
+	hrs, why := o.releases(ctx, t)
+	if len(hrs) == 0 {
+		ms.ReleaseMessage = why
+		return ms
 	}
 	ms.Observed = true
 	ms.ReleaseReady = true
@@ -348,6 +384,37 @@ func (p Peers) Fetch(ctx context.Context, region string, targets []Target) (map[
 		return nil, fmt.Errorf("observations: asked %s, answered by %s", region, body.Region)
 	}
 	return body.Members, nil
+}
+
+// ServingResponse is the GET /v1/serving body.
+type ServingResponse struct {
+	Region string `json:"region"`
+	serving.Verdict
+}
+
+// ServingHandler serves this region's functional Serving verdict for one
+// member: GET /v1/serving?namespace=<ns>&app=<app>[&path=<healthPath>]
+// [&helmRelease=<ns>/<name>]. Read-only (lists, gets, one HTTP GET per route
+// through this region's own gateway).
+func ServingHandler(o *Observer) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "read-only", http.StatusMethodNotAllowed)
+			return
+		}
+		q := r.URL.Query()
+		t := Target{Namespace: q.Get("namespace"), App: q.Get("app"), HelmRelease: q.Get("helmRelease")}
+		if t.Namespace == "" || t.App == "" {
+			http.Error(w, "namespace and app are required", http.StatusBadRequest)
+			return
+		}
+		path := q.Get("path")
+		if path == "" {
+			path = "/"
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(ServingResponse{Region: o.Region, Verdict: o.ServingOf(r.Context(), t, path)})
+	})
 }
 
 // ClusterHandler serves this region's view of ONE CNPG Cluster by name:

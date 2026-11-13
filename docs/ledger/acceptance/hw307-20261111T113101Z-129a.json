@@ -1,0 +1,742 @@
+{
+  "schema": "openova.io/acceptance-sovereign/v1",
+  "run_id": "20261111T113101Z-129a",
+  "env": "hw307",
+  "console": "https://console.hw307.omani.works",
+  "deployment_id": "9a1f230f320d7ff9",
+  "mode": "run",
+  "suite_git_sha": "38be19b5f6f0ea221a4155928aa95db482689478",
+  "started_at": "2026-11-11T11:31:01.26309747Z",
+  "finished_at": "2026-11-11T12:01:15.976011645Z",
+  "result": "FAIL",
+  "journeys": {
+    "J1": "PASS",
+    "J2": "PASS",
+    "J3": "PASS",
+    "J4": "PASS",
+    "J5": "FAIL"
+  },
+  "subject": {
+    "application": "accept-1794396663",
+    "blueprint": "bp-wordpress-tenant@0.6.1-hw307.7",
+    "delivered_images": {
+      "hw-me-east-215-a-rtz-prod": {
+        "catalyst-api": "registry.hw307.omani.works/openova-io/openova/catalyst-api:hw307-8519b21",
+        "catalyst-application-controller": "registry.hw307.omani.works/openova-io/openova/application-controller:hw307-abb07a7",
+        "catalyst-catalog": "registry.hw307.omani.works/openova-io/openova/catalyst-catalog:973094b",
+        "catalyst-environment-controller": "registry.hw307.omani.works/openova-io/openova/environment-controller:03bcc36",
+        "catalyst-organization-controller": "registry.hw307.omani.works/openova-io/openova/organization-controller:hw307-f6ef148",
+        "catalyst-ui": "registry.hw307.omani.works/openova-io/openova/catalyst-ui:03bcc36",
+        "catalyst-useraccess-controller": "registry.hw307.omani.works/openova-io/openova/useraccess-controller:03bcc36",
+        "continuum-controller": "registry.hw307.omani.works/openova-io/openova/continuum-controller:hw307-8519b21",
+        "marketplace-api": "registry.hw307.omani.works/openova-io/openova/marketplace-api:0d9531a",
+        "openova-flow-server": "registry.hw307.omani.works/openova-io/openova/openova-flow-server:f5c4c54",
+        "openova-mcp-bp-openova-mcp": "ghcr.io/openova-io/openova-mcp:0.2.7"
+      },
+      "hw-me-east-215-b-rtz-prod": {
+        "continuum-controller": "registry.hw307.omani.works/openova-io/openova/continuum-controller:hw307-8519b21",
+        "openova-flow-server": "ghcr.io/openova-io/openova/openova-flow-server:f5c4c54"
+      }
+    },
+    "environment": "hw307-omani-works-cp",
+    "fqdn": "accept-1794396663.hw307-omani-works.hw307.omani.works",
+    "org": "hw307-omani-works",
+    "regions": {
+      "A": "hw-me-east-215-a-rtz-prod",
+      "B": "hw-me-east-215-b-rtz-prod"
+    }
+  },
+  "steps": [
+    {
+      "journey": "D0",
+      "id": "D0.1",
+      "name": "session authenticates as owner (GET /api/v1/whoami)",
+      "status": "PASS",
+      "started_at": "2026-11-11T11:31:01.271137161Z",
+      "finished_at": "2026-11-11T11:31:02.737988519Z",
+      "duration_ms": 1466,
+      "evidence": {
+        "deploymentId": "9a1f230f320d7ff9",
+        "mode": "sovereign",
+        "sovereignFQDN": "hw307.omani.works",
+        "tier": "owner"
+      }
+    },
+    {
+      "journey": "D0",
+      "id": "D0.2",
+      "name": "regions: each kubeconfig IS the region it claims; ids from the region registry",
+      "status": "PASS",
+      "started_at": "2026-11-11T11:31:02.738017021Z",
+      "finished_at": "2026-11-11T11:31:03.011262392Z",
+      "duration_ms": 273,
+      "evidence": {
+        "console_topology_regions": [
+          "me-east-215-a",
+          "me-east-215-b"
+        ],
+        "identity_source": "TEMPORARY-fallback: bootstrap-kit postBuild SOVEREIGN_REGION_KEY per kubeconfig",
+        "regionA": "hw-me-east-215-a-rtz-prod",
+        "regionB": "hw-me-east-215-b-rtz-prod",
+        "region_ips": {
+          "hw-me-east-215-a-rtz-prod": [
+            "5.37.79.43"
+          ],
+          "hw-me-east-215-b-rtz-prod": [
+            "212.72.24.1"
+          ]
+        },
+        "region_ips_source": "TEMPORARY-fallback: bootstrap-kit CILIUM_LB_IPAM_CIDRS per region (override: ACCEPT_REGION_IPS)",
+        "registry": "absent (GET /api/v1/sovereigns/{id}/regions 404 — ADR-0015 D3 pending)",
+        "shared_ingress_ips": [
+          "212.72.24.25",
+          "212.72.24.35"
+        ]
+      }
+    },
+    {
+      "journey": "D0",
+      "id": "D0.3",
+      "name": "Organization = the Sovereign's own (GET /api/v1/organizations)",
+      "status": "PASS",
+      "started_at": "2026-11-11T11:31:03.011326796Z",
+      "finished_at": "2026-11-11T11:31:03.01771971Z",
+      "duration_ms": 6,
+      "evidence": {
+        "kind": "internal",
+        "namespace": "hw307-omani-works",
+        "org": "hw307-omani-works",
+        "state": "done"
+      }
+    },
+    {
+      "journey": "D0",
+      "id": "D0.4",
+      "name": "Environment of that Org spanning both regions",
+      "status": "PASS",
+      "started_at": "2026-11-11T11:31:03.017747771Z",
+      "finished_at": "2026-11-11T11:31:03.088850326Z",
+      "duration_ms": 71,
+      "evidence": {
+        "environment": "hw307-omani-works-cp",
+        "placement": "multi-region",
+        "regions": 2,
+        "source": "TEMPORARY-fallback: kubectl get environments (region A) — console list endpoint 404 (ADR-0015 D4 pending)"
+      }
+    },
+    {
+      "journey": "D0",
+      "id": "D0.5",
+      "name": "Blueprint exists and declares active-hot-standby",
+      "status": "PASS",
+      "started_at": "2026-11-11T11:31:03.088942171Z",
+      "finished_at": "2026-11-11T11:31:03.3570558Z",
+      "duration_ms": 268,
+      "evidence": {
+        "blueprint": "bp-wordpress-tenant",
+        "supported": [
+          "active-passive",
+          "active-hot-standby",
+          "singleton"
+        ],
+        "version": "0.6.1-hw307.7"
+      }
+    },
+    {
+      "journey": "D0",
+      "id": "D0.6",
+      "name": "delivered control-plane images (what this run certifies)",
+      "status": "PASS",
+      "started_at": "2026-11-11T11:31:03.357083783Z",
+      "finished_at": "2026-11-11T11:31:03.473490382Z",
+      "duration_ms": 116,
+      "evidence": {
+        "images": {
+          "hw-me-east-215-a-rtz-prod": {
+            "catalyst-api": "registry.hw307.omani.works/openova-io/openova/catalyst-api:hw307-8519b21",
+            "catalyst-application-controller": "registry.hw307.omani.works/openova-io/openova/application-controller:hw307-abb07a7",
+            "catalyst-catalog": "registry.hw307.omani.works/openova-io/openova/catalyst-catalog:973094b",
+            "catalyst-environment-controller": "registry.hw307.omani.works/openova-io/openova/environment-controller:03bcc36",
+            "catalyst-organization-controller": "registry.hw307.omani.works/openova-io/openova/organization-controller:hw307-f6ef148",
+            "catalyst-ui": "registry.hw307.omani.works/openova-io/openova/catalyst-ui:03bcc36",
+            "catalyst-useraccess-controller": "registry.hw307.omani.works/openova-io/openova/useraccess-controller:03bcc36",
+            "continuum-controller": "registry.hw307.omani.works/openova-io/openova/continuum-controller:hw307-8519b21",
+            "marketplace-api": "registry.hw307.omani.works/openova-io/openova/marketplace-api:0d9531a",
+            "openova-flow-server": "registry.hw307.omani.works/openova-io/openova/openova-flow-server:f5c4c54",
+            "openova-mcp-bp-openova-mcp": "ghcr.io/openova-io/openova-mcp:0.2.7"
+          },
+          "hw-me-east-215-b-rtz-prod": {
+            "continuum-controller": "registry.hw307.omani.works/openova-io/openova/continuum-controller:hw307-8519b21",
+            "openova-flow-server": "ghcr.io/openova-io/openova/openova-flow-server:f5c4c54"
+          }
+        }
+      }
+    },
+    {
+      "journey": "J1",
+      "id": "J1.0",
+      "name": "create with an unknown Org / Environment / Region → 422 each, nothing created",
+      "status": "PASS",
+      "started_at": "2026-11-11T11:31:03.473604963Z",
+      "finished_at": "2026-11-11T11:31:03.788219126Z",
+      "duration_ms": 314,
+      "evidence": {
+        "http": {
+          "environment": 422,
+          "organization": 422,
+          "region": 422
+        }
+      }
+    },
+    {
+      "journey": "J1",
+      "id": "J1.1",
+      "name": "create WordPress active-hot-standby, Primary A Standby B (POST /catalyst/v1/apps/instances)",
+      "status": "PASS",
+      "started_at": "2026-11-11T11:31:03.788252304Z",
+      "finished_at": "2026-11-11T11:31:04.246239744Z",
+      "duration_ms": 457,
+      "evidence": {
+        "http": 201,
+        "request": {
+          "blueprint": "bp-wordpress-tenant",
+          "environment": "hw307-omani-works-cp",
+          "name": "accept-1794396663",
+          "org": "hw307-omani-works",
+          "placement": {
+            "regions": [
+              "hw-me-east-215-a-rtz-prod",
+              "hw-me-east-215-b-rtz-prod"
+            ]
+          },
+          "topology": "active-hot-standby"
+        }
+      }
+    },
+    {
+      "journey": "J1",
+      "id": "J1.2",
+      "name": "Application Ready=True and placement reads Primary A / Standby B",
+      "status": "PASS",
+      "started_at": "2026-11-11T11:31:04.246290143Z",
+      "finished_at": "2026-11-11T11:42:26.585456871Z",
+      "duration_ms": 682339,
+      "evidence": {
+        "namespace": "hw307-omani-works",
+        "phase": "Ready",
+        "ready": "True",
+        "reason": "Reconciled: Application hw307-omani-works/accept-1794396663 installed across 2 region(s); Ready=True from downstream HelmRelease(s)",
+        "targets": [
+          {
+            "region": "hw-me-east-215-a-rtz-prod",
+            "cluster": "9a1f230f320d7ff9",
+            "role": "Primary"
+          },
+          {
+            "region": "hw-me-east-215-b-rtz-prod",
+            "cluster": "9a1f230f320d7ff9-me-east-215-b-1",
+            "role": "Standby",
+            "standbyType": "Hot"
+          }
+        ],
+        "uid": "25612c66-6a1a-4ca5-9487-2deb464d1cb6"
+      }
+    },
+    {
+      "journey": "J1",
+      "id": "J1.3",
+      "name": "HelmRelease Ready in EACH region (read from that region's cluster)",
+      "status": "PASS",
+      "started_at": "2026-11-11T11:42:26.585515789Z",
+      "finished_at": "2026-11-11T11:42:26.87955665Z",
+      "duration_ms": 294,
+      "evidence": {
+        "hw-me-east-215-a-rtz-prod": [
+          "hw307-omani-works/accept-1794396663-rtz-a Ready=True"
+        ],
+        "hw-me-east-215-b-rtz-prod": [
+          "hw307-omani-works/accept-1794396663-rtz-b Ready=True"
+        ]
+      }
+    },
+    {
+      "journey": "J1",
+      "id": "J1.4",
+      "name": "CNPG Cluster present + healthy in EACH region; writer in A, replica in B (pg_is_in_recovery)",
+      "status": "PASS",
+      "started_at": "2026-11-11T11:42:26.87959712Z",
+      "finished_at": "2026-11-11T11:42:27.623984081Z",
+      "duration_ms": 744,
+      "evidence": {
+        "hw-me-east-215-a-rtz-prod": {
+          "cluster": "hw307-omani-works/accept-1794396663-db-6e1e3f9c",
+          "declared_writer": true,
+          "health": "accept-1794396663-db-6e1e3f9c instances=1 ready=1 phase=\"Cluster in healthy state\" primary=accept-1794396663-db-6e1e3f9c-1",
+          "in_recovery": "f",
+          "instance": "accept-1794396663-db-6e1e3f9c-1",
+          "role": "writer"
+        },
+        "hw-me-east-215-b-rtz-prod": {
+          "cluster": "hw307-omani-works/accept-1794396663-db-5ff1066a",
+          "declared_writer": false,
+          "health": "accept-1794396663-db-5ff1066a instances=1 ready=1 phase=\"Cluster in healthy state\" primary=accept-1794396663-db-5ff1066a-1",
+          "in_recovery": "t",
+          "instance": "accept-1794396663-db-5ff1066a-1",
+          "role": "replica"
+        }
+      }
+    },
+    {
+      "journey": "J1",
+      "id": "J1.5",
+      "name": "app FQDN from the Application's endpoints (GET /catalyst/v1/apps/{uid}/endpoints)",
+      "status": "PASS",
+      "started_at": "2026-11-11T11:42:27.624039075Z",
+      "finished_at": "2026-11-11T11:42:27.76050465Z",
+      "duration_ms": 136,
+      "evidence": {
+        "endpoints": [
+          {
+            "hostname": "accept-1794396663.hw307-omani-works.hw307.omani.works",
+            "launchDefault": true,
+            "status": "Ready",
+            "visibility": "public"
+          }
+        ],
+        "fqdn": "accept-1794396663.hw307-omani-works.hw307.omani.works"
+      }
+    },
+    {
+      "journey": "J1",
+      "id": "J1.6",
+      "name": "the FQDN serves a configured WordPress (installer completed if shown)",
+      "status": "PASS",
+      "started_at": "2026-11-11T11:42:27.760544094Z",
+      "finished_at": "2026-11-11T11:42:28.453458811Z",
+      "duration_ms": 692,
+      "evidence": {
+        "final_url": "https://accept-1794396663.hw307-omani-works.hw307.omani.works/",
+        "installer_shown": false,
+        "status": 200
+      }
+    },
+    {
+      "journey": "J2",
+      "id": "J2.1",
+      "name": "author credentials (application password) authenticate over HTTPS",
+      "status": "PASS",
+      "started_at": "2026-11-11T11:42:28.453597246Z",
+      "finished_at": "2026-11-11T11:42:29.451226771Z",
+      "duration_ms": 997,
+      "evidence": {
+        "minted_in": "hw-me-east-215-a-rtz-prod hw307-omani-works/accept-1794396663-bp-wordpress-tenant-8c7c8c8bb-wnh6m",
+        "user": "accept-bot"
+      }
+    },
+    {
+      "journey": "J2",
+      "id": "J2.2",
+      "name": "publish a post with a unique marker; the commit returns within the budget",
+      "status": "PASS",
+      "started_at": "2026-11-11T11:42:29.451265827Z",
+      "finished_at": "2026-11-11T11:42:29.712542658Z",
+      "duration_ms": 261,
+      "evidence": {
+        "duration_ms": 261,
+        "link": "https://accept-1794396663.hw307-omani-works.hw307.omani.works/?p=6",
+        "post_id": 6
+      }
+    },
+    {
+      "journey": "J2",
+      "id": "J2.3",
+      "name": "upload a media file; the commit returns within the budget",
+      "status": "PASS",
+      "started_at": "2026-11-11T11:42:29.712577224Z",
+      "finished_at": "2026-11-11T11:42:30.277204055Z",
+      "duration_ms": 564,
+      "evidence": {
+        "bytes": 3177,
+        "duration_ms": 563,
+        "media_id": 7,
+        "sha256": "f370c1396697aef8ab60667715707518af7d75c78d3af487d7938aa1bbcb36fe",
+        "source_url": "https://accept-1794396663.hw307-omani-works.hw307.omani.works/wp-content/uploads/2026/11/accept-20261111T113101Z-129a-j2.png"
+      }
+    },
+    {
+      "journey": "J2",
+      "id": "J2.4",
+      "name": "read both back anonymously over HTTP (post shows the marker, media byte-equal)",
+      "status": "PASS",
+      "started_at": "2026-11-11T11:42:30.277259904Z",
+      "finished_at": "2026-11-11T11:42:30.61994261Z",
+      "duration_ms": 342,
+      "evidence": {
+        "media_http": 200,
+        "media_sha256": "f370c1396697aef8ab60667715707518af7d75c78d3af487d7938aa1bbcb36fe",
+        "posts_http": {
+          "6": 200
+        }
+      }
+    },
+    {
+      "journey": "J2",
+      "id": "J2.5",
+      "name": "the replica in B holds the post and the attachment (SELECT on B's instance)",
+      "status": "PASS",
+      "started_at": "2026-11-11T11:42:30.61998274Z",
+      "finished_at": "2026-11-11T11:42:31.319527987Z",
+      "duration_ms": 699,
+      "evidence": {
+        "in_recovery": "t",
+        "instance": "hw-me-east-215-b-rtz-prod hw307-omani-works/accept-1794396663-db-5ff1066a-1",
+        "rows": {
+          "accept-20261111T113101Z-129a-j2": "1",
+          "attachment": "1"
+        }
+      }
+    },
+    {
+      "journey": "J3",
+      "id": "J3.1",
+      "name": "Save placement with Primary hw-me-east-215-b-rtz-prod (PUT …/applications/{name}, the PlacementEditor call)",
+      "status": "PASS",
+      "started_at": "2026-11-11T11:42:31.319575602Z",
+      "finished_at": "2026-11-11T11:42:31.793181516Z",
+      "duration_ms": 473,
+      "evidence": {
+        "http": 200,
+        "request": {
+          "placement": {
+            "ownedDependencies": [],
+            "targets": [
+              {
+                "region": "hw-me-east-215-a-rtz-prod",
+                "cluster": "9a1f230f320d7ff9",
+                "role": "Standby",
+                "standbyType": "Hot"
+              },
+              {
+                "region": "hw-me-east-215-b-rtz-prod",
+                "cluster": "9a1f230f320d7ff9-me-east-215-b-1",
+                "role": "Primary"
+              }
+            ]
+          }
+        },
+        "saved_at": "2026-11-11T11:42:31Z"
+      }
+    },
+    {
+      "journey": "J3",
+      "id": "J3.2",
+      "name": "Application + Continuum report ACTUAL primary = hw-me-east-215-b-rtz-prod",
+      "status": "PASS",
+      "started_at": "2026-11-11T11:42:31.793246691Z",
+      "finished_at": "2026-11-11T11:45:32.271202167Z",
+      "duration_ms": 180477,
+      "evidence": {
+        "application_actual_primary": "hw-me-east-215-b-rtz-prod",
+        "continuum": "dr-accept-1794396663",
+        "continuum_primary": "hw-me-east-215-b-rtz-prod",
+        "converged": true,
+        "lease_holder": ""
+      }
+    },
+    {
+      "journey": "J3",
+      "id": "J3.3",
+      "name": "Jobs holds a complete topology-transition record for this move (every step succeeded)",
+      "status": "PASS",
+      "started_at": "2026-11-11T11:45:32.27125218Z",
+      "finished_at": "2026-11-11T11:45:42.372259303Z",
+      "duration_ms": 10101,
+      "evidence": {
+        "record": "9a1f230f320d7ff9:topology-transition-hw307-omani-works-accept-1794396663",
+        "steps": [
+          "data-primary · accept-1794396663=succeeded",
+          "peers · accept-1794396663=succeeded",
+          "traffic-off · accept-1794396663=succeeded",
+          "traffic-on · accept-1794396663=succeeded"
+        ]
+      }
+    },
+    {
+      "journey": "J3",
+      "id": "J3.4",
+      "name": "database writer is hw-me-east-215-b-rtz-prod, replica is hw-me-east-215-a-rtz-prod (pg_is_in_recovery on each)",
+      "status": "PASS",
+      "started_at": "2026-11-11T11:45:42.372318859Z",
+      "finished_at": "2026-11-11T11:45:43.144762045Z",
+      "duration_ms": 772,
+      "evidence": {
+        "hw-me-east-215-a-rtz-prod": {
+          "cluster": "hw307-omani-works/accept-1794396663-db-6e1e3f9c",
+          "declared_writer": false,
+          "health": "accept-1794396663-db-6e1e3f9c instances=1 ready=1 phase=\"Cluster in healthy state\" primary=accept-1794396663-db-6e1e3f9c-1",
+          "in_recovery": "t",
+          "instance": "accept-1794396663-db-6e1e3f9c-1",
+          "role": "replica"
+        },
+        "hw-me-east-215-b-rtz-prod": {
+          "cluster": "hw307-omani-works/accept-1794396663-db-5ff1066a",
+          "declared_writer": true,
+          "health": "accept-1794396663-db-5ff1066a instances=1 ready=1 phase=\"Cluster in healthy state\" primary=accept-1794396663-db-5ff1066a-1",
+          "in_recovery": "f",
+          "instance": "accept-1794396663-db-5ff1066a-1",
+          "role": "writer"
+        }
+      }
+    },
+    {
+      "journey": "J3",
+      "id": "J3.5",
+      "name": "DNS for the app FQDN answers with hw-me-east-215-b-rtz-prod's address",
+      "status": "PASS",
+      "started_at": "2026-11-11T11:45:43.145194128Z",
+      "finished_at": "2026-11-11T11:45:43.165556388Z",
+      "duration_ms": 20,
+      "evidence": {
+        "answers": [
+          "212.72.24.35"
+        ],
+        "via": "shared-ingress"
+      }
+    },
+    {
+      "journey": "J3",
+      "id": "J3.6",
+      "name": "the site serves the same posts and byte-equal media after the move",
+      "status": "PASS",
+      "started_at": "2026-11-11T11:45:43.16559825Z",
+      "finished_at": "2026-11-11T11:46:15.211926841Z",
+      "duration_ms": 32046,
+      "evidence": {
+        "media_http": 200,
+        "media_sha256": "f370c1396697aef8ab60667715707518af7d75c78d3af487d7938aa1bbcb36fe",
+        "posts_http": {
+          "6": 200
+        }
+      }
+    },
+    {
+      "journey": "J3",
+      "id": "J3.7",
+      "name": "a new write succeeds in hw-me-east-215-b-rtz-prod and replicates to hw-me-east-215-a-rtz-prod",
+      "status": "PASS",
+      "started_at": "2026-11-11T11:46:15.211985596Z",
+      "finished_at": "2026-11-11T11:46:17.941723142Z",
+      "duration_ms": 2729,
+      "evidence": {
+        "duration_ms": 1105,
+        "post_id": 34,
+        "replica": {
+          "in_recovery": "t",
+          "instance": "hw-me-east-215-a-rtz-prod hw307-omani-works/accept-1794396663-db-6e1e3f9c-1",
+          "rows": {
+            "accept-20261111T113101Z-129a-j2": "1",
+            "accept-20261111T113101Z-129a-j3": "1",
+            "attachment": "1"
+          }
+        },
+        "writer": {
+          "in_recovery": "f",
+          "instance": "hw-me-east-215-b-rtz-prod hw307-omani-works/accept-1794396663-db-5ff1066a-1",
+          "rows": {
+            "accept-20261111T113101Z-129a-j2": "1",
+            "accept-20261111T113101Z-129a-j3": "1",
+            "attachment": "1"
+          }
+        }
+      }
+    },
+    {
+      "journey": "J4",
+      "id": "J4.1",
+      "name": "Save placement with Primary hw-me-east-215-a-rtz-prod (PUT …/applications/{name}, the PlacementEditor call)",
+      "status": "PASS",
+      "started_at": "2026-11-11T11:46:17.941958884Z",
+      "finished_at": "2026-11-11T11:46:18.409090828Z",
+      "duration_ms": 467,
+      "evidence": {
+        "http": 200,
+        "request": {
+          "placement": {
+            "ownedDependencies": [],
+            "targets": [
+              {
+                "region": "hw-me-east-215-a-rtz-prod",
+                "cluster": "9a1f230f320d7ff9",
+                "role": "Primary"
+              },
+              {
+                "region": "hw-me-east-215-b-rtz-prod",
+                "cluster": "9a1f230f320d7ff9-me-east-215-b-1",
+                "role": "Standby",
+                "standbyType": "Hot"
+              }
+            ]
+          }
+        },
+        "saved_at": "2026-11-11T11:46:17Z"
+      }
+    },
+    {
+      "journey": "J4",
+      "id": "J4.2",
+      "name": "Application + Continuum report ACTUAL primary = hw-me-east-215-a-rtz-prod",
+      "status": "PASS",
+      "started_at": "2026-11-11T11:46:18.409142305Z",
+      "finished_at": "2026-11-11T11:50:59.192661984Z",
+      "duration_ms": 280783,
+      "evidence": {
+        "application_actual_primary": "hw-me-east-215-a-rtz-prod",
+        "continuum": "dr-accept-1794396663",
+        "continuum_primary": "hw-me-east-215-a-rtz-prod",
+        "converged": true,
+        "lease_holder": ""
+      }
+    },
+    {
+      "journey": "J4",
+      "id": "J4.3",
+      "name": "Jobs holds a complete topology-transition record for this move (every step succeeded)",
+      "status": "PASS",
+      "started_at": "2026-11-11T11:50:59.192713767Z",
+      "finished_at": "2026-11-11T11:51:09.24388945Z",
+      "duration_ms": 10051,
+      "evidence": {
+        "record": "9a1f230f320d7ff9:topology-transition-hw307-omani-works-accept-1794396663-hw-me-east-215-b-rtz-prod-to-hw-me-east-215-a-rtz-prod-1794397685",
+        "steps": [
+          "data-primary · accept-1794396663=succeeded",
+          "peers · accept-1794396663=succeeded",
+          "traffic-off · accept-1794396663=succeeded",
+          "traffic-on · accept-1794396663=succeeded"
+        ]
+      }
+    },
+    {
+      "journey": "J4",
+      "id": "J4.4",
+      "name": "database writer is hw-me-east-215-a-rtz-prod, replica is hw-me-east-215-b-rtz-prod (pg_is_in_recovery on each)",
+      "status": "PASS",
+      "started_at": "2026-11-11T11:51:09.243927541Z",
+      "finished_at": "2026-11-11T11:51:09.980116129Z",
+      "duration_ms": 736,
+      "evidence": {
+        "hw-me-east-215-a-rtz-prod": {
+          "cluster": "hw307-omani-works/accept-1794396663-db-6e1e3f9c",
+          "declared_writer": true,
+          "health": "accept-1794396663-db-6e1e3f9c instances=1 ready=1 phase=\"Cluster in healthy state\" primary=accept-1794396663-db-6e1e3f9c-1",
+          "in_recovery": "f",
+          "instance": "accept-1794396663-db-6e1e3f9c-1",
+          "role": "writer"
+        },
+        "hw-me-east-215-b-rtz-prod": {
+          "cluster": "hw307-omani-works/accept-1794396663-db-5ff1066a",
+          "declared_writer": false,
+          "health": "accept-1794396663-db-5ff1066a instances=1 ready=1 phase=\"Cluster in healthy state\" primary=accept-1794396663-db-5ff1066a-1",
+          "in_recovery": "t",
+          "instance": "accept-1794396663-db-5ff1066a-1",
+          "role": "replica"
+        }
+      }
+    },
+    {
+      "journey": "J4",
+      "id": "J4.5",
+      "name": "DNS for the app FQDN answers with hw-me-east-215-a-rtz-prod's address",
+      "status": "PASS",
+      "started_at": "2026-11-11T11:51:09.980240571Z",
+      "finished_at": "2026-11-11T11:51:10.603112294Z",
+      "duration_ms": 622,
+      "evidence": {
+        "answers": [
+          "212.72.24.35"
+        ],
+        "via": "shared-ingress"
+      }
+    },
+    {
+      "journey": "J4",
+      "id": "J4.6",
+      "name": "the site serves the same posts and byte-equal media after the move",
+      "status": "PASS",
+      "started_at": "2026-11-11T11:51:10.603162202Z",
+      "finished_at": "2026-11-11T11:51:11.338865623Z",
+      "duration_ms": 735,
+      "evidence": {
+        "media_http": 200,
+        "media_sha256": "f370c1396697aef8ab60667715707518af7d75c78d3af487d7938aa1bbcb36fe",
+        "posts_http": {
+          "34": 200,
+          "6": 200
+        }
+      }
+    },
+    {
+      "journey": "J4",
+      "id": "J4.7",
+      "name": "a new write succeeds in hw-me-east-215-a-rtz-prod and replicates to hw-me-east-215-b-rtz-prod",
+      "status": "PASS",
+      "started_at": "2026-11-11T11:51:11.338923924Z",
+      "finished_at": "2026-11-11T11:51:13.385641735Z",
+      "duration_ms": 2046,
+      "evidence": {
+        "duration_ms": 106,
+        "post_id": 67,
+        "replica": {
+          "in_recovery": "t",
+          "instance": "hw-me-east-215-b-rtz-prod hw307-omani-works/accept-1794396663-db-5ff1066a-1",
+          "rows": {
+            "accept-20261111T113101Z-129a-j2": "1",
+            "accept-20261111T113101Z-129a-j3": "1",
+            "accept-20261111T113101Z-129a-j4": "1",
+            "attachment": "1"
+          }
+        },
+        "writer": {
+          "in_recovery": "f",
+          "instance": "hw-me-east-215-a-rtz-prod hw307-omani-works/accept-1794396663-db-6e1e3f9c-1",
+          "rows": {
+            "accept-20261111T113101Z-129a-j2": "1",
+            "accept-20261111T113101Z-129a-j3": "1",
+            "accept-20261111T113101Z-129a-j4": "1",
+            "attachment": "1"
+          }
+        }
+      }
+    },
+    {
+      "journey": "J5",
+      "id": "J5.1",
+      "name": "delete the Application through the API",
+      "status": "PASS",
+      "started_at": "2026-11-11T11:51:13.385694733Z",
+      "finished_at": "2026-11-11T11:51:13.396382863Z",
+      "duration_ms": 10,
+      "evidence": {
+        "http": 200
+      }
+    },
+    {
+      "journey": "J5",
+      "id": "J5.2",
+      "name": "both regions: Application, HelmReleases, CNPG Clusters and PVCs are gone",
+      "status": "FAIL",
+      "started_at": "2026-11-11T11:51:13.396420959Z",
+      "finished_at": "2026-11-11T12:01:15.975898864Z",
+      "duration_ms": 602579,
+      "evidence": {
+        "remaining": {
+          "hw-me-east-215-a-rtz-prod": [
+            "HelmRelease/hw307-omani-works/accept-1794396663-rtz-a",
+            "clusters.postgresql.cnpg.io/hw307-omani-works/accept-1794396663-db-6e1e3f9c"
+          ],
+          "hw-me-east-215-b-rtz-prod": null
+        }
+      },
+      "error": "timed out after 10m0s; last observed: map[hw-me-east-215-a-rtz-prod:[HelmRelease/hw307-omani-works/accept-1794396663-rtz-a clusters.postgresql.cnpg.io/hw307-omani-works/accept-1794396663-db-6e1e3f9c] hw-me-east-215-b-rtz-prod:[]]"
+    }
+  ]
+}

@@ -48,19 +48,16 @@ package controller
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
-	"net"
-	"net/http"
 	"sort"
 	"strings"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/openova-io/openova/core/controllers/internal/placement"
+	"github.com/openova-io/openova/core/controllers/pkg/serving"
 )
 
 // Serving condition vocabulary.
@@ -82,9 +79,9 @@ const (
 
 var (
 	// HTTPRouteGVR — Gateway API HTTPRoute (the app's declared route).
-	HTTPRouteGVR = schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "httproutes"}
+	HTTPRouteGVR = serving.HTTPRouteGVR
 	// ServiceGVR — core Service (the gateway's in-cluster address).
-	ServiceGVR = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "services"}
+	ServiceGVR = serving.ServiceGVR
 )
 
 // condValue is one condition's {status, reason, message}.
@@ -94,65 +91,14 @@ type condValue struct {
 	Message string
 }
 
-// ServingProbe is one HTTP probe target.
-type ServingProbe struct {
-	// Addr — host:port to dial (the region gateway Service).
-	Addr string
-	// Host — the route hostname (Host header + TLS SNI).
-	Host string
-	// Path — the declared health path.
-	Path string
-	// TLS — dial with TLS (ServerName=Host).
-	TLS bool
-}
-
-// ServingProber performs one HTTP probe and returns the response status code.
-// Injectable so tests never open sockets.
-type ServingProber interface {
-	Probe(ctx context.Context, p ServingProbe) (int, error)
-}
-
-// httpServingProber is the production prober: dial the gateway Service, send
-// Host = route hostname, never follow redirects, 5s budget.
-type httpServingProber struct{}
-
-func (httpServingProber) Probe(ctx context.Context, p ServingProbe) (int, error) {
-	dialer := &net.Dialer{Timeout: 5 * time.Second}
-	tr := &http.Transport{
-		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
-			return dialer.DialContext(ctx, network, p.Addr)
-		},
-		// We are testing ROUTING (gateway → route → backend), not the
-		// certificate chain; cert validity is cert-manager's Ready condition.
-		TLSClientConfig:   &tls.Config{ServerName: p.Host, InsecureSkipVerify: true}, //nolint:gosec
-		DisableKeepAlives: true,
-	}
-	client := &http.Client{
-		Transport: tr,
-		Timeout:   5 * time.Second,
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-	scheme := "http"
-	if p.TLS {
-		scheme = "https"
-	}
-	path := p.Path
-	if path == "" {
-		path = "/"
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, scheme+"://"+p.Host+path, nil)
-	if err != nil {
-		return 0, err
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return 0, err
-	}
-	_ = resp.Body.Close()
-	return resp.StatusCode, nil
-}
+// ServingProbe, ServingProber and the production prober are the shared
+// core/controllers/pkg/serving implementation — the Continuum observer runs
+// the SAME probe for the regions this controller cannot see.
+type (
+	ServingProbe      = serving.Probe
+	ServingProber     = serving.Prober
+	httpServingProber = serving.HTTPProber
+)
 
 func (r *Reconciler) prober() ServingProber {
 	if r.Prober != nil {
@@ -332,111 +278,19 @@ func blueprintHealthPath(bp *unstructured.Unstructured) string {
 
 // probeHTTPRoutes probes every HTTPRoute the HR installed.
 func (r *Reconciler) probeHTTPRoutes(ctx context.Context, bp *unstructured.Unstructured, ref servingRef) []condValue {
-	seen := map[string]bool{}
-	var routes []unstructured.Unstructured
-	for _, sel := range []string{InstanceLabel + "=" + ref.hr, "helm.toolkit.fluxcd.io/name=" + ref.hr} {
-		list, err := r.Dynamic.Resource(HTTPRouteGVR).Namespace(ref.namespace).List(ctx, metav1.ListOptions{LabelSelector: sel})
-		if err != nil {
-			if backingKindAbsent(err) {
-				continue
-			}
-			return []condValue{{
-				Status:  "Unknown",
-				Reason:  ReasonServingProbeUnverifiable,
-				Message: fmt.Sprintf("could not list HTTPRoutes in %s for %s: %v", ref.namespace, ref.hr, err),
-			}}
-		}
-		for _, it := range list.Items {
-			if !seen[it.GetName()] {
-				seen[it.GetName()] = true
-				routes = append(routes, it)
-			}
-		}
-	}
-	path := blueprintHealthPath(bp)
-	out := make([]condValue, 0, len(routes))
-	for i := range routes {
-		out = append(out, r.probeOneRoute(ctx, &routes[i], path))
+	return fromVerdicts(serving.ProbeRoutes(ctx, r.Dynamic, r.prober(), ref.namespace, ref.hr, blueprintHealthPath(bp)))
+}
+
+func fromVerdict(v serving.Verdict) condValue {
+	return condValue{Status: v.Status, Reason: v.Reason, Message: v.Message}
+}
+
+func fromVerdicts(vs []serving.Verdict) []condValue {
+	out := make([]condValue, 0, len(vs))
+	for _, v := range vs {
+		out = append(out, fromVerdict(v))
 	}
 	return out
-}
-
-func (r *Reconciler) probeOneRoute(ctx context.Context, rt *unstructured.Unstructured, path string) condValue {
-	id := rt.GetNamespace() + "/" + rt.GetName()
-	hosts, _, _ := unstructured.NestedStringSlice(rt.Object, "spec", "hostnames")
-	parents, _, _ := unstructured.NestedSlice(rt.Object, "spec", "parentRefs")
-	if len(hosts) == 0 || hosts[0] == "" || len(parents) == 0 {
-		return condValue{Status: "Unknown", Reason: ReasonServingProbeUnverifiable,
-			Message: fmt.Sprintf("HTTPRoute %s declares no hostname or no parent Gateway; nothing to probe", id)}
-	}
-	pm, _ := parents[0].(map[string]interface{})
-	gw, _ := pm["name"].(string)
-	gwNS, _ := pm["namespace"].(string)
-	if gwNS == "" {
-		gwNS = rt.GetNamespace()
-	}
-	if gw == "" {
-		return condValue{Status: "Unknown", Reason: ReasonServingProbeUnverifiable,
-			Message: fmt.Sprintf("HTTPRoute %s parentRefs[0] names no Gateway", id)}
-	}
-	svcName := "cilium-gateway-" + gw
-	svc, err := r.Dynamic.Resource(ServiceGVR).Namespace(gwNS).Get(ctx, svcName, metav1.GetOptions{})
-	if err != nil {
-		return condValue{Status: "Unknown", Reason: ReasonServingProbeUnverifiable,
-			Message: fmt.Sprintf("gateway Service %s/%s for HTTPRoute %s not readable: %v", gwNS, svcName, id, err)}
-	}
-	port, useTLS, ok := gatewayProbePort(svc)
-	if !ok {
-		return condValue{Status: "Unknown", Reason: ReasonServingProbeUnverifiable,
-			Message: fmt.Sprintf("gateway Service %s/%s exposes no 443/8443/80/8080 port", gwNS, svcName)}
-	}
-	p := ServingProbe{
-		Addr: fmt.Sprintf("%s.%s.svc.cluster.local:%d", svcName, gwNS, port),
-		Host: hosts[0],
-		Path: path,
-		TLS:  useTLS,
-	}
-	scheme := "http"
-	if useTLS {
-		scheme = "https"
-	}
-	target := fmt.Sprintf("%s://%s%s via gateway %s/%s", scheme, p.Host, p.Path, gwNS, gw)
-	code, err := r.prober().Probe(ctx, p)
-	if err != nil {
-		return condValue{Status: "False", Reason: ReasonEndpointNotServing,
-			Message: fmt.Sprintf("GET %s failed: %v", target, err)}
-	}
-	if code >= 500 {
-		return condValue{Status: "False", Reason: ReasonEndpointNotServing,
-			Message: fmt.Sprintf("GET %s answered HTTP %d", target, code)}
-	}
-	return condValue{Status: "True", Reason: ReasonServing,
-		Message: fmt.Sprintf("GET %s answered HTTP %d", target, code)}
-}
-
-// gatewayProbePort picks the TLS listener (443/8443 or a port named https*),
-// else the plain one (80/8080).
-func gatewayProbePort(svc *unstructured.Unstructured) (int64, bool, bool) {
-	ports, _, _ := unstructured.NestedSlice(svc.Object, "spec", "ports")
-	var plain int64
-	for _, p := range ports {
-		pm, ok := p.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		n, _ := pm["port"].(int64)
-		name, _ := pm["name"].(string)
-		if n == 443 || n == 8443 || strings.HasPrefix(name, "https") {
-			return n, true, true
-		}
-		if plain == 0 && (n == 80 || n == 8080) {
-			plain = n
-		}
-	}
-	if plain != 0 {
-		return plain, false, true
-	}
-	return 0, false, false
 }
 
 // probeSyncStandbys checks every backing CNPG Cluster the HR installed that

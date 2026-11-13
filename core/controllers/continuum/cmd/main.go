@@ -172,6 +172,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle("/v1/observations", observe.Handler(obs))
 	mux.Handle("/v1/clusters", observe.ClusterHandler(obs))
+	mux.Handle("/v1/serving", observe.ServingHandler(obs))
 	if err := mgr.Add(observationServer{addr: env("OBSERVATIONS_ADDR", ":8082"), h: mux}); err != nil {
 		fmt.Fprintf(os.Stderr, "add observation server: %v\n", err)
 		os.Exit(1)

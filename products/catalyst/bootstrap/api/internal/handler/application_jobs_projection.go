@@ -164,10 +164,9 @@ func projectApplicationObjects(store *jobs.Store, depID string, apps, continuums
 		if len(entries) == 0 {
 			continue
 		}
-		group := jobs.TopologyTransitionGroupPrefix + obj.GetNamespace() + "-" + obj.GetName()
+		group := jobsTopologyTransitionGroup(obj, entries)
 		display := "Topology transition " + obj.GetKind() + " " + obj.GetNamespace() + "/" + obj.GetName()
 		if t := transitionSlug(entries); t != "" {
-			group += "-" + t
 			display += " (" + t + ")"
 		}
 		bridge := jobs.NewActivityBridge(store, depID, group, display)
@@ -237,6 +236,17 @@ func (h *Handler) seedApplicationObjectsFrom(ctx context.Context, dyn dynamic.In
 
 // transitionSlug is the URL-safe transition id the entries carry (the first
 // non-empty one), so every move projects as its own Jobs group.
+// jobsTopologyTransitionGroup is the Jobs group JobName for one object's
+// transition record. The DR block of the application API links to it, so
+// both sides must name it with this one function.
+func jobsTopologyTransitionGroup(obj *unstructured.Unstructured, entries []activityEntry) string {
+	group := jobs.TopologyTransitionGroupPrefix + obj.GetNamespace() + "-" + obj.GetName()
+	if t := transitionSlug(entries); t != "" {
+		group += "-" + t
+	}
+	return group
+}
+
 func transitionSlug(entries []activityEntry) string {
 	for _, e := range entries {
 		if t := strings.TrimSpace(e.Transition); t != "" {

@@ -64,6 +64,79 @@ type continuumConvergence struct {
 	// message: WHY it is not converged / what blocks it / when it retries.
 	ConvergeReason  string `json:"convergeReason,omitempty"`
 	ConvergeMessage string `json:"convergeMessage,omitempty"`
+	// Transition — the Continuum's current (or most recent) primary move,
+	// verbatim from status.transition + status.activity, so the console can
+	// show every step while it runs. Nil when the Continuum never moved.
+	Transition *drTransition `json:"transition,omitempty"`
+}
+
+// drTransition is one primary move as the Continuum controller records it.
+type drTransition struct {
+	ID        string `json:"id,omitempty"`
+	From      string `json:"from,omitempty"`
+	To        string `json:"to,omitempty"`
+	StartedAt string `json:"startedAt,omitempty"`
+	// Outcome — the controller's verdict: Transitioning while it runs, then
+	// Converged (or a failure outcome).
+	Outcome string `json:"outcome,omitempty"`
+	Message string `json:"message,omitempty"`
+	// Active — the move is still running.
+	Active bool `json:"active"`
+	// JobName — the Jobs group that records this move (the projection in
+	// application_jobs_projection.go names it the same way), so the console
+	// can link to its full log.
+	JobName string             `json:"jobName,omitempty"`
+	Steps   []drTransitionStep `json:"steps"`
+}
+
+// drTransitionStep is one status.activity entry, verbatim.
+type drTransitionStep struct {
+	Phase      string `json:"phase"`
+	Member     string `json:"member,omitempty"`
+	State      string `json:"state"`
+	StartedAt  string `json:"startedAt,omitempty"`
+	FinishedAt string `json:"finishedAt,omitempty"`
+	Message    string `json:"message,omitempty"`
+}
+
+// continuumPhaseMoving reports whether a Continuum phase means a primary move
+// is running. "SwitchingOver" is the pre-ADR-0015 name; the transition
+// engine reports "Transitioning". Reading only the old name made the console
+// say no switchover was in progress during one (hw307, 2026-11-12).
+func continuumPhaseMoving(phase string) bool {
+	return phase == "SwitchingOver" || phase == "Transitioning"
+}
+
+// continuumTransitionFromCR lifts status.transition + status.activity into
+// the wire shape. Returns nil when the Continuum has no transition on record.
+func continuumTransitionFromCR(cr *unstructured.Unstructured, moving bool) *drTransition {
+	entries := activityEntriesOf(cr)
+	rec, hasRec, _ := unstructured.NestedMap(cr.Object, "status", "transition")
+	if len(entries) == 0 && !hasRec {
+		return nil
+	}
+	t := &drTransition{Active: moving, Steps: make([]drTransitionStep, 0, len(entries))}
+	if hasRec {
+		t.ID, _ = rec["id"].(string)
+		t.From, _ = rec["from"].(string)
+		t.To, _ = rec["to"].(string)
+		t.StartedAt, _ = rec["startedAt"].(string)
+		t.Outcome, _ = rec["outcome"].(string)
+		t.Message, _ = rec["message"].(string)
+	}
+	for _, e := range entries {
+		t.Steps = append(t.Steps, drTransitionStep{
+			Phase: e.Phase, Member: e.Member, State: e.State,
+			StartedAt: e.StartedAt, FinishedAt: e.FinishedAt, Message: e.Message,
+		})
+		if !moving && (e.State == "running" || e.State == "pending") && t.Outcome == "" {
+			t.Active = true
+		}
+	}
+	if len(entries) > 0 {
+		t.JobName = jobsTopologyTransitionGroup(cr, entries)
+	}
+	return t
 }
 
 // continuumObservedPrimary — status.primaryRegion, the region serving writes.
@@ -124,10 +197,14 @@ func continuumConvergenceFromCR(cr *unstructured.Unstructured, fallbackObserved 
 	if b, ok, _ := unstructured.NestedBool(cr.Object, "status", "switchoverInProgress"); ok {
 		out.SwitchoverInProgress = b
 	} else {
-		out.SwitchoverInProgress = phase == "SwitchingOver"
+		out.SwitchoverInProgress = continuumPhaseMoving(phase)
 	}
+	out.Transition = continuumTransitionFromCR(cr, out.SwitchoverInProgress)
 	if out.SwitchoverInProgress {
 		out.Step, _, _ = unstructured.NestedString(cr.Object, "status", "message")
+		if out.Step == "" && out.Transition != nil {
+			out.Step = runningStepLine(out.Transition.Steps)
+		}
 	}
 
 	cond, hasCond := continuumCondition(cr, "Converged")
@@ -203,4 +280,34 @@ func (h *Handler) continuumForApplication(
 		return nil
 	}
 	return cr
+}
+
+// runningStepLine renders "step N/M — <phase>: <message>" for the step the
+// transition is on (the first one not yet succeeded).
+func runningStepLine(steps []drTransitionStep) string {
+	for i, st := range steps {
+		if st.State == "succeeded" {
+			continue
+		}
+		line := "step " + itoaInt(i+1) + "/" + itoaInt(len(steps)) + " — " + st.Phase
+		if st.Message != "" {
+			line += ": " + st.Message
+		}
+		return line
+	}
+	return ""
+}
+
+func itoaInt(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var b [20]byte
+	i := len(b)
+	for n > 0 {
+		i--
+		b[i] = byte('0' + n%10)
+		n /= 10
+	}
+	return string(b[i:])
 }
