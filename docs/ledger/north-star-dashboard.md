@@ -4,7 +4,7 @@ Status on 13 November 2026. The baseline is the platform as it stood on 12 Novem
 
 ## On the environment: what is deployed and what is not
 
-Read from the environment hw307 itself at 23:00 UTC on 13 November. Merged means the code is on the main branch with green checks. Deployed means the release that carries it runs on the environment in both regions. Validated means it was seen working there, with evidence.
+Read from the environment hw307 itself at 23:30 UTC on 13 November. Merged means the code is on the main branch with green checks. Deployed means the release that carries it runs on the environment in both regions. Validated means it was seen working there, with evidence.
 
 | State of the merged tasks | Tasks |
 |---|---|
@@ -116,7 +116,7 @@ ACC-020, ACC-030, [ACC-060](plan/tickets/ACC-060.md), AIP-010, AIP-020, [AIP-060
 
 ## Right now
 
-Measured from GitHub at 23:00 UTC on 13 November 2026. This block is rebuilt automatically every 30 minutes.
+Measured from GitHub at 23:30 UTC on 13 November 2026. This block is rebuilt automatically every 30 minutes.
 
 | | |
 |---|---|
@@ -125,7 +125,7 @@ Measured from GitHub at 23:00 UTC on 13 November 2026. This block is rebuilt aut
 | How the estimate is made | Merged: 705 tasks are left; the last 12 hours merged 2.6 tasks an hour, lab results not counted, which gives 273 hours; the longest row of tasks that must follow one another is 27 long, at about 2 hours each, which gives 54 hours; the larger number is shown. Proven: the plan's simulation of six agents with an update of the environment every 4 hours and a fresh install every 24. Both move as the work goes; a stop or an interruption adds to them. |
 | **Tokens used so far** | **12.6 billion** tokens, nearly all of them since 11 November: 3.2 billion to design the plan and 9.4 billion to carry it out so far. Of the total, 12.2 billion are re-reads of text the models had already read once, which is the cheap kind; 252 million are text read for the first time and 59 million are text the models wrote. By model: Opus 5.5 8.3 billion, Fable 5.2 4.3 billion. At the published pay-as-you-go prices these tokens would cost about $5,900. |
 | **Tokens still expected** | About **39 billion** more until every task is merged, which makes about 52 billion in all; 24% of that is spent. Basis: carrying out the plan has used 74 million tokens for each agent-hour of merged work, and 528 agent-hours are left. Proving the tasks on an environment comes on top; too few are proven to measure it. |
-| **Accounts needed on the $200 plan** | Two accounts are used, one at a time. The first stood at **72%** when the work moved to the second on 13 Nov 19:20 UTC; its remaining 28% can be used until 18 Nov 12:00 UTC. Together about **84 points** are left before the two are filled again. The account in use now (plan Max 20x) has spent **44%** of this week's allowance, 65 hours into the week (the week runs from 11 Nov 06:00 to 18 Nov 06:00 UTC). Over the last 3.6 hours the usage meter rose by 15 points. At that rise this account's allowance is used up around **14 Nov 12:00 UTC**, 4 days before it is filled again. Paid extra usage is switched off on the account, so the agents stop there unless another account is logged in. Holding that rise for a whole week would take **8 accounts**; measured from the tokens of the last 24 hours it is 3.0. The two do not agree: the tokens counted on this machine explain about 39% of the meter's rise in those hours. Either the account is also used from somewhere this machine cannot see, or the meter weighs this kind of work more heavily than its first two days suggested. The meter decides when the work stops. The work still to merge needs about 2.3 weekly allowances by the token measure. |
+| **Accounts needed on the $200 plan** | Two accounts are used, one at a time. The first stood at **72%** when the work moved to the second on 13 Nov 19:20 UTC; its remaining 28% can be used until 18 Nov 12:00 UTC. Together about **84 points** are left before the two are filled again. The account in use now (plan Max 20x) has spent **44%** of this week's allowance, 66 hours into the week (the week runs from 11 Nov 06:00 to 18 Nov 06:00 UTC). Over the last 4.1 hours the usage meter rose by 15 points. At that rise this account's allowance is used up around **14 Nov 14:00 UTC**, 4 days before it is filled again. Paid extra usage is switched off on the account, so the agents stop there unless another account is logged in. Holding that rise for a whole week would take **7 accounts**; measured from the tokens of the last 24 hours it is 3.0. The two do not agree: the tokens counted on this machine explain about 39% of the meter's rise in those hours. Either the account is also used from somewhere this machine cannot see, or the meter weighs this kind of work more heavily than its first two days suggested. The meter decides when the work stops. The work still to merge needs about 2.3 weekly allowances by the token measure. |
 | How the tokens and the allowance are measured | Tokens are counted from the transcripts on the build machine, each model call once, for every agent of this work. Anthropic states no token figure for the plan, so the share of the weekly allowance that is used is read from the account's own usage meter every 30 minutes and set against the tokens counted in the same hours; by that measure one weekly allowance is about 17 billion tokens of this mix. The meter counts Fable and Opus differently, so each is weighed on its own. The pace is taken from the meter itself once it has been read for an hour (the oldest reading of the last six hours); until then from the tokens. Every session on the account counts, also work that is not this plan. |
 | Tasks merged to the main branch | **181 of 886** |
 | Tasks with a written ticket | 147 |
@@ -141,18 +141,18 @@ Measured from GitHub at 23:00 UTC on 13 November 2026. This block is rebuilt aut
 
 ![Burndown of the effort left to merge, planned and actual](dashboard/burndown.svg)
 
-**528 agent-hours** are left to merge; the plan's own schedule expected **490** by now. The work is **38 agent-hours behind** that schedule. The plan's schedule ends on 19 November; at the present pace the last task merges around 25 November.
+**528 agent-hours** are left to merge; the plan's own schedule expected **487** by now. The work is **40 agent-hours behind** that schedule. The plan's schedule ends on 19 November; at the present pace the last task merges around 25 November.
 
 How to read it. Planned: the plan as first published on 12 November (843 tasks, 619 agent-hours), run through the roadmap's schedule model (six agents over the plan's dependencies, 16 running hours a day). Actual: the tasks of the plan at each moment, less those merged by then, in the same agent-hours by task size. 43 tasks were added to the plan since; the actual line steps up where each appears. The dashed line runs from now to the estimate above. Both lines count merging; proof on an environment is not in this chart.
 
 | Midnight UTC | Planned left | Actual left |
 |---|---|---|
 | 13 Nov | 582 | 598 |
-| now (13 Nov 23:00) | 490 | 528 |
+| now (13 Nov 23:30) | 487 | 528 |
 
 ### On the environment: deployed and validated
 
-Read from the standing environment hw307 itself at 23:00 UTC on 13 November. A task counts as deployed only when the release that carried it is the one running there, and as validated only when it was seen working there.
+Read from the standing environment hw307 itself at 23:30 UTC on 13 November. A task counts as deployed only when the release that carried it is the one running there, and as validated only when it was seen working there.
 
 | | Tasks |
 |---|---|
