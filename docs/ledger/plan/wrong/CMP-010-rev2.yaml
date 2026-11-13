@@ -1,0 +1,15 @@
+schema: openova.io/plan-wrong/v1
+id: CMP-010
+ticket_rev: 2
+base_commit: db94604313321657f4f60993d92a34a589a310ed
+stage: preflight
+ref: P5
+command: |
+    python3 -c "import yaml; c = {x['id']: x for x in yaml.safe_load(open('docs/ledger/gates.yaml'))['checks']}; [print(i, c[i]['state'], c[i].get('implementation'), c[i].get('implemented_by')) for i in ('CMP-G01', 'CMP-G02')]"
+expected: |
+    CMP-G01 not-built None CMP-010
+    CMP-G02 not-built None CMP-010
+actual: |
+    CMP-G01 not-built None None
+    CMP-G02 not-built None None
+reported_at: 2026-11-13T00:04:29Z
