@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T08:30:07Z` |
+| Last refreshed | `2026-11-13T08:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,9 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6839](https://github.com/openova-io/openova/issues/6839) | Region promotion must flip secondary_region_lb_weight — hot-standby has no aut | Other |
-| [#6840](https://github.com/openova-io/openova/issues/6840) | hw307 primary region silently runs 4 of 5 provisioned workers — w9b4787 ACTIVE | Other |
-| [#6843](https://github.com/openova-io/openova/issues/6843) | chargeback silently discards all outbound mail on a Sovereign (invite links, sta | Other |
 | [#6844](https://github.com/openova-io/openova/issues/6844) | SSO gap audit: verify whether registry/harbor and newapi have zero-click SSO (gi | Other |
 | [#6849](https://github.com/openova-io/openova/issues/6849) | Platform Applications are named spine-* on live Sovereigns, colliding with the S | Other |
 | [#6850](https://github.com/openova-io/openova/issues/6850) | Sovereign cloud cost is collected but never allocated: ADR-0014's 'cloud cost sp | Other |
@@ -300,6 +297,9 @@ flowchart LR
 | [#7353](https://github.com/openova-io/openova/issues/7353) | SEC-120 etcd dump check and node hygiene check, as check files | Other |
 | [#7354](https://github.com/openova-io/openova/issues/7354) | SVC-125 Blueprint proofs check: the function-test result in the gate record | Other |
 | [#7356](https://github.com/openova-io/openova/issues/7356) | SOV-130 Substrate window, part 1: modules and cloud-init take the variables docu | Other |
+| [#7376](https://github.com/openova-io/openova/issues/7376) | CTL-112 Region scopes of the commit library | Other |
+| [#7377](https://github.com/openova-io/openova/issues/7377) | CTL-160 Package intent: validate, serialise, commit, wait | Other |
+| [#7378](https://github.com/openova-io/openova/issues/7378) | CTL-240 Batch G: catalogue writers onto the library | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T08:34 | [#7374](https://github.com/openova-io/openova/pull/7374) | #7087 | docs(ledger): result of the lab test FND-001 (FND-001) |
 | 2026-11-13T08:29 | [#7373](https://github.com/openova-io/openova/pull/7373) | #7087 | docs(ledger): result of the lab test SEC-135 (SEC-135) |
 | 2026-11-13T08:28 | [#7372](https://github.com/openova-io/openova/pull/7372) | #7087 | docs(ledger): result of the lab test SEC-271 (SEC-271) |
 | 2026-11-13T08:28 | [#7371](https://github.com/openova-io/openova/pull/7371) | #7087 | docs(ledger): result of the lab test SOV-080 (SOV-080) |
@@ -314,6 +315,8 @@ flowchart LR
 | 2026-11-13T08:28 | [#7369](https://github.com/openova-io/openova/pull/7369) | #7087 | docs(ledger): result of the lab test SVC-315 (SVC-315) |
 | 2026-11-13T08:28 | [#7368](https://github.com/openova-io/openova/pull/7368) | #7087 | docs(ledger): result of the lab test SOV-070 (SOV-070) |
 | 2026-11-13T08:28 | [#7367](https://github.com/openova-io/openova/pull/7367) | #7087 | docs(ledger): result of the lab test NET-300 (NET-300) |
+| 2026-11-13T08:30 | [#7366](https://github.com/openova-io/openova/pull/7366) | #7349 | chore(console): remove the infrastructure add, edit and dele |
+| 2026-11-13T08:30 | [#7365](https://github.com/openova-io/openova/pull/7365) | #7323 | feat(fingate): add the ledger port, its conformance kit and  |
 | 2026-11-13T08:29 | [#7364](https://github.com/openova-io/openova/pull/7364) | #7354 | test(acceptance): record the function-test result of every r |
 | 2026-11-13T07:51 | [#7363](https://github.com/openova-io/openova/pull/7363) | #7356 | refactor(cloud-init): one variables ConfigMap for the inline |
 | 2026-11-13T07:41 | [#7362](https://github.com/openova-io/openova/pull/7362) | #7087 | docs(ledger): plan update |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-13T06:34 | [#7333](https://github.com/openova-io/openova/pull/7333) | #7087 | docs(ledger): result of the lab test INF-030 (INF-030) |
 | 2026-11-13T06:34 | [#7332](https://github.com/openova-io/openova/pull/7332) | #7087 | docs(ledger): result of the lab test CLD-050 (CLD-050) |
 | 2026-11-13T06:35 | [#7331](https://github.com/openova-io/openova/pull/7331) | #7087 | docs(ledger): result of the lab test SEC-140 (SEC-140) |
-| 2026-11-13T06:34 | [#7330](https://github.com/openova-io/openova/pull/7330) | #7087 | docs(ledger): result of the lab test SEC-130 (SEC-130) |
-| 2026-11-13T06:52 | [#7329](https://github.com/openova-io/openova/pull/7329) | #7087 | docs(ledger): result of the lab test MIG-050 (MIG-050) |
-| 2026-11-13T06:35 | [#7328](https://github.com/openova-io/openova/pull/7328) | #7087 | docs(ledger): result of the lab test SVC-210 (SVC-210) |
 
 ---
 
