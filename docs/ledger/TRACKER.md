@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T17:00:04Z` |
+| Last refreshed | `2026-11-13T17:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,9 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7148](https://github.com/openova-io/openova/issues/7148) | NET-033 The definition-of-done verifier stops requiring retired releases | Other |
-| [#7149](https://github.com/openova-io/openova/issues/7149) | NET-050 Zone decision record | Other |
-| [#7150](https://github.com/openova-io/openova/issues/7150) | SVC-010 Decision record and glossary edits | Other |
 | [#7151](https://github.com/openova-io/openova/issues/7151) | SVC-020 Service-model ratchet guard | Other |
 | [#7165](https://github.com/openova-io/openova/issues/7165) | CMP-016 An optional informer kind starts when its definition arrives | Other |
 | [#7166](https://github.com/openova-io/openova/issues/7166) | FND-034 Checks: NodePort, front doors, mesh, encryption, clean wipe; journeys as | Other |
@@ -300,6 +297,9 @@ flowchart LR
 | [#7468](https://github.com/openova-io/openova/issues/7468) | FND-020 A pull request is not red because main was between two commits of a rele | Other |
 | [#7471](https://github.com/openova-io/openova/issues/7471) | SOV-141 Each peer region gets its own handover-peer token, given to the primary  | Other |
 | [#7473](https://github.com/openova-io/openova/issues/7473) | SOV-133 The boot template and the provider contract take the variables document | Other |
+| [#7477](https://github.com/openova-io/openova/issues/7477) | CLD-086 local module and reduced kit | Other |
+| [#7478](https://github.com/openova-io/openova/issues/7478) | FND-013 Merge queue: aggregate check, queue triggers, rulesets and code owners a | Other |
+| [#7479](https://github.com/openova-io/openova/issues/7479) | FND-096 Remove the Sandbox sources | Other |
 
 ---
 
