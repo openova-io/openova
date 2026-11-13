@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T17:30:05Z` |
+| Last refreshed | `2026-11-13T17:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T17:33 | [#7483](https://github.com/openova-io/openova/pull/7483) | #7087 | docs(ledger): plan update |
+| 2026-11-13T17:43 | [#7482](https://github.com/openova-io/openova/pull/7482) | #7479 | chore: remove the withdrawn Sandbox sources and count the re |
+| 2026-11-13T17:44 | [#7481](https://github.com/openova-io/openova/pull/7481) | #7477 | feat(providers): local provider pack module, reduced kit and |
+| 2026-11-13T17:43 | [#7480](https://github.com/openova-io/openova/pull/7480) | #7478 | ci: one aggregate check, merge-group triggers, rulesets and  |
 | 2026-11-13T17:16 | [#7476](https://github.com/openova-io/openova/pull/7476) | #7087 | docs(ledger): plan update |
 | 2026-11-13T16:34 | [#7475](https://github.com/openova-io/openova/pull/7475) | #7473 | refactor(cloud-init): the boot template and the provider con |
 | 2026-11-13T16:22 | [#7474](https://github.com/openova-io/openova/pull/7474) | #7471 | feat(cloud-init): each peer region posts its own handover-pe |
@@ -333,10 +337,6 @@ flowchart LR
 | 2026-11-13T12:31 | [#7439](https://github.com/openova-io/openova/pull/7439) | #7087 | docs(ledger): plan update |
 | 2026-11-13T12:37 | [#7432](https://github.com/openova-io/openova/pull/7432) | #7420 | chore(tenant): remove the Sandbox orchestrator, its grants a |
 | 2026-11-13T12:36 | [#7431](https://github.com/openova-io/openova/pull/7431) | #7425 | fix(ci): four workflows install Helm 3.16.3 instead of 3.16. |
-| 2026-11-13T12:21 | [#7428](https://github.com/openova-io/openova/pull/7428) | #7095 | chore(policy): retired names lose their policy privileges (N |
-| 2026-11-13T12:21 | [#7427](https://github.com/openova-io/openova/pull/7427) | #7419 | refactor(api): move route registration out of main into one  |
-| 2026-11-13T12:17 | [#7426](https://github.com/openova-io/openova/pull/7426) | #7422 | fix(secrets): scope the OpenBao keys of External Secrets at  |
-| 2026-11-13T13:03 | [#7425](https://github.com/openova-io/openova/pull/7425) | #7423 | feat(sovereign): Harbor and Gitea create the registry projec |
 
 ---
 
