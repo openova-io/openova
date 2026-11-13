@@ -112,7 +112,8 @@ for k in ("d-vnc-ctl", "d-vnc-off"):
     v = d.get("vnc") or {}
     p(f"(d) vnc {k}: framebuffer={v.get('framebufferImg')} firstImgMs={v.get('firstImgMs')} size={v.get('size')} img={v.get('imgInstructions')} "
       f"copyReceived={v.get('copyReceived')} pasteAcks={j(v.get('pasteAcks'))} errors={j(d.get('errors'))}")
-    p(f"    server clipboard after paste: {text(f'{EV}/vnc-{k}-server-clipboard.txt').strip()}")
+    p(f"    server clipboard after paste: {' '.join(text(f'{EV}/vnc-{k}-server-clipboard.txt').split())}")
+    p(f"    x11vnc counters: {' | '.join(' '.join(l.split()[2:]) for l in text(f'{EV}/vnc-{k}-stats.txt').splitlines())}")
 
 # (e)
 gr = (a.get("growth") or {})
@@ -141,7 +142,8 @@ for k in ("f-replay-browser-session", "f-replay-driver-session"):
 p("  pieces served: " + j([x for x in ev("rec-served-in-pieces")]))
 
 # (g)
-for k in ("g1-default", "g2-no-uuid-frame", "g3-no-ping-echo", "g4-split-frames", "g5-internal-to-guacd", "g6-no-subprotocol"):
+for k in ("g1-default", "g2-no-uuid-frame", "g3-no-ping-echo", "g4-split-frames", "g5-internal-to-guacd", "g6-no-subprotocol",
+          "g7-vnc-no-ping-echo", "g8-vnc-ping-echo"):
     r = browser.get(k, {})
     r = r if "events" in r else (r.get("partial") or r)
     p(f"(g) {k}: clientStates={j(r.get('clientStates'))} unstable={r.get('unstableCount')} tunnelState={r.get('tunnelState')} "
@@ -160,8 +162,9 @@ for a2 in ev("tunnel-upgrade-failed"):
 # (h)
 for k in ("h-ctl", "h-off"):
     cl = drive.get(k, {}).get("clip") or {}
-    p(f"(h) ssh {k}: copyReceived={cl.get('copyReceived')} copyContainsMarker={cl.get('copyContainsMarker')} "
-      f"pasteEffective={cl.get('pasteEffective')} method={cl.get('pasteMethod')!r} pasteAcks={j(cl.get('pasteAcks'))}")
+    p(f"(h) ssh {k}: copyReceived={cl.get('copyReceived')} copyContainsMarker={cl.get('copyContainsMarker')} copyAfterReleaseMs={cl.get('copyAfterReleaseMs')} "
+      f"pasteEffective={cl.get('pasteEffective')} method={cl.get('pasteMethod')!r} pastedTextVisible={cl.get('pastedTextVisible')} pasteAcks={j(cl.get('pasteAcks'))}")
+    p(f"    clips={j(drive.get(k, {}).get('clips'))} tail={drive.get(k, {}).get('typescriptTail', '')[-200:]!r}")
 hc, ho = drive.get("h-ctl", {}).get("clip") or {}, drive.get("h-off", {}).get("clip") or {}
 h_ok = bool(hc.get("copyReceived") and hc.get("pasteEffective")) and not ho.get("copyReceived") and not ho.get("pasteEffective")
 p(f"(h) disable-copy / disable-paste block the clipboard (SSH): {verdict(h_ok)}")

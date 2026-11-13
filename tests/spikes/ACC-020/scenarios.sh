@@ -32,7 +32,7 @@ drive h-ctl -scenario ssh-password -run clip-ctl -script clip -set disable-copy:
 drive h-off -scenario ssh-password -run clip-off -script clip -tag CLIPO
 
 note "item c: protocol kubernetes through the exec proxy built from main"
-drive c-cert -scenario k8s-cert -tag K8S -extra "stty size; hostname; id"; proxy_log 40s c-cert
+drive c-cert -scenario k8s-cert -tag K8S -extra 'stty size; echo stty-rc=$?; tty; hostname; id'; proxy_log 40s c-cert
 drive c-nocert -scenario k8s-nocert -tag K8SNC; proxy_log 40s c-nocert
 drive c-sessioncert -scenario k8s-sessioncert -tag K8SSC; proxy_log 40s c-sessioncert
 drive c-multiword -scenario k8s-multiword -script observe -hold 6; proxy_log 30s c-multiword
@@ -43,15 +43,21 @@ vnc_run() { # id, driver flags
   drive "$id" -scenario vnc -run "$id" -script vnc -hold 22 "$@" &
   local pid=$!
   sleep 9
-  kubectl -n spike exec deploy/vnc -- sh -c 'echo "clipboard=[$(DISPLAY=:0 timeout 3 xclip -o -selection clipboard 2>&1)] primary=[$(DISPLAY=:0 timeout 3 xclip -o -selection primary 2>&1)]"' \
+  kubectl -n spike exec deploy/vnc -- sh -c 'for s in clipboard primary; do for t in UTF8_STRING STRING; do echo "$s/$t=[$(DISPLAY=:0 timeout 3 xclip -o -selection $s -t $t 2>&1)]"; done; done' \
     > "$EV/vnc-$id-server-clipboard.txt" 2>&1
   echo "server clipboard after paste ($id): $(cat "$EV/vnc-$id-server-clipboard.txt")"
   kubectl -n spike exec deploy/vnc -- sh -c "printf VNCCOPY-$id > /tmp/c.txt; (DISPLAY=:0 timeout 20 xclip -selection clipboard -quiet -i /tmp/c.txt >/dev/null 2>&1 &); echo set" >/dev/null 2>&1
   wait "$pid"
+  sleep 2
+  # x11vnc prints per-client message counters when the client leaves: the
+  # ClientCutText count is the number of clipboard updates guacd sent to the
+  # VNC server, ServerCutText the number the server sent to guacd.
+  kubectl -n spike logs deploy/vnc --since=45s 2>&1 | grep -E 'CutText|Got connection from client|Client .* gone' \
+    | grep -v -E 'client 10\.42\.0\.1$|Client 10\.42\.0\.1 gone' | tee "$EV/vnc-$id-stats.txt"
 }
 vnc_run d-vnc-ctl -set disable-copy:false -set disable-paste:false
 vnc_run d-vnc-off
-kubectl -n spike logs deploy/vnc --tail=40 > "$EV/vnc-server.log" 2>&1
+kubectl -n spike logs deploy/vnc > "$EV/vnc-server.log" 2>&1
 
 note "item i: recording-write-existing into a FIFO"
 kubectl -n guacamole exec access-spike -c guacd -- mkfifo /rec/screen-fifo

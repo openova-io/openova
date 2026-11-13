@@ -1074,33 +1074,13 @@ func (d *driver) growth(ts, scr string, seconds int) map[string]any {
 
 func (d *driver) clip(ts string) map[string]any {
 	out := map[string]any{}
-	d.typeText("echo COPY-$((2+3))\n")
-	_, ok := waitFor(6*time.Second, 20*time.Millisecond, func() bool { return tailHas(ts, "COPY-5") })
-	out["copySourceShown"] = ok
 	w, h := d.dims()
 	if w == 0 {
 		w, h = 1024, 768
 	}
 	out["display"] = []int{w, h}
-	n0 := d.clipCount()
-	// Drag-select the whole terminal with the left button.
-	d.mouse(2, 2, 0)
-	d.mouse(2, 2, 1)
-	d.mouse(w/2, h/2, 1)
-	d.mouse(w-3, h-3, 1)
-	d.mouse(w-3, h-3, 0)
-	_, got := waitFor(4*time.Second, 20*time.Millisecond, func() bool { return d.clipCount() > n0 })
-	clips := d.clipsSince(n0)
-	out["copyReceived"] = got
-	marker := false
-	for _, c := range clips {
-		if strings.Contains(c.Text, "COPY-5") {
-			marker = true
-		}
-	}
-	out["copyContainsMarker"] = marker
-	out["copyInstructions"] = len(clips)
-	// Paste: send a clipboard stream to guacd, then paste with the middle button.
+	// Paste first, while the terminal's own selection buffer is still empty:
+	// send a clipboard stream to guacd, then paste with the middle button.
 	a0 := d.ackCount()
 	d.send("clipboard", "7", "text/plain")
 	d.send("blob", "7", base64.StdEncoding.EncodeToString([]byte("echo PASTE-$((3+4))")))
@@ -1132,6 +1112,31 @@ func (d *driver) clip(ts string) map[string]any {
 	out["pasteEffective"] = pasted
 	out["pasteMethod"] = method
 	out["pastedTextVisible"] = tailHas(ts, "PASTE-$((3+4))")
+	// Copy: print a marker, then drag-select with the left button. The drag
+	// ends 40 px inside the edges: the terminal's scrollbar sits on the right
+	// edge and swallows a button release over it (seen in the first run).
+	d.typeText("echo COPY-$((2+3))\n")
+	_, ok := waitFor(6*time.Second, 20*time.Millisecond, func() bool { return tailHas(ts, "COPY-5") })
+	out["copySourceShown"] = ok
+	n0 := d.clipCount()
+	start := time.Now()
+	d.mouse(4, 4, 0)
+	d.mouse(4, 4, 1)
+	d.mouse(w/2, h/2, 1)
+	d.mouse(w-40, h-40, 1)
+	d.mouse(w-40, h-40, 0)
+	_, got := waitFor(6*time.Second, 20*time.Millisecond, func() bool { return d.clipCount() > n0 })
+	out["copyAfterReleaseMs"] = time.Since(start).Milliseconds()
+	clips := d.clipsSince(n0)
+	out["copyReceived"] = got
+	marker := false
+	for _, c := range clips {
+		if strings.Contains(c.Text, "COPY-5") {
+			marker = true
+		}
+	}
+	out["copyContainsMarker"] = marker
+	out["copyInstructions"] = len(clips)
 	return out
 }
 

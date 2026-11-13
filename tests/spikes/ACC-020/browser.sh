@@ -24,6 +24,8 @@ cat > /tmp/pw/runs.json <<EOF
  {"id": "g4-split-frames",    "path": "?$S&run=br-g4&uuidframe=1&echoping=1&framing=split&observe=12000&type=1", "timeout": 35000},
  {"id": "g5-internal-to-guacd", "path": "?$S&run=br-g5&uuidframe=1&echoping=1&fwdinternal=1&observe=12000&type=1", "timeout": 35000},
  {"id": "g6-no-subprotocol",  "path": "?$S&run=br-g6&subproto=0&observe=6000&type=0", "timeout": 25000},
+ {"id": "g7-vnc-no-ping-echo", "path": "?scenario=vnc&run=br-g7&uuidframe=1&echoping=0&observe=22000&type=0", "timeout": 45000},
+ {"id": "g8-vnc-ping-echo",    "path": "?scenario=vnc&run=br-g8&uuidframe=1&echoping=1&observe=22000&type=0", "timeout": 45000},
  {"id": "f-replay-browser-session", "path": "replay.html?file=screen-br-g1&piece=4093&delay=5&part=16384", "timeout": 200000},
  {"id": "f-replay-driver-session",  "path": "replay.html?file=screen-ssh-password&piece=4093&delay=5&part=16384", "timeout": 200000}
 ]
