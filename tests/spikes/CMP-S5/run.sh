@@ -339,6 +339,8 @@ assess_live() { # <tag>
        spec: (.spec | del(.nodeName) | del(.priority) | del(.preemptionPolicy)
               | .serviceAccountName = "default" | del(.serviceAccount))}' \
       > "$OUT/dryrun/docs/live-$tag/$p.json"
+    # a Job Pod can finish and be removed between the list and the read
+    [ "$(jq -r '.kind // ""' "$OUT/dryrun/docs/live-$tag/$p.json" 2>/dev/null)" = Pod ] || continue
     eval_one "live-$tag" "$p" "$OUT/dryrun/docs/live-$tag/$p.json" "$NS"
   done
 }
@@ -422,6 +424,12 @@ for d in "${CAT_DIRS[@]}"; do
   v="$OUT/charts/cat-$chart.values.yaml"
   printf 'openova:\n  topology: {mode: singleton, self: %s, primary: %s, peers: []}\n  application: {name: %s, namespace: %s}\n' \
     "$TOPO_REGION" "$TOPO_REGION" "${chart#bp-}" "$NS" > "$v"
+  # the one value each of these templates refuses to render without (run 2);
+  # neither touches a pod-security field
+  case "$chart" in
+    bp-anthropic-adapter) yq -i '.adapter.image.tag = "0000000000000000000000000000000000000000"' "$v" ;;
+    bp-librechat) yq -i ".ingress.host = \"chat.$NS.omani.homes\"" "$v" ;;
+  esac
   if render_chart "$chart" "$d" "$v" "$OUT/charts/cat-$chart.yaml"; then
     printf '%s\t%s\trendered\t%s\n' "$chart" "${d#$ROOT/}" "$(yq -r '.version' "$d/Chart.yaml")" >> "$OUT/charts/catalog.tsv"
     eval_rendered catalog "$chart" "$OUT/charts/cat-$chart.yaml"
@@ -535,11 +543,10 @@ phase "C live: assessment before restart"
 assess_live before
 
 phase "C live: restart every workload, read the warnings"
-: > "$OUT/live/restart-host.txt"
-for o in $(kubectl -n "$NS" get statefulset,deployment -o name); do
-  echo "== $o" >> "$OUT/live/restart-host.txt"
-  kubectl -n "$NS" rollout restart "$o" >> "$OUT/live/restart-host.txt" 2>&1
-done
+# inside the vCluster first (its control plane must be up to restart them);
+# the syncer then creates the new Pods in the host namespace
+t0=$(date -u +%FT%TZ)
+sleep 1
 if vc_connect; then
   : > "$OUT/live/restart-virtual.txt"
   for vns in $(vk get ns -o jsonpath='{.items[*].metadata.name}'); do
@@ -548,11 +555,27 @@ if vc_connect; then
       vk -n "$vns" rollout restart "$o" >> "$OUT/live/restart-virtual.txt" 2>&1
     done
   done
+  if wait_until 240 synced_coredns_ready "$t0"; then
+    enforce_record C1-virtual-restart-coredns-resynced true "a new synced coredns Pod is Ready in the host namespace (warn+audit=baseline)"
+  else
+    enforce_record C1-virtual-restart-coredns-resynced false "$(kubectl -n "$NS" get pods -o name | grep coredns | tr '\n' ' ')"
+  fi
+else
+  enforce_record C1-virtual-restart-coredns-resynced false "could not connect to the vCluster"
 fi
-wait_until 300 host_pod_ready vcluster-0 || true
-sleep 60
+: > "$OUT/live/restart-host.txt"
+for o in $(kubectl -n "$NS" get statefulset,deployment -o name); do
+  echo "== $o" >> "$OUT/live/restart-host.txt"
+  kubectl -n "$NS" rollout restart "$o" >> "$OUT/live/restart-host.txt" 2>&1
+done
+sleep 20
+if wait_until 300 host_pod_ready vcluster-0; then
+  enforce_record C2-host-restart-vcluster-0-ready true "vcluster-0 restarted and Ready (warn+audit=baseline)"
+else
+  enforce_record C2-host-restart-vcluster-0-ready false "$(kubectl -n "$NS" get pod vcluster-0 -o jsonpath='{.status.phase}' 2>&1)"
+fi
+sleep 40
 vc_connect > /dev/null 2>&1 || true
-wait_until 180 synced_coredns_ready || true
 kubectl -n "$NS" get events --sort-by=.lastTimestamp > "$OUT/live/events-after-restart.txt" 2>&1
 kubectl -n "$NS" logs vcluster-0 -c syncer --tail=-1 > "$OUT/logs/syncer.log" 2>&1
 assess_live after
@@ -583,7 +606,10 @@ fi
 if vc_connect; then
   t0=$(date -u +%FT%TZ)
   sleep 1
-  vk -n kube-system delete pods -l k8s-app=kube-dns --wait=false > /dev/null 2>&1
+  for p in $(vk -n kube-system get pods -o name | grep coredns); do
+    echo "deleting virtual $p" >> "$OUT/live/enforce-coredns.txt"
+    vk -n kube-system delete "$p" --wait=false >> "$OUT/live/enforce-coredns.txt" 2>&1
+  done
   if wait_until 240 synced_coredns_ready "$t0"; then
     enforce_record D2-synced-coredns-recreated true "synced coredns Pod recreated and Ready under enforce=baseline"
   else

@@ -235,7 +235,7 @@ def md(res):
                           for p in v["violating"]) or "none"
         L.append(f"- `{k}`: violating: {names}")
 
-    L.append("\n## CMP-068 as written (enforce=baseline, warn=restricted)\n")
+    L.append("\n## Live checks (C: warn+audit=baseline; D: the CMP-068 labels, enforce=baseline + warn=restricted)\n")
     for e in res["enforce"]:
         L.append(f"- `{e['id']}` ok={e['ok']}: {e['detail'][:600]}")
 

@@ -115,7 +115,8 @@ jobs:
                    "$OUT"/live/restart-virtual.txt "$OUT"/live/pods-*.txt "$OUT"/live/vcluster-install*.txt "$OUT"/vcluster-variant \
                    "$OUT"/live/enforce-label.txt "$OUT"/logs/psa-metrics.txt "$OUT"/logs/audit-psa.jsonl \
                    "$OUT"/live/probe-priv-virtual.yaml "$OUT"/live/vcluster-values.live.diff \
-                   "$OUT"/live/vcluster-virtual-pods.txt "$OUT"/live/events-enforce.txt; do
+                   "$OUT"/live/vcluster-virtual-pods.txt "$OUT"/live/events-enforce.txt \
+                   "$OUT"/live/enforce-coredns.txt; do
             [ -f "$f" ] || continue
             echo "::group::$f"; head -c 60000 "$f"; echo; echo "::endgroup::"
           done
