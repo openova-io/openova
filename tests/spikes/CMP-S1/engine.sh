@@ -228,6 +228,9 @@ result used_versions "ValidatingPolicy=$VP_V MutatingPolicy=$MP_V PolicyExceptio
 PE_FIELDS="$(kubectl get crd policyexceptions.policies.kyverno.io -o json | jq -r --arg v "$PE_V" '.spec.versions[] | select(.name == $v) | .schema.openAPIV3Schema.properties.spec.properties | keys | join(",")')"
 result policyexception_spec_fields "$PE_FIELDS"
 HAS_EXPIRES=no; printf '%s' "$PE_FIELDS" | tr ',' '\n' | grep -qx expiresAt && HAS_EXPIRES=yes
+kubectl get crd policyexceptions.policies.kyverno.io -o json \
+  | jq -r --arg v "$PE_V" '.spec.versions[] | select(.name == $v) | .schema.openAPIV3Schema.properties.spec.properties.expiresAt // "absent"' \
+  | tee "$OUT/q4-expiresAt-schema.json"
 kubectl get crd -o name | grep -iE 'report' | tee "$OUT/report-crds.txt"
 if kubectl get crd policyreports.wgpolicyk8s.io >/dev/null 2>&1; then REPORT_RES=policyreports.wgpolicyk8s.io
 elif kubectl get crd reports.openreports.io >/dev/null 2>&1; then REPORT_RES=reports.openreports.io; fi
@@ -322,66 +325,94 @@ result mutate_new_label_added "$(jq -r 'if ."spike.openova.io/new-mutated" == "t
 section "Q4 time condition in an exception's match condition"
 for ns in "$EXC_NS" spike-exc spike-exc2 spike-exp spike-off; do ensure_ns "$ns"; done
 deploy spike-exc exc-pre 1 | kubectl apply -f - >/dev/null
-log "exc-pre created before the enforcing policy: only a background scan judges it"
+deploy spike-exp exp-pre 1 | kubectl apply -f - >/dev/null
+log "exc-pre and exp-pre created before the enforcing policy: only a background scan judges them"
 MSG="initial"; apply_file exc-validate.yaml
 wait_vp_status validatingpolicies.policies.kyverno.io exc-replicas
 poll_probe spike-exc exc-ctl denied 120
 result Q4_control_no_exception "$PROBE after_ms=$POLL_MS"
 log "denial text: $PROBE_MSG"
+wait_result spike-exc exc-pre exc-replicas fail 120
+result Q4_control_background_no_exception "$WAIT_LAST after_ms=$WAIT_MS"
 
 EXP="$(date -u -d "+${EXPIRY_AHEAD_S} seconds" +%Y-%m-%dT%H:%M:%SZ)"
 EXP_S="$(date -u -d "$EXP" +%s)"
-apply_file exception-time.yaml; rc_time=$?
+# 4a: the time condition exactly as the waiver renders it, in both served
+# non-deprecated versions of the exception kind.
+for v in "$PE_V" v1beta1; do
+  PE_SAVE="$PE_V"; PE_V="$v"
+  apply_file exception-time.yaml; rc=$?
+  cp "$OUT/apply-exception-time.yaml.out" "$OUT/apply-exception-time-$v.out"
+  result "Q4_time_exception_apply_$v" "exit=$rc $(grep -o "undeclared reference to '[a-z]*'" "$OUT/apply-exception-time-$v.out" | sort -u | tr '\n' ' ')"
+  PE_V="$PE_SAVE"
+done
+if kubectl -n "$EXC_NS" get policyexceptions.policies.kyverno.io spike-time-exc >/dev/null 2>&1; then
+  result Q4_time_exception_stored yes
+else
+  result Q4_time_exception_stored no
+fi
+
+# 4b: the same waiver without the time condition (the residual design), the
+# native expiry field, and the two controls.
+apply_file exception-waiver.yaml
 t_exc=$(now_ms)
+if [ "$HAS_EXPIRES" = yes ]; then apply_file exception-expiresat.yaml; fi
 apply_file exception-wrong-ns.yaml
 apply_file exception-off.yaml
-if [ "$HAS_EXPIRES" = yes ]; then apply_file exception-expiresat.yaml; fi
-result Q4_exception_apply "exit=$rc_time expiry=$EXP"
+result Q4x_expiresAt_value "$EXP"
 
 poll_probe spike-exc exc-a admitted 60
-result Q4_admission_before_expiry "$PROBE after_ms=$POLL_MS"
-log "message: $PROBE_MSG"
+result Q4r_waiver_admission "$PROBE after_ms=$POLL_MS"
 if [ "$PROBE" = admitted ]; then deploy spike-exc exc-a 1 | kubectl apply -f - >/dev/null 2>&1; fi
 probe spike-exc2 x2
 result Q4_control_exception_outside_namespace "$PROBE"
 probe spike-off x3
 result Q3_switch_on_exception_without_time_condition "$PROBE"
-if [ "$HAS_EXPIRES" = yes ]; then probe spike-exp x4; result Q4x_expiresAt_before_expiry "$PROBE"; fi
+if [ "$HAS_EXPIRES" = yes ]; then probe spike-exp x4; result Q4x_expiresAt_admission_before_expiry "$PROBE"; fi
 
-# Background before expiry: first without any trigger (does the exception
-# itself cause a re-scan?), then after a policy spec change.
-untrig_until=$((t_exc + 60000))
-bg_before=""; bg_before_ms=""
-while [ "$(now_ms)" -lt "$untrig_until" ]; do
-  v="$(result_of "$(reports_json spike-exc)" exc-pre exc-replicas)"
-  if [ "${v%%|*}" = skip ]; then bg_before="$v"; bg_before_ms=$(( $(now_ms) - t_exc )); break; fi
-  bg_before="${v:-none}"; sleep 1
-done
-result Q4_background_before_expiry_untriggered "${bg_before} after_exception_ms=${bg_before_ms:-none-within-60s}"
-if [ "${bg_before%%|*}" != skip ]; then
-  MSG="rescan-1"; apply_file exc-validate.yaml
-  limit_s=$(( EXP_S - $(date +%s) - 8 )); [ "$limit_s" -lt 5 ] && limit_s=5
-  wait_result spike-exc exc-pre exc-replicas skip "$limit_s"
-  result Q4_background_before_expiry_after_policy_change "$WAIT_LAST after_ms=$WAIT_MS"
+# Background under a live exception, with no trigger but the exception itself.
+wait_result spike-exc exc-pre exc-replicas skip 100
+since="none"; [ "$WAIT_MS" != timeout ] && since=$(( $(now_ms) - t_exc ))
+result Q4r_waiver_background_exc-pre "$WAIT_LAST since_exception_ms=$since"
+wait_result spike-exc exc-a exc-replicas skip 60
+since="none"; [ "$WAIT_MS" != timeout ] && since=$(( $(now_ms) - t_exc ))
+result Q4r_waiver_report_exc-a "$WAIT_LAST since_exception_ms=$since"
+if [ "$HAS_EXPIRES" = yes ]; then
+  left=$(( EXP_S - $(date +%s) - 3 )); [ "$left" -lt 3 ] && left=3
+  wait_result spike-exp exp-pre exc-replicas skip "$left"
+  since="none"; [ "$WAIT_MS" != timeout ] && since=$(( $(now_ms) - t_exc ))
+  result Q4x_expiresAt_background_before_expiry "$WAIT_LAST since_exception_ms=$since"
 fi
-J="$(reports_json spike-exc)"; echo "$J" > "$OUT/q4-reports-before-expiry.json"
-result Q4_report_exc-a_before_expiry "$(result_of "$J" exc-a exc-replicas)"
-jq -r '.items[] | select(.scope.name == "exc-pre" or .scope.name == "exc-a") | .scope.name as $r | .results[]? | [$r, .policy, .result, ((.properties // {}) | tostring)] | @tsv' <<<"$J"
+for ns in spike-exc spike-exp; do reports_json "$ns" > "$OUT/q4-reports-$ns-live-exception.json"; done
+echo "--- results of excepted resources (resource, policy, result, properties):"
+cat "$OUT"/q4-reports-spike-*-live-exception.json | jq -r '.items[] | .scope.name as $r | .results[]? | [$r, .policy, .result, ((.properties // {}) | tostring)] | @tsv'
 
-while [ "$(date +%s)" -lt $((EXP_S + 10)) ]; do sleep 1; done
-log "now past the expiry $EXP by 10 s"
-poll_probe spike-exc exc-b denied 30
-result Q4_admission_after_expiry "$PROBE after_ms=$POLL_MS"
-log "message: $PROBE_MSG"
-if [ "$HAS_EXPIRES" = yes ]; then poll_probe spike-exp x5 denied 30; result Q4x_expiresAt_after_expiry "$PROBE after_ms=$POLL_MS"; fi
+# 4c: the native expiry field after its time, with no trigger.
+if [ "$HAS_EXPIRES" = yes ]; then
+  while [ "$(date +%s)" -lt $((EXP_S + 2)) ]; do sleep 1; done
+  t_x=$(now_ms); adm_ms=""; bg_ms=""; deadline=$((t_x + 300000)); v=""
+  while [ "$(now_ms)" -lt "$deadline" ]; do
+    if [ -z "$adm_ms" ]; then probe spike-exp x5; [ "$PROBE" = denied ] && adm_ms=$(( $(now_ms) - t_x )); fi
+    if [ -z "$bg_ms" ]; then v="$(result_of "$(reports_json spike-exp)" exp-pre exc-replicas)"; [ "${v%%|*}" = fail ] && bg_ms=$(( $(now_ms) - t_x )); fi
+    if [ -n "$adm_ms" ] && [ -n "$bg_ms" ]; then break; fi
+    sleep 3
+  done
+  result Q4x_expiresAt_admission_after_expiry "denied_after_ms=${adm_ms:-not-within-300s} last=$PROBE"
+  result Q4x_expiresAt_background_after_expiry "fail_after_ms=${bg_ms:-not-within-300s} last=${v:-none}"
+fi
 
-v="$(result_of "$(reports_json spike-exc)" exc-pre exc-replicas)"
-result Q4_background_after_expiry_before_trigger "${v:-none}"
-MSG="rescan-2"; apply_file exc-validate.yaml
+# 4d: the residual path: delete the waiver, as the expiry commit does.
+kubectl -n "$EXC_NS" delete policyexceptions.policies.kyverno.io spike-waiver
+t_del=$(now_ms)
+poll_probe spike-exc exc-b denied 90
+result Q4r_after_delete_admission "$PROBE after_ms=$POLL_MS"
 wait_result spike-exc exc-pre exc-replicas fail 240
-result Q4_background_after_expiry_after_policy_change "$WAIT_LAST after_ms=$WAIT_MS"
-J="$(reports_json spike-exc)"; echo "$J" > "$OUT/q4-reports-after-expiry.json"
-result Q4_report_exc-a_after_expiry "$(result_of "$J" exc-a exc-replicas)"
+since="none"; [ "$WAIT_MS" != timeout ] && since=$(( $(now_ms) - t_del ))
+result Q4r_after_delete_background_exc-pre "$WAIT_LAST since_delete_ms=$since"
+wait_result spike-exc exc-a exc-replicas fail 60
+since="none"; [ "$WAIT_MS" != timeout ] && since=$(( $(now_ms) - t_del ))
+result Q4r_after_delete_report_exc-a "$WAIT_LAST since_delete_ms=$since"
+reports_json spike-exc > "$OUT/q4-reports-spike-exc-after-delete.json"
 kubectl -n "$EXC_NS" get policyexceptions.policies.kyverno.io -o yaml > "$OUT/q4-exceptions.yaml" 2>&1
 
 # ---------------------------------------------------------------- Q3 switch control

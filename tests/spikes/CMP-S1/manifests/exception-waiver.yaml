@@ -1,0 +1,16 @@
+# The waiver without its time condition: the shape a waiver renders to when
+# the first condition is omitted. Deleted later, as the expiry commit does.
+apiVersion: policies.kyverno.io/__PE__
+kind: PolicyException
+metadata:
+  name: spike-waiver
+  namespace: catalyst-policy-exceptions
+  labels:
+    app.kubernetes.io/managed-by: flux
+spec:
+  policyRefs:
+    - name: exc-replicas
+      kind: ValidatingPolicy
+  matchConditions:
+    - name: scope
+      expression: "object.metadata.?namespace.orValue('') == 'spike-exc'"
