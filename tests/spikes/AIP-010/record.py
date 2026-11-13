@@ -13,7 +13,7 @@ import sys
 import yaml
 
 PASS_RULE = ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8"]
-ORDER = PASS_RULE + ["T9", "T10", "T11", "T12", "T13", "T14"]
+ORDER = PASS_RULE + ["T9", "T10", "T11", "T12", "T13", "T14", "T15"]
 
 
 def load(path, default=None):
@@ -135,6 +135,7 @@ def final(out):
         "kidlessAccepted": pv.get("kidlessAccepted"),
         "taskRoutes": pv.get("taskRoutes"),
         "ownedBy": pv.get("ownedBy"),
+        "meterRouting": pv.get("meterRouting"),
     }
     env = ("ci-k3s-cilium: GitHub Actions ubuntu-24.04 runner as one k3s %s node, Cilium %s (kube-proxy replacement), "
            "Gateway API CRDs %s, Flux %s, Kyverno chart %s with bp-kyverno-policies (bootstrapMode=false); "

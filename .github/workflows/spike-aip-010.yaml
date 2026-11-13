@@ -7,10 +7,13 @@
 # scripted backend and a key-set server run as throwaway pods. Tests T1-T8 form
 # the pass rule; T9-T14 are informative.
 #
-# Two legs: "platform" uses the versions Sovereigns run today (k3s v1.31.4,
-# Gateway API CRDs v1.3.0 from bp-gateway-api); "supported" uses the lowest
-# Kubernetes minor and the Gateway API release that agentgateway 1.7 lists as
-# supported (k3s v1.32.13, Gateway API v1.6.3).
+# Legs: "platform" uses the versions Sovereigns run today (k3s v1.31.4,
+# Gateway API CRDs v1.3.0 experimental from bp-gateway-api); "supported" uses
+# the lowest Kubernetes minor agentgateway 1.7 supports (k3s v1.32.13) and the
+# Gateway API release both agentgateway 1.7 (1.4-1.6) and Cilium 1.19.3 (built
+# against 1.4) support: v1.4.1 experimental. "gwapi16" only sets up k3s
+# v1.32.13 with Gateway API v1.6.3 and Cilium, to see whether Cilium comes up
+# on the newest CRDs agentgateway lists (run 1 of this test failed there).
 #
 # No cloud account, no secret, no cluster outside this job, no NodePort: the
 # gateway Service is ClusterIP and test traffic goes from the node to ClusterIPs.
@@ -39,15 +42,24 @@ jobs:
           - leg: platform
             k3s: v1.31.4+k3s1
             gwapi: chart
+            channel: experimental
             gwapi_label: v1.3.0 experimental (platform/gateway-api chart)
           - leg: supported
             k3s: v1.32.13+k3s1
+            gwapi: v1.4.1
+            channel: experimental
+            gwapi_label: v1.4.1 experimental
+          - leg: gwapi16
+            k3s: v1.32.13+k3s1
             gwapi: v1.6.3
+            channel: standard
             gwapi_label: v1.6.3 standard
+            setup_only: "true"
     env:
       LEG: ${{ matrix.leg }}
       K3S_VERSION: ${{ matrix.k3s }}
       GWAPI: ${{ matrix.gwapi }}
+      GWAPI_CHANNEL: ${{ matrix.channel }}
       GWAPI_LABEL: ${{ matrix.gwapi_label }}
       CILIUM_VERSION: 1.19.3
       FLUX_VERSION: v2.4.0
@@ -81,27 +93,27 @@ jobs:
         run: bash "$SPIKE" setup
 
       - name: T1 - install agentgateway under the baseline policies (rounds A, B and exceptions)
-        if: always()
+        if: always() && matrix.setup_only != 'true'
         timeout-minutes: 40
         run: bash "$SPIKE" install
 
       - name: Scaffold - key-set server and scripted backend
-        if: always()
+        if: always() && matrix.setup_only != 'true'
         timeout-minutes: 6
         run: bash "$SPIKE" scaffold
 
       - name: Configure - aliases, token policy, identity headers, timeouts, virtual keys
-        if: always()
+        if: always() && matrix.setup_only != 'true'
         timeout-minutes: 5
         run: bash "$SPIKE" configure
 
-      - name: T2-T14 - probe the gateway (T7 waits 600 s)
-        if: always()
+      - name: T2-T15 - probe the gateway (T7 waits 600 s)
+        if: always() && matrix.setup_only != 'true'
         timeout-minutes: 35
         run: bash "$SPIKE" probe
 
       - name: Results
-        if: always()
+        if: always() && matrix.setup_only != 'true'
         run: bash "$SPIKE" results
 
       - name: Diagnostics

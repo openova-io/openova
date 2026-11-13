@@ -519,35 +519,37 @@ class Run:
     def whoami(self, model):
         r = self.chat(model=model, mode="whoami")
         try:
-            content = jbody(r)["choices"][0]["message"]["content"]
-            return r["status"], json.loads(content).get("host")
+            content = json.loads(jbody(r)["choices"][0]["message"]["content"])
+            return r["status"], content.get("instance"), content.get("host")
         except Exception:  # noqa: BLE001
-            return r["status"], None
+            return r["status"], None, None
 
     def t8(self):
+        # meter-simulation selects the backend pods of instance model-stub, meter-selfhosted those of
+        # model-stub-b; the backend names its instance in every answer.
         before_pods = self.proxy_pods()
-        st, host0 = self.whoami("agent-fast")
+        st, inst0, host0 = self.whoami("agent-fast")
         path = os.path.join(self.manifests, "t8-agent-fast-selfhosted.yaml")
         ap = subprocess.run(["kubectl", "apply", "-f", path], capture_output=True, text=True)
         t_apply = time.time()
         switched = None
         polls = []
         while time.time() - t_apply < 120:
-            s, h = self.whoami("agent-fast")
-            polls.append([round(time.time() - t_apply, 1), s, h])
-            if h and "meter-selfhosted" in h:
+            s, inst, _ = self.whoami("agent-fast")
+            polls.append([round(time.time() - t_apply, 1), s, inst])
+            if inst == "model-stub-b":
                 switched = round(time.time() - t_apply, 1)
                 break
             time.sleep(1)
         after_pods = self.proxy_pods()
         same = before_pods == after_pods and bool(before_pods)
-        ok = switched is not None and switched <= 60 and same
+        ok = inst0 == "model-stub" and switched is not None and switched <= 60 and same
         self.add("T8", "pass" if ok else "fail",
-                 "kubectl apply moved alias agent-fast from meter-simulation to meter-selfhosted: before host %r; "
-                 "new backend served after %ss; proxy pods unchanged (name, uid, restarts): %s"
-                 % (host0, switched, same),
-                 {"apply": (ap.stdout + ap.stderr).strip(), "polls_tail": polls[-5:], "pods_before": before_pods,
-                  "pods_after": after_pods})
+                 "kubectl apply moved alias agent-fast from Service meter-simulation (instance %s) to meter-selfhosted: "
+                 "answers came from instance model-stub-b %ss after the apply returned; proxy pods unchanged "
+                 "(name, uid, restarts): %s" % (inst0, switched, same),
+                 {"apply": (ap.stdout + ap.stderr).strip(), "polls_head": polls[:3], "polls_tail": polls[-3:],
+                  "pods_before": before_pods, "pods_after": after_pods, "host_seen_by_backend": host0})
 
     # ---------- T9
     def t9(self):
@@ -601,10 +603,12 @@ class Run:
                           separators=(",", ":")).encode()
         r = self.chat(mode="size", body=body, timeout=120)
         rec = self.rec_for(r, wait=10)
-        ok = r["status"] == 200 and rec is not None and rec.get("body_len") == len(body)
+        ok = r["status"] == 200 and rec is not None and rec.get("content_len") == len(big)
         self.add("T11", "pass" if ok else "fail",
-                 "request body of %d bytes: status %s, backend received %s bytes"
-                 % (len(body), r["status"], (rec or {}).get("body_len")),
+                 "request body of %d bytes (user content %d bytes): status %s; backend received a body of %s bytes "
+                 "whose user content is %s bytes (the body is re-encoded with the alias renamed to %r)"
+                 % (len(body), len(big), r["status"], (rec or {}).get("body_len"), (rec or {}).get("content_len"),
+                    (rec or {}).get("model_received")),
                  {"response": short(r["body"], 300), "error": r.get("error")}, informative=True)
 
     # ---------- T13 task routes
@@ -658,12 +662,58 @@ class Run:
         data = jb.get("data") if isinstance(jb, dict) else None
         owned = {m.get("id"): m.get("owned_by") for m in (data or []) if isinstance(m, dict)}
         noauth = request(self.gw, "GET", "/v1/models")
-        ok = owned.get("conformance-echo") == "stub" and owned.get("agent-default") == "simulation"
-        self.values["ownedBy"] = {"settable": ok, "observed": owned}
+        # owned-final: Custom provider, providerOverride "simulation", alias renamed by finalTransformations.
+        # owned-plain: Custom provider, providerOverride "stub", no rename.
+        rf = self.chat(model="owned-final", mode="size")
+        recf = self.rec_for(rf)
+        rp = self.chat(model="owned-plain", mode="size")
+        recp = self.rec_for(rp)
+        final_model = (recf or {}).get("model_received")
+        ok = owned.get("owned-final") == "simulation" and final_model == "sim-default" and rf["status"] == 200
+        self.values["ownedBy"] = {
+            "settable": ok,
+            "how": "custom.providerOverride on a Custom-provider AgentgatewayModel; the alias rename must then be "
+                   "a policies.finalTransformations entry (a policies.transformations rename of the model field "
+                   "drops the provider from discovery and owned_by falls back to openai)",
+            "observed": owned}
         self.add("T14", "pass" if ok else "fail",
-                 "GET /v1/models: status %s; owned_by per id %s; without token %s"
-                 % (r["status"], json.dumps(owned, sort_keys=True), noauth["status"]),
+                 "GET /v1/models: status %s; owned_by per id %s; without token %s. owned-final (providerOverride "
+                 "simulation, rename in finalTransformations): status %s, backend received model %r; owned-plain "
+                 "(providerOverride stub, no rename): status %s, backend received model %r"
+                 % (r["status"], json.dumps(owned, sort_keys=True), noauth["status"], rf["status"], final_model,
+                    rp["status"], (recp or {}).get("model_received")),
                  {"response": short(r["body"], 1500)}, informative=True)
+
+    # ---------- informative: how the meter can tell the backend; request identifiers
+    def meter_routing(self):
+        forged = {"x-openova-backend": "forged-backend"}
+        r = self.chat(model="meter-routing-probe", headers=forged)
+        rec = self.rec_for(r)
+        rv = self.chat(target=self.vk, token=self.vk_key, headers={"x-request-id": "spike-vk-0123456789"})
+        recv = self.rec_for(rv)
+        rv2 = self.chat(target=self.vk, token=self.vk_key)
+        recv2 = self.rec_for(rv2)
+        out = {
+            "per_model_header": {"status": r["status"], "x-openova-backend at backend": Stub.header(rec, "x-openova-backend"),
+                                 "host at backend": Stub.header(rec, "host")},
+            "host_rewrite_auto_on_vk_listener": {"status": rv["status"], "host at backend": Stub.header(recv, "host")},
+            "x_request_id_on_vk_listener": {
+                "caller sent valid id -> backend": Stub.header(recv, "x-request-id"),
+                "caller sent valid id -> response": [v for k, v in rv["headers"] if k.lower() == "x-request-id"],
+                "caller sent none -> backend": Stub.header(recv2, "x-request-id"),
+                "caller sent none -> response": [v for k, v in rv2["headers"] if k.lower() == "x-request-id"]},
+        }
+        self.values["meterRouting"] = out
+        self.obs["meterRouting"] = out
+        ok = r["status"] == 200 and Stub.header(rec, "x-openova-backend") == ["simulation"]
+        self.add("T15", "pass" if ok else "fail",
+                 "informative, for the meter: a per-model request header set on the AgentgatewayModel reaches the "
+                 "backend as %s (caller forged it: replaced=%s); Host at the backend by default %s, with "
+                 "hostRewrite Auto %s; x-request-id generated when absent: backend %s, response %s"
+                 % (Stub.header(rec, "x-openova-backend"), "forged-backend" not in str(Stub.header(rec, "x-openova-backend")),
+                    Stub.header(rec, "host"), Stub.header(recv, "host"), Stub.header(recv2, "x-request-id"),
+                    out["x_request_id_on_vk_listener"]["caller sent none -> response"]),
+                 out, informative=True)
 
 
 def cmd_run(out_path):
@@ -672,7 +722,8 @@ def cmd_run(out_path):
     steps = []
     if ready:
         run.t7_start()
-        steps = [run.t2, run.t3, run.t4, run.t5, run.t6, run.t9, run.t10, run.t11, run.t13, run.t14, run.t8]
+        steps = [run.t2, run.t3, run.t4, run.t5, run.t6, run.t9, run.t10, run.t11, run.t13, run.t14,
+                 run.meter_routing, run.t8]
     for step in steps:
         try:
             step()

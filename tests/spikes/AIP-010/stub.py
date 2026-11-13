@@ -269,7 +269,11 @@ class Handler(BaseHTTPRequestHandler):
                            "function": {"name": tools[0]["function"]["name"],
                                         "arguments": "{\"city\":\"Muscat\"}"}}]
         elif mode == "size":
-            text = "received %d bytes" % len(body)
+            users = [m for m in msgs if m.get("role") == "user"]
+            c = users[-1].get("content", "") if users else ""
+            clen = len(c.encode()) if isinstance(c, str) else -1
+            update_record(entry, content_len=clen, model_received=model)
+            text = "received %d bytes, last user content %d bytes" % (len(body), clen)
         elif mode == "whoami":
             text = json.dumps({"host": self.headers.get("Host"), "model": model, "instance": INSTANCE},
                               separators=(",", ":"))

@@ -96,7 +96,7 @@ EOF
   if [ "$GWAPI" = chart ]; then
     helm template gateway-api "$ROOT/platform/gateway-api/chart" | k apply --server-side --force-conflicts -f -
   else
-    k apply --server-side --force-conflicts -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/$GWAPI/standard-install.yaml"
+    k apply --server-side --force-conflicts -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/$GWAPI/${GWAPI_CHANNEL:-standard}-install.yaml"
   fi
   k get crd -o name | grep gateway.networking | tee "$OUT/gwapi-crds.txt"
 
@@ -110,10 +110,19 @@ EOF
     --set ipam.mode=kubernetes --set routingMode=native --set ipv4NativeRoutingCIDR=10.42.0.0/16 \
     --set autoDirectNodeRoutes=true --set bpf.masquerade=true --set socketLB.hostNamespaceOnly=true \
     --set operator.replicas=1 --set gatewayAPI.enabled=true --set gatewayAPI.hostNetwork.enabled=false \
-    --set envoy.enabled=true --wait --timeout 10m
+    --set envoy.enabled=true --timeout 10m
+  if ! wait_for 480 bash -c "kubectl -n kube-system rollout status ds/cilium --timeout=5s && kubectl -n kube-system rollout status deploy/cilium-operator --timeout=5s"; then
+    echo "CILIUM NOT READY after 480 s"
+    k -n kube-system get pods -o wide || true
+    echo "--- cilium-operator"; k -n kube-system logs deploy/cilium-operator --tail=80 2>&1 | cut -c1-400 || true
+    echo "--- cilium-operator previous"; k -n kube-system logs deploy/cilium-operator --previous --tail=40 2>&1 | cut -c1-400 || true
+    echo "--- cilium agent"; k -n kube-system logs ds/cilium --tail=40 2>&1 | cut -c1-400 || true
+    echo cilium-not-ready >"$OUT/cilium-failed"
+    exit 1
+  fi
   k wait --for=condition=Ready node --all --timeout=300s
-  k -n kube-system rollout status ds/cilium --timeout=300s
   k -n kube-system rollout status deploy/coredns --timeout=300s
+  echo "--- cilium-operator gateway-api lines"; k -n kube-system logs deploy/cilium-operator 2>&1 | grep -i 'gateway' | grep -iE 'not found|required|disabl|error|start' | head -n 8 | cut -c1-300 || true
 
   log "images: pre-pull on the runner, retag to the proxy-path names, import into the node"
   set +e
@@ -477,13 +486,19 @@ phase_scaffold() {
       "      - {name: jwks, configMap: {name: spike-jwks}}"
     svc catalyst-system catalyst-api catalyst-api 8080
   } >"$MAN/keyset.yaml"
+  # Two backend instances: meter-selfhosted selects the second one, so a
+  # backend change of an alias (T8) is visible in the answer itself.
   {
     deploy_py "$NS" model-stub stub 8081 "" "" ""
-    for s in meter-simulation meter-selfhosted meter-stub meter-timeout-probe; do svc "$NS" "$s" model-stub 8081; done
+    for s in meter-simulation meter-stub meter-timeout-probe; do svc "$NS" "$s" model-stub 8081; done
+    echo "---"
+    deploy_py "$NS" model-stub-b stub 8081 "" "" ""
+    svc "$NS" meter-selfhosted model-stub-b 8081
   } >"$MAN/stub.yaml"
   k apply -f "$MAN/keyset.yaml" && k apply -f "$MAN/stub.yaml"
   k -n catalyst-system rollout status deploy/catalyst-api --timeout=180s
   k -n "$NS" rollout status deploy/model-stub --timeout=180s
+  k -n "$NS" rollout status deploy/model-stub-b --timeout=180s
   ip=$(k -n catalyst-system get svc catalyst-api -o jsonpath='{.spec.clusterIP}')
   curl -sS -m 5 "http://$ip:8080/api/v1/auth/signers.jwks" | head -c 300; echo
 }
@@ -535,6 +550,54 @@ spec:
     transformations:
     - field: model
       expression: '"whisper-stub"'
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayModel
+metadata: {name: owned-final, namespace: $NS}
+spec:
+  parentRefs:
+  - {group: gateway.networking.k8s.io, kind: Gateway, name: model-gateway, sectionName: llm}
+  provider: Custom
+  custom:
+    providerOverride: simulation
+    backendRef: {kind: Service, name: meter-stub, port: 8081}
+    formats: [{type: Completions}]
+  policies:
+    finalTransformations:
+    - field: model
+      expression: '"sim-default"'
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayModel
+metadata: {name: owned-plain, namespace: $NS}
+spec:
+  parentRefs:
+  - {group: gateway.networking.k8s.io, kind: Gateway, name: model-gateway, sectionName: llm}
+  provider: Custom
+  custom:
+    providerOverride: stub
+    backendRef: {kind: Service, name: meter-stub, port: 8081}
+    formats: [{type: Completions}]
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayModel
+metadata: {name: meter-routing-probe, namespace: $NS}
+spec:
+  parentRefs:
+  - {group: gateway.networking.k8s.io, kind: Gateway, name: model-gateway, sectionName: llm}
+  provider: Custom
+  custom:
+    providerOverride: simulation
+    backendRef: {kind: Service, name: meter-simulation, port: 8081}
+    formats: [{type: Completions}]
+  policies:
+    headers:
+      request:
+        set:
+        - {name: x-openova-backend, value: simulation}
+    transformations:
+    - field: model
+      expression: '"sim-default"'
 EOF
   } >"$MAN/models.yaml"
   model agent-fast meter-selfhosted sim-fast simulation Completions "" >"$MAN/t8-agent-fast-selfhosted.yaml"
@@ -618,12 +681,20 @@ spec:
       mode: Strict
       configMapSelector:
         matchLabels: {agentgateway.dev/apikey: "true"}
+    # Informative only (T15): Host rewritten to the backend Service, and a
+    # request identifier kept when valid, generated when absent.
+    hostRewrite: {mode: Auto}
     transformation:
       request:
         set:
         - {name: x-openova-organization, value: apiKey.organization}
         - {name: x-openova-principal, value: apiKey.name}
         - {name: x-openova-principal-kind, value: "'application'"}
+        - name: x-request-id
+          value: '("x-request-id" in request.headers && request.headers["x-request-id"].matches("^[A-Za-z0-9._-]{8,64}\$")) ? request.headers["x-request-id"] : uuid()'
+      response:
+        set:
+        - {name: x-request-id, value: 'request.headers["x-request-id"]'}
 EOF
   for f in models policy-auth policy-timeouts virtual-keys; do
     k apply -f "$MAN/$f.yaml" 2>&1 | tee -a "$OUT/configure-apply.txt"
