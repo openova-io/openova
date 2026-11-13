@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T01:45:03Z` |
+| Last refreshed | `2026-11-13T02:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,16 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6629](https://github.com/openova-io/openova/issues/6629) | Customer-org (vcluster/plan-M) provisioning wedges at bp_charts_installed — CN | Other |
-| [#6645](https://github.com/openova-io/openova/issues/6645) | cutover step-01 wedge on hw305: #6490 secondary-region gitea-mirror push fails ' | Other |
-| [#6695](https://github.com/openova-io/openova/issues/6695) | dashboard(treemap): converged Sovereign defaults to real resource/health map, no | Other |
-| [#6697](https://github.com/openova-io/openova/issues/6697) | console: index.html served without Cache-Control — rolled deploys invisible un | Other |
-| [#6703](https://github.com/openova-io/openova/issues/6703) | epic: unified Jobs/Resources surface (chips + list + dependency-DAG + CronJob sc | Other |
-| [#6723](https://github.com/openova-io/openova/issues/6723) | EPIC: bp-chargeback — standalone chargeback application + console menu mapping | Other |
-| [#6727](https://github.com/openova-io/openova/issues/6727) | feat(jobs): map phase-gating deps in the /jobs DAG so no job floats | Other |
-| [#6742](https://github.com/openova-io/openova/issues/6742) | fix(jobs): graph shows open-ended reconcilers the finite list excludes → chip  | Other |
-| [#6744](https://github.com/openova-io/openova/issues/6744) | fix(jobs): list badges show reducer first-paint counts ("OpenTofu 64 / HelmRelea | Other |
-| [#6747](https://github.com/openova-io/openova/issues/6747) | fix(jobs): prune childless phase-container nodes from the graph (stray "Reconcil | Other |
 | [#6749](https://github.com/openova-io/openova/issues/6749) | fix(jobs): /jobs + dashboard treemap block 73-98s per call — synchronous multi | Other |
 | [#6751](https://github.com/openova-io/openova/issues/6751) | Huawei Sovereign: 4 provider/role-gated HRs show blank READY (suspend-by-design) | Other |
 | [#6753](https://github.com/openova-io/openova/issues/6753) | bp-postgres: consumer -mesh-rw write alias does not follow a #6149 automatic DR  | Other |
@@ -300,6 +290,16 @@ flowchart LR
 | [#7236](https://github.com/openova-io/openova/issues/7236) | PRD-010 Remove the unbacked open-banking claims from the Keycloak README | Other |
 | [#7237](https://github.com/openova-io/openova/issues/7237) | PRD-020 Decision record: later products | Other |
 | [#7238](https://github.com/openova-io/openova/issues/7238) | SOV-040 Guard G1: source-address ratchet | Other |
+| [#7260](https://github.com/openova-io/openova/issues/7260) | CLD-080 Contract directory: module contract, profile schema, pack schema, conven | Other |
+| [#7261](https://github.com/openova-io/openova/issues/7261) | CMP-030 Package internal/compliance: types and pure score functions | Other |
+| [#7262](https://github.com/openova-io/openova/issues/7262) | CMP-036 Kit slot 27a: values document, hand-over variable, definitions on upgrad | Other |
+| [#7263](https://github.com/openova-io/openova/issues/7263) | CTL-201 Parity file for the Organization pipelines | Other |
+| [#7264](https://github.com/openova-io/openova/issues/7264) | FND-181 Decision record 0036: backup and restore | Other |
+| [#7265](https://github.com/openova-io/openova/issues/7265) | NET-125 Mesh status read, and a mode switch, in the API | Other |
+| [#7266](https://github.com/openova-io/openova/issues/7266) | PRD-101 Vendor the six public documents and write the profile | Other |
+| [#7267](https://github.com/openova-io/openova/issues/7267) | SOV-050 Guards G2, G3, G4, G7: shrink ratchets | Other |
+| [#7268](https://github.com/openova-io/openova/issues/7268) | SOV-110 Contract C5: schema, kit key list, the upstream package and its validato | Other |
+| [#7269](https://github.com/openova-io/openova/issues/7269) | SVC-030 The Catalog page honours visibility and refuses what has no chart | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T01:57 | [#7271](https://github.com/openova-io/openova/pull/7271) | #7264 | docs(adr): record 0036 on backup and restore of etcd, databa |
+| 2026-11-13T01:49 | [#7259](https://github.com/openova-io/openova/pull/7259) | #7087 | docs(ledger): plan update |
 | 2026-11-13T01:30 | [#7257](https://github.com/openova-io/openova/pull/7257) | #7237 | docs(adr): record 0034 on the later products, the AI hub and |
 | 2026-11-13T01:23 | [#7256](https://github.com/openova-io/openova/pull/7256) | #7234 | fix(console): the wizard offers one region or two, as the pr |
 | 2026-11-13T01:23 | [#7255](https://github.com/openova-io/openova/pull/7255) | #7215 | feat(plan): stability register and the frozen-path check (FN |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-12T23:21 | [#7208](https://github.com/openova-io/openova/pull/7208) | #7087 | docs(ledger): plan update: next tickets, one ordering |
 | 2026-11-12T23:06 | [#7207](https://github.com/openova-io/openova/pull/7207) | #7188 | ci: add the provider-leak scanner with a falling baseline (C |
 | 2026-11-12T23:05 | [#7206](https://github.com/openova-io/openova/pull/7206) | #7190 | docs(security): generate the security control matrix from a  |
-| 2026-11-12T22:51 | [#7205](https://github.com/openova-io/openova/pull/7205) | #7193 | fix(catalyst-api): refuse to wipe a handed-over Sovereign un |
-| 2026-11-12T22:50 | [#7204](https://github.com/openova-io/openova/pull/7204) | #7191 | ci: fail a Kyverno engine upgrade to 1.20 while a legacy pol |
 
 ---
 
