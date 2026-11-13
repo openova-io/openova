@@ -29,7 +29,7 @@ CU="" CP="" CL=""
 
 rec() { # target observation value detail
   local d
-  d=$(printf '%s' "${4:-}" | tr '\r\n\t' '   ' | cut -c1-260)
+  d=$(printf '%s' "${4:-}" | tr '\r\n\t' '   ' | sed -E 's#Error making API request\. +URL: [A-Z]+ http://127\.0\.0\.1:8200/v1/[^ ]+ ##' | cut -c1-600)
   printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$d" | tee -a "$RES"
 }
 yn() { if [ "$1" -eq 0 ]; then echo yes; else echo no; fi; }
@@ -364,7 +364,8 @@ restart_probe() { # LABEL ROTATE(yes|no)
     sleep 5
   done
 }
-restart_probe restart-control-bao-$SCEN_TAG no
+restart_probe "restart-control-bao-$SCEN_TAG" no
+restart_probe "restart-rotated-bao-$SCEN_TAG" yes
 LATEST=$(printf '%s\n' $BAO_PROBE_TAGS | tail -1)
 if start_bao "$LATEST" bao-latest; then
   bao secrets enable database >/dev/null
