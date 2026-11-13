@@ -1757,6 +1757,12 @@ spec:
       # handover-time (no wait for the orchestrator's chart-values
       # overlay write). TBD-A15 (t24 zero-touch, 2026-05-18, issue #1844).
       sovereignSelfDeploymentId: '${SOVEREIGN_DEPLOYMENT_ID:-}'
+      # cloud.provider — the provider pack of this Sovereign (contract C2),
+      # from the ${PROVIDER} cloud-init postBuild substitute. The chart
+      # renders it into the catalyst-api env CLOUD_PROVIDER, which
+      # cloudprofile.ForSovereign reads. Empty when the substitute is absent.
+      cloud:
+        provider: '${PROVIDER:-}'
       # G62 (Refs #2613, 2026-05-30): imageRegistry override seam.
       # Empty literal default at Phase 1 (pre-cutover) → chart's
       # `{{ if .Values.global.imageRegistry }}` falls back to

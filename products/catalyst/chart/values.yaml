@@ -63,6 +63,17 @@ global:
   # (gitops.cnpgStorageClass) so the legacy contabo/Hetzner path is
   # unchanged (NO-REGRESS).
   cloudProvider: ""
+  # cloud — the provider pack and the installation of the Sovereign that the
+  # catalyst-api runs on (contract C2: infra/providers/<pack>/profile.yaml).
+  # Rendered into the catalyst-api env CLOUD_PROVIDER and CLOUD_INSTALLATION,
+  # which cloudprofile.ForSovereign reads. provider: the pack name; the
+  # bootstrap-kit slot 13 sets it from the ${PROVIDER} substitute. installation:
+  # metadata.name of the installation document, kept in the ConfigMap
+  # catalyst-system/cloud-installation-<name>; empty = the pack profile alone.
+  # global.cloudProvider above is the provisioning service's own value.
+  cloud:
+    provider: ""
+    installation: ""
 
 # ─── Multi-region control-plane edge (issue #5289) ─────────────────────
 # On a 2-region Sovereign the control plane (catalyst-api / catalyst-ui /

@@ -491,13 +491,14 @@ func firstRegion(req provisioner.Request) string {
 	return req.Region
 }
 
-// firstProvider returns the cloud provider of the first regional spec.
-// Defaults to "hetzner" when no Regions slot is set.
+// firstProvider returns the cloud provider recorded for the first regional
+// spec, else the one recorded on the request. Empty when neither records
+// one: no provider name is assumed.
 func firstProvider(req provisioner.Request) string {
 	if len(req.Regions) > 0 && req.Regions[0].Provider != "" {
 		return req.Regions[0].Provider
 	}
-	return "hetzner"
+	return req.Provider
 }
 
 // totalWorkerCount sums every Regions slot's WorkerCount, falling back

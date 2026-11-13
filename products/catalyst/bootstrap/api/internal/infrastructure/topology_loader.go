@@ -25,8 +25,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/cloudprofile"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 )
+
+// providersDir holds the cloud profiles (contract C2); tests repoint it.
+var providersDir = cloudprofile.DefaultDir
 
 // K8sCacheReader — narrow read-only view of the catalyst-api k8sCache
 // Factory the loader uses to fan out across multi-region clusters in
@@ -78,6 +82,12 @@ func Load(ctx context.Context, in LoaderInput) TopologyResponse {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if in.Provider == "" && len(in.Regions) == 0 && in.Region == "" {
+		// The live path (buildRegionFromLiveNodes) serves the Sovereign this
+		// API runs on. Its synthesised deployment record names no provider,
+		// so take the pack of the Sovereign's own cloud profile.
+		in.Provider = sovereignPack(ctx, in.DynamicClient)
+	}
 	cloud := buildCloud(in)
 	topology := buildTopology(ctx, in)
 	storage := buildStorage(ctx, in)
@@ -88,18 +98,31 @@ func Load(ctx context.Context, in LoaderInput) TopologyResponse {
 	}
 }
 
-// buildCloud — one tenant per cloud provider. Today every Sovereign
-// runs against exactly one Hetzner project; multi-cloud will add
-// per-provider entries.
+// sovereignPack returns the pack of the Sovereign this API runs on, from
+// its effective cloud profile (cloudprofile.ForSovereign). An installation
+// document is read through client. Empty when the profile cannot be read.
+func sovereignPack(ctx context.Context, client dynamic.Interface) string {
+	var read cloudprofile.InstallationReader
+	if client != nil {
+		read = cloudprofile.InstallationFromCluster(client)
+	}
+	p, err := cloudprofile.ForSovereign(ctx, providersDir, read)
+	if err != nil {
+		return ""
+	}
+	return cloudprofile.PackName(p)
+}
+
+// buildCloud — one CloudTenant entry for the cloud provider recorded on
+// the deployment. None when the provider is unknown (no placeholder).
 func buildCloud(in LoaderInput) []CloudTenant {
-	provider := in.Provider
-	if provider == "" {
-		provider = "hetzner"
+	if in.Provider == "" {
+		return []CloudTenant{}
 	}
 	tenant := CloudTenant{
-		ID:        "cloud-" + provider,
-		Provider:  provider,
-		Name:      provider,
+		ID:        "cloud-" + in.Provider,
+		Provider:  in.Provider,
+		Name:      in.Provider,
 		Status:    in.Status,
 		ProjectID: in.HetznerProjectID,
 	}
@@ -501,46 +524,8 @@ func buildRegionFromLiveNodes(ctx context.Context, in LoaderInput) (Region, bool
 	if in.Region != "" {
 		clusterID = "cluster-" + in.DeploymentID + "-" + in.Region
 	}
-	// Provider selection: prefer the wizard-declared provider; if the
-	// chroot's synthesised deployment has no Provider (G14, Refs
-	// #2551), sniff the first Node's provider hints before defaulting.
-	// k3s sets node.spec.providerID="<provider>://<id>" (e.g.,
-	// "huawei://..." / "hcloud://...") + sometimes a label like
-	// "topology.kubernetes.io/cloud-provider". Default "hetzner" is
-	// kept only as the absolute last resort.
-	//
-	// Resolved BEFORE the cluster is built so frontDoorLBs can pick the
-	// correct FrontDoorKind (gateway-eip on Huawei vs cloud-lb elsewhere).
-	provider := in.Provider
-	if provider == "" {
-		for _, n := range list.Items {
-			if v, ok := n.GetLabels()["topology.kubernetes.io/cloud-provider"]; ok && v != "" {
-				provider = v
-				break
-			}
-			if spec, ok := n.Object["spec"].(map[string]any); ok {
-				if pid, _ := spec["providerID"].(string); pid != "" {
-					if idx := strings.Index(pid, "://"); idx > 0 {
-						scheme := pid[:idx]
-						switch scheme {
-						case "hcloud":
-							provider = "hetzner"
-						default:
-							provider = scheme
-						}
-						break
-					}
-				}
-			}
-		}
-	}
-	if provider == "" {
-		provider = "hetzner"
-	}
-	// Carry the resolved provider so frontDoorLBs reads the real value
-	// even when the synthesised deployment had no declared Provider.
-	lbIn := in
-	lbIn.Provider = provider
+	// The provider is the deployment's, which Load fills from the
+	// Sovereign's own cloud profile on this path; empty when unknown.
 	cluster := Cluster{
 		ID:        clusterID,
 		Name:      clusterName,
@@ -553,14 +538,14 @@ func buildRegionFromLiveNodes(ctx context.Context, in LoaderInput) (Region, bool
 		// chroot path (the one every real Sovereign hits, since catalyst-api
 		// runs in-cluster) shows the real EIP/Gateway or cloud LB instead
 		// of 0/0.
-		LoadBalancers: frontDoorLBs(lbIn, regionName),
+		LoadBalancers: frontDoorLBs(in, regionName),
 		NodePools:     pools,
 		Nodes:         allNodes,
 	}
 	region := Region{
 		ID:             "region-" + regionName,
 		Name:           regionName,
-		Provider:       provider,
+		Provider:       in.Provider,
 		ProviderRegion: regionName,
 		SkuCP:          cpSKU,
 		SkuWorker:      workerSKU,
@@ -696,10 +681,6 @@ func buildAbsentRegion(rs provisioner.RegionSpec) Region {
 }
 
 func buildRegion(ctx context.Context, in LoaderInput, rs provisioner.RegionSpec) Region {
-	provider := rs.Provider
-	if provider == "" {
-		provider = "hetzner"
-	}
 	regionID := "region-" + rs.CloudRegion
 
 	cluster := buildCluster(ctx, in, rs)
@@ -708,7 +689,7 @@ func buildRegion(ctx context.Context, in LoaderInput, rs provisioner.RegionSpec)
 	return Region{
 		ID:             regionID,
 		Name:           rs.CloudRegion,
-		Provider:       provider,
+		Provider:       rs.Provider,
 		ProviderRegion: rs.CloudRegion,
 		SkuCP:          rs.ControlPlaneSize,
 		SkuWorker:      rs.WorkerSize,
@@ -827,10 +808,8 @@ func buildLBs(in LoaderInput, rs provisioner.RegionSpec) []LoadBalancer {
 // frontDoorLBs composes the cloud front-door LoadBalancer row from the
 // DEPLOYMENT RECORD (Result.LoadBalancerIP) — the source of truth that is
 // always populated post-Phase-0 — rather than the empty Crossplane XRC
-// layer (Refs #3998). On Hetzner the IP is a real `hcloud_load_balancer`;
-// on Huawei it is an EIP whose ELB targets node:443/:80 — the cilium-envoy
-// hostNetwork host port (§854 / #4765, NOT a nodePort)
-// (FrontDoorKind distinguishes them so the UI can explain the datapath).
+// layer (Refs #3998). FrontDoorKind (frontDoorKind) says how the front
+// door reaches the nodes, so the UI can explain the datapath.
 //
 // Both the declared (mothership) path and the live chroot path call this,
 // so the LB page renders the real front door on EVERY Sovereign instead
@@ -853,14 +832,6 @@ func frontDoorLBs(in LoaderInput, region string) []LoadBalancer {
 		{Port: 443, Protocol: "tcp"},
 		{Port: 6443, Protocol: "tcp"},
 	}
-	// FrontDoorKind: on Huawei the gateway ELB targets node:443/:80 — the
-	// cilium-envoy hostNetwork host port (§854 / #4765, NOT a nodePort) —
-	// so model it as gateway-eip; every other provider provisions a real
-	// cloud LB.
-	frontDoor := "cloud-lb"
-	if strings.EqualFold(in.Provider, "huawei") {
-		frontDoor = "gateway-eip"
-	}
 	return []LoadBalancer{{
 		ID:            "lb-" + in.DeploymentID,
 		Name:          name,
@@ -871,8 +842,20 @@ func frontDoorLBs(in LoaderInput, region string) []LoadBalancer {
 		TargetHealth:  "—",
 		Region:        region,
 		Status:        in.Status,
-		FrontDoorKind: frontDoor,
+		FrontDoorKind: frontDoorKind(in.Provider),
 	}}
+}
+
+// frontDoorKind maps spec.network.loadBalancer.mode of the cloud profile of
+// the pack named provider: external-hostport (the gateway's host ports
+// node:443/:80, never a NodePort) is gateway-eip, controller is cloud-lb.
+// Empty when the provider names no readable pack.
+func frontDoorKind(provider string) string {
+	profiles, err := cloudprofile.Load(providersDir)
+	if p, ok := profiles[provider]; err == nil && ok {
+		return map[string]string{"external-hostport": "gateway-eip", "controller": "cloud-lb"}[p.Spec.Network.LoadBalancer.Mode]
+	}
+	return ""
 }
 
 func buildNetworks(ctx context.Context, in LoaderInput, rs provisioner.RegionSpec) []Network {

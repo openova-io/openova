@@ -1453,9 +1453,10 @@ func TestAutoEstablishClusterMesh_RewritesStaleDialPortOnReEstablish(t *testing.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Pass 1 — no dial-port override, so clusterMeshDialPort() == the
-	// default 2379. This seeds each region's Secret with a peer endpoint
-	// carrying the stale KINE port, exactly the pre-12379-window shape.
+	// Pass 1 — the env override sets the stale KINE port 2379. This seeds
+	// each region's Secret with a peer endpoint carrying it, exactly the
+	// pre-12379-window shape.
+	t.Setenv(clusterMeshDialPortEnvVar, "2379")
 	if _, err := fx.handler.AutoEstablishClusterMesh(ctx, fx.dep); err != nil {
 		t.Fatalf("pass 1 (default port): %v", err)
 	}
@@ -1482,11 +1483,11 @@ func TestAutoEstablishClusterMesh_RewritesStaleDialPortOnReEstablish(t *testing.
 		certMaterial[k] = append([]byte(nil), v...)
 	}
 
-	// Pass 2 — env now sets the clustermesh-proxy dial port (12379), the
-	// no-CCM Huawei value. The establish must REWRITE the stale endpoint.
-	t.Setenv(clusterMeshDialPortEnvVar, "12379")
-	if got := clusterMeshDialPort(""); got != 12379 {
-		t.Fatalf("clusterMeshDialPort() = %d after env set, want 12379", got)
+	// Pass 2 — no override: the default clustermesh-proxy dial port
+	// (12379). The establish must REWRITE the stale endpoint.
+	t.Setenv(clusterMeshDialPortEnvVar, "")
+	if got := clusterMeshDialPort(); got != 12379 {
+		t.Fatalf("clusterMeshDialPort() = %d with no override, want 12379", got)
 	}
 	if _, err := fx.handler.AutoEstablishClusterMesh(ctx, fx.dep); err != nil {
 		t.Fatalf("pass 2 (12379 override): %v", err)
@@ -1521,44 +1522,15 @@ func TestAutoEstablishClusterMesh_RewritesStaleDialPortOnReEstablish(t *testing.
 	}
 }
 
-// TestClusterMeshDialPort_CloudAware — #4811. The dial port must be resolved
-// from the DIALED region's cloud when the env is unset, because the mothership
-// catalyst-api establishes meshes for BOTH clouds from ONE env-unset
-// deployment. A no-CCM cloud (Huawei/kom4dc) dials the clustermesh-proxy
-// hostPort (12379); a CCM cloud (Hetzner) dials the canonical etcd :2379. An
-// explicit env override still wins over the cloud default (single-cloud escape
-// hatch). Regression guard: env-unset + provider=huawei previously returned
-// 2379 (KINE) and wedged every Huawei Sovereign at ClusterMesh 0/1.
-func TestClusterMeshDialPort_CloudAware(t *testing.T) {
-	// Ensure no ambient override leaks in from the environment.
-	t.Setenv(clusterMeshDialPortEnvVar, "")
-
-	cases := []struct {
-		provider string
-		want     int
-	}{
-		{"huawei", clusterMeshProxyDialPort}, // no-CCM → proxy hostPort 12379
-		{"hcs", clusterMeshProxyDialPort},
-		{"kom4dc", clusterMeshProxyDialPort},
-		{"HUAWEI", clusterMeshProxyDialPort}, // case-insensitive
-		{"hetzner", clusterMeshAPIServerPort}, // CCM real LB → 2379
-		{"", clusterMeshAPIServerPort},        // unknown → safe 2379 default
-		{"aws", clusterMeshAPIServerPort},
-	}
-	for _, c := range cases {
-		if got := clusterMeshDialPort(c.provider); got != c.want {
-			t.Errorf("clusterMeshDialPort(%q) = %d, want %d", c.provider, got, c.want)
+// TestClusterMeshDialPort_AlwaysProxyPort — every peer dials the
+// clustermesh-proxy host port (12379); no provider name selects the port.
+// A valid env override wins; an invalid one is ignored.
+func TestClusterMeshDialPort_AlwaysProxyPort(t *testing.T) {
+	for env, want := range map[string]int{"": 12379, "2379": 2379, "0": 12379, "65536": 12379, "port": 12379} {
+		t.Setenv(clusterMeshDialPortEnvVar, env)
+		if got := clusterMeshDialPort(); got != want {
+			t.Errorf("override %q: clusterMeshDialPort() = %d, want %d", env, got, want)
 		}
-	}
-
-	// Explicit env override wins over the cloud-aware default, for either cloud.
-	t.Setenv(clusterMeshDialPortEnvVar, "12379")
-	if got := clusterMeshDialPort("hetzner"); got != 12379 {
-		t.Errorf("env override ignored for hetzner: got %d, want 12379", got)
-	}
-	t.Setenv(clusterMeshDialPortEnvVar, "2379")
-	if got := clusterMeshDialPort("huawei"); got != 2379 {
-		t.Errorf("env override ignored for huawei: got %d, want 2379", got)
 	}
 }
 
