@@ -23,6 +23,9 @@ name: Test — Bootstrap API (Go)
 # its schema bundle is built from (CTL-160):
 #   products/catalyst/chart/crds/**                   the CRDs and their samples
 #   platform/crossplane-claims/chart/templates/crds/** the UserAccess CRD
+# The test TestDefaultsAreTheContracts of internal/sovself reads the published
+# schema of the variables document (SOV-180):
+#   docs/contracts/c5-upstream-variables.schema.json
 on:
   push:
     paths:
@@ -35,6 +38,7 @@ on:
       - 'core/services/provisioning/gitops/**'
       - 'products/catalyst/chart/crds/**'
       - 'platform/crossplane-claims/chart/templates/crds/**'
+      - 'docs/contracts/c5-upstream-variables.schema.json'
       - '.github/workflows/test-bootstrap-api.yaml'
     branches: [main]
   pull_request:
@@ -48,6 +52,7 @@ on:
       - 'core/services/provisioning/gitops/**'
       - 'products/catalyst/chart/crds/**'
       - 'platform/crossplane-claims/chart/templates/crds/**'
+      - 'docs/contracts/c5-upstream-variables.schema.json'
       - '.github/workflows/test-bootstrap-api.yaml'
   workflow_dispatch:
 
