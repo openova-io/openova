@@ -4,16 +4,16 @@ Status on 13 November 2026. The baseline is the platform as it stood on 12 Novem
 
 ## Right now
 
-Measured from GitHub at 09:30 UTC on 13 November 2026. This block is rebuilt automatically every 30 minutes.
+Measured from GitHub at 10:00 UTC on 13 November 2026. This block is rebuilt automatically every 30 minutes.
 
 | | |
 |---|---|
-| Tasks merged to the main branch | **128 of 850** |
-| Tasks with a written ticket | 110 |
-| Being worked on by an agent now | CTL-112 ([#7379](https://github.com/openova-io/openova/pull/7379)), CTL-160 ([#7380](https://github.com/openova-io/openova/pull/7380)), CTL-240 ([#7381](https://github.com/openova-io/openova/pull/7381)), SVC-060 ([#7387](https://github.com/openova-io/openova/pull/7387)) |
+| Tasks merged to the main branch | **129 of 850** |
+| Tasks with a written ticket | 113 |
+| Being worked on by an agent now | CTL-112 ([#7379](https://github.com/openova-io/openova/pull/7379)), CTL-160 ([#7380](https://github.com/openova-io/openova/pull/7380)), CTL-240 ([#7381](https://github.com/openova-io/openova/pull/7381)), SEC-030 ([#7400](https://github.com/openova-io/openova/pull/7400)), SOV-150 ([#7399](https://github.com/openova-io/openova/pull/7399)), SVC-060 ([#7401](https://github.com/openova-io/openova/pull/7401)) |
 | Lab-test results waiting to merge | none |
 | Lab tests started, each on its own branch in CI | 27: ACC-020, ACC-030, AIP-010, AIP-020, CLD-050, CLD-055, CMP-S1, CMP-S2, CMP-S3, CMP-S4, CMP-S5, CMP-S6, CTL-050, CTL-055, INF-030, MIG-050, PRD-040, PRD-060, PRD-070, PRD-080, SEC-130, SEC-140, SEC-280, SOV-060, SVC-120, SVC-210, SVC-340 |
-| Merged per day | 2026-11-12: 8, 2026-11-13: 120 |
+| Merged per day | 2026-11-12: 8, 2026-11-13: 121 |
 | Proven on the live environment hw307 | **4**: BSS-035, NET-041, NET-070, NET-072. Each was seen working in a browser there and its ticket is closed. hw307 does not follow the main branch: a merged task reaches it by a separate release, and only then counts as proven. |
 | Milestone: replacement mothership on Hetzner (SOV-920) | 108 tasks before it are not merged yet. The three proofs it needs: SOV-810 open, SOV-820 open, CLD-182 open. The founder is told on issue #7087 when it starts. |
 | Board with every task as a card | [github.com/orgs/openova-io/projects/2](https://github.com/orgs/openova-io/projects/2) |
@@ -22,6 +22,7 @@ Measured from GitHub at 09:30 UTC on 13 November 2026. This block is rebuilt aut
 
 | Merged (UTC) | Task | What it did | Pull request |
 |---|---|---|---|
+| 13 Nov 09:41 | [PRD-502](plan/tickets/PRD-502.md) | feat(fingate): add the sandbox ledger, a test bank that serves the ledger port | [#7397](https://github.com/openova-io/openova/pull/7397) |
 | 13 Nov 09:29 | [SOV-090](plan/tickets/SOV-090.md) | docs(ledger): result of the lab test SOV-090 | [#7391](https://github.com/openova-io/openova/pull/7391) |
 | 13 Nov 09:29 | [NET-290](plan/tickets/NET-290.md) | docs(ledger): result of the lab test NET-290 | [#7392](https://github.com/openova-io/openova/pull/7392) |
 | 13 Nov 09:12 | [PRD-102](plan/tickets/PRD-102.md) | feat(fingate): generate the types and strict server interfaces of the six OpenAPI documents | [#7386](https://github.com/openova-io/openova/pull/7386) |
@@ -46,11 +47,10 @@ Measured from GitHub at 09:30 UTC on 13 November 2026. This block is rebuilt aut
 | 13 Nov 06:47 | [SVC-340](plan/tickets/SVC-340.md) | docs(ledger): result of the lab test SVC-340 | [#7344](https://github.com/openova-io/openova/pull/7344) |
 | 13 Nov 06:47 | [SEC-280](plan/tickets/SEC-280.md) | docs(ledger): result of the lab test SEC-280 | [#7343](https://github.com/openova-io/openova/pull/7343) |
 | 13 Nov 06:35 | [SVC-210](plan/tickets/SVC-210.md) | docs(ledger): result of the lab test SVC-210 | [#7328](https://github.com/openova-io/openova/pull/7328) |
-| 13 Nov 06:34 | [SEC-140](plan/tickets/SEC-140.md) | docs(ledger): result of the lab test SEC-140 | [#7331](https://github.com/openova-io/openova/pull/7331) |
 
 ### Merged changes a user can see
 
-Of the 128 merged tasks, 55 are documents, decisions and checks that change no running product. The tasks below change a screen. The last column says whether the change has been seen working on hw307. The record of the walk, with screenshots, is [screenshots/north-star](screenshots/north-star/README.md).
+Of the 129 merged tasks, 55 are documents, decisions and checks that change no running product. The tasks below change a screen. The last column says whether the change has been seen working on hw307. The record of the walk, with screenshots, is [screenshots/north-star](screenshots/north-star/README.md).
 
 | Task | What changes on the screen | Pull request | On hw307 |
 |---|---|---|---|
@@ -82,7 +82,7 @@ Of the 128 merged tasks, 55 are documents, decisions and checks that change no r
 | [NET-100](plan/tickets/NET-100.md) | Network registry output and validator | [#7318](https://github.com/openova-io/openova/pull/7318) |
 | [CMP-036](plan/tickets/CMP-036.md) | Kit slot 27a: values document, hand-over variable, definitions on upgrade | [#7277](https://github.com/openova-io/openova/pull/7277) |
 
-A further 51 merged tasks change a running service without a screen of their own; they are proven by a test on the environment.
+A further 52 merged tasks change a running service without a screen of their own; they are proven by a test on the environment.
 
 
 
@@ -106,9 +106,9 @@ Against the target of this plan, that work stands at **24% built** across the 14
 | | |
 |---|---|
 | Built before the baseline | **24%** of the target, by the code audit |
-| Tasks of the plan delivered since | **128 of 850** |
+| Tasks of the plan delivered since | **129 of 850** |
 | Epics in the backlog | 101, plus single fixes in 14 areas |
-| Still to spend | about 541 agent-hours and 541 million tokens |
+| Still to spend | about 540 agent-hours and 541 million tokens |
 | Last feature done, six agents in parallel | about 1 Dec (288 running hours at 16 a day) |
 | Releases | 62 updates of the environment and 12 fresh installs |
 
@@ -116,7 +116,7 @@ Against the target of this plan, that work stands at **24% built** across the 14
 
 The length of a bar is the size of that area, so a long bar is a big area and a short bar a small one. Dark blue is what was already built on 12 November. Green is what has been merged since. Grey is still to do. Sizes are in agent-hours: the green and grey parts are the plan's own estimate; the dark part is scaled from the audit percentage, so it is an estimate of size, not a record of hours spent.
 
-All 14 areas together: 24% was built before the baseline, and the target is now 34.6% built. 87 agent-hours of the plan are merged and 541 are still to do.
+All 14 areas together: 24% was built before the baseline, and the target is now 34.7% built. 88 agent-hours of the plan are merged and 540 are still to do.
 
 ![Progress per product area, to scale](dashboard/progress.svg)
 
@@ -132,7 +132,7 @@ All 14 areas together: 24% was built before the baseline, and the target is now 
 | Compliance | 28% | 11 of 58 | 7 | 36 | 7% |
 | AI and agents | 22% | 1 of 59 | 1 | 44 | 8% |
 | Machines and virtual machines | 17% | 3 of 61 | 2 | 44 | 8% |
-| AI hub and open banking | 5% | 9 of 63 | 7 | 41 | 8% |
+| AI hub and open banking | 5% | 10 of 63 | 8 | 40 | 7% |
 | Service catalogue | 35% | 8 of 43 | 5 | 26 | 5% |
 | Privileged access | 17% | 1 of 38 | 1 | 30 | 5% |
 | Migration | 0% | 1 of 34 | 0 | 24 | 5% |
@@ -165,7 +165,7 @@ The number for now is the start score plus the share of the remaining distance t
 | **Machines and virtual machines** (17 → 20) | No virtual-machine service exists. | Virtual machines, machine operations over SSH, golden images. | 9 | 61 | 44 | 44 | 1 Dec |
 | **Privileged access** (17 → 19) | Access control, approval and recording are not in place yet. | Controlled sessions with approval, recording and review. | 7 | 38 | 30 | 30 | 1 Dec |
 | **Migration** (0 → 2) | Nothing exists. | A migration engine with landing on the National Cloud and network extension. | 4 | 34 | 24 | 24 | 30 Nov |
-| **AI hub and open banking** (5 → 18) | Scaffolds only. | AI hub with knowledge search and chat. Open banking sandbox, payments, portal. | 7 | 63 | 41 | 42 | 27 Nov |
+| **AI hub and open banking** (5 → 20) | Scaffolds only. | AI hub with knowledge search and chat. Open banking sandbox, payments, portal. | 7 | 63 | 40 | 41 | 27 Nov |
 | **Delivery engine** (23 → 53) | The acceptance suite exists. Very little is proven on the live environment. | Every feature proven by automatic checks on a real environment, twice, before it counts. | 13 | 80 | 35 | 34 | 23 Nov |
 
 ## When each product area is worked on
@@ -353,14 +353,14 @@ Dates come from a simulation of six agents over the plan's dependencies, 16 runn
 
 </details>
 
-<details><summary><b>AI hub and open banking</b>: 7 epics, 63 tasks, 41 agent-hours, done by 27 Nov</summary>
+<details><summary><b>AI hub and open banking</b>: 7 epics, 63 tasks, 40 agent-hours, done by 27 Nov</summary>
 
 | Feature (epic) | Tasks | Delivered | Agent-hours | Tokens, M | Starts | Done by |
 |---|---:|---:|---:|---:|---|---|
 | Open banking: specification kit | 6 | 6 | 0.0 | 0 | 13 Nov | 13 Nov |
 | Products: preparation | 10 | 3 | 5.4 | 5.5 | 13 Nov | 24 Nov |
 | AI hub: knowledge search without GPUs | 12 | 0 | 9.2 | 9.2 | 13 Nov | 25 Nov |
-| Open banking: sandbox, account information | 12 | 0 | 9.6 | 9.7 | 13 Nov | 25 Nov |
+| Open banking: sandbox, account information | 12 | 1 | 8.7 | 8.8 | 13 Nov | 25 Nov |
 | Open banking: portal and onboarding | 3 | 0 | 2.2 | 2.2 | 26 Nov | 26 Nov |
 | AI hub: connectors, tools, chat, speech | 8 | 0 | 5.9 | 5.9 | 15 Nov | 27 Nov |
 | AI hub: GPU runtime and model choice | 5 | 0 | 3.4 | 3.3 | 25 Nov | 27 Nov |
@@ -395,7 +395,7 @@ A product change ships in an **update** of the running environment (R). A change
 
 How tickets are proven: 93 in a browser as an end user (Playwright with a screenshot), 470 by a test on the environment, 155 by a fresh install, 132 in CI only.
 
-<details><summary><b>R-001</b> Update of hw307 · 21 tickets · about 13 Nov</summary>
+<details><summary><b>R-001</b> Update of hw307 · 22 tickets · about 13 Nov</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -408,6 +408,7 @@ How tickets are proven: 93 in a browser as an end user (Playwright with a screen
 | CLD-142 | Neutral storage gate | test on the environment |
 | CMP-S3 | Spike: scanner report labels, publication date, benchmark report names, report volume | test on the environment |
 | CMP-S4 | Spike: etcd load from report objects | test on the environment |
+| CTL-040 | Flux manifests to stable API versions | test on the environment |
 | CTL-112 | Region scopes of the commit library | test on the environment |
 | CTL-160 | Package intent: validate, serialise, commit, wait | test on the environment |
 | CTL-240 | Batch G: catalogue writers onto the library | test on the environment |
@@ -417,13 +418,13 @@ How tickets are proven: 93 in a browser as an end user (Playwright with a screen
 | PRD-070 | Spike: chat front end forwards the user's token | test on the environment |
 | PRD-080 | Spike: CPU images for embeddings, rerank, document conversion and transcription | test on the environment |
 | PRD-501 | Resource server base: store, definitions loader, router with the token check, account-access consent resources | test on the environment |
-| PRD-502 | Sandbox ledger | test on the environment |
+| PRD-800 | Adapter template for a second bank | test on the environment |
 | SOV-150 | Kit sources become substitutions, with a render-equivalence test | test on the environment |
 | SOV-750 | Spike: an auto-scaling group worker pool on the reference cloud | test on the environment |
 
 </details>
 
-<details><summary><b>R-002</b> Update of hw307 · 19 tickets · about 13 Nov · waits for R-001</summary>
+<details><summary><b>R-002</b> Update of hw307 · 17 tickets · about 13 Nov · waits for R-001</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -431,7 +432,6 @@ How tickets are proven: 93 in a browser as an end user (Playwright with a screen
 | AIP-222 | Signal intake, grouping, candidate scoring, rule results | test on the environment |
 | AIP-224 | Guard library agentguard and its adversarial corpus | test on the environment |
 | CLD-021 | Delete the 24 infrastructure mutation routes and the claim writer | test on the environment |
-| CTL-040 | Flux manifests to stable API versions | test on the environment |
 | CTL-420 | Watches in the organization and environment controllers | test on the environment |
 | CTL-700 | Pull-request mode of the commit library | test on the environment |
 | INF-040 | Chart bp-kured with the node patch configuration | test on the environment |
@@ -445,7 +445,6 @@ How tickets are proven: 93 in a browser as an end user (Playwright with a screen
 | PRD-202 | cortex store: migrations, roles, trimmed query | test on the environment |
 | PRD-503 | Keycloak consent extension | test on the environment |
 | PRD-508 | Account-information read operations and the ledger client | test on the environment |
-| PRD-800 | Adapter template for a second bank | test on the environment |
 
 </details>
 
@@ -1644,6 +1643,6 @@ How tickets are proven: 93 in a browser as an end user (Playwright with a screen
 
 ## Delivered since the baseline
 
-`ACC-060`, `AIP-060`, `BSS-010`, `BSS-020`, `BSS-030`, `BSS-035`, `BSS-050`, `BSS-S2`, `CLD-010`, `CLD-022`, `CLD-040`, `CLD-050`, `CLD-063`, `CLD-070`, `CLD-071`, `CLD-075`, `CLD-080`, `CLD-161`, `CMP-005`, `CMP-010`, `CMP-012`, `CMP-014`, `CMP-016`, `CMP-030`, `CMP-036`, `CMP-S1`, `CMP-S2`, `CMP-S5`, `CMP-S6`, `CTL-010`, `CTL-020`, `CTL-025`, `CTL-030`, `CTL-044`, `CTL-050`, `CTL-055`, `CTL-060`, `CTL-110`, `CTL-201`, `FND-001`, `FND-002`, `FND-014`, `FND-021`, `FND-022`, `FND-023`, `FND-031`, `FND-032`, `FND-033`, `FND-034`, `FND-040`, `FND-051`, `FND-052`, `FND-053`, `FND-054`, `FND-055`, `FND-061`, `FND-091`, `FND-092`, `FND-093`, `FND-094`, `FND-097`, `FND-101`, `FND-102`, `FND-103`, `FND-105`, `FND-106`, `FND-110`, `FND-171`, `FND-173`, `FND-181`, `INF-010`, `INF-030`, `INF-070`, `MIG-050`, `NET-010`, `NET-020`, `NET-031`, `NET-033`, `NET-041`, `NET-042`, `NET-050`, `NET-052`, `NET-060`, `NET-070`, `NET-072`, `NET-100`, `NET-125`, `NET-290`, `NET-300`, `PRD-010`, `PRD-020`, `PRD-030`, `PRD-101`, `PRD-102`, `PRD-103`, `PRD-104`, `PRD-105`, `PRD-106`, `SEC-005`, `SEC-006`, `SEC-020`, `SEC-071`, `SEC-110`, `SEC-120`, `SEC-125`, `SEC-130`, `SEC-135`, `SEC-140`, `SEC-271`, `SEC-280`, `SOV-030`, `SOV-040`, `SOV-050`, `SOV-060`, `SOV-070`, `SOV-080`, `SOV-090`, `SOV-110`, `SOV-130`, `SOV-220`, `SVC-010`, `SVC-020`, `SVC-030`, `SVC-120`, `SVC-125`, `SVC-210`, `SVC-315`, `SVC-340`.
+`ACC-060`, `AIP-060`, `BSS-010`, `BSS-020`, `BSS-030`, `BSS-035`, `BSS-050`, `BSS-S2`, `CLD-010`, `CLD-022`, `CLD-040`, `CLD-050`, `CLD-063`, `CLD-070`, `CLD-071`, `CLD-075`, `CLD-080`, `CLD-161`, `CMP-005`, `CMP-010`, `CMP-012`, `CMP-014`, `CMP-016`, `CMP-030`, `CMP-036`, `CMP-S1`, `CMP-S2`, `CMP-S5`, `CMP-S6`, `CTL-010`, `CTL-020`, `CTL-025`, `CTL-030`, `CTL-044`, `CTL-050`, `CTL-055`, `CTL-060`, `CTL-110`, `CTL-201`, `FND-001`, `FND-002`, `FND-014`, `FND-021`, `FND-022`, `FND-023`, `FND-031`, `FND-032`, `FND-033`, `FND-034`, `FND-040`, `FND-051`, `FND-052`, `FND-053`, `FND-054`, `FND-055`, `FND-061`, `FND-091`, `FND-092`, `FND-093`, `FND-094`, `FND-097`, `FND-101`, `FND-102`, `FND-103`, `FND-105`, `FND-106`, `FND-110`, `FND-171`, `FND-173`, `FND-181`, `INF-010`, `INF-030`, `INF-070`, `MIG-050`, `NET-010`, `NET-020`, `NET-031`, `NET-033`, `NET-041`, `NET-042`, `NET-050`, `NET-052`, `NET-060`, `NET-070`, `NET-072`, `NET-100`, `NET-125`, `NET-290`, `NET-300`, `PRD-010`, `PRD-020`, `PRD-030`, `PRD-101`, `PRD-102`, `PRD-103`, `PRD-104`, `PRD-105`, `PRD-106`, `PRD-502`, `SEC-005`, `SEC-006`, `SEC-020`, `SEC-071`, `SEC-110`, `SEC-120`, `SEC-125`, `SEC-130`, `SEC-135`, `SEC-140`, `SEC-271`, `SEC-280`, `SOV-030`, `SOV-040`, `SOV-050`, `SOV-060`, `SOV-070`, `SOV-080`, `SOV-090`, `SOV-110`, `SOV-130`, `SOV-220`, `SVC-010`, `SVC-020`, `SVC-030`, `SVC-120`, `SVC-125`, `SVC-210`, `SVC-315`, `SVC-340`.
 
 The same page with hover and filters is the file `north-star-dashboard.html` beside this one: download it and open it in a browser.
