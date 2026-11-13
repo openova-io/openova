@@ -60,8 +60,6 @@ on:
       - 'core/services/shared/**'
       - 'core/services/tenant/**'
       - 'products/catalyst/bootstrap/ui/**'
-      - 'products/sandbox/mcp-server/**'
-      - 'products/sandbox/pty-server/**'
       - 'products/fingate/**'
       - '.github/workflows/test-ungated-trees.yaml'
       - '.github/workflows/**'
@@ -82,8 +80,6 @@ on:
       - 'core/services/shared/**'
       - 'core/services/tenant/**'
       - 'products/catalyst/bootstrap/ui/**'
-      - 'products/sandbox/mcp-server/**'
-      - 'products/sandbox/pty-server/**'
       - 'products/fingate/**'
       - '.github/workflows/test-ungated-trees.yaml'
       - '.github/workflows/**'
@@ -127,11 +123,6 @@ jobs:
           - core/services/notification
           - core/services/shared
           - core/services/tenant
-          # The two Go modules of the withdrawn Sandbox (ADR-0023). Their
-          # build workflows are deleted (FND-092), so their tests run here
-          # until FND-096 deletes the modules and these two entries.
-          - products/sandbox/mcp-server
-          - products/sandbox/pty-server
     steps:
       - uses: actions/checkout@v4
 

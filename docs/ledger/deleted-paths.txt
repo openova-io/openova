@@ -88,3 +88,8 @@ tests/e2e/hetzner-provisioning
 products/catalyst/bootstrap/api/internal/store/crd_store.go
 products/catalyst/bootstrap/api/internal/store/crd_store_test.go
 products/catalyst/chart/crds/provisioningstate.yaml
+products/catalyst/chart/crds/sandbox.yaml
+core/controllers/sandbox
+products/sandbox
+platform/sandbox
+tests/e2e/sandbox-mcp-contract.sh

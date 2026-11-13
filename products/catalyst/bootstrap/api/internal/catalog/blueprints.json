@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-13T13:53:00.946Z",
+  "generatedAt": "2026-11-13T17:19:38.337Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -4449,75 +4449,6 @@
         }
       },
       "hasUserUIEndpoint": false
-    },
-    {
-      "id": "bp-sandbox",
-      "slug": "sandbox",
-      "title": "Sandbox",
-      "summary": "|",
-      "icon": "sandbox.svg",
-      "category": "devtools",
-      "tagline": null,
-      "tags": [],
-      "visibility": "unlisted",
-      "version": "0.3.12",
-      "section": "pts-4-sandbox",
-      "depends": [
-        "bp-rtz-vcluster",
-        "bp-vcluster-helmrepo",
-        "bp-catalyst-platform",
-        "bp-harbor"
-      ],
-      "shareable": false,
-      "contextSchema": null,
-      "producesInstances": null,
-      "topology": {
-        "supported": [
-          "active-hot-standby",
-          "singleton"
-        ],
-        "multiRegion": "active-hot-standby",
-        "singleRegion": "singleton",
-        "perTopology": {
-          "active-hot-standby": {
-            "replication": {
-              "backend": "none",
-              "mode": "async",
-              "lagSloSeconds": 0
-            },
-            "switchover": {
-              "mechanism": "bp-continuum",
-              "rtoSeconds": 30,
-              "rpoSeconds": 0
-            },
-            "placement": {
-              "tier": "",
-              "clusters": [
-                "rtz-A",
-                "rtz-B"
-              ],
-              "roles": {
-                "rtz-A": "active",
-                "rtz-B": "passive"
-              }
-            }
-          },
-          "singleton": {
-            "replication": null,
-            "switchover": null,
-            "placement": {
-              "tier": "",
-              "clusters": [
-                "rtz-A"
-              ],
-              "roles": {
-                "rtz-A": "singleton"
-              }
-            }
-          }
-        }
-      },
-      "hasUserUIEndpoint": true
     },
     {
       "id": "bp-sealed-secrets",

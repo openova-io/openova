@@ -151,13 +151,6 @@ unseeded:
       (qaTestEnabled). Deliberately kept out of the production catalog seed so
       a customer-reachable Sovereign never carries a test fixture card.
 
-  - chart: sandbox
-    source: platform/sandbox
-    reason: >-
-      LEGACY — the Sandbox concept was removed on 2026-06-30 and superseded by
-      products/agenity + products/openova-mcp. Deliberately unseeded; the
-      directory is retained for history only.
-
   - chart: bp-spire
     source: platform/spire
     reason: >-
