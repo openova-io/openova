@@ -109,7 +109,7 @@ python3 "$SPIKE_DIR/summarise.py" reboots "$OUT/timeline.tsv" "$B=${SENT[$B]}" "
 wait_until 900 "kured lock free after A" lock_free || true
 res x_selector_change "blockingPodSelector -> [$S2] at $(now)"
 printf 'configuration:\n  blockingPodSelector:\n    - "%s"\n' "$S2" > "$WORK/kured-values-narrow.yaml"
-helm --kubeconfig "$KCFG" upgrade kured kubereboot/kured -n kube-system --version "$KURED_CHART_VERSION" \
+H upgrade kured kubereboot/kured -n kube-system --version "$KURED_CHART_VERSION" \
   -f "$SPIKE_DIR/kured-values-4.19.yaml" -f "$WORK/kured-values-narrow.yaml" \
   --wait --timeout 8m > "$OUT/helm-kured-2.log" 2>&1 || cat "$OUT/helm-kured-2.log" >&2
 K -n kube-system rollout status ds/kured --timeout=8m >&2

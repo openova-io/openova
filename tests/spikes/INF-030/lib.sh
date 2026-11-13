@@ -85,6 +85,17 @@ K() {
   return 1
 }
 
+# api_ip — the first API server that answers /readyz; H — helm against it.
+api_ip() {
+  local ip
+  for ip in $SERVER_IPS; do
+    kubectl --kubeconfig "$KCFG" --server "https://$ip:6443" --request-timeout=4s get --raw=/readyz >/dev/null 2>&1 \
+      && { echo "$ip"; return 0; }
+  done
+  return 1
+}
+H() { local ip; ip=$(api_ip) || { echo "H: no API server answered" >&2; return 1; }; helm --kubeconfig "$KCFG" --kube-apiserver "https://$ip:6443" "$@"; }
+
 # ---------------------------------------------------------------- host
 host_setup() {
   log "host: $(lsb_release -ds 2>/dev/null) kernel $(uname -r), $(nproc) cpus, $(free -g | awk '/Mem/{print $2}') GiB"
@@ -201,7 +212,7 @@ install_k3s() {
       > "$OUT/k3s-install-$n.log" 2>&1 || { log "FATAL: k3s install on $n failed"; tail -20 "$OUT/k3s-install-$n.log" >&2; return 1; }
     if [ "$n" = n1 ]; then
       wait_until 300 "kubeconfig on n1" ssh_n n1 test -s /etc/rancher/k3s/k3s.yaml || return 1
-      ssh_n n1 cat /etc/rancher/k3s/k3s.yaml > "$KCFG"
+      ssh_n n1 cat /etc/rancher/k3s/k3s.yaml | sed "s#https://127.0.0.1:6443#https://${IP[n1]}:6443#" > "$KCFG"
     fi
     wait_until 420 "node $n Ready" node_ready "$n" || return 1
   done
@@ -257,7 +268,7 @@ install_kured() { # extra helm args...
   KURED_CHART_VERSION=$(helm search repo kubereboot/kured -o json | jq -r '.[0].version')
   KURED_APP_VERSION=$(helm search repo kubereboot/kured -o json | jq -r '.[0].app_version')
   res kured_chart "kubereboot/kured chart $KURED_CHART_VERSION, application $KURED_APP_VERSION (newest in https://kubereboot.github.io/charts)"
-  helm --kubeconfig "$KCFG" upgrade --install kured kubereboot/kured -n kube-system \
+  H upgrade --install kured kubereboot/kured -n kube-system \
     --version "$KURED_CHART_VERSION" -f "$SPIKE_DIR/kured-values-4.19.yaml" "$@" --wait --timeout 6m \
     > "$OUT/helm-kured.log" 2>&1 || { log "FATAL: helm install kured failed"; cat "$OUT/helm-kured.log" >&2; return 1; }
   K -n kube-system rollout status ds/kured --timeout=5m >&2

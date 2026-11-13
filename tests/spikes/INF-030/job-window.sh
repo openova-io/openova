@@ -11,6 +11,7 @@ install_tools || exit 1
 create_vms    || exit 1
 install_k3s   || exit 1
 install_suc   || exit 1
+start_monitor
 
 # window_at OFFSET_MIN LENGTH_MIN — HH:MM start and end, UTC, starting at the next
 # whole minute plus OFFSET_MIN.
@@ -54,6 +55,7 @@ res q3_kubelet_versions_after "$(K get nodes -o jsonpath='{range .items[*]}{.met
 K -n system-upgrade get plan k3s-server -o yaml > "$OUT/plan-k3s-server.yaml"
 K -n system-upgrade get events --sort-by=.lastTimestamp -o wide > "$OUT/events-system-upgrade-1.txt" 2>&1
 res q5_plan_events "$(K -n system-upgrade get events --field-selector involvedObject.kind=Plan,involvedObject.name=k3s-server -o json | jq -r '[.items[] | "\(.firstTimestamp // .eventTime) \(.reason): \(.message)"] | join(" | ")' | cut -c1-1500)"
+res q3_monitor_during_upgrade "$(jq -c '{polls, api_unreachable_polls, max_unavailable, max_cordoned, max_not_ready, min_etcd_healthy}' "$OUT/monitor.json")"
 res q3_etcd_after_upgrade "$(etcd_members | wc -l) members, $(etcd_healthy_count) healthy, version $(etcd_endpoint_json | jq -r '[.[].Status.version] | unique | join(",")')"
 
 # ---------------------------------------------------------------- window end: a 2-minute window, jobs that last 150 s each
