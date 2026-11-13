@@ -31,8 +31,11 @@ jobs:
       ETCD_VERSION: v3.5.17
       # the Flux line the platform installs (only its CRDs are applied)
       FLUX_VERSION: v2.4.0
+      # the cert-manager release bp-cert-manager 1.2.7 pins
+      CERT_MANAGER_VERSION: v1.16.5
       # platform value is 2; raised only so every scan fits the job time
-      SCAN_CONCURRENCY: "3"
+      # (completed scan Jobs are kept for scanJobTTL=5m and hold a slot)
+      SCAN_CONCURRENCY: "6"
       OUT: ${{ github.workspace }}/out
       KUBECONFIG: /etc/rancher/k3s/k3s.yaml
     steps:
@@ -125,4 +128,46 @@ jobs:
             out/*.txt
             out/*.json
             out/workloads.yaml
+          retention-days: 30
+
+  # What one region's bootstrap kit declares: every HelmRelease of
+  # clusters/_template/bootstrap-kit rendered from its local chart with its
+  # inline values; scan subjects, containers and other report subjects counted.
+  inventory:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      HELM_VERSION: v3.16.3
+      OUT: ${{ github.workspace }}/out
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install helm
+        uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Render the bootstrap kit and count
+        run: |
+          python3 -c 'import yaml' 2>/dev/null || sudo apt-get install -y python3-yaml
+          helm version
+          python3 tests/spikes/CMP-S4/inventory.py | tee out-inventory.txt
+
+      - name: Dump the result into the log
+        if: always()
+        run: |
+          mkdir -p "$OUT"
+          cp out-inventory.txt "$OUT/" 2>/dev/null || true
+          grep -E '^(Error|TIMEOUT)' "$OUT/inventory-render.log" | head -60 || true
+
+      - name: Keep the evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spike-cmp-s4-inventory
+          path: |
+            out/inventory.json
+            out/out-inventory.txt
+            out/inventory-render.log
           retention-days: 30

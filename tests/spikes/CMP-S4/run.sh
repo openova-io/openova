@@ -88,16 +88,26 @@ helm dependency build "$ROOT/platform/trivy/chart" | tail -2
 grep -E '^(version|appVersion):' "$ROOT/platform/kyverno/chart/Chart.yaml" "$ROOT/platform/kyverno-policies/chart/Chart.yaml" "$ROOT/platform/trivy/chart/Chart.yaml" | tee -a "$OUT/timeline.txt"
 ls "$ROOT/platform/kyverno/chart/charts" "$ROOT/platform/trivy/chart/charts" | tee -a "$OUT/timeline.txt"
 
+log "install cert-manager ${CERT_MANAGER_VERSION} (the version bp-cert-manager pins; bp-kyverno's values issue its webhook certificates through it)"
+helm upgrade --install cert-manager cert-manager --repo https://charts.jetstack.io --version "$CERT_MANAGER_VERSION" \
+  -n cert-manager --create-namespace --set crds.enabled=true --wait --timeout 10m 2>&1 | tail -3
+
 log "install bp-kyverno (release kyverno, ns kyverno, platform values; webhook gate hook off: its image is not rewritten by a post-renderer)"
 helm upgrade --install kyverno "$ROOT/platform/kyverno/chart" -n kyverno --create-namespace "${PR[@]}" \
   --set webhookGate.enabled=false --wait --timeout 10m 2>&1 | tail -5
 kubectl -n kyverno get deploy -o custom-columns='NAME:.metadata.name,READY:.status.readyReplicas,IMAGE:.spec.template.spec.containers[0].image' | tee -a "$OUT/timeline.txt"
 
 log "install bp-kyverno-policies (release kyverno-policies, chart defaults)"
+pol_ok=0
 for i in 1 2 3; do
-  if helm upgrade --install kyverno-policies "$ROOT/platform/kyverno-policies/chart" -n kyverno "${PR[@]}" --timeout 5m 2>&1 | tail -5; then break; fi
+  if helm upgrade --install kyverno-policies "$ROOT/platform/kyverno-policies/chart" -n kyverno "${PR[@]}" --timeout 5m 2>&1 | tail -8; then pol_ok=1; break; fi
   sleep 20
 done
+if [ "$pol_ok" -eq 0 ]; then
+  log "helm refused the policy chart; applying its rendered objects one by one so every valid policy is in"
+  helm template kyverno-policies "$ROOT/platform/kyverno-policies/chart" -n kyverno > "$OUT/policies-render.yaml"
+  kubectl apply -f "$OUT/policies-render.yaml" 2>&1 | tail -30
+fi
 sleep 30
 kubectl get clusterpolicy 2>&1 | tee "$OUT/policies.txt"
 
@@ -107,8 +117,8 @@ helm upgrade --install trivy "$ROOT/platform/trivy/chart" -n trivy-system --crea
 kubectl -n trivy-system get deploy -o custom-columns='NAME:.metadata.name,READY:.status.readyReplicas,IMAGE:.spec.template.spec.containers[0].image' | tee -a "$OUT/timeline.txt"
 kubectl -n trivy-system get cm trivy-operator trivy-operator-trivy-config -o yaml 2>/dev/null |
   grep -E 'sbom|SBOM|scanner|repository|tag:|command|mode|Enabled|ttl|TTL' | tee "$OUT/trivy-config.txt"
-kubectl -n trivy-system get deploy trivy-operator -o json |
-  jq -r '.spec.template.spec.containers[0].env[] | select(.value != null) | "\(.name)=\(.value)"' |
+kubectl -n trivy-system get deploy -l app.kubernetes.io/name=trivy-operator -o json |
+  jq -r '.items[0].spec.template.spec.containers[0].env[] | select(.value != null) | "\(.name)=\(.value)"' |
   grep -E 'SBOM|SCANNER|CONCURRENT|TTL|CURRENT_REVISIONS|EXCLUDE|COMPLIANCE|INFRA|RBAC|SECRET|CONFIG_AUDIT' | tee -a "$OUT/trivy-config.txt"
 
 # ---------------------------------------------------------------- R
@@ -193,7 +203,7 @@ same=0
 for i in $(seq 1 30); do
   n=$(kubectl get policyreports -A --no-headers 2>/dev/null | wc -l)
   e=$(kubectl get ephemeralreports -A --no-headers 2>/dev/null | wc -l)
-  log "policyreports=$n ephemeralreports=$e"
+  log "policyreports=$n clusterpolicyreports=$(kubectl get clusterpolicyreports --no-headers 2>/dev/null | wc -l) ephemeralreports=$e"
   if [ "$n" -eq "$last" ] && [ "$e" -eq 0 ]; then same=$((same + 1)); else same=0; fi
   last=$n
   [ "$same" -ge 3 ] && break
@@ -221,16 +231,25 @@ log "report-server coverage: which API groups the engine's bundled report server
   tar -tzf "$sub" | grep -i 'reports-server' | grep -E 'Chart.yaml|apiservice|values.yaml' || echo "(none)"
   echo "-- APIService objects rendered with reportsServer.enabled=true:"
   helm template kyverno "$ROOT/platform/kyverno/chart" -n kyverno --set kyverno.reportsServer.enabled=true \
-    --set webhookGate.enabled=false 2> "$OUT/reports-server-render.err" |
-    python3 -c '
+    --set webhookGate.enabled=false > "$OUT/reports-server-render.yaml" 2> "$OUT/reports-server-render.err"
+  python3 - "$OUT/reports-server-render.yaml" <<'EOF'
 import sys, yaml
-for d in yaml.safe_load_all(sys.stdin):
+for d in yaml.safe_load_all(open(sys.argv[1])):
     if d and d.get("kind") == "APIService":
-        s = d.get("spec", {})
-        print(f"  {d[\"metadata\"][\"name\"]}: group={s.get(\"group\")} version={s.get(\"version\")}")
-'
+        s = d.get("spec") or {}
+        print("  %s: group=%s version=%s service=%s" % (d["metadata"]["name"], s.get("group"), s.get("version"),
+                                                         (s.get("service") or {}).get("name")))
+    if d and d.get("kind") in ("Deployment", "StatefulSet") and "reports-server" in d["metadata"]["name"]:
+        c = d["spec"]["template"]["spec"]["containers"][0]
+        print("  %s %s image=%s args=%s" % (d["kind"], d["metadata"]["name"], c.get("image"), c.get("args")))
+EOF
   echo "-- render errors (first 5 lines):"
-  head -5 "$OUT/reports-server-render.err"
+  grep -v WARNING "$OUT/reports-server-render.err" | head -5
+  echo "-- reports-server chart values naming its storage:"
+  tar -xOzf "$sub" kyverno/charts/reports-server/values.yaml | grep -n -i -E '^[a-z]|etcd|postgres|db:|enabled' | head -40
+  echo "-- scanner chart defaults (upstream trivy-operator values) for SBOM generation and report storage:"
+  tsub=$(ls "$ROOT"/platform/trivy/chart/charts/trivy-operator-*.tgz)
+  tar -xOzf "$tsub" trivy-operator/values.yaml | grep -n -i -E 'sbomGeneration|alternateReportStorage|clusterSbomCache|scannerReportTTL|reportRecordFailedChecksOnly' | head -20
 } 2>&1 | tee "$OUT/reports-server.txt"
 
 # ---------------------------------------------------------------- T, T2
@@ -249,7 +268,7 @@ load_to T 20000 200000000 R
 load_to T2 40000 400000000 T
 
 # ---------------------------------------------------------------- logs
-kubectl -n trivy-system logs deploy/trivy-operator --tail=-1 > "$OUT/trivy-operator.log" 2>&1 || true
+kubectl -n trivy-system logs -l app.kubernetes.io/name=trivy-operator --tail=-1 > "$OUT/trivy-operator.log" 2>&1 || true
 kubectl -n kyverno logs deploy/kyverno-reports-controller --tail=-1 > "$OUT/kyverno-reports-controller.log" 2>&1 || true
 {
   echo "trivy-operator log lines: $(wc -l < "$OUT/trivy-operator.log")"
