@@ -2,9 +2,120 @@
 
 Status on 13 November 2026. The baseline is the platform as it stood on 12 November 2026, after nine months of work by its agents. All work is done by agents; effort is in agent-hours and tokens, from the tasks that were actually run.
 
+## On the environment: what is deployed and what is not
+
+Read from the environment hw307 itself at 19:12 UTC on 13 November. Merged means the code is on the main branch with green checks. Deployed means the release that carries it runs on the environment in both regions. Validated means it was seen working there, with evidence.
+
+| State of the merged tasks | Tasks |
+|---|---|
+| **Validated** on the environment | **4** |
+| **Deployed** on the environment, not yet validated | **3** |
+| **Merged, NOT deployed** (can be proven on the running environment) | **44** |
+| Merged, proven only by a fresh installation: not done yet | 22 |
+| Merged, needs no environment (CI checks, guards, tests, records, lab results) | 104 |
+| Merged in total | 177 |
+
+**The next release to the environment.** One catch-up update brings the environment to main, region b first, then region a. Its fixes are already on main (checked commit by commit on 14 November), so it follows main itself and no side branch. The delivery tool is written and its read-only plan step ran against both regions. After the catch-up, the environment is updated once per release candidate cut from main.
+
+### Deployed (7)
+
+| Task | What it does | State on the environment |
+|---|---|---|
+| [BSS-035](plan/tickets/BSS-035.md) | The storefront says when prices are unavailable | **validated**, release hw307-ns.1 |
+| [NET-041](plan/tickets/NET-041.md) | Remove the firewall claims from the storefront and the console | **validated**, release hw307-ns.1 |
+| [NET-070](plan/tickets/NET-070.md) | Wizard shows what the provisioner builds | **validated**, release hw307-ns.1 |
+| [NET-072](plan/tickets/NET-072.md) | Placement selectors offer the host only | **validated**, release hw307-ns.1 |
+| [SOV-030](plan/tickets/SOV-030.md) | Wipe refuses a handed-over Sovereign without confirmation | deployed, not yet validated, release hw307-ns.1 |
+| [SOV-220](plan/tickets/SOV-220.md) | The console's step list comes from the status response | deployed, not yet validated, release hw307-ns.1 |
+| [SVC-030](plan/tickets/SVC-030.md) | The Catalog page honours visibility and refuses what has no chart | deployed, not yet validated, release hw307-ns.1 |
+
+### Merged and NOT deployed (44)
+
+| Task | What it does | State on the environment |
+|---|---|---|
+| [BSS-030](plan/tickets/BSS-030.md) | Order capture never prices from a second list | **not deployed** |
+| [CLD-021](plan/tickets/CLD-021.md) | Delete the 24 infrastructure mutation routes and the claim writer | **not deployed** |
+| [CLD-022](plan/tickets/CLD-022.md) | Delete the infrastructure mutation dialogs from the console | **not deployed** |
+| [CLD-161](plan/tickets/CLD-161.md) | Installation document for the installation in use | **not deployed** |
+| [CMP-010](plan/tickets/CMP-010.md) | Gate checks: the score moves by push; the shown mode is the engine's mode | **not deployed** |
+| [CMP-016](plan/tickets/CMP-016.md) | An optional informer kind starts when its definition arrives | **not deployed** |
+| [CMP-030](plan/tickets/CMP-030.md) | Package internal/compliance: types and pure score functions | **not deployed** |
+| [CTL-030](plan/tickets/CTL-030.md) | Delete the endpoint pipeline and the two duplicate registrations | **not deployed** |
+| [CTL-035](plan/tickets/CTL-035.md) | Route registration leaves main() | **not deployed** |
+| [CTL-040](plan/tickets/CTL-040.md) | Flux manifests to stable API versions | **not deployed** |
+| [CTL-110](plan/tickets/CTL-110.md) | Commit library gitwrite | **not deployed** |
+| [CTL-112](plan/tickets/CTL-112.md) | Region scopes of the commit library | **not deployed** |
+| [CTL-150](plan/tickets/CTL-150.md) | Intent lock in audit mode, with its report | **not deployed** |
+| [CTL-160](plan/tickets/CTL-160.md) | Package intent: validate, serialise, commit, wait | **not deployed** |
+| [CTL-240](plan/tickets/CTL-240.md) | Batch G: catalogue writers onto the library | **not deployed** |
+| [FND-014](plan/tickets/FND-014.md) | A deployment may name the Git ref it follows | **not deployed** |
+| [FND-032](plan/tickets/FND-032.md) | Record version 2 and the check registry | **not deployed** |
+| [FND-033](plan/tickets/FND-033.md) | Checks: candidate identity, zero touch, nodes, releases and pods | **not deployed** |
+| [FND-034](plan/tickets/FND-034.md) | Checks: NodePort, front doors, mesh, encryption, clean wipe; journeys as checks | **not deployed** |
+| [FND-093](plan/tickets/FND-093.md) | Remove the Sandbox surface of the API | **not deployed** |
+| [FND-094](plan/tickets/FND-094.md) | Remove the Sandbox pages of the console | **not deployed** |
+| [FND-095](plan/tickets/FND-095.md) | Remove the Sandbox orchestrator, grants and cutover entries | **not deployed** |
+| [FND-097](plan/tickets/FND-097.md) | Remove the unshipped console, the one job that drives it and the tests that only target it | **not deployed** |
+| [FND-171](plan/tickets/FND-171.md) | Remove the fabricated playback route and its preflight route | **not deployed** |
+| [NET-030](plan/tickets/NET-030.md) | Retired names lose their policy privileges | **not deployed** |
+| [NET-042](plan/tickets/NET-042.md) | Retire the two legacy per-Sovereign overlays | **not deployed** |
+| [NET-060](plan/tickets/NET-060.md) | Read-only census of the network posture | **not deployed** |
+| [NET-125](plan/tickets/NET-125.md) | Mesh status read, and a mode switch, in the API | **not deployed** |
+| [PRD-101](plan/tickets/PRD-101.md) | Vendor the six public documents and write the profile | **not deployed** |
+| [PRD-102](plan/tickets/PRD-102.md) | Generated types and server interfaces (oapi-codegen, strict server) | **not deployed** |
+| [PRD-103](plan/tickets/PRD-103.md) | Ledger port and conformance kit | **not deployed** |
+| [PRD-104](plan/tickets/PRD-104.md) | Consent package | **not deployed** |
+| [PRD-105](plan/tickets/PRD-105.md) | Token package | **not deployed** |
+| [PRD-502](plan/tickets/PRD-502.md) | Sandbox ledger | **not deployed** |
+| [SEC-071](plan/tickets/SEC-071.md) | Ratchet on passwords the provisioning service writes to Git | **not deployed** |
+| [SEC-080](plan/tickets/SEC-080.md) | External Secrets quick scope | **not deployed** |
+| [SEC-120](plan/tickets/SEC-120.md) | etcd dump check and node hygiene check, as check files | **not deployed** |
+| [SOV-035](plan/tickets/SOV-035.md) | Delete the ProvisioningState kind and its unwired store | **not deployed** |
+| [SOV-110](plan/tickets/SOV-110.md) | Contract C5: schema, kit key list, the upstream package and its validator | **not deployed** |
+| [SOV-120](plan/tickets/SOV-120.md) | The sovereign-ops command and its image | **not deployed** |
+| [SOV-150](plan/tickets/SOV-150.md) | Kit sources become substitutions, with a render-equivalence test | **not deployed** |
+| [SOV-180](plan/tickets/SOV-180.md) | The API serves the Sovereign's mode and variables, with the contract's defaults | **not deployed** |
+| [SOV-320](plan/tickets/SOV-320.md) | Sign-in mail without the parent's credential | **not deployed** |
+| [SVC-125](plan/tickets/SVC-125.md) | Blueprint proofs check: the function-test result in the gate record | **not deployed** |
+
+<details><summary>Merged, proven only by a fresh installation (22): none proven yet</summary>
+
+| Task | What it does | State |
+|---|---|---|
+| [CLD-040](plan/tickets/CLD-040.md) | Run the shared render test in CI and pin a golden render | waits for a fresh installation |
+| [CLD-080](plan/tickets/CLD-080.md) | Contract directory: module contract, profile schema, pack schema, conventions, two profiles | waits for a fresh installation |
+| [CLD-086](plan/tickets/CLD-086.md) | local module and reduced kit | waits for a fresh installation |
+| [CLD-113](plan/tickets/CLD-113.md) | Mesh and topology read the profile | waits for a fresh installation |
+| [CLD-141](plan/tickets/CLD-141.md) | Protect provider releases from pruning before they move | waits for a fresh installation |
+| [CLD-142](plan/tickets/CLD-142.md) | Neutral storage gate | waits for a fresh installation |
+| [CLD-185](plan/tickets/CLD-185.md) | Hetzner control-plane cloud-init with the post-back on fits the module size guard | waits for a fresh installation |
+| [CMP-036](plan/tickets/CMP-036.md) | Kit slot 27a: values document, hand-over variable, definitions on upgrade | waits for a fresh installation |
+| [CTL-041](plan/tickets/CTL-041.md) | Bootstrap-kit HelmRepository documents to source v1 | waits for a fresh installation |
+| [NET-010](plan/tickets/NET-010.md) | Close peer and stale ports on the reference provider | waits for a fresh installation |
+| [NET-020](plan/tickets/NET-020.md) | Disable the k3s kube-proxy | waits for a fresh installation |
+| [NET-031](plan/tickets/NET-031.md) | Stop reflecting the object-storage Secret to retired namespaces | waits for a fresh installation |
+| [NET-100](plan/tickets/NET-100.md) | Network registry output and validator | waits for a fresh installation |
+| [SEC-020](plan/tickets/SEC-020.md) | Random k3s server token and separate agent token | waits for a fresh installation |
+| [SEC-030](plan/tickets/SEC-030.md) | etcd encryption on at first boot | waits for a fresh installation |
+| [SOV-130](plan/tickets/SOV-130.md) | Substrate window, part 1: modules and cloud-init take the variables document | waits for a fresh installation |
+| [SOV-131](plan/tickets/SOV-131.md) | Provider modules take the variables map of the upstream contract | waits for a fresh installation |
+| [SOV-133](plan/tickets/SOV-133.md) | The boot template and the provider contract take the variables document | waits for a fresh installation |
+| [SOV-140](plan/tickets/SOV-140.md) | Substrate window, part 2: revocable bootstrap access, peer tokens, node artifacts from the registry | waits for a fresh installation |
+| [SOV-141](plan/tickets/SOV-141.md) | Each peer region gets its own handover-peer token, given to the primary once at hand-over | waits for a fresh installation |
+| [SOV-160](plan/tickets/SOV-160.md) | Registry projects, the Organization Git token and the two repositories are created at install | waits for a fresh installation |
+| [SVC-060](plan/tickets/SVC-060.md) | Function-test convention and the data charts | waits for a fresh installation |
+
+</details>
+
+<details><summary>Merged, needs no environment (104)</summary>
+
+ACC-020, ACC-030, [ACC-060](plan/tickets/ACC-060.md), AIP-010, AIP-020, [AIP-060](plan/tickets/AIP-060.md), [BSS-010](plan/tickets/BSS-010.md), [BSS-020](plan/tickets/BSS-020.md), [BSS-050](plan/tickets/BSS-050.md), BSS-S2, [CLD-010](plan/tickets/CLD-010.md), CLD-050, CLD-055, [CLD-063](plan/tickets/CLD-063.md), [CLD-070](plan/tickets/CLD-070.md), [CLD-071](plan/tickets/CLD-071.md), [CLD-075](plan/tickets/CLD-075.md), [CMP-005](plan/tickets/CMP-005.md), [CMP-012](plan/tickets/CMP-012.md), [CMP-014](plan/tickets/CMP-014.md), CMP-S1, CMP-S2, CMP-S3, CMP-S4, CMP-S5, CMP-S6, [CTL-010](plan/tickets/CTL-010.md), [CTL-020](plan/tickets/CTL-020.md), [CTL-025](plan/tickets/CTL-025.md), [CTL-044](plan/tickets/CTL-044.md), [CTL-045](plan/tickets/CTL-045.md), CTL-050, CTL-055, [CTL-060](plan/tickets/CTL-060.md), [CTL-201](plan/tickets/CTL-201.md), FND-001, FND-002, [FND-011](plan/tickets/FND-011.md), [FND-013](plan/tickets/FND-013.md), [FND-018](plan/tickets/FND-018.md), [FND-020](plan/tickets/FND-020.md), [FND-021](plan/tickets/FND-021.md), [FND-022](plan/tickets/FND-022.md), [FND-023](plan/tickets/FND-023.md), [FND-031](plan/tickets/FND-031.md), [FND-040](plan/tickets/FND-040.md), [FND-051](plan/tickets/FND-051.md), [FND-052](plan/tickets/FND-052.md), [FND-053](plan/tickets/FND-053.md), [FND-054](plan/tickets/FND-054.md), [FND-055](plan/tickets/FND-055.md), [FND-061](plan/tickets/FND-061.md), [FND-091](plan/tickets/FND-091.md), [FND-092](plan/tickets/FND-092.md), [FND-096](plan/tickets/FND-096.md), [FND-098](plan/tickets/FND-098.md), [FND-099](plan/tickets/FND-099.md), [FND-101](plan/tickets/FND-101.md), [FND-102](plan/tickets/FND-102.md), [FND-103](plan/tickets/FND-103.md), [FND-105](plan/tickets/FND-105.md), [FND-106](plan/tickets/FND-106.md), [FND-110](plan/tickets/FND-110.md), [FND-173](plan/tickets/FND-173.md), [FND-181](plan/tickets/FND-181.md), [INF-010](plan/tickets/INF-010.md), INF-030, [INF-070](plan/tickets/INF-070.md), MIG-050, [NET-033](plan/tickets/NET-033.md), [NET-050](plan/tickets/NET-050.md), [NET-052](plan/tickets/NET-052.md), [NET-090](plan/tickets/NET-090.md), NET-290, NET-300, [PRD-010](plan/tickets/PRD-010.md), [PRD-020](plan/tickets/PRD-020.md), [PRD-030](plan/tickets/PRD-030.md), PRD-040, PRD-060, PRD-070, PRD-080, [PRD-106](plan/tickets/PRD-106.md), [SEC-005](plan/tickets/SEC-005.md), [SEC-006](plan/tickets/SEC-006.md), [SEC-110](plan/tickets/SEC-110.md), [SEC-125](plan/tickets/SEC-125.md), SEC-130, SEC-135, SEC-140, SEC-271, SEC-280, [SOV-040](plan/tickets/SOV-040.md), [SOV-050](plan/tickets/SOV-050.md), SOV-060, SOV-070, SOV-080, SOV-090, [SVC-010](plan/tickets/SVC-010.md), [SVC-020](plan/tickets/SVC-020.md), SVC-120, SVC-210, SVC-315, SVC-340.
+
+</details>
+
 ## Right now
 
-Measured from GitHub at 19:00 UTC on 13 November 2026. This block is rebuilt automatically every 30 minutes.
+Measured from GitHub at 19:12 UTC on 13 November 2026. This block is rebuilt automatically every 30 minutes.
 
 | | |
 |---|---|
@@ -13,7 +124,7 @@ Measured from GitHub at 19:00 UTC on 13 November 2026. This block is rebuilt aut
 | How the estimate is made | Merged: 702 tasks are left; the last 12 hours merged 3.9 tasks an hour, lab results not counted, which gives 179 hours; the longest row of tasks that must follow one another is 28 long, at about 2 hours each, which gives 56 hours; the larger number is shown. Proven: the plan's simulation of six agents with an update of the environment every 4 hours and a fresh install every 24. Both move as the work goes; a stop or an interruption adds to them. |
 | **Tokens used so far** | **11.7 billion** tokens, nearly all of them since 11 November: 3.2 billion to design the plan and 8.5 billion to carry it out so far. Of the total, 11.4 billion are re-reads of text the models had already read once, which is the cheap kind; 230 million are text read for the first time and 55 million are text the models wrote. By model: Opus 5.5 7.5 billion, Fable 5.2 4.2 billion. At the published pay-as-you-go prices these tokens would cost about $5,500. |
 | **Tokens still expected** | About **36 billion** more until every task is merged, which makes about 48 billion in all; 25% of that is spent. Basis: carrying out the plan has used 68 million tokens for each agent-hour of merged work, and 525 agent-hours are left. Proving the tasks on an environment comes on top; too few are proven to measure it. |
-| **Accounts needed on the $200 plan** | The one account in use (plan Max 20x) has spent **72%** of this week's allowance, 55 hours into the week (the week runs from 11 Nov 12:00 to 18 Nov 12:00 UTC). Over the last 6.0 hours the usage meter rose by 22 points. At that rise this account's allowance is used up around **14 Nov 02:00 UTC**, 4 days before it is filled again. Paid extra usage is switched off on the account, so the agents stop there unless another account is logged in. Holding that rise for a whole week would take **7 accounts**; measured from the tokens of the last 24 hours it is 3.3. The two do not agree: the tokens counted on this machine explain about 32% of the meter's rise in those hours. Either the account is also used from somewhere this machine cannot see, or the meter weighs this kind of work more heavily than its first two days suggested. The meter decides when the work stops. The work still to merge needs about 2.1 weekly allowances by the token measure. |
+| **Accounts needed on the $200 plan** | The one account in use (plan Max 20x) has spent **72%** of this week's allowance, 55 hours into the week (the week runs from 11 Nov 12:00 to 18 Nov 12:00 UTC). Over the last 6.2 hours the usage meter rose by 22 points. At that rise this account's allowance is used up around **14 Nov 03:00 UTC**, 4 days before it is filled again. Paid extra usage is switched off on the account, so the agents stop there unless another account is logged in. Holding that rise for a whole week would take **6 accounts**; measured from the tokens of the last 24 hours it is 3.2. The two do not agree: the tokens counted on this machine explain about 32% of the meter's rise in those hours. Either the account is also used from somewhere this machine cannot see, or the meter weighs this kind of work more heavily than its first two days suggested. The meter decides when the work stops. The work still to merge needs about 2.1 weekly allowances by the token measure. |
 | How the tokens and the allowance are measured | Tokens are counted from the transcripts on the build machine, each model call once, for every agent of this work. Anthropic states no token figure for the plan, so the share of the weekly allowance that is used is read from the account's own usage meter every 30 minutes and set against the tokens counted in the same hours; by that measure one weekly allowance is about 17 billion tokens of this mix. The meter counts Fable and Opus differently, so each is weighed on its own. The pace is taken from the meter itself once it has been read for an hour (the oldest reading of the last six hours); until then from the tokens. Every session on the account counts, also work that is not this plan. |
 | Tasks merged to the main branch | **177 of 879** |
 | Tasks with a written ticket | 143 |
@@ -36,11 +147,11 @@ How to read it. Planned: the plan as first published on 12 November (843 tasks, 
 | Midnight UTC | Planned left | Actual left |
 |---|---|---|
 | 13 Nov | 582 | 597 |
-| now (13 Nov 19:00) | 506 | 525 |
+| now (13 Nov 19:12) | 506 | 525 |
 
 ### On the environment: deployed and validated
 
-Read from the standing environment hw307 itself at 19:00 UTC on 13 November. A task counts as deployed only when the release that carried it is the one running there, and as validated only when it was seen working there.
+Read from the standing environment hw307 itself at 19:12 UTC on 13 November. A task counts as deployed only when the release that carried it is the one running there, and as validated only when it was seen working there.
 
 | | Tasks |
 |---|---|
@@ -93,10 +204,10 @@ A merged task has passed its checks in CI. It is **delivered** only when it has 
 | Measure | Now | What it tells |
 |---|---|---|
 | The plan's own checks (237) by state | 213 not-built, 17 expected-fail, 7 required | A check is the plan's definition of done for a capability. "required" means it must pass on a fresh install; none has been run on one yet. |
-| Acceptance commands of merged tasks, run again on main | a run is in progress: 169 of 177 tasks so far | Whether later merges broke earlier ones. The result replaces this line when the run ends. |
+| Acceptance commands of merged tasks, run again on main (2026-11-13 19:00 UTC, commit b44ef5300) | **842 of 891** still pass. 49 do not: 0 replaced on purpose by a later task, 0 broken by a later merge, 49 not yet explained. 30 more compare a change with its base and can only run on the pull request. | A command that passed on its pull request and fails on today's main was either replaced by plan or broken by a later merge. Each failure is explained by name. |
 | Workflow runs on main that ended red, per day | 12 Nov: 3 red of 982 (0.3%); 13 Nov: 8 red of 2508 (0.3%) | Whether main is a base one can build on. A red run on main is a defect that reached main or a check that is not reliable. |
 | Times an executor stopped and reported a ticket or main as wrong | 23 reports on 20 tasks, against 177 merged | A stop is the system refusing to guess. Many stops for one cause point at a defect of main or of the tickets. |
-| Lines changed on main since the plan started | Product code and configuration: +122,275 −54,573; Tests: +20,521 −18,553; Checks and tooling: +22,634 −1,214; Plan, tickets and documents: +165,320 −1,814; Other: +29 −2,507 | How much of the change is the product itself. Tickets and the plan are large by nature. Generated files count too (one generated client is about 70,000 lines), and so do the release bot's version lines. |
+| Lines changed on main since the plan started | Product code and configuration: +122,275 −54,573; Tests: +20,521 −18,553; Checks and tooling: +22,634 −1,214; Plan, tickets and documents: +165,311 −1,814; Other: +29 −2,507 | How much of the change is the product itself. Tickets and the plan are large by nature. Generated files count too (one generated client is about 70,000 lines), and so do the release bot's version lines. |
 | Fresh install from main: did it start, how long, how many releases ready | **not measured: no environment installed from main exists** | The only proof that the merged first-boot changes work together. |
 | Acceptance suite and walk on that install | **not measured, same reason** | That a person can do the thing: the five pillars. |
 
