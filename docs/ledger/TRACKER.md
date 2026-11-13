@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T10:30:06Z` |
+| Last refreshed | `2026-11-13T10:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T10:41 | [#7405](https://github.com/openova-io/openova/pull/7405) | #7383 | chore(api): remove the 24 infrastructure write routes and th |
+| 2026-11-13T10:40 | [#7404](https://github.com/openova-io/openova/pull/7404) | #7294 | ci: add the network guards G1, G2, G4 to G7 with a baseline  |
+| 2026-11-13T10:39 | [#7403](https://github.com/openova-io/openova/pull/7403) | #7394 | ci: the release writer bumps chart versions; a pull request  |
 | 2026-11-13T10:08 | [#7402](https://github.com/openova-io/openova/pull/7402) | #7087 | docs(ledger): plan update |
 | 2026-11-13T10:10 | [#7401](https://github.com/openova-io/openova/pull/7401) | #7194 | test(charts): function tests for the cnpg, postgres, valkey, |
 | 2026-11-13T10:13 | [#7400](https://github.com/openova-io/openova/pull/7400) | #7385 | fix(cloud-init): encrypt Secrets in etcd with secretbox at f |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-13T08:30 | [#7366](https://github.com/openova-io/openova/pull/7366) | #7349 | chore(console): remove the infrastructure add, edit and dele |
 | 2026-11-13T08:30 | [#7365](https://github.com/openova-io/openova/pull/7365) | #7323 | feat(fingate): add the ledger port, its conformance kit and  |
 | 2026-11-13T08:29 | [#7364](https://github.com/openova-io/openova/pull/7364) | #7354 | test(acceptance): record the function-test result of every r |
-| 2026-11-13T07:51 | [#7363](https://github.com/openova-io/openova/pull/7363) | #7356 | refactor(cloud-init): one variables ConfigMap for the inline |
-| 2026-11-13T07:41 | [#7362](https://github.com/openova-io/openova/pull/7362) | #7087 | docs(ledger): plan update |
-| 2026-11-13T07:49 | [#7361](https://github.com/openova-io/openova/pull/7361) | #7350 | refactor(api): delete the endpoint pull-request pipeline and |
 
 ---
 
