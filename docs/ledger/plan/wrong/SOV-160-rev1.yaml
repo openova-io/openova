@@ -1,0 +1,52 @@
+schema: openova.io/plan-wrong/v1
+id: SOV-160
+ticket_rev: 1
+base_commit: 7d3c595c4967a7f6e0f35bb70fd0f4c94aafc7b6
+stage: check
+ref: helm lint changed charts
+command: |
+    gh api repos/openova-io/openova/actions/jobs/131875827018/logs | grep -B 40 -m 1 '##\[error\]' | cut -c30-300
+expected: |
+    the check finishes green
+actual: |
+    [36;1mecho "charts=$charts" >> "$GITHUB_OUTPUT"[0m
+    [36;1mecho "Changed charts: $charts"[0m
+    shell: /usr/bin/bash -e {0}
+    ##[endgroup]
+    From https://github.com/openova-io/openova
+     * branch                main       -> FETCH_HEAD
+    Changed charts: platform/gitea/chart platform/harbor/chart
+    ##[group]Run for c in platform/gitea/chart platform/harbor/chart ; do
+    [36;1mfor c in platform/gitea/chart platform/harbor/chart ; do[0m
+    [36;1m  # ADR-0015 D2 (#7067): a chart whose templates call a vendored[0m
+    [36;1m  # library (file://../../topology-lib/chart) cannot lint without its[0m
+    [36;1m  # declared dependencies — build them first (charts/ is gitignored).[0m
+    [36;1m  if grep -qE '^dependencies:' "$c/Chart.yaml"; then[0m
+    [36;1m    echo "▸ helm dependency build $c"[0m
+    [36;1m    helm dependency build "$c" || exit 1[0m
+    [36;1m  fi[0m
+    [36;1m  echo "▸ helm lint $c"[0m
+    [36;1m  helm lint "$c" || exit 1[0m
+    [36;1mdone[0m
+    shell: /usr/bin/bash -e {0}
+    ##[endgroup]
+    ▸ helm dependency build platform/gitea/chart
+    Getting updates for unmanaged Helm repositories...
+    ...Successfully got an update from the "https://dl.gitea.com/charts" chart repository
+    Saving 1 charts
+    Downloading gitea from repo https://dl.gitea.com/charts
+    Deleting outdated charts
+    ▸ helm lint platform/gitea/chart
+    ==> Linting platform/gitea/chart
+    [INFO] Chart.yaml: icon is recommended
+
+    1 chart(s) linted, 0 chart(s) failed
+    ▸ helm dependency build platform/harbor/chart
+    Getting updates for unmanaged Helm repositories...
+    ...Successfully got an update from the "https://helm.goharbor.io" chart repository
+    Saving 1 charts
+    Downloading harbor from repo https://helm.goharbor.io
+    Save error occurred:  could not download harbor-1.18.3.tgz: non-absolute URLs should be in form of repo_name/path_to_chart, got: harbor-1.18.3.tgz
+    Error: could not download harbor-1.18.3.tgz: non-absolute URLs should be in form of repo_name/path_to_chart, got: harbor-1.18.3.tgz
+    ##[error]Process completed with exit code 1.
+reported_at: 2026-11-13T12:14:50Z
