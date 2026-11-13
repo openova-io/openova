@@ -36,6 +36,8 @@ log()   { printf '[%s] %s\n' "$(date -u +%H:%M:%S)" "$*"; }
 rendered() { kubectl -n "$TNS" get cm "$RCM" -o jsonpath='{.data.action}' 2>/dev/null || true; }
 rev()      { kubectl -n "$FNS" get hr "$HR" -o jsonpath='{.status.history[0].version}' 2>/dev/null || true; }
 hrfield()  { kubectl -n "$FNS" get hr "$HR" -o jsonpath="{.status.$1}" 2>/dev/null || true; }
+cond()     { kubectl -n "$FNS" get hr "$HR" -o jsonpath="{.status.conditions[?(@.type==\"$1\")].$2}" 2>/dev/null || true; }
+hrstate()  { echo "ready=$(cond Ready status)/$(cond Ready reason) stalled=$(cond Stalled status)/$(cond Stalled reason) failures=$(hrfield failures) upgradeFailures=$(hrfield upgradeFailures)"; }
 
 diag() {
   [[ -n "$PF" ]] && kill "$PF" 2>/dev/null || true
@@ -223,13 +225,56 @@ if [[ "$lat" == none ]]; then
     "$(judge "$lat")" "$lat" "$rb" "$(rev)" ""
 fi
 
+# T10: the pair with nothing changed: the cost of always stamping the pair.
+rb=$(rev); tok=$(token); stamp_both "$tok"
+hf=$(wait_field lastHandledForceAt "$tok" 60); sleep 5; ra=$(rev)
+record T10 "forceAt plus requestedAt with the values unchanged" "a forced upgrade" \
+  "$([[ "$rb" == "$ra" ]] && echo no-new-revision || echo new-revision)" "$hf" "$rb" "$ra" ""
+
+# X0..X4: a release whose upgrade retries are exhausted (Stalled), the state
+# catalyst-api already meets in production (#5261). Does the mode switch still land?
+rb=$(rev); set_cm Break 0; tok=$(token); t0=$(now); stamp_req "$tok"
+st=""; while :; do
+  if [[ "$(cond Stalled status)" == True ]]; then st=$(since "$t0"); break; fi
+  if over "$t0" 300; then st=none; break; fi
+  sleep 1
+done
+record X0 "ConfigMap set to a value whose upgrade the API server refuses, then stamp; waited 300s for Stalled" \
+  "Stalled after the upgrade retries (3)" "$([[ $st == none ]] && echo not-stalled || echo stalled)" "$st" "$rb" "$(rev)" "$(hrstate)"
+if [[ "$st" != none ]]; then
+  rb=$(rev); tok=$(token); stamp_req "$tok"
+  h=$(wait_field lastHandledReconcileAt "$tok" 60); sleep 10; ra=$(rev)
+  record X1 "Stalled: stamp requestedAt, values unchanged" "nothing happens" \
+    "$([[ "$rb" == "$ra" ]] && echo no-new-revision || echo new-revision)" "$h" "$rb" "$ra" "$(hrstate)"
+
+  if [[ "$(rendered)" == Audit ]]; then want=Enforce; else want=Audit; fi
+  set_cm "$want" 0
+  rb=$(rev); tok=$(token); t0=$(now); stamp_req "$tok"
+  lat=$(wait_rendered "$want" "$t0" 120)
+  record X2 "Stalled: ConfigMap fixed to $want, then stamp requestedAt alone" "the open question" \
+    "$(judge "$lat")" "$lat" "$rb" "$(rev)" "$(hrstate)"
+  if [[ "$lat" == none ]]; then
+    rb=$(rev); tok=$(token); t0=$(now); stamp_both "$tok"
+    lat=$(wait_rendered "$want" "$t0" 120)
+    record X3 "Stalled: same fix, then forceAt plus requestedAt" "the open question" \
+      "$(judge "$lat")" "$lat" "$rb" "$(rev)" "$(hrstate)"
+    if [[ "$lat" == none ]]; then
+      rb=$(rev); tok=$(token); t0=$(now)
+      kubectl -n "$FNS" annotate hr "$HR" --overwrite "reconcile.fluxcd.io/requestedAt=$tok" "reconcile.fluxcd.io/resetAt=$tok" >/dev/null
+      lat=$(wait_rendered "$want" "$t0" 120)
+      record X4 "Stalled: same fix, then resetAt plus requestedAt" "the open question" \
+        "$(judge "$lat")" "$lat" "$rb" "$(rev)" "$(hrstate)"
+    fi
+  fi
+fi
+
 # ---------------------------------------------------------------- verdict
 stamp_trials='["T2","R1","R2","R3","R4","R5","T7"]'
 n_stamp=$(jq -s --argjson ids "$stamp_trials" '[.[] | select(.trial as $t | $ids | index($t))] | length' "$RES")
 n_yes=$(jq -s --argjson ids "$stamp_trials" '[.[] | select((.trial as $t | $ids | index($t)) and .applied=="yes")] | length' "$RES")
 lat_list=$(jq -rs --argjson ids "$stamp_trials" '[.[] | select(.trial as $t | $ids | index($t)) | .latency_s] | join(",")' "$RES")
 lat_max=$(jq -rs --argjson ids "$stamp_trials" '[.[] | select(.trial as $t | $ids | index($t)) | .latency_s | tonumber? // empty] | max // "none"' "$RES")
-get() { jq -rs --arg t "$1" '.[] | select(.trial==$t) | .applied' "$RES"; }
+get() { local v; v=$(jq -rs --arg t "$1" '.[] | select(.trial==$t) | .applied' "$RES"); echo "${v:-not-run}"; }
 
 if [[ "$n_stamp" -gt 0 && "$n_yes" == "$n_stamp" && "$(get T1)" == no ]]; then outcome=yes
 elif [[ "$(get T6)" == yes ]]; then outcome=forceAt
@@ -239,7 +284,8 @@ echo "RESULT leg=$LEG helm-controller=$HC_IMAGE kubernetes=$K8S"
 echo "RESULT stamp_applied=$n_yes/$n_stamp latencies_s=[$lat_list] max_s=$lat_max bound_s=$AT_ONCE"
 echo "RESULT no_stamp_applied(T1)=$(get T1) noop_stamp(T3)=$(get T3) stamp_before_change(T4)=$(get T4)"
 echo "RESULT forceAt_alone(T5)=$(get T5) forceAt_with_requestedAt(T6)=$(get T6) empty_document(T7)=$(get T7)"
-echo "RESULT watch_label_alone(T8a)=$(get T8a) watch_label_change(T8b)=$(get T8b)"
+echo "RESULT watch_label_alone(T8a)=$(get T8a) watch_label_change(T8b)=$(get T8b) pair_unchanged(T10)=$(get T10)"
+echo "RESULT stalled(X0)=$(get X0) stamp_unchanged(X1)=$(get X1) stamp_after_fix(X2)=$(get X2) pair_after_fix(X3)=$(get X3) reset_after_fix(X4)=$(get X4)"
 echo "OUTCOME leg=$LEG $outcome"
 
 {

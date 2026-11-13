@@ -1,0 +1,10 @@
+{{- /* Trial X: action "Break" adds an object the API server refuses (invalid
+name), so the Helm upgrade fails after Helm stored the release, the way a
+real upgrade failure does. Used only to drive the release into Stalled. */ -}}
+{{- if eq (.Values.compliancePolicies.probesPresent.action | default "") "Break" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: Invalid_Name_CMP_S6
+data: {}
+{{- end }}
