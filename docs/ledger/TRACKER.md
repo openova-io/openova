@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T08:15:04Z` |
+| Last refreshed | `2026-11-13T08:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,14 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T08:29 | [#7373](https://github.com/openova-io/openova/pull/7373) | #7087 | docs(ledger): result of the lab test SEC-135 (SEC-135) |
+| 2026-11-13T08:28 | [#7372](https://github.com/openova-io/openova/pull/7372) | #7087 | docs(ledger): result of the lab test SEC-271 (SEC-271) |
+| 2026-11-13T08:28 | [#7371](https://github.com/openova-io/openova/pull/7371) | #7087 | docs(ledger): result of the lab test SOV-080 (SOV-080) |
+| 2026-11-13T08:28 | [#7370](https://github.com/openova-io/openova/pull/7370) | #7087 | docs(ledger): result of the lab test BSS-S2 (BSS-S2) |
+| 2026-11-13T08:28 | [#7369](https://github.com/openova-io/openova/pull/7369) | #7087 | docs(ledger): result of the lab test SVC-315 (SVC-315) |
+| 2026-11-13T08:28 | [#7368](https://github.com/openova-io/openova/pull/7368) | #7087 | docs(ledger): result of the lab test SOV-070 (SOV-070) |
+| 2026-11-13T08:28 | [#7367](https://github.com/openova-io/openova/pull/7367) | #7087 | docs(ledger): result of the lab test NET-300 (NET-300) |
+| 2026-11-13T08:29 | [#7364](https://github.com/openova-io/openova/pull/7364) | #7354 | test(acceptance): record the function-test result of every r |
 | 2026-11-13T07:51 | [#7363](https://github.com/openova-io/openova/pull/7363) | #7356 | refactor(cloud-init): one variables ConfigMap for the inline |
 | 2026-11-13T07:41 | [#7362](https://github.com/openova-io/openova/pull/7362) | #7087 | docs(ledger): plan update |
 | 2026-11-13T07:49 | [#7361](https://github.com/openova-io/openova/pull/7361) | #7350 | refactor(api): delete the endpoint pull-request pipeline and |
@@ -329,14 +337,6 @@ flowchart LR
 | 2026-11-13T06:34 | [#7330](https://github.com/openova-io/openova/pull/7330) | #7087 | docs(ledger): result of the lab test SEC-130 (SEC-130) |
 | 2026-11-13T06:52 | [#7329](https://github.com/openova-io/openova/pull/7329) | #7087 | docs(ledger): result of the lab test MIG-050 (MIG-050) |
 | 2026-11-13T06:35 | [#7328](https://github.com/openova-io/openova/pull/7328) | #7087 | docs(ledger): result of the lab test SVC-210 (SVC-210) |
-| 2026-11-13T06:33 | [#7327](https://github.com/openova-io/openova/pull/7327) | #7087 | docs(ledger): result of the lab test SVC-120 (SVC-120) |
-| 2026-11-13T06:33 | [#7326](https://github.com/openova-io/openova/pull/7326) | #7087 | docs(ledger): result of the lab test CMP-S5 (CMP-S5) |
-| 2026-11-13T05:38 | [#7325](https://github.com/openova-io/openova/pull/7325) | #7087 | docs(ledger): plan update |
-| 2026-11-13T05:37 | [#7324](https://github.com/openova-io/openova/pull/7324) | #7087 | docs(sessions): hw307 browser walk of six north-star screen  |
-| 2026-11-13T05:19 | [#7321](https://github.com/openova-io/openova/pull/7321) | #7087 | docs(ledger): plan update |
-| 2026-11-13T05:25 | [#7320](https://github.com/openova-io/openova/pull/7320) | #7186 | fix(billing): order capture never prices from a second list; |
-| 2026-11-13T05:25 | [#7319](https://github.com/openova-io/openova/pull/7319) | #7265 | refactor(api): read the ClusterMesh state, and a mode switch |
-| 2026-11-13T05:25 | [#7318](https://github.com/openova-io/openova/pull/7318) | #7282 | feat(providers): publish the network registry of a Sovereign |
 
 ---
 
