@@ -85,3 +85,6 @@ core/services/tenant/handlers/sandbox_consumer_test.go
 platform/cert-manager-dynadot-webhook
 tests/e2e/hetzner-provisioning
 .github/workflows/test-hetzner-e2e.yaml
+products/catalyst/bootstrap/api/internal/store/crd_store.go
+products/catalyst/bootstrap/api/internal/store/crd_store_test.go
+products/catalyst/chart/crds/provisioningstate.yaml

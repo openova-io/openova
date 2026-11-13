@@ -32,8 +32,7 @@
       "products/catalyst/bootstrap/api/internal/handler/user_access.go": 3,
       "products/catalyst/bootstrap/api/internal/handler/wipe_drain.go": 3,
       "products/catalyst/bootstrap/api/internal/k8scache/sar.go": 1,
-      "products/catalyst/bootstrap/api/internal/provisioner/provisioner.go": 1,
-      "products/catalyst/bootstrap/api/internal/store/crd_store.go": 5
+      "products/catalyst/bootstrap/api/internal/provisioner/provisioner.go": 1
     },
     "R": {
       "core/services/provisioning/handlers/consumer.go": 4,
