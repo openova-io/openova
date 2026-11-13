@@ -1746,12 +1746,13 @@ checks:
 - id: NET-G04
   title: Network census recorded
   owner: NET
-  state: not-built
+  state: required
   runs_in: [local, cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Network census recorded
+  implementation: tests/acceptance/sovereign/internal/suite/check_network_census.go
   delivered_by: NET-060
 - id: NET-G06
   title: Default deny
