@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T09:15:03Z` |
+| Last refreshed | `2026-11-13T09:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,9 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6853](https://github.com/openova-io/openova/issues/6853) | chargeback meters only 5 of 16 provisionable resource kinds — everything else  | Other |
-| [#6855](https://github.com/openova-io/openova/issues/6855) | chargeback bills the whole Huawei project to one customer — bastion-openova is | Other |
-| [#6857](https://github.com/openova-io/openova/issues/6857) | Four extended listers 400 against the real Huawei gateway — limit=200 rejected | Other |
 | [#6859](https://github.com/openova-io/openova/issues/6859) | scope_token is unsettable, so the #6855 project-scoping fix is inert — every s | Other |
 | [#6861](https://github.com/openova-io/openova/issues/6861) | Every Blueprint PR races the deploy-bot for the umbrella chart version — auto- | Other |
 | [#6867](https://github.com/openova-io/openova/issues/6867) | chargeback: bring cost analysis to cloud-provider level — overview renders zer | Other |
@@ -300,6 +297,9 @@ flowchart LR
 | [#7383](https://github.com/openova-io/openova/issues/7383) | CLD-021 Delete the 24 infrastructure mutation routes and the claim writer | Other |
 | [#7384](https://github.com/openova-io/openova/issues/7384) | PRD-502 Sandbox ledger | Other |
 | [#7385](https://github.com/openova-io/openova/issues/7385) | SEC-030 etcd encryption on at first boot | Other |
+| [#7394](https://github.com/openova-io/openova/issues/7394) | FND-011 CI bumps chart versions; pull requests may not | Other |
+| [#7395](https://github.com/openova-io/openova/issues/7395) | SOV-140 Substrate window, part 2: revocable bootstrap access, peer tokens, node  | Other |
+| [#7396](https://github.com/openova-io/openova/issues/7396) | SOV-150 Kit sources become substitutions, with a render-equivalence test | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T09:29 | [#7392](https://github.com/openova-io/openova/pull/7392) | #7087 | docs(ledger): result of the lab test NET-290 (NET-290) |
+| 2026-11-13T09:29 | [#7391](https://github.com/openova-io/openova/pull/7391) | #7087 | docs(ledger): result of the lab test SOV-090 (SOV-090) |
 | 2026-11-13T09:12 | [#7386](https://github.com/openova-io/openova/pull/7386) | #7322 | feat(fingate): generate the types and strict server interfac |
 | 2026-11-13T08:58 | [#7382](https://github.com/openova-io/openova/pull/7382) | #7087 | docs(ledger): plan update |
 | 2026-11-13T08:45 | [#7375](https://github.com/openova-io/openova/pull/7375) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-13T06:14 | [#7338](https://github.com/openova-io/openova/pull/7338) | #7087 | docs(ledger): plan update |
 | 2026-11-13T06:06 | [#7337](https://github.com/openova-io/openova/pull/7337) | #7197 | chore(api): remove the DR runbook playback and preflight rou |
 | 2026-11-13T06:06 | [#7336](https://github.com/openova-io/openova/pull/7336) | #7317 | feat(cloudprofile): check an installation document and print |
-| 2026-11-13T06:33 | [#7335](https://github.com/openova-io/openova/pull/7335) | #7087 | docs(ledger): result of the lab test SOV-060 (SOV-060) |
-| 2026-11-13T06:34 | [#7334](https://github.com/openova-io/openova/pull/7334) | #7087 | docs(ledger): result of the lab test CMP-S2 (CMP-S2) |
 
 ---
 
