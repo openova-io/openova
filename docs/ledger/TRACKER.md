@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T13:00:03Z` |
+| Last refreshed | `2026-11-13T13:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7117](https://github.com/openova-io/openova/issues/7117) | FND-091 Remove committed binaries and root clutter; add the hygiene guard | Other |
 | [#7135](https://github.com/openova-io/openova/issues/7135) | FND-092 Stop building the Sandbox images | Other |
 | [#7140](https://github.com/openova-io/openova/issues/7140) | BSS-010 Decision record: commerce and billing | Other |
 | [#7141](https://github.com/openova-io/openova/issues/7141) | CLD-063 Mirror the Crossplane packages | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#7436](https://github.com/openova-io/openova/issues/7436) | FND-098 Remove two retired chart folders and one dead harness | Other |
 | [#7437](https://github.com/openova-io/openova/issues/7437) | SOV-035 Delete the ProvisioningState kind and its unwired store | Other |
 | [#7438](https://github.com/openova-io/openova/issues/7438) | SOV-320 Sign-in mail without the parent's credential | Other |
+| [#7446](https://github.com/openova-io/openova/issues/7446) | CLD-113 Mesh and topology read the profile | Other |
 
 ---
 
@@ -307,12 +307,16 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T13:11 | [#7442](https://github.com/openova-io/openova/pull/7442) | #7434 | refactor(flux): declare HelmRepository at source v1 outside  |
+| 2026-11-13T13:12 | [#7441](https://github.com/openova-io/openova/pull/7441) | #7435 | feat(chart): install the intent lock in audit mode with guar |
+| 2026-11-13T13:04 | [#7440](https://github.com/openova-io/openova/pull/7440) | #7438 | fix(stalwart-sovereign): a bounded setup job that is no inst |
 | 2026-11-13T12:31 | [#7439](https://github.com/openova-io/openova/pull/7439) | #7087 | docs(ledger): plan update |
 | 2026-11-13T12:37 | [#7432](https://github.com/openova-io/openova/pull/7432) | #7420 | chore(tenant): remove the Sandbox orchestrator, its grants a |
 | 2026-11-13T12:36 | [#7431](https://github.com/openova-io/openova/pull/7431) | #7425 | fix(ci): four workflows install Helm 3.16.3 instead of 3.16. |
 | 2026-11-13T12:21 | [#7428](https://github.com/openova-io/openova/pull/7428) | #7095 | chore(policy): retired names lose their policy privileges (N |
 | 2026-11-13T12:21 | [#7427](https://github.com/openova-io/openova/pull/7427) | #7419 | refactor(api): move route registration out of main into one  |
 | 2026-11-13T12:17 | [#7426](https://github.com/openova-io/openova/pull/7426) | #7422 | fix(secrets): scope the OpenBao keys of External Secrets at  |
+| 2026-11-13T13:03 | [#7425](https://github.com/openova-io/openova/pull/7425) | #7423 | feat(sovereign): Harbor and Gitea create the registry projec |
 | 2026-11-13T12:17 | [#7424](https://github.com/openova-io/openova/pull/7424) | #7421 | chore(chart): remove the Runbook and SecretPolicy definition |
 | 2026-11-13T12:01 | [#7418](https://github.com/openova-io/openova/pull/7418) | #7087 | docs(ledger): plan update |
 | 2026-11-13T11:26 | [#7417](https://github.com/openova-io/openova/pull/7417) | #7087 | docs(ledger): result of the lab test PRD-080 (PRD-080) |
@@ -333,10 +337,6 @@ flowchart LR
 | 2026-11-13T10:08 | [#7402](https://github.com/openova-io/openova/pull/7402) | #7087 | docs(ledger): plan update |
 | 2026-11-13T10:10 | [#7401](https://github.com/openova-io/openova/pull/7401) | #7194 | test(charts): function tests for the cnpg, postgres, valkey, |
 | 2026-11-13T10:13 | [#7400](https://github.com/openova-io/openova/pull/7400) | #7385 | fix(cloud-init): encrypt Secrets in etcd with secretbox at f |
-| 2026-11-13T10:01 | [#7399](https://github.com/openova-io/openova/pull/7399) | #7396 | test(kit): a render-equivalence check for the kit and its su |
-| 2026-11-13T10:03 | [#7398](https://github.com/openova-io/openova/pull/7398) | #7087 | docs(ledger): plan update |
-| 2026-11-13T09:41 | [#7397](https://github.com/openova-io/openova/pull/7397) | #7384 | feat(fingate): add the sandbox ledger, a test bank that serv |
-| 2026-11-13T09:30 | [#7393](https://github.com/openova-io/openova/pull/7393) | #7087 | docs(ledger): plan update |
 
 ---
 
