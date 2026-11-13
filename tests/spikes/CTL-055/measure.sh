@@ -432,8 +432,15 @@ ipof() { docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{e
 IPA=$(ipof gitea-a); IPB=$(ipof gitea-b)
 hooks_from() { docker logs hooksink 2>&1 | grep -c "^HOOK $1 push"; }
 rec s11_gitea_hook_files_r1_a_b "$(hooks_on gitea-a ctl/r1) $(hooks_on gitea-b ctl/r1)"
-api "$A" POST /admin/hooks '{"type":"gitea","config":{"url":"http://hooksink:8080/","content_type":"json"},"events":["push"],"active":true}'
-rec s11_create_system_webhook_http "$CODE"
+HOOK_BODY='{"type":"gitea","config":{"url":"http://hooksink:8080/","content_type":"json"},"events":["push"],"active":true}'
+# Run 2 showed the admin hook firing only for a repository created after it.
+# Record what row the admin endpoint makes, then use a repository webhook on
+# r1 (one row in the shared table) to see which Gitea announces each push.
+api "$A" POST /admin/hooks "$HOOK_BODY"
+rec s11_create_admin_hook_http "$CODE"
+api "$A" POST /repos/ctl/r1/hooks "$HOOK_BODY"
+rec s11_create_repo_hook_r1_http "$CODE"
+rec s11_webhook_rows "$(psqlq "select string_agg(format('id=%s repo_id=%s owner_id=%s is_system_webhook=%s', id, repo_id, owner_id, is_system_webhook), '; ' order by id) from webhook")"
 ACT0=$(actions_r1); RB0=$(b_runs)
 commit_a ctl/r1 hook-1
 t0=$(now_ms)
@@ -462,6 +469,8 @@ rec s11_after_resync_b_mirror_runs_added "$(($(b_runs) - RB0))"
 rec s11_after_resync_row "$(row "$M1")"
 HA=$(disk_ref gitea-a ctl/r1 refs/heads/main); HB=$(disk_ref gitea-b ctl/r1 refs/heads/main)
 rec s11_final_main_equal "$([ "$HA" = "$HB" ] && echo yes || echo no)"
+rec s11_sink_ips_a_b "$IPA $IPB"
+docker logs hooksink >"$OUT/hooksink.log" 2>&1
 
 # ------------- S10: a repository created after the mirror set-up (r2) --
 api "$A" POST /orgs/ctl/repos '{"name":"r2","auto_init":true,"default_branch":"main","private":true}'
@@ -485,6 +494,9 @@ t0=$(now_ms)
 rec s10_commit_after_b_reinit_on_b_disk_after_ms "$(wait_b ctl/r2 refs/heads/main "$SHA" "$t0" 60)"
 sleep 2
 rec s10_row_r2_after_b_reinit "$(row "$M2" | cut -c1-300)"
+
+rec s10_webhook_rows_after_r2 "$(psqlq "select string_agg(format('id=%s repo_id=%s owner_id=%s is_system_webhook=%s', id, repo_id, owner_id, is_system_webhook), '; ' order by id) from webhook")"
+docker logs hooksink >"$OUT/hooksink.log" 2>&1
 
 # ----------------------------------------------------- logs of both sides --
 docker logs gitea-a >"$OUT/gitea-a.final.log" 2>&1
