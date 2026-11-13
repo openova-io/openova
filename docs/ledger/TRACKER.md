@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T00:45:01Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-13T01:00:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,13 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T00:51 | [#7253](https://github.com/openova-io/openova/pull/7253) | #7219 | docs(security): state what is true of secrets today and name |
+| 2026-11-13T00:51 | [#7252](https://github.com/openova-io/openova/pull/7252) | #7238 | chore(ci): guard that source addresses written into the code |
+| 2026-11-13T00:51 | [#7250](https://github.com/openova-io/openova/pull/7250) | #7167 | chore(api): remove the Sandbox routes, handlers and event pu |
+| 2026-11-13T00:50 | [#7248](https://github.com/openova-io/openova/pull/7248) | #7142 | feat(gate): checks for the compliance score moving by push a |
+| 2026-11-13T00:49 | [#7247](https://github.com/openova-io/openova/pull/7247) | #7231 | docs(adr): record 0031 on the infrastructure plane (INF-070) |
+| 2026-11-13T00:50 | [#7246](https://github.com/openova-io/openova/pull/7246) | #7236 | docs(keycloak): remove the unbacked open-banking claims from |
+| 2026-11-13T00:50 | [#7245](https://github.com/openova-io/openova/pull/7245) | #7235 | fix(console): fall back to the host vCluster in the legacy p |
 | 2026-11-13T00:18 | [#7244](https://github.com/openova-io/openova/pull/7244) | #7087 | docs(ledger): plan update: the check list names the implemen |
 | 2026-11-13T00:14 | [#7243](https://github.com/openova-io/openova/pull/7243) | #7087 | docs(ledger): plan update: next tickets |
 | 2026-11-13T00:15 | [#7242](https://github.com/openova-io/openova/pull/7242) | #7145 | docs(protocol): ticket linter, Issue template and the execut |
@@ -330,13 +337,6 @@ flowchart LR
 | 2026-11-12T22:51 | [#7202](https://github.com/openova-io/openova/pull/7202) | #7187 | fix(marketplace): the plan step says when prices are unavail |
 | 2026-11-12T22:50 | [#7201](https://github.com/openova-io/openova/pull/7201) | #7192 | chore(clusters): delete the two legacy per-Sovereign overlay |
 | 2026-11-12T22:50 | [#7200](https://github.com/openova-io/openova/pull/7200) | #7185 | docs(adr): record 0033 on the access plane (ACC-060) |
-| 2026-11-12T22:16 | [#7196](https://github.com/openova-io/openova/pull/7196) | #7087 | docs(ledger): plan update: nine tickets read, FND-171, two s |
-| 2026-11-12T22:01 | [#7195](https://github.com/openova-io/openova/pull/7195) | #7172 | fix(huawei): close the peer ports to the internet and add ga |
-| 2026-11-12T21:50 | [#7184](https://github.com/openova-io/openova/pull/7184) | #7087 | docs(ledger): plan update: NET-010 rewritten, two orderings, |
-| 2026-11-12T21:05 | [#7182](https://github.com/openova-io/openova/pull/7182) | #7169 | docs(ledger): title the UAT ledger a regression list and mar |
-| 2026-11-12T21:06 | [#7181](https://github.com/openova-io/openova/pull/7181) | #7168 | chore(console): remove the Sandbox pages, routes and browser |
-| 2026-11-12T21:05 | [#7180](https://github.com/openova-io/openova/pull/7180) | #7170 | ci: check the state markers of the canonical documents, and  |
-| 2026-11-12T21:06 | [#7179](https://github.com/openova-io/openova/pull/7179) | #7165 | fix(k8scache): start an optional kinds informer when its def |
 
 ---
 
