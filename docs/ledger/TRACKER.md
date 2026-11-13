@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T09:30:06Z` |
+| Last refreshed | `2026-11-13T09:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,8 +307,11 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T09:41 | [#7397](https://github.com/openova-io/openova/pull/7397) | #7384 | feat(fingate): add the sandbox ledger, a test bank that serv |
+| 2026-11-13T09:30 | [#7393](https://github.com/openova-io/openova/pull/7393) | #7087 | docs(ledger): plan update |
 | 2026-11-13T09:29 | [#7392](https://github.com/openova-io/openova/pull/7392) | #7087 | docs(ledger): result of the lab test NET-290 (NET-290) |
 | 2026-11-13T09:29 | [#7391](https://github.com/openova-io/openova/pull/7391) | #7087 | docs(ledger): result of the lab test SOV-090 (SOV-090) |
+| 2026-11-13T09:33 | [#7390](https://github.com/openova-io/openova/pull/7390) | #7363 | fix(provisioner): the cloud-init test follows the variables  |
 | 2026-11-13T09:12 | [#7386](https://github.com/openova-io/openova/pull/7386) | #7322 | feat(fingate): generate the types and strict server interfac |
 | 2026-11-13T08:58 | [#7382](https://github.com/openova-io/openova/pull/7382) | #7087 | docs(ledger): plan update |
 | 2026-11-13T08:45 | [#7375](https://github.com/openova-io/openova/pull/7375) | #7087 | docs(ledger): plan update |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-13T06:47 | [#7344](https://github.com/openova-io/openova/pull/7344) | #7087 | docs(ledger): result of the lab test SVC-340 (SVC-340) |
 | 2026-11-13T06:47 | [#7343](https://github.com/openova-io/openova/pull/7343) | #7087 | docs(ledger): result of the lab test SEC-280 (SEC-280) |
 | 2026-11-13T07:21 | [#7342](https://github.com/openova-io/openova/pull/7342) | #7087 | docs(ledger): result of the lab test FND-002 (FND-002) |
-| 2026-11-13T06:14 | [#7338](https://github.com/openova-io/openova/pull/7338) | #7087 | docs(ledger): plan update |
-| 2026-11-13T06:06 | [#7337](https://github.com/openova-io/openova/pull/7337) | #7197 | chore(api): remove the DR runbook playback and preflight rou |
-| 2026-11-13T06:06 | [#7336](https://github.com/openova-io/openova/pull/7336) | #7317 | feat(cloudprofile): check an installation document and print |
 
 ---
 
