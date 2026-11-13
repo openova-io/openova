@@ -75,7 +75,7 @@ epics:
 - id: FND-010
   title: Release train rails
   wave: W0
-  packages: [FND-016, FND-014, FND-011, FND-012, FND-018, FND-013, FND-019, FND-020, FND-015, FND-017]
+  packages: [FND-016, FND-014, FND-011, FND-012, FND-018, FND-013, FND-020, FND-015, FND-017, FND-019]
 - id: FND-020
   title: Plan as data and the executor protocol
   wave: W0
@@ -862,7 +862,7 @@ packages:
   size: XS
   lane: RAILS
   depends_on: [FND-018]
-  after: []
+  after: [FND-020]
   touches:
   - .github/workflows/blueprint-release.yaml
   - scripts/check-release-lockstep-writer.py
@@ -889,28 +889,37 @@ packages:
   size: S
   lane: RAILS
   depends_on: [FND-018]
-  after: [FND-098]
+  after: []
   touches:
-  - .github/workflows/blueprint-release.yaml
-  - scripts/push-chart-version-bump.sh
-  - scripts/check-release-lockstep-writer.py
-  - scripts/check-bootstrap-kit-pin-sync.sh
-  - scripts/check-umbrella-republish-gate.py
   - .github/workflows/check-release-lockstep-writer.yaml
+  - .github/workflows/test-bootstrap-kit.yaml
+  - scripts/check-bootstrap-kit-pin-sync.sh
+  - scripts/check-release-lockstep-writer.py
+  - scripts/check-umbrella-republish-gate.py
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c -F 'INHERITED' scripts/check-bootstrap-kit-pin-sync.sh"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "test \"$(python3 scripts/check-umbrella-republish-gate.py --self-test | grep -c -F -- '--base: inherited failure -> exit 0, added failure -> exit 1.')\" = 1"
+  - id: A2
+    run: "python3 scripts/check-release-lockstep-writer.py --case mid-release --case noop --skip-slow --scratch-dir \"${RUNNER_TEMP:-$PWD/.lockstep-scratch}\""
+  - id: A3
+    run: "test \"$(grep -c -x -F '            base=\"$(git rev-parse HEAD^1)\"' .github/workflows/test-bootstrap-kit.yaml)\" = 1 && test \"$(grep -c -x -F '          python3 scripts/check-umbrella-republish-gate.py --self-test > /dev/null' .github/workflows/test-bootstrap-kit.yaml)\" = 1 && test \"$(grep -c -x -F '            python3 scripts/check-umbrella-republish-gate.py --ref HEAD --base HEAD^1' .github/workflows/test-bootstrap-kit.yaml)\" = 1 && test \"$(grep -c -x -F \"      - 'scripts/check-bootstrap-kit-pin-sync.sh'\" .github/workflows/check-release-lockstep-writer.yaml)\" = 2 && test \"$(grep -c -x -F \"      - 'scripts/check-umbrella-republish-gate.py'\" .github/workflows/check-release-lockstep-writer.yaml)\" = 2"
+  - id: A4
+    run: "rc=0; bash scripts/check-bootstrap-kit-pin-sync.sh --changed-only --base no-such-ref-fnd-020 > /dev/null 2>&1 || rc=$?; test \"$rc\" = 2"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: A task whose branch or test copy was taken in the middle of a release on main is judged on its own change
+  delivers: A pull request tested on a main that sits between two commits of a release is judged by the pin audit, the umbrella republish gate and the release-writer guard on what the change itself adds.
 - id: FND-021
   title: Plan file and plan tool
   area: FND
@@ -1666,7 +1675,7 @@ packages:
   size: S
   lane: RAILS
   depends_on: []
-  after: [FND-013, FND-052, FND-053, CTL-150]
+  after: [FND-013, FND-052, FND-053, CTL-150, FND-020]
   touches:
   - .github/workflows/test-bootstrap-kit.yaml
   - .github/workflows/preflight-bootstrap-kit.yaml
@@ -11032,7 +11041,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271]
-  after: [FND-011, FND-014, FND-018, FND-021, FND-022, FND-023, FND-031, FND-032, FND-033, FND-034, FND-040, FND-052, FND-053, FND-054, FND-055, FND-091, FND-092, FND-093, FND-094, FND-095, FND-097, FND-098, FND-101, FND-102, FND-103, FND-105, FND-110, FND-171, CLD-010, CLD-021, CLD-022, CLD-040, CLD-063, CLD-075, CLD-080, CLD-113, CLD-142, SOV-030, SOV-035, SOV-040, SOV-050, SOV-110, SOV-150, SEC-020, SEC-030, SEC-125, NET-030, NET-033, NET-041, NET-050, NET-090, NET-100, SVC-020, SVC-060, SVC-125, CTL-010, CTL-020, CTL-025, CTL-030, CTL-035, CTL-044, CTL-045, CTL-150, CTL-160, CTL-201, CTL-240, CMP-012, CMP-014, CMP-036, BSS-050, INF-010, PRD-030, PRD-101, PRD-102, PRD-106]
+  after: [FND-011, FND-014, FND-018, FND-020, FND-021, FND-022, FND-023, FND-031, FND-032, FND-033, FND-034, FND-040, FND-052, FND-053, FND-054, FND-055, FND-091, FND-092, FND-093, FND-094, FND-095, FND-097, FND-098, FND-101, FND-102, FND-103, FND-105, FND-110, FND-171, CLD-010, CLD-021, CLD-022, CLD-040, CLD-063, CLD-075, CLD-080, CLD-113, CLD-142, SOV-030, SOV-035, SOV-040, SOV-050, SOV-110, SOV-150, SEC-020, SEC-030, SEC-125, NET-030, NET-033, NET-041, NET-050, NET-090, NET-100, SVC-020, SVC-060, SVC-125, CTL-010, CTL-020, CTL-025, CTL-030, CTL-035, CTL-044, CTL-045, CTL-150, CTL-160, CTL-201, CTL-240, CMP-012, CMP-014, CMP-036, BSS-050, INF-010, PRD-030, PRD-101, PRD-102, PRD-106]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/26-image-signature.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -14443,7 +14452,7 @@ packages:
   size: M
   lane: RAILS
   depends_on: [FND-011, FND-091, SVC-040]
-  after: [FND-018, FND-054, FND-092, FND-093, FND-094, FND-095, FND-097, FND-098, FND-099, FND-171, FND-173, CLD-021, CLD-022, CLD-142, SOV-035, NET-042, SVC-060, CTL-030]
+  after: [FND-018, FND-020, FND-054, FND-092, FND-093, FND-094, FND-095, FND-097, FND-098, FND-099, FND-171, FND-173, CLD-021, CLD-022, CLD-142, SOV-035, NET-042, SVC-060, CTL-030]
   touches:
   - scripts/generate-catalog.py
   - scripts/tests/test_generate_catalog.py
@@ -17782,7 +17791,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CTL-040, FND-141, CTL-041]
-  after: [FND-011, SOV-130, SOV-140, SEC-020, SEC-030, NET-020, NET-031, SVC-060]
+  after: [FND-011, FND-020, SOV-130, SOV-140, SEC-020, SEC-030, NET-020, NET-031, SVC-060]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - platform/flux/chart/Chart.yaml
