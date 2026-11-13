@@ -75,7 +75,7 @@ epics:
 - id: FND-010
   title: Release train rails
   wave: W0
-  packages: [FND-016, FND-014, FND-011, FND-012, FND-018, FND-013, FND-015, FND-017]
+  packages: [FND-016, FND-014, FND-011, FND-012, FND-018, FND-013, FND-019, FND-015, FND-017]
 - id: FND-020
   title: Plan as data and the executor protocol
   wave: W0
@@ -786,7 +786,7 @@ packages:
   size: S
   lane: RAILS
   depends_on: [FND-013, FND-011]
-  after: [FND-001, FND-091, FND-031, FND-061, FND-110, CLD-040, CMP-036]
+  after: [FND-001, FND-091, FND-018, FND-031, FND-061, FND-110, CLD-040, CMP-036]
   touches:
   - scripts/ci/use-release-writer.sh
   - scripts/check-bot-writers.py
@@ -831,8 +831,41 @@ packages:
   - .github/workflows/blueprint-release.yaml
   - scripts/check-release-lockstep-writer.py
   - scripts/sync-catalog-seed-pin.py
-  - scripts/push-chart-version-bump.sh
-  - scripts/check-umbrella-republish-gate.py
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition:
+    run: "grep -c -x -F '  umbrella-follow:' .github/workflows/blueprint-release.yaml"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "python3 scripts/sync-catalog-seed-pin.py --self-test > /dev/null && test \"$(python3 scripts/sync-catalog-seed-pin.py --order 1.10.0 1.9.9)\" = higher && test \"$(python3 scripts/sync-catalog-seed-pin.py --order 1.4.1951 1.4.1952)\" = lower"
+  - id: A2
+    run: "python3 scripts/check-release-lockstep-writer.py --case stale --case stale-retry --case release-umbrella --case release --case release-retry --scratch-dir \"${RUNNER_TEMP:-$PWD/.lockstep-scratch}\""
+  - id: A3
+    run: "test \"$(grep -c -F 'sort -V' .github/workflows/blueprint-release.yaml)\" = 0 && test \"$(grep -c -F 'group: blueprint-release-${{ github.event_name }}-${{ matrix.path }}' .github/workflows/blueprint-release.yaml)\" = 1 && test \"$(grep -c -x -F '  umbrella-follow:' .github/workflows/blueprint-release.yaml)\" = 1"
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 1
+  dropped: false
+  delivers: A release run of an older chart version leaves every site at the newer version that is already there, and every catalogue pin the release writer moves is followed by a release of the umbrella chart that carries it.
+- id: FND-019
+  title: The release writer moves the pin of a chart that several kit slots install
+  area: FND
+  epic: FND-010
+  type: fix
+  wave: W0
+  size: XS
+  lane: RAILS
+  depends_on: [FND-018]
+  after: []
+  touches:
+  - .github/workflows/blueprint-release.yaml
+  - scripts/check-release-lockstep-writer.py
   resources: []
   flips: []
   implements: []
@@ -846,7 +879,7 @@ packages:
   repeatable: false
   ticket_rev: 0
   dropped: false
-  delivers: A release run of an older chart version leaves every site at the newer version that is already there, and every catalogue pin the release writer moves is followed by a release of the umbrella chart that carries it
+  delivers: A release of a chart that several kit slots install moves every one of its pins in one commit
 - id: FND-021
   title: Plan file and plan tool
   area: FND
@@ -1722,7 +1755,7 @@ packages:
   size: M
   lane: RAILS
   depends_on: [FND-061]
-  after: [FND-056, FND-092]
+  after: [FND-056, FND-092, FND-018]
   touches:
   - .github/workflows/admin-build.yaml
   - .github/workflows/agenity-build.yaml
@@ -10949,7 +10982,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271]
-  after: [FND-011, FND-014, FND-021, FND-022, FND-023, FND-031, FND-032, FND-033, FND-034, FND-040, FND-052, FND-053, FND-054, FND-055, FND-091, FND-092, FND-093, FND-094, FND-095, FND-097, FND-098, FND-101, FND-102, FND-103, FND-105, FND-110, FND-171, CLD-010, CLD-021, CLD-022, CLD-040, CLD-063, CLD-075, CLD-080, CLD-113, CLD-142, SOV-030, SOV-035, SOV-040, SOV-050, SOV-110, SOV-150, SEC-020, SEC-030, SEC-125, NET-030, NET-033, NET-041, NET-050, NET-090, NET-100, SVC-020, SVC-060, SVC-125, CTL-010, CTL-020, CTL-025, CTL-030, CTL-035, CTL-044, CTL-150, CTL-160, CTL-201, CTL-240, CMP-012, CMP-014, CMP-036, BSS-050, INF-010, PRD-030, PRD-101, PRD-102, PRD-106]
+  after: [FND-011, FND-014, FND-018, FND-021, FND-022, FND-023, FND-031, FND-032, FND-033, FND-034, FND-040, FND-052, FND-053, FND-054, FND-055, FND-091, FND-092, FND-093, FND-094, FND-095, FND-097, FND-098, FND-101, FND-102, FND-103, FND-105, FND-110, FND-171, CLD-010, CLD-021, CLD-022, CLD-040, CLD-063, CLD-075, CLD-080, CLD-113, CLD-142, SOV-030, SOV-035, SOV-040, SOV-050, SOV-110, SOV-150, SEC-020, SEC-030, SEC-125, NET-030, NET-033, NET-041, NET-050, NET-090, NET-100, SVC-020, SVC-060, SVC-125, CTL-010, CTL-020, CTL-025, CTL-030, CTL-035, CTL-044, CTL-150, CTL-160, CTL-201, CTL-240, CMP-012, CMP-014, CMP-036, BSS-050, INF-010, PRD-030, PRD-101, PRD-102, PRD-106]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/26-image-signature.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -14360,7 +14393,7 @@ packages:
   size: M
   lane: RAILS
   depends_on: [FND-011, FND-091, SVC-040]
-  after: [FND-054, FND-092, FND-093, FND-094, FND-095, FND-097, FND-098, FND-099, FND-171, FND-173, CLD-021, CLD-022, CLD-142, SOV-035, NET-042, SVC-060, CTL-030]
+  after: [FND-018, FND-054, FND-092, FND-093, FND-094, FND-095, FND-097, FND-098, FND-099, FND-171, FND-173, CLD-021, CLD-022, CLD-142, SOV-035, NET-042, SVC-060, CTL-030]
   touches:
   - scripts/generate-catalog.py
   - scripts/tests/test_generate_catalog.py
