@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T06:45:02Z` |
+| Last refreshed | `2026-11-13T07:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T06:47 | [#7344](https://github.com/openova-io/openova/pull/7344) | #7087 | docs(ledger): result of the lab test SVC-340 (SVC-340) |
+| 2026-11-13T06:47 | [#7343](https://github.com/openova-io/openova/pull/7343) | #7087 | docs(ledger): result of the lab test SEC-280 (SEC-280) |
 | 2026-11-13T06:14 | [#7338](https://github.com/openova-io/openova/pull/7338) | #7087 | docs(ledger): plan update |
 | 2026-11-13T06:06 | [#7337](https://github.com/openova-io/openova/pull/7337) | #7197 | chore(api): remove the DR runbook playback and preflight rou |
 | 2026-11-13T06:06 | [#7336](https://github.com/openova-io/openova/pull/7336) | #7317 | feat(cloudprofile): check an installation document and print |
@@ -316,6 +318,7 @@ flowchart LR
 | 2026-11-13T06:34 | [#7332](https://github.com/openova-io/openova/pull/7332) | #7087 | docs(ledger): result of the lab test CLD-050 (CLD-050) |
 | 2026-11-13T06:35 | [#7331](https://github.com/openova-io/openova/pull/7331) | #7087 | docs(ledger): result of the lab test SEC-140 (SEC-140) |
 | 2026-11-13T06:34 | [#7330](https://github.com/openova-io/openova/pull/7330) | #7087 | docs(ledger): result of the lab test SEC-130 (SEC-130) |
+| 2026-11-13T06:52 | [#7329](https://github.com/openova-io/openova/pull/7329) | #7087 | docs(ledger): result of the lab test MIG-050 (MIG-050) |
 | 2026-11-13T06:35 | [#7328](https://github.com/openova-io/openova/pull/7328) | #7087 | docs(ledger): result of the lab test SVC-210 (SVC-210) |
 | 2026-11-13T06:33 | [#7327](https://github.com/openova-io/openova/pull/7327) | #7087 | docs(ledger): result of the lab test SVC-120 (SVC-120) |
 | 2026-11-13T06:33 | [#7326](https://github.com/openova-io/openova/pull/7326) | #7087 | docs(ledger): result of the lab test CMP-S5 (CMP-S5) |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-13T05:00 | [#7310](https://github.com/openova-io/openova/pull/7310) | #7087 | docs(ledger): plan update |
 | 2026-11-13T04:58 | [#7309](https://github.com/openova-io/openova/pull/7309) | #7281 | docs(generated): generate the tables of the provider packs a |
 | 2026-11-13T04:58 | [#7308](https://github.com/openova-io/openova/pull/7308) | #7293 | test(acceptance): record the network census of every region  |
-| 2026-11-13T04:22 | [#7306](https://github.com/openova-io/openova/pull/7306) | #7087 | docs(ledger): dashboard refreshed: 79 tasks merged |
-| 2026-11-13T04:13 | [#7305](https://github.com/openova-io/openova/pull/7305) | #7087 | docs(ledger): dashboard refreshed: 79 tasks merged |
-| 2026-11-13T04:25 | [#7304](https://github.com/openova-io/openova/pull/7304) | #7291 | ci: sign and attest the console and API images through one s |
 
 ---
 
