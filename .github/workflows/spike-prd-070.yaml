@@ -25,9 +25,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arm: [pinned, newest]
+        include:
+          # The image bp-librechat pins (read from the chart below).
+          - arm: pinned
+            reuse: "true"
+          # The newest upstream release. Upstream moved from danny-avila to
+          # LibreChat-AI; new tags are published under the new owner only.
+          - arm: newest
+            image: ghcr.io/librechat-ai/librechat:v0.8.8
+            reuse: "true"
+          # Same newest image without OPENID_REUSE_TOKENS: is the flag needed?
+          - arm: newest-no-reuse
+            image: ghcr.io/librechat-ai/librechat:v0.8.8
+            reuse: "false"
     env:
-      NEWEST_TAG: v0.8.8
       MONGO_IMAGE: mongo:7.0.14
       STUB_IMAGE: python:3.12.7-slim
       PLAYWRIGHT_VERSION: 1.49.1
@@ -51,21 +62,27 @@ jobs:
       - name: Read the platform pins
         run: |
           set -euo pipefail
-          LC_PINNED=$(yq '.librechat.image.tag' platform/librechat/chart/values.yaml)
+          LC_PINNED="$(yq '.librechat.image.repository' platform/librechat/chart/values.yaml):$(yq '.librechat.image.tag' platform/librechat/chart/values.yaml)"
           KC_TAG=$(yq '.keycloak.image.tag' platform/keycloak/chart/values.yaml)
           KC_VERSION=${KC_TAG%%-*}
-          if [ "${{ matrix.arm }}" = pinned ]; then TAG=$LC_PINNED; else TAG=$NEWEST_TAG; fi
-          case "$TAG" in
+          IMAGE="${{ matrix.image }}"
+          if [ -z "$IMAGE" ]; then IMAGE=$LC_PINNED; fi
+          case "${IMAGE##*:}" in
             v0.7.*) CONFIG_VERSION=1.1.7 ;;
             *) CONFIG_VERSION=1.3.17 ;;
           esac
-          echo "bp-librechat pins ghcr.io/danny-avila/librechat:$LC_PINNED; this arm runs $TAG (config version $CONFIG_VERSION)"
+          echo "bp-librechat pins $LC_PINNED; this arm runs $IMAGE (config version $CONFIG_VERSION, OPENID_REUSE_TOKENS=${{ matrix.reuse }})"
           echo "bp-keycloak pins keycloak $KC_TAG; the test realm runs quay.io/keycloak/keycloak:$KC_VERSION"
           {
-            echo "LC_TAG=$TAG"
+            echo "LC_IMAGE=$IMAGE"
             echo "CONFIG_VERSION=$CONFIG_VERSION"
             echo "KC_VERSION=$KC_VERSION"
           } >> "$GITHUB_ENV"
+
+      - name: Registry facts (which tags exist under each image path)
+        if: matrix.arm == 'pinned'
+        continue-on-error: true
+        run: python3 tests/spikes/PRD-070/tags.py danny-avila/librechat librechat-ai/librechat
 
       - name: Install tools
         run: |
@@ -79,7 +96,7 @@ jobs:
           echo "docker $(docker version --format '{{.Server.Version}}'); node $(node --version); python $(python --version); playwright $(npx playwright --version); pyjwt $(python -c 'import jwt; print(jwt.__version__)')"
 
       - name: Run the experiment
-        run: bash tests/spikes/PRD-070/run.sh "${{ matrix.arm }}" "$LC_TAG" "$CONFIG_VERSION" "$KC_VERSION"
+        run: bash tests/spikes/PRD-070/run.sh "${{ matrix.arm }}" "$LC_IMAGE" "$CONFIG_VERSION" "$KC_VERSION" "${{ matrix.reuse }}"
 
       - name: Keep the evidence
         if: always()

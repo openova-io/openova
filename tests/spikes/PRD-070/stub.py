@@ -16,10 +16,18 @@ REPLY = "stub reply from spike PRD-070"
 
 
 def shorten(value):
-    """A JWT-like value is shown by its start and length only; anything else in full."""
-    if value.count(".") == 2 and len(value) > 60:
-        return f"{value[:20]}... (len {len(value)})"
-    return value
+    """Show an Authorization value as credential then scheme.
+
+    A JWT credential is shown by its start and length only. The scheme is
+    printed last and quoted, because the CI log masker hides any
+    "Bearer <word>" span.
+    """
+    scheme, _, cred = value.partition(" ")
+    if not cred:
+        scheme, cred = "", value
+    if cred.count(".") == 2 and len(cred) > 60:
+        cred = f"{cred[:12]}... (JWT, len {len(cred)})"
+    return f"credential={cred!r} scheme={scheme!r}"
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -40,7 +48,7 @@ class Handler(BaseHTTPRequestHandler):
             fh.write(json.dumps(entry) + "\n")
         auth = self.headers.get("Authorization")
         print(
-            f"STUB {self.command} {self.path} Authorization: "
+            f"STUB {self.command} {self.path} Authorization header: "
             f"{shorten(auth) if auth is not None else '(absent)'}",
             flush=True,
         )

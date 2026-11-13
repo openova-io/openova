@@ -184,7 +184,8 @@ for s in steps:
                        f" sub_is_signed_in_user={a['sub_is_signed_in_user']}, aud_contains_cortex={a['aud_contains_cortex']},"
                        f" seconds_left_at_receipt={a['seconds_left_at_receipt']})")
         elif "value" in a:
-            detail += f" (value: {a['value']})"
+            scheme, _, cred = a["value"].partition(" ")
+            detail += f" (credential {cred!r}, scheme {scheme!r})"
         lines.append(f"- {s['marker']}: request at stub {s['path']}; Authorization = {detail};"
                      f" other headers = {s['extra_headers']}; reply shown = {s['reply_shown']}")
     else:

@@ -3,12 +3,12 @@
 # stub endpoint and one LibreChat version on a private docker network, signs
 # two users in through the realm with a real browser, sends messages, and
 # analyses what the stub received.
-# Usage: run.sh <label> <librechat-tag> <config-version> <keycloak-version>
+# Usage: run.sh <label> <librechat-image> <config-version> <keycloak-version> <openid-reuse-tokens>
 # Env: OUT (output dir), MONGO_IMAGE, STUB_IMAGE, PW_DIR (playwright install), EXPIRY_WAIT
 set -euo pipefail
-LABEL=$1 TAG=$2 CONFIG_VERSION=$3 KC_VERSION=$4
+LABEL=$1 IMAGE=$2 CONFIG_VERSION=$3 KC_VERSION=$4 REUSE=$5
+TAG=${IMAGE##*:}
 HERE=$(cd "$(dirname "$0")" && pwd)
-IMAGE=ghcr.io/danny-avila/librechat:$TAG
 KC_IMAGE=quay.io/keycloak/keycloak:$KC_VERSION
 ISSUER=https://kc.spike.test:8443/realms/spike
 CLIENT_VALUE=spike-prd-070-throwaway-client-value
@@ -33,6 +33,11 @@ done
 LC_DIGEST=$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE")
 docker run --rm --entrypoint node "$IMAGE" --version | sed 's/^/librechat node: /'
 docker run --rm --entrypoint sh "$IMAGE" -c 'grep -m1 "\"version\"" /app/package.json || true' | sed 's/^/librechat package.json: /'
+# Does the shipped server code know the user-token placeholders and the reuse flag at all?
+for needle in LIBRECHAT_OPENID_ACCESS_TOKEN LIBRECHAT_USER_EMAIL OPENID_REUSE_TOKENS federatedTokens; do
+  n=$(docker run --rm --entrypoint sh "$IMAGE" -c "grep -rl --exclude-dir=node_modules --exclude-dir=client '$needle' /app/api /app/packages 2>/dev/null | wc -l")
+  echo "librechat image: files under /app/api and /app/packages (outside node_modules) that mention $needle: $n"
+done
 
 docker network create spike >/dev/null
 
@@ -74,7 +79,7 @@ docker run -d --name librechat --network spike -p 3080:3080 \
   -e OPENID_ISSUER="$ISSUER" -e OPENID_CLIENT_ID=librechat -e OPENID_CLIENT_SECRET="$CLIENT_VALUE" \
   -e OPENID_SESSION_SECRET="$(openssl rand -hex 32)" -e OPENID_SCOPE="openid profile email" \
   -e OPENID_CALLBACK_URL=/oauth/openid/callback -e OPENID_BUTTON_LABEL="Test realm" \
-  -e OPENID_REUSE_TOKENS=true \
+  -e OPENID_REUSE_TOKENS="$REUSE" \
   -e NODE_EXTRA_CA_CERTS=/certs/ca.pem -e CONFIG_PATH=/spike/librechat.yaml \
   -e SEARCH=false -e DEBUG_LOGGING=true -e DEBUG_CONSOLE=false \
   -v "$OUT/certs:/certs:ro" -v "$OUT/cfg:/spike:ro" "$IMAGE" >/dev/null
@@ -97,7 +102,7 @@ echo "== what the stub printed"
 docker logs stub 2>&1 | redact
 
 echo "== analysis"
-python "$HERE/analyse.py" "$LABEL" "$LC_DIGEST" "$OUT/captured.jsonl" "$OUT/shots/walk.json" "$ISSUER" "$OUT/certs/ca.pem" "$OUT" \
+python "$HERE/analyse.py" "$LABEL (OPENID_REUSE_TOKENS=$REUSE)" "$LC_DIGEST""$OUT/captured.jsonl" "$OUT/shots/walk.json" "$ISSUER" "$OUT/certs/ca.pem" "$OUT" \
   | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
 
 echo "== LibreChat log lines about tokens, headers and errors"
