@@ -1,0 +1,17 @@
+schema: openova.io/plan-wrong/v1
+id: FND-018
+ticket_rev: 1
+base_commit: 4feba8371cb61fd26579e582d8af9b10607313f5
+stage: preflight
+ref: P3
+command: |
+    test "$(df -Pk . | awk 'NR==2{print $4}')" -ge 3000000; echo "exit code: $?"
+expected: |
+    Expected exit code: 0 (the checkout's disk has room for the scratch files of A2, up to 1.8 GB at a time)
+actual: |
+    exit code: 1
+    (run twice, exit code 1 both times)
+    df -Pk . prints:
+    Filesystem             1024-blocks      Used Available Capacity Mounted on
+    /dev/mapper/home_crypt   309031296 293325804   2059304     100% /home
+reported_at: 2026-11-13T14:03:51Z
