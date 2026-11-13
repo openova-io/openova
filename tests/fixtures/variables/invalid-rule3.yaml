@@ -1,0 +1,46 @@
+# Rule 3 fails: MAIL_MODE is relay and MAIL_RELAY_HOST, MAIL_FROM and MAIL_RELAY_SECRET are empty.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sovereign-variables
+  namespace: flux-system
+data:
+  SOVEREIGN_MODE: sovereign
+  SOVEREIGN_CONSUME: origin
+  HANDOVER_AUTO: 'true'
+  HANDOVER_HOLD_SECONDS: '600'
+  REGISTRY_HOST: registry.parent.example.net
+  REGISTRY_SCHEME: https
+  LOCAL_REGISTRY_HOST: registry.alpha.example.org
+  ORIGIN_REGISTRY_HOST: registry.parent.example.net
+  ORIGIN_REGISTRY_SCHEME: https
+  ORIGIN_REGISTRY_CA_B64: ''
+  ORIGIN_PROXY_ENDPOINTS_JSON: '{}'
+  REGISTRY_PULL_SECRET: ghcr-pull
+  REGISTRY_PATH_CHARTS: openova-io
+  REGISTRY_PATH_RELEASE: openova-io/release
+  REGISTRY_PATH_PROVIDER_PACKS: openova-io/provider-packs
+  REGISTRY_PATH_XPKG: proxy-xpkg
+  REGISTRY_PATH_TOFU_PROVIDERS: tofu-providers
+  REGISTRY_PATH_NODE_ARTIFACTS: node-artifacts
+  REGISTRY_PROXY_PROJECTS_JSON: '{"docker.io":"proxy-dockerhub","registry-1.docker.io":"proxy-dockerhub","quay.io":"proxy-quay","gcr.io":"proxy-gcr","registry.k8s.io":"proxy-k8s","ghcr.io":"proxy-ghcr","xpkg.upbound.io":"proxy-xpkg","public.ecr.aws":"proxy-ecr"}'
+  RELEASE_PUBLIC_KEY_B64: LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0K
+  RELEASE_CHANNEL: stable
+  RELEASE_VERSION: ''
+  RELEASE_AUTO: 'false'
+  RELEASE_SYNC_SCHEDULE: '0 3 * * *'
+  ORIGIN_PARENT_FQDN: parent.example.net
+  ORIGIN_PARENT_API_URL: https://console.parent.example.net/sovereign
+  DNS_MODE: delegated
+  DNS_UPSTREAM_API_URL: ''
+  MAIL_MODE: relay
+  MAIL_RELAY_HOST: ''
+  MAIL_RELAY_PORT: '587'
+  MAIL_FROM: ''
+  MAIL_RELAY_SECRET: ''
+  K3S_VERSION: v1.32.9+k3s1
+  K3S_UPGRADE_CONCURRENCY: '1'
+  CLOUD_CREDENTIAL_MODE: minted
+  CLOUD_CREDENTIAL_ROTATION_SCHEDULE: '0 2 1 * *'
+  CLOUD_CREDENTIAL_ROTATION_NONCE: ''
+  GITOPS_REPO_URL: http://gitea-http.gitea.svc.cluster.local:3000/openova/provider-pack
