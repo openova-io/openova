@@ -327,6 +327,7 @@ k3s is installed via `curl get.k3s.io | sh -` from cloud-init. The `INSTALL_K3S_
 | `--disable=servicelb` | k3s ships with klipper-lb; we use the Hetzner load balancer for ingress (`hcloud_load_balancer.main`) and PowerDNS lua-records (`ifurlup`) for cross-region failover. klipper-lb would otherwise race hcloud-ccm to materialise the Cilium Gateway's `type=LoadBalancer` Service (:443/:80; #4682). |
 | `--disable=local-storage` | k3s ships local-path-provisioner; we use **hcloud-csi** (provisioned by Crossplane after Phase 1) so PVCs survive node deletion and can be migrated across regions via Velero. |
 | `--disable-network-policy` | k3s ships kube-router NetworkPolicy; **Cilium** handles NetworkPolicy. Two NetworkPolicy controllers fight each other. |
+| `--disable-kube-proxy` | k3s ships kube-proxy; **Cilium** replaces it (`kubeProxyReplacement: true`). Gate check NET-G03 proves that no node has a kube-proxy Service chain. |
 | `--cluster-cidr=10.42+i.0/16` | Pod CIDR — non-overlapping across ClusterMesh peers (DoD gate D11). Index `i` is the region's position in `local.all_region_keys` (0 = primary). Allocated by `local.region_cluster_cidr` in `main.tf`. |
 | `--service-cidr=10.96+i.0/16` | Service CIDR — non-overlapping across ClusterMesh peers. Same allocation rule as `--cluster-cidr`. |
 | `--tls-san=<sovereign_fqdn>` | API server TLS cert must be valid for the public sovereign FQDN, otherwise the wizard's kubeconfig fetch and any operator running `kubectl --server=https://<fqdn>:6443` get a SAN mismatch. |

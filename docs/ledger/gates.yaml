@@ -1735,12 +1735,13 @@ checks:
 - id: NET-G03
   title: kube-proxy absent
   owner: NET
-  state: not-built
+  state: required
   runs_in: [local, cloud]
   destructive: false
   needs: []
   proof: running
   asserts: kube-proxy absent
+  implementation: tests/acceptance/sovereign/internal/suite/check_kube_proxy.go
   delivered_by: NET-020
 - id: NET-G04
   title: Network census recorded
