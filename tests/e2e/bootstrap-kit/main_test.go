@@ -1046,7 +1046,6 @@ func kubectlApply(t *testing.T, manifest string) error {
 //
 // The edges below are each backed by a real consumer in the codebase:
 //   - org-services -> {gitea,keycloak,nats-system,valkey, shared-pg}        (BSS/auth/provisioning)
-//   - sandbox      -> {keycloak,gitea,seaweedfs,newapi(via catalyst-system)} (controller + per-Sandbox MCP)
 //   - newapi       -> {keycloak,nats-system,valkey,vllm}                     (admin OIDC, metering, cache, inference)
 //   - guacamole    -> {keycloak,nats-system,seaweedfs}                       (OIDC, audit, recordings)
 //   - grafana      -> {keycloak,loki,mimir,tempo} + cnpg-system(its PG)      (SSO + datasource queries + state DB)
@@ -1191,13 +1190,13 @@ func TestBootstrapKit_PlaneIsolationDialGraphIsCovered(t *testing.T) {
 	// The known dial graph — TARGET ns -> required SOURCE namespaces.
 	wantEdges := map[string][]string{
 		// SSO IdP — every OIDC consumer's backchannel lands here.
-		"keycloak": {"org-services", "oidc-gate", "sandbox", "newapi", "guacamole", "grafana", "external-secrets-system", "cnpg-system"},
-		// Source forge — provisioning + sandbox repo ops + flux/catalyst pulls.
-		"gitea": {"org-services", "sandbox", "catalyst-system", "external-secrets-system", "cnpg-system"},
+		"keycloak": {"org-services", "oidc-gate", "newapi", "guacamole", "grafana", "external-secrets-system", "cnpg-system"},
+		// Source forge — provisioning + flux/catalyst pulls.
+		"gitea": {"org-services", "catalyst-system", "external-secrets-system", "cnpg-system"},
 		// Event bus — every publisher.
 		"nats-system": {"org-services", "guacamole", "catalyst-system", "newapi"},
 		// Shared object store — its blob-storage consumers (default-off but legitimate).
-		"seaweedfs": {"gitea", "harbor", "loki", "mimir", "tempo", "velero", "guacamole", "catalyst-system", "sandbox"},
+		"seaweedfs": {"gitea", "harbor", "loki", "mimir", "tempo", "velero", "guacamole", "catalyst-system"},
 		// Secrets engine — ESO reads it, CNPG operator manages adjuncts,
 		// bp-sso-bridge logs in each reconciler tick (k8s-auth) to fetch/store
 		// the per-app KC OIDC client_secret bundle, and catalyst-api logs in via
@@ -1219,8 +1218,8 @@ func TestBootstrapKit_PlaneIsolationDialGraphIsCovered(t *testing.T) {
 		"valkey": {"org-services", "newapi"},
 		// In-cluster inference channel.
 		"vllm": {"newapi"},
-		// LLM gateway — sandbox-controller (via catalyst-system) + per-Sandbox runtimes.
-		"newapi": {"catalyst-system", "sandbox", "external-secrets-system", "cnpg-system"},
+		// LLM gateway — control-plane callers in catalyst-system.
+		"newapi": {"catalyst-system", "external-secrets-system", "cnpg-system"},
 	}
 
 	for target, sources := range wantEdges {
