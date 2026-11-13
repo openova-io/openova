@@ -33,6 +33,7 @@ Format: lightweight ADR (Status / Context / Decision / Consequences / Shipped-vi
 | [0030](0030-model-plane.md) | Model plane: one gateway, one model contract, a simulation back end, agent tokens and metered usage | Accepted |
 | [0031](0031-infrastructure-plane.md) | Infrastructure plane: the nodes of the platform first, a virtual machine is an Application, an inventory of machines, one Job per target | Accepted |
 | [0033](0033-access-plane.md) | Access plane: one Blueprint with three kinds, a fenced pod per session, credentials through the mount, sealed recordings, review by rules | Accepted |
+| [0034](0034-later-products-ai-hub-and-open-banking.md) | Later products: the AI hub and open banking, written fresh as Blueprints of their own on the model gateway, Keycloak and the Git write path | Accepted |
 
 > **Numbering note:** numbers 0005–0008 were reserved for records that were never written (see the ADR-0009 header). They are never used. Record 0019, allocated below, closes them.
 
