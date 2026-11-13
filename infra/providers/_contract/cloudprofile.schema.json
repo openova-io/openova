@@ -1,0 +1,231 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openova.io/schemas/cloudprofile/v1alpha1",
+  "title": "CloudProfile",
+  "description": "Contract C2: the cloud profile of a provider pack (infra/providers/<name>/profile.yaml), and the effective profile after an installation document is merged over it. A data file, never a served resource. A field is here only when a work package reads it.",
+  "$comment": "Reserved names. Each joins this schema in its owner's work package, together with its reader, and is closed (additionalProperties false): spec.controlPlaneVolumeEncryption (SEC); spec.network.podRouting, spec.network.mtu, spec.network.ipv4Only (NET); spec.clusterClasses (NET, epic NET-320); spec.services.<plural of the composite kind> as {available, reason} (SVC); spec.identity.mode as minted or supplied (SOV-410); spec.machines (INF); the value virtual-machine in spec.compute.flavors[].roles (INF-260); spec.capabilities.accelerators (AIP-291). spec.cost is not reserved.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": {"const": "catalyst.openova.io/v1alpha1"},
+    "kind": {"const": "CloudProfile"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {"$ref": "#/$defs/name"}
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["displayName", "lifecycle", "contractVersion", "credentials", "regions", "compute", "storage", "objectStorage", "network", "bootstrap", "capabilities", "day2"],
+      "properties": {
+        "extends": {"$ref": "#/$defs/name", "description": "Installation document only: the pack it extends. Reader: cloudprofile.Merge (CLD-080)."},
+        "displayName": {"type": "string", "minLength": 1, "description": "Reader: providers route (CLD-121)."},
+        "lifecycle": {"enum": ["proven", "unproven", "retired"], "description": "Installation field. Reader: providers route (CLD-121)."},
+        "contractVersion": {"const": "1", "description": "Reader: TestProviderPacks (CLD-090)."},
+        "requiresInstallation": {"type": "boolean", "description": "Default false. true: the pack alone cannot be provisioned on. Reader: providers route (CLD-121)."},
+        "api": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Installation field. Reader: adapter TfVars (CLD-161).",
+          "properties": {
+            "domain": {"type": "string", "description": "Endpoint domain suffix; empty: the cloud's public default."},
+            "authURL": {"type": "string", "description": "Identity endpoint; empty: derived by the module."},
+            "insecureTLS": {"type": "boolean", "description": "Default false."}
+          }
+        },
+        "credentials": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source", "fields"],
+          "properties": {
+            "source": {"enum": ["user", "operator", "either"], "description": "Reader: create handler (CLD-106), wizard (CLD-122)."},
+            "fields": {
+              "type": "array",
+              "minItems": 1,
+              "description": "Reader: credentials handler (CLD-112), wizard (CLD-122).",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["key", "label", "secret", "required"],
+                "properties": {
+                  "key": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+                  "label": {"type": "string", "minLength": 1},
+                  "secret": {"type": "boolean"},
+                  "required": {"type": "boolean"},
+                  "pattern": {"type": "string", "minLength": 1, "description": "Regular expression checked before the cloud is called."}
+                }
+              }
+            }
+          }
+        },
+        "regions": {
+          "type": "array",
+          "description": "Empty only when requiresInstallation is true. Installation field (replaces the list). Reader: Normalize (CLD-103), wizard (CLD-122).",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["code", "label", "location", "zones", "defaultZone"],
+            "properties": {
+              "code": {"type": "string", "minLength": 1, "description": "The cloud's region identifier."},
+              "label": {"type": "string", "minLength": 1},
+              "location": {"type": "string", "minLength": 1},
+              "zones": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+              "defaultZone": {"type": "string", "minLength": 1}
+            }
+          }
+        },
+        "compute": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["image", "flavors"],
+          "properties": {
+            "image": {"type": "string", "description": "Image name or identifier; empty in a pack that requires an installation. Installation field. Reader: adapter TfVars (CLD-161)."},
+            "flavors": {
+              "type": "array",
+              "description": "Installation field (replaces the list). Reader: Normalize (CLD-103), wizard (CLD-122).",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "vcpu", "memoryGiB", "roles"],
+                "properties": {
+                  "name": {"type": "string", "minLength": 1},
+                  "vcpu": {"type": "integer", "minimum": 1},
+                  "memoryGiB": {"type": "number", "exclusiveMinimum": 0},
+                  "roles": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["control-plane", "worker"]}},
+                  "regions": {"type": "array", "items": {"type": "string", "minLength": 1}, "description": "Region codes where the flavor can be ordered; absent or empty: every region."},
+                  "price": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["amount", "currency", "per"],
+                    "description": "Display only; the price book stays with the billing engine.",
+                    "properties": {
+                      "amount": {"type": "number", "minimum": 0},
+                      "currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
+                      "per": {"enum": ["hour", "month"]}
+                    }
+                  }
+                }
+              }
+            },
+            "defaults": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["controlPlaneFlavor", "workerFlavor"],
+              "description": "Installation field. Reader: wizard (CLD-122), adapter TfVars.",
+              "properties": {
+                "controlPlaneFlavor": {"type": "string", "minLength": 1},
+                "workerFlavor": {"type": "string", "minLength": 1}
+              }
+            },
+            "minWorkerCount": {"type": "integer", "minimum": 0, "description": "Default 1. Reader: Normalize (CLD-103)."},
+            "minimumFlavor": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["controlPlane", "worker"],
+              "description": "Reader: Normalize (CLD-103).",
+              "properties": {
+                "controlPlane": {"$ref": "#/$defs/floor"},
+                "worker": {"$ref": "#/$defs/floor"}
+              }
+            }
+          }
+        },
+        "storage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["defaultClass", "driver"],
+          "properties": {
+            "defaultClass": {"type": "string", "minLength": 1, "description": "Reader: engine (CLD-103)."},
+            "driver": {"type": "string", "minLength": 1, "description": "CSI driver name. Reader: storage slot value (CLD-146)."}
+          }
+        },
+        "objectStorage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["checksumAlgorithm"],
+          "properties": {
+            "checksumAlgorithm": {"type": "string", "description": "Empty disables. Reader: the single backup chart (CLD-143)."}
+          }
+        },
+        "network": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["loadBalancer"],
+          "description": "Owned by area NET, carried here. Further fields join with their reader.",
+          "properties": {
+            "loadBalancer": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["mode"],
+              "properties": {
+                "mode": {"enum": ["external-hostport", "controller"], "description": "external-hostport is the only value the network contract admits. controller is a legacy value for the unproven second pack until epic CLD-180 converts or retires it. Reader: topology loader (CLD-113), template input gateway_host_network (CLD-132)."}
+              }
+            },
+            "apiCIDRs": {"type": "array", "items": {"type": "string", "minLength": 1}, "description": "The cloud API address ranges; default empty. Installation field. Reader: adapter TfVars (CLD-162)."}
+          }
+        },
+        "seal": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "description": "Required from CLD-092 on. Area SEC owns the meaning (contract C8).",
+          "properties": {
+            "kind": {"enum": ["static-node-file", "cloud-key-service"], "description": "Reader: TestProviderPacks (CLD-092)."}
+          }
+        },
+        "registry": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mirrorEndpoint"],
+          "description": "Installation field. Reader: adapter TfVars (CLD-161).",
+          "properties": {
+            "mirrorEndpoint": {"type": "string", "minLength": 1}
+          }
+        },
+        "bootstrap": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["userDataLimitBytes"],
+          "properties": {
+            "userDataLimitBytes": {"type": "integer", "minimum": 0, "description": "0: no limit. Reader: scripts/cloudinit-size-check.sh (CLD-132)."}
+          }
+        },
+        "capabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["multiRegion", "multiCloudRegion"],
+          "description": "Closed list of flags. Code branches on these, never on a provider name.",
+          "properties": {
+            "multiRegion": {"type": "boolean", "description": "Reader: Normalize (CLD-103), wizard (CLD-122)."},
+            "multiCloudRegion": {"type": "boolean", "description": "Reader: Normalize (CLD-103)."}
+          }
+        },
+        "day2": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["contracts"],
+          "properties": {
+            "contracts": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"}, "description": "Unit contracts this pack implements. Reader: TestProviderPacks (CLD-175)."}
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "name": {"type": "string", "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"},
+    "floor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["vcpu", "memoryGiB"],
+      "properties": {
+        "vcpu": {"type": "integer", "minimum": 1},
+        "memoryGiB": {"type": "number", "exclusiveMinimum": 0}
+      }
+    }
+  }
+}

@@ -610,12 +610,13 @@ checks:
 - id: CLD-G03
   title: TestProviderPacks and every module's tofu test pass
   owner: CLD
-  state: not-built
+  state: expected-fail
   runs_in: [local]
   destructive: false
   needs: []
   proof: running
   asserts: TestProviderPacks and every module's tofu test pass
+  implementation: scripts/check-provider-contract.sh
   implemented_by: CLD-080
   delivered_by: CLD-090
 - id: CLD-G04
