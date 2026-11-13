@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T12:15:03Z` |
+| Last refreshed | `2026-11-13T12:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,12 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6963](https://github.com/openova-io/openova/issues/6963) | BSS contracts and plans: the gaps from the founder's training walk (row-level li | Other |
-| [#6971](https://github.com/openova-io/openova/issues/6971) | BSS packages and the entitlement matrix: Included / Optional / Not offered per p | Other |
-| [#7067](https://github.com/openova-io/openova/issues/7067) | ADR-0015: region-symmetric GitOps + one topology contract + native topology tran | Other |
-| [#7087](https://github.com/openova-io/openova/issues/7087) | North star: the transition plan as data, the gate manifest and the first work in | Other |
-| [#7095](https://github.com/openova-io/openova/issues/7095) | NET-030 Retired names lose their policy privileges | Other |
-| [#7116](https://github.com/openova-io/openova/issues/7116) | CTL-025 Guard: the handler package and main may only shrink | Other |
 | [#7117](https://github.com/openova-io/openova/issues/7117) | FND-091 Remove committed binaries and root clutter; add the hygiene guard | Other |
 | [#7135](https://github.com/openova-io/openova/issues/7135) | FND-092 Stop building the Sandbox images | Other |
 | [#7140](https://github.com/openova-io/openova/issues/7140) | BSS-010 Decision record: commerce and billing | Other |
@@ -300,6 +294,12 @@ flowchart LR
 | [#7421](https://github.com/openova-io/openova/issues/7421) | FND-099 Remove two custom resources that nothing reads | Other |
 | [#7422](https://github.com/openova-io/openova/issues/7422) | SEC-080 External Secrets quick scope | Other |
 | [#7423](https://github.com/openova-io/openova/issues/7423) | SOV-160 Registry projects, the Organization Git token and the two repositories a | Other |
+| [#7430](https://github.com/openova-io/openova/issues/7430) | The helm lint check fails for a chart whose upstream index uses relative address | Other |
+| [#7434](https://github.com/openova-io/openova/issues/7434) | CTL-040 Flux manifests to stable API versions | Other |
+| [#7435](https://github.com/openova-io/openova/issues/7435) | CTL-150 Intent lock in audit mode, with its report | Other |
+| [#7436](https://github.com/openova-io/openova/issues/7436) | FND-098 Remove two retired chart folders and one dead harness | Other |
+| [#7437](https://github.com/openova-io/openova/issues/7437) | SOV-035 Delete the ProvisioningState kind and its unwired store | Other |
+| [#7438](https://github.com/openova-io/openova/issues/7438) | SOV-320 Sign-in mail without the parent's credential | Other |
 
 ---
 
@@ -307,6 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T12:21 | [#7428](https://github.com/openova-io/openova/pull/7428) | #7095 | chore(policy): retired names lose their policy privileges (N |
+| 2026-11-13T12:21 | [#7427](https://github.com/openova-io/openova/pull/7427) | #7419 | refactor(api): move route registration out of main into one  |
+| 2026-11-13T12:17 | [#7426](https://github.com/openova-io/openova/pull/7426) | #7422 | fix(secrets): scope the OpenBao keys of External Secrets at  |
+| 2026-11-13T12:17 | [#7424](https://github.com/openova-io/openova/pull/7424) | #7421 | chore(chart): remove the Runbook and SecretPolicy definition |
 | 2026-11-13T12:01 | [#7418](https://github.com/openova-io/openova/pull/7418) | #7087 | docs(ledger): plan update |
 | 2026-11-13T11:26 | [#7417](https://github.com/openova-io/openova/pull/7417) | #7087 | docs(ledger): result of the lab test PRD-080 (PRD-080) |
 | 2026-11-13T11:25 | [#7416](https://github.com/openova-io/openova/pull/7416) | #7087 | docs(ledger): result of the lab test PRD-060 (PRD-060) |
@@ -333,10 +337,6 @@ flowchart LR
 | 2026-11-13T09:29 | [#7392](https://github.com/openova-io/openova/pull/7392) | #7087 | docs(ledger): result of the lab test NET-290 (NET-290) |
 | 2026-11-13T09:29 | [#7391](https://github.com/openova-io/openova/pull/7391) | #7087 | docs(ledger): result of the lab test SOV-090 (SOV-090) |
 | 2026-11-13T09:33 | [#7390](https://github.com/openova-io/openova/pull/7390) | #7363 | fix(provisioner): the cloud-init test follows the variables  |
-| 2026-11-13T09:12 | [#7386](https://github.com/openova-io/openova/pull/7386) | #7322 | feat(fingate): generate the types and strict server interfac |
-| 2026-11-13T08:58 | [#7382](https://github.com/openova-io/openova/pull/7382) | #7087 | docs(ledger): plan update |
-| 2026-11-13T10:13 | [#7381](https://github.com/openova-io/openova/pull/7381) | #7378 | refactor(api): commit the catalogue writers through the comm |
-| 2026-11-13T10:13 | [#7380](https://github.com/openova-io/openova/pull/7380) | #7377 | feat(api): add the intent package that validates, commits an |
 
 ---
 
