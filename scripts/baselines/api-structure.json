@@ -188,7 +188,7 @@
       "products/catalyst/bootstrap/api/internal/handler": 637
     },
     "main_lines": {
-      "products/catalyst/bootstrap/api/cmd/api/main.go": 2090
+      "products/catalyst/bootstrap/api/cmd/api/main.go": 938
     }
   },
   "schema": "openova.io/guard-baseline/v1"
