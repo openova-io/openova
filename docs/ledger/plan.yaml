@@ -179,7 +179,7 @@ epics:
 - id: SOV-100
   title: 'EPIC: Upstream contract and born-local bootstrap'
   wave: W1b
-  packages: [SOV-110, SOV-130, SOV-140, SOV-150, SOV-160, SOV-180, SOV-120, SOV-190, SOV-170, SOV-175]
+  packages: [SOV-110, SOV-130, SOV-150, SOV-140, SOV-160, SOV-180, SOV-120, SOV-190, SOV-170, SOV-175]
 - id: SOV-200
   title: 'EPIC: Hand-over as a short ordered flip'
   wave: W1b
@@ -6496,7 +6496,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [SOV-130]
-  after: []
+  after: [SEC-030]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - infra/providers/_shared/tests/cloudinit_render.tftest.hcl
