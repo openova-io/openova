@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T07:15:03Z` |
+| Last refreshed | `2026-11-13T07:30:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6832](https://github.com/openova-io/openova/issues/6832) | kyverno pvc-volume-expansion errors on every PVC — the policy's APICall has no | Other |
 | [#6839](https://github.com/openova-io/openova/issues/6839) | Region promotion must flip secondary_region_lb_weight — hot-standby has no aut | Other |
 | [#6840](https://github.com/openova-io/openova/issues/6840) | hw307 primary region silently runs 4 of 5 provisioned workers — w9b4787 ACTIVE | Other |
 | [#6843](https://github.com/openova-io/openova/issues/6843) | chargeback silently discards all outbound mail on a Sovereign (invite links, sta | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#7352](https://github.com/openova-io/openova/issues/7352) | CTL-110 Commit library gitwrite | Other |
 | [#7353](https://github.com/openova-io/openova/issues/7353) | SEC-120 etcd dump check and node hygiene check, as check files | Other |
 | [#7354](https://github.com/openova-io/openova/issues/7354) | SVC-125 Blueprint proofs check: the function-test result in the gate record | Other |
+| [#7356](https://github.com/openova-io/openova/issues/7356) | SOV-130 Substrate window, part 1: modules and cloud-init take the variables docu | Other |
 
 ---
 
@@ -307,9 +307,11 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T07:17 | [#7355](https://github.com/openova-io/openova/pull/7355) | #7087 | docs(ledger): plan update |
 | 2026-11-13T07:08 | [#7348](https://github.com/openova-io/openova/pull/7348) | #7087 | docs(ledger): plan update |
 | 2026-11-13T06:47 | [#7344](https://github.com/openova-io/openova/pull/7344) | #7087 | docs(ledger): result of the lab test SVC-340 (SVC-340) |
 | 2026-11-13T06:47 | [#7343](https://github.com/openova-io/openova/pull/7343) | #7087 | docs(ledger): result of the lab test SEC-280 (SEC-280) |
+| 2026-11-13T07:21 | [#7342](https://github.com/openova-io/openova/pull/7342) | #7087 | docs(ledger): result of the lab test FND-002 (FND-002) |
 | 2026-11-13T06:14 | [#7338](https://github.com/openova-io/openova/pull/7338) | #7087 | docs(ledger): plan update |
 | 2026-11-13T06:06 | [#7337](https://github.com/openova-io/openova/pull/7337) | #7197 | chore(api): remove the DR runbook playback and preflight rou |
 | 2026-11-13T06:06 | [#7336](https://github.com/openova-io/openova/pull/7336) | #7317 | feat(cloudprofile): check an installation document and print |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-13T06:33 | [#7313](https://github.com/openova-io/openova/pull/7313) | #7087 | docs(ledger): result of the lab test CTL-050 (CTL-050) |
 | 2026-11-13T06:33 | [#7312](https://github.com/openova-io/openova/pull/7312) | #7087 | docs(ledger): result of the lab test CMP-S6 (CMP-S6) |
 | 2026-11-13T06:33 | [#7311](https://github.com/openova-io/openova/pull/7311) | #7087 | docs(ledger): result of the lab test CMP-S1 (CMP-S1) |
-| 2026-11-13T05:00 | [#7310](https://github.com/openova-io/openova/pull/7310) | #7087 | docs(ledger): plan update |
-| 2026-11-13T04:58 | [#7309](https://github.com/openova-io/openova/pull/7309) | #7281 | docs(generated): generate the tables of the provider packs a |
 
 ---
 
