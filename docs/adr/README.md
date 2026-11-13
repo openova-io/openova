@@ -10,7 +10,7 @@ Format: lightweight ADR (Status / Context / Decision / Consequences / Shipped-vi
 |---|---|---|
 | [0001](0001-catalyst-control-plane-architecture.md) | Catalyst control-plane architecture | Accepted |
 | [0002](0002-post-handover-sovereignty-cutover.md) | Post-handover sovereignty cutover (8-tether pivot) | Accepted |
-| [0003](0003-rbac-newapi-user-create-hook.md) | RBAC `newapi` user-create hook | Accepted |
+| [0003](0003-rbac-newapi-user-create-hook.md) | RBAC `newapi` user-create hook | Accepted; superseded by [0030](0030-model-plane.md) |
 | [0004](0004-cnpg-sync-replication.md) | CNPG Pillar 3 synchronous replication (remote_apply over ClusterMesh) | Accepted |
 | [0009](0009-per-org-iac-repo-bootstrap.md) | Per-Organization IaC repo bootstrap on Org creation | Accepted |
 | [0010](0010-reusable-shareable-backing-services.md) | Reusable, shareable backing-services model (declarative, no controller/Crossplane) | Accepted |
@@ -29,6 +29,7 @@ Format: lightweight ADR (Status / Context / Decision / Consequences / Shipped-vi
 | [0025](0025-organization-vcluster-tier-gate-added-and-removed.md) | The per-Organization vCluster tier gate, added 2026-06-25 and removed 2026-09-10 | Accepted |
 | [0028](0028-commerce-and-billing.md) | Commerce and billing: one billing product with two installation options, one owner per money entity, one plan source | Accepted |
 | [0029](0029-compliance-plane.md) | Compliance plane: one read model, one model object in Git, policy mode and waivers by commit | Accepted |
+| [0030](0030-model-plane.md) | Model plane: one gateway, one model contract, a simulation back end, agent tokens and metered usage | Accepted |
 | [0033](0033-access-plane.md) | Access plane: one Blueprint with three kinds, a fenced pod per session, credentials through the mount, sealed recordings, review by rules | Accepted |
 
 > **Numbering note:** numbers 0005–0008 were reserved for records that were never written (see the ADR-0009 header). They are never used. Record 0019, allocated below, closes them.
