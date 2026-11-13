@@ -21,6 +21,8 @@ permissions:
 
 jobs:
   report-load:
+    # a commit that only changes the inventory skips this 80-minute job
+    if: ${{ !contains(github.event.head_commit.message, '[inventory-only]') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     env:

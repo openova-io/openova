@@ -48,11 +48,28 @@ API_VERSIONS = [
 ]
 
 
+# Variables whose value is a list or an object: a string placeholder makes the
+# chart's `range` fail. The parent-domain list takes the provisioner's own
+# single-zone default (infra/providers/hetzner/main.tf, parent_domains_yaml).
+TYPED = {"PARENT_DOMAINS_YAML": '[{name: "t1.omani.works", role: "primary"}]'}
+
+
+def plain(m):
+    v = m.group(1)
+    if v in TYPED:
+        return TYPED[v]
+    if v.endswith("_YAML") or v.endswith("_JSON"):
+        return "[]"
+    return "placeholder"
+
+
 def subst(text):
-    # innermost first, so ${A:=${B}} becomes ${A:=placeholder} and then placeholder
+    # innermost first, so ${A:=${B}} becomes ${A:=placeholder} and then placeholder;
+    # an empty default becomes "placeholder" (a schema may require the field)
     while True:
-        new = re.sub(r"\$\{[A-Za-z0-9_]+\}", "placeholder", text)
-        new = re.sub(r"\$\{[A-Za-z0-9_]+:[=-]([^}$]*)\}", lambda m: m.group(1), new)
+        new = re.sub(r"\$\{([A-Za-z0-9_]+)\}", plain, text)
+        new = re.sub(r"\$\{([A-Za-z0-9_]+):[=-]([^}$]*)\}",
+                     lambda m: m.group(2) if m.group(2) != "" else plain(m), new)
         if new == text:
             return text
         text = new
@@ -153,6 +170,7 @@ def main():
                 fails.append((res, name, "render failed"))
                 continue
             c = collections.Counter()
+            outp = re.sub(r"[ \t]+$", "", outp, flags=re.M)  # a trailing tab is not valid YAML
             try:
                 docs = [x for x in yaml.safe_load_all(outp) if isinstance(x, dict) and x.get("kind")]
             except yaml.YAMLError as e:
