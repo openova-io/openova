@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T10:00:02Z` |
+| Last refreshed | `2026-11-13T10:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,11 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T10:08 | [#7402](https://github.com/openova-io/openova/pull/7402) | #7087 | docs(ledger): plan update |
+| 2026-11-13T10:10 | [#7401](https://github.com/openova-io/openova/pull/7401) | #7194 | test(charts): function tests for the cnpg, postgres, valkey, |
+| 2026-11-13T10:13 | [#7400](https://github.com/openova-io/openova/pull/7400) | #7385 | fix(cloud-init): encrypt Secrets in etcd with secretbox at f |
+| 2026-11-13T10:01 | [#7399](https://github.com/openova-io/openova/pull/7399) | #7396 | test(kit): a render-equivalence check for the kit and its su |
+| 2026-11-13T10:03 | [#7398](https://github.com/openova-io/openova/pull/7398) | #7087 | docs(ledger): plan update |
 | 2026-11-13T09:41 | [#7397](https://github.com/openova-io/openova/pull/7397) | #7384 | feat(fingate): add the sandbox ledger, a test bank that serv |
 | 2026-11-13T09:30 | [#7393](https://github.com/openova-io/openova/pull/7393) | #7087 | docs(ledger): plan update |
 | 2026-11-13T09:29 | [#7392](https://github.com/openova-io/openova/pull/7392) | #7087 | docs(ledger): result of the lab test NET-290 (NET-290) |
@@ -314,6 +319,9 @@ flowchart LR
 | 2026-11-13T09:33 | [#7390](https://github.com/openova-io/openova/pull/7390) | #7363 | fix(provisioner): the cloud-init test follows the variables  |
 | 2026-11-13T09:12 | [#7386](https://github.com/openova-io/openova/pull/7386) | #7322 | feat(fingate): generate the types and strict server interfac |
 | 2026-11-13T08:58 | [#7382](https://github.com/openova-io/openova/pull/7382) | #7087 | docs(ledger): plan update |
+| 2026-11-13T10:13 | [#7381](https://github.com/openova-io/openova/pull/7381) | #7378 | refactor(api): commit the catalogue writers through the comm |
+| 2026-11-13T10:13 | [#7380](https://github.com/openova-io/openova/pull/7380) | #7377 | feat(api): add the intent package that validates, commits an |
+| 2026-11-13T10:12 | [#7379](https://github.com/openova-io/openova/pull/7379) | #7376 | feat(controllers): add the region scopes of the commit libra |
 | 2026-11-13T08:45 | [#7375](https://github.com/openova-io/openova/pull/7375) | #7087 | docs(ledger): plan update |
 | 2026-11-13T08:34 | [#7374](https://github.com/openova-io/openova/pull/7374) | #7087 | docs(ledger): result of the lab test FND-001 (FND-001) |
 | 2026-11-13T08:29 | [#7373](https://github.com/openova-io/openova/pull/7373) | #7087 | docs(ledger): result of the lab test SEC-135 (SEC-135) |
@@ -329,14 +337,6 @@ flowchart LR
 | 2026-11-13T07:51 | [#7363](https://github.com/openova-io/openova/pull/7363) | #7356 | refactor(cloud-init): one variables ConfigMap for the inline |
 | 2026-11-13T07:41 | [#7362](https://github.com/openova-io/openova/pull/7362) | #7087 | docs(ledger): plan update |
 | 2026-11-13T07:49 | [#7361](https://github.com/openova-io/openova/pull/7361) | #7350 | refactor(api): delete the endpoint pull-request pipeline and |
-| 2026-11-13T07:49 | [#7360](https://github.com/openova-io/openova/pull/7360) | #7353 | feat(gate): checks for etcd at rest and for control-plane no |
-| 2026-11-13T07:48 | [#7359](https://github.com/openova-io/openova/pull/7359) | #7351 | docs(adr): record 0021 on the Git-first write path, the inte |
-| 2026-11-13T07:48 | [#7357](https://github.com/openova-io/openova/pull/7357) | #7352 | feat(controllers): add the commit library gitwrite and the G |
-| 2026-11-13T07:17 | [#7355](https://github.com/openova-io/openova/pull/7355) | #7087 | docs(ledger): plan update |
-| 2026-11-13T07:08 | [#7348](https://github.com/openova-io/openova/pull/7348) | #7087 | docs(ledger): plan update |
-| 2026-11-13T06:47 | [#7344](https://github.com/openova-io/openova/pull/7344) | #7087 | docs(ledger): result of the lab test SVC-340 (SVC-340) |
-| 2026-11-13T06:47 | [#7343](https://github.com/openova-io/openova/pull/7343) | #7087 | docs(ledger): result of the lab test SEC-280 (SEC-280) |
-| 2026-11-13T07:21 | [#7342](https://github.com/openova-io/openova/pull/7342) | #7087 | docs(ledger): result of the lab test FND-002 (FND-002) |
 
 ---
 
