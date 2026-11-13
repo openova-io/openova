@@ -222,6 +222,38 @@ jobs:
           echo "=== time field"; jq -c '.time_field_rfc3339' out/read-final.json
           echo "=== first payload per rule"; jq '.first_payload_per_rule' out/read-final.json
 
+      - name: "Phase E: delivery when the stream is absent (E1) and when NATS is down (E2)"
+        continue-on-error: true
+        run: |
+          source "$SPIKE/lib.sh"
+          IMG=$(kubectl -n falco get ds falco -o jsonpath='{.spec.template.spec.containers[?(@.name=="falco")].image}')
+          # E1: no stream captures catalyst.> while the side-car publishes.
+          kubectl -n nats-system exec deploy/nats-jetstream-box -- nats -s nats://nats-jetstream:4222 stream rm CATALYST_ORG -f | tee -a out/phase-e1.txt
+          T_E1=$(now); echo "$T_E1" > out/phase-e1-start.txt
+          from=$(sidecar_lines)
+          run_pod shadow-reader-e1 "$IMG" phase-e1
+          sleep 10
+          sidecar_since "$from" shadow-reader-e1 phase-e1
+          pf_nats
+          probe ensure -url "$NATS_LOCAL" > out/stream-ensure-e1.json
+          probe read -url "$NATS_LOCAL" -subject "$SUBJECT" -want-pod shadow-reader-e1 -after "$T_E1" -timeout 15s -label phase-e1 -out out/msgs-phase-e1.jsonl > out/read-phase-e1.json
+          jq -c '{label, found, stream_messages, after_by_rule}' out/read-phase-e1.json | tee -a out/phase-e1.txt
+          # E2: NATS down while the side-car publishes.
+          kubectl -n nats-system scale statefulset nats-jetstream --replicas=0
+          kubectl -n nats-system wait --for=delete pod/nats-jetstream-0 pod/nats-jetstream-1 pod/nats-jetstream-2 --timeout=180s || true
+          pkill -f 'port-forward svc/nats-jetstream' || true
+          T_E2=$(now); echo "$T_E2" > out/phase-e2-start.txt
+          from=$(sidecar_lines)
+          run_pod shadow-reader-e2 "$IMG" phase-e2
+          sleep 10
+          sidecar_since "$from" shadow-reader-e2 phase-e2
+          kubectl -n nats-system scale statefulset nats-jetstream --replicas=3
+          kubectl -n nats-system rollout status statefulset/nats-jetstream --timeout=6m
+          sleep 5
+          pf_nats
+          probe read -url "$NATS_LOCAL" -subject "$SUBJECT" -want-pod shadow-reader-e2 -after "$T_E2" -timeout 30s -label phase-e2 -out out/msgs-phase-e2.jsonl > out/read-phase-e2.json
+          jq -c '{label, found, stream_messages, after_by_rule}' out/read-phase-e2.json | tee -a out/phase-e2.txt
+
       - name: Result lines
         if: always()
         run: |
@@ -234,6 +266,10 @@ jobs:
             for ph in a b c d; do
               echo "RESULT phase_${ph}_heartbeat_found=$(f out/read-phase-${ph}-heartbeat.json '.found') after_by_rule=$(f out/read-phase-${ph}-heartbeat.json '.after_by_rule | tostring')"
               grep -h 'metrics events\|publishes' "out/phase-${ph}-heartbeat.txt" 2>/dev/null | sed "s/^/RESULT phase_${ph}: /" || true
+            done
+            for e in e1 e2; do
+              echo "RESULT phase_${e}_stored=$(f out/read-phase-${e}.json '.found')"
+              grep -h '^side-car' "out/phase-${e}.txt" 2>/dev/null | sed "s/^/RESULT phase_${e}: /" || true
             done
             echo "RESULT final_stream_subjects=$(f out/read-final.json '.stream_subjects | tostring')"
             echo "RESULT final_by_rule=$(f out/read-final.json '.by_rule | tostring')"

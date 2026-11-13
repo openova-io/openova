@@ -16,6 +16,22 @@ probe() { "$RUNNER_TEMP/probe" "$@"; }
 # 120 s for a message on SUBJECT, stored after <after>, whose k8s.pod.name is <pod>.
 trigger() {
   local pod=$1 image=$2 after=$3 label=$4
+  run_pod "$pod" "$image" "$label"
+  pf_nats
+  probe read -url "$NATS_LOCAL" -subject "$SUBJECT" -want-pod "$pod" -after "$after" -timeout 120s \
+    -label "$label" -out "out/msgs-$label.jsonl" > "out/read-$label.json"
+  jq '{label, after, found, waited_seconds, after_by_rule, after_by_priority, first_match}' "out/read-$label.json" | tee -a "out/$label.txt"
+  local started st
+  started=$(kubectl -n "$NS" get pod "$pod" -o jsonpath='{.status.containerStatuses[0].state.terminated.startedAt}')
+  st=$(jq -r '.first_match.stream_time // empty' "out/read-$label.json")
+  if [ -n "$started" ] && [ -n "$st" ]; then
+    echo "container start -> message stored in stream: $(awk -v a="$(date -u -d "$started" +%s.%N)" -v b="$(date -u -d "$st" +%s.%N)" 'BEGIN{printf "%.3f", b-a}') s (startedAt has 1 s resolution)" | tee -a "out/$label.txt"
+  fi
+}
+
+# run_pod <pod> <image> <label>: the gate-shaped Pod only, no read.
+run_pod() {
+  local pod=$1 image=$2 label=$3
   kubectl get namespace "$NS" >/dev/null 2>&1 || kubectl create namespace "$NS"
   cat <<EOF | kubectl apply -f -
 apiVersion: v1
@@ -43,17 +59,22 @@ EOF
     | jq '{pod: .metadata.name, image: .spec.containers[0].image, phase: .status.phase, terminated: .status.containerStatuses[0].state.terminated}' \
     | tee -a "out/$label.txt"
   echo "lines printed by the pod (content not shown): $(kubectl -n "$NS" logs "$pod" 2>/dev/null | wc -l)" | tee -a "out/$label.txt"
-  pf_nats
-  probe read -url "$NATS_LOCAL" -subject "$SUBJECT" -want-pod "$pod" -after "$after" -timeout 120s \
-    -label "$label" -out "out/msgs-$label.jsonl" > "out/read-$label.json"
-  jq '{label, after, found, waited_seconds, after_by_rule, after_by_priority, first_match}' "out/read-$label.json" | tee -a "out/$label.txt"
-  local started st
-  started=$(kubectl -n "$NS" get pod "$pod" -o jsonpath='{.status.containerStatuses[0].state.terminated.startedAt}')
-  st=$(jq -r '.first_match.stream_time // empty' "out/read-$label.json")
-  if [ -n "$started" ] && [ -n "$st" ]; then
-    echo "container start -> message stored in stream: $(awk -v a="$(date -u -d "$started" +%s.%N)" -v b="$(date -u -d "$st" +%s.%N)" 'BEGIN{printf "%.3f", b-a}') s (startedAt has 1 s resolution)" | tee -a "out/$label.txt"
-  fi
 }
+
+# sidecar_since <from line> <pod> <label>: what the side-car logged after line
+# <from line> of its log: payloads received for <pod>, publishes, errors.
+sidecar_since() {
+  local from=$1 pod=$2 label=$3
+  kubectl -n falco logs deploy/falco-falcosidekick --tail=-1 2>/dev/null | tail -n +"$((from + 1))" > "out/$label-sidecar.log" || true
+  {
+    echo "side-car payloads received for pod $pod: $(grep "Falco's payload" "out/$label-sidecar.log" | grep -c "\"k8s.pod.name\":\"$pod\"" || true)"
+    echo "side-car 'NATS - Publish OK' lines: $(grep -c 'NATS - Publish OK' "out/$label-sidecar.log" || true)"
+    echo "side-car error lines: $(grep -c '\[ERROR\]' "out/$label-sidecar.log" || true)"
+    grep '\[ERROR\]' "out/$label-sidecar.log" | cut -c21- | sort | uniq -c | sed -n '1,5p' || true
+  } | tee -a "out/$label.txt"
+}
+
+sidecar_lines() { kubectl -n falco logs deploy/falco-falcosidekick --tail=-1 2>/dev/null | wc -l; }
 
 # heartbeat <label> <after> <timeout>
 # Waits up to <timeout> for a metrics event on SUBJECT stored after <after>, and
@@ -69,7 +90,7 @@ heartbeat() {
   kubectl -n falco logs ds/falco -c falco --tail=-1 > "out/$label-sensor.log" 2>&1 || true
   kubectl -n falco logs deploy/falco-falcosidekick --tail=-1 > "out/$label-sidecar.log" 2>&1 || true
   sed -n "s/.*Falco's payload : //p" "out/$label-sidecar.log" \
-    | jq -c --arg t "$after" 'select((.time|sub("\\.[0-9]+Z$";"Z")|fromdate) > ($t|sub("\\.[0-9]+Z$";"Z")|fromdate)) | {time, rule, priority}' \
+    | jq -c --arg t "$after" 'def k: capture("^(?<s>[^.Z]+)(\\.(?<f>[0-9]+))?Z$") | [(.s + "Z" | fromdate), (((.f // "") + "000000000")[0:9] | tonumber)]; select((.time|k) > ($t|k)) | {time, rule, priority}' \
     > "out/$label-sidecar-received.jsonl" 2>/dev/null || true
   received=$(grep -c "$METRICS_RULE" "out/$label-sidecar-received.jsonl" || true)
   received_all=$(wc -l < "out/$label-sidecar-received.jsonl")

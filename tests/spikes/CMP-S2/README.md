@@ -34,6 +34,9 @@ How it runs, all inside one GitHub Actions job:
   (`sidekick-config-informational.yaml`), and the environment variable set to
   `informational` too (`falco-values-phase-d.yaml`).
 
+- phase E: delivery when nothing captures the subject (stream deleted, E1) and
+  when NATS is down (StatefulSet scaled to 0, E2).
+
 Each phase counts only messages the stream stored after the phase began.
 
 The job uploads every captured message and log as artifact `cmp-s2-evidence`.
