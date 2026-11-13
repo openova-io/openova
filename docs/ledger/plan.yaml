@@ -497,6 +497,7 @@ packages:
   after: []
   touches:
   - docs/ledger/plan/spikes/FND-001-merge-queue.md
+  - docs/ledger/plan/spikes/FND-001.md
   resources: []
   flips: []
   implements: []
@@ -523,6 +524,7 @@ packages:
   after: []
   touches:
   - docs/ledger/plan/spikes/FND-002-gate-runner.md
+  - docs/ledger/plan/spikes/FND-002.md
   resources: [env]
   flips: []
   implements: []
@@ -3383,6 +3385,7 @@ packages:
   after: []
   touches:
   - docs/ledger/plan/spikes/FND-201-observability.md
+  - docs/ledger/plan/spikes/FND-201.md
   resources: [env]
   flips: []
   implements: []
@@ -3811,7 +3814,8 @@ packages:
   lane: SPIKE
   depends_on: []
   after: []
-  touches: []
+  touches:
+  - docs/ledger/plan/spikes/CLD-050.md
   resources: []
   flips: []
   implements: []
@@ -3836,7 +3840,8 @@ packages:
   lane: SPIKE
   depends_on: []
   after: []
-  touches: []
+  touches:
+  - docs/ledger/plan/spikes/CLD-055.md
   resources: []
   flips: []
   implements: []
@@ -4378,7 +4383,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CLD-090, SEC-020, SEC-150]
-  after: [CLD-075, NET-010, NET-020, NET-100]
+  after: [CLD-075, CLD-161, NET-010, NET-020, NET-100]
   touches:
   - infra/providers/_contract/cloudprofile.schema.json
   - infra/providers/*/profile.yaml
@@ -5196,21 +5201,33 @@ packages:
   lane: GATE
   depends_on: [CLD-080]
   after: []
-  touches: []
+  touches:
+  - products/catalyst/bootstrap/api/internal/cloudprofile/installation.go
+  - products/catalyst/bootstrap/api/internal/cloudprofile/installation_test.go
+  - products/catalyst/bootstrap/api/cmd/cloud-installation/main.go
+  - products/catalyst/bootstrap/api/cmd/cloud-installation/main_test.go
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "find products/catalyst/bootstrap/api/cmd -maxdepth 1 -name cloud-installation | wc -l"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "(cd products/catalyst/bootstrap/api && go vet ./internal/cloudprofile/ ./cmd/cloud-installation/ && go test -count=1 ./internal/cloudprofile/ ./cmd/cloud-installation/)"
+  - id: A2
+    run: "(cd products/catalyst/bootstrap/api && go test -count=1 -v -run '^(TestCheckInstallationAgainstRepositoryPacks|TestInstallationConfigMap|TestInstallationConfigMapRefusesBadDocument|TestRun)$' ./internal/cloudprofile/ ./cmd/cloud-installation/) | grep -c '^--- PASS: Test' | grep -qx 4"
+  - id: A3
+    run: "test -z \"$(gofmt -l products/catalyst/bootstrap/api/internal/cloudprofile products/catalyst/bootstrap/api/cmd/cloud-installation 2>&1)\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: CloudProfile installation document applied to the mothership as a labelled ConfigMap
+  delivers: The command cloud-installation checks an installation document kept outside the repository against the cloud profiles of the repository and prints the ConfigMap that carries it on a cluster, and the package cloudprofile fixes the namespace, name, label and key of that ConfigMap.
 - id: CLD-162
   title: The Huawei module and adapter take installation values as inputs
   area: CLD
@@ -6130,6 +6147,7 @@ packages:
   after: []
   touches:
   - docs/ledger/plan/spikes/SOV-060-node-registry-list.md
+  - docs/ledger/plan/spikes/SOV-060.md
   resources: []
   flips: []
   implements: []
@@ -6156,6 +6174,7 @@ packages:
   after: []
   touches:
   - docs/ledger/plan/spikes/SOV-070-scoped-identity.md
+  - docs/ledger/plan/spikes/SOV-070.md
   resources: []
   flips: []
   implements: []
@@ -6182,6 +6201,7 @@ packages:
   after: []
   touches:
   - docs/ledger/plan/spikes/SOV-080-state-move.md
+  - docs/ledger/plan/spikes/SOV-080.md
   resources: []
   flips: []
   implements: []
@@ -6208,6 +6228,7 @@ packages:
   after: []
   touches:
   - docs/ledger/plan/spikes/SOV-090-dns-mail.md
+  - docs/ledger/plan/spikes/SOV-090.md
   resources: []
   flips: []
   implements: []
@@ -7599,6 +7620,7 @@ packages:
   after: []
   touches:
   - docs/ledger/plan/spikes/SOV-750-autoscaling-pool.md
+  - docs/ledger/plan/spikes/SOV-750.md
   resources: []
   flips: []
   implements: []
@@ -8560,6 +8582,7 @@ packages:
   after: []
   touches:
   - docs/ledger/plan/spikes/
+  - docs/ledger/plan/spikes/SEC-130.md
   resources: []
   flips: []
   implements: []
@@ -8586,6 +8609,7 @@ packages:
   after: []
   touches:
   - docs/ledger/plan/spikes/
+  - docs/ledger/plan/spikes/SEC-135.md
   resources: []
   flips: []
   implements: []
@@ -8612,6 +8636,7 @@ packages:
   after: []
   touches:
   - docs/ledger/plan/spikes/
+  - docs/ledger/plan/spikes/SEC-140.md
   resources: []
   flips: []
   implements: []
@@ -9833,6 +9858,7 @@ packages:
   after: []
   touches:
   - docs/ledger/plan/spikes/
+  - docs/ledger/plan/spikes/SEC-271.md
   resources: []
   flips: []
   implements: []
@@ -9948,6 +9974,7 @@ packages:
   after: []
   touches:
   - docs/ledger/plan/spikes/
+  - docs/ledger/plan/spikes/SEC-280.md
   resources: []
   flips: []
   implements: []
@@ -10096,6 +10123,7 @@ packages:
   after: []
   touches:
   - docs/ledger/plan/spikes/
+  - docs/ledger/plan/spikes/SEC-335.md
   resources: []
   flips: []
   implements: []
@@ -12299,6 +12327,7 @@ packages:
   after: []
   touches:
   - docs/sessions/
+  - docs/ledger/plan/spikes/NET-270.md
   resources: []
   flips: []
   implements: []
@@ -12325,6 +12354,7 @@ packages:
   after: []
   touches:
   - docs/sessions/
+  - docs/ledger/plan/spikes/NET-280.md
   resources: []
   flips: []
   implements: []
@@ -12351,6 +12381,7 @@ packages:
   after: []
   touches:
   - docs/sessions/
+  - docs/ledger/plan/spikes/NET-290.md
   resources: []
   flips: []
   implements: []
@@ -12377,6 +12408,7 @@ packages:
   after: []
   touches:
   - docs/sessions/
+  - docs/ledger/plan/spikes/NET-300.md
   resources: []
   flips: []
   implements: []
@@ -12614,7 +12646,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [NET-322, NET-327]
-  after: [FND-014, FND-093, FND-094, FND-171, SOV-030, NET-125, SVC-030, CMP-016, CMP-030]
+  after: [FND-014, FND-093, FND-094, FND-171, CLD-161, SOV-030, NET-125, SVC-030, CMP-016, CMP-030]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/
   - products/catalyst/bootstrap/api/
@@ -12668,7 +12700,8 @@ packages:
   lane: SPIKE
   depends_on: [INF-020]
   after: []
-  touches: []
+  touches:
+  - docs/ledger/plan/spikes/NET-330.md
   resources: []
   flips: []
   implements: []
@@ -12818,7 +12851,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [FND-011, SVC-020]
-  after: [FND-014, FND-054, FND-091, FND-093, FND-094, FND-097, FND-171, CLD-070, CLD-080, SOV-030, SOV-220, SEC-110, NET-030, NET-041, NET-050, NET-070, NET-072, NET-125, SVC-030, SVC-060, CMP-016, CMP-030, BSS-020, PRD-010, PRD-101, PRD-104, PRD-105]
+  after: [FND-014, FND-054, FND-091, FND-093, FND-094, FND-097, FND-171, CLD-070, CLD-080, CLD-161, SOV-030, SOV-220, SEC-110, NET-030, NET-041, NET-050, NET-070, NET-072, NET-125, SVC-030, SVC-060, CMP-016, CMP-030, BSS-020, PRD-010, PRD-101, PRD-104, PRD-105]
   touches:
   - platform/*/blueprint.yaml
   - products/*/blueprint.yaml
@@ -13038,7 +13071,8 @@ packages:
   lane: SPIKE
   depends_on: []
   after: []
-  touches: []
+  touches:
+  - docs/ledger/plan/spikes/SVC-120.md
   resources: []
   flips: []
   implements: []
@@ -13536,7 +13570,8 @@ packages:
   lane: SPIKE
   depends_on: []
   after: []
-  touches: []
+  touches:
+  - docs/ledger/plan/spikes/SVC-210.md
   resources: []
   flips: []
   implements: []
@@ -13619,7 +13654,8 @@ packages:
   lane: SPIKE
   depends_on: [CLD-065, CLD-066]
   after: []
-  touches: []
+  touches:
+  - docs/ledger/plan/spikes/SVC-250.md
   resources: []
   flips: []
   implements: []
@@ -13918,7 +13954,8 @@ packages:
   lane: SPIKE
   depends_on: []
   after: []
-  touches: []
+  touches:
+  - docs/ledger/plan/spikes/SVC-340.md
   resources: []
   flips: []
   implements: []
@@ -18145,7 +18182,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 600
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -19620,6 +19659,7 @@ packages:
   after: []
   touches:
   - docs/ledger/plan/spikes/AIP-010.yaml
+  - docs/ledger/plan/spikes/AIP-010.md
   resources: []
   flips: []
   implements: []
@@ -19646,6 +19686,7 @@ packages:
   after: []
   touches:
   - docs/ledger/plan/spikes/AIP-020.yaml
+  - docs/ledger/plan/spikes/AIP-020.md
   resources: []
   flips: []
   implements: []
@@ -19672,6 +19713,7 @@ packages:
   after: []
   touches:
   - docs/ledger/plan/spikes/AIP-030.yaml
+  - docs/ledger/plan/spikes/AIP-030.md
   resources: []
   flips: []
   implements: []
@@ -21155,6 +21197,7 @@ packages:
   after: []
   touches:
   - docs/ledger/plan/spikes/AIP-250.yaml
+  - docs/ledger/plan/spikes/AIP-250.md
   resources: []
   flips: []
   implements: []
@@ -23343,6 +23386,7 @@ packages:
   after: [MIG-060]
   touches:
   - docs/ledger/plan/spikes/MIG-020-read-path.md
+  - docs/ledger/plan/spikes/MIG-020.md
   resources: []
   flips: []
   implements: []
@@ -23369,6 +23413,7 @@ packages:
   after: []
   touches:
   - docs/ledger/plan/spikes/MIG-030-target-writer.md
+  - docs/ledger/plan/spikes/MIG-030.md
   resources: [env]
   flips: []
   implements: []
@@ -23395,6 +23440,7 @@ packages:
   after: []
   touches:
   - docs/ledger/plan/spikes/MIG-040-address-preservation.md
+  - docs/ledger/plan/spikes/MIG-040.md
   resources: [env]
   flips: []
   implements: []
@@ -23421,6 +23467,7 @@ packages:
   after: []
   touches:
   - docs/ledger/plan/spikes/MIG-050-hermetic.md
+  - docs/ledger/plan/spikes/MIG-050.md
   resources: []
   flips: []
   implements: []
@@ -26016,6 +26063,7 @@ packages:
   after: []
   touches:
   - docs/ledger/plan/spikes/PRD-040-*.md
+  - docs/ledger/plan/spikes/PRD-040.md
   resources: []
   flips: []
   implements: []
@@ -26042,6 +26090,7 @@ packages:
   after: []
   touches:
   - docs/ledger/plan/spikes/PRD-050-*.md
+  - docs/ledger/plan/spikes/PRD-050.md
   resources: []
   flips: []
   implements: []
@@ -26068,6 +26117,7 @@ packages:
   after: []
   touches:
   - docs/ledger/plan/spikes/PRD-060-*.md
+  - docs/ledger/plan/spikes/PRD-060.md
   resources: []
   flips: []
   implements: []
@@ -26094,6 +26144,7 @@ packages:
   after: []
   touches:
   - docs/ledger/plan/spikes/PRD-070-*.md
+  - docs/ledger/plan/spikes/PRD-070.md
   resources: []
   flips: []
   implements: []
@@ -26120,6 +26171,7 @@ packages:
   after: []
   touches:
   - docs/ledger/plan/spikes/PRD-080-*.md
+  - docs/ledger/plan/spikes/PRD-080.md
   resources: []
   flips: []
   implements: []
@@ -26146,6 +26198,7 @@ packages:
   after: []
   touches:
   - docs/ledger/plan/spikes/PRD-090-*.md
+  - docs/ledger/plan/spikes/PRD-090.md
   resources: []
   flips: []
   implements: []
@@ -26982,6 +27035,7 @@ packages:
   after: []
   touches:
   - docs/ledger/plan/spikes/PRD-402-model-choice.md
+  - docs/ledger/plan/spikes/PRD-402.md
   resources: []
   flips: []
   implements: []
