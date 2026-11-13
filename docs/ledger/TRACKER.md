@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T18:45:04Z` |
+| Last refreshed | `2026-11-13T19:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,9 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7168](https://github.com/openova-io/openova/issues/7168) | FND-094 Remove the Sandbox pages of the console | Other |
-| [#7169](https://github.com/openova-io/openova/issues/7169) | FND-101 Truth reset of the status surfaces | Other |
-| [#7170](https://github.com/openova-io/openova/issues/7170) | FND-103 State markers and their ratchet | Other |
 | [#7171](https://github.com/openova-io/openova/issues/7171) | INF-010 Guard for the machine plane | Other |
 | [#7172](https://github.com/openova-io/openova/issues/7172) | NET-010 Close peer and stale ports on the reference provider | Other |
 | [#7173](https://github.com/openova-io/openova/issues/7173) | PRD-030 Product guard at today's values (rules G-P1 to G-P3) | Other |
@@ -300,6 +297,9 @@ flowchart LR
 | [#7487](https://github.com/openova-io/openova/issues/7487) | CTL-041 Bootstrap-kit HelmRepository documents to source v1 | Other |
 | [#7488](https://github.com/openova-io/openova/issues/7488) | SOV-120 The sovereign-ops command and its image | Other |
 | [#7489](https://github.com/openova-io/openova/issues/7489) | SOV-180 The API serves the Sovereign's mode and variables, with the contract's d | Other |
+| [#7494](https://github.com/openova-io/openova/issues/7494) | CLD-087 CI job conformance-local | Other |
+| [#7495](https://github.com/openova-io/openova/issues/7495) | FND-015 Candidate tool and cut workflow | Other |
+| [#7496](https://github.com/openova-io/openova/issues/7496) | SEC-100 Delete the abandoned OpenBao multi-region mechanisms | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T18:50 | [#7493](https://github.com/openova-io/openova/pull/7493) | #7087 | docs(ledger): plan update |
 | 2026-11-13T18:35 | [#7492](https://github.com/openova-io/openova/pull/7492) | #7487 | refactor(bootstrap-kit): declare every kit HelmRepository at |
 | 2026-11-13T18:35 | [#7491](https://github.com/openova-io/openova/pull/7491) | #7489 | feat(catalyst-api): the self route reports the mode and phas |
 | 2026-11-13T18:34 | [#7490](https://github.com/openova-io/openova/pull/7490) | #7488 | feat(sovereign): the sovereign-ops command with its result l |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-13T13:49 | [#7448](https://github.com/openova-io/openova/pull/7448) | #7087 | docs(ledger): plan update |
 | 2026-11-13T13:51 | [#7447](https://github.com/openova-io/openova/pull/7447) | #7436 | chore: remove one retired chart folder and one dead harness  |
 | 2026-11-13T13:17 | [#7445](https://github.com/openova-io/openova/pull/7445) | #7087 | docs(ledger): plan update |
-| 2026-11-13T13:11 | [#7442](https://github.com/openova-io/openova/pull/7442) | #7434 | refactor(flux): declare HelmRepository at source v1 outside  |
 
 ---
 
