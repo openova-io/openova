@@ -1,0 +1,182 @@
+{{- /*
+Function test of bp-postgres (docs/RUNBOOKS.md section 4.5). `helm test` runs it.
+
+It renders under the first two clauses of the gate of templates/cluster.yaml
+(the chart is enabled and postgresql.cnpg.io/v1 is served); unlike
+cluster.yaml it also renders on a replica half. The image is this
+instance's own PostgreSQL image (bp-postgres.imageRef), which carries psql and
+pg_isready. The script is POSIX sh: tests/postgres-render.sh refuses the string
+"/bin/bash" in a replica-side render. The test dials the Cluster of this region: `<instance>-rw`, or
+`<instance>-replica-rw` on a replica half.
+
+Three cases, decided at render time:
+  - databases[] is empty: nothing to log in to; it passes with the reason
+    "no databases declared".
+  - this is a replica side (bp-postgres.isReplicaSide): this region holds no
+    role Secret (templates/role-secrets.yaml does not render here), so the test
+    reads no credential. pg_isready must report that the Cluster accepts
+    connections.
+  - otherwise it mounts the role Secret of the first declared database (the
+    Secret templates/role-secrets.yaml renders) and logs in as that database's
+    owner. When the server answers that it is in recovery (a demoted or standby
+    copy), it passes with that reason. Otherwise it creates a table, inserts a
+    row, reads it back and drops the table.
+
+The namespace of the host instances (shared-data) is under the platform's
+default-deny policy, so a NetworkPolicy of this file, created with the Pod by
+`helm test`, lets the test Pod reach cluster DNS and port 5432 of the Cluster
+it dials, and nothing else.
+*/ -}}
+{{- if and (ne (toString .Values.enabled) "false") (.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1") }}
+{{- $local := include "bp-postgres.instanceName" . }}
+{{- if include "bp-postgres.renderReplicaHalf" . }}
+{{- $local = include "bp-postgres.replicaName" . }}
+{{- end }}
+{{- $host := printf "%s-rw.%s.svc.cluster.local" $local (include "bp-postgres.namespace" .) }}
+{{- $mode := "write" }}
+{{- if not .Values.databases }}
+{{- $mode = "none" }}
+{{- else if include "bp-postgres.isReplicaSide" . }}
+{{- $mode = "ready" }}
+{{- end }}
+{{- $db := dict }}
+{{- if eq $mode "write" }}
+{{- $db = index .Values.databases 0 }}
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Chart.Name }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      catalyst.openova.io/function-test: "true"
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ include "bp-postgres.namespace" . }}
+          podSelector:
+            matchLabels:
+              cnpg.io/cluster: {{ $local }}
+      ports:
+        - port: 5432
+          protocol: TCP
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/function-test: "true"
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 300
+  automountServiceAccountToken: false
+  containers:
+    - name: function-test
+      image: {{ include "bp-postgres.imageRef" . | quote }}
+      imagePullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: "10m"
+          memory: "32Mi"
+        limits:
+          cpu: "200m"
+          memory: "128Mi"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 26
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: TEST_MODE
+          value: {{ $mode | quote }}
+        - name: PGHOST
+          value: {{ $host | quote }}
+        - name: PGPORT
+          value: "5432"
+        - name: PGCONNECT_TIMEOUT
+          value: "10"
+        {{- if eq $mode "write" }}
+        - name: PGDATABASE
+          value: {{ $db.name | quote }}
+        - name: PGUSER
+          value: {{ $db.owner | quote }}
+        {{- end }}
+      {{- if eq $mode "write" }}
+      volumeMounts:
+        - name: role
+          mountPath: /etc/function-test/role
+          readOnly: true
+      {{- end }}
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          set -u
+          fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
+          oneline() { printf '%s' "$1" | tr '\n' ' ' | cut -c1-200; }
+          if [ "${TEST_MODE}" = "none" ]; then
+            echo "FUNCTION-TEST pass {{ .Chart.Name }} no databases declared"
+            exit 0
+          fi
+          if [ "${TEST_MODE}" = "ready" ]; then
+            out="$(pg_isready -h "${PGHOST}" -p "${PGPORT}" -t 10 2>&1)" || fail "${PGHOST} does not accept connections: $(oneline "${out}")"
+            echo "FUNCTION-TEST pass {{ .Chart.Name }} ${PGHOST} accepts connections; this region holds no role Secret, so no login was tried"
+            exit 0
+          fi
+          PGPASSWORD="$(cat /etc/function-test/role/password)" || fail "cannot read the password of role ${PGUSER}"
+          export PGPASSWORD
+          recovery="$(psql -X -q -A -t -c 'select pg_is_in_recovery()' 2>&1)" || fail "cannot log in to ${PGDATABASE} on ${PGHOST} as ${PGUSER}: $(oneline "${recovery}")"
+          if [ "${recovery}" = "t" ]; then
+            echo "FUNCTION-TEST pass {{ .Chart.Name }} logged in to ${PGDATABASE} on ${PGHOST} as ${PGUSER}; the server is in recovery, so no table was written"
+            exit 0
+          fi
+          [ "${recovery}" = "f" ] || fail "pg_is_in_recovery() answered '$(oneline "${recovery}")'"
+          table="function_test_$(date +%s)_$$"
+          out="$(psql -X -q -A -t -v ON_ERROR_STOP=1 -c "create table ${table} (v text)" -c "insert into ${table} values ('written')" -c "select v from ${table}" -c "drop table ${table}" 2>&1)" || fail "write and read as ${PGUSER} in ${PGDATABASE} failed: $(oneline "${out}")"
+          [ "${out}" = "written" ] || fail "the row read back is '$(oneline "${out}")', not 'written'"
+          echo "FUNCTION-TEST pass {{ .Chart.Name }} created, wrote, read and dropped table ${table} in ${PGDATABASE} on ${PGHOST} as ${PGUSER}"
+  {{- if eq $mode "write" }}
+  volumes:
+    - name: role
+      secret:
+        secretName: {{ include "bp-postgres.roleSecretName" (dict "ctx" . "db" $db) | quote }}
+        items:
+          - key: password
+            path: password
+  {{- end }}
+{{- end }}

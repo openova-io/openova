@@ -163,7 +163,7 @@ spec:
       #   keycloak-0 5,168 restarts, `Policy denied DROPPED` on :5432, region-B
       #   SSO dead for every app. Singleton + primary byte-identical; substitutes
       #   unchanged. Lockstep 16a/16c/16d.
-      version: 0.2.33
+      version: 0.2.34
       sourceRef:
         kind: HelmRepository
         name: bp-postgres

@@ -1156,6 +1156,43 @@ When default URL is `http://svc.ns.svc...` but the real Service is `svc-bp-svc.n
 
 **Fix:** `helm template` and grep the real Service name. Wire env-var default off the rendered output, not the assumed shape.
 
+### 4.5 Function test of a chart
+
+**Chart contract.** Every chart installed by a kit slot of the foundation ring, and every chart whose Blueprint is to be `supported`, ships exactly one file `chart/templates/tests/function-test.yaml` that renders one Pod with:
+
+```yaml
+metadata:
+  name: {{ .Release.Name }}-function-test
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+  labels:
+    catalyst.openova.io/function-test: "true"
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 300
+```
+
+**Rules.** The test proves the chart's function, not its presence: it performs at least one write-then-read or request-then-response against the thing the chart installs. It exits 0 on pass and non-zero on fail. It prints one last line of the form `FUNCTION-TEST <pass|fail> <blueprint name> <one-line reason>`. It needs no network access outside the cluster. It uses an image the chart already ships or one already mirrored for the kit. It must render nothing when the chart's own master gate renders no resources. It must finish within 300 seconds. It reads a credential only from a file mounted for the test Pod or from the chart's own existing Secret; it never creates a Secret.
+
+**How this repository applies it.**
+
+- The `<blueprint name>` of the last line is the `name` of the chart's `Chart.yaml`, written as `{{ .Chart.Name }}`.
+- Besides the Pod, the file may render only a ServiceAccount, a Role, a RoleBinding, a NetworkPolicy or a CiliumNetworkPolicy for the test, each with the same two hook annotations. A namespace under the platform's default-deny policy needs such a policy so that the test Pod can reach cluster DNS and the service it tests. Every container of the Pod requests cpu and memory: the policy that enforces requests matches Pods.
+- Each such chart has a render test `chart/tests/function-test-render.sh`. It pipes `helm template` into `python3 scripts/check-function-test.py --chart <chart name> --release <release>`, and adds `--absent` for each gate under which the test must render nothing. The checker's rules are listed in its header; `--self-test` shows that each can fail. CI runs the render test with the chart's other `chart/tests/*.sh`.
+- `python3 scripts/check-service-model.py` counts the charts that carry such a file (`G6.function-test-charts`). The pull request that adds one raises that count in `scripts/service-model-baseline.yaml` by one.
+- `helm test <release>` runs the tests. Flux runs them only for a HelmRelease that sets `spec.test.enable: true`.
+
+What each test asserts:
+
+| Chart | The test passes when |
+|---|---|
+| `bp-cnpg` | The admission webhooks accept a server-side dry-run create of a minimal `Cluster`. It renders only when the release creates the webhook configurations. |
+| `bp-postgres` | Logged in as the owner of the first entry of `databases[]`, it creates a table, inserts a row, reads it back and drops the table. It passes with the reason `no databases declared` when the list is empty. On a replica side, which holds no role Secret, `pg_isready` must report that the region's Cluster accepts connections. A server in recovery passes after the login. |
+| `bp-valkey` | `SET`, `GET` and `DEL` of a random key on the address consumers dial return the value written. |
+| `bp-seaweedfs` | Through the S3 endpoint it creates a scratch bucket, puts, gets and deletes one object, and deletes the bucket. It renders only when the chart renders its S3 Secret with authentication on. |
+| `bp-nats-jetstream` | A scratch stream acknowledges one published message, a pull consumer reads it back, and the stream is deleted. |
+
 ---
 
 ## §5 — Demo / operator walks
