@@ -115,6 +115,7 @@ func read(args []string) error {
 	since := fs.Duration("since", 7*24*time.Hour, "consumer start: now minus this")
 	wantRule := fs.String("want-rule", "", "stop when a message with this rule is read")
 	wantPod := fs.String("want-pod", "", "and output_fields k8s.pod.name equals this")
+	afterS := fs.String("after", "", "RFC 3339 time: only messages stored after it count for the match and the after_* counts")
 	timeout := fs.Duration("timeout", 0, "how long to wait for the wanted message")
 	out := fs.String("out", "", "write every message here (JSON lines)")
 	label := fs.String("label", "", "label printed in the summary")
@@ -130,6 +131,15 @@ func read(args []string) error {
 		return err
 	}
 
+	var after time.Time
+	if *afterS != "" {
+		t, err := time.Parse(time.RFC3339Nano, *afterS)
+		if err != nil {
+			return fmt.Errorf("-after: %w", err)
+		}
+		after = t
+	}
+
 	began := time.Now()
 	deadline := began.Add(*timeout)
 	var recs []record
@@ -142,7 +152,7 @@ func read(args []string) error {
 		if err != nil {
 			return err
 		}
-		match = findMatch(recs, *wantRule, *wantPod)
+		match = findMatch(afterOnly(recs, after), *wantRule, *wantPod)
 		waiting := *wantRule != "" || *wantPod != ""
 		if !waiting || match != nil || time.Now().After(deadline) {
 			break
@@ -176,6 +186,9 @@ func read(args []string) error {
 		"by_priority":        countBy(recs, "priority"),
 		"by_source":          countBy(recs, "source"),
 		"by_hostname":        countBy(recs, "hostname"),
+		"after":              *afterS,
+		"after_by_rule":      countBy(afterOnly(recs, after), "rule"),
+		"after_by_priority":  countBy(afterOnly(recs, after), "priority"),
 		"header_keys_seen":   headerKeys(recs),
 		"payload_shape":      shape(recs),
 		"time_field_rfc3339": timeCheck(recs),
@@ -259,6 +272,20 @@ func readAll(js jetstream.JetStream, subject string, since time.Duration) ([]rec
 		}
 	}
 	return recs, info.State, nil
+}
+
+// afterOnly keeps the messages the stream stored after t (all when t is zero).
+func afterOnly(recs []record, t time.Time) []record {
+	if t.IsZero() {
+		return recs
+	}
+	var out []record
+	for _, r := range recs {
+		if r.StreamTime.After(t) {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 func findMatch(recs []record, rule, pod string) *record {

@@ -1,8 +1,10 @@
-# Lab test CMP-S2, phase B: the only change from phase A is the side-car's
-# minimum priority for the NATS output, lowered from warning to informational,
-# which is the priority Falco gives its periodic metrics event.
+# Lab test CMP-S2, phase B (control for the side-car's priority filter).
+# The only change from phase A: the side-car's minimum priority for the NATS
+# output, set the way the chart sets every side-car setting (an environment
+# variable from the chart's Secret), raised to critical. If the filter worked,
+# neither a Warning detection nor the Informational metrics event would pass.
 falco:
   falcosidekick:
     config:
       nats:
-        minimumpriority: informational
+        minimumpriority: critical

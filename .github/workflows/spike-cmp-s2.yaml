@@ -142,91 +142,55 @@ jobs:
           kubectl -n falco get pods -o jsonpath='{range .items[*]}{range .status.containerStatuses[*]}{.name}{"  "}{.image}{"  "}{.imageID}{"\n"}{end}{end}' | tee -a out/facts.txt
           kubectl -n falco logs ds/falco -c falco --tail=-1 | grep -v '^{' | sed -n '1,60p' | tee out/falco-startup.log
 
-      - name: "Trigger: a bare Pod in the gate shape reads /etc/shadow"
+      - name: "Phase A: gate-shaped trigger and heartbeat, side-car minimum priority warning (environment)"
         run: |
-          NS="cmp-gate-${GITHUB_RUN_ID}"
+          source "$SPIKE/lib.sh"
+          T_A=$(now); echo "$T_A" > out/phase-a-start.txt
+          sidecar_facts phase-a
           IMG=$(kubectl -n falco get ds falco -o jsonpath='{.spec.template.spec.containers[?(@.name=="falco")].image}')
-          echo "trigger image (from DaemonSet falco): $IMG" | tee out/trigger.txt
-          kubectl create namespace "$NS"
-          bash "$SPIKE/pf.sh" nats-system svc/nats-jetstream 4222 out/port-forward-nats.log
-          "$RUNNER_TEMP/probe" read -url "$NATS_LOCAL" -subject "$SUBJECT" -label before-trigger -out out/msgs-before-trigger.jsonl > out/read-before-trigger.json
-          jq '{stream_messages, by_rule}' out/read-before-trigger.json | tee -a out/trigger.txt
-          run_trigger() {
-            local pod=$1 image=$2
-            cat <<EOF | kubectl apply -f -
-          apiVersion: v1
-          kind: Pod
-          metadata:
-            name: ${pod}
-            namespace: ${NS}
-          spec:
-            restartPolicy: Never
-            containers:
-              - name: reader
-                image: ${image}
-                command: ["cat", "/etc/shadow"]
-                resources:
-                  requests: {cpu: 10m, memory: 16Mi}
-                  limits: {memory: 64Mi}
-          EOF
-            date -u +%FT%TZ > "out/${pod}.applied"
-            for _ in $(seq 1 45); do
-              phase=$(kubectl -n "$NS" get pod "$pod" -o jsonpath='{.status.phase}')
-              case "$phase" in Succeeded|Failed) break ;; esac
-              sleep 2
-            done
-            kubectl -n "$NS" get pod "$pod" -o json | jq '{pod: .metadata.name, image: .spec.containers[0].image, phase: .status.phase, terminated: .status.containerStatuses[0].state.terminated, waiting: .status.containerStatuses[0].state.waiting}' | tee -a out/trigger.txt
-            echo "lines printed by the pod: $(kubectl -n "$NS" logs "$pod" 2>/dev/null | wc -l)" | tee -a out/trigger.txt
-            bash "$SPIKE/pf.sh" nats-system svc/nats-jetstream 4222 out/port-forward-nats.log
-            "$RUNNER_TEMP/probe" read -url "$NATS_LOCAL" -subject "$SUBJECT" -want-pod "$pod" -timeout 120s -label "trigger-${pod}" -out "out/msgs-trigger-${pod}.jsonl" > "out/read-trigger-${pod}.json"
-            jq '{label, found, waited_seconds, stream_messages, by_rule, by_priority, first_match}' "out/read-trigger-${pod}.json" | tee -a out/trigger.txt
-            started=$(kubectl -n "$NS" get pod "$pod" -o jsonpath='{.status.containerStatuses[0].state.terminated.startedAt}')
-            st=$(jq -r '.first_match.stream_time // empty' "out/read-trigger-${pod}.json")
-            if [ -n "$started" ] && [ -n "$st" ]; then
-              a=$(date -u -d "$started" +%s.%N); b=$(date -u -d "$st" +%s.%N)
-              echo "container start -> message in stream: $(awk -v a="$a" -v b="$b" 'BEGIN{printf "%.3f", b-a}') s" | tee -a out/trigger.txt
-            fi
-          }
-          run_trigger shadow-reader "$IMG"
-          if [ "$(jq -r '.found' out/read-trigger-shadow-reader.json)" != "true" ]; then
-            echo "no message for the sensor-image trigger within 120 s; second trigger with busybox" | tee -a out/trigger.txt
-            run_trigger shadow-reader-busybox docker.io/library/busybox:1.36.1
+          echo "trigger image (read from DaemonSet falco): $IMG" | tee -a out/phase-a.txt
+          trigger shadow-reader "$IMG" "$T_A" phase-a-trigger
+          if [ "$(jq -r '.found' out/read-phase-a-trigger.json)" != "true" ]; then
+            echo "no message for the sensor-image trigger within 120 s; second trigger with busybox" | tee -a out/phase-a.txt
+            trigger shadow-reader-busybox docker.io/library/busybox:1.36.1 "$T_A" phase-a-trigger-busybox
           fi
+          heartbeat phase-a-heartbeat "$T_A" 75s
 
-      - name: "Heartbeat, phase A (side-car minimum priority warning)"
+      - name: "Phase B: control, side-car minimum priority critical (environment)"
         run: |
-          for _ in $(seq 1 50); do
-            c=$(kubectl -n falco logs ds/falco -c falco --tail=-1 | grep -c 'Falco internal: metrics snapshot' || true)
-            [ "${c:-0}" -ge 3 ] && break
-            sleep 3
-          done
-          {
-            echo "metrics events in the sensor's own log: $(kubectl -n falco logs ds/falco -c falco --tail=-1 | grep -c 'Falco internal: metrics snapshot' || true)"
-            echo "metrics events received by the side-car (debug log): $(kubectl -n falco logs deploy/falco-falcosidekick --tail=-1 | grep -c 'Falco internal: metrics snapshot' || true)"
-            echo "side-car 'NATS - Publish OK' lines: $(kubectl -n falco logs deploy/falco-falcosidekick --tail=-1 | grep -c 'NATS - Publish OK' || true)"
-            echo "side-car NATS error lines: $(kubectl -n falco logs deploy/falco-falcosidekick --tail=-1 | grep -ci 'error.*nats\|nats.*error' || true)"
-          } | tee out/heartbeat-a.txt
-          bash "$SPIKE/pf.sh" falco deploy/falco-falcosidekick 2801 out/port-forward-sidekick.log
-          curl -s http://127.0.0.1:2801/metrics | grep -E '^falcosidekick_(inputs|outputs|falco_events)' | grep -Ei 'nats|priority|input' | tee -a out/heartbeat-a.txt || true
-          curl -s http://127.0.0.1:2801/debug/vars | jq '{nats: .nats, falco: .falco, requests: .requests}' | tee -a out/heartbeat-a.txt || true
-          pkill -f 'port-forward deploy/falco-falcosidekick' || true
-          bash "$SPIKE/pf.sh" nats-system svc/nats-jetstream 4222 out/port-forward-nats.log
-          "$RUNNER_TEMP/probe" read -url "$NATS_LOCAL" -subject "$SUBJECT" -label phase-A -out out/msgs-phase-a.jsonl > out/read-phase-a.json
-          jq '{label, stream_messages, stream_subjects, by_rule, by_priority, by_source}' out/read-phase-a.json | tee -a out/heartbeat-a.txt
-          # one metrics event exactly as the sensor printed it (for its shape)
-          kubectl -n falco logs ds/falco -c falco --tail=-1 | grep 'Falco internal: metrics snapshot' | sed -n '1p' > out/metrics-event-from-sensor-log.json || true
-          jq -c '{rule, priority, source, tags, hostname, output_field_count: (.output_fields | length)}' out/metrics-event-from-sensor-log.json | tee -a out/heartbeat-a.txt || true
-
-      - name: "Heartbeat, phase B (side-car minimum priority informational)"
-        run: |
+          source "$SPIKE/lib.sh"
           helm upgrade falco platform/falco/chart -n falco -f "$SPIKE/falco-values.yaml" -f "$SPIKE/falco-values-phase-b.yaml"
+          kubectl -n falco rollout status deploy/falco-falcosidekick --timeout=5m
+          sleep 5
+          T_B=$(now); echo "$T_B" > out/phase-b-start.txt
+          sidecar_facts phase-b
+          IMG=$(kubectl -n falco get ds falco -o jsonpath='{.spec.template.spec.containers[?(@.name=="falco")].image}')
+          trigger shadow-reader-b "$IMG" "$T_B" phase-b-trigger
+          heartbeat phase-b-heartbeat "$T_B" 75s
+
+      - name: "Phase C: side-car also reads a config file naming nats.minimumpriority=warning"
+        run: |
+          source "$SPIKE/lib.sh"
+          kubectl -n falco create configmap cmp-s2-sidekick-file --from-file=config.yaml="$SPIKE/sidekick-config-warning.yaml"
+          helm upgrade falco platform/falco/chart -n falco -f "$SPIKE/falco-values.yaml" -f "$SPIKE/falco-values-phase-c.yaml"
+          kubectl -n falco rollout status deploy/falco-falcosidekick --timeout=5m
+          sleep 5
+          T_C=$(now); echo "$T_C" > out/phase-c-start.txt
+          sidecar_facts phase-c
+          IMG=$(kubectl -n falco get ds falco -o jsonpath='{.spec.template.spec.containers[?(@.name=="falco")].image}')
+          trigger shadow-reader-c "$IMG" "$T_C" phase-c-trigger
+          heartbeat phase-c-heartbeat "$T_C" 75s
+
+      - name: "Phase D: config file with nats.minimumpriority=informational"
+        run: |
+          source "$SPIKE/lib.sh"
+          kubectl -n falco create configmap cmp-s2-sidekick-file --from-file=config.yaml="$SPIKE/sidekick-config-informational.yaml" --dry-run=client -o yaml | kubectl apply -f -
           kubectl -n falco rollout restart deploy/falco-falcosidekick
           kubectl -n falco rollout status deploy/falco-falcosidekick --timeout=5m
-          date -u +%FT%TZ | tee out/phase-b-start.txt
-          bash "$SPIKE/pf.sh" nats-system svc/nats-jetstream 4222 out/port-forward-nats.log
-          "$RUNNER_TEMP/probe" read -url "$NATS_LOCAL" -subject "$SUBJECT" -want-rule "Falco internal: metrics snapshot" -timeout 150s -label phase-B -out out/msgs-phase-b.jsonl > out/read-phase-b.json
-          jq '{label, found, waited_seconds, stream_messages, by_rule, by_priority, by_source, first_match}' out/read-phase-b.json | tee out/heartbeat-b.txt
-          echo "side-car 'NATS - Publish OK' lines since restart: $(kubectl -n falco logs deploy/falco-falcosidekick --tail=-1 | grep -c 'NATS - Publish OK' || true)" | tee -a out/heartbeat-b.txt
+          sleep 5
+          T_D=$(now); echo "$T_D" > out/phase-d-start.txt
+          sidecar_facts phase-d
+          heartbeat phase-d-heartbeat "$T_D" 75s
 
       - name: Final read, payload shape and draft schema
         run: |
@@ -243,16 +207,18 @@ jobs:
       - name: Result lines
         if: always()
         run: |
-          f() { [ -f "$1" ] && jq -r "$2" "$1" 2>/dev/null || echo "n/a"; }
+          f() { if [ -f "$1" ]; then jq -r "$2" "$1" 2>/dev/null || echo "n/a"; else echo "n/a"; fi; }
           {
             echo "RESULT stream_config=$(f out/stream-ensure.json '.config | {name, subjects, retention, storage, max_age, num_replicas} | tostring')"
-            echo "RESULT capture_sensor_image=$(f out/read-trigger-shadow-reader.json '.found')"
-            echo "RESULT capture_busybox=$(f out/read-trigger-shadow-reader-busybox.json '.found')"
-            echo "RESULT detection_rule=$(f out/read-trigger-shadow-reader.json '.first_match_payload.rule // empty')$(f out/read-trigger-shadow-reader-busybox.json '.first_match_payload.rule // empty' | sed 's/^n\/a$//')"
-            echo "RESULT phase_a_by_rule=$(f out/read-phase-a.json '.by_rule | tostring')"
-            echo "RESULT phase_b_metrics_found=$(f out/read-phase-b.json '.found')"
-            echo "RESULT phase_b_by_rule=$(f out/read-phase-b.json '.by_rule | tostring')"
+            for ph in a b c; do
+              echo "RESULT phase_${ph}_trigger_found=$(f out/read-phase-${ph}-trigger.json '.found') rule=$(f out/read-phase-${ph}-trigger.json '.first_match_payload.rule // "-"') after_by_rule=$(f out/read-phase-${ph}-trigger.json '.after_by_rule | tostring')"
+            done
+            for ph in a b c d; do
+              echo "RESULT phase_${ph}_heartbeat_found=$(f out/read-phase-${ph}-heartbeat.json '.found') after_by_rule=$(f out/read-phase-${ph}-heartbeat.json '.after_by_rule | tostring')"
+              grep -h 'metrics events\|publishes' "out/phase-${ph}-heartbeat.txt" 2>/dev/null | sed "s/^/RESULT phase_${ph}: /" || true
+            done
             echo "RESULT final_stream_subjects=$(f out/read-final.json '.stream_subjects | tostring')"
+            echo "RESULT final_by_rule=$(f out/read-final.json '.by_rule | tostring')"
           } | tee out/results.txt
           cat out/results.txt >> "$GITHUB_STEP_SUMMARY"
 

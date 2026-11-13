@@ -1,0 +1,16 @@
+# Lab test CMP-S2, phase C (a way to make the filter work).
+# On top of phase A (environment variable minimumpriority=warning) the side-car
+# also reads a small config file that names the key nats.minimumpriority.
+# The ConfigMap is created by the workflow from sidekick-config-warning.yaml.
+falco:
+  falcosidekick:
+    config:
+      extraArgs: ["-c", "/etc/falcosidekick-file/config.yaml"]
+    extraVolumes:
+      - name: sidekick-file
+        configMap:
+          name: cmp-s2-sidekick-file
+    extraVolumeMounts:
+      - name: sidekick-file
+        mountPath: /etc/falcosidekick-file
+        readOnly: true
