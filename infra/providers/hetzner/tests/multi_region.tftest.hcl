@@ -851,3 +851,54 @@ run "variables_refuses_a_document_without_the_contract_keys" {
 
   expect_failures = [var.variables]
 }
+
+# ── CLD-185: a render of real size fits the size guards with room to spare.
+# The runs above leave deployment_id empty, so their renders carry no
+# kubeconfig post-back and are smaller than the render of a real Sovereign.
+# This run turns the post-back on for a primary and one secondary region.
+# The plan fails by itself when a render is over its guard (32576 bytes for
+# the primary, 32256 for a secondary region). The asserts keep 1200 more
+# bytes free under each guard, the room that SOV-134 needs. The fixed
+# Secrets and the provider-injected files travel packed (gz+b64); the last
+# assert shows that the packed cloud-credentials file is the provider's
+# Secret body without its comment lines, as the plain file was.
+run "post_back_render_fits_the_size_guards_with_room" {
+  command = plan
+
+  variables {
+    deployment_id           = "0123456789abcdef"
+    sovereign_deployment_id = "0123456789abcdef"
+    kubeconfig_bearer_token = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    regions = [
+      { provider = "hetzner", cloudRegion = "hel1", controlPlaneSize = "cpx32", workerSize = "cpx32", workerCount = 1 },
+      { provider = "hetzner", cloudRegion = "nbg1", controlPlaneSize = "cpx32", workerSize = "cpx32", workerCount = 1 },
+    ]
+    region                = "hel1"
+    object_storage_region = "hel1"
+  }
+
+  assert {
+    condition     = strcontains(local.control_plane_cloud_init, "--data-binary @/var/lib/catalyst/parent-bootstrap.kubeconfig")
+    error_message = "CLD-185: the primary render must carry the post-back, which reads /var/lib/catalyst/parent-bootstrap.kubeconfig."
+  }
+
+  assert {
+    condition     = strcontains(local.secondary_region_cloud_init["nbg1-1"], "--data-binary @/var/lib/catalyst/parent-bootstrap.kubeconfig")
+    error_message = "CLD-185: the secondary render must carry the post-back, which reads /var/lib/catalyst/parent-bootstrap.kubeconfig."
+  }
+
+  assert {
+    condition     = length(local.control_plane_cloud_init) <= 31376
+    error_message = "CLD-185: the primary render is ${nonsensitive(length(local.control_plane_cloud_init))} bytes; it must stay at most 31376, 1200 under its guard of 32576."
+  }
+
+  assert {
+    condition     = length(local.secondary_region_cloud_init["nbg1-1"]) <= 31056
+    error_message = "CLD-185: the secondary render is ${nonsensitive(length(local.secondary_region_cloud_init["nbg1-1"]))} bytes; it must stay at most 31056, 1200 under its guard of 32256."
+  }
+
+  assert {
+    condition     = strcontains(local.control_plane_cloud_init, "    encoding: gz+b64\n    content: ${base64gzip(format("%s\n", chomp(replace(local.cloud_credentials_secret_yaml_hetzner_primary, "/(?m)^[ ]*#( |$).*\n/", ""))))}\n")
+    error_message = "CLD-185: the packed cloud-credentials file of the primary render must be the provider's Secret body without its comment lines."
+  }
+}
