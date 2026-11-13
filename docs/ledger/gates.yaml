@@ -1125,7 +1125,7 @@ checks:
   needs: []
   proof: running
   asserts: The lock holds
-  implemented_by: CTL-150
+  implemented_by: CTL-151
   delivered_by: CTL-178
 - id: CTL-G05
   title: No poll on the main views
