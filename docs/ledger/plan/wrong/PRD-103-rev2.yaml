@@ -1,0 +1,15 @@
+schema: openova.io/plan-wrong/v1
+id: PRD-103
+ticket_rev: 2
+base_commit: 7bcd053fe1cc5152e73ac9eb49e7c7d83b3425fe
+stage: step
+ref: branch
+command: |
+    git fetch origin --prune && git switch -c wp/PRD-103 origin/main; echo "exit code: $?"
+expected: |
+    Run `git fetch origin --prune`. Run `git switch -c wp/PRD-103 origin/main`. (Branch: `wp/PRD-103`, cut from `origin/main`.)
+actual: |
+    fatal: A branch named 'wp/PRD-103' already exists.
+    exit code: 128
+    The local branch wp/PRD-103 is left in the shared repository by the session of ticket_rev 1: its head is cef63c39539fdfe1871a6888591dc7293f64a63c (head of the closed pull request #7346), it is not on origin and not an ancestor of origin/main. The local branch wrong/PRD-103-rev1 (closed pull request #7347) is also left. The step failed twice the same way.
+reported_at: 2026-11-13T07:19:36Z
