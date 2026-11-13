@@ -1,0 +1,15 @@
+# kured settings under test (the values the planned bp-kured slot sets).
+configuration:
+  rebootSentinel: /var/run/reboot-required
+  period: 15m
+  concurrency: 1
+  startTime: "00:30"
+  endTime: "22:00"
+  timeZone: UTC
+  rebootDays: [su, mo, tu, we, th, fr, sa]
+  drainTimeout: 15m
+  lockTtl: 1h
+  lockReleaseDelay: 5m
+  blockingPodSelector:
+    - upgrade.cattle.io/controller=system-upgrade-controller
+  annotateNodes: true
