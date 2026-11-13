@@ -63,19 +63,21 @@ heartbeat() {
   pf_nats
   probe read -url "$NATS_LOCAL" -subject "$SUBJECT" -want-rule "$METRICS_RULE" -after "$after" -timeout "$timeout" \
     -label "$label" -out "out/msgs-$label.jsonl" > "out/read-$label.json"
-  local emitted received published
+  local received received_all stored
+  # The sensor's own stdout is buffered and lags, so the side-car's debug log
+  # (one line per received payload) is the count of what reached the side-car.
   kubectl -n falco logs ds/falco -c falco --tail=-1 > "out/$label-sensor.log" 2>&1 || true
   kubectl -n falco logs deploy/falco-falcosidekick --tail=-1 > "out/$label-sidecar.log" 2>&1 || true
-  emitted=$(grep '^{' "out/$label-sensor.log" \
-    | jq -c --arg t "$after" --arg r "$METRICS_RULE" 'select(.rule==$r) | select((.time|sub("\\.[0-9]+Z$";"Z")|fromdate) > ($t|sub("\\.[0-9]+Z$";"Z")|fromdate))' 2>/dev/null \
-    | wc -l || true)
-  received=$(grep -c "$METRICS_RULE" "out/$label-sidecar.log" || true)
-  published=$(grep -c 'NATS - Publish OK' "out/$label-sidecar.log" || true)
+  sed -n "s/.*Falco's payload : //p" "out/$label-sidecar.log" \
+    | jq -c --arg t "$after" 'select((.time|sub("\\.[0-9]+Z$";"Z")|fromdate) > ($t|sub("\\.[0-9]+Z$";"Z")|fromdate)) | {time, rule, priority}' \
+    > "out/$label-sidecar-received.jsonl" 2>/dev/null || true
+  received=$(grep -c "$METRICS_RULE" "out/$label-sidecar-received.jsonl" || true)
+  received_all=$(wc -l < "out/$label-sidecar-received.jsonl")
+  stored=$(jq -r --arg r "$METRICS_RULE" '.after_by_rule[$r] // 0' "out/read-$label.json")
   {
     echo "window starts: $after"
-    echo "metrics events the sensor emitted in the window (its own log): $emitted"
-    echo "metrics events the current side-car pod received (its debug log): $received"
-    echo "publishes the current side-car pod logged ('NATS - Publish OK'): $published"
+    echo "metrics events received by the side-car in the window: $received (all events received: $received_all)"
+    echo "metrics events stored in the stream in the window: $stored"
     jq -c '{label, found, waited_seconds, after_by_rule, after_by_priority}' "out/read-$label.json"
   } | tee -a "out/$label.txt"
 }

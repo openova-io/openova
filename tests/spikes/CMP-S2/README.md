@@ -31,7 +31,8 @@ How it runs, all inside one GitHub Actions job:
   `nats.minimumpriority: warning` (`falco-values-phase-c.yaml`,
   `sidekick-config-warning.yaml`);
 - phase D: the same file with `informational`
-  (`sidekick-config-informational.yaml`).
+  (`sidekick-config-informational.yaml`), and the environment variable set to
+  `informational` too (`falco-values-phase-d.yaml`).
 
 Each phase counts only messages the stream stored after the phase began.
 

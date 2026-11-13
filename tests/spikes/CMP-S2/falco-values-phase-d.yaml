@@ -1,0 +1,9 @@
+# Lab test CMP-S2, phase D: phase C's config file, now with
+# nats.minimumpriority: informational, and the environment variable set to
+# informational too (once the key is known, the environment variable wins
+# over the file, as run 2 showed).
+falco:
+  falcosidekick:
+    config:
+      nats:
+        minimumpriority: informational

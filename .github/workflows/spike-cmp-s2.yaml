@@ -181,16 +181,34 @@ jobs:
           trigger shadow-reader-c "$IMG" "$T_C" phase-c-trigger
           heartbeat phase-c-heartbeat "$T_C" 75s
 
-      - name: "Phase D: config file with nats.minimumpriority=informational"
+      - name: "Phase D: config file and environment with nats.minimumpriority=informational"
         run: |
           source "$SPIKE/lib.sh"
           kubectl -n falco create configmap cmp-s2-sidekick-file --from-file=config.yaml="$SPIKE/sidekick-config-informational.yaml" --dry-run=client -o yaml | kubectl apply -f -
-          kubectl -n falco rollout restart deploy/falco-falcosidekick
+          helm upgrade falco platform/falco/chart -n falco -f "$SPIKE/falco-values.yaml" -f "$SPIKE/falco-values-phase-c.yaml" -f "$SPIKE/falco-values-phase-d.yaml"
           kubectl -n falco rollout status deploy/falco-falcosidekick --timeout=5m
           sleep 5
           T_D=$(now); echo "$T_D" > out/phase-d-start.txt
           sidecar_facts phase-d
+          IMG=$(kubectl -n falco get ds falco -o jsonpath='{.spec.template.spec.containers[?(@.name=="falco")].image}')
+          trigger shadow-reader-d "$IMG" "$T_D" phase-d-trigger
           heartbeat phase-d-heartbeat "$T_D" 75s
+
+      - name: NATS connection count (the side-car connects once per publish)
+        continue-on-error: true
+        run: |
+          total=0
+          for i in 0 1 2; do
+            kubectl -n nats-system port-forward "pod/nats-jetstream-$i" "1822$i:8222" > "out/pf-monitor-$i.log" 2>&1 &
+          done
+          sleep 4
+          for i in 0 1 2; do
+            c=$(curl -s "http://127.0.0.1:1822$i/varz" | jq -r '.total_connections')
+            echo "nats-jetstream-$i total_connections=$c" | tee -a out/nats-connections.txt
+            total=$((total + c))
+          done
+          echo "sum of total_connections over the three servers: $total" | tee -a out/nats-connections.txt
+          curl -s "http://127.0.0.1:18220/connz?state=closed&limit=5&sort=start" | jq -c '.connections[]? | {name, lang, version, start, stop, in_msgs}' | tee -a out/nats-connections.txt || true
 
       - name: Final read, payload shape and draft schema
         run: |
@@ -210,7 +228,7 @@ jobs:
           f() { if [ -f "$1" ]; then jq -r "$2" "$1" 2>/dev/null || echo "n/a"; else echo "n/a"; fi; }
           {
             echo "RESULT stream_config=$(f out/stream-ensure.json '.config | {name, subjects, retention, storage, max_age, num_replicas} | tostring')"
-            for ph in a b c; do
+            for ph in a b c d; do
               echo "RESULT phase_${ph}_trigger_found=$(f out/read-phase-${ph}-trigger.json '.found') rule=$(f out/read-phase-${ph}-trigger.json '.first_match_payload.rule // "-"') after_by_rule=$(f out/read-phase-${ph}-trigger.json '.after_by_rule | tostring')"
             done
             for ph in a b c d; do
