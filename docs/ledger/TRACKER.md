@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T05:00:04Z` |
+| Last refreshed | `2026-11-13T05:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,9 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6778](https://github.com/openova-io/openova/issues/6778) | hw306 — fresh 2-region prov train: manifest → wipe hw305 → fire → cutove | Other |
-| [#6799](https://github.com/openova-io/openova/issues/6799) | NAT-EIP rotation at prov time drifts tofu state (rotated SNAT rule/EIP outside s | Other |
-| [#6803](https://github.com/openova-io/openova/issues/6803) | Harbor proxy-cache serves an index whose child manifests are gone — invisible  | Other |
 | [#6815](https://github.com/openova-io/openova/issues/6815) | A region-A worker has never joined k3s and nothing reports it — Phase 1 counts | Other |
 | [#6825](https://github.com/openova-io/openova/issues/6825) | Every self-upgrade takes the Sovereign's console and API down for 2-3 minutes � | Other |
 | [#6832](https://github.com/openova-io/openova/issues/6832) | kyverno pvc-volume-expansion errors on every PVC — the policy's APICall has no | Other |
@@ -300,6 +297,9 @@ flowchart LR
 | [#7293](https://github.com/openova-io/openova/issues/7293) | NET-060 Read-only census of the network posture | Other |
 | [#7294](https://github.com/openova-io/openova/issues/7294) | NET-090 Network guards in CI | Other |
 | [#7295](https://github.com/openova-io/openova/issues/7295) | SOV-220 The console's step list comes from the status response | Other |
+| [#7317](https://github.com/openova-io/openova/issues/7317) | CLD-161 Installation document for the installation in use | Other |
+| [#7322](https://github.com/openova-io/openova/issues/7322) | PRD-102 Generated types and server interfaces (oapi-codegen, strict server) | Other |
+| [#7323](https://github.com/openova-io/openova/issues/7323) | PRD-103 Ledger port and conformance kit | Other |
 
 ---
 
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T05:11 | [#7316](https://github.com/openova-io/openova/pull/7316) | #7087 | docs(ledger): plan update |
+| 2026-11-13T05:04 | [#7315](https://github.com/openova-io/openova/pull/7315) | #7087 | docs(ledger): dashboard refreshed: 85 tasks merged |
+| 2026-11-13T05:00 | [#7310](https://github.com/openova-io/openova/pull/7310) | #7087 | docs(ledger): plan update |
 | 2026-11-13T04:58 | [#7309](https://github.com/openova-io/openova/pull/7309) | #7281 | docs(generated): generate the tables of the provider packs a |
 | 2026-11-13T04:58 | [#7308](https://github.com/openova-io/openova/pull/7308) | #7293 | test(acceptance): record the network census of every region  |
 | 2026-11-13T04:22 | [#7306](https://github.com/openova-io/openova/pull/7306) | #7087 | docs(ledger): dashboard refreshed: 79 tasks merged |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-13T02:03 | [#7270](https://github.com/openova-io/openova/pull/7270) | #7263 | docs(ledger): map every Organization pipeline step to the or |
 | 2026-11-13T01:49 | [#7259](https://github.com/openova-io/openova/pull/7259) | #7087 | docs(ledger): plan update |
 | 2026-11-13T01:30 | [#7257](https://github.com/openova-io/openova/pull/7257) | #7237 | docs(adr): record 0034 on the later products, the AI hub and |
-| 2026-11-13T01:23 | [#7256](https://github.com/openova-io/openova/pull/7256) | #7234 | fix(console): the wizard offers one region or two, as the pr |
-| 2026-11-13T01:23 | [#7255](https://github.com/openova-io/openova/pull/7255) | #7215 | feat(plan): stability register and the frozen-path check (FN |
-| 2026-11-13T01:23 | [#7254](https://github.com/openova-io/openova/pull/7254) | #7233 | docs(adr): record 0026 on the NodePort ban and the gateway s |
 
 ---
 
