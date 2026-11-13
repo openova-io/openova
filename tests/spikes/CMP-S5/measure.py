@@ -149,6 +149,7 @@ def evaluate(out_dir, ns):
         "clusterVariant": read(os.path.join(out_dir, "cluster-variant")).strip(),
         "vclusterChartVersion": read(os.path.join(out_dir, "vcluster-chart-version.txt")).strip(),
         "vclusterVariant": read(os.path.join(out_dir, "vcluster-variant")).strip(),
+        "vcluster033Versions": read(os.path.join(out_dir, "vcluster-033-versions.txt")).split(),
         "cnpgOperator": read(os.path.join(out_dir, "logs", "cnpg-operator-image.txt")).strip(),
         "orgStackCharts": read(os.path.join(out_dir, "charts", "org-stack.tsv")).strip().splitlines(),
         "catalogCharts": read(os.path.join(out_dir, "charts", "catalog.tsv")).strip().splitlines(),
@@ -185,6 +186,7 @@ def md(res):
     L.append(f"# Spike CMP-S5: outcome `{res['outcome']}`\n")
     L.append(f"- Organization namespace: `{res['namespace']}`; kind audit patch: `{res['clusterVariant']}`")
     L.append(f"- vcluster chart resolved for `0.33.*`: `{res['vclusterChartVersion']}`; live values variant: `{res['vclusterVariant']}`")
+    L.append(f"- vcluster 0.33.x charts on the public repository: {', '.join(res['vcluster033Versions']) or 'n/a'}")
     L.append(f"- CNPG operator: `{res['cnpgOperator']}`")
     L.append(f"- Organization objects evaluated: {c['orgObjectsEvaluated']} "
              f"(baseline fail {c['orgBaselineFail']}, error {c['orgBaselineError']}, restricted fail {c['orgRestrictedFail']})")

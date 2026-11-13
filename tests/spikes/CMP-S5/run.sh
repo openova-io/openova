@@ -410,6 +410,18 @@ for hr in "$R"/overlay/bp-*.yaml; do
   fi
 done
 
+phase "B dry-run: bp-agenity with podman.inPod=false (what the chart owner can switch)"
+# every field that failed baseline in runs 1-3 is rendered under
+# `if .Values.podman.inPod` in products/agenity/chart/templates/statefulset.yaml
+if [ -f "$OUT/charts/bp-agenity.values.yaml" ]; then
+  yq '.podman.inPod = false' "$OUT/charts/bp-agenity.values.yaml" > "$OUT/charts/variant-agenity.values.yaml"
+  if render_chart bp-agenity "$(chart_dir_of bp-agenity)" "$OUT/charts/variant-agenity.values.yaml" "$OUT/charts/variant-agenity.yaml"; then
+    eval_rendered variant bp-agenity-podman-inpod-false "$OUT/charts/variant-agenity.yaml"
+  fi
+fi
+helm search repo loft/vcluster --versions -o json \
+  | jq -r '.[] | select(.version | test("^0\\.33\\.")) | .version' > "$OUT/vcluster-033-versions.txt"
+
 phase "E dry-run: the listed marketplace catalog, default values (secondary)"
 CAT_DIRS=()
 for bp in "$ROOT"/platform/*/blueprint.yaml "$ROOT"/products/*/blueprint.yaml; do
